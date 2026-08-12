@@ -5,19 +5,19 @@ float4 CameraFrustum : register(c2);
 float4 ViewToWorld0 : register(c3);
 float4 ViewToWorld1 : register(c4);
 float4 ViewToWorld2 : register(c5);
-row_major float4x4 CascadeMatrix0 : register(c6);
-row_major float4x4 CascadeMatrix1 : register(c10);
-row_major float4x4 CascadeMatrix2 : register(c14);
-row_major float4x4 CascadeMatrix3 : register(c18);
+row_major float4x4 CascadeMatrices[4] : register(c6);
 float4 CascadeSplits : register(c22);
 float4 ShadowControl : register(c23); // x reversed, y exterior, z darkness, w bleed reduction
 float4 CascadeBlendWidth : register(c24);
 float4 CascadeTexel : register(c25); // x half texel, y one minus half texel
+float4 FirstPersonControl : register(c26); // x mask available, y endpoint epsilon
+float4 CascadeSpheres[4] : register(c27); // xyz camera-relative center, w coverage radius
 
 sampler2D SceneColor : register(s0);
 sampler2D SceneDepth : register(s1);
 sampler2D ShadowAtlas : register(s2);
 sampler2D PointShadowBuffer : register(s3);
+sampler2D FirstPersonDepth : register(s4);
 
 struct PixelInput { float2 uv : TEXCOORD0; };
 
@@ -48,10 +48,15 @@ float Chebyshev(float2 moments, float receiver, float minimumVariance) {
     return ReduceLightBleeding(variance / (variance + difference * difference));
 }
 
+static const float EvsmReceiverBias = 0.01f;
+
 float Evsm4(float4 moments, float depth) {
     float normalized = depth * 2.0f - 1.0f;
     float2 warped = float2(exp(5.54f * normalized), -exp(-5.0f * normalized));
-    float2 scale = 0.00002f * float2(5.54f, 5.0f) * warped;
+    // NVR derives the minimum EVSM variance from a 0.01 receiver bias. The
+    // former 0.00002 value was 500 times smaller and exposed quantization as
+    // self-shadow speckle that blinked on broad walls.
+    float2 scale = EvsmReceiverBias * float2(5.54f, 5.0f) * warped;
     return min(
         Chebyshev(moments.xz, warped.x, scale.x * scale.x),
         Chebyshev(moments.yw, warped.y, scale.y * scale.y));
@@ -81,23 +86,46 @@ float CascadeVisibility(
     return Evsm4(tex2Dlod(ShadowAtlas, float4(uv, 0.0f, 0.0f)), saturate(ndc.z));
 }
 
-float DirectionalVisibility(float3 worldPosition, float viewDepth) {
-    float values[4];
-    values[0] = CascadeVisibility(CascadeMatrix0, 0, worldPosition);
-    values[1] = CascadeVisibility(CascadeMatrix1, 1, worldPosition);
-    values[2] = CascadeVisibility(CascadeMatrix2, 2, worldPosition);
-    values[3] = CascadeVisibility(CascadeMatrix3, 3, worldPosition);
-    int cascade = viewDepth <= CascadeSplits.x ? 0
-        : (viewDepth <= CascadeSplits.y ? 1 : (viewDepth <= CascadeSplits.z ? 2 : 3));
-    if (cascade >= 3) return values[3];
-    float boundary = CascadeSplits[cascade];
-    float width = max(CascadeBlendWidth[cascade], 0.001f);
-    float blend = smoothstep(boundary - width, boundary, viewDepth);
-    return lerp(values[cascade], values[cascade + 1], blend);
+float DirectionalVisibility(float3 worldPosition) {
+    // Cached maps retain the receiver sphere that was used to generate them.
+    // Selecting by current-camera view depth can choose a quadrant whose
+    // retained projection no longer contains the receiver, producing moving
+    // holes and abrupt distant disappearance. NVR selects the first owning
+    // sphere and blends only through its outer ten percent.
+    float4 distances = float4(
+        length(worldPosition - CascadeSpheres[0].xyz),
+        length(worldPosition - CascadeSpheres[1].xyz),
+        length(worldPosition - CascadeSpheres[2].xyz),
+        length(worldPosition - CascadeSpheres[3].xyz));
+    int cascade = distances.x < CascadeSpheres[0].w ? 0
+        : (distances.y < CascadeSpheres[1].w ? 1
+        : (distances.z < CascadeSpheres[2].w ? 2
+        : (distances.w < CascadeSpheres[3].w ? 3 : -1)));
+    if (cascade < 0) return 1.0f;
+
+    float radius = CascadeSpheres[cascade].w;
+    float distanceToCenter = distances[cascade];
+    float current = CascadeVisibility(CascadeMatrices[cascade], cascade, worldPosition);
+    float blend = smoothstep(radius * 0.9f, radius, distanceToCenter);
+    if (cascade >= 3) return lerp(current, 1.0f, blend);
+    if (blend <= 0.0f) return current;
+
+    float next = CascadeVisibility(CascadeMatrices[cascade + 1], cascade + 1, worldPosition);
+    return lerp(current, next, blend);
+}
+
+bool IsFirstPersonPixel(float2 uv) {
+    if (FirstPersonControl.x < 0.5f) return false;
+    float depth = tex2Dlod(FirstPersonDepth, float4(uv, 0.0f, 0.0f)).r;
+    return depth > FirstPersonControl.y && depth < (1.0f - FirstPersonControl.y);
 }
 
 float4 Main(PixelInput input) : COLOR0 {
     float4 scene = tex2Dlod(SceneColor, float4(input.uv, 0.0f, 0.0f));
+    // The first-person capture contains valid depth only where hands or a
+    // weapon were drawn. Preserve those source pixels before sampling world
+    // depth so world shadows can never be composited over the view model.
+    if (IsFirstPersonPixel(input.uv)) return scene;
     float rawDepth = tex2Dlod(SceneDepth, float4(input.uv, 0.0f, 0.0f)).r;
     float viewDepth = LinearDepth(rawDepth);
     float3 worldPosition = RelativeWorldPosition(input.uv, viewDepth);
@@ -108,7 +136,7 @@ float4 Main(PixelInput input) : COLOR0 {
     // the selected lights.
     float raw = saturate(pointShadow.x);
     if (ShadowControl.y > 0.5f) {
-        raw = min(DirectionalVisibility(worldPosition, viewDepth), raw);
+        raw = min(DirectionalVisibility(worldPosition), raw);
     }
     float visibility = 1.0f - saturate(ShadowControl.z) * (1.0f - raw);
     scene.rgb *= visibility;

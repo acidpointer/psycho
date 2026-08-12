@@ -64,6 +64,10 @@ const SHADE_FLAGS: usize = 0x18;
 const SHADE_TYPE: usize = 0x1C;
 const SHADER_FLAGS_1: usize = 0x20;
 const SHADER_FLAGS_2: usize = 0x24;
+const SHADER_DEFINITION_INDEX: usize = 0x58;
+const SHADOW_LIGHT_SHADER: u32 = 0x01;
+const PARALLAX_SHADER: u32 = 0x0F;
+const LIGHTING_30_SHADER: u32 = 0x1D;
 // NiMaterialProperty::fAlpha follows fShine at 0x3C. Offset 0x40 is
 // fEmitMult; treating it as opacity silently rejects valid low-emissive
 // casters and diverges from NVR's material admission.
@@ -397,8 +401,7 @@ unsafe fn draw_geometry(context: DrawContext<'_>, geometry: *mut u8) -> Direct3D
         // A missing cutout texture cannot be approximated by a solid caster:
         // that turns fences and foliage into large opaque blocks. Skip the
         // geometry when its engine texture chain is incomplete.
-        let Some(texture) = (unsafe { diffuse_texture(geometry, classification.shader_type) })
-        else {
+        let Some(texture) = (unsafe { diffuse_texture(geometry, classification.speedtree) }) else {
             return Ok(());
         };
         geometry_data[1] = 1.0;
@@ -413,7 +416,7 @@ unsafe fn draw_geometry(context: DrawContext<'_>, geometry: *mut u8) -> Direct3D
     context
         .device
         .set_pixel_shader_constant_f(0, &[geometry_data])?;
-    set_geometry_cull_mode(context.device, geometry)?;
+    unsafe { set_geometry_cull_mode(context.device, context.renderer.cast(), geometry)? };
 
     if classification.skinned {
         return unsafe { draw_skinned(context, geometry, world) };
@@ -438,7 +441,6 @@ unsafe fn draw_geometry(context: DrawContext<'_>, geometry: *mut u8) -> Direct3D
 #[derive(Clone, Copy)]
 struct GeometryClassification {
     geometry_kind: f32,
-    shader_type: u32,
     alpha: bool,
     skinned: bool,
     speedtree: bool,
@@ -470,9 +472,6 @@ unsafe fn classify_geometry(
         return None;
     }
     let shader_type = unsafe { read::<u32>(shade, SHADE_TYPE) };
-    if !matches!(shader_type, 1 | 2 | 6 | 8 | 10 | 12) {
-        return None;
-    }
     let shader_flags = unsafe { read::<u32>(shade, SHADER_FLAGS_1) };
     let incompatible = shader_flags
         & (SHADER_REFRACTION | SHADER_FIRE_REFRACTION | SHADER_DECAL | SHADER_DYNAMIC_DECAL)
@@ -508,9 +507,6 @@ unsafe fn classify_geometry(
         return None;
     }
 
-    let alpha_property = unsafe { read::<*mut u8>(geometry, NativeLayout::NI_PROPERTY_ALPHA) };
-    let alpha = !alpha_property.is_null()
-        && unsafe { read::<u16>(alpha_property, ALPHA_FLAGS) } & (ALPHA_BLEND | ALPHA_TEST) != 0;
     let skin = unsafe { read::<*mut u8>(geometry, NativeLayout::NI_GEOMETRY_SKIN) };
     let skinned = !skin.is_null();
     // NVR's cube vertex shader stores the point-light position in c63, then
@@ -521,11 +517,26 @@ unsafe fn classify_geometry(
         return None;
     }
     let speedtree = !skinned && shader_type == 6;
+    let lighting =
+        is_lighting_shader_definition(unsafe { read::<u32>(shade, SHADER_DEFINITION_INDEX) });
     let terrain_lod = !skinned
         && !speedtree
+        && lighting
         && context.is_land
         && context.is_lod
         && unsafe { read::<u32>(shade, SHADER_FLAGS_2) } & SHADER_LOD_LANDSCAPE != 0;
+    // NVR's pass order is semantic. Skinned actors and SpeedTree leaves claim
+    // geometry before the ordinary lighting-property test. Applying that test
+    // first drops HairShader actor partitions and produces incomplete bodies.
+    if !skinned && !speedtree && !lighting {
+        return None;
+    }
+    let alpha_property = unsafe { read::<*mut u8>(geometry, NativeLayout::NI_PROPERTY_ALPHA) };
+    let alpha_cutout = !alpha_property.is_null()
+        && unsafe { read::<u16>(alpha_property, ALPHA_FLAGS) } & (ALPHA_BLEND | ALPHA_TEST) != 0;
+    // Skinned and terrain passes precede NVR's alpha pass. SpeedTree leaves
+    // always use their tree-model diffuse alpha, independent of NiAlphaProperty.
+    let alpha = speedtree || (!skinned && !terrain_lod && alpha_cutout);
     Some(GeometryClassification {
         geometry_kind: if skinned {
             1.0
@@ -536,12 +547,18 @@ unsafe fn classify_geometry(
         } else {
             0.0
         },
-        shader_type,
         alpha,
         skinned,
         speedtree,
         terrain_lod,
     })
+}
+
+fn is_lighting_shader_definition(shader_definition: u32) -> bool {
+    matches!(
+        shader_definition,
+        SHADOW_LIGHT_SHADER | PARALLAX_SHADER | LIGHTING_30_SHADER
+    )
 }
 
 unsafe fn draw_skinned(
@@ -813,8 +830,8 @@ unsafe fn faded_by_parent(mut object: *mut u8) -> bool {
     false
 }
 
-unsafe fn diffuse_texture(geometry: *mut u8, shader_type: u32) -> Option<*mut u8> {
-    if shader_type == 6 {
+unsafe fn diffuse_texture(geometry: *mut u8, speedtree: bool) -> Option<*mut u8> {
+    if speedtree {
         let parent = unsafe { read::<*mut u8>(geometry, NativeLayout::NI_AV_OBJECT_PARENT) };
         let tree = if parent.is_null() {
             core::ptr::null_mut()
@@ -830,9 +847,6 @@ unsafe fn diffuse_texture(geometry: *mut u8, shader_type: u32) -> Option<*mut u8
         }
         let texture = unsafe { read::<*mut u8>(model, TREE_LEAF_TEXTURE) };
         return unsafe { texture_base(texture) };
-    }
-    if shader_type != 8 {
-        return None;
     }
     let shade = unsafe { read::<*mut u8>(geometry, NativeLayout::NI_PROPERTY_SHADE) };
     let texture_slot = unsafe { read::<*mut *mut u8>(shade, PPLIGHTING_TEXTURE_ZERO) };
@@ -864,18 +878,62 @@ fn configure_alpha_sampler(device: &Device9Ref<'_>) -> Direct3DResult<()> {
     device.set_sampler_state(0, D3DSAMP_SRGBTEXTURE, 0)
 }
 
-fn set_geometry_cull_mode(device: &Device9Ref<'_>, geometry: *mut u8) -> Direct3DResult<()> {
+/// Resolve one native stencil draw mode through the renderer's handedness map.
+///
+/// Values outside D3D9's three legal cull modes reject the mapping instead of
+/// leaking an engine-layout error into device state.
+pub(super) fn mapped_cull_mode(
+    draw_mode: usize,
+    left_handed: bool,
+    mapping: [[u32; 2]; 4],
+) -> Option<u32> {
+    let value = *mapping.get(draw_mode)?.get(left_handed as usize)?;
+    matches!(
+        value,
+        value if value == D3DCULL_NONE.0 as u32
+            || value == D3DCULL_CW.0 as u32
+            || value == D3DCULL_CCW.0 as u32
+    )
+    .then_some(value)
+}
+
+unsafe fn set_geometry_cull_mode(
+    device: &Device9Ref<'_>,
+    renderer: *mut u8,
+    geometry: *mut u8,
+) -> Direct3DResult<()> {
     let stencil = unsafe { read::<*mut u8>(geometry, NativeLayout::NI_PROPERTY_STENCIL) };
-    let mode = if stencil.is_null() {
-        D3DCULL_CCW
+    if stencil.is_null() {
+        return device.set_render_state(D3DRS_CULLMODE, D3DCULL_CCW.0 as u32);
+    }
+    let draw_mode = ((unsafe { read::<u16>(stencil, STENCIL_FLAGS) } >> 10) & 0x3) as usize;
+    let render_state = if renderer.is_null() {
+        core::ptr::null_mut()
     } else {
-        match (unsafe { read::<u16>(stencil, STENCIL_FLAGS) } >> 10) & 0x3 {
-            2 => D3DCULL_CW,
-            3 => D3DCULL_NONE,
-            _ => D3DCULL_CCW,
-        }
+        unsafe { read::<*mut u8>(renderer, NativeLayout::NIDX9_RENDERER_RENDER_STATE) }
     };
-    device.set_render_state(D3DRS_CULLMODE, mode.0 as u32)
+    if !render_state.is_null() {
+        let mapping = unsafe {
+            read::<[[u32; 2]; 4]>(
+                render_state,
+                NativeLayout::NIDX9_RENDER_STATE_CULL_MODE_MAPPING,
+            )
+        };
+        let left_handed =
+            unsafe { read::<u32>(render_state, NativeLayout::NIDX9_RENDER_STATE_LEFT_HANDED) } != 0;
+        if let Some(mode) = mapped_cull_mode(draw_mode, left_handed, mapping) {
+            return device.set_render_state(D3DRS_CULLMODE, mode);
+        }
+    }
+    // The engine map is preferred because it handles mirrored/left-handed
+    // actor geometry. This conservative fallback retains the previous legal
+    // mapping if the native renderer object is unexpectedly unavailable.
+    let fallback = match draw_mode {
+        2 => D3DCULL_CW,
+        3 => D3DCULL_NONE,
+        _ => D3DCULL_CCW,
+    };
+    device.set_render_state(D3DRS_CULLMODE, fallback.0 as u32)
 }
 
 unsafe fn virtual_cast(object: *mut u8, slot: usize) -> *mut u8 {

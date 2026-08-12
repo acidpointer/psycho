@@ -25,6 +25,30 @@ fn instruction_count(bytecode: &[u32]) -> usize {
     panic!("shader bytecode has no END token");
 }
 
+fn texture_instruction_count(bytecode: &[u32]) -> usize {
+    const COMMENT: u16 = 0xfffe;
+    const END: u16 = 0xffff;
+    const TEXLD: u16 = 66;
+    const TEXLDD: u16 = 93;
+    const TEXLDL: u16 = 95;
+    let mut offset = 1;
+    let mut count = 0;
+    while offset < bytecode.len() {
+        let token = bytecode[offset];
+        let opcode = token as u16;
+        if opcode == END {
+            return count;
+        }
+        if opcode == COMMENT {
+            offset += 1 + ((token >> 16) & 0x7fff) as usize;
+            continue;
+        }
+        count += usize::from(matches!(opcode, TEXLD | TEXLDD | TEXLDL));
+        offset += 1 + ((token >> 24) & 0x0f) as usize;
+    }
+    panic!("shader bytecode has no END token");
+}
+
 #[test]
 fn every_shadow_shader_compiles_for_shader_model_three_with_static_budgets() {
     let variants = [
@@ -109,6 +133,8 @@ fn directional_generation_preserves_all_complex_geometry_routes() {
     ] {
         assert!(vertex.contains(route), "missing generation route {route}");
     }
+    assert!(vertex.contains("input.blendIndices.zyxw * 765.01001f"));
+    assert!(vertex.contains("1.0f - dot(input.blendWeight.xyz, 1.0f)"));
 
     let pixel = std::str::from_utf8(DIRECTIONAL_PIXEL_SOURCE).expect("pixel UTF-8");
     assert!(pixel.contains("clip(diffuse.a - 0.5f)"));
@@ -137,7 +163,13 @@ fn consumer_reconstructs_normals_and_samples_all_maps_without_derivatives() {
     let contact = std::str::from_utf8(CONTACT_PIXEL_SOURCE).expect("contact UTF-8");
     assert!(contact.contains("sampleIndex <= 4"));
     assert!(contact.contains("ContactSample(center + stepVector * sampleIndex"));
-    assert!(contact.contains("InterleavedGradientNoise"));
+    assert!(contact.contains("HasGeometryDepth(rawCenterDepth)"));
+    assert!(contact.contains("HasGeometryDepth(rawDepth)"));
+    assert!(contact.contains("center.z / DepthLinearizeData.w"));
+    assert!(
+        !contact.contains("InterleavedGradientNoise") && !contact.contains("randomScale"),
+        "screen-anchored ray jitter crawls over walls when the camera moves"
+    );
     assert!(!contact.contains("ddx("));
     assert!(!contact.contains("ddy("));
 
@@ -157,10 +189,52 @@ fn consumer_reconstructs_normals_and_samples_all_maps_without_derivatives() {
     assert!(composite.contains("sampler2D ShadowAtlas : register(s2)"));
     assert!(composite.contains("AtlasUv"));
     assert!(composite.contains("cascadeIndex == 0"));
-    assert!(composite.contains("CascadeBlendWidth"));
+    assert!(composite.contains("float4 CascadeSpheres[4] : register(c27)"));
+    assert!(composite.contains("distances.w < CascadeSpheres[3].w ? 3 : -1"));
+    assert!(composite.contains("smoothstep(radius * 0.9f, radius, distanceToCenter)"));
     assert!(composite.contains("PointShadowBuffer"));
-    assert!(composite.contains("raw = min(DirectionalVisibility(worldPosition, viewDepth), raw)"));
+    assert!(composite.contains("raw = min(DirectionalVisibility(worldPosition), raw)"));
     assert!(!composite.contains("pointShadow.x / pointShadow.y"));
+    assert!(
+        !composite.contains("float values[4]"),
+        "every pixel must sample only its selected cascade and an optional boundary neighbor"
+    );
+    assert!(composite.contains("CascadeMatrices[cascade]"));
+    assert_eq!(
+        composite.matches("tex2Dlod(ShadowAtlas").count(),
+        1,
+        "one shared lookup body prevents eager per-cascade texture traffic"
+    );
+    let composite_bytecode = crate::shaders::compile_hlsl_source_target(
+        "shadow_composite_sample_budget.ps",
+        COMPOSITE_PIXEL_SOURCE,
+        "ps_3_0",
+    )
+    .expect("shadow composite must compile");
+    assert_eq!(
+        texture_instruction_count(&composite_bytecode),
+        6,
+        "compiled composition may read scene color, first-person/world depth, contact visibility, and at most two cascade samples"
+    );
+    assert!(composite.contains("sampler2D FirstPersonDepth : register(s4)"));
+    assert!(
+        composite.contains("static const float EvsmReceiverBias = 0.01f"),
+        "the receiver variance floor must match NVR instead of flickering at a 500x smaller value"
+    );
+    let main = composite
+        .split_once("float4 Main(PixelInput input) : COLOR0")
+        .map(|(_, body)| body)
+        .expect("composite entry point");
+    let foreground = main
+        .find("IsFirstPersonPixel(input.uv)")
+        .expect("first-person foreground mask");
+    let directional = main
+        .find("DirectionalVisibility(worldPosition)")
+        .expect("directional shadow lookup");
+    assert!(
+        foreground < directional,
+        "hands and weapons must return original scene color before any shadow factor is applied"
+    );
     assert!(!composite.contains("ddx("));
     assert!(!composite.contains("ddy("));
 }

@@ -1,12 +1,13 @@
 use super::contract::{
-    CASCADE_COUNT, CascadeDirty, CascadeScheduler, CasterAdmission, CasterPolicy, HookAction,
-    NVR_CASCADE_RESOLUTION, NVR_POINT_DRAW_DISTANCE, NVR_POINT_LIGHT_COUNT,
-    NVR_POINT_RADIUS_MULTIPLIER, PointLightCandidate, ProducerResourcePlan, SceneKind,
-    ShadowSettings, TransactionState, cascade_minimum_caster_radius, composite_shadow_factor,
-    directional_form_type_is_enabled, evsm4_moments, evsm4_visibility,
+    CASCADE_COUNT, CascadeDirty, CascadeScheduler, CascadeSphereSelection, CasterAdmission,
+    CasterPolicy, HookAction, NVR_CASCADE_RESOLUTION, NVR_POINT_DRAW_DISTANCE,
+    NVR_POINT_LIGHT_COUNT, NVR_POINT_RADIUS_MULTIPLIER, PointLightCandidate, ProducerResourcePlan,
+    SceneKind, ShadowSettings, TransactionState, cascade_minimum_caster_radius,
+    cascade_sphere_selection, composite_shadow_factor, depth_sample_is_geometry,
+    directional_form_type_is_enabled, effective_contact_distance, evsm4_moments, evsm4_visibility,
     point_light_influence_is_eligible, practical_cascade_splits, publication_epoch_is_usable,
-    select_point_lights, snap_shadow_center, sphere_intersects_cube_face,
-    sphere_intersects_point_light,
+    select_point_lights, skinned_position_reference, snap_shadow_center,
+    sphere_intersects_cube_face, sphere_intersects_point_light,
 };
 use super::engine::{
     EngineCallAbi, FNV_EXE_SHA256, GeometryKind, HookSiteContract, NativeLayout,
@@ -15,6 +16,7 @@ use super::engine::{
 use super::math::{
     ShadowCamera, Sphere, cascade_projection, point_cube_views, stabilize_sun_direction,
 };
+use super::render::mapped_cull_mode;
 
 #[test]
 fn executable_identity_and_common_hook_topology_are_exact() {
@@ -63,6 +65,9 @@ fn native_scene_and_geometry_offsets_match_the_proven_32_bit_layouts() {
     assert_eq!(NativeLayout::NI_AV_OBJECT_SIZE, 0x9C);
     assert_eq!(NativeLayout::NI_AV_OBJECT_PARENT, 0x18);
     assert_eq!(NativeLayout::NI_AV_OBJECT_WORLD_BOUND, 0x20);
+    assert_eq!(NativeLayout::NIDX9_RENDERER_RENDER_STATE, 0x8B8);
+    assert_eq!(NativeLayout::NIDX9_RENDER_STATE_CULL_MODE_MAPPING, 0xD4);
+    assert_eq!(NativeLayout::NIDX9_RENDER_STATE_LEFT_HANDED, 0xF4);
     assert_eq!(NativeLayout::NI_AV_OBJECT_FLAGS, 0x30);
     assert_eq!(NativeLayout::NI_AV_OBJECT_WORLD_TRANSFORM, 0x68);
     assert_eq!(NativeLayout::NI_NODE_SIZE, 0xAC);
@@ -86,6 +91,33 @@ fn native_scene_and_geometry_offsets_match_the_proven_32_bit_layouts() {
     assert_eq!(NativeLayout::NI_POINT_LIGHT_SIZE, 0xFC);
     assert_eq!(NativeLayout::NI_POINT_LIGHT_CASTS_SHADOWS, 0x9E);
     assert_eq!(NativeLayout::NI_POINT_LIGHT_SPECULAR, 0xE0);
+}
+
+#[test]
+fn stencil_culling_uses_the_engine_handedness_mapping() {
+    let mapping = [[3, 2], [3, 2], [2, 3], [1, 1]];
+    assert_eq!(mapped_cull_mode(1, false, mapping), Some(3));
+    assert_eq!(mapped_cull_mode(1, true, mapping), Some(2));
+    assert_eq!(mapped_cull_mode(2, false, mapping), Some(2));
+    assert_eq!(mapped_cull_mode(3, true, mapping), Some(1));
+    assert_eq!(mapped_cull_mode(4, false, mapping), None);
+}
+
+#[test]
+fn actor_skin_reference_matches_fnv_d3dcolor_index_and_residual_weight_order() {
+    let mut bones = [[[0.0; 4]; 3]; 4];
+    for (index, bone) in bones.iter_mut().enumerate() {
+        bone[0] = [1.0, 0.0, 0.0, index as f32 * 10.0];
+        bone[1] = [0.0, 1.0, 0.0, 0.0];
+        bone[2] = [0.0, 0.0, 1.0, 0.0];
+    }
+    let skinned =
+        skinned_position_reference([1.0, 2.0, 3.0], [0, 1, 2, 3], [0.1, 0.2, 0.3], &bones)
+            .expect("valid four-bone actor vertex");
+    assert!((skinned[0] - 17.0).abs() < 0.0001);
+    assert_eq!(skinned[1], 2.0);
+    assert_eq!(skinned[2], 3.0);
+    assert!(skinned_position_reference([0.0; 3], [0; 4], [0.5; 3], &bones).is_none());
 }
 
 #[test]
@@ -175,7 +207,7 @@ fn validated_common_entry_reaches_generation_without_caller_ancestry() {
 }
 
 #[test]
-fn resource_ownership_is_branch_lazy_and_msaa_resolve_is_full_surface() {
+fn resource_ownership_is_branch_lazy_and_generation_is_directly_filterable() {
     let pipeline = include_str!("pipeline.rs");
     assert!(
         pipeline.contains("directional: Option<DirectionalResources>"),
@@ -189,19 +221,11 @@ fn resource_ownership_is_branch_lazy_and_msaa_resolve_is_full_surface() {
         !pipeline.contains("self.directional = None;") && !pipeline.contains("self.points = None;"),
         "completed branch resources must survive cell transitions instead of hitching on every door"
     );
+    assert!(pipeline.contains("directional_moments: Texture9"));
+    assert!(pipeline.contains("device.set_texture(0, &directional.directional_moments)?"));
     assert!(
-        pipeline.contains("directional_resolve_surface"),
-        "the MSAA workspace needs a same-size single-sample resolve surface"
-    );
-    assert!(
-        pipeline.contains("&directional.directional_resolve_surface,\n            None,"),
-        "MSAA downsampling must copy the complete 2048 surface before filtering"
-    );
-    assert!(
-        !pipeline.contains(
-            "&directional.atlas_surface,\n            Some(&quadrant),\n            D3DTEXF_NONE"
-        ),
-        "D3D9 does not define a multisample resolve directly into an atlas sub-rectangle"
+        !pipeline.contains("directional_resolve") && !pipeline.contains("D3DMULTISAMPLE_4_SAMPLES"),
+        "an EVSM map that is immediately prefiltered must not pay a 4x FP16 resolve path"
     );
 }
 
@@ -413,23 +437,56 @@ fn common_hook_has_exactly_one_prefix_or_one_replacement_tail_path() {
 #[test]
 fn stable_main_view_preserves_near_animation_and_bounds_distant_refresh() {
     let mut scheduler = CascadeScheduler::default();
-    let first = scheduler.plan(CascadeDirty::all());
+    let first = scheduler.plan_at_millis(CascadeDirty::all(), 0);
     assert_eq!(first.render, [true; CASCADE_COUNT]);
     scheduler.commit(first);
 
     let cadence = [
-        [true, false, false, false],
-        [true, true, false, false],
-        [true, false, true, false],
-        [true, true, false, true],
-        [true, false, false, false],
-        [true, true, true, false],
+        (16, [true, false, false, false]),
+        (33, [true, true, false, false]),
+        (50, [true, false, true, false]),
+        (66, [true, true, false, true]),
+        (82, [true, false, false, false]),
+        (100, [true, true, true, false]),
     ];
-    for expected in cadence {
-        let stable = scheduler.plan(CascadeDirty::none());
+    for (now_millis, expected) in cadence {
+        let stable = scheduler.plan_at_millis(CascadeDirty::none(), now_millis);
         assert_eq!(stable.render, expected);
         scheduler.commit(stable);
     }
+
+    let lod_only = scheduler.plan_at_millis(CascadeDirty::from_mask(1 << 3), 101);
+    assert_eq!(lod_only.render, [false, false, false, true]);
+}
+
+#[test]
+fn late_presentations_do_not_accumulate_cascade_refresh_drift() {
+    let mut scheduler = CascadeScheduler::default();
+    let initial = scheduler.plan_at_millis(CascadeDirty::all(), 0);
+    scheduler.commit(initial);
+
+    let late = scheduler.plan_at_millis(CascadeDirty::none(), 20);
+    assert!(late.render[0]);
+    scheduler.commit(late);
+
+    // The 20 ms frame satisfies the 16 ms deadline but advances its phase to
+    // 16, not 20. A 34 ms frame is therefore due again, retaining about 60 Hz
+    // map animation on presentation rates that are not period multiples.
+    let recovered = scheduler.plan_at_millis(CascadeDirty::none(), 34);
+    assert!(recovered.render[0]);
+}
+
+#[test]
+fn directional_refresh_is_time_bounded_instead_of_scaling_with_present_rate() {
+    let contract = include_str!("contract.rs");
+    assert!(
+        contract.contains("const CASCADE_REFRESH_MILLIS: [u64; CASCADE_COUNT] = [16, 33, 50, 66];"),
+        "map generation must target at most 60/30/20/15 Hz instead of repeating 2048-map work at uncapped presentation rates"
+    );
+    assert!(
+        contract.contains("pub(super) fn plan_at_millis("),
+        "the cadence contract needs an injectable monotonic clock so timing behavior is testable"
+    );
 }
 
 #[test]
@@ -504,6 +561,27 @@ fn directional_form_profiles_match_modern_nvr_defaults() {
 }
 
 #[test]
+fn contact_depth_rejects_clear_endpoints_and_non_finite_samples() {
+    let epsilon = 1.0 / 65_536.0;
+    assert!(!depth_sample_is_geometry(0.0, epsilon));
+    assert!(!depth_sample_is_geometry(1.0, epsilon));
+    assert!(!depth_sample_is_geometry(f32::NAN, epsilon));
+    assert!(depth_sample_is_geometry(0.25, epsilon));
+    assert!(depth_sample_is_geometry(0.75, epsilon));
+}
+
+#[test]
+fn contact_distance_stays_inside_reliable_gameplay_cascade_coverage() {
+    assert_eq!(
+        effective_contact_distance(180_000.0, 4_200.0),
+        Some(4_200.0)
+    );
+    assert_eq!(effective_contact_distance(2_000.0, 4_200.0), Some(2_000.0));
+    assert!(effective_contact_distance(f32::NAN, 4_200.0).is_none());
+    assert!(effective_contact_distance(2_000.0, 0.0).is_none());
+}
+
+#[test]
 fn sun_stabilization_quantizes_and_smooths_only_small_motion() {
     fn direction(yaw_degrees: f32, pitch_degrees: f32) -> [f32; 3] {
         let yaw = yaw_degrees.to_radians();
@@ -553,6 +631,142 @@ fn practical_splits_are_contiguous_monotonic_and_match_nvr_quality_defaults() {
     }
     assert!(practical_cascade_splits(0.0, f32::NAN, 6_000.0, 0.9).is_none());
     assert!(practical_cascade_splits(20.0, 10.0, 6_000.0, 0.9).is_none());
+}
+
+#[test]
+fn changing_only_shadow_distance_preserves_near_cascade_coverage() {
+    let short = practical_cascade_splits(5.0, 28_000.0, 1_000.0, 0.9).expect("short shadow range");
+    let default =
+        practical_cascade_splits(5.0, 28_000.0, 6_000.0, 0.9).expect("default shadow range");
+    let extended =
+        practical_cascade_splits(5.0, 28_000.0, 20_000.0, 0.9).expect("extended shadow range");
+
+    assert!(short[0].far < default[0].far);
+    assert!(
+        (default[0].far - extended[0].far).abs() < 0.001,
+        "ranges at or above NVR's quality default must keep the near projection stable"
+    );
+    assert!(
+        extended[2].far > 4_000.0,
+        "the actor-capable far cascade must expand instead of stranding all distant actors in the LOD-only profile"
+    );
+    assert!((short[3].far - 1_005.0).abs() < 0.01);
+    assert!((extended[3].far - 20_005.0).abs() < 0.01);
+}
+
+#[test]
+fn receiver_selection_uses_the_cascade_spheres_that_own_cached_maps() {
+    let spheres = [
+        [100.0, 0.0, 0.0, 100.0],
+        [300.0, 0.0, 0.0, 240.0],
+        [900.0, 0.0, 0.0, 700.0],
+        [2_500.0, 0.0, 0.0, 2_000.0],
+    ];
+    assert_eq!(
+        cascade_sphere_selection([50.0, 0.0, 0.0], spheres),
+        Some(CascadeSphereSelection {
+            cascade: 0,
+            next: None,
+            blend: 0.0,
+        })
+    );
+    let overlap = cascade_sphere_selection([195.0, 0.0, 0.0], spheres)
+        .expect("receiver in near-to-middle blend shell");
+    assert_eq!(overlap.cascade, 0);
+    assert_eq!(overlap.next, Some(1));
+    assert!((overlap.blend - 0.5).abs() < 0.001);
+    assert_eq!(
+        cascade_sphere_selection([420.0, 120.0, 0.0], spheres)
+            .expect("off-axis receiver belongs to middle sphere")
+            .cascade,
+        1
+    );
+    assert!(cascade_sphere_selection([10_000.0, 0.0, 0.0], spheres).is_none());
+}
+
+#[test]
+fn distance_edits_refresh_only_cascades_whose_projection_changed() {
+    let pipeline = include_str!("pipeline.rs");
+    assert!(
+        pipeline.contains("cascade_split_change_mask(self.cascade_splits, splits)"),
+        "a distance slider edit must compare individual split projections"
+    );
+    assert!(
+        !pipeline.contains("*last_directional_profile != Some(directional_profile)\n            {\n                CascadeDirty::all()"),
+        "a far-distance edit must not invalidate all four cached quadrants"
+    );
+    assert!(
+        !pipeline.contains("self.clear_directional_atlas(device)?"),
+        "each refreshed quadrant is fully overwritten, so clearing the complete 4096 atlas is redundant work"
+    );
+}
+
+#[test]
+fn nvr_pass_order_keeps_skinned_actors_and_lighting_cutouts_complete() {
+    let render = include_str!("render.rs");
+    let classifier = render
+        .split_once("unsafe fn classify_geometry(")
+        .and_then(|(_, tail)| tail.split_once("unsafe fn draw_skinned("))
+        .map(|(body, _)| body)
+        .expect("geometry classifier");
+    let skin_read = classifier
+        .find("NI_GEOMETRY_SKIN")
+        .expect("skin ownership read");
+    let lighting_test = classifier
+        .find("is_lighting_shader_definition")
+        .expect("NVR lighting-property definition test");
+    assert!(
+        skin_read < lighting_test,
+        "NVR's skinned pass claims actor hair/body geometry before ordinary lighting classification"
+    );
+    assert!(
+        !classifier.contains("matches!(shader_type, 1 | 2 | 6 | 8 | 10 | 12)"),
+        "NiShadeProperty subtype is not NVR's ordinary lighting-property contract"
+    );
+
+    let diffuse = render
+        .split_once("unsafe fn diffuse_texture(")
+        .and_then(|(_, tail)| tail.split_once("unsafe fn texture_base("))
+        .map(|(body, _)| body)
+        .expect("alpha texture adapter");
+    assert!(
+        !diffuse.contains("if shader_type != 8"),
+        "NVR reads ppTextures[0] for every admitted lighting property, including parallax and Lighting30 cutouts"
+    );
+}
+
+#[test]
+fn directional_contact_work_uses_a_bounded_half_resolution_surface() {
+    let pipeline = include_str!("pipeline.rs");
+    assert!(
+        pipeline.contains("fn contact_extent(full_extent: u32) -> u32"),
+        "blurred contact visibility should not run three passes at native 3440x1440 resolution"
+    );
+    assert!(
+        pipeline.contains("contact_width") && pipeline.contains("contact_height"),
+        "the contact producer and both filters must use their bounded work extent"
+    );
+    assert!(
+        pipeline.contains("directional: Option<DirectionalConsumerTargets>")
+            && pipeline.contains("interior: Option<InteriorConsumerTargets>"),
+        "half-resolution exterior work and full-resolution interior lighting must remain branch-lazy"
+    );
+}
+
+#[test]
+fn shadow_composition_binds_the_coherent_first_person_depth_mask() {
+    let pipeline = include_str!("pipeline.rs");
+    let mask_binding = pipeline
+        .split_once("let first_person_depth = depth")
+        .and_then(|(_, tail)| tail.split_once("for sampler in 0..=3"))
+        .map(|(body, _)| body)
+        .expect("first-person composition binding");
+    assert!(mask_binding.contains(".first_person_texture"));
+    assert!(
+        mask_binding
+            .contains(".filter(|_| depth.first_person_projection.reversed_depth.is_some())")
+    );
+    assert!(mask_binding.contains("set_raw_base_texture(4, first_person_depth.as_ptr())"));
 }
 
 #[test]
@@ -770,9 +984,9 @@ fn evsm4_reference_is_finite_bounded_and_preserves_alpha_cutout_edges() {
     );
 
     let in_front =
-        evsm4_visibility(opaque_occluder, 0.30, 0.00002, 0.2).expect("finite front visibility");
+        evsm4_visibility(opaque_occluder, 0.30, 0.01, 0.2).expect("finite front visibility");
     let behind =
-        evsm4_visibility(opaque_occluder, 0.60, 0.00002, 0.2).expect("finite shadow visibility");
+        evsm4_visibility(opaque_occluder, 0.60, 0.01, 0.2).expect("finite shadow visibility");
     assert!((0.0..=1.0).contains(&in_front));
     assert!((0.0..=1.0).contains(&behind));
     assert!(in_front > 0.99);
@@ -782,22 +996,25 @@ fn evsm4_reference_is_finite_bounded_and_preserves_alpha_cutout_edges() {
 }
 
 #[test]
-fn resource_plan_preserves_nvr_sampling_quality_without_the_giant_msaa_atlas() {
+fn resource_plan_preserves_evsm_quality_without_multisampled_moment_bandwidth() {
     let exterior = ProducerResourcePlan::quality_default(SceneKind::Exterior, 1920, 1080)
         .expect("valid exterior backbuffer");
     assert_eq!(exterior.cascade_resolution, NVR_CASCADE_RESOLUTION);
     assert_eq!(exterior.cascade_count, CASCADE_COUNT as u32);
     assert_eq!(exterior.directional_texture_count, 1);
     assert_eq!(exterior.atlas_resolution, NVR_CASCADE_RESOLUTION * 2);
-    assert_eq!(exterior.directional_samples, 4);
+    assert_eq!(
+        exterior.directional_samples, 1,
+        "EVSM4 is spatially prefiltered after generation, so four FP16 coverage samples multiply the dominant producer bandwidth without increasing map resolution"
+    );
     assert_eq!(exterior.directional_channels, 4);
     assert_eq!(exterior.directional_channel_bits, 16);
     assert!(exterior.evsm4);
     assert!(exterior.prefilter);
     assert_ne!(exterior.blur_source_identity, exterior.blur_target_identity);
     assert_eq!(exterior.point_light_count, 0);
-    assert!(exterior.estimated_bytes <= 448 * 1024 * 1024);
-    assert!(exterior.combined_estimated_bytes <= 512 * 1024 * 1024);
+    assert!(exterior.estimated_bytes <= 256 * 1024 * 1024);
+    assert!(exterior.combined_estimated_bytes <= 384 * 1024 * 1024);
     assert!(exterior.nvr_equivalent_estimated_bytes >= 896 * 1024 * 1024);
 
     let interior = ProducerResourcePlan::quality_default(SceneKind::Interior, 1920, 1080)
@@ -806,6 +1023,7 @@ fn resource_plan_preserves_nvr_sampling_quality_without_the_giant_msaa_atlas() {
     assert_eq!(interior.directional_texture_count, 0);
     assert_eq!(interior.point_light_count, NVR_POINT_LIGHT_COUNT as u32);
     assert_eq!(interior.point_cube_resolution, 512);
+    assert_eq!(interior.estimated_bytes, 109_723_648);
     assert!(interior.estimated_bytes <= 128 * 1024 * 1024);
     assert_eq!(
         interior.combined_estimated_bytes, exterior.combined_estimated_bytes,

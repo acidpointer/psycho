@@ -115,6 +115,8 @@ pub(super) struct Sphere {
 pub(super) struct CascadeProjection {
     /// Camera-relative world-to-light clip transform, in D3D row-major form.
     pub(super) world_to_shadow: [[f32; 4]; 4],
+    /// Camera-relative center of the stabilized receiver-coverage sphere.
+    pub(super) center: [f32; 3],
     /// Quantized bounding-sphere radius used by the orthographic projection.
     #[cfg_attr(not(test), allow(dead_code))]
     pub(super) radius: f32,
@@ -246,6 +248,7 @@ pub(super) fn cascade_projection(
     let planes = extract_d3d_frustum_planes(world_to_shadow)?;
     Some(CascadeProjection {
         world_to_shadow,
+        center,
         radius,
         planes,
     })

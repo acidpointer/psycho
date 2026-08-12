@@ -76,6 +76,12 @@ impl NativeLayout {
     pub(super) const PLAYER_SINGLETON_PTR: usize = 0x011D_EA3C;
     /// Process global containing the active `NiDX9Renderer*`.
     pub(super) const NIDX9_RENDERER_SINGLETON_PTR: usize = 0x011C_73B4;
+    /// `NiDX9Renderer::renderState`.
+    pub(super) const NIDX9_RENDERER_RENDER_STATE: usize = 0x8B8;
+    /// `NiDX9RenderState::m_auiCullModeMapping[4][2]`.
+    pub(super) const NIDX9_RENDER_STATE_CULL_MODE_MAPPING: usize = 0xD4;
+    /// `NiDX9RenderState::LeftHanded`, which selects the mapping column.
+    pub(super) const NIDX9_RENDER_STATE_LEFT_HANDED: usize = 0xF4;
     /// `TES::gridCellArray`.
     pub(super) const TES_GRID_CELL_ARRAY: usize = 0x08;
     /// `TES::objectLODRoot`.

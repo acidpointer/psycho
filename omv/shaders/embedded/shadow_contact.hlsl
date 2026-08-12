@@ -6,6 +6,8 @@ float4 ContactControl : register(c6); // x reversed, y max depth, z ray distance
 float4 ViewLightDirection : register(c7);
 sampler2D SceneDepth : register(s0);
 
+static const float DepthEndpointEpsilon = 1.0f / 65536.0f;
+
 struct PixelInput { float2 uv : TEXCOORD0; };
 
 float LinearDepth(float rawDepth) {
@@ -15,12 +17,18 @@ float LinearDepth(float rawDepth) {
     return DepthLinearizeData.x / max(DepthLinearizeData.w - rawDepth * DepthLinearizeData.y, 0.001f);
 }
 
-float3 ViewPosition(float2 uv) {
-    float depth = LinearDepth(tex2Dlod(SceneDepth, float4(uv, 0.0f, 0.0f)).r);
+float3 ViewPosition(float2 uv, float rawDepth) {
+    float depth = LinearDepth(rawDepth);
     return float3(
         lerp(CameraFrustum.x, CameraFrustum.y, uv.x) * depth,
         lerp(CameraFrustum.w, CameraFrustum.z, uv.y) * depth,
         depth);
+}
+
+bool HasGeometryDepth(float rawDepth) {
+    // Ordinary and reversed targets clear to opposite endpoints. Both are
+    // background, not far-plane geometry that may occlude a contact ray.
+    return rawDepth > DepthEndpointEpsilon && rawDepth < (1.0f - DepthEndpointEpsilon);
 }
 
 float2 ProjectViewPosition(float3 position) {
@@ -32,31 +40,33 @@ float2 ProjectViewPosition(float3 position) {
         (CameraFrustum.w - projectedY) / (CameraFrustum.w - CameraFrustum.z));
 }
 
-float InterleavedGradientNoise(float2 pixel) {
-    return frac(52.9829189f * frac(dot(pixel, float2(0.06711056f, 0.00583715f))));
-}
-
 float ContactSample(float3 marched, float thickness) {
     float2 uv = ProjectViewPosition(marched);
     if (min(uv.x, uv.y) <= 0.0f || max(uv.x, uv.y) >= 1.0f) return 0.0f;
-    float sceneDepth = LinearDepth(tex2Dlod(SceneDepth, float4(uv, 0.0f, 0.0f)).r);
+    float rawDepth = tex2Dlod(SceneDepth, float4(uv, 0.0f, 0.0f)).r;
+    if (!HasGeometryDepth(rawDepth)) return 0.0f;
+    float sceneDepth = LinearDepth(rawDepth);
     float delta = marched.z - sceneDepth;
     return delta > 0.01f && delta < thickness ? 1.0f : 0.0f;
 }
 
 float4 Main(PixelInput input) : COLOR0 {
-    float3 center = ViewPosition(input.uv);
+    float rawCenterDepth = tex2Dlod(SceneDepth, float4(input.uv, 0.0f, 0.0f)).r;
+    if (!HasGeometryDepth(rawCenterDepth)) return float4(1.0f, 0.0f, 0.0f, 1.0f);
+    float3 center = ViewPosition(input.uv, rawCenterDepth);
     if (center.z <= 0.0f || center.z >= ContactControl.y) return float4(1.0f, 0.0f, 0.0f, 1.0f);
 
     // Four stratified tests retain NVR's five-step screen-space contract (its
-    // source loop emits four actual samples). Screen-stable arithmetic noise
-    // replaces the external blue-noise texture and is depth-blurred next.
-    float normalizedDepth = saturate(center.z / ContactControl.y);
+    // source loop emits four actual samples). Fixed positions are deliberate:
+    // screen-anchored noise moves across world surfaces with camera motion and
+    // made contact shadows visibly blink on walls.
+    // NVR scales ray length by the camera depth range, not by the user-facing
+    // contact cutoff. Coupling the two made a distance-slider edit move every
+    // existing contact shadow and amplified camera-dependent false shapes.
+    float normalizedDepth = saturate(center.z / DepthLinearizeData.w);
     float rayScale = pow(max(normalizedDepth, 0.0001f), 0.6f);
-    float randomScale = lerp(min(0.8f, normalizedDepth), 1.0f,
-        InterleavedGradientNoise(input.uv * ScreenData.xy));
     float3 stepVector = normalize(ViewLightDirection.xyz) *
-        (ContactControl.z / 5.0f) * rayScale * randomScale;
+        (ContactControl.z / 5.0f) * rayScale;
     float thickness = max(0.05f, ContactControl.w * rayScale);
 
     float occlusion = 0.0f;

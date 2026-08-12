@@ -22,10 +22,12 @@ pub(super) const NVR_POINT_RADIUS_MULTIPLIER: f32 = 1.5;
 /// Modern NVR's hard upper bound for tracked point-light influence.
 pub(super) const NVR_POINT_DRAW_DISTANCE: f32 = 8_000.0;
 
-const MID_REFRESH_PERIOD: u64 = 2;
-const FAR_REFRESH_PERIOD: u64 = 3;
-const LOD_REFRESH_PERIOD: u64 = 4;
 const COMPLETE_CASCADE_MASK: u8 = (1 << CASCADE_COUNT) - 1;
+// Frame-count cadence makes map cost grow with an uncapped presentation rate.
+// These caps retain a 60 Hz near map while progressively slower world regions
+// update at 30, 20, and 15 Hz. A slow game still refreshes every due map on
+// its next invocation; this is a maximum rate, never a delayed worker.
+const CASCADE_REFRESH_MILLIS: [u64; CASCADE_COUNT] = [16, 33, 50, 66];
 const NVR_CASCADE_MIN_RADIUS_PIXELS: [f32; CASCADE_COUNT] = [1.0, 1.0, 10.0, 10.0];
 const EVSM4_POSITIVE_EXPONENT_FP16: f32 = 5.54;
 const EVSM4_NEGATIVE_EXPONENT: f32 = 5.0;
@@ -63,6 +65,138 @@ pub(super) fn composite_shadow_factor(
         SceneKind::Interior => 1.0 - darkness * (1.0 - local),
     };
     Some(factor)
+}
+
+/// Return whether a sampled hardware depth belongs to rendered geometry.
+///
+/// Fallout clears ordinary and reversed world-depth targets to opposite
+/// endpoints. Linearizing either endpoint fabricates a far-plane position;
+/// treating that position as geometry lets a contact ray turn sky and
+/// disocclusion pixels into camera-locked false occluders.
+pub(super) fn depth_sample_is_geometry(raw_depth: f32, endpoint_epsilon: f32) -> bool {
+    raw_depth.is_finite()
+        && endpoint_epsilon.is_finite()
+        && endpoint_epsilon > 0.0
+        && endpoint_epsilon < 0.5
+        && raw_depth > endpoint_epsilon
+        && raw_depth < 1.0 - endpoint_epsilon
+}
+
+/// Bound contact rays to the gameplay-caster cascades.
+///
+/// The LOD map deliberately excludes actors and small form categories. Screen
+/// space hits beyond the far gameplay cascade cannot reliably complement
+/// those maps and are dominated by depth quantization and disocclusion.
+pub(super) fn effective_contact_distance(
+    configured_distance: f32,
+    gameplay_cascade_far: f32,
+) -> Option<f32> {
+    if !configured_distance.is_finite()
+        || !gameplay_cascade_far.is_finite()
+        || configured_distance <= 0.0
+        || gameplay_cascade_far <= 0.0
+    {
+        return None;
+    }
+    Some(configured_distance.min(gameplay_cascade_far))
+}
+
+/// CPU reference for FNV's four-influence skinned shadow position.
+///
+/// `BLENDINDICES` arrives through normalized `D3DCOLOR` semantics, whose byte
+/// order is z, y, x, w in the NVR generation shader. The first three explicit
+/// weights correspond to those reordered slots; the fourth is their residual.
+pub(super) fn skinned_position_reference(
+    position: [f32; 3],
+    blend_indices: [u8; 4],
+    blend_weights: [f32; 3],
+    bone_matrices: &[[[f32; 4]; 3]],
+) -> Option<[f32; 3]> {
+    if !position.into_iter().all(f32::is_finite) || !blend_weights.into_iter().all(f32::is_finite) {
+        return None;
+    }
+    let residual = 1.0 - blend_weights.into_iter().sum::<f32>();
+    if residual < 0.0 {
+        return None;
+    }
+    let indices = [
+        blend_indices[2] as usize,
+        blend_indices[1] as usize,
+        blend_indices[0] as usize,
+        blend_indices[3] as usize,
+    ];
+    let weights = [
+        blend_weights[0],
+        blend_weights[1],
+        blend_weights[2],
+        residual,
+    ];
+    let homogeneous = [position[0], position[1], position[2], 1.0];
+    let mut result = [0.0; 3];
+    for (index, weight) in indices.into_iter().zip(weights) {
+        let matrix = bone_matrices.get(index)?;
+        for axis in 0..3 {
+            result[axis] += matrix[axis]
+                .into_iter()
+                .zip(homogeneous)
+                .map(|(left, right)| left * right)
+                .sum::<f32>()
+                * weight;
+        }
+    }
+    result.into_iter().all(f32::is_finite).then_some(result)
+}
+
+/// Receiver-side cascade choice paired with NVR's sphere-overlap blend.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(super) struct CascadeSphereSelection {
+    /// First (highest-resolution) cascade containing the receiver.
+    pub(super) cascade: usize,
+    /// Adjacent cascade sampled only in the outer ten-percent blend shell.
+    pub(super) next: Option<usize>,
+    /// Smooth blend weight toward `next`, or toward neutral after the LOD map.
+    pub(super) blend: f32,
+}
+
+/// Select a receiver from the exact center/radius metadata owning each map.
+///
+/// Depth-only selection assumes every cached map still follows the current
+/// camera slice. OMV intentionally reuses distant maps; their published
+/// spheres are therefore the authoritative coverage test, as in modern NVR.
+pub(super) fn cascade_sphere_selection(
+    receiver: [f32; 3],
+    spheres: [[f32; 4]; CASCADE_COUNT],
+) -> Option<CascadeSphereSelection> {
+    if !receiver.into_iter().all(f32::is_finite) {
+        return None;
+    }
+    for (cascade, sphere) in spheres.into_iter().enumerate() {
+        if !sphere.into_iter().all(f32::is_finite) || sphere[3] <= 0.0 {
+            continue;
+        }
+        let distance = receiver
+            .into_iter()
+            .zip(sphere)
+            .take(3)
+            .map(|(value, center)| {
+                let delta = value - center;
+                delta * delta
+            })
+            .sum::<f32>()
+            .sqrt();
+        if distance >= sphere[3] {
+            continue;
+        }
+        let edge_start = sphere[3] * 0.9;
+        let normalized = ((distance - edge_start) / (sphere[3] - edge_start)).clamp(0.0, 1.0);
+        let blend = normalized * normalized * (3.0 - 2.0 * normalized);
+        return Some(CascadeSphereSelection {
+            cascade,
+            next: (blend > 0.0 && cascade + 1 < CASCADE_COUNT).then_some(cascade + 1),
+            blend,
+        });
+    }
+    None
 }
 
 /// Coarse cell classification used by independent shadow toggles.
@@ -175,32 +309,27 @@ pub(super) const fn publication_epoch_is_usable(published_epoch: u32, current_ep
 /// Dirty causes that require one or more directional maps to be rebuilt.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub(super) struct CascadeDirty {
-    camera: bool,
-    sun: bool,
-    scene: bool,
+    mask: u8,
 }
 
 impl CascadeDirty {
     /// A fully dirty shadow graph, used for first publication and invalidation.
     pub(super) const fn all() -> Self {
         Self {
-            camera: true,
-            sun: true,
-            scene: true,
+            mask: COMPLETE_CASCADE_MASK,
         }
     }
 
     /// An unchanged gameplay view eligible for cached-map reuse.
     pub(super) const fn none() -> Self {
-        Self {
-            camera: false,
-            sun: false,
-            scene: false,
-        }
+        Self { mask: 0 }
     }
 
-    const fn any(self) -> bool {
-        self.camera || self.sun || self.scene
+    /// Invalidate only projections whose split interval changed.
+    pub(super) const fn from_mask(mask: u8) -> Self {
+        Self {
+            mask: mask & COMPLETE_CASCADE_MASK,
+        }
     }
 }
 
@@ -209,27 +338,24 @@ impl CascadeDirty {
 pub(super) struct CascadePlan {
     /// Map indices that must be produced for this invocation.
     pub(super) render: [bool; CASCADE_COUNT],
-    /// Clear every atlas quadrant to neutral visibility before this work.
-    ///
-    /// A dirty gameplay family is rebuilt completely after this clear, so no
-    /// publication can expose uninitialized memory or stale projections.
-    pub(super) reset_atlas: bool,
+    refresh_millis: u64,
+    forced_mask: u8,
 }
 
 /// Allocation-free cadence state for directional map reuse.
 #[derive(Clone, Copy, Debug)]
 pub(super) struct CascadeScheduler {
-    main_cadence: u64,
     gameplay_maps_invalid: bool,
     valid_cascades: u8,
+    last_refresh_millis: [u64; CASCADE_COUNT],
 }
 
 impl Default for CascadeScheduler {
     fn default() -> Self {
         Self {
-            main_cadence: 0,
             gameplay_maps_invalid: true,
             valid_cascades: 0,
+            last_refresh_millis: [0; CASCADE_COUNT],
         }
     }
 }
@@ -241,46 +367,48 @@ impl CascadeScheduler {
     /// This includes the nested `0x0086FF70` wrapper because generation reads
     /// only global world state; unrelated menu, reflection, and screenshot
     /// routes retain native ownership before they can mutate this cache.
-    pub(super) fn plan(self, dirty: CascadeDirty) -> CascadePlan {
-        let reset_atlas = self.gameplay_maps_invalid || dirty.any();
-        let valid_cascades = if reset_atlas { 0 } else { self.valid_cascades };
-        let mut render = [false; CASCADE_COUNT];
-        if valid_cascades != COMPLETE_CASCADE_MASK {
-            // The common entry is an engine transaction, not a frame callback
-            // with a guaranteed next invocation. NVR renders every cascade
-            // before returning; OMV must likewise make its first publication
-            // complete. Steady-state cadence below still removes most repeated
-            // distant traversal.
-            render = [true; CASCADE_COUNT];
+    pub(super) fn plan_at_millis(self, dirty: CascadeDirty, now_millis: u64) -> CascadePlan {
+        let invalid = if self.gameplay_maps_invalid {
+            COMPLETE_CASCADE_MASK
         } else {
-            // The near map tracks animated characters and close foliage every
-            // gameplay frame. Progressively slower updates are restricted to
-            // larger, lower-frequency world regions; this removes most of
-            // NVR's repeated distant traversal without reducing map resolution
-            // or filter quality.
-            render[0] = true;
-            render[1] = self.main_cadence % MID_REFRESH_PERIOD == 0;
-            render[2] = self.main_cadence % FAR_REFRESH_PERIOD == 0;
-            render[3] = self.main_cadence % LOD_REFRESH_PERIOD == 0;
+            dirty.mask | (COMPLETE_CASCADE_MASK & !self.valid_cascades)
+        };
+        let mut render = [false; CASCADE_COUNT];
+        for index in 0..CASCADE_COUNT {
+            let projection_changed = invalid & (1 << index) != 0;
+            let refresh_due = now_millis.saturating_sub(self.last_refresh_millis[index])
+                >= CASCADE_REFRESH_MILLIS[index];
+            render[index] = projection_changed || refresh_due;
         }
         CascadePlan {
             render,
-            reset_atlas,
+            refresh_millis: now_millis,
+            forced_mask: invalid,
         }
     }
 
     /// Commit a plan only after every requested map and state restore succeeds.
     pub(super) fn commit(&mut self, plan: CascadePlan) {
-        if plan.reset_atlas {
-            self.valid_cascades = 0;
-        }
         for (index, rendered) in plan.render.into_iter().enumerate() {
             if rendered {
                 self.valid_cascades |= 1 << index;
+                if plan.forced_mask & (1 << index) != 0 {
+                    self.last_refresh_millis[index] = plan.refresh_millis;
+                } else {
+                    // Advance by complete periods rather than resetting the
+                    // phase to a late frame. Otherwise a 144 Hz presentation
+                    // loop would refresh a 16 ms map only every third frame
+                    // (48 Hz) and accumulate animation stutter over time.
+                    let elapsed = plan
+                        .refresh_millis
+                        .saturating_sub(self.last_refresh_millis[index]);
+                    let periods = (elapsed / CASCADE_REFRESH_MILLIS[index]).max(1);
+                    self.last_refresh_millis[index] = self.last_refresh_millis[index]
+                        .saturating_add(periods * CASCADE_REFRESH_MILLIS[index]);
+                }
             }
         }
         self.gameplay_maps_invalid = false;
-        self.main_cadence = self.main_cadence.wrapping_add(1);
     }
 }
 
@@ -305,10 +433,10 @@ pub(super) fn cascade_minimum_caster_radius(
 
 /// Return whether modern NVR's default form profile admits a base form.
 ///
-/// Near, middle, and far share the broad gameplay profile. The LOD cascade
-/// intentionally retains only large architectural categories from NVR's
-/// configured switch table; terrain is visited through the dedicated land
-/// child and must never be duplicated through the reference list.
+/// Near, middle, and far share the broad gameplay profile. The supplied NVR
+/// defaults exclude books everywhere and exclude misc objects from the LOD
+/// profile. Terrain is visited through the dedicated land child and must
+/// never be duplicated through the reference list.
 pub(super) const fn directional_form_type_is_enabled(cascade: usize, form_type: u8) -> bool {
     const ACTIVATOR: u8 = 0x15;
     const BOOK: u8 = 0x19;
@@ -321,7 +449,10 @@ pub(super) const fn directional_form_type_is_enabled(cascade: usize, form_type: 
     const LAND: u8 = 0x42;
     const APPARATUS_COMPATIBILITY: u8 = 0xFE;
 
-    if cascade >= CASCADE_COUNT || matches!(form_type, BOOK | LAND | APPARATUS_COMPATIBILITY) {
+    if cascade >= CASCADE_COUNT || matches!(form_type, LAND | APPARATUS_COMPATIBILITY) {
+        return false;
+    }
+    if form_type == BOOK {
         return false;
     }
     cascade != CASCADE_COUNT - 1
@@ -340,11 +471,16 @@ pub(super) struct CascadeSplit {
     pub(super) far: f32,
 }
 
-/// Compute NVR's practical logarithmic/uniform four-cascade partition.
+/// Compute a near-stable extension of NVR's practical four-cascade partition.
 ///
 /// The first slice starts ten world units beyond the camera near plane. The
 /// requested distance is clamped to the camera far plane, and `lambda` blends
-/// uniform (`0`) with logarithmic (`1`) placement.
+/// uniform (`0`) with logarithmic (`1`) placement. NVR recomputes every inner
+/// boundary from the requested far distance, which resizes nearby shadows when
+/// only the distance slider changes. OMV anchors only the first boundary once
+/// the range reaches NVR's 6,000-unit quality default. The other boundaries
+/// must expand with the requested range: freezing all three strands actors and
+/// small gameplay forms in the LOD-only profile after roughly 1,800 units.
 pub(super) fn practical_cascade_splits(
     camera_near: f32,
     camera_far: f32,
@@ -366,21 +502,33 @@ pub(super) fn practical_cascade_splits(
     if max_z <= min_z {
         return None;
     }
+    const STABLE_PROFILE_DISTANCE: f32 = 6_000.0;
+    let stable_max_z = (camera_near + STABLE_PROFILE_DISTANCE).min(camera_far);
+    let stable_range = stable_max_z - min_z;
+    let stable_ratio = stable_max_z / min_z;
+    let first_p = 1.0 / CASCADE_COUNT as f32;
+    let stable_first = {
+        let logarithmic = min_z * stable_ratio.powf(first_p);
+        let uniform = min_z + stable_range * first_p;
+        uniform + lambda * (logarithmic - uniform)
+    };
     let range = max_z - min_z;
     let ratio = max_z / min_z;
-    let mut boundaries = [0.0; CASCADE_COUNT];
-    for (index, boundary) in boundaries.iter_mut().enumerate() {
-        let p = (index + 1) as f32 / CASCADE_COUNT as f32;
-        let logarithmic = min_z * ratio.powf(p);
-        let uniform = min_z + range * p;
-        *boundary = uniform + lambda * (logarithmic - uniform);
-    }
     let mut near = min_z;
     let mut splits = [CascadeSplit {
         near: 0.0,
         far: 0.0,
     }; CASCADE_COUNT];
-    for (index, far) in boundaries.into_iter().enumerate() {
+    for index in 0..CASCADE_COUNT {
+        let p = (index + 1) as f32 / CASCADE_COUNT as f32;
+        let logarithmic = min_z * ratio.powf(p);
+        let uniform = min_z + range * p;
+        let nvr_far = uniform + lambda * (logarithmic - uniform);
+        let far = if index == 0 && max_z >= stable_max_z {
+            stable_first
+        } else {
+            nvr_far
+        };
         if !far.is_finite() || far <= near {
             return None;
         }
@@ -953,7 +1101,8 @@ pub(super) struct ProducerResourcePlan {
     /// Peak bytes after both lazy location branches have been visited.
     ///
     /// Retaining both families prevents cell-transition allocation hitches;
-    /// shared full-resolution consumer targets are counted only once.
+    /// only the native-format scene copy is shared between the branch-specific
+    /// half-resolution contact and full-resolution point-light work targets.
     pub(super) combined_estimated_bytes: u64,
     /// Comparable lower bound for NVR's multisampled 4096 atlas path.
     pub(super) nvr_equivalent_estimated_bytes: u64,
@@ -964,45 +1113,48 @@ pub(super) struct ProducerResourcePlan {
 impl ProducerResourcePlan {
     /// Build the fixed highest-quality plan for one active location branch.
     ///
-    /// OMV persists NVR's single-sample 4096 atlas but reuses one 2048 4x-MSAA
-    /// color/depth workspace. Resolving and filtering one quadrant at a time is
-    /// sampling-equivalent and avoids multisampling three empty quadrants for
-    /// every cascade draw.
+    /// OMV preserves NVR's 2048 resolution, four FP16 EVSM moments, and
+    /// separable prefilter. The reusable generation texture is single-sample:
+    /// multisampling nonlinear moments multiplies the dominant color/depth
+    /// bandwidth by four immediately before the result is spatially filtered.
     pub(super) fn quality_default(scene: SceneKind, width: u32, height: u32) -> Option<Self> {
         if width == 0 || height == 0 {
             return None;
         }
         let cascade_pixels = u64::from(NVR_CASCADE_RESOLUTION).pow(2);
         let persistent_cascades = cascade_pixels * 8 * CASCADE_COUNT as u64;
-        let shared_msaa_color = cascade_pixels * 8 * 4;
-        let shared_msaa_depth = cascade_pixels * 4 * 4;
-        let single_sample_resolve = cascade_pixels * 8;
+        let generation_moments = cascade_pixels * 8;
+        let generation_depth = cascade_pixels * 4;
         let shared_blur_target = cascade_pixels * 8;
         let point_cubes = u64::from(512_u32.pow(2)) * 6 * 4 * NVR_POINT_LIGHT_COUNT as u64;
         let point_depth = u64::from(512_u32.pow(2)) * 4;
-        let point_accumulation = u64::from(width) * u64::from(height) * 4;
+        let full_resolution_pixels = u64::from(width) * u64::from(height);
+        let contact_pixels = u64::from(width.div_ceil(2)) * u64::from(height.div_ceil(2));
+        let contact_work_pair = contact_pixels * 4 * 2;
+        let point_accumulation = full_resolution_pixels * 4;
         let reconstructed_normals = u64::from(width) * u64::from(height) * 8;
-        let scene_color_copy = u64::from(width) * u64::from(height) * 4;
-        let consumer = point_accumulation + reconstructed_normals + scene_color_copy;
+        let scene_color_copy = full_resolution_pixels * 4;
+        let directional_consumer = contact_work_pair + scene_color_copy;
+        let interior_consumer = point_accumulation + reconstructed_normals + scene_color_copy;
         let directional = scene != SceneKind::Interior;
         let estimated_bytes = if directional {
             persistent_cascades
-                + shared_msaa_color
-                + shared_msaa_depth
-                + single_sample_resolve
+                + generation_moments
+                + generation_depth
                 + shared_blur_target
-                + consumer
+                + directional_consumer
         } else {
-            point_cubes + point_depth + consumer
+            point_cubes + point_depth + interior_consumer
         };
         let combined_estimated_bytes = persistent_cascades
-            + shared_msaa_color
-            + shared_msaa_depth
-            + single_sample_resolve
+            + generation_moments
+            + generation_depth
             + shared_blur_target
             + point_cubes
             + point_depth
-            + consumer;
+            + directional_consumer
+            + point_accumulation
+            + reconstructed_normals;
 
         let atlas_pixels = u64::from((NVR_CASCADE_RESOLUTION * 2).pow(2));
         let nvr_equivalent_estimated_bytes =
@@ -1012,7 +1164,7 @@ impl ProducerResourcePlan {
             cascade_count: if directional { CASCADE_COUNT as u32 } else { 0 },
             directional_texture_count: directional as u32,
             atlas_resolution: NVR_CASCADE_RESOLUTION * 2,
-            directional_samples: 4,
+            directional_samples: 1,
             directional_channels: 4,
             directional_channel_bits: 16,
             evsm4: true,

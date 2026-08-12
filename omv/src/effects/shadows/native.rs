@@ -24,6 +24,9 @@ const MAX_MANAGER_LIGHTS: usize = 512;
 const MAX_GRID_SIDE: usize = 15;
 const MAX_CELL_REFERENCES: usize = 4_096;
 const MAX_POINT_GEOMETRIES: usize = 8_192;
+/// Preallocated root cache used to avoid rescanning every loaded cell once per
+/// due cascade. Overflow falls back to the complete per-cascade visitor.
+pub(super) const DIRECTIONAL_ROOT_CACHE_CAPACITY: usize = 32_768;
 
 const GRID_SIZE: usize = 0x0C;
 const GRID_CELLS: usize = 0x10;
@@ -68,6 +71,35 @@ pub(super) struct NativeScene {
     pub(super) renderer: *mut c_void,
     /// Stable location classification.
     pub(super) kind: SceneKind,
+}
+
+/// One borrowed root and the profile metadata needed by all four cascades.
+#[derive(Clone, Copy, Debug)]
+pub(super) struct DirectionalRoot {
+    // Integer identity keeps the persistent allocation `Send`; the cache is
+    // populated and consumed synchronously on the render thread only.
+    root: usize,
+    form_type: Option<u8>,
+    /// Terrain roots bypass ordinary form filtering and minimum root size.
+    pub(super) is_land: bool,
+    /// Object/land LOD roots are admitted only by far and LOD profiles.
+    pub(super) is_lod: bool,
+}
+
+impl DirectionalRoot {
+    /// Borrow the native node only inside the active common-prefix epoch.
+    pub(super) fn node(self) -> *mut u8 {
+        self.root as *mut u8
+    }
+
+    /// Apply the same supplied NVR form profile previously used while walking
+    /// each cell list independently for every cascade.
+    pub(super) fn enabled_for(self, cascade: usize) -> bool {
+        (!self.is_lod || cascade >= 2)
+            && self
+                .form_type
+                .is_none_or(|form_type| directional_form_type_is_enabled(cascade, form_type))
+    }
 }
 
 /// Scalar and borrowed geometry ownership for one selected point light.
@@ -325,6 +357,126 @@ pub(super) unsafe fn visit_point_fallback_roots(
     unsafe { visit_cell_roots(scene.cell, None, &mut visit) };
 }
 
+/// Collect directional roots once for all maps due in this transaction.
+///
+/// The caller supplies a preallocated vector. Returning `false` means its
+/// fixed capacity was insufficient; callers must use [`visit_directional_roots`]
+/// for every map rather than render an incomplete cache.
+///
+/// # Safety
+///
+/// `scene` and every collected pointer are valid only until the native shadow
+/// tail resumes. The vector must be cleared or dropped within that epoch.
+pub(super) unsafe fn collect_directional_roots(
+    scene: NativeScene,
+    roots: &mut Vec<DirectionalRoot>,
+) -> bool {
+    roots.clear();
+    for (offset, is_land) in [
+        (NativeLayout::TES_OBJECT_LOD_ROOT, false),
+        (NativeLayout::TES_LAND_LOD_ROOT, true),
+    ] {
+        let root = unsafe { read::<*mut u8>(scene.tes, offset) };
+        if !root.is_null() && !push_directional_root(roots, root, None, is_land, true) {
+            roots.clear();
+            return false;
+        }
+    }
+
+    if scene.kind == SceneKind::Exterior {
+        let grid = unsafe { read::<*mut u8>(scene.tes, NativeLayout::TES_GRID_CELL_ARRAY) };
+        if !grid.is_null() {
+            let side = unsafe { read::<u8>(grid, GRID_SIZE) } as usize;
+            let cells = unsafe { read::<*mut *mut u8>(grid, GRID_CELLS) };
+            if (1..=MAX_GRID_SIDE).contains(&side) && !cells.is_null() {
+                for index in 0..side * side {
+                    let cell = unsafe { read_unaligned(cells.add(index)) };
+                    if !cell.is_null()
+                        && unsafe { read::<u8>(cell, NativeLayout::CELL_FLAGS) } & CELL_INTERIOR
+                            == 0
+                        && !unsafe { collect_cell_directional_roots(cell, roots) }
+                    {
+                        roots.clear();
+                        return false;
+                    }
+                }
+                return true;
+            }
+        }
+    }
+
+    if unsafe { collect_cell_directional_roots(scene.cell, roots) } {
+        true
+    } else {
+        roots.clear();
+        false
+    }
+}
+
+unsafe fn collect_cell_directional_roots(cell: *mut u8, roots: &mut Vec<DirectionalRoot>) -> bool {
+    let cell_state = unsafe { read::<*mut u8>(cell, CELL_STRUCT) };
+    if !cell_state.is_null() {
+        let master = unsafe { read::<*mut u8>(cell_state, CELL_STRUCT_MASTER_NODE) };
+        if let Some(land) = unsafe { node_child(master, LAND_CHILD_INDEX) }
+            && !push_directional_root(roots, land, None, true, false)
+        {
+            return false;
+        }
+    }
+
+    let mut entry = unsafe { cell.add(NativeLayout::CELL_OBJECT_LIST) };
+    let mut visited = 0usize;
+    while !entry.is_null() && visited < MAX_CELL_REFERENCES {
+        let reference = unsafe { read::<*mut u8>(entry, LIST_ITEM) };
+        if !reference.is_null()
+            && unsafe { read::<u32>(reference, NativeLayout::TES_FORM_FLAGS) }
+                & FORM_NOT_CAST_SHADOWS
+                == 0
+        {
+            let base = unsafe { read::<*mut u8>(reference, NativeLayout::REFERENCE_BASE_FORM) };
+            let render_data =
+                unsafe { read::<*mut u8>(reference, NativeLayout::REFERENCE_RENDER_DATA) };
+            if !base.is_null() && !render_data.is_null() {
+                let node =
+                    unsafe { read::<*mut u8>(render_data, NativeLayout::REFERENCE_DATA_NODE) };
+                if !node.is_null()
+                    && !push_directional_root(
+                        roots,
+                        node,
+                        Some(unsafe { read::<u8>(base, NativeLayout::TES_FORM_TYPE) }),
+                        false,
+                        false,
+                    )
+                {
+                    return false;
+                }
+            }
+        }
+        entry = unsafe { read::<*mut u8>(entry, LIST_NEXT) };
+        visited += 1;
+    }
+    true
+}
+
+fn push_directional_root(
+    roots: &mut Vec<DirectionalRoot>,
+    root: *mut u8,
+    form_type: Option<u8>,
+    is_land: bool,
+    is_lod: bool,
+) -> bool {
+    if roots.len() == roots.capacity() {
+        return false;
+    }
+    roots.push(DirectionalRoot {
+        root: root as usize,
+        form_type,
+        is_land,
+        is_lod,
+    });
+    true
+}
+
 /// Visit exterior cell/reference roots admitted by one NVR cascade profile.
 ///
 /// The callback receives `(root, is_land, is_lod)`. Reference nodes already
@@ -530,7 +682,7 @@ const fn size_of<T>() -> usize {
 
 #[cfg(test)]
 mod tests {
-    use super::{PointLight, PointLightSelection};
+    use super::{DirectionalRoot, PointLight, PointLightSelection, push_directional_root};
 
     fn point(identity: usize, distance_squared: f32) -> PointLight {
         PointLight {
@@ -594,5 +746,45 @@ mod tests {
             .collect();
         assert_eq!(shadowed, [1, 2, 3, 4]);
         assert_eq!(tracked, [5, 6, 7, 8]);
+    }
+
+    #[test]
+    fn directional_root_cache_preserves_profiles_and_never_grows_in_the_hot_path() {
+        let actor = DirectionalRoot {
+            root: 1,
+            form_type: Some(0x2A),
+            is_land: false,
+            is_lod: false,
+        };
+        assert!(actor.enabled_for(0));
+        assert!(actor.enabled_for(2));
+        assert!(!actor.enabled_for(3));
+
+        let lod = DirectionalRoot {
+            root: 2,
+            form_type: None,
+            is_land: true,
+            is_lod: true,
+        };
+        assert!(!lod.enabled_for(1));
+        assert!(lod.enabled_for(2));
+
+        let mut roots = Vec::with_capacity(1);
+        assert!(push_directional_root(
+            &mut roots,
+            actor.node(),
+            actor.form_type,
+            actor.is_land,
+            actor.is_lod,
+        ));
+        assert!(!push_directional_root(
+            &mut roots,
+            lod.node(),
+            lod.form_type,
+            lod.is_land,
+            lod.is_lod,
+        ));
+        assert_eq!(roots.len(), 1);
+        assert_eq!(roots.capacity(), 1);
     }
 }
