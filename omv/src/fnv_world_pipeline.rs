@@ -250,6 +250,20 @@ pub(crate) fn atmosphere_visibility() -> Option<f32> {
         .then(|| 1.0 - f32::from_bits(LAST_TRANSMITTANCE.load(Ordering::Acquire)).clamp(0.0, 1.0))
 }
 
+/// Return the unjittered camera retained for the active world render epoch.
+///
+/// The common shadow hook runs inside the native world renderer, after TAA has
+/// temporarily shifted the live projection. Cascades must use this restored
+/// camera or their coverage and texel snapping alternate with the Halton
+/// sequence. The nonblocking read is render-thread safe and introduces no new
+/// startup owner; callers fall back to the native camera when TAA is inactive.
+pub(crate) fn shadow_generation_camera() -> Option<backend::CameraFrame> {
+    let runtime = WORLD_PIPELINE.try_lock()?;
+    runtime
+        .temporal_projection_override
+        .and_then(|projection| projection.shadow_generation_camera(crate::hooks::render_epoch()))
+}
+
 pub(crate) unsafe fn begin_temporal_aa_jitter(
     device_ptr: *mut c_void,
     target_surface: usize,
@@ -572,6 +586,10 @@ struct TemporalProjectionOverride {
 }
 
 impl TemporalProjectionOverride {
+    fn shadow_generation_camera(self, epoch: u32) -> Option<backend::CameraFrame> {
+        (self.epoch == epoch).then_some(self.output_camera)
+    }
+
     fn cameras_for(
         self,
         epoch: u32,
@@ -1580,6 +1598,12 @@ mod tests {
             retry_cameras.rendered.frustum_left,
             retry_cameras.output.frustum_left
         );
+        let shadow_camera = projection
+            .shadow_generation_camera(7)
+            .expect("matching shadow generation epoch");
+        assert_eq!(shadow_camera.frustum_left, restored_camera.frustum_left);
+        assert_ne!(shadow_camera.frustum_left, jittered_camera.frustum_left);
+        assert!(projection.shadow_generation_camera(8).is_none());
         assert!(projection.cameras_for(8, 0x1234, target).is_none());
         assert!(projection.cameras_for(7, 0x5678, target).is_none());
         assert!(

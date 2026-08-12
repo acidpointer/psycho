@@ -28,18 +28,24 @@ pub(super) const CUBE_VERTEX_SOURCE: &[u8] =
 /// Radial-depth point-cube pixel shader.
 pub(super) const CUBE_PIXEL_SOURCE: &[u8] =
     include_bytes!("../../../shaders/embedded/shadow_cube.hlsl");
-/// Separable EVSM4 prefilter shader; source and target must be distinct.
-pub(super) const BLUR_PIXEL_SOURCE: &[u8] =
-    include_bytes!("../../../shaders/embedded/shadow_blur.hlsl");
 /// Exact far-depth EVSM4 clear shader used before caster submission.
 pub(super) const FAR_CLEAR_PIXEL_SOURCE: &[u8] =
     include_bytes!("../../../shaders/embedded/shadow_far_clear.hlsl");
-/// Edge-aware world-normal reconstruction shared by both point passes.
-pub(super) const NORMAL_RECONSTRUCTION_SOURCE: &[u8] =
-    include_bytes!("../../../shaders/embedded/shadow_normal_reconstruct.hlsl");
-/// Six-light point-shadow accumulation pass.
+/// Static/animated near-map EVSM merge program.
+pub(super) const DIRECTIONAL_MERGE_SOURCE: &[u8] =
+    include_bytes!("../../../shaders/embedded/shadow_directional_merge.hlsl");
+/// Coverage-bounded point receiver geometry shared by all light batches.
+pub(super) const POINT_GEOMETRY_SOURCE: &[u8] =
+    include_bytes!("../../../shaders/embedded/shadow_point_geometry.hlsl");
+/// Six-light scissored point-shadow accumulation pass.
 pub(super) const POINT_ACCUMULATION_SOURCE: &[u8] =
     include_bytes!("../../../shaders/embedded/shadow_point_accumulate.hlsl");
+/// Half-resolution screen-space contact visibility pass.
+pub(super) const CONTACT_SOURCE: &[u8] =
+    include_bytes!("../../../shaders/embedded/shadow_contact.hlsl");
+/// Depth-aware separable contact filter.
+pub(super) const CONTACT_BLUR_SOURCE: &[u8] =
+    include_bytes!("../../../shaders/embedded/shadow_contact_blur.hlsl");
 /// Final directional/point shadow compositor.
 pub(super) const COMPOSITE_PIXEL_SOURCE: &[u8] =
     include_bytes!("../../../shaders/embedded/shadow_composite.hlsl");
@@ -59,14 +65,18 @@ pub(super) struct ShadowBytecode {
     pub(super) cube_vertex: Vec<u32>,
     /// Point-cube radial-depth pixel program.
     pub(super) cube_pixel: Vec<u32>,
-    /// Shared separable EVSM4 prefilter program.
-    pub(super) blur_pixel: Vec<u32>,
     /// Exact EVSM4 far-moment clear program.
     pub(super) far_clear_pixel: Vec<u32>,
-    /// Depth-derived normal reconstruction program.
-    pub(super) normal_reconstruction: Vec<u32>,
+    /// Static/animated near-map EVSM merge program.
+    pub(super) directional_merge: Vec<u32>,
+    /// Shared point receiver-geometry program.
+    pub(super) point_geometry: Vec<u32>,
     /// Six-cube point-shadow accumulation program.
     pub(super) point_accumulation: Vec<u32>,
+    /// Screen-space contact visibility program.
+    pub(super) contact: Vec<u32>,
+    /// Depth-aware contact filter program.
+    pub(super) contact_blur: Vec<u32>,
     /// Final scene-color composition program.
     pub(super) composite: Vec<u32>,
 }
@@ -86,11 +96,15 @@ impl ShadowBytecode {
             )?,
             cube_vertex: compile("shadow_cube.vs.hlsl", CUBE_VERTEX_SOURCE, "vs_3_0")?,
             cube_pixel: compile("shadow_cube.hlsl", CUBE_PIXEL_SOURCE, "ps_3_0")?,
-            blur_pixel: compile("shadow_blur.hlsl", BLUR_PIXEL_SOURCE, "ps_3_0")?,
             far_clear_pixel: compile("shadow_far_clear.hlsl", FAR_CLEAR_PIXEL_SOURCE, "ps_3_0")?,
-            normal_reconstruction: compile(
-                "shadow_normal_reconstruct.hlsl",
-                NORMAL_RECONSTRUCTION_SOURCE,
+            directional_merge: compile(
+                "shadow_directional_merge.hlsl",
+                DIRECTIONAL_MERGE_SOURCE,
+                "ps_3_0",
+            )?,
+            point_geometry: compile(
+                "shadow_point_geometry.hlsl",
+                POINT_GEOMETRY_SOURCE,
                 "ps_3_0",
             )?,
             point_accumulation: compile(
@@ -98,6 +112,8 @@ impl ShadowBytecode {
                 POINT_ACCUMULATION_SOURCE,
                 "ps_3_0",
             )?,
+            contact: compile("shadow_contact.hlsl", CONTACT_SOURCE, "ps_3_0")?,
+            contact_blur: compile("shadow_contact_blur.hlsl", CONTACT_BLUR_SOURCE, "ps_3_0")?,
             composite: compile("shadow_composite.hlsl", COMPOSITE_PIXEL_SOURCE, "ps_3_0")?,
         })
     }
@@ -108,10 +124,12 @@ impl ShadowBytecode {
             &self.directional_pixel,
             &self.cube_vertex,
             &self.cube_pixel,
-            &self.blur_pixel,
             &self.far_clear_pixel,
-            &self.normal_reconstruction,
+            &self.directional_merge,
+            &self.point_geometry,
             &self.point_accumulation,
+            &self.contact,
+            &self.contact_blur,
             &self.composite,
         ]
         .into_iter()
@@ -142,7 +160,7 @@ pub(super) fn start_preparation() {
                     *BYTECODE.lock() = Some(Arc::new(bytecode));
                     PREPARATION_READY.store(true, Ordering::Release);
                     log::info!(
-                        "[SHADOWS] Complete shader family prepared (9 programs, {words} DWORDs, {} ms)",
+                        "[SHADOWS] Complete shader family prepared (11 programs, {words} DWORDs, {} ms)",
                         started.elapsed().as_millis()
                     );
                 }

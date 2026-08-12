@@ -74,6 +74,8 @@ pub(super) struct ShadowCamera {
     pub(super) right: [f32; 3],
     /// Absolute world translation used only by stable texel rounding.
     pub(super) translation: [f32; 3],
+    /// NVR tangent-ratio expansion for a narrower-than-default world FOV.
+    pub(super) fov_compensation: f32,
 }
 
 impl ShadowCamera {
@@ -91,6 +93,8 @@ impl ShadowCamera {
             && self.up.into_iter().all(f32::is_finite)
             && self.right.into_iter().all(f32::is_finite)
             && self.translation.into_iter().all(f32::is_finite)
+            && self.fov_compensation.is_finite()
+            && self.fov_compensation >= 1.0
             && self.near >= 0.0
             && self.far > self.near
             && self.frustum_right > self.frustum_left
@@ -120,6 +124,9 @@ pub(super) struct CascadeProjection {
     /// Quantized bounding-sphere radius used by the orthographic projection.
     #[cfg_attr(not(test), allow(dead_code))]
     pub(super) radius: f32,
+    /// Unpadded receiver sphere used to decide whether a retained map still
+    /// covers the current camera slice.
+    pub(super) receiver_radius: f32,
     planes: [[f32; 4]; 6],
 }
 
@@ -133,6 +140,23 @@ impl CascadeProjection {
                 dot3([plane[0], plane[1], plane[2]], sphere.center) + plane[3] >= -sphere.radius
             })
     }
+}
+
+/// Return every gameplay cascade intersected by one animated caster bound.
+///
+/// An actor can straddle a cascade overlap, so choosing only the first map
+/// would leave the adjacent map with an old pose during the receiver blend.
+/// LOD is deliberately excluded because NVR's LOD profile excludes actors.
+pub(super) fn dynamic_caster_cascade_mask(
+    projections: [CascadeProjection; 4],
+    bound: Sphere,
+) -> u8 {
+    projections[..3]
+        .iter()
+        .enumerate()
+        .fold(0_u8, |mask, (index, projection)| {
+            mask | (u8::from(projection.contains(bound)) << index)
+        })
 }
 
 /// View-projection data for one D3D cube-map face.
@@ -204,10 +228,17 @@ pub(super) fn cascade_projection(
         .into_iter()
         .map(|corner| length3(sub3(corner, center)))
         .fold(0.0_f32, f32::max);
-    let radius = (radius * 16.0).ceil() / 16.0;
-    if !radius.is_finite() || radius <= 0.0 {
+    let receiver_radius = (radius * 16.0).ceil() / 16.0;
+    if !receiver_radius.is_finite() || receiver_radius <= 0.0 {
         return None;
     }
+    // A small producer guard band lets a cached map remain valid through
+    // ordinary camera translation/rotation. Without it, equal-radius receiver
+    // and map spheres can never contain one another after any movement, which
+    // forces either a full redraw or stale, angle-dependent coverage. NVR's
+    // independent tangent-ratio expansion is then applied for aiming/zoom;
+    // conflating these two margins made zoom change distant map coverage.
+    let radius = receiver_radius * camera.fov_compensation * 1.06;
 
     // FNV's sky vector points from the scene toward the sun. The light camera
     // therefore sits one cascade radius along that vector and looks back at
@@ -250,6 +281,7 @@ pub(super) fn cascade_projection(
         world_to_shadow,
         center,
         radius,
+        receiver_radius,
         planes,
     })
 }

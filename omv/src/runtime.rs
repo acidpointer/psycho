@@ -61,6 +61,20 @@
 //! bytecode and create only D3D device objects. A separate route-specific bit
 //! keeps first-person motion blur inadmissible until DeferredInit has selected
 //! the provider and is ready to install its resident hooks.
+//!
+//! # Pre-Deferred runtime boundary
+//!
+//! [`configure`] first-touches the global runtime and starts its established
+//! workers from `NVSEPlugin_Load`. `RuntimeSettings`, `ScreenShaderRuntime`, and
+//! anything stored in or started by `ScreenShaderRuntime::configure` therefore
+//! participate in the startup compatibility footprint even when code appears
+//! render-only. Do not add a deferred engine route's settings, owner, atomic
+//! publication, worker, or admission transition to these paths.
+//!
+//! Keep deferred feature state in its feature module. Load it at DeferredInit,
+//! publish it through passive post-Deferred state, and pass a local coherent
+//! snapshot into ImGui. Native Shadows is the reference pattern and is guarded
+//! by `startup::deferred_install_tests::shadow_state_is_absent_from_every_pre_deferred_value_owner`.
 
 use std::{
     ffi::{CString, c_void},
@@ -283,6 +297,11 @@ fn set_menu_diagnostics_active(active: bool) {
     crate::fnv_world_pipeline::set_diagnostics_active(active);
 }
 
+/// Configure only the runtime work established in the accepted load baseline.
+///
+/// This function executes during `NVSEPlugin_Load`. Do not publish settings or
+/// admission for a newly added deferred route here or indirectly through
+/// `ScreenShaderRuntime::configure`; defer both to `startup::install_deferred_hooks`.
 pub(crate) fn configure(settings: RuntimeSettings) {
     // This runs from NVSEPlugin_Load. Keep the focused FNV world owner dormant
     // until DeferredInit; see graphics_fnv_atmosphere_startup_crash_errata.md.
@@ -1347,6 +1366,11 @@ pub(crate) fn handle_window_message(
     None
 }
 
+/// Frozen value copied into the global runtime during `NVSEPlugin_Load`.
+///
+/// Do not add deferred engine-feature settings here. Doing so also widens the
+/// global runtime and persistence payloads reachable from startup. Use a
+/// detached feature-owned post-Deferred snapshot instead.
 #[derive(Clone, Copy)]
 pub(crate) struct RuntimeSettings {
     pub(crate) menu_config: GraphicsMenuConfig,
@@ -1474,6 +1498,11 @@ impl PresetUiState {
     }
 }
 
+/// Global runtime owner first constructed and configured before DeferredInit.
+///
+/// Its large render-only portion does not make its layout startup-neutral.
+/// Do not add a deferred route's config or owner here; keep that state in the
+/// feature module and first publish it from DeferredInit.
 struct ScreenShaderRuntime {
     settings: RuntimeSettings,
     sources: Vec<ScreenShaderSource>,
@@ -1633,17 +1662,17 @@ impl ScreenShaderRuntime {
         self.frame_index = self.frame_index.wrapping_add(1);
     }
 
+    /// Apply only configuration paths already admitted during plugin loading.
+    ///
+    /// This method is still pre-Deferred. It must not call a new engine-facing
+    /// feature's settings publisher, force its lazy owner, start its worker, or
+    /// change its route-admission bit. The deferred startup installer owns all
+    /// of those transitions.
     fn configure(&mut self, settings: RuntimeSettings) {
         // Config parsing may describe the new route, but only DeferredInit can
         // admit it after selecting the provider and before installing hooks.
         self.first_person_motion_blur_admission_ready = false;
         let master_enabled = settings.menu_config.screen_space_shaders;
-        crate::effects::shadows::configure_runtime_options(
-            crate::effects::shadows::NativeShadowsSettings::from(
-                settings.menu_config.native_shadows,
-            )
-            .with_master_enabled(master_enabled),
-        );
         pbr::configure_runtime_options(
             pbr::NativePbrSettings::from(settings.menu_config.native_pbr)
                 .with_master_enabled(master_enabled),
@@ -3773,7 +3802,8 @@ impl ScreenShaderRuntime {
         // Capture only this machine-level feature before ImGui mutates the
         // working configuration. A change-specific snapshot lets us emit one
         // useful publication record without logging unrelated slider edits.
-        let shadow_settings_before = self.settings.menu_config.native_shadows;
+        let mut native_shadows = crate::effects::shadows::runtime_config();
+        let shadow_settings_before = native_shadows;
         let gpu_diagnostics = self.gpu_diagnostics.as_ref();
         let Some(imgui) = self.imgui.as_mut() else {
             return Ok(());
@@ -3797,6 +3827,7 @@ impl ScreenShaderRuntime {
             draw_shader_menu(
                 &mut ui,
                 &mut self.settings.menu_config,
+                &mut native_shadows,
                 &mut self.sources,
                 &mut self.preset_ui,
                 &mut self.active_menu_tab,
@@ -3823,9 +3854,12 @@ impl ScreenShaderRuntime {
         if menu_frame.changed {
             self.menu_config_error = None;
             self.apply_menu_config_change();
-            if shadow_settings_before != self.settings.menu_config.native_shadows {
+            if shadow_settings_before != native_shadows {
+                crate::effects::shadows::configure_runtime_options(
+                    crate::effects::shadows::NativeShadowsSettings::from(native_shadows),
+                );
                 log_shadow_menu_settings(
-                    self.settings.menu_config.native_shadows,
+                    native_shadows,
                     self.settings.menu_config.screen_space_shaders,
                 );
             }
@@ -3911,12 +3945,6 @@ impl ScreenShaderRuntime {
         }
         crate::fnv_world_pipeline::publish_config(self.settings.menu_config);
         self.publish_fnv_scene_requirements();
-        crate::effects::shadows::configure_runtime_options(
-            crate::effects::shadows::NativeShadowsSettings::from(
-                self.settings.menu_config.native_shadows,
-            )
-            .with_master_enabled(master_enabled),
-        );
         pbr::configure_runtime_options(
             pbr::NativePbrSettings::from(self.settings.menu_config.native_pbr)
                 .with_master_enabled(master_enabled),
@@ -7394,12 +7422,13 @@ mod frame_pacing_tests {
             .find("draw_shader_menu(")
             .expect("configuration widget graph");
         let publish = draw_menu
-            .find("self.apply_menu_config_change();")
-            .expect("live runtime publication");
+            .find("shadows::configure_runtime_options(")
+            .expect("live shadow publication");
         let log = draw_menu
             .find("log_shadow_menu_settings(")
             .expect("post-publication shadow log");
         assert!(snapshot < widget && widget < publish && publish < log);
+        assert!(draw_menu.contains("shadows::runtime_config()"));
 
         let apply = source
             .split_once("\n    fn apply_menu_config_change(")
@@ -7407,9 +7436,8 @@ mod frame_pacing_tests {
             .and_then(|tail| tail.split_once("\n    fn record_active_preset_state("))
             .map(|(body, _)| body)
             .expect("menu configuration publisher");
-        assert!(apply.contains("shadows::configure_runtime_options("));
-        assert!(apply.contains("self.settings.menu_config.native_shadows"));
-        assert!(apply.contains(".with_master_enabled(master_enabled)"));
+        assert!(!apply.contains("shadows::configure_runtime_options("));
+        assert!(!apply.contains("native_shadows"));
     }
 
     #[test]
@@ -7841,6 +7869,7 @@ fn draw_pbr_preparation_window(ui: &mut psycho_imgui::Ui<'_>, status: pbr::PbrPr
 fn draw_shader_menu(
     ui: &mut psycho_imgui::Ui<'_>,
     menu_config: &mut GraphicsMenuConfig,
+    native_shadows: &mut crate::config::NativeShadowsConfig,
     sources: &mut [ScreenShaderSource],
     preset_ui: &mut PresetUiState,
     active_tab: &mut MenuTab,
@@ -7893,6 +7922,7 @@ fn draw_shader_menu(
             result.changed |= draw_configuration_tab(
                 ui,
                 menu_config,
+                native_shadows,
                 sources,
                 selected_item,
                 sidebar_width,
@@ -7992,6 +8022,7 @@ fn draw_external_change_panel(ui: &mut psycho_imgui::Ui<'_>) -> MenuToolbarResul
 fn draw_configuration_tab(
     ui: &mut psycho_imgui::Ui<'_>,
     menu_config: &mut GraphicsMenuConfig,
+    native_shadows: &mut crate::config::NativeShadowsConfig,
     sources: &mut [ScreenShaderSource],
     selected_item: &mut MenuSelection,
     sidebar_width: &mut f32,
@@ -8009,7 +8040,7 @@ fn draw_configuration_tab(
         let item_list = cstring("graphics_feature_list");
         let child = ui.child(&item_list, *sidebar_width, 0.0, true);
         if child.is_visible() {
-            draw_feature_list(ui, menu_config, sources, selected_item);
+            draw_feature_list(ui, menu_config, native_shadows, sources, selected_item);
         }
     }
 
@@ -8044,7 +8075,7 @@ fn draw_configuration_tab(
                         draw_native_pbr_config(ui, &mut menu_config.native_pbr, feature_status.pbr);
                 }
                 MenuSelection::NativeShadows => {
-                    changed |= draw_native_shadows_config(ui, &mut menu_config.native_shadows);
+                    changed |= draw_native_shadows_config(ui, native_shadows);
                 }
                 MenuSelection::NativeSky => {
                     changed |=
@@ -10366,6 +10397,7 @@ fn draw_world_pipeline_diagnostics(ui: &mut psycho_imgui::Ui<'_>) {
 fn draw_feature_list(
     ui: &mut psycho_imgui::Ui<'_>,
     config: &GraphicsMenuConfig,
+    native_shadows: &crate::config::NativeShadowsConfig,
     sources: &[ScreenShaderSource],
     selected_item: &mut MenuSelection,
 ) {
@@ -10383,7 +10415,7 @@ fn draw_feature_list(
     let shadows_label = cstring(configured_feature_label(
         "Shadows",
         "native_shadows_select",
-        config.native_shadows.enabled,
+        native_shadows.enabled,
     ));
     if ui.selectable(
         &shadows_label,
@@ -10536,7 +10568,7 @@ fn draw_native_shadows_config(
             );
             changed |= draw_float_slider(
                 ui,
-                "Contact contrast",
+                "Contact ray length",
                 "native_shadows.contact_ray_distance",
                 &mut config.contact_ray_distance,
                 50.0,
@@ -10560,6 +10592,14 @@ fn draw_native_shadows_config(
             &mut config.interior_darkness,
             0.0,
             1.0,
+        );
+    }
+    if config.exterior_enabled || config.interior_enabled {
+        let section = cstring("LOCAL LIGHTS");
+        ui.separator_text(&section);
+        ui.text_colored(
+            MENU_MUTED_TEXT,
+            &cstring("Shared point-shadow quality for interior lights, exterior practicals, and the Pip-Boy."),
         );
         changed |= draw_int_slider(
             ui,

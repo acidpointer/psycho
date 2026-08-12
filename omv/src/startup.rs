@@ -10,6 +10,30 @@
 //! Deferred installation is guarded transactionally: concurrent calls do not
 //! overlap, a failed attempt is retryable, and only full success is published
 //! as installed.
+//!
+//! # Frozen pre-Deferred footprint
+//!
+//! `NVSEPlugin_Load` runs while other plugins are still constructing engine
+//! data. BaseObjectSwapper has a known uninitialized `ConditionalInput` path
+//! whose outcome changes when OMV alters this phase's layout, allocation, or
+//! publication footprint. A call is not safe here merely because it is CPU
+//! only, atomic, lock-free, or never dereferences an engine pointer.
+//!
+//! Treat [`initialize_for_nvse`], every value it constructs, and every worker
+//! it starts as a frozen compatibility ABI. In particular, do not add a
+//! deferred graphics feature to `GraphicsConfig`, `GraphicsMenuConfig`,
+//! `RuntimeSettings`, `DeferredHookSettings`, or a worker command/snapshot.
+//! Do not publish a new route, generation, or settings atomic from this phase.
+//! The required extension pattern is the Shadows pattern: retain the durable
+//! TOML table, parse it through a feature-specific loader after
+//! `DeferredInit`, publish passive settings there, and open the route only
+//! immediately before its resident hook group becomes reachable.
+//!
+//! See `docs/nvse_startup_phase_safety.md` and
+//! `docs/graphics_fnv_atmosphere_startup_crash_errata.md`. The structural tests
+//! in this module intentionally reject deferred feature state in every known
+//! pre-Deferred owner; extend that owner list whenever startup adds a new
+//! container.
 
 use std::sync::{
     LazyLock,
@@ -22,9 +46,14 @@ use parking_lot::Mutex;
 
 const LOG_FILE: &str = "./omv-latest.log";
 
+/// Frozen handoff built during `NVSEPlugin_Load` and consumed at DeferredInit.
+///
+/// Do not add settings for a new/deferred graphics route here. A field changes
+/// the `Option`/mutex payload constructed during plugin loading even when the
+/// field is plain `Copy` data. Load route-specific configuration inside
+/// [`install_deferred_hooks_once`] instead, following native Shadows.
 #[derive(Clone, Copy)]
 struct DeferredHookSettings {
-    native_shadows: crate::effects::shadows::NativeShadowsSettings,
     native_pbr: crate::effects::pbr::NativePbrSettings,
     native_sky: crate::effects::sky::NativeSkySettings,
     depth_provider: crate::backend::DepthProvider,
@@ -87,7 +116,10 @@ fn begin_deferred_install(
 ///
 /// This boundary must not inspect engine graphics objects, publish focused
 /// world state, or install hooks. [`install_deferred_hooks`] owns those later
-/// transitions after xNVSE reports `DeferredInit`.
+/// transitions after xNVSE reports `DeferredInit`. It also must not load,
+/// stage, copy, or atomically publish settings for a newly added deferred
+/// route; atomic-only startup publication caused the rejected Shadows
+/// footprint that reproduced the known BaseObjectSwapper crash.
 pub(crate) fn initialize_for_nvse() -> Result<()> {
     let cfg = crate::config::load_config();
 
@@ -122,9 +154,6 @@ pub(crate) fn initialize_for_nvse() -> Result<()> {
     let menu_config = crate::config::GraphicsMenuConfig::from(cfg);
     let native_pbr = crate::effects::pbr::NativePbrSettings::from(cfg.graphics.native_pbr)
         .with_master_enabled(cfg.graphics.screen_space_shaders);
-    let native_shadows =
-        crate::effects::shadows::NativeShadowsSettings::from(cfg.graphics.native_shadows)
-            .with_master_enabled(cfg.graphics.screen_space_shaders);
     let native_sky = crate::effects::sky::NativeSkySettings::from(cfg.graphics.native_sky)
         .with_master_enabled(cfg.graphics.screen_space_shaders);
 
@@ -143,8 +172,6 @@ pub(crate) fn initialize_for_nvse() -> Result<()> {
         menu_toggle_key: cfg.graphics.menu_toggle_key,
         shader_scan_interval_ms: cfg.graphics.shader_scan_interval_ms,
     });
-    crate::effects::shadows::configure_runtime_options(native_shadows);
-
     log::info!(
         "[SHADERS] Watching screen-space shaders in '{}'",
         crate::shaders::SHADER_DIR
@@ -152,7 +179,6 @@ pub(crate) fn initialize_for_nvse() -> Result<()> {
     log::info!("[IMGUI] Shader menu enabled");
 
     *DEFERRED_HOOK_SETTINGS.lock() = Some(DeferredHookSettings {
-        native_shadows,
         native_pbr,
         native_sky,
         depth_provider,
@@ -173,7 +199,10 @@ pub(crate) fn observe_post_load() {
 /// Publish initial graphics ownership and install hooks at `DeferredInit`.
 ///
 /// Installation is transactional and idempotent: a completed attempt latches
-/// success, while a partial failure releases the gate for a later retry.
+/// success, while a partial failure releases the gate for a later retry. New
+/// route-specific config loaders belong inside this boundary, before their
+/// route is admitted and resident hooks become reachable, not in
+/// [`initialize_for_nvse`] or a value staged by it.
 pub(crate) fn install_deferred_hooks() -> Result<()> {
     let Some(install_attempt) =
         begin_deferred_install(&DEFERRED_INSTALL_STATE).map_err(anyhow::Error::msg)?
@@ -207,6 +236,19 @@ fn install_deferred_hooks_once() -> Result<()> {
     let compatibility = crate::compat::GraphicsCompatibility::detect();
     log_compatibility_report(compatibility);
 
+    // Shadows intentionally have a separate config parser. Loading them only
+    // after xNVSE enters DeferredInit restores the proven plugin/data-loading
+    // value graph without removing the schema-one table or any runtime route.
+    let native_shadows = match crate::config::load_native_shadows_config_from_disk() {
+        Ok(config) => crate::effects::shadows::NativeShadowsSettings::from(config),
+        Err(error) => {
+            log::error!("[SHADOWS] Could not load deferred configuration: {error:#}");
+            crate::effects::shadows::NativeShadowsSettings::from(
+                crate::config::NativeShadowsConfig::default(),
+            )
+        }
+    };
+
     crate::backend::publish_initial_d3d_device()
         .map_err(anyhow::Error::msg)
         .context("could not publish the DeferredInit D3D9 device")?;
@@ -230,7 +272,7 @@ fn install_deferred_hooks_once() -> Result<()> {
     // Shadow ownership opens immediately before the already-proven common
     // entry becomes resident. Until its complete shader family is prepared,
     // the hook keeps executing the original native prefix.
-    crate::effects::shadows::install(settings.native_shadows)?;
+    crate::effects::shadows::install(native_shadows)?;
     crate::fnv_local_lights::install_hooks();
     // The complete group becomes resident while DeferredInit is quiescent.
     // Runtime settings alter passive gates only; no render-time executable
@@ -268,8 +310,72 @@ mod deferred_install_tests {
     }
 
     #[test]
+    fn shadow_state_is_absent_from_every_pre_deferred_value_owner() {
+        fn declaration_body<'a>(source: &'a str, declaration: &str) -> &'a str {
+            source
+                .split_once(declaration)
+                .and_then(|(_, tail)| tail.split_once("\n}"))
+                .map(|(body, _)| body)
+                .unwrap_or_else(|| panic!("missing declaration {declaration}"))
+        }
+
+        let config = include_str!("config.rs");
+        let runtime = include_str!("runtime.rs");
+        let current_look = include_str!("current_look.rs");
+        let startup = include_str!("startup.rs");
+        for (owner, body) in [
+            (
+                "GraphicsConfig",
+                declaration_body(config, "pub(crate) struct GraphicsConfig {"),
+            ),
+            (
+                "GraphicsMenuConfig",
+                declaration_body(config, "pub(crate) struct GraphicsMenuConfig {"),
+            ),
+            (
+                "RuntimeSettings",
+                declaration_body(runtime, "pub(crate) struct RuntimeSettings {"),
+            ),
+            (
+                "ScreenShaderRuntime",
+                declaration_body(runtime, "struct ScreenShaderRuntime {"),
+            ),
+            (
+                "CurrentLookSnapshot",
+                declaration_body(current_look, "pub(crate) struct CurrentLookSnapshot {"),
+            ),
+            (
+                "CurrentLookEvent",
+                declaration_body(current_look, "pub(crate) enum CurrentLookEvent {"),
+            ),
+            (
+                "CurrentLookCommand",
+                declaration_body(current_look, "enum CurrentLookCommand {"),
+            ),
+            (
+                "DeferredHookSettings",
+                declaration_body(startup, "struct DeferredHookSettings {"),
+            ),
+        ] {
+            assert!(
+                !body.contains("native_shadows") && !body.contains("NativeShadows"),
+                "{owner} reintroduced Shadows into the pre-Deferred value graph"
+            );
+        }
+    }
+
+    #[test]
     fn pre_deferred_preparation_cannot_publish_or_install_graphics_state() {
         let source = include_str!("startup.rs");
+        let deferred_settings = source
+            .split_once("struct DeferredHookSettings {")
+            .and_then(|(_, tail)| tail.split_once("\n}"))
+            .map(|(body, _)| body)
+            .expect("deferred settings value graph");
+        assert!(
+            !deferred_settings.contains("native_shadows"),
+            "shadow state must not enlarge the pre-Deferred handoff"
+        );
         let initialize = source
             .split_once("pub(crate) fn initialize_for_nvse()")
             .and_then(|(_, tail)| tail.split_once("pub(crate) fn observe_post_load()"))
@@ -286,6 +392,23 @@ mod deferred_install_tests {
         assert!(!initialize.contains("pbr::install("));
         assert!(!initialize.contains("shadows::install("));
         assert!(!initialize.contains("shadows::start_preparation"));
+        assert!(
+            !initialize.contains("native_shadows"),
+            "NVSEPlugin_Load must not load, copy, or publish shadow settings"
+        );
+        assert!(!initialize.contains("shadows::configure_runtime_options"));
+
+        let runtime = include_str!("runtime.rs");
+        let runtime_configure = runtime
+            .split_once("\n    fn configure(&mut self, settings: RuntimeSettings)")
+            .and_then(|(_, tail)| tail.split_once("\n    unsafe fn apply_present_frame("))
+            .map(|(body, _)| body)
+            .expect("pre-Deferred screen runtime configuration");
+        assert!(
+            !runtime_configure.contains("shadows::")
+                && !runtime_configure.contains("native_shadows"),
+            "runtime::configure must not indirectly publish Shadows"
+        );
 
         let deferred = source
             .split_once("fn install_deferred_hooks_once()")
@@ -294,11 +417,14 @@ mod deferred_install_tests {
             .expect("DeferredInit installation body");
         assert!(deferred.contains("fnv_world_pipeline::publish_config(menu_config)"));
         assert!(deferred.contains("pbr::install(settings.native_pbr)"));
+        let shadow_config = deferred
+            .find("config::load_native_shadows_config_from_disk()")
+            .expect("deferred shadow config load");
         let engine = deferred
             .find("hooks::install_engine_hooks()")
             .expect("engine lifecycle hooks");
         let shadows = deferred
-            .find("shadows::install(settings.native_shadows)")
+            .find("shadows::install(native_shadows)")
             .expect("shadow route admission");
         let common = deferred
             .find("fnv_local_lights::install_hooks()")
@@ -306,7 +432,7 @@ mod deferred_install_tests {
         let scene = deferred
             .find("fnv_render::install_scene_boundary_hook()")
             .expect("scene consumer hook residency");
-        assert!(engine < shadows && shadows < common && common < scene);
+        assert!(shadow_config < engine && engine < shadows && shadows < common && common < scene);
     }
 
     #[test]

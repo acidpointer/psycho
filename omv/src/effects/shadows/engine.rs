@@ -76,6 +76,12 @@ impl NativeLayout {
     pub(super) const PLAYER_SINGLETON_PTR: usize = 0x011D_EA3C;
     /// Process global containing the active `NiDX9Renderer*`.
     pub(super) const NIDX9_RENDERER_SINGLETON_PTR: usize = 0x011C_73B4;
+    /// Process global containing the active `WorldSceneGraph*`.
+    pub(super) const WORLD_SCENE_GRAPH_PTR: usize = 0x011D_EB7C;
+    /// Runtime `fDefaultWorldFOV` setting used by NVR cascade compensation.
+    pub(super) const DEFAULT_WORLD_FOV: usize = 0x0120_3160;
+    /// `SceneGraph::cameraFOV` in degrees.
+    pub(super) const SCENE_GRAPH_CAMERA_FOV: usize = 0xBC;
     /// `NiDX9Renderer::renderState`.
     pub(super) const NIDX9_RENDERER_RENDER_STATE: usize = 0x8B8;
     /// `NiDX9RenderState::m_auiCullModeMapping[4][2]`.
@@ -132,6 +138,14 @@ impl NativeLayout {
     pub(super) const NI_GEOMETRY_SKIN: usize = 0xBC;
     /// `NiGeometry::shader`.
     pub(super) const NI_GEOMETRY_SHADER: usize = 0xC0;
+    /// `NiMaterialProperty::fAlpha` (`+0x40` is emission multiplier).
+    pub(super) const NI_MATERIAL_ALPHA: usize = 0x3C;
+    /// `BSDismemberSkinInstance::partitionNumber`.
+    pub(super) const DISMEMBER_PARTITION_COUNT: usize = 0x34;
+    /// `BSDismemberSkinInstance::partitions`.
+    pub(super) const DISMEMBER_PARTITIONS: usize = 0x38;
+    /// `BSDismemberSkinInstance::IsRenderable`.
+    pub(super) const DISMEMBER_RENDERABLE: usize = 0x3C;
     /// `NiGeometry::propertyState.m_spAlphaProperty`.
     pub(super) const NI_PROPERTY_ALPHA: usize = 0x9C;
     /// `NiGeometry::propertyState.m_spMaterialProperty`.

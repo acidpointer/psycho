@@ -35,6 +35,7 @@ use libpsycho::os::windows::directx9::{
 use crate::{
     backend::{AtmosphereFrame, DepthTexture},
     config::{AtmosphereQuality, VolumetricFogConfig, VolumetricLightingConfig},
+    effects::shadows,
     shaders::{self, ScreenShaderSource},
 };
 use parking_lot::Mutex;
@@ -2356,7 +2357,8 @@ fn resolve_directional_light(frame: AtmosphereFrame) -> Option<DirectionalLight>
     if !sky.is_exterior || !sky.daylight.is_finite() || sky.daylight <= 0.001 {
         return None;
     }
-    let length = dot3(sky.sun_direction, sky.sun_direction).sqrt();
+    let sun_direction = shadows::directional_sun_direction(sky.sun_direction);
+    let length = dot3(sun_direction, sun_direction).sqrt();
     if !length.is_finite() || !(0.99..=1.01).contains(&length) {
         return None;
     }
@@ -2367,12 +2369,12 @@ fn resolve_directional_light(frame: AtmosphereFrame) -> Option<DirectionalLight>
         (linear_disk[1] - linear_color[1]).max(0.0),
         (linear_disk[2] - linear_color[2]).max(0.0),
     ];
-    let projection = project_sun_from_captured_camera(frame.camera, sky.sun_direction);
+    let projection = project_sun_from_captured_camera(frame.camera, sun_direction);
     if projection.facing <= 0.001 || !projection.on_screen || projection.edge_fade <= 0.0 {
         return None;
     }
     Some(DirectionalLight {
-        world_direction: sky.sun_direction,
+        world_direction: sun_direction,
         linear_color,
         linear_disk_delta,
         daylight: sky.daylight.clamp(0.0, 1.0) * projection.edge_fade,

@@ -5,6 +5,23 @@
 //! adaptive display response stay in top-level graphics configuration, so
 //! applying a shareable preset cannot silently change them. Every untrusted
 //! float is sanitized before it reaches runtime constants or a saved document.
+//!
+//! # Startup-sensitive ownership
+//!
+//! [`PsychoGraphicsConfig`], [`GraphicsConfig`], and [`GraphicsMenuConfig`] are
+//! constructed and copied from `NVSEPlugin_Load`. Their Rust layouts are part
+//! of OMV's frozen pre-Deferred compatibility footprint, not ordinary structs
+//! that can be widened whenever a new effect needs controls. The rejected
+//! Shadows startup path proved that even plain config fields plus atomic-only
+//! publication can perturb the known BaseObjectSwapper fault before any OMV
+//! render hook executes.
+//!
+//! Deferred engine features must keep their persisted TOML table but must not
+//! become fields of these startup-owned types. Give the feature a detached
+//! config type and a focused loader called from `DeferredInit`; expose a
+//! coherent post-Deferred snapshot to ImGui and the persistence worker. Native
+//! Shadows is the reference implementation. Never solve this constraint by
+//! removing the table, controls, or feature.
 
 use std::sync::OnceLock;
 use std::{fs, path::Path};
@@ -29,6 +46,10 @@ pub(crate) const CONFIG_SCHEMA_VERSION: u32 = 1;
 
 static CONFIG: OnceLock<PsychoGraphicsConfig> = OnceLock::new();
 
+/// Frozen typed configuration loaded during `NVSEPlugin_Load`.
+///
+/// Adding a nested deferred-feature value here changes the startup value graph
+/// transitively. Such features require an isolated DeferredInit loader instead.
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(default)]
 pub(crate) struct PsychoGraphicsConfig {
@@ -47,12 +68,15 @@ impl Default for PsychoGraphicsConfig {
     }
 }
 
+/// Frozen graphics portion of the plugin-load configuration graph.
+///
+/// Do not add route-specific settings whose operational lifetime begins at
+/// DeferredInit. Unknown durable TOML tables may remain on disk and are
+/// handled by their deferred owner, as `[graphics.native_shadows]` is.
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(default)]
 pub(crate) struct GraphicsConfig {
     pub(crate) screen_space_shaders: bool,
-    /// Machine/session native shadow ownership; intentionally not preset-owned.
-    pub(crate) native_shadows: NativeShadowsConfig,
     pub(crate) native_pbr: NativePbrConfig,
     pub(crate) native_sky: NativeSkyConfig,
     pub(crate) embedded_effects: EmbeddedEffectsConfig,
@@ -69,7 +93,6 @@ impl Default for GraphicsConfig {
     fn default() -> Self {
         Self {
             screen_space_shaders: true,
-            native_shadows: NativeShadowsConfig::default(),
             native_pbr: NativePbrConfig::default(),
             native_sky: NativeSkyConfig::default(),
             embedded_effects: EmbeddedEffectsConfig::default(),
@@ -86,6 +109,10 @@ impl Default for GraphicsConfig {
 /// Defaults reproduce modern NVR's custom/high profile. The bounded controls
 /// expose appearance and the expensive coverage dimensions without allowing
 /// invalid resource sizes or shader permutations into the render path.
+/// This type is deliberately detached from [`GraphicsConfig`] and
+/// [`GraphicsMenuConfig`]. Keep it that way: the table is loaded at
+/// DeferredInit and later exchanged through the shadow module's coherent
+/// atomics so adding controls cannot widen the plugin-load value graph.
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
 #[serde(default)]
 pub(crate) struct NativeShadowsConfig {
@@ -105,7 +132,9 @@ pub(crate) struct NativeShadowsConfig {
     pub(crate) contact_shadows: bool,
     /// Maximum reconstructed view depth evaluated by contact shadows.
     pub(crate) contact_distance: f32,
-    /// Compatibility value mapped to contact-transition contrast.
+    /// World-space length of the screen-depth ray used for contact evidence.
+    ///
+    /// The persisted field name is retained for schema-one compatibility.
     pub(crate) contact_ray_distance: f32,
     /// Maximum darkness applied to interior point-light illumination.
     pub(crate) interior_darkness: f32,
@@ -1305,6 +1334,67 @@ pub(crate) fn load_menu_config_from_disk() -> Result<GraphicsMenuConfig> {
     Ok(GraphicsMenuConfig::from(&config))
 }
 
+/// Load the Shadows table without adding it to the plugin-load config graph.
+///
+/// Callers must run at or after `DeferredInit`, or on an already-established
+/// persistence worker. Keeping this parser separate is a startup-safety
+/// requirement: BaseObjectSwapper is sensitive to otherwise harmless changes
+/// in OMV's values and publications while xNVSE is still loading plugin data.
+pub(crate) fn load_native_shadows_config_from_disk() -> Result<NativeShadowsConfig> {
+    let content = match fs::read_to_string(CONFIG_PATH) {
+        Ok(content) => content,
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
+            match fs::read_to_string(DEFAULT_CONFIG_PATH) {
+                Ok(content) => content,
+                Err(default_err) if default_err.kind() == std::io::ErrorKind::NotFound => {
+                    include_str!("../config/omv.toml").to_owned()
+                }
+                Err(default_err) => {
+                    return Err(default_err)
+                        .with_context(|| format!("failed to read {DEFAULT_CONFIG_PATH}"));
+                }
+            }
+        }
+        Err(err) => {
+            return Err(err).with_context(|| format!("failed to read {CONFIG_PATH}"));
+        }
+    };
+    parse_native_shadows_config(&content)
+}
+
+fn parse_native_shadows_config(content: &str) -> Result<NativeShadowsConfig> {
+    let value = content
+        .parse::<toml::Value>()
+        .context("configuration is not valid TOML")?;
+    let declared_version = value
+        .get("config_schema_version")
+        .and_then(toml::Value::as_integer)
+        .unwrap_or(0);
+    if declared_version < 0 {
+        anyhow::bail!("config_schema_version cannot be negative");
+    }
+    let declared_version = declared_version as u32;
+    match declared_version {
+        0 | CONFIG_SCHEMA_VERSION => {}
+        version if version > CONFIG_SCHEMA_VERSION => anyhow::bail!(
+            "configuration schema {version} is newer than supported schema {CONFIG_SCHEMA_VERSION}"
+        ),
+        version => anyhow::bail!("configuration schema {version} has no registered migration"),
+    }
+
+    let Some(shadows) = value
+        .get("graphics")
+        .and_then(|graphics| graphics.get("native_shadows"))
+    else {
+        return Ok(NativeShadowsConfig::default());
+    };
+    shadows
+        .clone()
+        .try_into::<NativeShadowsConfig>()
+        .map(NativeShadowsConfig::sanitized)
+        .context("graphics.native_shadows does not match schema one")
+}
+
 fn load_startup_config() -> PsychoGraphicsConfig {
     load_working_config().unwrap_or_else(|err| {
         log::error!("[CONFIG] Could not load OMV configuration: {err:#}");
@@ -1362,10 +1452,15 @@ fn parse_versioned_config(content: &str) -> Result<PsychoGraphicsConfig> {
         .context("configuration does not match its declared schema")
 }
 
+/// Frozen menu/settings handoff created during `NVSEPlugin_Load`.
+///
+/// Do not add state for a deferred engine route here. This value is embedded
+/// in `RuntimeSettings`, the live runtime owner, and Current Look messages, so
+/// one field widens several pre-Deferred allocations and copies. Deferred
+/// features must provide their menu with a separate post-Deferred snapshot.
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct GraphicsMenuConfig {
     pub(crate) screen_space_shaders: bool,
-    pub(crate) native_shadows: NativeShadowsConfig,
     pub(crate) native_pbr: NativePbrConfig,
     pub(crate) native_sky: NativeSkyConfig,
     pub(crate) embedded_effects: EmbeddedEffectsConfig,
@@ -1386,7 +1481,6 @@ impl Default for GraphicsMenuConfig {
         let diagnostics = DiagnosticsConfig::default();
         Self {
             screen_space_shaders: graphics.screen_space_shaders,
-            native_shadows: graphics.native_shadows,
             native_pbr: graphics.native_pbr,
             native_sky: graphics.native_sky,
             embedded_effects: graphics.embedded_effects,
@@ -1404,7 +1498,6 @@ impl From<&PsychoGraphicsConfig> for GraphicsMenuConfig {
     fn from(value: &PsychoGraphicsConfig) -> Self {
         Self {
             screen_space_shaders: value.graphics.screen_space_shaders,
-            native_shadows: value.graphics.native_shadows.sanitized(),
             native_pbr: value.graphics.native_pbr.sanitized(),
             native_sky: value.graphics.native_sky,
             embedded_effects: value.graphics.embedded_effects.sanitized(),
@@ -1496,7 +1589,9 @@ pub(crate) fn save_menu_config(config: &GraphicsMenuConfig) -> Result<()> {
     doc["graphics"]["depth_provider"] = value(config.depth_provider.config_value());
     save_adaptive_tone_config(&mut doc, &config.adaptive_tone);
     save_embedded_effect_config(&mut doc, &config.embedded_effects);
-    save_native_shadows_config(&mut doc, &config.native_shadows);
+    // The render-thread value graph deliberately excludes Shadows. The
+    // persistence worker reads its coherent post-Deferred atomic snapshot.
+    save_native_shadows_config(&mut doc, &crate::effects::shadows::runtime_config());
     save_native_sky_config(&mut doc, &config.native_sky);
     doc["graphics"]["native_pbr"]["enabled"] = value(config.native_pbr.enabled);
     if let Some(native_pbr) = doc["graphics"]["native_pbr"].as_table_mut() {
@@ -1916,10 +2011,10 @@ mod tests {
         AdaptiveToneConfig, AtmosphereQuality, BloomingHdrConfig, ColorGradeConfig,
         DiagnosticsConfig, EmbeddedEffectsConfig, GraphicsMenuConfig, MotionBlurConfig,
         MotionBlurQuality, NativePbrConfig, NativeShadowsConfig, PsychoGraphicsConfig,
-        ToneMapperMode, VolumetricFogConfig, VolumetricLightingConfig, parse_versioned_config,
-        sanitize_frame_pacing_update_interval_ms, save_adaptive_tone_config,
-        save_color_grade_config, save_diagnostics_config, save_embedded_effect_config,
-        save_native_shadows_config,
+        ToneMapperMode, VolumetricFogConfig, VolumetricLightingConfig, parse_native_shadows_config,
+        parse_versioned_config, sanitize_frame_pacing_update_interval_ms,
+        save_adaptive_tone_config, save_color_grade_config, save_diagnostics_config,
+        save_embedded_effect_config, save_native_shadows_config,
     };
     use toml_edit::DocumentMut;
 
@@ -1963,10 +2058,11 @@ mod tests {
         assert_eq!(defaults.interior_light_draw_distance, 8_000.0);
         assert_eq!(defaults.interior_receiver_bias, 0.018);
 
-        let legacy: PsychoGraphicsConfig =
-            toml::from_str("config_schema_version = 1\n[graphics]\nscreen_space_shaders = true\n")
-                .expect("schema-one config without shadows table");
-        assert_eq!(legacy.graphics.native_shadows, defaults);
+        let legacy = parse_native_shadows_config(
+            "config_schema_version = 1\n[graphics]\nscreen_space_shaders = true\n",
+        )
+        .expect("schema-one config without shadows table");
+        assert_eq!(legacy, defaults);
 
         let expected = NativeShadowsConfig {
             enabled: true,
@@ -2002,18 +2098,26 @@ mod tests {
             );
         }
         assert_eq!(table.len(), 14);
-        let decoded: PsychoGraphicsConfig =
-            toml::from_str(&document.to_string()).expect("saved working config");
-        assert_eq!(decoded.graphics.native_shadows, expected);
+        let decoded = parse_native_shadows_config(&document.to_string())
+            .expect("saved deferred shadow config");
+        assert_eq!(decoded, expected);
 
+        let startup: PsychoGraphicsConfig = toml::from_str(&document.to_string())
+            .expect("shadow table is ignored by startup config");
         let embedded =
-            toml::to_string(&decoded.graphics.embedded_effects).expect("frozen preset payload");
+            toml::to_string(&startup.graphics.embedded_effects).expect("frozen preset payload");
         assert!(!embedded.contains("native_shadows"));
         assert!(!embedded.contains("exterior_enabled"));
         assert!(!embedded.contains("interior_enabled"));
-        let shipped: PsychoGraphicsConfig =
-            toml::from_str(include_str!("../config/omv.toml")).expect("shipped OMV config");
-        assert_eq!(shipped.graphics.native_shadows, defaults);
+        let shipped = parse_native_shadows_config(include_str!("../config/omv.toml"))
+            .expect("shipped shadow config");
+        assert_eq!(shipped, defaults);
+
+        let future = parse_native_shadows_config(
+            "config_schema_version = 999\n[graphics.native_shadows]\nenabled = true\n",
+        )
+        .expect_err("future shadow schema must fail closed");
+        assert!(future.to_string().contains("newer"));
 
         let sanitized = NativeShadowsConfig {
             exterior_darkness: f32::NAN,
@@ -2041,6 +2145,19 @@ mod tests {
         assert_eq!(
             sanitized.interior_receiver_bias,
             defaults.interior_receiver_bias
+        );
+    }
+
+    #[test]
+    fn native_shadows_do_not_enter_the_startup_config_value_graph() {
+        let startup = parse_versioned_config(
+            "config_schema_version = 1\n[graphics.native_shadows]\nenabled = false\n",
+        )
+        .expect("schema-one startup config");
+        let staged = toml::to_string(&startup).expect("serialized startup value graph");
+        assert!(
+            !staged.contains("native_shadows"),
+            "shadow config must be owned by the deferred loader, not the startup graph"
         );
     }
 

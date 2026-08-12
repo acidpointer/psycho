@@ -4,6 +4,7 @@ float4 DepthLinearizeData : register(c1);
 float4 CameraFrustum : register(c2);
 float4 ContactControl : register(c6); // x reversed, y max depth, z ray distance, w thickness
 float4 ViewLightDirection : register(c7);
+float4 ContactSampleOffsets : register(c8);
 sampler2D SceneDepth : register(s0);
 
 static const float DepthEndpointEpsilon = 1.0f / 65536.0f;
@@ -56,8 +57,9 @@ float4 Main(PixelInput input) : COLOR0 {
     float3 center = ViewPosition(input.uv, rawCenterDepth);
     if (center.z <= 0.0f || center.z >= ContactControl.y) return float4(1.0f, 0.0f, 0.0f, 1.0f);
 
-    // Four stratified tests retain NVR's five-step screen-space contract (its
-    // source loop emits four actual samples). Fixed positions are deliberate:
+    // Four deterministic tests retain NVR's five-step screen-space contract
+    // (its paired source loop emits cumulative positions 1, 3, 6, and 10).
+    // Fixed positions are deliberate:
     // screen-anchored noise moves across world surfaces with camera motion and
     // made contact shadows visibly blink on walls.
     // NVR scales ray length by the camera depth range, not by the user-facing
@@ -67,17 +69,18 @@ float4 Main(PixelInput input) : COLOR0 {
     float rayScale = pow(max(normalizedDepth, 0.0001f), 0.6f);
     float3 stepVector = normalize(ViewLightDirection.xyz) *
         (ContactControl.z / 5.0f) * rayScale;
-    float thickness = max(0.05f, ContactControl.w * rayScale);
-
     float occlusion = 0.0f;
     float weight = 0.0f;
     // Keep one bounded shader loop instead of four compiler-inlined projection
-    // bodies. The fixed trip count is cheaper in SM3 bytecode and still makes
-    // the exact four NVR-equivalent depth comparisons observable.
+    // bodies. The native upload owns the exact cumulative positions so the
+    // contract can be validated without HLSL source-text assertions.
     [loop]
-    for (int sampleIndex = 1; sampleIndex <= 4; ++sampleIndex) {
-        float sampleWeight = rcp((float)sampleIndex);
-        occlusion += ContactSample(center + stepVector * sampleIndex, thickness) * sampleWeight;
+    for (int sampleIndex = 0; sampleIndex < 4; ++sampleIndex) {
+        float sampleOffset = sampleIndex == 0 ? ContactSampleOffsets.x
+            : (sampleIndex == 1 ? ContactSampleOffsets.y
+            : (sampleIndex == 2 ? ContactSampleOffsets.z : ContactSampleOffsets.w));
+        float sampleWeight = rcp(sampleOffset);
+        occlusion += ContactSample(center + stepVector * sampleOffset, ContactControl.w) * sampleWeight;
         weight += sampleWeight;
     }
     float visibility = 1.0f - pow(saturate(occlusion / weight), 0.3f);

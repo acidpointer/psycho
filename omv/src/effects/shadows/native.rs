@@ -11,10 +11,11 @@ use libpsycho::os::windows::memory::validate_memory_range;
 
 use super::{
     contract::{
-        NVR_POINT_LIGHT_COUNT, SceneKind, directional_form_type_is_enabled,
-        point_light_influence_is_eligible,
+        ALL_CUBE_FACES, NVR_POINT_LIGHT_COUNT, SceneKind, directional_form_type_is_enabled,
+        point_light_influence_is_eligible, sphere_intersects_cube_face,
     },
     engine::NativeLayout,
+    math::{CascadeProjection, Sphere, dynamic_caster_cascade_mask},
 };
 
 const SHADOW_SCENE_MANAGER_GETTER_ADDR: usize = 0x0045_0B80;
@@ -59,6 +60,13 @@ const CARRIED_LIGHT_RADIUS: f32 = 256.0;
 
 type ShadowSceneManagerGetter = unsafe extern "cdecl" fn(i32) -> *mut u8;
 
+#[repr(C)]
+#[derive(Clone, Copy)]
+struct NativeBound {
+    center: [f32; 3],
+    radius: f32,
+}
+
 /// Native scene ownership recovered at the common shadow entry.
 #[derive(Clone, Copy, Debug)]
 pub(super) struct NativeScene {
@@ -102,6 +110,53 @@ impl DirectionalRoot {
                 .form_type
                 .is_none_or(|form_type| directional_form_type_is_enabled(cascade, form_type))
     }
+
+    /// Return whether pose/skinning changes can alter this root every frame.
+    pub(super) fn is_dynamic_actor(self) -> bool {
+        matches!(self.form_type, Some(0x2A..=0x2C))
+    }
+}
+
+/// Return gameplay maps containing actor bounds whose pose can change now.
+///
+/// Root bounds are engine-owned and read only during the serialized common
+/// shadow call. Invalid actor bounds conservatively invalidate all three NVR
+/// actor-capable maps; retaining an unknown animated silhouette is worse than
+/// the exceptional extra work.
+///
+/// # Safety
+///
+/// Every root must come from [`collect_directional_roots`] in the current
+/// common-shadow invocation.
+pub(super) unsafe fn directional_dynamic_cascade_mask(
+    roots: &[DirectionalRoot],
+    projections: [CascadeProjection; 4],
+    camera_translation: [f32; 3],
+) -> u8 {
+    let mut mask = 0_u8;
+    for root in roots.iter().copied().filter(|root| root.is_dynamic_actor()) {
+        let bound = unsafe {
+            read::<*mut NativeBound>(root.node(), NativeLayout::NI_AV_OBJECT_WORLD_BOUND)
+        };
+        if bound.is_null() {
+            return 0b0111;
+        }
+        let bound = unsafe { read_unaligned(bound) };
+        if !bound.center.into_iter().all(f32::is_finite)
+            || !bound.radius.is_finite()
+            || bound.radius < 0.0
+        {
+            return 0b0111;
+        }
+        mask |= dynamic_caster_cascade_mask(
+            projections,
+            Sphere {
+                center: std::array::from_fn(|axis| bound.center[axis] - camera_translation[axis]),
+                radius: bound.radius,
+            },
+        );
+    }
+    mask
 }
 
 /// Scalar and borrowed geometry ownership for one selected point light.
@@ -258,6 +313,35 @@ pub(super) unsafe fn current_scene() -> Option<NativeScene> {
     })
 }
 
+/// Read modern NVR's zoom compensation for a directional cascade sphere.
+///
+/// The engine exposes the live vertical FOV on `WorldSceneGraph` and retains
+/// the user's default world FOV in a process setting. NVR expands a zoomed
+/// cascade by the tangent ratio so aiming cannot crop or rescale its shadow
+/// coverage. Values which would shrink or unreasonably expand a map are
+/// clamped; missing runtime owners select neutral compensation.
+///
+/// # Safety
+///
+/// The world scene graph must be live in the serialized common-shadow epoch.
+pub(super) unsafe fn directional_fov_compensation() -> f32 {
+    let Some(scene_graph) = (unsafe { read_global_ptr(NativeLayout::WORLD_SCENE_GRAPH_PTR) })
+    else {
+        return 1.0;
+    };
+    let default_fov = unsafe { read_unaligned(NativeLayout::DEFAULT_WORLD_FOV as *const f32) };
+    let current_fov = unsafe { read::<f32>(scene_graph, NativeLayout::SCENE_GRAPH_CAMERA_FOV) };
+    if !default_fov.is_finite()
+        || !current_fov.is_finite()
+        || !(1.0..179.0).contains(&default_fov)
+        || !(1.0..179.0).contains(&current_fov)
+    {
+        return 1.0;
+    }
+    let ratio = (default_fov.to_radians() * 0.5).tan() / (current_fov.to_radians() * 0.5).tan();
+    ratio.clamp(1.0, 4.0)
+}
+
 /// Select up to twelve cube lights and twelve tracked fallback lights.
 ///
 /// Equal-distance candidates use native pointer identity as a deterministic
@@ -331,6 +415,51 @@ pub(super) unsafe fn visit_point_geometry(
         visited += 1;
     }
     visited
+}
+
+/// Return the cube faces containing skinned caster state that follows frames.
+///
+/// Modern NVR regenerates every selected cube every frame. OMV can safely
+/// retain faces containing no skinned geometry. Bounds conservatively select
+/// every 90-degree face touched by an actor; the cache unions this result with
+/// the preceding frame so crossing an edge also clears the actor's old face.
+/// A missing list or invalid actor bound selects all faces because the point
+/// renderer then falls back to complete cell roots, which include actors.
+///
+/// # Safety
+///
+/// `light` must come from [`select_point_lights`] in the current serialized
+/// common-shadow invocation.
+pub(super) unsafe fn point_light_dynamic_face_mask(light: &PointLight) -> u8 {
+    let mut faces = 0_u8;
+    let visited = unsafe {
+        visit_point_geometry(light, |geometry| {
+            if !read::<*mut u8>(geometry, NativeLayout::NI_GEOMETRY_SKIN).is_null() {
+                let bound =
+                    read::<*mut NativeBound>(geometry, NativeLayout::NI_AV_OBJECT_WORLD_BOUND);
+                if bound.is_null() {
+                    faces = ALL_CUBE_FACES;
+                    return;
+                }
+                let bound = read_unaligned(bound);
+                if !bound.center.into_iter().all(f32::is_finite)
+                    || !bound.radius.is_finite()
+                    || bound.radius < 0.0
+                {
+                    faces = ALL_CUBE_FACES;
+                    return;
+                }
+                let center_from_light =
+                    std::array::from_fn(|axis| bound.center[axis] - light.position[axis]);
+                for face in 0..6 {
+                    if sphere_intersects_cube_face(center_from_light, bound.radius, face) {
+                        faces |= 1 << face;
+                    }
+                }
+            }
+        })
+    };
+    if visited == 0 { ALL_CUBE_FACES } else { faces }
 }
 
 /// Visit current-cell roots when a native point light has no geometry list.

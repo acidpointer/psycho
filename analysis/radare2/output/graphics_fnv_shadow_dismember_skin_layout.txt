@@ -1,0 +1,59 @@
+FalloutNV.exe shadow actor layout evidence
+===========================================
+
+Binary
+------
+
+Path: /data/storage1/Workspace/psycho/fnv_reverse/FalloutNV.exe
+SHA-256: 42fee7d6cd74e801372aa89c8f71c974cebd3c20ec9ad43d1465b8fa9646b49c
+Format: PE32 x86
+Research date: 2026-08-12
+
+Question
+--------
+
+Which fields extend the 0x34-byte NiSkinInstance in
+BSDismemberSkinInstance, and which offsets may the shadow actor renderer read?
+
+radare2 evidence
+----------------
+
+An xref query for the BSDismemberSkinInstance RTTI identity 0x011F49D8 leads
+to fcn.00e718a0. At 0x00E7196B the function compares the runtime RTTI against
+0x011F49D8. On the matching branch, 0x00E7197B reads dword [ecx + 0x38]. This
+is the dismember-partition array pointer.
+
+fcn.00b63f10 independently recovers a NiGeometry skin instance from
+NiGeometry+0xBC. After the same RTTI comparison at 0x00B63F2C, 0x00B63F33
+compares byte [ebx + 0x3C] with zero. This is the renderable byte.
+
+fcn.00a6cac0 exposes all three extension fields together:
+
+- 0x00A6CB1B reads dword [edi + 0x34] as "Num Partitions";
+- 0x00A6CB57 reads byte [edi + 0x3C] as "Visible";
+- 0x00A6CBA3 reads dword [edi + 0x38], then indexes four-byte partition
+  records whose byte zero is Enabled and byte one is the cap/state marker.
+
+Derived contract
+----------------
+
+BSDismemberSkinInstance extends NiSkinInstance as follows:
+
+- +0x34: u32 partition count;
+- +0x38: DismemberPartition*;
+- +0x3C: u8 IsRenderable;
+- DismemberPartition is four bytes: Enabled at +0, cap/state at +1, body-part
+  u16 at +2.
+
+The previous OMV shadow renderer used +0x34 as the pointer and +0x38 as the
+renderable byte. That interpretation is directly rejected by all three engine
+paths above: it treats a small count as an address and a pointer byte as a
+boolean, corrupting or omitting skinned actor partitions.
+
+Corroborating NVR source
+------------------------
+
+.research/TESReloaded10-master/src/NewVegas/nvse/GameNi.h defines the same
+0x34/0x38/0x3C layout and four-byte DismemberPartition. Its shadow renderer in
+.research/TESReloaded10-master/src/core/RenderPass.cpp reads partitions and
+IsRenderable through those typed fields before drawing skin partitions.

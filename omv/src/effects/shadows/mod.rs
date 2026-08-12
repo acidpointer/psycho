@@ -4,6 +4,19 @@
 //! exterior and an interior admission bit. Generation remains attached to the
 //! engine's common shadow epoch, while consumption occurs after opaque depth
 //! and before native alpha/atmosphere. No engine pointer crosses that boundary.
+//!
+//! # Startup ownership
+//!
+//! All settings atomics in this module deliberately remain zero/unpublished
+//! throughout `NVSEPlugin_Load`. Do not call [`configure_runtime_options`],
+//! force `PIPELINE`, or start shader preparation from plugin-load config or
+//! `ScreenShaderRuntime::configure`, even though the atomic publisher itself
+//! is pointer-free and lock-free. The rejected early Shadows publication
+//! changed OMV's pre-Deferred footprint and reproduced the known
+//! BaseObjectSwapper crash. [`install`] is the first legal publisher and is
+//! called only from the DeferredInit installer. Later ImGui and Current Look
+//! operations may update the same passive atomics because the deferred route
+//! and worker topology already exist by then.
 
 use core::ffi::c_void;
 use std::sync::{
@@ -24,6 +37,9 @@ mod shaders;
 
 #[cfg(test)]
 mod contract_tests;
+
+#[cfg(test)]
+mod reference_tests;
 
 #[cfg(test)]
 mod shader_tests;
@@ -71,17 +87,22 @@ pub(crate) struct NativeShadowsSettings {
     pub(crate) contact_shadows: bool,
     /// Maximum depth covered by contact shadows.
     pub(crate) contact_distance: f32,
-    /// Compatibility control mapped to stable contact contrast.
+    /// World-space length of the screen-depth contact ray.
+    ///
+    /// The field name remains schema-one compatibility data.
     pub(crate) contact_ray_distance: f32,
     /// Maximum interior darkness.
     pub(crate) interior_darkness: f32,
-    /// Number of point lights receiving cube maps.
+    /// Bounded local-light cube budget in either active location branch.
+    ///
+    /// The field name is schema-one compatibility data; exterior Pip-Boy and
+    /// practical lights use the same replacement budget.
     pub(crate) interior_shadowed_lights: usize,
-    /// Native point-light radius multiplier.
+    /// Native local-light radius multiplier in either location branch.
     pub(crate) interior_light_radius_multiplier: f32,
-    /// Maximum nearby point-light coverage.
+    /// Maximum nearby local-light coverage in either location branch.
     pub(crate) interior_light_draw_distance: f32,
-    /// Point-shadow radial receiver bias.
+    /// Local-light radial receiver bias.
     pub(crate) interior_receiver_bias: f32,
 }
 
@@ -123,6 +144,27 @@ impl From<crate::config::NativeShadowsConfig> for NativeShadowsSettings {
     }
 }
 
+impl From<NativeShadowsSettings> for crate::config::NativeShadowsConfig {
+    fn from(value: NativeShadowsSettings) -> Self {
+        Self {
+            enabled: value.enabled,
+            exterior_enabled: value.exterior_enabled,
+            interior_enabled: value.interior_enabled,
+            exterior_darkness: value.exterior_darkness,
+            exterior_distance: value.exterior_distance,
+            cascade_split_lambda: value.cascade_split_lambda,
+            contact_shadows: value.contact_shadows,
+            contact_distance: value.contact_distance,
+            contact_ray_distance: value.contact_ray_distance,
+            interior_darkness: value.interior_darkness,
+            interior_shadowed_lights: value.interior_shadowed_lights as i32,
+            interior_light_radius_multiplier: value.interior_light_radius_multiplier,
+            interior_light_draw_distance: value.interior_light_draw_distance,
+            interior_receiver_bias: value.interior_receiver_bias,
+        }
+    }
+}
+
 /// Exclusive next action returned to the common-hook owner.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum CommonEntryOutcome {
@@ -134,11 +176,12 @@ pub(crate) enum CommonEntryOutcome {
     TailOnly,
 }
 
-/// Publish passive settings without touching deferred graphics ownership.
+/// Publish post-Deferred passive settings without touching D3D ownership.
 ///
-/// This function is intentionally safe during `NVSEPlugin_Load`: it performs
-/// a bounded sequence of atomic stores and does not initialize the pipeline
-/// `LazyLock`, inspect the engine, compile shaders, or allocate D3D resources.
+/// The atomic transaction is suitable for menu and persistence-worker edits,
+/// but startup code must not call it before `DeferredInit`. That phase rule is
+/// about the complete OMV load footprint, not merely whether these stores are
+/// individually thread-safe.
 pub(crate) fn configure_runtime_options(settings: NativeShadowsSettings) {
     // A release-published seqlock keeps the render thread's multi-field
     // snapshot coherent without adding a lock to either startup or hooks.
@@ -206,7 +249,7 @@ pub(crate) unsafe fn handle_common_entry() -> CommonEntryOutcome {
     let Some(scene) = (unsafe { native::current_scene() }) else {
         return CommonEntryOutcome::NativePrefix;
     };
-    let settings = current_settings();
+    let settings = current_settings().with_master_enabled(crate::runtime::effects_enabled());
     let bytecode = shaders::prepared_bytecode();
     match settings
         .contract()
@@ -251,11 +294,24 @@ pub(crate) fn needs_scene_hooks() -> bool {
 
 /// Return whether the current passive settings can consume a shadow map.
 pub(crate) fn needs_pre_alpha() -> bool {
-    if !ROUTE_READY.load(Ordering::Acquire) {
+    if !ROUTE_READY.load(Ordering::Acquire) || !crate::runtime::effects_enabled() {
         return false;
     }
     let bits = SETTINGS.load(Ordering::Acquire);
     bits & ENABLED_BIT != 0 && bits & (EXTERIOR_BIT | INTERIOR_BIT) != 0
+}
+
+/// Resolve the sun vector shared by directional shadows and atmosphere.
+///
+/// NVR deliberately stabilizes the sky direction before building cascades.
+/// Downstream shafts and volumetric scattering must use the same vector or
+/// their apparent light source separates from the cast shadow. A busy or
+/// absent shadow publication conservatively retains the native direction.
+pub(crate) fn directional_sun_direction(native: [f32; 3]) -> [f32; 3] {
+    PIPELINE
+        .try_lock()
+        .and_then(|pipeline| pipeline.directional_sun_direction())
+        .unwrap_or(native)
 }
 
 /// Composite the newest compatible shadow publication after opaque geometry.
@@ -266,7 +322,7 @@ pub(crate) fn needs_pre_alpha() -> bool {
 /// pre-alpha boundary. The consumer resolves the matching world depth before
 /// drawing and never falls forward to a later image-space phase.
 pub(crate) unsafe fn apply_before_alpha(device_ptr: *mut c_void) {
-    let settings = current_settings();
+    let settings = current_settings().with_master_enabled(crate::runtime::effects_enabled());
     if !ROUTE_READY.load(Ordering::Acquire) || !settings.enabled {
         return;
     }
@@ -294,34 +350,38 @@ pub(crate) fn reset_runtime_state() -> bool {
     true
 }
 
+fn try_current_settings() -> Option<NativeShadowsSettings> {
+    let before = SETTINGS_REVISION.load(Ordering::Acquire);
+    if before == 0 || before & 1 != 0 {
+        return None;
+    }
+    let bits = SETTINGS.load(Ordering::Relaxed);
+    let settings = NativeShadowsSettings {
+        enabled: bits & ENABLED_BIT != 0,
+        exterior_enabled: bits & EXTERIOR_BIT != 0,
+        interior_enabled: bits & INTERIOR_BIT != 0,
+        exterior_darkness: f32::from_bits(EXTERIOR_DARKNESS.load(Ordering::Relaxed)),
+        exterior_distance: f32::from_bits(EXTERIOR_DISTANCE.load(Ordering::Relaxed)),
+        cascade_split_lambda: f32::from_bits(CASCADE_SPLIT_LAMBDA.load(Ordering::Relaxed)),
+        contact_shadows: bits & CONTACT_BIT != 0,
+        contact_distance: f32::from_bits(CONTACT_DISTANCE.load(Ordering::Relaxed)),
+        contact_ray_distance: f32::from_bits(CONTACT_RAY_DISTANCE.load(Ordering::Relaxed)),
+        interior_darkness: f32::from_bits(INTERIOR_DARKNESS.load(Ordering::Relaxed)),
+        interior_shadowed_lights: INTERIOR_SHADOWED_LIGHTS.load(Ordering::Relaxed) as usize,
+        interior_light_radius_multiplier: f32::from_bits(
+            INTERIOR_LIGHT_RADIUS_MULTIPLIER.load(Ordering::Relaxed),
+        ),
+        interior_light_draw_distance: f32::from_bits(
+            INTERIOR_LIGHT_DRAW_DISTANCE.load(Ordering::Relaxed),
+        ),
+        interior_receiver_bias: f32::from_bits(INTERIOR_RECEIVER_BIAS.load(Ordering::Relaxed)),
+    };
+    (SETTINGS_REVISION.load(Ordering::Acquire) == before).then_some(settings)
+}
+
 fn current_settings() -> NativeShadowsSettings {
     for _ in 0..3 {
-        let before = SETTINGS_REVISION.load(Ordering::Acquire);
-        if before & 1 != 0 {
-            continue;
-        }
-        let bits = SETTINGS.load(Ordering::Relaxed);
-        let settings = NativeShadowsSettings {
-            enabled: bits & ENABLED_BIT != 0,
-            exterior_enabled: bits & EXTERIOR_BIT != 0,
-            interior_enabled: bits & INTERIOR_BIT != 0,
-            exterior_darkness: f32::from_bits(EXTERIOR_DARKNESS.load(Ordering::Relaxed)),
-            exterior_distance: f32::from_bits(EXTERIOR_DISTANCE.load(Ordering::Relaxed)),
-            cascade_split_lambda: f32::from_bits(CASCADE_SPLIT_LAMBDA.load(Ordering::Relaxed)),
-            contact_shadows: bits & CONTACT_BIT != 0,
-            contact_distance: f32::from_bits(CONTACT_DISTANCE.load(Ordering::Relaxed)),
-            contact_ray_distance: f32::from_bits(CONTACT_RAY_DISTANCE.load(Ordering::Relaxed)),
-            interior_darkness: f32::from_bits(INTERIOR_DARKNESS.load(Ordering::Relaxed)),
-            interior_shadowed_lights: INTERIOR_SHADOWED_LIGHTS.load(Ordering::Relaxed) as usize,
-            interior_light_radius_multiplier: f32::from_bits(
-                INTERIOR_LIGHT_RADIUS_MULTIPLIER.load(Ordering::Relaxed),
-            ),
-            interior_light_draw_distance: f32::from_bits(
-                INTERIOR_LIGHT_DRAW_DISTANCE.load(Ordering::Relaxed),
-            ),
-            interior_receiver_bias: f32::from_bits(INTERIOR_RECEIVER_BIAS.load(Ordering::Relaxed)),
-        };
-        if SETTINGS_REVISION.load(Ordering::Acquire) == before {
+        if let Some(settings) = try_current_settings() {
             return settings;
         }
     }
@@ -333,9 +393,29 @@ fn current_settings() -> NativeShadowsSettings {
     })
 }
 
+/// Return a coherent persisted Shadows value for the menu or I/O worker.
+///
+/// Unlike a render hook, these callers must not substitute a disabled value
+/// during a concurrent menu publication because doing so could overwrite the
+/// user's durable settings. The single writer completes a fixed set of atomic
+/// stores, so this brief spin cannot wait on a lock or D3D operation.
+pub(crate) fn runtime_config() -> crate::config::NativeShadowsConfig {
+    if SETTINGS_REVISION.load(Ordering::Acquire) == 0 {
+        return crate::config::NativeShadowsConfig::default();
+    }
+    loop {
+        if let Some(settings) = try_current_settings() {
+            return settings.into();
+        }
+        core::hint::spin_loop();
+    }
+}
+
 #[cfg(test)]
 mod startup_safety_tests {
-    use super::{NativeShadowsSettings, configure_runtime_options, current_settings};
+    use super::{
+        NativeShadowsSettings, configure_runtime_options, current_settings, runtime_config,
+    };
 
     #[test]
     fn menu_values_round_trip_through_the_render_thread_seqlock() {
@@ -358,6 +438,9 @@ mod startup_safety_tests {
 
         configure_runtime_options(expected);
         assert_eq!(current_settings(), expected);
+        assert_eq!(runtime_config(), expected.into());
+        assert!(!current_settings().with_master_enabled(false).enabled);
+        assert_eq!(runtime_config(), expected.into());
 
         // Leave process-global state at the shipped defaults for any later
         // test that exercises the handler rather than this publication unit.
@@ -367,7 +450,7 @@ mod startup_safety_tests {
     }
 
     #[test]
-    fn pre_deferred_configuration_is_atomic_only() {
+    fn passive_configuration_is_atomic_only() {
         let source = include_str!("mod.rs");
         let configure = source
             .split_once("pub(crate) fn configure_runtime_options(")

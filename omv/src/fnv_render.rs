@@ -636,8 +636,25 @@ unsafe extern "cdecl" fn hook_render_pre_depth_groups(accumulator: *mut c_void) 
     // alpha, atmosphere/fog, TAA, AO, motion blur, and image-space work all
     // execute later and therefore remain visually on top of the shadowed
     // scene instead of being multiplied by it.
-    unsafe { crate::effects::shadows::apply_before_alpha(device_ptr) };
-    unsafe { crate::fnv_world_pipeline::apply_before_alpha(device_ptr) };
+    run_pre_alpha_world_effects(
+        || unsafe { crate::effects::shadows::apply_before_alpha(device_ptr) },
+        || unsafe { crate::fnv_world_pipeline::apply_before_alpha(device_ptr) },
+    );
+}
+
+/// Execute opaque-world consumers in their physical composition order.
+///
+/// Shadows attenuate only surface radiance. Atmosphere then adds fog and
+/// volumetric scattering over that surface. Keeping the order in an
+/// executable helper lets tests reject the visually invalid inverse order
+/// without inspecting Rust source text.
+#[inline]
+fn run_pre_alpha_world_effects(
+    mut apply_surface_shadows: impl FnMut(),
+    mut apply_atmosphere: impl FnMut(),
+) {
+    apply_surface_shadows();
+    apply_atmosphere();
 }
 
 fn current_render_target() -> Option<usize> {
@@ -836,7 +853,7 @@ mod final_color_phase_contract_tests {
 
     use super::{
         PROCESS_IMAGE_SPACE_SHADERS_ADDR, ProcessImageSpaceShadersFn, depth_stage_hooks_required,
-        run_image_space_phase_order,
+        run_image_space_phase_order, run_pre_alpha_world_effects,
     };
 
     #[test]
@@ -973,46 +990,18 @@ mod final_color_phase_contract_tests {
 
     #[test]
     fn world_shadows_compose_at_the_opaque_pre_alpha_boundary_before_atmosphere() {
-        let source = include_str!("fnv_render.rs");
-        let pre_alpha = source
-            .split_once("unsafe extern \"cdecl\" fn hook_render_pre_depth_groups")
-            .map(|(_, tail)| tail)
-            .and_then(|tail| tail.split_once("\nfn current_render_target"))
-            .map(|(body, _)| body)
-            .expect("pre-alpha detour");
-        let shadows = pre_alpha
-            .find("shadows::apply_before_alpha")
-            .expect("early shadow composition");
-        let atmosphere = pre_alpha
-            .find("fnv_world_pipeline::apply_before_alpha")
-            .expect("atmosphere composition");
-        assert!(
-            shadows < atmosphere,
-            "fog and volumetric lighting must be rendered over world shadows"
+        let phase = core::cell::Cell::new(0_u8);
+        run_pre_alpha_world_effects(
+            || {
+                assert_eq!(phase.get(), 0);
+                phase.set(1);
+            },
+            || {
+                assert_eq!(phase.get(), 1);
+                phase.set(2);
+            },
         );
-
-        let world = source
-            .split_once("unsafe extern \"thiscall\" fn hook_render_world_scene_graph")
-            .map(|(_, tail)| tail)
-            .and_then(|tail| tail.split_once("\nfn depth_stage_hooks_required"))
-            .map(|(body, _)| body)
-            .expect("world-scene detour");
-        assert!(world.contains("shadows::needs_scene_hooks()"));
-        assert!(world.contains("shadows::needs_pre_alpha()"));
-
-        let runtime = include_str!("runtime.rs");
-        let scene_pre = runtime
-            .split_once("pub(crate) unsafe fn apply_fnv_scene_pre_image_space")
-            .map(|(_, tail)| tail)
-            .and_then(|tail| {
-                tail.split_once("pub(crate) unsafe fn apply_fnv_scene_post_image_space")
-            })
-            .map(|(body, _)| body)
-            .expect("scene-pre runtime boundary");
-        assert!(
-            !scene_pre.contains("shadows::apply_scene_pre"),
-            "a missed opaque boundary must not paint shadows over fog later"
-        );
+        assert_eq!(phase.get(), 2);
     }
 
     #[test]

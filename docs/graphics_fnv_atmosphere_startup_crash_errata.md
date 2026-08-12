@@ -331,15 +331,15 @@ normal gameplay and live Present telemetry without the known `+0x4990` fault.
 Record the tested commit/artifact hashes and logs here only after that runtime
 evidence exists.
 
-## 2026-08-12 native Shadows route awaiting playtest
+## 2026-08-12 native Shadows startup rejection and correction
 
-The native Shadows implementation intentionally changes the final OMV DLL and
-the load-to-Deferred configuration footprint. Commit `9975b2e` remains the
+The initial native Shadows implementation changed the final OMV DLL and the
+load-to-Deferred configuration footprint. Commit `9975b2e` remains the
 last documented load-to-gameplay startup baseline; the concurrent
 adaptive-response work and this shadow route are both later, statically validated deltas
 and are not an accepted startup baseline.
 
-The exact new pre-Deferred footprint is:
+The exact rejected pre-Deferred footprint was:
 
 - `GraphicsConfig` and its menu handoff contain one new
   `NativeShadowsConfig` with master/location toggles and bounded appearance or
@@ -366,6 +366,60 @@ The exact new pre-Deferred footprint is:
 - New D3D9 helpers are COM vtable wrappers and add no intended Windows DLL
   import. No shadow TLS value, destructor, early file scan, early allocation
   worker, hook, or world publication was added.
+
+That atomic-only argument was insufficient. The subsequent Proton run failed
+at BaseObjectSwapper's already-documented uninitialized `ConditionalInput`
+path before OMV logged `[INIT] Deferred OMV graphics hooks initialized`. The
+failure does not prove that an individual shadow atomic store corrupted engine
+state; it rejects the complete changed plugin/data-loading footprint. In
+particular, the larger `GraphicsConfig`, `GraphicsMenuConfig`,
+`RuntimeSettings`, Current Look snapshot/event graph, and
+`DeferredHookSettings` were all constructed or copied before `DeferredInit`.
+
+The surgical correction preserves the entire Shadows implementation and
+restores that ownership boundary:
+
+- `NativeShadowsConfig` and the schema-one `[graphics.native_shadows]` table
+  remain unchanged, including all fourteen controls and their defaults. A
+  dedicated parser reads and sanitizes only this table after xNVSE enters
+  `DeferredInit`; the ordinary plugin-load typed deserializer ignores it.
+- `GraphicsConfig`, `GraphicsMenuConfig`, `RuntimeSettings`, Current Look
+  snapshot/event values, and `DeferredHookSettings` no longer carry shadow
+  state. `NVSEPlugin_Load` neither deserializes shadow settings into that value
+  graph nor calls the shadow atomic publisher. Regression tests enumerate
+  every one of these owners and reject reintroduction of shadow state.
+- Deferred startup loads the table before engine hook installation, then
+  validates the engine contract, initializes the existing lazy pipeline,
+  starts the existing shader preparation, and opens the existing route at the
+  same point immediately before the common hook becomes resident. No shader,
+  resource, quality setting, hook, admission bit, or render ordering was
+  removed or postponed beyond its established deferred boundary.
+- ImGui reads a coherent copy directly from the shadow settings atomics and
+  publishes edits back through the same sequence counter. The graphics master
+  masks only render admission, so disabling it cannot overwrite the persisted
+  per-effect switch. Current Look autosave writes that coherent post-Deferred
+  snapshot on its existing worker; external reload parses and publishes the
+  table on that same worker without changing its pre-Deferred command, event,
+  or snapshot layouts.
+
+This correction is statically bounded but is not a new accepted startup
+baseline. It requires the same cold Proton load-to-gameplay evidence with
+BaseObjectSwapper installed; only a run that reaches the deferred marker can
+exercise any shadow hook or shader path.
+
+The captured crashing worktree artifact was 12,843,405 bytes with SHA-256
+`2f163362698c6a54d608a701e483d851fced448c9219855d05c4b084e0dd238b`.
+The corrected supported release build is 12,822,605 bytes with SHA-256
+`8c5b55dcac328ad5f5f6fc96a2e06f442f285dfd84b7af2e9050645bd4971c`.
+The import table remains `0x340c`, the import-address table remains `0x6bc`,
+the imported DLL/function set is identical, `.tls` remains `0x8` with the same
+`0x18` thread-storage directory, and `.bss` remains `0x6b10`; no shadow owner
+or render resource was removed. Restoring the smaller pre-Deferred value graph
+reduces initialized `.data` from `0x15964` to `0x158c4`. All 571 supported-target
+OMV tests pass, including 78 focused shadow tests and the new startup/config
+negative controls, and the explicit supported release build completes without
+warnings. These facts prove only the intended static correction and artifact
+footprint; they do not replace the required Proton playtest.
 
 An isolated same-toolchain build of source baseline `9975b2e` produced a
 12,432,517-byte DLL with SHA-256
@@ -404,10 +458,13 @@ import, configuration field, load-phase operation, or hook-admission change.
 It therefore does not widen the pre-Deferred call graph, but it is still part
 of the unaccepted combined artifact rather than a new startup baseline.
 
-Source-order tests require the atomic-only load phase, engine-hooks-before-
-shadow-admission ordering, shadow-admission-before-common-hook ordering,
-scene-pre composition before the ordinary screen stack, and resource release
-before native device recreation. The original 2026-08-12 route passed 32
+Source-order tests now require that every pre-Deferred config, menu, runtime,
+persistence, and startup-handoff owner exclude shadow state; that
+`NVSEPlugin_Load` neither loads nor publishes it; and that the isolated parser
+runs at DeferredInit before engine hook installation. Engine hooks must precede
+shadow admission, shadow admission must precede common-hook residency, and
+scene-pre composition must precede the ordinary screen stack; resource release
+must precede native device recreation. The original 2026-08-12 route passed 32
 focused shadow tests and all 519 then-current OMV tests. The corrective pass
 adds strict config round trips/bounds and source-order coverage for the
 multi-field atomic publication. The bounded-producer pass adds exact tests for

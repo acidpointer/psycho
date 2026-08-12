@@ -13,6 +13,18 @@
 //! decision. The UI can reload the files or authorize one overwrite with the
 //! current in-game look. Preset files and `omv-state.toml` are outside this
 //! module's ownership.
+//!
+//! # Startup layout boundary
+//!
+//! `CurrentLookService` is created from `ScreenShaderRuntime::configure`, which
+//! runs during `NVSEPlugin_Load`. Consequently every channel command, event,
+//! and snapshot layout in this module belongs to the pre-Deferred footprint.
+//! Do not embed config for a deferred engine feature in any of them, even if
+//! the worker will use it only later. Native Shadows demonstrates the required
+//! pattern: autosave reads a coherent feature-owned atomic snapshot, and
+//! reload parses and publishes that detached table on this already-existing
+//! worker after the reload transaction succeeds. This preserves the feature
+//! without changing channel capacity, allocation size, or startup ownership.
 
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -42,6 +54,8 @@ const EXTERNAL_CHECK_INTERVAL: Duration = Duration::from_secs(1);
 ///
 /// Capturing clones can allocate, so callers should create snapshots only
 /// after [`AutosaveCoordinator::take_due_save`] accepts a revision.
+/// Do not add detached/deferred engine settings to this struct; query their
+/// post-Deferred owner inside [`save_snapshot`] instead.
 pub(crate) struct CurrentLookSnapshot {
     revision: u64,
     menu_config: GraphicsMenuConfig,
@@ -75,6 +89,10 @@ pub(crate) enum CurrentLookOperation {
 }
 
 /// A non-blocking event produced by the Current Look worker.
+///
+/// This enum's maximum variant size is fixed during `NVSEPlugin_Load`. Do not
+/// add deferred engine settings to a variant; publish them through the
+/// feature's passive post-Deferred state before sending the existing event.
 pub(crate) enum CurrentLookEvent {
     /// The supplied revision is durably published.
     Saved { revision: u64 },
@@ -95,6 +113,10 @@ pub(crate) enum CurrentLookEvent {
     },
 }
 
+/// Frozen bounded-channel payload allocated during `NVSEPlugin_Load`.
+///
+/// A new deferred feature must reuse the established reload/save operations
+/// and its own post-Deferred state instead of widening this enum.
 enum CurrentLookCommand {
     Track(Vec<PathBuf>),
     Save {
@@ -573,8 +595,16 @@ fn reload_snapshot(
 ) -> Result<(GraphicsMenuConfig, Vec<ScreenShaderSource>)> {
     tracked.replace_external_paths(external_config_paths(&sources))?;
     let menu_config = crate::config::load_menu_config_from_disk()?;
+    let native_shadows = crate::config::load_native_shadows_config_from_disk()?;
     shaders::reload_external_shader_configs(&mut sources)?;
     tracked.rebase()?;
+    // Shadow configuration is intentionally absent from the pre-Deferred
+    // Current Look message layout. External reloads already execute on this
+    // post-Deferred worker, so publish the validated table only after every
+    // file in the reload transaction succeeded.
+    crate::effects::shadows::configure_runtime_options(
+        crate::effects::shadows::NativeShadowsSettings::from(native_shadows),
+    );
     Ok((menu_config, sources))
 }
 

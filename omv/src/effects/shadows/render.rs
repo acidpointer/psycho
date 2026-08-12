@@ -21,7 +21,8 @@ use libpsycho::os::windows::directx9::{
 
 use super::{
     contract::{
-        CasterAdmission, CasterPolicy, sphere_intersects_cube_face, sphere_intersects_point_light,
+        CasterAdmission, CasterPolicy, dismember_partition_is_renderable,
+        sphere_intersects_cube_face, sphere_intersects_point_light,
     },
     engine::NativeLayout,
     math::{CascadeProjection, Sphere, camera_relative_world_matrix},
@@ -68,10 +69,6 @@ const SHADER_DEFINITION_INDEX: usize = 0x58;
 const SHADOW_LIGHT_SHADER: u32 = 0x01;
 const PARALLAX_SHADER: u32 = 0x0F;
 const LIGHTING_30_SHADER: u32 = 0x1D;
-// NiMaterialProperty::fAlpha follows fShine at 0x3C. Offset 0x40 is
-// fEmitMult; treating it as opacity silently rejects valid low-emissive
-// casters and diverges from NVR's material admission.
-const MATERIAL_ALPHA: usize = 0x3C;
 const ALPHA_FLAGS: usize = 0x18;
 const STENCIL_FLAGS: usize = 0x18;
 const PPLIGHTING_TEXTURE_ZERO: usize = 0xAC;
@@ -99,9 +96,6 @@ const SKIN_PARTITION_ARRAY: usize = 0x0C;
 const PARTITION_BONES: usize = 0x20;
 const PARTITION_BONE_INDICES: usize = 0x04;
 const PARTITION_BUFFER: usize = 0x28;
-const DISMEMBER_PARTITIONS: usize = 0x34;
-const DISMEMBER_RENDERABLE: usize = 0x38;
-
 const CALCULATE_BONE_MATRICES: usize = 0x00E6_FE30;
 const DRAW_SKINNED_GEOMETRY: usize = 0x00E6_D310;
 // `NiDX9Renderer::CalculateBoneMatrices` subtracts this engine camera origin
@@ -486,7 +480,7 @@ unsafe fn classify_geometry(
     let material_alpha = if material.is_null() {
         1.0
     } else {
-        unsafe { read::<f32>(material, MATERIAL_ALPHA) }
+        unsafe { read::<f32>(material, NativeLayout::NI_MATERIAL_ALPHA) }
     };
     if !material_alpha.is_finite() || material_alpha < 0.05 {
         return None;
@@ -577,7 +571,9 @@ unsafe fn draw_skinned(
         return Ok(());
     }
     let dismember = unsafe { rtti_is_kind_of(skin, BS_DISMEMBER_SKIN_RTTI) };
-    if dismember && unsafe { read::<u8>(skin, DISMEMBER_RENDERABLE) } == 0 {
+    let dismember_renderable =
+        !dismember || unsafe { read::<u8>(skin, NativeLayout::DISMEMBER_RENDERABLE) } != 0;
+    if !dismember_partition_is_renderable(dismember_renderable, None) {
         return Ok(());
     }
     let calculate: CalculateBoneMatrices = unsafe { transmute(CALCULATE_BONE_MATRICES) };
@@ -612,14 +608,20 @@ unsafe fn draw_skinned(
         return Ok(());
     }
     let dismember_entries = if dismember {
-        unsafe { read::<*mut u8>(skin, DISMEMBER_PARTITIONS) }
+        unsafe { read::<*mut u8>(skin, NativeLayout::DISMEMBER_PARTITIONS) }
     } else {
         core::ptr::null_mut()
     };
+    let dismember_count = if dismember {
+        (unsafe { read::<u32>(skin, NativeLayout::DISMEMBER_PARTITION_COUNT) }) as usize
+    } else {
+        0
+    };
     let draw: DrawSkinnedGeometry = unsafe { transmute(DRAW_SKINNED_GEOMETRY) };
     for index in 0..count {
-        if !dismember_entries.is_null() && unsafe { read::<u8>(dismember_entries, index * 4) } == 0
-        {
+        let partition_enabled = (!dismember_entries.is_null() && index < dismember_count)
+            .then(|| unsafe { read::<u8>(dismember_entries, index * 4) } != 0);
+        if !dismember_partition_is_renderable(dismember_renderable, partition_enabled) {
             continue;
         }
         let entry = unsafe { partitions.add(index * NativeLayout::NI_SKIN_PARTITION_ENTRY_SIZE) };
