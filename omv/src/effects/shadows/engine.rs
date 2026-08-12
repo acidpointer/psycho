@@ -74,6 +74,11 @@ impl NativeLayout {
     pub(super) const TES_SINGLETON_PTR: usize = 0x011D_EA10;
     /// Process global containing the `PlayerCharacter*`.
     pub(super) const PLAYER_SINGLETON_PTR: usize = 0x011D_EA3C;
+    /// `PlayerCharacter::firstPersonNiNode`, a separate view-model tree.
+    ///
+    /// The engine does not reliably set NVR's first-person shade bit, so
+    /// caster exclusion must also test ancestry beneath this root.
+    pub(super) const PLAYER_FIRST_PERSON_NODE: usize = 0x694;
     /// Process global containing the active `NiDX9Renderer*`.
     pub(super) const NIDX9_RENDERER_SINGLETON_PTR: usize = 0x011C_73B4;
     /// Process global containing the active `WorldSceneGraph*`.

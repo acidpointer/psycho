@@ -53,6 +53,7 @@ fn executable_identity_and_common_hook_topology_are_exact() {
 fn native_scene_and_geometry_offsets_match_the_proven_32_bit_layouts() {
     assert_eq!(NativeLayout::TES_SINGLETON_PTR, 0x011D_EA10);
     assert_eq!(NativeLayout::PLAYER_SINGLETON_PTR, 0x011D_EA3C);
+    assert_eq!(NativeLayout::PLAYER_FIRST_PERSON_NODE, 0x694);
     assert_eq!(NativeLayout::NIDX9_RENDERER_SINGLETON_PTR, 0x011C_73B4);
     assert_eq!(NativeLayout::TES_GRID_CELL_ARRAY, 0x08);
     assert_eq!(NativeLayout::TES_OBJECT_LOD_ROOT, 0x0C);
@@ -523,7 +524,7 @@ fn every_shadow_distance_uses_nvrs_exact_practical_partition() {
 }
 
 #[test]
-fn receiver_selection_uses_the_cascade_spheres_that_own_cached_maps() {
+fn receiver_selection_chooses_the_smallest_current_slice_and_blends_outward() {
     let spheres = [
         [100.0, 0.0, 0.0, 100.0],
         [300.0, 0.0, 0.0, 240.0],
@@ -568,23 +569,33 @@ fn contact_work_is_half_resolution_and_branch_lazy() {
 #[test]
 fn final_shadow_composition_uses_distinct_directional_and_local_identities() {
     let source = [0.8, 0.6, 0.4];
-    let clear = source_owned_shadow_radiance(source, false, 0.0, 1.0, [1.0; 3], 1.0)
+    let clear = source_owned_shadow_radiance(source, false, 0.0, 1.0, [1.0; 3], [1.0; 3], 1.0)
         .expect("finite clear pixel");
     assert_eq!(clear, source);
-    let receiver = source_owned_shadow_radiance(source, true, 0.5, 0.8, [0.1; 3], 0.5)
+    let receiver = source_owned_shadow_radiance(source, true, 0.5, 0.8, [0.1; 3], [0.1; 3], 0.5)
         .expect("finite receiver");
-    assert_eq!(receiver, [0.43, 0.31, 0.19000001]);
+    assert!((receiver[0] - 0.47).abs() < 1.0e-6);
+    assert!((receiver[1] - 0.35).abs() < 1.0e-6);
+    assert!((receiver[2] - 0.23).abs() < 1.0e-6);
 }
 
 #[test]
 fn interior_composition_subtracts_only_rgb_energy_proven_occluded() {
     let source = [0.8, 0.7, 0.6];
-    let result = source_owned_shadow_radiance(source, true, 1.0, 0.0, [0.4, 0.2, 0.0], 0.5)
-        .expect("finite local-light receiver");
+    let result = source_owned_shadow_radiance(
+        source,
+        true,
+        1.0,
+        0.0,
+        [0.4, 0.2, 0.0],
+        [0.4, 0.2, 0.0],
+        0.5,
+    )
+    .expect("finite local-light receiver");
     assert_eq!(result, [0.6, 0.59999996, 0.6]);
     let emitter = [3.0, 2.0, 1.2];
     assert_eq!(
-        source_owned_shadow_radiance(emitter, true, 0.0, 1.0, [1.0; 3], 1.0),
+        source_owned_shadow_radiance(emitter, true, 0.0, 1.0, [1.0; 3], [1.0; 3], 1.0,),
         Some(emitter)
     );
 }
@@ -1010,8 +1021,12 @@ fn resource_plan_preserves_nvr_evsm_coverage_with_one_reusable_multisample_surfa
     assert_eq!(exterior.cascade_resolution, NVR_CASCADE_RESOLUTION);
     assert_eq!(exterior.cascade_count, CASCADE_COUNT as u32);
     assert_eq!(
-        exterior.directional_texture_count, 3,
-        "the atlas, static-near backing map, and reusable resolve must all be included in the resource contract"
+        exterior.directional_texture_count, 2,
+        "the atlas and reusable generation/actor resolve must both be included in the resource contract"
+    );
+    assert_eq!(
+        exterior.actor_overlay_fullscreen_merge_draws, 0,
+        "animated actors must be sampled as a separate map instead of merging every 2048x2048 texel"
     );
     assert_eq!(exterior.atlas_resolution, NVR_CASCADE_RESOLUTION * 2);
     assert_eq!(
@@ -1036,8 +1051,8 @@ fn resource_plan_preserves_nvr_evsm_coverage_with_one_reusable_multisample_surfa
     assert_eq!(interior.directional_texture_count, 0);
     assert_eq!(interior.point_light_count, NVR_POINT_LIGHT_COUNT as u32);
     assert_eq!(interior.point_cube_resolution, 512);
-    assert_eq!(interior.estimated_bytes, 126_312_448);
-    assert!(interior.estimated_bytes <= 128 * 1024 * 1024);
+    assert_eq!(interior.estimated_bytes, 142_901_248);
+    assert!(interior.estimated_bytes <= 144 * 1024 * 1024);
     assert_eq!(
         interior.combined_estimated_bytes, exterior.combined_estimated_bytes,
         "the retained two-branch peak is independent of the current cell"
@@ -1125,7 +1140,7 @@ fn grazing_directional_receivers_use_nvrs_world_space_normal_offset() {
 }
 
 #[test]
-fn animated_actor_bounds_invalidate_every_intersecting_gameplay_map_but_not_lod() {
+fn animated_actor_bounds_invalidate_only_their_receiver_cascade_and_blend_neighbor() {
     let camera = ShadowCamera {
         near: 5.0,
         far: 28_000.0,
@@ -1149,8 +1164,17 @@ fn animated_actor_bounds_invalidate_every_intersecting_gameplay_map_but_not_lod(
         projections[index] = cascade_projection(camera, splits[index], sun, NVR_CASCADE_RESOLUTION)
             .expect("cascade projection");
     }
+    let near_actor = Sphere {
+        center: projections[0].center,
+        radius: 32.0,
+    };
+    assert_eq!(
+        dynamic_caster_cascade_mask(projections, near_actor),
+        0b0001,
+        "a near actor must use its private overlay instead of rebuilding two nested outer static maps every frame"
+    );
     let middle_actor = Sphere {
-        center: [(splits[1].near + splits[1].far) * 0.5, 0.0, 0.0],
+        center: [splits[1].far * 0.9, 0.0, 0.0],
         radius: 32.0,
     };
     let mask = dynamic_caster_cascade_mask(projections, middle_actor);
@@ -1158,6 +1182,11 @@ fn animated_actor_bounds_invalidate_every_intersecting_gameplay_map_but_not_lod(
         mask & (1 << 1),
         0,
         "a moving middle-distance actor kept its old pose"
+    );
+    assert_eq!(
+        mask & 0b0001,
+        0,
+        "a middle-distance actor cannot invalidate a near map which cannot select its receiver"
     );
     assert_eq!(
         mask & (1 << 3),

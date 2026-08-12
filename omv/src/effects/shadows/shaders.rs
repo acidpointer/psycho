@@ -31,9 +31,6 @@ pub(super) const CUBE_PIXEL_SOURCE: &[u8] =
 /// Exact far-depth EVSM4 clear shader used before caster submission.
 pub(super) const FAR_CLEAR_PIXEL_SOURCE: &[u8] =
     include_bytes!("../../../shaders/embedded/shadow_far_clear.hlsl");
-/// Static/animated near-map EVSM merge program.
-pub(super) const DIRECTIONAL_MERGE_SOURCE: &[u8] =
-    include_bytes!("../../../shaders/embedded/shadow_directional_merge.hlsl");
 /// Coverage-bounded point receiver geometry shared by all light batches.
 pub(super) const POINT_GEOMETRY_SOURCE: &[u8] =
     include_bytes!("../../../shaders/embedded/shadow_point_geometry.hlsl");
@@ -46,6 +43,9 @@ pub(super) const CONTACT_SOURCE: &[u8] =
 /// Depth-aware separable contact filter.
 pub(super) const CONTACT_BLUR_SOURCE: &[u8] =
     include_bytes!("../../../shaders/embedded/shadow_contact_blur.hlsl");
+/// Camera-reprojected contact-history resolve with depth rejection.
+pub(super) const CONTACT_TEMPORAL_SOURCE: &[u8] =
+    include_bytes!("../../../shaders/embedded/shadow_contact_temporal.hlsl");
 /// Final directional/point shadow compositor.
 pub(super) const COMPOSITE_PIXEL_SOURCE: &[u8] =
     include_bytes!("../../../shaders/embedded/shadow_composite.hlsl");
@@ -67,8 +67,6 @@ pub(super) struct ShadowBytecode {
     pub(super) cube_pixel: Vec<u32>,
     /// Exact EVSM4 far-moment clear program.
     pub(super) far_clear_pixel: Vec<u32>,
-    /// Static/animated near-map EVSM merge program.
-    pub(super) directional_merge: Vec<u32>,
     /// Shared point receiver-geometry program.
     pub(super) point_geometry: Vec<u32>,
     /// Six-cube point-shadow accumulation program.
@@ -77,6 +75,8 @@ pub(super) struct ShadowBytecode {
     pub(super) contact: Vec<u32>,
     /// Depth-aware contact filter program.
     pub(super) contact_blur: Vec<u32>,
+    /// Camera-reprojected contact-history resolve program.
+    pub(super) contact_temporal: Vec<u32>,
     /// Final scene-color composition program.
     pub(super) composite: Vec<u32>,
 }
@@ -97,11 +97,6 @@ impl ShadowBytecode {
             cube_vertex: compile("shadow_cube.vs.hlsl", CUBE_VERTEX_SOURCE, "vs_3_0")?,
             cube_pixel: compile("shadow_cube.hlsl", CUBE_PIXEL_SOURCE, "ps_3_0")?,
             far_clear_pixel: compile("shadow_far_clear.hlsl", FAR_CLEAR_PIXEL_SOURCE, "ps_3_0")?,
-            directional_merge: compile(
-                "shadow_directional_merge.hlsl",
-                DIRECTIONAL_MERGE_SOURCE,
-                "ps_3_0",
-            )?,
             point_geometry: compile(
                 "shadow_point_geometry.hlsl",
                 POINT_GEOMETRY_SOURCE,
@@ -114,6 +109,11 @@ impl ShadowBytecode {
             )?,
             contact: compile("shadow_contact.hlsl", CONTACT_SOURCE, "ps_3_0")?,
             contact_blur: compile("shadow_contact_blur.hlsl", CONTACT_BLUR_SOURCE, "ps_3_0")?,
+            contact_temporal: compile(
+                "shadow_contact_temporal.hlsl",
+                CONTACT_TEMPORAL_SOURCE,
+                "ps_3_0",
+            )?,
             composite: compile("shadow_composite.hlsl", COMPOSITE_PIXEL_SOURCE, "ps_3_0")?,
         })
     }
@@ -125,11 +125,11 @@ impl ShadowBytecode {
             &self.cube_vertex,
             &self.cube_pixel,
             &self.far_clear_pixel,
-            &self.directional_merge,
             &self.point_geometry,
             &self.point_accumulation,
             &self.contact,
             &self.contact_blur,
+            &self.contact_temporal,
             &self.composite,
         ]
         .into_iter()
@@ -160,7 +160,7 @@ pub(super) fn start_preparation() {
                     *BYTECODE.lock() = Some(Arc::new(bytecode));
                     PREPARATION_READY.store(true, Ordering::Release);
                     log::info!(
-                        "[SHADOWS] Complete shader family prepared (11 programs, {words} DWORDs, {} ms)",
+                        "[SHADOWS] Complete shader family prepared (10 programs, {words} DWORDs, {} ms)",
                         started.elapsed().as_millis()
                     );
                 }

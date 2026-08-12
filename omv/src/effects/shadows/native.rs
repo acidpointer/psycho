@@ -75,6 +75,9 @@ pub(super) struct NativeScene {
     /// Player reference whose third-person node is not assumed to be present
     /// in the ordinary cell reference list.
     pub(super) player: *mut u8,
+    /// First-person hand/weapon scene root. It may be null while changing view
+    /// or before the view model is constructed.
+    pub(super) first_person_root: *mut u8,
     /// Current player cell used for independent interior/exterior policy.
     pub(super) cell: *mut u8,
     /// Renderer receiver used by native geometry submission helpers.
@@ -307,6 +310,9 @@ pub(super) unsafe fn current_scene() -> Option<NativeScene> {
     Some(NativeScene {
         tes,
         player,
+        first_person_root: unsafe {
+            read::<*mut u8>(player, NativeLayout::PLAYER_FIRST_PERSON_NODE)
+        },
         cell,
         renderer: renderer.cast(),
         kind,

@@ -131,6 +131,20 @@ pub(super) struct CascadeProjection {
 }
 
 impl CascadeProjection {
+    /// Current camera-slice sphere used only for receiver cascade selection.
+    ///
+    /// This must not be replaced by the larger cached-map coverage sphere:
+    /// doing so pins blend boundaries to an older camera and makes them sweep
+    /// across large walls until the map cache refreshes.
+    pub(super) const fn receiver_sphere(self) -> [f32; 4] {
+        [
+            self.center[0],
+            self.center[1],
+            self.center[2],
+            self.receiver_radius,
+        ]
+    }
+
     /// Return whether a camera-relative sphere intersects the light frustum.
     pub(super) fn contains(self, sphere: Sphere) -> bool {
         sphere.radius.is_finite()
@@ -142,21 +156,35 @@ impl CascadeProjection {
     }
 }
 
-/// Return every gameplay cascade intersected by one animated caster bound.
+/// Return the receiver-owned gameplay maps for one animated caster bound.
 ///
-/// An actor can straddle a cascade overlap, so choosing only the first map
-/// would leave the adjacent map with an old pose during the receiver blend.
+/// Cascade coverage spheres are nested, so treating every geometric
+/// intersection as ownership makes a player inside the near map invalidate the
+/// middle and far static maps every frame. The consumer always chooses the
+/// smallest containing receiver sphere. Match that rule here and add only the
+/// adjacent map when the actor overlaps the outer ten-percent blend shell.
 /// LOD is deliberately excluded because NVR's LOD profile excludes actors.
 pub(super) fn dynamic_caster_cascade_mask(
     projections: [CascadeProjection; 4],
     bound: Sphere,
 ) -> u8 {
-    projections[..3]
-        .iter()
-        .enumerate()
-        .fold(0_u8, |mask, (index, projection)| {
-            mask | (u8::from(projection.contains(bound)) << index)
-        })
+    if !bound.center.into_iter().all(f32::is_finite)
+        || !bound.radius.is_finite()
+        || bound.radius < 0.0
+    {
+        return 0b0111;
+    }
+    for (index, projection) in projections[..3].iter().enumerate() {
+        let distance = length3(sub3(bound.center, projection.center));
+        if distance - bound.radius <= projection.receiver_radius {
+            let mut mask = 1 << index;
+            if index < 2 && distance + bound.radius > projection.receiver_radius * 0.9 {
+                mask |= 1 << (index + 1);
+            }
+            return mask;
+        }
+    }
+    0
 }
 
 /// View-projection data for one D3D cube-map face.

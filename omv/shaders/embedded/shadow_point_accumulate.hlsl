@@ -44,7 +44,17 @@ float SourceGuard(float normalizedDistance) {
     return smoothstep(0.02f, 0.08f, normalizedDistance);
 }
 
-float3 LightDeficit(
+struct LightEnergy {
+    float3 total;
+    float3 deficit;
+};
+
+struct PointOutput {
+    float4 deficit : COLOR0;
+    float4 total : COLOR1;
+};
+
+LightEnergy EvaluateLight(
     samplerCUBE shadowCube,
     float3 worldPosition,
     float3 normal,
@@ -55,7 +65,12 @@ float3 LightDeficit(
     float3 toLight = lightPositionRadius.xyz - worldPosition;
     float distance = length(toLight);
     float normalizedDistance = distance / radius;
-    if (normalizedDistance >= 1.0f || lightPositionRadius.w <= 0.0f) return 0.0f;
+    if (normalizedDistance >= 1.0f || lightPositionRadius.w <= 0.0f) {
+        LightEnergy empty;
+        empty.total = 0.0f;
+        empty.deficit = 0.0f;
+        return empty;
+    }
 
     float radial = saturate(1.0f - normalizedDistance * normalizedDistance);
     radial = radial * radial / max(1.0f + 5.0f * normalizedDistance * normalizedDistance, 0.001f);
@@ -68,21 +83,38 @@ float3 LightDeficit(
     float visibility = storedDepth + PointControl.z * normalizedDistance >= normalizedDistance
         ? 1.0f : 0.0f;
     visibility = lerp(1.0f, visibility, storedDepth > 0.0f && storedDepth < 1.0f);
-    return contribution * (1.0f - visibility) * SourceGuard(normalizedDistance);
+    contribution *= SourceGuard(normalizedDistance);
+    float3 deficit = contribution * (1.0f - visibility);
+    LightEnergy result;
+    result.total = contribution;
+    result.deficit = deficit;
+    return result;
 }
 
-float4 Main(PixelInput input) : COLOR0 {
+PointOutput Main(PixelInput input) {
     float4 receiver = tex2Dlod(ReceiverGeometry, float4(input.uv, 0.0f, 0.0f));
-    if (receiver.w <= 0.0f) return 0.0f;
+    if (receiver.w <= 0.0f) {
+        PointOutput empty;
+        empty.deficit = 0.0f;
+        empty.total = 0.0f;
+        return empty;
+    }
 
     float3 worldPosition = RelativeWorldPosition(input.uv, receiver.w);
     float3 normal = WorldNormal(receiver.xyz);
+    float3 total = 0.0f;
     float3 deficit = 0.0f;
-    if (PointControl.y > 0.0f) deficit += LightDeficit(ShadowCube0, worldPosition, normal, LightPositionRadius[0], LightColorIntensity[0]);
-    if (PointControl.y > 1.0f) deficit += LightDeficit(ShadowCube1, worldPosition, normal, LightPositionRadius[1], LightColorIntensity[1]);
-    if (PointControl.y > 2.0f) deficit += LightDeficit(ShadowCube2, worldPosition, normal, LightPositionRadius[2], LightColorIntensity[2]);
-    if (PointControl.y > 3.0f) deficit += LightDeficit(ShadowCube3, worldPosition, normal, LightPositionRadius[3], LightColorIntensity[3]);
-    if (PointControl.y > 4.0f) deficit += LightDeficit(ShadowCube4, worldPosition, normal, LightPositionRadius[4], LightColorIntensity[4]);
-    if (PointControl.y > 5.0f) deficit += LightDeficit(ShadowCube5, worldPosition, normal, LightPositionRadius[5], LightColorIntensity[5]);
-    return float4(deficit, 1.0f);
+    if (PointControl.y > 0.0f) { LightEnergy light = EvaluateLight(ShadowCube0, worldPosition, normal, LightPositionRadius[0], LightColorIntensity[0]); total += light.total; deficit += light.deficit; }
+    if (PointControl.y > 1.0f) { LightEnergy light = EvaluateLight(ShadowCube1, worldPosition, normal, LightPositionRadius[1], LightColorIntensity[1]); total += light.total; deficit += light.deficit; }
+    if (PointControl.y > 2.0f) { LightEnergy light = EvaluateLight(ShadowCube2, worldPosition, normal, LightPositionRadius[2], LightColorIntensity[2]); total += light.total; deficit += light.deficit; }
+    if (PointControl.y > 3.0f) { LightEnergy light = EvaluateLight(ShadowCube3, worldPosition, normal, LightPositionRadius[3], LightColorIntensity[3]); total += light.total; deficit += light.deficit; }
+    if (PointControl.y > 4.0f) { LightEnergy light = EvaluateLight(ShadowCube4, worldPosition, normal, LightPositionRadius[4], LightColorIntensity[4]); total += light.total; deficit += light.deficit; }
+    if (PointControl.y > 5.0f) { LightEnergy light = EvaluateLight(ShadowCube5, worldPosition, normal, LightPositionRadius[5], LightColorIntensity[5]); total += light.total; deficit += light.deficit; }
+    PointOutput output;
+    // Keeping both RGB quantities exact is essential when differently colored
+    // lights overlap. A scalar occlusion ratio would darken channels owned by
+    // an unoccluded light in the same batch.
+    output.deficit = float4(deficit, 0.0f);
+    output.total = float4(total, 0.0f);
+    return output;
 }

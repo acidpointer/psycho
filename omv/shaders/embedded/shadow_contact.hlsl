@@ -55,7 +55,7 @@ float4 Main(PixelInput input) : COLOR0 {
     float rawCenterDepth = tex2Dlod(SceneDepth, float4(input.uv, 0.0f, 0.0f)).r;
     if (!HasGeometryDepth(rawCenterDepth)) return float4(1.0f, 0.0f, 0.0f, 1.0f);
     float3 center = ViewPosition(input.uv, rawCenterDepth);
-    if (center.z <= 0.0f || center.z >= ContactControl.y) return float4(1.0f, 0.0f, 0.0f, 1.0f);
+    if (center.z <= 0.0f || center.z >= ContactControl.y) return float4(1.0f, center.z, 0.0f, 1.0f);
 
     // Four deterministic tests retain NVR's five-step screen-space contract
     // (its paired source loop emits cumulative positions 1, 3, 6, and 10).
@@ -85,5 +85,8 @@ float4 Main(PixelInput input) : COLOR0 {
     }
     float visibility = 1.0f - pow(saturate(occlusion / weight), 0.3f);
     visibility = lerp(visibility, 1.0f, smoothstep(ContactControl.y * 0.8f, ContactControl.y, center.z));
-    return float4(visibility * visibility, 0.0f, 0.0f, 1.0f);
+    // Linear receiver depth travels with visibility through filtering and
+    // history. It is the disocclusion key which prevents camera motion from
+    // dragging a contact shape onto a different wall or ground plane.
+    return float4(visibility * visibility, center.z, 0.0f, 1.0f);
 }

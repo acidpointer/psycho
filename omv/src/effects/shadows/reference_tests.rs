@@ -8,12 +8,14 @@
 
 use super::contract::{
     CascadeDirty, CascadeScheduler, NVR_CASCADE_RESOLUTION, NVR_POINT_LIGHT_COUNT, PointMapCache,
-    PointMapSignature, depth_sample_is_geometry, interior_shadow_factor, point_consumer_plan,
-    point_geometry_plan, point_light_scissor, practical_cascade_splits,
+    PointMapSignature, cascade_sphere_selection, contact_depths_match, contact_history_visibility,
+    depth_sample_is_geometry, first_person_caster_is_excluded, interior_shadow_factor,
+    point_consumer_plan, point_geometry_plan, point_light_scissor, practical_cascade_splits,
     retained_cascade_needs_refresh, shadow_receiver_is_world_surface, skinned_position_reference,
-    source_owned_shadow_radiance, sun_projection_needs_refresh,
+    skinned_submission_is_available, source_owned_shadow_radiance, sun_projection_needs_refresh,
 };
 use super::math::{ShadowCamera, cascade_projection};
+use super::pipeline::consumer_selection_spheres;
 
 const EPSILON: f32 = 1.0e-5;
 
@@ -128,6 +130,7 @@ fn clear_and_finite_sky_are_neutral_under_an_exterior_point_light() {
         0.0,
         1.0,
         [1.0; 3],
+        [1.0; 3],
         1.0,
     )
     .expect("finite source-owned composition"));
@@ -153,6 +156,7 @@ fn clear_and_finite_sky_are_neutral_under_an_exterior_point_light() {
         finite_sky_receiver,
         0.35,
         1.0,
+        [0.28; 3],
         [0.28; 3],
         1.0,
     )
@@ -189,12 +193,66 @@ fn interior_shadowing_preserves_emitters_and_removes_only_occluded_direct_energy
     let scalar = interior_shadow_factor(0.0, 1.0, 0.8).expect("finite factor");
     let rejected_lamp = lamp.native_color().scale(scalar);
     assert!(rejected_lamp.max_abs_difference(shadowed_lamp) > 2.0);
-    let fixed_lamp =
-        Rgb(
-            source_owned_shadow_radiance(lamp.native_color().0, true, 1.0, 0.0, [1.0; 3], 0.8)
-                .expect("finite HDR composition"),
-        );
+    let fixed_lamp = Rgb(source_owned_shadow_radiance(
+        lamp.native_color().0,
+        true,
+        1.0,
+        0.0,
+        [1.0; 3],
+        [1.0; 3],
+        0.8,
+    )
+    .expect("finite HDR composition"));
     assert_eq!(fixed_lamp, lamp.native_color());
+}
+
+#[test]
+fn adding_a_pip_boy_light_cannot_make_an_exterior_sun_shadow_darker() {
+    let without_local =
+        source_owned_shadow_radiance([0.30; 3], true, 0.20, 1.0, [0.0; 3], [0.0; 3], 1.0)
+            .expect("finite sun-only composition");
+    let with_occluded_local =
+        source_owned_shadow_radiance([0.80; 3], true, 0.20, 1.0, [0.50; 3], [0.50; 3], 1.0)
+            .expect("finite mixed-light composition");
+
+    for channel in 0..3 {
+        assert!(
+            with_occluded_local[channel] + EPSILON >= without_local[channel],
+            "enabling a local source destroyed sun-owned energy in channel {channel}"
+        );
+    }
+}
+
+#[test]
+fn multiple_interior_lights_cannot_subtract_unowned_ambient_energy() {
+    let ambient = [0.12, 0.10, 0.08];
+    let local = [0.70, 0.50, 0.30];
+    let source = std::array::from_fn(|axis| ambient[axis] + local[axis]);
+    // Two overlapping cube estimates can exceed the native direct-light term
+    // because their analytic attenuation is not the engine material shader.
+    let rejected =
+        source_owned_shadow_radiance(source, true, 1.0, 0.0, local, [1.10, 0.90, 0.70], 1.0)
+            .expect("finite interior composition");
+    for axis in 0..3 {
+        assert!(
+            rejected[axis] + EPSILON >= ambient[axis],
+            "local-light estimation removed ambient channel {axis}"
+        );
+    }
+}
+
+#[test]
+fn differently_colored_lights_keep_independent_occlusion_channels() {
+    let source = [0.75, 0.22, 0.65];
+    let local_total = [0.60, 0.10, 0.50];
+    // Only the red light is occluded. A scalar visibility reconstructed from
+    // combined luminance would incorrectly subtract green and blue energy.
+    let result =
+        source_owned_shadow_radiance(source, true, 1.0, 0.0, local_total, [0.60, 0.0, 0.0], 1.0)
+            .expect("finite colored-light composition");
+    assert!((result[0] - 0.15).abs() < EPSILON);
+    assert!((result[1] - source[1]).abs() < EPSILON);
+    assert!((result[2] - source[2]).abs() < EPSILON);
 }
 
 #[test]
@@ -287,6 +345,47 @@ fn contact_shadow_oracle_is_empty_on_a_plane_localized_by_a_small_caster_and_cam
         centered, rejected,
         "contact implementation is functionally invisible for small omitted casters"
     );
+}
+
+#[test]
+fn contact_history_bounds_blinking_and_rejects_disocclusion_lines() {
+    let stable = contact_history_visibility(0.0, 800.0, 1.0, 800.5, true)
+        .expect("same-surface contact history");
+    assert!(
+        stable >= 0.70,
+        "one screen-depth miss changed stable visibility by more than 0.30"
+    );
+
+    let disoccluded =
+        contact_history_visibility(0.85, 200.0, 0.0, 900.0, true).expect("finite disocclusion");
+    assert_eq!(
+        disoccluded, 0.85,
+        "history from a different wall produced a camera-following line"
+    );
+    assert!(contact_depths_match(800.0, 801.5));
+    assert!(
+        !contact_depths_match(800.0, 810.0),
+        "a ten-unit foreground edge was treated as one filterable receiver"
+    );
+}
+
+#[test]
+fn skinned_partitions_do_not_depend_on_the_static_geometry_buffer() {
+    assert!(
+        skinned_submission_is_available(false, true),
+        "an actor partition with its own prepared buffer was discarded"
+    );
+    assert!(!skinned_submission_is_available(true, false));
+}
+
+#[test]
+fn first_person_ancestry_excludes_unflagged_hands_and_weapons() {
+    assert!(first_person_caster_is_excluded(true, false));
+    assert!(
+        first_person_caster_is_excluded(false, true),
+        "the engine does not maintain NVR's private first-person shade flag"
+    );
+    assert!(!first_person_caster_is_excluded(false, false));
 }
 
 #[test]
@@ -513,6 +612,60 @@ fn retained_far_map_covers_camera_translation_height_and_rotation_or_refreshes()
         sun,
         NVR_CASCADE_RESOLUTION,
     ));
+}
+
+#[test]
+fn cascade_selection_follows_the_current_camera_slice_not_a_cached_map_center() {
+    let base = ShadowCamera {
+        near: 5.0,
+        far: 28_000.0,
+        frustum_left: -1.0,
+        frustum_right: 1.0,
+        frustum_bottom: -0.5625,
+        frustum_top: 0.5625,
+        forward: [1.0, 0.0, 0.0],
+        up: [0.0, 0.0, 1.0],
+        right: [0.0, 1.0, 0.0],
+        translation: [0.0; 3],
+        fov_compensation: 1.0,
+    };
+    let splits =
+        practical_cascade_splits(base.near, base.far, 6_000.0, 0.9).expect("NVR partition");
+    let sun = [0.4, 0.3, 0.866_025_4];
+    let base_projections = splits.map(|split| {
+        cascade_projection(base, split, sun, NVR_CASCADE_RESOLUTION).expect("base cascade")
+    });
+    let moved = ShadowCamera {
+        translation: [base_projections[0].receiver_radius * 0.035, 0.0, 0.0],
+        ..base
+    };
+    let cached_spheres = std::array::from_fn(|index| {
+        let projection = base_projections[index];
+        [
+            projection.center[0] - moved.translation[0],
+            projection.center[1],
+            projection.center[2],
+            projection.radius,
+        ]
+    });
+    let current_spheres =
+        consumer_selection_spheres(moved, splits, sun).expect("consumer-camera selection spheres");
+
+    let mut mismatch = None;
+    for step in 0..=2_000 {
+        let receiver = [step as f32 * splits[1].far / 2_000.0, 0.0, 0.0];
+        let cached = cascade_sphere_selection(receiver, cached_spheres);
+        let current = cascade_sphere_selection(receiver, current_spheres);
+        if cached.map(|selection| selection.cascade) != current.map(|selection| selection.cascade) {
+            mismatch = Some((receiver, cached, current));
+            break;
+        }
+    }
+    let (receiver, cached, current) =
+        mismatch.expect("negative control must expose a cached-map selection boundary");
+    let published = cascade_sphere_selection(receiver, current_spheres);
+    assert_eq!(published, current);
+    assert_ne!(published, cached);
 }
 
 #[test]

@@ -1,8 +1,7 @@
 use super::shaders::{
-    COMPOSITE_PIXEL_SOURCE, CONTACT_BLUR_SOURCE, CONTACT_SOURCE, CUBE_PIXEL_SOURCE,
-    CUBE_VERTEX_SOURCE, DIRECTIONAL_MERGE_SOURCE, DIRECTIONAL_PIXEL_SOURCE,
-    DIRECTIONAL_VERTEX_SOURCE, FAR_CLEAR_PIXEL_SOURCE, POINT_ACCUMULATION_SOURCE,
-    POINT_GEOMETRY_SOURCE,
+    COMPOSITE_PIXEL_SOURCE, CONTACT_BLUR_SOURCE, CONTACT_SOURCE, CONTACT_TEMPORAL_SOURCE,
+    CUBE_PIXEL_SOURCE, CUBE_VERTEX_SOURCE, DIRECTIONAL_PIXEL_SOURCE, DIRECTIONAL_VERTEX_SOURCE,
+    FAR_CLEAR_PIXEL_SOURCE, POINT_ACCUMULATION_SOURCE, POINT_GEOMETRY_SOURCE,
 };
 
 fn instruction_count(bytecode: &[u32]) -> usize {
@@ -77,6 +76,24 @@ fn compiled_opcodes(bytecode: &[u32]) -> Vec<u16> {
 }
 
 #[test]
+fn compositor_has_no_quad_derivatives_or_triangle_diagonal_dependency() {
+    // D3DSIO_DSX/D3DSIO_DSY. Derivatives in a two-triangle fullscreen pass
+    // can disagree at the shared diagonal and are invalid after receiver
+    // rejection branches, producing exactly the reported moving wall lines.
+    const DSX: u16 = 91;
+    const DSY: u16 = 92;
+    let bytecode = crate::shaders::compile_hlsl_source_target(
+        "shadow_composite_no_derivatives.ps",
+        COMPOSITE_PIXEL_SOURCE,
+        "ps_3_0",
+    )
+    .expect("shadow compositor must compile");
+    let opcodes = compiled_opcodes(&bytecode);
+    assert!(!opcodes.contains(&DSX), "compositor contains D3DSIO_DSX");
+    assert!(!opcodes.contains(&DSY), "compositor contains D3DSIO_DSY");
+}
+
+#[test]
 fn every_shadow_shader_compiles_for_shader_model_three_with_static_budgets() {
     let variants = [
         (
@@ -95,12 +112,6 @@ fn every_shadow_shader_compiles_for_shader_model_three_with_static_budgets() {
         ("shadow_cube.ps", CUBE_PIXEL_SOURCE, "ps_3_0", 64),
         ("shadow_far_clear.ps", FAR_CLEAR_PIXEL_SOURCE, "ps_3_0", 8),
         (
-            "shadow_directional_merge.ps",
-            DIRECTIONAL_MERGE_SOURCE,
-            "ps_3_0",
-            32,
-        ),
-        (
             "shadow_point_geometry.ps",
             POINT_GEOMETRY_SOURCE,
             "ps_3_0",
@@ -110,19 +121,29 @@ fn every_shadow_shader_compiles_for_shader_model_three_with_static_budgets() {
             "shadow_point_accumulate.ps",
             POINT_ACCUMULATION_SOURCE,
             "ps_3_0",
-            680,
+            // Exact RGB total plus deficit MRT output compiles to 708
+            // instructions; 736 leaves narrow compiler-alignment headroom.
+            736,
         ),
         ("shadow_contact.ps", CONTACT_SOURCE, "ps_3_0", 320),
         ("shadow_contact_blur.ps", CONTACT_BLUR_SOURCE, "ps_3_0", 320),
         (
+            "shadow_contact_temporal.ps",
+            CONTACT_TEMPORAL_SOURCE,
+            "ps_3_0",
+            // Four individually depth-rejected history taps compile to 248
+            // instructions; 256 leaves only measured alignment headroom.
+            256,
+        ),
+        (
             "shadow_composite.ps",
             COMPOSITE_PIXEL_SOURCE,
             "ps_3_0",
-            // The static body includes all mutually exclusive cascade/contact
-            // branches plus NVR's derivative-only receiver normal correction.
-            // That correction adds no texture reads; 800 retains measured
-            // headroom over the current 788-instruction program.
-            800,
+            // D3DCompile expands the four mutually exclusive cascade choices
+            // and both branch-lazy receiver-bias evaluations. The executable
+            // path remains bounded separately below; this static ceiling has
+            // narrow headroom over the measured 1865 instructions.
+            1920,
         ),
     ];
     let mut compiled_programs: Vec<(&str, Vec<u32>)> = Vec::with_capacity(variants.len());
@@ -168,6 +189,8 @@ fn generation_shader_register_abi_matches_the_native_upload_contract() {
 fn consumer_shader_abis_compile_with_bounded_texture_work() {
     let point = std::str::from_utf8(POINT_ACCUMULATION_SOURCE).expect("point UTF-8");
     assert!(point.contains("sampler2D ReceiverGeometry : register(s0)"));
+    assert!(point.contains("float4 deficit : COLOR0"));
+    assert!(point.contains("float4 total : COLOR1"));
     assert!(point.contains("samplerCUBE ShadowCube0 : register(s1)"));
     assert!(point.contains("samplerCUBE ShadowCube5 : register(s6)"));
     assert!(point.contains("LightPositionRadius[6] : register(c7)"));
@@ -182,13 +205,13 @@ fn consumer_shader_abis_compile_with_bounded_texture_work() {
     assert!(composite.contains("sampler2D ShadowAtlas : register(s2)"));
     assert!(composite.contains("sampler2D PointShadowBuffer : register(s3)"));
     assert!(composite.contains("sampler2D ContactVisibility : register(s4)"));
+    assert!(composite.contains("sampler2D ActorMoments : register(s5)"));
+    assert!(composite.contains("sampler2D PointLightTotal : register(s6)"));
     assert!(composite.contains("float4 CascadeSpheres[4] : register(c27)"));
     assert!(composite.contains("float4 ContactControl : register(c31)"));
     assert!(composite.contains("float4 PointControl : register(c32)"));
     assert!(composite.contains("float4 SunDirection : register(c33)"));
-    let merge = std::str::from_utf8(DIRECTIONAL_MERGE_SOURCE).expect("merge UTF-8");
-    assert!(merge.contains("sampler2D StaticMoments : register(s0)"));
-    assert!(merge.contains("sampler2D ActorMoments : register(s1)"));
+    assert!(composite.contains("float4 ActorControl : register(c34)"));
 
     let contact = std::str::from_utf8(CONTACT_SOURCE).expect("contact UTF-8");
     assert!(contact.contains("sampler2D SceneDepth : register(s0)"));
@@ -196,7 +219,10 @@ fn consumer_shader_abis_compile_with_bounded_texture_work() {
     assert!(contact.contains("ContactSampleOffsets : register(c8)"));
     let blur = std::str::from_utf8(CONTACT_BLUR_SOURCE).expect("contact blur UTF-8");
     assert!(blur.contains("sampler2D ContactMap : register(s0)"));
-    assert!(blur.contains("sampler2D SceneDepth : register(s1)"));
+    let temporal = std::str::from_utf8(CONTACT_TEMPORAL_SOURCE).expect("contact temporal UTF-8");
+    assert!(temporal.contains("sampler2D CurrentContact : register(s0)"));
+    assert!(temporal.contains("sampler2D HistoryContact : register(s1)"));
+    assert!(temporal.contains("float4 HistoryControl : register(c7)"));
 
     let point_bytecode = crate::shaders::compile_hlsl_source_target(
         "shadow_point_scissor_budget.ps",
@@ -212,6 +238,17 @@ fn consumer_shader_abis_compile_with_bounded_texture_work() {
     )
     .expect("point geometry must compile");
     assert!(texture_instruction_count(&geometry_bytecode) <= 5);
+    let temporal_bytecode = crate::shaders::compile_hlsl_source_target(
+        "shadow_contact_temporal_budget.ps",
+        CONTACT_TEMPORAL_SOURCE,
+        "ps_3_0",
+    )
+    .expect("contact temporal resolve must compile");
+    assert_eq!(
+        texture_instruction_count(&temporal_bytecode),
+        5,
+        "contact history must use one current sample and four depth-rejected bilinear history taps"
+    );
     let composite_bytecode = crate::shaders::compile_hlsl_source_target(
         "shadow_composite_sample_budget.ps",
         COMPOSITE_PIXEL_SOURCE,
@@ -220,7 +257,7 @@ fn consumer_shader_abis_compile_with_bounded_texture_work() {
     .expect("shadow composite must compile");
     let texture_samples = texture_instruction_count(&composite_bytecode);
     assert!(
-        texture_samples <= 14,
+        texture_samples <= 32,
         "compiled composition uses {texture_samples} samples, above the bounded atlas-refinement budget"
     );
     for (name, source) in [
@@ -228,6 +265,7 @@ fn consumer_shader_abis_compile_with_bounded_texture_work() {
         ("point geometry", POINT_GEOMETRY_SOURCE),
         ("contact", CONTACT_SOURCE),
         ("contact blur", CONTACT_BLUR_SOURCE),
+        ("contact temporal", CONTACT_TEMPORAL_SOURCE),
     ] {
         let bytecode = crate::shaders::compile_hlsl_source_target(name, source, "ps_3_0")
             .unwrap_or_else(|error| panic!("{name} must compile: {error:#}"));
@@ -243,10 +281,8 @@ fn consumer_shader_abis_compile_with_bounded_texture_work() {
         )
         .expect("composite must compile"),
     );
-    assert!(
-        composite_opcodes.contains(&91) && composite_opcodes.contains(&92),
-        "the compiled consumer lost NVR's receiver normal correction"
-    );
+    assert!(!composite_opcodes.contains(&91));
+    assert!(!composite_opcodes.contains(&92));
 }
 
 #[test]

@@ -22,6 +22,7 @@ use libpsycho::os::windows::directx9::{
 use super::{
     contract::{
         CasterAdmission, CasterPolicy, dismember_partition_is_renderable,
+        first_person_caster_is_excluded, skinned_submission_is_available,
         sphere_intersects_cube_face, sphere_intersects_point_light,
     },
     engine::NativeLayout,
@@ -32,6 +33,7 @@ const MAX_NODE_VISITS: usize = 32_768;
 const MAX_NODE_CHILDREN: usize = 16_384;
 const MAX_SKIN_PARTITIONS: usize = 64;
 const MAX_BONES_PER_PARTITION: usize = 18;
+const MAX_PARENT_VISITS: usize = 128;
 const AMD_ALPHA_TO_COVERAGE_OFF: u32 = u32::from_le_bytes(*b"A2M0");
 
 const NI_OBJECT_IS_NODE_SLOT: usize = 0x03;
@@ -222,6 +224,7 @@ pub(super) unsafe fn draw_directional_root(
     renderer: *mut c_void,
     projection: CascadeProjection,
     camera_translation: [f32; 3],
+    first_person_root: *mut u8,
     root: *mut u8,
     is_land: bool,
     is_lod: bool,
@@ -233,6 +236,7 @@ pub(super) unsafe fn draw_directional_root(
         renderer,
         projection: Some(projection),
         camera_translation,
+        first_person_root,
         cube_center: None,
         cube_radius: None,
         cube_face: None,
@@ -252,6 +256,7 @@ pub(super) unsafe fn draw_point_geometry(
     device: &Device9Ref<'_>,
     renderer: *mut c_void,
     camera_translation: [f32; 3],
+    first_person_root: *mut u8,
     light_position: [f32; 3],
     radius: f32,
     face: usize,
@@ -262,6 +267,7 @@ pub(super) unsafe fn draw_point_geometry(
         renderer,
         projection: None,
         camera_translation,
+        first_person_root,
         cube_center: Some(light_position),
         cube_radius: Some(radius),
         cube_face: Some(face),
@@ -282,6 +288,7 @@ pub(super) unsafe fn draw_point_root(
     device: &Device9Ref<'_>,
     renderer: *mut c_void,
     camera_translation: [f32; 3],
+    first_person_root: *mut u8,
     light_position: [f32; 3],
     radius: f32,
     face: usize,
@@ -295,6 +302,7 @@ pub(super) unsafe fn draw_point_root(
         renderer,
         projection: None,
         camera_translation,
+        first_person_root,
         cube_center: Some(light_position),
         cube_radius: Some(radius),
         cube_face: Some(face),
@@ -311,6 +319,7 @@ struct DrawContext<'a> {
     renderer: *mut c_void,
     projection: Option<CascadeProjection>,
     camera_translation: [f32; 3],
+    first_person_root: *mut u8,
     cube_center: Option<[f32; 3]>,
     cube_radius: Option<f32>,
     cube_face: Option<usize>,
@@ -462,10 +471,6 @@ unsafe fn classify_geometry(
     if model.is_null() {
         return None;
     }
-    let buffer = unsafe { read::<*mut u8>(model, NativeLayout::NI_GEOMETRY_DATA_BUFFER) };
-    if buffer.is_null() || unsafe { read::<u32>(buffer, GEOMETRY_BUFFER_VERTEX_COUNT) } == 0 {
-        return None;
-    }
     let shade = unsafe { read::<*mut u8>(geometry, NativeLayout::NI_PROPERTY_SHADE) };
     if shade.is_null() {
         return None;
@@ -502,12 +507,22 @@ unsafe fn classify_geometry(
         within_multibound: true,
     };
     let policy = CasterPolicy::quality_default().with_minimum_radius(context.minimum_radius)?;
-    if first_person || policy.admit(admission).is_err() {
+    let under_first_person_root =
+        unsafe { object_is_beneath_root(geometry, context.first_person_root) };
+    if first_person_caster_is_excluded(first_person, under_first_person_root)
+        || policy.admit(admission).is_err()
+    {
         return None;
     }
 
     let skin = unsafe { read::<*mut u8>(geometry, NativeLayout::NI_GEOMETRY_SKIN) };
     let skinned = !skin.is_null();
+    if !skinned {
+        let buffer = unsafe { read::<*mut u8>(model, NativeLayout::NI_GEOMETRY_DATA_BUFFER) };
+        if buffer.is_null() || unsafe { read::<u32>(buffer, GEOMETRY_BUFFER_VERTEX_COUNT) } == 0 {
+            return None;
+        }
+    }
     // NVR's cube vertex shader stores the point-light position in c63, then
     // its SpeedTree path overwrites c63-c139. That silently generates invalid
     // radial depth. Point maps therefore reject that unsupported route while
@@ -551,6 +566,25 @@ unsafe fn classify_geometry(
         speedtree,
         terrain_lod,
     })
+}
+
+/// Check explicit scene-graph ownership without retaining or mutating engine
+/// flags. The bound prevents a corrupt parent cycle from stalling the render
+/// thread; a valid FNV view-model hierarchy is far shallower than this limit.
+unsafe fn object_is_beneath_root(mut object: *mut u8, root: *mut u8) -> bool {
+    if root.is_null() {
+        return false;
+    }
+    for _ in 0..MAX_PARENT_VISITS {
+        if object.is_null() {
+            return false;
+        }
+        if object == root {
+            return true;
+        }
+        object = unsafe { read::<*mut u8>(object, NativeLayout::NI_AV_OBJECT_PARENT) };
+    }
+    false
 }
 
 fn is_lighting_shader_definition(shader_definition: u32) -> bool {
@@ -631,7 +665,7 @@ unsafe fn draw_skinned(
         }
         let indices = unsafe { read::<*const u16>(entry, PARTITION_BONE_INDICES) };
         let buffer = unsafe { read::<*mut u8>(entry, PARTITION_BUFFER) };
-        if buffer.is_null() {
+        if !skinned_submission_is_available(false, !buffer.is_null()) {
             continue;
         }
         for bone in 0..bones {

@@ -15,12 +15,15 @@ float4 CascadeSpheres[4] : register(c27);
 float4 ContactControl : register(c31); // x contact texture enabled
 float4 PointControl : register(c32); // x point buffer enabled, y darkness
 float4 SunDirection : register(c33);
+float4 ActorControl : register(c34); // x actor-only near map enabled
 
 sampler2D SourceColor : register(s0);
 sampler2D SceneDepth : register(s1);
 sampler2D ShadowAtlas : register(s2);
 sampler2D PointShadowBuffer : register(s3);
 sampler2D ContactVisibility : register(s4);
+sampler2D ActorMoments : register(s5);
+sampler2D PointLightTotal : register(s6);
 
 struct PixelInput { float2 uv : TEXCOORD0; };
 
@@ -44,12 +47,33 @@ float3 RelativeWorldPosition(float2 uv, float depth) {
     return float3(dot(ViewToWorld0, homogeneous), dot(ViewToWorld1, homogeneous), dot(ViewToWorld2, homogeneous));
 }
 
-float3 ReconstructWorldNormal(float3 viewPosition) {
-    // Quad derivatives recover the same planar normal without four more
-    // full-resolution depth fetches. They are used only for this one-world-
-    // unit receiver bias, never to place contact-ray evidence; silhouette
-    // ownership still comes from the map and depth receiver classifier.
-    float3 viewNormal = cross(ddx(viewPosition), ddy(viewPosition));
+bool HasGeometryDepth(float rawDepth) {
+    return rawDepth > DepthControl.x && rawDepth < 1.0f - DepthControl.x;
+}
+
+float3 ReconstructWorldNormal(float2 uv, float centerDepth) {
+    // Select the depth-nearest derivative on each axis. This avoids crossing a
+    // silhouette while remaining deterministic across the fullscreen quad's
+    // triangle diagonal; ddx/ddy are undefined after receiver rejection.
+    float2 pixel = ScreenData.zw;
+    float rawLeft = tex2Dlod(SceneDepth, float4(uv - float2(pixel.x, 0.0f), 0.0f, 0.0f)).r;
+    float rawRight = tex2Dlod(SceneDepth, float4(uv + float2(pixel.x, 0.0f), 0.0f, 0.0f)).r;
+    float rawUp = tex2Dlod(SceneDepth, float4(uv - float2(0.0f, pixel.y), 0.0f, 0.0f)).r;
+    float rawDown = tex2Dlod(SceneDepth, float4(uv + float2(0.0f, pixel.y), 0.0f, 0.0f)).r;
+    float leftDepth = HasGeometryDepth(rawLeft) ? LinearDepth(rawLeft) : centerDepth;
+    float rightDepth = HasGeometryDepth(rawRight) ? LinearDepth(rawRight) : centerDepth;
+    float upDepth = HasGeometryDepth(rawUp) ? LinearDepth(rawUp) : centerDepth;
+    float downDepth = HasGeometryDepth(rawDown) ? LinearDepth(rawDown) : centerDepth;
+    float3 center = ViewPosition(uv, centerDepth);
+    float3 left = ViewPosition(uv - float2(pixel.x, 0.0f), leftDepth);
+    float3 right = ViewPosition(uv + float2(pixel.x, 0.0f), rightDepth);
+    float3 up = ViewPosition(uv - float2(0.0f, pixel.y), upDepth);
+    float3 down = ViewPosition(uv + float2(0.0f, pixel.y), downDepth);
+    float3 dx = abs(leftDepth - centerDepth) < abs(rightDepth - centerDepth)
+        ? center - left : right - center;
+    float3 dy = abs(upDepth - centerDepth) < abs(downDepth - centerDepth)
+        ? center - up : down - center;
+    float3 viewNormal = cross(dx, dy);
     viewNormal *= rsqrt(max(dot(viewNormal, viewNormal), 0.0000001f));
     float4 normalVector = float4(viewNormal, 0.0f);
     return float3(dot(ViewToWorld0, normalVector), dot(ViewToWorld1, normalVector), dot(ViewToWorld2, normalVector));
@@ -112,6 +136,20 @@ float CascadeVisibility(row_major float4x4 transform, int cascadeIndex, float3 w
     return visibility;
 }
 
+float ActorVisibility(float3 worldPosition) {
+    if (ActorControl.x <= 0.5f) return 1.0f;
+    float4 projected = mul(float4(worldPosition, 1.0f), CascadeMatrices[0]);
+    float3 ndc = projected.xyz / max(projected.w, 0.000001f);
+    float2 uv = float2(ndc.x * 0.5f + 0.5f, 0.5f - ndc.y * 0.5f);
+    if (min(uv.x, uv.y) < 0.0f || max(uv.x, uv.y) > 1.0f) return 1.0f;
+    uv = clamp(uv, CascadeTexel.xx, CascadeTexel.yy);
+    // The actor producer already uses NVR's four coverage samples and this
+    // lookup is bilinear. A second transition kernel would add map reads to
+    // every near-cascade specialization for little silhouette improvement.
+    float4 moments = tex2Dlod(ActorMoments, float4(uv, 0.0f, 0.0f));
+    return Evsm4(moments, saturate(ndc.z), CascadeBleedReduction(0));
+}
+
 float DirectionalVisibility(float3 worldPosition) {
     float3 delta0 = worldPosition - CascadeSpheres[0].xyz;
     float3 delta1 = worldPosition - CascadeSpheres[1].xyz;
@@ -134,6 +172,7 @@ float DirectionalVisibility(float3 worldPosition) {
     float radius = CascadeSpheres[cascade].w;
     float distance = sqrt(distanceSquared[cascade]);
     float current = CascadeVisibility(CascadeMatrices[cascade], cascade, worldPosition);
+    if (cascade == 0) current = min(current, ActorVisibility(worldPosition));
     float blend = smoothstep(radius * 0.9f, radius, distance);
     if (cascade >= 3) return lerp(current, 1.0f, blend);
     if (blend <= 0.0f) return current;
@@ -157,28 +196,36 @@ float4 Main(PixelInput input) : COLOR0 {
     float directional = 1.0f;
     if (ShadowControl.y > 0.5f) {
         if (viewDepth < CascadeSplits.w) {
-            // Modern NVR separates a receiver from its own moments by one
-            // world unit at grazing incidence. Reconstructing from current
-            // depth avoids a separately timed normals-buffer dependency.
-            float3 normal = ReconstructWorldNormal(ViewPosition(input.uv, viewDepth));
-            // The producer publishes a normalized stabilized sun vector.
-            float normalOffset = saturate(1.0f - dot(normal, SunDirection.xyz));
-            directional = DirectionalVisibility(worldPosition + normal * normalOffset);
+            directional = DirectionalVisibility(worldPosition);
+            // Receiver bias matters at an actual shadow transition. Keeping
+            // neighbor depth reconstruction inside this branch avoids four
+            // full-resolution reads for uniformly lit or shadowed pixels.
+            if (directional > 0.02f && directional < 0.98f) {
+                float3 normal = ReconstructWorldNormal(input.uv, viewDepth);
+                float normalOffset = saturate(1.0f - dot(normal, SunDirection.xyz));
+                directional = DirectionalVisibility(worldPosition + normal * normalOffset);
+            }
         }
         // NVR contact rays own an independent, much longer view-depth range.
         // Gating them by CascadeSplits.w made the default effect disappear as
         // soon as a receiver left the roughly 6000-unit mapped region.
         if (ContactControl.x > 0.5f) {
-            directional = min(directional,
-                tex2Dlod(ContactVisibility, float4(input.uv, 0.0f, 0.0f)).r);
+            float2 contact = tex2Dlod(
+                ContactVisibility, float4(input.uv, 0.0f, 0.0f)).rg;
+            float contactMatchesReceiver = contact.g > 0.0f &&
+                abs(contact.g - viewDepth) <= max(2.0f, viewDepth * 0.0025f);
+            directional = min(directional, contactMatchesReceiver ? contact.r : 1.0f);
         }
         directional = 1.0f - saturate(ShadowControl.z) * (1.0f - directional);
     }
 
     float3 pointDeficit = 0.0f;
+    float3 pointTotal = 0.0f;
     if (PointControl.x > 0.5f) {
-        pointDeficit = max(tex2Dlod(PointShadowBuffer, float4(input.uv, 0.0f, 0.0f)).rgb, 0.0f)
-            * saturate(PointControl.y);
+        pointDeficit = max(
+            tex2Dlod(PointShadowBuffer, float4(input.uv, 0.0f, 0.0f)).rgb, 0.0f);
+        pointTotal = max(
+            tex2Dlod(PointLightTotal, float4(input.uv, 0.0f, 0.0f)).rgb, 0.0f);
     }
 
     float3 linearSource = pow(max(source.rgb, 0.0f), 2.2f);
@@ -187,7 +234,13 @@ float4 Main(PixelInput input) : COLOR0 {
     // meshes from becoming black while their surrounding direct light still
     // receives cube-proven occlusion.
     float emitter = smoothstep(1.0f, 1.15f, max(linearSource.r, max(linearSource.g, linearSource.b)));
-    float3 shadowed = max(linearSource * directional - pointDeficit, 0.0f);
+    float3 ownedLocal = min(pointTotal, linearSource);
+    pointDeficit = min(pointDeficit, ownedLocal) * saturate(PointControl.y);
+    // Directional light owns no local-source energy. Restore that term after
+    // applying the sun factor, then subtract only cube-proven local occlusion.
+    float3 shadowed = max(
+        linearSource * directional + ownedLocal * (1.0f - directional) - pointDeficit,
+        0.0f);
     float3 finalLinear = lerp(shadowed, linearSource, emitter);
     return float4(pow(max(finalLinear, 0.0f), 1.0f / 2.2f), source.a);
 }

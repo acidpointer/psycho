@@ -2639,6 +2639,136 @@ Its import and TLS sets are unchanged from the crashing artifact; complete
 footprint evidence is recorded in
 `docs/graphics_fnv_atmosphere_startup_crash_errata.md`.
 
+#### Eighth corrective pass: light ownership, current-view cascades, and stable contacts
+
+The next runtime artifact reached gameplay but was rejected for mixed-light
+artifacts, camera-moving far-wall rectangles, unstable contact shapes,
+incomplete actor shadows, first-person view-model projections, and excessive
+frame cost. This pass supersedes the seventh pass's active render description;
+that older text remains only as the history of a rejected artifact. The
+startup-only correction remains intact. No schema, persisted value, preset,
+hook admission, TLS owner, static initializer, worker order, or
+pre-`DeferredInit` first touch changes here.
+
+Eight deterministic negative controls failed before production was changed.
+They reproduced an exterior becoming darker when an occluded Pip-Boy light was
+added, overlapping interior estimates subtracting beyond their owned local
+energy, a cached coverage sphere selecting a different cascade on a moved
+camera, contact visibility toggling without valid history, an unflagged
+first-person child being admitted, a skinned partition being rejected solely
+because `NiGeometryData::m_pkBuffData` was null, one full 2048-square actor
+merge every animated frame, and compiled `D3DSIO_DSX`/`D3DSIO_DSY` operations
+in the branched fullscreen compositor. An additional workload negative control
+then proved that one near actor intersected all nested cascade frusta and
+therefore rebuilt the middle and far static maps every frame. A final compiled
+ABI negative control rejected the initial one-target mixed-light correction:
+compressing an occluded RGB subset to scalar luminance made an occluded red
+light incorrectly darken an overlapping unoccluded blue light.
+
+Local-light accumulation now publishes two exact RGB identities from one
+scissored draw into equal-format additive FP16 MRTs. One target is the selected
+lights' total modeled direct contribution; the other is the subset proven
+occluded by cube depth. No extra fullscreen pass is needed, and independently
+colored lights cannot leak a scalar visibility into one another. The
+compositor clamps both terms to source radiance and uses
+`source * directional + local * (1 - directional) - local_deficit`.
+Consequently the sun can attenuate only its surface term: switching on the
+Pip-Boy can physically fill a sun shadow but cannot make that receiver darker.
+Interiors use directional identity one and subtract only the cube-proven subset
+of the same local estimate. HDR emitter preservation and the near-source guard
+remain independent protections.
+
+Cached map coverage and visible cascade selection are now separate contracts.
+The cached, padded sphere is used only to decide whether a retained map still
+contains the current receiver slice. At composition, all four unpadded receiver
+spheres are recomputed from the actual consumer camera, including a one-epoch
+producer/consumer handoff. They can therefore neither stick to an older world
+center nor inherit the map guard radius. Cached matrices remain paired with
+their generation origins and are translated into the consumer camera domain.
+This closes the moving rectangular boundary on broad walls without resampling
+old moments through a new transform.
+
+Actor admission now matches NVR's actual submission ownership. A skinned
+geometry does not require the unrelated main geometry buffer; each
+`NiSkinPartition::Partition +0x28` supplies the buffer submitted to
+`NiDX9Renderer::DrawSkinnedGeometry @ 0x00E6D310`. Static geometry still
+requires its main buffer. First-person exclusion no longer assumes the engine
+maintains NVR's private shade bit. Every directional and point-cube route also
+walks bounded parent ancestry against
+`PlayerCharacter::firstPersonNiNode +0x694`. Existing radare2 evidence proves
+`PlayerCharacter::Get3D @ 0x00950BB0` returns this root for its true branch and
+the ordinary `TESObjectREFR::Get3D @ 0x0043FCD0` third-person root otherwise;
+see
+`analysis/radare2/output/perf/graphics_fnv_motion_blur_player_coverage_contract.txt`.
+Modern NVR source establishes that the first-person shade bit is mod-owned and
+periodically written, so it is retained only as a fast additional rejection.
+
+The actor-only near resolve is sampled independently at visible near receivers.
+The obsolete static-near backing texture, 2048-by-2048 merge shader, full-map
+merge draw, restore copy, and 32 MiB allocation are gone. Static atlas moments
+and actor moments are each evaluated as complete EVSM distributions and their
+darker visibility wins; channels from different distributions are never
+combined. Animated bounds now follow the consumer's smallest-sphere ownership
+rule and add only the adjacent map when the actor crosses the outer ten-percent
+blend shell. A player in the near core therefore requests its private actor
+overlay and zero nested outer static-map rebuilds. Distant actors still update
+their selected gameplay map, and no actor enters the LOD profile. Four-sample
+2048 generation, FP16 EVSM4 precision, third-person skinning, and conservative
+root-cache overflow behavior are unchanged.
+
+Contact shadows retain NVR's four cumulative ray positions but replace
+screen-space toggling with an explicit three-stage half-resolution contract.
+Raw G16R16F stores visibility and linear receiver depth. One depth-aware
+five-sample cross filter replaces the former two separable passes. The third
+draw reprojects the preceding completed map from the current camera into the
+previous camera, rejects skipped epochs, cuts, off-screen samples, and every
+depth-disagreeing history tap, then gives valid history a bounded 0.75 weight.
+Manual four-tap depth-rejected history filtering stabilizes sub-texel camera
+motion without interpolating foreground and wall depths. Final composition
+again checks stored contact depth against the full-resolution receiver, which
+prevents half-resolution evidence from drawing a line across a disocclusion.
+Spatial, temporal, and final ownership all use the same two-unit/0.25-percent
+depth tolerance; the rejected broad twenty-unit spatial threshold could bridge
+a foreground edge even when temporal history was valid.
+The pass count remains three quarter-resolution draws. Memory becomes three
+G16R16F maps. Exact colored local-light ownership adds one full-resolution FP16
+MRT, while removal of static-near moments still reduces the combined
+1920-by-1080 lazy-branch estimate to 518,220,800 bytes.
+
+The compositor no longer uses quad derivatives after depth/sky rejection.
+Only an actual EVSM transition reads four neighboring depths, chooses the
+depth-nearest difference on each screen axis, reconstructs the receiver normal,
+and resamples with NVR's grazing offset. Uniformly lit or shadowed pixels avoid
+those four reads. Compiled shader tests reject derivative opcodes, retain a
+static instruction ceiling for D3DCompile's expanded mutually exclusive
+cascade branches, and bound contact temporal history to exactly one current
+plus four individually depth-rejected history samples.
+
+Modern NVR evidence reused by this pass is
+`.research/TESReloaded10-master/src/core/RenderPass.cpp:182-296`,
+`.research/TESReloaded10-master/src/core/ShadowManager.cpp`, the New Vegas
+shadow HLSL under `.research/TESReloaded10-master/src/hlsl/NewVegas/`, and the
+custom-quality defaults at
+`.research/TESReloaded10-master/resource/NewVegasReloaded.dll.defaults.toml:570-690`.
+The executable identity remains SHA-256
+`42fee7d6cd74e801372aa89c8f71c974cebd3c20ec9ad43d1465b8fa9646b49c`.
+
+Validation on 2026-08-12 used the supported explicit
+`i686-pc-windows-gnu` target. The focused shadow suite passed 86/86 tests, the
+complete OMV suite passed 579/579 tests, and the release build succeeded. The
+resulting `omv.dll` is 12,829,332 bytes with SHA-256
+`2b8d099bb7ff4ccb6cb820c97fa8b88268e9dd2a582201c52ea903379a9ec0a6`.
+`cargo fmt -p omv` and `git diff --check` also passed.
+
+Static and build validation cannot prove a Proton/DXVK image or frame rate.
+Runtime acceptance still requires the same exterior and interior scenes with
+sun plus Pip-Boy, multiple differently colored local lights, broad distant
+walls, camera translation/rotation/height/zoom, contact disocclusions, moving
+third-person actors, first-person hands and weapons, small/alpha casters,
+sunrise/time jumps, fog/volumetric/shaft ordering, and measured stage/frame
+times. Cold BaseObjectSwapper-enabled load to gameplay remains a separate
+mandatory startup acceptance gate.
+
 ### Evidence classification for the implementation
 
 **Proven by executable/static artifacts:** the common hook/tail topology,

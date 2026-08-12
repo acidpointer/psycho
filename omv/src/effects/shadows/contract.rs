@@ -91,23 +91,105 @@ pub(super) fn interior_shadow_factor(
     Some(1.0 - darkness.clamp(0.0, 1.0) * deficit)
 }
 
+/// Model whether a skinned draw has the buffer which actually owns its vertices.
+///
+/// Kept as an executable contract because FNV stores actor vertex/index data on
+/// each `NiSkinPartition::Partition`; the unrelated `NiGeometryData` buffer is
+/// not a prerequisite for the NVR skinned submission route.
+pub(super) const fn skinned_submission_is_available(
+    _geometry_buffer_available: bool,
+    partition_buffer_available: bool,
+) -> bool {
+    partition_buffer_available
+}
+
+/// Decide whether a caster belongs to the first-person view-model tree.
+///
+/// NVR publishes `NiShadeProperty::kFirstPerson` itself every fifty frames;
+/// the engine does not guarantee that bit. A durable consumer must therefore
+/// also honor explicit ancestry beneath `PlayerCharacter::firstPersonNiNode`.
+pub(super) const fn first_person_caster_is_excluded(
+    shader_flagged: bool,
+    under_first_person_root: bool,
+) -> bool {
+    shader_flagged || under_first_person_root
+}
+
+/// Reconcile a current screen-depth contact estimate with reprojected history.
+///
+/// A history sample is valid only when its stored linear depth agrees with the
+/// current receiver. This prevents camera motion from dragging a shadow across
+/// a newly revealed wall or foreground edge.
+pub(super) fn contact_history_visibility(
+    current_visibility: f32,
+    current_depth: f32,
+    history_visibility: f32,
+    history_depth: f32,
+    history_valid: bool,
+) -> Option<f32> {
+    if ![
+        current_visibility,
+        current_depth,
+        history_visibility,
+        history_depth,
+    ]
+    .into_iter()
+    .all(f32::is_finite)
+        || current_depth <= 0.0
+    {
+        return None;
+    }
+    let current = current_visibility.clamp(0.0, 1.0);
+    if !history_valid || history_depth <= 0.0 {
+        return Some(current);
+    }
+    if !contact_depths_match(current_depth, history_depth) {
+        return Some(current);
+    }
+    // One quarter of the new estimate per frame suppresses binary ray-sample
+    // toggles while still converging to a newly established contact quickly.
+    Some(history_visibility.clamp(0.0, 1.0) * 0.75 + current * 0.25)
+}
+
+/// Match contact evidence only when both samples own the same receiver.
+///
+/// The relative tolerance grows only with distance and retains a two-unit
+/// floor for near geometry and FP16 depth quantization. Spatial and temporal
+/// contact filtering use this same boundary so neither can bridge an edge.
+pub(super) fn contact_depths_match(receiver_depth: f32, sample_depth: f32) -> bool {
+    if !receiver_depth.is_finite()
+        || !sample_depth.is_finite()
+        || receiver_depth <= 0.0
+        || sample_depth <= 0.0
+    {
+        return false;
+    }
+    let tolerance = (receiver_depth * 0.0025).max(2.0);
+    (sample_depth - receiver_depth).abs() <= tolerance
+}
+
 /// Compose shadow-owned radiance while preserving unrelated source energy.
 ///
 /// `receiver` is false for clear/far-sky pixels. Directional visibility owns a
-/// multiplicative surface term; `point_deficit` owns only direct local-light
-/// energy proven occluded by a cube. HDR energy transitions to full source
-/// preservation between one and 1.15, avoiding a hard temporal discontinuity
-/// while remaining stricter than NVR's "re-add values above one" rule.
+/// multiplicative surface term. `point_total` identifies the source-owned
+/// local-light energy, and `point_deficit` is the subset proven occluded by a
+/// cube. Restoring the local term after directional attenuation prevents a
+/// Pip-Boy or lamp from being shadowed by the sun. HDR energy transitions to
+/// full source preservation between one and 1.15, avoiding a hard temporal
+/// discontinuity while remaining stricter than NVR's "re-add values above
+/// one" rule.
 pub(super) fn source_owned_shadow_radiance(
     source_linear: [f32; 3],
     receiver: bool,
     directional_visibility: f32,
     directional_darkness: f32,
+    point_total: [f32; 3],
     point_deficit: [f32; 3],
     point_darkness: f32,
 ) -> Option<[f32; 3]> {
     if !source_linear
         .into_iter()
+        .chain(point_total)
         .chain(point_deficit)
         .chain([directional_visibility, directional_darkness, point_darkness])
         .all(f32::is_finite)
@@ -121,8 +203,13 @@ pub(super) fn source_owned_shadow_radiance(
     let directional =
         1.0 - directional_darkness.clamp(0.0, 1.0) * (1.0 - directional_visibility.clamp(0.0, 1.0));
     let shadowed: [f32; 3] = std::array::from_fn(|axis| {
-        (source_linear[axis] * directional
-            - point_deficit[axis].max(0.0) * point_darkness.clamp(0.0, 1.0))
+        // The native framebuffer is the authority for how much energy exists.
+        // Capping both estimates prevents an approximate replacement-light
+        // model from subtracting ambient or creating energy.
+        let owned_local = point_total[axis].max(0.0).min(source_linear[axis]);
+        let deficit = point_deficit[axis].max(0.0).min(owned_local);
+        (source_linear[axis] * directional + owned_local * (1.0 - directional)
+            - deficit * point_darkness.clamp(0.0, 1.0))
         .max(0.0)
     });
     let peak = source_linear.into_iter().fold(0.0_f32, f32::max);
@@ -1761,8 +1848,8 @@ pub(super) struct ProducerResourcePlan {
     pub(super) cascade_count: u32,
     /// Number of persistent shader-readable directional textures.
     ///
-    /// These are the four-map atlas, immutable static-near backing map, and
-    /// single-sample generation resolve. All retain NVR's FP16 EVSM4 precision.
+    /// These are the four-map atlas and single-sample generation/actor resolve.
+    /// Both retain NVR's FP16 EVSM4 precision.
     pub(super) directional_texture_count: u32,
     /// Width and height of the single-sample 2-by-2 consumer atlas.
     pub(super) atlas_resolution: u32,
@@ -1776,6 +1863,8 @@ pub(super) struct ProducerResourcePlan {
     pub(super) evsm4: bool,
     /// Maximum stable atlas taps used at one visible receiver.
     pub(super) receiver_filter_samples: u32,
+    /// Full-map draws required to merge an actor overlay into static moments.
+    pub(super) actor_overlay_fullscreen_merge_draws: u32,
     /// Produced/sampled point-shadow count.
     pub(super) point_light_count: u32,
     /// Resolution of every cube face.
@@ -1785,8 +1874,10 @@ pub(super) struct ProducerResourcePlan {
     /// Peak bytes after both lazy location branches have been visited.
     ///
     /// Retaining both families prevents cell-transition allocation hitches.
-    /// Both locations share one source-color copy and one full-resolution RGB
-    /// deficit target; exterior contact adds two half-resolution R16F maps.
+    /// Both locations share one source-color copy and full-resolution RGB
+    /// local-total, local-deficit, and receiver-geometry targets; exterior
+    /// contact adds three half-resolution G16R16F maps for raw/spatial work and
+    /// camera-reprojected history.
     pub(super) combined_estimated_bytes: u64,
     /// Comparable lower bound for NVR's multisampled 4096 atlas path.
     pub(super) nvr_equivalent_estimated_bytes: u64,
@@ -1809,16 +1900,17 @@ impl ProducerResourcePlan {
         let generation_moments = cascade_pixels * 8 * 4;
         let generation_depth = cascade_pixels * 4 * 4;
         let resolved_moments = cascade_pixels * 8;
-        let static_near_moments = cascade_pixels * 8;
         let point_cubes = u64::from(512_u32.pow(2)) * 6 * 4 * NVR_POINT_LIGHT_COUNT as u64;
         let point_depth = u64::from(512_u32.pow(2)) * 4;
         let full_resolution_pixels = u64::from(width) * u64::from(height);
-        let point_accumulation = full_resolution_pixels * 8;
+        // Equal-format MRTs preserve the exact total and occluded RGB sums in
+        // one scissored draw, avoiding colored-light cross-contamination.
+        let point_accumulation = full_resolution_pixels * 8 * 2;
         let point_geometry = full_resolution_pixels * 8;
         let source_copy = full_resolution_pixels * 8;
-        // Two half-resolution two-byte targets total one byte per full-size
-        // pixel when dimensions are even. Round conservatively for odd sizes.
-        let contact_targets = u64::from(width.div_ceil(2)) * u64::from(height.div_ceil(2)) * 2 * 2;
+        // Three half-resolution four-byte targets retain visibility plus its
+        // linear-depth disocclusion key. Round conservatively for odd sizes.
+        let contact_targets = u64::from(width.div_ceil(2)) * u64::from(height.div_ceil(2)) * 4 * 3;
         let interior_consumer = source_copy + point_accumulation + point_geometry;
         let directional = scene != SceneKind::Interior;
         let estimated_bytes = if directional {
@@ -1826,7 +1918,6 @@ impl ProducerResourcePlan {
                 + generation_moments
                 + generation_depth
                 + resolved_moments
-                + static_near_moments
                 + point_cubes
                 + point_depth
                 + interior_consumer
@@ -1838,7 +1929,6 @@ impl ProducerResourcePlan {
             + generation_moments
             + generation_depth
             + resolved_moments
-            + static_near_moments
             + point_cubes
             + point_depth
             + source_copy
@@ -1852,13 +1942,14 @@ impl ProducerResourcePlan {
         Some(Self {
             cascade_resolution: NVR_CASCADE_RESOLUTION,
             cascade_count: if directional { CASCADE_COUNT as u32 } else { 0 },
-            directional_texture_count: if directional { 3 } else { 0 },
+            directional_texture_count: if directional { 2 } else { 0 },
             atlas_resolution: NVR_CASCADE_RESOLUTION * 2,
             directional_samples: 4,
             directional_channels: 4,
             directional_channel_bits: 16,
             evsm4: true,
             receiver_filter_samples: 3,
+            actor_overlay_fullscreen_merge_draws: 0,
             point_light_count: NVR_POINT_LIGHT_COUNT as u32,
             point_cube_resolution: 512,
             estimated_bytes,
