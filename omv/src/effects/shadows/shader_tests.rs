@@ -267,11 +267,12 @@ fn consumer_shader_abis_compile_with_bounded_texture_work() {
     assert!(composite.contains("sampler2D ActorNearMiddleMoments : register(s5)"));
     assert!(composite.contains("sampler2D PointLightTotal : register(s6)"));
     assert!(composite.contains("sampler2D ActorFarMoments : register(s7)"));
-    assert!(composite.contains("float4 CascadeSpheres[4] : register(c27)"));
     assert!(composite.contains("float4 ContactControl : register(c31)"));
     assert!(composite.contains("float4 PointControl : register(c32)"));
     assert!(composite.contains("float4 SunDirection : register(c33)"));
     assert!(composite.contains("float4 ActorControl : register(c34)"));
+    assert!(composite.contains("float4 ActorCrops[3] : register(c36)"));
+    assert!(composite.contains("float4 ActorTexel : register(c39)"));
 
     let contact = std::str::from_utf8(CONTACT_SOURCE).expect("contact UTF-8");
     assert!(contact.contains("sampler2D SceneDepth : register(s0)"));

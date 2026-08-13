@@ -15,12 +15,13 @@ float4 ShadowControl : register(c23); // x reversed, y directional enabled, z da
 float4 CascadeBlendWidth : register(c24);
 float4 CascadeTexel : register(c25); // x half texel, y one minus half texel, z radius
 float4 DepthControl : register(c26); // x endpoint epsilon
-float4 CascadeSpheres[4] : register(c27);
 float4 ContactControl : register(c31); // x contact texture enabled
 float4 PointControl : register(c32); // x point buffer enabled, y darkness
 float4 SunDirection : register(c33);
 float4 ActorControl : register(c34); // xyz actor-only near/middle/far maps enabled
 float4 ContactTexel : register(c35); // xy half-resolution contact texel
+float4 ActorCrops[3] : register(c36); // xy parent-UV scale, zw actor-UV offset
+float4 ActorTexel : register(c39); // x half texel, y one minus half texel
 
 static const float ContactDepthKeyRange = 250000.0f;
 
@@ -153,9 +154,13 @@ float CascadeVisibility(row_major float4x4 transform, int cascadeIndex, float3 w
     float actorVisibility = 1.0f;
     float hasActor = cascadeIndex < 3 && ActorControl[cascadeIndex] > 0.5f;
     if (hasActor) {
-        float2 actor = SampleActorDepthCoverage(
-            clamp(localUv, CascadeTexel.xx, CascadeTexel.yy), cascadeIndex);
-        actorVisibility = ActorVisibility(actor, saturate(ndc.z));
+        float4 actorCrop = ActorCrops[cascadeIndex];
+        float2 actorUv = localUv * actorCrop.xy + actorCrop.zw;
+        if (min(actorUv.x, actorUv.y) >= 0.0f && max(actorUv.x, actorUv.y) <= 1.0f) {
+            float2 actor = SampleActorDepthCoverage(
+                clamp(actorUv, ActorTexel.xx, ActorTexel.yy), cascadeIndex);
+            actorVisibility = ActorVisibility(actor, saturate(ndc.z));
+        }
     }
     float visibility = min(Evsm4(center, saturate(ndc.z), bleed), actorVisibility);
     // Hardware bilinear is sufficient in flat regions. Only an actual EVSM
@@ -177,30 +182,20 @@ float CascadeVisibility(row_major float4x4 transform, int cascadeIndex, float3 w
     return visibility;
 }
 
-float DirectionalVisibility(float3 worldPosition) {
-    float3 delta0 = worldPosition - CascadeSpheres[0].xyz;
-    float3 delta1 = worldPosition - CascadeSpheres[1].xyz;
-    float3 delta2 = worldPosition - CascadeSpheres[2].xyz;
-    float3 delta3 = worldPosition - CascadeSpheres[3].xyz;
-    float4 distanceSquared = float4(
-        dot(delta0, delta0), dot(delta1, delta1),
-        dot(delta2, delta2), dot(delta3, delta3));
-    float4 radiusSquared = float4(
-        CascadeSpheres[0].w * CascadeSpheres[0].w,
-        CascadeSpheres[1].w * CascadeSpheres[1].w,
-        CascadeSpheres[2].w * CascadeSpheres[2].w,
-        CascadeSpheres[3].w * CascadeSpheres[3].w);
-    int cascade = distanceSquared.x < radiusSquared.x ? 0
-        : (distanceSquared.y < radiusSquared.y ? 1
-        : (distanceSquared.z < radiusSquared.z ? 2
-        : (distanceSquared.w < radiusSquared.w ? 3 : -1)));
+float DirectionalVisibility(float3 worldPosition, float viewDepth) {
+    // Every map owns a view-depth interval. Sphere-distance ownership makes
+    // equal-depth pixels cross at different screen positions, which appears
+    // as curved clipping bands on distant terrain and large walls.
+    int cascade = viewDepth < CascadeSplits.x ? 0
+        : (viewDepth < CascadeSplits.y ? 1
+        : (viewDepth < CascadeSplits.z ? 2
+        : (viewDepth < CascadeSplits.w ? 3 : -1)));
     if (cascade < 0) return 1.0f;
 
-    float radius = CascadeSpheres[cascade].w;
-    float distance = sqrt(distanceSquared[cascade]);
     float current = CascadeVisibility(
         CascadeMatrices[cascade], cascade, worldPosition);
-    float blend = smoothstep(radius * 0.9f, radius, distance);
+    float split = CascadeSplits[cascade];
+    float blend = smoothstep(split - CascadeBlendWidth[cascade], split, viewDepth);
     if (cascade >= 3) return lerp(current, 1.0f, blend);
     if (blend <= 0.0f) return current;
     float next = CascadeVisibility(
@@ -261,14 +256,14 @@ float4 Main(PixelInput input) : COLOR0 {
     float directional = 1.0f;
     if (ShadowControl.y > 0.5f) {
         if (viewDepth < CascadeSplits.w) {
-            directional = DirectionalVisibility(worldPosition);
+            directional = DirectionalVisibility(worldPosition, viewDepth);
             // Receiver bias matters at an actual shadow transition. Keeping
             // neighbor depth reconstruction inside this branch avoids four
             // full-resolution reads for uniformly lit or shadowed pixels.
             if (directional > 0.02f && directional < 0.98f) {
                 float3 normal = ReconstructWorldNormal(input.uv, viewDepth);
                 float normalOffset = saturate(1.0f - dot(normal, SunDirection.xyz));
-                directional = DirectionalVisibility(worldPosition + normal * normalOffset);
+                directional = DirectionalVisibility(worldPosition + normal * normalOffset, viewDepth);
             }
         }
         // NVR contact rays own an independent, much longer view-depth range.

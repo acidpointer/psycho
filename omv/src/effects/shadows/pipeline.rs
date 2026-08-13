@@ -57,6 +57,7 @@ use super::{
 };
 
 const ATLAS_RESOLUTION: u32 = NVR_CASCADE_RESOLUTION * 2;
+const ACTOR_MAP_RESOLUTION: u32 = NVR_CASCADE_RESOLUTION / 2;
 const POINT_CUBE_RESOLUTION: u32 = 512;
 const BLEED_REDUCTION: f32 = 0.2;
 const MAX_ERROR_LOGS: u32 = 8;
@@ -98,6 +99,8 @@ struct PublishedFrame {
     sun_direction: [f32; 3],
     matrices: [[[f32; 4]; 4]; CASCADE_COUNT],
     matrix_origins: [[f32; 3]; CASCADE_COUNT],
+    /// Actor-map XY scale/offset in each parent cascade's clip domain.
+    actor_crops: [[f32; 4]; 3],
     /// Actor-only moments available for near, middle, and far cascades.
     actor_overlay_mask: u8,
     splits: [CascadeSplit; CASCADE_COUNT],
@@ -117,7 +120,7 @@ pub(super) struct ShadowPipeline {
     /// Actor cascade footprint stored in the last completed map transaction.
     last_dynamic_cascade_mask: u8,
     /// Complete scene-root identity paired with the retained directional maps.
-    last_directional_roots: Option<DirectionalRootSetSignature>,
+    last_directional_roots: Option<[DirectionalRootSetSignature; CASCADE_COUNT]>,
     point_cache: PointMapCache,
     point_cell_identity: usize,
     resource_failure_generation: Option<u32>,
@@ -479,6 +482,7 @@ struct ShadowResources {
     cascade_matrices: [[[f32; 4]; 4]; CASCADE_COUNT],
     cascade_projections: [Option<CascadeProjection>; CASCADE_COUNT],
     cascade_origins: [[f32; 3]; CASCADE_COUNT],
+    actor_crops: [[f32; 4]; 3],
     cascade_spheres: [[f32; 4]; CASCADE_COUNT],
     cascade_splits: [CascadeSplit; CASCADE_COUNT],
     /// Stabilized light direction paired with each retained atlas quadrant.
@@ -505,13 +509,15 @@ struct DirectionalResources {
     directional_actor_generation_surface: Surface9,
     /// Actor near/middle maps packed side-by-side. Packing them behind one
     /// sampler lowers the already-heavy compositor's static instruction and
-    /// texture-read footprint without changing map precision or resolution.
+    /// texture-read footprint. Their fitted projection preserves or increases
+    /// caster texel density at half the static-map dimension.
     actor_near_middle_moments: Texture9,
     actor_near_middle_surface: Surface9,
     /// Actor-only far map; cascade three never admits animated actors.
     actor_far_moments: Texture9,
     actor_far_surface: Surface9,
     directional_depth: Surface9,
+    directional_actor_depth: Surface9,
     samples: u32,
 }
 
@@ -544,21 +550,21 @@ impl DirectionalResources {
         let directional_moments_surface = directional_moments.surface_level(0)?;
         let create_actor_family = |format| -> Direct3DResult<_> {
             let generation = device.create_render_target_surface(
-                NVR_CASCADE_RESOLUTION,
-                NVR_CASCADE_RESOLUTION,
+                ACTOR_MAP_RESOLUTION,
+                ACTOR_MAP_RESOLUTION,
                 format,
                 D3DMULTISAMPLE_4_SAMPLES,
                 0,
                 false,
             )?;
             let near_middle = device.create_render_target_texture(
-                NVR_CASCADE_RESOLUTION * 2,
-                NVR_CASCADE_RESOLUTION,
+                ACTOR_MAP_RESOLUTION * 2,
+                ACTOR_MAP_RESOLUTION,
                 format,
             )?;
             let far = device.create_render_target_texture(
-                NVR_CASCADE_RESOLUTION,
-                NVR_CASCADE_RESOLUTION,
+                ACTOR_MAP_RESOLUTION,
+                ACTOR_MAP_RESOLUTION,
                 format,
             )?;
             let near_middle_surface = near_middle.surface_level(0)?;
@@ -591,6 +597,14 @@ impl DirectionalResources {
             0,
             true,
         )?;
+        let directional_actor_depth = device.create_depth_stencil_surface(
+            ACTOR_MAP_RESOLUTION,
+            ACTOR_MAP_RESOLUTION,
+            D3DFMT_D24S8,
+            D3DMULTISAMPLE_4_SAMPLES,
+            0,
+            true,
+        )?;
         Ok(Self {
             atlas,
             atlas_surface,
@@ -603,6 +617,7 @@ impl DirectionalResources {
             actor_far_moments: actor_far,
             actor_far_surface,
             directional_depth,
+            directional_actor_depth,
             samples: 4,
         })
     }
@@ -676,6 +691,7 @@ impl ShadowResources {
             cascade_matrices: [[[0.0; 4]; 4]; CASCADE_COUNT],
             cascade_projections: [None; CASCADE_COUNT],
             cascade_origins: [[0.0; 3]; CASCADE_COUNT],
+            actor_crops: [[1.0, 1.0, 0.0, 0.0]; 3],
             cascade_spheres: [[0.0; 4]; CASCADE_COUNT],
             cascade_splits: [CascadeSplit {
                 near: 0.0,
@@ -757,7 +773,7 @@ impl ShadowResources {
         last_frustum: &mut Option<[f32; 6]>,
         last_directional_profile: &mut Option<[f32; 2]>,
         last_dynamic_cascade_mask: &mut u8,
-        last_directional_roots: &mut Option<DirectionalRootSetSignature>,
+        last_directional_roots: &mut Option<[DirectionalRootSetSignature; CASCADE_COUNT]>,
         point_cache: &mut PointMapCache,
         point_cell_identity: &mut usize,
         now_millis: u64,
@@ -796,12 +812,13 @@ impl ShadowResources {
             let roots_complete =
                 unsafe { native::collect_directional_roots(scene, &mut directional_roots) };
             let current_root_signature = roots_complete
-                .then(|| native::directional_root_set_signature(directional_roots.as_slice()));
+                .then(|| native::directional_root_set_signatures(directional_roots.as_slice()));
             let dynamic_cascade_mask = if roots_complete {
                 unsafe {
                     native::directional_dynamic_cascade_mask(
                         directional_roots.as_slice(),
-                        projections,
+                        splits,
+                        shadow_camera.forward,
                         camera.world_transform.translation,
                     )
                 }
@@ -916,25 +933,38 @@ impl ShadowResources {
                 // near-last ordering deterministic. Every result now leaves
                 // the reusable resolve immediately for its packed persistent
                 // slot, so no later overlay can overwrite a published map.
-                // The far actor texture doubles as the mandatory full-size
+                // The far actor texture doubles as the mandatory same-size
                 // MSAA resolve. Publish near/middle first and far last so a
                 // live far result is never overwritten by the scratch role.
                 for index in [1_usize, 0, 2] {
                     if caster_work.actor_overlay_mask & (1 << index) == 0 {
                         continue;
                     }
-                    let actor_projection =
+                    let static_projection =
                         self.cascade_projections[index].ok_or_else(direct3d_failure)?;
+                    let actor_bounds = unsafe {
+                        native::directional_actor_bounds(
+                            directional_roots.as_slice(),
+                            index,
+                            static_projection,
+                            self.cascade_origins[index],
+                        )
+                    }
+                    .ok_or_else(direct3d_failure)?;
+                    let actor_projection = static_projection
+                        .cropped_to_actor_bounds(actor_bounds, ACTOR_MAP_RESOLUTION)
+                        .ok_or_else(direct3d_failure)?;
                     unsafe {
                         self.draw_directional_actor_overlay(
                             device,
                             scene,
                             index,
-                            actor_projection,
+                            actor_projection.projection,
                             self.cascade_origins[index],
                             directional_roots.as_slice(),
                         )?
                     };
+                    self.actor_crops[index] = actor_projection.uv_scale_offset;
                     actor_overlay_mask |= 1 << index;
                 }
                 Ok(())
@@ -1026,6 +1056,7 @@ impl ShadowResources {
             sun_direction: self.cascade_sun,
             matrices: self.cascade_matrices,
             matrix_origins: self.cascade_origins,
+            actor_crops: self.actor_crops,
             actor_overlay_mask,
             splits: self.cascade_splits,
             points: published_points,
@@ -1104,8 +1135,9 @@ impl ShadowResources {
     /// Render animated actors for one cascade into the reusable resolve.
     ///
     /// The static atlas excludes these roots, so a changing player/NPC pose
-    /// cannot leave a ghost. Reusing the same 2048 four-sample work target
-    /// preserves NVR silhouette quality without resubmitting the static world.
+    /// cannot leave a ghost. A caster-fitted 1024 four-sample target
+    /// concentrates samples on occupied light space rather than shading the
+    /// empty extent of a full static cascade.
     unsafe fn draw_directional_actor_overlay(
         &mut self,
         device: &Device9Ref<'_>,
@@ -1117,8 +1149,8 @@ impl ShadowResources {
     ) -> Direct3DResult<()> {
         let directional = self.directional.as_ref().ok_or_else(direct3d_failure)?;
         device.set_render_target(0, &directional.directional_actor_generation_surface)?;
-        device.set_depth_stencil_surface(Some(&directional.directional_depth))?;
-        set_viewport(device, 0, 0, NVR_CASCADE_RESOLUTION, NVR_CASCADE_RESOLUTION)?;
+        device.set_depth_stencil_surface(Some(&directional.directional_actor_depth))?;
+        set_viewport(device, 0, 0, ACTOR_MAP_RESOLUTION, ACTOR_MAP_RESOLUTION)?;
         // RG stores `(depth * coverage, coverage)`. A black multisample clear
         // is therefore an exact neutral distribution, while resolve and
         // bilinear filtering preserve partial silhouette coverage linearly.
@@ -1168,20 +1200,20 @@ impl ShadowResources {
         )?;
         let (destination, destination_rect) = match cascade {
             0 | 1 => {
-                let left = cascade as i32 * NVR_CASCADE_RESOLUTION as i32;
+                let left = cascade as i32 * ACTOR_MAP_RESOLUTION as i32;
                 (
                     &directional.actor_near_middle_surface,
                     Some(RECT {
                         left,
                         top: 0,
-                        right: left + NVR_CASCADE_RESOLUTION as i32,
-                        bottom: NVR_CASCADE_RESOLUTION as i32,
+                        right: left + ACTOR_MAP_RESOLUTION as i32,
+                        bottom: ACTOR_MAP_RESOLUTION as i32,
                     }),
                 )
             }
             // The full-surface resolve above is already the persistent far
             // publication. Avoid a redundant self-copy, which D3D9 does not
-            // define and which would add another 2048-square transfer.
+            // define and which would add another 1024-square transfer.
             2 => return Ok(()),
             _ => return Err(direct3d_failure()),
         };
@@ -1719,20 +1751,9 @@ impl ShadowResources {
         set_point_clamp_sampler(device, 4)?;
 
         let mut matrices = publication.matrices;
-        // Receiver selection follows the camera used for this composition,
-        // not even the immediately preceding producer epoch. The retained map
-        // transforms remain map-owned and rebased below; their guard spheres
-        // already proved that these current slices fit the cached coverage.
-        let cascade_spheres = if publication.directional {
-            consumer_selection_spheres(
-                shadow_camera(camera).ok_or_else(direct3d_failure)?,
-                publication.splits,
-                publication.sun_direction,
-            )
-            .ok_or_else(direct3d_failure)?
-        } else {
-            [[0.0; 4]; CASCADE_COUNT]
-        };
+        // Cascade ownership is view-depth based. Retained transforms remain
+        // map-owned and are rebased from their generation origins below; the
+        // guarded clipmap spheres already prove current receiver coverage.
         for index in 0..CASCADE_COUNT {
             matrices[index] = translate_shadow_matrix(
                 matrices[index],
@@ -1746,7 +1767,6 @@ impl ShadowResources {
         }
         let splits = publication.cascade_splits();
         device.set_pixel_shader_constant_f(26, &[[1.0 / 65_536.0, 0.0, 0.0, 0.0]])?;
-        device.set_pixel_shader_constant_f(27, &cascade_spheres)?;
         if publication.directional {
             let directional = self.directional.as_ref().ok_or_else(direct3d_failure)?;
             device.set_texture(2, &directional.atlas)?;
@@ -1828,6 +1848,16 @@ impl ShadowResources {
         )?;
         device
             .set_pixel_shader_constant_f(35, &[[contact_texel[0], contact_texel[1], 0.0, 0.0]])?;
+        device.set_pixel_shader_constant_f(36, &publication.actor_crops)?;
+        device.set_pixel_shader_constant_f(
+            39,
+            &[[
+                0.5 / ACTOR_MAP_RESOLUTION as f32,
+                1.0 - 0.5 / ACTOR_MAP_RESOLUTION as f32,
+                0.0,
+                0.0,
+            ]],
+        )?;
         device.set_render_state(D3DRS_ALPHABLENDENABLE, 0)?;
         device.set_render_state(D3DRS_COLORWRITEENABLE, 0xF)?;
         draw_quad(device, 0, 0, desc.Width, desc.Height)?;
@@ -2000,6 +2030,7 @@ fn camera_signature(camera: CameraFrame) -> [f32; 6] {
 /// cascade choice is a property of the current view. Reusing a cached map's
 /// larger coverage sphere here makes the blend shell move across world walls
 /// and then jump whenever that map refreshes.
+#[cfg(test)]
 pub(super) fn consumer_selection_spheres(
     mut camera: ShadowCamera,
     splits: [CascadeSplit; CASCADE_COUNT],

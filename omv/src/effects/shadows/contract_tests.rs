@@ -11,17 +11,18 @@ use super::contract::{
     effective_contact_distance, evsm4_moments, evsm4_visibility, interior_shadow_factor,
     local_light_source_guard, nvr_contact_sample_offsets, point_light_distance_fade,
     point_light_influence_is_eligible, practical_cascade_splits, publication_epoch_is_usable,
-    select_point_lights, select_point_lights_stable, shadow_receiver_is_valid,
-    skinned_position_reference, snap_shadow_center, source_owned_shadow_radiance,
-    sphere_intersects_cube_face, sphere_intersects_point_light, terrain_lod_shadow_z,
+    retained_cascade_refresh, select_point_lights, select_point_lights_stable,
+    shadow_receiver_is_valid, skinned_position_reference, snap_shadow_center,
+    source_owned_shadow_radiance, sphere_intersects_cube_face, sphere_intersects_point_light,
+    terrain_lod_shadow_z,
 };
 use super::engine::{
     EngineCallAbi, FNV_EXE_SHA256, GeometryKind, HookSiteContract, NativeLayout,
     ShadowGenerationAbi,
 };
 use super::math::{
-    ShadowCamera, Sphere, cascade_projection, dynamic_caster_cascade_mask, point_cube_views,
-    stabilize_sun_direction,
+    ActorBounds, ShadowCamera, Sphere, cascade_projection, dynamic_caster_cascade_mask,
+    point_cube_views, stabilize_sun_direction,
 };
 use super::render::{mapped_cull_mode, rebase_bone_rows};
 
@@ -1127,10 +1128,14 @@ fn newly_streamed_root_invalidates_every_cached_directional_map() {
     let initial = scheduler.plan_at_millis(CascadeDirty::all(), 0);
     scheduler.commit(initial);
 
-    let mut previous = DirectionalRootSetSignature::EMPTY;
-    previous.include(0x1000, 0x15);
+    let mut previous = [DirectionalRootSetSignature::EMPTY; CASCADE_COUNT];
+    for signature in &mut previous {
+        signature.include(0x1000, 0x15);
+    }
     let mut current = previous;
-    current.include(0x2000, 0x24);
+    for signature in &mut current {
+        signature.include(0x2000, 0x24);
+    }
     let dirty = directional_root_set_dirty(Some(previous), Some(current));
     let streamed = scheduler.plan_at_millis(dirty, 1);
     assert_eq!(
@@ -1147,6 +1152,26 @@ fn newly_streamed_root_invalidates_every_cached_directional_map() {
         directional_root_set_dirty(Some(current), None),
         CascadeDirty::all(),
         "root-cache overflow retained maps whose complete caster set is unknown"
+    );
+}
+
+#[test]
+fn changing_a_lod_only_root_does_not_invalidate_near_static_maps() {
+    let mut previous = [DirectionalRootSetSignature::EMPTY; CASCADE_COUNT];
+    let mut current = [DirectionalRootSetSignature::EMPTY; CASCADE_COUNT];
+    for cascade in 0..CASCADE_COUNT {
+        previous[cascade].include(0x1000, 0x15);
+        current[cascade].include(0x1000, 0x15);
+        if cascade >= 2 {
+            previous[cascade].include(0x9000, 0x400);
+            current[cascade].include(0x9000, 0x401);
+        }
+    }
+
+    assert_eq!(
+        directional_root_set_dirty(Some(previous), Some(current)),
+        CascadeDirty::from_mask(0b1100),
+        "a far-LOD transform change forced near and middle world redraws"
     );
 }
 
@@ -1285,14 +1310,15 @@ fn resource_plan_preserves_nvr_evsm_coverage_with_one_reusable_multisample_surfa
     assert!(exterior.evsm4);
     assert_eq!(exterior.actor_channels, 2);
     assert_eq!(exterior.actor_samples, 4);
-    assert_eq!(
-        exterior.actor_generation_bytes,
-        u64::from(NVR_CASCADE_RESOLUTION).pow(2) * 4 * 4
+    assert_eq!(exterior.actor_resolution, NVR_CASCADE_RESOLUTION / 2);
+    assert!(
+        exterior.actor_generation_bytes <= u64::from(NVR_CASCADE_RESOLUTION / 2).pow(2) * 4 * 4,
+        "presentation-rate actor generation still writes a full 2048-square 4x-MSAA target"
     );
     assert_eq!(
-        exterior.actor_generation_bytes * 2,
+        exterior.actor_generation_bytes * 8,
         u64::from(NVR_CASCADE_RESOLUTION).pow(2) * 8 * 4,
-        "actor coverage storage must halve the old presentation-rate EVSM4 bandwidth"
+        "caster fitting must cut the former full-size EVSM4 actor write traffic by eight"
     );
     assert_eq!(
         exterior.receiver_filter_samples, 3,
@@ -1305,11 +1331,11 @@ fn resource_plan_preserves_nvr_evsm_coverage_with_one_reusable_multisample_surfa
         "each published point cube needs an immutable-static backing cube"
     );
     assert_eq!(
-        exterior.estimated_bytes, 692_496_384,
+        exterior.estimated_bytes, 621_193_216,
         "the resource contract omitted a quality-preserving shadow resource"
     );
     assert!(exterior.estimated_bytes <= 664 * 1024 * 1024);
-    assert_eq!(exterior.fallback_estimated_bytes, 809_936_896);
+    assert_eq!(exterior.fallback_estimated_bytes, 650_553_344);
     assert!(exterior.fallback_estimated_bytes < exterior.nvr_equivalent_estimated_bytes);
     assert!(exterior.combined_estimated_bytes <= 664 * 1024 * 1024);
     assert!(exterior.nvr_equivalent_estimated_bytes >= 896 * 1024 * 1024);
@@ -1399,6 +1425,204 @@ fn cascade_projection_contains_its_source_slice_and_rejects_distant_bounds() {
 }
 
 #[test]
+fn directional_caster_upstream_of_the_receiver_is_pancaked_instead_of_culled() {
+    let camera = ShadowCamera {
+        near: 5.0,
+        far: 28_000.0,
+        frustum_left: -1.0,
+        frustum_right: 1.0,
+        frustum_bottom: -0.5625,
+        frustum_top: 0.5625,
+        forward: [1.0, 0.0, 0.0],
+        up: [0.0, 0.0, 1.0],
+        right: [0.0, 1.0, 0.0],
+        translation: [0.0; 3],
+        fov_compensation: 1.0,
+    };
+    let split = practical_cascade_splits(camera.near, camera.far, 6_000.0, 0.9).expect("splits")[3];
+    let sun = [0.4, 0.3, 0.866_025_4];
+    let projection =
+        cascade_projection(camera, split, sun, NVR_CASCADE_RESOLUTION).expect("LOD projection");
+
+    // This caster is directly upstream of the receiver along the light ray.
+    // Its vertices are deliberately beyond the light camera's near plane,
+    // where NVR disables plane zero and the vertex shader clamps projected Z.
+    // Rejecting it on the CPU creates the hard horizon bands in the report.
+    let upstream = Sphere {
+        center: std::array::from_fn(|axis| {
+            projection.center[axis] + sun[axis] * projection.radius * 1.5
+        }),
+        radius: 8.0,
+    };
+    assert!(
+        projection.contains(upstream),
+        "the CPU near plane clipped an upstream caster before vertex-depth pancaking"
+    );
+}
+
+#[test]
+fn rotating_the_camera_cannot_move_a_directional_cache_footprint() {
+    let forward = ShadowCamera {
+        near: 5.0,
+        far: 28_000.0,
+        frustum_left: -1.0,
+        frustum_right: 1.0,
+        frustum_bottom: -0.5625,
+        frustum_top: 0.5625,
+        forward: [1.0, 0.0, 0.0],
+        up: [0.0, 0.0, 1.0],
+        right: [0.0, 1.0, 0.0],
+        translation: [10_000.0, -4_000.0, 300.0],
+        fov_compensation: 1.0,
+    };
+    let yawed = ShadowCamera {
+        forward: [0.0, 1.0, 0.0],
+        right: [-1.0, 0.0, 0.0],
+        ..forward
+    };
+    let split =
+        practical_cascade_splits(forward.near, forward.far, 6_000.0, 0.9).expect("splits")[2];
+    let sun = [0.4, 0.3, 0.866_025_4];
+    let first = cascade_projection(forward, split, sun, NVR_CASCADE_RESOLUTION)
+        .expect("forward projection");
+    let second =
+        cascade_projection(yawed, split, sun, NVR_CASCADE_RESOLUTION).expect("yawed projection");
+
+    assert_eq!(
+        first.receiver_sphere(),
+        second.receiver_sphere(),
+        "camera yaw moved the retained static-map footprint and forced redraw/flicker"
+    );
+    assert_eq!(
+        first.world_to_shadow, second.world_to_shadow,
+        "camera yaw moved the stable shadow texel grid"
+    );
+}
+
+#[test]
+fn fast_camera_yaw_schedules_zero_static_cascade_pixels() {
+    let forward = ShadowCamera {
+        near: 5.0,
+        far: 28_000.0,
+        frustum_left: -1.0,
+        frustum_right: 1.0,
+        frustum_bottom: -0.5625,
+        frustum_top: 0.5625,
+        forward: [1.0, 0.0, 0.0],
+        up: [0.0, 0.0, 1.0],
+        right: [0.0, 1.0, 0.0],
+        translation: [10_000.0, -4_000.0, 300.0],
+        fov_compensation: 1.0,
+    };
+    let yawed = ShadowCamera {
+        forward: [-1.0, 0.0, 0.0],
+        right: [0.0, -1.0, 0.0],
+        ..forward
+    };
+    let splits = practical_cascade_splits(forward.near, forward.far, 6_000.0, 0.9)
+        .expect("practical split family");
+    let sun = [0.4, 0.3, 0.866_025_4];
+    let mut mandatory = 0_u8;
+    let mut quality = 0_u8;
+    for (index, split) in splits.into_iter().enumerate() {
+        let cached = cascade_projection(forward, split, sun, NVR_CASCADE_RESOLUTION)
+            .expect("cached clipmap");
+        let current =
+            cascade_projection(yawed, split, sun, NVR_CASCADE_RESOLUTION).expect("yawed clipmap");
+        let refresh = retained_cascade_refresh(
+            cached.center,
+            cached.radius,
+            current.center,
+            current.receiver_radius,
+            sun,
+            sun,
+            NVR_CASCADE_RESOLUTION,
+        );
+        mandatory |= u8::from(refresh.mandatory) << index;
+        quality |= u8::from(refresh.quality) << index;
+    }
+    let mut scheduler = CascadeScheduler::default();
+    scheduler.commit(scheduler.plan_at_millis(CascadeDirty::all(), 0));
+    let plan = scheduler.plan_refreshes_at_millis(
+        CascadeDirty::from_mask(mandatory),
+        CascadeDirty::from_mask(quality),
+        1,
+    );
+    assert_eq!(plan.render, [false; CASCADE_COUNT]);
+    let submitted_pixels = plan.render.into_iter().filter(|render| *render).count() as u64
+        * u64::from(NVR_CASCADE_RESOLUTION).pow(2);
+    assert_eq!(
+        submitted_pixels, 0,
+        "camera-only yaw submitted static shadow-map pixels"
+    );
+}
+
+#[test]
+fn fitted_actor_map_encloses_the_caster_and_preserves_static_texel_density() {
+    let camera = ShadowCamera {
+        near: 5.0,
+        far: 28_000.0,
+        frustum_left: -1.0,
+        frustum_right: 1.0,
+        frustum_bottom: -0.5625,
+        frustum_top: 0.5625,
+        forward: [1.0, 0.0, 0.0],
+        up: [0.0, 0.0, 1.0],
+        right: [0.0, 1.0, 0.0],
+        translation: [0.0; 3],
+        fov_compensation: 1.0,
+    };
+    let split = practical_cascade_splits(camera.near, camera.far, 6_000.0, 0.9).expect("splits")[0];
+    let static_projection = cascade_projection(
+        camera,
+        split,
+        [0.4, 0.3, 0.866_025_4],
+        NVR_CASCADE_RESOLUTION,
+    )
+    .expect("static projection");
+    let bounds = ActorBounds {
+        min: [24.0, -12.0, -4.0],
+        max: [64.0, 12.0, 84.0],
+    };
+    let actor_projection = static_projection
+        .cropped_to_actor_bounds(bounds, NVR_CASCADE_RESOLUTION / 2)
+        .expect("fitted actor projection");
+    let actor_projection = actor_projection.projection;
+
+    for x in [bounds.min[0], bounds.max[0]] {
+        for y in [bounds.min[1], bounds.max[1]] {
+            for z in [bounds.min[2], bounds.max[2]] {
+                let point = [x, y, z, 1.0];
+                let projected: [f32; 4] = std::array::from_fn(|column| {
+                    point
+                        .into_iter()
+                        .zip(actor_projection.world_to_shadow)
+                        .map(|(value, row)| value * row[column])
+                        .sum()
+                });
+                assert!(projected[0].abs() <= projected[3] + 0.001);
+                assert!(projected[1].abs() <= projected[3] + 0.001);
+            }
+        }
+    }
+
+    for world_axis in 0..3 {
+        let static_scale = (static_projection.world_to_shadow[world_axis][0].powi(2)
+            + static_projection.world_to_shadow[world_axis][1].powi(2))
+        .sqrt()
+            * NVR_CASCADE_RESOLUTION as f32;
+        let actor_scale = (actor_projection.world_to_shadow[world_axis][0].powi(2)
+            + actor_projection.world_to_shadow[world_axis][1].powi(2))
+        .sqrt()
+            * (NVR_CASCADE_RESOLUTION / 2) as f32;
+        assert!(
+            actor_scale + 0.001 >= static_scale,
+            "actor fitting reduced light-space samples along world axis {world_axis}"
+        );
+    }
+}
+
+#[test]
 fn grazing_directional_receivers_use_nvrs_world_space_normal_offset() {
     let position = [100.0, -20.0, 8.0];
     let overhead = directional_receiver_position(position, [0.0, 0.0, 1.0], [0.0, 0.0, 1.0])
@@ -1442,15 +1666,24 @@ fn animated_actor_bounds_invalidate_only_their_receiver_cascade_and_blend_neighb
         radius: 32.0,
     };
     assert_eq!(
-        dynamic_caster_cascade_mask(projections, near_actor),
+        dynamic_caster_cascade_mask(splits, camera.forward, near_actor),
         0b0001,
         "a near actor must use its private overlay instead of rebuilding two nested outer static maps every frame"
+    );
+    let beyond_near_split = Sphere {
+        center: [splits[0].far * 1.1, 0.0, 0.0],
+        radius: 1.0,
+    };
+    assert_eq!(
+        dynamic_caster_cascade_mask(splits, camera.forward, beyond_near_split) & 0b0001,
+        0,
+        "clipmap guard coverage was mistaken for view-depth cascade ownership"
     );
     let middle_actor = Sphere {
         center: [splits[1].far * 0.9, 0.0, 0.0],
         radius: 32.0,
     };
-    let mask = dynamic_caster_cascade_mask(projections, middle_actor);
+    let mask = dynamic_caster_cascade_mask(splits, camera.forward, middle_actor);
     assert_ne!(
         mask & (1 << 1),
         0,

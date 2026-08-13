@@ -11,13 +11,13 @@ use libpsycho::os::windows::memory::validate_memory_range;
 
 use super::{
     contract::{
-        ALL_CUBE_FACES, DirectionalRootSetSignature, NVR_POINT_LIGHT_COUNT, SceneKind,
-        directional_actor_root_is_active, directional_form_type_is_enabled,
+        ALL_CUBE_FACES, CASCADE_COUNT, DirectionalRootSetSignature, NVR_POINT_LIGHT_COUNT,
+        SceneKind, directional_actor_root_is_active, directional_form_type_is_enabled,
         point_light_distance_fade, point_light_influence_is_eligible, sphere_intersects_cube_face,
         stable_point_light_distance_squared,
     },
     engine::NativeLayout,
-    math::{CascadeProjection, Sphere, dynamic_caster_cascade_mask},
+    math::{ActorBounds, CascadeProjection, Sphere, dynamic_caster_cascade_mask},
 };
 
 const SHADOW_SCENE_MANAGER_GETTER_ADDR: usize = 0x0045_0B80;
@@ -142,22 +142,31 @@ impl DirectionalRoot {
     }
 }
 
-/// Identify the complete borrowed root set without allocation or ordering.
-pub(super) fn directional_root_set_signature(
+/// Identify the borrowed static roots owned by each cascade profile.
+///
+/// LOD roots are absent from the near and middle signatures because those
+/// maps never submit them. Keeping four independent identities prevents
+/// streaming/transform churn in distant LOD roots from invalidating two
+/// expensive maps whose actual producer inputs did not change.
+pub(super) fn directional_root_set_signatures(
     roots: &[DirectionalRoot],
-) -> DirectionalRootSetSignature {
-    let mut signature = DirectionalRootSetSignature::EMPTY;
+) -> [DirectionalRootSetSignature; CASCADE_COUNT] {
+    let mut signatures = [DirectionalRootSetSignature::EMPTY; CASCADE_COUNT];
     for root in roots
         .iter()
         .copied()
         .filter(|root| !root.is_dynamic_actor())
     {
-        signature.include(
-            root.root,
-            root.signature_profile() ^ root.world_state.rotate_left(11),
-        );
+        for (cascade, signature) in signatures.iter_mut().enumerate() {
+            if root.enabled_for(cascade) {
+                signature.include(
+                    root.root,
+                    root.signature_profile() ^ root.world_state.rotate_left(11),
+                );
+            }
+        }
     }
-    signature
+    signatures
 }
 
 /// Return gameplay maps containing actor bounds whose pose can change now.
@@ -173,7 +182,8 @@ pub(super) fn directional_root_set_signature(
 /// common-shadow invocation.
 pub(super) unsafe fn directional_dynamic_cascade_mask(
     roots: &[DirectionalRoot],
-    projections: [CascadeProjection; 4],
+    splits: [super::contract::CascadeSplit; CASCADE_COUNT],
+    camera_forward: [f32; 3],
     camera_translation: [f32; 3],
 ) -> u8 {
     let mut mask = 0_u8;
@@ -182,28 +192,79 @@ pub(super) unsafe fn directional_dynamic_cascade_mask(
         .copied()
         .filter(|root| unsafe { root.is_active_dynamic_actor() })
     {
-        let bound = unsafe {
-            read::<*mut NativeBound>(root.node(), NativeLayout::NI_AV_OBJECT_WORLD_BOUND)
+        let Some(bound) = (unsafe { directional_actor_sphere(root, camera_translation) }) else {
+            return 0b0111;
         };
-        if bound.is_null() {
-            return 0b0111;
-        }
-        let bound = unsafe { read_unaligned(bound) };
-        if !bound.center.into_iter().all(f32::is_finite)
-            || !bound.radius.is_finite()
-            || bound.radius < 0.0
-        {
-            return 0b0111;
-        }
-        mask |= dynamic_caster_cascade_mask(
-            projections,
-            Sphere {
-                center: std::array::from_fn(|axis| bound.center[axis] - camera_translation[axis]),
-                radius: bound.radius,
-            },
-        );
+        mask |= dynamic_caster_cascade_mask(splits, camera_forward, bound);
     }
     mask
+}
+
+/// Bound active animated casters submitted to one directional overlay.
+///
+/// The result is relative to the retained static map's generation origin, not
+/// necessarily the current camera. That keeps the cropped actor projection in
+/// the same coordinate domain as the matrix with which it is paired.
+/// `None` means either no active actor belongs to the profile or an engine
+/// bound was invalid; callers which expected work fail the replacement
+/// transaction instead of silently publishing a clipped actor.
+///
+/// # Safety
+///
+/// Every root and its world bound must remain live for the current serialized
+/// common-shadow invocation.
+pub(super) unsafe fn directional_actor_bounds(
+    roots: &[DirectionalRoot],
+    cascade: usize,
+    projection: CascadeProjection,
+    generation_origin: [f32; 3],
+) -> Option<ActorBounds> {
+    let mut minimum = [f32::INFINITY; 3];
+    let mut maximum = [f32::NEG_INFINITY; 3];
+    let mut found = false;
+    for root in roots
+        .iter()
+        .copied()
+        .filter(|root| root.enabled_for(cascade) && unsafe { root.is_active_dynamic_actor() })
+    {
+        let sphere = unsafe { directional_actor_sphere(root, generation_origin) }?;
+        if !projection.contains(sphere) {
+            continue;
+        }
+        for axis in 0..3 {
+            minimum[axis] = minimum[axis].min(sphere.center[axis] - sphere.radius);
+            maximum[axis] = maximum[axis].max(sphere.center[axis] + sphere.radius);
+        }
+        found = true;
+    }
+    found.then_some(ActorBounds {
+        min: minimum,
+        max: maximum,
+    })
+}
+
+/// Read one live actor's conservative world bound in a requested origin.
+///
+/// # Safety
+///
+/// `root` must remain a live engine object for this common-shadow invocation.
+unsafe fn directional_actor_sphere(root: DirectionalRoot, origin: [f32; 3]) -> Option<Sphere> {
+    let bound =
+        unsafe { read::<*mut NativeBound>(root.node(), NativeLayout::NI_AV_OBJECT_WORLD_BOUND) };
+    if bound.is_null() {
+        return None;
+    }
+    let bound = unsafe { read_unaligned(bound) };
+    if !bound.center.into_iter().all(f32::is_finite)
+        || !bound.radius.is_finite()
+        || bound.radius < 0.0
+    {
+        return None;
+    }
+    Some(Sphere {
+        center: std::array::from_fn(|axis| bound.center[axis] - origin[axis]),
+        radius: bound.radius,
+    })
 }
 
 /// Scalar and borrowed geometry ownership for one selected point light.
@@ -656,9 +717,10 @@ unsafe fn push_player_directional_root(
     }
     // PlayerCharacter's base form is an NPC, and modern NVR enables actors in
     // the three gameplay cascades while excluding them from the LOD profile.
-    push_directional_root(roots, node, Some(0x2A), false, false, unsafe {
-        retained_object_world_state(node)
-    })
+    // Actor pose/bounds change at presentation cadence and are owned by the
+    // cropped overlay, never by retained static-map identities. Avoid hashing
+    // thirteen transform floats for a value the signature deliberately drops.
+    push_directional_root(roots, node, Some(0x2A), false, false, 0)
 }
 
 unsafe fn player_directional_root(scene: NativeScene) -> Option<*mut u8> {
@@ -698,14 +760,20 @@ unsafe fn collect_cell_directional_roots(cell: *mut u8, roots: &mut Vec<Directio
             if !base.is_null() && !render_data.is_null() {
                 let node =
                     unsafe { read::<*mut u8>(render_data, NativeLayout::REFERENCE_DATA_NODE) };
+                let form_type = unsafe { read::<u8>(base, NativeLayout::TES_FORM_TYPE) };
+                let world_state = if matches!(form_type, 0x2A..=0x2C) {
+                    0
+                } else {
+                    unsafe { retained_object_world_state(node) }
+                };
                 if !node.is_null()
                     && !push_directional_root(
                         roots,
                         node,
-                        Some(unsafe { read::<u8>(base, NativeLayout::TES_FORM_TYPE) }),
+                        Some(form_type),
                         false,
                         false,
-                        unsafe { retained_object_world_state(node) },
+                        world_state,
                     )
                 {
                     return false;
@@ -1016,7 +1084,7 @@ const fn size_of<T>() -> usize {
 mod tests {
     use super::{
         DirectionalRoot, NativeBound, PointLight, PointLightSelection,
-        directional_root_set_signature, push_directional_root, retained_object_state_signature,
+        directional_root_set_signatures, push_directional_root, retained_object_state_signature,
     };
 
     fn point(identity: usize, distance_squared: f32) -> PointLight {
@@ -1129,21 +1197,21 @@ mod tests {
             world_state: 0,
         };
         assert_eq!(
-            directional_root_set_signature(&[actor, land_lod]),
-            directional_root_set_signature(&[land_lod, actor]),
+            directional_root_set_signatures(&[actor, land_lod]),
+            directional_root_set_signatures(&[land_lod, actor]),
         );
         assert_ne!(
-            directional_root_set_signature(&[actor]),
-            directional_root_set_signature(&[actor, land_lod]),
+            directional_root_set_signatures(&[actor]),
+            directional_root_set_signatures(&[actor, land_lod]),
         );
         assert_eq!(
-            directional_root_set_signature(&[land_lod]),
-            directional_root_set_signature(&[land_lod, actor]),
+            directional_root_set_signatures(&[land_lod]),
+            directional_root_set_signatures(&[land_lod, actor]),
             "an animated actor entering the root list invalidated every static cascade"
         );
         assert_ne!(
-            directional_root_set_signature(&[actor]),
-            directional_root_set_signature(&[DirectionalRoot {
+            directional_root_set_signatures(&[actor]),
+            directional_root_set_signatures(&[DirectionalRoot {
                 form_type: None,
                 ..actor
             }]),
@@ -1156,8 +1224,8 @@ mod tests {
             world_state: 0,
         };
         assert_ne!(
-            directional_root_set_signature(&[form_with_bit_five]),
-            directional_root_set_signature(&[DirectionalRoot {
+            directional_root_set_signatures(&[form_with_bit_five]),
+            directional_root_set_signatures(&[DirectionalRoot {
                 form_type: None,
                 ..form_with_bit_five
             }]),
@@ -1165,8 +1233,8 @@ mod tests {
         );
 
         assert_ne!(
-            directional_root_set_signature(&[land_lod]),
-            directional_root_set_signature(&[DirectionalRoot {
+            directional_root_set_signatures(&[land_lod]),
+            directional_root_set_signatures(&[DirectionalRoot {
                 world_state: 0xDEAD_BEEF,
                 ..land_lod
             }]),

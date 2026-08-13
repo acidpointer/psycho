@@ -8,10 +8,10 @@
 
 use super::contract::{
     CascadeDirty, CascadeScheduler, NVR_CASCADE_RESOLUTION, NVR_POINT_LIGHT_COUNT, PointMapCache,
-    PointMapSignature, cascade_sphere_selection, contact_bilateral_visibility,
-    contact_depth_from_key, contact_depth_key, contact_depths_match, contact_history_visibility,
-    contact_plane_raw_epsilon, contact_ray_scale, contact_sample_is_occluder,
-    depth_sample_is_geometry, directional_projection_is_sampleable,
+    PointMapSignature, cascade_depth_selection, cascade_sphere_selection,
+    contact_bilateral_visibility, contact_depth_from_key, contact_depth_key, contact_depths_match,
+    contact_history_visibility, contact_plane_raw_epsilon, contact_ray_scale,
+    contact_sample_is_occluder, depth_sample_is_geometry, directional_projection_is_sampleable,
     first_person_caster_is_excluded, interior_shadow_factor, point_consumer_plan,
     point_light_scissor, point_sampled_texel_center, practical_cascade_splits,
     retained_cascade_needs_refresh, retained_cascade_refresh, shadow_receiver_is_world_surface,
@@ -22,6 +22,44 @@ use super::math::{ShadowCamera, cascade_projection};
 use super::pipeline::consumer_selection_spheres;
 
 const EPSILON: f32 = 1.0e-5;
+
+#[test]
+fn cascade_boundaries_depend_on_view_depth_not_screen_position() {
+    let camera = ShadowCamera {
+        near: 5.0,
+        far: 28_000.0,
+        frustum_left: -1.0,
+        frustum_right: 1.0,
+        frustum_bottom: -0.5625,
+        frustum_top: 0.5625,
+        forward: [1.0, 0.0, 0.0],
+        up: [0.0, 0.0, 1.0],
+        right: [0.0, 1.0, 0.0],
+        translation: [0.0; 3],
+        fov_compensation: 1.0,
+    };
+    let splits = practical_cascade_splits(camera.near, camera.far, 6_000.0, 0.9).expect("splits");
+    let depth = splits[3].far * 0.95;
+    let center =
+        cascade_depth_selection(depth, splits).expect("center receiver inside shadow distance");
+    // Reconstructed view depth is invariant across screen position. The
+    // corner coordinates are retained here as the image-space negative
+    // control that failed under sphere-distance selection.
+    let _corner_world = [
+        depth,
+        camera.frustum_right * depth,
+        camera.frustum_top * depth,
+    ];
+    let corner = cascade_depth_selection(depth, splits)
+        .expect("corner receiver inside the same view-depth slice");
+
+    assert_eq!(center.cascade, corner.cascade);
+    assert_eq!(center.next, corner.next);
+    assert!(
+        (center.blend - corner.blend).abs() <= EPSILON,
+        "a spherical boundary clipped equal-depth shadows into camera-dependent horizon arcs"
+    );
+}
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 struct Rgb([f32; 3]);
@@ -784,7 +822,7 @@ fn retained_directional_maps_never_accumulate_more_than_half_a_texel_of_sun_drif
 }
 
 #[test]
-fn retained_far_map_covers_camera_translation_height_and_rotation_or_refreshes() {
+fn retained_far_map_refreshes_for_translation_but_not_camera_rotation() {
     let base = ShadowCamera {
         near: 5.0,
         far: 28_000.0,
@@ -856,15 +894,18 @@ fn retained_far_map_covers_camera_translation_height_and_rotation_or_refreshes()
     };
     let rotated_projection = cascade_projection(rotated, split, sun, NVR_CASCADE_RESOLUTION)
         .expect("rotated projection");
-    assert!(retained_cascade_needs_refresh(
-        cached_center,
-        cached.radius,
-        absolute_center(rotated, rotated_projection.center),
-        rotated_projection.receiver_radius,
-        sun,
-        sun,
-        NVR_CASCADE_RESOLUTION,
-    ));
+    assert!(
+        !retained_cascade_needs_refresh(
+            cached_center,
+            cached.radius,
+            absolute_center(rotated, rotated_projection.center),
+            rotated_projection.receiver_radius,
+            sun,
+            sun,
+            NVR_CASCADE_RESOLUTION,
+        ),
+        "camera rotation invalidated an orientation-independent clipmap"
+    );
 }
 
 #[test]

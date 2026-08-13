@@ -114,6 +114,15 @@ pub(super) struct Sphere {
     pub(super) radius: f32,
 }
 
+/// Camera-relative axis-aligned bounds for a set of animated casters.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(super) struct ActorBounds {
+    /// Inclusive lower world-space corner.
+    pub(super) min: [f32; 3],
+    /// Inclusive upper world-space corner.
+    pub(super) max: [f32; 3],
+}
+
 /// Stable light projection and culling planes for one directional cascade.
 #[derive(Clone, Copy, Debug)]
 pub(super) struct CascadeProjection {
@@ -130,12 +139,21 @@ pub(super) struct CascadeProjection {
     planes: [[f32; 4]; 6],
 }
 
+/// Caster-fitted actor projection and its cheap receiver-side XY remap.
+#[derive(Clone, Copy, Debug)]
+pub(super) struct ActorProjection {
+    /// Complete projection used while drawing animated caster geometry.
+    pub(super) projection: CascadeProjection,
+    /// UV scale followed by UV offset in the parent cascade's texture domain.
+    pub(super) uv_scale_offset: [f32; 4],
+}
+
 impl CascadeProjection {
-    /// Current camera-slice sphere used only for receiver cascade selection.
+    /// Legacy camera-slice sphere retained only for regression-test controls.
     ///
-    /// This must not be replaced by the larger cached-map coverage sphere:
-    /// doing so pins blend boundaries to an older camera and makes them sweep
-    /// across large walls until the map cache refreshes.
+    /// Production selection is view-depth based; tests keep this accessor to
+    /// demonstrate why the rejected sphere-distance contract clipped walls.
+    #[cfg(test)]
     pub(super) const fn receiver_sphere(self) -> [f32; 4] {
         [
             self.center[0],
@@ -145,27 +163,121 @@ impl CascadeProjection {
         ]
     }
 
-    /// Return whether a camera-relative sphere intersects the light frustum.
+    /// Return whether a camera-relative caster sphere intersects the light frustum.
+    ///
+    /// NVR enables light-frustum planes 1 through 5 (`0b11_1110`) and leaves
+    /// plane 0, its near plane, disabled. OMV's D3D extraction stores that
+    /// same near plane at index 4. Casters upstream of the light eye remain
+    /// valid because the generation vertex shader pancakes their projected Z
+    /// onto the near plane; rejecting them here clips long shadows at the map
+    /// and horizon boundaries before the shader can apply that contract.
     pub(super) fn contains(self, sphere: Sphere) -> bool {
         sphere.radius.is_finite()
             && sphere.radius >= 0.0
             && sphere.center.into_iter().all(f32::is_finite)
-            && self.planes.iter().all(|plane| {
+            && self.planes.iter().enumerate().all(|(index, plane)| {
+                if index == 4 {
+                    return true;
+                }
                 dot3([plane[0], plane[1], plane[2]], sphere.center) + plane[3] >= -sphere.radius
             })
+    }
+
+    /// Crop this light-space projection to animated caster bounds.
+    ///
+    /// Static cascades require a wide clipmap because their casters fill the
+    /// view volume. Animated actors generally occupy a small fraction of that
+    /// area, so rasterizing the same empty 2048-square target every frame is
+    /// pure bandwidth. This post-projection crop encloses the complete AABB,
+    /// adds a four-texel bilinear/rounding guard, and leaves light-space depth
+    /// unchanged. The consumer receives the resulting matrix with the actor
+    /// texture, so this is a resolution redistribution rather than a change to
+    /// the actor's geometry or shadow shape.
+    pub(super) fn cropped_to_actor_bounds(
+        self,
+        bounds: ActorBounds,
+        resolution: u32,
+    ) -> Option<ActorProjection> {
+        if resolution == 0
+            || !bounds.min.into_iter().all(f32::is_finite)
+            || !bounds.max.into_iter().all(f32::is_finite)
+            || (0..3).any(|axis| bounds.max[axis] < bounds.min[axis])
+        {
+            return None;
+        }
+        let mut minimum = [f32::INFINITY; 2];
+        let mut maximum = [f32::NEG_INFINITY; 2];
+        for x in [bounds.min[0], bounds.max[0]] {
+            for y in [bounds.min[1], bounds.max[1]] {
+                for z in [bounds.min[2], bounds.max[2]] {
+                    let projected = transform4([x, y, z, 1.0], self.world_to_shadow);
+                    if !projected.into_iter().all(f32::is_finite)
+                        || projected[3].abs() <= f32::EPSILON
+                    {
+                        return None;
+                    }
+                    for axis in 0..2 {
+                        let value = projected[axis] / projected[3];
+                        minimum[axis] = minimum[axis].min(value);
+                        maximum[axis] = maximum[axis].max(value);
+                    }
+                }
+            }
+        }
+
+        // Four output texels cover bilinear support, sub-texel skin motion,
+        // and D3D9 half-texel placement. Convert that guard to the original
+        // clip domain before constructing the post-projection crop.
+        let guard = 8.0 / resolution as f32;
+        for axis in 0..2 {
+            minimum[axis] = (minimum[axis] - guard).max(-1.0);
+            maximum[axis] = (maximum[axis] + guard).min(1.0);
+            if maximum[axis] - minimum[axis] <= f32::EPSILON {
+                return None;
+            }
+        }
+        let mut crop = [
+            [1.0, 0.0, 0.0, 0.0],
+            [0.0, 1.0, 0.0, 0.0],
+            [0.0, 0.0, 1.0, 0.0],
+            [0.0, 0.0, 0.0, 1.0],
+        ];
+        for axis in 0..2 {
+            let extent = maximum[axis] - minimum[axis];
+            crop[axis][axis] = 2.0 / extent;
+            crop[3][axis] = -(maximum[axis] + minimum[axis]) / extent;
+        }
+        let world_to_shadow = multiply4(self.world_to_shadow, crop);
+        let planes = extract_d3d_frustum_planes(world_to_shadow)?;
+        Some(ActorProjection {
+            projection: Self {
+                world_to_shadow,
+                planes,
+                ..self
+            },
+            // Convert the NDC post-transform to a direct parent-UV to actor-UV
+            // affine map. Doing this once on the CPU removes NDC conversion
+            // and Z revalidation from every full-resolution receiver sample.
+            uv_scale_offset: [
+                crop[0][0],
+                crop[1][1],
+                (crop[3][0] + 1.0 - crop[0][0]) * 0.5,
+                (1.0 - crop[1][1] - crop[3][1]) * 0.5,
+            ],
+        })
     }
 }
 
 /// Return the receiver-owned gameplay maps for one animated caster bound.
 ///
-/// Cascade coverage spheres are nested, so treating every geometric
-/// intersection as ownership makes a player inside the near map invalidate the
-/// middle and far static maps every frame. The consumer always chooses the
-/// smallest containing receiver sphere. Match that rule here and add only the
-/// adjacent map when the actor overlaps the outer ten-percent blend shell.
-/// LOD is deliberately excluded because NVR's LOD profile excludes actors.
+/// Ownership follows the same view-depth intervals as the consumer. Clipmap
+/// guard spheres are deliberately larger than those intervals and therefore
+/// cannot select an actor map. Include the adjacent map only when the bound
+/// overlaps the five-percent outward blend shell. LOD is deliberately
+/// excluded because NVR's LOD profile excludes actors.
 pub(super) fn dynamic_caster_cascade_mask(
-    projections: [CascadeProjection; 4],
+    splits: [CascadeSplit; 4],
+    camera_forward: [f32; 3],
     bound: Sphere,
 ) -> u8 {
     if !bound.center.into_iter().all(f32::is_finite)
@@ -174,11 +286,17 @@ pub(super) fn dynamic_caster_cascade_mask(
     {
         return 0b0111;
     }
-    for (index, projection) in projections[..3].iter().enumerate() {
-        let distance = length3(sub3(bound.center, projection.center));
-        if distance - bound.radius <= projection.receiver_radius {
+    let Some(forward) = normalized(camera_forward) else {
+        return 0b0111;
+    };
+    let center_depth = dot3(bound.center, forward);
+    let minimum_depth = center_depth - bound.radius;
+    let maximum_depth = center_depth + bound.radius;
+    for (index, split) in splits[..3].iter().copied().enumerate() {
+        if minimum_depth < split.far && maximum_depth > split.near {
             let mut mask = 1 << index;
-            if index < 2 && distance + bound.radius > projection.receiver_radius * 0.9 {
+            let blend_width = (split.far * 0.05).min((split.far - split.near) * 0.5);
+            if index < 2 && maximum_depth > split.far - blend_width {
                 mask |= 1 << (index + 1);
             }
             return mask;
@@ -200,13 +318,16 @@ pub(super) struct PointCubeView {
     pub(super) world_to_shadow: [[f32; 4]; 4],
 }
 
-/// Build NVR's four-cascade stable orthographic projection for one slice.
+/// Build a camera-centered, stable orthographic clipmap for one depth slice.
 ///
-/// The slice is bounded by a sphere rounded up to one sixteenth of a world
-/// unit. Projection translation is then rounded in shadow-texel space with
-/// ties-to-even behavior. The latter matters on long sessions: ordinary
-/// half-away rounding alternates differently at exact half texels and causes
-/// a visible one-pixel cascade twitch.
+/// NVR fits a sphere around the oriented view slice. That is spatially tight,
+/// but every camera yaw moves the sphere center and therefore invalidates all
+/// cached maps. OMV instead bounds the slice by a sphere centered on the
+/// camera. Its radius covers the far-plane corner for every orientation, so
+/// yaw and pitch do not move either the map footprint or its texel grid. Only
+/// translation, FOV, split distance, or sun motion can require new static
+/// work. Projection translation remains rounded in shadow-texel space with
+/// ties-to-even behavior.
 pub(super) fn cascade_projection(
     camera: ShadowCamera,
     split: CascadeSplit,
@@ -224,42 +345,17 @@ pub(super) fn cascade_projection(
         return None;
     }
     let sun = normalized(sun_direction)?;
-    let forward = normalized(camera.forward)?;
-    let up = normalized(camera.up)?;
-    let right = normalized(camera.right)?;
-
-    let mut corners = [[0.0; 3]; 8];
-    for (plane, distance) in [split.near, split.far].into_iter().enumerate() {
-        let horizontal = [camera.frustum_left, camera.frustum_right];
-        let vertical = [camera.frustum_top, camera.frustum_bottom];
-        for (corner, (x, y)) in [
-            (horizontal[0], vertical[0]),
-            (horizontal[1], vertical[0]),
-            (horizontal[1], vertical[1]),
-            (horizontal[0], vertical[1]),
-        ]
-        .into_iter()
-        .enumerate()
-        {
-            corners[plane * 4 + corner] = add3(
-                scale3(forward, distance),
-                add3(scale3(right, x * distance), scale3(up, y * distance)),
-            );
-        }
-    }
-
-    let center = scale3(
-        corners.into_iter().fold([0.0; 3], add3),
-        1.0 / corners.len() as f32,
-    );
-    let radius = corners
-        .into_iter()
-        .map(|corner| length3(sub3(corner, center)))
-        .fold(0.0_f32, f32::max);
-    let receiver_radius = (radius * 16.0).ceil() / 16.0;
+    // Camera::valid already proves all basis vectors. They intentionally do
+    // not participate in the clipmap footprint: orientation independence is
+    // what converts fast camera motion from four map redraws into zero.
+    let max_horizontal = camera.frustum_left.abs().max(camera.frustum_right.abs());
+    let max_vertical = camera.frustum_bottom.abs().max(camera.frustum_top.abs());
+    let corner_scale = (1.0 + max_horizontal * max_horizontal + max_vertical * max_vertical).sqrt();
+    let receiver_radius = (split.far * corner_scale * 16.0).ceil() / 16.0;
     if !receiver_radius.is_finite() || receiver_radius <= 0.0 {
         return None;
     }
+    let center = [0.0; 3];
     // A small producer guard band lets a cached map remain valid through
     // ordinary camera translation/rotation. Without it, equal-radius receiver
     // and map spheres can never contain one another after any movement, which

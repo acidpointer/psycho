@@ -3392,6 +3392,132 @@ passed. Its 12,868,086-byte `omv.dll` has SHA-256
 `git diff --check` and `cargo fmt -p omv -- --check` passed. This evidence is
 deliberately separate from the runtime acceptance still required above.
 
+#### Fourteenth corrective pass: stable clipmaps and bounded actor producers
+
+The three new 2026-08-13 captures isolate the remaining directional failure:
+
+- `.reports/shadows_distance_clip.png` and
+  `.reports/shadows_distance_clip2.png` show hard discontinuities through
+  distant terrain and structures; and
+- `.reports/shadows_horizon.png` shows the same boundary as broad dark bands
+  across the road and horizon.
+
+The user also reports that fast camera movement still flickers and that the
+artifact runs at about 40 FPS where the same exterior normally runs at about
+120 FPS. Actor silhouettes are now accepted as fixed and overall shadow
+quality is materially better, so this pass preserves the coverage-aware actor
+representation and changes its producer footprint rather than its image
+model.
+
+Two earlier NVR-derived assumptions were incompatible with retained maps.
+First, the consumer selected cascades by distance to each current view-slice
+sphere. Two pixels with identical view depth but different screen coordinates
+therefore reached different portions of the sphere's outer blend shell. That
+is the exact geometry of the curved bands in the captures. OMV now chooses the
+practical split solely from reconstructed view depth and blends through the
+last five percent of that split. Equal-depth pixels consequently have the same
+cascade and blend weight everywhere on screen.
+
+Second, fitting each cached projection to the oriented camera slice made the
+projection center follow camera forward. A pure yaw moved all four retained
+footprints, approached or crossed their guards, and submitted expensive static
+maps during the reported fast rotation. The projections are now concentric,
+camera-centered directional clipmaps. Each map radius contains the far-plane
+corner for every camera orientation at the current FOV; translation remains
+snapped in absolute shadow-texel space. Yaw and pitch therefore change neither
+the retained coverage sphere nor the matrix. Translation, FOV/split edits,
+sun movement, and actual producer-input changes still refresh maps under the
+existing mandatory/quality scheduler.
+
+This is intentionally still a cascaded shadow-map renderer. Microsoft
+documents cascaded shadow maps as the standard way to partition a view
+frustum and allocate more shadow resolution near the viewer, and NVIDIA's
+DirectX 9 PSSM reference likewise divides by view-space depth. A screen-space
+replacement sees only the current depth buffer and cannot reproduce shadows
+from an off-screen or hidden caster. Deferred composition also does not remove
+the visibility-map producer which dominates this workload. Modern virtual
+shadow systems reduce producer cost by caching static pages and invalidating
+only changed regions; OMV applies the compatible principles here--stable
+retained static maps, per-profile invalidation, and bounded dynamic maps--
+without introducing a compute/page-table renderer into the D3D9 engine.
+
+The horizon clips had an independent producer defect. Modern NVR builds the
+directional frustum with near depth zero and calls
+`SetActivePlaneState(62)`. Its `NiFrustumPlanes::ActivePlanes` enum assigns
+near to bit zero, so `0b11_1110` disables only that plane. The generation
+vertex shader then pancakes upstream projected Z to the near plane. OMV's D3D
+plane extraction orders near as array element four but previously tested all
+six planes; valid upstream casters were discarded on the CPU before the shader
+could clamp them. Directional caster admission now skips that extracted near
+plane while retaining left, right, top, bottom, and far rejection.
+
+Performance work changes producer area and invalidation, not instruction-count
+budgets:
+
+- directional root identities are now computed independently for all four
+  producer profiles. An object/terrain LOD transform can invalidate only far
+  and LOD maps instead of forcing near and middle redraws;
+- camera rotation causes zero static-map redraws. Cached-map validity depends
+  on camera translation, FOV/splits, sun, and the roots actually admitted by
+  that cascade;
+- active animated bounds are projected into their owning static cascade and
+  cropped with a four-texel filter/motion guard. Actor maps remain four-sample
+  coverage-aware `G16R16F`, but their generation, depth, resolve, and persistent
+  surfaces are 1024 square rather than 2048 square. The consumer applies a
+  precomputed parent-UV crop, so it does not pay a second matrix projection;
+- actor cascade ownership follows the same view-depth intervals and
+  five-percent blend shell as the consumer. The larger clipmap coverage guard
+  cannot accidentally admit an actor into the near overlay; and
+- animated actor transforms are no longer hashed for retained static-map
+  identities which deliberately exclude them.
+
+One actor overlay now writes 16,777,216 generation bytes instead of
+67,108,864, a fourfold reduction from the accepted two-channel implementation
+and an eightfold reduction from the earlier full-size EVSM4 path. The fitted
+projection redistributes its 1024 samples over the caster rectangle; a
+deterministic projection test requires every bound corner to remain enclosed
+and effective samples per world axis to equal or exceed the parent 2048 static
+map. Preferred 1920-by-1080 exterior/combined residency falls from
+692,496,384 to 621,193,216 bytes. The four-channel actor fallback falls from
+809,936,896 to 650,553,344 bytes. Interior-only residency remains 201,809,920
+bytes. These are exact static resource/work bounds, not an FPS prediction.
+
+The regression sequence was negative first. Before implementation, focused
+tests proved that equal-depth center/corner receivers had different far blend
+weights, a caster upstream along the sun ray failed CPU admission, an
+eight-degree yaw moved the cascade center and matrix, a LOD-only root change
+invalidated all four maps, clipmap guard coverage incorrectly owned a near
+actor map, and actor generation still wrote the full 2048-square four-sample
+surface. The corrected suite additionally proves actor crop enclosure and
+texel density, translation-but-not-rotation cache refresh, unchanged four-map
+coverage, and shader-model-3 instruction/texture budgets.
+
+No configuration, schema, preset, hook admission, TLS, worker, static/lazy
+owner, or pre-`DeferredInit` route changed. Directional resources remain lazy
+after the first admitted exterior transaction. Static tests cannot establish
+the user's actual RX 6800 XT frame time or final image acceptance. The next
+Proton/DXVK playtest must repeat all three named views, slow and fast yaw,
+forward/vertical movement, static-to-LOD transitions, accepted actor/NPC
+silhouettes, carried lights, and exterior frame-time measurement. A lower-end
+GPU remains a separate performance acceptance gate.
+
+Architecture references:
+
+- Microsoft, [Cascaded Shadow Maps](https://learn.microsoft.com/en-us/windows/win32/dxtecharts/cascaded-shadow-maps);
+- NVIDIA GPU Gems 3,
+  [Parallel-Split Shadow Maps on Programmable GPUs](https://developer.nvidia.com/gpugems/gpugems3/part-ii-light-and-shadows/chapter-10-parallel-split-shadow-maps-programmable-gpus);
+- Epic Games,
+  [Virtual Shadow Maps](https://dev.epicgames.com/documentation/en-us/unreal-engine/virtual-shadow-maps-in-unreal-engine),
+  for the static/dynamic caching and invalidation comparison only.
+
+Supported-target validation on 2026-08-14 passed all 617 OMV tests, including
+the fail-first image, projection, invalidation, workload, resource, startup,
+depth-provider, and compiled-shader gates. The explicit
+`i686-pc-windows-gnu` release build passed. Its 12,871,771-byte `omv.dll` has
+SHA-256 `db6132a4ea7caa48b80c4c001e5a9e489eb03994b110f2039db786d98f68320e`.
+`git diff --check` and `cargo fmt -p omv -- --check` also passed. Runtime image
+and frame-time claims remain deliberately unaccepted until the playtest above.
+
 ### Evidence classification for the implementation
 
 **Proven by executable/static artifacts:** the common hook/tail topology,

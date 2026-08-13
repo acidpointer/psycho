@@ -1045,6 +1045,42 @@ pub(super) fn cascade_sphere_selection(
     None
 }
 
+/// Select the directional cascade solely from reconstructed view depth.
+///
+/// Each produced map covers one practical-split depth interval. Selecting it
+/// by a world-space sphere instead makes equal-depth pixels cross the blend at
+/// different screen positions, producing curved clipping bands on distant
+/// terrain and large walls. A five-percent outward blend retains the smooth
+/// NVR transition while keeping that boundary parallel to the camera plane.
+pub(super) fn cascade_depth_selection(
+    view_depth: f32,
+    splits: [CascadeSplit; CASCADE_COUNT],
+) -> Option<CascadeSphereSelection> {
+    if !view_depth.is_finite() || view_depth <= 0.0 {
+        return None;
+    }
+    for (cascade, split) in splits.into_iter().enumerate() {
+        if !split.near.is_finite()
+            || !split.far.is_finite()
+            || split.near < 0.0
+            || split.far <= split.near
+            || view_depth >= split.far
+        {
+            continue;
+        }
+        let width = (split.far * 0.05).min((split.far - split.near) * 0.5);
+        let edge_start = split.far - width.max(f32::EPSILON);
+        let normalized = ((view_depth - edge_start) / (split.far - edge_start)).clamp(0.0, 1.0);
+        let blend = normalized * normalized * (3.0 - 2.0 * normalized);
+        return Some(CascadeSphereSelection {
+            cascade,
+            next: (blend > 0.0 && cascade + 1 < CASCADE_COUNT).then_some(cascade + 1),
+            blend,
+        });
+    }
+    None
+}
+
 /// Coarse cell classification used by independent shadow toggles.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) enum SceneKind {
@@ -1295,16 +1331,23 @@ impl DirectionalRootSetSignature {
 /// beside the D3D transaction; callers publish the new value only after draw,
 /// `EndScene`, and state restoration succeed.
 pub(super) const fn directional_root_set_dirty(
-    previous: Option<DirectionalRootSetSignature>,
-    current: Option<DirectionalRootSetSignature>,
+    previous: Option<[DirectionalRootSetSignature; CASCADE_COUNT]>,
+    current: Option<[DirectionalRootSetSignature; CASCADE_COUNT]>,
 ) -> CascadeDirty {
     match (previous, current) {
-        (Some(previous), Some(current))
-            if previous.count == current.count
-                && previous.xor == current.xor
-                && previous.sum == current.sum =>
-        {
-            CascadeDirty::none()
+        (Some(previous), Some(current)) => {
+            let mut mask = 0_u8;
+            let mut index = 0;
+            while index < CASCADE_COUNT {
+                if previous[index].count != current[index].count
+                    || previous[index].xor != current[index].xor
+                    || previous[index].sum != current[index].sum
+                {
+                    mask |= 1 << index;
+                }
+                index += 1;
+            }
+            CascadeDirty::from_mask(mask)
         }
         _ => CascadeDirty::all(),
     }
@@ -2433,6 +2476,8 @@ pub(super) struct ProducerResourcePlan {
     pub(super) actor_channels: u32,
     /// Coverage samples retained for actor silhouettes.
     pub(super) actor_samples: u32,
+    /// Width and height of the caster-fitted actor generation map.
+    pub(super) actor_resolution: u32,
     /// Bytes written by one complete actor generation target.
     pub(super) actor_generation_bytes: u64,
     /// Maximum stable atlas taps used at one visible receiver.
@@ -2485,9 +2530,11 @@ impl ProducerResourcePlan {
         // channels are closed under MSAA resolve and bilinear filtering, halve
         // presentation-rate color bandwidth, and retain the same four raster
         // coverage samples. Near/middle remain packed; the far texture doubles
-        // as the mandatory full-size resolve scratch, avoiding a fifth texture.
-        let actor_generation = cascade_pixels * 4 * 4;
-        let actor_moments = cascade_pixels * 4 * 3;
+        // as the mandatory same-size resolve scratch, avoiding a fifth texture.
+        let actor_pixels = u64::from(NVR_CASCADE_RESOLUTION / 2).pow(2);
+        let actor_generation = actor_pixels * 4 * 4;
+        let actor_depth = actor_pixels * 4 * 4;
+        let actor_moments = actor_pixels * 4 * 3;
         let point_cubes = u64::from(512_u32.pow(2)) * 6 * 4 * NVR_POINT_LIGHT_COUNT as u64;
         let point_static_cubes = point_cubes;
         let point_depth = u64::from(512_u32.pow(2)) * 4;
@@ -2507,6 +2554,7 @@ impl ProducerResourcePlan {
                 + generation_depth
                 + resolved_moments
                 + actor_generation
+                + actor_depth
                 + actor_moments
                 + point_cubes
                 + point_static_cubes
@@ -2521,6 +2569,7 @@ impl ProducerResourcePlan {
             + generation_depth
             + resolved_moments
             + actor_generation
+            + actor_depth
             + actor_moments
             + point_cubes
             + point_static_cubes
@@ -2549,6 +2598,11 @@ impl ProducerResourcePlan {
             evsm4: true,
             actor_channels: if directional { 2 } else { 0 },
             actor_samples: if directional { 4 } else { 0 },
+            actor_resolution: if directional {
+                NVR_CASCADE_RESOLUTION / 2
+            } else {
+                0
+            },
             actor_generation_bytes: if directional { actor_generation } else { 0 },
             receiver_filter_samples: 3,
             actor_overlay_fullscreen_merge_draws: 0,
