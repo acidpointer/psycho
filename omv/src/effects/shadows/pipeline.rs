@@ -45,7 +45,7 @@ use super::{
         consumer_has_shadow_work, directional_caster_work, directional_root_set_dirty,
         effective_contact_distance, evsm4_moments, nvr_contact_sample_offsets, point_consumer_plan,
         point_light_scissor, practical_cascade_splits, publication_epoch_is_usable,
-        retained_cascade_needs_refresh,
+        retained_cascade_refresh,
     },
     math::{
         CascadeProjection, ShadowCamera, cascade_projection, point_cube_views,
@@ -499,6 +499,10 @@ struct DirectionalResources {
     _directional_moments: Texture9,
     /// Single-sample resolve copied into one persistent atlas quadrant.
     directional_moments_surface: Surface9,
+    /// Coverage-aware two-channel actor work target. Static EVSM4 and actor
+    /// coverage cannot share a resolve format: averaging a hardware-zero
+    /// EVSM clear with a valid sample does not produce a valid distribution.
+    directional_actor_generation_surface: Surface9,
     /// Actor near/middle maps packed side-by-side. Packing them behind one
     /// sampler lowers the already-heavy compositor's static instruction and
     /// texture-read footprint without changing map precision or resolution.
@@ -538,18 +542,47 @@ impl DirectionalResources {
             D3DFMT_A16B16G16R16F,
         )?;
         let directional_moments_surface = directional_moments.surface_level(0)?;
-        let actor_near_middle = device.create_render_target_texture(
-            NVR_CASCADE_RESOLUTION * 2,
-            NVR_CASCADE_RESOLUTION,
-            D3DFMT_A16B16G16R16F,
-        )?;
-        let actor_far = device.create_render_target_texture(
-            NVR_CASCADE_RESOLUTION,
-            NVR_CASCADE_RESOLUTION,
-            D3DFMT_A16B16G16R16F,
-        )?;
-        let actor_near_middle_surface = actor_near_middle.surface_level(0)?;
-        let actor_far_surface = actor_far.surface_level(0)?;
+        let create_actor_family = |format| -> Direct3DResult<_> {
+            let generation = device.create_render_target_surface(
+                NVR_CASCADE_RESOLUTION,
+                NVR_CASCADE_RESOLUTION,
+                format,
+                D3DMULTISAMPLE_4_SAMPLES,
+                0,
+                false,
+            )?;
+            let near_middle = device.create_render_target_texture(
+                NVR_CASCADE_RESOLUTION * 2,
+                NVR_CASCADE_RESOLUTION,
+                format,
+            )?;
+            let far = device.create_render_target_texture(
+                NVR_CASCADE_RESOLUTION,
+                NVR_CASCADE_RESOLUTION,
+                format,
+            )?;
+            let near_middle_surface = near_middle.surface_level(0)?;
+            let far_surface = far.surface_level(0)?;
+            Ok((
+                generation,
+                near_middle,
+                near_middle_surface,
+                far,
+                far_surface,
+            ))
+        };
+        // G16R16F halves the presentation-rate actor bandwidth. Some early
+        // shader-model-three devices expose the format for textures but not
+        // four-sample render targets; retain a quality-equivalent A16B16G16R16F
+        // family there instead of making the complete shadow branch fail.
+        let (
+            directional_actor_generation_surface,
+            actor_near_middle,
+            actor_near_middle_surface,
+            actor_far,
+            actor_far_surface,
+        ) = create_actor_family(D3DFMT_G16R16F)
+            .or_else(|_| create_actor_family(D3DFMT_A16B16G16R16F))?;
         let directional_depth = device.create_depth_stencil_surface(
             NVR_CASCADE_RESOLUTION,
             NVR_CASCADE_RESOLUTION,
@@ -564,6 +597,7 @@ impl DirectionalResources {
             directional_generation_surface,
             _directional_moments: directional_moments,
             directional_moments_surface,
+            directional_actor_generation_surface,
             actor_near_middle_moments: actor_near_middle,
             actor_near_middle_surface,
             actor_far_moments: actor_far,
@@ -786,18 +820,22 @@ impl ShadowResources {
             let root_dirty =
                 directional_root_set_dirty(*last_directional_roots, current_root_signature);
             let invalidating_change = *last_scene != Some(scene.kind) || frustum_changed;
-            let dirty = if invalidating_change {
-                CascadeDirty::all()
+            let (mandatory_dirty, quality_dirty) = if invalidating_change {
+                (CascadeDirty::all(), CascadeDirty::none())
             } else if root_dirty != CascadeDirty::none() {
-                root_dirty
+                (root_dirty, CascadeDirty::none())
             } else if *last_directional_profile != Some(directional_profile) {
-                CascadeDirty::from_mask(cascade_split_change_mask(self.cascade_splits, splits))
+                (
+                    CascadeDirty::from_mask(cascade_split_change_mask(self.cascade_splits, splits)),
+                    CascadeDirty::none(),
+                )
             } else {
                 // Near actors follow presentation cadence in their private
                 // overlay. Static maps remain immutable while their guarded
                 // spheres contain the current receiver slices; outer actor
                 // maps and each expired projection rebuild independently.
-                let mut mask = caster_work.static_map_mask;
+                let mut mandatory_mask = caster_work.static_map_mask;
+                let mut quality_mask = 0_u8;
                 for index in 0..CASCADE_COUNT {
                     let stored = self.cascade_spheres[index];
                     let stored_absolute: [f32; 3] = std::array::from_fn(|axis| {
@@ -806,7 +844,7 @@ impl ShadowResources {
                     let current_absolute: [f32; 3] = std::array::from_fn(|axis| {
                         camera.world_transform.translation[axis] + projections[index].center[axis]
                     });
-                    if retained_cascade_needs_refresh(
+                    let refresh = retained_cascade_refresh(
                         stored_absolute,
                         stored[3],
                         current_absolute,
@@ -814,13 +852,20 @@ impl ShadowResources {
                         self.cascade_suns[index],
                         sun,
                         NVR_CASCADE_RESOLUTION,
-                    ) {
-                        mask |= 1 << index;
+                    );
+                    if refresh.mandatory {
+                        mandatory_mask |= 1 << index;
+                    } else if refresh.quality {
+                        quality_mask |= 1 << index;
                     }
                 }
-                CascadeDirty::from_mask(mask)
+                (
+                    CascadeDirty::from_mask(mandatory_mask),
+                    CascadeDirty::from_mask(quality_mask),
+                )
             };
-            let plan = scheduler.plan_at_millis(dirty, now_millis);
+            let plan =
+                scheduler.plan_refreshes_at_millis(mandatory_dirty, quality_dirty, now_millis);
             // Cell and reference lists are identical for every due cascade.
             // Apply each map's form profile from the scalar metadata gathered
             // above. A capacity overflow uses the complete visitor below; it
@@ -871,7 +916,10 @@ impl ShadowResources {
                 // near-last ordering deterministic. Every result now leaves
                 // the reusable resolve immediately for its packed persistent
                 // slot, so no later overlay can overwrite a published map.
-                for index in [1_usize, 2, 0] {
+                // The far actor texture doubles as the mandatory full-size
+                // MSAA resolve. Publish near/middle first and far last so a
+                // live far result is never overwritten by the scratch role.
+                for index in [1_usize, 0, 2] {
                     if caster_work.actor_overlay_mask & (1 << index) == 0 {
                         continue;
                     }
@@ -918,9 +966,15 @@ impl ShadowResources {
         // shadow whenever a directional atlas was active. Selection is still
         // capped by the same user-owned budget and unchanged cubes are cached.
         let points = unsafe {
+            let retained_identities = if *point_cell_identity == scene.cell as usize {
+                point_cache.identities()
+            } else {
+                [0; NVR_POINT_LIGHT_COUNT]
+            };
             native::select_point_lights(
                 camera.world_transform.translation,
                 shadow_camera.forward,
+                retained_identities,
                 settings.interior_shadowed_lights,
                 settings.interior_light_radius_multiplier,
                 settings.interior_light_draw_distance,
@@ -929,12 +983,14 @@ impl ShadowResources {
         let mut current = [PointMapSignature::EMPTY; NVR_POINT_LIGHT_COUNT];
         let mut dynamic_faces = [0_u8; NVR_POINT_LIGHT_COUNT];
         for (index, point) in points.shadowed().iter().enumerate() {
+            let caster_snapshot = unsafe { native::point_light_caster_snapshot(point) };
             current[index] = PointMapSignature {
                 identity: point.identity,
                 position: point.position,
                 radius: point.radius,
+                caster_signature: caster_snapshot.static_signature,
             };
-            dynamic_faces[index] = unsafe { native::point_light_dynamic_face_mask(point) };
+            dynamic_faces[index] = caster_snapshot.dynamic_faces;
         }
         let active_cache = if *point_cell_identity == scene.cell as usize {
             *point_cache
@@ -1019,6 +1075,7 @@ impl ShadowResources {
                         is_land,
                         is_lod,
                         minimum_radius,
+                        false,
                         &mut self.scratch,
                     )
                 };
@@ -1059,14 +1116,15 @@ impl ShadowResources {
         roots: &[DirectionalRoot],
     ) -> Direct3DResult<()> {
         let directional = self.directional.as_ref().ok_or_else(direct3d_failure)?;
-        device.set_render_target(0, &directional.directional_generation_surface)?;
+        device.set_render_target(0, &directional.directional_actor_generation_surface)?;
         device.set_depth_stencil_surface(Some(&directional.directional_depth))?;
         set_viewport(device, 0, 0, NVR_CASCADE_RESOLUTION, NVR_CASCADE_RESOLUTION)?;
-        // Actor maps update at presentation cadence. A full-screen EVSM far
-        // shader here cost three 2048-square four-sample draws even when only
-        // a body-sized footprint changed. Hardware-clear to an impossible zero
-        // first moment; the compositor treats that sentinel as no actor and
-        // evaluates normal EVSM only where actor geometry wrote valid moments.
+        // RG stores `(depth * coverage, coverage)`. A black multisample clear
+        // is therefore an exact neutral distribution, while resolve and
+        // bilinear filtering preserve partial silhouette coverage linearly.
+        // Hardware-zero EVSM4 was not closed under either operation and made
+        // tiny actor edge coverage expand into the rectangular artifacts in
+        // the 2026-08-13 actor captures.
         device.clear_attachments(
             D3DCLEAR_TARGET as u32 | D3DCLEAR_ZBUFFER as u32 | D3DCLEAR_STENCIL as u32,
             0,
@@ -1091,6 +1149,7 @@ impl ShadowResources {
                     false,
                     false,
                     0.0,
+                    true,
                     &mut self.scratch,
                 )?
             };
@@ -1101,9 +1160,9 @@ impl ShadowResources {
         // only at visible receivers.
         device.clear_texture(0)?;
         device.stretch_rect(
-            &directional.directional_generation_surface,
+            &directional.directional_actor_generation_surface,
             None,
-            &directional.directional_moments_surface,
+            &directional.actor_far_surface,
             None,
             D3DTEXF_NONE,
         )?;
@@ -1120,11 +1179,14 @@ impl ShadowResources {
                     }),
                 )
             }
-            2 => (&directional.actor_far_surface, None),
+            // The full-surface resolve above is already the persistent far
+            // publication. Avoid a redundant self-copy, which D3D9 does not
+            // define and which would add another 2048-square transfer.
+            2 => return Ok(()),
             _ => return Err(direct3d_failure()),
         };
         device.stretch_rect(
-            &directional.directional_moments_surface,
+            &directional.actor_far_surface,
             None,
             destination,
             destination_rect.as_ref(),

@@ -527,6 +527,63 @@ pub(super) fn retained_cascade_needs_refresh(
         || sun_projection_needs_refresh(cached_sun, current_sun, resolution)
 }
 
+/// Urgency of one retained-cascade refresh.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub(super) struct RetainedCascadeRefresh {
+    /// The current receiver no longer fits in the cached projection.
+    pub(super) mandatory: bool,
+    /// The map is still safe to sample but should be refreshed soon.
+    pub(super) quality: bool,
+}
+
+/// Classify retained-map refresh work without conflating validity and quality.
+///
+/// Receiver containment is mandatory; approaching the guard edge and a
+/// half-texel sun drift are quality work which may be distributed across
+/// presentations. This preserves valid coverage while preventing camera yaw
+/// from submitting four expensive maps in one frame.
+#[allow(clippy::too_many_arguments)]
+pub(super) fn retained_cascade_refresh(
+    cached_center: [f32; 3],
+    cached_radius: f32,
+    current_center: [f32; 3],
+    current_receiver_radius: f32,
+    cached_sun: [f32; 3],
+    current_sun: [f32; 3],
+    resolution: u32,
+) -> RetainedCascadeRefresh {
+    if !cached_center.into_iter().all(f32::is_finite)
+        || !current_center.into_iter().all(f32::is_finite)
+        || !cached_radius.is_finite()
+        || !current_receiver_radius.is_finite()
+        || cached_radius <= 0.0
+        || current_receiver_radius <= 0.0
+    {
+        return RetainedCascadeRefresh {
+            mandatory: true,
+            quality: false,
+        };
+    }
+    let center_delta = cached_center
+        .into_iter()
+        .zip(current_center)
+        .map(|(cached, current)| (cached - current) * (cached - current))
+        .sum::<f32>()
+        .sqrt();
+    let extent = center_delta + current_receiver_radius;
+    let mandatory = extent > cached_radius * 0.99;
+    // Start a bounded refresh while roughly half of the six-percent producer
+    // guard is still available. That gives the scheduler several presentation
+    // epochs to update all four maps before any cached projection becomes
+    // unsafe, even during a fast camera yaw.
+    let approaches_guard = extent > cached_radius * 0.965;
+    let sun_drift = sun_projection_needs_refresh(cached_sun, current_sun, resolution);
+    RetainedCascadeRefresh {
+        mandatory,
+        quality: !mandatory && (approaches_guard || sun_drift),
+    }
+}
+
 /// Admit one directional receiver only inside the published cascade range.
 ///
 /// Native sky meshes may write a finite, non-clear depth, so rejecting depth
@@ -714,9 +771,11 @@ impl PointConsumerPlan {
 ///
 /// Each draw reconstructs its receiver directly from scene depth and then uses
 /// the remaining samplers for up to twelve shadow cubes. A batch is profitable
-/// when its union rectangle covers no more pixels than the individual
-/// rectangles combined. Widely separated lights remain individual so empty
-/// space does not become work.
+/// only when saved receiver reconstruction exceeds the extra per-light work
+/// over the union. Area alone is insufficient: two adjacent disjoint lights
+/// have `union == sum`, yet batching makes every covered pixel evaluate both
+/// lights. The constants come from the compiled one/six/twelve-light programs
+/// (238 shared receiver instructions and about 107 per active light).
 pub(super) fn point_consumer_plan(
     scissors: [Option<LightScissorRect>; NVR_POINT_LIGHT_COUNT],
     count: usize,
@@ -726,45 +785,77 @@ pub(super) fn point_consumer_plan(
         len: 0,
     };
     let count = count.min(NVR_POINT_LIGHT_COUNT);
-    for first in (0..count).step_by(POINT_CONSUMER_BATCH_SIZE) {
-        let end = (first + POINT_CONSUMER_BATCH_SIZE).min(count);
-        let mut indices = [0_u8; POINT_CONSUMER_BATCH_SIZE];
-        let mut member_count = 0_usize;
-        let mut union = None;
-        let mut individual_pixels = 0_u64;
-        for (index, rectangle) in scissors[first..end].iter().copied().enumerate() {
-            let Some(rectangle) = rectangle else {
-                continue;
-            };
-            indices[member_count] = (first + index) as u8;
-            member_count += 1;
-            individual_pixels += rectangle.pixels();
-            union = Some(union.map_or(rectangle, |current: LightScissorRect| {
-                current.union(rectangle)
-            }));
+    let mut visible = [u8::MAX; NVR_POINT_LIGHT_COUNT];
+    let mut visible_len = 0;
+    for index in 0..count {
+        if scissors[index].is_some() {
+            visible[visible_len] = index as u8;
+            visible_len += 1;
         }
-        let Some(union) = union else {
-            continue;
-        };
-        if member_count > 1 && union.pixels() <= individual_pixels {
-            plan.draws[plan.len] = PointConsumerDraw {
-                indices,
-                count: member_count as u8,
-                scissor: union,
-            };
-            plan.len += 1;
-        } else {
-            for index in indices.into_iter().take(member_count) {
-                let mut single = [0; POINT_CONSUMER_BATCH_SIZE];
-                single[0] = index;
-                plan.draws[plan.len] = PointConsumerDraw {
-                    indices: single,
-                    count: 1,
-                    scissor: scissors[index as usize].expect("packed visible light"),
-                };
-                plan.len += 1;
+    }
+    // Nearest-light order is ideal for cube ownership but unrelated to screen
+    // overlap. A tiny fixed-array insertion sort groups spatial neighbors so
+    // two independent clusters can each share receiver reconstruction without
+    // turning the empty rectangle between them into shader work.
+    for index in 1..visible_len {
+        let value = visible[index];
+        let rectangle = scissors[value as usize].expect("visible light");
+        let key = (
+            u64::from(rectangle.left) + u64::from(rectangle.right),
+            u64::from(rectangle.top) + u64::from(rectangle.bottom),
+        );
+        let mut insertion = index;
+        while insertion > 0 {
+            let previous = scissors[visible[insertion - 1] as usize].expect("visible light");
+            let previous_key = (
+                u64::from(previous.left) + u64::from(previous.right),
+                u64::from(previous.top) + u64::from(previous.bottom),
+            );
+            if previous_key <= key {
+                break;
             }
+            visible[insertion] = visible[insertion - 1];
+            insertion -= 1;
         }
+        visible[insertion] = value;
+    }
+
+    const RECEIVER_WORK: u64 = 238;
+    const PER_LIGHT_WORK: u64 = 107;
+    let work = |rectangle: LightScissorRect, lights: u8| {
+        rectangle.pixels() * (RECEIVER_WORK + PER_LIGHT_WORK * u64::from(lights))
+    };
+    let mut current = PointConsumerDraw::EMPTY;
+    for source in visible.into_iter().take(visible_len) {
+        let rectangle = scissors[source as usize].expect("visible light");
+        if current.count == 0 {
+            current.indices[0] = source;
+            current.count = 1;
+            current.scissor = rectangle;
+            continue;
+        }
+        let combined_scissor = current.scissor.union(rectangle);
+        let combined_count = current.count + 1;
+        let combined_work = work(combined_scissor, combined_count);
+        let separate_work = work(current.scissor, current.count) + work(rectangle, 1);
+        if usize::from(combined_count) <= POINT_CONSUMER_BATCH_SIZE
+            && combined_work <= separate_work
+        {
+            current.indices[current.count as usize] = source;
+            current.count = combined_count;
+            current.scissor = combined_scissor;
+        } else {
+            plan.draws[plan.len] = current;
+            plan.len += 1;
+            current = PointConsumerDraw::EMPTY;
+            current.indices[0] = source;
+            current.count = 1;
+            current.scissor = rectangle;
+        }
+    }
+    if current.count != 0 {
+        plan.draws[plan.len] = current;
+        plan.len += 1;
     }
     plan
 }
@@ -1224,6 +1315,7 @@ pub(super) const fn directional_root_set_dirty(
 pub(super) struct CascadePlan {
     /// Map indices that must be produced for this invocation.
     pub(super) render: [bool; CASCADE_COUNT],
+    next_quality_cursor: u8,
 }
 
 /// Allocation-free cadence state for directional map reuse.
@@ -1231,6 +1323,7 @@ pub(super) struct CascadePlan {
 pub(super) struct CascadeScheduler {
     gameplay_maps_invalid: bool,
     valid_cascades: u8,
+    quality_cursor: u8,
 }
 
 impl Default for CascadeScheduler {
@@ -1238,6 +1331,7 @@ impl Default for CascadeScheduler {
         Self {
             gameplay_maps_invalid: true,
             valid_cascades: 0,
+            quality_cursor: 0,
         }
     }
 }
@@ -1257,6 +1351,50 @@ impl CascadeScheduler {
         };
         CascadePlan {
             render: std::array::from_fn(|index| invalid & (1 << index) != 0),
+            next_quality_cursor: self.quality_cursor,
+        }
+    }
+
+    /// Plan mandatory and quality-only cascade refreshes independently.
+    ///
+    /// Mandatory validity work is never delayed. On otherwise idle
+    /// presentations, at most one still-valid quality refresh is added with
+    /// rotating priority so sustained camera or sun motion cannot starve an
+    /// outer map or compound an already expensive validity frame.
+    pub(super) fn plan_refreshes_at_millis(
+        self,
+        mandatory: CascadeDirty,
+        quality: CascadeDirty,
+        _now_millis: u64,
+    ) -> CascadePlan {
+        if self.gameplay_maps_invalid {
+            return self.plan_at_millis(CascadeDirty::all(), 0);
+        }
+
+        let mandatory = mandatory.mask | (COMPLETE_CASCADE_MASK & !self.valid_cascades);
+        let mut render_mask = mandatory;
+        // A mandatory map already consumes the frame's expensive generation
+        // allowance. Quality-only work is safe to defer and must not turn a
+        // one-map validity event into a two-map camera-rotation spike.
+        let pending = if mandatory == 0 {
+            quality.mask & COMPLETE_CASCADE_MASK
+        } else {
+            0
+        };
+        let mut selected_quality = None;
+        for offset in 0..CASCADE_COUNT {
+            let index = (usize::from(self.quality_cursor) + offset) % CASCADE_COUNT;
+            if pending & (1 << index) != 0 {
+                render_mask |= 1 << index;
+                selected_quality = Some(index as u8);
+                break;
+            }
+        }
+        CascadePlan {
+            render: std::array::from_fn(|index| render_mask & (1 << index) != 0),
+            next_quality_cursor: selected_quality.map_or(self.quality_cursor, |index| {
+                (index + 1) % CASCADE_COUNT as u8
+            }),
         }
     }
 
@@ -1267,6 +1405,7 @@ impl CascadeScheduler {
                 self.valid_cascades |= 1 << index;
             }
         }
+        self.quality_cursor = plan.next_quality_cursor;
         self.gameplay_maps_invalid = false;
     }
 }
@@ -1280,6 +1419,8 @@ pub(super) struct PointMapSignature {
     pub(super) position: [f32; 3],
     /// Effective finite influence radius used by generation and sampling.
     pub(super) radius: f32,
+    /// Order-independent signature of caster identities, transforms, and bounds.
+    pub(super) caster_signature: u64,
 }
 
 impl PointMapSignature {
@@ -1288,6 +1429,7 @@ impl PointMapSignature {
         identity: 0,
         position: [0.0; 3],
         radius: 0.0,
+        caster_signature: 0,
     };
 
     fn materially_matches(self, current: Self) -> bool {
@@ -1298,6 +1440,8 @@ impl PointMapSignature {
             || !self.radius.is_finite()
             || !current.radius.is_finite()
             || (self.radius - current.radius).abs() > 0.01
+            || self.caster_signature != current.caster_signature
+            || current.caster_signature == u64::MAX
         {
             return false;
         }
@@ -1356,6 +1500,11 @@ impl PointMapPlan {
 }
 
 impl PointMapCache {
+    /// Return stable light identities currently owning physical cube slots.
+    pub(super) fn identities(self) -> [usize; NVR_POINT_LIGHT_COUNT] {
+        self.signatures.map(|signature| signature.identity)
+    }
+
     /// Bound cube work while retaining complete spatial quality per map.
     ///
     /// New, replaced, or materially moved lights update all six faces
@@ -1693,6 +1842,65 @@ pub(super) fn select_point_lights(candidates: &[PointLightCandidate]) -> PointLi
     selected
 }
 
+/// Select point lights while preferring identities that already own cubes.
+///
+/// A retained identity receives a bounded ten-percent distance preference.
+/// This prevents nearly equal candidates from exchanging a physical cube on
+/// sub-unit camera movement while allowing a materially nearer light to win.
+pub(super) fn select_point_lights_stable(
+    candidates: &[PointLightCandidate],
+    previous: [u32; NVR_POINT_LIGHT_COUNT],
+) -> PointLightSelection {
+    let mut selected = PointLightSelection {
+        shadowed: [PointLightCandidate::EMPTY; NVR_POINT_LIGHT_COUNT],
+        shadowed_len: 0,
+        unshadowed: [PointLightCandidate::EMPTY; NVR_POINT_LIGHT_COUNT],
+        unshadowed_len: 0,
+    };
+    for mut candidate in candidates.iter().copied() {
+        if previous.contains(&candidate.identity) {
+            // A retained light competes with a ten-percent distance advantage.
+            // The margin is large enough to absorb sub-unit camera jitter at
+            // the Nth-light boundary but bounded enough that a genuinely
+            // nearer source replaces it promptly.
+            candidate.distance_squared =
+                stable_point_light_distance_squared(candidate.distance_squared, true);
+        }
+        if !candidate.valid()
+            || selected.shadowed[..selected.shadowed_len]
+                .iter()
+                .chain(&selected.unshadowed[..selected.unshadowed_len])
+                .any(|current| current.identity == candidate.identity)
+        {
+            continue;
+        }
+        if let Some(fallback) = insert_point_candidate(
+            &mut selected.shadowed,
+            &mut selected.shadowed_len,
+            candidate,
+        ) {
+            insert_point_candidate(
+                &mut selected.unshadowed,
+                &mut selected.unshadowed_len,
+                fallback,
+            );
+        }
+    }
+    selected
+}
+
+/// Rank a retained point light with bounded cube-ownership hysteresis.
+pub(super) const fn stable_point_light_distance_squared(
+    distance_squared: f32,
+    retained: bool,
+) -> f32 {
+    if retained {
+        distance_squared * 0.81
+    } else {
+        distance_squared
+    }
+}
+
 /// Insert into one nearest-first fixed array, returning any rejected tail.
 fn insert_point_candidate(
     values: &mut [PointLightCandidate; NVR_POINT_LIGHT_COUNT],
@@ -1784,10 +1992,12 @@ pub(super) fn sphere_intersects_cube_face(
 
 /// Apply NVR's bounded point-light influence admission without engine access.
 ///
-/// A light must have a useful shadow radius, overlap the fixed discovery
-/// distance, and either face the camera or contain it. Requiring the entire
-/// influence sphere to fit inside the boundary rejects large room lights and
-/// rejects more lights as the user increases the radius multiplier.
+/// A light must have a useful shadow radius and overlap the fixed discovery
+/// distance. Camera orientation is deliberately excluded: retained cube maps
+/// describe an omnidirectional source, so a view-facing gate would invalidate
+/// complete light sets as the camera rotates. Requiring the entire influence
+/// sphere to fit inside the boundary would likewise reject large room lights
+/// and reject more lights as the user increases the radius multiplier.
 pub(super) fn point_light_influence_is_eligible(
     relative_position: [f32; 3],
     radius: f32,
@@ -1815,11 +2025,68 @@ pub(super) fn point_light_influence_is_eligible(
         return false;
     }
     let distance = distance_squared.sqrt();
-    let in_front = (0..3)
-        .map(|index| relative_position[index] * camera_forward[index])
-        .sum::<f32>()
-        > 0.0;
-    (in_front || distance <= radius) && distance - radius <= max_distance
+    // A cube map is omnidirectional and may remain cached across many camera
+    // orientations. Modern NVR's forward-dot shortcut was safe only because
+    // it rebuilt the selected set every frame; retaining that shortcut made
+    // complete room-light shadows pop at the instant the camera crossed 90
+    // degrees. Screen-space scissoring later rejects sources with no visible
+    // receiver work, so orientation is neither a correctness nor performance
+    // admission criterion here.
+    let _ = camera_forward;
+    distance - radius <= max_distance
+}
+
+/// Evaluate one coverage-aware actor-overlay edge sample.
+///
+/// The actor map stores premultiplied linear depth and coverage. This reference
+/// is the CPU oracle for the shader consumer and proves that resolve/filtering
+/// remains neutral at zero coverage and monotonic across a silhouette.
+pub(super) fn actor_overlay_edge_visibility(
+    actor_depth: f32,
+    receiver_depth: f32,
+    coverage: f32,
+) -> Option<f32> {
+    if !coverage.is_finite() || !(0.0..=1.0).contains(&coverage) {
+        return None;
+    }
+    if !actor_depth.is_finite()
+        || !receiver_depth.is_finite()
+        || !(0.0..=1.0).contains(&actor_depth)
+        || !(0.0..=1.0).contains(&receiver_depth)
+    {
+        return None;
+    }
+    if coverage <= f32::EPSILON || receiver_depth <= actor_depth + 0.000_5 {
+        return Some(1.0);
+    }
+    // The actor target stores premultiplied linear depth and sample coverage.
+    // MSAA resolve and bilinear filtering preserve both quantities linearly;
+    // uncovered samples therefore remain neutral instead of becoming an
+    // invalid four-moment EVSM distribution.
+    Some(1.0 - coverage)
+}
+
+/// Compute NVR's terrain-LOD shadow vertex height in the required order.
+///
+/// Geomorphing precedes the loaded-cell land drop. The CPU oracle is paired
+/// with the compiled dedicated terrain shader route so a later simplification
+/// cannot silently reintroduce a different far silhouette.
+pub(super) fn terrain_lod_shadow_z(
+    original_z: f32,
+    morph_source_z: f32,
+    morph: f32,
+    inside_loaded_range: bool,
+    loaded_land_drop: f32,
+) -> Option<f32> {
+    if ![original_z, morph_source_z, morph, loaded_land_drop]
+        .into_iter()
+        .all(f32::is_finite)
+        || !(0.0..=1.0).contains(&morph)
+    {
+        return None;
+    }
+    let geomorphed_z = morph_source_z + (original_z - morph_source_z) * morph;
+    Some(geomorphed_z - f32::from(inside_loaded_range) * loaded_land_drop)
 }
 
 /// Return the shadow contribution retained at the point-light discovery edge.
@@ -1987,6 +2254,20 @@ impl CasterPolicy {
         }
         Ok(())
     }
+
+    /// Admit a caster whose moments will outlive the current camera cull.
+    ///
+    /// The compatibility implementation delegates to the frame-local NVR
+    /// policy. Retained-map tests require this route to ignore only the
+    /// camera-owned `APP_CULLED` observation while preserving every material,
+    /// bound, multibound, and form rejection.
+    pub(super) fn admit_retained(
+        self,
+        mut candidate: CasterAdmission,
+    ) -> Result<(), CasterRejection> {
+        candidate.app_culled = false;
+        self.admit(candidate)
+    }
 }
 
 /// Encode one opaque depth sample as FP16-safe four-moment EVSM data.
@@ -2005,33 +2286,6 @@ pub(super) fn evsm4_moments(depth: f32, opaque: bool) -> Option<[f32; 4]> {
         .iter()
         .all(|value| value.is_finite())
         .then_some(moments)
-}
-
-/// Merge static and animated EVSM distributions by nearest first moment.
-///
-/// Every EVSM channel belongs to one distribution. A channel-wise minimum
-/// combines the positive moments of the near caster with the negative square
-/// of the far caster and creates a distribution that no depth produced. Zero
-/// is reserved for a hardware-cleared empty actor texel: a valid positive EVSM
-/// first moment is always strictly greater than zero.
-pub(super) fn merge_evsm4_nearest(
-    static_moments: [f32; 4],
-    actor_moments: [f32; 4],
-) -> Option<[f32; 4]> {
-    if !static_moments
-        .into_iter()
-        .chain(actor_moments)
-        .all(f32::is_finite)
-    {
-        return None;
-    }
-    Some(
-        if actor_moments[0] > 0.0 && actor_moments[0] < static_moments[0] {
-            actor_moments
-        } else {
-            static_moments
-        },
-    )
 }
 
 fn reduce_light_bleeding(probability: f32, amount: f32) -> f32 {
@@ -2162,8 +2416,8 @@ pub(super) struct ProducerResourcePlan {
     pub(super) cascade_count: u32,
     /// Number of persistent shader-readable directional textures.
     ///
-    /// These are the four-map atlas and single-sample generation/actor resolve.
-    /// Both retain NVR's FP16 EVSM4 precision.
+    /// These are the four-map atlas, static resolve, packed near/middle actor
+    /// map, and far actor map (also reused as the actor resolve scratch).
     pub(super) directional_texture_count: u32,
     /// Width and height of the single-sample 2-by-2 consumer atlas.
     pub(super) atlas_resolution: u32,
@@ -2175,6 +2429,12 @@ pub(super) struct ProducerResourcePlan {
     pub(super) directional_channel_bits: u32,
     /// True when the consumer uses four-moment exponential variance shadows.
     pub(super) evsm4: bool,
+    /// Coverage-aware actor depth channels (`depth * coverage`, `coverage`).
+    pub(super) actor_channels: u32,
+    /// Coverage samples retained for actor silhouettes.
+    pub(super) actor_samples: u32,
+    /// Bytes written by one complete actor generation target.
+    pub(super) actor_generation_bytes: u64,
     /// Maximum stable atlas taps used at one visible receiver.
     pub(super) receiver_filter_samples: u32,
     /// Full-map draws required to merge an actor overlay into static moments.
@@ -2187,8 +2447,11 @@ pub(super) struct ProducerResourcePlan {
     pub(super) point_cube_texture_count: u32,
     /// Resolution of every cube face.
     pub(super) point_cube_resolution: u32,
-    /// Conservative peak bytes for the OMV plan at the requested resolution.
+    /// Preferred G16R16F-actor peak bytes at the requested resolution.
     pub(super) estimated_bytes: u64,
+    /// Peak when a device requires the quality-equivalent four-channel actor
+    /// target fallback because multisampled G16R16F is unavailable.
+    pub(super) fallback_estimated_bytes: u64,
     /// Peak bytes after both lazy location branches have been visited.
     ///
     /// Retaining both families prevents cell-transition allocation hitches.
@@ -2218,13 +2481,13 @@ impl ProducerResourcePlan {
         let generation_moments = cascade_pixels * 8 * 4;
         let generation_depth = cascade_pixels * 4 * 4;
         let resolved_moments = cascade_pixels * 8;
-        // Three actor-only FP16 EVSM4 maps preserve near/middle/far
-        // silhouettes without rebuilding the complete static cascades on
-        // every animation frame. Near and middle are packed side-by-side so
-        // the consumer needs only two actor samplers; the reusable resolve is
-        // retained separately because D3D9 multisample resolves cannot target
-        // a sub-rectangle of the packed texture.
-        let actor_moments = resolved_moments * 3;
+        // Actor maps need coverage-aware linear depth, not EVSM4. Two FP16
+        // channels are closed under MSAA resolve and bilinear filtering, halve
+        // presentation-rate color bandwidth, and retain the same four raster
+        // coverage samples. Near/middle remain packed; the far texture doubles
+        // as the mandatory full-size resolve scratch, avoiding a fifth texture.
+        let actor_generation = cascade_pixels * 4 * 4;
+        let actor_moments = cascade_pixels * 4 * 3;
         let point_cubes = u64::from(512_u32.pow(2)) * 6 * 4 * NVR_POINT_LIGHT_COUNT as u64;
         let point_static_cubes = point_cubes;
         let point_depth = u64::from(512_u32.pow(2)) * 4;
@@ -2243,6 +2506,7 @@ impl ProducerResourcePlan {
                 + generation_moments
                 + generation_depth
                 + resolved_moments
+                + actor_generation
                 + actor_moments
                 + point_cubes
                 + point_static_cubes
@@ -2256,6 +2520,7 @@ impl ProducerResourcePlan {
             + generation_moments
             + generation_depth
             + resolved_moments
+            + actor_generation
             + actor_moments
             + point_cubes
             + point_static_cubes
@@ -2263,6 +2528,12 @@ impl ProducerResourcePlan {
             + source_copy
             + point_accumulation
             + contact_targets;
+        let actor_fallback_extra = actor_generation + actor_moments;
+        let fallback_estimated_bytes = if directional {
+            estimated_bytes + actor_fallback_extra
+        } else {
+            estimated_bytes
+        };
 
         let atlas_pixels = u64::from((NVR_CASCADE_RESOLUTION * 2).pow(2));
         let nvr_equivalent_estimated_bytes =
@@ -2276,12 +2547,16 @@ impl ProducerResourcePlan {
             directional_channels: 4,
             directional_channel_bits: 16,
             evsm4: true,
+            actor_channels: if directional { 2 } else { 0 },
+            actor_samples: if directional { 4 } else { 0 },
+            actor_generation_bytes: if directional { actor_generation } else { 0 },
             receiver_filter_samples: 3,
             actor_overlay_fullscreen_merge_draws: 0,
             point_light_count: NVR_POINT_LIGHT_COUNT as u32,
             point_cube_texture_count: (NVR_POINT_LIGHT_COUNT * 2) as u32,
             point_cube_resolution: 512,
             estimated_bytes,
+            fallback_estimated_bytes,
             combined_estimated_bytes,
             nvr_equivalent_estimated_bytes,
             transaction: ProducerTransaction::complete(),

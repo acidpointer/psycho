@@ -3233,6 +3233,165 @@ NPC bodies in both locations, forward/strafe plus fast yaw, light-order
 crossings, cube-face crossings, distant walls, sun plus carried lights, and
 measured exterior/interior frame times.
 
+#### Thirteenth corrective pass: view-independent caches, exact LOD morphing, and actor coverage
+
+The screenshots captured on 2026-08-13 reject several assumptions in the
+twelfth artifact:
+
+- `.reports/shadows_actor_squares.png` and
+  `.reports/shadows_actor_squares_2.png` show large axis-aligned dark polygons
+  behind the third-person actor instead of an antialiased body silhouette;
+- `.reports/shadows_tower_artifacts.png` shows a deformed, nearly black
+  Tenpenny Tower/LOD projection;
+- `.reports/shadows_interior_missing_far.png` and
+  `.reports/shadows_interior_far_exist.png` hold nearly the same interior view
+  while a large distant shadow set disappears or returns; and
+- `.reports/shadows_interior_missing_close.png` and
+  `.reports/shadows_interior_exist_close.png` reproduce the same discontinuity
+  on nearby stairs and walls after a small camera-angle change.
+
+The user deliberately increased shadow darkness to make the boundaries easy
+to inspect. That changes contrast, not the ownership failure: whole caster
+sets and large rectangles change rather than a filter kernel merely becoming
+more visible. The same playtest reports about 70 FPS instead of the normal
+120 FPS and pronounced camera-rotation stutter.
+
+The modern NVR re-audit found two contracts which cannot be copied unchanged
+into OMV's retained architecture. `ShadowManager::GetNearbyLights` uses a
+camera-forward dot test (and marks its cube-face approximation as needing
+frustum improvement), while `AccumChildren` and the direct point geometry
+list reject `NiAVObject::APP_CULLED`. NVR rebuilds its selected maps every
+frame, so those observations expire with that frame. OMV retained the result
+for many views. A light or caster which happened to be behind the camera when
+a map was created therefore remained missing, and crossing the forward plane
+could exchange a complete room-light shadow set. This is a cache-lifetime
+violation, not an incorrect point-cube projection.
+
+OMV now admits finite point-light influence by radius/distance independently
+of camera orientation. Receiver projection/scissoring still rejects a light
+which covers no screen pixels. Retained directional and cube traversal ignores
+only the frame-local `APP_CULLED` bit; form opt-out, material compatibility,
+fade, minimum projected radius, multibound, light-volume, and shadow-frustum
+tests remain intact. Static directional root signatures additionally include
+absolute transform and world-bound state, and point-map signatures include an
+order-independent fold of every non-skinned geometry identity, transform, and
+bound.
+
+Doors, movable clutter, streamed geometry, and changed root transforms can no
+longer survive indefinitely in an immutable map. Skinned geometry remains in
+the independent presentation-rate actor path.
+
+The nearest-twelve point-light boundary had a second discontinuity. Two nearly
+equal candidates could exchange the last physical cube after sub-unit camera
+motion, forcing six new faces and changing a whole local shadow. A retained
+identity now competes with a bounded ten-percent distance preference. This is
+hysteresis, not permanent pinning: a materially nearer source still replaces
+the old owner. Physical slot preservation then prevents harmless nearest-order
+changes from copying or regenerating other cubes.
+
+The far-LOD deformation was a direct shader transcription error. Modern NVR's
+`TerrainLODPass` uploads `WorldTranspose` at c140-c143,
+`HighDetailRange` at c144, and morph/drop data at c145. Its vertex shader first
+computes
+`lerp(input terrain height, original Z, morph)` and then subtracts the loaded
+land drop. OMV computed that intermediate value but subtracted the drop from
+the original vertex, discarding geomorphing. The dedicated OMV terrain path now
+uses the exact NVR ordering. The addresses remain the source-proven FNV globals
+`kLoadedRange = 0x011F95F4`, camera translation `0x011F474C`, and
+`fLODLandDrop = 0x011AD808`; no new executable assumption was introduced.
+
+The actor rectangles invalidate the twelfth pass's zero-sentinel inference.
+Zero is distinguishable from an exact EVSM sample, but a multisample resolve or
+bilinear footprint blends zero with valid four-moment data. Scaling all four
+EVSM moments by coverage does not describe any depth distribution, so even a
+one-percent silhouette sample can evaluate as a large false occluder. Actor
+maps now store `(linear depth * coverage, coverage)` instead. Each of NVR's
+four coverage samples writes `(depth, 1)` and the hardware clear writes
+`(0, 0)`. Resolve and bilinear filtering are closed under this representation;
+the consumer reconstructs mean actor depth and retains the uncovered sample
+fraction behind it. Static world maps continue to use full FP16 EVSM4. The
+preferred actor work/persistent targets use `G16R16F`, halving their
+presentation-rate color bandwidth; devices without multisampled G16R16F fall
+back transactionally to the quality-equivalent four-channel format without
+reducing resolution or four-sample coverage. The far actor texture also serves
+as the required same-size resolve scratch, avoiding a redundant texture and
+copy.
+
+Camera rotation previously converted every still-valid half-texel sun or
+guard-band refinement into as many as four 2048-square four-sample map draws in
+one presentation. Retained-map planning now separates mandatory validity from
+quality refinement. A receiver which no longer fits is rebuilt immediately;
+a still-contained map approaching its guard or exceeding the half-texel sun
+threshold is scheduled early, at most one quality map per frame, with rotating
+cascade priority. Quality work waits whenever mandatory validity work already
+owns the frame. This keeps the hard coverage invariant while removing both the
+four-map refinement burst and avoidable mixed-work spikes responsible for
+severe yaw stutter.
+
+Point receiver batching is now instruction-aware. The rejected rule compared
+only union area with summed rectangle area; two adjacent disjoint lights could
+therefore execute both light branches over every pixel even though batching
+saved no fragments. Compiled one/six/twelve-light programs establish a
+conservative model of 238 shared receiver instructions plus roughly 107 per
+active light. Fixed-array spatial sorting and greedy grouping accept a batch
+only when the modeled work does not exceed separate draws. Overlapping local
+clusters still share depth/normal reconstruction, while empty space between
+clusters is never bridged. No render-thread allocation was added.
+
+The regression sequence was negative first. Before implementation, focused
+tests observed all of the following failures:
+
+- point-light admission changed solely when camera forward was negated;
+- an application-culled caster was rejected from a retained map;
+- a 0.2-unit change exchanged the twelfth point cube;
+- one-percent filtered actor coverage was non-neutral and non-monotonic;
+- the terrain reference returned original Z instead of geomorphed Z;
+- two adjacent disjoint point rectangles increased modeled shader work from
+  6,900,000 to 9,040,000 units;
+- four still-valid quality refreshes were submitted together;
+- sun drift was classified as mandatory despite complete receiver containment;
+- a changed static point-caster signature reused all six old faces;
+- a changed directional root bound produced the same static-root signature;
+- an unchanged bound hid a static caster rotation from retained-map identity;
+  and
+- non-urgent quality work was appended to an already expensive mandatory-map
+  frame.
+
+The corrected suite requires temporal invariance across opposite camera
+orientations, strict cache invalidation for changed static geometry, bounded
+selection hysteresis, monotonic actor subpixel coverage, exact terrain morph
+and loaded-drop ordering, no-worse point shader work, independent spatial
+cluster batching, immediate mandatory cascade work, and at most one
+still-valid quality refresh per presentation. These are behavioral math,
+temporal state, resource, compiled-shader, and workload assertions; none treats
+the presence of a Rust/HLSL string as proof of image correctness.
+
+At 1920 by 1080 the preferred retained exterior/combined model is 692,496,384
+bytes, including full NVR 2048 cascade resolution, four coverage samples,
+twelve 512-square `R32F` point cubes plus their immutable backing cubes, and
+the new two-channel actor family. The quality-equivalent actor-format fallback
+is 809,936,896 bytes, still below the 939,524,096-byte comparable NVR atlas
+lower bound. Interior-only residency remains 201,809,920 bytes. The preferred
+actor producer writes exactly half the color bytes of the rejected EVSM4 actor
+producer per active overlay. These are static bounds, not an FPS claim.
+
+This pass changes no configuration, schema, preset, hook admission, TLS,
+worker order, shader catalog shape, lazy/static owner, or pre-Deferred
+publication. `ShadowPipeline` and all new runtime state remain behind the
+startup-corrected boxed `0xA28` owner. Static validation cannot prove final
+visual acceptance or measured Proton/DXVK frame time. Runtime acceptance must
+repeat the seven named captures, slow and fast yaw, forward movement, actor and
+NPC animation, interior light-limit crossings, distant LOD transitions, and
+frame-time measurement on both the RX 6800 XT and a lower-end GPU.
+
+Supported-target validation on 2026-08-13 passed 117 focused shadow tests and
+all 611 OMV tests, including compiled shader, depth-provider, frame-order, and
+startup-footprint contracts. The `i686-pc-windows-gnu` release build also
+passed. Its 12,868,086-byte `omv.dll` has SHA-256
+`d21f145e03fbd4e0b52632df9e695798ee641b971d76bae06d746537e8bdb524`.
+`git diff --check` and `cargo fmt -p omv -- --check` passed. This evidence is
+deliberately separate from the runtime acceptance still required above.
+
 ### Evidence classification for the implementation
 
 **Proven by executable/static artifacts:** the common hook/tail topology,

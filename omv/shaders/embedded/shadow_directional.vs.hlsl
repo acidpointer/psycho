@@ -104,7 +104,11 @@ VertexOutput Main(VertexInput input) {
         terrainPosition.z = lerp(input.terrain.x, local.z, TerrainRows[5].x);
         float insideY = abs(dot(TerrainRows[1], terrainPosition) - TerrainRows[4].y) < TerrainRows[4].w;
         float insideX = abs(dot(TerrainRows[0], terrainPosition) - TerrainRows[4].x) < TerrainRows[4].z;
-        local.z -= insideX * insideY * TerrainRows[5].y;
+        // The visible terrain LOD consumes the geomorphed height. Applying the
+        // loaded-cell drop to the original vertex instead projects a different
+        // silhouette which deforms and flickers as the camera crosses the LOD
+        // transition. This ordering is the exact NVR TerrainLODPass contract.
+        local.z = terrainPosition.z - insideX * insideY * TerrainRows[5].y;
     }
     float4 world = GeometryData.x == GEOMETRY_SKINNED ? local : mul(local, ShadowWorld);
     float4 projected = mul(world, ShadowViewProjection);

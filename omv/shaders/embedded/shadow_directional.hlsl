@@ -19,6 +19,13 @@ float4 Main(PixelInput input) : COLOR0 {
         clip(diffuse.a - 0.5f);
     }
     float depth = saturate(input.shadowPosition.z / input.shadowPosition.w);
+    if (ShadowData.w > 1.5f) {
+        // Actor targets store linear depth plus coverage. With four-sample
+        // rasterization each covered sample writes `(depth, 1)` and the black
+        // clear supplies `(0, 0)`; resolve and bilinear filtering then retain
+        // a valid coverage-weighted mean instead of corrupting EVSM moments.
+        return float4(depth, 1.0f, 0.0f, 0.0f);
+    }
     float2 warped = WarpDepth(depth);
     return float4(warped, warped * warped);
 }

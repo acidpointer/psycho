@@ -14,6 +14,7 @@ use super::{
         ALL_CUBE_FACES, DirectionalRootSetSignature, NVR_POINT_LIGHT_COUNT, SceneKind,
         directional_actor_root_is_active, directional_form_type_is_enabled,
         point_light_distance_fade, point_light_influence_is_eligible, sphere_intersects_cube_face,
+        stable_point_light_distance_squared,
     },
     engine::NativeLayout,
     math::{CascadeProjection, Sphere, dynamic_caster_cascade_mask},
@@ -98,6 +99,8 @@ pub(super) struct DirectionalRoot {
     pub(super) is_land: bool,
     /// Object/land LOD roots are admitted only by far and LOD profiles.
     pub(super) is_lod: bool,
+    /// Stable hash of the root's absolute transform and world bound.
+    world_state: u32,
 }
 
 impl DirectionalRoot {
@@ -149,7 +152,10 @@ pub(super) fn directional_root_set_signature(
         .copied()
         .filter(|root| !root.is_dynamic_actor())
     {
-        signature.include(root.root, root.signature_profile());
+        signature.include(
+            root.root,
+            root.signature_profile() ^ root.world_state.rotate_left(11),
+        );
     }
     signature
 }
@@ -407,6 +413,7 @@ pub(super) unsafe fn directional_fov_compensation() -> f32 {
 pub(super) unsafe fn select_point_lights(
     camera_translation: [f32; 3],
     camera_forward: [f32; 3],
+    retained_identities: [usize; NVR_POINT_LIGHT_COUNT],
     shadow_limit: usize,
     radius_multiplier: f32,
     draw_distance: f32,
@@ -427,7 +434,7 @@ pub(super) unsafe fn select_point_lights(
     while !node.is_null() && scanned < count {
         let next = unsafe { read::<*mut u8>(node, NI_TLIST_NEXT) };
         let scene_light = unsafe { read::<*mut u8>(node, NI_TLIST_DATA) };
-        if let Some(candidate) = unsafe {
+        if let Some(mut candidate) = unsafe {
             point_light(
                 scene_light,
                 camera_translation,
@@ -436,6 +443,15 @@ pub(super) unsafe fn select_point_lights(
                 draw_distance,
             )
         } {
+            if retained_identities.contains(&candidate.identity) {
+                // Stable cube ownership needs a small admission hysteresis at
+                // the nearest-N boundary. Without it, two almost equidistant
+                // room lights exchange a six-face map on sub-unit camera
+                // motion and whole shadow groups blink. The bounded ten-percent
+                // preference still admits a materially nearer replacement.
+                candidate.distance_squared =
+                    stable_point_light_distance_squared(candidate.distance_squared, true);
+            }
             selected.insert(candidate);
         }
         node = next;
@@ -468,24 +484,35 @@ pub(super) unsafe fn visit_point_geometry(
     visited
 }
 
-/// Return the cube faces containing skinned caster state that follows frames.
+/// Current dynamic coverage and immutable-caster identity for one point map.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) struct PointCasterSnapshot {
+    /// Cube faces touched by skinned geometry in this presentation.
+    pub(super) dynamic_faces: u8,
+    /// Order-independent identities, transforms, and bounds of static geometry.
+    pub(super) static_signature: u64,
+}
+
+/// Snapshot point-map caster state in the light's serialized list epoch.
 ///
-/// Modern NVR regenerates every selected cube every frame. OMV can safely
-/// retain faces containing no skinned geometry. Bounds conservatively select
-/// every 90-degree face touched by an actor; the cache unions this result with
-/// the preceding frame so crossing an edge also clears the actor's old face.
-/// A missing list or invalid actor bound selects all faces because the point
-/// renderer then falls back to complete cell roots, which include actors.
+/// The geometry walk already needed to locate skinned face coverage. Folding
+/// static identity, transform, and bounds into the same pass prevents doors,
+/// movable clutter, or a changed native geometry list from surviving forever
+/// in an immutable cube without adding another hot-path traversal.
 ///
 /// # Safety
 ///
 /// `light` must come from [`select_point_lights`] in the current serialized
 /// common-shadow invocation.
-pub(super) unsafe fn point_light_dynamic_face_mask(light: &PointLight) -> u8 {
+pub(super) unsafe fn point_light_caster_snapshot(light: &PointLight) -> PointCasterSnapshot {
     let mut faces = 0_u8;
+    let mut static_count = 0_u64;
+    let mut static_xor = 0_u64;
+    let mut static_sum = 0_u64;
     let visited = unsafe {
         visit_point_geometry(light, |geometry| {
-            if !read::<*mut u8>(geometry, NativeLayout::NI_GEOMETRY_SKIN).is_null() {
+            let skinned = !read::<*mut u8>(geometry, NativeLayout::NI_GEOMETRY_SKIN).is_null();
+            if skinned {
                 let bound =
                     read::<*mut NativeBound>(geometry, NativeLayout::NI_AV_OBJECT_WORLD_BOUND);
                 if bound.is_null() {
@@ -507,10 +534,35 @@ pub(super) unsafe fn point_light_dynamic_face_mask(light: &PointLight) -> u8 {
                         faces |= 1 << face;
                     }
                 }
+            } else {
+                let mut mixed = geometry as usize as u64;
+                mixed ^= u64::from(retained_object_world_state(geometry))
+                    .wrapping_mul(0x9E37_79B1_85EB_CA87);
+                mixed ^= mixed >> 33;
+                mixed = mixed.wrapping_mul(0xFF51_AFD7_ED55_8CCD);
+                mixed ^= mixed >> 33;
+                static_count = static_count.wrapping_add(1);
+                static_xor ^= mixed;
+                static_sum = static_sum.wrapping_add(mixed.rotate_left(23));
             }
         })
     };
-    if visited == 0 { ALL_CUBE_FACES } else { faces }
+    if visited == 0 {
+        PointCasterSnapshot {
+            dynamic_faces: ALL_CUBE_FACES,
+            // A missing list uses the complete-cell fallback. Its descendants
+            // have no cheap stable inventory, so never pretend that fallback
+            // geometry is immutable across presentations.
+            static_signature: u64::MAX,
+        }
+    } else {
+        PointCasterSnapshot {
+            dynamic_faces: faces,
+            static_signature: static_xor
+                ^ static_sum.rotate_left(29)
+                ^ static_count.wrapping_mul(0x9E37_79B9),
+        }
+    }
 }
 
 /// Visit current-cell roots when a native point light has no geometry list.
@@ -549,7 +601,11 @@ pub(super) unsafe fn collect_directional_roots(
         (NativeLayout::TES_LAND_LOD_ROOT, true),
     ] {
         let root = unsafe { read::<*mut u8>(scene.tes, offset) };
-        if !root.is_null() && !push_directional_root(roots, root, None, is_land, true) {
+        if !root.is_null()
+            && !push_directional_root(roots, root, None, is_land, true, unsafe {
+                retained_object_world_state(root)
+            })
+        {
             roots.clear();
             return false;
         }
@@ -600,7 +656,9 @@ unsafe fn push_player_directional_root(
     }
     // PlayerCharacter's base form is an NPC, and modern NVR enables actors in
     // the three gameplay cascades while excluding them from the LOD profile.
-    push_directional_root(roots, node, Some(0x2A), false, false)
+    push_directional_root(roots, node, Some(0x2A), false, false, unsafe {
+        retained_object_world_state(node)
+    })
 }
 
 unsafe fn player_directional_root(scene: NativeScene) -> Option<*mut u8> {
@@ -617,7 +675,9 @@ unsafe fn collect_cell_directional_roots(cell: *mut u8, roots: &mut Vec<Directio
     if !cell_state.is_null() {
         let master = unsafe { read::<*mut u8>(cell_state, CELL_STRUCT_MASTER_NODE) };
         if let Some(land) = unsafe { node_child(master, LAND_CHILD_INDEX) }
-            && !push_directional_root(roots, land, None, true, false)
+            && !push_directional_root(roots, land, None, true, false, unsafe {
+                retained_object_world_state(land)
+            })
         {
             return false;
         }
@@ -645,6 +705,7 @@ unsafe fn collect_cell_directional_roots(cell: *mut u8, roots: &mut Vec<Directio
                         Some(unsafe { read::<u8>(base, NativeLayout::TES_FORM_TYPE) }),
                         false,
                         false,
+                        unsafe { retained_object_world_state(node) },
                     )
                 {
                     return false;
@@ -663,6 +724,7 @@ fn push_directional_root(
     form_type: Option<u8>,
     is_land: bool,
     is_lod: bool,
+    world_state: u32,
 ) -> bool {
     if roots.len() == roots.capacity() {
         return false;
@@ -672,8 +734,56 @@ fn push_directional_root(
         form_type,
         is_land,
         is_lod,
+        world_state,
     });
     true
+}
+
+/// Hash the absolute transform and bound which define retained map contents.
+///
+/// # Safety
+///
+/// `object` must be a live `NiAVObject` in the current common-shadow epoch.
+unsafe fn retained_object_world_state(object: *mut u8) -> u32 {
+    if object.is_null() {
+        return u32::MAX;
+    }
+    let bound = unsafe { read::<*mut NativeBound>(object, NativeLayout::NI_AV_OBJECT_WORLD_BOUND) };
+    let bound = (!bound.is_null()).then(|| unsafe { read_unaligned(bound) });
+    let transform = unsafe {
+        read_unaligned::<[f32; 13]>(
+            object
+                .add(NativeLayout::NI_AV_OBJECT_WORLD_TRANSFORM)
+                .cast(),
+        )
+    };
+    retained_object_state_signature(bound, transform)
+}
+
+/// Hash the retained fields of one native object's absolute world state.
+fn retained_object_state_signature(bound: Option<NativeBound>, transform: [f32; 13]) -> u32 {
+    let mut state = 0x811C_9DC5_u32;
+    let bound_values = bound.map_or([f32::NAN; 4], |bound| {
+        [
+            bound.center[0],
+            bound.center[1],
+            bound.center[2],
+            bound.radius,
+        ]
+    });
+    for bits in bound_values.into_iter().map(f32::to_bits) {
+        state ^= bits;
+        state = state.wrapping_mul(0x0100_0193);
+    }
+    // A bound sphere normally changes under translation, but not under a
+    // rotation around its center. Hash all 3x3 rotation, translation, and
+    // scale fields so a retained door or movable mesh cannot reuse geometry
+    // projected from its previous orientation.
+    for bits in transform.into_iter().map(f32::to_bits) {
+        state ^= bits;
+        state = state.wrapping_mul(0x0100_0193);
+    }
+    state
 }
 
 /// Visit exterior cell/reference roots admitted by one NVR cascade profile.
@@ -905,8 +1015,8 @@ const fn size_of<T>() -> usize {
 #[cfg(test)]
 mod tests {
     use super::{
-        DirectionalRoot, PointLight, PointLightSelection, directional_root_set_signature,
-        push_directional_root,
+        DirectionalRoot, NativeBound, PointLight, PointLightSelection,
+        directional_root_set_signature, push_directional_root, retained_object_state_signature,
     };
 
     fn point(identity: usize, distance_squared: f32) -> PointLight {
@@ -965,6 +1075,7 @@ mod tests {
             form_type: Some(0x2A),
             is_land: false,
             is_lod: false,
+            world_state: 0,
         };
         assert!(actor.enabled_for(0));
         assert!(actor.enabled_for(2));
@@ -975,6 +1086,7 @@ mod tests {
             form_type: None,
             is_land: true,
             is_lod: true,
+            world_state: 0,
         };
         assert!(!lod.enabled_for(1));
         assert!(lod.enabled_for(2));
@@ -986,6 +1098,7 @@ mod tests {
             actor.form_type,
             actor.is_land,
             actor.is_lod,
+            actor.world_state,
         ));
         assert!(!push_directional_root(
             &mut roots,
@@ -993,6 +1106,7 @@ mod tests {
             lod.form_type,
             lod.is_land,
             lod.is_lod,
+            lod.world_state,
         ));
         assert_eq!(roots.len(), 1);
         assert_eq!(roots.capacity(), 1);
@@ -1005,12 +1119,14 @@ mod tests {
             form_type: Some(0x2A),
             is_land: false,
             is_lod: false,
+            world_state: 0,
         };
         let land_lod = DirectionalRoot {
             root: 0x2000,
             form_type: None,
             is_land: true,
             is_lod: true,
+            world_state: 0,
         };
         assert_eq!(
             directional_root_set_signature(&[actor, land_lod]),
@@ -1037,6 +1153,7 @@ mod tests {
             form_type: Some(0x20),
             is_land: false,
             is_lod: false,
+            world_state: 0,
         };
         assert_ne!(
             directional_root_set_signature(&[form_with_bit_five]),
@@ -1045,6 +1162,34 @@ mod tests {
                 ..form_with_bit_five
             }]),
             "form bits must not alias the separate no-form profile discriminator"
+        );
+
+        assert_ne!(
+            directional_root_set_signature(&[land_lod]),
+            directional_root_set_signature(&[DirectionalRoot {
+                world_state: 0xDEAD_BEEF,
+                ..land_lod
+            }]),
+            "a moved static root retained directional moments from its old transform"
+        );
+    }
+
+    #[test]
+    fn retained_static_signature_detects_rotation_without_bound_change() {
+        let bound = NativeBound {
+            center: [10.0, 20.0, 30.0],
+            radius: 64.0,
+        };
+        let identity = [
+            1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 10.0, 20.0, 30.0, 1.0,
+        ];
+        let rotated = [
+            0.0, -1.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 10.0, 20.0, 30.0, 1.0,
+        ];
+        assert_ne!(
+            retained_object_state_signature(Some(bound), identity),
+            retained_object_state_signature(Some(bound), rotated),
+            "a rotating door or movable caster reused moments from its previous orientation"
         );
     }
 }

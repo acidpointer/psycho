@@ -56,7 +56,6 @@ const BS_MULTIBOUND: usize = 0xAC;
 const BS_MULTIBOUND_SHAPE: usize = 0x0C;
 const BS_FADE_ALPHA: usize = 0xB8;
 
-const APP_CULLED: u32 = 1 << 0;
 const SHADE_FIRST_PERSON: u16 = 1 << 1;
 const SHADER_REFRACTION: u32 = 0x0000_8000;
 const SHADER_FIRE_REFRACTION: u32 = 0x0001_0000;
@@ -368,6 +367,7 @@ pub(super) unsafe fn draw_directional_root(
     is_land: bool,
     is_lod: bool,
     minimum_radius: f32,
+    actor_overlay: bool,
     scratch: &mut TraversalScratch,
 ) -> Direct3DResult<()> {
     let context = DrawContext {
@@ -383,6 +383,7 @@ pub(super) unsafe fn draw_directional_root(
         is_lod,
         minimum_radius,
         subset: CasterSubset::All,
+        actor_overlay,
     };
     unsafe { traverse_root(context, root, scratch) }
 }
@@ -417,6 +418,7 @@ pub(super) unsafe fn draw_point_geometry(
         is_lod: false,
         minimum_radius: CasterPolicy::quality_default().minimum_radius,
         subset,
+        actor_overlay: false,
     };
     unsafe { draw_geometry(context, geometry, scratch) }
 }
@@ -454,6 +456,7 @@ pub(super) unsafe fn draw_point_root(
         is_lod,
         minimum_radius: CasterPolicy::quality_default().minimum_radius,
         subset,
+        actor_overlay: false,
     };
     unsafe { traverse_root(context, root, scratch) }
 }
@@ -472,6 +475,7 @@ struct DrawContext<'a> {
     is_lod: bool,
     minimum_radius: f32,
     subset: CasterSubset,
+    actor_overlay: bool,
 }
 
 unsafe fn traverse_root(
@@ -490,9 +494,12 @@ unsafe fn traverse_root(
         }
         visited += 1;
         let object = identity as *mut u8;
-        if unsafe { read::<u32>(object, NativeLayout::NI_AV_OBJECT_FLAGS) } & APP_CULLED != 0 {
-            continue;
-        }
+        // These moments outlive the native camera-cull epoch. NVR could honor
+        // APP_CULLED because it rebuilt its maps every frame; doing so in a
+        // retained map permanently removes a caster which happened to be
+        // behind the camera at generation time. Shadow-frustum, light-volume,
+        // form, fade, and multibound tests below remain the authoritative
+        // bounded admission policy.
         let geometry = unsafe { virtual_cast(object, NI_OBJECT_IS_GEOMETRY_SLOT) };
         if !geometry.is_null() {
             unsafe { draw_geometry(context, geometry, scratch)? };
@@ -563,6 +570,9 @@ unsafe fn draw_geometry(
     let world = unsafe { geometry_world_matrix(geometry, context.camera_translation) }
         .ok_or_else(direct3d_failure)?;
     let mut geometry_data = [classification.geometry_kind, 0.0, 0.0, 0.0];
+    if context.actor_overlay {
+        geometry_data[3] = 2.0;
+    }
     if let Some(radius) = context.cube_radius {
         geometry_data[2] = radius;
         // Dynamic point-cube draws sample the immutable static cube in s1 and
@@ -631,7 +641,6 @@ unsafe fn classify_geometry(
     geometry: *mut u8,
 ) -> Option<GeometryClassification> {
     if geometry.is_null()
-        || unsafe { read::<u32>(geometry, NativeLayout::NI_AV_OBJECT_FLAGS) } & APP_CULLED != 0
         || unsafe { read::<*mut u8>(geometry, NativeLayout::NI_GEOMETRY_SHADER) }.is_null()
         || !unsafe { object_bound_within(context, geometry) }
         || unsafe { faded_by_parent(geometry) }

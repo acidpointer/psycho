@@ -14,8 +14,9 @@ use super::contract::{
     depth_sample_is_geometry, directional_projection_is_sampleable,
     first_person_caster_is_excluded, interior_shadow_factor, point_consumer_plan,
     point_light_scissor, point_sampled_texel_center, practical_cascade_splits,
-    retained_cascade_needs_refresh, shadow_receiver_is_world_surface, skinned_position_reference,
-    skinned_submission_is_available, source_owned_shadow_radiance, sun_projection_needs_refresh,
+    retained_cascade_needs_refresh, retained_cascade_refresh, shadow_receiver_is_world_surface,
+    skinned_position_reference, skinned_submission_is_available, source_owned_shadow_radiance,
+    sun_projection_needs_refresh,
 };
 use super::math::{ShadowCamera, cascade_projection};
 use super::pipeline::consumer_selection_spheres;
@@ -927,6 +928,7 @@ fn animated_point_casters_do_not_force_six_faces_per_light_per_frame() {
         identity: 0x1234,
         position: [0.0, 0.0, 0.0],
         radius: 256.0,
+        caster_signature: 1,
     };
     let initial = PointMapCache::default().plan(signatures, [0; NVR_POINT_LIGHT_COUNT], 1);
     let mut dynamic = [0_u8; NVR_POINT_LIGHT_COUNT];
@@ -1021,6 +1023,129 @@ fn camera_containing_point_lights_share_depth_reconstruction_work() {
     assert!(
         fused_depth_fetches * 4 < rejected_depth_fetches,
         "receiver work regressed to repeated full-screen depth reconstruction"
+    );
+}
+
+#[test]
+fn point_consumer_batching_never_increases_estimated_shader_work() {
+    let left = super::contract::LightScissorRect {
+        left: 0,
+        top: 0,
+        right: 100,
+        bottom: 100,
+    };
+    let right = super::contract::LightScissorRect {
+        left: 100,
+        top: 0,
+        right: 200,
+        bottom: 100,
+    };
+    let mut scissors = [None; NVR_POINT_LIGHT_COUNT];
+    scissors[0] = Some(left);
+    scissors[1] = Some(right);
+    let plan = point_consumer_plan(scissors, 2);
+
+    // D3D bytecode inspection gives a conservative 238-instruction receiver
+    // base plus 107 instructions per point light. The current area-only rule
+    // batches adjacent, non-overlapping rectangles even though every pixel
+    // then executes both light branches.
+    let modeled = plan
+        .draws()
+        .map(|draw| draw.scissor.pixels() * (238 + 107 * u64::from(draw.count)))
+        .sum::<u64>();
+    let singleton = (left.pixels() + right.pixels()) * (238 + 107);
+    assert!(
+        modeled <= singleton,
+        "point batching increased modeled shader work from {singleton} to {modeled}"
+    );
+}
+
+#[test]
+fn point_consumer_batches_spatial_clusters_without_bridging_empty_screen() {
+    let mut scissors = [None; NVR_POINT_LIGHT_COUNT];
+    scissors[0] = Some(super::contract::LightScissorRect {
+        left: 0,
+        top: 0,
+        right: 120,
+        bottom: 120,
+    });
+    scissors[1] = Some(super::contract::LightScissorRect {
+        left: 1_000,
+        top: 0,
+        right: 1_120,
+        bottom: 120,
+    });
+    scissors[2] = Some(super::contract::LightScissorRect {
+        left: 10,
+        top: 0,
+        right: 130,
+        bottom: 120,
+    });
+    scissors[3] = Some(super::contract::LightScissorRect {
+        left: 1_010,
+        top: 0,
+        right: 1_130,
+        bottom: 120,
+    });
+    let plan = point_consumer_plan(scissors, 4);
+    let draws: Vec<_> = plan.draws().collect();
+    assert_eq!(draws.len(), 2, "two overlap clusters lost receiver sharing");
+    assert!(draws.iter().all(|draw| draw.count == 2));
+    assert!(
+        draws.iter().all(|draw| draw.scissor.pixels() <= 130 * 120),
+        "a point batch shaded the large empty interval between light clusters"
+    );
+}
+
+#[test]
+fn quality_only_cascade_refreshes_are_spread_across_frames() {
+    let mut scheduler = CascadeScheduler::default();
+    let initial = scheduler.plan_at_millis(CascadeDirty::all(), 0);
+    scheduler.commit(initial);
+
+    let refresh = scheduler.plan_refreshes_at_millis(CascadeDirty::none(), CascadeDirty::all(), 1);
+    assert!(
+        refresh.render.into_iter().filter(|render| *render).count() <= 1,
+        "camera/sun refinement submitted four 2048-square four-sample maps in one presentation"
+    );
+}
+
+#[test]
+fn quality_cascade_work_waits_behind_a_mandatory_refresh() {
+    let mut scheduler = CascadeScheduler::default();
+    let initial = scheduler.plan_at_millis(CascadeDirty::all(), 0);
+    scheduler.commit(initial);
+
+    let refresh = scheduler.plan_refreshes_at_millis(
+        CascadeDirty::from_mask(0b0001),
+        CascadeDirty::from_mask(0b1110),
+        1,
+    );
+    assert_eq!(
+        refresh.render,
+        [true, false, false, false],
+        "non-urgent quality work increased the cost of an already-expensive validity frame"
+    );
+}
+
+#[test]
+fn retained_cascade_classifies_sun_drift_as_quality_not_invalid_coverage() {
+    let cached_sun = [1.0, 0.0, 0.0];
+    let angle = 0.1_f32.to_radians();
+    let current_sun = [angle.cos(), angle.sin(), 0.0];
+    let refresh = retained_cascade_refresh(
+        [0.0; 3],
+        106.0,
+        [0.0; 3],
+        100.0,
+        cached_sun,
+        current_sun,
+        NVR_CASCADE_RESOLUTION,
+    );
+    assert!(refresh.quality, "sub-texel refinement was not scheduled");
+    assert!(
+        !refresh.mandatory,
+        "a still-contained receiver turned harmless sun refinement into a four-map frame spike"
     );
 }
 

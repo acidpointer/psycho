@@ -3,17 +3,17 @@ use super::contract::{
     CasterPolicy, DirectionalRootSetSignature, HookAction, NVR_CASCADE_RESOLUTION,
     NVR_POINT_DRAW_DISTANCE, NVR_POINT_LIGHT_COUNT, NVR_POINT_RADIUS_MULTIPLIER,
     PointLightCandidate, PointMapCache, PointMapSignature, ProducerResourcePlan, SceneKind,
-    ShadowSettings, TransactionState, cascade_minimum_caster_radius, cascade_sphere_selection,
-    composite_shadow_factor, consumer_has_shadow_work, contact_consumer_work,
-    depth_sample_is_geometry, directional_actor_root_is_active, directional_caster_work,
-    directional_contact_visibility, directional_form_type_is_enabled,
+    ShadowSettings, TransactionState, actor_overlay_edge_visibility, cascade_minimum_caster_radius,
+    cascade_sphere_selection, composite_shadow_factor, consumer_has_shadow_work,
+    contact_consumer_work, depth_sample_is_geometry, directional_actor_root_is_active,
+    directional_caster_work, directional_contact_visibility, directional_form_type_is_enabled,
     directional_receiver_position, directional_root_set_dirty, dismember_partition_is_renderable,
     effective_contact_distance, evsm4_moments, evsm4_visibility, interior_shadow_factor,
-    local_light_source_guard, merge_evsm4_nearest, nvr_contact_sample_offsets,
-    point_light_distance_fade, point_light_influence_is_eligible, practical_cascade_splits,
-    publication_epoch_is_usable, select_point_lights, shadow_receiver_is_valid,
+    local_light_source_guard, nvr_contact_sample_offsets, point_light_distance_fade,
+    point_light_influence_is_eligible, practical_cascade_splits, publication_epoch_is_usable,
+    select_point_lights, select_point_lights_stable, shadow_receiver_is_valid,
     skinned_position_reference, snap_shadow_center, source_owned_shadow_radiance,
-    sphere_intersects_cube_face, sphere_intersects_point_light,
+    sphere_intersects_cube_face, sphere_intersects_point_light, terrain_lod_shadow_z,
 };
 use super::engine::{
     EngineCallAbi, FNV_EXE_SHA256, GeometryKind, HookSiteContract, NativeLayout,
@@ -729,7 +729,7 @@ fn point_caster_bounds_are_conservatively_culled_per_cube_face() {
 }
 
 #[test]
-fn point_light_discovery_matches_nvr_front_radius_and_distance_admission() {
+fn point_light_discovery_preserves_nvr_radius_and_distance_without_view_culling() {
     assert_eq!(NVR_POINT_RADIUS_MULTIPLIER, 1.5);
     assert_eq!(NVR_POINT_DRAW_DISTANCE, 8_000.0);
     let forward = [0.0, 1.0, 0.0];
@@ -745,12 +745,12 @@ fn point_light_discovery_matches_nvr_front_radius_and_distance_admission() {
         forward,
         8_000.0,
     )); // the camera lies inside this light
-    assert!(!point_light_influence_is_eligible(
+    assert!(point_light_influence_is_eligible(
         [0.0, -1_000.0, 0.0],
         100.0,
         forward,
         8_000.0,
-    ));
+    )); // retained cubes must not inherit NVR's frame-local forward shortcut
     assert!(point_light_influence_is_eligible(
         [0.0, 7_700.0, 0.0],
         512.0,
@@ -772,6 +772,71 @@ fn point_light_discovery_matches_nvr_front_radius_and_distance_admission() {
 }
 
 #[test]
+fn point_light_shadow_admission_is_invariant_under_camera_rotation() {
+    let position = [0.0, 1_000.0, 0.0];
+    let radius = 256.0;
+    let facing = point_light_influence_is_eligible(
+        position,
+        radius,
+        [0.0, 1.0, 0.0],
+        NVR_POINT_DRAW_DISTANCE,
+    );
+    let turned_away = point_light_influence_is_eligible(
+        position,
+        radius,
+        [0.0, -1.0, 0.0],
+        NVR_POINT_DRAW_DISTANCE,
+    );
+    assert_eq!(
+        facing, turned_away,
+        "a camera yaw changed the selected room-light set and invalidated whole shadow groups"
+    );
+    assert!(facing, "the finite nearby influence must remain eligible");
+}
+
+#[test]
+fn retained_shadow_maps_do_not_capture_frame_local_application_culling() {
+    let candidate = CasterAdmission {
+        app_culled: true,
+        ..CasterAdmission::default()
+    };
+    assert!(
+        CasterPolicy::quality_default()
+            .admit_retained(candidate)
+            .is_ok(),
+        "a retained omnidirectional/static map omitted casters based on an unrelated camera view"
+    );
+}
+
+#[test]
+fn point_light_capacity_boundary_has_bounded_selection_hysteresis() {
+    let mut initial = Vec::new();
+    for identity in 1..=NVR_POINT_LIGHT_COUNT as u32 {
+        initial.push(PointLightCandidate {
+            identity,
+            distance_squared: (identity as f32 * 10.0).powi(2),
+            radius: 256.0,
+        });
+    }
+    initial.push(PointLightCandidate {
+        identity: 99,
+        distance_squared: 120.25_f32.powi(2),
+        radius: 256.0,
+    });
+    let previous = select_point_lights_stable(&initial, [0; NVR_POINT_LIGHT_COUNT]).identities();
+    assert_eq!(previous[NVR_POINT_LIGHT_COUNT - 1], 12);
+
+    let mut moved = initial;
+    moved[NVR_POINT_LIGHT_COUNT - 1].distance_squared = 120.2_f32.powi(2);
+    moved[NVR_POINT_LIGHT_COUNT].distance_squared = 120.0_f32.powi(2);
+    let current = select_point_lights_stable(&moved, previous).identities();
+    assert!(
+        current.contains(&12),
+        "a sub-unit move exchanged the twelfth cube owner and forced a six-face light blink"
+    );
+}
+
+#[test]
 fn point_cube_cache_pairs_metadata_and_refreshes_only_changed_lights() {
     let mut current = [PointMapSignature::EMPTY; NVR_POINT_LIGHT_COUNT];
     for (index, light) in current.iter_mut().enumerate() {
@@ -779,6 +844,7 @@ fn point_cube_cache_pairs_metadata_and_refreshes_only_changed_lights() {
             identity: index + 1,
             position: [index as f32 * 32.0, 0.0, 0.0],
             radius: 512.0,
+            caster_signature: 0x1000 + index as u64,
         };
     }
     let mut dynamic_faces = [0_u8; NVR_POINT_LIGHT_COUNT];
@@ -856,6 +922,27 @@ fn point_cube_cache_pairs_metadata_and_refreshes_only_changed_lights() {
     assert_eq!(
         departed.dynamic_draw_faces[2], 0,
         "an abandoned face must receive the static copy but no actor submission"
+    );
+}
+
+#[test]
+fn point_cube_cache_invalidates_changed_static_caster_geometry() {
+    let mut signatures = [PointMapSignature::EMPTY; NVR_POINT_LIGHT_COUNT];
+    signatures[0] = PointMapSignature {
+        identity: 0x1234,
+        position: [0.0; 3],
+        radius: 512.0,
+        caster_signature: 0xAABB,
+    };
+    let initial = PointMapCache::default().plan(signatures, [0; NVR_POINT_LIGHT_COUNT], 1);
+    let stable = initial.next.plan(signatures, [0; NVR_POINT_LIGHT_COUNT], 1);
+    assert_eq!(stable.render_faces[0], 0);
+
+    signatures[0].caster_signature = 0xCCDD;
+    let changed = stable.next.plan(signatures, [0; NVR_POINT_LIGHT_COUNT], 1);
+    assert_eq!(
+        changed.static_faces[0], 0x3f,
+        "a moved door or streamed geometry retained a stale immutable point cube"
     );
 }
 
@@ -1008,11 +1095,13 @@ fn point_cube_slots_survive_distance_order_changes_without_redrawing() {
         identity: 0x1000,
         position: [-32.0, 0.0, 0.0],
         radius: 512.0,
+        caster_signature: 1,
     };
     first_order[1] = PointMapSignature {
         identity: 0x2000,
         position: [32.0, 0.0, 0.0],
         radius: 512.0,
+        caster_signature: 2,
     };
     let first = PointMapCache::default().plan(first_order, [0; NVR_POINT_LIGHT_COUNT], 2);
 
@@ -1139,30 +1228,37 @@ fn evsm4_reference_is_finite_bounded_and_preserves_alpha_cutout_edges() {
 }
 
 #[test]
-fn actor_overlay_merge_selects_one_complete_nearest_evsm_distribution() {
-    let static_moments = evsm4_moments(0.65, true).expect("static moments");
-    let actor_moments = evsm4_moments(0.35, true).expect("actor moments");
-    assert_eq!(
-        merge_evsm4_nearest(static_moments, [0.0; 4]),
-        Some(static_moments),
-        "a hardware-cleared empty actor texel must be neutral without a full-map shader clear"
+fn actor_overlay_filter_preserves_subpixel_silhouette_coverage() {
+    let samples = [0.0, 0.01, 0.25, 0.5, 1.0].map(|coverage| {
+        actor_overlay_edge_visibility(0.35, 0.60, coverage).expect("finite actor edge sample")
+    });
+    assert!(
+        samples[0] > 0.999,
+        "an empty actor texel must be completely neutral"
     );
-    assert_eq!(
-        merge_evsm4_nearest(static_moments, actor_moments),
-        Some(actor_moments)
+    assert!(
+        samples[1] > 0.90,
+        "one-percent actor coverage became a fully dark rectangular projection"
     );
-    assert_eq!(
-        merge_evsm4_nearest(actor_moments, static_moments),
-        Some(actor_moments)
+    assert!(
+        samples.windows(2).all(|pair| pair[0] + 0.001 >= pair[1]),
+        "actor shadow coverage must darken monotonically instead of producing EVSM edge blocks"
     );
+    assert!(samples[4] < 0.05, "a fully covered actor failed to occlude");
+}
 
-    let channel_minimum =
-        std::array::from_fn(|index| static_moments[index].min(actor_moments[index]));
-    assert_ne!(
-        channel_minimum, actor_moments,
-        "channel-wise min must remain a failing negative control because it corrupts EVSM's negative squared moment"
+#[test]
+fn terrain_lod_shadow_vertex_uses_the_native_geomorphed_height() {
+    assert_eq!(
+        terrain_lod_shadow_z(80.0, 20.0, 0.25, false, 15.0),
+        Some(35.0),
+        "the shadow caster ignored the terrain LOD morph and projected a different far silhouette"
     );
-    assert!(merge_evsm4_nearest([f32::NAN; 4], actor_moments).is_none());
+    assert_eq!(
+        terrain_lod_shadow_z(80.0, 20.0, 0.25, true, 15.0),
+        Some(20.0),
+        "the loaded-cell land drop must be applied after geomorphing"
+    );
 }
 
 #[test]
@@ -1187,6 +1283,17 @@ fn resource_plan_preserves_nvr_evsm_coverage_with_one_reusable_multisample_surfa
     assert_eq!(exterior.directional_channels, 4);
     assert_eq!(exterior.directional_channel_bits, 16);
     assert!(exterior.evsm4);
+    assert_eq!(exterior.actor_channels, 2);
+    assert_eq!(exterior.actor_samples, 4);
+    assert_eq!(
+        exterior.actor_generation_bytes,
+        u64::from(NVR_CASCADE_RESOLUTION).pow(2) * 4 * 4
+    );
+    assert_eq!(
+        exterior.actor_generation_bytes * 2,
+        u64::from(NVR_CASCADE_RESOLUTION).pow(2) * 8 * 4,
+        "actor coverage storage must halve the old presentation-rate EVSM4 bandwidth"
+    );
     assert_eq!(
         exterior.receiver_filter_samples, 3,
         "one bilinear center plus two symmetric transition-only taps bound receiver work"
@@ -1198,11 +1305,13 @@ fn resource_plan_preserves_nvr_evsm_coverage_with_one_reusable_multisample_surfa
         "each published point cube needs an immutable-static backing cube"
     );
     assert_eq!(
-        exterior.estimated_bytes, 675_719_168,
+        exterior.estimated_bytes, 692_496_384,
         "the resource contract omitted a quality-preserving shadow resource"
     );
-    assert!(exterior.estimated_bytes <= 648 * 1024 * 1024);
-    assert!(exterior.combined_estimated_bytes <= 648 * 1024 * 1024);
+    assert!(exterior.estimated_bytes <= 664 * 1024 * 1024);
+    assert_eq!(exterior.fallback_estimated_bytes, 809_936_896);
+    assert!(exterior.fallback_estimated_bytes < exterior.nvr_equivalent_estimated_bytes);
+    assert!(exterior.combined_estimated_bytes <= 664 * 1024 * 1024);
     assert!(exterior.nvr_equivalent_estimated_bytes >= 896 * 1024 * 1024);
 
     let interior = ProducerResourcePlan::quality_default(SceneKind::Interior, 1920, 1080)
@@ -1213,6 +1322,7 @@ fn resource_plan_preserves_nvr_evsm_coverage_with_one_reusable_multisample_surfa
     assert_eq!(interior.point_cube_resolution, 512);
     assert_eq!(interior.point_cube_texture_count, 24);
     assert_eq!(interior.estimated_bytes, 201_809_920);
+    assert_eq!(interior.fallback_estimated_bytes, interior.estimated_bytes);
     assert!(interior.estimated_bytes <= 208 * 1024 * 1024);
     assert_eq!(
         interior.combined_estimated_bytes, exterior.combined_estimated_bytes,

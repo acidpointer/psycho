@@ -121,20 +121,22 @@ float2 AtlasUv(float2 localUv, int cascadeIndex) {
     return localUv * 0.5f + quadrant;
 }
 
-float4 NearestMoments(float4 left, float4 right) {
-    // The first EVSM component is exp(positiveExponent * depth), hence the
-    // smaller mean belongs to the nearer complete depth distribution. Never
-    // take a component-wise minimum: the negative squared moment has the
-    // opposite ordering and would no longer describe any distribution.
-    return right.x < left.x ? right : left;
-}
-
-float4 SampleActorMoments(float2 uv, int cascadeIndex) {
+float2 SampleActorDepthCoverage(float2 uv, int cascadeIndex) {
     if (cascadeIndex < 2) {
         float2 packedUv = float2(uv.x * 0.5f + 0.5f * cascadeIndex, uv.y);
-        return tex2Dlod(ActorNearMiddleMoments, float4(packedUv, 0.0f, 0.0f));
+        return tex2Dlod(ActorNearMiddleMoments, float4(packedUv, 0.0f, 0.0f)).rg;
     }
-    return tex2Dlod(ActorFarMoments, float4(uv, 0.0f, 0.0f));
+    return tex2Dlod(ActorFarMoments, float4(uv, 0.0f, 0.0f)).rg;
+}
+
+float ActorVisibility(float2 depthCoverage, float receiverDepth) {
+    float coverage = saturate(depthCoverage.y);
+    if (coverage <= 0.0001f) return 1.0f;
+    float actorDepth = depthCoverage.x / max(coverage, 0.0001f);
+    // Coverage is the antialiased visibility of the background. A receiver in
+    // front of the actor remains lit; one behind it retains exactly the
+    // uncovered sample fraction instead of evaluating an invalid EVSM edge.
+    return receiverDepth <= actorDepth + 0.0005f ? 1.0f : 1.0f - coverage;
 }
 
 float CascadeVisibility(row_major float4x4 transform, int cascadeIndex, float3 worldPosition) {
@@ -148,18 +150,14 @@ float CascadeVisibility(row_major float4x4 transform, int cascadeIndex, float3 w
     float bleed = CascadeBleedReduction(cascadeIndex);
     float4 staticCenter = tex2Dlod(ShadowAtlas, float4(AtlasUv(localUv, cascadeIndex), 0.0f, 0.0f));
     float4 center = staticCenter;
-    float4 actor = staticCenter;
+    float actorVisibility = 1.0f;
     float hasActor = cascadeIndex < 3 && ActorControl[cascadeIndex] > 0.5f;
     if (hasActor) {
-        actor = SampleActorMoments(clamp(localUv, CascadeTexel.xx, CascadeTexel.yy), cascadeIndex);
-        // Actor maps use a hardware-zero clear so their presentation-rate
-        // update does not run a full 2048-square four-sample far-clear shader.
-        // Positive EVSM's first moment is strictly positive for every valid
-        // depth, making zero an unambiguous empty-texel sentinel.
-        hasActor = actor.x > 0.0f;
-        if (hasActor) center = NearestMoments(center, actor);
+        float2 actor = SampleActorDepthCoverage(
+            clamp(localUv, CascadeTexel.xx, CascadeTexel.yy), cascadeIndex);
+        actorVisibility = ActorVisibility(actor, saturate(ndc.z));
     }
-    float visibility = Evsm4(center, saturate(ndc.z), bleed);
+    float visibility = min(Evsm4(center, saturate(ndc.z), bleed), actorVisibility);
     // Hardware bilinear is sufficient in flat regions. Only an actual EVSM
     // transition pays two opposite diagonal reads. Each read is itself a
     // bilinear four-texel footprint, so this reconstructs a symmetric edge
@@ -174,8 +172,7 @@ float CascadeVisibility(row_major float4x4 transform, int cascadeIndex, float3 w
             + tex2Dlod(ShadowAtlas, float4(AtlasUv(localUv + float2(-radius.x, -radius.y), cascadeIndex), 0.0f, 0.0f))
             + tex2Dlod(ShadowAtlas, float4(AtlasUv(localUv + float2( radius.x,  radius.y), cascadeIndex), 0.0f, 0.0f));
         filtered /= 3.0f;
-        visibility = Evsm4(hasActor ? NearestMoments(filtered, actor) : filtered,
-            saturate(ndc.z), bleed);
+        visibility = min(Evsm4(filtered, saturate(ndc.z), bleed), actorVisibility);
     }
     return visibility;
 }
