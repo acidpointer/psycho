@@ -1,319 +1,153 @@
-// Source-owned OMV world-shadow composition. Fog, alpha, and first person draw later.
+// Source-owned OMV shadow composition. Fog, alpha, and first person draw later.
 #ifndef OMV_POINT_LIGHTS
 #define OMV_POINT_LIGHTS 1
 #endif
 
 float4 ScreenData : register(c0);
 float4 DepthLinearizeData : register(c1);
-float4 CameraFrustum : register(c2);
-float4 ViewToWorld0 : register(c3);
-float4 ViewToWorld1 : register(c4);
-float4 ViewToWorld2 : register(c5);
-row_major float4x4 CascadeMatrices[4] : register(c6);
-float4 CascadeSplits : register(c22);
 float4 ShadowControl : register(c23); // x reversed, y directional enabled, z darkness
-float4 CascadeBlendWidth : register(c24);
-float4 CascadeTexel : register(c25); // x half texel, y one minus half texel, z radius
 float4 DepthControl : register(c26); // x endpoint epsilon
 float4 ContactControl : register(c31); // x contact texture enabled
 float4 PointControl : register(c32); // x point buffer enabled, y darkness
-float4 SunDirection : register(c33);
-float4 ActorControl : register(c34); // xyz actor-only near/middle/far maps enabled
-float4 ContactTexel : register(c35); // xy half-resolution contact texel
-float4 ActorCrops[3] : register(c36); // xy parent-UV scale, zw actor-UV offset
-float4 ActorTexel : register(c39); // x half texel, y one minus half texel
+float4 DeferredTexel : register(c36); // xy inverse half-resolution mask size
 
-static const float ContactDepthKeyRange = 250000.0f;
+static const float ShadowDepthKeyRange = 250000.0f;
 
 sampler2D SourceColor : register(s0);
 sampler2D SceneDepth : register(s1);
-sampler2D ShadowAtlas : register(s2);
+sampler2D DirectionalVisibilityMap : register(s2);
 sampler2D PointShadowBuffer : register(s3);
 sampler2D ContactVisibility : register(s4);
-sampler2D ActorNearMiddleMoments : register(s5);
 sampler2D PointLightTotal : register(s6);
-sampler2D ActorFarMoments : register(s7);
 
 struct PixelInput { float2 uv : TEXCOORD0; };
 
 float LinearDepth(float rawDepth) {
-    if (ShadowControl.x > 0.5f) {
+    if (ShadowControl.x > 0.5f)
         return DepthLinearizeData.x / max(rawDepth * DepthLinearizeData.y + DepthLinearizeData.z, 0.001f);
-    }
     return DepthLinearizeData.x / max(DepthLinearizeData.w - rawDepth * DepthLinearizeData.y, 0.001f);
-}
-
-float3 ViewPosition(float2 uv, float depth) {
-    return float3(
-        lerp(CameraFrustum.x, CameraFrustum.y, uv.x) * depth,
-        lerp(CameraFrustum.w, CameraFrustum.z, uv.y) * depth,
-        depth);
-}
-
-float3 RelativeWorldPosition(float2 uv, float depth) {
-    float3 view = ViewPosition(uv, depth);
-    float4 homogeneous = float4(view, 1.0f);
-    return float3(dot(ViewToWorld0, homogeneous), dot(ViewToWorld1, homogeneous), dot(ViewToWorld2, homogeneous));
 }
 
 bool HasGeometryDepth(float rawDepth) {
     return rawDepth > DepthControl.x && rawDepth < 1.0f - DepthControl.x;
 }
 
-float3 ReconstructWorldNormal(float2 uv, float centerDepth) {
-    // Select the depth-nearest derivative on each axis. This avoids crossing a
-    // silhouette while remaining deterministic across the fullscreen quad's
-    // triangle diagonal; ddx/ddy are undefined after receiver rejection.
-    float2 pixel = ScreenData.zw;
-    float rawLeft = tex2Dlod(SceneDepth, float4(uv - float2(pixel.x, 0.0f), 0.0f, 0.0f)).r;
-    float rawRight = tex2Dlod(SceneDepth, float4(uv + float2(pixel.x, 0.0f), 0.0f, 0.0f)).r;
-    float rawUp = tex2Dlod(SceneDepth, float4(uv - float2(0.0f, pixel.y), 0.0f, 0.0f)).r;
-    float rawDown = tex2Dlod(SceneDepth, float4(uv + float2(0.0f, pixel.y), 0.0f, 0.0f)).r;
-    float leftDepth = HasGeometryDepth(rawLeft) ? LinearDepth(rawLeft) : centerDepth;
-    float rightDepth = HasGeometryDepth(rawRight) ? LinearDepth(rawRight) : centerDepth;
-    float upDepth = HasGeometryDepth(rawUp) ? LinearDepth(rawUp) : centerDepth;
-    float downDepth = HasGeometryDepth(rawDown) ? LinearDepth(rawDown) : centerDepth;
-    float3 center = ViewPosition(uv, centerDepth);
-    float3 left = ViewPosition(uv - float2(pixel.x, 0.0f), leftDepth);
-    float3 right = ViewPosition(uv + float2(pixel.x, 0.0f), rightDepth);
-    float3 up = ViewPosition(uv - float2(0.0f, pixel.y), upDepth);
-    float3 down = ViewPosition(uv + float2(0.0f, pixel.y), downDepth);
-    float3 dx = abs(leftDepth - centerDepth) < abs(rightDepth - centerDepth)
-        ? center - left : right - center;
-    float3 dy = abs(upDepth - centerDepth) < abs(downDepth - centerDepth)
-        ? center - up : down - center;
-    float3 viewNormal = cross(dx, dy);
-    viewNormal *= rsqrt(max(dot(viewNormal, viewNormal), 0.0000001f));
-    float4 normalVector = float4(viewNormal, 0.0f);
-    return float3(dot(ViewToWorld0, normalVector), dot(ViewToWorld1, normalVector), dot(ViewToWorld2, normalVector));
-}
-
-float CascadeBleedReduction(int cascadeIndex) {
-    return cascadeIndex == 0 ? 0.1f
-        : (cascadeIndex == 1 ? 0.2f : (cascadeIndex == 2 ? 0.6f : 0.8f));
-}
-
-float ReduceLightBleeding(float probability, float amount) {
-    return saturate((probability - amount) / max(1.0f - amount, 0.001f));
-}
-
-float Chebyshev(float2 moments, float receiver, float minimumVariance, float bleedReduction) {
-    if (receiver <= moments.x) return 1.0f;
-    float variance = max(moments.y - moments.x * moments.x, minimumVariance);
-    float difference = receiver - moments.x;
-    return ReduceLightBleeding(variance / (variance + difference * difference), bleedReduction);
-}
-
-float Evsm4(float4 moments, float depth, float bleedReduction) {
-    float normalized = depth * 2.0f - 1.0f;
-    float2 warped = float2(exp(5.54f * normalized), -exp(-5.0f * normalized));
-    // This is NVR's 0.01 receiver-bias-derived FP16 variance floor.
-    float2 scale = 0.01f * float2(5.54f, 5.0f) * warped;
-    return min(
-        Chebyshev(moments.xz, warped.x, scale.x * scale.x, bleedReduction),
-        Chebyshev(moments.yw, warped.y, scale.y * scale.y, bleedReduction));
-}
-
-float2 AtlasUv(float2 localUv, int cascadeIndex) {
-    float2 quadrant = cascadeIndex == 0 ? float2(0.0f, 0.0f)
-        : (cascadeIndex == 1 ? float2(0.5f, 0.0f)
-        : (cascadeIndex == 2 ? float2(0.0f, 0.5f) : float2(0.5f, 0.5f)));
-    localUv = clamp(localUv, CascadeTexel.xx, CascadeTexel.yy);
-    return localUv * 0.5f + quadrant;
-}
-
-float2 SampleActorDepthCoverage(float2 uv, int cascadeIndex) {
-    if (cascadeIndex < 2) {
-        float2 packedUv = float2(uv.x * 0.5f + 0.5f * cascadeIndex, uv.y);
-        return tex2Dlod(ActorNearMiddleMoments, float4(packedUv, 0.0f, 0.0f)).rg;
-    }
-    return tex2Dlod(ActorFarMoments, float4(uv, 0.0f, 0.0f)).rg;
-}
-
-float ActorVisibility(float2 depthCoverage, float receiverDepth) {
-    float coverage = saturate(depthCoverage.y);
-    if (coverage <= 0.0001f) return 1.0f;
-    float actorDepth = depthCoverage.x / max(coverage, 0.0001f);
-    // Coverage is the antialiased visibility of the background. A receiver in
-    // front of the actor remains lit; one behind it retains exactly the
-    // uncovered sample fraction instead of evaluating an invalid EVSM edge.
-    return receiverDepth <= actorDepth + 0.0005f ? 1.0f : 1.0f - coverage;
-}
-
-float CascadeVisibility(row_major float4x4 transform, int cascadeIndex, float3 worldPosition) {
-    float4 projected = mul(float4(worldPosition, 1.0f), transform);
-    if (projected.w <= 0.0f) return 1.0f;
-    float3 ndc = projected.xyz / max(projected.w, 0.000001f);
-    float2 localUv = float2(ndc.x * 0.5f + 0.5f, 0.5f - ndc.y * 0.5f);
-    if (min(localUv.x, localUv.y) < 0.0f || max(localUv.x, localUv.y) > 1.0f ||
-        ndc.z < 0.0f || ndc.z > 1.0f) return 1.0f;
-
-    float bleed = CascadeBleedReduction(cascadeIndex);
-    float4 staticCenter = tex2Dlod(ShadowAtlas, float4(AtlasUv(localUv, cascadeIndex), 0.0f, 0.0f));
-    float4 center = staticCenter;
-    float actorVisibility = 1.0f;
-    float hasActor = cascadeIndex < 3 && ActorControl[cascadeIndex] > 0.5f;
-    if (hasActor) {
-        float4 actorCrop = ActorCrops[cascadeIndex];
-        float2 actorUv = localUv * actorCrop.xy + actorCrop.zw;
-        if (min(actorUv.x, actorUv.y) >= 0.0f && max(actorUv.x, actorUv.y) <= 1.0f) {
-            float2 actor = SampleActorDepthCoverage(
-                clamp(actorUv, ActorTexel.xx, ActorTexel.yy), cascadeIndex);
-            actorVisibility = ActorVisibility(actor, saturate(ndc.z));
-        }
-    }
-    float visibility = min(Evsm4(center, saturate(ndc.z), bleed), actorVisibility);
-    // Hardware bilinear is sufficient in flat regions. Only an actual EVSM
-    // transition pays two opposite diagonal reads. Each read is itself a
-    // bilinear four-texel footprint, so this reconstructs a symmetric edge
-    // filter without charging every 3440x1440 receiver five atlas lookups.
-    if (visibility > 0.02f && visibility < 0.98f) {
-        float2 radius = CascadeTexel.zz;
-        // Filter only the static distribution as before. Actor moments are
-        // already bilinear and stay a complete distribution; re-select them
-        // after filtering rather than averaging unrelated static/actor
-        // moments and creating light leaks.
-        float4 filtered = staticCenter
-            + tex2Dlod(ShadowAtlas, float4(AtlasUv(localUv + float2(-radius.x, -radius.y), cascadeIndex), 0.0f, 0.0f))
-            + tex2Dlod(ShadowAtlas, float4(AtlasUv(localUv + float2( radius.x,  radius.y), cascadeIndex), 0.0f, 0.0f));
-        filtered /= 3.0f;
-        visibility = min(Evsm4(filtered, saturate(ndc.z), bleed), actorVisibility);
-    }
-    return visibility;
-}
-
-float DirectionalVisibility(float3 worldPosition, float viewDepth) {
-    // Every map owns a view-depth interval. Sphere-distance ownership makes
-    // equal-depth pixels cross at different screen positions, which appears
-    // as curved clipping bands on distant terrain and large walls.
-    int cascade = viewDepth < CascadeSplits.x ? 0
-        : (viewDepth < CascadeSplits.y ? 1
-        : (viewDepth < CascadeSplits.z ? 2
-        : (viewDepth < CascadeSplits.w ? 3 : -1)));
-    if (cascade < 0) return 1.0f;
-
-    float current = CascadeVisibility(
-        CascadeMatrices[cascade], cascade, worldPosition);
-    float split = CascadeSplits[cascade];
-    float blend = smoothstep(split - CascadeBlendWidth[cascade], split, viewDepth);
-    if (cascade >= 3) return lerp(current, 1.0f, blend);
-    if (blend <= 0.0f) return current;
-    float next = CascadeVisibility(
-        CascadeMatrices[cascade + 1], cascade + 1, worldPosition);
-    return lerp(current, next, blend);
-}
-
-float2 ContactTap(float2 uv, float receiverDepth, float tolerance) {
-    float2 contact = tex2Dlod(ContactVisibility, float4(uv, 0.0f, 0.0f)).rg;
-    float contactDepth = contact.g * ContactDepthKeyRange;
-    float accepted = contact.g > 0.0f && abs(contactDepth - receiverDepth) <= tolerance;
-    return float2(contact.r * accepted, accepted);
-}
-
-float ContactVisibilityForReceiver(float2 uv, float receiverDepth) {
-    // Most full-resolution pixels and their nearest half-resolution contact
-    // texel belong to the same receiver and pay one lookup. At a 2x2-block
-    // depth edge, point upsampling would attach the odd pixel's key to the even
-    // pixel and create a moving line. Only that mismatch pays a four-tap
-    // bilateral lookup, rejecting each foreign receiver before interpolation.
-    float2 nearest = tex2Dlod(ContactVisibility, float4(uv, 0.0f, 0.0f)).rg;
-    float nearestDepth = nearest.g * ContactDepthKeyRange;
+float2 VisibilityTap(
+    sampler2D visibilityMap,
+    float2 uv,
+    float receiverDepth,
+    float weight)
+{
+    float2 sampleValue = tex2Dlod(visibilityMap, float4(uv, 0.0f, 0.0f)).rg;
+    float sampleDepth = sampleValue.g * ShadowDepthKeyRange;
     float tolerance = max(2.0f, receiverDepth * 0.0025f);
-    if (nearest.g > 0.0f && abs(nearestDepth - receiverDepth) <= tolerance)
-        return nearest.r;
+    float accepted = sampleValue.g > 0.0f && abs(sampleDepth - receiverDepth) <= tolerance;
+    return float2(sampleValue.r * weight * accepted, weight * accepted);
+}
 
-    float2 contactTexel = ContactTexel.xy;
-    float accepted = nearest.g > 0.0f && abs(nearestDepth - receiverDepth) <= tolerance;
-    float2 resolved = float2(nearest.r * accepted, accepted);
-    // The nearest point sample is already one member of the full-resolution
-    // pixel's surrounding 2x2 half-resolution footprint. Select the other
-    // three from the receiver's side of that texel center. This is both a more
-    // accurate bilateral upsample and one fewer texture read than resampling a
-    // four-arm cross after the rejected nearest lookup.
-    float2 nearestCenter = (floor(uv / contactTexel) + 0.5f) * contactTexel;
-    float2 direction = float2(
-        uv.x >= nearestCenter.x ? contactTexel.x : -contactTexel.x,
-        uv.y >= nearestCenter.y ? contactTexel.y : -contactTexel.y);
-    resolved += ContactTap(uv + float2(direction.x, 0.0f), receiverDepth, tolerance);
-    resolved += ContactTap(uv + float2(0.0f, direction.y), receiverDepth, tolerance);
-    resolved += ContactTap(uv + direction, receiverDepth, tolerance);
-    return resolved.y > 0.0001f ? resolved.x / resolved.y : 1.0f;
+float DeferredVisibility(sampler2D visibilityMap, float2 uv, float receiverDepth) {
+    // Reconstruct bilinear weights explicitly so every contributing mask texel
+    // can first prove that it belongs to this receiver. Hardware bilinear would
+    // mix a foreground shadow into a background wall during camera movement.
+    float2 texel = DeferredTexel.xy;
+    float2 coordinate = uv / texel - 0.5f;
+    float2 base = floor(coordinate);
+    float2 fraction = coordinate - base;
+    float2 uv00 = (base + 0.5f) * texel;
+    float2 sum = 0.0f;
+    sum += VisibilityTap(visibilityMap, uv00, receiverDepth, (1.0f - fraction.x) * (1.0f - fraction.y));
+    sum += VisibilityTap(visibilityMap, uv00 + float2(texel.x, 0.0f), receiverDepth, fraction.x * (1.0f - fraction.y));
+    sum += VisibilityTap(visibilityMap, uv00 + float2(0.0f, texel.y), receiverDepth, (1.0f - fraction.x) * fraction.y);
+    sum += VisibilityTap(visibilityMap, uv00 + texel, receiverDepth, fraction.x * fraction.y);
+    return sum.y > 0.0001f ? sum.x / sum.y : 1.0f;
+}
+
+struct PointEnergy {
+    float3 deficit;
+    float3 total;
+};
+
+void PointTap(
+    float2 uv,
+    float receiverDepth,
+    float weight,
+    out float4 deficit,
+    out float4 total)
+{
+    float4 deficitValue = tex2Dlod(PointShadowBuffer, float4(uv, 0.0f, 0.0f));
+    float4 totalValue = tex2Dlod(PointLightTotal, float4(uv, 0.0f, 0.0f));
+    float sampleDepth = deficitValue.a / max(totalValue.a, 1.0f) * ShadowDepthKeyRange;
+    float tolerance = max(2.0f, receiverDepth * 0.0025f);
+    float accepted = totalValue.a > 0.0f && abs(sampleDepth - receiverDepth) <= tolerance;
+    deficit = float4(deficitValue.rgb * weight * accepted, weight * accepted);
+    total = float4(totalValue.rgb * weight * accepted, weight * accepted);
+}
+
+PointEnergy DeferredPointValues(float2 uv, float receiverDepth) {
+    float2 texel = DeferredTexel.xy;
+    float2 coordinate = uv / texel - 0.5f;
+    float2 base = floor(coordinate);
+    float2 fraction = coordinate - base;
+    float2 uv00 = (base + 0.5f) * texel;
+    float4 deficitSum = 0.0f;
+    float4 totalSum = 0.0f;
+    float4 deficitTap;
+    float4 totalTap;
+    PointTap(uv00, receiverDepth, (1.0f - fraction.x) * (1.0f - fraction.y), deficitTap, totalTap);
+    deficitSum += deficitTap;
+    totalSum += totalTap;
+    PointTap(uv00 + float2(texel.x, 0.0f), receiverDepth, fraction.x * (1.0f - fraction.y), deficitTap, totalTap);
+    deficitSum += deficitTap;
+    totalSum += totalTap;
+    PointTap(uv00 + float2(0.0f, texel.y), receiverDepth, (1.0f - fraction.x) * fraction.y, deficitTap, totalTap);
+    deficitSum += deficitTap;
+    totalSum += totalTap;
+    PointTap(uv00 + texel, receiverDepth, fraction.x * fraction.y, deficitTap, totalTap);
+    deficitSum += deficitTap;
+    totalSum += totalTap;
+    PointEnergy result;
+    result.deficit = deficitSum.a > 0.0001f ? deficitSum.rgb / deficitSum.a : 0.0f;
+    result.total = totalSum.a > 0.0001f ? totalSum.rgb / totalSum.a : 0.0f;
+    return result;
 }
 
 float4 Main(PixelInput input) : COLOR0 {
     float4 source = tex2Dlod(SourceColor, float4(input.uv, 0.0f, 0.0f));
     float rawDepth = tex2Dlod(SceneDepth, float4(input.uv, 0.0f, 0.0f)).r;
-    if (rawDepth <= DepthControl.x || rawDepth >= 1.0f - DepthControl.x) return source;
+    if (!HasGeometryDepth(rawDepth)) return source;
 
     float viewDepth = LinearDepth(rawDepth);
-    // FNV sky meshes may write finite depth at the camera far plane. The same
-    // endpoint-plus-far classifier is shared by OMV DOF/sun visibility; it is
-    // independent of cascade distance and therefore cannot change with shadow
-    // sliders or camera angle.
     if (viewDepth <= 0.0f || viewDepth >= DepthLinearizeData.w * 0.985f) return source;
-    float3 worldPosition = RelativeWorldPosition(input.uv, viewDepth);
 
     float directional = 1.0f;
     if (ShadowControl.y > 0.5f) {
-        if (viewDepth < CascadeSplits.w) {
-            directional = DirectionalVisibility(worldPosition, viewDepth);
-            // Receiver bias matters at an actual shadow transition. Keeping
-            // neighbor depth reconstruction inside this branch avoids four
-            // full-resolution reads for uniformly lit or shadowed pixels.
-            if (directional > 0.02f && directional < 0.98f) {
-                float3 normal = ReconstructWorldNormal(input.uv, viewDepth);
-                float normalOffset = saturate(1.0f - dot(normal, SunDirection.xyz));
-                directional = DirectionalVisibility(worldPosition + normal * normalOffset, viewDepth);
-            }
-        }
-        // NVR contact rays own an independent, much longer view-depth range.
-        // Gating them by CascadeSplits.w made the default effect disappear as
-        // soon as a receiver left the roughly 6000-unit mapped region.
-        if (ContactControl.x > 0.5f) {
+        directional = DeferredVisibility(DirectionalVisibilityMap, input.uv, viewDepth);
+        if (ContactControl.x > 0.5f)
             directional = min(
                 directional,
-                ContactVisibilityForReceiver(input.uv, viewDepth));
-        }
+                DeferredVisibility(ContactVisibility, input.uv, viewDepth));
         directional = 1.0f - saturate(ShadowControl.z) * (1.0f - directional);
     }
 
 #if OMV_POINT_LIGHTS
-    float3 pointDeficit = max(
-        tex2Dlod(PointShadowBuffer, float4(input.uv, 0.0f, 0.0f)).rgb, 0.0f);
-    float3 pointTotal = max(
-        tex2Dlod(PointLightTotal, float4(input.uv, 0.0f, 0.0f)).rgb, 0.0f);
+    PointEnergy pointEnergy = DeferredPointValues(input.uv, viewDepth);
+    float3 pointDeficit = max(pointEnergy.deficit, 0.0f);
+    float3 pointTotal = max(pointEnergy.total, 0.0f);
     float3 linearSource = pow(max(source.rgb, 0.0f), 2.2f);
-    // Values above one identify an HDR emitter/highlight. NVR re-adds its HDR
-    // excess; preserving the complete source is stricter and prevents lamp
-    // meshes from becoming black while their surrounding direct light still
-    // receives cube-proven occlusion.
     float emitter = smoothstep(1.0f, 1.15f, max(linearSource.r, max(linearSource.g, linearSource.b)));
     float3 ownedLocal = min(pointTotal, linearSource);
     pointDeficit = min(pointDeficit, ownedLocal) * saturate(PointControl.y);
-    // Directional light owns no local-source energy. Restore that term after
-    // applying the sun factor, then subtract only cube-proven local occlusion.
     float3 shadowed = max(
         linearSource * directional + ownedLocal * (1.0f - directional) - pointDeficit,
         0.0f);
-    // The analytic replacement-light estimate may exceed the energy actually
-    // present in the native material. Exterior local shadows may remove that
-    // light down to the sun-only surface, never cut through it into unrelated
-    // ambient energy. Interiors have no directional lower bound.
     if (ShadowControl.y > 0.5f)
         shadowed = max(shadowed, linearSource * directional);
     float3 finalLinear = lerp(shadowed, linearSource, emitter);
     return float4(pow(max(finalLinear, 0.0f), 1.0f / 2.2f), source.a);
 #else
-    // With no selected local light, the source-owned equation reduces exactly
-    // to one scalar attenuation. Specializing this overwhelmingly common
-    // exterior path removes two full-resolution point-buffer reads and six
-    // component-wise pow operations without changing directional, contact,
-    // actor, HDR-emitter, or gamma behavior.
     float maximumSource = max(source.r, max(source.g, source.b));
     float emitter = smoothstep(1.0f, 1.15f, pow(max(maximumSource, 0.0f), 2.2f));
     float attenuation = lerp(directional, 1.0f, emitter);
-    return float4(
-        source.rgb * pow(attenuation, 1.0f / 2.2f),
-        source.a);
+    return float4(source.rgb * pow(attenuation, 1.0f / 2.2f), source.a);
 #endif
 }

@@ -1,12 +1,13 @@
 use super::contract::{
     CASCADE_COUNT, CascadeDirty, CascadeScheduler, CascadeSphereSelection, CasterAdmission,
-    CasterPolicy, DirectionalRootSetSignature, HookAction, NVR_CASCADE_RESOLUTION,
-    NVR_POINT_DRAW_DISTANCE, NVR_POINT_LIGHT_COUNT, NVR_POINT_RADIUS_MULTIPLIER,
-    PointLightCandidate, PointMapCache, PointMapSignature, ProducerResourcePlan, SceneKind,
-    ShadowSettings, TransactionState, actor_overlay_edge_visibility, cascade_minimum_caster_radius,
-    cascade_sphere_selection, composite_shadow_factor, consumer_has_shadow_work,
-    contact_consumer_work, depth_sample_is_geometry, directional_actor_root_is_active,
-    directional_caster_work, directional_contact_visibility, directional_form_type_is_enabled,
+    CasterPolicy, DeferredReceiverPlan, DirectionalRootSetSignature, HookAction,
+    NVR_CASCADE_RESOLUTION, NVR_POINT_DRAW_DISTANCE, NVR_POINT_LIGHT_COUNT,
+    NVR_POINT_RADIUS_MULTIPLIER, PointLightCandidate, PointMapCache, PointMapSignature,
+    ProducerResourcePlan, SceneKind, ShadowSettings, TransactionState,
+    actor_overlay_edge_visibility, cascade_minimum_caster_radius, cascade_sphere_selection,
+    composite_shadow_factor, consumer_has_shadow_work, contact_consumer_work,
+    depth_sample_is_geometry, directional_actor_root_is_active, directional_caster_work,
+    directional_contact_visibility, directional_form_type_is_enabled,
     directional_receiver_position, directional_root_set_dirty, dismember_partition_is_renderable,
     effective_contact_distance, evsm4_moments, evsm4_visibility, interior_shadow_factor,
     local_light_source_guard, nvr_contact_sample_offsets, point_light_distance_fade,
@@ -197,6 +198,26 @@ fn empty_interior_publication_performs_no_depth_or_color_transaction() {
     assert!(!consumer_has_shadow_work(false, 0));
     assert!(consumer_has_shadow_work(false, 1));
     assert!(consumer_has_shadow_work(true, 0));
+}
+
+#[test]
+fn expensive_receiver_visibility_is_quarter_resolution_and_never_temporal() {
+    let plan = DeferredReceiverPlan::new(3_440, 1_440).expect("ultrawide receiver plan");
+    let output_pixels = 3_440_u64 * 1_440;
+
+    assert_eq!(plan.width, 1_720);
+    assert_eq!(plan.height, 720);
+    assert_eq!(plan.directional_pixels, output_pixels / 4);
+    assert_eq!(plan.point_pixels, output_pixels / 4);
+    assert_eq!(
+        plan.history_pixels, 0,
+        "shadow masks must not trail the camera"
+    );
+    assert_eq!(plan.full_resolution_shadow_map_samples, 0);
+    assert!(
+        plan.directional_pixels * 3 < output_pixels,
+        "deferred visibility did not remove most full-resolution EVSM work"
+    );
 }
 
 #[test]
@@ -1331,11 +1352,11 @@ fn resource_plan_preserves_nvr_evsm_coverage_with_one_reusable_multisample_surfa
         "each published point cube needs an immutable-static backing cube"
     );
     assert_eq!(
-        exterior.estimated_bytes, 621_193_216,
+        exterior.estimated_bytes, 598_383_616,
         "the resource contract omitted a quality-preserving shadow resource"
     );
     assert!(exterior.estimated_bytes <= 664 * 1024 * 1024);
-    assert_eq!(exterior.fallback_estimated_bytes, 650_553_344);
+    assert_eq!(exterior.fallback_estimated_bytes, 627_743_744);
     assert!(exterior.fallback_estimated_bytes < exterior.nvr_equivalent_estimated_bytes);
     assert!(exterior.combined_estimated_bytes <= 664 * 1024 * 1024);
     assert!(exterior.nvr_equivalent_estimated_bytes >= 896 * 1024 * 1024);
@@ -1347,7 +1368,7 @@ fn resource_plan_preserves_nvr_evsm_coverage_with_one_reusable_multisample_surfa
     assert_eq!(interior.point_light_count, NVR_POINT_LIGHT_COUNT as u32);
     assert_eq!(interior.point_cube_resolution, 512);
     assert_eq!(interior.point_cube_texture_count, 24);
-    assert_eq!(interior.estimated_bytes, 201_809_920);
+    assert_eq!(interior.estimated_bytes, 176_926_720);
     assert_eq!(interior.fallback_estimated_bytes, interior.estimated_bytes);
     assert!(interior.estimated_bytes <= 208 * 1024 * 1024);
     assert_eq!(

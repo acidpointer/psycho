@@ -11,7 +11,8 @@ use super::contract::{
     PointMapSignature, cascade_depth_selection, cascade_sphere_selection,
     contact_bilateral_visibility, contact_depth_from_key, contact_depth_key, contact_depths_match,
     contact_history_visibility, contact_plane_raw_epsilon, contact_ray_scale,
-    contact_sample_is_occluder, depth_sample_is_geometry, directional_projection_is_sampleable,
+    contact_sample_is_occluder, deferred_mask_visibility, deferred_point_depth_key,
+    depth_sample_is_geometry, directional_projection_is_sampleable,
     first_person_caster_is_excluded, interior_shadow_factor, point_consumer_plan,
     point_light_scissor, point_sampled_texel_center, practical_cascade_splits,
     retained_cascade_needs_refresh, retained_cascade_refresh, shadow_receiver_is_world_surface,
@@ -22,6 +23,64 @@ use super::math::{ShadowCamera, cascade_projection};
 use super::pipeline::consumer_selection_spheres;
 
 const EPSILON: f32 = 1.0e-5;
+
+#[test]
+fn deferred_shadow_mask_is_depth_stable_across_fast_camera_motion() {
+    // Four half-resolution samples straddle two unrelated surfaces. A plain
+    // bilinear upscale produces a camera-following 0.5 shadow as the sample
+    // footprint moves. The production resolve must use only samples carrying
+    // the current receiver's depth key.
+    let samples = [
+        (0.0, 100.0, 0.25),
+        (1.0, 100.0, 0.25),
+        (0.0, 350.0, 0.25),
+        (0.0, 350.0, 0.25),
+    ];
+    let first = deferred_mask_visibility(100.0, samples).expect("front receiver");
+    let shifted = deferred_mask_visibility(100.0, [samples[1], samples[0], samples[3], samples[2]])
+        .expect("same receiver after a fast camera step");
+
+    assert!((first - 0.5).abs() <= EPSILON);
+    assert!((shifted - first).abs() <= EPSILON);
+    assert_ne!(
+        samples
+            .into_iter()
+            .map(|sample| sample.0 * sample.2)
+            .sum::<f32>(),
+        first,
+        "negative control accidentally rejected the foreign wall"
+    );
+}
+
+#[test]
+fn deferred_shadow_mask_preserves_subpixel_shadow_coverage() {
+    let visibility = deferred_mask_visibility(
+        500.0,
+        [
+            (0.0, 500.0, 0.125),
+            (0.25, 500.0, 0.375),
+            (0.75, 500.0, 0.375),
+            (1.0, 500.0, 0.125),
+        ],
+    )
+    .expect("covered receiver");
+    assert!((visibility - 0.5).abs() <= EPSILON);
+}
+
+#[test]
+fn overlapping_point_batches_preserve_the_receiver_depth_key() {
+    let key = 850.0 / 250_000.0;
+    let single = deferred_point_depth_key(key, 1.0).expect("single batch");
+    let overlap = deferred_point_depth_key(key * 3.0, 3.0).expect("three overlapping batches");
+
+    assert!((single - key).abs() <= EPSILON);
+    assert!((overlap - key).abs() <= EPSILON);
+    assert!(
+        (key * 3.0 - key).abs() > EPSILON,
+        "negative control did not expose raw additive depth corruption"
+    );
+    assert!(deferred_point_depth_key(key, 0.0).is_none());
+}
 
 #[test]
 fn cascade_boundaries_depend_on_view_depth_not_screen_position() {

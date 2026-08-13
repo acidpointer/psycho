@@ -40,6 +40,9 @@ pub(super) const CONTACT_SOURCE: &[u8] =
 /// Same-frame depth-aware contact filter.
 pub(super) const CONTACT_BLUR_SOURCE: &[u8] =
     include_bytes!("../../../shaders/embedded/shadow_contact_blur.hlsl");
+/// Deferred half-resolution directional visibility and receiver depth.
+pub(super) const DIRECTIONAL_MASK_SOURCE: &[u8] =
+    include_bytes!("../../../shaders/embedded/shadow_directional_mask.hlsl");
 /// Final directional/point shadow compositor.
 pub(super) const COMPOSITE_PIXEL_SOURCE: &[u8] =
     include_bytes!("../../../shaders/embedded/shadow_composite.hlsl");
@@ -100,6 +103,8 @@ pub(super) struct ShadowBytecode {
     pub(super) contact: Vec<u32>,
     /// Same-frame depth-aware contact filter program.
     pub(super) contact_blur: Vec<u32>,
+    /// Half-resolution depth-keyed directional visibility program.
+    pub(super) directional_mask: Vec<u32>,
     /// Final scene-color composition program.
     pub(super) composite: Vec<u32>,
     /// Point-free exterior composition specialization.
@@ -139,6 +144,11 @@ impl ShadowBytecode {
             )?,
             contact: compile("shadow_contact.hlsl", CONTACT_SOURCE, "ps_3_0")?,
             contact_blur: compile("shadow_contact_blur.hlsl", CONTACT_BLUR_SOURCE, "ps_3_0")?,
+            directional_mask: compile(
+                "shadow_directional_mask.hlsl",
+                DIRECTIONAL_MASK_SOURCE,
+                "ps_3_0",
+            )?,
             composite: compile("shadow_composite.hlsl", COMPOSITE_PIXEL_SOURCE, "ps_3_0")?,
             directional_composite: compile(
                 "shadow_composite_directional.hlsl",
@@ -160,6 +170,7 @@ impl ShadowBytecode {
             &self.point_accumulation_twelve,
             &self.contact,
             &self.contact_blur,
+            &self.directional_mask,
             &self.composite,
             &self.directional_composite,
         ];

@@ -3518,6 +3518,135 @@ SHA-256 `db6132a4ea7caa48b80c4c001e5a9e489eb03994b110f2039db786d98f68320e`.
 `git diff --check` and `cargo fmt -p omv -- --check` also passed. Runtime image
 and frame-time claims remain deliberately unaccepted until the playtest above.
 
+#### Fifteenth corrective pass: rendered-depth synchronization and deferred receivers
+
+The next runtime report distinguished a receiver-side synchronization defect
+from the retained-map work above. During fast camera motion, an otherwise
+static shadow appeared to chase the camera, while exterior frame rate remained
+roughly half the no-shadow result. The first symptom is not evidence that the
+light-space atlas itself is delayed. FNV's TAA transaction rasterizes opaque
+world depth through an off-centre projection and later restores the live
+`NiCamera`. Shadow production correctly used the restored output projection,
+but the pre-alpha depth resolve reconstructed that already-rendered texture
+through the restored camera too. The depth value was current while its ray was
+not: the reconstructed world receiver moved sideways by the TAA lens offset.
+
+`TemporalProjectionOverride` already retained both cameras. It now exposes a
+separate shadow-depth route which returns the rendered projection only after
+the render epoch, target surface identity, dimensions, and format all match.
+`ShadowResources::consume` supplies that projection to the common
+`backend::resolve_scene_depth` API. Both the OMV physical resolver and external
+Depth Resolve boundary publisher validate and attach the same override; there
+is no provider-specific shadow reconstruction. Generation continues to use the
+unjittered output camera. A numerical regression projects an optical-axis
+receiver with a half-pixel jitter: the rendered camera reconstructs zero
+lateral displacement, the restored-camera negative control does not, and a
+wrong epoch or surface cannot reuse either camera.
+
+Performance required an architectural change rather than another scalar
+instruction trim. The previous full-resolution compositor reconstructed every
+receiver and evaluated EVSM4, actor coverage, cascade transitions, contact
+visibility, and local-light buffers at every output pixel. Static map caching
+does not reduce that fixed screen cost. OMV now preserves the four 2048-square
+four-sample EVSM producers, 1024-square coverage-aware actor maps, 512-square
+point cubes, cascade equations, and transition filtering, but evaluates their
+visibility into same-frame half-resolution deferred masks:
+
+- a `G16R16F` directional mask stores visibility and normalized linear receiver
+  depth after EVSM4, actor, cascade, and receiver-normal evaluation;
+- the two exact RGB point-light MRTs are half resolution and retain a receiver
+  key in alpha;
+- the existing contact masks remain half resolution and same-frame; and
+- the full-resolution compositor samples no EVSM atlas or cube. It explicitly
+  reconstructs four mask texels, rejects every depth key belonging to another
+  surface, normalizes the surviving bilinear weights, and then applies the
+  existing source-owned radiance equations.
+
+This is spatially deferred, not temporally accumulated. It owns no shadow-mask
+history, motion-vector reprojection, or previous-frame fallback, so it cannot
+trail the camera. Explicit depth rejection is mandatory: ordinary bilinear
+upsampling would import a foreground shadow into the background wall whenever
+the half-resolution footprint crosses a silhouette. Subpixel visibility is
+still represented by weighted coverage rather than a binary nearest sample.
+The same rule covers directional, contact, and point receivers.
+
+Point batches require an additional ownership invariant. Independently
+scissored draws add RGB deficit and total energy where light volumes overlap.
+Adding a raw depth key in alpha would multiply it by the number of batches and
+make the compositor reject the correct receiver. The point pass therefore
+adds `(depth_key, 1)` across the two MRT alpha channels, and composition divides
+the accumulated key by the accumulated batch count before depth validation. A
+numerical overlap test rejects the former raw-additive result.
+
+The fixed workload contract at 3440 by 1440 permits 1,238,400 directional and
+point receiver pixels each, exactly one quarter of 4,953,600 output pixels.
+Zero full-resolution pixels sample a caster map and zero temporal pixels are
+retained. Compiled shader gates cap the half-resolution directional program at
+1,856 static SM3 instructions, the full-resolution point-free compositor at
+312, and the mixed compositor at 504. More importantly, the normalized
+directional bound is at most 800 instruction quarters per output pixel; the
+test combines mask resolution with compiled work so moving an apparently
+smaller shader back to full resolution fails. Point specializations retain
+their one/six/twelve-light cube-sample and instruction bounds.
+
+At 1920 by 1080, the exact exterior resource plan falls from 621,193,216 to
+598,383,616 bytes, the four-channel actor fallback from 650,553,344 to
+627,743,744 bytes, and interior-only residency from 201,809,920 to 176,926,720
+bytes. The important saving is recurring shader and bandwidth work rather than
+these approximately 22-25 MB residency reductions. Source color is still
+copied once because source-energy and HDR-emitter preservation require reading
+the authoritative framebuffer; removing that copy would reintroduce the dark
+lamp defect.
+
+The design follows the parts of current shadow practice which can be expressed
+honestly on the existing D3D9/SM3 renderer. Epic's virtual-shadow documentation
+identifies stable cache reuse and static/dynamic separation as the performance
+contract; OMV already retains those principles but cannot import a compute
+page-table renderer. id Tech 6 likewise documents cached shadow maps, variable
+resolution, and time-sliced updates. NVIDIA's 2025 many-light work evaluates a
+small selected set at full resolution and uses lower-resolution visibility for
+the remainder, supporting the separation of producer quality from receiver
+rate rather than lowering every caster map. Microsoft's shadow-depth guidance
+requires light projections to advance in texel increments to prevent shimmer;
+OMV retains its absolute-world texel snapping. None of these sources makes a
+screen-space-only shadow a quality-equivalent replacement: hidden and
+off-screen casters still require the retained maps.
+
+Architecture references:
+
+- Epic Games, [Virtual Shadow Maps](https://dev.epicgames.com/documentation/it-it/unreal-engine/virtual-shadow-maps-in-unreal-engine);
+- id Software, [The Rendering Technology of Doom](https://advances.realtimerendering.com/s2016/Siggraph2016_idTech6.pdf);
+- NVIDIA Research, [Real-Time Many-Light Shadowing with ReSTIR Shadow Maps](https://research.nvidia.com/labs/rtr/publication/zhang2025many-light/); and
+- Microsoft, [Common Techniques to Improve Shadow Depth Maps](https://learn.microsoft.com/en-us/windows/win32/dxtecharts/common-techniques-to-improve-shadow-depth-maps).
+
+The regression sequence was negative first. The new synchronization, deferred
+mask, and shader symbols did not exist, so the focused suite failed to compile
+before implementation. Corrected tests numerically reject restored-camera
+receiver drift, foreign-depth upsampling, lost subpixel coverage, additive
+point-depth corruption, temporal history, full-resolution caster sampling, and
+workload/budget regressions. They also compile every production SM3 program and
+retain the existing image, provider-parity, map-cache, engine ABI, startup, and
+state-ownership gates.
+
+No configuration field, schema, preset, hook admission, TLS value, worker
+order, lazy/static owner, or pre-`DeferredInit` route changed. One additional
+shader is compiled by the established post-Deferred shadow bytecode worker,
+and the new render targets remain lazy members of the already boxed pipeline.
+Static validation cannot establish the user's RX 6800 XT frame time or final
+image acceptance. The required Proton/DXVK playtest remains fast yaw and
+forward/vertical movement with TAA on, both depth providers separately, far
+walls/LOD transitions, overlapping local lights, contact edges, actor
+silhouettes, and exterior/interior frame-time distributions against shadows
+off. Those runtime claims remain unaccepted here.
+
+Supported-target validation on 2026-08-14 passed all 621 OMV tests, including
+127 focused shadow tests, and the explicit `i686-pc-windows-gnu` release build.
+The resulting 12,852,204-byte `omv.dll` has SHA-256
+`9b2032fdfab1b44505485a01209451bc0301bb5d869591fd2a72f7f8cd223082`.
+`git diff --check` and `cargo fmt -p omv -- --check` passed. The test-generated
+untracked shader-cache directory was removed after validation; unrelated
+`libnvse/xnvse` and `intelmoc/` worktree changes were not touched.
+
 ### Evidence classification for the implementation
 
 **Proven by executable/static artifacts:** the common hook/tail topology,

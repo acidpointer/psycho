@@ -259,6 +259,103 @@ pub(super) fn contact_bilateral_visibility(
     (accepted_weight > 0.0).then(|| (weighted_visibility / accepted_weight).clamp(0.0, 1.0))
 }
 
+/// Resolve a deferred shadow-mask footprint without crossing receiver depth.
+///
+/// Each tuple is `(visibility, linear_depth, bilinear_weight)`. Directional,
+/// contact, and local-light masks all use this ownership rule: reducing the
+/// expensive visibility pass to half resolution is safe only when the final
+/// reconstruction cannot import a shadow from a different wall or silhouette.
+/// No history participates, so fast camera motion cannot leave a delayed mask.
+pub(super) fn deferred_mask_visibility(
+    receiver_depth: f32,
+    samples: [(f32, f32, f32); 4],
+) -> Option<f32> {
+    if !receiver_depth.is_finite()
+        || receiver_depth <= 0.0
+        || !samples
+            .iter()
+            .flat_map(|sample| [sample.0, sample.1, sample.2])
+            .all(f32::is_finite)
+        || samples.iter().any(|sample| sample.2 < 0.0)
+    {
+        return None;
+    }
+    let mut visibility = 0.0;
+    let mut weight = 0.0;
+    for (sample_visibility, sample_depth, sample_weight) in samples {
+        if contact_depths_match(receiver_depth, sample_depth) {
+            visibility += sample_visibility.clamp(0.0, 1.0) * sample_weight;
+            weight += sample_weight;
+        }
+    }
+    (weight > 0.0).then(|| (visibility / weight).clamp(0.0, 1.0))
+}
+
+/// Recover one receiver-depth key after additive local-light batches overlap.
+///
+/// Every scissored batch samples the same scene-depth texel, so its RGB light
+/// energy may be added while alpha accumulates `(depth_key, batch_count)`.
+/// Dividing the two keeps the receiver identity invariant under batching. A
+/// raw additive depth key would instead scale with overlap count and reject a
+/// perfectly valid receiver in the deferred compositor.
+pub(super) fn deferred_point_depth_key(
+    accumulated_depth_key: f32,
+    accumulated_batch_count: f32,
+) -> Option<f32> {
+    if !accumulated_depth_key.is_finite()
+        || accumulated_depth_key < 0.0
+        || !accumulated_batch_count.is_finite()
+        || accumulated_batch_count <= 0.0
+    {
+        return None;
+    }
+    let key = accumulated_depth_key / accumulated_batch_count;
+    key.is_finite().then_some(key)
+}
+
+/// Fixed screen-space workload for depth-keyed deferred shadow masks.
+///
+/// High-resolution caster maps keep their existing spatial quality. Only the
+/// receiver evaluation is decoupled from output resolution: one half-size
+/// directional mask and one half-size local-light mask replace per-pixel EVSM
+/// and cube evaluation. The final pass performs no atlas/cube lookup and owns
+/// no temporal history.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) struct DeferredReceiverPlan {
+    /// Width of every deferred visibility target.
+    pub(super) width: u32,
+    /// Height of every deferred visibility target.
+    pub(super) height: u32,
+    /// Pixels which may execute directional EVSM/actor sampling.
+    pub(super) directional_pixels: u64,
+    /// Pixels which may execute local-light cube sampling.
+    pub(super) point_pixels: u64,
+    /// Temporal pixels retained between frames; always zero by contract.
+    pub(super) history_pixels: u64,
+    /// Full-resolution pixels which still sample a caster map; always zero.
+    pub(super) full_resolution_shadow_map_samples: u64,
+}
+
+impl DeferredReceiverPlan {
+    /// Build the fixed half-resolution receiver plan for a non-empty target.
+    pub(super) fn new(width: u32, height: u32) -> Option<Self> {
+        if width == 0 || height == 0 {
+            return None;
+        }
+        let width = width.div_ceil(2);
+        let height = height.div_ceil(2);
+        let pixels = u64::from(width) * u64::from(height);
+        Some(Self {
+            width,
+            height,
+            directional_pixels: pixels,
+            point_pixels: pixels,
+            history_pixels: 0,
+            full_resolution_shadow_map_samples: 0,
+        })
+    }
+}
+
 /// NVR contact-ray scale for one reconstructed view-space receiver.
 pub(super) fn contact_ray_scale(view_position: [f32; 3], camera_far: f32) -> Option<f32> {
     if !view_position.into_iter().all(f32::is_finite)
@@ -2500,7 +2597,7 @@ pub(super) struct ProducerResourcePlan {
     /// Peak bytes after both lazy location branches have been visited.
     ///
     /// Retaining both families prevents cell-transition allocation hitches.
-    /// Both locations share one source-color copy and full-resolution RGB
+    /// Both locations share one source-color copy and half-resolution RGBA
     /// local-total and local-deficit targets. Receiver geometry is consumed
     /// directly from scene depth. Exterior contact adds two half-resolution
     /// G16R16F maps for raw evidence and its same-frame depth-aware filter.
@@ -2539,10 +2636,14 @@ impl ProducerResourcePlan {
         let point_static_cubes = point_cubes;
         let point_depth = u64::from(512_u32.pow(2)) * 4;
         let full_resolution_pixels = u64::from(width) * u64::from(height);
+        let deferred_pixels = u64::from(width.div_ceil(2)) * u64::from(height.div_ceil(2));
         // Equal-format MRTs preserve the exact total and occluded RGB sums in
-        // one scissored draw, avoiding colored-light cross-contamination.
-        let point_accumulation = full_resolution_pixels * 8 * 2;
+        // one scissored draw, avoiding colored-light cross-contamination. The
+        // depth-keyed half-resolution masks are reconstructed without crossing
+        // receiver silhouettes by the final compositor.
+        let point_accumulation = deferred_pixels * 8 * 2;
         let source_copy = full_resolution_pixels * 8;
+        let directional_mask = deferred_pixels * 4;
         // Two half-resolution four-byte targets retain visibility plus its
         // normalized receiver-depth key. Round conservatively for odd sizes.
         let contact_targets = u64::from(width.div_ceil(2)) * u64::from(height.div_ceil(2)) * 4 * 2;
@@ -2560,6 +2661,7 @@ impl ProducerResourcePlan {
                 + point_static_cubes
                 + point_depth
                 + interior_consumer
+                + directional_mask
                 + contact_targets
         } else {
             point_cubes + point_static_cubes + point_depth + interior_consumer
@@ -2576,6 +2678,7 @@ impl ProducerResourcePlan {
             + point_depth
             + source_copy
             + point_accumulation
+            + directional_mask
             + contact_targets;
         let actor_fallback_extra = actor_generation + actor_moments;
         let fallback_estimated_bytes = if directional {

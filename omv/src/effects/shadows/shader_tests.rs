@@ -1,9 +1,9 @@
 use super::contract::contact_consumer_work;
 use super::shaders::{
     COMPOSITE_PIXEL_SOURCE, CONTACT_BLUR_SOURCE, CONTACT_SOURCE, CUBE_PIXEL_SOURCE,
-    CUBE_VERTEX_SOURCE, DIRECTIONAL_PIXEL_SOURCE, DIRECTIONAL_VERTEX_SOURCE,
-    FAR_CLEAR_PIXEL_SOURCE, POINT_ACCUMULATION_SOURCE, directional_composite_source,
-    point_accumulation_source,
+    CUBE_VERTEX_SOURCE, DIRECTIONAL_MASK_SOURCE, DIRECTIONAL_PIXEL_SOURCE,
+    DIRECTIONAL_VERTEX_SOURCE, FAR_CLEAR_PIXEL_SOURCE, POINT_ACCUMULATION_SOURCE,
+    directional_composite_source, point_accumulation_source,
 };
 
 fn instruction_count(bytecode: &[u32]) -> usize {
@@ -121,25 +121,25 @@ fn every_shadow_shader_compiles_for_shader_model_three_with_static_budgets() {
             "shadow_point_accumulate_1.ps",
             point_one.as_slice(),
             "ps_3_0",
-            // Measured output is 345 instructions.
-            352,
+            // The additive receiver-depth ownership pair costs six scalar
+            // instructions over the former one-light program.
+            360,
         ),
         (
             "shadow_point_accumulate_6.ps",
             point_six.as_slice(),
             "ps_3_0",
-            // Measured output is 880 instructions.
-            888,
+            // Same ownership pair with narrow compiler headroom.
+            896,
         ),
         (
             "shadow_point_accumulate_12.ps",
             point_twelve.as_slice(),
             "ps_3_0",
             // The exact edge-aware receiver plus twelve RGB light evaluations
-            // compiles to 1,524 instructions. A 1,536 cap leaves only narrow
-            // compiler-alignment headroom while eliminating two redundant
-            // full-resolution passes.
-            1_536,
+            // retains narrow compiler-alignment headroom while eliminating
+            // two redundant full-resolution passes.
+            1_544,
         ),
         (
             "shadow_contact.ps",
@@ -151,22 +151,28 @@ fn every_shadow_shader_compiles_for_shader_model_three_with_static_budgets() {
         ),
         ("shadow_contact_blur.ps", CONTACT_BLUR_SOURCE, "ps_3_0", 160),
         (
+            "shadow_directional_mask.ps",
+            DIRECTIONAL_MASK_SOURCE,
+            "ps_3_0",
+            // NVR-quality EVSM and actor coverage run only at one quarter of
+            // output pixels; the full-resolution compositor is budgeted
+            // independently below.
+            1_856,
+        ),
+        (
             "shadow_composite.ps",
             COMPOSITE_PIXEL_SOURCE,
             "ps_3_0",
-            // D3DCompile expands the four mutually exclusive cascade choices
-            // and both branch-lazy receiver-bias evaluations. The executable
-            // path remains bounded separately below. Complete light-volume Z
-            // The mixed local-light variant also owns branch-lazy bilateral
-            // contact upsampling. Its common point-free exterior sibling is
-            // held below the old 1984 cap by a separate production test.
-            2_040,
+            // The final pass owns only depth-rejected deferred reconstruction
+            // and source-color composition. It never samples an EVSM atlas or
+            // cube shadow map at full output resolution.
+            504,
         ),
         (
             "shadow_composite_directional.ps",
             directional_composite.as_slice(),
             "ps_3_0",
-            1_992,
+            312,
         ),
     ];
     let mut compiled_programs: Vec<(&str, Vec<u32>)> = Vec::with_capacity(variants.len());
@@ -194,7 +200,7 @@ fn every_shadow_shader_compiles_for_shader_model_three_with_static_budgets() {
         );
         compiled_programs.push((name, bytecode));
     }
-    assert_eq!(compiled_programs.len(), 12);
+    assert_eq!(compiled_programs.len(), 13);
 }
 
 #[test]
@@ -214,15 +220,25 @@ fn point_free_exterior_compositor_is_below_the_original_fullscreen_budget() {
     .expect("mixed-light composite must compile");
     let directional_instructions = instruction_count(&directional);
     let mixed_instructions = instruction_count(&mixed);
-    // The depth-edge correction adds a branch-lazy contact fallback to the
-    // former 1,984-instruction ceiling. Eight instructions of measured
-    // headroom are allowed here; the ordinary matching receiver still executes
-    // only its single contact lookup. The specialization must also recover the
-    // two local-light texture reads and at least 32 scalar instructions from
-    // the mixed-light program below.
+    let directional_mask = crate::shaders::compile_hlsl_source_target(
+        "shadow_directional_mask_weighted_budget.ps",
+        DIRECTIONAL_MASK_SOURCE,
+        "ps_3_0",
+    )
+    .expect("deferred directional mask must compile");
+    // Static shader work is normalized to one output pixel: one quarter-size
+    // EVSM evaluation plus one full-size reconstruction. This guards the
+    // architectural saving directly instead of accepting a smaller shader
+    // which is accidentally run at full resolution.
+    let normalized_instruction_quarters =
+        instruction_count(&directional_mask) + directional_instructions * 4;
     assert!(
-        directional_instructions <= 1_992,
+        directional_instructions <= 312,
         "point-free exterior path uses {directional_instructions} instructions"
+    );
+    assert!(
+        normalized_instruction_quarters <= 3_200,
+        "deferred exterior path costs {normalized_instruction_quarters}/4 normalized instructions per output pixel"
     );
     assert!(
         directional_instructions + 32 <= mixed_instructions,
@@ -261,18 +277,23 @@ fn consumer_shader_abis_compile_with_bounded_texture_work() {
     let composite = std::str::from_utf8(COMPOSITE_PIXEL_SOURCE).expect("composite UTF-8");
     assert!(composite.contains("sampler2D SourceColor : register(s0)"));
     assert!(composite.contains("sampler2D SceneDepth : register(s1)"));
-    assert!(composite.contains("sampler2D ShadowAtlas : register(s2)"));
+    assert!(composite.contains("sampler2D DirectionalVisibilityMap : register(s2)"));
     assert!(composite.contains("sampler2D PointShadowBuffer : register(s3)"));
     assert!(composite.contains("sampler2D ContactVisibility : register(s4)"));
-    assert!(composite.contains("sampler2D ActorNearMiddleMoments : register(s5)"));
     assert!(composite.contains("sampler2D PointLightTotal : register(s6)"));
-    assert!(composite.contains("sampler2D ActorFarMoments : register(s7)"));
     assert!(composite.contains("float4 ContactControl : register(c31)"));
     assert!(composite.contains("float4 PointControl : register(c32)"));
-    assert!(composite.contains("float4 SunDirection : register(c33)"));
-    assert!(composite.contains("float4 ActorControl : register(c34)"));
-    assert!(composite.contains("float4 ActorCrops[3] : register(c36)"));
-    assert!(composite.contains("float4 ActorTexel : register(c39)"));
+    assert!(composite.contains("float4 DeferredTexel : register(c36)"));
+
+    let directional_mask =
+        std::str::from_utf8(DIRECTIONAL_MASK_SOURCE).expect("directional mask UTF-8");
+    assert!(directional_mask.contains("sampler2D ShadowAtlas : register(s1)"));
+    assert!(directional_mask.contains("sampler2D ActorNearMiddleMoments : register(s2)"));
+    assert!(directional_mask.contains("sampler2D ActorFarMoments : register(s3)"));
+    assert!(directional_mask.contains("float4 SunDirection : register(c27)"));
+    assert!(directional_mask.contains("float4 ActorControl : register(c28)"));
+    assert!(directional_mask.contains("float4 ActorCrops[3] : register(c29)"));
+    assert!(directional_mask.contains("float4 ActorTexel : register(c32)"));
 
     let contact = std::str::from_utf8(CONTACT_SOURCE).expect("contact UTF-8");
     assert!(contact.contains("sampler2D SceneDepth : register(s0)"));
@@ -305,6 +326,19 @@ fn consumer_shader_abis_compile_with_bounded_texture_work() {
         5,
         "contact filter must use one center and four same-frame depth-aware taps"
     );
+    let directional_mask_bytecode = crate::shaders::compile_hlsl_source_target(
+        "shadow_directional_mask_budget.ps",
+        DIRECTIONAL_MASK_SOURCE,
+        "ps_3_0",
+    )
+    .expect("deferred directional mask must compile");
+    let directional_texture_samples = texture_instruction_count(&directional_mask_bytecode);
+    assert!(
+        // Static bytecode contains mutually exclusive cascade/actor branches;
+        // each output pixel executes one cascade plus at most one transition.
+        directional_texture_samples <= 25,
+        "deferred directional mask uses {directional_texture_samples} compiled texture instructions"
+    );
     let composite_bytecode = crate::shaders::compile_hlsl_source_target(
         "shadow_composite_sample_budget.ps",
         COMPOSITE_PIXEL_SOURCE,
@@ -313,8 +347,8 @@ fn consumer_shader_abis_compile_with_bounded_texture_work() {
     .expect("shadow composite must compile");
     let texture_samples = texture_instruction_count(&composite_bytecode);
     assert!(
-        texture_samples <= 32,
-        "compiled composition uses {texture_samples} samples, above the bounded atlas-refinement budget"
+        texture_samples <= 18,
+        "compiled composition uses {texture_samples} samples after deferred visibility"
     );
     for (name, source) in [
         ("point", POINT_ACCUMULATION_SOURCE),
@@ -371,6 +405,8 @@ fn clear_and_composite_register_abi_matches_the_native_upload_contract() {
     let clear = std::str::from_utf8(FAR_CLEAR_PIXEL_SOURCE).expect("clear UTF-8");
     assert!(clear.contains("float4 FarMoments : register(c0)"));
 
+    let directional = std::str::from_utf8(DIRECTIONAL_MASK_SOURCE).expect("directional mask UTF-8");
+    assert!(directional.contains("float4 CascadeTexel : register(c25)"));
     let composite = std::str::from_utf8(COMPOSITE_PIXEL_SOURCE).expect("composite UTF-8");
-    assert!(composite.contains("float4 CascadeTexel : register(c25)"));
+    assert!(composite.contains("float4 DeferredTexel : register(c36)"));
 }

@@ -49,6 +49,8 @@ samplerCUBE ShadowCube10 : register(s11);
 samplerCUBE ShadowCube11 : register(s12);
 #endif
 
+static const float ShadowDepthKeyRange = 250000.0f;
+
 struct PixelInput { float2 uv : TEXCOORD0; };
 
 float3 ViewPosition(float2 uv, float depth) {
@@ -65,7 +67,16 @@ float LinearDepth(float rawDepth) {
     return DepthLinearizeData.x / max(DepthLinearizeData.w - rawDepth * DepthLinearizeData.y, 0.001f);
 }
 
+float2 SnapDepthUv(float2 uv) {
+    float2 texel = clamp(floor(uv * ScreenData.xy), 0.0f, ScreenData.xy - 1.0f);
+    return (texel + 0.5f) * ScreenData.zw;
+}
+
 float3 SampleViewPosition(float2 uv) {
+    // Main snaps centerUv once. Adding or subtracting one full-resolution
+    // texel therefore remains on an exact depth-texel center; snapping every
+    // neighbor again only repeats floor/clamp arithmetic in the hottest
+    // receiver path.
     float rawDepth = tex2Dlod(SceneDepth, float4(uv, 0.0f, 0.0f)).r;
     return ViewPosition(uv, LinearDepth(rawDepth));
 }
@@ -136,7 +147,8 @@ LightEnergy EvaluateLight(
 }
 
 PointOutput Main(PixelInput input) {
-    float rawDepth = tex2Dlod(SceneDepth, float4(input.uv, 0.0f, 0.0f)).r;
+    float2 centerUv = SnapDepthUv(input.uv);
+    float rawDepth = tex2Dlod(SceneDepth, float4(centerUv, 0.0f, 0.0f)).r;
     if (rawDepth <= 1.0f / 65536.0f || rawDepth >= 1.0f - 1.0f / 65536.0f) {
         PointOutput empty;
         empty.deficit = 0.0f;
@@ -148,11 +160,11 @@ PointOutput Main(PixelInput input) {
     // geometry prepass wrote, but consume it immediately. This removes one
     // full-resolution FP16 write/read pair without approximating geometry.
     float depth = LinearDepth(rawDepth);
-    float3 center = ViewPosition(input.uv, depth);
-    float3 left = SampleViewPosition(input.uv - float2(ScreenData.z, 0.0f));
-    float3 right = SampleViewPosition(input.uv + float2(ScreenData.z, 0.0f));
-    float3 up = SampleViewPosition(input.uv - float2(0.0f, ScreenData.w));
-    float3 down = SampleViewPosition(input.uv + float2(0.0f, ScreenData.w));
+    float3 center = ViewPosition(centerUv, depth);
+    float3 left = SampleViewPosition(centerUv - float2(ScreenData.z, 0.0f));
+    float3 right = SampleViewPosition(centerUv + float2(ScreenData.z, 0.0f));
+    float3 up = SampleViewPosition(centerUv - float2(0.0f, ScreenData.w));
+    float3 down = SampleViewPosition(centerUv + float2(0.0f, ScreenData.w));
     float3 dx = dot(left - center, left - center) < dot(right - center, right - center)
         ? center - left : right - center;
     float3 dy = dot(up - center, up - center) < dot(down - center, down - center)
@@ -160,7 +172,7 @@ PointOutput Main(PixelInput input) {
     float3 viewNormal = cross(dx, dy);
     viewNormal *= rsqrt(max(dot(viewNormal, viewNormal), 0.0000001f));
 
-    float3 worldPosition = RelativeWorldPosition(input.uv, depth);
+    float3 worldPosition = RelativeWorldPosition(centerUv, depth);
     float3 normal = WorldNormal(viewNormal);
     float3 total = 0.0f;
     float3 deficit = 0.0f;
@@ -202,7 +214,13 @@ PointOutput Main(PixelInput input) {
     // Keeping both RGB quantities exact is essential when differently colored
     // lights overlap. A scalar occlusion ratio would darken channels owned by
     // an unoccluded light in the same batch.
-    output.deficit = float4(deficit, 0.0f);
-    output.total = float4(total, 0.0f);
+    // RGB is additively blended when independently scissored batches overlap.
+    // Accumulate the depth-key sum and batch count in the two alpha channels;
+    // the compositor divides them before receiver rejection. Storing the raw
+    // key in both alphas would make a two-batch overlap appear twice as deep
+    // and produce a camera-dependent unshadowed seam.
+    float depthKey = depth / ShadowDepthKeyRange;
+    output.deficit = float4(deficit, depthKey);
+    output.total = float4(total, 1.0f);
     return output;
 }

@@ -264,6 +264,23 @@ pub(crate) fn shadow_generation_camera() -> Option<backend::CameraFrame> {
         .and_then(|projection| projection.shadow_generation_camera(crate::hooks::render_epoch()))
 }
 
+/// Return the exact camera projection which rasterized current world depth.
+///
+/// TAA restores the live `NiCamera` after world submission, while the depth
+/// texture still contains the off-centre rendered projection. A consumer that
+/// reads the restored camera reconstructs a different world point and makes a
+/// static shadow appear to follow fast camera motion. Target and epoch matching
+/// prevent an override from leaking into screenshots or another render target.
+pub(crate) fn shadow_depth_camera(
+    target_surface: usize,
+    target: TargetDescription,
+) -> Option<backend::CameraFrame> {
+    let runtime = WORLD_PIPELINE.try_lock()?;
+    runtime.temporal_projection_override.and_then(|projection| {
+        projection.shadow_depth_camera(crate::hooks::render_epoch(), target_surface, target)
+    })
+}
+
 pub(crate) unsafe fn begin_temporal_aa_jitter(
     device_ptr: *mut c_void,
     target_surface: usize,
@@ -588,6 +605,16 @@ struct TemporalProjectionOverride {
 impl TemporalProjectionOverride {
     fn shadow_generation_camera(self, epoch: u32) -> Option<backend::CameraFrame> {
         (self.epoch == epoch).then_some(self.output_camera)
+    }
+
+    fn shadow_depth_camera(
+        self,
+        epoch: u32,
+        target_surface: usize,
+        target: TargetDescription,
+    ) -> Option<backend::CameraFrame> {
+        self.cameras_for(epoch, target_surface, target)
+            .map(|cameras| cameras.rendered)
     }
 
     fn cameras_for(
@@ -1603,7 +1630,36 @@ mod tests {
             .expect("matching shadow generation epoch");
         assert_eq!(shadow_camera.frustum_left, restored_camera.frustum_left);
         assert_ne!(shadow_camera.frustum_left, jittered_camera.frustum_left);
+        let shadow_depth_camera = projection
+            .shadow_depth_camera(7, 0x1234, target)
+            .expect("depth-producing shadow camera");
+        assert_eq!(
+            shadow_depth_camera.frustum_left,
+            jittered_camera.frustum_left
+        );
+        assert_ne!(
+            shadow_depth_camera.frustum_left,
+            restored_camera.frustum_left
+        );
+        // A view-space point on the optical axis is rasterized at this U by
+        // the off-centre camera. Reconstructing the same depth sample through
+        // the restored camera displaces the point laterally, so its shadow
+        // appears to chase the camera. The routed camera reconstructs the
+        // original point exactly; this is the numerical regression, while the
+        // field assertions above diagnose which transaction was selected.
+        let rendered_u = -jittered_camera.frustum_left
+            / (jittered_camera.frustum_right - jittered_camera.frustum_left);
+        let reconstruct_x = |camera: CameraFrame, depth: f32| {
+            (camera.frustum_left + (camera.frustum_right - camera.frustum_left) * rendered_u)
+                * depth
+        };
+        assert!(reconstruct_x(shadow_depth_camera, 500.0).abs() < 1.0e-5);
+        assert!(
+            reconstruct_x(restored_camera, 500.0).abs() > 0.1,
+            "negative control did not expose restored-camera depth drift"
+        );
         assert!(projection.shadow_generation_camera(8).is_none());
+        assert!(projection.shadow_depth_camera(8, 0x1234, target).is_none());
         assert!(projection.cameras_for(8, 0x1234, target).is_none());
         assert!(projection.cameras_for(7, 0x5678, target).is_none());
         assert!(

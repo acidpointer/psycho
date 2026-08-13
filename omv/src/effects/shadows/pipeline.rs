@@ -27,6 +27,7 @@ use libpsycho::os::windows::directx9::{
     ScreenVertex, StateBlock9, Surface9, Texture9, direct3d_failure,
 };
 
+use crate::effects::temporal_aa::TargetDescription;
 use crate::{
     backend::{
         self, CameraFrame, DepthFrame, DepthResolveOutcome, DepthResolveSlot, DepthResolveStage,
@@ -59,7 +60,6 @@ use super::{
 const ATLAS_RESOLUTION: u32 = NVR_CASCADE_RESOLUTION * 2;
 const ACTOR_MAP_RESOLUTION: u32 = NVR_CASCADE_RESOLUTION / 2;
 const POINT_CUBE_RESOLUTION: u32 = 512;
-const BLEED_REDUCTION: f32 = 0.2;
 const MAX_ERROR_LOGS: u32 = 8;
 const AMD_ALPHA_TO_COVERAGE_OFF: u32 = u32::from_le_bytes(*b"A2M0");
 
@@ -469,6 +469,7 @@ struct ShadowResources {
     point_pixel_twelve: PixelShader9,
     contact_pixel: PixelShader9,
     contact_blur_pixel: PixelShader9,
+    directional_mask_pixel: PixelShader9,
     composite_pixel: PixelShader9,
     directional_composite_pixel: PixelShader9,
     directional: Option<DirectionalResources>,
@@ -677,6 +678,7 @@ impl ShadowResources {
             point_pixel_twelve: device.create_pixel_shader(&bytecode.point_accumulation_twelve)?,
             contact_pixel: device.create_pixel_shader(&bytecode.contact)?,
             contact_blur_pixel: device.create_pixel_shader(&bytecode.contact_blur)?,
+            directional_mask_pixel: device.create_pixel_shader(&bytecode.directional_mask)?,
             composite_pixel: device.create_pixel_shader(&bytecode.composite)?,
             directional_composite_pixel: device
                 .create_pixel_shader(&bytecode.directional_composite)?,
@@ -1461,6 +1463,10 @@ impl ShadowResources {
         if desc.Width == 0 || desc.Height == 0 {
             return Ok(false);
         }
+        let projection_override = crate::fnv_world_pipeline::shadow_depth_camera(
+            source.as_raw() as usize,
+            TargetDescription::from(&desc),
+        );
         let depth = match unsafe {
             backend::resolve_scene_depth(
                 provider,
@@ -1468,7 +1474,7 @@ impl ShadowResources {
                 None,
                 DepthResolveSlot::World,
                 DepthResolveStage::PreAlphaWorld,
-                None,
+                projection_override,
                 "FNV shadows before alpha and atmosphere",
                 crate::hooks::render_epoch(),
             )
@@ -1504,6 +1510,7 @@ impl ShadowResources {
             .ok_or_else(direct3d_failure)?
             .ensure_branch(
                 &device,
+                publication.directional,
                 publication.point_count > 0,
                 publication.directional && settings.contact_shadows,
                 &desc,
@@ -1543,7 +1550,89 @@ impl ShadowResources {
         clear_auxiliary_targets(device)?;
         bind_fullscreen_state(device)?;
         let common = consumer_camera_constants(desc, depth, camera);
-        set_viewport(device, 0, 0, desc.Width, desc.Height)?;
+        let mut matrices = publication.matrices;
+        for index in 0..CASCADE_COUNT {
+            matrices[index] = translate_shadow_matrix(
+                matrices[index],
+                camera.world_transform.translation,
+                publication.matrix_origins[index],
+            );
+        }
+        let splits = publication.cascade_splits();
+
+        if publication.directional {
+            let mask = targets.directional.as_ref().ok_or_else(direct3d_failure)?;
+            let directional = self.directional.as_ref().ok_or_else(direct3d_failure)?;
+            device.set_render_target(0, &mask.visibility_surface)?;
+            device.clear_render_target(1)?;
+            set_viewport(device, 0, 0, mask.width, mask.height)?;
+            device.set_pixel_shader(&self.directional_mask_pixel)?;
+            unsafe { device.set_raw_base_texture(0, depth_texture)? };
+            device.set_texture(1, &directional.atlas)?;
+            device.clear_texture(2)?;
+            device.clear_texture(3)?;
+            set_point_clamp_sampler(device, 0)?;
+            set_linear_clamp_sampler(device, 1)?;
+            if publication.actor_overlay_mask & 0b011 != 0 {
+                device.set_texture(2, &directional.actor_near_middle_moments)?;
+                set_linear_clamp_sampler(device, 2)?;
+            }
+            if publication.actor_overlay_mask & 0b100 != 0 {
+                device.set_texture(3, &directional.actor_far_moments)?;
+                set_linear_clamp_sampler(device, 3)?;
+            }
+            device.set_pixel_shader_constant_f(0, &common[..6])?;
+            for (index, matrix) in matrices.iter().enumerate() {
+                device.set_pixel_shader_constant_f((6 + index * 4) as u32, matrix)?;
+            }
+            device.set_pixel_shader_constant_f(
+                22,
+                &[
+                    splits,
+                    [depth.world_projection.reversed_depth_f32(), 0.0, 0.0, 0.0],
+                    [
+                        splits[0] * 0.05,
+                        splits[1] * 0.05,
+                        splits[2] * 0.05,
+                        splits[3] * 0.05,
+                    ],
+                    [
+                        0.5 / NVR_CASCADE_RESOLUTION as f32,
+                        1.0 - 0.5 / NVR_CASCADE_RESOLUTION as f32,
+                        0.75 / NVR_CASCADE_RESOLUTION as f32,
+                        0.0,
+                    ],
+                ],
+            )?;
+            device.set_pixel_shader_constant_f(26, &[[1.0 / 65_536.0, 0.0, 0.0, 0.0]])?;
+            device.set_pixel_shader_constant_f(
+                27,
+                &[[
+                    publication.sun_direction[0],
+                    publication.sun_direction[1],
+                    publication.sun_direction[2],
+                    0.0,
+                ]],
+            )?;
+            device.set_pixel_shader_constant_f(
+                28,
+                &[std::array::from_fn(|index| {
+                    u8::from(publication.actor_overlay_mask & (1 << index) != 0) as f32
+                })],
+            )?;
+            device.set_pixel_shader_constant_f(29, &publication.actor_crops)?;
+            device.set_pixel_shader_constant_f(
+                32,
+                &[[
+                    0.5 / ACTOR_MAP_RESOLUTION as f32,
+                    1.0 - 0.5 / ACTOR_MAP_RESOLUTION as f32,
+                    0.0,
+                    0.0,
+                ]],
+            )?;
+            device.set_render_state(D3DRS_ALPHABLENDENABLE, 0)?;
+            draw_quad(device, 0, 0, mask.width, mask.height)?;
+        }
 
         if publication.point_count > 0 {
             let local_lights = targets.local_lights.as_ref().ok_or_else(direct3d_failure)?;
@@ -1576,12 +1665,13 @@ impl ShadowResources {
                         camera.frustum_top,
                         camera.frustum_bottom,
                     ],
-                    desc.Width,
-                    desc.Height,
+                    local_lights.width,
+                    local_lights.height,
                 );
             }
             device.set_render_target(0, &local_lights.deficit_surface)?;
             device.set_render_target(1, &local_lights.total_surface)?;
+            set_viewport(device, 0, 0, local_lights.width, local_lights.height)?;
             device.clear_attachments(D3DCLEAR_TARGET as u32, 0, 1.0, 0)?;
             // Reconstruct depth and the edge-aware normal inside the same
             // scissored draw that consumes the cubes. The equations are
@@ -1651,7 +1741,7 @@ impl ShadowResources {
                     device.set_render_state(D3DRS_DESTBLEND, D3DBLEND_ONE.0 as u32)?;
                     device.set_render_state(D3DRS_BLENDOP, D3DBLENDOP_ADD.0 as u32)?;
                 }
-                draw_quad(device, 0, 0, desc.Width, desc.Height)?;
+                draw_quad(device, 0, 0, local_lights.width, local_lights.height)?;
                 drew_batch = true;
             }
             device.set_render_state(D3DRS_SCISSORTESTENABLE, 0)?;
@@ -1746,44 +1836,18 @@ impl ShadowResources {
         unsafe { device.set_raw_base_texture(1, depth_texture)? };
         set_linear_clamp_sampler(device, 0)?;
         set_point_clamp_sampler(device, 1)?;
-        set_linear_clamp_sampler(device, 2)?;
-        set_linear_clamp_sampler(device, 3)?;
+        set_point_clamp_sampler(device, 2)?;
+        set_point_clamp_sampler(device, 3)?;
         set_point_clamp_sampler(device, 4)?;
-
-        let mut matrices = publication.matrices;
-        // Cascade ownership is view-depth based. Retained transforms remain
-        // map-owned and are rebased from their generation origins below; the
-        // guarded clipmap spheres already prove current receiver coverage.
-        for index in 0..CASCADE_COUNT {
-            matrices[index] = translate_shadow_matrix(
-                matrices[index],
-                camera.world_transform.translation,
-                publication.matrix_origins[index],
-            );
-        }
-        device.set_pixel_shader_constant_f(0, &common[..6])?;
-        for (index, matrix) in matrices.iter().enumerate() {
-            device.set_pixel_shader_constant_f((6 + index * 4) as u32, matrix)?;
-        }
-        let splits = publication.cascade_splits();
-        device.set_pixel_shader_constant_f(26, &[[1.0 / 65_536.0, 0.0, 0.0, 0.0]])?;
         if publication.directional {
-            let directional = self.directional.as_ref().ok_or_else(direct3d_failure)?;
-            device.set_texture(2, &directional.atlas)?;
-            if publication.actor_overlay_mask & 0b011 != 0 {
-                device.set_texture(5, &directional.actor_near_middle_moments)?;
-                set_linear_clamp_sampler(device, 5)?;
-            }
-            if publication.actor_overlay_mask & 0b100 != 0 {
-                device.set_texture(7, &directional.actor_far_moments)?;
-                set_linear_clamp_sampler(device, 7)?;
-            }
+            let mask = targets.directional.as_ref().ok_or_else(direct3d_failure)?;
+            device.set_texture(2, &mask.visibility)?;
         }
         if publication.point_count > 0 {
             let local_lights = targets.local_lights.as_ref().ok_or_else(direct3d_failure)?;
             device.set_texture(3, &local_lights.deficit)?;
             device.set_texture(6, &local_lights.total)?;
-            set_linear_clamp_sampler(device, 6)?;
+            set_point_clamp_sampler(device, 6)?;
         }
         if contact_enabled {
             let contact = targets.contact.as_ref().ok_or_else(direct3d_failure)?;
@@ -1794,30 +1858,17 @@ impl ShadowResources {
         } else {
             settings.exterior_darkness
         };
+        device.set_pixel_shader_constant_f(0, &common[..2])?;
         device.set_pixel_shader_constant_f(
-            22,
-            &[
-                splits,
-                [
-                    depth.world_projection.reversed_depth_f32(),
-                    publication.directional as u8 as f32,
-                    settings.exterior_darkness,
-                    BLEED_REDUCTION,
-                ],
-                [
-                    splits[0] * 0.05,
-                    splits[1] * 0.05,
-                    splits[2] * 0.05,
-                    splits[3] * 0.05,
-                ],
-                [
-                    0.5 / NVR_CASCADE_RESOLUTION as f32,
-                    1.0 - 0.5 / NVR_CASCADE_RESOLUTION as f32,
-                    0.75 / NVR_CASCADE_RESOLUTION as f32,
-                    0.0,
-                ],
-            ],
+            23,
+            &[[
+                depth.world_projection.reversed_depth_f32(),
+                publication.directional as u8 as f32,
+                settings.exterior_darkness,
+                0.0,
+            ]],
         )?;
+        device.set_pixel_shader_constant_f(26, &[[1.0 / 65_536.0, 0.0, 0.0, 0.0]])?;
         device.set_pixel_shader_constant_f(31, &[[contact_enabled as u8 as f32, 0.0, 0.0, 0.0]])?;
         device.set_pixel_shader_constant_f(
             32,
@@ -1828,32 +1879,13 @@ impl ShadowResources {
                 0.0,
             ]],
         )?;
+        let deferred_width = desc.Width.div_ceil(2).max(1);
+        let deferred_height = desc.Height.div_ceil(2).max(1);
         device.set_pixel_shader_constant_f(
-            33,
+            36,
             &[[
-                publication.sun_direction[0],
-                publication.sun_direction[1],
-                publication.sun_direction[2],
-                0.0,
-            ]],
-        )?;
-        let contact_texel = targets.contact.as_ref().map_or([0.0; 2], |contact| {
-            [1.0 / contact.width as f32, 1.0 / contact.height as f32]
-        });
-        device.set_pixel_shader_constant_f(
-            34,
-            &[std::array::from_fn(|index| {
-                u8::from(publication.actor_overlay_mask & (1 << index) != 0) as f32
-            })],
-        )?;
-        device
-            .set_pixel_shader_constant_f(35, &[[contact_texel[0], contact_texel[1], 0.0, 0.0]])?;
-        device.set_pixel_shader_constant_f(36, &publication.actor_crops)?;
-        device.set_pixel_shader_constant_f(
-            39,
-            &[[
-                0.5 / ACTOR_MAP_RESOLUTION as f32,
-                1.0 - 0.5 / ACTOR_MAP_RESOLUTION as f32,
+                1.0 / deferred_width as f32,
+                1.0 / deferred_height as f32,
                 0.0,
                 0.0,
             ]],
@@ -1877,16 +1909,27 @@ struct ConsumerTargets {
     format: libpsycho::os::windows::directx9::D3DFORMAT,
     source: Texture9,
     source_surface: Surface9,
+    directional: Option<DirectionalConsumerTargets>,
     local_lights: Option<LocalLightConsumerTargets>,
     contact: Option<ContactConsumerTargets>,
 }
 
-/// Full-resolution exact RGB local-light ownership and occlusion estimates.
+/// Half-resolution directional visibility paired with receiver depth.
+struct DirectionalConsumerTargets {
+    visibility: Texture9,
+    visibility_surface: Surface9,
+    width: u32,
+    height: u32,
+}
+
+/// Half-resolution exact RGB local-light ownership and occlusion estimates.
 struct LocalLightConsumerTargets {
     deficit: Texture9,
     deficit_surface: Surface9,
     total: Texture9,
     total_surface: Surface9,
+    width: u32,
+    height: u32,
 }
 
 /// Half-resolution current-frame contact evidence and bilateral resolve.
@@ -1913,6 +1956,7 @@ impl ConsumerTargets {
             format: desc.Format,
             source,
             source_surface,
+            directional: None,
             local_lights: None,
             contact: None,
         })
@@ -1921,10 +1965,14 @@ impl ConsumerTargets {
     fn ensure_branch(
         &mut self,
         device: &Device9Ref<'_>,
+        directional: bool,
         point_lights: bool,
         contact_shadows: bool,
         desc: &D3DSURFACE_DESC,
     ) -> Direct3DResult<()> {
+        if directional && self.directional.is_none() {
+            self.directional = Some(DirectionalConsumerTargets::create(device, desc)?);
+        }
         if point_lights && self.local_lights.is_none() {
             self.local_lights = Some(LocalLightConsumerTargets::create(device, desc)?);
         }
@@ -1939,6 +1987,20 @@ impl ConsumerTargets {
     }
 }
 
+impl DirectionalConsumerTargets {
+    fn create(device: &Device9Ref<'_>, desc: &D3DSURFACE_DESC) -> Direct3DResult<Self> {
+        let width = desc.Width.div_ceil(2).max(1);
+        let height = desc.Height.div_ceil(2).max(1);
+        let visibility = device.create_render_target_texture(width, height, D3DFMT_G16R16F)?;
+        Ok(Self {
+            visibility_surface: visibility.surface_level(0)?,
+            visibility,
+            width,
+            height,
+        })
+    }
+}
+
 impl LocalLightConsumerTargets {
     fn create(device: &Device9Ref<'_>, desc: &D3DSURFACE_DESC) -> Direct3DResult<Self> {
         if device.simultaneous_render_target_count()? < 2 {
@@ -1948,15 +2010,17 @@ impl LocalLightConsumerTargets {
         // The same scissored draw emits exact RGB totals and exact RGB
         // deficits. Keeping these in equal-format MRTs avoids both a second
         // fullscreen pass and cross-channel artifacts between colored lights.
-        let deficit =
-            device.create_render_target_texture(desc.Width, desc.Height, D3DFMT_A16B16G16R16F)?;
-        let total =
-            device.create_render_target_texture(desc.Width, desc.Height, D3DFMT_A16B16G16R16F)?;
+        let width = desc.Width.div_ceil(2).max(1);
+        let height = desc.Height.div_ceil(2).max(1);
+        let deficit = device.create_render_target_texture(width, height, D3DFMT_A16B16G16R16F)?;
+        let total = device.create_render_target_texture(width, height, D3DFMT_A16B16G16R16F)?;
         Ok(Self {
             deficit_surface: deficit.surface_level(0)?,
             deficit,
             total_surface: total.surface_level(0)?,
             total,
+            width,
+            height,
         })
     }
 }
