@@ -32,6 +32,11 @@ const EVSM4_NEGATIVE_EXPONENT: f32 = 5.0;
 // Sub-unit tolerance absorbs floating-point noise without allowing a carried
 // Pip-Boy light to trail the player for several visible world units.
 const POINT_POSITION_REFRESH_DISTANCE: f32 = 0.25;
+/// Fixed linear-depth range represented by contact G16 values.
+///
+/// This covers the complete schema-one contact slider rather than the current
+/// camera far plane, so a camera/FOV change cannot reinterpret retained data.
+pub(super) const CONTACT_DEPTH_KEY_RANGE: f32 = 250_000.0;
 
 /// Combine exterior map/contact-refined visibility with configured darkness.
 ///
@@ -115,11 +120,13 @@ pub(super) const fn first_person_caster_is_excluded(
     shader_flagged || under_first_person_root
 }
 
-/// Reconcile a current screen-depth contact estimate with reprojected history.
+/// Reject temporal reuse when only contact-receiver depth is available.
 ///
-/// A history sample is valid only when its stored linear depth agrees with the
-/// current receiver. This prevents camera motion from dragging a shadow across
-/// a newly revealed wall or foreground edge.
+/// Equal receiver depth proves only that both frames contain the same wall or
+/// ground plane. It cannot prove that the screen-depth ray hit the same
+/// occluder. Blending such history leaves a dark trail after forward movement
+/// or a fast yaw and delays a newly detected shadow. OMV therefore uses the
+/// current ray estimate and stabilizes it spatially within the same frame.
 pub(super) fn contact_history_visibility(
     current_visibility: f32,
     current_depth: f32,
@@ -140,15 +147,8 @@ pub(super) fn contact_history_visibility(
         return None;
     }
     let current = current_visibility.clamp(0.0, 1.0);
-    if !history_valid || history_depth <= 0.0 {
-        return Some(current);
-    }
-    if !contact_depths_match(current_depth, history_depth) {
-        return Some(current);
-    }
-    // One quarter of the new estimate per frame suppresses binary ray-sample
-    // toggles while still converging to a newly established contact quickly.
-    Some(history_visibility.clamp(0.0, 1.0) * 0.75 + current * 0.25)
+    let _ = (history_visibility, history_depth, history_valid);
+    Some(current)
 }
 
 /// Match contact evidence only when both samples own the same receiver.
@@ -166,6 +166,181 @@ pub(super) fn contact_depths_match(receiver_depth: f32, sample_depth: f32) -> bo
     }
     let tolerance = (receiver_depth * 0.0025).max(2.0);
     (sample_depth - receiver_depth).abs() <= tolerance
+}
+
+/// Encode a linear contact-receiver depth for the half-float work targets.
+///
+/// The returned value is the exact scalar stored in the G channel. Keeping
+/// this transform as a pure contract lets tests exercise representability and
+/// reprojection at distances well beyond binary16's 65,504 finite limit.
+pub(super) fn contact_depth_key(linear_depth: f32) -> Option<f32> {
+    if !linear_depth.is_finite() || linear_depth <= 0.0 || linear_depth > CONTACT_DEPTH_KEY_RANGE {
+        return None;
+    }
+    Some(linear_depth / CONTACT_DEPTH_KEY_RANGE)
+}
+
+/// Decode a contact key back to linear view depth.
+pub(super) fn contact_depth_from_key(key: f32) -> Option<f32> {
+    if !key.is_finite() || !(0.0..=1.0).contains(&key) || key == 0.0 {
+        return None;
+    }
+    Some(key * CONTACT_DEPTH_KEY_RANGE)
+}
+
+/// Resolve the full-resolution scene-depth texel addressed by a point sample.
+///
+/// Contact generation runs at half resolution. Its interpolated UV therefore
+/// often lies on a full-resolution texel boundary; reconstruction must use
+/// the center of the texel whose depth value the point sampler actually read.
+pub(super) fn point_sampled_texel_center(uv: [f32; 2], dimensions: [u32; 2]) -> Option<[f32; 2]> {
+    if dimensions.into_iter().any(|value| value == 0)
+        || !uv.into_iter().all(f32::is_finite)
+        || uv.into_iter().any(|value| !(0.0..1.0).contains(&value))
+    {
+        return None;
+    }
+    Some(std::array::from_fn(|axis| {
+        let extent = dimensions[axis] as f32;
+        ((uv[axis] * extent).floor() + 0.5) / extent
+    }))
+}
+
+/// Bound quantization error while extrapolating a rasterized receiver plane.
+///
+/// Device depth is affine over one triangle, but every sampled value is
+/// quantized. A gradient inferred from immediate neighbours can accumulate one
+/// depth level of uncertainty per extrapolated pixel. A fixed one-level test
+/// consequently classifies distant planar walls as detached occluders. The
+/// returned bound grows only with the sampled footprint and the actual depth
+/// precision reported by the provider.
+pub(super) fn contact_plane_raw_epsilon(
+    geometric_epsilon: f32,
+    sample_offset_pixels: [f32; 2],
+    depth_levels: f32,
+) -> Option<f32> {
+    if !geometric_epsilon.is_finite()
+        || geometric_epsilon < 0.0
+        || !sample_offset_pixels.into_iter().all(f32::is_finite)
+        || !depth_levels.is_finite()
+        || depth_levels < 1.0
+    {
+        return None;
+    }
+    let quantization =
+        (2.0 + sample_offset_pixels[0].abs() + sample_offset_pixels[1].abs()) / depth_levels;
+    Some(geometric_epsilon.max(quantization))
+}
+
+/// Depth-aware contact visibility for one full-resolution receiver.
+///
+/// Four half-resolution texels surround a full-resolution output coordinate.
+/// Only samples whose encoded depth owns that receiver may contribute. This
+/// is the CPU oracle for the compositor's branch-lazy bilateral upsample.
+pub(super) fn contact_bilateral_visibility(
+    receiver_depth: f32,
+    samples: [[f32; 3]; 4],
+) -> Option<f32> {
+    if !receiver_depth.is_finite()
+        || receiver_depth <= 0.0
+        || !samples.iter().flatten().all(|value| value.is_finite())
+        || samples.iter().any(|sample| sample[2] < 0.0)
+    {
+        return None;
+    }
+    let mut weighted_visibility = 0.0;
+    let mut accepted_weight = 0.0;
+    for [visibility, depth, weight] in samples {
+        if contact_depths_match(receiver_depth, depth) {
+            weighted_visibility += visibility.clamp(0.0, 1.0) * weight;
+            accepted_weight += weight;
+        }
+    }
+    (accepted_weight > 0.0).then(|| (weighted_visibility / accepted_weight).clamp(0.0, 1.0))
+}
+
+/// NVR contact-ray scale for one reconstructed view-space receiver.
+pub(super) fn contact_ray_scale(view_position: [f32; 3], camera_far: f32) -> Option<f32> {
+    if !view_position.into_iter().all(f32::is_finite)
+        || !camera_far.is_finite()
+        || camera_far <= 0.0
+        || view_position[2] <= 0.0
+    {
+        return None;
+    }
+    let radial_depth = view_position
+        .into_iter()
+        .map(|value| value * value)
+        .sum::<f32>()
+        .sqrt();
+    Some((radial_depth / camera_far).clamp(0.0001, 1.0).powf(0.6))
+}
+
+/// Classify one screen-depth ray hit against its receiver plane.
+///
+/// A true blocker must be behind the marched point but separated from the
+/// receiver plane. A depth sample from the receiver itself is self-occlusion,
+/// which otherwise becomes a large camera-dependent patch on planar walls.
+pub(super) fn contact_sample_is_occluder(
+    receiver: [f32; 3],
+    receiver_normal: [f32; 3],
+    marched: [f32; 3],
+    sampled_scene: [f32; 3],
+    thickness: f32,
+) -> bool {
+    if !receiver
+        .into_iter()
+        .chain(receiver_normal)
+        .chain(marched)
+        .chain(sampled_scene)
+        .chain([thickness])
+        .all(f32::is_finite)
+        || thickness <= 0.0
+    {
+        return false;
+    }
+    let normal_length = receiver_normal
+        .into_iter()
+        .map(|value| value * value)
+        .sum::<f32>()
+        .sqrt();
+    if !normal_length.is_finite() || normal_length <= 1.0e-6 {
+        return false;
+    }
+    let plane_distance = (0..3)
+        .map(|axis| (sampled_scene[axis] - receiver[axis]) * receiver_normal[axis] / normal_length)
+        .sum::<f32>()
+        .abs();
+    let plane_epsilon = (receiver[2].abs() * 1.0e-5).max(0.5);
+    let delta = marched[2] - sampled_scene[2];
+    delta > 0.01 && delta < thickness && plane_distance > plane_epsilon
+}
+
+/// Return whether a directional-map projection lies inside its complete clip volume.
+pub(super) fn directional_projection_is_sampleable(ndc: [f32; 3]) -> bool {
+    ndc.into_iter().all(f32::is_finite)
+        && (-1.0..=1.0).contains(&ndc[0])
+        && (-1.0..=1.0).contains(&ndc[1])
+        && (0.0..=1.0).contains(&ndc[2])
+}
+
+/// Fixed fragment workload of the half-resolution contact consumer.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) struct ContactConsumerWork {
+    /// Fullscreen half-resolution draw count.
+    pub(super) passes: u32,
+    /// Executed texture reads per half-resolution output pixel.
+    pub(super) texture_samples: u32,
+}
+
+/// Return the contact pass topology paired with the embedded shaders.
+pub(super) const fn contact_consumer_work() -> ContactConsumerWork {
+    ContactConsumerWork {
+        passes: 2,
+        // Receiver depth, two light-opposed plane neighbours, four NVR ray
+        // taps, then the center plus four depth-aware spatial neighbours.
+        texture_samples: 12,
+    }
 }
 
 /// Compose shadow-owned radiance while preserving unrelated source energy.
@@ -208,9 +383,18 @@ pub(super) fn source_owned_shadow_radiance(
         // model from subtracting ambient or creating energy.
         let owned_local = point_total[axis].max(0.0).min(source_linear[axis]);
         let deficit = point_deficit[axis].max(0.0).min(owned_local);
-        (source_linear[axis] * directional + owned_local * (1.0 - directional)
+        let mixed = (source_linear[axis] * directional + owned_local * (1.0 - directional)
             - deficit * point_darkness.clamp(0.0, 1.0))
-        .max(0.0)
+        .max(0.0);
+        if directional_darkness > 0.0 {
+            // Analytic NVR point attenuation is an estimate, while the native
+            // framebuffer is authoritative. An overestimate may remove local
+            // energy down to the sun-only result, never through that result
+            // into ambient/emissive ownership.
+            mixed.max(source_linear[axis] * directional)
+        } else {
+            mixed
+        }
     });
     let peak = source_linear.into_iter().fold(0.0_f32, f32::max);
     let transition = ((peak - 1.0) / 0.15).clamp(0.0, 1.0);
@@ -476,8 +660,12 @@ impl LightScissorRect {
     }
 }
 
-/// Maximum cube samplers evaluated after one shared geometry reconstruction.
-pub(super) const POINT_CONSUMER_BATCH_SIZE: usize = 6;
+/// Maximum cube samplers evaluated with one scene-depth receiver sampler.
+///
+/// Pixel shader model three exposes sixteen samplers. Scene depth occupies s0,
+/// so all twelve NVR-quality point maps fit in one draw without reducing the
+/// configured light count or repeating full-resolution receiver work.
+pub(super) const POINT_CONSUMER_BATCH_SIZE: usize = NVR_POINT_LIGHT_COUNT;
 
 /// One coverage-bounded point-light consumer draw.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -524,11 +712,11 @@ impl PointConsumerPlan {
 
 /// Batch overlapping point lights while keeping separated lights scissored.
 ///
-/// Receiver geometry is reconstructed once in a coverage-bounded prepass. A
-/// six-light batch then fills all remaining shader-model-three cube samplers
-/// and is profitable when its union rectangle covers no more pixels than the
-/// individual rectangles combined. Widely separated lights remain individual
-/// so empty space does not become work.
+/// Each draw reconstructs its receiver directly from scene depth and then uses
+/// the remaining samplers for up to twelve shadow cubes. A batch is profitable
+/// when its union rectangle covers no more pixels than the individual
+/// rectangles combined. Widely separated lights remain individual so empty
+/// space does not become work.
 pub(super) fn point_consumer_plan(
     scissors: [Option<LightScissorRect>; NVR_POINT_LIGHT_COUNT],
     count: usize,
@@ -576,77 +764,6 @@ pub(super) fn point_consumer_plan(
                 };
                 plan.len += 1;
             }
-        }
-    }
-    plan
-}
-
-/// Fixed-capacity coverage schedule for shared point receiver geometry.
-#[derive(Clone, Copy, Debug)]
-pub(super) struct PointGeometryPlan {
-    rectangles: [LightScissorRect; NVR_POINT_LIGHT_COUNT],
-    len: usize,
-}
-
-impl PointGeometryPlan {
-    /// Rectangles which together cover every selected light sphere.
-    pub(super) fn rectangles(self) -> impl Iterator<Item = LightScissorRect> {
-        self.rectangles.into_iter().take(self.len)
-    }
-
-    /// Total receiver-geometry fragments before depth endpoint rejection.
-    pub(super) fn fragment_count(self) -> u64 {
-        self.rectangles().map(LightScissorRect::pixels).sum()
-    }
-}
-
-/// Merge overlapping receiver rectangles without admitting empty-space work.
-///
-/// The set is tiny (at most twelve), so an allocation-free pair search is
-/// cheaper and more predictable than a render-thread spatial data structure.
-/// A merge is accepted only when its bounding union costs no more fragments
-/// than drawing both inputs. Identical camera-containing lights collapse to
-/// one full-screen reconstruction; separated lights retain tight coverage.
-pub(super) fn point_geometry_plan(
-    scissors: [Option<LightScissorRect>; NVR_POINT_LIGHT_COUNT],
-    count: usize,
-) -> PointGeometryPlan {
-    let empty = LightScissorRect {
-        left: 0,
-        top: 0,
-        right: 0,
-        bottom: 0,
-    };
-    let mut plan = PointGeometryPlan {
-        rectangles: [empty; NVR_POINT_LIGHT_COUNT],
-        len: 0,
-    };
-    for rectangle in scissors
-        .into_iter()
-        .take(count.min(NVR_POINT_LIGHT_COUNT))
-        .flatten()
-    {
-        plan.rectangles[plan.len] = rectangle;
-        plan.len += 1;
-    }
-    loop {
-        let mut merged = false;
-        'pairs: for first in 0..plan.len {
-            for second in first + 1..plan.len {
-                let union = plan.rectangles[first].union(plan.rectangles[second]);
-                if union.pixels()
-                    <= plan.rectangles[first].pixels() + plan.rectangles[second].pixels()
-                {
-                    plan.rectangles[first] = union;
-                    plan.len -= 1;
-                    plan.rectangles[second] = plan.rectangles[plan.len];
-                    merged = true;
-                    break 'pairs;
-                }
-            }
-        }
-        if !merged {
-            break;
         }
     }
     plan
@@ -955,38 +1072,63 @@ pub(super) const fn consumer_has_shadow_work(directional: bool, point_count: usi
 
 /// Split animated caster work from persistent directional-map work.
 ///
-/// Rebuilding NVR's complete near cascade for the player animation is the
-/// dominant exterior producer cost: it resubmits terrain and every static
-/// reference at 2048 with four coverage samples. When root collection is
-/// complete, OMV can render near actors into an independent EVSM map and keep
-/// the static near map immutable. Outer actor maps retain the conservative
-/// combined path because one near overlay cannot represent their projections.
-/// An overflow preserves correctness by returning to complete-map rebuilds.
+/// Rebuilding an NVR-quality cascade for actor animation resubmits terrain and
+/// every static reference at 2048 with four coverage samples. When root
+/// collection is complete, OMV renders actors into independent near, middle,
+/// and far EVSM maps and keeps all static maps immutable. An overflow preserves
+/// correctness by returning to complete-map rebuilds.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) struct DirectionalCasterWork {
     /// Animated-caster invalidations that still require complete map rebuilds.
     pub(super) static_map_mask: u8,
-    /// Whether the current near projection needs the actor-only EVSM overlay.
-    pub(super) near_actor_overlay: bool,
+    /// Actor-capable cascades requiring private same-frame EVSM maps.
+    pub(super) actor_overlay_mask: u8,
 }
 
 /// Plan directional actor work without dropping an unclassified root.
 pub(super) const fn directional_caster_work(
-    dynamic_cascade_mask: u8,
+    previous_dynamic_cascade_mask: u8,
+    current_dynamic_cascade_mask: u8,
     complete_root_cache: bool,
 ) -> DirectionalCasterWork {
-    let dynamic_cascade_mask = dynamic_cascade_mask & 0b0111;
+    let previous_dynamic_cascade_mask = previous_dynamic_cascade_mask & 0b0111;
+    let current_dynamic_cascade_mask = current_dynamic_cascade_mask & 0b0111;
+    // A retained map contains the last submitted actor silhouette. Crossing a
+    // cascade boundary therefore dirties both sides: the new map needs the
+    // actor and the old map must be regenerated without it. Current bounds
+    // alone cannot remove an abandoned silhouette.
+    let affected_cascades = previous_dynamic_cascade_mask | current_dynamic_cascade_mask;
     if complete_root_cache {
         DirectionalCasterWork {
-            static_map_mask: dynamic_cascade_mask & !0b0001,
-            near_actor_overlay: dynamic_cascade_mask & 0b0001 != 0,
+            // Every actor-capable cascade has an independent overlay. Actor
+            // animation and ownership transitions therefore never invalidate
+            // terrain, buildings, or other immutable casters.
+            static_map_mask: 0,
+            // Every overlay is a same-frame publication, so an actor which
+            // departed a cascade needs no clearing pass: not publishing that
+            // slot makes its previous contents unreachable to the compositor.
+            actor_overlay_mask: current_dynamic_cascade_mask,
         }
     } else {
         DirectionalCasterWork {
-            static_map_mask: dynamic_cascade_mask,
-            near_actor_overlay: false,
+            static_map_mask: affected_cascades,
+            actor_overlay_mask: 0,
         }
     }
+}
+
+/// Return whether an animated root can contribute to the current view.
+///
+/// The native traversal rejects an application-culled root before visiting any
+/// children. Dynamic invalidation must use the same predicate or first-person
+/// play pays for a full actor-only map whose third-person player root submits
+/// no geometry.
+pub(super) const fn directional_actor_root_is_active(
+    is_dynamic_actor: bool,
+    ni_av_object_flags: u32,
+) -> bool {
+    const APP_CULLED: u32 = 1 << 0;
+    is_dynamic_actor && ni_av_object_flags & APP_CULLED == 0
 }
 
 /// Dirty causes that require one or more directional maps to be rebuilt.
@@ -1013,6 +1155,67 @@ impl CascadeDirty {
         Self {
             mask: mask & COMPLETE_CASCADE_MASK,
         }
+    }
+}
+
+/// Allocation-free identity of the roots submitted to directional maps.
+///
+/// Exterior cell streaming may add or remove geometry without changing the
+/// camera, sun, or form profile. Retained maps must therefore own a root-set
+/// identity as well as their projection. The two commutative accumulators keep
+/// the result independent of cell-list order while making duplicate, added,
+/// and removed roots materially distinct.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub(super) struct DirectionalRootSetSignature {
+    count: u32,
+    xor: u32,
+    sum: u32,
+}
+
+impl DirectionalRootSetSignature {
+    /// Empty signature used only while constructing the current-frame value.
+    pub(super) const EMPTY: Self = Self {
+        count: 0,
+        xor: 0,
+        sum: 0,
+    };
+
+    /// Add one stable native root identity and its profile discriminator.
+    pub(super) fn include(&mut self, identity: usize, profile: u32) {
+        let mut mixed = (identity as u32) ^ profile.rotate_left(21);
+        // Murmur3's 32-bit finalizer provides adequate avalanche for aligned
+        // engine pointers. No cryptographic property is required: this is a
+        // conservative cache invalidator, not an ownership or safety token.
+        mixed ^= mixed >> 16;
+        mixed = mixed.wrapping_mul(0x85eb_ca6b);
+        mixed ^= mixed >> 13;
+        mixed = mixed.wrapping_mul(0xc2b2_ae35);
+        mixed ^= mixed >> 16;
+        self.count = self.count.wrapping_add(1);
+        self.xor ^= mixed;
+        self.sum = self.sum.wrapping_add(mixed.rotate_left(profile));
+    }
+}
+
+/// Invalidate retained maps when their borrowed scene-root set changed.
+///
+/// `None` means collection overflowed, so no complete identity exists and all
+/// maps must use the complete visitor again. The previous signature is staged
+/// beside the D3D transaction; callers publish the new value only after draw,
+/// `EndScene`, and state restoration succeed.
+pub(super) const fn directional_root_set_dirty(
+    previous: Option<DirectionalRootSetSignature>,
+    current: Option<DirectionalRootSetSignature>,
+) -> CascadeDirty {
+    match (previous, current) {
+        (Some(previous), Some(current))
+            if previous.count == current.count
+                && previous.xor == current.xor
+                && previous.sum == current.sum =>
+        {
+            CascadeDirty::none()
+        }
+        _ => CascadeDirty::all(),
     }
 }
 
@@ -1132,10 +1335,24 @@ impl Default for PointMapCache {
 pub(super) struct PointMapPlan {
     /// Face bits regenerated for each cube during this transaction.
     pub(super) render_faces: [u8; NVR_POINT_LIGHT_COUNT],
+    /// Faces whose immutable geometry is resubmitted.
+    pub(super) static_faces: [u8; NVR_POINT_LIGHT_COUNT],
+    /// Faces receiving current animated geometry after static restoration.
+    pub(super) dynamic_draw_faces: [u8; NVR_POINT_LIGHT_COUNT],
     /// Map-paired values safe for the consumer to sample.
     pub(super) published: [PointMapSignature; NVR_POINT_LIGHT_COUNT],
+    /// Current nearest-order entry assigned to each stable physical cube.
+    source_indices: [u8; NVR_POINT_LIGHT_COUNT],
     /// Cache state committed only after draw, EndScene, and restoration pass.
     pub(super) next: PointMapCache,
+}
+
+impl PointMapPlan {
+    /// Return the current selected-light index owned by one physical cube.
+    pub(super) fn source_index(self, slot: usize) -> Option<usize> {
+        let index = *self.source_indices.get(slot)?;
+        (index != u8::MAX).then_some(index as usize)
+    }
 }
 
 impl PointMapCache {
@@ -1153,28 +1370,78 @@ impl PointMapCache {
         count: usize,
     ) -> PointMapPlan {
         let count = count.min(NVR_POINT_LIGHT_COUNT);
-        let mut next = self;
+        let mut next = PointMapCache::default();
         let mut render_faces = [0; NVR_POINT_LIGHT_COUNT];
+        let mut static_faces = [0; NVR_POINT_LIGHT_COUNT];
+        let mut dynamic_draw_faces = [0; NVR_POINT_LIGHT_COUNT];
         let mut published = [PointMapSignature::EMPTY; NVR_POINT_LIGHT_COUNT];
-        for index in 0..NVR_POINT_LIGHT_COUNT {
-            if index >= count || current[index].identity == 0 {
-                next.signatures[index] = PointMapSignature::EMPTY;
-                next.dynamic_faces[index] = 0;
+        let mut source_indices = [u8::MAX; NVR_POINT_LIGHT_COUNT];
+        let mut source_claimed = [false; NVR_POINT_LIGHT_COUNT];
+
+        // Preserve every still-selected identity in its existing physical
+        // slot. Camera distance changes may reorder the input array, but they
+        // do not alter the cube's contents or ownership.
+        for slot in 0..count {
+            let identity = self.signatures[slot].identity;
+            if identity == 0 {
                 continue;
             }
-            if !self.signatures[index].materially_matches(current[index]) {
-                render_faces[index] = ALL_CUBE_FACES;
-                next.signatures[index] = current[index];
-            } else {
-                render_faces[index] =
-                    (self.dynamic_faces[index] | dynamic_faces[index]) & ALL_CUBE_FACES;
+            if let Some(source) =
+                current[..count]
+                    .iter()
+                    .enumerate()
+                    .find_map(|(source, signature)| {
+                        (!source_claimed[source] && signature.identity == identity)
+                            .then_some(source)
+                    })
+            {
+                source_indices[slot] = source as u8;
+                source_claimed[source] = true;
             }
-            next.dynamic_faces[index] = dynamic_faces[index] & ALL_CUBE_FACES;
-            published[index] = next.signatures[index];
+        }
+        // Fill vacated slots in nearest-first input order. Replacing one light
+        // invalidates one cube instead of shifting every later map.
+        for source in 0..count {
+            if source_claimed[source] || current[source].identity == 0 {
+                continue;
+            }
+            let Some(slot) = source_indices[..count]
+                .iter()
+                .position(|index| *index == u8::MAX)
+            else {
+                break;
+            };
+            source_indices[slot] = source as u8;
+            source_claimed[source] = true;
+        }
+
+        for slot in 0..count {
+            let Some(source) =
+                (source_indices[slot] != u8::MAX).then_some(source_indices[slot] as usize)
+            else {
+                continue;
+            };
+            if !self.signatures[slot].materially_matches(current[source]) {
+                render_faces[slot] = ALL_CUBE_FACES;
+                static_faces[slot] = ALL_CUBE_FACES;
+                next.signatures[slot] = current[source];
+            } else {
+                render_faces[slot] =
+                    (self.dynamic_faces[slot] | dynamic_faces[source]) & ALL_CUBE_FACES;
+                // Retain exact map-defining metadata until a material move
+                // causes this physical cube to be regenerated.
+                next.signatures[slot] = self.signatures[slot];
+            }
+            next.dynamic_faces[slot] = dynamic_faces[source] & ALL_CUBE_FACES;
+            dynamic_draw_faces[slot] = next.dynamic_faces[slot];
+            published[slot] = next.signatures[slot];
         }
         PointMapPlan {
             render_faces,
+            static_faces,
+            dynamic_draw_faces,
             published,
+            source_indices,
             next,
         }
     }
@@ -1555,6 +1822,45 @@ pub(super) fn point_light_influence_is_eligible(
     (in_front || distance <= radius) && distance - radius <= max_distance
 }
 
+/// Return the shadow contribution retained at the point-light discovery edge.
+///
+/// This function deliberately models the currently shipped hard admission so
+/// the multi-frame regression can reject it before the production selector is
+/// changed. A correct implementation must retire an otherwise valid light
+/// continuously before it leaves the discovery set; returning only zero or
+/// one makes a static shadow appear or disappear on a one-unit camera move.
+pub(super) fn point_light_distance_fade(
+    relative_position: [f32; 3],
+    radius: f32,
+    camera_forward: [f32; 3],
+    max_distance: f32,
+) -> Option<f32> {
+    if !relative_position
+        .into_iter()
+        .chain(camera_forward)
+        .chain([radius, max_distance])
+        .all(f32::is_finite)
+        || radius <= 10.0
+        || max_distance <= 0.0
+    {
+        return None;
+    }
+    if !point_light_influence_is_eligible(relative_position, radius, camera_forward, max_distance) {
+        return Some(0.0);
+    }
+    let distance = relative_position
+        .into_iter()
+        .map(|component| component * component)
+        .sum::<f32>()
+        .sqrt();
+    let edge_distance = (distance - radius).max(0.0);
+    // Five percent is long enough to hide a one-frame producer/consumer
+    // handoff while remaining local to the user-owned discovery distance.
+    let fade_width = (max_distance * 0.05).clamp(128.0, 1_024.0);
+    let retained = ((max_distance - edge_distance) / fade_width).clamp(0.0, 1.0);
+    Some(retained * retained * (3.0 - 2.0 * retained))
+}
+
 /// Observable geometry attributes used by shadow-caster policy.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(super) struct CasterAdmission {
@@ -1705,7 +2011,9 @@ pub(super) fn evsm4_moments(depth: f32, opaque: bool) -> Option<[f32; 4]> {
 ///
 /// Every EVSM channel belongs to one distribution. A channel-wise minimum
 /// combines the positive moments of the near caster with the negative square
-/// of the far caster and creates a distribution that no depth produced.
+/// of the far caster and creates a distribution that no depth produced. Zero
+/// is reserved for a hardware-cleared empty actor texel: a valid positive EVSM
+/// first moment is always strictly greater than zero.
 pub(super) fn merge_evsm4_nearest(
     static_moments: [f32; 4],
     actor_moments: [f32; 4],
@@ -1717,11 +2025,13 @@ pub(super) fn merge_evsm4_nearest(
     {
         return None;
     }
-    Some(if actor_moments[0] < static_moments[0] {
-        actor_moments
-    } else {
-        static_moments
-    })
+    Some(
+        if actor_moments[0] > 0.0 && actor_moments[0] < static_moments[0] {
+            actor_moments
+        } else {
+            static_moments
+        },
+    )
 }
 
 fn reduce_light_bleeding(probability: f32, amount: f32) -> f32 {
@@ -1807,9 +2117,13 @@ pub(super) enum TransactionState {
     Samplers = 1 << 8,
     /// Blend, depth, cull, alpha, stencil, bias, and related states.
     RenderStates = 1 << 9,
+    /// `NiSkinInstance` frame/mode stamps written by bone calculation.
+    SkinCalculationCache = 1 << 10,
+    /// CPU-side `NiDX9RenderState` values not captured by a D3D state block.
+    EngineRendererCache = 1 << 11,
 }
 
-const COMPLETE_TRANSACTION_MASK: u16 = (1 << 10) - 1;
+const COMPLETE_TRANSACTION_MASK: u16 = (1 << 12) - 1;
 
 /// Scene-pair and restoration contract for a replacement producer.
 #[derive(Clone, Copy, Debug)]
@@ -1867,6 +2181,10 @@ pub(super) struct ProducerResourcePlan {
     pub(super) actor_overlay_fullscreen_merge_draws: u32,
     /// Produced/sampled point-shadow count.
     pub(super) point_light_count: u32,
+    /// Total cube textures: one published and one immutable-static cube per
+    /// selected light. The latter removes static-scene traversal from actor
+    /// animation updates without reducing cube resolution or update cadence.
+    pub(super) point_cube_texture_count: u32,
     /// Resolution of every cube face.
     pub(super) point_cube_resolution: u32,
     /// Conservative peak bytes for the OMV plan at the requested resolution.
@@ -1875,9 +2193,9 @@ pub(super) struct ProducerResourcePlan {
     ///
     /// Retaining both families prevents cell-transition allocation hitches.
     /// Both locations share one source-color copy and full-resolution RGB
-    /// local-total, local-deficit, and receiver-geometry targets; exterior
-    /// contact adds three half-resolution G16R16F maps for raw/spatial work and
-    /// camera-reprojected history.
+    /// local-total and local-deficit targets. Receiver geometry is consumed
+    /// directly from scene depth. Exterior contact adds two half-resolution
+    /// G16R16F maps for raw evidence and its same-frame depth-aware filter.
     pub(super) combined_estimated_bytes: u64,
     /// Comparable lower bound for NVR's multisampled 4096 atlas path.
     pub(super) nvr_equivalent_estimated_bytes: u64,
@@ -1900,40 +2218,50 @@ impl ProducerResourcePlan {
         let generation_moments = cascade_pixels * 8 * 4;
         let generation_depth = cascade_pixels * 4 * 4;
         let resolved_moments = cascade_pixels * 8;
+        // Three actor-only FP16 EVSM4 maps preserve near/middle/far
+        // silhouettes without rebuilding the complete static cascades on
+        // every animation frame. Near and middle are packed side-by-side so
+        // the consumer needs only two actor samplers; the reusable resolve is
+        // retained separately because D3D9 multisample resolves cannot target
+        // a sub-rectangle of the packed texture.
+        let actor_moments = resolved_moments * 3;
         let point_cubes = u64::from(512_u32.pow(2)) * 6 * 4 * NVR_POINT_LIGHT_COUNT as u64;
+        let point_static_cubes = point_cubes;
         let point_depth = u64::from(512_u32.pow(2)) * 4;
         let full_resolution_pixels = u64::from(width) * u64::from(height);
         // Equal-format MRTs preserve the exact total and occluded RGB sums in
         // one scissored draw, avoiding colored-light cross-contamination.
         let point_accumulation = full_resolution_pixels * 8 * 2;
-        let point_geometry = full_resolution_pixels * 8;
         let source_copy = full_resolution_pixels * 8;
-        // Three half-resolution four-byte targets retain visibility plus its
-        // linear-depth disocclusion key. Round conservatively for odd sizes.
-        let contact_targets = u64::from(width.div_ceil(2)) * u64::from(height.div_ceil(2)) * 4 * 3;
-        let interior_consumer = source_copy + point_accumulation + point_geometry;
+        // Two half-resolution four-byte targets retain visibility plus its
+        // normalized receiver-depth key. Round conservatively for odd sizes.
+        let contact_targets = u64::from(width.div_ceil(2)) * u64::from(height.div_ceil(2)) * 4 * 2;
+        let interior_consumer = source_copy + point_accumulation;
         let directional = scene != SceneKind::Interior;
         let estimated_bytes = if directional {
             persistent_cascades
                 + generation_moments
                 + generation_depth
                 + resolved_moments
+                + actor_moments
                 + point_cubes
+                + point_static_cubes
                 + point_depth
                 + interior_consumer
                 + contact_targets
         } else {
-            point_cubes + point_depth + interior_consumer
+            point_cubes + point_static_cubes + point_depth + interior_consumer
         };
         let combined_estimated_bytes = persistent_cascades
             + generation_moments
             + generation_depth
             + resolved_moments
+            + actor_moments
             + point_cubes
+            + point_static_cubes
             + point_depth
             + source_copy
             + point_accumulation
-            + point_geometry
             + contact_targets;
 
         let atlas_pixels = u64::from((NVR_CASCADE_RESOLUTION * 2).pow(2));
@@ -1942,7 +2270,7 @@ impl ProducerResourcePlan {
         Some(Self {
             cascade_resolution: NVR_CASCADE_RESOLUTION,
             cascade_count: if directional { CASCADE_COUNT as u32 } else { 0 },
-            directional_texture_count: if directional { 2 } else { 0 },
+            directional_texture_count: if directional { 4 } else { 0 },
             atlas_resolution: NVR_CASCADE_RESOLUTION * 2,
             directional_samples: 4,
             directional_channels: 4,
@@ -1951,6 +2279,7 @@ impl ProducerResourcePlan {
             receiver_filter_samples: 3,
             actor_overlay_fullscreen_merge_draws: 0,
             point_light_count: NVR_POINT_LIGHT_COUNT as u32,
+            point_cube_texture_count: (NVR_POINT_LIGHT_COUNT * 2) as u32,
             point_cube_resolution: 512,
             estimated_bytes,
             combined_estimated_bytes,

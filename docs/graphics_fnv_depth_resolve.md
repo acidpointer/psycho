@@ -280,7 +280,7 @@ discovery, shared-texture validation, route freshness, and exclusive RESZ
 marker classification. `omv/src/backend/mod.rs` owns the atomic active-provider
 identity and the live handoff transaction. `omv/src/hooks.rs` owns the
 `IDirect3DDevice9::SetRenderState` vtable hook. `omv/src/fnv_render.rs` owns
-the pre-alpha service capture, post-world external publication boundaries,
+the pre-alpha service capture, world-stage publication boundaries,
 and native depth-stage hook lifecycle. `omv/src/fnv_world_pipeline.rs`
 invalidates temporal state when provider identity changes.
 
@@ -322,14 +322,17 @@ existing OMV phase captures, up to pre-alpha world, coherent post-world, and
 first-person.
 
 When `depth_resolve` is selected, OMV never calls either its RESZ or NvAPI copy
-path. After the original world renderer returns, OMV retains the shared
-texture and publishes a read-only world snapshot with the persistent world
-camera and source depth convention. The RESZ detour is physically absent in
-this mode, so RESZ and native NvAPI both use the fixed post-world
-replacement-function boundary proven by the reference source as the external
-freshness contract. Successful borrowed snapshots have a separate counter;
-the frozen external-marker counter confirms that OMV is not observing the
-external provider through its D3D9 hook.
+path. Depth Resolve's native accumulator has already completed its pre-water
+copy when OMV's pre-alpha consumers run and its post-water copy when the world
+renderer returns. The provider-neutral `resolve_scene_depth` API therefore
+retains the same shared texture and publishes stage-specific metadata at the
+exact requested boundary: source-surface identity, projection, depth
+convention, dimensions, and render epoch. A pre-alpha shadow request cannot be
+satisfied by a post-world-only cache entry, and a coherent-world request
+cannot alias the pre-alpha stage. The RESZ detour is physically absent in this
+mode, so both RESZ and native NvAPI remain owned entirely by Depth Resolve.
+Successful borrowed boundary snapshots have a separate counter; physical OMV
+copy counters remain unchanged.
 Depth Resolve 1.31 publishes no separate first-person resource; OMV therefore
 does not issue a hidden first-person supplement.
 
@@ -576,8 +579,8 @@ Provider regressions additionally prove:
 - an OMV-armed marker and an external-provider marker are forwarded;
 - only the exact point-size/value pair enters RESZ classification;
 - RESZ interposition is physically requested only for the OMV provider;
-- the detached external route establishes freshness at the post-world
-  boundary without depending on OMV marker observation;
+- the detached external route establishes exact pre-alpha and post-world
+  freshness without depending on OMV marker observation;
 - external provider capability is world-only and cannot silently request an
   OMV first-person supplement;
 - world-only AO uses current RT0 after world publication and before the native

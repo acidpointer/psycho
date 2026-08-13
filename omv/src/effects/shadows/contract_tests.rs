@@ -1,17 +1,19 @@
 use super::contract::{
     CASCADE_COUNT, CascadeDirty, CascadeScheduler, CascadeSphereSelection, CasterAdmission,
-    CasterPolicy, HookAction, NVR_CASCADE_RESOLUTION, NVR_POINT_DRAW_DISTANCE,
-    NVR_POINT_LIGHT_COUNT, NVR_POINT_RADIUS_MULTIPLIER, PointLightCandidate, PointMapCache,
-    PointMapSignature, ProducerResourcePlan, SceneKind, ShadowSettings, TransactionState,
-    cascade_minimum_caster_radius, cascade_sphere_selection, composite_shadow_factor,
-    consumer_has_shadow_work, depth_sample_is_geometry, directional_caster_work,
+    CasterPolicy, DirectionalRootSetSignature, HookAction, NVR_CASCADE_RESOLUTION,
+    NVR_POINT_DRAW_DISTANCE, NVR_POINT_LIGHT_COUNT, NVR_POINT_RADIUS_MULTIPLIER,
+    PointLightCandidate, PointMapCache, PointMapSignature, ProducerResourcePlan, SceneKind,
+    ShadowSettings, TransactionState, cascade_minimum_caster_radius, cascade_sphere_selection,
+    composite_shadow_factor, consumer_has_shadow_work, contact_consumer_work,
+    depth_sample_is_geometry, directional_actor_root_is_active, directional_caster_work,
     directional_contact_visibility, directional_form_type_is_enabled,
-    directional_receiver_position, dismember_partition_is_renderable, effective_contact_distance,
-    evsm4_moments, evsm4_visibility, interior_shadow_factor, local_light_source_guard,
-    merge_evsm4_nearest, nvr_contact_sample_offsets, point_light_influence_is_eligible,
-    practical_cascade_splits, publication_epoch_is_usable, select_point_lights,
-    shadow_receiver_is_valid, skinned_position_reference, snap_shadow_center,
-    source_owned_shadow_radiance, sphere_intersects_cube_face, sphere_intersects_point_light,
+    directional_receiver_position, directional_root_set_dirty, dismember_partition_is_renderable,
+    effective_contact_distance, evsm4_moments, evsm4_visibility, interior_shadow_factor,
+    local_light_source_guard, merge_evsm4_nearest, nvr_contact_sample_offsets,
+    point_light_distance_fade, point_light_influence_is_eligible, practical_cascade_splits,
+    publication_epoch_is_usable, select_point_lights, shadow_receiver_is_valid,
+    skinned_position_reference, snap_shadow_center, source_owned_shadow_radiance,
+    sphere_intersects_cube_face, sphere_intersects_point_light,
 };
 use super::engine::{
     EngineCallAbi, FNV_EXE_SHA256, GeometryKind, HookSiteContract, NativeLayout,
@@ -74,6 +76,10 @@ fn native_scene_and_geometry_offsets_match_the_proven_32_bit_layouts() {
     assert_eq!(NativeLayout::NIDX9_RENDERER_RENDER_STATE, 0x8B8);
     assert_eq!(NativeLayout::NIDX9_RENDER_STATE_CULL_MODE_MAPPING, 0xD4);
     assert_eq!(NativeLayout::NIDX9_RENDER_STATE_LEFT_HANDED, 0xF4);
+    assert_eq!(
+        NativeLayout::NIDX9_RENDER_STATE_INTERNAL_NORMALIZE_NORMALS,
+        0x10F5
+    );
     assert_eq!(NativeLayout::NI_AV_OBJECT_FLAGS, 0x30);
     assert_eq!(NativeLayout::NI_AV_OBJECT_WORLD_TRANSFORM, 0x68);
     assert_eq!(NativeLayout::NI_NODE_SIZE, 0xAC);
@@ -92,6 +98,13 @@ fn native_scene_and_geometry_offsets_match_the_proven_32_bit_layouts() {
     assert_eq!(NativeLayout::NI_GEOMETRY_DATA_BUFFER, 0x34);
     assert_eq!(NativeLayout::NI_GEOMETRY_BUFFER_SIZE, 0x54);
     assert_eq!(NativeLayout::NI_SKIN_INSTANCE_SIZE, 0x34);
+    assert_eq!(NativeLayout::NI_SKIN_PARTITION, 0x0C);
+    assert_eq!(NativeLayout::NI_SKIN_FRAME_ID, 0x18);
+    assert_eq!(NativeLayout::NI_SKIN_BONES, 0x1C);
+    assert_eq!(NativeLayout::NI_SKIN_BONE_REGISTERS, 0x20);
+    assert_eq!(NativeLayout::NI_SKIN_BONE_SIZE, 0x24);
+    assert_eq!(NativeLayout::NI_SKIN_BONE_MATRICES, 0x28);
+    assert_eq!(NativeLayout::NI_SKIN_TO_WORLD, 0x2C);
     assert_eq!(NativeLayout::NI_SKIN_PARTITION_SIZE, 0x10);
     assert_eq!(NativeLayout::NI_SKIN_PARTITION_ENTRY_SIZE, 0x2C);
     assert_eq!(NativeLayout::NI_POINT_LIGHT_SIZE, 0xFC);
@@ -202,6 +215,7 @@ fn generation_draw_calls_and_register_ranges_match_nvr_abi() {
     assert_eq!(GeometryKind::TriStrips.render_address(), 0x00E7_4840);
     assert_eq!(GeometryKind::TriShape.render_address(), 0x00E7_45A0);
     assert_eq!(GeometryKind::Skinned.render_address(), 0x00E6_D310);
+    assert_eq!(ShadowGenerationAbi::CALCULATE_BONE_MATRICES, 0x00E6_FE30);
     assert_eq!(ShadowGenerationAbi::WORLD_ROWS, 0..4);
     assert_eq!(ShadowGenerationAbi::VIEW_PROJECTION_ROWS, 4..8);
     assert_eq!(ShadowGenerationAbi::GEOMETRY_DATA, 8);
@@ -346,11 +360,11 @@ fn directional_work_scales_with_invalidations_not_elapsed_time() {
             .into_iter()
             .filter(|render| *render)
             .count();
-        let work = directional_caster_work(1, true);
+        let work = directional_caster_work(1, 1, true);
         let near =
             scheduler.plan_at_millis(CascadeDirty::from_mask(work.static_map_mask), frame * 8);
         animated_near_static_maps += near.render.into_iter().filter(|render| *render).count();
-        animated_near_overlays += usize::from(work.near_actor_overlay);
+        animated_near_overlays += usize::from(work.actor_overlay_mask & 1 != 0);
         scheduler.commit(near);
     }
     assert_eq!(stationary_maps, 0);
@@ -560,10 +574,9 @@ fn contact_work_is_half_resolution_and_branch_lazy() {
     let full = width * height;
     let half = width.div_ceil(2) * height.div_ceil(2);
     assert_eq!(half * 4, full);
-    assert!(
-        half * 3 < full,
-        "three contact passes must cost less than one full-resolution pass"
-    );
+    let work = contact_consumer_work();
+    assert_eq!(work.passes, 2);
+    assert!(half * u64::from(work.passes) < full);
 }
 
 #[test]
@@ -574,9 +587,12 @@ fn final_shadow_composition_uses_distinct_directional_and_local_identities() {
     assert_eq!(clear, source);
     let receiver = source_owned_shadow_radiance(source, true, 0.5, 0.8, [0.1; 3], [0.1; 3], 0.5)
         .expect("finite receiver");
-    assert!((receiver[0] - 0.47).abs() < 1.0e-6);
-    assert!((receiver[1] - 0.35).abs() < 1.0e-6);
-    assert!((receiver[2] - 0.23).abs() < 1.0e-6);
+    // The analytic local estimate would produce [0.47, 0.35, 0.23]. That is
+    // below the native surface's directional-only lower bound and therefore
+    // owns ambient energy it cannot identify.
+    assert!((receiver[0] - 0.48).abs() < 1.0e-6);
+    assert!((receiver[1] - 0.36).abs() < 1.0e-6);
+    assert!((receiver[2] - 0.24).abs() < 1.0e-6);
 }
 
 #[test]
@@ -768,11 +784,13 @@ fn point_cube_cache_pairs_metadata_and_refreshes_only_changed_lights() {
     let mut dynamic_faces = [0_u8; NVR_POINT_LIGHT_COUNT];
     let first = PointMapCache::default().plan(current, dynamic_faces, NVR_POINT_LIGHT_COUNT);
     assert_eq!(first.render_faces, [0x3f; NVR_POINT_LIGHT_COUNT]);
+    assert_eq!(first.static_faces, [0x3f; NVR_POINT_LIGHT_COUNT]);
 
     let stable = first
         .next
         .plan(current, dynamic_faces, NVR_POINT_LIGHT_COUNT);
     assert_eq!(stable.render_faces, [0; NVR_POINT_LIGHT_COUNT]);
+    assert_eq!(stable.static_faces, [0; NVR_POINT_LIGHT_COUNT]);
 
     let periodic = stable
         .next
@@ -796,6 +814,7 @@ fn point_cube_cache_pairs_metadata_and_refreshes_only_changed_lights() {
         .next
         .plan(moved, dynamic_faces, NVR_POINT_LIGHT_COUNT);
     assert_eq!(refreshed.render_faces[4], 0x3f);
+    assert_eq!(refreshed.static_faces[4], 0x3f);
     assert_eq!(refreshed.published[4], moved[4]);
 
     dynamic_faces[2] = 1 << 4;
@@ -806,6 +825,8 @@ fn point_cube_cache_pairs_metadata_and_refreshes_only_changed_lights() {
         animated.render_faces[2] == 1 << 4,
         "a stationary point light containing a skinned actor must refresh at presentation cadence; otherwise the body shadow freezes or steps independently of animation"
     );
+    assert_eq!(animated.static_faces[2], 0);
+    assert_eq!(animated.dynamic_draw_faces[2], 1 << 4);
     assert!(
         animated.render_faces[1] == 0,
         "dynamic actor correction must not invalidate unrelated cached static cubes"
@@ -819,6 +840,22 @@ fn point_cube_cache_pairs_metadata_and_refreshes_only_changed_lights() {
         crossed.render_faces[2],
         (1 << 4) | (1 << 1),
         "both sides of a cube-face crossing must refresh or the old side retains an actor ghost"
+    );
+    assert_eq!(crossed.static_faces[2], 0);
+    assert_eq!(crossed.dynamic_draw_faces[2], 1 << 1);
+
+    let departed = crossed
+        .next
+        .plan(moved, [0; NVR_POINT_LIGHT_COUNT], NVR_POINT_LIGHT_COUNT);
+    assert_eq!(
+        departed.render_faces[2],
+        1 << 1,
+        "the actor's final occupied face must be restored from immutable geometry"
+    );
+    assert_eq!(departed.static_faces[2], 0);
+    assert_eq!(
+        departed.dynamic_draw_faces[2], 0,
+        "an abandoned face must receive the static copy but no actor submission"
     );
 }
 
@@ -900,19 +937,128 @@ fn local_light_source_geometry_is_never_subtracted_to_black() {
 }
 
 #[test]
-fn dynamic_actor_work_uses_near_overlay_and_rebuilds_intersecting_outer_maps() {
+fn animated_actors_never_redraw_static_directional_geometry() {
     let mut scheduler = CascadeScheduler::default();
     let initial = scheduler.plan_at_millis(CascadeDirty::all(), 0);
     scheduler.commit(initial);
-    let work = directional_caster_work(0b0111, true);
-    assert!(work.near_actor_overlay);
-    assert_eq!(work.static_map_mask, 0b0110);
+    let work = directional_caster_work(0b0111, 0b0111, true);
+    assert_eq!(work.actor_overlay_mask, 0b0111);
+    assert_eq!(
+        work.static_map_mask, 0,
+        "a populated exterior redraws complete middle/far terrain and buildings every frame"
+    );
     let plan = scheduler.plan_at_millis(CascadeDirty::from_mask(work.static_map_mask), 8);
-    assert_eq!(plan.render, [false, true, true, false]);
+    assert_eq!(plan.render, [false; 4]);
 
-    let overflow = directional_caster_work(0b0111, false);
-    assert!(!overflow.near_actor_overlay);
+    let overflow = directional_caster_work(0b0111, 0b0111, false);
+    assert_eq!(overflow.actor_overlay_mask, 0);
     assert_eq!(overflow.static_map_mask, 0b0111);
+}
+
+#[test]
+fn application_culled_player_does_not_schedule_an_empty_actor_overlay() {
+    assert!(directional_actor_root_is_active(true, 0));
+    assert!(
+        !directional_actor_root_is_active(true, 1),
+        "first-person app-culling still scheduled a 2048x2048 four-sample actor map"
+    );
+    assert!(!directional_actor_root_is_active(false, 0));
+}
+
+#[test]
+fn actor_crossing_outer_cascades_invalidates_departed_and_arrived_maps() {
+    let work = directional_caster_work(0b0010, 0b0100, true);
+    assert_eq!(work.actor_overlay_mask, 0b0100);
+
+    assert_eq!(
+        work.static_map_mask, 0,
+        "actor departure/arrival must clear private actor maps, not rebuild static geometry"
+    );
+}
+
+#[test]
+fn point_shadow_distance_retires_continuously_before_admission_ends() {
+    let radius = 512.0;
+    let max_distance = 8_000.0;
+    let forward = [0.0, 1.0, 0.0];
+    let inside = point_light_distance_fade(
+        [0.0, max_distance + radius - 1.0, 0.0],
+        radius,
+        forward,
+        max_distance,
+    )
+    .expect("finite inside sample");
+    let outside = point_light_distance_fade(
+        [0.0, max_distance + radius + 1.0, 0.0],
+        radius,
+        forward,
+        max_distance,
+    )
+    .expect("finite outside sample");
+    assert!(
+        inside < 0.01 && outside == 0.0 && (inside - outside).abs() < 0.01,
+        "one unit of camera motion changes point-shadow weight from {inside} to {outside}"
+    );
+}
+
+#[test]
+fn point_cube_slots_survive_distance_order_changes_without_redrawing() {
+    let mut first_order = [PointMapSignature::EMPTY; NVR_POINT_LIGHT_COUNT];
+    first_order[0] = PointMapSignature {
+        identity: 0x1000,
+        position: [-32.0, 0.0, 0.0],
+        radius: 512.0,
+    };
+    first_order[1] = PointMapSignature {
+        identity: 0x2000,
+        position: [32.0, 0.0, 0.0],
+        radius: 512.0,
+    };
+    let first = PointMapCache::default().plan(first_order, [0; NVR_POINT_LIGHT_COUNT], 2);
+
+    // Crossing the midpoint reverses nearest-first order without changing
+    // either light or either cached cube. Slot ownership, not sort position,
+    // must remain stable or ordinary movement regenerates twelve cube faces.
+    let mut reversed = [PointMapSignature::EMPTY; NVR_POINT_LIGHT_COUNT];
+    reversed[0] = first_order[1];
+    reversed[1] = first_order[0];
+    let moved = first.next.plan(reversed, [0; NVR_POINT_LIGHT_COUNT], 2);
+    assert_eq!(
+        moved.render_faces[..2],
+        [0, 0],
+        "camera-only nearest-order changes discarded two valid static cube maps"
+    );
+    assert_eq!(moved.published[0].identity, first_order[0].identity);
+    assert_eq!(moved.published[1].identity, first_order[1].identity);
+}
+
+#[test]
+fn newly_streamed_root_invalidates_every_cached_directional_map() {
+    let mut scheduler = CascadeScheduler::default();
+    let initial = scheduler.plan_at_millis(CascadeDirty::all(), 0);
+    scheduler.commit(initial);
+
+    let mut previous = DirectionalRootSetSignature::EMPTY;
+    previous.include(0x1000, 0x15);
+    let mut current = previous;
+    current.include(0x2000, 0x24);
+    let dirty = directional_root_set_dirty(Some(previous), Some(current));
+    let streamed = scheduler.plan_at_millis(dirty, 1);
+    assert_eq!(
+        streamed.render, [true; CASCADE_COUNT],
+        "new exterior geometry remained invisible to all cached shadow maps"
+    );
+
+    assert_eq!(
+        directional_root_set_dirty(Some(current), Some(current)),
+        CascadeDirty::none(),
+        "an unchanged root set destroyed directional-map reuse"
+    );
+    assert_eq!(
+        directional_root_set_dirty(Some(current), None),
+        CascadeDirty::all(),
+        "root-cache overflow retained maps whose complete caster set is unknown"
+    );
 }
 
 #[test]
@@ -997,6 +1143,11 @@ fn actor_overlay_merge_selects_one_complete_nearest_evsm_distribution() {
     let static_moments = evsm4_moments(0.65, true).expect("static moments");
     let actor_moments = evsm4_moments(0.35, true).expect("actor moments");
     assert_eq!(
+        merge_evsm4_nearest(static_moments, [0.0; 4]),
+        Some(static_moments),
+        "a hardware-cleared empty actor texel must be neutral without a full-map shader clear"
+    );
+    assert_eq!(
         merge_evsm4_nearest(static_moments, actor_moments),
         Some(actor_moments)
     );
@@ -1021,8 +1172,8 @@ fn resource_plan_preserves_nvr_evsm_coverage_with_one_reusable_multisample_surfa
     assert_eq!(exterior.cascade_resolution, NVR_CASCADE_RESOLUTION);
     assert_eq!(exterior.cascade_count, CASCADE_COUNT as u32);
     assert_eq!(
-        exterior.directional_texture_count, 2,
-        "the atlas and reusable generation/actor resolve must both be included in the resource contract"
+        exterior.directional_texture_count, 4,
+        "the atlas, reusable near resolve, and two outer actor maps must be included"
     );
     assert_eq!(
         exterior.actor_overlay_fullscreen_merge_draws, 0,
@@ -1041,8 +1192,17 @@ fn resource_plan_preserves_nvr_evsm_coverage_with_one_reusable_multisample_surfa
         "one bilinear center plus two symmetric transition-only taps bound receiver work"
     );
     assert_eq!(exterior.point_light_count, NVR_POINT_LIGHT_COUNT as u32);
-    assert!(exterior.estimated_bytes <= 512 * 1024 * 1024);
-    assert!(exterior.combined_estimated_bytes <= 512 * 1024 * 1024);
+    assert_eq!(
+        exterior.point_cube_texture_count,
+        (NVR_POINT_LIGHT_COUNT * 2) as u32,
+        "each published point cube needs an immutable-static backing cube"
+    );
+    assert_eq!(
+        exterior.estimated_bytes, 675_719_168,
+        "the resource contract omitted a quality-preserving shadow resource"
+    );
+    assert!(exterior.estimated_bytes <= 648 * 1024 * 1024);
+    assert!(exterior.combined_estimated_bytes <= 648 * 1024 * 1024);
     assert!(exterior.nvr_equivalent_estimated_bytes >= 896 * 1024 * 1024);
 
     let interior = ProducerResourcePlan::quality_default(SceneKind::Interior, 1920, 1080)
@@ -1051,8 +1211,9 @@ fn resource_plan_preserves_nvr_evsm_coverage_with_one_reusable_multisample_surfa
     assert_eq!(interior.directional_texture_count, 0);
     assert_eq!(interior.point_light_count, NVR_POINT_LIGHT_COUNT as u32);
     assert_eq!(interior.point_cube_resolution, 512);
-    assert_eq!(interior.estimated_bytes, 142_901_248);
-    assert!(interior.estimated_bytes <= 144 * 1024 * 1024);
+    assert_eq!(interior.point_cube_texture_count, 24);
+    assert_eq!(interior.estimated_bytes, 201_809_920);
+    assert!(interior.estimated_bytes <= 208 * 1024 * 1024);
     assert_eq!(
         interior.combined_estimated_bytes, exterior.combined_estimated_bytes,
         "the retained two-branch peak is independent of the current cell"
@@ -1072,6 +1233,8 @@ fn producer_transaction_restores_every_state_class_it_mutates() {
         TransactionState::Textures,
         TransactionState::Samplers,
         TransactionState::RenderStates,
+        TransactionState::SkinCalculationCache,
+        TransactionState::EngineRendererCache,
     ];
     let plan =
         ProducerResourcePlan::quality_default(SceneKind::Exterior, 1920, 1080).expect("plan");

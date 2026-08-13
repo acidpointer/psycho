@@ -93,6 +93,9 @@ impl NativeLayout {
     pub(super) const NIDX9_RENDER_STATE_CULL_MODE_MAPPING: usize = 0xD4;
     /// `NiDX9RenderState::LeftHanded`, which selects the mapping column.
     pub(super) const NIDX9_RENDER_STATE_LEFT_HANDED: usize = 0xF4;
+    /// `NiDX9RenderState::InternalNormalizeNormals`, mutated by native skin
+    /// calculation and therefore journaled around shadow submission.
+    pub(super) const NIDX9_RENDER_STATE_INTERNAL_NORMALIZE_NORMALS: usize = 0x10F5;
     /// `TES::gridCellArray`.
     pub(super) const TES_GRID_CELL_ARRAY: usize = 0x08;
     /// `TES::objectLODRoot`.
@@ -169,6 +172,20 @@ impl NativeLayout {
     pub(super) const NI_GEOMETRY_BUFFER_SIZE: usize = 0x54;
     /// Complete `NiSkinInstance` size.
     pub(super) const NI_SKIN_INSTANCE_SIZE: usize = 0x34;
+    /// `NiSkinInstance::SkinPartition`.
+    pub(super) const NI_SKIN_PARTITION: usize = 0x0C;
+    /// `NiSkinInstance::FrameID`, the native calculation cache stamp.
+    pub(super) const NI_SKIN_FRAME_ID: usize = 0x18;
+    /// `NiSkinInstance::Bones`.
+    pub(super) const NI_SKIN_BONES: usize = 0x1C;
+    /// `NiSkinInstance::BoneRegisters`, the cached calculation mode.
+    pub(super) const NI_SKIN_BONE_REGISTERS: usize = 0x20;
+    /// `NiSkinInstance::BoneSize`, the engine-owned matrix allocation capacity.
+    pub(super) const NI_SKIN_BONE_SIZE: usize = 0x24;
+    /// `NiSkinInstance::BoneMatrixes`.
+    pub(super) const NI_SKIN_BONE_MATRICES: usize = 0x28;
+    /// `NiSkinInstance::SkinToWorldWorldToSkin`.
+    pub(super) const NI_SKIN_TO_WORLD: usize = 0x2C;
     /// Complete `NiSkinPartition` size.
     pub(super) const NI_SKIN_PARTITION_SIZE: usize = 0x10;
     /// Complete `NiSkinPartition::Partition` stride.
@@ -201,6 +218,8 @@ impl NativeLayout {
 pub(super) struct ShadowGenerationAbi;
 
 impl ShadowGenerationAbi {
+    /// `NiDX9Renderer::CalculateBoneMatrices` for the supported executable.
+    pub(super) const CALCULATE_BONE_MATRICES: usize = 0x00E6_FE30;
     /// Object world-transform rows in vertex constants.
     pub(super) const WORLD_ROWS: Range<usize> = 0..4;
     /// Light view-projection rows in vertex constants.

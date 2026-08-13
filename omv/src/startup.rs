@@ -28,6 +28,11 @@
 //! TOML table, parse it through a feature-specific loader after
 //! `DeferredInit`, publish passive settings there, and open the route only
 //! immediately before its resident hook group becomes reachable.
+//! Post-deferred runtime state must also remain behind a fixed-size static
+//! owner. `LazyLock<T>` stores `T` inline before it is forced, so growing or
+//! shrinking an apparently deferred `T` still changes the loader-visible PE
+//! footprint. Native Shadows preserves its accepted owner size and boxes the
+//! mutable pipeline at DeferredInit for this reason.
 //!
 //! See `docs/nvse_startup_phase_safety.md` and
 //! `docs/graphics_fnv_atmosphere_startup_crash_errata.md`. The structural tests

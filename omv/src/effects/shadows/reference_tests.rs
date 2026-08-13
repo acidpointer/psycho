@@ -8,9 +8,12 @@
 
 use super::contract::{
     CascadeDirty, CascadeScheduler, NVR_CASCADE_RESOLUTION, NVR_POINT_LIGHT_COUNT, PointMapCache,
-    PointMapSignature, cascade_sphere_selection, contact_depths_match, contact_history_visibility,
-    depth_sample_is_geometry, first_person_caster_is_excluded, interior_shadow_factor,
-    point_consumer_plan, point_geometry_plan, point_light_scissor, practical_cascade_splits,
+    PointMapSignature, cascade_sphere_selection, contact_bilateral_visibility,
+    contact_depth_from_key, contact_depth_key, contact_depths_match, contact_history_visibility,
+    contact_plane_raw_epsilon, contact_ray_scale, contact_sample_is_occluder,
+    depth_sample_is_geometry, directional_projection_is_sampleable,
+    first_person_caster_is_excluded, interior_shadow_factor, point_consumer_plan,
+    point_light_scissor, point_sampled_texel_center, practical_cascade_splits,
     retained_cascade_needs_refresh, shadow_receiver_is_world_surface, skinned_position_reference,
     skinned_submission_is_available, source_owned_shadow_radiance, sun_projection_needs_refresh,
 };
@@ -224,6 +227,26 @@ fn adding_a_pip_boy_light_cannot_make_an_exterior_sun_shadow_darker() {
 }
 
 #[test]
+fn overestimated_pip_boy_cube_cannot_cut_a_black_shape_into_sunlight() {
+    let source = [0.30; 3];
+    let directional = 0.20;
+    let sun_only_floor = source.map(|channel| channel * directional);
+    // Analytic NVR attenuation can exceed the energy actually owned by the
+    // native material. This is the screenshot's destructive-light negative
+    // control: total and deficit both saturate to the complete framebuffer.
+    let mixed =
+        source_owned_shadow_radiance(source, true, directional, 1.0, [0.50; 3], [0.50; 3], 1.0)
+            .expect("finite mixed-light composition");
+    for axis in 0..3 {
+        assert!(
+            mixed[axis] + EPSILON >= sun_only_floor[axis],
+            "local-light estimation cut channel {axis} below the sun-only surface"
+        );
+        assert!(mixed[axis] <= source[axis] + EPSILON);
+    }
+}
+
+#[test]
 fn multiple_interior_lights_cannot_subtract_unowned_ambient_energy() {
     let ambient = [0.12, 0.10, 0.08];
     let local = [0.70, 0.50, 0.30];
@@ -276,6 +299,45 @@ fn fog_and_volumetric_scattering_are_composed_after_surface_shadows() {
             .all(|(final_channel, fog)| final_channel >= fog),
         "a surface shadow may attenuate transmitted surface radiance, never additive fog radiance"
     );
+}
+
+#[test]
+fn point_free_exterior_specialization_is_algebraically_identical() {
+    let smoothstep = |minimum: f32, maximum: f32, value: f32| {
+        let normalized = ((value - minimum) / (maximum - minimum)).clamp(0.0, 1.0);
+        normalized * normalized * (3.0 - 2.0 * normalized)
+    };
+    for source in [
+        [0.0, 0.0, 0.0],
+        [0.15, 0.35, 0.75],
+        [1.0, 0.8, 0.6],
+        [1.03, 0.9, 0.7],
+        [2.5, 1.2, 0.4],
+    ] as [[f32; 3]; 5]
+    {
+        for directional in [0.0_f32, 0.1, 0.5, 0.9, 1.0] {
+            let linear = source.map(|channel| f32::powf(channel.max(0.0), 2.2));
+            let maximum_linear = linear.into_iter().fold(0.0_f32, f32::max);
+            let emitter = smoothstep(1.0, 1.15, maximum_linear);
+            let original = linear.map(|channel| {
+                let shadowed = channel * directional;
+                (shadowed + (channel - shadowed) * emitter).powf(1.0 / 2.2)
+            });
+
+            let maximum_source = source.into_iter().fold(0.0_f32, f32::max);
+            let specialized_emitter = smoothstep(1.0, 1.15, maximum_source.max(0.0).powf(2.2));
+            let attenuation = directional + (1.0 - directional) * specialized_emitter;
+            let specialized = source.map(|channel| channel * attenuation.powf(1.0 / 2.2));
+            for axis in 0..3 {
+                assert!(
+                    (original[axis] - specialized[axis]).abs() <= 2.0e-6,
+                    "point-free specialization changed channel {axis}: original={}, specialized={}",
+                    original[axis],
+                    specialized[axis]
+                );
+            }
+        }
+    }
 }
 
 /// World-space 2-D visibility oracle for a receiver/light cross section.
@@ -348,25 +410,215 @@ fn contact_shadow_oracle_is_empty_on_a_plane_localized_by_a_small_caster_and_cam
 }
 
 #[test]
-fn contact_history_bounds_blinking_and_rejects_disocclusion_lines() {
-    let stable = contact_history_visibility(0.0, 800.0, 1.0, 800.5, true)
-        .expect("same-surface contact history");
-    assert!(
-        stable >= 0.70,
-        "one screen-depth miss changed stable visibility by more than 0.30"
+fn same_frame_contact_appears_immediately_and_rejects_disocclusion_lines() {
+    let current_shadow = 0.0;
+    let stale_lit_history = 1.0;
+    let stable = contact_history_visibility(current_shadow, 800.0, stale_lit_history, 800.5, true)
+        .expect("same-surface rejected history input");
+    assert_eq!(
+        stable, current_shadow,
+        "a contact shadow faded in only after movement instead of following current ray evidence"
     );
 
     let disoccluded =
         contact_history_visibility(0.85, 200.0, 0.0, 900.0, true).expect("finite disocclusion");
     assert_eq!(
         disoccluded, 0.85,
-        "history from a different wall produced a camera-following line"
+        "rejected history from a different wall produced a camera-following line"
     );
     assert!(contact_depths_match(800.0, 801.5));
     assert!(
         !contact_depths_match(800.0, 810.0),
         "a ten-unit foreground edge was treated as one filterable receiver"
     );
+}
+
+#[test]
+fn receiver_depth_alone_cannot_retain_contact_history_after_motion() {
+    // The receiver is the same wall in both frames, so a depth-only history
+    // test accepts it. The ray evidence is not the same: after forward motion
+    // or a fast yaw the current frame no longer sees the occluder. Retaining
+    // the old zero-visibility value therefore creates exactly the reported
+    // camera-following patch on an otherwise unchanged wall.
+    let current_visibility = 1.0;
+    let stale_history_visibility = 0.0;
+    let wall_depth = 8_000.0;
+    let resolved = contact_history_visibility(
+        current_visibility,
+        wall_depth,
+        stale_history_visibility,
+        wall_depth,
+        true,
+    )
+    .expect("finite same-wall history");
+
+    assert_eq!(
+        resolved, current_visibility,
+        "receiver depth validated the wall, not the occluder; stale contact evidence survived motion"
+    );
+}
+
+/// Quantize the normalized positive values used by these tests to binary16.
+///
+/// Contact keys are in (0, 1], so handling NaNs, infinities, and negative
+/// encodings would add noise without exercising the render-target contract.
+fn quantize_positive_binary16(value: f32) -> f32 {
+    if value == 0.0 {
+        return 0.0;
+    }
+    let exponent = value.log2().floor() as i32;
+    let step = 2.0_f32.powi((exponent - 10).max(-24));
+    (value / step).round() * step
+}
+
+#[test]
+fn far_contact_depth_survives_g16_work_targets_and_fast_forward_motion() {
+    const FAR_WALL: f32 = 149_100.0;
+    assert!(
+        FAR_WALL > 65_504.0,
+        "negative control must exceed binary16's largest finite value"
+    );
+    let key = contact_depth_key(FAR_WALL).expect("configured far contact receiver");
+    assert!(
+        (0.0..=1.0).contains(&key),
+        "raw linear depth cannot be represented by a G16 work target"
+    );
+    let stored = quantize_positive_binary16(key);
+    let decoded = contact_depth_from_key(stored).expect("finite stored key");
+    assert!(
+        contact_depths_match(FAR_WALL, decoded),
+        "the FP16 key no longer owns the far receiver after storage"
+    );
+
+    // Twenty world units of forward motion changes view depth but not surface
+    // ownership. Both frames must remain finite and independently decodable.
+    let moved_key = contact_depth_key(FAR_WALL - 20.0).expect("moved receiver");
+    let moved_depth =
+        contact_depth_from_key(quantize_positive_binary16(moved_key)).expect("moved stored key");
+    assert!(contact_depths_match(FAR_WALL - 20.0, moved_depth));
+}
+
+#[test]
+fn half_resolution_contact_reconstructs_the_depth_texel_it_sampled() {
+    let dimensions = [3_440, 1_440];
+    // Pixel zero of a 1720-wide contact target lands on a boundary between
+    // full-resolution texels. D3D point sampling returns texel (1, 1), whose
+    // center is not the interpolated half-resolution UV.
+    let requested = [1.0 / 3_440.0, 1.0 / 1_440.0];
+    let actual = point_sampled_texel_center(requested, dimensions).expect("valid depth sample");
+    let expected = [1.5 / 3_440.0, 1.5 / 1_440.0];
+    assert!((actual[0] - expected[0]).abs() < EPSILON / 10.0);
+    assert!((actual[1] - expected[1]).abs() < EPSILON / 10.0);
+
+    let moved =
+        point_sampled_texel_center([requested[0] + 2.0 / 3_440.0, requested[1]], dimensions)
+            .expect("next half-resolution sample");
+    assert!((moved[0] - 3.5 / 3_440.0).abs() < EPSILON / 10.0);
+
+    // A half-resolution contact texel is shared by a 2x2 full-resolution
+    // block. At a one-pixel silhouette, the current point-sampled compositor
+    // gives the even receiver the odd receiver's key and rejects otherwise
+    // valid contact evidence as a moving line.
+    let compact_dimensions = [8, 8];
+    let contact_center = [(2.5 / 4.0), (2.5 / 4.0)];
+    let represented = point_sampled_texel_center(contact_center, compact_dimensions)
+        .expect("represented full-resolution receiver");
+    assert_eq!(represented, [5.5 / 8.0, 5.5 / 8.0]);
+    let even_receiver_depth = 1_000.0;
+    let represented_odd_depth = 8_000.0;
+    assert!(
+        !contact_depths_match(even_receiver_depth, represented_odd_depth),
+        "negative control must expose the crossed receiver edge"
+    );
+    let upsampled = contact_bilateral_visibility(
+        even_receiver_depth,
+        [
+            [0.0, represented_odd_depth, 1.0],
+            [0.25, even_receiver_depth, 1.0],
+            [0.25, even_receiver_depth, 1.0],
+            [0.25, even_receiver_depth, 1.0],
+        ],
+    )
+    .expect("one surrounding contact sample owns the even receiver");
+    assert!((upsampled - 0.25).abs() < EPSILON);
+}
+
+#[test]
+fn far_quantized_planar_wall_cannot_become_a_contact_occluder() {
+    const D24_LEVELS: f32 = 16_777_215.0;
+    let quantize = |raw: f32| (raw * D24_LEVELS).round() / D24_LEVELS;
+    let center_raw = quantize(0.000_02);
+    // Post-projection depth is affine on one rasterized plane. These shallow
+    // gradients reproduce the distant tower wall at D24 precision: immediate
+    // neighbours quantize to the center, while a ray tap several pixels away
+    // lands two representable values away on that same plane.
+    let plane_raw = |pixel_x: f32, pixel_y: f32| {
+        quantize(center_raw + (pixel_x * 0.05 + pixel_y * 0.25) / D24_LEVELS)
+    };
+    let horizontal = plane_raw(-1.0, 0.0);
+    let vertical = plane_raw(0.0, -1.0);
+    let gradient = [center_raw - horizontal, center_raw - vertical];
+    let ray_pixel = [-5.0, -6.0];
+    let predicted = center_raw + gradient[0] * ray_pixel[0] + gradient[1] * ray_pixel[1];
+    let sampled = plane_raw(ray_pixel[0], ray_pixel[1]);
+    let fixed_one_lsb_epsilon = 1.0 / D24_LEVELS;
+    let quantization_error = (sampled - predicted).abs();
+    assert!(
+        quantization_error > fixed_one_lsb_epsilon,
+        "negative control did not exceed the rejected fixed threshold"
+    );
+    let production_epsilon =
+        contact_plane_raw_epsilon(fixed_one_lsb_epsilon, ray_pixel, D24_LEVELS)
+            .expect("finite D24 footprint");
+    let classified_as_separate = quantization_error > production_epsilon;
+
+    assert!(
+        !classified_as_separate,
+        "D24 gradient extrapolation classified one far planar wall as a detached contact caster"
+    );
+}
+
+#[test]
+fn contact_ray_length_is_stable_across_camera_angle_and_forward_motion() {
+    let center = contact_ray_scale([0.0, 0.0, 1_000.0], 10_000.0).expect("center receiver");
+    let edge = contact_ray_scale([600.0, 0.0, 800.0], 10_000.0).expect("edge receiver");
+    assert!(
+        (center - edge).abs() < EPSILON,
+        "equal-distance receivers changed ray length with camera angle"
+    );
+    let moved = contact_ray_scale([600.0, 0.0, 780.0], 10_000.0).expect("forward movement");
+    assert!(
+        (moved - edge).abs() < 0.02,
+        "ordinary W motion jumped ray scale"
+    );
+}
+
+#[test]
+fn contact_ray_rejects_its_receiver_plane_but_keeps_a_detached_blocker() {
+    let receiver = [0.0, 0.0, 100.0];
+    let normal = [0.0, 0.0, -1.0];
+    let marched = [10.0, 0.0, 110.0];
+    assert!(
+        !contact_sample_is_occluder(receiver, normal, marched, [10.0, 0.0, 100.0], 20.0),
+        "a planar wall shadowed itself as the camera moved"
+    );
+    assert!(contact_sample_is_occluder(
+        receiver,
+        normal,
+        marched,
+        [10.0, 0.0, 105.0],
+        20.0,
+    ));
+}
+
+#[test]
+fn cascade_sampling_rejects_light_depth_outside_the_cached_map() {
+    assert!(directional_projection_is_sampleable([0.0, 0.0, 0.5]));
+    assert!(
+        !directional_projection_is_sampleable([0.0, 0.0, -0.01]),
+        "receiver before the cached light volume sampled its clamped edge"
+    );
+    assert!(!directional_projection_is_sampleable([0.0, 0.0, 1.01]));
 }
 
 #[test]
@@ -689,6 +941,10 @@ fn animated_point_casters_do_not_force_six_faces_per_light_per_frame() {
         rendered_faces <= 3,
         "one animated caster regenerated {rendered_faces} cube faces"
     );
+    assert_eq!(
+        animated.static_faces[0], 0,
+        "actor motion resubmitted every static caster in the affected cube face"
+    );
 }
 
 #[test]
@@ -701,7 +957,7 @@ fn animated_near_actors_do_not_redraw_the_complete_static_cascade() {
     // terrain, buildings, and every static reference with it is exactly the
     // old NVR cost that OMV must avoid. The actor needs an independently
     // sampled overlay while the static map remains reusable.
-    let work = super::contract::directional_caster_work(1, true);
+    let work = super::contract::directional_caster_work(1, 1, true);
     let actor_changed = scheduler.plan_at_millis(
         super::contract::CascadeDirty::from_mask(work.static_map_mask),
         1,
@@ -710,19 +966,19 @@ fn animated_near_actors_do_not_redraw_the_complete_static_cascade() {
         !actor_changed.render[0],
         "an animated near actor forced a complete 2048x2048 four-sample static-scene redraw"
     );
-    assert!(work.near_actor_overlay);
+    assert_ne!(work.actor_overlay_mask & 1, 0);
 
-    let overflow = super::contract::directional_caster_work(1, false);
+    let overflow = super::contract::directional_caster_work(1, 1, false);
     assert_eq!(overflow.static_map_mask, 1);
-    assert!(!overflow.near_actor_overlay);
+    assert_eq!(overflow.actor_overlay_mask, 0);
 }
 
 #[test]
 fn ultrawide_point_shadow_work_is_bounded_by_light_coverage_not_light_batches() {
     let pixels = 3_440_u64 * 1_440;
-    // Current maximum: two full-screen point batches plus directional and
-    // point composite passes. This ignores the still more expensive cube-map
-    // producer, so it is a conservative lower bound for the rejected frame.
+    // The rejected maximum used two full-screen point batches plus directional
+    // and point composite passes. This ignores the still more expensive
+    // cube-map producer, so it is a conservative lower bound for that frame.
     let rejected_fragments = pixels * 4;
     let budget = pixels * 2 + pixels / 2;
     assert!(
@@ -750,25 +1006,21 @@ fn camera_containing_point_lights_share_depth_reconstruction_work() {
     let per_light_fragments = rectangle.pixels() * NVR_POINT_LIGHT_COUNT as u64;
     assert_eq!(per_light_fragments, pixels * NVR_POINT_LIGHT_COUNT as u64);
 
-    // A geometry prepass reconstructs depth/normal once, after which two
-    // SM3-safe six-light batches cover all twelve cubes. Reconstructing the
-    // same full-screen position six times remains a deterministic interior
-    // bottleneck even when cube maps are perfectly cached.
+    // The shader-model-three sampler budget admits scene depth plus all twelve
+    // shadow cubes. Camera-containing lights must therefore be accumulated in
+    // one draw; a second full-screen batch is redundant bandwidth and blending
+    // work even when every cube map is perfectly cached.
     let plan = point_consumer_plan(
         [Some(rectangle); NVR_POINT_LIGHT_COUNT],
         NVR_POINT_LIGHT_COUNT,
     );
-    assert_eq!(plan.fragment_count(), pixels * 2);
-    let geometry = point_geometry_plan(
-        [Some(rectangle); NVR_POINT_LIGHT_COUNT],
-        NVR_POINT_LIGHT_COUNT,
-    );
-    assert_eq!(geometry.fragment_count(), pixels);
+    assert_eq!(plan.draws().count(), 1);
+    assert_eq!(plan.fragment_count(), pixels);
     let rejected_depth_fetches = pixels * 6 * 5;
-    let shared_depth_and_geometry_fetches = geometry.fragment_count() * 5 + plan.fragment_count();
+    let fused_depth_fetches = plan.fragment_count() * 5;
     assert!(
-        shared_depth_and_geometry_fetches * 4 < rejected_depth_fetches,
-        "shared receiver work regressed to repeated full-screen depth reconstruction"
+        fused_depth_fetches * 4 < rejected_depth_fetches,
+        "receiver work regressed to repeated full-screen depth reconstruction"
     );
 }
 
@@ -798,6 +1050,4 @@ fn projected_point_light_scissors_are_conservative_and_reduce_fragment_work() {
     let plan = point_consumer_plan(separated, 2);
     assert_eq!(plan.draws().count(), 2);
     assert_eq!(plan.fragment_count(), left.pixels() + right.pixels());
-    let geometry = point_geometry_plan(separated, 2);
-    assert_eq!(geometry.fragment_count(), left.pixels() + right.pixels());
 }

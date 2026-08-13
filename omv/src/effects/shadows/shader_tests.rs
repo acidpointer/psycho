@@ -1,7 +1,9 @@
+use super::contract::contact_consumer_work;
 use super::shaders::{
-    COMPOSITE_PIXEL_SOURCE, CONTACT_BLUR_SOURCE, CONTACT_SOURCE, CONTACT_TEMPORAL_SOURCE,
-    CUBE_PIXEL_SOURCE, CUBE_VERTEX_SOURCE, DIRECTIONAL_PIXEL_SOURCE, DIRECTIONAL_VERTEX_SOURCE,
-    FAR_CLEAR_PIXEL_SOURCE, POINT_ACCUMULATION_SOURCE, POINT_GEOMETRY_SOURCE,
+    COMPOSITE_PIXEL_SOURCE, CONTACT_BLUR_SOURCE, CONTACT_SOURCE, CUBE_PIXEL_SOURCE,
+    CUBE_VERTEX_SOURCE, DIRECTIONAL_PIXEL_SOURCE, DIRECTIONAL_VERTEX_SOURCE,
+    FAR_CLEAR_PIXEL_SOURCE, POINT_ACCUMULATION_SOURCE, directional_composite_source,
+    point_accumulation_source,
 };
 
 fn instruction_count(bytecode: &[u32]) -> usize {
@@ -95,6 +97,10 @@ fn compositor_has_no_quad_derivatives_or_triangle_diagonal_dependency() {
 
 #[test]
 fn every_shadow_shader_compiles_for_shader_model_three_with_static_budgets() {
+    let point_one = point_accumulation_source(1);
+    let point_six = point_accumulation_source(6);
+    let point_twelve = point_accumulation_source(12);
+    let directional_composite = directional_composite_source();
     let variants = [
         (
             "shadow_directional.vs",
@@ -112,38 +118,55 @@ fn every_shadow_shader_compiles_for_shader_model_three_with_static_budgets() {
         ("shadow_cube.ps", CUBE_PIXEL_SOURCE, "ps_3_0", 64),
         ("shadow_far_clear.ps", FAR_CLEAR_PIXEL_SOURCE, "ps_3_0", 8),
         (
-            "shadow_point_geometry.ps",
-            POINT_GEOMETRY_SOURCE,
+            "shadow_point_accumulate_1.ps",
+            point_one.as_slice(),
             "ps_3_0",
-            260,
+            // Measured output is 345 instructions.
+            352,
         ),
         (
-            "shadow_point_accumulate.ps",
-            POINT_ACCUMULATION_SOURCE,
+            "shadow_point_accumulate_6.ps",
+            point_six.as_slice(),
             "ps_3_0",
-            // Exact RGB total plus deficit MRT output compiles to 708
-            // instructions; 736 leaves narrow compiler-alignment headroom.
-            736,
+            // Measured output is 880 instructions.
+            888,
         ),
-        ("shadow_contact.ps", CONTACT_SOURCE, "ps_3_0", 320),
-        ("shadow_contact_blur.ps", CONTACT_BLUR_SOURCE, "ps_3_0", 320),
         (
-            "shadow_contact_temporal.ps",
-            CONTACT_TEMPORAL_SOURCE,
+            "shadow_point_accumulate_12.ps",
+            point_twelve.as_slice(),
             "ps_3_0",
-            // Four individually depth-rejected history taps compile to 248
-            // instructions; 256 leaves only measured alignment headroom.
-            256,
+            // The exact edge-aware receiver plus twelve RGB light evaluations
+            // compiles to 1,524 instructions. A 1,536 cap leaves only narrow
+            // compiler-alignment headroom while eliminating two redundant
+            // full-resolution passes.
+            1_536,
         ),
+        (
+            "shadow_contact.ps",
+            CONTACT_SOURCE,
+            "ps_3_0",
+            // Exact texel addressing, quantization-bounded receiver-plane
+            // validation, and four NVR ray taps stay below this measured cap.
+            464,
+        ),
+        ("shadow_contact_blur.ps", CONTACT_BLUR_SOURCE, "ps_3_0", 160),
         (
             "shadow_composite.ps",
             COMPOSITE_PIXEL_SOURCE,
             "ps_3_0",
             // D3DCompile expands the four mutually exclusive cascade choices
             // and both branch-lazy receiver-bias evaluations. The executable
-            // path remains bounded separately below; this static ceiling has
-            // narrow headroom over the measured 1865 instructions.
-            1920,
+            // path remains bounded separately below. Complete light-volume Z
+            // The mixed local-light variant also owns branch-lazy bilateral
+            // contact upsampling. Its common point-free exterior sibling is
+            // held below the old 1984 cap by a separate production test.
+            2_040,
+        ),
+        (
+            "shadow_composite_directional.ps",
+            directional_composite.as_slice(),
+            "ps_3_0",
+            1_992,
         ),
     ];
     let mut compiled_programs: Vec<(&str, Vec<u32>)> = Vec::with_capacity(variants.len());
@@ -171,7 +194,45 @@ fn every_shadow_shader_compiles_for_shader_model_three_with_static_budgets() {
         );
         compiled_programs.push((name, bytecode));
     }
-    assert_eq!(compiled_programs.len(), 11);
+    assert_eq!(compiled_programs.len(), 12);
+}
+
+#[test]
+fn point_free_exterior_compositor_is_below_the_original_fullscreen_budget() {
+    let directional_source = directional_composite_source();
+    let directional = crate::shaders::compile_hlsl_source_target(
+        "shadow_composite_directional_budget.ps",
+        &directional_source,
+        "ps_3_0",
+    )
+    .expect("point-free exterior composite must compile");
+    let mixed = crate::shaders::compile_hlsl_source_target(
+        "shadow_composite_mixed_budget.ps",
+        COMPOSITE_PIXEL_SOURCE,
+        "ps_3_0",
+    )
+    .expect("mixed-light composite must compile");
+    let directional_instructions = instruction_count(&directional);
+    let mixed_instructions = instruction_count(&mixed);
+    // The depth-edge correction adds a branch-lazy contact fallback to the
+    // former 1,984-instruction ceiling. Eight instructions of measured
+    // headroom are allowed here; the ordinary matching receiver still executes
+    // only its single contact lookup. The specialization must also recover the
+    // two local-light texture reads and at least 32 scalar instructions from
+    // the mixed-light program below.
+    assert!(
+        directional_instructions <= 1_992,
+        "point-free exterior path uses {directional_instructions} instructions"
+    );
+    assert!(
+        directional_instructions + 32 <= mixed_instructions,
+        "specialization removed only {} instructions",
+        mixed_instructions.saturating_sub(directional_instructions)
+    );
+    assert!(
+        texture_instruction_count(&directional) + 2 <= texture_instruction_count(&mixed),
+        "point-free exterior path retained local-light buffer reads"
+    );
 }
 
 #[test]
@@ -188,16 +249,14 @@ fn generation_shader_register_abi_matches_the_native_upload_contract() {
 #[test]
 fn consumer_shader_abis_compile_with_bounded_texture_work() {
     let point = std::str::from_utf8(POINT_ACCUMULATION_SOURCE).expect("point UTF-8");
-    assert!(point.contains("sampler2D ReceiverGeometry : register(s0)"));
+    assert!(point.contains("sampler2D SceneDepth : register(s0)"));
     assert!(point.contains("float4 deficit : COLOR0"));
     assert!(point.contains("float4 total : COLOR1"));
     assert!(point.contains("samplerCUBE ShadowCube0 : register(s1)"));
     assert!(point.contains("samplerCUBE ShadowCube5 : register(s6)"));
-    assert!(point.contains("LightPositionRadius[6] : register(c7)"));
-    assert!(point.contains("LightColorIntensity[6] : register(c13)"));
-    let geometry = std::str::from_utf8(POINT_GEOMETRY_SOURCE).expect("geometry UTF-8");
-    assert!(geometry.contains("sampler2D SceneDepth : register(s0)"));
-    assert!(geometry.contains("PointControl : register(c6)"));
+    assert!(point.contains("samplerCUBE ShadowCube11 : register(s12)"));
+    assert!(point.contains("LightPositionRadius[12] : register(c7)"));
+    assert!(point.contains("LightColorIntensity[12] : register(c19)"));
 
     let composite = std::str::from_utf8(COMPOSITE_PIXEL_SOURCE).expect("composite UTF-8");
     assert!(composite.contains("sampler2D SourceColor : register(s0)"));
@@ -205,8 +264,9 @@ fn consumer_shader_abis_compile_with_bounded_texture_work() {
     assert!(composite.contains("sampler2D ShadowAtlas : register(s2)"));
     assert!(composite.contains("sampler2D PointShadowBuffer : register(s3)"));
     assert!(composite.contains("sampler2D ContactVisibility : register(s4)"));
-    assert!(composite.contains("sampler2D ActorMoments : register(s5)"));
+    assert!(composite.contains("sampler2D ActorNearMiddleMoments : register(s5)"));
     assert!(composite.contains("sampler2D PointLightTotal : register(s6)"));
+    assert!(composite.contains("sampler2D ActorFarMoments : register(s7)"));
     assert!(composite.contains("float4 CascadeSpheres[4] : register(c27)"));
     assert!(composite.contains("float4 ContactControl : register(c31)"));
     assert!(composite.contains("float4 PointControl : register(c32)"));
@@ -217,37 +277,32 @@ fn consumer_shader_abis_compile_with_bounded_texture_work() {
     assert!(contact.contains("sampler2D SceneDepth : register(s0)"));
     assert!(contact.contains("ViewLightDirection : register(c7)"));
     assert!(contact.contains("ContactSampleOffsets : register(c8)"));
+    assert!(contact.contains("ContactDepthPrecision : register(c9)"));
     let blur = std::str::from_utf8(CONTACT_BLUR_SOURCE).expect("contact blur UTF-8");
     assert!(blur.contains("sampler2D ContactMap : register(s0)"));
-    let temporal = std::str::from_utf8(CONTACT_TEMPORAL_SOURCE).expect("contact temporal UTF-8");
-    assert!(temporal.contains("sampler2D CurrentContact : register(s0)"));
-    assert!(temporal.contains("sampler2D HistoryContact : register(s1)"));
-    assert!(temporal.contains("float4 HistoryControl : register(c7)"));
 
-    let point_bytecode = crate::shaders::compile_hlsl_source_target(
-        "shadow_point_scissor_budget.ps",
-        POINT_ACCUMULATION_SOURCE,
+    for (capacity, texture_budget) in [(1, 6), (6, 11), (12, 17)] {
+        let point_bytecode = crate::shaders::compile_hlsl_source_target(
+            &format!("shadow_point_scissor_{capacity}_budget.ps"),
+            &point_accumulation_source(capacity),
+            "ps_3_0",
+        )
+        .unwrap_or_else(|error| panic!("{capacity}-light point shader must compile: {error:#}"));
+        assert!(
+            texture_instruction_count(&point_bytecode) <= texture_budget,
+            "{capacity}-light specialization retained unused cube samples"
+        );
+    }
+    let blur_bytecode = crate::shaders::compile_hlsl_source_target(
+        "shadow_contact_blur_budget.ps",
+        CONTACT_BLUR_SOURCE,
         "ps_3_0",
     )
-    .expect("point accumulation must compile");
-    assert!(texture_instruction_count(&point_bytecode) <= 7);
-    let geometry_bytecode = crate::shaders::compile_hlsl_source_target(
-        "shadow_point_geometry_budget.ps",
-        POINT_GEOMETRY_SOURCE,
-        "ps_3_0",
-    )
-    .expect("point geometry must compile");
-    assert!(texture_instruction_count(&geometry_bytecode) <= 5);
-    let temporal_bytecode = crate::shaders::compile_hlsl_source_target(
-        "shadow_contact_temporal_budget.ps",
-        CONTACT_TEMPORAL_SOURCE,
-        "ps_3_0",
-    )
-    .expect("contact temporal resolve must compile");
+    .expect("contact bilateral filter must compile");
     assert_eq!(
-        texture_instruction_count(&temporal_bytecode),
+        texture_instruction_count(&blur_bytecode),
         5,
-        "contact history must use one current sample and four depth-rejected bilinear history taps"
+        "contact filter must use one center and four same-frame depth-aware taps"
     );
     let composite_bytecode = crate::shaders::compile_hlsl_source_target(
         "shadow_composite_sample_budget.ps",
@@ -262,10 +317,8 @@ fn consumer_shader_abis_compile_with_bounded_texture_work() {
     );
     for (name, source) in [
         ("point", POINT_ACCUMULATION_SOURCE),
-        ("point geometry", POINT_GEOMETRY_SOURCE),
         ("contact", CONTACT_SOURCE),
         ("contact blur", CONTACT_BLUR_SOURCE),
-        ("contact temporal", CONTACT_TEMPORAL_SOURCE),
     ] {
         let bytecode = crate::shaders::compile_hlsl_source_target(name, source, "ps_3_0")
             .unwrap_or_else(|error| panic!("{name} must compile: {error:#}"));
@@ -283,6 +336,33 @@ fn consumer_shader_abis_compile_with_bounded_texture_work() {
     );
     assert!(!composite_opcodes.contains(&91));
     assert!(!composite_opcodes.contains(&92));
+}
+
+#[test]
+fn contact_stability_does_not_add_more_texture_work_than_the_old_three_pass_path() {
+    let raw = crate::shaders::compile_hlsl_source_target(
+        "shadow_contact_work.ps",
+        CONTACT_SOURCE,
+        "ps_3_0",
+    )
+    .expect("contact generation must compile");
+    let blur = crate::shaders::compile_hlsl_source_target(
+        "shadow_contact_blur_work.ps",
+        CONTACT_BLUR_SOURCE,
+        "ps_3_0",
+    )
+    .expect("contact bilateral filter must compile");
+    // Compilation proves all executable stages fit SM3. The workload model
+    // counts loop trip counts, which a static TEXLD opcode count cannot see.
+    assert!(texture_instruction_count(&raw) > 0);
+    assert!(texture_instruction_count(&blur) > 0);
+    let work = contact_consumer_work();
+    assert!(
+        work.passes <= 2 && work.texture_samples <= 14,
+        "contact path uses {} passes and {} half-resolution texture samples; receiver validation must replace, not compound, redundant filtering",
+        work.passes,
+        work.texture_samples,
+    );
 }
 
 #[test]

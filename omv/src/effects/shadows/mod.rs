@@ -65,8 +65,53 @@ static INTERIOR_LIGHT_RADIUS_MULTIPLIER: AtomicU32 = AtomicU32::new(0);
 static INTERIOR_LIGHT_DRAW_DISTANCE: AtomicU32 = AtomicU32::new(0);
 static INTERIOR_RECEIVER_BIAS: AtomicU32 = AtomicU32::new(0);
 static ROUTE_READY: AtomicBool = AtomicBool::new(false);
-static PIPELINE: LazyLock<Mutex<ShadowPipeline>> =
-    LazyLock::new(|| Mutex::new(ShadowPipeline::default()));
+
+// The last load-to-gameplay-tested shadow artifact exported the pipeline
+// LazyLock as 0xA28 bytes. LazyLock stores T inline before initialization, so
+// ordinary post-Deferred fields in ShadowPipeline changed the PE `.data`
+// footprint and exposed BaseObjectSwapper's known pre-Deferred undefined
+// behavior before any shadow code ran. Keep the runtime object behind a Box
+// allocated by `install`, and retain the accepted static size explicitly. The
+// padding is compatibility storage, never runtime shadow state.
+const PLAYTESTED_PIPELINE_OWNER_BYTES: usize = 0xA28;
+const PIPELINE_SLOT_PADDING_BYTES: usize = 0xA1C;
+
+struct DeferredShadowPipeline {
+    pipeline: Box<ShadowPipeline>,
+    _startup_compatibility_padding: [u8; PIPELINE_SLOT_PADDING_BYTES],
+}
+
+impl Default for DeferredShadowPipeline {
+    fn default() -> Self {
+        Self {
+            pipeline: Box::new(ShadowPipeline::default()),
+            _startup_compatibility_padding: [0; PIPELINE_SLOT_PADDING_BYTES],
+        }
+    }
+}
+
+impl core::ops::Deref for DeferredShadowPipeline {
+    type Target = ShadowPipeline;
+
+    fn deref(&self) -> &Self::Target {
+        &self.pipeline
+    }
+}
+
+impl core::ops::DerefMut for DeferredShadowPipeline {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.pipeline
+    }
+}
+
+static PIPELINE: LazyLock<Mutex<DeferredShadowPipeline>> =
+    LazyLock::new(|| Mutex::new(DeferredShadowPipeline::default()));
+
+#[cfg(target_pointer_width = "32")]
+const _: () = assert!(
+    core::mem::size_of::<LazyLock<Mutex<DeferredShadowPipeline>>>()
+        == PLAYTESTED_PIPELINE_OWNER_BYTES
+);
 
 /// Runtime settings for the single native Shadows feature.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -414,8 +459,18 @@ pub(crate) fn runtime_config() -> crate::config::NativeShadowsConfig {
 #[cfg(test)]
 mod startup_safety_tests {
     use super::{
-        NativeShadowsSettings, configure_runtime_options, current_settings, runtime_config,
+        NativeShadowsSettings, PIPELINE, configure_runtime_options, current_settings,
+        runtime_config,
     };
+
+    #[test]
+    fn pipeline_owner_preserves_last_playtested_pre_deferred_footprint() {
+        // The last shadow build which passed the BaseObjectSwapper-sensitive
+        // loading interval exported this LazyLock as 0xA28 bytes. The owner is
+        // part of the PE image before DeferredInit even though it is not forced
+        // until then, so changing its inline payload is a startup ABI change.
+        assert_eq!(core::mem::size_of_val(&PIPELINE), 0xA28);
+    }
 
     #[test]
     fn menu_values_round_trip_through_the_render_thread_seqlock() {

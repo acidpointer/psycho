@@ -31,24 +31,47 @@ pub(super) const CUBE_PIXEL_SOURCE: &[u8] =
 /// Exact far-depth EVSM4 clear shader used before caster submission.
 pub(super) const FAR_CLEAR_PIXEL_SOURCE: &[u8] =
     include_bytes!("../../../shaders/embedded/shadow_far_clear.hlsl");
-/// Coverage-bounded point receiver geometry shared by all light batches.
-pub(super) const POINT_GEOMETRY_SOURCE: &[u8] =
-    include_bytes!("../../../shaders/embedded/shadow_point_geometry.hlsl");
-/// Six-light scissored point-shadow accumulation pass.
+/// Twelve-light scissored point-shadow accumulation and receiver pass.
 pub(super) const POINT_ACCUMULATION_SOURCE: &[u8] =
     include_bytes!("../../../shaders/embedded/shadow_point_accumulate.hlsl");
 /// Half-resolution screen-space contact visibility pass.
 pub(super) const CONTACT_SOURCE: &[u8] =
     include_bytes!("../../../shaders/embedded/shadow_contact.hlsl");
-/// Depth-aware separable contact filter.
+/// Same-frame depth-aware contact filter.
 pub(super) const CONTACT_BLUR_SOURCE: &[u8] =
     include_bytes!("../../../shaders/embedded/shadow_contact_blur.hlsl");
-/// Camera-reprojected contact-history resolve with depth rejection.
-pub(super) const CONTACT_TEMPORAL_SOURCE: &[u8] =
-    include_bytes!("../../../shaders/embedded/shadow_contact_temporal.hlsl");
 /// Final directional/point shadow compositor.
 pub(super) const COMPOSITE_PIXEL_SOURCE: &[u8] =
     include_bytes!("../../../shaders/embedded/shadow_composite.hlsl");
+const DIRECTIONAL_COMPOSITE_DEFINE: &[u8] = b"#define OMV_POINT_LIGHTS 0\n";
+
+/// Build the point-free exterior compositor source used by production/tests.
+pub(super) fn directional_composite_source() -> Vec<u8> {
+    let mut source =
+        Vec::with_capacity(DIRECTIONAL_COMPOSITE_DEFINE.len() + COMPOSITE_PIXEL_SOURCE.len());
+    source.extend_from_slice(DIRECTIONAL_COMPOSITE_DEFINE);
+    source.extend_from_slice(COMPOSITE_PIXEL_SOURCE);
+    source
+}
+
+/// Build a point receiver specialized for the maximum lights in one draw.
+///
+/// The capacity changes only statically present uniform branches and samplers;
+/// all receiver reconstruction and per-light equations remain byte-for-byte
+/// shared with the twelve-light program.
+///
+/// # Panics
+///
+/// Panics unless `capacity` is one of the three production specializations:
+/// 1, 6, or 12.
+pub(super) fn point_accumulation_source(capacity: usize) -> Vec<u8> {
+    assert!(matches!(capacity, 1 | 6 | 12));
+    let define = format!("#define OMV_POINT_CAPACITY {capacity}\n");
+    let mut source = Vec::with_capacity(define.len() + POINT_ACCUMULATION_SOURCE.len());
+    source.extend_from_slice(define.as_bytes());
+    source.extend_from_slice(POINT_ACCUMULATION_SOURCE);
+    source
+}
 
 static PREPARATION_STARTED: AtomicBool = AtomicBool::new(false);
 static PREPARATION_READY: AtomicBool = AtomicBool::new(false);
@@ -67,18 +90,20 @@ pub(super) struct ShadowBytecode {
     pub(super) cube_pixel: Vec<u32>,
     /// Exact EVSM4 far-moment clear program.
     pub(super) far_clear_pixel: Vec<u32>,
-    /// Shared point receiver-geometry program.
-    pub(super) point_geometry: Vec<u32>,
-    /// Six-cube point-shadow accumulation program.
-    pub(super) point_accumulation: Vec<u32>,
+    /// Scene-depth receiver specialized for one point light.
+    pub(super) point_accumulation_one: Vec<u32>,
+    /// Scene-depth receiver specialized for up to six point lights.
+    pub(super) point_accumulation_six: Vec<u32>,
+    /// Scene-depth receiver specialized for up to twelve point lights.
+    pub(super) point_accumulation_twelve: Vec<u32>,
     /// Screen-space contact visibility program.
     pub(super) contact: Vec<u32>,
-    /// Depth-aware contact filter program.
+    /// Same-frame depth-aware contact filter program.
     pub(super) contact_blur: Vec<u32>,
-    /// Camera-reprojected contact-history resolve program.
-    pub(super) contact_temporal: Vec<u32>,
     /// Final scene-color composition program.
     pub(super) composite: Vec<u32>,
+    /// Point-free exterior composition specialization.
+    pub(super) directional_composite: Vec<u32>,
 }
 
 impl ShadowBytecode {
@@ -97,44 +122,48 @@ impl ShadowBytecode {
             cube_vertex: compile("shadow_cube.vs.hlsl", CUBE_VERTEX_SOURCE, "vs_3_0")?,
             cube_pixel: compile("shadow_cube.hlsl", CUBE_PIXEL_SOURCE, "ps_3_0")?,
             far_clear_pixel: compile("shadow_far_clear.hlsl", FAR_CLEAR_PIXEL_SOURCE, "ps_3_0")?,
-            point_geometry: compile(
-                "shadow_point_geometry.hlsl",
-                POINT_GEOMETRY_SOURCE,
+            point_accumulation_one: compile(
+                "shadow_point_accumulate_1.hlsl",
+                &point_accumulation_source(1),
                 "ps_3_0",
             )?,
-            point_accumulation: compile(
-                "shadow_point_accumulate.hlsl",
-                POINT_ACCUMULATION_SOURCE,
+            point_accumulation_six: compile(
+                "shadow_point_accumulate_6.hlsl",
+                &point_accumulation_source(6),
+                "ps_3_0",
+            )?,
+            point_accumulation_twelve: compile(
+                "shadow_point_accumulate_12.hlsl",
+                &point_accumulation_source(12),
                 "ps_3_0",
             )?,
             contact: compile("shadow_contact.hlsl", CONTACT_SOURCE, "ps_3_0")?,
             contact_blur: compile("shadow_contact_blur.hlsl", CONTACT_BLUR_SOURCE, "ps_3_0")?,
-            contact_temporal: compile(
-                "shadow_contact_temporal.hlsl",
-                CONTACT_TEMPORAL_SOURCE,
+            composite: compile("shadow_composite.hlsl", COMPOSITE_PIXEL_SOURCE, "ps_3_0")?,
+            directional_composite: compile(
+                "shadow_composite_directional.hlsl",
+                &directional_composite_source(),
                 "ps_3_0",
             )?,
-            composite: compile("shadow_composite.hlsl", COMPOSITE_PIXEL_SOURCE, "ps_3_0")?,
         })
     }
 
-    fn program_words(&self) -> usize {
-        [
+    fn program_metrics(&self) -> (usize, usize) {
+        let programs = [
             &self.directional_vertex,
             &self.directional_pixel,
             &self.cube_vertex,
             &self.cube_pixel,
             &self.far_clear_pixel,
-            &self.point_geometry,
-            &self.point_accumulation,
+            &self.point_accumulation_one,
+            &self.point_accumulation_six,
+            &self.point_accumulation_twelve,
             &self.contact,
             &self.contact_blur,
-            &self.contact_temporal,
             &self.composite,
-        ]
-        .into_iter()
-        .map(Vec::len)
-        .sum()
+            &self.directional_composite,
+        ];
+        (programs.len(), programs.into_iter().map(Vec::len).sum())
     }
 }
 
@@ -156,11 +185,11 @@ pub(super) fn start_preparation() {
             let started = Instant::now();
             match crate::effects::shader_preparation::run_serialized(ShadowBytecode::compile) {
                 Ok(bytecode) => {
-                    let words = bytecode.program_words();
+                    let (programs, words) = bytecode.program_metrics();
                     *BYTECODE.lock() = Some(Arc::new(bytecode));
                     PREPARATION_READY.store(true, Ordering::Release);
                     log::info!(
-                        "[SHADOWS] Complete shader family prepared (10 programs, {words} DWORDs, {} ms)",
+                        "[SHADOWS] Complete shader family prepared ({programs} programs, {words} DWORDs, {} ms)",
                         started.elapsed().as_millis()
                     );
                 }

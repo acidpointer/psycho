@@ -479,3 +479,54 @@ unproven until a cold Proton load reaches gameplay with BaseObjectSwapper
 installed and the log reaches `[INIT] Deferred OMV graphics hooks initialized`
 without the known `+0x4990` fault. This is an acceptance boundary, not evidence
 that any other mod should be detected, reordered, patched, or disabled.
+
+### 2026-08-13 inline Shadows owner regression and correction
+
+The next deployed artifact reproduced the exact known startup failure. The
+local and deployed `omv.dll` files both measured 12,840,091 bytes and had
+SHA-256
+`08f5c84686f3e31a47e72ca710ecec7bcf0cc5c5cf69ab5a663cc40551efafe9`.
+The OMV log identified source commit `8655505` with a dirty worktree and build
+`unix=1786577934`. It stopped after plugin-load configuration, compatibility
+discovery, existing sky/PBR preparation, and a LUT warning. It did not reach
+`[FNV WORLD] Initial config published at DeferredInit` or
+`[INIT] Deferred OMV graphics hooks initialized`. CrashLogger reports the
+established BaseObjectSwapper RVA `0x4990` fault with `eax = 6`. These are
+runtime facts; no shadow hook, pipeline initializer, compiler, or shader ran.
+
+The tenth shadow pass preserved the documented call order and config boundary,
+but violated the broader frozen-footprint warning in `omv/src/startup.rs`.
+`PIPELINE` was a `LazyLock<Mutex<ShadowPipeline>>`; `LazyLock<T>` reserves `T`
+inline in initialized PE storage even before it is forced. Removing temporal
+contact resources while adding directional-cache state changed that exported
+static from the last gameplay-reaching shadow build's `0xA28` bytes to
+`0x9D0` bytes. Symbol sizes from same-toolchain supported release builds prove
+the exact layout delta. This does not prove a byte-level causal link to the
+external uninitialized pointer, but it is the only newly changed static owner
+and is a direct violation of the repository's accepted startup rule.
+
+The surgical correction keeps the complete new `ShadowPipeline` and every
+shadow shader, setting, hook, and test. The `0xA28` loader-visible owner is now
+a fixed-size compatibility slot containing a boxed pipeline. Its one heap
+allocation occurs only when the existing `shadows::install` path explicitly
+forces the owner at DeferredInit; plugin load neither allocates nor accesses
+it. A 32-bit compile-time assertion and a runtime regression test both require
+the exact `0xA28` owner size. `startup.rs` now explicitly documents that a
+lazy value's inline payload is part of the frozen footprint even if its
+initializer runs later.
+
+This correction restores the identified static-owner shape but remains
+statically accepted only. A cold Proton load with BaseObjectSwapper installed
+must reach both deferred markers and gameplay before the corrected artifact
+becomes a new startup baseline. No BaseObjectSwapper detection, patch, hook,
+ordering change, or feature disablement was introduced.
+
+Supported-target validation passes all 594 OMV tests, including 101 focused
+shadow tests and the new exact owner-size guard, plus doc tests. The release
+build produces a 12,846,995-byte `omv.dll` with SHA-256
+`baa5aac1919d14a62357aeca5151057e2052385a9a640972969d6c55806afd3c`.
+PE inspection reports the restored `PIPELINE` symbol at `0xA28`, unchanged
+`.bss` size `0x6B10`, `.idata` size `0x340C`, `.tls` size `0x8`, thread-storage
+directory size `0x18`, import-address-table size `0x6BC`, and the same imported
+DLL/function set as the rejected artifact. These results prove the bounded
+source and binary correction, not the required Proton startup result.

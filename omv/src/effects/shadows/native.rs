@@ -11,8 +11,9 @@ use libpsycho::os::windows::memory::validate_memory_range;
 
 use super::{
     contract::{
-        ALL_CUBE_FACES, NVR_POINT_LIGHT_COUNT, SceneKind, directional_form_type_is_enabled,
-        point_light_influence_is_eligible, sphere_intersects_cube_face,
+        ALL_CUBE_FACES, DirectionalRootSetSignature, NVR_POINT_LIGHT_COUNT, SceneKind,
+        directional_actor_root_is_active, directional_form_type_is_enabled,
+        point_light_distance_fade, point_light_influence_is_eligible, sphere_intersects_cube_face,
     },
     engine::NativeLayout,
     math::{CascadeProjection, Sphere, dynamic_caster_cascade_mask},
@@ -118,6 +119,39 @@ impl DirectionalRoot {
     pub(super) fn is_dynamic_actor(self) -> bool {
         matches!(self.form_type, Some(0x2A..=0x2C))
     }
+
+    /// Return whether this actor root can submit geometry in this traversal.
+    ///
+    /// # Safety
+    ///
+    /// The root must still belong to the active common-shadow transaction.
+    pub(super) unsafe fn is_active_dynamic_actor(self) -> bool {
+        directional_actor_root_is_active(self.is_dynamic_actor(), unsafe {
+            read::<u32>(self.node(), NativeLayout::NI_AV_OBJECT_FLAGS)
+        })
+    }
+
+    fn signature_profile(self) -> u32 {
+        u32::from(self.form_type.unwrap_or(0))
+            | (u32::from(self.form_type.is_none()) << 8)
+            | (u32::from(self.is_land) << 9)
+            | (u32::from(self.is_lod) << 10)
+    }
+}
+
+/// Identify the complete borrowed root set without allocation or ordering.
+pub(super) fn directional_root_set_signature(
+    roots: &[DirectionalRoot],
+) -> DirectionalRootSetSignature {
+    let mut signature = DirectionalRootSetSignature::EMPTY;
+    for root in roots
+        .iter()
+        .copied()
+        .filter(|root| !root.is_dynamic_actor())
+    {
+        signature.include(root.root, root.signature_profile());
+    }
+    signature
 }
 
 /// Return gameplay maps containing actor bounds whose pose can change now.
@@ -137,7 +171,11 @@ pub(super) unsafe fn directional_dynamic_cascade_mask(
     camera_translation: [f32; 3],
 ) -> u8 {
     let mut mask = 0_u8;
-    for root in roots.iter().copied().filter(|root| root.is_dynamic_actor()) {
+    for root in roots
+        .iter()
+        .copied()
+        .filter(|root| unsafe { root.is_active_dynamic_actor() })
+    {
         let bound = unsafe {
             read::<*mut NativeBound>(root.node(), NativeLayout::NI_AV_OBJECT_WORLD_BOUND)
         };
@@ -175,6 +213,8 @@ pub(super) struct PointLight {
     pub(super) relative_position: [f32; 3],
     /// Effective RGB color after the native light dimmer.
     pub(super) color: [f32; 3],
+    /// Smooth discovery-edge weight; zero is omitted by the consumer.
+    pub(super) shadow_fade: f32,
     /// Native point-light radius.
     pub(super) radius: f32,
     distance_squared: f32,
@@ -205,6 +245,11 @@ impl PointLightSet {
     /// Iterate selected lights in distance/identity order.
     pub(super) fn iter(&self) -> impl Iterator<Item = &PointLight> {
         self.values[..self.len].iter().flatten()
+    }
+
+    /// Return one current nearest-order entry for stable cube-slot mapping.
+    pub(super) fn get(&self, index: usize) -> Option<&PointLight> {
+        self.values.get(index).and_then(Option::as_ref)
     }
 
     fn contains(&self, identity: usize) -> bool {
@@ -789,6 +834,8 @@ unsafe fn point_light(
     // replaces, so depending on it can turn every valid interior light black
     // before a single cube is rendered.
     let color = diffuse.map(|component| (component * dimmer).max(0.0));
+    let shadow_fade =
+        point_light_distance_fade(relative_position, radius, camera_forward, draw_distance)?;
     let visible_energy = color.into_iter().sum::<f32>();
     if !distance_squared.is_finite()
         || !color.into_iter().all(f32::is_finite)
@@ -802,6 +849,7 @@ unsafe fn point_light(
         position,
         relative_position,
         color,
+        shadow_fade,
         radius,
         distance_squared,
     })
@@ -856,7 +904,10 @@ const fn size_of<T>() -> usize {
 
 #[cfg(test)]
 mod tests {
-    use super::{DirectionalRoot, PointLight, PointLightSelection, push_directional_root};
+    use super::{
+        DirectionalRoot, PointLight, PointLightSelection, directional_root_set_signature,
+        push_directional_root,
+    };
 
     fn point(identity: usize, distance_squared: f32) -> PointLight {
         PointLight {
@@ -865,6 +916,7 @@ mod tests {
             position: [0.0; 3],
             relative_position: [0.0; 3],
             color: [1.0; 3],
+            shadow_fade: 1.0,
             radius: 512.0,
             distance_squared,
         }
@@ -944,5 +996,55 @@ mod tests {
         ));
         assert_eq!(roots.len(), 1);
         assert_eq!(roots.capacity(), 1);
+    }
+
+    #[test]
+    fn directional_root_signature_is_order_independent_and_profile_complete() {
+        let actor = DirectionalRoot {
+            root: 0x1000,
+            form_type: Some(0x2A),
+            is_land: false,
+            is_lod: false,
+        };
+        let land_lod = DirectionalRoot {
+            root: 0x2000,
+            form_type: None,
+            is_land: true,
+            is_lod: true,
+        };
+        assert_eq!(
+            directional_root_set_signature(&[actor, land_lod]),
+            directional_root_set_signature(&[land_lod, actor]),
+        );
+        assert_ne!(
+            directional_root_set_signature(&[actor]),
+            directional_root_set_signature(&[actor, land_lod]),
+        );
+        assert_eq!(
+            directional_root_set_signature(&[land_lod]),
+            directional_root_set_signature(&[land_lod, actor]),
+            "an animated actor entering the root list invalidated every static cascade"
+        );
+        assert_ne!(
+            directional_root_set_signature(&[actor]),
+            directional_root_set_signature(&[DirectionalRoot {
+                form_type: None,
+                ..actor
+            }]),
+        );
+        let form_with_bit_five = DirectionalRoot {
+            root: 0x3000,
+            form_type: Some(0x20),
+            is_land: false,
+            is_lod: false,
+        };
+        assert_ne!(
+            directional_root_set_signature(&[form_with_bit_five]),
+            directional_root_set_signature(&[DirectionalRoot {
+                form_type: None,
+                ..form_with_bit_five
+            }]),
+            "form bits must not alias the separate no-form profile discriminator"
+        );
     }
 }

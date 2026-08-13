@@ -444,9 +444,9 @@ pub(crate) unsafe fn resolve_scene_depth(
     reason: &'static str,
     render_epoch: u32,
 ) -> DepthResolveOutcome {
-    match depth_provider {
-        DepthProvider::None => DepthResolveOutcome::Rejected,
-        DepthProvider::FalloutNewVegas => unsafe {
+    match depth_resolution_route(depth_provider, slot, stage) {
+        DepthResolutionRoute::Rejected => DepthResolveOutcome::Rejected,
+        DepthResolutionRoute::OmvResolve => unsafe {
             fnv::resolve_scene_depth(
                 device_ptr,
                 source_rendered_texture,
@@ -457,7 +457,50 @@ pub(crate) unsafe fn resolve_scene_depth(
                 render_epoch,
             )
         },
-        DepthProvider::DepthResolve => fnv::external_depth_outcome(slot, render_epoch),
+        DepthResolutionRoute::ExternalBoundarySnapshot => unsafe {
+            fnv::external_depth_outcome(
+                device_ptr,
+                source_rendered_texture,
+                slot,
+                stage,
+                world_projection_override,
+                reason,
+                render_epoch,
+            )
+        },
+    }
+}
+
+/// Concrete producer action selected by the provider-neutral depth API.
+///
+/// Keeping this decision separate from D3D execution makes provider parity a
+/// testable contract: an external world snapshot must never silently fall
+/// back to OMV's physical copy path.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum DepthResolutionRoute {
+    Rejected,
+    OmvResolve,
+    /// Publish current boundary metadata for Depth Resolve's existing texture.
+    ExternalBoundarySnapshot,
+}
+
+fn depth_resolution_route(
+    provider: DepthProvider,
+    slot: DepthResolveSlot,
+    stage: DepthResolveStage,
+) -> DepthResolutionRoute {
+    if stage.slot() != slot {
+        return DepthResolutionRoute::Rejected;
+    }
+    match (provider, slot) {
+        (DepthProvider::None, _) => DepthResolutionRoute::Rejected,
+        (DepthProvider::FalloutNewVegas, _) => DepthResolutionRoute::OmvResolve,
+        (DepthProvider::DepthResolve, DepthResolveSlot::World) => {
+            DepthResolutionRoute::ExternalBoundarySnapshot
+        }
+        (DepthProvider::DepthResolve, DepthResolveSlot::FirstPerson) => {
+            DepthResolutionRoute::Rejected
+        }
     }
 }
 
@@ -578,7 +621,10 @@ impl From<DepthProvider> for DepthProviderConfig {
 
 #[cfg(test)]
 mod depth_provider_tests {
-    use super::DepthProvider;
+    use super::{
+        DepthProvider, DepthResolutionRoute, DepthResolveSlot, DepthResolveStage,
+        depth_resolution_route,
+    };
     use crate::config::DepthProviderConfig;
 
     #[test]
@@ -593,6 +639,44 @@ mod depth_provider_tests {
         let provider = DepthProvider::from(DepthProviderConfig::FalloutNewVegas);
         assert!(provider.supplies_world_depth());
         assert!(provider.supplies_first_person_depth());
+    }
+
+    #[test]
+    fn both_world_providers_resolve_the_exact_requested_boundary_without_duplicate_copying() {
+        assert_eq!(
+            depth_resolution_route(
+                DepthProvider::FalloutNewVegas,
+                DepthResolveSlot::World,
+                DepthResolveStage::PreAlphaWorld,
+            ),
+            DepthResolutionRoute::OmvResolve,
+        );
+        assert_eq!(
+            depth_resolution_route(
+                DepthProvider::DepthResolve,
+                DepthResolveSlot::World,
+                DepthResolveStage::PreAlphaWorld,
+            ),
+            DepthResolutionRoute::ExternalBoundarySnapshot,
+            "shadows cannot consume a post-world-only publication at pre-alpha",
+        );
+        assert_eq!(
+            depth_resolution_route(
+                DepthProvider::DepthResolve,
+                DepthResolveSlot::World,
+                DepthResolveStage::CoherentWorld,
+            ),
+            DepthResolutionRoute::ExternalBoundarySnapshot,
+        );
+        assert_eq!(
+            depth_resolution_route(
+                DepthProvider::DepthResolve,
+                DepthResolveSlot::FirstPerson,
+                DepthResolveStage::FirstPerson,
+            ),
+            DepthResolutionRoute::Rejected,
+            "Depth Resolve 1.31 does not own an independent first-person map",
+        );
     }
 }
 

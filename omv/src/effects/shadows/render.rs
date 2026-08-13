@@ -25,7 +25,7 @@ use super::{
         first_person_caster_is_excluded, skinned_submission_is_available,
         sphere_intersects_cube_face, sphere_intersects_point_light,
     },
-    engine::NativeLayout,
+    engine::{GeometryKind, NativeLayout, ShadowGenerationAbi},
     math::{CascadeProjection, Sphere, camera_relative_world_matrix},
 };
 
@@ -34,6 +34,9 @@ const MAX_NODE_CHILDREN: usize = 16_384;
 const MAX_SKIN_PARTITIONS: usize = 64;
 const MAX_BONES_PER_PARTITION: usize = 18;
 const MAX_PARENT_VISITS: usize = 128;
+const MAX_SKIN_STATE_SNAPSHOTS: usize = 2_048;
+const SHADOW_BONE_REGISTERS: u32 = 3;
+const INVALID_BONE_REGISTERS: u32 = u32::MAX;
 const AMD_ALPHA_TO_COVERAGE_OFF: u32 = u32::from_le_bytes(*b"A2M0");
 
 const NI_OBJECT_IS_NODE_SLOT: usize = 0x03;
@@ -90,16 +93,11 @@ const GEOMETRY_BUFFER_CHIPS: usize = 0x28;
 const GEOMETRY_BUFFER_INDEX_BUFFER: usize = 0x34;
 const VERTEX_CHIP_BUFFER: usize = 0x08;
 
-const SKIN_PARTITION: usize = 0x0C;
-const SKIN_BONE_MATRICES: usize = 0x28;
-const SKIN_TO_WORLD: usize = 0x2C;
 const SKIN_PARTITION_COUNT: usize = 0x08;
 const SKIN_PARTITION_ARRAY: usize = 0x0C;
 const PARTITION_BONES: usize = 0x20;
 const PARTITION_BONE_INDICES: usize = 0x04;
 const PARTITION_BUFFER: usize = 0x28;
-const CALCULATE_BONE_MATRICES: usize = 0x00E6_FE30;
-const DRAW_SKINNED_GEOMETRY: usize = 0x00E6_D310;
 // `NiDX9Renderer::CalculateBoneMatrices` subtracts this engine camera origin
 // from the translation column of every output 3x4 matrix. NVR synchronizes the
 // global in `SetupSceneCamera`; OMV instead keeps engine state untouched and
@@ -145,10 +143,46 @@ pub(super) struct GenerationPrograms {
     pub(super) cube_pixel: PixelShader9,
 }
 
+/// Geometry ownership selected for one shadow-map submission.
+///
+/// Point cubes keep immutable world geometry in a backing cube and refresh
+/// only animated skins in the visible cube faces. Directional traversal still
+/// uses `All` because its static/actor split happens at root admission.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) enum CasterSubset {
+    All,
+    Static,
+    Dynamic,
+}
+
+impl CasterSubset {
+    const fn admits(self, skinned: bool) -> bool {
+        match self {
+            Self::All => true,
+            Self::Static => !skinned,
+            Self::Dynamic => skinned,
+        }
+    }
+}
+
 /// Mutable allocation-free traversal state retained with device resources.
-#[derive(Default)]
 pub(super) struct TraversalScratch {
     nodes: Vec<usize>,
+    skin_states: Vec<SkinStateSnapshot>,
+    render_state: Option<RenderStateSnapshot>,
+}
+
+#[derive(Clone, Copy)]
+struct SkinStateSnapshot {
+    skin: usize,
+    frame_id: u32,
+    bone_registers: u32,
+}
+
+#[derive(Clone, Copy)]
+struct RenderStateSnapshot {
+    state: usize,
+    internal_normalize_normals: u8,
 }
 
 impl TraversalScratch {
@@ -156,7 +190,112 @@ impl TraversalScratch {
     pub(super) fn with_capacity() -> Self {
         Self {
             nodes: Vec::with_capacity(MAX_NODE_VISITS),
+            skin_states: Vec::with_capacity(MAX_SKIN_STATE_SNAPSHOTS),
+            render_state: None,
         }
+    }
+
+    /// Begin one engine-state journal around all native skinned submissions.
+    ///
+    /// D3D state blocks do not own `NiSkinInstance` calculation stamps or the
+    /// CPU-side `NiDX9RenderState::InternalNormalizeNormals` byte. The native
+    /// bone helper writes both. Capturing them once per producer lets repeated
+    /// cascade/cube submissions reuse the calculated matrices, then restores
+    /// the renderer value and a cache-coherent skin stamp before the later
+    /// native body pass.
+    ///
+    /// # Safety
+    ///
+    /// `renderer` and its render-state object must remain engine-owned for the
+    /// complete serialized common-shadow transaction.
+    pub(super) unsafe fn begin_native_state_journal(
+        &mut self,
+        renderer: *mut c_void,
+    ) -> Direct3DResult<()> {
+        if renderer.is_null() || self.render_state.is_some() || !self.skin_states.is_empty() {
+            return Err(direct3d_failure());
+        }
+        let state =
+            unsafe { read::<*mut u8>(renderer.cast(), NativeLayout::NIDX9_RENDERER_RENDER_STATE) };
+        if state.is_null() {
+            return Err(direct3d_failure());
+        }
+        self.render_state = Some(RenderStateSnapshot {
+            state: state as usize,
+            internal_normalize_normals: unsafe {
+                read::<u8>(
+                    state,
+                    NativeLayout::NIDX9_RENDER_STATE_INTERNAL_NORMALIZE_NORMALS,
+                )
+            },
+        });
+        Ok(())
+    }
+
+    /// Restore or coherently invalidate engine-owned skin calculation state.
+    ///
+    /// The bone allocation and matrix storage deliberately remain live: the
+    /// helper may have grown that engine-owned cache after freeing its former
+    /// allocation. Restoring those pointers would create a use-after-free.
+    /// A skin previously calculated with OMV's same three-register mode keeps
+    /// its exact stamp. A different original mode cannot be restored beside
+    /// the newly written mode-three matrices; its mode is instead invalidated
+    /// so the next native calculation cannot take a false cache hit.
+    ///
+    /// # Safety
+    ///
+    /// All journaled objects must still belong to the active common-shadow
+    /// transaction. This method must run before control reaches the native
+    /// tail, including every producer failure path.
+    pub(super) unsafe fn restore_native_state_journal(&mut self) -> Direct3DResult<()> {
+        let Some(render_state) = self.render_state.take() else {
+            return Err(direct3d_failure());
+        };
+        for snapshot in self.skin_states.drain(..) {
+            let skin = snapshot.skin as *mut u8;
+            unsafe {
+                write(skin, NativeLayout::NI_SKIN_FRAME_ID, snapshot.frame_id);
+                let restored_mode = if snapshot.bone_registers == SHADOW_BONE_REGISTERS {
+                    snapshot.bone_registers
+                } else {
+                    INVALID_BONE_REGISTERS
+                };
+                write(skin, NativeLayout::NI_SKIN_BONE_REGISTERS, restored_mode);
+            }
+        }
+        unsafe {
+            write(
+                render_state.state as *mut u8,
+                NativeLayout::NIDX9_RENDER_STATE_INTERNAL_NORMALIZE_NORMALS,
+                render_state.internal_normalize_normals,
+            );
+        }
+        Ok(())
+    }
+
+    /// Journal one skin before its first native calculation in this producer.
+    unsafe fn capture_skin_state(&mut self, skin: *mut u8) -> Direct3DResult<()> {
+        if skin.is_null() || self.render_state.is_none() {
+            return Err(direct3d_failure());
+        }
+        if self
+            .skin_states
+            .iter()
+            .any(|snapshot| snapshot.skin == skin as usize)
+        {
+            return Ok(());
+        }
+        // Never reallocate in the render hook. Overflow fails the replacement
+        // transaction and takes the already-supported native fallback.
+        if self.skin_states.len() >= MAX_SKIN_STATE_SNAPSHOTS {
+            return Err(direct3d_failure());
+        }
+        self.skin_states.push(SkinStateSnapshot {
+            skin: skin as usize,
+            frame_id: unsafe { read::<u32>(skin, NativeLayout::NI_SKIN_FRAME_ID) },
+            bone_registers: unsafe { read::<u32>(skin, NativeLayout::NI_SKIN_BONE_REGISTERS) },
+        });
+        Ok(())
     }
 }
 
@@ -243,6 +382,7 @@ pub(super) unsafe fn draw_directional_root(
         is_land,
         is_lod,
         minimum_radius,
+        subset: CasterSubset::All,
     };
     unsafe { traverse_root(context, root, scratch) }
 }
@@ -261,6 +401,8 @@ pub(super) unsafe fn draw_point_geometry(
     radius: f32,
     face: usize,
     geometry: *mut u8,
+    subset: CasterSubset,
+    scratch: &mut TraversalScratch,
 ) -> Direct3DResult<()> {
     let context = DrawContext {
         device,
@@ -274,8 +416,9 @@ pub(super) unsafe fn draw_point_geometry(
         is_land: false,
         is_lod: false,
         minimum_radius: CasterPolicy::quality_default().minimum_radius,
+        subset,
     };
-    unsafe { draw_geometry(context, geometry) }
+    unsafe { draw_geometry(context, geometry, scratch) }
 }
 
 /// Traverse one cell root for the native-list fallback point-light route.
@@ -295,6 +438,7 @@ pub(super) unsafe fn draw_point_root(
     root: *mut u8,
     is_land: bool,
     is_lod: bool,
+    subset: CasterSubset,
     scratch: &mut TraversalScratch,
 ) -> Direct3DResult<()> {
     let context = DrawContext {
@@ -309,6 +453,7 @@ pub(super) unsafe fn draw_point_root(
         is_land,
         is_lod,
         minimum_radius: CasterPolicy::quality_default().minimum_radius,
+        subset,
     };
     unsafe { traverse_root(context, root, scratch) }
 }
@@ -326,6 +471,7 @@ struct DrawContext<'a> {
     is_land: bool,
     is_lod: bool,
     minimum_radius: f32,
+    subset: CasterSubset,
 }
 
 unsafe fn traverse_root(
@@ -349,7 +495,7 @@ unsafe fn traverse_root(
         }
         let geometry = unsafe { virtual_cast(object, NI_OBJECT_IS_GEOMETRY_SLOT) };
         if !geometry.is_null() {
-            unsafe { draw_geometry(context, geometry)? };
+            unsafe { draw_geometry(context, geometry, scratch)? };
             continue;
         }
         let node = unsafe { virtual_cast(object, NI_OBJECT_IS_NODE_SLOT) };
@@ -394,15 +540,40 @@ unsafe fn traverse_root(
     Ok(())
 }
 
-unsafe fn draw_geometry(context: DrawContext<'_>, geometry: *mut u8) -> Direct3DResult<()> {
+unsafe fn draw_geometry(
+    context: DrawContext<'_>,
+    geometry: *mut u8,
+    scratch: &mut TraversalScratch,
+) -> Direct3DResult<()> {
+    if geometry.is_null() {
+        return Ok(());
+    }
+    // Point animation revisits only a few cube faces but the native light list
+    // may contain thousands of immutable geometries. Reject the opposite
+    // ownership family from the one pointer read needed to identify a skin,
+    // before material, ancestry, bound, texture, and buffer classification.
+    let skinned = !unsafe { read::<*mut u8>(geometry, NativeLayout::NI_GEOMETRY_SKIN) }.is_null();
+    if !context.subset.admits(skinned) {
+        return Ok(());
+    }
     let Some(classification) = (unsafe { classify_geometry(context, geometry) }) else {
         return Ok(());
     };
+    debug_assert_eq!(classification.skinned, skinned);
     let world = unsafe { geometry_world_matrix(geometry, context.camera_translation) }
         .ok_or_else(direct3d_failure)?;
     let mut geometry_data = [classification.geometry_kind, 0.0, 0.0, 0.0];
     if let Some(radius) = context.cube_radius {
         geometry_data[2] = radius;
+        // Dynamic point-cube draws sample the immutable static cube in s1 and
+        // write the nearer radial depth. This prevents an actor behind a wall
+        // from replacing the wall merely because the reusable D3D depth
+        // surface was cleared for the actor-only pass.
+        geometry_data[3] = if context.subset == CasterSubset::Dynamic {
+            1.0
+        } else {
+            0.0
+        };
     }
 
     if classification.alpha {
@@ -427,7 +598,7 @@ unsafe fn draw_geometry(context: DrawContext<'_>, geometry: *mut u8) -> Direct3D
     unsafe { set_geometry_cull_mode(context.device, context.renderer.cast(), geometry)? };
 
     if classification.skinned {
-        return unsafe { draw_skinned(context, geometry, world) };
+        return unsafe { draw_skinned(context, geometry, world, scratch) };
     }
     if classification.speedtree {
         unsafe { upload_speedtree_constants(context, geometry)? };
@@ -598,9 +769,10 @@ unsafe fn draw_skinned(
     context: DrawContext<'_>,
     geometry: *mut u8,
     fallback_world: [[f32; 4]; 4],
+    scratch: &mut TraversalScratch,
 ) -> Direct3DResult<()> {
     let skin = unsafe { read::<*mut u8>(geometry, NativeLayout::NI_GEOMETRY_SKIN) };
-    let partition = unsafe { read::<*mut u8>(skin, SKIN_PARTITION) };
+    let partition = unsafe { read::<*mut u8>(skin, NativeLayout::NI_SKIN_PARTITION) };
     if partition.is_null() {
         return Ok(());
     }
@@ -610,14 +782,16 @@ unsafe fn draw_skinned(
     if !dismember_partition_is_renderable(dismember_renderable, None) {
         return Ok(());
     }
-    let calculate: CalculateBoneMatrices = unsafe { transmute(CALCULATE_BONE_MATRICES) };
+    unsafe { scratch.capture_skin_state(skin)? };
+    let calculate: CalculateBoneMatrices =
+        unsafe { transmute(ShadowGenerationAbi::CALCULATE_BONE_MATRICES) };
     unsafe {
         calculate(
             context.renderer,
             skin,
             geometry.add(NativeLayout::NI_AV_OBJECT_WORLD_TRANSFORM),
             0,
-            3,
+            SHADOW_BONE_REGISTERS as i32,
             1,
         )
     };
@@ -626,7 +800,7 @@ unsafe fn draw_skinned(
     if !native_camera_translation.into_iter().all(f32::is_finite) {
         return Err(direct3d_failure());
     }
-    let skin_world = unsafe { read::<*mut [[f32; 4]; 4]>(skin, SKIN_TO_WORLD) };
+    let skin_world = unsafe { read::<*mut [[f32; 4]; 4]>(skin, NativeLayout::NI_SKIN_TO_WORLD) };
     let world = if skin_world.is_null() {
         fallback_world
     } else {
@@ -637,7 +811,7 @@ unsafe fn draw_skinned(
     let count =
         (unsafe { read::<u32>(partition, SKIN_PARTITION_COUNT) } as usize).min(MAX_SKIN_PARTITIONS);
     let partitions = unsafe { read::<*mut u8>(partition, SKIN_PARTITION_ARRAY) };
-    let bone_rows = unsafe { read::<*const [f32; 4]>(skin, SKIN_BONE_MATRICES) };
+    let bone_rows = unsafe { read::<*const [f32; 4]>(skin, NativeLayout::NI_SKIN_BONE_MATRICES) };
     if partitions.is_null() || bone_rows.is_null() {
         return Ok(());
     }
@@ -651,7 +825,7 @@ unsafe fn draw_skinned(
     } else {
         0
     };
-    let draw: DrawSkinnedGeometry = unsafe { transmute(DRAW_SKINNED_GEOMETRY) };
+    let draw: DrawSkinnedGeometry = unsafe { transmute(GeometryKind::Skinned.render_address()) };
     for index in 0..count {
         let partition_enabled = (!dismember_entries.is_null() && index < dismember_count)
             .then(|| unsafe { read::<u8>(dismember_entries, index * 4) } != 0);
@@ -1079,4 +1253,89 @@ fn normalize(value: [f32; 3]) -> Option<[f32; 3]> {
         .sum::<f32>()
         .sqrt();
     (length.is_finite() && length > 0.0001).then(|| value.map(|component| component / length))
+}
+
+#[cfg(test)]
+mod tests {
+    use core::mem::size_of;
+
+    use super::{CasterSubset, TraversalScratch, read, write};
+    use crate::effects::shadows::engine::NativeLayout;
+
+    #[test]
+    fn point_static_and_dynamic_caster_subsets_are_disjoint_and_complete() {
+        assert!(CasterSubset::Static.admits(false));
+        assert!(!CasterSubset::Static.admits(true));
+        assert!(!CasterSubset::Dynamic.admits(false));
+        assert!(CasterSubset::Dynamic.admits(true));
+        assert!(CasterSubset::All.admits(false));
+        assert!(CasterSubset::All.admits(true));
+    }
+
+    #[test]
+    fn skinned_journal_restores_native_body_state_after_repeated_shadow_submission() {
+        let mut renderer =
+            vec![0_u8; NativeLayout::NIDX9_RENDERER_RENDER_STATE + size_of::<usize>()];
+        let mut render_state =
+            vec![0_u8; NativeLayout::NIDX9_RENDER_STATE_INTERNAL_NORMALIZE_NORMALS + 1];
+        let mut skin = vec![0_u8; NativeLayout::NI_SKIN_BONE_REGISTERS + size_of::<u32>()];
+        let renderer_ptr = renderer.as_mut_ptr();
+        let render_state_ptr = render_state.as_mut_ptr();
+        let skin_ptr = skin.as_mut_ptr();
+        unsafe {
+            write(
+                renderer_ptr,
+                NativeLayout::NIDX9_RENDERER_RENDER_STATE,
+                render_state_ptr,
+            );
+            write(
+                render_state_ptr,
+                NativeLayout::NIDX9_RENDER_STATE_INTERNAL_NORMALIZE_NORMALS,
+                1_u8,
+            );
+            write(skin_ptr, NativeLayout::NI_SKIN_FRAME_ID, 7_u32);
+            write(skin_ptr, NativeLayout::NI_SKIN_BONE_REGISTERS, 4_u32);
+        }
+
+        let mut scratch = TraversalScratch::with_capacity();
+        unsafe {
+            scratch
+                .begin_native_state_journal(renderer_ptr.cast())
+                .expect("valid fake renderer");
+            scratch.capture_skin_state(skin_ptr).expect("first caster");
+
+            // Model `CalculateBoneMatrices`: the first shadow route claims the
+            // current frame/mode and updates the renderer-global normalize flag.
+            write(skin_ptr, NativeLayout::NI_SKIN_FRAME_ID, 99_u32);
+            write(skin_ptr, NativeLayout::NI_SKIN_BONE_REGISTERS, 3_u32);
+            write(
+                render_state_ptr,
+                NativeLayout::NIDX9_RENDER_STATE_INTERNAL_NORMALIZE_NORMALS,
+                0_u8,
+            );
+
+            // A point face or another cascade can submit the same skin again.
+            // Its snapshot must not replace the native pre-shadow values.
+            scratch
+                .capture_skin_state(skin_ptr)
+                .expect("repeated caster");
+            scratch
+                .restore_native_state_journal()
+                .expect("engine state restore");
+
+            assert_eq!(read::<u32>(skin_ptr, NativeLayout::NI_SKIN_FRAME_ID), 7);
+            assert_eq!(
+                read::<u32>(skin_ptr, NativeLayout::NI_SKIN_BONE_REGISTERS),
+                u32::MAX,
+                "restoring a current-frame mode-4 stamp after writing mode-3 matrices makes the native cache lie"
+            );
+            assert_eq!(
+                read::<u8>(
+                    render_state_ptr,
+                    NativeLayout::NIDX9_RENDER_STATE_INTERNAL_NORMALIZE_NORMALS,
+                ),
+                1
+            );
+        }
+    }
 }

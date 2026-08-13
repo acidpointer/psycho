@@ -1,21 +1,53 @@
-// Six-light OMV point-shadow accumulation over precomputed receiver geometry.
+// One-pass OMV point-shadow accumulation over scene depth and twelve cubes.
+#ifndef OMV_POINT_CAPACITY
+#define OMV_POINT_CAPACITY 12
+#endif
+
 float4 ScreenData : register(c0);
 float4 DepthLinearizeData : register(c1);
 float4 CameraFrustum : register(c2);
 float4 ViewToWorld0 : register(c3);
 float4 ViewToWorld1 : register(c4);
 float4 ViewToWorld2 : register(c5);
-float4 PointControl : register(c6); // x unused, y light count, z radial bias
-float4 LightPositionRadius[6] : register(c7);
-float4 LightColorIntensity[6] : register(c13);
+float4 PointControl : register(c6); // x reversed depth, y light count, z radial bias
+float4 LightPositionRadius[12] : register(c7);
+float4 LightColorIntensity[12] : register(c19);
 
-sampler2D ReceiverGeometry : register(s0);
+sampler2D SceneDepth : register(s0);
 samplerCUBE ShadowCube0 : register(s1);
+#if OMV_POINT_CAPACITY >= 2
 samplerCUBE ShadowCube1 : register(s2);
+#endif
+#if OMV_POINT_CAPACITY >= 3
 samplerCUBE ShadowCube2 : register(s3);
+#endif
+#if OMV_POINT_CAPACITY >= 4
 samplerCUBE ShadowCube3 : register(s4);
+#endif
+#if OMV_POINT_CAPACITY >= 5
 samplerCUBE ShadowCube4 : register(s5);
+#endif
+#if OMV_POINT_CAPACITY >= 6
 samplerCUBE ShadowCube5 : register(s6);
+#endif
+#if OMV_POINT_CAPACITY >= 7
+samplerCUBE ShadowCube6 : register(s7);
+#endif
+#if OMV_POINT_CAPACITY >= 8
+samplerCUBE ShadowCube7 : register(s8);
+#endif
+#if OMV_POINT_CAPACITY >= 9
+samplerCUBE ShadowCube8 : register(s9);
+#endif
+#if OMV_POINT_CAPACITY >= 10
+samplerCUBE ShadowCube9 : register(s10);
+#endif
+#if OMV_POINT_CAPACITY >= 11
+samplerCUBE ShadowCube10 : register(s11);
+#endif
+#if OMV_POINT_CAPACITY >= 12
+samplerCUBE ShadowCube11 : register(s12);
+#endif
 
 struct PixelInput { float2 uv : TEXCOORD0; };
 
@@ -24,6 +56,18 @@ float3 ViewPosition(float2 uv, float depth) {
         lerp(CameraFrustum.x, CameraFrustum.y, uv.x) * depth,
         lerp(CameraFrustum.w, CameraFrustum.z, uv.y) * depth,
         depth);
+}
+
+float LinearDepth(float rawDepth) {
+    if (PointControl.x > 0.5f) {
+        return DepthLinearizeData.x / max(rawDepth * DepthLinearizeData.y + DepthLinearizeData.z, 0.001f);
+    }
+    return DepthLinearizeData.x / max(DepthLinearizeData.w - rawDepth * DepthLinearizeData.y, 0.001f);
+}
+
+float3 SampleViewPosition(float2 uv) {
+    float rawDepth = tex2Dlod(SceneDepth, float4(uv, 0.0f, 0.0f)).r;
+    return ViewPosition(uv, LinearDepth(rawDepth));
 }
 
 float3 RelativeWorldPosition(float2 uv, float depth) {
@@ -92,24 +136,68 @@ LightEnergy EvaluateLight(
 }
 
 PointOutput Main(PixelInput input) {
-    float4 receiver = tex2Dlod(ReceiverGeometry, float4(input.uv, 0.0f, 0.0f));
-    if (receiver.w <= 0.0f) {
+    float rawDepth = tex2Dlod(SceneDepth, float4(input.uv, 0.0f, 0.0f)).r;
+    if (rawDepth <= 1.0f / 65536.0f || rawDepth >= 1.0f - 1.0f / 65536.0f) {
         PointOutput empty;
         empty.deficit = 0.0f;
         empty.total = 0.0f;
         return empty;
     }
 
-    float3 worldPosition = RelativeWorldPosition(input.uv, receiver.w);
-    float3 normal = WorldNormal(receiver.xyz);
+    // Reconstruct the identical edge-aware receiver normal that the deleted
+    // geometry prepass wrote, but consume it immediately. This removes one
+    // full-resolution FP16 write/read pair without approximating geometry.
+    float depth = LinearDepth(rawDepth);
+    float3 center = ViewPosition(input.uv, depth);
+    float3 left = SampleViewPosition(input.uv - float2(ScreenData.z, 0.0f));
+    float3 right = SampleViewPosition(input.uv + float2(ScreenData.z, 0.0f));
+    float3 up = SampleViewPosition(input.uv - float2(0.0f, ScreenData.w));
+    float3 down = SampleViewPosition(input.uv + float2(0.0f, ScreenData.w));
+    float3 dx = dot(left - center, left - center) < dot(right - center, right - center)
+        ? center - left : right - center;
+    float3 dy = dot(up - center, up - center) < dot(down - center, down - center)
+        ? center - up : down - center;
+    float3 viewNormal = cross(dx, dy);
+    viewNormal *= rsqrt(max(dot(viewNormal, viewNormal), 0.0000001f));
+
+    float3 worldPosition = RelativeWorldPosition(input.uv, depth);
+    float3 normal = WorldNormal(viewNormal);
     float3 total = 0.0f;
     float3 deficit = 0.0f;
     if (PointControl.y > 0.0f) { LightEnergy light = EvaluateLight(ShadowCube0, worldPosition, normal, LightPositionRadius[0], LightColorIntensity[0]); total += light.total; deficit += light.deficit; }
+#if OMV_POINT_CAPACITY >= 2
     if (PointControl.y > 1.0f) { LightEnergy light = EvaluateLight(ShadowCube1, worldPosition, normal, LightPositionRadius[1], LightColorIntensity[1]); total += light.total; deficit += light.deficit; }
+#endif
+#if OMV_POINT_CAPACITY >= 3
     if (PointControl.y > 2.0f) { LightEnergy light = EvaluateLight(ShadowCube2, worldPosition, normal, LightPositionRadius[2], LightColorIntensity[2]); total += light.total; deficit += light.deficit; }
+#endif
+#if OMV_POINT_CAPACITY >= 4
     if (PointControl.y > 3.0f) { LightEnergy light = EvaluateLight(ShadowCube3, worldPosition, normal, LightPositionRadius[3], LightColorIntensity[3]); total += light.total; deficit += light.deficit; }
+#endif
+#if OMV_POINT_CAPACITY >= 5
     if (PointControl.y > 4.0f) { LightEnergy light = EvaluateLight(ShadowCube4, worldPosition, normal, LightPositionRadius[4], LightColorIntensity[4]); total += light.total; deficit += light.deficit; }
+#endif
+#if OMV_POINT_CAPACITY >= 6
     if (PointControl.y > 5.0f) { LightEnergy light = EvaluateLight(ShadowCube5, worldPosition, normal, LightPositionRadius[5], LightColorIntensity[5]); total += light.total; deficit += light.deficit; }
+#endif
+#if OMV_POINT_CAPACITY >= 7
+    if (PointControl.y > 6.0f) { LightEnergy light = EvaluateLight(ShadowCube6, worldPosition, normal, LightPositionRadius[6], LightColorIntensity[6]); total += light.total; deficit += light.deficit; }
+#endif
+#if OMV_POINT_CAPACITY >= 8
+    if (PointControl.y > 7.0f) { LightEnergy light = EvaluateLight(ShadowCube7, worldPosition, normal, LightPositionRadius[7], LightColorIntensity[7]); total += light.total; deficit += light.deficit; }
+#endif
+#if OMV_POINT_CAPACITY >= 9
+    if (PointControl.y > 8.0f) { LightEnergy light = EvaluateLight(ShadowCube8, worldPosition, normal, LightPositionRadius[8], LightColorIntensity[8]); total += light.total; deficit += light.deficit; }
+#endif
+#if OMV_POINT_CAPACITY >= 10
+    if (PointControl.y > 9.0f) { LightEnergy light = EvaluateLight(ShadowCube9, worldPosition, normal, LightPositionRadius[9], LightColorIntensity[9]); total += light.total; deficit += light.deficit; }
+#endif
+#if OMV_POINT_CAPACITY >= 11
+    if (PointControl.y > 10.0f) { LightEnergy light = EvaluateLight(ShadowCube10, worldPosition, normal, LightPositionRadius[10], LightColorIntensity[10]); total += light.total; deficit += light.deficit; }
+#endif
+#if OMV_POINT_CAPACITY >= 12
+    if (PointControl.y > 11.0f) { LightEnergy light = EvaluateLight(ShadowCube11, worldPosition, normal, LightPositionRadius[11], LightColorIntensity[11]); total += light.total; deficit += light.deficit; }
+#endif
     PointOutput output;
     // Keeping both RGB quantities exact is essential when differently colored
     // lights overlap. A scalar occlusion ratio would darken channels owned by

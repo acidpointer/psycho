@@ -678,12 +678,28 @@ pub(super) fn try_temporal_depth_epoch(
     DepthAccess::Ready(resolve.temporal_depth_epoch(device_ptr, width, height))
 }
 
-/// Return a world-only snapshot outcome from the external provider.
-pub(super) fn external_depth_outcome(
+/// Publish and return a world-only snapshot at the requested native boundary.
+///
+/// Depth Resolve owns the physical pre-water and post-water copies. OMV reads
+/// the live source surface only to attach exact projection, source identity,
+/// stage, and epoch metadata to the provider's already-existing INTZ texture.
+/// This is the external implementation of the same common API used by OMV's
+/// resolver; it never issues RESZ or NvAPI work itself.
+///
+/// # Safety
+///
+/// `device_ptr` must be the live render-thread device. A supplied rendered
+/// texture must own the depth surface for `stage` throughout this call.
+pub(super) unsafe fn external_depth_outcome(
+    device_ptr: *mut c_void,
+    source_rendered_texture: Option<*mut c_void>,
     slot: DepthResolveSlot,
+    stage: DepthResolveStage,
+    world_projection_override: Option<CameraFrame>,
+    reason: &'static str,
     render_epoch: u32,
 ) -> DepthResolveOutcome {
-    if slot == DepthResolveSlot::FirstPerson {
+    if slot == DepthResolveSlot::FirstPerson || stage.slot() != slot {
         // Depth Resolve 1.31 publishes world depth only. Supplementing this
         // with OMV's first-person resolver would violate exclusive provider
         // selection and recreate the duplicate producer problem.
@@ -692,11 +708,20 @@ pub(super) fn external_depth_outcome(
     let Some(mut resolve) = EXTERNAL_DEPTH_RESOLVE.try_lock() else {
         return DepthResolveOutcome::Busy;
     };
-    resolve.begin_epoch(render_epoch);
-    let depth = resolve.depth_frame();
-    if depth.texture.is_none() {
+    if let Err(err) = unsafe {
+        resolve.publish_boundary(
+            device_ptr,
+            source_rendered_texture,
+            stage,
+            world_projection_override,
+            render_epoch,
+        )
+    } {
+        resolve.invalidate();
+        log_depth_resolve_skip(slot, reason, &FnvDepthResolveError::Static(err));
         return DepthResolveOutcome::Rejected;
     }
+    let depth = resolve.depth_frame();
     DepthResolveOutcome::Resolved {
         depth,
         underwater: underwater_frame(resolve.frame_epoch),
@@ -738,7 +763,15 @@ pub(super) unsafe fn publish_external_depth_after_world(
     let Some(mut resolve) = EXTERNAL_DEPTH_RESOLVE.try_lock() else {
         return;
     };
-    if let Err(err) = unsafe { resolve.publish_after_world(device_ptr, render_epoch) } {
+    if let Err(err) = unsafe {
+        resolve.publish_boundary(
+            device_ptr,
+            None,
+            DepthResolveStage::CoherentWorld,
+            None,
+            render_epoch,
+        )
+    } {
         resolve.invalidate();
         log_depth_resolve_skip(
             DepthResolveSlot::World,
@@ -1916,8 +1949,8 @@ struct FnvDepthResolve {
 /// Borrowed-snapshot state for Depth Resolve's world-only provider.
 ///
 /// The retained texture is an ownership guard, not a private render target.
-/// Freshness is published only after the world hook returns, which proves the
-/// external post-water resolve has completed for the current render epoch.
+/// Freshness is published at the exact native pre-alpha or post-world boundary
+/// whose external physical copy has already completed for this render epoch.
 #[derive(Default)]
 struct ExternalDepthResolve {
     device_ptr: usize,
@@ -1965,11 +1998,17 @@ impl ExternalDepthResolve {
         self.world_capture = ResolvedDepthCapture::default();
     }
 
-    unsafe fn publish_after_world(
+    unsafe fn publish_boundary(
         &mut self,
         device_ptr: *mut c_void,
+        source_rendered_texture: Option<*mut c_void>,
+        stage: DepthResolveStage,
+        world_projection_override: Option<CameraFrame>,
         render_epoch: u32,
     ) -> Result<(), &'static str> {
+        if stage.slot() != DepthResolveSlot::World {
+            return Err("external depth boundary is not a world stage");
+        }
         self.begin_epoch(render_epoch);
         if self.device_ptr != 0 && self.device_ptr != device_ptr as usize {
             self.release();
@@ -1980,24 +2019,30 @@ impl ExternalDepthResolve {
         };
         self.device_ptr = device_ptr as usize;
 
-        let rendered_texture = unsafe {
-            read_ptr_checked(
-                BSSHADERMANAGER_CURRENT_RENDER_TARGET_PTR,
-                "unreadable current render target",
-            )?
+        let rendered_texture = match source_rendered_texture {
+            Some(rendered_texture) => rendered_texture,
+            None => unsafe {
+                read_ptr_checked(
+                    BSSHADERMANAGER_CURRENT_RENDER_TARGET_PTR,
+                    "unreadable current render target",
+                )?
+                .cast::<c_void>()
+            },
         };
-        let source_surface =
-            unsafe { read_rendered_texture_depth_surface(rendered_texture.cast::<c_void>())? };
+        let source_surface = unsafe { read_rendered_texture_depth_surface(rendered_texture)? };
         let desc =
             unsafe { Surface9::raw_desc(source_surface) }.map_err(|_| "unreadable world depth")?;
         if desc.Width == 0 || desc.Height == 0 {
             return Err("empty world depth surface");
         }
 
-        let texture = depth_resolve_provider::shared_texture(Some(&desc))?;
         let depth_function = device.render_state(D3DRS_ZFUNC).ok();
-        let camera = unsafe { read_world_camera_frame(&desc) }
-            .ok_or("missing persistent world camera projection")?;
+        let camera = match world_projection_override {
+            Some(camera) if projection_matches_surface(camera, &desc) => camera,
+            Some(_) => return Err("invalid world camera projection override"),
+            None => unsafe { read_world_camera_frame(&desc) }
+                .ok_or("missing persistent world camera projection")?,
+        };
         let projection = DepthProjectionFrame {
             camera,
             reversed_depth: depth_convention(depth_function),
@@ -2005,11 +2050,24 @@ impl ExternalDepthResolve {
             source_surface: source_surface as usize,
             sampled_depth_bits: sampled_depth_bits(desc.Format),
         };
+
+        if self.world_capture.matches_physical_source(
+            self.frame_epoch,
+            stage,
+            source_surface as usize,
+            desc.Width,
+            desc.Height,
+        ) {
+            EXACT_DEPTH_CACHE_HITS.fetch_add(1, Ordering::Relaxed);
+            return Ok(());
+        }
+
+        let texture = depth_resolve_provider::shared_texture(Some(&desc))?;
         self.world_capture = ResolvedDepthCapture {
             texture_ptr: texture.as_raw_base_texture() as usize,
             projection,
             frame_epoch: self.frame_epoch,
-            stage: DepthResolveStage::CoherentWorld,
+            stage,
             width: desc.Width,
             height: desc.Height,
         };

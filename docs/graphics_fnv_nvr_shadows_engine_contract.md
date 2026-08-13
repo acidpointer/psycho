@@ -2769,6 +2769,470 @@ sunrise/time jumps, fog/volumetric/shaft ordering, and measured stage/frame
 times. Cold BaseObjectSwapper-enabled load to gameplay remains a separate
 mandatory startup acceptance gate.
 
+#### Ninth corrective pass: screenshot-isolated contact depth and motion stability
+
+This pass supersedes the eighth pass's active contact-depth, contact-pass, and
+exterior mixed-light descriptions; that text remains rejection history.
+The runtime evidence for this pass is the complete `shadow*` set supplied in
+`.reports/`: `shadows_exterior_light_mix.png`,
+`shadows_far_artifacts.png`, and `shadows_far_artifacts_detailed.png`. The
+first image shows a local-light/sun interaction cutting a large jagged dark
+region into an exterior facade. The two Tenpenny images show hard vertical and
+horizontal rectangles on the tower at a displayed distance of 2130 m. The
+additional runtime report states that ordinary forward movement with `W`,
+especially combined with faster camera movement, makes exterior geometry and
+contact shadows flicker. These are runtime observations; the screenshots do
+not by themselves prove which producer wrote a pixel.
+
+The active distance contracts isolate the likely tower route without relying
+only on visual resemblance. Directional cascades stop at the configured 6000
+game units, whereas the contact route continues to its 180,000-unit default.
+Using FNV's conventional approximate scale of 70 game units per HUD metre, the
+displayed 2130 m is about 149,100 units: outside the atlas and inside contact
+coverage. That conversion is a reasoned inference, not new executable proof.
+Static inspection independently found that the contact G16R16F target stored
+raw linear depth. Binary16's largest finite value is 65,504, so every valid
+contact receiver beyond that limit overflowed or saturated before filtering,
+temporal reprojection, and final receiver matching. The corruption explains
+stable screen partitions becoming camera-dependent rectangles instead of
+coherent distant geometry.
+
+Contact depth is now stored as `linear_depth / 250000`. The fixed denominator
+is the schema-one contact slider's complete supported range, rather than the
+current camera far plane, so a camera or FOV change cannot reinterpret history.
+The spatial blur is no longer part of the active path. The generation scratch
+feeds the camera-reprojected temporal resolve directly, and both temporal
+rejection and final composition decode the key before applying the established
+two-unit or 0.25-percent linear-depth tolerance. Three G16R16F allocations
+remain: one generation scratch and two completed-history targets. The runtime
+topology drops from three half-resolution fullscreen draws and fifteen
+executed texture reads per output pixel to two draws and twelve reads.
+
+The motion report exposed two additional NVR-contract deviations. First, a
+half-resolution contact raster center commonly lies on a full-resolution depth
+texel boundary. The old shader point-sampled one texel but reconstructed the
+requested boundary coordinate, so receiver position changed as the camera
+crossed sampling phases even when the depth value did not. Receiver and ray
+samples now snap to the exact full-resolution texel center selected by the
+point sampler. Temporal reprojection reconstructs each stored key at that same
+full-resolution receiver ray rather than the half-resolution carrier UV.
+Second, OMV scaled NVR's ray by view Z. NVR uses homogeneous
+view distance; equal-distance receivers therefore received different ray
+lengths as they moved from screen center to an ultrawide edge. OMV now uses
+the radial length of the reconstructed view position.
+
+Exact addressing does not alone distinguish a blocker from the receiver
+surface. Contact generation now samples two receiver depths on the side
+opposite the projected light ray. Device depth is affine over a rasterized
+plane, so those samples define a raw-depth plane without a derivative or four
+extra view-position reconstructions. A ray sample matching that plane is
+self-occlusion and remains neutral; a depth-separated sample within NVR's
+twenty-unit marched-ray thickness remains a valid blocker. Endpoint,
+silhouette, border, and discontinuous-neighbor failures also return neutral.
+This replaces the removed five-tap spatial pass: receiver validation adds two
+generation reads while eliminating five filter reads and one draw. NVR's four
+cumulative ray positions, temporal weight, half resolution, and contact range
+are unchanged.
+
+The exterior mixed-light compositor now treats the directional-only surface
+as a lower bound. NVR-derived analytic point attenuation may overestimate the
+local energy actually present in a native material. Such an estimate may fill
+a sun shadow when visible or remove that fill when cube-occluded, but it may
+not subtract through the sun-only result into ambient/emissive ownership. The
+bound applies only when the exterior directional branch is active; interiors
+retain exact RGB local-deficit subtraction. Directional and actor atlas reads
+also reject projected Z outside `[0, 1]` instead of saturating it and sampling
+a clamped map edge, closing another source of moving rectangular geometry.
+
+Eight regression controls failed before these production changes. They cover
+binary16 quantization and decode at 149,100 units across forward motion,
+half-to-full-resolution point-sample centers at 3440 by 1440, radial ray scale
+at equal world distance and after ordinary forward movement, planar-receiver
+self-occlusion versus a detached blocker, complete directional clip-volume
+admission, temporal reconstruction at the generation texel center, an
+overestimated Pip-Boy cube cutting below the sun-only image, and the old
+three-pass/fifteen-read contact workload. The tests use numeric depth
+quantization, geometric samples, radiance bounds, compiled SM3 programs, and a
+loop-aware workload model; no behavior is accepted because source text merely
+exists. The previously established actor, first-person, sky, fog ordering,
+cascade coverage, and point-light image oracles remain in the same suite.
+
+The NVR facts reused here are the four cumulative contact positions, fixed
+twenty-unit thickness, homogeneous-depth ray scale, 180,000-unit default, and
+point-light equations in
+`.research/TESReloaded10-master/src/hlsl/NewVegas/Effects/SunShadows.fx.hlsl`,
+`.research/TESReloaded10-master/src/hlsl/NewVegas/Effects/Includes/Shadows.hlsl`,
+and the custom-quality defaults. The executable identity and established hook,
+phase, depth, camera, and actor contracts are unchanged. No configuration,
+preset, schema, hook admission, TLS owner, lazy/static owner, worker phase, or
+pre-`DeferredInit` publication changes in this pass; shadow bytecode preparation
+remains after the deferred safety boundary.
+
+Validation on 2026-08-13 used the explicit supported
+`i686-pc-windows-gnu` target. All 94 focused shadow tests and all 587 OMV tests
+pass, including doc tests, and the release build succeeds. The resulting
+`omv.dll` is 12,840,339 bytes with SHA-256
+`75d8e38ff69db79a2c728243c4f4c86cf9ca00e3e3f0eb41978bc0869f2477f5`.
+`cargo fmt -p omv` and `git diff --check` also pass.
+
+Static tests and a release build can prove the numeric, ABI, shader-model, and
+workload contracts, but cannot prove the final Proton/DXVK image or measured
+frame rate. Runtime acceptance still requires the three supplied scenes plus
+forward/strafe movement, simultaneous fast camera rotation, ultrawide edges,
+sun plus Pip-Boy, contact on broad ground and walls, cascade boundaries, and
+measured stage/frame times. The BaseObjectSwapper-enabled cold load-to-gameplay
+gate remains mandatory and separate from visual acceptance.
+
+#### Tenth corrective pass: production-path movement contracts
+
+The ninth artifact was runtime-rejected: forward movement still made shadows
+appear or flicker, fast camera rotation changed shadow geometry, distant wall
+rectangles and contact artifacts remained, and the claimed fixes were not
+visible. Its temporal-contact and validation descriptions above are therefore
+rejection history, not the active design.
+
+This rejection was not a stale DLL or an unwired route. The deployed
+`mods/omv/NVSE/plugins/omv.dll` and the matching target artifact both had
+SHA-256 `fb8f626379d01dbd85a4723462156248a53de56d8bd1548b6cd1c08a741e9a6e`.
+The supplied runtime log records successful shadow bytecode preparation,
+directional and point resource publication, and pre-alpha composition. It also
+records alternating off-centre TAA frusta at 3440 by 1440, with lens-centre
+offsets around `+/-0.00045`. These are runtime facts about the rejected
+artifact. They prove that work executed; they do not accept its image.
+
+The central validation error was that several passing tests exercised reduced
+Rust equations without proving that the compiled production shader and map
+cache made the same decision. Six new negative controls were run against the
+rejected implementation before their fixes:
+
+- a depth-only temporal contact resolve retained `0.25` visibility on one side
+  of a moved wall while the current ray required `1.0`;
+- production cascade-sphere selection changed from cascade 1 to cascade 0
+  under a log-sized TAA lens shift;
+- half-resolution point upsampling attached an odd pixel's receiver depth to
+  the adjacent even receiver;
+- a quantized affine D24 wall exceeded the old fixed one-LSB plane tolerance
+  and was classified as a detached contact occluder;
+- an actor moving from outer cascade bit `0b0010` to `0b0100` dirtied only
+  `0b0100`, leaving its old silhouette in the departed map; and
+- after initial atlas publication, a changed exterior root set scheduled
+  `[false, false, false, false]`, so newly streamed geometry could not enter a
+  cached map until an unrelated camera or sun invalidation.
+
+Those failures map directly to active production paths. Contact history is now
+removed, not retuned. Receiver depth proves only which wall owns a sample; it
+cannot prove that the ray hit the same occluder after camera or object motion.
+Raw contact evidence therefore passes through one same-frame, depth-aware cross
+filter. The deleted temporal shader, history matrices, camera state, ping-pong
+index, and third G16R16F target cannot retain a camera-following shape or delay
+a newly detected shadow. Two half-resolution draws remain. The loop-aware
+workload contract counts at most fourteen texture samples across those stages,
+and the exact 1920-by-1080 combined resource model is 516,147,200 bytes.
+
+Every half-resolution contact receiver is reconstructed at the exact
+full-resolution depth texel selected by point sampling. Final upsampling first
+accepts the nearest sample only when its normalized 250,000-unit depth key owns
+the full-resolution receiver; only a mismatch takes four axial, independently
+depth-rejected taps. A distant planar receiver is evaluated in affine device
+depth. Its rejection tolerance now grows by the worst-case accumulated D24
+endpoint quantization over the sampled pixel displacement, preventing a broad
+wall from becoming a false detached blocker. A real blocker must still satisfy
+the unchanged NVR twenty-unit marched-depth test, so this stability correction
+does not soften valid contact silhouettes.
+
+Depth reconstruction retains the jittered lens that produced the depth
+buffer. Cascade ownership does not: the atlas producer uses the restored output
+camera, so consumer selection removes only the TAA lens-centre offset while
+preserving frustum width, height, pose, and FOV. This closes the exact boundary
+failure observed with the recorded Halton-sized shifts. Atlas and actor reads
+also retain the ninth pass's complete light-volume Z rejection.
+
+Directional cache ownership now includes scene and animated-caster history.
+Outer actor work dirties the union of previous and current cascade footprints;
+the near actor map remains a same-frame optional publication and needs no stale
+clear when it is not sampled. The previous footprint advances only after the
+complete D3D transaction succeeds. The complete collected root set also has an
+allocation-free, order-independent identity containing pointer and form/land/
+LOD profile metadata. An added, removed, or reprofiled root invalidates all
+retained maps; cache overflow remains correctness-first and does the same.
+This closes movement-triggered cell streaming without periodically redrawing a
+stable exterior. The integer identity is never dereferenced outside the native
+common-shadow epoch.
+
+Point-light and sun energy remain distinct. The exterior result cannot fall
+below its directional-only lower bound when the NVR-derived analytic local
+estimate exceeds light energy actually present in the native surface. Exact
+RGB local deficit remains active for interiors. Point-cube caches already
+retain the union of previous and current animated face footprints, so a body
+crossing a cube edge clears both its abandoned and arrived silhouettes.
+
+The ordinary exterior frame with no selected local light now uses a compiled
+compositor specialization. Its equation is algebraically identical to the
+mixed shader at zero point contribution, including HDR-emitter preservation,
+but compiled bytecode removes two full-resolution point-buffer reads and 39
+static instructions in the current compiler result. Contact generation keeps
+four NVR cumulative ray positions, FP16 EVSM4 maps keep 2048 resolution and
+four coverage samples, and no quality control or form category was reduced.
+
+Validation on 2026-08-13 used the explicit supported
+`i686-pc-windows-gnu` target. The focused shadow suite passes 100/100 tests,
+the complete OMV suite passes 593/593 tests plus doc tests, and the optimized
+OMV build succeeds. The resulting 12,839,242-byte `omv.dll` has SHA-256
+`faed039e36141c982197733682b6e18afaf68c7c72b44696f24d5ca766c93c07`.
+Formatting and `git diff --check` also pass. These results establish the static
+contracts and supported build only.
+
+This pass changes no persisted configuration field, schema, preset, hook
+admission, TLS owner, worker phase, or pre-deferred publication. It did change
+the inline payload of the existing shadow `LazyLock`, however: the tenth-pass
+runtime state reduced its loader-visible size from the last gameplay-reaching
+shadow build's `0xA28` bytes to `0x9D0`. The next cold load failed at the exact
+known BaseObjectSwapper `+0x4990` pre-Deferred signature before any shadow code
+ran. The static-owner correction retains the complete tenth-pass pipeline
+behind a `Box` allocated only by the established DeferredInit installer and
+restores an explicit `0xA28` compatibility slot. A target-width compile-time
+assertion plus a regression test prevent future pipeline fields from silently
+changing that slot. This is a startup-footprint repair only; it does not alter
+shadow quality, work scheduling, resources, shader bytecode, or admission.
+
+Static and supported-target validation still cannot prove the corrected cold
+load, final Proton/DXVK image, or frame rate. Startup acceptance first requires
+the deferred marker and gameplay with BaseObjectSwapper installed. Visual
+acceptance remains the supplied three scenes plus forward/strafe motion,
+simultaneous fast yaw, distant planar walls, sun plus Pip-Boy, third-person
+animated bodies, first-person hands, contact disocclusions, and measured
+exterior/interior frame times.
+
+The startup-corrected supported release artifact is 12,846,995 bytes with
+SHA-256
+`baa5aac1919d14a62357aeca5151057e2052385a9a640972969d6c55806afd3c`.
+All 594 OMV tests pass, including 101 focused shadow tests, and PE inspection
+confirms the required `0xA28` pipeline owner with unchanged imports, TLS,
+import-address-table, and `.bss` footprints relative to the rejected build.
+
+#### Eleventh corrective pass: provider-parity depth and fused exterior light work
+
+The next runtime report established two independent defects. Shadows were
+visible only with the OMV depth provider, and exterior shadows approximately
+halved frame rate. The depth failure was a common-API contract violation, not
+a shadow equation: shadows request `PreAlphaWorld`, but the external route
+only returned a snapshot published after `RenderWorldSceneGraph`. Beginning a
+new render epoch cleared that post-world snapshot before the pre-alpha request,
+so `depth_resolve` deterministically rejected the shadow consumer.
+
+Depth Resolve 1.31 physically owns two world copies inside its native
+accumulator: pre-water and post-water. The common depth API now asks the
+external provider to publish metadata at the requested world boundary. It
+retains the provider's existing INTZ texture and records the exact source
+surface, projection, depth convention, dimensions, stage, and epoch. It does
+not execute RESZ, NvAPI, or an OMV fallback copy. Stage/slot mismatch and
+first-person requests remain rejected because the external provider owns only
+world depth. The executable provider-route regression requires both providers
+to serve `PreAlphaWorld`, while also requiring the external route to remain a
+borrowed boundary snapshot rather than an OMV physical resolve. Exact capture
+tests continue to reject stage, source, epoch, and dimension aliasing.
+
+The exterior local-light consumer had two avoidable bandwidth multipliers. It
+first wrote an `A16B16G16R16F` full-resolution receiver-geometry target, read
+that target in point accumulation, and split twelve overlapping lights across
+two full-screen six-cube draws. Pixel shader model three exposes sixteen
+samplers, so scene depth plus all twelve NVR point cubes fit concurrently. The
+production shader now reconstructs the same five-sample, discontinuity-safe
+receiver normal directly from scene depth and immediately evaluates exact RGB
+total and occluded energy. This deletes the geometry target and its complete
+write/read transition without changing a receiver, light, or cube equation.
+Twelve camera-containing lights schedule one draw instead of two; separated
+lights keep conservative individual scissors so batching never adds empty
+screen work.
+
+Uniform draw counts select compiled one-, six-, or twelve-light programs. The
+common carried/Pip-Boy case therefore runs the 345-instruction one-light
+program instead of retaining eleven unused light branches from the measured
+1,524-instruction maximum program. The six-light specialization is 880
+instructions. Bytecode tests require 6, 11, and 17 or fewer texture
+instructions respectively, reject derivatives, and validate the sampler and
+constant-register ABI. The full twelve-light program keeps all configured
+coverage and performs one depth centre plus four neighbour reads and twelve
+cube reads; no resolution, EVSM precision, point-map size, or light limit was
+reduced.
+
+The exact 1920-by-1080 resource model drops by 16,588,800 bytes: exterior and
+combined peak become 499,558,400 bytes, and the interior branch becomes
+126,312,448 bytes. A separate exterior producer defect scheduled the complete
+2048-by-2048 four-sample actor overlay even when the third-person player root
+was application-culled in first person. Dynamic invalidation and overlay
+submission now use the same root-level app-cull predicate as the actual native
+geometry traversal. Visible player/NPC actors retain the full overlay; only a
+map which provably submits no geometry is skipped.
+
+This pass changes no configuration, schema, preset, hook admission, TLS,
+worker order, or pre-Deferred publication. The additional bytecode variants
+are prepared by the established post-Deferred worker. `ShadowPipeline` remains
+behind the startup-corrected boxed `0xA28` compatibility owner. Static tests
+and the supported build can prove provider routing, shader compilation,
+workload bounds, resources, and startup footprint; measured FPS and final
+depth alignment still require the user's Proton/DXVK playtest.
+
+Validation on 2026-08-13 used the explicit `i686-pc-windows-gnu` target. All
+102 focused shadow tests and all 596 OMV tests pass, including doc tests, and
+the supported release build succeeds. The resulting `omv.dll` is 12,818,327
+bytes with SHA-256
+`227dcb84d4835271807aa812e39e35c167bafb2af2515b71ae31bb8885ab9f7c`.
+PE inspection retains `PIPELINE = 0xA28`, `.bss = 0x6b10`, `.idata = 0x340c`,
+`.tls = 0x8`, TLS directory `0x18`, and IAT `0x6bc`; imported DLL identities
+are unchanged from the startup-corrected baseline. Formatting and
+`git diff --check` also pass.
+
+#### Twelfth corrective pass: native skin-cache ownership and static/dynamic map separation
+
+The eleventh artifact was runtime-rejected. Exterior Shadows cost about 70 FPS
+on the reported RX 6800 XT system, movement still made retained shadows flicker
+or appear with distance, and nearby third-person bodies could disappear while
+their separately rendered weapon remained. The same body disappearance then
+occurred for nearby NPCs in interiors, where a head or weapon could remain.
+These are observations from the user's Proton/DXVK playtest. They reject the
+previous runtime result and the earlier inference that restoring raw D3D state
+made native renderer-cache interaction transparent.
+
+Direct radare2 inspection of the identified executable closes the actor state
+contract. `NiDX9Renderer::CalculateBoneMatrices @ 0x00E6FE30` is a thiscall
+with the renderer in `ECX` and `NiSkinInstance*` as its first stack argument.
+It reads and writes the skin calculation stamp at `+0x18` and calculation mode
+at `+0x20`; `0x00E6FE54..0x00E6FE62` returns early when the current frame and
+mode already match. The same function reaches the renderer's render-state
+owner at `renderer +0x8B8`. Function `0x00E88AD0` writes the byte at render
+state `+0x10F5`, which the supplied NVR headers identify as
+`InternalNormalizeNormals`. Those headers also establish the relevant exact
+`NiSkinInstance` layout: bones `+0x1C`, bone registers/mode `+0x20`, bone
+capacity `+0x24`, bone matrices `+0x28`, and skin/world matrices `+0x2C`.
+Modern NVR calls this helper as
+`CalculateBoneMatrices(skin, world, false, 3, true)` before native
+`DrawSkinnedGeometry @ 0x00E6D310`.
+
+The previous OMV producer called that native helper for actor shadow maps but
+restored only device state. A nearby actor entering a shadow route could
+therefore stamp its skin as calculated for the current frame and change the
+renderer-global normalisation byte. The later native body pass could take the
+early return while those CPU-side values belonged to OMV's shadow submission.
+Heads and weapons use separate objects/routes, which explains why they could
+remain. Player and NPC bodies share this contract; no player-specific masking
+or point-light equation is required to explain the two observations.
+
+The safe intervention point is the existing serialized common-shadow
+transaction. Before its first native geometry submission, OMV snapshots the
+renderer byte and journals each unique skin's original `FrameID` and
+`BoneRegisters` exactly once in preallocated storage. All cascades and cube
+faces may then reuse the native calculated matrices. Before `EndScene` and
+before the native tail can render a body, OMV restores the original frame and
+renderer byte on both successful and failed producer paths. A matching
+mode-three stamp is restored exactly. A different original mode is set to an
+impossible sentinel instead: restoring a current-frame mode-four stamp beside
+newly written mode-three matrices would make the native early-return cache lie.
+The sentinel forces the next native helper call to recompute. OMV deliberately
+does not restore the bone allocation pointer, capacity, or matrix storage: the
+native helper may have freed or grown that engine-owned allocation, so
+restoring old pointers would create a use-after-free. The restored frame plus
+exact-or-invalidated mode either describes mode-three matrices coherently or
+forces native recomputation.
+
+Static workload tests exposed four independent movement amplifiers which the
+earlier near-actor-only performance test did not model:
+
+- any actor touching middle or far set static cascade bits `0b0110`, causing
+  complete 2048-by-2048 four-sample terrain/building maps to be redrawn every
+  presentation;
+- animated actor roots participated in the static root-set identity, so actor
+  streaming or root changes invalidated all retained static cascades;
+- point cubes were assigned by nearest-sort position, so a small camera move
+  which exchanged two unchanged lights regenerated both six-face cubes; and
+- every animated point face traversed the native light's complete geometry
+  list, resubmitting static walls and clutter along with one moving skin.
+
+Directional maps now separate immutable world roots from animated actor roots
+for all actor-capable cascades. Near, middle, and far actor-only EVSM4 maps keep
+the same 2048 resolution and four coverage samples; near/middle are packed
+side-by-side behind one compositor sampler and far uses a second sampler.
+Their complete moments are compared with static moments and the nearer complete
+distribution is evaluated once. This is not a component-wise moment minimum,
+which would corrupt EVSM's negative squared moment. The static atlas is
+invalidated only by its own scene, projection, sun, light-profile, and
+immutable-root contracts.
+
+Actor overlays also no longer run a full-screen EVSM far-clear shader for each
+active cascade. That rejected route shaded up to three complete 2048-square
+four-sample targets every presentation before drawing a body-sized footprint.
+D3D hardware now clears actor color/depth to zero. A valid positive EVSM first
+moment is at least `exp(-5.54)` and therefore strictly positive, so zero is an
+unambiguous empty-actor sentinel. The compositor treats it as neutral and
+evaluates the same EVSM4 distribution wherever actor geometry wrote moments.
+This removes up to three full-map multisample draws without reducing actor map
+resolution, coverage samples, update cadence, or silhouette precision.
+
+Each selected point light now owns a stable physical cube slot across
+distance-order permutations. Its published 512-face `R32F` cube has an
+equal-quality immutable-static backing cube. A new, replaced, or materially
+moved light rebuilds all six static faces. Actor animation restores only the
+union of the actor's previous and current faces from that backing cube and
+submits only skinned geometry to current faces. The dynamic cube shader writes
+the nearer of actor radial depth and the sampled static radial depth; this
+preserves a wall in front of an actor even though the reusable D3D depth surface
+contains only the actor pass. An abandoned face receives only the static copy,
+which removes the old silhouette without another static traversal.
+
+The final five percent of local-light draw range now has a smooth bounded
+retirement weight instead of changing shadow contribution from one to zero
+across one world unit. The weight is paired with the same map/light publication
+and multiplies both local total and cube-proven deficit, so it cannot darken or
+brighten unrelated energy. This handles the configured discovery boundary;
+the twelve-light selection limit and 512 cube quality remain unchanged.
+
+The regression sequence was intentionally negative first. Before the fixes,
+the production-coupled tests observed a static directional mask of `0b0110`
+for actor-only outer changes, two full six-face cube invalidations after a
+distance-order swap, a one-to-zero point weight at the admission edge, and
+four static point faces resubmitted for one compact animated caster. The
+transaction-state test also rejected the missing skin and renderer cache
+categories. A memory-backed fake renderer/skin test then mutates the exact
+`+0x18`, `+0x20`, and `+0x10F5` fields as the native helper does, submits the
+same skin twice, and requires exact frame/renderer restoration plus coherent
+mode invalidation after a mode-three overwrite of an original mode-four cache.
+Separate tests require disjoint and complete static/dynamic caster admission,
+old-face restoration without an actor draw, stable physical cube ownership,
+actor exclusion from the static root signature, and zero static cascade work
+for an otherwise stable animated scene.
+
+The first corrected actor compositor also failed the existing compiled-shader
+gates at 2,510 instructions and 37 texture instructions. No ceiling was raised.
+Merging complete moments before one EVSM evaluation, packing near/middle actor
+maps behind one sampler, and reusing the nearest contact sample returned the
+production programs below the existing 2,040-instruction and 32-texture-
+instruction limits. The complete 106-test shadow-focused suite and all 600 OMV
+tests pass on the supported target; doc tests and the optimized OMV build also
+succeed. The resulting 12,844,216-byte `omv.dll` has SHA-256
+`c1e3a5534a1dfc405a7bd73d3ce02f5db2eab997dc2de8e6a7cc04d3fd5838a2`.
+PE inspection retains `PIPELINE = 0xA28`, `.bss = 0x6b10`, `.idata = 0x340c`,
+`.tls = 0x8`, TLS directory `0x18`, and IAT `0x6bc`; imported DLL identities
+are unchanged from the startup-corrected baseline. Formatting and
+`git diff --check` pass.
+
+At 1920 by 1080 the current conservative resource model is 675,719,168 bytes
+for an exterior or retained combined branch and 201,809,920 bytes for an
+interior-only branch. The increase comes from twelve immutable 512-face point
+cubes and three persistent actor-only EVSM4 maps. It buys removal of repeated
+static geometry traversal and preserves NVR's map precision, spatial
+resolution, coverage sampling, light count, and actor cadence. These are
+residency/work-topology bounds, not measured FPS claims.
+
+This pass changes no persisted configuration, schema, preset, hook admission,
+TLS owner, worker order, lazy/static owner, or pre-Deferred publication.
+`ShadowPipeline` remains behind the startup-corrected boxed `0xA28`
+compatibility owner. Static validation cannot prove that the disappearing
+bodies, movement flicker, distance transitions, or reported frame rate are now
+accepted at runtime. The next Proton/DXVK playtest must cover nearby player and
+NPC bodies in both locations, forward/strafe plus fast yaw, light-order
+crossings, cube-face crossings, distant walls, sun plus carried lights, and
+measured exterior/interior frame times.
+
 ### Evidence classification for the implementation
 
 **Proven by executable/static artifacts:** the common hook/tail topology,
@@ -2790,11 +3254,16 @@ contact-shadow model, and the defects explicitly rejected above.
 oracles, compiled shader budgets, configuration shape, executable phase order,
 D3D ownership/resource plans, and supported-target compilation.
 
+**Runtime-rejected inference:** restoring a D3D state block alone does not make
+native skin and renderer CPU caches transparent. The disappearing player/NPC
+bodies disproved that inference; the exact additional owners and corrective
+journal are documented in the twelfth pass.
+
 **Reasoned but awaiting runtime observation:** that the static engine owners
-remain live in every modded render context, that raw/native renderer cache
-interaction is visually transparent after complete restore, exact visual
-parity or improvement, driver performance/residency, and startup compatibility
-with the accepted BaseObjectSwapper baseline.
+remain live in every modded render context, that the new explicit native-state
+journal covers every CPU-side value mutated by the borrowed helpers, exact
+visual parity or improvement, driver performance/residency, and startup
+compatibility with the accepted BaseObjectSwapper baseline.
 
 ## Implications for the current OMV NVIDIA one-FPS problem
 
@@ -3120,6 +3589,13 @@ diagnostic and must not be confused with a pass-through test.
 - direct radare2 inspection on 2026-08-12 of
   `NiDX9Renderer::CalculateBoneMatrices @ 0x00E6FE30`, including camera-origin
   subtraction at `0x00E700DB`, `0x00E700E8`, and `0x00E700F5`;
+- direct radare2 inspection on 2026-08-13 of the same function's
+  `NiSkinInstance +0x18/+0x20` early-return cache contract, renderer
+  render-state access through `+0x8B8`, `InternalNormalizeNormals +0x10F5`
+  writer `0x00E88AD0`, and native skinned submission
+  `NiDX9Renderer::DrawSkinnedGeometry @ 0x00E6D310`;
+- `analysis/ghidra/output/perf/graphics_fnv_pplighting_renderer_8b8_render_state_constructor_audit.txt`,
+  corroborating renderer `+0x8B8` render-state ownership;
 - `analysis/radare2/output/graphics_fnv_shadow_dismember_skin_layout.txt`,
   proving the `BSDismemberSkinInstance +0x34/+0x38/+0x3C` extension fields;
 - direct radare2 inspection on 2026-08-09 of `0x008706B0`, the three branch
@@ -3151,6 +3627,9 @@ diagnostic and must not be confused with a pass-through test.
 - `.research/TESReloaded10-master/src/NewVegas/Hooks/Shadows.cpp:1-8`;
 - `.research/TESReloaded10-master/src/core/ShadowManager.cpp:1-922`;
 - `.research/TESReloaded10-master/src/core/ShadowManager.h:1-58`;
+- `.research/TESReloaded10-master/src/core/RenderPass.cpp:77-93,245-310`;
+- `.research/TESReloaded10-master/src/NewVegas/nvse/GameNi.cpp:311-313`;
+- `.research/TESReloaded10-master/src/NewVegas/nvse/GameNi.h:1244-1260,2515-2532`;
 - `.research/TESReloaded10-master/src/core/ShaderManager.cpp:151-160,521-721`;
 - `.research/TESReloaded10-master/src/effects/ShadowsExterior.cpp:1-690`;
 - `.research/TESReloaded10-master/src/effects/ShadowsExterior.h:1-207`;

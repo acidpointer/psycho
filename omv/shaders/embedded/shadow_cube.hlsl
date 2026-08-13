@@ -1,6 +1,7 @@
 // Adapted from New Vegas Reloaded's ShadowCubeMap.pso.hlsl (GPL-3.0-or-later).
 float4 ShadowData : register(c0);
 sampler2D DiffuseMap : register(s0);
+samplerCUBE StaticDepthMap : register(s1);
 
 struct PixelInput {
     float3 lightVector : TEXCOORD0;
@@ -16,6 +17,13 @@ float4 Main(PixelInput input) : COLOR0 {
         clip(diffuse.a - 0.2f);
     }
     float depth = saturate(length(input.lightVector) / max(ShadowData.z, 0.001f));
+    // Animated casters are drawn over a copy of the immutable static face.
+    // Compare radial values in the shader because the reusable D3D depth
+    // surface contains only this actor pass; relying on it would let an actor
+    // behind a wall overwrite the nearer wall depth.
+    if (ShadowData.w > 0.5f) {
+        depth = min(depth, texCUBE(StaticDepthMap, input.lightVector).r);
+    }
     // The cube target stores only red (R32F), but the legacy D3D compiler still
     // requires COLOR0 to be a complete four-component output.
     return float4(depth, depth, depth, 1.0f);
