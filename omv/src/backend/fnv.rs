@@ -622,6 +622,23 @@ pub(super) fn rendered_texture_color_surface(rendered_texture: *mut c_void) -> O
     unsafe { read_rendered_texture_color_surface(rendered_texture).ok() }
 }
 
+pub(super) unsafe fn current_world_rendered_texture() -> Option<*mut c_void> {
+    unsafe {
+        read_ptr_checked(
+            BSSHADERMANAGER_CURRENT_RENDER_TARGET_PTR,
+            "unreadable current render target",
+        )
+        .ok()
+        .map(|target| target.cast::<c_void>())
+    }
+}
+
+pub(super) unsafe fn rendered_texture_depth_surface(
+    rendered_texture: *mut c_void,
+) -> Option<*mut c_void> {
+    unsafe { read_rendered_texture_depth_surface(rendered_texture).ok() }
+}
+
 pub(super) unsafe fn resolve_scene_depth(
     device_ptr: *mut c_void,
     source_rendered_texture: Option<*mut c_void>,
@@ -1986,6 +2003,48 @@ impl ResolvedDepthCapture {
             && self.width == width
             && self.height == height
     }
+
+    fn matches_complete_source(
+        self,
+        frame_epoch: u64,
+        stage: DepthResolveStage,
+        source_surface: usize,
+        width: u32,
+        height: u32,
+        expected_projection: DepthProjectionFrame,
+    ) -> bool {
+        self.matches_physical_source(frame_epoch, stage, source_surface, width, height)
+            && depth_projection_matches(self.projection, expected_projection)
+    }
+}
+
+fn depth_projection_matches(left: DepthProjectionFrame, right: DepthProjectionFrame) -> bool {
+    left.reversed_depth == right.reversed_depth
+        && left.depth_function == right.depth_function
+        && left.source_surface == right.source_surface
+        && left.sampled_depth_bits == right.sampled_depth_bits
+        && left.camera.available == right.camera.available
+        && left.camera.near_z.to_bits() == right.camera.near_z.to_bits()
+        && left.camera.far_z.to_bits() == right.camera.far_z.to_bits()
+        && left.camera.frustum_left.to_bits() == right.camera.frustum_left.to_bits()
+        && left.camera.frustum_right.to_bits() == right.camera.frustum_right.to_bits()
+        && left.camera.frustum_bottom.to_bits() == right.camera.frustum_bottom.to_bits()
+        && left.camera.frustum_top.to_bits() == right.camera.frustum_top.to_bits()
+        && left
+            .camera
+            .world_transform
+            .rotation
+            .map(|row| row.map(f32::to_bits))
+            == right
+                .camera
+                .world_transform
+                .rotation
+                .map(|row| row.map(f32::to_bits))
+        && left.camera.world_transform.translation.map(f32::to_bits)
+            == right.camera.world_transform.translation.map(f32::to_bits)
+        && left.camera.world_transform.scale.to_bits()
+            == right.camera.world_transform.scale.to_bits()
+        && left.camera.world_transform.available == right.camera.world_transform.available
 }
 
 impl ExternalDepthResolve {
@@ -2051,12 +2110,13 @@ impl ExternalDepthResolve {
             sampled_depth_bits: sampled_depth_bits(desc.Format),
         };
 
-        if self.world_capture.matches_physical_source(
+        if self.world_capture.matches_complete_source(
             self.frame_epoch,
             stage,
             source_surface as usize,
             desc.Width,
             desc.Height,
+            projection,
         ) {
             EXACT_DEPTH_CACHE_HITS.fetch_add(1, Ordering::Relaxed);
             return Ok(());
@@ -2235,12 +2295,13 @@ impl FnvDepthResolve {
             sampled_depth_bits: sampled_depth_bits(desc.Format),
         };
 
-        if self.capture_mut(slot).matches_physical_source(
+        if self.capture_mut(slot).matches_complete_source(
             self.frame_epoch,
             stage,
             source_surface as usize,
             desc.Width,
             desc.Height,
+            projection,
         ) {
             EXACT_DEPTH_CACHE_HITS.fetch_add(1, Ordering::Relaxed);
             return Ok(());
@@ -2780,6 +2841,34 @@ mod depth_capture_tests {
             0x1234,
             1280,
             720,
+        ));
+    }
+
+    #[test]
+    fn physical_depth_cache_rejects_a_different_camera_or_depth_convention() {
+        let mut capture = capture(0x1234, 7, 1920, 1080);
+        capture.projection.reversed_depth = Some(true);
+        capture.projection.camera.near_z = 5.0;
+        capture.projection.camera.far_z = 100_000.0;
+        let mut different_camera = capture.projection;
+        different_camera.camera.frustum_left = -1.25;
+        assert!(!capture.matches_complete_source(
+            7,
+            DepthResolveStage::CoherentWorld,
+            0x1234,
+            1920,
+            1080,
+            different_camera,
+        ));
+        let mut different_convention = capture.projection;
+        different_convention.reversed_depth = Some(false);
+        assert!(!capture.matches_complete_source(
+            7,
+            DepthResolveStage::CoherentWorld,
+            0x1234,
+            1920,
+            1080,
+            different_convention,
         ));
     }
 

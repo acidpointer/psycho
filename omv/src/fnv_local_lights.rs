@@ -798,12 +798,18 @@ unsafe extern "C" fn hook_world_light_epoch_body(
     );
     let invocation = unsafe { classify_shadow_invocation(return_address, caller_ebp) };
     record_shadow_invocation(invocation);
-    // NVR owns the validated common entry itself; it does not classify the
-    // outer caller before producing maps. OMV generation has the same safe
-    // boundary because it reads the global world camera/cell/sun and writes
-    // only private targets. Keep ancestry classification solely for the
-    // separate scalar-light publication below.
-    let shadow_outcome = unsafe { crate::effects::shadows::handle_common_entry() };
+    let shadow_context = match invocation.context {
+        ShadowRenderContext::Main => crate::effects::shadows::ShadowInvocationContext::Main,
+        ShadowRenderContext::Special => crate::effects::shadows::ShadowInvocationContext::Special,
+        ShadowRenderContext::Screenshot => {
+            crate::effects::shadows::ShadowInvocationContext::Screenshot
+        }
+        ShadowRenderContext::Unknown => crate::effects::shadows::ShadowInvocationContext::Unknown,
+    };
+    // Ancestry is retained as publication metadata, but never gates the map
+    // producer: every native branch reaches this entry before the later outer
+    // world destination exists.
+    let shadow_outcome = unsafe { crate::effects::shadows::handle_common_entry(shadow_context) };
     if !capture_ready() {
         drop(pre_span);
         unsafe { call_shadow_path(original, receiver, shadow_outcome) };

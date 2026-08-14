@@ -547,6 +547,9 @@ unsafe extern "thiscall" fn hook_render_world_scene_graph(
                     || crate::fnv_world_pipeline::needs_atmosphere()
             })
             .unwrap_or(0);
+        let shadow_world_context = (world_scene_graph && pre_alpha_target != 0)
+            .then(|| begin_shadow_world_context(pre_alpha_target))
+            .flatten();
         PRE_ALPHA_WORLD_TARGET.store(pre_alpha_target, Ordering::Release);
         PRE_ALPHA_WORLD_ARMED.store(pre_alpha_target != 0, Ordering::Release);
         original(
@@ -558,6 +561,9 @@ unsafe extern "thiscall" fn hook_render_world_scene_graph(
         );
         PRE_ALPHA_WORLD_ARMED.store(false, Ordering::Release);
         PRE_ALPHA_WORLD_TARGET.store(0, Ordering::Release);
+        if let Some(context) = shadow_world_context {
+            crate::effects::shadows::end_world_context(context);
+        }
 
         // Ghidra callsites prove the third stack argument is the scene phase:
         // 0x00870AE8 pushes 1, 0x00870E18 pushes 0. The second u8 is not the
@@ -632,6 +638,12 @@ unsafe extern "cdecl" fn hook_render_pre_depth_groups(accumulator: *mut c_void) 
     let Some(device_ptr) = crate::backend::d3d_device_ptr() else {
         return;
     };
+    // The engine's BSRenderedTexture owner is authoritative only at this
+    // opaque-world boundary. An outer-entry context may legitimately be
+    // unavailable while the manager is still switching targets, so establish
+    // a nested exact receiver context here and restore any outer context after
+    // both pre-alpha consumers finish.
+    let shadow_receiver_context = unsafe { begin_shadow_world_context(expected_target) };
     // Opaque world shadows are the bottom-most world-space effect. Native
     // alpha, atmosphere/fog, TAA, AO, motion blur, and image-space work all
     // execute later and therefore remain visually on top of the shadowed
@@ -640,6 +652,9 @@ unsafe extern "cdecl" fn hook_render_pre_depth_groups(accumulator: *mut c_void) 
         || unsafe { crate::effects::shadows::apply_before_alpha(device_ptr) },
         || unsafe { crate::fnv_world_pipeline::apply_before_alpha(device_ptr) },
     );
+    if let Some(context) = shadow_receiver_context {
+        crate::effects::shadows::end_world_context(context);
+    }
 }
 
 /// Execute opaque-world consumers in their physical composition order.
@@ -664,6 +679,53 @@ fn current_render_target() -> Option<usize> {
         .render_target(0)
         .ok()
         .map(|surface| surface.as_raw() as usize)
+}
+
+unsafe fn begin_shadow_world_context(
+    color_surface: usize,
+) -> Option<crate::effects::shadows::WorldContextGuard> {
+    if !crate::effects::shadows::needs_pre_alpha() {
+        return None;
+    }
+    let device_ptr = crate::backend::d3d_device_ptr()?;
+    let device = unsafe { Device9Ref::from_raw_void(device_ptr) }?;
+    let target = device.render_target(0).ok()?;
+    if target.as_raw() as usize != color_surface {
+        return None;
+    }
+    let desc = target.desc().ok()?;
+    let rendered_texture = unsafe { crate::backend::current_fnv_world_rendered_texture()? };
+    // The BSRenderedTexture may expose a resolved color alias rather than the
+    // exact COM surface currently bound as RT0. The outer hook already proved
+    // the active RT0 identity; requiring pointer equality with that alias
+    // rejects a valid world owner. Depth ownership is validated independently
+    // against this rendered texture at consumption.
+    let depth_surface =
+        unsafe { crate::backend::rendered_texture_depth_surface(rendered_texture)? as usize };
+    let native_camera =
+        unsafe { crate::backend::fnv_world_camera_frame_fast(desc.Width, desc.Height) }
+            .filter(|camera| camera.available && camera.world_transform.available)?;
+    let generation_camera =
+        crate::fnv_world_pipeline::shadow_generation_camera().unwrap_or(native_camera);
+    let depth_camera = crate::fnv_world_pipeline::shadow_depth_camera(
+        color_surface,
+        crate::effects::temporal_aa::TargetDescription::from(&desc),
+    )
+    .unwrap_or(native_camera);
+    if !generation_camera.available
+        || !generation_camera.world_transform.available
+        || !depth_camera.available
+        || !depth_camera.world_transform.available
+    {
+        return None;
+    }
+    crate::effects::shadows::begin_world_context(
+        color_surface,
+        depth_surface,
+        rendered_texture as usize,
+        generation_camera,
+        depth_camera,
+    )
 }
 
 unsafe fn begin_temporal_aa_jitter() -> Option<crate::backend::WorldCameraJitter> {

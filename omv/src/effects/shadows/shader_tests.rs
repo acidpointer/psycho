@@ -154,18 +154,16 @@ fn every_shadow_shader_compiles_for_shader_model_three_with_static_budgets() {
             "shadow_directional_mask.ps",
             DIRECTIONAL_MASK_SOURCE,
             "ps_3_0",
-            // NVR-quality EVSM and actor coverage run only at one quarter of
-            // output pixels; the full-resolution compositor is budgeted
-            // independently below.
+            // NVR-quality EVSM and actor coverage run for every receiver; the
+            // compositor is budgeted independently below.
             1_856,
         ),
         (
             "shadow_composite.ps",
             COMPOSITE_PIXEL_SOURCE,
             "ps_3_0",
-            // The final pass owns only depth-rejected deferred reconstruction
-            // and source-color composition. It never samples an EVSM atlas or
-            // cube shadow map at full output resolution.
+            // The final pass owns exact receiver lookup and source-color
+            // composition. It never samples an EVSM atlas or cube map.
             504,
         ),
         (
@@ -204,7 +202,7 @@ fn every_shadow_shader_compiles_for_shader_model_three_with_static_budgets() {
 }
 
 #[test]
-fn point_free_exterior_compositor_is_below_the_original_fullscreen_budget() {
+fn full_resolution_exterior_receiver_work_has_a_fixed_shader_budget() {
     let directional_source = directional_composite_source();
     let directional = crate::shaders::compile_hlsl_source_target(
         "shadow_composite_directional_budget.ps",
@@ -226,19 +224,15 @@ fn point_free_exterior_compositor_is_below_the_original_fullscreen_budget() {
         "ps_3_0",
     )
     .expect("deferred directional mask must compile");
-    // Static shader work is normalized to one output pixel: one quarter-size
-    // EVSM evaluation plus one full-size reconstruction. This guards the
-    // architectural saving directly instead of accepting a smaller shader
-    // which is accidentally run at full resolution.
-    let normalized_instruction_quarters =
-        instruction_count(&directional_mask) + directional_instructions * 4;
+    let receiver_instructions = instruction_count(&directional_mask);
     assert!(
         directional_instructions <= 312,
         "point-free exterior path uses {directional_instructions} instructions"
     );
     assert!(
-        normalized_instruction_quarters <= 3_200,
-        "deferred exterior path costs {normalized_instruction_quarters}/4 normalized instructions per output pixel"
+        receiver_instructions + directional_instructions <= 2_200,
+        "full-resolution exterior path costs {} instructions per output pixel",
+        receiver_instructions + directional_instructions,
     );
     assert!(
         directional_instructions + 32 <= mixed_instructions,

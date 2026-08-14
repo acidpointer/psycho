@@ -213,12 +213,18 @@ pub(super) unsafe fn directional_dynamic_cascade_mask(
 ///
 /// Every root and its world bound must remain live for the current serialized
 /// common-shadow invocation.
+pub(super) enum DirectionalActorBounds {
+    NoWork,
+    Croppable(ActorBounds),
+    FullProjection,
+}
+
 pub(super) unsafe fn directional_actor_bounds(
     roots: &[DirectionalRoot],
     cascade: usize,
     projection: CascadeProjection,
     generation_origin: [f32; 3],
-) -> Option<ActorBounds> {
+) -> DirectionalActorBounds {
     let mut minimum = [f32::INFINITY; 3];
     let mut maximum = [f32::NEG_INFINITY; 3];
     let mut found = false;
@@ -227,7 +233,9 @@ pub(super) unsafe fn directional_actor_bounds(
         .copied()
         .filter(|root| root.enabled_for(cascade) && unsafe { root.is_active_dynamic_actor() })
     {
-        let sphere = unsafe { directional_actor_sphere(root, generation_origin) }?;
+        let Some(sphere) = (unsafe { directional_actor_sphere(root, generation_origin) }) else {
+            return DirectionalActorBounds::FullProjection;
+        };
         if !projection.contains(sphere) {
             continue;
         }
@@ -237,10 +245,14 @@ pub(super) unsafe fn directional_actor_bounds(
         }
         found = true;
     }
-    found.then_some(ActorBounds {
-        min: minimum,
-        max: maximum,
-    })
+    if found {
+        DirectionalActorBounds::Croppable(ActorBounds {
+            min: minimum,
+            max: maximum,
+        })
+    } else {
+        DirectionalActorBounds::NoWork
+    }
 }
 
 /// Read one live actor's conservative world bound in a requested origin.

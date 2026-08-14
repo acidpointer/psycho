@@ -7,14 +7,14 @@
 //! as "this Rust/HLSL string exists" checks here.
 
 use super::contract::{
-    CascadeDirty, CascadeScheduler, NVR_CASCADE_RESOLUTION, NVR_POINT_LIGHT_COUNT, PointMapCache,
-    PointMapSignature, cascade_depth_selection, cascade_sphere_selection,
-    contact_bilateral_visibility, contact_depth_from_key, contact_depth_key, contact_depths_match,
-    contact_history_visibility, contact_plane_raw_epsilon, contact_ray_scale,
-    contact_sample_is_occluder, deferred_mask_visibility, deferred_point_depth_key,
-    depth_sample_is_geometry, directional_projection_is_sampleable,
-    first_person_caster_is_excluded, interior_shadow_factor, point_consumer_plan,
-    point_light_scissor, point_sampled_texel_center, practical_cascade_splits,
+    CascadeDirty, CascadeScheduler, DeferredReceiverPlan, NVR_CASCADE_RESOLUTION,
+    NVR_POINT_LIGHT_COUNT, PointMapCache, PointMapSignature, cascade_depth_selection,
+    cascade_sphere_selection, contact_bilateral_visibility, contact_depth_from_key,
+    contact_depth_key, contact_depths_match, contact_history_visibility, contact_plane_raw_epsilon,
+    contact_ray_scale, contact_sample_is_occluder, deferred_mask_visibility,
+    deferred_point_depth_key, depth_sample_is_geometry, directional_projection_is_sampleable,
+    directional_receiver_bias_is_required, first_person_caster_is_excluded, interior_shadow_factor,
+    point_consumer_plan, point_light_scissor, point_sampled_texel_center, practical_cascade_splits,
     retained_cascade_needs_refresh, retained_cascade_refresh, shadow_receiver_is_world_surface,
     skinned_position_reference, skinned_submission_is_available, source_owned_shadow_radiance,
     sun_projection_needs_refresh,
@@ -23,6 +23,96 @@ use super::math::{ShadowCamera, cascade_projection};
 use super::pipeline::consumer_selection_spheres;
 
 const EPSILON: f32 = 1.0e-5;
+
+fn receiver_plan_output(width: u32, height: u32, depths: &[f32], visibility: &[f32]) -> Vec<f32> {
+    let plan = DeferredReceiverPlan::new(width, height).expect("non-empty receiver plan");
+    let pixel = |x: u32, y: u32| (y * width + x) as usize;
+    let mut output = vec![1.0; (width * height) as usize];
+    for y in 0..height {
+        for x in 0..width {
+            if plan.width == width && plan.height == height {
+                output[pixel(x, y)] = visibility[pixel(x, y)];
+                continue;
+            }
+            let mask_x = ((x as u64 * plan.width as u64) / width as u64) as u32;
+            let mask_y = ((y as u64 * plan.height as u64) / height as u64) as u32;
+            let source_x = (((mask_x as f32 + 0.5) / plan.width as f32) * width as f32)
+                .floor()
+                .min((width - 1) as f32) as u32;
+            let source_y = (((mask_y as f32 + 0.5) / plan.height as f32) * height as f32)
+                .floor()
+                .min((height - 1) as f32) as u32;
+            let source = pixel(source_x, source_y);
+            output[pixel(x, y)] = deferred_mask_visibility(
+                depths[pixel(x, y)],
+                [
+                    (visibility[source], depths[source], 1.0),
+                    (1.0, f32::MAX, 0.0),
+                    (1.0, f32::MAX, 0.0),
+                    (1.0, f32::MAX, 0.0),
+                ],
+            )
+            .unwrap_or(1.0);
+        }
+    }
+    output
+}
+
+#[test]
+fn receiver_evaluation_preserves_every_surface_and_thin_shadow() {
+    for (width, height) in [(7_u32, 5_u32), (8, 6), (17, 9)] {
+        let mut depths = vec![0.0; (width * height) as usize];
+        let mut visibility = vec![1.0; depths.len()];
+        for y in 0..height {
+            for x in 0..width {
+                let index = (y * width + x) as usize;
+                depths[index] = if (x + y) % 3 == 0 { 120.0 } else { 850.0 };
+                visibility[index] = if x == width / 2 || y == height / 2 {
+                    0.0
+                } else if (x + 2 * y) % 5 == 0 {
+                    0.35
+                } else {
+                    1.0
+                };
+            }
+        }
+        let actual = receiver_plan_output(width, height, &depths, &visibility);
+        assert_eq!(
+            actual, visibility,
+            "receiver plan lost a depth layer or sub-2x2 shadow at {width}x{height}"
+        );
+    }
+}
+
+#[test]
+fn receiver_evaluation_is_stable_through_a_taa_subpixel_sequence() {
+    let width = 15_u32;
+    let height = 7_u32;
+    for phase in 0..8_u32 {
+        let mut depths = vec![900.0; (width * height) as usize];
+        let mut visibility = vec![1.0; depths.len()];
+        for y in 0..height {
+            let edge = (4 + phase / 2).min(width - 2);
+            let foreground = (y * width + edge) as usize;
+            depths[foreground] = 75.0;
+            visibility[foreground] = 0.0;
+            visibility[(y * width + edge + 1) as usize] = 0.25;
+        }
+        assert_eq!(
+            receiver_plan_output(width, height, &depths, &visibility),
+            visibility,
+            "receiver ownership toggled during deterministic TAA phase {phase}"
+        );
+    }
+}
+
+#[test]
+fn fully_shadowed_receivers_still_receive_normal_bias() {
+    assert!(directional_receiver_bias_is_required(0.0));
+    assert!(directional_receiver_bias_is_required(0.5));
+    assert!(!directional_receiver_bias_is_required(1.0));
+    assert!(!directional_receiver_bias_is_required(f32::NAN));
+}
 
 #[test]
 fn deferred_shadow_mask_is_depth_stable_across_fast_camera_motion() {

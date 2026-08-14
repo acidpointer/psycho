@@ -45,7 +45,17 @@ mod reference_tests;
 mod shader_tests;
 
 use contract::{HookAction, ShadowSettings};
+pub(crate) use pipeline::WorldContextGuard;
 use pipeline::{ReplacementResult, ShadowPipeline};
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[repr(u8)]
+pub(crate) enum ShadowInvocationContext {
+    Main = 0,
+    Special = 1,
+    Screenshot = 2,
+    Unknown = 3,
+}
 
 const ENABLED_BIT: u8 = 1 << 0;
 const EXTERIOR_BIT: u8 = 1 << 1;
@@ -287,7 +297,9 @@ pub(crate) fn install(settings: NativeShadowsSettings) -> Result<()> {
 /// every caller, and OMV likewise reads only global world owners while writing
 /// private map resources. Only the later pre-alpha consumer is tied to the
 /// outer player-visible destination.
-pub(crate) unsafe fn handle_common_entry() -> CommonEntryOutcome {
+pub(crate) unsafe fn handle_common_entry(
+    invocation: ShadowInvocationContext,
+) -> CommonEntryOutcome {
     if !ROUTE_READY.load(Ordering::Acquire) {
         return CommonEntryOutcome::NativePrefix;
     }
@@ -317,18 +329,47 @@ pub(crate) unsafe fn handle_common_entry() -> CommonEntryOutcome {
             let Some(mut pipeline) = PIPELINE.try_lock() else {
                 return CommonEntryOutcome::NativePrefix;
             };
-            if pipeline.has_current_publication(scene.kind) {
+            let Some(identity) =
+                pipeline.current_publication_identity(scene.kind, invocation as u8)
+            else {
+                return CommonEntryOutcome::NativePrefix;
+            };
+            if pipeline.has_current_publication(identity) {
                 // Some engine paths can reach the common entry more than once
                 // before Present advances the epoch. The first complete
                 // publication is immutable; repeating 4 cascades or 72 cube
                 // faces would add cost without changing its global inputs.
                 return CommonEntryOutcome::TailOnly;
             }
-            match unsafe { pipeline.produce(scene, &bytecode, settings) } {
+            match unsafe { pipeline.produce(identity, scene, &bytecode, settings) } {
                 ReplacementResult::Produced => CommonEntryOutcome::ReplacementThenTail,
                 ReplacementResult::FallbackNative => CommonEntryOutcome::NativePrefix,
             }
         }
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn begin_world_context(
+    color_surface: usize,
+    depth_surface: usize,
+    rendered_texture: usize,
+    generation_camera: crate::backend::CameraFrame,
+    depth_camera: crate::backend::CameraFrame,
+) -> Option<WorldContextGuard> {
+    let mut pipeline = PIPELINE.try_lock()?;
+    Some(pipeline.begin_world_context(
+        color_surface,
+        depth_surface,
+        rendered_texture,
+        generation_camera,
+        depth_camera,
+    ))
+}
+
+pub(crate) fn end_world_context(guard: WorldContextGuard) {
+    if let Some(mut pipeline) = PIPELINE.try_lock() {
+        pipeline.end_world_context(guard);
     }
 }
 

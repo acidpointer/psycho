@@ -313,18 +313,25 @@ pub(super) fn deferred_point_depth_key(
     key.is_finite().then_some(key)
 }
 
-/// Fixed screen-space workload for depth-keyed deferred shadow masks.
+/// Return whether a directional receiver requires the normal-offset retry.
 ///
-/// High-resolution caster maps keep their existing spatial quality. Only the
-/// receiver evaluation is decoupled from output resolution: one half-size
-/// directional mask and one half-size local-light mask replace per-pixel EVSM
-/// and cube evaluation. The final pass performs no atlas/cube lookup and owns
-/// no temporal history.
+/// This pure policy mirrors the shader branch so a completely self-shadowed
+/// receiver cannot silently fall outside the executable regression suite.
+pub(super) fn directional_receiver_bias_is_required(initial_visibility: f32) -> bool {
+    initial_visibility.is_finite() && initial_visibility < 0.98
+}
+
+/// Fixed screen-space workload for exact deferred shadow receivers.
+///
+/// Every output pixel owns an independent directional and local-light value.
+/// This is intentionally full resolution: a reduced mask cannot encode two
+/// surfaces or two visibility values that fall inside one 2x2 output block.
+/// The plan owns no temporal history.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) struct DeferredReceiverPlan {
-    /// Width of every deferred visibility target.
+    /// Width of every visibility target.
     pub(super) width: u32,
-    /// Height of every deferred visibility target.
+    /// Height of every visibility target.
     pub(super) height: u32,
     /// Pixels which may execute directional EVSM/actor sampling.
     pub(super) directional_pixels: u64,
@@ -332,18 +339,16 @@ pub(super) struct DeferredReceiverPlan {
     pub(super) point_pixels: u64,
     /// Temporal pixels retained between frames; always zero by contract.
     pub(super) history_pixels: u64,
-    /// Full-resolution pixels which still sample a caster map; always zero.
+    /// Full-resolution pixels which sample a caster map.
     pub(super) full_resolution_shadow_map_samples: u64,
 }
 
 impl DeferredReceiverPlan {
-    /// Build the fixed half-resolution receiver plan for a non-empty target.
+    /// Build the exact full-resolution receiver plan for a non-empty target.
     pub(super) fn new(width: u32, height: u32) -> Option<Self> {
         if width == 0 || height == 0 {
             return None;
         }
-        let width = width.div_ceil(2);
-        let height = height.div_ceil(2);
         let pixels = u64::from(width) * u64::from(height);
         Some(Self {
             width,
@@ -351,7 +356,7 @@ impl DeferredReceiverPlan {
             directional_pixels: pixels,
             point_pixels: pixels,
             history_pixels: 0,
-            full_resolution_shadow_map_samples: 0,
+            full_resolution_shadow_map_samples: pixels,
         })
     }
 }
@@ -1285,6 +1290,41 @@ pub(super) const fn publication_epoch_is_usable(published_epoch: u32, current_ep
     current_epoch == published_epoch || current_epoch == published_epoch.wrapping_add(1)
 }
 
+/// Ownership metadata retained across the native producer and world consumer.
+///
+/// A zero transaction identifies the executable-proven common-entry producer,
+/// which runs before `RenderWorldSceneGraph` can establish its destination.
+/// Nonzero transactions describe the later exact receiver context only.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) struct ShadowPublicationIdentity {
+    pub(super) render_epoch: u32,
+    pub(super) transaction: u64,
+    pub(super) scene: SceneKind,
+    pub(super) invocation: u8,
+    pub(super) color_surface: usize,
+    pub(super) depth_surface: usize,
+    pub(super) device_generation: u32,
+}
+
+/// Return whether every field belongs to one exact world context.
+///
+/// This predicate is for nonzero receiver transactions. Common-entry map
+/// publications use the separate current/next-epoch contract above because
+/// their destination transaction does not exist yet.
+pub(super) const fn publication_identity_is_usable(
+    publication: ShadowPublicationIdentity,
+    consumer: ShadowPublicationIdentity,
+) -> bool {
+    publication.transaction != 0
+        && publication.render_epoch == consumer.render_epoch
+        && publication.transaction == consumer.transaction
+        && publication.scene as u8 == consumer.scene as u8
+        && publication.invocation == consumer.invocation
+        && publication.color_surface == consumer.color_surface
+        && publication.depth_surface == consumer.depth_surface
+        && publication.device_generation == consumer.device_generation
+}
+
 /// Return whether a publication can change any scene-color pixel.
 ///
 /// An interior with no selected cube light has neither directional nor local
@@ -1338,6 +1378,32 @@ pub(super) const fn directional_caster_work(
             static_map_mask: affected_cascades,
             actor_overlay_mask: 0,
         }
+    }
+}
+
+/// Projection strategy for one same-frame animated-caster overlay.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) enum ActorOverlayProjectionPlan {
+    NoWork,
+    Cropped,
+    FullProjection,
+}
+
+/// Select a correctness-preserving actor projection before D3D work begins.
+pub(super) const fn actor_overlay_projection_plan(
+    scheduled: bool,
+    intersects_projection: bool,
+    bounds_valid: bool,
+    crop_valid: bool,
+) -> ActorOverlayProjectionPlan {
+    if !scheduled {
+        ActorOverlayProjectionPlan::NoWork
+    } else if !intersects_projection {
+        ActorOverlayProjectionPlan::NoWork
+    } else if !bounds_valid || !crop_valid {
+        ActorOverlayProjectionPlan::FullProjection
+    } else {
+        ActorOverlayProjectionPlan::Cropped
     }
 }
 
@@ -2597,9 +2663,9 @@ pub(super) struct ProducerResourcePlan {
     /// Peak bytes after both lazy location branches have been visited.
     ///
     /// Retaining both families prevents cell-transition allocation hitches.
-    /// Both locations share one source-color copy and half-resolution RGBA
+    /// Both locations share one source-color copy and full-resolution RGBA
     /// local-total and local-deficit targets. Receiver geometry is consumed
-    /// directly from scene depth. Exterior contact adds two half-resolution
+    /// directly from scene depth. Exterior contact adds two full-resolution
     /// G16R16F maps for raw evidence and its same-frame depth-aware filter.
     pub(super) combined_estimated_bytes: u64,
     /// Comparable lower bound for NVR's multisampled 4096 atlas path.
@@ -2636,17 +2702,17 @@ impl ProducerResourcePlan {
         let point_static_cubes = point_cubes;
         let point_depth = u64::from(512_u32.pow(2)) * 4;
         let full_resolution_pixels = u64::from(width) * u64::from(height);
-        let deferred_pixels = u64::from(width.div_ceil(2)) * u64::from(height.div_ceil(2));
+        let receiver_pixels = full_resolution_pixels;
         // Equal-format MRTs preserve the exact total and occluded RGB sums in
         // one scissored draw, avoiding colored-light cross-contamination. The
-        // depth-keyed half-resolution masks are reconstructed without crossing
-        // receiver silhouettes by the final compositor.
-        let point_accumulation = deferred_pixels * 8 * 2;
+        // full-resolution receiver values preserve every surface and thin
+        // shadow independently; no 2x2 ownership reconstruction is involved.
+        let point_accumulation = receiver_pixels * 8 * 2;
         let source_copy = full_resolution_pixels * 8;
-        let directional_mask = deferred_pixels * 4;
-        // Two half-resolution four-byte targets retain visibility plus its
-        // normalized receiver-depth key. Round conservatively for odd sizes.
-        let contact_targets = u64::from(width.div_ceil(2)) * u64::from(height.div_ceil(2)) * 4 * 2;
+        let directional_mask = receiver_pixels * 4;
+        // Two full-resolution four-byte targets retain visibility plus its
+        // normalized receiver-depth key.
+        let contact_targets = receiver_pixels * 4 * 2;
         let interior_consumer = source_copy + point_accumulation;
         let directional = scene != SceneKind::Interior;
         let estimated_bytes = if directional {

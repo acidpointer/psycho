@@ -451,10 +451,16 @@ mod deferred_install_tests {
         let shadows = pre_alpha
             .find("shadows::apply_before_alpha")
             .expect("shadow composition");
+        let receiver_context = pre_alpha
+            .find("begin_shadow_world_context(expected_target)")
+            .expect("exact shadow receiver context");
+        let receiver_close = pre_alpha
+            .find("shadows::end_world_context")
+            .expect("shadow receiver context close");
         let atmosphere = pre_alpha
             .find("fnv_world_pipeline::apply_before_alpha")
             .expect("atmosphere composition");
-        assert!(shadows < atmosphere);
+        assert!(receiver_context < shadows && shadows < atmosphere && atmosphere < receiver_close);
 
         let hooks = include_str!("hooks.rs");
         let recreate = hooks

@@ -1,21 +1,21 @@
 use super::contract::{
-    CASCADE_COUNT, CascadeDirty, CascadeScheduler, CascadeSphereSelection, CasterAdmission,
-    CasterPolicy, DeferredReceiverPlan, DirectionalRootSetSignature, HookAction,
-    NVR_CASCADE_RESOLUTION, NVR_POINT_DRAW_DISTANCE, NVR_POINT_LIGHT_COUNT,
-    NVR_POINT_RADIUS_MULTIPLIER, PointLightCandidate, PointMapCache, PointMapSignature,
-    ProducerResourcePlan, SceneKind, ShadowSettings, TransactionState,
-    actor_overlay_edge_visibility, cascade_minimum_caster_radius, cascade_sphere_selection,
-    composite_shadow_factor, consumer_has_shadow_work, contact_consumer_work,
-    depth_sample_is_geometry, directional_actor_root_is_active, directional_caster_work,
-    directional_contact_visibility, directional_form_type_is_enabled,
-    directional_receiver_position, directional_root_set_dirty, dismember_partition_is_renderable,
-    effective_contact_distance, evsm4_moments, evsm4_visibility, interior_shadow_factor,
-    local_light_source_guard, nvr_contact_sample_offsets, point_light_distance_fade,
-    point_light_influence_is_eligible, practical_cascade_splits, publication_epoch_is_usable,
-    retained_cascade_refresh, select_point_lights, select_point_lights_stable,
-    shadow_receiver_is_valid, skinned_position_reference, snap_shadow_center,
-    source_owned_shadow_radiance, sphere_intersects_cube_face, sphere_intersects_point_light,
-    terrain_lod_shadow_z,
+    ActorOverlayProjectionPlan, CASCADE_COUNT, CascadeDirty, CascadeScheduler,
+    CascadeSphereSelection, CasterAdmission, CasterPolicy, DeferredReceiverPlan,
+    DirectionalRootSetSignature, HookAction, NVR_CASCADE_RESOLUTION, NVR_POINT_DRAW_DISTANCE,
+    NVR_POINT_LIGHT_COUNT, NVR_POINT_RADIUS_MULTIPLIER, PointLightCandidate, PointMapCache,
+    PointMapSignature, ProducerResourcePlan, SceneKind, ShadowPublicationIdentity, ShadowSettings,
+    TransactionState, actor_overlay_edge_visibility, actor_overlay_projection_plan,
+    cascade_minimum_caster_radius, cascade_sphere_selection, composite_shadow_factor,
+    consumer_has_shadow_work, contact_consumer_work, depth_sample_is_geometry,
+    directional_actor_root_is_active, directional_caster_work, directional_contact_visibility,
+    directional_form_type_is_enabled, directional_receiver_position, directional_root_set_dirty,
+    dismember_partition_is_renderable, effective_contact_distance, evsm4_moments, evsm4_visibility,
+    interior_shadow_factor, local_light_source_guard, nvr_contact_sample_offsets,
+    point_light_distance_fade, point_light_influence_is_eligible, practical_cascade_splits,
+    publication_epoch_is_usable, publication_identity_is_usable, retained_cascade_refresh,
+    select_point_lights, select_point_lights_stable, shadow_receiver_is_valid,
+    skinned_position_reference, snap_shadow_center, source_owned_shadow_radiance,
+    sphere_intersects_cube_face, sphere_intersects_point_light, terrain_lod_shadow_z,
 };
 use super::engine::{
     EngineCallAbi, FNV_EXE_SHA256, GeometryKind, HookSiteContract, NativeLayout,
@@ -25,6 +25,7 @@ use super::math::{
     ActorBounds, ShadowCamera, Sphere, cascade_projection, dynamic_caster_cascade_mask,
     point_cube_views, stabilize_sun_direction,
 };
+use super::pipeline::ShadowPipeline;
 use super::render::{mapped_cull_mode, rebase_bone_rows};
 
 #[test]
@@ -186,11 +187,129 @@ fn consumer_retains_a_complete_publication_for_the_next_scene_pre_epoch() {
     assert!(publication_epoch_is_usable(41, 41));
     assert!(
         publication_epoch_is_usable(41, 42),
-        "a producer after scene-pre must remain consumable at the next scene-pre boundary"
+        "the common shadow producer runs before the outer world transaction and must remain consumable at its next pre-alpha boundary"
     );
     assert!(publication_epoch_is_usable(u32::MAX, 0));
     assert!(!publication_epoch_is_usable(41, 43));
     assert!(!publication_epoch_is_usable(42, 41));
+}
+
+#[test]
+fn common_producer_does_not_require_the_later_world_context() {
+    let pipeline = ShadowPipeline::default();
+    let identity = pipeline
+        .current_publication_identity(SceneKind::Exterior, 0)
+        .expect("the common producer precedes RenderWorldSceneGraph");
+    assert_eq!(identity.transaction, 0);
+    assert_eq!(identity.scene, SceneKind::Exterior);
+}
+
+#[test]
+fn nonzero_receiver_transaction_requires_every_exact_owner() {
+    let publication = ShadowPublicationIdentity {
+        render_epoch: 41,
+        transaction: 9,
+        scene: SceneKind::Exterior,
+        invocation: 0,
+        color_surface: 0x1111,
+        depth_surface: 0x2222,
+        device_generation: 3,
+    };
+    assert!(publication_identity_is_usable(publication, publication));
+    assert!(!publication_identity_is_usable(
+        ShadowPublicationIdentity {
+            transaction: 0,
+            ..publication
+        },
+        publication,
+    ));
+    for consumer in [
+        ShadowPublicationIdentity {
+            transaction: 10,
+            ..publication
+        },
+        ShadowPublicationIdentity {
+            invocation: 1,
+            ..publication
+        },
+        ShadowPublicationIdentity {
+            color_surface: 0x3333,
+            ..publication
+        },
+        ShadowPublicationIdentity {
+            depth_surface: 0x4444,
+            ..publication
+        },
+        ShadowPublicationIdentity {
+            device_generation: 4,
+            ..publication
+        },
+    ] {
+        assert!(!publication_identity_is_usable(publication, consumer));
+    }
+}
+
+#[test]
+fn nested_world_context_restores_the_exact_outer_receiver() {
+    let mut pipeline = ShadowPipeline::default();
+    let camera = crate::backend::CameraFrame::default();
+    let outer = pipeline.begin_world_context(0x1000, 0x2000, 0x3000, camera, camera);
+    let outer_identity = pipeline
+        .current_publication_identity(SceneKind::Exterior, 0)
+        .expect("outer world context");
+    let inner = pipeline.begin_world_context(0x4000, 0x5000, 0x6000, camera, camera);
+    let inner_identity = pipeline
+        .current_publication_identity(SceneKind::Exterior, 0)
+        .expect("inner world context");
+    assert_ne!(inner_identity.transaction, outer_identity.transaction);
+    assert_eq!(inner_identity.color_surface, 0x4000);
+    pipeline.end_world_context(inner);
+    assert_eq!(
+        pipeline.current_publication_identity(SceneKind::Exterior, 0),
+        Some(outer_identity),
+    );
+    pipeline.end_world_context(outer);
+    assert_eq!(
+        pipeline
+            .current_publication_identity(SceneKind::Exterior, 0)
+            .expect("producer identity after receiver closes")
+            .transaction,
+        0,
+    );
+}
+
+#[test]
+fn receiver_workload_is_full_resolution_and_non_temporal() {
+    let plan = DeferredReceiverPlan::new(3_440, 1_440).expect("ultrawide receiver plan");
+    let output_pixels = 3_440_u64 * 1_440;
+    assert_eq!((plan.width, plan.height), (3_440, 1_440));
+    assert_eq!(plan.directional_pixels, output_pixels);
+    assert_eq!(plan.point_pixels, output_pixels);
+    assert_eq!(plan.history_pixels, 0);
+}
+
+#[test]
+fn actor_crop_optimization_never_fails_the_shadow_transaction() {
+    assert_eq!(
+        actor_overlay_projection_plan(false, false, false, false),
+        ActorOverlayProjectionPlan::NoWork,
+    );
+    assert_eq!(
+        actor_overlay_projection_plan(true, false, true, true),
+        ActorOverlayProjectionPlan::NoWork,
+        "a depth-scheduled actor outside the retained projection has no overlay work",
+    );
+    for (bounds_valid, crop_valid) in [(false, false), (true, false)] {
+        assert_eq!(
+            actor_overlay_projection_plan(true, true, bounds_valid, crop_valid),
+            ActorOverlayProjectionPlan::FullProjection,
+            "invalid optional crop data must fall back to the complete cascade projection",
+        );
+    }
+    assert_eq!(
+        actor_overlay_projection_plan(true, true, true, true),
+        ActorOverlayProjectionPlan::Cropped,
+    );
 }
 
 #[test]
@@ -201,23 +320,19 @@ fn empty_interior_publication_performs_no_depth_or_color_transaction() {
 }
 
 #[test]
-fn expensive_receiver_visibility_is_quarter_resolution_and_never_temporal() {
+fn expensive_receiver_visibility_is_full_resolution_and_never_temporal() {
     let plan = DeferredReceiverPlan::new(3_440, 1_440).expect("ultrawide receiver plan");
     let output_pixels = 3_440_u64 * 1_440;
 
-    assert_eq!(plan.width, 1_720);
-    assert_eq!(plan.height, 720);
-    assert_eq!(plan.directional_pixels, output_pixels / 4);
-    assert_eq!(plan.point_pixels, output_pixels / 4);
+    assert_eq!(plan.width, 3_440);
+    assert_eq!(plan.height, 1_440);
+    assert_eq!(plan.directional_pixels, output_pixels);
+    assert_eq!(plan.point_pixels, output_pixels);
     assert_eq!(
         plan.history_pixels, 0,
         "shadow masks must not trail the camera"
     );
-    assert_eq!(plan.full_resolution_shadow_map_samples, 0);
-    assert!(
-        plan.directional_pixels * 3 < output_pixels,
-        "deferred visibility did not remove most full-resolution EVSM work"
-    );
+    assert_eq!(plan.full_resolution_shadow_map_samples, output_pixels);
 }
 
 #[test]
@@ -1352,11 +1467,11 @@ fn resource_plan_preserves_nvr_evsm_coverage_with_one_reusable_multisample_surfa
         "each published point cube needs an immutable-static backing cube"
     );
     assert_eq!(
-        exterior.estimated_bytes, 598_383_616,
+        exterior.estimated_bytes, 641_929_216,
         "the resource contract omitted a quality-preserving shadow resource"
     );
     assert!(exterior.estimated_bytes <= 664 * 1024 * 1024);
-    assert_eq!(exterior.fallback_estimated_bytes, 627_743_744);
+    assert_eq!(exterior.fallback_estimated_bytes, 671_289_344);
     assert!(exterior.fallback_estimated_bytes < exterior.nvr_equivalent_estimated_bytes);
     assert!(exterior.combined_estimated_bytes <= 664 * 1024 * 1024);
     assert!(exterior.nvr_equivalent_estimated_bytes >= 896 * 1024 * 1024);
@@ -1368,7 +1483,7 @@ fn resource_plan_preserves_nvr_evsm_coverage_with_one_reusable_multisample_surfa
     assert_eq!(interior.point_light_count, NVR_POINT_LIGHT_COUNT as u32);
     assert_eq!(interior.point_cube_resolution, 512);
     assert_eq!(interior.point_cube_texture_count, 24);
-    assert_eq!(interior.estimated_bytes, 176_926_720);
+    assert_eq!(interior.estimated_bytes, 201_809_920);
     assert_eq!(interior.fallback_estimated_bytes, interior.estimated_bytes);
     assert!(interior.estimated_bytes <= 208 * 1024 * 1024);
     assert_eq!(

@@ -192,7 +192,7 @@ float4 Main(PixelInput input) : COLOR0 {
 
     float3 worldPosition = RelativeWorldPosition(depthUv, viewDepth);
     float visibility = DirectionalVisibility(worldPosition, viewDepth);
-    if (visibility > 0.02f && visibility < 0.98f) {
+    if (visibility < 0.98f) {
         float3 normal = ReconstructWorldNormal(depthUv, viewDepth);
         float normalOffset = saturate(1.0f - dot(normal, SunDirection.xyz));
         visibility = DirectionalVisibility(worldPosition + normal * normalOffset, viewDepth);

@@ -3647,6 +3647,100 @@ The resulting 12,852,204-byte `omv.dll` has SHA-256
 untracked shader-cache directory was removed after validation; unrelated
 `libnvse/xnvse` and `intelmoc/` worktree changes were not touched.
 
+#### Sixteenth corrective pass: exact receivers and world-transaction ownership
+
+The five 2026-08-14 captures rejected the fifteenth pass's central quality
+assumption. A half-resolution visibility texel has only one visibility/depth
+pair, but its 2x2 output footprint can contain multiple surfaces and multiple
+shadow values. Four-tap depth rejection prevents foreign-surface bleeding; it
+cannot recover a wall row, thin shadow, or subpixel edge which the producer
+never stored. TAA movement changes which full-resolution receiver owns that
+single sample, making the lost value toggle between frames. This was the cause
+of the horizontal clipping, block-shaped facade regions, and local crawling in
+the supplied still frames. Depth-tolerance tuning cannot repair an
+under-represented signal.
+
+Directional, point, and contact receiver targets are therefore full output
+resolution. The directional mask still isolates expensive EVSM/actor work
+from source-owned composition, but each output pixel now has its own mask
+sample. At full-resolution D3D9 raster centers, the existing explicit deferred
+lookup has zero fractional weight and selects that exact texel. Point deficit
+and total MRTs and both contact targets follow the same invariant. No temporal
+history, stale-mask fallback, checkerboard, or tolerance expansion was added.
+At 1920 by 1080 the exact exterior estimate is 641,929,216 bytes, the
+four-channel actor fallback is 671,289,344 bytes, and the interior estimate is
+201,809,920 bytes. Correctness and performance remain independent gates; a
+future receiver-rate optimization must pass the same multi-surface oracle.
+
+The directional receiver-normal retry also applies when initial visibility is
+zero. The former `0.02 < visibility` lower gate excluded the pixels with the
+strongest self-shadow acne. Transition-only EVSM filtering retains its lower
+gate; only the subsequent geometric normal-offset retry changed. Reference
+tests require a fully self-shadowed receiver to retry while an already-lit
+receiver skips the extra depth-neighbour work.
+
+The same run provided a second, independent temporal failure. The deployed
+`897a0a7` log successfully produced and composed one exterior publication, then
+reported eight consecutive `0x80004005` producer failures approximately one
+presentation apart. The world-pipeline counters simultaneously reported zero
+jitter, depth, primary, target, and transaction failures. A shadow-production
+failure invalidates the OMV publication and correctly returns to the native
+prefix; repeated success/failure therefore appears as the entire shadow system
+enabling and disabling. Reusing a stale atlas would hide the failure while
+sampling invalid ownership and is prohibited.
+
+The actor overlay exposed one deterministic producer failure. Its old schedule
+used view-depth overlap, then required a valid bound intersecting the retained
+cascade and a successful optional crop. An actor outside that projection,
+temporarily invalid engine bounds, or a failed crop converted an optimization
+miss into failure of the complete shadow transaction. Actor bounds now return
+three explicit outcomes: no relevant work, croppable bounds, or full-projection
+fallback. Invalid bounds/crops render the actor overlay through the complete
+retained cascade projection with identity UV mapping. No relevant actor skips
+the overlay. All other producer failures now retain a bounded stage label
+covering state capture, `BeginScene`, native journal, directional inputs,
+individual static cascades, actor bounds/overlay, point maps, native restore,
+`EndScene`, and D3D state restoration.
+
+Producer and consumer ownership must respect the executable-proven ordering.
+The common shadow entry runs before the outer world-render transaction, so it
+cannot be admitted by a context opened at `RenderWorldSceneGraph` entry. An
+intermediate sixteenth-pass build made that mistake: every common invocation
+returned to the native prefix before resource creation, and the resulting
+runtime log contained no resource-ready, produced-map, or composed-publication
+event. The fail-first epoch test now requires a complete publication to remain
+usable at the immediately following pre-alpha boundary, including `u32`
+wraparound. Caller ancestry still does not gate the common producer; doing so
+would contradict both the engine topology and modern NVR's common-entry hook.
+
+Exact ownership is instead established where the exact owner exists: inside
+the pre-alpha consumer. The already validated RT0 is the outer world color
+destination. The consumer reads its current `BSRenderedTexture`, requires that
+owner's depth surface, passes the owner explicitly to the provider-neutral
+resolver, and rejects the resolved frame unless its source-surface identity
+matches that exact depth surface. Reconstruction uses the camera published
+with that resolved depth. This prevents a cached or rediscovered projection
+from another surface from feeding the receiver without making the earlier map
+producer depend on a future transaction.
+
+The fail-first evidence was recorded before these changes. The current
+half-resolution implementation lost thin/depth-layered receivers, lost a
+0.25-visibility edge through the deterministic TAA sequence, rejected normal
+bias at visibility zero, accepted another camera projection in the depth
+cache, and failed the actor crop fallback contract. The attempted exact-world
+admission then rejected the proven producer/consumer epoch relation and was
+also captured by a failing regression test before correction. Each focused
+test passed after its corresponding correction. The
+complete supported-target suite, release build, PE/startup comparison, and
+Proton image acceptance are recorded below when available; runtime temporal
+acceptance still requires the reporter's moving-camera playtest.
+
+This pass adds no configuration, schema, preset, hook, `LazyLock`, TLS value,
+mutex, thread, worker, or pre-Deferred publication. Producer-stage diagnostics
+live inside the already boxed pipeline; the startup-safety test continues to
+fix its loader-visible owner at `0xA28` bytes. The existing world hooks and
+post-Deferred admission order are unchanged.
+
 ### Evidence classification for the implementation
 
 **Proven by executable/static artifacts:** the common hook/tail topology,

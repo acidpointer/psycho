@@ -3,9 +3,9 @@
 //! All default-pool resources are owned here and are released as one device
 //! generation. The common engine hook only publishes a frame after every map,
 //! scene boundary, and state restoration succeeds. The pre-alpha consumer is
-//! nonblocking and accepts the current or immediately preceding presentation:
-//! the native producer and outer image-space callback are separate engine
-//! transactions, while older or failed work still expires deterministically.
+//! nonblocking and accepts the current or immediately preceding presentation.
+//! An exact world context binds the later color/depth receiver, but map
+//! production precedes that context in the native engine transaction.
 
 use core::ffi::c_void;
 use std::time::Instant;
@@ -27,7 +27,6 @@ use libpsycho::os::windows::directx9::{
     ScreenVertex, StateBlock9, Surface9, Texture9, direct3d_failure,
 };
 
-use crate::effects::temporal_aa::TargetDescription;
 use crate::{
     backend::{
         self, CameraFrame, DepthFrame, DepthResolveOutcome, DepthResolveSlot, DepthResolveStage,
@@ -42,10 +41,11 @@ use super::{
     contract::{
         CASCADE_COUNT, CascadeDirty, CascadeScheduler, CascadeSplit, DirectionalRootSetSignature,
         NVR_CASCADE_RESOLUTION, NVR_POINT_LIGHT_COUNT, POINT_CONSUMER_BATCH_SIZE, PointMapCache,
-        PointMapPlan, PointMapSignature, SceneKind, cascade_minimum_caster_radius,
-        consumer_has_shadow_work, directional_caster_work, directional_root_set_dirty,
-        effective_contact_distance, evsm4_moments, nvr_contact_sample_offsets, point_consumer_plan,
-        point_light_scissor, practical_cascade_splits, publication_epoch_is_usable,
+        PointMapPlan, PointMapSignature, SceneKind, ShadowPublicationIdentity,
+        cascade_minimum_caster_radius, consumer_has_shadow_work, directional_caster_work,
+        directional_root_set_dirty, effective_contact_distance, evsm4_moments,
+        nvr_contact_sample_offsets, point_consumer_plan, point_light_scissor,
+        practical_cascade_splits, publication_epoch_is_usable, publication_identity_is_usable,
         retained_cascade_refresh,
     },
     math::{
@@ -81,6 +81,54 @@ pub(super) enum ReplacementResult {
     FallbackNative,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum ShadowProductionStage {
+    Idle,
+    CaptureState,
+    BeginScene,
+    BeginNativeJournal,
+    DirectionalInputs,
+    StaticCascade(u8),
+    ActorBounds(u8),
+    ActorOverlay(u8),
+    PointMaps,
+    RestoreNativeJournal,
+    EndScene,
+    RestoreD3dState,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct ActiveWorldContext {
+    transaction: u64,
+    render_epoch: u32,
+    color_surface: usize,
+    depth_surface: usize,
+    rendered_texture: usize,
+    device_generation: u32,
+    generation_camera: CameraFrame,
+    depth_camera: CameraFrame,
+}
+
+impl ActiveWorldContext {
+    fn identity(self, scene: SceneKind, invocation: u8) -> ShadowPublicationIdentity {
+        ShadowPublicationIdentity {
+            render_epoch: self.render_epoch,
+            transaction: self.transaction,
+            scene,
+            invocation,
+            color_surface: self.color_surface,
+            depth_surface: self.depth_surface,
+            device_generation: self.device_generation,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct WorldContextGuard {
+    transaction: u64,
+    previous: Option<ActiveWorldContext>,
+}
+
 /// Scalar publication for one sampled point shadow.
 #[derive(Clone, Copy, Debug, Default)]
 struct PublishedPointLight {
@@ -93,7 +141,7 @@ struct PublishedPointLight {
 /// Immutable metadata paired with persistent texture resources.
 #[derive(Clone, Copy, Debug)]
 struct PublishedFrame {
-    render_epoch: u32,
+    identity: ShadowPublicationIdentity,
     scene: SceneKind,
     directional: bool,
     sun_direction: [f32; 3],
@@ -128,6 +176,8 @@ pub(super) struct ShadowPipeline {
     production_logged: [bool; 2],
     composition_logged: [bool; 2],
     clock_origin: Instant,
+    next_world_transaction: u64,
+    active_world_context: Option<ActiveWorldContext>,
 }
 
 impl Default for ShadowPipeline {
@@ -149,6 +199,8 @@ impl Default for ShadowPipeline {
             production_logged: [false; 2],
             composition_logged: [false; 2],
             clock_origin: Instant::now(),
+            next_world_transaction: 0,
+            active_world_context: None,
         }
     }
 }
@@ -172,15 +224,74 @@ impl ShadowPipeline {
         self.composition_logged = [false; 2];
     }
 
+    #[allow(clippy::too_many_arguments)]
+    pub(super) fn begin_world_context(
+        &mut self,
+        color_surface: usize,
+        depth_surface: usize,
+        rendered_texture: usize,
+        generation_camera: CameraFrame,
+        depth_camera: CameraFrame,
+    ) -> WorldContextGuard {
+        self.next_world_transaction = self.next_world_transaction.wrapping_add(1).max(1);
+        let transaction = self.next_world_transaction;
+        let previous = self.active_world_context;
+        self.active_world_context = Some(ActiveWorldContext {
+            transaction,
+            render_epoch: crate::hooks::render_epoch(),
+            color_surface,
+            depth_surface,
+            rendered_texture,
+            device_generation: backend::d3d_device_generation(),
+            generation_camera,
+            depth_camera,
+        });
+        WorldContextGuard {
+            transaction,
+            previous,
+        }
+    }
+
+    pub(super) fn end_world_context(&mut self, guard: WorldContextGuard) {
+        if self
+            .active_world_context
+            .is_some_and(|context| context.transaction == guard.transaction)
+        {
+            self.active_world_context = guard.previous;
+        }
+    }
+
+    /// Build producer metadata without requiring the later world destination.
+    pub(super) fn current_publication_identity(
+        &self,
+        scene: SceneKind,
+        invocation: u8,
+    ) -> Option<ShadowPublicationIdentity> {
+        Some(self.active_world_context.map_or(
+            ShadowPublicationIdentity {
+                render_epoch: crate::hooks::render_epoch(),
+                transaction: 0,
+                scene,
+                invocation,
+                color_surface: 0,
+                depth_surface: 0,
+                device_generation: backend::d3d_device_generation(),
+            },
+            |context| context.identity(scene, invocation),
+        ))
+    }
+
     /// Invalidate consumer publication without discarding expensive resources.
     pub(super) fn invalidate_publication(&mut self) {
         self.published = None;
     }
 
     /// Return whether this render epoch already owns a complete publication.
-    pub(super) fn has_current_publication(&self, scene: SceneKind) -> bool {
+    pub(super) fn has_current_publication(&self, identity: ShadowPublicationIdentity) -> bool {
         self.published.is_some_and(|publication| {
-            publication.render_epoch == crate::hooks::render_epoch() && publication.scene == scene
+            publication.identity.render_epoch == identity.render_epoch
+                && publication.scene == identity.scene
+                && publication.identity.device_generation == identity.device_generation
         })
     }
 
@@ -188,7 +299,10 @@ impl ShadowPipeline {
     pub(super) fn directional_sun_direction(&self) -> Option<[f32; 3]> {
         let publication = self.published?;
         (publication.directional
-            && publication_epoch_is_usable(publication.render_epoch, crate::hooks::render_epoch()))
+            && publication_epoch_is_usable(
+                publication.identity.render_epoch,
+                crate::hooks::render_epoch(),
+            ))
         .then_some(publication.sun_direction)
     }
 
@@ -200,6 +314,7 @@ impl ShadowPipeline {
     /// serialized engine common-shadow call until this method returns.
     pub(super) unsafe fn produce(
         &mut self,
+        identity: ShadowPublicationIdentity,
         scene: NativeScene,
         bytecode: &ShadowBytecode,
         settings: NativeShadowsSettings,
@@ -215,7 +330,10 @@ impl ShadowPipeline {
         // reenter or stall in the driver. The engine does not guarantee a
         // second equivalent common-shadow invocation, so first-use resource
         // creation and map generation must complete in this transaction.
-        let Some(camera) = crate::fnv_world_pipeline::shadow_generation_camera()
+        let Some(camera) = self
+            .active_world_context
+            .map(|context| context.generation_camera)
+            .or_else(crate::fnv_world_pipeline::shadow_generation_camera)
             .or_else(|| unsafe { backend::fnv_world_camera_frame_fast(1, 1) })
             .filter(|camera| camera.available && camera.world_transform.available)
         else {
@@ -263,7 +381,8 @@ impl ShadowPipeline {
         // before touching them so a later failure cannot expose a partly
         // updated atlas or cube family to pre-alpha composition.
         self.published = None;
-        let result = self.produce_transaction(&device, scene, camera, shadow_camera, settings);
+        let result =
+            self.produce_transaction(&device, identity, scene, camera, shadow_camera, settings);
         match result {
             Ok(publication) => {
                 if let Some(publication) = publication {
@@ -281,8 +400,15 @@ impl ShadowPipeline {
                 ReplacementResult::Produced
             }
             Err(error) => {
-                self.log_error(
+                let stage = self
+                    .resources
+                    .as_ref()
+                    .map_or(ShadowProductionStage::Idle, |resources| {
+                        resources.production_stage
+                    });
+                self.log_error_at_stage(
                     "shadow production failed and fell back to native shadows",
+                    stage,
                     &error,
                 );
                 ReplacementResult::FallbackNative
@@ -293,6 +419,7 @@ impl ShadowPipeline {
     fn produce_transaction(
         &mut self,
         device: &Device9Ref<'_>,
+        identity: ShadowPublicationIdentity,
         scene: NativeScene,
         camera: CameraFrame,
         shadow_camera: ShadowCamera,
@@ -320,8 +447,10 @@ impl ShadowPipeline {
             .as_millis()
             .min(u64::MAX as u128) as u64;
         let resources = self.resources.as_mut().ok_or_else(direct3d_failure)?;
+        resources.production_stage = ShadowProductionStage::CaptureState;
         capture_state_block(&resources.state_block)?;
 
+        resources.production_stage = ShadowProductionStage::BeginScene;
         let begin_result = device.begin_scene();
         if let Err(error) = begin_result {
             return finish_render_transaction(
@@ -333,6 +462,7 @@ impl ShadowPipeline {
             .map(|()| None);
         }
 
+        resources.production_stage = ShadowProductionStage::BeginNativeJournal;
         if let Err(error) = unsafe { resources.scratch.begin_native_state_journal(scene.renderer) }
         {
             let mut result = Err(error);
@@ -353,6 +483,7 @@ impl ShadowPipeline {
         let draw_result = unsafe {
             resources.draw_maps(
                 device,
+                identity,
                 scene,
                 camera,
                 shadow_camera,
@@ -370,17 +501,20 @@ impl ShadowPipeline {
             )
         };
         let mut result = draw_result;
+        resources.production_stage = ShadowProductionStage::RestoreNativeJournal;
         if let Err(error) = unsafe { resources.scratch.restore_native_state_journal() }
             && result.is_ok()
         {
             result = Err(error);
         }
+        resources.production_stage = ShadowProductionStage::EndScene;
         if let Err(error) = device.end_scene()
             && result.is_ok()
         {
             result = Err(error);
         }
         let publication = result.as_ref().ok().copied().flatten();
+        resources.production_stage = ShadowProductionStage::RestoreD3dState;
         finish_render_transaction(
             device,
             &attachments,
@@ -396,6 +530,9 @@ impl ShadowPipeline {
         self.last_directional_roots = last_directional_roots;
         self.point_cache = point_cache;
         self.point_cell_identity = point_cell_identity;
+        if let Some(resources) = self.resources.as_mut() {
+            resources.production_stage = ShadowProductionStage::Idle;
+        }
         Ok(publication)
     }
 
@@ -409,12 +546,25 @@ impl ShadowPipeline {
         device_ptr: *mut c_void,
         settings: NativeShadowsSettings,
     ) -> Direct3DResult<bool> {
+        let Some(context) = self.active_world_context else {
+            return Ok(false);
+        };
         let Some(publication) = self.published else {
             return Ok(false);
         };
-        if !publication_epoch_is_usable(publication.render_epoch, crate::hooks::render_epoch()) {
+        if !publication_epoch_is_usable(
+            publication.identity.render_epoch,
+            crate::hooks::render_epoch(),
+        ) {
             self.published = None;
             return Ok(false);
+        }
+        if publication.identity.transaction != 0 {
+            let expected = context.identity(publication.scene, publication.identity.invocation);
+            if !publication_identity_is_usable(publication.identity, expected) {
+                self.published = None;
+                return Ok(false);
+            }
         }
         let Some(device) = (unsafe { Device9Ref::from_raw_void(device_ptr) }) else {
             return Err(direct3d_failure());
@@ -426,7 +576,7 @@ impl ShadowPipeline {
             self.release();
             return Ok(false);
         }
-        let composed = unsafe { resources.consume(device, publication, settings)? };
+        let composed = unsafe { resources.consume(device, context, publication, settings)? };
         if composed {
             let branch = scene_branch_index(publication.scene);
             if !self.composition_logged[branch] {
@@ -443,6 +593,18 @@ impl ShadowPipeline {
     fn log_error(&mut self, message: &'static str, error: &impl core::fmt::Display) {
         if self.error_logs < MAX_ERROR_LOGS {
             log::warn!("[SHADOWS] {message}: {error}");
+            self.error_logs += 1;
+        }
+    }
+
+    fn log_error_at_stage(
+        &mut self,
+        message: &'static str,
+        stage: ShadowProductionStage,
+        error: &impl core::fmt::Display,
+    ) {
+        if self.error_logs < MAX_ERROR_LOGS {
+            log::warn!("[SHADOWS] {message} at {stage:?}: {error}");
             self.error_logs += 1;
         }
     }
@@ -491,6 +653,7 @@ struct ShadowResources {
     // Directional atlas metadata is published as one immutable camera/sun
     // epoch. Atmosphere must never consume a newer sun than the retained maps.
     cascade_sun: [f32; 3],
+    production_stage: ShadowProductionStage,
 }
 
 /// Exterior-only map family. It is created on first exterior production so
@@ -701,6 +864,7 @@ impl ShadowResources {
             }; CASCADE_COUNT],
             cascade_suns: [[0.0; 3]; CASCADE_COUNT],
             cascade_sun: [0.0; 3],
+            production_stage: ShadowProductionStage::Idle,
         })
     }
 
@@ -766,6 +930,7 @@ impl ShadowResources {
     unsafe fn draw_maps(
         &mut self,
         device: &Device9Ref<'_>,
+        identity: ShadowPublicationIdentity,
         scene: NativeScene,
         camera: CameraFrame,
         shadow_camera: ShadowCamera,
@@ -785,6 +950,7 @@ impl ShadowResources {
         let directional = scene.kind != SceneKind::Interior;
         let mut actor_overlay_mask = 0_u8;
         if directional {
+            self.production_stage = ShadowProductionStage::DirectionalInputs;
             let sky = backend::native_sky_frame().ok_or_else(direct3d_failure)?;
             let sun = stabilize_sun_direction(*last_sun, sky.sun_direction)
                 .ok_or_else(direct3d_failure)?;
@@ -892,6 +1058,7 @@ impl ShadowResources {
             let render_result = (|| -> Direct3DResult<()> {
                 for index in 0..CASCADE_COUNT {
                     if plan.render[index] {
+                        self.production_stage = ShadowProductionStage::StaticCascade(index as u8);
                         let projection = projections[index];
                         let minimum_radius = cascade_minimum_caster_radius(
                             index,
@@ -944,6 +1111,7 @@ impl ShadowResources {
                     }
                     let static_projection =
                         self.cascade_projections[index].ok_or_else(direct3d_failure)?;
+                    self.production_stage = ShadowProductionStage::ActorBounds(index as u8);
                     let actor_bounds = unsafe {
                         native::directional_actor_bounds(
                             directional_roots.as_slice(),
@@ -951,22 +1119,34 @@ impl ShadowResources {
                             static_projection,
                             self.cascade_origins[index],
                         )
-                    }
-                    .ok_or_else(direct3d_failure)?;
-                    let actor_projection = static_projection
-                        .cropped_to_actor_bounds(actor_bounds, ACTOR_MAP_RESOLUTION)
-                        .ok_or_else(direct3d_failure)?;
+                    };
+                    let (actor_projection, actor_crop) = match actor_bounds {
+                        native::DirectionalActorBounds::NoWork => continue,
+                        native::DirectionalActorBounds::Croppable(bounds) => {
+                            if let Some(cropped) = static_projection
+                                .cropped_to_actor_bounds(bounds, ACTOR_MAP_RESOLUTION)
+                            {
+                                (cropped.projection, cropped.uv_scale_offset)
+                            } else {
+                                (static_projection, [1.0, 1.0, 0.0, 0.0])
+                            }
+                        }
+                        native::DirectionalActorBounds::FullProjection => {
+                            (static_projection, [1.0, 1.0, 0.0, 0.0])
+                        }
+                    };
+                    self.production_stage = ShadowProductionStage::ActorOverlay(index as u8);
                     unsafe {
                         self.draw_directional_actor_overlay(
                             device,
                             scene,
                             index,
-                            actor_projection.projection,
+                            actor_projection,
                             self.cascade_origins[index],
                             directional_roots.as_slice(),
                         )?
                     };
-                    self.actor_crops[index] = actor_projection.uv_scale_offset;
+                    self.actor_crops[index] = actor_crop;
                     actor_overlay_mask |= 1 << index;
                 }
                 Ok(())
@@ -997,6 +1177,7 @@ impl ShadowResources {
         // Omitting their cubes made the Pip-Boy and practical lights cast no
         // shadow whenever a directional atlas was active. Selection is still
         // capped by the same user-owned budget and unchanged cubes are cached.
+        self.production_stage = ShadowProductionStage::PointMaps;
         let points = unsafe {
             let retained_identities = if *point_cell_identity == scene.cell as usize {
                 point_cache.identities()
@@ -1052,7 +1233,7 @@ impl ShadowResources {
             };
         }
         Ok(Some(PublishedFrame {
-            render_epoch: crate::hooks::render_epoch(),
+            identity,
             scene: scene.kind,
             directional,
             sun_direction: self.cascade_sun,
@@ -1451,6 +1632,7 @@ impl ShadowResources {
     unsafe fn consume(
         &mut self,
         device: Device9Ref<'_>,
+        context: ActiveWorldContext,
         publication: PublishedFrame,
         settings: NativeShadowsSettings,
     ) -> Direct3DResult<bool> {
@@ -1463,20 +1645,19 @@ impl ShadowResources {
         if desc.Width == 0 || desc.Height == 0 {
             return Ok(false);
         }
-        let projection_override = crate::fnv_world_pipeline::shadow_depth_camera(
-            source.as_raw() as usize,
-            TargetDescription::from(&desc),
-        );
+        if source.as_raw() as usize != context.color_surface {
+            return Ok(false);
+        }
         let depth = match unsafe {
             backend::resolve_scene_depth(
                 provider,
                 device.as_raw().cast(),
-                None,
+                Some(context.rendered_texture as *mut c_void),
                 DepthResolveSlot::World,
                 DepthResolveStage::PreAlphaWorld,
-                projection_override,
+                Some(context.depth_camera),
                 "FNV shadows before alpha and atmosphere",
-                crate::hooks::render_epoch(),
+                context.render_epoch,
             )
         } {
             DepthResolveOutcome::Resolved { depth, .. } => depth,
@@ -1488,13 +1669,10 @@ impl ShadowResources {
         if depth.world_projection.reversed_depth.is_none() {
             return Ok(false);
         }
-        let camera = if depth.world_projection.camera.available {
-            depth.world_projection.camera
-        } else {
-            backend::fnv_world_camera_frame(desc.Width, desc.Height)
-                .filter(|camera| camera.available)
-                .ok_or_else(direct3d_failure)?
-        };
+        if depth.world_projection.source_surface != context.depth_surface {
+            return Ok(false);
+        }
+        let camera = context.depth_camera;
         if !camera.world_transform.available {
             return Ok(false);
         }
@@ -1879,8 +2057,8 @@ impl ShadowResources {
                 0.0,
             ]],
         )?;
-        let deferred_width = desc.Width.div_ceil(2).max(1);
-        let deferred_height = desc.Height.div_ceil(2).max(1);
+        let deferred_width = desc.Width.max(1);
+        let deferred_height = desc.Height.max(1);
         device.set_pixel_shader_constant_f(
             36,
             &[[
@@ -1914,7 +2092,7 @@ struct ConsumerTargets {
     contact: Option<ContactConsumerTargets>,
 }
 
-/// Half-resolution directional visibility paired with receiver depth.
+/// Full-resolution directional visibility paired with receiver depth.
 struct DirectionalConsumerTargets {
     visibility: Texture9,
     visibility_surface: Surface9,
@@ -1922,7 +2100,7 @@ struct DirectionalConsumerTargets {
     height: u32,
 }
 
-/// Half-resolution exact RGB local-light ownership and occlusion estimates.
+/// Full-resolution exact RGB local-light ownership and occlusion estimates.
 struct LocalLightConsumerTargets {
     deficit: Texture9,
     deficit_surface: Surface9,
@@ -1932,7 +2110,7 @@ struct LocalLightConsumerTargets {
     height: u32,
 }
 
-/// Half-resolution current-frame contact evidence and bilateral resolve.
+/// Full-resolution current-frame contact evidence and bilateral resolve.
 struct ContactConsumerTargets {
     raw: Texture9,
     raw_surface: Surface9,
@@ -1989,8 +2167,8 @@ impl ConsumerTargets {
 
 impl DirectionalConsumerTargets {
     fn create(device: &Device9Ref<'_>, desc: &D3DSURFACE_DESC) -> Direct3DResult<Self> {
-        let width = desc.Width.div_ceil(2).max(1);
-        let height = desc.Height.div_ceil(2).max(1);
+        let width = desc.Width.max(1);
+        let height = desc.Height.max(1);
         let visibility = device.create_render_target_texture(width, height, D3DFMT_G16R16F)?;
         Ok(Self {
             visibility_surface: visibility.surface_level(0)?,
@@ -2010,8 +2188,8 @@ impl LocalLightConsumerTargets {
         // The same scissored draw emits exact RGB totals and exact RGB
         // deficits. Keeping these in equal-format MRTs avoids both a second
         // fullscreen pass and cross-channel artifacts between colored lights.
-        let width = desc.Width.div_ceil(2).max(1);
-        let height = desc.Height.div_ceil(2).max(1);
+        let width = desc.Width.max(1);
+        let height = desc.Height.max(1);
         let deficit = device.create_render_target_texture(width, height, D3DFMT_A16B16G16R16F)?;
         let total = device.create_render_target_texture(width, height, D3DFMT_A16B16G16R16F)?;
         Ok(Self {
@@ -2027,8 +2205,8 @@ impl LocalLightConsumerTargets {
 
 impl ContactConsumerTargets {
     fn create(device: &Device9Ref<'_>, desc: &D3DSURFACE_DESC) -> Direct3DResult<Self> {
-        let width = desc.Width.div_ceil(2).max(1);
-        let height = desc.Height.div_ceil(2).max(1);
+        let width = desc.Width.max(1);
+        let height = desc.Height.max(1);
         let raw = device.create_render_target_texture(width, height, D3DFMT_G16R16F)?;
         let filtered = device.create_render_target_texture(width, height, D3DFMT_G16R16F)?;
         Ok(Self {

@@ -434,6 +434,16 @@ pub(crate) fn rendered_texture_color_surface(
     }
 }
 
+pub(crate) unsafe fn current_fnv_world_rendered_texture() -> Option<*mut c_void> {
+    unsafe { fnv::current_world_rendered_texture() }
+}
+
+pub(crate) unsafe fn rendered_texture_depth_surface(
+    rendered_texture: *mut c_void,
+) -> Option<*mut c_void> {
+    unsafe { fnv::rendered_texture_depth_surface(rendered_texture) }
+}
+
 pub(crate) unsafe fn resolve_scene_depth(
     depth_provider: DepthProvider,
     device_ptr: *mut c_void,

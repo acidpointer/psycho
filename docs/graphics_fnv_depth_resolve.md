@@ -333,6 +333,19 @@ cannot alias the pre-alpha stage. The RESZ detour is physically absent in this
 mode, so both RESZ and native NvAPI remain owned entirely by Depth Resolve.
 Successful borrowed boundary snapshots have a separate counter; physical OMV
 copy counters remain unchanged.
+
+The sixteenth shadow correction tightens an exact-cache hit further. Matching
+epoch, stage, source pointer, and dimensions is insufficient when TAA has
+rendered the same physical surface through another camera projection. Cache
+reuse now compares the complete camera frustum and transform, near/far range,
+depth convention/function, source surface, and sampled precision. At the
+pre-alpha boundary, shadows read the current outer-world `BSRenderedTexture`,
+pass it explicitly to the resolver, and require the returned source-surface
+identity to equal that owner's depth surface. Reconstruction uses the camera
+published with that exact depth result. The earlier common-entry producer
+remains on its proven current/next-epoch contract because it runs before the
+outer world transaction exists; its light-space camera continues to come from
+the unjittered world-pipeline publication with the established native fallback.
 Depth Resolve 1.31 publishes no separate first-person resource; OMV therefore
 does not issue a hidden first-person supplement.
 
@@ -594,8 +607,10 @@ Provider regressions additionally prove:
   of all four scene-depth hook entries even if the visual master remains on;
 - atmosphere no-contribution admission runs before depth, while incomplete
   scene and local-light publications conservatively retain the transaction;
-- exact depth reuse requires stage, source, epoch, slot, and dimensions, and
-  the negative controls reject pre-alpha/coherent aliasing and stale identity;
+- exact depth reuse requires stage, source, epoch, slot, dimensions, complete
+  camera projection, depth convention, and sampled precision; negative
+  controls reject pre-alpha/coherent aliasing, stale identity, another TAA
+  camera, and another depth convention;
 - a provider change invalidates temporal ownership;
 - visual preset application preserves `depth_provider`.
 
