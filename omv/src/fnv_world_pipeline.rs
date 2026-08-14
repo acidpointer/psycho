@@ -607,7 +607,6 @@ struct TemporalProjectionOverride {
     epoch: u32,
     target_surface: usize,
     target: TargetDescription,
-    jitter_pixels: [f32; 2],
     rendered_camera: backend::CameraFrame,
     output_camera: backend::CameraFrame,
 }
@@ -621,15 +620,12 @@ impl TemporalProjectionOverride {
         if self.epoch != epoch || !live_shadow_camera_is_valid(live_camera) {
             return None;
         }
-        // The live camera owns current FOV, clipping, and pose. Remove only
-        // the exact pixel translation injected by this TAA transaction; using
-        // the pre-world snapshot wholesale makes both camera pose and an FOV
-        // animation lag behind the native renderer.
-        live_camera.with_pixel_jitter(
-            [-self.jitter_pixels[0], -self.jitter_pixels[1]],
-            self.target.width,
-            self.target.height,
-        )
+        // The transaction snapshot owns the exact output lens. A nested
+        // effect may change the live camera's lens after world rasterization,
+        // while the native transform remains the freshest pose available.
+        let mut camera = self.output_camera;
+        camera.world_transform = live_camera.world_transform;
+        Some(camera)
     }
 
     fn shadow_depth_camera(
@@ -639,9 +635,16 @@ impl TemporalProjectionOverride {
         target: TargetDescription,
         live_camera: backend::CameraFrame,
     ) -> Option<backend::CameraFrame> {
-        self.cameras_for(epoch, target_surface, target)
-            .filter(|_| live_shadow_camera_is_valid(live_camera))
-            .map(|_| live_camera)
+        let cameras = self.cameras_for(epoch, target_surface, target)?;
+        if !live_shadow_camera_is_valid(live_camera) {
+            return None;
+        }
+        // Depth reconstruction must retain the exact jittered lens which
+        // rasterized this surface. Pairing it with the current native pose
+        // avoids both a stale pre-world transform and a later effect's lens.
+        let mut camera = cameras.rendered;
+        camera.world_transform = live_camera.world_transform;
+        Some(camera)
     }
 
     fn cameras_for(
@@ -882,7 +885,6 @@ impl FnvWorldPipelineRuntime {
             epoch,
             target_surface,
             target,
-            jitter_pixels,
             rendered_camera: camera_jitter.projection(),
             output_camera: camera_jitter.unjittered_projection(),
         });
@@ -1661,7 +1663,6 @@ mod tests {
             epoch: 7,
             target_surface: 0x1234,
             target,
-            jitter_pixels: [0.5, -0.25],
             rendered_camera: jittered_camera,
             output_camera: restored_camera,
         };
@@ -1785,7 +1786,6 @@ mod tests {
             epoch: 7,
             target_surface: 0x1234,
             target,
-            jitter_pixels: [0.5, -0.25],
             rendered_camera: rendered,
             output_camera: captured,
         };
@@ -1793,8 +1793,15 @@ mod tests {
         let depth_camera = projection
             .shadow_depth_camera(7, 0x1234, target, live)
             .expect("matching depth transaction");
-        assert_eq!(depth_camera.frustum_left, live.frustum_left);
-        assert_eq!(depth_camera.far_z, live.far_z);
+        assert_eq!(
+            depth_camera.frustum_left, rendered.frustum_left,
+            "depth reconstruction must retain the lens which rasterized the depth surface"
+        );
+        assert_eq!(depth_camera.far_z, rendered.far_z);
+        assert_ne!(
+            depth_camera.frustum_left, live.frustum_left,
+            "a later effect's live lens must not be attached to already-rasterized depth"
+        );
         assert_eq!(
             depth_camera.world_transform.translation, live.world_transform.translation,
             "the pre-world TAA snapshot must not make depth reconstruction trail the live native pose"
@@ -1802,8 +1809,15 @@ mod tests {
         let generation_camera = projection
             .shadow_generation_camera(7, live)
             .expect("matching generation transaction");
-        assert_eq!(generation_camera.frustum_left, live_output.frustum_left);
-        assert_eq!(generation_camera.far_z, live_output.far_z);
+        assert_eq!(
+            generation_camera.frustum_left, captured.frustum_left,
+            "shadow generation must retain the current transaction's unjittered output lens"
+        );
+        assert_eq!(generation_camera.far_z, captured.far_z);
+        assert_ne!(
+            generation_camera.frustum_left, live_output.frustum_left,
+            "a nested effect's lens must not move the shadow projection"
+        );
         assert_eq!(
             generation_camera.world_transform.translation, live.world_transform.translation,
             "the unjittered cascade lens and live native pose are one current producer camera"

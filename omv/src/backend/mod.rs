@@ -139,10 +139,9 @@ pub(crate) fn abandon_initial_depth_provider() {
 /// Switch logical depth providers at an engine-owned presentation boundary.
 ///
 /// The old provider's OMV-owned resources and snapshots are released before
-/// the atomic provider identity changes. When Depth Resolve is loaded, OMV
-/// deliberately borrows its world snapshots and owns only the independent
-/// first-person path; this prevents duplicate NVIDIA copies without reducing
-/// OMV's full world/view-model depth contract.
+/// the atomic provider identity changes. The OMV provider owns exact world
+/// and first-person captures; only the explicit Depth Resolve provider borrows
+/// that module's world-only shared texture.
 pub(crate) fn switch_depth_provider(depth_provider: DepthProvider) -> Result<bool, &'static str> {
     let current = active_depth_provider();
     if current == depth_provider {
@@ -204,7 +203,7 @@ mod provider_switch_contract_tests {
     }
 
     #[test]
-    fn omv_provider_keeps_full_coverage_with_external_nvapi_world_depth() {
+    fn omv_provider_keeps_independent_full_coverage_when_external_depth_is_present() {
         assert_eq!(
             choose_initial_depth_provider(DepthProvider::FalloutNewVegas, true,),
             InitialDepthActivation {
@@ -212,6 +211,22 @@ mod provider_switch_contract_tests {
                 active: DepthProvider::FalloutNewVegas,
                 fallback: None,
             }
+        );
+    }
+
+    #[test]
+    fn omv_provider_validation_does_not_retain_external_shared_depth() {
+        let source = include_str!("fnv.rs");
+        let body = source
+            .split_once("pub(super) fn validate_depth_provider(")
+            .map(|(_, tail)| tail)
+            .and_then(|tail| tail.split_once("\nfn validate_depth_provider_capabilities("))
+            .map(|(body, _)| body)
+            .expect("depth-provider validation body");
+        assert!(body.contains("provider == DepthProvider::DepthResolve"));
+        assert!(
+            !body.contains("provider == DepthProvider::FalloutNewVegas"),
+            "the OMV provider must not retain or validate an external texture it never samples"
         );
     }
 
@@ -237,10 +252,9 @@ mod provider_switch_contract_tests {
 
 /// Choose the startup coverage contract from configuration and capabilities.
 ///
-/// A loaded Depth Resolve can always supply OMV's world snapshot without an
-/// additional copy. The OMV provider therefore remains active and adds the
-/// independent first-person contract regardless of whether the external
-/// producer selected RESZ or NvAPI.
+/// External module presence never changes the requested provider. The OMV
+/// provider owns exact world and first-person captures; the explicit external
+/// provider owns only its shared world snapshot.
 fn choose_initial_depth_provider(
     requested: DepthProvider,
     external_available: bool,
@@ -686,6 +700,28 @@ mod depth_provider_tests {
             ),
             DepthResolutionRoute::Rejected,
             "Depth Resolve 1.31 does not own an independent first-person map",
+        );
+    }
+
+    #[test]
+    fn omv_provider_never_borrows_unversioned_external_world_contents() {
+        let source = include_str!("fnv.rs");
+        let body = source
+            .split_once("unsafe fn resolve_from_surface(")
+            .map(|(_, tail)| tail)
+            .and_then(|tail| tail.split_once("\n    unsafe fn resolve_resz("))
+            .map(|(body, _)| body)
+            .expect("OMV depth resolver body");
+
+        assert!(body.contains("self.ensure_route(device)?"));
+        assert!(body.contains("record_physical_depth_copy(stage)"));
+        assert!(
+            !body.contains("depth_resolve_provider::available()"),
+            "the OMV route stamped current boundary metadata onto an external texture without a producer generation"
+        );
+        assert!(
+            !body.contains("ensure_external_world_target"),
+            "the OMV route must resolve or alias the exact requested source surface"
         );
     }
 }

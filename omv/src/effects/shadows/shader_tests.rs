@@ -1,9 +1,9 @@
 use super::contract::contact_consumer_work;
 use super::shaders::{
-    COMPOSITE_PIXEL_SOURCE, CONTACT_BLUR_SOURCE, CONTACT_SOURCE, CUBE_PIXEL_SOURCE,
-    CUBE_VERTEX_SOURCE, DIRECTIONAL_MASK_SOURCE, DIRECTIONAL_PIXEL_SOURCE,
-    DIRECTIONAL_VERTEX_SOURCE, FAR_CLEAR_PIXEL_SOURCE, POINT_ACCUMULATION_SOURCE,
-    directional_composite_source, interior_composite_source, point_accumulation_source,
+    COMPOSITE_PIXEL_SOURCE, CONTACT_SOURCE, CUBE_PIXEL_SOURCE, CUBE_VERTEX_SOURCE,
+    DIRECTIONAL_MASK_SOURCE, DIRECTIONAL_PIXEL_SOURCE, DIRECTIONAL_VERTEX_SOURCE,
+    FAR_CLEAR_PIXEL_SOURCE, POINT_ACCUMULATION_SOURCE, directional_composite_source,
+    interior_composite_source, point_accumulation_source,
 };
 
 fn instruction_count(bytecode: &[u32]) -> usize {
@@ -150,7 +150,6 @@ fn every_shadow_shader_compiles_for_shader_model_three_with_static_budgets() {
             // validation, and four NVR ray taps stay below this measured cap.
             464,
         ),
-        ("shadow_contact_blur.ps", CONTACT_BLUR_SOURCE, "ps_3_0", 160),
         (
             "shadow_directional_mask.ps",
             DIRECTIONAL_MASK_SOURCE,
@@ -207,7 +206,7 @@ fn every_shadow_shader_compiles_for_shader_model_three_with_static_budgets() {
         );
         compiled_programs.push((name, bytecode));
     }
-    assert_eq!(compiled_programs.len(), 14);
+    assert_eq!(compiled_programs.len(), 13);
 }
 
 #[test]
@@ -286,10 +285,21 @@ fn consumer_shader_abis_compile_with_bounded_texture_work() {
     assert!(composite.contains("sampler2D PointLightTotal : register(s6)"));
     assert!(composite.contains("float4 ContactControl : register(c31)"));
     assert!(composite.contains("float4 PointControl : register(c32)"));
-    assert!(composite.contains("float4 DeferredTexel : register(c36)"));
+    assert!(!composite.contains("DeferredTexel"));
     assert!(composite.contains("#if OMV_INTERIOR"));
     assert!(composite.contains("float3 occludedFraction"));
     assert!(composite.contains("0.25f"));
+    assert!(
+        composite.contains("float ExactContactVisibility"),
+        "contact filtering must execute inside the existing source-owned composite"
+    );
+    assert_eq!(
+        composite.matches("tex2Dlod(").count(),
+        7,
+        "full-resolution composition owns only source, depth, exact visibility, fused contact, and exact point-buffer reads"
+    );
+    assert!(!composite.contains("VisibilityTap"));
+    assert!(!composite.contains("PointTap"));
 
     let directional_mask =
         std::str::from_utf8(DIRECTIONAL_MASK_SOURCE).expect("directional mask UTF-8");
@@ -306,8 +316,6 @@ fn consumer_shader_abis_compile_with_bounded_texture_work() {
     assert!(contact.contains("ViewLightDirection : register(c7)"));
     assert!(contact.contains("ContactSampleOffsets : register(c8)"));
     assert!(contact.contains("ContactDepthPrecision : register(c9)"));
-    let blur = std::str::from_utf8(CONTACT_BLUR_SOURCE).expect("contact blur UTF-8");
-    assert!(blur.contains("sampler2D ContactMap : register(s0)"));
 
     for (capacity, texture_budget) in [(1, 6), (6, 11), (12, 17)] {
         let point_bytecode = crate::shaders::compile_hlsl_source_target(
@@ -321,17 +329,6 @@ fn consumer_shader_abis_compile_with_bounded_texture_work() {
             "{capacity}-light specialization retained unused cube samples"
         );
     }
-    let blur_bytecode = crate::shaders::compile_hlsl_source_target(
-        "shadow_contact_blur_budget.ps",
-        CONTACT_BLUR_SOURCE,
-        "ps_3_0",
-    )
-    .expect("contact bilateral filter must compile");
-    assert_eq!(
-        texture_instruction_count(&blur_bytecode),
-        5,
-        "contact filter must use one center and four same-frame depth-aware taps"
-    );
     let directional_mask_bytecode = crate::shaders::compile_hlsl_source_target(
         "shadow_directional_mask_budget.ps",
         DIRECTIONAL_MASK_SOURCE,
@@ -345,21 +342,34 @@ fn consumer_shader_abis_compile_with_bounded_texture_work() {
         directional_texture_samples <= 25,
         "deferred directional mask uses {directional_texture_samples} compiled texture instructions"
     );
-    let composite_bytecode = crate::shaders::compile_hlsl_source_target(
-        "shadow_composite_sample_budget.ps",
-        COMPOSITE_PIXEL_SOURCE,
-        "ps_3_0",
-    )
-    .expect("shadow composite must compile");
-    let texture_samples = texture_instruction_count(&composite_bytecode);
-    assert!(
-        texture_samples <= 18,
-        "compiled composition uses {texture_samples} samples after deferred visibility"
-    );
+    for (name, source, expected_samples) in [
+        (
+            "shadow_composite_sample_budget.ps",
+            COMPOSITE_PIXEL_SOURCE.to_vec(),
+            10,
+        ),
+        (
+            "shadow_directional_composite_sample_budget.ps",
+            directional_composite_source(),
+            8,
+        ),
+        (
+            "shadow_interior_composite_sample_budget.ps",
+            interior_composite_source(),
+            5,
+        ),
+    ] {
+        let bytecode = crate::shaders::compile_hlsl_source_target(name, &source, "ps_3_0")
+            .unwrap_or_else(|error| panic!("{name} must compile: {error:#}"));
+        assert_eq!(
+            texture_instruction_count(&bytecode),
+            expected_samples,
+            "{name} retained redundant full-resolution texture operations"
+        );
+    }
     for (name, source) in [
         ("point", POINT_ACCUMULATION_SOURCE),
         ("contact", CONTACT_SOURCE),
-        ("contact blur", CONTACT_BLUR_SOURCE),
     ] {
         let bytecode = crate::shaders::compile_hlsl_source_target(name, source, "ps_3_0")
             .unwrap_or_else(|error| panic!("{name} must compile: {error:#}"));
@@ -380,29 +390,24 @@ fn consumer_shader_abis_compile_with_bounded_texture_work() {
 }
 
 #[test]
-fn contact_stability_does_not_add_more_texture_work_than_the_old_three_pass_path() {
+fn contact_filter_fusion_keeps_one_generation_pass_and_bounded_depth_work() {
     let raw = crate::shaders::compile_hlsl_source_target(
         "shadow_contact_work.ps",
         CONTACT_SOURCE,
         "ps_3_0",
     )
     .expect("contact generation must compile");
-    let blur = crate::shaders::compile_hlsl_source_target(
-        "shadow_contact_blur_work.ps",
-        CONTACT_BLUR_SOURCE,
-        "ps_3_0",
-    )
-    .expect("contact bilateral filter must compile");
-    // Compilation proves all executable stages fit SM3. The workload model
+    // Compilation proves the executable stage fits SM3. The workload model
     // counts loop trip counts, which a static TEXLD opcode count cannot see.
     assert!(texture_instruction_count(&raw) > 0);
-    assert!(texture_instruction_count(&blur) > 0);
     let work = contact_consumer_work();
-    assert!(
-        work.passes <= 2 && work.texture_samples <= 14,
-        "contact path uses {} passes and {} half-resolution texture samples; receiver validation must replace, not compound, redundant filtering",
-        work.passes,
-        work.texture_samples,
+    assert_eq!(
+        work.passes, 1,
+        "contact filtering must not allocate a second fullscreen pass"
+    );
+    assert_eq!(
+        work.texture_samples, 7,
+        "contact generation owns one receiver, two plane, and four ray reads"
     );
 }
 
@@ -414,5 +419,5 @@ fn clear_and_composite_register_abi_matches_the_native_upload_contract() {
     let directional = std::str::from_utf8(DIRECTIONAL_MASK_SOURCE).expect("directional mask UTF-8");
     assert!(directional.contains("float4 CascadeTexel : register(c25)"));
     let composite = std::str::from_utf8(COMPOSITE_PIXEL_SOURCE).expect("composite UTF-8");
-    assert!(composite.contains("float4 DeferredTexel : register(c36)"));
+    assert!(!composite.contains("DeferredTexel"));
 }

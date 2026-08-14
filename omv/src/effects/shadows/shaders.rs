@@ -34,13 +34,10 @@ pub(super) const FAR_CLEAR_PIXEL_SOURCE: &[u8] =
 /// Twelve-light scissored point-shadow accumulation and receiver pass.
 pub(super) const POINT_ACCUMULATION_SOURCE: &[u8] =
     include_bytes!("../../../shaders/embedded/shadow_point_accumulate.hlsl");
-/// Half-resolution screen-space contact visibility pass.
+/// Full-resolution screen-space contact visibility pass.
 pub(super) const CONTACT_SOURCE: &[u8] =
     include_bytes!("../../../shaders/embedded/shadow_contact.hlsl");
-/// Same-frame depth-aware contact filter.
-pub(super) const CONTACT_BLUR_SOURCE: &[u8] =
-    include_bytes!("../../../shaders/embedded/shadow_contact_blur.hlsl");
-/// Deferred half-resolution directional visibility and receiver depth.
+/// Deferred full-resolution directional visibility and receiver depth.
 pub(super) const DIRECTIONAL_MASK_SOURCE: &[u8] =
     include_bytes!("../../../shaders/embedded/shadow_directional_mask.hlsl");
 /// Final directional/point shadow compositor.
@@ -111,9 +108,7 @@ pub(super) struct ShadowBytecode {
     pub(super) point_accumulation_twelve: Vec<u32>,
     /// Screen-space contact visibility program.
     pub(super) contact: Vec<u32>,
-    /// Same-frame depth-aware contact filter program.
-    pub(super) contact_blur: Vec<u32>,
-    /// Half-resolution depth-keyed directional visibility program.
+    /// Full-resolution depth-keyed directional visibility program.
     pub(super) directional_mask: Vec<u32>,
     /// Final scene-color composition program.
     pub(super) composite: Vec<u32>,
@@ -155,7 +150,6 @@ impl ShadowBytecode {
                 "ps_3_0",
             )?,
             contact: compile("shadow_contact.hlsl", CONTACT_SOURCE, "ps_3_0")?,
-            contact_blur: compile("shadow_contact_blur.hlsl", CONTACT_BLUR_SOURCE, "ps_3_0")?,
             directional_mask: compile(
                 "shadow_directional_mask.hlsl",
                 DIRECTIONAL_MASK_SOURCE,
@@ -186,7 +180,6 @@ impl ShadowBytecode {
             &self.point_accumulation_six,
             &self.point_accumulation_twelve,
             &self.contact,
-            &self.contact_blur,
             &self.directional_mask,
             &self.composite,
             &self.interior_composite,

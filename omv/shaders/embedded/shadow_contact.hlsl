@@ -44,10 +44,9 @@ bool HasGeometryDepth(float rawDepth) {
 }
 
 float2 SnapDepthUv(float2 uv) {
-    // The contact target is half resolution, so its raster centers land on
-    // full-resolution depth-texel boundaries. Reconstruct the exact texel
-    // selected by point sampling or the view position shifts with sub-pixel
-    // camera motion even though the sampled depth did not.
+    // Reconstruct the exact full-resolution texel selected by point sampling
+    // so clamped edge coordinates cannot shift the view position during
+    // sub-pixel camera motion.
     float2 texel = clamp(floor(uv * ScreenData.xy), 0.0f, ScreenData.xy - 1.0f);
     return (texel + 0.5f) * ScreenData.zw;
 }

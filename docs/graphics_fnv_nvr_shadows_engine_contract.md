@@ -4177,6 +4177,134 @@ entry snapshot is a reasoned inference from hook timing plus the user's motion
 observation. The snapshot reuse and corrected same-transaction ownership are
 direct code facts; only a new gameplay run can prove the visible blink gone.
 
+## Exact depth ownership and full-resolution work correction
+
+The next gameplay run rejected the remaining depth and performance assumptions.
+Fast camera motion still made the shadow image appear to chase the view, and
+enabling shadows still cost approximately 50-60 FPS at 3440 by 1440. The
+runtime log reported `provider=omv`, zero OMV pre-alpha physical copies, and a
+rising external-snapshot count. It also identified the sampled source as a
+"first-person render target" during a world pre-alpha request. That label came
+from the presence of an explicit `BSRenderedTexture`; the logged world frustum,
+world pose, and source surface prove that the owner was the explicit world
+target, not the first-person slot.
+
+### Proven depth failure
+
+`DepthResolutionRoute::OmvResolve` promises that the OMV provider resolves the
+exact requested source. `FnvDepthResolve::resolve_from_surface` violated that
+contract whenever Depth Resolve was merely loaded: it retained the module's
+single shared `INTZ` texture, skipped the physical OMV resolve, and published
+the current source surface, stage, camera, and render epoch as metadata for the
+borrowed pixels. Depth Resolve exposes no producer generation or completed-copy
+epoch. Its one texture is reused at more than one native boundary. Therefore
+OMV had no proof that the borrowed pixels belonged to the metadata it attached
+to them. A later camera pose or effect lens could be paired with earlier or
+otherwise overwritten depth. This is direct code and log evidence; assigning
+the user's visible lag to that mismatch remains a runtime-tested inference.
+
+The OMV provider now always resolves or aliases the exact source surface passed
+to the requested boundary. It never reads, validates, or retains Depth
+Resolve's shared texture. The explicit `depth_resolve` provider remains the
+only route which borrows that world-only resource. On native NvAPI, pre-alpha
+can use the persistent exact surface alias with no copy. On RESZ, exactness
+requires one private pre-alpha resolve; another OMV consumer at the identical
+epoch, stage, surface, dimensions, projection, and depth convention reuses the
+exact capture. Avoiding that required copy by accepting unversioned pixels is
+not a valid performance optimization.
+
+The TAA camera correction is also narrower than the previous pass. A depth
+surface owns the captured jittered lens which rasterized it; the unjittered
+shadow producer owns the captured output lens. Both cameras take only their
+world transform from the current native camera. Copying the complete live
+camera was unsafe because a nested effect may have changed FOV or clipping
+after the depth surface was rasterized. Copying the complete earlier snapshot
+was unsafe because its pose could trail current native movement. The combined
+contract rejects both stale pose and a later effect's lens.
+
+### Proven redundant GPU work
+
+The sixteenth correction restored directional, point, and contact masks to
+full output resolution. The compositor nevertheless retained the earlier
+half-resolution four-tap reconstruction. At a matching full-resolution raster
+center its fractional coordinate is zero, so three taps have zero weight, but
+all texture instructions still execute. The deployed mixed compositor compiled
+to 18 texture operations: source and scene depth, four directional reads, four
+contact reads, and four pairs of local deficit/total reads. Exact point-sampled
+receivers need only source, depth, one directional value, one contact value,
+and one deficit/total pair.
+
+Composition now performs one depth-validated read per full-resolution mask.
+Before contact fusion, that reduced the static bytecode budgets from 18 to six
+for the mixed program and from ten to four for the point-free exterior program.
+The final fused programs compile to ten mixed, eight point-free exterior, and
+five interior texture operations; the added instructions replace the separate
+five-read contact-filter program and its final texture read. The obsolete
+`DeferredTexel` constant and its per-frame D3D upload are gone. This changes
+neither mask resolution nor any visibility, depth-key, darkness, emitter, or
+local-energy equation.
+
+Contact filtering previously wrote a second full-resolution `G16R16F` target
+in a dedicated five-read fullscreen pass, after which the compositor read that
+target once. The compositor now applies the identical `0.40, 0.15, 0.15, 0.15,
+0.15` center-and-cardinal depth-aware filter directly while reading the raw
+contact target. The separate draw, target write, texture, shader program, and
+extra final read are removed. Contact-enabled bytecode is ten texture
+operations for the mixed exterior and eight for the point-free exterior.
+Compared with the rejected point-free path, this removes seven texture reads
+per output pixel, or 34,675,200 reads at 3440 by 1440, plus one 4,953,600-pixel
+target write. Retained contact memory falls by 19,814,400 bytes at that
+resolution. At 1920 by 1080 the quality resource model falls from 641,929,216
+to 633,634,816 bytes, or from 671,289,344 to 662,994,944 bytes with the
+four-channel actor fallback.
+
+Producer research found required per-presentation work as well as overhead.
+Current animated actors need same-frame overlay maps; point lights need changed
+static faces and current animated faces; the complete transaction must restore
+both D3D and engine renderer state. Removing or delaying those routes would
+change shadow coverage or corrupt the native caller and is not part of this
+fix. Cached static cascades and point cubes already skip unchanged map draws.
+The proven avoidable work was the unversioned depth shortcut, zero-weight
+fullscreen reads, redundant contact pass, redundant contact target, and inert
+constant upload.
+
+### Regression and acceptance evidence
+
+The regression sequence was negative first:
+
+- the depth-owner test found `depth_resolve_provider::available()` and
+  `ensure_external_world_target` inside the OMV resolver;
+- provider validation retained the external shared texture for `omv`;
+- the camera test received live-lens left extent `-1.199375` instead of the
+  rasterized extent `-0.9994792`;
+- the mixed compositor compiled to 18 texture operations instead of the exact
+  full-resolution budget; and
+- contact work reported two fullscreen passes instead of one.
+
+Focused corrections pass those ownership, lens/pose, shader bytecode, shader
+source topology, contact workload, and resource-memory tests. The shadow suite
+passes 136 tests; the complete explicit `i686-pc-windows-gnu` OMV suite passes
+646 tests; targeted formatting and `git diff --check` pass; and the supported
+release build succeeds. The resulting 12,833,700-byte `omv.dll` has SHA-256
+`f66e8e97ae13ebf61adb967f250376a7a843dab81ea4b2dc7411380028256efb`.
+The shared worktree also contained concurrent renderer-hook, interop, PBR,
+bloom, diagnostics, and submodule changes, so the complete artifact cannot be
+attributed to this shadow correction or deployed as an isolated shadow build.
+
+Static validation cannot prove the reported motion blink or FPS delta. Runtime
+acceptance remains a Proton/DXVK load-to-gameplay run with BaseObjectSwapper,
+followed by fast yaw, forward/vertical movement, interior multi-light movement,
+contact shadows on and off, and measured 3440-by-1440 frame-time comparisons.
+The log must show OMV pre-alpha physical copies on RESZ or an NvAPI alias, no
+external publication used by the `omv` provider, exact-cache reuse for an
+identical second consumer, and the explicit world target label.
+
+This correction adds no configuration, schema, preset, hook admission, TLS
+value, lazy/static owner, worker, mutex, or pre-`DeferredInit` operation. It
+removes one post-Deferred shader program and one lazy render target. Startup
+compatibility still requires the established BaseObjectSwapper gameplay test;
+static source-order tests and a release build cannot substitute for it.
+
 ## Primary evidence index
 
 ### Current executable and static artifacts

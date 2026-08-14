@@ -12,7 +12,6 @@ float4 ShadowControl : register(c23); // x reversed, y directional enabled, z da
 float4 DepthControl : register(c26); // x endpoint epsilon
 float4 ContactControl : register(c31); // x contact texture enabled
 float4 PointControl : register(c32); // x point buffer enabled, y darkness
-float4 DeferredTexel : register(c36); // xy inverse half-resolution mask size
 
 static const float ShadowDepthKeyRange = 250000.0f;
 
@@ -35,34 +34,34 @@ bool HasGeometryDepth(float rawDepth) {
     return rawDepth > DepthControl.x && rawDepth < 1.0f - DepthControl.x;
 }
 
-float2 VisibilityTap(
-    sampler2D visibilityMap,
-    float2 uv,
-    float receiverDepth,
-    float weight)
-{
+float ExactVisibility(sampler2D visibilityMap, float2 uv, float receiverDepth) {
     float2 sampleValue = tex2Dlod(visibilityMap, float4(uv, 0.0f, 0.0f)).rg;
     float sampleDepth = sampleValue.g * ShadowDepthKeyRange;
     float tolerance = max(2.0f, receiverDepth * 0.0025f);
     float accepted = sampleValue.g > 0.0f && abs(sampleDepth - receiverDepth) <= tolerance;
+    return accepted > 0.0f ? sampleValue.r : 1.0f;
+}
+
+float2 ContactTap(float2 uv, float centerDepth, float weight) {
+    float2 sampleValue = tex2Dlod(ContactVisibility, float4(uv, 0.0f, 0.0f)).rg;
+    float sampleDepth = sampleValue.g * ShadowDepthKeyRange;
+    float accepted = sampleValue.g > 0.0f &&
+        abs(sampleDepth - centerDepth) <= max(2.0f, centerDepth * 0.0025f);
     return float2(sampleValue.r * weight * accepted, weight * accepted);
 }
 
-float DeferredVisibility(sampler2D visibilityMap, float2 uv, float receiverDepth) {
-    // Reconstruct bilinear weights explicitly so every contributing mask texel
-    // can first prove that it belongs to this receiver. Hardware bilinear would
-    // mix a foreground shadow into a background wall during camera movement.
-    float2 texel = DeferredTexel.xy;
-    float2 coordinate = uv / texel - 0.5f;
-    float2 base = floor(coordinate);
-    float2 fraction = coordinate - base;
-    float2 uv00 = (base + 0.5f) * texel;
-    float2 sum = 0.0f;
-    sum += VisibilityTap(visibilityMap, uv00, receiverDepth, (1.0f - fraction.x) * (1.0f - fraction.y));
-    sum += VisibilityTap(visibilityMap, uv00 + float2(texel.x, 0.0f), receiverDepth, fraction.x * (1.0f - fraction.y));
-    sum += VisibilityTap(visibilityMap, uv00 + float2(0.0f, texel.y), receiverDepth, (1.0f - fraction.x) * fraction.y);
-    sum += VisibilityTap(visibilityMap, uv00 + texel, receiverDepth, fraction.x * fraction.y);
-    return sum.y > 0.0001f ? sum.x / sum.y : 1.0f;
+float ExactContactVisibility(float2 uv, float receiverDepth) {
+    float2 center = tex2Dlod(ContactVisibility, float4(uv, 0.0f, 0.0f)).rg;
+    float centerDepth = center.g * ShadowDepthKeyRange;
+    float tolerance = max(2.0f, receiverDepth * 0.0025f);
+    if (center.g <= 0.0f || abs(centerDepth - receiverDepth) > tolerance)
+        return 1.0f;
+    float2 sum = float2(center.r * 0.40f, 0.40f);
+    sum += ContactTap(uv + float2(ScreenData.z, 0.0f), centerDepth, 0.15f);
+    sum += ContactTap(uv - float2(ScreenData.z, 0.0f), centerDepth, 0.15f);
+    sum += ContactTap(uv + float2(0.0f, ScreenData.w), centerDepth, 0.15f);
+    sum += ContactTap(uv - float2(0.0f, ScreenData.w), centerDepth, 0.15f);
+    return sum.x / max(sum.y, 0.0001f);
 }
 
 struct PointEnergy {
@@ -70,47 +69,15 @@ struct PointEnergy {
     float3 total;
 };
 
-void PointTap(
-    float2 uv,
-    float receiverDepth,
-    float weight,
-    out float4 deficit,
-    out float4 total)
-{
+PointEnergy ExactPointValues(float2 uv, float receiverDepth) {
     float4 deficitValue = tex2Dlod(PointShadowBuffer, float4(uv, 0.0f, 0.0f));
     float4 totalValue = tex2Dlod(PointLightTotal, float4(uv, 0.0f, 0.0f));
     float sampleDepth = deficitValue.a / max(totalValue.a, 1.0f) * ShadowDepthKeyRange;
     float tolerance = max(2.0f, receiverDepth * 0.0025f);
     float accepted = totalValue.a > 0.0f && abs(sampleDepth - receiverDepth) <= tolerance;
-    deficit = float4(deficitValue.rgb * weight * accepted, weight * accepted);
-    total = float4(totalValue.rgb * weight * accepted, weight * accepted);
-}
-
-PointEnergy DeferredPointValues(float2 uv, float receiverDepth) {
-    float2 texel = DeferredTexel.xy;
-    float2 coordinate = uv / texel - 0.5f;
-    float2 base = floor(coordinate);
-    float2 fraction = coordinate - base;
-    float2 uv00 = (base + 0.5f) * texel;
-    float4 deficitSum = 0.0f;
-    float4 totalSum = 0.0f;
-    float4 deficitTap;
-    float4 totalTap;
-    PointTap(uv00, receiverDepth, (1.0f - fraction.x) * (1.0f - fraction.y), deficitTap, totalTap);
-    deficitSum += deficitTap;
-    totalSum += totalTap;
-    PointTap(uv00 + float2(texel.x, 0.0f), receiverDepth, fraction.x * (1.0f - fraction.y), deficitTap, totalTap);
-    deficitSum += deficitTap;
-    totalSum += totalTap;
-    PointTap(uv00 + float2(0.0f, texel.y), receiverDepth, (1.0f - fraction.x) * fraction.y, deficitTap, totalTap);
-    deficitSum += deficitTap;
-    totalSum += totalTap;
-    PointTap(uv00 + texel, receiverDepth, fraction.x * fraction.y, deficitTap, totalTap);
-    deficitSum += deficitTap;
-    totalSum += totalTap;
     PointEnergy result;
-    result.deficit = deficitSum.a > 0.0001f ? deficitSum.rgb / deficitSum.a : 0.0f;
-    result.total = totalSum.a > 0.0001f ? totalSum.rgb / totalSum.a : 0.0f;
+    result.deficit = accepted > 0.0f ? deficitValue.rgb : 0.0f;
+    result.total = accepted > 0.0f ? totalValue.rgb : 0.0f;
     return result;
 }
 
@@ -124,16 +91,16 @@ float4 Main(PixelInput input) : COLOR0 {
 
     float directional = 1.0f;
     if (ShadowControl.y > 0.5f) {
-        directional = DeferredVisibility(DirectionalVisibilityMap, input.uv, viewDepth);
+        directional = ExactVisibility(DirectionalVisibilityMap, input.uv, viewDepth);
         if (ContactControl.x > 0.5f)
             directional = min(
                 directional,
-                DeferredVisibility(ContactVisibility, input.uv, viewDepth));
+                ExactContactVisibility(input.uv, viewDepth));
         directional = 1.0f - saturate(ShadowControl.z) * (1.0f - directional);
     }
 
 #if OMV_POINT_LIGHTS
-    PointEnergy pointEnergy = DeferredPointValues(input.uv, viewDepth);
+    PointEnergy pointEnergy = ExactPointValues(input.uv, viewDepth);
     float3 pointDeficit = max(pointEnergy.deficit, 0.0f);
     float3 pointTotal = max(pointEnergy.total, 0.0f);
     float3 linearSource = pow(max(source.rgb, 0.0f), 2.2f);

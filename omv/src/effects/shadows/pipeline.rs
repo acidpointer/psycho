@@ -634,7 +634,6 @@ struct ShadowResources {
     point_pixel_six: PixelShader9,
     point_pixel_twelve: PixelShader9,
     contact_pixel: PixelShader9,
-    contact_blur_pixel: PixelShader9,
     directional_mask_pixel: PixelShader9,
     composite_pixel: PixelShader9,
     interior_composite_pixel: PixelShader9,
@@ -845,7 +844,6 @@ impl ShadowResources {
             point_pixel_six: device.create_pixel_shader(&bytecode.point_accumulation_six)?,
             point_pixel_twelve: device.create_pixel_shader(&bytecode.point_accumulation_twelve)?,
             contact_pixel: device.create_pixel_shader(&bytecode.contact)?,
-            contact_blur_pixel: device.create_pixel_shader(&bytecode.contact_blur)?,
             directional_mask_pixel: device.create_pixel_shader(&bytecode.directional_mask)?,
             composite_pixel: device.create_pixel_shader(&bytecode.composite)?,
             interior_composite_pixel: device.create_pixel_shader(&bytecode.interior_composite)?,
@@ -1978,27 +1976,6 @@ impl ShadowResources {
                 ]],
             )?;
             draw_quad(device, 0, 0, contact.width, contact.height)?;
-
-            // Receiver depth can validate a wall but cannot validate the ray
-            // occluder that produced last frame's contact evidence. Temporal
-            // accumulation therefore creates unavoidable motion trails. Use a
-            // same-frame bilateral cross instead: it removes binary speckle
-            // without retaining any camera- or occluder-dependent state.
-            device.clear_texture(0)?;
-            device.set_render_target(0, &contact.filtered_surface)?;
-            device.set_pixel_shader(&self.contact_blur_pixel)?;
-            device.set_texture(0, &contact.raw)?;
-            set_point_clamp_sampler(device, 0)?;
-            device.set_pixel_shader_constant_f(
-                0,
-                &[[
-                    contact.width as f32,
-                    contact.height as f32,
-                    1.0 / contact.width as f32,
-                    1.0 / contact.height as f32,
-                ]],
-            )?;
-            draw_quad(device, 0, 0, contact.width, contact.height)?;
         }
 
         // Source-owned composition is necessary for two distinct identities:
@@ -2035,7 +2012,7 @@ impl ShadowResources {
         }
         if contact_enabled {
             let contact = targets.contact.as_ref().ok_or_else(direct3d_failure)?;
-            device.set_texture(4, &contact.filtered)?;
+            device.set_texture(4, &contact.raw)?;
         }
         let point_darkness = if publication.scene == SceneKind::Interior {
             settings.interior_darkness
@@ -2059,17 +2036,6 @@ impl ShadowResources {
             &[[
                 (publication.point_count > 0) as u8 as f32,
                 point_darkness,
-                0.0,
-                0.0,
-            ]],
-        )?;
-        let deferred_width = desc.Width.max(1);
-        let deferred_height = desc.Height.max(1);
-        device.set_pixel_shader_constant_f(
-            36,
-            &[[
-                1.0 / deferred_width as f32,
-                1.0 / deferred_height as f32,
                 0.0,
                 0.0,
             ]],
@@ -2120,8 +2086,6 @@ struct LocalLightConsumerTargets {
 struct ContactConsumerTargets {
     raw: Texture9,
     raw_surface: Surface9,
-    filtered: Texture9,
-    filtered_surface: Surface9,
     width: u32,
     height: u32,
 }
@@ -2214,12 +2178,9 @@ impl ContactConsumerTargets {
         let width = desc.Width.max(1);
         let height = desc.Height.max(1);
         let raw = device.create_render_target_texture(width, height, D3DFMT_G16R16F)?;
-        let filtered = device.create_render_target_texture(width, height, D3DFMT_G16R16F)?;
         Ok(Self {
             raw_surface: raw.surface_level(0)?,
-            filtered_surface: filtered.surface_level(0)?,
             raw,
-            filtered,
             width,
             height,
         })

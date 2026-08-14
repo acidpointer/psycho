@@ -706,15 +706,10 @@ fn receiver_selection_chooses_the_smallest_current_slice_and_blends_outward() {
 }
 
 #[test]
-fn contact_work_is_half_resolution_and_branch_lazy() {
-    let width = 3_440_u64;
-    let height = 1_440_u64;
-    let full = width * height;
-    let half = width.div_ceil(2) * height.div_ceil(2);
-    assert_eq!(half * 4, full);
+fn contact_filter_is_fused_into_the_existing_compositor() {
     let work = contact_consumer_work();
-    assert_eq!(work.passes, 2);
-    assert!(half * u64::from(work.passes) < full);
+    assert_eq!(work.passes, 1);
+    assert_eq!(work.texture_samples, 7);
 }
 
 #[test]
@@ -1545,11 +1540,11 @@ fn resource_plan_preserves_nvr_evsm_coverage_with_one_reusable_multisample_surfa
         "each published point cube needs an immutable-static backing cube"
     );
     assert_eq!(
-        exterior.estimated_bytes, 641_929_216,
+        exterior.estimated_bytes, 633_634_816,
         "the resource contract omitted a quality-preserving shadow resource"
     );
     assert!(exterior.estimated_bytes <= 664 * 1024 * 1024);
-    assert_eq!(exterior.fallback_estimated_bytes, 671_289_344);
+    assert_eq!(exterior.fallback_estimated_bytes, 662_994_944);
     assert!(exterior.fallback_estimated_bytes < exterior.nvr_equivalent_estimated_bytes);
     assert!(exterior.combined_estimated_bytes <= 664 * 1024 * 1024);
     assert!(exterior.nvr_equivalent_estimated_bytes >= 896 * 1024 * 1024);

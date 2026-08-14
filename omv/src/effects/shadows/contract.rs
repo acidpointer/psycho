@@ -235,9 +235,8 @@ pub(super) fn contact_plane_raw_epsilon(
 
 /// Depth-aware contact visibility for one full-resolution receiver.
 ///
-/// Four half-resolution texels surround a full-resolution output coordinate.
 /// Only samples whose encoded depth owns that receiver may contribute. This
-/// is the CPU oracle for the compositor's branch-lazy bilateral upsample.
+/// remains the CPU oracle for the compositor's same-frame bilateral weights.
 pub(super) fn contact_bilateral_visibility(
     receiver_depth: f32,
     samples: [[f32; 3]; 4],
@@ -427,22 +426,23 @@ pub(super) fn directional_projection_is_sampleable(ndc: [f32; 3]) -> bool {
         && (0.0..=1.0).contains(&ndc[2])
 }
 
-/// Fixed fragment workload of the half-resolution contact consumer.
+/// Fixed fragment workload of the full-resolution contact producer.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) struct ContactConsumerWork {
-    /// Fullscreen half-resolution draw count.
+    /// Additional fullscreen draw count before the shared compositor.
     pub(super) passes: u32,
-    /// Executed texture reads per half-resolution output pixel.
+    /// Executed scene-depth reads per output pixel.
     pub(super) texture_samples: u32,
 }
 
 /// Return the contact pass topology paired with the embedded shaders.
 pub(super) const fn contact_consumer_work() -> ContactConsumerWork {
     ContactConsumerWork {
-        passes: 2,
-        // Receiver depth, two light-opposed plane neighbours, four NVR ray
-        // taps, then the center plus four depth-aware spatial neighbours.
-        texture_samples: 12,
+        passes: 1,
+        // Receiver depth, two light-opposed plane neighbours, and four NVR
+        // ray taps. The same-frame cross filter runs inside the already-owned
+        // source compositor instead of writing a second fullscreen target.
+        texture_samples: 7,
     }
 }
 
@@ -2731,9 +2731,10 @@ impl ProducerResourcePlan {
         let point_accumulation = receiver_pixels * 8 * 2;
         let source_copy = full_resolution_pixels * 8;
         let directional_mask = receiver_pixels * 4;
-        // Two full-resolution four-byte targets retain visibility plus its
-        // normalized receiver-depth key.
-        let contact_targets = receiver_pixels * 4 * 2;
+        // One full-resolution four-byte target retains visibility plus its
+        // normalized receiver-depth key. Its same-frame cross filter executes
+        // directly in the existing source-owned compositor.
+        let contact_targets = receiver_pixels * 4;
         let interior_consumer = source_copy + point_accumulation;
         let directional = scene != SceneKind::Interior;
         let estimated_bytes = if directional {

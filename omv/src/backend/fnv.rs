@@ -251,9 +251,7 @@ pub(super) fn select_initial_depth_provider(provider: DepthProvider) -> InitialD
 /// Validate a live provider and retain its current shared identity when needed.
 pub(super) fn validate_depth_provider(provider: DepthProvider) -> Result<(), &'static str> {
     validate_depth_provider_capabilities(provider)?;
-    if provider == DepthProvider::DepthResolve
-        || (provider == DepthProvider::FalloutNewVegas && depth_resolve_provider::available())
-    {
+    if provider == DepthProvider::DepthResolve {
         depth_resolve_provider::shared_texture(None)?;
     }
     Ok(())
@@ -2216,7 +2214,7 @@ impl FnvDepthResolve {
         self.device_ptr = device_ptr as usize;
 
         let (rendered_texture, source_label) = match source_rendered_texture {
-            Some(rendered_texture) => (rendered_texture, "first-person render target"),
+            Some(rendered_texture) => (rendered_texture, "explicit rendered texture"),
             None => {
                 let rendered_texture = unsafe {
                     read_ptr_checked(
@@ -2304,35 +2302,6 @@ impl FnvDepthResolve {
             projection,
         ) {
             EXACT_DEPTH_CACHE_HITS.fetch_add(1, Ordering::Relaxed);
-            return Ok(());
-        }
-
-        // Depth Resolve performs its pre-water and post-water world copies
-        // inside the native accumulator before these two engine callbacks.
-        // Borrowing that stable INTZ destination avoids the old five-copy
-        // NVIDIA frame (two external plus three OMV) while the OMV provider
-        // still supplies its independent first-person coverage below.
-        if slot == DepthResolveSlot::World && depth_resolve_provider::available() {
-            self.ensure_external_world_target(&desc)?;
-            let texture_ptr = self
-                .world_target
-                .as_ref()
-                .map(|target| target.texture.as_raw_base_texture() as usize)
-                .ok_or(FnvDepthResolveError::Static(
-                    "missing borrowed Depth Resolve world target",
-                ))?;
-            *self.capture_mut(slot) = ResolvedDepthCapture {
-                texture_ptr,
-                projection,
-                frame_epoch: self.frame_epoch,
-                stage,
-                width: desc.Width,
-                height: desc.Height,
-            };
-            self.temporal_depth_proven =
-                projection.reversed_depth.is_some() && projection.camera.world_transform.available;
-            depth_resolve_provider::record_external_publication();
-            self.log_success(slot, stage, reason, source_label, &desc, projection);
             return Ok(());
         }
 
@@ -2543,26 +2512,6 @@ impl FnvDepthResolve {
         Ok(())
     }
 
-    fn ensure_external_world_target(
-        &mut self,
-        desc: &D3DSURFACE_DESC,
-    ) -> Result<(), FnvDepthResolveError> {
-        let needs_target = self
-            .world_target
-            .as_ref()
-            .is_none_or(|target| !target.shared || !target.matches(desc));
-        if needs_target {
-            self.release_target(DepthResolveSlot::World);
-            self.world_target = Some(FnvDepthTarget::from_shared_depth_resolve(desc)?);
-            log::info!(
-                "[FNV] Borrowed Depth Resolve world target: size={}x{}",
-                desc.Width,
-                desc.Height
-            );
-        }
-        Ok(())
-    }
-
     fn ensure_route(&mut self, device: &Device9Ref<'_>) -> Result<(), FnvDepthResolveError> {
         if self.route.kind() != DepthResolveRouteKind::Unprobed {
             return match &self.route {
@@ -2629,7 +2578,6 @@ impl FnvDepthResolve {
         let resource = self
             .target(slot)
             .as_ref()
-            .filter(|target| !target.shared)
             .map(|target| target.texture.as_raw());
         if let (Some(resource), DepthResolveRoute::Nvapi(nvapi)) = (resource, &self.route) {
             nvapi.unregister(resource);
@@ -2659,11 +2607,11 @@ impl FnvDepthResolve {
     ) -> Option<u64> {
         (self.temporal_depth_proven
             && self.device_ptr == device_ptr as usize
-            && self
-                .world_target
-                .as_ref()
-                .is_some_and(|target| target.width == width && target.height == height))
-        .then_some(self.frame_epoch)
+            && self.world_capture.texture_ptr != 0
+            && self.world_capture.frame_epoch == self.frame_epoch
+            && self.world_capture.width == width
+            && self.world_capture.height == height)
+            .then_some(self.frame_epoch)
     }
 
     fn depth_frame(&self) -> DepthFrame {
@@ -2888,6 +2836,32 @@ mod depth_capture_tests {
     }
 
     #[test]
+    fn exact_alias_capture_can_publish_a_temporal_epoch_without_a_private_target() {
+        let resolve = FnvDepthResolve {
+            device_ptr: 0x5678,
+            frame_epoch: 7,
+            temporal_depth_proven: true,
+            world_capture: capture(0x1234, 7, 1920, 1080),
+            world_target: None,
+            ..FnvDepthResolve::default()
+        };
+
+        assert_eq!(
+            resolve.temporal_depth_epoch(
+                0x5678_usize as *mut core::ffi::c_void,
+                1920,
+                1080,
+            ),
+            Some(7),
+            "an exact NvAPI source alias owns current pixels even though no private INTZ target exists"
+        );
+        assert_eq!(
+            resolve.temporal_depth_epoch(0x5678_usize as *mut core::ffi::c_void, 1280, 720),
+            None
+        );
+    }
+
+    #[test]
     fn advancing_epoch_invalidates_both_captures() {
         let mut resolve = FnvDepthResolve {
             frame_epoch: 7,
@@ -3084,7 +3058,6 @@ fn sampled_depth_bits(format: D3DFORMAT) -> u8 {
 struct FnvDepthTarget {
     width: u32,
     height: u32,
-    shared: bool,
     texture: Texture9,
 }
 
@@ -3098,17 +3071,6 @@ impl FnvDepthTarget {
         Ok(Self {
             width: desc.Width,
             height: desc.Height,
-            shared: false,
-            texture,
-        })
-    }
-
-    fn from_shared_depth_resolve(desc: &D3DSURFACE_DESC) -> Result<Self, FnvDepthResolveError> {
-        let texture = depth_resolve_provider::shared_texture(Some(desc))?;
-        Ok(Self {
-            width: desc.Width,
-            height: desc.Height,
-            shared: true,
             texture,
         })
     }

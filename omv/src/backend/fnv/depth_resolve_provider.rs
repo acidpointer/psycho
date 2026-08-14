@@ -7,11 +7,12 @@
 //! `NvAPI_D3D9_StretchRectEx` calls and cannot be observed or suppressed by a
 //! D3D9 `SetRenderState` hook.
 //!
-//! OMV therefore treats a compatible loaded module as the physical owner of
-//! world depth and only borrows its validated shared `INTZ` texture at native
-//! pre-alpha and post-world boundaries. The OMV provider independently adds
-//! first-person coverage. No plugin code, driver vtable, static data, or
-//! engine callsite is patched.
+//! Only the explicit `depth_resolve` provider borrows that validated shared
+//! `INTZ` texture at native pre-alpha and post-world boundaries. The `omv`
+//! provider independently resolves or aliases the exact requested world and
+//! first-person surfaces; it never stamps current metadata onto this external
+//! texture. No plugin code, driver vtable, static data, or engine callsite is
+//! patched.
 
 use core::{ffi::c_void, mem::size_of};
 use std::sync::atomic::{AtomicU8, AtomicU32, Ordering};
