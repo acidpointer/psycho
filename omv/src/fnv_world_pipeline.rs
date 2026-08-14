@@ -250,18 +250,21 @@ pub(crate) fn atmosphere_visibility() -> Option<f32> {
         .then(|| 1.0 - f32::from_bits(LAST_TRANSMITTANCE.load(Ordering::Acquire)).clamp(0.0, 1.0))
 }
 
-/// Return the unjittered camera retained for the active world render epoch.
+/// Return the current world camera with this epoch's TAA lens shift removed.
 ///
 /// The common shadow hook runs inside the native world renderer, after TAA has
-/// temporarily shifted the live projection. Cascades must use this restored
-/// camera or their coverage and texel snapping alternate with the Halton
-/// sequence. The nonblocking read is render-thread safe and introduces no new
-/// startup owner; callers fall back to the native camera when TAA is inactive.
-pub(crate) fn shadow_generation_camera() -> Option<backend::CameraFrame> {
+/// temporarily shifted the live projection. Cascades must remove only that
+/// shift: restoring the complete pre-world snapshot also restores a stale pose,
+/// FOV, and clipping state. The nonblocking read is render-thread safe and
+/// introduces no new startup owner; callers fall back to the native camera when
+/// TAA is inactive.
+pub(crate) fn shadow_generation_camera(
+    live_camera: backend::CameraFrame,
+) -> Option<backend::CameraFrame> {
     let runtime = WORLD_PIPELINE.try_lock()?;
-    runtime
-        .temporal_projection_override
-        .and_then(|projection| projection.shadow_generation_camera(crate::hooks::render_epoch()))
+    runtime.temporal_projection_override.and_then(|projection| {
+        projection.shadow_generation_camera(crate::hooks::render_epoch(), live_camera)
+    })
 }
 
 /// Return the exact camera projection which rasterized current world depth.
@@ -274,10 +277,16 @@ pub(crate) fn shadow_generation_camera() -> Option<backend::CameraFrame> {
 pub(crate) fn shadow_depth_camera(
     target_surface: usize,
     target: TargetDescription,
+    live_camera: backend::CameraFrame,
 ) -> Option<backend::CameraFrame> {
     let runtime = WORLD_PIPELINE.try_lock()?;
     runtime.temporal_projection_override.and_then(|projection| {
-        projection.shadow_depth_camera(crate::hooks::render_epoch(), target_surface, target)
+        projection.shadow_depth_camera(
+            crate::hooks::render_epoch(),
+            target_surface,
+            target,
+            live_camera,
+        )
     })
 }
 
@@ -598,13 +607,29 @@ struct TemporalProjectionOverride {
     epoch: u32,
     target_surface: usize,
     target: TargetDescription,
+    jitter_pixels: [f32; 2],
     rendered_camera: backend::CameraFrame,
     output_camera: backend::CameraFrame,
 }
 
 impl TemporalProjectionOverride {
-    fn shadow_generation_camera(self, epoch: u32) -> Option<backend::CameraFrame> {
-        (self.epoch == epoch).then_some(self.output_camera)
+    fn shadow_generation_camera(
+        self,
+        epoch: u32,
+        live_camera: backend::CameraFrame,
+    ) -> Option<backend::CameraFrame> {
+        if self.epoch != epoch || !live_shadow_camera_is_valid(live_camera) {
+            return None;
+        }
+        // The live camera owns current FOV, clipping, and pose. Remove only
+        // the exact pixel translation injected by this TAA transaction; using
+        // the pre-world snapshot wholesale makes both camera pose and an FOV
+        // animation lag behind the native renderer.
+        live_camera.with_pixel_jitter(
+            [-self.jitter_pixels[0], -self.jitter_pixels[1]],
+            self.target.width,
+            self.target.height,
+        )
     }
 
     fn shadow_depth_camera(
@@ -612,9 +637,11 @@ impl TemporalProjectionOverride {
         epoch: u32,
         target_surface: usize,
         target: TargetDescription,
+        live_camera: backend::CameraFrame,
     ) -> Option<backend::CameraFrame> {
         self.cameras_for(epoch, target_surface, target)
-            .map(|cameras| cameras.rendered)
+            .filter(|_| live_shadow_camera_is_valid(live_camera))
+            .map(|_| live_camera)
     }
 
     fn cameras_for(
@@ -632,6 +659,33 @@ impl TemporalProjectionOverride {
                 output: self.output_camera,
             })
     }
+}
+
+fn live_shadow_camera_is_valid(live_camera: backend::CameraFrame) -> bool {
+    live_camera.available
+        && live_camera.world_transform.available
+        && [
+            live_camera.near_z,
+            live_camera.far_z,
+            live_camera.frustum_left,
+            live_camera.frustum_right,
+            live_camera.frustum_bottom,
+            live_camera.frustum_top,
+            live_camera.world_transform.scale,
+        ]
+        .into_iter()
+        .all(f32::is_finite)
+        && live_camera
+            .world_transform
+            .translation
+            .into_iter()
+            .all(f32::is_finite)
+        && live_camera
+            .world_transform
+            .rotation
+            .into_iter()
+            .flatten()
+            .all(f32::is_finite)
 }
 
 #[derive(Clone, Copy)]
@@ -828,6 +882,7 @@ impl FnvWorldPipelineRuntime {
             epoch,
             target_surface,
             target,
+            jitter_pixels,
             rendered_camera: camera_jitter.projection(),
             output_camera: camera_jitter.unjittered_projection(),
         });
@@ -1606,6 +1661,7 @@ mod tests {
             epoch: 7,
             target_surface: 0x1234,
             target,
+            jitter_pixels: [0.5, -0.25],
             rendered_camera: jittered_camera,
             output_camera: restored_camera,
         };
@@ -1626,12 +1682,12 @@ mod tests {
             retry_cameras.output.frustum_left
         );
         let shadow_camera = projection
-            .shadow_generation_camera(7)
+            .shadow_generation_camera(7, jittered_camera)
             .expect("matching shadow generation epoch");
         assert_eq!(shadow_camera.frustum_left, restored_camera.frustum_left);
         assert_ne!(shadow_camera.frustum_left, jittered_camera.frustum_left);
         let shadow_depth_camera = projection
-            .shadow_depth_camera(7, 0x1234, target)
+            .shadow_depth_camera(7, 0x1234, target, jittered_camera)
             .expect("depth-producing shadow camera");
         assert_eq!(
             shadow_depth_camera.frustum_left,
@@ -1658,8 +1714,16 @@ mod tests {
             reconstruct_x(restored_camera, 500.0).abs() > 0.1,
             "negative control did not expose restored-camera depth drift"
         );
-        assert!(projection.shadow_generation_camera(8).is_none());
-        assert!(projection.shadow_depth_camera(8, 0x1234, target).is_none());
+        assert!(
+            projection
+                .shadow_generation_camera(8, jittered_camera)
+                .is_none()
+        );
+        assert!(
+            projection
+                .shadow_depth_camera(8, 0x1234, target, jittered_camera)
+                .is_none()
+        );
         assert!(projection.cameras_for(8, 0x1234, target).is_none());
         assert!(projection.cameras_for(7, 0x5678, target).is_none());
         assert!(
@@ -1673,6 +1737,76 @@ mod tests {
                     },
                 )
                 .is_none()
+        );
+    }
+
+    #[test]
+    fn shadow_projection_keeps_the_depth_lens_but_uses_the_live_native_pose() {
+        let target = TargetDescription {
+            width: 1920,
+            height: 1080,
+            format: D3DFMT_A8R8G8B8,
+        };
+        let captured = CameraFrame {
+            near_z: 5.0,
+            far_z: 1000.0,
+            aspect_ratio: 16.0 / 9.0,
+            frustum_left: -1.0,
+            frustum_right: 1.0,
+            frustum_bottom: -0.5,
+            frustum_top: 0.5,
+            world_transform: CameraTransformFrame {
+                rotation: [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]],
+                translation: [100.0, 200.0, 300.0],
+                scale: 1.0,
+                available: true,
+            },
+            available: true,
+        };
+        let rendered = captured
+            .with_pixel_jitter([0.5, -0.25], target.width, target.height)
+            .expect("valid rendered lens");
+        let live_output = CameraFrame {
+            far_z: 900.0,
+            frustum_left: -1.2,
+            frustum_right: 1.2,
+            frustum_bottom: -0.6,
+            frustum_top: 0.6,
+            world_transform: CameraTransformFrame {
+                translation: [104.0, 198.0, 301.0],
+                ..captured.world_transform
+            },
+            ..captured
+        };
+        let live = live_output
+            .with_pixel_jitter([0.5, -0.25], target.width, target.height)
+            .expect("valid current rendered lens");
+        let projection = TemporalProjectionOverride {
+            epoch: 7,
+            target_surface: 0x1234,
+            target,
+            jitter_pixels: [0.5, -0.25],
+            rendered_camera: rendered,
+            output_camera: captured,
+        };
+
+        let depth_camera = projection
+            .shadow_depth_camera(7, 0x1234, target, live)
+            .expect("matching depth transaction");
+        assert_eq!(depth_camera.frustum_left, live.frustum_left);
+        assert_eq!(depth_camera.far_z, live.far_z);
+        assert_eq!(
+            depth_camera.world_transform.translation, live.world_transform.translation,
+            "the pre-world TAA snapshot must not make depth reconstruction trail the live native pose"
+        );
+        let generation_camera = projection
+            .shadow_generation_camera(7, live)
+            .expect("matching generation transaction");
+        assert_eq!(generation_camera.frustum_left, live_output.frustum_left);
+        assert_eq!(generation_camera.far_z, live_output.far_z);
+        assert_eq!(
+            generation_camera.world_transform.translation, live.world_transform.translation,
+            "the unjittered cascade lens and live native pose are one current producer camera"
         );
     }
 

@@ -3,7 +3,7 @@ use super::shaders::{
     COMPOSITE_PIXEL_SOURCE, CONTACT_BLUR_SOURCE, CONTACT_SOURCE, CUBE_PIXEL_SOURCE,
     CUBE_VERTEX_SOURCE, DIRECTIONAL_MASK_SOURCE, DIRECTIONAL_PIXEL_SOURCE,
     DIRECTIONAL_VERTEX_SOURCE, FAR_CLEAR_PIXEL_SOURCE, POINT_ACCUMULATION_SOURCE,
-    directional_composite_source, point_accumulation_source,
+    directional_composite_source, interior_composite_source, point_accumulation_source,
 };
 
 fn instruction_count(bytecode: &[u32]) -> usize {
@@ -101,6 +101,7 @@ fn every_shadow_shader_compiles_for_shader_model_three_with_static_budgets() {
     let point_six = point_accumulation_source(6);
     let point_twelve = point_accumulation_source(12);
     let directional_composite = directional_composite_source();
+    let interior_composite = interior_composite_source();
     let variants = [
         (
             "shadow_directional.vs",
@@ -167,6 +168,14 @@ fn every_shadow_shader_compiles_for_shader_model_three_with_static_budgets() {
             504,
         ),
         (
+            "shadow_composite_interior.ps",
+            interior_composite.as_slice(),
+            "ps_3_0",
+            // Fractional local-light occlusion remains a branch-free
+            // specialization rather than adding dynamic work to exteriors.
+            504,
+        ),
+        (
             "shadow_composite_directional.ps",
             directional_composite.as_slice(),
             "ps_3_0",
@@ -198,7 +207,7 @@ fn every_shadow_shader_compiles_for_shader_model_three_with_static_budgets() {
         );
         compiled_programs.push((name, bytecode));
     }
-    assert_eq!(compiled_programs.len(), 13);
+    assert_eq!(compiled_programs.len(), 14);
 }
 
 #[test]
@@ -278,6 +287,9 @@ fn consumer_shader_abis_compile_with_bounded_texture_work() {
     assert!(composite.contains("float4 ContactControl : register(c31)"));
     assert!(composite.contains("float4 PointControl : register(c32)"));
     assert!(composite.contains("float4 DeferredTexel : register(c36)"));
+    assert!(composite.contains("#if OMV_INTERIOR"));
+    assert!(composite.contains("float3 occludedFraction"));
+    assert!(composite.contains("0.25f"));
 
     let directional_mask =
         std::str::from_utf8(DIRECTIONAL_MASK_SOURCE).expect("directional mask UTF-8");

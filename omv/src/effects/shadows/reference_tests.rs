@@ -8,7 +8,7 @@
 
 use super::contract::{
     CascadeDirty, CascadeScheduler, DeferredReceiverPlan, NVR_CASCADE_RESOLUTION,
-    NVR_POINT_LIGHT_COUNT, PointMapCache, PointMapSignature, cascade_depth_selection,
+    NVR_POINT_LIGHT_COUNT, PointMapCache, PointMapSignature, SceneKind, cascade_depth_selection,
     cascade_sphere_selection, contact_bilateral_visibility, contact_depth_from_key,
     contact_depth_key, contact_depths_match, contact_history_visibility, contact_plane_raw_epsilon,
     contact_ray_scale, contact_sample_is_occluder, deferred_mask_visibility,
@@ -318,6 +318,7 @@ fn clear_and_finite_sky_are_neutral_under_an_exterior_point_light() {
     let fixed_clear = Rgb(source_owned_shadow_radiance(
         sky.native_color().0,
         clear_receiver,
+        SceneKind::Exterior,
         0.0,
         1.0,
         [1.0; 3],
@@ -345,6 +346,7 @@ fn clear_and_finite_sky_are_neutral_under_an_exterior_point_light() {
     let fixed_finite = Rgb(source_owned_shadow_radiance(
         sky.native_color().0,
         finite_sky_receiver,
+        SceneKind::Exterior,
         0.35,
         1.0,
         [0.28; 3],
@@ -387,6 +389,7 @@ fn interior_shadowing_preserves_emitters_and_removes_only_occluded_direct_energy
     let fixed_lamp = Rgb(source_owned_shadow_radiance(
         lamp.native_color().0,
         true,
+        SceneKind::Interior,
         1.0,
         0.0,
         [1.0; 3],
@@ -399,12 +402,28 @@ fn interior_shadowing_preserves_emitters_and_removes_only_occluded_direct_energy
 
 #[test]
 fn adding_a_pip_boy_light_cannot_make_an_exterior_sun_shadow_darker() {
-    let without_local =
-        source_owned_shadow_radiance([0.30; 3], true, 0.20, 1.0, [0.0; 3], [0.0; 3], 1.0)
-            .expect("finite sun-only composition");
-    let with_occluded_local =
-        source_owned_shadow_radiance([0.80; 3], true, 0.20, 1.0, [0.50; 3], [0.50; 3], 1.0)
-            .expect("finite mixed-light composition");
+    let without_local = source_owned_shadow_radiance(
+        [0.30; 3],
+        true,
+        SceneKind::Exterior,
+        0.20,
+        1.0,
+        [0.0; 3],
+        [0.0; 3],
+        1.0,
+    )
+    .expect("finite sun-only composition");
+    let with_occluded_local = source_owned_shadow_radiance(
+        [0.80; 3],
+        true,
+        SceneKind::Exterior,
+        0.20,
+        1.0,
+        [0.50; 3],
+        [0.50; 3],
+        1.0,
+    )
+    .expect("finite mixed-light composition");
 
     for channel in 0..3 {
         assert!(
@@ -422,9 +441,17 @@ fn overestimated_pip_boy_cube_cannot_cut_a_black_shape_into_sunlight() {
     // Analytic NVR attenuation can exceed the energy actually owned by the
     // native material. This is the screenshot's destructive-light negative
     // control: total and deficit both saturate to the complete framebuffer.
-    let mixed =
-        source_owned_shadow_radiance(source, true, directional, 1.0, [0.50; 3], [0.50; 3], 1.0)
-            .expect("finite mixed-light composition");
+    let mixed = source_owned_shadow_radiance(
+        source,
+        true,
+        SceneKind::Exterior,
+        directional,
+        1.0,
+        [0.50; 3],
+        [0.50; 3],
+        1.0,
+    )
+    .expect("finite mixed-light composition");
     for axis in 0..3 {
         assert!(
             mixed[axis] + EPSILON >= sun_only_floor[axis],
@@ -441,9 +468,17 @@ fn multiple_interior_lights_cannot_subtract_unowned_ambient_energy() {
     let source = std::array::from_fn(|axis| ambient[axis] + local[axis]);
     // Two overlapping cube estimates can exceed the native direct-light term
     // because their analytic attenuation is not the engine material shader.
-    let rejected =
-        source_owned_shadow_radiance(source, true, 1.0, 0.0, local, [1.10, 0.90, 0.70], 1.0)
-            .expect("finite interior composition");
+    let rejected = source_owned_shadow_radiance(
+        source,
+        true,
+        SceneKind::Interior,
+        1.0,
+        0.0,
+        local,
+        [1.10, 0.90, 0.70],
+        1.0,
+    )
+    .expect("finite interior composition");
     for axis in 0..3 {
         assert!(
             rejected[axis] + EPSILON >= ambient[axis],
@@ -458,10 +493,18 @@ fn differently_colored_lights_keep_independent_occlusion_channels() {
     let local_total = [0.60, 0.10, 0.50];
     // Only the red light is occluded. A scalar visibility reconstructed from
     // combined luminance would incorrectly subtract green and blue energy.
-    let result =
-        source_owned_shadow_radiance(source, true, 1.0, 0.0, local_total, [0.60, 0.0, 0.0], 1.0)
-            .expect("finite colored-light composition");
-    assert!((result[0] - 0.15).abs() < EPSILON);
+    let result = source_owned_shadow_radiance(
+        source,
+        true,
+        SceneKind::Interior,
+        1.0,
+        0.0,
+        local_total,
+        [0.60, 0.0, 0.0],
+        1.0,
+    )
+    .expect("finite colored-light composition");
+    assert!((result[0] - source[0] * 0.25).abs() < EPSILON);
     assert!((result[1] - source[1]).abs() < EPSILON);
     assert!((result[2] - source[2]).abs() < EPSILON);
 }

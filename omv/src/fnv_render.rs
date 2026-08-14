@@ -706,10 +706,11 @@ unsafe fn begin_shadow_world_context(
         unsafe { crate::backend::fnv_world_camera_frame_fast(desc.Width, desc.Height) }
             .filter(|camera| camera.available && camera.world_transform.available)?;
     let generation_camera =
-        crate::fnv_world_pipeline::shadow_generation_camera().unwrap_or(native_camera);
+        crate::fnv_world_pipeline::shadow_generation_camera(native_camera).unwrap_or(native_camera);
     let depth_camera = crate::fnv_world_pipeline::shadow_depth_camera(
         color_surface,
         crate::effects::temporal_aa::TargetDescription::from(&desc),
+        native_camera,
     )
     .unwrap_or(native_camera);
     if !generation_camera.available

@@ -47,12 +47,22 @@ pub(super) const DIRECTIONAL_MASK_SOURCE: &[u8] =
 pub(super) const COMPOSITE_PIXEL_SOURCE: &[u8] =
     include_bytes!("../../../shaders/embedded/shadow_composite.hlsl");
 const DIRECTIONAL_COMPOSITE_DEFINE: &[u8] = b"#define OMV_POINT_LIGHTS 0\n";
+const INTERIOR_COMPOSITE_DEFINE: &[u8] = b"#define OMV_INTERIOR 1\n";
 
 /// Build the point-free exterior compositor source used by production/tests.
 pub(super) fn directional_composite_source() -> Vec<u8> {
     let mut source =
         Vec::with_capacity(DIRECTIONAL_COMPOSITE_DEFINE.len() + COMPOSITE_PIXEL_SOURCE.len());
     source.extend_from_slice(DIRECTIONAL_COMPOSITE_DEFINE);
+    source.extend_from_slice(COMPOSITE_PIXEL_SOURCE);
+    source
+}
+
+/// Build the point-light compositor with the interior fractional-energy contract.
+pub(super) fn interior_composite_source() -> Vec<u8> {
+    let mut source =
+        Vec::with_capacity(INTERIOR_COMPOSITE_DEFINE.len() + COMPOSITE_PIXEL_SOURCE.len());
+    source.extend_from_slice(INTERIOR_COMPOSITE_DEFINE);
     source.extend_from_slice(COMPOSITE_PIXEL_SOURCE);
     source
 }
@@ -107,6 +117,8 @@ pub(super) struct ShadowBytecode {
     pub(super) directional_mask: Vec<u32>,
     /// Final scene-color composition program.
     pub(super) composite: Vec<u32>,
+    /// Interior point-light fractional-occlusion composition program.
+    pub(super) interior_composite: Vec<u32>,
     /// Point-free exterior composition specialization.
     pub(super) directional_composite: Vec<u32>,
 }
@@ -150,6 +162,11 @@ impl ShadowBytecode {
                 "ps_3_0",
             )?,
             composite: compile("shadow_composite.hlsl", COMPOSITE_PIXEL_SOURCE, "ps_3_0")?,
+            interior_composite: compile(
+                "shadow_composite_interior.hlsl",
+                &interior_composite_source(),
+                "ps_3_0",
+            )?,
             directional_composite: compile(
                 "shadow_composite_directional.hlsl",
                 &directional_composite_source(),
@@ -172,6 +189,7 @@ impl ShadowBytecode {
             &self.contact_blur,
             &self.directional_mask,
             &self.composite,
+            &self.interior_composite,
             &self.directional_composite,
         ];
         (programs.len(), programs.into_iter().map(Vec::len).sum())

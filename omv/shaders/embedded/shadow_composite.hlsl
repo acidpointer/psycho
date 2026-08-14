@@ -2,6 +2,9 @@
 #ifndef OMV_POINT_LIGHTS
 #define OMV_POINT_LIGHTS 1
 #endif
+#ifndef OMV_INTERIOR
+#define OMV_INTERIOR 0
+#endif
 
 float4 ScreenData : register(c0);
 float4 DepthLinearizeData : register(c1);
@@ -135,13 +138,22 @@ float4 Main(PixelInput input) : COLOR0 {
     float3 pointTotal = max(pointEnergy.total, 0.0f);
     float3 linearSource = pow(max(source.rgb, 0.0f), 2.2f);
     float emitter = smoothstep(1.0f, 1.15f, max(linearSource.r, max(linearSource.g, linearSource.b)));
+#if OMV_INTERIOR
+    // Total and deficit share one analytic attenuation scale. Only their
+    // cube-proven occluded fraction is portable to Fallout's already-lit
+    // framebuffer; subtracting the absolute estimate dims every selected
+    // interior light and makes the darkness slider intensity-dependent.
+    float3 validTotal = step(0.00001f, pointTotal);
+    float3 occludedFraction = saturate(pointDeficit / max(pointTotal, 0.00001f)) * validTotal;
+    float3 attenuation = max(1.0f - saturate(PointControl.y) * occludedFraction, 0.25f);
+    float3 shadowed = linearSource * attenuation;
+#else
     float3 ownedLocal = min(pointTotal, linearSource);
     pointDeficit = min(pointDeficit, ownedLocal) * saturate(PointControl.y);
     float3 shadowed = max(
         linearSource * directional + ownedLocal * (1.0f - directional) - pointDeficit,
-        0.0f);
-    if (ShadowControl.y > 0.5f)
-        shadowed = max(shadowed, linearSource * directional);
+        linearSource * directional);
+#endif
     float3 finalLinear = lerp(shadowed, linearSource, emitter);
     return float4(pow(max(finalLinear, 0.0f), 1.0f / 2.2f), source.a);
 #else

@@ -28,6 +28,7 @@ const COMPLETE_CASCADE_MASK: u8 = (1 << CASCADE_COUNT) - 1;
 const NVR_CASCADE_MIN_RADIUS_PIXELS: [f32; CASCADE_COUNT] = [1.0, 1.0, 10.0, 10.0];
 const EVSM4_POSITIVE_EXPONENT_FP16: f32 = 5.54;
 const EVSM4_NEGATIVE_EXPONENT: f32 = 5.0;
+pub(super) const INTERIOR_MIN_RADIANCE_FACTOR: f32 = 0.25;
 // A retained cube and its published light position are one transform pair.
 // Sub-unit tolerance absorbs floating-point noise without allowing a carried
 // Pip-Boy light to trail the player for several visible world units.
@@ -449,15 +450,17 @@ pub(super) const fn contact_consumer_work() -> ContactConsumerWork {
 ///
 /// `receiver` is false for clear/far-sky pixels. Directional visibility owns a
 /// multiplicative surface term. `point_total` identifies the source-owned
-/// local-light energy, and `point_deficit` is the subset proven occluded by a
-/// cube. Restoring the local term after directional attenuation prevents a
-/// Pip-Boy or lamp from being shadowed by the sun. HDR energy transitions to
-/// full source preservation between one and 1.15, avoiding a hard temporal
-/// discontinuity while remaining stricter than NVR's "re-add values above
-/// one" rule.
+/// local-light model, and `point_deficit` is the subset proven occluded by a
+/// cube. Interiors transfer only the dimensionless deficit/total fraction to
+/// native radiance and retain a fixed ambient/emissive floor. Exteriors retain
+/// source-owned local energy after directional attenuation so a Pip-Boy or
+/// lamp cannot be shadowed by the sun. HDR energy transitions to full source
+/// preservation between one and 1.15, avoiding a hard temporal discontinuity
+/// while remaining stricter than NVR's "re-add values above one" rule.
 pub(super) fn source_owned_shadow_radiance(
     source_linear: [f32; 3],
     receiver: bool,
+    scene: SceneKind,
     directional_visibility: f32,
     directional_darkness: f32,
     point_total: [f32; 3],
@@ -480,6 +483,24 @@ pub(super) fn source_owned_shadow_radiance(
     let directional =
         1.0 - directional_darkness.clamp(0.0, 1.0) * (1.0 - directional_visibility.clamp(0.0, 1.0));
     let shadowed: [f32; 3] = std::array::from_fn(|axis| {
+        if scene == SceneKind::Interior {
+            // The replacement attenuation is not calibrated to Fallout's
+            // material shaders, but total and deficit are one modeled pair.
+            // Their ratio is therefore authoritative while their absolute
+            // scale is not. Applying that fraction to native scene radiance
+            // makes the interior darkness setting deterministic and prevents
+            // selected-light count or raw light intensity from lowering all
+            // interior illumination.
+            let total = point_total[axis].max(0.0);
+            let occluded_fraction = if total > 1.0e-5 {
+                (point_deficit[axis].max(0.0) / total).clamp(0.0, 1.0)
+            } else {
+                0.0
+            };
+            let attenuation = (1.0 - point_darkness.clamp(0.0, 1.0) * occluded_fraction)
+                .max(INTERIOR_MIN_RADIANCE_FACTOR);
+            return source_linear[axis] * attenuation;
+        }
         // The native framebuffer is the authority for how much energy exists.
         // Capping both estimates prevents an approximate replacement-light
         // model from subtracting ambient or creating energy.

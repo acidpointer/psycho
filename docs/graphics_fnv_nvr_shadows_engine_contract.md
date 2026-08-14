@@ -4090,6 +4090,93 @@ diagnostic and must not be confused with a pass-through test.
 - exact compatibility behavior with each installed NVR/Fallout Shader Loader
   version and load order.
 
+## 2026-08-14 residual motion and interior-energy correction
+
+The first gameplay run of commit `c484863` was the accepted visual baseline
+for this follow-up. It reached gameplay with BaseObjectSwapper, produced and
+composed exterior and interior publications, improved performance, and made
+shadows substantially more usable. The user still observed two smaller
+defects: a wall could darken only during a camera/player step, as if the shadow
+pose followed one update late, and interior darkness reduced broad light
+energy while the dynamic shadow contrast did not track the slider.
+
+### Proven implementation facts
+
+- `begin_temporal_aa_jitter` captured a complete `CameraFrame` before the
+  native world renderer ran. The shadow producer and pre-alpha consumer later
+  reused that stored frame, including its transform, rather than only retaining
+  the TAA lens transaction.
+- The pre-alpha hook remains inside the `WorldCameraJitter` guard. Its live
+  native camera therefore owns the pose and the exact off-centre lens that
+  rendered current depth.
+- The point accumulator's `total` and `deficit` outputs use the same analytic
+  light attenuation and RGB scale. Their ratio is a valid per-channel
+  occluded fraction even though their absolute values are not calibrated to
+  Fallout's material shaders.
+- The former interior compositor subtracted absolute analytic deficit from
+  native scene radiance. Identical cube visibility therefore produced
+  different darkness when raw light intensity, selected-light count, or the
+  analytic/native lighting mismatch changed.
+
+The camera contract now retains epoch and render-target matching, but takes
+pose, clipping, and FOV from the live native camera. Depth reconstruction uses
+that live rendered camera directly. Directional generation removes only the
+known TAA pixel offset from the live lens, so it remains unjittered without
+restoring a stale pre-world pose or FOV. A producer reached inside an active
+world context likewise prefers the live camera; retained map matrices continue
+to rebase from their immutable generation origins.
+
+Interior composition now computes, independently for each RGB channel,
+`occluded = saturate(deficit / total)` when total is nonzero and applies
+`max(1 - darkness * occluded, 0.25)` to native linear scene radiance. Zero
+deficit is exact identity regardless of selected-light count. The 0.25 floor
+reserves ambient/emissive ownership that a post-process point-light model
+cannot prove, while the existing near-source guard and smooth HDR preservation
+remain active. Differently coloured overlapping lights retain independent
+fractions. Exterior sun/local-energy composition is unchanged.
+
+The interior equation is a separate, branch-free shader-model-three program.
+This adds one prepared bytecode program and one device shader object, but no
+texture read, render target, draw, routine allocation, lock, file operation,
+configuration field, or startup-visible owner. Compilation still starts only
+after `DeferredInit`; the persisted schema and pre-deferred call graph are
+unchanged.
+
+### Test and evidence status
+
+Both regressions were observed failing before implementation:
+
+- the camera test retained the pre-world position `[100, 200, 300]` after the
+  live native pose advanced to `[104, 198, 301]`;
+- equal 50-percent occlusion estimates at different analytic intensities
+  produced `[0.6, 0.55, 0.5]` and `[0.75, 0.6625, 0.575]` instead of one
+  darkness-controlled result.
+
+The corrected camera test also changes live FOV and far clipping while keeping
+the TAA pixel phase, proving that only the jitter is removed. The interior
+tests cover scale invariance, slider response, the 25-percent ownership floor,
+HDR emitter preservation, multiple-light ambient protection, and independent
+RGB occlusion. The shadow-focused suite passes 136 tests, including all shader
+model and instruction-budget checks. The complete Windows-target OMV suite
+passes all 632 tests and the `i686-pc-windows-gnu` release build succeeds. The
+resulting DLL is 12,876,647 bytes with SHA-256
+`4d0e679e979d49da016debcc2839d04301811249b408319866be6750e1fcc91f`.
+
+Compared with the load-to-gameplay-tested `c484863` DLL, the import set,
+`.idata` size (`0x340c`), and `.tls` size (`0x8`) are identical. The complete
+artifact's `.data` is 64 bytes smaller, while `.text`, `.rdata`, and `.reloc`
+also differ. The worktree contained concurrent shared-library changes during
+this build, so the complete PE delta cannot be attributed to this shadow
+change alone. Static tests and the release build do not establish startup or
+image correctness: a Proton load-to-gameplay run with BaseObjectSwapper plus
+moving-camera and multi-light interior acceptance remains required before this
+follow-up is runtime-complete.
+
+The root-cause assignment that native camera state can advance after the outer
+entry snapshot is a reasoned inference from hook timing plus the user's motion
+observation. The snapshot reuse and corrected same-transaction ownership are
+direct code facts; only a new gameplay run can prove the visible blink gone.
+
 ## Primary evidence index
 
 ### Current executable and static artifacts

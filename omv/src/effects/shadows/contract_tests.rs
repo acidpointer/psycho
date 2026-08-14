@@ -1,21 +1,22 @@
 use super::contract::{
     ActorOverlayProjectionPlan, CASCADE_COUNT, CascadeDirty, CascadeScheduler,
     CascadeSphereSelection, CasterAdmission, CasterPolicy, DeferredReceiverPlan,
-    DirectionalRootSetSignature, HookAction, NVR_CASCADE_RESOLUTION, NVR_POINT_DRAW_DISTANCE,
-    NVR_POINT_LIGHT_COUNT, NVR_POINT_RADIUS_MULTIPLIER, PointLightCandidate, PointMapCache,
-    PointMapSignature, ProducerResourcePlan, SceneKind, ShadowPublicationIdentity, ShadowSettings,
-    TransactionState, actor_overlay_edge_visibility, actor_overlay_projection_plan,
-    cascade_minimum_caster_radius, cascade_sphere_selection, composite_shadow_factor,
-    consumer_has_shadow_work, contact_consumer_work, depth_sample_is_geometry,
-    directional_actor_root_is_active, directional_caster_work, directional_contact_visibility,
-    directional_form_type_is_enabled, directional_receiver_position, directional_root_set_dirty,
-    dismember_partition_is_renderable, effective_contact_distance, evsm4_moments, evsm4_visibility,
-    interior_shadow_factor, local_light_source_guard, nvr_contact_sample_offsets,
-    point_light_distance_fade, point_light_influence_is_eligible, practical_cascade_splits,
-    publication_epoch_is_usable, publication_identity_is_usable, retained_cascade_refresh,
-    select_point_lights, select_point_lights_stable, shadow_receiver_is_valid,
-    skinned_position_reference, snap_shadow_center, source_owned_shadow_radiance,
-    sphere_intersects_cube_face, sphere_intersects_point_light, terrain_lod_shadow_z,
+    DirectionalRootSetSignature, HookAction, INTERIOR_MIN_RADIANCE_FACTOR, NVR_CASCADE_RESOLUTION,
+    NVR_POINT_DRAW_DISTANCE, NVR_POINT_LIGHT_COUNT, NVR_POINT_RADIUS_MULTIPLIER,
+    PointLightCandidate, PointMapCache, PointMapSignature, ProducerResourcePlan, SceneKind,
+    ShadowPublicationIdentity, ShadowSettings, TransactionState, actor_overlay_edge_visibility,
+    actor_overlay_projection_plan, cascade_minimum_caster_radius, cascade_sphere_selection,
+    composite_shadow_factor, consumer_has_shadow_work, contact_consumer_work,
+    depth_sample_is_geometry, directional_actor_root_is_active, directional_caster_work,
+    directional_contact_visibility, directional_form_type_is_enabled,
+    directional_receiver_position, directional_root_set_dirty, dismember_partition_is_renderable,
+    effective_contact_distance, evsm4_moments, evsm4_visibility, interior_shadow_factor,
+    local_light_source_guard, nvr_contact_sample_offsets, point_light_distance_fade,
+    point_light_influence_is_eligible, practical_cascade_splits, publication_epoch_is_usable,
+    publication_identity_is_usable, retained_cascade_refresh, select_point_lights,
+    select_point_lights_stable, shadow_receiver_is_valid, skinned_position_reference,
+    snap_shadow_center, source_owned_shadow_radiance, sphere_intersects_cube_face,
+    sphere_intersects_point_light, terrain_lod_shadow_z,
 };
 use super::engine::{
     EngineCallAbi, FNV_EXE_SHA256, GeometryKind, HookSiteContract, NativeLayout,
@@ -719,11 +720,29 @@ fn contact_work_is_half_resolution_and_branch_lazy() {
 #[test]
 fn final_shadow_composition_uses_distinct_directional_and_local_identities() {
     let source = [0.8, 0.6, 0.4];
-    let clear = source_owned_shadow_radiance(source, false, 0.0, 1.0, [1.0; 3], [1.0; 3], 1.0)
-        .expect("finite clear pixel");
+    let clear = source_owned_shadow_radiance(
+        source,
+        false,
+        SceneKind::Exterior,
+        0.0,
+        1.0,
+        [1.0; 3],
+        [1.0; 3],
+        1.0,
+    )
+    .expect("finite clear pixel");
     assert_eq!(clear, source);
-    let receiver = source_owned_shadow_radiance(source, true, 0.5, 0.8, [0.1; 3], [0.1; 3], 0.5)
-        .expect("finite receiver");
+    let receiver = source_owned_shadow_radiance(
+        source,
+        true,
+        SceneKind::Exterior,
+        0.5,
+        0.8,
+        [0.1; 3],
+        [0.1; 3],
+        0.5,
+    )
+    .expect("finite receiver");
     // The analytic local estimate would produce [0.47, 0.35, 0.23]. That is
     // below the native surface's directional-only lower bound and therefore
     // owns ambient energy it cannot identify.
@@ -738,6 +757,7 @@ fn interior_composition_subtracts_only_rgb_energy_proven_occluded() {
     let result = source_owned_shadow_radiance(
         source,
         true,
+        SceneKind::Interior,
         1.0,
         0.0,
         [0.4, 0.2, 0.0],
@@ -745,11 +765,69 @@ fn interior_composition_subtracts_only_rgb_energy_proven_occluded() {
         0.5,
     )
     .expect("finite local-light receiver");
-    assert_eq!(result, [0.6, 0.59999996, 0.6]);
+    assert_eq!(result, [0.4, 0.35, 0.6]);
     let emitter = [3.0, 2.0, 1.2];
     assert_eq!(
-        source_owned_shadow_radiance(emitter, true, 0.0, 1.0, [1.0; 3], [1.0; 3], 1.0,),
+        source_owned_shadow_radiance(
+            emitter,
+            true,
+            SceneKind::Interior,
+            0.0,
+            1.0,
+            [1.0; 3],
+            [1.0; 3],
+            1.0,
+        ),
         Some(emitter)
+    );
+}
+
+#[test]
+fn interior_darkness_controls_occluded_fraction_not_analytic_light_scale() {
+    let source = [0.8, 0.7, 0.6];
+    let bright_estimate = source_owned_shadow_radiance(
+        source,
+        true,
+        SceneKind::Interior,
+        1.0,
+        0.0,
+        [0.8, 0.6, 0.4],
+        [0.4, 0.3, 0.2],
+        0.5,
+    )
+    .expect("finite bright-light estimate");
+    let dim_estimate = source_owned_shadow_radiance(
+        source,
+        true,
+        SceneKind::Interior,
+        1.0,
+        0.0,
+        [0.2, 0.15, 0.1],
+        [0.1, 0.075, 0.05],
+        0.5,
+    )
+    .expect("finite dim-light estimate");
+
+    assert_eq!(
+        bright_estimate, dim_estimate,
+        "equal cube-proven occluded fractions must obey the same darkness setting regardless of the replacement light estimate's absolute scale"
+    );
+    assert_eq!(bright_estimate, [0.6, 0.525, 0.45000002]);
+    let fully_occluded = source_owned_shadow_radiance(
+        source,
+        true,
+        SceneKind::Interior,
+        1.0,
+        0.0,
+        [0.2; 3],
+        [0.2; 3],
+        1.0,
+    )
+    .expect("finite fully occluded receiver");
+    assert_eq!(
+        fully_occluded,
+        source.map(|channel| channel * INTERIOR_MIN_RADIANCE_FACTOR),
+        "a point shadow cannot claim the ambient/emissive floor"
     );
 }
 

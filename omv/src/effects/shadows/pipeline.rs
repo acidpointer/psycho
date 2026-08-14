@@ -330,11 +330,15 @@ impl ShadowPipeline {
         // reenter or stall in the driver. The engine does not guarantee a
         // second equivalent common-shadow invocation, so first-use resource
         // creation and map generation must complete in this transaction.
-        let Some(camera) = self
+        let live_camera = unsafe { backend::fnv_world_camera_frame_fast(1, 1) };
+        let context_camera = self
             .active_world_context
-            .map(|context| context.generation_camera)
-            .or_else(crate::fnv_world_pipeline::shadow_generation_camera)
-            .or_else(|| unsafe { backend::fnv_world_camera_frame_fast(1, 1) })
+            .map(|context| context.generation_camera);
+        let temporal_camera =
+            live_camera.and_then(crate::fnv_world_pipeline::shadow_generation_camera);
+        let Some(camera) = temporal_camera
+            .or(live_camera)
+            .or(context_camera)
             .filter(|camera| camera.available && camera.world_transform.available)
         else {
             return ReplacementResult::FallbackNative;
@@ -633,6 +637,7 @@ struct ShadowResources {
     contact_blur_pixel: PixelShader9,
     directional_mask_pixel: PixelShader9,
     composite_pixel: PixelShader9,
+    interior_composite_pixel: PixelShader9,
     directional_composite_pixel: PixelShader9,
     directional: Option<DirectionalResources>,
     points: Option<PointResources>,
@@ -843,6 +848,7 @@ impl ShadowResources {
             contact_blur_pixel: device.create_pixel_shader(&bytecode.contact_blur)?,
             directional_mask_pixel: device.create_pixel_shader(&bytecode.directional_mask)?,
             composite_pixel: device.create_pixel_shader(&bytecode.composite)?,
+            interior_composite_pixel: device.create_pixel_shader(&bytecode.interior_composite)?,
             directional_composite_pixel: device
                 .create_pixel_shader(&bytecode.directional_composite)?,
             directional: None,
@@ -2005,10 +2011,10 @@ impl ShadowResources {
         crate::render_state::copy_exact_color_surface(device, source, &targets.source_surface)?;
         device.set_render_target(0, source)?;
         set_viewport(device, 0, 0, desc.Width, desc.Height)?;
-        device.set_pixel_shader(if publication.point_count == 0 {
-            &self.directional_composite_pixel
-        } else {
-            &self.composite_pixel
+        device.set_pixel_shader(match (publication.scene, publication.point_count) {
+            (_, 0) => &self.directional_composite_pixel,
+            (SceneKind::Interior, _) => &self.interior_composite_pixel,
+            _ => &self.composite_pixel,
         })?;
         device.set_texture(0, &targets.source)?;
         unsafe { device.set_raw_base_texture(1, depth_texture)? };
