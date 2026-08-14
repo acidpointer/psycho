@@ -18,11 +18,11 @@
 //! replacement restore afterward.
 //!
 //! Runtime disable is a passive engine-contract boundary. The proven PBR
-//! inline hooks remain resident because restoring stale shader-wrapper or
-//! shared package state was a prior corruption defect documented in the PBR
-//! errata. Their detours bypass before selector/sampler work, while the shared
-//! renderer geometry hooks remain resident and PBR device resources are
-//! released.
+//! pointer-slot and direct-caller chains remain resident because restoring
+//! stale shader-wrapper or shared package state was a prior corruption defect
+//! documented in the PBR errata. Their detours bypass before selector/sampler
+//! work, while the shared renderer geometry slots remain resident and PBR
+//! device resources are released.
 //! Process-owned compiled bytecode and observed engine-wrapper identities
 //! remain cached for safe live re-enable.
 //!
@@ -30,7 +30,8 @@
 //! enabled settings snapshot is staged. That early worker owns only embedded
 //! source, the reconstructible cache, and process memory. Engine inspection,
 //! hook installation, world publication, D3D resource creation, and PBR
-//! activation remain exclusively behind DeferredInit and DisplayScene.
+//! activation remain exclusively behind DeferredInit and the xNVSE
+//! `OnFramePresent` service boundary.
 
 mod compiler;
 mod constants;
@@ -289,6 +290,19 @@ pub(crate) struct NativePbrRuntimeStatus {
     pub(crate) terrain_fade_contract_proven: bool,
     pub(crate) block_reason: Option<&'static str>,
 }
+
+/// Stable interoperability evidence separated from shader/resource progress.
+/// Address ownership is diagnostic only; admission uses the readiness flags.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct NativePbrInteropStatus {
+    pub(crate) selection_ready: bool,
+    pub(crate) selection_predecessor: Option<usize>,
+    pub(crate) texture_ready: bool,
+    pub(crate) texture_predecessor: Option<usize>,
+    pub(crate) package_ready: bool,
+    pub(crate) package_predecessors: [Option<usize>; 2],
+    pub(crate) terrain_ready: bool,
+}
 impl Default for NativePbrSettings {
     fn default() -> Self {
         Self {
@@ -394,33 +408,31 @@ pub(crate) fn start_cpu_preparation(settings: NativePbrSettings) {
 
 /// Publish native-PBR settings and install its resident engine observers.
 ///
-/// The shared `SetTexture` observer remains resident even when PBR starts
-/// disabled because native sky consumes the same getter-free stage mirror.
-/// Shader selection and package ownership are installed only for enabled PBR.
+/// All executable ownership is established once at `DeferredInit`, including
+/// when PBR starts disabled. Runtime configuration changes only passive atomics
+/// and resources; it never competes with another graphics mod for a hook after
+/// the quiescent startup boundary. The shared `SetTexture` observer also stays
+/// resident because native sky consumes the same getter-free stage mirror.
 pub(crate) fn install(settings: NativePbrSettings) -> Result<()> {
     constants::store_settings(settings);
     DEBUG_LOG_DRAWS.store(settings.debug_log_draws, Ordering::Release);
     set_menu_diagnostics_active(crate::runtime::menu_diagnostics_active());
     store_terrain_options(settings);
     INSTALL_BOUNDARY_REACHED.store(true, Ordering::Release);
+    hooks::install()?;
+    let terrain_contract = engine_contracts::probe_terrain_contract();
+    log::info!("[PBR] Functional terrain contract available={terrain_contract}");
+    INSTALLED.store(hooks::hooks_ready(), Ordering::Release);
     if !settings.enabled {
-        let tracking_ready = hooks::install_texture_tracking();
         SHADER_ENABLED.store(false, Ordering::Release);
-        INSTALLED.store(false, Ordering::Release);
         refresh_block_reason();
         log::info!(
-            "[PBR] Native PBR disabled; shared texture observer resident={tracking_ready}, PBR selection and engine contracts remain passive"
+            "[PBR] Native PBR disabled; resident engine contracts remain passive and available for a live enable"
         );
         return Ok(());
     }
 
     activate()
-}
-
-/// Publish whether the close-terrain executable and resource contract exists.
-pub(crate) fn configure_terrain_contract(available: bool) {
-    engine_contracts::set_terrain_contract_available(available);
-    refresh_block_reason();
 }
 
 /// Publish whether both executable-proven renderer geometry hooks are active.
@@ -462,7 +474,7 @@ pub(crate) fn tracked_texture(stage: u32) -> Option<usize> {
     samplers::tracked_texture(stage)
 }
 
-/// Apply live PBR settings at the serialized DisplayScene boundary.
+/// Apply live PBR settings at the serialized `OnFramePresent` boundary.
 ///
 /// Disabling makes resident hooks passive and releases device resources.
 /// Enabling queues activation so no configuration thread mutates render-owned
@@ -490,7 +502,7 @@ pub(crate) fn configure_runtime_options(settings: NativePbrSettings) {
         }
     } else if !was_enabled && settings.enabled {
         if !ENABLE_PENDING.swap(true, Ordering::AcqRel) {
-            log::info!("[PBR] Native PBR activation queued for the next DisplayScene boundary");
+            log::info!("[PBR] Native PBR activation queued for the next OnFramePresent boundary");
         }
     } else if !settings.enabled {
         ENABLE_PENDING.store(false, Ordering::Release);
@@ -669,6 +681,18 @@ pub(crate) fn runtime_status() -> NativePbrRuntimeStatus {
     }
 }
 
+pub(crate) fn interoperability_status() -> NativePbrInteropStatus {
+    NativePbrInteropStatus {
+        selection_ready: hooks::selection_hook_ready(),
+        selection_predecessor: hooks::selection_predecessor(),
+        texture_ready: hooks::texture_hook_ready(),
+        texture_predecessor: hooks::texture_predecessor(),
+        package_ready: engine_contracts::shader_package_lifetime_ready(),
+        package_predecessors: engine_contracts::shader_package_predecessors(),
+        terrain_ready: engine_contracts::terrain_contract_available(),
+    }
+}
+
 pub(crate) fn preparation_status() -> PbrPreparationStatus {
     let compile = compiler::preparation_status();
     let configured = SHADER_ENABLED.load(Ordering::Acquire);
@@ -760,8 +784,10 @@ pub(crate) fn service_present_frame() {
 
 fn activate() -> Result<()> {
     SHADER_ENABLED.store(true, Ordering::Release);
-    hooks::install()?;
-    INSTALLED.store(true, Ordering::Release);
+    // Resident hook ownership was fixed at DeferredInit. A live enable may
+    // compile and publish OMV resources, but it must not retry or transfer an
+    // executable slot after other plugins have begun rendering.
+    INSTALLED.store(hooks::hooks_ready(), Ordering::Release);
     compiler::ensure_object_prewarm_started();
     ACTIVE_CONTRACTS_READY.store(false, Ordering::Release);
     ACTIVE_CONTRACTS_FAILED.store(false, Ordering::Release);

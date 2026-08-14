@@ -13,7 +13,6 @@
 //! keeping supplemental sampler and register pressure out of ordinary draws.
 
 use std::borrow::Cow;
-use std::ffi::{CStr, c_char};
 
 const NVR_OBJECT_TEMPLATE_SOURCE: &str =
     include_str!("../../../shaders/embedded/nvr_pbr_object/ObjectTemplate.hlsl");
@@ -2742,27 +2741,4 @@ float4 Main(float2 uv : TEXCOORD0) : COLOR0
             }
         }
     }
-}
-
-pub(super) fn sls_number_from_name(shader_name: *const c_char, extension: &str) -> Option<u16> {
-    if shader_name.is_null() {
-        return None;
-    }
-
-    let name = unsafe { CStr::from_ptr(shader_name) }.to_str().ok()?;
-    let leaf = name
-        .rsplit(|ch| ch == '\\' || ch == '/')
-        .next()
-        .unwrap_or(name);
-    if leaf.len() != 11 {
-        return None;
-    }
-    if !leaf.get(0..3)?.eq_ignore_ascii_case("SLS") {
-        return None;
-    }
-    if !leaf.get(7..)?.eq_ignore_ascii_case(extension) {
-        return None;
-    }
-
-    leaf.get(3..7)?.parse::<u16>().ok()
 }

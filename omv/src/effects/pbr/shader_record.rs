@@ -210,16 +210,6 @@ impl ShaderRecord {
     }
 }
 
-pub(super) fn store_created(
-    shader: *mut c_void,
-    stage: ShaderStage,
-    template_id: u16,
-    table_id: u32,
-    table_index: u32,
-) -> Option<ShaderRecordSnapshot> {
-    TABLE.store(shader, stage, template_id, table_id, table_index, false)
-}
-
 pub(super) fn adopt_existing(
     shader: *mut c_void,
     stage: ShaderStage,

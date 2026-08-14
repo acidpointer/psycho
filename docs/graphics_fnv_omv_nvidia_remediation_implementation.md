@@ -14,6 +14,30 @@ proof establishes where OMV now intervenes, which work was removed, and which
 state/copy boundaries remain necessary; it cannot identify a proprietary
 driver stall by itself.
 
+### 2026-08-14 mod-agnostic ownership update
+
+The current source supersedes the original entry-hook ownership described by
+older paragraphs in this document. OMV no longer owns `DisplayScene`, the
+shared scene callees, `SetShaders`, `SetTexture`, shader-creation functions,
+`SkyShader::UpdateConstants`, `SetShaderPackage`, or the completed-shadow
+callee entry. Current production ownership is:
+
+- xNVSE `OnFramePresent` for final service/epoch completion;
+- exact `E8 rel32` callers for Recreate, scene phases, package transitions,
+  the three shadow variants, and completed-shadow observation;
+- live engine-owned vtable slots for renderer geometry, render-state texture
+  observation, PPLighting selection, and SkyShader constants;
+- no `CreateVertexShader` or `CreatePixelShader` interception;
+- a functional terrain shader/resource probe instead of provider filenames;
+- independent capability publication and a diagnostic-only predecessor matrix.
+
+Each route captures and invokes the target present when OMV installs. A
+changed instruction or slot is not overwritten, a multi-member group publishes
+nothing until all members commit, and a later owner is not overwritten during
+rollback. The complete design, address inventory, dependency graph, and open
+runtime gates are authoritative in
+[`graphics_fnv_omv_dependency_compatibility_plan.md`](graphics_fnv_omv_dependency_compatibility_plan.md).
+
 The later AMD/NVIDIA comparison and failed split-array compiler experiment led
 to one additional shader-lowering correction. OMV now stores supplemental
 close-terrain light records in a draw-scoped 32x2 RGBA32F texture instead of a
@@ -115,17 +139,18 @@ release can state that the one-FPS defect is closed.
 | Module | Technical ownership |
 |---|---|
 | `startup.rs` | Staged configuration, initial device publication, DeferredInit ordering, and retryable top-level install gate |
-| `hooks.rs` | DisplayScene, Recreate, TriShape, and TriStrips resident hook transaction; render epoch; draw scope |
-| `fnv_render.rs` | Resident image-space, underwater, world, pre-alpha, and first-person scene-stage hook transaction |
+| `hooks.rs` | xNVSE presentation service, unique Recreate caller, live renderer geometry slots, render epoch, and draw scope |
+| `fnv_render.rs` | Independent direct-caller groups for image-space, underwater, world, pre-alpha, and first-person stages |
 | `backend/fnv.rs` | Balanced device owner, lock-free device identity/generation, semantic depth cache, and FNV camera contract |
 | `graphics_diagnostics.rs` | Compile-time-gated fixed atomic counters and sampled QPC intervals |
-| `effects/pbr/hooks.rs` | SetShaders selection, shared SetTexture observation, wrapper overrides, geometry admission, and fallback |
-| `effects/pbr/engine_contracts.rs` | Eye/fog flags, transactional shader-package lifetime/transition, and engine wrapper/pass state |
+| `effects/pbr/hooks.rs` | Live PPLighting-selection and render-state texture slots, first-use wrapper adoption, geometry admission, and fallback |
+| `effects/pbr/engine_contracts.rs` | Eye/fog flags, two-caller transactional shader-package lifetime/transition, functional terrain probe, and engine wrapper/pass state |
 | `effects/pbr/samplers.rs` | Fixed 16-stage known/null/identity mirror and semantic texture generation |
 | `effects/pbr/terrain_lights.rs` | Native/property/manager light merge and generation-keyed fixed cache |
 | `effects/pbr/device_resources.rs` | Replacement shaders and supplemental light-data texture keyed by device identity and generation |
-| `effects/sky.rs` | Sky constant selection and getter-free geometry admission using the shared texture mirror |
-| `fnv_local_lights.rs` | Exact shadow ABI bridge, caller-context policy, scalar publication, completed-shadow retention, and reset drain |
+| `effects/sky.rs` | Live SkyShader constants slot and getter-free geometry admission using the shared texture mirror |
+| `fnv_local_lights.rs` | Three exact shadow-caller ABI bridges, scalar observation, exclusive native-replacement admission, completed-shadow caller, retention, and reset drain |
+| `interop.rs` | Read-only capability/dependency snapshot, one DeferredInit matrix log, and diagnostic predecessor-owner formatting |
 | `render_state.rs` | Named state capture/apply attribution, attachment restoration, alias removal, and exact color copies |
 | `fnv_world_pipeline.rs` | Pre-alpha/coherent-world atmosphere and TAA transactions |
 | `runtime.rs` | Scene-pre, scene-post, and final image-space transactions and post-world color ownership |
@@ -164,40 +189,36 @@ new route admission closed until DeferredInit and closes that admission after
 a failed attempt. Existing scene-input and process-owned preparation contracts
 are unchanged.
 
-### Exact entry manifests
+### Exact interception manifest
 
-| Entry | Address | ABI | Verified leading bytes | Role |
-|---|---:|---|---|---|
-| DisplayScene | `0x00E75000` | thiscall `(renderer) -> u8` | `55 8B E9 80 BD` | presentation service and epoch seal |
-| Recreate | `0x00E73EB0` | thiscall `(renderer,u32,u32) -> u32` | `83 EC 38 56 57` | device-resource release/reset/republish |
-| RenderTriShape | `0x00E745A0` | thiscall `(renderer,geometry)` | `83 EC 18 56 8B F1` | actual TriShape submission scope |
-| RenderTriStrips | `0x00E74840` | thiscall `(renderer,geometry)` | `83 EC 20 55 8B E9` | actual TriStrips submission scope |
-| ProcessImageSpaceShaders | `0x00B55AC0` | cdecl, three pointers | `8B 54 24 04 56` | native image-space order |
-| SetWaterShaderUnderwater | `0x004E2120` | thiscall `(owner,u8)` | `55 8B EC 51 89` | underwater metadata |
-| RenderWorldSceneGraph | `0x00873200` | thiscall, exact five-argument declaration in source | `55 8B EC 6A FF` | world transaction |
-| RenderFirstPerson | `0x00875110` | thiscall, exact five-pointer declaration in source | `55 8B EC 6A FF` | first-person depth stage |
-| RenderPreDepthGroups | `0x00B65AE0` | cdecl `(owner)` | `56 8B 74 24 08` | pre-alpha stage |
-| common shadow transaction | `0x00871290` | thiscall `(receiver)` | `55 8B EC 81 EC 9C 00 00 00` | native prefix and scalar producer epoch |
-| completed local shadow | `0x00B9F780` | thiscall `(light,accumulator,slot)` | `55 8B EC 83 E4 F0` | post-native resource retention |
-| SetShaderPackage | `0x00B4F710` | cdecl `(i32,i32,u8,i32,char*,i32)` | `8B 4C 24 04 8B 54 24 08 56` | semantic package transition |
+| Capability | Ownership cell(s) | ABI | Role |
+|---|---|---|---|
+| Presentation | xNVSE `OnFramePresent` | message payload points to unaligned `i32 loadingScreen` | final service and epoch seal |
+| Recreate | caller `0x004DC41F` | thiscall `(renderer,u32,u32) -> u32` | release/reset/republish |
+| Geometry | live renderer vtable `+0x1B4`, `+0x1B8` | thiscall `(renderer,geometry)` | TriShape/TriStrips submission scope |
+| Image space | caller `0x00876136` | cdecl, three pointers | native image-space order |
+| Water | callers `0x004E1D7C`, `0x004E1DB1`, `0x008728AE` | thiscall `(owner,u8)` | underwater metadata |
+| World | callers `0x00870AE8`, `0x00870E18` | thiscall, exact five-argument declaration in source | world transaction |
+| First person | callers `0x0087093D`, `0x00870B21`, `0x00870F74` | thiscall, exact five-pointer declaration in source | first-person depth stage |
+| Pre-alpha | callers `0x00B6653D`, `0x00B665A6` | cdecl `(owner)` | opaque-world consumer stage |
+| PBR selection | live selector-index-4 vtable `+0xF4` | thiscall `(selector,u32)` | PPLighting selection only |
+| Texture mirror | live render-state vtable `+0xDC` | thiscall `(state,u32,texture)` | PBR/sky texture observation |
+| Shader package | callers `0x004DB187`, `0x004DCB9D` | cdecl `(i32,i32,u8,i32,char*,i32)` | startup/reload transitions |
+| Sky constants | live selector-index-10 vtable `+0x7C` | thiscall `(selector,property)` | sky classification/constants |
+| Shadow transaction | callers `0x00870851`, `0x00870A74`, `0x00870C3C` | thiscall receiver in `ECX`, caller frame in `EBP` | variant-specific scalar observation/native replacement |
+| Completed local shadow | caller `0x00B5B9DC` | thiscall `(light,accumulator,slot)` | post-native resource retention |
 
-PBR `SetShaders`, shared `SetTexture`, optional shader creation, and sky update
-hooks retain their existing exact prologue manifests. Arbitrary `E9` targets
-are no longer followed. A container already prepared by OMV can be re-enabled;
-an unrecognized external owner is a conflict and the dependent feature fails
-closed. This deliberately avoids claiming ABI or lifetime compatibility from
-the shape of one jump instruction.
+Every direct route requires an exact five-byte `E8 rel32` and captures its
+current target; every pointer route compare-exchanges the current live slot.
+Neither primitive follows arbitrary jumps or assumes a vanilla predecessor.
+Changed ownership blocks only the dependent group. Multi-member groups
+preflight all cells, roll back in reverse order, and publish readiness only
+after commit. Runtime settings never attach, detach, or transfer these routes.
 
-Core and scene groups prepare every trampoline before enabling the first new
-member. An enable failure rolls back members enabled by that attempt in reverse
-order. Readiness is published only after all mandatory members are active.
-Runtime settings no longer reconcile, attach, or detach depth-stage entries.
-
-The package lifetime opcode and `SetShaderPackage` hook use one
-`ModificationTransaction`. Failure of either restores the other before
-gameplay. `service_frame` refreshes only the established eye-position data
-contract; it does not patch code, enable hooks, call `VirtualProtect`, or force
-the package globals every frame.
+The package callers and lifetime opcode share one `ModificationTransaction`.
+Failure restores everything before gameplay. `service_frame` refreshes only
+the established eye-position data contract; it does not patch code, enable
+hooks, call `VirtualProtect`, or force package globals every frame.
 
 ## D3D9 device lifecycle
 
@@ -210,9 +231,10 @@ lifecycle transition instead of waiting in a renderer callback:
 - a nonzero generation incremented whenever publication is cleared or a new
   ownership interval is established.
 
-Publishing the same device pointer in DisplayScene is one atomic comparison
-and does not acquire a lock or a second reference. Draw, sky, PBR, light, and
-depth paths never rediscover the device through the renderer singleton.
+`OnFramePresent` republishes the singleton device only if the lifecycle owner
+has no published pointer; the normal frame performs no renderer/device query.
+Draw, sky, PBR, light, and depth paths use the published identity rather than
+rediscovering the device through the renderer singleton.
 
 Recreate performs the following sequence:
 
@@ -227,7 +249,7 @@ Resource stores and publications include the generation in addition to raw
 pointer identity. This rejects pointer reuse across reset and same-object reset
 intervals. PBR and native-sky shader creation poll compiler publications and
 resource owners with `try_lock`; contention defers creation to a later
-DisplayScene. Their Recreate release paths also use `try_lock`; contention
+presentation callback. Their Recreate release paths also use `try_lock`; contention
 rejects the native reset attempt before any still-owned resource is
 invalidated. Reset clears slots in place and does not allocate a replacement
 resource table on the renderer callback.
@@ -293,26 +315,29 @@ repopulated by native SetTexture traffic before replacement resumes.
 
 ### Exact ABI bridge
 
-The common entry takes its receiver in ECX and no stack arguments. The naked
-x86 bridge records, in order, caller EBP, the direct return at `[ESP]`, and ECX,
-then calls a cdecl Rust body. It removes exactly 12 bytes of bridge arguments
-and returns with the native stack unchanged. The original trampoline is typed
-as thiscall and receives the preserved receiver exactly once.
+The common shadow implementation takes its receiver in `ECX` and no stack
+arguments. Three naked x86 callsite wrappers statically encode the main,
+special, or screenshot variant, preserve caller `EBP` and `ECX`, and dispatch
+to one cdecl Rust body. Each wrapper invokes the predecessor captured at its
+own callsite exactly once. This removes return-address inference for the
+variant while preserving caller-frame classification needed by the established
+main/special/screenshot policy.
 
-i686 type-level tests bind the common shadow, completed-shadow,
-SetShaderPackage, DisplayScene, Recreate, TriShape, and TriStrips detours to
-their declared function pointer types.
+i686 type-level tests bind the three shadow callers, completed-shadow caller,
+two package callers, Recreate caller, renderer slots, and all scene caller
+wrappers to their declared function-pointer types.
 
 ### Context and epoch policy
 
-At the common entry, EBP belongs to the selected dispatcher branch. The saved
-EBP points to the dispatcher frame; its saved return classifies ownership:
+At each direct caller, `EBP` belongs to the selected dispatcher branch. The
+wrapper itself proves the variant; the saved frame return still classifies
+main versus special/screenshot ownership:
 
-| Direct continuation | Variant | Dispatcher caller return | Context | Publication policy |
+| Caller | Variant | Dispatcher caller return | Context | Publication policy |
 |---:|---|---:|---|---|
-| `0x00870856` | A | `0x00870249` / `0x008702AE` | main | authoritative candidate |
-| `0x00870A79` | B | `0x00870249` / `0x008702AE` | main | authoritative candidate |
-| `0x00870C41` | C | `0x00870249` / `0x008702AE` | main | authoritative candidate |
+| `0x00870851` | A | `0x00870249` / `0x008702AE` | main | authoritative candidate |
+| `0x00870A74` | B | `0x00870249` / `0x008702AE` | main | authoritative candidate |
+| `0x00870C3C` | C | `0x00870249` / `0x008702AE` | main | authoritative candidate |
 | any known variant | A/B/C | `0x008721A9` | special | native pass-through only |
 | any known variant | A/B/C | `0x00879179` | screenshot | native pass-through only |
 | unknown | unknown | unknown | unknown | native pass-through only |
@@ -360,9 +385,13 @@ walk the engine chain, validate it again, query the description again, or own
 the intrusive `BSRenderedTexture` reference count. Epoch replacement and
 Recreate drop the COM owner exactly once.
 
-If another shadow provider replaces the common prefix, the exact entry-byte
-preflight rejects OMV's native completed-slot enrichment. OMV does not inspect
-slots whose native producer was bypassed.
+If another shadow provider replaces the common implementation, the three
+caller observers still invoke their independently captured predecessors and
+may publish scalar context. Exact entry-byte validation disables only OMV's
+exclusive native replacement path. The completed-shadow caller remains an
+independent cooperative observer; it retains output only when the post-call
+resource contract validates, so absent or foreign output naturally falls
+closed without suppressing scalar lights.
 
 ## Close-terrain light cache
 
@@ -481,7 +510,7 @@ texture retention, PBR/sky admission, real geometry submission, state
 capture/apply, and color copies.
 
 Callbacks never allocate, format, lock, or log for this diagnostic owner.
-DisplayScene seals a fixed POD sample. A long D3D-adjacent CPU interval remains
+`OnFramePresent` seals a fixed POD sample. A long D3D-adjacent CPU interval remains
 evidence of a possible wait, not proof of GPU execution; affected-machine
 testing must correlate it with coarse GPU/vendor capture evidence.
 
@@ -494,7 +523,7 @@ Steady production hot paths now have these intended costs:
 | native DepthMap SetShaders | exact table identity check, small pending invalidation, predecessor; no resource/D3D work |
 | unrelated SetShaders with no prior PBR selection | one pending-kind atomic swap plus native classification/fallback |
 | renderer geometry with no pending PBR/sky | atomic gates then predecessor |
-| repeated same-device DisplayScene | one atomic pointer comparison |
+| ordinary `OnFramePresent` with a published device | no renderer/device discovery |
 | special/screenshot shadow entry | caller classification, native prefix, no producer scan/publication |
 | repeated authoritative shadow epoch | epoch/generation check, native prefix, no second producer scan |
 
@@ -592,3 +621,12 @@ DLL SHA-256 is
 `f274016f75f400025cad9f585744039d54091a0475d94ecebfdf568de5840eff`.
 These results extend the static evidence above; the affected-machine matrix
 remains open.
+
+The 2026-08-14 mod-agnostic ownership update passed all 37 explicit-target
+`libpsycho` tests, all 644 explicit-target OMV tests, the optimized OMV build,
+and the complete supported FNV release build. Its `omv.dll` is 12,826,970
+bytes with SHA-256
+`fbde3b26ca7243a6734d5821f9cbaa151cba2bc8bd2986080c8e6e388e47dc69`.
+The complete PE footprint and comparison boundary are recorded in the
+interoperability plan. These static results do not replace BaseObjectSwapper
+cold starts, visual/reset coverage, or the NVIDIA/AMD timing matrix.

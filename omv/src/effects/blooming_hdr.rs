@@ -3131,12 +3131,12 @@ impl BloomingHdrEffect {
 
     /// Execute the bounded final-color transaction for one display frame.
     ///
-    /// `frame_seconds` is the previous successful Present interval and
-    /// `timing_continuous` identifies a consecutive render epoch. A gap
-    /// invalidates exposure history; ordinary camera motion never does. The
-    /// return value is true only when at least one effect draw wrote output,
-    /// allowing the phase color graph to remain correct after fail-soft
-    /// adaptive fallback.
+    /// `frame_seconds` is the previous consecutive presentation-callback
+    /// interval and `timing_continuous` identifies a consecutive render epoch.
+    /// A gap invalidates exposure history; ordinary camera motion never does.
+    /// The return value is true only when at least one effect draw wrote
+    /// output, allowing the phase color graph to remain correct after
+    /// fail-soft adaptive fallback.
     pub(crate) fn draw(
         &mut self,
         device: &Device9Ref<'_>,

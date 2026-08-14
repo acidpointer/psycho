@@ -8,13 +8,12 @@
 //! Disabling native sky makes both resident engine hooks passive through their
 //! atomic gate and releases its D3D shader objects; compiled bytecode remains
 //! process-owned for a cheap later rebuild.
-//! Resource creation and reset use nonblocking owners at DisplayScene/Recreate;
-//! a busy compiler or resource publication is deferred rather than stalling
-//! the renderer thread.
+//! Resource creation and reset use nonblocking owners at
+//! `OnFramePresent`/Recreate; a busy compiler or resource publication is
+//! deferred rather than stalling the renderer thread.
 
 use std::{
     ffi::c_void,
-    slice,
     sync::{
         LazyLock,
         atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering},
@@ -25,12 +24,13 @@ use std::{
 use anyhow::Result;
 use libpsycho::os::windows::{
     directx9::{Device9Ref, PixelShader9, VertexShader9},
-    hook::inline::inlinehook::InlineHookContainer,
+    hook::pointer::PointerSlotHookContainer,
     memory::validate_memory_range,
 };
 use parking_lot::Mutex;
 
-const SKY_UPDATE_CONSTANTS_ADDR: usize = 0x00B89D80;
+const SKY_SELECTOR_CACHE_ADDR: usize = 0x011F9570;
+const SKY_UPDATE_CONSTANTS_VTABLE_OFFSET: usize = 0x7C;
 const SKY_SHADER_PROPERTY_VTABLE: usize = 0x010B8CE0;
 const CURRENT_PASS_ADDR: usize = 0x0126F74C;
 const PASS_PIXEL_SHADER_OFFSET: usize = 0x44;
@@ -49,10 +49,6 @@ const SHADER_BACKUP_HANDLE_OFFSET: usize = 0x1C;
 const CONSTANT_FIRST_REGISTER: u32 = 21;
 const CREATE_BUDGET_PER_FRAME: usize = 3;
 const NO_INDEX: u32 = u32::MAX;
-
-const SKY_UPDATE_PROLOGUE: &[u8] = &[
-    0x83, 0xEC, 0x68, 0xA1, 0xE4, 0x91, 0x1F, 0x01, 0x53, 0x89, 0x4C, 0x24, 0x04, 0x8B, 0x0D, 0xE0,
-];
 
 const ATMOSPHERE_VS: &[u8] = include_bytes!("../../shaders/embedded/native_sky_atmosphere.vs.hlsl");
 const TEXTURED_VS: &[u8] = include_bytes!("../../shaders/embedded/native_sky_textured.vs.hlsl");
@@ -132,6 +128,14 @@ pub(crate) struct NativeSkyStatus {
     pub(crate) created: usize,
     pub(crate) total: usize,
     pub(crate) failed: bool,
+}
+
+/// Engine-slot ownership evidence kept separate from user enablement and GPU
+/// resource preparation.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct NativeSkyInteropStatus {
+    pub(crate) constants_ready: bool,
+    pub(crate) constants_predecessor: Option<usize>,
 }
 
 #[derive(Clone, Copy)]
@@ -257,8 +261,8 @@ type SkyUpdateFn = unsafe extern "thiscall" fn(*mut c_void, *const c_void);
 
 static SETTINGS: LazyLock<Mutex<NativeSkySettings>> =
     LazyLock::new(|| Mutex::new(crate::config::NativeSkyConfig::default().into()));
-static UPDATE_HOOK: LazyLock<InlineHookContainer<SkyUpdateFn>> =
-    LazyLock::new(InlineHookContainer::new);
+static UPDATE_HOOK: LazyLock<PointerSlotHookContainer<SkyUpdateFn>> =
+    LazyLock::new(PointerSlotHookContainer::new);
 static INSTALLED: AtomicBool = AtomicBool::new(false);
 static ENABLED: AtomicBool = AtomicBool::new(false);
 static DRAW_BOUNDARY_READY: AtomicBool = AtomicBool::new(false);
@@ -371,8 +375,8 @@ pub(crate) fn install(settings: NativeSkySettings) -> Result<()> {
         return Ok(());
     }
 
-    let target = match resolve_hook_target() {
-        Ok(target) => target,
+    let slot = match resolve_update_slot() {
+        Ok(slot) => slot,
         Err(err) => {
             log::warn!("[SKY] Native sky disabled: {err:#}");
             return Ok(());
@@ -381,7 +385,7 @@ pub(crate) fn install(settings: NativeSkySettings) -> Result<()> {
     if let Err(err) = unsafe {
         UPDATE_HOOK.init(
             "FNV SkyShader::UpdateConstants",
-            target,
+            slot,
             hook_update_constants,
         )
     } {
@@ -396,14 +400,11 @@ pub(crate) fn install(settings: NativeSkySettings) -> Result<()> {
     Ok(())
 }
 
-/// Apply live native-sky settings at the DisplayScene configuration boundary.
+/// Apply live native-sky settings at the serialized configuration boundary.
 pub(crate) fn configure_runtime_options(settings: NativeSkySettings) {
     let was_enabled = ENABLED.swap(settings.enabled, Ordering::AcqRel);
     *SETTINGS.lock() = settings;
     FRAME_EPOCH.fetch_add(1, Ordering::AcqRel);
-    if UPDATE_HOOK.is_initialized() {
-        ensure_engine_hook_resident();
-    }
     if settings.enabled {
         start_compile_worker();
     } else if was_enabled {
@@ -460,6 +461,13 @@ pub(crate) fn runtime_status() -> NativeSkyStatus {
                 .try_lock()
                 .as_deref()
                 .is_some_and(|resources| resources.slots.iter().any(|slot| slot.failed)),
+    }
+}
+
+pub(crate) fn interoperability_status() -> NativeSkyInteropStatus {
+    NativeSkyInteropStatus {
+        constants_ready: UPDATE_HOOK.is_enabled(),
+        constants_predecessor: UPDATE_HOOK.predecessor_address().ok(),
     }
 }
 
@@ -797,7 +805,7 @@ mod shader_compile_tests {
     }
 
     #[test]
-    fn runtime_toggle_keeps_the_engine_hook_resident() {
+    fn runtime_toggle_never_mutates_the_resident_engine_slot() {
         let source = include_str!("sky.rs");
         let configure = source
             .split_once("pub(crate) fn configure_runtime_options")
@@ -805,7 +813,8 @@ mod shader_compile_tests {
             .and_then(|tail| tail.split_once("fn ensure_engine_hook_resident"))
             .map(|(body, _)| body)
             .expect("native sky runtime configuration");
-        assert!(configure.contains("ensure_engine_hook_resident()"));
+        assert!(!configure.contains("ensure_engine_hook_resident()"));
+        assert!(!configure.contains("UPDATE_HOOK.enable()"));
         assert!(!configure.contains("UPDATE_HOOK.disable()"));
 
         let residency = source
@@ -816,6 +825,16 @@ mod shader_compile_tests {
             .expect("native sky resident hook transition");
         assert!(residency.contains("UPDATE_HOOK.enable()"));
         assert!(!residency.contains("UPDATE_HOOK.disable()"));
+    }
+
+    #[test]
+    fn native_sky_uses_the_live_selector_slot_not_the_shared_entry() {
+        let source = include_str!("sky.rs");
+        assert!(source.contains("SKY_SELECTOR_CACHE_ADDR"));
+        assert!(source.contains("SKY_UPDATE_CONSTANTS_VTABLE_OFFSET"));
+        assert!(source.contains("PointerSlotHookContainer<SkyUpdateFn>"));
+        assert!(!source.contains(&["0x00B8", "9D80"].concat()));
+        assert!(!source.contains(&["SKY_UPDATE_", "PROLOGUE"].concat()));
     }
 
     #[test]
@@ -1258,21 +1277,24 @@ fn restore_direct_pair() {
     let _ = unsafe { device.set_raw_pixel_shader(native_pixel) };
 }
 
-fn resolve_hook_target() -> Result<*mut c_void> {
-    validate_memory_range(
-        SKY_UPDATE_CONSTANTS_ADDR as *const c_void,
-        SKY_UPDATE_PROLOGUE.len(),
-    )?;
-    let actual = unsafe {
-        slice::from_raw_parts(
-            SKY_UPDATE_CONSTANTS_ADDR as *const u8,
-            SKY_UPDATE_PROLOGUE.len(),
-        )
+fn resolve_update_slot() -> Result<*mut *mut c_void> {
+    let Some(selector) = read_ptr(SKY_SELECTOR_CACHE_ADDR as *const c_void) else {
+        anyhow::bail!("SkyShader selector cache is unavailable")
     };
-    if actual.starts_with(SKY_UPDATE_PROLOGUE) {
-        return Ok(SKY_UPDATE_CONSTANTS_ADDR as *mut c_void);
-    }
-    anyhow::bail!("SkyShader::UpdateConstants has unsupported ownership or executable bytes")
+    let Some(vtable) = read_ptr(selector.cast_const()) else {
+        anyhow::bail!("SkyShader selector vtable is unavailable")
+    };
+    let address = (vtable as usize)
+        .checked_add(SKY_UPDATE_CONSTANTS_VTABLE_OFFSET)
+        .ok_or_else(|| anyhow::anyhow!("SkyShader::UpdateConstants slot address overflowed"))?;
+    let slot = address as *mut *mut c_void;
+    validate_memory_range(slot.cast(), size_of::<*mut c_void>())?;
+
+    // Resolve the current live vtable rather than the vanilla table. This
+    // preserves a predecessor installed by a mod through either a cloned
+    // selector vtable or an entry detour, while PointerSlotHook's CAS prevents
+    // OMV from overwriting an owner that changes the slot after this preflight.
+    Ok(slot)
 }
 
 fn find_array_index(

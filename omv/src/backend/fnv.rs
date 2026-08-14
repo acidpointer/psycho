@@ -44,6 +44,7 @@ pub(crate) type ProviderMarkerCounters = depth_resolve_provider::MarkerCounters;
 
 const NIDX9_RENDERER_SINGLETON_PTR: usize = 0x011C73B4;
 const NIDX9_RENDERER_DEVICE_OFFSET: usize = 0x288;
+const NIDX9_RENDERER_RENDER_STATE_OFFSET: usize = 0x8B8;
 const NIDX9_RENDERER_Z_CLEAR_OFFSET: usize = 0x5E4;
 const BSSHADERMANAGER_CAMERA_PTR: usize = 0x011F917C;
 // Main retains the SceneGraph named "World" here. The shader-manager camera is
@@ -320,6 +321,33 @@ pub(super) fn d3d_device_ptr() -> Option<*mut c_void> {
     (identity != 0).then_some(identity as *mut c_void)
 }
 
+/// Resolve the live `NiDX9Renderer` object during DeferredInit setup.
+pub(super) fn renderer_ptr() -> Result<*mut c_void, &'static str> {
+    unsafe {
+        read_ptr(NIDX9_RENDERER_SINGLETON_PTR)
+            .filter(|renderer| !renderer.is_null())
+            .map(|renderer| renderer.cast::<c_void>())
+            .ok_or("NiDX9Renderer singleton is unavailable")
+    }
+}
+
+/// Resolve the live engine-owned render-state object during `DeferredInit`.
+///
+/// Unlike the device pointer, this identity is needed only once to prepare the
+/// resident `SetTexture` vtable slot. Keeping it as a checked singleton walk
+/// avoids another render-time global and makes reset semantics explicit: the
+/// installed slot belongs to the render-state class vtable, not to a retained
+/// COM object or an ENB-owned `IDirect3DDevice9` vtable.
+pub(super) fn render_state_ptr() -> Result<*mut c_void, &'static str> {
+    unsafe {
+        let renderer = renderer_ptr()?;
+        read_ptr(renderer as usize + NIDX9_RENDERER_RENDER_STATE_OFFSET)
+            .filter(|render_state| !render_state.is_null())
+            .map(|render_state| render_state.cast::<c_void>())
+            .ok_or("NiDX9Renderer render-state object is unavailable")
+    }
+}
+
 /// Return the generation of the lifecycle-published D3D device.
 pub(super) fn d3d_device_generation() -> u32 {
     DEVICE_GENERATION.load(Ordering::Acquire)
@@ -365,9 +393,9 @@ pub(super) unsafe fn publish_d3d_device(device: *mut c_void) -> Result<u32, &'st
 
     let retained = unsafe { Device9::retain_raw(device) }
         .map_err(|_| "renderer device did not expose IDirect3DDevice9")?;
-    // This API is also called from DisplayScene and Recreate. Even though FNV
-    // serializes those entries, use a nonblocking acquisition so accidental
-    // cross-thread lifecycle publication can never stall the render callback.
+    // This API is called from the xNVSE presentation boundary and Recreate.
+    // Even though FNV serializes those routes, use a nonblocking acquisition
+    // so accidental cross-thread publication cannot stall a render callback.
     let mut owner = PUBLISHED_DEVICE_OWNER
         .try_lock()
         .ok_or("D3D9 device publication owner is busy")?;

@@ -1,4 +1,8 @@
-//! Graphics mod dependency and hook-owner detection.
+//! Read-only graphics-module inventory for startup diagnostics.
+//!
+//! Module names never admit an effect or select hook behavior. Runtime
+//! capabilities are established from engine instructions, live dispatch
+//! slots, resources, and ABIs by their owning subsystems.
 
 use libpsycho::os::windows::winapi::get_module_handle_w;
 
@@ -20,10 +24,6 @@ impl GraphicsCompatibility {
         }
     }
 
-    pub(crate) fn has_vpt_terrain_contract(self) -> bool {
-        self.vanilla_plus_terrain && self.fallout_shader_loader && self.lod_flicker_fix
-    }
-
     pub(crate) fn log_report(self) {
         log::info!(
             "[COMPAT] Modules: VanillaPlusTerrain={}, FalloutShaderLoader={}, LODFlickerFix={}, DepthResolve={}",
@@ -33,13 +33,9 @@ impl GraphicsCompatibility {
             present(self.depth_resolve),
         );
 
-        if self.has_vpt_terrain_contract() {
-            log::info!("[COMPAT] VPT terrain contract is available for future terrain PBR work");
-        } else {
-            log::info!(
-                "[COMPAT] VPT terrain contract is unavailable; terrain PBR features must stay disabled"
-            );
-        }
+        log::info!(
+            "[COMPAT] Module inventory is diagnostic only; graphics capabilities use functional probes"
+        );
     }
 }
 
@@ -49,4 +45,15 @@ fn module_loaded(name: &str) -> bool {
 
 fn present(value: bool) -> &'static str {
     if value { "present" } else { "absent" }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn module_inventory_cannot_admit_graphics_behavior() {
+        let source = include_str!("compat.rs");
+        assert!(!source.contains(&["has_vpt_", "terrain_contract"].concat()));
+        assert!(!source.contains(&["TERRAIN_CONTRACT_", "AVAILABLE"].concat()));
+        assert!(source.contains("functional probes"));
+    }
 }

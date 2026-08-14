@@ -5,12 +5,12 @@
 //! runtimes; replacing them made every native draw and presentation traverse
 //! OMV and created an especially expensive ownership conflict on NVIDIA.
 //!
-//! Fallout New Vegas provides the serialized boundaries OMV needs:
+//! Fallout New Vegas and xNVSE provide the serialized boundaries OMV needs:
 //!
-//! - `NiDX9Renderer::DisplayScene` brackets the engine's presentation work;
-//! - `NiDX9Renderer::Recreate` owns device-loss/reset notification ordering;
-//! - `NiDX9Renderer::RenderTriShape` and `RenderTriStrips` own the actual
-//!   primitive submissions used by PPLighting and the supported sky paths.
+//! - xNVSE `OnFramePresent` runs immediately before final presentation;
+//! - the proven `NiDX9Renderer::Recreate` caller owns device-loss/reset order;
+//! - live renderer vtable slots for `RenderTriShape` and `RenderTriStrips` own
+//!   the actual primitive submissions used by PPLighting and native sky.
 //!
 //! `NiD3DShader::SetupGeometry @ 0x00E812F0` is deliberately not hooked. It
 //! binds streams and indices through D3D9 but returns before the geometry
@@ -18,13 +18,14 @@
 //! and `DrawIndexedPrimitive`. Treating it as a draw caused OMV to restore a
 //! rejected/replacement pair before the primitive that consumed it.
 //!
-//! These entry hooks patch game code once at `DeferredInit`, retain stable
-//! trampolines, and stay resident. Runtime feature switches are cheap atomic
-//! gates inside OMV; they never mutate driver-owned state or executable bytes
-//! from a render callback. The separate Win32 WndProc hook remains necessary
-//! for menu input and is unrelated to D3D device ownership.
+//! OMV chains the predecessor present in each proven caller or live engine
+//! dispatch slot at `DeferredInit`; it no longer claims the shared function
+//! entries. Runtime feature switches are cheap atomic gates and never mutate
+//! driver-owned state or executable bytes from a render callback. The separate
+//! Win32 WndProc hook remains necessary for menu input and is unrelated to D3D
+//! device ownership.
 
-use core::ffi::c_void;
+use core::{ffi::c_void, mem::size_of};
 use std::sync::{
     LazyLock,
     atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering},
@@ -38,44 +39,39 @@ use crate::{
 use anyhow::{Context, Result};
 use libpsycho::os::windows::{
     directx9::Device9Ref,
-    hook::inline::inlinehook::InlineHookContainer,
+    hook::{
+        callsite::Rel32CallHookContainer, pointer::PointerSlotHookContainer,
+        transaction::ModificationTransaction,
+    },
     memory::validate_memory_range,
     winapi::{call_window_proc_a, set_window_long_a},
 };
 
 // Addresses and ABIs are for FalloutNV.exe 1.4.0.525, SHA-256
 // 42fee7d6cd74e801372aa89c8f71c974cebd3c20ec9ad43d1465b8fa9646b49c.
-// `DisplayScene` returns AL=1 after draining the renderer's display queue.
-const DISPLAY_SCENE_ADDR: usize = 0x00E7_5000;
 // `Recreate` returns 0 on failure, 1 for recovery parameters, and 2 for the
 // caller-requested parameters. Both reset attempts and engine notifications
-// are inside this function, so OMV releases resources before entering it.
-const RECREATE_ADDR: usize = 0x00E7_3EB0;
+// are inside this function. OMV redirects its one proven direct caller rather
+// than claiming the shared implementation at 0x00E73EB0.
+const RECREATE_CALL_ADDR: usize = 0x004D_C41F;
 // NiTriShape::RenderImmediate dispatches here through NiDX9Renderer vtable
 // slot +0x1B4. The function owns every direct DrawPrimitive/DIP for the shape.
-const RENDER_TRI_SHAPE_ADDR: usize = 0x00E7_45A0;
+const RENDER_TRI_SHAPE_VTABLE_OFFSET: usize = 0x1B4;
 // NiTriStrips::RenderImmediate dispatches here through renderer slot +0x1B8.
-const RENDER_TRI_STRIPS_ADDR: usize = 0x00E7_4840;
-const DISPLAY_SCENE_PROLOGUE: &[u8] = &[0x55, 0x8B, 0xE9, 0x80, 0xBD];
-const RECREATE_PROLOGUE: &[u8] = &[0x83, 0xEC, 0x38, 0x56, 0x57];
-const RENDER_TRI_SHAPE_PROLOGUE: &[u8] = &[0x83, 0xEC, 0x18, 0x56, 0x8B, 0xF1];
-const RENDER_TRI_STRIPS_PROLOGUE: &[u8] = &[0x83, 0xEC, 0x20, 0x55, 0x8B, 0xE9];
+const RENDER_TRI_STRIPS_VTABLE_OFFSET: usize = 0x1B8;
 const NIDX9_RENDERER_DEVICE_OFFSET: usize = 0x288;
 const GWL_WNDPROC: i32 = -4;
 const MAX_HOOK_ERROR_LOGS: u32 = 8;
 
-type DisplaySceneFn = unsafe extern "thiscall" fn(*mut c_void) -> u8;
 type RecreateFn = unsafe extern "thiscall" fn(*mut c_void, u32, u32) -> u32;
 type RenderGeometryFn = unsafe extern "thiscall" fn(*mut c_void, *mut c_void);
 
-static DISPLAY_SCENE_HOOK: LazyLock<InlineHookContainer<DisplaySceneFn>> =
-    LazyLock::new(InlineHookContainer::new);
-static RECREATE_HOOK: LazyLock<InlineHookContainer<RecreateFn>> =
-    LazyLock::new(InlineHookContainer::new);
-static RENDER_TRI_SHAPE_HOOK: LazyLock<InlineHookContainer<RenderGeometryFn>> =
-    LazyLock::new(InlineHookContainer::new);
-static RENDER_TRI_STRIPS_HOOK: LazyLock<InlineHookContainer<RenderGeometryFn>> =
-    LazyLock::new(InlineHookContainer::new);
+static RECREATE_HOOK: LazyLock<Rel32CallHookContainer<RecreateFn>> =
+    LazyLock::new(Rel32CallHookContainer::new);
+static RENDER_TRI_SHAPE_HOOK: LazyLock<PointerSlotHookContainer<RenderGeometryFn>> =
+    LazyLock::new(PointerSlotHookContainer::new);
+static RENDER_TRI_STRIPS_HOOK: LazyLock<PointerSlotHookContainer<RenderGeometryFn>> =
+    LazyLock::new(PointerSlotHookContainer::new);
 
 static ENGINE_HOOKS_READY: AtomicBool = AtomicBool::new(false);
 static RENDER_EPOCH: AtomicU32 = AtomicU32::new(1);
@@ -92,188 +88,131 @@ fn advance_render_epoch(epoch: &AtomicU32) {
     epoch.fetch_add(1, Ordering::AcqRel);
 }
 
-/// Install OMV's engine-owned presentation, reset, and native-draw hooks.
+/// Install OMV's reset caller and optional native-draw dispatch slots.
 ///
-/// This must run from xNVSE `DeferredInit`, after the executable image is
-/// stable and before render callbacks can publish OMV work. Repeated calls are
-/// retry-safe: prepared trampolines are reused and only missing entry jumps
-/// are enabled.
+/// Presentation is owned by the already-registered xNVSE `OnFramePresent`
+/// listener. Reset is essential and therefore fails installation if its unique
+/// caller cannot be chained. Geometry is an independent optional capability:
+/// a conflict disables PBR/sky draw replacement without suppressing the rest
+/// of OMV's screen-space pipeline.
 pub(crate) fn install_engine_hooks() -> Result<()> {
-    prepare_display_scene_hook()?;
     prepare_recreate_hook()?;
-    prepare_render_tri_shape_hook()?;
-    prepare_render_tri_strips_hook()?;
-
-    // Prepare every trampoline before changing the first executable entry.
-    // A failed enable rolls back only hooks attached by this attempt; hooks
-    // already resident at entry belong to an earlier complete transaction.
-    let mut enabled_display = false;
-    let mut enabled_recreate = false;
-    let mut enabled_tri_shape = false;
-    let mut enabled_tri_strips = false;
-    let transaction = (|| -> Result<()> {
-        enabled_display = enable_prepared_hook(&DISPLAY_SCENE_HOOK, "NiDX9Renderer::DisplayScene")?;
-        enabled_recreate = enable_prepared_hook(&RECREATE_HOOK, "NiDX9Renderer::Recreate")?;
-        enabled_tri_shape =
-            enable_prepared_hook(&RENDER_TRI_SHAPE_HOOK, "NiDX9Renderer::RenderTriShape")?;
-        enabled_tri_strips =
-            enable_prepared_hook(&RENDER_TRI_STRIPS_HOOK, "NiDX9Renderer::RenderTriStrips")?;
-        Ok(())
-    })();
-    if let Err(error) = transaction {
-        rollback_hook(
-            &RENDER_TRI_STRIPS_HOOK,
-            enabled_tri_strips,
-            "RenderTriStrips",
-        );
-        rollback_hook(&RENDER_TRI_SHAPE_HOOK, enabled_tri_shape, "RenderTriShape");
-        rollback_hook(&RECREATE_HOOK, enabled_recreate, "Recreate");
-        rollback_hook(&DISPLAY_SCENE_HOOK, enabled_display, "DisplayScene");
-        ENGINE_HOOKS_READY.store(false, Ordering::Release);
-        pbr::set_draw_boundary_ready(false);
-        sky::set_draw_boundary_ready(false);
-        return Err(error);
+    if !RECREATE_HOOK.is_enabled() {
+        let mut reset_transaction = ModificationTransaction::new();
+        reset_transaction
+            .enable_callsite(&RECREATE_HOOK)
+            .context("could not chain the NiDX9Renderer::Recreate caller")?;
+        reset_transaction.commit();
     }
 
-    let ready = DISPLAY_SCENE_HOOK.is_enabled()
-        && RECREATE_HOOK.is_enabled()
-        && RENDER_TRI_SHAPE_HOOK.is_enabled()
-        && RENDER_TRI_STRIPS_HOOK.is_enabled();
-    ENGINE_HOOKS_READY.store(ready, Ordering::Release);
-    pbr::set_draw_boundary_ready(ready);
-    sky::set_draw_boundary_ready(ready);
-    if !ready {
-        anyhow::bail!("one or more engine render hooks are not active");
-    }
+    let geometry_ready = install_geometry_slots();
+    ENGINE_HOOKS_READY.store(geometry_ready, Ordering::Release);
+    pbr::set_draw_boundary_ready(geometry_ready);
+    sky::set_draw_boundary_ready(geometry_ready);
 
     if let Some(device_ptr) = backend::d3d_device_ptr()
         && let Some(device) = unsafe { Device9Ref::from_raw_void(device_ptr) }
     {
         log_presentation_profile(&device, "engine-hook-install");
     }
-    log::info!(
-        "[HOOKS] Engine-owned DisplayScene, Recreate, RenderTriShape, and RenderTriStrips hooks installed"
-    );
+    log::info!("[HOOKS] Recreate direct caller chained");
+    if geometry_ready {
+        log::info!("[HOOKS] Live RenderTriShape/RenderTriStrips vtable slots chained");
+    } else {
+        log::warn!(
+            "[HOOKS] Geometry dispatch unavailable; PBR and native-sky draw replacement remain disabled"
+        );
+    }
     Ok(())
-}
-
-fn prepare_display_scene_hook() -> Result<()> {
-    if DISPLAY_SCENE_HOOK.is_initialized() {
-        return Ok(());
-    }
-    validate_vanilla_entry(DISPLAY_SCENE_ADDR, DISPLAY_SCENE_PROLOGUE, "DisplayScene")?;
-    unsafe {
-        DISPLAY_SCENE_HOOK.init(
-            "FNV NiDX9Renderer::DisplayScene",
-            DISPLAY_SCENE_ADDR as *mut c_void,
-            display_scene_detour,
-        )
-    }
-    .context("could not prepare NiDX9Renderer::DisplayScene hook")
 }
 
 fn prepare_recreate_hook() -> Result<()> {
     if RECREATE_HOOK.is_initialized() {
         return Ok(());
     }
-    validate_vanilla_entry(RECREATE_ADDR, RECREATE_PROLOGUE, "Recreate")?;
     unsafe {
         RECREATE_HOOK.init(
-            "FNV NiDX9Renderer::Recreate",
-            RECREATE_ADDR as *mut c_void,
+            "FNV NiDX9Renderer::Recreate caller",
+            RECREATE_CALL_ADDR as *mut c_void,
             recreate_detour,
         )
     }
-    .context("could not prepare NiDX9Renderer::Recreate hook")
+    .context("could not prepare the NiDX9Renderer::Recreate direct caller")
 }
 
-fn prepare_render_tri_shape_hook() -> Result<()> {
-    if RENDER_TRI_SHAPE_HOOK.is_initialized() {
-        return Ok(());
+fn install_geometry_slots() -> bool {
+    if RENDER_TRI_SHAPE_HOOK.is_enabled() && RENDER_TRI_STRIPS_HOOK.is_enabled() {
+        return true;
     }
-    validate_vanilla_entry(
-        RENDER_TRI_SHAPE_ADDR,
-        RENDER_TRI_SHAPE_PROLOGUE,
-        "RenderTriShape",
-    )?;
-    unsafe {
-        RENDER_TRI_SHAPE_HOOK.init(
-            "FNV NiDX9Renderer::RenderTriShape",
-            RENDER_TRI_SHAPE_ADDR as *mut c_void,
-            render_tri_shape_detour,
-        )
+    if let Err(error) = prepare_geometry_slots() {
+        log::warn!("[HOOKS] Geometry slot preflight failed: {error:#}");
+        return false;
     }
-    .context("could not prepare NiDX9Renderer::RenderTriShape hook")
+
+    let mut transaction = ModificationTransaction::new();
+    if let Err(error) = transaction.enable_pointer(&RENDER_TRI_SHAPE_HOOK) {
+        log::warn!("[HOOKS] RenderTriShape slot activation failed: {error}");
+        return false;
+    }
+    if let Err(error) = transaction.enable_pointer(&RENDER_TRI_STRIPS_HOOK) {
+        log::warn!("[HOOKS] RenderTriStrips slot activation failed: {error}");
+        return false;
+    }
+    transaction.commit();
+    true
 }
 
-fn prepare_render_tri_strips_hook() -> Result<()> {
-    if RENDER_TRI_STRIPS_HOOK.is_initialized() {
-        return Ok(());
-    }
-    validate_vanilla_entry(
-        RENDER_TRI_STRIPS_ADDR,
-        RENDER_TRI_STRIPS_PROLOGUE,
-        "RenderTriStrips",
-    )?;
-    unsafe {
-        RENDER_TRI_STRIPS_HOOK.init(
-            "FNV NiDX9Renderer::RenderTriStrips",
-            RENDER_TRI_STRIPS_ADDR as *mut c_void,
-            render_tri_strips_detour,
-        )
-    }
-    .context("could not prepare NiDX9Renderer::RenderTriStrips hook")
-}
+fn prepare_geometry_slots() -> Result<()> {
+    let renderer = backend::renderer_ptr().map_err(anyhow::Error::msg)?;
+    let vtable = read_non_null_pointer(renderer.cast_const(), "NiDX9Renderer vtable")?;
 
-/// Require the exact executable-proven entry before preparing a core hook.
-///
-/// Core lifecycle and geometry ownership cannot be chained through an
-/// arbitrary predecessor: its ABI, displaced instructions, and resource
-/// lifetime would be unknown. A conflict therefore disables the dependent
-/// graphics group instead of overwriting another component's entry jump.
-fn validate_vanilla_entry(address: usize, expected: &[u8], label: &'static str) -> Result<()> {
-    validate_memory_range(address as *const c_void, expected.len())
-        .with_context(|| format!("could not read {label} entry at 0x{address:08X}"))?;
-    let observed = unsafe { std::slice::from_raw_parts(address as *const u8, expected.len()) };
-    if observed != expected {
-        anyhow::bail!(
-            "{label} entry at 0x{address:08X} has unsupported ownership or executable bytes"
-        );
+    if !RENDER_TRI_SHAPE_HOOK.is_initialized() {
+        let slot = vtable_slot(vtable, RENDER_TRI_SHAPE_VTABLE_OFFSET, "RenderTriShape")?;
+        unsafe {
+            RENDER_TRI_SHAPE_HOOK.init(
+                "FNV NiDX9Renderer::RenderTriShape slot",
+                slot,
+                render_tri_shape_detour,
+            )
+        }
+        .context("could not prepare RenderTriShape vtable slot")?;
+    }
+    if !RENDER_TRI_STRIPS_HOOK.is_initialized() {
+        let slot = vtable_slot(vtable, RENDER_TRI_STRIPS_VTABLE_OFFSET, "RenderTriStrips")?;
+        unsafe {
+            RENDER_TRI_STRIPS_HOOK.init(
+                "FNV NiDX9Renderer::RenderTriStrips slot",
+                slot,
+                render_tri_strips_detour,
+            )
+        }
+        .context("could not prepare RenderTriStrips vtable slot")?;
     }
     Ok(())
 }
 
-fn enable_prepared_hook<T: libpsycho::ffi::fnptr::Function>(
-    hook: &InlineHookContainer<T>,
+fn vtable_slot(
+    vtable: *mut c_void,
+    offset: usize,
     label: &'static str,
-) -> Result<bool> {
-    if hook.is_enabled() {
-        return Ok(false);
-    }
-    if let Err(error) = hook.enable() {
-        // InlineHook can report a page-protection restoration failure after
-        // the entry JMP was written. Undo that published ownership before the
-        // group coordinator rolls back earlier members.
-        if hook.is_enabled()
-            && let Err(rollback_error) = hook.disable()
-        {
-            log::error!(
-                "[HOOKS] {label} became active during failed enable and immediate rollback failed: {rollback_error}"
-            );
-        }
-        return Err(error).with_context(|| format!("could not enable {label} hook"));
-    }
-    Ok(true)
+) -> Result<*mut *mut c_void> {
+    let address = (vtable as usize)
+        .checked_add(offset)
+        .with_context(|| format!("{label} vtable slot address overflowed"))?;
+    let slot = address as *mut *mut c_void;
+    validate_memory_range(slot.cast(), size_of::<*mut c_void>())
+        .with_context(|| format!("could not read {label} vtable slot at 0x{address:08X}"))?;
+    Ok(slot)
 }
 
-fn rollback_hook<T: libpsycho::ffi::fnptr::Function>(
-    hook: &InlineHookContainer<T>,
-    enabled_by_attempt: bool,
-    label: &'static str,
-) {
-    if enabled_by_attempt && let Err(error) = hook.disable() {
-        log::error!("[HOOKS] Could not roll back {label} after group failure: {error}");
+fn read_non_null_pointer(address: *const c_void, label: &'static str) -> Result<*mut c_void> {
+    validate_memory_range(address, size_of::<*mut c_void>())
+        .with_context(|| format!("could not read {label} at {address:p}"))?;
+    let value = unsafe { address.cast::<*mut c_void>().read() };
+    if value.is_null() {
+        anyhow::bail!("{label} is null");
     }
+    Ok(value)
 }
 
 /// Return a stable diagnostic label for native draw ownership.
@@ -282,6 +221,30 @@ pub(crate) fn draw_interposition_status_label() -> &'static str {
         "engine-owned"
     } else {
         "unavailable"
+    }
+}
+
+/// Read-only ownership evidence for the diagnostics UI and DeferredInit log.
+///
+/// Captured addresses explain which predecessor OMV chains, but no rendering
+/// decision depends on an address or its containing module.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct EngineHookInteropStatus {
+    pub(crate) reset_ready: bool,
+    pub(crate) reset_predecessor: Option<usize>,
+    pub(crate) geometry_ready: bool,
+    pub(crate) geometry_predecessors: [Option<usize>; 2],
+}
+
+pub(crate) fn interoperability_status() -> EngineHookInteropStatus {
+    EngineHookInteropStatus {
+        reset_ready: RECREATE_HOOK.is_enabled(),
+        reset_predecessor: RECREATE_HOOK.predecessor_address().ok(),
+        geometry_ready: ENGINE_HOOKS_READY.load(Ordering::Acquire),
+        geometry_predecessors: [
+            RENDER_TRI_SHAPE_HOOK.predecessor_address().ok(),
+            RENDER_TRI_STRIPS_HOOK.predecessor_address().ok(),
+        ],
     }
 }
 
@@ -314,34 +277,40 @@ pub(crate) fn install_window_proc(hwnd: *mut c_void) -> Result<()> {
     Ok(())
 }
 
-unsafe extern "thiscall" fn display_scene_detour(renderer: *mut c_void) -> u8 {
-    let Ok(original) = DISPLAY_SCENE_HOOK.original() else {
-        log_hook_error("[HOOKS] Missing original NiDX9Renderer::DisplayScene function");
-        return 0;
-    };
-    let render_epoch = render_epoch();
-    let device_ptr = unsafe { renderer_device(renderer) };
-    if let Some(device_ptr) = device_ptr {
-        // Same-device publication is a single pointer comparison. This also
-        // repairs publication after a failed Recreate without rediscovering
-        // the renderer singleton from every graphics consumer.
-        let _ = unsafe { backend::publish_d3d_device(device_ptr) };
+/// Service OMV at xNVSE's engine-owned final-presentation boundary.
+///
+/// `OnFramePresent` does not expose the later D3D present result. Reaching the
+/// callback is therefore recorded as a continuous presentation boundary, not
+/// as proof that a driver call succeeded. This retains frame/epoch ordering
+/// without interposing either DisplayScene or the device's `Present` slot.
+pub(crate) fn on_frame_present(loading_screen: bool) {
+    if !crate::startup::deferred_graphics_ready() {
+        return;
     }
-    if let Some(device_ptr) = device_ptr
+
+    let render_epoch = render_epoch();
+    let present_started_at = runtime::present_frame_started_at();
+    if backend::d3d_device_ptr().is_none()
+        && let Err(reason) = backend::publish_initial_d3d_device()
+    {
+        log_hook_error("[HOOKS] OnFramePresent could not republish the renderer device");
+        log::debug!("[HOOKS] Renderer-device republish reason: {reason}");
+    }
+    // These are idempotent atomic fast paths when no draw is outstanding.
+    // Closing them before optional services prevents a skipped UI/effect frame
+    // from carrying replacement ownership into the engine's final display.
+    pbr::finish_draw_batches();
+    sky::finish_direct_draw();
+    if let Some(device_ptr) = backend::d3d_device_ptr()
         && runtime::present_services_required()
     {
-        pbr::finish_draw_batches();
-        sky::finish_direct_draw();
         sky::service_present_frame();
-        unsafe { runtime::apply_present_frame(device_ptr, core::ptr::null_mut()) };
+        unsafe { runtime::apply_present_frame(device_ptr, core::ptr::null_mut(), loading_screen) };
     }
-    let present_started_at = runtime::present_frame_started_at();
-    let result = unsafe { original(renderer) };
-    unsafe { runtime::finish_present_frame(render_epoch, present_started_at, result != 0) };
+    unsafe { runtime::finish_present_frame(render_epoch, present_started_at) };
     crate::fnv_world_pipeline::finish_present(render_epoch);
     crate::graphics_diagnostics::seal_frame(render_epoch);
     advance_render_epoch(&RENDER_EPOCH);
-    result
 }
 
 unsafe extern "thiscall" fn recreate_detour(
@@ -420,7 +389,7 @@ unsafe extern "thiscall" fn render_tri_strips_detour(renderer: *mut c_void, geom
 /// block. One scope therefore preserves exact coverage without interposing the
 /// driver-owned D3D9 vtable for each individual DIP.
 unsafe fn render_geometry(
-    hook: &InlineHookContainer<RenderGeometryFn>,
+    hook: &PointerSlotHookContainer<RenderGeometryFn>,
     renderer: *mut c_void,
     geometry: *mut c_void,
     label: &'static str,
@@ -555,8 +524,8 @@ unsafe fn call_original_wndproc(
 #[cfg(test)]
 mod tests {
     use super::{
-        DisplaySceneFn, RecreateFn, RenderGeometryFn, advance_render_epoch, display_scene_detour,
-        recreate_detour, render_tri_shape_detour, render_tri_strips_detour,
+        RecreateFn, RenderGeometryFn, advance_render_epoch, recreate_detour,
+        render_tri_shape_detour, render_tri_strips_detour,
     };
     use std::sync::atomic::{AtomicU32, Ordering};
 
@@ -569,7 +538,6 @@ mod tests {
 
     #[test]
     fn renderer_detours_use_the_executable_proven_x86_abis() {
-        let _: DisplaySceneFn = display_scene_detour;
         let _: RecreateFn = recreate_detour;
         let _: RenderGeometryFn = render_tri_shape_detour;
         let _: RenderGeometryFn = render_tri_strips_detour;
@@ -586,34 +554,67 @@ mod tests {
         assert!(!source.contains(&device_vtable_constant));
         assert!(!source.contains(&device_present));
         assert!(!source.contains(&device_reset));
-        assert!(source.contains("DISPLAY_SCENE_ADDR"));
-        assert!(source.contains("RECREATE_ADDR"));
-        assert!(source.contains("RENDER_TRI_SHAPE_ADDR"));
-        assert!(source.contains("RENDER_TRI_STRIPS_ADDR"));
+        assert!(!source.contains(&["DISPLAY_SCENE_", "ADDR"].concat()));
+        assert!(source.contains("RECREATE_CALL_ADDR"));
+        assert!(source.contains("RENDER_TRI_SHAPE_VTABLE_OFFSET"));
+        assert!(source.contains("RENDER_TRI_STRIPS_VTABLE_OFFSET"));
+        assert!(source.contains("Rel32CallHookContainer<RecreateFn>"));
+        assert!(source.contains("PointerSlotHookContainer<RenderGeometryFn>"));
+        assert!(!source.contains(&["0x00E7_", "5000"].concat()));
+        assert!(!source.contains(&["0x00E7_", "3EB0"].concat()));
+        assert!(!source.contains(&["0x00E7_", "45A0"].concat()));
+        assert!(!source.contains(&["0x00E7_", "4840"].concat()));
         let obsolete_draw_owner = ["COMMON_SHADER", "_DRAW_ADDR"].concat();
         assert!(!source.contains(&obsolete_draw_owner));
     }
 
     #[test]
-    fn display_scene_services_omv_before_engine_presentation() {
+    fn frame_present_services_omv_and_completes_the_epoch() {
         let source = include_str!("hooks.rs");
         let body = source
-            .split_once("unsafe extern \"thiscall\" fn display_scene_detour")
+            .split_once("pub(crate) fn on_frame_present")
             .map(|(_, tail)| tail)
             .and_then(|tail| tail.split_once("unsafe extern \"thiscall\" fn recreate_detour"))
             .map(|(body, _)| body)
-            .expect("DisplayScene detour body");
+            .expect("OnFramePresent body");
+        let arrival = body
+            .find("runtime::present_frame_started_at")
+            .expect("presentation timing arrival");
         let apply = body
             .find("runtime::apply_present_frame")
             .expect("OMV presentation service");
-        let native = body
-            .find("original(renderer)")
-            .expect("engine presentation");
         let finish = body
             .find("runtime::finish_present_frame")
             .expect("OMV presentation completion");
-        assert!(apply < native);
-        assert!(native < finish);
+        let epoch = body.find("advance_render_epoch").expect("epoch completion");
+        assert!(arrival < apply);
+        assert!(apply < finish);
+        assert!(finish < epoch);
+        assert!(!body.contains("original(renderer)"));
+    }
+
+    #[test]
+    fn recreate_releases_before_invoking_its_exact_predecessor() {
+        let source = include_str!("hooks.rs");
+        let body = source
+            .split_once("unsafe extern \"thiscall\" fn recreate_detour")
+            .and_then(|(_, tail)| {
+                tail.split_once("unsafe extern \"thiscall\" fn render_tri_shape_detour")
+            })
+            .map(|(body, _)| body)
+            .expect("Recreate caller wrapper");
+        let release = body
+            .find("runtime::try_release_device_resources")
+            .expect("resource release");
+        let native = body[release..]
+            .find("original(renderer, request_a, request_b)")
+            .map(|offset| release + offset)
+            .expect("captured predecessor after resource release");
+        let republish = body
+            .find("backend::publish_d3d_device")
+            .expect("device republish");
+        assert!(release < native);
+        assert!(native < republish);
     }
 
     #[test]

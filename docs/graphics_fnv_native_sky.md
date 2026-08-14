@@ -17,9 +17,12 @@ as a performance shortcut.
 ## Ownership and Draw Flow
 
 `omv/src/effects/sky.rs` owns installation, compilation, D3D resources, draw
-classification, constants, binding, and restoration. The hook at the proven
-`SkyShader::UpdateConstants` entry observes the current property object type and
-native vertex/pixel wrapper identities after the engine updates its constants.
+classification, constants, binding, and restoration. At `DeferredInit`, OMV
+resolves the live selector-index-10 object cached at `0x011F9570` and chains
+its current vtable slot `+0x7C` with an ownership-aware compare-exchange hook.
+The captured predecessor runs first; OMV then observes the current property
+object type and native vertex/pixel wrapper identities after the engine updates
+its constants.
 Only the atmosphere `(0,0)`, celestial `(1,1)`, moon-mask `(2,1)`, stars `(4,4)`,
 and clouds `(6,1)` pairs are admitted. Missing shader resources, textures, frame
 data, or current-pair identity leave that draw native.
@@ -30,14 +33,13 @@ device. The replacement is bound immediately before the native draw and the
 exact native pair is restored at the draw boundary. No engine shader wrapper is
 rewritten.
 
-The constants and DP/DIP hooks are prepared for live re-enable but physically
-attached only while native sky (or another native replacement requiring the
-shared draw boundary) is enabled. Disabling native sky first restores any
-draw-scoped replacement pair, releases sky D3D shader objects and pending
-state, restores the original `SkyShader::UpdateConstants` entry, and then lets
-the shared hook owner detach DP/DIP when no PBR consumer remains. Compiled
-bytecode is retained and device objects are recreated incrementally after
-re-enable.
+The selector-slot and renderer-geometry hooks are installed once at
+`DeferredInit`, including when native sky starts disabled, and remain resident
+for process lifetime. Runtime enable/disable changes passive atomics and
+resources only; it never rewrites a live engine entry or slot. Disabling native
+sky restores any draw-scoped replacement pair, releases sky D3D shader objects
+and pending state, and leaves the resident routes inert. Compiled bytecode is
+retained and device objects are recreated incrementally after re-enable.
 
 Frame colors and sun values come from the copied `NativeSkyFrame` backend
 snapshot. OMV now linearizes colors, evaluates sun/sunset values, and prepares
@@ -107,3 +109,62 @@ Repository validation on 2026-07-22 passed all 254 OMV tests and the supported
 release build for `i686-pc-windows-gnu`. Shader compilation and the static GPU
 budgets are therefore proven; visual parity and delivered frame time remain an
 in-game acceptance step.
+
+## Mod-Agnostic Slot Migration Contract (2026-08-14)
+
+Status: implemented and focused-test accepted in source on 2026-08-14; runtime
+startup, visual, compatibility, and performance acceptance remain open.
+
+The supported executable is PE32 x86 with image base `0x00400000` and SHA-256
+`42fee7d6cd74e801372aa89c8f71c974cebd3c20ec9ad43d1465b8fa9646b49c`.
+Focused radare2 inspection closes the object, dispatch, ABI, and lifetime
+contract needed to stop claiming the shared `0x00B89D80` function entry:
+
+- generic shader lookup `0x00B55560` uses the cache at `0x011F9548`; case 10
+  constructs the sky selector through `0x00B8A390`, so its cache slot is
+  `0x011F9548 + 10 * 4 = 0x011F9570`;
+- `0x00B8A390` allocates the `0xF0`-byte object and calls constructor
+  `0x00B8A1F0`;
+- `0x00B8A1F0` calls the shader-selector base constructor and then writes the
+  derived vptr `0x010AFE18` before constructing the vertex/pixel wrapper arrays
+  at `+0x98/+0xC4`;
+- vtable address `0x010AFE18 + 0x7C = 0x010AFE94` contains
+  `SkyShader::UpdateConstants @ 0x00B89D80`;
+- generic draw dispatcher `0x00B98E80` loads the current selector into `ESI`.
+  At `0x00B98FD9..0x00B98FE1` it loads virtual slot `+0x7C`, pushes the
+  property-state pointer, restores the selector in `ECX`, and calls the slot.
+  This proves the current OMV type
+  `unsafe extern "thiscall" fn(*mut c_void, *const c_void)`;
+- shader teardown `0x00B54280` decrements and nulls all cached selector objects
+  at engine shutdown. The slot hook must therefore be process-retained and may
+  not inspect the object during teardown.
+
+At `DeferredInit`, the implementation reads the live selector pointer from
+`0x011F9570`, validates its current vptr and executable `+0x7C` target, and uses
+an ownership-aware compare-exchange slot hook. The predecessor actually found
+in the live slot is authoritative; a cloned vtable installed by another plugin
+is chainable when it remains live and ABI-compatible. A missing object,
+unreadable slot, null/non-executable predecessor, or compare-exchange mismatch
+disables native sky only.
+
+The hook keeps the existing call order: invoke the captured predecessor first,
+then classify the completed native constants and publish a pending sky draw.
+It must never inspect another module to decide admission and must never fall
+back to the shared function entry or a live D3D9 device vtable.
+
+The diagnostics UI reports selector-slot, geometry, and shared texture-mirror
+availability separately. A configured sky feature is reported as
+dependency-blocked when its own selector route exists but geometry or texture
+observation does not. Captured predecessor module/address labels are
+presentation-only evidence and never influence admission.
+
+The source-level migration removes the production `0x00B89D80` shared-entry
+detour, keeps the established predecessor-first constant classification, and
+adds no render-time scan, allocation, module lookup, or blocking lock. The
+required BaseObjectSwapper cold starts, special sky-path captures, reset tests,
+and NVIDIA/AMD timing comparison have not yet been performed for this artifact.
+
+The containing 2026-08-14 source state passes all 643 explicit-target OMV
+tests and the supported optimized OMV build. This proves compilation, static
+slot ownership, and established shader contracts only; the runtime gates above
+remain open.

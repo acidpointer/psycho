@@ -17,6 +17,7 @@ mod fnv_world_pipeline;
 mod graphics_diagnostics;
 mod hooks;
 mod input;
+mod interop;
 mod luts;
 mod nvse_plugin;
 mod plugininfo;

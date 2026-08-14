@@ -4,8 +4,12 @@
 
 This is a source, executable, and runtime-evidence comparison, not an
 implementation plan. It traces the two NVR source snapshots under `.research/`,
-the current OMV implementation, the exact FalloutNV.exe hook targets, and the
-available OMV/NVR runtime records as of 2026-08-09.
+the then-current OMV implementation, the exact FalloutNV.exe hook targets, and
+the available OMV/NVR runtime records as of 2026-08-09. The source result of
+the later 2026-08-14 mod-agnostic migration is recorded in
+"Implemented Interoperability Architecture" below; older "current OMV" flow
+descriptions remain the research baseline against which that migration was
+designed, not a description of current hook ownership.
 
 The resulting staged implementation plan is
 `docs/graphics_fnv_omv_nvidia_1fps_remediation_plan.md`. It converts the
@@ -46,7 +50,8 @@ omissions in the original ranking:
 
 Those omissions materially change the leading root-cause assessment below.
 
-No OMV code was changed for this research. The intended outcomes are:
+No OMV code was changed during the original research pass. Its intended
+outcomes were:
 
 - identify the D3D9 and engine-hook behavior common to both NVR generations;
 - distinguish the normal NVR path from optional debugging infrastructure;
@@ -2197,6 +2202,104 @@ counter. It must demonstrate on native Windows/NVIDIA:
 - steady fallback commits and unexpected raw shader flips are zero or have a
   documented bounded reason;
 - per-boundary timings show which removed work produced the gain.
+
+## Mod-Agnostic Selector Slot Closure (2026-08-14)
+
+The supported `FalloutNV.exe` was reopened through the repository radare2 MCP
+and its SHA-256 reconfirmed as
+`42fee7d6cd74e801372aa89c8f71c974cebd3c20ec9ad43d1465b8fa9646b49c`.
+This focused pass closes the two vtable gaps required by the mod-agnostic
+interoperability design. It does not identify the mod associated with the
+reported NVIDIA failure.
+
+### PPLighting selection
+
+Proven facts:
+
+- lookup `0x00B55560` owns the selector cache at `0x011F9548`; case 4 calls
+  factory `0x00BD4750` and stores the result in index-4 slot `0x011F9558`;
+- the factory allocates `0x12C` bytes and calls constructor `0x00BD44C0`;
+- the constructor calls base constructor `0x00B79B00`, which initially writes
+  base vptr `0x010AF2F8`, and then replaces it with the PPLighting derived vptr
+  `0x010BC070`;
+- derived slot `+0xF4` at `0x010BC164` contains
+  `SetShaders @ 0x00BE1F90`;
+- dispatcher `0x00B99390` invokes that slot at
+  `0x00B99479..0x00B99482` with `ECX = selector` and the pass index as its one
+  stack argument;
+- teardown `0x00B54280` releases and nulls the global selector cache.
+
+This proves a safe, family-specific pointer-slot intervention. The current
+entry hook observes every shader family sharing `0x00BE1F90`; the derived
+index-4 slot observes only PPLighting, which owns the shader arrays and pass
+families OMV already admits. A future implementation must resolve and validate
+the live index-4 object at `DeferredInit`, capture its current `+0xF4` target,
+and compare-exchange that slot without assuming the vanilla vtable is still
+installed.
+
+### Native sky constants
+
+Proven facts:
+
+- the same lookup uses case 10 for factory `0x00B8A390`, whose cache slot is
+  `0x011F9570`;
+- the factory allocates `0xF0` bytes and calls constructor `0x00B8A1F0`;
+- the constructor writes derived SkyShader vptr `0x010AFE18` and constructs
+  the established vertex/pixel arrays at `+0x98/+0xC4`;
+- derived slot `+0x7C` at `0x010AFE94` contains
+  `UpdateConstants @ 0x00B89D80`;
+- generic draw dispatcher `0x00B98E80` invokes that slot at
+  `0x00B98FD9..0x00B98FE1` with `ECX = selector` and the property-state pointer
+  as its one stack argument;
+- the same `0x00B54280` teardown owns the cached object's final release.
+
+This proves the current two-argument thiscall ABI and a family-specific slot
+that can chain the live predecessor. Failure to validate or acquire that slot
+must disable native sky only; it does not justify returning to the shared
+function entry or inspecting an external module.
+
+### Evidence classification
+
+The addresses, constructor writes, cache slots, virtual dispatches, calling
+conventions, and teardown above are direct executable facts. Treating a
+current live cloned vtable as a cooperative owner is the planned capability
+policy, not proof that any installed mod actually clones either vtable. The
+effect on NVIDIA performance remains a runtime hypothesis until the affected
+full-modlist matrix is measured.
+
+## Implemented Interoperability Architecture (2026-08-14)
+
+The source implementation now follows the mod-agnostic conclusion of this
+research. Shared callee-entry ownership has been replaced as follows:
+
+- xNVSE `OnFramePresent` replaces the `DisplayScene` entry detour;
+- exact direct callers own Recreate, ImageSpace, Water, World, FirstPerson,
+  PreAlpha, shader-package transitions, three shadow variants, and completed
+  local-shadow observation;
+- live engine vtable slots own renderer geometry, render-state texture
+  observation, PPLighting selection, and SkyShader constants;
+- shader-creation interception is removed, with existing-wrapper and first-use
+  adoption covering startup, runtime enable, and reload cases;
+- terrain admission validates the exact consumed shader rows, wrapper vtables,
+  native handles, SLS/package state, and resources rather than a module name;
+- optional groups fail independently, while reset remains the essential
+  lifecycle gate;
+- a read-only startup/UI matrix reports capability state and captured
+  predecessor module/address without using either as behavior policy.
+
+The reusable `Rel32CallHook` accepts only a complete five-byte `E8 rel32`; the
+reusable `PointerSlotHook` uses compare-exchange. Both retain the captured
+predecessor lock-free, refuse changed ownership, and do not overwrite a later
+owner during rollback. Multi-member routes use `ModificationTransaction` and
+publish only after complete commit.
+
+This closes the known architectural class in source: OMV no longer requires
+vanilla bytes at the shared graphics functions implicated by the fresh mod
+conflict. It does not prove that every unknown predecessor is ABI-compatible,
+that the original NVIDIA performance cliff is removed, or which installed mod
+caused it. Those are runtime questions. A rejected callsite/slot fails only its
+documented consumer, and the BaseObjectSwapper cold-start, full mod matrix,
+visual, reset, NVIDIA, and AMD gates remain open for this artifact.
 
 ## Proven facts, inferences, and open questions
 

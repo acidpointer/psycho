@@ -835,10 +835,13 @@ Do not repeat:
 
 Correct fix path:
 
-- Treat shader creation hooks as optional eager ownership probes.
-- If creation hooks are unavailable, log the collision and continue with lazy shader ownership from active draw-time shader wrappers.
-- Keep `SetShaders`, `SetTexture`, selector setup, and pass shader-interface hooks as the mandatory install contract.
-- If the mandatory draw-time hooks collide, block native PBR and report the exact failed hook.
+- Do not hook the two shared shader-creation entries.
+- Adopt existing wrappers once at `DeferredInit`, and lazily adopt a new or
+  reloaded wrapper on first observed use.
+- Chain `SetShaders` through the live PPLighting selector slot and `SetTexture`
+  through the live render-state slot. If either mandatory slot cannot be
+  chained, block native PBR and report that capability without disabling
+  unrelated OMV effects.
 
 ### 10. Runtime Toggle Rewrote Stale Shader Handles
 
@@ -873,18 +876,16 @@ Correct fix path:
 - Restore only the temporary D3D shader pair owned by the current draw.
 - Use one explicit object settings snapshot and one explicit terrain snapshot shared by close terrain, terrain fade, and LandLOD. Do not let hidden profiles or legacy generic keys override either family; retire legacy keys during config save.
 
-The 2026-07-29 disabled-baseline optimization preserves this rule. PBR engine
-hooks remain installed, but hot `SetShaders`/`SetTexture` detours test the
-configured atomic immediately after acquiring their predecessor and skip
-selector reads and sampler tracking while disabled. Shader-creation hooks still
-record their one-time wrapper identities: those initialization events may not
-repeat after an in-game enable, and they are not steady-state draw overhead.
-The engine DisplayScene boundary first closes the active draw/batch scope,
-then releases only PBR-owned D3D resources and sampler diagnostics. It does
-not disable the engine hooks,
-restore wrapper handles, clear observed wrapper identities, or tear down
-shared engine contracts. OMV no longer installs device DP/DIP detours; the
-resident common engine shader-draw hook uses the same passive atomic gate.
+The 2026-08-14 interoperability migration preserves this rule. PBR engine-slot
+hooks remain installed, but hot `SetShaders`/`SetTexture` observers use passive
+configured atomics and skip replacement work while disabled. Wrapper identity
+comes from startup and first-use adoption; no shader-creation entry is hooked.
+xNVSE `OnFramePresent` closes outstanding draw/batch scope and services only
+PBR-owned D3D resources and sampler diagnostics. It does not disable engine
+hooks, restore unowned wrapper handles, clear adopted identities, or tear down
+shared engine contracts. Geometry interception uses the two live renderer
+submission slots rather than device DP/DIP detours or the shared
+`SetupGeometry` implementation.
 
 ### 11. One Shader Edit Disabled All Close Terrain During Warmup
 
@@ -1622,3 +1623,70 @@ not the accepted startup baseline, so this static footprint evidence does not
 waive the three-cold-start gate.
 This evidence closes static integration only; the startup, image, AMD, and
 NVIDIA runtime gates above remain open.
+
+## Mod-Agnostic PPLighting Slot Closure (2026-08-14)
+
+Status: implemented and focused-test accepted in source on 2026-08-14; runtime
+startup, visual, compatibility, and performance acceptance remain open.
+
+The supported executable is PE32 x86 with image base `0x00400000` and SHA-256
+`42fee7d6cd74e801372aa89c8f71c974cebd3c20ec9ad43d1465b8fa9646b49c`.
+Focused radare2 inspection corrects an important vtable distinction and closes
+the safe slot contract:
+
+- `0x010AF2F8` is the base selector vptr written by base constructor
+  `0x00B79B00`; it is not the final PPLighting vptr and must not be patched for
+  PBR selection;
+- generic shader lookup `0x00B55560` uses the cache at `0x011F9548`; case 4
+  constructs the PPLighting selector through `0x00BD4750`, so its cache slot is
+  `0x011F9548 + 4 * 4 = 0x011F9558`;
+- `0x00BD4750` allocates `0x12C` bytes and calls derived constructor
+  `0x00BD44C0`;
+- `0x00BD44C0` calls the base selector constructor and then writes derived
+  vptr `0x010BC070` before constructing its material arrays;
+- vtable address `0x010BC070 + 0xF4 = 0x010BC164` contains
+  `BSShader::SetShaders @ 0x00BE1F90`;
+- setup dispatcher `0x00B99390` receives the current selector and pass index.
+  At `0x00B99479..0x00B99482` it loads virtual slot `+0xF4`, pushes the pass
+  index, restores the selector in `ECX`, and calls the slot. This proves the
+  current OMV type `unsafe extern "thiscall" fn(*mut c_void, u32)`;
+- the selector's existing PPLighting vertex/pixel arrays and pass identity
+  contracts therefore remain available without intercepting the other shader
+  families that also share the common `0x00BE1F90` implementation;
+- teardown `0x00B54280` decrements and nulls the global selector cache at
+  engine shutdown. The committed hook and predecessor publication must be
+  retained for process lifetime and must not dereference the object during
+  teardown.
+
+At `DeferredInit`, the implementation reads the live index-4 selector from
+the current vptr and executable `+0xF4` predecessor, and install through the
+ownership-aware pointer-slot primitive. Capture the pointer actually present
+in the live slot so a compatible cloned vtable chains correctly. A missing
+selector, unreadable slot, invalid predecessor, or compare-exchange mismatch
+blocks PBR selection only.
+
+This intervention deliberately narrows interception from every shader class
+sharing `0x00BE1F90` to the PPLighting family that owns OMV object, LandLOD,
+terrain-fade, and close-terrain replacement contracts. It preserves the
+existing temporary wrapper-handle override around exactly one predecessor call
+and leaves the engine render-state cache authoritative. It does not authorize
+entry-hook fallback, module detection, D3D getter-based admission, or mutation
+of the selector object's lifetime.
+
+The source migration also chains the two `SetShaderPackage` callers at
+`0x004DB187` and `0x004DCB9D` in the same ownership transaction as the
+validated lifetime patch, removes `CreateVertexShader`/`CreatePixelShader`
+interception, and replaces provider-filename terrain admission with a bounded
+probe of the exact wrapper rows, stage vtables, native handles, and package/SLS
+contracts OMV consumes. A shader reload repeats that functional probe.
+
+The Diagnostics tab reports PBR selection, texture mirror, package, terrain,
+and geometry independently. Captured predecessor module/address labels are
+evidence only; module identity cannot enable, disable, or select any PBR path.
+The BaseObjectSwapper cold-start gate and affected NVIDIA/AMD runtime matrix
+remain required for this pre-Deferred-footprint-changing artifact.
+
+The containing 2026-08-14 source state passes all 37 explicit-target shared
+hook tests, all 643 explicit-target OMV tests, the optimized OMV build, and the
+complete supported FNV release build. These results prove static integration,
+not startup safety, image correctness, or delivered performance.

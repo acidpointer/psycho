@@ -22,7 +22,7 @@ use std::{
 };
 
 use libpsycho::os::windows::{
-    hook::{inline::inlinehook::InlineHookContainer, transaction::ModificationTransaction},
+    hook::{callsite::Rel32CallHookContainer, transaction::ModificationTransaction},
     memory::validate_memory_range,
     patch::OwnedCodePatch,
 };
@@ -41,8 +41,8 @@ const EYE_POSITION_REFRESH_INTERVAL_FRAMES: u32 = 240;
 const SHADER_PACKAGE_CURRENT_ADDR: usize = 0x011F91C0;
 const SHADER_PACKAGE_MAX_ADDR: usize = 0x011F91BC;
 const NVR_SHADER_PACKAGE_SLS2: u32 = 7;
-const SET_SHADER_PACKAGE_ADDR: usize = 0x00B4F710;
-const SET_SHADER_PACKAGE_PROLOGUE: &[u8] = &[0x8B, 0x4C, 0x24, 0x04, 0x8B, 0x54, 0x24, 0x08, 0x56];
+const SET_SHADER_PACKAGE_STARTUP_CALL_ADDR: usize = 0x004DB187;
+const SET_SHADER_PACKAGE_RELOAD_CALL_ADDR: usize = 0x004DCB9D;
 const SHADER_PACKAGE_LIFETIME_BRANCH_ADDR: usize = 0x00B575AA;
 const SHADER_PACKAGE_LIFETIME_VANILLA_JZ: u8 = 0x74;
 const SHADER_PACKAGE_LIFETIME_NVR_JNZ: u8 = 0x75;
@@ -89,8 +89,10 @@ static EYE_POSITION_REFRESH_FRAME: AtomicU32 = AtomicU32::new(0);
 
 type SetShaderPackageFn = unsafe extern "cdecl" fn(i32, i32, u8, i32, *mut c_char, i32);
 
-static SET_SHADER_PACKAGE_HOOK: LazyLock<InlineHookContainer<SetShaderPackageFn>> =
-    LazyLock::new(InlineHookContainer::new);
+static SET_SHADER_PACKAGE_STARTUP_HOOK: LazyLock<Rel32CallHookContainer<SetShaderPackageFn>> =
+    LazyLock::new(Rel32CallHookContainer::new);
+static SET_SHADER_PACKAGE_RELOAD_HOOK: LazyLock<Rel32CallHookContainer<SetShaderPackageFn>> =
+    LazyLock::new(Rel32CallHookContainer::new);
 static SHADER_PACKAGE_LIFETIME_PATCH: OwnedCodePatch = OwnedCodePatch::new(
     "FNV shader-package lifetime branch",
     SHADER_PACKAGE_LIFETIME_BRANCH_ADDR,
@@ -161,9 +163,19 @@ pub(super) fn install_core_contracts() {
     }
 }
 
-/// Publish compatibility detection for the executable-specific terrain ABI.
-pub(super) fn set_terrain_contract_available(available: bool) {
+/// Probe and publish the live executable/resource terrain contract.
+///
+/// Provider filenames are intentionally absent. Availability follows the
+/// package lifetime, constant publication, exact wrapper rows, stage vtables,
+/// and native shader resources that OMV actually consumes. A later native
+/// shader-package transition repeats this bounded probe so an FSL-style reload
+/// can replace wrappers without needing a provider-specific adapter.
+pub(super) fn probe_terrain_contract() -> bool {
+    let available = eye_position_ready()
+        && shader_package_lifetime_ready()
+        && super::hooks::probe_terrain_shader_contract();
     TERRAIN_CONTRACT_AVAILABLE.store(available, Ordering::Release);
+    available
 }
 
 /// Return whether the executable-specific terrain ABI is available.
@@ -175,6 +187,13 @@ pub(super) fn terrain_contract_available() -> bool {
 pub(super) fn shader_package_lifetime_ready() -> bool {
     SHADER_PACKAGE_LIFETIME_READY.load(Ordering::Acquire)
         && SHADER_PACKAGE_TRANSITION_READY.load(Ordering::Acquire)
+}
+
+pub(super) fn shader_package_predecessors() -> [Option<usize>; 2] {
+    [
+        SET_SHADER_PACKAGE_STARTUP_HOOK.predecessor_address().ok(),
+        SET_SHADER_PACKAGE_RELOAD_HOOK.predecessor_address().ok(),
+    ]
 }
 
 /// Return whether the complete supported SLS range publishes eye position.
@@ -420,11 +439,41 @@ fn object_distance_fade_weight(
 
 #[cfg(test)]
 mod tests {
-    use super::{SetShaderPackageFn, hook_set_shader_package, object_specular_fade_weight};
+    use super::{
+        SetShaderPackageFn, hook_set_shader_package_reload, hook_set_shader_package_startup,
+        object_specular_fade_weight,
+    };
 
     #[test]
-    fn shader_package_detour_uses_the_executable_proven_cdecl_abi() {
-        let _: SetShaderPackageFn = hook_set_shader_package;
+    fn shader_package_callsite_wrappers_use_the_executable_proven_cdecl_abi() {
+        let _: SetShaderPackageFn = hook_set_shader_package_startup;
+        let _: SetShaderPackageFn = hook_set_shader_package_reload;
+    }
+
+    #[test]
+    fn shader_package_owns_only_the_two_proven_direct_callers() {
+        let source = include_str!("engine_contracts.rs");
+        assert!(source.contains("SET_SHADER_PACKAGE_STARTUP_CALL_ADDR"));
+        assert!(source.contains("SET_SHADER_PACKAGE_RELOAD_CALL_ADDR"));
+        assert!(source.contains("Rel32CallHookContainer<SetShaderPackageFn>"));
+        assert!(!source.contains(&["0x00B4", "F710"].concat()));
+        assert!(!source.contains(&["SET_SHADER_PACKAGE_", "PROLOGUE"].concat()));
+    }
+
+    #[test]
+    fn terrain_admission_uses_live_contracts_not_module_identity() {
+        let source = include_str!("engine_contracts.rs");
+        let probe = source
+            .split_once("pub(super) fn probe_terrain_contract()")
+            .and_then(|(_, tail)| tail.split_once("pub(super) fn terrain_contract_available"))
+            .map(|(body, _)| body)
+            .expect("functional terrain probe");
+
+        assert!(probe.contains("eye_position_ready()"));
+        assert!(probe.contains("shader_package_lifetime_ready()"));
+        assert!(probe.contains("probe_terrain_shader_contract()"));
+        assert!(!probe.contains("module"));
+        assert!(!probe.contains("dll"));
     }
 
     #[test]
@@ -655,7 +704,9 @@ fn service_eye_position_contract() {
 }
 
 fn prepare_shader_package_transition_hook() -> bool {
-    if SET_SHADER_PACKAGE_HOOK.is_initialized() {
+    if SET_SHADER_PACKAGE_STARTUP_HOOK.is_initialized()
+        && SET_SHADER_PACKAGE_RELOAD_HOOK.is_initialized()
+    {
         return true;
     }
     if validate_memory_range(
@@ -667,18 +718,29 @@ fn prepare_shader_package_transition_hook() -> bool {
         SHADER_PACKAGE_TRANSITION_READY.store(false, Ordering::Release);
         return false;
     }
-    let Some(target) = super::hooks::resolve_hook_target(
-        SET_SHADER_PACKAGE_ADDR,
-        SET_SHADER_PACKAGE_PROLOGUE,
-        "SetShaderPackage",
-    ) else {
+    if !SET_SHADER_PACKAGE_STARTUP_HOOK.is_initialized()
+        && let Err(error) = unsafe {
+            SET_SHADER_PACKAGE_STARTUP_HOOK.init(
+                "FNV startup SetShaderPackage caller",
+                SET_SHADER_PACKAGE_STARTUP_CALL_ADDR as *mut c_void,
+                hook_set_shader_package_startup,
+            )
+        }
+    {
+        log::warn!("[PBR] Startup SetShaderPackage callsite skipped: {error}");
         SHADER_PACKAGE_TRANSITION_READY.store(false, Ordering::Release);
         return false;
-    };
-    if let Err(err) = unsafe {
-        SET_SHADER_PACKAGE_HOOK.init("FNV SetShaderPackage", target, hook_set_shader_package)
-    } {
-        log::warn!("[PBR] SetShaderPackage hook skipped: {err}");
+    }
+    if !SET_SHADER_PACKAGE_RELOAD_HOOK.is_initialized()
+        && let Err(error) = unsafe {
+            SET_SHADER_PACKAGE_RELOAD_HOOK.init(
+                "FNV reload SetShaderPackage caller",
+                SET_SHADER_PACKAGE_RELOAD_CALL_ADDR as *mut c_void,
+                hook_set_shader_package_reload,
+            )
+        }
+    {
+        log::warn!("[PBR] Reload SetShaderPackage callsite skipped: {error}");
         SHADER_PACKAGE_TRANSITION_READY.store(false, Ordering::Release);
         return false;
     }
@@ -691,7 +753,7 @@ fn prepare_shader_package_transition_hook() -> bool {
 /// other is restored before gameplay can observe a partial package contract;
 /// no frame-service callback writes executable bytes or changes protection.
 fn install_shader_package_contract() -> bool {
-    if SET_SHADER_PACKAGE_HOOK.is_enabled() {
+    if SET_SHADER_PACKAGE_STARTUP_HOOK.is_enabled() && SET_SHADER_PACKAGE_RELOAD_HOOK.is_enabled() {
         let ready = SHADER_PACKAGE_LIFETIME_PATCH.verify().is_ok();
         SHADER_PACKAGE_LIFETIME_READY.store(ready, Ordering::Release);
         SHADER_PACKAGE_TRANSITION_READY.store(ready, Ordering::Release);
@@ -702,16 +764,28 @@ fn install_shader_package_contract() -> bool {
         SHADER_PACKAGE_TRANSITION_READY.store(false, Ordering::Release);
         return false;
     }
-
-    let mut transaction = ModificationTransaction::new();
-    if let Err(error) = transaction.apply_patch(&SHADER_PACKAGE_LIFETIME_PATCH) {
-        log::warn!("[PBR] Shader package lifetime preflight/apply failed: {error}");
+    if let Err(error) = SHADER_PACKAGE_LIFETIME_PATCH.verify() {
+        log::warn!("[PBR] Shader package lifetime preflight failed: {error}");
         SHADER_PACKAGE_LIFETIME_READY.store(false, Ordering::Release);
         SHADER_PACKAGE_TRANSITION_READY.store(false, Ordering::Release);
         return false;
     }
-    if let Err(error) = transaction.enable_inline(&SET_SHADER_PACKAGE_HOOK) {
-        log::warn!("[PBR] SetShaderPackage hook activation failed: {error}");
+
+    let mut transaction = ModificationTransaction::new();
+    if let Err(error) = transaction.enable_callsite(&SET_SHADER_PACKAGE_STARTUP_HOOK) {
+        log::warn!("[PBR] Startup SetShaderPackage callsite activation failed: {error}");
+        SHADER_PACKAGE_LIFETIME_READY.store(false, Ordering::Release);
+        SHADER_PACKAGE_TRANSITION_READY.store(false, Ordering::Release);
+        return false;
+    }
+    if let Err(error) = transaction.enable_callsite(&SET_SHADER_PACKAGE_RELOAD_HOOK) {
+        log::warn!("[PBR] Reload SetShaderPackage callsite activation failed: {error}");
+        SHADER_PACKAGE_LIFETIME_READY.store(false, Ordering::Release);
+        SHADER_PACKAGE_TRANSITION_READY.store(false, Ordering::Release);
+        return false;
+    }
+    if let Err(error) = transaction.apply_patch(&SHADER_PACKAGE_LIFETIME_PATCH) {
+        log::warn!("[PBR] Shader package lifetime apply failed: {error}");
         SHADER_PACKAGE_LIFETIME_READY.store(false, Ordering::Release);
         SHADER_PACKAGE_TRANSITION_READY.store(false, Ordering::Release);
         return false;
@@ -723,7 +797,7 @@ fn install_shader_package_contract() -> bool {
     true
 }
 
-unsafe extern "cdecl" fn hook_set_shader_package(
+unsafe extern "cdecl" fn hook_set_shader_package_startup(
     arg1: i32,
     arg2: i32,
     force_1x_shaders: u8,
@@ -731,17 +805,67 @@ unsafe extern "cdecl" fn hook_set_shader_package(
     graphics_name: *mut c_char,
     arg6: i32,
 ) {
-    let Ok(original) = SET_SHADER_PACKAGE_HOOK.original() else {
+    let Ok(original) = SET_SHADER_PACKAGE_STARTUP_HOOK.original() else {
         return;
     };
     unsafe {
-        original(arg1, arg2, force_1x_shaders, arg4, graphics_name, arg6);
-    }
+        forward_shader_package(
+            original,
+            arg1,
+            arg2,
+            force_1x_shaders,
+            arg4,
+            graphics_name,
+            arg6,
+        )
+    };
+}
+
+unsafe extern "cdecl" fn hook_set_shader_package_reload(
+    arg1: i32,
+    arg2: i32,
+    force_1x_shaders: u8,
+    arg4: i32,
+    graphics_name: *mut c_char,
+    arg6: i32,
+) {
+    let Ok(original) = SET_SHADER_PACKAGE_RELOAD_HOOK.original() else {
+        return;
+    };
+    unsafe {
+        forward_shader_package(
+            original,
+            arg1,
+            arg2,
+            force_1x_shaders,
+            arg4,
+            graphics_name,
+            arg6,
+        )
+    };
+}
+
+#[allow(clippy::too_many_arguments)]
+unsafe fn forward_shader_package(
+    original: SetShaderPackageFn,
+    arg1: i32,
+    arg2: i32,
+    force_1x_shaders: u8,
+    arg4: i32,
+    graphics_name: *mut c_char,
+    arg6: i32,
+) {
+    // The two callsites can have different predecessors when another graphics
+    // plugin owns only one transition. Keeping a container per callsite and
+    // passing that exact predecessor here avoids a global "original" that
+    // would silently skip or double-invoke one owner's chain.
+    unsafe { original(arg1, arg2, force_1x_shaders, arg4, graphics_name, arg6) };
     crate::graphics_diagnostics::add(
         crate::graphics_diagnostics::Counter::ShaderPackageTransition,
         1,
     );
     publish_shader_package_7();
+    probe_terrain_contract();
 }
 
 fn publish_shader_package_7() {

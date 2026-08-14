@@ -7,11 +7,12 @@
 //! only one frame out of a configured period.
 //!
 //! Callback writers touch fixed atomic storage only. They never allocate,
-//! format text, take a lock, submit a GPU query, or write a log. `DisplayScene`
-//! seals the sampled frame; a menu or an explicit diagnostic export may read
-//! the completed POD snapshot later. Timings are CPU wall-clock intervals. A
-//! long interval around D3D work can indicate a driver wait, but is not proof
-//! that the GPU spent the same duration executing that work.
+//! format text, take a lock, submit a GPU query, or write a log. The xNVSE
+//! `OnFramePresent` callback seals the sampled frame; a menu or an explicit
+//! diagnostic export may read the completed POD snapshot later. Timings are
+//! CPU wall-clock intervals. A long interval around D3D work can indicate a
+//! driver wait, but is not proof that the GPU spent the same duration executing
+//! that work.
 
 /// Cross-subsystem events that can multiply work within one presentation.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -116,7 +117,7 @@ impl Interval {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[allow(dead_code)] // Read by attribution builds/export tooling, not production UI.
 pub(crate) struct FrameSample {
-    /// Render epoch sealed by `DisplayScene`.
+    /// Render epoch sealed by xNVSE `OnFramePresent`.
     pub(crate) render_epoch: u32,
     /// Accumulated event counts indexed by [`Counter`] discriminant.
     pub(crate) counters: [u64; Counter::COUNT],
@@ -169,7 +170,7 @@ pub(crate) fn span(interval: Interval) -> Span {
     implementation::span(interval)
 }
 
-/// Seal and clear the current sampled frame at `DisplayScene`.
+/// Seal and clear the current sampled frame at xNVSE `OnFramePresent`.
 ///
 /// The next frame's sampling decision is made here, outside per-draw setup.
 /// The returned value reports whether the just-finished frame was sampled.

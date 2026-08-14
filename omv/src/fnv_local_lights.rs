@@ -1,14 +1,13 @@
 //! Coherent capture of Fallout New Vegas scene-wide local lights.
 //!
 //! The engine's native shadow prefix at `0x00871290` is a receiver-bearing
-//! thiscall selected by three mutually exclusive dispatcher branches. A small
-//! x86 ABI bridge preserves the incoming `ECX`, records the branch return and
-//! caller frame, and invokes one Rust transaction body without changing the
-//! native stack contract. Shadow replacement follows NVR and owns every call
-//! to the validated common entry. A bounded walk through executable-proven
-//! wrapper frames is used only by the adjacent scalar-light capture: only the
-//! exact direct and nested `0x0086FF70 -> 0x0086E650` chains may publish that
-//! gameplay POD, while menu and screenshot calls cannot replace it.
+//! thiscall reached by three proven direct callers. OMV chains each caller's
+//! current predecessor independently, so another plugin can own one route
+//! without being overwritten. Small x86 ABI bridges preserve `ECX` and the
+//! caller frame while encoding the main/special/screenshot branch statically.
+//! Exclusive native replacement remains available only while the shared
+//! implementation retains its exact vanilla prologue; cooperative scalar
+//! observation still surrounds a changed predecessor.
 //!
 //! Completed native shadow textures are inspected and retained once through
 //! COM. Published consumers borrow that retained identity directly. No later
@@ -35,17 +34,19 @@ use libpsycho::os::windows::{
         D3DFMT_A8R8G8B8, D3DFMT_R32F, D3DFORMAT, D3DPOOL_DEFAULT, D3DRTYPE_TEXTURE, Texture9,
         USAGE_RENDER_TARGET, raw_texture_2d_description,
     },
-    hook::inline::inlinehook::InlineHookContainer,
+    hook::{callsite::Rel32CallHookContainer, transaction::ModificationTransaction},
     memory::validate_memory_range,
 };
 use parking_lot::Mutex;
 
 const WORLD_LIGHT_EPOCH_ADDR: usize = 0x0087_1290;
+const WORLD_LIGHT_VARIANT_A_CALL_ADDR: usize = 0x0087_0851;
+const WORLD_LIGHT_VARIANT_B_CALL_ADDR: usize = 0x0087_0A74;
+const WORLD_LIGHT_VARIANT_C_CALL_ADDR: usize = 0x0087_0C3C;
 const WORLD_LIGHT_TAIL_ADDR: usize = 0x0087_1A50;
 const SHADOW_SCENE_MANAGER_GETTER_ADDR: usize = 0x0045_0B80;
-const RENDER_LOCAL_SHADOW_ADDR: usize = 0x00B9_F780;
+const RENDER_LOCAL_SHADOW_CALL_ADDR: usize = 0x00B5_B9DC;
 const WORLD_LIGHT_EPOCH_PROLOGUE: &[u8] = &[0x55, 0x8B, 0xEC, 0x81, 0xEC, 0x9C, 0x00, 0x00, 0x00];
-const RENDER_LOCAL_SHADOW_PROLOGUE: &[u8] = &[0x55, 0x8B, 0xEC, 0x83, 0xE4, 0xF0];
 const LOCAL_LIGHT_CAPACITY: usize = 16;
 const TERRAIN_LIGHT_CAPACITY: usize = 64;
 const NATIVE_SHADOW_CAPACITY: usize = 4;
@@ -88,9 +89,6 @@ const DX9_TEXTURE_DATA_SIZE: usize = 0x68;
 const DX9_TEXTURE_DATA_BASE_TEXTURE_OFFSET: usize = 0x64;
 const COM_TEXTURE_VTABLE_BYTES: usize = 0x50;
 
-const SHADOW_VARIANT_A_RETURN: usize = 0x0087_0856;
-const SHADOW_VARIANT_B_RETURN: usize = 0x0087_0A79;
-const SHADOW_VARIANT_C_RETURN: usize = 0x0087_0C41;
 const MAIN_RENDER_FIRST_RETURN: usize = 0x0087_0249;
 const MAIN_RENDER_SECOND_RETURN: usize = 0x0087_02AE;
 const WRAPPED_RENDER_RETURN: usize = 0x0087_21A9;
@@ -108,10 +106,14 @@ type WorldLightEpochFn = unsafe extern "thiscall" fn(*mut c_void);
 type ShadowSceneManagerGetterFn = unsafe extern "cdecl" fn(i32) -> *mut u8;
 type RenderLocalShadowFn = unsafe extern "thiscall" fn(*mut c_void, *mut c_void, i32);
 
-static WORLD_LIGHT_EPOCH_HOOK: LazyLock<InlineHookContainer<WorldLightEpochFn>> =
-    LazyLock::new(InlineHookContainer::new);
-static RENDER_LOCAL_SHADOW_HOOK: LazyLock<InlineHookContainer<RenderLocalShadowFn>> =
-    LazyLock::new(InlineHookContainer::new);
+static WORLD_LIGHT_VARIANT_A_HOOK: LazyLock<Rel32CallHookContainer<WorldLightEpochFn>> =
+    LazyLock::new(Rel32CallHookContainer::new);
+static WORLD_LIGHT_VARIANT_B_HOOK: LazyLock<Rel32CallHookContainer<WorldLightEpochFn>> =
+    LazyLock::new(Rel32CallHookContainer::new);
+static WORLD_LIGHT_VARIANT_C_HOOK: LazyLock<Rel32CallHookContainer<WorldLightEpochFn>> =
+    LazyLock::new(Rel32CallHookContainer::new);
+static RENDER_LOCAL_SHADOW_HOOK: LazyLock<Rel32CallHookContainer<RenderLocalShadowFn>> =
+    LazyLock::new(Rel32CallHookContainer::new);
 
 static STAGING: LazyLock<Mutex<StagingEpoch>> =
     LazyLock::new(|| Mutex::new(StagingEpoch::default()));
@@ -136,6 +138,7 @@ static TERRAIN_RENDER_SNAPSHOT: LazyLock<Mutex<TerrainRenderSnapshot>> =
 
 static HOOKS_READY: AtomicBool = AtomicBool::new(false);
 static SHADOW_HOOK_READY: AtomicBool = AtomicBool::new(false);
+static NATIVE_SHADOW_REPLACEMENT_READY: AtomicBool = AtomicBool::new(false);
 static ATMOSPHERE_CAPTURE_ENABLED: AtomicBool = AtomicBool::new(false);
 static TERRAIN_CAPTURE_ENABLED: AtomicBool = AtomicBool::new(false);
 static CAPTURE_ACTIVE: AtomicBool = AtomicBool::new(false);
@@ -415,6 +418,16 @@ pub(crate) struct LocalLightTelemetry {
     pub(crate) shadowed_lights: u32,
 }
 
+/// Hook ownership snapshot used only by startup and menu diagnostics.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct LocalLightInteropStatus {
+    pub(crate) epoch_ready: bool,
+    pub(crate) epoch_predecessors: [Option<usize>; 3],
+    pub(crate) completed_shadow_ready: bool,
+    pub(crate) completed_shadow_predecessor: Option<usize>,
+    pub(crate) native_shadow_replacement_ready: bool,
+}
+
 #[derive(Default)]
 struct StagingEpoch {
     render_epoch: u32,
@@ -482,6 +495,7 @@ struct ResolvedTexture {
 pub(crate) fn install_hooks() {
     HOOKS_READY.store(false, Ordering::Release);
     SHADOW_HOOK_READY.store(false, Ordering::Release);
+    NATIVE_SHADOW_REPLACEMENT_READY.store(false, Ordering::Release);
     LazyLock::force(&STAGING);
     LazyLock::force(&PUBLISHED);
     // Pay the fixed POD snapshot initialization at the established
@@ -489,58 +503,56 @@ pub(crate) fn install_hooks() {
     // absorb LazyLock initialization while the player is already rendering.
     LazyLock::force(&TERRAIN_RENDER_SNAPSHOT);
 
-    if !WORLD_LIGHT_EPOCH_HOOK.is_initialized() {
-        if !validate_exact_hook_entry(
-            WORLD_LIGHT_EPOCH_ADDR,
-            WORLD_LIGHT_EPOCH_PROLOGUE,
-            "scene-wide local-light epoch",
-        ) {
-            return;
-        }
-        if let Err(err) = unsafe {
-            WORLD_LIGHT_EPOCH_HOOK.init(
-                "FNV scene-wide local-light epoch",
-                WORLD_LIGHT_EPOCH_ADDR as *mut c_void,
-                hook_world_light_epoch,
-            )
-        } {
-            log::warn!(
-                "[ATMOSPHERE LOCAL] Scene epoch hook unavailable at 0x{WORLD_LIGHT_EPOCH_ADDR:08X}: {err}"
-            );
-            return;
-        }
-    }
-    if !WORLD_LIGHT_EPOCH_HOOK.is_enabled()
-        && let Err(err) = WORLD_LIGHT_EPOCH_HOOK.enable()
-    {
-        log::warn!("[ATMOSPHERE LOCAL] Scene epoch hook enable failed: {err}");
+    if !prepare_world_light_callsites() {
         return;
+    }
+    if !(WORLD_LIGHT_VARIANT_A_HOOK.is_enabled()
+        && WORLD_LIGHT_VARIANT_B_HOOK.is_enabled()
+        && WORLD_LIGHT_VARIANT_C_HOOK.is_enabled())
+    {
+        let mut world_transaction = ModificationTransaction::new();
+        for (hook, label) in [
+            (&*WORLD_LIGHT_VARIANT_A_HOOK, "main"),
+            (&*WORLD_LIGHT_VARIANT_B_HOOK, "special"),
+            (&*WORLD_LIGHT_VARIANT_C_HOOK, "screenshot"),
+        ] {
+            if let Err(error) = world_transaction.enable_callsite(hook) {
+                log::warn!("[ATMOSPHERE LOCAL] {label} scene-epoch callsite unavailable: {error}");
+                return;
+            }
+        }
+        world_transaction.commit();
     }
     HOOKS_READY.store(true, Ordering::Release);
 
+    // Observation is cooperative because each caller invokes its captured
+    // predecessor. Skipping the common native prefix is exclusive, so it is
+    // admitted only while the implementation still matches the proven bytes.
+    let replacement_ready = validate_exact_hook_entry(
+        WORLD_LIGHT_EPOCH_ADDR,
+        WORLD_LIGHT_EPOCH_PROLOGUE,
+        "native shadow replacement prefix",
+    );
+    NATIVE_SHADOW_REPLACEMENT_READY.store(replacement_ready, Ordering::Release);
+    if !replacement_ready {
+        log::warn!(
+            "[ATMOSPHERE LOCAL] Common shadow implementation is externally owned; scalar observation remains active and OMV native replacement is disabled"
+        );
+    }
+
     if !RENDER_LOCAL_SHADOW_HOOK.is_initialized() {
-        if !validate_exact_hook_entry(
-            RENDER_LOCAL_SHADOW_ADDR,
-            RENDER_LOCAL_SHADOW_PROLOGUE,
-            "completed local-shadow slot",
-        ) {
-            log::warn!(
-                "[ATMOSPHERE LOCAL] Optional shadow-slot enrichment unavailable; shadowless local volumes remain active"
-            );
-            return;
-        }
         if let Err(err) = unsafe {
             RENDER_LOCAL_SHADOW_HOOK.init(
-                "FNV completed local shadow slot",
-                RENDER_LOCAL_SHADOW_ADDR as *mut c_void,
+                "FNV completed local shadow caller",
+                RENDER_LOCAL_SHADOW_CALL_ADDR as *mut c_void,
                 hook_render_local_shadow,
             )
         } {
             log::warn!(
-                "[ATMOSPHERE LOCAL] Optional shadow-slot hook unavailable at 0x{RENDER_LOCAL_SHADOW_ADDR:08X}; shadowless local volumes remain active: {err}"
+                "[ATMOSPHERE LOCAL] Optional completed-shadow caller unavailable at 0x{RENDER_LOCAL_SHADOW_CALL_ADDR:08X}; shadowless local volumes remain active: {err}"
             );
             log::info!(
-                "[ATMOSPHERE LOCAL] Scene-wide shadowless capture installed at 0x{WORLD_LIGHT_EPOCH_ADDR:08X}"
+                "[ATMOSPHERE LOCAL] Scene-wide shadowless capture installed through three direct callers"
             );
             return;
         }
@@ -556,8 +568,49 @@ pub(crate) fn install_hooks() {
 
     SHADOW_HOOK_READY.store(true, Ordering::Release);
     log::info!(
-        "[ATMOSPHERE LOCAL] Scene-wide local-light capture with optional native-shadow enrichment installed at 0x{WORLD_LIGHT_EPOCH_ADDR:08X}/0x{RENDER_LOCAL_SHADOW_ADDR:08X}"
+        "[ATMOSPHERE LOCAL] Three scene-epoch callers and the completed-shadow caller chained"
     );
+}
+
+fn prepare_world_light_callsites() -> bool {
+    let routes = [
+        (
+            &*WORLD_LIGHT_VARIANT_A_HOOK,
+            WORLD_LIGHT_VARIANT_A_CALL_ADDR,
+            hook_world_light_variant_a as WorldLightEpochFn,
+            "main",
+        ),
+        (
+            &*WORLD_LIGHT_VARIANT_B_HOOK,
+            WORLD_LIGHT_VARIANT_B_CALL_ADDR,
+            hook_world_light_variant_b as WorldLightEpochFn,
+            "special",
+        ),
+        (
+            &*WORLD_LIGHT_VARIANT_C_HOOK,
+            WORLD_LIGHT_VARIANT_C_CALL_ADDR,
+            hook_world_light_variant_c as WorldLightEpochFn,
+            "screenshot",
+        ),
+    ];
+    for (hook, callsite, wrapper, label) in routes {
+        if hook.is_initialized() {
+            continue;
+        }
+        if let Err(error) = unsafe {
+            hook.init(
+                format!("FNV {label} scene-wide local-light caller"),
+                callsite as *mut c_void,
+                wrapper,
+            )
+        } {
+            log::warn!(
+                "[ATMOSPHERE LOCAL] {label} scene-epoch callsite unavailable at 0x{callsite:08X}: {error}"
+            );
+            return false;
+        }
+    }
+    true
 }
 
 /// Apply the atmosphere consumer's passive capture demand.
@@ -644,6 +697,20 @@ pub(crate) fn telemetry() -> LocalLightTelemetry {
         reset_busy: RESET_BUSY.load(Ordering::Relaxed),
         scene_lights: SCENE_LIGHTS.load(Ordering::Relaxed),
         shadowed_lights: SHADOWED_LIGHTS.load(Ordering::Relaxed),
+    }
+}
+
+pub(crate) fn interoperability_status() -> LocalLightInteropStatus {
+    LocalLightInteropStatus {
+        epoch_ready: HOOKS_READY.load(Ordering::Acquire),
+        epoch_predecessors: [
+            WORLD_LIGHT_VARIANT_A_HOOK.predecessor_address().ok(),
+            WORLD_LIGHT_VARIANT_B_HOOK.predecessor_address().ok(),
+            WORLD_LIGHT_VARIANT_C_HOOK.predecessor_address().ok(),
+        ],
+        completed_shadow_ready: SHADOW_HOOK_READY.load(Ordering::Acquire),
+        completed_shadow_predecessor: RENDER_LOCAL_SHADOW_HOOK.predecessor_address().ok(),
+        native_shadow_replacement_ready: NATIVE_SHADOW_REPLACEMENT_READY.load(Ordering::Acquire),
     }
 }
 
@@ -766,16 +833,41 @@ where
     true
 }
 
-// The target has no stack arguments: ECX is the native receiver and [ESP] is
-// the direct branch continuation. EBP still belongs to the branch function at
-// entry. Push the three observations as ordinary cdecl arguments, call the
-// Rust body, then return with the original stack exactly intact.
+// The target has no stack arguments: ECX is the native receiver and EBP still
+// belongs to the dispatcher branch at each direct callsite. Each bridge passes
+// a static variant code instead of rediscovering identity from the return
+// address. The original stack remains exactly intact across the cdecl body.
 #[unsafe(naked)]
-unsafe extern "thiscall" fn hook_world_light_epoch(_receiver: *mut c_void) {
+unsafe extern "thiscall" fn hook_world_light_variant_a(_receiver: *mut c_void) {
     core::arch::naked_asm!(
+        "push 0",
         "push ebp",
-        "mov eax, dword ptr [esp + 4]",
-        "push eax",
+        "push ecx",
+        "call {}",
+        "add esp, 12",
+        "ret",
+        sym hook_world_light_epoch_body,
+    );
+}
+
+#[unsafe(naked)]
+unsafe extern "thiscall" fn hook_world_light_variant_b(_receiver: *mut c_void) {
+    core::arch::naked_asm!(
+        "push 1",
+        "push ebp",
+        "push ecx",
+        "call {}",
+        "add esp, 12",
+        "ret",
+        sym hook_world_light_epoch_body,
+    );
+}
+
+#[unsafe(naked)]
+unsafe extern "thiscall" fn hook_world_light_variant_c(_receiver: *mut c_void) {
+    core::arch::naked_asm!(
+        "push 2",
+        "push ebp",
         "push ecx",
         "call {}",
         "add esp, 12",
@@ -786,17 +878,27 @@ unsafe extern "thiscall" fn hook_world_light_epoch(_receiver: *mut c_void) {
 
 unsafe extern "C" fn hook_world_light_epoch_body(
     receiver: *mut c_void,
-    return_address: usize,
     caller_ebp: usize,
+    variant_code: u32,
 ) {
-    let Ok(original) = WORLD_LIGHT_EPOCH_HOOK.original() else {
+    let variant = match variant_code {
+        0 => ShadowDispatcherVariant::A,
+        1 => ShadowDispatcherVariant::B,
+        2 => ShadowDispatcherVariant::C,
+        _ => ShadowDispatcherVariant::Unknown,
+    };
+    let Some(hook) = world_light_hook(variant) else {
+        log_capture_error("unknown world local-light caller variant");
+        return;
+    };
+    let Ok(original) = hook.original() else {
         log_capture_error("missing original world local-light transaction");
         return;
     };
     let pre_span = crate::graphics_diagnostics::span(
         crate::graphics_diagnostics::Interval::NativeShadowPreWork,
     );
-    let invocation = unsafe { classify_shadow_invocation(return_address, caller_ebp) };
+    let invocation = unsafe { classify_shadow_invocation(variant, caller_ebp) };
     record_shadow_invocation(invocation);
     let shadow_context = match invocation.context {
         ShadowRenderContext::Main => crate::effects::shadows::ShadowInvocationContext::Main,
@@ -809,7 +911,11 @@ unsafe extern "C" fn hook_world_light_epoch_body(
     // Ancestry is retained as publication metadata, but never gates the map
     // producer: every native branch reaches this entry before the later outer
     // world destination exists.
-    let shadow_outcome = unsafe { crate::effects::shadows::handle_common_entry(shadow_context) };
+    let shadow_outcome = if NATIVE_SHADOW_REPLACEMENT_READY.load(Ordering::Acquire) {
+        unsafe { crate::effects::shadows::handle_common_entry(shadow_context) }
+    } else {
+        crate::effects::shadows::CommonEntryOutcome::NativePrefix
+    };
     if !capture_ready() {
         drop(pre_span);
         unsafe { call_shadow_path(original, receiver, shadow_outcome) };
@@ -972,13 +1078,21 @@ unsafe fn call_shadow_path(
     }
 }
 
-unsafe fn classify_shadow_invocation(return_address: usize, caller_ebp: usize) -> ShadowInvocation {
-    let variant = match return_address {
-        SHADOW_VARIANT_A_RETURN => ShadowDispatcherVariant::A,
-        SHADOW_VARIANT_B_RETURN => ShadowDispatcherVariant::B,
-        SHADOW_VARIANT_C_RETURN => ShadowDispatcherVariant::C,
-        _ => ShadowDispatcherVariant::Unknown,
-    };
+fn world_light_hook(
+    variant: ShadowDispatcherVariant,
+) -> Option<&'static Rel32CallHookContainer<WorldLightEpochFn>> {
+    match variant {
+        ShadowDispatcherVariant::A => Some(&WORLD_LIGHT_VARIANT_A_HOOK),
+        ShadowDispatcherVariant::B => Some(&WORLD_LIGHT_VARIANT_B_HOOK),
+        ShadowDispatcherVariant::C => Some(&WORLD_LIGHT_VARIANT_C_HOOK),
+        ShadowDispatcherVariant::Unknown => None,
+    }
+}
+
+unsafe fn classify_shadow_invocation(
+    variant: ShadowDispatcherVariant,
+    caller_ebp: usize,
+) -> ShadowInvocation {
     // The common entry is reached through a branch and the shared dispatcher.
     // The dispatcher's return alone is not an ownership boundary. Admit only
     // the exact direct or wrapped 0x0086FF70 chains that are rooted in the main
@@ -1782,12 +1896,12 @@ mod tests {
         SHADOW_ACTIVE_STATE_OFFSET, SHADOW_AMBIENT_OFFSET, SHADOW_FADE_OFFSET,
         SHADOW_INACTIVE_STATE, SHADOW_MATRIX_OFFSET, SHADOW_NATIVE_LIGHT_OFFSET,
         SHADOW_POSITIONAL_OFFSET, SHADOW_SCENE_LIGHT_SIZE, SHADOW_TRANSITION_OFFSET,
-        SHADOW_VARIANT_A_RETURN, ShadowDispatcherVariant, ShadowInvocation, ShadowRenderContext,
-        ShadowTextureFormat, StagingEpoch, TERRAIN_LIGHT_CAPACITY, TerrainRenderSnapshot,
-        TerrainSceneLight, WRAPPED_RENDER_RETURN, WorldLightEpochFn,
-        authoritative_light_invocation, build_epoch, capture_requested,
-        capture_terrain_scene_light, classify_capture_slot, classify_shadow_invocation,
-        hook_render_local_shadow, hook_world_light_epoch, insert_ranked_light,
+        ShadowDispatcherVariant, ShadowInvocation, ShadowRenderContext, ShadowTextureFormat,
+        StagingEpoch, TERRAIN_LIGHT_CAPACITY, TerrainRenderSnapshot, TerrainSceneLight,
+        WRAPPED_RENDER_RETURN, WorldLightEpochFn, authoritative_light_invocation, build_epoch,
+        capture_requested, capture_terrain_scene_light, classify_capture_slot,
+        classify_shadow_invocation, hook_render_local_shadow, hook_world_light_variant_a,
+        hook_world_light_variant_b, hook_world_light_variant_c, insert_ranked_light,
         insert_ranked_terrain_light, read_matrix4_unchecked, record_diagnostic, scene_light_score,
         scene_scan_capacity, shadow_capture_requested, terrain_epoch_is_current,
         terrain_light_is_eligible, try_take_published, valid_light_scalars,
@@ -1806,7 +1920,9 @@ mod tests {
 
     #[test]
     fn shadow_detours_use_the_executable_proven_x86_abis() {
-        let _: WorldLightEpochFn = hook_world_light_epoch;
+        let _: WorldLightEpochFn = hook_world_light_variant_a;
+        let _: WorldLightEpochFn = hook_world_light_variant_b;
+        let _: WorldLightEpochFn = hook_world_light_variant_c;
         let _: RenderLocalShadowFn = hook_render_local_shadow;
     }
 
@@ -1863,7 +1979,7 @@ mod tests {
     }
 
     fn classified_invocation(
-        branch_return: usize,
+        variant: ShadowDispatcherVariant,
         dispatcher_return: usize,
         owner_return: usize,
         parent_return: usize,
@@ -1872,13 +1988,13 @@ mod tests {
         let owner_frame = [parent_frame.as_ptr() as usize, owner_return];
         let dispatcher_frame = [owner_frame.as_ptr() as usize, dispatcher_return];
         let branch_frame = [dispatcher_frame.as_ptr() as usize, 0usize];
-        unsafe { classify_shadow_invocation(branch_return, branch_frame.as_ptr() as usize) }
+        unsafe { classify_shadow_invocation(variant, branch_frame.as_ptr() as usize) }
     }
 
     #[test]
     fn shadow_publication_accepts_main_and_rejects_special_and_screenshot_callers() {
         let main = classified_invocation(
-            SHADOW_VARIANT_A_RETURN,
+            ShadowDispatcherVariant::A,
             MAIN_RENDER_FIRST_RETURN,
             MAIN_RENDER_ROOT_RETURN,
             0,
@@ -1888,7 +2004,7 @@ mod tests {
         assert!(authoritative_light_invocation(main));
 
         let special = classified_invocation(
-            SHADOW_VARIANT_A_RETURN,
+            ShadowDispatcherVariant::A,
             WRAPPED_RENDER_RETURN,
             0x0045_3E02,
             0,
@@ -1897,7 +2013,7 @@ mod tests {
         assert!(!authoritative_light_invocation(special));
 
         let nested_dispatcher_special = classified_invocation(
-            SHADOW_VARIANT_A_RETURN,
+            ShadowDispatcherVariant::A,
             MAIN_RENDER_FIRST_RETURN,
             0x0045_3EF3,
             0,
@@ -1909,7 +2025,7 @@ mod tests {
         assert!(!authoritative_light_invocation(nested_dispatcher_special));
 
         let screenshot =
-            classified_invocation(SHADOW_VARIANT_A_RETURN, SCREENSHOT_RENDER_RETURN, 0, 0);
+            classified_invocation(ShadowDispatcherVariant::A, SCREENSHOT_RENDER_RETURN, 0, 0);
         assert_eq!(screenshot.context, ShadowRenderContext::Screenshot);
         assert!(!authoritative_light_invocation(screenshot));
         assert!(!authoritative_light_invocation(ShadowInvocation {
@@ -1921,7 +2037,7 @@ mod tests {
     #[test]
     fn only_the_86ff70_wrapper_chain_is_an_authoritative_light_owner() {
         let direct = classified_invocation(
-            SHADOW_VARIANT_A_RETURN,
+            ShadowDispatcherVariant::A,
             WRAPPED_RENDER_RETURN,
             MAIN_WRAPPER_DIRECT_RETURN,
             0,
@@ -1930,7 +2046,7 @@ mod tests {
         assert!(!authoritative_light_invocation(direct));
 
         let nested = classified_invocation(
-            SHADOW_VARIANT_A_RETURN,
+            ShadowDispatcherVariant::A,
             WRAPPED_RENDER_RETURN,
             MAIN_WRAPPER_NESTED_RETURN,
             MAIN_RENDER_ROOT_RETURN,
@@ -1939,7 +2055,7 @@ mod tests {
         assert!(authoritative_light_invocation(nested));
 
         let helper = classified_invocation(
-            SHADOW_VARIANT_A_RETURN,
+            ShadowDispatcherVariant::A,
             WRAPPED_RENDER_RETURN,
             MAIN_WRAPPER_HELPER_RETURN,
             0,
@@ -1948,7 +2064,7 @@ mod tests {
         assert!(!authoritative_light_invocation(helper));
 
         let nested_offscreen = classified_invocation(
-            SHADOW_VARIANT_A_RETURN,
+            ShadowDispatcherVariant::A,
             WRAPPED_RENDER_RETURN,
             MAIN_WRAPPER_NESTED_RETURN,
             0x0045_3EF3,

@@ -1,7 +1,7 @@
 //! Screen-space shader runtime and in-game menu.
 //!
-//! Configuration changes are committed at the engine's `DisplayScene`
-//! boundary, OMV's serialized frame boundary. The master switch owns more than
+//! Configuration changes are committed at xNVSE's serialized
+//! `OnFramePresent` service boundary. The master switch owns more than
 //! shader dispatch: it publishes an empty scene requirement set, makes the
 //! resident native replacement hook passive, and releases visual device
 //! resources while retaining the menu. Provider selection remains independent
@@ -26,7 +26,7 @@
 //! replaces the former copy-before-every-effect feedback loop without changing
 //! shader order, equations, formats, or sampler contracts.
 //!
-//! Automatic display adaptation reuses the existing production Present clock.
+//! Automatic display adaptation reuses the existing presentation-callback clock.
 //! Its timing gate stays DOF-only during plugin/data loading and opens for
 //! adaptive final color at DeferredInit; render callbacks consume only a
 //! nonblocking, already-recorded interval and continuity bit.
@@ -165,7 +165,6 @@ static FNV_FIRST_PERSON_MOTION_BLUR_PENDING_EPOCH: AtomicU32 = AtomicU32::new(0)
 static FNV_FIRST_PERSON_MOTION_BLUR_PENDING_TARGET: AtomicUsize = AtomicUsize::new(0);
 static PRESENT_APPLY_BUSY: AtomicU32 = AtomicU32::new(0);
 static PRESENT_FINISH_BUSY: AtomicU32 = AtomicU32::new(0);
-static PRESENT_FAILED: AtomicU32 = AtomicU32::new(0);
 static SCENE_PHASE_BUSY: AtomicU32 = AtomicU32::new(0);
 static WORLD_COLOR_BUSY: AtomicU32 = AtomicU32::new(0);
 static RESET_BUSY: AtomicU32 = AtomicU32::new(0);
@@ -226,7 +225,6 @@ fn clear_first_person_motion_blur_retry() {
 struct RuntimeLockTelemetry {
     present_apply: u32,
     present_finish: u32,
-    failed_present: u32,
     scene_phase: u32,
     world_color: u32,
     reset: u32,
@@ -251,12 +249,7 @@ pub(crate) fn phase_color_copy_counters() -> PhaseColorCopyCounters {
 
 impl RuntimeLockTelemetry {
     fn has_rejections(self) -> bool {
-        self.present_apply
-            | self.present_finish
-            | self.failed_present
-            | self.scene_phase
-            | self.world_color
-            | self.reset
+        self.present_apply | self.present_finish | self.scene_phase | self.world_color | self.reset
             != 0
     }
 }
@@ -608,6 +601,25 @@ mod render_callback_io_tests {
     }
 
     #[test]
+    fn loading_screen_blocks_gameplay_final_fallback_only() {
+        let source = include_str!("runtime.rs");
+        let apply = source
+            .rsplit_once("    unsafe fn apply_present_frame(")
+            .and_then(|(_, tail)| {
+                tail.split_once("    unsafe fn apply_first_person_motion_blur_after_world")
+            })
+            .map(|(body, _)| body)
+            .expect("presentation implementation");
+        let fallback = apply
+            .find("let can_apply_at_present")
+            .expect("final fallback admission");
+        let menu = apply.find("let menu_open").expect("menu servicing");
+        assert!(menu < fallback);
+        assert!(apply[fallback..].contains("!loading_screen"));
+        assert!(apply.contains("self.ensure_imgui"));
+    }
+
+    #[test]
     fn rejected_depth_effects_exit_before_device_creation() {
         let source = include_str!("runtime.rs");
         for (suffix, predicate) in [
@@ -932,7 +944,11 @@ fn ambient_occlusion_allowed_at_scene_pre(provider: DepthProvider) -> bool {
     ambient_occlusion_boundary(provider) == AmbientOcclusionBoundary::ScenePreImageSpace
 }
 
-pub(crate) unsafe fn apply_present_frame(device_ptr: *mut c_void, hwnd_hint: *mut c_void) {
+pub(crate) unsafe fn apply_present_frame(
+    device_ptr: *mut c_void,
+    hwnd_hint: *mut c_void,
+    loading_screen: bool,
+) {
     let Some(mut runtime) = RUNTIME.try_lock() else {
         PRESENT_APPLY_BUSY.fetch_add(1, Ordering::Relaxed);
         return;
@@ -943,7 +959,7 @@ pub(crate) unsafe fn apply_present_frame(device_ptr: *mut c_void, hwnd_hint: *mu
         crate::fnv_world_pipeline::publish_config(runtime.settings.menu_config);
     }
 
-    let result = unsafe { runtime.apply_present_frame(device_ptr, hwnd_hint) };
+    let result = unsafe { runtime.apply_present_frame(device_ptr, hwnd_hint, loading_screen) };
     if let Err(err) = result {
         runtime.log_frame_error(&err);
     }
@@ -1276,20 +1292,12 @@ pub(crate) fn present_frame_started_at() -> PresentFrameStart {
 pub(crate) unsafe fn finish_present_frame(
     render_epoch: u32,
     present_started_at: PresentFrameStart,
-    present_succeeded: bool,
 ) {
-    // Present is later than every legal first-person boundary. Clear the
-    // lock-free token even when frame-timing services are disabled or the
-    // runtime lock is busy.
+    // xNVSE invokes this boundary after every legal first-person phase but
+    // before the later driver Present. Clear the lock-free token even when
+    // frame-timing services are disabled or the runtime lock is busy.
     clear_first_person_motion_blur_retry();
-    if !present_succeeded {
-        PRESENT_FAILED.fetch_add(1, Ordering::Relaxed);
-    }
-    record_continuous_present_interval(
-        present_started_at.performance_counter,
-        render_epoch,
-        present_succeeded,
-    );
+    record_continuous_present_interval(present_started_at.performance_counter, render_epoch);
 
     if !PRESENT_FRAME_TIMING_NEEDED.load(Ordering::Acquire) {
         return;
@@ -1300,19 +1308,13 @@ pub(crate) unsafe fn finish_present_frame(
     };
 
     runtime.begin_render_epoch(render_epoch);
-    runtime.finish_present_frame(
-        render_epoch,
-        present_succeeded
-            .then_some(present_started_at.production_instant)
-            .flatten(),
-    );
+    runtime.finish_present_frame(render_epoch, present_started_at.production_instant);
 }
 
 fn runtime_lock_telemetry() -> RuntimeLockTelemetry {
     RuntimeLockTelemetry {
         present_apply: PRESENT_APPLY_BUSY.load(Ordering::Relaxed),
         present_finish: PRESENT_FINISH_BUSY.load(Ordering::Relaxed),
-        failed_present: PRESENT_FAILED.load(Ordering::Relaxed),
         scene_phase: SCENE_PHASE_BUSY.load(Ordering::Relaxed),
         world_color: WORLD_COLOR_BUSY.load(Ordering::Relaxed),
         reset: RESET_BUSY.load(Ordering::Relaxed),
@@ -1730,6 +1732,7 @@ impl ScreenShaderRuntime {
         &mut self,
         device_ptr: *mut c_void,
         hwnd_hint: *mut c_void,
+        loading_screen: bool,
     ) -> Direct3DResult<()> {
         self.poll_asset_scanner();
         self.poll_preset_service();
@@ -1771,7 +1774,12 @@ impl ScreenShaderRuntime {
         let menu_open = MENU_OPEN.load(Ordering::Acquire);
         let pbr_preparation = pbr::preparation_status();
         let preparation_overlay = !menu_open && pbr_preparation.active() && self.imgui.is_some();
-        let can_apply_at_present = self.settings.depth_provider == DepthProvider::None;
+        // xNVSE reports loading-screen presentation explicitly. FinalImageSpace
+        // is a gameplay fallback when no depth-stage route exists, so applying
+        // it to a loading screen would reuse scene assumptions across an
+        // unrelated engine target. Menu/resource servicing remains allowed.
+        let can_apply_at_present =
+            !loading_screen && self.settings.depth_provider == DepthProvider::None;
         let has_shader_work = can_apply_at_present
             && !self.applied_phases.is_applied(ShaderPhase::FinalImageSpace)
             && self.has_enabled_shader_for_phase(ShaderPhase::FinalImageSpace);
@@ -5485,7 +5493,7 @@ fn present_interval_ms(
     previous_epoch: u32,
     counter: Option<i64>,
     render_epoch: u32,
-    present_succeeded: bool,
+    boundary_continuous: bool,
     frequency: i64,
 ) -> Option<Result<f32, ()>> {
     if previous_counter <= 0 {
@@ -5494,7 +5502,7 @@ fn present_interval_ms(
     let Some(counter) = counter.filter(|counter| *counter > 0) else {
         return Some(Err(()));
     };
-    if !present_succeeded
+    if !boundary_continuous
         || frequency <= 0
         || !consecutive_render_epochs(previous_epoch, render_epoch)
     {
@@ -5513,11 +5521,7 @@ fn present_interval_ms(
     }
 }
 
-fn record_continuous_present_interval(
-    counter: Option<i64>,
-    render_epoch: u32,
-    present_succeeded: bool,
-) {
+fn record_continuous_present_interval(counter: Option<i64>, render_epoch: u32) {
     if CONTINUOUS_PRESENT_WRITER
         .compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed)
         .is_err()
@@ -5534,14 +5538,10 @@ fn record_continuous_present_interval(
         previous_epoch,
         counter,
         render_epoch,
-        present_succeeded,
+        true,
         frequency,
     );
-    let next_counter = if present_succeeded {
-        counter.filter(|counter| *counter > 0).unwrap_or(0)
-    } else {
-        0
-    };
+    let next_counter = counter.filter(|counter| *counter > 0).unwrap_or(0);
     CONTINUOUS_PRESENT_LAST_COUNTER.store(next_counter, Ordering::Relaxed);
     CONTINUOUS_PRESENT_LAST_EPOCH.store(render_epoch, Ordering::Relaxed);
     match observation {
@@ -6782,7 +6782,7 @@ mod frame_pacing_tests {
     }
 
     #[test]
-    fn successful_present_timeline_reconstructs_exact_interval_metrics() {
+    fn consecutive_presentation_callbacks_reconstruct_exact_interval_metrics() {
         let mut pacing = FramePacing::default();
         for (previous, previous_epoch, current, current_epoch) in [
             (1_000, 30, 1_010, 31),
@@ -6822,7 +6822,7 @@ mod frame_pacing_tests {
     }
 
     #[test]
-    fn a_failed_present_origin_cannot_leak_into_the_next_interval() {
+    fn a_discontinuous_presentation_origin_cannot_leak_into_the_next_interval() {
         assert_eq!(
             present_interval_ms(1_000, 20, Some(1_016), 21, false, 1_000),
             Some(Err(()))
@@ -8604,6 +8604,7 @@ fn draw_diagnostics_tab(
         .find(|issue| issue.component == libpsycho::hardware::HardwareComponent::Runtime)
         .map(|issue| issue.message.as_str());
     draw_system_at_a_glance(ui, gpu_diagnostics, environment, environment_issue);
+    draw_interoperability_diagnostics(ui, menu_config);
     draw_frame_pacing_panel(ui, frame_pacing);
     draw_system_diagnostics_details(ui, gpu_diagnostics, environment, environment_issue);
     let mut changed = false;
@@ -8614,6 +8615,52 @@ fn draw_diagnostics_tab(
     draw_local_lights_diagnostics(ui, sources);
     draw_world_pipeline_diagnostics(ui);
     changed
+}
+
+/// Present engine ownership without turning observed module identity into a
+/// compatibility policy. Snapshot construction and `VirtualQuery`-based owner
+/// formatting occur only while this Diagnostics child is visible; ordinary
+/// frames read neither code addresses nor module metadata.
+fn draw_interoperability_diagnostics(
+    ui: &mut psycho_imgui::Ui<'_>,
+    menu_config: &GraphicsMenuConfig,
+) {
+    ui.separator_text(&cstring("INTEROPERABILITY"));
+    ui.text_colored(
+        MENU_MUTED_TEXT,
+        &cstring(
+            "OMV chains current engine predecessors and fails each capability independently. Module names below are evidence only and never control rendering.",
+        ),
+    );
+
+    let master_enabled = menu_config.screen_space_shaders;
+    let feature_rows = [
+        crate::interop::pbr_feature_status(master_enabled && menu_config.native_pbr.enabled),
+        crate::interop::sky_feature_status(master_enabled && menu_config.native_sky.enabled),
+    ];
+    for capability in feature_rows
+        .into_iter()
+        .chain(crate::interop::capability_snapshot())
+    {
+        let color = match capability.state {
+            crate::interop::InteropState::Active => MENU_GOOD_TEXT,
+            crate::interop::InteropState::Unavailable => MENU_ERROR_TEXT,
+            crate::interop::InteropState::DependencyBlocked => MENU_WARN_TEXT,
+            crate::interop::InteropState::Disabled => MENU_MUTED_TEXT,
+        };
+        ui.label_value(
+            &cstring(capability.name),
+            &cstring(capability.state.label()),
+            color,
+        );
+        ui.text_colored(MENU_MUTED_TEXT, &cstring(capability.reason));
+        if let Some(predecessors) = crate::interop::predecessor_label(&capability) {
+            ui.text_colored(
+                MENU_MUTED_TEXT,
+                &cstring(format!("Captured predecessor: {predecessors}")),
+            );
+        }
+    }
 }
 
 fn draw_system_at_a_glance(
@@ -9299,7 +9346,7 @@ fn draw_frame_pacing_panel(ui: &mut psycho_imgui::Ui<'_>, frame_pacing: &FramePa
     ui.text_colored(
         MENU_MUTED_TEXT,
         &cstring(
-            "Every successful Present advances the raw graph. Readable summary metrics refresh automatically four times per second.",
+            "Every consecutive OnFramePresent callback advances the raw graph. Readable summary metrics refresh automatically four times per second.",
         ),
     );
 
@@ -9328,7 +9375,7 @@ fn draw_frame_pacing_panel(ui: &mut psycho_imgui::Ui<'_>, frame_pacing: &FramePa
         };
         ui.telemetry_chart(&label, &chart);
     } else {
-        let collecting = cstring("Waiting for two successful Present intervals...");
+        let collecting = cstring("Waiting for two consecutive presentation intervals...");
         ui.text_colored(MENU_MUTED_TEXT, &collecting);
     }
     if frame_pacing.sample_count < 2 {
@@ -9464,7 +9511,6 @@ fn draw_frame_pacing_panel(ui: &mut psycho_imgui::Ui<'_>, frame_pacing: &FramePa
     if frame_pacing.rejected_intervals > 0 || contention.has_rejections() {
         let optional_samples_skipped = contention.present_apply
             + contention.present_finish
-            + contention.failed_present
             + contention.scene_phase
             + contention.world_color
             + contention.reset;
@@ -9472,7 +9518,7 @@ fn draw_frame_pacing_panel(ui: &mut psycho_imgui::Ui<'_>, frame_pacing: &FramePa
         ui.text_colored(
             MENU_WARN_TEXT,
             &cstring(format!(
-                "{} Present interval{} could not be measured cleanly.",
+                "{} presentation interval{} could not be measured cleanly.",
                 frame_pacing.rejected_intervals,
                 if frame_pacing.rejected_intervals == 1 {
                     ""

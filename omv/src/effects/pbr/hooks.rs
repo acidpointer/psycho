@@ -23,10 +23,8 @@
 //! engine-owned texture identity and those sampler fields.
 
 use std::{
-    ffi::{c_char, c_void},
+    ffi::c_void,
     mem::size_of,
-    ptr::null_mut,
-    slice,
     sync::{
         LazyLock,
         atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering},
@@ -38,7 +36,7 @@ use libpsycho::os::windows::{
     directx9::{
         D3DSAMP_MAGFILTER, D3DSAMP_MINFILTER, D3DSAMP_SRGBTEXTURE, D3DTEXF_POINT, Device9Ref,
     },
-    hook::inline::inlinehook::InlineHookContainer,
+    hook::pointer::PointerSlotHookContainer,
     memory::validate_memory_range,
 };
 
@@ -50,10 +48,9 @@ use super::{
 use engine_contracts::ObjectDrawRejectReason;
 use object_contracts::{ObjectContractDecision, ObjectContractState};
 
-const BS_SHADER_CREATE_VERTEX_SHADER_ADDR: usize = 0x00BE0FE0;
-const BS_SHADER_CREATE_PIXEL_SHADER_ADDR: usize = 0x00BE1750;
-const BS_SHADER_SET_SHADERS_ADDR: usize = 0x00BE1F90;
-const NIDX9_RENDER_STATE_SET_TEXTURE_ADDR: usize = 0x00E88A20;
+const PPLIGHTING_SELECTOR_CACHE_ADDR: usize = 0x011F9558;
+const PPLIGHTING_SET_SHADERS_VTABLE_OFFSET: usize = 0xF4;
+const RENDER_STATE_SET_TEXTURE_VTABLE_OFFSET: usize = 0xDC;
 const PPLIGHTING_VERTEX_GROUP_A_ADDR: usize = 0x011FDD88;
 const PPLIGHTING_VERTEX_GROUP_B_ADDR: usize = 0x011FDE04;
 const PPLIGHTING_VERTEX_GROUP_C_ADDR: usize = 0x011FDE5C;
@@ -154,47 +151,14 @@ struct PreparedObjectReplacement {
     diagnostics_enabled: bool,
 }
 
-const SET_SHADERS_PROLOGUE: &[u8] = &[
-    0x8B, 0x0D, 0x4C, 0xF7, 0x26, 0x01, 0x56, 0x57, 0xE8, 0x23, 0xD8, 0x29, 0x00, 0x8B, 0xF0, 0xA1,
-];
-const CREATE_VERTEX_SHADER_PROLOGUE: &[u8] = &[
-    0x6A, 0xFF, 0x68, 0x22, 0xD3, 0xF2, 0x00, 0x64, 0xA1, 0x00, 0x00, 0x00, 0x00, 0x50, 0xB8, 0x98,
-];
-const CREATE_PIXEL_SHADER_PROLOGUE: &[u8] = &[
-    0x6A, 0xFF, 0x68, 0x62, 0xD3, 0xF2, 0x00, 0x64, 0xA1, 0x00, 0x00, 0x00, 0x00, 0x50, 0xB8, 0x9C,
-];
-const SET_TEXTURE_PROLOGUE: &[u8] = &[
-    0x8B, 0x44, 0x24, 0x04, 0x8B, 0x54, 0x24, 0x08, 0x39, 0x94, 0x81, 0xA0, 0x10, 0x00, 0x00, 0x74,
-];
-
-type CreateVertexShaderFn = unsafe extern "thiscall" fn(
-    *mut c_void,
-    *const c_char,
-    *const c_char,
-    *const c_char,
-    *const c_char,
-) -> *mut c_void;
-type CreatePixelShaderFn = unsafe extern "thiscall" fn(
-    *mut c_void,
-    *const c_char,
-    *const c_char,
-    *const c_char,
-    *const c_char,
-) -> *mut c_void;
 type SetShadersFn = unsafe extern "thiscall" fn(*mut c_void, u32);
 type SetTextureFn = unsafe extern "thiscall" fn(*mut c_void, u32, *mut c_void);
 
-static CREATE_VERTEX_SHADER_HOOK: LazyLock<InlineHookContainer<CreateVertexShaderFn>> =
-    LazyLock::new(InlineHookContainer::new);
-static CREATE_PIXEL_SHADER_HOOK: LazyLock<InlineHookContainer<CreatePixelShaderFn>> =
-    LazyLock::new(InlineHookContainer::new);
-static SET_SHADERS_HOOK: LazyLock<InlineHookContainer<SetShadersFn>> =
-    LazyLock::new(InlineHookContainer::new);
-static SET_TEXTURE_HOOK: LazyLock<InlineHookContainer<SetTextureFn>> =
-    LazyLock::new(InlineHookContainer::new);
+static SET_SHADERS_HOOK: LazyLock<PointerSlotHookContainer<SetShadersFn>> =
+    LazyLock::new(PointerSlotHookContainer::new);
+static SET_TEXTURE_HOOK: LazyLock<PointerSlotHookContainer<SetTextureFn>> =
+    LazyLock::new(PointerSlotHookContainer::new);
 static HOOKS_READY: AtomicBool = AtomicBool::new(false);
-static CREATION_HOOKS_READY: AtomicBool = AtomicBool::new(false);
-static SET_SHADERS_READY: AtomicBool = AtomicBool::new(false);
 static NATIVE_FALLBACK_ACTIVE: AtomicBool = AtomicBool::new(false);
 static PENDING_VERTEX_WRAPPER: AtomicUsize = AtomicUsize::new(0);
 static PENDING_PIXEL_WRAPPER: AtomicUsize = AtomicUsize::new(0);
@@ -268,20 +232,20 @@ pub(super) fn install() -> Result<()> {
         return Ok(());
     }
 
-    // Resolve both mandatory targets before publishing either PBR owner. The
-    // texture observer is shared with native sky and may remain resident when
-    // PBR itself fails closed; SetShaders is never left active without it.
+    // Resolve both mandatory engine-owned slots before publishing either PBR
+    // capability. Neither operation touches a shared function entry: an
+    // existing mod remains the captured predecessor whether it changed the
+    // live vtable slot or detoured the function that the slot currently names.
+    // The texture observer is shared with native sky and may remain resident
+    // when PBR itself fails closed; SetShaders is never left active without it.
     let set_shaders_prepared = prepare_set_shaders_hook();
     let texture_tracking_prepared = prepare_set_texture_hook();
     let texture_tracking_ready =
-        texture_tracking_prepared && enable_prepared_hook(&SET_TEXTURE_HOOK, "SetTexture");
+        texture_tracking_prepared && enable_prepared_pointer(&SET_TEXTURE_HOOK, "SetTexture");
     let set_shaders_ready = texture_tracking_ready
         && set_shaders_prepared
-        && enable_prepared_hook(&SET_SHADERS_HOOK, "SetShaders");
-    let creation_ready = install_shader_creation_hooks();
+        && enable_prepared_pointer(&SET_SHADERS_HOOK, "SetShaders");
     super::samplers::set_texture_tracking_ready(texture_tracking_ready);
-    CREATION_HOOKS_READY.store(creation_ready, Ordering::Release);
-    SET_SHADERS_READY.store(set_shaders_ready, Ordering::Release);
     let mandatory_ready = set_shaders_ready && texture_tracking_ready;
     HOOKS_READY.store(mandatory_ready, Ordering::Release);
     if !mandatory_ready {
@@ -305,42 +269,36 @@ pub(super) fn install() -> Result<()> {
         log::info!("[PBR] Object PBR adopted {adopted} existing shader wrapper(s)");
     }
 
-    log::info!("[PBR] Object PBR SetShaders hook installed");
-    if !creation_ready {
-        log::info!(
-            "[PBR] Object PBR creation hooks unavailable; lazy draw-time wrapper adoption remains enabled"
-        );
-    }
-    log::info!("[PBR] Object PBR texture-stage tracking installed");
+    log::info!("[PBR] Object PBR SetShaders selector slot chained");
+    log::info!(
+        "[PBR] Shader wrappers use startup and first-use adoption; shared shader-creation entries are not hooked"
+    );
+    log::info!("[PBR] Object PBR texture-stage vtable slot chained");
 
     Ok(())
-}
-
-/// Install the shared texture-stage observer without enabling PBR selection.
-///
-/// Native sky uses the same getter-free stage mirror, so this observer is
-/// resident even when PBR starts disabled. Runtime toggles remain passive and
-/// never need to rewrite this entry.
-pub(super) fn install_texture_tracking() -> bool {
-    let ready = prepare_set_texture_hook() && enable_prepared_hook(&SET_TEXTURE_HOOK, "SetTexture");
-    super::samplers::set_texture_tracking_ready(ready);
-    ready
 }
 
 fn prepare_set_texture_hook() -> bool {
     if SET_TEXTURE_HOOK.is_initialized() {
         return true;
     }
-    let Some(target) = resolve_hook_target(
-        NIDX9_RENDER_STATE_SET_TEXTURE_ADDR,
-        SET_TEXTURE_PROLOGUE,
+    let render_state = match crate::backend::render_state_ptr() {
+        Ok(render_state) => render_state,
+        Err(reason) => {
+            log::warn!("[PBR] SetTexture hook skipped: {reason}");
+            return false;
+        }
+    };
+    let Some(slot) = resolve_vtable_slot(
+        render_state,
+        RENDER_STATE_SET_TEXTURE_VTABLE_OFFSET,
         "NiDX9RenderState::SetTexture",
     ) else {
         return false;
     };
 
     match unsafe {
-        SET_TEXTURE_HOOK.init("FNV NiDX9RenderState::SetTexture", target, hook_set_texture)
+        SET_TEXTURE_HOOK.init("FNV NiDX9RenderState::SetTexture", slot, hook_set_texture)
     } {
         Ok(()) => {}
         Err(err) => {
@@ -356,105 +314,81 @@ pub(super) fn hooks_ready() -> bool {
     HOOKS_READY.load(Ordering::Acquire)
 }
 
-fn install_shader_creation_hooks() -> bool {
-    if CREATE_VERTEX_SHADER_HOOK.is_initialized() && CREATE_PIXEL_SHADER_HOOK.is_initialized() {
-        return enable_prepared_hook(&CREATE_VERTEX_SHADER_HOOK, "CreateVertexShader")
-            && enable_prepared_hook(&CREATE_PIXEL_SHADER_HOOK, "CreatePixelShader");
-    }
-
-    let Some(vertex_target) = resolve_hook_target(
-        BS_SHADER_CREATE_VERTEX_SHADER_ADDR,
-        CREATE_VERTEX_SHADER_PROLOGUE,
-        "CreateVertexShader",
-    ) else {
-        return false;
-    };
-    let Some(pixel_target) = resolve_hook_target(
-        BS_SHADER_CREATE_PIXEL_SHADER_ADDR,
-        CREATE_PIXEL_SHADER_PROLOGUE,
-        "CreatePixelShader",
-    ) else {
-        return false;
-    };
-
-    if !install_create_vertex_shader_hook(vertex_target) {
-        return false;
-    }
-    if !install_create_pixel_shader_hook(pixel_target) {
-        let _ = CREATE_VERTEX_SHADER_HOOK.disable();
-        return false;
-    }
-
-    true
+pub(super) fn selection_hook_ready() -> bool {
+    SET_SHADERS_HOOK.is_enabled()
 }
 
-fn install_create_vertex_shader_hook(target: *mut c_void) -> bool {
-    if CREATE_VERTEX_SHADER_HOOK.is_initialized() {
-        return enable_prepared_hook(&CREATE_VERTEX_SHADER_HOOK, "CreateVertexShader");
-    }
-    match unsafe {
-        CREATE_VERTEX_SHADER_HOOK.init(
-            "FNV BSShader::CreateVertexShader",
-            target,
-            hook_create_vertex_shader,
-        )
-    } {
-        Ok(()) => {}
-        Err(err) => {
-            log::warn!("[PBR] CreateVertexShader hook skipped: {err}");
-            return false;
-        }
-    }
-
-    match CREATE_VERTEX_SHADER_HOOK.enable() {
-        Ok(()) => true,
-        Err(err) => {
-            log::warn!("[PBR] CreateVertexShader hook skipped: {err}");
-            false
-        }
-    }
+pub(super) fn texture_hook_ready() -> bool {
+    SET_TEXTURE_HOOK.is_enabled()
 }
 
-fn install_create_pixel_shader_hook(target: *mut c_void) -> bool {
-    if CREATE_PIXEL_SHADER_HOOK.is_initialized() {
-        return enable_prepared_hook(&CREATE_PIXEL_SHADER_HOOK, "CreatePixelShader");
-    }
-    match unsafe {
-        CREATE_PIXEL_SHADER_HOOK.init(
-            "FNV BSShader::CreatePixelShader",
-            target,
-            hook_create_pixel_shader,
+pub(super) fn selection_predecessor() -> Option<usize> {
+    SET_SHADERS_HOOK.predecessor_address().ok()
+}
+
+pub(super) fn texture_predecessor() -> Option<usize> {
+    SET_TEXTURE_HOOK.predecessor_address().ok()
+}
+
+/// Probe the live terrain shader family without using provider module names.
+///
+/// The rows below are the complete native inputs consumed by OMV's LandLOD,
+/// terrain-fade, and 56-row close-terrain paths. `read_shader_array_slot`
+/// proves table bounds and non-null wrapper identity; `shader_handle` then
+/// proves the expected NiD3D stage vtable and a usable native D3D resource.
+/// This probe runs only at DeferredInit and native shader-package transitions,
+/// never per frame or per draw.
+pub(super) fn probe_terrain_shader_contract() -> bool {
+    let vertex_rows = [
+        LAND_LOD_VERTEX_INDEX,
+        TERRAIN_FADE_VERTEX_INDEX,
+        CLOSE_TERRAIN_VERTEX_INDEX,
+    ];
+    if !vertex_rows.into_iter().all(|index| {
+        read_shader_array_slot(
+            PPLIGHTING_VERTEX_GROUP_C_ADDR,
+            PPLIGHTING_VERTEX_GROUP_C_COUNT,
+            index,
         )
-    } {
-        Ok(()) => {}
-        Err(err) => {
-            log::warn!("[PBR] CreatePixelShader hook skipped: {err}");
-            return false;
-        }
+        .and_then(|shader| engine_contracts::shader_handle(shader, ShaderStage::Vertex))
+        .is_some()
+    }) {
+        return false;
     }
 
-    match CREATE_PIXEL_SHADER_HOOK.enable() {
-        Ok(()) => true,
-        Err(err) => {
-            log::warn!("[PBR] CreatePixelShader hook skipped: {err}");
-            false
-        }
-    }
+    [LAND_LOD_PIXEL_INDEX, TERRAIN_FADE_PIXEL_INDEX]
+        .into_iter()
+        .chain(CLOSE_TERRAIN_FIRST_PIXEL_INDEX..=CLOSE_TERRAIN_LAST_PIXEL_INDEX)
+        .all(|index| {
+            read_shader_array_slot(
+                PPLIGHTING_PIXEL_GROUP_B_ADDR,
+                PPLIGHTING_PIXEL_GROUP_B_COUNT,
+                index,
+            )
+            .and_then(|shader| engine_contracts::shader_handle(shader, ShaderStage::Pixel))
+            .is_some()
+        })
 }
 
 fn prepare_set_shaders_hook() -> bool {
     if SET_SHADERS_HOOK.is_initialized() {
         return true;
     }
-    let Some(target) = resolve_hook_target(
-        BS_SHADER_SET_SHADERS_ADDR,
-        SET_SHADERS_PROLOGUE,
-        "SetShaders",
+    let Some(selector) = read_non_null_pointer(
+        PPLIGHTING_SELECTOR_CACHE_ADDR as *const c_void,
+        "PPLighting selector cache",
+    ) else {
+        return false;
+    };
+    let Some(slot) = resolve_vtable_slot(
+        selector,
+        PPLIGHTING_SET_SHADERS_VTABLE_OFFSET,
+        "PPLighting::SetShaders",
     ) else {
         return false;
     };
 
-    match unsafe { SET_SHADERS_HOOK.init("FNV BSShader::SetShaders", target, hook_set_shaders) } {
+    match unsafe { SET_SHADERS_HOOK.init("FNV PPLighting::SetShaders", slot, hook_set_shaders) } {
         Ok(()) => {}
         Err(err) => {
             log::warn!("[PBR] SetShaders hook skipped: {err}");
@@ -465,8 +399,9 @@ fn prepare_set_shaders_hook() -> bool {
     true
 }
 
-/// Enable a prepared PBR hook without treating an already-active owner as new.
-pub(super) fn enable_prepared_hook<F>(hook: &InlineHookContainer<F>, label: &'static str) -> bool
+/// Enable a prepared engine-owned pointer without treating residency as a
+/// runtime feature toggle.
+fn enable_prepared_pointer<F>(hook: &PointerSlotHookContainer<F>, label: &'static str) -> bool
 where
     F: libpsycho::ffi::fnptr::Function,
 {
@@ -476,75 +411,46 @@ where
     match hook.enable() {
         Ok(()) => true,
         Err(err) => {
-            log::warn!("[PBR] {label} hook could not be re-enabled: {err}");
+            log::warn!("[PBR] {label} slot could not be chained: {err}");
             false
         }
     }
 }
 
-/// Accept only an executable entry with the exact supported vanilla prologue.
+/// Resolve one slot from the live engine object's current vtable.
 ///
-/// Arbitrary entry jumps are rejected because their predecessor ABI, displaced
-/// instructions, and ownership lifetime are not part of OMV's compatibility
-/// contract.
-pub(super) fn resolve_hook_target(
-    entry_addr: usize,
-    vanilla_prologue: &[u8],
-    label: &str,
-) -> Option<*mut c_void> {
-    let probe_len = vanilla_prologue.len().max(5);
-    let ptr = entry_addr as *const c_void;
-    if let Err(err) = validate_memory_range(ptr, probe_len) {
-        log::warn!("[PBR] Cannot read {label} prologue at 0x{entry_addr:08X}: {err}");
+/// Looking through the object at DeferredInit is essential for cooperation:
+/// another plugin may have installed a cloned vtable. Hard-coding the vanilla
+/// table would bypass that owner, while requiring the vanilla function bytes
+/// would reject a valid entry-detour chain. `PointerSlotHook` validates and
+/// atomically captures the callable value that this exact slot contains.
+fn resolve_vtable_slot(owner: *mut c_void, offset: usize, label: &str) -> Option<*mut *mut c_void> {
+    let Some(vtable) = read_non_null_pointer(owner.cast_const(), label) else {
+        return None;
+    };
+    let Some(address) = (vtable as usize).checked_add(offset) else {
+        log::warn!("[PBR] {label} vtable slot address overflowed");
+        return None;
+    };
+    let slot = address as *mut *mut c_void;
+    if let Err(error) = validate_memory_range(slot.cast(), size_of::<*mut c_void>()) {
+        log::warn!("[PBR] Cannot read {label} vtable slot at 0x{address:08X}: {error}");
         return None;
     }
+    Some(slot)
+}
 
-    let actual = unsafe { slice::from_raw_parts(entry_addr as *const u8, probe_len) };
-    if actual.starts_with(vanilla_prologue) {
-        return Some(entry_addr as *mut c_void);
+fn read_non_null_pointer(address: *const c_void, label: &str) -> Option<*mut c_void> {
+    if let Err(error) = validate_memory_range(address, size_of::<*mut c_void>()) {
+        log::warn!("[PBR] Cannot read {label} pointer at {address:p}: {error}");
+        return None;
     }
-
-    log::warn!(
-        "[PBR] {label} entry at 0x{entry_addr:08X} has unsupported ownership or executable bytes"
-    );
-    None
-}
-
-unsafe extern "thiscall" fn hook_create_vertex_shader(
-    shader_owner: *mut c_void,
-    file_name: *const c_char,
-    arg2: *const c_char,
-    shader_type: *const c_char,
-    shader_name: *const c_char,
-) -> *mut c_void {
-    let Ok(original) = CREATE_VERTEX_SHADER_HOOK.original() else {
-        return null_mut();
-    };
-
-    let shader = unsafe { original(shader_owner, file_name, arg2, shader_type, shader_name) };
-    // Shader creation is an initialization-time ownership event, not a
-    // per-draw cost. Observe it even while replacement is disabled so a later
-    // in-game enable can reuse wrappers that the engine will not recreate.
-    capture_created_shader(shader, ShaderStage::Vertex, shader_name);
-    shader
-}
-
-unsafe extern "thiscall" fn hook_create_pixel_shader(
-    shader_owner: *mut c_void,
-    file_name: *const c_char,
-    arg2: *const c_char,
-    shader_type: *const c_char,
-    shader_name: *const c_char,
-) -> *mut c_void {
-    let Ok(original) = CREATE_PIXEL_SHADER_HOOK.original() else {
-        return null_mut();
-    };
-
-    let shader = unsafe { original(shader_owner, file_name, arg2, shader_type, shader_name) };
-    // See the vertex path above: retaining this one-time observation is what
-    // makes an initially-disabled PBR configuration safe to enable live.
-    capture_created_shader(shader, ShaderStage::Pixel, shader_name);
-    shader
+    let value = unsafe { address.cast::<*mut c_void>().read() };
+    if value.is_null() {
+        log::warn!("[PBR] {label} pointer is null");
+        return None;
+    }
+    Some(value)
 }
 
 unsafe extern "thiscall" fn hook_set_shaders(shader: *mut c_void, pass_index: u32) {
@@ -1730,38 +1636,6 @@ unsafe extern "thiscall" fn hook_set_texture(
     }
 }
 
-fn capture_created_shader(shader: *mut c_void, stage: ShaderStage, shader_name: *const c_char) {
-    if shader.is_null() {
-        return;
-    }
-
-    let extension = match stage {
-        ShaderStage::Vertex => ".vso",
-        ShaderStage::Pixel => ".pso",
-    };
-    let Some(sls_number) = shader_registry::sls_number_from_name(shader_name, extension) else {
-        return;
-    };
-    let Some(template_ref) = shader_registry::object_template_id(stage, sls_number) else {
-        return;
-    };
-    let Some(original_handle) = engine_contracts::shader_handle(shader, stage) else {
-        return;
-    };
-    let (table_id, table_index) = identify_object_table_slot(shader, stage)
-        .unwrap_or((shader_record::TABLE_UNKNOWN, TABLE_INDEX_UNKNOWN));
-
-    if shader_record::store_created(shader, stage, template_ref.id, table_id, table_index).is_some()
-    {
-        log::info!(
-            "[PBR] Object PBR captured {:?} wrapper={shader:p} shader={} table={table_id}:{} handle={original_handle:p}",
-            stage,
-            template_ref.template.label,
-            table_index_for_log(table_index)
-        );
-    }
-}
-
 fn try_prepare_object_replacement(pass_index: u32) -> Option<PreparedObjectReplacement> {
     let Some((vertex_shader, pixel_shader)) = engine_contracts::current_pass_shaders_fast() else {
         return None;
@@ -2470,7 +2344,7 @@ mod tests {
         let hook = source
             .split_once("unsafe extern \"thiscall\" fn hook_set_texture")
             .map(|(_, tail)| tail)
-            .and_then(|tail| tail.split_once("fn capture_created_shader"))
+            .and_then(|tail| tail.split_once("fn try_prepare_object_replacement"))
             .map(|(body, _)| body)
             .expect("SetTexture hook");
         let tracking = hook
@@ -2488,30 +2362,31 @@ mod tests {
     }
 
     #[test]
-    fn shader_creation_remains_observable_while_replacement_is_disabled() {
+    fn shader_creation_entries_are_not_hooked_and_first_use_adopts_wrappers() {
         let source = include_str!("hooks.rs");
-        for (start, end) in [
-            (
-                "unsafe extern \"thiscall\" fn hook_create_vertex_shader",
-                "unsafe extern \"thiscall\" fn hook_create_pixel_shader",
-            ),
-            (
-                "unsafe extern \"thiscall\" fn hook_create_pixel_shader",
-                "unsafe extern \"thiscall\" fn hook_set_shaders",
-            ),
-        ] {
-            let body = source
-                .split_once(start)
-                .map(|(_, tail)| tail)
-                .and_then(|tail| tail.split_once(end))
-                .map(|(body, _)| body)
-                .expect("shader creation hook");
-            assert!(body.contains("capture_created_shader"));
-            assert!(
-                !body.contains("replacement_configured"),
-                "one-time engine wrapper observation must survive initial disable"
-            );
+        for removed_entry in [["0x00BE", "0FE0"], ["0x00BE", "1750"]] {
+            assert!(!source.contains(&removed_entry.concat()));
         }
+        for removed_wrapper in [
+            ["hook_create_", "vertex_shader"],
+            ["hook_create_", "pixel_shader"],
+        ] {
+            assert!(!source.contains(&removed_wrapper.concat()));
+        }
+
+        let adoption = source
+            .split_once("fn resolve_current_shader_record")
+            .and_then(|(_, tail)| tail.split_once("fn ensure_table_identity"))
+            .map(|(body, _)| body)
+            .expect("draw-time wrapper adoption");
+        assert!(adoption.contains("shader_record::adopt_existing"));
+
+        let install = source
+            .split_once("pub(super) fn install()")
+            .and_then(|(_, tail)| tail.split_once("fn prepare_set_texture_hook"))
+            .map(|(body, _)| body)
+            .expect("PBR install");
+        assert!(install.contains("adopt_existing_object_shaders()"));
     }
 
     #[test]
@@ -2572,7 +2447,7 @@ mod tests {
         let hook = source
             .split("unsafe extern \"thiscall\" fn hook_set_texture")
             .nth(1)
-            .and_then(|tail| tail.split("fn capture_created_shader").next())
+            .and_then(|tail| tail.split("fn try_prepare_object_replacement").next())
             .expect("SetTexture hook source");
         assert!(!hook.contains("fetch_add"));
         assert!(!hook.contains("TEXTURE_BIND_GENERATION"));
@@ -2996,14 +2871,6 @@ fn find_shader_array_index(base: usize, count: usize, shader: *mut c_void) -> Op
         }
     }
     None
-}
-
-fn table_index_for_log(index: u32) -> String {
-    if index == TABLE_INDEX_UNKNOWN {
-        "unknown".to_owned()
-    } else {
-        index.to_string()
-    }
 }
 
 fn read_shader_array_slot(base: usize, count: usize, index: usize) -> Option<*mut c_void> {

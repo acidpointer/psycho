@@ -66,6 +66,19 @@ pub(crate) fn d3d_device_ptr() -> Option<*mut c_void> {
     fnv::d3d_device_ptr()
 }
 
+/// Resolve the live engine renderer for DeferredInit-owned dispatch setup.
+pub(crate) fn renderer_ptr() -> Result<*mut c_void, &'static str> {
+    fnv::renderer_ptr()
+}
+
+/// Resolve the engine-owned render-state object for DeferredInit hook setup.
+///
+/// This deliberately does not expose or retain a D3D device vtable. Graphics
+/// consumers use it only to locate a proven engine dispatch slot.
+pub(crate) fn render_state_ptr() -> Result<*mut c_void, &'static str> {
+    fnv::render_state_ptr()
+}
+
 /// Return the generation of the renderer-published device identity.
 pub(crate) fn d3d_device_generation() -> u32 {
     fnv::d3d_device_generation()

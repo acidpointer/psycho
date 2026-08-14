@@ -2,6 +2,7 @@
 
 //! xNVSE entrypoint for Oh My Vegas graphics.
 
+use core::{ffi::c_void, mem::size_of};
 use libnvse::api::messaging::{NVSEMessage, NVSEMessageType};
 use libnvse::plugin::PluginContext;
 use libnvse::{NVSEInterfaceFFI, PluginInfoFFI};
@@ -80,12 +81,36 @@ fn handle_message(msg: &NVSEMessage) {
                 log::error!("[XNVSE] Deferred graphics hook install failed: {err:#}");
             }
         }
+        NVSEMessageType::OnFramePresent => {
+            // xNVSE passes `int loadingScreen` by pointer for this message.
+            // An absent or malformed payload is treated as loading so OMV can
+            // still service resources/UI without applying gameplay fallback
+            // effects to an unproven target.
+            let (data, data_len) = msg.raw_data();
+            let loading_screen = decode_loading_screen(data, data_len).unwrap_or(true);
+            crate::hooks::on_frame_present(loading_screen);
+        }
         _ => {}
     }
 }
 
+fn decode_loading_screen(data: *mut c_void, data_len: u32) -> Option<bool> {
+    if data.is_null() || usize::try_from(data_len).ok()? < size_of::<i32>() {
+        return None;
+    }
+    libpsycho::os::windows::memory::validate_memory_range(data.cast_const(), size_of::<i32>())
+        .ok()?;
+    // The xNVSE payload lives on its dispatcher's stack and is not promised to
+    // be Rust-aligned. Copying one i32 is both alignment-safe and bounded by
+    // the validated message length.
+    Some(unsafe { data.cast::<i32>().read_unaligned() } != 0)
+}
+
 #[cfg(test)]
 mod tests {
+    use super::decode_loading_screen;
+    use core::ffi::c_void;
+
     #[test]
     fn preload_message_releases_workbench_ownership_before_native_load() {
         let source = include_str!("nvse_plugin.rs");
@@ -94,5 +119,29 @@ mod tests {
                 "NVSEMessageType::PreLoadGame => crate::runtime::prepare_for_game_load()"
             )
         );
+    }
+
+    #[test]
+    fn frame_present_decodes_the_pointed_to_unaligned_loading_integer() {
+        let mut loading_payload = [0xFFu8, 1, 0, 0, 0, 0xFF];
+        let loading = unsafe { loading_payload.as_mut_ptr().add(1) }.cast::<c_void>();
+        let mut gameplay_payload = [0xFFu8, 0, 0, 0, 0, 0xFF];
+        let gameplay = unsafe { gameplay_payload.as_mut_ptr().add(1) }.cast::<c_void>();
+        assert_eq!(decode_loading_screen(loading, 4), Some(true));
+        assert_eq!(decode_loading_screen(gameplay, 4), Some(false));
+        assert_eq!(decode_loading_screen(loading, 3), None);
+        assert_eq!(decode_loading_screen(core::ptr::null_mut(), 4), None);
+    }
+
+    #[test]
+    fn frame_present_never_uses_pointer_value_boolean_decoding() {
+        let source = include_str!("nvse_plugin.rs");
+        let arm = source
+            .split_once("NVSEMessageType::OnFramePresent")
+            .and_then(|(_, tail)| tail.split_once("_ => {}"))
+            .map(|(body, _)| body)
+            .expect("OnFramePresent arm");
+        assert!(arm.contains("decode_loading_screen"));
+        assert!(!arm.contains("data_as_bool"));
     }
 }

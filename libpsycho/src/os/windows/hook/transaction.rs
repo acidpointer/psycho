@@ -1,6 +1,8 @@
 //! Rollback support for installing a related set of runtime modifications.
 
+use super::callsite::{Rel32CallHookContainer, Rel32CallHookResult};
 use super::inline::{InlineHookResult, inlinehook::InlineHookContainer};
+use super::pointer::{PointerSlotHookContainer, PointerSlotHookResult};
 use super::replacement::ReplacementHookContainer;
 use crate::ffi::fnptr::Function;
 use crate::os::windows::patch::{CodePatchResult, OwnedCodePatch};
@@ -84,6 +86,69 @@ impl ModificationTransaction {
         self.rollbacks.push(Box::new(move || {
             if let Err(error) = hook.disable() {
                 log::error!("Replacement-hook rollback lost ownership: {}", error);
+            }
+        }));
+        Ok(())
+    }
+
+    /// Enables a prepared direct-call hook and records its inverse operation.
+    pub fn enable_callsite<T: Function>(
+        &mut self,
+        hook: &'static Rel32CallHookContainer<T>,
+    ) -> Rel32CallHookResult<()> {
+        if let Err(error) = hook.enable() {
+            if hook.is_enabled()
+                && let Err(rollback_error) = hook.disable()
+            {
+                log::error!(
+                    "Callsite-hook activation failed and immediate rollback also failed: {}",
+                    rollback_error
+                );
+                // A protection-restoration failure may be reported after the
+                // instruction was installed. Retain a final ownership-aware
+                // rollback instead of abandoning the live detour.
+                self.rollbacks.push(Box::new(move || {
+                    if let Err(error) = hook.disable() {
+                        log::error!("Callsite-hook rollback lost ownership: {}", error);
+                    }
+                }));
+            }
+            return Err(error);
+        }
+
+        self.rollbacks.push(Box::new(move || {
+            if let Err(error) = hook.disable() {
+                log::error!("Callsite-hook rollback lost ownership: {}", error);
+            }
+        }));
+        Ok(())
+    }
+
+    /// Enables a prepared function-pointer slot and records its inverse.
+    pub fn enable_pointer<T: Function>(
+        &mut self,
+        hook: &'static PointerSlotHookContainer<T>,
+    ) -> PointerSlotHookResult<()> {
+        if let Err(error) = hook.enable() {
+            if hook.is_enabled()
+                && let Err(rollback_error) = hook.disable()
+            {
+                log::error!(
+                    "Pointer-slot activation failed and immediate rollback also failed: {}",
+                    rollback_error
+                );
+                self.rollbacks.push(Box::new(move || {
+                    if let Err(error) = hook.disable() {
+                        log::error!("Pointer-slot rollback lost ownership: {}", error);
+                    }
+                }));
+            }
+            return Err(error);
+        }
+
+        self.rollbacks.push(Box::new(move || {
+            if let Err(error) = hook.disable() {
+                log::error!("Pointer-slot rollback lost ownership: {}", error);
             }
         }));
         Ok(())

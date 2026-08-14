@@ -201,6 +201,16 @@ pub(crate) fn observe_post_load() {
     log_compatibility_report(crate::compat::GraphicsCompatibility::detect());
 }
 
+/// Return whether DeferredInit completed every essential graphics owner.
+///
+/// xNVSE may issue presentation messages during loading or after a failed
+/// initialization attempt. This acquire load is the sole admission check for
+/// the message-owned presentation path; no render state is reachable before
+/// the complete DeferredInit publication.
+pub(crate) fn deferred_graphics_ready() -> bool {
+    DEFERRED_INSTALL_STATE.load(Ordering::Acquire) == DEFERRED_INSTALL_COMPLETE
+}
+
 /// Publish initial graphics ownership and install hooks at `DeferredInit`.
 ///
 /// Installation is transactional and idempotent: a completed attempt latches
@@ -227,6 +237,7 @@ pub(crate) fn install_deferred_hooks() -> Result<()> {
     }
     result?;
     install_attempt.complete();
+    crate::interop::log_startup_matrix();
     log::info!("[INIT] Deferred OMV graphics hooks initialized");
 
     Ok(())
@@ -268,7 +279,6 @@ fn install_deferred_hooks_once() -> Result<()> {
     }
     log::info!("[FNV WORLD] Initial config published at DeferredInit");
 
-    crate::effects::pbr::configure_terrain_contract(compatibility.has_vpt_terrain_contract());
     crate::effects::pbr::install(settings.native_pbr)?;
     crate::effects::sky::install(settings.native_sky)?;
     crate::hooks::install_engine_hooks()
@@ -444,10 +454,10 @@ mod deferred_install_tests {
     fn shadow_consumer_and_reset_ownership_have_fixed_source_order() {
         let render = include_str!("fnv_render.rs");
         let pre_alpha = render
-            .split_once("unsafe extern \"cdecl\" fn hook_render_pre_depth_groups(")
+            .split_once("unsafe fn render_pre_depth_groups_body(")
             .and_then(|(_, tail)| tail.split_once("\nfn current_render_target"))
             .map(|(body, _)| body)
-            .expect("opaque pre-alpha entry");
+            .expect("shared opaque pre-alpha body");
         let shadows = pre_alpha
             .find("shadows::apply_before_alpha")
             .expect("shadow composition");
