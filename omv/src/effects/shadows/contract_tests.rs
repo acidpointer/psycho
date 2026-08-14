@@ -1,22 +1,23 @@
 use super::contract::{
     ActorOverlayProjectionPlan, CASCADE_COUNT, CascadeDirty, CascadeScheduler,
     CascadeSphereSelection, CasterAdmission, CasterPolicy, DeferredReceiverPlan,
-    DirectionalRootSetSignature, HookAction, INTERIOR_MIN_RADIANCE_FACTOR, NVR_CASCADE_RESOLUTION,
-    NVR_POINT_DRAW_DISTANCE, NVR_POINT_LIGHT_COUNT, NVR_POINT_RADIUS_MULTIPLIER,
-    PointLightCandidate, PointMapCache, PointMapSignature, ProducerResourcePlan, SceneKind,
-    ShadowPublicationIdentity, ShadowSettings, TransactionState, actor_overlay_edge_visibility,
-    actor_overlay_projection_plan, cascade_minimum_caster_radius, cascade_sphere_selection,
+    DirectionalRootSetSignature, HookAction, INTERIOR_MIN_RADIANCE_FACTOR, LightScissorRect,
+    NVR_CASCADE_RESOLUTION, NVR_POINT_DRAW_DISTANCE, NVR_POINT_LIGHT_COUNT,
+    NVR_POINT_RADIUS_MULTIPLIER, PointLightCandidate, PointMapCache, PointMapSignature,
+    ProducerResourcePlan, SceneKind, ShadowFramePlan, ShadowMapUpdate, ShadowPublicationIdentity,
+    ShadowSettings, TransactionState, actor_overlay_edge_visibility, actor_overlay_projection_plan,
+    cascade_minimum_caster_radius, cascade_sphere_selection, clipmap_texel_delta,
     composite_shadow_factor, consumer_has_shadow_work, contact_consumer_work,
     depth_sample_is_geometry, directional_actor_root_is_active, directional_caster_work,
     directional_contact_visibility, directional_form_type_is_enabled,
     directional_receiver_position, directional_root_set_dirty, dismember_partition_is_renderable,
     effective_contact_distance, evsm4_moments, evsm4_visibility, interior_shadow_factor,
-    local_light_source_guard, nvr_contact_sample_offsets, point_light_distance_fade,
-    point_light_influence_is_eligible, practical_cascade_splits, publication_epoch_is_usable,
-    publication_identity_is_usable, retained_cascade_refresh, select_point_lights,
-    select_point_lights_stable, shadow_receiver_is_valid, skinned_position_reference,
-    snap_shadow_center, source_owned_shadow_radiance, sphere_intersects_cube_face,
-    sphere_intersects_point_light, terrain_lod_shadow_z,
+    local_light_clear_coverage, local_light_source_guard, nvr_contact_sample_offsets,
+    point_light_distance_fade, point_light_influence_is_eligible, practical_cascade_splits,
+    publication_epoch_is_usable, publication_identity_is_usable, retained_cascade_refresh,
+    select_point_lights, select_point_lights_stable, shadow_receiver_is_valid,
+    skinned_position_reference, snap_shadow_center, source_owned_shadow_radiance,
+    sphere_intersects_cube_face, sphere_intersects_point_light, terrain_lod_shadow_z,
 };
 use super::engine::{
     EngineCallAbi, FNV_EXE_SHA256, GeometryKind, HookSiteContract, NativeLayout,
@@ -28,6 +29,347 @@ use super::math::{
 };
 use super::pipeline::ShadowPipeline;
 use super::render::{mapped_cull_mode, rebase_bone_rows};
+
+#[test]
+fn retained_shadow_frame_has_a_literal_zero_work_transcript() {
+    let plan = ShadowFramePlan::from_updates([ShadowMapUpdate::Reuse; CASCADE_COUNT], 0, 0);
+
+    assert!(!plan.requires_d3d_transaction());
+    assert_eq!(plan.map_draw_count(), 0);
+    assert_eq!(plan.clear_count(), 0);
+    assert_eq!(plan.resolve_count(), 0);
+    assert_eq!(plan.copy_count(), 0);
+    assert_eq!(plan.sampler_unbind_count(), 0);
+}
+
+#[test]
+fn directional_translation_is_strip_bounded_and_preserves_every_texel_owner() {
+    let update = ShadowMapUpdate::scroll(37, -23, NVR_CASCADE_RESOLUTION)
+        .expect("bounded clipmap translation");
+    let ShadowMapUpdate::Scroll(scroll) = update else {
+        panic!("translation must select scrolling work");
+    };
+
+    assert_eq!(scroll.overlap().area(), 2_011 * 2_025);
+    assert_eq!(
+        scroll.exposed().iter().map(|rect| rect.area()).sum::<u64>(),
+        u64::from(NVR_CASCADE_RESOLUTION).pow(2) - scroll.overlap().area(),
+    );
+    assert!(
+        scroll
+            .exposed()
+            .iter()
+            .all(|rect| rect.width() <= 64 || rect.height() <= 64)
+    );
+
+    let plan = ShadowFramePlan::from_updates(
+        [
+            update,
+            ShadowMapUpdate::Reuse,
+            ShadowMapUpdate::Reuse,
+            ShadowMapUpdate::Reuse,
+        ],
+        0,
+        0,
+    );
+    assert!(plan.requires_d3d_transaction());
+    assert_eq!(plan.map_draw_count(), scroll.exposed().len() as u32);
+    assert_eq!(plan.resolve_count(), scroll.exposed().len() as u32);
+    assert_eq!(plan.copy_count(), 2 + scroll.exposed().len() as u32);
+    assert!(plan.directional_written_pixels() < u64::from(NVR_CASCADE_RESOLUTION).pow(2) / 16);
+}
+
+#[test]
+fn scrolling_overlap_and_bands_partition_every_destination_texel_exactly_once() {
+    for [delta_x, delta_y] in [[3, 2], [3, -2], [-3, 2], [-3, -2], [0, 2], [-3, 0]] {
+        let ShadowMapUpdate::Scroll(scroll) =
+            ShadowMapUpdate::scroll(delta_x, delta_y, 8).expect("valid test scroll")
+        else {
+            panic!("small translation must scroll");
+        };
+        let source = scroll.source_overlap();
+        let destination = scroll.overlap();
+        assert_eq!(source.width(), destination.width());
+        assert_eq!(source.height(), destination.height());
+        assert_eq!(destination.left as i32 - source.left as i32, delta_x);
+        assert_eq!(destination.top as i32 - source.top as i32, delta_y);
+
+        let mut ownership = [[0_u8; 8]; 8];
+        for row in ownership
+            .iter_mut()
+            .take(destination.bottom as usize)
+            .skip(destination.top as usize)
+        {
+            for owner in row
+                .iter_mut()
+                .take(destination.right as usize)
+                .skip(destination.left as usize)
+            {
+                *owner += 1;
+            }
+        }
+        for rect in scroll.exposed() {
+            for row in ownership
+                .iter_mut()
+                .take(rect.bottom as usize)
+                .skip(rect.top as usize)
+            {
+                for owner in row
+                    .iter_mut()
+                    .take(rect.right as usize)
+                    .skip(rect.left as usize)
+                {
+                    *owner += 1;
+                }
+            }
+        }
+        assert!(ownership.iter().flatten().all(|owner| *owner == 1));
+    }
+}
+
+#[test]
+fn oversized_or_degenerate_clipmap_motion_rebuilds_instead_of_corrupting_overlap() {
+    assert_eq!(
+        ShadowMapUpdate::scroll(65, 0, NVR_CASCADE_RESOLUTION),
+        Some(ShadowMapUpdate::Rebuild),
+    );
+    assert_eq!(
+        ShadowMapUpdate::scroll(0, 0, NVR_CASCADE_RESOLUTION),
+        Some(ShadowMapUpdate::Reuse),
+    );
+    assert_eq!(ShadowMapUpdate::scroll(1, 1, 0), None);
+}
+
+#[test]
+fn clipmap_delta_accepts_only_exact_same_basis_texel_motion() {
+    let retained = [
+        [1.0, 0.0, 0.0, 0.0],
+        [0.0, 1.0, 0.0, 0.0],
+        [0.0, 0.0, 1.0, 0.0],
+        [0.0, 0.0, 0.0, 1.0],
+    ];
+    let mut desired = retained;
+    desired[3][0] = 37.0 / 1_024.0;
+    desired[3][1] = 23.0 / 1_024.0;
+    assert_eq!(
+        clipmap_texel_delta(retained, desired, NVR_CASCADE_RESOLUTION),
+        Some([37, -23])
+    );
+
+    desired[0][0] += 0.01;
+    assert_eq!(
+        clipmap_texel_delta(retained, desired, NVR_CASCADE_RESOLUTION),
+        None,
+        "a changed light basis cannot reinterpret retained EVSM moments"
+    );
+}
+
+#[test]
+fn point_sampler_unbinds_exist_only_when_a_cube_face_is_scheduled() {
+    let idle = ShadowFramePlan::from_updates([ShadowMapUpdate::Reuse; CASCADE_COUNT], 0, 0);
+    let one_face = ShadowFramePlan::from_updates([ShadowMapUpdate::Reuse; CASCADE_COUNT], 1, 0);
+
+    assert_eq!(idle.sampler_unbind_count(), 0);
+    assert_eq!(one_face.sampler_unbind_count(), 16);
+}
+
+#[test]
+fn local_light_clear_covers_old_and_current_scissors_without_fullscreen_work() {
+    let previous = LightScissorRect {
+        left: 100,
+        top: 200,
+        right: 500,
+        bottom: 600,
+    };
+    let current = LightScissorRect {
+        left: 300,
+        top: 100,
+        right: 700,
+        bottom: 450,
+    };
+    assert_eq!(
+        local_light_clear_coverage(Some(previous), Some(current)),
+        Some(LightScissorRect {
+            left: 100,
+            top: 100,
+            right: 700,
+            bottom: 600,
+        })
+    );
+    assert_eq!(
+        local_light_clear_coverage(Some(previous), None),
+        Some(previous)
+    );
+    assert_eq!(local_light_clear_coverage(None, None), None);
+}
+
+#[test]
+fn production_fast_path_precedes_every_d3d_transaction_owner() {
+    let source = include_str!("pipeline.rs");
+    let produce = source
+        .split_once("pub(super) unsafe fn produce(")
+        .and_then(|(_, tail)| tail.split_once("/// Publish a proven unchanged map family"))
+        .map(|(body, _)| body)
+        .expect("shadow producer body");
+    let fast = produce
+        .find("try_republish_without_d3d")
+        .expect("no-work planner");
+    let invalidate = produce
+        .find("self.published = None")
+        .expect("transactional publication invalidation");
+    let transaction = produce
+        .find("self.produce_transaction")
+        .expect("D3D transaction");
+    assert!(fast < invalidate && invalidate < transaction);
+
+    let point_draw = source
+        .split_once("unsafe fn draw_point_maps(")
+        .and_then(|(_, tail)| tail.split_once("/// Submit one point face"))
+        .map(|(body, _)| body)
+        .expect("point-map draw body");
+    assert!(
+        point_draw.find("return Ok(())").expect("zero-face return")
+            < point_draw
+                .find("for sampler in 0..16")
+                .expect("sampler unbinds")
+    );
+}
+
+#[test]
+fn shadow_transactions_capture_only_the_state_they_mutate() {
+    use libpsycho::os::windows::directx9::{ShadowConsumerState9, ShadowProducerState9};
+
+    let pipeline = include_str!("pipeline.rs");
+    let render = include_str!("render.rs");
+    let directx = include_str!("../../../../libpsycho/src/os/windows/directx9.rs");
+
+    assert!(pipeline.contains("ShadowProducerState9::capture"));
+    assert!(pipeline.contains("ShadowConsumerState9::capture"));
+    assert!(!pipeline.contains("D3DSBT_ALL"));
+    assert!(!pipeline.contains("StateBlock9"));
+    assert!(directx.contains("pub struct ShadowProducerState9"));
+    assert!(directx.contains("pub struct ShadowConsumerState9"));
+    assert!(directx.contains("const SHADOW_RENDER_STATES"));
+    assert!(directx.contains("const SHADOW_SAMPLER_STATES"));
+    assert!(directx.contains("if self.fvf != 0"));
+    assert!(directx.contains("} else {\n            keep_first_error(&mut result, unsafe {"));
+    assert_eq!(ShadowProducerState9::TEXTURE_STAGE_COUNT, 16);
+    assert_eq!(ShadowProducerState9::SAMPLER_COUNT, 2);
+    assert_eq!(ShadowProducerState9::STREAM_COUNT, 16);
+    assert_eq!(ShadowProducerState9::VERTEX_CONSTANT_COUNT, 146);
+    assert_eq!(ShadowProducerState9::PIXEL_CONSTANT_COUNT, 1);
+    assert_eq!(ShadowConsumerState9::TEXTURE_STAGE_COUNT, 13);
+    assert_eq!(ShadowConsumerState9::SAMPLER_COUNT, 13);
+    assert_eq!(ShadowConsumerState9::STREAM_COUNT, 1);
+    assert_eq!(ShadowConsumerState9::VERTEX_CONSTANT_COUNT, 0);
+    assert_eq!(ShadowConsumerState9::PIXEL_CONSTANT_COUNT, 35);
+
+    let render_state_set = directx
+        .split_once("const SHADOW_RENDER_STATES")
+        .and_then(|(_, tail)| tail.split_once("const SHADOW_SAMPLER_STATES"))
+        .map(|(states, _)| states)
+        .expect("bounded shadow render-state list");
+    for state in [
+        "D3DRS_ZENABLE",
+        "D3DRS_ZWRITEENABLE",
+        "D3DRS_ZFUNC",
+        "D3DRS_CULLMODE",
+        "D3DRS_ALPHABLENDENABLE",
+        "D3DRS_ALPHATESTENABLE",
+        "D3DRS_ALPHAREF",
+        "D3DRS_ALPHAFUNC",
+        "D3DRS_STENCILENABLE",
+        "D3DRS_COLORWRITEENABLE",
+        "D3DRS_COLORWRITEENABLE1",
+        "D3DRS_MULTISAMPLEANTIALIAS",
+        "D3DRS_MULTISAMPLEMASK",
+        "D3DRS_ADAPTIVETESS_Y",
+        "D3DRS_POINTSIZE",
+        "D3DRS_DEPTHBIAS",
+        "D3DRS_SLOPESCALEDEPTHBIAS",
+        "D3DRS_SCISSORTESTENABLE",
+        "D3DRS_SRGBWRITEENABLE",
+        "D3DRS_SRCBLEND",
+        "D3DRS_DESTBLEND",
+        "D3DRS_BLENDOP",
+    ] {
+        assert!(
+            render_state_set.contains(state),
+            "shadow mutation {state} is absent from the bounded journal"
+        );
+        assert!(
+            pipeline.contains(state) || render.contains(state),
+            "journal state {state} is not owned by shadow code"
+        );
+    }
+}
+
+#[test]
+fn directional_consumer_has_no_intermediate_visibility_target_or_draw() {
+    let pipeline = include_str!("pipeline.rs");
+    let shaders = include_str!("shaders.rs");
+    assert!(!pipeline.contains("DirectionalConsumerTargets"));
+    assert!(!pipeline.contains("directional_mask_pixel"));
+    assert!(!shaders.contains("pub(super) directional_mask: Vec<u32>"));
+    assert!(shaders.contains("source.extend_from_slice(DIRECTIONAL_MASK_SOURCE)"));
+    assert!(shaders.contains("source.extend_from_slice(COMPOSITE_PIXEL_SOURCE)"));
+}
+
+#[test]
+fn copied_actor_bounds_are_reused_across_point_lights() {
+    let bounds = [[10.0, 0.0, 0.0, 1.0], [-10.0, 0.0, 0.0, 1.0]];
+    let faces = super::native::point_light_dynamic_faces_from_bounds(&bounds, [0.0; 3]);
+    assert_ne!(faces & 0b00_0001, 0, "+X actor missing from cube coverage");
+    assert_ne!(faces & 0b00_0010, 0, "-X actor missing from cube coverage");
+
+    let pipeline = include_str!("pipeline.rs");
+    let actor_snapshot = pipeline
+        .find("collect_point_actor_bounds")
+        .expect("shared actor-bound snapshot");
+    let point_loop = pipeline
+        .find("for (index, point)")
+        .expect("selected-light loop");
+    assert!(actor_snapshot < point_loop);
+    assert!(pipeline.contains("collect_point_actor_bounds"));
+}
+
+#[test]
+fn point_static_signatures_are_regional_to_each_light() {
+    let pipeline = include_str!("pipeline.rs");
+    let loop_body = pipeline
+        .split_once("for (index, point) in points.shadowed().iter().enumerate()")
+        .and_then(|(_, tail)| tail.split_once("roots.clear()"))
+        .map(|(body, _)| body)
+        .expect("selected point-light loop");
+    let signature = loop_body
+        .find("point_scene_static_signature(")
+        .expect("regional static signature");
+    assert!(signature < loop_body.len());
+    assert!(loop_body.contains("point.position"));
+    assert!(loop_body.contains("point.radius"));
+}
+
+#[test]
+fn point_dynamic_faces_submit_the_shared_actor_roots_not_full_light_lists() {
+    let pipeline = include_str!("pipeline.rs");
+    let dynamic = pipeline
+        .split_once("unsafe fn draw_point_dynamic_roots(")
+        .and_then(|(_, tail)| tail.split_once("/// Submit one point face"))
+        .map(|(body, _)| body)
+        .expect("shared dynamic point-caster submission");
+
+    assert!(dynamic.contains("actor_roots: &[DirectionalRoot]"));
+    assert!(dynamic.contains("for root in actor_roots"));
+    assert!(dynamic.contains("render::draw_point_root"));
+    assert!(!dynamic.contains("native::visit_point_geometry"));
+
+    let point_maps = pipeline
+        .split_once("unsafe fn draw_point_maps(")
+        .and_then(|(_, tail)| tail.split_once("unsafe fn draw_point_dynamic_roots("))
+        .map(|(body, _)| body)
+        .expect("point-map producer");
+    assert!(point_maps.contains("draw_point_dynamic_roots"));
+}
 
 #[test]
 fn executable_identity_and_common_hook_topology_are_exact() {
@@ -1502,8 +1844,8 @@ fn resource_plan_preserves_nvr_evsm_coverage_with_one_reusable_multisample_surfa
     assert_eq!(exterior.cascade_resolution, NVR_CASCADE_RESOLUTION);
     assert_eq!(exterior.cascade_count, CASCADE_COUNT as u32);
     assert_eq!(
-        exterior.directional_texture_count, 4,
-        "the atlas, reusable near resolve, and two outer actor maps must be included"
+        exterior.directional_texture_count, 6,
+        "the atlas, full/strip resolves, and two actor maps must be included"
     );
     assert_eq!(
         exterior.actor_overlay_fullscreen_merge_draws, 0,
@@ -1540,11 +1882,11 @@ fn resource_plan_preserves_nvr_evsm_coverage_with_one_reusable_multisample_surfa
         "each published point cube needs an immutable-static backing cube"
     );
     assert_eq!(
-        exterior.estimated_bytes, 633_634_816,
+        exterior.estimated_bytes, 640_020_480,
         "the resource contract omitted a quality-preserving shadow resource"
     );
     assert!(exterior.estimated_bytes <= 664 * 1024 * 1024);
-    assert_eq!(exterior.fallback_estimated_bytes, 662_994_944);
+    assert_eq!(exterior.fallback_estimated_bytes, 669_380_608);
     assert!(exterior.fallback_estimated_bytes < exterior.nvr_equivalent_estimated_bytes);
     assert!(exterior.combined_estimated_bytes <= 664 * 1024 * 1024);
     assert!(exterior.nvr_equivalent_estimated_bytes >= 896 * 1024 * 1024);

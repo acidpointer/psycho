@@ -6,24 +6,43 @@
 #define OMV_INTERIOR 0
 #endif
 
+#if !OMV_FUSED_DIRECTIONAL
 float4 ScreenData : register(c0);
 float4 DepthLinearizeData : register(c1);
 float4 ShadowControl : register(c23); // x reversed, y directional enabled, z darkness
 float4 DepthControl : register(c26); // x endpoint epsilon
 float4 ContactControl : register(c31); // x contact texture enabled
 float4 PointControl : register(c32); // x point buffer enabled, y darkness
+#else
+float4 ContactControl : register(c33); // x contact texture enabled
+float4 PointControl : register(c34); // x point buffer enabled, y darkness
+#endif
 
+#if !OMV_FUSED_DIRECTIONAL
 static const float ShadowDepthKeyRange = 250000.0f;
+#endif
 
 sampler2D SourceColor : register(s0);
+#if !OMV_FUSED_DIRECTIONAL
 sampler2D SceneDepth : register(s1);
 sampler2D DirectionalVisibilityMap : register(s2);
 sampler2D PointShadowBuffer : register(s3);
 sampler2D ContactVisibility : register(s4);
 sampler2D PointLightTotal : register(s6);
+#else
+// s1-s4 are scene depth, static atlas, and the two actor textures declared by
+// the concatenated directional source.
+sampler2D PointShadowBuffer : register(s5);
+sampler2D PointLightTotal : register(s6);
+sampler2D ContactVisibility : register(s7);
+#endif
 
+#ifndef OMV_SHADOW_PIXEL_INPUT
+#define OMV_SHADOW_PIXEL_INPUT 1
 struct PixelInput { float2 uv : TEXCOORD0; };
+#endif
 
+#if !OMV_FUSED_DIRECTIONAL
 float LinearDepth(float rawDepth) {
     if (ShadowControl.x > 0.5f)
         return DepthLinearizeData.x / max(rawDepth * DepthLinearizeData.y + DepthLinearizeData.z, 0.001f);
@@ -33,7 +52,9 @@ float LinearDepth(float rawDepth) {
 bool HasGeometryDepth(float rawDepth) {
     return rawDepth > DepthControl.x && rawDepth < 1.0f - DepthControl.x;
 }
+#endif
 
+#if !OMV_FUSED_DIRECTIONAL
 float ExactVisibility(sampler2D visibilityMap, float2 uv, float receiverDepth) {
     float2 sampleValue = tex2Dlod(visibilityMap, float4(uv, 0.0f, 0.0f)).rg;
     float sampleDepth = sampleValue.g * ShadowDepthKeyRange;
@@ -41,6 +62,7 @@ float ExactVisibility(sampler2D visibilityMap, float2 uv, float receiverDepth) {
     float accepted = sampleValue.g > 0.0f && abs(sampleDepth - receiverDepth) <= tolerance;
     return accepted > 0.0f ? sampleValue.r : 1.0f;
 }
+#endif
 
 float2 ContactTap(float2 uv, float centerDepth, float weight) {
     float2 sampleValue = tex2Dlod(ContactVisibility, float4(uv, 0.0f, 0.0f)).rg;
@@ -83,7 +105,12 @@ PointEnergy ExactPointValues(float2 uv, float receiverDepth) {
 
 float4 Main(PixelInput input) : COLOR0 {
     float4 source = tex2Dlod(SourceColor, float4(input.uv, 0.0f, 0.0f));
-    float rawDepth = tex2Dlod(SceneDepth, float4(input.uv, 0.0f, 0.0f)).r;
+#if OMV_FUSED_DIRECTIONAL
+    float2 receiverUv = SnapDepthUv(input.uv);
+#else
+    float2 receiverUv = input.uv;
+#endif
+    float rawDepth = tex2Dlod(SceneDepth, float4(receiverUv, 0.0f, 0.0f)).r;
     if (!HasGeometryDepth(rawDepth)) return source;
 
     float viewDepth = LinearDepth(rawDepth);
@@ -91,7 +118,11 @@ float4 Main(PixelInput input) : COLOR0 {
 
     float directional = 1.0f;
     if (ShadowControl.y > 0.5f) {
+#if OMV_FUSED_DIRECTIONAL
+        directional = DirectionalVisibilityAtReceiver(receiverUv, viewDepth);
+#else
         directional = ExactVisibility(DirectionalVisibilityMap, input.uv, viewDepth);
+#endif
         if (ContactControl.x > 0.5f)
             directional = min(
                 directional,

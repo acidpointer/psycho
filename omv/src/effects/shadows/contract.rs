@@ -888,6 +888,30 @@ impl PointConsumerPlan {
     pub(super) fn fragment_count(self) -> u64 {
         self.draws().map(|draw| draw.scissor.pixels()).sum()
     }
+
+    /// Conservative union of all receiver pixels written this frame.
+    pub(super) fn coverage(self) -> Option<LightScissorRect> {
+        self.draws()
+            .map(|draw| draw.scissor)
+            .reduce(LightScissorRect::union)
+    }
+}
+
+/// Region which must be neutralized before writing current local-light data.
+///
+/// The previous region removes pixels no longer covered after camera/light
+/// motion; the current region starts every additive accumulation from exact
+/// zero. Their union is the smallest single D3D clear rectangle satisfying
+/// both requirements.
+pub(super) fn local_light_clear_coverage(
+    previous: Option<LightScissorRect>,
+    current: Option<LightScissorRect>,
+) -> Option<LightScissorRect> {
+    match (previous, current) {
+        (Some(previous), Some(current)) => Some(previous.union(current)),
+        (Some(rect), None) | (None, Some(rect)) => Some(rect),
+        (None, None) => None,
+    }
 }
 
 /// Batch overlapping point lights while keeping separated lights scissored.
@@ -1467,6 +1491,11 @@ impl CascadeDirty {
             mask: mask & COMPLETE_CASCADE_MASK,
         }
     }
+
+    /// Return whether one cascade owns a mandatory invalidation.
+    pub(super) const fn contains(self, cascade: usize) -> bool {
+        cascade < CASCADE_COUNT && self.mask & (1 << cascade) != 0
+    }
 }
 
 /// Allocation-free identity of the roots submitted to directional maps.
@@ -1730,6 +1759,11 @@ impl PointMapCache {
     /// Return stable light identities currently owning physical cube slots.
     pub(super) fn identities(self) -> [usize; NVR_POINT_LIGHT_COUNT] {
         self.signatures.map(|signature| signature.identity)
+    }
+
+    /// Whether the previous cube publication contained animated coverage.
+    pub(super) fn has_dynamic_casters(self) -> bool {
+        self.dynamic_faces.into_iter().any(|faces| faces != 0)
     }
 
     /// Bound cube work while retaining complete spatial quality per map.
@@ -2574,6 +2608,332 @@ pub(super) fn evsm4_visibility(
     visibility.is_finite().then_some(visibility.clamp(0.0, 1.0))
 }
 
+/// Largest directional strip accepted by the scrolling producer.
+///
+/// A larger displacement is deliberately classified as a rebuild. This
+/// bounds both the temporary multisample surfaces and the amount of geometry
+/// that one translation can submit while preserving every 2048-square texel.
+pub(super) const MAX_CLIPMAP_STRIP_WIDTH: u32 = 64;
+
+/// Inclusive-exclusive texel rectangle in one directional cascade.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub(super) struct ClipmapRect {
+    /// Leftmost owned texel.
+    pub(super) left: u32,
+    /// Topmost owned texel.
+    pub(super) top: u32,
+    /// One past the rightmost owned texel.
+    pub(super) right: u32,
+    /// One past the bottommost owned texel.
+    pub(super) bottom: u32,
+}
+
+impl ClipmapRect {
+    /// Width in texels.
+    pub(super) const fn width(self) -> u32 {
+        self.right - self.left
+    }
+
+    /// Height in texels.
+    pub(super) const fn height(self) -> u32 {
+        self.bottom - self.top
+    }
+
+    /// Number of owned texels.
+    pub(super) const fn area(self) -> u64 {
+        self.width() as u64 * self.height() as u64
+    }
+}
+
+/// Exact overlap and exposed bands for one translated directional map.
+///
+/// The old atlas rectangle is first copied from [`Self::source_overlap`] to
+/// [`Self::destination_overlap`] in an unpublished scratch texture. The
+/// disjoint [`Self::exposed`] rectangles are then rendered into that scratch
+/// image. Only the complete scratch image may replace the public atlas slot,
+/// so a failed strip draw can never leave a twice-scrolled live cascade.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) struct ClipmapScroll {
+    source_overlap: ClipmapRect,
+    destination_overlap: ClipmapRect,
+    exposed: [ClipmapRect; 2],
+    exposed_len: u8,
+}
+
+impl ClipmapScroll {
+    /// Source rectangle retained from the old cascade.
+    pub(super) const fn source_overlap(self) -> ClipmapRect {
+        self.source_overlap
+    }
+
+    /// Destination rectangle receiving the retained overlap.
+    pub(super) const fn overlap(self) -> ClipmapRect {
+        self.destination_overlap
+    }
+
+    /// Disjoint destination bands which must be regenerated.
+    pub(super) fn exposed(&self) -> &[ClipmapRect] {
+        &self.exposed[..self.exposed_len as usize]
+    }
+
+    /// Number of disjoint exposed bands.
+    pub(super) const fn exposed_len(self) -> usize {
+        self.exposed_len as usize
+    }
+
+    /// Total texels submitted by the strip producer.
+    pub(super) fn exposed_area(self) -> u64 {
+        self.exposed().iter().copied().map(ClipmapRect::area).sum()
+    }
+}
+
+/// Producer action for one persistent directional cascade.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) enum ShadowMapUpdate {
+    /// Reuse the complete published map without touching D3D.
+    Reuse,
+    /// Preserve exact overlap and render only newly exposed bands.
+    Scroll(ClipmapScroll),
+    /// Produce the complete map into scratch and atomically publish it.
+    Rebuild,
+}
+
+impl ShadowMapUpdate {
+    /// Classify an integer-texel translation for the bounded strip producer.
+    pub(super) fn scroll(delta_x: i32, delta_y: i32, resolution: u32) -> Option<Self> {
+        if resolution == 0 {
+            return None;
+        }
+        if delta_x == 0 && delta_y == 0 {
+            return Some(Self::Reuse);
+        }
+        let maximum = MAX_CLIPMAP_STRIP_WIDTH as i32;
+        if delta_x.abs() > maximum
+            || delta_y.abs() > maximum
+            || delta_x.unsigned_abs() >= resolution
+            || delta_y.unsigned_abs() >= resolution
+        {
+            return Some(Self::Rebuild);
+        }
+
+        let destination_overlap = ClipmapRect {
+            left: delta_x.max(0) as u32,
+            top: delta_y.max(0) as u32,
+            right: (resolution as i32 + delta_x.min(0)) as u32,
+            bottom: (resolution as i32 + delta_y.min(0)) as u32,
+        };
+        let source_overlap = ClipmapRect {
+            left: (destination_overlap.left as i32 - delta_x) as u32,
+            top: (destination_overlap.top as i32 - delta_y) as u32,
+            right: (destination_overlap.right as i32 - delta_x) as u32,
+            bottom: (destination_overlap.bottom as i32 - delta_y) as u32,
+        };
+
+        // Horizontal owns the complete newly exposed rows. Vertical then
+        // excludes those rows, making the bands disjoint at their corner.
+        let horizontal = if delta_y > 0 {
+            ClipmapRect {
+                left: 0,
+                top: 0,
+                right: resolution,
+                bottom: delta_y as u32,
+            }
+        } else if delta_y < 0 {
+            ClipmapRect {
+                left: 0,
+                top: (resolution as i32 + delta_y) as u32,
+                right: resolution,
+                bottom: resolution,
+            }
+        } else {
+            ClipmapRect::default()
+        };
+        let (vertical_top, vertical_bottom) = if delta_y > 0 {
+            (delta_y as u32, resolution)
+        } else if delta_y < 0 {
+            (0, (resolution as i32 + delta_y) as u32)
+        } else {
+            (0, resolution)
+        };
+        let vertical = if delta_x > 0 {
+            ClipmapRect {
+                left: 0,
+                top: vertical_top,
+                right: delta_x as u32,
+                bottom: vertical_bottom,
+            }
+        } else if delta_x < 0 {
+            ClipmapRect {
+                left: (resolution as i32 + delta_x) as u32,
+                top: vertical_top,
+                right: resolution,
+                bottom: vertical_bottom,
+            }
+        } else {
+            ClipmapRect::default()
+        };
+        let mut exposed = [ClipmapRect::default(); 2];
+        let mut exposed_len = 0_u8;
+        for rect in [horizontal, vertical] {
+            if rect.area() != 0 {
+                exposed[exposed_len as usize] = rect;
+                exposed_len += 1;
+            }
+        }
+        Some(Self::Scroll(ClipmapScroll {
+            source_overlap,
+            destination_overlap,
+            exposed,
+            exposed_len,
+        }))
+    }
+}
+
+/// Resolve two same-basis orthographic transforms to an integer atlas shift.
+///
+/// Both matrices must already consume positions in the same camera-relative
+/// origin. A valid stable cascade differs only in its translation row; the Z
+/// translation is intentionally ignored because scrolling retains the old
+/// EVSM depth domain. Sub-texel or non-integral motion is rejected rather than
+/// rounding the atlas to a transform that would sample between texel owners.
+pub(super) fn clipmap_texel_delta(
+    retained: [[f32; 4]; 4],
+    desired: [[f32; 4]; 4],
+    resolution: u32,
+) -> Option<[i32; 2]> {
+    if resolution == 0
+        || !retained.iter().flatten().all(|value| value.is_finite())
+        || !desired.iter().flatten().all(|value| value.is_finite())
+    {
+        return None;
+    }
+    for row in 0..3 {
+        for column in 0..4 {
+            if (retained[row][column] - desired[row][column]).abs() > 1.0e-5 {
+                return None;
+            }
+        }
+    }
+    if (retained[3][3] - desired[3][3]).abs() > 1.0e-5 {
+        return None;
+    }
+    let half_resolution = resolution as f32 * 0.5;
+    let raw = [
+        (desired[3][0] - retained[3][0]) * half_resolution,
+        -(desired[3][1] - retained[3][1]) * half_resolution,
+    ];
+    let mut delta = [0_i32; 2];
+    for axis in 0..2 {
+        let rounded = raw[axis].round();
+        if !rounded.is_finite()
+            || rounded < i32::MIN as f32
+            || rounded > i32::MAX as f32
+            || (raw[axis] - rounded).abs() > 0.02
+        {
+            return None;
+        }
+        delta[axis] = rounded as i32;
+    }
+    Some(delta)
+}
+
+/// Pure regression transcript for one shadow producer invocation.
+///
+/// Production performs the same decisions while validating native inputs and
+/// immediately publishes a proven zero-work frame before D3D capture. This
+/// compact model keeps operation and written-pixel budgets deterministic
+/// across GPUs, Wine versions, and CI machines without pretending that test
+/// metadata owns live engine pointers.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) struct ShadowFramePlan {
+    directional: [ShadowMapUpdate; CASCADE_COUNT],
+    point_faces: u32,
+    actor_maps: u32,
+}
+
+impl ShadowFramePlan {
+    /// Build one immutable producer transcript.
+    pub(super) const fn from_updates(
+        directional: [ShadowMapUpdate; CASCADE_COUNT],
+        point_faces: u32,
+        actor_maps: u32,
+    ) -> Self {
+        Self {
+            directional,
+            point_faces,
+            actor_maps,
+        }
+    }
+
+    /// Whether any operation requires entering a D3D transaction.
+    pub(super) fn requires_d3d_transaction(self) -> bool {
+        self.map_draw_count() != 0
+    }
+
+    /// Geometry-producing map draws in the transcript.
+    pub(super) fn map_draw_count(self) -> u32 {
+        self.directional
+            .into_iter()
+            .map(|update| match update {
+                ShadowMapUpdate::Reuse => 0,
+                ShadowMapUpdate::Scroll(scroll) => scroll.exposed_len() as u32,
+                ShadowMapUpdate::Rebuild => 1,
+            })
+            .sum::<u32>()
+            + self.point_faces
+            + self.actor_maps
+    }
+
+    /// Attachment clears required by the scheduled map draws.
+    pub(super) fn clear_count(self) -> u32 {
+        self.map_draw_count()
+    }
+
+    /// Multisample resolves required by directional and actor work.
+    pub(super) fn resolve_count(self) -> u32 {
+        self.directional
+            .into_iter()
+            .map(|update| match update {
+                ShadowMapUpdate::Reuse => 0,
+                ShadowMapUpdate::Scroll(scroll) => scroll.exposed_len() as u32,
+                ShadowMapUpdate::Rebuild => 1,
+            })
+            .sum::<u32>()
+            + self.actor_maps
+    }
+
+    /// Exact resource copies, including scratch assembly and publication.
+    pub(super) fn copy_count(self) -> u32 {
+        self.directional
+            .into_iter()
+            .map(|update| match update {
+                ShadowMapUpdate::Reuse => 0,
+                ShadowMapUpdate::Scroll(scroll) => 2 + scroll.exposed_len() as u32,
+                ShadowMapUpdate::Rebuild => 1,
+            })
+            .sum::<u32>()
+            + self.point_faces
+            + self.actor_maps
+    }
+
+    /// Sampler unbinds needed before a cube face becomes a render target.
+    pub(super) const fn sampler_unbind_count(self) -> u32 {
+        if self.point_faces == 0 { 0 } else { 16 }
+    }
+
+    /// Directional color samples written by generation, excluding resolves.
+    pub(super) fn directional_written_pixels(self) -> u64 {
+        self.directional
+            .into_iter()
+            .map(|update| match update {
+                ShadowMapUpdate::Reuse => 0,
+                ShadowMapUpdate::Scroll(scroll) => scroll.exposed_area(),
+                ShadowMapUpdate::Rebuild => u64::from(NVR_CASCADE_RESOLUTION).pow(2),
+            })
+            .sum()
+    }
+}
+
 /// Categories of D3D9 state touched by the producer transaction.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[repr(u16)]
@@ -2643,8 +3003,9 @@ pub(super) struct ProducerResourcePlan {
     pub(super) cascade_count: u32,
     /// Number of persistent shader-readable directional textures.
     ///
-    /// These are the four-map atlas, static resolve, packed near/middle actor
-    /// map, and far actor map (also reused as the actor resolve scratch).
+    /// These are the four-map atlas, static resolve, two strip resolves,
+    /// packed near/middle actor map, and far actor map (also reused as the
+    /// actor resolve scratch).
     pub(super) directional_texture_count: u32,
     /// Width and height of the single-sample 2-by-2 consumer atlas.
     pub(super) atlas_resolution: u32,
@@ -2685,9 +3046,10 @@ pub(super) struct ProducerResourcePlan {
     ///
     /// Retaining both families prevents cell-transition allocation hitches.
     /// Both locations share one source-color copy and full-resolution RGBA
-    /// local-total and local-deficit targets. Receiver geometry is consumed
-    /// directly from scene depth. Exterior contact adds two full-resolution
-    /// G16R16F maps for raw evidence and its same-frame depth-aware filter.
+    /// local-total and local-deficit targets. Receiver geometry and
+    /// directional EVSM evaluation are consumed directly in the source-owned
+    /// compositor. Exterior contact adds one full-resolution G16R16F map for
+    /// raw evidence and its same-frame depth-aware filter.
     pub(super) combined_estimated_bytes: u64,
     /// Comparable lower bound for NVR's multisampled 4096 atlas path.
     pub(super) nvr_equivalent_estimated_bytes: u64,
@@ -2730,7 +3092,10 @@ impl ProducerResourcePlan {
         // shadow independently; no 2x2 ownership reconstruction is involved.
         let point_accumulation = receiver_pixels * 8 * 2;
         let source_copy = full_resolution_pixels * 8;
-        let directional_mask = receiver_pixels * 4;
+        // Horizontal and vertical 64-texel strip families each own one FP16
+        // four-sample target, matching depth, and one single-sample resolve.
+        let strip_pixels = u64::from(NVR_CASCADE_RESOLUTION * MAX_CLIPMAP_STRIP_WIDTH);
+        let directional_strips = strip_pixels * (8 * 4 + 4 * 4 + 8) * 2;
         // One full-resolution four-byte target retains visibility plus its
         // normalized receiver-depth key. Its same-frame cross filter executes
         // directly in the existing source-owned compositor.
@@ -2749,7 +3114,7 @@ impl ProducerResourcePlan {
                 + point_static_cubes
                 + point_depth
                 + interior_consumer
-                + directional_mask
+                + directional_strips
                 + contact_targets
         } else {
             point_cubes + point_static_cubes + point_depth + interior_consumer
@@ -2766,7 +3131,7 @@ impl ProducerResourcePlan {
             + point_depth
             + source_copy
             + point_accumulation
-            + directional_mask
+            + directional_strips
             + contact_targets;
         let actor_fallback_extra = actor_generation + actor_moments;
         let fallback_estimated_bytes = if directional {
@@ -2781,7 +3146,7 @@ impl ProducerResourcePlan {
         Some(Self {
             cascade_resolution: NVR_CASCADE_RESOLUTION,
             cascade_count: if directional { CASCADE_COUNT as u32 } else { 0 },
-            directional_texture_count: if directional { 4 } else { 0 },
+            directional_texture_count: if directional { 6 } else { 0 },
             atlas_resolution: NVR_CASCADE_RESOLUTION * 2,
             directional_samples: 4,
             directional_channels: 4,

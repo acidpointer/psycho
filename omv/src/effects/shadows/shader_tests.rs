@@ -3,7 +3,7 @@ use super::shaders::{
     COMPOSITE_PIXEL_SOURCE, CONTACT_SOURCE, CUBE_PIXEL_SOURCE, CUBE_VERTEX_SOURCE,
     DIRECTIONAL_MASK_SOURCE, DIRECTIONAL_PIXEL_SOURCE, DIRECTIONAL_VERTEX_SOURCE,
     FAR_CLEAR_PIXEL_SOURCE, POINT_ACCUMULATION_SOURCE, directional_composite_source,
-    interior_composite_source, point_accumulation_source,
+    exterior_composite_source, interior_composite_source, point_accumulation_source,
 };
 
 fn instruction_count(bytecode: &[u32]) -> usize {
@@ -178,7 +178,9 @@ fn every_shadow_shader_compiles_for_shader_model_three_with_static_budgets() {
             "shadow_composite_directional.ps",
             directional_composite.as_slice(),
             "ps_3_0",
-            312,
+            // Directional EVSM evaluation is fused into this already-required
+            // source pass. The old two-pass total was up to 2,168 tokens.
+            2_050,
         ),
     ];
     let mut compiled_programs: Vec<(&str, Vec<u32>)> = Vec::with_capacity(variants.len());
@@ -220,7 +222,7 @@ fn full_resolution_exterior_receiver_work_has_a_fixed_shader_budget() {
     .expect("point-free exterior composite must compile");
     let mixed = crate::shaders::compile_hlsl_source_target(
         "shadow_composite_mixed_budget.ps",
-        COMPOSITE_PIXEL_SOURCE,
+        &exterior_composite_source(),
         "ps_3_0",
     )
     .expect("mixed-light composite must compile");
@@ -234,13 +236,13 @@ fn full_resolution_exterior_receiver_work_has_a_fixed_shader_budget() {
     .expect("deferred directional mask must compile");
     let receiver_instructions = instruction_count(&directional_mask);
     assert!(
-        directional_instructions <= 312,
+        directional_instructions <= 2_050,
         "point-free exterior path uses {directional_instructions} instructions"
     );
     assert!(
-        receiver_instructions + directional_instructions <= 2_200,
-        "full-resolution exterior path costs {} instructions per output pixel",
-        receiver_instructions + directional_instructions,
+        directional_instructions < receiver_instructions + 312,
+        "fused exterior path retained the old mask-plus-composite cost ({directional_instructions} versus {})",
+        receiver_instructions + 312,
     );
     assert!(
         directional_instructions + 32 <= mixed_instructions,
@@ -303,6 +305,11 @@ fn consumer_shader_abis_compile_with_bounded_texture_work() {
 
     let directional_mask =
         std::str::from_utf8(DIRECTIONAL_MASK_SOURCE).expect("directional mask UTF-8");
+    assert!(directional_mask.contains("#if OMV_FUSED_DIRECTIONAL"));
+    assert!(directional_mask.contains("sampler2D SceneDepth : register(s1)"));
+    assert!(directional_mask.contains("sampler2D ShadowAtlas : register(s2)"));
+    assert!(directional_mask.contains("sampler2D ActorNearMiddleMoments : register(s3)"));
+    assert!(directional_mask.contains("sampler2D ActorFarMoments : register(s4)"));
     assert!(directional_mask.contains("sampler2D ShadowAtlas : register(s1)"));
     assert!(directional_mask.contains("sampler2D ActorNearMiddleMoments : register(s2)"));
     assert!(directional_mask.contains("sampler2D ActorFarMoments : register(s3)"));
@@ -310,6 +317,13 @@ fn consumer_shader_abis_compile_with_bounded_texture_work() {
     assert!(directional_mask.contains("float4 ActorControl : register(c28)"));
     assert!(directional_mask.contains("float4 ActorCrops[3] : register(c29)"));
     assert!(directional_mask.contains("float4 ActorTexel : register(c32)"));
+
+    let fused = String::from_utf8(exterior_composite_source()).expect("fused exterior UTF-8");
+    assert!(fused.contains("#define OMV_FUSED_DIRECTIONAL 1"));
+    assert!(fused.contains("sampler2D PointShadowBuffer : register(s5)"));
+    assert!(fused.contains("sampler2D ContactVisibility : register(s7)"));
+    assert!(fused.contains("float4 ContactControl : register(c33)"));
+    assert!(fused.contains("float4 PointControl : register(c34)"));
 
     let contact = std::str::from_utf8(CONTACT_SOURCE).expect("contact UTF-8");
     assert!(contact.contains("sampler2D SceneDepth : register(s0)"));
@@ -342,16 +356,16 @@ fn consumer_shader_abis_compile_with_bounded_texture_work() {
         directional_texture_samples <= 25,
         "deferred directional mask uses {directional_texture_samples} compiled texture instructions"
     );
-    for (name, source, expected_samples) in [
+    for (name, source, maximum_samples) in [
         (
             "shadow_composite_sample_budget.ps",
-            COMPOSITE_PIXEL_SOURCE.to_vec(),
-            10,
+            exterior_composite_source(),
+            35,
         ),
         (
             "shadow_directional_composite_sample_budget.ps",
             directional_composite_source(),
-            8,
+            33,
         ),
         (
             "shadow_interior_composite_sample_budget.ps",
@@ -361,10 +375,9 @@ fn consumer_shader_abis_compile_with_bounded_texture_work() {
     ] {
         let bytecode = crate::shaders::compile_hlsl_source_target(name, &source, "ps_3_0")
             .unwrap_or_else(|error| panic!("{name} must compile: {error:#}"));
-        assert_eq!(
-            texture_instruction_count(&bytecode),
-            expected_samples,
-            "{name} retained redundant full-resolution texture operations"
+        assert!(
+            texture_instruction_count(&bytecode) <= maximum_samples,
+            "{name} exceeds its {maximum_samples}-sample static bytecode ceiling"
         );
     }
     for (name, source) in [

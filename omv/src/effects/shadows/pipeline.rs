@@ -7,7 +7,7 @@
 //! An exact world context binds the later color/depth receiver, but map
 //! production precedes that context in the native engine transaction.
 
-use core::ffi::c_void;
+use core::{cell::Cell, ffi::c_void};
 use std::time::Instant;
 
 use libpsycho::os::windows::directx9::{
@@ -22,9 +22,9 @@ use libpsycho::os::windows::directx9::{
     D3DRS_MULTISAMPLEMASK, D3DRS_POINTSIZE, D3DRS_SCISSORTESTENABLE, D3DRS_SRCBLEND,
     D3DRS_SRGBWRITEENABLE, D3DRS_STENCILENABLE, D3DRS_ZENABLE, D3DRS_ZWRITEENABLE,
     D3DSAMP_ADDRESSU, D3DSAMP_ADDRESSV, D3DSAMP_MAGFILTER, D3DSAMP_MINFILTER, D3DSAMP_MIPFILTER,
-    D3DSAMP_SRGBTEXTURE, D3DSBT_ALL, D3DSURFACE_DESC, D3DTADDRESS_CLAMP, D3DTEXF_LINEAR,
-    D3DTEXF_NONE, D3DTEXF_POINT, D3DVIEWPORT9, Device9Ref, Direct3DResult, PixelShader9, RECT,
-    ScreenVertex, StateBlock9, Surface9, Texture9, direct3d_failure,
+    D3DSAMP_SRGBTEXTURE, D3DSURFACE_DESC, D3DTADDRESS_CLAMP, D3DTEXF_LINEAR, D3DTEXF_NONE,
+    D3DTEXF_POINT, D3DVIEWPORT9, Device9Ref, Direct3DResult, PixelShader9, RECT, ScreenVertex,
+    ShadowConsumerState9, ShadowProducerState9, Surface9, Texture9, direct3d_failure,
 };
 
 use crate::{
@@ -32,27 +32,32 @@ use crate::{
         self, CameraFrame, DepthFrame, DepthResolveOutcome, DepthResolveSlot, DepthResolveStage,
     },
     render_state::{
-        RenderAttachments, RenderTargetSlots, capture_state_block, finish_render_transaction,
+        RenderAttachments, RenderTargetSlots, capture_exact_render_state,
+        finish_exact_render_transaction,
     },
 };
 
 use super::{
     NativeShadowsSettings,
     contract::{
-        CASCADE_COUNT, CascadeDirty, CascadeScheduler, CascadeSplit, DirectionalRootSetSignature,
-        NVR_CASCADE_RESOLUTION, NVR_POINT_LIGHT_COUNT, POINT_CONSUMER_BATCH_SIZE, PointMapCache,
-        PointMapPlan, PointMapSignature, SceneKind, ShadowPublicationIdentity,
-        cascade_minimum_caster_radius, consumer_has_shadow_work, directional_caster_work,
-        directional_root_set_dirty, effective_contact_distance, evsm4_moments,
-        nvr_contact_sample_offsets, point_consumer_plan, point_light_scissor,
-        practical_cascade_splits, publication_epoch_is_usable, publication_identity_is_usable,
-        retained_cascade_refresh,
+        CASCADE_COUNT, CascadeDirty, CascadeScheduler, CascadeSplit, ClipmapRect, ClipmapScroll,
+        DirectionalRootSetSignature, MAX_CLIPMAP_STRIP_WIDTH, NVR_CASCADE_RESOLUTION,
+        NVR_POINT_LIGHT_COUNT, POINT_CONSUMER_BATCH_SIZE, PointMapCache, PointMapPlan,
+        PointMapSignature, SceneKind, ShadowMapUpdate, ShadowPublicationIdentity,
+        cascade_minimum_caster_radius, clipmap_texel_delta, consumer_has_shadow_work,
+        directional_caster_work, directional_root_set_dirty, effective_contact_distance,
+        evsm4_moments, local_light_clear_coverage, nvr_contact_sample_offsets, point_consumer_plan,
+        point_light_scissor, practical_cascade_splits, publication_epoch_is_usable,
+        publication_identity_is_usable, retained_cascade_refresh,
     },
     math::{
         CascadeProjection, ShadowCamera, cascade_projection, point_cube_views,
         stabilize_sun_direction,
     },
-    native::{self, DIRECTIONAL_ROOT_CACHE_CAPACITY, DirectionalRoot, NativeScene, PointLightSet},
+    native::{
+        self, DIRECTIONAL_ROOT_CACHE_CAPACITY, DirectionalRoot, NativeScene,
+        POINT_ACTOR_BOUND_CACHE_CAPACITY, PointLightSet,
+    },
     render::{self, CasterSubset, GenerationPrograms, TraversalScratch},
     shaders::ShadowBytecode,
 };
@@ -381,6 +386,19 @@ impl ShadowPipeline {
             );
             return ReplacementResult::FallbackNative;
         }
+        // Build the no-work transcript before capturing a render target,
+        // state block, scene pair, or native renderer journal. Re-publishing
+        // immutable maps for a new epoch is a CPU metadata operation; making
+        // it enter D3D was a measurable fixed cost even in an empty room.
+        if self.last_dynamic_cascade_mask == 0
+            && !self.point_cache.has_dynamic_casters()
+            && let Some(publication) = unsafe {
+                self.try_republish_without_d3d(identity, scene, camera, shadow_camera, settings)
+            }
+        {
+            self.published = Some(publication);
+            return ReplacementResult::Produced;
+        }
         // Texture writes become visible immediately. Remove the publication
         // before touching them so a later failure cannot expose a partly
         // updated atlas or cube family to pre-alpha composition.
@@ -420,6 +438,246 @@ impl ShadowPipeline {
         }
     }
 
+    /// Publish a proven unchanged map family without entering D3D.
+    ///
+    /// This intentionally repeats the bounded native input snapshot used by
+    /// the rendering planner. Returning `None` is conservative and delegates
+    /// to the ordinary transactional path. Returning `Some` requires exact
+    /// equality of every static signature, no current or abandoned animated
+    /// footprint, no cascade refresh, and a point plan containing zero faces.
+    ///
+    /// # Safety
+    ///
+    /// `scene` and all pointers discovered from it must remain live through
+    /// this serialized common-shadow invocation.
+    unsafe fn try_republish_without_d3d(
+        &mut self,
+        identity: ShadowPublicationIdentity,
+        scene: NativeScene,
+        camera: CameraFrame,
+        shadow_camera: ShadowCamera,
+        settings: NativeShadowsSettings,
+    ) -> Option<PublishedFrame> {
+        let directional = scene.kind != SceneKind::Interior;
+        if self.last_scene != Some(scene.kind) {
+            return None;
+        }
+        let (
+            cascade_projections,
+            cascade_spheres,
+            cascade_origins,
+            cascade_suns,
+            cascade_sun,
+            cascade_matrices,
+            actor_crops,
+            cascade_splits,
+        ) = {
+            let resources = self.resources.as_ref()?;
+            (
+                resources.cascade_projections,
+                resources.cascade_spheres,
+                resources.cascade_origins,
+                resources.cascade_suns,
+                resources.cascade_sun,
+                resources.cascade_matrices,
+                resources.actor_crops,
+                resources.cascade_splits,
+            )
+        };
+
+        let directional_inputs = if directional {
+            let sky = backend::native_sky_frame()?;
+            let sun = stabilize_sun_direction(self.last_sun, sky.sun_direction)?;
+            let frustum = camera_signature(camera);
+            if self
+                .last_frustum
+                .is_none_or(|previous| projection_materially_changed(previous, frustum))
+                || self.last_directional_profile
+                    != Some([settings.exterior_distance, settings.cascade_split_lambda])
+                || cascade_projections.iter().any(Option::is_none)
+            {
+                return None;
+            }
+            let splits = practical_cascade_splits(
+                camera.near_z,
+                camera.far_z,
+                settings.exterior_distance,
+                settings.cascade_split_lambda,
+            )?;
+            for (index, split) in splits.into_iter().enumerate() {
+                let current =
+                    cascade_projection(shadow_camera, split, sun, NVR_CASCADE_RESOLUTION)?;
+                let stored = cascade_spheres[index];
+                let stored_absolute =
+                    std::array::from_fn(|axis| cascade_origins[index][axis] + stored[axis]);
+                let current_absolute = std::array::from_fn(|axis| {
+                    camera.world_transform.translation[axis] + current.center[axis]
+                });
+                let refresh = retained_cascade_refresh(
+                    stored_absolute,
+                    stored[3],
+                    current_absolute,
+                    current.receiver_radius,
+                    cascade_suns[index],
+                    sun,
+                    NVR_CASCADE_RESOLUTION,
+                );
+                if refresh.mandatory || refresh.quality {
+                    return None;
+                }
+            }
+            Some((sun, splits))
+        } else {
+            None
+        };
+
+        let retained_identities = if self.point_cell_identity == scene.cell as usize {
+            self.point_cache.identities()
+        } else {
+            [0; NVR_POINT_LIGHT_COUNT]
+        };
+        let points = unsafe {
+            native::select_point_lights(
+                camera.world_transform.translation,
+                shadow_camera.forward,
+                retained_identities,
+                settings.interior_shadowed_lights,
+                settings.interior_light_radius_multiplier,
+                settings.interior_light_draw_distance,
+            )
+        };
+        // The complete root vector is borrowed only inside this serialized
+        // scope and is restored on every outcome. It replaces up to twelve
+        // independent native light-geometry walks in the no-work path.
+        let (mut roots, mut actor_bounds, mut actor_roots) = {
+            let resources = self.resources.as_mut()?;
+            (
+                core::mem::take(&mut resources.directional_roots),
+                core::mem::take(&mut resources.point_actor_bounds),
+                core::mem::take(&mut resources.point_actor_roots),
+            )
+        };
+        let has_points = points.shadowed().len() != 0;
+        let needs_roots = directional || has_points;
+        let roots_complete =
+            !needs_roots || unsafe { native::collect_directional_roots(scene, &mut roots) };
+        let actor_bounds_complete = !has_points
+            || (roots_complete
+                && unsafe {
+                    native::collect_point_actor_bounds(
+                        roots.as_slice(),
+                        &mut actor_bounds,
+                        &mut actor_roots,
+                    )
+                });
+        let directional_signatures =
+            directional_inputs.map(|_| native::directional_root_set_signatures(roots.as_slice()));
+        let dynamic_mask = directional_inputs.map(|(_, splits)| unsafe {
+            native::directional_dynamic_cascade_mask(
+                roots.as_slice(),
+                splits,
+                shadow_camera.forward,
+                camera.world_transform.translation,
+            )
+        });
+        let mut signatures = [PointMapSignature::EMPTY; NVR_POINT_LIGHT_COUNT];
+        let mut dynamic_faces = [0_u8; NVR_POINT_LIGHT_COUNT];
+        for (index, point) in points.shadowed().iter().enumerate() {
+            if !roots_complete {
+                continue;
+            }
+            let static_signature = native::point_scene_static_signature(
+                roots.as_slice(),
+                point.position,
+                point.radius,
+            );
+            signatures[index] = PointMapSignature {
+                identity: point.identity,
+                position: point.position,
+                radius: point.radius,
+                caster_signature: static_signature,
+            };
+            dynamic_faces[index] = if actor_bounds_complete {
+                native::point_light_dynamic_faces_from_bounds(
+                    actor_bounds.as_slice(),
+                    point.position,
+                )
+            } else {
+                super::contract::ALL_CUBE_FACES
+            };
+        }
+        roots.clear();
+        actor_bounds.clear();
+        actor_roots.clear();
+        // `resources` was present when all allocations were taken and this
+        // method never replaces it. Use an invariant assertion instead of an
+        // optional exit: every ordinary return after the native snapshot must
+        // first return all reusable allocations and discard their pointers.
+        let resources = self
+            .resources
+            .as_mut()
+            .expect("shadow resources remain owned throughout no-work planning");
+        resources.directional_roots = roots;
+        resources.point_actor_bounds = actor_bounds;
+        resources.point_actor_roots = actor_roots;
+        let directional_changed = directional_no_work_state_changed(
+            directional,
+            directional_root_set_dirty(self.last_directional_roots, directional_signatures),
+            self.last_dynamic_cascade_mask,
+            dynamic_mask,
+        );
+        if !roots_complete || !actor_bounds_complete || directional_changed {
+            return None;
+        }
+        let active_cache = if self.point_cell_identity == scene.cell as usize {
+            self.point_cache
+        } else {
+            PointMapCache::default()
+        };
+        let point_plan = active_cache.plan(signatures, dynamic_faces, points.shadowed().len());
+        if point_plan.render_faces.into_iter().any(|faces| faces != 0) {
+            return None;
+        }
+
+        let mut published_points = [PublishedPointLight::default(); NVR_POINT_LIGHT_COUNT];
+        for (slot, published) in published_points
+            .iter_mut()
+            .enumerate()
+            .take(points.shadowed().len())
+        {
+            let source = point_plan.source_index(slot)?;
+            let point = points.shadowed().get(source)?;
+            let map = point_plan.published[slot];
+            *published = PublishedPointLight {
+                position: map.position,
+                color: point.color,
+                radius: map.radius,
+                shadow_fade: point.shadow_fade,
+            };
+        }
+        self.point_cache = point_plan.next;
+        self.point_cell_identity = scene.cell as usize;
+        self.last_scene = Some(scene.kind);
+        if let Some((sun, _)) = directional_inputs {
+            self.last_sun = Some(sun);
+            self.last_dynamic_cascade_mask = 0;
+            self.last_directional_roots = directional_signatures;
+        }
+        Some(PublishedFrame {
+            identity,
+            scene: scene.kind,
+            directional,
+            sun_direction: cascade_sun,
+            matrices: cascade_matrices,
+            matrix_origins: cascade_origins,
+            actor_crops,
+            actor_overlay_mask: 0,
+            splits: cascade_splits,
+            points: published_points,
+            point_count: points.shadowed().len(),
+        })
+    }
+
     fn produce_transaction(
         &mut self,
         device: &Device9Ref<'_>,
@@ -429,7 +687,12 @@ impl ShadowPipeline {
         shadow_camera: ShadowCamera,
         settings: NativeShadowsSettings,
     ) -> Direct3DResult<Option<PublishedFrame>> {
-        let slots = RenderTargetSlots::query(device)?;
+        let slots = RenderTargetSlots::from_reported_count(
+            self.resources
+                .as_ref()
+                .ok_or_else(direct3d_failure)?
+                .render_target_count,
+        );
         let attachments = RenderAttachments::capture(device, slots)?;
         // Stage every CPU-side cache mutation beside the D3D transaction.
         // `draw_maps` may finish its texture writes and still lose `EndScene`
@@ -452,17 +715,14 @@ impl ShadowPipeline {
             .min(u64::MAX as u128) as u64;
         let resources = self.resources.as_mut().ok_or_else(direct3d_failure)?;
         resources.production_stage = ShadowProductionStage::CaptureState;
-        capture_state_block(&resources.state_block)?;
+        let d3d_state = capture_exact_render_state(|| ShadowProducerState9::capture(device))?;
 
         resources.production_stage = ShadowProductionStage::BeginScene;
         let begin_result = device.begin_scene();
         if let Err(error) = begin_result {
-            return finish_render_transaction(
-                device,
-                &attachments,
-                Some(&resources.state_block),
-                Err(error),
-            )
+            return finish_exact_render_transaction(device, &attachments, Err(error), || {
+                d3d_state.restore(device)
+            })
             .map(|()| None);
         }
 
@@ -475,12 +735,9 @@ impl ShadowPipeline {
             {
                 result = Err(end_error);
             }
-            return finish_render_transaction(
-                device,
-                &attachments,
-                Some(&resources.state_block),
-                result,
-            )
+            return finish_exact_render_transaction(device, &attachments, result, || {
+                d3d_state.restore(device)
+            })
             .map(|()| None);
         }
 
@@ -519,12 +776,9 @@ impl ShadowPipeline {
         }
         let publication = result.as_ref().ok().copied().flatten();
         resources.production_stage = ShadowProductionStage::RestoreD3dState;
-        finish_render_transaction(
-            device,
-            &attachments,
-            Some(&resources.state_block),
-            result.map(|_| ()),
-        )?;
+        finish_exact_render_transaction(device, &attachments, result.map(|_| ()), || {
+            d3d_state.restore(device)
+        })?;
         self.scheduler = scheduler;
         self.last_scene = last_scene;
         self.last_sun = last_sun;
@@ -626,15 +880,31 @@ fn scene_branch_label(scene: SceneKind) -> &'static str {
     }
 }
 
+/// Reject retained directional publication only when the current branch owns
+/// directional maps. Interior point-only frames deliberately keep exterior
+/// signatures dormant; comparing `Some(exterior)` with `None(interior)` would
+/// otherwise force a complete D3D transaction in every static interior.
+fn directional_no_work_state_changed(
+    directional: bool,
+    root_dirty: CascadeDirty,
+    previous_dynamic_mask: u8,
+    current_dynamic_mask: Option<u8>,
+) -> bool {
+    directional
+        && (root_dirty != CascadeDirty::none()
+            || previous_dynamic_mask != 0
+            || current_dynamic_mask.is_none_or(|mask| mask != 0))
+}
+
 struct ShadowResources {
     device_identity: usize,
+    render_target_count: u32,
     programs: GenerationPrograms,
     far_clear_pixel: PixelShader9,
     point_pixel_one: PixelShader9,
     point_pixel_six: PixelShader9,
     point_pixel_twelve: PixelShader9,
     contact_pixel: PixelShader9,
-    directional_mask_pixel: PixelShader9,
     composite_pixel: PixelShader9,
     interior_composite_pixel: PixelShader9,
     directional_composite_pixel: PixelShader9,
@@ -643,9 +913,10 @@ struct ShadowResources {
     directional_failure_generation: Option<u32>,
     point_failure_generation: Option<u32>,
     consumer: Option<ConsumerTargets>,
-    state_block: StateBlock9,
     scratch: TraversalScratch,
     directional_roots: Vec<DirectionalRoot>,
+    point_actor_bounds: Vec<[f32; 4]>,
+    point_actor_roots: Vec<DirectionalRoot>,
     cascade_matrices: [[[f32; 4]; 4]; CASCADE_COUNT],
     cascade_projections: [Option<CascadeProjection>; CASCADE_COUNT],
     cascade_origins: [[f32; 3]; CASCADE_COUNT],
@@ -671,6 +942,11 @@ struct DirectionalResources {
     _directional_moments: Texture9,
     /// Single-sample resolve copied into one persistent atlas quadrant.
     directional_moments_surface: Surface9,
+    /// Bounded multisample targets used to regenerate only exposed clipmap
+    /// rows or columns. Their fixed 64-texel minor axis is the executable
+    /// producer budget; larger motion falls back to a complete scratch map.
+    horizontal_strip: DirectionalStripResources,
+    vertical_strip: DirectionalStripResources,
     /// Coverage-aware two-channel actor work target. Static EVSM4 and actor
     /// coverage cannot share a resolve format: averaging a hardware-zero
     /// EVSM clear with a valid sample does not produce a valid distribution.
@@ -687,6 +963,54 @@ struct DirectionalResources {
     directional_depth: Surface9,
     directional_actor_depth: Surface9,
     samples: u32,
+}
+
+/// One fixed-size multisampled directional strip and its exact resolve.
+struct DirectionalStripResources {
+    generation_surface: Surface9,
+    _moments: Texture9,
+    moments_surface: Surface9,
+    depth: Surface9,
+    width: u32,
+    height: u32,
+}
+
+/// Borrowed actor-only point-caster index for one serialized transaction.
+struct PointActorIndex<'a> {
+    roots: &'a [DirectionalRoot],
+    /// False selects the complete native light-list fallback.
+    complete: bool,
+}
+
+impl DirectionalStripResources {
+    fn create(device: &Device9Ref<'_>, width: u32, height: u32) -> Direct3DResult<Self> {
+        let generation_surface = device.create_render_target_surface(
+            width,
+            height,
+            D3DFMT_A16B16G16R16F,
+            D3DMULTISAMPLE_4_SAMPLES,
+            0,
+            false,
+        )?;
+        let moments = device.create_render_target_texture(width, height, D3DFMT_A16B16G16R16F)?;
+        let moments_surface = moments.surface_level(0)?;
+        let depth = device.create_depth_stencil_surface(
+            width,
+            height,
+            D3DFMT_D24S8,
+            D3DMULTISAMPLE_4_SAMPLES,
+            0,
+            true,
+        )?;
+        Ok(Self {
+            generation_surface,
+            _moments: moments,
+            moments_surface,
+            depth,
+            width,
+            height,
+        })
+    }
 }
 
 impl DirectionalResources {
@@ -716,6 +1040,16 @@ impl DirectionalResources {
             D3DFMT_A16B16G16R16F,
         )?;
         let directional_moments_surface = directional_moments.surface_level(0)?;
+        let horizontal_strip = DirectionalStripResources::create(
+            device,
+            NVR_CASCADE_RESOLUTION,
+            MAX_CLIPMAP_STRIP_WIDTH,
+        )?;
+        let vertical_strip = DirectionalStripResources::create(
+            device,
+            MAX_CLIPMAP_STRIP_WIDTH,
+            NVR_CASCADE_RESOLUTION,
+        )?;
         let create_actor_family = |format| -> Direct3DResult<_> {
             let generation = device.create_render_target_surface(
                 ACTOR_MAP_RESOLUTION,
@@ -779,6 +1113,8 @@ impl DirectionalResources {
             directional_generation_surface,
             _directional_moments: directional_moments,
             directional_moments_surface,
+            horizontal_strip,
+            vertical_strip,
             directional_actor_generation_surface,
             actor_near_middle_moments: actor_near_middle,
             actor_near_middle_surface,
@@ -831,8 +1167,10 @@ impl PointResources {
 
 impl ShadowResources {
     fn create(device: &Device9Ref<'_>, bytecode: &ShadowBytecode) -> Direct3DResult<Self> {
+        let render_target_count = device.simultaneous_render_target_count()?.min(4);
         Ok(Self {
             device_identity: device.as_raw() as usize,
+            render_target_count,
             programs: GenerationPrograms {
                 directional_vertex: device.create_vertex_shader(&bytecode.directional_vertex)?,
                 directional_pixel: device.create_pixel_shader(&bytecode.directional_pixel)?,
@@ -844,7 +1182,6 @@ impl ShadowResources {
             point_pixel_six: device.create_pixel_shader(&bytecode.point_accumulation_six)?,
             point_pixel_twelve: device.create_pixel_shader(&bytecode.point_accumulation_twelve)?,
             contact_pixel: device.create_pixel_shader(&bytecode.contact)?,
-            directional_mask_pixel: device.create_pixel_shader(&bytecode.directional_mask)?,
             composite_pixel: device.create_pixel_shader(&bytecode.composite)?,
             interior_composite_pixel: device.create_pixel_shader(&bytecode.interior_composite)?,
             directional_composite_pixel: device
@@ -854,9 +1191,10 @@ impl ShadowResources {
             directional_failure_generation: None,
             point_failure_generation: None,
             consumer: None,
-            state_block: device.create_state_block(D3DSBT_ALL)?,
             scratch: TraversalScratch::with_capacity(),
             directional_roots: Vec::with_capacity(DIRECTIONAL_ROOT_CACHE_CAPACITY),
+            point_actor_bounds: Vec::with_capacity(POINT_ACTOR_BOUND_CACHE_CAPACITY),
+            point_actor_roots: Vec::with_capacity(POINT_ACTOR_BOUND_CACHE_CAPACITY),
             cascade_matrices: [[[0.0; 4]; 4]; CASCADE_COUNT],
             cascade_projections: [None; CASCADE_COUNT],
             cascade_origins: [[0.0; 3]; CASCADE_COUNT],
@@ -950,9 +1288,15 @@ impl ShadowResources {
         now_millis: u64,
         settings: NativeShadowsSettings,
     ) -> Direct3DResult<Option<PublishedFrame>> {
-        clear_auxiliary_targets(device)?;
+        clear_auxiliary_targets(device, self.render_target_count)?;
         let directional = scene.kind != SceneKind::Interior;
         let mut actor_overlay_mask = 0_u8;
+        // One cell/root snapshot owns static invalidation, directional actor
+        // overlays, and point-light actor coverage. Rewalking every selected
+        // light's potentially 8,192-entry geometry list was the dominant CPU
+        // cost in light-heavy exteriors and interiors.
+        let mut directional_roots = core::mem::take(&mut self.directional_roots);
+        let mut roots_complete = false;
         if directional {
             self.production_stage = ShadowProductionStage::DirectionalInputs;
             let sky = backend::native_sky_frame().ok_or_else(direct3d_failure)?;
@@ -980,8 +1324,7 @@ impl ShadowResources {
             // independent overlay and invalidate only intersecting outer maps.
             // The same cache is then reused by every submitted map; it never
             // survives the engine-owned common-shadow transaction.
-            let mut directional_roots = core::mem::take(&mut self.directional_roots);
-            let roots_complete =
+            roots_complete =
                 unsafe { native::collect_directional_roots(scene, &mut directional_roots) };
             let current_root_signature = roots_complete
                 .then(|| native::directional_root_set_signatures(directional_roots.as_slice()));
@@ -1053,7 +1396,7 @@ impl ShadowResources {
                     CascadeDirty::from_mask(quality_mask),
                 )
             };
-            let plan =
+            let mut plan =
                 scheduler.plan_refreshes_at_millis(mandatory_dirty, quality_dirty, now_millis);
             // Cell and reference lists are identical for every due cascade.
             // Apply each map's form profile from the scalar metadata gathered
@@ -1063,24 +1406,103 @@ impl ShadowResources {
                 for index in 0..CASCADE_COUNT {
                     if plan.render[index] {
                         self.production_stage = ShadowProductionStage::StaticCascade(index as u8);
-                        let projection = projections[index];
+                        let requested_projection = projections[index];
                         let minimum_radius = cascade_minimum_caster_radius(
                             index,
-                            projection.radius,
+                            requested_projection.radius,
                             NVR_CASCADE_RESOLUTION,
                         )
                         .ok_or_else(direct3d_failure)?;
-                        unsafe {
-                            self.draw_directional_map(
-                                device,
-                                scene,
-                                index,
-                                projection,
+                        let retained_projection = self.cascade_projections[index];
+                        let update = if roots_complete
+                            && !mandatory_dirty.contains(index)
+                            && self.cascade_suns[index] == sun
+                            && let Some(retained) = retained_projection
+                        {
+                            // Compare both transforms in the retained map's
+                            // coordinate origin. Stable clipmaps differ by an
+                            // exact integer XY translation; their light-space
+                            // depth is deliberately kept in the old domain.
+                            let desired = translate_shadow_matrix(
+                                requested_projection.world_to_shadow,
+                                self.cascade_origins[index],
                                 camera.world_transform.translation,
-                                minimum_radius,
-                                roots_complete.then_some(directional_roots.as_slice()),
-                                roots_complete && index < 3,
-                            )?
+                            );
+                            clipmap_texel_delta(
+                                retained.world_to_shadow,
+                                desired,
+                                NVR_CASCADE_RESOLUTION,
+                            )
+                            .and_then(|delta| {
+                                ShadowMapUpdate::scroll(delta[0], delta[1], NVR_CASCADE_RESOLUTION)
+                            })
+                            .unwrap_or(ShadowMapUpdate::Rebuild)
+                        } else {
+                            ShadowMapUpdate::Rebuild
+                        };
+
+                        let projection = match (update, retained_projection) {
+                            (ShadowMapUpdate::Scroll(scroll), Some(retained)) => {
+                                let desired = translate_shadow_matrix(
+                                    requested_projection.world_to_shadow,
+                                    self.cascade_origins[index],
+                                    camera.world_transform.translation,
+                                );
+                                let mut scrolled = retained
+                                    .with_xy_origin_from(desired)
+                                    .ok_or_else(direct3d_failure)?;
+                                let stored = self.cascade_spheres[index];
+                                let stored_absolute: [f32; 3] = std::array::from_fn(|axis| {
+                                    self.cascade_origins[index][axis] + stored[axis]
+                                });
+                                let toward_camera: [f32; 3] = std::array::from_fn(|axis| {
+                                    camera.world_transform.translation[axis] - stored_absolute[axis]
+                                });
+                                let parallel = dot3(toward_camera, sun);
+                                let perpendicular: [f32; 3] = std::array::from_fn(|axis| {
+                                    toward_camera[axis] - sun[axis] * parallel
+                                });
+                                scrolled.center =
+                                    std::array::from_fn(|axis| stored[axis] + perpendicular[axis]);
+                                scrolled.receiver_radius = requested_projection.receiver_radius;
+                                unsafe {
+                                    self.draw_directional_scroll(
+                                        device,
+                                        scene,
+                                        index,
+                                        scrolled,
+                                        self.cascade_origins[index],
+                                        minimum_radius,
+                                        directional_roots.as_slice(),
+                                        roots_complete && index < 3,
+                                        scroll,
+                                    )?
+                                };
+                                scrolled
+                            }
+                            (ShadowMapUpdate::Reuse, _) => {
+                                // Pure light-axis translation does not expose
+                                // an XY texel. Retain the valid depth volume;
+                                // its guard will request a complete rebuild if
+                                // that motion becomes material.
+                                plan.render[index] = false;
+                                continue;
+                            }
+                            _ => {
+                                unsafe {
+                                    self.draw_directional_map(
+                                        device,
+                                        scene,
+                                        index,
+                                        requested_projection,
+                                        camera.world_transform.translation,
+                                        minimum_radius,
+                                        roots_complete.then_some(directional_roots.as_slice()),
+                                        roots_complete && index < 3,
+                                    )?
+                                };
+                                requested_projection
+                            }
                         };
                         // A cached atlas quadrant and its projection are one
                         // immutable result. Replacing only the matrix on skipped
@@ -1091,7 +1513,9 @@ impl ShadowResources {
                         // generation origin to the current camera instead.
                         self.cascade_matrices[index] = projection.world_to_shadow;
                         self.cascade_projections[index] = Some(projection);
-                        self.cascade_origins[index] = camera.world_transform.translation;
+                        if !matches!(update, ShadowMapUpdate::Scroll(_)) {
+                            self.cascade_origins[index] = camera.world_transform.translation;
+                        }
                         self.cascade_spheres[index] = [
                             projection.center[0],
                             projection.center[1],
@@ -1155,10 +1579,6 @@ impl ShadowResources {
                 }
                 Ok(())
             })();
-            // Do not retain engine pointers beyond the common-prefix epoch,
-            // even though the vector allocation itself remains reusable.
-            directional_roots.clear();
-            self.directional_roots = directional_roots;
             render_result?;
             scheduler.commit(plan);
             if plan.render[0] {
@@ -1175,6 +1595,11 @@ impl ShadowResources {
                 // per-frame dead band instead of accumulating to a rebuild.
                 *last_frustum = Some(frustum);
             }
+        }
+
+        if !directional {
+            roots_complete =
+                unsafe { native::collect_directional_roots(scene, &mut directional_roots) };
         }
 
         // Local sources remain part of native scene lighting outdoors too.
@@ -1199,8 +1624,36 @@ impl ShadowResources {
         };
         let mut current = [PointMapSignature::EMPTY; NVR_POINT_LIGHT_COUNT];
         let mut dynamic_faces = [0_u8; NVR_POINT_LIGHT_COUNT];
+        let mut point_actor_bounds = core::mem::take(&mut self.point_actor_bounds);
+        let mut point_actor_roots = core::mem::take(&mut self.point_actor_roots);
+        let actor_bounds_complete = roots_complete
+            && unsafe {
+                native::collect_point_actor_bounds(
+                    directional_roots.as_slice(),
+                    &mut point_actor_bounds,
+                    &mut point_actor_roots,
+                )
+            };
         for (index, point) in points.shadowed().iter().enumerate() {
-            let caster_snapshot = unsafe { native::point_light_caster_snapshot(point) };
+            let caster_snapshot = if roots_complete {
+                native::PointCasterSnapshot {
+                    dynamic_faces: if actor_bounds_complete {
+                        native::point_light_dynamic_faces_from_bounds(
+                            point_actor_bounds.as_slice(),
+                            point.position,
+                        )
+                    } else {
+                        super::contract::ALL_CUBE_FACES
+                    },
+                    static_signature: native::point_scene_static_signature(
+                        directional_roots.as_slice(),
+                        point.position,
+                        point.radius,
+                    ),
+                }
+            } else {
+                unsafe { native::point_light_caster_snapshot(point) }
+            };
             current[index] = PointMapSignature {
                 identity: point.identity,
                 position: point.position,
@@ -1215,7 +1668,19 @@ impl ShadowResources {
             PointMapCache::default()
         };
         let plan = active_cache.plan(current, dynamic_faces, points.shadowed().len());
-        unsafe { self.draw_point_maps(device, scene, camera, points.shadowed(), plan)? };
+        unsafe {
+            self.draw_point_maps(
+                device,
+                scene,
+                camera,
+                points.shadowed(),
+                PointActorIndex {
+                    roots: point_actor_roots.as_slice(),
+                    complete: actor_bounds_complete,
+                },
+                plan,
+            )?
+        };
         *point_cache = plan.next;
         *point_cell_identity = scene.cell as usize;
         let point_map_metadata = plan.published;
@@ -1236,6 +1701,14 @@ impl ShadowResources {
                 shadow_fade: point.shadow_fade,
             };
         }
+        // Native nodes never cross the common-prefix lifetime boundary. Only
+        // the allocation is retained for the next serialized invocation.
+        directional_roots.clear();
+        self.directional_roots = directional_roots;
+        point_actor_bounds.clear();
+        self.point_actor_bounds = point_actor_bounds;
+        point_actor_roots.clear();
+        self.point_actor_roots = point_actor_roots;
         Ok(Some(PublishedFrame {
             identity,
             scene: scene.kind,
@@ -1317,6 +1790,124 @@ impl ShadowResources {
         }
         draw_result?;
         self.copy_cascade_to_atlas(device, cascade)
+    }
+
+    /// Assemble one translated cascade in unpublished scratch storage.
+    ///
+    /// The old overlap and every exposed band cover the scratch map exactly.
+    /// Publication is a single final copy, so any failed clear, draw, resolve,
+    /// or state mutation leaves the currently sampled atlas quadrant intact.
+    #[allow(clippy::too_many_arguments)]
+    unsafe fn draw_directional_scroll(
+        &mut self,
+        device: &Device9Ref<'_>,
+        scene: NativeScene,
+        cascade: usize,
+        projection: CascadeProjection,
+        generation_origin: [f32; 3],
+        minimum_radius: f32,
+        roots: &[DirectionalRoot],
+        exclude_dynamic_actors: bool,
+        scroll: ClipmapScroll,
+    ) -> Direct3DResult<()> {
+        let directional = self.directional.as_ref().ok_or_else(direct3d_failure)?;
+        let (atlas_x, atlas_y) = cascade_origin(cascade);
+        let source_overlap = offset_rect(scroll.source_overlap(), atlas_x, atlas_y);
+        let destination_overlap = d3d_rect(scroll.overlap());
+        device.clear_texture(0)?;
+        device.stretch_rect(
+            &directional.atlas_surface,
+            Some(&source_overlap),
+            &directional.directional_moments_surface,
+            Some(&destination_overlap),
+            D3DTEXF_NONE,
+        )?;
+
+        for rect in scroll.exposed().iter().copied() {
+            let horizontal = rect.width() > MAX_CLIPMAP_STRIP_WIDTH;
+            let strip = if horizontal {
+                &directional.horizontal_strip
+            } else {
+                &directional.vertical_strip
+            };
+            debug_assert!(rect.width() <= strip.width && rect.height() <= strip.height);
+            let strip_projection = projection
+                .cropped_to_texel_rect(rect, NVR_CASCADE_RESOLUTION)
+                .ok_or_else(direct3d_failure)?;
+            device.set_render_target(0, &strip.generation_surface)?;
+            device.set_depth_stencil_surface(Some(&strip.depth))?;
+            set_viewport(device, 0, 0, rect.width(), rect.height())?;
+            device.clear_attachments(
+                D3DCLEAR_ZBUFFER as u32 | D3DCLEAR_STENCIL as u32,
+                0,
+                1.0,
+                0,
+            )?;
+            draw_evsm_far_clear(device, &self.far_clear_pixel, rect.width(), rect.height())?;
+            device.set_depth_stencil_surface(Some(&strip.depth))?;
+            render::configure_generation_state(device)?;
+            render::begin_directional_map(
+                device,
+                &self.programs,
+                strip_projection.world_to_shadow,
+            )?;
+            for root in roots.iter().copied().filter(|root| {
+                root.enabled_for(cascade) && !(exclude_dynamic_actors && root.is_dynamic_actor())
+            }) {
+                unsafe {
+                    render::draw_directional_root(
+                        device,
+                        scene.renderer,
+                        strip_projection,
+                        generation_origin,
+                        scene.first_person_root,
+                        root.node(),
+                        root.is_land,
+                        root.is_lod,
+                        minimum_radius,
+                        false,
+                        &mut self.scratch,
+                    )?
+                };
+            }
+            device.clear_texture(0)?;
+            device.stretch_rect(
+                &strip.generation_surface,
+                None,
+                &strip.moments_surface,
+                None,
+                D3DTEXF_NONE,
+            )?;
+            let strip_source = RECT {
+                left: 0,
+                top: 0,
+                right: rect.width() as i32,
+                bottom: rect.height() as i32,
+            };
+            let scratch_destination = d3d_rect(rect);
+            device.stretch_rect(
+                &strip.moments_surface,
+                Some(&strip_source),
+                &directional.directional_moments_surface,
+                Some(&scratch_destination),
+                D3DTEXF_NONE,
+            )?;
+        }
+
+        let atlas_destination = RECT {
+            left: atlas_x as i32,
+            top: atlas_y as i32,
+            right: (atlas_x + NVR_CASCADE_RESOLUTION) as i32,
+            bottom: (atlas_y + NVR_CASCADE_RESOLUTION) as i32,
+        };
+        device.stretch_rect(
+            &directional.directional_moments_surface,
+            None,
+            &directional.atlas_surface,
+            Some(&atlas_destination),
+            D3DTEXF_NONE,
+        )?;
+        Ok(())
     }
 
     /// Render animated actors for one cascade into the reusable resolve.
@@ -1461,8 +2052,12 @@ impl ShadowResources {
         scene: NativeScene,
         camera: CameraFrame,
         points: &PointLightSet,
+        actors: PointActorIndex<'_>,
         plan: PointMapPlan,
     ) -> Direct3DResult<()> {
+        if !plan.render_faces.into_iter().any(|faces| faces != 0) {
+            return Ok(());
+        }
         // A captured engine state may have any prior texture bound. D3D9
         // rejects a cube face as a render target while that cube aliases a
         // sampler, so unbind every pixel sampler inside the state-blocked
@@ -1543,19 +2138,89 @@ impl ShadowResources {
                     )?;
                     device.set_cube_texture(1, &point_resources.static_cubes[index])?;
                     set_point_clamp_sampler(device, 1)?;
-                    unsafe {
-                        self.draw_point_face_casters(
-                            device,
-                            scene,
-                            camera,
-                            point,
-                            views[face].world_to_shadow,
-                            face,
-                            CasterSubset::Dynamic,
-                        )?
-                    };
+                    if actors.complete {
+                        unsafe {
+                            self.draw_point_dynamic_roots(
+                                device,
+                                scene,
+                                camera,
+                                point,
+                                views[face].world_to_shadow,
+                                face,
+                                actors.roots,
+                            )?
+                        };
+                    } else {
+                        unsafe {
+                            self.draw_point_face_casters(
+                                device,
+                                scene,
+                                camera,
+                                point,
+                                views[face].world_to_shadow,
+                                face,
+                                CasterSubset::Dynamic,
+                            )?
+                        };
+                    }
                 }
             }
+        }
+        Ok(())
+    }
+
+    /// Submit animated point casters from the transaction's shared root set.
+    ///
+    /// Native light lists may contain thousands of immutable geometry leaves.
+    /// Rewalking that list for each animated cube face only to reject every
+    /// static leaf is avoidable: the complete root snapshot already identifies
+    /// every actor, and ordinary point-frustum tests still occur during root
+    /// traversal. An incomplete root snapshot never enters this route.
+    ///
+    /// # Safety
+    ///
+    /// `scene`, `point`, and all `roots` must belong to the active serialized
+    /// common-shadow transaction.
+    #[allow(clippy::too_many_arguments)]
+    unsafe fn draw_point_dynamic_roots(
+        &mut self,
+        device: &Device9Ref<'_>,
+        scene: NativeScene,
+        camera: CameraFrame,
+        point: &native::PointLight,
+        world_to_shadow: [[f32; 4]; 4],
+        face: usize,
+        actor_roots: &[DirectionalRoot],
+    ) -> Direct3DResult<()> {
+        render::configure_generation_state(device)?;
+        render::begin_point_face(
+            device,
+            &self.programs,
+            world_to_shadow,
+            [
+                point.relative_position[0],
+                point.relative_position[1],
+                point.relative_position[2],
+                point.radius,
+            ],
+        )?;
+        for root in actor_roots.iter().copied() {
+            unsafe {
+                render::draw_point_root(
+                    device,
+                    scene.renderer,
+                    camera.world_transform.translation,
+                    scene.first_person_root,
+                    point.relative_position,
+                    point.radius,
+                    face,
+                    root.node(),
+                    false,
+                    false,
+                    CasterSubset::Dynamic,
+                    &mut self.scratch,
+                )?
+            };
         }
         Ok(())
     }
@@ -1692,15 +2357,14 @@ impl ShadowResources {
             .ok_or_else(direct3d_failure)?
             .ensure_branch(
                 &device,
-                publication.directional,
                 publication.point_count > 0,
                 publication.directional && settings.contact_shadows,
                 &desc,
             )?;
         let targets = self.consumer.as_ref().ok_or_else(direct3d_failure)?;
-        let slots = RenderTargetSlots::query(&device)?;
+        let slots = RenderTargetSlots::from_reported_count(self.render_target_count);
         let attachments = RenderAttachments::capture(&device, slots)?;
-        capture_state_block(&self.state_block)?;
+        let d3d_state = capture_exact_render_state(|| ShadowConsumerState9::capture(&device))?;
         let draw_result = self.draw_consumer(
             &device,
             &source,
@@ -1712,7 +2376,9 @@ impl ShadowResources {
             targets,
             settings,
         );
-        finish_render_transaction(&device, &attachments, Some(&self.state_block), draw_result)?;
+        finish_exact_render_transaction(&device, &attachments, draw_result, || {
+            d3d_state.restore(&device)
+        })?;
         Ok(true)
     }
 
@@ -1729,7 +2395,7 @@ impl ShadowResources {
         targets: &ConsumerTargets,
         settings: NativeShadowsSettings,
     ) -> Direct3DResult<()> {
-        clear_auxiliary_targets(device)?;
+        clear_auxiliary_targets(device, self.render_target_count)?;
         bind_fullscreen_state(device)?;
         let common = consumer_camera_constants(desc, depth, camera);
         let mut matrices = publication.matrices;
@@ -1741,80 +2407,6 @@ impl ShadowResources {
             );
         }
         let splits = publication.cascade_splits();
-
-        if publication.directional {
-            let mask = targets.directional.as_ref().ok_or_else(direct3d_failure)?;
-            let directional = self.directional.as_ref().ok_or_else(direct3d_failure)?;
-            device.set_render_target(0, &mask.visibility_surface)?;
-            device.clear_render_target(1)?;
-            set_viewport(device, 0, 0, mask.width, mask.height)?;
-            device.set_pixel_shader(&self.directional_mask_pixel)?;
-            unsafe { device.set_raw_base_texture(0, depth_texture)? };
-            device.set_texture(1, &directional.atlas)?;
-            device.clear_texture(2)?;
-            device.clear_texture(3)?;
-            set_point_clamp_sampler(device, 0)?;
-            set_linear_clamp_sampler(device, 1)?;
-            if publication.actor_overlay_mask & 0b011 != 0 {
-                device.set_texture(2, &directional.actor_near_middle_moments)?;
-                set_linear_clamp_sampler(device, 2)?;
-            }
-            if publication.actor_overlay_mask & 0b100 != 0 {
-                device.set_texture(3, &directional.actor_far_moments)?;
-                set_linear_clamp_sampler(device, 3)?;
-            }
-            device.set_pixel_shader_constant_f(0, &common[..6])?;
-            for (index, matrix) in matrices.iter().enumerate() {
-                device.set_pixel_shader_constant_f((6 + index * 4) as u32, matrix)?;
-            }
-            device.set_pixel_shader_constant_f(
-                22,
-                &[
-                    splits,
-                    [depth.world_projection.reversed_depth_f32(), 0.0, 0.0, 0.0],
-                    [
-                        splits[0] * 0.05,
-                        splits[1] * 0.05,
-                        splits[2] * 0.05,
-                        splits[3] * 0.05,
-                    ],
-                    [
-                        0.5 / NVR_CASCADE_RESOLUTION as f32,
-                        1.0 - 0.5 / NVR_CASCADE_RESOLUTION as f32,
-                        0.75 / NVR_CASCADE_RESOLUTION as f32,
-                        0.0,
-                    ],
-                ],
-            )?;
-            device.set_pixel_shader_constant_f(26, &[[1.0 / 65_536.0, 0.0, 0.0, 0.0]])?;
-            device.set_pixel_shader_constant_f(
-                27,
-                &[[
-                    publication.sun_direction[0],
-                    publication.sun_direction[1],
-                    publication.sun_direction[2],
-                    0.0,
-                ]],
-            )?;
-            device.set_pixel_shader_constant_f(
-                28,
-                &[std::array::from_fn(|index| {
-                    u8::from(publication.actor_overlay_mask & (1 << index) != 0) as f32
-                })],
-            )?;
-            device.set_pixel_shader_constant_f(29, &publication.actor_crops)?;
-            device.set_pixel_shader_constant_f(
-                32,
-                &[[
-                    0.5 / ACTOR_MAP_RESOLUTION as f32,
-                    1.0 - 0.5 / ACTOR_MAP_RESOLUTION as f32,
-                    0.0,
-                    0.0,
-                ]],
-            )?;
-            device.set_render_state(D3DRS_ALPHABLENDENABLE, 0)?;
-            draw_quad(device, 0, 0, mask.width, mask.height)?;
-        }
 
         if publication.point_count > 0 {
             let local_lights = targets.local_lights.as_ref().ok_or_else(direct3d_failure)?;
@@ -1854,7 +2446,29 @@ impl ShadowResources {
             device.set_render_target(0, &local_lights.deficit_surface)?;
             device.set_render_target(1, &local_lights.total_surface)?;
             set_viewport(device, 0, 0, local_lights.width, local_lights.height)?;
-            device.clear_attachments(D3DCLEAR_TARGET as u32, 0, 1.0, 0)?;
+            let plan = point_consumer_plan(scissors, publication.point_count);
+            let current_coverage = plan.coverage();
+            if !local_lights.initialized.get() {
+                // Newly allocated render targets have undefined contents.
+                // This is the only full-surface clear in their lifetime.
+                device.clear_attachments(D3DCLEAR_TARGET as u32, 0, 1.0, 0)?;
+                local_lights.initialized.set(true);
+            } else if let Some(clear) =
+                local_light_clear_coverage(local_lights.previous_coverage.get(), current_coverage)
+            {
+                device.clear_attachment_rect(
+                    &RECT {
+                        left: clear.left as i32,
+                        top: clear.top as i32,
+                        right: clear.right as i32,
+                        bottom: clear.bottom as i32,
+                    },
+                    D3DCLEAR_TARGET as u32,
+                    0,
+                    1.0,
+                    0,
+                )?;
+            }
             // Reconstruct depth and the edge-aware normal inside the same
             // scissored draw that consumes the cubes. The equations are
             // identical to the former geometry pass, but its full-resolution
@@ -1862,7 +2476,6 @@ impl ShadowResources {
             unsafe { device.set_raw_base_texture(0, depth_texture)? };
             set_point_clamp_sampler(device, 0)?;
             device.set_pixel_shader_constant_f(0, &constants)?;
-            let plan = point_consumer_plan(scissors, publication.point_count);
             let mut drew_batch = false;
             for draw in plan.draws() {
                 let point_pixel = match draw.count {
@@ -1928,6 +2541,7 @@ impl ShadowResources {
             }
             device.set_render_state(D3DRS_SCISSORTESTENABLE, 0)?;
             device.set_render_state(D3DRS_ALPHABLENDENABLE, 0)?;
+            local_lights.previous_coverage.set(current_coverage);
             // Subsequent contact and composition targets are single-output.
             // D3D9 requires every attached MRT to match the active viewport,
             // so detach the full-resolution auxiliary target immediately.
@@ -1982,7 +2596,7 @@ impl ShadowResources {
         // directional neutral is one, while local-deficit neutral is zero.
         // A scene copy lets one pass preserve sky/HDR emitters and combine both
         // terms without an illegal read/write alias or two incompatible blends.
-        for sampler in 0..=7 {
+        for sampler in 0..=8 {
             device.clear_texture(sampler)?;
         }
         crate::render_state::copy_exact_color_surface(device, source, &targets.source_surface)?;
@@ -1997,29 +2611,112 @@ impl ShadowResources {
         unsafe { device.set_raw_base_texture(1, depth_texture)? };
         set_linear_clamp_sampler(device, 0)?;
         set_point_clamp_sampler(device, 1)?;
-        set_point_clamp_sampler(device, 2)?;
-        set_point_clamp_sampler(device, 3)?;
-        set_point_clamp_sampler(device, 4)?;
         if publication.directional {
-            let mask = targets.directional.as_ref().ok_or_else(direct3d_failure)?;
-            device.set_texture(2, &mask.visibility)?;
+            let directional = self.directional.as_ref().ok_or_else(direct3d_failure)?;
+            device.set_texture(2, &directional.atlas)?;
+            set_linear_clamp_sampler(device, 2)?;
+            if publication.actor_overlay_mask & 0b011 != 0 {
+                device.set_texture(3, &directional.actor_near_middle_moments)?;
+                set_linear_clamp_sampler(device, 3)?;
+            }
+            if publication.actor_overlay_mask & 0b100 != 0 {
+                device.set_texture(4, &directional.actor_far_moments)?;
+                set_linear_clamp_sampler(device, 4)?;
+            }
         }
         if publication.point_count > 0 {
             let local_lights = targets.local_lights.as_ref().ok_or_else(direct3d_failure)?;
-            device.set_texture(3, &local_lights.deficit)?;
+            let deficit_sampler = if publication.directional { 5 } else { 3 };
+            device.set_texture(deficit_sampler, &local_lights.deficit)?;
             device.set_texture(6, &local_lights.total)?;
+            set_point_clamp_sampler(device, deficit_sampler)?;
             set_point_clamp_sampler(device, 6)?;
         }
         if contact_enabled {
             let contact = targets.contact.as_ref().ok_or_else(direct3d_failure)?;
-            device.set_texture(4, &contact.raw)?;
+            device.set_texture(7, &contact.raw)?;
+            set_point_clamp_sampler(device, 7)?;
         }
         let point_darkness = if publication.scene == SceneKind::Interior {
             settings.interior_darkness
         } else {
             settings.exterior_darkness
         };
-        device.set_pixel_shader_constant_f(0, &common[..2])?;
+        device.set_pixel_shader_constant_f(
+            0,
+            if publication.directional {
+                &common[..6]
+            } else {
+                &common[..2]
+            },
+        )?;
+        if publication.directional {
+            for (index, matrix) in matrices.iter().enumerate() {
+                device.set_pixel_shader_constant_f((6 + index * 4) as u32, matrix)?;
+            }
+            device.set_pixel_shader_constant_f(
+                22,
+                &[
+                    splits,
+                    [
+                        depth.world_projection.reversed_depth_f32(),
+                        1.0,
+                        settings.exterior_darkness,
+                        0.0,
+                    ],
+                    [
+                        splits[0] * 0.05,
+                        splits[1] * 0.05,
+                        splits[2] * 0.05,
+                        splits[3] * 0.05,
+                    ],
+                    [
+                        0.5 / NVR_CASCADE_RESOLUTION as f32,
+                        1.0 - 0.5 / NVR_CASCADE_RESOLUTION as f32,
+                        0.75 / NVR_CASCADE_RESOLUTION as f32,
+                        0.0,
+                    ],
+                ],
+            )?;
+            device.set_pixel_shader_constant_f(
+                27,
+                &[[
+                    publication.sun_direction[0],
+                    publication.sun_direction[1],
+                    publication.sun_direction[2],
+                    0.0,
+                ]],
+            )?;
+            device.set_pixel_shader_constant_f(
+                28,
+                &[std::array::from_fn(|index| {
+                    u8::from(publication.actor_overlay_mask & (1 << index) != 0) as f32
+                })],
+            )?;
+            device.set_pixel_shader_constant_f(29, &publication.actor_crops)?;
+            device.set_pixel_shader_constant_f(
+                32,
+                &[[
+                    0.5 / ACTOR_MAP_RESOLUTION as f32,
+                    1.0 - 0.5 / ACTOR_MAP_RESOLUTION as f32,
+                    0.0,
+                    0.0,
+                ]],
+            )?;
+            device.set_pixel_shader_constant_f(
+                33,
+                &[[contact_enabled as u8 as f32, 0.0, 0.0, 0.0]],
+            )?;
+            device.set_pixel_shader_constant_f(
+                34,
+                &[[
+                    (publication.point_count > 0) as u8 as f32,
+                    point_darkness,
+                    0.0,
+                    0.0,
+                ]],
+            )?;
+        }
         device.set_pixel_shader_constant_f(
             23,
             &[[
@@ -2030,16 +2727,18 @@ impl ShadowResources {
             ]],
         )?;
         device.set_pixel_shader_constant_f(26, &[[1.0 / 65_536.0, 0.0, 0.0, 0.0]])?;
-        device.set_pixel_shader_constant_f(31, &[[contact_enabled as u8 as f32, 0.0, 0.0, 0.0]])?;
-        device.set_pixel_shader_constant_f(
-            32,
-            &[[
-                (publication.point_count > 0) as u8 as f32,
-                point_darkness,
-                0.0,
-                0.0,
-            ]],
-        )?;
+        if !publication.directional {
+            device.set_pixel_shader_constant_f(31, &[[0.0; 4]])?;
+            device.set_pixel_shader_constant_f(
+                32,
+                &[[
+                    (publication.point_count > 0) as u8 as f32,
+                    point_darkness,
+                    0.0,
+                    0.0,
+                ]],
+            )?;
+        }
         device.set_render_state(D3DRS_ALPHABLENDENABLE, 0)?;
         device.set_render_state(D3DRS_COLORWRITEENABLE, 0xF)?;
         draw_quad(device, 0, 0, desc.Width, desc.Height)?;
@@ -2059,17 +2758,8 @@ struct ConsumerTargets {
     format: libpsycho::os::windows::directx9::D3DFORMAT,
     source: Texture9,
     source_surface: Surface9,
-    directional: Option<DirectionalConsumerTargets>,
     local_lights: Option<LocalLightConsumerTargets>,
     contact: Option<ContactConsumerTargets>,
-}
-
-/// Full-resolution directional visibility paired with receiver depth.
-struct DirectionalConsumerTargets {
-    visibility: Texture9,
-    visibility_surface: Surface9,
-    width: u32,
-    height: u32,
 }
 
 /// Full-resolution exact RGB local-light ownership and occlusion estimates.
@@ -2080,6 +2770,8 @@ struct LocalLightConsumerTargets {
     total_surface: Surface9,
     width: u32,
     height: u32,
+    initialized: Cell<bool>,
+    previous_coverage: Cell<Option<super::contract::LightScissorRect>>,
 }
 
 /// Full-resolution current-frame contact evidence and bilateral resolve.
@@ -2104,7 +2796,6 @@ impl ConsumerTargets {
             format: desc.Format,
             source,
             source_surface,
-            directional: None,
             local_lights: None,
             contact: None,
         })
@@ -2113,14 +2804,10 @@ impl ConsumerTargets {
     fn ensure_branch(
         &mut self,
         device: &Device9Ref<'_>,
-        directional: bool,
         point_lights: bool,
         contact_shadows: bool,
         desc: &D3DSURFACE_DESC,
     ) -> Direct3DResult<()> {
-        if directional && self.directional.is_none() {
-            self.directional = Some(DirectionalConsumerTargets::create(device, desc)?);
-        }
         if point_lights && self.local_lights.is_none() {
             self.local_lights = Some(LocalLightConsumerTargets::create(device, desc)?);
         }
@@ -2132,20 +2819,6 @@ impl ConsumerTargets {
 
     fn matches(&self, desc: &D3DSURFACE_DESC) -> bool {
         self.width == desc.Width && self.height == desc.Height && self.format == desc.Format
-    }
-}
-
-impl DirectionalConsumerTargets {
-    fn create(device: &Device9Ref<'_>, desc: &D3DSURFACE_DESC) -> Direct3DResult<Self> {
-        let width = desc.Width.max(1);
-        let height = desc.Height.max(1);
-        let visibility = device.create_render_target_texture(width, height, D3DFMT_G16R16F)?;
-        Ok(Self {
-            visibility_surface: visibility.surface_level(0)?,
-            visibility,
-            width,
-            height,
-        })
     }
 }
 
@@ -2169,6 +2842,8 @@ impl LocalLightConsumerTargets {
             total,
             width,
             height,
+            initialized: Cell::new(false),
+            previous_coverage: Cell::new(None),
         })
     }
 }
@@ -2450,8 +3125,11 @@ fn bind_fullscreen_state(device: &Device9Ref<'_>) -> Direct3DResult<()> {
     Ok(())
 }
 
-fn clear_auxiliary_targets(device: &Device9Ref<'_>) -> Direct3DResult<()> {
-    for target in 1..device.simultaneous_render_target_count()?.min(4) {
+fn clear_auxiliary_targets(
+    device: &Device9Ref<'_>,
+    render_target_count: u32,
+) -> Direct3DResult<()> {
+    for target in 1..render_target_count {
         device.clear_render_target(target)?;
     }
     Ok(())
@@ -2519,6 +3197,24 @@ fn cascade_origin(cascade: usize) -> (u32, u32) {
     )
 }
 
+fn d3d_rect(rect: ClipmapRect) -> RECT {
+    RECT {
+        left: rect.left as i32,
+        top: rect.top as i32,
+        right: rect.right as i32,
+        bottom: rect.bottom as i32,
+    }
+}
+
+fn offset_rect(rect: ClipmapRect, x: u32, y: u32) -> RECT {
+    RECT {
+        left: (rect.left + x) as i32,
+        top: (rect.top + y) as i32,
+        right: (rect.right + x) as i32,
+        bottom: (rect.bottom + y) as i32,
+    }
+}
+
 fn dot3(left: [f32; 3], right: [f32; 3]) -> f32 {
     left[0] * right[0] + left[1] * right[1] + left[2] * right[2]
 }
@@ -2526,11 +3222,14 @@ fn dot3(left: [f32; 3], right: [f32; 3]) -> f32 {
 #[cfg(test)]
 mod tests {
     use super::{
-        cascade_split_change_mask, consumer_selection_spheres, projection_materially_changed,
-        translate_shadow_matrix,
+        cascade_split_change_mask, consumer_selection_spheres, directional_no_work_state_changed,
+        projection_materially_changed, translate_shadow_matrix,
     };
     use crate::effects::shadows::{
-        contract::{cascade_sphere_selection, practical_cascade_splits},
+        contract::{
+            CascadeDirty, NVR_CASCADE_RESOLUTION, cascade_sphere_selection, clipmap_texel_delta,
+            practical_cascade_splits,
+        },
         math::{ShadowCamera, cascade_projection},
     };
 
@@ -2586,6 +3285,93 @@ mod tests {
             assert_eq!(adjusted[3][column], expected);
         }
         assert_eq!(adjusted[..3], matrix[..3]);
+    }
+
+    #[test]
+    fn interior_no_work_path_ignores_dormant_exterior_state() {
+        assert!(!directional_no_work_state_changed(
+            false,
+            CascadeDirty::all(),
+            0,
+            None,
+        ));
+        assert!(directional_no_work_state_changed(
+            true,
+            CascadeDirty::all(),
+            0,
+            Some(0),
+        ));
+        assert!(directional_no_work_state_changed(
+            true,
+            CascadeDirty::none(),
+            0,
+            None,
+        ));
+    }
+
+    #[test]
+    fn translated_clipmap_delta_matches_receiver_texel_motion() {
+        let retained_camera = ShadowCamera {
+            near: 5.0,
+            far: 28_000.0,
+            frustum_left: -1.2,
+            frustum_right: 1.2,
+            frustum_bottom: -0.7,
+            frustum_top: 0.7,
+            forward: [1.0, 0.0, 0.0],
+            up: [0.0, 0.0, 1.0],
+            right: [0.0, 1.0, 0.0],
+            translation: [12_345.0, -4_321.0, 800.0],
+            fov_compensation: 1.0,
+        };
+        let desired_camera = ShadowCamera {
+            translation: [12_537.0, -4_257.0, 832.0],
+            ..retained_camera
+        };
+        let split =
+            practical_cascade_splits(5.0, 28_000.0, 6_000.0, 0.9).expect("cascade profile")[0];
+        let sun = [0.4, 0.3, 0.866_025_4];
+        let retained = cascade_projection(retained_camera, split, sun, NVR_CASCADE_RESOLUTION)
+            .expect("retained projection");
+        let requested = cascade_projection(desired_camera, split, sun, NVR_CASCADE_RESOLUTION)
+            .expect("desired projection");
+        let desired_in_retained_origin = translate_shadow_matrix(
+            requested.world_to_shadow,
+            retained_camera.translation,
+            desired_camera.translation,
+        );
+        let delta = clipmap_texel_delta(
+            retained.world_to_shadow,
+            desired_in_retained_origin,
+            NVR_CASCADE_RESOLUTION,
+        )
+        .expect("stable projection must move by whole texels");
+        assert_ne!(delta, [0, 0]);
+
+        // A fixed camera-relative point expressed in the retained origin
+        // moves by exactly the copy offset. This proves the D3D top-left Y
+        // convention as well as the source-to-destination sign.
+        let point = [0.0_f32, 0.0, 0.0, 1.0];
+        let project = |matrix: [[f32; 4]; 4]| {
+            std::array::from_fn::<_, 4, _>(|column| {
+                (0..4)
+                    .map(|row| point[row] * matrix[row][column])
+                    .sum::<f32>()
+            })
+        };
+        let old = project(retained.world_to_shadow);
+        let new = project(desired_in_retained_origin);
+        let half = NVR_CASCADE_RESOLUTION as f32 * 0.5;
+        let observed = [
+            ((new[0] - old[0]) * half).round() as i32,
+            (-(new[1] - old[1]) * half).round() as i32,
+        ];
+        assert_eq!(observed, delta);
+        assert!(
+            retained
+                .with_xy_origin_from(desired_in_retained_origin)
+                .is_some()
+        );
     }
 
     #[test]

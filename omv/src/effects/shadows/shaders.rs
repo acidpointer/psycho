@@ -45,14 +45,35 @@ pub(super) const COMPOSITE_PIXEL_SOURCE: &[u8] =
     include_bytes!("../../../shaders/embedded/shadow_composite.hlsl");
 const DIRECTIONAL_COMPOSITE_DEFINE: &[u8] = b"#define OMV_POINT_LIGHTS 0\n";
 const INTERIOR_COMPOSITE_DEFINE: &[u8] = b"#define OMV_INTERIOR 1\n";
+const FUSED_DIRECTIONAL_DEFINE: &[u8] = b"#define OMV_FUSED_DIRECTIONAL 1\n";
+
+fn fused_exterior_composite_source(point_lights: bool) -> Vec<u8> {
+    let point_define = if point_lights {
+        &b"#define OMV_POINT_LIGHTS 1\n"[..]
+    } else {
+        DIRECTIONAL_COMPOSITE_DEFINE
+    };
+    let mut source = Vec::with_capacity(
+        point_define.len()
+            + FUSED_DIRECTIONAL_DEFINE.len()
+            + DIRECTIONAL_MASK_SOURCE.len()
+            + COMPOSITE_PIXEL_SOURCE.len(),
+    );
+    source.extend_from_slice(point_define);
+    source.extend_from_slice(FUSED_DIRECTIONAL_DEFINE);
+    source.extend_from_slice(DIRECTIONAL_MASK_SOURCE);
+    source.extend_from_slice(COMPOSITE_PIXEL_SOURCE);
+    source
+}
+
+/// Build the exterior point-light compositor with fused directional work.
+pub(super) fn exterior_composite_source() -> Vec<u8> {
+    fused_exterior_composite_source(true)
+}
 
 /// Build the point-free exterior compositor source used by production/tests.
 pub(super) fn directional_composite_source() -> Vec<u8> {
-    let mut source =
-        Vec::with_capacity(DIRECTIONAL_COMPOSITE_DEFINE.len() + COMPOSITE_PIXEL_SOURCE.len());
-    source.extend_from_slice(DIRECTIONAL_COMPOSITE_DEFINE);
-    source.extend_from_slice(COMPOSITE_PIXEL_SOURCE);
-    source
+    fused_exterior_composite_source(false)
 }
 
 /// Build the point-light compositor with the interior fractional-energy contract.
@@ -108,8 +129,6 @@ pub(super) struct ShadowBytecode {
     pub(super) point_accumulation_twelve: Vec<u32>,
     /// Screen-space contact visibility program.
     pub(super) contact: Vec<u32>,
-    /// Full-resolution depth-keyed directional visibility program.
-    pub(super) directional_mask: Vec<u32>,
     /// Final scene-color composition program.
     pub(super) composite: Vec<u32>,
     /// Interior point-light fractional-occlusion composition program.
@@ -150,12 +169,11 @@ impl ShadowBytecode {
                 "ps_3_0",
             )?,
             contact: compile("shadow_contact.hlsl", CONTACT_SOURCE, "ps_3_0")?,
-            directional_mask: compile(
-                "shadow_directional_mask.hlsl",
-                DIRECTIONAL_MASK_SOURCE,
+            composite: compile(
+                "shadow_composite_exterior.hlsl",
+                &exterior_composite_source(),
                 "ps_3_0",
             )?,
-            composite: compile("shadow_composite.hlsl", COMPOSITE_PIXEL_SOURCE, "ps_3_0")?,
             interior_composite: compile(
                 "shadow_composite_interior.hlsl",
                 &interior_composite_source(),
@@ -180,7 +198,6 @@ impl ShadowBytecode {
             &self.point_accumulation_six,
             &self.point_accumulation_twelve,
             &self.contact,
-            &self.directional_mask,
             &self.composite,
             &self.interior_composite,
             &self.directional_composite,

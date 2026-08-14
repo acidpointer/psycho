@@ -14,7 +14,7 @@ use super::{
         ALL_CUBE_FACES, CASCADE_COUNT, DirectionalRootSetSignature, NVR_POINT_LIGHT_COUNT,
         SceneKind, directional_actor_root_is_active, directional_form_type_is_enabled,
         point_light_distance_fade, point_light_influence_is_eligible, sphere_intersects_cube_face,
-        stable_point_light_distance_squared,
+        sphere_intersects_point_light, stable_point_light_distance_squared,
     },
     engine::NativeLayout,
     math::{ActorBounds, CascadeProjection, Sphere, dynamic_caster_cascade_mask},
@@ -30,6 +30,8 @@ const MAX_POINT_GEOMETRIES: usize = 8_192;
 /// Preallocated root cache used to avoid rescanning every loaded cell once per
 /// due cascade. Overflow falls back to the complete per-cascade visitor.
 pub(super) const DIRECTIONAL_ROOT_CACHE_CAPACITY: usize = 32_768;
+/// Bounded scalar actor cache shared by directional and point-light planning.
+pub(super) const POINT_ACTOR_BOUND_CACHE_CAPACITY: usize = 1_024;
 
 const GRID_SIZE: usize = 0x0C;
 const GRID_CELLS: usize = 0x10;
@@ -101,6 +103,8 @@ pub(super) struct DirectionalRoot {
     pub(super) is_lod: bool,
     /// Stable hash of the root's absolute transform and world bound.
     world_state: u32,
+    /// Valid absolute bound copied with `world_state` for regional point work.
+    world_bound: Option<[f32; 4]>,
 }
 
 impl DirectionalRoot {
@@ -139,6 +143,17 @@ impl DirectionalRoot {
             | (u32::from(self.form_type.is_none()) << 8)
             | (u32::from(self.is_land) << 9)
             | (u32::from(self.is_lod) << 10)
+    }
+
+    fn intersects_point_light(self, light_position: [f32; 3], light_radius: f32) -> bool {
+        self.world_bound.is_none_or(|bound| {
+            sphere_intersects_point_light(
+                [bound[0], bound[1], bound[2]],
+                bound[3],
+                light_position,
+                light_radius,
+            )
+        })
     }
 }
 
@@ -638,6 +653,91 @@ pub(super) unsafe fn point_light_caster_snapshot(light: &PointLight) -> PointCas
     }
 }
 
+/// Hash immutable point-caster ownership inside one light's influence sphere.
+///
+/// Bounds and world-state hashes were copied by the single cell-root snapshot,
+/// so this performs only scalar work. A moving door invalidates lights whose
+/// volumes may actually contain it instead of rebuilding all selected cubes,
+/// and no light rescans its native 8,192-entry geometry list.
+pub(super) fn point_scene_static_signature(
+    roots: &[DirectionalRoot],
+    light_position: [f32; 3],
+    light_radius: f32,
+) -> u64 {
+    let mut static_count = 0_u64;
+    let mut static_xor = 0_u64;
+    let mut static_sum = 0_u64;
+    for root in roots.iter().copied().filter(|root| {
+        !root.is_dynamic_actor() && root.intersects_point_light(light_position, light_radius)
+    }) {
+        let mut mixed = root.root as u64;
+        mixed ^= u64::from(root.signature_profile()).rotate_left(17);
+        mixed ^= u64::from(root.world_state).wrapping_mul(0x9E37_79B1_85EB_CA87);
+        mixed ^= mixed >> 33;
+        mixed = mixed.wrapping_mul(0xFF51_AFD7_ED55_8CCD);
+        mixed ^= mixed >> 33;
+        static_count = static_count.wrapping_add(1);
+        static_xor ^= mixed;
+        static_sum = static_sum.wrapping_add(mixed.rotate_left(23));
+    }
+    static_xor ^ static_sum.rotate_left(29) ^ static_count.wrapping_mul(0xD6E8_FEB8_6659_FD93)
+}
+
+/// Copy active actor bounds out of the borrowed root list.
+///
+/// The scalar spheres may be reused for every selected light. The parallel
+/// actor-root list avoids scanning every static root again for each dynamic
+/// face; it remains borrowed and must be discarded in this invocation.
+/// `false` reports overflow or an invalid bound, requiring conservative
+/// six-face dynamic work and the complete native light-list fallback.
+///
+/// # Safety
+///
+/// Every root must belong to the current serialized common-shadow epoch.
+pub(super) unsafe fn collect_point_actor_bounds(
+    roots: &[DirectionalRoot],
+    bounds: &mut Vec<[f32; 4]>,
+    actor_roots: &mut Vec<DirectionalRoot>,
+) -> bool {
+    bounds.clear();
+    actor_roots.clear();
+    for root in roots.iter().copied().filter(|root| root.is_dynamic_actor()) {
+        if !unsafe { root.is_active_dynamic_actor() } {
+            continue;
+        }
+        if bounds.len() == bounds.capacity() || actor_roots.len() == actor_roots.capacity() {
+            bounds.clear();
+            actor_roots.clear();
+            return false;
+        }
+        let Some(bound) = root.world_bound else {
+            bounds.clear();
+            actor_roots.clear();
+            return false;
+        };
+        bounds.push(bound);
+        actor_roots.push(root);
+    }
+    true
+}
+
+/// Resolve cube faces touched by a copied set of absolute actor spheres.
+pub(super) fn point_light_dynamic_faces_from_bounds(
+    bounds: &[[f32; 4]],
+    light_position: [f32; 3],
+) -> u8 {
+    let mut faces = 0_u8;
+    for bound in bounds {
+        let center_from_light = std::array::from_fn(|axis| bound[axis] - light_position[axis]);
+        for face in 0..6 {
+            if sphere_intersects_cube_face(center_from_light, bound[3], face) {
+                faces |= 1 << face;
+            }
+        }
+    }
+    faces
+}
+
 /// Visit current-cell roots when a native point light has no geometry list.
 ///
 /// This is NVR's documented fallback. It deliberately stays within the
@@ -674,11 +774,19 @@ pub(super) unsafe fn collect_directional_roots(
         (NativeLayout::TES_LAND_LOD_ROOT, true),
     ] {
         let root = unsafe { read::<*mut u8>(scene.tes, offset) };
-        if !root.is_null()
-            && !push_directional_root(roots, root, None, is_land, true, unsafe {
-                retained_object_world_state(root)
-            })
-        {
+        if root.is_null() {
+            continue;
+        }
+        let snapshot = unsafe { retained_object_world_snapshot(root) };
+        if !push_directional_root(
+            roots,
+            root,
+            None,
+            is_land,
+            true,
+            snapshot.state,
+            snapshot.bound,
+        ) {
             roots.clear();
             return false;
         }
@@ -732,7 +840,15 @@ unsafe fn push_player_directional_root(
     // Actor pose/bounds change at presentation cadence and are owned by the
     // cropped overlay, never by retained static-map identities. Avoid hashing
     // thirteen transform floats for a value the signature deliberately drops.
-    push_directional_root(roots, node, Some(0x2A), false, false, 0)
+    push_directional_root(
+        roots,
+        node,
+        Some(0x2A),
+        false,
+        false,
+        0,
+        unsafe { retained_object_world_snapshot(node) }.bound,
+    )
 }
 
 unsafe fn player_directional_root(scene: NativeScene) -> Option<*mut u8> {
@@ -748,12 +864,19 @@ unsafe fn collect_cell_directional_roots(cell: *mut u8, roots: &mut Vec<Directio
     let cell_state = unsafe { read::<*mut u8>(cell, CELL_STRUCT) };
     if !cell_state.is_null() {
         let master = unsafe { read::<*mut u8>(cell_state, CELL_STRUCT_MASTER_NODE) };
-        if let Some(land) = unsafe { node_child(master, LAND_CHILD_INDEX) }
-            && !push_directional_root(roots, land, None, true, false, unsafe {
-                retained_object_world_state(land)
-            })
-        {
-            return false;
+        if let Some(land) = unsafe { node_child(master, LAND_CHILD_INDEX) } {
+            let snapshot = unsafe { retained_object_world_snapshot(land) };
+            if !push_directional_root(
+                roots,
+                land,
+                None,
+                true,
+                false,
+                snapshot.state,
+                snapshot.bound,
+            ) {
+                return false;
+            }
         }
     }
 
@@ -773,22 +896,24 @@ unsafe fn collect_cell_directional_roots(cell: *mut u8, roots: &mut Vec<Directio
                 let node =
                     unsafe { read::<*mut u8>(render_data, NativeLayout::REFERENCE_DATA_NODE) };
                 let form_type = unsafe { read::<u8>(base, NativeLayout::TES_FORM_TYPE) };
-                let world_state = if matches!(form_type, 0x2A..=0x2C) {
-                    0
-                } else {
-                    unsafe { retained_object_world_state(node) }
-                };
-                if !node.is_null()
-                    && !push_directional_root(
+                if !node.is_null() {
+                    let snapshot = unsafe { retained_object_world_snapshot(node) };
+                    let world_state = if matches!(form_type, 0x2A..=0x2C) {
+                        0
+                    } else {
+                        snapshot.state
+                    };
+                    if !push_directional_root(
                         roots,
                         node,
                         Some(form_type),
                         false,
                         false,
                         world_state,
-                    )
-                {
-                    return false;
+                        snapshot.bound,
+                    ) {
+                        return false;
+                    }
                 }
             }
         }
@@ -805,6 +930,7 @@ fn push_directional_root(
     is_land: bool,
     is_lod: bool,
     world_state: u32,
+    world_bound: Option<[f32; 4]>,
 ) -> bool {
     if roots.len() == roots.capacity() {
         return false;
@@ -815,8 +941,15 @@ fn push_directional_root(
         is_land,
         is_lod,
         world_state,
+        world_bound,
     });
     true
+}
+
+#[derive(Clone, Copy)]
+struct RetainedWorldSnapshot {
+    state: u32,
+    bound: Option<[f32; 4]>,
 }
 
 /// Hash the absolute transform and bound which define retained map contents.
@@ -825,8 +958,20 @@ fn push_directional_root(
 ///
 /// `object` must be a live `NiAVObject` in the current common-shadow epoch.
 unsafe fn retained_object_world_state(object: *mut u8) -> u32 {
+    unsafe { retained_object_world_snapshot(object) }.state
+}
+
+/// Copy and hash the absolute fields shared by directional and point caches.
+///
+/// # Safety
+///
+/// `object` must be a live `NiAVObject` in the current common-shadow epoch.
+unsafe fn retained_object_world_snapshot(object: *mut u8) -> RetainedWorldSnapshot {
     if object.is_null() {
-        return u32::MAX;
+        return RetainedWorldSnapshot {
+            state: u32::MAX,
+            bound: None,
+        };
     }
     let bound = unsafe { read::<*mut NativeBound>(object, NativeLayout::NI_AV_OBJECT_WORLD_BOUND) };
     let bound = (!bound.is_null()).then(|| unsafe { read_unaligned(bound) });
@@ -837,7 +982,21 @@ unsafe fn retained_object_world_state(object: *mut u8) -> u32 {
                 .cast(),
         )
     };
-    retained_object_state_signature(bound, transform)
+    let valid_bound = bound.and_then(|bound| {
+        (bound.center.into_iter().all(f32::is_finite)
+            && bound.radius.is_finite()
+            && bound.radius >= 0.0)
+            .then_some([
+                bound.center[0],
+                bound.center[1],
+                bound.center[2],
+                bound.radius,
+            ])
+    });
+    RetainedWorldSnapshot {
+        state: retained_object_state_signature(bound, transform),
+        bound: valid_bound,
+    }
 }
 
 /// Hash the retained fields of one native object's absolute world state.
@@ -1096,7 +1255,8 @@ const fn size_of<T>() -> usize {
 mod tests {
     use super::{
         DirectionalRoot, NativeBound, PointLight, PointLightSelection,
-        directional_root_set_signatures, push_directional_root, retained_object_state_signature,
+        directional_root_set_signatures, point_scene_static_signature, push_directional_root,
+        retained_object_state_signature,
     };
 
     fn point(identity: usize, distance_squared: f32) -> PointLight {
@@ -1156,6 +1316,7 @@ mod tests {
             is_land: false,
             is_lod: false,
             world_state: 0,
+            world_bound: None,
         };
         assert!(actor.enabled_for(0));
         assert!(actor.enabled_for(2));
@@ -1167,6 +1328,7 @@ mod tests {
             is_land: true,
             is_lod: true,
             world_state: 0,
+            world_bound: None,
         };
         assert!(!lod.enabled_for(1));
         assert!(lod.enabled_for(2));
@@ -1179,6 +1341,7 @@ mod tests {
             actor.is_land,
             actor.is_lod,
             actor.world_state,
+            actor.world_bound,
         ));
         assert!(!push_directional_root(
             &mut roots,
@@ -1187,6 +1350,7 @@ mod tests {
             lod.is_land,
             lod.is_lod,
             lod.world_state,
+            lod.world_bound,
         ));
         assert_eq!(roots.len(), 1);
         assert_eq!(roots.capacity(), 1);
@@ -1200,6 +1364,7 @@ mod tests {
             is_land: false,
             is_lod: false,
             world_state: 0,
+            world_bound: None,
         };
         let land_lod = DirectionalRoot {
             root: 0x2000,
@@ -1207,6 +1372,7 @@ mod tests {
             is_land: true,
             is_lod: true,
             world_state: 0,
+            world_bound: None,
         };
         assert_eq!(
             directional_root_set_signatures(&[actor, land_lod]),
@@ -1234,6 +1400,7 @@ mod tests {
             is_land: false,
             is_lod: false,
             world_state: 0,
+            world_bound: None,
         };
         assert_ne!(
             directional_root_set_signatures(&[form_with_bit_five]),
@@ -1270,6 +1437,39 @@ mod tests {
             retained_object_state_signature(Some(bound), identity),
             retained_object_state_signature(Some(bound), rotated),
             "a rotating door or movable caster reused moments from its previous orientation"
+        );
+    }
+
+    #[test]
+    fn point_static_signature_ignores_roots_outside_the_light_volume() {
+        let near = DirectionalRoot {
+            root: 0x1000,
+            form_type: None,
+            is_land: false,
+            is_lod: false,
+            world_state: 11,
+            world_bound: Some([10.0, 0.0, 0.0, 2.0]),
+        };
+        let far = DirectionalRoot {
+            root: 0x2000,
+            form_type: None,
+            is_land: false,
+            is_lod: false,
+            world_state: 22,
+            world_bound: Some([1_000.0, 0.0, 0.0, 2.0]),
+        };
+        let moved_far = DirectionalRoot {
+            world_state: 33,
+            ..far
+        };
+        let baseline = point_scene_static_signature(&[near, far], [0.0; 3], 64.0);
+        assert_eq!(
+            baseline,
+            point_scene_static_signature(&[near, moved_far], [0.0; 3], 64.0),
+        );
+        assert_ne!(
+            baseline,
+            point_scene_static_signature(&[near, moved_far], [950.0, 0.0, 0.0], 64.0),
         );
     }
 }

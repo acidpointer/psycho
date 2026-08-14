@@ -9,6 +9,8 @@
 //! description and PCI IDs for application compatibility. Device-bound format
 //! probes likewise use the live device's creation adapter and device type;
 //! default-adapter helpers are appropriate only for independent inventory.
+//! Bounded shadow draw journals retain only explicitly documented mutable
+//! state, avoiding broad driver-owned state blocks in presentation hot paths.
 
 use core::ffi::{c_char, c_void};
 use core::mem::size_of;
@@ -48,7 +50,7 @@ use windows::Win32::Graphics::Direct3D9::{
     D3DADAPTER_DEFAULT, D3DADAPTER_IDENTIFIER9, D3DBACKBUFFER_TYPE, D3DBACKBUFFER_TYPE_MONO,
     D3DDEVICE_CREATION_PARAMETERS, D3DDISPLAYMODE, D3DLOCK_DISCARD, D3DLOCKED_RECT,
     D3DPMISCCAPS_MRTINDEPENDENTBITDEPTHS, D3DPOOL, D3DPRESENT_PARAMETERS, D3DPRIMITIVETYPE,
-    D3DRENDERSTATETYPE, D3DRESOURCETYPE, D3DSAMPLERSTATETYPE, D3DSTATEBLOCKTYPE,
+    D3DRECT, D3DRENDERSTATETYPE, D3DRESOURCETYPE, D3DSAMPLERSTATETYPE, D3DSTATEBLOCKTYPE,
     D3DTEXTUREFILTERTYPE, D3DTEXTURESTAGESTATETYPE, D3DUSAGE_DEPTHSTENCIL, D3DUSAGE_DYNAMIC,
     D3DUSAGE_QUERY_FILTER, D3DUSAGE_QUERY_POSTPIXELSHADER_BLENDING, D3DUSAGE_RENDERTARGET,
     D3DVERTEXELEMENT9, Direct3DCreate9, IDirect3D9, IDirect3DBaseTexture9, IDirect3DCubeTexture9,
@@ -850,6 +852,40 @@ impl<'a> Device9Ref<'a> {
             return Err(direct3d_failure());
         }
         unsafe { self.inner.Clear(0, null(), flags, color, depth, stencil) }
+    }
+
+    /// Clear one rectangular region of the currently bound attachments.
+    ///
+    /// The rectangle uses D3D's inclusive-exclusive pixel convention. Empty,
+    /// inverted, or negative bounds are rejected before entering the COM call.
+    /// The same validation applies to flags and depth as
+    /// [`Self::clear_attachments`].
+    pub fn clear_attachment_rect(
+        &self,
+        rect: &RECT,
+        flags: u32,
+        color: u32,
+        depth: f32,
+        stencil: u32,
+    ) -> Direct3DResult<()> {
+        let known = D3DCLEAR_TARGET as u32 | D3DCLEAR_ZBUFFER as u32 | D3DCLEAR_STENCIL as u32;
+        if flags == 0
+            || flags & !known != 0
+            || !depth.is_finite()
+            || rect.left < 0
+            || rect.top < 0
+            || rect.right <= rect.left
+            || rect.bottom <= rect.top
+        {
+            return Err(direct3d_failure());
+        }
+        let rect = D3DRECT {
+            x1: rect.left,
+            y1: rect.top,
+            x2: rect.right,
+            y2: rect.bottom,
+        };
+        unsafe { self.inner.Clear(1, &rect, flags, color, depth, stencil) }
     }
 
     /// Begin one explicit D3D9 scene transaction.
@@ -2000,6 +2036,296 @@ pub struct ReszState9 {
     point_size: u32,
 }
 
+const SHADOW_RENDER_STATES: [D3DRENDERSTATETYPE; 22] = [
+    D3DRS_ZENABLE,
+    D3DRS_ZWRITEENABLE,
+    D3DRS_ZFUNC,
+    D3DRS_CULLMODE,
+    D3DRS_ALPHABLENDENABLE,
+    D3DRS_ALPHATESTENABLE,
+    D3DRS_ALPHAREF,
+    D3DRS_ALPHAFUNC,
+    D3DRS_STENCILENABLE,
+    D3DRS_COLORWRITEENABLE,
+    D3DRS_COLORWRITEENABLE1,
+    D3DRS_MULTISAMPLEANTIALIAS,
+    D3DRS_MULTISAMPLEMASK,
+    D3DRS_ADAPTIVETESS_Y,
+    D3DRS_POINTSIZE,
+    D3DRS_DEPTHBIAS,
+    D3DRS_SLOPESCALEDEPTHBIAS,
+    D3DRS_SCISSORTESTENABLE,
+    D3DRS_SRGBWRITEENABLE,
+    D3DRS_SRCBLEND,
+    D3DRS_DESTBLEND,
+    D3DRS_BLENDOP,
+];
+
+const SHADOW_SAMPLER_STATES: [D3DSAMPLERSTATETYPE; 6] = [
+    D3DSAMP_ADDRESSU,
+    D3DSAMP_ADDRESSV,
+    D3DSAMP_MINFILTER,
+    D3DSAMP_MAGFILTER,
+    D3DSAMP_MIPFILTER,
+    D3DSAMP_SRGBTEXTURE,
+];
+
+struct DrawStreamState9 {
+    buffer: Option<IDirect3DVertexBuffer9>,
+    offset: u32,
+    stride: u32,
+}
+
+/// Owned snapshot of the bounded D3D9 state changed by OMV shadow rendering.
+///
+/// The const parameters are deliberately private behind the producer and
+/// consumer wrappers below. They describe the exact prefixes of texture
+/// stages, vertex streams, and shader constants mutated by those paths. This
+/// avoids `D3DSBT_ALL`, whose driver-defined capture walks unrelated lights,
+/// transforms, clip planes, and constants on every frame.
+struct ShadowDrawState9<
+    const TEXTURE_STAGES: usize,
+    const SAMPLERS: usize,
+    const STREAMS: usize,
+    const VERTEX_CONSTANTS: usize,
+    const PIXEL_CONSTANTS: usize,
+> {
+    fvf: u32,
+    declaration: Option<IDirect3DVertexDeclaration9>,
+    textures: [Option<IDirect3DBaseTexture9>; TEXTURE_STAGES],
+    vertex_shader: Option<IDirect3DVertexShader9>,
+    pixel_shader: Option<IDirect3DPixelShader9>,
+    streams: [DrawStreamState9; STREAMS],
+    indices: Option<IDirect3DIndexBuffer9>,
+    viewport: D3DVIEWPORT9,
+    scissor: RECT,
+    render_states: [u32; SHADOW_RENDER_STATES.len()],
+    sampler_states: [[u32; SHADOW_SAMPLER_STATES.len()]; SAMPLERS],
+    vertex_constants: [[f32; 4]; VERTEX_CONSTANTS],
+    pixel_constants: [[f32; 4]; PIXEL_CONSTANTS],
+}
+
+impl<
+    const TEXTURE_STAGES: usize,
+    const SAMPLERS: usize,
+    const STREAMS: usize,
+    const VERTEX_CONSTANTS: usize,
+    const PIXEL_CONSTANTS: usize,
+> ShadowDrawState9<TEXTURE_STAGES, SAMPLERS, STREAMS, VERTEX_CONSTANTS, PIXEL_CONSTANTS>
+{
+    fn capture(device: &Device9Ref<'_>) -> Direct3DResult<Self> {
+        if TEXTURE_STAGES > 16
+            || SAMPLERS > 16
+            || STREAMS > 16
+            || VERTEX_CONSTANTS > 256
+            || PIXEL_CONSTANTS > 224
+        {
+            return Err(direct3d_failure());
+        }
+
+        let fvf = device.fvf()?;
+        let declaration = optional_binding(unsafe { device.inner.GetVertexDeclaration() })?;
+        let mut textures = std::array::from_fn(|_| None);
+        for (stage, texture) in textures.iter_mut().enumerate() {
+            *texture = optional_binding(unsafe { device.inner.GetTexture(stage as u32) })?;
+        }
+        let vertex_shader = optional_binding(unsafe { device.inner.GetVertexShader() })?;
+        let pixel_shader = optional_binding(unsafe { device.inner.GetPixelShader() })?;
+        let mut streams = std::array::from_fn(|_| DrawStreamState9 {
+            buffer: None,
+            offset: 0,
+            stride: 0,
+        });
+        for (stream, snapshot) in streams.iter_mut().enumerate() {
+            unsafe {
+                device.inner.GetStreamSource(
+                    stream as u32,
+                    &mut snapshot.buffer,
+                    &mut snapshot.offset,
+                    &mut snapshot.stride,
+                )?
+            };
+        }
+        let indices = optional_binding(unsafe { device.inner.GetIndices() })?;
+        let viewport = device.viewport()?;
+        let mut scissor = RECT::default();
+        unsafe { device.inner.GetScissorRect(&mut scissor)? };
+
+        let mut render_states = [0; SHADOW_RENDER_STATES.len()];
+        for (state, value) in SHADOW_RENDER_STATES
+            .into_iter()
+            .zip(render_states.iter_mut())
+        {
+            *value = device.render_state(state)?;
+        }
+        let mut sampler_states = [[0; SHADOW_SAMPLER_STATES.len()]; SAMPLERS];
+        for (sampler, values) in sampler_states.iter_mut().enumerate() {
+            for (state, value) in SHADOW_SAMPLER_STATES.into_iter().zip(values.iter_mut()) {
+                *value = device.sampler_state(sampler as u32, state)?;
+            }
+        }
+        let mut vertex_constants = [[0.0; 4]; VERTEX_CONSTANTS];
+        if !vertex_constants.is_empty() {
+            device.vertex_shader_constant_f(0, &mut vertex_constants)?;
+        }
+        let mut pixel_constants = [[0.0; 4]; PIXEL_CONSTANTS];
+        if !pixel_constants.is_empty() {
+            device.pixel_shader_constant_f(0, &mut pixel_constants)?;
+        }
+
+        Ok(Self {
+            fvf,
+            declaration,
+            textures,
+            vertex_shader,
+            pixel_shader,
+            streams,
+            indices,
+            viewport,
+            scissor,
+            render_states,
+            sampler_states,
+            vertex_constants,
+            pixel_constants,
+        })
+    }
+
+    fn restore(&self, device: &Device9Ref<'_>) -> Direct3DResult<()> {
+        let mut result = Ok(());
+        for (state, value) in SHADOW_RENDER_STATES
+            .into_iter()
+            .zip(self.render_states.iter().copied())
+        {
+            keep_first_error(&mut result, device.set_render_state(state, value));
+        }
+        for (sampler, values) in self.sampler_states.iter().enumerate() {
+            for (state, value) in SHADOW_SAMPLER_STATES
+                .into_iter()
+                .zip(values.iter().copied())
+            {
+                keep_first_error(
+                    &mut result,
+                    device.set_sampler_state(sampler as u32, state, value),
+                );
+            }
+        }
+        for (stage, texture) in self.textures.iter().enumerate() {
+            keep_first_error(&mut result, unsafe {
+                device.inner.SetTexture(stage as u32, texture.as_ref())
+            });
+        }
+        if !self.vertex_constants.is_empty() {
+            keep_first_error(
+                &mut result,
+                device.set_vertex_shader_constant_f(0, &self.vertex_constants),
+            );
+        }
+        if !self.pixel_constants.is_empty() {
+            keep_first_error(
+                &mut result,
+                device.set_pixel_shader_constant_f(0, &self.pixel_constants),
+            );
+        }
+        keep_first_error(&mut result, unsafe {
+            device.inner.SetVertexShader(self.vertex_shader.as_ref())
+        });
+        keep_first_error(&mut result, unsafe {
+            device.inner.SetPixelShader(self.pixel_shader.as_ref())
+        });
+        for (stream, snapshot) in self.streams.iter().enumerate() {
+            keep_first_error(&mut result, unsafe {
+                device.inner.SetStreamSource(
+                    stream as u32,
+                    snapshot.buffer.as_ref(),
+                    snapshot.offset,
+                    snapshot.stride,
+                )
+            });
+        }
+        keep_first_error(&mut result, unsafe {
+            device.inner.SetIndices(self.indices.as_ref())
+        });
+        // FVF and programmable-declaration bindings are mutually exclusive
+        // device modes. SetVertexDeclaration after SetFVF would reproduce the
+        // generated declaration but change GetFVF from its captured nonzero
+        // value to zero. Select exactly one route from the captured FVF value;
+        // zero is not a valid SetFVF input and identifies declaration mode.
+        if self.fvf != 0 {
+            keep_first_error(&mut result, device.set_fvf(self.fvf));
+        } else {
+            keep_first_error(&mut result, unsafe {
+                device.inner.SetVertexDeclaration(self.declaration.as_ref())
+            });
+        }
+        keep_first_error(&mut result, device.set_viewport(&self.viewport));
+        keep_first_error(&mut result, unsafe {
+            device.inner.SetScissorRect(&self.scissor)
+        });
+        result
+    }
+}
+
+/// Exact D3D9 state journal for OMV shadow-map generation.
+///
+/// It owns all 16 pixel texture bindings, sampler state for stages zero and
+/// one, all vertex streams, VS constants `c0..c145`, PS constant `c0`, and the
+/// fixed render-state set changed by directional, actor, and point-map
+/// submission. Capture allocates nothing.
+pub struct ShadowProducerState9(ShadowDrawState9<16, 2, 16, 146, 1>);
+
+impl ShadowProducerState9 {
+    /// Number of pixel texture/sampler stages owned by the producer journal.
+    pub const TEXTURE_STAGE_COUNT: usize = 16;
+    /// Number of pixel sampler-state stages owned by the producer journal.
+    pub const SAMPLER_COUNT: usize = 2;
+    /// Number of vertex streams owned by the producer journal.
+    pub const STREAM_COUNT: usize = 16;
+    /// Vertex constant rows captured from `c0`.
+    pub const VERTEX_CONSTANT_COUNT: usize = 146;
+    /// Pixel constant rows captured from `c0`.
+    pub const PIXEL_CONSTANT_COUNT: usize = 1;
+
+    /// Capture every D3D state slot that shadow-map generation may mutate.
+    pub fn capture(device: &Device9Ref<'_>) -> Direct3DResult<Self> {
+        ShadowDrawState9::capture(device).map(Self)
+    }
+
+    /// Restore the exact producer state while preserving owned COM bindings.
+    pub fn restore(&self, device: &Device9Ref<'_>) -> Direct3DResult<()> {
+        self.0.restore(device)
+    }
+}
+
+/// Exact D3D9 state journal for OMV's fullscreen shadow consumer.
+///
+/// Only texture/sampler stages `0..12`, stream zero, PS constants `c0..c34`,
+/// and the fixed draw-state set are captured. Stage twelve is the last cube
+/// sampler in the twelve-light batch. This avoids unrelated device state.
+pub struct ShadowConsumerState9(ShadowDrawState9<13, 13, 1, 0, 35>);
+
+impl ShadowConsumerState9 {
+    /// Number of pixel texture/sampler stages owned by the consumer journal.
+    pub const TEXTURE_STAGE_COUNT: usize = 13;
+    /// Number of pixel sampler-state stages owned by the consumer journal.
+    pub const SAMPLER_COUNT: usize = 13;
+    /// Number of vertex streams owned by the consumer journal.
+    pub const STREAM_COUNT: usize = 1;
+    /// Vertex constant rows captured from `c0`.
+    pub const VERTEX_CONSTANT_COUNT: usize = 0;
+    /// Pixel constant rows captured from `c0`.
+    pub const PIXEL_CONSTANT_COUNT: usize = 35;
+
+    /// Capture every D3D state slot that shadow composition may mutate.
+    pub fn capture(device: &Device9Ref<'_>) -> Direct3DResult<Self> {
+        ShadowDrawState9::capture(device).map(Self)
+    }
+
+    /// Restore the exact consumer state while preserving owned COM bindings.
+    pub fn restore(&self, device: &Device9Ref<'_>) -> Direct3DResult<()> {
+        self.0.restore(device)
+    }
+}
+
 impl ReszState9 {
     fn capture(device: &Device9Ref<'_>) -> Direct3DResult<Self> {
         let mut fvf = 0;
@@ -2081,8 +2407,44 @@ impl ReszState9 {
 fn optional_binding<T>(result: Direct3DResult<T>) -> Direct3DResult<Option<T>> {
     match result {
         Ok(binding) => Ok(Some(binding)),
-        Err(err) if err.code() == E_POINTER || err.code() == D3DERR_NOTFOUND => Ok(None),
+        // The windows projection returns `Err(Error(HRESULT(0)))` when a COM
+        // getter succeeds but its interface out-pointer is null. This is a
+        // valid unbound D3D slot, not a failed device query. Preserve genuine
+        // failing HRESULTs while accepting both projection and driver forms of
+        // an absent optional binding.
+        Err(err)
+            if err.code().is_ok() || err.code() == E_POINTER || err.code() == D3DERR_NOTFOUND =>
+        {
+            Ok(None)
+        }
         Err(err) => Err(err),
+    }
+}
+
+#[cfg(test)]
+mod optional_binding_tests {
+    use super::{
+        D3DERR_NOTFOUND, Direct3DResult, E_FAIL, E_POINTER, HRESULT, WindowsError, optional_binding,
+    };
+
+    #[test]
+    fn every_documented_null_binding_result_is_absent_not_a_capture_failure() {
+        for code in [HRESULT(0), HRESULT(1), E_POINTER, D3DERR_NOTFOUND] {
+            let absent: Direct3DResult<u32> = Err(WindowsError::from_hresult(code));
+
+            assert_eq!(
+                optional_binding(absent).expect("a null COM out-pointer is an empty binding"),
+                None,
+                "optional binding HRESULT {code:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn genuine_binding_failure_remains_an_error() {
+        let failure: Direct3DResult<u32> = Err(WindowsError::from_hresult(E_FAIL));
+
+        assert!(optional_binding(failure).is_err());
     }
 }
 

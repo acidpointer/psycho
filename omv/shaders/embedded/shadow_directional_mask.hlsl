@@ -1,4 +1,5 @@
-// Half-resolution, depth-keyed directional visibility for deferred composition.
+// Directional visibility. Production concatenates this source into the
+// source-owned compositor; the standalone entry remains a compile-time oracle.
 float4 ScreenData : register(c0);
 float4 DepthLinearizeData : register(c1);
 float4 CameraFrustum : register(c2);
@@ -16,14 +17,24 @@ float4 ActorControl : register(c28);
 float4 ActorCrops[3] : register(c29);
 float4 ActorTexel : register(c32);
 
+#if OMV_FUSED_DIRECTIONAL
+sampler2D SceneDepth : register(s1);
+sampler2D ShadowAtlas : register(s2);
+sampler2D ActorNearMiddleMoments : register(s3);
+sampler2D ActorFarMoments : register(s4);
+#else
 sampler2D SceneDepth : register(s0);
 sampler2D ShadowAtlas : register(s1);
 sampler2D ActorNearMiddleMoments : register(s2);
 sampler2D ActorFarMoments : register(s3);
+#endif
 
 static const float ShadowDepthKeyRange = 250000.0f;
 
+#ifndef OMV_SHADOW_PIXEL_INPUT
+#define OMV_SHADOW_PIXEL_INPUT 1
 struct PixelInput { float2 uv : TEXCOORD0; };
+#endif
 
 float LinearDepth(float rawDepth) {
     if (ShadowControl.x > 0.5f)
@@ -182,14 +193,7 @@ float DirectionalVisibility(float3 worldPosition, float viewDepth) {
         blend);
 }
 
-float4 Main(PixelInput input) : COLOR0 {
-    float2 depthUv = SnapDepthUv(input.uv);
-    float rawDepth = tex2Dlod(SceneDepth, float4(depthUv, 0.0f, 0.0f)).r;
-    if (!HasGeometryDepth(rawDepth)) return float4(1.0f, 0.0f, 0.0f, 1.0f);
-    float viewDepth = LinearDepth(rawDepth);
-    if (viewDepth <= 0.0f || viewDepth >= DepthLinearizeData.w * 0.985f)
-        return float4(1.0f, 0.0f, 0.0f, 1.0f);
-
+float DirectionalVisibilityAtReceiver(float2 depthUv, float viewDepth) {
     float3 worldPosition = RelativeWorldPosition(depthUv, viewDepth);
     float visibility = DirectionalVisibility(worldPosition, viewDepth);
     if (visibility < 0.98f) {
@@ -197,5 +201,19 @@ float4 Main(PixelInput input) : COLOR0 {
         float normalOffset = saturate(1.0f - dot(normal, SunDirection.xyz));
         visibility = DirectionalVisibility(worldPosition + normal * normalOffset, viewDepth);
     }
-    return float4(visibility, viewDepth / ShadowDepthKeyRange, 0.0f, 1.0f);
+    return visibility;
 }
+
+#if !OMV_FUSED_DIRECTIONAL
+float4 Main(PixelInput input) : COLOR0 {
+    float2 depthUv = SnapDepthUv(input.uv);
+    float rawDepth = tex2Dlod(SceneDepth, float4(depthUv, 0.0f, 0.0f)).r;
+    float viewDepth = HasGeometryDepth(rawDepth) ? LinearDepth(rawDepth) : 0.0f;
+    return float4(
+        viewDepth > 0.0f && viewDepth < DepthLinearizeData.w * 0.985f
+            ? DirectionalVisibilityAtReceiver(depthUv, viewDepth) : 1.0f,
+        viewDepth > 0.0f ? viewDepth / ShadowDepthKeyRange : 0.0f,
+        0.0f,
+        1.0f);
+}
+#endif

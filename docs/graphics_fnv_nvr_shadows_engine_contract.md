@@ -4305,6 +4305,213 @@ removes one post-Deferred shader program and one lazy render target. Startup
 compatibility still requires the established BaseObjectSwapper gameplay test;
 static source-order tests and a release build cannot substitute for it.
 
+## 2026-08-14 structural shadow performance correction
+
+The accepted visual build still lost approximately 50-60 FPS at 3440 by 1440
+on an RX 6800 XT. This correction changes production architecture rather than
+adding telemetry or reducing image quality. Shadow resolution, four-sample
+caster coverage, EVSM4 equations, full-resolution receiver ownership, contact
+filter weights, point-light count, darkness semantics, and actor presentation
+cadence remain unchanged. There is no new user configuration.
+
+### Source-proven redundant work
+
+The retained-map scheduler skipped many geometry draws, but the producer still
+captured render targets, captured an all-device D3D state block, entered a
+`BeginScene`/`EndScene` pair, opened the native skin-state journal, cleared
+auxiliary targets, and restored everything before it knew that no texture
+needed a write. The consumer separately captured and applied `D3DSBT_ALL` on
+every composed frame. `D3DSBT_ALL` includes device state OMV never mutates,
+including unrelated constant ranges, transforms, lights, and sampler stages;
+its driver work is outside OMV's control.
+
+A quality-only camera translation regenerated a complete 2048-square,
+four-sample directional cascade even though stable orthographic projection
+moved by an exact integer texel count. Point planning walked each selected
+light's native geometry list, up to 8,192 entries, to discover animation and
+static identity. A dynamic cube face then walked that complete list again to
+reject every static leaf before reaching actors. A moved static reference was
+later represented by one scene-wide signature, which could conservatively
+invalidate all twelve point cubes.
+
+Directional visibility was written to a full-resolution `G16R16F`
+intermediate and immediately sampled by the final compositor. Local-light
+`RGBA16F` deficit and total targets were fully cleared even when their scissored
+draws covered a small fraction of the screen. The point producer also unbound
+all sixteen samplers on transactions containing no cube-face write, and device
+capabilities were queried repeatedly after resource creation.
+
+These are direct source facts. Their contribution to the reported frame time
+is a reasoned performance inference until the resulting artifact is measured
+in the reported scene.
+
+### Producer work plan and zero-D3D publication
+
+`contract.rs` now owns a pure `ShadowFramePlan` regression transcript. It
+classifies each directional map as `Reuse`, bounded `Scroll`, or `Rebuild` and
+accounts for map draws, clears, resolves, exact copies, sampler unbinds, and
+directional texels written. The production no-work route applies the same
+conservative input decisions before attachment getters, D3D state capture,
+scene ownership, or native renderer journaling.
+
+A no-work publication requires all of the following:
+
+- the same scene branch and exact retained camera/profile contract;
+- no mandatory or quality cascade refresh;
+- equal regional static root signatures;
+- no previous, current, or abandoned animated cascade/cube coverage;
+- stable selected-light ownership and a point plan with zero dirty faces; and
+- complete bounded root and actor snapshots whenever those inputs are needed.
+
+Failure to prove any item enters the ordinary transactional producer. A proven
+unchanged family receives the current epoch as CPU metadata without touching
+D3D. A static interior with no selected shadow light also skips root collection;
+dormant exterior signatures do not force an interior D3D transaction.
+
+### Scrolling directional clipmaps
+
+Camera translation with an unchanged stabilized sun and unchanged light-space
+basis now reuses the old cascade overlap and renders only newly exposed texel
+bands. `clipmap_texel_delta` accepts only finite, same-basis transforms whose
+XY translation is integral within the stable projection tolerance. Motion
+larger than 64 texels, a changed sun, a changed basis, incomplete roots, or a
+mandatory invalidation performs the established complete rebuild.
+
+For a displacement `(dx, dy)`, the overlap is copied from the live atlas into
+the unpublished 2048-square resolve texture at the exact destination offset.
+At most two disjoint rectangles own the exposed rows and columns; the column
+rectangle excludes the row rectangle's corner. Fixed `2048 x 64` and
+`64 x 2048` four-sample color/depth families render and resolve those bands.
+Only after every strip succeeds is the complete scratch map copied into the
+live atlas quadrant. A failed strip can therefore neither partially publish a
+cascade nor apply the same scroll twice on retry.
+
+The maximum two-axis 64-texel update rasterizes 258,048 texels instead of
+4,194,304, before accounting for four-sample coverage. Full-map overlap and
+publication copies remain because portable D3D9 cannot partially resolve a
+multisampled surface and because the sampled atlas must remain transactional.
+Camera motion parallel to the light axis retains the old EVSM depth domain
+until the existing guard volume mandates a complete rebuild; reinterpreting
+old moments through a new depth transform is forbidden.
+
+### Shared bounded caster index and regional invalidation
+
+One preallocated root snapshot now owns directional signatures, directional
+actor work, point static invalidation, point actor bounds, and point actor root
+submission for the current common-shadow invocation. Each root copies scalar
+form/profile data, its absolute transform/bound hash, and a validated absolute
+bound. No native pointer crosses the serialized common-prefix lifetime.
+
+Point static signatures hash only non-actor roots whose conservative bound
+intersects that light's influence sphere. The per-light loop reads copied
+scalars; it does not walk native geometry. Thus a door entering or leaving one
+light changes that cube without invalidating unrelated lights. Invalid bounds
+remain conservative and participate in every relevant signature.
+
+Up to 1,024 active actor roots and bounds are copied into paired preallocated
+vectors. Dynamic cube faces traverse that actor-only list directly and retain
+the same point-volume, cube-face, material, skin, and first-person admission in
+`render.rs`. They no longer scan up to 8,192 static geometry entries for every
+face. Root or actor capacity overflow, a missing/invalid actor bound, or an
+incomplete snapshot clears the borrowed list and takes the established full
+native light-list fallback; coverage is never silently narrowed.
+
+### Bounded D3D state ownership
+
+Shadow producer and consumer transactions no longer use `D3DSBT_ALL`.
+`libpsycho::os::windows::directx9` owns allocation-free, COM-owning journals
+with explicit public contracts:
+
+| Journal | Textures | Samplers | Streams | VS constants | PS constants |
+|---|---:|---:|---:|---:|---:|
+| producer | 0-15 | 0-1 | 0-15 | c0-c145 | c0 |
+| consumer | 0-12 | 0-12 | stream 0 | none | c0-c34 |
+
+Both journals also capture the exact 22 render states mutated by shadow code,
+the current shaders, index buffer, FVF/declaration pair, viewport, and scissor.
+The consumer's stage twelve is required by a twelve-light cube batch. The
+producer's c145 endpoint is required by terrain LOD morph constants. Owned COM
+references keep original engine bindings live while OMV replaces them.
+
+Restoration attempts every captured slot while preserving the first HRESULT.
+Attachments restore first because `SetRenderTarget` resets viewport and
+scissor; bounded draw state restores afterward. FVF and programmable vertex
+declarations are restored as mutually exclusive modes: a nonzero captured FVF
+uses `SetFVF`, while zero restores the captured declaration because D3D reports
+zero for declaration mode but rejects it as a `SetFVF` input. Producer CPU
+cache commits still occur only after draw, native-journal
+restore, `EndScene`, attachment restore, and bounded D3D restore all succeed.
+
+The first runtime artifact exposed a Windows projection edge case before any
+draw: every producer failed at `CaptureState` with `Success. (0x00000000)`.
+Interface-returning D3D getters represent a successful call with a null COM
+out-pointer as an error-shaped `windows::core::Error` retaining the successful
+HRESULT. An unset texture, shader, declaration, or index binding is normal
+device state. The journal now normalizes every non-failing HRESULT plus the
+documented `E_POINTER` and `D3DERR_NOTFOUND` forms to `None`; genuine failing
+HRESULTs still abort capture. A focused `libpsycho` regression constructs all
+absence forms, including the observed HRESULT zero, and separately proves that
+`E_FAIL` is not swallowed.
+
+### Consumer and resource work
+
+Exterior shader preparation concatenates the exact directional visibility
+source with the source-owned compositor. Directional EVSM/actor visibility is
+therefore evaluated at the final full-resolution receiver without a separate
+fullscreen draw, `G16R16F` write, or later visibility-map read. The standalone
+directional entry remains a shader-model-three compile oracle. Interior
+composition remains its independent point-only program.
+
+Local deficit/total targets are fully cleared once after allocation. Later
+frames clear only the conservative union of previous and current point-light
+scissors, which both removes abandoned pixels and starts current additive
+accumulation from exact zero. The two equal-format MRTs are cleared together.
+No-face point plans return before sampler unbinding. The device's simultaneous
+render-target count is normalized once at resource creation and reused.
+
+Removing the full-resolution directional target saves four bytes per output
+pixel. The two fixed strip families add 14,680,064 bytes. At 1920 by 1080 the
+quality resource estimate is 640,020,480 bytes, 6,385,664 bytes above the prior
+non-scrolling build. At 3440 by 1440, eliminating the larger directional target
+more than pays for the strips and saves 5,134,336 bytes relative to that build.
+The root cache also grows by one optional scalar bound per entry and adds one
+1,024-entry borrowed actor-root vector; both are allocated only with lazy
+post-`DeferredInit` device resources and never grow in the render hook.
+
+### Tests, startup boundary, and runtime acceptance
+
+Regression coverage includes a literal zero-operation frame transcript; exact
+overlap/band partition for every displacement quadrant; bounded and oversized
+scroll decisions; real cascade projection rebasing with D3D top-left Y signs;
+single-publication ordering; no-face sampler behavior; regional point
+invalidation; actor-only dynamic face submission; old/current scissor union;
+fused shader topology, register ABI, instruction and texture budgets; exact
+state-journal ranges; and source order proving the no-D3D route precedes
+publication invalidation and the ordinary transaction.
+
+The focused explicit Windows-target shadow suite passes 152 tests. The complete
+`i686-pc-windows-gnu` OMV suite passes all 662 tests and the supported release
+build succeeds. The resulting `omv.dll` is 12,834,547 bytes with SHA-256
+`177b1b594c1dd91359fec3bdb9a42ec4f2f4ee0c1430be1b04584587b1a6e959`.
+Compilation alone cannot prove driver frame time or image correctness.
+
+No configuration field, schema, preset, hook admission, TLS value, static or
+lazy owner, thread, worker order, file scan, or pre-`DeferredInit` operation is
+added. `PIPELINE` retains the exact tested 0xA28 32-bit startup owner shape.
+New vectors, D3D resources, shaders, and journals are reached only through the
+existing post-deferred lazy resource path. Because final DLL code/data still
+changes, BaseObjectSwapper load-to-gameplay testing remains mandatory before
+calling the artifact startup-safe.
+
+Runtime acceptance is the established 3440-by-1440 exterior scene on the RX
+6800 XT plus a lower-end control: stable idle, fast translation/yaw, moving
+actors, a moving static reference near only one light, point-heavy interiors,
+contact on/off, and cell transitions. Required visual results are parity with
+the accepted pre-performance build, no delayed or partially scrolled shadow,
+no abandoned point/local-light pixels, and exact engine state after both
+success and forced fallback. The reported 1-5 FPS target is a runtime goal,
+not a result established by static tests.
+
 ## Primary evidence index
 
 ### Current executable and static artifacts

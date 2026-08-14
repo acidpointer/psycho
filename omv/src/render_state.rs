@@ -30,12 +30,13 @@ pub(crate) struct RenderTargetSlots {
 impl RenderTargetSlots {
     /// Query and normalize the render-target count for `device`.
     pub(crate) fn query(device: &Device9Ref<'_>) -> Direct3DResult<Self> {
-        Ok(Self::from_reported(
+        Ok(Self::from_reported_count(
             device.simultaneous_render_target_count()?,
         ))
     }
 
-    fn from_reported(count: u32) -> Self {
+    /// Normalize an already queried D3D capability for repeated transactions.
+    pub(crate) fn from_reported_count(count: u32) -> Self {
         Self {
             count: count.clamp(1, MAX_D3D9_RENDER_TARGETS),
         }
@@ -128,6 +129,25 @@ pub(crate) fn finish_render_transaction(
     draw_result
 }
 
+/// Finish a transaction whose caller owns a bounded state journal.
+///
+/// Attachment restoration still precedes draw-state restoration because
+/// `SetRenderTarget` resets viewport and scissor state. `restore_state` must
+/// restore every non-attachment D3D slot mutated by the transaction.
+pub(crate) fn finish_exact_render_transaction(
+    device: &Device9Ref<'_>,
+    attachments: &RenderAttachments,
+    mut draw_result: Direct3DResult<()>,
+    restore_state: impl FnOnce() -> Direct3DResult<()>,
+) -> Direct3DResult<()> {
+    keep_first_error(&mut draw_result, attachments.restore(device));
+    crate::graphics_diagnostics::add(crate::graphics_diagnostics::Counter::StateApply, 1);
+    let _span =
+        crate::graphics_diagnostics::span(crate::graphics_diagnostics::Interval::StateApply);
+    keep_first_error(&mut draw_result, restore_state());
+    draw_result
+}
+
 /// Capture one broad D3D state owner for a named OMV transaction.
 ///
 /// The sampled attribution is compiled out of normal builds. Keeping capture
@@ -138,6 +158,16 @@ pub(crate) fn capture_state_block(state_block: &StateBlock9) -> Direct3DResult<(
     let _span =
         crate::graphics_diagnostics::span(crate::graphics_diagnostics::Interval::StateCapture);
     state_block.capture()
+}
+
+/// Capture one caller-defined bounded D3D state journal with attribution.
+pub(crate) fn capture_exact_render_state<T>(
+    capture: impl FnOnce() -> Direct3DResult<T>,
+) -> Direct3DResult<T> {
+    crate::graphics_diagnostics::add(crate::graphics_diagnostics::Counter::StateCapture, 1);
+    let _span =
+        crate::graphics_diagnostics::span(crate::graphics_diagnostics::Interval::StateCapture);
+    capture()
 }
 
 /// Apply one captured D3D state owner after attachments are restored.
@@ -210,19 +240,19 @@ mod tests {
 
     #[test]
     fn render_target_slots_are_bounded_to_the_d3d9_contract() {
-        assert_eq!(RenderTargetSlots::from_reported(0).count, 1);
-        assert_eq!(RenderTargetSlots::from_reported(1).count, 1);
-        assert_eq!(RenderTargetSlots::from_reported(2).count, 2);
-        assert_eq!(RenderTargetSlots::from_reported(4).count, 4);
-        assert_eq!(RenderTargetSlots::from_reported(8).count, 4);
+        assert_eq!(RenderTargetSlots::from_reported_count(0).count, 1);
+        assert_eq!(RenderTargetSlots::from_reported_count(1).count, 1);
+        assert_eq!(RenderTargetSlots::from_reported_count(2).count, 2);
+        assert_eq!(RenderTargetSlots::from_reported_count(4).count, 4);
+        assert_eq!(RenderTargetSlots::from_reported_count(8).count, 4);
         assert_eq!(
-            RenderTargetSlots::from_reported(1)
+            RenderTargetSlots::from_reported_count(1)
                 .auxiliary_indices()
                 .collect::<Vec<_>>(),
             []
         );
         assert_eq!(
-            RenderTargetSlots::from_reported(4)
+            RenderTargetSlots::from_reported_count(4)
                 .auxiliary_indices()
                 .collect::<Vec<_>>(),
             [1, 2, 3]

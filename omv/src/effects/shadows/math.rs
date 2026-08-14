@@ -5,7 +5,7 @@
 //! camera translation is used only for texel-grid stabilization, matching the
 //! NVR contract without exposing large world coordinates to shader math.
 
-use super::contract::{CascadeSplit, NVR_CASCADE_RESOLUTION};
+use super::contract::{CascadeSplit, ClipmapRect, NVR_CASCADE_RESOLUTION};
 
 const MIN_VECTOR_LENGTH_SQUARED: f32 = 1.0e-8;
 const POINT_NEAR_PLANE: f32 = 0.1;
@@ -149,6 +149,83 @@ pub(super) struct ActorProjection {
 }
 
 impl CascadeProjection {
+    /// Retain light-space depth while adopting a newer quantized XY origin.
+    ///
+    /// Scrolling may preserve old EVSM moments only when their encoded depth
+    /// remains unchanged. Camera motion parallel to the light therefore stays
+    /// in the retained matrix until the guard volume mandates a full rebuild;
+    /// perpendicular movement changes only the two atlas coordinates.
+    pub(super) fn with_xy_origin_from(mut self, desired: [[f32; 4]; 4]) -> Option<Self> {
+        if !self
+            .world_to_shadow
+            .iter()
+            .flatten()
+            .all(|value| value.is_finite())
+            || !desired.iter().flatten().all(|value| value.is_finite())
+        {
+            return None;
+        }
+        for (retained_row, desired_row) in self.world_to_shadow.iter().zip(desired.iter()).take(3) {
+            for (retained, desired) in retained_row.iter().zip(desired_row) {
+                if (*retained - *desired).abs() > 1.0e-5 {
+                    return None;
+                }
+            }
+        }
+        if (self.world_to_shadow[3][3] - desired[3][3]).abs() > 1.0e-5 {
+            return None;
+        }
+        self.world_to_shadow[3][0] = desired[3][0];
+        self.world_to_shadow[3][1] = desired[3][1];
+        self.planes = extract_d3d_frustum_planes(self.world_to_shadow)?;
+        Some(self)
+    }
+
+    /// Crop a full cascade projection to one exact destination texel band.
+    ///
+    /// The returned projection maps the requested rectangle to the complete
+    /// strip render target. Light-space Z is untouched, so its resolved EVSM
+    /// moments can be copied beside retained overlap without reinterpretation.
+    pub(super) fn cropped_to_texel_rect(self, rect: ClipmapRect, resolution: u32) -> Option<Self> {
+        if resolution == 0
+            || rect.left >= rect.right
+            || rect.top >= rect.bottom
+            || rect.right > resolution
+            || rect.bottom > resolution
+        {
+            return None;
+        }
+        let inverse_resolution = 1.0 / resolution as f32;
+        let minimum = [
+            rect.left as f32 * 2.0 * inverse_resolution - 1.0,
+            1.0 - rect.bottom as f32 * 2.0 * inverse_resolution,
+        ];
+        let maximum = [
+            rect.right as f32 * 2.0 * inverse_resolution - 1.0,
+            1.0 - rect.top as f32 * 2.0 * inverse_resolution,
+        ];
+        let mut crop = [
+            [1.0, 0.0, 0.0, 0.0],
+            [0.0, 1.0, 0.0, 0.0],
+            [0.0, 0.0, 1.0, 0.0],
+            [0.0, 0.0, 0.0, 1.0],
+        ];
+        for axis in 0..2 {
+            let extent = maximum[axis] - minimum[axis];
+            if !extent.is_finite() || extent <= f32::EPSILON {
+                return None;
+            }
+            crop[axis][axis] = 2.0 / extent;
+            crop[3][axis] = -(maximum[axis] + minimum[axis]) / extent;
+        }
+        let world_to_shadow = multiply4(self.world_to_shadow, crop);
+        Some(Self {
+            world_to_shadow,
+            planes: extract_d3d_frustum_planes(world_to_shadow)?,
+            ..self
+        })
+    }
+
     /// Legacy camera-slice sphere retained only for regression-test controls.
     ///
     /// Production selection is view-depth based; tests keep this accessor to
