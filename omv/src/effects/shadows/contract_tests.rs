@@ -216,12 +216,19 @@ fn production_fast_path_precedes_every_d3d_transaction_owner() {
         .find("try_republish_without_d3d")
         .expect("no-work planner");
     let invalidate = produce
-        .find("self.published = None")
+        .rfind("self.published = None")
         .expect("transactional publication invalidation");
     let transaction = produce
         .find("self.produce_transaction")
         .expect("D3D transaction");
     assert!(fast < invalidate && invalidate < transaction);
+    let quality_transition = produce
+        .find("if transition.point_resources_replaced")
+        .expect("point-resource quality transition");
+    let point_cache_reset = produce
+        .find("self.point_cache = PointMapCache::default()")
+        .expect("point-map invalidation");
+    assert!(quality_transition < point_cache_reset && point_cache_reset < fast);
 
     let point_draw = source
         .split_once("unsafe fn draw_point_maps(")
@@ -234,6 +241,38 @@ fn production_fast_path_precedes_every_d3d_transaction_owner() {
                 .find("for sampler in 0..16")
                 .expect("sampler unbinds")
     );
+}
+
+#[test]
+fn point_quality_replacement_is_transactional_and_retry_bounded() {
+    let source = include_str!("pipeline.rs");
+    let point_create = source
+        .split_once("fn create(device: &Device9Ref<'_>, count: usize, resolution: u32)")
+        .and_then(|(_, tail)| tail.split_once("fn supports("))
+        .map(|(body, _)| body)
+        .expect("point-resource constructor");
+    assert!(point_create.contains("create_cube_render_target_texture(resolution"));
+    assert!(point_create.contains("create_depth_stencil_surface(\n            resolution"));
+    assert!(point_create.contains("resolution,"));
+
+    let ensure = source
+        .split_once("fn ensure_branch(")
+        .and_then(|(_, tail)| tail.split_once("unsafe fn draw_maps("))
+        .map(|(body, _)| body)
+        .expect("branch resource owner");
+    let allocate = ensure
+        .find("PointResources::create(device, requested, resolution)")
+        .expect("complete replacement allocation");
+    let commit = ensure
+        .find("self.points = Some(points)")
+        .expect("replacement commit point");
+    assert!(allocate < commit);
+    assert!(!ensure[..commit].contains("self.points.take()"));
+    assert!(ensure.contains("device_generation: generation"));
+    assert!(ensure.contains("resolution,"));
+    assert!(ensure.contains("capacity: requested"));
+    assert!(ensure.contains("if self.point_failure == Some(failure)"));
+    assert!(ensure.contains("self.point_failure = None"));
 }
 
 #[test]
@@ -2098,7 +2137,52 @@ fn resource_plan_keeps_default_dynamic_exteriors_free_of_experimental_sun_work()
     assert_eq!(sun_only.point_light_count, 0);
     assert_eq!(sun_only.point_cube_texture_count, 0);
     assert_eq!(sun_only.point_cube_resolution, 0);
+    assert_eq!(sun_only.point_resource_estimated_bytes, 0);
     assert_eq!(sun_only.cascade_count, CASCADE_COUNT as u32);
+}
+
+#[test]
+fn dynamic_quality_tiers_share_exact_point_resource_and_fill_contracts() {
+    use crate::config::DynamicShadowQuality;
+
+    let settings = ShadowSettings::default();
+    let tiers = [
+        (DynamicShadowQuality::Performance, 256, 38_010_880),
+        (DynamicShadowQuality::High, 512, 152_043_520),
+        (DynamicShadowQuality::Ultra, 1024, 608_174_080),
+    ];
+    let mut previous_face_pixels = None;
+    for (quality, resolution, point_bytes) in tiers {
+        let exterior = ProducerResourcePlan::for_settings_and_dynamic_quality(
+            settings,
+            quality,
+            SceneKind::Exterior,
+            1920,
+            1080,
+        )
+        .expect("valid exterior dynamic-shadow plan");
+        let interior = ProducerResourcePlan::for_settings_and_dynamic_quality(
+            settings,
+            quality,
+            SceneKind::Interior,
+            1920,
+            1080,
+        )
+        .expect("valid interior dynamic-shadow plan");
+
+        assert_eq!(exterior.point_cube_resolution, resolution);
+        assert_eq!(interior.point_cube_resolution, resolution);
+        assert_eq!(exterior.point_resource_estimated_bytes, point_bytes);
+        assert_eq!(interior.point_resource_estimated_bytes, point_bytes);
+        assert_eq!(exterior.point_cube_texture_count, 24);
+        assert_eq!(interior.point_cube_texture_count, 24);
+
+        let face_pixels = u64::from(resolution).pow(2);
+        if let Some(previous) = previous_face_pixels {
+            assert_eq!(face_pixels, previous * 4);
+        }
+        previous_face_pixels = Some(face_pixels);
+    }
 }
 
 #[test]

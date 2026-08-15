@@ -3219,6 +3219,8 @@ pub(super) struct ProducerResourcePlan {
     pub(super) point_cube_texture_count: u32,
     /// Resolution of every cube face.
     pub(super) point_cube_resolution: u32,
+    /// Bytes owned by both point-cube families and their shared depth surface.
+    pub(super) point_resource_estimated_bytes: u64,
     /// Preferred G16R16F-actor peak bytes at the requested resolution.
     pub(super) estimated_bytes: u64,
     /// Peak when a device requires the quality-equivalent four-channel actor
@@ -3242,9 +3244,9 @@ pub(super) struct ProducerResourcePlan {
 impl ProducerResourcePlan {
     /// Build the shipped dynamic-first plan for one active location branch.
     ///
-    /// Point shadows retain their fixed 512-cube quality. Directional resource
-    /// quality is represented by [`Self::for_settings`] only when the separate
-    /// experimental sun gate is explicitly enabled.
+    /// Point shadows retain the released 512-cube quality. Directional
+    /// resource quality is represented by [`Self::for_settings`] only when the
+    /// separate experimental sun gate is explicitly enabled.
     pub(super) fn quality_default(scene: SceneKind, width: u32, height: u32) -> Option<Self> {
         Self::for_settings(ShadowSettings::default(), scene, width, height)
     }
@@ -3257,6 +3259,28 @@ impl ProducerResourcePlan {
     /// is exterior.
     pub(super) fn for_settings(
         settings: ShadowSettings,
+        scene: SceneKind,
+        width: u32,
+        height: u32,
+    ) -> Option<Self> {
+        Self::for_settings_and_dynamic_quality(
+            settings,
+            crate::config::DynamicShadowQuality::default(),
+            scene,
+            width,
+            height,
+        )
+    }
+
+    /// Build a lazy resource plan for an explicit shared dynamic-shadow tier.
+    ///
+    /// Accepting the bounded configuration enum rather than a raw dimension
+    /// keeps estimates aligned with the only resolutions the D3D owner can
+    /// allocate. The selected tier applies identically to exterior and
+    /// interior point branches and never changes directional resources.
+    pub(super) fn for_settings_and_dynamic_quality(
+        settings: ShadowSettings,
+        dynamic_quality: crate::config::DynamicShadowQuality,
         scene: SceneKind,
         width: u32,
         height: u32,
@@ -3280,17 +3304,20 @@ impl ProducerResourcePlan {
         let actor_generation = actor_pixels * 4 * 4;
         let actor_depth = actor_pixels * 4 * 4;
         let actor_moments = actor_pixels * 4 * 3;
+        let point_cube_resolution = dynamic_quality.cube_resolution();
+        let point_face_pixels = u64::from(point_cube_resolution).pow(2);
         let point_cubes = if point_lights {
-            u64::from(512_u32.pow(2)) * 6 * 4 * NVR_POINT_LIGHT_COUNT as u64
+            point_face_pixels * 6 * 4 * NVR_POINT_LIGHT_COUNT as u64
         } else {
             0
         };
         let point_static_cubes = point_cubes;
         let point_depth = if point_lights {
-            u64::from(512_u32.pow(2)) * 4
+            point_face_pixels * 4
         } else {
             0
         };
+        let point_resource_estimated_bytes = point_cubes + point_static_cubes + point_depth;
         let full_resolution_pixels = u64::from(width) * u64::from(height);
         let receiver_pixels = full_resolution_pixels;
         // Equal-format MRTs preserve the exact total and occluded RGB sums in
@@ -3345,8 +3372,8 @@ impl ProducerResourcePlan {
         } else {
             0
         }) + if combined_points {
-            u64::from(512_u32.pow(2)) * 6 * 4 * NVR_POINT_LIGHT_COUNT as u64 * 2
-                + u64::from(512_u32.pow(2)) * 4
+            point_face_pixels * 6 * 4 * NVR_POINT_LIGHT_COUNT as u64 * 2
+                + point_face_pixels * 4
                 + receiver_pixels * 8 * 2
         } else {
             0
@@ -3394,7 +3421,12 @@ impl ProducerResourcePlan {
             } else {
                 0
             },
-            point_cube_resolution: if point_lights { 512 } else { 0 },
+            point_cube_resolution: if point_lights {
+                point_cube_resolution
+            } else {
+                0
+            },
+            point_resource_estimated_bytes,
             estimated_bytes,
             fallback_estimated_bytes,
             combined_estimated_bytes,

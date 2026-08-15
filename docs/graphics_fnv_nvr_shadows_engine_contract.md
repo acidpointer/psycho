@@ -4738,6 +4738,120 @@ behavior with sun shadows off, sun-only behavior, both families together, fast
 camera motion, moving actors, point-heavy scenes, cell transitions, and live
 menu persistence.
 
+## 2026-08-15 shared dynamic-shadow quality
+
+### Purpose and visible behavior
+
+Pixelated dynamic-shadow borders originate in the finite point-cube producer,
+not in the full-resolution receiver buffers. OMV previously rendered every
+local light into a fixed 512-square `R32F` cube face, sampled one cube texel,
+and made a hard radial-depth comparison. The receiver transaction remains
+full-resolution. A diagonal or curved caster edge can therefore advance only
+one cube texel at a time even when the screen has substantially more pixels.
+
+The detached `[graphics.native_shadows]` table now appends
+`dynamic_shadow_quality`. It is one common exterior/interior control because
+both locations use the same bounded local-light producer:
+
+| Value | Cube face | Point-family memory at 12 lights | Face-fill work |
+|---|---:|---:|---:|
+| `performance` | 256 x 256 | 36.25 MiB | 0.25x |
+| `high` (default) | 512 x 512 | 145 MiB | 1x |
+| `ultra` | 1024 x 1024 | 580 MiB | 4x |
+
+Point-family memory includes twelve published cubes, twelve immutable-static
+backing cubes, and one shared matching `D24S8` surface. It excludes the shared
+full-resolution source, local-total, and local-deficit targets. Actual driver
+allocation may be larger because of alignment and implementation details.
+Changing the tier does not alter light selection, draw distance, receiver
+bias, update scheduling, sunlight competition, or experimental sun shadows.
+
+`high` preserves the released image and resource profile. Missing values in
+older schema-one files default to `high`; this is an appended detached field,
+not a schema migration or a preset-owned value. The ImGui Shadows panel applies
+the value immediately and the existing persistence worker writes its stable
+snake-case spelling.
+
+### Architecture, ownership, and failure behavior
+
+`omv/src/config.rs` owns the bounded `DynamicShadowQuality` enum and its exact
+256/512/1024 mapping. `omv/src/effects/shadows/mod.rs` publishes the tier in
+bits 5-6 of the established `SETTINGS: AtomicU8` seqlock transaction. No new
+static owner, lock, TLS value, thread, or pre-Deferred publisher is introduced.
+The detached parser remains first-touched at DeferredInit, and `PIPELINE`
+retains the accepted `0xA28` loader-visible compatibility slot.
+
+`omv/src/effects/shadows/pipeline.rs` owns the actual resource transition. Both
+cube families and their depth surface are first created in locals while the
+last-good `PointResources` remains owned by the pipeline. Assignment to
+`self.points` is the only commit point. An allocation failure drops the partial
+local family through ordinary COM RAII, retains the old family, records the
+exact `(device generation, resolution, light capacity)` request, logs it once,
+and falls back to the complete native prefix for that requested profile.
+Repeated frames do not retry the same failed allocation. Selecting a working
+profile clears the failure identity, so a later explicit retry is possible.
+
+After a successful replacement, OMV invalidates the immutable point
+publication, point-map signatures, and cell identity before the no-D3D reuse
+planner runs. Every admitted face is consequently rebuilt at the new
+resolution before a consumer can sample it. Directional cascade caches are not
+discarded. Device reset still releases the complete default-pool owner through
+the established reset transaction.
+
+### Filtering decision and compatibility boundary
+
+This pass deliberately does not turn on linear filtering for raw radial depth.
+D3D9 linear filtering averages adjacent stored depths; a later hard compare of
+that average is not percentage-closer filtering and can move an occluder edge
+or leak across unrelated cube texels. A future soft-shadow design would need a
+bounded multi-compare PCF equation, cube-face seam handling, shader-model-three
+instruction/sampler proof, and its own image references. Resolution tiers
+improve the reported staircase artifact without changing the established
+depth meaning or shader family.
+
+The chosen bounds stay below the shader-model-three 4096 texture-dimension
+limit and preserve square power-of-two cube surfaces. Microsoft documents the
+[pixel shader 3.0 resource limits](https://learn.microsoft.com/en-us/windows/win32/direct3dhlsl/dx9-graphics-reference-asm-ps-3-0),
+[cube-surface shape constraints](https://learn.microsoft.com/en-us/windows/win32/direct3d9/creating-cubic-environment-map-surfaces),
+and [linear filtering behavior](https://learn.microsoft.com/en-us/windows/win32/direct3d9/linear-texture-filtering).
+The modern NVR reference also uses a 512 point-cube size; its exposed numeric
+quality value is not consumed by that producer, so OMV does not copy it as an
+unproven quality equation.
+
+### Verification and runtime acceptance
+
+Pure resource-plan tests bind each enum value to the exact common exterior and
+interior cube dimension, memory cost, and fourfold face-fill progression.
+Configuration tests cover old-file defaults, every TOML spelling, stable save
+order, and menu-index bounds. Atomic round-trip tests cover the packed tier
+without adding startup state. Source-order tests require transactional resource
+commit, request-scoped failure suppression, and point-cache invalidation before
+reuse. A reference raster verifies that each doubled face dimension
+monotonically and approximately halves diagonal hard-edge staircase error; the
+512 negative control retains the released result.
+
+Static validation still cannot prove D3D allocation behavior or image quality.
+Runtime acceptance requires exterior and interior captures of the same
+diagonal/thin casters at all three tiers, cube-face seam checks, moving actors,
+Pip-Boy and weapon-light checks by day and night, live tier changes in both
+directions, and an induced/low-memory Ultra failure proving that High remains
+usable. The release artifact also requires a cold Proton load-to-gameplay run
+with BaseObjectSwapper installed before the appended config shape and PE delta
+can be called startup-safe.
+
+Supported-target validation passes all 670 OMV tests and doc tests, including
+the focused quality reference/resource tests, and the explicit release build
+completes without warnings. The resulting `omv.dll` is 12,851,496 bytes with
+SHA-256
+`1e7217f3b78ea346eb3461468e576f7a9948012a7ce58034e3194eacb2e3e6f8`.
+PE inspection reports `PIPELINE` at the required `0xA28`, `.bss` `0x6B10`,
+`.idata` `0x340C`, `.tls` `0x8`, thread-storage directory `0x18`, and import
+address table `0x6BC`. The changed `.data` (`0x15744`) and `.reloc`
+(`0x37BF8`) remain part of the unaccepted final-binary delta. All touched Rust
+files pass `rustfmt --check` and `git diff --check` passes; the repository-wide
+Cargo formatting check still reports the pre-existing untouched multiline
+call in `omv/src/backend/fnv.rs:2875`.
+
 ## Primary evidence index
 
 ### Current executable and static artifacts

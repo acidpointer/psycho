@@ -25,6 +25,27 @@ use super::pipeline::consumer_selection_spheres;
 
 const EPSILON: f32 = 1.0e-5;
 
+/// Measure the normalized staircase error of one diagonal cube-face edge.
+///
+/// Point-shadow depth uses nearest sampling and a hard comparison, so both the
+/// sampled row and the stored boundary are quantized to cube texels. This
+/// small reference raster keeps that intentional comparison model while
+/// measuring the artifact the quality control is expected to improve.
+fn point_cube_diagonal_edge_error(resolution: u32) -> f32 {
+    const OUTPUT_ROWS: u32 = 4096;
+    let mut error = 0.0;
+    for row in 0..OUTPUT_ROWS {
+        let y = (row as f32 + 0.5) / OUTPUT_ROWS as f32;
+        let sampled_y = point_sampled_texel_center([0.5, y], [resolution; 2])
+            .expect("bounded cube-face sample")[1];
+        let ideal_boundary = 0.17 + y * 0.61;
+        let rasterized_boundary =
+            ((0.17 + sampled_y * 0.61) * resolution as f32).round() / resolution as f32;
+        error += (ideal_boundary - rasterized_boundary).abs();
+    }
+    error / OUTPUT_ROWS as f32
+}
+
 fn receiver_plan_output(width: u32, height: u32, depths: &[f32], visibility: &[f32]) -> Vec<f32> {
     let plan = DeferredReceiverPlan::new(width, height).expect("non-empty receiver plan");
     let pixel = |x: u32, y: u32| (y * width + x) as usize;
@@ -843,6 +864,25 @@ fn half_resolution_contact_reconstructs_the_depth_texel_it_sampled() {
     )
     .expect("one surrounding contact sample owns the even receiver");
     assert!((upsampled - 0.25).abs() < EPSILON);
+}
+
+#[test]
+fn dynamic_quality_monotonically_reduces_point_cube_edge_stair_steps() {
+    use crate::config::DynamicShadowQuality;
+
+    let performance =
+        point_cube_diagonal_edge_error(DynamicShadowQuality::Performance.cube_resolution());
+    let high = point_cube_diagonal_edge_error(DynamicShadowQuality::High.cube_resolution());
+    let ultra = point_cube_diagonal_edge_error(DynamicShadowQuality::Ultra.cube_resolution());
+
+    assert!(
+        performance > high && high > ultra,
+        "increasing cube resolution did not reduce diagonal edge quantization: {performance}, {high}, {ultra}"
+    );
+    assert!(
+        performance / high > 1.8 && high / ultra > 1.8,
+        "doubling each face dimension should approximately halve edge error"
+    );
 }
 
 #[test]

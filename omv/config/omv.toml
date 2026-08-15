@@ -348,10 +348,10 @@ debug_view = 0
 
 [graphics.native_shadows]
 # One native Shadows effect with independent dynamic location admission and an
-# opt-in experimental sun branch. Dynamic shadows use 512 point-light cube
-# maps. Experimental sun shadows retain 2048 FP16 EVSM4 cascades with
-# best-available 4x generation MSAA. These bounded controls tune appearance
-# and the work/coverage budget.
+# opt-in experimental sun branch. Dynamic shadows use one shared selectable
+# point-light cube resolution. Experimental sun shadows retain 2048 FP16 EVSM4
+# cascades with best-available 4x generation MSAA. These bounded controls tune
+# appearance and the work/coverage budget.
 enabled = true
 exterior_enabled = true
 interior_enabled = true
@@ -372,6 +372,10 @@ interior_receiver_bias = 0.018
 # Experimental four-cascade directional sun shadows. Dynamic point-light
 # shadows remain active through the exterior/interior controls above.
 sun_shadows = false
+# Shared exterior/interior dynamic-shadow cube resolution. "performance" uses
+# 256-square faces, "high" uses the released 512-square profile, and "ultra"
+# uses 1024-square faces.
+dynamic_shadow_quality = "high"
 
 [graphics.native_pbr]
 # Native material/PBR engine path.

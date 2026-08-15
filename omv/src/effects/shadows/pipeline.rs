@@ -64,7 +64,6 @@ use super::{
 
 const ATLAS_RESOLUTION: u32 = NVR_CASCADE_RESOLUTION * 2;
 const ACTOR_MAP_RESOLUTION: u32 = NVR_CASCADE_RESOLUTION / 2;
-const POINT_CUBE_RESOLUTION: u32 = 512;
 const MAX_ERROR_LOGS: u32 = 8;
 const AMD_ALPHA_TO_COVERAGE_OFF: u32 = u32::from_le_bytes(*b"A2M0");
 
@@ -399,19 +398,24 @@ impl ShadowPipeline {
 
         let directional = settings.directional_enabled_for(scene.kind);
         let point_lights = settings.point_enabled_for(scene.kind);
-        let resources = self.resources.as_mut().ok_or_else(direct3d_failure);
-        let branch_result = match resources {
-            Ok(resources) => {
-                resources.ensure_branch(&device, directional, point_lights, generation, settings)
-            }
-            Err(error) => Err(error),
-        };
-        if let Err(error) = branch_result {
-            self.log_error(
-                "could not create shadow resources for the current location",
-                &error,
-            );
+        let Some(resources) = self.resources.as_mut() else {
+            let error = direct3d_failure();
+            self.log_error("shared shadow resources disappeared", &error);
             return ReplacementResult::FallbackNative;
+        };
+        let branch_result =
+            resources.ensure_branch(&device, directional, point_lights, generation, settings);
+        let transition = match branch_result {
+            Ok(transition) => transition,
+            Err(_) => return ReplacementResult::FallbackNative,
+        };
+        if transition.point_resources_replaced {
+            // Map metadata is meaningful only for the cube family that
+            // produced it. Force every admitted face to rebuild before a new
+            // publication can sample the replacement resolution.
+            self.published = None;
+            self.point_cache = PointMapCache::default();
+            self.point_cell_identity = 0;
         }
         // Build the no-work transcript before capturing a render target,
         // state block, scene pair, or native renderer journal. Re-publishing
@@ -946,7 +950,7 @@ struct ShadowResources {
     directional: Option<DirectionalResources>,
     points: Option<PointResources>,
     directional_failure_generation: Option<u32>,
-    point_failure_generation: Option<u32>,
+    point_failure: Option<PointResourceFailure>,
     consumer: Option<ConsumerTargets>,
     scratch: TraversalScratch,
     directional_roots: Vec<DirectionalRoot>,
@@ -964,6 +968,25 @@ struct ShadowResources {
     // epoch. Atmosphere must never consume a newer sun than the retained maps.
     cascade_sun: [f32; 3],
     production_stage: ShadowProductionStage,
+}
+
+/// Exact failed point-resource request retained until its inputs change.
+///
+/// A resolution switch can fail because the driver cannot satisfy the peak
+/// allocation while the last-good family remains live. Remembering the full
+/// request prevents a render-hook allocation storm, while including capacity
+/// permits a cheaper retry after the user lowers the light budget.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct PointResourceFailure {
+    device_generation: u32,
+    resolution: u32,
+    capacity: usize,
+}
+
+/// Successful lazy branch changes which invalidate retained producer maps.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+struct BranchTransition {
+    point_resources_replaced: bool,
 }
 
 /// Exterior-only map family. It is created on first exterior production so
@@ -1170,23 +1193,27 @@ struct PointResources {
     /// resubmitting every wall and object on each presentation.
     static_cubes: Vec<CubeTexture9>,
     point_depth: Surface9,
+    /// Square face dimension shared by both cube families and depth.
+    resolution: u32,
 }
 
 impl PointResources {
-    fn create(device: &Device9Ref<'_>, count: usize) -> Direct3DResult<Self> {
+    /// Create a complete point family without exposing partial allocations.
+    ///
+    /// The caller retains the old family until this returns `Ok`, so COM
+    /// resources accumulated in either local vector are released naturally on
+    /// every early error and the render path can continue with its last-good
+    /// profile after the user selects that profile again.
+    fn create(device: &Device9Ref<'_>, count: usize, resolution: u32) -> Direct3DResult<Self> {
         let mut point_cubes = Vec::with_capacity(count);
         let mut static_cubes = Vec::with_capacity(count);
         for _ in 0..count {
-            point_cubes.push(
-                device.create_cube_render_target_texture(POINT_CUBE_RESOLUTION, D3DFMT_R32F)?,
-            );
-            static_cubes.push(
-                device.create_cube_render_target_texture(POINT_CUBE_RESOLUTION, D3DFMT_R32F)?,
-            );
+            point_cubes.push(device.create_cube_render_target_texture(resolution, D3DFMT_R32F)?);
+            static_cubes.push(device.create_cube_render_target_texture(resolution, D3DFMT_R32F)?);
         }
         let point_depth = device.create_depth_stencil_surface(
-            POINT_CUBE_RESOLUTION,
-            POINT_CUBE_RESOLUTION,
+            resolution,
+            resolution,
             D3DFMT_D24S8,
             D3DMULTISAMPLE_NONE,
             0,
@@ -1196,7 +1223,13 @@ impl PointResources {
             point_cubes,
             static_cubes,
             point_depth,
+            resolution,
         })
+    }
+
+    /// Return whether this family can satisfy a request without reallocating.
+    fn supports(&self, capacity: usize, resolution: u32) -> bool {
+        self.resolution == resolution && self.point_cubes.len() >= capacity
     }
 }
 
@@ -1227,7 +1260,7 @@ impl ShadowResources {
             directional: None,
             points: None,
             directional_failure_generation: None,
-            point_failure_generation: None,
+            point_failure: None,
             consumer: None,
             scratch: TraversalScratch::with_capacity(),
             directional_roots: Vec::with_capacity(DIRECTIONAL_ROOT_CACHE_CAPACITY),
@@ -1255,30 +1288,54 @@ impl ShadowResources {
         point_lights: bool,
         generation: u32,
         settings: NativeShadowsSettings,
-    ) -> Direct3DResult<()> {
+    ) -> Direct3DResult<BranchTransition> {
+        let mut transition = BranchTransition::default();
         if point_lights {
-            if self.point_failure_generation == Some(generation) {
-                return Err(direct3d_failure());
-            }
             let requested = settings
                 .interior_shadowed_lights
                 .clamp(1, NVR_POINT_LIGHT_COUNT);
-            if self
+            let resolution = settings.dynamic_shadow_quality.cube_resolution();
+            let has_matching_resources = self
                 .points
                 .as_ref()
-                .is_none_or(|points| points.point_cubes.len() < requested)
-            {
-                match PointResources::create(device, requested) {
+                .is_some_and(|points| points.supports(requested, resolution));
+            let failure = PointResourceFailure {
+                device_generation: generation,
+                resolution,
+                capacity: requested,
+            };
+            if has_matching_resources {
+                // Moving to a working profile is also an explicit retry
+                // boundary. If the user later selects a formerly failed tier,
+                // make one fresh attempt instead of poisoning it forever.
+                self.point_failure = None;
+            } else {
+                if self.point_failure == Some(failure) {
+                    return Err(direct3d_failure());
+                }
+                match PointResources::create(device, requested, resolution) {
                     Ok(points) => {
                         log::info!(
                             "[SHADOWS] Local-light resources ready ({} x {} cube maps)",
                             requested,
-                            POINT_CUBE_RESOLUTION
+                            resolution
                         );
+                        // Assignment is the commit point: until every cube and
+                        // the matching depth surface exists, `self.points`
+                        // continues to own the last-good resource family.
                         self.points = Some(points);
+                        self.point_failure = None;
+                        transition.point_resources_replaced = true;
                     }
                     Err(error) => {
-                        self.point_failure_generation = Some(generation);
+                        self.point_failure = Some(failure);
+                        log::warn!(
+                            "[SHADOWS] Could not create requested local-light resources (lights={}, cube_resolution={}, device_generation={}): {}",
+                            requested,
+                            resolution,
+                            generation,
+                            error
+                        );
                         return Err(error);
                     }
                 }
@@ -1301,12 +1358,17 @@ impl ShadowResources {
                     }
                     Err(error) => {
                         self.directional_failure_generation = Some(generation);
+                        log::warn!(
+                            "[SHADOWS] Could not create experimental sun resources for device generation {}: {}",
+                            generation,
+                            error
+                        );
                         return Err(error);
                     }
                 }
             }
         }
-        Ok(())
+        Ok(transition)
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -2108,6 +2170,11 @@ impl ShadowResources {
         if !plan.render_faces.into_iter().any(|faces| faces != 0) {
             return Ok(());
         }
+        let point_resolution = self
+            .points
+            .as_ref()
+            .ok_or_else(direct3d_failure)?
+            .resolution;
         // A captured engine state may have any prior texture bound. D3D9
         // rejects a cube face as a render target while that cube aliases a
         // sampler, so unbind every pixel sampler inside the state-blocked
@@ -2138,7 +2205,7 @@ impl ShadowResources {
                         point_resources.static_cubes[index].surface(CUBE_FACES[face], 0)?;
                     device.set_render_target(0, &static_surface)?;
                     device.set_depth_stencil_surface(Some(&point_resources.point_depth))?;
-                    set_viewport(device, 0, 0, POINT_CUBE_RESOLUTION, POINT_CUBE_RESOLUTION)?;
+                    set_viewport(device, 0, 0, point_resolution, point_resolution)?;
                     device.clear_attachments(
                         D3DCLEAR_TARGET as u32 | D3DCLEAR_ZBUFFER as u32 | D3DCLEAR_STENCIL as u32,
                         0xFFFF_FFFF,
@@ -2175,7 +2242,7 @@ impl ShadowResources {
                 if plan.dynamic_draw_faces[index] & (1 << face) != 0 {
                     device.set_render_target(0, &published_surface)?;
                     device.set_depth_stencil_surface(Some(&point_resources.point_depth))?;
-                    set_viewport(device, 0, 0, POINT_CUBE_RESOLUTION, POINT_CUBE_RESOLUTION)?;
+                    set_viewport(device, 0, 0, point_resolution, point_resolution)?;
                     // The static radial depth is already in the color target.
                     // Clear only actor-pass depth; the cube pixel shader takes
                     // min(actor, static) at actor fragments so occlusion by an

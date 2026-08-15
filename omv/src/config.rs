@@ -104,6 +104,62 @@ impl Default for GraphicsConfig {
     }
 }
 
+/// Resolution tier shared by exterior and interior dynamic point shadows.
+///
+/// The tier changes only point-light cube-map dimensions. It deliberately
+/// leaves light selection, receiver reconstruction, and the experimental sun
+/// branch unchanged, so one persisted value has the same meaning in every
+/// location.
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum DynamicShadowQuality {
+    /// 256-square cube faces for bandwidth- or memory-constrained GPUs.
+    Performance,
+    /// 512-square cube faces matching the released dynamic-shadow profile.
+    #[default]
+    High,
+    /// 1024-square cube faces for the sharpest available dynamic silhouettes.
+    Ultra,
+}
+
+impl DynamicShadowQuality {
+    /// Returns the in-game menu index for this tier.
+    pub(crate) const fn index(self) -> i32 {
+        match self {
+            Self::Performance => 0,
+            Self::High => 1,
+            Self::Ultra => 2,
+        }
+    }
+
+    /// Decodes a bounded in-game menu index.
+    pub(crate) const fn from_index(value: i32) -> Self {
+        match value {
+            0 => Self::Performance,
+            2 => Self::Ultra,
+            _ => Self::High,
+        }
+    }
+
+    /// Returns the square face dimension used by every dynamic-shadow cube.
+    pub(crate) const fn cube_resolution(self) -> u32 {
+        match self {
+            Self::Performance => 256,
+            Self::High => 512,
+            Self::Ultra => 1024,
+        }
+    }
+
+    /// Returns the stable TOML spelling for this tier.
+    pub(crate) const fn config_value(self) -> &'static str {
+        match self {
+            Self::Performance => "performance",
+            Self::High => "high",
+            Self::Ultra => "ultra",
+        }
+    }
+}
+
 /// Controls the single native Shadows effect and its two location branches.
 ///
 /// Dynamic-shadow defaults reproduce modern NVR's bounded local-light profile.
@@ -156,6 +212,12 @@ pub(crate) struct NativeShadowsConfig {
     /// the supported primary path, while the high-cost cascade path remains an
     /// explicit opt-in.
     pub(crate) sun_shadows: bool,
+    /// Cube-map resolution shared by exterior and interior dynamic shadows.
+    ///
+    /// This field follows `sun_shadows` in the detached schema-one table.
+    /// Missing values retain the released 512-square profile, while live
+    /// changes replace the complete point resource family transactionally.
+    pub(crate) dynamic_shadow_quality: DynamicShadowQuality,
 }
 
 impl Default for NativeShadowsConfig {
@@ -176,6 +238,7 @@ impl Default for NativeShadowsConfig {
             interior_light_draw_distance: 8_000.0,
             interior_receiver_bias: 0.018,
             sun_shadows: false,
+            dynamic_shadow_quality: DynamicShadowQuality::High,
         }
     }
 }
@@ -1700,6 +1763,8 @@ fn save_native_shadows_config(doc: &mut DocumentMut, config: &NativeShadowsConfi
     // DeferredInit, but stable ordering still keeps diffs and recovery saves
     // predictable for existing users.
     doc["graphics"]["native_shadows"]["sun_shadows"] = value(config.sun_shadows);
+    doc["graphics"]["native_shadows"]["dynamic_shadow_quality"] =
+        value(config.dynamic_shadow_quality.config_value());
 }
 
 fn save_diagnostics_config(doc: &mut DocumentMut, config: &GraphicsMenuConfig) {
@@ -2025,12 +2090,13 @@ fn save_color_grade_config(doc: &mut DocumentMut, grade: &ColorGradeConfig) {
 mod tests {
     use super::{
         AdaptiveToneConfig, AtmosphereQuality, BloomingHdrConfig, ColorGradeConfig,
-        DiagnosticsConfig, EmbeddedEffectsConfig, GraphicsMenuConfig, MotionBlurConfig,
-        MotionBlurQuality, NativePbrConfig, NativeShadowsConfig, PsychoGraphicsConfig,
-        ToneMapperMode, VolumetricFogConfig, VolumetricLightingConfig, parse_native_shadows_config,
-        parse_versioned_config, sanitize_frame_pacing_update_interval_ms,
-        save_adaptive_tone_config, save_color_grade_config, save_diagnostics_config,
-        save_embedded_effect_config, save_native_shadows_config,
+        DiagnosticsConfig, DynamicShadowQuality, EmbeddedEffectsConfig, GraphicsMenuConfig,
+        MotionBlurConfig, MotionBlurQuality, NativePbrConfig, NativeShadowsConfig,
+        PsychoGraphicsConfig, ToneMapperMode, VolumetricFogConfig, VolumetricLightingConfig,
+        parse_native_shadows_config, parse_versioned_config,
+        sanitize_frame_pacing_update_interval_ms, save_adaptive_tone_config,
+        save_color_grade_config, save_diagnostics_config, save_embedded_effect_config,
+        save_native_shadows_config,
     };
     use toml_edit::DocumentMut;
 
@@ -2063,6 +2129,8 @@ mod tests {
         assert!(defaults.exterior_enabled);
         assert!(defaults.interior_enabled);
         assert!(!defaults.sun_shadows);
+        assert_eq!(defaults.dynamic_shadow_quality, DynamicShadowQuality::High);
+        assert_eq!(defaults.dynamic_shadow_quality.cube_resolution(), 512);
         assert_eq!(defaults.exterior_darkness, 0.75);
         assert_eq!(defaults.exterior_distance, 6_000.0);
         assert_eq!(defaults.cascade_split_lambda, 0.9);
@@ -2109,13 +2177,14 @@ mod tests {
             "interior_light_draw_distance",
             "interior_receiver_bias",
             "sun_shadows",
+            "dynamic_shadow_quality",
         ] {
             assert!(
                 table.contains_key(key),
                 "missing native shadow control {key}"
             );
         }
-        assert_eq!(table.len(), 15);
+        assert_eq!(table.len(), 16);
         let decoded = parse_native_shadows_config(&document.to_string())
             .expect("saved deferred shadow config");
         assert_eq!(decoded, expected);
@@ -2140,6 +2209,26 @@ mod tests {
         )
         .expect("released fourteen-field shadow table");
         assert_eq!(released_table, defaults);
+
+        for (spelling, quality, resolution, index) in [
+            ("performance", DynamicShadowQuality::Performance, 256, 0),
+            ("high", DynamicShadowQuality::High, 512, 1),
+            ("ultra", DynamicShadowQuality::Ultra, 1024, 2),
+        ] {
+            let parsed = parse_native_shadows_config(&format!(
+                "config_schema_version = 1\n[graphics.native_shadows]\ndynamic_shadow_quality = \"{spelling}\"\n"
+            ))
+            .expect("bounded dynamic-shadow quality");
+            assert_eq!(parsed.dynamic_shadow_quality, quality);
+            assert_eq!(quality.cube_resolution(), resolution);
+            assert_eq!(quality.index(), index);
+            assert_eq!(DynamicShadowQuality::from_index(index), quality);
+            assert_eq!(quality.config_value(), spelling);
+        }
+        assert_eq!(
+            DynamicShadowQuality::from_index(i32::MAX),
+            DynamicShadowQuality::High
+        );
 
         let future = parse_native_shadows_config(
             "config_schema_version = 999\n[graphics.native_shadows]\nenabled = true\n",

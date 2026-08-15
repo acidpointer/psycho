@@ -530,3 +530,41 @@ PE inspection reports the restored `PIPELINE` symbol at `0xA28`, unchanged
 directory size `0x18`, import-address-table size `0x6BC`, and the same imported
 DLL/function set as the rejected artifact. These results prove the bounded
 source and binary correction, not the required Proton startup result.
+
+### 2026-08-15 detached dynamic-shadow quality field
+
+The shared dynamic-shadow quality implementation appends
+`dynamic_shadow_quality` after `sun_shadows` in the detached
+`[graphics.native_shadows]` table. This intentionally preserves schema one,
+all released field names/types/order, and the built-in preset payload. Missing
+values select `high`, the released 512-square cube profile. The dedicated
+shadow parser remains first called at DeferredInit; neither `GraphicsConfig`
+nor `GraphicsMenuConfig` gains this value, and plugin-load staging continues to
+ignore the whole shadow table.
+
+The render-thread tier is encoded in two previously unused bits of the existing
+`SETTINGS: AtomicU8` seqlock publication. The implementation adds no static
+atomic, `LazyLock`, mutex, TLS value, thread, worker request, file scan, hook
+admission bit, or plugin-load operation. Point resource profile and failure
+state live only inside the boxed `ShadowPipeline`, after its established
+DeferredInit force. The loader-visible `PIPELINE` owner remains guarded at
+exactly `0xA28`.
+
+This is nevertheless a shipped configuration-shape and final-binary change,
+so source reasoning does not make it startup-safe. The accepted comparison
+baseline remains commit `9975b2e`. Required closure is the focused startup and
+round-trip suite, the complete supported-target OMV suite and release build,
+PE owner/section/import comparison, followed by a cold Proton
+load-to-gameplay run with BaseObjectSwapper installed. Until that runtime run
+reaches both DeferredInit markers and gameplay, this section records design and
+static evidence only; it is not a new accepted startup baseline.
+
+Static closure passes all 670 supported-target OMV tests and doc tests, and the
+explicit release build completes without warnings. The resulting DLL is
+12,851,496 bytes with SHA-256
+`1e7217f3b78ea346eb3461468e576f7a9948012a7ce58034e3194eacb2e3e6f8`.
+Inspection proves that `PIPELINE` remains `0xA28`; `.bss` remains `0x6B10`,
+`.idata` remains `0x340C`, `.tls` remains `0x8`, the thread-storage directory
+remains `0x18`, and the import-address table remains `0x6BC`. The current
+`.data` is `0x15744` and `.reloc` is `0x37BF8`; those changed final-image
+sections reinforce, rather than remove, the load-to-gameplay requirement.

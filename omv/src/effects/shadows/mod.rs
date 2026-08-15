@@ -4,9 +4,11 @@
 //! exterior/interior point-light admission and a separate experimental
 //! directional sun branch. Dynamic point shadows are the default; sun shadows
 //! are opt-in because their four-cascade producer has a much larger memory and
-//! draw footprint. Generation remains attached to the engine's common shadow
-//! epoch, while consumption occurs after opaque depth and before native
-//! alpha/atmosphere. No engine pointer crosses that boundary.
+//! draw footprint. One quality tier controls the point-cube resolution in both
+//! locations; changing it retains the last-good family until a complete
+//! replacement can be published. Generation remains attached to the engine's
+//! common shadow epoch, while consumption occurs after opaque depth and before
+//! native alpha/atmosphere. No engine pointer crosses that boundary.
 //!
 //! Dynamic-only exteriors also publish validated native directional color,
 //! daylight, and sun direction. Their specialized compositor reconstructs the
@@ -72,6 +74,8 @@ const EXTERIOR_BIT: u8 = 1 << 1;
 const INTERIOR_BIT: u8 = 1 << 2;
 const CONTACT_BIT: u8 = 1 << 3;
 const SUN_BIT: u8 = 1 << 4;
+const DYNAMIC_QUALITY_SHIFT: u32 = 5;
+const DYNAMIC_QUALITY_MASK: u8 = 0b0110_0000;
 
 static SETTINGS: AtomicU8 = AtomicU8::new(0);
 static SETTINGS_REVISION: AtomicU32 = AtomicU32::new(0);
@@ -172,6 +176,8 @@ pub(crate) struct NativeShadowsSettings {
     pub(crate) interior_receiver_bias: f32,
     /// Enables the experimental exterior directional cascade family.
     pub(crate) sun_shadows: bool,
+    /// Resolution tier shared by exterior and interior point-light cubes.
+    pub(crate) dynamic_shadow_quality: crate::config::DynamicShadowQuality,
 }
 
 impl NativeShadowsSettings {
@@ -220,6 +226,7 @@ impl From<crate::config::NativeShadowsConfig> for NativeShadowsSettings {
             interior_light_draw_distance: value.interior_light_draw_distance,
             interior_receiver_bias: value.interior_receiver_bias,
             sun_shadows: value.sun_shadows,
+            dynamic_shadow_quality: value.dynamic_shadow_quality,
         }
     }
 }
@@ -242,6 +249,7 @@ impl From<NativeShadowsSettings> for crate::config::NativeShadowsConfig {
             interior_light_draw_distance: value.interior_light_draw_distance,
             interior_receiver_bias: value.interior_receiver_bias,
             sun_shadows: value.sun_shadows,
+            dynamic_shadow_quality: value.dynamic_shadow_quality,
         }
     }
 }
@@ -271,7 +279,9 @@ pub(crate) fn configure_runtime_options(settings: NativeShadowsSettings) {
         | (settings.exterior_enabled as u8) * EXTERIOR_BIT
         | (settings.interior_enabled as u8) * INTERIOR_BIT
         | (settings.contact_shadows as u8) * CONTACT_BIT
-        | (settings.sun_shadows as u8) * SUN_BIT;
+        | (settings.sun_shadows as u8) * SUN_BIT
+        | ((settings.dynamic_shadow_quality.index() as u8) << DYNAMIC_QUALITY_SHIFT)
+            & DYNAMIC_QUALITY_MASK;
     SETTINGS.store(bits, Ordering::Relaxed);
     EXTERIOR_DARKNESS.store(settings.exterior_darkness.to_bits(), Ordering::Relaxed);
     EXTERIOR_DISTANCE.store(settings.exterior_distance.to_bits(), Ordering::Relaxed);
@@ -306,10 +316,12 @@ pub(crate) fn install(settings: NativeShadowsSettings) -> Result<()> {
     shaders::start_preparation();
     ROUTE_READY.store(true, Ordering::Release);
     log::info!(
-        "[SHADOWS] Deferred route installed (master={}, exterior_dynamic={}, interior_dynamic={}, sun_experimental={})",
+        "[SHADOWS] Deferred route installed (master={}, exterior_dynamic={}, interior_dynamic={}, dynamic_quality={:?}, cube_resolution={}, sun_experimental={})",
         settings.enabled,
         settings.exterior_enabled,
         settings.interior_enabled,
+        settings.dynamic_shadow_quality,
+        settings.dynamic_shadow_quality.cube_resolution(),
         settings.sun_shadows,
     );
     Ok(())
@@ -490,6 +502,9 @@ fn try_current_settings() -> Option<NativeShadowsSettings> {
         ),
         interior_receiver_bias: f32::from_bits(INTERIOR_RECEIVER_BIAS.load(Ordering::Relaxed)),
         sun_shadows: bits & SUN_BIT != 0,
+        dynamic_shadow_quality: crate::config::DynamicShadowQuality::from_index(i32::from(
+            (bits & DYNAMIC_QUALITY_MASK) >> DYNAMIC_QUALITY_SHIFT,
+        )),
     };
     (SETTINGS_REVISION.load(Ordering::Acquire) == before).then_some(settings)
 }
@@ -560,6 +575,7 @@ mod startup_safety_tests {
             interior_light_draw_distance: 6_543.0,
             interior_receiver_bias: 0.023,
             sun_shadows: true,
+            dynamic_shadow_quality: crate::config::DynamicShadowQuality::Ultra,
         };
 
         configure_runtime_options(expected);

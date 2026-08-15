@@ -7430,6 +7430,17 @@ mod frame_pacing_tests {
         assert!(snapshot < widget && widget < publish && publish < log);
         assert!(draw_menu.contains("shadows::runtime_config()"));
 
+        let shadow_panel = source
+            .split_once("\nfn draw_native_shadows_config(\n")
+            .and_then(|(_, tail)| tail.split_once("/// Record the exact effective shadow"))
+            .map(|(body, _)| body)
+            .expect("native Shadows configuration panel");
+        assert!(shadow_panel.contains("Quality##native_shadows.dynamic_shadow_quality"));
+        assert!(shadow_panel.contains("Performance (256)"));
+        assert!(shadow_panel.contains("High (512)"));
+        assert!(shadow_panel.contains("Ultra (1024)"));
+        assert!(shadow_panel.contains("DynamicShadowQuality::from_index"));
+
         let apply = source
             .split_once("\n    fn apply_menu_config_change(")
             .map(|(_, tail)| tail)
@@ -10548,7 +10559,10 @@ fn draw_native_shadows_config(
     );
     ui.text_colored(
         MENU_MUTED_TEXT,
-        &cstring("512 point cubes retain colored local-light occlusion and moving actors."),
+        &cstring(format!(
+            "{} point cubes retain colored local-light occlusion and moving actors.",
+            config.dynamic_shadow_quality.cube_resolution()
+        )),
     );
     ui.separator();
 
@@ -10608,6 +10622,27 @@ fn draw_native_shadows_config(
         ui.text_colored(
             MENU_MUTED_TEXT,
             &cstring("Shared point-shadow quality for interior lights, exterior practicals, and the Pip-Boy."),
+        );
+        let quality_labels = ["Performance (256)", "High (512)", "Ultra (1024)"];
+        let quality_label = cstring("Quality##native_shadows.dynamic_shadow_quality");
+        let quality_preview =
+            cstring(quality_labels[config.dynamic_shadow_quality.index().clamp(0, 2) as usize]);
+        if ui.begin_combo(&quality_label, &quality_preview) {
+            for (index, quality) in quality_labels.into_iter().enumerate() {
+                let item = cstring(format!(
+                    "{quality}##native_shadows.dynamic_shadow_quality.{index}"
+                ));
+                if ui.selectable(&item, config.dynamic_shadow_quality.index() == index as i32) {
+                    config.dynamic_shadow_quality =
+                        crate::config::DynamicShadowQuality::from_index(index as i32);
+                    changed = true;
+                }
+            }
+            ui.end_combo();
+        }
+        ui.text_colored(
+            MENU_MUTED_TEXT,
+            &cstring("At 12 lights, point maps use 36.25 MiB, 145 MiB, or 580 MiB by tier."),
         );
         changed |= draw_int_slider(
             ui,
@@ -10725,11 +10760,13 @@ fn log_shadow_menu_settings(
 ) {
     let config = config.sanitized();
     log::info!(
-        "[SHADOWS] Menu settings published (active={}, effect={}, exterior_dynamic={}, interior_dynamic={}, sun_experimental={}, exterior_darkness={:.3}, exterior_distance={:.1}, cascade_lambda={:.3}, contact={}, contact_distance={:.1}, contact_ray_distance={:.1}, interior_darkness={:.3}, shadowed_lights={}, radius_multiplier={:.3}, light_distance={:.1}, receiver_bias={:.5})",
+        "[SHADOWS] Menu settings published (active={}, effect={}, exterior_dynamic={}, interior_dynamic={}, dynamic_quality={:?}, cube_resolution={}, sun_experimental={}, exterior_darkness={:.3}, exterior_distance={:.1}, cascade_lambda={:.3}, contact={}, contact_distance={:.1}, contact_ray_distance={:.1}, interior_darkness={:.3}, shadowed_lights={}, radius_multiplier={:.3}, light_distance={:.1}, receiver_bias={:.5})",
         graphics_master_enabled && config.enabled,
         config.enabled,
         config.exterior_enabled,
         config.interior_enabled,
+        config.dynamic_shadow_quality,
+        config.dynamic_shadow_quality.cube_resolution(),
         config.sun_shadows,
         config.exterior_darkness,
         config.exterior_distance,
