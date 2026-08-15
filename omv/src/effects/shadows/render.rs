@@ -21,7 +21,7 @@ use libpsycho::os::windows::directx9::{
 
 use super::{
     contract::{
-        CasterAdmission, CasterPolicy, dismember_partition_is_renderable,
+        CasterAdmission, CasterPolicy, SkinIndexEncoding, dismember_partition_is_renderable,
         first_person_caster_is_excluded, skinned_submission_is_available,
         sphere_intersects_cube_face, sphere_intersects_point_light,
     },
@@ -35,6 +35,7 @@ const MAX_SKIN_PARTITIONS: usize = 64;
 const MAX_BONES_PER_PARTITION: usize = 18;
 const MAX_PARENT_VISITS: usize = 128;
 const MAX_SKIN_STATE_SNAPSHOTS: usize = 2_048;
+const NI_AV_OBJECT_APP_CULLED: u32 = 1 << 0;
 const SHADOW_BONE_REGISTERS: u32 = 3;
 const INVALID_BONE_REGISTERS: u32 = u32::MAX;
 const AMD_ALPHA_TO_COVERAGE_OFF: u32 = u32::from_le_bytes(*b"A2M0");
@@ -132,12 +133,12 @@ struct NativeBound {
 
 /// Device shader objects shared by every shadow-map generation pass.
 pub(super) struct GenerationPrograms {
-    /// Directional-cascade vertex program.
-    pub(super) directional_vertex: VertexShader9,
+    /// Directional vertex programs for D3DCOLOR, UBYTE4N, and UBYTE4 skins.
+    pub(super) directional_vertex: [VertexShader9; 3],
     /// EVSM4 caster pixel program.
     pub(super) directional_pixel: PixelShader9,
-    /// Point-cube vertex program.
-    pub(super) cube_vertex: VertexShader9,
+    /// Point-cube vertex programs for D3DCOLOR, UBYTE4N, and UBYTE4 skins.
+    pub(super) cube_vertex: [VertexShader9; 3],
     /// Radial-depth cube pixel program.
     pub(super) cube_pixel: PixelShader9,
 }
@@ -162,12 +163,41 @@ impl CasterSubset {
             Self::Dynamic => skinned,
         }
     }
+
+    const fn owns_presentation_visibility(self) -> bool {
+        matches!(self, Self::Dynamic)
+    }
+}
+
+/// Return whether this traversal may submit the object's presented branch.
+///
+/// Retained static maps intentionally ignore camera-epoch application culling,
+/// but same-frame actors and actor overlays must honor it at every hierarchy
+/// level. Otherwise hidden head, equipment, or LOD alternatives can be drawn
+/// together as one deformed shadow.
+const fn presentation_object_is_visible(owns_presentation_visibility: bool, flags: u32) -> bool {
+    !owns_presentation_visibility || flags & NI_AV_OBJECT_APP_CULLED == 0
+}
+
+/// Select the one presented child owned by an engine switch node.
+///
+/// A negative or stale index presents no child. Falling back to ordinary child
+/// traversal in either case would project mutually exclusive fixture, armor,
+/// or LOD meshes together.
+const fn switch_active_child_index(active: i32, child_count: usize) -> Option<usize> {
+    if active >= 0 && (active as usize) < child_count {
+        Some(active as usize)
+    } else {
+        None
+    }
 }
 
 /// Mutable allocation-free traversal state retained with device resources.
 pub(super) struct TraversalScratch {
     nodes: Vec<usize>,
     skin_states: Vec<SkinStateSnapshot>,
+    skin_calculations: Vec<SkinCalculation>,
+    declarations: Vec<VertexDeclarationEncoding>,
     render_state: Option<RenderStateSnapshot>,
 }
 
@@ -176,6 +206,18 @@ struct SkinStateSnapshot {
     skin: usize,
     frame_id: u32,
     bone_registers: u32,
+}
+
+#[derive(Clone, Copy)]
+struct SkinCalculation {
+    skin: usize,
+    world_transform: [u32; 13],
+}
+
+#[derive(Clone, Copy)]
+struct VertexDeclarationEncoding {
+    declaration: usize,
+    encoding: SkinIndexEncoding,
 }
 
 #[derive(Clone, Copy)]
@@ -190,6 +232,8 @@ impl TraversalScratch {
         Self {
             nodes: Vec::with_capacity(MAX_NODE_VISITS),
             skin_states: Vec::with_capacity(MAX_SKIN_STATE_SNAPSHOTS),
+            skin_calculations: Vec::with_capacity(MAX_SKIN_STATE_SNAPSHOTS),
+            declarations: Vec::with_capacity(64),
             render_state: None,
         }
     }
@@ -211,7 +255,11 @@ impl TraversalScratch {
         &mut self,
         renderer: *mut c_void,
     ) -> Direct3DResult<()> {
-        if renderer.is_null() || self.render_state.is_some() || !self.skin_states.is_empty() {
+        if renderer.is_null()
+            || self.render_state.is_some()
+            || !self.skin_states.is_empty()
+            || !self.skin_calculations.is_empty()
+        {
             return Err(direct3d_failure());
         }
         let state =
@@ -228,6 +276,10 @@ impl TraversalScratch {
                 )
             },
         });
+        // Declaration COM identities are borrowed from engine buffers. Keep
+        // the cache inside this serialized transaction so a later engine
+        // destruction/reuse cannot alias an old encoding entry.
+        self.declarations.clear();
         Ok(())
     }
 
@@ -262,6 +314,8 @@ impl TraversalScratch {
                 write(skin, NativeLayout::NI_SKIN_BONE_REGISTERS, restored_mode);
             }
         }
+        self.skin_calculations.clear();
+        self.declarations.clear();
         unsafe {
             write(
                 render_state.state as *mut u8,
@@ -295,6 +349,96 @@ impl TraversalScratch {
             bone_registers: unsafe { read::<u32>(skin, NativeLayout::NI_SKIN_BONE_REGISTERS) },
         });
         Ok(())
+    }
+
+    /// Prepare the native matrix cache for one skin/transform pair.
+    ///
+    /// Attachments may share one `NiSkinInstance` while using distinct world
+    /// transforms. FNV's native helper keys its fast path by frame and register
+    /// mode only; without this additional key a later child can reuse matrices
+    /// calculated for a different geometry, producing detached heads or gear.
+    unsafe fn prepare_skin_calculation(
+        &mut self,
+        skin: *mut u8,
+        world_transform: [u32; 13],
+    ) -> Direct3DResult<()> {
+        unsafe { self.capture_skin_state(skin)? };
+        if let Some(previous) = self
+            .skin_calculations
+            .iter_mut()
+            .find(|calculation| calculation.skin == skin as usize)
+        {
+            if previous.world_transform != world_transform {
+                unsafe {
+                    write(skin, NativeLayout::NI_SKIN_FRAME_ID, u32::MAX);
+                    write(
+                        skin,
+                        NativeLayout::NI_SKIN_BONE_REGISTERS,
+                        INVALID_BONE_REGISTERS,
+                    );
+                }
+                previous.world_transform = world_transform;
+            }
+            return Ok(());
+        }
+        if self.skin_calculations.len() >= MAX_SKIN_STATE_SNAPSHOTS {
+            return Err(direct3d_failure());
+        }
+        // The native cache may have been populated earlier in this frame by a
+        // different geometry sharing the skin. Its frame/mode stamp does not
+        // record that transform, so the first OMV use must establish a known
+        // matrix owner before same-transform shadow draws may reuse it.
+        unsafe {
+            write(skin, NativeLayout::NI_SKIN_FRAME_ID, u32::MAX);
+            write(
+                skin,
+                NativeLayout::NI_SKIN_BONE_REGISTERS,
+                INVALID_BONE_REGISTERS,
+            );
+        }
+        self.skin_calculations.push(SkinCalculation {
+            skin: skin as usize,
+            world_transform,
+        });
+        Ok(())
+    }
+
+    /// Resolve and cache the blend-index interpretation of the bound buffer.
+    fn skin_index_encoding(
+        &mut self,
+        device: &Device9Ref<'_>,
+    ) -> Direct3DResult<SkinIndexEncoding> {
+        // Skinned FNV geometry uses declarations. Treating an unexpected FVF
+        // as a known byte layout could index outside the uploaded bone rows.
+        if device.fvf()? != 0 {
+            return Err(direct3d_failure());
+        }
+        let declaration = device.vertex_declaration_snapshot()?;
+        if let Some(cached) = self
+            .declarations
+            .iter()
+            .find(|cached| cached.declaration == declaration.handle as usize)
+        {
+            return Ok(cached.encoding);
+        }
+        let encoding = declaration.elements[..declaration.element_count as usize]
+            .iter()
+            .find_map(|element| {
+                SkinIndexEncoding::from_declaration_element(
+                    element.Type,
+                    element.Usage,
+                    element.UsageIndex,
+                )
+            })
+            .ok_or_else(direct3d_failure)?;
+        if self.declarations.len() >= self.declarations.capacity() {
+            return Err(direct3d_failure());
+        }
+        self.declarations.push(VertexDeclarationEncoding {
+            declaration: declaration.handle as usize,
+            encoding,
+        });
+        Ok(encoding)
     }
 }
 
@@ -334,7 +478,7 @@ pub(super) fn begin_directional_map(
     programs: &GenerationPrograms,
     world_to_shadow: [[f32; 4]; 4],
 ) -> Direct3DResult<()> {
-    device.set_vertex_shader(&programs.directional_vertex)?;
+    device.set_vertex_shader(&programs.directional_vertex[0])?;
     device.set_pixel_shader(&programs.directional_pixel)?;
     device.set_vertex_shader_constant_f(4, &world_to_shadow)
 }
@@ -346,7 +490,7 @@ pub(super) fn begin_point_face(
     world_to_shadow: [[f32; 4]; 4],
     light_position_radius: [f32; 4],
 ) -> Direct3DResult<()> {
-    device.set_vertex_shader(&programs.cube_vertex)?;
+    device.set_vertex_shader(&programs.cube_vertex[0])?;
     device.set_pixel_shader(&programs.cube_pixel)?;
     device.set_vertex_shader_constant_f(4, &world_to_shadow)?;
     device.set_vertex_shader_constant_f(63, &[light_position_radius])
@@ -359,6 +503,7 @@ pub(super) fn begin_point_face(
 /// All engine pointers must belong to the current common-shadow transaction.
 pub(super) unsafe fn draw_directional_root(
     device: &Device9Ref<'_>,
+    programs: &GenerationPrograms,
     renderer: *mut c_void,
     projection: CascadeProjection,
     camera_translation: [f32; 3],
@@ -372,6 +517,7 @@ pub(super) unsafe fn draw_directional_root(
 ) -> Direct3DResult<()> {
     let context = DrawContext {
         device,
+        programs,
         renderer,
         projection: Some(projection),
         camera_translation,
@@ -388,49 +534,16 @@ pub(super) unsafe fn draw_directional_root(
     unsafe { traverse_root(context, root, scratch) }
 }
 
-/// Submit one geometry borrowed from a point light's native geometry list.
+/// Traverse one canonical scene root for a point-light cube face.
 ///
 /// # Safety
 ///
-/// `geometry` must remain live for this common-shadow invocation.
-pub(super) unsafe fn draw_point_geometry(
-    device: &Device9Ref<'_>,
-    renderer: *mut c_void,
-    camera_translation: [f32; 3],
-    first_person_root: *mut u8,
-    light_position: [f32; 3],
-    radius: f32,
-    face: usize,
-    geometry: *mut u8,
-    subset: CasterSubset,
-    scratch: &mut TraversalScratch,
-) -> Direct3DResult<()> {
-    let context = DrawContext {
-        device,
-        renderer,
-        projection: None,
-        camera_translation,
-        first_person_root,
-        cube_center: Some(light_position),
-        cube_radius: Some(radius),
-        cube_face: Some(face),
-        is_land: false,
-        is_lod: false,
-        minimum_radius: CasterPolicy::quality_default().minimum_radius,
-        subset,
-        actor_overlay: false,
-    };
-    unsafe { draw_geometry(context, geometry, scratch) }
-}
-
-/// Traverse one cell root for the native-list fallback point-light route.
-///
-/// # Safety
-///
-/// `root` must remain live for the current common-shadow invocation.
+/// `root` and `first_person_root` must remain live for the current common-shadow
+/// invocation.
 #[allow(clippy::too_many_arguments)]
 pub(super) unsafe fn draw_point_root(
     device: &Device9Ref<'_>,
+    programs: &GenerationPrograms,
     renderer: *mut c_void,
     camera_translation: [f32; 3],
     first_person_root: *mut u8,
@@ -445,6 +558,7 @@ pub(super) unsafe fn draw_point_root(
 ) -> Direct3DResult<()> {
     let context = DrawContext {
         device,
+        programs,
         renderer,
         projection: None,
         camera_translation,
@@ -464,6 +578,7 @@ pub(super) unsafe fn draw_point_root(
 #[derive(Clone, Copy)]
 struct DrawContext<'a> {
     device: &'a Device9Ref<'a>,
+    programs: &'a GenerationPrograms,
     renderer: *mut c_void,
     projection: Option<CascadeProjection>,
     camera_translation: [f32; 3],
@@ -494,6 +609,15 @@ unsafe fn traverse_root(
         }
         visited += 1;
         let object = identity as *mut u8;
+        if !presentation_object_is_visible(
+            context.subset.owns_presentation_visibility() || context.actor_overlay,
+            unsafe { read::<u32>(object, NativeLayout::NI_AV_OBJECT_FLAGS) },
+        ) {
+            // Dynamic roots are rebuilt from the current presentation pose.
+            // Honoring culling at every hierarchy level prevents hidden head,
+            // equipment, or LOD alternatives from being projected together.
+            continue;
+        }
         // These moments outlive the native camera-cull epoch. NVR could honor
         // APP_CULLED because it rebuilt its maps every frame; doing so in a
         // retained map permanently removes a caster which happened to be
@@ -529,8 +653,8 @@ unsafe fn traverse_root(
         }
         if unsafe { rtti_is_kind_of(node, NI_SWITCH_NODE_RTTI) } {
             let active = unsafe { read::<i32>(node, NI_SWITCH_ACTIVE_INDEX) };
-            if active >= 0 && (active as usize) < end {
-                let child = unsafe { read_unaligned(data.add(active as usize)) };
+            if let Some(active) = switch_active_child_index(active, end) {
+                let child = unsafe { read_unaligned(data.add(active)) };
                 if !child.is_null() {
                     scratch.nodes.push(child as usize);
                 }
@@ -576,9 +700,9 @@ unsafe fn draw_geometry(
     if let Some(radius) = context.cube_radius {
         geometry_data[2] = radius;
         // Dynamic point-cube draws sample the immutable static cube in s1 and
-        // write the nearer radial depth. This prevents an actor behind a wall
-        // from replacing the wall merely because the reusable D3D depth
-        // surface was cleared for the actor-only pass.
+        // publish the nearer static-or-animated radial depth. The D3D depth
+        // surface covers only the animated pass, so this shader merge is what
+        // prevents an actor behind a wall from replacing the wall.
         geometry_data[3] = if context.subset == CasterSubset::Dynamic {
             1.0
         } else {
@@ -605,7 +729,16 @@ unsafe fn draw_geometry(
     context
         .device
         .set_pixel_shader_constant_f(0, &[geometry_data])?;
-    unsafe { set_geometry_cull_mode(context.device, context.renderer.cast(), geometry)? };
+    if context.cube_radius.is_some() {
+        // Cube views use right-handed face transforms while native material
+        // culling is camera-handedness dependent. Keeping both sides here is
+        // required for thin interior walls to occlude every cube direction.
+        context
+            .device
+            .set_render_state(D3DRS_CULLMODE, D3DCULL_NONE.0 as u32)?;
+    } else {
+        unsafe { set_geometry_cull_mode(context.device, context.renderer.cast(), geometry)? };
+    }
 
     if classification.skinned {
         return unsafe { draw_skinned(context, geometry, world, scratch) };
@@ -791,7 +924,14 @@ unsafe fn draw_skinned(
     if !dismember_partition_is_renderable(dismember_renderable, None) {
         return Ok(());
     }
-    unsafe { scratch.capture_skin_state(skin)? };
+    let world_transform = unsafe {
+        read_unaligned(
+            geometry
+                .add(NativeLayout::NI_AV_OBJECT_WORLD_TRANSFORM)
+                .cast::<[u32; 13]>(),
+        )
+    };
+    unsafe { scratch.prepare_skin_calculation(skin, world_transform)? };
     let calculate: CalculateBoneMatrices =
         unsafe { transmute(ShadowGenerationAbi::CALCULATE_BONE_MATRICES) };
     unsafe {
@@ -870,6 +1010,13 @@ unsafe fn draw_skinned(
                 .set_vertex_shader_constant_f((9 + bone * 3) as u32, &rows)?;
         }
         unsafe { bind_geometry_buffer(context.device, buffer)? };
+        let encoding = scratch.skin_index_encoding(context.device)?.shader_index();
+        let vertex = if context.cube_radius.is_some() {
+            &context.programs.cube_vertex[encoding]
+        } else {
+            &context.programs.directional_vertex[encoding]
+        };
+        context.device.set_vertex_shader(vertex)?;
         unsafe { draw(context.renderer, buffer, entry, core::ptr::null_mut()) };
     }
     Ok(())
@@ -1268,7 +1415,10 @@ fn normalize(value: [f32; 3]) -> Option<[f32; 3]> {
 mod tests {
     use core::mem::size_of;
 
-    use super::{CasterSubset, TraversalScratch, read, write};
+    use super::{
+        CasterSubset, NI_AV_OBJECT_APP_CULLED, TraversalScratch, presentation_object_is_visible,
+        read, switch_active_child_index, write,
+    };
     use crate::effects::shadows::engine::NativeLayout;
 
     #[test]
@@ -1279,6 +1429,27 @@ mod tests {
         assert!(CasterSubset::Dynamic.admits(true));
         assert!(CasterSubset::All.admits(false));
         assert!(CasterSubset::All.admits(true));
+    }
+
+    #[test]
+    fn presentation_culling_rejects_hidden_actor_children_but_not_retained_world_roots() {
+        assert!(presentation_object_is_visible(true, 0));
+        assert!(!presentation_object_is_visible(
+            true,
+            NI_AV_OBJECT_APP_CULLED
+        ));
+        assert!(
+            presentation_object_is_visible(false, NI_AV_OBJECT_APP_CULLED),
+            "camera culling removed a wall from a retained point cube"
+        );
+    }
+
+    #[test]
+    fn switch_nodes_submit_only_the_presented_child() {
+        assert_eq!(switch_active_child_index(2, 4), Some(2));
+        assert_eq!(switch_active_child_index(-1, 4), None);
+        assert_eq!(switch_active_child_index(4, 4), None);
+        assert_eq!(switch_active_child_index(0, 0), None);
     }
 
     #[test]
@@ -1311,7 +1482,9 @@ mod tests {
             scratch
                 .begin_native_state_journal(renderer_ptr.cast())
                 .expect("valid fake renderer");
-            scratch.capture_skin_state(skin_ptr).expect("first caster");
+            scratch
+                .prepare_skin_calculation(skin_ptr, [1; 13])
+                .expect("first caster");
 
             // Model `CalculateBoneMatrices`: the first shadow route claims the
             // current frame/mode and updates the renderer-global normalize flag.
@@ -1323,11 +1496,28 @@ mod tests {
                 0_u8,
             );
 
-            // A point face or another cascade can submit the same skin again.
-            // Its snapshot must not replace the native pre-shadow values.
+            // A point face or another cascade can submit the same transform
+            // without defeating the native helper's useful same-frame cache.
             scratch
-                .capture_skin_state(skin_ptr)
-                .expect("repeated caster");
+                .prepare_skin_calculation(skin_ptr, [1; 13])
+                .expect("repeated transform");
+            assert_eq!(read::<u32>(skin_ptr, NativeLayout::NI_SKIN_FRAME_ID), 99);
+
+            // A shared skin under a different child transform must force the
+            // helper to rebuild instead of reusing another body part's rows.
+            scratch
+                .prepare_skin_calculation(skin_ptr, [2; 13])
+                .expect("distinct attachment transform");
+            assert_eq!(
+                read::<u32>(skin_ptr, NativeLayout::NI_SKIN_FRAME_ID),
+                u32::MAX
+            );
+            assert_eq!(
+                read::<u32>(skin_ptr, NativeLayout::NI_SKIN_BONE_REGISTERS),
+                u32::MAX
+            );
+            write(skin_ptr, NativeLayout::NI_SKIN_FRAME_ID, 99_u32);
+            write(skin_ptr, NativeLayout::NI_SKIN_BONE_REGISTERS, 3_u32);
             scratch
                 .restore_native_state_journal()
                 .expect("engine state restore");

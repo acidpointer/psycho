@@ -1,4 +1,4 @@
-// One-pass OMV point-shadow accumulation over scene depth and twelve cubes.
+// One-pass OMV point-shadow accumulation over scene depth and twelve complete point cubes.
 #ifndef OMV_POINT_CAPACITY
 #define OMV_POINT_CAPACITY 12
 #endif
@@ -12,6 +12,7 @@ float4 ViewToWorld2 : register(c5);
 float4 PointControl : register(c6); // x reversed depth, y light count, z radial bias
 float4 LightPositionRadius[12] : register(c7);
 float4 LightColorIntensity[12] : register(c19);
+float4 LightMetadata[12] : register(c31); // x native receiver radius, y shadow weight
 
 sampler2D SceneDepth : register(s0);
 samplerCUBE ShadowCube0 : register(s1);
@@ -114,32 +115,46 @@ LightEnergy EvaluateLight(
     float3 worldPosition,
     float3 normal,
     float4 lightPositionRadius,
-    float4 lightColorIntensity)
+    float4 lightColorIntensity,
+    float4 lightMetadata)
 {
-    float radius = max(lightPositionRadius.w, 0.001f);
     float3 toLight = lightPositionRadius.xyz - worldPosition;
     float distance = length(toLight);
-    float normalizedDistance = distance / radius;
-    if (normalizedDistance >= 1.0f || lightPositionRadius.w <= 0.0f) {
+    float normalizedReceiverDistance = distance / lightMetadata.x;
+    // CPU selection admits only finite positive receiver/cube radii, and the
+    // static light-count branches never evaluate an uninitialized slot.
+    if (normalizedReceiverDistance >= 1.0f) {
         LightEnergy empty;
         empty.total = 0.0f;
         empty.deficit = 0.0f;
         return empty;
     }
 
-    float radial = saturate(1.0f - normalizedDistance * normalizedDistance);
-    radial = radial * radial / max(1.0f + 5.0f * normalizedDistance * normalizedDistance, 0.001f);
+    float radial = saturate(1.0f - normalizedReceiverDistance * normalizedReceiverDistance);
+    radial = radial * radial
+        / max(1.0f + 5.0f * normalizedReceiverDistance * normalizedReceiverDistance, 0.001f);
     float lambert = dot(toLight / max(distance, 0.001f), normal);
-    float diffuse = saturate(lerp(1.0f, lambert, smoothstep(0.0f, 0.2f, normalizedDistance)));
-    float3 contribution = radial * diffuse * max(lightColorIntensity.rgb, 0.0f)
-        * max(lightColorIntensity.w, 0.0f);
-    float storedDepth = texCUBElod(
-        shadowCube, float4(toLight * float3(-1.0f, -1.0f, 1.0f), 0.0f)).r;
-    float visibility = storedDepth + PointControl.z * normalizedDistance >= normalizedDistance
+    // Depth-derived normals are least reliable close to a point source. Keep
+    // the established isotropic near-source transition; immutable visibility
+    // below, rather than a receiver-facing heuristic, owns wall containment.
+    float diffuse = saturate(lerp(
+        1.0f, lambert, smoothstep(0.0f, 0.2f, normalizedReceiverDistance)));
+    // CPU admission already publishes finite nonnegative native colors.
+    float3 contribution = radial * diffuse * lightColorIntensity.rgb;
+    float3 cubeDirection = toLight * float3(-1.0f, -1.0f, 1.0f);
+    float normalizedCubeDistance = distance / lightPositionRadius.w;
+    float casterDepth = texCUBElod(shadowCube, float4(cubeDirection, 0.0f)).r;
+    float shadowVisibility = casterDepth
+            + PointControl.z * normalizedCubeDistance >= normalizedCubeDistance
         ? 1.0f : 0.0f;
-    visibility = lerp(1.0f, visibility, storedDepth > 0.0f && storedDepth < 1.0f);
-    contribution *= SourceGuard(normalizedDistance);
-    float3 deficit = contribution * (1.0f - visibility);
+    shadowVisibility = lerp(
+        1.0f, shadowVisibility, casterDepth > 0.0f && casterDepth < 1.0f);
+    float outerEnvelope = 1.0f - smoothstep(0.8f, 1.0f, normalizedReceiverDistance);
+    // These presentation weights belong only to subtractable occluded energy.
+    // Applying them to `total` as well makes deficit/total cancel every fade.
+    float shadowWeight = SourceGuard(normalizedReceiverDistance) * outerEnvelope
+        * lightMetadata.y;
+    float3 deficit = contribution * (1.0f - shadowVisibility) * shadowWeight;
     LightEnergy result;
     result.total = contribution;
     result.deficit = deficit;
@@ -176,39 +191,39 @@ PointOutput Main(PixelInput input) {
     float3 normal = WorldNormal(viewNormal);
     float3 total = 0.0f;
     float3 deficit = 0.0f;
-    if (PointControl.y > 0.0f) { LightEnergy light = EvaluateLight(ShadowCube0, worldPosition, normal, LightPositionRadius[0], LightColorIntensity[0]); total += light.total; deficit += light.deficit; }
+    if (PointControl.y > 0.0f) { LightEnergy light = EvaluateLight(ShadowCube0, worldPosition, normal, LightPositionRadius[0], LightColorIntensity[0], LightMetadata[0]); total += light.total; deficit += light.deficit; }
 #if OMV_POINT_CAPACITY >= 2
-    if (PointControl.y > 1.0f) { LightEnergy light = EvaluateLight(ShadowCube1, worldPosition, normal, LightPositionRadius[1], LightColorIntensity[1]); total += light.total; deficit += light.deficit; }
+    if (PointControl.y > 1.0f) { LightEnergy light = EvaluateLight(ShadowCube1, worldPosition, normal, LightPositionRadius[1], LightColorIntensity[1], LightMetadata[1]); total += light.total; deficit += light.deficit; }
 #endif
 #if OMV_POINT_CAPACITY >= 3
-    if (PointControl.y > 2.0f) { LightEnergy light = EvaluateLight(ShadowCube2, worldPosition, normal, LightPositionRadius[2], LightColorIntensity[2]); total += light.total; deficit += light.deficit; }
+    if (PointControl.y > 2.0f) { LightEnergy light = EvaluateLight(ShadowCube2, worldPosition, normal, LightPositionRadius[2], LightColorIntensity[2], LightMetadata[2]); total += light.total; deficit += light.deficit; }
 #endif
 #if OMV_POINT_CAPACITY >= 4
-    if (PointControl.y > 3.0f) { LightEnergy light = EvaluateLight(ShadowCube3, worldPosition, normal, LightPositionRadius[3], LightColorIntensity[3]); total += light.total; deficit += light.deficit; }
+    if (PointControl.y > 3.0f) { LightEnergy light = EvaluateLight(ShadowCube3, worldPosition, normal, LightPositionRadius[3], LightColorIntensity[3], LightMetadata[3]); total += light.total; deficit += light.deficit; }
 #endif
 #if OMV_POINT_CAPACITY >= 5
-    if (PointControl.y > 4.0f) { LightEnergy light = EvaluateLight(ShadowCube4, worldPosition, normal, LightPositionRadius[4], LightColorIntensity[4]); total += light.total; deficit += light.deficit; }
+    if (PointControl.y > 4.0f) { LightEnergy light = EvaluateLight(ShadowCube4, worldPosition, normal, LightPositionRadius[4], LightColorIntensity[4], LightMetadata[4]); total += light.total; deficit += light.deficit; }
 #endif
 #if OMV_POINT_CAPACITY >= 6
-    if (PointControl.y > 5.0f) { LightEnergy light = EvaluateLight(ShadowCube5, worldPosition, normal, LightPositionRadius[5], LightColorIntensity[5]); total += light.total; deficit += light.deficit; }
+    if (PointControl.y > 5.0f) { LightEnergy light = EvaluateLight(ShadowCube5, worldPosition, normal, LightPositionRadius[5], LightColorIntensity[5], LightMetadata[5]); total += light.total; deficit += light.deficit; }
 #endif
 #if OMV_POINT_CAPACITY >= 7
-    if (PointControl.y > 6.0f) { LightEnergy light = EvaluateLight(ShadowCube6, worldPosition, normal, LightPositionRadius[6], LightColorIntensity[6]); total += light.total; deficit += light.deficit; }
+    if (PointControl.y > 6.0f) { LightEnergy light = EvaluateLight(ShadowCube6, worldPosition, normal, LightPositionRadius[6], LightColorIntensity[6], LightMetadata[6]); total += light.total; deficit += light.deficit; }
 #endif
 #if OMV_POINT_CAPACITY >= 8
-    if (PointControl.y > 7.0f) { LightEnergy light = EvaluateLight(ShadowCube7, worldPosition, normal, LightPositionRadius[7], LightColorIntensity[7]); total += light.total; deficit += light.deficit; }
+    if (PointControl.y > 7.0f) { LightEnergy light = EvaluateLight(ShadowCube7, worldPosition, normal, LightPositionRadius[7], LightColorIntensity[7], LightMetadata[7]); total += light.total; deficit += light.deficit; }
 #endif
 #if OMV_POINT_CAPACITY >= 9
-    if (PointControl.y > 8.0f) { LightEnergy light = EvaluateLight(ShadowCube8, worldPosition, normal, LightPositionRadius[8], LightColorIntensity[8]); total += light.total; deficit += light.deficit; }
+    if (PointControl.y > 8.0f) { LightEnergy light = EvaluateLight(ShadowCube8, worldPosition, normal, LightPositionRadius[8], LightColorIntensity[8], LightMetadata[8]); total += light.total; deficit += light.deficit; }
 #endif
 #if OMV_POINT_CAPACITY >= 10
-    if (PointControl.y > 9.0f) { LightEnergy light = EvaluateLight(ShadowCube9, worldPosition, normal, LightPositionRadius[9], LightColorIntensity[9]); total += light.total; deficit += light.deficit; }
+    if (PointControl.y > 9.0f) { LightEnergy light = EvaluateLight(ShadowCube9, worldPosition, normal, LightPositionRadius[9], LightColorIntensity[9], LightMetadata[9]); total += light.total; deficit += light.deficit; }
 #endif
 #if OMV_POINT_CAPACITY >= 11
-    if (PointControl.y > 10.0f) { LightEnergy light = EvaluateLight(ShadowCube10, worldPosition, normal, LightPositionRadius[10], LightColorIntensity[10]); total += light.total; deficit += light.deficit; }
+    if (PointControl.y > 10.0f) { LightEnergy light = EvaluateLight(ShadowCube10, worldPosition, normal, LightPositionRadius[10], LightColorIntensity[10], LightMetadata[10]); total += light.total; deficit += light.deficit; }
 #endif
 #if OMV_POINT_CAPACITY >= 12
-    if (PointControl.y > 11.0f) { LightEnergy light = EvaluateLight(ShadowCube11, worldPosition, normal, LightPositionRadius[11], LightColorIntensity[11]); total += light.total; deficit += light.deficit; }
+    if (PointControl.y > 11.0f) { LightEnergy light = EvaluateLight(ShadowCube11, worldPosition, normal, LightPositionRadius[11], LightColorIntensity[11], LightMetadata[11]); total += light.total; deficit += light.deficit; }
 #endif
     PointOutput output;
     // Keeping both RGB quantities exact is essential when differently colored

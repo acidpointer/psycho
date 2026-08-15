@@ -196,9 +196,11 @@ pub(crate) struct NativeShadowsConfig {
     pub(crate) contact_ray_distance: f32,
     /// Maximum interior point-shadow darkness; one permits full black.
     pub(crate) interior_darkness: f32,
-    /// Maximum number of nearby lights receiving a 512 cube map.
+    /// Maximum number of nearby lights receiving a quality-tier cube map.
     pub(crate) interior_shadowed_lights: i32,
-    /// Multiplier applied to each native point-light radius.
+    /// Cube coverage margin over each native point-light receiver radius.
+    ///
+    /// The persisted field name is retained for schema-one compatibility.
     pub(crate) interior_light_radius_multiplier: f32,
     /// Upper bound for admitting nearby point-light influence.
     pub(crate) interior_light_draw_distance: f32,
@@ -218,6 +220,12 @@ pub(crate) struct NativeShadowsConfig {
     /// Missing values retain the released 512-square profile, while live
     /// changes replace the complete point resource family transactionally.
     pub(crate) dynamic_shadow_quality: DynamicShadowQuality,
+    /// Seconds used to reveal a newly admitted dynamic-shadow cube.
+    ///
+    /// This shared exterior/interior control is appended to the detached
+    /// schema-one table. It affects presentation weight only; cube generation
+    /// and native scene lighting remain complete throughout the transition.
+    pub(crate) dynamic_shadow_fade_seconds: f32,
 }
 
 impl Default for NativeShadowsConfig {
@@ -239,6 +247,7 @@ impl Default for NativeShadowsConfig {
             interior_receiver_bias: 0.018,
             sun_shadows: false,
             dynamic_shadow_quality: DynamicShadowQuality::High,
+            dynamic_shadow_fade_seconds: 0.75,
         }
     }
 }
@@ -293,6 +302,12 @@ impl NativeShadowsConfig {
             defaults.interior_receiver_bias,
             0.0,
             0.1,
+        );
+        self.dynamic_shadow_fade_seconds = finite_clamp(
+            self.dynamic_shadow_fade_seconds,
+            defaults.dynamic_shadow_fade_seconds,
+            0.05,
+            5.0,
         );
         self
     }
@@ -1765,6 +1780,8 @@ fn save_native_shadows_config(doc: &mut DocumentMut, config: &NativeShadowsConfi
     doc["graphics"]["native_shadows"]["sun_shadows"] = value(config.sun_shadows);
     doc["graphics"]["native_shadows"]["dynamic_shadow_quality"] =
         value(config.dynamic_shadow_quality.config_value());
+    doc["graphics"]["native_shadows"]["dynamic_shadow_fade_seconds"] =
+        value(config.dynamic_shadow_fade_seconds as f64);
 }
 
 fn save_diagnostics_config(doc: &mut DocumentMut, config: &GraphicsMenuConfig) {
@@ -2131,6 +2148,7 @@ mod tests {
         assert!(!defaults.sun_shadows);
         assert_eq!(defaults.dynamic_shadow_quality, DynamicShadowQuality::High);
         assert_eq!(defaults.dynamic_shadow_quality.cube_resolution(), 512);
+        assert_eq!(defaults.dynamic_shadow_fade_seconds, 0.75);
         assert_eq!(defaults.exterior_darkness, 0.75);
         assert_eq!(defaults.exterior_distance, 6_000.0);
         assert_eq!(defaults.cascade_split_lambda, 0.9);
@@ -2178,13 +2196,14 @@ mod tests {
             "interior_receiver_bias",
             "sun_shadows",
             "dynamic_shadow_quality",
+            "dynamic_shadow_fade_seconds",
         ] {
             assert!(
                 table.contains_key(key),
                 "missing native shadow control {key}"
             );
         }
-        assert_eq!(table.len(), 16);
+        assert_eq!(table.len(), 17);
         let decoded = parse_native_shadows_config(&document.to_string())
             .expect("saved deferred shadow config");
         assert_eq!(decoded, expected);
@@ -2247,6 +2266,7 @@ mod tests {
             interior_light_radius_multiplier: 0.0,
             interior_light_draw_distance: -10.0,
             interior_receiver_bias: f32::NAN,
+            dynamic_shadow_fade_seconds: -1.0,
             ..defaults
         }
         .sanitized();
@@ -2262,6 +2282,17 @@ mod tests {
         assert_eq!(
             sanitized.interior_receiver_bias,
             defaults.interior_receiver_bias
+        );
+        assert_eq!(sanitized.dynamic_shadow_fade_seconds, 0.05);
+
+        let non_finite_fade = NativeShadowsConfig {
+            dynamic_shadow_fade_seconds: f32::NAN,
+            ..defaults
+        }
+        .sanitized();
+        assert_eq!(
+            non_finite_fade.dynamic_shadow_fade_seconds,
+            defaults.dynamic_shadow_fade_seconds
         );
     }
 

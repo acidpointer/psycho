@@ -973,6 +973,173 @@ pub(super) fn local_light_source_guard(normalized_distance: f32) -> Option<f32> 
     Some(t * t * (3.0 - 2.0 * t))
 }
 
+/// Weight point-shadow subtraction without changing analytic light energy.
+///
+/// The compositor divides occluded energy by total local-light energy. Source,
+/// discovery, and influence-edge fades therefore belong only to the occluded
+/// numerator; multiplying the denominator by the same value cancels the fade
+/// and recreates a hard shadow boundary. The outer envelope starts at 80% of
+/// the native receiver radius and reaches zero at its exact edge.
+pub(super) fn local_light_shadow_weight(
+    normalized_receiver_distance: f32,
+    discovery_weight: f32,
+) -> Option<f32> {
+    if !normalized_receiver_distance.is_finite()
+        || !discovery_weight.is_finite()
+        || normalized_receiver_distance < 0.0
+        || !(0.0..=1.0).contains(&discovery_weight)
+    {
+        return None;
+    }
+    let edge = ((1.0 - normalized_receiver_distance) / 0.2).clamp(0.0, 1.0);
+    let edge = edge * edge * (3.0 - 2.0 * edge);
+    Some(local_light_source_guard(normalized_receiver_distance)? * edge * discovery_weight)
+}
+
+/// Model the point accumulator's energy ownership for one scalar channel.
+///
+/// Native direct-light energy is the denominator used by the compositor and
+/// must not be faded with OMV's presentation weight. Only cube-proven
+/// occluded energy belongs in the subtractable numerator. Keeping this oracle
+/// numeric prevents a fade from appearing correct in source while cancelling
+/// out of `deficit / total` at runtime.
+pub(super) fn local_light_shadow_energy(
+    contribution: f32,
+    visibility: f32,
+    shadow_weight: f32,
+) -> Option<(f32, f32)> {
+    if ![contribution, visibility, shadow_weight]
+        .into_iter()
+        .all(f32::is_finite)
+        || contribution < 0.0
+        || !(0.0..=1.0).contains(&visibility)
+        || !(0.0..=1.0).contains(&shadow_weight)
+    {
+        return None;
+    }
+    Some((
+        contribution,
+        contribution * (1.0 - visibility) * shadow_weight,
+    ))
+}
+
+/// Merge retained world depth with an optional animated caster depth.
+///
+/// A point-light shadow map represents the nearest occluder on each light ray,
+/// not the nearest animated occluder. `None` therefore preserves static depth
+/// exactly. This is the CPU oracle for the point-cube pixel shader and for the
+/// publication sequencing contract below.
+pub(super) fn point_caster_depth(static_depth: f32, animated_depth: Option<f32>) -> Option<f32> {
+    if !static_depth.is_finite() || !(0.0..=1.0).contains(&static_depth) {
+        return None;
+    }
+    match animated_depth {
+        Some(animated) if animated.is_finite() && (0.0..=1.0).contains(&animated) => {
+            Some(static_depth.min(animated))
+        }
+        Some(_) => None,
+        None => Some(static_depth),
+    }
+}
+
+/// Evaluate one normalized point-shadow depth comparison.
+///
+/// The bias is receiver-owned and scales with normalized cube distance in the
+/// shader. Invalid values fail closed instead of silently manufacturing a lit
+/// or shadowed receiver in tests which model the production equation.
+pub(super) fn point_shadow_visibility(
+    caster_depth: f32,
+    receiver_depth: f32,
+    normalized_bias: f32,
+) -> Option<f32> {
+    if ![caster_depth, receiver_depth, normalized_bias]
+        .into_iter()
+        .all(f32::is_finite)
+        || !(0.0..=1.0).contains(&caster_depth)
+        || !(0.0..=1.0).contains(&receiver_depth)
+        || normalized_bias < 0.0
+    {
+        return None;
+    }
+    if caster_depth <= 0.0 || caster_depth >= 1.0 {
+        return Some(1.0);
+    }
+    Some(
+        if caster_depth + normalized_bias * receiver_depth >= receiver_depth {
+            1.0
+        } else {
+            0.0
+        },
+    )
+}
+
+/// Advance one physical cube slot's admission transition.
+///
+/// Stable identities retain their original start time so repeated publication
+/// advances smoothly. Replacing a slot starts at zero shadow weight; native
+/// scene lighting remains untouched while the new occlusion fades in.
+pub(super) fn point_shadow_transition(
+    previous_identity: usize,
+    previous_start_millis: u64,
+    identity: usize,
+    now_millis: u64,
+    duration_millis: u64,
+) -> Option<(usize, u64, f32)> {
+    if identity == 0 {
+        return None;
+    }
+    let start = if previous_identity == identity {
+        previous_start_millis.min(now_millis)
+    } else {
+        now_millis
+    };
+    let elapsed = now_millis.saturating_sub(start);
+    // A zero duration is a valid defensive input even though persisted values
+    // are sanitized above zero. Treat it as an immediate transition instead
+    // of dividing by zero or requiring every future caller to duplicate the
+    // same guard.
+    let t = if duration_millis == 0 {
+        1.0
+    } else {
+        (elapsed as f32 / duration_millis as f32).clamp(0.0, 1.0)
+    };
+    Some((identity, start, t * t * (3.0 - 2.0 * t)))
+}
+
+/// Decide whether a selected point light has a complete canonical caster set.
+///
+/// Retained point cubes are safe only when the same root inventory supplies
+/// both their static signature and their geometry submissions. A nonempty
+/// engine-owned leaf list is not a completeness proof: it is produced for the
+/// native camera transaction and may omit an occluding wall or contain a
+/// detached view-model leaf. With no selected lights, caster enumeration is
+/// unnecessary and an incomplete root cache is harmless.
+pub(super) const fn point_caster_inventory_is_complete(
+    point_light_count: usize,
+    root_inventory_complete: bool,
+) -> bool {
+    point_light_count == 0 || root_inventory_complete
+}
+
+/// Separate native receiver ownership from point-cube generation headroom.
+///
+/// The native radius defines where the game actually supplies direct light.
+/// The persisted multiplier may enlarge caster coverage, but it must never
+/// extend the post-process receiver volume beyond that native illumination.
+pub(super) fn point_light_radii(native_radius: f32, cube_multiplier: f32) -> Option<(f32, f32)> {
+    if !native_radius.is_finite()
+        || native_radius <= 0.1
+        || !cube_multiplier.is_finite()
+        || cube_multiplier <= 0.0
+    {
+        return None;
+    }
+    let cube_radius = native_radius * cube_multiplier.max(1.0);
+    cube_radius
+        .is_finite()
+        .then_some((native_radius, cube_radius))
+}
+
 /// Inclusive-exclusive pixel bounds for one conservative local-light draw.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) struct LightScissorRect {
@@ -1002,11 +1169,12 @@ impl LightScissorRect {
     }
 }
 
-/// Maximum cube samplers evaluated with one scene-depth receiver sampler.
+/// Maximum complete point-shadow cubes evaluated with one depth sampler.
 ///
-/// Pixel shader model three exposes sixteen samplers. Scene depth occupies s0,
-/// so all twelve NVR-quality point maps fit in one draw without reducing the
-/// configured light count or repeating full-resolution receiver work.
+/// Pixel shader model three exposes sixteen samplers. Scene depth occupies s0;
+/// the twelve bounded point-light cubes occupy s1-s12. Immutable transport is
+/// consumed only while producing those cubes because a low-resolution static
+/// depth sample cannot reliably classify the surface which produced it.
 pub(super) const POINT_CONSUMER_BATCH_SIZE: usize = NVR_POINT_LIGHT_COUNT;
 
 /// One coverage-bounded point-light consumer draw.
@@ -1079,12 +1247,12 @@ pub(super) fn local_light_clear_coverage(
 /// Batch overlapping point lights while keeping separated lights scissored.
 ///
 /// Each draw reconstructs its receiver directly from scene depth and then uses
-/// the remaining samplers for up to twelve shadow cubes. A batch is profitable
-/// only when saved receiver reconstruction exceeds the extra per-light work
-/// over the union. Area alone is insufficient: two adjacent disjoint lights
-/// have `union == sum`, yet batching makes every covered pixel evaluate both
-/// lights. The constants come from the compiled one/six/twelve-light programs
-/// (238 shared receiver instructions and about 107 per active light).
+/// the remaining samplers for up to twelve complete point-shadow cubes. A batch is
+/// profitable only when saved receiver reconstruction exceeds the extra
+/// per-light work over the union. Area alone is insufficient: two adjacent
+/// disjoint lights have `union == sum`, yet batching makes every covered pixel
+/// evaluate both lights. The conservative model rounds the compiled receiver
+/// and per-light costs upward so uncertain unions split instead of overshading.
 pub(super) fn point_consumer_plan(
     scissors: [Option<LightScissorRect>; NVR_POINT_LIGHT_COUNT],
     count: usize,
@@ -1129,8 +1297,8 @@ pub(super) fn point_consumer_plan(
         visible[insertion] = value;
     }
 
-    const RECEIVER_WORK: u64 = 238;
-    const PER_LIGHT_WORK: u64 = 107;
+    const RECEIVER_WORK: u64 = 256;
+    const PER_LIGHT_WORK: u64 = 130;
     let work = |rectangle: LightScissorRect, lights: u8| {
         rectangle.pixels() * (RECEIVER_WORK + PER_LIGHT_WORK * u64::from(lights))
     };
@@ -1239,16 +1407,65 @@ pub(super) fn point_light_scissor(
     (rectangle.left < rectangle.right && rectangle.top < rectangle.bottom).then_some(rectangle)
 }
 
+/// Blend-index layout declared by one skinned D3D9 vertex buffer.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[repr(usize)]
+pub(super) enum SkinIndexEncoding {
+    /// Normalized packed color; D3D exposes bytes in BGRA order.
+    D3dColor = 0,
+    /// Normalized bytes in declaration order.
+    UByte4N = 1,
+    /// Unnormalized bytes in declaration order.
+    UByte4 = 2,
+}
+
+impl SkinIndexEncoding {
+    /// Return the complete set which must have prepared vertex programs.
+    pub(super) const ALL: [Self; 3] = [Self::D3dColor, Self::UByte4N, Self::UByte4];
+
+    /// Return the shader-specialization value for this declaration encoding.
+    pub(super) const fn shader_index(self) -> usize {
+        self as usize
+    }
+
+    /// Decode one D3D9 declaration element when it owns blend-index slot zero.
+    ///
+    /// The numeric values are fixed D3D9 ABI constants. Unsupported element
+    /// types return `None`; silently treating them as byte indices could select
+    /// bone rows outside the uploaded partition.
+    pub(super) const fn from_declaration_element(
+        element_type: u8,
+        usage: u8,
+        usage_index: u8,
+    ) -> Option<Self> {
+        const BLEND_INDICES: u8 = 2;
+        const D3D_COLOR: u8 = 4;
+        const UBYTE4: u8 = 5;
+        const UBYTE4N: u8 = 8;
+        if usage != BLEND_INDICES || usage_index != 0 {
+            return None;
+        }
+        match element_type {
+            D3D_COLOR => Some(Self::D3dColor),
+            UBYTE4N => Some(Self::UByte4N),
+            UBYTE4 => Some(Self::UByte4),
+            _ => None,
+        }
+    }
+}
+
 /// CPU reference for FNV's four-influence skinned shadow position.
 ///
-/// `BLENDINDICES` arrives through normalized `D3DCOLOR` semantics, whose byte
-/// order is z, y, x, w in the NVR generation shader. The first three explicit
-/// weights correspond to those reordered slots; the fourth is their residual.
+/// The first three explicit weights correspond to the declaration's first
+/// three logical blend-index slots; the fourth is their residual. D3DCOLOR is
+/// the only encoding which reorders the packed bytes when D3D presents them to
+/// the shader.
 pub(super) fn skinned_position_reference(
     position: [f32; 3],
     blend_indices: [u8; 4],
     blend_weights: [f32; 3],
     bone_matrices: &[[[f32; 4]; 3]],
+    encoding: SkinIndexEncoding,
 ) -> Option<[f32; 3]> {
     if !position.into_iter().all(f32::is_finite) || !blend_weights.into_iter().all(f32::is_finite) {
         return None;
@@ -1257,12 +1474,15 @@ pub(super) fn skinned_position_reference(
     if residual < 0.0 {
         return None;
     }
-    let indices = [
-        blend_indices[2] as usize,
-        blend_indices[1] as usize,
-        blend_indices[0] as usize,
-        blend_indices[3] as usize,
-    ];
+    let indices = match encoding {
+        SkinIndexEncoding::D3dColor => [
+            blend_indices[2] as usize,
+            blend_indices[1] as usize,
+            blend_indices[0] as usize,
+            blend_indices[3] as usize,
+        ],
+        SkinIndexEncoding::UByte4N | SkinIndexEncoding::UByte4 => blend_indices.map(usize::from),
+    };
     let weights = [
         blend_weights[0],
         blend_weights[1],
@@ -1929,11 +2149,56 @@ pub(super) struct PointMapPlan {
     pub(super) next: PointMapCache,
 }
 
+/// One ordered operation required to publish a point-cube face.
+///
+/// `PublishStatic` is mandatory for every dirty face, including animated
+/// refreshes and a departed actor's former face. That explicit operation is
+/// what prevents an optimization from replacing the complete shadow map with
+/// an empty, animated-only target while preserving all of its GPU cost.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) enum PointFaceOperation {
+    /// Rebuild the retained immutable face before publication.
+    RefreshStatic,
+    /// Seed the sampled face with the retained immutable depth.
+    PublishStatic,
+    /// Merge current animated casters by nearest radial depth.
+    MergeAnimated,
+}
+
 impl PointMapPlan {
     /// Return the current selected-light index owned by one physical cube.
     pub(super) fn source_index(self, slot: usize) -> Option<usize> {
         let index = *self.source_indices.get(slot)?;
         (index != u8::MAX).then_some(index as usize)
+    }
+
+    /// Return the complete ordered update transcript for one physical face.
+    ///
+    /// Invalid slots/faces and retained faces return an empty transcript. A
+    /// dirty face always publishes static depth; dynamic work is an optional
+    /// nearest-depth merge after that publication, never an alternative map
+    /// owner.
+    pub(super) fn face_operations(
+        self,
+        slot: usize,
+        face: usize,
+    ) -> [Option<PointFaceOperation>; 3] {
+        if face >= 6 {
+            return [None; 3];
+        }
+        let mask = 1_u8 << face;
+        let Some(&render_faces) = self.render_faces.get(slot) else {
+            return [None; 3];
+        };
+        if render_faces & mask == 0 {
+            return [None; 3];
+        }
+        [
+            (self.static_faces[slot] & mask != 0).then_some(PointFaceOperation::RefreshStatic),
+            Some(PointFaceOperation::PublishStatic),
+            (self.dynamic_draw_faces[slot] & mask != 0)
+                .then_some(PointFaceOperation::MergeAnimated),
+        ]
     }
 }
 

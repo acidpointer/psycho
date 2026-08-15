@@ -6,6 +6,10 @@ float4 BoneRows[54] : register(c9);
 float4 SpeedTreeRows[77] : register(c63);
 float4 TerrainRows[6] : register(c140);
 
+#ifndef OMV_BLEND_INDEX_ENCODING
+#define OMV_BLEND_INDEX_ENCODING 0
+#endif
+
 static const float GEOMETRY_SKINNED = 1.0f;
 static const float GEOMETRY_SPEEDTREE = 2.0f;
 static const float GEOMETRY_TERRAIN_LOD = 3.0f;
@@ -26,8 +30,16 @@ struct VertexOutput {
 };
 
 float3 SkinPosition(VertexInput input) {
-    // FNV stores byte bone indices through normalized D3DCOLOR semantics.
+#if OMV_BLEND_INDEX_ENCODING == 0
+    // D3DCOLOR exposes packed bytes in BGRA order and normalizes them.
     float4 indices = input.blendIndices.zyxw * 765.01001f;
+#elif OMV_BLEND_INDEX_ENCODING == 1
+    // UBYTE4N preserves declaration order and normalizes each byte.
+    float4 indices = input.blendIndices.xyzw * 765.01001f;
+#else
+    // Raw UBYTE4 values need only conversion from bone number to row offset.
+    float4 indices = input.blendIndices.xyzw * 3.0f;
+#endif
     float4 position = float4(input.position.xyz, 1.0f);
     float3 skinned0 = float3(
         dot(BoneRows[indices.x + 0], position),

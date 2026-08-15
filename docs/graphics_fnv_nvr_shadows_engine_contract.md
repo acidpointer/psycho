@@ -4852,6 +4852,447 @@ files pass `rustfmt --check` and `git diff --check` passes; the repository-wide
 Cargo formatting check still reports the pre-existing untouched multiline
 call in `omv/src/backend/fnv.rs:2875`.
 
+## 2026-08-15 canonical point-caster ownership and rejected fixture heuristic
+
+### Status: superseded after runtime rejection
+
+The canonical root inventory described below remains part of the corrected
+producer because it aligns retained signatures and submissions. The
+source-parent/emissive-fixture classifier did **not** change either the wall or
+bulb defect in the user's repeat captures and has been removed. Its binary
+research remains useful evidence about material layout, but fixture ancestry
+was an incorrect causal inference and is not a current rendering policy. The
+validation hashes and counts in this section identify that rejected artifact,
+not the implementation accepted below.
+
+### Runtime evidence and defect boundary
+
+Seven supplied captures establish three point-shadow ownership defects and one
+already-addressed quality observation:
+
+- `.reports/shadows_interior_transparent.png` and
+  `.reports/shadows_interior_transparent2.png` show the same actor shadow
+  becoming visible through an opaque interior wall at particular viewing
+  distances. The shadow silhouette itself remains coherent; the missing fact
+  is wall occlusion in the retained point cube.
+- `.reports/shadows_flying_hand.png` and
+  `.reports/shadows_interior_flying_equip.png` show detached hand/equipment
+  shadows. These are consistent with a first-person or otherwise hidden leaf
+  being submitted without its canonical scene-root ownership checks.
+- `.reports/shadows_interior_bulb_bug.png` was captured with the Pip-Boy light
+  enabled and `.reports/shadows_interior_bulb_bug2.png` without it. The giant
+  boundary is present in both images; the Pip-Boy changes fill/contrast rather
+  than creating the boundary. The observation is fixture-type-specific and is
+  consistent with an emissive shell enclosing its own point source.
+- `.reports/shadows_interior_wallpapers.png` records finite-resolution edge
+  stair-stepping. Its timestamp is 18:09:42 +03:00, before the shared dynamic
+  quality commit `75307ac` at 18:11:38. The common Performance/High/Ultra cube
+  control is therefore the implemented correction for that capture; it still
+  requires the runtime comparison defined in the preceding section.
+
+The old point producer combined incompatible inventories. A complete cell-root
+snapshot supplied `point_scene_static_signature`, but a nonempty
+`ShadowSceneLight::kGeometryList` supplied actual static and animated geometry.
+The cell-root fallback ran only when that native list contained zero entries.
+The native list is a camera-transaction leaf list, not a completeness proof for
+a cube retained across later camera positions. It can omit an occluding wall;
+direct leaves also bypass canonical parent culling/ownership and can admit a
+detached view-model leaf. The retained signature could consequently certify a
+map whose rendered contents came from a different set.
+
+This is proven by the prior OMV source topology and the modern NVR reference,
+which iterates each light's `kGeometryList` and rejects the current
+`APP_CULLED` state while rebuilding in its own transaction. Applying that
+ephemeral list to OMV's retained maps was the invalid inference. The screenshots
+are runtime evidence of the symptoms; image evidence alone does not identify
+the exact omitted native object.
+
+### Corrected architecture and invariants
+
+Point signatures, static submissions, and animated submissions now share the
+single preallocated root snapshot already used by the directional family.
+Static work filters non-actor roots with the same conservative light-volume
+predicate as `point_scene_static_signature`. Animated work takes only active
+actor roots from that inventory; if the compact actor-bound cache is invalid or
+full, all six faces traverse active actors from the complete root inventory.
+Neither path accepts a direct native geometry leaf.
+
+Root traversal restores the normal parent-level admission path, including the
+bounded first-person ancestry exclusion. It also ensures an opaque wall can
+participate even when it was outside the engine camera's current light list.
+Missing root bounds are admitted conservatively. If the fixed 32,768-root
+inventory overflows while at least one point light is selected, OMV restores
+the reusable allocation, aborts its publication, and leaves the established
+native renderer path intact. It never renders or caches a partial cube.
+
+The fixed-capacity design adds no presentation allocation. One root snapshot is
+shared by at most twelve selected lights and six faces. Root-sphere rejection
+occurs before hierarchy traversal, and the compact actor list preserves the
+ordinary animated fast path. Relative to the rejected route, this removes an
+up-to-8,192-leaf engine-list walk per light from planning and prevents static
+leaves from being revisited through the animated route. Worst-case face work is
+now proportional to canonical roots intersecting that light, which is the
+necessary cost of complete occlusion.
+
+The bulb case has an additional narrow classifier. A static geometry leaf is
+excluded only when all of the following are true:
+
+1. its bounded parent chain reaches the selected native point light's immediate
+   parent;
+2. its effective `NiMaterialProperty` emission is finite and positive; and
+3. its finite world sphere encloses the point source.
+
+The effective color uses `pExternalEmittance` when present and otherwise the
+inline emission triplet; `fEmitMult` must also be finite and positive. An
+unrelated wall, nearby lampshade, non-emissive fixture body, detached leaf, or
+invalid native value remains a caster. This conservative conjunction avoids a
+distance cutoff which would itself create light leaks. The light's source
+parent participates in the retained static signature, so reparenting cannot
+reuse a cube classified for the previous fixture.
+
+Direct radare2 inspection of the current executable proves the
+`NiMaterialProperty` constructor and exact offsets used here; the modern NVR
+header supplies the field names, while prior binary evidence proves
+`NiAVObject +0x18` parent ownership. The raw separation of facts and inference
+is in
+`analysis/radare2/output/graphics_fnv_shadow_source_emitter_material_contract.txt`.
+The classification policy remains a reasoned fix pending a capture in the
+reported bulb interior. A mod which animates only material emission across
+zero while keeping the same enabled light, parent, and root state may retain
+the prior static classification until another ordinary point signature change;
+normal light disable/replacement removes the publication. Avoiding that narrow
+boundary would require a new full descendant/material signature walk and is not
+justified without a runtime case.
+
+### Compatibility, validation, and runtime acceptance
+
+This correction changes no shader ABI, resource dimension, configuration,
+schema, preset, hook, admission bit, static/lazy owner, TLS value, lock, thread,
+worker request, or pre-Deferred ordering. It adds no retained native pointer:
+the source parent is copied as an integer and consumed only while the serialized
+common-shadow transaction owns every referenced engine object. Material and
+external-emittance pointers are read synchronously and never mutated or
+retained.
+
+Pure regressions require zero selected lights to tolerate an absent inventory,
+any selected light to reject an incomplete inventory, all point submissions to
+use canonical roots, source exclusion to require attachment plus emission plus
+containment, invalid/overflowing floats to retain the caster, exact material
+offsets, and source-parent changes to invalidate the static signature. The
+focused shadow contract suite passes all 93 tests. The complete explicit
+`i686-pc-windows-gnu` OMV suite passes all 672 tests plus doc tests, and the
+supported release build completes without warnings. The resulting `omv.dll`
+is 12,855,481 bytes with SHA-256
+`53d0e9c38c39d01c0e2bef2eed39bb5a027afcdb3e9120d0bf3db288f8b9764b`.
+PE inspection keeps `PIPELINE = 0xA28`, `.bss = 0x6B10`,
+`.idata = 0x340C`, `.tls = 0x8`, thread-storage directory `0x18`, and IAT
+`0x6BC`. All touched Rust sources pass targeted `rustfmt --check`, contain only
+ASCII comments/docstrings, and `git diff --check` passes.
+
+Static validation cannot prove the image result. Runtime acceptance requires
+repeating both transparent-wall distances and verifying no shadow crosses the
+wall; first- and third-person camera changes, Pip-Boy equip/unequip, weapon
+draw/fire, and holster transitions with no detached hand/equipment shadow; the
+exact bulb room with Pip-Boy both enabled and disabled and no giant fixture
+boundary; nearby ordinary lampshades/walls still casting; movement across point
+selection and cube-face boundaries; and High/Ultra comparisons of the marked
+wallpaper edge. The final artifact also requires a cold Proton
+load-to-gameplay run with BaseObjectSwapper before runtime/startup acceptance.
+
+## 2026-08-15 point-cube containment, receiver ownership, and actor pose fix
+
+Status: superseded for point-light wall containment by the static-transport
+ownership correction below. The actor-pose, declaration, radius, and temporal
+admission work remains current.
+
+### Runtime evidence and corrected defect model
+
+The repeat playtest established that the first correction changed neither
+`.reports/shadows_interior_transparent*.png` nor the fixture boundary in
+`.reports/shadows_interior_bulb_bug*.png`. Additional observation tightened the
+failure boundaries:
+
+- an NPC shadow crosses an opaque wall when both the player and NPC are close
+  enough to it, and the artifact is distance dependent;
+- one child NPC projects a deformed body with the head far above the torso;
+- Pip-Boy and ordinary point shadows appear instantly when an object or light
+  enters range, producing a visible blink; and
+- the unusual fixture boundary behaves like the same receiver/range family,
+  not like a particular emissive mesh replacement.
+
+Source inspection identifies four independent ownership errors. Point cube
+setup selected `D3DCULL_NONE`, but every submitted geometry replaced it with
+the native camera-handed material cull mode. A right-handed cube face can
+therefore omit the only side of a thin wall. The receiver then forced Lambert
+weight toward one near a source, allowing that wall's back face to accumulate
+an actor deficit. Together these explain a coherent actor silhouette appearing
+through a wall without requiring a missing actor or wall root.
+
+The point accumulator multiplied radial energy, discovery fade, and the source
+guard into both `total` and `deficit`. Composition divides deficit by total, so
+those intended fades canceled exactly under a single fully occluded light. The
+result stayed fully dark until a hard radius/admission boundary. Generation and
+receiver ownership were also conflated: the persisted radius multiplier and a
+fixed 256-unit carried-light radius changed the post-process receiver volume
+instead of only cube coverage. That could make OMV subtract light where native
+lighting had no corresponding contribution.
+
+Finally, retained-static culling policy was applied to presentation-updated
+skins. Dynamic traversal ignored `APP_CULLED` on every child and could project
+hidden head, equipment, or LOD alternatives. FNV's native bone helper caches by
+frame and register mode, not by the geometry world transform supplied to the
+call. A shared `NiSkinInstance` under two attachment transforms could therefore
+reuse the wrong rows. The former shader also assumed every modded partition
+declared blend indices as normalized, swizzled `D3DCOLOR`.
+
+### Implemented invariants
+
+Point cubes now remain double-sided for the complete geometry submission.
+Directional maps retain the engine handedness/material mapping because their
+camera convention already matches that contract. Receiver evaluation uses a
+strict one-sided Lambert term, so a wall face turned away from a local source
+owns no direct-light denominator and cannot display a deficit from the other
+side.
+
+Each selected light carries two radii:
+
+- `receiver_radius` is the finite native `NiLight::Spec.r` value and owns
+  eligibility, discovery fade, screen scissoring, attenuation, and the outer
+  shadow envelope;
+- `cube_radius` is at least the receiver radius and applies the schema-one
+  `interior_light_radius_multiplier` only as caster-generation headroom.
+
+The persisted field name and layout are unchanged. The menu calls it **Cube
+coverage multiplier** and explains that it cannot extend native lighting.
+Cube depth comparisons normalize by cube radius, while analytic energy and
+screen coverage normalize by receiver radius.
+
+Analytic `total` now contains only native color, radial attenuation, and
+one-sided diffuse response. Source safety, the 80-100% receiver-edge envelope,
+discovery distance, and a 250 ms physical-slot transition multiply only the
+subtractable `deficit`. Thus none can cancel out of `deficit / total`. A newly
+assigned cube begins with zero subtraction and advances by smoothstep without
+restarting on no-D3D republication. Native scene lighting is never faded or
+redrawn, and nearest-twelve selection still retains its established hysteresis.
+
+Dynamic actor traversal honors `APP_CULLED` at every node and geometry while
+retained immutable roots continue to ignore camera-epoch culling. The native
+skin journal now adds `(NiSkinInstance*, 13-word world transform)` as the
+same-transaction calculation key. The first OMV use and every transform change
+invalidate the native frame/mode stamp before calling `CalculateBoneMatrices`;
+restoration preserves the existing allocation/lifetime safety rule.
+Declaration inspection selects one of three precompiled vertex programs for
+`D3DCOLOR`, `UBYTE4N`, or raw `UBYTE4` blend indices. Declaration identities
+are cached only inside the serialized transaction so freed COM pointers cannot
+alias a later layout.
+Canonical traversal also retains `NiSwitchNode` active-child ownership. A
+negative or stale switch index submits no alternative, so replacement fixtures,
+armor variants, and LOD variants cannot be projected together merely because
+their mutually exclusive children remain attached to one root.
+
+The prior emitter classifier and all source-parent signature state are gone.
+Fixtures, lampshades, mod replacements, and ordinary static geometry follow the
+same geometry, cube-depth, receiver-radius, and transition rules.
+
+### Cost, compatibility, and failure behavior
+
+No configuration field, schema version, preset payload, hook, admission bit,
+TLS value, lock, thread, worker request, lazy/static owner, or pre-Deferred
+ordering changes. The boxed post-Deferred pipeline gains fixed scalar transition
+state while the compatibility `PIPELINE` owner remains exactly `0xA28` bytes.
+The point consumer extends its exact D3D journal from PS `c0..c34` through
+`c0..c42` for twelve radius/weight rows. Six generation vertex programs (four
+more than the former two-program family) are prepared off-thread as part of the all-or-nothing shader family;
+routine rendering performs no shader compilation, allocation, file I/O, or
+blocking lock.
+
+Traversal adds a preallocated 2,048-entry transform-key journal and a bounded
+64-entry per-transaction declaration cache. Overflow or an unsupported blend
+index declaration fails the replacement transaction and takes the existing
+native fallback; OMV never indexes unknown bone data. Double-sided point
+rasterization can submit more fragments for thin/two-sided geometry but changes
+no cube resolution or caster traversal count. Directional raster cost is
+unchanged.
+
+Static acceptance requires the focused shadow suite, the full explicit
+`i686-pc-windows-gnu` OMV suite and doc tests, the supported release build,
+`git diff --check`, and preservation of the startup-owner size assertion.
+The implemented artifact passes 166 focused shadow tests, all 677 OMV tests,
+and doc tests; the explicit supported-target release build completes without
+warnings. `omv.dll` is 12,850,084 bytes with SHA-256
+`4a3e1190a3a8543ff30f0ab8dc469e20d2ef3c668d3e60bb1a793f0c8a68e157`.
+The startup regression confirms that the `PIPELINE` owner remains `0xA28`, and
+`git diff --check` passes.
+Image acceptance still requires a Proton playtest at both reported wall
+distances; the exact bulb room with Pip-Boy on and off; the reported child plus
+adult NPCs, helmets, hair, and equipment; slow approaches to Pip-Boy objects and
+distant practical lights; nearest-twelve crowding; camera rotations across cube
+faces; and a cold BaseObjectSwapper load-to-gameplay run. Static tests cannot
+claim those image or startup outcomes.
+
+## 2026-08-15 static transport ownership and configurable dynamic fade
+
+### Runtime rejections and final root cause
+
+The first follow-up playtest rejected the preceding wall-containment change.
+When the NPC and player were close to a wall, the NPC silhouette could disappear
+while cutting a bright NPC-shaped hole through overlapping shadows; at greater
+distance, the original dark through-wall silhouette remained. The distance
+transition itself was accepted, but its fixed 250 ms duration was too short and
+had no shared user control.
+
+Two subsequent artifacts then produced no visible point shadows at all while
+retaining the interior performance loss. The fresh runtime log is decisive:
+the deferred route installed, all seventeen programs prepared, twelve 1024
+point cubes allocated, common-epoch interior maps published, RESZ/depth
+ownership validated, and the final scene-color composition ran. The defect was
+therefore a valid but visually neutral shadow publication, not hook admission,
+resource creation, or final-pass omission.
+
+The original retained topology had the right high-level ownership: a sampled
+point cube must contain the nearest static or animated caster. Its animated
+merge was nevertheless wrong because `shadow_cube.hlsl` sampled the retained
+static cube with `input.lightVector`, while both D3D cube generation and the
+receiver use `input.lightVector * (-1, -1, +1)`. An actor could consequently be
+compared against a different cube direction and overwrite a nearer wall,
+producing the through-wall silhouette.
+
+The first attempted correction added a second static-cube comparison at the
+final receiver and hard-gated both analytic total and deficit. Low-resolution
+radial depth cannot compare equal to a separately reconstructed full-resolution
+wall at every texel edge and grazing angle, so ordinary surfaces rejected
+themselves and all point shadows disappeared. The next attempted correction
+removed that receiver gate but redefined the published cube as animated-only:
+every dirty face was cleared to far depth and static walls, clutter, and props
+remained only in an unsampled backup. That made most or all visible shadows
+neutral by construction while preserving every cube-generation, depth-resolve,
+receiver, and composition cost. Both designs are prohibited.
+
+### Correct nearest-occluder publication
+
+The two existing R32F cube families now have complementary, not exclusive,
+roles:
+
+- `static_cubes` cache immutable radial depth so walls and clutter do not need
+  presentation-cadence traversal;
+- `point_cubes` are the complete sampled publication. Every dirty face is
+  seeded from the matching static face, then current animated casters merge by
+  `min(static_depth, animated_depth)`.
+
+The production planner exposes the update as an ordered transcript:
+`RefreshStatic` when the retained signature changed, mandatory `PublishStatic`
+for every dirty face, and optional `MergeAnimated`. An animated refresh, a
+cube-face crossing, and an actor's departed face all therefore restore static
+depth before any optional actor draw. There is no legal animated-only
+publication operation.
+
+During `MergeAnimated`, the reusable D3D depth surface owns only actor/actor
+raster ordering. The point-cube pixel shader samples `static_cubes` with the
+same `(-X, -Y, +Z)` cube coordinate transform as the final receiver and writes
+the nearer radial value. An actor behind a wall cannot replace the wall; an
+actor in front remains the nearest caster and casts normally. Static-only
+objects also remain visible shadow casters, which is essential because
+"dynamic shadows" means shadows from dynamic point lights, not shadows from
+animated meshes only.
+
+The final receiver binds scene depth at s0 and up to twelve complete published
+cubes at s1-s12. It performs one ordinary biased nearest-caster comparison and
+never samples a second static cube or applies a hard transport gate. Pixel
+shader model three therefore still admits all twelve configured point lights
+in one draw. Work-based scissor batching, resource formats, cube counts,
+quality tiers, and persistent GPU allocation are unchanged.
+
+### Shared fade configuration
+
+`dynamic_shadow_fade_seconds` is appended after `dynamic_shadow_quality` in the
+detached schema-one `[graphics.native_shadows]` table. It is one common exterior
+and interior control, defaults to `0.75`, and is sanitized to `0.05..=5.0`
+seconds. The menu exposes the same range in seconds. Missing values in released
+working files select the longer 0.75-second default without a schema migration.
+
+The value controls the smoothstep weight of a newly assigned physical point
+cube. Cube generation and native scene lighting remain immediate and complete;
+only subtractable dynamic deficit fades in. Stable identities retain their
+original start timestamp, so every no-D3D republication advances rather than
+restarting the transition. Spatial discovery/receiver-edge fades remain
+separate and continue to work for both location branches.
+
+### Startup, performance, and failure boundaries
+
+The new persisted field remains outside `GraphicsConfig`, `GraphicsMenuConfig`,
+`RuntimeSettings`, preset payloads, and `DeferredHookSettings`. The detached
+parser still first runs at DeferredInit. Milliseconds are packed beside the
+1..=12 light count in previously unused bits of the established
+`INTERIOR_SHADOWED_LIGHTS: AtomicU32`; no atomic, static owner, lock, TLS value,
+thread, worker request, hook, route bit, or pre-Deferred operation is added.
+Schema version one and the built-in preset payload remain unchanged. The
+loader-visible `PIPELINE` owner must remain exactly `0xA28`.
+
+The containment correction retains one static-cube read only for animated
+fragments during cube generation and one existing static-to-published face
+copy. It adds no per-receiver texture sample or gate. The
+one-, six-, and twelve-light receiver specializations retain conservative
+instruction ceilings of 384, 1,032, and 1,664 respectively. Twelve completely
+overlapping lights execute one receiver reconstruction, while spatially
+separated lights retain work-based scissor batching. Render callbacks still
+perform no routine allocation, compilation, file I/O, or blocking lock.
+
+Any missing cube family, shader, MRT capability, coherent depth publication,
+or complete caster inventory retains the established native fallback. A zero
+transition duration, though excluded by persisted sanitation, is defensively
+finite and completes immediately.
+
+Acceptance no longer treats Rust/HLSL source substrings as image evidence.
+Source-shape assertions for fast-path placement, resource transitions, feature
+routing, state journals, and intermediate targets were removed: those tests
+could pass while production published a neutral cube. The production-used
+point-face transcript test instead requires static publication for a new light,
+an animated refresh, and an actor's departed face. Numeric contracts exercise
+static-only, actor-behind-wall, actor-in-front, self-receiver, and far-receiver
+cases; a nine-sample wall cross-section proves that a hidden actor cannot alter
+the wall silhouette and that the result contains non-neutral shadow pixels. A
+D3D9 execution smoke test creates real R32F cube targets under Wine, publishes
+a retained static face, runs the production cube pixel shader, reads the result
+back through `GetRenderTargetData`, and distinguishes the correct negative-X
+lookup from the prior wrong positive-X lookup. The test fails both if static
+publication becomes neutral and if the coordinate transform regresses. A
+second D3D9 test captures the production shadow state journals, mutates an
+extended pixel-constant register and render state, restores the journal, and
+reads both values back from the device. Shader compilation/budget tests remain
+necessary but are not treated as pixel proof. The pre-Deferred source-order
+guard remains intentionally: loader ordering is itself the documented startup
+contract and has no meaningful render-time substitute.
+
+Final static closure also requires every one/six/twelve receiver specialization,
+all three supported skin-index vertex variants, strict detached-config round
+trips and bounds, the atomic publication round trip, the complete explicit
+`i686-pc-windows-gnu` OMV suite and doc tests, the supported release build,
+startup owner/PE comparison, formatting, and `git diff --check`.
+
+The focused Shadows suite passes all 166 tests, including both D3D9 execution
+regressions and the switch-node presentation test. The complete
+supported-target OMV suite passes all 676 tests plus doc tests, and the release
+build completes without warnings. The resulting 12,933,163-byte `omv.dll` has
+SHA-256
+`3df20252d7c5be54b390514fa2f0f8b127e9a8882d815f79efde7ba5461f3f87`.
+The owner guard retains `PIPELINE = 0xA28`; PE inspection reports
+`.bss = 0x6B10`, `.idata = 0x340C`, `.tls = 0x8`, thread-storage directory
+`0x18`, and IAT `0x6BC`. `GetDesktopWindow`, used only by the isolated D3D test,
+is resolved dynamically and is absent from the final import table. Current
+changed sections are `.text = 0x5620A8`, `.rdata = 0x2A3F14`,
+`.data = 0x15C24`, `.eh_fram = 0x7DD90`, and `.reloc = 0x381C0`. These results
+are static closure, not image or startup playtest evidence.
+
+Image acceptance still requires both reported NPC/wall distances, several
+simultaneous point lights, Pip-Boy movement across the wall, the exact bulb
+room, slow exterior/interior admission at multiple fade values, and confirmation
+that an NPC in front of a wall still casts a normal shadow. The reported child
+and adult NPCs, helmets, hair, equipment, and modded declaration variants must
+remain geometrically coherent. Startup acceptance still requires a cold Proton
+load-to-gameplay run with BaseObjectSwapper and both DeferredInit markers.
+Until those runtime gates pass, containment, fixture, child-pose, fade, and
+startup results remain awaiting playtest.
+
 ## Primary evidence index
 
 ### Current executable and static artifacts
@@ -4868,6 +5309,9 @@ call in `omv/src/backend/fnv.rs:2875`.
   corroborating renderer `+0x8B8` render-state ownership;
 - `analysis/radare2/output/graphics_fnv_shadow_dismember_skin_layout.txt`,
   proving the `BSDismemberSkinInstance +0x34/+0x38/+0x3C` extension fields;
+- `analysis/radare2/output/graphics_fnv_shadow_source_emitter_material_contract.txt`,
+  proving the native material offsets and separating the source-fixture policy
+  from binary facts;
 - direct radare2 inspection on 2026-08-09 of `0x008706B0`, the three branch
   calls, `0x00871290`, `0x00871A50`, `0x00B6B8D0`, `0x00B9F780`, their
   relevant xrefs/call sequences, and `0x004073D0`;

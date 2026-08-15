@@ -464,6 +464,33 @@ pub fn get_foreground_window() -> *mut c_void {
     unsafe { sys::GetForegroundWindow() }
 }
 
+/// Return the desktop window, which is always process-independent and live.
+///
+/// This is suitable as the focus/device window for isolated windowed D3D9
+/// validation when the calling process intentionally owns no application
+/// window. The returned HWND is borrowed and must never be destroyed.
+///
+/// The entry point is resolved dynamically to keep this diagnostic helper from
+/// adding a new static USER32 import to every final Psycho DLL. OMV's
+/// pre-DeferredInit import footprint is a compatibility contract even when a
+/// helper is currently reachable only from tests.
+pub fn get_desktop_window() -> WinapiResult<*mut c_void> {
+    type GetDesktopWindowFn = unsafe extern "system" fn() -> *mut c_void;
+
+    let address = get_proc_address_in_dll("user32.dll", "GetDesktopWindow")?;
+    // SAFETY: GetProcAddress returned the address of USER32!GetDesktopWindow,
+    // whose ABI and signature are fixed by Win32. The loaded USER32 module
+    // outlives this borrowed function pointer and the returned HWND.
+    let get_desktop_window: GetDesktopWindowFn = unsafe { std::mem::transmute(address) };
+    // SAFETY: GetDesktopWindow accepts no arguments and returns a borrowed HWND.
+    let window = unsafe { get_desktop_window() };
+    if window.is_null() {
+        Err(WinapiError::InputNullPtr())
+    } else {
+        Ok(window)
+    }
+}
+
 /// Restrict the system cursor to `rect`, or release the restriction for `None`.
 ///
 /// `ClipCursor` owns one process-independent desktop resource. Callers that

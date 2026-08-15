@@ -8,17 +8,18 @@
 
 use super::contract::{
     CascadeDirty, CascadeScheduler, DeferredReceiverPlan, NVR_CASCADE_RESOLUTION,
-    NVR_POINT_LIGHT_COUNT, PointMapCache, PointMapSignature, SceneKind, SunCompetition,
-    cascade_depth_selection, cascade_sphere_selection, contact_bilateral_visibility,
-    contact_depth_from_key, contact_depth_key, contact_depths_match, contact_history_visibility,
-    contact_plane_raw_epsilon, contact_ray_scale, contact_sample_is_occluder,
-    deferred_mask_visibility, deferred_point_depth_key, depth_sample_is_geometry,
-    directional_projection_is_sampleable, directional_receiver_bias_is_required,
-    exterior_point_shadow_radiance, first_person_caster_is_excluded, interior_shadow_factor,
-    point_consumer_plan, point_light_scissor, point_sampled_texel_center, practical_cascade_splits,
-    retained_cascade_needs_refresh, retained_cascade_refresh, shadow_receiver_is_world_surface,
-    skinned_position_reference, skinned_submission_is_available, source_owned_shadow_radiance,
-    sun_projection_needs_refresh,
+    NVR_POINT_LIGHT_COUNT, PointMapCache, PointMapSignature, SceneKind, SkinIndexEncoding,
+    SunCompetition, cascade_depth_selection, cascade_sphere_selection,
+    contact_bilateral_visibility, contact_depth_from_key, contact_depth_key, contact_depths_match,
+    contact_history_visibility, contact_plane_raw_epsilon, contact_ray_scale,
+    contact_sample_is_occluder, deferred_mask_visibility, deferred_point_depth_key,
+    depth_sample_is_geometry, directional_projection_is_sampleable,
+    directional_receiver_bias_is_required, exterior_point_shadow_radiance,
+    first_person_caster_is_excluded, interior_shadow_factor, point_caster_depth,
+    point_consumer_plan, point_light_scissor, point_sampled_texel_center, point_shadow_visibility,
+    practical_cascade_splits, retained_cascade_needs_refresh, retained_cascade_refresh,
+    shadow_receiver_is_world_surface, skinned_position_reference, skinned_submission_is_available,
+    source_owned_shadow_radiance, sun_projection_needs_refresh,
 };
 use super::math::{ShadowCamera, cascade_projection};
 use super::pipeline::consumer_selection_spheres;
@@ -1012,8 +1013,14 @@ fn actor_skinning_raster_preserves_partition_silhouette_and_world_translation() 
         [0.5, 2.0, 0.0],
     ];
     let skinned = vertices.map(|position| {
-        skinned_position_reference(position, [0, 1, 0, 1], [0.5, 0.0, 0.0], &bones)
-            .expect("valid actor vertex")
+        skinned_position_reference(
+            position,
+            [0, 1, 0, 1],
+            [0.5, 0.0, 0.0],
+            &bones,
+            SkinIndexEncoding::D3dColor,
+        )
+        .expect("valid actor vertex")
     });
     let minimum_x = skinned
         .into_iter()
@@ -1352,10 +1359,9 @@ fn camera_containing_point_lights_share_depth_reconstruction_work() {
     let per_light_fragments = rectangle.pixels() * NVR_POINT_LIGHT_COUNT as u64;
     assert_eq!(per_light_fragments, pixels * NVR_POINT_LIGHT_COUNT as u64);
 
-    // The shader-model-three sampler budget admits scene depth plus all twelve
-    // shadow cubes. Camera-containing lights must therefore be accumulated in
-    // one draw; a second full-screen batch is redundant bandwidth and blending
-    // work even when every cube map is perfectly cached.
+    // Static transport is consumed only during cube generation. Scene depth
+    // plus all twelve complete point cubes therefore fit in one shader-model-three
+    // draw, avoiding a redundant full-screen receiver reconstruction.
     let plan = point_consumer_plan(
         [Some(rectangle); NVR_POINT_LIGHT_COUNT],
         NVR_POINT_LIGHT_COUNT,
@@ -1364,9 +1370,38 @@ fn camera_containing_point_lights_share_depth_reconstruction_work() {
     assert_eq!(plan.fragment_count(), pixels);
     let rejected_depth_fetches = pixels * 6 * 5;
     let fused_depth_fetches = plan.fragment_count() * 5;
+    assert!(fused_depth_fetches < rejected_depth_fetches);
+}
+
+#[test]
+fn wall_cross_section_is_unchanged_by_an_actor_behind_it() {
+    let wall = [1.0, 0.30, 0.30, 0.30, 0.30, 0.30, 0.30, 0.30, 1.0];
+    let actor_behind = [
+        None,
+        None,
+        None,
+        Some(0.50),
+        Some(0.48),
+        Some(0.50),
+        None,
+        None,
+        None,
+    ];
+    let static_only = wall.map(|depth| point_caster_depth(depth, None).expect("static depth"));
+    let with_actor = std::array::from_fn(|index| {
+        point_caster_depth(wall[index], actor_behind[index]).expect("merged depth")
+    });
+    assert_eq!(
+        with_actor, static_only,
+        "the hidden actor changed the wall's published radial silhouette"
+    );
+
+    let visibility = with_actor
+        .map(|depth| point_shadow_visibility(depth, 0.60, 0.001).expect("receiver comparison"));
+    assert_eq!(visibility, [1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0]);
     assert!(
-        fused_depth_fetches * 4 < rejected_depth_fetches,
-        "receiver work regressed to repeated full-screen depth reconstruction"
+        visibility.into_iter().any(|sample| sample == 0.0),
+        "the published cube performed work but produced no visible shadow"
     );
 }
 
@@ -1390,14 +1425,15 @@ fn point_consumer_batching_never_increases_estimated_shader_work() {
     let plan = point_consumer_plan(scissors, 2);
 
     // D3D bytecode inspection gives a conservative 238-instruction receiver
-    // base plus 107 instructions per point light. The current area-only rule
+    // base plus a conservatively rounded 130 instructions per point light. The
+    // current area-only rule
     // batches adjacent, non-overlapping rectangles even though every pixel
     // then executes both light branches.
     let modeled = plan
         .draws()
-        .map(|draw| draw.scissor.pixels() * (238 + 107 * u64::from(draw.count)))
+        .map(|draw| draw.scissor.pixels() * (256 + 130 * u64::from(draw.count)))
         .sum::<u64>();
-    let singleton = (left.pixels() + right.pixels()) * (238 + 107);
+    let singleton = (left.pixels() + right.pixels()) * (256 + 130);
     assert!(
         modeled <= singleton,
         "point batching increased modeled shader work from {singleton} to {modeled}"

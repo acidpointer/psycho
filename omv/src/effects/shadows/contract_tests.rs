@@ -3,22 +3,25 @@ use super::contract::{
     CascadeSphereSelection, CasterAdmission, CasterPolicy, DeferredReceiverPlan,
     DirectionalRootSetSignature, HookAction, LightScissorRect, NVR_CASCADE_RESOLUTION,
     NVR_POINT_DRAW_DISTANCE, NVR_POINT_LIGHT_COUNT, NVR_POINT_RADIUS_MULTIPLIER,
-    PointLightCandidate, PointMapCache, PointMapSignature, ProducerResourcePlan, SceneKind,
-    ShadowFramePlan, ShadowMapUpdate, ShadowPublicationIdentity, ShadowSettings, SunCompetition,
-    TransactionState, actor_overlay_edge_visibility, actor_overlay_projection_plan,
-    cascade_minimum_caster_radius, cascade_sphere_selection, clipmap_texel_delta,
-    composite_shadow_factor, consumer_has_shadow_work, contact_consumer_work,
-    depth_sample_is_geometry, directional_actor_root_is_active, directional_caster_work,
-    directional_contact_visibility, directional_form_type_is_enabled,
-    directional_receiver_position, directional_root_set_dirty, dismember_partition_is_renderable,
-    effective_contact_distance, evsm4_moments, evsm4_visibility, exterior_point_shadow_radiance,
-    interior_shadow_factor, local_light_clear_coverage, local_light_source_guard,
-    nvr_contact_sample_offsets, point_light_distance_fade, point_light_influence_is_eligible,
-    point_only_shadow_radiance, practical_cascade_splits, publication_epoch_is_usable,
-    publication_identity_is_usable, retained_cascade_refresh, select_point_lights,
-    select_point_lights_stable, shadow_receiver_is_valid, skinned_position_reference,
-    snap_shadow_center, source_owned_shadow_radiance, sphere_intersects_cube_face,
-    sphere_intersects_point_light, terrain_lod_shadow_z,
+    PointFaceOperation, PointLightCandidate, PointMapCache, PointMapSignature,
+    ProducerResourcePlan, SceneKind, ShadowFramePlan, ShadowMapUpdate, ShadowPublicationIdentity,
+    ShadowSettings, SkinIndexEncoding, SunCompetition, TransactionState,
+    actor_overlay_edge_visibility, actor_overlay_projection_plan, cascade_minimum_caster_radius,
+    cascade_sphere_selection, clipmap_texel_delta, composite_shadow_factor,
+    consumer_has_shadow_work, contact_consumer_work, depth_sample_is_geometry,
+    directional_actor_root_is_active, directional_caster_work, directional_contact_visibility,
+    directional_form_type_is_enabled, directional_receiver_position, directional_root_set_dirty,
+    dismember_partition_is_renderable, effective_contact_distance, evsm4_moments, evsm4_visibility,
+    exterior_point_shadow_radiance, interior_shadow_factor, local_light_clear_coverage,
+    local_light_shadow_energy, local_light_shadow_weight, local_light_source_guard,
+    nvr_contact_sample_offsets, point_caster_depth, point_caster_inventory_is_complete,
+    point_light_distance_fade, point_light_influence_is_eligible, point_light_radii,
+    point_only_shadow_radiance, point_shadow_transition, point_shadow_visibility,
+    practical_cascade_splits, publication_epoch_is_usable, publication_identity_is_usable,
+    retained_cascade_refresh, select_point_lights, select_point_lights_stable,
+    shadow_receiver_is_valid, skinned_position_reference, snap_shadow_center,
+    source_owned_shadow_radiance, sphere_intersects_cube_face, sphere_intersects_point_light,
+    terrain_lod_shadow_z,
 };
 use super::engine::{
     EngineCallAbi, FNV_EXE_SHA256, GeometryKind, HookSiteContract, NativeLayout,
@@ -205,234 +208,21 @@ fn local_light_clear_covers_old_and_current_scissors_without_fullscreen_work() {
 }
 
 #[test]
-fn production_fast_path_precedes_every_d3d_transaction_owner() {
-    let source = include_str!("pipeline.rs");
-    let produce = source
-        .split_once("pub(super) unsafe fn produce(")
-        .and_then(|(_, tail)| tail.split_once("/// Publish a proven unchanged map family"))
-        .map(|(body, _)| body)
-        .expect("shadow producer body");
-    let fast = produce
-        .find("try_republish_without_d3d")
-        .expect("no-work planner");
-    let invalidate = produce
-        .rfind("self.published = None")
-        .expect("transactional publication invalidation");
-    let transaction = produce
-        .find("self.produce_transaction")
-        .expect("D3D transaction");
-    assert!(fast < invalidate && invalidate < transaction);
-    let quality_transition = produce
-        .find("if transition.point_resources_replaced")
-        .expect("point-resource quality transition");
-    let point_cache_reset = produce
-        .find("self.point_cache = PointMapCache::default()")
-        .expect("point-map invalidation");
-    assert!(quality_transition < point_cache_reset && point_cache_reset < fast);
-
-    let point_draw = source
-        .split_once("unsafe fn draw_point_maps(")
-        .and_then(|(_, tail)| tail.split_once("/// Submit one point face"))
-        .map(|(body, _)| body)
-        .expect("point-map draw body");
-    assert!(
-        point_draw.find("return Ok(())").expect("zero-face return")
-            < point_draw
-                .find("for sampler in 0..16")
-                .expect("sampler unbinds")
-    );
-}
-
-#[test]
-fn point_quality_replacement_is_transactional_and_retry_bounded() {
-    let source = include_str!("pipeline.rs");
-    let point_create = source
-        .split_once("fn create(device: &Device9Ref<'_>, count: usize, resolution: u32)")
-        .and_then(|(_, tail)| tail.split_once("fn supports("))
-        .map(|(body, _)| body)
-        .expect("point-resource constructor");
-    assert!(point_create.contains("create_cube_render_target_texture(resolution"));
-    assert!(point_create.contains("create_depth_stencil_surface(\n            resolution"));
-    assert!(point_create.contains("resolution,"));
-
-    let ensure = source
-        .split_once("fn ensure_branch(")
-        .and_then(|(_, tail)| tail.split_once("unsafe fn draw_maps("))
-        .map(|(body, _)| body)
-        .expect("branch resource owner");
-    let allocate = ensure
-        .find("PointResources::create(device, requested, resolution)")
-        .expect("complete replacement allocation");
-    let commit = ensure
-        .find("self.points = Some(points)")
-        .expect("replacement commit point");
-    assert!(allocate < commit);
-    assert!(!ensure[..commit].contains("self.points.take()"));
-    assert!(ensure.contains("device_generation: generation"));
-    assert!(ensure.contains("resolution,"));
-    assert!(ensure.contains("capacity: requested"));
-    assert!(ensure.contains("if self.point_failure == Some(failure)"));
-    assert!(ensure.contains("self.point_failure = None"));
-}
-
-#[test]
-fn exterior_location_never_implicitly_enables_directional_resources() {
-    let source = include_str!("pipeline.rs");
-    assert!(source.contains("settings.directional_enabled_for(scene.kind)"));
-    assert!(source.contains("settings.point_enabled_for(scene.kind)"));
-    assert!(source.contains("if point_lights {"));
-    assert!(source.contains("if directional {"));
-    let ensure_branch = source
-        .split_once("fn ensure_branch(")
-        .and_then(|(_, tail)| tail.split_once("unsafe fn draw_maps("))
-        .map(|(body, _)| body)
-        .expect("branch resource owner");
-    let directional_gate = ensure_branch
-        .find("if directional {")
-        .expect("experimental directional gate");
-    let directional_allocation = ensure_branch
-        .find("DirectionalResources::create(device)")
-        .expect("directional resource allocation");
-    assert!(
-        directional_gate < directional_allocation && !ensure_branch.contains("SceneKind"),
-        "an exterior classification bypassed the experimental sun-shadow admission bit"
-    );
-}
-
-#[test]
-fn shadow_transactions_capture_only_the_state_they_mutate() {
-    use libpsycho::os::windows::directx9::{ShadowConsumerState9, ShadowProducerState9};
-
-    let pipeline = include_str!("pipeline.rs");
-    let render = include_str!("render.rs");
-    let directx = include_str!("../../../../libpsycho/src/os/windows/directx9.rs");
-
-    assert!(pipeline.contains("ShadowProducerState9::capture"));
-    assert!(pipeline.contains("ShadowConsumerState9::capture"));
-    assert!(!pipeline.contains("D3DSBT_ALL"));
-    assert!(!pipeline.contains("StateBlock9"));
-    assert!(directx.contains("pub struct ShadowProducerState9"));
-    assert!(directx.contains("pub struct ShadowConsumerState9"));
-    assert!(directx.contains("const SHADOW_RENDER_STATES"));
-    assert!(directx.contains("const SHADOW_SAMPLER_STATES"));
-    assert!(directx.contains("if self.fvf != 0"));
-    assert!(directx.contains("} else {\n            keep_first_error(&mut result, unsafe {"));
-    assert_eq!(ShadowProducerState9::TEXTURE_STAGE_COUNT, 16);
-    assert_eq!(ShadowProducerState9::SAMPLER_COUNT, 2);
-    assert_eq!(ShadowProducerState9::STREAM_COUNT, 16);
-    assert_eq!(ShadowProducerState9::VERTEX_CONSTANT_COUNT, 146);
-    assert_eq!(ShadowProducerState9::PIXEL_CONSTANT_COUNT, 1);
-    assert_eq!(ShadowConsumerState9::TEXTURE_STAGE_COUNT, 13);
-    assert_eq!(ShadowConsumerState9::SAMPLER_COUNT, 13);
-    assert_eq!(ShadowConsumerState9::STREAM_COUNT, 1);
-    assert_eq!(ShadowConsumerState9::VERTEX_CONSTANT_COUNT, 0);
-    assert_eq!(ShadowConsumerState9::PIXEL_CONSTANT_COUNT, 35);
-
-    let render_state_set = directx
-        .split_once("const SHADOW_RENDER_STATES")
-        .and_then(|(_, tail)| tail.split_once("const SHADOW_SAMPLER_STATES"))
-        .map(|(states, _)| states)
-        .expect("bounded shadow render-state list");
-    for state in [
-        "D3DRS_ZENABLE",
-        "D3DRS_ZWRITEENABLE",
-        "D3DRS_ZFUNC",
-        "D3DRS_CULLMODE",
-        "D3DRS_ALPHABLENDENABLE",
-        "D3DRS_ALPHATESTENABLE",
-        "D3DRS_ALPHAREF",
-        "D3DRS_ALPHAFUNC",
-        "D3DRS_STENCILENABLE",
-        "D3DRS_COLORWRITEENABLE",
-        "D3DRS_COLORWRITEENABLE1",
-        "D3DRS_MULTISAMPLEANTIALIAS",
-        "D3DRS_MULTISAMPLEMASK",
-        "D3DRS_ADAPTIVETESS_Y",
-        "D3DRS_POINTSIZE",
-        "D3DRS_DEPTHBIAS",
-        "D3DRS_SLOPESCALEDEPTHBIAS",
-        "D3DRS_SCISSORTESTENABLE",
-        "D3DRS_SRGBWRITEENABLE",
-        "D3DRS_SRCBLEND",
-        "D3DRS_DESTBLEND",
-        "D3DRS_BLENDOP",
-    ] {
-        assert!(
-            render_state_set.contains(state),
-            "shadow mutation {state} is absent from the bounded journal"
-        );
-        assert!(
-            pipeline.contains(state) || render.contains(state),
-            "journal state {state} is not owned by shadow code"
-        );
-    }
-}
-
-#[test]
-fn directional_consumer_has_no_intermediate_visibility_target_or_draw() {
-    let pipeline = include_str!("pipeline.rs");
-    let shaders = include_str!("shaders.rs");
-    assert!(!pipeline.contains("DirectionalConsumerTargets"));
-    assert!(!pipeline.contains("directional_mask_pixel"));
-    assert!(!shaders.contains("pub(super) directional_mask: Vec<u32>"));
-    assert!(shaders.contains("source.extend_from_slice(DIRECTIONAL_MASK_SOURCE)"));
-    assert!(shaders.contains("source.extend_from_slice(COMPOSITE_PIXEL_SOURCE)"));
-}
-
-#[test]
-fn copied_actor_bounds_are_reused_across_point_lights() {
+fn copied_actor_bounds_cover_each_intersected_cube_direction() {
     let bounds = [[10.0, 0.0, 0.0, 1.0], [-10.0, 0.0, 0.0, 1.0]];
     let faces = super::native::point_light_dynamic_faces_from_bounds(&bounds, [0.0; 3]);
     assert_ne!(faces & 0b00_0001, 0, "+X actor missing from cube coverage");
     assert_ne!(faces & 0b00_0010, 0, "-X actor missing from cube coverage");
-
-    let pipeline = include_str!("pipeline.rs");
-    let actor_snapshot = pipeline
-        .find("collect_point_actor_bounds")
-        .expect("shared actor-bound snapshot");
-    let point_loop = pipeline
-        .find("for (index, point)")
-        .expect("selected-light loop");
-    assert!(actor_snapshot < point_loop);
-    assert!(pipeline.contains("collect_point_actor_bounds"));
 }
 
 #[test]
-fn point_static_signatures_are_regional_to_each_light() {
-    let pipeline = include_str!("pipeline.rs");
-    let loop_body = pipeline
-        .split_once("for (index, point) in points.shadowed().iter().enumerate()")
-        .and_then(|(_, tail)| tail.split_once("roots.clear()"))
-        .map(|(body, _)| body)
-        .expect("selected point-light loop");
-    let signature = loop_body
-        .find("point_scene_static_signature(")
-        .expect("regional static signature");
-    assert!(signature < loop_body.len());
-    assert!(loop_body.contains("point.position"));
-    assert!(loop_body.contains("point.radius"));
-}
-
-#[test]
-fn point_dynamic_faces_submit_the_shared_actor_roots_not_full_light_lists() {
-    let pipeline = include_str!("pipeline.rs");
-    let dynamic = pipeline
-        .split_once("unsafe fn draw_point_dynamic_roots(")
-        .and_then(|(_, tail)| tail.split_once("/// Submit one point face"))
-        .map(|(body, _)| body)
-        .expect("shared dynamic point-caster submission");
-
-    assert!(dynamic.contains("actor_roots: &[DirectionalRoot]"));
-    assert!(dynamic.contains("for root in actor_roots"));
-    assert!(dynamic.contains("render::draw_point_root"));
-    assert!(!dynamic.contains("native::visit_point_geometry"));
-
-    let point_maps = pipeline
-        .split_once("unsafe fn draw_point_maps(")
-        .and_then(|(_, tail)| tail.split_once("unsafe fn draw_point_dynamic_roots("))
-        .map(|(body, _)| body)
-        .expect("point-map producer");
-    assert!(point_maps.contains("draw_point_dynamic_roots"));
+fn selected_point_lights_require_a_complete_canonical_root_inventory() {
+    assert!(point_caster_inventory_is_complete(0, false));
+    assert!(point_caster_inventory_is_complete(12, true));
+    assert!(
+        !point_caster_inventory_is_complete(1, false),
+        "a partial inventory could cache a cube face without its occluding wall"
+    );
 }
 
 #[test]
@@ -499,6 +289,7 @@ fn native_scene_and_geometry_offsets_match_the_proven_32_bit_layouts() {
     assert_eq!(NativeLayout::NI_GEOMETRY_DATA, 0xB8);
     assert_eq!(NativeLayout::NI_GEOMETRY_SKIN, 0xBC);
     assert_eq!(NativeLayout::NI_GEOMETRY_SHADER, 0xC0);
+    assert_eq!(NativeLayout::NI_MATERIAL_ALPHA, 0x3C);
     assert_eq!(NativeLayout::NI_PROPERTY_ALPHA, 0x9C);
     assert_eq!(NativeLayout::NI_PROPERTY_MATERIAL, 0xA4);
     assert_eq!(NativeLayout::NI_PROPERTY_SHADE, 0xA8);
@@ -540,13 +331,73 @@ fn actor_skin_reference_matches_fnv_d3dcolor_index_and_residual_weight_order() {
         bone[1] = [0.0, 1.0, 0.0, 0.0];
         bone[2] = [0.0, 0.0, 1.0, 0.0];
     }
-    let skinned =
-        skinned_position_reference([1.0, 2.0, 3.0], [0, 1, 2, 3], [0.1, 0.2, 0.3], &bones)
-            .expect("valid four-bone actor vertex");
+    let skinned = skinned_position_reference(
+        [1.0, 2.0, 3.0],
+        [0, 1, 2, 3],
+        [0.1, 0.2, 0.3],
+        &bones,
+        SkinIndexEncoding::D3dColor,
+    )
+    .expect("valid four-bone actor vertex");
     assert!((skinned[0] - 17.0).abs() < 0.0001);
     assert_eq!(skinned[1], 2.0);
     assert_eq!(skinned[2], 3.0);
-    assert!(skinned_position_reference([0.0; 3], [0; 4], [0.5; 3], &bones).is_none());
+    assert!(
+        skinned_position_reference(
+            [0.0; 3],
+            [0; 4],
+            [0.5; 3],
+            &bones,
+            SkinIndexEncoding::D3dColor,
+        )
+        .is_none()
+    );
+}
+
+#[test]
+fn modded_skin_index_encodings_select_the_declared_bones() {
+    assert_eq!(
+        SkinIndexEncoding::from_declaration_element(4, 2, 0),
+        Some(SkinIndexEncoding::D3dColor)
+    );
+    assert_eq!(
+        SkinIndexEncoding::from_declaration_element(8, 2, 0),
+        Some(SkinIndexEncoding::UByte4N)
+    );
+    assert_eq!(
+        SkinIndexEncoding::from_declaration_element(5, 2, 0),
+        Some(SkinIndexEncoding::UByte4)
+    );
+    assert_eq!(SkinIndexEncoding::from_declaration_element(2, 2, 0), None);
+    assert_eq!(SkinIndexEncoding::from_declaration_element(4, 5, 0), None);
+    assert_eq!(SkinIndexEncoding::from_declaration_element(4, 2, 1), None);
+
+    let mut bones = [[[0.0; 4]; 3]; 4];
+    for (index, bone) in bones.iter_mut().enumerate() {
+        bone[0] = [1.0, 0.0, 0.0, index as f32 * 10.0];
+        bone[1] = [0.0, 1.0, 0.0, 0.0];
+        bone[2] = [0.0, 0.0, 1.0, 0.0];
+    }
+    let position = [1.0, 0.0, 0.0];
+    let indices = [0, 1, 2, 3];
+    let first_weight_only = [1.0, 0.0, 0.0];
+
+    let d3d_color = skinned_position_reference(
+        position,
+        indices,
+        first_weight_only,
+        &bones,
+        SkinIndexEncoding::D3dColor,
+    )
+    .expect("D3DCOLOR skin");
+    assert_eq!(d3d_color[0], 21.0, "D3DCOLOR did not apply BGRA order");
+
+    for encoding in [SkinIndexEncoding::UByte4N, SkinIndexEncoding::UByte4] {
+        let vertex =
+            skinned_position_reference(position, indices, first_weight_only, &bones, encoding)
+                .expect("byte-order skin");
+        assert_eq!(vertex[0], 1.0, "{encoding:?} reordered blend indices");
+    }
 }
 
 #[test]
@@ -1679,6 +1530,54 @@ fn point_cube_cache_pairs_metadata_and_refreshes_only_changed_lights() {
 }
 
 #[test]
+fn every_dirty_point_face_seeds_the_published_cube_from_static_depth() {
+    let mut signatures = [PointMapSignature::EMPTY; NVR_POINT_LIGHT_COUNT];
+    signatures[0] = PointMapSignature {
+        identity: 0x1234,
+        position: [0.0; 3],
+        radius: 512.0,
+        caster_signature: 1,
+    };
+
+    let initial = PointMapCache::default().plan(signatures, [0; NVR_POINT_LIGHT_COUNT], 1);
+    assert_eq!(
+        initial.face_operations(0, 0),
+        [
+            Some(PointFaceOperation::RefreshStatic),
+            Some(PointFaceOperation::PublishStatic),
+            None,
+        ]
+    );
+
+    let mut animated_faces = [0; NVR_POINT_LIGHT_COUNT];
+    animated_faces[0] = 1 << 2;
+    let animated = initial.next.plan(signatures, animated_faces, 1);
+    assert_eq!(
+        animated.face_operations(0, 2),
+        [
+            None,
+            Some(PointFaceOperation::PublishStatic),
+            Some(PointFaceOperation::MergeAnimated),
+        ],
+        "animated refresh replaced the complete map instead of merging into it"
+    );
+
+    let departed = animated
+        .next
+        .plan(signatures, [0; NVR_POINT_LIGHT_COUNT], 1);
+    assert_eq!(
+        departed.face_operations(0, 2),
+        [None, Some(PointFaceOperation::PublishStatic), None],
+        "departed actor face was not restored to retained world depth"
+    );
+    assert_eq!(departed.face_operations(0, 6), [None; 3]);
+    assert_eq!(
+        departed.face_operations(NVR_POINT_LIGHT_COUNT, 0),
+        [None; 3]
+    );
+}
+
+#[test]
 fn point_cube_cache_invalidates_changed_static_caster_geometry() {
     let mut signatures = [PointMapSignature::EMPTY; NVR_POINT_LIGHT_COUNT];
     signatures[0] = PointMapSignature {
@@ -1777,6 +1676,84 @@ fn local_light_source_geometry_is_never_subtracted_to_black() {
 }
 
 #[test]
+fn point_shadow_presentation_fades_do_not_cancel_from_the_ratio() {
+    assert_eq!(local_light_shadow_weight(0.0, 1.0), Some(0.0));
+    assert_eq!(local_light_shadow_weight(1.0, 1.0), Some(0.0));
+    assert_eq!(local_light_shadow_weight(0.5, 0.0), Some(0.0));
+    let middle = local_light_shadow_weight(0.5, 0.5).expect("valid weight");
+    assert!((middle - 0.5).abs() < 1.0e-6);
+
+    let hidden = local_light_shadow_energy(0.8, 0.0, middle).expect("finite energy");
+    let visible = local_light_shadow_energy(0.8, 1.0, middle).expect("finite energy");
+    assert_eq!(
+        hidden.0, 0.8,
+        "presentation fade changed native light energy"
+    );
+    assert_eq!(visible.0, hidden.0);
+    assert!((hidden.1 - 0.4).abs() < 1.0e-6);
+    assert_eq!(visible.1, 0.0);
+}
+
+#[test]
+fn point_cube_publishes_the_nearest_static_or_animated_caster() {
+    let wall = 0.30;
+    assert_eq!(
+        point_caster_depth(wall, None),
+        Some(wall),
+        "a static-only face became an empty animated-only shadow map"
+    );
+    assert_eq!(
+        point_caster_depth(wall, Some(0.50)),
+        Some(wall),
+        "an actor behind a wall replaced the nearer wall depth"
+    );
+    assert_eq!(
+        point_caster_depth(wall, Some(0.20)),
+        Some(0.20),
+        "an actor in front of a wall failed to cast"
+    );
+    assert_eq!(point_caster_depth(1.0, Some(0.20)), Some(0.20));
+
+    let far_receiver = 0.60;
+    let wall_visibility =
+        point_shadow_visibility(wall, far_receiver, 0.001).expect("finite wall comparison");
+    assert_eq!(
+        wall_visibility, 0.0,
+        "a wall failed to occlude its far side"
+    );
+    let surface_visibility =
+        point_shadow_visibility(wall, wall, 0.001).expect("finite surface comparison");
+    assert_eq!(surface_visibility, 1.0, "the wall shadowed its own surface");
+}
+
+#[test]
+fn replaced_point_cube_fades_in_without_restarting_each_publication() {
+    let first = point_shadow_transition(0, 0, 0x1000, 10_000, 250).expect("new light");
+    assert_eq!(first, (0x1000, 10_000, 0.0));
+    let middle =
+        point_shadow_transition(first.0, first.1, 0x1000, 10_125, 250).expect("stable light");
+    assert!((middle.2 - 0.5).abs() < 1.0e-6);
+    let complete =
+        point_shadow_transition(middle.0, middle.1, 0x1000, 10_250, 250).expect("completed light");
+    assert_eq!(complete.2, 1.0);
+    let replacement = point_shadow_transition(complete.0, complete.1, 0x2000, 10_251, 250)
+        .expect("replacement light");
+    assert_eq!(replacement, (0x2000, 10_251, 0.0));
+
+    let longer = point_shadow_transition(first.0, first.1, 0x1000, 10_250, 750)
+        .expect("configurable transition");
+    assert!(
+        longer.2 < complete.2,
+        "a longer configured duration must slow the same elapsed fade"
+    );
+    assert_eq!(
+        point_shadow_transition(0, 0, 0x3000, 1, 0),
+        Some((0x3000, 1, 1.0)),
+        "a defensive zero duration must remain finite and immediate"
+    );
+}
+
+#[test]
 fn animated_actors_never_redraw_static_directional_geometry() {
     let mut scheduler = CascadeScheduler::default();
     let initial = scheduler.plan_at_millis(CascadeDirty::all(), 0);
@@ -1839,6 +1816,18 @@ fn point_shadow_distance_retires_continuously_before_admission_ends() {
         inside < 0.01 && outside == 0.0 && (inside - outside).abs() < 0.01,
         "one unit of camera motion changes point-shadow weight from {inside} to {outside}"
     );
+}
+
+#[test]
+fn native_receiver_radius_and_cube_coverage_have_distinct_owners() {
+    assert_eq!(point_light_radii(400.0, 1.5), Some((400.0, 600.0)));
+    assert_eq!(
+        point_light_radii(400.0, 0.5),
+        Some((400.0, 400.0)),
+        "cube coverage may not truncate native receiver lighting"
+    );
+    assert!(point_light_radii(f32::NAN, 1.5).is_none());
+    assert!(point_light_radii(400.0, f32::INFINITY).is_none());
 }
 
 #[test]

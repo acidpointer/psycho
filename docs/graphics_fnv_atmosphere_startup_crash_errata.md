@@ -568,3 +568,44 @@ Inspection proves that `PIPELINE` remains `0xA28`; `.bss` remains `0x6B10`,
 remains `0x18`, and the import-address table remains `0x6BC`. The current
 `.data` is `0x15744` and `.reloc` is `0x37BF8`; those changed final-image
 sections reinforce, rather than remove, the load-to-gameplay requirement.
+
+### 2026-08-15 detached dynamic-shadow fade field
+
+The configurable point-shadow transition appends
+`dynamic_shadow_fade_seconds` after `dynamic_shadow_quality` in the same
+detached `[graphics.native_shadows]` table. The dedicated parser remains first
+called at DeferredInit. `GraphicsConfig`, `GraphicsMenuConfig`,
+`RuntimeSettings`, Current Look startup snapshots, preset manifests/payloads,
+and `DeferredHookSettings` do not gain the field. Schema version one and every
+released field name, type, and relative order remain unchanged; a missing value
+selects the 0.75-second default without migration work.
+
+The post-Deferred settings publisher stores the sanitized millisecond value in
+unused bits of the established light-count `AtomicU32`. This intentionally adds
+no static atomic and does not change `.bss`, the `PIPELINE` compatibility owner,
+TLS, a lazy owner, lock, thread, worker request, parser phase, hook admission,
+or world publication order. The wall-transport correction changes only
+post-Deferred shader payload, boxed pipeline/resource code, and render-time
+binding. It retains the two existing cube families and adds no persistent D3D
+resource.
+
+These source facts bound the new startup delta but do not accept the final
+image. The final OMV binary and detached table shape still differ from commit
+`9975b2e`, which remains the last documented load-to-gameplay baseline. Closure
+requires strict config/startup tests, the full supported-target suite and
+release build, exact `PIPELINE`/PE footprint comparison, and repeated cold
+Proton load-to-gameplay runs with BaseObjectSwapper installed. Record hashes,
+section/import results, and runtime evidence here only after those gates pass.
+
+Static closure passes all 676 explicit supported-target OMV tests plus doc
+tests, including 166 focused Shadows tests, and the release build completes
+without warnings. The artifact is 12,933,163 bytes with SHA-256
+`3df20252d7c5be54b390514fa2f0f8b127e9a8882d815f79efde7ba5461f3f87`.
+The owner-size test retains `PIPELINE = 0xA28`; PE inspection retains
+`.bss = 0x6B10`, `.idata = 0x340C`, `.tls = 0x8`, thread-storage directory
+`0x18`, IAT `0x6BC`, and the documented imported-DLL/function set. The D3D9
+execution test resolves its desktop-window fallback dynamically, so it adds no
+static USER32 import. Current changed sections are `.text = 0x5620A8`,
+`.rdata = 0x2A3F14`, `.data = 0x15C24`, `.eh_fram = 0x7DD90`, and
+`.reloc = 0x381C0`. These are static footprint facts, not load-to-gameplay
+acceptance.

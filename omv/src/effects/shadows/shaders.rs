@@ -16,6 +16,8 @@ use std::{
 use anyhow::Result;
 use parking_lot::Mutex;
 
+use super::contract::SkinIndexEncoding;
+
 /// Quality-preserving directional caster vertex shader.
 pub(super) const DIRECTIONAL_VERTEX_SOURCE: &[u8] =
     include_bytes!("../../../shaders/embedded/shadow_directional.vs.hlsl");
@@ -127,6 +129,23 @@ pub(super) fn point_accumulation_source(capacity: usize) -> Vec<u8> {
     source
 }
 
+/// Build one caster vertex source for a D3D9 blend-index declaration type.
+///
+/// Encoding zero is normalized, channel-swizzled `D3DCOLOR`; one is
+/// normalized `UBYTE4N`; two is raw `UBYTE4`. The engine and mods use all
+/// three declaration forms for skinned partitions, so production prepares the
+/// complete family before publishing any shadow bytecode.
+pub(super) fn skin_vertex_source(source: &[u8], encoding: SkinIndexEncoding) -> Vec<u8> {
+    let define = format!(
+        "#define OMV_BLEND_INDEX_ENCODING {}\n",
+        encoding.shader_index()
+    );
+    let mut specialized = Vec::with_capacity(define.len() + source.len());
+    specialized.extend_from_slice(define.as_bytes());
+    specialized.extend_from_slice(source);
+    specialized
+}
+
 static PREPARATION_STARTED: AtomicBool = AtomicBool::new(false);
 static PREPARATION_READY: AtomicBool = AtomicBool::new(false);
 static PREPARATION_FAILED: AtomicBool = AtomicBool::new(false);
@@ -135,11 +154,11 @@ static BYTECODE: LazyLock<Mutex<Option<Arc<ShadowBytecode>>>> = LazyLock::new(||
 /// Complete immutable bytecode family required by shadow production/consume.
 pub(super) struct ShadowBytecode {
     /// Directional caster vertex program.
-    pub(super) directional_vertex: Vec<u32>,
+    pub(super) directional_vertex: [Vec<u32>; 3],
     /// Directional EVSM4 caster pixel program.
     pub(super) directional_pixel: Vec<u32>,
     /// Point-cube caster vertex program.
-    pub(super) cube_vertex: Vec<u32>,
+    pub(super) cube_vertex: [Vec<u32>; 3],
     /// Point-cube radial-depth pixel program.
     pub(super) cube_pixel: Vec<u32>,
     /// Exact EVSM4 far-moment clear program.
@@ -165,17 +184,45 @@ pub(super) struct ShadowBytecode {
 impl ShadowBytecode {
     fn compile() -> Result<Self> {
         Ok(Self {
-            directional_vertex: compile(
-                "shadow_directional.vs.hlsl",
-                DIRECTIONAL_VERTEX_SOURCE,
-                "vs_3_0",
-            )?,
+            directional_vertex: [
+                compile(
+                    "shadow_directional_d3dcolor.vs.hlsl",
+                    &skin_vertex_source(DIRECTIONAL_VERTEX_SOURCE, SkinIndexEncoding::D3dColor),
+                    "vs_3_0",
+                )?,
+                compile(
+                    "shadow_directional_ubyte4n.vs.hlsl",
+                    &skin_vertex_source(DIRECTIONAL_VERTEX_SOURCE, SkinIndexEncoding::UByte4N),
+                    "vs_3_0",
+                )?,
+                compile(
+                    "shadow_directional_ubyte4.vs.hlsl",
+                    &skin_vertex_source(DIRECTIONAL_VERTEX_SOURCE, SkinIndexEncoding::UByte4),
+                    "vs_3_0",
+                )?,
+            ],
             directional_pixel: compile(
                 "shadow_directional.hlsl",
                 DIRECTIONAL_PIXEL_SOURCE,
                 "ps_3_0",
             )?,
-            cube_vertex: compile("shadow_cube.vs.hlsl", CUBE_VERTEX_SOURCE, "vs_3_0")?,
+            cube_vertex: [
+                compile(
+                    "shadow_cube_d3dcolor.vs.hlsl",
+                    &skin_vertex_source(CUBE_VERTEX_SOURCE, SkinIndexEncoding::D3dColor),
+                    "vs_3_0",
+                )?,
+                compile(
+                    "shadow_cube_ubyte4n.vs.hlsl",
+                    &skin_vertex_source(CUBE_VERTEX_SOURCE, SkinIndexEncoding::UByte4N),
+                    "vs_3_0",
+                )?,
+                compile(
+                    "shadow_cube_ubyte4.vs.hlsl",
+                    &skin_vertex_source(CUBE_VERTEX_SOURCE, SkinIndexEncoding::UByte4),
+                    "vs_3_0",
+                )?,
+            ],
             cube_pixel: compile("shadow_cube.hlsl", CUBE_PIXEL_SOURCE, "ps_3_0")?,
             far_clear_pixel: compile("shadow_far_clear.hlsl", FAR_CLEAR_PIXEL_SOURCE, "ps_3_0")?,
             point_accumulation_one: compile(
@@ -218,10 +265,8 @@ impl ShadowBytecode {
     }
 
     fn program_metrics(&self) -> (usize, usize) {
-        let programs = [
-            &self.directional_vertex,
+        let fixed = [
             &self.directional_pixel,
-            &self.cube_vertex,
             &self.cube_pixel,
             &self.far_clear_pixel,
             &self.point_accumulation_one,
@@ -233,7 +278,16 @@ impl ShadowBytecode {
             &self.exterior_point_only_composite,
             &self.directional_composite,
         ];
-        (programs.len(), programs.into_iter().map(Vec::len).sum())
+        let vertex_words = self
+            .directional_vertex
+            .iter()
+            .chain(self.cube_vertex.iter())
+            .map(Vec::len)
+            .sum::<usize>();
+        (
+            fixed.len() + self.directional_vertex.len() + self.cube_vertex.len(),
+            fixed.into_iter().map(Vec::len).sum::<usize>() + vertex_words,
+        )
     }
 }
 

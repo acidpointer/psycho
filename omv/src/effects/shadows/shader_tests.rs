@@ -1,10 +1,11 @@
+use super::contract::SkinIndexEncoding;
 use super::contract::contact_consumer_work;
 use super::shaders::{
     COMPOSITE_PIXEL_SOURCE, CONTACT_SOURCE, CUBE_PIXEL_SOURCE, CUBE_VERTEX_SOURCE,
     DIRECTIONAL_MASK_SOURCE, DIRECTIONAL_PIXEL_SOURCE, DIRECTIONAL_VERTEX_SOURCE,
     FAR_CLEAR_PIXEL_SOURCE, POINT_ACCUMULATION_SOURCE, directional_composite_source,
     exterior_composite_source, exterior_point_only_composite_source, point_accumulation_source,
-    point_only_composite_source,
+    point_only_composite_source, skin_vertex_source,
 };
 
 fn instruction_count(bytecode: &[u32]) -> usize {
@@ -129,25 +130,24 @@ fn every_shadow_shader_compiles_for_shader_model_three_with_static_budgets() {
             "shadow_point_accumulate_1.ps",
             point_one.as_slice(),
             "ps_3_0",
-            // The additive receiver-depth ownership pair costs six scalar
-            // instructions over the former one-light program.
-            360,
+            // Dynamic depth, source-owned energy, and transition weighting
+            // retain narrow compiler headroom.
+            384,
         ),
         (
             "shadow_point_accumulate_6.ps",
             point_six.as_slice(),
             "ps_3_0",
-            // Same ownership pair with narrow compiler headroom.
-            896,
+            // The shared receiver reconstruction remains bounded when six
+            // complete point cubes overlap.
+            1_032,
         ),
         (
             "shadow_point_accumulate_12.ps",
             point_twelve.as_slice(),
             "ps_3_0",
-            // The exact edge-aware receiver plus twelve RGB light evaluations
-            // retains narrow compiler-alignment headroom while eliminating
-            // two redundant full-resolution passes.
-            1_544,
+            // All configured local lights fit beside scene depth in one draw.
+            1_664,
         ),
         (
             "shadow_contact.ps",
@@ -224,6 +224,26 @@ fn every_shadow_shader_compiles_for_shader_model_three_with_static_budgets() {
         compiled_programs.push((name, bytecode));
     }
     assert_eq!(compiled_programs.len(), 14);
+}
+
+#[test]
+fn every_supported_skin_index_declaration_has_a_compiled_vertex_program() {
+    for (family, source, budget) in [
+        ("directional", DIRECTIONAL_VERTEX_SOURCE, 430),
+        ("cube", CUBE_VERTEX_SOURCE, 190),
+    ] {
+        for encoding in SkinIndexEncoding::ALL {
+            let name = format!("shadow_{family}_skin_{}.vs", encoding.shader_index());
+            let specialized = skin_vertex_source(source, encoding);
+            let bytecode =
+                crate::shaders::compile_hlsl_source_target(&name, &specialized, "vs_3_0")
+                    .unwrap_or_else(|error| panic!("{name} must compile: {error:#}"));
+            assert!(
+                instruction_count(&bytecode) <= budget,
+                "{name} exceeds the established {family} vertex budget"
+            );
+        }
+    }
 }
 
 #[test]

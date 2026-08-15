@@ -23,7 +23,7 @@ use ash::vk;
 use thiserror::Error;
 
 pub use windows::Win32::Foundation::RECT;
-use windows::Win32::Foundation::{E_FAIL, E_NOINTERFACE, E_POINTER, HANDLE};
+use windows::Win32::Foundation::{E_FAIL, E_NOINTERFACE, E_POINTER, HANDLE, HWND};
 use windows::Win32::Graphics::Direct3D::ID3DBlob;
 pub use windows::Win32::Graphics::Direct3D9::{
     D3D_SDK_VERSION, D3DBLEND_DESTCOLOR, D3DBLEND_ONE, D3DBLEND_ZERO, D3DBLENDOP_ADD,
@@ -48,19 +48,21 @@ pub use windows::Win32::Graphics::Direct3D9::{
 };
 use windows::Win32::Graphics::Direct3D9::{
     D3DADAPTER_DEFAULT, D3DADAPTER_IDENTIFIER9, D3DBACKBUFFER_TYPE, D3DBACKBUFFER_TYPE_MONO,
-    D3DDEVICE_CREATION_PARAMETERS, D3DDISPLAYMODE, D3DLOCK_DISCARD, D3DLOCKED_RECT,
-    D3DPMISCCAPS_MRTINDEPENDENTBITDEPTHS, D3DPOOL, D3DPRESENT_PARAMETERS, D3DPRIMITIVETYPE,
-    D3DRECT, D3DRENDERSTATETYPE, D3DRESOURCETYPE, D3DSAMPLERSTATETYPE, D3DSTATEBLOCKTYPE,
-    D3DTEXTUREFILTERTYPE, D3DTEXTURESTAGESTATETYPE, D3DUSAGE_DEPTHSTENCIL, D3DUSAGE_DYNAMIC,
-    D3DUSAGE_QUERY_FILTER, D3DUSAGE_QUERY_POSTPIXELSHADER_BLENDING, D3DUSAGE_RENDERTARGET,
-    D3DVERTEXELEMENT9, Direct3DCreate9, IDirect3D9, IDirect3DBaseTexture9, IDirect3DCubeTexture9,
-    IDirect3DDevice9, IDirect3DIndexBuffer9, IDirect3DPixelShader9, IDirect3DStateBlock9,
-    IDirect3DSurface9, IDirect3DTexture9, IDirect3DVertexBuffer9, IDirect3DVertexDeclaration9,
-    IDirect3DVertexShader9,
+    D3DCREATE_SOFTWARE_VERTEXPROCESSING, D3DDEVICE_CREATION_PARAMETERS, D3DDISPLAYMODE,
+    D3DLOCK_DISCARD, D3DLOCK_READONLY, D3DLOCKED_RECT, D3DPMISCCAPS_MRTINDEPENDENTBITDEPTHS,
+    D3DPOOL, D3DPOOL_SYSTEMMEM, D3DPRESENT_INTERVAL_IMMEDIATE, D3DPRESENT_PARAMETERS,
+    D3DPRIMITIVETYPE, D3DRECT, D3DRENDERSTATETYPE, D3DRESOURCETYPE, D3DSAMPLERSTATETYPE,
+    D3DSTATEBLOCKTYPE, D3DSWAPEFFECT_DISCARD, D3DTEXTUREFILTERTYPE, D3DTEXTURESTAGESTATETYPE,
+    D3DUSAGE_DEPTHSTENCIL, D3DUSAGE_DYNAMIC, D3DUSAGE_QUERY_FILTER,
+    D3DUSAGE_QUERY_POSTPIXELSHADER_BLENDING, D3DUSAGE_RENDERTARGET, D3DVERTEXELEMENT9,
+    Direct3DCreate9, IDirect3D9, IDirect3DBaseTexture9, IDirect3DCubeTexture9, IDirect3DDevice9,
+    IDirect3DIndexBuffer9, IDirect3DPixelShader9, IDirect3DStateBlock9, IDirect3DSurface9,
+    IDirect3DTexture9, IDirect3DVertexBuffer9, IDirect3DVertexDeclaration9, IDirect3DVertexShader9,
 };
 pub use windows::core::Error as Direct3DError;
 use windows::core::{
-    GUID, HRESULT, IUnknown, IUnknown_Vtbl, Interface, InterfaceRef, PCSTR, Result as WindowsResult,
+    BOOL, GUID, HRESULT, IUnknown, IUnknown_Vtbl, Interface, InterfaceRef, PCSTR,
+    Result as WindowsResult,
 };
 
 use Direct3DError as WindowsError;
@@ -706,6 +708,51 @@ impl<'a> Device9Ref<'a> {
         surface
             .map(Surface9::new)
             .ok_or_else(|| WindowsError::from_hresult(E_POINTER))
+    }
+
+    /// Create a CPU-readable system-memory surface for render-target readback.
+    ///
+    /// D3D9 requires [`Self::copy_render_target_data`] to copy from a
+    /// non-multisampled render target into this pool before the surface can be
+    /// locked. Dimensions and format must exactly match the source.
+    pub fn create_system_memory_surface(
+        &self,
+        width: u32,
+        height: u32,
+        format: D3DFORMAT,
+    ) -> Direct3DResult<Surface9> {
+        if width == 0 || height == 0 {
+            return Err(direct3d_failure());
+        }
+        let mut surface = None;
+        unsafe {
+            self.inner.CreateOffscreenPlainSurface(
+                width,
+                height,
+                format,
+                D3DPOOL_SYSTEMMEM,
+                &mut surface,
+                null_mut::<HANDLE>(),
+            )?;
+        }
+        surface
+            .map(Surface9::new)
+            .ok_or_else(|| WindowsError::from_hresult(E_POINTER))
+    }
+
+    /// Copy a single-sample render target into matching system memory.
+    ///
+    /// This is an explicit GPU synchronization point and is intended for
+    /// diagnostics or tests, never a presentation hot path.
+    pub fn copy_render_target_data(
+        &self,
+        source: &Surface9,
+        destination: &Surface9,
+    ) -> Direct3DResult<()> {
+        unsafe {
+            self.inner
+                .GetRenderTargetData(source.as_inner(), destination.as_inner())
+        }
     }
 
     /// Create a default-pool depth/stencil surface with an explicit sample mode.
@@ -1548,6 +1595,57 @@ impl Direct3D9 {
         Ok(mode)
     }
 
+    /// Create a small windowed device for isolated graphics validation.
+    ///
+    /// The caller supplies a live window identity but transfers no ownership.
+    /// Software vertex processing avoids depending on hardware transform
+    /// support; pixel-shader and render-target capabilities still come from
+    /// `device_type`. Production renderer integrations should continue to
+    /// borrow the host's existing device rather than creating another one.
+    pub fn create_windowed_device(
+        &self,
+        window: *mut c_void,
+        width: u32,
+        height: u32,
+        device_type: D3DDEVTYPE,
+    ) -> Direct3DResult<Device9> {
+        if window.is_null() || width == 0 || height == 0 {
+            return Err(direct3d_failure());
+        }
+        let display = self.adapter_display_mode(D3DADAPTER_DEFAULT)?;
+        let hwnd = HWND(window);
+        let mut parameters = D3DPRESENT_PARAMETERS {
+            BackBufferWidth: width,
+            BackBufferHeight: height,
+            BackBufferFormat: display.Format,
+            BackBufferCount: 1,
+            MultiSampleType: D3DMULTISAMPLE_NONE,
+            MultiSampleQuality: 0,
+            SwapEffect: D3DSWAPEFFECT_DISCARD,
+            hDeviceWindow: hwnd,
+            Windowed: BOOL(1),
+            EnableAutoDepthStencil: BOOL(0),
+            AutoDepthStencilFormat: D3DFORMAT::default(),
+            Flags: 0,
+            FullScreen_RefreshRateInHz: 0,
+            PresentationInterval: D3DPRESENT_INTERVAL_IMMEDIATE as u32,
+        };
+        let mut device = None;
+        unsafe {
+            self.inner.CreateDevice(
+                D3DADAPTER_DEFAULT,
+                device_type,
+                hwnd,
+                D3DCREATE_SOFTWARE_VERTEXPROCESSING as u32,
+                &mut parameters,
+                &mut device,
+            )?;
+        }
+        device
+            .map(|inner| Device9 { inner })
+            .ok_or_else(|| WindowsError::from_hresult(E_POINTER))
+    }
+
     /// Check whether a resource format is supported by the adapter.
     pub fn check_device_format(
         &self,
@@ -1689,6 +1787,27 @@ pub struct Surface9 {
     inner: IDirect3DSurface9,
 }
 
+struct SurfaceLockGuard<'a> {
+    surface: &'a IDirect3DSurface9,
+    active: bool,
+}
+
+impl SurfaceLockGuard<'_> {
+    fn unlock(mut self) -> Direct3DResult<()> {
+        let result = unsafe { self.surface.UnlockRect() };
+        self.active = false;
+        result
+    }
+}
+
+impl Drop for SurfaceLockGuard<'_> {
+    fn drop(&mut self) {
+        if self.active {
+            let _ = unsafe { self.surface.UnlockRect() };
+        }
+    }
+}
+
 // Safety: this wrapper only owns a COM reference. Callers must still obey the
 // D3D device threading contract for actual resource use.
 unsafe impl Send for Surface9 {}
@@ -1718,6 +1837,66 @@ impl Surface9 {
         let mut desc = D3DSURFACE_DESC::default();
         unsafe { self.inner.GetDesc(&mut desc)? };
         Ok(desc)
+    }
+
+    /// Copy every pixel from a system-memory `R32F` surface.
+    ///
+    /// Row pitch is validated independently from logical width, and each float
+    /// is read unaligned because D3D guarantees byte addressing rather than a
+    /// Rust alignment contract. Other formats or non-system-memory surfaces
+    /// are rejected.
+    pub fn read_r32f(&self) -> Direct3DResult<Vec<f32>> {
+        let desc = self.desc()?;
+        if desc.Format != D3DFMT_R32F || desc.Pool != D3DPOOL_SYSTEMMEM {
+            return Err(direct3d_failure());
+        }
+        let row_bytes = usize::try_from(desc.Width)
+            .ok()
+            .and_then(|width| width.checked_mul(size_of::<f32>()))
+            .ok_or_else(direct3d_failure)?;
+        let pixel_count = usize::try_from(desc.Width)
+            .ok()
+            .and_then(|width| {
+                usize::try_from(desc.Height)
+                    .ok()
+                    .and_then(|height| width.checked_mul(height))
+            })
+            .ok_or_else(direct3d_failure)?;
+        let mut locked = D3DLOCKED_RECT::default();
+        unsafe {
+            self.inner
+                .LockRect(&mut locked, null(), D3DLOCK_READONLY as u32)?;
+        }
+        let guard = SurfaceLockGuard {
+            surface: &self.inner,
+            active: true,
+        };
+        let pitch = usize::try_from(locked.Pitch).map_err(|_| direct3d_failure())?;
+        let addressed_bytes = usize::try_from(desc.Height)
+            .ok()
+            .and_then(|height| height.checked_sub(1))
+            .and_then(|last_row| last_row.checked_mul(pitch))
+            .and_then(|last_offset| last_offset.checked_add(row_bytes));
+        if locked.pBits.is_null()
+            || pitch < row_bytes
+            || addressed_bytes.is_none_or(|bytes| bytes > isize::MAX as usize)
+        {
+            return Err(direct3d_failure());
+        }
+        let mut pixels = Vec::with_capacity(pixel_count);
+        let base = locked.pBits.cast::<u8>();
+        for row in 0..desc.Height as usize {
+            let row = unsafe { base.add(row * pitch) };
+            for column in 0..desc.Width as usize {
+                pixels.push(unsafe {
+                    row.add(column * size_of::<f32>())
+                        .cast::<f32>()
+                        .read_unaligned()
+                });
+            }
+        }
+        guard.unlock()?;
+        Ok(pixels)
     }
 
     /// Read a description from a borrowed raw `IDirect3DSurface9`.
@@ -2298,10 +2477,10 @@ impl ShadowProducerState9 {
 
 /// Exact D3D9 state journal for OMV's fullscreen shadow consumer.
 ///
-/// Only texture/sampler stages `0..12`, stream zero, PS constants `c0..c34`,
+/// Only texture/sampler stages `0..12`, stream zero, PS constants `c0..c42`,
 /// and the fixed draw-state set are captured. Stage twelve is the last cube
 /// sampler in the twelve-light batch. This avoids unrelated device state.
-pub struct ShadowConsumerState9(ShadowDrawState9<13, 13, 1, 0, 35>);
+pub struct ShadowConsumerState9(ShadowDrawState9<13, 13, 1, 0, 43>);
 
 impl ShadowConsumerState9 {
     /// Number of pixel texture/sampler stages owned by the consumer journal.
@@ -2313,7 +2492,7 @@ impl ShadowConsumerState9 {
     /// Vertex constant rows captured from `c0`.
     pub const VERTEX_CONSTANT_COUNT: usize = 0;
     /// Pixel constant rows captured from `c0`.
-    pub const PIXEL_CONSTANT_COUNT: usize = 35;
+    pub const PIXEL_CONSTANT_COUNT: usize = 43;
 
     /// Capture every D3D state slot that shadow composition may mutate.
     pub fn capture(device: &Device9Ref<'_>) -> Direct3DResult<Self> {

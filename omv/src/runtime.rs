@@ -10644,6 +10644,18 @@ fn draw_native_shadows_config(
             MENU_MUTED_TEXT,
             &cstring("At 12 lights, point maps use 36.25 MiB, 145 MiB, or 580 MiB by tier."),
         );
+        changed |= draw_float_slider(
+            ui,
+            "Fade time (seconds)",
+            "native_shadows.dynamic_shadow_fade_seconds",
+            &mut config.dynamic_shadow_fade_seconds,
+            0.05,
+            5.0,
+        );
+        ui.text_colored(
+            MENU_MUTED_TEXT,
+            &cstring("Shared reveal time for newly admitted exterior and interior shadows."),
+        );
         changed |= draw_int_slider(
             ui,
             "Shadowed lights",
@@ -10654,11 +10666,15 @@ fn draw_native_shadows_config(
         );
         changed |= draw_float_slider(
             ui,
-            "Light radius multiplier",
+            "Cube coverage multiplier",
             "native_shadows.interior_light_radius_multiplier",
             &mut config.interior_light_radius_multiplier,
             0.5,
             4.0,
+        );
+        ui.text_colored(
+            MENU_MUTED_TEXT,
+            &cstring("Adds caster coverage without extending the native light radius."),
         );
         changed |= draw_float_slider(
             ui,
@@ -10760,13 +10776,14 @@ fn log_shadow_menu_settings(
 ) {
     let config = config.sanitized();
     log::info!(
-        "[SHADOWS] Menu settings published (active={}, effect={}, exterior_dynamic={}, interior_dynamic={}, dynamic_quality={:?}, cube_resolution={}, sun_experimental={}, exterior_darkness={:.3}, exterior_distance={:.1}, cascade_lambda={:.3}, contact={}, contact_distance={:.1}, contact_ray_distance={:.1}, interior_darkness={:.3}, shadowed_lights={}, radius_multiplier={:.3}, light_distance={:.1}, receiver_bias={:.5})",
+        "[SHADOWS] Menu settings published (active={}, effect={}, exterior_dynamic={}, interior_dynamic={}, dynamic_quality={:?}, cube_resolution={}, dynamic_fade_seconds={:.3}, sun_experimental={}, exterior_darkness={:.3}, exterior_distance={:.1}, cascade_lambda={:.3}, contact={}, contact_distance={:.1}, contact_ray_distance={:.1}, interior_darkness={:.3}, shadowed_lights={}, radius_multiplier={:.3}, light_distance={:.1}, receiver_bias={:.5})",
         graphics_master_enabled && config.enabled,
         config.enabled,
         config.exterior_enabled,
         config.interior_enabled,
         config.dynamic_shadow_quality,
         config.dynamic_shadow_quality.cube_resolution(),
+        config.dynamic_shadow_fade_seconds,
         config.sun_shadows,
         config.exterior_darkness,
         config.exterior_distance,

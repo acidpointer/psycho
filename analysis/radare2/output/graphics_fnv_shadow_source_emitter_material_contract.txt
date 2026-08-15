@@ -1,0 +1,102 @@
+FNV POINT-SHADOW SOURCE-EMITTER MATERIAL CONTRACT
+
+Research date: 2026-08-15
+Primary tool: radare2 MCP, analysis level 2
+Binary: fnv_reverse/FalloutNV.exe
+SHA-256: 42fee7d6cd74e801372aa89c8f71c974cebd3c20ec9ad43d1465b8fa9646b49c
+PE32 x86 image base: 0x00400000
+
+Questions
+=========
+
+1. Which exact native material fields can distinguish an emissive fixture
+   shell from an ordinary point-shadow occluder?
+2. Can OMV relate a geometry leaf to the selected native point light without
+   retaining another engine object beyond the common-shadow transaction?
+3. Which parts of the proposed source-shell exclusion are binary facts, source
+   corroboration, or reasoned policy?
+
+Direct binary evidence
+======================
+
+NiMaterialProperty constructor @ 0x00A75650
+------------------------------------------------
+
+The constructor installs vtable 0x0109D6C4 at 0x00A7565A. Its initialization
+sequence establishes the fields used by OMV:
+
+  0x00A7566E  fst dword [esi + 0x28]
+  0x00A75671  fst dword [esi + 0x2C]
+  0x00A75674  fst dword [esi + 0x30]
+  0x00A7567A  mov dword [esi + 0x34], 0
+  0x00A75696  fstp dword [esi + 0x38]
+  0x00A7569B  fst dword [esi + 0x3C]
+  0x00A7569E  fstp dword [esi + 0x40]
+
+The FPU value at +0x28/+0x2C/+0x30 is zero. The pointer at +0x34 is null.
+The value at +0x38 is loaded from 0x0101E570. The constructor writes one to
++0x3C and +0x40.
+
+Header corroboration
+====================
+
+The modern NVR New Vegas header at
+.research/TESReloaded10-master/src/NewVegas/nvse/GameNi.h:3028-3040 names the
+same 0x4C-byte layout:
+
+  +0x28  NiColor emit
+  +0x34  NiColor* pExternalEmittance
+  +0x38  float fShine
+  +0x3C  float fAlpha
+  +0x40  float fEmitMult
+
+The independently recorded player-coverage contract proves that
+NiAVObject +0x18 is the parent NiNode pointer:
+
+  analysis/radare2/output/perf/graphics_fnv_motion_blur_player_coverage_contract.txt
+
+That parent link is sufficient for a bounded, synchronous ancestry walk. It
+does not establish ownership beyond the serialized common-shadow invocation
+and must not be retained as a native pointer.
+
+Evidence classification
+=======================
+
+Proven by the current executable:
+
+- NiMaterialProperty owns inline RGB fields at +0x28/+0x2C/+0x30, a pointer
+  field at +0x34, alpha at +0x3C, and a scalar initialized to one at +0x40.
+- NiAVObject parent ownership is represented by the pointer at +0x18, as
+  established in the cited radare2 artifact.
+
+Corroborated by the modern NVR header:
+
+- the inline triplet is material emission;
+- +0x34 is the optional external-emittance color;
+- +0x40 is the emission multiplier; and
+- NiMaterialProperty has the exact 0x4C-byte layout expected by these offsets.
+
+Reasoned rendering policy awaiting runtime acceptance:
+
+- a geometry leaf may be excluded from one point cube only when it is beneath
+  that light's immediate scene parent, has positive effective material
+  emission, and its finite world bound encloses the light source;
+- unrelated nearby geometry, non-emissive fixture bodies, lampshades, and
+  walls remain casters; and
+- a non-null external-emittance pointer supplies the effective color instead
+  of the inline triplet.
+
+Safe intervention boundary
+==========================
+
+The existing common-shadow hook serializes this work and consumes every
+engine pointer before the native tail resumes. OMV may copy the selected
+light's immediate parent as an integer in its transaction-local light record,
+walk bounded parent links during geometry classification, and read the live
+material fields there. It must not retain or mutate a material, geometry,
+parent node, or external-emittance pointer.
+
+Invalid, non-finite, overflowing, detached, non-emissive, or non-enclosing
+inputs fail closed by retaining the caster. This narrow failure rule is
+essential: a broad distance-based source cutoff would remove legitimate
+occluders and recreate wall leaks.

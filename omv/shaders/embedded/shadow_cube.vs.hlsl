@@ -5,6 +5,10 @@ float4 GeometryData : register(c8);
 float4 BoneRows[54] : register(c9);
 float4 LightPositionRadius : register(c63);
 
+#ifndef OMV_BLEND_INDEX_ENCODING
+#define OMV_BLEND_INDEX_ENCODING 0
+#endif
+
 struct VertexInput {
     float4 position : POSITION;
     float4 uv0 : TEXCOORD0;
@@ -19,7 +23,13 @@ struct VertexOutput {
 };
 
 float3 SkinPosition(VertexInput input) {
+#if OMV_BLEND_INDEX_ENCODING == 0
     float4 indices = input.blendIndices.zyxw * 765.01001f;
+#elif OMV_BLEND_INDEX_ENCODING == 1
+    float4 indices = input.blendIndices.xyzw * 765.01001f;
+#else
+    float4 indices = input.blendIndices.xyzw * 3.0f;
+#endif
     float4 position = float4(input.position.xyz, 1.0f);
     float3 result = 0.0f;
     float4 weights = float4(input.blendWeight.xyz, 1.0f - dot(input.blendWeight.xyz, 1.0f));

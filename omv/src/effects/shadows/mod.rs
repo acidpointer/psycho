@@ -6,9 +6,18 @@
 //! are opt-in because their four-cascade producer has a much larger memory and
 //! draw footprint. One quality tier controls the point-cube resolution in both
 //! locations; changing it retains the last-good family until a complete
-//! replacement can be published. Generation remains attached to the engine's
-//! common shadow epoch, while consumption occurs after opaque depth and before
-//! native alpha/atmosphere. No engine pointer crosses that boundary.
+//! replacement can be published. One shared reveal duration smooths newly
+//! admitted point shadows in both locations. Generation remains attached to
+//! the engine's common shadow epoch, while consumption occurs after opaque
+//! depth and before native alpha/atmosphere. No engine pointer crosses that
+//! boundary.
+//!
+//! Point lights retain a cached immutable cube and a sampled publication cube.
+//! Every dirty publication face starts from immutable world depth, then merges
+//! animated casters by nearest radial depth using the receiver's exact D3D cube
+//! coordinates. The receiver samples that complete nearest-occluder result.
+//! It never hard-gates against a second low-resolution static sample, which
+//! cannot reliably distinguish the receiving wall from a surface behind it.
 //!
 //! Dynamic-only exteriors also publish validated native directional color,
 //! daylight, and sun direction. Their specialized compositor reconstructs the
@@ -76,6 +85,9 @@ const CONTACT_BIT: u8 = 1 << 3;
 const SUN_BIT: u8 = 1 << 4;
 const DYNAMIC_QUALITY_SHIFT: u32 = 5;
 const DYNAMIC_QUALITY_MASK: u8 = 0b0110_0000;
+const POINT_LIGHT_COUNT_MASK: u32 = 0xFF;
+const POINT_FADE_MILLIS_SHIFT: u32 = 8;
+const POINT_FADE_MILLIS_MASK: u32 = 0xFFFF;
 
 static SETTINGS: AtomicU8 = AtomicU8::new(0);
 static SETTINGS_REVISION: AtomicU32 = AtomicU32::new(0);
@@ -85,6 +97,10 @@ static CASCADE_SPLIT_LAMBDA: AtomicU32 = AtomicU32::new(0);
 static CONTACT_DISTANCE: AtomicU32 = AtomicU32::new(0);
 static CONTACT_RAY_DISTANCE: AtomicU32 = AtomicU32::new(0);
 static INTERIOR_DARKNESS: AtomicU32 = AtomicU32::new(0);
+// The released light-count atomic has twenty-eight unused bits. Packing the
+// millisecond fade duration into that existing publication word preserves the
+// loader-visible static owner set and .bss size while keeping one coherent
+// seqlock transaction. The low byte remains the bounded 1..=12 light count.
 static INTERIOR_SHADOWED_LIGHTS: AtomicU32 = AtomicU32::new(0);
 static INTERIOR_LIGHT_RADIUS_MULTIPLIER: AtomicU32 = AtomicU32::new(0);
 static INTERIOR_LIGHT_DRAW_DISTANCE: AtomicU32 = AtomicU32::new(0);
@@ -168,7 +184,9 @@ pub(crate) struct NativeShadowsSettings {
     /// The field name is schema-one compatibility data; exterior Pip-Boy and
     /// practical lights use the same replacement budget.
     pub(crate) interior_shadowed_lights: usize,
-    /// Native local-light radius multiplier in either location branch.
+    /// Point-cube coverage margin over the native receiver radius.
+    ///
+    /// The field name remains schema-one compatibility data.
     pub(crate) interior_light_radius_multiplier: f32,
     /// Maximum nearby local-light coverage in either location branch.
     pub(crate) interior_light_draw_distance: f32,
@@ -178,9 +196,16 @@ pub(crate) struct NativeShadowsSettings {
     pub(crate) sun_shadows: bool,
     /// Resolution tier shared by exterior and interior point-light cubes.
     pub(crate) dynamic_shadow_quality: crate::config::DynamicShadowQuality,
+    /// Shared exterior/interior admission transition duration in seconds.
+    pub(crate) dynamic_shadow_fade_seconds: f32,
 }
 
 impl NativeShadowsSettings {
+    /// Return a finite snapshot bounded to the persisted rendering contract.
+    fn sanitized(self) -> Self {
+        Self::from(crate::config::NativeShadowsConfig::from(self).sanitized())
+    }
+
     /// Apply the graphics-wide master switch without altering persisted bits.
     pub(crate) fn with_master_enabled(mut self, master_enabled: bool) -> Self {
         self.enabled &= master_enabled;
@@ -205,6 +230,11 @@ impl NativeShadowsSettings {
     fn directional_enabled_for(self, scene: contract::SceneKind) -> bool {
         self.contract().directional_enabled_for(scene)
     }
+
+    /// Return the sanitized presentation duration in whole milliseconds.
+    fn dynamic_shadow_fade_millis(self) -> u64 {
+        (self.dynamic_shadow_fade_seconds * 1_000.0).round() as u64
+    }
 }
 
 impl From<crate::config::NativeShadowsConfig> for NativeShadowsSettings {
@@ -227,6 +257,7 @@ impl From<crate::config::NativeShadowsConfig> for NativeShadowsSettings {
             interior_receiver_bias: value.interior_receiver_bias,
             sun_shadows: value.sun_shadows,
             dynamic_shadow_quality: value.dynamic_shadow_quality,
+            dynamic_shadow_fade_seconds: value.dynamic_shadow_fade_seconds,
         }
     }
 }
@@ -250,6 +281,7 @@ impl From<NativeShadowsSettings> for crate::config::NativeShadowsConfig {
             interior_receiver_bias: value.interior_receiver_bias,
             sun_shadows: value.sun_shadows,
             dynamic_shadow_quality: value.dynamic_shadow_quality,
+            dynamic_shadow_fade_seconds: value.dynamic_shadow_fade_seconds,
         }
     }
 }
@@ -272,6 +304,11 @@ pub(crate) enum CommonEntryOutcome {
 /// about the complete OMV load footprint, not merely whether these stores are
 /// individually thread-safe.
 pub(crate) fn configure_runtime_options(settings: NativeShadowsSettings) {
+    // Menu, file-worker, and DeferredInit callers already provide sanitized
+    // values. Re-sanitize at this narrow publication boundary so a future
+    // internal caller cannot encode NaN, overflow the packed duration, or
+    // publish a light count outside the shader/resource contract.
+    let settings = settings.sanitized();
     // A release-published seqlock keeps the render thread's multi-field
     // snapshot coherent without adding a lock to either startup or hooks.
     SETTINGS_REVISION.fetch_add(1, Ordering::AcqRel);
@@ -289,7 +326,11 @@ pub(crate) fn configure_runtime_options(settings: NativeShadowsSettings) {
     CONTACT_DISTANCE.store(settings.contact_distance.to_bits(), Ordering::Relaxed);
     CONTACT_RAY_DISTANCE.store(settings.contact_ray_distance.to_bits(), Ordering::Relaxed);
     INTERIOR_DARKNESS.store(settings.interior_darkness.to_bits(), Ordering::Relaxed);
-    INTERIOR_SHADOWED_LIGHTS.store(settings.interior_shadowed_lights as u32, Ordering::Relaxed);
+    let fade_millis = settings.dynamic_shadow_fade_millis() as u32;
+    debug_assert!(fade_millis <= POINT_FADE_MILLIS_MASK);
+    let point_options = (settings.interior_shadowed_lights as u32 & POINT_LIGHT_COUNT_MASK)
+        | (fade_millis & POINT_FADE_MILLIS_MASK) << POINT_FADE_MILLIS_SHIFT;
+    INTERIOR_SHADOWED_LIGHTS.store(point_options, Ordering::Relaxed);
     INTERIOR_LIGHT_RADIUS_MULTIPLIER.store(
         settings.interior_light_radius_multiplier.to_bits(),
         Ordering::Relaxed,
@@ -308,6 +349,7 @@ pub(crate) fn configure_runtime_options(settings: NativeShadowsSettings) {
 /// then prepared off-thread; until the complete bytecode family is published,
 /// every common-hook invocation safely continues through the native prefix.
 pub(crate) fn install(settings: NativeShadowsSettings) -> Result<()> {
+    let settings = settings.sanitized();
     configure_runtime_options(settings);
     native::validate_contract()
         .map_err(anyhow::Error::msg)
@@ -316,12 +358,13 @@ pub(crate) fn install(settings: NativeShadowsSettings) -> Result<()> {
     shaders::start_preparation();
     ROUTE_READY.store(true, Ordering::Release);
     log::info!(
-        "[SHADOWS] Deferred route installed (master={}, exterior_dynamic={}, interior_dynamic={}, dynamic_quality={:?}, cube_resolution={}, sun_experimental={})",
+        "[SHADOWS] Deferred route installed (master={}, exterior_dynamic={}, interior_dynamic={}, dynamic_quality={:?}, cube_resolution={}, dynamic_fade_seconds={:.3}, sun_experimental={})",
         settings.enabled,
         settings.exterior_enabled,
         settings.interior_enabled,
         settings.dynamic_shadow_quality,
         settings.dynamic_shadow_quality.cube_resolution(),
+        settings.dynamic_shadow_fade_seconds,
         settings.sun_shadows,
     );
     Ok(())
@@ -482,6 +525,7 @@ fn try_current_settings() -> Option<NativeShadowsSettings> {
         return None;
     }
     let bits = SETTINGS.load(Ordering::Relaxed);
+    let point_options = INTERIOR_SHADOWED_LIGHTS.load(Ordering::Relaxed);
     let settings = NativeShadowsSettings {
         enabled: bits & ENABLED_BIT != 0,
         exterior_enabled: bits & EXTERIOR_BIT != 0,
@@ -493,7 +537,7 @@ fn try_current_settings() -> Option<NativeShadowsSettings> {
         contact_distance: f32::from_bits(CONTACT_DISTANCE.load(Ordering::Relaxed)),
         contact_ray_distance: f32::from_bits(CONTACT_RAY_DISTANCE.load(Ordering::Relaxed)),
         interior_darkness: f32::from_bits(INTERIOR_DARKNESS.load(Ordering::Relaxed)),
-        interior_shadowed_lights: INTERIOR_SHADOWED_LIGHTS.load(Ordering::Relaxed) as usize,
+        interior_shadowed_lights: (point_options & POINT_LIGHT_COUNT_MASK) as usize,
         interior_light_radius_multiplier: f32::from_bits(
             INTERIOR_LIGHT_RADIUS_MULTIPLIER.load(Ordering::Relaxed),
         ),
@@ -505,6 +549,9 @@ fn try_current_settings() -> Option<NativeShadowsSettings> {
         dynamic_shadow_quality: crate::config::DynamicShadowQuality::from_index(i32::from(
             (bits & DYNAMIC_QUALITY_MASK) >> DYNAMIC_QUALITY_SHIFT,
         )),
+        dynamic_shadow_fade_seconds: ((point_options >> POINT_FADE_MILLIS_SHIFT)
+            & POINT_FADE_MILLIS_MASK) as f32
+            / 1_000.0,
     };
     (SETTINGS_REVISION.load(Ordering::Acquire) == before).then_some(settings)
 }
@@ -576,6 +623,7 @@ mod startup_safety_tests {
             interior_receiver_bias: 0.023,
             sun_shadows: true,
             dynamic_shadow_quality: crate::config::DynamicShadowQuality::Ultra,
+            dynamic_shadow_fade_seconds: 1.875,
         };
 
         configure_runtime_options(expected);
@@ -615,7 +663,6 @@ mod startup_safety_tests {
                 "pre-deferred action: {forbidden}"
             );
         }
-
         let install = source
             .split_once("pub(crate) fn install(")
             .and_then(|(_, tail)| tail.split_once("/// Attempt replacement work"))

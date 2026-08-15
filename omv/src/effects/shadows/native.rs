@@ -1,9 +1,10 @@
 //! Bounded access to FNV scene objects during the common shadow transaction.
 //!
 //! Every borrowed pointer in this module is consumed synchronously before the
-//! native tail resumes. Nothing from a cell list, node hierarchy, or
-//! `ShadowSceneLight::kGeometryList` is retained across that boundary. Device
-//! resources and scalar publication live in the renderer module instead.
+//! native tail resumes. Point-map signatures and submissions share one
+//! canonical root inventory; the engine's camera-owned per-light geometry list
+//! is intentionally not accepted as a retained-map completeness boundary.
+//! Device resources and scalar publication live in the renderer module instead.
 
 use core::{ffi::c_void, mem::transmute, ptr::read_unaligned};
 
@@ -11,10 +12,11 @@ use libpsycho::os::windows::memory::validate_memory_range;
 
 use super::{
     contract::{
-        ALL_CUBE_FACES, CASCADE_COUNT, DirectionalRootSetSignature, NVR_POINT_LIGHT_COUNT,
-        SceneKind, directional_actor_root_is_active, directional_form_type_is_enabled,
-        point_light_distance_fade, point_light_influence_is_eligible, sphere_intersects_cube_face,
-        sphere_intersects_point_light, stable_point_light_distance_squared,
+        CASCADE_COUNT, DirectionalRootSetSignature, NVR_POINT_LIGHT_COUNT, SceneKind,
+        directional_actor_root_is_active, directional_form_type_is_enabled,
+        point_light_distance_fade, point_light_influence_is_eligible, point_light_radii,
+        sphere_intersects_cube_face, sphere_intersects_point_light,
+        stable_point_light_distance_squared,
     },
     engine::NativeLayout,
     math::{ActorBounds, CascadeProjection, Sphere, dynamic_caster_cascade_mask},
@@ -26,7 +28,6 @@ const SHADOW_SCENE_MANAGER_LIGHT_COUNT: usize = 0xBC;
 const MAX_MANAGER_LIGHTS: usize = 512;
 const MAX_GRID_SIDE: usize = 15;
 const MAX_CELL_REFERENCES: usize = 4_096;
-const MAX_POINT_GEOMETRIES: usize = 8_192;
 /// Preallocated root cache used to avoid rescanning every loaded cell once per
 /// due cascade. Overflow falls back to the complete per-cascade visitor.
 pub(super) const DIRECTIONAL_ROOT_CACHE_CAPACITY: usize = 32_768;
@@ -49,18 +50,15 @@ const CELL_INTERIOR: u8 = 1 << 0;
 const CELL_BEHAVES_LIKE_EXTERIOR: u8 = 1 << 7;
 const FORM_NOT_CAST_SHADOWS: u32 = 0x0000_0200;
 
-const SHADOW_LIGHT_GEOMETRY_LIST: usize = 0xE0;
 const SHADOW_LIGHT_SOURCE: usize = 0xF8;
 
 const NATIVE_LIGHT_DISABLED_FLAGS: usize = 0x30;
 const NATIVE_LIGHT_POSITION: usize = 0x8C;
 const NATIVE_LIGHT_EFFECT_TYPE: usize = 0x9D;
-const NATIVE_LIGHT_CAN_CARRY: usize = 0x9F;
 const NATIVE_LIGHT_DIMMER: usize = 0xC4;
 const NATIVE_LIGHT_DIFFUSE: usize = 0xD4;
 const NATIVE_LIGHT_RADIUS: usize = 0xE0;
 const NATIVE_POINT_LIGHT: u8 = 2;
-const CARRIED_LIGHT_RADIUS: f32 = 256.0;
 
 type ShadowSceneManagerGetter = unsafe extern "cdecl" fn(i32) -> *mut u8;
 
@@ -145,7 +143,15 @@ impl DirectionalRoot {
             | (u32::from(self.is_lod) << 10)
     }
 
-    fn intersects_point_light(self, light_position: [f32; 3], light_radius: f32) -> bool {
+    /// Return whether this root can intersect a selected point-light volume.
+    ///
+    /// Missing root bounds are admitted conservatively so malformed or late
+    /// engine bounds cannot remove a wall from a retained cube.
+    pub(super) fn intersects_point_light(
+        self,
+        light_position: [f32; 3],
+        light_radius: f32,
+    ) -> bool {
         self.world_bound.is_none_or(|bound| {
             sphere_intersects_point_light(
                 [bound[0], bound[1], bound[2]],
@@ -299,8 +305,6 @@ unsafe fn directional_actor_sphere(root: DirectionalRoot, origin: [f32; 3]) -> O
 pub(super) struct PointLight {
     /// Stable native-light identity used to preserve ordering.
     pub(super) identity: usize,
-    /// `ShadowSceneLight*` whose geometry list is valid in this transaction.
-    shadow_scene_light: *mut u8,
     /// Absolute native light position.
     pub(super) position: [f32; 3],
     /// Camera-relative light position uploaded to generation/consumer shaders.
@@ -309,8 +313,10 @@ pub(super) struct PointLight {
     pub(super) color: [f32; 3],
     /// Smooth discovery-edge weight; zero is omitted by the consumer.
     pub(super) shadow_fade: f32,
-    /// Native point-light radius.
-    pub(super) radius: f32,
+    /// Native radius which owns receiver attenuation and screen coverage.
+    pub(super) receiver_radius: f32,
+    /// Cube-generation coverage, never smaller than the receiver radius.
+    pub(super) cube_radius: f32,
     distance_squared: f32,
 }
 
@@ -548,111 +554,6 @@ pub(super) unsafe fn select_point_lights(
     selected
 }
 
-/// Visit the engine-owned geometry list for one selected point light.
-///
-/// # Safety
-///
-/// `light` must come from [`select_point_lights`] in the same common-shadow
-/// invocation. `visit` must not retain the geometry pointer.
-pub(super) unsafe fn visit_point_geometry(
-    light: &PointLight,
-    mut visit: impl FnMut(*mut u8),
-) -> usize {
-    let mut node = unsafe { read::<*mut u8>(light.shadow_scene_light, SHADOW_LIGHT_GEOMETRY_LIST) };
-    let mut visited = 0usize;
-    while !node.is_null() && visited < MAX_POINT_GEOMETRIES {
-        let next = unsafe { read::<*mut u8>(node, NI_TLIST_NEXT) };
-        let geometry = unsafe { read::<*mut u8>(node, NI_TLIST_DATA) };
-        if !geometry.is_null() {
-            visit(geometry);
-        }
-        node = next;
-        visited += 1;
-    }
-    visited
-}
-
-/// Current dynamic coverage and immutable-caster identity for one point map.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(super) struct PointCasterSnapshot {
-    /// Cube faces touched by skinned geometry in this presentation.
-    pub(super) dynamic_faces: u8,
-    /// Order-independent identities, transforms, and bounds of static geometry.
-    pub(super) static_signature: u64,
-}
-
-/// Snapshot point-map caster state in the light's serialized list epoch.
-///
-/// The geometry walk already needed to locate skinned face coverage. Folding
-/// static identity, transform, and bounds into the same pass prevents doors,
-/// movable clutter, or a changed native geometry list from surviving forever
-/// in an immutable cube without adding another hot-path traversal.
-///
-/// # Safety
-///
-/// `light` must come from [`select_point_lights`] in the current serialized
-/// common-shadow invocation.
-pub(super) unsafe fn point_light_caster_snapshot(light: &PointLight) -> PointCasterSnapshot {
-    let mut faces = 0_u8;
-    let mut static_count = 0_u64;
-    let mut static_xor = 0_u64;
-    let mut static_sum = 0_u64;
-    let visited = unsafe {
-        visit_point_geometry(light, |geometry| {
-            let skinned = !read::<*mut u8>(geometry, NativeLayout::NI_GEOMETRY_SKIN).is_null();
-            if skinned {
-                let bound =
-                    read::<*mut NativeBound>(geometry, NativeLayout::NI_AV_OBJECT_WORLD_BOUND);
-                if bound.is_null() {
-                    faces = ALL_CUBE_FACES;
-                    return;
-                }
-                let bound = read_unaligned(bound);
-                if !bound.center.into_iter().all(f32::is_finite)
-                    || !bound.radius.is_finite()
-                    || bound.radius < 0.0
-                {
-                    faces = ALL_CUBE_FACES;
-                    return;
-                }
-                let center_from_light =
-                    std::array::from_fn(|axis| bound.center[axis] - light.position[axis]);
-                for face in 0..6 {
-                    if sphere_intersects_cube_face(center_from_light, bound.radius, face) {
-                        faces |= 1 << face;
-                    }
-                }
-            } else {
-                let mut mixed = geometry as usize as u64;
-                mixed ^= u64::from(retained_object_world_state(geometry))
-                    .wrapping_mul(0x9E37_79B1_85EB_CA87);
-                mixed ^= mixed >> 33;
-                mixed = mixed.wrapping_mul(0xFF51_AFD7_ED55_8CCD);
-                mixed ^= mixed >> 33;
-                static_count = static_count.wrapping_add(1);
-                static_xor ^= mixed;
-                static_sum = static_sum.wrapping_add(mixed.rotate_left(23));
-            }
-        })
-    };
-    if visited == 0 {
-        PointCasterSnapshot {
-            dynamic_faces: ALL_CUBE_FACES,
-            // A missing list uses the complete-cell fallback. Its descendants
-            // have no cheap stable inventory, so never pretend that fallback
-            // geometry is immutable across presentations.
-            static_signature: u64::MAX,
-        }
-    } else {
-        PointCasterSnapshot {
-            dynamic_faces: faces,
-            static_signature: static_xor
-                ^ static_sum.rotate_left(29)
-                ^ static_count.wrapping_mul(0x9E37_79B9),
-        }
-    }
-}
-
 /// Hash immutable point-caster ownership inside one light's influence sphere.
 ///
 /// Bounds and world-state hashes were copied by the single cell-root snapshot,
@@ -689,7 +590,7 @@ pub(super) fn point_scene_static_signature(
 /// actor-root list avoids scanning every static root again for each dynamic
 /// face; it remains borrowed and must be discarded in this invocation.
 /// `false` reports overflow or an invalid bound, requiring conservative
-/// six-face dynamic work and the complete native light-list fallback.
+/// six-face dynamic work from the complete canonical root inventory.
 ///
 /// # Safety
 ///
@@ -736,22 +637,6 @@ pub(super) fn point_light_dynamic_faces_from_bounds(
         }
     }
     faces
-}
-
-/// Visit current-cell roots when a native point light has no geometry list.
-///
-/// This is NVR's documented fallback. It deliberately stays within the
-/// current cell; per-object light-volume culling occurs during traversal.
-///
-/// # Safety
-///
-/// `scene` must be live for the current common-shadow invocation, and `visit`
-/// must not retain a root pointer.
-pub(super) unsafe fn visit_point_fallback_roots(
-    scene: NativeScene,
-    mut visit: impl FnMut(*mut u8, bool, bool),
-) {
-    unsafe { visit_cell_roots(scene.cell, None, &mut visit) };
 }
 
 /// Collect directional roots once for all maps due in this transaction.
@@ -952,15 +837,6 @@ struct RetainedWorldSnapshot {
     bound: Option<[f32; 4]>,
 }
 
-/// Hash the absolute transform and bound which define retained map contents.
-///
-/// # Safety
-///
-/// `object` must be a live `NiAVObject` in the current common-shadow epoch.
-unsafe fn retained_object_world_state(object: *mut u8) -> u32 {
-    unsafe { retained_object_world_snapshot(object) }.state
-}
-
 /// Copy and hash the absolute fields shared by directional and point caches.
 ///
 /// # Safety
@@ -1154,7 +1030,6 @@ unsafe fn point_light(
     let diffuse = unsafe { read_vec3(native, NATIVE_LIGHT_DIFFUSE) };
     let dimmer = unsafe { read::<f32>(native, NATIVE_LIGHT_DIMMER) };
     let native_radius = unsafe { read::<f32>(native, NATIVE_LIGHT_RADIUS) };
-    let can_carry = unsafe { read::<u8>(native, NATIVE_LIGHT_CAN_CARRY) } != 0;
     if !position.into_iter().all(f32::is_finite)
         || !diffuse.into_iter().all(f32::is_finite)
         || !dimmer.is_finite()
@@ -1163,18 +1038,18 @@ unsafe fn point_light(
     {
         return None;
     }
-    // NVR fixes carried/Pip-Boy lights to a compact cube radius so the light
-    // can cast useful nearby shadows instead of inheriting a huge record
-    // radius. Generation and sampling must publish the same value.
-    let radius = if can_carry {
-        CARRIED_LIGHT_RADIUS
-    } else {
-        native_radius * radius_multiplier
-    };
+    // Receiver coverage must match native lighting. The persisted multiplier
+    // is retained as generation headroom only: extending receiver attenuation
+    // with it made a post-process shadow survive beyond the source light.
+    let (receiver_radius, cube_radius) = point_light_radii(native_radius, radius_multiplier)?;
     let relative_position =
         std::array::from_fn(|index| position[index] - camera_translation[index]);
-    if !point_light_influence_is_eligible(relative_position, radius, camera_forward, draw_distance)
-    {
+    if !point_light_influence_is_eligible(
+        relative_position,
+        receiver_radius,
+        camera_forward,
+        draw_distance,
+    ) {
         return None;
     }
     let distance_squared = dot3(relative_position, relative_position);
@@ -1183,8 +1058,12 @@ unsafe fn point_light(
     // replaces, so depending on it can turn every valid interior light black
     // before a single cube is rendered.
     let color = diffuse.map(|component| (component * dimmer).max(0.0));
-    let shadow_fade =
-        point_light_distance_fade(relative_position, radius, camera_forward, draw_distance)?;
+    let shadow_fade = point_light_distance_fade(
+        relative_position,
+        receiver_radius,
+        camera_forward,
+        draw_distance,
+    )?;
     let visible_energy = color.into_iter().sum::<f32>();
     if !distance_squared.is_finite()
         || !color.into_iter().all(f32::is_finite)
@@ -1194,12 +1073,12 @@ unsafe fn point_light(
     }
     Some(PointLight {
         identity: native as usize,
-        shadow_scene_light: scene_light,
         position,
         relative_position,
         color,
         shadow_fade,
-        radius,
+        receiver_radius,
+        cube_radius,
         distance_squared,
     })
 }
@@ -1262,12 +1141,12 @@ mod tests {
     fn point(identity: usize, distance_squared: f32) -> PointLight {
         PointLight {
             identity,
-            shadow_scene_light: core::ptr::null_mut(),
             position: [0.0; 3],
             relative_position: [0.0; 3],
             color: [1.0; 3],
             shadow_fade: 1.0,
-            radius: 512.0,
+            receiver_radius: 512.0,
+            cube_radius: 768.0,
             distance_squared,
         }
     }

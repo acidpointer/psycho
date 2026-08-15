@@ -366,6 +366,7 @@ contact_distance = 180000.0
 contact_ray_distance = 2000.0
 interior_darkness = 0.65
 interior_shadowed_lights = 12
+# Extra cube caster coverage only; native light attenuation keeps its radius.
 interior_light_radius_multiplier = 1.50
 interior_light_draw_distance = 8000.0
 interior_receiver_bias = 0.018
@@ -376,6 +377,10 @@ sun_shadows = false
 # 256-square faces, "high" uses the released 512-square profile, and "ultra"
 # uses 1024-square faces.
 dynamic_shadow_quality = "high"
+# Shared exterior/interior reveal time for newly admitted or replaced point
+# shadows. A longer transition hides distance/slot changes without delaying
+# cube generation or changing native light intensity.
+dynamic_shadow_fade_seconds = 0.75
 
 [graphics.native_pbr]
 # Native material/PBR engine path.
