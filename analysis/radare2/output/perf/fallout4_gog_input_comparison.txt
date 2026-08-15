@@ -1,0 +1,232 @@
+FALLOUT 4 GOG INPUT COMPARISON
+
+Research date: 2026-08-16
+Primary tool: radare2 MCP, analysis level 2 (time-bounded)
+Binary: /data/storage0/Games/Fallout4OG/FO4_GOG/Fallout4.exe
+Version strings: 1.10.163.0
+SHA-256: 5b2a58004f1856e51235132ab304b20c1434017067703e4282e8b0d5bc539623
+Size: 65,319,936 bytes
+Format: PE32+ x86-64, image base 0x140000000, PIE
+PE timestamp: 2019-11-25 23:00:42 UTC
+PDB path: g:\_F4\Code\GameSln\Build\PC\Fallout4.pdb
+
+Scope and confidence
+====================
+
+This focused comparison asks which architectural differences could plausibly
+make Fallout 4 mouse input feel more immediate than Fallout: New Vegas. It is
+not a complete Fallout 4 input or frame-presentation contract.
+
+Direct executable evidence is marked PROVEN. Public F4SE type information is
+CORROBORATING because its relocation offsets are not authority for this GOG
+binary. A responsiveness explanation remains a HYPOTHESIS until both games are
+captured under controlled runtime conditions.
+
+Imported input and graphics APIs
+================================
+
+PROVEN:
+
+- The executable imports USER32!RegisterRawInputDevices and
+  USER32!GetRawInputData.
+- It imports XINPUT1_3 ordinals 2, 3, and 4.
+- It imports HID and SetupAPI device-enumeration/query functions.
+- It imports D3D11CreateDeviceAndSwapChain and CreateDXGIFactory.
+- It does not import DirectInput8Create.
+- It imports PeekMessageA, TranslateMessage, DispatchMessageA,
+  QueryPerformanceCounter, QueryPerformanceFrequency, Sleep, and timeBeginPeriod.
+
+This differs materially from FalloutNV.exe, which imports DirectInput8Create
+and XInput but does not directly import Raw Input.
+
+Window and raw-device registration
+==================================
+
+WndProc: 0x140D40190
+
+The WndProc dispatches message 0x00FF (WM_INPUT) to the raw-input path beginning
+at 0x140D4045A.
+
+The WM_CREATE branch builds two 16-byte RAWINPUTDEVICE records:
+
+  UsagePage 0x01, Usage 0x06, flags 0, target HWND = WndProc HWND
+  UsagePage 0x01, Usage 0x02, flags 0, target HWND = WndProc HWND
+
+Those are the generic desktop keyboard and mouse top-level collections. The
+call to RegisterRawInputDevices is at 0x140D40219. Zero flags request default
+foreground delivery to the supplied game HWND.
+
+WM_INPUT handling
+=================
+
+The WM_INPUT path:
+
+1. checks the input-manager global at 0x145A5F668;
+2. calls GetRawInputData at 0x140D4049E to obtain the required RID_INPUT size;
+3. uses a 256-byte static scratch buffer at 0x145AA43F0 or allocates a larger
+   temporary buffer;
+4. calls GetRawInputData again at 0x140D404E5 to copy the packet;
+5. dispatches RAWINPUTHEADER.dwType 0 to the mouse device and type 1 to the
+   keyboard device;
+6. frees the temporary buffer when one was required.
+
+Mouse device accessor:    0x141B2C010 (manager +0x10)
+Keyboard device accessor: 0x141B2BFF0 (manager +0x08)
+Mouse packet handler:     0x141B2F500
+Keyboard packet handler:  0x141B2F180
+
+Raw mouse state
+===============
+
+PROVEN at 0x141B2F500:
+
+- RI_MOUSE button transition flags update a bit field at mouse-device +0x71.
+- wheel data updates a word at +0x72.
+- when RAWMOUSE.usFlags indicates relative input, RAWMOUSE.lLastX at packet
+  +0x24 is added to device +0x74 and lLastY at packet +0x28 is added to
+  device +0x78.
+- input packets therefore accumulate relative movement between engine
+  consumption points rather than being converted through cursor position.
+
+Raw keyboard state
+==================
+
+PROVEN at 0x141B2F180:
+
+- the handler consumes RAWKEYBOARD make code, flags, and virtual-key fields;
+- it handles extended/special-key mappings through MapVirtualKeyA where needed;
+- it writes the resulting down/up state to a keyboard-device array beginning
+  at +0x170.
+
+Message-pump boundary
+=====================
+
+0x140D38B40 owns a PeekMessageA/TranslateMessage/DispatchMessageA drain and
+therefore delivers WM_INPUT to the WndProc. It is called from the primary loop
+at 0x140D36D50, which is reached from 0x140D35930 and ultimately the executable
+entry path.
+
+PROVEN: raw packets are processed during this message-pump step before the loop
+continues.
+
+NOT YET PROVEN: the exact current-GOG ordering from event construction through
+PlayerControls, camera matrices, D3D11 submission, and Present. The comparison
+must not claim Fallout 4 has a specific lower sample-to-Present time without a
+complete trace or runtime telemetry.
+
+Typed input architecture
+========================
+
+The current binary contains RTTI/string evidence for:
+
+  InputEvent
+  MouseMoveEvent
+  BSPCMouseDevice
+  BSMouseDevice
+  PlayerInputHandler
+  BSInputEventUser
+  BSInputEventReceiver
+
+It also embeds a control map in which MouseMove is macro 0xA00 and gameplay
+Look maps to that mouse event.
+
+CORROBORATING F4SE source describes:
+
+- a linked InputEvent chain;
+- ButtonEvent with device, control ID, down value, and hold timer;
+- distinct MouseMoveEvent, CharacterEvent, ThumbstickEvent, and
+  DeviceConnectEvent types;
+- PlayerControls arrays of PlayerInputHandler objects;
+- InputManager with 33 mapping contexts and separate keyboard, mouse, and
+  gamepad maps.
+
+This is a much richer semantic layer than Fallout: New Vegas' fixed 28-byte
+per-device binding arrays and direct current/previous-state queries. It does not
+prove that Fallout 4 preserves every subframe keyboard tap: the raw keyboard
+handler visibly writes state, and the current event-construction cadence still
+needs a direct trace.
+
+Mouse-look settings
+===================
+
+The executable contains these actor/control setting names:
+
+  fMouseHeadingSensitivityMin:Controls
+  fMouseHeadingSensitivityMax:Controls
+  fMouseHeadingSensitivityDefault:Controls
+  fMouseHeadingSensitivity:Controls
+  fMouseHeadingXScale:Controls
+  fMouseHeadingYScale:Controls
+  fMouseHeadingNormalizeMax:Controls
+
+The supplied installation currently has:
+
+  Fallout4_Default.ini:
+    fMouseHeadingXScale=.021
+    fMouseHeadingYScale=.021
+
+  Fallout4/Fallout4Prefs.ini:
+    fMouseHeadingSensitivity=0.0300
+    iPresentInterval=1
+    bBorderless=1
+
+PROVEN: Fallout 4 exposes separate X/Y heading scales and a heading-normalize
+limit in addition to the user sensitivity scalar. Fallout: New Vegas' proven
+actor path instead multiplies both axes by one fMouseSensitivity value followed
+by camera-specific scaling.
+
+NOT YET PROVEN: the exact formula and defaults for
+fMouseHeadingNormalizeMax in this GOG executable. Atom must not copy a guessed
+formula merely because the setting name exists.
+
+Comparison conclusions
+======================
+
+PROVEN DIFFERENCES:
+
+- Fallout 4 directly owns foreground Raw Input for keyboard and mouse;
+  Fallout: New Vegas directly owns DirectInput 8 devices.
+- Fallout 4 processes WM_INPUT packets in its message pump and accumulates
+  relative mouse deltas in its mouse device.
+- Fallout 4 has typed input events, named actions, handlers, and many contexts;
+  Fallout: New Vegas has fixed binding arrays and fragmented state queries.
+- Fallout 4 exposes separate mouse heading axis scales and a normalization
+  control; Fallout: New Vegas exposes one actor-look sensitivity scalar.
+- Fallout 4 renders through D3D11/DXGI; Fallout: New Vegas uses D3D9. Their
+  presentation and translation paths therefore cannot be assumed equivalent.
+
+PLAUSIBLE CONTRIBUTORS TO THE REPORTED FEEL:
+
+- cleaner direct relative-mouse ownership and an explicit MouseMove event;
+- a different mouse-to-heading transfer function;
+- more coherent action/context dispatch;
+- different placement of input publication relative to player/camera update;
+- different D3D11/DXGI frame pacing and queue behavior;
+- clearer or earlier visual camera/weapon feedback even at similar FPS.
+
+The first three have architectural evidence. The last three require controlled
+telemetry. Raw Input alone is not a sufficient explanation on current Wine,
+because Wine's DirectInput 8 mouse path is itself Raw Input-backed.
+
+Safe design consequence for Atom
+================================
+
+Atom must not independently call RegisterRawInputDevices as an ordinary plugin.
+Microsoft documents that only one window per raw-input device class can be
+registered within a process and warns libraries not to register because the
+last registration can interfere with application input. On current Wine it can
+also displace the registration used to implement DirectInput 8.
+
+The first Atom input implementation should wrap the post-xNVSE native snapshot
+and player/camera semantics. A future authoritative Raw Input backend would
+need to replace and emulate the complete native DirectInput contract, including
+GetDeviceState, GetDeviceData, focus, injection, and xNVSE compatibility. It is
+not a safe incremental toggle.
+
+External primary/corroborating evidence
+=======================================
+
+  https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-registerrawinputdevices
+  https://learn.microsoft.com/en-us/windows/win32/inputdev/about-raw-input
+  https://github.com/ianpatt/f4se/blob/master/f4se/GameInput.h
+  https://github.com/ianpatt/f4se/blob/master/f4se/Hooks_Input.cpp

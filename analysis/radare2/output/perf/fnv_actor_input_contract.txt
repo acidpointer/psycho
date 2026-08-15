@@ -1,0 +1,418 @@
+FALLOUT: NEW VEGAS ACTOR INPUT CONTRACT
+
+Research date: 2026-08-15
+Primary tool: radare2 MCP, analysis level 2
+Binary: fnv_reverse/FalloutNV.exe
+SHA-256: 42fee7d6cd74e801372aa89c8f71c974cebd3c20ec9ad43d1465b8fa9646b49c
+Size: 16,084,808 bytes
+Format: PE32 x86, image base 0x00400000, non-PIC
+PE timestamp: 2011-07-01 07:45:33 UTC
+PDB path: D:\_Fallout3\Platforms\Common\build\win32\FalloutNV.pdb
+
+Scope
+=====
+
+This ledger records the direct binary evidence used to describe the native
+keyboard, mouse, controller, binding, player-control, camera, and frame-latency
+pipeline. Modern design conclusions and user-facing recommendations belong in
+docs/fnv_actor_input_contract.md.
+
+Imports and negative evidence
+=============================
+
+The executable imports DirectInput8Create and XINPUT1_3 ordinal 2. It also
+imports GetAsyncKeyState, PeekMessageA, TranslateMessage, DispatchMessageA,
+QueryPerformanceCounter, QueryPerformanceFrequency, Sleep, and ShowCursor.
+
+No RegisterRawInputDevices, GetRawInputData, or other Raw Input API import was
+found. This proves only that the game executable does not directly use Raw
+Input. A compatibility runtime may implement DirectInput using Raw Input.
+
+Device creation and ownership
+=============================
+
+Global OSInputGlobals pointer: 0x011F35CC
+Constructor/bootstrap:         0x00A22660
+Only observed constructor call:0x0086C80C
+Allocation size:               0x00001C04
+
+Selected owner fields:
+
+  +0x0004  input flags
+  +0x0008  IDirectInput8 pointer
+  +0x002C  keyboard IDirectInputDevice8 pointer
+  +0x0030  mouse IDirectInputDevice8 pointer
+  +0x18F8  current keyboard state, 256 bytes
+  +0x19F8  previous keyboard state, 256 bytes
+  +0x1B24  current DIMOUSESTATE2, 20 bytes
+  +0x1B38  previous DIMOUSESTATE2, 20 bytes
+  +0x1B4C  swapped-button state
+  +0x1B50  Windows Control Panel MouseSensitivity byte
+  +0x1B54  GetDoubleClickTime result
+  +0x1B58  mouse event/auxiliary state
+  +0x1B94  keyboard bindings, 28 bytes
+  +0x1BB0  mouse bindings, 28 bytes
+  +0x1BCC  controller/joystick bindings, 28 bytes
+
+0x00A22660 calls DirectInput8Create, creates GUID_SysKeyboard and GUID_SysMouse
+devices, sets data formats and cooperative levels, and reads:
+
+  HKEY_CURRENT_USER\Control Panel\Mouse\MouseSensitivity
+  SwapMouseButton()
+  GetDoubleClickTime()
+
+Keyboard buffered-data setup:
+
+  0x00A227D2  calls SetDataFormat through device vtable +0x2C
+  0x00A227D7  builds DIPROPDWORD (dwSize 20, header size 16, device scope)
+  0x00A227F3  stores dwData = 0x20 (32 events)
+  0x00A22812  calls SetProperty through vtable +0x18 with DIPROP_BUFFERSIZE
+
+The keyboard device therefore has a native 32-event DirectInput buffer. The
+mouse setup at 0x00A22980 calls SetDataFormat but has no equivalent
+DIPROP_BUFFERSIZE call. Normal mouse gameplay is immediate-state only.
+
+Keyboard SetCooperativeLevel sites:
+
+  0x00A22782  PUSH 0x16  NONEXCLUSIVE | FOREGROUND | NOWINKEY
+  0x00A227A1  PUSH 0x15  EXCLUSIVE    | FOREGROUND | NOWINKEY
+
+Mouse SetCooperativeLevel sites:
+
+  0x00A229A9  PUSH 0x06  NONEXCLUSIVE | FOREGROUND
+  0x00A229CB  PUSH 0x05  EXCLUSIVE    | FOREGROUND
+
+Focus-reacquire mouse cooperative-level sites:
+
+  0x00A23C7C  PUSH 0x06
+  0x00A23CAD  PUSH 0x05
+
+The stable top-level/input HWND is 0x011C6FC0. The renderer HWND is
+0x011C6FBC. Fallout's WndProc is 0x0086A0A0. Their complete identity and
+lifetime are established separately by the display and window-input evidence.
+
+Normal per-frame sampler
+========================
+
+Sampler: 0x00A23010
+
+Controller:
+
+1. Copies current controller globals at 0x011F35A8..0x011F35B4 to previous
+   globals at 0x011F35B8..0x011F35C4.
+2. Calls XINPUT1_3 ordinal 2 with user index zero. The ABI and output shape
+   agree with XInputGetState.
+3. Polls attached DirectInput joystick objects through a separate path.
+
+Keyboard:
+
+1. Copies current state +0x18F8 to previous state +0x19F8.
+2. Calls IDirectInputDevice8::Acquire through vtable +0x1C.
+3. Treats HRESULT 0 and 1 as usable.
+4. Calls Poll through vtable +0x64.
+5. Calls GetDeviceState through vtable +0x24 with a 256-byte buffer.
+6. Clears the current state when acquisition/state retrieval fails.
+
+Mouse:
+
+1. Copies 20-byte current state +0x1B24 to previous state +0x1B38.
+2. Clears auxiliary state +0x1B58.
+3. Calls Acquire, Poll, and GetDeviceState with a 20-byte DIMOUSESTATE2.
+4. Clears the current state when acquisition/state retrieval fails.
+
+0x00A232AF is the post-mouse no-op boundary.
+
+Observed sampler calls:
+
+  0x0086F39E  normal frame helper 0x0086F390
+  0x008674B2  movie flow
+  0x008674F1  optional second movie-flow sample
+  0x007040FC  blocking flow
+  0x00871CC8  focus/window flow
+
+The menu/focus drain at 0x00A237B0 reads buffered keyboard data with
+GetDeviceData. Normal gameplay reads the immediate current/previous snapshots.
+
+Frame ordering and presentation boundary
+========================================
+
+Top-level frame function:             0x0086E650
+Normal input helper call:              0x0086E88C -> 0x0086F390
+Sampler call within helper:            0x0086F39E -> 0x00A23010
+Controller/timed helper after sample:  0x0086F3xx -> 0x00A257C0
+Observed AI_StartFrame region:         approximately 0x0086EC78
+Display/presentation helper call:      0x0086EDE8 -> 0x0086FF70
+Native final presentation call:        0x0087055E -> 0x00B6B730
+
+xNVSE replaces the call at 0x0087055E with its OnFramePresent dispatch and then
+calls 0x00B6B730. The target invokes renderer vtable slots +0x180 and +0x184 in
+the final presentation state machine.
+
+The proven normal ordering is therefore:
+
+  DirectInput/XInput sample
+    -> player/world/AI work
+    -> scene construction/render work
+    -> xNVSE OnFramePresent
+    -> native final presentation
+
+No generic, mandatory extra one-frame action queue was found between the input
+snapshot and player control consumers. Individual actions may still be delayed
+by weapon, animation, menu, camera, or gameplay state machines.
+
+State queries
+=============
+
+Keyboard query: 0x00A24180(key, state)
+
+  state 0  held/current
+  state 1  pressed edge: current down, previous up
+  state 2  released edge: current up, previous down
+  state 3  changed
+
+Mouse query: 0x00A23A50(button, state)
+
+Current button bytes begin at +0x1B30. Previous button bytes begin at +0x1B44.
+Pseudo-buttons 8 and 9 use the sign of lZ at +0x1B2C. State 4 also consults
++0x1B58.
+
+Controller query:        0x00A23E10
+Device/action dispatcher:0x00A24560
+Bound-action query:      0x00A24660(control, state)
+Keyboard injection:      0x00A24280
+28-control iterator:     0x00A253D0 -> 0x00A25410
+
+Binding schema
+==============
+
+0x00A22EF0 iterates 0x1C entries in the table at 0x011A7E60, reads each value
+from the [Controls] section of FalloutPrefs.ini with GetPrivateProfileStringA,
+parses hexadecimal binding data, and applies it through 0x00A24F60.
+
+Control IDs:
+
+   0 Forward
+   1 Back
+   2 Slide Left
+   3 Slide Right
+   4 Use (attack/fire)
+   5 Activate
+   6 Block (aim/block)
+   7 Ready Item (ready/reload)
+   8 Crouch/Sneak
+   9 Run
+  10 Always Run
+  11 Auto Move
+  12 Jump
+  13 Toggle POV
+  14 Menu Mode
+  15 Rest
+  16 Vats
+  17 Hotkey1
+  18 Ammo Swap
+  19 Hotkey3
+  20 Hotkey4
+  21 Hotkey5
+  22 Hotkey6
+  23 Hotkey7
+  24 Hotkey8
+  25 QuickSave
+  26 QuickLoad
+  27 Grab
+
+Each device binding is a single byte. 0xFF means unbound. The native table has
+no Hotkey2 entry because ID 18 is Ammo Swap. The schema has no native chord,
+modifier-combination, multiple-binding, action-context, or source-device
+identity representation.
+
+Player and actor consumers
+==========================
+
+The physical-input route feeds PlayerCharacter. No route was found which feeds
+the same hardware state generically to arbitrary NPC Actor objects; NPCs use
+AI, combat, and package systems.
+
+Main PlayerCharacter input/update: 0x0093E860
+Camera/input helper:               0x009445B0
+Camera helper call:                0x0093F8D9
+
+Selected control reads:
+
+  0x00941F4F / 0x00941F5F  aim/block control 6
+  0x0094215F               jump control 12
+  0x00942884               VATS control 16
+  0x0094284E               quicksave
+  0x00942869               quickload
+  0x009416DA / 0x009416EA  run/controller region
+  0x00941ACA / 0x00941ADA  run/keyboard region
+
+PlayerCharacter disabled-control flags are a byte at +0x680:
+
+  bit 0 movement
+  bit 1 looking
+  bit 2 Pip-Boy
+  bit 3 fighting
+  bit 4 POV
+  bit 5 rollover
+  bit 6 sneak
+
+0x005A03F0 tests a supplied mask. xNVSE must hook distinct player consumer
+sites for movement flags, attack, VATS, jump, aim, run, wait, sleep, fast
+travel, and reload. This is evidence that the executable does not offer one
+complete, high-level action queue where all player controls can be safely
+suppressed or transformed.
+
+xNVSE records a prevented-attack defect: automatic weapon attack can remain
+remembered through ForceFireWeapon. Its attack hook treats control as prevented
+at 0x00948A18 and 0x009491BC and skips to 0x00949676. This evidence concerns
+suppressed attack paths, not every normal vanilla attack.
+
+Mouse and camera
+================
+
+Mouse-axis getter: 0x00A239E0(axis)
+
+  axis 1 -> +0x1B24, DIMOUSESTATE2.lX
+  axis 2 -> +0x1B28, DIMOUSESTATE2.lY
+  axis 3 -> +0x1B2C, DIMOUSESTATE2.lZ
+
+Player camera helper 0x009445B0 reads:
+
+  0x00945995  X
+  0x009459A8  Y
+  0x009459BB  wheel
+
+bInvertYValues is the setting object at 0x011E0A5C and is applied at
+0x009459C6. The disabled-looking mask is tested at 0x009459E5 and zeroes the
+axes. fMouseSensitivity:Controls is at 0x011E0A6C. It is multiplied directly
+into horizontal input at 0x00945DB2 and vertical input at 0x00945FA4 before
+camera-state-specific scaling.
+
+The separate camera/flycam helper 0x0094A8C0 reads mouse axes at 0x0094A978 and
+0x0094A985, applies sensitivity, and accumulates results at +0x7E0/+0x7E4.
+Its controller-mode path divides values by 1500; its mouse path uses the
+relative deltas directly.
+
+No explicit gameplay mouse-smoothing buffer or gameplay acceleration setting
+was found in these actor-camera paths. No frame-time multiplication of the
+direct mouse deltas was found. Relative deltas are accumulated between polls;
+the once-per-frame read coalesces their timing but does not inherently discard
+their total magnitude.
+
+The settings below are not player-camera settings:
+
+  0x011F35F4  fForegroundMouseMult
+  0x011F3600  fForegroundMouseBase
+  0x011F360C  fForegroundMouseAccelTop
+  0x011F3618  fForegroundMouseAccelBase
+
+Their accessors at 0x00711D80, 0x00711DA0, 0x00711DC0, and 0x00711DE0 are
+consumed by InterfaceManager function 0x007118D0. That function also uses the
+Control Panel MouseSensitivity byte at 0x00711A8A and updates the interface
+cursor. These settings do not drive the actor-look route at 0x009445B0.
+
+Controller look and trigger behavior
+====================================
+
+Controller-mode global byte: 0x011F35C8
+
+0x00A23E10 immediately returns zero when controller mode is false. The native
+design selects a device mode rather than merging keyboard/mouse and XInput
+activity into one seamless action stream.
+
+0x009445B0 reads right-stick axes 9 and 10 through 0x00A23390. It independently
+sets each axis to zero when abs(axis) is below 0x21F1 (8689), then normalizes
+the vector and applies an acceleration exponent. 8689 is the XInput default
+right-thumb deadzone. Applying it independently is an axial/cross deadzone,
+not a circular/radial deadzone.
+
+Relevant setting objects:
+
+  0x011E0A90  iXenonHorizLookAccel
+  0x011E08A0  iXenonVertLookAccel
+  0x011E0818  fXenonMinLookSpeed
+  0x011E0928  additional controller look setting
+  0x011E08B8  additional controller look setting
+
+Trigger codes 0x10 and 0x11 in 0x00A23E10 compare their current byte with zero
+and use current/previous values for edges. There is no nonzero trigger threshold
+or trigger deadzone in that route.
+
+Focus, buffered events, and loss behavior
+========================================
+
+The devices are foreground devices. Focus loss can make Acquire/Poll/
+GetDeviceState fail. The normal sampler clears the corresponding current state
+on failure. That can synthesize released edges relative to the previous frame;
+events occurring while input is unavailable have no continuity guarantee.
+
+0x00A237B0 drains buffered keyboard events with GetDeviceData on message/focus
+paths. Gameplay normally uses GetDeviceState snapshots. The two routes therefore
+have different temporal semantics: buffered data carries distinct events,
+whereas current/previous state collapses all transitions between polls.
+
+Derived consequences of the proven snapshot design
+===================================================
+
+These are mechanical deductions, not separately observed playtest results:
+
+- A keyboard key or mouse/controller button pressed and released wholly between
+  two normal sampler calls can be invisible to gameplay.
+- Multiple transitions between samples collapse to the final state.
+- Relative mouse X/Y movement is accumulated but loses event timing/order.
+- Wheel motion is reduced to the sign of one accumulated lZ value for the two
+  pseudo-buttons. Opposing wheel deltas can cancel and magnitude/count is lost.
+- Menu buffered-event handling can observe a short event that gameplay misses.
+- Polling once per rendered frame adds a timing window from nearly zero to one
+  whole frame, averaging half a frame under a uniform event arrival model.
+
+Safe intervention boundaries
+============================
+
+PROVEN:
+
+- 0x00A23010 is the native immediate-state sample boundary.
+- 0x0086F39E is its normal-frame call inside 0x0086F390.
+- the sampled state is consumed before the final presentation boundary.
+- mouse input is relative state; an extra GetDeviceState may consume/split the
+  accumulated deltas seen by the native engine or xNVSE wrappers.
+- player controls are consumed at multiple sites rather than through one
+  complete action queue.
+
+DERIVED IMPLEMENTATION CONSTRAINTS:
+
+- Do not poll the native relative mouse device a second time without proving
+  how the original snapshot and every wrapper consumer are preserved.
+- A missed-tap fix needs timestamped/buffered transitions captured before they
+  collapse; it cannot reconstruct them from current/previous snapshots.
+- A gameplay action layer can be placed after the native sample and before
+  player consumers, but consumer-specific suppression remains necessary until
+  a complete action boundary is proven.
+- Input wait/sleep changes should leave the sample as late as possible before
+  simulation. Presentation queue policy is a separate subsystem owner.
+- Hook admission must use executable evidence and owned signatures, never the
+  identity of a third-party mod.
+
+RUNTIME OBSERVATION STILL REQUIRED:
+
+- installed Proton/Wine and DXVK versions and their active configuration;
+- device report cadence, frame times, sample-to-present CPU time, presentation
+  queue depth, display refresh/VRR state, scanout, and end-to-end latency;
+- behavior across focus transitions, menus, overlays, mixed devices, very short
+  taps, low-speed stick motion, trigger noise, and high-rate mice;
+- animation/gameplay acceptance time for each reportedly delayed action.
+
+Supporting local evidence
+=========================
+
+  docs/window_input_policy.md
+  docs/psycho_dashboard.md
+  analysis/radare2/output/perf/window_input_policy_contract.txt
+  analysis/ghidra/output/perf/display_message_input_contract_audit.txt
+  libnvse/xnvse/nvse/nvse/GameOSDepend.h
+  libnvse/xnvse/nvse/nvse/Hooks_DirectInput8Create.cpp
+  libnvse/xnvse/nvse/nvse/Commands_Input.cpp
+  libnvse/xnvse/nvse/nvse/Hooks_Gameplay.cpp
+  libnvse/xnvse/nvse/nvse/PluginAPI.h
+  libnvse/xnvse/nvse/nvse/GameObjects.h
+  libnvse/xnvse/nvse/nvse.cpp
