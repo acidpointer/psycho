@@ -8,8 +8,8 @@
 
 use super::contract::{
     CascadeDirty, CascadeScheduler, DeferredReceiverPlan, NVR_CASCADE_RESOLUTION,
-    NVR_POINT_LIGHT_COUNT, PointMapCache, PointMapSignature, SceneKind, SkinIndexEncoding,
-    SunCompetition, cascade_depth_selection, cascade_sphere_selection,
+    NVR_POINT_LIGHT_COUNT, PointMapCache, PointMapSignature, SceneKind, ShadowConsumerWorkPlan,
+    SkinIndexEncoding, SunCompetition, cascade_depth_selection, cascade_sphere_selection,
     contact_bilateral_visibility, contact_depth_from_key, contact_depth_key, contact_depths_match,
     contact_history_visibility, contact_plane_raw_epsilon, contact_ray_scale,
     contact_sample_is_occluder, deferred_mask_visibility, deferred_point_depth_key,
@@ -1327,26 +1327,33 @@ fn animated_near_actors_do_not_redraw_the_complete_static_cascade() {
 }
 
 #[test]
-fn ultrawide_point_shadow_work_is_bounded_by_light_coverage_not_light_batches() {
+fn ultrawide_point_shadow_work_matches_the_production_consumer_transcript() {
     let pixels = 3_440_u64 * 1_440;
-    // The rejected maximum used two full-screen point batches plus directional
-    // and point composite passes. This ignores the still more expensive
-    // cube-map producer, so it is a conservative lower bound for that frame.
-    let rejected_fragments = pixels * 4;
-    let budget = pixels * 2 + pixels / 2;
-    assert!(
-        rejected_fragments > budget,
-        "negative control no longer exceeds the budget"
-    );
     let local = point_light_scissor([0.0, 0.0, 10.0], 1.0, [-1.2, 1.2, 0.5, -0.5], 3_440, 1_440)
-        .expect("visible local light")
-        .pixels();
-    // One combined source-owned composition plus three half-resolution
-    // contact passes and the actual light rectangle.
-    let optimized_fragments = pixels + 3 * pixels / 4 + local * 2;
-    assert!(
-        optimized_fragments <= budget,
-        "coverage-bounded consumer schedules {optimized_fragments} fragments; budget is {budget}"
+        .expect("visible local light");
+    let mut scissors = [None; NVR_POINT_LIGHT_COUNT];
+    scissors[0] = Some(local);
+    let points = point_consumer_plan(scissors, 1);
+
+    let point_only = ShadowConsumerWorkPlan::new(false, points).expect("visible point work");
+    let point_only_metrics = point_only.metrics(3_440, 1_440, true);
+    assert_eq!(point_only_metrics.point_draws, 1);
+    assert_eq!(point_only_metrics.point_fragments, local.pixels());
+    assert_eq!(point_only_metrics.contact_fragments, 0);
+    assert_eq!(point_only_metrics.composite_fragments, pixels);
+    assert_eq!(
+        point_only_metrics.total_fragments(),
+        pixels + local.pixels(),
+        "point-only work drifted from one scissored accumulation plus one full-screen composite"
+    );
+
+    let combined = ShadowConsumerWorkPlan::new(true, points).expect("combined shadow work");
+    let combined_metrics = combined.metrics(3_440, 1_440, true);
+    assert_eq!(combined_metrics.contact_fragments, pixels);
+    assert_eq!(
+        combined_metrics.total_fragments(),
+        pixels * 2 + local.pixels(),
+        "combined work must own one contact pass, one scissored point pass, and one compositor"
     );
 }
 

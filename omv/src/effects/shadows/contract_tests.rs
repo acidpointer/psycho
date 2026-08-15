@@ -4,17 +4,18 @@ use super::contract::{
     DirectionalRootSetSignature, HookAction, LightScissorRect, NVR_CASCADE_RESOLUTION,
     NVR_POINT_DRAW_DISTANCE, NVR_POINT_LIGHT_COUNT, NVR_POINT_RADIUS_MULTIPLIER,
     PointFaceOperation, PointLightCandidate, PointMapCache, PointMapSignature,
-    ProducerResourcePlan, SceneKind, ShadowFramePlan, ShadowMapUpdate, ShadowPublicationIdentity,
-    ShadowSettings, SkinIndexEncoding, SunCompetition, TransactionState,
-    actor_overlay_edge_visibility, actor_overlay_projection_plan, cascade_minimum_caster_radius,
-    cascade_sphere_selection, clipmap_texel_delta, composite_shadow_factor,
-    consumer_has_shadow_work, contact_consumer_work, depth_sample_is_geometry,
-    directional_actor_root_is_active, directional_caster_work, directional_contact_visibility,
-    directional_form_type_is_enabled, directional_receiver_position, directional_root_set_dirty,
-    dismember_partition_is_renderable, effective_contact_distance, evsm4_moments, evsm4_visibility,
-    exterior_point_shadow_radiance, interior_shadow_factor, local_light_clear_coverage,
-    local_light_shadow_energy, local_light_shadow_weight, local_light_source_guard,
-    nvr_contact_sample_offsets, point_caster_depth, point_caster_inventory_is_complete,
+    PointStaticFaceCache, ProducerResourcePlan, SceneKind, ShadowConsumerWorkPlan, ShadowFramePlan,
+    ShadowMapUpdate, ShadowPublicationIdentity, ShadowSettings, SkinIndexEncoding, SunCompetition,
+    TransactionState, actor_overlay_edge_visibility, actor_overlay_projection_plan,
+    cascade_minimum_caster_radius, cascade_sphere_selection, clipmap_texel_delta,
+    composite_shadow_factor, consumer_has_shadow_work, contact_consumer_work,
+    depth_sample_is_geometry, directional_actor_root_is_active, directional_caster_work,
+    directional_contact_visibility, directional_form_type_is_enabled,
+    directional_receiver_position, directional_root_set_dirty, dismember_partition_is_renderable,
+    effective_contact_distance, evsm4_moments, evsm4_visibility, exterior_point_shadow_radiance,
+    interior_shadow_factor, local_light_clear_coverage, local_light_shadow_energy,
+    local_light_shadow_weight, local_light_source_guard, nvr_contact_sample_offsets,
+    point_caster_depth, point_caster_inventory_is_complete, point_consumer_plan,
     point_light_distance_fade, point_light_influence_is_eligible, point_light_radii,
     point_only_shadow_radiance, point_shadow_transition, point_shadow_visibility,
     practical_cascade_splits, publication_epoch_is_usable, publication_identity_is_usable,
@@ -210,9 +211,21 @@ fn local_light_clear_covers_old_and_current_scissors_without_fullscreen_work() {
 #[test]
 fn copied_actor_bounds_cover_each_intersected_cube_direction() {
     let bounds = [[10.0, 0.0, 0.0, 1.0], [-10.0, 0.0, 0.0, 1.0]];
-    let faces = super::native::point_light_dynamic_faces_from_bounds(&bounds, [0.0; 3]);
+    let faces = super::native::point_light_dynamic_faces_from_bounds(&bounds, [0.0; 3], 64.0);
     assert_ne!(faces & 0b00_0001, 0, "+X actor missing from cube coverage");
     assert_ne!(faces & 0b00_0010, 0, "-X actor missing from cube coverage");
+}
+
+#[test]
+fn actors_outside_a_point_lights_finite_volume_schedule_no_cube_work() {
+    let distant_actor = [[1_000.0, 0.0, 0.0, 1.0]];
+    let faces =
+        super::native::point_light_dynamic_faces_from_bounds(&distant_actor, [0.0; 3], 64.0);
+
+    assert_eq!(
+        faces, 0,
+        "angular cube-face coverage admitted an actor which cannot intersect the finite light"
+    );
 }
 
 #[test]
@@ -575,6 +588,18 @@ fn empty_interior_publication_performs_no_depth_or_color_transaction() {
     assert!(!consumer_has_shadow_work(false, 0));
     assert!(consumer_has_shadow_work(false, 1));
     assert!(consumer_has_shadow_work(true, 0));
+
+    let no_visible_points = point_consumer_plan([None; NVR_POINT_LIGHT_COUNT], 12);
+    assert!(no_visible_points.is_empty());
+    assert_eq!(
+        ShadowConsumerWorkPlan::new(false, no_visible_points),
+        None,
+        "selected but fully offscreen point lights admitted a color transaction"
+    );
+    let directional = ShadowConsumerWorkPlan::new(true, no_visible_points)
+        .expect("directional composition remains visible without local lights");
+    assert!(directional.has_directional_work());
+    assert!(!directional.has_point_work());
 }
 
 #[test]
@@ -1596,6 +1621,109 @@ fn point_cube_cache_invalidates_changed_static_caster_geometry() {
         changed.static_faces[0], 0x3f,
         "a moved door or streamed geometry retained a stale immutable point cube"
     );
+}
+
+#[test]
+fn point_cube_cache_localizes_static_changes_only_with_an_exact_projection() {
+    let mut signatures = [PointMapSignature::EMPTY; NVR_POINT_LIGHT_COUNT];
+    signatures[0] = PointMapSignature {
+        identity: 0x1234,
+        position: [0.0; 3],
+        radius: 512.0,
+        caster_signature: 0xAABB,
+    };
+    let mut faces = [[0_u64; 6]; NVR_POINT_LIGHT_COUNT];
+    faces[0] = [10, 20, 30, 40, 50, 60];
+
+    let initial = PointMapCache::default().plan_with_static_faces(
+        PointStaticFaceCache::default(),
+        signatures,
+        faces,
+        [0; NVR_POINT_LIGHT_COUNT],
+        1,
+    );
+    assert_eq!(initial.static_faces[0], 0x3f);
+
+    let stable = initial.next.plan_with_static_faces(
+        initial.next_static_faces,
+        signatures,
+        faces,
+        [0; NVR_POINT_LIGHT_COUNT],
+        1,
+    );
+    assert_eq!(stable.render_faces[0], 0);
+
+    signatures[0].caster_signature = 0xCCDD;
+    faces[0][0] += 1;
+    let localized = stable.next.plan_with_static_faces(
+        stable.next_static_faces,
+        signatures,
+        faces,
+        [0; NVR_POINT_LIGHT_COUNT],
+        1,
+    );
+    assert_eq!(localized.static_faces[0], 1);
+    assert_eq!(localized.render_faces[0], 1);
+
+    signatures[0].position[0] += 0.125;
+    signatures[0].caster_signature = 0xEEFF;
+    faces[0][1] += 1;
+    let moved_projection = localized.next.plan_with_static_faces(
+        localized.next_static_faces,
+        signatures,
+        faces,
+        [0; NVR_POINT_LIGHT_COUNT],
+        1,
+    );
+    assert_eq!(
+        moved_projection.static_faces[0], 0x3f,
+        "partial static refresh mixed two point-light projections in one cube"
+    );
+}
+
+#[test]
+fn point_static_face_cache_follows_physical_light_identity_across_reordering() {
+    let mut current = [PointMapSignature::EMPTY; NVR_POINT_LIGHT_COUNT];
+    current[0] = PointMapSignature {
+        identity: 0x1000,
+        position: [0.0; 3],
+        radius: 128.0,
+        caster_signature: 10,
+    };
+    current[1] = PointMapSignature {
+        identity: 0x2000,
+        position: [64.0, 0.0, 0.0],
+        radius: 128.0,
+        caster_signature: 20,
+    };
+    let mut faces = [[0_u64; 6]; NVR_POINT_LIGHT_COUNT];
+    faces[0] = [1, 2, 3, 4, 5, 6];
+    faces[1] = [11, 12, 13, 14, 15, 16];
+    let initial = PointMapCache::default().plan_with_static_faces(
+        PointStaticFaceCache::default(),
+        current,
+        faces,
+        [0; NVR_POINT_LIGHT_COUNT],
+        2,
+    );
+
+    let mut reordered = [PointMapSignature::EMPTY; NVR_POINT_LIGHT_COUNT];
+    reordered[0] = current[1];
+    reordered[1] = current[0];
+    let mut reordered_faces = [[0_u64; 6]; NVR_POINT_LIGHT_COUNT];
+    reordered_faces[0] = faces[1];
+    reordered_faces[1] = faces[0];
+    let stable = initial.next.plan_with_static_faces(
+        initial.next_static_faces,
+        reordered,
+        reordered_faces,
+        [0; NVR_POINT_LIGHT_COUNT],
+        2,
+    );
+
+    assert_eq!(stable.render_faces[..2], [0, 0]);
+    assert_eq!(stable.source_index(0), Some(1));
+    assert_eq!(stable.source_index(1), Some(0));
 }
 
 #[test]

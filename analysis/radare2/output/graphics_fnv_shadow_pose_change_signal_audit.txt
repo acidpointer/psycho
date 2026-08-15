@@ -1,0 +1,91 @@
+OMV point-shadow actor pose-change signal audit
+Date: 2026-08-15
+
+Scope
+-----
+
+This audit asks whether FalloutNV.exe exposes a cheap, actor-specific pose
+generation which OMV can use to skip point-cube actor refreshes when a caster
+is still. The immediate candidate is the value cached at NiSkinInstance +0x18
+by NiDX9Renderer::CalculateBoneMatrices.
+
+Executable identity
+-------------------
+
+Path: /data/storage1/Workspace/psycho/fnv_reverse/FalloutNV.exe
+SHA-256: 42fee7d6cd74e801372aa89c8f71c974cebd3c20ec9ad43d1465b8fa9646b49c
+Format: PE32, x86, image base 0x00400000
+PE timestamp: 0x4E0D50ED (2011-07-01 07:45:33 UTC as reported by radare2)
+PDB path: D:\_Fallout3\Platforms\Common\build\win32\FalloutNV.pdb
+
+Method
+------
+
+The current executable was opened through the radare2 MCP and analyzed to
+level 2. The relevant instructions were read directly at 0x00E6FE30 and the
+callee at 0x00E8BF90. No decompiler inference is needed for the cache-key
+loads and stores below.
+
+Direct binary facts
+-------------------
+
+NiDX9Renderer::CalculateBoneMatrices begins at 0x00E6FE30. In this function:
+
+    0x00E6FE41  mov ecx, dword [esi + 0x8bc]
+    0x00E6FE48  mov edi, dword [ebp + 0x18]
+    0x00E6FE4F  call 0x00E8BF90
+    0x00E6FE54  cmp edi, eax
+    0x00E6FE56  mov edi, dword [requested_mode]
+    0x00E6FE5D  jne 0x00E6FE68
+    0x00E6FE5F  cmp edi, dword [ebp + 0x20]
+    0x00E6FE62  je 0x00E70132
+
+The branch at 0x00E70132 is the cache return. On a miss, the function updates
+the first key:
+
+    0x00E6FE68  mov ecx, dword [esi + 0x8bc]
+    0x00E6FE6F  call 0x00E8BF90
+    0x00E6FE77  mov dword [ebp + 0x18], eax
+    0x00E6FEC6  mov dword [ebp + 0x20], edi
+
+The complete callee at 0x00E8BF90 is:
+
+    0x00E8BF90  mov eax, dword [ecx + 0x3c]
+    0x00E8BF93  ret
+
+Therefore the value written to NiSkinInstance +0x18 is copied from
+NiDX9Renderer +0x8BC -> object +0x3C. NiSkinInstance +0x20 is the requested
+bone-register mode. Those two values jointly control the native matrix-cache
+early return.
+
+Proven conclusion
+-----------------
+
+NiSkinInstance +0x18 is a renderer-owned calculation-cache stamp. It is not
+read from the actor, skeleton, animation controller, skin partition, geometry,
+or reference. The direct dataflow therefore disproves the proposed use of
+this field as an actor-specific pose generation.
+
+Safety consequence
+------------------
+
+OMV must not suppress an actor cube refresh merely because +0x18 is unchanged,
+or because the actor root transform is unchanged. A stationary actor root can
+still change bone matrices, facial animation, dismemberment visibility,
+equipment, or switch-node presentation. Conversely, the renderer cache stamp
+can change for renderer-global reasons without proving that one actor changed.
+
+No complete actor-specific generation covering those ownership families was
+proven in this audit. A complete pose prepass/hash would itself have to walk
+the actor hierarchy, resolve presentation state, and calculate/read every
+relevant skin transform; it is not a cheap substitute for the existing map
+refresh without a separately proven engine contract.
+
+Implementation boundary
+-----------------------
+
+The current optimization work deliberately retains presentation-cadence actor
+refresh for faces containing active actors. It optimizes false finite-volume
+admission and CPU journal lookup around that work, but does not introduce a
+root-transform or renderer-stamp shortcut which could freeze or deform actor
+shadows.

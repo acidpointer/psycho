@@ -35,6 +35,7 @@ const MAX_SKIN_PARTITIONS: usize = 64;
 const MAX_BONES_PER_PARTITION: usize = 18;
 const MAX_PARENT_VISITS: usize = 128;
 const MAX_SKIN_STATE_SNAPSHOTS: usize = 2_048;
+const SKIN_LOOKUP_CAPACITY: usize = MAX_SKIN_STATE_SNAPSHOTS * 2;
 const NI_AV_OBJECT_APP_CULLED: u32 = 1 << 0;
 const SHADOW_BONE_REGISTERS: u32 = 3;
 const INVALID_BONE_REGISTERS: u32 = u32::MAX;
@@ -192,11 +193,26 @@ const fn switch_active_child_index(active: i32, child_count: usize) -> Option<us
     }
 }
 
+/// Push one borrowed node identity without growing the render-thread stack.
+///
+/// The visit limit bounds popped nodes, not siblings waiting on the depth-first
+/// stack. A broad hierarchy can therefore exhaust reserved storage before the
+/// visit limit is reached. Returning `false` lets the transactional producer
+/// use native fallback without allocating or publishing a partial map.
+fn push_traversal_node(nodes: &mut Vec<usize>, identity: usize) -> bool {
+    if nodes.len() == nodes.capacity() {
+        return false;
+    }
+    nodes.push(identity);
+    true
+}
+
 /// Mutable allocation-free traversal state retained with device resources.
 pub(super) struct TraversalScratch {
     nodes: Vec<usize>,
     skin_states: Vec<SkinStateSnapshot>,
-    skin_calculations: Vec<SkinCalculation>,
+    skin_lookup: Vec<SkinLookupSlot>,
+    skin_lookup_generation: u32,
     declarations: Vec<VertexDeclarationEncoding>,
     render_state: Option<RenderStateSnapshot>,
 }
@@ -206,12 +222,15 @@ struct SkinStateSnapshot {
     skin: usize,
     frame_id: u32,
     bone_registers: u32,
+    world_transform: [u32; 13],
+    calculation_initialized: bool,
 }
 
-#[derive(Clone, Copy)]
-struct SkinCalculation {
+#[derive(Clone, Copy, Default)]
+struct SkinLookupSlot {
+    generation: u32,
     skin: usize,
-    world_transform: [u32; 13],
+    state_index: u16,
 }
 
 #[derive(Clone, Copy)]
@@ -232,7 +251,11 @@ impl TraversalScratch {
         Self {
             nodes: Vec::with_capacity(MAX_NODE_VISITS),
             skin_states: Vec::with_capacity(MAX_SKIN_STATE_SNAPSHOTS),
-            skin_calculations: Vec::with_capacity(MAX_SKIN_STATE_SNAPSHOTS),
+            // A load factor of at most one half bounds probe chains while the
+            // generation stamp resets logical ownership without clearing the
+            // table in every producer transaction.
+            skin_lookup: vec![SkinLookupSlot::default(); SKIN_LOOKUP_CAPACITY],
+            skin_lookup_generation: 0,
             declarations: Vec::with_capacity(64),
             render_state: None,
         }
@@ -255,11 +278,7 @@ impl TraversalScratch {
         &mut self,
         renderer: *mut c_void,
     ) -> Direct3DResult<()> {
-        if renderer.is_null()
-            || self.render_state.is_some()
-            || !self.skin_states.is_empty()
-            || !self.skin_calculations.is_empty()
-        {
+        if renderer.is_null() || self.render_state.is_some() || !self.skin_states.is_empty() {
             return Err(direct3d_failure());
         }
         let state =
@@ -280,6 +299,7 @@ impl TraversalScratch {
         // the cache inside this serialized transaction so a later engine
         // destruction/reuse cannot alias an old encoding entry.
         self.declarations.clear();
+        self.begin_skin_lookup_generation();
         Ok(())
     }
 
@@ -314,7 +334,6 @@ impl TraversalScratch {
                 write(skin, NativeLayout::NI_SKIN_BONE_REGISTERS, restored_mode);
             }
         }
-        self.skin_calculations.clear();
         self.declarations.clear();
         unsafe {
             write(
@@ -326,29 +345,91 @@ impl TraversalScratch {
         Ok(())
     }
 
-    /// Journal one skin before its first native calculation in this producer.
-    unsafe fn capture_skin_state(&mut self, skin: *mut u8) -> Direct3DResult<()> {
+    /// Advance the allocation-free skin lookup to a logically empty epoch.
+    fn begin_skin_lookup_generation(&mut self) {
+        self.skin_lookup_generation = self.skin_lookup_generation.wrapping_add(1);
+        if self.skin_lookup_generation == 0 {
+            // Wrapping once requires billions of successful producer
+            // transactions. Pay one bounded reset instead of allowing stale
+            // slots to alias the new generation.
+            self.skin_lookup.fill(SkinLookupSlot::default());
+            self.skin_lookup_generation = 1;
+        }
+    }
+
+    fn skin_lookup_start(skin: usize) -> usize {
+        debug_assert!(SKIN_LOOKUP_CAPACITY.is_power_of_two());
+        let mut hash = skin >> 2;
+        hash ^= hash >> 16;
+        hash = hash.wrapping_mul(0x7FEB_352D);
+        hash ^= hash >> 15;
+        hash & (SKIN_LOOKUP_CAPACITY - 1)
+    }
+
+    /// Find one journaled skin through the current fixed-capacity hash epoch.
+    fn skin_state_index(&self, skin: usize) -> Option<usize> {
+        let start = Self::skin_lookup_start(skin);
+        for probe in 0..SKIN_LOOKUP_CAPACITY {
+            let slot = self.skin_lookup[(start + probe) & (SKIN_LOOKUP_CAPACITY - 1)];
+            if slot.generation != self.skin_lookup_generation {
+                return None;
+            }
+            if slot.skin == skin {
+                return Some(usize::from(slot.state_index));
+            }
+        }
+        None
+    }
+
+    /// Insert a unique skin/index pair without allocation or replacement.
+    fn insert_skin_state(&mut self, skin: usize, state_index: usize) -> bool {
+        let Ok(state_index) = u16::try_from(state_index) else {
+            return false;
+        };
+        let start = Self::skin_lookup_start(skin);
+        for probe in 0..SKIN_LOOKUP_CAPACITY {
+            let slot = &mut self.skin_lookup[(start + probe) & (SKIN_LOOKUP_CAPACITY - 1)];
+            if slot.generation != self.skin_lookup_generation {
+                *slot = SkinLookupSlot {
+                    generation: self.skin_lookup_generation,
+                    skin,
+                    state_index,
+                };
+                return true;
+            }
+            if slot.skin == skin {
+                return usize::from(slot.state_index) == usize::from(state_index);
+            }
+        }
+        false
+    }
+
+    /// Journal one skin and return its stable transaction-local state index.
+    unsafe fn capture_skin_state(&mut self, skin: *mut u8) -> Direct3DResult<usize> {
         if skin.is_null() || self.render_state.is_none() {
             return Err(direct3d_failure());
         }
-        if self
-            .skin_states
-            .iter()
-            .any(|snapshot| snapshot.skin == skin as usize)
-        {
-            return Ok(());
+        if let Some(index) = self.skin_state_index(skin as usize) {
+            return Ok(index);
         }
         // Never reallocate in the render hook. Overflow fails the replacement
         // transaction and takes the already-supported native fallback.
         if self.skin_states.len() >= MAX_SKIN_STATE_SNAPSHOTS {
             return Err(direct3d_failure());
         }
+        let index = self.skin_states.len();
         self.skin_states.push(SkinStateSnapshot {
             skin: skin as usize,
             frame_id: unsafe { read::<u32>(skin, NativeLayout::NI_SKIN_FRAME_ID) },
             bone_registers: unsafe { read::<u32>(skin, NativeLayout::NI_SKIN_BONE_REGISTERS) },
+            world_transform: [0; 13],
+            calculation_initialized: false,
         });
-        Ok(())
+        if !self.insert_skin_state(skin as usize, index) {
+            self.skin_states.pop();
+            return Err(direct3d_failure());
+        }
+        Ok(index)
     }
 
     /// Prepare the native matrix cache for one skin/transform pair.
@@ -362,13 +443,13 @@ impl TraversalScratch {
         skin: *mut u8,
         world_transform: [u32; 13],
     ) -> Direct3DResult<()> {
-        unsafe { self.capture_skin_state(skin)? };
-        if let Some(previous) = self
-            .skin_calculations
-            .iter_mut()
-            .find(|calculation| calculation.skin == skin as usize)
-        {
-            if previous.world_transform != world_transform {
+        let index = unsafe { self.capture_skin_state(skin)? };
+        let snapshot = self
+            .skin_states
+            .get_mut(index)
+            .ok_or_else(direct3d_failure)?;
+        if snapshot.calculation_initialized {
+            if snapshot.world_transform != world_transform {
                 unsafe {
                     write(skin, NativeLayout::NI_SKIN_FRAME_ID, u32::MAX);
                     write(
@@ -377,12 +458,9 @@ impl TraversalScratch {
                         INVALID_BONE_REGISTERS,
                     );
                 }
-                previous.world_transform = world_transform;
+                snapshot.world_transform = world_transform;
             }
             return Ok(());
-        }
-        if self.skin_calculations.len() >= MAX_SKIN_STATE_SNAPSHOTS {
-            return Err(direct3d_failure());
         }
         // The native cache may have been populated earlier in this frame by a
         // different geometry sharing the skin. Its frame/mode stamp does not
@@ -396,32 +474,52 @@ impl TraversalScratch {
                 INVALID_BONE_REGISTERS,
             );
         }
-        self.skin_calculations.push(SkinCalculation {
-            skin: skin as usize,
-            world_transform,
-        });
+        snapshot.world_transform = world_transform;
+        snapshot.calculation_initialized = true;
         Ok(())
     }
 
-    /// Resolve and cache the blend-index interpretation of the bound buffer.
-    fn skin_index_encoding(
+    /// Resolve and cache the blend-index interpretation of a bound buffer.
+    ///
+    /// The native buffer fields are the same ownership source used by
+    /// [`bind_geometry_buffer`]. Looking up their declaration pointer before
+    /// querying D3D makes the common cached path CPU-only; a declaration
+    /// snapshot is needed only once per distinct engine declaration in the
+    /// serialized transaction.
+    ///
+    /// # Safety
+    ///
+    /// `buffer` must remain an engine-owned geometry buffer for the complete
+    /// call and must already be bound through [`bind_geometry_buffer`].
+    unsafe fn skin_index_encoding(
         &mut self,
         device: &Device9Ref<'_>,
+        buffer: *mut u8,
     ) -> Direct3DResult<SkinIndexEncoding> {
         // Skinned FNV geometry uses declarations. Treating an unexpected FVF
         // as a known byte layout could index outside the uploaded bone rows.
-        if device.fvf()? != 0 {
+        if buffer.is_null() || unsafe { read::<u32>(buffer, GEOMETRY_BUFFER_FVF) } != 0 {
             return Err(direct3d_failure());
         }
-        let declaration = device.vertex_declaration_snapshot()?;
+        let declaration = unsafe { read::<*mut c_void>(buffer, GEOMETRY_BUFFER_DECLARATION) };
+        if declaration.is_null() {
+            return Err(direct3d_failure());
+        }
         if let Some(cached) = self
             .declarations
             .iter()
-            .find(|cached| cached.declaration == declaration.handle as usize)
+            .find(|cached| cached.declaration == declaration as usize)
         {
             return Ok(cached.encoding);
         }
-        let encoding = declaration.elements[..declaration.element_count as usize]
+        let snapshot = device.vertex_declaration_snapshot()?;
+        // `bind_geometry_buffer` and this query are adjacent. A mismatch means
+        // native state changed unexpectedly; fail the replacement transaction
+        // instead of caching a declaration under the wrong engine identity.
+        if snapshot.handle != declaration {
+            return Err(direct3d_failure());
+        }
+        let encoding = snapshot.elements[..snapshot.element_count as usize]
             .iter()
             .find_map(|element| {
                 SkinIndexEncoding::from_declaration_element(
@@ -435,7 +533,7 @@ impl TraversalScratch {
             return Err(direct3d_failure());
         }
         self.declarations.push(VertexDeclarationEncoding {
-            declaration: declaration.handle as usize,
+            declaration: declaration as usize,
             encoding,
         });
         Ok(encoding)
@@ -599,8 +697,8 @@ unsafe fn traverse_root(
     scratch: &mut TraversalScratch,
 ) -> Direct3DResult<()> {
     scratch.nodes.clear();
-    if !root.is_null() {
-        scratch.nodes.push(root as usize);
+    if !root.is_null() && !push_traversal_node(&mut scratch.nodes, root as usize) {
+        return Err(direct3d_failure());
     }
     let mut visited = 0usize;
     while let Some(identity) = scratch.nodes.pop() {
@@ -655,16 +753,16 @@ unsafe fn traverse_root(
             let active = unsafe { read::<i32>(node, NI_SWITCH_ACTIVE_INDEX) };
             if let Some(active) = switch_active_child_index(active, end) {
                 let child = unsafe { read_unaligned(data.add(active)) };
-                if !child.is_null() {
-                    scratch.nodes.push(child as usize);
+                if !child.is_null() && !push_traversal_node(&mut scratch.nodes, child as usize) {
+                    return Err(direct3d_failure());
                 }
             }
             continue;
         }
         for index in (0..end).rev() {
             let child = unsafe { read_unaligned(data.add(index)) };
-            if !child.is_null() {
-                scratch.nodes.push(child as usize);
+            if !child.is_null() && !push_traversal_node(&mut scratch.nodes, child as usize) {
+                return Err(direct3d_failure());
             }
         }
     }
@@ -1010,7 +1108,8 @@ unsafe fn draw_skinned(
                 .set_vertex_shader_constant_f((9 + bone * 3) as u32, &rows)?;
         }
         unsafe { bind_geometry_buffer(context.device, buffer)? };
-        let encoding = scratch.skin_index_encoding(context.device)?.shader_index();
+        let encoding =
+            unsafe { scratch.skin_index_encoding(context.device, buffer)? }.shader_index();
         let vertex = if context.cube_radius.is_some() {
             &context.programs.cube_vertex[encoding]
         } else {
@@ -1417,7 +1516,7 @@ mod tests {
 
     use super::{
         CasterSubset, NI_AV_OBJECT_APP_CULLED, TraversalScratch, presentation_object_is_visible,
-        read, switch_active_child_index, write,
+        push_traversal_node, read, switch_active_child_index, write,
     };
     use crate::effects::shadows::engine::NativeLayout;
 
@@ -1450,6 +1549,41 @@ mod tests {
         assert_eq!(switch_active_child_index(-1, 4), None);
         assert_eq!(switch_active_child_index(4, 4), None);
         assert_eq!(switch_active_child_index(0, 0), None);
+    }
+
+    #[test]
+    fn traversal_stack_rejects_overflow_without_growing_in_the_render_path() {
+        let mut nodes = Vec::with_capacity(2);
+        assert!(push_traversal_node(&mut nodes, 1));
+        assert!(push_traversal_node(&mut nodes, 2));
+        let capacity = nodes.capacity();
+
+        assert!(!push_traversal_node(&mut nodes, 3));
+        assert_eq!(nodes, [1, 2]);
+        assert_eq!(nodes.capacity(), capacity);
+    }
+
+    #[test]
+    fn skin_journal_lookup_is_fixed_capacity_and_generation_scoped() {
+        let mut scratch = TraversalScratch::with_capacity();
+        let capacity = scratch.skin_lookup.capacity();
+        scratch.begin_skin_lookup_generation();
+
+        for index in 0..super::MAX_SKIN_STATE_SNAPSHOTS {
+            let skin = 0x1000 + index * 4;
+            assert!(scratch.insert_skin_state(skin, index));
+            assert_eq!(scratch.skin_state_index(skin), Some(index));
+        }
+        assert_eq!(scratch.skin_lookup.capacity(), capacity);
+        assert_eq!(scratch.skin_state_index(0xDEAD_BEE0), None);
+
+        scratch.begin_skin_lookup_generation();
+        assert_eq!(
+            scratch.skin_state_index(0x1000),
+            None,
+            "a later producer transaction reused a stale skin/index owner"
+        );
+        assert_eq!(scratch.skin_lookup.capacity(), capacity);
     }
 
     #[test]

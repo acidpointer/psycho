@@ -12,8 +12,8 @@ use libpsycho::os::windows::memory::validate_memory_range;
 
 use super::{
     contract::{
-        CASCADE_COUNT, DirectionalRootSetSignature, NVR_POINT_LIGHT_COUNT, SceneKind,
-        directional_actor_root_is_active, directional_form_type_is_enabled,
+        ALL_CUBE_FACES, CASCADE_COUNT, DirectionalRootSetSignature, NVR_POINT_LIGHT_COUNT,
+        SceneKind, directional_actor_root_is_active, directional_form_type_is_enabled,
         point_light_distance_fade, point_light_influence_is_eligible, point_light_radii,
         sphere_intersects_cube_face, sphere_intersects_point_light,
         stable_point_light_distance_squared,
@@ -554,20 +554,48 @@ pub(super) unsafe fn select_point_lights(
     selected
 }
 
+/// Immutable point-caster ownership for one cube and each of its six faces.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub(super) struct PointStaticSignatures {
+    /// Order-independent signature for every static root in the light volume.
+    pub(super) cube: u64,
+    /// Order-independent signatures for roots touching each D3D cube face.
+    pub(super) faces: [u64; 6],
+}
+
+#[derive(Clone, Copy, Default)]
+struct StaticSignatureAccumulator {
+    count: u64,
+    xor: u64,
+    sum: u64,
+}
+
+impl StaticSignatureAccumulator {
+    fn include(&mut self, mixed: u64) {
+        self.count = self.count.wrapping_add(1);
+        self.xor ^= mixed;
+        self.sum = self.sum.wrapping_add(mixed.rotate_left(23));
+    }
+
+    fn finish(self) -> u64 {
+        self.xor ^ self.sum.rotate_left(29) ^ self.count.wrapping_mul(0xD6E8_FEB8_6659_FD93)
+    }
+}
+
 /// Hash immutable point-caster ownership inside one light's influence sphere.
 ///
 /// Bounds and world-state hashes were copied by the single cell-root snapshot,
-/// so this performs only scalar work. A moving door invalidates lights whose
-/// volumes may actually contain it instead of rebuilding all selected cubes,
-/// and no light rescans its native 8,192-entry geometry list.
-pub(super) fn point_scene_static_signature(
+/// so this performs only scalar work. Face-local signatures let a door or
+/// streamed reference invalidate only directions which could contain its old
+/// or current projection. Missing bounds remain conservative and participate
+/// in every face. No light rescans its native 8,192-entry geometry list.
+pub(super) fn point_scene_static_signatures(
     roots: &[DirectionalRoot],
     light_position: [f32; 3],
     light_radius: f32,
-) -> u64 {
-    let mut static_count = 0_u64;
-    let mut static_xor = 0_u64;
-    let mut static_sum = 0_u64;
+) -> PointStaticSignatures {
+    let mut cube = StaticSignatureAccumulator::default();
+    let mut faces = [StaticSignatureAccumulator::default(); 6];
     for root in roots.iter().copied().filter(|root| {
         !root.is_dynamic_actor() && root.intersects_point_light(light_position, light_radius)
     }) {
@@ -577,11 +605,28 @@ pub(super) fn point_scene_static_signature(
         mixed ^= mixed >> 33;
         mixed = mixed.wrapping_mul(0xFF51_AFD7_ED55_8CCD);
         mixed ^= mixed >> 33;
-        static_count = static_count.wrapping_add(1);
-        static_xor ^= mixed;
-        static_sum = static_sum.wrapping_add(mixed.rotate_left(23));
+        cube.include(mixed);
+
+        let face_mask = root.world_bound.map_or(ALL_CUBE_FACES, |bound| {
+            let center_from_light = std::array::from_fn(|axis| bound[axis] - light_position[axis]);
+            (0..6).fold(0_u8, |mask, face| {
+                mask | (u8::from(sphere_intersects_cube_face(
+                    center_from_light,
+                    bound[3],
+                    face,
+                )) << face)
+            })
+        });
+        for (face, accumulator) in faces.iter_mut().enumerate() {
+            if face_mask & (1 << face) != 0 {
+                accumulator.include(mixed);
+            }
+        }
     }
-    static_xor ^ static_sum.rotate_left(29) ^ static_count.wrapping_mul(0xD6E8_FEB8_6659_FD93)
+    PointStaticSignatures {
+        cube: cube.finish(),
+        faces: faces.map(StaticSignatureAccumulator::finish),
+    }
 }
 
 /// Copy active actor bounds out of the borrowed root list.
@@ -622,13 +667,28 @@ pub(super) unsafe fn collect_point_actor_bounds(
     true
 }
 
-/// Resolve cube faces touched by a copied set of absolute actor spheres.
+/// Resolve cube faces touched by actor spheres inside one finite point light.
+///
+/// Cube-face pyramids are angular and therefore unbounded. Applying the light
+/// sphere first is not merely an optimization: without it, an actor anywhere
+/// in the loaded scene dirties the face pointing toward it even though the
+/// generation traversal later rejects that actor from the finite light. The
+/// resulting empty refresh still copies and clears a complete cube face.
 pub(super) fn point_light_dynamic_faces_from_bounds(
     bounds: &[[f32; 4]],
     light_position: [f32; 3],
+    light_radius: f32,
 ) -> u8 {
     let mut faces = 0_u8;
     for bound in bounds {
+        if !sphere_intersects_point_light(
+            [bound[0], bound[1], bound[2]],
+            bound[3],
+            light_position,
+            light_radius,
+        ) {
+            continue;
+        }
         let center_from_light = std::array::from_fn(|axis| bound[axis] - light_position[axis]);
         for face in 0..6 {
             if sphere_intersects_cube_face(center_from_light, bound[3], face) {
@@ -1134,7 +1194,7 @@ const fn size_of<T>() -> usize {
 mod tests {
     use super::{
         DirectionalRoot, NativeBound, PointLight, PointLightSelection,
-        directional_root_set_signatures, point_scene_static_signature, push_directional_root,
+        directional_root_set_signatures, point_scene_static_signatures, push_directional_root,
         retained_object_state_signature,
     };
 
@@ -1341,14 +1401,69 @@ mod tests {
             world_state: 33,
             ..far
         };
-        let baseline = point_scene_static_signature(&[near, far], [0.0; 3], 64.0);
+        let baseline = point_scene_static_signatures(&[near, far], [0.0; 3], 64.0).cube;
         assert_eq!(
             baseline,
-            point_scene_static_signature(&[near, moved_far], [0.0; 3], 64.0),
+            point_scene_static_signatures(&[near, moved_far], [0.0; 3], 64.0).cube,
         );
         assert_ne!(
             baseline,
-            point_scene_static_signature(&[near, moved_far], [950.0, 0.0, 0.0], 64.0),
+            point_scene_static_signatures(&[near, moved_far], [950.0, 0.0, 0.0], 64.0).cube,
+        );
+    }
+
+    #[test]
+    fn point_static_face_signatures_localize_one_sided_caster_changes() {
+        let positive_x = DirectionalRoot {
+            root: 0x1000,
+            form_type: None,
+            is_land: false,
+            is_lod: false,
+            world_state: 11,
+            world_bound: Some([10.0, 0.0, 0.0, 0.1]),
+        };
+        let baseline = point_scene_static_signatures(&[positive_x], [0.0; 3], 64.0);
+        let moved = point_scene_static_signatures(
+            &[DirectionalRoot {
+                world_state: 22,
+                ..positive_x
+            }],
+            [0.0; 3],
+            64.0,
+        );
+
+        assert_ne!(baseline.cube, moved.cube);
+        assert_ne!(baseline.faces[0], moved.faces[0]);
+        assert_eq!(
+            baseline.faces[1..],
+            moved.faces[1..],
+            "a +X-only caster invalidated unrelated cube directions"
+        );
+    }
+
+    #[test]
+    fn point_static_face_signatures_dirty_departed_and_arrived_directions() {
+        let positive_x = DirectionalRoot {
+            root: 0x1000,
+            form_type: None,
+            is_land: false,
+            is_lod: false,
+            world_state: 11,
+            world_bound: Some([10.0, 0.0, 0.0, 0.1]),
+        };
+        let positive_y = DirectionalRoot {
+            world_bound: Some([0.0, 10.0, 0.0, 0.1]),
+            ..positive_x
+        };
+        let previous = point_scene_static_signatures(&[positive_x], [0.0; 3], 64.0);
+        let current = point_scene_static_signatures(&[positive_y], [0.0; 3], 64.0);
+        let changed = (0..6).fold(0_u8, |mask, face| {
+            mask | (u8::from(previous.faces[face] != current.faces[face]) << face)
+        });
+
+        assert_eq!(
+            changed, 0b00_0101,
+            "moving one caster did not invalidate exactly its departed +X and arrived +Y faces"
         );
     }
 }

@@ -1202,13 +1202,23 @@ impl PointConsumerDraw {
 }
 
 /// Fixed-capacity point-light draw schedule with no render-thread allocation.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) struct PointConsumerPlan {
     draws: [PointConsumerDraw; NVR_POINT_LIGHT_COUNT],
     len: usize,
 }
 
 impl PointConsumerPlan {
+    /// Whether no visible local-light receiver region requires a draw.
+    pub(super) const fn is_empty(self) -> bool {
+        self.len == 0
+    }
+
+    /// Number of scissored accumulation draws in this schedule.
+    pub(super) const fn draw_count(self) -> usize {
+        self.len
+    }
+
     /// Scheduled draws in submission order.
     pub(super) fn draws(self) -> impl Iterator<Item = PointConsumerDraw> {
         self.draws.into_iter().take(self.len)
@@ -1224,6 +1234,93 @@ impl PointConsumerPlan {
         self.draws()
             .map(|draw| draw.scissor)
             .reduce(LightScissorRect::union)
+    }
+}
+
+/// Visible shadow work admitted to one pre-alpha consumer transaction.
+///
+/// Point-light selection is intentionally view-invariant so turning the camera
+/// cannot replace complete cube maps. Consumer admission is different: a
+/// point-only frame whose selected spheres have no screen coverage cannot
+/// modify scene color and must stop before depth acquisition, target creation,
+/// or D3D state capture. Directional work remains admitted independently.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) struct ShadowConsumerWorkPlan {
+    directional: bool,
+    points: PointConsumerPlan,
+}
+
+/// Resolution-aware pixel and draw transcript for one consumer plan.
+///
+/// These values describe production scheduling, not measured GPU time. They
+/// intentionally exclude shadow-map generation and shader early-outs so tests
+/// can lock pass topology without pretending a fragment count is an FPS
+/// result.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub(super) struct ShadowConsumerWorkMetrics {
+    /// Scissored point-accumulation draws.
+    pub(super) point_draws: usize,
+    /// Point-accumulation pixels before shader early-outs.
+    pub(super) point_fragments: u64,
+    /// Full-resolution contact-generation pixels.
+    pub(super) contact_fragments: u64,
+    /// Mandatory source-owned composition pixels.
+    pub(super) composite_fragments: u64,
+}
+
+impl ShadowConsumerWorkMetrics {
+    /// Total scheduled consumer fragments across all passes.
+    pub(super) const fn total_fragments(self) -> u64 {
+        self.point_fragments + self.contact_fragments + self.composite_fragments
+    }
+}
+
+impl ShadowConsumerWorkPlan {
+    /// Build a visible consumer plan, returning `None` for a provable no-op.
+    pub(super) const fn new(directional: bool, points: PointConsumerPlan) -> Option<Self> {
+        if !directional && points.is_empty() {
+            None
+        } else {
+            Some(Self {
+                directional,
+                points,
+            })
+        }
+    }
+
+    /// Whether at least one visible point-light receiver region is scheduled.
+    pub(super) const fn has_point_work(self) -> bool {
+        !self.points.is_empty()
+    }
+
+    /// Return the fixed-capacity point-light draw schedule.
+    pub(super) const fn points(self) -> PointConsumerPlan {
+        self.points
+    }
+
+    /// Whether this transaction includes directional shadow composition.
+    pub(super) const fn has_directional_work(self) -> bool {
+        self.directional
+    }
+
+    /// Quantify the current production passes at one output resolution.
+    pub(super) fn metrics(
+        self,
+        width: u32,
+        height: u32,
+        contact_enabled: bool,
+    ) -> ShadowConsumerWorkMetrics {
+        let pixels = u64::from(width) * u64::from(height);
+        ShadowConsumerWorkMetrics {
+            point_draws: self.points.draw_count(),
+            point_fragments: self.points.fragment_count(),
+            contact_fragments: if self.directional && contact_enabled {
+                pixels
+            } else {
+                0
+            },
+            composite_fragments: pixels,
+        }
     }
 }
 
@@ -2090,7 +2187,7 @@ impl PointMapSignature {
         caster_signature: 0,
     };
 
-    fn materially_matches(self, current: Self) -> bool {
+    fn spatially_matches(self, current: Self) -> bool {
         if self.identity == 0
             || self.identity != current.identity
             || !self.position.into_iter().all(f32::is_finite)
@@ -2098,7 +2195,6 @@ impl PointMapSignature {
             || !self.radius.is_finite()
             || !current.radius.is_finite()
             || (self.radius - current.radius).abs() > 0.01
-            || self.caster_signature != current.caster_signature
             || current.caster_signature == u64::MAX
         {
             return false;
@@ -2110,6 +2206,43 @@ impl PointMapSignature {
             })
             .sum::<f32>();
         movement_squared < POINT_POSITION_REFRESH_DISTANCE * POINT_POSITION_REFRESH_DISTANCE
+    }
+
+    fn materially_matches(self, current: Self) -> bool {
+        self.spatially_matches(current) && self.caster_signature == current.caster_signature
+    }
+
+    fn has_exact_projection(self, current: Self) -> bool {
+        self.position.map(f32::to_bits) == current.position.map(f32::to_bits)
+            && self.radius.to_bits() == current.radius.to_bits()
+    }
+}
+
+/// Face-local immutable caster identities retained beside post-Deferred maps.
+///
+/// This cache deliberately does not live inside [`PointMapCache`]. That cache
+/// is part of the frozen loader-visible `ShadowPipeline` owner, while these
+/// additional signatures are needed only after device resources exist. Keeping
+/// them in `ShadowResources` preserves the accepted pre-Deferred owner layout.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub(super) struct PointStaticFaceCache {
+    signatures: [[u64; 6]; NVR_POINT_LIGHT_COUNT],
+    valid_faces: [u8; NVR_POINT_LIGHT_COUNT],
+}
+
+impl PointStaticFaceCache {
+    fn dirty_faces(self, slot: usize, current: [u64; 6]) -> u8 {
+        if self.valid_faces[slot] != ALL_CUBE_FACES {
+            return ALL_CUBE_FACES;
+        }
+        (0..6).fold(0_u8, |mask, face| {
+            mask | (u8::from(self.signatures[slot][face] != current[face]) << face)
+        })
+    }
+
+    fn publish(&mut self, slot: usize, current: [u64; 6]) {
+        self.signatures[slot] = current;
+        self.valid_faces[slot] = ALL_CUBE_FACES;
     }
 }
 
@@ -2147,6 +2280,8 @@ pub(super) struct PointMapPlan {
     source_indices: [u8; NVR_POINT_LIGHT_COUNT],
     /// Cache state committed only after draw, EndScene, and restoration pass.
     pub(super) next: PointMapCache,
+    /// Face-local state committed beside `next` after the same transaction.
+    pub(super) next_static_faces: PointStaticFaceCache,
 }
 
 /// One ordered operation required to publish a point-cube face.
@@ -2226,8 +2361,43 @@ impl PointMapCache {
         dynamic_faces: [u8; NVR_POINT_LIGHT_COUNT],
         count: usize,
     ) -> PointMapPlan {
+        self.plan_internal(current, dynamic_faces, count, None)
+    }
+
+    /// Plan point-map work using face-local immutable caster signatures.
+    ///
+    /// The signature arrays are source-ordered while the retained cache is
+    /// physical-slot ordered. Slot reconciliation therefore occurs inside the
+    /// same stable identity mapping as map ownership. A static change may
+    /// update selected faces only when light position and radius exactly match
+    /// the retained projection; otherwise every face is rebuilt so one cube
+    /// never mixes projections from two light transforms.
+    pub(super) fn plan_with_static_faces(
+        self,
+        previous_static_faces: PointStaticFaceCache,
+        current: [PointMapSignature; NVR_POINT_LIGHT_COUNT],
+        current_static_faces: [[u64; 6]; NVR_POINT_LIGHT_COUNT],
+        dynamic_faces: [u8; NVR_POINT_LIGHT_COUNT],
+        count: usize,
+    ) -> PointMapPlan {
+        self.plan_internal(
+            current,
+            dynamic_faces,
+            count,
+            Some((previous_static_faces, current_static_faces)),
+        )
+    }
+
+    fn plan_internal(
+        self,
+        current: [PointMapSignature; NVR_POINT_LIGHT_COUNT],
+        dynamic_faces: [u8; NVR_POINT_LIGHT_COUNT],
+        count: usize,
+        static_face_signatures: Option<(PointStaticFaceCache, [[u64; 6]; NVR_POINT_LIGHT_COUNT])>,
+    ) -> PointMapPlan {
         let count = count.min(NVR_POINT_LIGHT_COUNT);
         let mut next = PointMapCache::default();
+        let mut next_static_faces = PointStaticFaceCache::default();
         let mut render_faces = [0; NVR_POINT_LIGHT_COUNT];
         let mut static_faces = [0; NVR_POINT_LIGHT_COUNT];
         let mut dynamic_draw_faces = [0; NVR_POINT_LIGHT_COUNT];
@@ -2278,16 +2448,43 @@ impl PointMapCache {
             else {
                 continue;
             };
-            if !self.signatures[slot].materially_matches(current[source]) {
+            let retained = self.signatures[slot];
+            let spatially_matches = retained.spatially_matches(current[source]);
+            let materially_matches = if static_face_signatures.is_some() {
+                spatially_matches
+            } else {
+                retained.materially_matches(current[source])
+            };
+            if !materially_matches {
                 render_faces[slot] = ALL_CUBE_FACES;
                 static_faces[slot] = ALL_CUBE_FACES;
                 next.signatures[slot] = current[source];
             } else {
+                let mut changed_static_faces = static_face_signatures
+                    .map_or(0, |(previous, faces)| {
+                        previous.dirty_faces(slot, faces[source])
+                    });
+                if changed_static_faces != 0 && !retained.has_exact_projection(current[source]) {
+                    // A sub-threshold source movement normally retains the
+                    // old cube. If it also changes caster ownership, partial
+                    // regeneration would mix old and current projections in
+                    // one sampled cube, so take the complete safe refresh.
+                    changed_static_faces = ALL_CUBE_FACES;
+                }
                 render_faces[slot] =
-                    (self.dynamic_faces[slot] | dynamic_faces[source]) & ALL_CUBE_FACES;
+                    (changed_static_faces | self.dynamic_faces[slot] | dynamic_faces[source])
+                        & ALL_CUBE_FACES;
+                static_faces[slot] = changed_static_faces;
                 // Retain exact map-defining metadata until a material move
                 // causes this physical cube to be regenerated.
-                next.signatures[slot] = self.signatures[slot];
+                next.signatures[slot] = retained;
+                // Face-local comparisons replace only caster invalidation.
+                // Publishing the current aggregate prevents the compatibility
+                // identity from remaining stale after all changed faces commit.
+                next.signatures[slot].caster_signature = current[source].caster_signature;
+            }
+            if let Some((_, faces)) = static_face_signatures {
+                next_static_faces.publish(slot, faces[source]);
             }
             next.dynamic_faces[slot] = dynamic_faces[source] & ALL_CUBE_FACES;
             dynamic_draw_faces[slot] = next.dynamic_faces[slot];
@@ -2300,6 +2497,7 @@ impl PointMapCache {
             published,
             source_indices,
             next,
+            next_static_faces,
         }
     }
 }

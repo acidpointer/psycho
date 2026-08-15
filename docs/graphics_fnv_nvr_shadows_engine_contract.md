@@ -5293,6 +5293,830 @@ load-to-gameplay run with BaseObjectSwapper and both DeferredInit markers.
 Until those runtime gates pass, containment, fixture, child-pose, fade, and
 startup results remain awaiting playtest.
 
+## 2026-08-15 comprehensive shadow bottleneck audit
+
+This audit maps every source-provable CPU, GPU, memory, allocation, and D3D9
+state-scaling class in the current shadow implementation. Its purpose is to
+preserve enough quantitative evidence for a later correction to proceed without
+repeating the investigation or mistaking a passing structural test for proof of
+runtime performance.
+
+The numbered findings below preserve the pre-remediation implementation which
+was audited. The implementation closure later in this section records which
+costs were removed, which contracts deliberately remain, and the behavioral
+evidence for the resulting code. It supersedes phrases such as "currently" in
+the original findings without erasing the negative controls that motivated the
+changes.
+
+The audit does not claim that any one item is the largest contributor to an
+observed frame time. Source and behavioral tests can prove that work occurs,
+that it is redundant, and how it scales; only an in-game CPU/GPU capture can
+rank those costs in milliseconds on a particular driver and system. Findings
+below therefore use these evidence classes:
+
+- **Behavioral proof** means a pure or D3D9 execution test rejects the opposite
+  behavior and exercises production-owned contracts rather than Rust source
+  text.
+- **Concrete static proof** means bounded loops, resource formats/dimensions,
+  D3D9 call topology, cache state transitions, or standard Rust container
+  behavior make the cost unavoidable without needing a runtime test.
+- **Runtime inference** is called out explicitly and is not treated as a
+  completed performance result.
+
+The explicit focused command passed all 166 shadow tests under Wine during
+this audit:
+
+```bash
+cargo test --target i686-pc-windows-gnu -p omv effects::shadows:: --no-fail-fast
+```
+
+This includes the real R32F cube publication/merge test and the real D3D9
+state journal restoration test. The successful suite establishes current
+behavior; it does not contradict the expensive behavior that several tests
+intentionally require.
+
+### Current frame graph
+
+The common-shadow producer owns the following high-level path:
+
+1. recover the live scene and camera;
+2. select at most twelve point lights after scanning at most 512 manager
+   entries;
+3. copy a bounded canonical root inventory for the serialized native epoch;
+4. derive directional signatures, point static signatures, and actor coverage;
+5. either republish unchanged metadata without D3D or capture a producer D3D
+   transaction and generate every dirty map;
+6. publish only after map writes, native skin-state restoration, `EndScene`,
+   attachment restoration, and exact D3D state restoration succeed.
+
+The pre-alpha consumer then:
+
+1. admits work from directional presence or a nonzero selected point count;
+2. acquires coherent scene depth and validates the scene color owner;
+3. ensures full-resolution consumer targets;
+4. captures attachments and exact consumer D3D state;
+5. accumulates local-light deficit/total inside point-light scissors;
+6. optionally generates full-resolution contact evidence;
+7. copies the complete source color and executes one full-screen compositor;
+8. restores attachments and exact D3D state.
+
+The pipeline publishes at most once per render epoch through
+`has_current_publication`. There is no evidence of duplicate complete producer
+transactions in one ordinary epoch, so no bottleneck claim below assumes such
+duplication.
+
+### P0: actors outside a finite point light dirty cube faces
+
+This is a confirmed avoidable-work defect, not a quality tradeoff.
+
+`native::collect_point_actor_bounds` copies all active actor spheres from the
+canonical root inventory. For each selected light,
+`native::point_light_dynamic_faces_from_bounds` compares every copied sphere
+with all six cube directions but never first applies
+`sphere_intersects_point_light`. Directional cube-face overlap has no finite
+distance boundary.
+
+A concrete negative example is an actor sphere centered at `[1000, 0, 0]` with
+radius `1`, evaluated for a radius-64 light at the origin. The `+X` face test
+accepts it because it lies in that face's angular pyramid even though the
+sphere is approximately 935 units beyond the light influence. The face bit is
+therefore set.
+
+`ShadowResources::draw_point_dynamic_roots` later applies the missing finite
+light-volume predicate and submits no actor geometry. By that time the point
+plan has already dirtied the face and `draw_point_maps` must execute its
+publication transcript:
+
+1. obtain the retained static and published cube-face surfaces;
+2. copy the complete retained R32F face into the published cube;
+3. bind the published face and shared depth/stencil target;
+4. clear depth and stencil;
+5. configure point-generation state;
+6. traverse the actor-root list, where the distant actor is finally rejected.
+
+The mandatory `PublishStatic` copy is `resolution^2 * 4` bytes per false dirty
+face: 0.25 MiB at Performance, 1 MiB at High, and 4 MiB at Ultra. The maximum
+72 faces across twelve selected lights therefore represents 18, 72, or 288
+MiB of unnecessary logical face-copy traffic in one presentation, before
+clears, state changes, and traversal.
+
+Existing coverage is incomplete. The behavioral tests
+`point_caster_bounds_are_tested_against_the_light_volume` and
+`copied_actor_bounds_cover_each_intersected_cube_direction` prove the two pure
+predicates separately, but no test composes finite-light admission with
+dynamic-face scheduling. A correction must add a negative control in which a
+directionally aligned actor outside the light radius produces a zero face mask
+and an empty face-operation transcript.
+
+### P0: moving point lights synchronously rebuild six static faces
+
+`PointMapSignature` stores one light position, radius, and cube-wide static
+caster signature. `materially_matches` rejects a retained cube if source
+movement accumulates to 0.25 world units, the radius differs by more than
+0.01, the static signature changes, the light identity changes, or the
+signature is conservative-invalid.
+
+`PointMapCache::plan` assigns both `render_faces` and `static_faces` to `0x3f`
+for every rejected signature. The behavioral test
+`point_cube_cache_pairs_metadata_and_refreshes_only_changed_lights` proves
+that initial, replacement, and materially moved lights rebuild all six faces.
+The configured distance/slot fade affects only consumer deficit weighting; it
+does not stage or amortize generation.
+
+Each of those six faces scans every canonical static root, traverses every
+intersecting root hierarchy, submits admitted geometry, renders the complete
+face, and publishes it. At High the six mandatory publication copies alone are
+6 MiB; at Ultra they are 24 MiB. Raster, clear, native draw, vertex/index
+traffic, alpha sampling, and skinning costs are additional.
+
+The Pip-Boy is an important runtime hypothesis: if the engine reports its
+attached point source moving with the player, ordinary walking will cross a
+0.25-unit cache boundary frequently and enter the six-face path. The source
+contract proves the work after a threshold crossing, but this audit did not
+measure how often the live Pip-Boy light crosses it. That frequency must be
+captured in gameplay before claiming a measured Pip-Boy frame-time cost.
+
+A static caster change is also cube-wide. `point_scene_static_signature`
+produces one order-independent signature for all roots intersecting a light.
+The behavioral test `point_cube_cache_invalidates_changed_static_caster_geometry`
+requires any signature change to set all six static face bits. A door or other
+reference changing on one side consequently rebuilds the opposite five faces
+too. Per-face signatures can remove that caster-local amplification, but they
+do not solve light translation because moving the source changes every cube
+projection.
+
+### P0: actor presence is treated as actor pose change
+
+`PointMapCache::dynamic_faces` records only face coverage. It has no animation
+generation or pose identity. For an otherwise unchanged light, planning uses
+`previous_dynamic_faces | current_dynamic_faces`, so every face containing an
+active actor is dirty at presentation cadence even when the actor's bounds and
+pose are unchanged.
+
+The test `point_cube_cache_pairs_metadata_and_refreshes_only_changed_lights`
+explicitly requires a stationary point light containing a skinned actor to
+refresh its occupied face. This preserves animation fidelity under the current
+information contract, but it also proves the steady-state work. Face crossings
+correctly refresh both old and current coverage so an abandoned face cannot
+retain a ghost.
+
+`PointMapCache::has_dynamic_casters` also prevents entry into the zero-D3D
+republish route whenever the previous publication contains any actor coverage.
+Thus an idle actor still causes attachment capture, the complete producer state
+journal, `BeginScene`/`EndScene`, the native skin-state journal, face copy,
+depth clear, traversal, and restoration.
+
+Every dynamic dirty face has this mandatory ordered transcript:
+
+- `PublishStatic`: copy the complete retained R32F static face;
+- `MergeAnimated`: clear reusable depth/stencil and submit current actor
+  geometry while sampling the retained static cube for nearest-depth merge.
+
+A safe correction needs a trustworthy engine-owned animation or pose-change
+identity. Equality of actor root transform is not sufficient because a
+stationary root can contain changing bone matrices, facial animation,
+dismemberment, equipment, or switch-node presentation. Skipping updates based
+only on root movement would reintroduce frozen or malformed shadows.
+
+### P1: CPU planning scales with roots, actors, lights, and cube faces
+
+The current fixed capacities and loop bounds are:
+
+| Input | Bound |
+|---|---:|
+| Native manager lights scanned | 512 |
+| Selected shadowed point lights | 12 |
+| Canonical directional/point roots | 32,768 |
+| Copied active actor bounds and roots | 1,024 |
+| Cube faces per light | 6 |
+
+Point-light selection is a bounded nearest-N insertion over the manager list.
+Its small fixed selected array can shift at most twelve entries per accepted
+candidate, giving a maximum order of 6,144 selection comparisons/shifts before
+native candidate decoding.
+
+Root collection copies each admitted root's pointer, form/profile flags,
+optional absolute bound, and 13-word world-state snapshot. For every selected
+point light, `point_scene_static_signature` then scans the copied roots and
+tests the root bound against that light. The exact maximum is:
+
+```text
+32,768 roots * 12 lights = 393,216 root/light predicate candidates
+```
+
+Dynamic-face planning currently adds:
+
+```text
+1,024 actor bounds * 12 lights * 6 faces = 73,728 face predicates
+```
+
+This scalar work also forms the CPU floor of a successful zero-D3D
+republication. The path avoids driver work only after rebuilding the native
+snapshot and proving all relevant point signatures and dynamic coverage
+stable. When actor coverage exists, the no-D3D route is bypassed and the
+ordinary transaction repeats planning before drawing.
+
+These counts are concrete source bounds, not elapsed-time measurements. A
+future bounded spatial index can reduce repeated root/light testing to one
+snapshot build plus nearby-bin candidates. It must remain allocation-free in
+the hook, retain conservative missing-bound behavior, and discard every engine
+pointer before the serialized common-shadow invocation returns.
+
+### P1: dirty faces multiply geometry traversal and skin submission
+
+`draw_point_static_roots` loops the complete canonical root list for every
+refreshed light face. `draw_point_dynamic_roots` loops the actor-root list for
+every dynamic face. Each accepted root enters `render::traverse_root`, whose
+per-root traversal cap is 32,768 visited objects and whose per-node child cap
+is 16,384.
+
+Every admitted ordinary geometry calls the native shadow submission once.
+Every admitted skinned geometry can contain up to 64 partitions, with up to 18
+bones per partition. Each accepted partition performs up to eighteen separate
+three-row vertex-constant uploads, a buffer bind, a vertex-shader bind, and one
+native skinned draw. `CalculateBoneMatrices` is called once per skinned
+geometry occurrence; the engine may take its cache fast path, but the call,
+partition walk, declaration work, bone-row reads/uploads, and draw remain.
+
+The skin journals contain at most 2,048 distinct `NiSkinInstance` pointers.
+Both `capture_skin_state` and `prepare_skin_calculation` use a linear search.
+For 2,048 first-seen distinct skins, the two searches perform at most:
+
+```text
+2 * sum(0..2047) = 4,192,256 pointer comparisons
+```
+
+Repeated faces/lights continue performing two linear lookups per skin
+occurrence. The 64-entry vertex-declaration cache is also linear, and
+`skin_index_encoding` queries current FVF and captures the vertex declaration
+before consulting that cache for every partition. A fixed-capacity,
+generation-stamped open-addressed lookup can remove the quadratic skin path
+without introducing a render-time allocator.
+
+### P1: offscreen selected point lights still run the consumer transaction
+
+Point-light discovery deliberately excludes camera orientation. The behavioral
+test `point_light_shadow_admission_is_invariant_under_camera_rotation` requires
+a nearby finite light to remain selected after a 180-degree camera turn. This
+preserves stable cube ownership and avoids turn-induced six-face replacement.
+
+Consumer admission, however, tests only `directional || point_count > 0`.
+Point-light screen rectangles and `point_consumer_plan` are computed later,
+inside `draw_consumer`, after scene-depth acquisition, consumer-target
+creation, attachment capture, and exact D3D state capture.
+
+If all selected light spheres project to `None`, the point plan contains zero
+accumulation draws and has no current coverage. A point-only publication can
+then make no visible contribution, but the implementation still:
+
+- acquires/resolves coherent scene depth;
+- retains or creates a source copy and two full-resolution RGBA16F targets;
+- captures and restores the consumer D3D journal and attachments;
+- initializes the full local targets on first use, or clears departed previous
+  coverage;
+- copies the complete scene-color surface;
+- executes the full-screen point-only compositor.
+
+The behavioral test `empty_interior_publication_performs_no_depth_or_color_transaction`
+covers only `point_count == 0`. It does not cover nonzero selected lights with
+zero projected coverage. A production-grade correction needs a typed consumer
+work plan derived before expensive transaction setup and a negative-control
+D3D test proving zero depth/color transaction for a point-only, zero-coverage
+publication. A mixed directional publication must still run its directional
+consumer while omitting the empty point branch.
+
+### P1: full-resolution point receiver bandwidth and shader work
+
+Local accumulation owns two full-resolution `A16B16G16R16F` MRTs: deficit and
+total. Together they allocate and write 16 bytes per covered output pixel. The
+source-owned compositor requires another full-resolution eight-byte-per-pixel
+scene-color copy to avoid read/write aliasing and to preserve sky/HDR emitters.
+The final composition draw is full-screen whenever any shadow family is
+consumed, even when local accumulation covers only a small scissor.
+
+The exact persistent point-consumer target floor is therefore:
+
+```text
+output_pixels * (8-byte source + 8-byte deficit + 8-byte total)
+    = output_pixels * 24 bytes
+```
+
+| Output | Point consumer targets |
+|---|---:|
+| 1920 x 1080 | 49,766,400 bytes |
+| 3440 x 1440 | 118,886,400 bytes |
+| 3840 x 2160 | 199,065,600 bytes |
+
+Each covered accumulation pixel reads center depth and four neighboring depth
+texels to reconstruct an edge-aware normal, then evaluates one cube sample per
+active light in its batch. `camera_containing_point_lights_share_depth_reconstruction_work`
+proves that twelve camera-containing lights are combined into one full-screen
+draw rather than twelve independent receiver reconstructions. In that case
+every output pixel remains covered and can evaluate all twelve lights.
+
+Shader-model-three compilation tests enforce these static bytecode ceilings:
+
+| Point specialization | Texture-operation ceiling | Instruction ceiling |
+|---|---:|---:|
+| One light | 6 | 384 |
+| Six lights | 11 | 1,032 |
+| Twelve lights | 17 | 1,664 |
+
+The interior point-only compositor has a five-texture-operation static ceiling.
+The exterior point-only specialization has a nine-operation ceiling because it
+reads four neighboring depths to reconstruct sun-facing geometry for sunlight
+competition. These are compiled static ceilings: mutually exclusive branches
+mean they are not claims that every pixel executes every encoded operation.
+
+Later local-target clears use one bounding rectangle equal to the union of
+previous and current total coverage. This is the smallest single D3D9 clear
+rectangle that removes departed pixels and zeroes current additive coverage,
+but large camera/light motion can make it clear an empty bridge between two
+distant regions. Splitting that clear is a draw/API-count versus pixel-count
+tradeoff and requires a work model rather than an unconditional change.
+
+### P1: point resource residency and render-thread transition peaks
+
+For the default twelve-light capacity, the point family owns one published and
+one immutable-static R32F cube per light plus one shared D24S8 face-depth
+surface. The exact formula is:
+
+```text
+point bytes = resolution^2 * 6 faces * 4 bytes * 12 lights * 2 families
+            + resolution^2 * 4-byte shared depth
+```
+
+The behavioral test
+`dynamic_quality_tiers_share_exact_point_resource_and_fill_contracts` proves:
+
+| Dynamic quality | Face resolution | Point-family bytes | Binary size |
+|---|---:|---:|---:|
+| Performance | 256 | 38,010,880 | 36.25 MiB |
+| High | 512 | 152,043,520 | 145 MiB |
+| Ultra | 1024 | 608,174,080 | 580 MiB |
+
+`PointResources::create` allocates the configured capacity, not the current
+selected or screen-visible light count. The default capacity is twelve. A
+smaller requested capacity reuses an already larger family because `supports`
+checks `len >= requested`; reducing the light-count setting therefore does not
+shrink existing resources until a device/resource replacement boundary.
+
+Including the full-resolution point consumer, exact dynamic-only estimates are:
+
+| Output | Performance | High | Ultra |
+|---|---:|---:|---:|
+| 1920 x 1080 | 87,777,280 | 201,809,920 | 657,940,480 |
+| 3440 x 1440 | 156,897,280 | 270,929,920 | 727,060,480 |
+| 3840 x 2160 | 237,076,480 | 351,109,120 | 807,239,680 |
+
+These estimates follow exact D3D formats, dimensions, sample counts, and owned
+resource counts. They exclude driver alignment/padding, COM/runtime metadata,
+depth-provider ownership, native engine resources, and unrelated OMV effects.
+
+Quality changes are transactional. `ShadowResources::ensure_branch` retains
+the last-good `PointResources` while `PointResources::create` constructs the
+complete replacement in local ownership. High-to-Ultra or Ultra-to-High thus
+temporarily owns:
+
+```text
+152,043,520 + 608,174,080 = 760,217,600 bytes (725 MiB)
+```
+
+of point resources alone. Creation occurs in the render callback on first use
+of the new profile. The ownership peak and allocation call topology are
+source-proven; the duration of any driver stall is hardware-specific and was
+not measured by this audit.
+
+### P1: exact D3D9 state and surface-management churn
+
+The producer and consumer use bounded state journals instead of
+`D3DSBT_ALL`. This is materially safer and narrower, but still establishes a
+fixed D3D API cost for every admitted transaction.
+
+`ShadowDrawState9::capture` owns FVF, declaration, textures, shaders, streams,
+indices, viewport, scissor, 22 render states, six states per sampler, and each
+nonempty contiguous shader-constant range. Restoration writes every captured
+state and selects exactly one of FVF or declaration mode.
+
+Exact journal call counts are:
+
+| Journal | Capture calls | Restore calls | Total |
+|---|---:|---:|---:|
+| Consumer: 13 textures, 13 samplers, 1 stream, 43 PS rows | 122 | 121 | 243 |
+| Producer: 16 textures, 2 samplers, 16 streams, 146 VS rows, 1 PS row | 75 | 74 | 149 |
+
+The constant rows are transferred through one contiguous getter/setter per
+nonempty stage, not one API call per row. Attachment ownership adds `3c + 2`
+getter/setter calls for `c` supported render-target slots: five calls on a
+one-slot device and fourteen on a four-slot device. The resulting exact
+journal-plus-attachment range is 248..257 calls for the consumer and 154..163
+for the producer, before actual clears, bindings, draws, `BeginScene`,
+`EndScene`, and native journal work.
+
+Within map generation, `configure_generation_state` performs fourteen render
+state setters without a vendor alpha-coverage mode and fifteen with the NVIDIA
+or AMD disable marker. It is called separately for every static or dynamic
+face draw. Point geometry then repeats `D3DCULL_NONE` even though the face
+baseline already owns that state. Every admitted alpha-cutout geometry executes
+six sampler-state setters.
+
+Cube-face COM surfaces are acquired on demand for every face operation:
+
+- a dynamic refresh obtains two surfaces for `PublishStatic` and one more for
+  `MergeAnimated`;
+- a static refresh obtains one for `RefreshStatic` and two for
+  `PublishStatic`;
+- a combined static and dynamic refresh obtains four surface wrappers.
+
+Caching all face surfaces when the cube family is created and maintaining a
+transaction-local known-state cache can remove repeated COM getter and setter
+traffic without narrowing the external state journal or changing pixels.
+
+### P2: hierarchy traversal can allocate in the render hook
+
+`TraversalScratch::with_capacity` reserves 32,768 node identities and the
+module describes it as the only traversal container used by routine render
+calls. `traverse_root`, however, guards only the number of popped/visited nodes.
+It pushes every non-null child without checking `nodes.len() ==
+nodes.capacity()`.
+
+Pending stack size is not bounded by visited count. A broad/deep hierarchy can
+push more than 32,768 pending nodes before the visit limit terminates the loop,
+causing standard Rust `Vec::push` to reallocate inside the render hook. A
+single node is capped at 16,384 children, so one ordinary broad node fits; a
+sequence of branching nodes can exceed the reserved stack.
+
+This is concrete standard-library behavior and a violation of the documented
+no-routine-allocation contract. The audit has no evidence that a normal or
+currently installed modded FNV hierarchy reaches it, so it is classified as a
+latent worst-case bottleneck rather than a measured steady-state cost. A fix
+needs a behavioral traversal test whose negative control would grow the old
+stack and whose accepted path returns a conservative failure/fallback while
+preserving the original capacity.
+
+### Intentional point-generation raster cost
+
+Every point-cube geometry draw forces `D3DCULL_NONE`. Cube views are
+right-handed while native material culling depends on camera handedness, and
+two-sided point generation is part of the proven thin-wall containment fix.
+The exact state removes hardware backface rejection and can increase
+rasterization/overdraw for closed geometry, but removing it globally would
+reintroduce light leaks through thin or inconsistently wound interior walls.
+
+This is a confirmed quality cost, not an authorized optimization target.
+Reducing it would first require a proven per-material/per-mesh sidedness
+contract and image tests covering both faces of thin walls, alpha cutouts,
+modded geometry, and camera/light movement.
+
+### Experimental sun-shadow bottlenecks
+
+The separate sun branch is disabled by default. None of the following costs
+belongs to the default dynamic-only configuration.
+
+Directional resources have a 429,916,160-byte fixed floor before
+screen-sized source and contact targets. It consists of four persistent
+2048-square FP16 EVSM4 cascades, four-sample generation moments and depth, a
+single-sample resolve, one reusable 1024-square four-sample actor
+generation/depth pair, three single-sample actor publication slots, and
+horizontal/vertical 64-texel clipmap strip families.
+
+Exact resource estimates are:
+
+| Output | Sun only | Sun + High dynamic | Sun + Ultra dynamic |
+|---|---:|---:|---:|
+| 1920 x 1080 | 454,799,360 | 640,020,480 | 1,096,151,040 |
+| 3440 x 1440 | 489,359,360 | 720,660,480 | 1,176,791,040 |
+| 3840 x 2160 | 529,448,960 | 814,202,880 | 1,270,333,440 |
+
+A complete cascade rebuild clears and rasterizes a 2048-square four-sample
+map, resolves the complete multisampled FP16 surface into a single-sample
+2048-square texture, and copies that complete 32 MiB result into one atlas
+quadrant. Up to four mandatory invalidations can rebuild in one transaction.
+Stationary maps do not refresh from elapsed time; the behavioral test
+`directional_work_scales_with_invalidations_not_elapsed_time` proves zero
+static cascade work over 120 stable frames.
+
+Clipmap scrolling reduces geometry rasterization but remains copy-bandwidth
+heavy. For each scrolling cascade, `draw_directional_scroll`:
+
+1. copies the retained atlas overlap into the unpublished 2048-square scratch;
+2. renders and resolves at most two exposed 64-texel strips;
+3. copies each resolved strip into scratch;
+4. publishes the complete 2048-square scratch into the live atlas quadrant.
+
+A one-texel single-axis scroll copies `2047 * 2048 * 8 = 33,538,048`
+overlap bytes and then publishes `2048 * 2048 * 8 = 33,554,432` bytes. That is
+67,092,480 bytes, approximately 64 MiB, of logical copy traffic for one
+cascade before strip work. This is the correctness cost of transactional
+publication and portable D3D9's lack of partial multisample resolve.
+
+Animated directional actors never redraw complete static cascades while the
+root inventory is complete. They instead render up to three current
+near/middle/far overlays at 1024 square and four samples. This removes static
+scene traversal but retains up to three presentation-cadence target clears,
+actor hierarchy traversals, skin submissions, resolves, and packed publication
+copies. `directional_work_scales_with_invalidations_not_elapsed_time` proves
+120 actor-overlay updates and zero static map rebuilds for the modeled animated
+near actor.
+
+Contact evidence is a full-resolution `G16R16F` target. A valid contact pixel
+uses center depth, two receiver-plane validation depths, and four cumulative
+ray depths. Its compiled instruction ceiling is 464. The same-frame bilateral
+filter is fused into the final compositor and reads the contact center plus
+four neighboring samples. The point-free directional compositor has static
+ceilings of 33 texture operations and 2,050 instructions; the mixed compositor
+has a 35-texture-operation ceiling. Mutually exclusive cascade/actor branches
+make these bytecode ceilings, not exact per-pixel execution counts.
+
+### Tests which did not prove the pre-remediation performance contract
+
+At audit time,
+`reference_tests::ultrawide_point_shadow_work_is_bounded_by_light_coverage_not_light_batches`
+was stale and could not be used as evidence for the production frame graph.
+Its formula described "three half-resolution contact passes" and doubled the
+local rectangle work. Production owns one full-resolution contact generation
+pass when experimental directional contact is enabled, then fuses the five-tap
+contact filter into the already-required full-screen compositor. The old test
+could pass while modeling passes that do not exist. It has since been replaced
+by the typed consumer transcript described in the implementation closure.
+
+The following behavioral gaps existed at audit time:
+
+1. no negative control connects actor finite-light admission to dynamic cube
+   face scheduling;
+2. no test proves that a nonzero selected point set with zero screen coverage
+   skips the point-only consumer transaction;
+3. no typed production transcript counts root/light predicates, face copies,
+   clears, traversals, and D3D transactions for representative frames;
+4. no traversal test proves that pending-node overflow cannot grow the hot-path
+   vector;
+5. resource tests prove each point quality tier and default combined High
+   ownership but do not explicitly lock Ultra full-output totals or the
+   High/Ultra transition peak;
+6. cube-wide static invalidation is tested as required behavior, so no test yet
+   expresses the intended per-face replacement contract.
+
+Future performance tests must exercise pure scheduling/resource contracts or
+real D3D execution and include a negative control that fails the previous
+implementation. Rust source substring/order tests are acceptable only for
+startup ordering where source order is itself the frozen contract; they are
+not acceptable evidence for render work, pixels, allocations, or state cost.
+
+### Paths ruled out as current bottleneck claims
+
+The audit also established boundaries that prevent unsupported attribution:
+
+- An unchanged static point scene can republish current metadata without any
+  D3D transaction after its bounded CPU proof succeeds.
+- Stable directional cascades perform no elapsed-time refresh, and bounded
+  quality refresh selects at most one eligible cascade per frame.
+- The common hook rejects a second complete publication in the same render
+  epoch.
+- Shadow render ownership uses nonblocking `try_lock`; there is no blocking
+  render-thread mutex wait in the shadow path. A busy owner causes native
+  fallback instead.
+- Shadow shader compilation occurs through the established preparation path,
+  not in routine map generation or composition.
+- Root, actor-bound, actor-root, skin, and declaration storage is preallocated
+  and explicitly rejects capacity overflow. The hierarchy node stack is the
+  one identified exception because its pushes lack a capacity guard.
+- Normal builds compile graphics diagnostic spans/counters to no work; the
+  source-color helper's attribution calls are not a production hot-path cost.
+- Scene-depth resolution may return an existing coherent provider
+  publication. Without provider-specific runtime evidence it is incorrect to
+  label every call a physical depth copy.
+- Experimental sun resources and shaders are absent when `sun_shadows` remains
+  at its default `false` value.
+
+### Remediation order and required evidence
+
+The least risky correction order is:
+
+1. Apply finite point-light volume rejection before actor cube-face bits and
+   add the out-of-volume negative control.
+2. Derive visible point-consumer coverage before expensive point-only
+   transaction setup and add a zero-D3D execution test for an offscreen set.
+3. Replace the stale ultrawide formula with a typed frame-work transcript tied
+   to production scheduling decisions.
+4. Enforce traversal-stack capacity without allocation and prove conservative
+   fallback under the old growth case.
+5. Split the cube-wide caster signature into per-face retained ownership,
+   including old/current face invalidation for moving static roots.
+6. Replace linear skin journals with bounded, allocation-free indexed lookup
+   and move declaration queries out of the per-partition cached-hit path.
+7. Cache cube-face surface wrappers at resource creation and suppress redundant
+   state changes only within the known shadow transaction; retain complete
+   external state capture/restoration.
+8. Research a real engine animation/pose change identity before suppressing
+   actor refreshes. Do not use root movement as a skeletal-pose proxy.
+9. Treat moving-light generation as a separate design problem. Fade cannot
+   make a stale or partially generated cube correct; any staging/reprojection
+   scheme needs complete light/caster ownership and transition image tests.
+10. Reprofile dynamic-only interiors and exteriors before spending default-path
+    complexity on the disabled experimental sun branch.
+
+Static closure for those corrections requires focused behavioral negative
+controls, the complete explicit shadow and OMV suites, the supported release
+build, formatting, `git diff --check`, and inspection of the final diff.
+Runtime ranking and acceptance require at least these Proton/DXVK scenarios at
+3440 by 1440 plus a lower-end control:
+
+- dynamic shadows off versus on in the same point-heavy interior;
+- Pip-Boy stationary versus walking, with light identity, movement threshold,
+  static face count, dynamic face count, and cube copy count captured;
+- no actors, one idle actor, one animated actor, and multiple actors both
+  inside and outside selected light volumes;
+- selected lights fully on-screen, partially scissored, fully offscreen, and
+  containing the camera;
+- High versus Ultra, including first allocation and live quality transition;
+- experimental sun off, sun without contact, and sun with contact;
+- stable camera, small clipmap scroll, mandatory cascade rebuild, and actor
+  overlay cadence.
+
+Required measurements are producer CPU time split into planning, state
+journal, static traversal, dynamic traversal, and skin submission; dirty
+static/dynamic face counts; R32F face-copy counts/bytes; consumer scissors and
+covered pixels; full-screen pass count; resource allocation/residency; and GPU
+time per cube generation, local accumulation, contact, and final composition.
+Until those measurements exist, this section establishes exact work and
+scaling contracts but deliberately does not name a measured frame-time winner.
+
+### 2026-08-16 implementation closure
+
+This change implements the remediation steps whose correctness can be proven
+without guessing at an engine animation identity or weakening transactional
+publication. It changes neither configuration nor shader/material behavior and
+adds no pre-Deferred owner, field, lock, TLS value, worker, hook, route bit, or
+first-touch. The loader-visible `ShadowPipeline` remains guarded at `0xA28`;
+all new cache storage belongs to post-Deferred `ShadowResources` or its device
+resource families.
+
+#### Finite actor scheduling
+
+`point_light_dynamic_faces_from_bounds` now receives the selected light's cube
+radius and applies the finite sphere/sphere predicate before testing six
+angular cube pyramids. A distant actor aligned with a cube direction therefore
+produces no face bits and never enters the static publication/depth-clear/
+dynamic traversal transcript for that light. Actors intersecting the finite
+volume retain the same conservative face coverage, including multi-face edge
+and corner overlap.
+
+`actors_outside_a_point_lights_finite_volume_schedule_no_cube_work` is the
+behavioral negative control. Its actor at `[1000, 0, 0]`, radius one, used to
+dirty the positive-X face of a radius-64 light at the origin. It now requires a
+zero mask. `copied_actor_bounds_cover_each_intersected_cube_direction` retains
+the positive control for admitted actors.
+
+#### Visibility-owned consumer admission
+
+The consumer now derives a `ShadowConsumerWorkPlan` from the current camera,
+selected finite spheres, and exact source dimensions before scene-depth
+resolution, consumer-target creation, attachment capture, or the 243-call
+consumer state journal. A point-only publication whose selected lights all
+project to no receiver pixels returns as a mathematical color no-op. A mixed
+publication continues directional composition but does not allocate, clear,
+bind, or sample point targets for an empty local branch.
+
+The fixed-capacity `PointConsumerPlan` remains the single production schedule.
+`ShadowConsumerWorkMetrics` derives draw and fragment counts from that exact
+plan: point-only work is one scissored accumulation per scheduled batch plus
+one full-screen compositor; experimental directional contact adds one
+full-resolution generation pass. The obsolete three-half-resolution-pass
+formula is gone. `empty_interior_publication_performs_no_depth_or_color_transaction`
+provides the offscreen negative control, while
+`ultrawide_point_shadow_work_matches_the_production_consumer_transcript` locks
+the current pass topology without presenting fragment counts as measured GPU
+time.
+
+#### Face-local immutable invalidation
+
+One root/light scan now builds an order-independent cube signature and six
+conservative face signatures. A bounded root contributes to every angular face
+its sphere touches; a missing bound contributes to all faces. Comparison is
+performed after stable light-identity reconciliation, so camera-distance
+reordering cannot attach one light's face signatures to another physical cube.
+
+When light position and radius exactly match the retained projection, a static
+root appearing, disappearing, moving, or changing state rebuilds only the
+union of its old and current affected faces. Unchanged directions retain their
+published static depth. If the light projection differs by even a
+sub-threshold amount while caster ownership also changes, all six faces rebuild:
+mixing faces generated from two source projections would be an invalid cube.
+Material light movement and replacement retain the existing complete six-face
+refresh.
+
+Face state commits only after map draws, native skin-state restoration,
+`EndScene`, attachment restoration, and exact D3D state restoration all
+succeed. A failed transaction does not advance comparison ownership, so the
+next successful transaction reschedules the required faces instead of
+mistaking an incomplete attempt for current state. The cache lives beside
+device resources, is reset when the cube family is replaced, and does not
+enlarge the frozen pipeline owner.
+
+The two face-signature tests prove one-sided ownership and exact departed plus
+arrived invalidation when a caster crosses directions. The two cache tests
+prove exact-projection-only localization, complete fallback for mixed
+projections, and stable physical ownership across input reordering. Existing
+face-operation and real D3D9 publication/merge tests continue to require static
+depth in every dirty published face.
+
+#### Allocation and lookup bounds
+
+Hierarchy pushes now use one capacity-checking helper for the root, switch
+child, and ordinary children. Reaching the 32,768-entry pending stack returns a
+D3D error before `Vec::push` can grow. Because the producer is transactional,
+that error restores native/D3D state and selects the established native path;
+it never publishes a partial traversal. The overflow negative control verifies
+both the failure result and unchanged vector capacity.
+
+Skin journaling replaces two linear scans with a fixed 4,096-slot open-addressed
+table at a maximum one-half load for the existing 2,048-skin limit. Each entry
+maps one engine `NiSkinInstance` identity to the stable journal index. A
+generation stamp makes transaction reset allocation-free; the theoretical
+`u32` wrap performs one bounded clear before reusing generation one. Insertion
+failure conservatively aborts the replacement transaction. The behavioral test
+fills every supported skin entry, verifies exact retrieval and no capacity
+growth, then advances the generation and rejects every stale owner.
+
+The world-transform key now resides in the journal snapshot itself, preserving
+the existing shared-skin/different-transform invalidation that prevents
+detached heads and equipment. Declaration classification reads the native
+buffer identity first. Cached declarations take no D3D getter calls; only the
+first distinct declaration captures elements, and its returned COM identity
+must match the immediately bound native buffer before it is cached. The
+existing repeated-submission test proves exact skin/render-state restoration
+and the distinct-transform invalidation path.
+
+#### Resource and state-call boundaries
+
+`PointResources` acquires every published and immutable cube-face `Surface9`
+interface once, immediately after transactional cube creation. The render path
+uses checked light-major indexing instead of calling `GetCubeMapSurface` for
+each refresh operation. At the twelve-light maximum this retains 144 surface
+interfaces but creates no additional textures or render-target storage. All
+interfaces drop with the owning default-pool family on release/reset. A real
+D3D9 test compares every cached surface identity against the matching cube,
+light, and face.
+
+The external producer/consumer journals were not narrowed. Native geometry
+submissions can mutate device state between OMV draws, so a transaction-local
+setter cache based only on OMV writes would be unsound without a complete
+native mutation contract. The High/Ultra allocation peak also remains: keeping
+the last-good family until complete replacement creation succeeds is the
+failure-atomic ownership guarantee, not disposable overhead.
+
+#### Pose and moving-light research boundary
+
+Direct radare2 inspection of the current executable disproves
+`NiSkinInstance +0x18` as an actor pose generation. At
+`NiDX9Renderer::CalculateBoneMatrices @ 0x00E6FE30`, the cache value is read and
+written from `renderer +0x8BC -> object +0x3C` through the two-instruction
+function at `0x00E8BF90`; `NiSkinInstance +0x20` is the requested register
+mode. The value is renderer-owned calculation state, not actor/skeleton
+ownership. The exact instructions, executable identity, conclusion, and safety
+boundary are preserved in
+`analysis/radare2/output/graphics_fnv_shadow_pose_change_signal_audit.txt`.
+
+Consequently, actor-containing faces still refresh at presentation cadence.
+Root transform, renderer frame stamp, or bounds equality cannot prove stable
+bones, facial animation, dismemberment, equipment, or switch-node visibility.
+Introducing any such shortcut would exchange a known cost for frozen or
+deformed shadows.
+
+Moving-light generation also remains coherent and synchronous. Translating a
+point source changes all six projections; fade affects only consumer weight and
+cannot make stale faces geometrically correct. Partial staging would expose a
+cube assembled from different source transforms unless it owned a separate
+complete transition family. That design would increase residency and needs a
+separate measured/runtime image contract, so it is not included here.
+
+#### Remaining measurement and playtest work
+
+These corrections prove less scheduled work, bounded allocation behavior, and
+preserved publication ownership. They do not establish milliseconds saved on a
+particular DXVK/GPU/CPU combination. The profiling matrix and counters listed
+in the remediation section remain required to rank the remaining root/light
+scan, actor refresh, point target bandwidth, full-screen composition, state
+journals, and resource-transition costs.
+
+Runtime acceptance also remains necessary for offscreen-to-onscreen light
+motion, a one-sided moving door, several reordered local lights, stationary and
+animated adult/child actors, shared-skin equipment, Pip-Boy walking, High/Ultra
+quality transitions, interiors/exteriors, and device reset. Failure in any
+scenario must retain complete native shadows rather than a partial OMV map.
+
+Static closure on 2026-08-16 passed all 684 OMV tests under Wine, including
+174 shadow tests and the real D3D9 cube publication, cached-face identity, and
+state-restoration regressions. The explicit supported-target release build
+completed without Rust warnings. The resulting 12,875,836-byte `omv.dll` has
+SHA-256
+`5fa1594022affa70ffe83f43ffc7d90b98b3b8d1fede398ce416a7fedee2c861`.
+The startup owner guard retains `ShadowPipeline = 0xA28`; PE inspection retains
+the documented `.bss = 0x6B10`, `.idata = 0x340C`, `.tls = 0x8`, TLS directory
+`0x18`, and IAT `0x6BC` footprint. These results prove static/build closure,
+not gameplay performance, image correctness, device-reset behavior, or the
+required Proton load-to-gameplay acceptance.
+
 ## Primary evidence index
 
 ### Current executable and static artifacts
@@ -5305,6 +6129,9 @@ startup results remain awaiting playtest.
   render-state access through `+0x8B8`, `InternalNormalizeNormals +0x10F5`
   writer `0x00E88AD0`, and native skinned submission
   `NiDX9Renderer::DrawSkinnedGeometry @ 0x00E6D310`;
+- `analysis/radare2/output/graphics_fnv_shadow_pose_change_signal_audit.txt`,
+  proving that `NiSkinInstance +0x18` is copied from renderer-global
+  calculation state rather than an actor-specific animation generation;
 - `analysis/ghidra/output/perf/graphics_fnv_pplighting_renderer_8b8_render_state_constructor_audit.txt`,
   corroborating renderer `+0x8B8` render-state ownership;
 - `analysis/radare2/output/graphics_fnv_shadow_dismember_skin_layout.txt`,
