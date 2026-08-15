@@ -8,6 +8,13 @@
 //! epoch, while consumption occurs after opaque depth and before native
 //! alpha/atmosphere. No engine pointer crosses that boundary.
 //!
+//! Dynamic-only exteriors also publish validated native directional color,
+//! daylight, and sun direction. Their specialized compositor reconstructs the
+//! receiver normal and lets that real sunlight compete with local-light
+//! occlusion. The term becomes exactly zero at night, so interior and nighttime
+//! contrast retain the full configured dynamic-darkness range without treating
+//! a Pip-Boy or weapon flash as if it owned the sunlit framebuffer.
+//!
 //! # Startup ownership
 //!
 //! All settings atomics in this module deliberately remain zero/unpublished

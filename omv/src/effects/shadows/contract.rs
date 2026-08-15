@@ -445,6 +445,82 @@ pub(super) const fn contact_consumer_work() -> ContactConsumerWork {
     }
 }
 
+/// Native directional-light energy which competes with a replacement point light.
+///
+/// The values remain in Fallout's native light-color domain. Point accumulation
+/// consumes `NiLight::Diff * Dimmer` in that same domain, so decoding only the
+/// sun as linear RGB would make the relative-energy comparison inconsistent.
+/// The final ratio is dimensionless and is applied to the linearized framebuffer.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub(super) struct SunCompetition {
+    direction: [f32; 3],
+    color: [f32; 3],
+    daylight: f32,
+}
+
+impl SunCompetition {
+    /// Validate and normalize one native sun snapshot.
+    ///
+    /// Small negative weather-interpolation residue is clamped to zero. Invalid
+    /// vectors or non-finite values are rejected rather than reaching shader
+    /// constants; callers should fall back to [`SunCompetition::default`], which
+    /// preserves the established nighttime point-shadow equation.
+    pub(super) fn from_native(direction: [f32; 3], color: [f32; 3], daylight: f32) -> Option<Self> {
+        if !direction
+            .into_iter()
+            .chain(color)
+            .chain([daylight])
+            .all(f32::is_finite)
+        {
+            return None;
+        }
+        let length_squared = direction.into_iter().map(|axis| axis * axis).sum::<f32>();
+        if !length_squared.is_finite() || length_squared <= 1.0e-8 {
+            return None;
+        }
+        let inverse_length = length_squared.sqrt().recip();
+        Some(Self {
+            direction: direction.map(|axis| axis * inverse_length),
+            color: color.map(|channel| channel.max(0.0)),
+            daylight: daylight.clamp(0.0, 1.0),
+        })
+    }
+
+    /// Return the two pixel-constant rows consumed by the exterior compositor.
+    pub(super) fn shader_constants(self) -> [[f32; 4]; 2] {
+        [
+            [
+                self.direction[0],
+                self.direction[1],
+                self.direction[2],
+                self.daylight,
+            ],
+            [self.color[0], self.color[1], self.color[2], 0.0],
+        ]
+    }
+
+    fn receiver_energy(self, normal: [f32; 3]) -> Option<[f32; 3]> {
+        if self.daylight <= 0.0 || self.color.into_iter().all(|channel| channel <= 0.0) {
+            return Some([0.0; 3]);
+        }
+        if !normal.into_iter().all(f32::is_finite) {
+            return None;
+        }
+        let length_squared = normal.into_iter().map(|axis| axis * axis).sum::<f32>();
+        if !length_squared.is_finite() || length_squared <= 1.0e-8 {
+            return None;
+        }
+        let inverse_length = length_squared.sqrt().recip();
+        let facing = normal
+            .into_iter()
+            .zip(self.direction)
+            .map(|(axis, sun)| axis * inverse_length * sun)
+            .sum::<f32>()
+            .clamp(0.0, 1.0);
+        Some(self.color.map(|channel| channel * self.daylight * facing))
+    }
+}
+
 /// Apply cube-proven dynamic occlusion without a directional-light owner.
 ///
 /// The accumulator's absolute point-light estimate cannot be calibrated to
@@ -478,6 +554,56 @@ pub(super) fn point_only_shadow_radiance(
         let total = point_total[axis].max(0.0);
         let occluded_fraction = if total > 1.0e-5 {
             (point_deficit[axis].max(0.0) / total).clamp(0.0, 1.0)
+        } else {
+            0.0
+        };
+        source_linear[axis] * (1.0 - darkness * occluded_fraction).clamp(0.0, 1.0)
+    });
+    Some(preserve_hdr_source(source_linear, shadowed))
+}
+
+/// Apply exterior dynamic occlusion while preserving competing native sunlight.
+///
+/// The accumulator estimates selected point-light energy and its cube-proven
+/// occluded subset on one matched scale. Native directional color, daylight,
+/// and the receiver's Lambert term provide a competing direct-light estimate:
+///
+/// `point_share * occluded_share = point_total / (point_total + sun) * deficit / point_total`
+///
+/// which reduces to `deficit / (point_total + sun)`. At night, on a sun
+/// backface, or when native sky data is unavailable, `sun` is exactly zero and
+/// this function is identical to [`point_only_shadow_radiance`]. This is not a
+/// sun-visibility estimate: without directional maps OMV cannot determine
+/// whether geometry outside the screen blocks the native sun.
+pub(super) fn exterior_point_shadow_radiance(
+    source_linear: [f32; 3],
+    receiver: bool,
+    receiver_normal: [f32; 3],
+    sun: SunCompetition,
+    point_total: [f32; 3],
+    point_deficit: [f32; 3],
+    point_darkness: f32,
+) -> Option<[f32; 3]> {
+    let baseline = point_only_shadow_radiance(
+        source_linear,
+        receiver,
+        point_total,
+        point_deficit,
+        point_darkness,
+    )?;
+    if !receiver {
+        return Some(baseline);
+    }
+    let sun_energy = sun.receiver_energy(receiver_normal)?;
+    if sun_energy.into_iter().all(|channel| channel <= 0.0) {
+        return Some(baseline);
+    }
+
+    let darkness = point_darkness.clamp(0.0, 1.0);
+    let shadowed = std::array::from_fn(|axis| {
+        let total = point_total[axis].max(0.0);
+        let occluded_fraction = if total > 1.0e-5 {
+            (point_deficit[axis].max(0.0) / (total + sun_energy[axis]).max(1.0e-5)).clamp(0.0, 1.0)
         } else {
             0.0
         };

@@ -4,13 +4,14 @@ use super::contract::{
     DirectionalRootSetSignature, HookAction, LightScissorRect, NVR_CASCADE_RESOLUTION,
     NVR_POINT_DRAW_DISTANCE, NVR_POINT_LIGHT_COUNT, NVR_POINT_RADIUS_MULTIPLIER,
     PointLightCandidate, PointMapCache, PointMapSignature, ProducerResourcePlan, SceneKind,
-    ShadowFramePlan, ShadowMapUpdate, ShadowPublicationIdentity, ShadowSettings, TransactionState,
-    actor_overlay_edge_visibility, actor_overlay_projection_plan, cascade_minimum_caster_radius,
-    cascade_sphere_selection, clipmap_texel_delta, composite_shadow_factor,
-    consumer_has_shadow_work, contact_consumer_work, depth_sample_is_geometry,
-    directional_actor_root_is_active, directional_caster_work, directional_contact_visibility,
-    directional_form_type_is_enabled, directional_receiver_position, directional_root_set_dirty,
-    dismember_partition_is_renderable, effective_contact_distance, evsm4_moments, evsm4_visibility,
+    ShadowFramePlan, ShadowMapUpdate, ShadowPublicationIdentity, ShadowSettings, SunCompetition,
+    TransactionState, actor_overlay_edge_visibility, actor_overlay_projection_plan,
+    cascade_minimum_caster_radius, cascade_sphere_selection, clipmap_texel_delta,
+    composite_shadow_factor, consumer_has_shadow_work, contact_consumer_work,
+    depth_sample_is_geometry, directional_actor_root_is_active, directional_caster_work,
+    directional_contact_visibility, directional_form_type_is_enabled,
+    directional_receiver_position, directional_root_set_dirty, dismember_partition_is_renderable,
+    effective_contact_distance, evsm4_moments, evsm4_visibility, exterior_point_shadow_radiance,
     interior_shadow_factor, local_light_clear_coverage, local_light_source_guard,
     nvr_contact_sample_offsets, point_light_distance_fade, point_light_influence_is_eligible,
     point_only_shadow_radiance, practical_cascade_splits, publication_epoch_is_usable,
@@ -242,9 +243,19 @@ fn exterior_location_never_implicitly_enables_directional_resources() {
     assert!(source.contains("settings.point_enabled_for(scene.kind)"));
     assert!(source.contains("if point_lights {"));
     assert!(source.contains("if directional {"));
+    let ensure_branch = source
+        .split_once("fn ensure_branch(")
+        .and_then(|(_, tail)| tail.split_once("unsafe fn draw_maps("))
+        .map(|(body, _)| body)
+        .expect("branch resource owner");
+    let directional_gate = ensure_branch
+        .find("if directional {")
+        .expect("experimental directional gate");
+    let directional_allocation = ensure_branch
+        .find("DirectionalResources::create(device)")
+        .expect("directional resource allocation");
     assert!(
-        !source.contains("scene.kind != SceneKind::Interior")
-            && !source.contains("scene != SceneKind::Interior"),
+        directional_gate < directional_allocation && !ensure_branch.contains("SceneKind"),
         "an exterior classification bypassed the experimental sun-shadow admission bit"
     );
 }
@@ -1150,21 +1161,125 @@ fn interior_composition_subtracts_only_rgb_energy_proven_occluded() {
 }
 
 #[test]
-fn point_only_exterior_uses_the_same_full_range_as_interior_dynamic_shadows() {
+fn nighttime_exterior_uses_the_same_full_range_as_interior_dynamic_shadows() {
     let source = [0.8, 0.7, 0.6];
-    let fully_occluded = point_only_shadow_radiance(source, true, [0.3; 3], [0.3; 3], 1.0)
-        .expect("finite point-only exterior receiver");
+    let fully_occluded = exterior_point_shadow_radiance(
+        source,
+        true,
+        [0.0, 0.0, 1.0],
+        SunCompetition::default(),
+        [0.3; 3],
+        [0.3; 3],
+        1.0,
+    )
+    .expect("finite nighttime exterior receiver");
     assert_eq!(fully_occluded, [0.0; 3]);
     assert_eq!(
-        point_only_shadow_radiance(source, true, [0.3; 3], [0.3; 3], 0.0),
+        exterior_point_shadow_radiance(
+            source,
+            true,
+            [0.0, 0.0, 1.0],
+            SunCompetition::default(),
+            [0.3; 3],
+            [0.3; 3],
+            0.0,
+        ),
         Some(source),
         "zero darkness must be exact identity"
     );
     assert_eq!(
-        point_only_shadow_radiance(source, false, [0.3; 3], [0.3; 3], 1.0),
+        exterior_point_shadow_radiance(
+            source,
+            false,
+            [0.0; 3],
+            SunCompetition::default(),
+            [0.3; 3],
+            [0.3; 3],
+            1.0,
+        ),
         Some(source),
         "clear and sky pixels must not be darkened"
     );
+}
+
+#[test]
+fn native_sun_competes_with_dynamic_occlusion_only_on_sun_facing_exteriors() {
+    let source = [0.8, 0.7, 0.6];
+    let total = [0.25; 3];
+    let sun =
+        SunCompetition::from_native([0.0, 0.0, 2.0], [1.0; 3], 1.0).expect("finite native sun");
+
+    let rejected_global_attenuation = point_only_shadow_radiance(source, true, total, total, 1.0)
+        .expect("finite rejected compositor");
+    assert_eq!(rejected_global_attenuation, [0.0; 3]);
+
+    let sun_facing =
+        exterior_point_shadow_radiance(source, true, [0.0, 0.0, 1.0], sun, total, total, 1.0)
+            .expect("finite sun-facing receiver");
+    assert_eq!(sun_facing, source.map(|channel| channel * 0.8));
+    assert!(
+        sun_facing
+            .into_iter()
+            .zip(rejected_global_attenuation)
+            .all(|(corrected, rejected)| corrected > rejected),
+        "negative control did not reproduce sunlight being globally attenuated"
+    );
+
+    let back_facing =
+        exterior_point_shadow_radiance(source, true, [0.0, 0.0, -1.0], sun, total, total, 1.0)
+            .expect("finite back-facing receiver");
+    assert_eq!(back_facing, rejected_global_attenuation);
+}
+
+#[test]
+fn sunlight_competition_is_weather_colored_monotonic_and_finite() {
+    let source = [1.0; 3];
+    let point = [0.25; 3];
+    let colored = SunCompetition::from_native([0.0, 0.0, 1.0], [1.0, 0.25, 0.0], 1.0)
+        .expect("finite colored sun");
+    let result =
+        exterior_point_shadow_radiance(source, true, [0.0, 0.0, 1.0], colored, point, point, 1.0)
+            .expect("finite colored competition");
+    assert_eq!(result, [0.8, 0.5, 0.0]);
+    assert!(
+        result
+            .into_iter()
+            .all(|channel| (0.0..=1.0).contains(&channel))
+    );
+
+    let half_daylight =
+        SunCompetition::from_native([0.0, 0.0, 1.0], [1.0; 3], 0.5).expect("finite sunset");
+    let full_daylight =
+        SunCompetition::from_native([0.0, 0.0, 1.0], [1.0; 3], 1.0).expect("finite midday");
+    let sunset = exterior_point_shadow_radiance(
+        source,
+        true,
+        [0.0, 0.0, 1.0],
+        half_daylight,
+        point,
+        point,
+        1.0,
+    )
+    .expect("finite sunset receiver");
+    let midday = exterior_point_shadow_radiance(
+        source,
+        true,
+        [0.0, 0.0, 1.0],
+        full_daylight,
+        point,
+        point,
+        1.0,
+    )
+    .expect("finite midday receiver");
+    assert!(
+        midday
+            .into_iter()
+            .zip(sunset)
+            .all(|(day, dusk)| day >= dusk)
+    );
+
+    assert!(SunCompetition::from_native([0.0; 3], [1.0; 3], 1.0).is_none());
+    assert!(SunCompetition::from_native([0.0, 0.0, 1.0], [f32::NAN; 3], 1.0).is_none());
 }
 
 #[test]

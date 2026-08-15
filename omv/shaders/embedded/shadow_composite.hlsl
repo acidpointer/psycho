@@ -5,6 +5,9 @@
 #ifndef OMV_POINT_ONLY
 #define OMV_POINT_ONLY 0
 #endif
+#ifndef OMV_POINT_SUN_COMPETITION
+#define OMV_POINT_SUN_COMPETITION 0
+#endif
 
 #if !OMV_FUSED_DIRECTIONAL
 float4 ScreenData : register(c0);
@@ -13,6 +16,14 @@ float4 ShadowControl : register(c23); // x reversed, y directional enabled, z da
 float4 DepthControl : register(c26); // x endpoint epsilon
 float4 ContactControl : register(c31); // x contact texture enabled
 float4 PointControl : register(c32); // x point buffer enabled, y darkness
+#if OMV_POINT_SUN_COMPETITION
+float4 CameraFrustum : register(c2);
+float4 ViewToWorld0 : register(c3);
+float4 ViewToWorld1 : register(c4);
+float4 ViewToWorld2 : register(c5);
+float4 PointSunDirection : register(c6); // xyz world direction to sun, w daylight
+float4 PointSunColor : register(c7); // rgb native directional-light color
+#endif
 #else
 float4 ContactControl : register(c33); // x contact texture enabled
 float4 PointControl : register(c34); // x point buffer enabled, y darkness
@@ -52,6 +63,51 @@ float LinearDepth(float rawDepth) {
 bool HasGeometryDepth(float rawDepth) {
     return rawDepth > DepthControl.x && rawDepth < 1.0f - DepthControl.x;
 }
+
+#if OMV_POINT_SUN_COMPETITION
+float3 PointViewPosition(float2 uv, float depth) {
+    return float3(
+        lerp(CameraFrustum.x, CameraFrustum.y, uv.x) * depth,
+        lerp(CameraFrustum.w, CameraFrustum.z, uv.y) * depth,
+        depth);
+}
+
+float3 SamplePointViewPosition(float2 uv) {
+    float rawDepth = tex2Dlod(SceneDepth, float4(uv, 0.0f, 0.0f)).r;
+    return PointViewPosition(uv, LinearDepth(rawDepth));
+}
+
+float3 PointWorldNormal(float3 viewNormal) {
+    float4 normalVector = float4(viewNormal, 0.0f);
+    float3 normal = float3(
+        dot(ViewToWorld0, normalVector),
+        dot(ViewToWorld1, normalVector),
+        dot(ViewToWorld2, normalVector));
+    return normal * rsqrt(max(dot(normal, normal), 0.0000001f));
+}
+
+float3 ReceiverSunEnergy(float2 uv, float viewDepth) {
+    if (PointSunDirection.w <= 0.0f)
+        return 0.0f;
+
+    // Match the point accumulator's edge-aware receiver reconstruction. A
+    // depth derivative is invalid after this compositor's receiver branches
+    // and can split the two-triangle fullscreen quad along its diagonal.
+    float3 center = PointViewPosition(uv, viewDepth);
+    float3 left = SamplePointViewPosition(uv - float2(ScreenData.z, 0.0f));
+    float3 right = SamplePointViewPosition(uv + float2(ScreenData.z, 0.0f));
+    float3 up = SamplePointViewPosition(uv - float2(0.0f, ScreenData.w));
+    float3 down = SamplePointViewPosition(uv + float2(0.0f, ScreenData.w));
+    float3 dx = dot(left - center, left - center) < dot(right - center, right - center)
+        ? center - left : right - center;
+    float3 dy = dot(up - center, up - center) < dot(down - center, down - center)
+        ? center - up : down - center;
+    float3 viewNormal = cross(dx, dy);
+    viewNormal *= rsqrt(max(dot(viewNormal, viewNormal), 0.0000001f));
+    float sunFacing = saturate(dot(PointWorldNormal(viewNormal), PointSunDirection.xyz));
+    return max(PointSunColor.rgb, 0.0f) * PointSunDirection.w * sunFacing;
+}
+#endif
 #endif
 
 #if !OMV_FUSED_DIRECTIONAL
@@ -142,7 +198,17 @@ float4 Main(PixelInput input) : COLOR0 {
     // framebuffer; subtracting the absolute estimate dims every selected
     // light and makes the darkness slider intensity-dependent.
     float3 validTotal = step(0.00001f, pointTotal);
+#if OMV_POINT_SUN_COMPETITION
+    float3 sunEnergy = ReceiverSunEnergy(receiverUv, viewDepth);
+    // The fraction of source owned by a point light multiplied by that
+    // light's occluded fraction reduces to deficit / (point + sun). This
+    // preserves the exact night equation while preventing a Pip-Boy or muzzle
+    // flash from attenuating unrelated direct sunlight.
+    float3 occludedFraction = saturate(
+        pointDeficit / max(pointTotal + sunEnergy, 0.00001f)) * validTotal;
+#else
     float3 occludedFraction = saturate(pointDeficit / max(pointTotal, 0.00001f)) * validTotal;
+#endif
     // Darkness is user-owned attenuation, not an ambient-light estimate.
     // Full cube-proven occlusion at darkness one must be allowed to reach
     // black; HDR emitter preservation below remains the independent safeguard

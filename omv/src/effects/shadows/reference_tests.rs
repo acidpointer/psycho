@@ -8,12 +8,13 @@
 
 use super::contract::{
     CascadeDirty, CascadeScheduler, DeferredReceiverPlan, NVR_CASCADE_RESOLUTION,
-    NVR_POINT_LIGHT_COUNT, PointMapCache, PointMapSignature, SceneKind, cascade_depth_selection,
-    cascade_sphere_selection, contact_bilateral_visibility, contact_depth_from_key,
-    contact_depth_key, contact_depths_match, contact_history_visibility, contact_plane_raw_epsilon,
-    contact_ray_scale, contact_sample_is_occluder, deferred_mask_visibility,
-    deferred_point_depth_key, depth_sample_is_geometry, directional_projection_is_sampleable,
-    directional_receiver_bias_is_required, first_person_caster_is_excluded, interior_shadow_factor,
+    NVR_POINT_LIGHT_COUNT, PointMapCache, PointMapSignature, SceneKind, SunCompetition,
+    cascade_depth_selection, cascade_sphere_selection, contact_bilateral_visibility,
+    contact_depth_from_key, contact_depth_key, contact_depths_match, contact_history_visibility,
+    contact_plane_raw_epsilon, contact_ray_scale, contact_sample_is_occluder,
+    deferred_mask_visibility, deferred_point_depth_key, depth_sample_is_geometry,
+    directional_projection_is_sampleable, directional_receiver_bias_is_required,
+    exterior_point_shadow_radiance, first_person_caster_is_excluded, interior_shadow_factor,
     point_consumer_plan, point_light_scissor, point_sampled_texel_center, practical_cascade_splits,
     retained_cascade_needs_refresh, retained_cascade_refresh, shadow_receiver_is_world_surface,
     skinned_position_reference, skinned_submission_is_available, source_owned_shadow_radiance,
@@ -261,6 +262,58 @@ impl ReferencePixel {
     fn native_color(self) -> Rgb {
         self.independent.add(self.sun).add(self.local)
     }
+}
+
+#[test]
+fn exterior_dynamic_shadow_cross_section_tracks_receiver_sun_exposure() {
+    let source = [0.8, 0.7, 0.6];
+    let point = [0.25; 3];
+    let sun =
+        SunCompetition::from_native([0.0, 0.0, 1.0], [1.0; 3], 1.0).expect("finite reference sun");
+    let sun_facing = [-1.0_f32, -0.5, 0.0, 0.5, 1.0];
+    let actual = sun_facing.map(|z| {
+        let x = (1.0 - z * z).max(0.0).sqrt();
+        exterior_point_shadow_radiance(source, true, [x, 0.0, z], sun, point, point, 1.0)
+            .expect("finite reference receiver")
+    });
+    let expected = sun_facing.map(|z| {
+        let facing = z.max(0.0);
+        let attenuation = 1.0 - 0.25 / (0.25 + facing);
+        source.map(|channel| channel * attenuation)
+    });
+
+    for (index, (actual, expected)) in actual.into_iter().zip(expected).enumerate() {
+        assert!(
+            actual
+                .into_iter()
+                .zip(expected)
+                .all(|(value, oracle)| (value - oracle).abs() <= EPSILON),
+            "sunlight competition diverged at cross-section pixel {index}: {actual:?} versus {expected:?}"
+        );
+    }
+    assert_eq!(actual[0], [0.0; 3]);
+    assert_eq!(actual[1], [0.0; 3]);
+    assert!(
+        actual
+            .windows(2)
+            .all(|pair| pair[1][0] + EPSILON >= pair[0][0]),
+        "sun-facing exposure introduced a non-monotonic dark band"
+    );
+
+    let night = sun_facing.map(|z| {
+        let x = (1.0 - z * z).max(0.0).sqrt();
+        exterior_point_shadow_radiance(
+            source,
+            true,
+            [x, 0.0, z],
+            SunCompetition::default(),
+            point,
+            point,
+            1.0,
+        )
+        .expect("finite nighttime receiver")
+    });
+    assert_eq!(night, [[0.0; 3]; 5]);
 }
 
 /// Physically meaningful source-owned composition used as the image oracle.

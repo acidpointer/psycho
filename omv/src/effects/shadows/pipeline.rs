@@ -43,7 +43,7 @@ use super::{
         CASCADE_COUNT, CascadeDirty, CascadeScheduler, CascadeSplit, ClipmapRect, ClipmapScroll,
         DirectionalRootSetSignature, MAX_CLIPMAP_STRIP_WIDTH, NVR_CASCADE_RESOLUTION,
         NVR_POINT_LIGHT_COUNT, POINT_CONSUMER_BATCH_SIZE, PointMapCache, PointMapPlan,
-        PointMapSignature, SceneKind, ShadowMapUpdate, ShadowPublicationIdentity,
+        PointMapSignature, SceneKind, ShadowMapUpdate, ShadowPublicationIdentity, SunCompetition,
         cascade_minimum_caster_radius, clipmap_texel_delta, consumer_has_shadow_work,
         directional_caster_work, directional_root_set_dirty, effective_contact_distance,
         evsm4_moments, local_light_clear_coverage, nvr_contact_sample_offsets, point_consumer_plan,
@@ -159,6 +159,29 @@ struct PublishedFrame {
     splits: [CascadeSplit; CASCADE_COUNT],
     points: [PublishedPointLight; NVR_POINT_LIGHT_COUNT],
     point_count: usize,
+    /// Same-epoch native sunlight used only by dynamic-only exterior composition.
+    sun_competition: SunCompetition,
+}
+
+/// Capture weather/time sunlight only for the dynamic-only exterior branch.
+///
+/// The snapshot is copied into the immutable publication beside the point maps;
+/// the later pre-alpha consumer must not dereference a newer Sky object or mix
+/// different weather epochs. Missing native data is deliberately neutral rather
+/// than a reason to discard valid point maps: zero competition is the accepted
+/// nighttime/interior equation.
+fn capture_sun_competition(
+    scene: SceneKind,
+    directional: bool,
+    point_lights: bool,
+) -> SunCompetition {
+    if scene == SceneKind::Interior || directional || !point_lights {
+        return SunCompetition::default();
+    }
+    let Some(sky) = backend::native_sky_frame().filter(|sky| sky.is_exterior) else {
+        return SunCompetition::default();
+    };
+    SunCompetition::from_native(sky.sun_direction, sky.sun_light, sky.daylight).unwrap_or_default()
 }
 
 /// Complete device-generation state retained across producer and consumer calls.
@@ -672,6 +695,7 @@ impl ShadowPipeline {
             self.last_dynamic_cascade_mask = 0;
             self.last_directional_roots = directional_signatures;
         }
+        let sun_competition = capture_sun_competition(scene.kind, directional, point_lights);
         Some(PublishedFrame {
             identity,
             scene: scene.kind,
@@ -684,6 +708,7 @@ impl ShadowPipeline {
             splits: cascade_splits,
             points: published_points,
             point_count: points.shadowed().len(),
+            sun_competition,
         })
     }
 
@@ -916,6 +941,7 @@ struct ShadowResources {
     contact_pixel: PixelShader9,
     composite_pixel: PixelShader9,
     point_only_composite_pixel: PixelShader9,
+    exterior_point_only_composite_pixel: PixelShader9,
     directional_composite_pixel: PixelShader9,
     directional: Option<DirectionalResources>,
     points: Option<PointResources>,
@@ -1194,6 +1220,8 @@ impl ShadowResources {
             composite_pixel: device.create_pixel_shader(&bytecode.composite)?,
             point_only_composite_pixel: device
                 .create_pixel_shader(&bytecode.point_only_composite)?,
+            exterior_point_only_composite_pixel: device
+                .create_pixel_shader(&bytecode.exterior_point_only_composite)?,
             directional_composite_pixel: device
                 .create_pixel_shader(&bytecode.directional_composite)?,
             directional: None,
@@ -1304,6 +1332,7 @@ impl ShadowResources {
         clear_auxiliary_targets(device, self.render_target_count)?;
         let directional = settings.directional_enabled_for(scene.kind);
         let point_lights = settings.point_enabled_for(scene.kind);
+        let sun_competition = capture_sun_competition(scene.kind, directional, point_lights);
         let mut actor_overlay_mask = 0_u8;
         // One cell/root snapshot owns static invalidation, directional actor
         // overlays, and point-light actor coverage. Rewalking every selected
@@ -1741,6 +1770,7 @@ impl ShadowResources {
             splits: self.cascade_splits,
             points: published_points,
             point_count: points.shadowed().len(),
+            sun_competition,
         }))
     }
 
@@ -2622,11 +2652,18 @@ impl ShadowResources {
         crate::render_state::copy_exact_color_surface(device, source, &targets.source_surface)?;
         device.set_render_target(0, source)?;
         set_viewport(device, 0, 0, desc.Width, desc.Height)?;
-        device.set_pixel_shader(match (publication.directional, publication.point_count) {
-            (true, 0) => &self.directional_composite_pixel,
-            (true, _) => &self.composite_pixel,
-            (false, _) => &self.point_only_composite_pixel,
-        })?;
+        device.set_pixel_shader(
+            match (
+                publication.directional,
+                publication.scene,
+                publication.point_count,
+            ) {
+                (true, _, 0) => &self.directional_composite_pixel,
+                (true, _, _) => &self.composite_pixel,
+                (false, SceneKind::Interior, _) => &self.point_only_composite_pixel,
+                (false, _, _) => &self.exterior_point_only_composite_pixel,
+            },
+        )?;
         device.set_texture(0, &targets.source)?;
         unsafe { device.set_raw_base_texture(1, depth_texture)? };
         set_linear_clamp_sampler(device, 0)?;
@@ -2665,6 +2702,11 @@ impl ShadowResources {
         device.set_pixel_shader_constant_f(
             0,
             if publication.directional {
+                &common[..6]
+            } else if publication.scene != SceneKind::Interior {
+                // Exterior point-only composition reconstructs the same
+                // receiver normal as point accumulation. Interiors retain the
+                // old two-row upload and execute no hidden sunlight work.
                 &common[..6]
             } else {
                 &common[..2]
@@ -2748,6 +2790,12 @@ impl ShadowResources {
         )?;
         device.set_pixel_shader_constant_f(26, &[[1.0 / 65_536.0, 0.0, 0.0, 0.0]])?;
         if !publication.directional {
+            if publication.scene != SceneKind::Interior {
+                device.set_pixel_shader_constant_f(
+                    6,
+                    &publication.sun_competition.shader_constants(),
+                )?;
+            }
             device.set_pixel_shader_constant_f(31, &[[0.0; 4]])?;
             device.set_pixel_shader_constant_f(
                 32,

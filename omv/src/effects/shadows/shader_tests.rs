@@ -3,7 +3,8 @@ use super::shaders::{
     COMPOSITE_PIXEL_SOURCE, CONTACT_SOURCE, CUBE_PIXEL_SOURCE, CUBE_VERTEX_SOURCE,
     DIRECTIONAL_MASK_SOURCE, DIRECTIONAL_PIXEL_SOURCE, DIRECTIONAL_VERTEX_SOURCE,
     FAR_CLEAR_PIXEL_SOURCE, POINT_ACCUMULATION_SOURCE, directional_composite_source,
-    exterior_composite_source, point_accumulation_source, point_only_composite_source,
+    exterior_composite_source, exterior_point_only_composite_source, point_accumulation_source,
+    point_only_composite_source,
 };
 
 fn instruction_count(bytecode: &[u32]) -> usize {
@@ -84,15 +85,20 @@ fn compositor_has_no_quad_derivatives_or_triangle_diagonal_dependency() {
     // rejection branches, producing exactly the reported moving wall lines.
     const DSX: u16 = 91;
     const DSY: u16 = 92;
-    let bytecode = crate::shaders::compile_hlsl_source_target(
-        "shadow_composite_no_derivatives.ps",
-        COMPOSITE_PIXEL_SOURCE,
-        "ps_3_0",
-    )
-    .expect("shadow compositor must compile");
-    let opcodes = compiled_opcodes(&bytecode);
-    assert!(!opcodes.contains(&DSX), "compositor contains D3DSIO_DSX");
-    assert!(!opcodes.contains(&DSY), "compositor contains D3DSIO_DSY");
+    let exterior_point_only = exterior_point_only_composite_source();
+    for (name, source) in [
+        ("shadow_composite_no_derivatives.ps", COMPOSITE_PIXEL_SOURCE),
+        (
+            "shadow_exterior_point_composite_no_derivatives.ps",
+            exterior_point_only.as_slice(),
+        ),
+    ] {
+        let bytecode = crate::shaders::compile_hlsl_source_target(name, source, "ps_3_0")
+            .unwrap_or_else(|error| panic!("{name} must compile: {error:#}"));
+        let opcodes = compiled_opcodes(&bytecode);
+        assert!(!opcodes.contains(&DSX), "{name} contains D3DSIO_DSX");
+        assert!(!opcodes.contains(&DSY), "{name} contains D3DSIO_DSY");
+    }
 }
 
 #[test]
@@ -102,6 +108,7 @@ fn every_shadow_shader_compiles_for_shader_model_three_with_static_budgets() {
     let point_twelve = point_accumulation_source(12);
     let directional_composite = directional_composite_source();
     let point_only_composite = point_only_composite_source();
+    let exterior_point_only_composite = exterior_point_only_composite_source();
     let variants = [
         (
             "shadow_directional.vs",
@@ -175,6 +182,14 @@ fn every_shadow_shader_compiles_for_shader_model_three_with_static_budgets() {
             504,
         ),
         (
+            "shadow_composite_exterior_point_only.ps",
+            exterior_point_only_composite.as_slice(),
+            "ps_3_0",
+            // Four exact neighbouring depth reads reconstruct sun-facing
+            // geometry without derivatives or another full-resolution target.
+            384,
+        ),
+        (
             "shadow_composite_directional.ps",
             directional_composite.as_slice(),
             "ps_3_0",
@@ -208,7 +223,7 @@ fn every_shadow_shader_compiles_for_shader_model_three_with_static_budgets() {
         );
         compiled_programs.push((name, bytecode));
     }
-    assert_eq!(compiled_programs.len(), 13);
+    assert_eq!(compiled_programs.len(), 14);
 }
 
 #[test]
@@ -226,6 +241,18 @@ fn full_resolution_exterior_receiver_work_has_a_fixed_shader_budget() {
         "ps_3_0",
     )
     .expect("mixed-light composite must compile");
+    let interior_point = crate::shaders::compile_hlsl_source_target(
+        "shadow_composite_interior_point_budget.ps",
+        &point_only_composite_source(),
+        "ps_3_0",
+    )
+    .expect("interior point compositor must compile");
+    let exterior_point = crate::shaders::compile_hlsl_source_target(
+        "shadow_composite_exterior_point_budget.ps",
+        &exterior_point_only_composite_source(),
+        "ps_3_0",
+    )
+    .expect("exterior point compositor must compile");
     let directional_instructions = instruction_count(&directional);
     let mixed_instructions = instruction_count(&mixed);
     let directional_mask = crate::shaders::compile_hlsl_source_target(
@@ -252,6 +279,17 @@ fn full_resolution_exterior_receiver_work_has_a_fixed_shader_budget() {
     assert!(
         texture_instruction_count(&directional) + 2 <= texture_instruction_count(&mixed),
         "point-free exterior path retained local-light buffer reads"
+    );
+    assert_eq!(
+        texture_instruction_count(&exterior_point),
+        texture_instruction_count(&interior_point) + 4,
+        "sun competition must add only the four neighboring receiver-depth reads"
+    );
+    let interior_point_instructions = instruction_count(&interior_point);
+    let exterior_point_instructions = instruction_count(&exterior_point);
+    assert!(
+        exterior_point_instructions <= interior_point_instructions + 200,
+        "sun-facing reconstruction added more than 200 compiled instructions ({exterior_point_instructions} versus {interior_point_instructions})"
     );
 }
 
@@ -301,11 +339,20 @@ fn consumer_shader_abis_compile_with_bounded_texture_work() {
     );
     assert_eq!(
         composite.matches("tex2Dlod(").count(),
-        7,
-        "full-resolution composition owns only source, depth, exact visibility, fused contact, and exact point-buffer reads"
+        8,
+        "full-resolution composition owns only source, depth, exact visibility, fused contact, point buffers, and the specialized neighboring-depth helper"
     );
     assert!(!composite.contains("VisibilityTap"));
     assert!(!composite.contains("PointTap"));
+
+    let exterior_point_only =
+        String::from_utf8(exterior_point_only_composite_source()).expect("point sun UTF-8");
+    assert!(exterior_point_only.contains("#define OMV_POINT_SUN_COMPETITION 1"));
+    assert!(exterior_point_only.contains("float4 CameraFrustum : register(c2)"));
+    assert!(exterior_point_only.contains("float4 ViewToWorld2 : register(c5)"));
+    assert!(exterior_point_only.contains("float4 PointSunDirection : register(c6)"));
+    assert!(exterior_point_only.contains("float4 PointSunColor : register(c7)"));
+    assert!(exterior_point_only.contains("float3 sunEnergy = ReceiverSunEnergy("));
 
     let directional_mask =
         std::str::from_utf8(DIRECTIONAL_MASK_SOURCE).expect("directional mask UTF-8");
@@ -376,6 +423,11 @@ fn consumer_shader_abis_compile_with_bounded_texture_work() {
             point_only_composite_source(),
             5,
         ),
+        (
+            "shadow_exterior_point_only_composite_sample_budget.ps",
+            exterior_point_only_composite_source(),
+            9,
+        ),
     ] {
         let bytecode = crate::shaders::compile_hlsl_source_target(name, &source, "ps_3_0")
             .unwrap_or_else(|error| panic!("{name} must compile: {error:#}"));
@@ -394,16 +446,20 @@ fn consumer_shader_abis_compile_with_bounded_texture_work() {
         assert!(!opcodes.contains(&91), "{name} contains dsx");
         assert!(!opcodes.contains(&92), "{name} contains dsy");
     }
-    let composite_opcodes = compiled_opcodes(
-        &crate::shaders::compile_hlsl_source_target(
-            "composite derivative budget",
-            COMPOSITE_PIXEL_SOURCE,
-            "ps_3_0",
-        )
-        .expect("composite must compile"),
-    );
-    assert!(!composite_opcodes.contains(&91));
-    assert!(!composite_opcodes.contains(&92));
+    for (name, source) in [
+        ("composite derivative budget", COMPOSITE_PIXEL_SOURCE),
+        (
+            "exterior point composite derivative budget",
+            exterior_point_only.as_bytes(),
+        ),
+    ] {
+        let composite_opcodes = compiled_opcodes(
+            &crate::shaders::compile_hlsl_source_target(name, source, "ps_3_0")
+                .unwrap_or_else(|error| panic!("{name} must compile: {error:#}")),
+        );
+        assert!(!composite_opcodes.contains(&91), "{name} contains dsx");
+        assert!(!composite_opcodes.contains(&92), "{name} contains dsy");
+    }
 }
 
 #[test]

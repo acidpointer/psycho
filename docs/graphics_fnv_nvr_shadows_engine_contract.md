@@ -4591,6 +4591,106 @@ enabled, the established mixed compositor retains its stricter source-energy
 ownership rule; the new full-black guarantee applies to the dynamic-only
 exterior path and the interior path.
 
+### Native sunlight competition for dynamic-only exteriors
+
+The full-range point-only equation exposed a distinct exterior ownership bug.
+It multiplied the complete already-lit framebuffer by `deficit / point_total`.
+That ratio is appropriate when no stronger direct-light owner exists, but in a
+sunny exterior it let a carried Pip-Boy light or a brief muzzle flash attenuate
+native sunlight. The resulting dark silhouette behaved as if the local source
+owned every photon in the receiver.
+
+Dynamic-only exterior composition now uses a competing-direct-light model.
+For each RGB channel and receiver:
+
+```text
+sun = native_sun_color * daylight * max(dot(world_normal, direction_to_sun), 0)
+occluded_fraction = point_deficit / max(point_total + sun, epsilon)
+result = source * (1 - darkness * saturate(occluded_fraction))
+```
+
+This follows directly from multiplying the estimated point-light share,
+`point_total / (point_total + sun)`, by the cube-proven occluded share,
+`point_deficit / point_total`. At night, with invalid native sky data, or on a
+receiver facing away from the sun, the sun term is exactly zero and the result
+is byte-for-byte the established full-range point equation. Strong local
+lights may still dominate a weak or overcast sun. Per-channel competition
+preserves colored weather and point lights without introducing a grayscale
+daylight fade.
+
+`NativeSkyFrame.sun_light`, `sun_direction`, `daylight`, and `is_exterior` are
+the existing authoritative inputs. The backend already reads the current
+weather/time-interpolated directional color at Sky `+0x6C`, the normalized Sun
+root direction, and the climate-scheduled smooth sunrise/sunset strength. The
+visible `sun_disk` value is deliberately not used: it represents the celestial
+disk, not directional surface irradiance. Native sun RGB remains in the same
+engine light-color domain as `NiLight::Diff * Dimmer` used by point
+accumulation. Decoding only one side through an sRGB transfer would make the
+relative comparison inconsistent; the final dimensionless ratio still
+attenuates the compositor's linearized source color.
+
+The common-shadow producer captures and validates this scalar POD snapshot
+only for an exterior point-light publication with experimental directional
+maps inactive. It stores no Sky or Sun pointer. The no-D3D republish path
+refreshes the snapshot as well, so static retained point cubes cannot retain
+old weather. Missing, non-finite, mismatched-interior, or degenerate input
+publishes zero competition rather than rejecting otherwise valid point maps.
+When experimental sun shadows are enabled, their existing per-pixel
+directional visibility and mixed source-ownership compositor remain
+authoritative; the new estimate is not applied twice.
+
+The specialized SM3 exterior-point compositor receives the captured sun in
+`c6-c7` and reuses the existing camera/frustum rows in `c0-c5`. It reconstructs
+the exact edge-aware normal already used by point accumulation from the center
+depth plus four neighboring point samples. Derivatives remain prohibited after
+receiver rejection because they can create a two-triangle fullscreen diagonal.
+The specialization adds four texture reads over the five-sample interior
+point-only program, but adds no pass, render target, sampler, retained texture,
+history, allocation, or routine CPU collection. Interior composition remains
+the accepted five-sample specialization and performs no hidden sun work.
+
+Without experimental directional maps, native sky data cannot prove whether
+off-screen or distant geometry blocks sunlight at a particular receiver. This
+model therefore estimates competing incoming irradiance; it is not geometric
+sun visibility. A nominally sun-facing surface in deep exterior shade can be
+softened conservatively. True shaded-versus-sunlit ownership remains the
+experimental directional branch's responsibility.
+
+No setting, detached-table field, schema/preset value, hook admission, worker,
+thread, TLS value, import, static/lazy owner, or pre-`DeferredInit` operation is
+added. One embedded shader specialization joins the existing shadow compiler
+family after DeferredInit and one D3D pixel shader joins the boxed device-owned
+resources. `PIPELINE` therefore retains its exact loader-visible `0xA28`
+compatibility owner. The final DLL code/data still changes and must complete a
+BaseObjectSwapper load-to-gameplay playtest before this artifact is described
+as startup-safe.
+
+Regression coverage includes the former global-attenuation equation as a
+negative control; exact night/backface equivalence; smooth daylight monotonicity;
+weather-colored per-channel competition; invalid native input; non-receivers;
+HDR preservation; a deterministic five-pixel receiver-normal cross section;
+separate interior/exterior shader ABIs; no derivative opcodes; and fixed SM3
+instruction and texture-read budgets. Runtime acceptance requires the same
+Pip-Boy and weapon-fire receiver at midday, sunrise/sunset, overcast weather,
+and night; sun-facing and back-facing geometry; interiors; fast camera motion;
+both dynamic-darkness extremes; and the dynamic-only, directional-only, and
+combined option matrix. Deep exterior shade is an explicit inspection case for
+the visibility limitation above.
+
+Static validation on 2026-08-15 passes all 157 focused shadow tests, all 667
+supported-target OMV tests, and doc tests. The supported release build succeeds.
+The exterior-point program compiles to 361 instructions and nine texture reads;
+the unchanged interior point program compiles to 168 instructions and five
+reads. Tests enforce ceilings of 384 instructions and nine reads, require the
+exact four-read difference, and reject derivative opcodes. The resulting
+`omv.dll` is 12,855,715 bytes with SHA-256
+`e7d482cc801e35d49bf205c8277a00d1f7202cb972b914563728ad271a55e1a1`.
+PE inspection retains `PIPELINE = 0xA28`, `.bss = 0x6b10`, `.idata = 0x340c`,
+and `.tls = 0x8`. The worktree contains a concurrently dirty xNVSE submodule,
+so the complete artifact hash is build evidence for this reviewed tree, not a
+claim that every byte delta belongs to sunlight competition. Static evidence
+does not replace the runtime acceptance above.
+
 ### Configuration and startup compatibility
 
 `sun_shadows` is the fifteenth and final field of the detached schema-one
