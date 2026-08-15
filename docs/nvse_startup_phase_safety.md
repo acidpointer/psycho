@@ -308,6 +308,44 @@ Detailed OMV incidents remain in
 `docs/graphics_fnv_atmosphere_startup_crash_errata.md`. This document owns the
 repository-wide causal and response contract.
 
+### Pending 2026-08-15 actor-container load guard audit
+
+The accepted startup baseline for the August 15 actor-container incident is
+the core DLL with SHA-256
+`d1e32fed25f4cfdda6fd08b09f98a8edb2a4bb29125b199d7e1309cfa1879d43`.
+The deployed and release-target copies matched when the incident was
+preserved. That artifact reached gameplay, rendered 174,000 Presents, and ran
+for 1:02:48 before a quickload entered the unrelated Character inventory crash
+at `0x004D1509`. It therefore provides direct load-to-gameplay evidence for
+the pre-Deferred startup footprint even though its later load behavior is the
+subject of the fix.
+
+Before implementation, the then-current uncommitted deployment was separately
+snapshotted with SHA-256
+`778c7855531a0f23411f89cdc27b7d771aaff6163b0a49a8636eeb51dd900644`.
+It contains unrelated user work and is not promoted to an accepted startup
+baseline without the user's playtest result.
+
+The actor-container correction adds two `Rel32CallHookContainer` statics and
+two direct-call activations inside the existing core save-integrity startup
+transaction. It does not add a dependency, PE import, TLS callback, thread,
+worker request, configuration field, parser, preset payload, file scan, or new
+startup phase. The load owner is still activated last. PE imports, TLS,
+sections, and the built DLL hash must be compared with the preserved
+pre-change deployment after the release build. Static agreement remains
+insufficient: BaseObjectSwapper must be installed for repeated cold
+launch-to-gameplay and quickload acceptance before this delta is called
+startup-safe.
+
+The release comparison produced core SHA-256
+`f15bee5d6473ecdbd442ec9c42f251119a455c5056f1dc9483549250c00ca70f`.
+The complete imported DLL/symbol sequence remains identical at 368 entries.
+The `.tls` section remains eight bytes and the callback set is unchanged:
+Rust's Windows TLS guard plus the three established MinGW dynamic TLS
+callbacks. Section addresses and sizes moved as expected from the new code and
+static hook containers; that layout delta is exactly why the runtime gate
+above remains mandatory.
+
 ## Mandatory future-change protocol
 
 ### 1. Establish the accepted baseline first

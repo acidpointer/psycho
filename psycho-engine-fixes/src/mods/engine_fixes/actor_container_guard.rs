@@ -1,4 +1,4 @@
-//! Dynamic-actor TESContainer retirement guard.
+//! Dynamic-actor `TESContainer` validation and retirement guard.
 //!
 //! Save-load replacement can retire runtime TESNPC/TESCreature forms through
 //! the shared TESActorBase destructor at 0x005F77B0. Vanilla then clears the
@@ -17,6 +17,13 @@
 //! unit; its uncertain allocations are deliberately leaked rather than
 //! dereferenced, repaired, or freed. The owning actor is already retiring, so
 //! no live behavior remains.
+//!
+//! The save-integrity boundary also reuses the same complete validator before
+//! vanilla expands a live Character's base inventory. That path never detaches
+//! or repairs the container: a live actor still owns meaningful inventory, so
+//! corruption must reject the whole load transaction instead. The live check
+//! proves the dynamic actor base through allocator metadata and the loaded-form
+//! registry before reading its embedded container head.
 
 use std::ptr;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -32,6 +39,7 @@ use crate::mods::heap_replacer::{
 };
 
 const TESFORM_REF_ID_OFFSET: usize = 0x0C;
+const TESFORM_TYPE_OFFSET: usize = 0x04;
 const TESACTORBASE_CONTAINER_HEAD_OFFSET: usize = 0x68;
 const FORM_COUNT_FORM_OFFSET: usize = 0x04;
 const FORM_COUNT_EXTRA_OFFSET: usize = 0x08;
@@ -41,6 +49,9 @@ const LIST_NODE_NEXT_OFFSET: usize = 0x04;
 const LIST_NODE_SIZE: usize = 0x08;
 const ENGINE_WORD_SIZE: usize = 4;
 const TESFORM_MINIMUM_SIZE: usize = 0x10;
+const TESACTORBASE_MINIMUM_SIZE: usize = TESACTORBASE_CONTAINER_HEAD_OFFSET + LIST_NODE_SIZE;
+const TESNPC_FORM_TYPE: u8 = 0x2A;
+const TESCREATURE_FORM_TYPE: u8 = 0x2B;
 const DYNAMIC_FORM_ID_PREFIX: u32 = 0xFF00_0000;
 const MAX_CONTAINER_ITEMS: usize = 65_536;
 const LOADED_FORM_RESOLVER_ADDR: usize = 0x0048_39C0;
@@ -84,8 +95,41 @@ enum ContainerIssue {
     },
 }
 
-pub(super) fn install() -> anyhow::Result<()> {
+/// Evidence returned when a live actor base cannot safely expose its
+/// `TESContainer` to vanilla.
+///
+/// Fields remain private so callers cannot make recovery policy from partial
+/// state. The save-integrity owner records the complete `Debug` value and
+/// rejects the transaction; only this module interprets allocator details.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) struct LiveActorContainerError {
+    actor: usize,
+    ref_id: Option<u32>,
+    head_data: Option<usize>,
+    head_next: Option<usize>,
+    issue: LiveActorContainerIssue,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum LiveActorContainerIssue {
+    NullActor,
+    ActorAllocation(AllocationState),
+    UnexpectedDynamicType { type_id: u8 },
+    RegistryMismatch { resolved: usize },
+    Container(ContainerIssue),
+}
+
+/// Prepare allocator ownership classification used by both guard boundaries.
+///
+/// Initialization is idempotent. Save integrity calls this even when the
+/// retirement hook is disabled so live-load validation never depends on an
+/// unrelated configuration switch having populated the Windows heap cache.
+pub(super) fn prepare_validation() {
     heap_validate::init_heap_cache();
+}
+
+pub(super) fn install() -> anyhow::Result<()> {
+    prepare_validation();
     unsafe {
         statics::ACTOR_BASE_DTOR_HOOK.init(
             "actor_base_dtor_container_guard",
@@ -166,6 +210,120 @@ unsafe fn corrupt_dynamic_container(
     result
         .err()
         .map(|issue| (ref_id, head_data, head_next, issue))
+}
+
+/// Validate a live actor base before vanilla traverses its container.
+///
+/// Static actor bases are intentionally outside this focused guard. Dynamic
+/// `FFxxxxxx` TESNPC/TESCreature forms must be exact allocator-owned objects,
+/// resolve back to the same address through the engine form registry, and own
+/// a completely valid container list. The function performs no repair and is
+/// suitable only while the native caller owns the actor base's lifetime.
+pub(super) fn validate_live_actor_container(
+    actor: *mut c_void,
+) -> Result<(), LiveActorContainerError> {
+    validate_live_actor_container_with(
+        actor as usize,
+        allocation_state::read_allocation_words,
+        |ref_id| {
+            let resolve = unsafe {
+                FnPtr::<LoadedFormResolverFn>::from_address_unchecked(LOADED_FORM_RESOLVER_ADDR)
+            }
+            .as_fn();
+            unsafe { resolve(ref_id) as usize }
+        },
+        |head_data, head_next| {
+            validate_container(
+                head_data,
+                head_next,
+                MAX_CONTAINER_ITEMS,
+                allocation_state::read_allocation_words,
+                valid_runtime_form,
+            )
+        },
+    )
+}
+
+fn validate_live_actor_container_with(
+    actor: usize,
+    mut read_actor_words: impl FnMut(
+        usize,
+        usize,
+        &[usize],
+        &mut [usize],
+    ) -> Result<(), AllocationState>,
+    mut resolve_form: impl FnMut(u32) -> usize,
+    validate_actor_container: impl FnOnce(usize, usize) -> Result<(), ContainerIssue>,
+) -> Result<(), LiveActorContainerError> {
+    if actor == 0 {
+        return Err(LiveActorContainerError {
+            actor,
+            ref_id: None,
+            head_data: None,
+            head_next: None,
+            issue: LiveActorContainerIssue::NullActor,
+        });
+    }
+
+    // One allocator-owned snapshot covers identity and the embedded list head.
+    // This matters for vanilla SBM, where the pool lock must remain held from
+    // classification through the reads to exclude concurrent page purge.
+    let mut actor_fields = [0usize; 4];
+    if let Err(state) = read_actor_words(
+        actor,
+        TESACTORBASE_MINIMUM_SIZE,
+        &[
+            TESFORM_TYPE_OFFSET,
+            TESFORM_REF_ID_OFFSET,
+            TESACTORBASE_CONTAINER_HEAD_OFFSET,
+            TESACTORBASE_CONTAINER_HEAD_OFFSET + LIST_NODE_NEXT_OFFSET,
+        ],
+        &mut actor_fields,
+    ) {
+        return Err(LiveActorContainerError {
+            actor,
+            ref_id: None,
+            head_data: None,
+            head_next: None,
+            issue: LiveActorContainerIssue::ActorAllocation(state),
+        });
+    }
+
+    let [type_word, ref_id_word, head_data, head_next] = actor_fields;
+    let ref_id = ref_id_word as u32;
+    if !is_dynamic_form_id(ref_id) {
+        return Ok(());
+    }
+
+    let type_id = type_word as u8;
+    if !matches!(type_id, TESNPC_FORM_TYPE | TESCREATURE_FORM_TYPE) {
+        return Err(LiveActorContainerError {
+            actor,
+            ref_id: Some(ref_id),
+            head_data: Some(head_data),
+            head_next: Some(head_next),
+            issue: LiveActorContainerIssue::UnexpectedDynamicType { type_id },
+        });
+    }
+
+    let resolved = resolve_form(ref_id);
+    if resolved != actor {
+        return Err(LiveActorContainerError {
+            actor,
+            ref_id: Some(ref_id),
+            head_data: Some(head_data),
+            head_next: Some(head_next),
+            issue: LiveActorContainerIssue::RegistryMismatch { resolved },
+        });
+    }
+
+    validate_actor_container(head_data, head_next).map_err(|issue| LiveActorContainerError {
+        actor,
+        ref_id: Some(ref_id),
+        head_data: Some(head_data),
+        head_next: Some(head_next),
+        issue: LiveActorContainerIssue::Container(issue),
+    })
 }
 
 fn is_dynamic_form_id(ref_id: u32) -> bool {
@@ -456,6 +614,108 @@ mod tests {
 
         assert_eq!(fake.validate(0, 0, MAX_CONTAINER_ITEMS), Ok(()));
         assert_eq!(fake.validate(0x1000, 0x2000, MAX_CONTAINER_ITEMS), Ok(()));
+    }
+
+    #[test]
+    fn rejects_captured_live_load_successor_before_form_dereference() {
+        let mut fake = FakeContainer::new();
+        fake.form_count(0x1000, 0x9000, 0);
+        // The August 15 crash completed the embedded-head entry, read this
+        // successor node, and then faulted on its 0x452BEF94 FormCount data.
+        // Model the node as readable so this rejects the nested allocation,
+        // not merely the address chosen for the node itself.
+        fake.node(0x9000_0000, 0x452B_EF94, 0);
+
+        assert!(matches!(
+            fake.validate(0x1000, 0x9000_0000, MAX_CONTAINER_ITEMS),
+            Err(ContainerIssue::Allocation {
+                role: AllocationRole::FormCount,
+                ptr: 0x452B_EF94,
+                state: AllocationState::Unowned,
+                ..
+            })
+        ));
+    }
+
+    #[test]
+    fn live_validation_bypasses_non_dynamic_actor_containers() {
+        let actor = 0x7000;
+        assert_eq!(
+            validate_live_actor_container_with(
+                actor,
+                |ptr, minimum, offsets, output| {
+                    assert_eq!(ptr, actor);
+                    assert_eq!(minimum, TESACTORBASE_MINIMUM_SIZE);
+                    assert_eq!(
+                        offsets,
+                        [
+                            TESFORM_TYPE_OFFSET,
+                            TESFORM_REF_ID_OFFSET,
+                            TESACTORBASE_CONTAINER_HEAD_OFFSET,
+                            TESACTORBASE_CONTAINER_HEAD_OFFSET + LIST_NODE_NEXT_OFFSET,
+                        ]
+                    );
+                    output.copy_from_slice(&[TESNPC_FORM_TYPE as usize, 0x0100_1234, 1, 2]);
+                    Ok(())
+                },
+                |_| panic!("static forms must not pay for a registry lookup"),
+                |_, _| panic!("static forms are outside dynamic-container validation"),
+            ),
+            Ok(())
+        );
+    }
+
+    #[test]
+    fn live_validation_requires_dynamic_actor_type_and_registry_identity() {
+        let actor = 0x7000;
+        let read_dynamic = |_: usize,
+                            _: usize,
+                            _: &[usize],
+                            output: &mut [usize]|
+         -> Result<(), AllocationState> {
+            output.copy_from_slice(&[TESNPC_FORM_TYPE as usize, 0xFF00_185C, 0x1000, 0x2000]);
+            Ok(())
+        };
+
+        assert_eq!(
+            validate_live_actor_container_with(
+                actor,
+                read_dynamic,
+                |ref_id| (ref_id == 0xFF00_185C).then_some(actor).unwrap_or(0),
+                |head_data, head_next| {
+                    assert_eq!((head_data, head_next), (0x1000, 0x2000));
+                    Ok(())
+                },
+            ),
+            Ok(())
+        );
+
+        let registry_error = validate_live_actor_container_with(
+            actor,
+            read_dynamic,
+            |_| actor + 4,
+            |_, _| panic!("an unregistered actor must not expose its container"),
+        )
+        .expect_err("registry mismatch must reject a dynamic actor");
+        assert!(matches!(
+            registry_error.issue,
+            LiveActorContainerIssue::RegistryMismatch { resolved } if resolved == actor + 4
+        ));
+
+        let type_error = validate_live_actor_container_with(
+            actor,
+            |_, _, _, output| {
+                output.copy_from_slice(&[0x34, 0xFF00_185C, 0x1000, 0x2000]);
+                Ok(())
+            },
+            |_| panic!("wrong dynamic type must fail before registry lookup"),
+            |_, _| panic!("wrong dynamic type must not expose its container"),
+        )
+        .expect_err("non-actor dynamic form must be rejected");
+        assert!(matches!(
+            type_error.issue,
+            LiveActorContainerIssue::UnexpectedDynamicType { type_id: 0x34 }
+        ));
     }
 
     #[test]

@@ -128,6 +128,8 @@ pub(crate) fn dashboard_counters() -> DashboardCounters {
         || save.fclose_hook
         || save.load_owner_hook
         || save.player_load_hook
+        || save.actor_container_load_first_hook
+        || save.actor_container_load_second_hook
     {
         active_features |= DASHBOARD_FEATURE_SAVE_INTEGRITY;
     }
@@ -618,9 +620,14 @@ pub(crate) fn append_diagnostic_report(out: &mut String) {
     );
     push_report_value(
         out,
+        "Actor preflight",
+        format!("{} rejected", save.actor_container_load_rejections),
+    );
+    push_report_value(
+        out,
         "Save hooks",
         format!(
-            "{}/6 / owner {:08X}",
+            "{}/8 / owner {:08X}",
             [
                 save.factory_hook,
                 save.owner_hook,
@@ -628,6 +635,8 @@ pub(crate) fn append_diagnostic_report(out: &mut String) {
                 save.fclose_hook,
                 save.load_owner_hook,
                 save.player_load_hook,
+                save.actor_container_load_first_hook,
+                save.actor_container_load_second_hook,
             ]
             .into_iter()
             .filter(|active| *active)

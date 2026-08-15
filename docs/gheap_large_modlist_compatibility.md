@@ -396,6 +396,166 @@ guard installs in modes `2`, `1`, and `0`. The xNVSE helper edits this
 restart-only setting and reports the core's installed-state bit; it never
 installs the hook or initializes the core.
 
+### Dynamic actor container live-load corruption, August 15
+
+The preserved evidence for the second crash in this family is:
+
+- `.reports/CrashLogger-2026-08-15-023303-actor-container-load-crash.log`,
+  SHA-256
+  `0964c2fe47a61ecf12b3badb48b249e764cae28ef9a6661dd07e13d58367ab0b`;
+- `.reports/psycho-engine-fixes-2026-08-15-023303-actor-container-load-crash.log`,
+  SHA-256
+  `f916dae2b1397d15e1c04f2e7123021746afdccf9a9e7d218fbcf5bde432c2fc`;
+- `.reports/nvse-2026-08-15-023303-actor-container-load-crash.log`,
+  SHA-256
+  `b5ef6d9e5d9db834d47acf0382c506c3cff097efcacc62c818ac450be87faab7`;
+- `.reports/omv-2026-08-15-023303-actor-container-load-crash.log`,
+  SHA-256
+  `b0f8f9ce0a0780c259102401d5625791970a26a33731e9bd7b2c1cec1e5e5ce5`.
+
+The executable is the same supported FalloutNV 1.4.0.525 image documented
+above, SHA-256
+`42fee7d6cd74e801372aa89c8f71c974cebd3c20ec9ad43d1465b8fa9646b49c`.
+Radare2 analysis of that exact image proves the following access chain and
+ABI:
+
+- `0x005629A0` is the Character load owner. Its two direct calls at
+  `0x00562B8C` and `0x00562B98` place a live `Character*` in `ECX`, push byte
+  modes zero and one respectively, and call `0x00574920` with thiscall ABI.
+- `0x00574920` obtains `ExtraContainerChanges::Data*` through `0x004BF220`.
+  At `0x005749D1` it calls `0x004D1440`; the observed return address is
+  `0x005749D6`.
+- `ExtraContainerChanges::Data.owner` is at `+0x04`. `0x004BFFB0` follows
+  that owner to its base `TESActorBase` and `0x00717E50` returns the embedded
+  `TESContainer` list head.
+- `0x004D1440` iterates `tList<TESContainer::FormCount>`. A node is
+  `{ data +0x00, next +0x04 }`; `FormCount` is
+  `{ count +0x00, form +0x04, extra +0x08 }`. `0x006815C0` returns the
+  current node, while `0x00726070` returns its successor.
+- At `0x004D1509` vanilla executes `cmp dword [edx+4], 0`, treating `EDX` as
+  `FormCount*` before checking whether that allocation exists. Form type
+  `0x34` is `TESLevItem`, which this function expands into live inventory.
+
+The CrashLogger frame and stack establish the exact failing values. The
+Character is reference `1A03E26B` (`TwigBagREF`) with runtime TESNPC base
+`FF00185C`. The `ExtraContainerChanges::Data*` local is `0xF9B4DED8`. The
+embedded-head entry completed, the loop index reached one, and the second
+list-node local became `0x90000000`. That readable node supplied
+`FormCount* 0x452BEF94`; dereferencing its `form` field caused the access
+violation at `0x004D1509`. `BGSLoadFormBuffer`, `BGSLoadGameBuffer`, and the
+`BSFile` path identify `quicksave.fos` as the active input.
+
+This is not an OOM or rendering boundary. The last allocator sample reported
+870 MB total free VAS and a 383 MB largest hole without an allocation failure.
+OMV reached 174,000 Presents with zero world-pipeline failures immediately
+before the load. The Psycho frames at `0x100BE6FF` and `0x100A69AA` are return
+addresses immediately after calls to the original changed-form and top-level
+load owners; neither wrapper had begun post-call work. Repeated xNVSE cosave
+warnings also occurred on earlier completed loads and do not match this native
+call chain.
+
+The direct root cause is proven: a malformed live dynamic-actor container
+reached vanilla's unchecked leveled-inventory expansion. The original writer
+is not proven. The serialized save may already contain bad state, the
+ExtraLeveledCreature clone/copy route may propagate a stale node, a later
+engine overwrite may corrupt it, or an external plugin may write it. The
+content plugin owning `TwigBagREF` is identity evidence, not attribution.
+Likewise, the numeric value `0x90000000` is not evidence about the component
+that wrote the node.
+
+The July retirement guard cannot cover this boundary: its actor is dying, so
+detaching an uncertain list is behavior-neutral. Here the actor remains live
+and owns meaningful inventory. Repair, individual-item skipping, or head
+detachment would silently change game state and is therefore prohibited.
+
+The load-time correction is owned by `engine_fixes/save_integrity.rs` because
+only its active changed-form owner can reject partial mutation. It adds two
+ownership-aware direct-call hooks at `0x00562B8C` and `0x00562B98`. Exact
+prefix, inter-call, and suffix fingerprints prove the Character pointer,
+mode-byte arguments, and surrounding branch roles. Each hook captures and
+chains the existing direct target rather than claiming shared function
+`0x00574920`. Both callsites activate in the same rollback transaction as the
+changed-record readers and load owner. The owner remains last, so no load can
+enter with only part of the policy active.
+
+On the active load-owner thread, the hook reads `Character.baseForm` at
+`+0x20` under the native callsite's `this` lifetime. The shared validator in
+`engine_fixes/actor_container_guard.rs` then uses one allocator-owned snapshot
+to read the base form's `typeID` at `+0x04`, `refID` at `+0x0C`, and embedded
+container head at `+0x68`. Non-runtime forms return immediately. A runtime
+form must be TESNPC type `0x2A` or TESCreature type `0x2B`, resolve back to the
+same pointer through `LookupFormByID` at `0x004839C0`, and pass the complete
+container contract established by the retirement guard.
+
+If validation succeeds, the captured predecessor runs exactly once with the
+original Character and mode. If it fails, Psycho does not call
+`0x00574920`, marks the active changed record with the engine's rejection bit,
+latches the whole-load error, and lets the enclosing Character loader unwind.
+The general load owner then preserves error bit `0x80` at `+0x244` and returns
+zero. No live list word is changed, and no member rejected by the allocation
+classifier is read, freed, or leaked by this path. A bounded diagnostic records
+Character, changed record, phase, mode, allocator state, actor identity, head
+words, and the first failed validation role.
+
+Character loads outside the active owner thread bypass validation and call
+their captured predecessor unchanged. This is both an ownership rule and a
+compatibility boundary: no global `0x00574920` hook is installed, and no
+unrelated load is made to borrow a changed-record pointer. The Windows heap
+cache is initialized idempotently by either guard, so disabling the retirement
+setting cannot leave save-integrity validation without its allocation
+classifier. Configuration layout and defaults are unchanged. The load guard
+is controlled by the existing `engine_fixes.save_integrity_fix`; the existing
+`actor_container_retirement_guard` continues to control only destructor-time
+detachment.
+
+The valid-path cost exists only during a tracked save load. Each Character
+performs one base pointer read and one allocator snapshot; non-dynamic bases
+stop there. A dynamic base performs the bounded, allocation-free list walk and
+registry checks already documented above. No per-frame work, file I/O, OS
+readability probe, new thread, blocking render lock, or diagnostic allocation
+is added. The exceptional log and terminal rejection are cold-path work.
+
+Regression coverage includes the captured shape with a valid first
+`FormCount`, readable successor node `0x90000000`, and invalid nested
+`FormCount* 0x452BEF94`; the validator rejects that nested allocation before a
+form read. Tests also prove valid multi-item lists, non-runtime bypass,
+dynamic type and registry identity, callsite source order, and that a failed
+preflight never calls the predecessor while an accepted preflight calls it
+once. Required validation is the complete explicit-target crate suite, release
+build, formatting, and diff checks.
+
+Validation recorded on 2026-08-15:
+
+- focused actor-container tests: 13 passed, 0 failed;
+- focused actor-inventory save-integrity tests: 2 passed, 0 failed;
+- `cargo test --target i686-pc-windows-gnu -p psycho-engine-fixes --lib`:
+  175 passed, 0 failed;
+- `cargo build --release --target i686-pc-windows-gnu -p
+  psycho-engine-fixes`: passed;
+- crate-local Clippy with warnings denied passed after allowing the seven
+  pre-existing diagnostics outside this change; the unrestricted run remains
+  blocked by those diagnostics and three additional `libpsycho` diagnostics;
+- the release DLL SHA-256 is
+  `f15bee5d6473ecdbd442ec9c42f251119a455c5056f1dc9483549250c00ca70f`;
+- the complete imported DLL/symbol sequence is unchanged from the pre-change
+  deployment: 368 entries before and after;
+- `.tls` remains eight bytes and its four callback symbols remain
+  `std::sys::thread_local::guard::windows::tls_callback`,
+  `__dyn_tls_pthread`, `__dyn_tls_dtor`, and `__dyn_tls_init`;
+- both compiled thiscall wrappers consume their one-byte stack argument with
+  `ret 4`.
+
+This patch adds two callsite-hook statics and two pre-owner instruction writes
+to the established pre-Deferred core activation. It adds no PE import, TLS
+callback, configuration field, worker, file scan, or dependency. Static tests
+and PE comparison do not establish loader compatibility: BaseObjectSwapper
+must remain installed for repeated cold launch-to-gameplay and quickload
+acceptance. The corrupt save must either load safely if a future producer fix
+prevents the state or fail through the controlled load-error path without
+`0x004D1509`. To identify the original writer, the next rejection must preserve
+the failing `.fos`, adjacent `.nvse`, and preceding good save before another
+save rotates them.
+
 ## Compatibility boundaries
 
 ### What is supported by design

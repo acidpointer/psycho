@@ -38,6 +38,14 @@
 //! reconstruction before checking whether a live form exists. We reject those
 //! records at that shared boundary so unavailable content cannot publish
 //! partially reconstructed state.
+//!
+//! Dynamic actor containers have a second pre-mutation boundary. Character
+//! load calls vanilla inventory reconstruction through two direct calls in the
+//! supported executable. Before either call, Psycho validates an `FFxxxxxx`
+//! actor base and its complete `TESContainer` through allocator metadata and
+//! loaded-form registry identity. A corrupt live container is never detached
+//! or partially repaired; its changed record and the whole load are rejected
+//! before vanilla can dereference the malformed list.
 
 use std::{
     ffi::{CStr, CString, c_void},
@@ -54,7 +62,10 @@ use anyhow::{Context, anyhow, ensure};
 use libpsycho::{
     ffi::fnptr::FnPtr,
     os::windows::{
-        hook::{inline::inlinehook::InlineHookContainer, transaction::ModificationTransaction},
+        hook::{
+            callsite::Rel32CallHookContainer, inline::inlinehook::InlineHookContainer,
+            transaction::ModificationTransaction,
+        },
         memory::validate_memory_range,
         winapi::{
             DurableFile, copy_file_new, delete_file_if_exists, file_exists,
@@ -65,7 +76,7 @@ use libpsycho::{
 };
 use parking_lot::Mutex;
 
-use super::patching;
+use super::{actor_container_guard, patching};
 
 const SAVE_FACTORY_ADDR: usize = 0x0085_0030;
 const SAVE_OWNER_ADDR: usize = 0x0085_03B0;
@@ -87,6 +98,15 @@ const LOAD_APPLY_ADDR: usize = 0x0084_9D00;
 const BUFFER_READ_ADDR: usize = 0x0086_4820;
 const BUFFER_PEEK_ADDR: usize = 0x0086_4A60;
 const PLAYER_LOAD_ADDR: usize = 0x0095_6F70;
+const ACTOR_INVENTORY_LOAD_FIRST_CALL_ADDR: usize = 0x0056_2B8C;
+const ACTOR_INVENTORY_LOAD_SECOND_CALL_ADDR: usize = 0x0056_2B98;
+const ACTOR_INVENTORY_LOAD_FIRST_PREFIX_ADDR: usize = 0x0056_2B83;
+const ACTOR_INVENTORY_LOAD_FIRST_PREFIX: &[u8] =
+    &[0x85, 0xC9, 0x74, 0x0C, 0x6A, 0x00, 0x8B, 0x4D, 0xD8];
+const ACTOR_INVENTORY_LOAD_BETWEEN_ADDR: usize = 0x0056_2B91;
+const ACTOR_INVENTORY_LOAD_BETWEEN: &[u8] = &[0xEB, 0x0A, 0x6A, 0x01, 0x8B, 0x4D, 0xD8];
+const ACTOR_INVENTORY_LOAD_SECOND_SUFFIX_ADDR: usize = 0x0056_2B9D;
+const ACTOR_INVENTORY_LOAD_SECOND_SUFFIX: &[u8] = &[0xEB, 0x12];
 const SAVE_VERSION_ADDR: usize = 0x008D_F040;
 const SAVELOAD_SINGLETON: usize = 0x011D_E45C;
 const CHANGED_RECORD_VTABLE: usize = 0x0108_2028;
@@ -120,6 +140,7 @@ const MAX_CURRENT_SAVE_HEADER_SIZE: usize = HEADER_U32_FIELD_COUNT * FRAMED_U32_
     + HEADER_STRING_FIELD_COUNT * MAX_FRAMED_STRING_SIZE;
 
 const PLAYER_SINGLETON: usize = 0x011D_EA3C;
+const TES_OBJECT_REFR_BASE_FORM_OFFSET: usize = 0x20;
 const PLAYER_SPEED_VALUE_INDEX: usize = 21;
 const PLAYER_VALUE_ARRAY_OFFSETS: [usize; 3] = [0x244, 0x378, 0x4B0];
 const PLAYER_SPEED_VALUE_OFFSETS: [usize; 3] = [
@@ -155,6 +176,7 @@ type LoadApplyFn = unsafe extern "thiscall" fn(*mut c_void, u32, *mut c_void, u3
 type BufferReadFn = unsafe extern "thiscall" fn(*mut RecordBuffer, *mut c_void, i32);
 type BufferPeekFn = unsafe extern "fastcall" fn(*mut RecordBuffer) -> u32;
 type PlayerLoadFn = unsafe extern "thiscall" fn(*mut c_void, u32, u32);
+type ActorInventoryLoadFn = unsafe extern "thiscall" fn(*mut c_void, u8);
 type SaveVersionFn = unsafe extern "fastcall" fn(*mut c_void) -> u8;
 
 #[repr(C)]
@@ -186,6 +208,13 @@ struct PlayerSpeedSnapshot {
     values: [u32; 3],
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ActorInventoryLoadError {
+    NullCharacter,
+    NullBaseForm,
+    InvalidContainer(actor_container_guard::LiveActorContainerError),
+}
+
 static SAVE_WRITE_HOOK: LazyLock<InlineHookContainer<SaveWriteFn>> =
     LazyLock::new(InlineHookContainer::new);
 static SAVE_FACTORY_HOOK: LazyLock<InlineHookContainer<SaveFactoryFn>> =
@@ -208,6 +237,12 @@ static BUFFER_PEEK_HOOK: LazyLock<InlineHookContainer<BufferPeekFn>> =
     LazyLock::new(InlineHookContainer::new);
 static PLAYER_LOAD_HOOK: LazyLock<InlineHookContainer<PlayerLoadFn>> =
     LazyLock::new(InlineHookContainer::new);
+static ACTOR_INVENTORY_LOAD_FIRST_CALL_HOOK: LazyLock<
+    Rel32CallHookContainer<ActorInventoryLoadFn>,
+> = LazyLock::new(Rel32CallHookContainer::new);
+static ACTOR_INVENTORY_LOAD_SECOND_CALL_HOOK: LazyLock<
+    Rel32CallHookContainer<ActorInventoryLoadFn>,
+> = LazyLock::new(Rel32CallHookContainer::new);
 static FCLOSE_HOOK: LazyLock<InlineHookContainer<FcloseFn>> =
     LazyLock::new(InlineHookContainer::new);
 
@@ -224,6 +259,7 @@ static SAVE_SPEED_SNAPSHOT: Mutex<Option<PlayerSpeedSnapshot>> = Mutex::new(None
 
 static ACTIVE_LOAD_OWNER: AtomicUsize = AtomicUsize::new(0);
 static ACTIVE_CHANGED_RECORD: AtomicUsize = AtomicUsize::new(0);
+static ACTIVE_LOAD_THREAD: AtomicU32 = AtomicU32::new(0);
 static LOAD_REJECTED: AtomicBool = AtomicBool::new(false);
 
 static SAVE_ATTEMPTS: AtomicU32 = AtomicU32::new(0);
@@ -235,6 +271,7 @@ static STRUCTURE_REJECTIONS: AtomicU32 = AtomicU32::new(0);
 static STATE_MUTATIONS: AtomicU32 = AtomicU32::new(0);
 static LOAD_REJECTIONS: AtomicU32 = AtomicU32::new(0);
 static PLAYER_LOAD_REJECTIONS: AtomicU32 = AtomicU32::new(0);
+static ACTOR_CONTAINER_LOAD_REJECTIONS: AtomicU32 = AtomicU32::new(0);
 static UNRESOLVED_RECORDS: AtomicU32 = AtomicU32::new(0);
 static MISSING_BASE_FORM_RECORDS: AtomicU32 = AtomicU32::new(0);
 
@@ -262,6 +299,8 @@ pub(super) struct DiagnosticSnapshot {
     pub load_rejections: u32,
     /// PlayerCharacter records rejected before their mutation owner ran.
     pub player_load_rejections: u32,
+    /// Character records rejected before corrupt dynamic inventory traversal.
+    pub actor_container_load_rejections: u32,
     /// Changed records skipped because their source content was unavailable.
     pub unresolved_records: u32,
     /// Whether the stable temporary-file factory hook is active.
@@ -276,6 +315,10 @@ pub(super) struct DiagnosticSnapshot {
     pub load_owner_hook: bool,
     /// Whether PlayerCharacter record preflight is active.
     pub player_load_hook: bool,
+    /// Whether the mode-zero Character inventory-load callsite guard is active.
+    pub actor_container_load_first_hook: bool,
+    /// Whether the mode-one Character inventory-load callsite guard is active.
+    pub actor_container_load_second_hook: bool,
     /// Original target preserved from the shared save-result callsite.
     pub result_predecessor: usize,
 }
@@ -292,6 +335,7 @@ pub(super) fn diagnostic_snapshot() -> DiagnosticSnapshot {
         state_mutations: STATE_MUTATIONS.load(Ordering::Relaxed),
         load_rejections: LOAD_REJECTIONS.load(Ordering::Relaxed),
         player_load_rejections: PLAYER_LOAD_REJECTIONS.load(Ordering::Relaxed),
+        actor_container_load_rejections: ACTOR_CONTAINER_LOAD_REJECTIONS.load(Ordering::Relaxed),
         unresolved_records: UNRESOLVED_RECORDS.load(Ordering::Relaxed),
         factory_hook: SAVE_FACTORY_HOOK.is_enabled(),
         owner_hook: SAVE_OWNER_HOOK.is_enabled(),
@@ -299,6 +343,8 @@ pub(super) fn diagnostic_snapshot() -> DiagnosticSnapshot {
         fclose_hook: FCLOSE_HOOK.is_enabled(),
         load_owner_hook: LOAD_OWNER_HOOK.is_enabled(),
         player_load_hook: PLAYER_LOAD_HOOK.is_enabled(),
+        actor_container_load_first_hook: ACTOR_INVENTORY_LOAD_FIRST_CALL_HOOK.is_enabled(),
+        actor_container_load_second_hook: ACTOR_INVENTORY_LOAD_SECOND_CALL_HOOK.is_enabled(),
         result_predecessor: SAVE_RESULT_PREDECESSOR.load(Ordering::Relaxed),
     }
 }
@@ -309,6 +355,7 @@ pub(super) fn diagnostic_snapshot() -> DiagnosticSnapshot {
 /// fixed patch site has been prepared. A failure restores every activation
 /// that this module still owns instead of leaving a partial integrity policy.
 pub(super) fn install() -> anyhow::Result<()> {
+    actor_container_guard::prepare_validation();
     initialize_hooks()?;
 
     let result_predecessor = install_save_result_call()?;
@@ -331,6 +378,8 @@ pub(super) fn install() -> anyhow::Result<()> {
         transaction.enable_inline(&BUFFER_READ_HOOK)?;
         transaction.enable_inline(&BUFFER_PEEK_HOOK)?;
         transaction.enable_inline(&PLAYER_LOAD_HOOK)?;
+        transaction.enable_callsite(&ACTOR_INVENTORY_LOAD_FIRST_CALL_HOOK)?;
+        transaction.enable_callsite(&ACTOR_INVENTORY_LOAD_SECOND_CALL_HOOK)?;
 
         transaction.enable_inline(&SAVE_FACTORY_HOOK)?;
 
@@ -405,6 +454,32 @@ fn initialize_hooks() -> anyhow::Result<()> {
             "save_integrity_player_load_preflight",
             PLAYER_LOAD_ADDR as *mut c_void,
             hook_player_load,
+        )?;
+        // These context fingerprints prove the Character*, byte argument, and
+        // branch layout around both calls. The callsite containers separately
+        // capture and chain the current direct targets, allowing a compatible
+        // predecessor without accepting an unrelated instruction role.
+        patching::verify_bytes(
+            ACTOR_INVENTORY_LOAD_FIRST_PREFIX_ADDR,
+            ACTOR_INVENTORY_LOAD_FIRST_PREFIX,
+        )?;
+        patching::verify_bytes(
+            ACTOR_INVENTORY_LOAD_BETWEEN_ADDR,
+            ACTOR_INVENTORY_LOAD_BETWEEN,
+        )?;
+        patching::verify_bytes(
+            ACTOR_INVENTORY_LOAD_SECOND_SUFFIX_ADDR,
+            ACTOR_INVENTORY_LOAD_SECOND_SUFFIX,
+        )?;
+        ACTOR_INVENTORY_LOAD_FIRST_CALL_HOOK.init(
+            "save_integrity_actor_inventory_load_first",
+            ACTOR_INVENTORY_LOAD_FIRST_CALL_ADDR as *mut c_void,
+            hook_actor_inventory_load_first,
+        )?;
+        ACTOR_INVENTORY_LOAD_SECOND_CALL_HOOK.init(
+            "save_integrity_actor_inventory_load_second",
+            ACTOR_INVENTORY_LOAD_SECOND_CALL_ADDR as *mut c_void,
+            hook_actor_inventory_load_second,
         )?;
         SAVE_FACTORY_HOOK.init(
             "save_integrity_factory_validation",
@@ -1535,6 +1610,10 @@ unsafe extern "thiscall" fn hook_load_owner(owner: *mut c_void, file: *mut c_voi
         log::error!("[SAVE] Concurrent or reentrant load rejected before form mutation");
         return 0;
     }
+    // Publish the owner thread before the native load begins. Character load
+    // can also run for unrelated engine work; the callsite guard must never
+    // borrow this transaction's changed-record pointer from another thread.
+    ACTIVE_LOAD_THREAD.store(get_current_thread_id(), Ordering::Release);
 
     crate::mods::diagnostics::mark_load_site(
         crate::mods::diagnostics::LoadSite::ChangedFormOwnerEnter,
@@ -1564,6 +1643,7 @@ unsafe extern "thiscall" fn hook_load_owner(owner: *mut c_void, file: *mut c_voi
         );
     }
     ACTIVE_CHANGED_RECORD.store(0, Ordering::Release);
+    ACTIVE_LOAD_THREAD.store(0, Ordering::Release);
     ACTIVE_LOAD_OWNER.store(0, Ordering::Release);
 
     // The decompiler models this engine function as void, but its only caller
@@ -1589,6 +1669,123 @@ unsafe extern "thiscall" fn hook_player_load(player: *mut c_void, argument: u32,
         return;
     }
     unsafe { original(player, argument, mode) };
+}
+
+unsafe extern "thiscall" fn hook_actor_inventory_load_first(character: *mut c_void, mode: u8) {
+    unsafe {
+        hook_actor_inventory_load(
+            &ACTOR_INVENTORY_LOAD_FIRST_CALL_HOOK,
+            "first",
+            character,
+            mode,
+        )
+    };
+}
+
+unsafe extern "thiscall" fn hook_actor_inventory_load_second(character: *mut c_void, mode: u8) {
+    unsafe {
+        hook_actor_inventory_load(
+            &ACTOR_INVENTORY_LOAD_SECOND_CALL_HOOK,
+            "second",
+            character,
+            mode,
+        )
+    };
+}
+
+unsafe fn hook_actor_inventory_load(
+    hook: &'static Rel32CallHookContainer<ActorInventoryLoadFn>,
+    phase: &'static str,
+    character: *mut c_void,
+    mode: u8,
+) {
+    let Ok(original) = hook.original() else {
+        if active_load_runs_on_current_thread() {
+            mark_load_rejected("Character inventory load predecessor unavailable");
+        }
+        log::error!("[ACTOR_CONTAINER] Character inventory load {phase} predecessor unavailable");
+        return;
+    };
+
+    let preflight = if active_load_runs_on_current_thread() {
+        unsafe { preflight_actor_inventory_load(character) }
+    } else {
+        // Character load has callers outside changed-record application. They
+        // do not own a transaction that can roll back partial mutation, so the
+        // focused save-integrity policy must leave them on their predecessor.
+        Ok(())
+    };
+
+    if let Err(error) = run_actor_inventory_load(preflight, || unsafe { original(character, mode) })
+    {
+        let record = mark_active_changed_record_rejected();
+        let total = ACTOR_CONTAINER_LOAD_REJECTIONS.fetch_add(1, Ordering::Relaxed) + 1;
+        if total == 1 || total.is_power_of_two() {
+            log::error!(
+                "[ACTOR_CONTAINER] rejected corrupt live actor container before Character inventory load: phase={phase} mode={mode} character=0x{:08X} record=0x{record:08X} issue={error:?} total={total}",
+                character as usize,
+            );
+        }
+        // Returning from this callsite skips only the crash-producing
+        // inventory owner. The enclosing Character loader unwinds normally,
+        // while the latched owner error prevents its partial state from being
+        // reported as a successful load. Live inventory is never detached.
+        mark_load_rejected("invalid dynamic actor container");
+    }
+}
+
+fn run_actor_inventory_load<E>(preflight: Result<(), E>, original: impl FnOnce()) -> Result<(), E> {
+    preflight?;
+    original();
+    Ok(())
+}
+
+fn active_load_runs_on_current_thread() -> bool {
+    if ACTIVE_LOAD_OWNER.load(Ordering::Acquire) == 0 {
+        return false;
+    }
+    let thread = ACTIVE_LOAD_THREAD.load(Ordering::Acquire);
+    thread != 0 && thread == get_current_thread_id()
+}
+
+unsafe fn preflight_actor_inventory_load(
+    character: *mut c_void,
+) -> Result<(), ActorInventoryLoadError> {
+    if character.is_null() {
+        return Err(ActorInventoryLoadError::NullCharacter);
+    }
+
+    // The exact native callsites place their live Character `this` pointer in
+    // ECX and immediately call the predecessor. That caller-owned lifetime is
+    // the proof for this one embedded read; using a page-readability probe here
+    // would neither prove object identity nor pin the Character against reuse.
+    let base_form = unsafe {
+        ptr::read_unaligned(
+            character
+                .cast::<u8>()
+                .add(TES_OBJECT_REFR_BASE_FORM_OFFSET)
+                .cast::<*mut c_void>(),
+        )
+    };
+    if base_form.is_null() {
+        return Err(ActorInventoryLoadError::NullBaseForm);
+    }
+
+    actor_container_guard::validate_live_actor_container(base_form)
+        .map_err(ActorInventoryLoadError::InvalidContainer)
+}
+
+fn mark_active_changed_record_rejected() -> usize {
+    let record = ACTIVE_CHANGED_RECORD.load(Ordering::Acquire) as *mut ChangedRecord;
+    if record.is_null() || !is_changed_record(unsafe { &raw mut (*record).buffer }) {
+        return 0;
+    }
+
+    // LOAD_APPLY_HOOK owns this record for the duration of the predecessor
+    // call. Marking the engine's native rejection bit preserves its later-pass
+    // behavior in addition to the whole-load error latched below.
+    mark_changed_record_rejected(record);
+    record as usize
 }
 
 fn player_speed_block_layout(version: u8) -> Option<(usize, usize, usize)> {
@@ -1911,7 +2108,7 @@ fn set_load_error_flag(owner: *mut c_void, enabled: bool) {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashMap;
+    use std::{cell::Cell, collections::HashMap};
 
     use super::*;
 
@@ -2464,6 +2661,38 @@ mod tests {
         assert_eq!(player_speed_block_layout(49), Some((0x130, 3, 918)));
         assert_eq!(player_speed_block_layout(59), Some((0x134, 3, 930)));
         assert_eq!(player_speed_block_layout(90), None);
+    }
+
+    #[test]
+    fn actor_inventory_preflight_suppresses_only_rejected_calls() {
+        let calls = Cell::new(0);
+        let rejected = run_actor_inventory_load(Err("corrupt"), || calls.set(calls.get() + 1));
+        assert_eq!(rejected, Err("corrupt"));
+        assert_eq!(calls.get(), 0);
+
+        let accepted = run_actor_inventory_load::<()>(Ok(()), || calls.set(calls.get() + 1));
+        assert_eq!(accepted, Ok(()));
+        assert_eq!(calls.get(), 1);
+    }
+
+    #[test]
+    fn actor_inventory_callsite_fingerprints_cover_both_abis_in_order() {
+        assert_eq!(
+            ACTOR_INVENTORY_LOAD_FIRST_PREFIX_ADDR + ACTOR_INVENTORY_LOAD_FIRST_PREFIX.len(),
+            ACTOR_INVENTORY_LOAD_FIRST_CALL_ADDR,
+        );
+        assert_eq!(
+            ACTOR_INVENTORY_LOAD_FIRST_CALL_ADDR + 5,
+            ACTOR_INVENTORY_LOAD_BETWEEN_ADDR,
+        );
+        assert_eq!(
+            ACTOR_INVENTORY_LOAD_BETWEEN_ADDR + ACTOR_INVENTORY_LOAD_BETWEEN.len(),
+            ACTOR_INVENTORY_LOAD_SECOND_CALL_ADDR,
+        );
+        assert_eq!(
+            ACTOR_INVENTORY_LOAD_SECOND_CALL_ADDR + 5,
+            ACTOR_INVENTORY_LOAD_SECOND_SUFFIX_ADDR,
+        );
     }
 
     #[test]
