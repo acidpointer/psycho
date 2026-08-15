@@ -10544,13 +10544,11 @@ fn draw_native_shadows_config(
     ui.separator_text(&cstring("SHADOWS"));
     ui.text_colored(
         MENU_MUTED_TEXT,
-        &cstring("High-quality native world shadows with independent location control."),
+        &cstring("Dynamic point-light shadows with independent exterior and interior control."),
     );
     ui.text_colored(
         MENU_MUTED_TEXT,
-        &cstring(
-            "2048 EVSM4 cascades and 512 point cubes keep NVR's high-quality resource profile.",
-        ),
+        &cstring("512 point cubes retain colored local-light occlusion and moving actors."),
     );
     ui.separator();
 
@@ -10564,80 +10562,44 @@ fn draw_native_shadows_config(
     if !config.enabled {
         return changed;
     }
+
+    ui.separator_text(&cstring("DYNAMIC SHADOWS"));
     changed |= draw_config_checkbox(
         ui,
-        "Exterior shadows",
+        "Exterior dynamic shadows",
         "native_shadows.exterior_enabled",
         &mut config.exterior_enabled,
     );
     if config.exterior_enabled {
-        let section = cstring("EXTERIOR");
-        ui.separator_text(&section);
         changed |= draw_float_slider(
             ui,
-            "Darkness",
+            "Exterior darkness",
             "native_shadows.exterior_darkness",
             &mut config.exterior_darkness,
             0.0,
             1.0,
         );
-        changed |= draw_float_slider(
-            ui,
-            "Shadow distance",
-            "native_shadows.exterior_distance",
-            &mut config.exterior_distance,
-            1_000.0,
-            20_000.0,
-        );
-        changed |= draw_float_slider(
-            ui,
-            "Cascade distribution",
-            "native_shadows.cascade_split_lambda",
-            &mut config.cascade_split_lambda,
-            0.0,
-            1.0,
-        );
-        changed |= draw_config_checkbox(
-            ui,
-            "Contact shadows",
-            "native_shadows.contact_shadows",
-            &mut config.contact_shadows,
-        );
-        if config.contact_shadows {
-            changed |= draw_float_slider(
-                ui,
-                "Contact distance",
-                "native_shadows.contact_distance",
-                &mut config.contact_distance,
-                1_000.0,
-                250_000.0,
-            );
-            changed |= draw_float_slider(
-                ui,
-                "Contact ray length",
-                "native_shadows.contact_ray_distance",
-                &mut config.contact_ray_distance,
-                50.0,
-                8_000.0,
-            );
-        }
     }
     changed |= draw_config_checkbox(
         ui,
-        "Interior shadows",
+        "Interior dynamic shadows",
         "native_shadows.interior_enabled",
         &mut config.interior_enabled,
     );
     if config.interior_enabled {
-        let section = cstring("INTERIOR");
-        ui.separator_text(&section);
         changed |= draw_float_slider(
             ui,
-            "Darkness",
+            "Interior darkness",
             "native_shadows.interior_darkness",
             &mut config.interior_darkness,
             0.0,
             1.0,
+        );
+    }
+    if config.exterior_enabled || config.interior_enabled {
+        ui.text_colored(
+            MENU_MUTED_TEXT,
+            &cstring("At 1.0, complete dynamic occlusion may reach black."),
         );
     }
     if config.exterior_enabled || config.interior_enabled {
@@ -10680,6 +10642,76 @@ fn draw_native_shadows_config(
             0.1,
         );
     }
+
+    let section = cstring("SUN SHADOWS - EXPERIMENTAL");
+    ui.separator_text(&section);
+    ui.text_colored(
+        MENU_MUTED_TEXT,
+        &cstring("Optional four-cascade EVSM4 sun shadows; disabled by default."),
+    );
+    changed |= draw_config_checkbox(
+        ui,
+        "Enable experimental sun shadows",
+        "native_shadows.sun_shadows",
+        &mut config.sun_shadows,
+    );
+    if config.sun_shadows {
+        if config.exterior_enabled {
+            ui.text_colored(
+                MENU_MUTED_TEXT,
+                &cstring("Sun and exterior dynamic shadows share Exterior darkness."),
+            );
+        } else {
+            changed |= draw_float_slider(
+                ui,
+                "Exterior darkness",
+                "native_shadows.exterior_darkness",
+                &mut config.exterior_darkness,
+                0.0,
+                1.0,
+            );
+        }
+        changed |= draw_float_slider(
+            ui,
+            "Shadow distance",
+            "native_shadows.exterior_distance",
+            &mut config.exterior_distance,
+            1_000.0,
+            20_000.0,
+        );
+        changed |= draw_float_slider(
+            ui,
+            "Cascade distribution",
+            "native_shadows.cascade_split_lambda",
+            &mut config.cascade_split_lambda,
+            0.0,
+            1.0,
+        );
+        changed |= draw_config_checkbox(
+            ui,
+            "Contact shadows",
+            "native_shadows.contact_shadows",
+            &mut config.contact_shadows,
+        );
+        if config.contact_shadows {
+            changed |= draw_float_slider(
+                ui,
+                "Contact distance",
+                "native_shadows.contact_distance",
+                &mut config.contact_distance,
+                1_000.0,
+                250_000.0,
+            );
+            changed |= draw_float_slider(
+                ui,
+                "Contact ray length",
+                "native_shadows.contact_ray_distance",
+                &mut config.contact_ray_distance,
+                50.0,
+                8_000.0,
+            );
+        }
+    }
     changed
 }
 
@@ -10693,11 +10725,12 @@ fn log_shadow_menu_settings(
 ) {
     let config = config.sanitized();
     log::info!(
-        "[SHADOWS] Menu settings published (active={}, effect={}, exterior={}, interior={}, exterior_darkness={:.3}, exterior_distance={:.1}, cascade_lambda={:.3}, contact={}, contact_distance={:.1}, contact_ray_distance={:.1}, interior_darkness={:.3}, shadowed_lights={}, radius_multiplier={:.3}, light_distance={:.1}, receiver_bias={:.5})",
+        "[SHADOWS] Menu settings published (active={}, effect={}, exterior_dynamic={}, interior_dynamic={}, sun_experimental={}, exterior_darkness={:.3}, exterior_distance={:.1}, cascade_lambda={:.3}, contact={}, contact_distance={:.1}, contact_ray_distance={:.1}, interior_darkness={:.3}, shadowed_lights={}, radius_multiplier={:.3}, light_distance={:.1}, receiver_bias={:.5})",
         graphics_master_enabled && config.enabled,
         config.enabled,
         config.exterior_enabled,
         config.interior_enabled,
+        config.sun_shadows,
         config.exterior_darkness,
         config.exterior_distance,
         config.cascade_split_lambda,

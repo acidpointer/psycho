@@ -3,7 +3,7 @@ use super::shaders::{
     COMPOSITE_PIXEL_SOURCE, CONTACT_SOURCE, CUBE_PIXEL_SOURCE, CUBE_VERTEX_SOURCE,
     DIRECTIONAL_MASK_SOURCE, DIRECTIONAL_PIXEL_SOURCE, DIRECTIONAL_VERTEX_SOURCE,
     FAR_CLEAR_PIXEL_SOURCE, POINT_ACCUMULATION_SOURCE, directional_composite_source,
-    exterior_composite_source, interior_composite_source, point_accumulation_source,
+    exterior_composite_source, point_accumulation_source, point_only_composite_source,
 };
 
 fn instruction_count(bytecode: &[u32]) -> usize {
@@ -101,7 +101,7 @@ fn every_shadow_shader_compiles_for_shader_model_three_with_static_budgets() {
     let point_six = point_accumulation_source(6);
     let point_twelve = point_accumulation_source(12);
     let directional_composite = directional_composite_source();
-    let interior_composite = interior_composite_source();
+    let point_only_composite = point_only_composite_source();
     let variants = [
         (
             "shadow_directional.vs",
@@ -167,8 +167,8 @@ fn every_shadow_shader_compiles_for_shader_model_three_with_static_budgets() {
             504,
         ),
         (
-            "shadow_composite_interior.ps",
-            interior_composite.as_slice(),
+            "shadow_composite_point_only.ps",
+            point_only_composite.as_slice(),
             "ps_3_0",
             // Fractional local-light occlusion remains a branch-free
             // specialization rather than adding dynamic work to exteriors.
@@ -288,9 +288,13 @@ fn consumer_shader_abis_compile_with_bounded_texture_work() {
     assert!(composite.contains("float4 ContactControl : register(c31)"));
     assert!(composite.contains("float4 PointControl : register(c32)"));
     assert!(!composite.contains("DeferredTexel"));
-    assert!(composite.contains("#if OMV_INTERIOR"));
+    assert!(composite.contains("#if OMV_POINT_ONLY"));
     assert!(composite.contains("float3 occludedFraction"));
-    assert!(composite.contains("0.25f"));
+    assert!(composite.contains("float3 attenuation = saturate("));
+    assert!(
+        !composite.contains("0.25f"),
+        "dynamic shadow darkness retained the rejected fixed radiance floor"
+    );
     assert!(
         composite.contains("float ExactContactVisibility"),
         "contact filtering must execute inside the existing source-owned composite"
@@ -368,8 +372,8 @@ fn consumer_shader_abis_compile_with_bounded_texture_work() {
             33,
         ),
         (
-            "shadow_interior_composite_sample_budget.ps",
-            interior_composite_source(),
+            "shadow_point_only_composite_sample_budget.ps",
+            point_only_composite_source(),
             5,
         ),
     ] {

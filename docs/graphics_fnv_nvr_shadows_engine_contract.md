@@ -4512,6 +4512,132 @@ no abandoned point/local-light pixels, and exact engine state after both
 success and forced fallback. The reported 1-5 FPS target is a runtime goal,
 not a result established by static tests.
 
+## 2026-08-15 dynamic-first admission and full-range darkness
+
+The current Shadows effect treats replacement point-light shadows as its
+supported primary feature. Directional sun shadows are now a separate,
+exterior-only experimental option. The shipped working configuration keeps
+dynamic shadows enabled in both location families and appends the new switch
+to the existing detached table:
+
+```toml
+[graphics.native_shadows]
+enabled = true
+exterior_enabled = true
+interior_enabled = true
+exterior_darkness = 0.75
+exterior_distance = 6000.0
+cascade_split_lambda = 0.90
+contact_shadows = true
+contact_distance = 180000.0
+contact_ray_distance = 2000.0
+interior_darkness = 0.65
+interior_shadowed_lights = 12
+interior_light_radius_multiplier = 1.50
+interior_light_draw_distance = 8000.0
+interior_receiver_bias = 0.018
+sun_shadows = false
+```
+
+`exterior_enabled` and `interior_enabled` retain their released names and
+types, but now explicitly own dynamic point-light admission for their location.
+`sun_shadows` alone admits the four directional cascades and their contact
+work. The exact behavior matrix is:
+
+| Location | Dynamic gate | Experimental sun gate | Work admitted |
+|---|---:|---:|---|
+| Exterior-like | off | off | Native fallback; no OMV shadow work |
+| Exterior-like | on | off | Point cubes and point-only composition |
+| Exterior-like | off | on | Directional cascades/contact and directional composition |
+| Exterior-like | on | on | Both families and the fused compositor |
+| Interior | on | either value | Point cubes and point-only composition |
+| Interior | off | either value | Native fallback; no OMV shadow work |
+
+This split is enforced at admission, lazy allocation, producer discovery, map
+submission, publication, and consumer shader selection. Exterior cell identity
+is never sufficient to create or publish directional work. With the shipped
+defaults, a 1920-by-1080 resource plan has no cascade atlas, actor maps,
+directional strip scratch, or contact target and has an estimated retained peak
+of 201,809,920 bytes. Opting into both families retains the established
+640,020,480-byte quality plan. Resources already created during a live option
+change may remain cached until normal device teardown, but disabled families
+perform no selection, draw, publication, or composition work.
+
+The ImGui panel presents Dynamic Shadows and **Sun Shadows - Experimental** as
+separate sections and labels the latter disabled by default. Local-light
+quality remains shared by exterior and interior dynamic shadows. The legacy
+`exterior_darkness` value controls exterior dynamic shadows and also the
+experimental sun branch when enabled; the directional quality fields are shown
+only while that branch is active. No preset owns these controls.
+
+### Full-range dynamic darkness
+
+Both point-only location branches transfer the per-channel
+`saturate(deficit / total)` fraction from OMV's matched analytic estimates to
+the already-lit native framebuffer. Darkness zero is exact identity. Darkness
+one now permits a fully cube-proven ordinary receiver to reach black; the old
+hard-coded 0.25 radiance floor is removed. The shipped 0.75 exterior and 0.65
+interior defaults remain conservative, so existing appearance does not become
+maximally dark unless the user asks for it.
+
+This is an attenuation-strength control, not an RGB tint. Different light
+colors remain independent because total and deficit are accumulated and
+divided per channel. Clear/far sky is unchanged, non-receivers are exact
+identity, and source pixels above linear intensity one still transition back
+to the untouched source between one and 1.15. That HDR rule remains separate
+from the user-owned darkness range and protects emissive energy that the
+post-process cannot own. When experimental sun shadows are simultaneously
+enabled, the established mixed compositor retains its stricter source-energy
+ownership rule; the new full-black guarantee applies to the dynamic-only
+exterior path and the interior path.
+
+### Configuration and startup compatibility
+
+`sun_shadows` is the fifteenth and final field of the detached schema-one
+shadow table. Serde struct defaults make it false when an existing fourteen-
+field file is loaded, and saves append it after every released field. The
+startup `GraphicsConfig`/`GraphicsMenuConfig` value graph, schema version,
+built-in preset payload and version, manifest, and migration behavior are
+unchanged. Parsing and first publication remain at `DeferredInit`.
+
+The new gate reuses an unused bit in the existing `SETTINGS: AtomicU8`; it adds
+no static, lazy owner, TLS value, lock, thread, worker request, file scan, hook,
+or pre-Deferred operation. `PIPELINE` remains the exact 0xA28 32-bit lazy owner
+from the accepted startup footprint. Shader bytecode still prepares through
+the established post-Deferred worker and the point-only specialization replaces
+the former interior-only specialization one-for-one.
+
+### Test and runtime acceptance status
+
+Regression coverage proves old fourteen-field files default the experimental
+switch off; detached config round-trips all fifteen fields; atomic publication
+round-trips the new bit; dynamic and sun admission are independent; exterior
+location never implicitly allocates directional resources; dynamic-only,
+sun-only, combined, and interior resource plans remain distinct; point-only
+exteriors use the full darkness range; maximum interior darkness reaches black;
+default darkness remains conservative under deliberately overestimated local
+energy; HDR emitters and non-receivers remain unchanged; and every resulting
+shader variant compiles within the established shader-model-three budgets.
+
+The focused explicit Windows-target shadow suite passes 157 tests. The complete
+`i686-pc-windows-gnu` OMV suite passes all 664 tests, formatting and diff checks
+pass, and the supported release build succeeds. The resulting `omv.dll` is
+12,839,100 bytes with SHA-256
+`1c520c49e880c12672c4a0f7d498768029dec1d218cb5110c3d7ae5d675acb8d`.
+Its `.idata` remains `0x340c` and `.tls` remains `0x8`, matching the recorded
+startup baseline dimensions. The worktree contained concurrent shared-library
+and engine-fix changes during this build, so the complete PE delta and artifact
+hash cannot be attributed to this shadow feature alone.
+
+Static tests and a release build cannot prove startup or image correctness.
+Before this change can be called startup-safe or visually accepted, the release
+artifact requires a Proton load-to-gameplay run with BaseObjectSwapper
+installed, followed by exterior and interior checks at darkness 0, the shipped
+defaults, and darkness 1. The same run must verify dynamic-only exterior
+behavior with sun shadows off, sun-only behavior, both families together, fast
+camera motion, moving actors, point-heavy scenes, cell transitions, and live
+menu persistence.
+
 ## Primary evidence index
 
 ### Current executable and static artifacts

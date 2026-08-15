@@ -2,8 +2,8 @@
 #ifndef OMV_POINT_LIGHTS
 #define OMV_POINT_LIGHTS 1
 #endif
-#ifndef OMV_INTERIOR
-#define OMV_INTERIOR 0
+#ifndef OMV_POINT_ONLY
+#define OMV_POINT_ONLY 0
 #endif
 
 #if !OMV_FUSED_DIRECTIONAL
@@ -136,14 +136,18 @@ float4 Main(PixelInput input) : COLOR0 {
     float3 pointTotal = max(pointEnergy.total, 0.0f);
     float3 linearSource = pow(max(source.rgb, 0.0f), 2.2f);
     float emitter = smoothstep(1.0f, 1.15f, max(linearSource.r, max(linearSource.g, linearSource.b)));
-#if OMV_INTERIOR
+#if OMV_POINT_ONLY
     // Total and deficit share one analytic attenuation scale. Only their
     // cube-proven occluded fraction is portable to Fallout's already-lit
     // framebuffer; subtracting the absolute estimate dims every selected
-    // interior light and makes the darkness slider intensity-dependent.
+    // light and makes the darkness slider intensity-dependent.
     float3 validTotal = step(0.00001f, pointTotal);
     float3 occludedFraction = saturate(pointDeficit / max(pointTotal, 0.00001f)) * validTotal;
-    float3 attenuation = max(1.0f - saturate(PointControl.y) * occludedFraction, 0.25f);
+    // Darkness is user-owned attenuation, not an ambient-light estimate.
+    // Full cube-proven occlusion at darkness one must be allowed to reach
+    // black; HDR emitter preservation below remains the independent safeguard
+    // for source energy this post-process does not own.
+    float3 attenuation = saturate(1.0f - saturate(PointControl.y) * occludedFraction);
     float3 shadowed = linearSource * attenuation;
 #else
     float3 ownedLocal = min(pointTotal, linearSource);

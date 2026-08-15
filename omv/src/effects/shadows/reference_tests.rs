@@ -462,13 +462,36 @@ fn overestimated_pip_boy_cube_cannot_cut_a_black_shape_into_sunlight() {
 }
 
 #[test]
-fn multiple_interior_lights_cannot_subtract_unowned_ambient_energy() {
+fn dynamic_darkness_preserves_the_default_floor_but_allows_explicit_black() {
     let ambient = [0.12, 0.10, 0.08];
     let local = [0.70, 0.50, 0.30];
     let source = std::array::from_fn(|axis| ambient[axis] + local[axis]);
     // Two overlapping cube estimates can exceed the native direct-light term
     // because their analytic attenuation is not the engine material shader.
-    let rejected = source_owned_shadow_radiance(
+    let shipped = source_owned_shadow_radiance(
+        source,
+        true,
+        SceneKind::Interior,
+        1.0,
+        0.0,
+        local,
+        [1.10, 0.90, 0.70],
+        0.65,
+    )
+    .expect("finite shipped interior composition");
+    for axis in 0..3 {
+        assert!(
+            shipped[axis] + EPSILON >= ambient[axis],
+            "the shipped darkness removed the conservative ambient channel {axis}"
+        );
+    }
+
+    // Maximum darkness is an explicit user request. The replacement cannot
+    // distinguish native ambient from direct light in an ordinary LDR pixel,
+    // so a complete cube-proven occlusion is intentionally allowed to cross
+    // the conservative default floor and reach black. Keep this as an exact
+    // endpoint contract rather than reintroducing a hidden shader clamp.
+    let maximum = source_owned_shadow_radiance(
         source,
         true,
         SceneKind::Interior,
@@ -478,13 +501,8 @@ fn multiple_interior_lights_cannot_subtract_unowned_ambient_energy() {
         [1.10, 0.90, 0.70],
         1.0,
     )
-    .expect("finite interior composition");
-    for axis in 0..3 {
-        assert!(
-            rejected[axis] + EPSILON >= ambient[axis],
-            "local-light estimation removed ambient channel {axis}"
-        );
-    }
+    .expect("finite maximum-darkness interior composition");
+    assert_eq!(maximum, [0.0; 3]);
 }
 
 #[test]
@@ -504,7 +522,7 @@ fn differently_colored_lights_keep_independent_occlusion_channels() {
         1.0,
     )
     .expect("finite colored-light composition");
-    assert!((result[0] - source[0] * 0.25).abs() < EPSILON);
+    assert!(result[0].abs() < EPSILON);
     assert!((result[1] - source[1]).abs() < EPSILON);
     assert!((result[2] - source[2]).abs() < EPSILON);
 }

@@ -1,9 +1,12 @@
-//! Native Fallout: New Vegas world-shadow producer and deferred consumer.
+//! Native Fallout: New Vegas dynamic-shadow producer and deferred consumer.
 //!
-//! The public crate boundary deliberately exposes one Shadows feature with an
-//! exterior and an interior admission bit. Generation remains attached to the
-//! engine's common shadow epoch, while consumption occurs after opaque depth
-//! and before native alpha/atmosphere. No engine pointer crosses that boundary.
+//! The crate boundary deliberately exposes one Shadows feature with independent
+//! exterior/interior point-light admission and a separate experimental
+//! directional sun branch. Dynamic point shadows are the default; sun shadows
+//! are opt-in because their four-cascade producer has a much larger memory and
+//! draw footprint. Generation remains attached to the engine's common shadow
+//! epoch, while consumption occurs after opaque depth and before native
+//! alpha/atmosphere. No engine pointer crosses that boundary.
 //!
 //! # Startup ownership
 //!
@@ -61,6 +64,7 @@ const ENABLED_BIT: u8 = 1 << 0;
 const EXTERIOR_BIT: u8 = 1 << 1;
 const INTERIOR_BIT: u8 = 1 << 2;
 const CONTACT_BIT: u8 = 1 << 3;
+const SUN_BIT: u8 = 1 << 4;
 
 static SETTINGS: AtomicU8 = AtomicU8::new(0);
 static SETTINGS_REVISION: AtomicU32 = AtomicU32::new(0);
@@ -128,11 +132,11 @@ const _: () = assert!(
 pub(crate) struct NativeShadowsSettings {
     /// Master switch for OMV shadow ownership and composition.
     pub(crate) enabled: bool,
-    /// Enables the four-cascade exterior branch.
+    /// Enables replacement point-light shadows in exterior-like cells.
     pub(crate) exterior_enabled: bool,
-    /// Enables up to twelve cube-shadowed interior point lights.
+    /// Enables replacement point-light shadows in interior cells.
     pub(crate) interior_enabled: bool,
-    /// Maximum exterior darkness.
+    /// Maximum exterior point-shadow and experimental sun darkness.
     pub(crate) exterior_darkness: f32,
     /// Directional cascade coverage distance.
     pub(crate) exterior_distance: f32,
@@ -146,7 +150,7 @@ pub(crate) struct NativeShadowsSettings {
     ///
     /// The field name remains schema-one compatibility data.
     pub(crate) contact_ray_distance: f32,
-    /// Maximum interior darkness.
+    /// Maximum interior point-shadow darkness; one permits full black.
     pub(crate) interior_darkness: f32,
     /// Bounded local-light cube budget in either active location branch.
     ///
@@ -159,6 +163,8 @@ pub(crate) struct NativeShadowsSettings {
     pub(crate) interior_light_draw_distance: f32,
     /// Local-light radial receiver bias.
     pub(crate) interior_receiver_bias: f32,
+    /// Enables the experimental exterior directional cascade family.
+    pub(crate) sun_shadows: bool,
 }
 
 impl NativeShadowsSettings {
@@ -173,7 +179,18 @@ impl NativeShadowsSettings {
             enabled: self.enabled,
             exterior_enabled: self.exterior_enabled,
             interior_enabled: self.interior_enabled,
+            sun_shadows: self.sun_shadows,
         }
+    }
+
+    /// Return whether this snapshot admits point-light work for `scene`.
+    fn point_enabled_for(self, scene: contract::SceneKind) -> bool {
+        self.contract().point_enabled_for(scene)
+    }
+
+    /// Return whether this snapshot admits directional work for `scene`.
+    fn directional_enabled_for(self, scene: contract::SceneKind) -> bool {
+        self.contract().directional_enabled_for(scene)
     }
 }
 
@@ -195,6 +212,7 @@ impl From<crate::config::NativeShadowsConfig> for NativeShadowsSettings {
             interior_light_radius_multiplier: value.interior_light_radius_multiplier,
             interior_light_draw_distance: value.interior_light_draw_distance,
             interior_receiver_bias: value.interior_receiver_bias,
+            sun_shadows: value.sun_shadows,
         }
     }
 }
@@ -216,6 +234,7 @@ impl From<NativeShadowsSettings> for crate::config::NativeShadowsConfig {
             interior_light_radius_multiplier: value.interior_light_radius_multiplier,
             interior_light_draw_distance: value.interior_light_draw_distance,
             interior_receiver_bias: value.interior_receiver_bias,
+            sun_shadows: value.sun_shadows,
         }
     }
 }
@@ -244,7 +263,8 @@ pub(crate) fn configure_runtime_options(settings: NativeShadowsSettings) {
     let bits = (settings.enabled as u8) * ENABLED_BIT
         | (settings.exterior_enabled as u8) * EXTERIOR_BIT
         | (settings.interior_enabled as u8) * INTERIOR_BIT
-        | (settings.contact_shadows as u8) * CONTACT_BIT;
+        | (settings.contact_shadows as u8) * CONTACT_BIT
+        | (settings.sun_shadows as u8) * SUN_BIT;
     SETTINGS.store(bits, Ordering::Relaxed);
     EXTERIOR_DARKNESS.store(settings.exterior_darkness.to_bits(), Ordering::Relaxed);
     EXTERIOR_DISTANCE.store(settings.exterior_distance.to_bits(), Ordering::Relaxed);
@@ -279,10 +299,11 @@ pub(crate) fn install(settings: NativeShadowsSettings) -> Result<()> {
     shaders::start_preparation();
     ROUTE_READY.store(true, Ordering::Release);
     log::info!(
-        "[SHADOWS] Deferred route installed (master={}, exterior={}, interior={})",
+        "[SHADOWS] Deferred route installed (master={}, exterior_dynamic={}, interior_dynamic={}, sun_experimental={})",
         settings.enabled,
         settings.exterior_enabled,
         settings.interior_enabled,
+        settings.sun_shadows,
     );
     Ok(())
 }
@@ -384,7 +405,7 @@ pub(crate) fn needs_pre_alpha() -> bool {
         return false;
     }
     let bits = SETTINGS.load(Ordering::Acquire);
-    bits & ENABLED_BIT != 0 && bits & (EXTERIOR_BIT | INTERIOR_BIT) != 0
+    bits & ENABLED_BIT != 0 && bits & (EXTERIOR_BIT | INTERIOR_BIT | SUN_BIT) != 0
 }
 
 /// Resolve the sun vector shared by directional shadows and atmosphere.
@@ -461,6 +482,7 @@ fn try_current_settings() -> Option<NativeShadowsSettings> {
             INTERIOR_LIGHT_DRAW_DISTANCE.load(Ordering::Relaxed),
         ),
         interior_receiver_bias: f32::from_bits(INTERIOR_RECEIVER_BIAS.load(Ordering::Relaxed)),
+        sun_shadows: bits & SUN_BIT != 0,
     };
     (SETTINGS_REVISION.load(Ordering::Acquire) == before).then_some(settings)
 }
@@ -530,6 +552,7 @@ mod startup_safety_tests {
             interior_light_radius_multiplier: 1.75,
             interior_light_draw_distance: 6_543.0,
             interior_receiver_bias: 0.023,
+            sun_shadows: true,
         };
 
         configure_runtime_options(expected);

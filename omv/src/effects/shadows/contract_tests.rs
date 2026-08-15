@@ -1,23 +1,23 @@
 use super::contract::{
     ActorOverlayProjectionPlan, CASCADE_COUNT, CascadeDirty, CascadeScheduler,
     CascadeSphereSelection, CasterAdmission, CasterPolicy, DeferredReceiverPlan,
-    DirectionalRootSetSignature, HookAction, INTERIOR_MIN_RADIANCE_FACTOR, LightScissorRect,
-    NVR_CASCADE_RESOLUTION, NVR_POINT_DRAW_DISTANCE, NVR_POINT_LIGHT_COUNT,
-    NVR_POINT_RADIUS_MULTIPLIER, PointLightCandidate, PointMapCache, PointMapSignature,
-    ProducerResourcePlan, SceneKind, ShadowFramePlan, ShadowMapUpdate, ShadowPublicationIdentity,
-    ShadowSettings, TransactionState, actor_overlay_edge_visibility, actor_overlay_projection_plan,
-    cascade_minimum_caster_radius, cascade_sphere_selection, clipmap_texel_delta,
-    composite_shadow_factor, consumer_has_shadow_work, contact_consumer_work,
-    depth_sample_is_geometry, directional_actor_root_is_active, directional_caster_work,
-    directional_contact_visibility, directional_form_type_is_enabled,
-    directional_receiver_position, directional_root_set_dirty, dismember_partition_is_renderable,
-    effective_contact_distance, evsm4_moments, evsm4_visibility, interior_shadow_factor,
-    local_light_clear_coverage, local_light_source_guard, nvr_contact_sample_offsets,
-    point_light_distance_fade, point_light_influence_is_eligible, practical_cascade_splits,
-    publication_epoch_is_usable, publication_identity_is_usable, retained_cascade_refresh,
-    select_point_lights, select_point_lights_stable, shadow_receiver_is_valid,
-    skinned_position_reference, snap_shadow_center, source_owned_shadow_radiance,
-    sphere_intersects_cube_face, sphere_intersects_point_light, terrain_lod_shadow_z,
+    DirectionalRootSetSignature, HookAction, LightScissorRect, NVR_CASCADE_RESOLUTION,
+    NVR_POINT_DRAW_DISTANCE, NVR_POINT_LIGHT_COUNT, NVR_POINT_RADIUS_MULTIPLIER,
+    PointLightCandidate, PointMapCache, PointMapSignature, ProducerResourcePlan, SceneKind,
+    ShadowFramePlan, ShadowMapUpdate, ShadowPublicationIdentity, ShadowSettings, TransactionState,
+    actor_overlay_edge_visibility, actor_overlay_projection_plan, cascade_minimum_caster_radius,
+    cascade_sphere_selection, clipmap_texel_delta, composite_shadow_factor,
+    consumer_has_shadow_work, contact_consumer_work, depth_sample_is_geometry,
+    directional_actor_root_is_active, directional_caster_work, directional_contact_visibility,
+    directional_form_type_is_enabled, directional_receiver_position, directional_root_set_dirty,
+    dismember_partition_is_renderable, effective_contact_distance, evsm4_moments, evsm4_visibility,
+    interior_shadow_factor, local_light_clear_coverage, local_light_source_guard,
+    nvr_contact_sample_offsets, point_light_distance_fade, point_light_influence_is_eligible,
+    point_only_shadow_radiance, practical_cascade_splits, publication_epoch_is_usable,
+    publication_identity_is_usable, retained_cascade_refresh, select_point_lights,
+    select_point_lights_stable, shadow_receiver_is_valid, skinned_position_reference,
+    snap_shadow_center, source_owned_shadow_radiance, sphere_intersects_cube_face,
+    sphere_intersects_point_light, terrain_lod_shadow_z,
 };
 use super::engine::{
     EngineCallAbi, FNV_EXE_SHA256, GeometryKind, HookSiteContract, NativeLayout,
@@ -232,6 +232,20 @@ fn production_fast_path_precedes_every_d3d_transaction_owner() {
             < point_draw
                 .find("for sampler in 0..16")
                 .expect("sampler unbinds")
+    );
+}
+
+#[test]
+fn exterior_location_never_implicitly_enables_directional_resources() {
+    let source = include_str!("pipeline.rs");
+    assert!(source.contains("settings.directional_enabled_for(scene.kind)"));
+    assert!(source.contains("settings.point_enabled_for(scene.kind)"));
+    assert!(source.contains("if point_lights {"));
+    assert!(source.contains("if directional {"));
+    assert!(
+        !source.contains("scene.kind != SceneKind::Interior")
+            && !source.contains("scene != SceneKind::Interior"),
+        "an exterior classification bypassed the experimental sun-shadow admission bit"
     );
 }
 
@@ -706,20 +720,23 @@ fn generation_draw_calls_and_register_ranges_match_nvr_abi() {
 }
 
 #[test]
-fn one_effect_keeps_interior_and_exterior_admission_independent() {
-    let exterior_only = ShadowSettings {
+fn dynamic_and_experimental_sun_admission_are_independent() {
+    let dynamic_exterior_only = ShadowSettings {
         enabled: true,
         exterior_enabled: true,
         interior_enabled: false,
+        sun_shadows: false,
     };
-    assert!(exterior_only.enabled_for(SceneKind::Exterior));
-    assert!(exterior_only.enabled_for(SceneKind::BehavesLikeExterior));
-    assert!(!exterior_only.enabled_for(SceneKind::Interior));
+    assert!(dynamic_exterior_only.point_enabled_for(SceneKind::Exterior));
+    assert!(!dynamic_exterior_only.directional_enabled_for(SceneKind::Exterior));
+    assert!(dynamic_exterior_only.enabled_for(SceneKind::BehavesLikeExterior));
+    assert!(!dynamic_exterior_only.enabled_for(SceneKind::Interior));
 
     let interior_only = ShadowSettings {
         enabled: true,
         exterior_enabled: false,
         interior_enabled: true,
+        sun_shadows: false,
     };
     assert!(!interior_only.enabled_for(SceneKind::Exterior));
     assert!(interior_only.enabled_for(SceneKind::Interior));
@@ -730,6 +747,19 @@ fn one_effect_keeps_interior_and_exterior_admission_independent() {
         }
         .enabled_for(SceneKind::Interior)
     );
+
+    let sun_only = ShadowSettings {
+        enabled: true,
+        exterior_enabled: false,
+        interior_enabled: false,
+        sun_shadows: true,
+    };
+    assert!(!sun_only.point_enabled_for(SceneKind::Exterior));
+    assert!(sun_only.directional_enabled_for(SceneKind::Exterior));
+    assert!(sun_only.directional_enabled_for(SceneKind::BehavesLikeExterior));
+    assert!(!sun_only.directional_enabled_for(SceneKind::Interior));
+    assert!(sun_only.enabled_for(SceneKind::Exterior));
+    assert!(!sun_only.enabled_for(SceneKind::Interior));
 }
 
 #[test]
@@ -1120,6 +1150,24 @@ fn interior_composition_subtracts_only_rgb_energy_proven_occluded() {
 }
 
 #[test]
+fn point_only_exterior_uses_the_same_full_range_as_interior_dynamic_shadows() {
+    let source = [0.8, 0.7, 0.6];
+    let fully_occluded = point_only_shadow_radiance(source, true, [0.3; 3], [0.3; 3], 1.0)
+        .expect("finite point-only exterior receiver");
+    assert_eq!(fully_occluded, [0.0; 3]);
+    assert_eq!(
+        point_only_shadow_radiance(source, true, [0.3; 3], [0.3; 3], 0.0),
+        Some(source),
+        "zero darkness must be exact identity"
+    );
+    assert_eq!(
+        point_only_shadow_radiance(source, false, [0.3; 3], [0.3; 3], 1.0),
+        Some(source),
+        "clear and sky pixels must not be darkened"
+    );
+}
+
+#[test]
 fn interior_darkness_controls_occluded_fraction_not_analytic_light_scale() {
     let source = [0.8, 0.7, 0.6];
     let bright_estimate = source_owned_shadow_radiance(
@@ -1162,9 +1210,8 @@ fn interior_darkness_controls_occluded_fraction_not_analytic_light_scale() {
     )
     .expect("finite fully occluded receiver");
     assert_eq!(
-        fully_occluded,
-        source.map(|channel| channel * INTERIOR_MIN_RADIANCE_FACTOR),
-        "a point shadow cannot claim the ambient/emissive floor"
+        fully_occluded, [0.0; 3],
+        "maximum dynamic darkness must permit a fully occluded LDR receiver to reach black"
     );
 }
 
@@ -1838,9 +1885,28 @@ fn terrain_lod_shadow_vertex_uses_the_native_geomorphed_height() {
 }
 
 #[test]
-fn resource_plan_preserves_nvr_evsm_coverage_with_one_reusable_multisample_surface() {
-    let exterior = ProducerResourcePlan::quality_default(SceneKind::Exterior, 1920, 1080)
-        .expect("valid exterior backbuffer");
+fn resource_plan_keeps_default_dynamic_exteriors_free_of_experimental_sun_work() {
+    let dynamic_exterior = ProducerResourcePlan::quality_default(SceneKind::Exterior, 1920, 1080)
+        .expect("valid dynamic exterior backbuffer");
+    assert_eq!(dynamic_exterior.cascade_count, 0);
+    assert_eq!(dynamic_exterior.directional_texture_count, 0);
+    assert_eq!(dynamic_exterior.atlas_resolution, 0);
+    assert_eq!(dynamic_exterior.directional_samples, 0);
+    assert!(!dynamic_exterior.evsm4);
+    assert_eq!(
+        dynamic_exterior.point_light_count,
+        NVR_POINT_LIGHT_COUNT as u32
+    );
+    assert_eq!(dynamic_exterior.point_cube_texture_count, 24);
+    assert_eq!(dynamic_exterior.estimated_bytes, 201_809_920);
+
+    let sun_settings = ShadowSettings {
+        sun_shadows: true,
+        ..ShadowSettings::default()
+    };
+    let exterior =
+        ProducerResourcePlan::for_settings(sun_settings, SceneKind::Exterior, 1920, 1080)
+            .expect("valid experimental sun backbuffer");
     assert_eq!(exterior.cascade_resolution, NVR_CASCADE_RESOLUTION);
     assert_eq!(exterior.cascade_count, CASCADE_COUNT as u32);
     assert_eq!(
@@ -1902,9 +1968,22 @@ fn resource_plan_preserves_nvr_evsm_coverage_with_one_reusable_multisample_surfa
     assert_eq!(interior.fallback_estimated_bytes, interior.estimated_bytes);
     assert!(interior.estimated_bytes <= 208 * 1024 * 1024);
     assert_eq!(
-        interior.combined_estimated_bytes, exterior.combined_estimated_bytes,
-        "the retained two-branch peak is independent of the current cell"
+        interior.combined_estimated_bytes, dynamic_exterior.combined_estimated_bytes,
+        "default dynamic-only branches retain one shared point resource family"
     );
+
+    let sun_only = ShadowSettings {
+        enabled: true,
+        exterior_enabled: false,
+        interior_enabled: false,
+        sun_shadows: true,
+    };
+    let sun_only = ProducerResourcePlan::for_settings(sun_only, SceneKind::Exterior, 1920, 1080)
+        .expect("valid sun-only resource plan");
+    assert_eq!(sun_only.point_light_count, 0);
+    assert_eq!(sun_only.point_cube_texture_count, 0);
+    assert_eq!(sun_only.point_cube_resolution, 0);
+    assert_eq!(sun_only.cascade_count, CASCADE_COUNT as u32);
 }
 
 #[test]

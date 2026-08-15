@@ -374,9 +374,13 @@ impl ShadowPipeline {
             }
         }
 
+        let directional = settings.directional_enabled_for(scene.kind);
+        let point_lights = settings.point_enabled_for(scene.kind);
         let resources = self.resources.as_mut().ok_or_else(direct3d_failure);
         let branch_result = match resources {
-            Ok(resources) => resources.ensure_branch(&device, scene.kind, generation, settings),
+            Ok(resources) => {
+                resources.ensure_branch(&device, directional, point_lights, generation, settings)
+            }
             Err(error) => Err(error),
         };
         if let Err(error) = branch_result {
@@ -458,7 +462,8 @@ impl ShadowPipeline {
         shadow_camera: ShadowCamera,
         settings: NativeShadowsSettings,
     ) -> Option<PublishedFrame> {
-        let directional = scene.kind != SceneKind::Interior;
+        let directional = settings.directional_enabled_for(scene.kind);
+        let point_lights = settings.point_enabled_for(scene.kind);
         if self.last_scene != Some(scene.kind) {
             return None;
         }
@@ -536,15 +541,19 @@ impl ShadowPipeline {
         } else {
             [0; NVR_POINT_LIGHT_COUNT]
         };
-        let points = unsafe {
-            native::select_point_lights(
-                camera.world_transform.translation,
-                shadow_camera.forward,
-                retained_identities,
-                settings.interior_shadowed_lights,
-                settings.interior_light_radius_multiplier,
-                settings.interior_light_draw_distance,
-            )
+        let points = if point_lights {
+            unsafe {
+                native::select_point_lights(
+                    camera.world_transform.translation,
+                    shadow_camera.forward,
+                    retained_identities,
+                    settings.interior_shadowed_lights,
+                    settings.interior_light_radius_multiplier,
+                    settings.interior_light_draw_distance,
+                )
+            }
+        } else {
+            native::PointLightSelection::default()
         };
         // The complete root vector is borrowed only inside this serialized
         // scope and is restored on every outcome. It replaces up to twelve
@@ -906,7 +915,7 @@ struct ShadowResources {
     point_pixel_twelve: PixelShader9,
     contact_pixel: PixelShader9,
     composite_pixel: PixelShader9,
-    interior_composite_pixel: PixelShader9,
+    point_only_composite_pixel: PixelShader9,
     directional_composite_pixel: PixelShader9,
     directional: Option<DirectionalResources>,
     points: Option<PointResources>,
@@ -1183,7 +1192,8 @@ impl ShadowResources {
             point_pixel_twelve: device.create_pixel_shader(&bytecode.point_accumulation_twelve)?,
             contact_pixel: device.create_pixel_shader(&bytecode.contact)?,
             composite_pixel: device.create_pixel_shader(&bytecode.composite)?,
-            interior_composite_pixel: device.create_pixel_shader(&bytecode.interior_composite)?,
+            point_only_composite_pixel: device
+                .create_pixel_shader(&bytecode.point_only_composite)?,
             directional_composite_pixel: device
                 .create_pixel_shader(&bytecode.directional_composite)?,
             directional: None,
@@ -1213,37 +1223,40 @@ impl ShadowResources {
     fn ensure_branch(
         &mut self,
         device: &Device9Ref<'_>,
-        scene: SceneKind,
+        directional: bool,
+        point_lights: bool,
         generation: u32,
         settings: NativeShadowsSettings,
     ) -> Direct3DResult<()> {
-        if self.point_failure_generation == Some(generation) {
-            return Err(direct3d_failure());
-        }
-        let requested = settings
-            .interior_shadowed_lights
-            .clamp(1, NVR_POINT_LIGHT_COUNT);
-        if self
-            .points
-            .as_ref()
-            .is_none_or(|points| points.point_cubes.len() < requested)
-        {
-            match PointResources::create(device, requested) {
-                Ok(points) => {
-                    log::info!(
-                        "[SHADOWS] Local-light resources ready ({} x {} cube maps)",
-                        requested,
-                        POINT_CUBE_RESOLUTION
-                    );
-                    self.points = Some(points);
-                }
-                Err(error) => {
-                    self.point_failure_generation = Some(generation);
-                    return Err(error);
+        if point_lights {
+            if self.point_failure_generation == Some(generation) {
+                return Err(direct3d_failure());
+            }
+            let requested = settings
+                .interior_shadowed_lights
+                .clamp(1, NVR_POINT_LIGHT_COUNT);
+            if self
+                .points
+                .as_ref()
+                .is_none_or(|points| points.point_cubes.len() < requested)
+            {
+                match PointResources::create(device, requested) {
+                    Ok(points) => {
+                        log::info!(
+                            "[SHADOWS] Local-light resources ready ({} x {} cube maps)",
+                            requested,
+                            POINT_CUBE_RESOLUTION
+                        );
+                        self.points = Some(points);
+                    }
+                    Err(error) => {
+                        self.point_failure_generation = Some(generation);
+                        return Err(error);
+                    }
                 }
             }
         }
-        if scene != SceneKind::Interior {
+        if directional {
             if self.directional_failure_generation == Some(generation) {
                 return Err(direct3d_failure());
             }
@@ -1251,7 +1264,7 @@ impl ShadowResources {
                 match DirectionalResources::create(device) {
                     Ok(directional) => {
                         log::info!(
-                            "[SHADOWS] Exterior resources ready ({} x {} EVSM4 cascades, {}x sampling)",
+                            "[SHADOWS] Experimental sun resources ready ({} x {} EVSM4 cascades, {}x sampling)",
                             CASCADE_COUNT,
                             NVR_CASCADE_RESOLUTION,
                             directional.samples
@@ -1289,7 +1302,8 @@ impl ShadowResources {
         settings: NativeShadowsSettings,
     ) -> Direct3DResult<Option<PublishedFrame>> {
         clear_auxiliary_targets(device, self.render_target_count)?;
-        let directional = scene.kind != SceneKind::Interior;
+        let directional = settings.directional_enabled_for(scene.kind);
+        let point_lights = settings.point_enabled_for(scene.kind);
         let mut actor_overlay_mask = 0_u8;
         // One cell/root snapshot owns static invalidation, directional actor
         // overlays, and point-light actor coverage. Rewalking every selected
@@ -1597,7 +1611,7 @@ impl ShadowResources {
             }
         }
 
-        if !directional {
+        if !directional && point_lights {
             roots_complete =
                 unsafe { native::collect_directional_roots(scene, &mut directional_roots) };
         }
@@ -1607,33 +1621,39 @@ impl ShadowResources {
         // shadow whenever a directional atlas was active. Selection is still
         // capped by the same user-owned budget and unchanged cubes are cached.
         self.production_stage = ShadowProductionStage::PointMaps;
-        let points = unsafe {
-            let retained_identities = if *point_cell_identity == scene.cell as usize {
-                point_cache.identities()
-            } else {
-                [0; NVR_POINT_LIGHT_COUNT]
-            };
-            native::select_point_lights(
-                camera.world_transform.translation,
-                shadow_camera.forward,
-                retained_identities,
-                settings.interior_shadowed_lights,
-                settings.interior_light_radius_multiplier,
-                settings.interior_light_draw_distance,
-            )
+        let points = if point_lights {
+            unsafe {
+                let retained_identities = if *point_cell_identity == scene.cell as usize {
+                    point_cache.identities()
+                } else {
+                    [0; NVR_POINT_LIGHT_COUNT]
+                };
+                native::select_point_lights(
+                    camera.world_transform.translation,
+                    shadow_camera.forward,
+                    retained_identities,
+                    settings.interior_shadowed_lights,
+                    settings.interior_light_radius_multiplier,
+                    settings.interior_light_draw_distance,
+                )
+            }
+        } else {
+            native::PointLightSelection::default()
         };
         let mut current = [PointMapSignature::EMPTY; NVR_POINT_LIGHT_COUNT];
         let mut dynamic_faces = [0_u8; NVR_POINT_LIGHT_COUNT];
         let mut point_actor_bounds = core::mem::take(&mut self.point_actor_bounds);
         let mut point_actor_roots = core::mem::take(&mut self.point_actor_roots);
-        let actor_bounds_complete = roots_complete
-            && unsafe {
-                native::collect_point_actor_bounds(
-                    directional_roots.as_slice(),
-                    &mut point_actor_bounds,
-                    &mut point_actor_roots,
-                )
-            };
+        let has_points = points.shadowed().len() != 0;
+        let actor_bounds_complete = !has_points
+            || (roots_complete
+                && unsafe {
+                    native::collect_point_actor_bounds(
+                        directional_roots.as_slice(),
+                        &mut point_actor_bounds,
+                        &mut point_actor_roots,
+                    )
+                });
         for (index, point) in points.shadowed().iter().enumerate() {
             let caster_snapshot = if roots_complete {
                 native::PointCasterSnapshot {
@@ -2602,10 +2622,10 @@ impl ShadowResources {
         crate::render_state::copy_exact_color_surface(device, source, &targets.source_surface)?;
         device.set_render_target(0, source)?;
         set_viewport(device, 0, 0, desc.Width, desc.Height)?;
-        device.set_pixel_shader(match (publication.scene, publication.point_count) {
-            (_, 0) => &self.directional_composite_pixel,
-            (SceneKind::Interior, _) => &self.interior_composite_pixel,
-            _ => &self.composite_pixel,
+        device.set_pixel_shader(match (publication.directional, publication.point_count) {
+            (true, 0) => &self.directional_composite_pixel,
+            (true, _) => &self.composite_pixel,
+            (false, _) => &self.point_only_composite_pixel,
         })?;
         device.set_texture(0, &targets.source)?;
         unsafe { device.set_raw_base_texture(1, depth_texture)? };

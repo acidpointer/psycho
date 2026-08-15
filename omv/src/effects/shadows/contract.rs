@@ -28,7 +28,6 @@ const COMPLETE_CASCADE_MASK: u8 = (1 << CASCADE_COUNT) - 1;
 const NVR_CASCADE_MIN_RADIUS_PIXELS: [f32; CASCADE_COUNT] = [1.0, 1.0, 10.0, 10.0];
 const EVSM4_POSITIVE_EXPONENT_FP16: f32 = 5.54;
 const EVSM4_NEGATIVE_EXPONENT: f32 = 5.0;
-pub(super) const INTERIOR_MIN_RADIANCE_FACTOR: f32 = 0.25;
 // A retained cube and its published light position are one transform pair.
 // Sub-unit tolerance absorbs floating-point noise without allowing a carried
 // Pip-Boy light to trail the player for several visible world units.
@@ -446,17 +445,68 @@ pub(super) const fn contact_consumer_work() -> ContactConsumerWork {
     }
 }
 
+/// Apply cube-proven dynamic occlusion without a directional-light owner.
+///
+/// The accumulator's absolute point-light estimate cannot be calibrated to
+/// Fallout's material shaders, but its deficit and total use the same analytic
+/// scale. Their per-channel ratio is therefore the stable quantity transferred
+/// to native scene radiance. Darkness zero is exact identity; darkness one and
+/// complete occlusion may reach black. HDR source energy transitions back to
+/// identity because emissive ownership is outside this post-process.
+pub(super) fn point_only_shadow_radiance(
+    source_linear: [f32; 3],
+    receiver: bool,
+    point_total: [f32; 3],
+    point_deficit: [f32; 3],
+    point_darkness: f32,
+) -> Option<[f32; 3]> {
+    if !source_linear
+        .into_iter()
+        .chain(point_total)
+        .chain(point_deficit)
+        .chain([point_darkness])
+        .all(f32::is_finite)
+        || source_linear.into_iter().any(|channel| channel < 0.0)
+    {
+        return None;
+    }
+    if !receiver {
+        return Some(source_linear);
+    }
+    let darkness = point_darkness.clamp(0.0, 1.0);
+    let shadowed = std::array::from_fn(|axis| {
+        let total = point_total[axis].max(0.0);
+        let occluded_fraction = if total > 1.0e-5 {
+            (point_deficit[axis].max(0.0) / total).clamp(0.0, 1.0)
+        } else {
+            0.0
+        };
+        source_linear[axis] * (1.0 - darkness * occluded_fraction).clamp(0.0, 1.0)
+    });
+    Some(preserve_hdr_source(source_linear, shadowed))
+}
+
+/// Restore source-owned HDR emission after ordinary surface attenuation.
+fn preserve_hdr_source(source_linear: [f32; 3], shadowed: [f32; 3]) -> [f32; 3] {
+    let peak = source_linear.into_iter().fold(0.0_f32, f32::max);
+    let transition = ((peak - 1.0) / 0.15).clamp(0.0, 1.0);
+    let emitter = transition * transition * (3.0 - 2.0 * transition);
+    std::array::from_fn(|axis| shadowed[axis] + (source_linear[axis] - shadowed[axis]) * emitter)
+}
+
 /// Compose shadow-owned radiance while preserving unrelated source energy.
 ///
 /// `receiver` is false for clear/far-sky pixels. Directional visibility owns a
 /// multiplicative surface term. `point_total` identifies the source-owned
 /// local-light model, and `point_deficit` is the subset proven occluded by a
 /// cube. Interiors transfer only the dimensionless deficit/total fraction to
-/// native radiance and retain a fixed ambient/emissive floor. Exteriors retain
-/// source-owned local energy after directional attenuation so a Pip-Boy or
-/// lamp cannot be shadowed by the sun. HDR energy transitions to full source
-/// preservation between one and 1.15, avoiding a hard temporal discontinuity
-/// while remaining stricter than NVR's "re-add values above one" rule.
+/// native radiance. At maximum darkness a fully occluded ordinary receiver may
+/// reach zero; HDR emitters still transition back to the untouched source.
+/// Exteriors retain source-owned local energy after directional attenuation so
+/// a Pip-Boy or lamp cannot be shadowed by the sun. HDR energy transitions to
+/// full source preservation between one and 1.15, avoiding a hard temporal
+/// discontinuity while remaining stricter than NVR's "re-add values above
+/// one" rule.
 pub(super) fn source_owned_shadow_radiance(
     source_linear: [f32; 3],
     receiver: bool,
@@ -480,27 +530,18 @@ pub(super) fn source_owned_shadow_radiance(
     if !receiver {
         return Some(source_linear);
     }
+    if scene == SceneKind::Interior {
+        return point_only_shadow_radiance(
+            source_linear,
+            true,
+            point_total,
+            point_deficit,
+            point_darkness,
+        );
+    }
     let directional =
         1.0 - directional_darkness.clamp(0.0, 1.0) * (1.0 - directional_visibility.clamp(0.0, 1.0));
     let shadowed: [f32; 3] = std::array::from_fn(|axis| {
-        if scene == SceneKind::Interior {
-            // The replacement attenuation is not calibrated to Fallout's
-            // material shaders, but total and deficit are one modeled pair.
-            // Their ratio is therefore authoritative while their absolute
-            // scale is not. Applying that fraction to native scene radiance
-            // makes the interior darkness setting deterministic and prevents
-            // selected-light count or raw light intensity from lowering all
-            // interior illumination.
-            let total = point_total[axis].max(0.0);
-            let occluded_fraction = if total > 1.0e-5 {
-                (point_deficit[axis].max(0.0) / total).clamp(0.0, 1.0)
-            } else {
-                0.0
-            };
-            let attenuation = (1.0 - point_darkness.clamp(0.0, 1.0) * occluded_fraction)
-                .max(INTERIOR_MIN_RADIANCE_FACTOR);
-            return source_linear[axis] * attenuation;
-        }
         // The native framebuffer is the authority for how much energy exists.
         // Capping both estimates prevents an approximate replacement-light
         // model from subtracting ambient or creating energy.
@@ -519,12 +560,7 @@ pub(super) fn source_owned_shadow_radiance(
             mixed
         }
     });
-    let peak = source_linear.into_iter().fold(0.0_f32, f32::max);
-    let transition = ((peak - 1.0) / 0.15).clamp(0.0, 1.0);
-    let emitter = transition * transition * (3.0 - 2.0 * transition);
-    Some(std::array::from_fn(|axis| {
-        shadowed[axis] + (source_linear[axis] - shadowed[axis]) * emitter
-    }))
+    Some(preserve_hdr_source(source_linear, shadowed))
 }
 
 /// Apply NVR's receiver-side normal offset before directional projection.
@@ -1239,15 +1275,22 @@ pub(super) enum SceneKind {
     Interior,
 }
 
-/// Persisted master and location controls for the single Shadows effect.
+/// Persisted admission controls for the single Shadows effect.
+///
+/// Point-light shadows are the primary exterior/interior feature. Directional
+/// sun shadows are a separate exterior-only experimental branch so disabling
+/// them removes their map, receiver, and contact work without disabling local
+/// dynamic shadows.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) struct ShadowSettings {
     /// Enables the effect as a whole.
     pub(super) enabled: bool,
-    /// Enables directional and applicable point shadows in exterior-like cells.
+    /// Enables point-light shadows in exterior-like cells.
     pub(super) exterior_enabled: bool,
     /// Enables replacement point shadows in interior cells.
     pub(super) interior_enabled: bool,
+    /// Enables experimental directional sun shadows in exterior-like cells.
+    pub(super) sun_shadows: bool,
 }
 
 impl Default for ShadowSettings {
@@ -1256,18 +1299,31 @@ impl Default for ShadowSettings {
             enabled: true,
             exterior_enabled: true,
             interior_enabled: true,
+            sun_shadows: false,
         }
     }
 }
 
 impl ShadowSettings {
-    /// Return whether the effect is active for the classified current cell.
-    pub(super) fn enabled_for(self, scene: SceneKind) -> bool {
+    /// Return whether point-light shadow work is active for the current cell.
+    pub(super) fn point_enabled_for(self, scene: SceneKind) -> bool {
         self.enabled
             && match scene {
                 SceneKind::Exterior | SceneKind::BehavesLikeExterior => self.exterior_enabled,
                 SceneKind::Interior => self.interior_enabled,
             }
+    }
+
+    /// Return whether directional sun-shadow work is active for the cell.
+    pub(super) fn directional_enabled_for(self, scene: SceneKind) -> bool {
+        self.enabled
+            && self.sun_shadows
+            && matches!(scene, SceneKind::Exterior | SceneKind::BehavesLikeExterior)
+    }
+
+    /// Return whether either replacement branch is active for the cell.
+    pub(super) fn enabled_for(self, scene: SceneKind) -> bool {
+        self.point_enabled_for(scene) || self.directional_enabled_for(scene)
     }
 
     /// Select the only legal ownership path through the common engine hook.
@@ -3058,13 +3114,30 @@ pub(super) struct ProducerResourcePlan {
 }
 
 impl ProducerResourcePlan {
-    /// Build the fixed highest-quality plan for one active location branch.
+    /// Build the shipped dynamic-first plan for one active location branch.
     ///
-    /// OMV preserves NVR's 2048 resolution and four FP16 EVSM moments. Stable
-    /// spatial filtering runs only at visible receivers; touching every map
-    /// texel twice after each update is not a quality requirement.
+    /// Point shadows retain their fixed 512-cube quality. Directional resource
+    /// quality is represented by [`Self::for_settings`] only when the separate
+    /// experimental sun gate is explicitly enabled.
     pub(super) fn quality_default(scene: SceneKind, width: u32, height: u32) -> Option<Self> {
-        if width == 0 || height == 0 {
+        Self::for_settings(ShadowSettings::default(), scene, width, height)
+    }
+
+    /// Build the exact lazy resource plan admitted by `settings` and `scene`.
+    ///
+    /// Keeping directional and point families explicit is a regression guard
+    /// for the default-off sun contract: an exterior dynamic-only session must
+    /// never allocate a cascade atlas or contact target merely because its cell
+    /// is exterior.
+    pub(super) fn for_settings(
+        settings: ShadowSettings,
+        scene: SceneKind,
+        width: u32,
+        height: u32,
+    ) -> Option<Self> {
+        let directional = settings.directional_enabled_for(scene);
+        let point_lights = settings.point_enabled_for(scene);
+        if width == 0 || height == 0 || (!directional && !point_lights) {
             return None;
         }
         let cascade_pixels = u64::from(NVR_CASCADE_RESOLUTION).pow(2);
@@ -3081,16 +3154,28 @@ impl ProducerResourcePlan {
         let actor_generation = actor_pixels * 4 * 4;
         let actor_depth = actor_pixels * 4 * 4;
         let actor_moments = actor_pixels * 4 * 3;
-        let point_cubes = u64::from(512_u32.pow(2)) * 6 * 4 * NVR_POINT_LIGHT_COUNT as u64;
+        let point_cubes = if point_lights {
+            u64::from(512_u32.pow(2)) * 6 * 4 * NVR_POINT_LIGHT_COUNT as u64
+        } else {
+            0
+        };
         let point_static_cubes = point_cubes;
-        let point_depth = u64::from(512_u32.pow(2)) * 4;
+        let point_depth = if point_lights {
+            u64::from(512_u32.pow(2)) * 4
+        } else {
+            0
+        };
         let full_resolution_pixels = u64::from(width) * u64::from(height);
         let receiver_pixels = full_resolution_pixels;
         // Equal-format MRTs preserve the exact total and occluded RGB sums in
         // one scissored draw, avoiding colored-light cross-contamination. The
         // full-resolution receiver values preserve every surface and thin
         // shadow independently; no 2x2 ownership reconstruction is involved.
-        let point_accumulation = receiver_pixels * 8 * 2;
+        let point_accumulation = if point_lights {
+            receiver_pixels * 8 * 2
+        } else {
+            0
+        };
         let source_copy = full_resolution_pixels * 8;
         // Horizontal and vertical 64-texel strip families each own one FP16
         // four-sample target, matching depth, and one single-sample resolve.
@@ -3099,9 +3184,8 @@ impl ProducerResourcePlan {
         // One full-resolution four-byte target retains visibility plus its
         // normalized receiver-depth key. Its same-frame cross filter executes
         // directly in the existing source-owned compositor.
-        let contact_targets = receiver_pixels * 4;
-        let interior_consumer = source_copy + point_accumulation;
-        let directional = scene != SceneKind::Interior;
+        let contact_targets = if directional { receiver_pixels * 4 } else { 0 };
+        let consumer = source_copy + point_accumulation;
         let estimated_bytes = if directional {
             persistent_cascades
                 + generation_moments
@@ -3113,26 +3197,34 @@ impl ProducerResourcePlan {
                 + point_cubes
                 + point_static_cubes
                 + point_depth
-                + interior_consumer
+                + consumer
                 + directional_strips
                 + contact_targets
         } else {
-            point_cubes + point_static_cubes + point_depth + interior_consumer
+            point_cubes + point_static_cubes + point_depth + consumer
         };
-        let combined_estimated_bytes = persistent_cascades
-            + generation_moments
-            + generation_depth
-            + resolved_moments
-            + actor_generation
-            + actor_depth
-            + actor_moments
-            + point_cubes
-            + point_static_cubes
-            + point_depth
-            + source_copy
-            + point_accumulation
-            + directional_strips
-            + contact_targets;
+        let combined_directional = settings.enabled && settings.sun_shadows;
+        let combined_points =
+            settings.enabled && (settings.exterior_enabled || settings.interior_enabled);
+        let combined_estimated_bytes = (if combined_directional {
+            persistent_cascades
+                + generation_moments
+                + generation_depth
+                + resolved_moments
+                + actor_generation
+                + actor_depth
+                + actor_moments
+                + directional_strips
+                + full_resolution_pixels * 4
+        } else {
+            0
+        }) + if combined_points {
+            u64::from(512_u32.pow(2)) * 6 * 4 * NVR_POINT_LIGHT_COUNT as u64 * 2
+                + u64::from(512_u32.pow(2)) * 4
+                + receiver_pixels * 8 * 2
+        } else {
+            0
+        } + source_copy;
         let actor_fallback_extra = actor_generation + actor_moments;
         let fallback_estimated_bytes = if directional {
             estimated_bytes + actor_fallback_extra
@@ -3147,11 +3239,15 @@ impl ProducerResourcePlan {
             cascade_resolution: NVR_CASCADE_RESOLUTION,
             cascade_count: if directional { CASCADE_COUNT as u32 } else { 0 },
             directional_texture_count: if directional { 6 } else { 0 },
-            atlas_resolution: NVR_CASCADE_RESOLUTION * 2,
-            directional_samples: 4,
-            directional_channels: 4,
-            directional_channel_bits: 16,
-            evsm4: true,
+            atlas_resolution: if directional {
+                NVR_CASCADE_RESOLUTION * 2
+            } else {
+                0
+            },
+            directional_samples: if directional { 4 } else { 0 },
+            directional_channels: if directional { 4 } else { 0 },
+            directional_channel_bits: if directional { 16 } else { 0 },
+            evsm4: directional,
             actor_channels: if directional { 2 } else { 0 },
             actor_samples: if directional { 4 } else { 0 },
             actor_resolution: if directional {
@@ -3160,11 +3256,19 @@ impl ProducerResourcePlan {
                 0
             },
             actor_generation_bytes: if directional { actor_generation } else { 0 },
-            receiver_filter_samples: 3,
+            receiver_filter_samples: if directional { 3 } else { 0 },
             actor_overlay_fullscreen_merge_draws: 0,
-            point_light_count: NVR_POINT_LIGHT_COUNT as u32,
-            point_cube_texture_count: (NVR_POINT_LIGHT_COUNT * 2) as u32,
-            point_cube_resolution: 512,
+            point_light_count: if point_lights {
+                NVR_POINT_LIGHT_COUNT as u32
+            } else {
+                0
+            },
+            point_cube_texture_count: if point_lights {
+                (NVR_POINT_LIGHT_COUNT * 2) as u32
+            } else {
+                0
+            },
+            point_cube_resolution: if point_lights { 512 } else { 0 },
             estimated_bytes,
             fallback_estimated_bytes,
             combined_estimated_bytes,

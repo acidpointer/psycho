@@ -347,13 +347,17 @@ corner_rounding = 25.0
 debug_view = 0
 
 [graphics.native_shadows]
-# One native Shadows effect with independent location admission. Resource
-# quality remains fixed at 2048 FP16 EVSM4 cascades with best-available 4x
-# generation MSAA, prefiltering, and 512 point-light cube maps. These bounded
-# controls tune appearance and the work/coverage budget.
+# One native Shadows effect with independent dynamic location admission and an
+# opt-in experimental sun branch. Dynamic shadows use 512 point-light cube
+# maps. Experimental sun shadows retain 2048 FP16 EVSM4 cascades with
+# best-available 4x generation MSAA. These bounded controls tune appearance
+# and the work/coverage budget.
 enabled = true
 exterior_enabled = true
 interior_enabled = true
+# Dynamic darkness is full-range: 0 is identity and 1 can reach black under
+# complete cube-proven occlusion. Experimental sun shadows share the exterior
+# value when enabled.
 exterior_darkness = 0.75
 exterior_distance = 6000.0
 cascade_split_lambda = 0.90
@@ -365,6 +369,9 @@ interior_shadowed_lights = 12
 interior_light_radius_multiplier = 1.50
 interior_light_draw_distance = 8000.0
 interior_receiver_bias = 0.018
+# Experimental four-cascade directional sun shadows. Dynamic point-light
+# shadows remain active through the exterior/interior controls above.
+sun_shadows = false
 
 [graphics.native_pbr]
 # Native material/PBR engine path.

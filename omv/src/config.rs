@@ -106,9 +106,11 @@ impl Default for GraphicsConfig {
 
 /// Controls the single native Shadows effect and its two location branches.
 ///
-/// Defaults reproduce modern NVR's custom/high profile. The bounded controls
-/// expose appearance and the expensive coverage dimensions without allowing
-/// invalid resource sizes or shader permutations into the render path.
+/// Dynamic-shadow defaults reproduce modern NVR's bounded local-light profile.
+/// The directional custom/high profile remains available, but its experimental
+/// admission defaults off. The controls expose appearance and expensive
+/// coverage dimensions without allowing invalid resource sizes or shader
+/// permutations into the render path.
 /// This type is deliberately detached from [`GraphicsConfig`] and
 /// [`GraphicsMenuConfig`]. Keep it that way: the table is loaded at
 /// DeferredInit and later exchanged through the shadow module's coherent
@@ -118,11 +120,11 @@ impl Default for GraphicsConfig {
 pub(crate) struct NativeShadowsConfig {
     /// Enable OMV ownership of the common shadow transaction.
     pub(crate) enabled: bool,
-    /// Produce directional shadows in exterior-like cells.
+    /// Produce replacement point-light shadows in exterior-like cells.
     pub(crate) exterior_enabled: bool,
     /// Produce replacement point shadows in interior cells.
     pub(crate) interior_enabled: bool,
-    /// Maximum darkness applied by directional and contact visibility.
+    /// Maximum exterior point-shadow darkness and, when opted in, sun darkness.
     pub(crate) exterior_darkness: f32,
     /// Maximum camera distance covered by the four directional cascades.
     pub(crate) exterior_distance: f32,
@@ -136,7 +138,7 @@ pub(crate) struct NativeShadowsConfig {
     ///
     /// The persisted field name is retained for schema-one compatibility.
     pub(crate) contact_ray_distance: f32,
-    /// Maximum darkness applied to interior point-light illumination.
+    /// Maximum interior point-shadow darkness; one permits full black.
     pub(crate) interior_darkness: f32,
     /// Maximum number of nearby lights receiving a 512 cube map.
     pub(crate) interior_shadowed_lights: i32,
@@ -146,6 +148,14 @@ pub(crate) struct NativeShadowsConfig {
     pub(crate) interior_light_draw_distance: f32,
     /// Normalized radial-depth receiver bias for point shadows.
     pub(crate) interior_receiver_bias: f32,
+    /// Produce the experimental directional sun-shadow family outdoors.
+    ///
+    /// This field is appended to the detached schema-one table so every
+    /// previously persisted control keeps its name, type, and relative order.
+    /// Missing values deliberately default to false: dynamic point shadows are
+    /// the supported primary path, while the high-cost cascade path remains an
+    /// explicit opt-in.
+    pub(crate) sun_shadows: bool,
 }
 
 impl Default for NativeShadowsConfig {
@@ -165,6 +175,7 @@ impl Default for NativeShadowsConfig {
             interior_light_radius_multiplier: 1.5,
             interior_light_draw_distance: 8_000.0,
             interior_receiver_bias: 0.018,
+            sun_shadows: false,
         }
     }
 }
@@ -1684,6 +1695,11 @@ fn save_native_shadows_config(doc: &mut DocumentMut, config: &NativeShadowsConfi
         value(config.interior_light_draw_distance as f64);
     doc["graphics"]["native_shadows"]["interior_receiver_bias"] =
         value(config.interior_receiver_bias as f64);
+    // Append new detached-table controls after the released schema-one
+    // sequence. The table is not preset-owned and is parsed only after
+    // DeferredInit, but stable ordering still keeps diffs and recovery saves
+    // predictable for existing users.
+    doc["graphics"]["native_shadows"]["sun_shadows"] = value(config.sun_shadows);
 }
 
 fn save_diagnostics_config(doc: &mut DocumentMut, config: &GraphicsMenuConfig) {
@@ -2046,6 +2062,7 @@ mod tests {
         assert!(defaults.enabled);
         assert!(defaults.exterior_enabled);
         assert!(defaults.interior_enabled);
+        assert!(!defaults.sun_shadows);
         assert_eq!(defaults.exterior_darkness, 0.75);
         assert_eq!(defaults.exterior_distance, 6_000.0);
         assert_eq!(defaults.cascade_split_lambda, 0.9);
@@ -2091,13 +2108,14 @@ mod tests {
             "interior_light_radius_multiplier",
             "interior_light_draw_distance",
             "interior_receiver_bias",
+            "sun_shadows",
         ] {
             assert!(
                 table.contains_key(key),
                 "missing native shadow control {key}"
             );
         }
-        assert_eq!(table.len(), 14);
+        assert_eq!(table.len(), 15);
         let decoded = parse_native_shadows_config(&document.to_string())
             .expect("saved deferred shadow config");
         assert_eq!(decoded, expected);
@@ -2109,9 +2127,19 @@ mod tests {
         assert!(!embedded.contains("native_shadows"));
         assert!(!embedded.contains("exterior_enabled"));
         assert!(!embedded.contains("interior_enabled"));
+        assert!(!embedded.contains("sun_shadows"));
         let shipped = parse_native_shadows_config(include_str!("../config/omv.toml"))
             .expect("shipped shadow config");
         assert_eq!(shipped, defaults);
+
+        // The released detached table had fourteen fields. Schema one uses
+        // struct defaults for appended optional controls, so existing working
+        // files opt into neither experimental work nor a migration path.
+        let released_table = parse_native_shadows_config(
+            "config_schema_version = 1\n[graphics.native_shadows]\nenabled = true\nexterior_enabled = true\ninterior_enabled = true\nexterior_darkness = 0.75\nexterior_distance = 6000.0\ncascade_split_lambda = 0.9\ncontact_shadows = true\ncontact_distance = 180000.0\ncontact_ray_distance = 2000.0\ninterior_darkness = 0.65\ninterior_shadowed_lights = 12\ninterior_light_radius_multiplier = 1.5\ninterior_light_draw_distance = 8000.0\ninterior_receiver_bias = 0.018\n",
+        )
+        .expect("released fourteen-field shadow table");
+        assert_eq!(released_table, defaults);
 
         let future = parse_native_shadows_config(
             "config_schema_version = 999\n[graphics.native_shadows]\nenabled = true\n",

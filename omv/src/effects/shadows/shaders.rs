@@ -44,7 +44,7 @@ pub(super) const DIRECTIONAL_MASK_SOURCE: &[u8] =
 pub(super) const COMPOSITE_PIXEL_SOURCE: &[u8] =
     include_bytes!("../../../shaders/embedded/shadow_composite.hlsl");
 const DIRECTIONAL_COMPOSITE_DEFINE: &[u8] = b"#define OMV_POINT_LIGHTS 0\n";
-const INTERIOR_COMPOSITE_DEFINE: &[u8] = b"#define OMV_INTERIOR 1\n";
+const POINT_ONLY_COMPOSITE_DEFINE: &[u8] = b"#define OMV_POINT_ONLY 1\n";
 const FUSED_DIRECTIONAL_DEFINE: &[u8] = b"#define OMV_FUSED_DIRECTIONAL 1\n";
 
 fn fused_exterior_composite_source(point_lights: bool) -> Vec<u8> {
@@ -76,11 +76,16 @@ pub(super) fn directional_composite_source() -> Vec<u8> {
     fused_exterior_composite_source(false)
 }
 
-/// Build the point-light compositor with the interior fractional-energy contract.
-pub(super) fn interior_composite_source() -> Vec<u8> {
+/// Build the point-only compositor shared by exterior and interior scenes.
+///
+/// Without directional ownership there is no sun-only radiance floor against
+/// which the mixed compositor can bound an analytic point-light estimate. The
+/// point-only variant therefore transfers the cube-proven deficit/total ratio
+/// to native scene radiance for either location branch.
+pub(super) fn point_only_composite_source() -> Vec<u8> {
     let mut source =
-        Vec::with_capacity(INTERIOR_COMPOSITE_DEFINE.len() + COMPOSITE_PIXEL_SOURCE.len());
-    source.extend_from_slice(INTERIOR_COMPOSITE_DEFINE);
+        Vec::with_capacity(POINT_ONLY_COMPOSITE_DEFINE.len() + COMPOSITE_PIXEL_SOURCE.len());
+    source.extend_from_slice(POINT_ONLY_COMPOSITE_DEFINE);
     source.extend_from_slice(COMPOSITE_PIXEL_SOURCE);
     source
 }
@@ -131,8 +136,8 @@ pub(super) struct ShadowBytecode {
     pub(super) contact: Vec<u32>,
     /// Final scene-color composition program.
     pub(super) composite: Vec<u32>,
-    /// Interior point-light fractional-occlusion composition program.
-    pub(super) interior_composite: Vec<u32>,
+    /// Point-only fractional-occlusion composition program.
+    pub(super) point_only_composite: Vec<u32>,
     /// Point-free exterior composition specialization.
     pub(super) directional_composite: Vec<u32>,
 }
@@ -174,9 +179,9 @@ impl ShadowBytecode {
                 &exterior_composite_source(),
                 "ps_3_0",
             )?,
-            interior_composite: compile(
-                "shadow_composite_interior.hlsl",
-                &interior_composite_source(),
+            point_only_composite: compile(
+                "shadow_composite_point_only.hlsl",
+                &point_only_composite_source(),
                 "ps_3_0",
             )?,
             directional_composite: compile(
@@ -199,7 +204,7 @@ impl ShadowBytecode {
             &self.point_accumulation_twelve,
             &self.contact,
             &self.composite,
-            &self.interior_composite,
+            &self.point_only_composite,
             &self.directional_composite,
         ];
         (programs.len(), programs.into_iter().map(Vec::len).sum())
