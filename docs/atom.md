@@ -23,6 +23,13 @@ of perceived input latency has been removed. The research and design contracts
 are in `docs/fnv_actor_input_contract.md` and
 `docs/atom_input_wrapper_design.md`.
 
+The planned third-person milestone replaces presentation-only skeleton
+rotation with one explicit camera, locomotion, facing, VATS, collision, and aim
+ownership model. Its native evidence, compatibility audit, staged
+implementation, behavioral tests, and Proton acceptance plan are in
+`docs/atom_third_person_camera_plan.md`. No camera or 360-movement feature from
+that plan is implemented yet.
+
 ## User-visible behavior
 
 Atom appears in MCM Extender with `Overview`, `Mouse`, `Controller`,
