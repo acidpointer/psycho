@@ -1493,6 +1493,12 @@ interior_light_draw_distance = 8000.0
 interior_receiver_bias = 0.018
 ```
 
+`interior_light_radius_multiplier` is released schema-one compatibility data.
+It remains serialized in the same position and participates in strict round
+trips, but active rendering ignores it; point-cube coverage is exactly the
+native receiver radius. The Shadows menu therefore does not expose this inert
+field.
+
 `enabled` is the effect master. The other two values independently admit
 exterior/behave-like-exterior cascades and interior point shadows. The
 remaining values have finite or discrete bounds described below. The global
@@ -4539,6 +4545,10 @@ interior_receiver_bias = 0.018
 sun_shadows = false
 ```
 
+The retained `interior_light_radius_multiplier` line is inert compatibility
+data, not an active work or quality control. Point-cube generation and
+receiver coverage both use the native light radius.
+
 `exterior_enabled` and `interior_enabled` retain their released names and
 types, but now explicitly own dynamic point-light admission for their location.
 `sun_shadows` alone admits the four directional cascades and their contact
@@ -5054,18 +5064,20 @@ strict one-sided Lambert term, so a wall face turned away from a local source
 owns no direct-light denominator and cannot display a deficit from the other
 side.
 
-Each selected light carries two radii:
+Each selected light retains two named radius fields so the released internal
+ABI and cache metadata remain explicit, but both now contain the same value:
 
 - `receiver_radius` is the finite native `NiLight::Spec.r` value and owns
   eligibility, discovery fade, screen scissoring, attenuation, and the outer
   shadow envelope;
-- `cube_radius` is at least the receiver radius and applies the schema-one
-  `interior_light_radius_multiplier` only as caster-generation headroom.
+- `cube_radius` is the same native value and owns caster culling, cube
+  projection, radial-depth normalization, and cache identity.
 
-The persisted field name and layout are unchanged. The menu calls it **Cube
-coverage multiplier** and explains that it cannot extend native lighting.
-Cube depth comparisons normalize by cube radius, while analytic energy and
-screen coverage normalize by receiver radius.
+The persisted `interior_light_radius_multiplier` field, default, type, order,
+sanitization, save path, and settings publication remain unchanged as inert
+schema-one compatibility data. It is absent from the menu and active rendering.
+This supersedes the earlier generation-headroom policy after runtime evidence
+showed that the extra volume admitted invalid interior casters.
 
 Analytic `total` now contains only native color, radial attenuation, and
 one-sided diffuse response. Source safety, the 80-100% receiver-edge envelope,
@@ -6271,6 +6283,117 @@ resulting 12,878,225-byte `omv.dll` has SHA-256
 `git diff --check` also passed for the complete correction. These results prove
 static, shader, D3D execution-test, and build closure; gameplay image correctness
 and load-to-gameplay acceptance remain pending.
+
+### Runtime rejection and corrected defect split
+
+The subsequent Proton playtest rejected the original causal attribution while
+retaining its safety value. Lowering **Cube coverage multiplier** from the
+released `1.5` value to `0.5` made the giant interior squares mostly disappear.
+The implementation clamped every value below one to an effective `1.0`, so the
+observed A/B change was exactly `1.5` to `1.0`; it was not reduced coverage
+inside the native light sphere. The traversal, alpha-representation, and MRT
+corrections remain valid fail-safe invariants, but they were not the primary
+interior correction.
+
+Exterior islands remained. The reporter established that they are fixed to
+real shallow depressions in landscape geometry and appear or disappear while
+walking with the Pip-Boy light. Experimental sun shadows were disabled. Those
+facts exclude directional cascades and contact shadows from the executed path
+and identify local point-cube landscape self-occlusion as the remaining
+artifact class. No screenshot was captured, so the exact triangle and visual
+boundary remain runtime description rather than image evidence.
+
+### Native-radius cube invariant
+
+A point source and every receiver it illuminates lie inside the sphere defined
+by the native `NiLight::Spec.r` radius. The complete line segment from the
+source to such a receiver also lies inside that sphere. Geometry wholly beyond
+the native radius therefore cannot lie on a valid receiver ray. Increasing the
+point-cube far plane and caster volume to `1.5` admits no useful occluder; it
+only admits unrelated geometry and reduces depth-projection precision.
+
+`point_light_radii` now returns the native radius for both receiver and cube
+ownership. The released multiplier argument is deliberately ignored, including
+non-finite values, after validating the native radius. Its persisted config
+field, default `1.5`, type, position, sanitization, serializer, atomic settings
+slot, and schema-one round trip remain unchanged. Removing it would alter the
+frozen configuration/startup footprint. The active ImGui slider and active log
+label are removed so compatibility data is no longer presented as a quality
+control.
+
+This change makes the user's effective `0.5` workaround and an explicit `1.0`
+identical while preventing larger persisted values from changing rendering.
+Changing the value invalidates no schema or preset and no longer causes cube
+resource, cache, or shader variation.
+
+### Landscape receiver/caster separation
+
+OMV's canonical root snapshot includes the exterior cell land child because
+directional cascades require it. The point producer reused that complete array
+and previously treated every intersecting non-actor root, including land, as
+an immutable cube caster. This is a direct current-source fact and explains why
+real terrain depressions could become large hard self-occluders under a moving
+Pip-Boy source.
+
+Modern TES Reloaded provides a useful ownership comparison. Its point-cube
+producer prefers `ShadowSceneLight::kGeometryList`; when that list is absent,
+its fallback traverses only the parent cell's object-reference list. It does
+not add the cell land child. The same source adds cell land explicitly only in
+the directional-map path. The current Fallout executable proves the native
+light object/list layout and lifetime but does not prove which leaf categories
+are present in every runtime `kGeometryList`; this correction does not claim
+otherwise.
+
+OMV now rejects `DirectionalRoot::is_land` from immutable point-cube signatures
+and submissions through one shared `is_point_static_caster` predicate. This is
+not a blanket landscape exclusion:
+
+- landscape remains a full-resolution point-shadow receiver;
+- ordinary statics, fixtures, walls, clutter, and active actors remain cube
+  casters and still cast onto landscape;
+- directional cascades retain close-land and land-LOD caster coverage; and
+- native fallback remains available when the complete OMV transaction fails.
+
+Only local-light landscape-on-landscape self-occlusion is removed. Native
+terrain lighting and its visible surface normals continue to represent the
+small-scale relief that produced the reported dark islands. The point producer
+does less work because it no longer walks land hierarchies for up to six faces
+of each selected light; there is no additional pass, shader, texture, state,
+allocation, lock, or per-frame diagnostic.
+
+### Corrected regressions and acceptance
+
+`point_cube_generation_never_exceeds_native_receiver_coverage` is a demonstrated
+negative control: the former implementation returned `(400, 600)` for a native
+400-unit light and the corrected contract returns `(400, 400)` regardless of
+the compatibility value. `point_static_signature_excludes_landscape_self_occluders`
+failed when one nearby land root dirtied every cube face; it now proves that
+land-only input is identical to an empty caster set while an ordinary fixture
+retains exactly the same signatures with or without the land root.
+
+The serialized table and settings publication shape are unchanged. There is no
+schema, preset, migration, parser-phase, hook, route, static owner, TLS, thread,
+worker, resource-family, or pre-`DeferredInit` first-touch change. Final-image
+startup compatibility still requires the ordinary BaseObjectSwapper
+load-to-gameplay test because static reasoning cannot accept a new DLL.
+
+Runtime image acceptance requires the same small lamp-heavy interior at native
+radius coverage and the same exterior depressions with sun shadows disabled.
+Acceptance is no giant square at the released/default config, no world-anchored
+terrain island while walking with Pip-Boy light, preserved prop/actor shadows
+on the ground, and preserved directional terrain shadows when the experimental
+sun path is separately enabled. Image correctness remains a playtest result.
+
+Static closure on 2026-08-16 passes all 690 supported-target OMV tests and doc
+tests, including 180 focused shadow tests, shader compilation, and the D3D9
+execution contracts. The explicit `i686-pc-windows-gnu` release build completes
+without warnings. The resulting 12,878,043-byte `omv.dll` has SHA-256
+`d3d37249e7d4e1483ba24436725da26d76983c839bd70f1434ad7709f4fb2c07`.
+The startup owner guard retains `ShadowPipeline = 0xA28`; PE inspection retains
+the documented `.bss = 0x6B10`, `.idata = 0x340C`, `.tls = 0x8`, TLS directory
+`0x18`, and IAT `0x6BC` footprint. These gates prove source, configuration,
+shader, D3D execution-test, and final-image build closure. They do not prove the
+required Proton image or load-to-gameplay acceptance.
 
 ## Primary evidence index
 

@@ -19,7 +19,7 @@ pub(super) const NVR_CASCADE_RESOLUTION: u32 = 2048;
 pub(super) const NVR_POINT_LIGHT_COUNT: usize = 12;
 /// Bit mask containing all six D3D cube faces.
 pub(super) const ALL_CUBE_FACES: u8 = 0x3f;
-/// Supplied NVR custom-quality multiplier for point-light influence radius.
+/// Released schema-one default for the inert point-radius compatibility field.
 pub(super) const NVR_POINT_RADIUS_MULTIPLIER: f32 = 1.5;
 /// Modern NVR's hard upper bound for tracked point-light influence.
 pub(super) const NVR_POINT_DRAW_DISTANCE: f32 = 8_000.0;
@@ -1186,23 +1186,22 @@ pub(super) const fn point_caster_inventory_is_complete(
     point_light_count == 0 || root_inventory_complete
 }
 
-/// Separate native receiver ownership from point-cube generation headroom.
+/// Pair native receiver and point-cube coverage without unlit headroom.
 ///
-/// The native radius defines where the game actually supplies direct light.
-/// The persisted multiplier may enlarge caster coverage, but it must never
-/// extend the post-process receiver volume beyond that native illumination.
-pub(super) fn point_light_radii(native_radius: f32, cube_multiplier: f32) -> Option<(f32, f32)> {
-    if !native_radius.is_finite()
-        || native_radius <= 0.1
-        || !cube_multiplier.is_finite()
-        || cube_multiplier <= 0.0
-    {
+/// Every ray from a point source to a receiver inside the native light sphere
+/// remains inside that sphere. Geometry wholly beyond the receiver radius
+/// therefore cannot occlude a valid receiver. Expanding the cube admits no
+/// physically useful caster, but it does admit unrelated room geometry and
+/// worsens projection precision. The released multiplier argument remains in
+/// the call boundary as inert schema-one compatibility data.
+pub(super) fn point_light_radii(
+    native_radius: f32,
+    _compatibility_multiplier: f32,
+) -> Option<(f32, f32)> {
+    if !native_radius.is_finite() || native_radius <= 0.1 {
         return None;
     }
-    let cube_radius = native_radius * cube_multiplier.max(1.0);
-    cube_radius
-        .is_finite()
-        .then_some((native_radius, cube_radius))
+    Some((native_radius, native_radius))
 }
 
 /// Inclusive-exclusive pixel bounds for one conservative local-light draw.

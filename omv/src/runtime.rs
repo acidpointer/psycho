@@ -10666,18 +10666,6 @@ fn draw_native_shadows_config(
         );
         changed |= draw_float_slider(
             ui,
-            "Cube coverage multiplier",
-            "native_shadows.interior_light_radius_multiplier",
-            &mut config.interior_light_radius_multiplier,
-            0.5,
-            4.0,
-        );
-        ui.text_colored(
-            MENU_MUTED_TEXT,
-            &cstring("Adds caster coverage without extending the native light radius."),
-        );
-        changed |= draw_float_slider(
-            ui,
             "Light draw distance",
             "native_shadows.interior_light_draw_distance",
             &mut config.interior_light_draw_distance,
@@ -10776,7 +10764,7 @@ fn log_shadow_menu_settings(
 ) {
     let config = config.sanitized();
     log::info!(
-        "[SHADOWS] Menu settings published (active={}, effect={}, exterior_dynamic={}, interior_dynamic={}, dynamic_quality={:?}, cube_resolution={}, dynamic_fade_seconds={:.3}, sun_experimental={}, exterior_darkness={:.3}, exterior_distance={:.1}, cascade_lambda={:.3}, contact={}, contact_distance={:.1}, contact_ray_distance={:.1}, interior_darkness={:.3}, shadowed_lights={}, radius_multiplier={:.3}, light_distance={:.1}, receiver_bias={:.5})",
+        "[SHADOWS] Menu settings published (active={}, effect={}, exterior_dynamic={}, interior_dynamic={}, dynamic_quality={:?}, cube_resolution={}, dynamic_fade_seconds={:.3}, sun_experimental={}, exterior_darkness={:.3}, exterior_distance={:.1}, cascade_lambda={:.3}, contact={}, contact_distance={:.1}, contact_ray_distance={:.1}, interior_darkness={:.3}, shadowed_lights={}, light_distance={:.1}, receiver_bias={:.5})",
         graphics_master_enabled && config.enabled,
         config.enabled,
         config.exterior_enabled,
@@ -10793,7 +10781,6 @@ fn log_shadow_menu_settings(
         config.contact_ray_distance,
         config.interior_darkness,
         config.interior_shadowed_lights,
-        config.interior_light_radius_multiplier,
         config.interior_light_draw_distance,
         config.interior_receiver_bias,
     );

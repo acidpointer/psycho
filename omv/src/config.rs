@@ -198,9 +198,10 @@ pub(crate) struct NativeShadowsConfig {
     pub(crate) interior_darkness: f32,
     /// Maximum number of nearby lights receiving a quality-tier cube map.
     pub(crate) interior_shadowed_lights: i32,
-    /// Cube coverage margin over each native point-light receiver radius.
+    /// Deprecated point-cube radius multiplier retained for schema compatibility.
     ///
-    /// The persisted field name is retained for schema-one compatibility.
+    /// Rendering deliberately ignores this value. Removing or retyping it
+    /// would change the released schema-one startup value graph.
     pub(crate) interior_light_radius_multiplier: f32,
     /// Upper bound for admitting nearby point-light influence.
     pub(crate) interior_light_draw_distance: f32,

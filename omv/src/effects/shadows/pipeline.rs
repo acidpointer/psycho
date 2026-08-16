@@ -2583,9 +2583,7 @@ impl ShadowResources {
             ],
         )?;
         for root in roots.iter().copied() {
-            if root.is_dynamic_actor()
-                || !root.intersects_point_light(point.position, point.cube_radius)
-            {
+            if !root.is_point_static_caster(point.position, point.cube_radius) {
                 continue;
             }
             unsafe {

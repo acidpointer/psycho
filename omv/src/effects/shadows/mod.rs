@@ -18,6 +18,9 @@
 //! coordinates. The receiver samples that complete nearest-occluder result.
 //! It never hard-gates against a second low-resolution static sample, which
 //! cannot reliably distinguish the receiving wall from a surface behind it.
+//! Local cubes use the native receiver radius exactly. Landscape remains a
+//! receiver for object and actor shadows but is not submitted as its own
+//! local-light caster; directional cascades retain their complete land path.
 //!
 //! Dynamic-only exteriors also publish validated native directional color,
 //! daylight, and sun direction. Their specialized compositor reconstructs the
@@ -184,9 +187,10 @@ pub(crate) struct NativeShadowsSettings {
     /// The field name is schema-one compatibility data; exterior Pip-Boy and
     /// practical lights use the same replacement budget.
     pub(crate) interior_shadowed_lights: usize,
-    /// Point-cube coverage margin over the native receiver radius.
+    /// Inert point-cube radius multiplier retained for schema compatibility.
     ///
-    /// The field name remains schema-one compatibility data.
+    /// Publication remains byte-for-byte compatible with the released
+    /// settings owner, but point-cube generation does not consume the value.
     pub(crate) interior_light_radius_multiplier: f32,
     /// Maximum nearby local-light coverage in either location branch.
     pub(crate) interior_light_draw_distance: f32,

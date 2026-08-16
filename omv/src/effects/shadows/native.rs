@@ -4,6 +4,8 @@
 //! native tail resumes. Point-map signatures and submissions share one
 //! canonical root inventory; the engine's camera-owned per-light geometry list
 //! is intentionally not accepted as a retained-map completeness boundary.
+//! Directional maps consume the inventory's land roots, while local point
+//! cubes keep landscape receiver-only to avoid hard self-shadow islands.
 //! Device resources and scalar publication live in the renderer module instead.
 
 use core::{ffi::c_void, mem::transmute, ptr::read_unaligned};
@@ -160,6 +162,22 @@ impl DirectionalRoot {
                 light_radius,
             )
         })
+    }
+
+    /// Whether this immutable root may cast into a local-light cube.
+    ///
+    /// Cell landscape remains a point-shadow receiver, so props and actors
+    /// still cast onto the ground. Submitting the same landscape as a caster
+    /// makes shallow depressions hard self-occluders under a carried light;
+    /// native material lighting already owns that relief and its normals.
+    pub(super) fn is_point_static_caster(
+        self,
+        light_position: [f32; 3],
+        light_radius: f32,
+    ) -> bool {
+        !self.is_land
+            && !self.is_dynamic_actor()
+            && self.intersects_point_light(light_position, light_radius)
     }
 }
 
@@ -605,9 +623,11 @@ pub(super) fn point_scene_static_signatures(
 ) -> PointStaticSignatures {
     let mut cube = StaticSignatureAccumulator::default();
     let mut faces = [StaticSignatureAccumulator::default(); 6];
-    for root in roots.iter().copied().filter(|root| {
-        !root.is_dynamic_actor() && root.intersects_point_light(light_position, light_radius)
-    }) {
+    for root in roots
+        .iter()
+        .copied()
+        .filter(|root| root.is_point_static_caster(light_position, light_radius))
+    {
         let mut mixed = root.root as u64;
         mixed ^= u64::from(root.signature_profile()).rotate_left(17);
         mixed ^= u64::from(root.world_state).wrapping_mul(0x9E37_79B1_85EB_CA87);
@@ -1120,9 +1140,9 @@ unsafe fn point_light(
     {
         return None;
     }
-    // Receiver coverage must match native lighting. The persisted multiplier
-    // is retained as generation headroom only: extending receiver attenuation
-    // with it made a post-process shadow survive beyond the source light.
+    // Receiver and cube coverage must match native lighting. The persisted
+    // multiplier stays in this call solely to preserve the schema-one settings
+    // boundary; point_light_radii deliberately gives it no rendering effect.
     let (receiver_radius, cube_radius) = point_light_radii(native_radius, radius_multiplier)?;
     let relative_position =
         std::array::from_fn(|index| position[index] - camera_translation[index]);
@@ -1228,7 +1248,7 @@ mod tests {
             color: [1.0; 3],
             shadow_fade: 1.0,
             receiver_radius: 512.0,
-            cube_radius: 768.0,
+            cube_radius: 512.0,
             distance_squared,
         }
     }
@@ -1431,6 +1451,39 @@ mod tests {
         assert_ne!(
             baseline,
             point_scene_static_signatures(&[near, moved_far], [950.0, 0.0, 0.0], 64.0).cube,
+        );
+    }
+
+    #[test]
+    fn point_static_signature_excludes_landscape_self_occluders() {
+        let landscape = DirectionalRoot {
+            root: 0x1000,
+            form_type: None,
+            is_land: true,
+            is_lod: false,
+            world_state: 11,
+            world_bound: Some([0.0, 0.0, -4.0, 64.0]),
+        };
+        let fixture = DirectionalRoot {
+            root: 0x2000,
+            form_type: Some(0x20),
+            is_land: false,
+            is_lod: false,
+            world_state: 22,
+            world_bound: Some([8.0, 0.0, 0.0, 2.0]),
+        };
+        let empty = point_scene_static_signatures(&[], [0.0; 3], 64.0);
+        let fixture_only = point_scene_static_signatures(&[fixture], [0.0; 3], 64.0);
+
+        assert_eq!(
+            point_scene_static_signatures(&[landscape], [0.0; 3], 64.0),
+            empty,
+            "a shallow landscape depression became a hard point-cube self-occluder"
+        );
+        assert_eq!(
+            point_scene_static_signatures(&[landscape, fixture], [0.0; 3], 64.0),
+            fixture_only,
+            "excluding landscape self-shadowing also changed ordinary object ownership"
         );
     }
 

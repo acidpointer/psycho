@@ -366,7 +366,7 @@ contact_distance = 180000.0
 contact_ray_distance = 2000.0
 interior_darkness = 0.65
 interior_shadowed_lights = 12
-# Extra cube caster coverage only; native light attenuation keeps its radius.
+# Deprecated schema-one compatibility value; active rendering ignores it.
 interior_light_radius_multiplier = 1.50
 interior_light_draw_distance = 8000.0
 interior_receiver_bias = 0.018

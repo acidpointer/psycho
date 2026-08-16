@@ -1985,15 +1985,23 @@ fn point_shadow_distance_retires_continuously_before_admission_ends() {
 }
 
 #[test]
-fn native_receiver_radius_and_cube_coverage_have_distinct_owners() {
-    assert_eq!(point_light_radii(400.0, 1.5), Some((400.0, 600.0)));
+fn point_cube_generation_never_exceeds_native_receiver_coverage() {
+    assert_eq!(
+        point_light_radii(400.0, 1.5),
+        Some((400.0, 400.0)),
+        "legacy generation headroom admitted casters outside every valid receiver ray"
+    );
     assert_eq!(
         point_light_radii(400.0, 0.5),
         Some((400.0, 400.0)),
-        "cube coverage may not truncate native receiver lighting"
+        "the compatibility multiplier may not truncate native receiver lighting"
     );
     assert!(point_light_radii(f32::NAN, 1.5).is_none());
-    assert!(point_light_radii(400.0, f32::INFINITY).is_none());
+    assert_eq!(
+        point_light_radii(400.0, f32::INFINITY),
+        Some((400.0, 400.0)),
+        "compatibility-only radius data changed active rendering"
+    );
 }
 
 #[test]
