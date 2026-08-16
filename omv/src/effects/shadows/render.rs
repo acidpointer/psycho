@@ -21,7 +21,8 @@ use libpsycho::os::windows::directx9::{
 
 use super::{
     contract::{
-        CasterAdmission, CasterPolicy, SkinIndexEncoding, dismember_partition_is_renderable,
+        AlphaCasterMode, CasterAdmission, CasterPolicy, SkinIndexEncoding, TraversalBudget,
+        alpha_caster_mode, complete_bounded_count, dismember_partition_is_renderable,
         first_person_caster_is_excluded, skinned_submission_is_available,
         sphere_intersects_cube_face, sphere_intersects_point_light,
     },
@@ -700,12 +701,11 @@ unsafe fn traverse_root(
     if !root.is_null() && !push_traversal_node(&mut scratch.nodes, root as usize) {
         return Err(direct3d_failure());
     }
-    let mut visited = 0usize;
+    let mut budget = TraversalBudget::new(MAX_NODE_VISITS);
     while let Some(identity) = scratch.nodes.pop() {
-        if visited >= MAX_NODE_VISITS {
-            break;
+        if !budget.claim() {
+            return Err(direct3d_failure());
         }
-        visited += 1;
         let object = identity as *mut u8;
         if !presentation_object_is_visible(
             context.subset.owns_presentation_visibility() || context.actor_overlay,
@@ -744,10 +744,17 @@ unsafe fn traverse_root(
         }
 
         let children = unsafe { node.add(NativeLayout::NI_NODE_CHILDREN) };
-        let end = (unsafe { read::<u16>(children, NI_TARRAY_END) } as usize).min(MAX_NODE_CHILDREN);
+        let end = complete_bounded_count(
+            unsafe { read::<u16>(children, NI_TARRAY_END) } as usize,
+            MAX_NODE_CHILDREN,
+        )
+        .ok_or_else(direct3d_failure)?;
         let data = unsafe { read::<*mut *mut u8>(children, NI_TARRAY_DATA) };
         if data.is_null() {
-            continue;
+            if end == 0 {
+                continue;
+            }
+            return Err(direct3d_failure());
         }
         if unsafe { rtti_is_kind_of(node, NI_SWITCH_NODE_RTTI) } {
             let active = unsafe { read::<i32>(node, NI_SWITCH_ACTIVE_INDEX) };
@@ -785,7 +792,7 @@ unsafe fn draw_geometry(
     if !context.subset.admits(skinned) {
         return Ok(());
     }
-    let Some(classification) = (unsafe { classify_geometry(context, geometry) }) else {
+    let Some(classification) = (unsafe { classify_geometry(context, geometry) })? else {
         return Ok(());
     };
     debug_assert_eq!(classification.skinned, skinned);
@@ -870,21 +877,21 @@ struct GeometryClassification {
 unsafe fn classify_geometry(
     context: DrawContext<'_>,
     geometry: *mut u8,
-) -> Option<GeometryClassification> {
+) -> Direct3DResult<Option<GeometryClassification>> {
     if geometry.is_null()
         || unsafe { read::<*mut u8>(geometry, NativeLayout::NI_GEOMETRY_SHADER) }.is_null()
         || !unsafe { object_bound_within(context, geometry) }
         || unsafe { faded_by_parent(geometry) }
     {
-        return None;
+        return Ok(None);
     }
     let model = unsafe { read::<*mut u8>(geometry, NativeLayout::NI_GEOMETRY_DATA) };
     if model.is_null() {
-        return None;
+        return Ok(None);
     }
     let shade = unsafe { read::<*mut u8>(geometry, NativeLayout::NI_PROPERTY_SHADE) };
     if shade.is_null() {
-        return None;
+        return Ok(None);
     }
     let shader_type = unsafe { read::<u32>(shade, SHADE_TYPE) };
     let shader_flags = unsafe { read::<u32>(shade, SHADER_FLAGS_1) };
@@ -899,9 +906,11 @@ unsafe fn classify_geometry(
         unsafe { read::<f32>(material, NativeLayout::NI_MATERIAL_ALPHA) }
     };
     if !material_alpha.is_finite() || material_alpha < 0.05 {
-        return None;
+        return Ok(None);
     }
-    let bound = unsafe { object_bound(geometry, context.camera_translation) }?;
+    let Some(bound) = (unsafe { object_bound(geometry, context.camera_translation) }) else {
+        return Ok(None);
+    };
     let admission = CasterAdmission {
         form_casts_shadows: true,
         app_culled: false,
@@ -917,13 +926,16 @@ unsafe fn classify_geometry(
         within_frustum: true,
         within_multibound: true,
     };
-    let policy = CasterPolicy::quality_default().with_minimum_radius(context.minimum_radius)?;
+    let Some(policy) = CasterPolicy::quality_default().with_minimum_radius(context.minimum_radius)
+    else {
+        return Ok(None);
+    };
     let under_first_person_root =
-        unsafe { object_is_beneath_root(geometry, context.first_person_root) };
+        unsafe { object_is_beneath_root(geometry, context.first_person_root) }?;
     if first_person_caster_is_excluded(first_person, under_first_person_root)
         || policy.admit(admission).is_err()
     {
-        return None;
+        return Ok(None);
     }
 
     let skin = unsafe { read::<*mut u8>(geometry, NativeLayout::NI_GEOMETRY_SKIN) };
@@ -931,7 +943,7 @@ unsafe fn classify_geometry(
     if !skinned {
         let buffer = unsafe { read::<*mut u8>(model, NativeLayout::NI_GEOMETRY_DATA_BUFFER) };
         if buffer.is_null() || unsafe { read::<u32>(buffer, GEOMETRY_BUFFER_VERTEX_COUNT) } == 0 {
-            return None;
+            return Ok(None);
         }
     }
     // NVR's cube vertex shader stores the point-light position in c63, then
@@ -939,7 +951,7 @@ unsafe fn classify_geometry(
     // radial depth. Point maps therefore reject that unsupported route while
     // directional cascades retain the complete SpeedTree caster path.
     if context.cube_radius.is_some() && shader_type == 6 {
-        return None;
+        return Ok(None);
     }
     let speedtree = !skinned && shader_type == 6;
     let lighting =
@@ -954,15 +966,26 @@ unsafe fn classify_geometry(
     // geometry before the ordinary lighting-property test. Applying that test
     // first drops HairShader actor partitions and produces incomplete bodies.
     if !skinned && !speedtree && !lighting {
-        return None;
+        return Ok(None);
     }
     let alpha_property = unsafe { read::<*mut u8>(geometry, NativeLayout::NI_PROPERTY_ALPHA) };
-    let alpha_cutout = !alpha_property.is_null()
-        && unsafe { read::<u16>(alpha_property, ALPHA_FLAGS) } & (ALPHA_BLEND | ALPHA_TEST) != 0;
+    let alpha_mode = if alpha_property.is_null() {
+        AlphaCasterMode::Opaque
+    } else {
+        let flags = unsafe { read::<u16>(alpha_property, ALPHA_FLAGS) };
+        alpha_caster_mode(flags & ALPHA_BLEND != 0, flags & ALPHA_TEST != 0)
+    };
     // Skinned and terrain passes precede NVR's alpha pass. SpeedTree leaves
     // always use their tree-model diffuse alpha, independent of NiAlphaProperty.
-    let alpha = speedtree || (!skinned && !terrain_lod && alpha_cutout);
-    Some(GeometryClassification {
+    // Ordinary blend-only geometry is a translucent color contribution, not
+    // a binary occluder. In particular, rejecting source-near lamp glow cards
+    // prevents their triangles from filling a point-cube face with shallow
+    // depth and projecting as a giant square.
+    if !skinned && !speedtree && !terrain_lod && alpha_mode == AlphaCasterMode::Translucent {
+        return Ok(None);
+    }
+    let alpha = speedtree || (!skinned && !terrain_lod && alpha_mode == AlphaCasterMode::Cutout);
+    Ok(Some(GeometryClassification {
         geometry_kind: if skinned {
             1.0
         } else if speedtree {
@@ -976,26 +999,30 @@ unsafe fn classify_geometry(
         skinned,
         speedtree,
         terrain_lod,
-    })
+    }))
 }
 
 /// Check explicit scene-graph ownership without retaining or mutating engine
 /// flags. The bound prevents a corrupt parent cycle from stalling the render
 /// thread; a valid FNV view-model hierarchy is far shallower than this limit.
-unsafe fn object_is_beneath_root(mut object: *mut u8, root: *mut u8) -> bool {
+unsafe fn object_is_beneath_root(mut object: *mut u8, root: *mut u8) -> Direct3DResult<bool> {
     if root.is_null() {
-        return false;
+        return Ok(false);
     }
-    for _ in 0..MAX_PARENT_VISITS {
+    let mut budget = TraversalBudget::new(MAX_PARENT_VISITS);
+    while budget.claim() {
         if object.is_null() {
-            return false;
+            return Ok(false);
         }
         if object == root {
-            return true;
+            return Ok(true);
         }
         object = unsafe { read::<*mut u8>(object, NativeLayout::NI_AV_OBJECT_PARENT) };
     }
-    false
+    // Unknown ancestry is not equivalent to world ownership. Treating it as
+    // `false` can admit a deep or cyclic first-person attachment next to the
+    // Pip-Boy light and publish a source-enclosing caster.
+    Err(direct3d_failure())
 }
 
 fn is_lighting_shader_definition(shader_definition: u32) -> bool {
@@ -1055,12 +1082,18 @@ unsafe fn draw_skinned(
     };
     context.device.set_vertex_shader_constant_f(0, &world)?;
 
-    let count =
-        (unsafe { read::<u32>(partition, SKIN_PARTITION_COUNT) } as usize).min(MAX_SKIN_PARTITIONS);
+    let count = complete_bounded_count(
+        unsafe { read::<u32>(partition, SKIN_PARTITION_COUNT) } as usize,
+        MAX_SKIN_PARTITIONS,
+    )
+    .ok_or_else(direct3d_failure)?;
     let partitions = unsafe { read::<*mut u8>(partition, SKIN_PARTITION_ARRAY) };
     let bone_rows = unsafe { read::<*const [f32; 4]>(skin, NativeLayout::NI_SKIN_BONE_MATRICES) };
-    if partitions.is_null() || bone_rows.is_null() {
+    if count == 0 {
         return Ok(());
+    }
+    if partitions.is_null() || bone_rows.is_null() {
+        return Err(direct3d_failure());
     }
     let dismember_entries = if dismember {
         unsafe { read::<*mut u8>(skin, NativeLayout::DISMEMBER_PARTITIONS) }
@@ -1081,8 +1114,14 @@ unsafe fn draw_skinned(
         }
         let entry = unsafe { partitions.add(index * NativeLayout::NI_SKIN_PARTITION_ENTRY_SIZE) };
         let bones = unsafe { read::<u16>(entry, PARTITION_BONES) } as usize;
-        if bones == 0 || bones > MAX_BONES_PER_PARTITION {
+        if bones == 0 {
             continue;
+        }
+        if bones > MAX_BONES_PER_PARTITION {
+            // The shader ABI has a fixed register window. Skipping only this
+            // partition would publish an apparently complete actor with holes;
+            // fail the map transaction so the native result remains active.
+            return Err(direct3d_failure());
         }
         let indices = unsafe { read::<*const u16>(entry, PARTITION_BONE_INDICES) };
         let buffer = unsafe { read::<*mut u8>(entry, PARTITION_BUFFER) };
@@ -1515,8 +1554,9 @@ mod tests {
     use core::mem::size_of;
 
     use super::{
-        CasterSubset, NI_AV_OBJECT_APP_CULLED, TraversalScratch, presentation_object_is_visible,
-        push_traversal_node, read, switch_active_child_index, write,
+        CasterSubset, NI_AV_OBJECT_APP_CULLED, TraversalScratch, object_is_beneath_root,
+        presentation_object_is_visible, push_traversal_node, read, switch_active_child_index,
+        write,
     };
     use crate::effects::shadows::engine::NativeLayout;
 
@@ -1561,6 +1601,45 @@ mod tests {
         assert!(!push_traversal_node(&mut nodes, 3));
         assert_eq!(nodes, [1, 2]);
         assert_eq!(nodes.capacity(), capacity);
+    }
+
+    #[test]
+    fn first_person_ancestry_fails_closed_when_its_native_chain_exceeds_the_budget() {
+        let node_bytes = NativeLayout::NI_AV_OBJECT_PARENT + size_of::<usize>();
+        let mut nodes = (0..=super::MAX_PARENT_VISITS)
+            .map(|_| vec![0_u8; node_bytes])
+            .collect::<Vec<_>>();
+        let pointers = nodes
+            .iter_mut()
+            .map(|node| node.as_mut_ptr())
+            .collect::<Vec<_>>();
+        for index in 0..super::MAX_PARENT_VISITS - 1 {
+            unsafe {
+                write(
+                    pointers[index],
+                    NativeLayout::NI_AV_OBJECT_PARENT,
+                    pointers[index + 1],
+                );
+            }
+        }
+
+        assert!(
+            unsafe { object_is_beneath_root(pointers[0], pointers[super::MAX_PARENT_VISITS - 1]) }
+                .expect("root at the final admitted parent")
+        );
+
+        unsafe {
+            write(
+                pointers[super::MAX_PARENT_VISITS - 1],
+                NativeLayout::NI_AV_OBJECT_PARENT,
+                pointers[0],
+            );
+        }
+        assert!(
+            unsafe { object_is_beneath_root(pointers[0], pointers[super::MAX_PARENT_VISITS]) }
+                .is_err(),
+            "unknown cyclic ancestry was treated as ordinary world ownership"
+        );
     }
 
     #[test]

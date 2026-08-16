@@ -13,10 +13,10 @@ use libpsycho::os::windows::memory::validate_memory_range;
 use super::{
     contract::{
         ALL_CUBE_FACES, CASCADE_COUNT, DirectionalRootSetSignature, NVR_POINT_LIGHT_COUNT,
-        SceneKind, directional_actor_root_is_active, directional_form_type_is_enabled,
-        point_light_distance_fade, point_light_influence_is_eligible, point_light_radii,
-        sphere_intersects_cube_face, sphere_intersects_point_light,
-        stable_point_light_distance_squared,
+        SceneKind, TraversalBudget, complete_bounded_count, directional_actor_root_is_active,
+        directional_form_type_is_enabled, point_light_distance_fade,
+        point_light_influence_is_eligible, point_light_radii, sphere_intersects_cube_face,
+        sphere_intersects_point_light, stable_point_light_distance_squared,
     },
     engine::NativeLayout,
     math::{ActorBounds, CascadeProjection, Sphere, dynamic_caster_cascade_mask},
@@ -501,6 +501,10 @@ pub(super) unsafe fn directional_fov_compensation() -> f32 {
 /// remain present in native scene color without growing the cube-map budget;
 /// OMV never redraws or globally attenuates their illumination.
 ///
+/// `None` rejects an over-limit or internally inconsistent manager inventory.
+/// A prefix cannot prove which lights are actually nearest, so the caller must
+/// preserve native shadow ownership for that transaction.
+///
 /// # Safety
 ///
 /// The common shadow transaction must own the scene manager and its light list.
@@ -511,18 +515,20 @@ pub(super) unsafe fn select_point_lights(
     shadow_limit: usize,
     radius_multiplier: f32,
     draw_distance: f32,
-) -> PointLightSelection {
+) -> Option<PointLightSelection> {
     let mut selected = PointLightSelection::with_shadow_limit(shadow_limit);
     if !camera_translation.into_iter().all(f32::is_finite) {
-        return selected;
+        return Some(selected);
     }
     let getter: ShadowSceneManagerGetter = unsafe { transmute(SHADOW_SCENE_MANAGER_GETTER_ADDR) };
     let manager = unsafe { getter(0) };
     if manager.is_null() {
-        return selected;
+        return Some(selected);
     }
-    let count = (unsafe { read::<u32>(manager, SHADOW_SCENE_MANAGER_LIGHT_COUNT) } as usize)
-        .min(MAX_MANAGER_LIGHTS);
+    let count = complete_bounded_count(
+        unsafe { read::<u32>(manager, SHADOW_SCENE_MANAGER_LIGHT_COUNT) } as usize,
+        MAX_MANAGER_LIGHTS,
+    )?;
     let mut node = unsafe { read::<*mut u8>(manager, SHADOW_SCENE_MANAGER_LIGHTS) };
     let mut scanned = 0usize;
     while !node.is_null() && scanned < count {
@@ -551,7 +557,10 @@ pub(super) unsafe fn select_point_lights(
         node = next;
         scanned += 1;
     }
-    selected
+    // A mismatched count/list pair is not a complete nearest-light inventory.
+    // Returning a prefix could replace an actually-nearer light and make a
+    // whole cube owner blink as the native manager repairs its list.
+    (scanned == count && node.is_null()).then_some(selected)
 }
 
 /// Immutable point-caster ownership for one cube and each of its six faces.
@@ -742,20 +751,21 @@ pub(super) unsafe fn collect_directional_roots(
         if !grid.is_null() {
             let side = unsafe { read::<u8>(grid, GRID_SIZE) } as usize;
             let cells = unsafe { read::<*mut *mut u8>(grid, GRID_CELLS) };
-            if (1..=MAX_GRID_SIDE).contains(&side) && !cells.is_null() {
-                for index in 0..side * side {
-                    let cell = unsafe { read_unaligned(cells.add(index)) };
-                    if !cell.is_null()
-                        && unsafe { read::<u8>(cell, NativeLayout::CELL_FLAGS) } & CELL_INTERIOR
-                            == 0
-                        && !unsafe { collect_cell_directional_roots(cell, roots) }
-                    {
-                        roots.clear();
-                        return false;
-                    }
-                }
-                return unsafe { push_player_directional_root(scene, roots) };
+            if !(1..=MAX_GRID_SIDE).contains(&side) || cells.is_null() {
+                roots.clear();
+                return false;
             }
+            for index in 0..side * side {
+                let cell = unsafe { read_unaligned(cells.add(index)) };
+                if !cell.is_null()
+                    && unsafe { read::<u8>(cell, NativeLayout::CELL_FLAGS) } & CELL_INTERIOR == 0
+                    && !unsafe { collect_cell_directional_roots(cell, roots) }
+                {
+                    roots.clear();
+                    return false;
+                }
+            }
+            return unsafe { push_player_directional_root(scene, roots) };
         }
     }
 
@@ -826,8 +836,11 @@ unsafe fn collect_cell_directional_roots(cell: *mut u8, roots: &mut Vec<Directio
     }
 
     let mut entry = unsafe { cell.add(NativeLayout::CELL_OBJECT_LIST) };
-    let mut visited = 0usize;
-    while !entry.is_null() && visited < MAX_CELL_REFERENCES {
+    let mut budget = TraversalBudget::new(MAX_CELL_REFERENCES);
+    while !entry.is_null() {
+        if !budget.claim() {
+            return false;
+        }
         let reference = unsafe { read::<*mut u8>(entry, LIST_ITEM) };
         if !reference.is_null()
             && unsafe { read::<u32>(reference, NativeLayout::TES_FORM_FLAGS) }
@@ -863,7 +876,6 @@ unsafe fn collect_cell_directional_roots(cell: *mut u8, roots: &mut Vec<Directio
             }
         }
         entry = unsafe { read::<*mut u8>(entry, LIST_NEXT) };
-        visited += 1;
     }
     true
 }
@@ -967,6 +979,8 @@ fn retained_object_state_signature(bound: Option<NativeBound>, transform: [f32; 
 /// passed the `NotCastShadows` form bit and the map-specific form-category
 /// switches. Object/land LOD roots are included only for far and LOD maps.
 /// Root traversal remains bounded even if a corrupted list contains a cycle.
+/// The return value is `false` when any cell list exceeds that bound; callers
+/// must then abandon the OMV map rather than publish the visited prefix.
 ///
 /// # Safety
 ///
@@ -976,7 +990,7 @@ pub(super) unsafe fn visit_directional_roots(
     scene: NativeScene,
     cascade: usize,
     mut visit: impl FnMut(*mut u8, bool, bool),
-) {
+) -> bool {
     if cascade >= 2 {
         for (offset, is_land) in [
             (NativeLayout::TES_OBJECT_LOD_ROOT, false),
@@ -994,42 +1008,47 @@ pub(super) unsafe fn visit_directional_roots(
         if !grid.is_null() {
             let side = unsafe { read::<u8>(grid, GRID_SIZE) } as usize;
             let cells = unsafe { read::<*mut *mut u8>(grid, GRID_CELLS) };
-            if (1..=MAX_GRID_SIDE).contains(&side) && !cells.is_null() {
-                for index in 0..side * side {
-                    let cell = unsafe { read_unaligned(cells.add(index)) };
-                    if !cell.is_null()
-                        && unsafe { read::<u8>(cell, NativeLayout::CELL_FLAGS) } & CELL_INTERIOR
-                            == 0
-                    {
-                        unsafe { visit_cell_roots(cell, Some(cascade), &mut visit) };
+            if !(1..=MAX_GRID_SIDE).contains(&side) || cells.is_null() {
+                return false;
+            }
+            for index in 0..side * side {
+                let cell = unsafe { read_unaligned(cells.add(index)) };
+                if !cell.is_null()
+                    && unsafe { read::<u8>(cell, NativeLayout::CELL_FLAGS) } & CELL_INTERIOR == 0
+                {
+                    if !unsafe { visit_cell_roots(cell, Some(cascade), &mut visit) } {
+                        return false;
                     }
                 }
-                if directional_form_type_is_enabled(cascade, 0x2A)
-                    && let Some(player) = unsafe { player_directional_root(scene) }
-                {
-                    visit(player, false, false);
-                }
-                return;
             }
+            if directional_form_type_is_enabled(cascade, 0x2A)
+                && let Some(player) = unsafe { player_directional_root(scene) }
+            {
+                visit(player, false, false);
+            }
+            return true;
         }
     }
 
     // Interior cells that behave like exteriors have no grid. Their current
     // cell still supplies ordinary statics/actors and a land child when one
     // exists, so the location toggle has meaningful NVR-compatible behavior.
-    unsafe { visit_cell_roots(scene.cell, Some(cascade), &mut visit) };
+    if !unsafe { visit_cell_roots(scene.cell, Some(cascade), &mut visit) } {
+        return false;
+    }
     if directional_form_type_is_enabled(cascade, 0x2A)
         && let Some(player) = unsafe { player_directional_root(scene) }
     {
         visit(player, false, false);
     }
+    true
 }
 
 unsafe fn visit_cell_roots(
     cell: *mut u8,
     directional_cascade: Option<usize>,
     visit: &mut impl FnMut(*mut u8, bool, bool),
-) {
+) -> bool {
     let cell_state = unsafe { read::<*mut u8>(cell, CELL_STRUCT) };
     if !cell_state.is_null() {
         let master = unsafe { read::<*mut u8>(cell_state, CELL_STRUCT_MASTER_NODE) };
@@ -1039,8 +1058,11 @@ unsafe fn visit_cell_roots(
     }
 
     let mut entry = unsafe { cell.add(NativeLayout::CELL_OBJECT_LIST) };
-    let mut visited = 0usize;
-    while !entry.is_null() && visited < MAX_CELL_REFERENCES {
+    let mut budget = TraversalBudget::new(MAX_CELL_REFERENCES);
+    while !entry.is_null() {
+        if !budget.claim() {
+            return false;
+        }
         let reference = unsafe { read::<*mut u8>(entry, LIST_ITEM) };
         if !reference.is_null()
             && unsafe { read::<u32>(reference, NativeLayout::TES_FORM_FLAGS) }
@@ -1065,8 +1087,8 @@ unsafe fn visit_cell_roots(
             }
         }
         entry = unsafe { read::<*mut u8>(entry, LIST_NEXT) };
-        visited += 1;
     }
+    true
 }
 
 unsafe fn point_light(

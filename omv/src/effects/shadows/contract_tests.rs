@@ -1,28 +1,28 @@
 use super::contract::{
-    ActorOverlayProjectionPlan, CASCADE_COUNT, CascadeDirty, CascadeScheduler,
+    ActorOverlayProjectionPlan, AlphaCasterMode, CASCADE_COUNT, CascadeDirty, CascadeScheduler,
     CascadeSphereSelection, CasterAdmission, CasterPolicy, DeferredReceiverPlan,
     DirectionalRootSetSignature, HookAction, LightScissorRect, NVR_CASCADE_RESOLUTION,
     NVR_POINT_DRAW_DISTANCE, NVR_POINT_LIGHT_COUNT, NVR_POINT_RADIUS_MULTIPLIER,
     PointFaceOperation, PointLightCandidate, PointMapCache, PointMapSignature,
     PointStaticFaceCache, ProducerResourcePlan, SceneKind, ShadowConsumerWorkPlan, ShadowFramePlan,
     ShadowMapUpdate, ShadowPublicationIdentity, ShadowSettings, SkinIndexEncoding, SunCompetition,
-    TransactionState, actor_overlay_edge_visibility, actor_overlay_projection_plan,
-    cascade_minimum_caster_radius, cascade_sphere_selection, clipmap_texel_delta,
-    composite_shadow_factor, consumer_has_shadow_work, contact_consumer_work,
-    depth_sample_is_geometry, directional_actor_root_is_active, directional_caster_work,
-    directional_contact_visibility, directional_form_type_is_enabled,
-    directional_receiver_position, directional_root_set_dirty, dismember_partition_is_renderable,
-    effective_contact_distance, evsm4_moments, evsm4_visibility, exterior_point_shadow_radiance,
-    interior_shadow_factor, local_light_clear_coverage, local_light_shadow_energy,
-    local_light_shadow_weight, local_light_source_guard, nvr_contact_sample_offsets,
-    point_caster_depth, point_caster_inventory_is_complete, point_consumer_plan,
-    point_light_distance_fade, point_light_influence_is_eligible, point_light_radii,
-    point_only_shadow_radiance, point_shadow_transition, point_shadow_visibility,
-    practical_cascade_splits, publication_epoch_is_usable, publication_identity_is_usable,
-    retained_cascade_refresh, select_point_lights, select_point_lights_stable,
-    shadow_receiver_is_valid, skinned_position_reference, snap_shadow_center,
-    source_owned_shadow_radiance, sphere_intersects_cube_face, sphere_intersects_point_light,
-    terrain_lod_shadow_z,
+    TransactionState, TraversalBudget, actor_overlay_edge_visibility,
+    actor_overlay_projection_plan, alpha_caster_mode, cascade_minimum_caster_radius,
+    cascade_sphere_selection, clipmap_texel_delta, complete_bounded_count, composite_shadow_factor,
+    consumer_has_shadow_work, contact_consumer_work, depth_sample_is_geometry,
+    directional_actor_root_is_active, directional_caster_work, directional_contact_visibility,
+    directional_form_type_is_enabled, directional_receiver_position, directional_root_set_dirty,
+    dismember_partition_is_renderable, effective_contact_distance, evsm4_moments, evsm4_visibility,
+    exterior_point_shadow_radiance, interior_shadow_factor, local_light_clear_coverage,
+    local_light_shadow_energy, local_light_shadow_weight, local_light_source_guard,
+    nvr_contact_sample_offsets, point_caster_depth, point_caster_inventory_is_complete,
+    point_consumer_plan, point_light_distance_fade, point_light_influence_is_eligible,
+    point_light_radii, point_only_shadow_radiance, point_shadow_transition,
+    point_shadow_visibility, practical_cascade_splits, publication_epoch_is_usable,
+    publication_identity_is_usable, retained_cascade_refresh, select_point_lights,
+    select_point_lights_stable, shadow_receiver_is_valid, skinned_position_reference,
+    snap_shadow_center, source_owned_shadow_radiance, sphere_intersects_cube_face,
+    sphere_intersects_point_light, terrain_lod_shadow_z,
 };
 use super::engine::{
     EngineCallAbi, FNV_EXE_SHA256, GeometryKind, HookSiteContract, NativeLayout,
@@ -239,6 +239,24 @@ fn selected_point_lights_require_a_complete_canonical_root_inventory() {
 }
 
 #[test]
+fn native_traversal_limits_reject_the_first_unvisited_element() {
+    let mut budget = TraversalBudget::new(2);
+    assert!(budget.claim());
+    assert!(budget.claim());
+    assert!(
+        !budget.claim(),
+        "a bounded walk certified an unvisited native element as complete"
+    );
+
+    assert_eq!(complete_bounded_count(2, 2), Some(2));
+    assert_eq!(
+        complete_bounded_count(3, 2),
+        None,
+        "a native array count was truncated instead of rejecting partial shadow work"
+    );
+}
+
+#[test]
 fn executable_identity_and_common_hook_topology_are_exact() {
     assert_eq!(
         FNV_EXE_SHA256,
@@ -451,6 +469,26 @@ fn native_material_alpha_and_point_light_admission_match_modern_nvr() {
         [0.0, 0.0, 1.0],
         8_000.0,
     ));
+}
+
+#[test]
+fn blend_only_light_cards_never_become_binary_shadow_casters() {
+    assert_eq!(alpha_caster_mode(false, false), AlphaCasterMode::Opaque);
+    assert_eq!(alpha_caster_mode(false, true), AlphaCasterMode::Cutout);
+    assert_eq!(alpha_caster_mode(true, true), AlphaCasterMode::Cutout);
+    assert_eq!(
+        alpha_caster_mode(true, false),
+        AlphaCasterMode::Translucent,
+        "a blend-only lamp card was promoted to a face-spanning hard caster"
+    );
+
+    let blend_enabled = true;
+    let test_enabled = false;
+    let old_combined_flag_test = blend_enabled || test_enabled;
+    assert!(
+        old_combined_flag_test,
+        "negative control no longer models the buggy blend-or-test admission"
+    );
 }
 
 #[test]
@@ -1989,6 +2027,63 @@ fn point_cube_slots_survive_distance_order_changes_without_redrawing() {
     );
     assert_eq!(moved.published[0].identity, first_order[0].identity);
     assert_eq!(moved.published[1].identity, first_order[1].identity);
+}
+
+#[test]
+fn pip_boy_light_insertion_preserves_cube_and_metadata_ownership() {
+    let mut initial = [PointMapSignature::EMPTY; NVR_POINT_LIGHT_COUNT];
+    for (index, signature) in initial.iter_mut().enumerate() {
+        *signature = PointMapSignature {
+            identity: 0x1000 + index,
+            position: [index as f32 * 10.0, 1.0, 2.0],
+            radius: 300.0 + index as f32,
+            caster_signature: 0xA000 + index as u64,
+        };
+    }
+    let first = PointMapCache::default().plan(initial, [0; NVR_POINT_LIGHT_COUNT], 12);
+
+    // Model a carried light entering nearest-first source order and displacing
+    // only the former twelfth candidate. Retained physical slots must keep
+    // their cube owners while every published metadata tuple follows the
+    // source index assigned to that same slot.
+    let mut with_pip_boy = [PointMapSignature::EMPTY; NVR_POINT_LIGHT_COUNT];
+    with_pip_boy[0] = PointMapSignature {
+        identity: 0xBEEF,
+        position: [3.0, 4.0, 5.0],
+        radius: 640.0,
+        caster_signature: 0xCAFE,
+    };
+    with_pip_boy[1..].copy_from_slice(&initial[..NVR_POINT_LIGHT_COUNT - 1]);
+    let inserted = first
+        .next
+        .plan(with_pip_boy, [0; NVR_POINT_LIGHT_COUNT], 12);
+
+    let mut published_identities = [0usize; NVR_POINT_LIGHT_COUNT];
+    for slot in 0..NVR_POINT_LIGHT_COUNT {
+        let source = inserted
+            .source_index(slot)
+            .expect("occupied physical cube slot");
+        assert_eq!(
+            inserted.published[slot], with_pip_boy[source],
+            "slot {slot} mixed one cube owner with another light's metadata"
+        );
+        published_identities[slot] = inserted.published[slot].identity;
+        if inserted.published[slot].identity == 0xBEEF {
+            assert_eq!(inserted.render_faces[slot], 0x3f);
+        } else {
+            assert_eq!(
+                inserted.render_faces[slot], 0,
+                "Pip-Boy admission unnecessarily rebuilt retained cube slot {slot}"
+            );
+        }
+    }
+    published_identities.sort_unstable();
+    assert!(
+        published_identities
+            .windows(2)
+            .all(|pair| pair[0] != pair[1]),
+        "two physical slots claimed the same selected light"
+    );
 }
 
 #[test]

@@ -41,16 +41,16 @@ use super::{
     NativeShadowsSettings,
     contract::{
         CASCADE_COUNT, CascadeDirty, CascadeScheduler, CascadeSplit, ClipmapRect, ClipmapScroll,
-        DirectionalRootSetSignature, MAX_CLIPMAP_STRIP_WIDTH, NVR_CASCADE_RESOLUTION,
-        NVR_POINT_LIGHT_COUNT, POINT_CONSUMER_BATCH_SIZE, PointFaceOperation, PointMapCache,
-        PointMapPlan, PointMapSignature, PointStaticFaceCache, SceneKind, ShadowConsumerWorkPlan,
-        ShadowMapUpdate, ShadowPublicationIdentity, SunCompetition, cascade_minimum_caster_radius,
-        clipmap_texel_delta, consumer_has_shadow_work, directional_caster_work,
-        directional_root_set_dirty, effective_contact_distance, evsm4_moments,
-        local_light_clear_coverage, nvr_contact_sample_offsets, point_caster_inventory_is_complete,
-        point_consumer_plan, point_light_scissor, point_shadow_transition,
-        practical_cascade_splits, publication_epoch_is_usable, publication_identity_is_usable,
-        retained_cascade_refresh,
+        DirectionalRootSetSignature, LightScissorRect, MAX_CLIPMAP_STRIP_WIDTH,
+        NVR_CASCADE_RESOLUTION, NVR_POINT_LIGHT_COUNT, POINT_CONSUMER_BATCH_SIZE,
+        PointFaceOperation, PointMapCache, PointMapPlan, PointMapSignature, PointStaticFaceCache,
+        SceneKind, ShadowConsumerWorkPlan, ShadowMapUpdate, ShadowPublicationIdentity,
+        SunCompetition, cascade_minimum_caster_radius, clipmap_texel_delta,
+        consumer_has_shadow_work, directional_caster_work, directional_root_set_dirty,
+        effective_contact_distance, evsm4_moments, local_light_clear_coverage,
+        nvr_contact_sample_offsets, point_caster_inventory_is_complete, point_consumer_plan,
+        point_light_scissor, point_shadow_transition, practical_cascade_splits,
+        publication_epoch_is_usable, publication_identity_is_usable, retained_cascade_refresh,
     },
     math::{
         CascadeProjection, ShadowCamera, cascade_projection, point_cube_views,
@@ -593,7 +593,7 @@ impl ShadowPipeline {
                     settings.interior_shadowed_lights,
                     settings.interior_light_radius_multiplier,
                     settings.interior_light_draw_distance,
-                )
+                )?
             }
         } else {
             native::PointLightSelection::default()
@@ -1890,6 +1890,7 @@ impl ShadowResources {
                     settings.interior_light_radius_multiplier,
                     settings.interior_light_draw_distance,
                 )
+                .ok_or_else(direct3d_failure)?
             }
         } else {
             native::PointLightSelection::default()
@@ -2088,13 +2089,16 @@ impl ShadowResources {
                 draw_root(root.node(), root.is_land, root.is_lod);
             }
         } else {
-            unsafe {
+            let complete = unsafe {
                 // Capacity overflow is rare and intentionally preserves the
                 // old complete bounded visitor instead of reallocating or
                 // accepting a partial shadow map.
                 native::visit_directional_roots(scene, cascade, |root, is_land, is_lod| {
                     draw_root(root, is_land, is_lod);
-                });
+                })
+            };
+            if !complete {
+                return Err(direct3d_failure());
             }
         }
         draw_result?;
@@ -2694,6 +2698,16 @@ impl ShadowResources {
             targets,
             settings,
         );
+        if draw_result.is_err()
+            && let Some(local_lights) = targets.local_lights.as_ref()
+        {
+            // The accumulation targets persist across frames but D3D writes
+            // are not transactional. A failure after one scissored batch may
+            // leave data outside the last successfully published coverage.
+            // Force the next admitted frame through a full clear instead of
+            // allowing that unknown prefix to survive as a rectangular island.
+            local_lights.invalidate();
+        }
         finish_exact_render_transaction(&device, &attachments, draw_result, || {
             d3d_state.restore(&device)
         })?;
@@ -2742,27 +2756,7 @@ impl ShadowResources {
             set_viewport(device, 0, 0, local_lights.width, local_lights.height)?;
             let plan = work.points();
             let current_coverage = plan.coverage();
-            if !local_lights.initialized.get() {
-                // Newly allocated render targets have undefined contents.
-                // This is the only full-surface clear in their lifetime.
-                device.clear_attachments(D3DCLEAR_TARGET as u32, 0, 1.0, 0)?;
-                local_lights.initialized.set(true);
-            } else if let Some(clear) =
-                local_light_clear_coverage(local_lights.previous_coverage.get(), current_coverage)
-            {
-                device.clear_attachment_rect(
-                    &RECT {
-                        left: clear.left as i32,
-                        top: clear.top as i32,
-                        right: clear.right as i32,
-                        bottom: clear.bottom as i32,
-                    },
-                    D3DCLEAR_TARGET as u32,
-                    0,
-                    1.0,
-                    0,
-                )?;
-            }
+            prepare_local_light_accumulation(device, local_lights, current_coverage)?;
             // Reconstruct depth and the edge-aware normal inside the same
             // scissored draw that consumes the cubes. The equations are
             // identical to the former geometry pass, but its full-resolution
@@ -3147,6 +3141,50 @@ impl LocalLightConsumerTargets {
             previous_coverage: Cell::new(None),
         })
     }
+
+    /// Mark persistent accumulation contents unknown after an interrupted draw.
+    fn invalidate(&self) {
+        self.initialized.set(false);
+        self.previous_coverage.set(None);
+    }
+}
+
+/// Clear every pixel which can contain point-light data from either frame.
+///
+/// Both FP16 targets must already occupy MRT slots zero and one. D3D9 `Clear`
+/// applies the target clear to all active render targets, so one identical
+/// rectangle transaction resets deficit and total without state divergence.
+/// The previous and current rectangles are unioned because a light leaving a
+/// screen region is just as important as one entering it: clearing only the
+/// current region leaves a stale rectangular shadow island behind.
+fn prepare_local_light_accumulation(
+    device: &Device9Ref<'_>,
+    targets: &LocalLightConsumerTargets,
+    current_coverage: Option<LightScissorRect>,
+) -> Direct3DResult<()> {
+    if !targets.initialized.get() {
+        // Newly allocated render targets have undefined contents. This is the
+        // only full-surface clear in their lifetime.
+        device.clear_attachments(D3DCLEAR_TARGET as u32, 0, 1.0, 0)?;
+        targets.initialized.set(true);
+        return Ok(());
+    }
+    let Some(clear) = local_light_clear_coverage(targets.previous_coverage.get(), current_coverage)
+    else {
+        return Ok(());
+    };
+    device.clear_attachment_rect(
+        &RECT {
+            left: clear.left as i32,
+            top: clear.top as i32,
+            right: clear.right as i32,
+            bottom: clear.bottom as i32,
+        },
+        D3DCLEAR_TARGET as u32,
+        0,
+        1.0,
+        0,
+    )
 }
 
 impl ContactConsumerTargets {
@@ -3537,14 +3575,15 @@ fn dot3(left: [f32; 3], right: [f32; 3]) -> f32 {
 #[cfg(test)]
 mod tests {
     use super::{
-        CUBE_FACES, PointResources, cascade_split_change_mask, consumer_selection_spheres,
-        directional_no_work_state_changed, projection_materially_changed,
-        publish_static_point_face, set_point_clamp_sampler, set_viewport, translate_shadow_matrix,
+        CUBE_FACES, LocalLightConsumerTargets, PointResources, cascade_split_change_mask,
+        consumer_selection_spheres, directional_no_work_state_changed,
+        prepare_local_light_accumulation, projection_materially_changed, publish_static_point_face,
+        set_point_clamp_sampler, set_viewport, translate_shadow_matrix,
     };
     use crate::effects::shadows::{
         contract::{
-            CascadeDirty, NVR_CASCADE_RESOLUTION, cascade_sphere_selection, clipmap_texel_delta,
-            practical_cascade_splits,
+            CascadeDirty, LightScissorRect, NVR_CASCADE_RESOLUTION, cascade_sphere_selection,
+            clipmap_texel_delta, practical_cascade_splits,
         },
         math::{ShadowCamera, cascade_projection},
         shaders::CUBE_PIXEL_SOURCE,
@@ -3553,11 +3592,12 @@ mod tests {
         directx9::{
             D3DCLEAR_TARGET, D3DCULL_NONE, D3DDEVTYPE_HAL, D3DDEVTYPE_NULLREF, D3DFMT_R32F,
             D3DFVF_XYZ, D3DPT_TRIANGLELIST, D3DRS_ALPHABLENDENABLE, D3DRS_COLORWRITEENABLE,
-            D3DRS_CULLMODE, D3DRS_ZENABLE, D3DRS_ZWRITEENABLE, Device9, Device9Ref,
+            D3DRS_CULLMODE, D3DRS_ZENABLE, D3DRS_ZWRITEENABLE, Device9, Device9Ref, RECT,
             ShadowConsumerState9, ShadowProducerState9, Surface9, create_direct3d9,
         },
         winapi::{get_active_window, get_desktop_window, get_foreground_window},
     };
+    use std::cell::Cell;
 
     #[repr(C)]
     #[derive(Clone, Copy)]
@@ -3621,6 +3661,137 @@ mod tests {
                         .expect("cached static face")
                         .as_raw(),
                     queried_static.as_raw()
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn point_accumulation_clears_departed_coverage_from_both_mrt_targets() {
+        let owner = raster_test_device();
+        let device = owner.as_ref();
+        let deficit = device
+            .create_render_target_texture(4, 4, D3DFMT_R32F)
+            .expect("deficit test target");
+        let total = device
+            .create_render_target_texture(4, 4, D3DFMT_R32F)
+            .expect("total test target");
+        let targets = LocalLightConsumerTargets {
+            deficit_surface: deficit.surface_level(0).expect("deficit surface"),
+            deficit,
+            total_surface: total.surface_level(0).expect("total surface"),
+            total,
+            width: 4,
+            height: 4,
+            initialized: Cell::new(false),
+            previous_coverage: Cell::new(None),
+        };
+        device
+            .set_render_target(0, &targets.deficit_surface)
+            .expect("deficit MRT binding");
+        device
+            .set_render_target(1, &targets.total_surface)
+            .expect("total MRT binding");
+
+        let previous = LightScissorRect {
+            left: 0,
+            top: 0,
+            right: 2,
+            bottom: 2,
+        };
+        prepare_local_light_accumulation(&device, &targets, Some(previous))
+            .expect("initial full clear");
+        device
+            .clear_attachment_rect(
+                &RECT {
+                    left: 0,
+                    top: 0,
+                    right: 2,
+                    bottom: 2,
+                },
+                D3DCLEAR_TARGET as u32,
+                0x00ff_0000,
+                1.0,
+                0,
+            )
+            .expect("first-frame point data");
+        targets.previous_coverage.set(Some(previous));
+
+        let current = LightScissorRect {
+            left: 2,
+            top: 1,
+            right: 4,
+            bottom: 3,
+        };
+        prepare_local_light_accumulation(&device, &targets, Some(current))
+            .expect("previous/current union clear");
+        device
+            .clear_attachment_rect(
+                &RECT {
+                    left: 2,
+                    top: 1,
+                    right: 4,
+                    bottom: 3,
+                },
+                D3DCLEAR_TARGET as u32,
+                0x00ff_0000,
+                1.0,
+                0,
+            )
+            .expect("second-frame point data");
+
+        let deficit_pixels = read_r32f(&device, &targets.deficit_surface);
+        let total_pixels = read_r32f(&device, &targets.total_surface);
+        assert_eq!(deficit_pixels, total_pixels, "MRT clear ownership diverged");
+        for y in 0..4 {
+            for x in 0..4 {
+                let expected = if (2..4).contains(&x) && (1..3).contains(&y) {
+                    1.0
+                } else {
+                    0.0
+                };
+                assert!(
+                    (deficit_pixels[y * 4 + x] - expected).abs() <= f32::EPSILON,
+                    "stale point accumulation at ({x}, {y}): {:?}",
+                    deficit_pixels
+                );
+            }
+        }
+
+        targets.previous_coverage.set(Some(current));
+        targets.invalidate();
+        let recovery = LightScissorRect {
+            left: 0,
+            top: 3,
+            right: 1,
+            bottom: 4,
+        };
+        prepare_local_light_accumulation(&device, &targets, Some(recovery))
+            .expect("post-failure full clear");
+        device
+            .clear_attachment_rect(
+                &RECT {
+                    left: 0,
+                    top: 3,
+                    right: 1,
+                    bottom: 4,
+                },
+                D3DCLEAR_TARGET as u32,
+                0x00ff_0000,
+                1.0,
+                0,
+            )
+            .expect("recovered point data");
+        let recovered_deficit = read_r32f(&device, &targets.deficit_surface);
+        let recovered_total = read_r32f(&device, &targets.total_surface);
+        assert_eq!(recovered_deficit, recovered_total);
+        for y in 0..4 {
+            for x in 0..4 {
+                let expected = if x == 0 && y == 3 { 1.0 } else { 0.0 };
+                assert!(
+                    (recovered_deficit[y * 4 + x] - expected).abs() <= f32::EPSILON,
+                    "interrupted-frame data survived recovery at ({x}, {y}): {:?}",
+                    recovered_deficit
                 );
             }
         }

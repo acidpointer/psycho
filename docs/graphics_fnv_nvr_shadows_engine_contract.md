@@ -6117,6 +6117,161 @@ the documented `.bss = 0x6B10`, `.idata = 0x340C`, `.tls = 0x8`, TLS directory
 not gameplay performance, image correctness, device-reset behavior, or the
 required Proton load-to-gameplay acceptance.
 
+## Intermittent point-shadow squares and holes (2026-08-16)
+
+### Reported behavior and evidence boundary
+
+The reported failure is intermittent and location-sensitive. In some compact,
+lamp-heavy interiors, an ordinary light can project a giant square shadow.
+Enabling the Pip-Boy light may remove that square while exposing different
+rectangular artifacts on walls or floors. Exterior night traversal can expose
+large isolated shadow regions which blink or fade as the player crosses them.
+The reporter has no screenshots for this incident, so shape attribution remains
+a reasoned inference until an ordinary gameplay playtest accepts the correction.
+
+Repository inspection established three independent facts:
+
+1. several bounded producer walks could stop at their limit and return success,
+   publishing a caster prefix as though it were a complete map;
+2. ordinary blend-only `NiAlphaProperty` geometry was promoted to binary alpha
+   cutout geometry, so a translucent glow card near a lamp could write shallow
+   radial depth across most of a cube face; and
+3. the persistent scissored MRT consumer had no real multi-frame clear/readback
+   regression, although its pure coverage model unions previous and current
+   rectangles correctly.
+
+The first two are direct code facts. Their correspondence to the reported holes
+and squares is inference pending gameplay. Modern TES Reloaded reference source
+independently documents the same source-near failure class by excluding a torch
+geometry because it renders a bad square. OMV does not inherit that asset-name
+exception; the implemented rule is representation-based and mod-agnostic.
+
+### Complete-or-native producer invariant
+
+Every native inventory bound now distinguishes safety from completeness. A
+finite `TraversalBudget` is claimed before each scene node or cell-list element
+is dereferenced. Native array counts are accepted only in full. Exhausting a
+node, child, cell-reference, skin-partition, bone-register, light-manager, or
+first-person ancestry bound aborts the OMV shadow transaction. Invalid exterior
+grid metadata and manager count/list disagreement do the same. No limit is
+silently raised and no visited prefix is published.
+
+This failure route preserves existing ownership. Point-map cache and face
+signatures commit only after every requested draw succeeds. Directional fallback
+visitation now returns an explicit completeness result; a cell list beyond its
+safe bound fails the replacement map rather than reproducing the same truncation
+through the fallback path. The surrounding common-shadow transaction restores
+native skin state, D3D attachments, and exact device state before returning to
+the supported native result.
+
+The limits remain allocation-free and unchanged:
+
+- 32,768 visited scene objects and 16,384 children per node;
+- 4,096 references per cell and a 15-by-15 exterior grid;
+- 64 skin partitions, 18 bones per partition, and 2,048 journaled skins; and
+- 512 manager lights, from which the stable nearest twelve cubes are selected.
+
+The important change is semantic: reaching a safety limit is no longer
+misreported as complete rendering.
+
+### Alpha-caster representation
+
+`AlphaCasterMode` separates opaque, alpha-tested cutout, and blend-only
+translucent geometry. Alpha testing wins when both native bits are present and
+continues to sample the diffuse alpha silhouette. SpeedTree's established
+intrinsic cutout path, terrain ownership, and the accepted skinned path are
+unchanged. Ordinary blend-only lighting geometry is not submitted to the hard
+depth map because fractional transmission cannot be represented by one radial
+depth value.
+
+This removes lamp halos, glow planes, and translucent shells from the specific
+binary route which can magnify a source-near triangle into a face-sized blocker.
+It does not inspect mesh names, forms, lamp types, Pip-Boy identity, or another
+mod. Opaque lamp fixtures remain casters. No general source-enclosing bound
+heuristic was added because a large wall bound can legitimately contain a
+light; excluding it without a demonstrated geometry-level rule would create
+the opposite leak.
+
+### Scissored MRT consumer result
+
+The scissored consumer optimization is retained. A real Wine/D3D9 regression
+binds two `R32F` render targets, writes a first-frame rectangle to both, moves
+coverage, clears the production previous/current union, and reads both targets
+back through system memory. It proves departed pixels are neutral in both MRTs
+and current pixels agree. This execution test rejects a current-only clear and
+a target-zero-only clear, the two direct rectangular-island failure classes.
+
+D3D writes themselves are not transactional. A driver or draw failure after a
+partial batch can therefore leave unknown data even though device state is
+restored. The consumer now invalidates both persistent accumulation targets on
+any failed draw. The next admitted frame performs a full clear before accepting
+scissored work. The same D3D regression writes interrupted-frame data, triggers
+invalidation, and proves that only the recovery rectangle remains afterward.
+
+Normal successful frames retain the previous/current union clear, fixed-capacity
+batch plan, full-resolution formats, and existing shader ABI. There is no extra
+pass, texture, per-frame allocation, blocking lock, readback, logging, or
+fullscreen clear in normal gameplay.
+
+### Stable light ownership
+
+Pip-Boy admission is modeled as a thirteenth nearest-first candidate displacing
+one existing light from the twelve-cube budget. The regression requires every
+retained identity to keep its physical cube without redraw, the new identity to
+refresh exactly one six-face cube, and each published position/radius/signature
+tuple to follow the same source index as that cube. Duplicate physical owners
+are rejected. This closes the reported light-insertion transition without
+assuming that the incident was an atlas collision.
+
+### Configuration, lifecycle, and compatibility
+
+This correction adds no configuration field, preset value, migration, schema
+change, hook, route bit, worker, thread, TLS value, static owner, resource
+family, shader variant, or pre-`DeferredInit` first touch. The pipeline owner
+shape and startup ordering are unchanged. All new policy state is stack-local
+or test-only; accumulation invalidation reuses existing post-deferred `Cell`
+fields. The correction therefore does not alter the frozen startup footprint.
+
+No third-party behavior is detected or patched. Unsupported or inconsistent
+native inventories fail to the existing OMV transaction fallback instead of
+disabling native lighting or reducing configured light coverage.
+
+### Tests and runtime acceptance
+
+The focused behavioral regressions are:
+
+- `native_traversal_limits_reject_the_first_unvisited_element`;
+- `first_person_ancestry_fails_closed_when_its_native_chain_exceeds_the_budget`;
+- `blend_only_light_cards_never_become_binary_shadow_casters`, including the
+  former blend-or-test predicate as a negative control;
+- `pip_boy_light_insertion_preserves_cube_and_metadata_ownership`; and
+- `point_accumulation_clears_departed_coverage_from_both_mrt_targets`, including
+  interrupted-draw recovery and exact two-target readback.
+
+Static validation can prove complete-or-fallback publication, alpha policy,
+slot pairing, clear coverage, target agreement, shader compilation, and bounded
+work. It cannot prove that the user's random locations contain the hypothesized
+asset class or that no separate driver/content interaction remains.
+
+Runtime acceptance therefore requires an ordinary Proton playtest in a
+lamp-heavy small interior and during exterior night walking. Toggle the Pip-Boy
+while stationary and moving, rotate the camera around fixtures, cross the
+nearest-twelve boundary, and revisit previously affected terrain. Acceptance
+requires no giant rectangular caster, no departed shadow island, no unrelated
+lamp/cube ownership change, and either a complete OMV map or native fallback in
+exceptionally complex scenes. The existing BaseObjectSwapper load-to-gameplay
+check remains required for release acceptance even though this change does not
+touch the pre-deferred footprint.
+
+Static closure on 2026-08-16 passed all 689 OMV tests under Wine, including
+179 focused shadow tests and the real D3D9 two-target readback. The explicit
+`i686-pc-windows-gnu` release build completed without Rust warnings. The
+resulting 12,878,225-byte `omv.dll` has SHA-256
+`da1ac29ee41d3cf1b6eb4d7c1a55767d1f131b897cbff7c52bd7afbe1294a615`.
+`git diff --check` also passed for the complete correction. These results prove
+static, shader, D3D execution-test, and build closure; gameplay image correctness
+and load-to-gameplay acceptance remain pending.
+
 ## Primary evidence index
 
 ### Current executable and static artifacts
@@ -6170,7 +6325,8 @@ required Proton load-to-gameplay acceptance.
 - `.research/TESReloaded10-master/src/core/ShadowManager.h:1-58`;
 - `.research/TESReloaded10-master/src/core/RenderPass.cpp:77-93,245-310`;
 - `.research/TESReloaded10-master/src/NewVegas/nvse/GameNi.cpp:311-313`;
-- `.research/TESReloaded10-master/src/NewVegas/nvse/GameNi.h:1244-1260,2515-2532`;
+- `.research/TESReloaded10-master/src/NewVegas/nvse/GameNi.h:1244-1260,2515-2532,3131-3183`;
+- `.research/TESReloaded10-master/src/core/ShaderManager.cpp:521-570`;
 - `.research/TESReloaded10-master/src/core/ShaderManager.cpp:151-160,521-721`;
 - `.research/TESReloaded10-master/src/effects/ShadowsExterior.cpp:1-690`;
 - `.research/TESReloaded10-master/src/effects/ShadowsExterior.h:1-207`;

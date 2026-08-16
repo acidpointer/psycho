@@ -120,6 +120,71 @@ pub(super) const fn first_person_caster_is_excluded(
     shader_flagged || under_first_person_root
 }
 
+/// Finite work budget for a native pointer traversal.
+///
+/// Engine lists and scene graphs are not trusted to terminate. Callers must
+/// claim one unit before dereferencing each element and abandon the complete
+/// shadow transaction when `claim` returns `false`. Reaching the limit is not
+/// successful completion: publishing the visited prefix would cache a shadow
+/// map whose missing casters are indistinguishable from empty space.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) struct TraversalBudget {
+    remaining: usize,
+}
+
+impl TraversalBudget {
+    /// Create a traversal budget admitting at most `limit` elements.
+    pub(super) const fn new(limit: usize) -> Self {
+        Self { remaining: limit }
+    }
+
+    /// Claim the next element, returning `false` once the complete budget is spent.
+    pub(super) const fn claim(&mut self) -> bool {
+        if self.remaining == 0 {
+            return false;
+        }
+        self.remaining -= 1;
+        true
+    }
+}
+
+/// Validate a native count before iterating its complete backing array.
+///
+/// Clamping a count would publish a plausible but incomplete map. `None`
+/// therefore means the caller must abort OMV production and retain the native
+/// shadow result rather than silently skipping the tail.
+pub(super) const fn complete_bounded_count(count: usize, limit: usize) -> Option<usize> {
+    if count <= limit { Some(count) } else { None }
+}
+
+/// Binary shadow-map representation supported by one alpha property.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) enum AlphaCasterMode {
+    /// Geometry writes depth without sampling texture alpha.
+    Opaque,
+    /// Alpha testing defines a binary silhouette suitable for a depth map.
+    Cutout,
+    /// Blend-only geometry has fractional coverage which a hard depth cannot encode.
+    Translucent,
+}
+
+/// Classify native alpha state for binary shadow-map generation.
+///
+/// Alpha testing takes precedence when both modes are enabled because the
+/// texture then supplies an explicit binary coverage boundary. Blend-only
+/// cards, halos, and shells are rejected: treating their entire triangles as
+/// opaque is the source-near failure mode which projects lamp cards as giant
+/// square shadows.
+pub(super) const fn alpha_caster_mode(blend_enabled: bool, test_enabled: bool) -> AlphaCasterMode {
+    if test_enabled {
+        AlphaCasterMode::Cutout
+    } else if blend_enabled {
+        AlphaCasterMode::Translucent
+    } else {
+        AlphaCasterMode::Opaque
+    }
+}
+
 /// Reject temporal reuse when only contact-receiver depth is available.
 ///
 /// Equal receiver depth proves only that both frames contain the same wall or
