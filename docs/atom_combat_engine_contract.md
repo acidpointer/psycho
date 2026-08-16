@@ -258,16 +258,37 @@ research item. No recoil hook address is approved by this document.
 ### Aim convergence and cover
 
 Third-person aiming has two distinct geometric questions: where the view ray
-points and whether the real muzzle can reach that point. A shoulder camera that
-uses only the view ray can shoot around nearby cover; a system that uses only
-the muzzle ray can miss the crosshair at distance.
+points and whether a projectile starting at the real muzzle can reach that
+point. A shoulder camera that changes launch origin can shoot around nearby
+cover; a system that aims only along the muzzle forward can miss the crosshair
+at distance.
 
-Atom's camera work has separately mapped native third-person construction at
-`0x0094AE40`. Combat integration must publish an explicit resolved view heading
-and then, at the proven launch/aim boundary, select a view target and cast from
-the real muzzle to it. Near muzzle obstruction wins. Native spread is applied
-around the resulting legal shot direction, and visual camera shake must not
-feed back into the logical ray after it is resolved.
+The camera follow-up research closes both native boundaries. At
+`0x0070C130 -> 0x00631D60`, the existing `ViewCaster` accepts start, direction,
+maximum distance, and distance/alternate-hit outputs, excludes the player, and
+uses the native reticle collision filter. While Atom owns stable third person,
+a scoped wrapper supplies Atom's logical view ray, chains the live predecessor,
+and captures its fixed-size result with the camera ownership epoch and logical
+view snapshot. The caller also publishes the resolved crosshair point at
+`InterfaceManager +0x104`. Native states pass the original arguments unchanged.
+
+At the normal ranged spawn call `0x005245BD -> 0x009BCA60`, Atom can resolve the
+real `##ProjectileNode` muzzle, point the native projectile at the captured
+view target, preserve the sampled angular spread already in the launch
+arguments, and call the live spawn predecessor. Because the real native
+projectile starts at the muzzle, native collision makes near obstruction win;
+an additional approximate muzzle cast is neither necessary nor desirable.
+Projectile class, hitscan/physical flags, velocity, gravity, range, collision,
+and impact remain engine-owned. The visual and damaging shot are the same
+native instance launched from the real muzzle. Visual camera shake never feeds
+back into the logical view ray.
+
+The fire wrapper accepts only the latest completed reticle sample whose live
+player, ownership epoch, origin, and direction still match. A stale/mismatched
+sample leaves that shot native. Proton telemetry must prove the UI/player-update
+sample-age policy before this optional capability can be enabled by default;
+Atom will not solve ordering uncertainty by adding a second allocating
+`ViewCaster` call to the shot path.
 
 This needs an exclusive capability owner. Atom must chain an existing launch
 predecessor and fail admission if another inline aim transformation cannot be
@@ -898,13 +919,14 @@ not assert source text, hook symbol names, or textual call order.
 
 ## Open research before implementation
 
-This static pass deliberately leaves these issues unresolved:
+The following issues still require focused static work or runtime acceptance:
 
 1. First-/third-person recoil camera and animation ownership.
 2. Physical adaptation of native hitscan, especially VATS, beams, tracers,
    shotguns, script observations, and synchronous impact ordering.
-3. View-ray/muzzle-ray convergence and obstruction ownership with Atom's future
-   third-person camera and other hook owners.
+3. Runtime acceptance of the now-proven reticle/spawn convergence seam,
+   including same-epoch capture, spread preservation, near cover, impact
+   ordering, and composition with another hook owner.
 4. Stable material capabilities across all collision object families.
 5. Safe projectile continuation for penetration and ricochet.
 6. A black-box matrix for native multi-projectile DT scaling.

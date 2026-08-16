@@ -198,15 +198,31 @@ Callsite setup:
   0x0094B7CC  load PlayerCharacter this
   0x0094B7D2  call 0x0094A0C0
 
-Observed ABI shape:
+Proven ABI and semantics:
 
-  thiscall(PlayerCharacter *player, Vec3 *a, Vec3 *b, bool mode) -> void
+  thiscall(
+    PlayerCharacter *player,
+    Vec3 *desired_camera_in_out,
+    const Vec3 *pivot,
+    bool mode
+  ) -> void
 
-The exact semantic names and mutability contract for both vector arguments are
-not yet proven strongly enough for a production hook. Closing those names is a
-mandatory implementation Phase 0 task. The useful established fact is that the
-call occurs after normal third-person target construction and before the
-resulting vectors feed final camera construction.
+  callee return: ret 0x0C
+
+At 0x0094B78A..0x0094B7B4, var_138h is built from the player's logical
+position fields +0x30/+0x34/+0x38. It is the ray origin/pivot. Earlier matrix
+and shoulder work at 0x0094B6F0..0x0094B72E builds var_12ch as the desired
+camera endpoint.
+
+Inside 0x0094A0C0, the helper subtracts pivot from desired, measures and
+normalizes that direction, passes pivot and desired to the collision query,
+then reconstructs:
+
+  resolved = pivot + normalize(desired - pivot) * resolved_distance
+
+At 0x0094A88C..0x0094A8A6 it copies the resolved three-float vector back only
+through desired_camera_in_out. No instruction writes through pivot. The mode
+byte remains a value argument.
 
 After the call:
 
@@ -214,6 +230,11 @@ After the call:
   0x0094B85D..0x0094B876  writes a computed vector to player +0xD58
   later code combines camera offsets, pitch, rotation multipliers, and the
   helper's collision/distance state before committing the camera object
+
+The production composition rule is now direct: alter the desired endpoint
+passed at 0x0094B7D2, preserve the pivot and mode byte, then chain the live
+0x0094A0C0 predecessor. Do not retain either stack-local pointer beyond the
+call.
 
 
 7. Native third-person collision and distance helper
@@ -230,7 +251,7 @@ Direct observations:
   - It reads player +0x64A and +0x64C to classify camera transition/state.
   - It reads the world/collision owner at player +0x21C.
   - It prepares two local endpoints from its vector arguments.
-  - It calls 0x00620BC0 through player +0x21C at 0x0094A32C.
+  - It calls 0x00620BC0 through player +0x21C at 0x0094A344.
   - It resets 0x011E07C2 before the query and sets it when the collision result
     constrains the available camera distance.
   - It updates and clamps the current distance state at 0x011E0768.
@@ -244,78 +265,300 @@ Selected collision sequence:
   0x0094A29B  copy one endpoint from the second vector argument
   0x0094A2A0  copy the other endpoint from a prepared local
   0x0094A2C0  read player +0x21C
-  0x0094A32C  pass query data and endpoints to 0x00620BC0
+  0x0094A32C  begin pushing query outputs and endpoints
+  0x0094A344  call 0x00620BC0 through player +0x21C
   0x0094A374  set 0x011E07C2 when the available distance is constrained
   0x0094A409..0x0094A598  update/clamp 0x011E0768
 
-Derived safety rule: a camera-space offset applied only after UpdateCamera
-returns would bypass this native collision resolution and can place the camera
-inside geometry. Atom should compose its desired follow target before the
-native collision step, or prove a later resolved-distance seam that preserves
-the same safety.
+The helper owns both inward contraction and outward recovery through current
+distance state 0x011E0768. No separate recovery hook is needed for the initial
+implementation. A camera-space offset applied only after UpdateCamera returns
+would bypass this resolution and can place the camera inside geometry; Atom
+must compose the desired endpoint before this helper and preserve it
+downstream.
+
+Final transform proof:
+
+  0x0094BB61  address of resolved camera local var_60h
+  0x0094BB65  camera object 0x011E0C20 as this
+  0x0094BB6A  call 0x00440460
+
+0x00440460 copies the three floats to camera +0x58. Rotation is committed
+later through 0x00A59C60 at 0x0094BB90. This is the final native position seam,
+not an admitted post-collision edit point.
 
 
-8. Movement flags and unresolved locomotion carrier
+8. Movement flags, vector carrier, and downstream ownership
+------------------------------------------------------------
+
+PlayerCharacter::Update builds a 16-bit flag local at [ebp-0x6C]. Direct
+keyboard action branches prove the low direction bits:
+
+  0x00941C05  action 0, forward       OR 0x01
+  0x00941C5B  action 1, backward      OR 0x02
+  0x00941CB1  action 2, slide left    OR 0x04
+  0x00941D08  action 3, slide right   OR 0x08
+
+Controller sign branches at 0x009412D1..0x0094134C and
+0x009414BE..0x00941550 produce the same bits. The direct executable evidence
+supersedes an ambiguous xNVSE comment that names low bit 0 as keep-moving.
+Established higher bits remain:
+
+  0x0080  walk
+  0x0100  run
+  0x0200  sneak
+  0x0400  toggle/keep-move state
+  0x0800  swim
+
+The final flags are committed through actorMover virtual slot +0x0C at
+0x0093FC57. PlayerMover's vtable is 0x0109297C and +0x0C resolves to
+0x009EA3E0. That setter stores the full word at PlayerMover +0x94 and preserves
+its stateful 0x0400 and 0x0030 side effects. Atom must not replace or synthesize
+that flags path.
+
+Analog and world-vector construction:
+
+  - controller axes 7, 9, and 8 are sampled at 0x00941111,
+    0x00941123, and 0x00941135;
+  - dead-zone and normalization work feeds scalar 0x011A3B3C;
+  - that scalar multiplies the native speed at 0x009418A8 and
+    0x00941B71..0x00941B98;
+  - 0x00931D70 supplies the authoritative horizontal heading;
+  - 0x00524AC0 builds the native rotation matrix and 0x004B3AE0 transforms
+    the horizontal vector with the negative heading in the engine convention;
+  - the final native movement vector is local var_1E0h.
+
+0x00931D70 reads the first float of the object's transform returned by
+0x00430830. Its semantic role is proven by the player look and movement call
+graph: it is the authoritative horizontal heading, regardless of generic
+header field names.
+
+Vector carrier:
+
+  0x009427FB  push &var_1E0h
+  0x00942805  ECX = player->actorMover at +0x190
+  0x0094280B  call 0x009EA570
+  0x00942830  immediately call PlayerMover virtual +0x14 with dt
+
+0x009EA570(Vec3 const *) copies exactly three floats to PlayerMover +0x88 and
+returns with ret 4. Its only direct callsites are 0x0093FEB8, 0x0094280B, and
+0x00947591. This proves the carrier but is not the final Atom seam because the
+PlayerMover still applies low-direction diagonal policy afterward.
+
+PlayerMover virtual +0x14 resolves to 0x009E9E50. It starts with the native
+movement vector, checks low flags at +0x94, and, on its normal movement path:
+
+  - measures PlayerMover +0x88 and the native vector;
+  - normalizes the +0x88 direction and restores the native vector magnitude at
+    0x009E9FE8..0x009EA05F;
+  - applies the forward/back and left/right diagonal policy from flags
+    0x01/0x02 and 0x04/0x08 at 0x009EA062..0x009EA1B9;
+  - calls PlayerCharacter virtual +0x250 with dt, the resulting Vec3, and the
+    unchanged flags at 0x009EA207..0x009EA232.
+
+The player +0x250 slot resolves to 0x008A62B0. After its actor/process gates it
+pushes flags, Vec3 pointer, and dt, then calls 0x0092F260 at 0x008A6339:
+
+  thiscall(
+    MobileObject *actor,
+    float dt,
+    Vec3 *movement_in_out,
+    uint32_t movement_flags
+  ) -> process pointer
+
+  callee return: ret 0x0C
+
+0x0092F260 copies all four inputs into a native movement request at
+0x0092FCD5..0x0092FD2B and again on an alternate path at
+0x0093034F..0x009303A5. The request layout proven by stores is:
+
+  +0x00  dt
+  +0x04  actor rotation Vec3
+  +0x10  movement Vec3
+  +0x1C  movement flags
+  +0x24  admission byte
+
+It then performs the existing actor-heading transforms, controller/scene work,
+physics and position updates, request dispatch, and transform application
+before final 0x00575830 at 0x00930475. Vector and direction flags therefore
+enter animation/physics/root-transform ownership together at one call.
+
+0x008A6339 is the admitted complete 360 seam, not 0x0094280B. A scoped wrapper
+can copy and rotate the post-PlayerMover vector, preserve its magnitude and all
+high flags, map only the low direction nibble for the selected facing policy,
+and call the live 0x0092F260 predecessor. Native behavior passes every original
+argument unchanged.
+
+The 0x008A6339 callsite belongs to the common actor movement wrapper. Derived
+admission design therefore uses a second chained entry hook at
+PlayerMover::Update 0x009E9E50. It opens a stack-scoped token only when
+`this == live_player->actorMover`, the ownership epoch is current, and no token
+is already active. The nested 0x008A6339 wrapper transforms only while that
+token is active and while `actor == live_player`; otherwise it calls its
+predecessor unchanged. RAII clears the token on all returns. This is the safe
+main-thread/caller scope; player identity alone is not accepted as sufficient.
+
+Derived mapping with the native matrix convention:
+
+  native_world = R(-actor_heading) * local_input
+  Atom_world   = R(-view_heading) * local_input
+               = R(actor_heading - view_heading) * native_world
+
+Explore turns the actor toward nonzero Atom_world and passes low direction
+0x01 so the downstream native request selects forward locomotion. Combat turns
+the actor toward the view and retains the original low nibble so native
+forward/back/strafe intent stays correct around that facing. All unsupported
+states preserve the original vector and complete flags. This avoids changing
+analog magnitude, PlayerMover state, high action flags, or any skeleton/root
+transform directly. Exact visual quality for installed animation assets remains
+a runtime acceptance item.
+
+Lifetime:
+
+  0x009E9D00 constructs PlayerMover from PlayerCharacter construction
+  0x00964190 -> 0x0096421A. It installs vtable 0x0109297C, zeros Vec3 +0x88,
+  flags +0x94, state +0x98, and initializes timer +0x9C. PlayerCharacter owns
+  the mover through pointer +0x190. Atom validates the live player and mover
+  every admitted update and retains neither pointer across load/reinit.
+
+
+9. Native state predicates and transition ownership
 ----------------------------------------------------
 
-0x008846E0 builds the current player movement flags used by the main update.
-The final 16-bit value is committed through actorMover virtual slot +0x0C at
-0x0093FC57.
+All values below are sampled once before Atom output in the player update.
+Failure or mismatch means native ownership for the complete frame.
 
-PlayerMover's vtable is flagged at 0x0109297C. Its +0x0C entry resolves to
-0x009EA3E0. The setter:
+POV and active 3D:
 
-  - accepts the movement flags as one stack argument;
-  - compares old and new bit 0x0400;
-  - compares/records bits 0x0030;
-  - stores the new full value at PlayerMover +0x94;
-  - owns additional state and gameplay side effects when relevant bits change.
+  player +0x64A  not-first-person/transition state used by UpdateCamera
+  player +0x64B  active perspective/skeleton selector
+  player +0x64C  requested/stable third-person state
 
-xNVSE source establishes these public flag meanings:
+0x00950BE0 proves +0x64B: false returns player +0x694, the first-person node;
+true obtains the world 3D through 0x0043FCD0. Atom requires +0x64A, +0x64B,
+and +0x64C all nonzero. Any mismatch is a native POV transition. The selected
+3D must also be nonnull.
 
-  bit 0   auto/keep moving
-  bit 7   walk
-  bit 8   run
-  bit 9   sneak
-  bit 11  swim
+Other direct owners:
 
-The exact low direction-bit map, analog magnitude carrier, world-space
-movement-vector construction, and animation-direction consumer have not been
-closed by this investigation. Those are mandatory Phase 0 gates. Hooking only
-the final flags is insufficient evidence for high-quality camera-relative
-analog movement, and turning the actor then forcing native forward is rejected
-because it can change movement magnitude, action semantics, and animation.
+  0x011E07B8 nonzero                       special native camera owner
+  VATSCameraData 0x011F2250 mode nonzero   all VATS states
+  (*0x011DEA0C) +0x06 nonzero              TFC/isFlycam
+  player +0x680 disabled flags             0x01 Movement, 0x02 Look,
+                                            0x04 Pipboy, 0x08 Fight,
+                                            0x10 POV
+  player +0x0AC nonnull                    ragdoll
+  player +0x108 nonzero                    non-alive life state
+  player +0x68 null/insufficient process   missing process
+  player +0x40 null                         missing parent cell
+  player +0x21C null                        missing world/collision owner
+
+0x00702360 is the exact broad MenuMode predicate. It requires the
+InterfaceManager singleton at 0x011D8A80, tests its active byte through
+0x009373F0, and then returns whether InterfaceManager +0x0C differs from normal
+gameplay mode 1 through 0x007023A0. It therefore covers Pip-Boy, dialogue,
+loading, pause, console, and text-entry menu ownership without enumerating
+menu names. True means native ownership.
+
+The +0x680 byte is vanilla ownership. xNVSE additionally tracks per-mod and
+extended disabled controls. Atom uses the repository PlayerControls API's
+combined `ByAnyModOrVanilla` query for Movement, Looking, Pipboy, and POV, plus
+Fighting for combat/aim admission. This preserves external capability owners
+instead of reading only vanilla state.
+
+Furniture uses the process virtual at +0x4BC:
+
+  0x0  normal
+  0x1  load sit
+  0x2  want sit
+  0x3  waiting sit
+  0x4  sitting
+  0x5  stand
+  0x6  load sleep
+  0x7  want sleep
+  0x8  waiting sleep
+  0x9  sleeping
+  0xA  wake
+
+Every nonzero value is native-owned. Current animation action comes from
+process virtual +0x3E4; 0x0D (Wait_For_Special_Idle) and 0x0E
+(Force_Script_Anim) are also native-owned.
+
+Derived transition rule: one early player-update snapshot selects policy, but
+each mutating callsite rechecks the allocation-free hard owners immediately
+before writing or changing arguments. Live player/mover identity, +0x64A/B/C,
+0x011E07B8, VATS, TFC, menu/control state, life/ragdoll, process/cell/3D, and
+the scoped ownership epoch must still match. A mismatch chains native and
+invalidates the epoch in that same update. This prevents a snapshot from
+carrying permission past a mid-chain VATS, POV, death, menu, or world-readiness
+transition.
+
+Kill camera closure:
+
+  0x0089F419 -> 0x0093E530 -> 0x009CA2C0
+  0x009CA2C0 enqueues the VATS camera object
+  0x009CA3F3 pushes mode 4 and calls 0x009C6C30
+
+Kill camera is therefore covered directly by the nonzero VATS-mode predicate;
+there is no need for a second guessed kill-camera flag. Death and ragdoll are
+rejected earlier by life state and the ragdoll pointer.
+
+Load and cell transitions use the direct readiness predicates plus an Atom
+snapshot of player->parentCell. MenuMode covers the loading UI; missing process,
+cell, 3D, or collision owner rejects incomplete world state. A change in the
+parent-cell pointer is a derived transition signal: Atom enters Release,
+invalidates its ownership epoch, and requires one complete stable frame before
+reacquisition. This comparison is Atom policy derived from directly owned
+lifetime fields, not a claimed engine boolean.
+
+Vehicle boundary:
+
+Base FNV contains Havok vehicle classes but exposes no general PlayerCharacter
+predicate saying an arbitrary vehicle mod currently owns the player. The
+installed Advanced 3rd Person Camera script reads external auxiliary variable
+`*_TFinVehicle`, proving that its vehicle state comes from a Transporters-style
+provider rather than vanilla PlayerCharacter. Atom cannot infer a universal
+vehicle owner safely. It accepts an explicit external owner capability/token
+and otherwise requires the camera feature to be disabled for that vehicle
+profile. This is version-agnostic capability interop; Atom must not inspect a
+named plugin.
 
 
-9. Native state predicates relevant to camera ownership
---------------------------------------------------------
+10. Authoritative actor-yaw ABI and call context
+-------------------------------------------------
 
-Directly established:
+0x00931D30 is the native delta helper:
 
-  third person       player +0x64C
-  POV transition     player +0x64A and adjacent camera state
-  fly camera         (*OSGlobals at 0x011DEA0C)->isFlycam, used by GetTFC
-  VATS               VATSCameraData mode at 0x011F2250 +0x08
-  player control     disabled flags at player +0x680
-  ragdoll presence   player +0x0AC
-  actorMover         player +0x190
-  player 3D/world    established player fields and +0x21C collision owner
+  thiscall(MobileObject *actor, float delta_heading) -> void
 
-The xNVSE GameProcess contract provides furniture states:
+It calls the actor's virtual +0x2BC current-heading getter, adds the argument,
+and calls virtual +0x2C4 at 0x00931D66. For PlayerCharacter, +0x2C4 resolves to
+0x008A6A00. That wrapper checks actor state and calls:
 
-  0   normal
-  1..10 transition/occupied states
-  4   sitting
-  9   sleeping
+  0x00931B60
+  thiscall(MobileObject *actor, float absolute_heading) -> void
+  callee return: ret 4
 
-Exact native predicates for dialogue camera, Pip-Boy camera, kill camera,
-death camera, vehicle ownership, load/cell transition, and every menu which
-must suspend camera writes still require focused closure before admission.
-Script-mod state checks are useful compatibility clues but are not proof of the
-native predicate or its lifetime.
+0x00931B60 normalizes the supplied angle through 0x004B1480, rejects invalid
+or special process states, and routes the update through 0x005757A0 or
+0x005757D0 according to actor/3D state. The live virtual +0x2C4 call is the
+authoritative public route; Atom must not write a transform field or call the
+lower implementation without the wrapper's state gate.
+
+Player virtual +0x2BC resolves to 0x00953F20 and may include the camera offset
+at player +0x6E4. By contrast, 0x00931D70 reads the raw authoritative horizontal
+transform heading used by movement. Atom keeps these meanings separate when
+seeding view state and computing absolute actor facing.
+
+Safe execution context is the scoped movement-request callsite at 0x008A6339,
+after PlayerMover processing and immediately before the native 0x0092F260
+pipeline. It is the same player-main-thread phase that already owns locomotion.
+Atom may call live player virtual +0x2C4 there after all ownership predicates
+pass, before chaining the movement predecessor, with an explicit reentrancy
+guard. It retains no player/vtable pointer beyond the scope.
 
 
-10. Installed 360 Movement audit
+11. Installed 360 Movement audit
 --------------------------------
 
 Installed path:
@@ -364,7 +607,7 @@ split. Runtime reproduction is still the final evidence for a particular
 occurrence; the script audit establishes that the design permits the failure.
 
 
-11. Installed Advanced 3rd Person Camera audit
+12. Installed Advanced 3rd Person Camera audit
 ----------------------------------------------
 
 Installed path:
@@ -394,7 +637,7 @@ its dynamic follow behavior on top of the native final settings it observes,
 but must not continuously compete for the same global setting writes.
 
 
-12. Installed third-person aim-fix audit
+13. Installed third-person aim-fix audit
 ----------------------------------------
 
 Installed path:
@@ -428,7 +671,7 @@ installed plugin. Atom's later aim-convergence capability must not activate
 beside another uncoordinated owner of the same projectile boundary.
 
 
-13. Fallout 4 architectural comparison
+14. Fallout 4 architectural comparison
 ---------------------------------------
 
 The supplied Fallout 4 binary contains these direct string artifacts:
@@ -456,36 +699,226 @@ subjective responsiveness. Atom may adopt the architectural principles, not
 claim byte-for-byte Fallout 4 behavior.
 
 
-14. Proven facts, inferences, and remaining gates
--------------------------------------------------
+15. Projectile launch, reticle ray, and convergence contract
+-------------------------------------------------------------
 
-Proven:
+The fuller combat pipeline remains indexed in:
 
-  - Vanilla normal look writes authoritative actor yaw.
-  - UpdateCamera then snapshots actor yaw and constructs the camera.
-  - VATS playback owns a separate camera transform.
-  - The normal third-person route uses the native shoulder settings.
-  - 0x0094A0C0 owns native collision/distance behavior before final camera use.
-  - Final actorMover flags are committed after UpdateCamera.
-  - Installed 360 Movement rotates skeleton correction nodes, omits VATS mode
-    gating, and uses frame-count-dependent interpolation.
-  - Camera offset changes create a separate third-person aim-convergence issue.
+  analysis/radare2/output/gameplay/fnv_combat_contract.txt
 
-Reasoned design inferences:
+This section closes the camera-specific convergence gap.
 
-  - View yaw and actor yaw must be distinct in free-follow exploration.
-  - Manual look should remain direct while only target-follow motion is damped.
-  - Native collision must remain downstream of desired follow composition.
-  - All nonzero VATS modes need exclusive native ownership and symmetric reset.
-  - A skeleton-node correction system cannot be Atom's authoritative 360 model.
+Native ranged launch:
 
-Mandatory unresolved implementation gates:
+  0x00523150                 shared ranged-fire function
+  0x00525980                 effective ammunition
+  0x00525A90                 effective projectile
+  0x00525B20                 authoritative projectile count
+  0x0052441E                 per-projectile loop
+  0x0052445B..0x005244EE     radial/angular spread sampling
+  0x005245BD -> 0x009BCA60   normal native spawn call
 
-  - exact semantics and mutation contract of both 0x0094A0C0 vector arguments;
-  - exact low movement-direction flags;
-  - analog magnitude carrier and world-space locomotion-vector consumer;
-  - animation-direction and root-motion interaction;
-  - exact native predicates and lifetimes for dialogue, Pip-Boy, kill camera,
-    death/ragdoll, furniture, vehicles, load/cell transition, and missing 3D;
-  - projectile launch/aim/spread contract for Atom-owned convergence;
-  - runtime Proton validation of every ownership transition and hook chain.
+0x009BCA60 has only two direct executable callers, 0x0046A176 and the normal
+weapon-fire call at 0x005245BD. The latter passes, in cdecl order:
+
+  BGSProjectile *base
+  Actor *source
+  CombatController *combat_controller
+  TESObjectWEAP *weapon
+  NiPoint3 position
+  float rotation_z
+  float rotation_x
+  void *opaque
+  TESObjectREFR *live_grenade_target
+  bool always_hit
+  bool ignore_gravity
+  float angular_momentum_z
+  float angular_momentum_x
+  TESObjectCELL *cell
+
+The wrapper must preserve every argument not explicitly replaced and call the
+live predecessor. 0x009BCA60 synchronously allocates and initializes the
+correct runtime subtype through common initializer 0x009BDA10, applies launch
+and perk context, copies native range into runtime +0xD4 at
+0x009BDD08..0x009BDD10, and may complete hitscan collision in launch/update
+ordering. Atom must not replace this function or defer the call.
+
+Real muzzle and native third-person origin:
+
+  0x005235C2 -> 0x00950BE0   obtain the player's active skeleton
+  0x005235F8 -> 0x00525700   resolve weapon/`##ProjectileNode`
+  0x0052360D -> 0x0045BB80   read node world position into
+                             var_44h/var_40h/var_3Ch
+
+That first position is the real muzzle. The subsequent player third-person
+branch checks VATS mode 4, player source identity, process/weapon context, a
+weapon flag through 0x004AD030, and the main scene camera from 0x00524C90.
+When eligible, 0x0052375E..0x0052378A computes a camera-node-derived point
+through 0x00461130 and 0x00524C40 and overwrites those position locals. This
+directly proves why a shoulder camera can move native launch origin away from
+the real muzzle.
+
+Base angles and native spread:
+
+  - stable first person uses player pitch/yaw at 0x005237B0..0x005237D5;
+  - third person obtains the projectile-node transform through 0x00461130 and
+    decomposes its angles through 0x00A59400 from 0x005237DA;
+  - each projectile copies those unspread base angles to var_1B4h/var_1C0h at
+    0x0052442D..0x00524439;
+  - 0x0052445B..0x005244EE samples the native cone and adds its radial/angular
+    offsets;
+  - the final perturbed angles are passed at 0x00524572 and 0x0052457C.
+
+At the spawn wrapper Atom can resolve the same projectile-node transform,
+derive the native base angles, wrap-subtract them from the already perturbed
+spawn angles, and reapply those exact sampled deltas around its converged
+muzzle-to-target base direction. It does not resample, narrow, or widen native
+spread. A missing node or non-finite angle fails to the original call.
+
+Native reticle view cast:
+
+InterfaceManager crosshair update 0x0070BC20 constructs start var_70h,
+direction var_7Ch, and maximum distance var_60h, then calls:
+
+  0x0070C130 -> 0x00631D60
+
+  thiscall(
+    ViewCaster *caster,
+    Vec3 *start,
+    Vec3 *direction,
+    float max_distance,
+    float *out_distance,
+    bool *out_alternate_hit
+  ) -> TESObjectREFR *
+
+ECX is InterfaceManager +0x13C. 0x00631D60 builds endpoint
+`start + direction * max_distance` at 0x00631E20..0x00631E46, performs the
+native Havok query at 0x00631F32, explicitly excludes player collision at
+0x006320D7..0x006320E5, filters reticle candidates, writes the nearest distance
+through the fifth argument (including paths at 0x0063295C), writes the
+alternate-hit byte through the sixth argument, and returns the selected
+TESObjectREFR at 0x00632AB5.
+
+At entry, out_distance is initialized from 0x01016970, whose direct data value
+is 0x7F7FFFFF (FLT_MAX). The caller later stores selected references at
+InterfaceManager +0xFC and +0x100, then computes and stores
+`start + direction * out_distance` at InterfaceManager +0x104 through
+0x0070C2E8..0x0070C345. This is the native published crosshair world point.
+
+The cast is not allocation-free. At 0x00631E57..0x00631E61 it constructs a
+NiPick results array with capacity 8 through 0x00E98F20. That reaches
+0x00E98DB0, computes capacity * 4, and calls allocator 0x00AA1070 at
+0x00E98DE6; 0x00E98FA0 destroys the array. Reinvoking ViewCaster from every
+shot would therefore add a routine allocation. Atom reuses the existing
+crosshair invocation instead.
+
+This is the admitted view-ray owner. Camera helper 0x00620BC0 has only the
+camera collision callsite and camera-specific filtering; it is not a general
+aim ray.
+
+No-allocation convergence design derived from the proven boundaries:
+
+  1. Scoped wrapper at 0x0070C130 supplies Atom's logical view origin and
+     direction only during Atom-owned stable third person, then calls the live
+     ViewCaster predecessor. In native states it passes the original arguments
+     exactly.
+  2. The wrapper publishes only fixed-size result data: origin, direction,
+     supplied maximum, returned distance/hit classification, player identity,
+     frame serial, and Atom camera ownership epoch. It performs no second cast.
+     A hit requires finite out_distance in [0, max_distance]; FLT_MAX or an
+     out-of-range result is no hit.
+  3. At 0x005245BD the spawn wrapper requires a matching live player, ownership
+     epoch, and logical view origin/direction. A valid reticle hit selects
+     origin + direction * returned distance. No hit selects the same view ray
+     extended to the effective projectile's native range.
+  4. The wrapper resolves the real muzzle, computes muzzle-to-target base
+     angles, reapplies the exact native sampled spread deltas, and calls the
+     native spawn predecessor with the real muzzle position.
+  5. The native projectile, starting at the real muzzle, owns near-cover
+     collision. A wall between muzzle and target is hit by the normal subtype
+     collision path, so no approximate generic muzzle ray can disagree with
+     native transparency, actor, impact, or physical-projectile filters.
+  6. Absent/stale epoch, missing player/caster/node/range, non-finite math, an
+     unrecognized callsite, or an unsafe predecessor chains the original call
+     unchanged.
+
+The UI crosshair and player-fire paths are separate main-loop consumers. The
+latest completed sample is admitted only when player, ownership epoch, origin,
+and direction still match the current logical view; otherwise that shot stays
+native. Runtime telemetry must establish whether same-frame or one-completed-
+sample freshness is available across mouse/controller and frame-rate cases.
+If it cannot, Phase 5 remains disabled rather than adding another allocating
+ViewCaster call to the shot hot path.
+
+Projectile type and admission proof:
+
+0x004FD4F0 reads the combined BGSProjectile type/flags word at form +0x60 and
+masks type bits 0x001F0000. 0x009BCA60 dispatches:
+
+  0x00010000  MissileProjectile         runtime form type 0x3D
+  0x00020000  GrenadeProjectile         runtime form type 0x3E
+  0x00040000  BeamProjectile            runtime form type 0x3F
+  0x00080000  FlameProjectile           runtime form type 0x40
+  0x00100000  ContinuousBeamProjectile runtime form type 0x69
+
+The initial reviewed capability is ranged weapon types 3 through 9 with an
+effective MissileProjectile. Its native projectile flags continue to choose
+hitscan or physical initialization and all impact ownership. BeamProjectile is
+a separate reviewed group. GrenadeProjectile, FlameProjectile,
+ContinuousBeamProjectile, thrown/mine weapon types, melee, NPC, first-person,
+VATS, and TFC routes stay exact native behavior until separately proven and
+admitted. Mod-added standard weapons enter through the same runtime capability;
+no form list or plugin identity is needed.
+
+
+16. Phase 0 closure, inference boundary, and runtime work
+---------------------------------------------------------
+
+Directly proven static contracts:
+
+  - Vanilla normal look writes authoritative actor yaw before UpdateCamera.
+  - Every nonzero VATS mode owns the whole Atom camera/movement/facing state;
+    kill camera is VATS mode 4.
+  - 0x0094A0C0 receives mutable desired endpoint plus read-only pivot, performs
+    native contraction/recovery, and returns the resolved endpoint in place.
+  - 0x0094BB61 commits the resolved position to the native camera object.
+  - Low movement flags, analog magnitude, heading conversion, PlayerMover
+    direction carrier/lifetime, and the coupled vector/flag movement request
+    are closed. The admitted scoped request seam is 0x008A6339.
+  - Live player virtual +0x2C4 is the authoritative absolute-yaw route and is
+    safe only in the validated scoped movement-request context.
+  - Base-game POV, VATS, TFC, menu, furniture, scripted animation, death,
+    ragdoll, world-readiness, cell, and 3D ownership predicates are closed.
+  - Native ViewCaster and native spawn are the admitted reticle/convergence
+    pair; native spread and real-muzzle collision remain downstream.
+
+Reasoned Atom policies, not claims about vanilla:
+
+  - one stable normal third-person frame is required before acquisition;
+  - parent-cell pointer change invalidates the ownership epoch;
+  - Atom rotates the existing movement vector, maps only its low direction
+    nibble by facing policy, and never edits PlayerMover state or root
+    transforms;
+  - reticle results require a matching camera epoch/view snapshot and the
+    runtime-accepted sample-age bound;
+  - arbitrary vehicle mods require an explicit capability signal because the
+    base player has no universal vehicle-owner state;
+  - a skeleton-node correction system cannot be authoritative locomotion.
+
+No static Phase 0 implementation gap remains. Mutating work may begin at
+Phase 1 in the documented order. Each implementation phase must still close:
+
+  - exact immutable caller-byte fingerprint and typed live predecessor at
+    DeferredInit;
+  - focused observable behavior tests and affected release build;
+  - startup-footprint comparison if the final DLL's pre-DeferredInit footprint
+    changes;
+  - Proton load-to-gameplay and transition playtest;
+  - runtime animation quality across the full locomotion matrix;
+  - runtime camera collision/recovery behavior;
+  - Phase 5 same-epoch reticle capture, native spread, impact ordering,
+    muzzle-cover behavior, and hook-owner coexistence;
+  - measured no-allocation/no-lock/no-I/O behavior in admitted hot paths.
+
+Those are runtime acceptance obligations, not missing native ABI, ownership,
+layout, or safe-intervention-point research.

@@ -1,7 +1,8 @@
 # Atom third-person camera and 360 movement plan
 
-Status: research complete; implementation is intentionally gated by the native
-contract work in Phase 0.
+Status: Phase 0 static contract complete. Phases 1 through 4 are ready for
+implementation; every mutating phase still requires its listed Proton runtime
+acceptance before it can be enabled by default.
 
 ## Intended result
 
@@ -141,20 +142,45 @@ must observe one stable normal third-person frame, seed every Atom state from
 the native result, and only then reacquire ownership. No stale spring velocity,
 view offset, recenter timer, or actor-turn target may cross that boundary.
 
-### Movement boundary is not closed yet
+### Movement boundary is closed
 
 The final player movement flags are committed through `actorMover` virtual
-slot `+0x0C` at `0x0093FC57`. The `PlayerMover` implementation at `0x009EA3E0`
-stores them at mover `+0x94` and owns stateful side effects. xNVSE establishes
-several high bits, but the exact low direction flags, analog magnitude carrier,
-world-space movement vector, and animation-direction consumer are not yet
-proven.
+slot `+0x0C` at `0x0093FC57`. Direct branches in `PlayerCharacter::Update`
+prove low bits `0x01`, `0x02`, `0x04`, and `0x08` as forward, backward, left,
+and right. The same bits are produced by keyboard and controller paths. The
+native analog scalar is `0x011A3B3C`; it multiplies the native speed before the
+horizontal vector is transformed by the actor-heading matrix.
 
-That missing contract is an implementation blocker, not an invitation to fake
-360 movement. Atom will not rotate the actor toward the desired direction and
-force native forward input: that can change analog magnitude, diagonal speed,
-root motion, action semantics, and animation selection. Phase 0 must locate the
-real direction-and-magnitude carrier first.
+The resulting three-float movement vector is local `var_1E0` in
+`PlayerCharacter::Update`. At `0x0094280B`, `0x009EA570` copies that vector to
+`PlayerMover +0x88`; the immediately following virtual `+0x14` update consumes
+it. `0x009E9E50` normalizes the override direction but restores the magnitude
+of the native vector and applies its low-bit diagonal policy.
+
+The final coupled seam is later: `0x008A6339 -> 0x0092F260` passes frame time,
+the post-`PlayerMover` vector, and movement flags together into the native
+movement request. `0x0092F260` stores vector and flags in the same request and
+keeps animation, physics, scene/root transform, and landing work downstream.
+Atom will replace that scoped call, rotate the existing vector while preserving
+its length, map only its low direction nibble according to the active facing
+policy, and chain the live predecessor. It will preserve every high flag and
+will not edit `PlayerMover` state or a skeleton/root transform.
+
+The direct callsite is shared by the actor movement wrapper, so player identity
+alone is not sufficient scope. A chained entry hook on `PlayerMover::Update`
+at `0x009E9E50` opens a stack-scoped, main-thread movement token only when its
+`this` equals the current player's mover at `+0x190` and the ownership snapshot
+is current. The nested `0x008A6339` wrapper may transform only while that token
+is active. Reentrancy or a second entry fails native. The token is cleared by
+RAII on every return path and contains no retained engine pointer.
+
+For a native vector already transformed by actor heading `a`, camera-relative
+view heading `v` is derived in the same engine convention as
+`R(a - v) * native_vector`. In `Explore`, the actor faces nonzero movement and
+the downstream low nibble becomes native forward `0x01`, producing forward
+locomotion. In `Combat`, actor facing is view-relative and the original low
+nibble remains the correct forward/back/strafe animation intent. Unsupported
+states retain both original vector and flags.
 
 ## Why the installed 360 Movement fails
 
@@ -252,11 +278,47 @@ decision for all camera/movement consumers.
 | `Combat` | Atom follow | Atom relative | View/target | View target |
 | `Release` | Engine | Engine | Engine | Engine |
 
-`Native` includes disabled Atom, first person, all nonzero VATS modes, free
-camera, a missing player/world/3D, and every special state whose native
-predicate Phase 0 proves should own the camera. The required list includes
-Pip-Boy and blocking menus, dialogue, furniture transitions, kill/death camera,
-ragdoll, loading/cell transition, and supported vehicle ownership.
+The classifier samples the following native values once near the start of the
+player update, before any Atom output. All addresses and offsets are for the
+supported executable:
+
+| Native owner | Proven predicate | Atom decision |
+|---|---|---|
+| POV/stable third person | player bytes `+0x64A`, `+0x64B`, and `+0x64C` | Atom requires all three to be nonzero. Any mismatch is a native POV transition. `0x00950BE0` proves `+0x64B` selects the active first- or third-person 3D. |
+| Special camera | byte `0x011E07B8` | Any nonzero value is native-owned. |
+| VATS and kill camera | `VATSCameraData` mode from `0x011F2250` via `0x0044DDC0` | Every nonzero mode is native-owned. Kill camera enters mode 4 through `0x009CA2C0 -> 0x009C6C30`, so it is covered by the same predicate. |
+| TFC | `(*0x011DEA0C)->isFlycam` at `+0x06` | Nonzero is native-owned. |
+| Controls and Pip-Boy | player disabled-control flags at `+0x680`: movement `0x01`, look `0x02`, Pip-Boy `0x04`, fight `0x08`, POV `0x10` | Movement, look, Pip-Boy, or POV disabled is native-owned; combat admission also rejects disabled fight control. Atom queries the xNVSE combined player-controls interface so per-mod disables are honored as well as this vanilla byte. |
+| Blocking UI | `0x00702360` (`MenuMode`) | True is native-owned. The predicate requires an active `InterfaceManager` and excludes only gameplay mode 1, covering Pip-Boy, dialogue, loading, pause, console, and text-entry menus. |
+| Furniture | process virtual `+0x4BC` | Every sit/sleep state 1 through 10 is native-owned; only state 0 is normal. |
+| Scripted animation | process virtual `+0x3E4` | animation actions `0x0D` and `0x0E` are native-owned. |
+| Death/ragdoll | life state at player `+0x108`; ragdoll pointer at `+0x0AC` | Any nonzero life state or nonnull ragdoll is native-owned. |
+| World readiness | process `+0x68`, parent cell `+0x40`, selected 3D from `0x00950BE0`, collision owner `+0x21C` | A missing value is native-owned. A parent-cell identity change forces `Release` and one stable frame before reacquisition. |
+
+Base FNV exposes no general predicate saying that an arbitrary vehicle mod owns
+the player. The installed camera preset package confirms this is normally an
+external capability (`*_TFinVehicle`), not a vanilla player state. Atom will
+therefore accept an explicit vehicle-owner interop token/service and release
+ownership while it is set. It will not guess from animation, inspect a named
+plugin, or claim automatic compatibility with otherwise unknown vehicle mods.
+Without that interop signal, the camera feature must remain off for a vehicle
+profile.
+
+`Native` includes disabled Atom, first person, every predicate in the table,
+and an asserted external vehicle-owner capability. Predicates are evaluated
+before output admission in the same player update. A newly observed native
+owner enters `Release` immediately; no Atom write is allowed later in that
+frame.
+
+The snapshot is not permission to ignore a transition that occurs later in
+the call chain. Every mutating wrapper performs a final allocation-free hard
+owner check immediately before its write: live player/mover identity, the
+three POV bytes, special-camera byte, VATS mode, TFC, blocking menu/control
+state, life/ragdoll, process/cell/3D, and its scoped token/epoch. Any mismatch
+chains the native predecessor unchanged and invalidates the epoch before
+another Atom output can run. This is the same-update transition guarantee for
+VATS, POV, death, menu,
+load, and lost-world states.
 
 `Acquire` requires one stable normal third-person frame. It samples the native
 camera and authoritative actor values and seeds view yaw/pitch, follow position,
@@ -443,10 +505,14 @@ speed        = clamp(length(input_vector), 0, 1)
 direction    = normalize(world_intent) when speed is nonzero
 ```
 
-The actual FNV coordinate signs, low movement flags, magnitude injection, and
-animation route will be filled only after Phase 0 proves them. The mapping must
-preserve walk/run/sneak, auto-move, disabled controls, action edges, and the
-controller magnitude already produced by Atom Input.
+FNV builds both keyboard and controller intent into the same native vector and
+uses `0x01/0x02/0x04/0x08` for forward/back/left/right. Its heading transform
+uses the engine rotation matrix with the negative authoritative horizontal
+heading. Atom will reuse that convention and rotate only the final existing
+vector at `0x008A6339`; it will not synthesize a new speed. It maps the low
+nibble only to express the documented Explore or Combat animation policy and
+preserves all higher walk/run/sneak, auto-move, disabled-control, action, and
+controller-magnitude semantics.
 
 ### Facing policies
 
@@ -458,12 +524,15 @@ controller magnitude already produced by Atom Input.
 | Melee/block | View or attack target | Combat-relative |
 | VATS/native | Engine | Engine |
 
-Facing turns through the engine's authoritative actor-yaw setter, never raw
-`rotZ` and never skeleton correction nodes. Shortest-angle wrapping, maximum
-turn speed, and acceleration prevent visual snapping. Movement direction must
-remain authoritative while the body catches up; if FNV cannot represent that
-without corrupting root motion, Phase 0 must identify the lower movement-vector
-seam before any feature is admitted.
+Facing turns through the live player's virtual slot `+0x2C4`, never raw
+transform storage and never skeleton correction nodes. The slot resolves to
+`0x008A6A00`, which gates the actor state and calls absolute-heading setter
+`0x00931B60`; that setter normalizes the angle and routes it through the
+native actor/3D update. Calls are admitted only from the scoped
+`0x008A6339` player movement-request context, before the native movement
+predecessor, with explicit reentrancy protection. Shortest-angle wrapping,
+maximum turn speed, and acceleration prevent visual snapping while the
+separately rotated movement vector remains authoritative.
 
 Weapon-drawn relaxed movement is staged separately. Holstered 360 is the first
 admitted route. Drawn guns, sneak with a weapon, melee, jump, falling, swimming,
@@ -474,9 +543,11 @@ the staged rollout is not a permanent coverage reduction.
 ### Animation ownership
 
 Atom will initially use the game's active animation providers and alter only
-authoritative movement/facing. It will not bundle animation files or require
-kNVSE. Enhanced Animations' base locomotion package can remain installed. Its
-separate patch specifically made for legacy 360 Movement must be removed while
+the admitted movement vector, authoritative facing, and native low direction
+nibble passed into the existing animation/movement request. It will not bundle
+animation files or require kNVSE. Enhanced Animations' base locomotion package
+can remain installed. Its separate patch specifically made for legacy 360
+Movement must be removed while
 Atom 360 is active because it assumes that mod's skeleton-node convention.
 
 If a directional animation gap remains, it needs its own runtime-capability
@@ -498,14 +569,54 @@ code Atom will copy.
 
 Atom's eventual convergence policy is:
 
-1. cast the crosshair/view ray to choose a desired target point;
-2. cast from the real muzzle to that point;
-3. if near cover blocks the muzzle ray, hit the cover rather than shooting
-   through it;
-4. preserve native spread, projectile class, velocity, gravity, ownership,
-   impact, and visual origin;
-5. exclude first person, NPCs, VATS, free camera, continuous beams, thrown
-   objects, and other types until their native contracts are proven.
+1. replace only the native reticle call at `0x0070C130 -> 0x00631D60` while
+   Atom owns stable third person, supplying Atom's logical view origin and
+   direction to the existing `ViewCaster`;
+2. capture its target distance/hit result with the current camera ownership
+   epoch and logical-view snapshot, so crosshair interaction and projectile
+   aim use the same native collision filter without performing an additional
+   hot-path cast;
+3. at `0x005245BD -> 0x009BCA60`, resolve the real `##ProjectileNode` muzzle,
+   point the shot from that muzzle at the captured target (or the effective
+   projectile-range endpoint when the view cast has no hit), and call the live
+   native spawn predecessor;
+4. recover the native unspread base angles, retain the exact sampled angular
+   spread deltas already present in the spawn arguments, and reapply those
+   deltas around the converged muzzle-to-target direction;
+5. preserve native projectile class, hitscan/physical flag, velocity, gravity,
+   range, ownership, collision, and impact. The visual and damaging shot remain
+   one native projectile launched from the real muzzle, whose native collision
+   makes near cover win; Atom does not need an approximate second muzzle cast;
+6. fail to the original call unchanged if any required node, context, matching
+   ownership/view snapshot, finite result, or chain capability is absent.
+
+`0x00631D60` has the proven ABI
+`thiscall(ViewCaster*, Vec3 *start, Vec3 *direction, float max_distance,
+float *out_distance, bool *out_alternate_hit) -> TESObjectREFR*`. It constructs
+`start + direction * max_distance`, performs the native Havok query, excludes
+the player, filters reticle candidates, and writes the nearest distance. The
+camera collision helper `0x00620BC0` is camera-specific and is not an admitted
+aim ray.
+
+The native caller later publishes the selected references at
+`InterfaceManager +0xFC/+0x100` and the exact
+`start + direction * out_distance` world point at `+0x104`
+(`0x0070C2E8..0x0070C345`). `out_distance` begins as `FLT_MAX`; Atom treats only
+a finite value in `[0, max_distance]` as a hit and otherwise extends the same
+logical view ray to the effective projectile range. The spawn wrapper accepts
+only the latest completed sample whose player, ownership epoch, origin, and
+direction match the current logical view. If player-update/UI ordering makes a
+fresh sample unavailable, that shot remains native; Phase 5 cannot enable by
+default until telemetry proves the sample-age policy across input and frame
+rates.
+
+The first projectile group is ranged weapon types 3 through 9 whose effective
+projectile reports native type `0x10000` (`MissileProjectile`). Its native
+flags continue to select hitscan or physical behavior. Native type `0x40000`
+(`BeamProjectile`) is a separate reviewed group. Grenade, flame, continuous
+beam, thrown, mine, melee, NPC, first-person, VATS, and TFC routes stay native
+until separately admitted. This classification includes mod-added standard
+weapons without a form list.
 
 Camera motion or shake never changes the logical aim ray after view heading is
 resolved. Standard mod-added weapons participate by projectile/weapon
@@ -520,8 +631,9 @@ capability, not scan for a named DLL.
 ## Native hook plan
 
 Every address below belongs only to the supported executable identity. Phase 0
-must finish argument/lifetime proof and instruction fingerprints before code is
-written.
+has closed argument, ABI, lifetime, and semantic ownership. Implementation must
+still validate the immutable caller bytes and live predecessor at
+`DeferredInit` before enabling each hook.
 
 | Capability | Candidate boundary | Plan |
 |---|---:|---|
@@ -529,9 +641,11 @@ written.
 | Vertical view | existing Atom hook at `0x00945FD8` | Preserve native route or update Atom view pitch without adding a second input filter. |
 | Camera yaw | call at `0x0094AE94` | Scoped callsite replacement returns Atom view yaw only during admitted normal third person. |
 | Follow target | call at `0x0094B7D2` | Compose proven vector arguments, then call the exact captured native collision predecessor. |
-| Movement vector | unresolved | Hook only after direction, magnitude, flags, animation, and root-motion consumers are proven. |
-| Actor facing | native yaw setter route | Use authoritative setter from the movement phase with explicit reentrancy scope. |
-| Aim convergence | unresolved projectile boundary | Implement only after launch, spread, obstruction, and projectile ownership proof. |
+| Player movement scope | entry `0x009E9E50` | Chain `PlayerMover::Update` while opening a stack-scoped token only for the current live player mover. |
+| Movement request | call at `0x008A6339` | Rotate the post-`PlayerMover` vector, preserve magnitude/high flags, map only the low direction nibble by facing policy, then chain `0x0092F260`. |
+| Actor facing | live player virtual `+0x2C4` | Call the absolute native yaw route (`0x008A6A00 -> 0x00931B60`) only from the scoped movement-request seam with reentrancy protection. |
+| Reticle/view target | call at `0x0070C130` | Substitute Atom's logical view ray only while owned, chain the live `ViewCaster` predecessor, and capture its result by ownership epoch. |
+| Projectile convergence | call at `0x005245BD` | For admitted projectile capabilities, preserve native sampled spread and spawn the native class from the real muzzle toward the captured view target. |
 
 The camera-yaw callsite is preferable to changing the global actor-yaw getter:
 it scopes the semantic substitution to `UpdateCamera` and leaves AI, gameplay,
@@ -646,25 +760,37 @@ ImGui telemetry.
 
 ### Phase 0: close the native contract
 
-Use the radare2 MCP against the identified FNV executable and extend the raw
-evidence ledger. Prove:
+Static research is complete against the identified executable. The raw ledger
+records the direct disassembly and the proof/inference boundary. Closure is:
 
-1. both vector arguments and mutation/output behavior at
-   `0x0094B7D2 -> 0x0094A0C0`;
-2. the final camera transform commit and a safe resolved-distance recovery
-   seam, if one is needed;
-3. low movement direction bits, analog magnitude, camera/local-to-world
-   conversion, animation direction, root motion, and `PlayerMover` lifetime;
-4. exact native predicates and transition timing for first/third person, all
-   VATS modes, TFC, Pip-Boy, dialogue, blocking menus, furniture, kill/death
-   camera, ragdoll, loading/cell changes, missing 3D, and vehicles;
-5. authoritative actor-yaw setter ABI and safe main-thread call context;
-6. projectile launch, view/muzzle aim, spread, continuous weapons, physical
-   projectile, and obstruction boundaries for the later aim phase.
+1. `0x0094A0C0` receives mutable desired endpoint `var_12C`, read-only pivot
+   `var_138`, and a mode byte. It casts pivot-to-desired and writes only the
+   resolved endpoint back through argument 1.
+2. `0x0094BB61 -> 0x00440460` commits the resolved position to camera
+   `0x011E0C20 +0x58`; rotation follows through `0x00A59C60`. The native helper
+   already owns both contraction and outward distance recovery, so Phase 2
+   needs no separate recovery hook.
+3. Direction bits, analog carrier, native heading transform, vector setter,
+   coupled vector/flag request, downstream animation/physics/root-transform
+   ownership, and `PlayerMover` lifetime are closed. The admitted request seam
+   is `0x008A6339`.
+4. The native ownership table above closes every base-game state. Arbitrary
+   mod vehicles have no base-game predicate and require an explicit external
+   ownership capability; this is a proven compatibility boundary, not a
+   guessed offset.
+5. The authoritative absolute heading route is live player virtual `+0x2C4`,
+   resolving through `0x008A6A00` to `0x00931B60`, called from the scoped
+   movement-request context before the native predecessor.
+6. Native reticle casting, muzzle lookup, base and spread angles, spawn ABI,
+   projectile subtype dispatch, hitscan/physical ownership, continuous types,
+   range, and obstruction ownership are closed. The admitted Phase 5 seams are
+   `0x0070C130` and `0x005245BD`.
 
-Deliverable: updated raw ledger and this document, with proven facts separated
-from inference. Gate: no mutating hook code until items 1 through 5 have direct
-evidence. Aim code additionally requires item 6.
+Gate result: mutating implementation may begin with Phase 1 and proceed in
+order. This is a static safety result, not runtime acceptance. Every hook still
+needs a validated instruction fingerprint/live predecessor, focused behavior
+tests, the supported release build, and the listed Proton playtest before its
+capability is enabled by default.
 
 ### Phase 1: lifecycle and passive observer
 
@@ -740,15 +866,17 @@ Acceptance:
 
 ### Phase 5: aim convergence
 
-Implement view-target plus muzzle-obstruction convergence at the proven native
-projectile boundary. Preserve native spread and physical projectile behavior.
-Admit weapon classes by capability in small reviewed groups.
+Implement native `ViewCaster` reticle alignment plus real-muzzle projectile
+convergence at the two proven callsites. Preserve native spread, native muzzle
+collision, and physical projectile behavior. Admit weapon classes by capability
+in small reviewed groups.
 
 Acceptance:
 
 - close, medium, and long-range crosshair convergence is correct within the
   weapon's native spread;
-- a nearby wall blocks the muzzle even when the camera can see around it;
+- a nearby wall is hit by the native muzzle-origin projectile even when the
+  camera can see around it;
 - hitscan and physical projectiles retain correct visual and damage ownership;
 - NPC, first-person, VATS, TFC, thrown, mine, and unsupported continuous routes
   remain exact native behavior;
@@ -793,14 +921,16 @@ implementation source text, textual call order, or symbol-name presence.
 - native-owned states produce no camera, movement, facing, or aim write intent;
 - reacquisition seeds from native output and rejects stale epochs;
 - digital and analog movement mapping covers all quadrants and magnitudes;
+- Explore maps nonzero locomotion to native forward while Combat preserves the
+  original forward/back/strafe low nibble; both preserve every higher flag;
 - explore and combat policies produce their documented facing behavior;
 - draw/aim/fire/reload/holster and VATS transition sequences are replayed as
   observable state traces, not source-structure tests.
 
 ### Aim and artifact tests
 
-- view ray selects the target while the muzzle obstruction ray can choose near
-  cover;
+- the Atom-aligned native reticle ray selects the target while the native
+  muzzle-origin projectile still hits near cover;
 - native spread and projectile characteristics pass through unchanged;
 - shipped MCM copy remains one to three words;
 - the built Atom package contains no ESP, ESM, or ESL;
@@ -865,21 +995,27 @@ controller:
 
 ## Remaining risks
 
-The largest technical risk is FNV's locomotion representation. If direction is
-inseparable from actor forward above the animation/root-motion layer, the safe
-solution is a lower movement-vector hook, not a visual skeleton correction.
-Phase 0 exists to identify that point before implementation effort commits to
-the wrong abstraction.
+The largest remaining technical risk is runtime animation compatibility, not a
+missing locomotion carrier. Static evidence proves that the admitted movement
+seam remains upstream of native animation, physics, and root-motion handling;
+only the Proton matrix can prove that every installed directional animation
+looks correct through diagonal turns, jumps, slopes, swimming, and combat.
 
-The second risk is camera collision composition. The native helper is proven
-to own collision and distance, but its two vector semantics still need exact
-names and lifetime proof. Atom must preserve that helper downstream and cannot
-claim safe follow collision from a post-camera transform.
+Camera collision semantics and the final commit are closed. The remaining
+collision risk is behavioral: native outward recovery and shoulder collapse
+must remain monotonic when the desired follow pivot itself is moving. Phase 2
+must measure that under real interiors before considering any recovery
+refinement.
 
-The third risk is third-person aim. A good camera makes an inaccurate crosshair
-more obvious. Camera and 360 movement can ship with the current native aim fix
-as a separate owner, but Atom is not a complete third-person overhaul until
-view/muzzle convergence passes Phase 5.
+Third-person aim has closed static seams but remains a separately admitted
+Phase 5 capability. Runtime tests must prove same-epoch reticle capture,
+spread preservation, native hitscan/physical impact ordering, near-cover
+behavior, and safe coexistence with a chained hook owner. Camera and movement
+can operate while aim remains native or is owned by the installed aim fix.
+
+Unknown vehicle mods remain an explicit interoperability limit. Base FNV has
+no universal vehicle-owner flag, so safe automatic admission is impossible
+without a capability signal from the vehicle provider or user profile.
 
 Finally, the subjective target is a human-operated camera. Static evidence can
 prove ownership and eliminate structural delay; it cannot choose the final

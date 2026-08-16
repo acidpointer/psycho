@@ -211,10 +211,13 @@ scalar.
 
 [BINARY] The established third-person evidence ledger maps
 PlayerCharacter::UpdateCamera at 0x0094AE40 and the player/camera ownership
-state around it. The ranged-fire path separately resolves muzzle/aim and the
-weapon projectile node. This proves separate camera and launch owners, but it
-does not by itself prove a recoil write seam or view-to-muzzle convergence
-algorithm. See analysis/radare2/output/perf/fnv_third_person_camera_contract.txt.
+state around it. Follow-up research also closes view-to-muzzle convergence:
+the native reticle `ViewCaster` call is 0x0070C130 -> 0x00631D60 and the normal
+ranged spawn call is 0x005245BD -> 0x009BCA60. The latter can preserve native
+sampled spread while restoring the real `##ProjectileNode` muzzle as launch
+origin. This still does not prove a recoil write seam. See
+analysis/radare2/output/perf/fnv_third_person_camera_contract.txt, sections 15
+and 16.
 
 Cadence, reload, jam, and attack admission
 ------------------------------------------
@@ -864,8 +867,9 @@ Open questions requiring focused implementation research or playtest
 The following are intentionally not claimed as solved by this static pass:
 
 * Exact animation-group and camera ownership for first- and third-person recoil.
-* View-ray/muzzle-ray convergence and obstruction ownership for Atom's future
-  third-person camera, including compatibility with an existing aim owner.
+* Runtime acceptance of the proven reticle/spawn convergence pair for Atom's
+  third-person camera, including same-epoch capture, spread, near cover,
+  impact ordering, and compatibility with an existing aim owner.
 * A compatible physical replacement for forms whose native projectile is
   hitscan, including VATS timing, tracer/beam presentation, script observations,
   and impact ordering.
