@@ -237,11 +237,21 @@ impl Disasm {
                 instr.inner().flow_control()
             );
 
-            // If we find certain control flow instructions, we cannot safely hook.
-            // - Returns/Unconditional Jumps: Function ends before we have enough bytes
-            // - Loops: Complex control flow that's difficult to relocate correctly
-            // Note: CALL and conditional branches CAN be relocated by BlockEncoder
-            if instr.is_return() || instr.is_unconditional_jump() || instr.is_loop() {
+            // A complete entry redirect is itself a valid predecessor: moving
+            // that one instruction into the trampoline preserves the prior
+            // owner's call/return chain. A short redirect is not sufficient
+            // because bytes after a terminal jump are not proven instructions
+            // and must never be stolen merely to reach our patch width.
+            let complete_entry_redirect =
+                stolen_bytes_len == 0 && instr.is_unconditional_jump() && instr.len() >= jump_size;
+
+            // Returns, loops, and partial/later unconditional jumps end the
+            // reachable entry block before enough replaceable bytes exist.
+            // CALL and conditional branches remain relocatable below.
+            if instr.is_return()
+                || instr.is_loop()
+                || (instr.is_unconditional_jump() && !complete_entry_redirect)
+            {
                 log::error!(
                     "Cannot hook: found terminating instruction at 0x{:X}: {:?}",
                     instr.ip(),
@@ -817,4 +827,44 @@ pub fn verify_jump_bytes(
 
     log::trace!("Jump instruction verified successfully");
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use core::ffi::c_void;
+
+    use super::Disasm;
+
+    #[test]
+    fn complete_entry_redirect_is_a_chainable_predecessor() {
+        // E9 +0B redirects from byte zero to byte 0x10. The trailing bytes are
+        // readable padding for the decoder, not part of the stolen region.
+        let bytes = [
+            0xE9, 0x0B, 0x00, 0x00, 0x00, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC,
+            0xCC, 0xCC, 0xC3, 0xCC, 0xCC, 0xCC, 0xCC,
+        ];
+        let target = bytes.as_ptr().cast::<c_void>();
+        let detour = unsafe { bytes.as_ptr().add(0x10).cast_mut().cast::<c_void>() };
+
+        let disasm = Disasm::from_memory_range(target, detour)
+            .expect("a complete first-instruction redirect must be chainable");
+
+        assert_eq!(disasm.get_stolen_bytes_len(), 5);
+        assert_eq!(disasm.get_stolen_bytes_ref(), &bytes[..5]);
+        assert_eq!(disasm.relative_branch_instructions().len(), 1);
+    }
+
+    #[test]
+    fn short_entry_redirect_remains_unsupported() {
+        // EB +0E reaches the same byte, but its two-byte instruction cannot
+        // hold Atom's five-byte redirect and terminates the reachable block.
+        let bytes = [
+            0xEB, 0x0E, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC, 0xCC,
+            0xCC, 0xCC, 0xC3, 0xCC, 0xCC, 0xCC, 0xCC,
+        ];
+        let target = bytes.as_ptr().cast::<c_void>();
+        let detour = unsafe { bytes.as_ptr().add(0x10).cast_mut().cast::<c_void>() };
+
+        assert!(Disasm::from_memory_range(target, detour).is_err());
+    }
 }

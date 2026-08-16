@@ -16,11 +16,15 @@ use std::sync::OnceLock;
 use libnvse::TESObjectREFR;
 use libnvse::api::event_manager::{EventFlags, EventManager, EventManagerError, EventParamType};
 use libnvse::api::interface::NVSEInterfaceError;
+use libnvse::api::player_controls::PlayerControls;
 use libpsycho::logger::Logger;
 use libpsycho::os::windows::winapi::query_performance_frequency;
 use thiserror::Error;
 
-use crate::input::{self, ConfigError, InputConfig, InputInstallError};
+use crate::ballistics;
+use crate::camera;
+use crate::config::{AtomConfig, AtomConfigError};
+use crate::input::{self, InputInstallError};
 
 const STATE_COLD: u8 = 0;
 const STATE_INITIALIZING: u8 = 1;
@@ -30,6 +34,7 @@ const STATE_UNAVAILABLE: u8 = 3;
 static STATE: AtomicU8 = AtomicU8::new(STATE_COLD);
 static QPC_FREQUENCY: AtomicU32 = AtomicU32::new(0);
 static SUMMARY_LATCH: AtomicBool = AtomicBool::new(false);
+static BALLISTICS_SUMMARY_LATCH: AtomicBool = AtomicBool::new(false);
 static CONFIG_PATH: OnceLock<PathBuf> = OnceLock::new();
 const LOG_FILE: &str = "./atom-latest.log";
 const MCM_UPDATE_EVENT: &str = "MCMExtUpdate";
@@ -50,7 +55,7 @@ pub(crate) enum RuntimeError {
     InvalidConfig {
         path: PathBuf,
         #[source]
-        source: ConfigError,
+        source: AtomConfigError,
     },
     #[error(transparent)]
     Input(#[from] InputInstallError),
@@ -60,6 +65,7 @@ pub(crate) enum RuntimeError {
 pub(crate) fn initialize(
     runtime_directory: &Path,
     event_manager: Result<&EventManager, &NVSEInterfaceError>,
+    player_controls: Result<&PlayerControls, &NVSEInterfaceError>,
 ) -> Result<(), RuntimeError> {
     if STATE
         .compare_exchange(
@@ -79,7 +85,7 @@ pub(crate) fn initialize(
     }
     log::info!("[INIT] Atom DeferredInit started");
 
-    match initialize_inner(runtime_directory, event_manager) {
+    match initialize_inner(runtime_directory, event_manager, player_controls) {
         Ok(()) => {
             STATE.store(STATE_ACTIVE, Ordering::Release);
             log::info!("[INIT] Atom initialized successfully");
@@ -95,6 +101,7 @@ pub(crate) fn initialize(
 fn initialize_inner(
     runtime_directory: &Path,
     event_manager: Result<&EventManager, &NVSEInterfaceError>,
+    player_controls: Result<&PlayerControls, &NVSEInterfaceError>,
 ) -> Result<(), RuntimeError> {
     let config_path = runtime_directory
         .join("Data")
@@ -125,6 +132,113 @@ fn initialize_inner(
     let config = load_config(&config_path)?;
     apply_config(config, false, true);
     let hooks = input::install_native_bridge()?;
+    match player_controls {
+        Ok(controls) => match controls.reader() {
+            Ok(reader) => {
+                let complete_camera_entry = match camera::install_shared_update_entry(reader) {
+                    Ok(shared_hook) => {
+                        log::info!("[CAMERA] Complete UpdateCamera entry installed");
+                        log::debug!(
+                            "[CAMERA] Shared predecessor: update_entry=0x{:08X}",
+                            shared_hook.update_entry,
+                        );
+                        true
+                    }
+                    Err(error) => {
+                        log::warn!(
+                            "[CAMERA] Complete UpdateCamera ownership is unavailable: {error:#}. Camera systems remain native; Atom Input remains active"
+                        );
+                        false
+                    }
+                };
+                if complete_camera_entry {
+                    match camera::install_first_person_system() {
+                        Ok(first_person_hooks) => {
+                            log::info!("[CAMERA] First-person render hooks installed");
+                            log::debug!(
+                                "[CAMERA] First-person routes: world_a=0x{:08X}, world_b=0x{:08X}, first_special=0x{:08X}, first_a=0x{:08X}, first_b=0x{:08X}",
+                                first_person_hooks.world_a,
+                                first_person_hooks.world_b,
+                                first_person_hooks.first_person_special,
+                                first_person_hooks.first_person_a,
+                                first_person_hooks.first_person_b,
+                            );
+                        }
+                        Err(error) => log::warn!(
+                            "[CAMERA] First-person render motion is unavailable: {error:#}. Third-person capabilities remain independently eligible"
+                        ),
+                    }
+                    match camera::third_person::install_native_system(reader) {
+                        Ok(hooks) => {
+                            if let Some(predecessor) = hooks.follow_predecessor {
+                                log::info!("[CAMERA] Third-person follow hooks installed");
+                                log::debug!(
+                                    "[CAMERA] Third-person follow predecessor: 0x{predecessor:08X}"
+                                );
+                            }
+                            if let (Some(heading), Some(scope), Some(movement)) = (
+                                hooks.camera_heading_predecessor,
+                                hooks.movement_scope_predecessor,
+                                hooks.movement_request_predecessor,
+                            ) {
+                                log::info!("[CAMERA] Camera-relative movement hooks installed");
+                                log::debug!(
+                                    "[CAMERA] Movement predecessors: heading=0x{heading:08X}, scope=0x{scope:08X}, movement=0x{movement:08X}"
+                                );
+                            }
+                            if hooks.aim_admitted {
+                                log::info!(
+                                    "[AIM] Native reticle and real-muzzle convergence are available"
+                                );
+                                if let (Some(reticle), Some(spawn)) =
+                                    (hooks.reticle_predecessor, hooks.spawn_predecessor)
+                                {
+                                    log::debug!(
+                                        "[AIM] Convergence predecessors: reticle=0x{reticle:08X}, spawn=0x{spawn:08X}"
+                                    );
+                                }
+                            } else if hooks.camera_heading_predecessor.is_some() {
+                                log::warn!(
+                                    "[AIM] Another owner or an unrecognized caller already controls convergence; Atom aim remains native"
+                                );
+                            } else {
+                                log::info!(
+                                    "[AIM] Convergence remains native because camera-relative movement is unavailable"
+                                );
+                            }
+                        }
+                        Err(error) => log::warn!(
+                            "[CAMERA] Third-person follow and movement are unavailable: {error:#}. Other Atom systems remain active"
+                        ),
+                    }
+                }
+            }
+            Err(error) => log::warn!(
+                "[CAMERA] Combined player-control ownership is unavailable: {error}. Camera systems remain native"
+            ),
+        },
+        Err(error) => log::warn!(
+            "[CAMERA] xNVSE's player-controls interface was unavailable during plugin load: {error:#}. Camera systems remain native"
+        ),
+    }
+    match ballistics::install_native_observer() {
+        Ok(ballistics_hooks) => {
+            log::info!("[BALLISTICS] Native physical-flight policy is active");
+            log::debug!(
+                "[BALLISTICS] Chained predecessors: count=0x{:08X}, launch=0x{:08X}, hit_build=0x{:08X}, hit_commit=0x{:08X}, collision=0x{:08X}, hitscan_policy=0x{:08X}, missile_update=0x{:08X}",
+                ballistics_hooks.count_predecessor,
+                ballistics_hooks.launch_predecessor,
+                ballistics_hooks.hit_build_predecessor,
+                ballistics_hooks.hit_commit_predecessor,
+                ballistics_hooks.collision_predecessor,
+                ballistics_hooks.hitscan_policy_predecessor,
+                ballistics_hooks.missile_update_predecessor,
+            );
+        }
+        Err(error) => log::warn!(
+            "[BALLISTICS] Native physical-flight policy is unavailable: {error:#}. Ballistics remains native"
+        ),
+    }
 
     // MCM Extender is optional at native runtime. Failure to subscribe leaves
     // settings restart-applied while preserving the already validated input
@@ -200,11 +314,11 @@ unsafe extern "C" fn mcm_update_handler(
     }
 }
 
-fn load_config(path: &Path) -> Result<InputConfig, RuntimeError> {
+fn load_config(path: &Path) -> Result<AtomConfig, RuntimeError> {
     match fs::read_to_string(path) {
         Ok(text) => {
             let config =
-                InputConfig::from_ini(&text).map_err(|source| RuntimeError::InvalidConfig {
+                AtomConfig::from_ini(&text).map_err(|source| RuntimeError::InvalidConfig {
                     path: path.to_owned(),
                     source,
                 })?;
@@ -216,7 +330,7 @@ fn load_config(path: &Path) -> Result<InputConfig, RuntimeError> {
                 "[CONFIG] '{}' does not exist yet; safe defaults remain active until MCM saves it",
                 path.display()
             );
-            Ok(InputConfig::default())
+            Ok(AtomConfig::default())
         }
         Err(source) => Err(RuntimeError::ReadConfig {
             path: path.to_owned(),
@@ -225,39 +339,92 @@ fn load_config(path: &Path) -> Result<InputConfig, RuntimeError> {
     }
 }
 
-fn apply_config(config: InputConfig, process_summary_request: bool, report_unchanged: bool) {
+fn apply_config(config: AtomConfig, process_summary_request: bool, report_unchanged: bool) {
+    let input_config = config.input();
     let previous = input::current_config();
-    if config.telemetry_enabled() && !previous.telemetry_enabled() {
+    if input_config.telemetry_enabled() && !previous.telemetry_enabled() {
         input::telemetry::reset();
+        camera::reset_diagnostics();
     }
     input::telemetry::configure(
-        config.telemetry_enabled(),
+        input_config.telemetry_enabled(),
         i64::from(QPC_FREQUENCY.load(Ordering::Relaxed)),
     );
-    if config.telemetry_enabled()
+    camera::configure_diagnostics(input_config.telemetry_enabled());
+    if input_config.telemetry_enabled()
         && QPC_FREQUENCY.load(Ordering::Relaxed) == 0
-        && (config != previous || report_unchanged)
+        && (input_config != previous || report_unchanged)
     {
         log::warn!(
             "[INPUT_TELEMETRY] Collection was requested but QPC setup is unavailable; no latency samples will be recorded"
         );
     }
-    if config != previous {
-        input::publish_config(config);
+    if input_config != previous {
+        input::publish_config(input_config);
     }
-    if config != previous || report_unchanged {
+    if input_config != previous || report_unchanged {
         log::info!(
             "[CONFIG] Atom Input settings active: enabled={}, mouse_profile={:?}, telemetry={}",
-            config.enabled(),
-            config.mouse().profile(),
-            config.telemetry_enabled(),
+            input_config.enabled(),
+            input_config.mouse().profile(),
+            input_config.telemetry_enabled(),
+        );
+    }
+
+    let camera_config = config.first_person();
+    let previous_camera = camera::current_config();
+    if camera_config != previous_camera {
+        camera::publish_config(camera_config);
+    }
+
+    let third_person_config = config.third_person();
+    let previous_third_person = camera::third_person::current_config();
+    if third_person_config != previous_third_person {
+        camera::third_person::publish_config(third_person_config);
+    }
+    if third_person_config != previous_third_person || report_unchanged {
+        log::info!(
+            "[CONFIG] Third-person settings active: follow={}, movement={}, drawn_360={}",
+            third_person_config.follow_enabled(),
+            third_person_config.movement_enabled(),
+            third_person_config.drawn_360(),
+        );
+    }
+    if camera_config != previous_camera || report_unchanged {
+        log::info!(
+            "[CONFIG] First-person settings active: enabled={}, camera_motion={:.2}, weapon_motion={:.2}, landing_motion={:.2}, aim_motion={:.2}",
+            camera_config.enabled(),
+            camera_config.camera_motion(),
+            camera_config.weapon_motion(),
+            camera_config.landing_motion(),
+            camera_config.aim_motion(),
+        );
+    }
+
+    let ballistics_config = config.ballistics();
+    let previous_ballistics = ballistics::current_config();
+    ballistics::publish_config(
+        ballistics_config,
+        i64::from(QPC_FREQUENCY.load(Ordering::Relaxed)),
+    );
+    if ballistics_config != previous_ballistics || report_unchanged {
+        log::info!(
+            "[CONFIG] Ballistics settings active: enabled={}, trace={}",
+            ballistics_config.enabled(),
+            ballistics_config.trace_enabled(),
         );
     }
 
     if process_summary_request {
-        let was_requested = SUMMARY_LATCH.swap(config.summary_requested(), Ordering::AcqRel);
-        if config.summary_requested() && !was_requested {
+        let was_requested = SUMMARY_LATCH.swap(input_config.summary_requested(), Ordering::AcqRel);
+        if input_config.summary_requested() && !was_requested {
             log_telemetry_summary();
+            camera::log_diagnostics_summary();
+        }
+        let ballistics_was_requested =
+            BALLISTICS_SUMMARY_LATCH.swap(ballistics_config.summary_requested(), Ordering::AcqRel);
+        if ballistics_config.summary_requested() && !ballistics_was_requested {
+            ballistics::log_requested_summary();
         }
     }
 }

@@ -317,7 +317,12 @@ unsafe extern "thiscall" fn heading_x_detour(player: *mut c_void, native_heading
         LAST_MOUSE_X.load(Ordering::Relaxed),
         native_heading,
     );
-    unsafe { predecessor(player, heading) };
+    // Horizontal actor yaw is diverted only after the camera epoch machine
+    // admits stable third person. Native-owned and contended paths retain the
+    // exact predecessor call and argument.
+    if !crate::camera::consume_horizontal_heading(player, heading) {
+        unsafe { predecessor(player, heading) };
+    }
 }
 
 unsafe extern "thiscall" fn heading_y_detour(player: *mut c_void, native_heading: f32) {
@@ -329,7 +334,11 @@ unsafe extern "thiscall" fn heading_y_detour(player: *mut c_void, native_heading
         LAST_MOUSE_Y.load(Ordering::Relaxed),
         native_heading,
     );
+    // Native pitch owns its established clamping and first-person semantics.
+    // Camera state samples the clamped value after the predecessor rather than
+    // implementing a second pitch policy.
     unsafe { predecessor(player, heading) };
+    crate::camera::observe_vertical_heading(player);
 }
 
 fn transform_heading(axis: MouseAxis, source_delta: i32, native_heading: f32) -> f32 {

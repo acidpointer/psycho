@@ -528,6 +528,38 @@ RUNTIME OBSERVATION STILL REQUIRED:
   taps, low-speed stick motion, trigger noise, and high-rate mice;
 - animation/gameplay acceptance time for each reportedly delayed action.
 
+
+MenuMode context consistency after the 2026-08-16 runtime failure
+=================================================================
+
+Direct executable evidence, shared with the first- and third-person ledgers,
+establishes the complete native no-argument MenuMode predicate:
+
+  0x004B7210  returns dword [0x011D8A80] (InterfaceManager singleton)
+  0x009373F0  returns byte [InterfaceManager +0x00]
+  0x007023A0  returns dword [InterfaceManager +0x0C] != 1
+  0x00702360  composes the three helpers without another side effect
+
+Therefore native MenuMode is exactly:
+
+  manager != NULL && manager->active != 0 && manager->mode != 1
+
+The user's 2026-08-16 runtime log proves that the live 0x00702360 entry no
+longer has the on-disk executable's vanilla bytes by DeferredInit. It does not
+record the replacement implementation or return values. Repository inspection
+after that run found one remaining Atom call to the mutable entry in
+`atom/src/input/native.rs`, while both camera native adapters already read the
+stable InterfaceManager fields. Third-person ownership consumes Atom Input's
+published ActionContext, so this inconsistency could revoke the whole camera
+epoch independently of the third-person hard gate.
+
+The safe intervention remains no intervention at 0x00702360. Atom Input now
+validates the global slot at DeferredInit and copies active +0x00 and mode
++0x0C after the native input sample. An invalid or absent manager produces
+false, matching native null behavior. This proves deterministic parity with
+the base engine; it does not infer anything about the provider that changed the
+shared helper or by itself prove the user's next runtime result.
+
 Supporting local evidence
 =========================
 

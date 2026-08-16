@@ -7,15 +7,20 @@ combat overhaul. It covers firearm handling, accuracy, projectiles, impacts,
 explosions, melee, armor and damage, actor reactions, AI, VATS, and compatibility
 with arbitrary vanilla and mod-added content.
 
-It does not implement or enable combat changes. Static analysis proves the
-native ownership and safe boundaries described here; it does not prove game
-feel, runtime stability, or compatibility under Proton. Those require the
-phased implementation and playtests defined below.
+The first combat change is now implemented and runtime accepted:
+capability-proven discrete hitscan missiles may be routed into FNV's complete
+native physical policy during MissileProjectile initialization. Atom changes only a scoped
+hitscan-predicate answer; it never mutates a completed projectile, shared form,
+or damage value. Static analysis proves the ownership and initialization
+boundaries described here; it does not prove game feel or Proton acceptance.
+Those remain governed by the phased plan below.
 
 The address-level evidence is recorded in the
 [radare2 combat evidence ledger](../analysis/radare2/output/gameplay/fnv_combat_contract.txt).
 The established player control boundary is documented in
 [the actor input contract](fnv_actor_input_contract.md).
+The evidence-gated implementation sequence for the first combat milestone is
+documented in the [Ballistics Core plan](atom_ballistics_core_plan.md).
 
 ## Supported executable and evidence
 
@@ -306,6 +311,13 @@ rotation, and collision flags. Runtime projectiles retain source actor, weapon,
 weapon condition, speed multiplier, direction, range, age, damage, distance
 travelled, impact list, and subtype-specific state.
 
+The cached runtime direction at `+0x104` is not a launch-admission vector.
+The common constructor initializes it to the engine's zero vector, while
+MissileProjectile movement constructs a frame displacement from effective
+speed and applies projectile orientation through the native movement route.
+A fresh zero cached direction is therefore valid; only non-finite components
+are corrupt state.
+
 Derived types include beam, flame, grenade, missile, and continuous beam. Their
 virtual update and impact behavior must remain intact. A generic struct cast or
 whole-family vtable replacement is not acceptable.
@@ -334,13 +346,13 @@ update/impact path, and cleanup on projectile death, reference destruction,
 load, new game, and relevant lifecycle transitions. A raw pointer alone is not
 a persistent identity.
 
-### Hitscan conversion is a separate feature
+### Native-initialization physical policy
 
 Changing every hitscan form into a physical projectile by mutating forms is
 incompatible. It can alter other mods' assumptions, VATS timing, beam/tracer
 presentation, scripts, impacts, and projectile subtypes globally.
 
-A future physical-ballistics module must instead prove a per-shot adapter that:
+The physical-ballistics module therefore uses a per-shot policy that:
 
 - preserves the original weapon, ammunition, source, condition, count, sounds,
   impact-data set, scripts, and kill attribution;
@@ -353,7 +365,78 @@ A future physical-ballistics module must instead prove a per-shot adapter that:
 - is tested against synchronous hitscan observations and existing projectile
   extensions.
 
-Until that proof exists, native hitscan remains the compatibility fallback.
+Focused static analysis proves MissileProjectile's complete launch-time flag
+derivation at `0x009B7CC0`. The initializer retrieves its live projectile form
+and invokes `BGSProjectile::IsHitScan` (`u8 __thiscall(BGSProjectile*)`) at
+callsite `0x009B7D08`. The result byte is the only local hitscan policy used by
+the remaining block. Hitscan selects `0x0001`, `0x0008`, `0x2000`, plus exactly
+one of tracer-dependent `0x0020` or non-tracer `0x0002`. Physical flight
+selects `0x8000` and selects `0x0040` when native gravity is positive.
+Independent tracer `0x0010` and initialization `0x0100` remain intact.
+
+VATS state 4 supplies false to this same local policy before the flags are
+derived. It does not clear the shared form's hitscan flag. This is direct native
+precedent for a per-object physical policy while later consumers retain the
+form's original semantics.
+
+Atom captures the current target encoded at `0x009B7D08` and calls it exactly
+once. Immutable fingerprints cover instructions before and after the mutable
+five-byte call without requiring a vanilla displacement. The canonical launch
+wrapper publishes a bounded thread/form scope only while its own captured
+launch predecessor executes. A matching true result is changed to false; a
+matching false result from an earlier owner stays false; unmatched forms,
+threads, and calls outside the scope preserve the predecessor result. FNV then
+derives every runtime field and flag before common initialization and process
+admission. Atom performs no post-launch runtime mutation.
+
+The initial 2026-08-16 Proton observation recorded 251 canonical launches and
+exactly 251 first correlated contacts while chaining a non-vanilla launch
+owner. It observed no contact before that predecessor returned, no invalid
+value or pool overflow, and one callback thread. This is positive evidence for
+the sampled hitscan and beam session, not general admission: it contained no
+actor `ApplyHit`, physical missile, special projectile family, or
+multi-projectile launch. The retained excerpt and exact DLL identity are in
+`.reports/atom-ballistics-phase1-2026-08-16.log`.
+
+Focused follow-up analysis proves a composable read-only update seam.
+MissileProjectile vtable `0x0108FA44` stores its `+0x310` subtype update at
+`0x0108FD54`, with vanilla target `0x009B8030` and ABI
+`void __thiscall(MissileProjectile*, float)`. Common update calls that slot and
+continues to use the live object after it returns. Atom may therefore CAS-chain
+the slot's current owner and compare pre/post position `+0x30`, runtime policy
+flags `+0xC8`, age/range/distance, impact state, and authoritative speed from
+`0x009669C0` without taking movement ownership. A fresh Proton process then
+recorded 164 first hitscan updates and no early update/contact; two callback
+threads and nine non-impacted movement outliers reproduced systematically.
+
+The implemented scope uses eight fixed atomic slots and stores only Windows
+thread ID, numeric form token, and Boolean state. Nested launches temporarily
+replace and restore their thread's outer frame. The RAII guard is not `Send`.
+There is no heap allocation, blocking lock, TLS value, engine pointer, file I/O,
+or routine log in either hot path. Slot exhaustion, unsupported context, or an
+unobserved policy call keeps the round fully native.
+
+The accepted Proton run of DLL SHA-256 `e34c81bf...` recorded 68 policy
+candidates, 68 forced-physical decisions, 68 first MissileProjectile updates,
+106 progressive update steps, 71 delayed first contacts, two actor hit builds,
+and exactly two native `ApplyHit` calls. No policy miss, invalid sample, or pool
+overflow occurred. The previous summary incorrectly derived launch success
+from the later live `0x2000`/`0x8000` marker pair and classified every update
+as `other`. Atom now retains the immutable initializer selection in its
+observation record and reports later marker coexistence separately; it does
+not repair or overwrite another runtime owner's flags. The scoped policy is
+therefore enabled by default. The broader content, movement, miss, and
+frame-rate matrix remains hardening work rather than an admission blocker.
+
+The installed content audit supports the capability boundary. Kyu's Ballistics
+Fixed - TTW contains 24 patched type-1 Missile projectile records, all with
+hitscan flags and live speed/range/gravity data. Improved Bullet Tracers edits
+those live forms' tracer/model/presentation fields and optionally speed/range;
+the installed configuration leaves speed and range unchanged. Third Person Aim
+Fix owns the launch predecessor captured by prior telemetry. Because Atom
+scopes around and chains that owner, reads the final live form, and changes only
+the initializer-local answer, these mods do not require names, FormIDs, or
+load-order-specific patches.
 
 ### Thrown weapons, grenades, mines, flames, and beams
 
@@ -658,7 +741,7 @@ combat::handling
   bounded per-actor recoil, recovery, sway, and burst history
 
 combat::projectile
-  fixed-capacity sidecar state and physical-ballistics adapter
+  fixed-capacity sidecar state and scoped native physical-flight policy
 
 combat::impact
   ImpactContext, material observation, penetration/ricochet policy
@@ -721,9 +804,22 @@ without revalidation.
 Potential seams are not permission to patch all of them. Each implementation
 phase should admit only what it owns.
 
+The implemented Ballistics transaction owns six caller-local seams plus one
+stable vtable slot: effective projectile count `0x00524413`, launch
+`0x005245BD`, MissileProjectile hitscan policy `0x009B7D08`, hit construction
+`0x009C1E61`, projectile `ApplyHit` `0x009C1E96`, collision effects
+`0x009C2058`, and MissileProjectile update slot `0x0108FD54`. Each wrapper
+chains the target currently encoded at its seam exactly once. Disabled mode
+does not inspect engine data. Enabled mode reads the live projectile form only
+during launch and common runtime fields only while the native update callback
+owns the object; stored values are pointer-free and engine addresses remain
+opaque numeric correlation tokens.
+
 | Need | Preferred seam | Rule |
 |---|---|---|
 | Capture launched shot | call `0x005245BD` to `0x009BCA60` | Call current predecessor; preserve returned subtype |
+| Select physical missile policy | call `0x009B7D08` to live hitscan predicate owner | Scope by thread/form; change only true to false before native derivation |
+| Observe missile flight | vtable slot `0x0108FD54` | CAS-chain current owner; never move the projectile |
 | Projectile impact observation | virtual path under `0x009B8B10`/`0x009C1B70` | Do not replace whole virtual family |
 | Projectile damage policy | call `0x009B5702` | Native calculation first, policy second |
 | Melee damage policy | call `0x009B5623` | Native calculation first, policy second |
@@ -837,9 +933,11 @@ its focused and cross-feature gates pass.
 
 ### Phase 3: physical ballistics
 
-- Add the projectile side table and native physical-projectile observation.
-- Prove fixed-step or frame-time integration and bounded cleanup.
-- Design hitscan adaptation per projectile family; keep native fallback.
+- Retain the projectile side table and native physical-projectile observation.
+- Select the scoped native initialization policy only for admitted discrete
+  hitscan missiles; keep native fallback for every other family and context.
+- Prove native frame-time integration, collision, and bounded cleanup in the
+  supported runtime.
 
 ### Phase 4: material impacts
 

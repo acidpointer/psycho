@@ -4,7 +4,7 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::path::PathBuf;
 
-use atom::input::InputConfig;
+use atom::config::AtomConfig;
 use serde_json::Value;
 
 #[test]
@@ -18,10 +18,34 @@ fn shipped_mcm_menu_exposes_every_runtime_setting_with_matching_defaults() {
     assert_eq!(document["requirements"][0]["version"], 2);
 
     let actual = collect_persisted_defaults(&document);
-    let defaults = InputConfig::default();
-    let mouse = defaults.mouse();
-    let controller = defaults.controller();
+    let defaults = AtomConfig::default();
+    let input = defaults.input();
+    let ballistics = defaults.ballistics();
+    let first_person = defaults.first_person();
+    let third_person = defaults.third_person();
+    let mouse = input.mouse();
+    let controller = input.controller();
     let expected = BTreeMap::from([
+        ("Ballistics:bEnabled", f64::from(ballistics.enabled())),
+        ("Camera:bAutoCenter", f64::from(third_person.auto_center())),
+        (
+            "Camera:bFollowCamera",
+            f64::from(third_person.follow_enabled()),
+        ),
+        (
+            "Camera:fCenterDelay",
+            f64::from(third_person.center_delay()),
+        ),
+        (
+            "Camera:fCenterSpeed",
+            f64::from(third_person.center_speed_degrees()),
+        ),
+        (
+            "Camera:fFollowSpeed",
+            f64::from(third_person.follow_speed()),
+        ),
+        ("Camera:fLookAhead", f64::from(third_person.look_ahead())),
+        ("Camera:fSoftZone", f64::from(third_person.soft_zone())),
         (
             "Controller:bInvertRightX",
             f64::from(controller.invert_right_x()),
@@ -67,14 +91,39 @@ fn shipped_mcm_menu_exposes_every_runtime_setting_with_matching_defaults() {
             f64::from(controller.trigger_release()),
         ),
         (
+            "Diagnostics:bBallisticsSummary",
+            f64::from(ballistics.summary_requested()),
+        ),
+        (
+            "Diagnostics:bBallisticsTrace",
+            f64::from(ballistics.trace_enabled()),
+        ),
+        (
             "Diagnostics:bTelemetry",
-            f64::from(defaults.telemetry_enabled()),
+            f64::from(input.telemetry_enabled()),
         ),
         (
             "Diagnostics:bWriteSummary",
-            f64::from(defaults.summary_requested()),
+            f64::from(input.summary_requested()),
         ),
-        ("Input:bEnabled", f64::from(defaults.enabled())),
+        ("FirstPerson:bEnabled", f64::from(first_person.enabled())),
+        (
+            "FirstPerson:fCameraMotion",
+            f64::from(first_person.camera_motion()),
+        ),
+        (
+            "FirstPerson:fAimMotion",
+            f64::from(first_person.aim_motion()),
+        ),
+        (
+            "FirstPerson:fLandingMotion",
+            f64::from(first_person.landing_motion()),
+        ),
+        (
+            "FirstPerson:fWeaponMotion",
+            f64::from(first_person.weapon_motion()),
+        ),
+        ("Input:bEnabled", f64::from(input.enabled())),
         ("Mouse:bInvertX", f64::from(mouse.invert_x())),
         ("Mouse:bInvertY", f64::from(mouse.invert_y())),
         (
@@ -84,6 +133,15 @@ fn shipped_mcm_menu_exposes_every_runtime_setting_with_matching_defaults() {
         ("Mouse:fSensitivity", f64::from(mouse.sensitivity())),
         ("Mouse:fVerticalScale", f64::from(mouse.vertical_scale())),
         ("Mouse:iProfile", f64::from(mouse.profile() as u8)),
+        (
+            "Movement:b360Movement",
+            f64::from(third_person.movement_enabled()),
+        ),
+        ("Movement:bDrawn360", f64::from(third_person.drawn_360())),
+        (
+            "Movement:fTurnSpeed",
+            f64::from(third_person.turn_speed_degrees()),
+        ),
     ]);
 
     assert_eq!(

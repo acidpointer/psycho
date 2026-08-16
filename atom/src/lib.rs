@@ -8,6 +8,9 @@
 //! loading, native validation, and hook installation remain unreachable until
 //! xNVSE dispatches `DeferredInit`.
 
+pub mod ballistics;
+pub mod camera;
+pub mod config;
 pub mod input;
 
 mod plugininfo;
@@ -16,6 +19,7 @@ mod runtime;
 use libnvse::api::event_manager::EventManager;
 use libnvse::api::interface::NVSEInterfaceError;
 use libnvse::api::messaging::{NVSEMessage, NVSEMessageType};
+use libnvse::api::player_controls::PlayerControls;
 use libnvse::plugin::{PluginContext, PluginError};
 use libnvse::{NVSEInterfaceFFI, PluginInfoFFI};
 use std::path::PathBuf;
@@ -94,6 +98,7 @@ enum PluginLoadError {
 struct NvseServices {
     runtime_directory: PathBuf,
     event_manager: Result<EventManager, NVSEInterfaceError>,
+    player_controls: Result<PlayerControls, NVSEInterfaceError>,
 }
 
 fn plugin_load(nvse: *const NVSEInterfaceFFI) -> Result<(), PluginLoadError> {
@@ -105,6 +110,9 @@ fn plugin_load(nvse: *const NVSEInterfaceFFI) -> Result<(), PluginLoadError> {
     let services = NvseServices {
         runtime_directory: PathBuf::from(context.game_directory()?),
         event_manager: context.low_level().query_event_manager(),
+        player_controls: context
+            .low_level()
+            .query_player_controls(plugininfo::PLUGIN_NAME),
     };
     context.on_message(move |message| handle_message(message, &services))?;
 
@@ -119,18 +127,40 @@ fn handle_message(message: &NVSEMessage, services: &NvseServices) {
             if let Err(error) = runtime::initialize(
                 services.runtime_directory.as_path(),
                 services.event_manager.as_ref(),
+                services.player_controls.as_ref(),
             ) {
-                log::error!(
-                    "[INIT] Atom Input is unavailable because DeferredInit failed: {error:#}"
-                );
+                log::error!("[INIT] Atom is unavailable because DeferredInit failed: {error:#}");
             }
+        }
+        NVSEMessageType::PreLoadGame
+        | NVSEMessageType::NewGame
+        | NVSEMessageType::ExitToMainMenu
+        | NVSEMessageType::ExitGame
+        | NVSEMessageType::ExitGame_Console => {
+            ballistics::clear_observations();
+            camera::request_reset();
         }
         NVSEMessageType::OnFramePresent => {
             input::finish_frame();
             input::telemetry::mark_present();
+            camera::finish_frame();
         }
         _ => {}
     }
+}
+
+/// Publish an external native owner for Atom's camera outputs.
+///
+/// Vehicle and scripted-camera providers may call this C ABI with a stable
+/// nonzero token. `active` is `1` to acquire ownership and `0` to release it.
+/// The function returns `1` when the request is accepted. While any token is
+/// active, Atom performs no camera, movement, facing, or aim writes.
+#[unsafe(no_mangle)]
+pub extern "C" fn AtomCamera_SetExternalOwner(owner_token: u32, active: u8) -> u8 {
+    if active > 1 {
+        return 0;
+    }
+    u8::from(camera::set_external_owner(owner_token, active != 0))
 }
 
 #[cfg(test)]

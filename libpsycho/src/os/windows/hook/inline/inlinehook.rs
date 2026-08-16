@@ -582,3 +582,60 @@ impl<T: Function> InlineHookContainer<T> {
             .ok_or(InlineHookError::HookContainerNotInitialized)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::InlineHook;
+
+    type ChainFn = unsafe extern "C" fn() -> u32;
+
+    #[inline(never)]
+    unsafe extern "C" fn chain_target() -> u32 {
+        1
+    }
+
+    #[inline(never)]
+    unsafe extern "C" fn first_owner() -> u32 {
+        41
+    }
+
+    #[inline(never)]
+    unsafe extern "C" fn second_owner() -> u32 {
+        42
+    }
+
+    #[test]
+    fn second_entry_owner_chains_and_restores_the_first_owner() {
+        let target: ChainFn = std::hint::black_box(chain_target);
+        let first = unsafe {
+            InlineHook::new(
+                "first test owner",
+                target as *mut core::ffi::c_void,
+                first_owner as ChainFn,
+            )
+        }
+        .expect("the unmodified test function must be hookable");
+        first.enable().expect("first owner must install");
+
+        let second = unsafe {
+            InlineHook::new(
+                "second test owner",
+                target as *mut core::ffi::c_void,
+                second_owner as ChainFn,
+            )
+        }
+        .expect("the complete first-owner entry redirect must be chainable");
+
+        // Calling the captured trampoline before the second owner is enabled
+        // proves that its relocated entry jump reaches the first owner and
+        // returns through the new trampoline's caller.
+        assert_eq!(unsafe { second.original()() }, 41);
+        second.enable().expect("second owner must install");
+        assert_eq!(unsafe { target() }, 42);
+
+        second.disable().expect("second owner must restore first");
+        assert_eq!(unsafe { target() }, 41);
+        first.disable().expect("first owner must restore native");
+        assert_eq!(unsafe { target() }, 1);
+    }
+}

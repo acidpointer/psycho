@@ -331,6 +331,198 @@ location at +0x24.
 copies range and launch state into the runtime object and can apply native
 actor/iron-sight range modifiers.
 
+[BINARY] The common Projectile constructor 0x009BBEF0 explicitly initializes
+age +0xD8 and distance +0x110 to zero at 0x009BC386..0x009BC396, then copies
+the engine zero vector at 0x011F426C..0x011F4274 into cached direction +0x104
+at 0x009BC39C..0x009BC3BA. A zero +0x104 vector is therefore valid fresh
+runtime state, not evidence of a malformed launch.
+
+[BINARY] Direct disassembly of common initialization 0x009BDA10 contains no
+cached-direction reference. Spawn 0x009BCA60 likewise contains no object
+`+0x104` access after subtype initialization; its textual `[ebp - 0x104]`
+operand at 0x009BCE65 is a stack local, not the projectile field.
+
+[BINARY] Spawn performs subtype initialization synchronously. At 0x009BD1AC it
+calls the new projectile's virtual at vtable +0x308 before the reference is
+admitted to the process path at 0x009BD50B. For MissileProjectile, +0x308 is
+0x009B7CC0. That override queries the base projectile's hitscan predicate
+0x009A7F80 and derives runtime flags before delegating to the common
+Projectile initialization at 0x009B7E2E -> 0x009BDA10. In particular, the
+hitscan predicate directly selects runtime flags 0x0001 and 0x0008 and selects
+between 0x2000 (hitscan) and 0x8000 (non-hitscan) at
+0x009B7D57..0x009B7E26.
+
+[BINARY] Focused closure of 0x009B7CC0 and its helpers proves the complete
+MissileProjectile block. 0x004FDF60 draws against the form's tracer chance;
+its result selects runtime 0x0010 independently. The derived flags are:
+
+  0x0001 = hitscan
+  0x0008 = hitscan
+  0x0010 = native tracer-chance draw
+  0x0020 = tracer draw AND hitscan
+  0x0002 = NOT tracer draw AND hitscan
+  0x0040 = positive effective gravity AND NOT hitscan
+  0x0100 = true for initialized MissileProjectile
+  0x2000 = hitscan
+  0x8000 = NOT hitscan
+
+0x00966980 supplies the gravity predicate: special form flag 0x20000 returns
+1.0; otherwise it returns BGSProjectile::gravity at +0x64. VATS state 4 forces
+the local hitscan result false before this derivation. 0x005DE0A0 is the exact
+per-object bit setter/clearer over runtime flags +0xC8.
+
+[BINARY] The authoritative local decision is the direct call at 0x009B7D08 to
+0x009A7F80. Immediately before it, 0x009B7CFE..0x009B7D06 obtains the live
+BGSProjectile form and places it in ECX. 0x009A7F80 has no stack arguments,
+tests form flag 1 through 0x004FD420, and returns its Boolean in AL. Immediately
+after the call, 0x009B7D0D stores AL into the one local hitscan value consumed
+by the complete flag-derivation block.
+
+[BINARY] Immutable callsite fingerprints excluding the mutable E8 are:
+
+  before, 0x009B7CFE:
+    8B 4D F8 E8 DA 04 A6 FF 8B C8
+
+  after, 0x009B7D0D:
+    88 45 F7 8A 45 F7 88 45 FC 8B 4D F8
+
+[BINARY] A false result at 0x009B7D08 makes native code clear 0x0001, 0x0002,
+0x0008, 0x0020, and 0x2000, set 0x8000, derive 0x0040 from native gravity, and
+leave 0x0010/0x0100 and unrelated launch flags intact. The existing VATS-state
+4 branch reaches the identical local false value without calling 0x009A7F80 or
+changing the BGSProjectile form. This is a native per-object physical policy,
+not a reconstructed runtime transition.
+
+[BINARY] Another form-level IsHitScan query exists at 0x009C2E34. It is outside
+the MissileProjectile initialization callsite and must retain the form's actual
+answer. A scoped callsite wrapper at 0x009B7D08 can therefore change launch
+initialization without changing later form semantics.
+
+[INFERENCE] The safe intervention is to chain the current 0x009B7D08 target
+exactly once and change a matching launch's true result to false before native
+initialization completes. Scope must be bounded by the canonical launch
+predecessor, callback thread, and live form identity. Changing the shared form
+or mutating a completed runtime object remains prohibited. Runtime validation
+is still required for third-party hook composition, Proton startup, visual
+flight, collision, and damage.
+
+[BINARY] After subtype +0x308 returns, 0x009BCA60 performs native auxiliary
+setup and reaches process admission at 0x009BD50B. Its final helper resolves
+the process object through 0x00825C00 and calls 0x009A52F0. 0x009A52F0 performs
+admission-side range/visibility work; it contains no direct common update
+0x009BECC0, Missile update 0x009B8030, common impact traversal 0x009C1B70,
+Missile impact 0x009B8B10, or Actor::ApplyHit 0x0089A760 call. The spawn body
+then returns the runtime projectile at 0x009BD51D..0x009BD530.
+
+[INFERENCE] The vanilla direct call graph contains no obvious irreversible hit
+commit before spawn return. This is not sufficient to admit conversion: an
+already-installed launch predecessor may add behavior, and transitive subtype
+initialization remains broad. The Phase 1 observer therefore records any hit
+construction or collision callback while its captured launch predecessor is
+active.
+
+[BINARY] The common Projectile update is 0x009BECC0. It dispatches the
+subtype's virtual update at vtable +0x310 from 0x009BEF89..0x009BEF8F, then
+increments runtime age at +0xD8 and performs common lifecycle work. The
+MissileProjectile +0x310 implementation is 0x009B8030. Its ordinary movement
+branches call 0x009BF300, which obtains the native effective projectile speed
+through 0x009669C0, multiplies it by frame time, and forwards movement through
+0x009BF370. The speed helper combines BGSProjectile speed +0x68, runtime power
++0xCC, runtime speed multiplier +0xD0, and the native interpolation setting.
+This is the authoritative speed source for a compatibility adapter; a wrapper
+must not reconstruct speed from weapon damage, EditorID, or caliber guesses.
+
+[BINARY] 0x009BF300 does not consume cached direction +0x104. It constructs a
+local `(0, effective_speed * frame_time, 0)` displacement at
+0x009BF30F..0x009BF34B and passes it to 0x009BF370, which applies the
+projectile's native transform/orientation and collision movement route.
+[INFERENCE] Post-launch physical admission must require finite cached
+direction components, but must not require a nonzero +0x104 vector.
+
+[BINARY][CORROBORATION] The common update and MissileProjectile update expose
+one safe observation model but not yet a safe trajectory-ownership model. The
+impact-data list at +0x88 and has-impacted byte +0x90 are consumed after native
+movement, and read-only extension source reports that this update runs during
+mobile-object iteration and that hitscan rounds can complete their apparent
+flight in their launch update. Runtime telemetry still must establish thread
+ownership, whether a chained predecessor can commit a hit before the
+0x005245BD spawn call returns, and whether the statically complete runtime flag
+transition produces progressive movement and native swept collision across the
+required matrix. Those are implementation admission gates, not established
+binary facts.
+
+[BINARY] MissileProjectile's vtable begins at 0x0108FA44. Its common-update
+dispatch slot is vtable +0x310 at 0x0108FD54 and contains vanilla target
+0x009B8030. The slot ABI is:
+
+  void __thiscall update(MissileProjectile* projectile, float deltaSeconds)
+
+The common caller at 0x009BEF91 continues to read projectile +0xD8 and execute
+lifecycle work immediately after the subtype callback returns. The subtype
+also reads the object after calls to 0x009BC8F0. Therefore a wrapper around the
+live +0x310 slot may safely snapshot common Projectile fields immediately
+before and after calling its captured predecessor; this does not prove that a
+wrapper may take movement ownership.
+
+[BINARY] TESObjectREFR vtable +0x1F4 resolves to 0x00436AA0, which returns
+this +0x30. Missile movement at 0x009B8336..0x009B840E samples that position
+around 0x009BF300. 0x009BF300 calls 0x009669C0, multiplies effective speed by
+the supplied frame delta, and passes the displacement to 0x009BF370. These
+facts authorize read-only position and native speed-step comparison without an
+extra virtual getter invocation.
+
+[RUNTIME] The 2026-08-16 Phase 1 Proton session used Atom DLL SHA-256
+1371353bbd4945bd1cd746a31e6237f601b31635ffdcef4fe5cfff707d5e4d77.
+It observed 251 canonical launches, 251 first correlated contacts, 89 repeated
+collision-effect callbacks, 102 untracked collision-effect callbacks, one
+expired miss, 133 same-address launch reuses, no pool overflow, no invalid
+values, no early contact, and one callback thread (Windows thread ID 984).
+The exact evidence excerpt is retained at
+.reports/atom-ballistics-phase1-2026-08-16.log.
+
+[RUNTIME][INFERENCE] The original summary labels combined callback roles. The
+251 first contacts are derived as 340 world-effect callbacks minus 89 repeated
+callbacks, exactly matching 251 launches. Thus the session does not show a
+lost canonical launch. The 102 untracked callbacks may be pre-trace objects or
+projectiles outside the normal weapon launch seam; the session cannot decide
+which. The 133 same-address replacements demonstrate allocator reuse, not an
+invalid generation rejection. No actor hit-build or ApplyHit occurred, and no
+physical, explosive, grenade, flame, continuous, or multi-projectile launch
+was sampled, so those matrix cells remain open.
+
+[RUNTIME] The 2026-08-16 native-policy session used deployed and workspace-
+matching Atom DLL SHA-256
+e34c81bfecf2ab729962c65f1701fb1c93e55d7805df1557b697854693aacd26.
+It reached successful DeferredInit with BaseObjectSwapper and captured Third
+Person Aim Fix's launch owner at 0x10CC11B4. The final summary recorded 75
+launches, including 68 discrete hitscan candidates; all 68 reported
+forced_physical, with zero policy miss, context reject, capacity failure,
+invalid sample, or pool overflow. All 68 reached a first MissileProjectile
+update. Of 168 tracked updates, 106 moved progressively and 68 ended with
+impact state. The original collision path recorded 71 first contacts and the
+actor path recorded two hit builds followed by exactly two ApplyHit calls.
+
+[RUNTIME] Contact timing changed materially from the retained hitscan baseline.
+The Phase 1 baseline put 230 of 251 first contacts at or below 16 ms. The
+native-policy session put 7 of 71 at or below 16 ms, 8 between 16 and 33 ms,
+55 between 33 and 100 ms, and one above 500 ms. This is direct timing and
+movement evidence for physical flight in the sampled encounter.
+
+[RUNTIME] The legacy form/runtime classifier placed all 168 update samples in
+its ambiguous `other` bucket. That counter distinguishes neither 0x2000+0x8000
+coexistence from both bits being absent, so the run does not prove which pair
+was present. It does prove that a later live marker snapshot is not a valid
+substitute for the already-observed initializer result. Atom now records the
+scoped launch selection and the four live marker combinations independently.
+
+[RUNTIME][CONTENT] falloutnv_error.log was written during the same session and
+repeatedly reports a missing
+meshes\projectiles\ImprovedTracers\small_rifle_projectile.nif. The installed
+Improved Bullet Tracers directory instead contains small_rifle_tracer.nif.
+This is direct evidence for missing presentation content, not failed Atom
+flight, collision, or damage. Atom does not patch the third-party form or
+asset path.
+
 [BINARY] 0x009B8B10 wraps projectile impact processing and kills or retains the
 projectile according to the virtual result. Its inner impact traversal is
 0x009C1B70. 0x009C20E0 processes collision effects and 0x009C4DA0 clears the
@@ -338,7 +530,12 @@ impact list.
 
 [BINARY] 0x009C1B70 walks the impact list, resolves target and impact context,
 builds projectile hit data through 0x009B5650 at 0x009C1E61, and calls
-Actor::ApplyHit at 0x009C1E96.
+Actor::ApplyHit at 0x009C1E96. Collision presentation follows at 0x009C2058,
+and traversal eventually marks +0x90 at 0x009C20BF. A wrapper that suppresses
+the original traversal and later calls ApplyHit would also have to reproduce
+impact iteration, destructible/non-actor handling, collision effects, result
+selection, and externally visible ApplyHit side effects. Delaying damage alone
+is not equivalent to physical ballistics.
 
 [COMPATIBILITY] Bytes +0x149..+0x14B are used by existing xNVSE extensions for
 unrelated projectile state, while +0x14C is used as a secondary range field.
@@ -870,9 +1067,10 @@ The following are intentionally not claimed as solved by this static pass:
 * Runtime acceptance of the proven reticle/spawn convergence pair for Atom's
   third-person camera, including same-epoch capture, spread, near cover,
   impact ordering, and compatibility with an existing aim owner.
-* A compatible physical replacement for forms whose native projectile is
-  hitscan, including VATS timing, tracer/beam presentation, script observations,
-  and impact ordering.
+* Runtime acceptance of the scoped native-initialization policy for forms whose
+  projectile is hitscan, including third-party hook composition, tracer
+  presentation, script observations, collision, and impact ordering. VATS and
+  non-discrete families remain outside admission.
 * Material identification stability across static, skinned, terrain, water,
   destructible, and movable collision objects.
 * The exact safe continuation contract for penetration and ricochet after a

@@ -36,6 +36,15 @@ Configuration is MCM-owned `Atom.ini`, deserialized read-only through Serde and
 `serini`. Diagnostics use Psycho's established asynchronous logger; there is no
 custom ImGui UI or subsystem-owned telemetry file.
 
+The 2026-08-16 runtime stack changes the broadly shared `MenuMode` entry at
+`0x00702360` before Atom's deferred callbacks. Atom Input originally continued
+to call that mutable entry even after both camera owners had moved to the
+proven InterfaceManager state. Input now validates global slot `0x011D8A80`
+and classifies context directly as `manager != null && active(+0x00) != 0 &&
+mode(+0x0C) != 1`. This is the complete side-effect-free native policy, avoids
+executing an unknown replacement, and keeps the action context consumed by the
+third-person owner consistent with both camera hard gates.
+
 ## Decision
 
 Atom should implement an **engine-semantic input wrapper**, not an operating
@@ -244,11 +253,12 @@ device" controls MCM/UI glyph presentation only; it never disables the other
 device.
 
 The currently proven context classifier publishes `Gameplay`, `Menu`, and
-`Unfocused`. Atom does not falsely infer a more specific console, dialogue,
-VATS, Pip-Boy, or remapping identity from the coarse native `MenuMode` result.
-Those native consumers remain authoritative. A focus epoch or coarse-context
-change invalidates action edges and suppresses physically held controls until
-release.
+`Unfocused`. `Menu` reproduces native `MenuMode` from InterfaceManager active
+byte `+0x00` and mode `+0x0C`; it does not call the mutable shared helper entry.
+Atom does not falsely infer a more specific console, dialogue, VATS, Pip-Boy,
+or remapping identity from that coarse result. Those native consumers remain
+authoritative. A focus epoch or coarse-context change invalidates action edges
+and suppresses physically held controls until release.
 
 ### Layer 4: player-consumer bridge
 

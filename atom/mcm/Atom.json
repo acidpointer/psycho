@@ -400,6 +400,30 @@
           "title": "Latency Scope",
           "string": "Bounded Capture",
           "enable": 1
+        },
+        "5": {
+          "type": 4,
+          "title": "Ballistics Trace",
+          "mouse": "Native Lifecycle",
+          "enable": 1,
+          "vars": [
+            {
+              "configINI": "Diagnostics:bBallisticsTrace",
+              "default": 0
+            }
+          ]
+        },
+        "6": {
+          "type": 4,
+          "title": "Write Ballistics",
+          "mouse": "Toggle Per Request",
+          "enable": 1,
+          "vars": [
+            {
+              "configINI": "Diagnostics:bBallisticsSummary",
+              "default": 0
+            }
+          ]
         }
       }
     },
@@ -428,9 +452,301 @@
         },
         "4": {
           "type": 7,
-          "title": "Camera Controls",
-          "string": "Input Active",
+          "title": "Camera Systems",
+          "string": "Hooks Ready",
           "enable": 1
+        },
+        "5": {
+          "type": 7,
+          "title": "Ballistics Core",
+          "string": "Adapter Ready",
+          "enable": 1
+        },
+        "6": {
+          "type": 4,
+          "title": "Physical Rounds",
+          "mouse": "Native Flight",
+          "enable": 1,
+          "vars": [
+            {
+              "configINI": "Ballistics:bEnabled",
+              "default": 1
+            }
+          ]
+        }
+      }
+    },
+    "6": {
+      "columns": 1,
+      "listTitle": "First Person",
+      "pageTitle": "First Person",
+      "enable": 1,
+      "options": {
+        "1": {
+          "type": 0,
+          "title": "Camera Motion",
+          "enable": 1
+        },
+        "2": {
+          "type": 4,
+          "title": "First Person",
+          "mouse": "Live Toggle",
+          "enable": 1,
+          "vars": [
+            {
+              "configINI": "FirstPerson:bEnabled",
+              "default": 0
+            }
+          ]
+        },
+        "3": {
+          "type": 2.5,
+          "title": "Head Motion",
+          "mouse": "View Movement",
+          "enable": 1,
+          "scale": {
+            "valueDecimal": 2,
+            "valueIncrement": 0.05,
+            "valueMin": 0.0,
+            "valueMax": 1.0
+          },
+          "vars": [
+            {
+              "configINI": "FirstPerson:fCameraMotion",
+              "default": 0.65
+            }
+          ]
+        },
+        "4": {
+          "type": 2.5,
+          "title": "Weapon Motion",
+          "mouse": "Motion Strength",
+          "enable": 1,
+          "scale": {
+            "valueDecimal": 2,
+            "valueIncrement": 0.05,
+            "valueMin": 0.0,
+            "valueMax": 1.0
+          },
+          "vars": [
+            {
+              "configINI": "FirstPerson:fWeaponMotion",
+              "default": 0.65
+            }
+          ]
+        },
+        "5": {
+          "type": 2.5,
+          "title": "Land Motion",
+          "mouse": "Landing Impact",
+          "enable": 1,
+          "scale": {
+            "valueDecimal": 2,
+            "valueIncrement": 0.05,
+            "valueMin": 0.0,
+            "valueMax": 1.0
+          },
+          "vars": [
+            {
+              "configINI": "FirstPerson:fLandingMotion",
+              "default": 0.45
+            }
+          ]
+        },
+        "6": {
+          "type": 2.5,
+          "title": "Aim Motion",
+          "mouse": "Aiming Motion",
+          "enable": 1,
+          "scale": {
+            "valueDecimal": 2,
+            "valueIncrement": 0.05,
+            "valueMin": 0.0,
+            "valueMax": 1.0
+          },
+          "vars": [
+            {
+              "configINI": "FirstPerson:fAimMotion",
+              "default": 0.2
+            }
+          ]
+        }
+      }
+    },
+    "7": {
+      "columns": 1,
+      "listTitle": "Third Person",
+      "pageTitle": "Third Person",
+      "enable": 1,
+      "options": {
+        "1": {
+          "type": 0,
+          "title": "Camera Follow",
+          "enable": 1
+        },
+        "2": {
+          "type": 4,
+          "title": "Follow Camera",
+          "mouse": "Live Toggle",
+          "enable": 1,
+          "vars": [
+            {
+              "configINI": "Camera:bFollowCamera",
+              "default": 0
+            }
+          ]
+        },
+        "3": {
+          "type": 2.5,
+          "title": "Follow Speed",
+          "enable": 1,
+          "scale": {
+            "valueDecimal": 2,
+            "valueIncrement": 0.25,
+            "valueMin": 1.0,
+            "valueMax": 20.0
+          },
+          "vars": [
+            {
+              "configINI": "Camera:fFollowSpeed",
+              "default": 7.5
+            }
+          ]
+        },
+        "4": {
+          "type": 2.5,
+          "title": "Soft Zone",
+          "enable": 1,
+          "scale": {
+            "valueDecimal": 1,
+            "valueIncrement": 1.0,
+            "valueMin": 0.0,
+            "valueMax": 48.0
+          },
+          "vars": [
+            {
+              "configINI": "Camera:fSoftZone",
+              "default": 12.0
+            }
+          ]
+        },
+        "5": {
+          "type": 2.5,
+          "title": "Look Ahead",
+          "enable": 1,
+          "scale": {
+            "valueDecimal": 1,
+            "valueIncrement": 1.0,
+            "valueMin": 0.0,
+            "valueMax": 32.0
+          },
+          "vars": [
+            {
+              "configINI": "Camera:fLookAhead",
+              "default": 8.0
+            }
+          ]
+        },
+        "6": {
+          "type": 4,
+          "title": "Auto Center",
+          "enable": 1,
+          "vars": [
+            {
+              "configINI": "Camera:bAutoCenter",
+              "default": 1
+            }
+          ]
+        },
+        "7": {
+          "type": 2.5,
+          "title": "Center Delay",
+          "enable": 1,
+          "scale": {
+            "valueDecimal": 2,
+            "valueIncrement": 0.25,
+            "valueMin": 0.0,
+            "valueMax": 5.0
+          },
+          "vars": [
+            {
+              "configINI": "Camera:fCenterDelay",
+              "default": 1.25
+            }
+          ]
+        },
+        "8": {
+          "type": 2.5,
+          "title": "Center Speed",
+          "mouse": "Degrees Second",
+          "enable": 1,
+          "scale": {
+            "valueDecimal": 0,
+            "valueIncrement": 15.0,
+            "valueMin": 15.0,
+            "valueMax": 360.0
+          },
+          "vars": [
+            {
+              "configINI": "Camera:fCenterSpeed",
+              "default": 120.0
+            }
+          ]
+        }
+      }
+    },
+    "8": {
+      "columns": 1,
+      "listTitle": "Movement",
+      "pageTitle": "Movement",
+      "enable": 1,
+      "options": {
+        "1": {
+          "type": 0,
+          "title": "Camera Movement",
+          "enable": 1
+        },
+        "2": {
+          "type": 4,
+          "title": "360 Movement",
+          "mouse": "Camera Relative",
+          "enable": 1,
+          "vars": [
+            {
+              "configINI": "Movement:b360Movement",
+              "default": 0
+            }
+          ]
+        },
+        "3": {
+          "type": 2.5,
+          "title": "Turn Speed",
+          "mouse": "Degrees Second",
+          "enable": 1,
+          "scale": {
+            "valueDecimal": 0,
+            "valueIncrement": 30.0,
+            "valueMin": 90.0,
+            "valueMax": 1080.0
+          },
+          "vars": [
+            {
+              "configINI": "Movement:fTurnSpeed",
+              "default": 540.0
+            }
+          ]
+        },
+        "4": {
+          "type": 4,
+          "title": "Drawn 360",
+          "mouse": "Relaxed Drawn",
+          "enable": 1,
+          "vars": [
+            {
+              "configINI": "Movement:bDrawn360",
+              "default": 0
+            }
+          ]
         }
       }
     }

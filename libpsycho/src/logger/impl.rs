@@ -143,7 +143,7 @@
 //!
 //! info!("Game mod loaded");
 //! warn!("Texture cache low");
-//! error!("Failed to hook function at 0x{:X}", 0xDEADBEEF);
+//! error!("Failed to hook function at 0x{:X}", 0xDEADBEEF_u32);
 //!
 //! Logger::shutdown();
 //! ```
