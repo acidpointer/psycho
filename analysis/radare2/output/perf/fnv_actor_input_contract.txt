@@ -96,6 +96,17 @@ Normal per-frame sampler
 
 Sampler: 0x00A23010
 
+Normal callsite ABI and context:
+
+  0x0086F397  CALL 0x007FDF30
+  0x0086F39C  MOV ECX,EAX
+  0x0086F39E  CALL 0x00A23010
+  0x0086F3A3  MOV ECX,0x011F6394
+
+The normal sampler call is x86 thiscall with the input owner in ECX, no stack
+arguments, and no return value. This permits a typed callsite chain which calls
+the predecessor first and copies the final post-xNVSE state from the same owner.
+
 Controller:
 
 1. Copies current controller globals at 0x011F35A8..0x011F35B4 to previous
@@ -272,6 +283,8 @@ Mouse and camera
 
 Mouse-axis getter: 0x00A239E0(axis)
 
+ABI: x86 thiscall fn(input_owner, axis: u32) -> i32, RET 4.
+
   axis 1 -> +0x1B24, DIMOUSESTATE2.lX
   axis 2 -> +0x1B28, DIMOUSESTATE2.lY
   axis 3 -> +0x1B2C, DIMOUSESTATE2.lZ
@@ -282,8 +295,24 @@ Player camera helper 0x009445B0 reads:
   0x009459A8  Y
   0x009459BB  wheel
 
+The X/Y caller contexts are:
+
+  0x0094598D  PUSH 1
+  0x0094598F  MOV ECX,[EBP-0x12C]
+  0x00945995  CALL 0x00A239E0
+  0x0094599A  MOV [EBP-0x164],EAX
+
+  0x009459A0  PUSH 2
+  0x009459A2  MOV ECX,[EBP-0x12C]
+  0x009459A8  CALL 0x00A239E0
+  0x009459AD  MOV [EBP-0x138],EAX
+
+The wheel call at 0x009459BB uses the same getter with axis 3 and is not part of
+the normal player-camera X/Y transform boundary.
+
 bInvertYValues is the setting object at 0x011E0A5C and is applied at
-0x009459C6. The disabled-looking mask is tested at 0x009459E5 and zeroes the
+0x009459C6. Accessor 0x00408D60 returns object +4, so the boolean value read by
+the camera is at 0x011E0A60. The disabled-looking mask is tested at 0x009459E5 and zeroes the
 axes. fMouseSensitivity:Controls is at 0x011E0A6C. It is multiplied directly
 into horizontal input at 0x00945DB2 and vertical input at 0x00945FA4 before
 camera-state-specific scaling.
@@ -368,6 +397,103 @@ These are mechanical deductions, not separately observed playtest results:
 
 Safe intervention boundaries
 ============================
+
+Final mouse-heading consumers
+-----------------------------
+
+Further 2026-08-16 disassembly closes the float intervention boundary in
+player camera helper 0x009445B0:
+
+  0x00945F80  loads the final horizontal heading float
+  0x00945F90  CALL 0x00931D30(PlayerCharacter *this, float heading)
+  0x00945FC8  loads the final vertical heading float
+  0x00945FD8  CALL 0x00931E50(PlayerCharacter *this, float heading)
+
+Both are x86 thiscall consumers with the player in ECX and one f32 stack
+argument. Applying a direct profile here retains fractional angle values which
+would be lost by rounding through the earlier i32 mouse-getter ABI. The Native
+profile can call the captured predecessor with the original float unchanged.
+
+Controller transfer bypass
+--------------------------
+
+Player camera helper 0x009445B0 contains four direct calls to the signed abs
+provider while applying the 0x21F1 axial threshold:
+
+  0x009455EC  alternate-path Y
+  0x0094563B  alternate-path X
+  0x009456E7  normal-path X
+  0x00945707  normal-path Y
+
+When Atom has published a radially processed nonzero stick component, making
+only these four comparisons pass prevents a second axial deadzone. Each call
+must retain its independently captured predecessor.
+
+The later camera acceleration accessors are:
+
+  0x00945839 -> 0x0043D4D0  iXenonHorizLookAccel at 0x011E0A90
+  0x0094587C -> 0x0043D4D0  iXenonVertLookAccel  at 0x011E08A0
+  0x009458A4 -> 0x00403E20  fXenonMinLookSpeed    at 0x011E0818
+
+Returning exponent 1 and minimum speed 0 only while the Atom controller
+handoff is active makes the native direction-times-magnitude path reproduce
+the already-shaped radial component. Calling the exact predecessor while Atom
+is inactive restores the native curve without rewriting settings.
+
+Binding storage and controller codes
+------------------------------------
+
+The bound-control function 0x00A24660 reads keyboard binds at owner +0x1B94,
+mouse binds at +0x1BB0, and active XInput binds at +0x1BE8. +0x1BCC is the
+DirectInput joystick table, not the XInput table used when 0x011F35C8 is true.
+
+0x00A24080 maps controller binding codes 1..15 to XInput button masks. Codes
+16/17 are the two triggers. In 0x00A23E10, codes 19/20 are positive/negative
+left Y and 22/23 are positive/negative left X; code 21 has no directional
+case. The four native directions use the same 0x1EA9 threshold. A mixed action
+resolver may safely use the sign of an already radially deadzoned component,
+but a player-consumer adapter must preserve the merged action edge so a second
+device cannot manufacture a duplicate press or premature release.
+
+Buffered keyboard capability
+----------------------------
+
+The keyboard COM pointer is input owner +0x2C. IDirectInputDevice8A
+GetDeviceData is vtable slot +0x28 and FNV passes a 20-byte
+DIDEVICEOBJECTDATA at 0x00A237B0. xNVSE's FakeDirectInputDevice forwards every
+method and routes this slot through DIHookControl::ProcessBufferedData.
+
+xNVSE's implementation explicitly HALTs for non-NULL DIGDD_PEEK while its
+injected queue is nonempty. A compatibility mirror must therefore drain the
+current chained capability with non-peek semantics, retain the newest 32
+events (FNV's configured bound), and answer later peeks from the mirror. It
+must forward all non-keyboard objects and preserve offset, data, timestamp,
+sequence, application data, requested count, overflow, and non-consuming peek
+semantics.
+
+Normal-frame late-sample audit
+------------------------------
+
+The normal main-loop call is 0x0086E88C -> 0x0086F390, not a direct call to the
+sampler alone. 0x0086F390 performs all of the following as one established
+unit:
+
+  0x0086F397 -> 0x007FDF30  obtain the input owner
+  0x0086F39E -> 0x00A23010  immediate device sample
+  0x0086F3B7 -> 0x00A257C0  post-sample input work
+  0x0086F43D -> 0x00A253D0  conditional 28-control maintenance
+
+The main loop immediately continues through menu/window/UI and simulation
+work beginning at 0x0086E891. It does not reach candidate world timing update
+0x0086EC98 -> 0x0086FC60 until after many calls, including 0x0086F450 and
+0x007011D0 menu/interface routes and multiple world/player object calls.
+
+Therefore neither suppressing only 0x0086F39E nor moving the whole 0x0086F390
+helper is admitted. The former reorders its coupled post-sample maintenance;
+the latter crosses unproven input consumers. Static evidence rejects a guessed
+late-sample patch. The normal sampler remains at its native phase unless a
+future contract proves every intervening consumer and a runtime A/B trace
+demonstrates a benefit.
 
 PROVEN:
 

@@ -52,6 +52,19 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0bb44936d800fea8f016d7f2311c6a4f97aebd5dc86f09906139ec848cf3a46f"
 
 [[package]]
+name = "atom"
+version = "0.1.0"
+dependencies = [
+ "libnvse",
+ "libpsycho",
+ "log",
+ "serde",
+ "serde_json",
+ "serini",
+ "thiserror",
+]
+
+[[package]]
 name = "autocfg"
 version = "1.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1149,6 +1162,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bf41e0cfaf7226dca15e8197172c295a782857fcb97fad1808a166870dee75a3"
 dependencies = [
  "serde",
+]
+
+[[package]]
+name = "serini"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6be70e79eb36ee0c2f65e7dc96aa40b363613f90d8138c485c0d1ad5e938a4e8"
+dependencies = [
+ "serde_core",
+ "thiserror",
 ]
 
 [[package]]

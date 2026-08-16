@@ -10,6 +10,7 @@ members = [
   "psycho-engine-fixes",
   "psycho-engine-fixes-helper",
   "omv",
+  "atom",
   "psycho-imgui"
 ]
 
@@ -26,6 +27,7 @@ parking_lot = "0.12.5"
 thiserror = "2.0.18"
 toml = "0.8"
 serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
 rand = { version = "0.10" }
 windows = { version = "=0.60", features = [
   "Data_Xml_Dom",

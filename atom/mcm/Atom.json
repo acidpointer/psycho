@@ -1,0 +1,438 @@
+{
+  "modName": "Atom",
+  "displayName": "Atom",
+  "description": "Gameplay Overhaul",
+  "saveFile": "Atom/Atom.ini",
+  "minMCMVersion": 1.0,
+  "requirements": [
+    {
+      "type": "dll",
+      "file": "Atom",
+      "version": 2
+    }
+  ],
+  "submenus": {
+    "1": {
+      "columns": 1,
+      "listTitle": "Overview",
+      "pageTitle": "Atom Input",
+      "enable": 1,
+      "active": 1,
+      "options": {
+        "1": {
+          "type": 0,
+          "title": "Atom Input",
+          "enable": 1
+        },
+        "2": {
+          "type": 7,
+          "title": "Status",
+          "string": "Playtest Ready",
+          "enable": 1
+        },
+        "3": {
+          "type": 4,
+          "title": "Enable Input",
+          "mouse": "Live Toggle",
+          "enable": 1,
+          "vars": [
+            {
+              "configINI": "Input:bEnabled",
+              "default": 0
+            }
+          ]
+        },
+        "4": {
+          "type": 7,
+          "title": "Live Settings",
+          "string": "Menu Close",
+          "enable": 1
+        },
+        "5": {
+          "type": 7,
+          "title": "ESP-less",
+          "string": "Any Load Order",
+          "enable": 1
+        }
+      }
+    },
+    "2": {
+      "columns": 1,
+      "listTitle": "Mouse",
+      "pageTitle": "Mouse",
+      "enable": 1,
+      "options": {
+        "1": {
+          "type": 0,
+          "title": "Mouse Response",
+          "enable": 1
+        },
+        "2": {
+          "type": 1,
+          "title": "Mouse Profile",
+          "mouse": "Select Response",
+          "enable": 1,
+          "strings": [
+            "Native",
+            "Direct",
+            "Fallout 4 Direct"
+          ],
+          "vars": [
+            {
+              "configINI": "Mouse:iProfile",
+              "default": 2
+            }
+          ]
+        },
+        "3": {
+          "type": 2.5,
+          "title": "Sensitivity",
+          "mouse": "Base Multiplier",
+          "enable": 1,
+          "scale": {
+            "valueDecimal": 2,
+            "valueIncrement": 0.05,
+            "valueMin": 0.05,
+            "valueMax": 8.0
+          },
+          "vars": [
+            {
+              "configINI": "Mouse:fSensitivity",
+              "default": 1.0
+            }
+          ]
+        },
+        "4": {
+          "type": 2.5,
+          "title": "Horizontal Scale",
+          "mouse": "Horizontal Multiplier",
+          "enable": 1,
+          "scale": {
+            "valueDecimal": 2,
+            "valueIncrement": 0.05,
+            "valueMin": 0.1,
+            "valueMax": 4.0
+          },
+          "vars": [
+            {
+              "configINI": "Mouse:fHorizontalScale",
+              "default": 1.0
+            }
+          ]
+        },
+        "5": {
+          "type": 2.5,
+          "title": "Vertical Scale",
+          "mouse": "Vertical Multiplier",
+          "enable": 1,
+          "scale": {
+            "valueDecimal": 2,
+            "valueIncrement": 0.05,
+            "valueMin": 0.1,
+            "valueMax": 4.0
+          },
+          "vars": [
+            {
+              "configINI": "Mouse:fVerticalScale",
+              "default": 1.0
+            }
+          ]
+        },
+        "6": {
+          "type": 4,
+          "title": "Invert Horizontal",
+          "mouse": "Reverse Horizontal",
+          "enable": 1,
+          "vars": [
+            {
+              "configINI": "Mouse:bInvertX",
+              "default": 0
+            }
+          ]
+        },
+        "7": {
+          "type": 4,
+          "title": "Invert Vertical",
+          "mouse": "Reverse Vertical",
+          "enable": 1,
+          "vars": [
+            {
+              "configINI": "Mouse:bInvertY",
+              "default": 0
+            }
+          ]
+        },
+        "8": {
+          "type": 7,
+          "title": "Fallout 4 Direct",
+          "string": "0.00063 Radians",
+          "enable": 1
+        }
+      }
+    },
+    "3": {
+      "columns": 1,
+      "listTitle": "Controller",
+      "pageTitle": "Controller",
+      "enable": 1,
+      "options": {
+        "1": {
+          "type": 7,
+          "title": "Controller Output",
+          "string": "Radial Response",
+          "enable": 1
+        },
+        "2": {
+          "type": 2.5,
+          "title": "Left Deadzone",
+          "enable": 1,
+          "scale": {
+            "valueDecimal": 2,
+            "valueIncrement": 0.01,
+            "valueMin": 0.0,
+            "valueMax": 0.95
+          },
+          "vars": [
+            {
+              "configINI": "Controller:fLeftDeadzone",
+              "default": 0.15
+            }
+          ]
+        },
+        "3": {
+          "type": 2.5,
+          "title": "Right Deadzone",
+          "enable": 1,
+          "scale": {
+            "valueDecimal": 2,
+            "valueIncrement": 0.01,
+            "valueMin": 0.0,
+            "valueMax": 0.95
+          },
+          "vars": [
+            {
+              "configINI": "Controller:fRightDeadzone",
+              "default": 0.12
+            }
+          ]
+        },
+        "4": {
+          "type": 2.5,
+          "title": "Response Curve",
+          "enable": 1,
+          "scale": {
+            "valueDecimal": 2,
+            "valueIncrement": 0.05,
+            "valueMin": 0.25,
+            "valueMax": 4.0
+          },
+          "vars": [
+            {
+              "configINI": "Controller:fResponseExponent",
+              "default": 1.0
+            }
+          ]
+        },
+        "5": {
+          "type": 2.5,
+          "title": "Anti-Deadzone",
+          "enable": 1,
+          "scale": {
+            "valueDecimal": 2,
+            "valueIncrement": 0.01,
+            "valueMin": 0.0,
+            "valueMax": 0.75
+          },
+          "vars": [
+            {
+              "configINI": "Controller:fAntiDeadzone",
+              "default": 0.0
+            }
+          ]
+        },
+        "6": {
+          "type": 2.5,
+          "title": "Saturation",
+          "enable": 1,
+          "scale": {
+            "valueDecimal": 2,
+            "valueIncrement": 0.01,
+            "valueMin": 0.25,
+            "valueMax": 1.0
+          },
+          "vars": [
+            {
+              "configINI": "Controller:fOutputSaturation",
+              "default": 1.0
+            }
+          ]
+        },
+        "7": {
+          "type": 2.5,
+          "title": "Horizontal Scale",
+          "enable": 1,
+          "scale": {
+            "valueDecimal": 2,
+            "valueIncrement": 0.05,
+            "valueMin": 0.1,
+            "valueMax": 4.0
+          },
+          "vars": [
+            {
+              "configINI": "Controller:fRightHorizontalScale",
+              "default": 1.0
+            }
+          ]
+        },
+        "8": {
+          "type": 2.5,
+          "title": "Vertical Scale",
+          "enable": 1,
+          "scale": {
+            "valueDecimal": 2,
+            "valueIncrement": 0.05,
+            "valueMin": 0.1,
+            "valueMax": 4.0
+          },
+          "vars": [
+            {
+              "configINI": "Controller:fRightVerticalScale",
+              "default": 1.0
+            }
+          ]
+        },
+        "9": {
+          "type": 4,
+          "title": "Invert X",
+          "enable": 1,
+          "vars": [
+            {
+              "configINI": "Controller:bInvertRightX",
+              "default": 0
+            }
+          ]
+        },
+        "10": {
+          "type": 4,
+          "title": "Invert Y",
+          "enable": 1,
+          "vars": [
+            {
+              "configINI": "Controller:bInvertRightY",
+              "default": 0
+            }
+          ]
+        },
+        "11": {
+          "type": 2.5,
+          "title": "Trigger Press",
+          "enable": 1,
+          "scale": {
+            "valueDecimal": 2,
+            "valueIncrement": 0.01,
+            "valueMin": 0.01,
+            "valueMax": 1.0
+          },
+          "vars": [
+            {
+              "configINI": "Controller:fTriggerPress",
+              "default": 0.12
+            }
+          ]
+        },
+        "12": {
+          "type": 2.5,
+          "title": "Trigger Release",
+          "mouse": "Below Press",
+          "enable": 1,
+          "scale": {
+            "valueDecimal": 2,
+            "valueIncrement": 0.01,
+            "valueMin": 0.0,
+            "valueMax": 0.99
+          },
+          "vars": [
+            {
+              "configINI": "Controller:fTriggerRelease",
+              "default": 0.08
+            }
+          ]
+        }
+      }
+    },
+    "4": {
+      "columns": 1,
+      "listTitle": "Diagnostics",
+      "pageTitle": "Diagnostics",
+      "enable": 1,
+      "options": {
+        "1": {
+          "type": 0,
+          "title": "Input Telemetry",
+          "enable": 1
+        },
+        "2": {
+          "type": 4,
+          "title": "Collect Telemetry",
+          "mouse": "Latency Histograms",
+          "enable": 1,
+          "vars": [
+            {
+              "configINI": "Diagnostics:bTelemetry",
+              "default": 0
+            }
+          ]
+        },
+        "3": {
+          "type": 4,
+          "title": "Log Summary",
+          "mouse": "Toggle Per Request",
+          "enable": 1,
+          "vars": [
+            {
+              "configINI": "Diagnostics:bWriteSummary",
+              "default": 0
+            }
+          ]
+        },
+        "4": {
+          "type": 7,
+          "title": "Latency Scope",
+          "string": "Bounded Capture",
+          "enable": 1
+        }
+      }
+    },
+    "5": {
+      "columns": 1,
+      "listTitle": "Modules",
+      "pageTitle": "Modules",
+      "enable": 1,
+      "options": {
+        "1": {
+          "type": 0,
+          "title": "Planned Systems",
+          "enable": 1
+        },
+        "2": {
+          "type": 7,
+          "title": "Combat AI",
+          "string": "Planned",
+          "enable": 1
+        },
+        "3": {
+          "type": 7,
+          "title": "Loot Balance",
+          "string": "Planned",
+          "enable": 1
+        },
+        "4": {
+          "type": 7,
+          "title": "Camera Controls",
+          "string": "Input Active",
+          "enable": 1
+        }
+      }
+    }
+  }
+}

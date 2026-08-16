@@ -73,7 +73,7 @@ The only supported target is 32-bit `i686-pc-windows-gnu` for FNV/xNVSE. Always 
 
 ```bash
 git submodule update --init --recursive
-cargo build --release --target i686-pc-windows-gnu -p syringe -p psycho-engine-fixes -p psycho-engine-fixes-helper -p omv
+cargo build --release --target i686-pc-windows-gnu -p syringe -p psycho-engine-fixes -p psycho-engine-fixes-helper -p omv -p atom
 ```
 
 OMV validation:
@@ -101,6 +101,7 @@ Submodules:
 | `syringe` | Generic, mod-agnostic, `no_std` `dinput8.dll` proxy. Must stay independent of `libpsycho`. |
 | `syringe-api` | Small callback ABI for early-loaded DLLs. |
 | `omv` | xNVSE graphics plugin; owns its D3D9 stages, resources, shaders, and graphics tests. |
+| `atom` | ESP-less xNVSE gameplay overhaul; owns dynamic gameplay systems and its MCM Extender configuration. |
 | `libpsycho` | Shared WinAPI, hooking, and logging abstractions. |
 | `libnvse` | xNVSE bindings. |
 | `libmimalloc` | CRT-only mimalloc build. |
@@ -147,7 +148,7 @@ Before any OMV graphics implementation or material shader change, read and follo
 - Preserve the released OMV schema-1 compatibility shape. Do not remove, reorder, or retype a persisted field merely because rendering no longer uses it. In particular, motion blur's `first_person_strength` remains serialized, preset-owned inert compatibility data and must remain absent from active rendering. Do not bump `CONFIG_SCHEMA_VERSION`, add a preset schema manifest/migration, or change the built-in preset version/payload for field cleanup. Intentional schema evolution requires an explicit user request and a separately reviewed startup-safety design.
 - Do not fix a pre-`DeferredInit` crash by disabling requested behavior or by moving established shader/effect preparation, scanners, or workers later. Compare the complete pre-deferred call graph and data layout with the last load-to-gameplay-playtested baseline, remove only the new unsafe delta, and preserve all accepted work and ordering.
 - If the OMV log stops before `[INIT] Deferred OMV graphics hooks initialized`, no render hook, D3D transaction, or material shader has executed. Investigate only load-time ownership/configuration deltas first; do not tune shaders, render stages, depth, RESZ, or NVIDIA policy for that crash class.
-- Any pre-deferred footprint change requires focused startup source-order tests, strict config/preset round-trip tests, the full OMV test and release-build gates, and an explicit user load-to-gameplay playtest with BaseObjectSwapper installed before the change can be called startup-safe. Record the accepted baseline and evidence in the startup erratum.
+- Any pre-deferred footprint change requires focused behavioral lifecycle tests, PE/config artifact checks, strict config/preset round-trip tests, the full OMV test and release-build gates, and an explicit user load-to-gameplay playtest with BaseObjectSwapper installed before the change can be called startup-safe. Record the accepted baseline and evidence in the startup erratum.
 
 ### gheap
 
@@ -192,6 +193,12 @@ Treat `docs/` as the reusable engine-knowledge index: search it before new analy
 - Use simple, direct designs and clear names. Comments explain why, not what.
 - Preserve local style; Rust uses edition 2024. Comments and docstrings must be ASCII.
 - Prefer editing existing files and reusing existing abstractions.
+- Tests must exercise observable behavior through real code boundaries or validate shipped/generated artifacts. Never test implementation source text, textual call order, symbol-name presence in source, or manifest contents; do not use `include_str!`/file reads against implementation sources as a substitute for behavior. Parsing a shipped data file such as JSON, TOML, a shader, or a packaged archive is allowed when that file is itself the product contract.
+- Add a test only when it protects meaningful behavior, a compatibility contract, or a demonstrated regression. Do not add tests merely for coverage or to mirror the implementation.
+- Rust DLLs must use `libpsycho::logger::Logger` and the `log` facade for diagnostics. Do not use `println!`, `eprintln!`, or subsystem-owned file writes for logs, reports, or telemetry; route requested summaries through the established logger. Initialize logging only at the subsystem's documented safe lifecycle boundary.
+- Write logs for a human reader and include a stable subsystem tag. Use `debug` for technical detail such as validated addresses, `info` for normal lifecycle/configuration milestones and user-requested summaries, `warn` for recoverable degradation with the resulting fallback, and `error` when a requested capability cannot remain available or correctness is lost. State the consequence, not only the low-level failure.
+- Keep every visible MCM Extender text value laconic: one to three words, including titles, descriptions, help text, status text, and choices. Protect shipped menus with an artifact test that rejects longer copy.
+- MCM Extender-backed settings must apply from `MCMExtUpdate` after its INI save. Native listeners must define the published event parameter contract before handler admission and tolerate an already-defined event; do not poll pause state or parse configuration every frame.
 - Never hide uncertainty. Distinguish code evidence, static proof, inference, and playtest results.
 - Do not present disabling a feature, reducing supported coverage, or weakening a test as a fix.
 - Avoid routine allocations, blocking locks, file I/O, shader compilation, and diagnostics in hot paths.

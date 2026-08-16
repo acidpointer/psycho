@@ -440,7 +440,7 @@ external stack slot.
 
 For an affected code change, static acceptance must include:
 
-- focused source-order and ownership tests;
+- focused behavioral lifecycle and ownership tests plus PE/config artifact checks;
 - strict config/preset round trips and compatibility shape checks when
   configuration is touched;
 - tests or PE inspection for imports, TLS callbacks, sections, exports, and

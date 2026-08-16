@@ -175,6 +175,13 @@ limit in addition to the user sensitivity scalar. Fallout: New Vegas' proven
 actor path instead multiplies both axes by one fMouseSensitivity value followed
 by camera-specific scaling.
 
+The supplied values produce a nominal sensitivity-times-axis-scale product of
+0.0300 * 0.021 = 0.00063 per relative count on both axes. Treating this as a
+radian heading unit is a REASONED INFERENCE from the player-camera convention,
+not proof that every Fallout 4 camera context produces exactly the same final
+angle. Atom may use 0.00063 as a transparent nominal preset while retaining the
+`Fallout 4 Direct`, rather than `Exact Fallout 4`, name.
+
 NOT YET PROVEN: the exact formula and defaults for
 fMouseHeadingNormalizeMax in this GOG executable. Atom must not copy a guessed
 formula merely because the setting name exists.

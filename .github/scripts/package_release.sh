@@ -16,27 +16,32 @@ LOADER_DLL="dinput8.dll"
 CORE_DLL="psycho_engine_fixes.dll"
 HELPER_DLL="psycho_engine_fixes_helper.dll"
 OMV_DLL="omv.dll"
+ATOM_DLL="atom.dll"
 CONFIG_FILE="psycho_engine_fixes.toml"
 OMV_CONFIG_SOURCE_FILE="omv.toml"
 OMV_DEFAULT_CONFIG_FILE="omv.default.toml"
+ATOM_MCM_FILE="Atom.json"
 
 LOADER_PATH="$WORKSPACE_DIR/target/$TARGET/release/$LOADER_DLL"
 CORE_PATH="$WORKSPACE_DIR/target/$TARGET/release/$CORE_DLL"
 HELPER_PATH="$WORKSPACE_DIR/target/$TARGET/release/$HELPER_DLL"
 OMV_PATH="$WORKSPACE_DIR/target/$TARGET/release/$OMV_DLL"
+ATOM_PATH="$WORKSPACE_DIR/target/$TARGET/release/$ATOM_DLL"
 CONFIG_PATH="$WORKSPACE_DIR/psycho-engine-fixes/config/$CONFIG_FILE"
 OMV_CONFIG_PATH="$WORKSPACE_DIR/omv/config/$OMV_CONFIG_SOURCE_FILE"
 OMV_SHADER_SOURCE_DIR="$WORKSPACE_DIR/omv/shaders/runtime"
 OMV_LUT_SOURCE_DIR="$WORKSPACE_DIR/omv/luts"
+ATOM_MCM_PATH="$WORKSPACE_DIR/atom/mcm/$ATOM_MCM_FILE"
 
 CORE_ARCHIVE="psycho-engine-fixes-$VERSION.zip"
 HELPER_ARCHIVE="psycho-engine-fixes-nvse-helper-$VERSION.zip"
 OMV_ARCHIVE="omv-nvse-$VERSION.zip"
+ATOM_ARCHIVE="atom-nvse-$VERSION.zip"
 
 echo "Building GitHub release artifacts ($TARGET, $VERSION)..."
-cargo build --release --target "$TARGET" -p syringe -p psycho-engine-fixes -p psycho-engine-fixes-helper -p omv
+cargo build --release --target "$TARGET" -p syringe -p psycho-engine-fixes -p psycho-engine-fixes-helper -p omv -p atom
 
-for path in "$LOADER_PATH" "$CORE_PATH" "$HELPER_PATH" "$OMV_PATH" "$CONFIG_PATH" "$OMV_CONFIG_PATH"; do
+for path in "$LOADER_PATH" "$CORE_PATH" "$HELPER_PATH" "$OMV_PATH" "$ATOM_PATH" "$CONFIG_PATH" "$OMV_CONFIG_PATH" "$ATOM_MCM_PATH"; do
     if [[ ! -f "$path" ]]; then
         echo "ERROR: missing release input: $path" >&2
         exit 1
@@ -57,7 +62,8 @@ mkdir -p "$RELEASE_DIR"
 rm -f \
     "$RELEASE_DIR/$CORE_ARCHIVE" \
     "$RELEASE_DIR/$HELPER_ARCHIVE" \
-    "$RELEASE_DIR/$OMV_ARCHIVE"
+    "$RELEASE_DIR/$OMV_ARCHIVE" \
+    "$RELEASE_DIR/$ATOM_ARCHIVE"
 
 STAGING="$(mktemp -d)"
 trap 'rm -rf "$STAGING"' EXIT
@@ -98,6 +104,13 @@ find "$OMV_LUT_SOURCE_DIR" \
     -exec cp '{}' "$STAGING/omv/Data/NVSE/plugins/omv/luts/" \;
 pack_dir "$STAGING/omv" "$OMV_ARCHIVE"
 
+# Atom is an ESP-less xNVSE plugin with a JSON-owned MCM Extender menu.
+mkdir -p "$STAGING/atom/Data/NVSE/plugins"
+mkdir -p "$STAGING/atom/Data/MCM"
+cp "$ATOM_PATH" "$STAGING/atom/Data/NVSE/plugins/$ATOM_DLL"
+cp "$ATOM_MCM_PATH" "$STAGING/atom/Data/MCM/$ATOM_MCM_FILE"
+pack_dir "$STAGING/atom" "$ATOM_ARCHIVE"
+
 if zipinfo -1 "$RELEASE_DIR/$OMV_ARCHIVE" \
     | grep -Eiq '(^|/)(cache/|.*\.(cso|pso)$)'; then
     echo "ERROR: OMV release contains generated shader bytecode or a cache directory" >&2
@@ -105,7 +118,7 @@ if zipinfo -1 "$RELEASE_DIR/$OMV_ARCHIVE" \
 fi
 
 echo "Release archives:"
-for archive in "$CORE_ARCHIVE" "$HELPER_ARCHIVE" "$OMV_ARCHIVE"; do
+for archive in "$CORE_ARCHIVE" "$HELPER_ARCHIVE" "$OMV_ARCHIVE" "$ATOM_ARCHIVE"; do
     size="$(du -h "$RELEASE_DIR/$archive" | cut -f1)"
     echo "  $RELEASE_DIR/$archive ($size)"
 done

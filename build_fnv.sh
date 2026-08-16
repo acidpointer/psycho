@@ -19,19 +19,23 @@ LOADER_DLL="dinput8.dll"
 CORE_DLL="psycho_engine_fixes.dll"
 HELPER_DLL="psycho_engine_fixes_helper.dll"
 OMV_DLL="omv.dll"
+ATOM_DLL="atom.dll"
 ENGINE_CFGNAME="psycho_engine_fixes.toml"
 OMV_CFGNAME="omv.toml"
 OMV_DEFAULT_CFGNAME="omv.default.toml"
 OMV_NOTICENAME="THIRD_PARTY_NOTICES.md"
+ATOM_MCM_NAME="Atom.json"
 
 BIN_DIR="$DIR/target/$TARGET/$BUILD_TYPE"
 LOADER_BIN="$BIN_DIR/$LOADER_DLL"
 CORE_BIN="$BIN_DIR/$CORE_DLL"
 HELPER_BIN="$BIN_DIR/$HELPER_DLL"
 OMV_BIN="$BIN_DIR/$OMV_DLL"
+ATOM_BIN="$BIN_DIR/$ATOM_DLL"
 ENGINE_CFG="$DIR/psycho-engine-fixes/config/$ENGINE_CFGNAME"
 OMV_CFG="$DIR/omv/config/$OMV_CFGNAME"
 OMV_NOTICE="$DIR/omv/$OMV_NOTICENAME"
+ATOM_MCM_SRC="$DIR/atom/mcm/$ATOM_MCM_NAME"
 OMV_SHADER_SRC_DIR="$DIR/omv/shaders/runtime"
 OMV_LUT_SRC_DIR="$DIR/omv/luts"
 STALE_OMV_SHADER_FILES=(
@@ -64,6 +68,9 @@ OMV_LUT_DIR="$OMV_DATA_DIR/luts"
 OMV_LEGACY_PLUGIN_DIR="$OMV_MOD_DIR/nvse/plugins"
 OMV_LEGACY_DATA_DIR="$OMV_MOD_DIR/omv"
 OMV_LEGACY_SHADER_DIR="$OMV_LEGACY_DATA_DIR/shaders"
+ATOM_MOD_DIR="$MO2_MODS_DIR/Atom"
+ATOM_PLUGIN_DIR="$ATOM_MOD_DIR/NVSE/plugins"
+ATOM_MCM_DIR="$ATOM_MOD_DIR/MCM"
 
 LOADER_PATH="$GAME_ROOT/$LOADER_DLL"
 CORE_PATH="$GAME_SYRINGE_DIR/$CORE_DLL"
@@ -73,6 +80,8 @@ ENGINE_CFG_PATH="$GAME_SYRINGE_DIR/$ENGINE_CFGNAME"
 OMV_CFG_PATH="$OMV_DATA_DIR/$OMV_CFGNAME"
 OMV_DEFAULT_CFG_PATH="$OMV_DATA_DIR/$OMV_DEFAULT_CFGNAME"
 OMV_NOTICE_PATH="$OMV_DATA_DIR/$OMV_NOTICENAME"
+ATOM_PATH="$ATOM_PLUGIN_DIR/$ATOM_DLL"
+ATOM_MCM_PATH="$ATOM_MCM_DIR/$ATOM_MCM_NAME"
 
 function build_rust() {
     cd "$DIR"
@@ -88,7 +97,8 @@ function build_rust() {
         -p syringe \
         -p psycho-engine-fixes \
         -p psycho-engine-fixes-helper \
-        -p omv
+        -p omv \
+        -p atom
 
     if [[ "$BUILD_TYPE" = "release" ]]; then
         echo "!!!RELEASE MODE BUILD!!!"
@@ -116,20 +126,26 @@ function install_files() {
     require_file "$CORE_BIN"
     require_file "$HELPER_BIN"
     require_file "$OMV_BIN"
+    require_file "$ATOM_BIN"
     require_file "$ENGINE_CFG"
     require_file "$OMV_CFG"
     require_file "$OMV_NOTICE"
+    require_file "$ATOM_MCM_SRC"
 
     mkdir -p "$GAME_SYRINGE_DIR"
     mkdir -p "$NVSE_PLUGIN_DIR"
     mkdir -p "$OMV_PLUGIN_DIR"
     mkdir -p "$OMV_SHADER_DIR"
     mkdir -p "$OMV_LUT_DIR"
+    mkdir -p "$ATOM_PLUGIN_DIR"
+    mkdir -p "$ATOM_MCM_DIR"
 
     cp "$LOADER_BIN" "$LOADER_PATH"
     cp "$CORE_BIN" "$CORE_PATH"
     cp "$HELPER_BIN" "$HELPER_PATH"
     cp "$OMV_BIN" "$OMV_PATH"
+    cp "$ATOM_BIN" "$ATOM_PATH"
+    cp "$ATOM_MCM_SRC" "$ATOM_MCM_PATH"
     cp "$ENGINE_CFG" "$ENGINE_CFG_PATH"
     cp "$OMV_CFG" "$OMV_DEFAULT_CFG_PATH"
     if [[ ! -f "$OMV_CFG_PATH" ]]; then
@@ -200,6 +216,8 @@ echo "'$LOADER_DLL' copied to '$LOADER_PATH'"
 echo "'$CORE_DLL' copied to '$CORE_PATH'"
 echo "'$HELPER_DLL' copied to '$HELPER_PATH'"
 echo "'$OMV_DLL' copied to '$OMV_PATH'"
+echo "'$ATOM_DLL' copied to '$ATOM_PATH'"
+echo "Atom MCM Extender menu copied to '$ATOM_MCM_PATH'"
 echo "Engine config copied to '$ENGINE_CFG_PATH'"
 echo "OMV default config copied to '$OMV_DEFAULT_CFG_PATH'"
 echo "OMV working config preserved at '$OMV_CFG_PATH'"

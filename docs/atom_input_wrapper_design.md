@@ -1,5 +1,41 @@
 # Atom input wrapper design
 
+## Implementation status (2026-08-16)
+
+Stages 0 through 3 are implemented as an opt-in playtest build. Atom captures
+the post-xNVSE sample, publishes coherent device and 28-action frames, records
+bounded latency/heading telemetry, and applies direct mouse and radial
+controller transforms at the proven player boundaries.
+
+`Fallout 4 Direct` now uses the supplied game's nominal
+`0.0300 * 0.021 = 0.00063` heading scale at FNV's final float heading calls.
+The value is a documented radians-per-count inference, not a claim that every
+Fallout 4 camera context is identical. `Direct` instead scales FNV's native
+final heading, while `Native` remains exact float passthrough.
+
+Controller output is published only after a physically neutral handoff. Four
+player-camera deadzone calls and three curve setting calls are dynamically
+bypassed only while that output is active. The action layer merges keyboard,
+mouse, and controller bindings, tracks focus epochs and menu context, and
+prevents held controls from becoming presses after a context boundary.
+
+The keyboard bridge drains the chained xNVSE-aware 32-event buffer once per
+enabled gameplay sample, retains ordered events for Atom, and mirrors them to
+later native `GetDeviceData` consumers with peek and overflow semantics. A
+frame-phase gate prevents the shared bound-action adapter from replaying a
+preceding batch inside FNV's own sample maintenance.
+
+Stage 4 research is complete and rejects a production late-sample patch for
+this executable. The direct sampler is coupled to post-sample controller and
+28-control maintenance inside `0x0086F390`; moving the whole helper would cross
+unproven menu/UI/world consumers between `0x0086E88C` and `0x0086EC98`.
+Atom therefore keeps native sample placement. Stage 5 remains optional and is
+not implemented because stages 1-3 do not require Raw Input takeover.
+
+Configuration is MCM-owned `Atom.ini`, deserialized read-only through Serde and
+`serini`. Diagnostics use Psycho's established asynchronous logger; there is no
+custom ImGui UI or subsystem-owned telemetry file.
+
 ## Decision
 
 Atom should implement an **engine-semantic input wrapper**, not an operating
@@ -92,11 +128,10 @@ Proposed source ownership when implementation begins:
 atom/src/input/
 |-- mod.rs            lifecycle, admission, and public snapshot
 |-- native.rs         supported-executable addresses and native-state adapter
-|-- capture.rs        fixed-capacity device/event capture
+|-- buffered.rs       fixed-capacity keyboard capture and native mirror
 |-- actions.rs        contexts, bindings, edges, holds, and optional buffers
 |-- mouse.rs          direct heading transform and camera context
 |-- controller.rs     stick and trigger transforms
-|-- focus.rs          neutralization and reacquisition state machine
 |-- telemetry.rs      bounded QPC markers and out-of-hot-path summaries
 `-- hooks.rs          transactional hooks and rollback
 ```
@@ -150,7 +185,9 @@ Immediately after the supported normal call to `0x00A23010`, Atom copies:
 - focus and menu/player-control context needed by the action resolver.
 
 The copy is small and fixed-size. It performs no allocation, I/O, logging, or
-blocking synchronization. The native arrays remain unchanged in phase one.
+blocking synchronization. Keyboard and mouse arrays remain unchanged.
+Controller current state changes only after the neutral activation policy has
+admitted Atom's processed output.
 
 Atom consumes post-xNVSE state rather than bypassing the xNVSE wrapper. This
 preserves `TapKey`, held/injected keys, disabled controls, script-visible state,
@@ -190,7 +227,7 @@ The action resolver converts device state into named logical actions. It must
 support both the 28 vanilla actions and Atom-owned actions without modifying a
 form or consuming a load-order slot.
 
-Each action exposes:
+Each implemented action exposes:
 
 - `down`;
 - `pressed`;
@@ -198,17 +235,20 @@ Each action exposes:
 - held duration;
 - source device;
 - source binding;
-- optional buffer expiry;
-- whether a consumer has consumed the press;
-- context/focus epoch.
+- whether an edge came from the buffered keyboard bridge;
+- per-source controller edges;
+- native bindings plus frame context/focus epoch.
 
 Simultaneous keyboard/mouse and controller input is allowed. "Last active
 device" controls MCM/UI glyph presentation only; it never disables the other
 device.
 
-Action contexts must be explicit: gameplay, menu, console, dialogue, VATS,
-Pip-Boy, remapping, and disabled-player-control state are not interchangeable.
-A focus epoch change invalidates pending gameplay actions.
+The currently proven context classifier publishes `Gameplay`, `Menu`, and
+`Unfocused`. Atom does not falsely infer a more specific console, dialogue,
+VATS, Pip-Boy, or remapping identity from the coarse native `MenuMode` result.
+Those native consumers remain authoritative. A focus epoch or coarse-context
+change invalidates action edges and suppresses physically held controls until
+release.
 
 ### Layer 4: player-consumer bridge
 
@@ -219,10 +259,13 @@ two kinds of bridge:
 2. focused adapters for proven exceptional consumers such as attack,
    remembered automatic fire, run, aim, reload, wait, and camera look.
 
-The bridge should initially transform only actions with fully proven consumers.
-Unknown actions fall through to vanilla unchanged. Disabling Atom Input at
-runtime returns every transformed action to native behavior at the next neutral
-frame; it must not leave a held or remembered state behind.
+The implemented shared adapter chains `0x00A24660` and supplements only
+ordered buffered-key edges or processed controller direction/edge results.
+Native nonzero results always win, control 14 retains its native menu side
+effect, and non-gameplay contexts pass through. Exceptional attack, automatic
+fire, reload, wait, and other remembered-state consumers are not suppressed or
+buffered. Disabling Atom Input returns keyboard/action handling immediately and
+controller output at the next neutral frame.
 
 The xNVSE prevented-automatic-attack fix is the model: rejecting an early query
 is insufficient if a downstream consumer remembers an attack. Each buffered or
@@ -268,8 +311,7 @@ cm/360.
 
 ### Fallout 4 calibrated preset
 
-The preset should be named `Fallout 4 Direct`, not `Exact Fallout 4`, until the
-transfer function has been behaviorally measured.
+The preset is named `Fallout 4 Direct`, not `Exact Fallout 4`.
 
 Its qualitative contract is:
 
@@ -283,9 +325,10 @@ Its qualitative contract is:
 The current Fallout 4 binary proves that
 `fMouseHeadingSensitivity`, `fMouseHeadingXScale`,
 `fMouseHeadingYScale`, and `fMouseHeadingNormalizeMax` exist. It does not yet
-prove the exact normalize formula. Atom must not guess and hard-code that
-formula. Calibration requires an A/B trace of raw counts to camera yaw/pitch in
-both games.
+prove the exact normalize formula. The shipped installation's 0.0300
+sensitivity and equal 0.021 axis scales provide the nominal 0.00063 product now
+used at FNV's final float boundary. Atom does not copy a guessed normalize
+formula. Behavioral camera-context equivalence still requires an A/B trace.
 
 ### Stall and focus protection
 
@@ -300,12 +343,13 @@ mouse flicks and is rejected.
 ### Delay class A: lost or collapsed digital transitions
 
 FNV configures a 32-event DirectInput keyboard buffer but normally drives
-gameplay from current/previous snapshots. A high-quality second phase can drain
-that buffer once per gameplay frame and mirror it for later native/xNVSE
-`GetDeviceData` callers.
+gameplay from current/previous snapshots. Atom now drains the current chained
+keyboard capability after each enabled normal sample and mirrors it for later
+native/xNVSE `GetDeviceData` callers.
 
-This requires an outer compatibility wrapper around the already-installed
-xNVSE keyboard device, with exact behavior for:
+The live keyboard object's `GetDeviceData` vtable slot is chained by
+capability, without identifying its owning module. Calls for every other COM
+object go directly to the captured predecessor. The fixed mirror preserves:
 
 - real and xNVSE-injected events;
 - `DIGDD_PEEK` without consumption;
@@ -314,9 +358,11 @@ xNVSE keyboard device, with exact behavior for:
 - focus loss and reacquisition;
 - menu/console drains after Atom already captured an event.
 
-It must be implemented only when the mirrored queue can behaviorally replace
-the complete caller contract. A partial drain that starves the console or
-another xNVSE plugin is worse than the vanilla limitation.
+The newest 32 events are retained, matching FNV's configured bound. A non-NULL
+peek is answered from the mirror after a non-peek predecessor drain because
+xNVSE's current injected queue explicitly halts on that peek shape. Short
+`try_lock` contention falls through to the predecessor and increments a bounded
+health counter; the hook never blocks or logs in the input path.
 
 The native mouse has no configured DirectInput event buffer. Phase one retains
 snapshot button edges and accumulated relative motion. Adding a mouse buffer
@@ -329,8 +375,7 @@ FNV samples at `0x0086F39E` and later reaches player, world, render, and Present
 work. The safe initial implementation records exact QPC markers but leaves the
 sample in place.
 
-After the normal-frame call graph is complete, Atom may offer **Late Gameplay
-Sample**:
+The completed normal-frame audit considered **Late Gameplay Sample**:
 
 1. suppress only the normal call at `0x0086F39E`;
 2. invoke the native sampler exactly once at the latest proven point before the
@@ -338,13 +383,11 @@ Sample**:
 3. leave movie, blocking, focus, and other sampler call sites unchanged;
 4. publish the Atom snapshot immediately after that deferred native call.
 
-Admission requires proof that no input consumer between the old and new points
-depends on the sample. Entry to `PlayerCharacter` update is a candidate, not an
-approved address. Menus, console, controller-mode switching, xNVSE callbacks,
-and other world consumers must be audited first.
-
-This is the only phase-one-compatible way to move relative mouse acquisition
-later without polling it twice.
+Admission failed safely. `0x0086F390` couples the sampler with `0x00A257C0` and
+conditional `0x00A253D0` work. The main loop then crosses menu/interface and
+world calls before the candidate `0x0086EC98` boundary. Moving only the sampler
+reorders coupled maintenance; moving the helper crosses unproven consumers.
+Atom retains `0x0086F39E` and does not expose a nonfunctional MCM toggle.
 
 ### Delay class C: camera feedback after action acceptance
 
@@ -473,11 +516,11 @@ Required boundaries:
 - final xNVSE presentation boundary remains `0x0087055E -> 0x00B6B730`.
 
 Atom must account for xNVSE's `FakeDirectInputDevice` already wrapping keyboard
-and mouse. Wrapper order is therefore:
+and mouse. The implemented buffered path is therefore:
 
 ```text
-Atom outer semantic/compatibility adapter (only if needed)
-    -> xNVSE FakeDirectInputDevice
+Atom live GetDeviceData capability mirror
+    -> current predecessor (normally xNVSE FakeDirectInputDevice)
         -> real DirectInput device / Wine backend
 ```
 
@@ -493,31 +536,28 @@ the repository's pre-Deferred footprint review.
 
 ## MCM Extender configuration
 
-All configuration belongs in Atom's MCM Extender menu. Proposed pages and
-initial options:
+All configuration belongs in Atom's MCM Extender menu. The implemented pages
+and options are:
 
 ### Input / General
 
 | Option | Initial default | Timing |
 |---|---|---|
-| Enable Atom Input | off during technical preview; on after acceptance | neutral-frame live toggle |
-| Mixed input | on | live |
-| Late Gameplay Sample | off until native proof/playtest | restart-only |
-| Focus behavior | foreground only | restart-only |
+| Enable Atom Input | off pending acceptance | live; controller uses neutral handoff |
+
+Mixed input and foreground-only gameplay input are fixed safety policies, not
+toggles. Late sampling failed admission and is not shown.
 
 ### Input / Mouse
 
 | Option | Initial default | Range/choices |
 |---|---|---|
 | Mouse profile | Fallout 4 Direct | Native, Direct, Fallout 4 Direct |
-| Base sensitivity | calibrated native-equivalent | bounded positive slider |
+| Base sensitivity | 1.00 | 0.05-8.00 |
 | Horizontal scale | 1.00 | 0.10-4.00 |
 | Vertical scale | 1.00 | 0.10-4.00 |
 | Invert X | off | boolean |
 | Invert Y | preserve native preference | boolean |
-| Aim multiplier | 1.00 initially | 0.10-2.00 |
-| Scope multiplier | 1.00 initially | 0.10-2.00 |
-| Third-person multiplier | 1.00 initially | 0.10-2.00 |
 
 No smoothing or acceleration slider should exist in the first version because
 the desired profile deliberately has neither. A setting that reintroduces delay
@@ -530,7 +570,8 @@ without a proven use case would undermine the module.
 - anti-deadzone/output saturation;
 - independent trigger press/release thresholds;
 - independent stick X/Y scale and inversion;
-- reset to safe defaults.
+
+MCM Extender owns ordinary reset/default behavior; Atom does not write the INI.
 
 ### Input / Diagnostics
 
@@ -654,8 +695,7 @@ evidence for claiming a particular low-level cause or an exact latency reduction
 - record camera delta/angle behavior;
 - no transformed input.
 
-This is the first implementation stage because it can reject wrong assumptions
-without changing feel.
+Implemented. Histograms remain bounded and opt-in.
 
 ### Stage 1: direct mouse and controller transforms
 
@@ -665,6 +705,8 @@ without changing feel.
 - apply only at proven camera/player consumers;
 - retain the native sampler location.
 
+Implemented at the final float heading and proven controller camera boundaries.
+
 ### Stage 2: coherent action layer
 
 - named actions and explicit contexts;
@@ -672,17 +714,27 @@ without changing feel.
 - neutral focus/device state machine;
 - no action buffering by default.
 
+Implemented for all 28 native bindings with coarse proven contexts. There is
+no intentional time-based gameplay queue.
+
 ### Stage 3: buffered keyboard compatibility
 
 - outer keyboard `GetDeviceData` mirror;
 - consume the native 32-event buffer once while preserving all caller semantics;
 - timestamped short-tap preservation and overflow diagnostics.
 
+Implemented through the current live `GetDeviceData` capability and the shared
+bound-action provider. Native menu/text consumers keep their established
+ownership.
+
 ### Stage 4: late gameplay sample
 
 - complete intervening-consumer research;
 - defer only the normal sampler call;
 - demonstrate a latency reduction with no compatibility loss.
+
+Research completed; implementation rejected for this executable because the
+safe deferral preconditions are not met. Native sample placement is retained.
 
 ### Stage 5: optional authoritative modern backend
 
@@ -691,25 +743,23 @@ fully emulate native/xNVSE DirectInput behavior. It requires a separate design,
 startup review, and broad mod-stack test matrix. It is not implied by this
 proposal.
 
+Not required and not implemented.
+
 ## Recommendation
 
-Build stages 0 and 1 first. They directly address the reported mouse feel while
-preserving the most important compatibility invariant: one native relative
-mouse read after xNVSE processing.
-
-Do not begin with Raw Input takeover, universal action buffering, or render-only
-late latching. Those approaches sound modern but carry the highest risk of
-lost input, xNVSE incompatibility, delayed combat actions, or camera/aim
-desynchronization.
-
-The likely winning combination is:
+Retain the implemented stages 0 through 3 and complete runtime acceptance before
+expanding the input surface. The resulting architecture is:
 
 1. direct no-history mouse heading with independent axes and calibrated camera
    context scales;
 2. one coherent post-xNVSE action snapshot;
-3. later native sampling only after direct proof;
-4. presentation latency measured and handled by OMV/DXVK rather than Atom.
+3. radial controller output with neutral live handoff;
+4. bounded keyboard edge preservation behind native/xNVSE ownership;
+5. presentation latency measured and handled by OMV/DXVK rather than Atom.
 
-That combination reproduces the parts of Fallout 4's input architecture which
+This combination reproduces the parts of Fallout 4's input architecture which
 are relevant to feel without pretending FNV is Fallout 4 or breaking the
-existing input stack.
+existing input stack. Raw Input takeover, universal time-based action buffering,
+and render-only late latching remain outside the admitted design because the
+current executable evidence does not establish safe ownership boundaries for
+them.

@@ -61,9 +61,11 @@ jobs:
           core_archive=".release/psycho-engine-fixes-$TAG.zip"
           helper_archive=".release/psycho-engine-fixes-nvse-helper-$TAG.zip"
           omv_archive=".release/omv-nvse-$TAG.zip"
+          atom_archive=".release/atom-nvse-$TAG.zip"
           test -f "$core_archive"
           test -f "$helper_archive"
           test -f "$omv_archive"
+          test -f "$atom_archive"
 
           diff -u \
             <(printf '%s\n' \
@@ -127,6 +129,12 @@ jobs:
               "Data/NVSE/plugins/omv/luts/41_pripyat_memory.cube" | sort) \
             <(zipinfo -1 "$omv_archive" | grep -v '/$' | sort)
 
+          diff -u \
+            <(printf '%s\n' \
+              "Data/MCM/Atom.json" \
+              "Data/NVSE/plugins/atom.dll" | sort) \
+            <(zipinfo -1 "$atom_archive" | grep -v '/$' | sort)
+
       - name: Publish GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -140,6 +148,7 @@ jobs:
             ".release/psycho-engine-fixes-$TAG.zip"
             ".release/psycho-engine-fixes-nvse-helper-$TAG.zip"
             ".release/omv-nvse-$TAG.zip"
+            ".release/atom-nvse-$TAG.zip"
           )
 
           if gh release view "$TAG" >/dev/null 2>&1; then
