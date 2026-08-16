@@ -1140,8 +1140,9 @@ pub(super) fn point_shadow_visibility(
 
 /// Advance one physical cube slot's admission transition.
 ///
-/// Stable identities retain their original start time so repeated publication
-/// advances smoothly. Replacing a slot starts at zero shadow weight; native
+/// Stable identities retain their original start time across publication.
+/// Replacing a slot starts at zero shadow weight; the consumer carries the
+/// returned start time forward and evaluates later presentation frames. Native
 /// scene lighting remains untouched while the new occlusion fades in.
 pub(super) fn point_shadow_transition(
     previous_identity: usize,
@@ -1158,6 +1159,12 @@ pub(super) fn point_shadow_transition(
     } else {
         now_millis
     };
+    let weight = point_shadow_elapsed_weight(start, now_millis, duration_millis);
+    Some((identity, start, weight))
+}
+
+fn point_shadow_elapsed_weight(start_millis: u64, now_millis: u64, duration_millis: u64) -> f32 {
+    let start = start_millis.min(now_millis);
     let elapsed = now_millis.saturating_sub(start);
     // A zero duration is a valid defensive input even though persisted values
     // are sanitized above zero. Treat it as an immediate transition instead
@@ -1168,7 +1175,33 @@ pub(super) fn point_shadow_transition(
     } else {
         (elapsed as f32 / duration_millis as f32).clamp(0.0, 1.0)
     };
-    Some((identity, start, t * t * (3.0 - 2.0 * t)))
+    t * t * (3.0 - 2.0 * t)
+}
+
+/// Evaluate all frame-local presentation fades for one retained point cube.
+///
+/// Cube production may remain idle for a stationary practical light, so its
+/// transition must advance at consumer cadence. Discovery distance is also
+/// camera-relative and belongs to the current consumer frame rather than the
+/// older camera which last refreshed or republished the cube. The producer's
+/// last completed transition sample is a lower bound: a consumer clock sample
+/// must not make already visible occlusion disappear. Native light energy
+/// remains immediate; this weight affects only cube-proven occlusion.
+pub(super) fn point_shadow_presentation_weight(
+    relative_position: [f32; 3],
+    radius: f32,
+    camera_forward: [f32; 3],
+    max_distance: f32,
+    producer_transition_fade: f32,
+    transition_start_millis: u64,
+    now_millis: u64,
+    duration_millis: u64,
+) -> Option<f32> {
+    let discovery =
+        point_light_distance_fade(relative_position, radius, camera_forward, max_distance)?;
+    let elapsed_transition =
+        point_shadow_elapsed_weight(transition_start_millis, now_millis, duration_millis);
+    Some(discovery * elapsed_transition.max(producer_transition_fade.clamp(0.0, 1.0)))
 }
 
 /// Decide whether a selected point light has a complete canonical caster set.

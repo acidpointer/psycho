@@ -4,7 +4,9 @@
 //! OMV binds those already-prepared buffers to dedicated shadow shaders, calls
 //! the original renderer submissions, and restores the geometry dirty flags
 //! that the native helpers clear. All object pointers are borrowed only for
-//! the common shadow transaction.
+//! the common shadow transaction. Unfamiliar per-caster layouts are omitted
+//! without invalidating compatible casters; actual D3D, resource, hook-route,
+//! and transaction failures still abort publication.
 
 use core::{ffi::c_void, mem::transmute, ptr::read_unaligned};
 
@@ -41,6 +43,15 @@ const NI_AV_OBJECT_APP_CULLED: u32 = 1 << 0;
 const SHADOW_BONE_REGISTERS: u32 = 3;
 const INVALID_BONE_REGISTERS: u32 = u32::MAX;
 const AMD_ALPHA_TO_COVERAGE_OFF: u32 = u32::from_le_bytes(*b"A2M0");
+
+/// Return whether one native skin partition fits the fixed shader ABI.
+///
+/// Zero-bone partitions are inert. Larger mod-provided partitions cannot be
+/// indexed safely by OMV's three-register-per-bone shader window and must be
+/// omitted as one caster instead of failing the complete shadow transaction.
+const fn skinned_partition_bones_are_supported(bones: usize) -> bool {
+    bones <= MAX_BONES_PER_PARTITION
+}
 
 const NI_OBJECT_IS_NODE_SLOT: usize = 0x03;
 const NI_OBJECT_IS_FADE_NODE_SLOT: usize = 0x04;
@@ -206,6 +217,14 @@ fn push_traversal_node(nodes: &mut Vec<usize>, identity: usize) -> bool {
     }
     nodes.push(identity);
     true
+}
+
+/// Return whether one node's complete child set fits the fixed DFS stack.
+///
+/// Checking before the first push makes an oversized mod subtree an atomic
+/// local omission instead of traversing a partial sibling prefix.
+fn traversal_stack_has_room(nodes: &[usize], additional: usize, capacity: usize) -> bool {
+    additional <= capacity.saturating_sub(nodes.len())
 }
 
 /// Mutable allocation-free traversal state retained with device resources.
@@ -406,17 +425,24 @@ impl TraversalScratch {
     }
 
     /// Journal one skin and return its stable transaction-local state index.
-    unsafe fn capture_skin_state(&mut self, skin: *mut u8) -> Direct3DResult<usize> {
-        if skin.is_null() || self.render_state.is_none() {
+    ///
+    /// `Ok(None)` omits a caster which exceeds the fixed journal without
+    /// allocating or changing the validity of other submitted geometry.
+    unsafe fn capture_skin_state(&mut self, skin: *mut u8) -> Direct3DResult<Option<usize>> {
+        if self.render_state.is_none() {
             return Err(direct3d_failure());
+        }
+        if skin.is_null() {
+            return Ok(None);
         }
         if let Some(index) = self.skin_state_index(skin as usize) {
-            return Ok(index);
+            return Ok(Some(index));
         }
-        // Never reallocate in the render hook. Overflow fails the replacement
-        // transaction and takes the already-supported native fallback.
+        // An unfamiliar scene may legitimately exceed OMV's fixed journal.
+        // Never allocate in the render hook and never let one excess caster
+        // discard otherwise complete point cubes; omit only that caster.
         if self.skin_states.len() >= MAX_SKIN_STATE_SNAPSHOTS {
-            return Err(direct3d_failure());
+            return Ok(None);
         }
         let index = self.skin_states.len();
         self.skin_states.push(SkinStateSnapshot {
@@ -428,12 +454,14 @@ impl TraversalScratch {
         });
         if !self.insert_skin_state(skin as usize, index) {
             self.skin_states.pop();
-            return Err(direct3d_failure());
+            return Ok(None);
         }
-        Ok(index)
+        Ok(Some(index))
     }
 
     /// Prepare the native matrix cache for one skin/transform pair.
+    ///
+    /// `Ok(false)` means this caster exceeded the fixed compatibility journal.
     ///
     /// Attachments may share one `NiSkinInstance` while using distinct world
     /// transforms. FNV's native helper keys its fast path by frame and register
@@ -443,8 +471,10 @@ impl TraversalScratch {
         &mut self,
         skin: *mut u8,
         world_transform: [u32; 13],
-    ) -> Direct3DResult<()> {
-        let index = unsafe { self.capture_skin_state(skin)? };
+    ) -> Direct3DResult<bool> {
+        let Some(index) = (unsafe { self.capture_skin_state(skin)? }) else {
+            return Ok(false);
+        };
         let snapshot = self
             .skin_states
             .get_mut(index)
@@ -461,7 +491,7 @@ impl TraversalScratch {
                 }
                 snapshot.world_transform = world_transform;
             }
-            return Ok(());
+            return Ok(true);
         }
         // The native cache may have been populated earlier in this frame by a
         // different geometry sharing the skin. Its frame/mode stamp does not
@@ -477,10 +507,13 @@ impl TraversalScratch {
         }
         snapshot.world_transform = world_transform;
         snapshot.calculation_initialized = true;
-        Ok(())
+        Ok(true)
     }
 
     /// Resolve and cache the blend-index interpretation of a bound buffer.
+    ///
+    /// `Ok(None)` identifies a caster-local declaration which OMV cannot index
+    /// through its bounded shader family. D3D query failures remain errors.
     ///
     /// The native buffer fields are the same ownership source used by
     /// [`bind_geometry_buffer`]. Looking up their declaration pointer before
@@ -496,29 +529,30 @@ impl TraversalScratch {
         &mut self,
         device: &Device9Ref<'_>,
         buffer: *mut u8,
-    ) -> Direct3DResult<SkinIndexEncoding> {
+    ) -> Direct3DResult<Option<SkinIndexEncoding>> {
         // Skinned FNV geometry uses declarations. Treating an unexpected FVF
         // as a known byte layout could index outside the uploaded bone rows.
         if buffer.is_null() || unsafe { read::<u32>(buffer, GEOMETRY_BUFFER_FVF) } != 0 {
-            return Err(direct3d_failure());
+            return Ok(None);
         }
         let declaration = unsafe { read::<*mut c_void>(buffer, GEOMETRY_BUFFER_DECLARATION) };
         if declaration.is_null() {
-            return Err(direct3d_failure());
+            return Ok(None);
         }
         if let Some(cached) = self
             .declarations
             .iter()
             .find(|cached| cached.declaration == declaration as usize)
         {
-            return Ok(cached.encoding);
+            return Ok(Some(cached.encoding));
         }
         let snapshot = device.vertex_declaration_snapshot()?;
         // `bind_geometry_buffer` and this query are adjacent. A mismatch means
-        // native state changed unexpectedly; fail the replacement transaction
-        // instead of caching a declaration under the wrong engine identity.
+        // this geometry does not own the declaration that its native buffer
+        // advertises. Omit the caster instead of caching the wrong encoding or
+        // invalidating every unrelated point shadow.
         if snapshot.handle != declaration {
-            return Err(direct3d_failure());
+            return Ok(None);
         }
         let encoding = snapshot.elements[..snapshot.element_count as usize]
             .iter()
@@ -528,16 +562,18 @@ impl TraversalScratch {
                     element.Usage,
                     element.UsageIndex,
                 )
-            })
-            .ok_or_else(direct3d_failure)?;
+            });
+        let Some(encoding) = encoding else {
+            return Ok(None);
+        };
         if self.declarations.len() >= self.declarations.capacity() {
-            return Err(direct3d_failure());
+            return Ok(None);
         }
         self.declarations.push(VertexDeclarationEncoding {
             declaration: declaration as usize,
             encoding,
         });
-        Ok(encoding)
+        Ok(Some(encoding))
     }
 }
 
@@ -704,7 +740,10 @@ unsafe fn traverse_root(
     let mut budget = TraversalBudget::new(MAX_NODE_VISITS);
     while let Some(identity) = scratch.nodes.pop() {
         if !budget.claim() {
-            return Err(direct3d_failure());
+            // A cycle or exceptionally deep mod hierarchy is caster-local.
+            // Stop this root without letting it erase maps produced from every
+            // independent compatible root in the same transaction.
+            return Ok(());
         }
         let object = identity as *mut u8;
         if !presentation_object_is_visible(
@@ -744,32 +783,40 @@ unsafe fn traverse_root(
         }
 
         let children = unsafe { node.add(NativeLayout::NI_NODE_CHILDREN) };
-        let end = complete_bounded_count(
+        let Some(end) = complete_bounded_count(
             unsafe { read::<u16>(children, NI_TARRAY_END) } as usize,
             MAX_NODE_CHILDREN,
-        )
-        .ok_or_else(direct3d_failure)?;
+        ) else {
+            continue;
+        };
         let data = unsafe { read::<*mut *mut u8>(children, NI_TARRAY_DATA) };
         if data.is_null() {
-            if end == 0 {
-                continue;
-            }
-            return Err(direct3d_failure());
+            continue;
         }
         if unsafe { rtti_is_kind_of(node, NI_SWITCH_NODE_RTTI) } {
             let active = unsafe { read::<i32>(node, NI_SWITCH_ACTIVE_INDEX) };
             if let Some(active) = switch_active_child_index(active, end) {
                 let child = unsafe { read_unaligned(data.add(active)) };
-                if !child.is_null() && !push_traversal_node(&mut scratch.nodes, child as usize) {
-                    return Err(direct3d_failure());
+                if !child.is_null()
+                    && traversal_stack_has_room(&scratch.nodes, 1, scratch.nodes.capacity())
+                {
+                    let inserted = push_traversal_node(&mut scratch.nodes, child as usize);
+                    debug_assert!(inserted);
                 }
             }
             continue;
         }
+        let pending_children = (0..end)
+            .filter(|index| !unsafe { read_unaligned(data.add(*index)) }.is_null())
+            .count();
+        if !traversal_stack_has_room(&scratch.nodes, pending_children, scratch.nodes.capacity()) {
+            continue;
+        }
         for index in (0..end).rev() {
             let child = unsafe { read_unaligned(data.add(index)) };
-            if !child.is_null() && !push_traversal_node(&mut scratch.nodes, child as usize) {
-                return Err(direct3d_failure());
+            if !child.is_null() {
+                let inserted = push_traversal_node(&mut scratch.nodes, child as usize);
+                debug_assert!(inserted);
             }
         }
     }
@@ -796,8 +843,13 @@ unsafe fn draw_geometry(
         return Ok(());
     };
     debug_assert_eq!(classification.skinned, skinned);
-    let world = unsafe { geometry_world_matrix(geometry, context.camera_translation) }
-        .ok_or_else(direct3d_failure)?;
+    let Some(world) = (unsafe { geometry_world_matrix(geometry, context.camera_translation) })
+    else {
+        // Non-finite transforms belong to this caster, not to the D3D
+        // transaction. Skipping it preserves every compatible shadow while
+        // preventing invalid constants from reaching the device.
+        return Ok(());
+    };
     let mut geometry_data = [classification.geometry_kind, 0.0, 0.0, 0.0];
     if context.actor_overlay {
         geometry_data[3] = 2.0;
@@ -856,12 +908,17 @@ unsafe fn draw_geometry(
 
     let model = unsafe { read::<*mut u8>(geometry, NativeLayout::NI_GEOMETRY_DATA) };
     let buffer = unsafe { read::<*mut u8>(model, NativeLayout::NI_GEOMETRY_DATA_BUFFER) };
-    unsafe { bind_geometry_buffer(context.device, buffer)? };
+    if !unsafe { bind_geometry_buffer(context.device, buffer)? } {
+        return Ok(());
+    }
     let dirty = unsafe { read::<u16>(model, NativeLayout::NI_GEOMETRY_DATA_DIRTY_FLAGS) };
     let strips = !unsafe { virtual_cast(geometry, NI_OBJECT_IS_TRI_STRIPS_SLOT) }.is_null();
     let submitted =
         unsafe { crate::hooks::submit_shadow_geometry(context.renderer, geometry.cast(), strips) };
     unsafe { write::<u16>(model, NativeLayout::NI_GEOMETRY_DATA_DIRTY_FLAGS, dirty) };
+    // A missing resident trampoline is a route failure, not an asset
+    // compatibility decision. Keep it transactional so OMV never claims a
+    // complete map without executing the proven native submission helper.
     submitted.then_some(()).ok_or_else(direct3d_failure)
 }
 
@@ -1019,10 +1076,10 @@ unsafe fn object_is_beneath_root(mut object: *mut u8, root: *mut u8) -> Direct3D
         }
         object = unsafe { read::<*mut u8>(object, NativeLayout::NI_AV_OBJECT_PARENT) };
     }
-    // Unknown ancestry is not equivalent to world ownership. Treating it as
-    // `false` can admit a deep or cyclic first-person attachment next to the
-    // Pip-Boy light and publish a source-enclosing caster.
-    Err(direct3d_failure())
+    // Unknown ancestry is not equivalent to world ownership. Exclude this one
+    // caster, but do not turn a mod-provided deep or cyclic attachment into a
+    // fatal point-map failure which erases every unrelated local shadow.
+    Ok(true)
 }
 
 fn is_lighting_shader_definition(shader_definition: u32) -> bool {
@@ -1049,6 +1106,58 @@ unsafe fn draw_skinned(
     if !dismember_partition_is_renderable(dismember_renderable, None) {
         return Ok(());
     }
+    let Some(count) = complete_bounded_count(
+        unsafe { read::<u32>(partition, SKIN_PARTITION_COUNT) } as usize,
+        MAX_SKIN_PARTITIONS,
+    ) else {
+        return Ok(());
+    };
+    let partitions = unsafe { read::<*mut u8>(partition, SKIN_PARTITION_ARRAY) };
+    let bone_rows = unsafe { read::<*const [f32; 4]>(skin, NativeLayout::NI_SKIN_BONE_MATRICES) };
+    if count == 0 {
+        return Ok(());
+    }
+    if partitions.is_null() || bone_rows.is_null() {
+        return Ok(());
+    }
+    let dismember_entries = if dismember {
+        unsafe { read::<*mut u8>(skin, NativeLayout::DISMEMBER_PARTITIONS) }
+    } else {
+        core::ptr::null_mut()
+    };
+    let dismember_count = if dismember {
+        (unsafe { read::<u32>(skin, NativeLayout::DISMEMBER_PARTITION_COUNT) }) as usize
+    } else {
+        0
+    };
+
+    // Validate the complete caster before the first partition draw. A modded
+    // skin may use a wider bone window or a nonstandard native buffer. Drawing
+    // the supported prefix and discovering the incompatibility later would
+    // publish a body with holes; reject this geometry locally as one unit.
+    for index in 0..count {
+        let partition_enabled = (!dismember_entries.is_null() && index < dismember_count)
+            .then(|| unsafe { read::<u8>(dismember_entries, index * 4) } != 0);
+        if !dismember_partition_is_renderable(dismember_renderable, partition_enabled) {
+            continue;
+        }
+        let entry = unsafe { partitions.add(index * NativeLayout::NI_SKIN_PARTITION_ENTRY_SIZE) };
+        let bones = unsafe { read::<u16>(entry, PARTITION_BONES) } as usize;
+        if !skinned_partition_bones_are_supported(bones) {
+            return Ok(());
+        }
+        if bones == 0 {
+            continue;
+        }
+        let buffer = unsafe { read::<*mut u8>(entry, PARTITION_BUFFER) };
+        if !skinned_submission_is_available(false, !buffer.is_null()) {
+            continue;
+        }
+        if !unsafe { geometry_buffer_layout_is_supported(buffer) } {
+            return Ok(());
+        }
+    }
+
     let world_transform = unsafe {
         read_unaligned(
             geometry
@@ -1056,7 +1165,9 @@ unsafe fn draw_skinned(
                 .cast::<[u32; 13]>(),
         )
     };
-    unsafe { scratch.prepare_skin_calculation(skin, world_transform)? };
+    if !unsafe { scratch.prepare_skin_calculation(skin, world_transform)? } {
+        return Ok(());
+    }
     let calculate: CalculateBoneMatrices =
         unsafe { transmute(ShadowGenerationAbi::CALCULATE_BONE_MATRICES) };
     unsafe {
@@ -1082,29 +1193,6 @@ unsafe fn draw_skinned(
     };
     context.device.set_vertex_shader_constant_f(0, &world)?;
 
-    let count = complete_bounded_count(
-        unsafe { read::<u32>(partition, SKIN_PARTITION_COUNT) } as usize,
-        MAX_SKIN_PARTITIONS,
-    )
-    .ok_or_else(direct3d_failure)?;
-    let partitions = unsafe { read::<*mut u8>(partition, SKIN_PARTITION_ARRAY) };
-    let bone_rows = unsafe { read::<*const [f32; 4]>(skin, NativeLayout::NI_SKIN_BONE_MATRICES) };
-    if count == 0 {
-        return Ok(());
-    }
-    if partitions.is_null() || bone_rows.is_null() {
-        return Err(direct3d_failure());
-    }
-    let dismember_entries = if dismember {
-        unsafe { read::<*mut u8>(skin, NativeLayout::DISMEMBER_PARTITIONS) }
-    } else {
-        core::ptr::null_mut()
-    };
-    let dismember_count = if dismember {
-        (unsafe { read::<u32>(skin, NativeLayout::DISMEMBER_PARTITION_COUNT) }) as usize
-    } else {
-        0
-    };
     let draw: DrawSkinnedGeometry = unsafe { transmute(GeometryKind::Skinned.render_address()) };
     for index in 0..count {
         let partition_enabled = (!dismember_entries.is_null() && index < dismember_count)
@@ -1117,12 +1205,7 @@ unsafe fn draw_skinned(
         if bones == 0 {
             continue;
         }
-        if bones > MAX_BONES_PER_PARTITION {
-            // The shader ABI has a fixed register window. Skipping only this
-            // partition would publish an apparently complete actor with holes;
-            // fail the map transaction so the native result remains active.
-            return Err(direct3d_failure());
-        }
+        debug_assert!(skinned_partition_bones_are_supported(bones));
         let indices = unsafe { read::<*const u16>(entry, PARTITION_BONE_INDICES) };
         let buffer = unsafe { read::<*mut u8>(entry, PARTITION_BUFFER) };
         if !skinned_submission_is_available(false, !buffer.is_null()) {
@@ -1140,15 +1223,24 @@ unsafe fn draw_skinned(
             // Apply the exact equivalent correction to native skin matrices;
             // otherwise only actors are displaced whenever the engine global
             // camera belongs to an earlier or alternate render view.
-            rows = rebase_bone_rows(rows, native_camera_translation, context.camera_translation)
-                .ok_or_else(direct3d_failure)?;
+            let Some(rebased) =
+                rebase_bone_rows(rows, native_camera_translation, context.camera_translation)
+            else {
+                return Ok(());
+            };
+            rows = rebased;
             context
                 .device
                 .set_vertex_shader_constant_f((9 + bone * 3) as u32, &rows)?;
         }
-        unsafe { bind_geometry_buffer(context.device, buffer)? };
-        let encoding =
-            unsafe { scratch.skin_index_encoding(context.device, buffer)? }.shader_index();
+        if !unsafe { bind_geometry_buffer(context.device, buffer)? } {
+            return Ok(());
+        }
+        let Some(encoding) = (unsafe { scratch.skin_index_encoding(context.device, buffer)? })
+        else {
+            return Ok(());
+        };
+        let encoding = encoding.shader_index();
         let vertex = if context.cube_radius.is_some() {
             &context.programs.cube_vertex[encoding]
         } else {
@@ -1189,24 +1281,62 @@ pub(super) fn rebase_bone_rows(
         .then_some(rows)
 }
 
-unsafe fn bind_geometry_buffer(device: &Device9Ref<'_>, buffer: *mut u8) -> Direct3DResult<()> {
+/// Validate the native pointers and fixed bounds required to bind one buffer.
+///
+/// This is a compatibility decision, not a D3D result. Mod-provided geometry
+/// with an unfamiliar or incomplete buffer is simply not an OMV caster; real
+/// device-call failures remain errors in [`bind_geometry_buffer`].
+///
+/// # Safety
+///
+/// `buffer` and every referenced native buffer field must remain live for the
+/// current serialized shadow transaction.
+unsafe fn geometry_buffer_layout_is_supported(buffer: *mut u8) -> bool {
     if buffer.is_null() {
-        return Err(direct3d_failure());
+        return false;
     }
     let stream_count = unsafe { read::<u32>(buffer, GEOMETRY_BUFFER_STREAM_COUNT) } as usize;
     if stream_count == 0 || stream_count > 16 {
-        return Err(direct3d_failure());
+        return false;
     }
     let strides = unsafe { read::<*const u32>(buffer, GEOMETRY_BUFFER_STRIDES) };
     let chips = unsafe { read::<*const *mut u8>(buffer, GEOMETRY_BUFFER_CHIPS) };
     if strides.is_null() || chips.is_null() {
-        return Err(direct3d_failure());
+        return false;
     }
     for stream in 0..stream_count {
         let chip = unsafe { read_unaligned(chips.add(stream)) };
         if chip.is_null() {
-            return Err(direct3d_failure());
+            return false;
         }
+        let vertex_buffer = unsafe { read::<*mut c_void>(chip, VERTEX_CHIP_BUFFER) };
+        let stride = unsafe { read_unaligned(strides.add(stream)) };
+        if vertex_buffer.is_null() || stride == 0 {
+            return false;
+        }
+    }
+    let fvf = unsafe { read::<u32>(buffer, GEOMETRY_BUFFER_FVF) };
+    fvf != 0 || !unsafe { read::<*mut c_void>(buffer, GEOMETRY_BUFFER_DECLARATION) }.is_null()
+}
+
+/// Bind one structurally supported native geometry buffer.
+///
+/// `Ok(false)` is a caster-local compatibility rejection. An error means an
+/// actual device call failed and must invalidate the map transaction.
+///
+/// # Safety
+///
+/// `buffer` and every referenced native buffer field must remain live for the
+/// current serialized shadow transaction.
+unsafe fn bind_geometry_buffer(device: &Device9Ref<'_>, buffer: *mut u8) -> Direct3DResult<bool> {
+    if !unsafe { geometry_buffer_layout_is_supported(buffer) } {
+        return Ok(false);
+    }
+    let stream_count = unsafe { read::<u32>(buffer, GEOMETRY_BUFFER_STREAM_COUNT) } as usize;
+    let strides = unsafe { read::<*const u32>(buffer, GEOMETRY_BUFFER_STRIDES) };
+    let chips = unsafe { read::<*const *mut u8>(buffer, GEOMETRY_BUFFER_CHIPS) };
+    for stream in 0..stream_count {
+        let chip = unsafe { read_unaligned(chips.add(stream)) };
         let vertex_buffer = unsafe { read::<*mut c_void>(chip, VERTEX_CHIP_BUFFER) };
         let stride = unsafe { read_unaligned(strides.add(stream)) };
         unsafe { device.set_raw_stream_source(stream as u32, vertex_buffer, 0, stride)? };
@@ -1215,11 +1345,12 @@ unsafe fn bind_geometry_buffer(device: &Device9Ref<'_>, buffer: *mut u8) -> Dire
     unsafe { device.set_raw_indices(index_buffer)? };
     let fvf = unsafe { read::<u32>(buffer, GEOMETRY_BUFFER_FVF) };
     if fvf != 0 {
-        device.set_fvf(fvf)
+        device.set_fvf(fvf)?;
     } else {
         let declaration = unsafe { read::<*mut c_void>(buffer, GEOMETRY_BUFFER_DECLARATION) };
-        unsafe { device.set_raw_vertex_declaration(declaration) }
+        unsafe { device.set_raw_vertex_declaration(declaration)? };
     }
+    Ok(true)
 }
 
 unsafe fn upload_speedtree_constants(
@@ -1555,7 +1686,8 @@ mod tests {
 
     use super::{
         CasterSubset, NI_AV_OBJECT_APP_CULLED, TraversalScratch, object_is_beneath_root,
-        presentation_object_is_visible, push_traversal_node, read, switch_active_child_index,
+        presentation_object_is_visible, push_traversal_node, read,
+        skinned_partition_bones_are_supported, switch_active_child_index, traversal_stack_has_room,
         write,
     };
     use crate::effects::shadows::engine::NativeLayout;
@@ -1604,7 +1736,15 @@ mod tests {
     }
 
     #[test]
-    fn first_person_ancestry_fails_closed_when_its_native_chain_exceeds_the_budget() {
+    fn oversized_mod_subtree_is_omitted_before_a_partial_child_prefix() {
+        let nodes = [1_usize, 2];
+
+        assert!(traversal_stack_has_room(&nodes, 2, 4));
+        assert!(!traversal_stack_has_room(&nodes, 3, 4));
+    }
+
+    #[test]
+    fn unfamiliar_first_person_ancestry_excludes_only_that_caster() {
         let node_bytes = NativeLayout::NI_AV_OBJECT_PARENT + size_of::<usize>();
         let mut nodes = (0..=super::MAX_PARENT_VISITS)
             .map(|_| vec![0_u8; node_bytes])
@@ -1636,9 +1776,49 @@ mod tests {
             );
         }
         assert!(
-            unsafe { object_is_beneath_root(pointers[0], pointers[super::MAX_PARENT_VISITS]) }
-                .is_err(),
-            "unknown cyclic ancestry was treated as ordinary world ownership"
+            unsafe {
+                object_is_beneath_root(pointers[0], pointers[super::MAX_PARENT_VISITS])
+                    .expect("unknown ancestry must remain a local caster decision")
+            },
+            "unknown cyclic ancestry was admitted as ordinary world ownership"
+        );
+    }
+
+    #[test]
+    fn unfamiliar_skin_partition_is_omitted_without_widening_the_shader_abi() {
+        assert!(skinned_partition_bones_are_supported(
+            super::MAX_BONES_PER_PARTITION
+        ));
+        assert!(!skinned_partition_bones_are_supported(
+            super::MAX_BONES_PER_PARTITION + 1
+        ));
+    }
+
+    #[test]
+    fn excess_modded_skins_omit_only_the_unjournaled_caster() {
+        let mut scratch = TraversalScratch::with_capacity();
+        scratch.render_state = Some(super::RenderStateSnapshot {
+            state: 1,
+            internal_normalize_normals: 0,
+        });
+        scratch.skin_states.resize(
+            super::MAX_SKIN_STATE_SNAPSHOTS,
+            super::SkinStateSnapshot {
+                skin: 1,
+                frame_id: 0,
+                bone_registers: 0,
+                world_transform: [0; 13],
+                calculation_initialized: false,
+            },
+        );
+        scratch.begin_skin_lookup_generation();
+        let mut skin = vec![0_u8; NativeLayout::NI_SKIN_BONE_REGISTERS + size_of::<u32>()];
+
+        assert_eq!(
+            unsafe { scratch.capture_skin_state(skin.as_mut_ptr()) }
+                .expect("journal capacity is a caster-local condition"),
+            None,
+            "one excess modded skin aborted the complete shadow transaction"
         );
     }
 

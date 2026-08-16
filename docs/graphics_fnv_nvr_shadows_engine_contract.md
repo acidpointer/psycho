@@ -6395,6 +6395,261 @@ the documented `.bss = 0x6B10`, `.idata = 0x340C`, `.tls = 0x8`, TLS directory
 shader, D3D execution-test, and final-image build closure. They do not prove the
 required Proton image or load-to-gameplay acceptance.
 
+## Stationary practical-light fade cadence (2026-08-16)
+
+### Runtime observation and rejected ownership
+
+The follow-up Proton report accepted the Pip-Boy reveal but rejected ordinary
+lamp admission in a long, light-heavy interior. Approaching a practical light
+could make a large group of ground shadows appear in one step instead of using
+the configured smooth reveal. The report did not include an image, so the
+exact ground boundary remains runtime description rather than pixel evidence.
+
+Current source proves the producer and consumer cadence mismatch. Physical
+cube-slot transition state retained an identity and start time, but production
+multiplied the transition into `PublishedPointLight::shadow_fade`. The consumer
+then reused that sampled scalar until another common-shadow publication. A
+moving carried light materially changes its map position and naturally drives
+producer work; an unchanged practical light is specifically optimized to reuse
+its cube without D3D work. Fade progress therefore depended on unrelated map
+publication cadence, explaining the observed Pip-Boy/lamp split.
+
+The demonstrated negative control published a new stationary lamp at 10,000 ms
+and reused that publication at 10,375 ms with a 750 ms duration. The old
+boundary remained at weight zero while the correct smoothstep presentation was
+`0.5`. This rejects producer-baked transition weight as the owner of visible
+fade progress.
+
+### Consumer-owned presentation weight
+
+The producer now publishes the physical cube identity's transition start time,
+not a sampled transition weight. Every pre-alpha consumer evaluates smoothstep
+from that retained origin and its current monotonic time. Reusing an immutable
+lamp cube therefore advances the reveal on every presentation without forcing
+cube traversal, rasterization, or metadata republication.
+
+Camera-relative discovery retirement moves to the same consumer calculation.
+The current camera/light displacement controls the established draw-distance
+fade, while the HLSL receiver retains its existing 80-100% native-radius outer
+envelope. Both multiply only cube-proven occluded energy. Native scene light,
+analytic total energy, cube depth, point selection, and resource publication
+remain immediate and unchanged, so a fade cannot dim the lamp itself or cancel
+from the deficit/total ratio.
+
+The configured `dynamic_shadow_fade_seconds` field, range, default, menu,
+serializer, detached DeferredInit parser, and atomic publication are unchanged.
+The correction adds one `u64` transition origin to each of at most twelve
+post-Deferred published-light records and bounded scalar arithmetic per visible
+light per consumer frame. It adds no pass, draw, shader instruction, texture,
+cube, allocation, lock, file operation, diagnostic, hook, route, worker, TLS
+value, static owner, schema/preset value, or pre-`DeferredInit` first touch.
+
+`stationary_lamp_transition_advances_without_producer_republication` protects
+the pure cadence contract. The production-boundary regression
+`retained_stationary_lamp_uses_consumer_time_for_its_reveal` carries one
+published transition origin through two consumer times and requires weights
+zero and one-half without a producer call, then requires one-half and zero at
+the current discovery-retirement midpoint and boundary. The existing
+receiver-envelope, nearest-twelve hysteresis, Pip-Boy insertion, cube-owner,
+and accumulation-clear regressions remain unchanged.
+
+Runtime acceptance requires slow approaches to and departures from several
+stationary lamps in the reported long interior, with the Pip-Boy both off and
+on. Shadows must reveal and retire continuously at the configured duration;
+lamp brightness must not fade; retained fixtures and actors must keep their
+cube ownership; and rapid camera motion must expose no stale ground rectangle.
+The cold BaseObjectSwapper load-to-gameplay check remains required for the new
+final DLL even though the frozen startup footprint is unchanged. Image behavior
+remains a playtest result.
+
+Static closure on 2026-08-16 passes all 692 supported-target OMV tests and doc
+tests, including 182 focused shadow tests, shader compilation, and the D3D9
+execution contracts. The explicit `i686-pc-windows-gnu` release build completes
+without warnings. The resulting 12,877,276-byte `omv.dll` has SHA-256
+`322a7dc9c8eddac6e0f2c1ef0dd7da5562498ae435ccdda0858c0faf426ed3d5`.
+The startup owner guard retains `ShadowPipeline = 0xA28`; PE inspection retains
+the documented `.bss = 0x6B10`, `.idata = 0x340C`, `.tls = 0x8`, TLS directory
+`0x18`, IAT `0x6BC`, and imported-DLL set. These gates prove source, shader,
+D3D execution-test, and final-image build closure. They do not prove the
+required Proton image or load-to-gameplay acceptance.
+
+### Runtime rejection and fail-open correction
+
+The first consumer-owned artifact was rejected by the 2026-08-16 Proton
+playtest: dynamic shadows were not visible at all. No screenshot was captured,
+so this remains an explicit runtime observation rather than pixel evidence.
+The deployed 12,880,108-byte DLL had SHA-256
+`ab521c3643a00452b3106dcd9f8270600f073c1fd4d5beba7f700762021f461f`.
+Its `omv-latest.log` proves that the route and resources were active, twelve
+interior point maps were produced, and their publication reached composition.
+It therefore rejects treating consumer recomputation as an unconditional
+replacement for all producer-visible transition state; it does not support a
+startup, selection, shader-preparation, or zero-map explanation.
+
+A fail-first production-boundary regression captures the missing invariant.
+With a completed producer transition sample of `0.65`, a consumer evaluation
+at the retained origin formerly returned zero and erased every otherwise valid
+cube contribution. The regression failed with `producer=0.65, consumer=0`.
+The publication now carries both the transition origin and the last sample
+accepted by a complete producer transaction. Current consumer time may advance
+that sample but cannot move it backward. Camera-relative discovery remains a
+separate current-frame factor, so moving away from a lamp can still retire its
+occlusion instead of pinning the producer's old spatial weight.
+
+This lower bound is deliberately limited to transition progress. It does not
+reuse stale cube depth, bypass publication identity/epoch checks, retain a map
+after a failed D3D transaction, brighten native light energy, or suppress the
+current distance envelope. The added value is one finite `f32` per published
+point light; it adds no allocation, lock, draw, pass, shader instruction,
+resource, hook, worker, configuration field, schema value, or startup owner.
+`consumer_transition_cannot_erase_producer_visible_occlusion` protects the
+fail-open boundary, while the two stationary-lamp cadence tests continue to
+require a zero-to-half reveal without producer republication and current-camera
+distance retirement.
+
+The same log records a separate later failure: eight consecutive producer
+transactions failed at `RestoreD3dState` with `0x80004005` after the first
+successful interior production and composition. The consumer-fade correction
+does not mutate producer D3D state, attachment restoration, or native fallback,
+so that evidence cannot be attributed to the scalar change. Final diff review
+found that the label itself was not reliable: after `draw_maps`, the producer
+unconditionally assigned `RestoreNativeJournal`, `EndScene`, and finally
+`RestoreD3dState` while unwinding. `finish_exact_render_transaction` correctly
+preserved the first HRESULT, but the separate diagnostic field retained only
+the last cleanup step. Thus any point-map, native-journal, or `EndScene` failure
+was mislabeled as state restoration. The old log proves repeated transaction
+failure, but not its failing owner.
+
+The producer now snapshots the stage immediately when `draw_maps` fails and
+records cleanup stages only when they introduce the first error. A successful
+draw followed by attachment or bounded-state restoration failure still reports
+`RestoreD3dState`; an earlier `PointMaps`, native-journal, or `EndScene` failure
+survives every later cleanup attempt. The D3D state owner, attachment order,
+native CPU journal, error handling, publication rejection, and native fallback
+are unchanged. `producer_cleanup_does_not_overwrite_the_first_failure_stage`
+protects the exact defect exposed by the log. No stale atlas is accepted and no
+HRESULT is ignored.
+
+This diagnostic correction adds no render work, state object, allocation,
+lock, file operation, hook, worker, configuration field, schema value, static
+owner, or pre-Deferred first touch. If the corrected artifact still loses
+shadows, its first warning will now distinguish point-map submission from
+native CPU restoration, `EndScene`, and final D3D restoration without requiring
+a screenshot or speculative code change.
+
+Runtime acceptance is reset. The corrected artifact must first show any local
+shadow immediately after entering the reported interior, retain it beyond ten
+seconds without `RestoreD3dState` warnings, and preserve the existing Pip-Boy
+reveal. Only then can slow lamp approach/departure establish the intended fade
+quality. Until that playtest passes, static tests prove the scalar and D3D
+contracts but not visible-shadow recovery.
+
+Static closure for the fail-open and failure-attribution corrections on
+2026-08-16 passes all 694 supported-target OMV tests and doc tests, including
+184 focused shadow tests, shader compilation, and the D3D9 execution/readback
+contracts. The explicit `i686-pc-windows-gnu` release build completes without
+warnings. The resulting 12,856,471-byte `omv.dll` has SHA-256
+`6200eb5aacca5ffd385853fd8d954264c9766c6baf67211f77657be47ac35408`.
+PE inspection retains `.bss = 0x6B10`, `.idata = 0x340C`, `.tls = 0x8`, TLS
+directory `0x18`, IAT `0x6BC`, and the established imported-DLL set. `git diff
+--check` and `cargo fmt -p omv -- --check` pass. The test-generated shader cache
+trees were moved to `/tmp/omv-shadow-validation-cache.3awOA5/Data`,
+`/tmp/omv-shadow-validation-cache.XsdyhC/Data`, and
+`/tmp/omv-shadow-validation-cache.82ddyw/Data`. Unrelated worktree changes were
+not modified. These are static and artifact gates only; the corrected DLL still
+requires the runtime acceptance above.
+
+### Runtime point-map collapse and mod-agnostic caster isolation
+
+The fail-open fade artifact reached the reported interior and visibly rendered
+two local-light maps at `17:04:18.156`; their publication composed at
+`17:04:18.158`. At `17:04:29.753`, 11.595 seconds later, its next producer
+transaction failed and every one of the eight bounded warnings identified
+`PointMaps` with `0x80004005`. The user observed the same boundary: shadows
+worked initially and then disappeared completely. This accepts the transition
+floor as restoring initial visibility and rejects it as an explanation for the
+later collapse.
+
+The user was playing with Atom installed and raised it as a possible trigger.
+The matching Atom log proves successful camera, input, and ballistics hook
+installation but contains no warning, error, or lifecycle event at the failure
+timestamp. It does not prove that Atom had no influence on camera or actor
+presentation; it does prove that no Atom-specific detection or workaround is
+justified. Atom and any other mod remain ordinary producers of native camera,
+scene-graph, mesh, and skin state. OMV owns compatibility with those inputs.
+
+Source audit proves the collapse mechanism. The producer clears its consumer
+publication before any cube texture write because a failed transaction may
+leave partial D3D contents. Point traversal formerly converted both real D3D
+failures and caster-local representation limits into the same
+`direct3d_failure()`. A deep or cyclic first-person ancestry chain, more than
+16,384 children in one node, a hierarchy cycle or 32,768-node traversal, more
+than 64 skin partitions, more than 18 bones in one partition, a missing or
+unfamiliar native geometry buffer, an unsupported blend-index declaration, a
+full 2,048-skin journal, or a full 64-declaration cache could therefore reject
+the complete point-map family. Native fallback cannot provide OMV's local
+receiver composition, so all visible local shadows disappeared. Which one of
+these caster-local routes occurred in the reported scene remains reasoned
+inference; the old `PointMaps` label did not distinguish them.
+
+OMV now separates caster compatibility from transaction validity. Unsupported
+ancestry is conservatively classified beneath the first-person root so only
+that geometry is excluded. An oversized child set is rejected before its first
+stack push, while a cycle or visit-budget exhaustion stops only that root. A
+skin is preflighted before its first partition draw; an unsupported partition
+count, bone window, or native buffer omits the whole geometry rather than
+drawing a body prefix with holes. Non-finite caster transforms and bone rows,
+unrecognized blend-index declarations, and fixed journal/cache exhaustion use
+the same caster-local omission. Every compatible wall, fixture, prop, and actor
+continues through the existing cube path. Native lighting is untouched, so
+omitted geometry remains lit and merely lacks OMV occlusion.
+
+This is not blanket error suppression. Device method failures, shader/resource
+failures, a missing resident geometry trampoline, invalid point-light or root
+inventory ownership, texture-copy failures, and native/D3D restoration failures
+still abort publication transactionally. The diagnostic stage is further split
+into `PointInputs`, `PointStatic(slot, face)`, `PointPublish(slot, face)`, and
+`PointAnimated(slot, face)`. Any remaining failure therefore identifies whether
+the owner is native input capture, immutable rasterization, static cube copy,
+or actor merge without adding per-draw logging.
+
+The fail-first ancestry regression was run against the previous behavior and
+failed with `Call failed. (0x80004005)` before the boundary changed.
+`unfamiliar_first_person_ancestry_excludes_only_that_caster` now requires the
+same cyclic chain to remain a local exclusion. The skin ABI regression requires
+18 bones to remain supported while 19 is omitted without widening the fixed
+shader window. The subtree-capacity regression requires rejection before a
+partial child prefix. The journal-capacity regression fills all 2,048 entries
+and requires the next skin to return a local omission rather than an error.
+The first-failure-stage test now also retains an exact animated cube slot and
+face through every cleanup stage.
+
+Supported skins add one bounded metadata preflight of at most 64 partitions
+before their existing draw loop. The path performs no allocation, file I/O,
+logging, lock, shader compilation, extra pass, extra draw, texture operation,
+or persistent memory growth. No config, schema, preset, hook, route, worker,
+TLS, static owner, or pre-`DeferredInit` access changes.
+
+Static closure on 2026-08-16 passes all 697 supported-target OMV tests and doc
+tests, including 187 focused shadow tests, shader compilation, D3D9
+execution/readback, caster-isolation, fixed-budget, and failure-stage contracts.
+The explicit `i686-pc-windows-gnu` release build completes without warnings.
+The resulting 12,857,801-byte `omv.dll` has SHA-256
+`f5180066a96ae648eead035adbcc610655c877ee254804d0916326de9f8af568`.
+The startup owner guard retains `ShadowPipeline = 0xA28`; PE inspection retains
+`.bss = 0x6B10`, `.idata = 0x340C`, `.tls = 0x8`, TLS directory `0x18`, IAT
+`0x6BC`, and the established imported-DLL set. `cargo fmt -p omv -- --check`
+and `git diff --check` pass. The final test-generated cache tree was moved to
+`/tmp/omv-shadow-validation-cache.y2tvbK/Data`. These gates prove bounded source,
+shader, D3D test, and artifact behavior; they do not prove the runtime image.
+
+Runtime acceptance requires the same Atom-enabled interior to retain its local
+shadows beyond the previous 11.595-second boundary while the player moves,
+turns, changes view, and toggles the Pip-Boy. An omitted unsupported caster is
+acceptable only as a local missing silhouette; supported environment and actor
+shadows must not disappear as a family. Any warning must name its new exact
+point stage. The cold BaseObjectSwapper load-to-gameplay check remains required.
+
 ## Primary evidence index
 
 ### Current executable and static artifacts

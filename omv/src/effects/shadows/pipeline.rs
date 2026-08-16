@@ -6,6 +6,10 @@
 //! nonblocking and accepts the current or immediately preceding presentation.
 //! An exact world context binds the later color/depth receiver, but map
 //! production precedes that context in the native engine transaction.
+//! Point publications retain transition origins and the last completed sample;
+//! stationary cube maps therefore advance presentation fades at consumer
+//! cadence without allowing that consumer to restart below producer-proven
+//! progress or manufacture producer/D3D work.
 
 use core::{cell::Cell, ffi::c_void};
 use std::time::Instant;
@@ -49,8 +53,9 @@ use super::{
         consumer_has_shadow_work, directional_caster_work, directional_root_set_dirty,
         effective_contact_distance, evsm4_moments, local_light_clear_coverage,
         nvr_contact_sample_offsets, point_caster_inventory_is_complete, point_consumer_plan,
-        point_light_scissor, point_shadow_transition, practical_cascade_splits,
-        publication_epoch_is_usable, publication_identity_is_usable, retained_cascade_refresh,
+        point_light_scissor, point_shadow_presentation_weight, point_shadow_transition,
+        practical_cascade_splits, publication_epoch_is_usable, publication_identity_is_usable,
+        retained_cascade_refresh,
     },
     math::{
         CascadeProjection, ShadowCamera, cascade_projection, point_cube_views,
@@ -97,10 +102,22 @@ enum ShadowProductionStage {
     StaticCascade(u8),
     ActorBounds(u8),
     ActorOverlay(u8),
-    PointMaps,
+    PointInputs,
+    PointStatic(u8, u8),
+    PointPublish(u8, u8),
+    PointAnimated(u8, u8),
     RestoreNativeJournal,
     EndScene,
     RestoreD3dState,
+}
+
+fn remember_first_production_failure(
+    first: &mut Option<ShadowProductionStage>,
+    stage: ShadowProductionStage,
+) {
+    if first.is_none() {
+        *first = Some(stage);
+    }
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -142,7 +159,37 @@ struct PublishedPointLight {
     color: [f32; 3],
     receiver_radius: f32,
     cube_radius: f32,
-    shadow_fade: f32,
+    /// Last transition weight accepted by a complete producer transaction.
+    producer_transition_fade: f32,
+    /// Start of the physical cube's current identity transition.
+    transition_start_millis: u64,
+}
+
+impl PublishedPointLight {
+    /// Evaluate the occlusion-only weight for the current consumer frame.
+    ///
+    /// `relative_position` must use the same current-camera origin uploaded to
+    /// the point accumulator. Keeping this calculation beside that upload
+    /// prevents a retained map from reusing producer-camera discovery data.
+    fn presentation_weight(
+        self,
+        relative_position: [f32; 3],
+        camera_forward: [f32; 3],
+        max_distance: f32,
+        now_millis: u64,
+        duration_millis: u64,
+    ) -> Option<f32> {
+        point_shadow_presentation_weight(
+            relative_position,
+            self.receiver_radius,
+            camera_forward,
+            max_distance,
+            self.producer_transition_fade,
+            self.transition_start_millis,
+            now_millis,
+            duration_millis,
+        )
+    }
 }
 
 /// Immutable metadata paired with persistent texture resources.
@@ -729,7 +776,8 @@ impl ShadowPipeline {
                 color: point.color,
                 receiver_radius: point.receiver_radius,
                 cube_radius: map.radius,
-                shadow_fade: point.shadow_fade * transition_weight,
+                producer_transition_fade: transition_weight,
+                transition_start_millis: transition_start,
             };
         }
         for slot in points.shadowed().len()..NVR_POINT_LIGHT_COUNT {
@@ -855,24 +903,42 @@ impl ShadowPipeline {
                 settings,
             )
         };
+        let mut failure_stage = draw_result
+            .as_ref()
+            .err()
+            .map(|_| resources.production_stage);
         let mut result = draw_result;
         resources.production_stage = ShadowProductionStage::RestoreNativeJournal;
         if let Err(error) = unsafe { resources.scratch.restore_native_state_journal() }
             && result.is_ok()
         {
             result = Err(error);
+            remember_first_production_failure(
+                &mut failure_stage,
+                ShadowProductionStage::RestoreNativeJournal,
+            );
         }
         resources.production_stage = ShadowProductionStage::EndScene;
         if let Err(error) = device.end_scene()
             && result.is_ok()
         {
             result = Err(error);
+            remember_first_production_failure(&mut failure_stage, ShadowProductionStage::EndScene);
         }
         let publication = result.as_ref().ok().copied().flatten();
         resources.production_stage = ShadowProductionStage::RestoreD3dState;
-        finish_exact_render_transaction(device, &attachments, result.map(|_| ()), || {
-            d3d_state.restore(device)
-        })?;
+        let finish_result =
+            finish_exact_render_transaction(device, &attachments, result.map(|_| ()), || {
+                d3d_state.restore(device)
+            });
+        if let Err(error) = finish_result {
+            // Cleanup stages execute even after an earlier draw failure. Keep
+            // the first failing owner in the log instead of overwriting it
+            // with the final restoration stage.
+            resources.production_stage =
+                failure_stage.unwrap_or(ShadowProductionStage::RestoreD3dState);
+            return Err(error);
+        }
         self.scheduler = scheduler;
         self.last_scene = last_scene;
         self.last_sun = last_sun;
@@ -931,7 +997,13 @@ impl ShadowPipeline {
             self.release();
             return Ok(false);
         }
-        let composed = unsafe { resources.consume(device, context, publication, settings)? };
+        let now_millis = self
+            .clock_origin
+            .elapsed()
+            .as_millis()
+            .min(u64::MAX as u128) as u64;
+        let composed =
+            unsafe { resources.consume(device, context, publication, now_millis, settings)? };
         if composed {
             let branch = scene_branch_index(publication.scene);
             if !self.composition_logged[branch] {
@@ -1874,7 +1946,7 @@ impl ShadowResources {
         // Omitting their cubes made the Pip-Boy and practical lights cast no
         // shadow whenever a directional atlas was active. Selection is still
         // capped by the same user-owned budget and unchanged cubes are cached.
-        self.production_stage = ShadowProductionStage::PointMaps;
+        self.production_stage = ShadowProductionStage::PointInputs;
         let points = if point_lights {
             unsafe {
                 let retained_identities = if *point_cell_identity == scene.cell as usize {
@@ -2002,7 +2074,8 @@ impl ShadowResources {
                 color: point.color,
                 receiver_radius: point.receiver_radius,
                 cube_radius: map.radius,
-                shadow_fade: point.shadow_fade * transition_weight,
+                producer_transition_fade: transition_weight,
+                transition_start_millis: transition_start,
             };
         }
         for slot in points.shadowed().len()..NVR_POINT_LIGHT_COUNT {
@@ -2397,6 +2470,8 @@ impl ShadowResources {
                 for operation in plan.face_operations(index, face).into_iter().flatten() {
                     match operation {
                         PointFaceOperation::RefreshStatic => {
+                            self.production_stage =
+                                ShadowProductionStage::PointStatic(index as u8, face as u8);
                             // The backup owns only immutable geometry. It
                             // changes solely with the map signature, never
                             // with actor animation, so walls and clutter are
@@ -2429,6 +2504,8 @@ impl ShadowResources {
                             };
                         }
                         PointFaceOperation::PublishStatic => {
+                            self.production_stage =
+                                ShadowProductionStage::PointPublish(index as u8, face as u8);
                             let point_resources =
                                 self.points.as_ref().ok_or_else(direct3d_failure)?;
                             let static_surface = point_resources.static_surface(index, face)?;
@@ -2441,6 +2518,8 @@ impl ShadowResources {
                             publish_static_point_face(device, &static_surface, &published_surface)?;
                         }
                         PointFaceOperation::MergeAnimated => {
+                            self.production_stage =
+                                ShadowProductionStage::PointAnimated(index as u8, face as u8);
                             let point_resources =
                                 self.points.as_ref().ok_or_else(direct3d_failure)?;
                             let published_surface = point_resources.point_surface(index, face)?;
@@ -2612,6 +2691,7 @@ impl ShadowResources {
         device: Device9Ref<'_>,
         context: ActiveWorldContext,
         publication: PublishedFrame,
+        now_millis: u64,
         settings: NativeShadowsSettings,
     ) -> Direct3DResult<bool> {
         if !consumer_has_shadow_work(publication.directional, publication.point_count) {
@@ -2692,6 +2772,7 @@ impl ShadowResources {
             depth_texture.as_ptr(),
             camera,
             publication,
+            now_millis,
             work,
             targets,
             settings,
@@ -2722,6 +2803,7 @@ impl ShadowResources {
         depth_texture: *mut c_void,
         camera: CameraFrame,
         publication: PublishedFrame,
+        now_millis: u64,
         work: ShadowConsumerWorkPlan,
         targets: &ConsumerTargets,
         settings: NativeShadowsSettings,
@@ -2753,6 +2835,7 @@ impl ShadowResources {
             device.set_render_target(1, &local_lights.total_surface)?;
             set_viewport(device, 0, 0, local_lights.width, local_lights.height)?;
             let plan = work.points();
+            let view = shadow_camera(camera).ok_or_else(direct3d_failure)?;
             let current_coverage = plan.coverage();
             prepare_local_light_accumulation(device, local_lights, current_coverage)?;
             // Reconstruct depth and the edge-aware normal inside the same
@@ -2785,7 +2868,16 @@ impl ShadowResources {
                     });
                     positions[slot] = [relative[0], relative[1], relative[2], light.cube_radius];
                     colors[slot] = [light.color[0], light.color[1], light.color[2], 0.0];
-                    metadata[slot] = [light.receiver_radius, light.shadow_fade, 0.0, 0.0];
+                    let shadow_fade = light
+                        .presentation_weight(
+                            relative,
+                            view.forward,
+                            settings.interior_light_draw_distance,
+                            now_millis,
+                            settings.dynamic_shadow_fade_millis(),
+                        )
+                        .ok_or_else(direct3d_failure)?;
+                    metadata[slot] = [light.receiver_radius, shadow_fade, 0.0, 0.0];
                     device.set_cube_texture(
                         (slot + 1) as u32,
                         &self
@@ -3573,11 +3665,14 @@ fn dot3(left: [f32; 3], right: [f32; 3]) -> f32 {
 #[cfg(test)]
 mod tests {
     use super::{
-        CUBE_FACES, LocalLightConsumerTargets, PointResources, cascade_split_change_mask,
-        consumer_selection_spheres, directional_no_work_state_changed,
-        prepare_local_light_accumulation, projection_materially_changed, publish_static_point_face,
-        set_point_clamp_sampler, set_viewport, translate_shadow_matrix,
+        CUBE_FACES, LocalLightConsumerTargets, PointResources, PublishedPointLight,
+        ShadowProductionStage, cascade_split_change_mask, consumer_selection_spheres,
+        directional_no_work_state_changed, prepare_local_light_accumulation,
+        projection_materially_changed, publish_static_point_face,
+        remember_first_production_failure, set_point_clamp_sampler, set_viewport,
+        translate_shadow_matrix,
     };
+
     use crate::effects::shadows::{
         contract::{
             CascadeDirty, LightScissorRect, NVR_CASCADE_RESOLUTION, cascade_sphere_selection,
@@ -3596,6 +3691,72 @@ mod tests {
         winapi::{get_active_window, get_desktop_window, get_foreground_window},
     };
     use std::cell::Cell;
+
+    #[test]
+    fn producer_cleanup_does_not_overwrite_the_first_failure_stage() {
+        let mut failure = None;
+        remember_first_production_failure(&mut failure, ShadowProductionStage::PointAnimated(1, 4));
+        remember_first_production_failure(
+            &mut failure,
+            ShadowProductionStage::RestoreNativeJournal,
+        );
+        remember_first_production_failure(&mut failure, ShadowProductionStage::EndScene);
+        remember_first_production_failure(&mut failure, ShadowProductionStage::RestoreD3dState);
+
+        assert_eq!(failure, Some(ShadowProductionStage::PointAnimated(1, 4)));
+    }
+
+    #[test]
+    fn retained_stationary_lamp_uses_consumer_time_for_its_reveal() {
+        let light = PublishedPointLight {
+            receiver_radius: 512.0,
+            transition_start_millis: 10_000,
+            ..PublishedPointLight::default()
+        };
+
+        assert_eq!(
+            light.presentation_weight([0.0; 3], [0.0, 1.0, 0.0], 8_000.0, 10_000, 750),
+            Some(0.0)
+        );
+        let middle = light
+            .presentation_weight([0.0; 3], [0.0, 1.0, 0.0], 8_000.0, 10_375, 750)
+            .expect("midpoint presentation");
+        assert!(
+            (middle - 0.5).abs() < 1.0e-6,
+            "a retained practical-light cube reused its producer-time weight"
+        );
+        let retiring = light
+            .presentation_weight([0.0, 8_312.0, 0.0], [0.0, 1.0, 0.0], 8_000.0, 10_750, 750)
+            .expect("discovery retirement midpoint");
+        assert!(
+            (retiring - 0.5).abs() < 1.0e-6,
+            "a stationary lamp did not retire continuously at the current camera distance"
+        );
+        assert_eq!(
+            light.presentation_weight([0.0, 8_513.0, 0.0], [0.0, 1.0, 0.0], 8_000.0, 10_750, 750,),
+            Some(0.0),
+            "a lamp outside discovery coverage retained stale occlusion"
+        );
+    }
+
+    #[test]
+    fn consumer_transition_cannot_erase_producer_visible_occlusion() {
+        let light = PublishedPointLight {
+            receiver_radius: 512.0,
+            producer_transition_fade: 0.65,
+            transition_start_millis: 10_000,
+            ..PublishedPointLight::default()
+        };
+
+        let consumer_weight = light
+            .presentation_weight([0.0; 3], [0.0, 1.0, 0.0], 8_000.0, 10_000, 750)
+            .expect("consumer presentation");
+        assert!(
+            consumer_weight >= light.producer_transition_fade,
+            "consumer transition erased producer-visible occlusion: producer={}, consumer={consumer_weight}",
+            light.producer_transition_fade
+        );
+    }
 
     #[repr(C)]
     #[derive(Clone, Copy)]

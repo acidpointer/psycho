@@ -17,12 +17,12 @@ use super::contract::{
     local_light_shadow_energy, local_light_shadow_weight, local_light_source_guard,
     nvr_contact_sample_offsets, point_caster_depth, point_caster_inventory_is_complete,
     point_consumer_plan, point_light_distance_fade, point_light_influence_is_eligible,
-    point_light_radii, point_only_shadow_radiance, point_shadow_transition,
-    point_shadow_visibility, practical_cascade_splits, publication_epoch_is_usable,
-    publication_identity_is_usable, retained_cascade_refresh, select_point_lights,
-    select_point_lights_stable, shadow_receiver_is_valid, skinned_position_reference,
-    snap_shadow_center, source_owned_shadow_radiance, sphere_intersects_cube_face,
-    sphere_intersects_point_light, terrain_lod_shadow_z,
+    point_light_radii, point_only_shadow_radiance, point_shadow_presentation_weight,
+    point_shadow_transition, point_shadow_visibility, practical_cascade_splits,
+    publication_epoch_is_usable, publication_identity_is_usable, retained_cascade_refresh,
+    select_point_lights, select_point_lights_stable, shadow_receiver_is_valid,
+    skinned_position_reference, snap_shadow_center, source_owned_shadow_radiance,
+    sphere_intersects_cube_face, sphere_intersects_point_light, terrain_lod_shadow_z,
 };
 use super::engine::{
     EngineCallAbi, FNV_EXE_SHA256, GeometryKind, HookSiteContract, NativeLayout,
@@ -1916,6 +1916,27 @@ fn replaced_point_cube_fades_in_without_restarting_each_publication() {
         point_shadow_transition(0, 0, 0x3000, 1, 0),
         Some((0x3000, 1, 1.0)),
         "a defensive zero duration must remain finite and immediate"
+    );
+}
+
+#[test]
+fn stationary_lamp_transition_advances_without_producer_republication() {
+    let first = point_shadow_transition(0, 0, 0x1000, 10_000, 750).expect("new lamp");
+    let consumer_weight = point_shadow_presentation_weight(
+        [0.0, 0.0, 0.0],
+        512.0,
+        [0.0, 1.0, 0.0],
+        NVR_POINT_DRAW_DISTANCE,
+        first.2,
+        first.1,
+        10_375,
+        750,
+    )
+    .expect("consumer weight");
+
+    assert!(
+        (consumer_weight - 0.5).abs() < 1.0e-6,
+        "a stationary lamp froze at its producer weight instead of advancing on the consumer frame"
     );
 }
 

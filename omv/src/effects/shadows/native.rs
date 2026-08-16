@@ -16,9 +16,9 @@ use super::{
     contract::{
         ALL_CUBE_FACES, CASCADE_COUNT, DirectionalRootSetSignature, NVR_POINT_LIGHT_COUNT,
         SceneKind, TraversalBudget, complete_bounded_count, directional_actor_root_is_active,
-        directional_form_type_is_enabled, point_light_distance_fade,
-        point_light_influence_is_eligible, point_light_radii, sphere_intersects_cube_face,
-        sphere_intersects_point_light, stable_point_light_distance_squared,
+        directional_form_type_is_enabled, point_light_influence_is_eligible, point_light_radii,
+        sphere_intersects_cube_face, sphere_intersects_point_light,
+        stable_point_light_distance_squared,
     },
     engine::NativeLayout,
     math::{ActorBounds, CascadeProjection, Sphere, dynamic_caster_cascade_mask},
@@ -329,8 +329,6 @@ pub(super) struct PointLight {
     pub(super) relative_position: [f32; 3],
     /// Effective RGB color after the native light dimmer.
     pub(super) color: [f32; 3],
-    /// Smooth discovery-edge weight; zero is omitted by the consumer.
-    pub(super) shadow_fade: f32,
     /// Native radius which owns receiver attenuation and screen coverage.
     pub(super) receiver_radius: f32,
     /// Cube-generation coverage, never smaller than the receiver radius.
@@ -1160,12 +1158,6 @@ unsafe fn point_light(
     // replaces, so depending on it can turn every valid interior light black
     // before a single cube is rendered.
     let color = diffuse.map(|component| (component * dimmer).max(0.0));
-    let shadow_fade = point_light_distance_fade(
-        relative_position,
-        receiver_radius,
-        camera_forward,
-        draw_distance,
-    )?;
     let visible_energy = color.into_iter().sum::<f32>();
     if !distance_squared.is_finite()
         || !color.into_iter().all(f32::is_finite)
@@ -1178,7 +1170,6 @@ unsafe fn point_light(
         position,
         relative_position,
         color,
-        shadow_fade,
         receiver_radius,
         cube_radius,
         distance_squared,
@@ -1246,7 +1237,6 @@ mod tests {
             position: [0.0; 3],
             relative_position: [0.0; 3],
             color: [1.0; 3],
-            shadow_fade: 1.0,
             receiver_radius: 512.0,
             cube_radius: 512.0,
             distance_squared,

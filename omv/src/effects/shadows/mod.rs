@@ -7,10 +7,15 @@
 //! draw footprint. One quality tier controls the point-cube resolution in both
 //! locations; changing it retains the last-good family until a complete
 //! replacement can be published. One shared reveal duration smooths newly
-//! admitted point shadows in both locations. Generation remains attached to
-//! the engine's common shadow epoch, while consumption occurs after opaque
-//! depth and before native alpha/atmosphere. No engine pointer crosses that
-//! boundary.
+//! admitted point shadows in both locations. The producer records each
+//! physical cube's transition origin and last completed transition sample; the
+//! consumer evaluates current time and camera-relative discovery every
+//! presentation. The completed producer sample is a monotonic floor for the
+//! transition only, preventing a consumer restart from erasing all shadows
+//! while still allowing camera-distance retirement. Generation remains
+//! attached to the engine's common shadow epoch, while consumption occurs
+//! after opaque depth and before native alpha/atmosphere. No engine pointer
+//! crosses that boundary.
 //!
 //! Point lights retain a cached immutable cube and a sampled publication cube.
 //! Every dirty publication face starts from immutable world depth, then merges
