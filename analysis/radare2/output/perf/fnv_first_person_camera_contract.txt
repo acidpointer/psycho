@@ -1,0 +1,344 @@
+Fallout: New Vegas first-person camera evidence ledger
+======================================================
+
+Research date: 2026-08-16
+Primary native tool: radare2 MCP, analysis level 2
+Purpose: implementation evidence for docs/atom_first_person_camera_design.md
+
+This file records direct observations used by the design document. It is not
+an implementation specification. Unknown semantics retain an address or a
+structural description instead of receiving a guessed name.
+
+
+1. Executable identity
+----------------------
+
+Fallout: New Vegas
+  path: fnv_reverse/FalloutNV.exe
+  version: 1.4.0.525
+  format: PE32 x86, image base 0x00400000, non-PIC
+  timestamp: 0x4E0D50ED
+  size: 16,084,808 bytes
+  SHA-256: 42fee7d6cd74e801372aa89c8f71c974cebd3c20ec9ad43d1465b8fa9646b49c
+
+
+2. Evidence boundary
+--------------------
+
+Direct executable evidence establishes the addresses, branches, call order,
+and field accesses below. Repository-owned xNVSE source establishes public
+layout that is present in libnvse. Read-only source under .research is only
+corroboration; it does not establish vanilla behavior or authorize detecting a
+plugin by name.
+
+Related established evidence:
+
+  docs/fnv_actor_input_contract.md
+  docs/atom_input_wrapper_design.md
+  docs/atom_third_person_camera_plan.md
+  docs/graphics_fnv_motion_blur.md
+  docs/omv-plan.md
+  analysis/radare2/output/perf/fnv_actor_input_contract.txt
+  analysis/radare2/output/perf/fnv_third_person_camera_contract.txt
+
+
+3. Player and first-person layout
+---------------------------------
+
+Established globals:
+
+  0x011DEA3C  PlayerCharacter singleton pointer
+  0x011DEA0C  OSGlobals singleton pointer
+  0x011E07D0  Camera1st NiNode pointer
+  0x011E07D4  Camera3rd NiNode pointer
+  0x011E07D8  first-person Bip node pointer
+  0x011E07B8  camera transition byte read by UpdateCamera
+  0x011F2250  VATSCameraData singleton
+  0x011DEB7C  persistent World SceneGraph pointer
+  0x011F917C  BSShaderManager::pCurrentCamera
+
+Relevant PlayerCharacter fields established by xNVSE layout and executable
+accesses:
+
+  +0x64A  is3rdPersonVisible / transition state
+  +0x64B  adjacent first/third-person state
+  +0x64C  bThirdPerson; exact zero is first person
+  +0x64F  force-first-person state
+  +0x68C  first-person BipedAnim pointer
+  +0x690  first-person AnimData pointer
+  +0x694  first-person player NiNode pointer
+  +0xDD4  Camera1st-derived position written by UpdateCamera
+  +0xE34  iron-sight NiNode pointer
+
+OSGlobals owns a NiCamera pointer at +0xA0. The native first-person setup and
+render functions both obtain this field through an offset getter. Read-only
+Stewie Tweaks/xNVSE layout names it pFirstPersonCamera and asserts OSGlobals is
+0xA4 bytes.
+
+NiAVObject transform fields used by the engine:
+
+  +0x34  local rotation matrix (nine floats)
+  +0x58  local translation (three floats)
+  +0x68  world rotation matrix (nine floats)
+  +0x8C  world translation (three floats)
+
+0x00440460 copies a three-float input into local translation +0x58.
+0x0043FA80 copies nine floats into local rotation +0x34.
+0x004F00E0 copies a three-float input into world translation +0x8C.
+0x00688430 copies nine floats into world rotation +0x68.
+
+
+4. Player update and logical look order
+---------------------------------------
+
+PlayerCharacter's main update is 0x0093E860. The relevant established order is:
+
+  0x0093F8D9  call 0x009445B0, player camera/input helper
+  0x0093FA08  call PlayerCharacter::UpdateCamera at 0x0094AE40
+  0x0093FC57  commit current movement flags through actorMover
+  later       attack, activation, and other gameplay consumers continue
+
+The normal direct mouse path inside 0x009445B0 is:
+
+  0x00945F90  call 0x00931D30, horizontal heading
+  0x00945FD8  call 0x00931E50, vertical heading
+
+Atom Input already wraps those two final heading callsites. The native path has
+no general mouse smoothing stage. A first-person camera feature can sample the
+coherent Atom frame, but must not re-poll DirectInput or damp the look deltas.
+
+Because UpdateCamera completes before later attack and activation work, a
+transform written into UpdateCamera's common output is not proven to be visual
+only. It could become an input to logical aim, interaction, audio, or another
+gameplay consumer. The common camera commit is therefore evidence, not an
+approved presentation hook.
+
+
+5. Normal first-person UpdateCamera branch
+------------------------------------------
+
+PlayerCharacter::UpdateCamera is 0x0094AE40.
+
+Entry behavior:
+
+  0x0094AE70..0x0094AE88  obtain logical pitch and store it at 0x011E076C
+  0x0094AE94..0x0094AE99  obtain logical yaw and store it at 0x011E0764
+
+The normal first-person branch is in 0x0094B12C..0x0094B38F. Reaching it
+requires the ordinary state checks to select first person, including exact
+zero at player +0x64C, no active +0x64A transition, and no transition byte at
+0x011E07B8.
+
+Selected observations:
+
+  0x0094B1A9  obtain Camera1st world rotation from 0x011E07D0
+  0x0094B1F1  obtain Camera1st world translation from 0x011E07D0
+  0x0094B1F1..0x0094B20A
+              copy Camera1st world translation into the camera-position local
+  0x0094B28A..0x0094B2B2
+              apply the fFirstPersonCameraMult setting at 0x011CDA28 to a
+              first-person offset involving the native first-person nodes
+  0x0094B38F  join the common final camera path
+
+The Camera1st animation node is therefore a vanilla input to logical camera
+construction. That does not make raw Camera1st motion a safe Atom output: it is
+animation- and skeleton-dependent and it feeds the common camera result.
+
+VATS mode 4 can construct a different camera earlier in UpdateCamera. Other
+VATS modes already own selection and transition behavior. Atom must treat every
+nonzero VATS mode as native camera ownership, not only playback mode 4.
+
+
+6. Common logical camera commit
+-------------------------------
+
+All camera branches eventually reach a common output region. The selected
+camera owner is resolved through 0x00558310 and then receives:
+
+  0x0094BDC2  0x00440460, local translation setter
+  0x0094BDD5  0x0043FA80, local rotation setter
+  0x0094BE00  0x00A59C60, NiAVObject update with zeroed update data
+
+This proves the logical camera's final local pose and update sequence. The
+translation and rotation calls are shared by first person, third person, and
+special branches. Hooking either call without an exact owner gate would affect
+all camera modes. Even with a gate, the result remains live for downstream
+player-update consumers, so it is not the selected presentation boundary.
+
+
+7. Native first-person camera setup
+-----------------------------------
+
+0x00874C10 prepares the separate first-person rendering camera. It executes
+immediately before RenderFirstPerson at all three direct callers.
+
+Relevant observations:
+
+  0x00874DF9..0x00874E05  obtain OSGlobals +0xA0
+  0x00874E72              obtain Camera1st from 0x011E07D0
+  0x00874E85..0x00874E98  write a world translation to OSGlobals +0xA0 camera
+  0x00874EA1..0x00874EB4  write a world rotation to OSGlobals +0xA0 camera
+  0x00874EB9..0x00874EBF  call 0x007721A0 to obtain player +0xE34
+  0x00874EC8..0x00874EE9  reject selected animation actions and VATS
+  0x00874EF6..0x00874F23  when admitted, replace first-person camera world
+                          translation with the iron-sight node position
+  0x00874F41..0x00874F61  temporarily replace the first-person root's local
+                          translation, update it, and restore the old value
+
+0x007721A0 is a direct accessor for PlayerCharacter +0xE34. The executable
+therefore proves that native iron-sight positioning belongs to the separate
+first-person rendering camera, not only to the world/logical camera.
+
+
+8. World and first-person render order
+--------------------------------------
+
+The two supported main world-render callsites are:
+
+  0x00870AE8  call RenderWorldSceneGraph at 0x00873200
+  0x00870E18  call RenderWorldSceneGraph at 0x00873200
+
+Their first-person continuation is:
+
+  0x00870AF8  call first-person setup at 0x00874C10
+  0x00870B21  call RenderFirstPerson at 0x00875110
+
+  0x00870F33  call first-person setup at 0x00874C10
+  0x00870F74  call RenderFirstPerson at 0x00875110
+
+A third special route calls first-person setup/render without calling
+0x00873200:
+
+  0x00870927  call first-person setup at 0x00874C10
+  0x0087093D  call RenderFirstPerson at 0x00875110
+
+0x008706B0 selects between the three owner functions at 0x008707C0,
+0x00870A00, and 0x00870BD0. The first route uses a different earlier scene
+path. Its exact runtime purpose is not proven in this pass. A coherent Atom
+world/viewmodel transaction must therefore require a token from one of the two
+proven world calls; the third first-person route must remain pass-through until
+classified.
+
+RenderFirstPerson at 0x00875110:
+
+  0x00875154  calls PlayerCharacter::Get3D(true) at 0x00950BB0
+  0x008751C6  clears the first-person depth target
+  0x008758EB..0x008758F1
+              obtains OSGlobals +0xA0 first-person camera
+  0x0087590A  calls BSShaderAccumulator::RenderFirstPersonAccumulated at
+              0x00B64570 with that camera
+
+PlayerCharacter::Get3D(true) at 0x00950BB0 returns player +0x694. False uses
+the ordinary TESObjectREFR 3D path.
+
+The world and hands/weapons are thus rendered as distinct camera-backed
+stages. A wrapper at the direct RenderFirstPerson callers runs after native
+Camera1st and iron-sight setup and before the first-person camera is consumed.
+
+
+9. World camera source at the render boundary
+---------------------------------------------
+
+Existing OMV executable research proves:
+
+  0x011DEB7C  holds the persistent World SceneGraph
+  SceneGraph +0xAC returns the world NiCamera
+  RenderWorldSceneGraph obtains that camera and passes it to renderer camera
+  setup before world operations
+  BSShaderManager::pCurrentCamera can change for later image-space work and is
+  not the preferred persistent source at RenderWorldSceneGraph entry
+
+The render boundary consumes the NiCamera world rotation at +0x68 and world
+translation at +0x8C. A scoped wrapper can snapshot those fields, compose an
+additive presentation pose, call its captured predecessor, and restore the
+exact snapshot before returning. This is a derived candidate boundary. Static
+evidence cannot prove its final image, culling, aim, or compatibility behavior;
+those remain runtime acceptance requirements.
+
+
+10. Locomotion and landing state
+--------------------------------
+
+0x009306D0 obtains an Actor's character-controller pointer through its process
+virtual slot +0x28C. It returns NULL when the actor has no process.
+
+0x005C0880 adds 0x3E0 to the bhkCharacterController and calls 0x00CA9600.
+0x00CA9600 returns the 32-bit field at context +0x10. Direct engine comparisons
+in the player update classify values 1 and 2 as states in which waiting is
+rejected. The vendored/read-only Havok layout corroborates the enum:
+
+  0  on ground
+  1  jumping
+  2  in air
+  3  climbing
+  4  flying
+  5  swimming
+  6  projectile
+
+0x00933810 reads controller +0x3EC as the state manager and +0x3F0 as the
+current state, then asks the manager for the corresponding state object. This
+independently confirms the current-state storage used by 0x005C0880.
+
+The controller's relative velocity, support velocity, fall time, and landing
+transition are useful prospective motion inputs, but their complete native
+read contract was not closed in this pass. Read-only layout suggests carriers;
+implementation must validate their offsets and units directly before use.
+Keyboard intent or animation-node displacement is not an acceptable substitute
+for actual locomotion velocity.
+
+
+11. Third-party corroboration and ecosystem constraints
+-------------------------------------------------------
+
+Read-only Stewie Tweaks source implements Smooth True Iron Sights by detouring
+0x00874EBF after DeferredInit. It interpolates the OSGlobals +0xA0 camera
+between Camera1st and player +0xE34, gates VATS, weapon, reload, and Pip-Boy
+state, and uses frame time. This corroborates the native seam and proves that a
+production wrapper must preserve an existing predecessor there; Atom need not
+occupy that inline site.
+
+The same source optionally cooperates with Viewmodel Shake Fix by temporarily
+zeroing the first-person player root, updating it, performing iron-sight camera
+work near the origin, and restoring the root inside RenderFirstPerson through
+the call at 0x00875956. This is relevant at large world coordinates. Atom must
+not attach its camera directly to the animated root or duplicate that ownership
+transaction.
+
+OMV already rewrites the two world and three first-person direct CALL sites
+with caller-local predecessor containers. An Atom implementation at those
+sites must use the same live-target chaining rule. It must never restore a
+hard-coded vanilla target over OMV or another plugin.
+
+
+12. Proven consequences and remaining gates
+--------------------------------------------
+
+Proven or mechanically derived:
+
+  - normal look input must remain direct;
+  - the native logical world camera and first-person arms camera are distinct;
+  - native iron-sight setup finishes before each RenderFirstPerson callsite;
+  - the two main world stages finish before their paired first-person stage;
+  - a render-call wrapper can be scoped more narrowly than UpdateCamera's
+    common logical commit;
+  - first-person mode is not established by player +0x64C alone during
+    transitions;
+  - VATS and the unclassified third render route require native pass-through;
+  - caller-local predecessor chaining is required for OMV coexistence.
+
+Implementation gates not closed by static research:
+
+  - exact velocity and support-velocity offsets/units for cadence and landing;
+  - exact normal-gameplay gates for dialogue, furniture, knockout, death,
+    scripted cameras, scope overlays, and mod-forced first person;
+  - camera-local matrix multiplication convention for the additive pose;
+  - near-geometry clearance for any positional world-camera offset;
+  - crosshair, activation, projectile, and muzzle convergence under a rendered
+    camera offset;
+  - culling and near-plane behavior at the maximum proposed displacement;
+  - hook ordering with every installed camera/viewmodel plugin;
+  - Proton/DXVK runtime behavior and subjective comfort.
+
+These gaps are explicit Phase 0 tasks in the design document. They are not
+permission to infer a field, disable a requested behavior, or patch another
+mod.
