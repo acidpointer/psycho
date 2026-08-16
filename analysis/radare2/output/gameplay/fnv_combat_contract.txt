@@ -1,0 +1,884 @@
+FALLOUT: NEW VEGAS COMBAT ENGINE EVIDENCE LEDGER
+=================================================
+
+Purpose
+-------
+
+This file records the static evidence used by the Atom combat design in
+docs/atom_combat_engine_contract.md. It is an address ledger, not an
+implementation plan and not a claim of runtime validation.
+
+Executable identity
+-------------------
+
+Path: fnv_reverse/FalloutNV.exe
+Format: PE32, x86
+Image base: 0x00400000
+Timestamp: 0x4E0D50ED (2011-07-01)
+PDB path: FalloutNV.pdb
+File size: 16,084,808 bytes
+SHA-256: 42fee7d6cd74e801372aa89c8f71c974cebd3c20ec9ad43d1465b8fa9646b49c
+Supported game version: Fallout: New Vegas 1.4.0.525
+
+Evidence classes
+----------------
+
+[BINARY] Direct disassembly, decompilation, xrefs, or data references from the
+         executable above through the radare2 MCP.
+[HEADER] Layout or name from the vendored xNVSE headers in libnvse/xnvse or a
+         versioned xNVSE layout header under read-only .research. These headers
+         are established ABI evidence but are not a substitute for binary proof.
+[CORROBORATION] Read-only third-party source under .research used to name or
+                cross-check behavior found in the binary.
+[INFERENCE] A conclusion assembled from proven facts. It needs a runtime test
+            before it is treated as observed game behavior.
+
+The .research sources are compatibility evidence only. Their patches are not
+vanilla behavior and are not proposed Atom implementations.
+
+Supporting repository sources
+-----------------------------
+
+  libnvse/xnvse/nvse/nvse/GameForms.h
+  libnvse/xnvse/nvse/nvse/GameProcess.h
+  .research/Stewie Tweaks 10.00 Source/nvse/nvse/GameObjects.h
+  .research/Stewie Tweaks 10.00 Source/nvse/nvse/GameProcess.h
+  .research/Stewie Tweaks 10.00 Source/code/Internal/Combat.h
+  .research/Stewie Tweaks 10.00 Source/nvse/nvse/GameSettingCollection.cpp
+  .research/Stewie Tweaks 9.95 Source/code/Internal/misc_consts.h
+  .research/Stewie Tweaks 10.00 Source/code/Features/BulletTrails.cpp
+  .research/Stewie Tweaks 10.00 Source/code/Features/ExplosionsHitAnyNodes.cpp
+  .research/Stewie Tweaks 10.00 Source/code/Features/IncreaseExplosionInnerRadiusDamage.cpp
+  .research/Stewie Tweaks 10.00 Source/code/Fixes/ShotProjectileResistanceFix.cpp
+  .research/Stewie Tweaks 10.00 Source/code/Fixes/NonHitscanProjectileSplashFix.cpp
+  .research/itr-nvse-master/itr-nvse/internal/layout/Projectile.h
+  .research/itr-nvse-master/itr-nvse/handlers/OnPreDamageHandler.cpp
+  docs/fnv_actor_input_contract.md
+  analysis/radare2/output/perf/fnv_actor_input_contract.txt
+  analysis/radare2/output/perf/fnv_third_person_camera_contract.txt
+
+Native combat pipeline
+----------------------
+
+Ranged:
+
+  input, AI, animation event, or script FireWeapon
+      -> 0x00523150 canonical weapon-fire routine
+      -> effective weapon, ammo, projectile, muzzle, aim, spread, count
+      -> 0x009BCA60 Projectile::Spawn, once per projectile
+      -> projectile virtual update and impact handling
+      -> 0x009B5650 projectile ActorHitData producer
+      -> 0x009B5A30 common protection/damage reduction
+      -> 0x0089A760 Actor::ApplyHit
+
+Explosive:
+
+  explosion runtime object
+      -> 0x009B00A0 target iteration
+      -> 0x00647920 distance falloff
+      -> 0x009B1810 line-of-sight test unless the form ignores LOS
+      -> 0x009B5770 explosion ActorHitData producer
+      -> 0x009B5A30 common protection/damage reduction
+      -> 0x0089A760 Actor::ApplyHit
+
+Melee:
+
+  input or AI attack admission and animation
+      -> 0x00899200 animation contact event
+      -> 0x00899CB0 contact, target, node, and material resolution
+      -> 0x009B5170 melee ActorHitData producer
+      -> 0x009B5A30 common protection/damage reduction
+      -> 0x0089A760 Actor::ApplyHit
+
+Canonical ranged fire
+---------------------
+
+[BINARY] Player input is processed through 0x0093E860. Combat controls include
+attack (4), aim/block (6), ready/reload (7), VATS (16), and ammunition swap
+(18). HighProcess also carries ForceFireWeapon state. A stopped or absent attack
+control therefore does not prove that no shot can occur; AI, scripts, animation
+events, VATS, and force-fire state can all authorize attacks elsewhere.
+
+[BINARY] 0x00523150 is the shared native ranged-fire routine.
+
+Known callers:
+
+  0x005DA5F8  script FireWeapon path
+  0x0087BA71  event dispatch path
+  0x008BADE9  actor animation/event update used by player and NPC attacks
+
+The function resolves the equipped weapon instance, effective ammunition and
+projectile, muzzle/aim transform, shot count, spread, projectile launch, sound,
+ammo consumption, and clip state. Script-driven fire therefore converges with
+actor-driven fire at this routine.
+
+Important points inside 0x00523150:
+
+  0x005239EA..0x00523A99  combine actor spread with weapon minimum/spread
+  0x00523AFF              apply TESAmmoEffect type 3 (spread)
+  0x00524413              call 0x00525B20 for effective projectile count
+  0x0052441E              projectile loop begins
+  0x0052445B..0x005244EE  independently sample radial and angular dispersion
+  0x005245BD              call 0x009BCA60 Projectile::Spawn
+  0x0052466B              continue projectile loop
+  0x00524693 onward       clip and ammunition accounting
+
+[BINARY] 0x009BCA60 has only two direct executable call sites: 0x0046A176 and
+0x005245BD. The latter is the normal weapon-fire launch seam.
+
+[BINARY][CORROBORATION] The call at 0x005245BD is compatible with:
+
+  Projectile* __cdecl spawn(
+      BGSProjectile* base,
+      Actor* source,
+      CombatController* combat_controller,
+      TESObjectWEAP* weapon,
+      NiPoint3 position,
+      float rotation_z,
+      float rotation_x,
+      void* opaque,
+      TESObjectREFR* live_grenade_target,
+      bool always_hit,
+      bool ignore_gravity,
+      float angular_momentum_z,
+      float angular_momentum_x,
+      TESObjectCELL* cell);
+
+[BINARY] 0x00525700 resolves the weapon projectile/muzzle node, including the
+"##ProjectileNode" lookup.
+
+Effective ammunition and projectile selection
+----------------------------------------------
+
+[BINARY] 0x00525980 resolves effective ammunition from the actor's process and
+equipped inventory state. TESObjectWEAP::ammo can be either TESAmmo or a
+BGSListForm. A wrapper cannot choose the first list entry and remain correct.
+
+[BINARY] 0x00525A90 chooses TESAmmo::projectile when it is present, otherwise
+TESObjectWEAP::projectile.
+
+[BINARY] 0x00525B20 returns the effective projectile count. It combines the
+weapon projectile count, ammunition projectiles-per-shot, ammunition use, and
+the Split Beam weapon modification. The result is a byte. This helper is the
+authoritative native count calculation.
+
+[BINARY] The spawn path applies source, equipment, and perk context after the
+base projectile has been selected. Perk entry point 59, Modify Throwing
+Velocity, is dispatched at 0x009BCF55. A replacement launcher that bypasses
+0x009BCA60 would omit native behavior.
+
+Weapon spread and actor aim error
+---------------------------------
+
+[BINARY] In 0x00523150, the initial spread cone in radians is formed as:
+
+  (effective_weapon_spread * actor_spread_factor
+      + effective_weapon_min_spread) * degrees_to_radians
+
+The computation is visible at 0x00523A75..0x00523A99. Ammunition spread effects
+are then applied through 0x0059A030 at 0x00523AFF.
+
+[BINARY] 0x00524B80 calculates effective minimum spread from weapon data and
+equipped weapon modifications. 0x00524BE0 calculates effective spread. Weapon
+mod effect 3 is Decrease Spread, and the helpers clamp their results.
+
+[BINARY] 0x00646910 calculates the actor spread factor. Its inputs include:
+
+  standing, walking, and running state
+  aimed versus unaimed state
+  crouching and iron-sight state
+  weapon skill and weapon requirement
+  arm and head condition
+  weapon condition
+  perks, including entry point 34 Calculate Gun Spread
+  gun drift/wobble and minimum-spread settings
+
+Directly referenced settings include fStandingSpreadPenalty,
+fWalkingSpreadPenalty, fRunningSpreadPenalty, fUnaimedSpreadPenalty,
+fWobbleToSkillConversion, fMinGunSpreadValue, the arm-cripple penalties, and
+the gun-spread skill/condition/posture multipliers.
+
+[BINARY] 0x008B0DD0 caches four spread modes at Actor offsets 0x178, 0x17C,
+0x180, and 0x184. The NPC mode also uses fNPCMaxGunWobbleAngle.
+
+[BINARY] The weapon-condition setting table includes
+fWeaponConditionSpread1..fWeaponConditionSpread10.
+
+[INFERENCE] Vanilla spread is an accuracy cone, not a complete recoil model.
+Camera movement, animation, aim wobble, spread, cadence, and condition are
+separate mechanisms. Atom should not represent all handling through one spread
+scalar.
+
+[BINARY] The established third-person evidence ledger maps
+PlayerCharacter::UpdateCamera at 0x0094AE40 and the player/camera ownership
+state around it. The ranged-fire path separately resolves muzzle/aim and the
+weapon projectile node. This proves separate camera and launch owners, but it
+does not by itself prove a recoil write seam or view-to-muzzle convergence
+algorithm. See analysis/radare2/output/perf/fnv_third_person_camera_contract.txt.
+
+Cadence, reload, jam, and attack admission
+------------------------------------------
+
+[HEADER][BINARY] TESObjectWEAP contains automatic, burst, and long-burst flags;
+fireRate, animShotsPerSec, animAttackMult, semi-auto delay values, reload time,
+jam time, ammoUse, clip size, and reload/attack animation selectors.
+
+[HEADER] TESCombatStyle supplies NPC wait/fire timers and semi-auto delay
+multipliers in addition to range and tactical policy.
+
+[BINARY] The weapon condition tables include:
+
+  fWeaponConditionRateOfFire1..10
+  fWeaponConditionJam1..10
+  fWeaponConditionReloadJam1..10
+
+[BINARY] 0x00893A40 is broad attack admission. It validates action/process state,
+weapon and ammunition, animation availability, condition/jam state, player or
+NPC context, and attack selection before setting animation actions. Hooking it
+as a gunplay policy boundary would couple Atom to unrelated native state.
+
+[BINARY] The jam test indexes a ten-entry condition curve through 0x006477B0,
+uses native random selection, chooses the relevant jam animation/action, and
+commits the action through Actor::SetAnimAction at 0x00894081.
+
+[BINARY] Perk entry point 37 modifies reload speed and entry point 43 modifies
+attack speed.
+
+[CORROBORATION] The player reload virtual dispatch and VATS-specific playback
+are distinct. A reload wrapper must preserve the native animation type,
+extended-clip state, hotkey/ammo-swap state, and VATS context.
+
+Projectile form data
+--------------------
+
+[HEADER] BGSProjectile base form fields used by combat:
+
+  +0x60 flags
+  +0x62 type
+  +0x64 gravity
+  +0x68 speed
+  +0x6C range
+  +0x70/+0x74 lights
+  +0x78 tracer chance
+  +0x7C proximity distance
+  +0x80 timer
+  +0x84 explosion form
+  +0x88 sound
+  +0x8C muzzle flash
+  +0x90 fade duration
+  +0x94 impact force
+  +0x98/+0x9C sounds
+  +0xA0 default weapon source
+  +0xA4..+0xAC rotation
+  +0xB0 bounce multiplier
+
+Important form flags:
+
+  0x0001 hitscan
+  0x0002 explosion
+  0x0004 alternate trigger
+  0x0008 muzzle flash
+  0x0020 disableable
+  0x0040 can be picked up
+  0x0080 supersonic
+  0x0100 pins limbs
+  0x0200 passes small transparent geometry
+  0x0400 detonates
+  0x0800 rotation
+
+[HEADER] Projectile types are beam, flame, grenade, missile, and continuous
+beam. Derived runtime objects have distinct virtual impact/update behavior.
+
+Projectile runtime data and lifecycle
+-------------------------------------
+
+[HEADER][BINARY] The vanilla Projectile runtime object is 0x150 bytes:
+
+  +0x088 impact-data list
+  +0x090 has-impacted state
+  +0x094 transform
+  +0x0C8 runtime flags
+  +0x0CC power
+  +0x0D0 speed multiplier
+  +0x0D4 runtime range
+  +0x0D8 age/lifetime
+  +0x0DC damage
+  +0x0E0 alpha
+  +0x0E4 explosion timer
+  +0x0F4 source weapon condition fraction
+  +0x0F8 source weapon
+  +0x0FC source reference
+  +0x100 live grenade target
+  +0x104 direction/vector
+  +0x110 distance travelled
+  +0x114 light
+  +0x11C node
+  +0x124 decal
+  +0x148 pass-sound state
+
+Relevant runtime flags include hitscan, stuck, tracer, fading, gravity,
+disarmed mine, always hit, ignore gravity, and source actor in combat.
+
+[HEADER] ImpactData contains the hit reference at +0x00, position at +0x04,
+surface/normal vector at +0x10, rigid body at +0x1C, material at +0x20, and hit
+location at +0x24.
+
+[BINARY] 0x009BCA60 allocates and initializes the correct projectile subtype.
+0x009BC8F0 kills a projectile. Initialization around 0x009BDA10 and 0x009BDD08
+copies range and launch state into the runtime object and can apply native
+actor/iron-sight range modifiers.
+
+[BINARY] 0x009B8B10 wraps projectile impact processing and kills or retains the
+projectile according to the virtual result. Its inner impact traversal is
+0x009C1B70. 0x009C20E0 processes collision effects and 0x009C4DA0 clears the
+impact list.
+
+[BINARY] 0x009C1B70 walks the impact list, resolves target and impact context,
+builds projectile hit data through 0x009B5650 at 0x009C1E61, and calls
+Actor::ApplyHit at 0x009C1E96.
+
+[COMPATIBILITY] Bytes +0x149..+0x14B are used by existing xNVSE extensions for
+unrelated projectile state, while +0x14C is used as a secondary range field.
+Atom must not claim unverified tail bytes. A side table is required for new
+per-projectile state.
+
+Thrown weapons, grenades, mines, and continuous emitters
+---------------------------------------------------------
+
+[HEADER][BINARY] Grenade, mine, lunchbox mine, and thrown are distinct weapon
+types. The launch ABI carries a live-grenade target, ignore-gravity state, and
+angular momentum. The native spawn path dispatches perk entry point 59 Modify
+Throwing Velocity.
+
+[HEADER] Projectile form/runtime policy supplies alternate proximity and timer,
+detonation, pickup, disable/disarm, gravity, rotation, bounce, explosion, and
+source ownership. Projectile virtuals include proximity-trigger and placed-
+explosive disarm behavior.
+
+[INFERENCE] A mine is not a stationary bullet and a flame/beam/continuous beam
+is not necessarily one discrete impact. Atom must preserve arming, timers,
+proximity, disarm/pickup, live target, rotation, source/ActorCause, and subtype
+update semantics. Firearm recoil, drag, penetration, or per-shot damage policy
+cannot be applied to these families merely because all derive from Projectile.
+
+Weapon, ammunition, and modification forms
+------------------------------------------
+
+[HEADER][BINARY] Selected TESObjectWEAP fields (object size 0x388):
+
+  +0x094 health form
+  +0x09C attack damage
+  +0x0A4 ammunition form or list
+  +0x0AC clip size
+  +0x0F4 weapon type
+  +0x0F8 animation multiplier
+  +0x0FC reach
+  +0x100 flags 1
+  +0x102 ammunition use
+  +0x103 reload animation
+  +0x104 minimum spread
+  +0x108 spread
+  +0x110 sight FOV
+  +0x118 projectile form
+  +0x11C VATS chance
+  +0x11D attack animation
+  +0x11E projectile count
+  +0x120 minimum range
+  +0x124 maximum range
+  +0x128 on-hit behavior
+  +0x12C flags 2
+  +0x130 attack animation multiplier
+  +0x134 fire rate
+  +0x138 action-point cost
+  +0x148 damage-to-weapon multiplier
+  +0x14C animation shots per second
+  +0x150 reload time
+  +0x154 jam time
+  +0x158 aim arc
+  +0x15C skill actor value
+  +0x168 limb-damage multiplier
+  +0x16C resistance actor value
+  +0x170 sight usage
+  +0x174/+0x178 semi-auto delay values
+  +0x180 modification effects[3]
+  +0x18C modification values 1
+  +0x19C strength requirement
+  +0x1A4 regeneration rate
+  +0x1A8 kill impulse
+  +0x1B8 impulse distance
+  +0x1BC skill requirement
+  +0x1C0 critical damage
+  +0x1C4 critical percentage
+  +0x1C8 critical flags
+  +0x1CC critical effect
+  +0x24C impact-data set
+  +0x350/+0x354/+0x358 weapon modifications
+
+Weapon types cover unarmed, one- and two-handed melee, pistols, rifles,
+automatic weapons, energy variants, launchers, grenades, mines, and thrown
+weapons. Weapon flags include ignore normal resistance, automatic, scope,
+embedded, player-only, NPCs-use-ammo, fixed range, damage-to-weapon override,
+burst, and long burst. On-hit policy can permit or forbid dismemberment and
+body-part explosion.
+
+[HEADER] Weapon modification effects include damage, clip, spread, weight,
+regenerating ammunition, equip time, rate of fire, projectile speed, condition,
+silence, split beam, VATS, and zoom.
+
+[HEADER] TESAmmo (size 0xDC) combat fields:
+
+  +0x0A8 speed
+  +0x0AC flags, including ignore normal resistance
+  +0x0B0 projectiles per shot
+  +0x0B4 projectile override
+  +0x0B8 weight
+  +0x0BC casing
+  +0x0C0 consumed percentage
+  +0x0D4 ammunition-effect list
+
+[HEADER] TESAmmoEffect (size 0x30) stores its type at +0x24, operation at +0x28,
+and value at +0x2C. Types are damage, damage resistance, damage threshold,
+spread, condition, and fatigue. Operations are add, multiply, and subtract.
+
+Live weapon damage
+------------------
+
+[BINARY] 0x006450F0 is a public weapon-damage calculator that delegates to the
+live calculation family at 0x00645380 and 0x00644CE0.
+
+[BINARY] 0x00644CE0 uses weapon attack damage and type; actor skill, strength,
+arm state, and requirements; weapon instance condition; effective ammunition,
+projectile count, and modifications; source context; and perk entry point 0,
+Calculate Weapon Damage.
+
+[BINARY] Weapon condition scaling at 0x00646D00 returns 1.0 at condition
+fractions of at least 0.75. Below 0.75 it decreases linearly to 0.5 at zero:
+
+  1.0 - (0.75 - condition_fraction) * (2.0 / 3.0)
+
+The formula references the damage skill, strength, arm-condition, and gun/melee
+weapon-condition setting families.
+
+[INFERENCE] Inventory and user-interface damage calculators do not necessarily
+hold the firing actor's effective ammunition and instance context. Atom must
+capture live shot context and must not use display damage as the authoritative
+combat baseline.
+
+ActorHitData producers
+----------------------
+
+[HEADER][BINARY] ActorHitData is 0x64 bytes:
+
+  +0x00 source actor
+  +0x04 target actor
+  +0x08 projectile/explosion/context object
+  +0x0C attack actor value/context
+  +0x10 hit location
+  +0x14 health damage
+  +0x18 weapon/base health damage
+  +0x1C fatigue damage
+  +0x20 limb damage
+  +0x24 block/threshold contribution
+  +0x28 armor damage
+  +0x2C auxiliary float
+  +0x30 source weapon
+  +0x34 health percentage/context
+  +0x38 impact position
+  +0x44 impact angle/normal
+  +0x50/+0x54 native context
+  +0x58 flags
+  +0x5C damage multiplier
+  +0x60 unused/unknown
+
+Known flags include critical, fatal, dismember, explode body part, cripple, and
+sneak critical.
+
+[BINARY] Native producers:
+
+  0x009B5170  melee/unarmed
+  0x009B5650  projectile
+  0x009B5720  generic direct damage
+  0x009B5770  explosion
+  0x009B58D0  physics collision
+
+Each calls the common protection calculation at 0x009B5A30 before eventually
+calling Actor::ApplyHit at 0x0089A760. The five call sites are:
+
+  0x009B5623  melee
+  0x009B5702  projectile
+  0x009B575C  generic direct
+  0x009B58AE  explosion
+  0x009B5A10  physics
+
+These calls are independent seams at which the installed predecessor can run
+first and a complete native ActorHitData record can then be adjusted.
+
+Protection, block, and damage threshold
+---------------------------------------
+
+[BINARY] 0x009B5A30 preserves the native ordering of protection and damage:
+
+  1. Preserve the incoming/base health damage and derive the minimum final
+     damage from fMinDamMultiplier.
+  2. Apply ammunition fatigue effect type 5.
+  3. Read target damage resistance actor value 18, apply ammunition DR effect
+     type 1, clamp it, calculate armor wear, and multiply health by 1 - DR.
+  4. Read target damage threshold actor value 76 and apply ammunition DT effect
+     type 2.
+  5. If the defender is blocking with a valid block source, calculate the block
+     contribution and add it to effective threshold/protection.
+  6. Dispatch attacker perk entry point 58 and defender entry point 56 for DT.
+  7. Subtract nonnegative effective DT. A projectile/ammunition/count branch
+     adds special multi-projectile scaling.
+  8. Apply ammunition damage effect type 0 and final weapon-damage perk context.
+  9. Calculate armor damage from fDamageToArmorPercentage and prevention.
+ 10. Clamp final health damage to the fMinDamMultiplier floor.
+ 11. Apply the weapon/projectile resistance actor value, when configured.
+ 12. Reconcile fatigue with the health/base changes and apply player/VATS
+     combat context. Difficulty is applied later during health/fatigue commit.
+
+[BINARY] 0x006463A0 calculates block skill contribution from
+fBlockSkillBase + skill * fBlockSkillMult. The value is recorded in
+ActorHitData at +0x24.
+
+[BINARY] Weapons and ammunition can ignore normal resistance. TESObjectWEAP at
++0x16C can select a separate resistance actor value. Replacing the native
+formula with only DT and a global damage multiplier would lose these paths.
+
+Criticals, hit location, and limb damage
+----------------------------------------
+
+[BINARY] 0x009B6620 owns location and limb calculation. It calls 0x00647A30 and
+uses TESObjectWEAP::limbDamageMult. Melee and ranged branches do not have
+identical locational behavior.
+
+[HEADER] Actors expose effective BGSBodyPartData through virtual form behavior.
+The data has 15 nullable body-part slots: torso, two head slots, two left-arm
+slots, two right-arm slots, three left-leg slots, three right-leg slots, brain,
+and weapon. Each BGSBodyPart can supply node/target names, damage multiplier,
+limb-health percentage, actor value, VATS chance, sever/explode/head flags,
+debris, explosions, and impact-data sets.
+
+[INFERENCE] These slots are a schema, not proof that a particular race has a
+humanoid part or node. Locational policy must resolve the target's effective
+body-part data and tolerate null/custom entries, -1/no location, creatures, and
+mod-added races. It must not classify anatomy from node-name strings alone.
+
+[BINARY] 0x009B7060 owns critical calculation. It obtains critical chance from
+0x00646D80 and weapon data, dispatches perk entry points 1 Calculate My Critical
+Hit Chance and 36 Modify Enemy Critical Hit Chance, rolls native random state,
+derives critical damage through 0x00645C20 and perk entry point 2, then sets
+critical flags and effects.
+
+[BINARY] 0x009B73D0 applies final multipliers and sneak/critical flags, including
+ActorHitData::damageMult at +0x5C.
+
+Melee contact and damage
+------------------------
+
+[BINARY] 0x00899200 is the animation contact event routine. Event-dispatch case
+15 reaches it at 0x0087C3EB.
+
+[BINARY] 0x00899CB0 validates the contact and target, resolves nodes and material,
+builds hit data through the 0x009B5120/0x009B5170 family, writes impact position
+and direction, and calls Actor::ApplyHit at 0x0089A738 unless native conditions
+suppress the hit. This is a contact boundary; attack input alone is not proof
+that a melee hit occurred.
+
+[BINARY] 0x009B5170 resolves actor, target, weapon, attack context, health and
+fatigue damage, power/VATS modifiers, criticals, protection/block, location,
+and final damage. 0x00646310 reaches the live weapon calculation and writes
+health/fatigue inputs.
+
+Melee-relevant setting families include hand damage by skill and strength,
+hand fatigue, hand health min/max, hand reach, melee weapon condition, power
+attack directional bonuses, attack fatigue, and block fatigue.
+
+Explosion form and runtime data
+-------------------------------
+
+[HEADER] BGSExplosion form fields:
+
+  +0x70 placed object
+  +0x74 force
+  +0x78 damage
+  +0x7C radius
+  +0x80 light
+  +0x84 sound
+  +0x88 flags
+  +0x8C image-space radius
+  +0x90 impact-data set
+  +0x94 secondary sound
+  +0x98 radiation level
+  +0x9C radiation dissipation time
+  +0xA0 radiation radius
+
+Explosion flags include always-world orientation, always knockdown, formula
+knockdown, ignore LOS, push source only, and ignore image-space effects.
+
+[HEADER][BINARY] Runtime Explosion is 0x104 bytes. Combat fields include time at
++0x88, build time at +0x90, radius at +0x94, image radius at +0x98, target list
+at +0xA4, source reference at +0xC8, created reference at +0xCC, ActorCause at
++0xD0, state flags at +0xD4..+0xDB, magic caster at +0xDC, source weapon at
++0xE0, closest point at +0xE8, normal at +0xF4, and calculated damage at +0x100.
+
+Explosion damage and force
+--------------------------
+
+[BINARY] 0x009B00A0 iterates explosion targets.
+
+[BINARY] Distance is calculated at 0x009B018A. The call at 0x009B01A8 reaches
+0x00647920. Its native damage falloff is zero outside the radius and, inside:
+
+  1.0 - (distance / radius)^2
+
+[BINARY] 0x009B1810 performs explosion line-of-sight evaluation. It is called at
+0x009B045C unless the explosion form ignores LOS.
+
+[BINARY] Damage is calculated by 0x009B0F80, multiplied by falloff, placed into
+hit data through 0x009B5770 at 0x009B04EF, and applied at 0x009B0503. Physical
+force, knockdown, radiation, image-space, sound, and shudder behavior remain
+separate parts of the explosion path.
+
+[COMPATIBILITY] Existing fixes hook the falloff call, distance selection, LOS
+call, ApplyHit call, and a non-hitscan water/velocity seam. Another established
+fix supplies Explosion::sourceWeapon when an exploding projectile otherwise
+loses resistance context. Atom must chain current call targets and must not
+detect or disable those extensions.
+
+Final hit application and actor reaction
+----------------------------------------
+
+[BINARY] Actor::ApplyHit at 0x0089A760 is the central side-effect routine. Known
+call sites include:
+
+  0x0087C4DA
+  0x0089A738  melee contact
+  0x008B91E1  physics
+  0x009B0503  explosion
+  0x009C1E96  projectile
+  0x009CBDE8  generic path
+
+The routine and its callees own:
+
+  process last-hit and last-target-hit records
+  script OnHit and OnHitWith dispatch
+  hostility, combat-controller, and AI notification
+  health and fatigue damage
+  armor and weapon condition damage
+  limb actor-value damage
+  pain, stagger, knockback, and knockdown
+  cripple, dismemberment, and body-part explosion
+  fatal, death, and essential handling
+  experience, kill, perk, challenge, interface, and VATS side effects
+
+[BINARY] Script event dispatch is visible around 0x0089AB12 and 0x0089AB3C.
+Limb DamageActorValue virtual calls occur around 0x0089BB86 and 0x0089BDD6.
+Armor/condition handling dispatches around 0x0089BC12. Critical weapon-drop
+chance is handled around 0x0089BC51.
+
+[BINARY] 0x0089D6F0 applies health and fatigue actor values. It calls the
+difficulty helper 0x008808A0 at 0x0089D72E, then uses actor-value damage virtual
+dispatch for health actor value 16 and fatigue actor value 22 and notifies
+process/combat state.
+
+[INFERENCE] Actor::ApplyHit must remain native. Replacing or short-circuiting it
+would require reimplementing a large, externally observable event and reaction
+surface. The narrow policy seam is complete hit data after native calculation
+and before ApplyHit.
+
+AI combat ownership
+-------------------
+
+[HEADER][CORROBORATION] CombatController owns candidate weapons and ammunition,
+maximum DPS by weapon type, target/LOS/threat state, dangerous explosives,
+timers, cooldowns, and the selected weapon and combat style. Native combat
+actions cover ranged fire, ranged explosive use, cover fire, grenades, flushing,
+melee, hand-to-hand, movement plus attack, weapon switching, drawing, dodging,
+searching, and hiding.
+
+[HEADER] TESCombatStyle (size 0x108) owns cover search and use, wait/fire timing,
+ranged ranges, combat restrictions, target FOV, combat radius, semi-auto delay
+multipliers, dodge/block/attack/power-attack chances and timing, stagger and
+knockout bonuses, directional attacks, hold timers, and movement/encumbrance/
+skill coefficients.
+
+[HEADER] Effective combat style is dynamic. It can be supplied by the actor,
+base/template data, or ExtraCombatStyle. A hard-coded form list cannot model it.
+
+[BINARY][INFERENCE] AI planning and attack execution are separate layers. Once
+an AI actor commits a ranged or melee action, execution converges on the shared
+fire or contact paths. Atom can observe and improve common execution without
+replacing the planner. AI scoring changes should be a later, separate module.
+
+VATS
+----
+
+[BINARY] 0x00646F70 calculates VATS hit chance; 0x007F1290 is a caller. It has
+separate branches for destructibles, grenades/projectiles, melee, and ranged
+weapons. Inputs include range, visibility/screen percentage, target limb, arm
+condition, skill, weapon VATS chance, spread, and weapon range.
+
+VATS setting families include maximum chance, hit-chance and skill factors,
+screen percentage, range/spread limits, shotgun ratio, grenade chance/range/
+skill, thrown range, melee chance/reach/warp, arm condition, stealth, and
+critical bonus.
+
+[INFERENCE] VATS admission, chance display, queued execution, playback, and
+reload behavior are a separate contract even though final projectiles and hits
+converge with native combat. It should remain native in the first Atom combat
+implementation.
+
+Perk and actor-value dispatch surface
+-------------------------------------
+
+Combat-relevant native perk entry points confirmed through binary dispatch and
+the established enumeration include:
+
+   0 Calculate Weapon Damage
+   1 Calculate My Critical Hit Chance
+   2 Calculate My Critical Hit Damage
+   3 Calculate Weapon AP Cost
+   4 Calculate Mine Explode Chance
+   5 Adjust Range Penalty
+   6 Adjust Limb Damage
+   7 Calculate Weapon Range
+   8 Calculate To-Hit Chance
+  21 Add Leveled List On Death
+  25 Adjust Chem Duration
+  34 Calculate Gun Spread
+  36 Modify Enemy Critical Hit Chance
+  37 Modify Reload Speed
+  38 Modify Equip Speed
+  43 Modify Attack Speed
+  52 Modify Knockdown Chance
+  53 Modify Weapon Strength Requirement
+  54 Modify Aiming Move Speed
+  56 Modify Damage Threshold Defender
+  58 Modify Damage Threshold Attacker
+  59 Modify Throwing Velocity
+  67 VATS helper entry
+  68 Modify Item Damage
+  72 Adjust Explosion Radius
+
+Active effects, chems, perks, equipment, and scripts can alter actor values or
+these dispatches without changing a weapon form. Effective combat context must
+therefore be sampled at the action or hit, not cached only by base FormID.
+
+Process-level constraints
+-------------------------
+
+[HEADER][BINARY] MiddleHighProcess includes equipped weapon/ammunition state,
+WeaponInfo and AmmoInfo, thrown state, weapon-out state, AnimData, weapon node,
+aiming state, and the last-hit records. HighProcess adds current animation
+action, force-fire state, combat target, and other high-detail behavior.
+
+[INFERENCE] Not every actor is in high process. A wrapper must check process
+level and capability before following these fields. Raw process pointers cannot
+be retained across actor demotion, cell transition, load, or destruction.
+
+Global setting families reached by combat
+-----------------------------------------
+
+[BINARY][CORROBORATION] The mapped functions reference these setting families.
+The names are an evidence index; their current values are not Atom defaults:
+
+  spread
+    fStandingSpreadPenalty, fWalkingSpreadPenalty, fRunningSpreadPenalty,
+    fUnaimedSpreadPenalty, four crippled-arm spread penalties,
+    fGunSpreadSkill/Arm/NPCArm/Head/Crouch/Run/Walk/Cond/IronSights/Drift,
+    fWobbleToSkillConversion, fMinGunSpreadValue, fNPCMaxGunWobbleAngle,
+    fWeaponConditionSpread1..10
+
+  cadence and jam
+    fWeaponConditionRateOfFire1..10, fWeaponConditionJam1..10,
+    fWeaponConditionReloadJam1..10
+
+  damage and condition
+    fDamageWeaponMult, fDamageSkillBase/Mult, fDamageStrengthBase/Mult,
+    fDamageArmConditionBase/Mult, fDamageGunWeapCondBase/Mult,
+    fDamageMeleeWeapCondBase/Mult, fMinDamMultiplier,
+    fDamageToArmorPercentage, fDamageToWeaponValue
+
+  melee and block
+    fHandDamageSkillBase/Mult, fHandDamageStrengthBase/Mult,
+    fHandFatigueDamageBase/Mult, fHandHealthMin/Max, fHandReachMult,
+    directional power-attack bonuses, fFatigueAttackWeaponBase/Mult,
+    fBlockSkillBase/Mult, fFatigueBlockBase/Mult,
+    fFatigueBlockSkillBase/Mult
+
+  reaction and death impulse
+    fKnockbackAgil/Damage families, fKnockbackForceMax, fKnockbackTime,
+    fKnockdownAgil/Damage families, health thresholds, fKnockdownChance,
+    iCombatCrippledTorsoHitStaggerChance, fDeathForceDamage/Force families,
+    ranged death-force families, fCombatDismemberedLimbVelocity
+
+  explosions
+    fExplosionForceMultLinear/Angular, fExplosionForceKnockdownMinimum,
+    fExplosionLOSBuffer/Distance, fExplosionMaxImpulse,
+    fExplosionSourceRefMult, fExplosionSplashRadius,
+    fExplosionWaterRadiusRatio, image-space and shudder families
+
+  difficulty
+    fDiffMultHPByPC*, fDiffMultHPToPC*, fDifficultyDamageMultiplier
+
+  AI
+    absolute/current-weapon/optimal range, firing arc, iron sights,
+    ranged standoff, inventory update, LOS, grenade, cover, threat, search,
+    detection, weapon-selection, and item-cooldown families
+
+  VATS
+    maximum chance, hit-chance/skill/screen/spread, shotgun, grenade, thrown,
+    melee, stealth, critical, player-damage, playback, and camera families
+
+[INFERENCE] These globals are shared compatibility inputs. Atom should consume
+the final native calculation or snapshot values for a bounded context; it should
+not repeatedly rewrite global settings to express per-actor policy.
+
+Compatibility conclusions supported by the evidence
+----------------------------------------------------
+
+1. Resolve effective runtime context; never classify by plugin name, EditorID,
+   or a hand-maintained FormID list.
+2. Read shared TES forms. Do not mutate them to implement per-instance or
+   per-actor gunplay.
+3. Use native effective-ammo, projectile-count, damage, perk, protection, and
+   ApplyHit paths as the baseline.
+4. Capture the actual inventory instance and its ExtraData/condition.
+5. Observe or extend 0x005245BD/0x009BCA60 for shot context; do not synthesize
+   normal fire from raw input.
+6. Adjust complete ActorHitData after native 0x009B5A30 and before
+   0x0089A760. Preserve ApplyHit.
+7. Use a bounded side table for projectile extension state. Do not write object
+   tails, vtables, shared forms, or assumed subclass bytes.
+8. Hook call sites transactionally at DeferredInit, validate the executable and
+   local instruction context, and chain the currently installed predecessor.
+9. Keep ranged, handling, projectile, impact, damage, explosion, melee, VATS,
+   and AI policy as separate modules with independent admission and rollback.
+10. No-allocation, no-I/O, no-blocking-lock rules apply to shot, projectile,
+    impact, and hit hot paths.
+
+Open questions requiring focused implementation research or playtest
+-------------------------------------------------------------------
+
+The following are intentionally not claimed as solved by this static pass:
+
+* Exact animation-group and camera ownership for first- and third-person recoil.
+* View-ray/muzzle-ray convergence and obstruction ownership for Atom's future
+  third-person camera, including compatibility with an existing aim owner.
+* A compatible physical replacement for forms whose native projectile is
+  hitscan, including VATS timing, tracer/beam presentation, script observations,
+  and impact ordering.
+* Material identification stability across static, skinned, terrain, water,
+  destructible, and movable collision objects.
+* The exact safe continuation contract for penetration and ricochet after a
+  native impact result.
+* Multi-projectile DT scaling behavior across every ammoUse/projectile-count
+  combination. The branch is proven; a black-box matrix is still required.
+* AI planner scoring and target-selection contracts beyond the established
+  controller/style ownership.
+* VATS queued-shot synchronization for any future non-native ballistics.
+* Runtime interaction with the supported ecosystem under Proton/Wine.
+
+No item above should be guessed during implementation. Each needs a focused
+binary proof, behavioral harness where practical, and in-game acceptance test.
