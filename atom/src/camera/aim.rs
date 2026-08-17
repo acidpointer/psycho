@@ -8,6 +8,38 @@
 use super::follow::Vec3;
 use super::movement::wrap_angle;
 
+/// Origin and unit direction of one logical third-person view cast.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct ViewRay {
+    origin: Vec3,
+    direction: Vec3,
+}
+
+impl ViewRay {
+    pub(crate) const fn from_parts(origin: Vec3, direction: Vec3) -> Self {
+        Self { origin, direction }
+    }
+
+    /// Return the completed native render-camera position.
+    pub const fn origin(self) -> Vec3 {
+        self.origin
+    }
+
+    /// Return the logical camera direction.
+    pub const fn direction(self) -> Vec3 {
+        self.direction
+    }
+
+    /// Return the world point at a finite nonnegative distance along the ray.
+    pub fn point_at(self, distance: f32) -> Option<Vec3> {
+        if !distance.is_finite() || distance < 0.0 {
+            return None;
+        }
+        let point = self.origin + self.direction * distance;
+        point.is_finite().then_some(point)
+    }
+}
+
 /// Horizontal yaw and vertical pitch in FNV radians.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct AimAngles {
@@ -51,6 +83,29 @@ pub fn view_direction(yaw: f32, pitch: f32) -> Option<Vec3> {
         cos_yaw * cos_pitch,
         -sin_pitch,
     ))
+}
+
+/// Build the object-selection ray shown by the completed third-person camera.
+///
+/// FNV's original cast starts at its player-eye point. Once Atom owns an
+/// independently orbiting camera, retaining that origin creates visible
+/// parallax: the center crosshair can cover one object while native selection
+/// returns another. Both origins are required and validated so a corrupt
+/// native caller still fails closed, but the admitted ray starts at the final
+/// render-camera position and uses Atom's logical axes.
+pub fn third_person_view_ray(
+    native_eye_origin: Vec3,
+    render_camera_origin: Vec3,
+    yaw: f32,
+    pitch: f32,
+) -> Option<ViewRay> {
+    if !native_eye_origin.is_finite() || !render_camera_origin.is_finite() {
+        return None;
+    }
+    Some(ViewRay {
+        origin: render_camera_origin,
+        direction: view_direction(yaw, pitch)?,
+    })
 }
 
 /// Converge a native shot on a target while preserving sampled spread.

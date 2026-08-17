@@ -28,7 +28,7 @@ use libnvse::api::player_controls::PlayerControlsReader;
 use libpsycho::os::windows::winapi::get_current_thread_id;
 use thiserror::Error;
 
-pub use super::aim::{AimAngles, converge_angles, view_direction};
+pub use super::aim::{AimAngles, ViewRay, converge_angles, third_person_view_ray, view_direction};
 pub use super::follow::{FollowSolver, SpringAxis, Vec3};
 pub use super::movement::{
     FacingPolicy, LocomotionSector, MovementIntent, MovementOutput, MovementResolution,
@@ -43,12 +43,265 @@ use config::ConfigStore;
 const EXTERNAL_OWNER_CAPACITY: usize = 8;
 const MAX_DT: f32 = 0.1;
 const MAX_VIEW_PITCH: f32 = 1.553_343;
+const NATIVE_HANDOFF_SETTLE_SECONDS: f32 = 0.15;
+const RECENTER_INPUT_CHANGE_RADIANS: f32 = 0.017_453_293;
 const VIEW_MATCH_EPSILON: f32 = 0.000_1;
 const SCOPE_IDLE: u32 = 0;
 const SCOPE_PREPARING: u32 = 1;
 const SCOPE_ACTIVE: u32 = 2;
-const CAMERA_SCOPE_HEADING_ACTIVE: u32 = 1 << 0;
+const CAMERA_SCOPE_VIEW_ACTIVE: u32 = 1 << 0;
 const CAMERA_SCOPE_FOLLOW_ACTIVE: u32 = 1 << 1;
+
+/// Native route selected for one final look delta.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum LookRoute {
+    /// Atom advances the logical camera axis without writing Actor rotation.
+    CameraOnly,
+    /// The chained native Actor-rotation route remains the sole owner.
+    NativeOnly,
+    /// Native Actor rotation runs and Atom copies its result afterwards.
+    NativeAndSynchronize,
+}
+
+/// Select vertical-look ownership from the published camera state.
+///
+/// Explore free orbit is camera-only. Combat and a live native aim state must
+/// retain Actor pitch so character presentation, crosshair direction, and
+/// gameplay aim remain coupled. Non-owned states always remain native.
+pub const fn vertical_look_route(
+    ownership: OwnershipState,
+    movement_enabled: bool,
+    native_aiming: bool,
+) -> LookRoute {
+    if !movement_enabled {
+        return LookRoute::NativeOnly;
+    }
+    match ownership {
+        OwnershipState::Explore if !native_aiming => LookRoute::CameraOnly,
+        OwnershipState::Explore | OwnershipState::Combat => LookRoute::NativeAndSynchronize,
+        OwnershipState::Native | OwnershipState::Acquire | OwnershipState::Release => {
+            LookRoute::NativeOnly
+        }
+    }
+}
+
+/// Select horizontal-look ownership from the published camera state.
+///
+/// Explore orbit remains camera-only until native aim begins. AIM and Combat
+/// must let FNV rotate the Actor because its horizontal look routine derives
+/// absolute body yaw from the adjusted camera heading. Atom then adopts that
+/// raw Actor result and restores the same camera-only offset invariant.
+pub const fn horizontal_look_route(
+    ownership: OwnershipState,
+    movement_enabled: bool,
+    native_aiming: bool,
+) -> LookRoute {
+    vertical_look_route(ownership, movement_enabled, native_aiming)
+}
+
+/// Return the immediate Actor-yaw handoff required by AIM or Combat.
+///
+/// The target is the existing logical world-view heading. Applying it before
+/// native `UpdateCamera`, followed by camera-offset compensation, aligns the
+/// character without rotating the view. Camera-only Explore and native-owned
+/// epochs never receive an Actor write.
+pub fn actor_heading_handoff_target(
+    route: LookRoute,
+    actor_heading: f32,
+    logical_heading: f32,
+) -> Option<f32> {
+    if route != LookRoute::NativeAndSynchronize
+        || !actor_heading.is_finite()
+        || !logical_heading.is_finite()
+    {
+        return None;
+    }
+    let target = wrap_angle(logical_heading);
+    (wrap_angle(target - actor_heading).abs() > VIEW_MATCH_EPSILON).then_some(target)
+}
+
+/// Adopt the raw Actor yaw produced by FNV's native horizontal-look setter.
+///
+/// The setter at `0x00931D30` reads adjusted camera heading, adds the input
+/// delta, and publishes the result as absolute Actor yaw. Reading adjusted
+/// heading again here would add the old camera offset twice.
+pub fn logical_heading_after_native_look(actor_heading: f32) -> Option<f32> {
+    actor_heading.is_finite().then(|| wrap_angle(actor_heading))
+}
+
+/// Consecutive-normal-state gate for returning from a native camera owner.
+///
+/// FNV's Pip-Boy close path starts its player animation before clearing the UI
+/// owner byte, so one nominally normal sample does not prove that presentation
+/// has settled. This fixed, allocation-free timer resets on every interrupted
+/// sample and admits Atom only after a short continuous gameplay interval.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct NativeHandoffGuard {
+    stable_seconds: f32,
+}
+
+impl NativeHandoffGuard {
+    /// Construct a handoff that initially leaves camera ownership native.
+    pub const fn new() -> Self {
+        Self {
+            stable_seconds: 0.0,
+        }
+    }
+
+    /// Discard all accumulated normal-state time.
+    pub fn reset(&mut self) {
+        self.stable_seconds = 0.0;
+    }
+
+    /// Observe one native state and return whether Atom may begin acquisition.
+    ///
+    /// `normal_state` must already combine every hard owner and world-validity
+    /// predicate. Invalid or negative time is fail-native. Zero time preserves
+    /// an already-complete handoff but cannot advance an incomplete one.
+    pub fn advance(&mut self, normal_state: bool, delta_seconds: f32) -> bool {
+        if !normal_state || !delta_seconds.is_finite() || delta_seconds < 0.0 {
+            self.reset();
+            return false;
+        }
+        let bounded_delta = if delta_seconds <= MAX_DT {
+            delta_seconds
+        } else {
+            0.0
+        };
+        self.stable_seconds =
+            (self.stable_seconds + bounded_delta).min(NATIVE_HANDOFF_SETTLE_SECONDS);
+        self.stable_seconds >= NATIVE_HANDOFF_SETTLE_SECONDS
+    }
+}
+
+/// Advance finite logical camera pitch within FNV's established view limit.
+pub fn advance_logical_pitch(current: f32, delta: f32) -> Option<f32> {
+    (current.is_finite() && delta.is_finite())
+        .then(|| (current + delta).clamp(-MAX_VIEW_PITCH, MAX_VIEW_PITCH))
+}
+
+/// Advance ownership of Actor rotX and request one neutral handoff to Explore.
+///
+/// Native aim/Combat pitch may legitimately move the character. The first
+/// subsequent camera-only Explore frame must clear that presentation pitch
+/// exactly once while retaining Atom's logical camera pitch. A nonzero live
+/// Actor value also requests cleanup, so an intervening native UI epoch cannot
+/// erase the handoff merely by clearing temporal state. Native-owned states
+/// never modify engine state.
+pub fn advance_actor_pitch_ownership(
+    native_pitch_owned: &mut bool,
+    route: LookRoute,
+    observed_actor_pitch: f32,
+) -> bool {
+    match route {
+        LookRoute::NativeAndSynchronize => {
+            *native_pitch_owned = true;
+            false
+        }
+        LookRoute::CameraOnly => {
+            let pending_handoff = core::mem::take(native_pitch_owned);
+            pending_handoff
+                || (observed_actor_pitch.is_finite()
+                    && observed_actor_pitch.abs() > VIEW_MATCH_EPSILON)
+        }
+        LookRoute::NativeOnly => {
+            *native_pitch_owned = false;
+            false
+        }
+    }
+}
+
+/// Derive the camera-only offset that preserves one logical world heading.
+///
+/// FNV's adjusted heading is `base + player[0x6E4]`. Actor facing changes
+/// during camera-relative locomotion, and native camera helpers can also alter
+/// the offset. Removing the observed old offset recovers the current base;
+/// adding this returned value makes the next native adjusted heading equal the
+/// logical camera heading without feeding locomotion back into the view.
+pub fn compensated_camera_heading_offset(
+    native_adjusted_heading: f32,
+    current_offset: f32,
+    logical_heading: f32,
+) -> Option<f32> {
+    if !native_adjusted_heading.is_finite()
+        || !current_offset.is_finite()
+        || !logical_heading.is_finite()
+    {
+        return None;
+    }
+    let base_heading = wrap_angle(native_adjusted_heading - current_offset);
+    Some(wrap_angle(logical_heading - base_heading))
+}
+
+/// Select independently safe reticle and projectile-convergence capabilities.
+///
+/// A native reticle call is sufficient to align crosshair object selection.
+/// Projectile convergence additionally requires the native spawn call, but an
+/// existing spawn owner must never disable the otherwise independent reticle.
+pub const fn reticle_and_convergence_admission(
+    reticle_is_native: bool,
+    spawn_is_native: bool,
+) -> (bool, bool) {
+    let reticle_admitted = reticle_is_native;
+    let convergence_admitted = reticle_admitted && spawn_is_native;
+    (reticle_admitted, convergence_admitted)
+}
+
+/// Restrict follow lag to the current three-dimensional view axis.
+///
+/// The returned displacement may change chase distance but is collinear with
+/// the logical view direction, so applying it to FNV's desired camera point
+/// cannot steer yaw, pitch, or lateral framing. Invalid input is rejected.
+pub fn axial_follow_offset(solved: Vec3, view_yaw: f32, view_pitch: f32) -> Option<Vec3> {
+    if !solved.is_finite() {
+        return None;
+    }
+    let view_axis = view_direction(view_yaw, view_pitch)?;
+    let distance = solved.x.mul_add(
+        view_axis.x,
+        solved.y.mul_add(view_axis.y, solved.z * view_axis.z),
+    );
+    let projected = view_axis * distance;
+    projected.is_finite().then_some(projected)
+}
+
+/// Compose follow distance onto FNV's exact native pivot-to-camera ray.
+///
+/// Shoulder placement and other native camera geometry may make that ray
+/// differ slightly from the logical view axis. Reprojecting at the native
+/// seam guarantees follow can change only distance. Degenerate geometry, a
+/// request that would cross the pivot, or non-finite input returns `None` so
+/// the hook can chain the untouched native values.
+pub fn compose_follow_camera(desired: Vec3, pivot: Vec3, follow: Vec3) -> Option<Vec3> {
+    if !desired.is_finite() || !pivot.is_finite() || !follow.is_finite() {
+        return None;
+    }
+    if follow == Vec3::default() {
+        return Some(desired);
+    }
+    let ray = desired - pivot;
+    let native_distance = ray.length();
+    if !native_distance.is_finite() || native_distance <= f32::EPSILON {
+        return None;
+    }
+    let direction = ray * native_distance.recip();
+    let distance_delta = follow.x.mul_add(
+        direction.x,
+        follow.y.mul_add(direction.y, follow.z * direction.z),
+    );
+    if !distance_delta.is_finite() {
+        return None;
+    }
+    if distance_delta.abs() <= 0.000_01 {
+        return Some(desired);
+    }
+    let final_distance = native_distance + distance_delta;
+    if !final_distance.is_finite() || final_distance <= f32::EPSILON {
+        return None;
+    }
+    let composed = pivot + direction * final_distance;
+    composed.is_finite().then_some(composed)
+}
 
 static CONFIG: ConfigStore = ConfigStore::new();
 static CONTROLS: OnceLock<PlayerControlsReader> = OnceLock::new();
@@ -57,7 +310,8 @@ static HOOKS_ACTIVE: AtomicBool = AtomicBool::new(false);
 static FOLLOW_ACTIVE: AtomicBool = AtomicBool::new(false);
 static MOVEMENT_ACTIVE: AtomicBool = AtomicBool::new(false);
 static ZOOM_ACTIVE: AtomicBool = AtomicBool::new(false);
-static AIM_ACTIVE: AtomicBool = AtomicBool::new(false);
+static RETICLE_ACTIVE: AtomicBool = AtomicBool::new(false);
+static CONVERGENCE_ACTIVE: AtomicBool = AtomicBool::new(false);
 // The inverse native conversion can yield fractional DirectInput wheel units.
 // One f32 bit pattern is sufficient for the bounded [-0.5, 0.5] remainder and is
 // lock-free on the supported 32-bit target. Contention fails to native input.
@@ -75,6 +329,7 @@ static CAMERA_SCOPE_PLAYER: AtomicU32 = AtomicU32::new(0);
 static CAMERA_SCOPE_THREAD: AtomicU32 = AtomicU32::new(0);
 static CAMERA_SCOPE_FLAGS: AtomicU32 = AtomicU32::new(0);
 static CAMERA_SCOPE_HEADING: AtomicU32 = AtomicU32::new(0);
+static CAMERA_SCOPE_PITCH: AtomicU32 = AtomicU32::new(0);
 static CAMERA_SCOPE_FOLLOW_X: AtomicU32 = AtomicU32::new(0);
 static CAMERA_SCOPE_FOLLOW_Y: AtomicU32 = AtomicU32::new(0);
 static CAMERA_SCOPE_FOLLOW_Z: AtomicU32 = AtomicU32::new(0);
@@ -103,11 +358,13 @@ pub(crate) enum ThirdPersonInstallError {
 pub(crate) struct ThirdPersonHookStatus {
     pub(crate) zoom_predecessor: Option<usize>,
     pub(crate) camera_heading_predecessor: Option<usize>,
+    pub(crate) camera_pitch_predecessor: Option<usize>,
     pub(crate) follow_predecessor: Option<usize>,
     pub(crate) movement_scope_predecessor: Option<usize>,
     pub(crate) movement_request_predecessor: Option<usize>,
     pub(crate) reticle_predecessor: Option<usize>,
     pub(crate) spawn_predecessor: Option<usize>,
+    pub(crate) reticle_admitted: bool,
     pub(crate) aim_admitted: bool,
 }
 
@@ -245,8 +502,10 @@ pub(crate) fn install_native_system(
             None
         }
     });
+    let reticle_admitted = aim_predecessors.is_some_and(|value| value.reticle_admitted);
     let aim_admitted = aim_predecessors.is_some_and(|value| value.aim_admitted);
-    AIM_ACTIVE.store(aim_admitted, Ordering::Release);
+    RETICLE_ACTIVE.store(reticle_admitted, Ordering::Release);
+    CONVERGENCE_ACTIVE.store(aim_admitted, Ordering::Release);
     // Preserve the accepted follow/movement/aim transaction order. Fine zoom
     // is a new independent capability and is appended after those established
     // DeferredInit operations so its failure cannot perturb their admission.
@@ -277,11 +536,13 @@ pub(crate) fn install_native_system(
     Ok(ThirdPersonHookStatus {
         zoom_predecessor,
         camera_heading_predecessor: movement_predecessors.map(|value| value.camera_heading),
+        camera_pitch_predecessor: movement_predecessors.map(|value| value.camera_pitch),
         follow_predecessor,
         movement_scope_predecessor: movement_predecessors.map(|value| value.movement_scope),
         movement_request_predecessor: movement_predecessors.map(|value| value.movement_request),
         reticle_predecessor: aim_predecessors.map(|value| value.reticle),
         spawn_predecessor: aim_predecessors.map(|value| value.spawn),
+        reticle_admitted,
         aim_admitted,
     })
 }
@@ -360,6 +621,12 @@ pub(crate) fn refine_zoom_wheel(native_delta: i32) -> i32 {
         clear_zoom_residual();
         return native_delta;
     }
+    if combat_requested(frame, config)
+        && unsafe { native::fighting_control_disabled(frame.player, controls) }
+    {
+        clear_zoom_residual();
+        return native_delta;
+    }
     let Some(sample) = (unsafe { native::zoom_sample(native_delta) }) else {
         clear_zoom_residual();
         return native_delta;
@@ -405,19 +672,23 @@ pub(crate) fn consume_horizontal_heading(player: *mut c_void, delta: f32) -> boo
             let Some((frame, config)) = runtime.refresh(player) else {
                 return false;
             };
-            // Follow-only mode deliberately keeps vanilla look/facing coupled.
-            // Free orbit is admitted only when the complete movement/facing
-            // seam is active, avoiding a camera that can outrun gameplay yaw.
-            if !runtime.ownership.state().is_owned()
-                || !config.movement_enabled()
-                || frame.player != player
-            {
+            let route = horizontal_look_route(
+                runtime.ownership.state(),
+                config.movement_enabled(),
+                unsafe { native::player_is_aiming(player) },
+            );
+            // Follow-only and native-owned modes preserve the complete FNV
+            // path. AIM/Combat also stays native so body yaw is authoritative;
+            // observe_native_horizontal_heading synchronizes the logical view
+            // after the setter has run.
+            if route != LookRoute::CameraOnly || frame.player != player {
                 return false;
             }
             runtime.view_yaw = wrap_angle(runtime.view_yaw + delta);
             if delta.abs() > 0.000_001 {
                 runtime.manual_idle_seconds = 0.0;
                 runtime.recenter_speed = 0.0;
+                runtime.recenter_target = None;
             }
             true
         })
@@ -426,15 +697,92 @@ pub(crate) fn consume_horizontal_heading(player: *mut c_void, delta: f32) -> boo
     consumed
 }
 
-pub(crate) fn observe_vertical_heading(player: *mut c_void) {
-    if !HOOKS_ACTIVE.load(Ordering::Acquire) {
+/// Refresh logical heading after native AIM/Combat updates Actor rotZ.
+pub(crate) fn observe_native_horizontal_heading(player: *mut c_void) {
+    if !HOOKS_ACTIVE.load(Ordering::Acquire) || !MOVEMENT_ACTIVE.load(Ordering::Acquire) {
+        return;
+    }
+    let logical_heading = RUNTIME
+        .with_mut(|runtime| {
+            let (frame, config) = runtime.refresh(player)?;
+            let route = horizontal_look_route(
+                runtime.ownership.state(),
+                config.movement_enabled(),
+                unsafe { native::player_is_aiming(player) },
+            );
+            if route != LookRoute::NativeAndSynchronize || frame.player != player {
+                return None;
+            }
+            let heading = logical_heading_after_native_look(frame.actor_yaw)?;
+            if wrap_angle(heading - runtime.view_yaw).abs() > 0.000_001 {
+                runtime.manual_idle_seconds = 0.0;
+                runtime.recenter_speed = 0.0;
+                runtime.recenter_target = None;
+            }
+            runtime.view_yaw = heading;
+            Some(heading)
+        })
+        .flatten();
+    if logical_heading
+        .is_some_and(|heading| unsafe { !native::synchronize_camera_heading(player, heading) })
+    {
+        request_reset();
+    }
+}
+
+pub(crate) fn consume_vertical_heading(player: *mut c_void, delta: f32) -> bool {
+    if !HOOKS_ACTIVE.load(Ordering::Acquire)
+        || !MOVEMENT_ACTIVE.load(Ordering::Acquire)
+        || !delta.is_finite()
+    {
+        return false;
+    }
+    RUNTIME
+        .with_mut(|runtime| {
+            let Some((frame, config)) = runtime.refresh(player) else {
+                return false;
+            };
+            let route = vertical_look_route(
+                runtime.ownership.state(),
+                config.movement_enabled(),
+                unsafe { native::player_is_aiming(player) },
+            );
+            if route != LookRoute::CameraOnly || frame.player != player {
+                return false;
+            }
+            let Some(pitch) = advance_logical_pitch(runtime.view_pitch, delta) else {
+                return false;
+            };
+            runtime.view_pitch = pitch;
+            if delta.abs() > 0.000_001 {
+                // Any manual orbit input owns the complete view. Vertical look
+                // must cancel a pending horizontal recenter just as yaw does.
+                runtime.manual_idle_seconds = 0.0;
+                runtime.recenter_speed = 0.0;
+                runtime.recenter_target = None;
+            }
+            true
+        })
+        .unwrap_or(false)
+}
+
+/// Refresh logical pitch after the native Combat route updates Actor rotX.
+pub(crate) fn observe_native_vertical_heading(player: *mut c_void) {
+    if !HOOKS_ACTIVE.load(Ordering::Acquire) || !MOVEMENT_ACTIVE.load(Ordering::Acquire) {
         return;
     }
     let _ = RUNTIME.with_mut(|runtime| {
-        let Some((frame, _)) = runtime.refresh(player) else {
+        let Some((frame, config)) = runtime.refresh(player) else {
             return;
         };
-        if runtime.ownership.state().is_owned() {
+        let route = vertical_look_route(
+            runtime.ownership.state(),
+            config.movement_enabled(),
+            unsafe { native::player_is_aiming(player) },
+        );
+        if route == LookRoute::NativeAndSynchronize && frame.player == player {
+            let _ =
+                advance_actor_pitch_ownership(&mut runtime.native_pitch_owned, route, frame.pitch);
             runtime.view_pitch = frame.pitch.clamp(-MAX_VIEW_PITCH, MAX_VIEW_PITCH);
         }
     });
@@ -482,6 +830,24 @@ pub(crate) fn enter_camera_update_scope(player: *mut c_void) -> Option<CameraUpd
         clear_preparing_camera_scope(generation, owner_thread);
         return None;
     };
+    let actor_heading_succeeded = prepared.align_actor_heading.is_none_or(|target| {
+        let Some(_facing_scope) = FacingCallScope::enter() else {
+            return false;
+        };
+        if !unsafe { native::invoke_actor_yaw_setter(player, target) } {
+            return false;
+        }
+        unsafe { native::raw_actor_yaw(player) }
+            .is_some_and(|actual| wrap_angle(actual - target).abs() <= VIEW_MATCH_EPSILON)
+    });
+    let native_writes_succeeded = actor_heading_succeeded
+        && unsafe { native::synchronize_camera_heading(player, prepared.heading) }
+        && (!prepared.neutralize_actor_pitch || unsafe { native::neutralize_actor_pitch(player) });
+    if !native_writes_succeeded {
+        request_reset();
+        clear_preparing_camera_scope(generation, owner_thread);
+        return None;
+    }
     if RESET_GENERATION.load(Ordering::Acquire) != reset_generation
         || CAMERA_SCOPE_STATE.load(Ordering::Acquire) != SCOPE_PREPARING
         || CAMERA_SCOPE_GENERATION.load(Ordering::Relaxed) != generation
@@ -492,6 +858,7 @@ pub(crate) fn enter_camera_update_scope(player: *mut c_void) -> Option<CameraUpd
     CAMERA_SCOPE_PLAYER.store(pointer_word(player), Ordering::Relaxed);
     CAMERA_SCOPE_FLAGS.store(prepared.flags, Ordering::Relaxed);
     CAMERA_SCOPE_HEADING.store(prepared.heading.to_bits(), Ordering::Relaxed);
+    CAMERA_SCOPE_PITCH.store(prepared.pitch.to_bits(), Ordering::Relaxed);
     CAMERA_SCOPE_FOLLOW_X.store(prepared.follow_offset.x.to_bits(), Ordering::Relaxed);
     CAMERA_SCOPE_FOLLOW_Y.store(prepared.follow_offset.y.to_bits(), Ordering::Relaxed);
     CAMERA_SCOPE_FOLLOW_Z.store(prepared.follow_offset.z.to_bits(), Ordering::Relaxed);
@@ -533,12 +900,23 @@ pub(crate) fn leave_camera_update_scope(scope: CameraUpdateScope) {
 /// Return the scoped logical heading for this player and owner thread.
 pub(crate) fn scoped_camera_heading(player: *mut c_void) -> Option<f32> {
     if !camera_scope_matches(player)
-        || CAMERA_SCOPE_FLAGS.load(Ordering::Relaxed) & CAMERA_SCOPE_HEADING_ACTIVE == 0
+        || CAMERA_SCOPE_FLAGS.load(Ordering::Relaxed) & CAMERA_SCOPE_VIEW_ACTIVE == 0
     {
         return None;
     }
     let heading = f32::from_bits(CAMERA_SCOPE_HEADING.load(Ordering::Relaxed));
     heading.is_finite().then_some(heading)
+}
+
+/// Return the scoped logical pitch for this player and owner thread.
+pub(crate) fn scoped_camera_pitch(player: *mut c_void) -> Option<f32> {
+    if !camera_scope_matches(player)
+        || CAMERA_SCOPE_FLAGS.load(Ordering::Relaxed) & CAMERA_SCOPE_VIEW_ACTIVE == 0
+    {
+        return None;
+    }
+    let pitch = f32::from_bits(CAMERA_SCOPE_PITCH.load(Ordering::Relaxed));
+    pitch.is_finite().then_some(pitch)
 }
 
 /// Return the scoped follow displacement for this player and owner thread.
@@ -671,17 +1049,37 @@ pub(crate) fn movement_override(
             // bits remain authoritative and no Explore sector may leak back
             // across the ownership transition.
             runtime.locomotion_sector = None;
+            runtime.recenter_target = None;
             (FacingPolicy::Combat, None)
         } else {
             (FacingPolicy::Explore, runtime.locomotion_sector)
         };
         let intent = MovementIntent::new(native_movement, flags, runtime.view_yaw, policy);
         let movement_heading = intent.movement_heading();
+        let movement_input_heading =
+            movement_heading.map(|_| wrap_angle(native_movement.x.atan2(native_movement.y)));
+        let input_changed = match (runtime.movement_input_heading, movement_input_heading) {
+            (Some(previous), Some(current)) => {
+                wrap_angle(current - previous).abs() > RECENTER_INPUT_CHANGE_RADIANS
+            }
+            (None, None) => false,
+            _ => true,
+        };
+        if input_changed {
+            // A fresh or changed direction gets its own delay and fixed
+            // world-space recenter target. Without this reset, entering a
+            // lateral direction after an idle interval can turn immediately.
+            runtime.manual_idle_seconds = 0.0;
+            runtime.recenter_speed = 0.0;
+            runtime.recenter_target = None;
+        }
+        runtime.movement_input_heading = movement_input_heading;
         if let Some(heading) = movement_heading {
             runtime.last_movement_heading = heading;
             runtime.last_movement_magnitude = native_movement.horizontal_length();
         } else {
             runtime.last_movement_magnitude = 0.0;
+            runtime.recenter_target = None;
         }
         let facing = intent.facing_target().map(|target| {
             step_heading(
@@ -697,6 +1095,7 @@ pub(crate) fn movement_override(
             intent,
             facing,
             previous_sector,
+            logical_heading: runtime.view_yaw,
             player: runtime.player,
             epoch: runtime.ownership.epoch(),
         })
@@ -716,6 +1115,10 @@ pub(crate) fn movement_override(
         request_reset();
         return None;
     };
+    if !unsafe { native::synchronize_camera_heading(actor, prepared.logical_heading) } {
+        request_reset();
+        return None;
+    }
     let resolution = prepared
         .intent
         .resolve_stateful(actual_actor_yaw, prepared.previous_sector);
@@ -742,6 +1145,7 @@ struct PreparedMovement {
     intent: MovementIntent,
     facing: Option<f32>,
     previous_sector: Option<LocomotionSector>,
+    logical_heading: f32,
     player: u32,
     epoch: u32,
 }
@@ -785,7 +1189,7 @@ impl ViewCastPrepared {
 }
 
 pub(crate) fn prepare_view_cast(origin: Vec3, max_distance: f32) -> Option<ViewCastPrepared> {
-    if !AIM_ACTIVE.load(Ordering::Acquire)
+    if !RETICLE_ACTIVE.load(Ordering::Acquire)
         || !origin.is_finite()
         || !max_distance.is_finite()
         || max_distance <= 0.0
@@ -801,10 +1205,12 @@ pub(crate) fn prepare_view_cast(origin: Vec3, max_distance: f32) -> Option<ViewC
         {
             return None;
         }
-        let direction = view_direction(runtime.view_yaw, runtime.view_pitch)?;
+        let camera_origin = unsafe { native::render_camera_origin()? };
+        let ray =
+            third_person_view_ray(origin, camera_origin, runtime.view_yaw, runtime.view_pitch)?;
         Some(ViewCastPrepared {
-            origin,
-            direction,
+            origin: ray.origin(),
+            direction: ray.direction(),
             max_distance,
             player: pointer_word(player),
             frame_id: input_frame_id(),
@@ -844,7 +1250,7 @@ pub(crate) fn prepare_spawn(
     weapon: *mut c_void,
     native_final: AimAngles,
 ) -> Option<(Vec3, AimAngles)> {
-    if !AIM_ACTIVE.load(Ordering::Acquire) || source != native::player() {
+    if !CONVERGENCE_ACTIVE.load(Ordering::Acquire) || source != native::player() {
         return None;
     }
 
@@ -873,7 +1279,8 @@ pub(crate) fn prepare_spawn(
     let range = unsafe { native::admitted_projectile_range(projectile, weapon)? };
     let (muzzle, native_base) = unsafe { native::real_muzzle(source, weapon)? };
     let distance = prepared.distance.min(range);
-    let target = prepared.origin + prepared.direction * distance;
+    let ray = ViewRay::from_parts(prepared.origin, prepared.direction);
+    let target = ray.point_at(distance)?;
     let angles = converge_angles(muzzle, target, native_base, native_final)?;
     Some((muzzle, angles))
 }
@@ -926,6 +1333,7 @@ impl RuntimeStore {
 
 struct RuntimeState {
     ownership: OwnershipMachine,
+    native_handoff: NativeHandoffGuard,
     player: u32,
     cell: u32,
     last_frame_id: u32,
@@ -935,10 +1343,13 @@ struct RuntimeState {
     last_camera_frame: u32,
     manual_idle_seconds: f32,
     recenter_speed: f32,
+    recenter_target: Option<f32>,
+    movement_input_heading: Option<f32>,
     actor_turn_speed: f32,
     last_movement_heading: f32,
     last_movement_magnitude: f32,
     locomotion_sector: Option<LocomotionSector>,
+    native_pitch_owned: bool,
     aim_sample: AimSample,
 }
 
@@ -946,6 +1357,7 @@ impl RuntimeState {
     const fn new() -> Self {
         Self {
             ownership: OwnershipMachine::new(),
+            native_handoff: NativeHandoffGuard::new(),
             player: 0,
             cell: 0,
             last_frame_id: 0,
@@ -955,10 +1367,13 @@ impl RuntimeState {
             last_camera_frame: 0,
             manual_idle_seconds: 0.0,
             recenter_speed: 0.0,
+            recenter_target: None,
+            movement_input_heading: None,
             actor_turn_speed: 0.0,
             last_movement_heading: 0.0,
             last_movement_magnitude: 0.0,
             locomotion_sector: None,
+            native_pitch_owned: false,
             aim_sample: AimSample {
                 valid: false,
                 origin: Vec3::new(0.0, 0.0, 0.0),
@@ -981,9 +1396,12 @@ impl RuntimeState {
         self.last_camera_frame = 0;
         self.manual_idle_seconds = 0.0;
         self.recenter_speed = 0.0;
+        self.recenter_target = None;
+        self.movement_input_heading = None;
         self.actor_turn_speed = 0.0;
         self.last_movement_magnitude = 0.0;
         self.locomotion_sector = None;
+        self.native_pitch_owned = false;
         self.aim_sample = AimSample::default();
     }
 
@@ -1001,10 +1419,13 @@ impl RuntimeState {
         self.last_camera_frame = 0;
         self.manual_idle_seconds = 0.0;
         self.recenter_speed = 0.0;
+        self.recenter_target = None;
+        self.movement_input_heading = None;
         self.actor_turn_speed = 0.0;
         self.last_movement_heading = 0.0;
         self.last_movement_magnitude = 0.0;
         self.locomotion_sector = None;
+        self.native_pitch_owned = false;
         self.aim_sample = AimSample::default();
     }
 
@@ -1019,13 +1440,26 @@ impl RuntimeState {
         let config = CONFIG.load();
         let frame = unsafe { native::observe(expected_player, controls) };
         let external_owner = external_owner_active();
-        let combat = frame.weapon_out && (!config.drawn_360() || frame.combat_intent);
+        let combat = combat_requested(frame, config);
+        let fighting_owner =
+            combat && unsafe { native::fighting_control_disabled(frame.player, controls) };
         let enabled = (config.follow_enabled() && FOLLOW_ACTIVE.load(Ordering::Acquire))
             || (config.movement_enabled() && MOVEMENT_ACTIVE.load(Ordering::Acquire));
+        let frame_advanced = frame.frame_id != self.last_frame_id;
+        let native_state_clear = enabled && frame.hard_valid && !external_owner && !fighting_owner;
+        let handoff_delta = if frame_advanced {
+            frame.delta_seconds
+        } else {
+            0.0
+        };
+        let handoff_ready = self
+            .native_handoff
+            .advance(native_state_clear, handoff_delta);
+        let native_owner = frame.native_owner || external_owner || fighting_owner || !handoff_ready;
         let input = OwnershipInput::new(
             enabled,
             frame.stable_third_person,
-            frame.native_owner || external_owner,
+            native_owner,
             frame.world_ready,
             combat,
             pointer_word(frame.cell),
@@ -1037,11 +1471,12 @@ impl RuntimeState {
             if transition.begins_acquire() {
                 self.seed(frame);
             } else if transition.current() == OwnershipState::Release {
+                self.native_handoff.reset();
                 self.clear_temporal();
             }
         } else if self.ownership.state().is_owned()
             && (!frame.hard_valid
-                || external_owner
+                || native_owner
                 || self.player != pointer_word(frame.player)
                 || self.cell != pointer_word(frame.cell))
         {
@@ -1049,11 +1484,14 @@ impl RuntimeState {
             // that share an input-frame id. Revoke immediately instead of
             // waiting for the next normal classifier advance.
             self.ownership.force_release();
+            self.native_handoff.reset();
             self.clear_temporal();
         }
         diagnostics::mark_observation(
             if external_owner {
                 native::NativeRejection::ExternalOwner
+            } else if fighting_owner {
+                native::NativeRejection::DisabledControls
             } else {
                 frame.rejection
             },
@@ -1076,18 +1514,40 @@ impl RuntimeState {
 
         self.advance_camera_temporal(frame, config, follow_enabled, movement_enabled);
 
+        let native_aiming = unsafe { native::player_is_aiming(player) };
+        let vertical_route =
+            vertical_look_route(self.ownership.state(), movement_enabled, native_aiming);
+        let neutralize_actor_pitch = advance_actor_pitch_ownership(
+            &mut self.native_pitch_owned,
+            vertical_route,
+            frame.pitch,
+        );
+        let horizontal_route =
+            horizontal_look_route(self.ownership.state(), movement_enabled, native_aiming);
+        let align_actor_heading =
+            actor_heading_handoff_target(horizontal_route, frame.actor_yaw, self.view_yaw);
+
         let follow_offset = if follow_enabled {
-            self.follow.position() - frame.pivot
+            let solved = self.follow.position() - frame.pivot;
+            // FNV already translates the camera with the player. Publishing
+            // unconstrained world-space spring lag moves the camera sideways
+            // when the player strafes, so locomotion visibly steers the view
+            // even though logical yaw is unchanged. Restrict follow response
+            // to the current view axis: it may vary chase distance but cannot
+            // change yaw or pitch. Native collision still receives the exact
+            // player pivot and complete desired-camera segment.
+            axial_follow_offset(solved, self.view_yaw, self.view_pitch)?
         } else {
             Vec3::default()
         };
-        if !self.view_yaw.is_finite() || !follow_offset.is_finite() {
+        if !self.view_yaw.is_finite() || !self.view_pitch.is_finite() || !follow_offset.is_finite()
+        {
             return None;
         }
 
         let mut flags = 0;
         if movement_enabled {
-            flags |= CAMERA_SCOPE_HEADING_ACTIVE;
+            flags |= CAMERA_SCOPE_VIEW_ACTIVE;
         }
         if follow_enabled {
             flags |= CAMERA_SCOPE_FOLLOW_ACTIVE;
@@ -1095,6 +1555,9 @@ impl RuntimeState {
         Some(PreparedCameraFrame {
             flags,
             heading: self.view_yaw,
+            pitch: self.view_pitch,
+            align_actor_heading,
+            neutralize_actor_pitch,
             follow_offset,
         })
     }
@@ -1115,8 +1578,8 @@ impl RuntimeState {
         // acquisition-time direction after native look.
         if !movement_enabled {
             self.view_yaw = frame.camera_heading;
+            self.view_pitch = frame.pitch.clamp(-MAX_VIEW_PITCH, MAX_VIEW_PITCH);
         }
-        self.view_pitch = frame.pitch.clamp(-MAX_VIEW_PITCH, MAX_VIEW_PITCH);
 
         let dt = validated_delta(frame.delta_seconds);
         self.manual_idle_seconds = (self.manual_idle_seconds + dt).min(60.0);
@@ -1127,9 +1590,15 @@ impl RuntimeState {
             && self.manual_idle_seconds >= config.center_delay()
             && self.last_movement_magnitude > 0.05
         {
+            // Camera-relative intent changes as the camera turns. Latch one
+            // world-space target for the current input direction so recenter
+            // cannot chase a lateral/back target around the player forever.
+            let target = *self
+                .recenter_target
+                .get_or_insert(self.last_movement_heading);
             self.view_yaw = step_heading(
                 self.view_yaw,
-                self.last_movement_heading,
+                target,
                 &mut self.recenter_speed,
                 config.center_speed_radians(),
                 config.center_speed_radians() * 5.0,
@@ -1137,6 +1606,12 @@ impl RuntimeState {
             );
         } else {
             self.recenter_speed = 0.0;
+            if !config.auto_center()
+                || self.ownership.state() != OwnershipState::Explore
+                || self.last_movement_magnitude <= 0.05
+            {
+                self.recenter_target = None;
+            }
         }
 
         // Recenter must complete before advancing follow. Both outputs are
@@ -1153,6 +1628,9 @@ impl RuntimeState {
 struct PreparedCameraFrame {
     flags: u32,
     heading: f32,
+    pitch: f32,
+    align_actor_heading: Option<f32>,
+    neutralize_actor_pitch: bool,
     follow_offset: Vec3,
 }
 
@@ -1165,6 +1643,10 @@ fn validated_delta(dt: f32) -> f32 {
         // energy and make camera motion depend on callback count.
         0.0
     }
+}
+
+fn combat_requested(frame: native::NativeFrame, config: ThirdPersonConfig) -> bool {
+    frame.weapon_out && (!config.drawn_360() || frame.combat_intent)
 }
 
 fn camera_scope_matches(player: *mut c_void) -> bool {
@@ -1200,6 +1682,7 @@ fn clear_camera_scope() {
     CAMERA_SCOPE_THREAD.store(0, Ordering::Relaxed);
     CAMERA_SCOPE_FLAGS.store(0, Ordering::Relaxed);
     CAMERA_SCOPE_HEADING.store(0, Ordering::Relaxed);
+    CAMERA_SCOPE_PITCH.store(0, Ordering::Relaxed);
     CAMERA_SCOPE_FOLLOW_X.store(0, Ordering::Relaxed);
     CAMERA_SCOPE_FOLLOW_Y.store(0, Ordering::Relaxed);
     CAMERA_SCOPE_FOLLOW_Z.store(0, Ordering::Relaxed);
@@ -1215,6 +1698,7 @@ fn clear_preparing_camera_scope(generation: u32, thread: u32) {
         CAMERA_SCOPE_THREAD.store(0, Ordering::Relaxed);
         CAMERA_SCOPE_FLAGS.store(0, Ordering::Relaxed);
         CAMERA_SCOPE_HEADING.store(0, Ordering::Relaxed);
+        CAMERA_SCOPE_PITCH.store(0, Ordering::Relaxed);
         CAMERA_SCOPE_FOLLOW_X.store(0, Ordering::Relaxed);
         CAMERA_SCOPE_FOLLOW_Y.store(0, Ordering::Relaxed);
         CAMERA_SCOPE_FOLLOW_Z.store(0, Ordering::Relaxed);
@@ -1294,6 +1778,7 @@ mod tests {
             pivot,
             actor_yaw: 0.0,
             camera_heading: heading,
+            camera_heading_offset: 0.0,
             pitch: 0.25,
             delta_seconds: dt,
             stable_third_person: true,

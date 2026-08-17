@@ -1,15 +1,15 @@
 # Atom third-person camera and 360 movement plan
 
-Status: implementation complete and statically validated on the supported
-32-bit target. All behavior remains off by default pending the documented
-Proton/BaseObjectSwapper, transition, collision, animation, and aim playtests.
+Status: implementation candidate on the supported 32-bit target. Behavior is
+unaccepted pending the documented Proton/BaseObjectSwapper, transition,
+collision, animation, movement-isolation, and aim playtests.
 
 ## Intended result
 
 Atom will provide one ESP-less third-person system with two coordinated parts:
 
-1. a responsive free-orbit camera whose position follows the player with
-   controlled, human-like lag instead of remaining rigidly attached; and
+1. a responsive free-orbit camera whose chase distance follows the player with
+   controlled lag without letting locomotion steer the view axes; and
 2. camera-relative 360-degree locomotion in which view direction, movement
    direction, actor facing, animation, aiming, and native camera ownership stay
    consistent through every state transition.
@@ -42,36 +42,39 @@ viewmodel system. It implements the complete researched path:
 - compatibility with xNVSE's published predicate-only player-controls
   interface, using one combined-mask any-intersection query when its optional
   complete-mask slot is null;
-- analytic follow springs, dead/soft-zone shaping, bounded horizontal
-  lookahead, teleport/cell/discontinuous-time reset, and native collision;
-- immediate logical yaw, native-clamped pitch, optional recentering, scoped
-  camera-relative movement, high-flag preservation, stateful eight-way Explore
+- analytic follow springs, dead/soft-zone shaping, bounded lookahead projected
+  onto the current view axis, teleport/cell/discontinuous-time reset, and
+  native collision;
+- immediate logical yaw and pitch, scoped camera-only axis publication,
+  optional fixed-target recentering, camera-relative movement, high-flag
+  preservation, stateful eight-way Explore
   flags, native Combat flags, and post-setter raw-`rotZ` compensation around
   the live virtual yaw setter;
 - constant-step third-person wheel zoom that retains native desired-distance,
   collision, clamp, POV, and direction-specific multiplier ownership;
-- the native ViewCaster ray paired with real-projectile-node muzzle
-  convergence while preserving the exact native spread delta and projectile
-  class, range, collision, and impact ownership;
+- the native ViewCaster aligned independently to the rendered camera for
+  crosshair/object selection, with optional real-projectile-node muzzle
+  convergence when the launch call is available, preserving the exact native
+  spread delta and projectile class, range, collision, and impact ownership;
 - one documented C interop entry point,
   `AtomCamera_SetExternalOwner(nonzero_token, active)`, for vehicle or scripted
   camera providers whose ownership cannot be inferred from base FNV state.
 
-Follow-only mode deliberately retains vanilla actor/view yaw coupling. Follow
+Follow-only mode deliberately retains vanilla actor/view axis coupling. Follow
 and movement settings and native capabilities are otherwise independent. Atom
 diverts horizontal look only when the complete movement and facing capability
 is enabled, which closes the Phase 2 stationary/free-orbit ambiguity without
-silently narrowing movement correctness. Aim hooks are enabled only after the
-movement group is available and both reticle/spawn calls still target vanilla
-at Atom admission; otherwise the pair stays native while follow and movement
-remain independently available.
+silently narrowing movement correctness. Reticle alignment is enabled after
+the movement group is available when its call still targets vanilla. Optional
+projectile convergence additionally requires the spawn call to target vanilla;
+an existing spawn owner does not disable independent object alignment.
 
 Configuration is MCM-owned and atomically published. Bounds are `1..20` follow
 speed, `0..48` soft zone, `0..32` lookahead, `0..5` seconds center delay,
 `15..360` degrees/second center speed, and `90..1080` degrees/second actor turn
 speed. Fine zoom is `1..10` world units per notch and defaults to `2`. Camera
-and movement toggles default off; auto-center defaults on but has no effect
-until follow and movement are active.
+and movement toggles default off. Auto-center also defaults off and has no
+effect until follow and movement are active.
 
 The implementation uses fixed atomics plus one nonblocking `UnsafeCell` lease
 for main-thread temporal state. Lease contention, reentrancy, invalid pointers,
@@ -163,6 +166,12 @@ Atom/native input frame
 delta, and calls its yaw setter. Normal horizontal look is therefore actor
 rotation first and camera construction second. That coupling is why vanilla
 third person feels rigid: looking and gameplay facing are the same operation.
+For PlayerCharacter the current-yaw result is adjusted heading: raw Actor
+`rotZ` plus the camera-only scalar at `+0x6E4`. Consequently an AIM handoff
+must first set raw Actor yaw to the existing logical view and then recompute
+`+0x6E4` from the live post-setter state. Leaving the old offset in place
+doubles the separation; retaining camera-only input during AIM leaves the body
+behind until native camera ownership snaps back to it.
 
 `PlayerCharacter::UpdateCamera` calls player virtual `+0x2BC` and stores its
 adjusted horizontal heading at `0x011E076C`. It then calls `0x00931D70`, the
@@ -366,6 +375,15 @@ plugin, or claim automatic compatibility with otherwise unknown vehicle mods.
 Without that interop signal, the camera feature must remain off for a vehicle
 profile.
 
+Pip-Boy close does not expose a synchronous animation-complete bit. Exact
+executable inspection of `FOPipboyManager` close at `0x007F8170` shows native
+animation calls at `0x007F81D8..0x007F8263`; the Pip-Boy/menu byte at
+`0x011DB378` is cleared later at `0x007F82F2`. A cleared UI predicate can
+therefore precede the visual return animation. Atom treats that edge as native
+for a further 150 ms of consecutive normal gameplay. Any hard-owner flap,
+invalid time, or world transition restarts the interval; the existing
+no-write seed frame follows only after it completes.
+
 `Native` includes disabled Atom, first person, every predicate in the table,
 and an asserted external vehicle-owner capability. Predicates are evaluated
 before output admission in the same player update. A newly observed native
@@ -382,9 +400,10 @@ another Atom output can run. This is the same-update transition guarantee for
 VATS, POV, death, menu,
 load, and lost-world states.
 
-`Acquire` requires one stable normal third-person frame. It samples the native
-camera and authoritative actor values and seeds view yaw/pitch, follow position,
-spring velocity, actor target, and recenter time. It performs no output writes.
+`Acquire` follows 150 ms of uninterrupted normal third-person state and then
+requires one additional stable frame. It samples the native camera and
+authoritative actor values and seeds view yaw/pitch, follow position, spring
+velocity, actor target, and recenter time. It performs no output writes.
 
 ### Runtime admission correction
 
@@ -420,7 +439,10 @@ admitted only after its animation and projectile transitions pass Phase 4.
 `Release` stops Atom output before native special-state code consumes the
 frame. It discards temporal state and transitions immediately to `Native`.
 There is no blend across VATS, kill camera, free camera, loading, or first-person
-ownership. The native camera may perform its own transition.
+ownership. The native camera performs its own transition and retains ownership
+through the consecutive-normal-state handoff above. On later camera-only
+reacquisition, live nonzero Actor `rotX` independently requests one pitch
+neutralization; cleanup does not depend on a temporal flag surviving Release.
 
 ### Ownership epoch
 
@@ -479,9 +501,14 @@ Atom's own hook:
 
 - when camera ownership is native, call the captured predecessor exactly as
   today;
-- in `Explore` or `Combat`, apply the selected Atom Input transform, add the
-  resulting delta directly to view yaw/pitch, and do not send horizontal view
-  delta to actor yaw;
+- in non-aiming `Explore`, apply the selected Atom Input transform directly to
+  logical view yaw/pitch without sending either delta to Actor rotation;
+- on native AIM or in `Combat`, retain FNV's Actor yaw and pitch routes, adopt
+  raw Actor `rotZ` plus clamped `rotX` as the logical axes, and immediately
+  compensate `+0x6E4` so the view cannot blink during the ownership handoff;
+- before the first stationary AIM/Combat camera update, align Actor yaw to the
+  existing logical view through live virtual `+0x2C4`, verify the setter's raw
+  result, and recompute the camera offset from that post-setter state;
 - preserve all first-person, menu, free-camera, wheel, inversion, and disabled
   control behavior already defined by Atom Input.
 
@@ -536,10 +563,14 @@ records one recoverable diagnostic outside the hot path.
 ### Manual orbit and recenter
 
 Any manual look input cancels recenter immediately and refreshes a no-input
-timer. After a configurable delay, and only while movement magnitude exceeds a
-threshold, auto-center may rotate view yaw toward locomotion heading along the
-shortest wrapped angle. It has bounded angular speed plus acceleration and
-deceleration; it never snaps and never changes pitch.
+timer. Auto-center is opt-in. After a configurable delay, and only while
+movement magnitude exceeds a threshold, it latches the current world-space
+locomotion heading and rotates view yaw toward that fixed target along the
+shortest wrapped angle. A new local input direction starts a new delay and
+target. This prevents a camera-relative lateral or backward target from moving
+again as the camera turns and chasing the view around the player indefinitely.
+Recenter has bounded angular speed plus acceleration and deceleration; it never
+snaps and never changes pitch.
 
 Aim, fire, VATS, free camera, and native-owned states suppress auto-center.
 Stationary players keep their chosen view. Recenter is a policy toggle, not a
@@ -721,23 +752,25 @@ still validate the immutable caller bytes and live predecessor at
 | Capability | Candidate boundary | Plan |
 |---|---:|---|
 | Horizontal view | existing Atom hook at `0x00945F90` | Dispatch transformed delta to native actor yaw or Atom view yaw by ownership state. |
-| Vertical view | existing Atom hook at `0x00945FD8` | Preserve native route or update Atom view pitch without adding a second input filter. |
+| Vertical view | existing Atom hook at `0x00945FD8` | Preserve the native actor-pitch route or update Atom logical pitch without adding a second input filter. |
 | Camera-update scope | shared complete entry at `0x0094AE40` | Chain the complete UpdateCamera predecessor for all eleven native callers while publishing a matching-player scope only during admitted normal third person. |
 | Camera heading | PlayerCharacter vtable slot `0x0108ACF8` (`+0x2BC`) | Always call the live predecessor; substitute Atom view heading only inside the admitted UpdateCamera scope. |
+| Camera pitch | call at `0x0094AE94` | Always call the live raw-pitch predecessor; substitute Atom logical pitch only inside the admitted UpdateCamera scope. |
 | Follow target | call at `0x0094B7D2` | Compose proven vector arguments, then call the exact captured native collision predecessor. |
 | Player movement scope | entry `0x009E9E50` | Chain `PlayerMover::Update` while opening a stack-scoped token only for the current live player mover. |
 | Movement request | call at `0x008A6339` | Capture immutable world intent, invoke facing, re-read raw Actor `rotZ`, compensate the post-`PlayerMover` vector against that observed heading, preserve magnitude/high flags, map only the low direction nibble by policy, then chain `0x0092F260`. |
-| Actor facing | live player virtual `+0x2C4` | Call the absolute native yaw route (`0x008A6A00 -> 0x00931B60`) only from the scoped movement-request seam with reentrancy protection; its void return never implies the requested angle was accepted. |
+| Actor facing | live player virtual `+0x2C4` | Call the absolute native yaw route from the scoped movement-request seam and the stationary AIM/Combat camera handoff with shared reentrancy protection; sample raw `rotZ` after its void return. |
 | Reticle/view target | call at `0x0070C130` | Substitute Atom's logical view ray only while owned, chain the live `ViewCaster` predecessor, and capture its result by ownership epoch. |
 | Projectile convergence | call at `0x005245BD` | For admitted projectile capabilities, preserve native sampled spread and spawn the native class from the real muzzle toward the captured view target. |
 
 The direct `0x0094AE94 -> 0x00931D70` call is explicitly not a camera-yaw
 boundary: it reads Actor `rotX`/pitch. Returning view yaw there caused
-horizontal input to drive the vertical camera axis. The paired UpdateCamera
-scope and adjusted-heading vtable hook instead replace the exact horizontal
-capability used by native camera construction. Calls outside that scope always
-return the chained predecessor result, leaving AI, gameplay, interaction,
-VATS, and other callers untouched.
+horizontal input to drive the vertical camera axis. It is, however, the exact
+camera pitch snapshot. Atom chains its live predecessor and substitutes
+logical pitch only inside the same complete UpdateCamera scope used by the
+adjusted-heading vtable hook. Calls outside that scope always return the
+chained predecessor result, leaving AI, gameplay, interaction, VATS, and other
+callers untouched.
 
 The follow detour must call the target present at `DeferredInit`, not assume the
 vanilla displacement remains. Immutable caller bytes prove context; the live
@@ -1006,6 +1039,9 @@ implementation source text, textual call order, or symbol-name presence.
 - teleport, invalid `dt`, pause, and ownership epoch reset all temporal state;
 - collision contraction clamps before smoothing and outward recovery is
   monotonic;
+- arbitrary follow lag is projected onto the logical 3D view axis, then
+  composed only as distance along FNV's exact native shoulder ray; lateral
+  lag cannot change framing and a pivot-crossing request fails closed;
 - angle wrap chooses the shortest path around `-pi/pi`;
 - manual input cancels recenter in the same update.
 
@@ -1021,6 +1057,17 @@ implementation source text, textual call order, or symbol-name presence.
   hysteresis while Combat preserves the original forward/back/strafe low
   nibble; both preserve every higher flag;
 - explore and combat policies produce their documented facing behavior;
+- Explore vertical look is camera-only, while Combat or live native aim chains
+  Actor pitch and synchronizes the clamped result; disabled movement and every
+  unowned state stay exact native;
+- non-aiming Explore yaw remains camera-only; AIM entry aligns Actor yaw while
+  preserving world camera heading, and subsequent native horizontal input
+  keeps raw Actor yaw, logical view, and compensated adjusted heading coupled;
+- a Pip-Boy/native-owner return remains native through a continuous quiet
+  interval plus the no-write seed frame, while any interrupted sample restarts
+  the interval;
+- camera-only reacquisition clears observed nonzero Actor pitch even when the
+  prior native-owner epoch discarded the original pending-pitch flag;
 - draw/aim/fire/reload/holster and VATS transition sequences are replayed as
   observable state traces, not source-structure tests.
 
@@ -1084,7 +1131,8 @@ the following complete boundary:
   follow;
 - before native UpdateCamera, apply recenter and follow once per input frame
   using finite `TimeGlobal::secondsPassed`, then publish one immutable snapshot
-  used by both adjusted-heading calls and the native collision call; and
+  used by both adjusted-heading calls, the raw-pitch snapshot, and the native
+  collision call; and
 - bind camera and mover scopes to thread, receiver, scope generation, and reset
   generation so a reset or reentrant call cannot expose stale payload.
 
@@ -1117,6 +1165,78 @@ scope owners and capability groups change final code/data/relocation layout and
 image size to `0x445000`; this remains a material pre-Deferred footprint delta.
 Static artifact agreement does not establish startup or corrected gameplay
 acceptance.
+
+### Complete free-orbit axis and control ownership correction
+
+The 2026-08-17 gameplay report exposed four remaining implementation defects.
+They are closed at existing proven boundaries:
+
+- The vertical input detour always called `0x00931E50`, which adds the look
+  delta to authoritative Actor `rotX`, and then copied that result into logical
+  pitch. Stable Explore free orbit now consumes the delta without the actor
+  write. Combat and native aim retain that predecessor and resample its
+  clamped Actor pitch so character aim stays correct. The independently
+  fingerprinted `0x0094AE94 -> 0x00931D70` call chains its live predecessor and
+  substitutes the finite logical pitch only inside the matching complete
+  UpdateCamera scope. Native, first-person, VATS, menu, transition,
+  external-owner, and contended calls remain unchanged.
+- The follow solver published its complete world-space lag vector into FNV's
+  desired camera point. Lateral player motion therefore displaced the camera
+  sideways and visibly steered the view even though logical yaw did not
+  change. Published follow response is now projected onto the current 3D view
+  axis. It may adjust bounded chase distance but cannot change yaw or pitch;
+  FNV retains player translation and collision ownership.
+- Recenter used a camera-relative world movement heading which was recomputed
+  after every camera turn. For any lateral or backward component, the target
+  moved by the same turn and could never converge. A local direction change
+  now restarts the delay, and recenter latches one fixed world-space target for
+  that direction. Auto-center is opt-in and defaults off, so normal 360
+  movement cannot rotate a free-orbit view.
+- Fight-control disablement incorrectly revoked the camera in every state.
+  Movement, looking, Pip-Boy, and POV remain hard camera gates; fighting is a
+  gate only when the current weapon/configuration state requests Combat. Fine
+  zoom follows the same decision.
+
+The added pitch callsite container is initialized and enabled in the existing
+DeferredInit movement transaction. It adds no dependency, import, TLS owner,
+thread, worker, configuration field, parser, file scan, or earlier engine
+operation, but it is still a material final-DLL layout delta. Static proof and
+the supported release build cannot accept it: Proton must reach gameplay with
+BaseObjectSwapper, then verify Explore vertical orbit, stationary Actor pitch,
+planar movement without view-axis motion when auto-center is off, bounded axial
+follow distance, aim/fire direction, disabled-fight-control Explore behavior,
+POV/VATS handoff, and camera collision.
+
+### Aim-release, interaction-ray, and heading-handoff correction
+
+The 2026-08-17 follow-up gameplay report and matching runtime log closed three
+additional defects at existing native seams:
+
+- Combat/native aim correctly retained Actor `rotX`, but no handoff cleared it
+  when the same ownership epoch returned to Explore. Atom now records native
+  pitch ownership and, on the first camera-only Explore update, calls the
+  fingerprinted `0x00931D90` setter with zero. Logical camera pitch is retained,
+  so releasing aim neutralizes only character presentation.
+- Reticle and projectile convergence had been admitted as one transaction. The
+  runtime's spawn predecessor was already owned, so Atom disabled its otherwise
+  native `0x0070C130` reticle call and left `InterfaceManager +0xFC` driven by
+  vanilla axes. Reticle admission is now independent. Its existing ViewCaster
+  starts at the completed native render camera position committed at
+  `0x011E0C20 +0x58` and follows Atom's logical yaw/pitch; the returned native
+  reference still owns crosshair selection and activation. Optional projectile
+  convergence remains disabled when another spawn owner is present.
+- Player adjusted heading is the native base plus camera-only scalar `+0x6E4`.
+  Explore locomotion changes the authoritative base heading as the actor faces
+  movement. Atom now compensates `+0x6E4` both before UpdateCamera and in the
+  same scoped callback after every actor-yaw write, keeping the native adjusted
+  heading equal to logical camera yaw. This closes the delayed lateral-movement
+  feedback path without enabling auto-center.
+
+Focused behavioral contracts exercise these production decisions and were
+mutation-checked against the stale-pitch handoff, paired reticle admission,
+vanilla-eye ray, and uncompensated sustained actor turns. This remains an
+unaccepted candidate until Proton verifies the fixed-address native calls and
+object selection against the rendered crosshair in gameplay.
 
 ## Build and runtime validation
 

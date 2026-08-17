@@ -3,9 +3,14 @@
 use core::f32::consts::{FRAC_PI_2, PI};
 
 use atom::camera::third_person::{
-    AimAngles, FacingPolicy, FollowSolver, LocomotionSector, MovementIntent, OwnershipInput,
-    OwnershipMachine, OwnershipState, SpringAxis, ThirdPersonConfig, Vec3, camera_relative_heading,
-    converge_angles, linear_zoom_delta, remap_movement, step_heading, wrap_angle,
+    AimAngles, FacingPolicy, FollowSolver, LocomotionSector, LookRoute, MovementIntent,
+    NativeHandoffGuard, OwnershipInput, OwnershipMachine, OwnershipState, SpringAxis,
+    ThirdPersonConfig, Vec3, actor_heading_handoff_target, advance_actor_pitch_ownership,
+    advance_logical_pitch, axial_follow_offset, camera_relative_heading,
+    compensated_camera_heading_offset, compose_follow_camera, converge_angles,
+    horizontal_look_route, linear_zoom_delta, logical_heading_after_native_look, remap_movement,
+    reticle_and_convergence_admission, step_heading, third_person_view_ray, vertical_look_route,
+    view_direction, wrap_angle,
 };
 
 fn fnv_world_vector(local: Vec3, actor_yaw: f32) -> Vec3 {
@@ -21,6 +26,14 @@ fn assert_vec3_close(actual: Vec3, expected: Vec3) {
     assert!((actual.x - expected.x).abs() < 0.000_01);
     assert!((actual.y - expected.y).abs() < 0.000_01);
     assert!((actual.z - expected.z).abs() < 0.000_01);
+}
+
+fn cross(lhs: Vec3, rhs: Vec3) -> Vec3 {
+    Vec3::new(
+        lhs.y * rhs.z - lhs.z * rhs.y,
+        lhs.z * rhs.x - lhs.x * rhs.z,
+        lhs.x * rhs.y - lhs.y * rhs.x,
+    )
 }
 
 fn normal(cell: u32, combat: bool) -> OwnershipInput {
@@ -78,6 +91,71 @@ fn cell_change_and_live_disable_discard_the_owned_epoch() {
             .advance(OwnershipInput::new(false, true, false, true, false, 11))
             .current(),
         OwnershipState::Native
+    );
+}
+
+#[test]
+fn pip_boy_return_requires_consecutive_quiet_time_before_camera_reacquisition() {
+    fn advance(
+        machine: &mut OwnershipMachine,
+        handoff: &mut NativeHandoffGuard,
+        normal_state: bool,
+        delta_seconds: f32,
+    ) -> OwnershipState {
+        let ready = handoff.advance(normal_state, delta_seconds);
+        machine
+            .advance(OwnershipInput::new(true, true, !ready, true, false, 1))
+            .current()
+    }
+
+    let mut machine = OwnershipMachine::new();
+    let mut handoff = NativeHandoffGuard::new();
+    for _ in 0..12 {
+        advance(&mut machine, &mut handoff, true, 1.0 / 60.0);
+    }
+    assert_eq!(machine.state(), OwnershipState::Explore);
+
+    assert_eq!(
+        advance(&mut machine, &mut handoff, false, 1.0 / 60.0),
+        OwnershipState::Release,
+        "Pip-Boy ownership must revoke Atom in the first observed frame",
+    );
+    assert_eq!(
+        advance(&mut machine, &mut handoff, false, 1.0 / 60.0),
+        OwnershipState::Native,
+    );
+
+    // A nominally normal edge immediately after AccessDown is insufficient:
+    // native has started the return animation before clearing its UI owner.
+    for _ in 0..8 {
+        assert_eq!(
+            advance(&mut machine, &mut handoff, true, 1.0 / 60.0),
+            OwnershipState::Native,
+        );
+    }
+    // Any late owner flap restarts the complete quiet interval.
+    assert_eq!(
+        advance(&mut machine, &mut handoff, false, 1.0 / 60.0),
+        OwnershipState::Native,
+    );
+    for _ in 0..8 {
+        assert_eq!(
+            advance(&mut machine, &mut handoff, true, 1.0 / 60.0),
+            OwnershipState::Native,
+        );
+    }
+    assert_eq!(
+        advance(&mut machine, &mut handoff, true, 1.0 / 60.0),
+        OwnershipState::Acquire,
+        "only a continuous settled interval may begin the no-write seed frame",
+    );
+    assert_eq!(
+        advance(&mut machine, &mut handoff, true, 1.0 / 60.0),
+        OwnershipState::Explore,
+    );
+    assert!(
+        !handoff.advance(true, f32::NAN),
+        "invalid engine time must fail back to native ownership",
     );
 }
 
@@ -322,6 +400,340 @@ fn follow_solver_lags_settles_and_resets_on_teleport() {
     assert_eq!(
         solver.advance(teleported, 0.0, 1.0 / 60.0, config),
         teleported,
+    );
+}
+
+#[test]
+fn vertical_look_routes_explore_orbit_away_from_actor_pitch_but_preserves_aim() {
+    assert_eq!(
+        vertical_look_route(OwnershipState::Explore, true, false),
+        LookRoute::CameraOnly,
+    );
+    assert_eq!(
+        vertical_look_route(OwnershipState::Explore, true, true),
+        LookRoute::NativeAndSynchronize,
+    );
+    for native_aiming in [false, true] {
+        assert_eq!(
+            vertical_look_route(OwnershipState::Combat, true, native_aiming),
+            LookRoute::NativeAndSynchronize,
+        );
+    }
+    for state in [
+        OwnershipState::Native,
+        OwnershipState::Acquire,
+        OwnershipState::Release,
+    ] {
+        assert_eq!(
+            vertical_look_route(state, true, false),
+            LookRoute::NativeOnly,
+        );
+    }
+    for state in [
+        OwnershipState::Native,
+        OwnershipState::Acquire,
+        OwnershipState::Explore,
+        OwnershipState::Combat,
+        OwnershipState::Release,
+    ] {
+        assert_eq!(
+            vertical_look_route(state, false, true),
+            LookRoute::NativeOnly,
+        );
+    }
+}
+
+#[test]
+fn aim_entry_aligns_body_without_blinking_the_camera_and_native_look_stays_coupled() {
+    let logical_heading = 1.1;
+    let initial_actor_heading = -0.7;
+    let initial_offset = wrap_angle(logical_heading - initial_actor_heading);
+    let route = horizontal_look_route(OwnershipState::Explore, true, true);
+    assert_eq!(route, LookRoute::NativeAndSynchronize);
+    assert_eq!(
+        horizontal_look_route(OwnershipState::Combat, true, false),
+        LookRoute::NativeAndSynchronize,
+        "Combat must preserve the same actor/view coupling even before aim is sampled",
+    );
+
+    // AIM entry must rotate the body to the already-rendered world heading.
+    // The old camera-only offset is still present immediately after that
+    // native setter, so recompute it from the live post-setter state before
+    // UpdateCamera can observe a doubled heading.
+    let actor_heading = actor_heading_handoff_target(route, initial_actor_heading, logical_heading)
+        .expect("misaligned AIM entry requires an Actor handoff");
+    assert!(wrap_angle(actor_heading - logical_heading).abs() < 0.000_01);
+    let adjusted_after_actor_turn = wrap_angle(actor_heading + initial_offset);
+    let camera_offset = compensated_camera_heading_offset(
+        adjusted_after_actor_turn,
+        initial_offset,
+        logical_heading,
+    )
+    .expect("finite post-handoff compensation");
+    assert!(
+        wrap_angle(actor_heading + camera_offset - logical_heading).abs() < 0.000_01,
+        "the body handoff must not blink the camera away from its world heading",
+    );
+
+    // 0x00931D30 next reads adjusted heading, adds input, and writes that
+    // absolute result as raw Actor yaw. Atom must adopt that raw value (not
+    // adjusted heading plus the stale offset) and keep body/view coupled.
+    let native_delta = 0.23;
+    let native_actor_heading = wrap_angle(actor_heading + camera_offset + native_delta);
+    let next_logical_heading = logical_heading_after_native_look(native_actor_heading)
+        .expect("native Actor yaw is finite");
+    let adjusted_after_native_look = wrap_angle(native_actor_heading + camera_offset);
+    let next_camera_offset = compensated_camera_heading_offset(
+        adjusted_after_native_look,
+        camera_offset,
+        next_logical_heading,
+    )
+    .expect("finite native-look compensation");
+    assert!(wrap_angle(native_actor_heading - next_logical_heading).abs() < 0.000_01);
+    assert!(
+        wrap_angle(native_actor_heading + next_camera_offset - next_logical_heading).abs()
+            < 0.000_01,
+        "subsequent native aim input must turn body and camera together",
+    );
+
+    let explore_route = horizontal_look_route(OwnershipState::Explore, true, false);
+    assert_eq!(explore_route, LookRoute::CameraOnly);
+    assert!(
+        actor_heading_handoff_target(explore_route, initial_actor_heading, logical_heading,)
+            .is_none(),
+        "free orbit must remain camera-only outside AIM",
+    );
+    assert!(
+        actor_heading_handoff_target(
+            LookRoute::NativeOnly,
+            initial_actor_heading,
+            logical_heading,
+        )
+        .is_none(),
+        "native-owned epochs must never receive an Atom body write",
+    );
+}
+
+#[test]
+fn logical_pitch_accumulates_in_both_directions_and_stays_bounded() {
+    assert!(
+        (advance_logical_pitch(0.25, 0.5).expect("finite positive pitch") - 0.75).abs()
+            < f32::EPSILON
+    );
+    assert!(
+        (advance_logical_pitch(0.25, -0.5).expect("finite negative pitch") + 0.25).abs()
+            < f32::EPSILON
+    );
+    assert!(
+        (advance_logical_pitch(1.5, 100.0).expect("upper pitch clamp") - 1.553_343).abs()
+            < f32::EPSILON
+    );
+    assert!(
+        (advance_logical_pitch(-1.5, -100.0).expect("lower pitch clamp") + 1.553_343).abs()
+            < f32::EPSILON
+    );
+    assert!(advance_logical_pitch(f32::NAN, 0.1).is_none());
+    assert!(advance_logical_pitch(0.1, f32::INFINITY).is_none());
+}
+
+#[test]
+fn leaving_aim_neutralizes_actor_pitch_once_without_changing_camera_pitch() {
+    let camera_pitch = -0.85;
+    let mut native_pitch_owned = false;
+
+    assert!(!advance_actor_pitch_ownership(
+        &mut native_pitch_owned,
+        LookRoute::NativeAndSynchronize,
+        camera_pitch,
+    ));
+    assert!(native_pitch_owned);
+    assert!(!advance_actor_pitch_ownership(
+        &mut native_pitch_owned,
+        LookRoute::NativeAndSynchronize,
+        camera_pitch,
+    ));
+
+    assert!(advance_actor_pitch_ownership(
+        &mut native_pitch_owned,
+        LookRoute::CameraOnly,
+        camera_pitch,
+    ));
+    assert!(!native_pitch_owned);
+    assert_eq!(
+        camera_pitch, -0.85,
+        "the logical view must retain aim pitch"
+    );
+    assert!(!advance_actor_pitch_ownership(
+        &mut native_pitch_owned,
+        LookRoute::CameraOnly,
+        0.0,
+    ));
+
+    native_pitch_owned = true;
+    assert!(!advance_actor_pitch_ownership(
+        &mut native_pitch_owned,
+        LookRoute::NativeOnly,
+        camera_pitch,
+    ));
+    assert!(
+        !native_pitch_owned,
+        "native states must not receive an Atom reset"
+    );
+}
+
+#[test]
+fn native_ui_interruption_cannot_erase_stale_actor_pitch_cleanup() {
+    let logical_camera_pitch = 0.82;
+    let stale_actor_pitch = 0.82;
+    let mut native_pitch_owned = false;
+
+    // Release/Native intentionally discard temporal ownership flags. On the
+    // first reacquired camera-only frame the live Actor value must still make
+    // the stale pose observable and request one authoritative neutralization.
+    assert!(advance_actor_pitch_ownership(
+        &mut native_pitch_owned,
+        LookRoute::CameraOnly,
+        stale_actor_pitch,
+    ));
+    assert_eq!(
+        logical_camera_pitch, 0.82,
+        "pose cleanup must not alter the logical camera pitch",
+    );
+    assert!(!advance_actor_pitch_ownership(
+        &mut native_pitch_owned,
+        LookRoute::CameraOnly,
+        0.0,
+    ));
+    assert!(!advance_actor_pitch_ownership(
+        &mut native_pitch_owned,
+        LookRoute::NativeOnly,
+        stale_actor_pitch,
+    ));
+}
+
+#[test]
+fn existing_projectile_owner_cannot_disable_crosshair_object_alignment() {
+    assert_eq!(
+        reticle_and_convergence_admission(true, false),
+        (true, false),
+        "a non-native spawn owner must leave the independent reticle admitted",
+    );
+    assert_eq!(reticle_and_convergence_admission(true, true), (true, true),);
+    assert_eq!(
+        reticle_and_convergence_admission(false, true),
+        (false, false),
+    );
+}
+
+#[test]
+fn object_selection_ray_uses_rendered_camera_origin_and_logical_axes() {
+    let native_eye = Vec3::new(-24.0, 0.0, 70.0);
+    let render_camera = Vec3::new(18.0, -110.0, 78.0);
+    let yaw = 0.35;
+    let pitch = -0.2;
+    let ray = third_person_view_ray(native_eye, render_camera, yaw, pitch)
+        .expect("finite third-person selection ray");
+
+    assert_eq!(ray.origin(), render_camera);
+    assert_vec3_close(
+        ray.direction(),
+        view_direction(yaw, pitch).expect("finite logical direction"),
+    );
+    let object_under_crosshair = ray.point_at(160.0).expect("finite target point");
+    let native_eye_point = native_eye + ray.direction() * 160.0;
+    assert_vec3_close(
+        object_under_crosshair,
+        render_camera + ray.direction() * 160.0,
+    );
+    assert!(
+        (object_under_crosshair - native_eye_point).length() > 40.0,
+        "the vanilla eye ray must not masquerade as the rendered camera ray",
+    );
+    assert!(ray.point_at(-1.0).is_none());
+    assert!(third_person_view_ray(native_eye, Vec3::new(f32::NAN, 0.0, 0.0), yaw, pitch).is_none());
+}
+
+#[test]
+fn sustained_lateral_facing_changes_cannot_rotate_the_camera() {
+    let logical_heading = 1.15;
+    let mut actor_base_heading = -0.4;
+    let mut camera_offset = 0.25;
+
+    // Ten minutes at 60 Hz covers repeated actor turns and native camera
+    // offset drift while the player holds a lateral movement direction.
+    for frame in 0..36_000 {
+        actor_base_heading = wrap_angle(actor_base_heading - 0.0025);
+        let native_drift = ((frame % 181) as f32 - 90.0) * 0.000_02;
+        camera_offset = wrap_angle(camera_offset + native_drift);
+        let native_adjusted = wrap_angle(actor_base_heading + camera_offset);
+        camera_offset =
+            compensated_camera_heading_offset(native_adjusted, camera_offset, logical_heading)
+                .expect("finite camera compensation");
+        let effective_heading = wrap_angle(actor_base_heading + camera_offset);
+        assert!(wrap_angle(effective_heading - logical_heading).abs() < 0.000_01);
+    }
+
+    assert!(compensated_camera_heading_offset(f32::NAN, 0.0, logical_heading).is_none());
+}
+
+#[test]
+fn lateral_follow_lag_cannot_steer_the_camera_at_any_view_angle() {
+    for yaw in [-PI, -FRAC_PI_2, 0.0, FRAC_PI_2, PI] {
+        let (sin_yaw, cos_yaw) = yaw.sin_cos();
+        let lateral_lag = Vec3::new(cos_yaw * 24.0, -sin_yaw * 24.0, 0.0);
+        for pitch in [-1.0, -0.25, 0.0, 0.75, 1.0] {
+            let projected =
+                axial_follow_offset(lateral_lag, yaw, pitch).expect("finite follow projection");
+            assert!(
+                projected.length() < 0.000_01,
+                "lateral lag leaked into the camera at yaw={yaw}, pitch={pitch}: {projected:?}",
+            );
+        }
+    }
+}
+
+#[test]
+fn published_follow_response_changes_only_chase_distance() {
+    for (yaw, pitch) in [(0.0, 0.0), (0.7, -0.4), (-2.4, 0.8)] {
+        let axis = view_direction(yaw, pitch).expect("finite view axis");
+        let solved_lag = Vec3::new(7.0, -11.0, 5.0);
+        let projected =
+            axial_follow_offset(solved_lag, yaw, pitch).expect("finite follow projection");
+        assert!(cross(projected, axis).length() < 0.000_01);
+
+        let native_camera = axis * -120.0;
+        let followed_camera = compose_follow_camera(native_camera, Vec3::default(), projected)
+            .expect("valid native camera ray");
+        let direction_to_pivot = (Vec3::default() - followed_camera).normalized();
+        assert_vec3_close(direction_to_pivot, axis);
+    }
+
+    assert!(axial_follow_offset(Vec3::new(f32::NAN, 0.0, 0.0), 0.0, 0.0).is_none());
+    assert!(axial_follow_offset(Vec3::default(), f32::NAN, 0.0).is_none());
+}
+
+#[test]
+fn native_shoulder_ray_is_preserved_and_cannot_cross_the_pivot() {
+    let pivot = Vec3::new(100.0, -50.0, 20.0);
+    let native_camera = Vec3::new(82.0, -148.0, 34.0);
+    let native_ray = native_camera - pivot;
+    let native_direction = native_ray.normalized();
+    let follow = Vec3::new(-7.0, 16.0, 3.0);
+    let composed = compose_follow_camera(native_camera, pivot, follow).expect("valid shoulder ray");
+    let composed_ray = composed - pivot;
+
+    assert_vec3_close(composed_ray.normalized(), native_direction);
+    assert!(cross(composed_ray, native_ray).length() < 0.001);
+    assert_eq!(
+        compose_follow_camera(native_camera, pivot, Vec3::default()),
+        Some(native_camera),
+    );
+
+    let crossing_follow = native_direction * -(native_ray.length() + 1.0);
+    assert!(compose_follow_camera(native_camera, pivot, crossing_follow).is_none());
+    assert!(compose_follow_camera(pivot, pivot, follow).is_none());
+    assert!(
+        compose_follow_camera(native_camera, pivot, Vec3::new(0.0, f32::INFINITY, 0.0),).is_none()
     );
 }
 

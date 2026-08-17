@@ -247,15 +247,24 @@ fn initialize_inner(
                                     "[CAMERA] Third-person follow predecessor: 0x{predecessor:08X}"
                                 );
                             }
-                            if let (Some(heading), Some(scope), Some(movement)) = (
+                            if let (Some(heading), Some(pitch), Some(scope), Some(movement)) = (
                                 hooks.camera_heading_predecessor,
+                                hooks.camera_pitch_predecessor,
                                 hooks.movement_scope_predecessor,
                                 hooks.movement_request_predecessor,
                             ) {
                                 log::info!("[CAMERA] Camera-relative movement hooks installed");
                                 log::debug!(
-                                    "[CAMERA] Movement predecessors: heading=0x{heading:08X}, scope=0x{scope:08X}, movement=0x{movement:08X}"
+                                    "[CAMERA] Movement predecessors: heading=0x{heading:08X}, pitch=0x{pitch:08X}, scope=0x{scope:08X}, movement=0x{movement:08X}"
                                 );
+                            }
+                            if hooks.reticle_admitted {
+                                log::info!(
+                                    "[CAMERA] Third-person crosshair and object selection are aligned"
+                                );
+                                if let Some(reticle) = hooks.reticle_predecessor {
+                                    log::debug!("[CAMERA] Reticle predecessor: 0x{reticle:08X}");
+                                }
                             }
                             if hooks.aim_admitted {
                                 log::info!(
@@ -268,9 +277,13 @@ fn initialize_inner(
                                         "[AIM] Convergence predecessors: reticle=0x{reticle:08X}, spawn=0x{spawn:08X}"
                                     );
                                 }
+                            } else if hooks.reticle_admitted {
+                                log::info!(
+                                    "[AIM] Projectile convergence remains with its existing owner"
+                                );
                             } else if hooks.camera_heading_predecessor.is_some() {
                                 log::warn!(
-                                    "[AIM] Another owner or an unrecognized caller already controls convergence; Atom aim remains native"
+                                    "[CAMERA] Another owner or an unrecognized caller controls the reticle; crosshair alignment remains native"
                                 );
                             } else {
                                 log::info!(

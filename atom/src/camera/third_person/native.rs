@@ -20,6 +20,7 @@ const PLAYER_PTR: usize = 0x011D_EA3C;
 const OS_GLOBALS_PTR: usize = 0x011D_EA0C;
 const INTERFACE_MANAGER_PTR: usize = 0x011D_8A80;
 const SPECIAL_CAMERA_STATE: usize = 0x011E_07B8;
+const NATIVE_CAMERA: usize = 0x011E_0C20;
 const DESIRED_THIRD_PERSON_DISTANCE: usize = 0x011E_0B5C;
 const VATS_CAMERA_DATA: usize = 0x011F_2250;
 const TIME_GLOBAL: usize = 0x011F_6394;
@@ -40,6 +41,7 @@ const PLAYER_POV_READY: usize = 0x64A;
 const PLAYER_ACTIVE_PERSPECTIVE: usize = 0x64B;
 const PLAYER_THIRD_PERSON: usize = 0x64C;
 const PLAYER_DISABLED_CONTROLS: usize = 0x680;
+const PLAYER_CAMERA_HEADING_OFFSET: usize = 0x6E4;
 
 const OS_GLOBALS_FLY_CAMERA: usize = 0x006;
 const INTERFACE_MANAGER_ACTIVE: usize = 0x000;
@@ -59,6 +61,7 @@ const ACTOR_SET_YAW_VTBL: usize = 0x2C4;
 const ACTIVE_3D: usize = 0x0095_0BE0;
 const WEAPON_PROJECTILE_NODE: usize = 0x0052_5700;
 const MATRIX_TO_ANGLES: usize = 0x00A5_9400;
+const ACTOR_SET_PITCH: usize = 0x0093_1D90;
 
 const WEAPON_TYPE: usize = 0x0F4;
 const PROJECTILE_TYPE_FLAGS: usize = 0x060;
@@ -66,11 +69,13 @@ const PROJECTILE_RANGE: usize = 0x06C;
 const PROJECTILE_TYPE_MASK: u32 = 0x001F_0000;
 const MISSILE_PROJECTILE: u32 = 0x0001_0000;
 const NIAVOBJECT_WORLD_ROTATION: usize = 0x068;
+const NIAVOBJECT_LOCAL_TRANSLATION: usize = 0x058;
 const NIAVOBJECT_WORLD_POSITION: usize = 0x08C;
 const MIN_ENGINE_POINTER: usize = 0x1_0000;
 const SCRIPTED_ACTION_A: i16 = 0x0D;
 const SCRIPTED_ACTION_B: i16 = 0x0E;
-const VANILLA_DISABLED_MASK: u8 = 0x1F;
+const VANILLA_CAMERA_DISABLED_MASK: u8 = 0x17;
+const VANILLA_FIGHTING_DISABLED: u8 = 0x08;
 
 type Active3dFn = unsafe extern "thiscall" fn(*mut c_void) -> *mut c_void;
 type ProcessActionFn = unsafe extern "thiscall" fn(*mut c_void) -> i16;
@@ -78,6 +83,7 @@ type ProcessBoolFn = unsafe extern "thiscall" fn(*mut c_void) -> u8;
 type ProcessStateFn = unsafe extern "thiscall" fn(*mut c_void) -> i32;
 type ActorAdjustedHeadingFn = unsafe extern "thiscall" fn(*mut c_void, u8) -> f32;
 type ActorSetYawFn = unsafe extern "thiscall" fn(*mut c_void, f32);
+type ActorSetPitchFn = unsafe extern "thiscall" fn(*mut c_void, f32);
 type ProjectileNodeFn = unsafe extern "thiscall" fn(*mut c_void, *mut c_void) -> *mut c_void;
 type MatrixAnglesFn =
     unsafe extern "thiscall" fn(*const [[f32; 3]; 3], *mut f32, *mut f32, *mut f32) -> u8;
@@ -92,6 +98,7 @@ pub(super) struct NativeFrame {
     pub(super) pivot: Vec3,
     pub(super) actor_yaw: f32,
     pub(super) camera_heading: f32,
+    pub(super) camera_heading_offset: f32,
     pub(super) pitch: f32,
     pub(super) delta_seconds: f32,
     pub(super) stable_third_person: bool,
@@ -213,6 +220,10 @@ pub(super) fn validate_data_contract() -> Result<(), NativeContractError> {
         (OS_GLOBALS_PTR, size_of::<*mut c_void>()),
         (INTERFACE_MANAGER_PTR, size_of::<*mut c_void>()),
         (SPECIAL_CAMERA_STATE, size_of::<u8>()),
+        (
+            NATIVE_CAMERA + NIAVOBJECT_LOCAL_TRANSLATION,
+            size_of::<Vec3>(),
+        ),
         (VATS_CAMERA_DATA + VATS_MODE, size_of::<u32>()),
         (TIME_GLOBAL + TIME_SECONDS_PASSED, size_of::<f32>()),
     ] {
@@ -227,6 +238,10 @@ pub(super) fn validate_data_contract() -> Result<(), NativeContractError> {
         (
             MATRIX_TO_ANGLES,
             &[0x51, 0x56, 0x8B, 0xF1, 0xD9, 0x46, 0x1C],
+        ),
+        (
+            ACTOR_SET_PITCH,
+            &[0x55, 0x8B, 0xEC, 0x83, 0xEC, 0x10, 0x89, 0x4D, 0xF4],
         ),
     ];
     for &(address, expected) in fingerprints {
@@ -313,6 +328,7 @@ pub(super) unsafe fn observe(
         pivot: Vec3::default(),
         actor_yaw: 0.0,
         camera_heading: 0.0,
+        camera_heading_offset: 0.0,
         pitch: 0.0,
         delta_seconds: 0.0,
         stable_third_person: false,
@@ -361,6 +377,8 @@ pub(super) unsafe fn observe(
     frame.actor_yaw = unsafe { read_f32(live_player.cast(), PLAYER_ROTATION_Z) };
     frame.camera_heading =
         unsafe { actor_adjusted_heading(live_player).unwrap_or(frame.actor_yaw) };
+    frame.camera_heading_offset =
+        unsafe { read_f32(live_player.cast(), PLAYER_CAMERA_HEADING_OFFSET) };
     // UpdateCamera obtains pitch from 0x00931D70, which reads Actor rotX at
     // +0x24. Virtual +0x2BC is adjusted horizontal heading, not pitch.
     frame.pitch = unsafe { read_f32(live_player.cast(), PLAYER_ROTATION_X) };
@@ -375,14 +393,11 @@ pub(super) unsafe fn observe(
         frame.weapon_out = state.weapon_out;
     }
 
-    let relevant_controls = ControlFlags::MOVEMENT
-        | ControlFlags::LOOKING
-        | ControlFlags::PIPBOY
-        | ControlFlags::FIGHTING
-        | ControlFlags::POV;
-    let controls_owned = controls.any_disabled(DisabledCheck::ByAnyModOrVanilla, relevant_controls)
-        || unsafe { read_u8(live_player.cast(), PLAYER_DISABLED_CONTROLS) } & VANILLA_DISABLED_MASK
-            != 0;
+    let camera_controls =
+        ControlFlags::MOVEMENT | ControlFlags::LOOKING | ControlFlags::PIPBOY | ControlFlags::POV;
+    let vanilla_disabled = unsafe { read_u8(live_player.cast(), PLAYER_DISABLED_CONTROLS) };
+    let controls_owned = controls.any_disabled(DisabledCheck::ByAnyModOrVanilla, camera_controls)
+        || vanilla_disabled & VANILLA_CAMERA_DISABLED_MASK != 0;
     let os_globals = unsafe { read_global_ptr(OS_GLOBALS_PTR) };
     let fly_camera = is_engine_pointer(os_globals)
         && unsafe { read_u8(os_globals.cast(), OS_GLOBALS_FLY_CAMERA) } != 0;
@@ -394,6 +409,7 @@ pub(super) unsafe fn observe(
     let values_valid = frame.pivot.is_finite()
         && frame.actor_yaw.is_finite()
         && frame.camera_heading.is_finite()
+        && frame.camera_heading_offset.is_finite()
         && frame.pitch.is_finite()
         && frame.delta_seconds.is_finite();
     frame.rejection = classify_rejection(
@@ -519,6 +535,49 @@ unsafe fn observe_process(process: *mut c_void) -> Option<ProcessState> {
     })
 }
 
+/// Return whether the live player process currently owns native aim pitch.
+///
+/// This narrow query is intentionally separate from Combat classification:
+/// the established action-frame policy remains authoritative for actor yaw,
+/// while native aim presentation must never lose its Actor rotX update if an
+/// input-frame edge arrives later than the process state.
+pub(super) unsafe fn player_is_aiming(player: *mut c_void) -> bool {
+    if !is_engine_pointer(player) || player != self::player() {
+        return false;
+    }
+    let process = unsafe { read_ptr(player.cast(), PLAYER_PROCESS) };
+    if !is_engine_pointer(process) {
+        return false;
+    }
+    let Some(weapon_out) =
+        (unsafe { read_virtual::<ProcessBoolFn>(process, PROCESS_WEAPON_OUT_VTBL) })
+    else {
+        return false;
+    };
+    let Some(aiming) = (unsafe { read_virtual::<ProcessBoolFn>(process, PROCESS_IS_AIMING_VTBL) })
+    else {
+        return false;
+    };
+    unsafe { weapon_out(process) != 0 && aiming(process) != 0 }
+}
+
+/// Return whether combat camera ownership is blocked by fighting controls.
+///
+/// This separate Combat-only query prevents an Explore camera from yielding
+/// merely because a mod disabled attacks. The player pointer must be the live
+/// receiver admitted by [`observe`] in the same native callback.
+pub(super) unsafe fn fighting_control_disabled(
+    player: *mut c_void,
+    controls: PlayerControlsReader,
+) -> bool {
+    if !is_engine_pointer(player) || player != self::player() {
+        return true;
+    }
+    controls.any_disabled(DisabledCheck::ByAnyModOrVanilla, ControlFlags::FIGHTING)
+        || unsafe { read_u8(player.cast(), PLAYER_DISABLED_CONTROLS) } & VANILLA_FIGHTING_DISABLED
+            != 0
+}
+
 /// Invoke the live authoritative player-yaw setter.
 ///
 /// The native ABI returns no success value and its wrapper may reject the
@@ -549,6 +608,76 @@ pub(super) unsafe fn raw_actor_yaw(actor: *mut c_void) -> Option<f32> {
     }
     let yaw = unsafe { read_f32(actor.cast(), PLAYER_ROTATION_Z) };
     yaw.is_finite().then_some(yaw)
+}
+
+/// Publish Atom's compensated camera-only heading offset.
+///
+/// FNV itself reads and writes PlayerCharacter `+0x6E4` as a scalar camera
+/// offset. `offset` must have been derived from a same-callback native heading
+/// observation and the logical view heading. No transform or pointer is kept.
+pub(super) unsafe fn write_camera_heading_offset(player: *mut c_void, offset: f32) -> bool {
+    if !is_engine_pointer(player) || player != self::player() || !offset.is_finite() {
+        return false;
+    }
+    unsafe {
+        core::ptr::write_unaligned(
+            player
+                .cast::<u8>()
+                .add(PLAYER_CAMERA_HEADING_OFFSET)
+                .cast::<f32>(),
+            offset,
+        );
+    }
+    true
+}
+
+/// Reestablish Atom's world-view heading after an authoritative actor turn.
+///
+/// The movement path calls the native yaw setter outside the camera update,
+/// so its base-heading change would immediately leak into every consumer of
+/// PlayerCharacter's adjusted heading unless `+0x6E4` is compensated in the
+/// same scoped movement callback.
+pub(super) unsafe fn synchronize_camera_heading(player: *mut c_void, logical_heading: f32) -> bool {
+    if !is_engine_pointer(player) || player != self::player() || !logical_heading.is_finite() {
+        return false;
+    }
+    let current_offset = unsafe { read_f32(player.cast(), PLAYER_CAMERA_HEADING_OFFSET) };
+    let Some(native_adjusted) = (unsafe { actor_adjusted_heading(player) }) else {
+        return false;
+    };
+    let Some(offset) =
+        super::compensated_camera_heading_offset(native_adjusted, current_offset, logical_heading)
+    else {
+        return false;
+    };
+    unsafe { write_camera_heading_offset(player, offset) }
+}
+
+/// Clear Actor rotX through FNV's authoritative clamping/state route.
+///
+/// This is used only when a stable Atom epoch returns from native aim pitch to
+/// Explore camera-only pitch. The caller retains logical camera pitch; this
+/// operation neutralizes character presentation without changing the view.
+pub(super) unsafe fn neutralize_actor_pitch(player: *mut c_void) -> bool {
+    if !is_engine_pointer(player) || player != self::player() {
+        return false;
+    }
+    let setter: ActorSetPitchFn = unsafe { core::mem::transmute(ACTOR_SET_PITCH) };
+    unsafe { setter(player, 0.0) };
+    let pitch = unsafe { read_f32(player.cast(), PLAYER_ROTATION_X) };
+    pitch.is_finite() && pitch.abs() <= 0.000_1
+}
+
+/// Read the final camera position committed by PlayerCharacter::UpdateCamera.
+///
+/// The reticle wrapper runs later in the native UI update. `0x0094BB61` has
+/// already copied the completed position to the persistent camera object's
+/// local translation, so this is the exact origin represented on screen.
+pub(super) unsafe fn render_camera_origin() -> Option<Vec3> {
+    let origin = unsafe {
+        core::ptr::read_unaligned((NATIVE_CAMERA + NIAVOBJECT_LOCAL_TRANSLATION) as *const Vec3)
+    };
+    origin.is_finite().then_some(origin)
 }
 
 /// Return the range of an admitted standard ranged projectile.

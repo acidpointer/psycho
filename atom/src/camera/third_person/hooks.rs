@@ -5,9 +5,10 @@
 //! as a typed predecessor so compatible earlier owners remain in the chain.
 //! Follow and movement/facing are independent rollback-capable transactions.
 //! A compatible owner at one seam therefore disables only that capability,
-//! never the other. The two aim callsites are enabled only as an inseparable
-//! pair, only after movement admission, and only when both still target
-//! vanilla because an uncoordinated convergence owner cannot compose safely.
+//! never the other. Object selection through the native reticle cast is
+//! independently useful and safe to admit. Optional projectile convergence
+//! joins it only when the spawn call still targets vanilla, because an
+//! uncoordinated launch transformation cannot compose safely.
 
 use core::ffi::c_void;
 use std::sync::LazyLock;
@@ -26,6 +27,7 @@ use thiserror::Error;
 use super::{AimAngles, Vec3};
 
 const PLAYER_HEADING_SLOT: usize = 0x0108_ACF8;
+const CAMERA_PITCH_CALLSITE: usize = 0x0094_AE94;
 const ZOOM_CALLSITE: usize = 0x0094_59BB;
 const FOLLOW_CALLSITE: usize = 0x0094_B7D2;
 const MOVEMENT_SCOPE_ENTRY: usize = 0x009E_9E50;
@@ -34,6 +36,7 @@ const RETICLE_CALLSITE: usize = 0x0070_C130;
 const SPAWN_CALLSITE: usize = 0x0052_45BD;
 
 const NATIVE_PLAYER_HEADING: usize = 0x0095_3F20;
+const NATIVE_PLAYER_PITCH: usize = 0x0093_1D70;
 const NATIVE_MOUSE_GETTER: usize = 0x00A2_39E0;
 const NATIVE_FOLLOW: usize = 0x0094_A0C0;
 const NATIVE_MOVEMENT_REQUEST: usize = 0x0092_F260;
@@ -41,6 +44,7 @@ const NATIVE_RETICLE: usize = 0x0063_1D60;
 const NATIVE_SPAWN: usize = 0x009B_CA60;
 
 type PlayerHeadingFn = unsafe extern "thiscall" fn(*mut c_void, u8) -> f32;
+type PlayerPitchFn = unsafe extern "thiscall" fn(*mut c_void) -> f32;
 type MouseGetterFn = unsafe extern "thiscall" fn(*mut c_void, u32) -> i32;
 type FollowFn = unsafe extern "thiscall" fn(*mut c_void, *mut Vec3, *const Vec3, u8);
 type PlayerMoverUpdateFn = unsafe extern "thiscall" fn(*mut c_void, f32);
@@ -73,6 +77,7 @@ type SpawnFn = unsafe extern "C" fn(
 
 static CAMERA_HEADING_HOOK: PointerSlotHookContainer<PlayerHeadingFn> =
     PointerSlotHookContainer::new();
+static CAMERA_PITCH_HOOK: Rel32CallHookContainer<PlayerPitchFn> = Rel32CallHookContainer::new();
 static ZOOM_HOOK: Rel32CallHookContainer<MouseGetterFn> = Rel32CallHookContainer::new();
 static FOLLOW_HOOK: Rel32CallHookContainer<FollowFn> = Rel32CallHookContainer::new();
 static MOVEMENT_SCOPE_HOOK: LazyLock<InlineHookContainer<PlayerMoverUpdateFn>> =
@@ -191,15 +196,17 @@ pub(crate) enum HookInstallError {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) struct MovementPredecessors {
     pub(super) camera_heading: usize,
+    pub(super) camera_pitch: usize,
     pub(super) movement_scope: usize,
     pub(super) movement_request: usize,
 }
 
-/// Captured live targets and admission result for the paired aim capability.
+/// Captured live targets and independent reticle/convergence admission result.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) struct AimPredecessors {
     pub(super) reticle: usize,
     pub(super) spawn: usize,
+    pub(super) reticle_admitted: bool,
     pub(super) aim_admitted: bool,
 }
 
@@ -237,7 +244,7 @@ pub(super) fn install_follow() -> Result<usize, HookInstallError> {
     Ok(predecessor)
 }
 
-/// Install adjusted heading, mover scope, and request as one capability.
+/// Install logical view axes, mover scope, and request as one capability.
 pub(super) fn install_movement() -> Result<MovementPredecessors, HookInstallError> {
     validate_fingerprints(MOVEMENT_FINGERPRINTS)?;
     unsafe {
@@ -245,6 +252,11 @@ pub(super) fn install_movement() -> Result<MovementPredecessors, HookInstallErro
             "Atom third-person adjusted heading",
             PLAYER_HEADING_SLOT as *mut *mut c_void,
             camera_heading_detour,
+        )?;
+        CAMERA_PITCH_HOOK.init(
+            "Atom third-person camera pitch",
+            CAMERA_PITCH_CALLSITE as *mut c_void,
+            camera_pitch_detour,
         )?;
         MOVEMENT_SCOPE_HOOK.init(
             "Atom player movement scope",
@@ -260,18 +272,20 @@ pub(super) fn install_movement() -> Result<MovementPredecessors, HookInstallErro
 
     let predecessors = MovementPredecessors {
         camera_heading: CAMERA_HEADING_HOOK.predecessor_address()?,
+        camera_pitch: CAMERA_PITCH_HOOK.predecessor_address()?,
         movement_scope: MOVEMENT_SCOPE_HOOK.original()? as *const () as usize,
         movement_request: MOVEMENT_REQUEST_HOOK.predecessor_address()?,
     };
     let mut transaction = ModificationTransaction::new();
     transaction.enable_pointer(&CAMERA_HEADING_HOOK)?;
+    transaction.enable_callsite(&CAMERA_PITCH_HOOK)?;
     transaction.enable_inline(&MOVEMENT_SCOPE_HOOK)?;
     transaction.enable_callsite(&MOVEMENT_REQUEST_HOOK)?;
     transaction.commit();
     Ok(predecessors)
 }
 
-/// Admit reticle and projectile convergence only as one vanilla-owned pair.
+/// Admit camera-correct object selection, then optional projectile convergence.
 pub(super) fn install_aim() -> Result<AimPredecessors, HookInstallError> {
     validate_fingerprints(AIM_FINGERPRINTS)?;
     unsafe {
@@ -289,18 +303,26 @@ pub(super) fn install_aim() -> Result<AimPredecessors, HookInstallError> {
     let predecessors = AimPredecessors {
         reticle: RETICLE_HOOK.predecessor_address()?,
         spawn: SPAWN_HOOK.predecessor_address()?,
+        reticle_admitted: false,
         aim_admitted: false,
     };
-    if predecessors.reticle != NATIVE_RETICLE || predecessors.spawn != NATIVE_SPAWN {
+    let (reticle_admitted, aim_admitted) = super::reticle_and_convergence_admission(
+        predecessors.reticle == NATIVE_RETICLE,
+        predecessors.spawn == NATIVE_SPAWN,
+    );
+    if !reticle_admitted {
         return Ok(predecessors);
     }
 
     let mut transaction = ModificationTransaction::new();
     transaction.enable_callsite(&RETICLE_HOOK)?;
-    transaction.enable_callsite(&SPAWN_HOOK)?;
+    if aim_admitted {
+        transaction.enable_callsite(&SPAWN_HOOK)?;
+    }
     transaction.commit();
     Ok(AimPredecessors {
-        aim_admitted: true,
+        reticle_admitted,
+        aim_admitted,
         ..predecessors
     })
 }
@@ -336,6 +358,14 @@ unsafe extern "thiscall" fn camera_heading_detour(player: *mut c_void, adjusted:
     overridden.unwrap_or(native)
 }
 
+unsafe extern "thiscall" fn camera_pitch_detour(player: *mut c_void) -> f32 {
+    let predecessor = CAMERA_PITCH_HOOK
+        .original()
+        .unwrap_or_else(|_| native_player_pitch());
+    let native = unsafe { predecessor(player) };
+    super::scoped_camera_pitch(player).unwrap_or(native)
+}
+
 unsafe extern "thiscall" fn follow_detour(
     player: *mut c_void,
     desired: *mut Vec3,
@@ -360,11 +390,16 @@ unsafe extern "thiscall" fn follow_detour(
     };
     super::diagnostics::mark_follow_offset(offset);
 
+    let Some(composed) = super::compose_follow_camera(*desired_value, *pivot_value, offset) else {
+        unsafe { predecessor(player, desired, pivot, mode) };
+        return;
+    };
+
     // The pivot is the player's logical position and the origin of FNV's
     // clearance ray. Keep it exact so native collision still covers the full
-    // player-to-camera segment; compose follow displacement only into the
-    // already-built shoulder/distance endpoint that native resolves in place.
-    let mut adjusted_desired = *desired_value + offset;
+    // player-to-camera segment. Follow may alter only distance along FNV's
+    // already-built shoulder/distance ray before the native owner resolves it.
+    let mut adjusted_desired = composed;
     unsafe { predecessor(player, &mut adjusted_desired, pivot, mode) };
     unsafe { desired.write(adjusted_desired) };
 }
@@ -523,6 +558,10 @@ unsafe extern "C" fn spawn_detour(
 
 fn native_player_heading() -> PlayerHeadingFn {
     unsafe { core::mem::transmute(NATIVE_PLAYER_HEADING) }
+}
+
+fn native_player_pitch() -> PlayerPitchFn {
+    unsafe { core::mem::transmute(NATIVE_PLAYER_PITCH) }
 }
 
 fn native_mouse_getter() -> MouseGetterFn {

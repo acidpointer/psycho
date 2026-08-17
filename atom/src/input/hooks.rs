@@ -317,11 +317,13 @@ unsafe extern "thiscall" fn heading_x_detour(player: *mut c_void, native_heading
         LAST_MOUSE_X.load(Ordering::Relaxed),
         native_heading,
     );
-    // Horizontal actor yaw is diverted only after the camera epoch machine
-    // admits stable third person. Native-owned and contended paths retain the
-    // exact predecessor call and argument.
+    // Explore free orbit diverts yaw only after the camera epoch machine
+    // admits stable third person. AIM/Combat retains native Actor yaw, then
+    // copies its absolute result into the logical view and compensates the
+    // camera-only offset before any later engine consumer can observe drift.
     if !crate::camera::consume_horizontal_heading(player, heading) {
         unsafe { predecessor(player, heading) };
+        crate::camera::observe_native_horizontal_heading(player);
     }
 }
 
@@ -334,11 +336,14 @@ unsafe extern "thiscall" fn heading_y_detour(player: *mut c_void, native_heading
         LAST_MOUSE_Y.load(Ordering::Relaxed),
         native_heading,
     );
-    // Native pitch owns its established clamping and first-person semantics.
-    // Camera state samples the clamped value after the predecessor rather than
-    // implementing a second pitch policy.
-    unsafe { predecessor(player, heading) };
-    crate::camera::observe_vertical_heading(player);
+    // Explore free orbit owns pitch without writing Actor rotX. Combat keeps
+    // native Actor pitch so aim presentation and gameplay direction remain
+    // coupled, then copies the native-clamped result into logical view state.
+    // First-person, native-owned, and contended paths remain unchanged.
+    if !crate::camera::consume_vertical_heading(player, heading) {
+        unsafe { predecessor(player, heading) };
+        crate::camera::observe_native_vertical_heading(player);
+    }
 }
 
 fn transform_heading(axis: MouseAxis, source_delta: i32, native_heading: f32) -> f32 {

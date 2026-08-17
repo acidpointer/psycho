@@ -149,7 +149,18 @@ unchanged. Every VATS mode, POV transition, TFC, menu, disabled
 control, furniture/scripted action, death/ragdoll, incomplete world state,
 cell change, and explicit external owner revokes the complete output set before
 another Atom write. `Drawn 360` selects relaxed drawn locomotion; aim, fire,
-block, and ready/reload intent still select view-facing combat policy.
+block, and ready/reload intent still select view-facing combat policy. On AIM
+or Combat entry, Atom hands the existing logical view yaw to the authoritative
+Actor setter and immediately compensates PlayerCharacter's camera offset. The
+body therefore faces the already-rendered direction without moving the camera.
+Subsequent horizontal AIM input stays on FNV's Actor-yaw route and Atom adopts
+the raw result, while non-aiming Explore input remains camera-only.
+
+Returning from Pip-Boy, menus, VATS, or another native camera owner requires
+150 ms of uninterrupted normal gameplay before Atom begins its existing
+no-write seed frame. Any renewed owner restarts that interval. On the first
+camera-only frame Atom also checks live Actor `rotX`, so a native interruption
+cannot erase cleanup of a stale AIM pitch merely by clearing temporal state.
 
 When both native aim callsites are unowned at deferred admission, Atom reuses
 the normal ViewCaster result, resolves the real weapon projectile node, and
@@ -185,9 +196,9 @@ still launched from the real muzzle through its normal collision path.
 | `atom/src/camera/third_person/ownership.rs` | Deterministic native/acquire/explore/combat/release epochs. |
 | `atom/src/camera/follow.rs` | Dead/soft zones, horizontal lookahead, and analytic follow springs. |
 | `atom/src/camera/movement.rs` | Immutable camera-relative intent, post-setter compensation, vector/flag policy, and bounded facing math. |
-| `atom/src/camera/aim.rs` | Logical view direction and spread-preserving convergence math. |
-| `atom/src/camera/third_person/native.rs` | Hard owner gates, audited helpers/offsets, virtual facing, and real-muzzle reads. |
-| `atom/src/camera/third_person/hooks.rs` | Independent follow and movement transactions plus the inseparable optional aim callsite pair. |
+| `atom/src/camera/aim.rs` | Render-camera selection ray, logical direction, and spread-preserving convergence math. |
+| `atom/src/camera/third_person/native.rs` | Hard owner gates, audited view/pitch helpers, virtual facing, camera origin, and real-muzzle reads. |
+| `atom/src/camera/third_person/hooks.rs` | Independent follow/movement transactions, reticle alignment, and optional launch convergence. |
 | `atom/src/input/config.rs` | Serde/serini section model, validation, bounds, and atomic live config. |
 | `atom/src/input/frame.rs` | Native value types, derived edges, controller processing, and coherent frame publication. |
 | `atom/src/input/actions.rs` | 28-action binding resolution, mixed devices, focus epochs, contexts, and coherent publication. |
@@ -238,9 +249,9 @@ At `DeferredInit`, Atom performs this ordered transaction:
    established combined-mask predicate when its optional complete-mask slot is
    null;
 9. validate the third-person hard-owner data contract, independently admit the
-   follow transaction and the complete heading/movement/facing transaction,
-   then admit the reticle/spawn pair only when movement is available and both
-   aim calls still have vanilla ownership;
+   follow transaction and complete heading/movement/facing transaction, admit
+   the reticle when movement is available and its call remains vanilla, then
+   additionally admit launch convergence only when spawn also remains vanilla;
 10. independently fingerprint and enable the five Ballistics callsites plus
    MissileProjectile update slot in one rollback-capable transaction;
 11. subscribe to MCM Extender's `MCMExtUpdate` event for menu-close reloads.

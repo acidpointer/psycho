@@ -5,8 +5,10 @@
 //! actor facing, and aim convergence only during explicit normal-third-person
 //! epochs. Both paths share lifecycle reset and external-owner routing here.
 //!
-//! Native FNV remains authoritative for logical look, aiming, crosshair,
-//! activation, projectile direction, camera selection, and iron-sight setup.
+//! Native FNV remains authoritative for candidate filtering, activation,
+//! projectile behavior, camera selection, and iron-sight setup. In an owned
+//! third-person epoch Atom supplies the logical camera ray to FNV's existing
+//! reticle cast so the native selected reference matches the rendered view.
 //! Atom samples one accepted post-`UpdateCamera` state, generates a bounded
 //! immutable pose pair, and applies the world pose around one complete native
 //! render route so sky preparation, world rendering, first-person rendering,
@@ -307,9 +309,19 @@ pub(crate) fn consume_horizontal_heading(player: *mut c_void, heading: f32) -> b
     third_person::consume_horizontal_heading(player, heading)
 }
 
-/// Sample native-clamped pitch for the active third-person ownership epoch.
-pub(crate) fn observe_vertical_heading(player: *mut c_void) {
-    third_person::observe_vertical_heading(player);
+/// Refresh third-person AIM/Combat yaw after the native Actor route runs.
+pub(crate) fn observe_native_horizontal_heading(player: *mut c_void) {
+    third_person::observe_native_horizontal_heading(player);
+}
+
+/// Route final vertical look to the active third-person ownership epoch.
+pub(crate) fn consume_vertical_heading(player: *mut c_void, heading: f32) -> bool {
+    third_person::consume_vertical_heading(player, heading)
+}
+
+/// Refresh third-person Combat pitch after the native Actor route runs.
+pub(crate) fn observe_native_vertical_heading(player: *mut c_void) {
+    third_person::observe_native_vertical_heading(player);
 }
 
 /// Advance the generator after the chained native UpdateCamera returns.

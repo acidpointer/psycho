@@ -33,7 +33,7 @@ impl ThirdPersonConfig {
         soft_zone: 12.0,
         look_ahead: 8.0,
         zoom_step: 2.0,
-        auto_center: true,
+        auto_center: false,
         center_delay: 1.25,
         center_speed_degrees: 120.0,
         movement_enabled: false,
