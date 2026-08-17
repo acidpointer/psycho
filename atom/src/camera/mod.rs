@@ -314,9 +314,19 @@ pub(crate) fn observe_native_horizontal_heading(player: *mut c_void) {
     third_person::observe_native_horizontal_heading(player);
 }
 
+/// Rejoin an Atom-owned third-person yaw offset before native look executes.
+pub(crate) fn prepare_native_horizontal_heading(player: *mut c_void) {
+    third_person::prepare_native_horizontal_heading(player);
+}
+
 /// Route final vertical look to the active third-person ownership epoch.
 pub(crate) fn consume_vertical_heading(player: *mut c_void, heading: f32) -> bool {
     third_person::consume_vertical_heading(player, heading)
+}
+
+/// Align an owned third-person camera pitch before native AIM look executes.
+pub(crate) fn prepare_native_vertical_heading(player: *mut c_void) {
+    third_person::prepare_native_vertical_heading(player);
 }
 
 /// Refresh third-person Combat pitch after the native Actor route runs.

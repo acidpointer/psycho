@@ -535,15 +535,24 @@ unsafe fn observe_process(process: *mut c_void) -> Option<ProcessState> {
     })
 }
 
-/// Return whether the live player process currently owns native aim pitch.
+/// Return whether the current player update has requested native aim/block.
 ///
-/// This narrow query is intentionally separate from Combat classification:
-/// the established action-frame policy remains authoritative for actor yaw,
-/// while native aim presentation must never lose its Actor rotX update if an
-/// input-frame edge arrives later than the process state.
-pub(super) unsafe fn player_is_aiming(player: *mut c_void) -> bool {
+/// `PlayerCharacter::Update` calls camera helper `0x009445B0` at `0x0093F8D9`
+/// before it queries action 6 at `0x00941F4F` and `0x00941F5F`. The process
+/// virtual therefore cannot expose the initial stationary AIM sample in time
+/// for the look and camera seams. Atom's post-sample action frame closes that
+/// entry edge; the process state keeps ownership after the input consumer has
+/// established aim and through its native transition timing.
+pub(super) unsafe fn player_aim_requested(player: *mut c_void) -> bool {
     if !is_engine_pointer(player) || player != self::player() {
         return false;
+    }
+    let actions = latest_action_frame();
+    if actions.frame_id() != 0
+        && actions.context() == ActionContext::Gameplay
+        && actions.action(ActionId::Block).down()
+    {
+        return true;
     }
     let process = unsafe { read_ptr(player.cast(), PLAYER_PROCESS) };
     if !is_engine_pointer(process) {
@@ -637,35 +646,85 @@ pub(super) unsafe fn write_camera_heading_offset(player: *mut c_void, offset: f3
 /// so its base-heading change would immediately leak into every consumer of
 /// PlayerCharacter's adjusted heading unless `+0x6E4` is compensated in the
 /// same scoped movement callback.
-pub(super) unsafe fn synchronize_camera_heading(player: *mut c_void, logical_heading: f32) -> bool {
+pub(super) unsafe fn synchronize_camera_heading(
+    player: *mut c_void,
+    logical_heading: f32,
+) -> Option<f32> {
     if !is_engine_pointer(player) || player != self::player() || !logical_heading.is_finite() {
-        return false;
+        return None;
     }
     let current_offset = unsafe { read_f32(player.cast(), PLAYER_CAMERA_HEADING_OFFSET) };
-    let Some(native_adjusted) = (unsafe { actor_adjusted_heading(player) }) else {
-        return false;
-    };
-    let Some(offset) =
-        super::compensated_camera_heading_offset(native_adjusted, current_offset, logical_heading)
-    else {
-        return false;
-    };
-    unsafe { write_camera_heading_offset(player, offset) }
+    let native_adjusted = unsafe { actor_adjusted_heading(player) }?;
+    let offset =
+        super::compensated_camera_heading_offset(native_adjusted, current_offset, logical_heading)?;
+    unsafe { write_camera_heading_offset(player, offset) }.then_some(offset)
 }
 
-/// Clear Actor rotX through FNV's authoritative clamping/state route.
+/// Fold Atom's camera-only yaw offset into native Actor facing.
 ///
-/// This is used only when a stable Atom epoch returns from native aim pitch to
-/// Explore camera-only pitch. The caller retains logical camera pitch; this
-/// operation neutralizes character presentation without changing the view.
-pub(super) unsafe fn neutralize_actor_pitch(player: *mut c_void) -> bool {
+/// The effective world heading is sampled first, then published through the
+/// authoritative Actor yaw setter before `+0x6E4` is cleared. This preserves
+/// the visible heading while rejoining the raw actor, movement, first-person,
+/// and native-look axes. A rejected setter leaves the old offset untouched.
+///
+/// # Safety
+///
+/// `player` must be the live PlayerCharacter supplied by the current native
+/// look, UpdateCamera, or scoped movement callback on the game thread. The
+/// fixed fields and virtual slots must have passed deferred contract checks.
+pub(super) unsafe fn fold_camera_heading_offset_into_actor(player: *mut c_void) -> bool {
     if !is_engine_pointer(player) || player != self::player() {
         return false;
     }
+    let old_raw = unsafe { read_f32(player.cast(), PLAYER_ROTATION_Z) };
+    let old_offset = unsafe { read_f32(player.cast(), PLAYER_CAMERA_HEADING_OFFSET) };
+    let Some(adjusted) = (unsafe { actor_adjusted_heading(player) }) else {
+        return false;
+    };
+    if !old_raw.is_finite() || !old_offset.is_finite() || !adjusted.is_finite() {
+        return false;
+    }
+    if old_offset.abs() <= super::VIEW_MATCH_EPSILON {
+        return unsafe { write_camera_heading_offset(player, 0.0) };
+    }
+    if !unsafe { invoke_actor_yaw_setter(player, adjusted) } {
+        return false;
+    }
+    let set_raw = unsafe { read_f32(player.cast(), PLAYER_ROTATION_Z) };
+    if !set_raw.is_finite()
+        || super::wrap_angle(set_raw - adjusted).abs() > super::VIEW_MATCH_EPSILON
+    {
+        let _ = unsafe { invoke_actor_yaw_setter(player, old_raw) };
+        return false;
+    }
+    if !unsafe { write_camera_heading_offset(player, 0.0) } {
+        let _ = unsafe { invoke_actor_yaw_setter(player, old_raw) };
+        return false;
+    }
+    (unsafe { actor_adjusted_heading(player) }).is_some_and(|heading| {
+        super::wrap_angle(heading - adjusted).abs() <= super::VIEW_MATCH_EPSILON
+    })
+}
+
+/// Publish absolute Actor rotX through FNV's authoritative clamping route.
+///
+/// The returned value is the live post-setter pitch. FNV may clamp the request,
+/// so callers that are joining camera and Actor ownership must adopt this
+/// result rather than assume the requested angle reached native state.
+///
+/// # Safety
+///
+/// `player` must be the live PlayerCharacter supplied by the current native
+/// look or UpdateCamera callback on the game thread. The fixed function and
+/// player fields must have passed deferred contract checks.
+pub(super) unsafe fn invoke_actor_pitch_setter(player: *mut c_void, pitch: f32) -> Option<f32> {
+    if !is_engine_pointer(player) || player != self::player() || !pitch.is_finite() {
+        return None;
+    }
     let setter: ActorSetPitchFn = unsafe { core::mem::transmute(ACTOR_SET_PITCH) };
-    unsafe { setter(player, 0.0) };
+    unsafe { setter(player, pitch) };
     let pitch = unsafe { read_f32(player.cast(), PLAYER_ROTATION_X) };
-    pitch.is_finite() && pitch.abs() <= 0.000_1
+    pitch.is_finite().then_some(pitch)
 }
 
 /// Read the final camera position committed by PlayerCharacter::UpdateCamera.

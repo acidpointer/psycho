@@ -322,6 +322,7 @@ unsafe extern "thiscall" fn heading_x_detour(player: *mut c_void, native_heading
     // copies its absolute result into the logical view and compensates the
     // camera-only offset before any later engine consumer can observe drift.
     if !crate::camera::consume_horizontal_heading(player, heading) {
+        crate::camera::prepare_native_horizontal_heading(player);
         unsafe { predecessor(player, heading) };
         crate::camera::observe_native_horizontal_heading(player);
     }
@@ -341,6 +342,7 @@ unsafe extern "thiscall" fn heading_y_detour(player: *mut c_void, native_heading
     // coupled, then copies the native-clamped result into logical view state.
     // First-person, native-owned, and contended paths remain unchanged.
     if !crate::camera::consume_vertical_heading(player, heading) {
+        crate::camera::prepare_native_vertical_heading(player);
         unsafe { predecessor(player, heading) };
         crate::camera::observe_native_vertical_heading(player);
     }

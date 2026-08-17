@@ -52,8 +52,8 @@ type MovementRequestFn =
     unsafe extern "thiscall" fn(*mut c_void, f32, *mut Vec3, u32) -> *mut c_void;
 type ViewCasterFn = unsafe extern "thiscall" fn(
     *mut c_void,
-    *const Vec3,
-    *const Vec3,
+    *mut Vec3,
+    *mut Vec3,
     f32,
     *mut f32,
     *mut u8,
@@ -453,6 +453,11 @@ unsafe extern "thiscall" fn movement_request_detour(
     };
     let Some(output) = super::movement_override(actor, *native, flags, dt) else {
         super::diagnostics::mark_movement(false);
+        // This exact callsite is the proven raw-Actor-yaw movement seam. A
+        // failed Atom override may mean POV/native ownership changed after
+        // the mover scope; fold any persistent camera-only offset before the
+        // native request converts actor-local movement into world space.
+        super::prepare_native_horizontal_heading(actor);
         return unsafe { predecessor(actor, dt, movement, flags) };
     };
     super::diagnostics::mark_movement(true);
@@ -462,14 +467,16 @@ unsafe extern "thiscall" fn movement_request_detour(
 
 unsafe extern "thiscall" fn reticle_detour(
     caster: *mut c_void,
-    origin: *const Vec3,
-    direction: *const Vec3,
+    origin: *mut Vec3,
+    direction: *mut Vec3,
     max_distance: f32,
     out_distance: *mut f32,
     out_alternate_hit: *mut u8,
 ) -> *mut c_void {
     let predecessor = RETICLE_HOOK.original().unwrap_or_else(|_| native_reticle());
-    let Some(origin_value) = (unsafe { origin.as_ref() }) else {
+    let Some((origin_value, direction_value)) =
+        (unsafe { origin.as_ref() }).zip(unsafe { direction.as_ref() })
+    else {
         return unsafe {
             predecessor(
                 caster,
@@ -481,6 +488,18 @@ unsafe extern "thiscall" fn reticle_detour(
             )
         };
     };
+    if !direction_value.is_finite() {
+        return unsafe {
+            predecessor(
+                caster,
+                origin,
+                direction,
+                max_distance,
+                out_distance,
+                out_alternate_hit,
+            )
+        };
+    }
     let Some(prepared) = super::prepare_view_cast(*origin_value, max_distance) else {
         return unsafe {
             predecessor(
@@ -493,11 +512,20 @@ unsafe extern "thiscall" fn reticle_detour(
             )
         };
     };
+    // The exact native caller reuses these stack locals after ViewCaster to
+    // publish InterfaceManager's crosshair world point. Passing temporaries
+    // corrects collision selection only; it leaves actor/weapon aim and any
+    // compatible downstream convergence owner on the old vanilla ray. Keep
+    // the corrected values in the caller-owned locals for that whole chain.
+    unsafe {
+        origin.write(prepared.origin());
+        direction.write(prepared.direction());
+    }
     let selected = unsafe {
         predecessor(
             caster,
-            &prepared.origin(),
-            &prepared.direction(),
+            origin,
+            direction,
             max_distance,
             out_distance,
             out_alternate_hit,

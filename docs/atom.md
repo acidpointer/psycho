@@ -150,11 +150,20 @@ control, furniture/scripted action, death/ragdoll, incomplete world state,
 cell change, and explicit external owner revokes the complete output set before
 another Atom write. `Drawn 360` selects relaxed drawn locomotion; aim, fire,
 block, and ready/reload intent still select view-facing combat policy. On AIM
-or Combat entry, Atom hands the existing logical view yaw to the authoritative
-Actor setter and immediately compensates PlayerCharacter's camera offset. The
-body therefore faces the already-rendered direction without moving the camera.
+or Combat entry, Atom uses the current sampled aim/block action rather than
+waiting for the later process-state transition, hands the existing logical
+view yaw and pitch to the authoritative Actor setters, adopts FNV's clamped
+pitch, and immediately compensates PlayerCharacter's camera offset. The body
+therefore faces the already-rendered direction on the first stationary AIM
+frame without moving the camera.
 Subsequent horizontal AIM input stays on FNV's Actor-yaw route and Atom adopts
 the raw result, while non-aiming Explore input remains camera-only.
+When POV, native camera ownership, or a disabled movement path ends that
+camera-only epoch, Atom first folds the effective adjusted heading into raw
+Actor yaw and clears `+0x6E4`. The ownership marker survives temporal resets,
+and the same handoff is enforced before native horizontal look, UpdateCamera,
+or the raw-yaw movement request. First person therefore cannot inherit a
+third-person camera axis that differs from Actor facing and movement.
 
 Returning from Pip-Boy, menus, VATS, or another native camera owner requires
 150 ms of uninterrupted normal gameplay before Atom begins its existing
@@ -169,6 +178,11 @@ spread delta. Unsupported projectile types, stale view samples, first person,
 VATS, TFC, other aim owners, or missing native context remain exact native
 behavior. Near cover remains authoritative because the original projectile is
 still launched from the real muzzle through its normal collision path.
+The reticle wrapper writes the corrected origin and direction into the exact
+caller-owned stack locals before chaining ViewCaster. FNV reuses those locals
+after the cast to publish `InterfaceManager +0x104`; keeping them corrected is
+what makes native object selection, character/weapon aim, and a compatible
+downstream convergence owner observe one world target.
 
 ## Source ownership
 

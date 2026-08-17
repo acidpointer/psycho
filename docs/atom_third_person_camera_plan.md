@@ -503,12 +503,14 @@ Atom's own hook:
   today;
 - in non-aiming `Explore`, apply the selected Atom Input transform directly to
   logical view yaw/pitch without sending either delta to Actor rotation;
-- on native AIM or in `Combat`, retain FNV's Actor yaw and pitch routes, adopt
+- on sampled aim/block intent, native AIM, or in `Combat`, retain FNV's Actor
+  yaw and pitch routes, adopt
   raw Actor `rotZ` plus clamped `rotX` as the logical axes, and immediately
   compensate `+0x6E4` so the view cannot blink during the ownership handoff;
 - before the first stationary AIM/Combat camera update, align Actor yaw to the
-  existing logical view through live virtual `+0x2C4`, verify the setter's raw
-  result, and recompute the camera offset from that post-setter state;
+  existing logical view through live virtual `+0x2C4`, publish logical pitch
+  through the absolute `0x00931D90` clamp, adopt its live result, and recompute
+  the camera offset from the post-setter state;
 - preserve all first-person, menu, free-camera, wheel, inversion, and disabled
   control behavior already defined by Atom Input.
 
@@ -1237,6 +1239,67 @@ mutation-checked against the stale-pitch handoff, paired reticle admission,
 vanilla-eye ray, and uncompensated sustained actor turns. This remains an
 unaccepted candidate until Proton verifies the fixed-address native calls and
 object selection against the rendered crosshair in gameplay.
+
+### Reticle publication and POV yaw-release correction
+
+The 2026-08-18 gameplay report exposed two native-state leaks that the earlier
+math-only contracts did not cover:
+
+- The reticle detour supplied corrected temporary vectors only to
+  `0x00631D60`. Direct disassembly of its exact caller proves that
+  `0x0070C2E8..0x0070C345` later reuses the original `var_70h` origin and
+  `var_7Ch` direction to publish `InterfaceManager +0x104`. Selection used the
+  Atom ray, but character/weapon aim and a compatible downstream convergence
+  owner could still consume the vanilla world point. The detour now validates
+  both caller pointers and writes the corrected ray into those caller-owned
+  locals before chaining the native ViewCaster, preserving one ray through
+  selection, publication, activation, and convergence.
+- Atom's compensated PlayerCharacter `+0x6E4` offset is persistent engine
+  state, while the old release path cleared only pointer-free temporal state.
+  A rapid third-to-first-person transition could therefore build the native
+  camera from adjusted yaw while movement still used old raw Actor `rotZ`.
+  Native horizontal look could then feed that stale offset back into raw yaw,
+  producing the observed orthogonal movement and unstable camera rotation.
+  Atom now records the exact player whose offset it owns. Before native look,
+  a native UpdateCamera, or the raw-yaw movement request, it publishes the
+  current adjusted heading through the authoritative Actor setter and clears
+  `+0x6E4`. The marker intentionally survives resets until this handoff
+  succeeds, while RuntimeStore contention alone never triggers a release.
+
+The primary executable evidence remains the radare2 MCP analysis of
+`fnv_reverse/FalloutNV.exe`: `0x00953F20` proves adjusted heading is raw Actor
+yaw plus `+0x6E4`; `0x00931D30` consumes that adjusted value before the Actor
+setter; `0x0092F260` uses raw yaw for movement; and the reticle caller reuses
+its stack vectors after `0x0070C130`. These corrections add no new address,
+hook, import, configuration, allocation, lock, or startup operation. One
+fixed zero-initialized atomic player-token marker joins the existing
+third-person state; it has no constructor, TLS callback, or pre-Deferred first
+touch. The prior and candidate release artifacts retain identical ordered
+imports/exports, section roles, TLS data, and four callback roles. The changes
+remain an unaccepted candidate until Proton repeats rapid POV switching and
+aim/object-selection checks with the representative downstream aim owner.
+
+### First-sample AIM ownership correction
+
+The 2026-08-18 gameplay retest proved that established process aim was too
+late to classify a stationary AIM entry. Direct disassembly of
+`PlayerCharacter::Update` shows camera/input helper `0x009445B0` running at
+`0x0093F8D9`, before action 6 is queried at `0x00941F4F` and `0x00941F5F`.
+Consequently the camera could enter the aimed presentation while Actor yaw and
+pitch stayed in Explore ownership; the next nonzero look sample then performed
+the missing handoff visibly.
+
+The look and camera seams now combine the current coherent post-sample
+aim/block action with established native process aim. The first AIM sample
+therefore selects the native-and-synchronize route, folds any camera-only yaw
+offset into Actor facing before the chained horizontal setter, and publishes
+logical pitch before the incremental `0x00931E50` setter can read stale Actor
+rotX. A stationary UpdateCamera applies the same pitch handoff and adopts any
+native clamp. The process virtual continues ownership through native transition timing.
+No new hook, address, persistent state, allocation, import, or startup work is
+introduced. This remains an unaccepted candidate until Proton verifies first
+stationary AIM entry, held AIM with tiny look input, aim release, and rapid POV
+switching.
 
 ## Build and runtime validation
 

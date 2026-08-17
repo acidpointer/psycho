@@ -65,19 +65,19 @@ pub enum LookRoute {
 
 /// Select vertical-look ownership from the published camera state.
 ///
-/// Explore free orbit is camera-only. Combat and a live native aim state must
+/// Explore free orbit is camera-only. Combat and a current aim request must
 /// retain Actor pitch so character presentation, crosshair direction, and
 /// gameplay aim remain coupled. Non-owned states always remain native.
 pub const fn vertical_look_route(
     ownership: OwnershipState,
     movement_enabled: bool,
-    native_aiming: bool,
+    aim_requested: bool,
 ) -> LookRoute {
     if !movement_enabled {
         return LookRoute::NativeOnly;
     }
     match ownership {
-        OwnershipState::Explore if !native_aiming => LookRoute::CameraOnly,
+        OwnershipState::Explore if !aim_requested => LookRoute::CameraOnly,
         OwnershipState::Explore | OwnershipState::Combat => LookRoute::NativeAndSynchronize,
         OwnershipState::Native | OwnershipState::Acquire | OwnershipState::Release => {
             LookRoute::NativeOnly
@@ -94,9 +94,9 @@ pub const fn vertical_look_route(
 pub const fn horizontal_look_route(
     ownership: OwnershipState,
     movement_enabled: bool,
-    native_aiming: bool,
+    aim_requested: bool,
 ) -> LookRoute {
-    vertical_look_route(ownership, movement_enabled, native_aiming)
+    vertical_look_route(ownership, movement_enabled, aim_requested)
 }
 
 /// Return the immediate Actor-yaw handoff required by AIM or Combat.
@@ -333,6 +333,11 @@ static CAMERA_SCOPE_PITCH: AtomicU32 = AtomicU32::new(0);
 static CAMERA_SCOPE_FOLLOW_X: AtomicU32 = AtomicU32::new(0);
 static CAMERA_SCOPE_FOLLOW_Y: AtomicU32 = AtomicU32::new(0);
 static CAMERA_SCOPE_FOLLOW_Z: AtomicU32 = AtomicU32::new(0);
+// Nonzero only while Atom has published a camera-only +0x6E4 heading offset
+// for this exact PlayerCharacter. The marker deliberately survives temporal
+// resets: a POV/menu/lifecycle boundary must return the persistent engine
+// field to native actor/view coupling before Atom may forget its ownership.
+static CAMERA_HEADING_OFFSET_PLAYER: AtomicU32 = AtomicU32::new(0);
 static MOVEMENT_SCOPE_STATE: AtomicU32 = AtomicU32::new(0);
 static MOVEMENT_SCOPE_COUNTER: AtomicU32 = AtomicU32::new(0);
 static MOVEMENT_SCOPE_GENERATION: AtomicU32 = AtomicU32::new(0);
@@ -675,7 +680,7 @@ pub(crate) fn consume_horizontal_heading(player: *mut c_void, delta: f32) -> boo
             let route = horizontal_look_route(
                 runtime.ownership.state(),
                 config.movement_enabled(),
-                unsafe { native::player_is_aiming(player) },
+                unsafe { native::player_aim_requested(player) },
             );
             // Follow-only and native-owned modes preserve the complete FNV
             // path. AIM/Combat also stays native so body yaw is authoritative;
@@ -708,7 +713,7 @@ pub(crate) fn observe_native_horizontal_heading(player: *mut c_void) {
             let route = horizontal_look_route(
                 runtime.ownership.state(),
                 config.movement_enabled(),
-                unsafe { native::player_is_aiming(player) },
+                unsafe { native::player_aim_requested(player) },
             );
             if route != LookRoute::NativeAndSynchronize || frame.player != player {
                 return None;
@@ -724,10 +729,20 @@ pub(crate) fn observe_native_horizontal_heading(player: *mut c_void) {
         })
         .flatten();
     if logical_heading
-        .is_some_and(|heading| unsafe { !native::synchronize_camera_heading(player, heading) })
+        .is_some_and(|heading| unsafe { !synchronize_owned_camera_heading(player, heading) })
     {
         request_reset();
     }
+}
+
+/// Return Atom's persistent camera-only heading to native actor ownership.
+///
+/// This must run before a chained native horizontal-look call. It folds the
+/// effective adjusted heading into raw Actor yaw and clears `+0x6E4`, so the
+/// first native look, first-person camera update, or movement request cannot
+/// observe camera and actor axes from different ownership epochs.
+pub(crate) fn prepare_native_horizontal_heading(player: *mut c_void) {
+    let _ = release_owned_camera_heading(player);
 }
 
 pub(crate) fn consume_vertical_heading(player: *mut c_void, delta: f32) -> bool {
@@ -745,7 +760,7 @@ pub(crate) fn consume_vertical_heading(player: *mut c_void, delta: f32) -> bool 
             let route = vertical_look_route(
                 runtime.ownership.state(),
                 config.movement_enabled(),
-                unsafe { native::player_is_aiming(player) },
+                unsafe { native::player_aim_requested(player) },
             );
             if route != LookRoute::CameraOnly || frame.player != player {
                 return false;
@@ -766,6 +781,44 @@ pub(crate) fn consume_vertical_heading(player: *mut c_void, delta: f32) -> bool 
         .unwrap_or(false)
 }
 
+/// Join free-orbit camera pitch to Actor pitch before native AIM look runs.
+///
+/// FNV's incremental vertical setter starts from Actor rotX. On the initial
+/// sampled AIM frame that value still belongs to Explore while the logical
+/// camera may be looking far above or below it. Publishing the logical angle
+/// first makes the chained delta operate on the displayed direction instead
+/// of snapping the camera back to stale character pitch.
+pub(crate) fn prepare_native_vertical_heading(player: *mut c_void) {
+    if !HOOKS_ACTIVE.load(Ordering::Acquire) || !MOVEMENT_ACTIVE.load(Ordering::Acquire) {
+        return;
+    }
+    let target = RUNTIME
+        .with_mut(|runtime| {
+            let (frame, config) = runtime.refresh(player)?;
+            let route = vertical_look_route(
+                runtime.ownership.state(),
+                config.movement_enabled(),
+                unsafe { native::player_aim_requested(player) },
+            );
+            if route != LookRoute::NativeAndSynchronize
+                || frame.player != player
+                || !runtime.view_pitch.is_finite()
+                || (frame.pitch - runtime.view_pitch).abs() <= VIEW_MATCH_EPSILON
+            {
+                return None;
+            }
+            Some(runtime.view_pitch)
+        })
+        .flatten();
+    let Some(target) = target else {
+        return;
+    };
+    let actual = unsafe { native::invoke_actor_pitch_setter(player, target) };
+    if !actual.is_some_and(|pitch| adopt_owned_actor_pitch(player, pitch)) {
+        request_reset();
+    }
+}
+
 /// Refresh logical pitch after the native Combat route updates Actor rotX.
 pub(crate) fn observe_native_vertical_heading(player: *mut c_void) {
     if !HOOKS_ACTIVE.load(Ordering::Acquire) || !MOVEMENT_ACTIVE.load(Ordering::Acquire) {
@@ -778,7 +831,7 @@ pub(crate) fn observe_native_vertical_heading(player: *mut c_void) {
         let route = vertical_look_route(
             runtime.ownership.state(),
             config.movement_enabled(),
-            unsafe { native::player_is_aiming(player) },
+            unsafe { native::player_aim_requested(player) },
         );
         if route == LookRoute::NativeAndSynchronize && frame.player == player {
             let _ =
@@ -823,10 +876,19 @@ pub(crate) fn enter_camera_update_scope(player: *mut c_void) -> Option<CameraUpd
     CAMERA_SCOPE_GENERATION.store(generation, Ordering::Relaxed);
     CAMERA_SCOPE_THREAD.store(owner_thread, Ordering::Relaxed);
 
-    let prepared = RUNTIME
-        .with_mut(|runtime| runtime.prepare_camera_frame(player))
-        .flatten();
+    let prepared = RUNTIME.with_mut(|runtime| runtime.prepare_camera_frame(player));
     let Some(prepared) = prepared else {
+        // RuntimeStore contention is fail-native for this callback, but it
+        // does not prove an ownership transition. The current offset remains
+        // paired with the still-live logical view until the owner can decide.
+        clear_preparing_camera_scope(generation, owner_thread);
+        return None;
+    };
+    let Some(mut prepared) = prepared else {
+        // A completed observation rejected Atom ownership. Restore native
+        // actor/view coupling before UpdateCamera can build first person or
+        // another native camera from Atom's persistent third-person offset.
+        let _ = release_owned_camera_heading(player);
         clear_preparing_camera_scope(generation, owner_thread);
         return None;
     };
@@ -840,9 +902,26 @@ pub(crate) fn enter_camera_update_scope(player: *mut c_void) -> Option<CameraUpd
         unsafe { native::raw_actor_yaw(player) }
             .is_some_and(|actual| wrap_angle(actual - target).abs() <= VIEW_MATCH_EPSILON)
     });
-    let native_writes_succeeded = actor_heading_succeeded
-        && unsafe { native::synchronize_camera_heading(player, prepared.heading) }
-        && (!prepared.neutralize_actor_pitch || unsafe { native::neutralize_actor_pitch(player) });
+    let actor_pitch_succeeded = prepared.actor_pitch_write.is_none_or(|write| {
+        let Some(actual) = (unsafe { native::invoke_actor_pitch_setter(player, write.target) })
+        else {
+            return false;
+        };
+        if write.adopt_result {
+            prepared.pitch = actual.clamp(-MAX_VIEW_PITCH, MAX_VIEW_PITCH);
+            adopt_owned_actor_pitch(player, prepared.pitch)
+        } else {
+            (actual - write.target).abs() <= VIEW_MATCH_EPSILON
+        }
+    });
+    let view_active = prepared.flags & CAMERA_SCOPE_VIEW_ACTIVE != 0;
+    let heading_handoff_succeeded = if view_active {
+        unsafe { synchronize_owned_camera_heading(player, prepared.heading) }
+    } else {
+        release_owned_camera_heading(player)
+    };
+    let native_writes_succeeded =
+        actor_heading_succeeded && actor_pitch_succeeded && heading_handoff_succeeded;
     if !native_writes_succeeded {
         request_reset();
         clear_preparing_camera_scope(generation, owner_thread);
@@ -1115,7 +1194,7 @@ pub(crate) fn movement_override(
         request_reset();
         return None;
     };
-    if !unsafe { native::synchronize_camera_heading(actor, prepared.logical_heading) } {
+    if !unsafe { synchronize_owned_camera_heading(actor, prepared.logical_heading) } {
         request_reset();
         return None;
     }
@@ -1514,16 +1593,31 @@ impl RuntimeState {
 
         self.advance_camera_temporal(frame, config, follow_enabled, movement_enabled);
 
-        let native_aiming = unsafe { native::player_is_aiming(player) };
+        let aim_requested = unsafe { native::player_aim_requested(player) };
         let vertical_route =
-            vertical_look_route(self.ownership.state(), movement_enabled, native_aiming);
+            vertical_look_route(self.ownership.state(), movement_enabled, aim_requested);
         let neutralize_actor_pitch = advance_actor_pitch_ownership(
             &mut self.native_pitch_owned,
             vertical_route,
             frame.pitch,
         );
+        let actor_pitch_write = if neutralize_actor_pitch {
+            Some(PreparedActorPitchWrite {
+                target: 0.0,
+                adopt_result: false,
+            })
+        } else if vertical_route == LookRoute::NativeAndSynchronize
+            && (frame.pitch - self.view_pitch).abs() > VIEW_MATCH_EPSILON
+        {
+            Some(PreparedActorPitchWrite {
+                target: self.view_pitch,
+                adopt_result: true,
+            })
+        } else {
+            None
+        };
         let horizontal_route =
-            horizontal_look_route(self.ownership.state(), movement_enabled, native_aiming);
+            horizontal_look_route(self.ownership.state(), movement_enabled, aim_requested);
         let align_actor_heading =
             actor_heading_handoff_target(horizontal_route, frame.actor_yaw, self.view_yaw);
 
@@ -1557,7 +1651,7 @@ impl RuntimeState {
             heading: self.view_yaw,
             pitch: self.view_pitch,
             align_actor_heading,
-            neutralize_actor_pitch,
+            actor_pitch_write,
             follow_offset,
         })
     }
@@ -1630,8 +1724,14 @@ struct PreparedCameraFrame {
     heading: f32,
     pitch: f32,
     align_actor_heading: Option<f32>,
-    neutralize_actor_pitch: bool,
+    actor_pitch_write: Option<PreparedActorPitchWrite>,
     follow_offset: Vec3,
+}
+
+#[derive(Clone, Copy)]
+struct PreparedActorPitchWrite {
+    target: f32,
+    adopt_result: bool,
 }
 
 fn validated_delta(dt: f32) -> f32 {
@@ -1749,6 +1849,55 @@ fn external_owner_active() -> bool {
     EXTERNAL_OWNERS
         .iter()
         .any(|slot| slot.load(Ordering::Acquire) != 0)
+}
+
+fn adopt_owned_actor_pitch(player: *mut c_void, pitch: f32) -> bool {
+    if !pitch.is_finite() {
+        return false;
+    }
+    RUNTIME
+        .with_mut(|runtime| {
+            if runtime.player != pointer_word(player) || !runtime.ownership.state().is_owned() {
+                return false;
+            }
+            runtime.view_pitch = pitch.clamp(-MAX_VIEW_PITCH, MAX_VIEW_PITCH);
+            true
+        })
+        .unwrap_or(false)
+}
+
+unsafe fn synchronize_owned_camera_heading(player: *mut c_void, logical_heading: f32) -> bool {
+    let Some(offset) = (unsafe { native::synchronize_camera_heading(player, logical_heading) })
+    else {
+        return false;
+    };
+    let player = pointer_word(player);
+    if offset.abs() > VIEW_MATCH_EPSILON {
+        CAMERA_HEADING_OFFSET_PLAYER.store(player, Ordering::Release);
+    } else if CAMERA_HEADING_OFFSET_PLAYER.load(Ordering::Acquire) == player {
+        CAMERA_HEADING_OFFSET_PLAYER.store(0, Ordering::Release);
+    }
+    true
+}
+
+fn release_owned_camera_heading(player: *mut c_void) -> bool {
+    let player_word = pointer_word(player);
+    if player_word == 0 || CAMERA_HEADING_OFFSET_PLAYER.load(Ordering::Acquire) != player_word {
+        return true;
+    }
+    let Some(_facing_scope) = FacingCallScope::enter() else {
+        return false;
+    };
+    if !unsafe { native::fold_camera_heading_offset_into_actor(player) } {
+        return false;
+    }
+    let _ = CAMERA_HEADING_OFFSET_PLAYER.compare_exchange(
+        player_word,
+        0,
+        Ordering::AcqRel,
+        Ordering::Acquire,
+    );
+    true
 }
 
 fn clear_zoom_residual() {
