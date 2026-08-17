@@ -12,6 +12,7 @@ use crate::config::{DiagnosticsConfig, EngineFixesConfig, IoConfig, LodConfig};
 
 mod actor_container_guard;
 mod cell_render_retirement;
+mod controller_sequence;
 mod display;
 mod encounter_zone;
 mod entrydata;
@@ -248,6 +249,7 @@ pub fn install(
     diagnostics: &DiagnosticsConfig,
 ) -> anyhow::Result<()> {
     install_actor_container_guard(config);
+    install_controller_sequence_guard(config);
     install_save_integrity(config)?;
     install_navmesh_low_pointer(config)?;
     install_entrydata_invalid_form(config)?;
@@ -280,6 +282,16 @@ fn install_actor_container_guard(config: &EngineFixesConfig) {
     }
     if let Err(error) = actor_container_guard::install() {
         log::warn!("[ACTOR_CONTAINER] Dynamic actor retirement guard unavailable: {error:#}");
+    }
+}
+
+fn install_controller_sequence_guard(config: &EngineFixesConfig) {
+    if !config.animation_sequence_idtag_retirement_guard {
+        log::info!("[ANIM_SEQUENCE] IDTag retirement guard disabled by config");
+        return;
+    }
+    if let Err(error) = controller_sequence::install() {
+        log::warn!("[ANIM_SEQUENCE] IDTag retirement guard unavailable: {error:#}");
     }
 }
 

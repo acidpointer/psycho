@@ -336,6 +336,8 @@ pub struct EngineFixesConfig {
     pub entrydata_invalid_form_guard: bool,
     /// Detach corrupt dynamic-actor containers before retirement destruction.
     pub actor_container_retirement_guard: bool,
+    /// Discard unresolved controller-sequence ID tags before fixed-string release.
+    pub animation_sequence_idtag_retirement_guard: bool,
     /// Scrub invalid ExtraOwnership.owner pointers to NULL.
     pub extraownership_invalid_owner_guard: bool,
     /// Reject invalid ExtraEncounterZone forms and preserve native fallbacks.
@@ -383,6 +385,7 @@ impl Default for EngineFixesConfig {
             navmesh_low_pointer_guard: true,
             entrydata_invalid_form_guard: true,
             actor_container_retirement_guard: true,
+            animation_sequence_idtag_retirement_guard: true,
             extraownership_invalid_owner_guard: true,
             encounter_zone_invalid_form_guard: true,
             cell_render_reference_retirement_fix: true,
@@ -443,6 +446,9 @@ impl EngineFixesConfig {
             actor_container_retirement_guard: raw
                 .actor_container_retirement_guard
                 .unwrap_or(default.actor_container_retirement_guard),
+            animation_sequence_idtag_retirement_guard: raw
+                .animation_sequence_idtag_retirement_guard
+                .unwrap_or(default.animation_sequence_idtag_retirement_guard),
             extraownership_invalid_owner_guard: raw
                 .extraownership_invalid_owner_guard
                 .unwrap_or(default.extraownership_invalid_owner_guard),
@@ -591,6 +597,7 @@ struct RawEngineFixesConfig {
     navmesh_low_pointer_guard: Option<bool>,
     entrydata_invalid_form_guard: Option<bool>,
     actor_container_retirement_guard: Option<bool>,
+    animation_sequence_idtag_retirement_guard: Option<bool>,
     extraownership_invalid_owner_guard: Option<bool>,
     encounter_zone_invalid_form_guard: Option<bool>,
     cell_render_reference_retirement_fix: Option<bool>,

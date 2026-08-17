@@ -212,6 +212,20 @@ entrydata_invalid_form_guard = true
 # Leave it ON unless isolating a confirmed hook conflict.
 actor_container_retirement_guard = true
 
+# Prevents an animation-sequence destructor from treating unresolved legacy
+# string-palette offsets as reference-counted NiFixedString pointers. Psycho
+# validates the retiring sequence's allocator-owned IDTag array boundary before
+# examining it. A record containing an impossible low fixed-string body or the
+# legacy 0xFFFFFFFF null sentinel is discarded as one unit, then the native
+# destructor releases every remaining valid record normally.
+#
+# Known-invalid array storage is detached at final retirement and may leak
+# rather than be traversed or freed through an uncertain pointer. Structurally
+# plausible high addresses outside Psycho's proven allocation domains remain
+# untouched. This works with allocator modes 0, 1, and 2. Leave it ON unless
+# isolating a confirmed destructor-hook conflict.
+animation_sequence_idtag_retirement_guard = true
+
 # Prevents corrupt ownership data from crashing the game or xNVSE. An invalid
 # ExtraOwnership owner pointer is converted to "no owner."
 extraownership_invalid_owner_guard = true

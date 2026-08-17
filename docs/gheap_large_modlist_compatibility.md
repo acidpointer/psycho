@@ -79,6 +79,13 @@ Source ownership:
 | Pressure | `gheap/vas.rs`, `watchdog.rs`, `pressure.rs` | `VirtualQuery` total/holes, commit growth, tier occupancy, fallback/failure counters. No routine cleanup is initiated by the watchdog. |
 | Lifetime safety | pool/block metadata and targeted engine guards | Free does not overwrite pool/block payload bytes. Reuse is immediate; only proven stale-reader families receive targeted guards. |
 
+Controller-sequence IDTag retirement is a separate engine-object contract, not
+an allocator policy. The August 17 report had ample VAS and an exact
+640-byte gheap slot, but one record contained an unresolved legacy string
+offset where native teardown required a fixed-string pointer. The focused
+final-owner containment and its allocator-mode acceptance matrix are documented
+in `docs/crash_20260817_controller_sequence_idtag_retirement.md`.
+
 Mimalloc is CRT/pre-hook ownership fallback only; it is not a normal game-object
 tier. The vanilla Default and File SBM constructors are suppressed in mode `2`.
 The July 20 runtime log confirms both heap pointers were `NULL`, so their tail

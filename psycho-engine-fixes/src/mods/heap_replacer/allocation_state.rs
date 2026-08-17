@@ -28,7 +28,7 @@ const VANILLA_POOL_PAGE_SIZE: usize = 0x1000;
 const VANILLA_POOL_PAGE_UNCOMMITTED: u16 = u16::MAX;
 const VANILLA_POOL_LOCK_ADDR: usize = gheap::engine::addr::SPIN_LOCK_ACQUIRE;
 const ENGINE_WORD_SIZE: usize = 4;
-const VALIDATION_LOCK_LABEL: &[u8] = b"Psycho actor container validation\0";
+const VALIDATION_LOCK_LABEL: &[u8] = b"Psycho lifetime validation\0";
 
 type VanillaPoolLockFn = unsafe extern "thiscall" fn(*mut c_void, *const u8);
 
@@ -298,6 +298,81 @@ pub(crate) fn read_allocation_words(
         }
         None => Err(AllocationState::Unowned),
     }
+}
+
+/// Run a cold mutation while the allocation proof that admitted `ptr` remains
+/// valid.
+///
+/// Vanilla SBM keeps its native pool lock for the complete callback so a page
+/// cannot be purged or its free-list state changed between validation and the
+/// mutation. Exact gheap and Windows-heap allocations rely on the caller's
+/// native lifetime ownership after metadata validation.
+///
+/// # Safety
+///
+/// `ptr` must be the exact allocation start. The caller must own the native
+/// object's lifetime for the complete callback and must ensure that writes made
+/// by `operation` satisfy the allocation's engine layout and aliasing contract.
+pub(crate) unsafe fn with_allocation_mut<R>(
+    ptr: *mut c_void,
+    minimum_size: usize,
+    operation: impl FnOnce(*mut u8, usize, AllocationState) -> R,
+) -> Result<R, AllocationState> {
+    match current_mode() {
+        Some(AllocatorMode::GheapAndScrapHeap) => {
+            let state = gheap::allocator::allocation_state(ptr.cast_const());
+            let AllocationState::Live { usable_size, .. } = state else {
+                return Err(state);
+            };
+            if usable_size < minimum_size {
+                return Err(state);
+            }
+            Ok(operation(ptr.cast(), usable_size, state))
+        }
+        Some(AllocatorMode::ScrapHeap | AllocatorMode::Disabled) => unsafe {
+            with_vanilla_allocation_mut(ptr, minimum_size, operation)
+        },
+        None => Err(AllocationState::Unowned),
+    }
+}
+
+/// Validate and mutate a vanilla GameHeap allocation under its owning lock
+/// when the pointer belongs to an SBM pool.
+///
+/// # Safety
+///
+/// `ptr` must be the exact allocation start and remain under the caller's
+/// native lifetime ownership for the complete operation. The callback must
+/// preserve the allocation's engine layout and aliasing contract.
+unsafe fn with_vanilla_allocation_mut<R>(
+    ptr: *mut c_void,
+    minimum_size: usize,
+    operation: impl FnOnce(*mut u8, usize, AllocationState) -> R,
+) -> Result<R, AllocationState> {
+    if let Some(candidate) = VanillaPoolCandidate::acquire(ptr as usize) {
+        let state = candidate.state().unwrap_or(AllocationState::Unowned);
+        let AllocationState::PlausibleVanillaPool { usable_size } = state else {
+            return Err(state);
+        };
+        if usable_size < minimum_size {
+            return Err(state);
+        }
+        // `candidate` owns the native pool snapshot until the callback returns.
+        return Ok(operation(ptr.cast(), usable_size, state));
+    }
+
+    let usable_size = unsafe { heap_validate::heap_validated_size(ptr.cast_const()) };
+    if usable_size == usize::MAX {
+        return Err(AllocationState::Unowned);
+    }
+    let state = AllocationState::Live {
+        tier: AllocationTier::WindowsHeap,
+        usable_size,
+    };
+    if usable_size < minimum_size {
+        return Err(state);
+    }
+    Ok(operation(ptr.cast(), usable_size, state))
 }
 
 fn vanilla_allocation_state(ptr: *const c_void) -> AllocationState {
