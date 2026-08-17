@@ -6650,6 +6650,191 @@ acceptable only as a local missing silhouette; supported environment and actor
 shadows must not disappear as a family. Any warning must name its new exact
 point stage. The cold BaseObjectSwapper load-to-gameplay check remains required.
 
+### Runtime PointInputs recurrence and cached-count compatibility
+
+The next Atom-enabled run reached a different, earlier failure boundary. OMV
+produced one interior shadowed point light at `18:36:43.996` and composed it at
+`18:36:43.998`. Starting at `18:36:45.343`, all eight bounded warnings reported
+`PointInputs` with `0x80004005`; no `PointStatic`, `PointPublish`, or
+`PointAnimated` failure occurred. This proves that the recurrent disappearance
+preceded every cube draw and copy. A later atmosphere snapshot still captured
+16 manager lights, of which four were usable, so the manager light chain had
+not disappeared as a family. The corresponding Atom log contains no error at
+the failure timestamp. Atom can influence native timing and scene state, but
+these observations do not justify detecting Atom or depending on its current
+implementation.
+
+Source proof narrows the old `PointInputs` label to two admission checks:
+bounded point-light selection and completeness of the canonical caster-root
+inventory. The runtime log cannot distinguish those checks, so the exact input
+that rejected that run remains unproven. The point selector nevertheless had a
+repository-local incompatibility independent of that attribution. It walked
+`ShadowSceneNode + 0xB4` for exactly the cached `+0xBC` count and rejected the
+inventory unless the count and terminating link agreed. A mod which relinked a
+valid light chain before updating the cached count, or updated the count first,
+could therefore make OMV reject every local shadow while Fallout continued to
+consume that chain.
+
+Direct radare2 inspection of the identified executable proves the native
+ownership rule. `0x00B5C450` loads the list at manager `+0xB4`, reads node data
+at `+0x08`, advances through the next link at `+0x00`, and stops only at a null
+link. It does not read manager `+0xBC`. The native `+0xC0` candidate iterators at
+`0x00B5AFC0` and `0x00B5B010` likewise follow their terminating links without a
+count. Existing value-copy evidence establishes that these manager lists are
+borrowed only during the synchronous common-shadow transaction. Thus the
+terminating `+0xB4` chain, not eventual equality with the cached count, is the
+safe completeness boundary for OMV's same-transaction copy.
+
+OMV now scans that chain until null with its existing fixed 512-node budget.
+A terminating chain is admitted even when `+0xBC` leads or lags; a cycle or a
+chain with an unvisited 513th node still rejects the transaction rather than
+publishing a possibly wrong nearest-light prefix. Candidate filtering,
+deterministic nearest-twelve selection, retained-slot hysteresis, and native
+lighting ownership are unchanged. The change is capability-based and applies
+equally to Atom, scripted lights, camera overhauls, and other mods which leave
+a valid native chain at the serialized engine boundary.
+
+Failure attribution is also split without hot-path diagnostics. Selection
+failures now report `PointLightInputs`; canonical caster inventory and later
+pre-raster point planning use `PointCasterInputs`. Rasterization, publication
+copies, and animated merges retain their exact slot-and-face stages. This
+distinction is important because a future `PointCasterInputs` warning would
+disprove the cached-count hypothesis and direct the next investigation to
+cell/root or caster-planning ownership without another speculative
+compatibility change.
+
+The fail-first regression initially failed to compile because the old contract
+had no terminating-chain admission rule. It now requires both leading and
+lagging cached counts to accept a complete chain and requires an unvisited tail
+at the budget boundary to fail. The production selector consumes that exact
+contract. The path adds no allocation, lock, file operation, logging, draw,
+shader work, persistent state, configuration field, hook, worker, TLS value, or
+pre-`DeferredInit` first touch.
+
+Static closure on 2026-08-16 passes all 698 supported-target OMV tests and doc
+tests, including 188 focused shadow tests, D3D9 execution/readback, shader
+compilation, and the startup-owner guard. The explicit
+`i686-pc-windows-gnu` release build completes without warnings. The resulting
+12,857,256-byte `omv.dll` has SHA-256
+`28a6ed1c28599ff66687ae0556f0a405fd0d523c154525f304932589feed45a2`.
+PE inspection retains `.bss = 0x6B10`, `.idata = 0x340C`, `.tls = 0x8`, TLS
+directory `0x18`, IAT `0x6BC`, and the established imported-DLL set. The
+startup owner guard retains `ShadowPipeline = 0xA28`.
+`cargo fmt -p omv -- --check` and `git diff --check` pass. The generated shader
+cache was moved to `/tmp/omv-shadow-count-validation.QWx1nb/Data`. These are
+static and artifact gates, not a visible-image result.
+
+Runtime acceptance remains mandatory: in the same Atom-enabled interior,
+local shadows must remain visible while entering the room, moving through
+several lamp volumes, changing view, and toggling the Pip-Boy. The log must
+contain no `PointLightInputs` warning. Any `PointCasterInputs` warning is a
+separate proven post-selection input failure and must not be relabeled as a
+light-count issue. A cold BaseObjectSwapper load-to-gameplay check remains
+required because static validation cannot prove the frozen startup interval.
+
+### Demand-sized point resources and single-snapshot planning (2026-08-16)
+
+The responsiveness report has concrete resource evidence in the deployed
+`omv-latest.log`. At `18:55:18.992` an exterior common-shadow invocation logged
+`Local-light resources ready (12 x 1024 cube maps)` and immediately reported
+zero shadowed point lights. The old producer provisioned
+`interior_shadowed_lights` before it performed canonical selection. At Ultra,
+that eagerly created twelve published and twelve immutable 1024 cube maps plus
+the shared depth surface: the already-proven 608,174,080-byte point family
+(about 580 MiB) for a frame with no selected light. This proves avoidable
+residency and render-thread allocation work; it does not by itself quantify
+the user's input-latency observation.
+
+Selection also occurred separately in the metadata-only no-work planner and
+again in transactional generation when the no-work proof rejected. Each scan
+is bounded, but the duplication needlessly revisited the native manager chain
+at the exact light-heavy common-shadow boundary.
+
+The producer now creates one fixed-capacity scalar `PointLightSelection`
+before branch provisioning and passes that immutable value through no-work
+planning, transactional generation, and publication. Native engine pointers
+are not retained in it. Resource demand is
+`min(configured_limit, selected_count)`: zero selected lights allocate no point
+family; one through twelve allocate exactly the required cube capacity. A
+same-resolution family whose capacity is already larger is reused, so moving
+between overlapping light volumes cannot cause shrink/grow churn. A later
+larger demand still uses the existing transactional replacement rule: the
+last-good family remains owned until every new cube face and shared depth
+surface exists, then publication/cache metadata is invalidated as one commit.
+Quality, coverage, light ordering, cube resolution, fade, map caching, and the
+twelve-light cap are unchanged.
+
+At Ultra, each selected light adds exactly 50,331,648 bytes for its two R32F
+cube families; one shared 1024-square D24S8 surface adds 4,194,304 bytes. Thus
+zero/one/three/twelve selected lights request 0, 54,525,952, 155,189,248, and
+608,174,080 bytes respectively when no reusable family exists. Driver padding
+and COM metadata remain outside these estimates. High and lower tiers retain
+their established dimensions and scale by the same exact selected capacity.
+
+The fail-first capacity regression reproduced the defect by returning twelve
+for zero and three selected lights. It now requires zero, three, and the
+configured clamp exactly, and the focused shadow suite exercises the real
+producer/resource path separately. This correction adds no shader work,
+texture sample, draw, pass, lock, allocation in steady state, config field,
+schema value, hook, worker, TLS value, static owner, or pre-Deferred access.
+
+Runtime acceptance must compare the same exterior zero-light start and the
+same long lamp-filled interior. The exterior must not log a point-resource
+creation until at least one light is selected. Sparse locations must log the
+actual demand, while a twelve-light room may still legitimately own the full
+quality family. Camera and movement responsiveness need a repeatable A/B or
+frame-pacing trace before a delivered performance improvement is claimed.
+
+Static closure passes all 189 focused Shadows tests and all 701 explicit
+supported-target OMV tests plus doc tests. The optimized supported-target OMV
+build completes without warnings. The startup owner remains exactly
+`ShadowPipeline = 0xA28`; final artifact and PE facts are recorded in
+`graphics_fnv_atmosphere_startup_crash_errata.md`. These results prove bounded
+demand and allocation ownership, not the reported Proton responsiveness.
+
+### Exact world-camera provenance (2026-08-17)
+
+Shadow generation and depth consumption now share the coherent world
+transaction instead of independently sampling process-global camera state.
+The receiver context carries two immutable POD cameras: the generation camera
+used for light/caster discovery and the depth camera which produced the
+receiver surface. Both preserve another camera mod's temporary pose and lens.
+The active world mailbox additionally supplies the generation view while the
+native world predecessor is still executing. An explicit receiver context has
+first priority, then that exact active transaction, and only a native shadow
+transaction with neither may use the current live camera.
+
+World publication is keyed by transaction serial, render epoch, exact color and
+depth COM identities, rendered texture, device generation, dimensions, and
+format. Nested callbacks restore only their exact parent. A busy lock, missing
+camera, stale epoch, wrong target, or mismatched serial rejects replacement and
+retains native rendering; it cannot consume the most recent same-epoch camera.
+The completed retry ring is fixed at four entries and expires at Present, so no
+camera or engine pointer grows or survives as unbounded history.
+
+This closes a mod-order failure where an inner camera owner restored the live
+shader-manager camera before OMV's outer world callback generated or consumed
+shadows. It does not reinterpret the reported exterior depressions as sun
+shadow failures: the report explicitly had experimental sun shadows disabled.
+Point-light cube coverage, caster geometry, landscape topology, and receiver
+depth remain the relevant runtime checks for those holes. The camera closure
+prevents a different projection from being attached to them; it does not hide
+or fill a real landscape opening.
+
+Steady-state work is one already-required target query at world entry, fixed
+POD copies, atomics, and nonblocking locks. No per-caster camera query,
+allocation, D3D readback, executable-memory probe, or file/log operation was
+added. Behavioral tests cover nested context restoration, exact serial/target
+matching, stale retry expiry, modded pose/FOV capture, and TAA projection
+replacement. Runtime acceptance still requires the same lamp-filled interiors,
+Pip-Boy transitions, the identified exterior depressions with sun shadows off,
+fast Atom camera movement, and measured frame pacing.
+
+The containing compatibility candidate passes all 702 explicit-target OMV
+tests and doc tests and the supported optimized OMV build. Static closure
+proves the bounded provenance and existing shader/resource contracts, not
+visible shadow continuity on the installed mod list.
+
 ## Primary evidence index
 
 ### Current executable and static artifacts
@@ -6675,6 +6860,8 @@ point stage. The cold BaseObjectSwapper load-to-gameplay check remains required.
 - direct radare2 inspection on 2026-08-09 of `0x008706B0`, the three branch
   calls, `0x00871290`, `0x00871A50`, `0x00B6B8D0`, `0x00B9F780`, their
   relevant xrefs/call sequences, and `0x004073D0`;
+- direct radare2 inspection on 2026-08-16 of `0x00B5C450`, `0x00B5AFC0`, and
+  `0x00B5B010`, proving terminating manager-list traversal without `+0xBC`;
 - `analysis/ghidra/output/perf/graphics_fnv_volumetric_light_shadow_resource_audit.txt`;
 - `analysis/ghidra/output/perf/graphics_fnv_pbr_shadow_selection_continuity_closure.txt`;
 - `analysis/ghidra/output/perf/graphics_fnv_volumetric_local_light_value_copy_contract_audit.txt`;

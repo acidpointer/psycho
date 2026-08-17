@@ -609,3 +609,52 @@ static USER32 import. Current changed sections are `.text = 0x5620A8`,
 `.rdata = 0x2A3F14`, `.data = 0x15C24`, `.eh_fram = 0x7DD90`, and
 `.reloc = 0x381C0`. These are static footprint facts, not load-to-gameplay
 acceptance.
+
+### 2026-08-17 accepted-boundary restoration candidate
+
+An installed Atom/OMV playtest rejected the generalized render-transaction and
+material-broker candidate: native sky followed Atom head bob and PBR remained
+visually absent although OMV logged every relevant hook and resource as active.
+Production removes that candidate completely. OMV's PBR, native sky, depth,
+atmosphere, motion blur, bloom, image-space, reset, interoperability, and shared
+hook code are restored to commit `1dac8a2`. Only the separately requested
+dynamic-shadow files remain changed.
+
+The restoration removes the candidate's new `LazyLock` hook containers,
+transaction mutexes, camera mailboxes, material descriptor, invocation probes,
+and publication atomics. It adds no configuration value, schema/preset change,
+TLS value or destructor, import, worker, thread, file scan, parser, or
+pre-Deferred operation. Atom's follow-up changes only post-Deferred camera
+route code and one fixed function fingerprint; it adds no static lazy owner or
+new import.
+
+The complete explicit-target Atom and OMV test suites pass with 104 and 699
+tests respectively. The supported five-crate optimized build also completes.
+The candidate artifacts are:
+
+- `atom.dll`: 6,814,953 bytes, SHA-256
+  `9da56cc6e2cc12e8e21f14a235f967e781b6d75323ee47406967fd2963d9eaca`;
+- `omv.dll`: 12,862,364 bytes, SHA-256
+  `b158b52ba8e1e1606cf69b77c7277848a85351f1555f0ff35f69cf581ebbf77a`.
+
+Atom's normalized import signature remains exactly 320 rows and its 29 DLL
+table rows match the runtime-rejected deployed artifact. Import, export, TLS,
+and IAT directory sizes remain `0x2B04`, `0x8C`, `0x18`, and `0x574`; delay
+imports remain absent and `.tls` remains eight zero bytes. Its changed sections
+are `.text = 0x2A6930`, `.data = 0x1F90`, `.rdata = 0x122A18`,
+`.eh_fram = 0x4F5E0`, `.bss = 0x1AE0`, and `.reloc = 0x224CC`.
+
+OMV's normalized import signature remains exactly 395 rows and all 36 DLL table
+rows match `.release/omv-nvse-atom-foundation-check.zip` (SHA-256
+`3d40c9c8391358b6da6ddccdfc2e2b113975bd4155afb0f5a4ef0c61782970a7`).
+Import, export, TLS, and IAT sizes remain `0x340C`, `0x82`, `0x18`, and
+`0x6BC`; delay imports remain absent, `.tls` remains eight zero bytes, and
+`.bss` remains `0x6B10`. Current changed sections are `.text = 0x5603A8`,
+`.data = 0x15444`, `.rdata = 0x2A3214`, `.eh_fram = 0x7D900`, and
+`.reloc = 0x3790C`.
+
+These static facts prove removal of the rejected startup footprint and a
+bounded shadow/Atom code delta; they do not accept runtime startup or pixels.
+The baseline remains unchanged until three cold Proton launches with
+BaseObjectSwapper reach gameplay and the full Atom camera off/on graphics
+matrix passes on these exact hashes.

@@ -1,11 +1,8 @@
 # gheap rules
 
-These rules extend the repository root rules for all gheap changes.
-
-The root commit-creation prohibition applies here without exception.
-`docs/commit-rules.md` remains mandatory, and no gheap change may be committed
-or amended without the user's explicit request and strict approval for that
-commit.
+These are only the gheap-specific deltas to the repository root rules; all root
+acceptance, testing, commit, research, documentation, code-quality, safety, and
+performance rules remain inherited.
 
 ## Current risk model
 

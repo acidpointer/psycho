@@ -639,3 +639,307 @@ Update existing subsystem documents rather than creating redundant plans:
 
 Implementation and documentation changes remain uncommitted unless the user
 separately authorizes a specific commit.
+
+## Rejected coherent render-transaction candidate (2026-08-17)
+
+Status: rejected by the installed runtime matrix and retained only as design
+evidence. The production disposition is recorded in the final section below.
+
+The Atom report exposed a general load-order defect rather than an Atom or
+shader defect. A cooperative inner wrapper can temporarily pose the native
+world camera, call its predecessor, and restore the camera before an outer OMV
+world wrapper resumes. The color and depth then describe the temporary camera,
+while a post-world live read describes the restored camera. Fog, volumetric
+lighting, AO, shadows, TAA, and motion blur can all execute successfully yet
+sample incompatible reconstruction domains.
+
+OMV now captures one immutable world-camera snapshot from the existing native
+pre-alpha boundary, inside the complete world predecessor chain. The snapshot
+is identified by a monotonically advancing transaction serial, render epoch,
+exact RT0 COM identity, width, height, and format. It carries:
+
+- the rendered camera which produced world color/depth;
+- the same camera with only OMV's temporary TAA lens shift removed;
+- the exact temporary world transform and any predecessor-owned lens policy.
+
+An inner owner may rebuild a centered frustum after OMV applies TAA jitter. OMV
+tests the captured projection center before removing its shift: retained jitter
+composes with a changed FOV, while overwritten or independently off-center
+projection state is left unchanged. OMV therefore cannot manufacture an
+"unjittered" camera for a draw that never consumed its jitter.
+
+Post-world depth publication and every focused world effect consume this one
+snapshot. They do not independently read a restored camera. A missing, busy,
+stale, wrong-target, or wrong-serial snapshot rejects the dependent transaction
+instead of attaching unrelated camera state to valid pixels. Advancing the
+serial is atomic and precedes the best-effort pipeline lock, so even a busy
+transaction-start callback makes an older same-epoch/same-target snapshot
+unusable.
+
+The first-person path has the same provenance problem at a different native
+boundary. OMV scopes each of the three outer `RenderFirstPerson` callers, arms
+an inner observer at accumulator call `0x0087590A`, and copies the live
+shader-manager camera at the first actual geometry submission. The executable
+ABI at that call is `thiscall`: `ECX` is the accumulator, the first stack
+argument is the active camera sourced through OSGlobals `+0xA0`, and the second
+stack argument is opaque. The caller/callee chain and camera source are retained
+in `analysis/radare2/output/perf/fnv_first_person_camera_contract.txt`. Atom
+currently wraps the outer callers and holds its
+temporary camera through this inner boundary; the capture therefore sees the
+camera which actually rasterized hands/weapon depth regardless of which mod
+installed its cooperative wrapper first. This is a capability contract, not an
+Atom identity check.
+
+First-person state is bounded to four nested scopes and never survives the
+outer native call. A null target, lock contention, missing geometry capture,
+wrong epoch/texture, or a second accumulator rejects the entire projection
+rather than falling back to the restored persistent camera. Geometry callbacks
+pay one atomic load when no capture is armed; after the first successful copy,
+the observer disarms for the rest of that accumulator.
+
+The complete image-space owner at `0x00875FD0` is a `thiscall` method with four
+stack arguments. Its four current callers are `0x00870994`, `0x00870B89`,
+`0x008710E4`, and `0x00872A79`. Existing executable evidence in
+`analysis/ghidra/output/perf/graphics_fnv_camera_matrix_contract_audit.txt`
+proves their argument setup and that the former inner call at `0x00876136`
+returns before substantial owner-tail work. OMV therefore keeps scene-pre and
+scene-post around the native `ProcessImageSpaceShaders` call but runs final
+color effects after the complete outer owner returns. All four caller cells
+form one rollback-capable group. If that group cannot install, or a later
+non-chaining owner removes its reachability, the released inner phase becomes a
+once-per-epoch compatibility fallback. A cooperative outer callback publishes
+its epoch before invoking its predecessor and retains the preferred post-owner
+ordering. If reachability disappears, the presentation boundary invalidates it
+using atomics only: at most the first displaced frame can miss final color, and
+later inner calls restore it. If an outer callback arrives after a fallback in
+the same epoch, it suppresses its draw so final composition executes exactly
+once.
+
+### Hook truth and liveness
+
+Hook lifecycle state and live cell ownership are no longer conflated.
+`Rel32CallHook` and `PointerSlotHook` expose a bounded diagnostic ownership
+probe with three states: inactive, directly owned, and displaced. Displacement
+is not treated as failure because a later compatible owner may chain OMV.
+Scene, geometry, reset, PBR, texture, local-light, and sky detours publish
+generation-scoped invocation evidence. A diagnostics sample requests
+one new generation; each route acknowledges it at most once and an older
+invocation cannot satisfy the next sample. The Diagnostics tab can therefore
+distinguish direct ownership, displaced-but-observed chaining,
+displaced-not-yet-observed, an exclusive lost patch, a missing dependency, and
+an intentionally disabled feature without probing modules or changing shader
+policy. Sampling feature and route rows in one render epoch is idempotent.
+Executable ownership probes run only at installation or a requested bounded
+diagnostic/reliability sample. The final-color fallback uses callback epochs,
+not executable-memory polling.
+
+### Material ownership
+
+PBR and native sky retain their released, draw-scoped replacement contracts.
+They now converge through one geometry material broker. An exact pending sky
+draw receives first refusal; PBR is evaluated only when sky did not claim the
+submission. The same decision owns the paired post-draw restoration. This
+prevents a stale PPLighting selection from overwriting sky state and prevents
+one family from reconstructing another family's native/replacement pair.
+
+The initial broker implementation was not exact: sky published only shader
+state and the next geometry consumed it. The durable transaction now uses one
+current-geometry accessor in `effects::material`, backed by the executable-
+proven draw slot at `0x011F91E0`. PBR's former private accessor was removed.
+Sky publishes geometry identity, render epoch, generation, indices, object
+type, and native pair through a fixed atomic record. A consumer can claim only
+the same pointer in the same epoch. Mismatch leaves the record for its exact
+later geometry; expiry, reset, disable, and Present cleanup remove it. The
+tri-state result distinguishes unclaimed geometry, exact native-sky fallback,
+and exact replacement, so PBR is excluded for real sky even when sky binding
+fails but remains available for every unrelated geometry.
+
+Classification is not conditional on replacement enablement. The resident
+SkyShader observer publishes a classification-only descriptor for disabled or
+unsupported native-sky replacement, and the broker resolves that exact draw as
+vanilla sky. Deferred startup validates the one shared geometry slot before
+either material observer is installed; failure disables only both material
+replacement routes and never permits an unvalidated hot read.
+
+The rejected candidate wrote the process-global last-selector cache at
+`0x011FFE2C` to force asynchronous rebinds and added a second SkyShader
+`SetShaders` owner. That address participates in dispatch for multiple shader
+families, so the write coupled PBR, sky, and unrelated effects while adding
+memory validation and rebinding work. Production code now contains no global
+selector-cache write, no general selector invalidation helper, and no added sky
+selection hook. This pattern is prohibited unless a future executable contract
+proves a family-local owner and a separately reviewed transaction.
+
+### Cost and failure behavior
+
+Ordinary world frames add one camera POD capture at the already-used pre-alpha
+boundary and a few `try_lock`/atomic operations. No routine allocation, file
+I/O, shader compilation, module scan, blocking lock, D3D readback, or global
+shader rebind is added. External depth publication resolves the snapshot only
+when the configured provider actually needs it. Reliability telemetry reports
+camera-snapshot busy/rejection counts at the existing 600-frame cadence. The
+world target and its description are queried once at transaction entry and
+reused by depth, retry, and effect consumers. The depth cache includes both the
+rendered and output camera identities, preventing a valid texture from reusing
+motion state from another projection.
+
+Static tests cover live hook displacement, fresh-generation liveness,
+material-family exclusion and paired restoration, complete/fallback image-space
+ordering, transaction serial/target rejection, nested restoration, exact retry
+expiry, an inner temporary camera/FOV surviving restoration, first-person
+multi-accumulator rejection, output-camera cache invalidation, and an inner
+frustum replacement which overwrites OMV jitter. These tests prove control-flow
+and provenance contracts, not final pixels or responsiveness.
+Runtime acceptance still requires OMV alone, Atom camera on/off, at least one
+shader-loader combination, the full mod list, rapid exterior camera movement,
+fog/lighting/AO/PBR/sky/bloom/shadows, reset/alt-tab, measured frame pacing,
+and the BaseObjectSwapper cold-start matrix on the reviewed release artifact.
+
+All 708 OMV tests and doc tests pass for explicit target
+`i686-pc-windows-gnu`, and the supported release build completes. The affected
+shared hook suite also passes all 42 libpsycho unit tests and 16 doc tests on
+that target. Existing mimalloc C and MinGW stdcall-linker warnings remain
+outside this graphics correction. The final PE/config/import evidence and
+artifact hash are recorded in the startup erratum. They do not replace the
+runtime matrix above.
+
+## Atom camera ownership correction after runtime rejection (2026-08-17)
+
+The first interoperability candidate hardened OMV against a cooperative inner
+camera owner, but it could not make Atom's own camera lifetime coherent. Atom
+still posed the camera around `RenderWorldSceneGraph`, after native
+`0x00872B00` had already prepared Sky and Weather, and restored it before the
+complete route's image-space tail. Manual Sky/Weather compensation added four
+recursive graph updates around the native pair. The user's unchanged broken
+PBR/sky/effect result and degraded responsiveness reject that ownership seam;
+the fact that OMV callbacks executed is not proof their pixels described one
+camera.
+
+Radare2 establishes parent calls `0x0087074B -> 0x00870A00` and
+`0x0087075E -> 0x00870BD0`, both with
+`thiscall(Main*, u32, u8) -> void`. Each target encloses native camera-derived
+preparation, world rendering, its paired first-person call, and complete
+image-space processing. Atom now replaces its two inner world callsite owners
+with these two parent caller owners while retaining the three exact
+RenderFirstPerson callers. The five cells are installed together at the first
+post-Deferred main-loop boundary and always invoke their captured live
+predecessors. No module identity or hard-coded original target participates.
+
+Before the parent predecessor, Atom composes its bounded world pose into both
+camera local and world transforms. Native preparation therefore centers Sky
+and Weather from the camera actually used by world and image-space work. After
+the route, Atom restores both camera domains and recenters the two roots without
+replaying stale rotations or controller state. Native owns the two normal
+apply-side graph updates; Atom performs only the two restoration updates,
+halving its previous extra graph work. The nested viewmodel camera transaction
+and route-exact token remain independently scoped.
+
+OMV's existing camera snapshots remain intentionally intact. They protect OMV
+against any compatible inner owner at the scene boundaries, while the Atom
+change makes Atom itself a well-formed outer transaction. The exact-geometry
+material token independently prevents native sky from consuming or suppressing
+a PBR draw. These are complementary capability fixes; neither side detects or
+special-cases the other mod.
+
+Implementation adds no configuration/schema/preset value, worker, file scan,
+TLS value, import, pre-Deferred publication, render allocation, blocking lock,
+driver readback, shader compilation, or per-draw logging. Atom removes two
+manual apply-side graph walks. OMV adds bounded atomic loads/CAS only when a sky
+descriptor exists; the ordinary no-sky geometry path retains one state load,
+equivalent to its previous pending flag check.
+
+Static acceptance requires Atom route ABI/token/transform tests, OMV material
+generation/identity/fallback tests, both complete supported-target suites, the
+complete release build, formatting, diff inspection, and PE/import/TLS/config
+comparison. Runtime closure remains the same matrix above, with explicit PBR
+object/terrain continuity, native sky during fast first-person motion, all
+focused effects, responsiveness/frame pacing, reset, shader reload, and three
+cold BaseObjectSwapper launches.
+
+## Runtime rejection and accepted-boundary restoration (2026-08-17)
+
+The installed artifact matching the hashes above failed the required runtime
+matrix. Native sky moved with Atom head bob, object and terrain PBR remained
+visually absent, and the user could not establish confidence in other effects.
+OMV's log reported every major capability active, all 162 PBR programs cached,
+101 object wrappers adopted, terrain families prepared, native-sky draws, and
+atmosphere/bloom passes. This proves execution and rejects stale installation;
+it also demonstrates why hook presence and static control-flow tests cannot be
+treated as final pixel correctness.
+
+The generalized OMV compatibility architecture in the preceding sections is
+therefore rejected and is not production code. In particular, production does
+not contain the world render-transaction registry, geometry-time camera
+provenance module, fresh invocation-probe matrix, shared PBR/sky material
+broker, output-camera depth identity, or rewritten image-space phase owner.
+Those changes simultaneously moved the ownership boundaries of PBR, native
+sky, depth, atmosphere, motion blur, bloom, reset, and diagnostics. That blast
+radius was not justified by evidence from a mod whose temporary camera write
+was the original incompatibility.
+
+OMV is restored to the last load-to-gameplay-playtested graphics ownership
+baseline at commit `1dac8a2`, while retaining only the independently requested
+dynamic-shadow corrections in the shadow subsystem. Therefore PBR again uses
+its established PPLighting and renderer draw scopes, native sky uses its
+released observer and paired draw restoration, and screen effects use their
+accepted world/image-space boundaries. OMV performs no Atom detection and no
+Atom-specific camera reconstruction.
+
+Fresh radare2 evidence assigns the remaining compatibility responsibility to
+Atom. FNV renders through the World SceneGraph camera at `+0xAC`, but
+`0x00872B00` centers Sky and Weather from World SceneGraph child zero obtained
+through `0x00558310`. Atom now poses both identities for its complete parent
+route, with alias suppression and exact scoped restoration. This is
+capability-based: every hook calls its captured live predecessor, and neither
+DLL queries the other mod's name, module, version, or memory.
+
+The final architecture has one source for each datum within each owner: native
+FNV constructs the two scene camera objects and performs normal Sky/Weather
+updates; Atom owns only its bounded additive pose and synchronous restoration;
+OMV reads the established native camera/depth state at its released stages.
+There is no cross-DLL shared snapshot, publication protocol, or duplicated OMV
+camera model.
+
+Focused static acceptance is the distinct-camera Atom regression plus the full
+Atom and OMV suites/builds. Runtime acceptance remains mandatory: compare OMV
+alone, Atom with camera disabled, and Atom with camera enabled across native
+sky, PBR objects and terrain, atmosphere, bloom/HDR, local shadows, rapid
+movement, reset/alt-tab, frame pacing, and three BaseObjectSwapper cold starts.
+Until that installed matrix passes, the correction is a candidate rather than
+a compatibility claim.
+
+## Narrow correction after the second installed rejection (2026-08-17)
+
+The accepted-boundary restoration did not close the report. The installed log
+showed no PBR family admission even though all programs, wrappers, terrain
+contracts, and the cached selector slot were reported ready. The sky continued
+to follow Atom head bob. These observations reject the full child-zero pose and
+the assumption that one cached PPLighting object's vtable is a process-wide
+selection boundary.
+
+The replacement is deliberately narrow:
+
+- Atom transfers only the posed render camera's exact local-translation delta
+  to the child-zero local translation read by `0x00872B00`.
+- PBR chains the sole common selector-setup caller at `0x00B99539`, runs its
+  complete predecessor, then performs one final bind through the live
+  `NiDX9RenderState` shader setters for an admitted PPLighting family, passing
+  the native zero save-previous argument to both. It does not re-enter an
+  entry-detoured `SetShaders` policy.
+- Native sky records the exact geometry from the pass entry published at
+  `0x011F91E0`; only that renderer submission can consume or exclude PBR.
+
+There is still no module detection, global selector-cache write, shared camera
+snapshot, generalized material broker, D3D admission readback, routine
+allocation, or blocking lock. Static suites and builds cannot prove the final
+image. This remains an unaccepted compatibility candidate pending the full
+installed PBR/sky/effects/startup matrix.
+
+The first installed common-caller build crashed on its first eligible exterior
+draw because OMV declared those setters with one stack argument. Executable
+code at pixel `0x00E88870` and vertex `0x00E90E00` reads both the shader and a
+save-previous argument and returns with `ret 8`. The missing zero argument made
+each setter consume one word of the caller's frame. The corrected declaration
+and both calls now match that two-argument native ABI. Save-load and first-world
+draw remain required runtime gates because isolated Rust and HLSL tests cannot
+execute these FalloutNV.exe virtual calls.

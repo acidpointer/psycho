@@ -18,54 +18,84 @@ Do not trade correctness for speed. Do not add process, diagnostics, or abstract
 1. Restate the outcome internally; identify files, invariants, and explicit constraints.
 2. Inspect only relevant code, tests, docs, and `git status`. Use `rg`/`rg --files`; batch independent reads.
 3. Resolve material unknowns from code or authoritative research. Make reversible assumptions; ask only when a choice is blocking, destructive, or changes scope.
-4. For a bug, first add or identify a regression test that can reject the defect. For a feature, define observable acceptance criteria.
+4. Define the exact observable behavior that will accept the bug fix or feature. Do not add a source-code test unless it directly validates shipped HLSL shader behavior.
 5. Make the smallest coherent change. Avoid opportunistic refactors and unrelated formatting.
 6. Validate in layers: focused check, affected suite, then one release build when required.
 7. Inspect the final diff for accidental changes. Report the outcome, evidence, and any remaining playtest need concisely.
 
 Stop when the requested outcome is proven. Do not continue speculative cleanup or research.
 
-## Context and communication economy
+## Agent efficiency
 
-- Do not scan the whole repository when targeted search can answer the question.
-- Read detailed plans, errata, generated output, or third-party sources only when the task touches them.
+- Keep this root file limited to repository-wide policy. Nested `AGENTS.md`
+  files contain only subtree-specific deltas and must not repeat inherited
+  rules. Keep the root plus any nested instruction chain below 28 KiB so the
+  most specific rules remain below Codex's default 32 KiB discovery limit.
+- Add durable instructions only for repository facts, hard constraints, or a
+  repeated demonstrated failure. Put long task-specific workflows in their
+  owning document or focused skill and keep only the trigger here. Remove
+  obsolete, redundant, and superseded guidance instead of appending exceptions.
+- Start from the current diff and the smallest relevant code path. Use `rg` or
+  `rg --files` to locate symbols/files, then read exact ranges. Do not scan the
+  repository or dump long files when a targeted query can answer the question.
+- Resolve unknowns in this order: relevant code and logs, durable `docs/`,
+  existing analysis, then authoritative external research. Stop once the
+  material unknown is closed; do not collect redundant corroboration.
+- Batch independent searches and reads in one tool round trip when outputs stay
+  reviewable. Use direct calls when one result changes the next decision or an
+  approval, citation, or native artifact must be preserved. Reduce large
+  mechanical result sets before returning them to the reasoning context.
+- Read detailed plans, errata, generated output, or third-party sources only
+  when a concrete task condition routes to them.
 - Use a written plan only for multi-stage, high-risk, or unclear work. Keep it outcome-based and update it at milestones, not after every command.
 - Do not repeat unchanged context in progress updates or final reports. Communicate at meaningful milestones.
 - Do not rerun an unchanged expensive test or build. Run narrow checks while iterating and the required broad check once at the end.
 - Prefer existing helpers, patterns, fixtures, and test infrastructure over new frameworks.
 - Preserve a dirty worktree. User changes are not cleanup targets.
+- Stop when the requested outcome and its acceptance gate are satisfied. Do not
+  continue speculative cleanup, research, documentation, or validation.
 
 ## Definition of done
 
 A change is done only when:
 
 - the requested behavior is implemented without narrowing scope;
-- a regression or acceptance test covers the important behavior when practical;
+- the release gate below passes;
 - applicable focused tests and the affected suite pass;
 - the supported release target builds when code or build inputs changed;
 - `git diff --check` passes and the diff contains no unintended edits;
 - unsupported claims and unverified runtime behavior are identified honestly.
 
-Documentation-only changes require document checks and diff inspection, not a Rust rebuild. Compilation alone is never proof of runtime or image correctness.
+The release gate requires a behavioral test that precisely validates the
+requested result. If such a test is technically impossible, it instead
+requires complete, independently checkable correctness evidence and the user's
+explicit strict approval. Models, unit tests, logs, builds, static contracts,
+and plausible architecture do not substitute for behavior. Until the gate
+passes, label the work an unaccepted candidate; do not release, package,
+commit, call it complete, or present it as ready.
+
+Documentation-only changes need document checks and diff inspection, not a
+Rust build. Compilation never proves runtime or image correctness.
+
+## Test creation prohibition
+
+Do not add or rewrite tests for Rust, C/C++, native hooks, gameplay,
+configuration, manifests, source/order text, binaries, or documentation.
+Existing non-HLSL tests may only be run. New tests are allowed solely for
+shipped `.hlsl` behavior: compilation, bytecode budgets, deterministic
+reference images, or shader-output properties. Each must demonstrably reject a
+real defect or protect a concrete shader contract; never add coverage,
+implementation-mirroring, mocked-result, or process-only tests.
 
 ## Commit creation
 
-`docs/commit-rules.md` is the mandatory authority for every commit message and
-commit grouping in this repository. Read it completely immediately before
-creating any commit.
-
-Never create or rewrite a commit unless the user explicitly requests the
-commit and gives strict approval for that commit. Do not infer authorization
-from a request to implement, fix, finish, prepare, package, release, stage,
-push, open a pull request, or follow a plan. If the current user request does
-not explicitly authorize commit creation, stop after validation and report the
-uncommitted changes.
-
-This prohibition includes `git commit`, `git commit --amend`, merge commits,
-fixup/squash commits, cherry-picks, rebases that rewrite commits, and any tool
-or API that creates or rewrites commit objects. Approval to create one commit
-does not authorize another commit or an amend. Never commit merely to make the
-worktree clean.
+Read `docs/commit-rules.md` completely immediately before any commit. Never
+create or rewrite a commit unless the current user explicitly requests and
+strictly approves that exact commit. Implementation, fix, finish, prepare,
+package, release, stage, push, PR, and plan requests do not authorize commits.
+This covers commit/amend, merge, fixup/squash, cherry-pick, rebase, and any
+commit-creating API. One approval authorizes neither another commit nor an
+amend. Otherwise stop after validation and report uncommitted changes.
 
 ## Build and test
 
@@ -125,7 +155,8 @@ evidence and mod-agnostic response protocol are mandatory repository-wide, not
 only for OMV.
 
 Treat the last load-to-gameplay-playtested artifact as the startup baseline and
-diff the complete pre-Deferred footprint before implementation. A function
+inspect the complete pre-Deferred footprint only when a concrete startup or
+ABI risk makes that comparison necessary. A function
 does not need to execute to change that footprint: PE imports, TLS callbacks,
 static sections, CRT work, dependency features, configuration value layout,
 and code moved between final DLLs all count. Static tests and a release build
@@ -139,16 +170,10 @@ the accepted startup footprint.
 
 ### OMV graphics
 
-Before any OMV graphics implementation or material shader change, read and follow `omv/AGENTS.md`.
-
-- Native PBR: also read `docs/graphics_fnv_pbr_errata.md`; do not repeat its prohibited patterns.
-- Startup, configuration, presets, hook admission, TLS, lazy/static ownership, or worker-order changes: read `docs/graphics_fnv_atmosphere_startup_crash_errata.md` completely before editing. The entire interval from DLL load through the start of `DeferredInit` is a frozen compatibility contract, including operations that appear CPU-only or configuration-only.
-- A change affects that contract if it adds, removes, reorders, or first-touches a `LazyLock`, mutex, TLS value/destructor, thread, worker request, file scan, allocation-heavy parser, config field/layout, schema/version/manifest/migration, built-in preset payload, publication atomic, or hook-admission bit before `DeferredInit`.
-- Never initialize or first-publish the focused world pipeline from `NVSEPlugin_Load`; publish staged config from `DeferredInit` before render hooks. Every newly added engine-facing route or hook admission must remain false during plugin/data loading and may open only at `DeferredInit` immediately before its resident hook group becomes reachable. Startup/config locks may block; render callbacks remain `try_lock`-only.
-- Preserve the released OMV schema-1 compatibility shape. Do not remove, reorder, or retype a persisted field merely because rendering no longer uses it. In particular, motion blur's `first_person_strength` remains serialized, preset-owned inert compatibility data and must remain absent from active rendering. Do not bump `CONFIG_SCHEMA_VERSION`, add a preset schema manifest/migration, or change the built-in preset version/payload for field cleanup. Intentional schema evolution requires an explicit user request and a separately reviewed startup-safety design.
-- Do not fix a pre-`DeferredInit` crash by disabling requested behavior or by moving established shader/effect preparation, scanners, or workers later. Compare the complete pre-deferred call graph and data layout with the last load-to-gameplay-playtested baseline, remove only the new unsafe delta, and preserve all accepted work and ordering.
-- If the OMV log stops before `[INIT] Deferred OMV graphics hooks initialized`, no render hook, D3D transaction, or material shader has executed. Investigate only load-time ownership/configuration deltas first; do not tune shaders, render stages, depth, RESZ, or NVIDIA policy for that crash class.
-- Any pre-deferred footprint change requires focused behavioral lifecycle tests, PE/config artifact checks, strict config/preset round-trip tests, the full OMV test and release-build gates, and an explicit user load-to-gameplay playtest with BaseObjectSwapper installed before the change can be called startup-safe. Record the accepted baseline and evidence in the startup erratum.
+Before OMV graphics or material work, read `omv/AGENTS.md`. Native PBR also
+routes to `docs/graphics_fnv_pbr_errata.md`; startup, configuration, and hook
+lifecycle work routes to `docs/graphics_fnv_atmosphere_startup_crash_errata.md`.
+The nested file owns all OMV-specific implementation and acceptance rules.
 
 ### gheap
 
@@ -162,12 +187,18 @@ Before changing IOManager worker topology, per-thread task maps, BSFile recovery
 
 Use research only to close a material knowledge gap.
 
-- `.research/` contains optional third-party source for comparison. Treat it as read-only. Never patch or build another mod as the fix; implement fixes in this repository and keep compatibility capability-based and version-agnostic.
-- Before new native research, search `docs/` for the subsystem, address, symbol, crash signature, and engine concept. Reuse a documented contract when it covers the current executable, and verify address-sensitive assumptions against the current binary before patching.
-- Existing `.txt` output in `analysis/ghidra/output/` stays in place and remains authoritative evidence for the facts it covers. Do not delete, rewrite, or regenerate it merely because the primary research tool changed. Ignore outdated `.md` prose under `analysis/` unless the user explicitly requests it.
-- When the radare2 MCP is available, it is the mandatory primary interface for new static engine research. Open the current `fnv_reverse/FalloutNV.exe`, analyze only to the depth needed, and use its disassembly, decompilation, xrefs, strings, symbols, and binary metadata to close the contract. Do not create or edit a Ghidra script, ask the user to run Ghidra, or substitute Ghidra output while the radare2 MCP is available.
-- Ghidra is fallback-only and may be used only when the radare2 MCP is unavailable. Unavailable means the MCP tools cannot be invoked, not that a particular query is incomplete or inconvenient. In that fallback, use existing output first; if it is insufficient, prepare a focused script in `analysis/ghidra/scripts/` instead of guessing. Do not run Ghidra, `analyzeHeadless`, or `ghidraRun`; ask the user to run the script and return its output.
-- Before editing a fallback Ghidra script, read `analysis/ghidra/scripts/SCRIPT_RULES.md` completely. Every rule is mandatory, including tabs-only indentation, no top-level loops or tuple unpacking, standard helpers, correct output directory, and `decomp.dispose()`.
+- Treat `.research/` as read-only comparison material; never patch/build another
+  mod as the fix. Keep compatibility capability-based and version-agnostic.
+- Search `docs/` and existing analysis before new native research. Reuse proven
+  contracts for the same executable and reverify address-sensitive facts.
+- Preserve authoritative `.txt` output in `analysis/ghidra/output/`; do not
+  regenerate it or rely on outdated analysis Markdown unless requested.
+- Use the radare2 MCP as the mandatory primary interface when callable, against
+  `fnv_reverse/FalloutNV.exe`, and analyze only enough to close the contract.
+- Ghidra is fallback-only when the MCP cannot be invoked. Use existing output
+  first; otherwise prepare a focused script, never run Ghidra, and ask the user
+  to return its output. Before scripting, read
+  `analysis/ghidra/scripts/SCRIPT_RULES.md` completely.
 - Before a crash or engine-contract patch, prove the failing function, caller ownership, layout, lifetime, concurrency, ABI, and safe intervention point. Distinguish direct binary or crash evidence from inference.
 - The user runs through Proton/Wine. Prefer static research, logs, crash reports, minidumps, and targeted telemetry; do not depend on native Windows debuggers.
 
@@ -175,29 +206,63 @@ Do not invoke static engine research for a straightforward repository-local chan
 
 ## Feature documentation
 
-Every implemented feature must create or update a durable Markdown document under `docs/` in the same change. Extend the existing subsystem document when one already owns the feature; do not leave the only explanation in chat, a tool session, source comments, or a transient plan.
+Document only reusable architecture, engine contracts, configuration ownership,
+or operational knowledge. Extend the owning `docs/` file; never write process
+documentation for its own sake. Record purpose, behavior, ownership,
+lifecycle/order, invariants, failure and performance costs, compatibility,
+acceptance, and unresolved approval. Reverse-engineered documents additionally
+record executable identity, addresses/call chain, layouts, lifetime/threading,
+ABI, intervention point, evidence paths, and clearly separate proof,
+inference, and observation. Link raw analysis instead of duplicating dumps.
 
-Document enough detail for a later agent to reuse the work without repeating the investigation:
-
-- purpose, user-visible behavior, scope, and configuration ownership;
-- architecture and source-file ownership, startup/install ordering, and interaction with adjacent systems;
-- invariants, failure behavior, performance and memory costs, and compatibility boundaries;
-- tests, build evidence, runtime acceptance criteria, and anything still awaiting playtest;
-- for reverse-engineered behavior, the executable identity, exact addresses/symbols, function and caller chains, layouts/offsets, ownership and lifetime, threading, ABI, safe intervention point, and the evidence paths that establish each conclusion;
-- a clear separation between proven facts, reasoned inference, and runtime observations.
-
-Treat `docs/` as the reusable engine-knowledge index: search it before new analysis and cite or update the relevant document when an established contract is used. Keep raw generated analysis in its existing location; feature documents should explain the derived contract and link to the supporting output rather than duplicate tool dumps.
+Do not put DLL hashes, binary sizes, section/import/TLS inventories, routine
+test counts, command transcripts, transient candidate chronology, or other
+build trivia in developer documentation. Do not hash, inspect, or compare DLL
+contents by default. Binary identity or layout work is allowed only when a
+specific, evidence-backed problem actually depends on artifact identity,
+startup footprint, ABI, imports, TLS, or section layout, or when the user
+explicitly requests it. Report only the minimum result needed for that problem.
 
 ## Code and review standards
 
-- Use simple, direct designs and clear names. Comments explain why, not what.
-- Preserve local style; Rust uses edition 2024. Comments and docstrings must be ASCII.
-- Prefer editing existing files and reusing existing abstractions.
-- Tests must exercise observable behavior through real code boundaries or validate shipped/generated artifacts. Never test implementation source text, textual call order, symbol-name presence in source, or manifest contents; do not use `include_str!`/file reads against implementation sources as a substitute for behavior. Parsing a shipped data file such as JSON, TOML, a shader, or a packaged archive is allowed when that file is itself the product contract.
-- Add a test only when it protects meaningful behavior, a compatibility contract, or a demonstrated regression. Do not add tests merely for coverage or to mirror the implementation.
+- Write production-deployable code: correct, safe, maintainable, performant,
+  and complete. Preserve local style; Rust uses edition 2024. Comments and
+  documentation must be ASCII.
+- Prefer safe, idiomatic Rust. Keep `unsafe` code in the smallest auditable
+  boundary; document its safety contract and prove pointer validity, ABI,
+  alignment, lifetime, aliasing, initialization, and thread assumptions that
+  apply. Never use `unsafe` to bypass a sound ownership design.
+- Handle failure explicitly and preserve valid state. Do not panic or unwind
+  across FFI; validate external data, engine state, arithmetic, and conversions;
+  use RAII and ownership-aware rollback for partial work. An unchecked
+  operation, `unwrap`, or `expect` in production needs a locally proven
+  invariant and a comment explaining why recovery is impossible or incorrect.
+- Give each module one cohesive responsibility and explicit dependency
+  direction. Separate policy from mechanism, engine/FFI access from safe
+  domain logic, and hot paths from setup and diagnostics. Reuse an existing
+  abstraction when it fits; introduce one only for a concrete invariant or
+  demonstrated reuse, not hypothetical flexibility.
+- Every production module requires clear module-level technical documentation
+  covering purpose, ownership, key invariants, lifecycle, failure behavior,
+  and performance constraints as applicable. Every public API requires a
+  precise docstring covering behavior and, where relevant, inputs, outputs,
+  errors, side effects, safety, threading, lifetime, and panic conditions.
+- Comment every complex or non-obvious decision, especially ownership,
+  synchronization, fallback, numerical, ABI, and performance tradeoffs.
+  Explain why the design is necessary; do not narrate obvious statements.
+- Keep functions and types focused, names explicit, invariants local, and
+  failure paths deterministic. Avoid duplicated policy, hidden global state,
+  broad mutable ownership, speculative frameworks, and unrelated refactors.
+- Treat architecture, safety, and performance as design inputs before coding.
+  For cross-module or engine-facing changes, identify ownership, lifecycle,
+  concurrency, failure containment, and hot-path cost before implementation.
+- Do not write new source-code tests except practical tests that directly
+  validate shipped `.hlsl` shaders. Never test implementation source text,
+  textual call order, symbol-name presence, manifest contents, mocked native
+  behavior, or a model that cannot reproduce the reported defect.
 - Rust DLLs must use `libpsycho::logger::Logger` and the `log` facade for diagnostics. Do not use `println!`, `eprintln!`, or subsystem-owned file writes for logs, reports, or telemetry; route requested summaries through the established logger. Initialize logging only at the subsystem's documented safe lifecycle boundary.
 - Write logs for a human reader and include a stable subsystem tag. Use `debug` for technical detail such as validated addresses, `info` for normal lifecycle/configuration milestones and user-requested summaries, `warn` for recoverable degradation with the resulting fallback, and `error` when a requested capability cannot remain available or correctness is lost. State the consequence, not only the low-level failure.
-- Keep every visible MCM Extender text value laconic: one to three words, including titles, descriptions, help text, status text, and choices. Protect shipped menus with an artifact test that rejects longer copy.
+- Keep every visible MCM Extender text value laconic: one to three words, including titles, descriptions, help text, status text, and choices. Review shipped menus directly; do not add a non-HLSL artifact test.
 - MCM Extender-backed settings must apply from `MCMExtUpdate` after its INI save. Native listeners must define the published event parameter contract before handler admission and tolerate an already-defined event; do not poll pause state or parse configuration every frame.
 - Never hide uncertainty. Distinguish code evidence, static proof, inference, and playtest results.
 - Do not present disabling a feature, reducing supported coverage, or weakening a test as a fix.

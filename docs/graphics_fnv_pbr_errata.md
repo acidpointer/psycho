@@ -838,10 +838,13 @@ Correct fix path:
 - Do not hook the two shared shader-creation entries.
 - Adopt existing wrappers once at `DeferredInit`, and lazily adopt a new or
   reloaded wrapper on first observed use.
-- Chain `SetShaders` through the live PPLighting selector slot and `SetTexture`
-  through the live render-state slot. If either mandatory slot cannot be
-  chained, block native PBR and report that capability without disabling
-  unrelated OMV effects.
+- Chain the common selector-setup caller and run its complete predecessor first.
+  Perform OMV's final bind through the live `NiDX9RenderState` vertex/pixel
+  setter slots with the native save-previous argument set to zero while
+  temporary wrapper handles are exposed; do not re-enter a selector-policy
+  `SetShaders` detour. Continue to chain `SetTexture` through the live
+  render-state slot. If either mandatory boundary cannot be chained, block
+  native PBR without disabling unrelated OMV effects.
 
 ### 10. Runtime Toggle Rewrote Stale Shader Handles
 
@@ -1690,3 +1693,237 @@ The containing 2026-08-14 source state passes all 37 explicit-target shared
 hook tests, all 643 explicit-target OMV tests, the optimized OMV build, and the
 complete supported FNV release build. These results prove static integration,
 not startup safety, image correctness, or delivered performance.
+
+## Global selector invalidation and rejected broker candidate (2026-08-17)
+
+A rejected compatibility candidate made the complete PBR readiness edge depend
+on writing `0x011FFE2C`, FNV's process-global last-selector comparison cache.
+That cache participates in dispatch across shader families. Invalidating it to
+repair one asynchronous PPLighting transition forced unrelated re-evaluation,
+added process-memory validation on a presentation path, and allowed one failed
+write to leave the published PBR gate permanently false. The observed result
+was broken PBR alongside sky/effect regressions and degraded responsiveness.
+
+Production PBR again uses its proven family-local contracts only: the live
+PPLighting `SetShaders +0xF4` slot, the shared engine `SetTexture +0xDC` mirror,
+temporary wrapper-handle override around the captured predecessor, and the
+renderer geometry boundary. It contains no process-global selector-cache write
+or manual call into shared selector dispatch. A future readiness mechanism must
+derive from a family-local owner or exact draw-scoped classification; it must
+not invalidate global engine state.
+
+The remainder of this section records a later broker candidate that was also
+rejected by the installed runtime matrix documented below; it is not the
+production ownership model.
+
+That candidate made PBR and sky share one material broker at geometry submission. Exact pending
+sky ownership excludes PBR for that draw; otherwise PBR prepares once and its
+returned scope is finished after the native submission. This leaves PBR's
+batch-scoped object/LandLOD/TerrainFade state and close-terrain restoration
+semantics unchanged while making cross-family priority and rollback explicit.
+
+PPLighting and texture-slot diagnostics separately report activation, current
+direct ownership, and observed detour invocation. Displacement by a later owner
+is diagnostic evidence, not an automatic disable, because a cooperative owner
+can preserve OMV in its predecessor chain. The runtime still fails the affected
+draw to vanilla when its functional PBR contract is unavailable.
+
+The package capability now reports current ownership of both proven
+`SetShaderPackage` callers. A displaced package caller remains unverified:
+package transitions are intentionally rare, so absence during one diagnostics
+interval cannot prove that a cooperative chain is broken. The exclusive
+package-lifetime opcode is different: its exact byte has no chainable
+predecessor, so failed verification is reported as `lost` and the package/PBR
+feature cannot be called healthy. Shader reload continues to re-probe the
+actual wrapper rows, stage vtables, native handles, package lifetime, and SLS
+eye-position publication. No provider filename or load-order identity
+participates.
+
+Invocation evidence is generation-scoped rather than a permanent per-draw
+counter. Each PPLighting and texture route performs relaxed loads and at most
+one relaxed store per requested diagnostics interval, then returns to load-only
+operation. This removes the previous unconditional atomic read-modify-write
+cost from geometry-heavy scenes while preventing an invocation observed hours
+earlier from proving present-day reachability.
+
+Behavior tests cover exclusive material selection and paired restoration. Full
+acceptance additionally requires object, LandLOD, TerrainFade, close terrain,
+native sky coexistence, shader reload, reset, and measured NVIDIA/AMD playtests;
+static tests cannot prove the final PBR pixels.
+
+The containing compatibility candidate passes all 702 explicit-target OMV
+tests and doc tests and the supported optimized OMV build. This establishes
+static package/slot/material integration only; the installed Atom and shader
+loader matrix must still prove visible PBR continuity and frame pacing.
+
+## Exact sky/PBR geometry arbitration (2026-08-17)
+
+The first shared material broker still allowed shader-state publication to
+cross a geometry boundary. Sky's UpdateConstants observer stored indices,
+object type, and native shader handles but no geometry identity. The next
+RenderTriShape/RenderTriStrips callback could therefore claim the publication
+even when it submitted a PPLighting object. That draw skipped PBR and could
+receive sky state; the later real sky draw then had no valid publication. This
+is a source-proven ownership defect and a credible cause of the installed
+missing-PBR/native-sky interaction, but final pixel attribution remains open
+until runtime acceptance.
+
+The correction moves `0x011F91E0` out of PBR-private engine contracts and into
+the shared material module. It is the single current-geometry source for sky,
+PBR selection snapshots, object-fade diagnostics, and optional selector
+telemetry. Deferred geometry installation validates the fixed global. Hot
+callbacks perform two pointer loads plus low/null rejection and do not add a
+memory query, D3D readback, allocation, lock, log, or selector mutation.
+
+Sky now release-publishes an exact geometry pointer, render epoch, generation,
+shader indices, object type, and native pair. The consumer claims one stable
+generation only when the geometry and epoch match. A different geometry is
+`Unclaimed` and retains normal PBR evaluation. Exact sky with unavailable
+replacement state is `OwnedVanilla`: it uses native sky and still excludes PBR.
+Exact successful replacement is `OwnedReplacement` and restores its native
+pair after the draw. Mismatch does not consume the token; epoch transition,
+reset, disable, and Present cleanup expire it.
+
+Sky identity publication is independent of replacement enablement and pair
+support. Disabled native sky and an unknown native sky pair publish a
+classification-only descriptor with no replacement handles; exact geometry
+still resolves to `OwnedVanilla`. This prevents a configuration switch or a
+new third-party sky variant from exposing genuine sky geometry to PBR.
+Deferred startup validates the shared current-geometry global before either
+material observer becomes resident. Failure leaves both material replacements
+disabled while the rest of OMV remains available.
+
+Do not repeat:
+
+- Do not classify material ownership from shader state without exact draw
+  identity.
+- Do not duplicate the current-geometry global or independently reconstruct it
+  in PBR and sky.
+- Do not make sky replacement success the condition for excluding PBR from
+  real sky geometry.
+- Do not clear a same-epoch sky publication merely because an unrelated
+  geometry reached the shared renderer first.
+
+Focused tests cover unrelated geometry followed by exact sky, exact
+native-fallback exclusion, disabled/unsupported classification-only ownership,
+superseding publications, epoch expiry, and single-consumer claims. Complete
+PBR variants, performance budgets, the OMV suite/build, and the installed
+object/LandLOD/TerrainFade/close-terrain/sky matrix remain mandatory. Static
+ownership tests cannot prove visible PBR.
+
+The containing implementation passes all 708 explicit-target OMV tests,
+formatting, and the complete supported release build. Strict workspace-style
+OMV Clippy remains blocked by the crate's existing warning backlog; no warning
+reported in the exact material modules. Artifact and startup-footprint evidence
+is recorded in `graphics_fnv_atmosphere_startup_crash_errata.md`. Runtime image
+correctness and responsiveness remain awaiting the installed matrix.
+
+## Runtime rejection of the shared material broker (2026-08-17)
+
+The required installed matrix rejected the exact-geometry broker above. With
+the matching Atom and OMV artifacts, PBR remained visually absent even though
+the log reported complete cache preparation, wrapper adoption, selector and
+texture hooks, terrain readiness, and reactivation after an in-menu off/on
+test. Therefore the broker's static identity tests and activation messages did
+not establish a successful final material result.
+
+The broker and its `0x011F91E0` shared geometry accessor are removed from
+production. Renderer geometry hooks again use the last accepted ordering:
+prepare PBR, prepare native sky, submit the captured predecessor, restore sky,
+then finish the PBR scope. PBR's PPLighting selector, texture mirror, package
+lifetime, shader records, replacement resources, object admission, and terrain
+families are otherwise unchanged from commit `1dac8a2`. No new selector write,
+driver readback, per-draw lock, allocation, or cross-effect state source is
+introduced.
+
+This rollback is deliberate architecture, not a claim that the old ordering is
+universally sufficient for future material mods. It restores the only OMV PBR
+path with prior load-to-gameplay evidence and removes an unaccepted cross-family
+ownership rewrite. Atom compatibility is handled at Atom's complete camera
+route by posing both native camera identities, so PBR does not need to know a
+camera mod exists.
+
+The preceding broker sections remain as rejected-design evidence and must not
+be read as the current implementation. Any future material arbitration change
+needs a captured runtime draw trace that proves successful object, LandLOD,
+TerrainFade, close-terrain, and sky pixels before it replaces the accepted
+boundary again.
+
+The restored candidate passes all 699 explicit-target OMV tests and the
+supported five-crate release build. Its `omv.dll` identity is 12,862,364 bytes,
+SHA-256 `b158b52ba8e1e1606cf69b77c7277848a85351f1555f0ff35f69cf581ebbf77a`.
+Visible PBR remains an installed playtest gate.
+
+## Common selector caller correction after runtime rejection (2026-08-17)
+
+The installed rollback above still produced no visible object or terrain PBR.
+Its runtime log contained no first-bind message for any PBR family, despite
+reporting 162 cached programs, 101 adopted wrappers, functional terrain, and an
+active PPLighting slot. This separates resource readiness from draw admission:
+the selection callback itself was not a reliable process-wide boundary.
+
+The old installation read cache index 4 at `0x011F9558` and changed the live
+object's `+0xF4` vtable slot. That reaches every selector only while all
+PPLighting instances share that vtable. The draw dispatcher instead obtains
+the actual selector from `geometry + 0xC0`; a compatible component may give
+that instance a cloned vtable without changing the cached object's vtable.
+An active slot on the cached object therefore does not prove that draw-time
+selector setup invokes OMV. This conclusion combines the executable dispatch
+with the observed absence of all PBR admissions; the precise third-party
+vtable owner remains intentionally irrelevant.
+
+The common setup edge is the direct call at `0x00B99539` from
+`0x00B994F0` to `0x00B99390`. The caller has already published the current
+pass entry at `0x011F91E0`. The callee invokes the actual selector's `+0xF0`
+and `+0xF4` methods, then publishes the last pass and selector. Radare2 proves
+this is the only call to `0x00B99390` and that its ABI is
+`cdecl(u32 pass, void *selector) -> void`.
+
+OMV now chains that direct caller and invokes its captured predecessor first.
+This preserves every live selector-specific owner and any entry detour it
+calls. Only after the complete predecessor returns does OMV classify the
+current PPLighting pass. For an admitted family it temporarily exposes the
+replacement handles and runs the exact cache-owning tail used by native
+`BSShader::SetShaders`: live `NiDX9RenderState` vertex `+0x8C` followed by
+pixel `+0x7C`, each with the save-previous argument set to zero. This makes OMV
+the final engine-cache owner for that pass.
+Calling either `0x00BE1F90` or the live selector `+0xF4` a second time is
+forbidden. NVR-style reference code entry-detours `0x00BE1F90`; re-entry would
+run selector policy again and could overwrite the final pair.
+
+The binding fields remain vertex `+0x34` and pixel `+0x2C`, as proven in
+`analysis/ghidra/output/perf/graphics_fnv_pbr_shader_handle_getter_setshaders_contract_audit.txt`.
+The common setup and draw sequence is proven in
+`analysis/ghidra/output/perf/graphics_fnv_pbr_pplighting_selector_vtable_draw_identity_bridge_audit.txt`.
+The correction does not write the global selector cache, hook shader creation,
+read D3D state for admission, allocate, lock, or inspect another module.
+
+The supported-target Atom and OMV library suites, including all shipped PBR
+and native-sky shader compilation and output-property checks, pass. Those tests
+prove bytecode and bounded native state contracts, not visible PBR. The change
+remains an unaccepted candidate until the installed matrix shows object,
+LandLOD, TerrainFade, and close-terrain PBR first-bind logs and visible output.
+
+### Save-load stack-corruption correction
+
+The first installed build of the common-caller correction crashed on the first
+eligible exterior draw after loading a save. The crash log contained live
+`NiD3DVertexShader`, `NiD3DPixelShader`, and SpeedTree geometry identities, but
+the instruction pointer and stack were corrupt before any PBR first-bind log.
+
+The final binder had declared the render-state vertex and pixel setter slots as
+one-argument `thiscall` functions. Raw executable code proves both setters have
+two stack arguments. Pixel setter `0x00E88870` reads the shader at stack `+4`,
+reads the save-previous flag at `+8`, and returns with `ret 8`. Vertex setter
+`0x00E90E00` has the same stack contract. Native `BSShader::SetShaders @
+0x00BE1F90` pushes zero before obtaining the wrapper handle, then pushes that
+handle before calling the setter. The exact ABI is therefore
+`thiscall(render_state, shader_handle, u32 save_previous)`, with zero for the
+normal bind.
+
+Calling either setter with only the handle let its `ret 8` consume one word of
+the caller's frame. The two consecutive vertex/pixel calls deterministically
+corrupted control flow; pointer checks could not make that ABI mismatch safe.
+OMV now passes the required zero argument to both calls. Rust tests and HLSL
+tests cannot execute these FalloutNV.exe virtual calls, so installed save-load
+and first-world-draw coverage remains mandatory behavioral acceptance.

@@ -482,9 +482,18 @@ energy thresholds, maximum continuation depth/count, repeat-target prevention,
 and deterministic overflow. Continuation must preserve source/weapon/condition
 and use a proven native spawn/update path.
 
-The stability of material identification across terrain, statics, water,
-skinned actors, movable rigid bodies, and destructibles is not yet proven. The
-first impact implementation should observe and classify, not alter outcomes.
+The first production ricochet contract is now closed in
+[`atom_ballistics_ricochet_research.md`](atom_ballistics_ricochet_research.md).
+Static evidence proves the raw-to-canonical material map, ordinary impact
+result, common target/effect traversal, reference-rotation movement authority,
+per-projectile speed/damage controls, list reset, and safe pre-terminal callsite.
+Its strict first slice runs native first-contact work once, then continues the
+same projectile only for a shallow stone, metal, or hollow-metal non-Actor
+impact. Every unknown or special case remains native.
+
+Penetration, actor armor deflection, multiple bounces, and special projectile
+families remain unproven and require separate research. Do not generalize the
+ricochet admission rules to them.
 
 ## Explosions
 
@@ -941,9 +950,13 @@ its focused and cross-feature gates pass.
 
 ### Phase 4: material impacts
 
-- Validate material and collision capability across world object classes.
-- Add energy/angle-based penetration and ricochet with strict continuation caps.
-- Preserve native effects, scripts, decals, sounds, and attribution.
+- Implement the strict one-bounce stone/metal/hollow-metal ricochet contract in
+  [`atom_ballistics_ricochet_research.md`](atom_ballistics_ricochet_research.md).
+- Prove the same generation reaches a later native contact and damage path in
+  one bounded Proton acceptance session.
+- Preserve native effects, scripts, decals, sounds, attribution, and complete
+  fallback for unsupported materials and projectile families.
+- Research penetration separately; do not infer it from ricochet.
 
 ### Phase 5: explosions
 

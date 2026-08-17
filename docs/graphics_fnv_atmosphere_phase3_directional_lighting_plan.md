@@ -2,10 +2,58 @@
 
 Date: 2026-07-18
 
-Implementation status: composition follow-up complete on 2026-07-19. All 93
-OMV unit/static tests pass, including every fixed `ps_3_0` variant under the
-real D3D compiler in the i686 Wine test run. The corrected feature-first runtime
-playtest remains the final acceptance gate.
+Implementation status: implemented with fixed `ps_3_0` variants compiled by
+the real D3D compiler in the i686 Wine test run. Behavioral regressions own the
+native-radiance and projection contracts; the feature-first playtest remains
+the final pixel-quality gate.
+
+Native-radiance correction on 2026-08-17: the installed build drew and composed
+the atmosphere, but Volumetric Lighting remained visibly ineffective. Fresh
+executable research proves `Sky::Sky @ 0x00639D40` owns ten native color slots
+and `Sky::Update @ 0x0063B120` completes weather/time interpolation before
+publishing slot four at `Sky +0x6C`. OMV consumed that final directional RGB and
+then multiplied it by `NativeSkyFrame.daylight`, applying the same transition a
+second time. In the rejected logged frame, `daylight = 0.4252`, so the
+integrator received only 42.52% of the already-transitioned native radiance.
+
+Daylight now remains a finite, day-active admission signal only. The uploaded
+radiance scale is one, so the shader receives the native final RGB exactly
+once; user intensity, medium extinction, phase response, and the optional disk
+lobe remain unchanged. The behavioral regression drives the rejected logged
+frame through `NativeSkyFrame`, contribution resolution, native color
+linearization, and the integrator radiance equation. The rejected policy
+delivers `0.061375994` where the native-once path delivers `0.14434618`; the
+corrected policy makes them equal. The older calibrated-default test covered
+only isolated phase and density math and could not detect this frame-input
+ownership error.
+
+The acceptance regression continues through the shipped integration and
+composition equations instead of stopping at radiance admission. It uses the
+rejected twilight value, logged camera height and fog color, shipped medium,
+anisotropy, intensity, and shaft settings, exact reduced-depth acceptance, and
+extended-sRGB output. Its weakest reference case is a 10,000-unit back-scatter
+ray with the default shaft field at its darkest supported value. The rejected
+double-fade remains below one output code step; the corrected path clears that
+minimum visibility threshold across the reference distance/direction set.
+
+Runtime rejection and projection-scope correction on 2026-08-17: the installed
+build logged successful atmosphere integration and composition, but Volumetric
+Lighting was not visibly effective. Production had routed the complete
+directional-scattering contribution through the projected-sun viewport gate.
+That contradicted the epoch-coherent projection contract below: screen
+projection describes only the radial shaft mask, while medium scattering is a
+view-independent response to the native sun direction and color.
+
+Base directional scattering now remains available when the sun is behind or
+outside the viewport. Only radial shaft allocation and modulation require a
+front-facing, on-screen projection and use the edge fade. This correction
+supersedes the 2026-07-19 edge policy below that faded the entire directional
+light to zero; that policy incorrectly fixed an unoccluded-wash symptom by
+removing the requested physical contribution. Logs, draw calls, and static
+tests still cannot accept final pixels. The required installed comparison
+rotates the sun from screen center through every edge and behind the camera:
+base scattering must remain stable and visibly respond to the toggle, while
+the radial shafts alone fade at the projection boundary.
 
 Screen-entrance correction on 2026-07-20: ordinary camera motion could move the
 projected sun through the old 3.5% viewport-edge ramp in one or two frames.
@@ -227,8 +275,9 @@ denominator, reject non-finite inputs, and keep HDR radiance unsaturated.
 
 Decode `NativeSkyFrame.sun_light` and `sun_disk` with the same proven extended
 sRGB transfer used by fog and native sky. Directional scattering uses the
-directional color as its base radiance, multiplied by validated daylight and
-the user intensity.
+already time/weather-interpolated directional color as its base radiance,
+multiplied by the user intensity. Validated daylight admits day-active native
+lighting but is not a second radiance multiplier.
 
 `sun_disk_boost` affects only a narrow, smooth angular lobe around the sun. It
 must not add the disk color uniformly across the screen. Use the positive

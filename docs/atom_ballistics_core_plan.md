@@ -907,6 +907,17 @@ round stays native.
 
 ### Phase 4: flight feedback
 
+The native sound, tracer, impact, installed-content, performance, and
+implementation contracts for this phase are complete in
+[`atom_ballistics_flight_feedback_research.md`](atom_ballistics_flight_feedback_research.md).
+Its first production slice is local-listener flight audio only. It explicitly
+excludes view effects, AI suppression, damage, generic impact replacement, and
+explosion behavior.
+
+The research remains complete, but implementation is deferred behind Phase 5
+gameplay ricochet. This changes delivery priority, not the proven audio
+contract.
+
 Once rounds physically traverse space, expose read-only flight events to Atom's
 future audio, suppression, AI, and presentation systems:
 
@@ -921,10 +932,16 @@ logical hit or block the projectile update.
 
 ### Phase 5: material response
 
-Add penetration and ricochet as a separate impact policy. It requires stable
-material classification, incidence angle, remaining-energy representation,
-maximum counts/depth, repeat-target prevention, and a proven continuation
-contract.
+The first production material-response slice is the strict, one-bounce
+gameplay ricochet specified in
+[`atom_ballistics_ricochet_research.md`](atom_ballistics_ricochet_research.md).
+The native collision, material map, terminal impact, same-projectile movement,
+damage attenuation, safe hook, installed-content compatibility, failure, test,
+and bounded-playtest contracts are complete there.
+
+Penetration remains a separate later impact policy. It still requires a proven
+exit-point and thickness query, remaining-energy representation, maximum
+depth, and repeat-target prevention; ricochet must not introduce it implicitly.
 
 Native is the fallback when material is absent or contradictory. Continuation
 must preserve source, weapon, condition, impact effects, attribution, and one
@@ -1031,7 +1048,8 @@ ray damage.
 - Policy-scope capacity full or invalid source/form token: that projectile
   stays native and a counter increments.
 - Observation pool full, lifecycle race, or invalid token: gameplay remains
-  native; only diagnostics lose correlation.
+  native; diagnostics lose correlation and generation-owned material response
+  is unavailable for that projectile.
 - MCM reload failure: the previous valid snapshot remains active.
 - Policy call not observed: the projectile keeps the chained owner's answer
   and the requested summary records a miss.
@@ -1051,13 +1069,16 @@ These are runtime-acceptance or later-phase limits, not invitations to guess:
    always-hit, live-target, and ignore-gravity routes are rejected by policy.
 3. **Phase 3:** prove native collision uses the required swept path for the
    admitted speed/FPS envelope.
-4. **Phase 5:** stabilize material identity across terrain, water, static,
-   skinned, destructible, and movable collision.
-5. **Phase 5:** prove continuation after impact without duplicate damage or
-   missing effects.
+4. **Phase 5 implementation:** validate the proven canonical material map and
+   strict stone/metal/hollow-metal admission across representative terrain,
+   static, destructible, and movable collision in the bounded acceptance
+   session.
+5. **Phase 5 implementation:** prove the researched same-projectile
+   continuation at runtime without duplicate damage or missing effects.
 6. **Phase 7:** map VATS queued timing/playback and every special projectile
    family separately.
 
 The focused Phase 3 gate has passed. The remaining Phase 3 items harden its
-coverage and do not block the accepted default; Phase 5 material and damage
-policy still require their own evidence.
+coverage and do not block the accepted default. Phase 5's static material and
+continuation contract is complete; its Rust implementation, build, and bounded
+runtime acceptance evidence remain open.

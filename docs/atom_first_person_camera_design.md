@@ -1,12 +1,21 @@
 # Atom first-person camera design
 
-Status: runtime rejected both the original rapid-shake waveform and the first
-translation-only correction. In the latter, the hands stepped while the finite
-sky moved with them. Fresh executable research proved that native render
-preparation centers the `Sky` and `Weather` graphs before Atom's former camera
-write, while the first-person graph requires origin-relative work at large
-coordinates. The coordinate-coherent correction described below is statically
-validated and awaits an ordinary Proton visual acceptance run.
+Status: the 2026-08-16 Atom-plus-OMV runtime exposed a graphics compatibility
+defect in Atom's render-hook installation order. Atom installed the five shared
+render callsites before OMV, so OMV became the outer wrapper. Atom consequently
+restored its temporary camera before OMV's post-world depth, color, AO, motion,
+and camera capture completed. Live OMV logs contain differing pre-alpha and
+coherent-world camera positions inside the same transaction while reporting
+every affected capability active and zero pipeline failures. Atom now arms the
+render group at DeferredInit and installs it once from xNVSE's immediately
+following MainGameLoop callback, after every DeferredInit listener. Atom is
+therefore outermost around the complete graphics-owner chain without detecting
+or modifying OMV. The correction is statically validated; an ordinary installed
+visual test remains the runtime acceptance gate.
+
+The earlier presentation-quality correction remains in this candidate:
+locomotion is a common head layer inherited by both render cameras, and every
+non-None authored action exclusively owns weapon-relative motion.
 
 ## Implemented safe stage (2026-08-16)
 
@@ -19,21 +28,33 @@ Atom now implements the Stable Phase 2 wrapper:
   deduplicated before engine time or gait distance can advance twice;
 - support-relative controller velocity comes from the closed native
   `0x00812B00 -> 0x00C6E300 -> 0x00458620` path in game units;
+- PlayerMover's proven low direction nibble at `+0x94` independently admits
+  gait; idle, stance, run, sneak, and auto-move state bits cannot turn
+  persistent controller velocity into head bob by themselves;
 - native controller states 0/1/2 drive grounded, jumping, and airborne motion;
 - gait cadence derives from support-relative distance, is analytically filtered
   without frame-rate dependence, and cannot exceed 1.6 full strides per second;
 - one-shot landing compression uses capped downward air velocity;
-- grounded gait and landing publish a separate world head pose bounded to zero
-  forward, 0.50 up, and 0.15 right game units;
+- grounded gait and landing publish one common head pose bounded to zero
+  forward, 0.50 up, and 0.15 right game units; the world and first-person
+  cameras inherit the same translation so the hands stay registered;
 - Stable world rotation is exact identity; horizon roll, yaw, pitch, and
-  fore/aft near-wall parallax remain viewmodel-only or absent;
+  fore/aft near-wall parallax remain weapon-relative or absent;
 - logical yaw/pitch deltas drive bounded analytic viewmodel inertia without
   changing input or the logical camera;
-- native `IsAiming` and authored-action state suppress world motion exactly;
-  viewmodel motion retains the configured precision fraction;
+- native `IsAiming` suppresses world motion exactly and attenuates the relative
+  weapon layer to the configured precision fraction;
+- every non-None `GetCurrentAnimAction` value immediately suppresses Atom's
+  relative weapon layer; release fades over an analytic envelope while the
+  common locomotion pose continues through ordinary equip, fire, recoil,
+  block, and reload animation;
 - both main world callers publish a route/epoch token, all three
   RenderFirstPerson callers are wrapped, and the unclassified special route
   permanently passes through;
+- DeferredInit only arms the five overlapping render callsites; xNVSE's first
+  subsequent MainGameLoop installs the group after the complete synchronous
+  DeferredInit listener walk, making Atom's scoped pose enclose compatible
+  graphics predecessors regardless of plugin listener order;
 - each world transaction snapshots the camera plus the native `Sky` and
   `Weather` roots, applies one posed local center to all three coordinate
   owners, recursively updates both finite scene graphs with FNV's native zeroed
@@ -53,30 +74,185 @@ Atom now implements the Stable Phase 2 wrapper:
   one native ownership query per gate on the installed xNVSE layout.
 
 The world pose is non-identity during ordinary grounded movement but contains
-only smooth vertical and lateral translation. Atom does not claim a general
-collision-resolved displaced camera: the half-unit clearance envelope is a
-conservative inference and must be playtested against walls and low ceilings.
-ADS and authored-action samples publish exact identity world motion, and
-`Camera Motion = 0` prevents every world-camera write.
+only smooth vertical and lateral translation. Its amplitude uses the square
+of the analytic locomotion envelope, keeping low-speed traversal restrained
+without changing distance-driven cadence. Relative weapon gait is smaller
+than the head layer, while look inertia and hard-landing compression remain
+distinct contextual sources. Atom does not claim a general collision-resolved
+displaced camera: the half-unit clearance envelope is a conservative inference
+and must be playtested against walls and low ceilings. ADS publishes exact
+identity world motion, and `Camera Motion = 0` prevents every world-camera
+write.
 
 Source ownership is `atom/src/camera/`: `motion.rs` owns the pure generator,
 `pose.rs` the native-basis composition, `state.rs` coherent publication and
 the nonblocking single writer, `native.rs` engine contracts and exact restore,
 `hooks.rs` the rollback-capable caller groups, and `config.rs` the MCM snapshot.
-The top-level Atom config and `MCMExtUpdate` path publish settings; xNVSE
-lifecycle messages and `OnFramePresent` invalidate state/tokens.
+The top-level Atom config and `MCMExtUpdate` path publish settings. DeferredInit
+arms first-person render admission, the first subsequent MainGameLoop installs
+that group once, and lifecycle messages plus `OnFramePresent` invalidate
+state/tokens.
 
 Static and runtime evidence is recorded in
 `analysis/radare2/output/perf/fnv_first_person_camera_contract.txt`. Focused
 tests cover 30/60/120 Hz and uneven partitioning, a 1.6 Hz full-stride ceiling
 under extreme native speed, a derived 6.7 game-unit/second steady-gait
 world-pose velocity bound at full gain, translation-only Stable output,
-stationary moving-support behavior, landing monotonicity, exact ADS/zero-gain
+stationary moving-support behavior, exact idle rejection despite deliberately
+large residual controller velocity, landing monotonicity, exact ADS/zero-gain
 boundaries, matrix axes, finite-sky recentering with exact graph restoration,
 and million-unit viewmodel rebasing with unwind restoration. Static tests do
 not establish camera feel or near-geometry image correctness.
 
-### Static build evidence
+### Current OMV compatibility-correction evidence
+
+The retained evidence excerpt is
+`.reports/atom-omv-camera-chain-2026-08-16.txt`. Its source logs have SHA-256
+`c282883c4df3f65fdf6e0b3c9101a0947f7b4a14992945bd0b6b1fb29b614ce1`
+for Atom and
+`7f07a8058c99d9a40daa8475add907264db16e91b4094efae566281c953883c1`
+for OMV.
+
+Proven runtime facts:
+
+- Atom installed at `20:00:44.080Z` and captured the five vanilla render
+  targets `0x00873200`/`0x00875110`;
+- OMV installed the same caller-local world and first-person groups one second
+  later at `20:00:45.060Z`, so the live chain was necessarily
+  `engine -> OMV -> Atom -> native`;
+- OMV reported presentation, image-space, world, first-person, pre-alpha,
+  geometry, PBR selection/package/terrain, local-light, shadow, and every other
+  deferred capability active;
+- atmosphere and AO initialized and rendered, and the first retained
+  reliability interval completed 505 pre-alpha, coherent-world, and
+  first-person depth copies with zero busy, target, deadline, or failure count;
+- at `20:01:46.165Z`, pre-alpha observed camera position
+  `(-55617.27,-59550.54,13880.64)`, while the coherent-world capture for that
+  same timestamp observed `(-55617.26,-59550.51,13880.62)`; a second moving
+  pair at `20:01:46.615Z` disagreed in all three components as well.
+
+The repository call graph closes causality. OMV performs pre-alpha work before
+calling its captured world predecessor, then publishes coherent depth, camera,
+world color, AO, and motion state after that predecessor returns. Atom's former
+inner predecessor restored camera/Sky/Weather immediately before returning to
+OMV. Thus one OMV transaction consumed rendered color/depth from Atom's posed
+camera and post-world camera data from the restored pose. This is not an OMV
+admission, shader-compilation, or depth-copy failure; it is an Atom scope error
+which invalidates the shared reconstruction domain used by fog, lighting, AO,
+shadows, TAA, motion blur, and related consumers.
+
+The source evidence is `atom/src/camera/hooks.rs` for Atom's guard lifetime,
+`omv/src/fnv_render.rs` for OMV's pre/predecessor/post order,
+`libnvse/xnvse/nvse/nvse/Hooks_Gameplay.cpp` for DeferredInit/MainGameLoop and
+OnFramePresent ownership, and `libnvse/xnvse/nvse/nvse/PluginManager.cpp` for
+the synchronous listener iteration. Existing native caller/ABI evidence remains
+in `analysis/radare2/output/perf/fnv_first_person_camera_contract.txt`; no new
+executable assumption is introduced by this repository-local ordering fix.
+
+The corrected lifecycle is proven by vendored xNVSE source. Its main-loop hook
+at `0x0086B386` dispatches every DeferredInit listener synchronously once, then
+dispatches MainGameLoop before returning to the engine; normal presentation is
+the later `0x0087055E` callsite. Atom now only arms the render
+group during its DeferredInit callback. A fixed atomic one-shot gate installs
+the group from the first subsequent MainGameLoop callback and makes any later
+callback a one-load no-op. The resulting chain is
+`engine -> Atom -> OMV -> native`: Atom's world or viewmodel guard remains live
+through OMV's complete pre/native/post work and restores exact native state
+only after OMV returns. UpdateCamera, third-person, input, and Ballistics
+installation remain at DeferredInit.
+
+The implementation contains no OMV name, module inspection, OMV mutation,
+shared-library camera policy, configuration change, thread, worker, TLS value,
+file scan, or new import. It adds one zero-initialized byte-sized atomic gate
+and a MainGameLoop match arm to Atom's already registered callback. This still
+changes the final DLL's loader-visible code/data layout and therefore requires
+the ordinary Proton/BaseObjectSwapper load-to-gameplay gate. Static proof can
+establish call nesting and restoration; only the installed artifact can accept
+the resulting PBR, atmosphere, lighting, AO, shadow, temporal, and camera
+pixels.
+
+The supported-target validation is green: all 99 Atom tests and all 701 OMV
+tests pass through Wine staging 11.15; Atom Clippy passes for all targets with
+dependencies excluded and warnings denied; workspace formatting passes; and
+optimized explicit-target builds succeed for both Atom and OMV. The one-shot
+gate tests prove that DeferredInit arming performs no installation, the first
+post-Deferred activation invokes the installer exactly once, a failure is
+terminal, and later callbacks cannot retry or mutate executable code.
+
+The installed problem artifact is 6,802,785 bytes, SHA-256
+`9408a1731e0952fe345ddac6d0073fe75cb4922030ebce5bbf36f3ff1c8ea171`;
+its modification time precedes the retained Atom/OMV session. The corrected
+worktree artifact is 6,814,297 bytes, SHA-256
+`cc74f99695154109a59e85c10a8450bd7ec3cbf579379baf18f1bfaf4c54b3e0`.
+Both retain the exact ordered 29 import descriptors and 320 imported symbols,
+three named exports, PE32/i386 format, nine section roles, `0x2B04` import
+directory, `0x8C` export directory, `0x574` IAT, `0x18` TLS directory, four
+TLS callback roles plus null, zeroed eight-byte `.tls`, `0x1AD8` `.bss`, and
+rounded image size `0x447000`. The correction changes `.text` from `0x2A68B0`
+to `0x2A6970`, `.data` from `0x1F80` to `0x1F88`, `.rdata` from `0x1229D8`
+to `0x122A18`, `.eh_fram` from `0x4F530` to `0x4F5B4`, and `.reloc` from
+`0x2247C` to `0x224C0`. This is the complete current Atom worktree artifact,
+including concurrent user changes; the exact small delta against the deployed
+problem artifact is the relevant startup comparison.
+
+### Prior presentation-quality correction evidence (historical)
+
+All 15 public first-person behavior tests pass for explicit
+`i686-pc-windows-gnu` through Wine staging 11.15. The six focused native
+camera tests also pass, including the action-ownership, movement-gate,
+finite-sky, origin-rebase, and exact-restoration contracts. Atom library and
+first-person-test Clippy pass with dependencies excluded and warnings denied;
+focused Rust formatting and `git diff --check` pass. The optimized Atom release
+build succeeds.
+
+The complete Atom run executes 93 tests: every first-person, input,
+ballistics, MCM, and internal test passes, but two unrelated concurrent
+third-person movement assertions fail in
+`atom/tests/third_person_camera_behavior.rs` at lines 109 and 177. They compare
+native direction-bit outputs in code outside this first-person change. This
+document does not misreport the aggregate suite as green or modify that work.
+
+The built worktree artifact is 6,801,120 bytes with SHA-256
+`2df81cf6a0bb71cc455c090b3ef93b37b96f9b2cac10ed5052308e377816256f`.
+It includes concurrent third-person and other user changes, so neither its hash
+nor size delta is attributed solely to first-person presentation. This
+correction adds no configuration field, import, export, TLS owner/data, static
+lazy owner, thread, worker, file scan, allocation, lock, I/O, or render-time
+native query. It removes the obsolete `0x008A8870` fingerprint/call and uses
+the action value already sampled after UpdateCamera. The final DLL footprint
+still requires the repository's ordinary load-to-gameplay startup acceptance.
+
+### Prior idle-gait candidate evidence (historical)
+
+The idle-gait candidate passes all 89 Atom tests for explicit
+`i686-pc-windows-gnu` through Wine staging 11.15. This includes 13 public
+first-person behavior tests and five native first-person contract/transaction
+tests. Atom-only Clippy passes for all targets with warnings denied, the four
+affected Rust files pass a direct rustfmt check, `git diff --check` passes, and
+the optimized Atom release build succeeds. Workspace-wide `cargo fmt --check`
+continues to report only a pre-existing unrelated import-wrap difference in
+`omv/src/effects/shadows/contract_tests.rs`; this change does not rewrite it.
+
+The candidate `atom.dll` is 6,801,468 bytes with SHA-256
+`513d650da54702933c5b0e48d52c47c292c7fd0994bc028d2bdd3d90fbbfe156`.
+Against the runtime-rejected installed `445831fa...` DLL, it preserves the
+exact 29 import descriptors and 320 ordered imported symbols, three named
+exports, PE32/i386 and large-address-aware/ASLR/NX characteristics, nine
+section roles, import/export/TLS directory sizes `0x2B04/0x8C/0x18`, IAT size
+`0x574`, four TLS callbacks plus null, and eight zero `.tls` bytes. `.text`
+changes from `0x2A4E30` to `0x2A50B0`, `.data` from `0x1EC0` to `0x1E90`,
+`.rdata` from `0x122608` to `0x1226D8`, `.eh_fram` from `0x4F3D8` to
+`0x4F3B4`, `.bss` from `0x1B78` to `0x1B80`, and `.reloc` from `0x22334`
+to `0x22328`; rounded image size changes from `0x445000` to `0x446000`.
+
+The new work adds fixed deferred fingerprints, one rejection counter slot, and
+hot-path code only. It adds no configuration field, import, export, TLS
+callback/data, static lazy owner, thread, worker, file scan, or operation
+before DeferredInit. The code/data layout is nevertheless loader-visible and
+requires the ordinary Proton/BaseObjectSwapper load-to-gameplay acceptance;
+the exact idle visual result also remains a runtime gate.
+
+### Earlier combined-stage evidence (historical)
 
 The 2026-08-16 combined Atom worktree passes all 62 tests under Wine staging
 11.15 for `i686-pc-windows-gnu`. Those include seven public first-person
@@ -176,13 +352,14 @@ weapon as one camera:
 |---|---|---|
 | Control pose | FNV and Atom Input | Logical look, crosshair, activation, aiming, and combat direction. |
 | World presentation pose | Atom camera wrapper | Small render-only body motion applied around the world draw. |
-| Viewmodel pose | Native setup plus Atom | Separately scaled hands/weapon motion applied after native iron-sight setup. |
+| Viewmodel pose | Native setup plus Atom | Common head pose plus smaller weapon-relative motion after native iron-sight setup. |
 
 The native control pose is never smoothed. Atom samples the completed native
 camera and adds a short-lived presentation transform only while the renderer
 consumes it. The exact native transform is restored before the wrapped call
-returns. Hands and weapons receive a related but independently tuned transform
-through FNV's separate first-person camera.
+returns. Hands and weapons inherit the exact common head translation through
+FNV's separate first-person camera, then receive an independently tuned
+secondary transform only while Atom owns weapon-relative presentation.
 
 This is the central safety property:
 
@@ -342,8 +519,10 @@ Modern engine guidance is useful as design input, not FNV evidence.
 [Unity Cinemachine](https://docs.unity.cn/Packages/com.unity.cinemachine%402.2/manual/CinemachineOverview.html)
 separates movement, aim, and procedural noise, and explicitly keeps additive
 noise from feeding future follow state. Its
-[Impulse model](https://docs.unity.cn/Packages/com.unity.cinemachine%402.6/manual/CinemachineImpulse.html)
-separates a six-axis signal, event source, and listener.
+[impulse definition](https://docs.unity3d.com/ja/Packages/com.unity.cinemachine%402.6/api/Cinemachine.CinemachineImpulseDefinition.html)
+separates an event source, time envelope, channel, and listener gain, while
+[camera-local damping](https://docs.unity3d.com/ja/Packages/com.unity.cinemachine%402.6/api/Cinemachine.Cinemachine3rdPersonFollow.Damping.html)
+is tuned independently per axis.
 [Unreal Camera Shakes](https://dev.epicgames.com/documentation/en-us/unreal-engine/camera-shakes-in-unreal-engine)
 uses composable wave, noise, and sequence patterns with per-axis amplitude,
 frequency, blend timing, intensity, and camera-local play space.
@@ -356,6 +535,11 @@ Those systems converge on practices Atom should retain:
 - camera-local coordinates are explicit;
 - sources and listeners allow the world camera and weapon camera to receive
   different gains from one event;
+- a viewmodel-specific stage may add relative motion, but body/head motion
+  shared by both views must remain common or the weapon floats against the
+  scene;
+- an authored sequence and procedural motion must not simultaneously own the
+  same relative weapon degree of freedom;
 - start/stop envelopes prevent discontinuities;
 - tuning is in seconds, distance, degrees, and normalized gain, not fractions
   per frame;
@@ -473,36 +657,51 @@ Each modifier returns zero-centered translation and rotation. No modifier
 edits another modifier's state or uses the prior frame's final presented pose
 as its new target. This prevents drift and positive feedback.
 
-The world and viewmodel listeners consume the same source phases so motion
-feels connected, but their gains and allowed axes differ. The weapon may move
-more than the world without making the horizon unstable.
+The world listener consumes the bounded common head pose. The viewmodel
+listener starts with that exact pose, then adds a smaller relative weapon pose
+with its own allowed axes and gain. This base-plus-secondary composition keeps
+hands registered with the scene while allowing restrained weight and look lag.
+Authored actions suppress only the secondary pose; they do not manufacture an
+unnaturally motionless head during ordinary movement.
 
 ## Locomotion inputs
 
 Head bob must represent actual body movement, not keyboard intent.
 
-The preferred inputs, in order, are:
+The implemented gait contract uses both of these independent native signals:
 
-1. proven character-controller horizontal velocity relative to its support;
-2. proven grounded/jumping/in-air state;
-3. native movement flags for walk, run, sneak, swim, and auto-move classes;
-4. the coherent Atom Input frame only as context, never as velocity.
+1. character-controller horizontal velocity relative to its support supplies
+   speed and distance;
+2. grounded/jumping/in-air state supplies contact classification;
+3. PlayerMover's low direction nibble supplies gait admission.
+
+The coherent Atom Input frame supplies update identity and context, never
+velocity or gait admission. Higher native flags such as walk, run, sneak,
+swim, and auto-move do not admit gait without a low forward/back/strafe bit.
 
 The supported executable already proves `Actor::GetCharController @
 0x009306D0` and `bhkCharacterController::GetState @ 0x005C0880`. State values
-0, 1, and 2 identify on-ground, jumping, and in-air operation. Phase 0 must
-validate the controller velocity and support-velocity carriers and their units
-before gait ships.
+0, 1, and 2 identify on-ground, jumping, and in-air operation. PlayerMover
+virtual `+0x0C` stores the processed movement word at `PlayerMover +0x94`;
+bits `0x01`, `0x02`, `0x04`, and `0x08` are forward, backward, left, and
+right. Because normal UpdateCamera precedes the current frame's setter, Atom
+observes the last completed native movement word, not an unfinished stack
+local. That adds at most one native update of start/stop admission latency.
 
-Support-relative velocity matters on elevators and moving surfaces. Integrating
-world position would bob while a platform carries a stationary player.
-Integrating input would bob against a wall, during a blocked animation, or at
-the wrong analog magnitude. Animation-node displacement is rejected because
-arbitrary skeletons and animation packs can add noise or omit expected nodes.
+Support-relative velocity matters on elevators and moving surfaces. It remains
+the magnitude source, but the user's idle runtime observation proves it is not
+a sufficient activity predicate by itself. Requiring the processed native
+direction nibble makes a stationary mover exact zero even when Havok retains a
+horizontal residual. Requiring velocity as well avoids turning raw button
+intent into cadence at the wrong analog magnitude. Integrating world position
+would bob while a platform carries a stationary player. Animation-node
+displacement is rejected because arbitrary skeletons and animation packs can
+add noise or omit expected nodes.
 
-If a trustworthy velocity is unavailable for a frame, the gait target gain is
-zero. Pass-through is better than synthetic foot motion disconnected from the
-character.
+If either native signal is unavailable, non-finite, unsupported, below the
+speed threshold, or lacks a low direction bit, the gait target and cadence are
+zero. The existing analytic stop envelope settles an already-active gait to
+exact identity; a generator acquired while idle is exact identity immediately.
 
 ## Gait model
 
@@ -569,6 +768,15 @@ These are starting playtest bands, not approved shipped defaults:
 Eye height is measured from a stable native first-person pose rather than a
 hard-coded game-unit assumption. All final values require FOV, weapon,
 animation, clipping, and comfort playtests at 30, 60, 120, and unstable FPS.
+
+The current normalized implementation uses common-head coefficients `0.24`
+up and `0.08` right, reduced from the rejected `0.32/0.12` candidate. The
+weapon-relative gait uses `0.10` forward, `0.08` up, and `0.08` right rather
+than the former independently rendered `0.18/0.46/0.30`. Configured gains and
+the squared locomotion envelope multiply those values before the established
+world/viewmodel clamps. These are game-unit presentation coefficients, not
+claims about biological eye displacement. The reduction and common-base
+composition are code-backed; only live play can accept their subjective feel.
 
 The `Stable` mode keeps gait rotation off on the world listener. An optional
 `Full` mode may admit very small world pitch/roll only after reticle and motion
@@ -642,20 +850,23 @@ The more precise the action, the less world motion Atom should add:
 | Iron sights held | zero by default | low | low | low |
 | Magnified scope | zero | zero or absent | zero | zero |
 | Melee/unarmed | low | profile-dependent | low | normal |
-| Reload/equip | zero | avoid fighting animation | zero | reduced |
+| Reload/equip | low common head | common head only | zero | common head |
 
 The aim weight follows proven native aiming state with a time-based blend. It
 does not infer aim solely from the right mouse button. The world listener
-switches to exact identity on the first aiming or authored-action sample;
-leaving that state fades ordinary motion back through the same analytic
-envelope. Native setup and Smooth True Iron Sights remain authoritative for
-the base camera.
+switches to exact identity on the first aiming sample; leaving aim fades
+ordinary motion back through the same analytic envelope. Native setup and
+Smooth True Iron Sights remain authoritative for the base camera.
 
 Weapon animation is already authored motion. During reload, equip, jam,
-throwable, and scripted sequences, added viewmodel inertia should normally
-fade to zero instead of double-animating the hands. The currently proven
-native action predicate removes the world listener completely for the action
-classes it recognizes.
+throwable, attack, recoil, block, and scripted sequences, Atom's relative
+viewmodel pose is zero instead of double-animating the hands. FNV's
+`GetCurrentAnimAction` returns `-1` only for None; every other known or unknown
+value therefore fails closed to native relative animation. Entry is exact on
+the first sample. After the native action returns to None, Atom releases its
+suppression with a 12/s analytic envelope so procedural motion cannot pop back
+on the clip boundary. The common head pose continues during ordinary authored
+weapon actions and is inherited identically by both render cameras.
 
 ## Survival-state feedback
 
@@ -768,13 +979,13 @@ This hook consumes Atom Input's already-published gameplay-context frame and
 samples the native logical yaw/pitch committed by UpdateCamera. Exact axis
 closure maps adjusted horizontal heading to `0x011E076C` and raw Actor
 `rotX`/pitch to `0x011E0764`; the native Z- and X-matrix consumers independently
-prove that order. Only the first
-accepted completion for a given input `frame_id` advances engine time and gait
-distance. Duplicate transition or maintenance calls invalidate a pending
-render pair but preserve the current immutable pose. A reset generation or
-cell change bypasses deduplication so ownership reacquires immediately. Atom
-does not hook its own mouse hook, repoll a device, or create a second action
-snapshot.
+prove that order. The same sample reads PlayerMover `+0x94` once and admits
+gait only when its low direction nibble is nonzero. Only the first accepted
+completion for a given input `frame_id` advances engine time and gait distance.
+Duplicate transition or maintenance calls invalidate a pending render pair but
+preserve the current immutable pose. A reset generation or cell change
+bypasses deduplication so ownership reacquires immediately. Atom does not hook
+its own mouse hook, repoll a device, or create a second action snapshot.
 
 ### World callsite group
 
@@ -840,10 +1051,13 @@ On a validation failure:
 - diagnostics name the unavailable capability and consequence;
 - no hook is installed from `NVSEPlugin_Load`.
 
-All native validation, configuration publication, and hook installation occur
-at xNVSE `DeferredInit`. Before implementation, the contributor must read
-[the startup phase safety contract](nvse_startup_phase_safety.md), identify the
-last load-to-gameplay-playtested Atom artifact, and compare the complete
+Native validation, configuration publication, and every non-overlapping hook
+installation occur at xNVSE `DeferredInit`. The five shared world/first-person
+render calls are armed there and installed once at the first subsequent
+MainGameLoop, the proven quiescent point after all DeferredInit listeners and
+before the frame renderer. Before changing either phase, the contributor must
+read [the startup phase safety contract](nvse_startup_phase_safety.md), identify
+the last load-to-gameplay-playtested Atom artifact, and compare the complete
 pre-Deferred footprint. New static ownership or configuration fields can
 change that footprint even when camera code executes later.
 
@@ -854,10 +1068,14 @@ OMV already wraps the same two world and three first-person CALL sites in
 effects inside the world call, and captures first-person depth inside the later
 first-person call.
 
-Atom must preserve that chain in either load order:
+Atom must preserve that chain in either load order. Because DeferredInit
+listener order determines which plugin would otherwise be outermost, Atom does
+not install these five wrappers inside its own DeferredInit listener. It waits
+for the immediately following MainGameLoop boundary and captures the complete
+deferred chain as its caller-local predecessor:
 
 ```text
-callsite -> outer plugin -> inner plugin -> native renderer
+callsite -> Atom pose scope -> graphics predecessor -> native renderer
 ```
 
 Atom's world pose must be active while OMV and native world rendering consume
@@ -909,10 +1127,11 @@ live skeleton and every external hook ordering.
 
 [B42 Weapon Inertia](https://www.nexusmods.com/newvegas/mods/64335) already
 adds skeleton-dependent weapon inertia. Atom must not detect or patch it. The
-separate `Weapon Motion` control lets a user set Atom's viewmodel gain to zero
-while retaining world motion. Hook preflight and exact snapshot restoration
-prevent lost predecessors, but visual double-inertia still requires user
-choice and playtest.
+separate `Weapon Motion` control lets a user set Atom's relative viewmodel
+gain to zero while retaining the common head pose on both render cameras. Hook
+preflight and exact snapshot restoration prevent lost predecessors, but visual
+double-inertia outside FNV's authored action window still requires user choice
+and playtest.
 
 Recoil systems remain the owner of their gameplay and animation paths. Atom's
 camera API accepts a bounded presentation impulse only through an explicit
@@ -950,7 +1169,8 @@ not a numeric Atom threshold.
 Atom requirements:
 
 - `Camera Motion = 0` performs no world-camera write;
-- `Weapon Motion = 0` performs no viewmodel-camera write;
+- `Weapon Motion = 0` removes the relative weapon pose; the first-person
+  camera still inherits nonzero common head motion to remain registered;
 - camera, weapon, and landing gains are separately adjustable;
 - `Stable` is the default mode; `Full` is explicit opt-in;
 - no FOV pulse, sprint zoom, forced motion blur, or moving UI;
@@ -988,7 +1208,8 @@ hypotheses for calibration, not approved shipping values. Sanitization clamps
 all gains to `[0, 1]`; unknown fields remain owned by MCM/future Atom versions.
 `iMotionMode` is not persisted because Stable is the only admitted world mode.
 `fCameraMotion` independently reaches exact identity and is shown as `Head
-Motion` on the MCM page.
+Motion` on the MCM page. `fWeaponMotion` scales only movement relative to that
+head layer; it never disconnects the hands from nonzero head motion.
 
 Every visible MCM string must remain one to three words. A compliant initial
 page can use:
@@ -1138,7 +1359,9 @@ Acceptance:
 
 Add support-relative cadence, stance profiles, gait envelopes, and landing
 impulses. The admitted world listener adds only sub-unit vertical/lateral local
-translation, with exact ADS/action suppression and independent gain.
+translation, with exact ADS suppression and independent gain. The viewmodel
+inherits that pose and adds a subordinate relative layer only when no authored
+action owns the weapon.
 
 Acceptance:
 
@@ -1264,8 +1487,8 @@ The user must test the release artifact through Proton/Wine.
 
 ### Comfort
 
-- `Camera Motion = 0` and `Weapon Motion = 0` independently remove their
-  effects immediately and permanently;
+- `Camera Motion = 0` removes common head motion and `Weapon Motion = 0`
+  removes relative weapon motion immediately and permanently;
 - Stable does not add world roll or dynamic FOV;
 - motion remains subtle during long traversal and does not obscure targets;
 - ADS and scopes become visibly stable;
@@ -1508,10 +1731,10 @@ scene-transaction failure. This proves a visible output defect after hook
 admission; it does not support blaming the support-relative velocity function
 or asking the user for another diagnostic run.
 
-Fresh radare2 research of the identified FalloutNV.exe closes the missing
-render ownership. Both main routes call `0x00872B00` before their world draw.
-At `0x00872C55..0x00872CA1`, that function reads the World SceneGraph camera's
-local translation at `+0x58`, copies it into the root stored at `0x011DEB34`,
+Fresh radare2 research of the identified FalloutNV.exe found the first missing
+render owner. Both main routes call `0x00872B00` before their world draw.
+At `0x00872C55..0x00872CA1`, that function obtains World SceneGraph child zero,
+reads its local translation at `+0x58`, copies it into the root at `0x011DEB34`,
 constructs zero-time/false-flag `NiUpdateData`, and recursively updates the
 root through `0x00A59C60`. It repeats the same sequence for `0x011DEDA4` at
 `0x00872CA6..0x00872CF2`. Construction names those roots `Sky` and `Weather`
@@ -1570,6 +1793,203 @@ to `0x2A4D70`, `.data` from `0x1D08` to `0x1ED0`, `.rdata` from `0x121B68` to
 `0x443000` to `0x445000`. The aggregate DLL includes all current dirty-worktree
 Atom code, so total section growth is not attributed solely to this correction.
 
+### 2026-08-17 complete render-route correction
+
+The finite-sky correction above repaired one camera/root mismatch but retained
+the wrong ownership seam. Atom still entered at `RenderWorldSceneGraph`, after
+native route preparation `0x00872B00` had already consumed the unposed camera.
+It compensated by manually posing and recursively updating Sky and Weather,
+then restored snapshots and recursively updated them again. Together with the
+two native preparation updates, an accepted first-person frame performed six
+root graph walks. More importantly, earlier native preparation and later
+image-space work did not belong to one camera transaction. The user's Atom/OMV
+playtest continued to show native-sky blinking, missing PBR/effects, and poor
+responsiveness; that runtime result rejects the former seam as a compatibility
+solution.
+
+Fresh radare2 evidence in
+`analysis/radare2/output/perf/fnv_first_person_camera_contract.txt` establishes
+the complete parent routes. `Main::Render @ 0x008706B0` calls route A at
+`0x0087074B` and route B at `0x0087075E`. Each call passes the Main receiver in
+`ECX`, one opaque 32-bit value and one byte value on the stack; both targets
+return with `ret 8`. Their typed ABI is
+`thiscall(Main*, u32, u8) -> void`. Route A and route B each perform native
+Sky/Weather preparation, RenderWorld, the paired RenderFirstPerson call, and
+their complete image-space owner before returning.
+
+Atom now transactionally hooks those two caller cells together with the three
+existing RenderFirstPerson cells at the established first post-Deferred
+main-loop boundary. Every cell captures and invokes its exact live predecessor;
+there is no hard-coded native fallback that could skip another compatible
+owner. A missing predecessor or reentrant route invalidates only Atom's pending
+world/viewmodel pair. The native render remains pass-through whenever the
+captured chain is available, and the separately classified special
+first-person route remains unposed.
+
+The outer guard resolves the persistent `SceneGraph +0xAC` render camera,
+SceneGraph child zero used by native sky centering, and both finite roots. It
+prepares finite local/world transforms for both camera identities before the
+first write and mutates only once when the pointers are equal. Native
+`0x00872B00` then performs its ordinary Sky and Weather centering and graph
+updates from the posed child-zero anchor. On return, the guard restores each
+camera object exactly, restores only the child-zero-derived local translation
+on Sky and Weather, and performs one recursive update per root. It deliberately does not
+replay pre-route root rotation/world snapshots, so weather or controller
+mutations made by the route survive. Atom's extra graph work falls from four
+updates to two; no update, lock, allocation, file I/O, or diagnostic write was
+added to the apply side.
+
+The inner RenderFirstPerson guard is unchanged: it consumes the exact route
+token, rebases the viewmodel camera/root near the origin, invokes the captured
+predecessor, and restores the exact native values. The outer world camera stays
+posed across this nested call and across the complete image-space owner, so
+OMV and native consumers see a single coherent frame camera regardless of
+which compatible DeferredInit owner is earlier in the captured chain.
+
+Focused tests prove the route detour ABIs, route-exact single consumption,
+reentrant-token invalidation, posed local/world camera visibility before a
+modeled native sky preparation, preservation of in-route root rotation, and
+exact restoration with only two Atom restoration updates. Static evidence does
+not prove final pixels or responsiveness. Acceptance requires the Atom camera
+on/off matrix with native sky, PBR, fog, volumetric lighting, bloom, shadows,
+fast camera movement, loading transitions, and measured frame pacing.
+
+This change adds no MCM/configuration value, schema, parser, import, TLS value,
+thread, worker, file scan, or pre-Deferred operation. It replaces two existing
+post-Deferred callsite containers with two other fixed callsite containers in
+the same five-cell transaction. The final Atom DLL still changes code/static
+layout and requires the repository's Proton/BaseObjectSwapper startup gate
+before it can become a runtime-accepted artifact.
+
+Static closure passes all 103 explicit-target Atom tests, strict all-target
+Atom Clippy, formatting, and the complete supported release build. The
+optimized `atom.dll` is 6,814,115 bytes with SHA-256
+`2989c830b49c9546d2dcbbd7bcc42ae1b0c8b6b0aa35dda0be7376c6b547b401`.
+Against the immediate pre-correction worktree artifact (6,816,065 bytes,
+SHA-256 `62e997ee7eeb04d92d0da2843e15978f992fa0cf240b6ed1266a00e2b675b5f7`),
+`.bss = 0x1AD8`, `.data = 0x1F80`, `.idata = 0x2B04`, and `.tls = 0x8`
+are unchanged. `.text` changes from `0x2A6A30` to `0x2A6330`, `.rdata` from
+`0x122A38` to `0x122A58`, `.eh_fram` from `0x4F5F8` to `0x4F5F4`, and
+`.reloc` from `0x224B8` to `0x224CC`. This proves the bounded static delta, not
+the required Proton/BaseObjectSwapper startup or camera/effect playtest.
+
+### 2026-08-17 distinct sky-anchor correction and OMV rollback
+
+The next installed playtest rejected the one-camera version: native sky moved
+in direct synchrony with Atom's head bob, PBR remained absent, and the user
+could not trust the other OMV effects. The deployed Atom and OMV hashes matched
+the reviewed artifacts. OMV logged all major hook capabilities as active, PBR
+resources prepared, and atmosphere/bloom passes executing. That is runtime
+evidence against stale installation and simple hook admission; it is not proof
+that any final pixel used the intended owner.
+
+Fresh radare2 research closes the remaining native identity gap. The render
+camera getter at `0x006629F0` returns `SceneGraph +0xAC`. Sky preparation does
+not call it. At `0x00872C55` and `0x00872CA6`, `0x00872B00` calls
+`0x00558310`, which obtains index zero from the NiTArray at
+`SceneGraph +0x9C`, then calls `0x0043C490` to read that child's local
+translation. The executable has two access paths and does not assert their
+pointer equality. Vanilla commonly makes them equal; a chained camera owner is
+allowed to make them distinct.
+
+Atom now resolves both objects inside the synchronous parent-route callback.
+It validates and composes both complete local/world transform pairs before the
+first write, poses one object once when the pointers alias, and otherwise poses
+both. Restoration returns each exact pair to its owner and recenters Sky and
+Weather from child zero's original local translation. No object pointer is
+published or retained. The additional work is four small matrix compositions
+and four transform stores only in the uncommon distinct-identity case; it adds
+no lock, allocation, graph walk, driver query, file I/O, or diagnostic write.
+
+The regression deliberately supplies different render-camera and sky-anchor
+objects with different base translations. It models native centering from the
+posed anchor, verifies Sky/Weather coherence during the route, preserves an
+in-route sky rotation mutation, and verifies exact restoration of both camera
+owners plus two root updates. A same-pointer transaction still performs one
+camera mutation by construction.
+
+The same runtime result rejects the concurrent OMV-wide compatibility rewrite.
+That candidate introduced new camera transactions into depth, atmosphere,
+motion blur, image-space ordering, PBR/sky material arbitration, reset, and
+diagnostics simultaneously, even though the last accepted OMV baseline was
+already playtested without Atom. Production returns those non-shadow systems
+to the accepted ownership paths and keeps the independently requested local
+shadow fixes. Compatibility responsibility is now narrow: Atom owns its
+complete temporary camera transaction and chains live predecessors; OMV owns
+its established D3D stages without knowing Atom exists.
+
+Static proof still cannot accept the image. Runtime acceptance requires Atom
+camera off/on while checking stationary and moving sky, object and terrain PBR,
+fog, volumetric lighting, bloom/HDR, shadows, menus/loading, reset/alt-tab, and
+frame pacing. BaseObjectSwapper cold starts remain mandatory because the Atom
+DLL layout changed even though no pre-Deferred operation or import was added.
+
+Static closure passes all 104 explicit-target Atom tests, including distinct
+and aliased camera-owner regressions, and the supported five-crate release
+build. The optimized `atom.dll` is 6,814,953 bytes with SHA-256
+`9da56cc6e2cc12e8e21f14a235f967e781b6d75323ee47406967fd2963d9eaca`.
+Against the runtime-rejected deployed artifact, all 320 normalized imported
+symbols, 29 DLL table rows, three exports, directory sizes, and eight zero TLS
+bytes remain unchanged. The current section sizes are `.text = 0x2A6930`,
+`.data = 0x1F90`, `.rdata = 0x122A18`, `.eh_fram = 0x4F5E0`,
+`.bss = 0x1AE0`, and `.reloc = 0x224CC`. This is static artifact identity,
+not the required load-to-gameplay or visual acceptance.
+
+### 2026-08-17 delta-only native sky-anchor correction
+
+The installed distinct-transform candidate remained rejected: the finite sky
+still moved with head bob. The earlier interpretation proved the second pointer
+but assigned it too much ownership. Radare2 shows `0x00872B00` reads only child
+zero's local translation at `+0x58` before copying it to Sky and Weather. It
+does not consume the anchor's rotation or world transform.
+
+Composing the same camera-space pose independently through the render camera
+and child-zero bases can produce different translation deltas when those bases
+differ. Atom now computes the exact local-translation delta produced on
+`SceneGraph +0xAC` and transfers only that delta to child zero. It preserves the
+anchor's base offset, local rotation, and complete world transform. Restoration
+returns the one local translation exactly before recentering the finite roots.
+
+The complete parent-route and live-predecessor ownership remain unchanged.
+The change adds no graph update, allocation, lock, configuration value, worker,
+or pre-Deferred operation. Existing distinct/aliased native transaction tests
+pass, but they are not image evidence. Runtime acceptance still requires the
+installed Atom camera off/on comparison with stationary and moving native sky.
+
+### 2026-08-17 rejected local/world native sky-anchor correction
+
+The installed local-only candidate was rejected because stars still moved with
+head bob. The existing regression modeled the local-translation copy in
+`0x00872B00`; it did not model the final matrix construction in
+`SkyShader::UpdateConstants @ 0x00B89D80`. That routine subtracts the world
+translation retained at `0x011F95D8` after copying the geometry/model
+transform. The candidate incorrectly treated that pointer as child zero and
+wrote both child-zero translations. The installed result rejected that
+interpretation because stars still moved with head bob.
+
+### 2026-08-17 CameraNode/NiCamera native sky correction
+
+`BSSceneGraph::BSSceneGraph @ 0x00C517B0` proves child zero is a CameraNode and
+the render NiCamera is stored separately at `SceneGraph +0xAC`.
+`0x00872B00` reads only the CameraNode local translation when centering Sky and
+Weather. Initialization at `0x0086D873..0x0086D88A` instead stores the NiCamera
+in `0x011F95D8`, so `SkyShader::UpdateConstants @ 0x00B89D80` subtracts the
+NiCamera world translation, not the CameraNode world field.
+
+The scoped route now computes the composed NiCamera's world-translation delta
+and adds exactly that delta to the distinct CameraNode local translation. It
+does not alter the CameraNode world transform, rotation, or scale. Restoration
+returns the CameraNode local translation exactly before Sky and Weather are
+recentered; the aliased defensive path still mutates only the render camera.
+
+The regression reproduces the complete observable translation path: distinct
+CameraNode and NiCamera state, native root preparation, and the SkyShader
+camera-relative matrix. The rejected local-plus-world transaction leaves a
+`[2, -2, 0]` residual under a rotated two-unit head-bob pose; the corrected
+transaction leaves zero. This closes the specific stars-follow-headbob defect
+with behavior, while ordinary installed visual quality remains a separate
+playtest concern.
+
 ## Rejected designs
 
 ### Attach the camera directly to the animated head
@@ -1596,11 +2016,13 @@ visual-only ownership.
 Rejected. It bobs against walls, during blocked movement, and at the wrong
 controller magnitude. Actual support-relative locomotion is required.
 
-### Apply one transform to world and weapon
+### Apply only one identical transform to world and weapon
 
-Rejected. It makes the horizon as busy as the hands, fights iron sights, and
-wastes FNV's proven separate first-person camera. One source may feed two
-listeners, but each listener needs its own axes and gain.
+Rejected. A common head translation is required to keep the hands registered,
+but using it as the complete viewmodel pose would discard the proven separate
+camera's useful relative motion. Atom instead composes common head translation
+with a smaller weapon-only pose whose axes, gain, aim attenuation, and authored
+animation ownership are independent.
 
 ### Add procedural noise everywhere
 
@@ -1618,8 +2040,9 @@ or reorders another mod based on identity.
 
 Build Atom First Person as a render-scoped, additive camera wrapper over the
 native control pose. Preserve immediate look and native gameplay truth; drive a
-distance-phased, support-relative gait plus event-based landing; put most
-weight into the separate viewmodel listener; make Stable subtle and Full
+distance-phased, support-relative gait plus event-based landing; share the
+subtle Stable head pose across both render cameras; put only secondary weight
+into the separate viewmodel listener; make Stable subtle and Full
 explicit; and make zero gains exact native behavior.
 
 The native renderer provides the right structural split for this design. The

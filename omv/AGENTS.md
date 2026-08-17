@@ -1,102 +1,77 @@
 # OMV graphics rules
 
-These rules apply to all files under `omv/`. They extend the repository root rules. For graphics work, quality and performance are independent release gates: both must pass.
+These are only the OMV-specific deltas to the repository root rules; all root
+acceptance, testing, commit, research, documentation, code-quality, safety, and
+performance rules remain inherited. For graphics work, visual quality and
+performance are independent release gates.
 
-The root commit-creation prohibition applies here without exception.
-`docs/commit-rules.md` remains mandatory, and no OMV change may be committed or
-amended without the user's explicit request and strict approval for that
-commit.
-
-The ambient-occlusion suite in `src/effects/ambient_occlusion.rs` is the minimum pattern for shader compilation, bytecode inspection, deterministic reference rendering, regression power, and static work budgets. Reuse its infrastructure; never weaken or bypass it to land a change.
+For permitted HLSL validation, the ambient-occlusion suite in
+`src/effects/ambient_occlusion.rs` is the minimum pattern for shader
+compilation, bytecode inspection, deterministic reference rendering,
+regression power, and static work budgets. Reuse its shader-test
+infrastructure; never weaken or bypass it to land a change.
 
 ## BaseObjectSwapper-sensitive startup contract
 
 Read `docs/nvse_startup_phase_safety.md` and
 `docs/graphics_fnv_atmosphere_startup_crash_errata.md` completely before
 changing startup, configuration, presets, process-owned preparation, hooks,
-global storage, TLS, or any state first accessed before `DeferredInit`. The
-first document owns the exact external crash mechanism, attribution boundary,
-mod-agnostic response, and repository-wide review protocol. The erratum owns
-OMV's incident history and local source-order contract. The latest
-load-to-gameplay-playtested baseline must be identified from them before
-editing; commit `9975b2e` is the baseline established by the 2026-08-10
-motion-blur correction. A later documented and playtested baseline supersedes
-it.
+global storage, TLS, or pre-`DeferredInit` state. Those documents own the full
+mechanism, history, review protocol, and accepted baseline; do not repeat their
+detail here. Identify the latest load-to-gameplay-playtested baseline before
+editing.
 
-Treat everything reachable from `NVSEPlugin_Load`, including background work
-it starts, as one compatibility-sensitive footprint. Before implementation,
-diff that footprint against the playtested baseline and list every change in:
-
-- config structs nested in `PsychoGraphicsConfig`, `GraphicsMenuConfig`,
-  `RuntimeSettings`, or deferred settings, including Rust size/layout changes;
-- `CONFIG_SCHEMA_VERSION`, shipped TOML shape, frozen preset manifests,
-  migrations, built-in preset version/payload, parsing, validation, and save
-  behavior;
-- `LazyLock`/`OnceLock` first access, mutex creation or acquisition, TLS and TLS
-  destructors, static constructors/destructors, thread creation, worker start
-  order, filesystem scans, DLL loads, and allocation-heavy work;
-- atomics or mailboxes that publish engine ownership, scene requirements, route
-  readiness, hook admission, or configuration generations;
-- the order of staging, provider selection, first world publication, and hook
-  installation.
+Treat everything reachable from `NVSEPlugin_Load`, including spawned work, as
+one frozen compatibility footprint. When a concrete startup risk requires a
+baseline comparison, cover config/schema/presets and layouts; lazy/static/TLS
+ownership; locks, constructors, threads, workers, scans, DLL loads and heavy
+allocation; publication atomics/mailboxes; and staging/provider/publication/
+hook order.
 
 The current invariants are mandatory:
 
-- `NVSEPlugin_Load` may parse/copy configuration and perform only the exact
-  process-owned preparation already present in the playtested baseline. A new
-  operation is not safe merely because it is CPU-only, off-thread, atomic, or
-  does not call D3D.
-- The focused world owner must remain untouched until `DeferredInit`.
-  `apply_initial_depth_activation` is the config-to-hook handoff; first world
-  publication follows there, before the resident hooks become reachable.
-- A new engine-facing callback route or hook admission is initialized false,
-  is not published by `ScreenShaderRuntime::configure`, opens only at the
-  deferred handoff, and is cleared if deferred installation fails.
-- Existing scene-requirement publication and process-owned shader/effect
-  preparation retain their accepted phase and order unless the user explicitly
-  requests a separately researched startup redesign.
-- OMV config and presets remain schema 1. Deprecated fields remain in their
-  original serialized position and round-trip unchanged. Motion blur's
-  `first_person_strength` is the canonical pattern: keep it in Rust, shipped
-  TOML, saves, and presets; omit it from active menu metadata, render settings,
-  temporal identity, constants, and HLSL.
-- Do not add `thread_local!`, a TLS destructor, or a new pre-deferred
-  `LazyLock`/`OnceLock` first touch for render state. Prefer zero-initialized
-  POD/atomics whose operational access begins after the deferred handoff.
-- Never disable, remove, or postpone a requested effect or an established
-  worker as a startup-crash fix. Preserve the work and surgically remove the
-  new load-time owner, layout, migration, or publication that differs from the
-  playtested baseline.
+- `NVSEPlugin_Load` retains only baseline config copying and process-owned
+  preparation. CPU-only, off-thread, atomic, or non-D3D work is not inherently
+  startup-safe.
+- The focused world owner remains untouched until `DeferredInit`.
+  `apply_initial_depth_activation` hands config to hooks and publishes world
+  state before resident hooks become reachable.
+- New engine callbacks/admission start false, are never published by
+  `ScreenShaderRuntime::configure`, open only at the deferred handoff, and
+  clear on installation failure. Preserve all accepted preparation/order.
+- Config/presets remain schema 1; deprecated fields retain serialized position
+  and round-trip. Keep motion blur `first_person_strength` serialized but
+  absent from active menus, rendering, temporal identity, constants, and HLSL.
+- Add no pre-deferred TLS/destructor or render-state lazy first touch. Prefer
+  zero-initialized POD/atomics first used after handoff. Never disable or delay
+  requested effects/workers as a startup fix; remove only the unsafe new delta.
 
-For a crash before `[INIT] Deferred OMV graphics hooks initialized`, the render
-implementation is outside the executed call graph. Do not investigate shader
-math, D3D state, render phase, depth resolution, RESZ, or GPU-vendor policy
-until every new pre-deferred delta has been eliminated or proven. Treat
-BaseObjectSwapper as the observed UB-sensitive fault site, not as permission to
-patch it, blame it alone, or claim OMV directly corrupted its memory.
+Before `[INIT] Deferred OMV graphics hooks initialized`, render code has not
+executed: investigate only the load-time delta, never shader/D3D/depth/vendor
+policy. BaseObjectSwapper is an observed fault site, not a patch target or
+proof of attribution.
 
-Every change to this footprint must add or retain source-order tests that reject
-early world publication/hook admission, config and preset shape/version locks,
-and round-trip tests for compatibility-only fields. Run the focused tests, full
-OMV suite, and supported release build. Static success is insufficient: do not
-declare, ship, or document the change as startup-safe until the user confirms a
-normal load-to-gameplay playtest with BaseObjectSwapper installed. Update the
-startup erratum with that runtime result and the new accepted baseline.
+Run applicable existing checks, the OMV suite, and the release build. Static
+success cannot establish startup safety; require the user's normal
+BaseObjectSwapper load-to-gameplay approval. Record only durable accepted
+conclusions, never hashes or routine artifact inventories.
 
 ## Effect contract
 
-Before implementation, define the applicable contract in code and tests:
+Before implementation, define the applicable production contract and its
+behavioral acceptance evidence. New automated tests may cover only shipped
+HLSL behavior:
 
-- exact render phase and ordering relative to native rendering and other OMV effects;
-- color, depth, normal, velocity, mask, and history inputs and outputs;
-- format, dimensions, MSAA, color space, depth convention/precision, valid range, sampler filtering/addressing, and clear/invalid values;
-- shader model, entry point, macros, samplers, constants, and CPU/GPU ABI;
-- viewport, scissor, fullscreen topology, D3D9 half-pixel rule, and cross-resolution coordinate mapping;
-- allocation, resize, device loss/reset, first frame, camera cut, config change, and history epoch;
-- ownership and safe fallback when dependencies, capabilities, resources, or variants are absent;
-- disabled/zero-strength behavior, which should skip resource work and draws when safe.
+- native/effect phase, ordering, ownership, and unavailable-input fallback;
+- all resource inputs/outputs, formats, dimensions, MSAA, color/depth meaning,
+  ranges, sampling, and invalid values;
+- shader variant/ABI plus viewport, scissor, topology, half-pixel, and
+  cross-resolution mapping;
+- allocation/reset/history lifecycle and disabled-path cost.
 
-If a required engine fact is unknown, first search `docs/` and existing analysis for a solved contract, then use the radare2 MCP against the current executable. Ghidra may be used only under the root fallback rule when the radare2 MCP is unavailable. A plausible frame is not proof of the contract. Every implemented effect or graphics integration change must also create or update its detailed feature document under `docs/`, including the native phase, resource, ownership, ABI, quality, and performance contracts it depends on.
+Resolve unknown engine facts through the root research route. A plausible frame
+is not proof. Update the owning durable feature document with material native
+phase, resource, ownership, ABI, quality, and performance contracts.
 
 Third-party graphics source under `.research/` is reference-only. OMV fixes must be OMV-side, capability-based, mod-agnostic, and safe if future dependency versions change or already correct the behavior.
 
@@ -104,7 +79,9 @@ Third-party graphics source under `.research/` is reference-only. OMV fixes must
 
 Set every state the pass depends on; never inherit it accidentally. Cover applicable shaders, declaration/FVF, streams, indices, viewport, scissor, RT0, unused MRTs, depth-stencil, depth/stencil tests and writes, culling, blending, alpha test/coverage, color writes, multisample mask, sRGB write/decode, and every used sampler's texture/filter/address state.
 
-Prevent render-target feedback. Unbind or restore resources and state according to the owning pipeline contract. Test exact state invariants when direct D3D rendering tests are impractical.
+Prevent render-target feedback. Unbind or restore resources and state according
+to the owning pipeline contract. Prove exact state invariants from the real
+boundary or complete engine evidence; do not add a mocked Rust/native test.
 
 ## Shader rules
 
@@ -121,36 +98,38 @@ Prevent render-target feedback. Unbind or restore resources and state according 
 
 ## Static quality validation
 
-Every new effect and material behavior change needs a deterministic CPU reference renderer or equivalently strong offline image test modeling the relevant production sampling, reconstruction, filtering, temporal, and composition math. String checks may protect ABI details but cannot be the only quality test.
+Every new HLSL effect or material shader change needs a deterministic CPU
+reference renderer or equivalently strong offline image test modeling the
+relevant production sampling, reconstruction, filtering, temporal, and
+composition math. Such a test is permitted only because it directly targets
+shipped HLSL behavior. String or source-text checks are prohibited.
 
-Cover every applicable row:
+Cover applicable disabled/constant/flat/background cases; gradients, grazing
+planes, thin features, occluders and discontinuities; borders, odd/even sizes,
+fullscreen seams and resolution mapping; near/far, standard/reversed,
+clear/invalid and accepted quantization; subpixel motion; first/stale/cut/reset
+history; and interacting families with sky, fog, water, first person, UI, and
+masks. Prove finite bounded output, clean excluded regions, local correctly
+signed signal, preserved edges, and stable motion/history. Reject fills,
+seams, bands, lines, points, speckles, crawl, flicker, pop, and ghosting.
 
-| Area | Required cases |
-|---|---|
-| Baseline | Disabled/zero effect, constant input, flat geometry, excluded/background pixels. |
-| Geometry | Smooth gradients, shallow/steep/grazing planes, thin features, local occluders, real discontinuities. |
-| Screen | Borders, corners, odd/even sizes, both fullscreen triangles, shared diagonal, full/partial-resolution mapping. |
-| Depth | Near/mid/far, standard/reversed, sky/clear, invalid values, D16/D24-like quantization when accepted. |
-| Motion | Subpixel translation and rotation across texel and triangle boundaries. |
-| Temporal | First frame, valid/rejected/stale history, cut, resize, reset, config and epoch changes. |
-| Integration | Every family/tier alone and interacting combinations; applicable sky, fog, water, first-person, UI, and masks. |
+For each reported HLSL bug, keep a practical shader regression that reproduces
+its artifact class and show that it fails against the buggy shader or a minimal
+negative control. For native integration, hook, camera, configuration, or
+effect-ownership bugs, do not add a source-code test; require exact behavioral
+reproduction or complete correctness evidence plus strict user approval.
 
-Assertions must prove outputs are finite and bounded; flat/excluded regions remain clean; real signal is local and correctly signed; filters preserve intended edges; and motion/history remain stable. Explicitly reject fullscreen fill, diagonal splits/seams, bands, wall lines, isolated points, speckles, crawling, flicker, popping, and ghosting.
+For user-accepted HLSL effects, preserve representative golden buffers and/or
+structural metrics. Prefer robust properties and tight tolerances over fragile
+exact float equality. Do not create golden or structural tests for non-HLSL
+production code.
 
-For each reported bug, keep a regression test that reproduces its artifact class. Show that the test fails against the buggy implementation or a minimal negative control. A test never demonstrated to reject the defect is not evidence.
+## HLSL static performance validation
 
-For user-accepted effects, preserve representative golden buffers and/or structural metrics. Prefer robust properties and tight tolerances over fragile exact float equality.
-
-## Static performance validation
-
-Each meaningful production variant needs tested upper bounds for:
-
-- passes, draws, render-target switches, and pass resolution;
-- executed samples/texture fetches and sample distribution;
-- compiled arithmetic, flow, and texture instructions;
-- samplers, constants, interpolators, and register pressure when available;
-- persistent/history/temporary GPU memory;
-- per-frame CPU work, allocations, locks, state churn, and lookups.
+Each meaningful HLSL variant needs practical shader-tested bounds for passes,
+draws, target switches/resolution, samples, compiled instructions, samplers,
+constants/interpolators/registers, GPU memory, and associated per-frame CPU
+work, allocations, locks, state churn, and lookups.
 
 Budget compiled bytecode, not HLSL line count. Budget Fast, Contact, Combined, and quality variants independently. Do not loosen a ceiling merely to pass: document the quality/correctness need, compare simpler options, and prove the result still meets its performance contract.
 
@@ -160,10 +139,10 @@ Static counts prove bounded work, not FPS. Do not claim runtime gains without ru
 
 ## Change sequence
 
-1. Read applicable errata and current tests; identify accepted behavior and budgets.
-2. Add a failing regression/negative control or define objective feature invariants.
+1. Read applicable errata and current evidence; identify accepted behavior and budgets.
+2. Define objective behavioral acceptance. Add a failing regression or negative control only for shipped HLSL behavior.
 3. Prove missing engine, resource, phase, and lifetime facts.
 4. Make the smallest complete engine-and-shader change; avoid unrelated visual changes.
-5. Run focused variant compilation, bytecode, reference-image, state, temporal, and budget tests.
+5. For HLSL changes, run focused variant compilation, bytecode, reference-image, temporal, and budget tests. For non-HLSL changes, do not create substitute mocked tests.
 6. Run `cargo test --target i686-pc-windows-gnu -p omv`, then `cargo build --release --target i686-pc-windows-gnu -p omv` once.
-7. Inspect the diff and report separately what static validation proves and what only ordinary playtesting can confirm.
+7. Inspect the diff and keep the result explicitly unreleased until the exact behavioral gate passes or the user strictly approves complete evidence.

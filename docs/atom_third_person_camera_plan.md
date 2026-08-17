@@ -45,8 +45,11 @@ viewmodel system. It implements the complete researched path:
 - analytic follow springs, dead/soft-zone shaping, bounded horizontal
   lookahead, teleport/cell/discontinuous-time reset, and native collision;
 - immediate logical yaw, native-clamped pitch, optional recentering, scoped
-  camera-relative movement, high-flag preservation, policy-specific low bits,
-  and post-setter raw-`rotZ` compensation around the live virtual yaw setter;
+  camera-relative movement, high-flag preservation, stateful eight-way Explore
+  flags, native Combat flags, and post-setter raw-`rotZ` compensation around
+  the live virtual yaw setter;
+- constant-step third-person wheel zoom that retains native desired-distance,
+  collision, clamp, POV, and direction-specific multiplier ownership;
 - the native ViewCaster ray paired with real-projectile-node muzzle
   convergence while preserving the exact native spread delta and projectile
   class, range, collision, and impact ownership;
@@ -66,8 +69,9 @@ remain independently available.
 Configuration is MCM-owned and atomically published. Bounds are `1..20` follow
 speed, `0..48` soft zone, `0..32` lookahead, `0..5` seconds center delay,
 `15..360` degrees/second center speed, and `90..1080` degrees/second actor turn
-speed. Camera and movement toggles default off; auto-center defaults on but has
-no effect until follow and movement are active.
+speed. Fine zoom is `1..10` world units per notch and defaults to `2`. Camera
+and movement toggles default off; auto-center defaults on but has no effect
+until follow and movement are active.
 
 The implementation uses fixed atomics plus one nonblocking `UnsafeCell` lease
 for main-thread temporal state. Lease contention, reentrancy, invalid pointers,
@@ -760,6 +764,7 @@ changes count even when first execution is deferred.
 | `atom/src/camera/third_person/ownership.rs` | Pointer-free state classifier, ownership epochs, and release/acquire protocol. |
 | `atom/src/camera/follow.rs` | Dead/soft zones, lookahead, analytic spring, recentering, and reset behavior. |
 | `atom/src/camera/movement.rs` | Immutable camera-relative intent, post-setter resolution, vector/flag policy, and bounded authoritative-facing math. |
+| `atom/src/camera/third_person/zoom.rs` | Pure constant-step conversion and fractional wheel-unit retention. |
 | `atom/src/camera/aim.rs` | View direction and spread-preserving muzzle-convergence math. |
 | `atom/src/camera/third_person/native.rs` | Audited addresses, layouts, hard predicates, virtual calls, and muzzle reads. |
 | `atom/src/camera/third_person/hooks.rs` | Per-capability fingerprints, typed predecessors, scoped detours, and independent rollback transactions. |
@@ -788,6 +793,7 @@ Proposed visible copy is deliberately short:
 | `Camera` | `Follow Speed` | scalar |
 | `Camera` | `Soft Zone` | scalar |
 | `Camera` | `Look Ahead` | scalar |
+| `Camera` | `Zoom Step` | world units |
 | `Camera` | `Auto Center` | `Off`, `On` |
 | `Camera` | `Center Delay` | seconds |
 | `Camera` | `Center Speed` | degrees/second |
@@ -1011,8 +1017,9 @@ implementation source text, textual call order, or symbol-name presence.
 - native-owned states produce no camera, movement, facing, or aim write intent;
 - reacquisition seeds from native output and rejects stale epochs;
 - digital and analog movement mapping covers all quadrants and magnitudes;
-- Explore maps nonzero locomotion to native forward while Combat preserves the
-  original forward/back/strafe low nibble; both preserve every higher flag;
+- Explore selects the nearest native eight-way low nibble with boundary
+  hysteresis while Combat preserves the original forward/back/strafe low
+  nibble; both preserve every higher flag;
 - explore and combat policies produce their documented facing behavior;
 - draw/aim/fire/reload/holster and VATS transition sequences are replayed as
   observable state traces, not source-structure tests.
@@ -1222,3 +1229,131 @@ prove ownership and eliminate structural delay; it cannot choose the final
 follow rate, zone size, recenter delay, or turn acceleration. Those values need
 repeatable A/B playtests after the solver is correct. Tuning will not be used
 to conceal an ownership, collision, frame-rate, or input-latency defect.
+
+## Eight-way locomotion and fine zoom extension
+
+The user accepted the installed `fa919484...` third-person artifact as working
+well and requested two refinements on 2026-08-16: natural diagonal movement and
+more selectable camera distances. That report is runtime evidence for the
+starting camera and movement ownership baseline; it is not evidence for this
+new extension until its built artifact is played through Proton.
+
+### User-visible behavior and configuration
+
+Explore locomotion now publishes all eight direction combinations already
+understood by FNV: forward, forward-right, right, backward-right, backward,
+backward-left, left, and forward-left. The compensated movement vector and its
+magnitude are unchanged. The direction nibble selects locomotion presentation
+relative to the actor while the actor turns toward the exact camera-relative
+world movement direction. Combat continues to preserve the complete native
+low nibble.
+
+`Camera:fZoomStep` is owned by the shipped MCM Extender menu as `Zoom Step`, in
+world units per conventional 120-unit wheel notch. It defaults to `2.0`, is
+bounded to `1.0..10.0`, and applies from the established `MCMExtUpdate` event
+after the INI save. At the native normal range of 30 to 120 world units, the
+default provides roughly 45 intervals instead of distance-proportional jumps.
+Fine zoom is active only while either Atom third-person feature is requested;
+otherwise the wheel value is passed through unchanged.
+
+### Movement ownership and invariants
+
+The actor-local locomotion sector is classified from the desired world heading
+minus the raw actor `rotZ` sampled after the authoritative yaw setter. Sector
+centers are 45 degrees apart. The retained sector extends five degrees past a
+nominal 22.5-degree boundary so analog input and bounded actor turning cannot
+alternate animation bits at a seam. Idle input, Combat entry, player/cell or
+ownership-epoch change, lifecycle reset, and native-owner release discard the
+retained sector.
+
+Only bits `0x0F` are replaced in Explore. Every higher native flag, the exact
+three-component movement vector, analog magnitude, vertical component, native
+speed selection, physics, root motion, and animation graph remain owned by
+FNV and the installed animation provider. The yaw setter executes outside the
+nonblocking runtime lease; its resulting sector is committed only if the same
+player and ownership epoch can still be leased. Lease contention skips history
+publication but does not reject an already valid native movement request.
+
+### Zoom native contract and intervention point
+
+The independently fingerprinted direct call at `0x009459BB` reads DirectInput
+axis 3 through `0x00A239E0` inside normal `UpdateCamera`. Immutable bytes at
+`0x009459B3` and `0x009459C0` prove the axis argument, receiver setup, and result
+store while allowing the live direct-call target to be chained. FNV then uses
+the desired distance at `0x011E0B5C` and direction-specific setting values at
+`0x011CDC9C` (`fVanityModeWheelInMult`, default `0.05`) or `0x011CD2B0`
+(`fVanityModeWheelOutMult`, default `0.10`):
+
+```text
+desired -= raw_delta / 120 * desired * multiplier
+```
+
+Atom passes `raw_delta * zoom_step / (desired * multiplier)` to that existing
+formula. It therefore produces a constant world-unit step without writing an
+engine global or bypassing native range clamps, POV change, endpoint building,
+or collision. The conversion deliberately uses desired distance, not the
+collision-contracted realized distance at `0x011E0768`, so a nearby wall cannot
+erase native outward-recovery history.
+
+Fractional native wheel units are rounded to the nearest integer and their
+signed residual is carried in one lock-free 32-bit atomic. This prevents
+high-resolution and batched wheel input from being lost or systematically
+biased. The residual is cleared on configuration, lifecycle, external-owner,
+POV/native-owner, and ownership-epoch boundaries. A concurrent residual update
+passes the raw sample through rather than blocking or overwriting another
+owner.
+
+The zoom contract and hook are admitted after the established follow,
+movement, and aim transactions during `DeferredInit`. Invalid values, missing
+memory, a fingerprint mismatch, hook contention, a menu/VATS/POV/loading or
+disabled-control state, explicit external ownership, or a zero live multiplier
+leaves the raw wheel delta and all other third-person capabilities intact. A
+zero multiplier notably respects an Advanced 3rd Person Camera profile that
+has taken distance ownership. Menus, hotkeys, and other mouse consumers are
+not hooked because Atom owns only this one camera callsite.
+
+The hot paths allocate no memory, take no blocking lock, perform no I/O, and
+emit no routine log. Movement adds one sector classification and a best-effort
+atomic lease; zoom adds one existing native-state observation, two additional
+volatile float reads, and one atomic compare-exchange per nonzero eligible
+wheel sample. Persistent memory is one sector discriminant in existing runtime
+state and one 32-bit residual atomic.
+
+### Automated and runtime acceptance
+
+Public behavioral tests cover all eight sector/flag combinations, exact native
+matrix composition, five-degree boundary hysteresis, unchanged Combat flags,
+constant two-unit in/out notches at 30, 60, and 120 distance, batched samples,
+high-resolution reversal, configuration bounds, and the shipped MCM default
+and laconic-copy contract. Runtime acceptance still requires ordinary Proton
+load-to-gameplay followed by forward/back/side/diagonal motion, analog circles,
+turn-boundary stability, wheel travel in both directions, collision contraction
+near a wall, POV/VATS/menu transitions, and coexistence with the installed
+camera and animation providers. No diagnostic-only playtest is required.
+
+The final static gate passes all 97 Atom tests through Wine staging 11.15 on
+explicit `i686-pc-windows-gnu`: 46 library/ABI/state tests, 5 Ballistics tests,
+15 first-person tests, 14 Input tests, 2 shipped-MCM tests, and 15 public
+third-person tests. Atom-only all-target Clippy passes with warnings denied and
+dependencies excluded; the broader dependency lint reaches three unrelated
+pre-existing `libpsycho` findings. Formatting, `git diff --check`, and the
+explicit-target Atom release build pass.
+
+The resulting 6,800,988-byte `atom.dll` has SHA-256
+`cc0e4e236343eed71efcae4bf761d59b0450f49d289a16b0766cb53997f95704`.
+Compared with the accepted 6,802,607-byte `fa919484...` artifact, all 29 import
+descriptors and 320 imported symbols are identical and ordered, including no
+new CRT `round` import. The same three exports, nine section roles, `0x2B04`
+import directory, `0x8C` export directory, `0x18` TLS directory, five TLS
+sentinel/callback symbols in the same order, and eight-byte `.tls` section are
+retained. The new sections are `.text 0x2A67F0`, `.data 0x1F88`, `.rdata
+0x1229B8`, `.eh_fram 0x4F4EC`, `.bss 0x1AD8`, and `.reloc 0x22440`; image size
+is `0x447000`.
+
+The added configuration value, hook container, residual atomic, runtime sector,
+code, data, and appended `DeferredInit` validation/hook transaction are a
+material pre-Deferred footprint delta even though imports, exports, TLS roles,
+threads, workers, and logging initialization are unchanged. Static evidence
+therefore does not promote this artifact to the load-to-gameplay baseline. It
+requires the ordinary Proton/BaseObjectSwapper load-to-gameplay and behavioral
+acceptance described above.

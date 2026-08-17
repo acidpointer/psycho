@@ -45,12 +45,15 @@ Implementation state, gates, data model, tests, and playtest matrix are in
 
 ## User-visible behavior
 
-Atom appears in MCM Extender with overview, input, diagnostics, module,
-first-person, third-person, and movement pages. Every visible label, help
-value, choice, and status uses one to three words so it remains inside the MCM
-viewport. Atom Input and both camera systems remain disabled by default because
-this expanded artifact still needs the required in-game startup and behavior
-acceptance.
+Atom appears in MCM Extender through four feature categories: Input, Camera,
+Ballistics, and Diagnostics. Input contains General, Mouse, Controller, and
+Triggers sections. Camera contains First Person, Third Person, Third Orbit,
+and Third Movement sections. Every row is either a section header or a real
+persisted setting; there are no overview, status, readiness, module, or planned
+feature rows. Every visible label, help value, and choice uses one to three
+words so it remains inside the MCM viewport. Atom Input and both camera systems
+remain disabled by default because this expanded artifact still needs the
+required in-game startup and behavior acceptance.
 
 When enabled, the current input milestone:
 
@@ -105,23 +108,29 @@ Policy-scope exhaustion or an admission mismatch leaves that individual round
 native.
 
 First-person presentation is also disabled by default. When enabled, Atom
-samples FNV's support-relative controller velocity after native UpdateCamera
-and uses engine time to generate filtered distance-phased gait, one-shot
-landing compression, and bounded look inertia. A 1.6 Hz full-stride ceiling
-prevents extreme SpeedMult values or physics noise from becoming rapid camera
-shake. The Stable head listener applies only sub-unit lateral/vertical
-translation around the world draw; it adds no rotation or fore/aft parallax,
-and aiming/authored actions suppress the world pose immediately. The separate
-hands/weapon camera receives independently scaled motion only while
-RenderFirstPerson executes. The world guard recenters FNV's finite Sky and
-Weather graphs with the posed camera, while the hands guard performs its
-sub-unit work in an origin-relative frame to avoid large-coordinate `f32`
+combines FNV's support-relative controller velocity with the processed native
+PlayerMover direction bits after UpdateCamera. Velocity supplies magnitude;
+the direction bits are a separate hard gait gate, so persistent physics
+velocity cannot manufacture head bob while the mover is idle. Engine time then
+drives filtered distance-phased gait, one-shot landing compression, and
+bounded look inertia. A 1.6 Hz full-stride ceiling prevents extreme SpeedMult
+values or physics noise from becoming rapid camera shake. The Stable head
+listener applies only sub-unit lateral/vertical translation around the world
+draw; it adds no rotation or fore/aft parallax, and aiming suppresses the world
+pose immediately. The separately rendered hands/weapon camera inherits that
+exact head translation, then receives a smaller relative gait/look/landing
+layer only while no authored weapon action owns presentation. Every non-None
+native animation action suppresses the relative layer immediately, with an
+analytic release after the action ends. The world guard recenters FNV's finite
+Sky and Weather graphs with the posed camera, while the hands guard performs
+its sub-unit work in an origin-relative frame to avoid large-coordinate `f32`
 steps. Scoped guards restore both cameras and every temporarily moved root
 before their wrapped calls return.
 
 The `First Person` MCM page exposes `First Person`, `Head Motion`, `Weapon
-Motion`, `Land Motion`, and `Aim Motion`. `Head Motion = 0` and `Weapon Motion
-= 0` independently remove every native write owned by their listener.
+Motion`, `Land Motion`, and `Aim Motion`. `Head Motion = 0` removes common head
+motion. `Weapon Motion = 0` removes only motion relative to the head, so hands
+remain registered whenever head motion is nonzero.
 
 Third-person follow is disabled by default. When enabled, Atom requires one
 stable no-write native frame before acquiring an ownership epoch, follows the
@@ -155,7 +164,7 @@ still launched from the real muzzle through its normal collision path.
 | Path | Ownership |
 |---|---|
 | `atom/src/lib.rs` | xNVSE query/load exports, load-owned service capture, and lifecycle message routing. |
-| `atom/src/runtime.rs` | Deferred logger, config paths/reload, MCM event subscription, and input admission. |
+| `atom/src/runtime.rs` | Deferred logger/config/input admission plus one-shot post-Deferred first-person render admission. |
 | `atom/src/config.rs` | One-file top-level deserialization and independent subsystem snapshots. |
 | `atom/src/ballistics/mod.rs` | Ballistics config, deferred admission, lifecycle, and requested summaries. |
 | `atom/src/ballistics/adapter.rs` | Fail-closed thread/form policy scope with nested-launch restoration. |
@@ -170,7 +179,7 @@ still launched from the real muzzle through its normal collision path.
 | `atom/src/camera/pose.rs` | Native column-basis additive pose composition and finite checks. |
 | `atom/src/camera/state.rs` | Nonblocking update writer, ownership epochs, and coherent render publication. |
 | `atom/src/camera/native.rs` | First-person owner gates, audited helpers/offsets, finite-sky transaction, origin rebase, and exact restoration. |
-| `atom/src/camera/hooks.rs` | Shared complete UpdateCamera entry plus an independent rollback-capable first-person render group. |
+| `atom/src/camera/hooks.rs` | Shared complete UpdateCamera entry plus a post-Deferred rollback-capable first-person render group. |
 | `atom/src/camera/third_person/mod.rs` | Third-person public API, fixed temporal state, lifecycle, and output admission. |
 | `atom/src/camera/third_person/config.rs` | Camera/movement INI sections, bounds, and coherent atomic publication. |
 | `atom/src/camera/third_person/ownership.rs` | Deterministic native/acquire/explore/combat/release epochs. |
@@ -221,13 +230,13 @@ At `DeferredInit`, Atom performs this ordered transaction:
 3. deserialize and validate the unified current MCM configuration;
 4. initialize QPC-domain telemetry bounds outside the hook path;
 5. validate the fixed data globals and immutable caller contexts;
-6. capture every callsite, entry, and keyboard-slot predecessor;
+6. capture every Deferred-owned callsite, entry, and keyboard-slot predecessor;
 7. enable the complete input bridge in one rollback-capable transaction;
 8. obtain the load-captured xNVSE combined-control reader, validate and install
-   the complete shared UpdateCamera entry, then independently validate and
-   enable the five first-person render calls as one transaction; the reader
-   uses xNVSE's established combined-mask predicate when its optional
-   complete-mask slot is null;
+   the complete shared UpdateCamera entry, then arm the five first-person
+   render calls for post-Deferred installation; the reader uses xNVSE's
+   established combined-mask predicate when its optional complete-mask slot is
+   null;
 9. validate the third-person hard-owner data contract, independently admit the
    follow transaction and the complete heading/movement/facing transaction,
    then admit the reticle/spawn pair only when movement is available and both
@@ -235,6 +244,15 @@ At `DeferredInit`, Atom performs this ordered transaction:
 10. independently fingerprint and enable the five Ballistics callsites plus
    MissileProjectile update slot in one rollback-capable transaction;
 11. subscribe to MCM Extender's `MCMExtUpdate` event for menu-close reloads.
+
+xNVSE dispatches DeferredInit listeners synchronously, then emits MainGameLoop
+from the same main-loop hook before world rendering. On that first subsequent
+MainGameLoop, Atom validates and transactionally installs its two world and
+three first-person render calls. Waiting for the completed DeferredInit walk
+lets Atom capture any compatible graphics wrappers as predecessors and keep
+one temporary camera pose around their complete pre-render, native-render, and
+post-render work. A fixed atomic gate makes installation one-shot; later
+MainGameLoop callbacks perform one acquire load and return.
 
 If native input validation or installation fails, the input transaction leaves
 its callsites under their prior owners and Atom initialization fails. If only
@@ -553,6 +571,21 @@ The installed menu is `Data/MCM/Atom.json`. Its DLL requirement uses Atom
 plugin version 2, so a stray menu cannot advertise a plugin which did not load.
 MCM persists values to `Data/config/Atom/Atom.ini`.
 
+The page hierarchy follows user-facing features rather than implementation
+modules:
+
+| Page | Sections | Ownership |
+|---|---|---|
+| Input | General, Mouse, Controller, Triggers | All device processing and response settings. |
+| Camera | First Person, Third Person, Third Orbit, Third Movement | Both perspective modes and camera-relative movement. |
+| Ballistics | Projectiles | Native physical-flight policy. |
+| Diagnostics | Runtime, Ballistics | Opt-in counters, traces, and summaries. |
+
+Section headers use MCM type `0`. Every interactive row owns exactly one INI
+key, and informational type `7` rows are prohibited. This keeps the menu short
+without separating controller settings from Input or perspective modes from
+Camera.
+
 MCM Extender is the sole writer. Atom uses `serini` 0.3 and Serde nested structs
 to deserialize recognized sections, converts MCM's numeric `0/1` booleans, and
 then applies documented bounds. Atom never serializes the INI. Unknown sections
@@ -596,6 +629,7 @@ entire candidate; live reload keeps the previous coherent configuration.
 | `Camera:bAutoCenter` | `1` | `0` or `1` |
 | `Camera:fCenterDelay` | `1.25` | `0.00` to `5.00` seconds |
 | `Camera:fCenterSpeed` | `120` | `15` to `360` degrees/second |
+| `Camera:fZoomStep` | `2.0` | `1.0` to `10.0` game units |
 | `Movement:b360Movement` | `0` | `0` or `1` |
 | `Movement:fTurnSpeed` | `540` | `90` to `1080` degrees/second |
 | `Movement:bDrawn360` | `0` | `0` or `1` |
@@ -725,9 +759,10 @@ The focused behavioral suite covers:
   repeated same-form initialization, earlier-owner physical results,
   nested-launch restoration, immutable launch-path correlation, four-way live
   marker reporting, accepted-on defaults, and special-context fallback;
-- the shipped MCM JSON, DLL version gate, persistence path, unique persisted
-  keys, slider bounds, equality of MCM/native defaults, and the one-to-three
-  word viewport limit for every visible text value.
+- the shipped MCM JSON, four-page feature hierarchy, section order, absence of
+  filler rows, per-page setting ownership, DLL version gate, persistence path,
+  unique persisted keys, slider bounds, equality of MCM/native defaults, and
+  the one-to-three word viewport limit for every visible text value.
 
 Required static gates are:
 
@@ -1115,6 +1150,92 @@ ABIs, ownership, evidence classification, and remaining runtime gates are in
 section 19 of
 `analysis/radare2/output/perf/fnv_first_person_camera_contract.txt` and the
 current architecture is in `docs/atom_first_person_camera_design.md`.
+
+### 2026-08-16 first-person idle-gait correction
+
+The installed coordinate candidate at SHA-256 `445831fa...` initialized and
+ran with first-person motion enabled from 18:35:35Z to 18:37:23Z. The user's
+direct visual observation showed that head bob remained active while the
+player stood idle. That rejects support-relative controller velocity as a
+sufficient gait-activity predicate even though it remains the correct speed
+and moving-support-relative carrier.
+
+The corrected sample also reads the prior completed PlayerMover word at
+`+0x94`. Only its proven low forward/back/left/right nibble may admit grounded
+gait; walk, run, sneak, auto-move, and other high state bits alone cannot.
+Missing PlayerMover state fails closed to native presentation. A public
+regression drives both cold idle and post-movement idle for 600 frames with
+deliberately large horizontal residual velocity. Cold idle must remain exact
+identity; post-movement idle must stop phase immediately and settle both poses
+to exact identity. A native-boundary unit test proves that every low direction
+bit admits gait and high locomotion flags alone do not. The exact executable
+evidence and ordering are in section 20 of the first-person camera ledger.
+
+### 2026-08-16 first-person presentation correction
+
+The user accepted that gait now occurs only while moving, but rejected its
+quality: the head and independently posed hands felt disconnected, procedural
+weapon movement mixed with native animation, and the landing/look layers were
+not clearly distinguishable. Fresh radare2 research proved that the former
+helper at `0x008A8870` returns true only for reload action 9 and reload-loop
+actions 15 through 17. Treating it as a general authored-animation predicate
+left equip, attack, recoil, block, stagger, dodge, and other actions exposed to
+Atom's second motion layer.
+
+Atom now composes two explicit presentation layers. A restrained common head
+translation moves the world and first-person cameras identically; a smaller
+weapon-relative pose adds gait weight, hard-landing response, and bounded look
+inertia. Every non-None value from the already sampled
+`GetCurrentAnimAction` suppresses that relative pose on entry, then releases it
+through a time-based envelope after native animation ends. This keeps ordinary
+locomotion present during reload or fire without double-animating the weapon.
+Slow-motion amplitude is reduced by squaring the gait envelope, and the former
+independent viewmodel gait coefficients are substantially reduced.
+
+Public regressions prove exact head/viewmodel registration when relative
+weapon motion is zero, exact native ownership during authored actions, visible
+stationary look inertia without world motion, exact settling, ADS attenuation,
+landing monotonicity, moving-only gait, cadence/velocity bounds, and frame
+partition stability. Section 21 of the first-person ledger records the exact
+function body, caller set, action layout, implementation boundary, and evidence
+classification. Static proof establishes ownership and numeric behavior; the
+subjective feel still requires an ordinary installed playtest.
+
+All 15 focused first-person behavior tests, six native camera tests, strict
+Atom-only Clippy, focused formatting, `git diff --check`, and the optimized
+Atom build pass for `i686-pc-windows-gnu`. The full 93-test Atom run has 91
+passes and two unrelated concurrent third-person movement assertion failures;
+the first-person, input, ballistics, MCM, and internal suites are green. The
+built DLL identity and exact remaining evidence are recorded in section 21 of
+the ledger and the design document's current evidence block.
+
+### 2026-08-16 Atom/OMV camera-domain correction
+
+The user's next combined run made OMV's PBR, atmosphere/fog, lighting, AO, and
+other graphics appear absent or broken while first-person motion was enabled.
+The logs disprove an OMV initialization failure: OMV published every deferred
+capability active, initialized atmosphere and AO, and completed thousands of
+world/depth transactions with zero failures. They instead prove an Atom hook
+nesting error. Atom installed the shared world/first-person callsites at
+`20:00:44.080Z` and captured vanilla targets; OMV installed one second later,
+so OMV became the outer wrapper. During moving frames OMV then logged different
+pre-alpha and coherent-world positions at the same timestamp. Atom had posed
+the camera for native rendering but restored it before OMV's post-world camera
+and depth consumers ran.
+
+Atom now leaves the five overlapping render calls armed during its DeferredInit
+listener and installs them once from xNVSE's immediately following MainGameLoop
+callback. Vendored xNVSE source proves that callback follows the completed
+synchronous DeferredInit listener walk and precedes the frame renderer. Atom
+therefore captures OMV or any other compatible deferred caller-local wrapper
+as its predecessor and holds camera/Sky/Weather or viewmodel state around the
+entire graphics transaction. It does not identify OMV, alter OMV state, move
+camera policy into `libpsycho`, or weaken either feature.
+
+The retained hashes, timestamped log excerpts, call-chain proof, exact affected
+stages, implementation boundary, and remaining runtime acceptance are recorded
+in `docs/atom_first_person_camera_design.md` and
+`.reports/atom-omv-camera-chain-2026-08-16.txt`.
 
 ### Runtime evidence
 
