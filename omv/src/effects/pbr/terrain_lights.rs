@@ -333,17 +333,39 @@ impl<'a> TerrainLightMerge<'a> {
 /// boundary. Repeated submissions reuse a result only when every semantic key
 /// component still matches.
 pub(super) fn capture_current_for_draw(geometry_identity: usize) -> SupplementalTerrainLights {
+    let _span =
+        crate::graphics_diagnostics::span(crate::graphics_diagnostics::Interval::PbrTerrainLights);
     debug_assert_ne!(geometry_identity, 0);
     let Some(inputs) = (unsafe { prepare_draw_inputs(geometry_identity) }) else {
         return SupplementalTerrainLights::default();
     };
     if let Some(lights) = load_draw_cache(&inputs.key) {
+        crate::graphics_diagnostics::add(
+            crate::graphics_diagnostics::Counter::TerrainLightCacheHit,
+            1,
+        );
+        record_supplemental_light_count(lights.count);
         return lights;
     }
+    crate::graphics_diagnostics::add(
+        crate::graphics_diagnostics::Counter::TerrainLightCacheMiss,
+        1,
+    );
 
     let lights = unsafe { capture_current_unchecked(&inputs) }.unwrap_or_default();
     publish_draw_cache(&inputs.key, lights);
+    record_supplemental_light_count(lights.count);
     lights
+}
+
+fn record_supplemental_light_count(count: usize) {
+    let counter = match count {
+        0 => crate::graphics_diagnostics::Counter::SupplementalLightCountZero,
+        1..=6 => crate::graphics_diagnostics::Counter::SupplementalLightCountOneToSix,
+        7..=12 => crate::graphics_diagnostics::Counter::SupplementalLightCountSevenToTwelve,
+        _ => crate::graphics_diagnostics::Counter::SupplementalLightCountThirteenToTwentyFour,
+    };
+    crate::graphics_diagnostics::add(counter, 1);
 }
 
 fn load_draw_cache(key: &TerrainDrawCacheKey) -> Option<SupplementalTerrainLights> {
@@ -576,6 +598,10 @@ unsafe fn capture_current_unchecked(
         }
         scene_light = unsafe { next(property, &mut iterator) };
     }
+    crate::graphics_diagnostics::add(
+        crate::graphics_diagnostics::Counter::TerrainPropertyLightEntry,
+        scanned as u32,
+    );
 
     // Property-local membership is not authoritative: any row can omit an
     // active portable light even when it already contains unrelated lights.
@@ -613,6 +639,10 @@ fn supplement_captured_manager_lights(
         if merge.is_full() {
             break;
         }
+        crate::graphics_diagnostics::add(
+            crate::graphics_diagnostics::Counter::TerrainManagerLightEntry,
+            1,
+        );
         if !merge.needs_identity(light.native_light_identity) {
             continue;
         }
@@ -745,6 +775,10 @@ unsafe fn read_native_light_identities(
     let light_count =
         usize::from(unsafe { read_copy::<u8>(render_pass, RENDER_PASS_LIGHT_COUNT_OFFSET) })
             .min(MAX_RENDER_PASS_LIGHTS);
+    crate::graphics_diagnostics::add(
+        crate::graphics_diagnostics::Counter::TerrainNativeLightEntry,
+        light_count as u32,
+    );
     let Some(light_array) =
         (unsafe { read_ptr_offset(render_pass, RENDER_PASS_LIGHT_ARRAY_OFFSET) })
     else {

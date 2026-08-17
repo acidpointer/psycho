@@ -3,13 +3,31 @@
 Date: 2026-07-19
 
 Status: scene-wide zero-shadow ownership correction accepted in game; scalable
-shadowless batching and its zero-output texture-binding regression corrected;
-all 125 i686 tests pass before runtime performance acceptance.
+shadowless batching and its zero-output texture-binding regression corrected.
+The replacement-shadow path now shares the shadow pipeline's canonical point
+publication and radial-depth cubes with atmosphere. Current acceptance remains
+pending.
 
 ## Implementation record
 
 The manager-epoch follow-up supersedes the original shadow-selected ownership
 model recorded later in this document:
+
+- When OMV replaces the native shadow prefix, the shadow pipeline is the one
+  point-light producer. Its immutable publication pairs native identity,
+  position, dimmer-weighted color, receiver radius, cube radius, receiver bias,
+  and the exact retained cube for one render/device epoch. Atmosphere consumes
+  that publication at the pre-alpha world boundary immediately after shadow
+  composition and does not walk the manager again.
+- Atmosphere preserves the shadow producer's stable nearest-light order and
+  draws the first two/four visible entries within its fixed budget. It cannot
+  invent a different source, rerank away a valid cube, or join a cube by slot
+  guess. The sun is deliberately separate: directional atmosphere continues
+  to use the stabilized native sky/weather direction and color contract.
+- Native-prefix fallback and disabled point shadows retain the scene-manager
+  scalar path below so volumetric local lights remain independent from shadow
+  configuration. Native completed 2D maps remain optional enrichment only in
+  that fallback branch.
 
 - DeferredInit hooks the complete world light/shadow transaction at
   `0x00871290`. This owner runs when native shadow counts are zero. At return,
@@ -59,6 +77,59 @@ of all fifteen local shader variants. A bytecode regression test also proves
 that every fixed-register batch remains inside the recorded shader-model-3
 budget. Static validation cannot certify final game pixels, so runtime
 acceptance remains.
+
+The native-value regression passes synthetic `ShadowSceneLight` and `NiLight`
+records in an actual synthetic manager-list node through the production chain
+traversal, bounded ranking, actual publication mailbox, and exact device,
+generation, and render-epoch admission before rendering the resulting
+constants through the shipped local-light HLSL on a real D3D9 device under
+Wine. The manager's advisory cached count and the prefix-owned positional cache
+at `ShadowSceneLight +0xF4` are deliberately zero while its authoritative
+linked chain contains a source-owned point light (`NiDynamicEffect +0x9D ==
+2`); the test must still produce a bounded, centered nonzero volume. The test
+failed at capture before the source-owned classification fix. Its other
+negative controls reproduce both rejected value outcomes: adding the
+geometry-only `ShadowSceneNode +0x1E4` offset moves a valid lamp off its camera
+ray and renders black, while multiplying a valid light by a zero native-prefix
+transition also renders black. This is the automated behavioral gate for the
+manager traversal, classification, publication, admission, native-value, and
+shipped-shader defects; it does not replace ordinary in-game acceptance of the
+complete hook and frame lifecycle.
+
+The replacement-path behavior gate sends an immediately preceding
+shadow-owned point frame through the production device/generation/epoch
+admission and renders it through the complete shipped depth reduction, local
+integration, and HDR composition on a real D3D9 device in an interior. A clear
+radial-depth cube must produce nonzero final HDR pixels; a nearer occluder in
+all six faces must reduce that energy below 45 percent; and a frame older than
+the one-epoch producer/consumer allowance must produce no pixels. The compare
+uses the same direction, radius normalization, invalid-depth rule, and receiver
+bias as the point-shadow compositor. This closes the automated handoff and
+shader-output hole, but cannot execute the native game callback lifecycle;
+exact exterior/interior game pixels remain the release gate.
+
+The visibility fixture must use the shipped lighting-only medium density of
+`0.0000025`, not the sanitized maximum of `0.001`. The latter is 400 times
+denser and can make an under-calibrated local shader pass while the real menu
+result remains effectively black. FNV's copied diffuse/dimmer scalar is not a
+photometric radiance value, so the shipped shader applies a fixed native-light
+radiance calibration of `8.0` to local emission only. It does not increase
+medium extinction or directional lighting. The menu intensity remains a
+linear multiplier with exact zero output. The full D3D9 gate requires a final
+HDR luminance peak above `0.04` in both an interior and an exterior at shipped
+defaults, retains cube occlusion and stale-frame rejection, and separately
+proves half-intensity reduction, zero-intensity output, enable/disable output,
+debug selection, and debug disable behavior.
+
+The rejected common-hook-only handoff published this same data through the
+atmosphere scalar mailbox. Runtime evidence showed a valid interior point cube
+and successful shadow composition while atmosphere still reported the
+interior/no-local integration gate. The shadow producer and mailbox producer
+have different invocation cadence, so the scalar owner is not a reliable
+bridge for a shadow-owned frame. The durable primary bridge is the established
+frame graph: shadow composition completes, then the world atmosphere pipeline
+clones and admits the still-live shadow publication. The scalar mailbox is
+fallback only when the shadow owner has no usable point frame or is busy.
 
 The first two batched builds were rejected in game despite successful shader
 compilation. Capture and draw telemetry remained correct, but all local
@@ -123,11 +194,22 @@ research establishes the following production boundary:
   `ShadowSceneLight` owns a coherent set of finalized data: native light at
   `+0xF8`, composed shadow matrix at `+0x10`, component matrices at `+0x50`
   and `+0x90`, and rendered texture at `+0x10C`.
-- The native light supplies world position at `+0x8C..+0x94`, direct-light RGB
-  at `+0xD4..+0xDC`, radius at `+0xE0`, and its light dimmer at `+0xC4`.
-  `ShadowSceneLight +0xD0` supplies the engine's per-shadow-light intensity or
-  transition multiplier. The material-specific `UpdateLights` call multiplier
+- The native light supplies NiAVObject world position at `+0x8C..+0x94`,
+  direct-light RGB at `+0xD4..+0xDC`, radius at `+0xE0`, and its light dimmer
+  at `+0xC4`. That position shares the captured world camera's transform basis
+  and is consumed directly by atmosphere scissoring and ray integration.
+  Native `UpdateLights` adds `ShadowSceneNode[0] +0x1E4` only before its
+  geometry world-to-object transform; that adjustment must not be applied to
+  atmosphere world rays. The material-specific `UpdateLights` call multiplier
   is deliberately excluded.
+- `ShadowSceneLight +0xD0` is a native-prefix LOD transition, not direct-light
+  radiance. OMV's replacement shadow path intentionally skips its native
+  owner, so scene-wide volumetrics use `NiLight::Diff * NiLight::Dimmer`,
+  matching modern NVR and OMV point-shadow selection.
+- `ShadowSceneNode +0xB4` is the authoritative manager light chain and must be
+  followed to its null terminator under the fixed traversal budget. The cached
+  count at `+0xBC` is advisory; using it as the loop bound makes atmosphere see
+  zero lights while OMV shadows still see the linked records.
 - The slot argument used by `0x00B9F780` is a zero-based index converted by the
   engine to queued slot `index + 0x11`. `0x00B5B880` increments it for every
   selected light and has no four-light upper-bound check; its final loop merely
@@ -261,8 +343,7 @@ Reject one record before AddRef when any of these is true:
 - unreadable/null `ShadowSceneLight`, native light, rendered texture,
   `NiTexture`, renderer data, or D3D base texture;
 - non-positional native light classification;
-- non-finite position, RGB, dimmer, shadow transition, radius, or any copied
-  matrix component;
+- non-finite position, RGB, dimmer, radius, or any copied matrix component;
 - radius is non-positive;
 - all effective RGB components are zero after nonnegative validation;
 - texture is not a two-dimensional, single-level 1024x1024 resource;
@@ -274,11 +355,13 @@ sampling uses the composed `+0x10` matrix. Upload its four rows bit-for-bit and
 compute each shadow component as a dot product of one row with
 `float4(world_position, 1)`, matching the installed `SLS2089` reader bytecode.
 
-The production RGB is native RGB multiplied by the copied native dimmer,
-`ShadowSceneLight +0xD0`, and the user's local-light intensity. It remains in
-the same direct-light space consumed by native PPLighting; do not apply the
-sky/fog extended-sRGB decode to it. Negative and non-finite values are rejected,
-while valid HDR values remain overbright within the explicit FP16 safety bound.
+The production RGB is native RGB multiplied by the copied native dimmer and
+the user's local-light intensity. It remains in the same direct-light space
+consumed by native PPLighting; do not apply the sky/fog extended-sRGB decode to
+it. `ShadowSceneLight +0xD0` must not be multiplied into this radiance because
+the value is not owned on OMV's replacement path. Negative and non-finite
+values are rejected, while valid HDR values remain overbright within the
+explicit FP16 safety bound.
 
 ### Intrusive reference wrapper
 

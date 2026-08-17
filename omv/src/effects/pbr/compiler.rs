@@ -264,11 +264,6 @@ pub(super) fn preparation_status() -> PreparationStatus {
     }
 }
 
-/// Return whether the complete logical catalog is ready for D3D publication.
-pub(super) fn preparation_ready() -> bool {
-    PHASE.load(Ordering::Acquire) == PreparationPhase::Ready as u32 && all_bytecode_ready()
-}
-
 /// Return whether every object template reached a terminal preparation state.
 pub(super) fn object_compile_finished() -> bool {
     family_states(0..shader_registry::object_template_count()).all(|state| {

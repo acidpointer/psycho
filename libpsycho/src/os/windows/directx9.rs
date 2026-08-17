@@ -25,6 +25,7 @@ use thiserror::Error;
 pub use windows::Win32::Foundation::RECT;
 use windows::Win32::Foundation::{E_FAIL, E_NOINTERFACE, E_POINTER, HANDLE, HWND};
 use windows::Win32::Graphics::Direct3D::ID3DBlob;
+pub use windows::Win32::Graphics::Direct3D9::D3DSAMPLERSTATETYPE;
 pub use windows::Win32::Graphics::Direct3D9::{
     D3D_SDK_VERSION, D3DBLEND_DESTCOLOR, D3DBLEND_ONE, D3DBLEND_ZERO, D3DBLENDOP_ADD,
     D3DBLENDOP_REVSUBTRACT, D3DCAPS9, D3DCLEAR_STENCIL, D3DCLEAR_TARGET, D3DCLEAR_ZBUFFER,
@@ -41,23 +42,23 @@ pub use windows::Win32::Graphics::Direct3D9::{
     D3DRS_MULTISAMPLEMASK, D3DRS_POINTSIZE, D3DRS_SCISSORTESTENABLE, D3DRS_SLOPESCALEDEPTHBIAS,
     D3DRS_SRCBLEND, D3DRS_SRGBWRITEENABLE, D3DRS_STENCILENABLE, D3DRS_ZENABLE, D3DRS_ZFUNC,
     D3DRS_ZWRITEENABLE, D3DRTYPE_SURFACE, D3DRTYPE_TEXTURE, D3DSAMP_ADDRESSU, D3DSAMP_ADDRESSV,
-    D3DSAMP_MAGFILTER, D3DSAMP_MINFILTER, D3DSAMP_MIPFILTER, D3DSAMP_SRGBTEXTURE, D3DSBT_ALL,
-    D3DSURFACE_DESC, D3DTA_TEXTURE, D3DTADDRESS_CLAMP, D3DTADDRESS_WRAP, D3DTEXF_LINEAR,
-    D3DTEXF_NONE, D3DTEXF_POINT, D3DTOP_SELECTARG1, D3DTSS_ALPHAARG1, D3DTSS_ALPHAOP,
-    D3DTSS_COLORARG1, D3DTSS_COLOROP, D3DVIEWPORT9,
+    D3DSAMP_ADDRESSW, D3DSAMP_MAGFILTER, D3DSAMP_MINFILTER, D3DSAMP_MIPFILTER, D3DSAMP_SRGBTEXTURE,
+    D3DSBT_ALL, D3DSURFACE_DESC, D3DTA_TEXTURE, D3DTADDRESS_CLAMP, D3DTADDRESS_WRAP,
+    D3DTEXF_LINEAR, D3DTEXF_NONE, D3DTEXF_POINT, D3DTOP_SELECTARG1, D3DTSS_ALPHAARG1,
+    D3DTSS_ALPHAOP, D3DTSS_COLORARG1, D3DTSS_COLOROP, D3DVIEWPORT9,
 };
 use windows::Win32::Graphics::Direct3D9::{
     D3DADAPTER_DEFAULT, D3DADAPTER_IDENTIFIER9, D3DBACKBUFFER_TYPE, D3DBACKBUFFER_TYPE_MONO,
     D3DCREATE_SOFTWARE_VERTEXPROCESSING, D3DDEVICE_CREATION_PARAMETERS, D3DDISPLAYMODE,
     D3DLOCK_DISCARD, D3DLOCK_READONLY, D3DLOCKED_RECT, D3DPMISCCAPS_MRTINDEPENDENTBITDEPTHS,
     D3DPOOL, D3DPOOL_SYSTEMMEM, D3DPRESENT_INTERVAL_IMMEDIATE, D3DPRESENT_PARAMETERS,
-    D3DPRIMITIVETYPE, D3DRECT, D3DRENDERSTATETYPE, D3DRESOURCETYPE, D3DSAMPLERSTATETYPE,
-    D3DSTATEBLOCKTYPE, D3DSWAPEFFECT_DISCARD, D3DTEXTUREFILTERTYPE, D3DTEXTURESTAGESTATETYPE,
-    D3DUSAGE_DEPTHSTENCIL, D3DUSAGE_DYNAMIC, D3DUSAGE_QUERY_FILTER,
-    D3DUSAGE_QUERY_POSTPIXELSHADER_BLENDING, D3DUSAGE_RENDERTARGET, D3DVERTEXELEMENT9,
-    Direct3DCreate9, IDirect3D9, IDirect3DBaseTexture9, IDirect3DCubeTexture9, IDirect3DDevice9,
-    IDirect3DIndexBuffer9, IDirect3DPixelShader9, IDirect3DStateBlock9, IDirect3DSurface9,
-    IDirect3DTexture9, IDirect3DVertexBuffer9, IDirect3DVertexDeclaration9, IDirect3DVertexShader9,
+    D3DPRIMITIVETYPE, D3DRECT, D3DRENDERSTATETYPE, D3DRESOURCETYPE, D3DSTATEBLOCKTYPE,
+    D3DSWAPEFFECT_DISCARD, D3DTEXTUREFILTERTYPE, D3DTEXTURESTAGESTATETYPE, D3DUSAGE_DEPTHSTENCIL,
+    D3DUSAGE_DYNAMIC, D3DUSAGE_QUERY_FILTER, D3DUSAGE_QUERY_POSTPIXELSHADER_BLENDING,
+    D3DUSAGE_RENDERTARGET, D3DVERTEXELEMENT9, Direct3DCreate9, IDirect3D9, IDirect3DBaseTexture9,
+    IDirect3DCubeTexture9, IDirect3DDevice9, IDirect3DIndexBuffer9, IDirect3DPixelShader9,
+    IDirect3DStateBlock9, IDirect3DSurface9, IDirect3DTexture9, IDirect3DVertexBuffer9,
+    IDirect3DVertexDeclaration9, IDirect3DVertexShader9,
 };
 pub use windows::core::Error as Direct3DError;
 use windows::core::{
@@ -281,6 +282,8 @@ pub const D3DFMT_R16F: D3DFORMAT = D3DFORMAT(111);
 
 /// Four-channel 16-bit float render target used for high-quality color intermediates.
 pub const D3DFMT_A16B16G16R16F: D3DFORMAT = D3DFORMAT(113);
+/// 32-bit RGB color with an unused high byte.
+pub const D3DFMT_X8R8G8B8: D3DFORMAT = D3DFORMAT(22);
 
 /// Four-channel 32-bit float texture format used for exact shader data payloads.
 pub const D3DFMT_A32B32G32R32F: D3DFORMAT = D3DFORMAT(116);
@@ -1899,6 +1902,139 @@ impl Surface9 {
         Ok(pixels)
     }
 
+    /// Copy every pixel from a system-memory `A16B16G16R16F` surface.
+    ///
+    /// Components are returned in logical RGBA order. Row pitch and format are
+    /// validated exactly as for [`Self::read_r32f`]; this is a synchronized
+    /// diagnostic/readback operation and must not be used in a render hot path.
+    pub fn read_rgba16f(&self) -> Direct3DResult<Vec<[f32; 4]>> {
+        let desc = self.desc()?;
+        if desc.Format != D3DFMT_A16B16G16R16F || desc.Pool != D3DPOOL_SYSTEMMEM {
+            return Err(direct3d_failure());
+        }
+        let pixel_bytes = size_of::<u16>() * 4;
+        let row_bytes = usize::try_from(desc.Width)
+            .ok()
+            .and_then(|width| width.checked_mul(pixel_bytes))
+            .ok_or_else(direct3d_failure)?;
+        let pixel_count = usize::try_from(desc.Width)
+            .ok()
+            .and_then(|width| {
+                usize::try_from(desc.Height)
+                    .ok()
+                    .and_then(|height| width.checked_mul(height))
+            })
+            .ok_or_else(direct3d_failure)?;
+        let mut locked = D3DLOCKED_RECT::default();
+        unsafe {
+            self.inner
+                .LockRect(&mut locked, null(), D3DLOCK_READONLY as u32)?;
+        }
+        let guard = SurfaceLockGuard {
+            surface: &self.inner,
+            active: true,
+        };
+        let pitch = usize::try_from(locked.Pitch).map_err(|_| direct3d_failure())?;
+        let addressed_bytes = usize::try_from(desc.Height)
+            .ok()
+            .and_then(|height| height.checked_sub(1))
+            .and_then(|last_row| last_row.checked_mul(pitch))
+            .and_then(|last_offset| last_offset.checked_add(row_bytes));
+        if locked.pBits.is_null()
+            || pitch < row_bytes
+            || addressed_bytes.is_none_or(|bytes| bytes > isize::MAX as usize)
+        {
+            return Err(direct3d_failure());
+        }
+        let mut pixels = Vec::with_capacity(pixel_count);
+        let base = locked.pBits.cast::<u8>();
+        for row in 0..desc.Height as usize {
+            let row = unsafe { base.add(row * pitch) };
+            for column in 0..desc.Width as usize {
+                let pixel = unsafe { row.add(column * pixel_bytes) };
+                pixels.push(std::array::from_fn(|component| {
+                    let bits = unsafe {
+                        pixel
+                            .add(component * size_of::<u16>())
+                            .cast::<u16>()
+                            .read_unaligned()
+                    };
+                    decode_binary16(bits)
+                }));
+            }
+        }
+        guard.unlock()?;
+        Ok(pixels)
+    }
+
+    /// Copy every pixel from a system-memory `A8R8G8B8` or `X8R8G8B8` surface.
+    ///
+    /// Components are returned in logical RGBA order normalized to `0..1`.
+    /// The unused X channel is reported as opaque. This synchronized helper is
+    /// intended for exact behavior-test readback, never a render hot path.
+    pub fn read_rgba8(&self) -> Direct3DResult<Vec<[f32; 4]>> {
+        let desc = self.desc()?;
+        if !matches!(desc.Format, D3DFMT_A8R8G8B8 | D3DFMT_X8R8G8B8)
+            || desc.Pool != D3DPOOL_SYSTEMMEM
+        {
+            return Err(direct3d_failure());
+        }
+        let pixel_bytes = size_of::<u32>();
+        let row_bytes = usize::try_from(desc.Width)
+            .ok()
+            .and_then(|width| width.checked_mul(pixel_bytes))
+            .ok_or_else(direct3d_failure)?;
+        let pixel_count = usize::try_from(desc.Width)
+            .ok()
+            .and_then(|width| {
+                usize::try_from(desc.Height)
+                    .ok()
+                    .and_then(|height| width.checked_mul(height))
+            })
+            .ok_or_else(direct3d_failure)?;
+        let mut locked = D3DLOCKED_RECT::default();
+        unsafe {
+            self.inner
+                .LockRect(&mut locked, null(), D3DLOCK_READONLY as u32)?;
+        }
+        let guard = SurfaceLockGuard {
+            surface: &self.inner,
+            active: true,
+        };
+        let pitch = usize::try_from(locked.Pitch).map_err(|_| direct3d_failure())?;
+        let addressed_bytes = usize::try_from(desc.Height)
+            .ok()
+            .and_then(|height| height.checked_sub(1))
+            .and_then(|last_row| last_row.checked_mul(pitch))
+            .and_then(|last_offset| last_offset.checked_add(row_bytes));
+        if locked.pBits.is_null()
+            || pitch < row_bytes
+            || addressed_bytes.is_none_or(|bytes| bytes > isize::MAX as usize)
+        {
+            return Err(direct3d_failure());
+        }
+        let has_alpha = desc.Format == D3DFMT_A8R8G8B8;
+        let mut pixels = Vec::with_capacity(pixel_count);
+        let base = locked.pBits.cast::<u8>();
+        for row in 0..desc.Height as usize {
+            let row = unsafe { base.add(row * pitch) };
+            for column in 0..desc.Width as usize {
+                let pixel = unsafe { row.add(column * pixel_bytes) };
+                let blue = (unsafe { pixel.read() }) as f32 / 255.0;
+                let green = (unsafe { pixel.add(1).read() }) as f32 / 255.0;
+                let red = (unsafe { pixel.add(2).read() }) as f32 / 255.0;
+                let alpha = if has_alpha {
+                    (unsafe { pixel.add(3).read() }) as f32 / 255.0
+                } else {
+                    1.0
+                };
+                pixels.push([red, green, blue, alpha]);
+            }
+        }
+        guard.unlock()?;
+        Ok(pixels)
+    }
+
     /// Read a description from a borrowed raw `IDirect3DSurface9`.
     ///
     /// # Safety
@@ -1942,6 +2078,36 @@ impl Surface9 {
     }
 }
 
+fn decode_binary16(bits: u16) -> f32 {
+    let sign = if bits & 0x8000 == 0 { 1.0 } else { -1.0 };
+    let exponent = (bits >> 10) & 0x1f;
+    let significand = bits & 0x03ff;
+    match exponent {
+        0 if significand == 0 => sign * 0.0,
+        0 => sign * (significand as f32 / 1024.0) * 2.0f32.powi(-14),
+        0x1f if significand == 0 => sign * f32::INFINITY,
+        0x1f => f32::NAN,
+        _ => sign * (1.0 + significand as f32 / 1024.0) * 2.0f32.powi(exponent as i32 - 15),
+    }
+}
+
+/// Owned type-erased D3D9 texture reference accepted by `SetTexture`.
+#[derive(Clone, Debug)]
+pub struct BaseTexture9 {
+    inner: IDirect3DBaseTexture9,
+}
+
+// Safety: this wrapper only owns a COM reference. Actual resource access must
+// still remain on the host renderer's serialized D3D thread.
+unsafe impl Send for BaseTexture9 {}
+
+impl BaseTexture9 {
+    /// Return the borrowed raw base-texture pointer without transferring ownership.
+    pub fn as_raw(&self) -> *mut c_void {
+        self.inner.as_raw()
+    }
+}
+
 /// Owned `IDirect3DCubeTexture9` reference with a cached sampler interface.
 #[derive(Clone, Debug)]
 pub struct CubeTexture9 {
@@ -1972,6 +2138,13 @@ impl CubeTexture9 {
     /// Return the cached base-texture pointer without transferring ownership.
     pub fn as_raw_base_texture(&self) -> *mut c_void {
         self.base.as_raw()
+    }
+
+    /// Retain a type-erased sampler reference to this cube texture.
+    pub fn retain_base_texture(&self) -> BaseTexture9 {
+        BaseTexture9 {
+            inner: self.base.clone(),
+        }
     }
 
     /// Acquire one owned render-target surface for `face` and mip `level`.
@@ -2052,6 +2225,13 @@ impl Texture9 {
     /// Return the cached base texture raw pointer.
     pub fn as_raw_base_texture(&self) -> *mut c_void {
         self.base.as_raw()
+    }
+
+    /// Retain a type-erased sampler reference to this two-dimensional texture.
+    pub fn retain_base_texture(&self) -> BaseTexture9 {
+        BaseTexture9 {
+            inner: self.base.clone(),
+        }
     }
 
     /// Consume the wrapper and return the owned Windows binding interface.

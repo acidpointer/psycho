@@ -68,11 +68,57 @@ pub(crate) enum Counter {
     StateApply,
     /// Native shader-package transitions.
     ShaderPackageTransition,
+    /// Native-PBR readiness queries made from selector or geometry callbacks.
+    PbrReadinessQuery,
+    /// Logical compiler-state entries inspected by a readiness query.
+    PbrReadinessEntry,
+    /// Geometry callbacks rejected before broader PBR readiness work.
+    PbrPendingNone,
+    /// Positive shader-table lookup-cache hits.
+    ShaderTablePositiveHit,
+    /// Shader-table lookup-cache misses.
+    ShaderTableMiss,
+    /// Shader-table slots inspected after a cache miss.
+    ShaderTableEntry,
+    /// Checked memory-range validations performed by object-PBR admission.
+    ObjectMemoryValidation,
+    /// Checked memory-range validations performed by native-sky admission.
+    SkyMemoryValidation,
+    /// Close-terrain light-cache hits.
+    TerrainLightCacheHit,
+    /// Close-terrain light-cache misses.
+    TerrainLightCacheMiss,
+    /// Native render-pass light entries inspected for close terrain.
+    TerrainNativeLightEntry,
+    /// Property-local light entries inspected for close terrain.
+    TerrainPropertyLightEntry,
+    /// Manager-published light entries inspected for close terrain.
+    TerrainManagerLightEntry,
+    /// Exact supplemental-light payload cache hits.
+    SupplementalPayloadHit,
+    /// Supplemental-light texture payload uploads.
+    SupplementalPayloadUpload,
+    /// Dynamic supplemental-light texture discard locks.
+    SupplementalDiscardLock,
+    /// Supplemental sampler-state getter calls.
+    SupplementalSamplerGet,
+    /// Supplemental sampler-state setter calls, including restoration.
+    SupplementalSamplerSet,
+    /// Close-terrain draws with no supplemental lights.
+    SupplementalLightCountZero,
+    /// Close-terrain draws with one through six supplemental lights.
+    SupplementalLightCountOneToSix,
+    /// Close-terrain draws with seven through twelve supplemental lights.
+    SupplementalLightCountSevenToTwelve,
+    /// Close-terrain draws with thirteen through twenty-four supplemental lights.
+    SupplementalLightCountThirteenToTwentyFour,
+    /// Raw native-sky shader transitions, including restoration.
+    SkyRawShaderTransition,
 }
 
 impl Counter {
     #[allow(dead_code)] // Used only by the feature-gated storage implementation.
-    const COUNT: usize = Self::ShaderPackageTransition as usize + 1;
+    const COUNT: usize = Self::SkyRawShaderTransition as usize + 1;
 }
 
 /// Named CPU intervals used to locate a possible driver-facing stall.
@@ -106,11 +152,23 @@ pub(crate) enum Interval {
     /// One semantic depth-copy call.
     #[allow(dead_code)] // Reserved for a scoped provider-side D3D copy interval.
     DepthCopy,
+    /// Complete native-PBR selector classification and publication.
+    PbrSelectorSetup,
+    /// Object-PBR contract and replacement preparation.
+    PbrObjectPreparation,
+    /// Close-terrain light-cache lookup or reconstruction.
+    PbrTerrainLights,
+    /// Supplemental-light payload lookup, upload, and bind.
+    PbrSupplementalUpload,
+    /// Supplemental sampler-state mutation and restoration.
+    PbrSupplementalSampler,
+    /// Native-sky UpdateConstants classification and publication.
+    SkyUpdateConstants,
 }
 
 impl Interval {
     #[allow(dead_code)] // Used only by the feature-gated storage implementation.
-    const COUNT: usize = Self::DepthCopy as usize + 1;
+    const COUNT: usize = Self::SkyUpdateConstants as usize + 1;
 }
 
 /// One completed sampled presentation.
@@ -186,10 +244,20 @@ pub(crate) fn latest_sample() -> Option<FrameSample> {
     implementation::latest_sample()
 }
 
+/// Log the latest sealed attribution sample from a non-hot lifecycle boundary.
+///
+/// Normal builds compile this operation to an inline no-op. Attribution builds
+/// allocate and format only after a sampled frame has already been sealed.
+#[inline]
+pub(crate) fn log_latest_sample() {
+    implementation::log_latest_sample();
+}
+
 #[cfg(any(test, feature = "graphics-diagnostics"))]
 mod implementation {
     use super::{Counter, FrameSample, Interval, Span};
-    use libpsycho::os::windows::winapi::query_performance_counter;
+    use libpsycho::os::windows::winapi::{query_performance_counter, query_performance_frequency};
+    use std::fmt::Write as _;
     use std::sync::{
         LazyLock,
         atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering},
@@ -289,6 +357,123 @@ mod implementation {
         })
     }
 
+    pub(super) fn log_latest_sample() {
+        let Some(sample) = latest_sample() else {
+            return;
+        };
+        let frequency = query_performance_frequency().unwrap_or(0).max(0) as u64;
+        let mut report = String::with_capacity(2_048);
+        let _ = write!(report, "[GRAPHICS PERF] epoch={}", sample.render_epoch);
+        for (index, value) in sample.counters.iter().copied().enumerate() {
+            if value != 0 {
+                let _ = write!(report, " {}={value}", counter_label(index));
+            }
+        }
+        for index in 0..Interval::COUNT {
+            let calls = sample.interval_calls[index];
+            if calls == 0 {
+                continue;
+            }
+            let ticks = sample.interval_ticks[index];
+            if frequency == 0 {
+                let _ = write!(
+                    report,
+                    " {}_ticks={ticks}/{}calls",
+                    interval_label(index),
+                    calls
+                );
+            } else {
+                let micros = ticks.saturating_mul(1_000_000) / frequency;
+                let _ = write!(
+                    report,
+                    " {}_us={micros}/{}calls",
+                    interval_label(index),
+                    calls
+                );
+            }
+        }
+        log::info!("{report}");
+    }
+
+    fn counter_label(index: usize) -> &'static str {
+        const LABELS: [&str; Counter::COUNT] = [
+            "shadow_entry",
+            "shadow_a",
+            "shadow_b",
+            "shadow_c",
+            "shadow_main",
+            "shadow_special",
+            "shadow_screenshot",
+            "shadow_unknown",
+            "light_traversal",
+            "light_repeat",
+            "shadow_slot",
+            "shadow_retained",
+            "set_shaders",
+            "set_texture",
+            "trishape",
+            "tristrips",
+            "pbr_admission",
+            "pbr_fallback",
+            "sky_admission",
+            "sky_fallback",
+            "color_copy",
+            "depth_copy",
+            "state_capture",
+            "state_apply",
+            "package_transition",
+            "pbr_ready_query",
+            "pbr_ready_entry",
+            "pbr_pending_none",
+            "table_positive",
+            "table_miss",
+            "table_entry",
+            "object_memory_query",
+            "sky_memory_query",
+            "terrain_cache_hit",
+            "terrain_cache_miss",
+            "terrain_native_entry",
+            "terrain_property_entry",
+            "terrain_manager_entry",
+            "supplemental_payload_hit",
+            "supplemental_upload",
+            "supplemental_discard",
+            "supplemental_sampler_get",
+            "supplemental_sampler_set",
+            "supplemental_lights_0",
+            "supplemental_lights_1_6",
+            "supplemental_lights_7_12",
+            "supplemental_lights_13_24",
+            "sky_raw_shader",
+        ];
+        LABELS[index]
+    }
+
+    fn interval_label(index: usize) -> &'static str {
+        const LABELS: [&str; Interval::COUNT] = [
+            "shadow_pre",
+            "shadow_prefix",
+            "shadow_post",
+            "light_traversal",
+            "shadow_retention",
+            "pbr_admission",
+            "sky_admission",
+            "trishape",
+            "tristrips",
+            "state_capture",
+            "state_apply",
+            "color_copy",
+            "depth_copy",
+            "pbr_selector",
+            "pbr_object",
+            "pbr_terrain_lights",
+            "pbr_supplemental_upload",
+            "pbr_supplemental_sampler",
+            "sky_update_constants",
+        ];
+        LABELS[index]
+    }
+
     impl Drop for Span {
         fn drop(&mut self) {
             let Some((interval, start)) = self.interval else {
@@ -331,6 +516,9 @@ mod implementation {
     pub(super) fn latest_sample() -> Option<FrameSample> {
         None
     }
+
+    #[inline(always)]
+    pub(super) fn log_latest_sample() {}
 }
 
 #[cfg(test)]

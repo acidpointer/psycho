@@ -25,11 +25,11 @@ use libpsycho::os::windows::directx9::{
     D3DRS_CULLMODE, D3DRS_DESTBLEND, D3DRS_MULTISAMPLEANTIALIAS, D3DRS_MULTISAMPLEMASK,
     D3DRS_POINTSIZE, D3DRS_SCISSORTESTENABLE, D3DRS_SRCBLEND, D3DRS_SRGBWRITEENABLE,
     D3DRS_STENCILENABLE, D3DRS_ZENABLE, D3DRS_ZWRITEENABLE, D3DSAMP_ADDRESSU, D3DSAMP_ADDRESSV,
-    D3DSAMP_MAGFILTER, D3DSAMP_MINFILTER, D3DSAMP_MIPFILTER, D3DSAMP_SRGBTEXTURE, D3DSURFACE_DESC,
-    D3DTA_TEXTURE, D3DTADDRESS_CLAMP, D3DTADDRESS_WRAP, D3DTEXF_LINEAR, D3DTEXF_NONE,
-    D3DTEXF_POINT, D3DTOP_SELECTARG1, D3DTSS_ALPHAARG1, D3DTSS_ALPHAOP, D3DTSS_COLORARG1,
-    D3DTSS_COLOROP, D3DVIEWPORT9, Device9Ref, Direct3DResult, PixelShader9, ScreenVertex, Surface9,
-    Texture9, USAGE_RENDER_TARGET, direct3d_failure,
+    D3DSAMP_ADDRESSW, D3DSAMP_MAGFILTER, D3DSAMP_MINFILTER, D3DSAMP_MIPFILTER, D3DSAMP_SRGBTEXTURE,
+    D3DSURFACE_DESC, D3DTA_TEXTURE, D3DTADDRESS_CLAMP, D3DTADDRESS_WRAP, D3DTEXF_LINEAR,
+    D3DTEXF_NONE, D3DTEXF_POINT, D3DTOP_SELECTARG1, D3DTSS_ALPHAARG1, D3DTSS_ALPHAOP,
+    D3DTSS_COLORARG1, D3DTSS_COLOROP, D3DVIEWPORT9, Device9Ref, Direct3DResult, PixelShader9,
+    ScreenVertex, Surface9, Texture9, USAGE_RENDER_TARGET, direct3d_failure,
 };
 
 use crate::{
@@ -639,7 +639,8 @@ struct ShaftBytecode {
 
 struct LocalLightBytecode {
     shadowless: [[Vec<u32>; 4]; 3],
-    shadowed: [Vec<u32>; 3],
+    native_shadowed: [Vec<u32>; 3],
+    cube_shadowed: [Vec<u32>; 3],
 }
 
 impl AtmosphereBytecode {
@@ -705,18 +706,32 @@ impl LocalLightBytecode {
                 compile_local_light_batch_bytecode("high", 6, true)?,
                 compile_local_light_batch_bytecode("ultra", 10, true)?,
             ],
-            shadowed: [
+            native_shadowed: [
                 shaders::compile_hlsl_source(
-                    "atmosphere_local_light.hlsl:performance:shadowed",
+                    "atmosphere_local_light.hlsl:performance:native-shadowed",
                     &local_light_shader_source(4, 1, false, true),
                 )?,
                 shaders::compile_hlsl_source(
-                    "atmosphere_local_light.hlsl:high:shadowed",
+                    "atmosphere_local_light.hlsl:high:native-shadowed",
                     &local_light_shader_source(6, 1, true, true),
                 )?,
                 shaders::compile_hlsl_source(
-                    "atmosphere_local_light.hlsl:ultra:shadowed",
+                    "atmosphere_local_light.hlsl:ultra:native-shadowed",
                     &local_light_shader_source(10, 1, true, true),
+                )?,
+            ],
+            cube_shadowed: [
+                shaders::compile_hlsl_source(
+                    "atmosphere_local_light.hlsl:performance:cube-shadowed",
+                    &local_light_cube_shader_source(4, false),
+                )?,
+                shaders::compile_hlsl_source(
+                    "atmosphere_local_light.hlsl:high:cube-shadowed",
+                    &local_light_cube_shader_source(6, true),
+                )?,
+                shaders::compile_hlsl_source(
+                    "atmosphere_local_light.hlsl:ultra:cube-shadowed",
+                    &local_light_cube_shader_source(10, true),
                 )?,
             ],
         })
@@ -801,6 +816,13 @@ impl AtmosphereEffect {
         device
             .direct3d()?
             .check_default_render_target_texture_support(D3DFMT_A16B16G16R16F)?;
+        Self::create_from_bytecode(device, bytecode).map(Some)
+    }
+
+    fn create_from_bytecode(
+        device: &Device9Ref<'_>,
+        bytecode: &AtmosphereBytecode,
+    ) -> Direct3DResult<Self> {
         let shaft_pipeline = match ShaftPipeline::create(device, &bytecode.shaft) {
             Ok(pipeline) => Some(pipeline),
             Err(err) => {
@@ -819,7 +841,7 @@ impl AtmosphereEffect {
                 None
             }
         };
-        Ok(Some(Self {
+        Ok(Self {
             depth_reduce_half_shader: device.create_pixel_shader(&bytecode.depth_reduce_half)?,
             depth_reduce_quarter_shader: device
                 .create_pixel_shader(&bytecode.depth_reduce_quarter)?,
@@ -850,7 +872,7 @@ impl AtmosphereEffect {
             local_light_draws: 0,
             composition_draws: 0,
             debug_draws: 0,
-        }))
+        })
     }
 
     pub(crate) fn draw(
@@ -1617,6 +1639,24 @@ struct UsableLocalLight<'a> {
     shadow: Option<crate::fnv_local_lights::LocalShadowBinding>,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum LocalShadowMode {
+    None,
+    NativeProjected,
+    OmvCube,
+}
+
+impl LocalShadowMode {
+    fn from_binding(binding: Option<crate::fnv_local_lights::LocalShadowBinding>) -> Self {
+        match binding.map(|binding| binding.values.format) {
+            None => Self::None,
+            Some(crate::fnv_local_lights::ShadowTextureFormat::R32F)
+            | Some(crate::fnv_local_lights::ShadowTextureFormat::A8R8G8B8) => Self::NativeProjected,
+            Some(crate::fnv_local_lights::ShadowTextureFormat::OmvCube) => Self::OmvCube,
+        }
+    }
+}
+
 fn local_light_scissor(
     camera: crate::backend::CameraFrame,
     width: u32,
@@ -1746,15 +1786,24 @@ fn draw_local_lights(
 ) -> Direct3DResult<LocalLightDrawStats> {
     let mut shadowless = [None; 4];
     let mut shadowless_count = 0usize;
-    let mut shadowed = [None; 4];
-    let mut shadowed_count = 0usize;
+    let mut native_shadowed = [None; 4];
+    let mut native_shadowed_count = 0usize;
+    let mut cube_shadowed = [None; 4];
+    let mut cube_shadowed_count = 0usize;
     for usable in lights.iter().flatten().copied() {
-        if usable.shadow.is_some() {
-            shadowed[shadowed_count] = Some(usable);
-            shadowed_count += 1;
-        } else {
-            shadowless[shadowless_count] = Some(usable);
-            shadowless_count += 1;
+        match LocalShadowMode::from_binding(usable.shadow) {
+            LocalShadowMode::None => {
+                shadowless[shadowless_count] = Some(usable);
+                shadowless_count += 1;
+            }
+            LocalShadowMode::NativeProjected => {
+                native_shadowed[native_shadowed_count] = Some(usable);
+                native_shadowed_count += 1;
+            }
+            LocalShadowMode::OmvCube => {
+                cube_shadowed[cube_shadowed_count] = Some(usable);
+                cube_shadowed_count += 1;
+            }
         }
     }
 
@@ -1769,10 +1818,14 @@ fn draw_local_lights(
             settings,
             &shadowless,
             shadowless_count,
-            false,
+            LocalShadowMode::None,
         )?);
     }
-    for usable in shadowed.into_iter().take(shadowed_count).flatten() {
+    for usable in native_shadowed
+        .into_iter()
+        .take(native_shadowed_count)
+        .flatten()
+    {
         stats.add(draw_local_light_batch(
             device,
             pipeline,
@@ -1782,7 +1835,24 @@ fn draw_local_lights(
             settings,
             &[Some(usable), None, None, None],
             1,
-            true,
+            LocalShadowMode::NativeProjected,
+        )?);
+    }
+    for usable in cube_shadowed
+        .into_iter()
+        .take(cube_shadowed_count)
+        .flatten()
+    {
+        stats.add(draw_local_light_batch(
+            device,
+            pipeline,
+            targets,
+            density_noise,
+            frame,
+            settings,
+            &[Some(usable), None, None, None],
+            1,
+            LocalShadowMode::OmvCube,
         )?);
     }
     Ok(stats)
@@ -1840,10 +1910,10 @@ fn draw_local_light_batch(
     settings: AtmosphereSettings,
     lights: &[Option<UsableLocalLight<'_>>; 4],
     batch_size: usize,
-    shadowed: bool,
+    shadow_mode: LocalShadowMode,
 ) -> Direct3DResult<LocalLightDrawStats> {
     debug_assert!((1..=4).contains(&batch_size));
-    debug_assert!(!shadowed || batch_size == 1);
+    debug_assert!(shadow_mode == LocalShadowMode::None || batch_size == 1);
     let contributions = resolve_contributions(frame, settings);
     let fog_active = contributions.fog;
     let view_to_world = view_to_world_rows(frame.camera);
@@ -1923,17 +1993,27 @@ fn draw_local_light_batch(
     };
 
     let shadow = lights[0].and_then(|usable| usable.shadow);
-    if shadowed {
-        let Some(shadow) = shadow else {
-            return Ok(LocalLightDrawStats::default());
-        };
-        constants[16][0] = shadow.values.format.bias();
-        constants[17..21].copy_from_slice(&shadow.values.shadow_matrix);
+    match (shadow_mode, shadow) {
+        (LocalShadowMode::NativeProjected, Some(shadow))
+            if shadow.values.format != crate::fnv_local_lights::ShadowTextureFormat::OmvCube =>
+        {
+            constants[16][0] = shadow.values.format.bias();
+            constants[17..21].copy_from_slice(&shadow.values.shadow_matrix);
+        }
+        (LocalShadowMode::OmvCube, Some(shadow)) => {
+            let Some((cube_radius, receiver_bias)) = shadow.values.omv_cube_contract() else {
+                return Ok(LocalLightDrawStats::default());
+            };
+            constants[16][0] = receiver_bias;
+            constants[17][0] = cube_radius;
+        }
+        (LocalShadowMode::None, None) => {}
+        _ => return Ok(LocalLightDrawStats::default()),
     }
     constants[16][2] = settings.anisotropy;
     constants[16][3] = debug_mode;
 
-    let shader = pipeline.shader(settings.local_shader_index(), shadowed, batch_size);
+    let shader = pipeline.shader(settings.local_shader_index(), shadow_mode, batch_size);
     draw_local_light_layer(
         device,
         &targets.near_atmosphere.surface,
@@ -1982,6 +2062,9 @@ fn draw_local_light_layer(
     if let Some(shadow) = shadow {
         unsafe { device.set_raw_base_texture(2, shadow.texture)? };
         set_sampler_filter(device, 2, D3DTEXF_POINT.0 as u32)?;
+        device.set_sampler_state(2, D3DSAMP_ADDRESSU, D3DTADDRESS_CLAMP.0 as u32)?;
+        device.set_sampler_state(2, D3DSAMP_ADDRESSV, D3DTADDRESS_CLAMP.0 as u32)?;
+        device.set_sampler_state(2, D3DSAMP_ADDRESSW, D3DTADDRESS_CLAMP.0 as u32)?;
     } else {
         device.clear_texture(2)?;
     }
@@ -2364,7 +2447,7 @@ fn resolve_directional_scattering(frame: AtmosphereFrame) -> Option<DirectionalL
     if !length.is_finite() || !(0.99..=1.01).contains(&length) {
         return None;
     }
-    let linear_color = linearize_native_color(sky.sun_light)?;
+    let linear_color = linearize_native_color(sky.resolved_exterior_sun_color()?)?;
     let linear_disk = linearize_native_color(sky.sun_disk)?;
     let linear_disk_delta = [
         (linear_disk[0] - linear_color[0]).max(0.0),
@@ -2376,10 +2459,9 @@ fn resolve_directional_scattering(frame: AtmosphereFrame) -> Option<DirectionalL
         world_direction: sun_direction,
         linear_color,
         linear_disk_delta,
-        // Sky +0x6C is the final native directional color after FNV's
-        // weather and time-of-day interpolation. Daylight remains an
-        // availability contract above; multiplying the final color by the
-        // same transition again made twilight radiance fade quadratically.
+        // The shared resolver preserves viable native sun candidates. Its
+        // environment fallback is already scaled by daylight, so this field
+        // only transports the resolved radiance without another fade.
         radiance_scale: 1.0,
         projection,
     })
@@ -2485,12 +2567,30 @@ fn local_light_shader_source(
     use_noise: bool,
     use_native_shadow: bool,
 ) -> Vec<u8> {
-    debug_assert!((1..=4).contains(&batch_size));
-    debug_assert!(!use_native_shadow || batch_size == 1);
-    let mut variant = format!(
-        "#define LOCAL_LIGHT_SAMPLE_COUNT {sample_count}\n#define LOCAL_LIGHT_BATCH_SIZE {batch_size}\n#define LOCAL_LIGHT_USE_NOISE {}\n#define LOCAL_LIGHT_USE_NATIVE_SHADOW {}\n",
-        u8::from(use_noise),
+    local_light_shader_source_mode(
+        sample_count,
+        batch_size,
+        use_noise,
         u8::from(use_native_shadow),
+    )
+}
+
+fn local_light_cube_shader_source(sample_count: u32, use_noise: bool) -> Vec<u8> {
+    local_light_shader_source_mode(sample_count, 1, use_noise, 2)
+}
+
+fn local_light_shader_source_mode(
+    sample_count: u32,
+    batch_size: usize,
+    use_noise: bool,
+    shadow_mode: u8,
+) -> Vec<u8> {
+    debug_assert!((1..=4).contains(&batch_size));
+    debug_assert!(shadow_mode <= 2);
+    debug_assert!(shadow_mode == 0 || batch_size == 1);
+    let mut variant = format!(
+        "#define LOCAL_LIGHT_SAMPLE_COUNT {sample_count}\n#define LOCAL_LIGHT_BATCH_SIZE {batch_size}\n#define LOCAL_LIGHT_USE_NOISE {}\n#define LOCAL_LIGHT_SHADOW_MODE {shadow_mode}\n",
+        u8::from(use_noise),
     )
     .into_bytes();
     variant.extend_from_slice(LOCAL_LIGHT_SHADER);
@@ -2572,6 +2672,7 @@ fn bind_pipeline_state(device: &Device9Ref<'_>) -> Direct3DResult<()> {
     for sampler in 0..=4 {
         device.set_sampler_state(sampler, D3DSAMP_ADDRESSU, D3DTADDRESS_CLAMP.0 as u32)?;
         device.set_sampler_state(sampler, D3DSAMP_ADDRESSV, D3DTADDRESS_CLAMP.0 as u32)?;
+        device.set_sampler_state(sampler, D3DSAMP_ADDRESSW, D3DTADDRESS_CLAMP.0 as u32)?;
         device.set_sampler_state(sampler, D3DSAMP_MINFILTER, D3DTEXF_POINT.0 as u32)?;
         device.set_sampler_state(sampler, D3DSAMP_MAGFILTER, D3DTEXF_POINT.0 as u32)?;
         device.set_sampler_state(sampler, D3DSAMP_MIPFILTER, D3DTEXF_NONE.0 as u32)?;
@@ -2624,6 +2725,963 @@ fn draw_quad(device: &Device9Ref<'_>, width: u32, height: u32) -> Direct3DResult
         ScreenVertex::new(width - 0.5, height - 0.5, 1.0, 1.0),
     ];
     unsafe { device.draw_primitive_up(D3DPT_TRIANGLESTRIP, 2, &quad) }
+}
+
+#[cfg(test)]
+pub(crate) mod local_light_shader_behavior {
+    //! D3D9 readback harness for the shipped local-light pixel shader.
+    //!
+    //! Native-capture tests provide the exact values that production uploads.
+    //! Rendering them through the real shader closes the behavior contract
+    //! without introducing a source-text or implementation-mirroring oracle.
+
+    use super::{
+        bind_pipeline_state, bind_target, draw_quad, local_light_cube_shader_source,
+        local_light_shader_source, set_sampler_filter, view_to_world_rows,
+        write_batched_light_constants,
+    };
+    use crate::{backend::CameraFrame, fnv_local_lights::LocalLightValues};
+    use libpsycho::os::windows::{
+        directx9::{
+            D3DCLEAR_TARGET, D3DCUBEMAP_FACE_NEGATIVE_X, D3DCUBEMAP_FACE_NEGATIVE_Y,
+            D3DCUBEMAP_FACE_NEGATIVE_Z, D3DCUBEMAP_FACE_POSITIVE_X, D3DCUBEMAP_FACE_POSITIVE_Y,
+            D3DCUBEMAP_FACE_POSITIVE_Z, D3DDEVTYPE_HAL, D3DDEVTYPE_NULLREF, D3DFMT_G16R16F,
+            D3DFMT_R32F, D3DTEXF_POINT, Device9, Device9Ref, Surface9, create_direct3d9,
+        },
+        winapi::{get_active_window, get_desktop_window, get_foreground_window},
+    };
+
+    const TEST_SIZE: u32 = 8;
+
+    fn raster_device() -> Device9 {
+        let window = [
+            get_active_window(),
+            get_foreground_window(),
+            get_desktop_window().unwrap_or(std::ptr::null_mut()),
+        ]
+        .into_iter()
+        .find(|window| !window.is_null())
+        .expect("Wine must expose a window for atmosphere shader validation");
+        let direct3d = create_direct3d9().expect("D3D9 runtime");
+        direct3d
+            .create_windowed_device(window, TEST_SIZE, TEST_SIZE, D3DDEVTYPE_HAL)
+            .or_else(|_| {
+                direct3d.create_windowed_device(window, TEST_SIZE, TEST_SIZE, D3DDEVTYPE_NULLREF)
+            })
+            .expect("HAL or NULLREF D3D9 device")
+    }
+
+    fn read_r32f(device: &Device9Ref<'_>, surface: &Surface9) -> Vec<f32> {
+        let staging = device
+            .create_system_memory_surface(TEST_SIZE, TEST_SIZE, D3DFMT_R32F)
+            .expect("local-light readback surface");
+        device
+            .copy_render_target_data(surface, &staging)
+            .expect("local-light render-target readback");
+        staging.read_r32f().expect("local-light R32F pixels")
+    }
+
+    fn render_with_cube(
+        values: LocalLightValues,
+        camera: CameraFrame,
+        cube_depth: Option<u8>,
+    ) -> Vec<f32> {
+        let owner = raster_device();
+        let device = owner.as_ref();
+        let depth = device
+            .create_render_target_texture(TEST_SIZE, TEST_SIZE, D3DFMT_G16R16F)
+            .expect("encoded-depth texture");
+        let depth_surface = depth.surface_level(0).expect("encoded-depth surface");
+        device
+            .set_render_target(0, &depth_surface)
+            .expect("encoded-depth target");
+        device
+            .clear_attachments(D3DCLEAR_TARGET as u32, 0x00FF_0000, 1.0, 0)
+            .expect("far encoded depth");
+
+        let output = device
+            .create_render_target_texture(TEST_SIZE, TEST_SIZE, D3DFMT_R32F)
+            .expect("local-light output texture");
+        let output_surface = output.surface_level(0).expect("local-light output surface");
+        let shader_source = if cube_depth.is_some() {
+            local_light_cube_shader_source(6, false)
+        } else {
+            local_light_shader_source(6, 1, false, false)
+        };
+        let bytecode = crate::shaders::compile_hlsl_source_target(
+            "atmosphere_local_light_behavior.ps",
+            &shader_source,
+            "ps_3_0",
+        )
+        .expect("shipped local-light shader bytecode");
+        let shader = device
+            .create_pixel_shader(&bytecode)
+            .expect("shipped local-light shader object");
+
+        bind_pipeline_state(&device).expect("local-light fixed state");
+        bind_target(&device, &output_surface, TEST_SIZE, TEST_SIZE)
+            .expect("local-light output target");
+        device
+            .clear_attachments(D3DCLEAR_TARGET as u32, 0, 1.0, 0)
+            .expect("clear local-light output");
+        device.set_texture(0, &depth).expect("encoded-depth input");
+        set_sampler_filter(&device, 0, D3DTEXF_POINT.0 as u32).expect("depth point sampling");
+        let shadow_cube = cube_depth.map(|depth| {
+            let cube = device
+                .create_cube_render_target_texture(TEST_SIZE, D3DFMT_R32F)
+                .expect("OMV radial-depth test cube");
+            for face in [
+                D3DCUBEMAP_FACE_POSITIVE_X,
+                D3DCUBEMAP_FACE_NEGATIVE_X,
+                D3DCUBEMAP_FACE_POSITIVE_Y,
+                D3DCUBEMAP_FACE_NEGATIVE_Y,
+                D3DCUBEMAP_FACE_POSITIVE_Z,
+                D3DCUBEMAP_FACE_NEGATIVE_Z,
+            ] {
+                let surface = cube.surface(face, 0).expect("radial-depth cube face");
+                device
+                    .set_render_target(0, &surface)
+                    .expect("radial-depth cube target");
+                device
+                    .clear_attachments(D3DCLEAR_TARGET as u32, u32::from(depth) << 16, 1.0, 0)
+                    .expect("constant radial-depth cube face");
+            }
+            cube
+        });
+        bind_target(&device, &output_surface, TEST_SIZE, TEST_SIZE)
+            .expect("restore local-light output target");
+        device
+            .set_texture(0, &depth)
+            .expect("restore encoded-depth input");
+        if let Some(cube) = shadow_cube.as_ref() {
+            device
+                .set_cube_texture(2, cube)
+                .expect("OMV radial-depth cube input");
+            set_sampler_filter(&device, 2, D3DTEXF_POINT.0 as u32).expect("cube point sampling");
+        }
+
+        let view_to_world = view_to_world_rows(camera);
+        let mut constants = [[0.0f32; 4]; 21];
+        constants[0] = [
+            TEST_SIZE as f32,
+            TEST_SIZE as f32,
+            1.0 / TEST_SIZE as f32,
+            1.0 / TEST_SIZE as f32,
+        ];
+        constants[1] = [camera.near_z, camera.far_z, 0.0, 1_000.0];
+        constants[2] = [
+            camera.frustum_left,
+            camera.frustum_right,
+            camera.frustum_bottom,
+            camera.frustum_top,
+        ];
+        constants[3..6].copy_from_slice(&view_to_world);
+        constants[6] = [0.002, 0.0, 0.000_08, camera.world_transform.translation[2]];
+        constants[7] = [1_000.0, 1.0, 0.0, 1.0];
+        write_batched_light_constants(&mut constants, 0, values, 1.0);
+        if cube_depth.is_some() {
+            constants[16][0] = 0.018;
+            constants[17][0] = values.radius;
+        }
+        device
+            .set_pixel_shader_constant_f(0, &constants)
+            .expect("local-light constants");
+        device
+            .set_pixel_shader(&shader)
+            .expect("shipped local-light shader");
+        device
+            .begin_scene()
+            .expect("begin local-light behavior draw");
+        draw_quad(&device, TEST_SIZE, TEST_SIZE).expect("local-light behavior draw");
+        device.end_scene().expect("end local-light behavior draw");
+        read_r32f(&device, &output_surface)
+    }
+
+    /// Render one production-captured local light through the shipped HLSL.
+    pub(crate) fn render(values: LocalLightValues, camera: CameraFrame) -> Vec<f32> {
+        render_with_cube(values, camera, None)
+    }
+
+    #[test]
+    fn omv_point_cube_controls_the_shipped_local_volume_by_radial_depth() {
+        let values = LocalLightValues {
+            position: [100.0, 0.0, 0.0],
+            color: [1.0, 0.7, 0.35],
+            radius: 32.0,
+        };
+        let camera = CameraFrame {
+            near_z: 1.0,
+            far_z: 1_000.0,
+            frustum_left: -0.1,
+            frustum_right: 0.1,
+            frustum_bottom: -0.1,
+            frustum_top: 0.1,
+            world_transform: crate::backend::CameraTransformFrame {
+                available: true,
+                ..crate::backend::CameraTransformFrame::default()
+            },
+            available: true,
+            ..CameraFrame::default()
+        };
+        let visible = render_with_cube(values, camera, Some(255));
+        let occluded = render_with_cube(values, camera, Some(32));
+        let visible_energy: f32 = visible.iter().sum();
+        let occluded_energy: f32 = occluded.iter().sum();
+        assert!(
+            visible_energy > 0.001,
+            "the exact shadow-selected light produced no volume: {visible:?}"
+        );
+        assert!(
+            occluded_energy < visible_energy * 0.45,
+            "the OMV radial-depth cube did not occlude the shipped local volume: visible={visible_energy}, occluded={occluded_energy}"
+        );
+    }
+}
+
+#[cfg(test)]
+mod directional_shader_behavior {
+    //! End-to-end D3D9 behavior gates for world volumetric lighting.
+    //!
+    //! The fixture exercises the complete shipped depth-reduce, shaft-mask,
+    //! radial-shaft, local-light, integration, and HDR-composition paths.
+    //! Assertions are on final GPU pixels, never on mirrored CPU equations or
+    //! shader source.
+
+    use super::{
+        AtmosphereBytecode, AtmosphereDrawOutcome, AtmosphereEffect, AtmosphereSettings,
+        LIGHTING_DEBUG_BASE,
+    };
+    use crate::{
+        backend::{
+            AtmosphereFrame, CameraFrame, CameraTransformFrame, DepthFrame, DepthProjectionFrame,
+            DepthProvider, DepthTexture, EnvironmentFrame, MaterialStateFrame, NativeSkyFrame,
+            SunFrame, UnderwaterFrame,
+        },
+        config::{AtmosphereQuality, VolumetricFogConfig, VolumetricLightingConfig},
+        effects::shadows::{VolumetricPointLight, VolumetricPointLightFrame},
+        fnv_local_lights::{LocalLightEpoch, shadow_point_epoch_for_consumer},
+    };
+    use libpsycho::os::windows::{
+        directx9::{
+            CubeTexture9, D3DCLEAR_TARGET, D3DCUBEMAP_FACE_NEGATIVE_X, D3DCUBEMAP_FACE_NEGATIVE_Y,
+            D3DCUBEMAP_FACE_NEGATIVE_Z, D3DCUBEMAP_FACE_POSITIVE_X, D3DCUBEMAP_FACE_POSITIVE_Y,
+            D3DCUBEMAP_FACE_POSITIVE_Z, D3DDEVTYPE_HAL, D3DDEVTYPE_NULLREF, D3DFMT_A8R8G8B8,
+            D3DFMT_A16B16G16R16F, D3DFMT_R32F, D3DPOOL_MANAGED, Device9, Device9Ref, Texture9,
+            create_direct3d9,
+        },
+        winapi::{get_active_window, get_desktop_window, get_foreground_window},
+    };
+
+    const TEST_SIZE: u32 = 64;
+    const FRAME_EPOCH: u64 = 19;
+
+    fn raster_device() -> Device9 {
+        let window = [
+            get_active_window(),
+            get_foreground_window(),
+            get_desktop_window().unwrap_or(std::ptr::null_mut()),
+        ]
+        .into_iter()
+        .find(|window| !window.is_null())
+        .expect("Wine must expose a window for atmosphere shader validation");
+        let direct3d = create_direct3d9().expect("D3D9 runtime");
+        direct3d
+            .create_windowed_device(window, TEST_SIZE, TEST_SIZE, D3DDEVTYPE_HAL)
+            .or_else(|_| {
+                direct3d.create_windowed_device(window, TEST_SIZE, TEST_SIZE, D3DDEVTYPE_NULLREF)
+            })
+            .expect("HAL or NULLREF D3D9 device")
+    }
+
+    fn settings(lighting_enabled: bool) -> AtmosphereSettings {
+        AtmosphereSettings {
+            fog_enabled: false,
+            lighting_enabled,
+            density: 0.0,
+            height_density: 0.0,
+            height_falloff: 0.000_08,
+            base_height: 0.0,
+            max_distance: 120_000.0,
+            scattering_albedo: 1.0,
+            noise_amount: 0.0,
+            noise_scale: 0.000_35,
+            noise_speed: 0.0,
+            temporal_stability: 0.0,
+            debug_view: 0,
+            quality: AtmosphereQuality::High,
+            lighting_intensity: 0.95,
+            lighting_medium_density: 0.000_002_5,
+            anisotropy: 0.58,
+            shaft_strength: 0.72,
+            sun_disk_boost: 1.0,
+            shaft_quality: AtmosphereQuality::High,
+            local_lights_enabled: false,
+            local_lights_intensity: 0.0,
+            local_lights_quality: AtmosphereQuality::High,
+        }
+    }
+
+    fn frame(depth: &Texture9, sun_direction: [f32; 3]) -> AtmosphereFrame {
+        let camera = CameraFrame {
+            near_z: 5.0,
+            far_z: 200_000.0,
+            aspect_ratio: 1.0,
+            frustum_left: -1.0,
+            frustum_right: 1.0,
+            frustum_bottom: -1.0,
+            frustum_top: 1.0,
+            world_transform: CameraTransformFrame {
+                translation: [0.0, 0.0, 250.0],
+                available: true,
+                ..CameraTransformFrame::default()
+            },
+            available: true,
+        };
+        let projection = DepthProjectionFrame {
+            camera,
+            reversed_depth: Some(true),
+            depth_function: Some(7),
+            source_surface: depth.as_raw_base_texture() as usize,
+            sampled_depth_bits: 24,
+        };
+        AtmosphereFrame {
+            camera,
+            depth: DepthFrame::from_textures(
+                DepthProvider::FalloutNewVegas,
+                DepthTexture::new(depth.as_raw_base_texture()),
+                None,
+                projection,
+                DepthProjectionFrame::default(),
+                FRAME_EPOCH,
+            ),
+            environment: EnvironmentFrame::default(),
+            underwater: UnderwaterFrame {
+                frame_epoch: FRAME_EPOCH,
+                hook_available: true,
+                known: true,
+                underwater: false,
+            },
+            sun: SunFrame {
+                screen_x: 0.5,
+                screen_y: 0.5,
+                available: true,
+                daylight: 0.4252,
+            },
+            sky: Some(NativeSkyFrame {
+                sky_upper: [0.2, 0.3, 0.6],
+                sky_lower: [0.4, 0.45, 0.55],
+                horizon: [0.65, 0.6, 0.5],
+                // FNV can leave the Reloaded-derived sky color candidates
+                // black even though the native exterior/daylight contract is
+                // valid. The shipped effect must not disappear in that frame.
+                sun_light: [0.0; 3],
+                sun_disk: [0.0; 3],
+                sun_direction,
+                daylight: 0.4252,
+                game_hour: 18.0,
+                is_exterior: true,
+                reversed_depth: true,
+            }),
+            material_state: MaterialStateFrame {
+                exterior_known: true,
+                is_exterior: true,
+            },
+            frame_epoch: FRAME_EPOCH,
+            distance_bound: 120_000.0,
+        }
+    }
+
+    fn raw_depth(device: &Device9Ref<'_>, blocker: bool) -> Texture9 {
+        let depth = device
+            .create_texture(TEST_SIZE, TEST_SIZE, 1, 0, D3DFMT_A8R8G8B8, D3DPOOL_MANAGED)
+            .expect("lockable raw-depth texture");
+        let mut pixels = vec![0xFF00_0000u32; (TEST_SIZE * TEST_SIZE) as usize];
+        if blocker {
+            for y in 25..39usize {
+                for x in 29..35usize {
+                    pixels[y * TEST_SIZE as usize + x] = 0xFF40_0000;
+                }
+            }
+        }
+        depth
+            .write_level0_argb(TEST_SIZE, TEST_SIZE, &pixels)
+            .expect("raw-depth pixels");
+        depth
+    }
+
+    fn clear_target(device: &Device9Ref<'_>, texture: &Texture9) {
+        let surface = texture.surface_level(0).expect("HDR surface");
+        device.set_render_target(0, &surface).expect("HDR target");
+        device
+            .clear_attachments(D3DCLEAR_TARGET as u32, 0, 1.0, 0)
+            .expect("clear HDR target");
+    }
+
+    fn render(
+        effect: &mut AtmosphereEffect,
+        device: &Device9Ref<'_>,
+        world_color: &Texture9,
+        sun_direction: [f32; 3],
+        blocker: bool,
+        lighting_enabled: bool,
+    ) -> (AtmosphereDrawOutcome, Vec<[f32; 4]>) {
+        let depth = raw_depth(device, blocker);
+        let output = device
+            .create_render_target_texture(TEST_SIZE, TEST_SIZE, D3DFMT_A16B16G16R16F)
+            .expect("HDR atmosphere output");
+        clear_target(device, &output);
+        let output_surface = output.surface_level(0).expect("HDR output surface");
+        let desc = output_surface.desc().expect("HDR output description");
+        device
+            .begin_scene()
+            .expect("begin atmosphere behavior draw");
+        let outcome = effect
+            .draw(
+                device,
+                &output_surface,
+                &desc,
+                frame(&depth, sun_direction),
+                Some(world_color),
+                settings(lighting_enabled),
+                false,
+                false,
+                None,
+            )
+            .expect("complete atmosphere behavior draw");
+        device.end_scene().expect("end atmosphere behavior draw");
+        let staging = device
+            .create_system_memory_surface(TEST_SIZE, TEST_SIZE, D3DFMT_A16B16G16R16F)
+            .expect("HDR readback surface");
+        device
+            .copy_render_target_data(&output_surface, &staging)
+            .expect("HDR atmosphere readback");
+        let pixels = staging.read_rgba16f().expect("HDR atmosphere pixels");
+        (outcome, pixels)
+    }
+
+    fn luminance(pixel: [f32; 4]) -> f32 {
+        pixel[0] * 0.2126 + pixel[1] * 0.7152 + pixel[2] * 0.0722
+    }
+
+    fn mean_luminance(pixels: &[[f32; 4]]) -> f32 {
+        pixels.iter().copied().map(luminance).sum::<f32>() / pixels.len() as f32
+    }
+
+    fn total_luminance(pixels: &[[f32; 4]]) -> f32 {
+        pixels.iter().copied().map(luminance).sum()
+    }
+
+    fn luminance_centroid_x(pixels: &[[f32; 4]]) -> f32 {
+        let mut weighted_x = 0.0;
+        let mut weight = 0.0;
+        for (index, pixel) in pixels.iter().copied().enumerate() {
+            let value = luminance(pixel).max(0.0);
+            weighted_x += (index % TEST_SIZE as usize) as f32 * value;
+            weight += value;
+        }
+        weighted_x / weight.max(0.000_001)
+    }
+
+    #[test]
+    fn exterior_directional_medium_and_godrays_survive_the_complete_shipped_gpu_path() {
+        let owner = raster_device();
+        let device = owner.as_ref();
+        device
+            .direct3d()
+            .expect("D3D9 interface")
+            .check_default_render_target_texture_support(D3DFMT_A16B16G16R16F)
+            .expect("HDR atmosphere targets");
+        let bytecode = AtmosphereBytecode::compile().expect("shipped atmosphere bytecode");
+        let mut effect = AtmosphereEffect::create_from_bytecode(&device, &bytecode)
+            .expect("production atmosphere pipeline");
+        let world_color = device
+            .create_render_target_texture(TEST_SIZE, TEST_SIZE, D3DFMT_A16B16G16R16F)
+            .expect("HDR world color");
+        clear_target(&device, &world_color);
+
+        let (disabled_outcome, disabled) = render(
+            &mut effect,
+            &device,
+            &world_color,
+            [1.0, 0.0, 0.0],
+            false,
+            false,
+        );
+        assert_eq!(
+            disabled_outcome,
+            AtmosphereDrawOutcome::NoVisibleContribution
+        );
+        assert!(
+            disabled.iter().all(|pixel| luminance(*pixel) <= 0.000_001),
+            "disabled directional lighting changed final HDR pixels"
+        );
+
+        let (open_outcome, open) = render(
+            &mut effect,
+            &device,
+            &world_color,
+            [1.0, 0.0, 0.0],
+            false,
+            true,
+        );
+        assert_eq!(open_outcome, AtmosphereDrawOutcome::ComposedWithLighting);
+        let open_mean = mean_luminance(&open);
+        assert!(
+            open_mean > 0.05,
+            "exterior directional medium produced no visible HDR scattering: {open_mean}"
+        );
+        let surrounding_mean = open
+            .iter()
+            .enumerate()
+            .filter(|(index, _)| {
+                let x = index % TEST_SIZE as usize;
+                let y = index / TEST_SIZE as usize;
+                x.abs_diff(32) >= 8 || y.abs_diff(32) >= 8
+            })
+            .map(|(_, pixel)| luminance(*pixel))
+            .sum::<f32>()
+            / (TEST_SIZE * TEST_SIZE - 15 * 15) as f32;
+        assert!(
+            surrounding_mean > 0.05,
+            "only the sun lobe changed; the exterior medium stayed black: {surrounding_mean}"
+        );
+
+        let (_, blocked) = render(
+            &mut effect,
+            &device,
+            &world_color,
+            [1.0, 0.0, 0.0],
+            true,
+            true,
+        );
+        let strongest_sky_occlusion = open
+            .iter()
+            .zip(&blocked)
+            .enumerate()
+            .filter(|(index, _)| {
+                let x = index % TEST_SIZE as usize;
+                let y = index / TEST_SIZE as usize;
+                !(29..35).contains(&x) || !(25..39).contains(&y)
+            })
+            .map(|(_, (open, blocked))| luminance(*open) - luminance(*blocked))
+            .fold(0.0f32, f32::max);
+        assert!(
+            strongest_sky_occlusion > 0.02,
+            "geometry created no blocker-shaped godray contrast outside its own pixels: {strongest_sky_occlusion}"
+        );
+
+        let shifted_direction = [0.894_427_2, 0.0, 0.447_213_6];
+        let (_, shifted) = render(
+            &mut effect,
+            &device,
+            &world_color,
+            shifted_direction,
+            false,
+            true,
+        );
+        let center_x = luminance_centroid_x(&open);
+        let shifted_x = luminance_centroid_x(&shifted);
+        assert!(
+            shifted_x > center_x + 3.0,
+            "moving the native sun did not move the rendered volumetric lobe: center={center_x}, shifted={shifted_x}"
+        );
+    }
+
+    fn interior_local_settings() -> AtmosphereSettings {
+        let mut fog = VolumetricFogConfig::default();
+        fog.enabled = false;
+        AtmosphereSettings::from_config(fog, VolumetricLightingConfig::default())
+    }
+
+    fn local_light_frame(depth: &Texture9, is_exterior: bool) -> AtmosphereFrame {
+        let camera = CameraFrame {
+            near_z: 1.0,
+            far_z: 1_000.0,
+            aspect_ratio: 1.0,
+            frustum_left: -0.1,
+            frustum_right: 0.1,
+            frustum_bottom: -0.1,
+            frustum_top: 0.1,
+            world_transform: CameraTransformFrame {
+                available: true,
+                ..CameraTransformFrame::default()
+            },
+            available: true,
+        };
+        let projection = DepthProjectionFrame {
+            camera,
+            reversed_depth: Some(true),
+            depth_function: Some(7),
+            source_surface: depth.as_raw_base_texture() as usize,
+            sampled_depth_bits: 24,
+        };
+        AtmosphereFrame {
+            camera,
+            depth: DepthFrame::from_textures(
+                DepthProvider::FalloutNewVegas,
+                DepthTexture::new(depth.as_raw_base_texture()),
+                None,
+                projection,
+                DepthProjectionFrame::default(),
+                FRAME_EPOCH,
+            ),
+            environment: EnvironmentFrame::default(),
+            underwater: UnderwaterFrame {
+                frame_epoch: FRAME_EPOCH,
+                hook_available: true,
+                known: true,
+                underwater: false,
+            },
+            sun: SunFrame::default(),
+            sky: None,
+            material_state: MaterialStateFrame {
+                exterior_known: true,
+                is_exterior,
+            },
+            frame_epoch: FRAME_EPOCH,
+            distance_bound: 1_000.0,
+        }
+    }
+
+    fn constant_point_cube(device: &Device9Ref<'_>, depth: u8) -> CubeTexture9 {
+        let cube = device
+            .create_cube_render_target_texture(8, D3DFMT_R32F)
+            .expect("OMV radial-depth point cube");
+        for face in [
+            D3DCUBEMAP_FACE_POSITIVE_X,
+            D3DCUBEMAP_FACE_NEGATIVE_X,
+            D3DCUBEMAP_FACE_POSITIVE_Y,
+            D3DCUBEMAP_FACE_NEGATIVE_Y,
+            D3DCUBEMAP_FACE_POSITIVE_Z,
+            D3DCUBEMAP_FACE_NEGATIVE_Z,
+        ] {
+            let surface = cube.surface(face, 0).expect("point-cube face");
+            device
+                .set_render_target(0, &surface)
+                .expect("point-cube target");
+            device
+                .clear_attachments(D3DCLEAR_TARGET as u32, u32::from(depth) << 16, 1.0, 0)
+                .expect("constant point-cube radial depth");
+        }
+        cube
+    }
+
+    fn shadow_point_frame(
+        device: &Device9Ref<'_>,
+        cube: &CubeTexture9,
+        render_epoch: u32,
+    ) -> VolumetricPointLightFrame {
+        VolumetricPointLightFrame {
+            render_epoch,
+            device_identity: device.as_raw() as usize,
+            device_generation: crate::backend::d3d_device_generation(),
+            lights: std::array::from_fn(|index| {
+                (index == 0).then(|| VolumetricPointLight {
+                    identity: 0xC011_AB1E,
+                    position: [100.0, 0.0, 0.0],
+                    color: [1.0, 0.7, 0.35],
+                    receiver_radius: 32.0,
+                    cube_radius: 32.0,
+                    receiver_bias: 0.018,
+                    texture: cube.retain_base_texture(),
+                })
+            }),
+        }
+    }
+
+    fn render_local_light(
+        effect: &mut AtmosphereEffect,
+        device: &Device9Ref<'_>,
+        world_color: &Texture9,
+        epoch: Option<&LocalLightEpoch>,
+        settings: AtmosphereSettings,
+        is_exterior: bool,
+    ) -> (AtmosphereDrawOutcome, Vec<[f32; 4]>) {
+        let depth = raw_depth(device, false);
+        let output = device
+            .create_render_target_texture(TEST_SIZE, TEST_SIZE, D3DFMT_A16B16G16R16F)
+            .expect("HDR local-light output");
+        clear_target(device, &output);
+        let output_surface = output.surface_level(0).expect("HDR local-light surface");
+        let desc = output_surface.desc().expect("HDR local-light description");
+        device.begin_scene().expect("begin local-light composition");
+        let outcome = effect
+            .draw(
+                device,
+                &output_surface,
+                &desc,
+                local_light_frame(&depth, is_exterior),
+                Some(world_color),
+                settings,
+                false,
+                false,
+                epoch,
+            )
+            .expect("complete local-light composition");
+        device.end_scene().expect("end local-light composition");
+        let staging = device
+            .create_system_memory_surface(TEST_SIZE, TEST_SIZE, D3DFMT_A16B16G16R16F)
+            .expect("HDR local-light readback surface");
+        device
+            .copy_render_target_data(&output_surface, &staging)
+            .expect("HDR local-light readback");
+        let pixels = staging.read_rgba16f().expect("HDR local-light pixels");
+        (outcome, pixels)
+    }
+
+    #[test]
+    fn previous_shadow_epoch_reaches_interior_shipped_composition_and_obeys_cube_occlusion() {
+        const SHADOW_EPOCH: u32 = 71;
+        const PRESENT_EPOCH: u32 = SHADOW_EPOCH + 1;
+
+        let owner = raster_device();
+        let device = owner.as_ref();
+        device
+            .direct3d()
+            .expect("D3D9 interface")
+            .check_default_render_target_texture_support(D3DFMT_A16B16G16R16F)
+            .expect("HDR atmosphere targets");
+        let bytecode = AtmosphereBytecode::compile().expect("shipped atmosphere bytecode");
+        let mut effect = AtmosphereEffect::create_from_bytecode(&device, &bytecode)
+            .expect("production atmosphere pipeline");
+        let world_color = device
+            .create_render_target_texture(TEST_SIZE, TEST_SIZE, D3DFMT_A16B16G16R16F)
+            .expect("HDR world color");
+        clear_target(&device, &world_color);
+        let device_identity = device.as_raw() as usize;
+        let device_generation = crate::backend::d3d_device_generation();
+
+        let open_cube = constant_point_cube(&device, 255);
+        let open_epoch = shadow_point_epoch_for_consumer(
+            shadow_point_frame(&device, &open_cube, SHADOW_EPOCH),
+            device_identity,
+            device_generation,
+            PRESENT_EPOCH,
+        )
+        .expect("immediately preceding shadow point frame must be usable at pre-alpha");
+        let (open_outcome, open_pixels) = render_local_light(
+            &mut effect,
+            &device,
+            &world_color,
+            Some(&open_epoch),
+            interior_local_settings(),
+            false,
+        );
+        assert_eq!(open_outcome, AtmosphereDrawOutcome::ComposedWithLighting);
+        let open_energy = total_luminance(&open_pixels);
+        let open_peak = open_pixels
+            .iter()
+            .copied()
+            .map(luminance)
+            .fold(0.0f32, f32::max);
+        assert!(
+            open_peak > 0.04,
+            "the admitted shadow-selected point light is not visibly present at shipped menu defaults: peak={open_peak}, total={open_energy}"
+        );
+
+        let (exterior_outcome, exterior_pixels) = render_local_light(
+            &mut effect,
+            &device,
+            &world_color,
+            Some(&open_epoch),
+            interior_local_settings(),
+            true,
+        );
+        assert_eq!(
+            exterior_outcome,
+            AtmosphereDrawOutcome::ComposedWithLighting
+        );
+        let exterior_peak = exterior_pixels
+            .iter()
+            .copied()
+            .map(luminance)
+            .fold(0.0f32, f32::max);
+        assert!(
+            exterior_peak > 0.04,
+            "the same admitted point light is not visibly present in an exterior at shipped menu defaults: {exterior_peak}"
+        );
+
+        let blocked_cube = constant_point_cube(&device, 32);
+        let blocked_epoch = shadow_point_epoch_for_consumer(
+            shadow_point_frame(&device, &blocked_cube, SHADOW_EPOCH),
+            device_identity,
+            device_generation,
+            PRESENT_EPOCH,
+        )
+        .expect("occluding point frame must pass the same production handoff");
+        let (blocked_outcome, blocked_pixels) = render_local_light(
+            &mut effect,
+            &device,
+            &world_color,
+            Some(&blocked_epoch),
+            interior_local_settings(),
+            false,
+        );
+        assert_eq!(blocked_outcome, AtmosphereDrawOutcome::ComposedWithLighting);
+        let blocked_energy = total_luminance(&blocked_pixels);
+        assert!(
+            blocked_energy < open_energy * 0.45,
+            "the exact shadow cube did not suppress final interior scattering: open={open_energy}, blocked={blocked_energy}"
+        );
+
+        let stale = shadow_point_epoch_for_consumer(
+            shadow_point_frame(&device, &open_cube, SHADOW_EPOCH),
+            device_identity,
+            device_generation,
+            PRESENT_EPOCH + 1,
+        );
+        assert!(stale.is_none(), "a two-epoch-old point frame was admitted");
+        let (stale_outcome, stale_pixels) = render_local_light(
+            &mut effect,
+            &device,
+            &world_color,
+            stale.as_ref(),
+            interior_local_settings(),
+            false,
+        );
+        assert_eq!(stale_outcome, AtmosphereDrawOutcome::NoVisibleContribution);
+        assert!(
+            stale_pixels
+                .iter()
+                .all(|pixel| luminance(*pixel) <= 0.000_001),
+            "an expired shadow publication changed final interior HDR pixels"
+        );
+    }
+
+    #[test]
+    fn local_light_final_pixels_obey_menu_enable_intensity_and_debug_values() {
+        const SHADOW_EPOCH: u32 = 81;
+        const PRESENT_EPOCH: u32 = SHADOW_EPOCH + 1;
+
+        let owner = raster_device();
+        let device = owner.as_ref();
+        device
+            .direct3d()
+            .expect("D3D9 interface")
+            .check_default_render_target_texture_support(D3DFMT_A16B16G16R16F)
+            .expect("HDR atmosphere targets");
+        let bytecode = AtmosphereBytecode::compile().expect("shipped atmosphere bytecode");
+        let mut effect = AtmosphereEffect::create_from_bytecode(&device, &bytecode)
+            .expect("production atmosphere pipeline");
+        let world_color = device
+            .create_render_target_texture(TEST_SIZE, TEST_SIZE, D3DFMT_A16B16G16R16F)
+            .expect("HDR world color");
+        clear_target(&device, &world_color);
+        let cube = constant_point_cube(&device, 255);
+        let epoch = shadow_point_epoch_for_consumer(
+            shadow_point_frame(&device, &cube, SHADOW_EPOCH),
+            device.as_raw() as usize,
+            crate::backend::d3d_device_generation(),
+            PRESENT_EPOCH,
+        )
+        .expect("current point frame");
+
+        let settings = interior_local_settings();
+        let (enabled_outcome, enabled_pixels) = render_local_light(
+            &mut effect,
+            &device,
+            &world_color,
+            Some(&epoch),
+            settings,
+            false,
+        );
+        assert_eq!(enabled_outcome, AtmosphereDrawOutcome::ComposedWithLighting);
+        let enabled_energy = total_luminance(&enabled_pixels);
+        assert!(enabled_energy > 0.001, "enabled local output is black");
+
+        let mut half_intensity = settings;
+        half_intensity.local_lights_intensity *= 0.5;
+        let (_, half_pixels) = render_local_light(
+            &mut effect,
+            &device,
+            &world_color,
+            Some(&epoch),
+            half_intensity,
+            false,
+        );
+        let half_energy = total_luminance(&half_pixels);
+        assert!(
+            half_energy < enabled_energy * 0.8,
+            "the local intensity menu value did not reduce final pixels: full={enabled_energy}, half={half_energy}"
+        );
+
+        let mut zero_intensity = settings;
+        zero_intensity.local_lights_intensity = 0.0;
+        let (zero_outcome, zero_pixels) = render_local_light(
+            &mut effect,
+            &device,
+            &world_color,
+            Some(&epoch),
+            zero_intensity,
+            false,
+        );
+        assert_eq!(zero_outcome, AtmosphereDrawOutcome::NoVisibleContribution);
+        assert!(
+            zero_pixels
+                .iter()
+                .all(|pixel| luminance(*pixel) <= 0.000_001),
+            "zero local intensity changed final HDR pixels"
+        );
+
+        let mut disabled = settings;
+        disabled.local_lights_enabled = false;
+        let (disabled_outcome, disabled_pixels) = render_local_light(
+            &mut effect,
+            &device,
+            &world_color,
+            Some(&epoch),
+            disabled,
+            false,
+        );
+        assert_eq!(
+            disabled_outcome,
+            AtmosphereDrawOutcome::NoVisibleContribution
+        );
+        assert!(
+            disabled_pixels
+                .iter()
+                .all(|pixel| luminance(*pixel) <= 0.000_001),
+            "the local-light enable menu value did not disable final pixels"
+        );
+
+        let mut debug = settings;
+        debug.debug_view = LIGHTING_DEBUG_BASE + 8;
+        let (debug_outcome, debug_pixels) = render_local_light(
+            &mut effect,
+            &device,
+            &world_color,
+            Some(&epoch),
+            debug,
+            false,
+        );
+        assert_eq!(debug_outcome, AtmosphereDrawOutcome::ComposedWithLighting);
+        let debug_peak = debug_pixels
+            .iter()
+            .copied()
+            .map(luminance)
+            .fold(0.0f32, f32::max);
+        assert!(
+            debug_peak > 0.05,
+            "the selected local-scattering debug view produced no visible pixels: {debug_peak}"
+        );
+
+        debug.local_lights_enabled = false;
+        let (disabled_debug_outcome, disabled_debug_pixels) = render_local_light(
+            &mut effect,
+            &device,
+            &world_color,
+            Some(&epoch),
+            debug,
+            false,
+        );
+        assert_eq!(disabled_debug_outcome, AtmosphereDrawOutcome::Skipped);
+        assert!(
+            disabled_debug_pixels
+                .iter()
+                .all(|pixel| luminance(*pixel) <= 0.000_001),
+            "local debug output remained active after its menu enable was cleared"
+        );
+    }
 }
 
 fn finite(value: f32, fallback: f32) -> f32 {
@@ -2691,7 +3749,8 @@ struct EffectTarget {
 
 struct LocalLightPipeline {
     shadowless_shaders: [[PixelShader9; 4]; 3],
-    shadowed_shaders: [PixelShader9; 3],
+    native_shadowed_shaders: [PixelShader9; 3],
+    cube_shadowed_shaders: [PixelShader9; 3],
 }
 
 impl LocalLightPipeline {
@@ -2705,20 +3764,37 @@ impl LocalLightPipeline {
                 create_local_light_batch(device, &bytecode.shadowless[1])?,
                 create_local_light_batch(device, &bytecode.shadowless[2])?,
             ],
-            shadowed_shaders: [
-                device.create_pixel_shader(&bytecode.shadowed[0])?,
-                device.create_pixel_shader(&bytecode.shadowed[1])?,
-                device.create_pixel_shader(&bytecode.shadowed[2])?,
+            native_shadowed_shaders: [
+                device.create_pixel_shader(&bytecode.native_shadowed[0])?,
+                device.create_pixel_shader(&bytecode.native_shadowed[1])?,
+                device.create_pixel_shader(&bytecode.native_shadowed[2])?,
+            ],
+            cube_shadowed_shaders: [
+                device.create_pixel_shader(&bytecode.cube_shadowed[0])?,
+                device.create_pixel_shader(&bytecode.cube_shadowed[1])?,
+                device.create_pixel_shader(&bytecode.cube_shadowed[2])?,
             ],
         })
     }
 
-    fn shader(&self, quality_index: usize, shadowed: bool, batch_size: usize) -> &PixelShader9 {
-        if shadowed {
-            debug_assert_eq!(batch_size, 1);
-            &self.shadowed_shaders[quality_index]
-        } else {
-            &self.shadowless_shaders[quality_index][batch_size.saturating_sub(1).min(3)]
+    fn shader(
+        &self,
+        quality_index: usize,
+        shadow_mode: LocalShadowMode,
+        batch_size: usize,
+    ) -> &PixelShader9 {
+        match shadow_mode {
+            LocalShadowMode::None => {
+                &self.shadowless_shaders[quality_index][batch_size.saturating_sub(1).min(3)]
+            }
+            LocalShadowMode::NativeProjected => {
+                debug_assert_eq!(batch_size, 1);
+                &self.native_shadowed_shaders[quality_index]
+            }
+            LocalShadowMode::OmvCube => {
+                debug_assert_eq!(batch_size, 1);
+                &self.cube_shadowed_shaders[quality_index]
+            }
         }
     }
 }
@@ -4076,8 +5152,8 @@ mod shader_compile_tests {
     use super::{
         COMPOSE_SHADER, DEBUG_SHADER, DEPTH_REDUCE_SHADER, INTEGRATE_SHADER, LOCAL_LIGHT_SHADER,
         SHAFT_MASK_SHADER, SHAFT_RADIAL_SHADER, depth_reduce_shader_source,
-        integration_shader_source, local_light_shader_source, shaft_radial_shader_source,
-        view_to_world_rows,
+        integration_shader_source, local_light_cube_shader_source, local_light_shader_source,
+        shaft_radial_shader_source, view_to_world_rows,
     };
     use crate::backend::{CameraFrame, CameraTransformFrame};
 
@@ -4125,6 +5201,11 @@ mod shader_compile_tests {
             crate::shaders::assert_hlsl_compiles(
                 &format!("atmosphere_local_light.hlsl:{samples}:shadowed"),
                 &local_light_shader_source(samples, 1, noise, true),
+                "ps_3_0",
+            );
+            crate::shaders::assert_hlsl_compiles(
+                &format!("atmosphere_local_light.hlsl:{samples}:cube-shadowed"),
+                &local_light_cube_shader_source(samples, noise),
                 "ps_3_0",
             );
         }
@@ -4178,12 +5259,13 @@ mod shader_compile_tests {
     }
 
     #[test]
-    fn local_light_shader_has_independent_shadowless_and_native_shadow_contracts() {
+    fn local_light_shader_has_independent_shadowless_and_shadow_resource_contracts() {
         let source = std::str::from_utf8(LOCAL_LIGHT_SHADER).expect("local-light shader source");
         assert!(source.contains("ReducedDepth : register(s0)"));
         assert!(source.contains("DensityNoise : register(s1)"));
         assert!(source.contains("NativeShadow : register(s2)"));
-        assert!(source.contains("#if LOCAL_LIGHT_USE_NATIVE_SHADOW"));
+        assert!(source.contains("OmvShadowCube : register(s2)"));
+        assert!(source.contains("#if LOCAL_LIGHT_SHADOW_MODE == 1"));
         assert!(source.contains("LocalPositionRadius0 : register(c8)"));
         assert!(source.contains("LocalPositionRadius3 : register(c11)"));
         assert!(source.contains("LocalColorIntensity0 : register(c12)"));
@@ -4217,14 +5299,20 @@ mod shader_compile_tests {
                     String::from_utf8(local_light_shader_source(samples, batch_size, noise, false))
                         .expect("local-light variant");
                 assert!(variant.starts_with(&format!(
-                    "#define LOCAL_LIGHT_SAMPLE_COUNT {samples}\n#define LOCAL_LIGHT_BATCH_SIZE {batch_size}\n#define LOCAL_LIGHT_USE_NOISE {}\n#define LOCAL_LIGHT_USE_NATIVE_SHADOW 0\n",
+                    "#define LOCAL_LIGHT_SAMPLE_COUNT {samples}\n#define LOCAL_LIGHT_BATCH_SIZE {batch_size}\n#define LOCAL_LIGHT_USE_NOISE {}\n#define LOCAL_LIGHT_SHADOW_MODE 0\n",
                     u8::from(noise),
                 )));
             }
             let shadowed = String::from_utf8(local_light_shader_source(samples, 1, noise, true))
                 .expect("shadowed local-light variant");
             assert!(shadowed.starts_with(&format!(
-                "#define LOCAL_LIGHT_SAMPLE_COUNT {samples}\n#define LOCAL_LIGHT_BATCH_SIZE 1\n#define LOCAL_LIGHT_USE_NOISE {}\n#define LOCAL_LIGHT_USE_NATIVE_SHADOW 1\n",
+                "#define LOCAL_LIGHT_SAMPLE_COUNT {samples}\n#define LOCAL_LIGHT_BATCH_SIZE 1\n#define LOCAL_LIGHT_USE_NOISE {}\n#define LOCAL_LIGHT_SHADOW_MODE 1\n",
+                u8::from(noise),
+            )));
+            let cube = String::from_utf8(local_light_cube_shader_source(samples, noise))
+                .expect("cube-shadowed local-light variant");
+            assert!(cube.starts_with(&format!(
+                "#define LOCAL_LIGHT_SAMPLE_COUNT {samples}\n#define LOCAL_LIGHT_BATCH_SIZE 1\n#define LOCAL_LIGHT_USE_NOISE {}\n#define LOCAL_LIGHT_SHADOW_MODE 2\n",
                 u8::from(noise),
             )));
         }
@@ -4243,6 +5331,17 @@ mod shader_compile_tests {
                 single.len() * 4 <= 12_288,
                 "single shader grew to {} bytes",
                 single.len() * 4,
+            );
+            let cube = crate::shaders::compile_hlsl_source_target(
+                "local-light-cube-shadow-budget",
+                &local_light_cube_shader_source(samples, noise),
+                "ps_3_0",
+            )
+            .expect("cube-shadowed local-light shader");
+            assert!(
+                cube.len() * 4 <= 16_384,
+                "cube-shadowed shader grew to {} bytes",
+                cube.len() * 4,
             );
             for batch_size in 2..=4 {
                 let batch = crate::shaders::compile_hlsl_source_target(

@@ -438,6 +438,7 @@ pub(crate) fn install(settings: NativePbrSettings) -> Result<()> {
 /// Publish whether both executable-proven renderer geometry hooks are active.
 pub(crate) fn set_draw_boundary_ready(ready: bool) {
     DRAW_BOUNDARY_READY.store(ready, Ordering::Release);
+    refresh_terrain_capture_demand();
 }
 
 /// Prepares a pending native PBR replacement immediately before a D3D draw.
@@ -507,6 +508,7 @@ pub(crate) fn configure_runtime_options(settings: NativePbrSettings) {
     } else if !settings.enabled {
         ENABLE_PENDING.store(false, Ordering::Release);
     }
+    refresh_terrain_capture_demand();
     refresh_block_reason();
 }
 
@@ -519,6 +521,7 @@ pub(crate) fn configure_runtime_options(settings: NativePbrSettings) {
 /// result means the nonblocking resource owner was busy and nothing changed.
 #[must_use]
 pub(crate) fn release_disabled_device_resources() -> bool {
+    crate::fnv_local_lights::configure_terrain(false);
     if !device_resources::try_reset_after(hooks::release_device_resources) {
         return false;
     }
@@ -733,6 +736,7 @@ pub(crate) fn retry_preparation() {
         return;
     }
     if !device_resources::try_reset_after(|| {
+        crate::fnv_local_lights::configure_terrain(false);
         compiler::cancel_preparation();
         hooks::release_device_resources();
     }) {
@@ -763,13 +767,25 @@ pub(crate) fn service_present_frame() {
     if configured {
         engine_contracts::service_frame();
         compiler::ensure_object_prewarm_started();
-        device_resources::service_frame();
-        let failed = compiler::object_compile_failed() || device_resources::object_create_failed();
-        let ready = compiler::object_compile_finished()
-            && !failed
-            && device_resources::object_resources_ready();
-        ACTIVE_CONTRACTS_FAILED.store(failed, Ordering::Release);
-        ACTIVE_CONTRACTS_READY.store(ready, Ordering::Release);
+        let resource_delta = device_resources::service_frame();
+        if resource_delta.device_changed {
+            ACTIVE_CONTRACTS_READY.store(false, Ordering::Release);
+            ACTIVE_CONTRACTS_FAILED.store(false, Ordering::Release);
+        }
+        if !ACTIVE_CONTRACTS_READY.load(Ordering::Acquire)
+            && !ACTIVE_CONTRACTS_FAILED.load(Ordering::Acquire)
+        {
+            let failed =
+                compiler::object_compile_failed() || device_resources::object_create_failed();
+            let ready = compiler::object_compile_finished()
+                && !failed
+                && device_resources::object_resources_ready();
+            ACTIVE_CONTRACTS_FAILED.store(failed, Ordering::Release);
+            ACTIVE_CONTRACTS_READY.store(ready, Ordering::Release);
+        }
+        if resource_delta.close_terrain_changed {
+            refresh_terrain_capture_demand();
+        }
     } else {
         ACTIVE_CONTRACTS_READY.store(false, Ordering::Release);
         ACTIVE_CONTRACTS_FAILED.store(false, Ordering::Release);
@@ -791,6 +807,7 @@ fn activate() -> Result<()> {
     compiler::ensure_object_prewarm_started();
     ACTIVE_CONTRACTS_READY.store(false, Ordering::Release);
     ACTIVE_CONTRACTS_FAILED.store(false, Ordering::Release);
+    refresh_terrain_capture_demand();
     refresh_block_reason();
 
     let registry = shader_registry::summary();
@@ -810,6 +827,7 @@ fn activate() -> Result<()> {
 /// abort before native reset invalidates a still-owned shader.
 #[must_use]
 pub(crate) fn reset_runtime_state() -> bool {
+    crate::fnv_local_lights::configure_terrain(false);
     if !device_resources::try_reset_after(hooks::release_device_resources) {
         return false;
     }
@@ -850,9 +868,12 @@ fn block_reason_label(reason: u32) -> Option<&'static str> {
 }
 
 fn shader_enabled() -> bool {
+    crate::graphics_diagnostics::add(crate::graphics_diagnostics::Counter::PbrReadinessQuery, 1);
+    crate::graphics_diagnostics::add(crate::graphics_diagnostics::Counter::PbrReadinessEntry, 1);
+    // Individual families own their bytecode/resource gates. A global catalog
+    // gate made one unavailable close-terrain program disable every object and
+    // terrain family, and repeated a 162-entry readiness scan in hot callbacks.
     SHADER_ENABLED.load(Ordering::Acquire)
-        && compiler::preparation_ready()
-        && device_resources::all_resources_ready()
 }
 
 #[inline]
@@ -861,7 +882,8 @@ fn replacement_configured() -> bool {
 }
 
 fn object_contract_available() -> bool {
-    hooks::hooks_ready()
+    ACTIVE_CONTRACTS_READY.load(Ordering::Acquire)
+        && hooks::hooks_ready()
         && DRAW_BOUNDARY_READY.load(Ordering::Acquire)
         && engine_contracts::eye_position_ready()
         && engine_contracts::shader_package_lifetime_ready()
@@ -934,7 +956,19 @@ fn store_terrain_options(settings: NativePbrSettings) {
     CLOSE_TERRAIN_ENABLED.store(settings.enabled, Ordering::Release);
     TERRAIN_FADE_ENABLED.store(settings.enabled, Ordering::Release);
     TERRAIN_LOD_ENABLED.store(settings.enabled, Ordering::Release);
-    crate::fnv_local_lights::configure_terrain(settings.enabled);
+    // Preserve the established pre-Deferred call graph while keeping the
+    // scene-light producer dormant until the close-terrain family publishes
+    // its complete runtime contract at Present.
+    if !INSTALL_BOUNDARY_REACHED.load(Ordering::Acquire) {
+        crate::fnv_local_lights::configure_terrain(false);
+    }
+}
+
+pub(super) fn refresh_terrain_capture_demand() {
+    let ready = SHADER_ENABLED.load(Ordering::Acquire)
+        && CLOSE_TERRAIN_ENABLED.load(Ordering::Acquire)
+        && close_terrain_contract_available();
+    crate::fnv_local_lights::configure_terrain(ready);
 }
 
 fn sanitize_scale(value: f32, fallback: f32, min: f32, max: f32) -> f32 {

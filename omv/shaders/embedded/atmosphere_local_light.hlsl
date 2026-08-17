@@ -1,7 +1,9 @@
 sampler2D ReducedDepth : register(s0);
 sampler2D DensityNoise : register(s1);
-#if LOCAL_LIGHT_USE_NATIVE_SHADOW
+#if LOCAL_LIGHT_SHADOW_MODE == 1
 sampler2D NativeShadow : register(s2);
+#elif LOCAL_LIGHT_SHADOW_MODE == 2
+samplerCUBE OmvShadowCube : register(s2);
 #endif
 
 #ifndef LOCAL_LIGHT_SAMPLE_COUNT
@@ -16,8 +18,8 @@ sampler2D NativeShadow : register(s2);
 #define LOCAL_LIGHT_USE_NOISE 1
 #endif
 
-#ifndef LOCAL_LIGHT_USE_NATIVE_SHADOW
-#define LOCAL_LIGHT_USE_NATIVE_SHADOW 0
+#ifndef LOCAL_LIGHT_SHADOW_MODE
+#define LOCAL_LIGHT_SHADOW_MODE 0
 #endif
 
 float4 ReducedTarget : register(c0);
@@ -37,11 +39,13 @@ float4 LocalColorIntensity1 : register(c13);
 float4 LocalColorIntensity2 : register(c14);
 float4 LocalColorIntensity3 : register(c15);
 float4 LocalControl : register(c16);
-#if LOCAL_LIGHT_USE_NATIVE_SHADOW
+#if LOCAL_LIGHT_SHADOW_MODE == 1
 float4 ShadowMatrix0 : register(c17);
 float4 ShadowMatrix1 : register(c18);
 float4 ShadowMatrix2 : register(c19);
 float4 ShadowMatrix3 : register(c20);
+#elif LOCAL_LIGHT_SHADOW_MODE == 2
+float4 ShadowCubeData : register(c17); // x cube radius
 #endif
 
 static const float MaximumOpticalDepth = 40.0f;
@@ -49,6 +53,10 @@ static const float MaximumExponent = 20.0f;
 static const float IntervalEpsilon = 0.0001f;
 static const float ProjectionEpsilon = 0.000001f;
 static const float MaximumLocalContribution = 8192.0f;
+// FNV exposes local-light diffuse/dimmer values, not photometric radiance.
+// Calibrate that engine-space scalar so the shipped lighting-only medium has
+// a useful 0..4 menu range without increasing directional extinction.
+static const float NativeLightRadianceScale = 8.0f;
 
 struct PixelInput {
 	float2 uv : TEXCOORD0;
@@ -106,7 +114,7 @@ float HenyeyGreenstein(float mu, float anisotropy) {
 }
 
 float ShadowVisibility(float3 worldPosition) {
-#if LOCAL_LIGHT_USE_NATIVE_SHADOW
+#if LOCAL_LIGHT_SHADOW_MODE == 1
 	float4 homogeneous = float4(worldPosition, 1.0f);
 	float4 shadowPosition = float4(
 		dot(ShadowMatrix0, homogeneous),
@@ -129,6 +137,15 @@ float ShadowVisibility(float3 worldPosition) {
 	}
 	float shadowDepth = tex2Dlod(NativeShadow, float4(shadowUv, 0.0f, 0.0f)).r;
 	return shadowPosition.z < shadowDepth + LocalControl.x ? 1.0f : 0.0f;
+#elif LOCAL_LIGHT_SHADOW_MODE == 2
+	float3 toLight = LocalPositionRadius0.xyz - worldPosition;
+	float distance = length(toLight);
+	float normalizedDistance = distance / max(ShadowCubeData.x, ProjectionEpsilon);
+	float3 cubeDirection = toLight * float3(-1.0f, -1.0f, 1.0f);
+	float casterDepth = texCUBElod(OmvShadowCube, float4(cubeDirection, 0.0f)).r;
+	float visibility = casterDepth + LocalControl.x * normalizedDistance >= normalizedDistance
+		? 1.0f : 0.0f;
+	return lerp(1.0f, visibility, casterDepth > 0.0f && casterDepth < 1.0f);
 #else
 	return 1.0f;
 #endif
@@ -181,6 +198,7 @@ float3 IntegrateLocalLight(
 		float scatterAmount = (1.0f - stepTransmittance) * saturate(MediumData1.y);
 		scattering += colorIntensity.rgb
 			* max(colorIntensity.w, 0.0f)
+			* NativeLightRadianceScale
 			* attenuation
 			* phase
 			* visibility

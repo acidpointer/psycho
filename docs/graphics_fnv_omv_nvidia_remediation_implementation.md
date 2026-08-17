@@ -14,6 +14,69 @@ proof establishes where OMV now intervenes, which work was removed, and which
 state/copy boundaries remain necessary; it cannot identify a proprietary
 driver stall by itself.
 
+### 2026-08-17 Sky/PBR hot-path candidate
+
+The current unaccepted candidate removes additional CPU work from the native
+Sky and PBR paths without changing HLSL, intended family coverage, hook
+ownership, or normal-build diagnostics:
+
+- the PBR master gate is one published atomic read instead of a complete
+  logical bytecode-catalog scan followed by the global resource gate; object
+  and terrain families retain independent readiness and failure gates;
+- renderer submissions with no pending PBR family return before the readiness
+  gate, and required-sampler admission visits only stages present in the
+  required mask;
+- PPLighting wrapper-table lookup caches only a hit whose current table slot
+  still contains the same wrapper. Absence is not cached because the package
+  selector does not own wrapper-table mutation;
+- object selection publishes the already-proven pixel template with the
+  wrapper/handle transaction, so the synchronous geometry callback does not
+  repeat shader-record and replacement-handle discovery;
+- object classification consumes the selector supplied by the synchronous
+  native callback only after proving the PPLighting wrapper pair. Invalid
+  selector/list state is a distinct unavailable result and preserves vanilla;
+- object and Sky classification use direct bounded reads only while their
+  native predecessor owns the referenced selector/pass objects. Fixed ranges
+  are checked at installation and detailed diagnostics retains checked global
+  discovery;
+- native Sky validates its fixed selector arrays and engine global slots once
+  when preparing the live `UpdateConstants` slot, instead of issuing virtual
+  memory queries for them at every sky draw;
+- scene-light capture remains dormant until close-terrain bytecode, resources,
+  hooks, and the functional terrain contract are all ready. Demand is updated
+  only on configuration, contract, draw-boundary, resource, or reset changes;
+- successful resource preparation becomes terminal for the current D3D
+  generation, so warm presentation no longer scans the 162-slot catalog;
+- pending object and Sky ownership includes the D3D device generation; reset
+  or recreate cannot consume raw shader handles from an earlier generation;
+- unchanged supplemental light payloads still avoid serialization and a D3D
+  discard lock. New attribution distinguishes terrain-cache reuse, light-list
+  scans, payload reuse/uploads, sampler queries/mutations, and actual native
+  Sky shader transitions.
+
+Native sampler research rejected a broader cache shortcut. FNV
+`NiDX9RenderState::SetSamplerState @ 0x00E910A0` tracks only sampler state types
+1, 2, 5, 6, and 7 through TypeMap `0x0126F92C`; it does not track
+`D3DSAMP_SRGBTEXTURE`. ENB, NVR, or another owner may also write the device
+directly. Supplemental s14 therefore continues to capture the three physical
+D3D values and restore them after the draw. Replacing those queries requires a
+complete mod-agnostic direct-write observation contract, not an engine-cache
+assumption.
+
+No Sky or PBR HLSL equation is changed by this candidate. Shader lowering is
+measurement-gated: the affected NVIDIA trace must first show that GPU shader
+work, rather than selector CPU work, D3D state transitions, or light-payload
+traffic, owns the residual stall. Any later HLSL change requires a shipped
+shader behavior test that rejects the measured defect.
+
+Radare2 closure of the cache lifecycle rejected an earlier negative-cache
+assumption. Both hooked callers at `0x004DB187` and `0x004DCB9D` invoke
+`SetShaderPackage @ 0x00B4F710`, which updates package-selection globals but
+does not mutate the five PPLighting wrapper tables. The table-clearing owners
+at `0x00B79DE0` and `0x00B7A170` are separate lifecycle routines. A missing
+wrapper therefore cannot be cached against a `SetShaderPackage` generation;
+only a positive entry whose live slot is revalidated is retained.
+
 ### 2026-08-14 mod-agnostic ownership update
 
 The current source supersedes the original entry-hook ownership described by
@@ -508,6 +571,24 @@ color/depth copies, state capture/apply, and package transitions. QPC spans
 separate OMV shadow pre-work, native prefix, post-work, manager traversal,
 texture retention, PBR/sky admission, real geometry submission, state
 capture/apply, and color copies.
+
+The Sky/PBR candidate adds these attribution groups:
+
+| Group | Fields | Interpretation |
+|---|---|---|
+| PBR gate | `pbr_ready_query`, `pbr_ready_entry`, `pbr_pending_none` | The first two must remain equal because readiness is one published entry; pending-none shows geometry calls rejected before that work. |
+| Table lookup | `table_positive`, `table_miss`, `table_entry` | Positive hits revalidate their live slot; `table_entry` reports remaining bounded linear-scan work. |
+| Pointer validation | `object_memory_query`, `sky_memory_query` | Normal hot admission should report zero; nonzero work belongs to setup or explicitly detailed diagnostics. |
+| Terrain lights | `terrain_cache_hit`, `terrain_cache_miss`, `terrain_native_entry`, `terrain_property_entry`, `terrain_manager_entry`, `supplemental_lights_*` | Separates unavoidable native membership reads from full property/manager reconstruction and shows actual supplemental occupancy. |
+| Supplemental D3D | `supplemental_payload_hit`, `supplemental_upload`, `supplemental_discard`, `supplemental_sampler_get`, `supplemental_sampler_set` | Identifies changed texture payloads and the exact draw-scoped D3D sampler transaction. |
+| Native Sky | `sky_raw_shader`, `sky_update_constants_us` | Counts raw replacement/restoration calls and CPU time in native Sky classification/publication. |
+
+Additional sampled intervals are `pbr_selector_us`, `pbr_object_us`,
+`pbr_terrain_lights_us`, `pbr_supplemental_upload_us`, and
+`pbr_supplemental_sampler_us`. `OnFramePresent` emits one `[GRAPHICS PERF]`
+record for a sealed sampled frame. Formatting and logging occur only after the
+frame is sealed; callbacks retain fixed atomic/QPC work in an armed attribution
+build and no diagnostic work in a normal build.
 
 Callbacks never allocate, format, lock, or log for this diagnostic owner.
 `OnFramePresent` seals a fixed POD sample. A long D3D-adjacent CPU interval remains

@@ -15,7 +15,7 @@ use core::{cell::Cell, ffi::c_void};
 use std::time::Instant;
 
 use libpsycho::os::windows::directx9::{
-    CubeTexture9, D3DBLEND_ONE, D3DBLENDOP_ADD, D3DCLEAR_STENCIL, D3DCLEAR_TARGET,
+    BaseTexture9, CubeTexture9, D3DBLEND_ONE, D3DBLENDOP_ADD, D3DCLEAR_STENCIL, D3DCLEAR_TARGET,
     D3DCLEAR_ZBUFFER, D3DCMP_ALWAYS, D3DCUBEMAP_FACE_NEGATIVE_X, D3DCUBEMAP_FACE_NEGATIVE_Y,
     D3DCUBEMAP_FACE_NEGATIVE_Z, D3DCUBEMAP_FACE_POSITIVE_X, D3DCUBEMAP_FACE_POSITIVE_Y,
     D3DCUBEMAP_FACE_POSITIVE_Z, D3DCUBEMAP_FACES, D3DCULL_NONE, D3DFMT_A16B16G16R16F, D3DFMT_D24S8,
@@ -156,14 +156,46 @@ pub(crate) struct WorldContextGuard {
 /// Scalar publication for one sampled point shadow.
 #[derive(Clone, Copy, Debug, Default)]
 struct PublishedPointLight {
+    identity: usize,
     position: [f32; 3],
     color: [f32; 3],
     receiver_radius: f32,
     cube_radius: f32,
+    receiver_bias: f32,
     /// Last transition weight accepted by a complete producer transaction.
     producer_transition_fade: f32,
     /// Start of the physical cube's current identity transition.
     transition_start_millis: u64,
+}
+
+/// One shadow-selected point light and the exact cube published for it.
+pub(crate) struct VolumetricPointLight {
+    /// Native light identity shared by selection, cube ownership, and atmosphere.
+    pub(crate) identity: usize,
+    /// Absolute world-space position copied by the shadow producer.
+    pub(crate) position: [f32; 3],
+    /// Effective native RGB after the light dimmer.
+    pub(crate) color: [f32; 3],
+    /// Native attenuation radius used by receivers and volumetric integration.
+    pub(crate) receiver_radius: f32,
+    /// Radial-depth normalization radius used to generate the cube.
+    pub(crate) cube_radius: f32,
+    /// Receiver comparison bias used by the point-shadow compositor.
+    pub(crate) receiver_bias: f32,
+    /// Type-erased sampler reference to the exact published point cube.
+    pub(crate) texture: BaseTexture9,
+}
+
+/// Same-epoch point-light publication shared with atmosphere.
+pub(crate) struct VolumetricPointLightFrame {
+    /// Presentation epoch that selected the lights and published their cubes.
+    pub(crate) render_epoch: u32,
+    /// D3D device that owns every retained sampler reference.
+    pub(crate) device_identity: usize,
+    /// Reset generation that owns the publication.
+    pub(crate) device_generation: u32,
+    /// Fixed, nearest-order point inventory published by shadows.
+    pub(crate) lights: [Option<VolumetricPointLight>; NVR_POINT_LIGHT_COUNT],
 }
 
 impl PublishedPointLight {
@@ -388,6 +420,49 @@ impl ShadowPipeline {
                 crate::hooks::render_epoch(),
             ))
         .then_some(publication.sun_direction)
+    }
+
+    /// Clone the exact point-light/cube pairs owned by the current publication.
+    ///
+    /// The returned COM references keep the cubes alive until atmosphere has
+    /// consumed this render epoch. An empty but current publication remains
+    /// meaningful: it prevents a second, later manager walk from inventing a
+    /// different light set after the native tail has changed its caches.
+    pub(crate) fn volumetric_point_lights(&self) -> Option<VolumetricPointLightFrame> {
+        let publication = self.published?;
+        if !publication_epoch_is_usable(
+            publication.identity.render_epoch,
+            crate::hooks::render_epoch(),
+        ) {
+            return None;
+        }
+        let resources = self.resources.as_ref()?;
+        let point_resources = resources.points.as_ref();
+        let lights = std::array::from_fn(|index| {
+            if index >= publication.point_count {
+                return None;
+            }
+            let point = publication.points[index];
+            let texture = point_resources?
+                .point_cubes
+                .get(index)?
+                .retain_base_texture();
+            Some(VolumetricPointLight {
+                identity: point.identity,
+                position: point.position,
+                color: point.color,
+                receiver_radius: point.receiver_radius,
+                cube_radius: point.cube_radius,
+                receiver_bias: point.receiver_bias,
+                texture,
+            })
+        });
+        Some(VolumetricPointLightFrame {
+            render_epoch: publication.identity.render_epoch,
+            device_identity: resources.device_identity,
+            device_generation: publication.identity.device_generation,
+            lights,
+        })
     }
 
     /// Produce directional or point maps for one proven common-hook context.
@@ -805,10 +880,12 @@ impl ShadowPipeline {
             self.point_transition_identities[slot] = transition_identity;
             self.point_transition_starts[slot] = transition_start;
             *published = PublishedPointLight {
+                identity: point.identity,
                 position: map.position,
                 color: point.color,
                 receiver_radius: point.receiver_radius,
                 cube_radius: map.radius,
+                receiver_bias: settings.interior_receiver_bias,
                 producer_transition_fade: transition_weight,
                 transition_start_millis: transition_start,
             };
@@ -2097,10 +2174,12 @@ impl ShadowResources {
             point_transition_identities[slot] = transition_identity;
             point_transition_starts[slot] = transition_start;
             published_points[slot] = PublishedPointLight {
+                identity: point.identity,
                 position: map.position,
                 color: point.color,
                 receiver_radius: point.receiver_radius,
                 cube_radius: map.radius,
+                receiver_bias: settings.interior_receiver_bias,
                 producer_transition_fade: transition_weight,
                 transition_start_millis: transition_start,
             };

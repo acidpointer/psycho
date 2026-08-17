@@ -309,7 +309,9 @@ pub(crate) fn on_frame_present(loading_screen: bool) {
     }
     unsafe { runtime::finish_present_frame(render_epoch, present_started_at) };
     crate::fnv_world_pipeline::finish_present(render_epoch);
-    crate::graphics_diagnostics::seal_frame(render_epoch);
+    if crate::graphics_diagnostics::seal_frame(render_epoch) {
+        crate::graphics_diagnostics::log_latest_sample();
+    }
     advance_render_epoch(&RENDER_EPOCH);
 }
 

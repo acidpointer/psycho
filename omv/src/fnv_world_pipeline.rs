@@ -1128,11 +1128,13 @@ impl FnvWorldPipelineRuntime {
         Ok(outcome)
     }
 
-    /// Refresh the nonblocking local-light mailbox for atmosphere admission.
+    /// Refresh the local-light inventory for atmosphere admission.
     ///
-    /// A previous frame's publication is never evidence that the current frame
-    /// can draw local scattering. If the mailbox is busy, the caller receives
-    /// `unknown=true` and must conservatively keep the atmosphere transaction.
+    /// Shadows is authoritative when it has a usable point publication: its
+    /// immediately preceding producer epoch owns the exact cubes consumed at
+    /// this pre-alpha boundary. The native-light mailbox remains a nonblocking
+    /// fallback when shadows is unavailable. A busy fallback reports
+    /// `unknown=true` so admission conservatively keeps the transaction.
     fn refresh_local_lights(
         &mut self,
         settings: AtmosphereSettings,
@@ -1144,13 +1146,21 @@ impl FnvWorldPipelineRuntime {
             return (false, false);
         }
 
+        let device_generation = crate::backend::d3d_device_generation();
+        if let Some(epoch) = crate::fnv_local_lights::try_shadow_point_epoch_for_consumer(
+            device_identity,
+            device_generation,
+            render_epoch,
+        ) {
+            let ready = epoch.light_count() != 0;
+            self.local_lights = Some(epoch);
+            return (ready, false);
+        }
+
         let access =
             crate::fnv_local_lights::try_take_published(&mut self.local_lights, device_identity);
-        let device_generation = crate::backend::d3d_device_generation();
         let current = self.local_lights.as_ref().is_some_and(|epoch| {
-            epoch.device_identity == device_identity
-                && epoch.device_generation == device_generation
-                && epoch.render_epoch == render_epoch
+            epoch.is_current(device_identity, device_generation, render_epoch)
         });
         if !current {
             self.local_lights = None;

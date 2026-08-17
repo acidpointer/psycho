@@ -35,7 +35,8 @@ use std::{
 use anyhow::Result;
 use libpsycho::os::windows::{
     directx9::{
-        D3DSAMP_MAGFILTER, D3DSAMP_MINFILTER, D3DSAMP_SRGBTEXTURE, D3DTEXF_POINT, Device9Ref,
+        D3DSAMP_MAGFILTER, D3DSAMP_MINFILTER, D3DSAMP_SRGBTEXTURE, D3DSAMPLERSTATETYPE,
+        D3DTEXF_POINT, Device9Ref,
     },
     hook::{callsite::Rel32CallHookContainer, pointer::PointerSlotHookContainer},
     memory::validate_memory_range,
@@ -46,7 +47,7 @@ use super::{
     object_replacement_record, samplers, samplers::TrackedTextureBinding, shader_record,
     shader_registry, shader_registry::ShaderStage,
 };
-use engine_contracts::ObjectDrawRejectReason;
+use engine_contracts::{ObjectDrawAdmission, ObjectDrawRejectReason};
 use object_contracts::{ObjectContractDecision, ObjectContractState};
 
 const SELECTOR_SETUP_CALL_ADDR: usize = 0x00B9_9539;
@@ -90,6 +91,8 @@ const PENDING_DRAW_LAND_LOD: u32 = 2;
 const PENDING_DRAW_TERRAIN_FADE: u32 = 3;
 const PENDING_DRAW_CLOSE_TERRAIN: u32 = 4;
 const TABLE_LOOKUP_CACHE_COUNT: usize = 512;
+const PENDING_OBJECT_TEMPLATE_SHIFT: u32 = 16;
+const PENDING_OBJECT_PASS_MASK: u32 = (1 << PENDING_OBJECT_TEMPLATE_SHIFT) - 1;
 
 #[derive(Clone, Copy)]
 struct PplightingTableSlot {
@@ -146,6 +149,7 @@ impl TableLookupCacheEntry {
 #[derive(Clone, Copy)]
 struct PreparedObjectReplacement {
     pair: ShaderPairSelection,
+    pixel_template_id: u16,
     draw_trace: diagnostics::ObjectDrawTrace,
     normalized_vertex_index: u32,
     contract_state: ObjectContractState,
@@ -173,7 +177,10 @@ static PENDING_REPLACEMENT_VERTEX: AtomicUsize = AtomicUsize::new(0);
 static PENDING_REPLACEMENT_PIXEL: AtomicUsize = AtomicUsize::new(0);
 static PENDING_DRAW_KIND: AtomicU32 = AtomicU32::new(PENDING_DRAW_NONE);
 static PENDING_DRAW_PASS_INDEX: AtomicU32 = AtomicU32::new(0);
-static PENDING_CLOSE_TERRAIN_PIXEL_INDEX: AtomicU32 = AtomicU32::new(0);
+// Kind-tagged auxiliary value: close-terrain pixel index or object-device
+// generation. Keeping it in the existing pending record avoids adding a new
+// loader-visible static while making reset ownership explicit.
+static PENDING_DRAW_AUXILIARY: AtomicU32 = AtomicU32::new(0);
 static PENDING_DRAW_EVALUATED: AtomicBool = AtomicBool::new(false);
 static PENDING_REQUIRED_SAMPLER_MASK: AtomicU32 = AtomicU32::new(0);
 static PENDING_MISSING_SAMPLER_MASK: AtomicU32 = AtomicU32::new(0);
@@ -504,6 +511,8 @@ unsafe extern "cdecl" fn hook_selector_setup(pass_index: u32, selector: *mut c_v
     };
     reconcile_pending_before_selector_setup();
     unsafe { original(pass_index, selector) };
+    let _span =
+        crate::graphics_diagnostics::span(crate::graphics_diagnostics::Interval::PbrSelectorSetup);
     unsafe { hook_set_shaders(selector, pass_index) };
 }
 
@@ -634,10 +643,10 @@ unsafe extern "thiscall" fn hook_set_shaders(shader: *mut c_void, pass_index: u3
 
     if super::object_contract_available()
         && engine_contracts::eye_position_ready_for_pass(pass_index)
-        && let Some(replacement) = try_prepare_object_replacement(pass_index)
+        && let Some(replacement) = try_prepare_object_replacement_for_selector(shader, pass_index)
         && call_original_with_replacement(original, shader, pass_index, replacement.pair)
     {
-        set_pending_draw(PENDING_DRAW_OBJECT, pass_index, 0, replacement.pair);
+        set_pending_object_draw(pass_index, replacement.pixel_template_id, replacement.pair);
         return;
     }
 }
@@ -740,7 +749,7 @@ fn set_pending_draw(
 ) {
     publish_pending_shader_pair(pair);
     PENDING_DRAW_PASS_INDEX.store(pass_index, Ordering::Release);
-    PENDING_CLOSE_TERRAIN_PIXEL_INDEX.store(close_terrain_pixel_index, Ordering::Release);
+    PENDING_DRAW_AUXILIARY.store(close_terrain_pixel_index, Ordering::Release);
     PENDING_REQUIRED_SAMPLER_MASK.store(
         u32::from(direct_required_sampler_mask(
             kind,
@@ -753,6 +762,20 @@ fn set_pending_draw(
     PENDING_CLOSE_TERRAIN_PREPARED_GEOMETRY.store(0, Ordering::Release);
     PENDING_DRAW_EVALUATED.store(false, Ordering::Release);
     PENDING_DRAW_KIND.store(kind, Ordering::Release);
+}
+
+fn set_pending_object_draw(pass_index: u32, pixel_template_id: u16, pair: ShaderPairSelection) {
+    debug_assert_eq!(pass_index & !PENDING_OBJECT_PASS_MASK, 0);
+    let pass_and_template =
+        pass_index | (u32::from(pixel_template_id) << PENDING_OBJECT_TEMPLATE_SHIFT);
+    publish_pending_shader_pair(pair);
+    PENDING_DRAW_PASS_INDEX.store(pass_and_template, Ordering::Release);
+    PENDING_DRAW_AUXILIARY.store(crate::backend::d3d_device_generation(), Ordering::Release);
+    PENDING_REQUIRED_SAMPLER_MASK.store(0, Ordering::Release);
+    PENDING_MISSING_SAMPLER_MASK.store(0, Ordering::Release);
+    PENDING_CLOSE_TERRAIN_PREPARED_GEOMETRY.store(0, Ordering::Release);
+    PENDING_DRAW_EVALUATED.store(false, Ordering::Release);
+    PENDING_DRAW_KIND.store(PENDING_DRAW_OBJECT, Ordering::Release);
 }
 
 fn current_pass_is_land_lod(pass_index: u32) -> bool {
@@ -1259,14 +1282,37 @@ fn restore_supplemental_light_texture(device: &Device9Ref<'_>) {
 }
 
 fn bind_supplemental_sampler_state(device: &Device9Ref<'_>) -> bool {
-    let stage = device_resources::SUPPLEMENTAL_LIGHT_SAMPLER;
-    let Ok(min_filter) = device.sampler_state(stage, D3DSAMP_MINFILTER) else {
+    let _span = crate::graphics_diagnostics::span(
+        crate::graphics_diagnostics::Interval::PbrSupplementalSampler,
+    );
+    crate::graphics_diagnostics::add(
+        crate::graphics_diagnostics::Counter::SupplementalSamplerGet,
+        1,
+    );
+    let Ok(min_filter) = device.sampler_state(
+        device_resources::SUPPLEMENTAL_LIGHT_SAMPLER,
+        D3DSAMP_MINFILTER,
+    ) else {
         return false;
     };
-    let Ok(mag_filter) = device.sampler_state(stage, D3DSAMP_MAGFILTER) else {
+    crate::graphics_diagnostics::add(
+        crate::graphics_diagnostics::Counter::SupplementalSamplerGet,
+        1,
+    );
+    let Ok(mag_filter) = device.sampler_state(
+        device_resources::SUPPLEMENTAL_LIGHT_SAMPLER,
+        D3DSAMP_MAGFILTER,
+    ) else {
         return false;
     };
-    let Ok(srgb) = device.sampler_state(stage, D3DSAMP_SRGBTEXTURE) else {
+    crate::graphics_diagnostics::add(
+        crate::graphics_diagnostics::Counter::SupplementalSamplerGet,
+        1,
+    );
+    let Ok(srgb) = device.sampler_state(
+        device_resources::SUPPLEMENTAL_LIGHT_SAMPLER,
+        D3DSAMP_SRGBTEXTURE,
+    ) else {
         return false;
     };
 
@@ -1289,18 +1335,10 @@ fn bind_supplemental_sampler_state(device: &Device9Ref<'_>) -> bool {
     PENDING_CLOSE_TERRAIN_SAMPLER_SRGB.store(srgb, Ordering::Relaxed);
     PENDING_CLOSE_TERRAIN_SAMPLER_STATE_ACTIVE.store(true, Ordering::Release);
 
-    if (min_filter != point
-        && device
-            .set_sampler_state(stage, D3DSAMP_MINFILTER, point)
-            .is_err())
+    if (min_filter != point && !set_supplemental_sampler_state(device, D3DSAMP_MINFILTER, point))
         || (mag_filter != point
-            && device
-                .set_sampler_state(stage, D3DSAMP_MAGFILTER, point)
-                .is_err())
-        || (srgb != 0
-            && device
-                .set_sampler_state(stage, D3DSAMP_SRGBTEXTURE, 0)
-                .is_err())
+            && !set_supplemental_sampler_state(device, D3DSAMP_MAGFILTER, point))
+        || (srgb != 0 && !set_supplemental_sampler_state(device, D3DSAMP_SRGBTEXTURE, 0))
     {
         restore_supplemental_sampler_state(device);
         return false;
@@ -1312,33 +1350,43 @@ fn restore_supplemental_sampler_state(device: &Device9Ref<'_>) {
     if !PENDING_CLOSE_TERRAIN_SAMPLER_STATE_ACTIVE.load(Ordering::Acquire) {
         return;
     }
-    let stage = device_resources::SUPPLEMENTAL_LIGHT_SAMPLER;
-    let mut restored = device
-        .set_sampler_state(
-            stage,
-            D3DSAMP_MINFILTER,
-            PENDING_CLOSE_TERRAIN_SAMPLER_MIN_FILTER.load(Ordering::Relaxed),
-        )
-        .is_ok();
-    restored &= device
-        .set_sampler_state(
-            stage,
-            D3DSAMP_MAGFILTER,
-            PENDING_CLOSE_TERRAIN_SAMPLER_MAG_FILTER.load(Ordering::Relaxed),
-        )
-        .is_ok();
-    restored &= device
-        .set_sampler_state(
-            stage,
-            D3DSAMP_SRGBTEXTURE,
-            PENDING_CLOSE_TERRAIN_SAMPLER_SRGB.load(Ordering::Relaxed),
-        )
-        .is_ok();
+    let _span = crate::graphics_diagnostics::span(
+        crate::graphics_diagnostics::Interval::PbrSupplementalSampler,
+    );
+    let mut restored = set_supplemental_sampler_state(
+        device,
+        D3DSAMP_MINFILTER,
+        PENDING_CLOSE_TERRAIN_SAMPLER_MIN_FILTER.load(Ordering::Relaxed),
+    );
+    restored &= set_supplemental_sampler_state(
+        device,
+        D3DSAMP_MAGFILTER,
+        PENDING_CLOSE_TERRAIN_SAMPLER_MAG_FILTER.load(Ordering::Relaxed),
+    );
+    restored &= set_supplemental_sampler_state(
+        device,
+        D3DSAMP_SRGBTEXTURE,
+        PENDING_CLOSE_TERRAIN_SAMPLER_SRGB.load(Ordering::Relaxed),
+    );
     if restored {
         PENDING_CLOSE_TERRAIN_SAMPLER_STATE_ACTIVE.store(false, Ordering::Release);
     } else if !SUPPLEMENTAL_TEXTURE_RESTORE_FAILURE_LOGGED.swap(true, Ordering::AcqRel) {
         log::warn!("[PBR] Engine-owned sampler s14 state could not be restored after terrain draw");
     }
+}
+
+fn set_supplemental_sampler_state(
+    device: &Device9Ref<'_>,
+    state: D3DSAMPLERSTATETYPE,
+    value: u32,
+) -> bool {
+    crate::graphics_diagnostics::add(
+        crate::graphics_diagnostics::Counter::SupplementalSamplerSet,
+        1,
+    );
+    device
+        .set_sampler_state(device_resources::SUPPLEMENTAL_LIGHT_SAMPLER, state, value)
+        .is_ok()
 }
 
 fn supplemental_sampler_state_is_active() -> bool {
@@ -1422,12 +1470,12 @@ pub(super) fn release_device_resources() {
 /// admission fell back.
 #[must_use]
 pub(super) fn prepare_direct_draw(geometry: *mut c_void) -> bool {
-    if !super::shader_enabled() {
-        return false;
-    }
-
     let kind = PENDING_DRAW_KIND.load(Ordering::Acquire);
     if kind == PENDING_DRAW_NONE {
+        crate::graphics_diagnostics::add(crate::graphics_diagnostics::Counter::PbrPendingNone, 1);
+        return false;
+    }
+    if !super::shader_enabled() {
         return false;
     }
     if !draw_needs_evaluation(PENDING_DRAW_EVALUATED.load(Ordering::Acquire)) {
@@ -1452,15 +1500,17 @@ pub(super) fn prepare_direct_draw(geometry: *mut c_void) -> bool {
     let admitted = replacement_ready
         && match kind {
             PENDING_DRAW_OBJECT => {
-                let pass_index = PENDING_DRAW_PASS_INDEX.load(Ordering::Acquire);
-                bind_object_replacement(pass_index, pair)
+                let pass_and_template = PENDING_DRAW_PASS_INDEX.load(Ordering::Acquire);
+                let pass_index = pass_and_template & PENDING_OBJECT_PASS_MASK;
+                let pixel_template_id = (pass_and_template >> PENDING_OBJECT_TEMPLATE_SHIFT) as u16;
+                let device_generation = PENDING_DRAW_AUXILIARY.load(Ordering::Acquire);
+                bind_object_replacement(pass_index, pixel_template_id, device_generation, pair)
             }
             PENDING_DRAW_LAND_LOD => bind_land_lod_replacement(pair),
             PENDING_DRAW_TERRAIN_FADE => bind_terrain_fade_replacement(pair),
             PENDING_DRAW_CLOSE_TERRAIN => {
                 let pass_index = PENDING_DRAW_PASS_INDEX.load(Ordering::Acquire);
-                let pixel_index =
-                    PENDING_CLOSE_TERRAIN_PIXEL_INDEX.load(Ordering::Acquire) as usize;
+                let pixel_index = PENDING_DRAW_AUXILIARY.load(Ordering::Acquire) as usize;
                 bind_close_terrain_replacement(pass_index, pixel_index, pair, geometry)
             }
             _ => false,
@@ -1754,29 +1804,28 @@ unsafe extern "thiscall" fn hook_set_texture(
 }
 
 fn try_prepare_object_replacement(pass_index: u32) -> Option<PreparedObjectReplacement> {
+    let selector = engine_contracts::current_draw_selector_address_fast() as *mut c_void;
+    try_prepare_object_replacement_for_selector(selector, pass_index)
+}
+
+fn try_prepare_object_replacement_for_selector(
+    selector: *mut c_void,
+    pass_index: u32,
+) -> Option<PreparedObjectReplacement> {
+    let _span = crate::graphics_diagnostics::span(
+        crate::graphics_diagnostics::Interval::PbrObjectPreparation,
+    );
     let Some((vertex_shader, pixel_shader)) = engine_contracts::current_pass_shaders_fast() else {
         return None;
     };
     let diagnostics_enabled = diagnostics::detailed_enabled();
-    let draw_snapshot = if diagnostics_enabled {
-        engine_contracts::current_draw_snapshot(pass_index)
-    } else {
-        engine_contracts::DrawSnapshot {
-            rejection: engine_contracts::current_object_draw_rejection(pass_index),
-            ..engine_contracts::DrawSnapshot::default()
-        }
-    };
-    if diagnostics_enabled {
-        diagnostics::record_object_draw_context(draw_snapshot);
-        record_current_table_pair(vertex_shader, pixel_shader);
-    }
 
     let vertex_record = match resolve_current_shader_record(vertex_shader, ShaderStage::Vertex) {
         Ok(record) => record,
         Err(reason) => {
             if diagnostics_enabled {
                 record_unresolved_table_pair(
-                    draw_snapshot,
+                    engine_contracts::DrawSnapshot::default(),
                     pass_index,
                     vertex_shader,
                     pixel_shader,
@@ -1792,7 +1841,7 @@ fn try_prepare_object_replacement(pass_index: u32) -> Option<PreparedObjectRepla
         Err(reason) => {
             if diagnostics_enabled {
                 record_unresolved_table_pair(
-                    draw_snapshot,
+                    engine_contracts::DrawSnapshot::default(),
                     pass_index,
                     vertex_shader,
                     pixel_shader,
@@ -1815,6 +1864,33 @@ fn try_prepare_object_replacement(pass_index: u32) -> Option<PreparedObjectRepla
     }
     let vertex_record = ensure_table_identity(vertex_record);
     let pixel_record = ensure_table_identity(pixel_record);
+    let mut draw_snapshot = if diagnostics_enabled {
+        engine_contracts::current_draw_snapshot(selector, pass_index)
+    } else {
+        engine_contracts::DrawSnapshot::default()
+    };
+
+    // Only a proven PPLighting wrapper pair authorizes interpreting the
+    // callback-owned selector layout. Missing or malformed selector state is
+    // fail-closed and preserves the native pair.
+    let admission = engine_contracts::object_draw_admission(selector, pass_index);
+    if matches!(admission, ObjectDrawAdmission::Unavailable) {
+        if diagnostics_enabled {
+            diagnostics::record_object_draw_gate_rejection(
+                ObjectDrawRejectReason::MissingD3DState,
+                0,
+                selector as usize,
+            );
+        }
+        return None;
+    }
+    if let ObjectDrawAdmission::Reject(rejection) = admission {
+        draw_snapshot.rejection = Some(rejection);
+    }
+    if diagnostics_enabled {
+        diagnostics::record_object_draw_context(draw_snapshot);
+        record_current_table_pair(vertex_shader, pixel_shader);
+    }
 
     let draw_trace = if diagnostics_enabled {
         diagnostics::ObjectDrawTrace {
@@ -1942,6 +2018,7 @@ fn try_prepare_object_replacement(pass_index: u32) -> Option<PreparedObjectRepla
             replacement_vertex,
             replacement_pixel,
         },
+        pixel_template_id: pixel_record.template_id,
         draw_trace,
         normalized_vertex_index: contract.normalized_vertex_index,
         contract_state: contract.state,
@@ -1952,7 +2029,16 @@ fn try_prepare_object_replacement(pass_index: u32) -> Option<PreparedObjectRepla
     })
 }
 
-fn bind_object_replacement(pass_index: u32, pending_pair: ShaderPairSelection) -> bool {
+fn bind_object_replacement(
+    pass_index: u32,
+    pixel_template_id: u16,
+    device_generation: u32,
+    pending_pair: ShaderPairSelection,
+) -> bool {
+    if crate::backend::d3d_device_generation() != device_generation {
+        record_optional_object_bind_failure(None, ObjectDrawRejectReason::HandleStateMismatch);
+        return false;
+    }
     let detailed = diagnostics::detailed_enabled();
     let replacement = detailed
         .then(|| try_prepare_object_replacement(pass_index))
@@ -1961,29 +2047,9 @@ fn bind_object_replacement(pass_index: u32, pending_pair: ShaderPairSelection) -
         diagnostics::record_object_fallback();
         return false;
     }
-    let Some(vertex_record) = shader_record::find(pending_pair.vertex_wrapper) else {
-        record_optional_object_bind_failure(
-            replacement,
-            ObjectDrawRejectReason::MissingShaderRecord,
-        );
-        return false;
-    };
-    let Some(pixel_record) = shader_record::find(pending_pair.pixel_wrapper) else {
-        record_optional_object_bind_failure(
-            replacement,
-            ObjectDrawRejectReason::MissingShaderRecord,
-        );
-        return false;
-    };
-    let resources_match = device_resources::object_shader_handle(vertex_record.template_id)
-        == Some(pending_pair.replacement_vertex)
-        && device_resources::object_shader_handle(pixel_record.template_id)
-            == Some(pending_pair.replacement_pixel);
-    if vertex_record.stage != ShaderStage::Vertex
-        || pixel_record.stage != ShaderStage::Pixel
-        || !resources_match
-        || replacement.is_some_and(|replacement| replacement.pair != pending_pair)
-        || !pair_still_owns_native_wrappers(pending_pair)
+    if replacement.is_some_and(|replacement| {
+        replacement.pair != pending_pair || replacement.pixel_template_id != pixel_template_id
+    }) || !pair_still_owns_native_wrappers(pending_pair)
     {
         record_optional_object_bind_failure(
             replacement,
@@ -2011,7 +2077,7 @@ fn bind_object_replacement(pass_index: u32, pending_pair: ShaderPairSelection) -
         );
     }
     if let Err(reason) = object_replacement_record::validate_pixel_samplers(
-        pixel_record,
+        pixel_template_id,
         replacement.map_or(0, |replacement| replacement.draw_trace.selector),
         detailed,
     ) {
@@ -2028,8 +2094,7 @@ fn bind_object_replacement(pass_index: u32, pending_pair: ShaderPairSelection) -
     }
     if let Some(replacement) = replacement {
         if replacement.uses_native_specular_fade {
-            let light_capacity =
-                shader_registry::object_template_light_count(pixel_record.template_id);
+            let light_capacity = shader_registry::object_template_light_count(pixel_template_id);
             let mut light_data = [[0.0; 4]; 10];
             let light_data_ready = device.vertex_shader_constant_f(25, &mut light_data).is_ok();
             let renderer_weight = light_data_ready.then_some(light_data[0][3]);
@@ -2044,7 +2109,7 @@ fn bind_object_replacement(pass_index: u32, pending_pair: ShaderPairSelection) -
                 diagnostics::record_object_specular_fade(
                     replacement.draw_trace,
                     fade,
-                    samplers::object_sampler_identity(pixel_record.template_id),
+                    samplers::object_sampler_identity(pixel_template_id),
                 );
             }
         }
@@ -2975,12 +3040,18 @@ fn find_shader_array_index(base: usize, count: usize, shader: *mut c_void) -> Op
         if index < count as u32 {
             let slot = unsafe { (base as *const *mut c_void).add(index as usize).read() };
             if slot == shader {
+                crate::graphics_diagnostics::add(
+                    crate::graphics_diagnostics::Counter::ShaderTablePositiveHit,
+                    1,
+                );
                 return Some(index);
             }
         }
     }
 
+    crate::graphics_diagnostics::add(crate::graphics_diagnostics::Counter::ShaderTableMiss, 1);
     for index in 0..count {
+        crate::graphics_diagnostics::add(crate::graphics_diagnostics::Counter::ShaderTableEntry, 1);
         let slot = unsafe { (base as *const *mut c_void).add(index) };
         if unsafe { slot.read() } == shader {
             cached.shader.store(0, Ordering::Release);

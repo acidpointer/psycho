@@ -7,34 +7,31 @@ the real D3D compiler in the i686 Wine test run. Behavioral regressions own the
 native-radiance and projection contracts; the feature-first playtest remains
 the final pixel-quality gate.
 
-Native-radiance correction on 2026-08-17: the installed build drew and composed
-the atmosphere, but Volumetric Lighting remained visibly ineffective. Fresh
-executable research proves `Sky::Sky @ 0x00639D40` owns ten native color slots
-and `Sky::Update @ 0x0063B120` completes weather/time interpolation before
-publishing slot four at `Sky +0x6C`. OMV consumed that final directional RGB and
-then multiplied it by `NativeSkyFrame.daylight`, applying the same transition a
-second time. In the rejected logged frame, `daylight = 0.4252`, so the
-integrator received only 42.52% of the already-transitioned native radiance.
+Native-radiance compatibility correction on 2026-08-18: the earlier claim that
+`Sky +0x6C` was an executable-proven final directional color was incorrect.
+The authoritative follow-up audit proves a different interpolation write at
+`Sky +0x48` and leaves `Sky +0x6C/+0x78` as Reloaded-derived candidates. The
+previous shader fixtures injected bright values into those candidates, so they
+passed while a valid exterior daylight frame with black candidates made both
+directional volumetrics and legacy godrays produce black pixels.
 
-Daylight now remains a finite, day-active admission signal only. The uploaded
-radiance scale is one, so the shader receives the native final RGB exactly
-once; user intensity, medium extinction, phase response, and the optional disk
-lobe remain unchanged. The behavioral regression drives the rejected logged
-frame through `NativeSkyFrame`, contribution resolution, native color
-linearization, and the integrator radiance equation. The rejected policy
-delivers `0.061375994` where the native-once path delivers `0.14434618`; the
-corrected policy makes them equal. The older calibrated-default test covered
-only isolated phase and density math and could not detect this frame-input
-ownership error.
+`NativeSkyFrame` now resolves one shared post-process sun color. A viable
+directional candidate wins, followed by a viable disk candidate. If both are
+black, the resolver keeps the native horizon/sky hue and scales it by the
+finite daylight value; a neutral daylight tint is the last fallback. Exterior
+and daylight admission remains mandatory, so the compatibility path cannot
+enable directional effects in interiors or at night. Atmosphere and legacy
+Sunshafts consume the same resolved color.
 
-The acceptance regression continues through the shipped integration and
-composition equations instead of stopping at radiance admission. It uses the
-rejected twilight value, logged camera height and fog color, shipped medium,
-anisotropy, intensity, and shaft settings, exact reduced-depth acceptance, and
-extended-sRGB output. Its weakest reference case is a 10,000-unit back-scatter
-ray with the default shaft field at its darkest supported value. The rejected
-double-fade remains below one output code step; the corrected path clears that
-minimum visibility threshold across the reference distance/direction set.
+Two independent shipped-HLSL behavior gates own the correction. The atmosphere
+gate executes depth reduction, shaft mask/radial passes, layered integration,
+and HDR composition. It requires broad off-disk scattering, blocker-shaped
+occlusion outside the blocker pixels, and movement with native sun direction.
+The legacy gate executes mask, radial, both blur passes, and composition into
+the observed `X8R8G8B8` scene-post format, with the same occlusion and movement
+requirements. Both fixtures set `sun_light` and `sun_disk` to black while
+retaining valid exterior, daylight, camera, and depth inputs; both produced
+exactly black output before the resolver correction.
 
 Runtime rejection and projection-scope correction on 2026-08-17: the installed
 build logged successful atmosphere integration and composition, but Volumetric

@@ -14,6 +14,7 @@
 
 use std::{
     ffi::c_void,
+    mem::{align_of, size_of},
     sync::{
         LazyLock,
         atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering},
@@ -50,6 +51,9 @@ const SHADER_BACKUP_HANDLE_OFFSET: usize = 0x1C;
 const CONSTANT_FIRST_REGISTER: u32 = 21;
 const CREATE_BUDGET_PER_FRAME: usize = 3;
 const NO_INDEX: u32 = u32::MAX;
+const PENDING_OBJECT_TYPE_MASK: u32 = 0xFF;
+const PENDING_DEVICE_GENERATION_SHIFT: u32 = 8;
+const PENDING_DEVICE_GENERATION_MASK: u32 = u32::MAX >> PENDING_DEVICE_GENERATION_SHIFT;
 
 const ATMOSPHERE_VS: &[u8] = include_bytes!("../../shaders/embedded/native_sky_atmosphere.vs.hlsl");
 const TEXTURED_VS: &[u8] = include_bytes!("../../shaders/embedded/native_sky_textured.vs.hlsl");
@@ -951,31 +955,41 @@ unsafe extern "thiscall" fn hook_update_constants(
     if !ENABLED.load(Ordering::Acquire) || sky_shader.is_null() || property_state.is_null() {
         return;
     }
+    let _span = crate::graphics_diagnostics::span(
+        crate::graphics_diagnostics::Interval::SkyUpdateConstants,
+    );
     clear_pending();
-    let Some(property) = read_ptr_offset(property_state, PROPERTY_STATE_SHADE_PROPERTY_OFFSET)
+    let Some(current_sky_shader) = read_live_pointer_at(SKY_SELECTOR_CACHE_ADDR) else {
+        return;
+    };
+    if current_sky_shader != sky_shader {
+        return;
+    }
+    let Some(property) =
+        read_live_pointer_offset(property_state, PROPERTY_STATE_SHADE_PROPERTY_OFFSET)
     else {
         return;
     };
-    if read_usize(property).is_none_or(|vtable| vtable != SKY_SHADER_PROPERTY_VTABLE) {
+    if read_live_usize(property).is_none_or(|vtable| vtable != SKY_SHADER_PROPERTY_VTABLE) {
         return;
     }
-    let Some(object_type) = read_u32_offset(property, SKY_PROPERTY_OBJECT_TYPE_OFFSET) else {
+    let Some(object_type) = read_live_u32_offset(property, SKY_PROPERTY_OBJECT_TYPE_OFFSET) else {
         return;
     };
     if object_type > 8 {
         return;
     }
 
-    let Some(pass) = read_ptr(CURRENT_PASS_ADDR as *const c_void) else {
+    let Some(pass) = read_live_pointer_at(CURRENT_PASS_ADDR) else {
         return;
     };
-    let Some(vertex_wrapper) = read_ptr_offset(pass, PASS_VERTEX_SHADER_OFFSET) else {
+    let Some(vertex_wrapper) = read_live_pointer_offset(pass, PASS_VERTEX_SHADER_OFFSET) else {
         return;
     };
-    let Some(pixel_wrapper) = read_ptr_offset(pass, PASS_PIXEL_SHADER_OFFSET) else {
+    let Some(pixel_wrapper) = read_live_pointer_offset(pass, PASS_PIXEL_SHADER_OFFSET) else {
         return;
     };
-    let Some(vertex_index) = find_array_index(
+    let Some(vertex_index) = find_array_index_fast(
         sky_shader,
         SKY_VERTEX_ARRAY_OFFSET,
         SKY_VERTEX_COUNT,
@@ -983,7 +997,7 @@ unsafe extern "thiscall" fn hook_update_constants(
     ) else {
         return;
     };
-    let Some(pixel_index) = find_array_index(
+    let Some(pixel_index) = find_array_index_fast(
         sky_shader,
         SKY_PIXEL_ARRAY_OFFSET,
         SKY_PIXEL_COUNT,
@@ -994,22 +1008,25 @@ unsafe extern "thiscall" fn hook_update_constants(
     if !pair_supported_for_object(object_type, vertex_index, pixel_index) {
         return;
     }
-    let Some(native_vertex) = shader_handle(vertex_wrapper, Stage::Vertex) else {
+    let Some(native_vertex) = shader_handle_fast(vertex_wrapper, Stage::Vertex) else {
         return;
     };
-    let Some(native_pixel) = shader_handle(pixel_wrapper, Stage::Pixel) else {
+    let Some(native_pixel) = shader_handle_fast(pixel_wrapper, Stage::Pixel) else {
         return;
     };
-    let Some(draw_entry) = read_ptr(CURRENT_DRAW_ENTRY_ADDR as *const c_void) else {
+    let Some(draw_entry) = read_live_pointer_at(CURRENT_DRAW_ENTRY_ADDR) else {
         return;
     };
-    let Some(geometry) = read_ptr(draw_entry.cast_const()) else {
+    let Some(geometry) = read_live_pointer_at(draw_entry as usize) else {
         return;
     };
 
     PENDING_VERTEX_INDEX.store(vertex_index as u32, Ordering::Release);
     PENDING_PIXEL_INDEX.store(pixel_index as u32, Ordering::Release);
-    PENDING_OBJECT_TYPE.store(object_type, Ordering::Release);
+    let device_generation = crate::backend::d3d_device_generation();
+    let pending_object_and_generation = object_type
+        | ((device_generation & PENDING_DEVICE_GENERATION_MASK) << PENDING_DEVICE_GENERATION_SHIFT);
+    PENDING_OBJECT_TYPE.store(pending_object_and_generation, Ordering::Release);
     PENDING_GEOMETRY.store(geometry as usize, Ordering::Release);
     PENDING_NATIVE_VERTEX.store(native_vertex as usize, Ordering::Release);
     PENDING_NATIVE_PIXEL.store(native_pixel as usize, Ordering::Release);
@@ -1022,7 +1039,13 @@ fn try_bind_pending_draw() -> bool {
         crate::graphics_diagnostics::span(crate::graphics_diagnostics::Interval::SkyAdmission);
     let vertex_index = PENDING_VERTEX_INDEX.load(Ordering::Acquire) as usize;
     let pixel_index = PENDING_PIXEL_INDEX.load(Ordering::Acquire) as usize;
-    let object_type = PENDING_OBJECT_TYPE.load(Ordering::Acquire);
+    let pending_object_and_generation = PENDING_OBJECT_TYPE.load(Ordering::Acquire);
+    let object_type = pending_object_and_generation & PENDING_OBJECT_TYPE_MASK;
+    let device_generation = pending_object_and_generation >> PENDING_DEVICE_GENERATION_SHIFT;
+    if crate::backend::d3d_device_generation() & PENDING_DEVICE_GENERATION_MASK != device_generation
+    {
+        return false;
+    }
     let Some(settings) = SETTINGS.try_lock().map(|settings| *settings) else {
         return false;
     };
@@ -1074,9 +1097,25 @@ fn try_bind_pending_draw() -> bool {
     if upload_constants(&device, frame.constants, object_type).is_none() {
         return false;
     }
-    if unsafe { device.set_raw_vertex_shader(replacement_vertex) }.is_err()
-        || unsafe { device.set_raw_pixel_shader(replacement_pixel) }.is_err()
-    {
+    crate::graphics_diagnostics::add(
+        crate::graphics_diagnostics::Counter::SkyRawShaderTransition,
+        1,
+    );
+    let vertex_failed = unsafe { device.set_raw_vertex_shader(replacement_vertex) }.is_err();
+    let pixel_failed = if vertex_failed {
+        false
+    } else {
+        crate::graphics_diagnostics::add(
+            crate::graphics_diagnostics::Counter::SkyRawShaderTransition,
+            1,
+        );
+        unsafe { device.set_raw_pixel_shader(replacement_pixel) }.is_err()
+    };
+    if vertex_failed || pixel_failed {
+        crate::graphics_diagnostics::add(
+            crate::graphics_diagnostics::Counter::SkyRawShaderTransition,
+            2,
+        );
         let _ = unsafe { device.set_raw_vertex_shader(native_vertex) };
         let _ = unsafe { device.set_raw_pixel_shader(native_pixel) };
         return false;
@@ -1287,6 +1326,10 @@ fn restore_direct_pair() {
     let Some(device) = (unsafe { Device9Ref::from_raw_void(device_ptr) }) else {
         return;
     };
+    crate::graphics_diagnostics::add(
+        crate::graphics_diagnostics::Counter::SkyRawShaderTransition,
+        2,
+    );
     let _ = unsafe { device.set_raw_vertex_shader(native_vertex) };
     let _ = unsafe { device.set_raw_pixel_shader(native_pixel) };
 }
@@ -1303,6 +1346,22 @@ fn resolve_update_slot() -> Result<*mut *mut c_void> {
         .ok_or_else(|| anyhow::anyhow!("SkyShader::UpdateConstants slot address overflowed"))?;
     let slot = address as *mut *mut c_void;
     validate_memory_range(slot.cast(), size_of::<*mut c_void>())?;
+    let vertex_array = (selector as usize)
+        .checked_add(SKY_VERTEX_ARRAY_OFFSET)
+        .ok_or_else(|| anyhow::anyhow!("SkyShader vertex array address overflowed"))?;
+    let pixel_array = (selector as usize)
+        .checked_add(SKY_PIXEL_ARRAY_OFFSET)
+        .ok_or_else(|| anyhow::anyhow!("SkyShader pixel array address overflowed"))?;
+    validate_memory_range(
+        vertex_array as *const c_void,
+        SKY_VERTEX_COUNT * size_of::<usize>(),
+    )?;
+    validate_memory_range(
+        pixel_array as *const c_void,
+        SKY_PIXEL_COUNT * size_of::<usize>(),
+    )?;
+    validate_memory_range(CURRENT_PASS_ADDR as *const c_void, size_of::<usize>())?;
+    validate_memory_range(CURRENT_DRAW_ENTRY_ADDR as *const c_void, size_of::<usize>())?;
 
     // Resolve the current live vtable rather than the vanilla table. This
     // preserves a predecessor installed by a mod through either a cloned
@@ -1311,29 +1370,63 @@ fn resolve_update_slot() -> Result<*mut *mut c_void> {
     Ok(slot)
 }
 
-fn find_array_index(
+fn find_array_index_fast(
     owner: *mut c_void,
     offset: usize,
     count: usize,
     target: *mut c_void,
 ) -> Option<usize> {
-    let start = (owner as usize).checked_add(offset)? as *const c_void;
-    validate_memory_range(start, count.checked_mul(size_of::<usize>())?).ok()?;
-    (0..count).find(|index| {
-        let slot = (start as usize + index * size_of::<usize>()) as *const usize;
-        unsafe { slot.read() == target as usize }
-    })
+    live_pointer(owner as usize)?;
+    live_pointer(target as usize)?;
+    let start_address = (owner as usize).checked_add(offset)?;
+    if start_address % align_of::<usize>() != 0 {
+        return None;
+    }
+    let start = start_address as *const usize;
+    (0..count).find(|index| unsafe { start.add(*index).read() == target as usize })
 }
 
-fn shader_handle(shader: *mut c_void, stage: Stage) -> Option<*mut c_void> {
+fn shader_handle_fast(shader: *mut c_void, stage: Stage) -> Option<*mut c_void> {
     let (vtable, offset) = match stage {
         Stage::Vertex => (NID3D_VERTEX_SHADER_VTABLE, VERTEX_SHADER_HANDLE_OFFSET),
         Stage::Pixel => (NID3D_PIXEL_SHADER_VTABLE, PIXEL_SHADER_HANDLE_OFFSET),
     };
-    if read_usize(shader)? != vtable {
+    if read_live_usize(shader)? != vtable {
         return None;
     }
-    read_ptr_offset(shader, offset).or_else(|| read_ptr_offset(shader, SHADER_BACKUP_HANDLE_OFFSET))
+    read_live_pointer_offset(shader, offset)
+        .or_else(|| read_live_pointer_offset(shader, SHADER_BACKUP_HANDLE_OFFSET))
+}
+
+fn live_pointer(address: usize) -> Option<*mut c_void> {
+    const MIN_ENGINE_PTR: usize = 0x1_0000;
+
+    (address >= MIN_ENGINE_PTR && address % align_of::<usize>() == 0)
+        .then_some(address as *mut c_void)
+}
+
+fn read_live_pointer_at(address: usize) -> Option<*mut c_void> {
+    live_pointer(address)?;
+    live_pointer(unsafe { (address as *const usize).read() })
+}
+
+fn read_live_pointer_offset(base: *const c_void, offset: usize) -> Option<*mut c_void> {
+    live_pointer(base as usize)?;
+    read_live_pointer_at((base as usize).checked_add(offset)?)
+}
+
+fn read_live_usize(address: *const c_void) -> Option<usize> {
+    live_pointer(address as usize)?;
+    Some(unsafe { (address as *const usize).read() })
+}
+
+fn read_live_u32_offset(base: *const c_void, offset: usize) -> Option<u32> {
+    live_pointer(base as usize)?;
+    let address = (base as usize).checked_add(offset)?;
+    if address % align_of::<u32>() != 0 {
+        return None;
+    }
+    Some(unsafe { (address as *const u32).read() })
 }
 
 fn shader_resource_handle(index: usize) -> Option<*mut c_void> {
@@ -1358,24 +1451,10 @@ fn clear_pending() {
 }
 
 fn read_ptr(address: *const c_void) -> Option<*mut c_void> {
+    crate::graphics_diagnostics::add(crate::graphics_diagnostics::Counter::SkyMemoryValidation, 1);
     validate_memory_range(address, size_of::<usize>()).ok()?;
     let value = unsafe { (address as *const usize).read() } as *mut c_void;
     (!value.is_null()).then_some(value)
-}
-
-fn read_ptr_offset(base: *const c_void, offset: usize) -> Option<*mut c_void> {
-    read_ptr((base as usize).checked_add(offset)? as *const c_void)
-}
-
-fn read_usize(address: *const c_void) -> Option<usize> {
-    validate_memory_range(address, size_of::<usize>()).ok()?;
-    Some(unsafe { (address as *const usize).read() })
-}
-
-fn read_u32_offset(base: *const c_void, offset: usize) -> Option<u32> {
-    let address = (base as usize).checked_add(offset)? as *const c_void;
-    validate_memory_range(address, size_of::<u32>()).ok()?;
-    Some(unsafe { (address as *const u32).read() })
 }
 
 fn sanitize(value: f32, fallback: f32, minimum: f32, maximum: f32) -> f32 {

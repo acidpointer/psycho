@@ -74,6 +74,15 @@ struct ResourceSlot {
     create_failed: bool,
 }
 
+/// Render-thread resource lifecycle changes relevant to PBR publication.
+#[derive(Clone, Copy, Debug, Default)]
+pub(super) struct ResourceServiceDelta {
+    /// The backend device identity or generation changed.
+    pub(super) device_changed: bool,
+    /// Close-terrain readiness or failure changed.
+    pub(super) close_terrain_changed: bool,
+}
+
 impl ResourceSlot {
     fn new() -> Self {
         Self {
@@ -95,17 +104,20 @@ impl ResourceSlot {
     }
 }
 
-pub(super) fn service_frame() {
+pub(super) fn service_frame() -> ResourceServiceDelta {
+    let mut delta = ResourceServiceDelta::default();
     let Some(device_ptr) = crate::backend::d3d_device_ptr() else {
-        return;
+        return delta;
     };
     let Some(device) = (unsafe { Device9Ref::from_raw_void(device_ptr) }) else {
-        return;
+        return delta;
     };
 
     let Some(mut state) = RESOURCES.try_lock() else {
-        return;
+        return delta;
     };
+    let previous_close_ready = CLOSE_TERRAIN_RESOURCES_READY.load(Ordering::Acquire);
+    let previous_close_failed = CLOSE_TERRAIN_CREATE_FAILED.load(Ordering::Acquire);
     let device_key = device_ptr as usize;
     let device_generation = crate::backend::d3d_device_generation();
     if state.device != device_key || state.device_generation != device_generation {
@@ -114,8 +126,7 @@ pub(super) fn service_frame() {
         // Clearing the marker earlier would be unsafe on a still-live device.
         super::hooks::forget_supplemental_light_texture_binding_after_device_change();
         clear_published_handles();
-        CLOSE_TERRAIN_RESOURCES_READY.store(false, Ordering::Release);
-        ALL_RESOURCES_READY.store(false, Ordering::Release);
+        clear_published_status();
         state.device = device_key;
         state.device_generation = device_generation;
         state.supplemental_light_texture = None;
@@ -124,9 +135,18 @@ pub(super) fn service_frame() {
         for slot in &mut state.slots {
             slot.clear_shader();
         }
+        delta.device_changed = true;
+    } else if ALL_RESOURCES_READY.load(Ordering::Acquire)
+        && CLOSE_TERRAIN_RESOURCES_READY.load(Ordering::Acquire)
+    {
+        // Reset/recreate clears the published status before the old resources
+        // are released. With a matching generation, successful preparation is
+        // terminal and warm presentation must not rescan the shader catalog.
+        return delta;
     }
 
     let mut created_this_frame = 0usize;
+    let mut state_changed = delta.device_changed;
     if state.supplemental_light_texture.is_none() && !state.supplemental_light_texture_create_failed
     {
         match device.create_dynamic_rgba32f_texture(
@@ -136,8 +156,12 @@ pub(super) fn service_frame() {
             Ok(texture) => {
                 state.supplemental_light_texture = Some(texture);
                 created_this_frame += 1;
+                state_changed = true;
             }
-            Err(_) => state.supplemental_light_texture_create_failed = true,
+            Err(_) => {
+                state.supplemental_light_texture_create_failed = true;
+                state_changed = true;
+            }
         }
     }
 
@@ -198,9 +222,16 @@ pub(super) fn service_frame() {
         } else {
             slot.create_failed = true;
         }
+        state_changed = true;
     }
 
-    update_failure_state(&state);
+    if state_changed {
+        update_failure_state(&state);
+    }
+    delta.close_terrain_changed = previous_close_ready
+        != CLOSE_TERRAIN_RESOURCES_READY.load(Ordering::Acquire)
+        || previous_close_failed != CLOSE_TERRAIN_CREATE_FAILED.load(Ordering::Acquire);
+    delta
 }
 
 pub(super) fn object_shader_handle(template_id: u16) -> Option<*mut c_void> {
@@ -371,6 +402,9 @@ pub(super) fn upload_and_bind_supplemental_light_texture(
     device: &Device9Ref<'_>,
     lights: &super::terrain_lights::SupplementalTerrainLights,
 ) -> bool {
+    let _span = crate::graphics_diagnostics::span(
+        crate::graphics_diagnostics::Interval::PbrSupplementalUpload,
+    );
     let Some(mut state) = RESOURCES.try_lock() else {
         return false;
     };
@@ -384,13 +418,22 @@ pub(super) fn upload_and_bind_supplemental_light_texture(
     }
     let payload_matches = state.supplemental_light_payload_valid
         && lights.matches_shader_texture_bits(&state.supplemental_light_payload);
-    if !payload_matches {
+    if payload_matches {
+        crate::graphics_diagnostics::add(
+            crate::graphics_diagnostics::Counter::SupplementalPayloadHit,
+            1,
+        );
+    } else {
         // Materialize the fixed 1 KiB image only after exact comparison proves
         // that the existing device contents cannot be reused. The common
         // repeated-payload path therefore performs neither a stack clear nor a
         // driver lock; the uncommon changed path remains allocation-free.
         let mut texels = [[0.0; 4]; super::terrain_lights::SUPPLEMENTAL_LIGHT_TEXTURE_TEXELS];
         lights.write_shader_texture(&mut texels);
+        crate::graphics_diagnostics::add(
+            crate::graphics_diagnostics::Counter::SupplementalDiscardLock,
+            1,
+        );
         if state
             .supplemental_light_texture
             .as_ref()
@@ -398,6 +441,10 @@ pub(super) fn upload_and_bind_supplemental_light_texture(
         {
             return false;
         }
+        crate::graphics_diagnostics::add(
+            crate::graphics_diagnostics::Counter::SupplementalPayloadUpload,
+            1,
+        );
         // Store exact bits rather than a hash. A collision must never reuse a
         // different light payload, and this fixed copy occurs only after the
         // matching upload has succeeded.
@@ -434,10 +481,15 @@ pub(super) fn try_reset_after(before_drop: impl FnOnce()) -> bool {
     state.supplemental_light_texture = None;
     state.supplemental_light_texture_create_failed = false;
     state.supplemental_light_payload_valid = false;
-    LAST_CREATE_FAILED_TEMPLATE_ID.store(TEMPLATE_ID_NONE, Ordering::Release);
     for slot in &mut state.slots {
         *slot = ResourceSlot::new();
     }
+    clear_published_status();
+    true
+}
+
+fn clear_published_status() {
+    LAST_CREATE_FAILED_TEMPLATE_ID.store(TEMPLATE_ID_NONE, Ordering::Release);
     LAND_LOD_CREATE_FAILED.store(false, Ordering::Release);
     TERRAIN_FADE_CREATE_FAILED.store(false, Ordering::Release);
     CLOSE_TERRAIN_CREATE_FAILED.store(false, Ordering::Release);
@@ -445,7 +497,6 @@ pub(super) fn try_reset_after(before_drop: impl FnOnce()) -> bool {
     TERRAIN_FADE_RESOURCES_READY.store(false, Ordering::Release);
     CLOSE_TERRAIN_RESOURCES_READY.store(false, Ordering::Release);
     ALL_RESOURCES_READY.store(false, Ordering::Release);
-    true
 }
 
 fn publish_handle(template_id: usize, handle: *mut c_void) {

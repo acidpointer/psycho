@@ -31,8 +31,8 @@ use std::sync::{
 
 use libpsycho::os::windows::{
     directx9::{
-        D3DFMT_A8R8G8B8, D3DFMT_R32F, D3DFORMAT, D3DPOOL_DEFAULT, D3DRTYPE_TEXTURE, Texture9,
-        USAGE_RENDER_TARGET, raw_texture_2d_description,
+        BaseTexture9, D3DFMT_A8R8G8B8, D3DFMT_R32F, D3DFORMAT, D3DPOOL_DEFAULT, D3DRTYPE_TEXTURE,
+        Texture9, USAGE_RENDER_TARGET, raw_texture_2d_description,
     },
     hook::{callsite::Rel32CallHookContainer, transaction::ModificationTransaction},
     memory::validate_memory_range,
@@ -76,6 +76,8 @@ const SHADOW_INACTIVE_STATE: u16 = 0x00FF;
 const NATIVE_LIGHT_SIZE: usize = 0xE4;
 const NATIVE_LIGHT_DISABLED_FLAGS_OFFSET: usize = 0x30;
 const NATIVE_LIGHT_POSITION_OFFSET: usize = 0x8C;
+const NATIVE_LIGHT_EFFECT_TYPE_OFFSET: usize = 0x9D;
+const NATIVE_POINT_LIGHT_TYPE: u8 = 2;
 const NATIVE_LIGHT_DIMMER_OFFSET: usize = 0xC4;
 const NATIVE_LIGHT_COLOR_OFFSET: usize = 0xD4;
 const NATIVE_LIGHT_RADIUS_OFFSET: usize = 0xE0;
@@ -193,6 +195,8 @@ pub(crate) enum ShadowTextureFormat {
     R32F,
     /// Four-channel quantized native shadow target used by the ATI path.
     A8R8G8B8,
+    /// OMV radial-depth point cube.
+    OmvCube,
 }
 
 impl ShadowTextureFormat {
@@ -201,6 +205,7 @@ impl ShadowTextureFormat {
         match self {
             Self::R32F => 0.001_171_875,
             Self::A8R8G8B8 => 1.0 / 255.0,
+            Self::OmvCube => 0.0,
         }
     }
 }
@@ -210,7 +215,7 @@ impl ShadowTextureFormat {
 pub(crate) struct LocalLightValues {
     /// World-space light position.
     pub(crate) position: [f32; 3],
-    /// Native diffuse color after dimmer and transition weighting.
+    /// Native diffuse color after native-light dimmer weighting.
     pub(crate) color: [f32; 3],
     /// Native world-space light radius.
     pub(crate) radius: f32,
@@ -285,9 +290,11 @@ impl TerrainRenderSnapshot {
 }
 
 #[derive(Clone, Copy, Debug)]
-/// Copied matrices and format for one retained completed native shadow.
+/// Copied sampling contract for one retained local-light shadow.
 pub(crate) struct LocalShadowValues {
-    /// Combined matrix consumed by the current atmosphere shader.
+    /// Native combined projection matrix. For an OMV cube, `[0][0..2]` stores
+    /// cube radius and receiver bias so the released fixed-size owner does not
+    /// grow a second tagged payload.
     pub(crate) shadow_matrix: [[f32; 4]; 4],
     #[allow(dead_code)]
     /// Native shadow view matrix retained as part of the complete contract.
@@ -295,8 +302,27 @@ pub(crate) struct LocalShadowValues {
     #[allow(dead_code)]
     /// Native shadow projection matrix retained as part of the complete contract.
     pub(crate) shadow_projection_matrix: [[f32; 4]; 4],
-    /// Encoding of the retained native texture.
+    /// Encoding and sampling topology of the retained texture.
     pub(crate) format: ShadowTextureFormat,
+}
+
+impl LocalShadowValues {
+    fn omv_cube(cube_radius: f32, receiver_bias: f32) -> Self {
+        let mut shadow_matrix = [[0.0; 4]; 4];
+        shadow_matrix[0] = [cube_radius, receiver_bias, 0.0, 0.0];
+        Self {
+            shadow_matrix,
+            shadow_view_matrix: [[0.0; 4]; 4],
+            shadow_projection_matrix: [[0.0; 4]; 4],
+            format: ShadowTextureFormat::OmvCube,
+        }
+    }
+
+    /// Return the radial-depth cube radius and comparison bias.
+    pub(crate) fn omv_cube_contract(self) -> Option<(f32, f32)> {
+        (self.format == ShadowTextureFormat::OmvCube)
+            .then_some((self.shadow_matrix[0][0], self.shadow_matrix[0][1]))
+    }
 }
 
 /// One published atmosphere light with optional owned shadow enrichment.
@@ -317,7 +343,7 @@ impl LocalVolumetricLight {
             return None;
         }
         Some(LocalShadowBinding {
-            texture: shadow.texture.as_raw_base_texture(),
+            texture: shadow.texture.as_raw(),
             values: shadow.values,
         })
     }
@@ -333,14 +359,39 @@ impl LocalVolumetricLight {
 pub(crate) struct LocalShadowBinding {
     /// Borrowed `IDirect3DBaseTexture9*` kept live by the owning epoch.
     pub(crate) texture: *mut c_void,
-    /// Copied native shadow matrices and texture encoding.
+    /// Copied shadow sampling contract.
     pub(crate) values: LocalShadowValues,
 }
 
 struct LocalShadow {
     values: LocalShadowValues,
-    texture: Texture9,
+    texture: LocalShadowTexture,
     device_identity: usize,
+}
+
+/// Two base-interface references preserve the released two-pointer resource
+/// owner layout while accepting either a 2D native map or an OMV cube.
+struct LocalShadowTexture {
+    sampled: BaseTexture9,
+    retained: BaseTexture9,
+}
+
+impl LocalShadowTexture {
+    fn from_native(texture: &Texture9) -> Self {
+        Self::from_base(texture.retain_base_texture())
+    }
+
+    fn from_base(sampled: BaseTexture9) -> Self {
+        Self {
+            retained: sampled.clone(),
+            sampled,
+        }
+    }
+
+    fn as_raw(&self) -> *mut c_void {
+        let _keep_alive = &self.retained;
+        self.sampled.as_raw()
+    }
 }
 
 /// Immutable gameplay light publication for one render/device epoch.
@@ -355,6 +406,18 @@ pub(crate) struct LocalLightEpoch {
 }
 
 impl LocalLightEpoch {
+    /// Return whether this publication belongs to the exact consumer frame.
+    pub(crate) fn is_current(
+        &self,
+        device_identity: usize,
+        device_generation: u32,
+        render_epoch: u32,
+    ) -> bool {
+        self.device_identity == device_identity
+            && self.device_generation == device_generation
+            && self.render_epoch == render_epoch
+    }
+
     /// Iterate the bounded published light set in deterministic rank order.
     pub(crate) fn lights(&self) -> impl Iterator<Item = &LocalVolumetricLight> {
         self.slots.iter().filter_map(Option::as_ref)
@@ -947,11 +1010,30 @@ unsafe extern "C" fn hook_world_light_epoch_body(
     let atmosphere_capture = ATMOSPHERE_CAPTURE_ENABLED.load(Ordering::Acquire);
     let terrain_capture = TERRAIN_CAPTURE_ENABLED.load(Ordering::Acquire);
     let diagnostics_active = diagnostics_active();
-    if atmosphere_capture {
-        record_diagnostic(&CAPTURE_TRAVERSALS, 1, diagnostics_active);
-    }
     let native_prefix_selected =
         shadow_outcome == crate::effects::shadows::CommonEntryOutcome::NativePrefix;
+    let camera = capture_requested(atmosphere_capture, terrain_capture)
+        .then(|| unsafe { crate::backend::fnv_world_camera_frame_fast(1, 1) })
+        .flatten();
+    let shadow_point_frame = (!native_prefix_selected && atmosphere_capture)
+        .then(crate::effects::shadows::volumetric_point_lights)
+        .flatten()
+        .filter(|frame| {
+            frame.render_epoch == render_epoch
+                && frame.device_identity == device_identity
+                && frame.device_generation == device_generation
+        });
+    // Tail-only ownership deliberately skips the native prefix, so its cached
+    // ShadowSceneLight fields cannot be read after the tail. If no immutable
+    // OMV point publication exists, copy the scalar fallback now while the
+    // common-entry list is still owned by this transaction.
+    let pre_tail_atmosphere =
+        if atmosphere_capture && !native_prefix_selected && shadow_point_frame.is_none() {
+            record_diagnostic(&CAPTURE_TRAVERSALS, 1, diagnostics_active);
+            unsafe { capture_scene_lights(camera, true, false, diagnostics_active) }
+        } else {
+            SceneLightCapture::default()
+        };
     let shadow_capture_started = if native_prefix_selected
         && shadow_capture_requested(
             atmosphere_capture,
@@ -1000,32 +1082,48 @@ unsafe extern "C" fn hook_world_light_epoch_body(
     } else {
         std::array::from_fn(|_| None)
     };
-    let camera = capture_requested(atmosphere_capture, terrain_capture)
-        .then(|| unsafe { crate::backend::fnv_world_camera_frame_fast(1, 1) })
-        .flatten();
-    let traversal_span = crate::graphics_diagnostics::span(
-        crate::graphics_diagnostics::Interval::SceneLightTraversal,
-    );
-    let captured = unsafe {
-        capture_scene_lights(
-            camera,
-            atmosphere_capture,
-            terrain_capture,
-            diagnostics_active,
-        )
+    let fallback_atmosphere_after_prefix = atmosphere_capture && native_prefix_selected;
+    let mut captured = if capture_requested(fallback_atmosphere_after_prefix, terrain_capture) {
+        if fallback_atmosphere_after_prefix {
+            record_diagnostic(&CAPTURE_TRAVERSALS, 1, diagnostics_active);
+        }
+        let traversal_span = crate::graphics_diagnostics::span(
+            crate::graphics_diagnostics::Interval::SceneLightTraversal,
+        );
+        let captured = unsafe {
+            capture_scene_lights(
+                camera,
+                fallback_atmosphere_after_prefix,
+                terrain_capture,
+                diagnostics_active,
+            )
+        };
+        drop(traversal_span);
+        crate::graphics_diagnostics::add(
+            crate::graphics_diagnostics::Counter::SceneLightTraversal,
+            1,
+        );
+        captured
+    } else {
+        SceneLightCapture::default()
     };
-    drop(traversal_span);
-    crate::graphics_diagnostics::add(crate::graphics_diagnostics::Counter::SceneLightTraversal, 1);
+    if atmosphere_capture && !native_prefix_selected && shadow_point_frame.is_none() {
+        captured.ranked = pre_tail_atmosphere.ranked;
+    }
     let mut publication_complete = true;
     if atmosphere_capture {
-        let epoch = build_epoch(
-            render_epoch,
-            device_identity,
-            device_generation,
-            captured.ranked,
-            shadows,
-            diagnostics_active,
-        );
+        let epoch = if let Some(frame) = shadow_point_frame {
+            build_shadow_point_epoch(frame, diagnostics_active)
+        } else {
+            build_epoch(
+                render_epoch,
+                device_identity,
+                device_generation,
+                captured.ranked,
+                shadows,
+                diagnostics_active,
+            )
+        };
         if let Some(mut published) = PUBLISHED.try_lock() {
             *published = Some(epoch);
         } else {
@@ -1261,6 +1359,7 @@ unsafe extern "thiscall" fn hook_render_local_shadow(
                 ShadowTextureFormat::A8R8G8B8 => {
                     record_diagnostic(&A8_LIGHTS, 1, diagnostics_active)
                 }
+                ShadowTextureFormat::OmvCube => return,
             };
             record_diagnostic(&ACCEPTED_LIGHTS, 1, diagnostics_active);
             staging.shadows[slot_index] = Some(record);
@@ -1349,7 +1448,7 @@ unsafe fn capture_shadow(
                 shadow_projection_matrix,
                 format: resolved.format,
             },
-            texture,
+            texture: LocalShadowTexture::from_native(&texture),
             device_identity,
         },
     })
@@ -1375,30 +1474,55 @@ unsafe fn capture_scene_lights(
     capture_terrain: bool,
     diagnostics_active: bool,
 ) -> SceneLightCapture {
-    let mut capture = SceneLightCapture::default();
+    let capture = SceneLightCapture::default();
     let camera = camera.filter(|camera| camera.world_transform.available);
     let getter: ShadowSceneManagerGetterFn = unsafe { transmute(SHADOW_SCENE_MANAGER_GETTER_ADDR) };
     let manager = unsafe { getter(0) };
     if (manager as usize) < 0x1_0000 {
         return capture;
     }
+    let cached_count = unsafe { read_at_unchecked::<u32>(manager, SCENE_LIGHT_COUNT_OFFSET) };
+    let node = unsafe { read_at_unchecked::<*mut u8>(manager, SCENE_LIGHT_LIST_OFFSET) };
+    unsafe {
+        capture_scene_light_chain(
+            node,
+            cached_count as usize,
+            camera,
+            capture_atmosphere,
+            capture_terrain,
+            diagnostics_active,
+        )
+    }
+}
+
+/// Capture the complete bounded manager light chain owned by the render transaction.
+///
+/// Fallout's native consumers follow `ShadowSceneNode + 0xB4` until the null
+/// terminator. The cached count at `+0xBC` is advisory and can lag the linked
+/// chain while another graphics replacement owns native shadow staging. Using
+/// it as a loop bound drops every atmosphere light when the cache is zero.
+///
+/// # Safety
+///
+/// `node` must be the first node of the scene manager chain owned by the
+/// current common-shadow transaction. Every reachable node and light record
+/// must remain alive until this bounded traversal returns.
+unsafe fn capture_scene_light_chain(
+    mut node: *mut u8,
+    cached_count: usize,
+    camera: Option<crate::backend::CameraFrame>,
+    capture_atmosphere: bool,
+    capture_terrain: bool,
+    diagnostics_active: bool,
+) -> SceneLightCapture {
+    let mut capture = SceneLightCapture::default();
     // The engine owns and mutates this chain on the same world-render thread.
     // The exact common-shadow callback proves the manager/list lifetime. Keep
     // the scan equivalent to the engine's own unchecked traversal: querying
-    // every manager, node, record, or scalar would reintroduce the hot-path
-    // Windows memory traffic this producer exists to remove.
-    let scene_count = unsafe { read_at_unchecked::<u32>(manager, SCENE_LIGHT_COUNT_OFFSET) };
+    // every node through WinAPI would reintroduce hot-path memory traffic.
     let scan_capacity = scene_scan_capacity(capture_atmosphere, capture_terrain);
-    let scan_count = (scene_count as usize).min(scan_capacity);
-    if capture_atmosphere && scene_count as usize > scan_count {
-        OVERFLOW_LIGHTS.fetch_add(
-            (scene_count as usize - scan_count) as u32,
-            Ordering::Relaxed,
-        );
-    }
-    let mut node = unsafe { read_at_unchecked::<*mut u8>(manager, SCENE_LIGHT_LIST_OFFSET) };
     let mut scanned = 0usize;
-    while !node.is_null() && scanned < scan_count {
+    while !node.is_null() && scanned < scan_capacity {
         let next = unsafe { read_at_unchecked::<*mut u8>(node, LIST_NODE_NEXT_OFFSET) };
         let shadow_scene_light =
             unsafe { read_at_unchecked::<*mut u8>(node, LIST_NODE_VALUE_OFFSET) };
@@ -1418,6 +1542,13 @@ unsafe fn capture_scene_lights(
         }
         node = next;
         scanned += 1;
+    }
+    if capture_atmosphere && !node.is_null() {
+        let overflow = cached_count
+            .saturating_sub(scanned)
+            .max(1)
+            .min(u32::MAX as usize) as u32;
+        OVERFLOW_LIGHTS.fetch_add(overflow, Ordering::Relaxed);
     }
     capture
 }
@@ -1541,24 +1672,32 @@ unsafe fn capture_scene_light(
     shadow_scene_light: *mut u8,
     camera: crate::backend::CameraFrame,
 ) -> Option<RankedSceneLight> {
-    if unsafe { read_at_unchecked::<u8>(shadow_scene_light, SHADOW_POSITIONAL_OFFSET) } == 0 {
-        return None;
-    }
     let native_light =
         unsafe { read_at_unchecked::<*mut u8>(shadow_scene_light, SHADOW_NATIVE_LIGHT_OFFSET) };
-    if native_light.is_null() {
+    if native_light.is_null()
+        || unsafe { read_at_unchecked::<u8>(native_light, NATIVE_LIGHT_EFFECT_TYPE_OFFSET) }
+            != NATIVE_POINT_LIGHT_TYPE
+    {
         return None;
     }
+    // ShadowSceneLight+0xF4 is a cached classification owned by the native
+    // shadow prefix that OMV replaces. Read the source-owned NiDynamicEffect
+    // type instead, exactly as OMV's working shadow pipeline does.
+    // NiLight and the captured world camera are both NiAVObjects and already
+    // share one world-transform basis. ShadowSceneNode+0x1E4 is applied only
+    // while native UpdateLights transforms a light into geometry-local space;
+    // adding it here displaces the volume before both scissoring and HLSL.
     let position = unsafe { read_vec3_unchecked(native_light, NATIVE_LIGHT_POSITION_OFFSET) };
     let native_color = unsafe { read_vec3_unchecked(native_light, NATIVE_LIGHT_COLOR_OFFSET) };
     let dimmer = unsafe { read_at_unchecked::<f32>(native_light, NATIVE_LIGHT_DIMMER_OFFSET) };
-    let transition =
-        unsafe { read_at_unchecked::<f32>(shadow_scene_light, SHADOW_TRANSITION_OFFSET) };
     let radius = unsafe { read_at_unchecked::<f32>(native_light, NATIVE_LIGHT_RADIUS_OFFSET) };
-    if !valid_light_scalars(position, native_color, dimmer, transition, radius) {
+    // ShadowSceneLight::transition belongs to the native shadow prefix. OMV's
+    // replacement path intentionally skips that owner, so it cannot gate the
+    // scene light's direct radiance. This matches modern NVR and OMV shadows.
+    if !valid_light_scalars(position, native_color, dimmer, 1.0, radius) {
         return None;
     }
-    let color = native_color.map(|component| component * dimmer * transition);
+    let color = native_color.map(|component| component * dimmer);
     if !color.into_iter().all(f32::is_finite) || color.iter().all(|component| *component <= 0.0) {
         return None;
     }
@@ -1662,6 +1801,77 @@ fn build_epoch(
         device_generation,
         slots,
     }
+}
+
+fn build_shadow_point_epoch(
+    mut frame: crate::effects::shadows::VolumetricPointLightFrame,
+    diagnostics_active: bool,
+) -> LocalLightEpoch {
+    let slots = std::array::from_fn(|index| {
+        // Shadows already owns the stable nearest-light selection. Preserving
+        // that order keeps both effects on one inventory and avoids a second
+        // camera-dependent rank that could silently discard a valid cube.
+        let point = frame.lights.get_mut(index)?.take()?;
+        if point.identity == 0 {
+            return None;
+        }
+        record_diagnostic(&SCENE_LIGHTS, 1, diagnostics_active);
+        record_diagnostic(&SHADOWED_LIGHTS, 1, diagnostics_active);
+        Some(LocalVolumetricLight {
+            values: LocalLightValues {
+                position: point.position,
+                color: point.color,
+                radius: point.receiver_radius,
+            },
+            shadow: Some(LocalShadow {
+                values: LocalShadowValues::omv_cube(point.cube_radius, point.receiver_bias),
+                texture: LocalShadowTexture::from_base(point.texture),
+                device_identity: frame.device_identity,
+            }),
+        })
+    });
+    LocalLightEpoch {
+        render_epoch: frame.render_epoch,
+        device_identity: frame.device_identity,
+        device_generation: frame.device_generation,
+        slots,
+    }
+}
+
+/// Admit a shadow-owned point frame at the atmosphere presentation boundary.
+///
+/// Shadow production and opaque-world presentation are adjacent but distinct
+/// engine transactions, so the producer contract explicitly permits the same
+/// render epoch or its immediate successor. Device identity and reset
+/// generation remain exact because the epoch retains default-pool COM objects.
+pub(crate) fn shadow_point_epoch_for_consumer(
+    frame: crate::effects::shadows::VolumetricPointLightFrame,
+    device_identity: usize,
+    device_generation: u32,
+    render_epoch: u32,
+) -> Option<LocalLightEpoch> {
+    let epoch_usable =
+        render_epoch == frame.render_epoch || render_epoch == frame.render_epoch.wrapping_add(1);
+    if frame.device_identity != device_identity
+        || frame.device_generation != device_generation
+        || !epoch_usable
+    {
+        return None;
+    }
+    Some(build_shadow_point_epoch(frame, diagnostics_active()))
+}
+
+/// Clone and admit the point inventory already selected by shadows.
+///
+/// This is the primary pre-alpha handoff. The older native-light mailbox is a
+/// fallback only when shadows has no usable publication or its owner is busy.
+pub(crate) fn try_shadow_point_epoch_for_consumer(
+    device_identity: usize,
+    device_generation: u32,
+    render_epoch: u32,
+) -> Option<LocalLightEpoch> {
+    let frame = crate::effects::shadows::volumetric_point_lights()?;
+    shadow_point_epoch_for_consumer(frame, device_identity, device_generation, render_epoch)
 }
 
 fn capture_requested(atmosphere: bool, terrain: bool) -> bool {
@@ -1887,24 +2097,26 @@ fn log_capture_error(message: &'static str) {
 #[cfg(test)]
 mod tests {
     use super::{
-        CaptureSlot, LOCAL_LIGHT_CAPACITY, LocalLightEpoch, LocalLightValues,
-        MAIN_RENDER_FIRST_RETURN, MAIN_RENDER_ROOT_RETURN, MAIN_WRAPPER_DIRECT_RETURN,
-        MAIN_WRAPPER_HELPER_RETURN, MAIN_WRAPPER_NESTED_RETURN, NATIVE_LIGHT_COLOR_OFFSET,
-        NATIVE_LIGHT_DIMMER_OFFSET, NATIVE_LIGHT_DISABLED_FLAGS_OFFSET,
-        NATIVE_LIGHT_POSITION_OFFSET, NATIVE_LIGHT_RADIUS_OFFSET, NATIVE_LIGHT_SIZE, PUBLISHED,
-        PublishedEpochAccess, RankedSceneLight, RenderLocalShadowFn, SCREENSHOT_RENDER_RETURN,
+        CaptureSlot, LIST_NODE_NEXT_OFFSET, LIST_NODE_VALUE_OFFSET, LOCAL_LIGHT_CAPACITY,
+        LocalLightEpoch, LocalLightValues, MAIN_RENDER_FIRST_RETURN, MAIN_RENDER_ROOT_RETURN,
+        MAIN_WRAPPER_DIRECT_RETURN, MAIN_WRAPPER_HELPER_RETURN, MAIN_WRAPPER_NESTED_RETURN,
+        NATIVE_LIGHT_COLOR_OFFSET, NATIVE_LIGHT_DIMMER_OFFSET, NATIVE_LIGHT_DISABLED_FLAGS_OFFSET,
+        NATIVE_LIGHT_EFFECT_TYPE_OFFSET, NATIVE_LIGHT_POSITION_OFFSET, NATIVE_LIGHT_RADIUS_OFFSET,
+        NATIVE_LIGHT_SIZE, NATIVE_POINT_LIGHT_TYPE, PUBLISHED, PublishedEpochAccess,
+        RankedSceneLight, RenderLocalShadowFn, SCREENSHOT_RENDER_RETURN,
         SHADOW_ACTIVE_STATE_OFFSET, SHADOW_AMBIENT_OFFSET, SHADOW_FADE_OFFSET,
         SHADOW_INACTIVE_STATE, SHADOW_MATRIX_OFFSET, SHADOW_NATIVE_LIGHT_OFFSET,
         SHADOW_POSITIONAL_OFFSET, SHADOW_SCENE_LIGHT_SIZE, SHADOW_TRANSITION_OFFSET,
         ShadowDispatcherVariant, ShadowInvocation, ShadowRenderContext, ShadowTextureFormat,
         StagingEpoch, TERRAIN_LIGHT_CAPACITY, TerrainRenderSnapshot, TerrainSceneLight,
         WRAPPED_RENDER_RETURN, WorldLightEpochFn, authoritative_light_invocation, build_epoch,
-        capture_requested, capture_terrain_scene_light, classify_capture_slot,
-        classify_shadow_invocation, hook_render_local_shadow, hook_world_light_variant_a,
-        hook_world_light_variant_b, hook_world_light_variant_c, insert_ranked_light,
-        insert_ranked_terrain_light, read_matrix4_unchecked, record_diagnostic, scene_light_score,
-        scene_scan_capacity, shadow_capture_requested, terrain_epoch_is_current,
-        terrain_light_is_eligible, try_take_published, valid_light_scalars,
+        capture_requested, capture_scene_light_chain, capture_terrain_scene_light,
+        classify_capture_slot, classify_shadow_invocation, hook_render_local_shadow,
+        hook_world_light_variant_a, hook_world_light_variant_b, hook_world_light_variant_c,
+        insert_ranked_light, insert_ranked_terrain_light, read_matrix4_unchecked,
+        record_diagnostic, scene_light_score, scene_scan_capacity, shadow_capture_requested,
+        terrain_epoch_is_current, terrain_light_is_eligible, try_take_published,
+        valid_light_scalars,
     };
     use crate::backend::{CameraFrame, CameraTransformFrame};
     use parking_lot::Mutex;
@@ -2284,6 +2496,171 @@ mod tests {
             write_at(&mut native_light, NATIVE_LIGHT_DISABLED_FLAGS_OFFSET, 1u8);
         }
         assert!(unsafe { capture_terrain_scene_light(scene_light.as_mut_ptr()) }.is_none());
+    }
+
+    #[test]
+    fn stale_native_caches_keep_interior_light_visible_through_the_shipped_shader() {
+        let _test = MAILBOX_TEST.lock();
+        *PUBLISHED.lock() = None;
+
+        fn captured_pixels(
+            camera_translation: [f32; 3],
+            native_position: [f32; 3],
+            transition: f32,
+        ) -> Vec<f32> {
+            let mut scene_light = [0u8; SHADOW_SCENE_LIGHT_SIZE];
+            let mut native_light = [0u8; NATIVE_LIGHT_SIZE];
+            let mut list_node = [0u8; LIST_NODE_VALUE_OFFSET + size_of::<*mut u8>()];
+            unsafe {
+                write_at(
+                    &mut list_node,
+                    LIST_NODE_NEXT_OFFSET,
+                    std::ptr::null_mut::<u8>(),
+                );
+                write_at(
+                    &mut list_node,
+                    LIST_NODE_VALUE_OFFSET,
+                    scene_light.as_mut_ptr(),
+                );
+                write_at(&mut scene_light, SHADOW_ACTIVE_STATE_OFFSET, 0u16);
+                // OMV's replacement path skips the native prefix which owns
+                // this cached ShadowSceneLight classification.
+                write_at(&mut scene_light, SHADOW_POSITIONAL_OFFSET, 0u8);
+                write_at(&mut scene_light, SHADOW_AMBIENT_OFFSET, 0u8);
+                write_at(
+                    &mut scene_light,
+                    SHADOW_NATIVE_LIGHT_OFFSET,
+                    native_light.as_mut_ptr(),
+                );
+                write_at(&mut scene_light, SHADOW_TRANSITION_OFFSET, transition);
+                write_at(&mut native_light, NATIVE_LIGHT_DISABLED_FLAGS_OFFSET, 0u8);
+                write_at(
+                    &mut native_light,
+                    NATIVE_LIGHT_EFFECT_TYPE_OFFSET,
+                    NATIVE_POINT_LIGHT_TYPE,
+                );
+                for (index, component) in native_position.into_iter().enumerate() {
+                    write_at(
+                        &mut native_light,
+                        NATIVE_LIGHT_POSITION_OFFSET + index * size_of::<f32>(),
+                        component,
+                    );
+                }
+                write_at(&mut native_light, NATIVE_LIGHT_COLOR_OFFSET, 1.0f32);
+                write_at(&mut native_light, NATIVE_LIGHT_COLOR_OFFSET + 4, 0.6f32);
+                write_at(&mut native_light, NATIVE_LIGHT_COLOR_OFFSET + 8, 0.3f32);
+                write_at(&mut native_light, NATIVE_LIGHT_DIMMER_OFFSET, 1.25f32);
+                write_at(&mut native_light, NATIVE_LIGHT_RADIUS_OFFSET, 32.0f32);
+            }
+            let mut camera = camera();
+            camera.world_transform.translation = camera_translation;
+            let capture = unsafe {
+                capture_scene_light_chain(
+                    list_node.as_mut_ptr(),
+                    0,
+                    Some(camera),
+                    true,
+                    false,
+                    false,
+                )
+            };
+            assert!(
+                capture.ranked[0].is_some(),
+                "linked interior light must survive stale manager and prefix caches"
+            );
+
+            const RENDER_EPOCH: u32 = 41;
+            const DEVICE_IDENTITY: usize = 0x1234;
+            const DEVICE_GENERATION: u32 = 7;
+            *PUBLISHED.lock() = Some(build_epoch(
+                RENDER_EPOCH,
+                DEVICE_IDENTITY,
+                DEVICE_GENERATION,
+                capture.ranked,
+                std::array::from_fn(|_| None),
+                false,
+            ));
+            let mut consumed = None;
+            assert_eq!(
+                try_take_published(&mut consumed, DEVICE_IDENTITY),
+                PublishedEpochAccess::Ready,
+                "the live capture must reach the atmosphere publication mailbox"
+            );
+            let consumed = consumed.expect("complete local-light publication");
+            assert!(
+                consumed.is_current(DEVICE_IDENTITY, DEVICE_GENERATION, RENDER_EPOCH),
+                "the publication must pass the exact production frame admission"
+            );
+            let captured = consumed
+                .lights()
+                .next()
+                .expect("current publication must retain the captured interior light");
+            crate::effects::atmosphere::local_light_shader_behavior::render(captured.values, camera)
+        }
+
+        let assert_visible_center = |label: &str, pixels: Vec<f32>| {
+            let center = pixels[3 * 8 + 3].max(pixels[4 * 8 + 4]);
+            let corner = pixels[0].max(pixels[7]);
+            assert!(
+                center > 0.0001,
+                "{label} produced no rendered volumetric light: {pixels:?}"
+            );
+            assert!(
+                center > corner + 0.0001,
+                "{label} was not centered on the captured lamp: {pixels:?}"
+            );
+        };
+        let assert_black = |label: &str, pixels: Vec<f32>| {
+            assert!(
+                pixels.iter().all(|pixel| pixel.abs() <= 0.000_001),
+                "{label} negative control unexpectedly produced light: {pixels:?}"
+            );
+        };
+
+        let native_color = [1.25, 0.75, 0.375];
+        let mut translated_camera = camera();
+        translated_camera.world_transform.translation = [10_000.0, 20_000.0, 3_000.0];
+        assert_black(
+            "geometry-only scene offset added to atmosphere",
+            crate::effects::atmosphere::local_light_shader_behavior::render(
+                LocalLightValues {
+                    position: [20_100.0, 40_000.0, 6_000.0],
+                    color: native_color,
+                    radius: 32.0,
+                },
+                translated_camera,
+            ),
+        );
+        assert_black(
+            "radiance multiplied by zero native transition",
+            crate::effects::atmosphere::local_light_shader_behavior::render(
+                LocalLightValues {
+                    position: [100.0, 0.0, 0.0],
+                    color: [0.0; 3],
+                    radius: 32.0,
+                },
+                camera(),
+            ),
+        );
+
+        // The rejected candidate added ShadowSceneNode+0x1E4 even though the
+        // NiLight and camera already share a world basis, moving the lamp far
+        // from its actual ray and producing an entirely black frame.
+        assert_visible_center(
+            "shared NiAVObject world position",
+            captured_pixels(
+                [10_000.0, 20_000.0, 3_000.0],
+                [10_100.0, 20_000.0, 3_000.0],
+                1.0,
+            ),
+        );
+
+        // OMV's replacement path does not run the native prefix that owns
+        // +0xD0. A zero/stale transition must not erase valid direct radiance.
+        assert_visible_center(
+            "unowned native transition",
+            captured_pixels([0.0; 3], [100.0, 0.0, 0.0], 0.0),
+        );
     }
 
     #[test]

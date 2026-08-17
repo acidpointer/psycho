@@ -74,8 +74,10 @@ mod reference_tests;
 mod shader_tests;
 
 use contract::{HookAction, ShadowSettings};
-pub(crate) use pipeline::WorldContextGuard;
+#[cfg(test)]
+pub(crate) use pipeline::VolumetricPointLight;
 use pipeline::{ReplacementResult, ShadowPipeline};
+pub(crate) use pipeline::{VolumetricPointLightFrame, WorldContextGuard};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[repr(u8)]
@@ -490,6 +492,17 @@ pub(crate) fn directional_sun_direction(native: [f32; 3]) -> [f32; 3] {
         .try_lock()
         .and_then(|pipeline| pipeline.directional_sun_direction())
         .unwrap_or(native)
+}
+
+/// Return the exact point-light identities and cubes published by shadows.
+///
+/// Atmosphere calls this at the established pre-alpha boundary immediately
+/// after shadow composition. A busy or absent shadow owner returns `None`;
+/// the caller then uses its nonblocking native-light fallback.
+pub(crate) fn volumetric_point_lights() -> Option<VolumetricPointLightFrame> {
+    PIPELINE
+        .try_lock()
+        .and_then(|pipeline| pipeline.volumetric_point_lights())
 }
 
 /// Composite the newest compatible shadow publication after opaque geometry.

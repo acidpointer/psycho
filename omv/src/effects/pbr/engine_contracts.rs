@@ -14,7 +14,7 @@
 
 use std::{
     ffi::{c_char, c_void},
-    mem::size_of,
+    mem::{align_of, size_of},
     sync::{
         LazyLock,
         atomic::{AtomicBool, AtomicU32, Ordering},
@@ -123,6 +123,17 @@ pub(super) struct ObjectDrawRejection {
     pub(super) reason: ObjectDrawRejectReason,
     pub(super) row: u16,
     pub(super) selector: usize,
+}
+
+/// Result of classifying one object draw from the callback-owned selector.
+///
+/// `Unavailable` is deliberately distinct from `Admit`: losing any dynamic
+/// selector or pass-entry invariant must preserve the native shader pair.
+#[derive(Clone, Copy, Debug)]
+pub(super) enum ObjectDrawAdmission {
+    Admit,
+    Reject(ObjectDrawRejection),
+    Unavailable,
 }
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -267,27 +278,18 @@ pub(super) fn pass_constant_flags(pass_index: u32) -> Option<(u32, u32)> {
     Some((vertex, pixel))
 }
 
-/// Read the current geometry selector identity for optional hot telemetry.
+/// Read the current geometry selector identity for optional detailed telemetry.
 pub(super) fn current_draw_selector_address_fast() -> usize {
-    // Hot SetTexture telemetry path. The global addresses are fixed engine
-    // state; avoid VirtualQuery per texture bind and fall back to zero on nulls.
-    const MIN_ENGINE_PTR: usize = 0x10000;
-
-    let draw_slot = unsafe { (CURRENT_GEOMETRY_SLOT_ADDR as *const usize).read() };
-    if draw_slot < MIN_ENGINE_PTR {
-        return 0;
-    }
-
-    let geometry = unsafe { (draw_slot as *const usize).read() };
-    if geometry < MIN_ENGINE_PTR {
-        return 0;
-    }
-
-    unsafe { (geometry.wrapping_add(CURRENT_DRAW_SELECTOR_OFFSET) as *const usize).read() }
+    // Normal object admission uses the callback-owned selector directly. This
+    // compatibility snapshot is reached only when detailed diagnostics are
+    // enabled, so retain checked discovery instead of risking stale globals.
+    current_geometry()
+        .and_then(|geometry| read_ptr_offset(geometry, CURRENT_DRAW_SELECTOR_OFFSET))
+        .map_or(0, |selector| selector as usize)
 }
 
 /// Capture the checked engine-side selection state for one object draw.
-pub(super) fn current_draw_snapshot(pass_index: u32) -> DrawSnapshot {
+pub(super) fn current_draw_snapshot(selector: *mut c_void, pass_index: u32) -> DrawSnapshot {
     let geometry = current_geometry().map_or(0, |ptr| ptr as usize);
     let property = if geometry == 0 {
         0
@@ -299,12 +301,7 @@ pub(super) fn current_draw_snapshot(pass_index: u32) -> DrawSnapshot {
         .map_or(0, |ptr| ptr as usize)
     };
     let pass = read_ptr(CURRENT_PASS_GLOBAL_ADDR as *const c_void).map_or(0, |ptr| ptr as usize);
-    let selector = if geometry == 0 {
-        0
-    } else {
-        read_ptr_offset(geometry as *mut c_void, CURRENT_DRAW_SELECTOR_OFFSET)
-            .map_or(0, |ptr| ptr as usize)
-    };
+    let selector = selector as usize;
     if selector == 0 {
         return DrawSnapshot {
             geometry,
@@ -346,22 +343,101 @@ pub(super) fn current_draw_snapshot(pass_index: u32) -> DrawSnapshot {
     }
 }
 
-/// Return the first native material/pass condition that excludes object PBR.
-pub(super) fn current_object_draw_rejection(pass_index: u32) -> Option<ObjectDrawRejection> {
-    let active_row = u16::try_from(pass_index).ok()?;
+/// Classify one object draw from the selector owned by the synchronous native
+/// selector callback.
+///
+/// The PPLighting wrapper pair must be proven by the caller before this reads
+/// selector-specific fields. The callback retains the selector and its bounded
+/// pass list until this function returns. Structural or semantic uncertainty
+/// is `Unavailable`, never an implicit admission.
+pub(super) fn object_draw_admission(selector: *mut c_void, pass_index: u32) -> ObjectDrawAdmission {
+    let Ok(active_row) = u16::try_from(pass_index) else {
+        return ObjectDrawAdmission::Unavailable;
+    };
     if let Some(reason) = classify_active_object_pass_blocker(active_row, 0) {
-        return Some(ObjectDrawRejection {
+        return ObjectDrawAdmission::Reject(ObjectDrawRejection {
             reason,
             row: active_row,
             selector: 0,
         });
     }
 
-    if matches!(active_row, 0x10..=0x13 | 0x62 | 0x63 | 0x93 | 0x94) {
-        return current_draw_snapshot(pass_index).rejection;
+    if !matches!(active_row, 0x10..=0x13 | 0x62 | 0x63 | 0x93 | 0x94) {
+        return ObjectDrawAdmission::Admit;
     }
 
-    None
+    object_draw_admission_from_selector(selector, active_row)
+}
+
+fn object_draw_admission_from_selector(
+    selector: *mut c_void,
+    active_row: u16,
+) -> ObjectDrawAdmission {
+    let Some(selector_ptr) = live_pointer(selector as usize) else {
+        return ObjectDrawAdmission::Unavailable;
+    };
+    let Some(selector_state) = read_live_u32_offset(selector_ptr, SELECTOR_STATE_OFFSET) else {
+        return ObjectDrawAdmission::Unavailable;
+    };
+    if let Some(reason) = classify_active_object_pass_blocker(active_row, selector_state) {
+        return ObjectDrawAdmission::Reject(ObjectDrawRejection {
+            reason,
+            row: active_row,
+            selector: selector as usize,
+        });
+    }
+    if !matches!(active_row, 0x93 | 0x94) {
+        return ObjectDrawAdmission::Admit;
+    }
+
+    let Some(active_layer_count) =
+        read_live_u32_offset(selector_ptr, SELECTOR_ACTIVE_LAYER_COUNT_OFFSET)
+    else {
+        return ObjectDrawAdmission::Unavailable;
+    };
+    if active_layer_count > MAX_PASS_ENTRY_SCAN as u32 {
+        return ObjectDrawAdmission::Unavailable;
+    }
+    let Some(pass_entry_list) =
+        read_live_pointer_offset(selector_ptr, SELECTOR_PASS_ENTRY_LIST_OFFSET)
+    else {
+        return ObjectDrawAdmission::Unavailable;
+    };
+    let Some(entry_array) =
+        read_live_pointer_offset(pass_entry_list, PASS_ENTRY_POINTER_ARRAY_OFFSET)
+    else {
+        return ObjectDrawAdmission::Unavailable;
+    };
+    let Some(active_count) = read_live_u32_offset(pass_entry_list, PASS_ENTRY_ACTIVE_COUNT_OFFSET)
+    else {
+        return ObjectDrawAdmission::Unavailable;
+    };
+    if active_count > MAX_PASS_ENTRY_SCAN as u32 {
+        return ObjectDrawAdmission::Unavailable;
+    }
+
+    for index in 0..active_count as usize {
+        let Some(entry_offset) = index.checked_mul(size_of::<usize>()) else {
+            return ObjectDrawAdmission::Unavailable;
+        };
+        let Some(entry) = read_live_pointer_offset(entry_array, entry_offset) else {
+            return ObjectDrawAdmission::Unavailable;
+        };
+        let Some(row) = read_live_u16_offset(entry, PASS_ENTRY_ROW_OFFSET) else {
+            return ObjectDrawAdmission::Unavailable;
+        };
+        let Some(layer) = read_live_u8_offset(entry, PASS_ENTRY_LAYER_OFFSET) else {
+            return ObjectDrawAdmission::Unavailable;
+        };
+        if matches!(row, 0x1F2..=0x1F5) && layer != 0 && u32::from(layer) <= active_layer_count {
+            return ObjectDrawAdmission::Reject(ObjectDrawRejection {
+                reason: ObjectDrawRejectReason::CloseTerrainMaterial,
+                row,
+                selector: selector as usize,
+            });
+        }
+    }
+    ObjectDrawAdmission::Admit
 }
 
 /// Capture native object specular-fade inputs for diagnostic comparison.
@@ -866,6 +942,7 @@ unsafe fn forward_shader_package(
     );
     publish_shader_package_7();
     probe_terrain_contract();
+    super::refresh_terrain_capture_demand();
 }
 
 fn publish_shader_package_7() {
@@ -1029,7 +1106,28 @@ fn live_pointer_at(address: usize) -> Option<*mut c_void> {
 fn live_pointer(address: usize) -> Option<*mut c_void> {
     const MIN_USER_ADDRESS: usize = 0x1_0000;
 
-    (address >= MIN_USER_ADDRESS).then_some(address as *mut c_void)
+    (address >= MIN_USER_ADDRESS && address % align_of::<usize>() == 0)
+        .then_some(address as *mut c_void)
+}
+
+fn read_live_pointer_offset(base: *mut c_void, offset: usize) -> Option<*mut c_void> {
+    let address = (base as usize).checked_add(offset)?;
+    live_pointer(unsafe { (address as *const usize).read() })
+}
+
+fn read_live_u32_offset(base: *mut c_void, offset: usize) -> Option<u32> {
+    let address = (base as usize).checked_add(offset)?;
+    Some(unsafe { (address as *const u32).read() })
+}
+
+fn read_live_u16_offset(base: *mut c_void, offset: usize) -> Option<u16> {
+    let address = (base as usize).checked_add(offset)?;
+    Some(unsafe { (address as *const u16).read() })
+}
+
+fn read_live_u8_offset(base: *mut c_void, offset: usize) -> Option<u8> {
+    let address = (base as usize).checked_add(offset)?;
+    Some(unsafe { (address as *const u8).read() })
 }
 
 fn read_u32(address: *const c_void) -> Option<u32> {
@@ -1111,6 +1209,10 @@ fn offset_ptr(base: *mut c_void, offset: usize) -> *mut c_void {
 fn readable_range(address: *const c_void, size: usize) -> bool {
     const MIN_USER_ADDRESS: usize = 0x1_0000;
 
+    crate::graphics_diagnostics::add(
+        crate::graphics_diagnostics::Counter::ObjectMemoryValidation,
+        1,
+    );
     address as usize >= MIN_USER_ADDRESS
         && size != 0
         && validate_memory_range(address, size).is_ok()

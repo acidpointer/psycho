@@ -293,17 +293,23 @@ pub(super) fn object_sampler_identity(template_id: u16) -> ObjectSamplerIdentity
 /// This is the common admission primitive for terrain and sky families. It
 /// performs fixed atomic reads only and never falls back to D3D state readback.
 pub(super) fn missing_required_mask(required_mask: u16) -> u16 {
-    (0..TEXTURE_STAGE_COUNT)
-        .filter(|stage| {
-            required_mask & (1u16 << stage) != 0
-                && TEXTURE_SLOTS[*stage]
-                    .known
-                    .load(Ordering::Acquire)
-                    .then(|| TEXTURE_SLOTS[*stage].texture.load(Ordering::Relaxed))
-                    .unwrap_or(0)
-                    == 0
-        })
-        .fold(0u16, |mask, stage| mask | (1u16 << stage))
+    let mut remaining = required_mask;
+    let mut missing = 0u16;
+    while remaining != 0 {
+        let stage = remaining.trailing_zeros() as usize;
+        let stage_mask = 1u16 << stage;
+        remaining &= !stage_mask;
+        let slot = &TEXTURE_SLOTS[stage];
+        let texture = slot
+            .known
+            .load(Ordering::Acquire)
+            .then(|| slot.texture.load(Ordering::Relaxed))
+            .unwrap_or(0);
+        if texture == 0 {
+            missing |= stage_mask;
+        }
+    }
+    missing
 }
 
 /// Return a known bound texture identity, or `None` for unknown/null state.

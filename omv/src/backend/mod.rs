@@ -1307,3 +1307,48 @@ pub(crate) struct NativeSkyFrame {
     pub(crate) is_exterior: bool,
     pub(crate) reversed_depth: bool,
 }
+
+impl NativeSkyFrame {
+    /// Resolve the encoded exterior sun color consumed by post-process effects.
+    ///
+    /// Reloaded-derived sky sun fields are useful when populated, but FNV may
+    /// leave either candidate black during a valid daylight exterior frame.
+    /// Prefer the directional field, then the disk field, and finally preserve
+    /// the final native horizon/sky hue at the engine's daylight strength. The
+    /// neutral fallback keeps the requested effect available when every
+    /// optional color candidate is black without admitting it at night.
+    pub(crate) fn resolved_exterior_sun_color(self) -> Option<[f32; 3]> {
+        const MIN_SOURCE_PEAK: f32 = 1.0 / 255.0;
+
+        fn finite_nonnegative(color: [f32; 3]) -> Option<[f32; 3]> {
+            color
+                .into_iter()
+                .all(|component| component.is_finite())
+                .then(|| color.map(|component| component.max(0.0)))
+        }
+
+        fn peak(color: [f32; 3]) -> f32 {
+            color[0].max(color[1]).max(color[2])
+        }
+
+        if !self.is_exterior || !self.daylight.is_finite() || self.daylight <= 0.001 {
+            return None;
+        }
+        for candidate in [self.sun_light, self.sun_disk] {
+            let candidate = finite_nonnegative(candidate)?;
+            if peak(candidate) > MIN_SOURCE_PEAK {
+                return Some(candidate);
+            }
+        }
+
+        let daylight = self.daylight.clamp(0.0, 1.0);
+        for candidate in [self.horizon, self.sky_upper, self.sky_lower] {
+            let candidate = finite_nonnegative(candidate)?;
+            let candidate_peak = peak(candidate);
+            if candidate_peak > MIN_SOURCE_PEAK {
+                return Some(candidate.map(|component| component / candidate_peak * daylight));
+            }
+        }
+        Some([daylight, daylight * 0.94, daylight * 0.80])
+    }
+}

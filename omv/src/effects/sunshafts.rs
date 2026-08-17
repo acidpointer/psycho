@@ -107,7 +107,7 @@ fn resolve_native_sun(frame_inputs: &FrameInputs) -> Option<NativeSunshaftFrame>
     (projection.facing > 0.001
         && projection.on_screen
         && projection.edge_fade > 0.0
-        && sky.sun_disk.into_iter().all(f32::is_finite))
+        && sky.resolved_exterior_sun_color().is_some())
     .then_some(NativeSunshaftFrame { projection, sky })
 }
 
@@ -247,13 +247,20 @@ impl SunshaftsEffect {
         let Some(bytecode) = bytecode.as_ref() else {
             return Ok(None);
         };
-        Ok(Some(Self {
+        Self::create_from_bytecode(device, bytecode).map(Some)
+    }
+
+    fn create_from_bytecode(
+        device: &Device9Ref<'_>,
+        bytecode: &SunshaftsBytecode,
+    ) -> Direct3DResult<Self> {
+        Ok(Self {
             mask_shader: device.create_pixel_shader(&bytecode.mask)?,
             radial_shader: device.create_pixel_shader(&bytecode.radial)?,
             blur_shader: device.create_pixel_shader(&bytecode.blur)?,
             compose_shader: device.create_pixel_shader(&bytecode.compose)?,
             targets: None,
-        }))
+        })
     }
 
     pub(crate) fn draw(
@@ -438,6 +445,293 @@ impl SunshaftsEffect {
     }
 }
 
+#[cfg(test)]
+mod shader_behavior {
+    //! End-to-end D3D9 behavior gate for the independent legacy godray pass.
+    //!
+    //! The test compiles and executes every shipped sunshaft pass and accepts
+    //! only final production-format pixels. This catches an empty source mask,
+    //! a broken radial path, lost occluders, or composition that merely changes
+    //! the sun disk without producing rays.
+
+    use super::{SunshaftsBytecode, SunshaftsEffect};
+    use crate::{
+        backend::{
+            CameraFrame, CameraTransformFrame, DepthFrame, DepthProjectionFrame, DepthProvider,
+            DepthTexture, EnvironmentFrame, FrameInputs, MaterialStateFrame, NativeSkyFrame,
+            SunFrame,
+        },
+        config::EmbeddedEffectsConfig,
+        shaders::{EmbeddedEffectKind, merge_embedded_sources},
+    };
+    use libpsycho::os::windows::{
+        directx9::{
+            D3DCLEAR_TARGET, D3DDEVTYPE_HAL, D3DDEVTYPE_NULLREF, D3DFMT_A8R8G8B8, D3DFMT_X8R8G8B8,
+            D3DPOOL_MANAGED, Device9, Device9Ref, Texture9, create_direct3d9,
+        },
+        winapi::{get_active_window, get_desktop_window, get_foreground_window},
+    };
+
+    const TEST_SIZE: u32 = 64;
+    const FRAME_EPOCH: u64 = 23;
+
+    fn raster_device() -> Device9 {
+        let window = [
+            get_active_window(),
+            get_foreground_window(),
+            get_desktop_window().unwrap_or(std::ptr::null_mut()),
+        ]
+        .into_iter()
+        .find(|window| !window.is_null())
+        .expect("Wine must expose a window for sunshaft shader validation");
+        let direct3d = create_direct3d9().expect("D3D9 runtime");
+        direct3d
+            .create_windowed_device(window, TEST_SIZE, TEST_SIZE, D3DDEVTYPE_HAL)
+            .or_else(|_| {
+                direct3d.create_windowed_device(window, TEST_SIZE, TEST_SIZE, D3DDEVTYPE_NULLREF)
+            })
+            .expect("HAL or NULLREF D3D9 device")
+    }
+
+    fn source() -> crate::shaders::ScreenShaderSource {
+        merge_embedded_sources(&EmbeddedEffectsConfig::default(), Vec::new())
+            .into_iter()
+            .find(|source| source.embedded_effect_kind() == Some(EmbeddedEffectKind::Sunshafts))
+            .expect("default sunshaft source")
+    }
+
+    fn camera() -> CameraFrame {
+        CameraFrame {
+            near_z: 5.0,
+            far_z: 200_000.0,
+            aspect_ratio: 1.0,
+            frustum_left: -1.0,
+            frustum_right: 1.0,
+            frustum_bottom: -1.0,
+            frustum_top: 1.0,
+            world_transform: CameraTransformFrame {
+                available: true,
+                ..CameraTransformFrame::default()
+            },
+            available: true,
+        }
+    }
+
+    fn raw_depth(device: &Device9Ref<'_>, blocker: bool) -> Texture9 {
+        let depth = device
+            .create_texture(TEST_SIZE, TEST_SIZE, 1, 0, D3DFMT_A8R8G8B8, D3DPOOL_MANAGED)
+            .expect("lockable raw-depth texture");
+        let mut pixels = vec![0xFF00_0000u32; (TEST_SIZE * TEST_SIZE) as usize];
+        if blocker {
+            for y in 25..39usize {
+                for x in 29..35usize {
+                    pixels[y * TEST_SIZE as usize + x] = 0xFF40_0000;
+                }
+            }
+        }
+        depth
+            .write_level0_argb(TEST_SIZE, TEST_SIZE, &pixels)
+            .expect("raw-depth pixels");
+        depth
+    }
+
+    fn frame(depth: &Texture9, sun_direction: [f32; 3]) -> FrameInputs {
+        let camera = camera();
+        let projection = DepthProjectionFrame {
+            camera,
+            reversed_depth: Some(true),
+            depth_function: Some(7),
+            source_surface: depth.as_raw_base_texture() as usize,
+            sampled_depth_bits: 24,
+        };
+        FrameInputs {
+            camera,
+            depth: DepthFrame::from_textures(
+                DepthProvider::FalloutNewVegas,
+                DepthTexture::new(depth.as_raw_base_texture()),
+                None,
+                projection,
+                DepthProjectionFrame::default(),
+                FRAME_EPOCH,
+            ),
+            environment: EnvironmentFrame {
+                fog_start: 1_000.0,
+                fog_end: 120_000.0,
+                fog_power: 0.5,
+                fog_available: true,
+                ..EnvironmentFrame::default()
+            },
+            sun: SunFrame {
+                screen_x: 0.5,
+                screen_y: 0.5,
+                available: true,
+                daylight: 0.4252,
+            },
+            sky: Some(NativeSkyFrame {
+                sky_upper: [0.2, 0.3, 0.6],
+                sky_lower: [0.4, 0.45, 0.55],
+                horizon: [0.65, 0.6, 0.5],
+                // FNV can leave the Reloaded-derived sky color candidates
+                // black even though the native exterior/daylight contract is
+                // valid. The shipped effect must not disappear in that frame.
+                sun_light: [0.0; 3],
+                sun_disk: [0.0; 3],
+                sun_direction,
+                daylight: 0.4252,
+                game_hour: 18.0,
+                is_exterior: true,
+                reversed_depth: true,
+            }),
+            atmosphere_visibility: 0.6,
+            atmosphere_available: true,
+            first_person_rendered: false,
+            third_person_view: Some(true),
+            material_state: MaterialStateFrame {
+                exterior_known: true,
+                is_exterior: true,
+            },
+        }
+    }
+
+    fn clear_target(device: &Device9Ref<'_>, texture: &Texture9) {
+        let surface = texture.surface_level(0).expect("HDR surface");
+        device.set_render_target(0, &surface).expect("HDR target");
+        device
+            .clear_attachments(D3DCLEAR_TARGET as u32, 0, 1.0, 0)
+            .expect("clear HDR target");
+    }
+
+    fn render(
+        effect: &mut SunshaftsEffect,
+        device: &Device9Ref<'_>,
+        scene_color: &Texture9,
+        source: &crate::shaders::ScreenShaderSource,
+        sun_direction: [f32; 3],
+        blocker: bool,
+    ) -> Vec<[f32; 4]> {
+        let depth = raw_depth(device, blocker);
+        let output = device
+            .create_render_target_texture(TEST_SIZE, TEST_SIZE, D3DFMT_X8R8G8B8)
+            .expect("production-format sunshaft output");
+        clear_target(device, &output);
+        let output_surface = output
+            .surface_level(0)
+            .expect("production-format output surface");
+        let desc = output_surface
+            .desc()
+            .expect("production-format output description");
+        device.begin_scene().expect("begin sunshaft behavior draw");
+        effect
+            .draw(
+                device,
+                &output_surface,
+                &desc,
+                &frame(&depth, sun_direction),
+                source,
+                scene_color,
+                31,
+            )
+            .expect("complete sunshaft behavior draw");
+        device.end_scene().expect("end sunshaft behavior draw");
+        let staging = device
+            .create_system_memory_surface(TEST_SIZE, TEST_SIZE, D3DFMT_X8R8G8B8)
+            .expect("production-format readback surface");
+        device
+            .copy_render_target_data(&output_surface, &staging)
+            .expect("production-format sunshaft readback");
+        staging
+            .read_rgba8()
+            .expect("production-format sunshaft pixels")
+    }
+
+    fn luminance(pixel: [f32; 4]) -> f32 {
+        pixel[0] * 0.2126 + pixel[1] * 0.7152 + pixel[2] * 0.0722
+    }
+
+    fn luminance_centroid_x(pixels: &[[f32; 4]]) -> f32 {
+        let mut weighted_x = 0.0;
+        let mut weight = 0.0;
+        for (index, pixel) in pixels.iter().copied().enumerate() {
+            let value = luminance(pixel).max(0.0);
+            weighted_x += (index % TEST_SIZE as usize) as f32 * value;
+            weight += value;
+        }
+        weighted_x / weight.max(0.000_001)
+    }
+
+    #[test]
+    fn exterior_godrays_survive_the_complete_shipped_legacy_gpu_path() {
+        let owner = raster_device();
+        let device = owner.as_ref();
+        device
+            .direct3d()
+            .expect("D3D9 interface")
+            .check_default_render_target_texture_support(D3DFMT_X8R8G8B8)
+            .expect("production-format sunshaft targets");
+        let bytecode = SunshaftsBytecode::compile().expect("shipped sunshaft bytecode");
+        let mut effect = SunshaftsEffect::create_from_bytecode(&device, &bytecode)
+            .expect("production sunshaft pipeline");
+        let source = source();
+        let scene_color = device
+            .create_render_target_texture(TEST_SIZE, TEST_SIZE, D3DFMT_X8R8G8B8)
+            .expect("production-format scene color");
+        clear_target(&device, &scene_color);
+
+        let open = render(
+            &mut effect,
+            &device,
+            &scene_color,
+            &source,
+            [1.0, 0.0, 0.0],
+            false,
+        );
+        let open_peak = open.iter().copied().map(luminance).fold(0.0f32, f32::max);
+        assert!(
+            open_peak > 0.03,
+            "legacy godray pipeline produced no visible production-format pixels: {open_peak}"
+        );
+
+        let blocked = render(
+            &mut effect,
+            &device,
+            &scene_color,
+            &source,
+            [1.0, 0.0, 0.0],
+            true,
+        );
+        let strongest_sky_occlusion = open
+            .iter()
+            .zip(&blocked)
+            .enumerate()
+            .filter(|(index, _)| {
+                let x = index % TEST_SIZE as usize;
+                let y = index / TEST_SIZE as usize;
+                !(29..35).contains(&x) || !(25..39).contains(&y)
+            })
+            .map(|(_, (open, blocked))| luminance(*open) - luminance(*blocked))
+            .fold(0.0f32, f32::max);
+        assert!(
+            strongest_sky_occlusion > 0.02,
+            "world geometry created no ray-shaped godray occlusion: {strongest_sky_occlusion}"
+        );
+
+        let shifted = render(
+            &mut effect,
+            &device,
+            &scene_color,
+            &source,
+            [0.894_427_2, 0.0, 0.447_213_6],
+            false,
+        );
+        let centered_x = luminance_centroid_x(&open);
+        let shifted_x = luminance_centroid_x(&shifted);
+        assert!(
+            shifted_x > centered_x + 3.0,
+            "moving the native sun did not move legacy godrays: center={centered_x}, shifted={shifted_x}"
+        );
+    }
+}
+
 fn bind_pipeline_state(device: &Device9Ref<'_>) -> Direct3DResult<()> {
     device.clear_vertex_shader()?;
     device.set_fvf(ScreenVertex::FVF)?;
@@ -595,6 +889,9 @@ fn bind_effect_constants(
     let Some(sun) = resolve_native_sun(frame_inputs) else {
         return Err(direct3d_failure());
     };
+    let Some(sun_color) = sun.sky.resolved_exterior_sun_color() else {
+        return Err(direct3d_failure());
+    };
     if !source.option_constants.is_empty() {
         device.set_pixel_shader_constant_f(3, &source.option_constants)?;
     }
@@ -619,9 +916,9 @@ fn bind_effect_constants(
     device.set_pixel_shader_constant_f(
         10,
         &[[
-            sun.sky.sun_disk[0].max(0.0),
-            sun.sky.sun_disk[1].max(0.0),
-            sun.sky.sun_disk[2].max(0.0),
+            sun_color[0],
+            sun_color[1],
+            sun_color[2],
             sun.projection.edge_fade,
         ]],
     )?;

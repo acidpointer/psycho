@@ -31,7 +31,7 @@ shadow textures are optional per-light enrichment, never enumeration ownership.
 Still not implementable honestly:
 
 - true shadow-map-marched directional volumetric lighting;
-- cookies, inferred spot-light cones, or cubemap point-shadow ownership;
+- cookies or inferred spot-light cones;
 - complete replacement of native fog on every opaque, transparent, water, sky,
   and forward-rendered path.
 
@@ -400,11 +400,63 @@ texture, change atmosphere ranking, or keep atmosphere publications alive when
 volumetric local lighting is disabled.
 
 The native point-light values used by `0x00B70820` are also concrete: the
-retained native light at `+0xF8` supplies world position at `+0x8C..+0x94`,
-RGB at `+0xD4..+0xDC`, and radius at `+0xE0`; `ShadowSceneLight +0xD0` is the
-per-shadow-light intensity multiplier. These values must be copied at the same
-`0x00B9F780` return boundary. Draw/material-specific multipliers passed into
-`UpdateLights` are deliberately excluded from the scene-wide volumetric value.
+retained native light at `+0xF8` supplies NiAVObject world position at
+`+0x8C..+0x94`, RGB at `+0xD4..+0xDC`, and radius at `+0xE0`. The position
+shares the captured world camera's basis and is used directly for atmosphere.
+Native staging adds `ShadowSceneNode[0] +0x1E4` only before a geometry-local
+transform; applying that adjustment to atmosphere world rays displaces every
+volume. `ShadowSceneLight +0xD0` is owned by the native shadow prefix and is not
+direct-light radiance; modern NVR and OMV point shadows instead use
+`NiLight::Diff * NiLight::Dimmer`. Draw/material-specific multipliers passed
+into `UpdateLights` are deliberately excluded from the scene-wide volumetric
+value. The same skipped prefix owns the cached positional classification at
+`ShadowSceneLight +0xF4`; it can remain zero for a live point light and cannot
+gate atmosphere capture. The source-owned `NiDynamicEffect +0x9D` type equals
+`2` for a point light and is the classification used by OMV's working shadow
+pipeline and atmosphere capture.
+
+Manager enumeration follows the authoritative `ShadowSceneNode +0xB4` linked
+chain to its null terminator under a fixed bound. `ShadowSceneNode +0xBC` is an
+advisory cached count, not an iteration bound. OMV's replacement shadow path
+can expose a linked point light while that cache is zero; trusting the cache
+therefore erased all local volumetric lights even though the shadow pipeline
+selected the same record.
+
+That manager path is now fallback-only when OMV does not own point-shadow
+replacement. During replacement, shadows publish one canonical, immutable
+point frame containing the selected native identities, scalar light values,
+receiver/cube radii, receiver bias, and exact radial-depth cubes. Atmosphere
+consumes the current or immediately preceding producer publication at the
+pre-alpha world boundary immediately after shadow composition and preserves
+its stable nearest-light order; it never repeats the manager traversal, reranks
+the inventory, or joins a cube by a second selection. Directional sun remains
+a distinct sky/weather source because it has no point-light identity or radial
+cube.
+
+The shipped-HLSL behavior gate reproduces both stale caches, then sends the
+live-shaped record through the production linked-chain capture, bounded rank,
+publication mailbox, and exact frame/device admission before a real D3D9
+readback. It failed at capture while atmosphere trusted `+0xF4`; a centered,
+nonzero interior volume is required after source-owned classification. Separate
+black-output controls retain the two rejected coordinate and transition
+regressions.
+
+A second shipped-HLSL D3D9 gate validates the active replacement path through
+the production shadow-frame admission and the complete interior atmosphere
+composition. The exact OMV radial-depth cube comparison must leave final HDR
+point-light scattering visible and strongly suppress it when all six cube
+faces contain a nearer occluder; a two-epoch-old publication must be rejected
+and leave final pixels black. This does not execute the native callback
+lifecycle; final exterior and interior game pixels remain required.
+
+That gate uses the shipped `0.0000025` lighting medium, not a maximum-density
+test fixture. Native point diffuse/dimmer values are engine-space scalars, so
+local emission receives a fixed `8.0` radiance calibration without changing
+shared medium extinction. At shipped defaults the final-pixel gate requires a
+visible luminance peak in both interiors and exteriors and proves that the
+local enable, intensity, and debug menu values still control the shipped GPU
+result, including exact black output at zero intensity or disabled local
+lighting.
 
 Rendered-texture type `0x2D` in the `RenderShadowMaps` tail is a separate
 borrow passed into a refcounted global/member setter at `0x0066B0D0`. It does
