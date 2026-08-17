@@ -1,4 +1,4 @@
-//! ESP-less third-person follow, 360 locomotion, and aim convergence.
+//! ESP-less third-person follow, 360 locomotion, fine zoom, and aim convergence.
 //!
 //! Atom owns output only in stable normal third person. VATS, POV changes,
 //! free camera, menus, disabled controls, furniture, scripted animation,
@@ -17,6 +17,7 @@ mod diagnostics;
 mod hooks;
 mod native;
 mod ownership;
+mod zoom;
 
 use core::cell::UnsafeCell;
 use core::ffi::c_void;
@@ -30,11 +31,12 @@ use thiserror::Error;
 pub use super::aim::{AimAngles, converge_angles, view_direction};
 pub use super::follow::{FollowSolver, SpringAxis, Vec3};
 pub use super::movement::{
-    FacingPolicy, MovementIntent, MovementOutput, camera_relative_heading, remap_movement,
-    step_heading, wrap_angle,
+    FacingPolicy, LocomotionSector, MovementIntent, MovementOutput, MovementResolution,
+    camera_relative_heading, remap_movement, step_heading, wrap_angle,
 };
 pub use config::{ThirdPersonConfig, ThirdPersonConfigError};
 pub use ownership::{OwnershipInput, OwnershipMachine, OwnershipState, OwnershipTransition};
+pub use zoom::linear_zoom_delta;
 
 use config::ConfigStore;
 
@@ -54,7 +56,12 @@ static RUNTIME: RuntimeStore = RuntimeStore::new();
 static HOOKS_ACTIVE: AtomicBool = AtomicBool::new(false);
 static FOLLOW_ACTIVE: AtomicBool = AtomicBool::new(false);
 static MOVEMENT_ACTIVE: AtomicBool = AtomicBool::new(false);
+static ZOOM_ACTIVE: AtomicBool = AtomicBool::new(false);
 static AIM_ACTIVE: AtomicBool = AtomicBool::new(false);
+// The inverse native conversion can yield fractional DirectInput wheel units.
+// One f32 bit pattern is sufficient for the bounded [-0.5, 0.5] remainder and is
+// lock-free on the supported 32-bit target. Contention fails to native input.
+static ZOOM_RESIDUAL: AtomicU32 = AtomicU32::new(0.0_f32.to_bits());
 static RESET_REQUESTED: AtomicBool = AtomicBool::new(false);
 static RESET_GENERATION: AtomicU32 = AtomicU32::new(0);
 // 0 is idle, 1 is being prepared, and 2 is an active UpdateCamera scope.
@@ -94,6 +101,7 @@ pub(crate) enum ThirdPersonInstallError {
 /// Captured predecessor addresses for startup diagnostics.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) struct ThirdPersonHookStatus {
+    pub(crate) zoom_predecessor: Option<usize>,
     pub(crate) camera_heading_predecessor: Option<usize>,
     pub(crate) follow_predecessor: Option<usize>,
     pub(crate) movement_scope_predecessor: Option<usize>,
@@ -111,6 +119,9 @@ pub fn current_config() -> ThirdPersonConfig {
 pub(crate) fn publish_config(config: ThirdPersonConfig) {
     let previous = CONFIG.load();
     CONFIG.publish(config);
+    if previous.zoom_step() != config.zoom_step() {
+        clear_zoom_residual();
+    }
     if previous.follow_enabled() != config.follow_enabled()
         || previous.movement_enabled() != config.movement_enabled()
     {
@@ -236,11 +247,35 @@ pub(crate) fn install_native_system(
     });
     let aim_admitted = aim_predecessors.is_some_and(|value| value.aim_admitted);
     AIM_ACTIVE.store(aim_admitted, Ordering::Release);
+    // Preserve the accepted follow/movement/aim transaction order. Fine zoom
+    // is a new independent capability and is appended after those established
+    // DeferredInit operations so its failure cannot perturb their admission.
+    let zoom_predecessor = match native::validate_zoom_contract() {
+        Ok(()) => match hooks::install_zoom() {
+            Ok(predecessor) => {
+                ZOOM_ACTIVE.store(true, Ordering::Release);
+                Some(predecessor)
+            }
+            Err(error) => {
+                log::warn!(
+                    "[CAMERA] Fine third-person zoom is unavailable: {error:#}. Native wheel distance remains active"
+                );
+                None
+            }
+        },
+        Err(error) => {
+            log::warn!(
+                "[CAMERA] Fine third-person zoom is unavailable: {error:#}. Native wheel distance remains active"
+            );
+            None
+        }
+    };
     HOOKS_ACTIVE.store(
         follow_predecessor.is_some() || movement_predecessors.is_some(),
         Ordering::Release,
     );
     Ok(ThirdPersonHookStatus {
+        zoom_predecessor,
         camera_heading_predecessor: movement_predecessors.map(|value| value.camera_heading),
         follow_predecessor,
         movement_scope_predecessor: movement_predecessors.map(|value| value.movement_scope),
@@ -257,7 +292,7 @@ pub(crate) fn install_native_system(
 /// provider. Up to eight simultaneous owners are tracked without allocation.
 /// Repeated assertions are idempotent; releasing an absent token returns
 /// `false`. While any token is present, this subsystem performs no follow,
-/// movement, facing, or aim writes. External
+/// movement, facing, zoom conversion, or aim writes. External
 /// DLLs should use [`crate::AtomCamera_SetExternalOwner`] to cover both Atom
 /// camera systems through the stable C ABI.
 pub fn set_external_owner(owner_token: u32, active: bool) -> bool {
@@ -296,9 +331,66 @@ pub(crate) fn request_reset() {
     RESET_REQUESTED.store(true, Ordering::Release);
     clear_camera_scope();
     clear_movement_scope();
+    clear_zoom_residual();
     if RUNTIME.with_mut(RuntimeState::reset).is_some() {
         RESET_REQUESTED.store(false, Ordering::Release);
     }
+}
+
+/// Convert one normal third-person wheel read to the configured linear step.
+pub(crate) fn refine_zoom_wheel(native_delta: i32) -> i32 {
+    if native_delta == 0 || !ZOOM_ACTIVE.load(Ordering::Acquire) {
+        return native_delta;
+    }
+    let Some(controls) = CONTROLS.get().copied() else {
+        clear_zoom_residual();
+        return native_delta;
+    };
+    let config = CONFIG.load();
+    if !config.enabled() || external_owner_active() {
+        clear_zoom_residual();
+        return native_delta;
+    }
+
+    // This hook owns only the exact axis-3 read in normal UpdateCamera. A
+    // fresh observation is still required because a menu, VATS, POV, or
+    // loading transition may happen before the ownership machine advances.
+    let frame = unsafe { native::observe(core::ptr::null_mut(), controls) };
+    if !frame.hard_valid {
+        clear_zoom_residual();
+        return native_delta;
+    }
+    let Some(sample) = (unsafe { native::zoom_sample(native_delta) }) else {
+        clear_zoom_residual();
+        return native_delta;
+    };
+
+    let residual_bits = ZOOM_RESIDUAL.load(Ordering::Acquire);
+    let mut residual = f64::from(f32::from_bits(residual_bits));
+    let Some(adjusted) = linear_zoom_delta(
+        native_delta,
+        sample.desired_distance,
+        sample.multiplier,
+        config.zoom_step(),
+        &mut residual,
+    ) else {
+        clear_zoom_residual();
+        return native_delta;
+    };
+    if ZOOM_RESIDUAL
+        .compare_exchange(
+            residual_bits,
+            (residual as f32).to_bits(),
+            Ordering::AcqRel,
+            Ordering::Acquire,
+        )
+        .is_err()
+    {
+        // A concurrent owner changed the accumulated state. Passing the raw
+        // value preserves native behavior without overwriting its progress.
+        return native_delta;
+    }
+    adjusted
 }
 
 pub(crate) fn consume_horizontal_heading(player: *mut c_void, delta: f32) -> bool {
@@ -574,10 +666,14 @@ pub(crate) fn movement_override(
         {
             return None;
         }
-        let policy = if runtime.ownership.state() == OwnershipState::Combat {
-            FacingPolicy::Combat
+        let (policy, previous_sector) = if runtime.ownership.state() == OwnershipState::Combat {
+            // Combat owns a different animation vocabulary: native strafe
+            // bits remain authoritative and no Explore sector may leak back
+            // across the ownership transition.
+            runtime.locomotion_sector = None;
+            (FacingPolicy::Combat, None)
         } else {
-            FacingPolicy::Explore
+            (FacingPolicy::Explore, runtime.locomotion_sector)
         };
         let intent = MovementIntent::new(native_movement, flags, runtime.view_yaw, policy);
         let movement_heading = intent.movement_heading();
@@ -597,10 +693,16 @@ pub(crate) fn movement_override(
                 dt.clamp(0.0, MAX_DT),
             )
         });
-        Some((intent, facing))
+        Some(PreparedMovement {
+            intent,
+            facing,
+            previous_sector,
+            player: runtime.player,
+            epoch: runtime.ownership.epoch(),
+        })
     })??;
 
-    if let Some(facing) = prepared.1 {
+    if let Some(facing) = prepared.facing {
         let _facing_scope = FacingCallScope::enter()?;
         let invoked = unsafe { native::invoke_actor_yaw_setter(actor, facing) };
         if !invoked {
@@ -614,7 +716,34 @@ pub(crate) fn movement_override(
         request_reset();
         return None;
     };
-    Some(prepared.0.resolve(actual_actor_yaw))
+    let resolution = prepared
+        .intent
+        .resolve_stateful(actual_actor_yaw, prepared.previous_sector);
+    let next_sector = resolution.locomotion_sector();
+
+    // The yaw setter is an engine call and must run outside RuntimeStore's
+    // nonblocking lease. Publish animation history afterwards only if the
+    // same player and ownership epoch still exist. Failure to reacquire the
+    // lease affects hysteresis only; the already-valid movement request must
+    // still reach native code.
+    let _ = RUNTIME.with_mut(|runtime| {
+        if runtime.ownership.state().is_owned()
+            && runtime.ownership.epoch() == prepared.epoch
+            && runtime.player == prepared.player
+        {
+            runtime.locomotion_sector = next_sector;
+        }
+    });
+    Some(resolution.output())
+}
+
+#[derive(Clone, Copy)]
+struct PreparedMovement {
+    intent: MovementIntent,
+    facing: Option<f32>,
+    previous_sector: Option<LocomotionSector>,
+    player: u32,
+    epoch: u32,
 }
 
 struct FacingCallScope;
@@ -809,6 +938,7 @@ struct RuntimeState {
     actor_turn_speed: f32,
     last_movement_heading: f32,
     last_movement_magnitude: f32,
+    locomotion_sector: Option<LocomotionSector>,
     aim_sample: AimSample,
 }
 
@@ -828,6 +958,7 @@ impl RuntimeState {
             actor_turn_speed: 0.0,
             last_movement_heading: 0.0,
             last_movement_magnitude: 0.0,
+            locomotion_sector: None,
             aim_sample: AimSample {
                 valid: false,
                 origin: Vec3::new(0.0, 0.0, 0.0),
@@ -845,12 +976,14 @@ impl RuntimeState {
     }
 
     fn clear_temporal(&mut self) {
+        clear_zoom_residual();
         self.follow = FollowSolver::new();
         self.last_camera_frame = 0;
         self.manual_idle_seconds = 0.0;
         self.recenter_speed = 0.0;
         self.actor_turn_speed = 0.0;
         self.last_movement_magnitude = 0.0;
+        self.locomotion_sector = None;
         self.aim_sample = AimSample::default();
     }
 
@@ -864,12 +997,14 @@ impl RuntimeState {
     }
 
     fn clear_temporal_after_follow_seed(&mut self) {
+        clear_zoom_residual();
         self.last_camera_frame = 0;
         self.manual_idle_seconds = 0.0;
         self.recenter_speed = 0.0;
         self.actor_turn_speed = 0.0;
         self.last_movement_heading = 0.0;
         self.last_movement_magnitude = 0.0;
+        self.locomotion_sector = None;
         self.aim_sample = AimSample::default();
     }
 
@@ -883,9 +1018,7 @@ impl RuntimeState {
         let controls = *CONTROLS.get()?;
         let config = CONFIG.load();
         let frame = unsafe { native::observe(expected_player, controls) };
-        let external_owner = EXTERNAL_OWNERS
-            .iter()
-            .any(|slot| slot.load(Ordering::Acquire) != 0);
+        let external_owner = external_owner_active();
         let combat = frame.weapon_out && (!config.drawn_360() || frame.combat_intent);
         let enabled = (config.follow_enabled() && FOLLOW_ACTIVE.load(Ordering::Acquire))
             || (config.movement_enabled() && MOVEMENT_ACTIVE.load(Ordering::Acquire));
@@ -1126,6 +1259,16 @@ fn clear_preparing_movement_scope(generation: u32, thread: u32) {
         MOVEMENT_SCOPE_THREAD.store(0, Ordering::Relaxed);
         MOVEMENT_SCOPE_STATE.store(SCOPE_IDLE, Ordering::Release);
     }
+}
+
+fn external_owner_active() -> bool {
+    EXTERNAL_OWNERS
+        .iter()
+        .any(|slot| slot.load(Ordering::Acquire) != 0)
+}
+
+fn clear_zoom_residual() {
+    ZOOM_RESIDUAL.store(0.0_f32.to_bits(), Ordering::Release);
 }
 
 fn input_frame_id() -> u32 {

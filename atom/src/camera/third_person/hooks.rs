@@ -26,6 +26,7 @@ use thiserror::Error;
 use super::{AimAngles, Vec3};
 
 const PLAYER_HEADING_SLOT: usize = 0x0108_ACF8;
+const ZOOM_CALLSITE: usize = 0x0094_59BB;
 const FOLLOW_CALLSITE: usize = 0x0094_B7D2;
 const MOVEMENT_SCOPE_ENTRY: usize = 0x009E_9E50;
 const MOVEMENT_REQUEST_CALLSITE: usize = 0x008A_6339;
@@ -33,12 +34,14 @@ const RETICLE_CALLSITE: usize = 0x0070_C130;
 const SPAWN_CALLSITE: usize = 0x0052_45BD;
 
 const NATIVE_PLAYER_HEADING: usize = 0x0095_3F20;
+const NATIVE_MOUSE_GETTER: usize = 0x00A2_39E0;
 const NATIVE_FOLLOW: usize = 0x0094_A0C0;
 const NATIVE_MOVEMENT_REQUEST: usize = 0x0092_F260;
 const NATIVE_RETICLE: usize = 0x0063_1D60;
 const NATIVE_SPAWN: usize = 0x009B_CA60;
 
 type PlayerHeadingFn = unsafe extern "thiscall" fn(*mut c_void, u8) -> f32;
+type MouseGetterFn = unsafe extern "thiscall" fn(*mut c_void, u32) -> i32;
 type FollowFn = unsafe extern "thiscall" fn(*mut c_void, *mut Vec3, *const Vec3, u8);
 type PlayerMoverUpdateFn = unsafe extern "thiscall" fn(*mut c_void, f32);
 type MovementRequestFn =
@@ -70,6 +73,7 @@ type SpawnFn = unsafe extern "C" fn(
 
 static CAMERA_HEADING_HOOK: PointerSlotHookContainer<PlayerHeadingFn> =
     PointerSlotHookContainer::new();
+static ZOOM_HOOK: Rel32CallHookContainer<MouseGetterFn> = Rel32CallHookContainer::new();
 static FOLLOW_HOOK: Rel32CallHookContainer<FollowFn> = Rel32CallHookContainer::new();
 static MOVEMENT_SCOPE_HOOK: LazyLock<InlineHookContainer<PlayerMoverUpdateFn>> =
     LazyLock::new(InlineHookContainer::new);
@@ -125,6 +129,14 @@ const FOLLOW_FINGERPRINTS: &[(usize, &[u8])] = &[
         ],
     ),
     (0x0094_B7D7, &[0x8D, 0x95, 0xAC, 0xFE, 0xFF, 0xFF, 0x52]),
+];
+
+const ZOOM_FINGERPRINTS: &[(usize, &[u8])] = &[
+    (
+        0x0094_59B3,
+        &[0x6A, 0x03, 0x8B, 0x8D, 0xD4, 0xFE, 0xFF, 0xFF],
+    ),
+    (0x0094_59C0, &[0x89, 0x85, 0xD0, 0xFE, 0xFF, 0xFF]),
 ];
 
 const AIM_FINGERPRINTS: &[(usize, &[u8])] = &[
@@ -189,6 +201,23 @@ pub(super) struct AimPredecessors {
     pub(super) reticle: usize,
     pub(super) spawn: usize,
     pub(super) aim_admitted: bool,
+}
+
+/// Install linear wheel-distance conversion at the normal camera read only.
+pub(super) fn install_zoom() -> Result<usize, HookInstallError> {
+    validate_fingerprints(ZOOM_FINGERPRINTS)?;
+    unsafe {
+        ZOOM_HOOK.init(
+            "Atom third-person fine zoom",
+            ZOOM_CALLSITE as *mut c_void,
+            zoom_detour,
+        )?;
+    }
+    let predecessor = ZOOM_HOOK.predecessor_address()?;
+    let mut transaction = ModificationTransaction::new();
+    transaction.enable_callsite(&ZOOM_HOOK)?;
+    transaction.commit();
+    Ok(predecessor)
 }
 
 /// Install the native-collision follow capability independently.
@@ -283,6 +312,18 @@ fn validate_fingerprints(fingerprints: &[(usize, &[u8])]) -> Result<(), HookInst
         }
     }
     Ok(())
+}
+
+unsafe extern "thiscall" fn zoom_detour(owner: *mut c_void, axis: u32) -> i32 {
+    let predecessor = ZOOM_HOOK
+        .original()
+        .unwrap_or_else(|_| native_mouse_getter());
+    let native_delta = unsafe { predecessor(owner, axis) };
+    if axis == 3 {
+        super::refine_zoom_wheel(native_delta)
+    } else {
+        native_delta
+    }
 }
 
 unsafe extern "thiscall" fn camera_heading_detour(player: *mut c_void, adjusted: u8) -> f32 {
@@ -482,6 +523,10 @@ unsafe extern "C" fn spawn_detour(
 
 fn native_player_heading() -> PlayerHeadingFn {
     unsafe { core::mem::transmute(NATIVE_PLAYER_HEADING) }
+}
+
+fn native_mouse_getter() -> MouseGetterFn {
+    unsafe { core::mem::transmute(NATIVE_MOUSE_GETTER) }
 }
 
 fn native_follow() -> FollowFn {

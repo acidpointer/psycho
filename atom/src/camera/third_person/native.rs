@@ -20,8 +20,13 @@ const PLAYER_PTR: usize = 0x011D_EA3C;
 const OS_GLOBALS_PTR: usize = 0x011D_EA0C;
 const INTERFACE_MANAGER_PTR: usize = 0x011D_8A80;
 const SPECIAL_CAMERA_STATE: usize = 0x011E_07B8;
+const DESIRED_THIRD_PERSON_DISTANCE: usize = 0x011E_0B5C;
 const VATS_CAMERA_DATA: usize = 0x011F_2250;
 const TIME_GLOBAL: usize = 0x011F_6394;
+
+const VANITY_WHEEL_IN_SETTING: usize = 0x011C_DC98;
+const VANITY_WHEEL_OUT_SETTING: usize = 0x011C_D2AC;
+const FLOAT_SETTING_VALUE: usize = 0x04;
 
 const PLAYER_PARENT_CELL: usize = 0x040;
 const PLAYER_PROCESS: usize = 0x068;
@@ -96,6 +101,13 @@ pub(super) struct NativeFrame {
     pub(super) rejection: NativeRejection,
     pub(super) weapon_out: bool,
     pub(super) combat_intent: bool,
+}
+
+/// Live inputs consumed by FNV's native wheel-distance calculation.
+#[derive(Clone, Copy, Debug)]
+pub(super) struct NativeZoomSample {
+    pub(super) desired_distance: f32,
+    pub(super) multiplier: f32,
 }
 
 /// First fail-closed reason attached to one native ownership observation.
@@ -223,6 +235,57 @@ pub(super) fn validate_data_contract() -> Result<(), NativeContractError> {
         }
     }
     Ok(())
+}
+
+/// Validate the independently installed normal-third-person wheel contract.
+pub(super) fn validate_zoom_contract() -> Result<(), NativeContractError> {
+    for (address, length) in [
+        (DESIRED_THIRD_PERSON_DISTANCE, size_of::<f32>()),
+        (
+            VANITY_WHEEL_IN_SETTING + FLOAT_SETTING_VALUE,
+            size_of::<f32>(),
+        ),
+        (
+            VANITY_WHEEL_OUT_SETTING + FLOAT_SETTING_VALUE,
+            size_of::<f32>(),
+        ),
+    ] {
+        validate_memory_range(address as *const c_void, length)?;
+    }
+    Ok(())
+}
+
+/// Read the desired distance and direction-specific multiplier for one wheel sample.
+///
+/// The desired value at `0x011E0B5C` is intentionally distinct from realized
+/// distance `0x011E0768`: native collision is allowed to contract the latter
+/// and later recover toward the former. Rebasing fine zoom on realized distance
+/// would destroy that recovery history near walls.
+///
+/// # Safety
+///
+/// [`validate_zoom_contract`] must have succeeded during `DeferredInit` and
+/// this function may be called only from the fingerprinted player-camera wheel
+/// callsite.
+pub(super) unsafe fn zoom_sample(raw_delta: i32) -> Option<NativeZoomSample> {
+    if raw_delta == 0 {
+        return None;
+    }
+    let setting = if raw_delta > 0 {
+        VANITY_WHEEL_IN_SETTING
+    } else {
+        VANITY_WHEEL_OUT_SETTING
+    };
+    let desired_distance = unsafe { read_f32_volatile(DESIRED_THIRD_PERSON_DISTANCE) };
+    let multiplier = unsafe { read_f32_volatile(setting + FLOAT_SETTING_VALUE) };
+    (desired_distance.is_finite()
+        && desired_distance > 0.0
+        && multiplier.is_finite()
+        && multiplier > 0.0)
+        .then_some(NativeZoomSample {
+            desired_distance,
+            multiplier,
+        })
 }
 
 pub(super) fn player() -> *mut c_void {
@@ -569,6 +632,10 @@ fn matrix_to_angles() -> MatrixAnglesFn {
 
 unsafe fn read_global_ptr(address: usize) -> *mut c_void {
     unsafe { core::ptr::read_volatile(address as *const *mut c_void) }
+}
+
+unsafe fn read_f32_volatile(address: usize) -> f32 {
+    unsafe { core::ptr::read_volatile(address as *const f32) }
 }
 
 /// Reproduce FNV's side-effect-free `MenuMode` ownership predicate.

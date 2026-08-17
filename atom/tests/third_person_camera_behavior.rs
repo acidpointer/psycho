@@ -3,9 +3,9 @@
 use core::f32::consts::{FRAC_PI_2, PI};
 
 use atom::camera::third_person::{
-    AimAngles, FacingPolicy, FollowSolver, MovementIntent, OwnershipInput, OwnershipMachine,
-    OwnershipState, SpringAxis, ThirdPersonConfig, Vec3, camera_relative_heading, converge_angles,
-    remap_movement, step_heading, wrap_angle,
+    AimAngles, FacingPolicy, FollowSolver, LocomotionSector, MovementIntent, OwnershipInput,
+    OwnershipMachine, OwnershipState, SpringAxis, ThirdPersonConfig, Vec3, camera_relative_heading,
+    converge_angles, linear_zoom_delta, remap_movement, step_heading, wrap_angle,
 };
 
 fn fnv_world_vector(local: Vec3, actor_yaw: f32) -> Vec3 {
@@ -102,16 +102,77 @@ fn analytic_spring_is_equivalent_across_common_frame_partitions() {
 fn camera_relative_mapping_preserves_magnitude_and_unowned_flags() {
     let native = Vec3::new(0.0, 0.75, -0.2);
     let high_flags = 0xA5A5_0000;
-    for yaw in [0.0, FRAC_PI_2, PI, -FRAC_PI_2] {
+    for (yaw, sector) in [
+        (0.0, LocomotionSector::Forward),
+        (FRAC_PI_2, LocomotionSector::Right),
+        (PI, LocomotionSector::Backward),
+        (-FRAC_PI_2, LocomotionSector::Left),
+    ] {
         let explore = remap_movement(native, high_flags | 0x0A, 0.0, yaw, FacingPolicy::Explore);
         assert!((explore.vector().horizontal_length() - 0.75).abs() < 0.000_01);
         assert_eq!(explore.flags() & !0x0F, high_flags);
-        assert_eq!(explore.flags() & 0x0F, 0x01);
+        assert_eq!(explore.flags() & 0x0F, sector.direction_bits());
         assert!((wrap_angle(explore.movement_heading().unwrap() - yaw)).abs() < 0.000_01);
 
         let combat = remap_movement(native, high_flags | 0x0A, 0.0, yaw, FacingPolicy::Combat);
         assert_eq!(combat.flags(), high_flags | 0x0A);
     }
+}
+
+#[test]
+fn explore_locomotion_selects_all_eight_native_direction_sectors() {
+    let sectors = [
+        LocomotionSector::Forward,
+        LocomotionSector::ForwardRight,
+        LocomotionSector::Right,
+        LocomotionSector::BackwardRight,
+        LocomotionSector::Backward,
+        LocomotionSector::BackwardLeft,
+        LocomotionSector::Left,
+        LocomotionSector::ForwardLeft,
+    ];
+    for (index, expected) in sectors.into_iter().enumerate() {
+        let view_yaw = wrap_angle(index as f32 * PI / 4.0);
+        let resolution = MovementIntent::new(
+            Vec3::new(0.0, 1.0, 0.0),
+            0xA500_0001,
+            view_yaw,
+            FacingPolicy::Explore,
+        )
+        .resolve_stateful(0.0, None);
+        assert_eq!(resolution.locomotion_sector(), Some(expected));
+        assert_eq!(
+            resolution.output().flags() & 0x0F,
+            expected.direction_bits()
+        );
+        assert_vec3_close(
+            fnv_world_vector(resolution.output().vector(), 0.0),
+            fnv_world_vector(Vec3::new(0.0, 1.0, 0.0), view_yaw),
+        );
+    }
+}
+
+#[test]
+fn explore_locomotion_hysteresis_prevents_boundary_flag_chatter() {
+    let resolve = |degrees: f32, previous| {
+        MovementIntent::new(
+            Vec3::new(0.0, 1.0, 0.0),
+            1,
+            degrees.to_radians(),
+            FacingPolicy::Explore,
+        )
+        .resolve_stateful(0.0, previous)
+    };
+    let retained = resolve(24.0, Some(LocomotionSector::Forward));
+    assert_eq!(
+        retained.locomotion_sector(),
+        Some(LocomotionSector::Forward)
+    );
+    let crossed = resolve(28.0, retained.locomotion_sector());
+    assert_eq!(
+        crossed.locomotion_sector(),
+        Some(LocomotionSector::ForwardRight)
+    );
 }
 
 #[test]
@@ -169,12 +230,57 @@ fn movement_intent_resolves_against_observed_not_requested_facing() {
     // A native setter may normalize to a value different from the requested
     // one. Only the observed post-setter heading is authoritative.
     let normalized_actor_yaw = wrap_angle(requested_actor_yaw + 2.0 * PI);
-    let normalized = intent.resolve(normalized_actor_yaw);
+    let normalized = intent.resolve_stateful(normalized_actor_yaw, None);
     assert_vec3_close(
-        fnv_world_vector(normalized.vector(), normalized_actor_yaw),
+        fnv_world_vector(normalized.output().vector(), normalized_actor_yaw),
         fnv_world_vector(native, view_yaw),
     );
-    assert_eq!(normalized.flags(), 0xA500_0001);
+    assert_eq!(
+        normalized.output().flags(),
+        0xA500_0000
+            | normalized
+                .locomotion_sector()
+                .expect("nonzero Explore intent has a sector")
+                .direction_bits()
+    );
+}
+
+#[test]
+fn fine_zoom_produces_constant_world_unit_notches_across_the_native_range() {
+    for desired_distance in [30.0, 60.0, 120.0] {
+        for (raw_delta, multiplier) in [(120, 0.05), (-120, 0.10)] {
+            let mut residual = 0.0;
+            let adjusted =
+                linear_zoom_delta(raw_delta, desired_distance, multiplier, 2.0, &mut residual)
+                    .expect("valid native zoom values");
+            let native_change = adjusted as f32 / 120.0 * desired_distance * multiplier;
+            assert!((native_change - raw_delta.signum() as f32 * 2.0).abs() < 0.000_01);
+            assert!(residual.abs() < 0.000_01);
+        }
+    }
+}
+
+#[test]
+fn fine_zoom_preserves_batched_and_high_resolution_wheel_input() {
+    let mut batched_residual = 0.0;
+    let batched = linear_zoom_delta(240, 60.0, 0.05, 2.0, &mut batched_residual)
+        .expect("batched wheel input");
+    let mut split_residual = 0.0;
+    let split = (0..2)
+        .map(|_| {
+            linear_zoom_delta(120, 60.0, 0.05, 2.0, &mut split_residual).expect("split wheel input")
+        })
+        .sum::<i32>();
+    assert_eq!(batched, split);
+    assert_eq!(batched_residual, split_residual);
+
+    let mut residual = 0.0;
+    let positive = linear_zoom_delta(15, 120.0, 0.10, 2.0, &mut residual)
+        .expect("high-resolution positive input");
+    let negative =
+        linear_zoom_delta(-15, 120.0, 0.10, 2.0, &mut residual).expect("high-resolution reversal");
+    assert_eq!(positive + negative, 0);
+    assert_eq!(residual, 0.0);
 }
 
 #[test]
@@ -264,6 +370,7 @@ fn configuration_is_coherent_bounded_and_strict_for_invalid_values() {
          fFollowSpeed=200\n\
          fSoftZone=-2\n\
          fLookAhead=80\n\
+         fZoomStep=99\n\
          bAutoCenter=0\n\
          fCenterDelay=9\n\
          fCenterSpeed=900\n\
@@ -277,6 +384,7 @@ fn configuration_is_coherent_bounded_and_strict_for_invalid_values() {
     assert_eq!(config.follow_speed(), 20.0);
     assert_eq!(config.soft_zone(), 0.0);
     assert_eq!(config.look_ahead(), 32.0);
+    assert_eq!(config.zoom_step(), 10.0);
     assert!(!config.auto_center());
     assert_eq!(config.center_delay(), 5.0);
     assert_eq!(config.center_speed_degrees(), 360.0);
@@ -286,4 +394,5 @@ fn configuration_is_coherent_bounded_and_strict_for_invalid_values() {
 
     assert!(ThirdPersonConfig::from_ini("[Camera]\nbFollowCamera=2\n").is_err());
     assert!(ThirdPersonConfig::from_ini("[Movement]\nfTurnSpeed=NaN\n").is_err());
+    assert!(ThirdPersonConfig::from_ini("[Camera]\nfZoomStep=NaN\n").is_err());
 }

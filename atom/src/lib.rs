@@ -5,8 +5,11 @@
 //! Atom's loader-visible work is deliberately small: plugin load acquires the
 //! process-lifetime xNVSE services which are legal to request only there, then
 //! registers one message callback and retains its callback owner. Configuration
-//! loading, native validation, and hook installation remain unreachable until
-//! xNVSE dispatches `DeferredInit`.
+//! loading, native validation, and initial hook installation remain unreachable
+//! until xNVSE dispatches `DeferredInit`. First-person render callsites are the
+//! deliberate exception: DeferredInit only arms them, and the immediately
+//! following `MainGameLoop` callback installs them after every plugin has had a
+//! chance to publish its deferred graphics wrappers.
 
 pub mod ballistics;
 pub mod camera;
@@ -132,6 +135,7 @@ fn handle_message(message: &NVSEMessage, services: &NvseServices) {
                 log::error!("[INIT] Atom is unavailable because DeferredInit failed: {error:#}");
             }
         }
+        NVSEMessageType::MainGameLoop => runtime::activate_post_deferred_render_hooks(),
         NVSEMessageType::PreLoadGame
         | NVSEMessageType::NewGame
         | NVSEMessageType::ExitToMainMenu

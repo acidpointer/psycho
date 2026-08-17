@@ -8,11 +8,13 @@
 //! Native FNV remains authoritative for logical look, aiming, crosshair,
 //! activation, projectile direction, camera selection, and iron-sight setup.
 //! Atom samples one accepted post-`UpdateCamera` state, generates a bounded
-//! immutable poses, and applies them only around the paired world and
-//! hands/weapon renders. The exact native transforms are restored before each
-//! wrapper returns. Stable world motion is constrained to sub-unit lateral and
-//! vertical translation with no camera rotation; aiming or authored actions
-//! suppress it exactly.
+//! immutable pose pair, and applies the world pose around one complete native
+//! render route so sky preparation, world rendering, first-person rendering,
+//! and image-space effects observe one camera. A nested viewmodel scope adds
+//! weapon-relative motion only while no authored animation owns it. The exact
+//! native transforms are restored before the route returns. Stable world motion
+//! is constrained to sub-unit lateral and vertical translation with no camera
+//! rotation; aiming suppresses it exactly.
 
 mod aim;
 mod config;
@@ -72,8 +74,8 @@ pub(crate) enum FirstPersonInstallError {
 /// Current predecessor addresses captured for startup diagnostics.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) struct FirstPersonHookStatus {
-    pub(crate) world_a: usize,
-    pub(crate) world_b: usize,
+    pub(crate) route_a: usize,
+    pub(crate) route_b: usize,
     pub(crate) first_person_special: usize,
     pub(crate) first_person_a: usize,
     pub(crate) first_person_b: usize,
@@ -152,13 +154,18 @@ pub(crate) fn install_shared_update_entry(
 }
 
 /// Install the first-person-only render capability group.
+///
+/// The runtime calls this once from xNVSE's first post-Deferred main-loop
+/// boundary. Installing after the complete DeferredInit listener walk is what
+/// makes this wrapper outermost around compatible graphics predecessors which
+/// own pre-render and post-render camera/depth work at the same callsites.
 pub(crate) fn install_first_person_system() -> Result<FirstPersonHookStatus, FirstPersonInstallError>
 {
     native::validate_contract()?;
     let predecessors = hooks::install_render_hooks()?;
     let status = FirstPersonHookStatus {
-        world_a: predecessors.world_a,
-        world_b: predecessors.world_b,
+        route_a: predecessors.route_a,
+        route_b: predecessors.route_b,
         first_person_special: predecessors.first_person_special,
         first_person_a: predecessors.first_person_a,
         first_person_b: predecessors.first_person_b,
@@ -421,6 +428,31 @@ pub(super) fn native_owners_allow_camera() -> bool {
     PLAYER_CONTROLS.get().is_some_and(|reader| {
         !reader.any_disabled(DisabledCheck::ByAnyModOrVanilla, CAMERA_CONTROL_MASK)
     })
+}
+
+#[cfg(test)]
+mod render_token_tests {
+    use super::{RenderRoute, RenderTokenStore};
+
+    #[test]
+    fn route_token_is_single_consumer_and_route_exact() {
+        let store = RenderTokenStore::new();
+        store.publish(17, RenderRoute::A);
+        assert_eq!(store.consume(RenderRoute::B), None);
+        assert_eq!(store.consume(RenderRoute::A), None);
+
+        store.publish(23, RenderRoute::B);
+        assert_eq!(store.consume(RenderRoute::B), Some(23));
+        assert_eq!(store.consume(RenderRoute::B), None);
+    }
+
+    #[test]
+    fn invalidation_cannot_leak_an_outer_route_token() {
+        let store = RenderTokenStore::new();
+        store.publish(41, RenderRoute::A);
+        store.invalidate();
+        assert_eq!(store.consume(RenderRoute::A), None);
+    }
 }
 
 #[cfg(test)]

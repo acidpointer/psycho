@@ -1,13 +1,18 @@
 //! Fallout: New Vegas 1.4.0.525 first-person native contract.
 //!
 //! Fixed addresses are admitted only after plugin query rejects other runtime
-//! versions and `DeferredInit` validates immutable function/data ranges. The
-//! update sampler runs after native `PlayerCharacter::UpdateCamera`; render
-//! access occurs only inside the proven world and first-person call chains.
-//! World motion recenters the finite Sky and Weather roots as one scoped
-//! transaction. Viewmodel motion uses the engine-corroborated origin rebase so
-//! sub-unit offsets do not quantize at large world coordinates. No engine
-//! pointer or temporary transform is retained beyond one callback.
+//! versions. DeferredInit validates the shared UpdateCamera body; the first
+//! post-Deferred main-loop boundary validates the render contract immediately
+//! before installing its callsites. The update sampler runs after native
+//! `PlayerCharacter::UpdateCamera`; render access occurs only inside the proven
+//! world and first-person call chains. The world pose encloses the complete
+//! native route. It poses the SceneGraph render NiCamera and transfers its
+//! exact world-translation delta to the child-zero CameraNode's local center
+//! consumed by native Sky/Weather preparation. SkyShader matrix construction
+//! independently subtracts the posed NiCamera world translation. Viewmodel
+//! motion uses the engine-corroborated origin rebase so sub-unit offsets do not
+//! quantize at large world coordinates. No engine pointer or temporary
+//! transform is retained beyond one callback.
 
 use core::ffi::c_void;
 use core::mem::size_of;
@@ -45,6 +50,7 @@ const TIME_GLOBAL: usize = 0x011F_6394;
 const PLAYER_PARENT_CELL: usize = 0x40;
 const PLAYER_PROCESS: usize = 0x68;
 const PLAYER_LIFE_STATE: usize = 0x108;
+const PLAYER_MOVER: usize = 0x190;
 const PLAYER_COLLISION_OWNER: usize = 0x21C;
 const PLAYER_POV_TRANSITION_A: usize = 0x64A;
 const PLAYER_POV_TRANSITION_B: usize = 0x64B;
@@ -62,6 +68,15 @@ const GAMEPLAY_INTERFACE_MODE: u32 = 1;
 const VATS_MODE: usize = 0x08;
 const TIME_SECONDS_PASSED: usize = 0x0C;
 
+// PlayerCharacter::Update commits the complete movement word through
+// PlayerMover virtual +0x0C. The supported PlayerMover implementation stores
+// that word at +0x94; the low nibble is forward/back/left/right. The normal
+// first UpdateCamera call precedes the current commit, so it observes the prior
+// completed update. Later callers still see committed object state, never the
+// unfinished movement word on PlayerCharacter::Update's stack.
+const PLAYER_MOVER_FLAGS: usize = 0x94;
+const MOVEMENT_DIRECTION_MASK: u32 = 0x0F;
+
 const PROCESS_CURRENT_ACTION_VTBL: usize = 0x3E4;
 const PROCESS_IS_AIMING_VTBL: usize = 0x404;
 const PROCESS_KNOCKED_STATE_VTBL: usize = 0x40C;
@@ -76,8 +91,14 @@ const MIN_ENGINE_POINTER: usize = 0x1_0000;
 const GET_CHARACTER_CONTROLLER: usize = 0x0093_06D0;
 const GET_CONTROLLER_STATE: usize = 0x005C_0880;
 const GET_SUPPORT_RELATIVE_VELOCITY: usize = 0x0081_2B00;
-const FIRST_PERSON_ANIMATION_BLOCKED: usize = 0x008A_8870;
+// Native render preparation does not use SceneGraph::camera at +0xAC when it
+// centers Sky and Weather. It calls SceneGraph::GetAt(0) instead. SkyShader
+// matrix construction consumes the distinct NiCamera retained at +0xAC.
+// Camera mods may legitimately make the identities differ, so Atom transfers
+// only the NiCamera's world displacement into the CameraNode's local center.
+const GET_WORLD_SKY_ANCHOR: usize = 0x0055_8310;
 const UPDATE_NIAVOBJECT: usize = 0x00A5_9C60;
+const SET_PLAYER_MOVER_FLAGS: usize = 0x009E_A3E0;
 
 // The entry itself is deliberately omitted: another camera plugin may already
 // own a compatible entry trampoline by DeferredInit. These immutable interior
@@ -97,13 +118,14 @@ const UPDATE_CAMERA_INTERIOR_FINGERPRINTS: &[(usize, &[u8])] = &[
 ];
 
 const DISABLED_CONTROL_MASK: u8 = 0x1F;
+const ANIM_ACTION_NONE: i16 = -1;
 const SCRIPTED_ACTION_A: i16 = 0x0D;
 const SCRIPTED_ACTION_B: i16 = 0x0E;
 
 type GetCharacterControllerFn = unsafe extern "thiscall" fn(*mut c_void) -> *mut c_void;
 type GetControllerStateFn = unsafe extern "thiscall" fn(*mut c_void) -> u32;
 type GetRelativeVelocityFn = unsafe extern "thiscall" fn(*mut c_void, *mut NativePoint3);
-type AnimationBlockedFn = unsafe extern "thiscall" fn(*mut c_void) -> u8;
+type GetWorldSkyAnchorFn = unsafe extern "thiscall" fn(*mut c_void) -> *mut c_void;
 type ProcessActionFn = unsafe extern "thiscall" fn(*mut c_void) -> i16;
 type ProcessBoolFn = unsafe extern "thiscall" fn(*mut c_void) -> u8;
 type ProcessStateFn = unsafe extern "thiscall" fn(*mut c_void) -> i32;
@@ -161,6 +183,7 @@ pub(super) enum NativeRejection {
     Dead,
     VanillaControls,
     Process,
+    Mover,
     Cell,
     Collision,
     FirstPerson3d,
@@ -185,7 +208,7 @@ pub(super) enum NativeRejection {
 }
 
 impl NativeRejection {
-    pub(super) const COUNT: usize = 31;
+    pub(super) const COUNT: usize = 32;
     pub(super) const ALL: [Self; Self::COUNT] = [
         Self::CombinedControls,
         Self::InvalidPlayer,
@@ -197,6 +220,7 @@ impl NativeRejection {
         Self::Dead,
         Self::VanillaControls,
         Self::Process,
+        Self::Mover,
         Self::Cell,
         Self::Collision,
         Self::FirstPerson3d,
@@ -232,6 +256,7 @@ impl NativeRejection {
             Self::Dead => "dead player",
             Self::VanillaControls => "vanilla disabled controls",
             Self::Process => "missing process",
+            Self::Mover => "missing player mover",
             Self::Cell => "missing cell",
             Self::Collision => "missing collision owner",
             Self::FirstPerson3d => "missing first-person 3D",
@@ -283,6 +308,9 @@ pub(super) fn validate_update_camera_contract() -> Result<(), NativeContractErro
 }
 
 /// Validate fixed first-person global slots and helper functions.
+///
+/// This runs at the first post-Deferred main-loop boundary immediately before
+/// Atom captures the final direct-call predecessors.
 pub(super) fn validate_contract() -> Result<(), NativeContractError> {
     validate_update_camera_contract()?;
     for address in [
@@ -320,12 +348,23 @@ pub(super) fn validate_contract() -> Result<(), NativeContractError> {
             &[0x53, 0x8B, 0xDC, 0x51, 0x83, 0xE4, 0xF0, 0x83, 0xC4, 0x04],
         ),
         (
-            FIRST_PERSON_ANIMATION_BLOCKED,
-            &[0x55, 0x8B, 0xEC, 0x83, 0xEC, 0x0C, 0x89, 0x4D, 0xF8],
+            GET_WORLD_SKY_ANCHOR,
+            &[0x55, 0x8B, 0xEC, 0x51, 0x89, 0x4D, 0xFC, 0x6A, 0x00],
         ),
         (
             UPDATE_NIAVOBJECT,
             &[0x56, 0x8B, 0xF1, 0x8B, 0x4C, 0x24, 0x08, 0x8B, 0x06],
+        ),
+        (
+            SET_PLAYER_MOVER_FLAGS,
+            &[
+                0x55, 0x8B, 0xEC, 0x83, 0xEC, 0x18, 0x56, 0x89, 0x4D, 0xE8, 0x8B, 0x45, 0xE8, 0x8B,
+                0x88, 0x94, 0x00, 0x00, 0x00,
+            ],
+        ),
+        (
+            SET_PLAYER_MOVER_FLAGS + 0x5E,
+            &[0x89, 0x82, 0x94, 0x00, 0x00, 0x00],
         ),
     ];
     for &(address, expected) in fingerprints {
@@ -386,6 +425,11 @@ pub(super) unsafe fn sample_after_update(
         function(process) != 0
     };
 
+    let mover =
+        unsafe { read_ptr(player.cast::<u8>(), PLAYER_MOVER) }.ok_or(NativeRejection::Mover)?;
+    let movement_flags = unsafe { read_value::<u32>(mover.cast::<u8>(), PLAYER_MOVER_FLAGS) };
+    let directional_locomotion = directional_locomotion(movement_flags);
+
     let controller = unsafe { get_character_controller()(player) };
     if !is_engine_pointer(controller) {
         return Err(NativeRejection::Controller);
@@ -405,7 +449,7 @@ pub(super) unsafe fn sample_after_update(
     let delta_seconds = unsafe { read_value::<f32>(TIME_GLOBAL as *const u8, TIME_SECONDS_PASSED) };
     let yaw = unsafe { core::ptr::read_unaligned(LOGICAL_YAW as *const f32) };
     let pitch = unsafe { core::ptr::read_unaligned(LOGICAL_PITCH as *const f32) };
-    let animation_blocked = unsafe { first_person_animation_blocked()(player) != 0 };
+    let authored_animation = authored_action_owns_weapon_motion(current_action);
     let cell = unsafe { read_ptr(player.cast::<u8>(), PLAYER_PARENT_CELL) }
         .ok_or(NativeRejection::Cell)? as usize;
     let values = [
@@ -428,9 +472,10 @@ pub(super) unsafe fn sample_after_update(
             delta_seconds,
             [velocity.x, velocity.y, velocity.z],
             locomotion,
+            directional_locomotion,
             [0.0; 2],
             aiming,
-            animation_blocked,
+            authored_animation,
         ),
     })
 }
@@ -449,22 +494,25 @@ pub(super) unsafe fn render_owner_allows() -> Result<(), NativeRejection> {
     Ok(())
 }
 
-/// Apply a pose to the persistent world camera for one scoped call.
+/// Apply a pose to the persistent world camera for one complete render route.
 ///
 /// # Safety
 ///
-/// The caller must be inside one of the two researched main world render calls.
+/// The caller must be inside one of the two researched parent route callsites,
+/// before the route invokes native preparation at `0x00872B00`.
 pub(super) unsafe fn pose_world_camera(pose: CameraPose) -> Option<WorldTransformGuard> {
     let scene_graph = unsafe { read_global_ptr(WORLD_SCENE_GRAPH_PTR) };
     let camera = unsafe { read_ptr(scene_graph.cast::<u8>(), SCENE_GRAPH_CAMERA)? };
+    let sky_anchor = unsafe { get_world_sky_anchor()(scene_graph) };
     let sky = unsafe { read_global_ptr(SKY_ROOT_PTR) };
     let weather = unsafe { read_global_ptr(WEATHER_ROOT_PTR) };
-    if !is_engine_pointer(sky) || !is_engine_pointer(weather) {
+    if !is_engine_pointer(sky_anchor) || !is_engine_pointer(sky) || !is_engine_pointer(weather) {
         return None;
     }
     unsafe {
         WorldTransformGuard::apply_with_updater(
             camera.cast::<u8>(),
+            sky_anchor.cast::<u8>(),
             sky.cast::<u8>(),
             weather.cast::<u8>(),
             pose,
@@ -494,57 +542,81 @@ pub(super) unsafe fn pose_first_person_camera(pose: CameraPose) -> Option<Viewmo
     }
 }
 
-/// Scoped world-camera pose with coherent finite-sky centering.
+/// Scoped world-camera pose around one complete native render route.
 ///
-/// FNV centers the `Sky` and `Weather` roots from the camera before Atom's
-/// world callsite. Moving only the camera makes both roots visibly jump by the
-/// inverse offset. This guard temporarily gives both roots the posed camera's
-/// local position, updates their cached descendant transforms through the same
-/// native helper used by `0x00872B00`, then restores all three owners.
+/// FNV renders through `SceneGraph +0xAC`, but route preparation centers `Sky`
+/// and `Weather` from the distinct parent CameraNode at child zero. Native
+/// preparation copies that node's local translation into the finite roots,
+/// while SkyShader matrix construction subtracts the NiCamera world
+/// translation. Atom therefore transfers the camera's exact world-translation
+/// delta to the CameraNode local translation only. Restoration recenters the
+/// two roots from the restored anchor instead of replaying stale whole-root
+/// snapshots, preserving controller or weather mutations made inside the
+/// route.
 #[must_use = "dropping the guard restores the camera and infinite-scene roots"]
 pub(super) struct WorldTransformGuard {
     camera: *mut u8,
-    original_camera: CameraTransform,
-    sky: GraphTransformSnapshot,
-    weather: GraphTransformSnapshot,
+    original_local_camera: CameraTransform,
+    original_world_camera: CameraTransform,
+    sky_anchor: Option<ScopedNativeTranslation>,
+    original_sky_center: [f32; 3],
+    sky: *mut u8,
+    weather: *mut u8,
     update: GraphUpdater,
 }
 
 impl WorldTransformGuard {
     unsafe fn apply_with_updater(
         camera: *mut u8,
+        sky_anchor: *mut u8,
         sky: *mut u8,
         weather: *mut u8,
         pose: CameraPose,
         update: GraphUpdater,
     ) -> Option<Self> {
         if !is_engine_pointer(camera.cast())
+            || !is_engine_pointer(sky_anchor.cast())
             || !is_engine_pointer(sky.cast())
             || !is_engine_pointer(weather.cast())
             || pose.is_identity()
         {
             return None;
         }
-        let original_camera = unsafe { read_transform(camera)? };
-        let local_camera = unsafe { read_local_transform(camera)? };
-        let composed_camera = compose_transform(original_camera, pose)?;
-        let centered_translation = compose_transform(local_camera, pose)?.translation;
-        let sky = unsafe { GraphTransformSnapshot::capture(sky)? };
-        let weather = unsafe { GraphTransformSnapshot::capture(weather)? };
+        let original_local_camera = unsafe { read_local_transform(camera)? };
+        let original_world_camera = unsafe { read_transform(camera)? };
+        let composed_local_camera = compose_transform(original_local_camera, pose)?;
+        let composed_world_camera = compose_transform(original_world_camera, pose)?;
+        let world_translation_delta = std::array::from_fn(|axis| {
+            composed_world_camera.translation[axis] - original_world_camera.translation[axis]
+        });
+        if !world_translation_delta.into_iter().all(f32::is_finite) {
+            return None;
+        }
+        let sky_anchor = if sky_anchor == camera {
+            None
+        } else {
+            Some(unsafe { ScopedNativeTranslation::prepare(sky_anchor, world_translation_delta)? })
+        };
+        let original_sky_center = sky_anchor.map_or(original_local_camera.translation, |anchor| {
+            anchor.original_local
+        });
 
-        // Resolve every pointer and finite value before the first write. From
-        // here onward the operations are infallible native stores/updates, so
-        // a partial render transaction cannot escape through an Option path.
+        // Resolve every pointer and finite value before the first write. The
+        // predecessor remains the sole apply-side Sky/Weather updater, exactly
+        // as it is when Atom is absent.
         unsafe {
-            write_transform(camera, composed_camera);
-            sky.write_local_translation(centered_translation);
-            update(sky.object);
-            weather.write_local_translation(centered_translation);
-            update(weather.object);
+            write_local_transform(camera, composed_local_camera);
+            write_transform(camera, composed_world_camera);
+            if let Some(anchor) = sky_anchor {
+                anchor.apply();
+            }
         }
         Some(Self {
             camera,
-            original_camera,
+            original_local_camera,
+            original_world_camera,
+            sky_anchor,
+            original_sky_center,
             sky,
             weather,
             update,
@@ -554,12 +626,74 @@ impl WorldTransformGuard {
 
 impl Drop for WorldTransformGuard {
     fn drop(&mut self) {
-        // Restore roots through their normal recursive update so cached child
-        // transforms cannot retain Atom's temporary center after the draw.
+        // The route may legitimately animate either root. Preserve all of that
+        // state and restore only the camera-derived center owned by 0x00872B00.
+        // Restoring the camera first also makes the graph updates observe one
+        // coherent native coordinate space if a future virtual implementation
+        // consults it while walking descendants.
         unsafe {
-            self.sky.restore(self.update);
-            self.weather.restore(self.update);
-            write_transform(self.camera, self.original_camera);
+            write_local_transform(self.camera, self.original_local_camera);
+            write_transform(self.camera, self.original_world_camera);
+            if let Some(anchor) = self.sky_anchor {
+                anchor.restore();
+            }
+            write_translation(
+                self.sky,
+                NIAVOBJECT_LOCAL_TRANSLATION,
+                self.original_sky_center,
+            );
+            (self.update)(self.sky);
+            write_translation(
+                self.weather,
+                NIAVOBJECT_LOCAL_TRANSLATION,
+                self.original_sky_center,
+            );
+            (self.update)(self.weather);
+        }
+    }
+}
+
+/// Prepared local translation mutation for the native finite-sky CameraNode.
+///
+/// `0x00872B00` reads only child zero's local translation before copying it to
+/// Sky and Weather. `SkyShader::UpdateConstants @ 0x00B89D80` instead reads the
+/// distinct NiCamera retained at `SceneGraph +0xAC`. Moving the CameraNode's
+/// world field cannot affect that subtraction and would corrupt graph-owned
+/// state, so every other anchor field remains untouched.
+#[derive(Clone, Copy)]
+struct ScopedNativeTranslation {
+    object: *mut u8,
+    original_local: [f32; 3],
+    posed_local: [f32; 3],
+}
+
+impl ScopedNativeTranslation {
+    unsafe fn prepare(object: *mut u8, world_delta: [f32; 3]) -> Option<Self> {
+        let original_local = unsafe { read_local_transform(object)? }.translation;
+        let posed_local = std::array::from_fn(|axis| original_local[axis] + world_delta[axis]);
+        if !posed_local.into_iter().all(f32::is_finite) {
+            return None;
+        }
+        Some(Self {
+            object,
+            original_local,
+            posed_local,
+        })
+    }
+
+    unsafe fn apply(self) {
+        unsafe {
+            write_translation(self.object, NIAVOBJECT_LOCAL_TRANSLATION, self.posed_local);
+        }
+    }
+
+    unsafe fn restore(self) {
+        unsafe {
+            write_translation(
+                self.object,
+                NIAVOBJECT_LOCAL_TRANSLATION,
+                self.original_local,
+            );
         }
     }
 }
@@ -657,10 +791,6 @@ impl GraphTransformSnapshot {
             local: unsafe { read_local_transform(object)? },
             world: unsafe { read_transform(object)? },
         })
-    }
-
-    unsafe fn write_local_translation(self, translation: [f32; 3]) {
-        unsafe { write_translation(self.object, NIAVOBJECT_LOCAL_TRANSLATION, translation) };
     }
 
     unsafe fn restore(self, update: GraphUpdater) {
@@ -889,6 +1019,22 @@ fn is_engine_pointer(pointer: *mut c_void) -> bool {
     pointer as usize >= MIN_ENGINE_POINTER
 }
 
+const fn directional_locomotion(movement_flags: u32) -> bool {
+    movement_flags & MOVEMENT_DIRECTION_MASK != 0
+}
+
+/// Return whether native animation exclusively owns weapon-relative motion.
+///
+/// `0x008A8870` is not a general ownership predicate: the supported executable
+/// proves that it recognizes only reload (9) and the reload-loop extension
+/// actions (15 through 17). `GetCurrentAnimAction` instead returns `-1` only
+/// when no authored action is active. Unknown values deliberately fail closed
+/// to native animation because adding procedural motion is never required for
+/// gameplay correctness.
+const fn authored_action_owns_weapon_motion(current_action: i16) -> bool {
+    current_action != ANIM_ACTION_NONE
+}
+
 fn get_character_controller() -> GetCharacterControllerFn {
     unsafe { core::mem::transmute(GET_CHARACTER_CONTROLLER) }
 }
@@ -901,8 +1047,8 @@ fn get_relative_velocity() -> GetRelativeVelocityFn {
     unsafe { core::mem::transmute(GET_SUPPORT_RELATIVE_VELOCITY) }
 }
 
-fn first_person_animation_blocked() -> AnimationBlockedFn {
-    unsafe { core::mem::transmute(FIRST_PERSON_ANIMATION_BLOCKED) }
+fn get_world_sky_anchor() -> GetWorldSkyAnchorFn {
+    unsafe { core::mem::transmute(GET_WORLD_SKY_ANCHOR) }
 }
 
 fn update_niavobject() -> UpdateNiAvObjectFn {
@@ -914,15 +1060,42 @@ mod tests {
     use super::{
         CameraPose, CameraTransform, NIAVOBJECT_LOCAL_TRANSLATION, NIAVOBJECT_WORLD_ROTATION,
         NIAVOBJECT_WORLD_TRANSLATION, NativeUpdateData, ViewmodelTransformGuard,
-        WorldTransformGuard, menu_mode_from_fields, read_local_transform, read_transform,
-        write_local_transform, write_transform,
+        WorldTransformGuard, authored_action_owns_weapon_motion, directional_locomotion,
+        menu_mode_from_fields, read_local_transform, read_transform, write_local_transform,
+        write_transform, write_translation,
     };
 
     const IDENTITY_ROTATION: [[f32; 3]; 3] = [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]];
+    const UPDATE_COUNT_OFFSET: usize = 0x9C;
 
     unsafe fn propagate_local_transform(object: *mut u8) {
         let local = unsafe { read_local_transform(object) }.expect("finite local transform");
         unsafe { write_transform(object, local) };
+    }
+
+    unsafe fn count_and_propagate_local_transform(object: *mut u8) {
+        let count = unsafe {
+            object
+                .add(UPDATE_COUNT_OFFSET)
+                .cast::<u32>()
+                .read_unaligned()
+        };
+        unsafe {
+            object
+                .add(UPDATE_COUNT_OFFSET)
+                .cast::<u32>()
+                .write_unaligned(count + 1);
+            propagate_local_transform(object);
+        }
+    }
+
+    unsafe fn update_count(object: *mut u8) -> u32 {
+        unsafe {
+            object
+                .add(UPDATE_COUNT_OFFSET)
+                .cast::<u32>()
+                .read_unaligned()
+        }
     }
 
     unsafe fn reject_unowned_graph_update(_object: *mut u8) {
@@ -939,23 +1112,54 @@ mod tests {
     }
 
     #[test]
-    fn scoped_world_pose_recenters_sky_and_restores_every_owner() {
+    fn only_native_direction_bits_admit_gait() {
+        assert!(!directional_locomotion(0));
+        assert!(!directional_locomotion(
+            0x80 | 0x100 | 0x200 | 0x400 | 0x800
+        ));
+        for direction in [0x01, 0x02, 0x04, 0x08] {
+            assert!(directional_locomotion(direction));
+        }
+    }
+
+    #[test]
+    fn every_authored_or_unknown_action_owns_relative_weapon_motion() {
+        assert!(!authored_action_owns_weapon_motion(-1));
+        for action in 0..=17 {
+            assert!(authored_action_owns_weapon_motion(action));
+        }
+        assert!(authored_action_owns_weapon_motion(-2));
+        assert!(authored_action_owns_weapon_motion(18));
+    }
+
+    #[test]
+    fn complete_route_pose_precedes_native_sky_preparation_and_preserves_route_mutations() {
         let mut camera_object = [0u8; 0xA0];
+        let mut sky_anchor_object = [0u8; 0xA0];
         let mut sky_object = [0u8; 0xA0];
         let mut weather_object = [0u8; 0xA0];
         let camera = camera_object.as_mut_ptr();
+        let sky_anchor = sky_anchor_object.as_mut_ptr();
         let sky = sky_object.as_mut_ptr();
         let weather = weather_object.as_mut_ptr();
-        let original = CameraTransform::new(
+        let original_world = CameraTransform::new(
             [[0.0, -1.0, 0.0], [1.0, 0.0, 0.0], [0.0, 0.0, 1.0]],
             [12_345.25, -98_765.5, 432.125],
         );
-        let local = CameraTransform::new(original.rotation, original.translation);
-        let sky_original = CameraTransform::new(IDENTITY_ROTATION, original.translation);
-        let weather_original = CameraTransform::new(IDENTITY_ROTATION, original.translation);
+        let original_local = CameraTransform::new(IDENTITY_ROTATION, [12_344.0, -98_760.0, 430.0]);
+        // A later camera owner may replace SceneGraph::camera while leaving
+        // child zero as the native sky-centering source. The regression needs
+        // distinct identities and translations or a one-camera fix can pass.
+        let anchor_local = CameraTransform::new(IDENTITY_ROTATION, [12_343.0, -98_759.0, 429.0]);
+        let anchor_world =
+            CameraTransform::new(original_world.rotation, [12_344.25, -98_764.5, 431.125]);
+        let sky_original = CameraTransform::new(IDENTITY_ROTATION, anchor_local.translation);
+        let weather_original = CameraTransform::new(IDENTITY_ROTATION, anchor_local.translation);
         unsafe {
-            write_transform(camera, original);
-            write_local_transform(camera, local);
+            write_transform(camera, original_world);
+            write_local_transform(camera, original_local);
+            write_transform(sky_anchor, anchor_world);
+            write_local_transform(sky_anchor, anchor_local);
             write_local_transform(sky, sky_original);
             write_transform(sky, sky_original);
             write_local_transform(weather, weather_original);
@@ -966,26 +1170,41 @@ mod tests {
             let guard = unsafe {
                 WorldTransformGuard::apply_with_updater(
                     camera,
+                    sky_anchor,
                     sky,
                     weather,
                     CameraPose::new([0.25, -0.5, 0.75], [0.002, -0.004, 0.006]),
-                    propagate_local_transform,
+                    count_and_propagate_local_transform,
                 )
             }
             .expect("finite scoped pose");
-            let posed = unsafe { read_transform(camera) }.expect("posed transform");
-            assert_ne!(posed, original);
+            let posed_world = unsafe { read_transform(camera) }.expect("posed world transform");
+            assert_ne!(posed_world, original_world);
             let posed_local = unsafe { read_local_transform(camera) }.expect("local camera");
+            assert_ne!(posed_local, original_local);
+            let posed_anchor =
+                unsafe { read_local_transform(sky_anchor) }.expect("posed sky anchor");
+            assert_ne!(posed_anchor, anchor_local);
+
+            // Atom must not update the finite roots before native preparation;
+            // the complete route owns those normal apply-side graph walks.
+            assert_eq!(unsafe { update_count(sky) }, 0);
+            assert_eq!(unsafe { update_count(weather) }, 0);
+            unsafe {
+                write_translation(sky, NIAVOBJECT_LOCAL_TRANSLATION, posed_anchor.translation);
+                count_and_propagate_local_transform(sky);
+                write_translation(
+                    weather,
+                    NIAVOBJECT_LOCAL_TRANSLATION,
+                    posed_anchor.translation,
+                );
+                count_and_propagate_local_transform(weather);
+            }
             assert_eq!(
                 unsafe { read_local_transform(sky) }
                     .expect("posed sky")
                     .translation,
-                super::compose_transform(
-                    posed_local,
-                    CameraPose::new([0.25, -0.5, 0.75], [0.002, -0.004, 0.006]),
-                )
-                .expect("finite local pose")
-                .translation,
+                posed_anchor.translation,
             );
             assert_eq!(
                 unsafe { read_local_transform(weather) }
@@ -1003,23 +1222,157 @@ mod tests {
                     .expect("updated weather")
                     .translation,
             );
+
+            // Model a native controller mutation during the route. Restoration
+            // may recenter translation but must not replay a stale root pose.
+            let animated_sky = CameraTransform::new(
+                [[0.0, 1.0, 0.0], [-1.0, 0.0, 0.0], [0.0, 0.0, 1.0]],
+                posed_anchor.translation,
+            );
+            unsafe { write_local_transform(sky, animated_sky) };
             drop(guard);
         }
 
-        assert_eq!(unsafe { read_transform(camera) }, Some(original));
-        assert_eq!(unsafe { read_local_transform(sky) }, Some(sky_original));
-        assert_eq!(unsafe { read_transform(sky) }, Some(sky_original));
         assert_eq!(
-            unsafe { read_local_transform(weather) },
-            Some(weather_original)
+            unsafe { read_local_transform(camera) },
+            Some(original_local)
         );
-        assert_eq!(unsafe { read_transform(weather) }, Some(weather_original));
+        assert_eq!(unsafe { read_transform(camera) }, Some(original_world));
+        assert_eq!(
+            unsafe { read_local_transform(sky_anchor) },
+            Some(anchor_local)
+        );
+        assert_eq!(unsafe { read_transform(sky_anchor) }, Some(anchor_world));
+        let restored_sky = unsafe { read_local_transform(sky) }.expect("restored sky");
+        assert_ne!(restored_sky.rotation, sky_original.rotation);
+        assert_eq!(restored_sky.translation, anchor_local.translation);
+        assert_eq!(unsafe { read_transform(sky) }, Some(restored_sky));
+        assert_eq!(
+            unsafe { read_local_transform(weather) }
+                .expect("restored weather")
+                .translation,
+            anchor_local.translation,
+        );
+        assert_eq!(unsafe { update_count(sky) }, 2);
+        assert_eq!(unsafe { update_count(weather) }, 2);
         // The researched fields are adjacent but not represented by a Rust
         // engine struct; this assertion also protects their exact offsets.
         assert_eq!(
             NIAVOBJECT_WORLD_TRANSLATION - NIAVOBJECT_WORLD_ROTATION,
             0x24
         );
+    }
+
+    #[test]
+    fn native_sky_matrix_stays_fixed_under_world_space_headbob() {
+        let mut camera_object = [0u8; 0xA0];
+        let mut camera_node_object = [0u8; 0xA0];
+        let mut sky_object = [0u8; 0xA0];
+        let mut weather_object = [0u8; 0xA0];
+        let camera = camera_object.as_mut_ptr();
+        let camera_node = camera_node_object.as_mut_ptr();
+        let sky = sky_object.as_mut_ptr();
+        let weather = weather_object.as_mut_ptr();
+
+        // BSSceneGraph constructs child zero as the parent CameraNode and
+        // stores the NiCamera separately at +0xAC. Sky preparation copies the
+        // node's local translation into the root geometry, while
+        // SkyShader::UpdateConstants subtracts the NiCamera's world
+        // translation. A camera-local offset therefore has to move the finite
+        // root by the camera's world-space delta, not its child-local delta.
+        let camera_local = CameraTransform::new(IDENTITY_ROTATION, [0.0; 3]);
+        let camera_world = CameraTransform::new(
+            [[0.0, -1.0, 0.0], [1.0, 0.0, 0.0], [0.0, 0.0, 1.0]],
+            [100.0, 200.0, 300.0],
+        );
+        let camera_node_transform =
+            CameraTransform::new(IDENTITY_ROTATION, camera_world.translation);
+        unsafe {
+            write_local_transform(camera, camera_local);
+            write_transform(camera, camera_world);
+            write_local_transform(camera_node, camera_node_transform);
+            write_transform(camera_node, camera_node_transform);
+            write_local_transform(sky, camera_node_transform);
+            write_transform(sky, camera_node_transform);
+            write_local_transform(weather, camera_node_transform);
+            write_transform(weather, camera_node_transform);
+        }
+        let native_relative = [0.0; 3];
+
+        let guard = unsafe {
+            WorldTransformGuard::apply_with_updater(
+                camera,
+                camera_node,
+                sky,
+                weather,
+                CameraPose::new([2.0, 0.0, 0.0], [0.0; 3]),
+                propagate_local_transform,
+            )
+        }
+        .expect("finite scoped pose");
+
+        // Model 0x00872B00 followed by the translation part of
+        // SkyShader::UpdateConstants @ 0x00B89D80. After the renderer's
+        // current-camera term and view transform cancel, visible sky motion is
+        // exactly geometry world translation minus retained camera world
+        // translation.
+        let prepared_center = unsafe { read_local_transform(camera_node) }
+            .expect("posed camera node")
+            .translation;
+        unsafe {
+            write_translation(sky, NIAVOBJECT_LOCAL_TRANSLATION, prepared_center);
+            propagate_local_transform(sky);
+        }
+        let sky_world = unsafe { read_transform(sky) }
+            .expect("prepared sky")
+            .translation;
+        let retained_camera_world = unsafe { read_transform(camera) }
+            .expect("posed retained camera")
+            .translation;
+        let presented_relative =
+            std::array::from_fn(|axis| sky_world[axis] - retained_camera_world[axis]);
+
+        assert_eq!(presented_relative, native_relative);
+        drop(guard);
+    }
+
+    #[test]
+    fn aliased_render_camera_and_sky_anchor_are_posed_once() {
+        let mut camera_object = [0u8; 0xA0];
+        let mut sky_object = [0u8; 0xA0];
+        let mut weather_object = [0u8; 0xA0];
+        let camera = camera_object.as_mut_ptr();
+        let sky = sky_object.as_mut_ptr();
+        let weather = weather_object.as_mut_ptr();
+        let original = CameraTransform::new(IDENTITY_ROTATION, [10.0, 20.0, 30.0]);
+        let pose = CameraPose::new([0.25, -0.5, 0.75], [0.0; 3]);
+        let expected = super::compose_transform(original, pose).expect("finite posed camera");
+        unsafe {
+            write_local_transform(camera, original);
+            write_transform(camera, original);
+            write_local_transform(sky, original);
+            write_transform(sky, original);
+            write_local_transform(weather, original);
+            write_transform(weather, original);
+        }
+
+        let guard = unsafe {
+            WorldTransformGuard::apply_with_updater(
+                camera,
+                camera,
+                sky,
+                weather,
+                pose,
+                propagate_local_transform,
+            )
+        }
+        .expect("aliased camera transaction");
+        assert_eq!(unsafe { read_local_transform(camera) }, Some(expected));
+        assert_eq!(unsafe { read_transform(camera) }, Some(expected));
+        drop(guard);
+
+        assert_eq!(unsafe { read_local_transform(camera) }, Some(original));
+        assert_eq!(unsafe { read_transform(camera) }, Some(original));
     }
 
     #[test]

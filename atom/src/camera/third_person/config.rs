@@ -17,6 +17,7 @@ pub struct ThirdPersonConfig {
     follow_speed: f32,
     soft_zone: f32,
     look_ahead: f32,
+    zoom_step: f32,
     auto_center: bool,
     center_delay: f32,
     center_speed_degrees: f32,
@@ -31,6 +32,7 @@ impl ThirdPersonConfig {
         follow_speed: 7.5,
         soft_zone: 12.0,
         look_ahead: 8.0,
+        zoom_step: 2.0,
         auto_center: true,
         center_delay: 1.25,
         center_speed_degrees: 120.0,
@@ -52,6 +54,7 @@ impl ThirdPersonConfig {
             ("Camera:fFollowSpeed", camera.follow_speed),
             ("Camera:fSoftZone", camera.soft_zone),
             ("Camera:fLookAhead", camera.look_ahead),
+            ("Camera:fZoomStep", camera.zoom_step),
             ("Camera:fCenterDelay", camera.center_delay),
             ("Camera:fCenterSpeed", camera.center_speed_degrees),
             ("Movement:fTurnSpeed", movement.turn_speed_degrees),
@@ -64,6 +67,7 @@ impl ThirdPersonConfig {
             follow_speed: camera.follow_speed.clamp(1.0, 20.0),
             soft_zone: camera.soft_zone.clamp(0.0, 48.0),
             look_ahead: camera.look_ahead.clamp(0.0, 32.0),
+            zoom_step: camera.zoom_step.clamp(1.0, 10.0),
             auto_center: numeric_bool("Camera:bAutoCenter", camera.auto_center)?,
             center_delay: camera.center_delay.clamp(0.0, 5.0),
             center_speed_degrees: camera.center_speed_degrees.clamp(15.0, 360.0),
@@ -105,6 +109,12 @@ impl ThirdPersonConfig {
     #[inline]
     pub const fn look_ahead(self) -> f32 {
         self.look_ahead
+    }
+
+    /// Return the desired camera-distance change per mouse-wheel notch.
+    #[inline]
+    pub const fn zoom_step(self) -> f32 {
+        self.zoom_step
     }
 
     /// Return whether movement may recenter an idle manual orbit.
@@ -196,6 +206,8 @@ struct CameraSection {
     soft_zone: f32,
     #[serde(rename = "fLookAhead")]
     look_ahead: f32,
+    #[serde(rename = "fZoomStep")]
+    zoom_step: f32,
     #[serde(rename = "bAutoCenter")]
     auto_center: u8,
     #[serde(rename = "fCenterDelay")]
@@ -212,6 +224,7 @@ impl Default for CameraSection {
             follow_speed: defaults.follow_speed,
             soft_zone: defaults.soft_zone,
             look_ahead: defaults.look_ahead,
+            zoom_step: defaults.zoom_step,
             auto_center: u8::from(defaults.auto_center),
             center_delay: defaults.center_delay,
             center_speed_degrees: defaults.center_speed_degrees,
@@ -260,7 +273,7 @@ fn validate_finite(field: &'static str, value: f32) -> Result<(), ThirdPersonCon
 pub(super) struct ConfigStore {
     sequence: AtomicU32,
     booleans: AtomicU32,
-    values: [AtomicU32; 6],
+    values: [AtomicU32; 7],
 }
 
 impl ConfigStore {
@@ -273,6 +286,7 @@ impl ConfigStore {
                 AtomicU32::new(defaults.follow_speed.to_bits()),
                 AtomicU32::new(defaults.soft_zone.to_bits()),
                 AtomicU32::new(defaults.look_ahead.to_bits()),
+                AtomicU32::new(defaults.zoom_step.to_bits()),
                 AtomicU32::new(defaults.center_delay.to_bits()),
                 AtomicU32::new(defaults.center_speed_degrees.to_bits()),
                 AtomicU32::new(defaults.turn_speed_degrees.to_bits()),
@@ -288,6 +302,7 @@ impl ConfigStore {
             config.follow_speed,
             config.soft_zone,
             config.look_ahead,
+            config.zoom_step,
             config.center_delay,
             config.center_speed_degrees,
             config.turn_speed_degrees,
@@ -314,9 +329,10 @@ impl ConfigStore {
                     follow_speed: values[0],
                     soft_zone: values[1],
                     look_ahead: values[2],
-                    center_delay: values[3],
-                    center_speed_degrees: values[4],
-                    turn_speed_degrees: values[5],
+                    zoom_step: values[3],
+                    center_delay: values[4],
+                    center_speed_degrees: values[5],
+                    turn_speed_degrees: values[6],
                 };
             }
         }

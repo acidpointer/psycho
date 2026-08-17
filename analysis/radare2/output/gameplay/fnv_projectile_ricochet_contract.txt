@@ -1,0 +1,523 @@
+FALLOUT: NEW VEGAS PROJECTILE RICOCHET CONTRACT
+================================================
+
+Research date: 2026-08-16
+Primary tool: radare2 MCP, analysis level 2
+
+Executable identity
+-------------------
+
+Path: fnv_reverse/FalloutNV.exe
+Version: Fallout: New Vegas 1.4.0.525
+Format: PE32 i386, image base 0x00400000
+PE timestamp: 0x4E0D50ED
+File size: 16084808 bytes
+SHA-256: 42fee7d6cd74e801372aa89c8f71c974cebd3c20ec9ad43d1465b8fa9646b49c
+
+Evidence labels
+---------------
+
+[BINARY] is direct disassembly, xref, data, or call-graph evidence from the
+identified executable. [HEADER] is a checked-in xNVSE 1.4.0.525 layout.
+[RUNTIME] is an Atom Proton observation. [CONTENT] is read-only inspection of
+the active mod profile or installed artifacts. [CORROBORATION] is read-only
+third-party source and is never the authority for an engine address or ABI.
+[INFERENCE] is an implementation conclusion derived from the established
+contract. [OPEN] is deliberately unclaimed.
+
+Scope
+-----
+
+This file closes the native collision, impact, material, movement, damage, and
+continuation facts required for a gameplay ricochet. It does not authorize a
+camera effect, generic impact-effect replacement, penetration, explosion
+rewrite, or global damage rebalance.
+
+Runtime and form layouts
+------------------------
+
+[HEADER][BINARY] Relevant common Projectile fields:
+
+  +0x020  TESForm* base projectile form
+  +0x024  TESObjectREFR rotation X / pitch
+  +0x028  TESObjectREFR rotation Y / roll
+  +0x02C  TESObjectREFR rotation Z / yaw
+  +0x030  TESObjectREFR world position
+  +0x040  TESObjectCELL* parent cell
+  +0x088  impact-data tList head
+  +0x090  byte hasImpacted
+  +0x094  NiTransform used by projectile attachment paths
+  +0x0C8  runtime flags
+  +0x0CC  power
+  +0x0D0  speed multiplier
+  +0x0D4  native range-kill distance
+  +0x0D8  age
+  +0x0DC  runtime hit damage
+  +0x0F4  source weapon condition
+  +0x0F8  TESObjectWEAP* source weapon
+  +0x0FC  TESObjectREFR* source
+  +0x100  live target
+  +0x104  most recent movement vector / cached direction
+  +0x110  distance travelled
+  +0x144  Rock-It Launcher inventory entry
+  +0x150  MissileProjectile impact result
+
+[HEADER] Relevant BGSProjectile fields:
+
+  +0x060  UInt16 flags
+  +0x062  UInt16 projectile type
+  +0x064  float gravity
+  +0x068  float speed
+  +0x06C  float range
+  +0x084  BGSExplosion* explosion
+  +0x088  TESSound* projectile sound
+  +0x094  float impact force
+  +0x0A0  TESObjectWEAP* default weapon
+  +0x0A4  authored rotation data
+  +0x0B0  float bouncy multiplier
+
+[HEADER] Relevant form flags are hitscan 0x0001, explosion 0x0002, alternate
+trigger 0x0004, can be disabled 0x0020, can be picked up 0x0040, supersonic
+0x0080, pins limbs 0x0100, transparent traversal 0x0200, detonates 0x0400,
+and rotation 0x0800.
+
+Collision ingestion
+-------------------
+
+[BINARY] MissileProjectile's vtable starts at 0x0108FA44. Relevant slots are:
+
+  +0x2FC  0x009C4DA0  clear impact data
+  +0x310  0x009B8030  subtype update
+  +0x314  0x009B8B10  ProcessImpacts wrapper
+  +0x328  0x009C03F0  hitscan query
+  +0x32C  0x009B8900  collision callback
+
+[BINARY] 0x009BF5A0 is the common collision callback. Its x86 ABI is:
+
+  u8 __thiscall collision(
+      Projectile* projectile,                 // ECX
+      TESObjectREFR* target,                  // [ESP+04]
+      const NiPoint3* point,                  // [ESP+08]
+      const NiPoint3* normal,                 // [ESP+0C]
+      void* collision_object,                 // [ESP+10]
+      u32 collision_argument,                 // [ESP+14]
+      u32 raw_material);                      // [ESP+18]
+
+It returns with RET 0x18. It allocates a 0x30-byte record through constructor
+0x009BFFB0 and appends it to Projectile +0x88. Proven record fields are:
+
+  +0x00  TESObjectREFR* target, possibly null for world geometry
+  +0x04  NiPoint3 contact point
+  +0x10  NiPoint3 contact normal
+  +0x1C  hkpRigidBody* or null
+  +0x20  UInt32 raw Havok material
+  +0x24  hit location
+  +0x28  marker
+  +0x29  ready/valid marker consumed by impact traversal
+
+[BINARY] Missile collision callback 0x009B8900 chains the common callback and
+then calls impact-result selector 0x009B8A20.
+
+Impact-result state machine
+---------------------------
+
+[BINARY][HEADER] The selector and xNVSE enum agree on these values:
+
+  0  IR_NONE
+  1  IR_DESTROY
+  2  IR_BOUNCE
+  3  IR_IMPALE
+  4  IR_STICK
+
+[BINARY] A normal populated Missile impact selects IR_DESTROY. Pins-limbs and
+existing runtime state can select impale/stick behavior. Form flag 0x0010 or a
+non-null Rock-It entry at runtime +0x144 selects IR_BOUNCE. These are special
+native projectile/pickup semantics, not a hard-surface material policy.
+
+[BINARY] 0x009B8B10 rejects processing when Projectile +0x90 is already set or
+the impact list is empty. Its only direct call to common impact traversal is:
+
+  0x009B8BCD  movzx edx, byte [ebp-2]
+  0x009B8BD1  test edx, edx
+  0x009B8BD3  je 0x009B8BE0
+  0x009B8BD5  mov ecx, [ebp-0x0C]
+  0x009B8BD8  call 0x009C1B70
+  0x009B8BDD  mov [ebp-1], al
+
+Immutable bytes around the mutable E8 call are:
+
+  before 0x009B8BCD:
+    0F B6 55 FE 85 D2 74 0B 8B 4D F4
+
+  after 0x009B8BDD:
+    88 45 FF 0F B6 45 FF 85 C0 0F 84 81 00 00 00
+
+[BINARY] The direct call ABI is:
+
+  u8 __thiscall process_common_impacts(Projectile* projectile)
+
+ECX is the only input used by 0x009C1B70 and AL is the result. The complete
+0x009C1B70 body contains no EDI or ESI input dependency. Register claims made
+for an outer vtable replacement do not apply to this direct callsite.
+
+[BINARY] If the common traversal returns true, 0x009B8B10 switches on +0x150:
+
+  IR_DESTROY  -> 0x009BC8F0, terminal projectile kill
+  IR_BOUNCE   -> 0x009B8C90, native physical/pickup bounce handler
+  IR_IMPALE   -> 0x009B90B0
+  IR_STICK    -> 0x009BA660
+
+The native IR_BOUNCE trap
+-------------------------
+
+[BINARY] 0x009B8C90 reads the cached vector through 0x009B7010, combines it
+with impact geometry, and feeds a reflected physical velocity into Havok. It
+does not clear Projectile +0x88 and does not reset +0x90. A later call to
+0x009B8B10 is therefore rejected by its entry guard. The handler also does not
+consume BGSProjectile +0xB0 as a general bullet-material coefficient.
+
+[BINARY] The IR_BOUNCE selector is reached through form flag 0x0010 or the
+Rock-It entry at runtime +0x144. The runtime field is a ContChangesEntry used
+for inventory debris/pickup ownership.
+
+[INFERENCE] Native IR_BOUNCE is a terminal physical/pickup presentation path.
+It is not a reusable damaging ballistic continuation. Redirecting a normal
+bullet to IR_BOUNCE would not implement gameplay ricochet.
+
+Common impact traversal
+-----------------------
+
+[BINARY] 0x009C1B70 walks the impact list while +0x90 is clear. For a ready
+record and positive runtime damage it preserves native target behavior:
+
+  * target vtable +0x100 true selects the Actor path;
+  * 0x009B5650 builds ActorHitData at callsite 0x009C1E61;
+  * 0x0089A760 commits the Actor hit at callsite 0x009C1E96; and
+  * the non-Actor path calls the target's native damage virtual at +0x144.
+
+[BINARY] Every ordinary accepted record reaches collision effects at
+0x009C2058 -> 0x009C20E0 with:
+
+  ECX       Projectile*
+  arg 1     target reference
+  arg 2     contact point
+  arg 3     contact normal
+  arg 4     rigid-body-derived value (body +0x10 when present)
+  arg 5     raw Havok material
+
+The function resolves the projectile's live weapon at +0xF8 and the live
+impact-data set. It therefore preserves mod-authored IMPACT data without a
+FormID table.
+
+[BINARY] 0x009C1B70 then calls 0x009C2E80 with the contact point and current
+cached direction, marks +0x90 at 0x009C20BF..0x009C20C2, and returns its result
+in AL. It does not kill the projectile and does not clear the impact list; the
+wrapper owns the terminal action after the return.
+
+[INFERENCE] A continuation wrapper should snapshot a candidate, call the
+captured common traversal exactly once, and only convert a successful ordinary
+IR_DESTROY result after native target damage and impact presentation have run.
+This preserves destructible/non-Actor behavior and Atom's existing collision
+effect wrapper. Reimplementing only 0x009C20E0 would omit native target work.
+
+Impact-list reset
+-----------------
+
+[BINARY] 0x009C4DA0 walks and frees every record under Projectile +0x88 and
+clears related +0x120 collision-process ownership. It does not reset +0x90.
+The caller must explicitly make +0x90 clear before the projectile can process a
+later contact.
+
+[BINARY] The function is the shared virtual at vtable +0x2FC. A continuation
+should resolve and call the current virtual entry, rather than assuming every
+supported projectile retains a hard-coded target.
+
+Material classification
+-----------------------
+
+[BINARY] 0x0058E8F0 maps a raw Havok material in 0..31 to one of ten canonical
+BGSImpactDataSet slots. A raw value greater than 31 takes the binary default,
+slot 4 (metal). The complete binary mapping is:
+
+  raw:   00 01 02 03 04 05 06 07 08 09 10 11 12 13 14 15
+  slot:  00 07 01 03 02 04 06 06 08 05 00 04 05 04 04 04
+
+  raw:   16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31
+  slot:  09 09 01 00 04 04 09 09 03 09 04 04 09 09 05 05
+
+[BINARY][HEADER] 0x0058E9D0 resolves `[impact_set + 0x1C + slot*4]`. The ten
+canonical slots are:
+
+  0 stone
+  1 dirt
+  2 grass
+  3 glass
+  4 metal
+  5 wood
+  6 organic
+  7 cloth
+  8 water
+  9 hollow metal
+
+[INFERENCE] The engine's out-of-range fallback is suitable for visual impact
+selection but unsafe as ricochet evidence. An unknown raw value must retain
+native terminal behavior, not gain metal gameplay solely from the fallback.
+
+Movement authority and direction state
+--------------------------------------
+
+[BINARY] Common constructor 0x009BBEF0 receives launch rotation Z and rotation
+X. It calls 0x005757D0 to store yaw at TESObjectREFR +0x2C, 0x00575770 to store
+pitch at +0x24, and 0x005757A0 to store zero roll at +0x28. Constructor helper
+0x00476A80 initializes the projectile-specific NiTransform at +0x94, while
++0x104 begins as the zero vector.
+
+[BINARY] 0x009BF300 obtains effective speed from 0x009669C0, constructs local
+displacement `(0, effective_speed * delta_seconds, 0)`, and sends it through
+0x009BF370 -> 0x0092F260. The movement route consumes the reference rotation;
+0x009BF300 does not read +0x104.
+
+[BINARY] After movement, 0x009BF370 subtracts old position from new position
+and calls 0x009C4E60. 0x009C4E60 stores that actual displacement at +0x104 and,
+when its Boolean argument is true, adds its length to +0x110. Therefore +0x104
+is an observed last-movement vector, not the authority that drives the next
+ordinary step.
+
+[BINARY] 0x009B7010 only copies Projectile +0x104 to an output vector. It does
+not rebuild orientation. Any claim that this helper turns +0x104 into the next
+trajectory is false for this executable.
+
+[BINARY] 0x009C6330 is the native projectile helper for deriving reference
+rotation from a supplied NiMatrix33. It calls 0x00A59400 to extract two angles,
+then sends the first through virtual +0x2C4 and the second through 0x00931D90.
+For MissileProjectile, vtable +0x2C4 resolves to 0x00931B60. Its projectile
+path reaches 0x005757D0 and writes rotZ/yaw +0x2C. 0x00931D90 reaches
+0x00575770 and writes rotX/pitch +0x24.
+
+[BINARY] Independent launch code at 0x005237B0..0x005237F3 proves the matrix
+output order. Its fallback stores vtable +0x2BC rotZ in the first local and
+0x00931D70 rotX in the second; the matrix path supplies those same locals as
+the first and second outputs of 0x00A59400. The third output is roll.
+
+[BINARY] 0x009BF470 updates a projectile's 3D node after movement. It copies
+the live node matrix, extracts angles with 0x00A59400, reads +0x104 through
+0x009B7010 for pitch presentation, rebuilds a matrix, and writes the node. This
+is downstream presentation. The normal movement authority remains the
+reference rotation used before +0x104 is refreshed.
+
+[BINARY] Projectile +0x94 is consumed by attachment/stick handling, including
+the IR_STICK branch around 0x009B81F6. No ordinary 0x009BF300 movement read of
++0x94 or +0x104 exists.
+
+[INFERENCE] A same-object ricochet must update the reference yaw/pitch before
+the next 0x009BF300 call. The safest established route is a finite matrix whose
+local +Y axis is the reflected direction passed to 0x009C6330. Updating only
++0x104 or +0x94 can change later presentation or cached data without changing
+the damaging physical path.
+
+[INFERENCE] +0x104 should also receive the reflected vector, preserving its
+pre-impact magnitude, so immediate downstream readers see coherent direction.
+The next native movement overwrites it with the actual continued displacement.
+Ordinary continuation does not need to overwrite the attachment transform at
++0x94.
+
+Live speed and damage
+---------------------
+
+[BINARY] 0x009669C0 calculates effective projectile speed from:
+
+  BGSProjectile +0x68 authored speed
+  * Projectile +0xCC runtime power
+  * Projectile +0xD0 runtime speed multiplier
+  * native interpolation policy
+
+[BINARY] 0x00885D70 directly returns Projectile +0xDC. Hit builder 0x009B5650
+stores that value into ActorHitData +0x14 before the normal native damage path.
+
+[INFERENCE] Ricochet loss belongs on the individual runtime projectile:
+multiply +0xD0 for later physical speed and +0xDC for later hit damage. Do not
+mutate BGSProjectile, weapon, or ammunition forms. This preserves values that
+vanilla, TTW, perks, condition, ammunition, and other mods already baked into
+the live projectile.
+
+Safe intervention seam
+----------------------
+
+[BINARY] 0x009B8BD8 is the only direct executable xref to 0x009C1B70. It is
+inside the vanilla Missile ProcessImpacts wrapper after all entry guards and
+before the terminal result switch.
+
+[INFERENCE] Atom should hook the rel32 call at 0x009B8BD8, not replace the
+Missile +0x314 vtable slot. Installation must validate the immutable
+fingerprints, capture the live target, and enable gameplay mutation only when
+that captured target is vanilla 0x009C1B70. An unknown direct-call owner is
+chained once with native fallback; Atom must not overtake unproven policy.
+
+[INFERENCE] This seam composes with an outer ProcessImpacts owner:
+
+  * if the outer owner handles an impact without calling vanilla, Atom is not
+    entered and that owner keeps priority;
+  * if it calls the vanilla wrapper, Atom sees the ordinary native traversal;
+  * Atom does not identify the owner by DLL or plugin name; and
+  * later owners remain free to chain or replace the outer vtable route.
+
+[INFERENCE] The continuation transaction is:
+
+  1. Before the predecessor, require exactly one ready impact, snapshot it,
+     and validate the correlated live generation, discrete physical Missile capability,
+     ordinary IR_DESTROY result, hard known material, finite incoming vector,
+     finite normal, grazing angle, positive live speed/damage, and bounce cap.
+  2. Call the captured 0x009C1B70 predecessor exactly once.
+  3. If it returns false or postconditions changed, return its result without
+     mutation.
+  4. Build the reflected direction and the finite local-+Y matrix.
+  5. Apply it through 0x009C6330; update +0x104, +0xD0, and +0xDC.
+  6. Reset +0x90, clear +0x88 through the current +0x2FC virtual, record the
+     bounded generation state, and return false to skip the terminal switch.
+
+Because the predecessor executes first, collision effects, destructible/non-
+Actor damage, scripts reached by native target virtuals, and Atom's existing
+impact telemetry retain their established order. A later actor hit after the
+bounce uses ordinary ActorHitData and ApplyHit ownership.
+
+Eligibility and deterministic response
+--------------------------------------
+
+[INFERENCE] Initial gameplay admission should require all of:
+
+  * a launch-correlated DiscretePhysical MissileProjectile generation;
+  * no explosion and no grenade, beam, flame, continuous-beam, thrown, mine,
+    placed, pickup/debris, VATS, always-hit, or live-target semantics;
+  * current impact result IR_DESTROY;
+  * a non-Actor target under the same vtable +0x100 branch used by native
+    traversal;
+  * raw material in 0..31 resolving to stone, metal, or hollow metal;
+  * finite nonzero incoming vector and normal;
+  * a shallow incidence under a material policy limit;
+  * finite positive effective speed, speed multiplier, and damage; and
+  * no prior gameplay bounce in the current projectile generation.
+
+[INFERENCE] Dirt, grass, glass, wood, organic, cloth, and water retain native
+terminal behavior in the first slice. Glass, wood, and cloth are candidates
+for later penetration research, not ricochet aliases.
+
+[INFERENCE] Let normalized incoming direction be D and normalized surface
+normal be N. If dot(D,N) is positive, negate N so it opposes the incoming path.
+Then:
+
+  normal_cos = clamp(-dot(D,N), 0, 1)
+  grazing_angle = asin(normal_cos)
+  R = normalize(D - 2 * dot(D,N) * N)
+
+The grazing angle is measured from the surface plane: 0 degrees is tangent and
+90 degrees is head-on. Eligibility is deterministic; no per-hit random chance
+is needed.
+
+[INFERENCE] Speed retention should be a bounded material curve over normalized
+grazing depth. Damage retention should be derived from speed retention squared
+as a gameplay energy proxy. Both multiply current runtime values. Exact
+thresholds and coefficients are balance hypotheses because FNV exposes no
+projectile mass, construction, hardness, or physically meaningful velocity
+unit; they are not real-world ballistic constants.
+
+[INFERENCE] The first production policy should allow one gameplay bounce. A
+fixed-capacity state entry should retain generation, bounce count, last contact
+point/normal/material/target token, distance travelled, and one bounded outward
+recontact retry. A near-identical immediate outward contact can be cleared once
+without a second effect or attenuation; a second repeat or any later genuine
+contact returns to native terminal behavior. Static world targets can be null,
+so FormID alone is not a valid repeat key.
+
+Installed-content compatibility evidence
+----------------------------------------
+
+[CONTENT] The active MO2 profile contains:
+
+  line 80   Bullet Trails
+  line 81   Kyu's Ballistics Fixed - TTW
+  line 109  Improved Bullet Tracers
+  lines 435-436  IMPACT Compatibility Edition / IMPACT
+  lines 527-528  itr nvse config / itr nvse
+
+[CONTENT] Installed itr-nvse.dll SHA-256 is
+a7203e78459cf273957b38df9802e112e65c4129b2a37cbe3d059f4b56268b34.
+The current xNVSE log reports plugin version 20101. Its string table contains
+OnNearMiss and OnImpactDataSpawn routes but no OnPreProjectileImpact,
+OnRicochet, OnPenetrate, or ProcessImpacts event names. This is artifact
+evidence, not proof that arbitrary future builds lack an internal hook.
+
+[CORROBORATION] A newer read-only itr-nvse source snapshot implements an outer
+Missile ProcessImpacts replacement and a proposed same-object ricochet. It
+reflects +0x104 and writes +0x94 but does not update TESObjectREFR yaw/pitch.
+The binary movement proof above shows why that exact method is insufficient to
+redirect ordinary 0x009BF300 movement on this executable. The source snapshot
+also temporarily mutates shared projectile-form flags for penetration; Atom
+must not copy that pattern.
+
+[INFERENCE] Capability-based compatibility results:
+
+  * Kyu and other record balancers: read final live speed/range/gravity and
+    multiply live runtime damage/speed; no FormID or caliber table.
+  * Improved Bullet Tracers: retain the same projectile object and let the next
+    native update orient its existing tracer from the redirected trajectory.
+  * Bullet Trails: its visual child is not a launch-correlated logical round
+    and remains outside gameplay policy.
+  * IMPACT: native 0x009C1B70 and the live 0x009C2058 predecessor execute once
+    before continuation, preserving mod-authored impact data.
+  * itr-nvse and future outer owners: an outer +0x314 owner has priority; Atom
+    observes only calls that reach the vanilla direct seam.
+  * unknown direct 0x009B8BD8 owner: chain once and keep native outcome.
+
+Failure, threading, and performance contract
+--------------------------------------------
+
+[RUNTIME] The accepted Atom Phase 1 session observed one projectile callback
+thread, 251 correlated launches and first contacts, no pool overflow, and
+address reuse across generations. Evidence is retained in
+.reports/atom-ballistics-phase1-2026-08-16.log.
+
+[INFERENCE] Thread identity remains an observation, not an eternal engine
+guarantee. Policy state must stay atomic or otherwise use the existing bounded
+lock-free ownership model. The impact hot path permits no allocation, blocking
+lock, file I/O, raycast, string construction, or per-impact log line.
+
+[INFERENCE] The observation pool must admit policy state whenever ricochet is
+enabled, even when diagnostics are disabled. The current telemetry-only launch
+insertion path is not sufficient for gameplay ownership.
+
+[INFERENCE] Every missing pointer, invalid scalar, pool overflow, lifecycle
+race, stale generation, unknown material, ambiguous hook predecessor, special
+impact result, unsupported subtype, or state mismatch calls the predecessor
+exactly once and keeps native terminal behavior. Failure may disable ricochet;
+it must not disable native collision, impact effects, damage, or projectile
+cleanup.
+
+Corrections and open items
+--------------------------
+
+[BINARY CORRECTION] 0x009B7010 is a +0x104 getter, not an orientation rebuild.
+
+[BINARY CORRECTION] Writing +0x104 and projectile +0x94 alone does not redirect
+the next ordinary Missile movement. Reference yaw/pitch is authoritative.
+
+[CODE-AUDIT CORRECTION] Atom's current CollisionFn has the correct widths for
+the 0x009C2058 call, but its final names `material` and `collision_flags` are
+wrong. The fifth argument is rigid-body-derived and the sixth is raw material.
+Future policy must rename them before reading material.
+
+[DESIGN CORRECTION] Running native 0x009C1B70 first is safer and more complete
+than manually reproducing only collision effects: it preserves non-Actor
+damage and installed effect ownership before Atom converts terminal state to a
+continuation.
+
+[OPEN] Final material angle limits and retention coefficients require behavior
+tests and one bounded balance playtest. No exact real-world coefficient is
+claimed.
+
+[OPEN] Penetration, actor armor deflection, VATS, explosive projectiles,
+grenades, beams, flames, and multiple-bounce behavior need separate contracts.
+
+[OPEN] The accepted implementation still requires release-build evidence and
+a Proton scenario proving that the redirected projectile causes a later native
+hit. Static analysis proves the intervention contract, not the final compiled
+hook or runtime behavior.

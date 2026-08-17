@@ -1156,3 +1156,95 @@ Compared with the broken 3b78b995... runtime footprint, imported DLL/symbol
 pairs, exports, section roles, TLS directory/callback roles, and the eight-byte
 `.tls` section are unchanged. Code/data/image layout changes and therefore is
 not promoted to a startup-accepted baseline by static evidence.
+
+
+20. Eight-way locomotion and linear wheel-distance contract
+------------------------------------------------------------
+
+Runtime baseline observation on 2026-08-16:
+
+  atom.dll SHA-256: fa9194843522c4c130f2c829929716626012ac3e2e3cc7d054dd2006ae40ee0b
+  user result:      third-person behavior "works pretty nice"
+
+The installed artifact and target release artifact were byte-identical. This
+is the accepted starting point for the new diagonal and zoom work, not evidence
+that the new behavior has been accepted at runtime.
+
+Native movement direction vocabulary already established at 0x0092F260:
+
+  forward   0x01
+  backward  0x02
+  left      0x04
+  right     0x08
+
+The engine accepts cardinal bits and their forward/back plus left/right
+combinations. Atom's camera-relative vector is already exact after composition
+with the raw post-setter actor yaw. Therefore diagonal refinement requires no
+new movement seam and must not alter that vector. The safe intervention is the
+same proven low direction nibble: classify desired world movement relative to
+the post-setter raw actor yaw, retain high flags, and leave Combat native.
+
+Normal third-person wheel call:
+
+  0x009459B3  6A 03 8B 8D D4 FE FF FF
+              push axis 3; load the mouse/input receiver
+  0x009459BB  call 0x00A239E0
+  0x009459C0  89 85 D0 FE FF FF
+              store the returned signed wheel delta
+
+The call displacement itself is mutable and can be chained. The surrounding
+instructions are the semantic fingerprint. This exact callsite is inside the
+normal player-camera path, so other axis reads, menu input, and hotkeys remain
+outside Atom's ownership.
+
+Live operands consumed by the following native wheel calculation:
+
+  0x011E0B5C  desired third-person distance
+  0x011CDC98  fVanityModeWheelInMult setting object
+  +0x04       float value, vanilla default 0.05
+  0x011CD2AC  fVanityModeWheelOutMult setting object
+  +0x04       float value, vanilla default 0.10
+
+The direct calculation is:
+
+  desired -= raw_delta / 120.0 * desired * direction_multiplier
+
+The normal distance bounds observed in the same UpdateCamera route are 30 and
+120, with initial desired distance 60. At 0x0094B6D3 native endpoint building
+uses desired distance. The helper called at 0x0094B7D2 -> 0x0094A0C0 owns
+collision and updates realized distance at 0x011E0768. Consequently linear
+zoom must invert the native formula using 0x011E0B5C, never rebase on the
+collision-contracted 0x011E0768 value.
+
+The safe input transform is:
+
+  adjusted_delta = raw_delta * world_units_per_notch
+                   / (desired * direction_multiplier)
+
+Native still performs the only distance write, clamps, POV decisions,
+endpoint construction, collision contraction, and outward recovery. A
+non-finite/nonpositive operand, a setting multiplier of zero, or an unavailable
+hook must pass the original signed delta unchanged. These address and formula
+facts are direct binary evidence. The two-unit default, 1..10 MCM bounds,
+five-degree sector hysteresis, independent hook transaction, and fractional
+residual policy are Atom design decisions.
+
+Static extension artifact:
+
+  atom.dll size:    6,800,988 bytes
+  atom.dll SHA-256: cc0e4e236343eed71efcae4bf761d59b0450f49d289a16b0766cb53997f95704
+  Atom tests:       97 passed on i686-pc-windows-gnu through Wine 11.15
+  third-person:     15 passed
+  MCM artifact:     2 passed
+  Atom-only Clippy: all targets, warnings denied, dependencies excluded
+  release build:    passed for explicit i686-pc-windows-gnu Atom target
+
+Against accepted baseline fa919484..., all 29 import descriptors and 320
+imported symbols are identical and ordered; no CRT round import was added. The
+three exports, nine section roles, 0x2B04 import directory, 0x8C export
+directory, 0x18 TLS directory, TLS callback roles/order, and eight-byte .tls
+section are unchanged. New section sizes are .text 0x2A67F0, .data 0x1F88,
+.rdata 0x1229B8, .eh_fram 0x4F4EC, .bss 0x1AD8, and .reloc 0x22440, with image
+size 0x447000. Configuration/static/code layout and one appended DeferredInit
+transaction changed, so static equality of loader-facing roles is not a Proton
+startup or gameplay acceptance claim.

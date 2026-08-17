@@ -14,26 +14,20 @@
   "submenus": {
     "1": {
       "columns": 1,
-      "listTitle": "Overview",
-      "pageTitle": "Atom Input",
+      "listTitle": "Input",
+      "pageTitle": "Input",
       "enable": 1,
       "active": 1,
       "options": {
         "1": {
           "type": 0,
-          "title": "Atom Input",
+          "title": "General",
           "enable": 1
         },
         "2": {
-          "type": 7,
-          "title": "Status",
-          "string": "Playtest Ready",
-          "enable": 1
-        },
-        "3": {
           "type": 4,
           "title": "Enable Input",
-          "mouse": "Live Toggle",
+          "mouse": "All Devices",
           "enable": 1,
           "vars": [
             {
@@ -42,35 +36,15 @@
             }
           ]
         },
-        "4": {
-          "type": 7,
-          "title": "Live Settings",
-          "string": "Menu Close",
-          "enable": 1
-        },
-        "5": {
-          "type": 7,
-          "title": "ESP-less",
-          "string": "Any Load Order",
-          "enable": 1
-        }
-      }
-    },
-    "2": {
-      "columns": 1,
-      "listTitle": "Mouse",
-      "pageTitle": "Mouse",
-      "enable": 1,
-      "options": {
-        "1": {
+        "3": {
           "type": 0,
-          "title": "Mouse Response",
+          "title": "Mouse",
           "enable": 1
         },
-        "2": {
+        "4": {
           "type": 1,
-          "title": "Mouse Profile",
-          "mouse": "Select Response",
+          "title": "Response Profile",
+          "mouse": "Look Processing",
           "enable": 1,
           "strings": [
             "Native",
@@ -84,10 +58,9 @@
             }
           ]
         },
-        "3": {
+        "5": {
           "type": 2.5,
           "title": "Sensitivity",
-          "mouse": "Base Multiplier",
           "enable": 1,
           "scale": {
             "valueDecimal": 2,
@@ -102,10 +75,9 @@
             }
           ]
         },
-        "4": {
+        "6": {
           "type": 2.5,
           "title": "Horizontal Scale",
-          "mouse": "Horizontal Multiplier",
           "enable": 1,
           "scale": {
             "valueDecimal": 2,
@@ -120,10 +92,9 @@
             }
           ]
         },
-        "5": {
+        "7": {
           "type": 2.5,
           "title": "Vertical Scale",
-          "mouse": "Vertical Multiplier",
           "enable": 1,
           "scale": {
             "valueDecimal": 2,
@@ -138,10 +109,9 @@
             }
           ]
         },
-        "6": {
+        "8": {
           "type": 4,
           "title": "Invert Horizontal",
-          "mouse": "Reverse Horizontal",
           "enable": 1,
           "vars": [
             {
@@ -150,10 +120,9 @@
             }
           ]
         },
-        "7": {
+        "9": {
           "type": 4,
           "title": "Invert Vertical",
-          "mouse": "Reverse Vertical",
           "enable": 1,
           "vars": [
             {
@@ -162,27 +131,12 @@
             }
           ]
         },
-        "8": {
-          "type": 7,
-          "title": "Fallout 4 Direct",
-          "string": "0.00063 Radians",
-          "enable": 1
-        }
-      }
-    },
-    "3": {
-      "columns": 1,
-      "listTitle": "Controller",
-      "pageTitle": "Controller",
-      "enable": 1,
-      "options": {
-        "1": {
-          "type": 7,
-          "title": "Controller Output",
-          "string": "Radial Response",
+        "10": {
+          "type": 0,
+          "title": "Controller",
           "enable": 1
         },
-        "2": {
+        "11": {
           "type": 2.5,
           "title": "Left Deadzone",
           "enable": 1,
@@ -199,7 +153,7 @@
             }
           ]
         },
-        "3": {
+        "12": {
           "type": 2.5,
           "title": "Right Deadzone",
           "enable": 1,
@@ -216,7 +170,7 @@
             }
           ]
         },
-        "4": {
+        "13": {
           "type": 2.5,
           "title": "Response Curve",
           "enable": 1,
@@ -233,7 +187,7 @@
             }
           ]
         },
-        "5": {
+        "14": {
           "type": 2.5,
           "title": "Anti-Deadzone",
           "enable": 1,
@@ -250,7 +204,7 @@
             }
           ]
         },
-        "6": {
+        "15": {
           "type": 2.5,
           "title": "Saturation",
           "enable": 1,
@@ -267,7 +221,7 @@
             }
           ]
         },
-        "7": {
+        "16": {
           "type": 2.5,
           "title": "Horizontal Scale",
           "enable": 1,
@@ -284,7 +238,7 @@
             }
           ]
         },
-        "8": {
+        "17": {
           "type": 2.5,
           "title": "Vertical Scale",
           "enable": 1,
@@ -301,7 +255,7 @@
             }
           ]
         },
-        "9": {
+        "18": {
           "type": 4,
           "title": "Invert X",
           "enable": 1,
@@ -312,7 +266,7 @@
             }
           ]
         },
-        "10": {
+        "19": {
           "type": 4,
           "title": "Invert Y",
           "enable": 1,
@@ -323,9 +277,14 @@
             }
           ]
         },
-        "11": {
+        "20": {
+          "type": 0,
+          "title": "Triggers",
+          "enable": 1
+        },
+        "21": {
           "type": 2.5,
-          "title": "Trigger Press",
+          "title": "Press Threshold",
           "enable": 1,
           "scale": {
             "valueDecimal": 2,
@@ -340,9 +299,9 @@
             }
           ]
         },
-        "12": {
+        "22": {
           "type": 2.5,
-          "title": "Trigger Release",
+          "title": "Release Threshold",
           "mouse": "Below Press",
           "enable": 1,
           "scale": {
@@ -360,137 +319,20 @@
         }
       }
     },
-    "4": {
+    "2": {
       "columns": 1,
-      "listTitle": "Diagnostics",
-      "pageTitle": "Diagnostics",
+      "listTitle": "Camera",
+      "pageTitle": "Camera",
       "enable": 1,
       "options": {
         "1": {
           "type": 0,
-          "title": "Input Telemetry",
-          "enable": 1
-        },
-        "2": {
-          "type": 4,
-          "title": "Collect Telemetry",
-          "mouse": "Latency Histograms",
-          "enable": 1,
-          "vars": [
-            {
-              "configINI": "Diagnostics:bTelemetry",
-              "default": 0
-            }
-          ]
-        },
-        "3": {
-          "type": 4,
-          "title": "Log Summary",
-          "mouse": "Toggle Per Request",
-          "enable": 1,
-          "vars": [
-            {
-              "configINI": "Diagnostics:bWriteSummary",
-              "default": 0
-            }
-          ]
-        },
-        "4": {
-          "type": 7,
-          "title": "Latency Scope",
-          "string": "Bounded Capture",
-          "enable": 1
-        },
-        "5": {
-          "type": 4,
-          "title": "Ballistics Trace",
-          "mouse": "Native Lifecycle",
-          "enable": 1,
-          "vars": [
-            {
-              "configINI": "Diagnostics:bBallisticsTrace",
-              "default": 0
-            }
-          ]
-        },
-        "6": {
-          "type": 4,
-          "title": "Write Ballistics",
-          "mouse": "Toggle Per Request",
-          "enable": 1,
-          "vars": [
-            {
-              "configINI": "Diagnostics:bBallisticsSummary",
-              "default": 0
-            }
-          ]
-        }
-      }
-    },
-    "5": {
-      "columns": 1,
-      "listTitle": "Modules",
-      "pageTitle": "Modules",
-      "enable": 1,
-      "options": {
-        "1": {
-          "type": 0,
-          "title": "Planned Systems",
-          "enable": 1
-        },
-        "2": {
-          "type": 7,
-          "title": "Combat AI",
-          "string": "Planned",
-          "enable": 1
-        },
-        "3": {
-          "type": 7,
-          "title": "Loot Balance",
-          "string": "Planned",
-          "enable": 1
-        },
-        "4": {
-          "type": 7,
-          "title": "Camera Systems",
-          "string": "Hooks Ready",
-          "enable": 1
-        },
-        "5": {
-          "type": 7,
-          "title": "Ballistics Core",
-          "string": "Adapter Ready",
-          "enable": 1
-        },
-        "6": {
-          "type": 4,
-          "title": "Physical Rounds",
-          "mouse": "Native Flight",
-          "enable": 1,
-          "vars": [
-            {
-              "configINI": "Ballistics:bEnabled",
-              "default": 1
-            }
-          ]
-        }
-      }
-    },
-    "6": {
-      "columns": 1,
-      "listTitle": "First Person",
-      "pageTitle": "First Person",
-      "enable": 1,
-      "options": {
-        "1": {
-          "type": 0,
-          "title": "Camera Motion",
-          "enable": 1
-        },
-        "2": {
-          "type": 4,
           "title": "First Person",
-          "mouse": "Live Toggle",
+          "enable": 1
+        },
+        "2": {
+          "type": 4,
+          "title": "Enable Motion",
           "enable": 1,
           "vars": [
             {
@@ -502,7 +344,6 @@
         "3": {
           "type": 2.5,
           "title": "Head Motion",
-          "mouse": "View Movement",
           "enable": 1,
           "scale": {
             "valueDecimal": 2,
@@ -520,7 +361,6 @@
         "4": {
           "type": 2.5,
           "title": "Weapon Motion",
-          "mouse": "Motion Strength",
           "enable": 1,
           "scale": {
             "valueDecimal": 2,
@@ -538,7 +378,6 @@
         "5": {
           "type": 2.5,
           "title": "Land Motion",
-          "mouse": "Landing Impact",
           "enable": 1,
           "scale": {
             "valueDecimal": 2,
@@ -556,7 +395,6 @@
         "6": {
           "type": 2.5,
           "title": "Aim Motion",
-          "mouse": "Aiming Motion",
           "enable": 1,
           "scale": {
             "valueDecimal": 2,
@@ -570,24 +408,15 @@
               "default": 0.2
             }
           ]
-        }
-      }
-    },
-    "7": {
-      "columns": 1,
-      "listTitle": "Third Person",
-      "pageTitle": "Third Person",
-      "enable": 1,
-      "options": {
-        "1": {
+        },
+        "7": {
           "type": 0,
-          "title": "Camera Follow",
+          "title": "Third Person",
           "enable": 1
         },
-        "2": {
+        "8": {
           "type": 4,
-          "title": "Follow Camera",
-          "mouse": "Live Toggle",
+          "title": "Enable Follow",
           "enable": 1,
           "vars": [
             {
@@ -596,7 +425,7 @@
             }
           ]
         },
-        "3": {
+        "9": {
           "type": 2.5,
           "title": "Follow Speed",
           "enable": 1,
@@ -613,7 +442,7 @@
             }
           ]
         },
-        "4": {
+        "10": {
           "type": 2.5,
           "title": "Soft Zone",
           "enable": 1,
@@ -630,7 +459,7 @@
             }
           ]
         },
-        "5": {
+        "11": {
           "type": 2.5,
           "title": "Look Ahead",
           "enable": 1,
@@ -647,7 +476,12 @@
             }
           ]
         },
-        "6": {
+        "12": {
+          "type": 0,
+          "title": "Third Orbit",
+          "enable": 1
+        },
+        "13": {
           "type": 4,
           "title": "Auto Center",
           "enable": 1,
@@ -658,9 +492,10 @@
             }
           ]
         },
-        "7": {
+        "14": {
           "type": 2.5,
           "title": "Center Delay",
+          "mouse": "Seconds",
           "enable": 1,
           "scale": {
             "valueDecimal": 2,
@@ -675,7 +510,7 @@
             }
           ]
         },
-        "8": {
+        "15": {
           "type": 2.5,
           "title": "Center Speed",
           "mouse": "Degrees Second",
@@ -692,21 +527,31 @@
               "default": 120.0
             }
           ]
-        }
-      }
-    },
-    "8": {
-      "columns": 1,
-      "listTitle": "Movement",
-      "pageTitle": "Movement",
-      "enable": 1,
-      "options": {
-        "1": {
+        },
+        "16": {
+          "type": 2.5,
+          "title": "Zoom Step",
+          "mouse": "World Units",
+          "enable": 1,
+          "scale": {
+            "valueDecimal": 1,
+            "valueIncrement": 0.5,
+            "valueMin": 1.0,
+            "valueMax": 10.0
+          },
+          "vars": [
+            {
+              "configINI": "Camera:fZoomStep",
+              "default": 2.0
+            }
+          ]
+        },
+        "17": {
           "type": 0,
-          "title": "Camera Movement",
+          "title": "Third Movement",
           "enable": 1
         },
-        "2": {
+        "18": {
           "type": 4,
           "title": "360 Movement",
           "mouse": "Camera Relative",
@@ -718,7 +563,7 @@
             }
           ]
         },
-        "3": {
+        "19": {
           "type": 2.5,
           "title": "Turn Speed",
           "mouse": "Degrees Second",
@@ -736,14 +581,105 @@
             }
           ]
         },
-        "4": {
+        "20": {
           "type": 4,
           "title": "Drawn 360",
-          "mouse": "Relaxed Drawn",
+          "mouse": "Weapons Drawn",
           "enable": 1,
           "vars": [
             {
               "configINI": "Movement:bDrawn360",
+              "default": 0
+            }
+          ]
+        }
+      }
+    },
+    "3": {
+      "columns": 1,
+      "listTitle": "Ballistics",
+      "pageTitle": "Ballistics",
+      "enable": 1,
+      "options": {
+        "1": {
+          "type": 0,
+          "title": "Projectiles",
+          "enable": 1
+        },
+        "2": {
+          "type": 4,
+          "title": "Physical Rounds",
+          "mouse": "Native Flight",
+          "enable": 1,
+          "vars": [
+            {
+              "configINI": "Ballistics:bEnabled",
+              "default": 1
+            }
+          ]
+        }
+      }
+    },
+    "4": {
+      "columns": 1,
+      "listTitle": "Diagnostics",
+      "pageTitle": "Diagnostics",
+      "enable": 1,
+      "options": {
+        "1": {
+          "type": 0,
+          "title": "Runtime",
+          "enable": 1
+        },
+        "2": {
+          "type": 4,
+          "title": "Telemetry",
+          "mouse": "Runtime Counters",
+          "enable": 1,
+          "vars": [
+            {
+              "configINI": "Diagnostics:bTelemetry",
+              "default": 0
+            }
+          ]
+        },
+        "3": {
+          "type": 4,
+          "title": "Runtime Summary",
+          "mouse": "Next Close",
+          "enable": 1,
+          "vars": [
+            {
+              "configINI": "Diagnostics:bWriteSummary",
+              "default": 0
+            }
+          ]
+        },
+        "4": {
+          "type": 0,
+          "title": "Ballistics",
+          "enable": 1
+        },
+        "5": {
+          "type": 4,
+          "title": "Flight Trace",
+          "mouse": "Flight Events",
+          "enable": 1,
+          "vars": [
+            {
+              "configINI": "Diagnostics:bBallisticsTrace",
+              "default": 0
+            }
+          ]
+        },
+        "6": {
+          "type": 4,
+          "title": "Flight Summary",
+          "mouse": "Next Close",
+          "enable": 1,
+          "vars": [
+            {
+              "configINI": "Diagnostics:bBallisticsSummary",
               "default": 0
             }
           ]

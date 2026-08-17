@@ -10,7 +10,7 @@ fn enabled_config(extra: &str) -> FirstPersonConfig {
 }
 
 fn input(dt: f32, velocity: [f32; 3], state: LocomotionState) -> MotionInput {
-    MotionInput::new(dt, velocity, state, [0.0; 2], false, false)
+    MotionInput::new(dt, velocity, state, true, [0.0; 2], false, false)
 }
 
 fn pose_magnitude(pose: CameraPose) -> f32 {
@@ -78,6 +78,43 @@ fn support_relative_stillness_never_manufactures_platform_bob() {
 }
 
 #[test]
+fn idle_native_mover_rejects_persistent_controller_velocity() {
+    let config = enabled_config("");
+    let idle_with_residual_velocity = MotionInput::new(
+        1.0 / 60.0,
+        [180.0, -75.0, 0.0],
+        LocomotionState::Grounded,
+        false,
+        [0.0; 2],
+        false,
+        false,
+    );
+
+    let mut generator = MotionGenerator::new();
+    for _ in 0..600 {
+        let motion = generator.update(idle_with_residual_velocity, config);
+        assert_eq!(motion.world_pose(), CameraPose::IDENTITY);
+        assert_eq!(motion.viewmodel_pose(), CameraPose::IDENTITY);
+        assert_eq!(generator.gait_phase(), 0.0);
+    }
+
+    for _ in 0..120 {
+        let _ = generator.update(
+            input(1.0 / 60.0, [120.0, 0.0, 0.0], LocomotionState::Grounded),
+            config,
+        );
+    }
+    let stopped_phase = generator.gait_phase();
+    let mut settled = Default::default();
+    for _ in 0..600 {
+        settled = generator.update(idle_with_residual_velocity, config);
+        assert_eq!(generator.gait_phase(), stopped_phase);
+    }
+    assert_eq!(settled.world_pose(), CameraPose::IDENTITY);
+    assert_eq!(settled.viewmodel_pose(), CameraPose::IDENTITY);
+}
+
+#[test]
 fn landing_emits_once_and_scales_with_downward_velocity() {
     fn landing_peak(downward_velocity: f32) -> f32 {
         let config = enabled_config("");
@@ -130,7 +167,9 @@ fn grounded_steps_never_manufacture_a_landing() {
 
 #[test]
 fn native_aiming_converges_toward_the_configured_motion_fraction() {
-    let config = enabled_config("");
+    // Isolate the relative weapon listener. Hip presentation also contains the
+    // common head layer, while aiming intentionally removes that layer.
+    let config = enabled_config("fCameraMotion=0\n");
     let mut hip = MotionGenerator::new();
     let mut aim = MotionGenerator::new();
     let mut hip_pose = CameraPose::IDENTITY;
@@ -142,6 +181,7 @@ fn native_aiming_converges_toward_the_configured_motion_fraction() {
                     1.0 / 60.0,
                     [120.0, 0.0, 0.0],
                     LocomotionState::Grounded,
+                    true,
                     [0.0; 2],
                     false,
                     false,
@@ -155,6 +195,7 @@ fn native_aiming_converges_toward_the_configured_motion_fraction() {
                     1.0 / 60.0,
                     [120.0, 0.0, 0.0],
                     LocomotionState::Grounded,
+                    true,
                     [0.0; 2],
                     true,
                     false,
@@ -296,7 +337,7 @@ fn extreme_native_speed_cannot_turn_head_bob_into_rapid_shake() {
 }
 
 #[test]
-fn camera_and_weapon_gains_are_independent_exact_zero_boundaries() {
+fn camera_gain_controls_head_motion_and_weapon_gain_controls_only_relative_motion() {
     let camera_off = enabled_config("fCameraMotion=0\n");
     let weapon_off = enabled_config("fWeaponMotion=0\n");
     let mut camera_off_generator = MotionGenerator::new();
@@ -318,7 +359,78 @@ fn camera_and_weapon_gains_are_independent_exact_zero_boundaries() {
     assert_eq!(camera_off_motion.world_pose(), CameraPose::IDENTITY);
     assert!(!camera_off_motion.viewmodel_pose().is_identity());
     assert!(!weapon_off_motion.world_pose().is_identity());
-    assert_eq!(weapon_off_motion.viewmodel_pose(), CameraPose::IDENTITY);
+    assert_eq!(
+        weapon_off_motion.viewmodel_pose(),
+        weapon_off_motion.world_pose(),
+        "the first-person camera must retain the common head pose so hands stay registered"
+    );
+}
+
+#[test]
+fn authored_weapon_animation_exclusively_owns_relative_viewmodel_motion() {
+    let config = enabled_config("");
+    let mut generator = MotionGenerator::new();
+    for _ in 0..90 {
+        let _ = generator.update(
+            input(1.0 / 60.0, [120.0, 0.0, 0.0], LocomotionState::Grounded),
+            config,
+        );
+    }
+
+    let authored = generator.update(
+        MotionInput::new(
+            1.0 / 60.0,
+            [120.0, 0.0, 0.0],
+            LocomotionState::Grounded,
+            true,
+            [0.02, -0.01],
+            false,
+            true,
+        ),
+        config,
+    );
+
+    assert!(!authored.world_pose().is_identity());
+    assert_eq!(
+        authored.viewmodel_pose(),
+        authored.world_pose(),
+        "an authored action may inherit head motion but must receive no procedural weapon motion"
+    );
+}
+
+#[test]
+fn look_inertia_is_visible_without_moving_the_world_and_settles_exactly() {
+    let config = enabled_config("");
+    let mut generator = MotionGenerator::new();
+    let look = MotionInput::new(
+        1.0 / 60.0,
+        [0.0; 3],
+        LocomotionState::Grounded,
+        false,
+        [0.02, -0.01],
+        false,
+        false,
+    );
+
+    let motion = generator.update(look, config);
+    assert_eq!(motion.world_pose(), CameraPose::IDENTITY);
+    assert!(!motion.viewmodel_pose().is_identity());
+
+    let idle = MotionInput::new(
+        1.0 / 60.0,
+        [0.0; 3],
+        LocomotionState::Grounded,
+        false,
+        [0.0; 2],
+        false,
+        false,
+    );
+    let mut settled = motion;
+    for _ in 0..180 {
+        settled = generator.update(idle, config);
+    }
+    assert_eq!(settled.world_pose(), CameraPose::IDENTITY);
+    assert_eq!(settled.viewmodel_pose(), CameraPose::IDENTITY);
 }
 
 #[test]
@@ -338,6 +450,7 @@ fn aiming_suppresses_world_motion_exactly() {
             1.0 / 60.0,
             [120.0, 0.0, 0.0],
             LocomotionState::Grounded,
+            true,
             [0.0; 2],
             true,
             false,

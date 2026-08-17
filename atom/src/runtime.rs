@@ -2,9 +2,12 @@
 //!
 //! `NVSEPlugin_Load` captures the runtime directory and event-manager wrapper
 //! while xNVSE permits service acquisition. Path construction, Serde/INI
-//! parsing, QPC setup, event subscription, and native hook installation first
-//! occur at `DeferredInit`. MCM Extender remains the only writer of `Atom.ini`;
-//! its close event causes a main-thread reload and atomic publication.
+//! parsing, QPC setup, event subscription, and native hook preparation first
+//! occur at `DeferredInit`. The overlapping first-person render callsites are
+//! installed once from the first subsequent `MainGameLoop`, after synchronous
+//! DeferredInit dispatch has exposed the complete graphics-owner chain. MCM
+//! Extender remains the only writer of `Atom.ini`; its close event causes a
+//! main-thread reload and atomic publication.
 
 use core::ffi::c_void;
 use core::sync::atomic::{AtomicBool, AtomicU8, AtomicU32, Ordering};
@@ -31,14 +34,89 @@ const STATE_INITIALIZING: u8 = 1;
 const STATE_ACTIVE: u8 = 2;
 const STATE_UNAVAILABLE: u8 = 3;
 
+const HOOK_GATE_COLD: u8 = 0;
+const HOOK_GATE_ARMED: u8 = 1;
+const HOOK_GATE_INSTALLING: u8 = 2;
+const HOOK_GATE_ACTIVE: u8 = 3;
+const HOOK_GATE_UNAVAILABLE: u8 = 4;
+
 static STATE: AtomicU8 = AtomicU8::new(STATE_COLD);
 static QPC_FREQUENCY: AtomicU32 = AtomicU32::new(0);
 static SUMMARY_LATCH: AtomicBool = AtomicBool::new(false);
 static BALLISTICS_SUMMARY_LATCH: AtomicBool = AtomicBool::new(false);
 static CONFIG_PATH: OnceLock<PathBuf> = OnceLock::new();
+static FIRST_PERSON_RENDER_HOOK_GATE: PostDeferredHookGate = PostDeferredHookGate::new();
 const LOG_FILE: &str = "./atom-latest.log";
 const MCM_UPDATE_EVENT: &str = "MCMExtUpdate";
 static MCM_UPDATE_PARAMETERS: [EventParamType; 1] = [EventParamType::Array];
+
+/// One-shot admission for callsites shared with deferred graphics plugins.
+///
+/// xNVSE dispatches every DeferredInit listener synchronously and then emits
+/// MainGameLoop from the same main-loop boundary. Arming here and activating
+/// there makes Atom the outer callsite owner regardless of DeferredInit
+/// listener order. The atomic state also prevents a loading-screen callback or
+/// an unexpected duplicate main-loop dispatch from initializing a hook
+/// container twice.
+struct PostDeferredHookGate {
+    state: AtomicU8,
+}
+
+impl PostDeferredHookGate {
+    const fn new() -> Self {
+        Self {
+            state: AtomicU8::new(HOOK_GATE_COLD),
+        }
+    }
+
+    fn arm(&self) -> bool {
+        self.state
+            .compare_exchange(
+                HOOK_GATE_COLD,
+                HOOK_GATE_ARMED,
+                Ordering::AcqRel,
+                Ordering::Acquire,
+            )
+            .is_ok()
+    }
+
+    fn is_armed(&self) -> bool {
+        self.state.load(Ordering::Acquire) == HOOK_GATE_ARMED
+    }
+
+    fn activate<T, E>(&self, install: impl FnOnce() -> Result<T, E>) -> Option<Result<T, E>> {
+        // MainGameLoop is a recurring message. Keep the terminal fast path to
+        // one acquire load instead of issuing a failed read-modify-write every
+        // frame after the one-shot installation has completed.
+        if self.state.load(Ordering::Acquire) != HOOK_GATE_ARMED {
+            return None;
+        }
+        self.state
+            .compare_exchange(
+                HOOK_GATE_ARMED,
+                HOOK_GATE_INSTALLING,
+                Ordering::AcqRel,
+                Ordering::Acquire,
+            )
+            .ok()?;
+
+        let result = install();
+        self.state.store(
+            if result.is_ok() {
+                HOOK_GATE_ACTIVE
+            } else {
+                HOOK_GATE_UNAVAILABLE
+            },
+            Ordering::Release,
+        );
+        Some(result)
+    }
+
+    #[cfg(test)]
+    fn state(&self) -> u8 {
+        self.state.load(Ordering::Acquire)
+    }
+}
 
 /// Deferred Atom initialization failure.
 #[derive(Debug, Error)]
@@ -152,24 +230,17 @@ fn initialize_inner(
                     }
                 };
                 if complete_camera_entry {
-                    match camera::install_first_person_system() {
-                        Ok(first_person_hooks) => {
-                            log::info!("[CAMERA] First-person render hooks installed");
-                            log::debug!(
-                                "[CAMERA] First-person routes: world_a=0x{:08X}, world_b=0x{:08X}, first_special=0x{:08X}, first_a=0x{:08X}, first_b=0x{:08X}",
-                                first_person_hooks.world_a,
-                                first_person_hooks.world_b,
-                                first_person_hooks.first_person_special,
-                                first_person_hooks.first_person_a,
-                                first_person_hooks.first_person_b,
-                            );
-                        }
-                        Err(error) => log::warn!(
-                            "[CAMERA] First-person render motion is unavailable: {error:#}. Third-person capabilities remain independently eligible"
-                        ),
+                    if FIRST_PERSON_RENDER_HOOK_GATE.arm() {
+                        log::info!(
+                            "[CAMERA] First-person render hooks queued for post-Deferred installation"
+                        );
                     }
                     match camera::third_person::install_native_system(reader) {
                         Ok(hooks) => {
+                            if let Some(predecessor) = hooks.zoom_predecessor {
+                                log::info!("[CAMERA] Fine third-person zoom installed");
+                                log::debug!("[CAMERA] Fine zoom predecessor: 0x{predecessor:08X}");
+                            }
                             if let Some(predecessor) = hooks.follow_predecessor {
                                 log::info!("[CAMERA] Third-person follow hooks installed");
                                 log::debug!(
@@ -273,6 +344,42 @@ fn initialize_inner(
         hooks.bound_action_predecessor,
     );
     Ok(())
+}
+
+/// Install Atom's shared first-person render callsites after DeferredInit.
+///
+/// xNVSE's first `MainGameLoop` message follows completion of the synchronous
+/// DeferredInit listener walk and precedes the frame's world renderer. That
+/// ordering lets Atom capture any graphics wrappers installed later in the
+/// DeferredInit list and hold its temporary camera pose around their complete
+/// pre/native/post transaction.
+pub(crate) fn activate_post_deferred_render_hooks() {
+    if !FIRST_PERSON_RENDER_HOOK_GATE.is_armed() || STATE.load(Ordering::Acquire) != STATE_ACTIVE {
+        return;
+    }
+    let Some(result) = FIRST_PERSON_RENDER_HOOK_GATE.activate(camera::install_first_person_system)
+    else {
+        return;
+    };
+
+    match result {
+        Ok(first_person_hooks) => {
+            log::info!(
+                "[CAMERA] First-person render hooks installed after all DeferredInit listeners"
+            );
+            log::debug!(
+                "[CAMERA] First-person routes: route_a=0x{:08X}, route_b=0x{:08X}, first_special=0x{:08X}, first_a=0x{:08X}, first_b=0x{:08X}",
+                first_person_hooks.route_a,
+                first_person_hooks.route_b,
+                first_person_hooks.first_person_special,
+                first_person_hooks.first_person_a,
+                first_person_hooks.first_person_b,
+            );
+        }
+        Err(error) => log::warn!(
+            "[CAMERA] First-person render motion is unavailable: {error:#}. Third-person capabilities remain independently active"
+        ),
+    }
 }
 
 fn register_mcm_update_handler(events: &EventManager) -> Result<(), EventManagerError> {
@@ -384,10 +491,11 @@ fn apply_config(config: AtomConfig, process_summary_request: bool, report_unchan
     }
     if third_person_config != previous_third_person || report_unchanged {
         log::info!(
-            "[CONFIG] Third-person settings active: follow={}, movement={}, drawn_360={}",
+            "[CONFIG] Third-person settings active: follow={}, movement={}, drawn_360={}, zoom_step={:.1}",
             third_person_config.follow_enabled(),
             third_person_config.movement_enabled(),
             third_person_config.drawn_360(),
+            third_person_config.zoom_step(),
         );
     }
     if camera_config != previous_camera || report_unchanged {
@@ -489,5 +597,47 @@ fn log_histogram(label: &str, bounds: &[u32; 11], counts: [u32; 12]) {
                 bounds.last().copied().unwrap_or_default()
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use core::cell::Cell;
+
+    use super::{HOOK_GATE_ACTIVE, HOOK_GATE_ARMED, HOOK_GATE_UNAVAILABLE, PostDeferredHookGate};
+
+    #[test]
+    fn post_deferred_hook_gate_delays_installation_and_runs_it_once() {
+        let gate = PostDeferredHookGate::new();
+        let calls = Cell::new(0_u32);
+
+        assert!(gate.arm());
+        assert_eq!(gate.state(), HOOK_GATE_ARMED);
+        assert_eq!(calls.get(), 0);
+
+        let first = gate.activate(|| {
+            calls.set(calls.get() + 1);
+            Ok::<_, ()>(0x1234_usize)
+        });
+        assert_eq!(first, Some(Ok(0x1234)));
+        assert_eq!(calls.get(), 1);
+        assert_eq!(gate.state(), HOOK_GATE_ACTIVE);
+
+        assert_eq!(gate.activate(|| Ok::<_, ()>(0x5678_usize)), None);
+        assert_eq!(calls.get(), 1);
+        assert!(!gate.arm());
+    }
+
+    #[test]
+    fn failed_post_deferred_installation_is_terminal() {
+        let gate = PostDeferredHookGate::new();
+        assert!(gate.arm());
+
+        assert_eq!(
+            gate.activate(|| Err::<(), _>("conflict")),
+            Some(Err("conflict"))
+        );
+        assert_eq!(gate.state(), HOOK_GATE_UNAVAILABLE);
+        assert_eq!(gate.activate(|| Ok::<_, &str>(())), None);
     }
 }

@@ -1,0 +1,416 @@
+FALLOUT: NEW VEGAS PROJECTILE FLIGHT FEEDBACK CONTRACT
+======================================================
+
+Research date: 2026-08-16
+Primary tool: radare2 MCP, analysis level 2
+
+Executable identity
+-------------------
+
+Path: fnv_reverse/FalloutNV.exe
+Version: Fallout: New Vegas 1.4.0.525
+Format: PE32 i386, image base 0x00400000
+PE timestamp: 0x4E0D50ED
+File size: 16084808 bytes
+SHA-256: 42fee7d6cd74e801372aa89c8f71c974cebd3c20ec9ad43d1465b8fa9646b49c
+
+Evidence labels
+---------------
+
+[BINARY] is direct disassembly, decompilation, xref, or data evidence from the
+identified executable. [HEADER] is the checked-in xNVSE 1.4.0.525 layout.
+[RUNTIME] is an Atom Proton log observation. [CORROBORATION] is read-only
+third-party source or installed-content evidence and is never the authority
+for an engine address.
+
+Scope
+-----
+
+This file closes projectile passage sound, tracer selection, and impact-effect
+ownership needed by Atom Ballistics flight feedback. It does not establish or
+authorize camera movement, camera shake, animation changes, damage policy,
+penetration, ricochet, explosion replacement, or AI suppression behavior.
+
+Record layouts
+--------------
+
+[HEADER] BGSProjectile fields used by feedback:
+
+  +0x60  UInt16 flags
+  +0x62  UInt16 projectile type
+  +0x64  float gravity
+  +0x68  float speed
+  +0x6C  float range
+  +0x70  TESObjectLIGH* light
+  +0x74  TESObjectLIGH* muzzle light
+  +0x78  float tracer chance
+  +0x7C  float alternate proximity
+  +0x80  float alternate timer
+  +0x84  BGSExplosion* explosion
+  +0x88  TESSound* projectile sound
+  +0x8C  float flash duration
+  +0x90  float fade duration
+  +0x94  float impact force
+  +0x98  TESSound* countdown sound
+  +0x9C  TESSound* disable sound
+  +0xA0  TESObjectWEAP* default weapon source
+  +0xA4  rotation data
+  +0xB0  bouncy multiplier
+  +0xB4  muzzle-flash model
+  +0xCC  sound level
+
+[HEADER] Relevant BGSProjectile flags:
+
+  0x0001  hitscan
+  0x0002  explosion
+  0x0004  alternate trigger
+  0x0008  muzzle flash
+  0x0020  can be disabled
+  0x0040  can be picked up
+  0x0080  supersonic
+  0x0100  pins limbs
+  0x0200  passes small transparent geometry
+  0x0400  detonates
+  0x0800  rotation
+
+[HEADER] TESSound fields used by the native projectile route:
+
+  +0x30  sound file
+  +0x44  minimum attenuation-distance byte
+  +0x45  maximum attenuation-distance byte
+  +0x46  frequency adjustment
+  +0x48  sound flags
+  +0x4C  static attenuation
+
+[BINARY] 0x00553B90 returns TESSound byte +0x45. Projectile spawn multiplies
+this byte by 100 before storing the result in runtime +0x14C. Therefore runtime
++0x14C is the linked sound's maximum attenuation distance in world units. It
+is not a second projectile range.
+
+[HEADER] BGSImpactData is 0x78 bytes:
+
+  +0x18  model
+  +0x30  data: duration, orientation, angle threshold, placement radius,
+         sound level, and flags
+  +0x48  texture set
+  +0x4C  first TESSound
+  +0x50  second TESSound
+  +0x54  decal data
+
+[HEADER][BINARY] BGSImpactDataSet is 0x4C bytes. Its impact pointers start at
++0x1C. 0x0058E8F0 normalizes raw material IDs 0..31 to ten data-set indices;
+0x0058E9D0 returns the pointer at `set + 0x1C + index * 4`. Values outside
+0..31 take the default index 4. These ten impact-set slots must not be confused
+with every public material enumeration exposed by xNVSE.
+
+Runtime projectile layout
+-------------------------
+
+[BINARY][HEADER] Relevant common Projectile fields:
+
+  +0x20  base form pointer
+  +0x30  world position (three floats)
+  +0x88  impact-data list head
+  +0x90  impacted byte
+  +0x94  transform/collision state
+  +0xC8  runtime flags
+  +0xCC  power
+  +0xD0  speed multiplier
+  +0xD4  runtime travel range
+  +0xD8  age
+  +0xDC  damage
+  +0xF4  weapon condition
+  +0xF8  source weapon
+  +0xFC  source reference
+  +0x100 live target
+  +0x104 cached direction/move vector
+  +0x110 distance travelled
+  +0x114 light
+  +0x11C scene node
+  +0x128 BSSoundHandle (12 bytes)
+  +0x148 projectile-sound-started byte
+  +0x14C projectile-sound maximum attenuation distance
+
+[BINARY] The common Projectile constructor at 0x009BBEF0 clears +0x148.
+Spawn is 0x009BCA60, common initialization is 0x009BDA10, common update is
+0x009BECC0, MissileProjectile initialization is 0x009B7CC0, and
+MissileProjectile subtype update is 0x009B8030.
+
+Audio primitives
+----------------
+
+[BINARY] 0x00453A70 returns the BSAudioManager/BSWin32Audio singleton stored at
+0x011F6D98. 0x0044EDB0 returns its +0x10 listener object. The listener object's
+virtual +0x0C returns the listener position used by the projectile near-pass
+calculation.
+
+[BINARY][CORROBORATION] BSSoundHandle is 12 bytes:
+
+  +0x00  sound ID, 0xFFFFFFFF when invalid
+  +0x04  assume-success byte and padding
+  +0x08  state
+
+[BINARY] Relevant sound functions:
+
+  0x00AD7480  initialize handle by file path, flags, and TESSound
+  0x00AD8830  Play(bool), returns Boolean in AL, ret 4
+  0x00AD8870  delayed play
+  0x00AD88F0  stop
+  0x00AD8B60  set 3D position
+  0x00AD8D10  release
+  0x00AD8F20  attach to scene node
+
+[BINARY] 0x00AD7480 has four stack arguments, preserves the audio manager in
+ECX, returns its first argument in EAX, and ends with `ret 0x10`. The native
+near-pass callsites pass, in declaration order, a 12-byte BSSoundHandle output,
+the live sound-file path returned by 0x00511840, flags 0x102, and the live
+TESSound. Its usable ABI is therefore:
+
+  BSSoundHandle* __thiscall initialize_sound(
+      BSAudioManager*, BSSoundHandle* out, const char* path,
+      UInt32 flags, TESSound* sound);
+
+[BINARY] 0x00AD7480 itself uses the engine's existing Windows TLS bookkeeping.
+Calling this existing function does not require Atom to declare a TLS object.
+
+Non-supersonic projectile sound
+-------------------------------
+
+[BINARY] Spawn 0x009BCA60 owns the persistent projectile-sound handle:
+
+  0x009BD1BC  validate runtime object and projectile form
+  0x009BD1E0  call 0x009BC870, which tests BGSProjectile flag 0x0080
+  0x009BD1ED  a supersonic result skips persistent sound construction
+  0x009BD21B  obtain BGSProjectile::projectileSound at form +0x88
+  0x009BD247  initialize a sound handle with flags 0x40000012
+  0x009BD26F  copy the handle into runtime +0x128
+  0x009BD2A6  position the handle
+  0x009BD2C5  attach the handle to the projectile node
+  0x009BD2D4  read TESSound maximum attenuation byte +0x45
+  0x009BD2DC  multiply that byte by 100
+  0x009BD2EE  store the float result at runtime +0x14C
+
+[BINARY] A runtime hitscan-bit test at 0x009BD2F4 plays the handle immediately
+at 0x009BD310 and sets +0x148 to one. Otherwise common update defers playback.
+
+[BINARY] Common update 0x009BF018..0x009BF0E1 checks that +0x148 is zero, the
+runtime hitscan bit is false, and the projectile node and player exist. It
+compares projectile-to-player distance with runtime +0x14C. When the projectile
+enters that radius it plays runtime handle +0x128 and sets +0x148 to one. The
+sound record then owns its ordinary 3D attenuation.
+
+[BINARY] The executable's projectile debug help labels this event:
+
+  "Blue diamond for non-supersonic/non-hit-scan projectile sound start."
+
+Consequence: an Atom-converted physical non-supersonic bullet already retains
+native moving sound. Atom must not add a second whiz, overwrite the form sound,
+or replace the attached handle.
+
+Supersonic near-pass sound
+--------------------------
+
+[BINARY] 0x009BC870 tests BGSProjectile flag 0x0080 through the generic flag
+helper 0x004FD420. Supersonic forms therefore skip the persistent sound route.
+
+[BINARY] MissileProjectile vtable 0x0108FA44 contains:
+
+  +0x308 at 0x0108FD4C -> 0x009B7CC0, subtype initialization
+  +0x310 at 0x0108FD54 -> 0x009B8030, subtype update
+  +0x314 at 0x0108FD58 -> 0x009B8B10, impact
+  +0x328 at 0x0108FD6C -> 0x009C03F0, virtual 808
+
+[BINARY] 0x009C03F0 is `u8 __thiscall(Projectile*)`: it takes only ECX, returns
+its Boolean in AL, and ends with an unqualified `ret` at 0x009C0D7C. Its
+0x009C0BFC direct call enters the shared collision/broadphase routine
+0x009C0D80.
+
+[BINARY] Common initialization calls helper 0x009BEC90 at 0x009BDE64. That
+helper tests runtime flag bit 1 at 0x009BEC97. Only when the bit is set does it
+dispatch projectile virtual +0x328 at 0x009BECB0..0x009BECB6. Atom's admitted
+physical policy makes FNV clear that runtime hitscan bit during
+MissileProjectile initialization. It consequently bypasses the vanilla
+hitscan collision/near-pass dispatch instead of replaying it on the physical
+path.
+
+[BINARY] A whole-executable scan of virtual +0x328 callsites found the common
+initialization helper above and family-/context-specific callers, but no call
+from MissileProjectile update 0x009B8030 or its ordinary movement helpers
+0x009BF300 -> 0x009BF370. The normal physical MissileProjectile path therefore
+does not regain this hitscan-only near-pass route through its subtype update.
+
+[RUNTIME] The accepted physical-ballistics run recorded 168 MissileProjectile
+update callbacks, 68 first updates, and zero collision-effect callbacks while
+an update wrapper was active. This supports separated update and contact
+ownership; it is not the authority for the static call graph.
+
+[BINARY] 0x009C0D80 contains two immediate projectile-sound branches. Both use
+the live BGSProjectile +0x88 TESSound, construct a stack-local handle with audio
+flags 0x102, set a 3D position, and call Play immediately:
+
+  0x009C153B initialize player-reference branch handle
+  0x009C156B set its position
+  0x009C1578 play it
+
+  0x009C18D5 initialize listener-distance branch handle
+  0x009C1905 set its position
+  0x009C1912 play it
+
+[BINARY] The listener-distance branch rejects a player-owned source through
+0x00874480 and uses the audio listener position described above. Let:
+
+  A = line start
+  B = line end
+  D = B - A
+  L = listener position
+
+The branch calculates:
+
+  t = dot(L - A, D) / dot(D, D)
+  Q = A + t * D
+  distance = length(L - Q)
+
+It never clamps t to [0, 1]. Q is consequently the closest point on an
+infinite line, not on the travelled segment. There is no explicit zero-length
+guard; a non-finite quotient fails the later comparison rather than producing
+a valid passage.
+
+[BINARY] 0x009C187E compares the distance with the double at 0x01088210. Its
+bytes are 0x4082C00000000000, or 600.0. The test is strict: distance must be
+less than 600. The branch does not derive this corridor from TESSound's
+attenuation record, projectile speed, actor dimensions, or weapon data.
+
+[BINARY] After Q is calculated, this branch performs no explicit Q-to-listener
+raycast, line-of-sight test, obstruction test, or acoustic propagation delay.
+No projectile xref to delayed play 0x00AD8870 was found. This proves the local
+route; it does not prove that every downstream mixer implementation lacks all
+environmental processing.
+
+[BINARY] Neither immediate branch reads or writes runtime +0x148. The branch
+itself therefore has no exactly-once state. Caller cadence can still limit how
+often it is reached, so repeated audible playback is not claimed without a
+runtime observation.
+
+[BINARY] After Play, the player-reference branch calls 0x00483710 at
+0x009C1649 and the listener-distance branch calls the same function at
+0x009C19BA for their stack-local BSSoundHandle. In this executable
+0x00483710 is a no-op stack wrapper destructor; it does not stop or release
+the playing one-shot. A replacement must mirror that ownership and must not
+stop a successfully submitted sound when its local handle leaves scope.
+
+[BINARY] The executable's projectile debug help labels the teal marker:
+
+  "Teal diamond for near miss sound from supersonic."
+
+The near-pass branch itself does not retest form flag 0x0080. The debug text,
+the supersonic spawn split, and the hitscan initialization call chain establish
+the intended role. Exact admission for every non-missile family remains owned
+by that family's caller and is not generalized here.
+
+Tracer ownership
+----------------
+
+[BINARY] 0x006A78F0 returns BGSProjectile::tracerChance at +0x78.
+0x004FDF60 converts that value to a percentage threshold and compares it with
+the native random draw. MissileProjectile initialization calls this helper at
+0x009B7CE8.
+
+[BINARY] The independent result selects runtime flag 0x0010. For hitscan
+MissileProjectiles it also distinguishes tracer-dependent 0x0020 from
+non-tracer 0x0002. Atom's scoped false hitscan answer clears hitscan-dependent
+0x0020/0x0002 but preserves independent tracer selection 0x0010 and lets the
+engine retain the projectile's model and native instance.
+
+Consequence: flight feedback must expose tracer selection as read-only
+metadata. It must not spawn a visual projectile, rewrite the model, redraw
+tracer chance, or make visual selection drive physical collision.
+
+Impact ownership
+----------------
+
+[BINARY] Collision effects are owned by 0x009C20E0. At 0x009C221B it reads
+the projectile source weapon from runtime +0xF8 and passes the collision's raw
+material value to TESObjectWEAP resolver 0x00522BA0 at 0x009C2234.
+
+[BINARY] 0x00522BA0 reads the live weapon's BGSImpactDataSet at +0x24C and
+returns null when absent. Otherwise it calls 0x004FB7A0, which normalizes the
+material through 0x0058E8F0 and indexes the current data set through
+0x0058E9D0.
+
+[BINARY] The collision-effects function obtains BGSImpactData sound pointers
+from +0x4C and +0x50 through getters 0x0068A810 and 0x0068A830. The two sounds
+are initialized, positioned at the exact collision point, and played around
+0x009C2B66..0x009C2C6E. The same native function owns effect model and decal
+creation.
+
+Consequence: Atom must chain the current collision-effects owner and observe
+after it. Generic flight feedback must not add duplicate impact sounds,
+decals, or models. A future material-response module can consume a pointer-free
+event only after its continuation and damage contracts are separately proven.
+
+Explosion boundary
+------------------
+
+[HEADER] BGSProjectile flag 0x0002 and form +0x84 link explosion behavior.
+BGSExplosion owns its own sounds, impact-data set, radius, force, image-space
+radius, radiation fields, and flags.
+
+[BINARY] Existing Atom capability classification excludes a MissileProjectile
+when either explosion indication is present. No fact in this research permits
+flight feedback to replace explosion arming, LOS, damage, force, concussion,
+ringing, dud, or impact behavior.
+
+Safe intervention derived from the binary
+-----------------------------------------
+
+[INFERENCE] The compatible first implementation is listener-centric and only
+for Atom-correlated physical discrete MissileProjectiles whose live form is
+supersonic, non-explosive, and has a projectile TESSound:
+
+1. Keep the existing MissileProjectile +0x310 wrapper and its current-owner
+   chaining. The wrapper already has a live object, a proven pre/post position,
+   and immutable launch-path selection.
+2. Calculate the closest point on the finite pre/post segment with t clamped
+   to [0, 1], rejecting zero-length and non-finite inputs.
+3. Reject player-owned rounds for the local-listener cue.
+4. Derive the audible outer bound from the current TESSound attenuation data;
+   do not reinterpret projectile speed as SI units or reuse native 600 as a
+   universal balance number.
+5. Admit at most once per projectile generation in Atom's fixed side table.
+6. Initialize and position the same live TESSound through the existing audio
+   entry points. Generic sound hooks continue to see that normal engine route.
+7. Do not emit for native hitscan fallback. It retains the original
+   initialization near-pass route. Do not emit a subsonic replacement; it
+   retains the native attached moving sound.
+8. Drop presentation on invalid state or capacity exhaustion without changing
+   movement, collision, impact, hit construction, damage, or destruction.
+
+[INFERENCE] No native near-pass callsite suppression is required for this
+physical-only scope because the scoped initializer deliberately bypasses the
+runtime-bit-1 virtual +0x328 dispatch and the normal MissileProjectile physical
+update path has no equivalent call. A passive counter around the two native
+Play callsites is still valuable as one-time acceptance evidence, but it must
+not be a permanent generic audio hook or a prerequisite for normal play.
+
+Open facts not claimed
+----------------------
+
+- The engine-unit speed of sound and a physically calibrated Mach number are
+  not established. The authored Supersonic flag is authoritative.
+- A production-safe acoustic-occlusion ray payload and collision-layer policy
+  have not been proven from the executable. The native near-pass route has no
+  explicit ray, but that absence is not permission to copy an unaudited
+  third-party ray structure.
+- The native near-pass caller cadence for every projectile subtype is not
+  generalized from MissileProjectile.
+- Sound asset quality, record coverage, and perceived volume require one
+  bounded playtest after implementation; static analysis cannot hear them.
+
+Supporting evidence
+-------------------
+
+- analysis/radare2/output/gameplay/fnv_combat_contract.txt
+- docs/atom_ballistics_core_plan.md
+- docs/atom_combat_engine_contract.md
+- libnvse/xnvse/nvse/nvse/GameForms.h
+- .reports/atom-ballistics-native-policy-2026-08-16.log

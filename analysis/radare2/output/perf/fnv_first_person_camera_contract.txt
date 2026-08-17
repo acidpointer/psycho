@@ -931,3 +931,366 @@ worktree, so section growth is not attributed solely to first-person code.
 The correction itself adds fixed code/constants and deferred fingerprints but
 no configuration, import, export, TLS owner/data, static lazy owner, thread,
 worker, file scan, or operation before the established DeferredInit admission.
+
+
+20. Idle gait admission correction
+-----------------------------------
+
+Runtime observation on 2026-08-16 from installed Atom DLL SHA-256
+445831fada7088c405e7df86c4829c3499ac9ed2ef25f13d796f77ed28138481,
+size 6,801,561 bytes:
+
+  18:34:07  Atom completed DeferredInit and installed the complete
+             UpdateCamera and first-person render hook groups
+  18:35:35  live MCM publication enabled first-person motion at head gain 1.00
+  18:37:23  live MCM publication disabled first-person motion
+  user      head bob remained active while the player stood idle
+
+The visual observation rejects the generated behavior. No requested camera
+summary was emitted during the enabled interval, so it does not measure the
+live vector. Repository code establishes that steady periodic gait can begin
+from grounded horizontal support-relative velocity alone; landing is a bounded
+one-shot transition and look inertia is not a distance-phased gait source.
+The combined runtime and code evidence therefore proves that the controller
+velocity carrier is insufficient as the sole gait-activity predicate. This
+does not invalidate its units or its moving-support-relative magnitude.
+
+Fresh radare2 MCP research reused the exact executable identity in section 1.
+PlayerCharacter::Update at 0x0093E860 constructs a 16-bit movement word. The
+direct action branches prove its low direction bits:
+
+  0x00941C05  forward       OR 0x01
+  0x00941C5B  backward      OR 0x02
+  0x00941CB1  slide left    OR 0x04
+  0x00941D08  slide right   OR 0x08
+
+Controller sign branches at 0x009412D1..0x0094134C and
+0x009414BE..0x00941550 produce the same bits. Higher established state bits
+include walk 0x80, run 0x100, sneak 0x200, toggle/keep-move 0x400, and swim
+0x800; none is itself a horizontal direction.
+
+Normal player-update ordering is exact:
+
+  0x0093FA08  call PlayerCharacter::UpdateCamera 0x0094AE40
+  0x0093FC3B  load the current 16-bit movement word
+  0x0093FC43  load PlayerCharacter +0x190, actorMover
+  0x0093FC54  load actorMover virtual +0x0C
+  0x0093FC57  commit the current movement word
+
+PlayerMover's vtable is 0x0109297C; virtual +0x0C resolves to 0x009EA3E0.
+The setter reads the prior word from PlayerMover +0x94 at 0x009EA3ED, handles
+the 0x400 and 0x30 state transitions, and stores its complete u32 argument to
++0x94 at 0x009EA43E. The native first-person sample runs after UpdateCamera's
+predecessor returns. In the main route it therefore observes the prior
+completed movement word, not the current unfinished stack local. The maximum
+admission latency is one native player update; stable idle has a zero low
+nibble regardless of persistent high stance/toggle bits.
+
+The support-relative velocity path remains:
+
+  0x00812B00  thiscall(controller, NiPoint3 *out), ret 4
+  0x00C6E300  subtract transformed support velocity from rigid-body velocity
+  0x00458620  convert the aligned Havok vector to the three-f32 game vector
+
+The corrected gait predicate is the conjunction:
+
+  grounded
+  AND (PlayerMover.flags & 0x0F) != 0
+  AND horizontal_support_relative_speed > 4 game units/second
+
+Velocity continues to supply magnitude and cadence. The processed native low
+nibble supplies admission; Atom does not use raw keyboard/controller state as
+velocity. High locomotion state bits alone cannot start gait. When the low
+nibble clears, target gain and cadence become zero and the existing analytic
+stop envelope converges to exact identity. A generator acquired while idle is
+exact identity immediately and its phase does not advance.
+
+Implementation ownership is `atom/src/camera/native.rs` for the PlayerMover
+read/fail-closed gate and `atom/src/camera/motion.rs` for the independent
+admission input. DeferredInit fingerprints both the PlayerMover setter prologue
+that reads +0x94 and the interior store at 0x009EA43E. A missing mover rejects
+the complete sample. The accepted update hot path adds one player-owned pointer
+read, one unaligned u32 read, and one mask; render callbacks are unchanged.
+There is no allocation, lock, logging, file I/O, new configuration, import,
+export, TLS owner, worker, or thread.
+
+Focused executable regression evidence:
+
+  - 600 cold grounded-idle frames with residual velocity [180, -75, 0]
+    require exact identity world and viewmodel poses and phase 0 on every
+    frame;
+  - after active movement, the same idle input stops phase immediately and
+    both analytically decaying poses must settle to exact identity;
+  - high walk/run/sneak/toggle/swim bits without a low direction bit do not
+    admit gait;
+  - each low forward/back/left/right bit admits gait;
+  - the existing moving, partition, cadence-cap, landing, ADS, zero-gain,
+    moving-support, stop-settle, coordinate, and restoration tests remain.
+
+Proven facts are the executable identity, direction-bit construction, update
+ordering, PlayerMover ownership/offset/store, setter ABI/body, and velocity
+ABI/body. The insufficiency of velocity alone is a conclusion from the direct
+runtime observation plus the shipped generator's sole steady-gait input.
+Static tests prove the corrected predicate and exact idle output. Only a new
+installed Proton playtest can confirm the final rendered behavior and camera
+feel; no static evidence is presented as that visual confirmation.
+
+Release evidence for the idle-gait candidate:
+
+  SHA-256  513d650da54702933c5b0e48d52c47c292c7fd0994bc028d2bdd3d90fbbfe156
+  size     6,801,468 bytes
+  tests    89 Atom tests; 13 focused public first-person behavior tests
+
+The explicit `i686-pc-windows-gnu` Atom suite passes through Wine staging
+11.15. Atom-only Clippy passes for all targets with warnings denied, direct
+rustfmt checking of the affected files and `git diff --check` pass, and the
+optimized Atom release build succeeds. Workspace-wide `cargo fmt --check`
+reports only the existing unrelated import wrapping in
+`omv/src/effects/shadows/contract_tests.rs`.
+
+Compared with runtime-rejected installed 445831fa..., the candidate preserves
+PE32/i386, large-address-aware/ASLR/NX characteristics, nine section roles, the
+exact 29 import descriptors and 320 ordered imported symbols, three named
+exports, import/export/TLS directory sizes 0x2B04/0x8C/0x18, IAT size 0x574,
+four TLS callbacks plus null, and eight zero .tls bytes. Section sizes change
+as follows:
+
+  .text     0x2A4E30 -> 0x2A50B0
+  .data     0x001EC0 -> 0x001E90
+  .rdata    0x122608 -> 0x1226D8
+  .eh_fram  0x04F3D8 -> 0x04F3B4
+  .bss      0x001B78 -> 0x001B80
+  .reloc    0x022334 -> 0x022328
+  image     0x445000 -> 0x446000
+
+This correction adds fixed deferred fingerprints, one bounded rejection
+counter slot, and hot-path code. It adds no configuration, import, export, TLS
+callback/data, static lazy owner, worker, thread, file scan, or pre-Deferred
+operation. Its layout remains a material startup-footprint delta and requires
+the ordinary Proton/BaseObjectSwapper load-to-gameplay acceptance.
+
+
+21. Common-head and authored-animation ownership correction
+-------------------------------------------------------------
+
+Runtime observation on 2026-08-16 after the section-20 gait gate:
+
+  user  head bob now occurs while moving and not while standing
+  user  overall movement still feels ugly and unrealistic
+  user  procedural movement mixes with weapon animation
+  user  other intended motion is not visibly distinguishable
+
+The first statement accepts the native direction gate, not the complete
+presentation. Inspection of the shipped generator found that the world and
+viewmodel cameras consumed the same gait phase as unrelated transforms. At the
+default gain, the viewmodel used gait translation coefficients 0.18 forward,
+0.46 up, and 0.30 right, while the world used 0.32 up and 0.12 right. Native
+aim or the former animation predicate made the world exact identity but left
+the viewmodel at the configured 0.20 precision fraction. Thus the hands could
+move against a stationary scene during an authored action. This is direct code
+evidence for the reported mixing; the degree to which it explains subjective
+feel is inference.
+
+Fresh radare2 MCP research reused the exact executable in section 1. The body
+at 0x008A8870 has this complete action-classification logic:
+
+  0x008A887C  call 0x008A7570 to obtain the current action
+  0x008A888A  compare action with 9; equal returns true
+  0x008A8890  compare action with 0x0E; <= returns false
+  0x008A8896  compare action with 0x11; <= returns true
+  otherwise  return false
+
+Therefore the helper returns true only for action 9 and actions 15 through 17.
+It is not a general authored-animation ownership predicate. Direct executable
+xrefs place calls at 0x00874ECE inside 0x00874C10, 0x0087565F inside
+RenderFirstPerson 0x00875110, 0x008F81D5, 0x008F84C3, 0x009999A8,
+0x00999BE2, 0x009C30AD, 0x009D29C5, and 0x009D2DBD. These callsites establish
+that the helper is reused by particular gameplay/render policies; they do not
+broaden its return set.
+
+Repository xNVSE layout establishes process virtual GetCurrentAnimAction at
++0x3E4 with x86 thiscall ABI returning i16. Its HighProcess action enum assigns
+None to -1 and authored actions from 0 upward. Read-only New Vegas Reloaded
+source under .research corroborates the extended values 15, 16, and 17 as the
+reload-loop actions. Atom already invokes +0x3E4 once from the post-
+UpdateCamera sample and retains neither the process pointer nor action value
+beyond that update. No additional native read, render-hook call, or lifetime is
+needed.
+
+The safe intervention is a local ownership classification at that existing
+sample boundary:
+
+  current action == -1  Atom may synthesize weapon-relative motion
+  any other value       native animation exclusively owns relative motion
+
+Unknown values fail closed to native relative animation. Scripted action 13
+or 14 retains the stronger existing whole-sample rejection. Furniture,
+knockout, death, VATS, menu, POV transition, control, cell, and external-owner
+boundaries are unchanged. The 0x008A8870 function pointer and DeferredInit
+fingerprint are removed because Atom no longer calls the narrow helper.
+
+Presentation now has two explicit layers. The common head layer is bounded,
+translation-only, and is applied identically to the world and first-person
+cameras. The relative weapon layer starts from that common pose and adds the
+smaller gait, landing, and look-inertia offsets. Authored action entry sets its
+relative gain to exact zero immediately and clears look-inertia history. Exit
+uses a 12/s analytic release envelope. This permits locomotion to remain
+visible while reloading or firing, but native animation is the sole owner of
+the weapon's motion relative to the scene.
+
+The common steady-gait coefficients are reduced from 0.32 to 0.24 up and 0.12
+to 0.08 right. Relative weapon gait changes from 0.18/0.46/0.30 to
+0.10/0.08/0.08 in forward/up/right order. The locomotion envelope is squared
+before amplitude application, reducing slow-movement oscillation without
+changing its distance-based phase, filtered cadence, 1.6 Hz stride ceiling,
+or exact idle boundary. Landing remains one air-to-ground event. Look inertia
+remains a camera-local critically damped relative source and never changes
+world presentation or input.
+
+Primary comparison sources do not establish FNV addresses or numeric tuning.
+They establish design practice only: Unreal Camera Shakes separates additive
+patterns, per-axis amplitude/frequency, play space, and blend timing; Unity
+Cinemachine separates impulse sources, envelopes, channels, listener gains,
+and local-axis damping; Valve Source SDK renders and animates the viewmodel in
+a distinct presentation stage. The implemented common-base plus exclusive
+relative-owner split is a repository design inference from those practices and
+the direct FNV/code evidence above.
+
+Focused behavioral regression criteria:
+
+  - Weapon Motion 0 with nonzero head motion requires the exact same world and
+    viewmodel pose, proving registration rather than a floating native view;
+  - an authored action with locomotion requires a non-identity common world
+    pose and an exactly equal viewmodel pose, proving zero relative motion;
+  - every known action 0 through 17 and every unknown value other than -1
+    suppresses relative motion; only -1 admits it;
+  - stationary look input requires non-identity viewmodel inertia, exact
+    identity world motion, and exact identity after analytic settling;
+  - ADS relative motion converges to the configured fraction when isolated
+    from the common head layer;
+  - the existing idle, platform, landing, cadence, derivative, partition,
+    finite-sky, high-coordinate, and restoration regressions remain.
+
+Proven facts are the executable identity and helper body/xrefs, process virtual
+ABI and None value, former generator coefficients/ownership behavior, new pure
+generator behavior, and focused test outcomes. The common-base architecture
+and reduced tuning follow from those facts plus primary engine practice. The
+user's quality report is direct runtime observation. Subjective naturalness,
+animation-pack appearance, near-geometry image correctness, and compatibility
+with every live predecessor ordering still require ordinary installed play.
+
+Validation evidence for the presentation candidate:
+
+  first-person behavior  15/15 pass, i686-pc-windows-gnu through Wine 11.15
+  native camera focus     6/6 pass
+  Atom Clippy             lib and first-person test, --no-deps, -D warnings
+  release build           succeeds for i686-pc-windows-gnu
+  formatting/diff         focused rustfmt and git diff --check pass
+  artifact                6,801,120 bytes
+  SHA-256                 2df81cf6a0bb71cc455c090b3ef93b37b96f9b2cac10ed5052308e377816256f
+
+The full Atom run executes 93 tests. Ninety-one pass; two concurrent
+third-person movement assertions outside this change fail at
+atom/tests/third_person_camera_behavior.rs lines 109 and 177. The artifact also
+contains concurrent user work, so its aggregate size/hash is an identity for
+testing, not an isolated first-person delta. No visual acceptance claim follows
+from this static evidence.
+
+
+20. Complete parent render-route ownership
+------------------------------------------
+
+Follow-up research date: 2026-08-17
+Primary native tool: radare2 MCP, analysis level 2
+Executable identity: unchanged from section 1
+
+The former Atom world seam at 0x00870AE8/0x00870E18 is too late to own one
+coherent frame. The parent dispatcher 0x008706B0 selects both complete native
+routes through these direct calls:
+
+  0x0087073F  zero-extend the parent byte argument and push it
+  0x00870744  push the parent 32-bit argument at [ebp+0x08]
+  0x00870748  load the Main receiver into ECX
+  0x0087074B  call route A at 0x00870A00
+
+  0x00870752  zero-extend the parent byte argument and push it
+  0x00870757  push the parent 32-bit argument at [ebp+0x08]
+  0x0087075B  load the Main receiver into ECX
+  0x0087075E  call route B at 0x00870BD0
+
+Both callees return with `ret 8`. Their exact chainable ABI is therefore
+`thiscall(Main*, u32, u8) -> void`; the first stack value remains semantically
+opaque and Atom forwards it bit-for-bit. The direct callsites, rather than the
+shared route entries, are the compatible intervention points: a prior owner is
+captured as the typed predecessor independently for each route.
+
+The complete ordering relevant to camera-derived rendering is:
+
+  route A  0x00870A56 native preparation 0x00872B00
+           0x00870AE8 RenderWorldSceneGraph
+           0x00870B21 RenderFirstPerson
+           0x00870B89 complete image-space owner
+
+  route B  0x00870C1E native preparation 0x00872B00
+           0x00870E18 RenderWorldSceneGraph
+           0x00870F74 RenderFirstPerson
+           0x008710E4 complete image-space owner
+
+This proves that a pose applied at 0x0087074B/0x0087075E exists before native
+Sky/Weather centering and remains live for world, viewmodel, and image-space
+consumers. The independently classified special first-person route still has no
+paired world route and remains pass-through.
+
+With the outer seam established, Atom no longer needs to simulate the apply
+half of 0x00872B00. It writes finite local and world camera transforms before
+the predecessor. Native code performs its ordinary two Sky/Weather graph
+updates. On return Atom restores both camera domains, copies the restored local
+camera translation to each root, and performs two recursive restoration
+updates. This removes the prior two manual apply-side graph walks and avoids
+replaying stale root rotation/controller state captured before the route.
+
+The addresses, ABI, call order, and transform fields are direct executable
+evidence. Preservation of PBR, native sky pixels, image-space effects, and
+input responsiveness remains runtime acceptance on the built Atom/OMV pair.
+
+
+22. Distinct render-camera and native sky-anchor identities
+------------------------------------------------------------
+
+Follow-up research date: 2026-08-17
+Primary native tool: radare2 MCP, existing analysis level 2
+Executable identity: unchanged from section 1
+
+The section-20 conclusion that one World SceneGraph camera transform controls
+both rendering and sky centering was incomplete. Direct disassembly proves two
+different access routes:
+
+  Render camera getter 0x006629F0
+    adds 0xAC to the SceneGraph receiver and returns that pointer.
+
+  Sky anchor getter 0x00558310
+    calls 0x0045BC00 with index zero. 0x0045BC00 reads the NiTArray at
+    SceneGraph +0x9C and returns child zero through 0x00877A30.
+
+At 0x00872C55 and again at 0x00872CA6, native preparation obtains child zero
+through 0x00558310, calls 0x0043C490, and copies the returned +0x58 local
+translation into Sky at 0x011DEB34 and Weather at 0x011DEDA4. It then calls
+NiAVObject update 0x00A59C60 on each root. 0x0043C490 itself is the direct
+`this + 0x58` getter. This chain is direct executable evidence that sky
+centering follows child zero, not the SceneGraph +0xAC field.
+
+The two pointers commonly identify the same NiCamera in an unmodified scene
+graph, but the executable does not require their pointer identity at either
+access site. A chained camera owner may replace +0xAC while leaving child zero
+resident, or may otherwise make the two transforms diverge. Atom therefore
+cannot infer equality merely because vanilla normally constructs it.
+
+The safe route transaction resolves both objects immediately before the
+complete parent predecessor. It prepares finite local and world transforms for
+both before the first write, mutates only one object when the pointers are
+equal, and otherwise poses both. Restoration returns each exact transform to
+its own object and recenters Sky and Weather from child zero's original local
+translation. No pointer survives the synchronous route.
+
+This closes the native camera-to-sky ownership contract. Whether the resulting
+pixels are visually stable remains an installed Proton playtest criterion.

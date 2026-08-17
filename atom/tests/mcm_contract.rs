@@ -46,6 +46,7 @@ fn shipped_mcm_menu_exposes_every_runtime_setting_with_matching_defaults() {
         ),
         ("Camera:fLookAhead", f64::from(third_person.look_ahead())),
         ("Camera:fSoftZone", f64::from(third_person.soft_zone())),
+        ("Camera:fZoomStep", f64::from(third_person.zoom_step())),
         (
             "Controller:bInvertRightX",
             f64::from(controller.invert_right_x()),
@@ -154,6 +155,92 @@ fn shipped_mcm_menu_exposes_every_runtime_setting_with_matching_defaults() {
             (actual - expected).abs() < 0.000_001,
             "MCM default for {key} is {actual}, runtime default is {expected}"
         );
+    }
+}
+
+#[test]
+fn shipped_mcm_uses_feature_categories_without_filler_rows() {
+    let document = load_mcm();
+    let submenus = document["submenus"]
+        .as_object()
+        .expect("submenus must be an object");
+    let expected = [
+        (
+            "1",
+            "Input",
+            &["General", "Mouse", "Controller", "Triggers"][..],
+            &["Input:", "Mouse:", "Controller:"][..],
+        ),
+        (
+            "2",
+            "Camera",
+            &[
+                "First Person",
+                "Third Person",
+                "Third Orbit",
+                "Third Movement",
+            ][..],
+            &["FirstPerson:", "Camera:", "Movement:"][..],
+        ),
+        (
+            "3",
+            "Ballistics",
+            &["Projectiles"][..],
+            &["Ballistics:"][..],
+        ),
+        (
+            "4",
+            "Diagnostics",
+            &["Runtime", "Ballistics"][..],
+            &["Diagnostics:"][..],
+        ),
+    ];
+    assert_eq!(submenus.len(), expected.len());
+
+    for (submenu_id, title, expected_sections, allowed_prefixes) in expected {
+        let submenu = &submenus[submenu_id];
+        assert_eq!(submenu["listTitle"], title);
+        assert_eq!(submenu["pageTitle"], title);
+        let options = submenu["options"]
+            .as_object()
+            .expect("submenu options must be an object");
+        let mut sections = Vec::new();
+        for option_id in 1..=options.len() {
+            let option_id = option_id.to_string();
+            let option = options
+                .get(&option_id)
+                .expect("option identifiers must be contiguous");
+            let option_type = option["type"].as_f64().expect("numeric option type");
+            if option_type == 0.0 {
+                sections.push(option["title"].as_str().expect("section title"));
+                assert!(
+                    option.get("vars").is_none(),
+                    "section cannot persist a value"
+                );
+                continue;
+            }
+
+            assert_ne!(option_type, 7.0, "informational filler rows are prohibited");
+            let variables = option["vars"]
+                .as_array()
+                .expect("every interactive row must persist a setting");
+            assert_eq!(variables.len(), 1, "one row must own one setting");
+            let key = variables[0]["configINI"]
+                .as_str()
+                .expect("persisted variables need configINI");
+            assert!(
+                allowed_prefixes
+                    .iter()
+                    .any(|prefix| key.starts_with(prefix)),
+                "{key} is filed under the wrong MCM feature category"
+            );
+        }
+        assert_eq!(sections, expected_sections);
+    }
+
+    assert_eq!(submenus["1"]["active"], 1);
+    for submenu_id in ["2", "3", "4"] {
+        assert!(submenus[submenu_id].get("active").is_none());
     }
 }
 

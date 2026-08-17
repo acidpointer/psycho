@@ -14,11 +14,102 @@ use super::follow::Vec3;
 pub const DIRECTION_MASK: u32 = 0x0F;
 /// Native forward movement bit.
 pub const FORWARD: u32 = 0x01;
+/// Native backward movement bit.
+pub const BACKWARD: u32 = 0x02;
+/// Native left movement bit.
+pub const LEFT: u32 = 0x04;
+/// Native right movement bit.
+pub const RIGHT: u32 = 0x08;
+
+const OCTANT_RADIANS: f32 = PI / 4.0;
+const HALF_OCTANT_RADIANS: f32 = PI / 8.0;
+const SECTOR_HYSTERESIS_RADIANS: f32 = PI / 36.0;
+
+/// Eight-way locomotion direction relative to the actor's current body yaw.
+///
+/// FNV has no separate diagonal direction bits. Its native keyboard path
+/// expresses diagonals by combining one forward/backward bit with one
+/// left/right bit, so these values remain compatible with whichever cardinal
+/// locomotion assets the active animation provider supplies.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum LocomotionSector {
+    /// Forward relative to the actor.
+    Forward,
+    /// Forward and right relative to the actor.
+    ForwardRight,
+    /// Right relative to the actor.
+    Right,
+    /// Backward and right relative to the actor.
+    BackwardRight,
+    /// Backward relative to the actor.
+    Backward,
+    /// Backward and left relative to the actor.
+    BackwardLeft,
+    /// Left relative to the actor.
+    Left,
+    /// Forward and left relative to the actor.
+    ForwardLeft,
+}
+
+impl LocomotionSector {
+    /// Return the exact native low direction nibble for this sector.
+    pub const fn direction_bits(self) -> u32 {
+        match self {
+            Self::Forward => FORWARD,
+            Self::ForwardRight => FORWARD | RIGHT,
+            Self::Right => RIGHT,
+            Self::BackwardRight => BACKWARD | RIGHT,
+            Self::Backward => BACKWARD,
+            Self::BackwardLeft => BACKWARD | LEFT,
+            Self::Left => LEFT,
+            Self::ForwardLeft => FORWARD | LEFT,
+        }
+    }
+
+    const fn center_radians(self) -> f32 {
+        match self {
+            Self::Forward => 0.0,
+            Self::ForwardRight => OCTANT_RADIANS,
+            Self::Right => 2.0 * OCTANT_RADIANS,
+            Self::BackwardRight => 3.0 * OCTANT_RADIANS,
+            Self::Backward => PI,
+            Self::BackwardLeft => -3.0 * OCTANT_RADIANS,
+            Self::Left => -2.0 * OCTANT_RADIANS,
+            Self::ForwardLeft => -OCTANT_RADIANS,
+        }
+    }
+
+    fn nearest(actor_local_heading: f32) -> Self {
+        match ((actor_local_heading / OCTANT_RADIANS).round() as i32).rem_euclid(8) {
+            0 => Self::Forward,
+            1 => Self::ForwardRight,
+            2 => Self::Right,
+            3 => Self::BackwardRight,
+            4 => Self::Backward,
+            5 => Self::BackwardLeft,
+            6 => Self::Left,
+            _ => Self::ForwardLeft,
+        }
+    }
+
+    fn select(actor_local_heading: f32, previous: Option<Self>) -> Self {
+        if let Some(previous) = previous {
+            // Retaining the current sector for five degrees past the nominal
+            // 22.5-degree boundary prevents animation flags from alternating
+            // when analog input or bounded actor turning hovers at a seam.
+            let distance = wrap_angle(actor_local_heading - previous.center_radians()).abs();
+            if distance <= HALF_OCTANT_RADIANS + SECTOR_HYSTERESIS_RADIANS {
+                return previous;
+            }
+        }
+        Self::nearest(actor_local_heading)
+    }
+}
 
 /// Facing policy selected by the camera ownership state.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum FacingPolicy {
-    /// Moving actors face world movement and use forward locomotion.
+    /// Moving actors face world movement and select actor-local eight-way locomotion.
     Explore,
     /// Actors face the logical view and preserve native strafe intent.
     Combat,
@@ -83,19 +174,39 @@ impl MovementIntent {
     /// `actual_actor_yaw` must be sampled after any requested facing write.
     /// Invalid input returns the original native request unchanged.
     pub fn resolve(self, actual_actor_yaw: f32) -> MovementOutput {
+        self.resolve_stateful(actual_actor_yaw, None).output
+    }
+
+    /// Resolve movement while retaining an optional prior Explore sector.
+    ///
+    /// The returned sector is `Some` only for finite, nonzero Explore motion.
+    /// Passing the preceding result enables boundary hysteresis; callers must
+    /// discard it on idle, Combat entry, or any camera-ownership transition.
+    /// The movement vector is identical to [`MovementIntent::resolve`].
+    pub fn resolve_stateful(
+        self,
+        actual_actor_yaw: f32,
+        previous_sector: Option<LocomotionSector>,
+    ) -> MovementResolution {
         if !self.valid || !actual_actor_yaw.is_finite() {
-            return MovementOutput {
-                vector: self.native,
-                flags: self.flags,
-                movement_heading: None,
+            return MovementResolution {
+                output: MovementOutput {
+                    vector: self.native,
+                    flags: self.flags,
+                    movement_heading: None,
+                },
+                locomotion_sector: None,
             };
         }
 
         if self.native.horizontal_length() <= f32::EPSILON {
-            return MovementOutput {
-                vector: self.native,
-                flags: self.flags,
-                movement_heading: None,
+            return MovementResolution {
+                output: MovementOutput {
+                    vector: self.native,
+                    flags: self.flags,
+                    movement_heading: None,
+                },
+                locomotion_sector: None,
             };
         }
 
@@ -110,15 +221,42 @@ impl MovementIntent {
             (-sin_angle).mul_add(self.native.x, cos_angle * self.native.y),
             self.native.z,
         );
-        let low = match self.policy {
-            FacingPolicy::Explore => FORWARD,
-            FacingPolicy::Combat => self.flags & DIRECTION_MASK,
+        let locomotion_sector = match self.policy {
+            FacingPolicy::Explore => self.movement_heading.map(|heading| {
+                LocomotionSector::select(wrap_angle(heading - actual_actor_yaw), previous_sector)
+            }),
+            FacingPolicy::Combat => None,
         };
-        MovementOutput {
-            vector,
-            flags: (self.flags & !DIRECTION_MASK) | low,
-            movement_heading: self.movement_heading,
+        let low = locomotion_sector
+            .map(LocomotionSector::direction_bits)
+            .unwrap_or(self.flags & DIRECTION_MASK);
+        MovementResolution {
+            output: MovementOutput {
+                vector,
+                flags: (self.flags & !DIRECTION_MASK) | low,
+                movement_heading: self.movement_heading,
+            },
+            locomotion_sector,
         }
+    }
+}
+
+/// Stateful Explore locomotion result paired with its next animation sector.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct MovementResolution {
+    output: MovementOutput,
+    locomotion_sector: Option<LocomotionSector>,
+}
+
+impl MovementResolution {
+    /// Return the camera-relative request to pass to FNV.
+    pub const fn output(self) -> MovementOutput {
+        self.output
+    }
+
+    /// Return the sector to retain for the next Explore movement sample.
+    pub const fn locomotion_sector(self) -> Option<LocomotionSector> {
+        self.locomotion_sector
     }
 }
 
@@ -174,9 +312,9 @@ pub fn camera_relative_heading(native: Vec3, view_yaw: f32) -> Option<f32> {
 /// unchanged native heading when no facing write occurred. The returned local
 /// vector makes FNV's later actor-heading transform produce the same world
 /// vector as applying `view_yaw` to the original local input. Explore mode
-/// converts nonzero motion to native forward animation; Combat mode retains
-/// the original low direction nibble for forward/back/strafe animation around
-/// the view.
+/// maps nonzero motion to the nearest actor-local eight-way sector; Combat
+/// mode retains the original low direction nibble for forward/back/strafe
+/// animation around the view.
 pub fn remap_movement(
     native: Vec3,
     flags: u32,

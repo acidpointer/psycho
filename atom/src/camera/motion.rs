@@ -1,14 +1,17 @@
 //! Frame-rate-independent first-person motion synthesis.
 //!
 //! The generator consumes engine time, support-relative velocity, native
-//! locomotion state, logical look deltas, and aiming state. It never reads
-//! devices or engine memory itself. Distance advances gait phase; analytic
+//! locomotion state and movement admission, logical look deltas, and aiming
+//! state. It never reads devices or engine memory itself. Distance advances
+//! gait phase only while the native mover has directional locomotion; analytic
 //! damping controls envelopes, cadence, and viewmodel inertia; landing is a
 //! one-shot air-to-ground event. Cadence is analytically filtered and capped
-//! before it reaches one smooth footfall waveform. The Stable world listener
-//! is translation-only; the viewmodel listener retains independent bounded
-//! rotation. Every result is zero-centered and bounded before it can reach a
-//! native transform.
+//! before it reaches one smooth footfall waveform. A translation-only head
+//! layer is shared by the world and first-person cameras so the weapon remains
+//! registered with the scene. The first-person camera then receives a smaller
+//! relative layer for weapon weight and look inertia. Authored actions own that
+//! relative layer exclusively. Every result is zero-centered and bounded
+//! before it can reach a native transform.
 
 use core::f32::consts::PI;
 use core::f64::consts::TAU;
@@ -22,6 +25,7 @@ const GAIT_STOP_RATE: f32 = 7.0;
 const GAIT_CADENCE_FILTER_RATE: f32 = 10.0;
 const MAX_FULL_STRIDE_HZ: f32 = 1.6;
 const AIM_BLEND_RATE: f32 = 14.0;
+const ANIMATION_RELEASE_RATE: f32 = 12.0;
 const INERTIA_FREQUENCY: f32 = 17.0;
 const LOOK_RATE_DEAD_ZONE: f32 = 0.015;
 const MAX_YAW_INERTIA: f32 = 0.012;
@@ -50,7 +54,7 @@ impl GeneratedMotion {
         self.world_pose
     }
 
-    /// Return the independent additive hands/weapon-camera pose.
+    /// Return the common head pose plus additive hands/weapon motion.
     pub const fn viewmodel_pose(self) -> CameraPose {
         self.viewmodel_pose
     }
@@ -76,32 +80,40 @@ pub struct MotionInput {
     delta_seconds: f32,
     relative_velocity: [f32; 3],
     locomotion: LocomotionState,
+    directional_locomotion: bool,
     look_delta: [f32; 2],
     aiming: bool,
-    animation_blocked: bool,
+    authored_animation: bool,
 }
 
 impl MotionInput {
     /// Construct a motion sample.
     ///
     /// Velocity is the controller's support-relative world velocity in game
-    /// units per second. Look delta is `[yaw, pitch]` in radians for this
-    /// update, after Atom Input and native heading processing.
+    /// units per second. `directional_locomotion` reports whether the native
+    /// player mover committed a forward, backward, or strafe direction; it is
+    /// a gait-admission signal, not a substitute for velocity. Look delta is
+    /// `[yaw, pitch]` in radians for this update, after Atom Input and native
+    /// heading processing. `aiming` controls precision attenuation;
+    /// `authored_animation` grants native animation exclusive ownership of
+    /// motion relative to the common head pose.
     pub const fn new(
         delta_seconds: f32,
         relative_velocity: [f32; 3],
         locomotion: LocomotionState,
+        directional_locomotion: bool,
         look_delta: [f32; 2],
         aiming: bool,
-        animation_blocked: bool,
+        authored_animation: bool,
     ) -> Self {
         Self {
             delta_seconds,
             relative_velocity,
             locomotion,
+            directional_locomotion,
             look_delta,
             aiming,
-            animation_blocked,
+            authored_animation,
         }
     }
 
@@ -120,6 +132,11 @@ impl MotionInput {
         self.locomotion
     }
 
+    /// Return whether native directional locomotion admits gait motion.
+    pub const fn directional_locomotion(self) -> bool {
+        self.directional_locomotion
+    }
+
     /// Return `[yaw, pitch]` logical look delta in radians.
     pub const fn look_delta(self) -> [f32; 2] {
         self.look_delta
@@ -131,8 +148,8 @@ impl MotionInput {
     }
 
     /// Return whether an authored weapon animation should own presentation.
-    pub const fn animation_blocked(self) -> bool {
-        self.animation_blocked
+    pub const fn authored_animation(self) -> bool {
+        self.authored_animation
     }
 
     fn finite(self) -> bool {
@@ -153,6 +170,7 @@ pub struct MotionGenerator {
     gait_frequency: f32,
     gait_envelope: f32,
     aim_weight: f32,
+    animation_weight: f32,
     yaw_inertia: CriticalSpring,
     pitch_inertia: CriticalSpring,
     was_airborne: bool,
@@ -169,6 +187,7 @@ impl MotionGenerator {
             gait_frequency: 0.0,
             gait_envelope: 0.0,
             aim_weight: 0.0,
+            animation_weight: 0.0,
             yaw_inertia: CriticalSpring::new(),
             pitch_inertia: CriticalSpring::new(),
             was_airborne: false,
@@ -202,7 +221,8 @@ impl MotionGenerator {
         let dt = input.delta_seconds;
         let speed = input.relative_velocity[0].hypot(input.relative_velocity[1]);
         let grounded = input.locomotion == LocomotionState::Grounded;
-        let gait_target = if grounded {
+        let gait_admitted = grounded && input.directional_locomotion;
+        let gait_target = if gait_admitted {
             smooth01((speed - 4.0) / 90.0)
         } else {
             0.0
@@ -214,7 +234,7 @@ impl MotionGenerator {
         };
         self.gait_envelope = approach_exponential(self.gait_envelope, gait_target, gait_rate, dt);
 
-        let frequency_target = if grounded && speed > 4.0 {
+        let frequency_target = if gait_admitted && speed > 4.0 {
             // A continuously interpolated stride avoids cadence jumps at an
             // arbitrary walk/run threshold while preserving distance phase.
             // Extreme SpeedMult values and physics spikes are capped at a
@@ -237,20 +257,28 @@ impl MotionGenerator {
             dt,
         );
         self.gait_frequency = frequency;
-        if grounded {
+        if gait_admitted {
             self.gait_phase = (self.gait_phase + TAU * f64::from(stride_cycles.max(0.0))) % TAU;
         }
 
         self.update_landing(input.locomotion, input.relative_velocity[2], dt);
-        let precision_blocked = input.aiming || input.animation_blocked;
-        let precision_target = f32::from(precision_blocked);
+        let precision_target = f32::from(input.aiming);
         self.aim_weight =
             approach_exponential(self.aim_weight, precision_target, AIM_BLEND_RATE, dt);
+        // Entry is immediate because even one procedurally offset frame can
+        // visibly fight recoil, equip, or reload animation. Release is eased
+        // so the secondary weapon layer cannot pop back at an authored clip's
+        // terminal frame. The common head layer remains independent.
+        self.animation_weight = if input.authored_animation {
+            1.0
+        } else {
+            approach_exponential(self.animation_weight, 0.0, ANIMATION_RELEASE_RATE, dt)
+        };
 
         let [yaw_delta, pitch_delta] = input.look_delta;
         let camera_cut =
             yaw_delta.abs() > CAMERA_CUT_RADIANS || pitch_delta.abs() > CAMERA_CUT_RADIANS;
-        let (yaw_target, pitch_target) = if camera_cut {
+        let (yaw_target, pitch_target) = if input.authored_animation || camera_cut {
             self.yaw_inertia.reset();
             self.pitch_inertia.reset();
             (0.0, 0.0)
@@ -273,24 +301,12 @@ impl MotionGenerator {
         // even though each individual offset remained numerically small.
         let vertical = (2.0 * phase - PI * 0.5).sin();
         let fore = (2.0 * phase + 0.50).sin();
-        let gait = self.gait_envelope;
+        // Squaring the analytic envelope keeps slow movement restrained while
+        // preserving full-scale running motion and the exact zero boundary.
+        // Cadence still follows distance, so this changes weight, not timing.
+        let gait = self.gait_envelope * self.gait_envelope;
         let landing =
             landing_curve(self.landing_amplitude, self.landing_age) * config.landing_motion();
-        let viewmodel_precision_gain = 1.0 + (config.aim_motion() - 1.0) * self.aim_weight;
-        let viewmodel_gain = config.weapon_motion() * viewmodel_precision_gain;
-
-        let viewmodel_translation = [
-            (fore * 0.18 * gait + landing * 0.12) * viewmodel_gain,
-            (vertical * 0.46 * gait + landing) * viewmodel_gain,
-            (side * 0.30 * gait + self.yaw_inertia.position * 30.0) * viewmodel_gain,
-        ];
-        let viewmodel_rotation = [
-            (-side * 0.0035 * gait - self.yaw_inertia.velocity * 0.000_12) * viewmodel_gain,
-            self.yaw_inertia.position * viewmodel_gain,
-            ((2.0 * phase + 0.20).sin() * 0.0026 * gait + self.pitch_inertia.position
-                - landing * 0.0018)
-                * viewmodel_gain,
-        ];
 
         // The native collision helper is a stateful chase-camera transaction,
         // not a reusable first-person clearance query. Stable head motion is
@@ -299,17 +315,20 @@ impl MotionGenerator {
         // horizon and is a known comfort hazard. Fore/aft movement also remains
         // viewmodel-only because its tiny absolute-world offset is vulnerable
         // to high-coordinate quantization and adds near-wall parallax.
-        // Entering an authored/aim state removes the world offset immediately;
-        // leaving it fades back through the existing analytic aim envelope.
-        let world_gain = if precision_blocked {
+        // Aiming removes the world offset immediately; leaving it fades back
+        // through the analytic aim envelope. Weapon animation does not remove
+        // locomotion from the player's head. Instead, that same head pose is
+        // inherited by the first-person camera while native animation alone
+        // owns motion relative to the scene.
+        let world_gain = if input.aiming {
             0.0
         } else {
             config.camera_motion() * (1.0 - self.aim_weight)
         };
         let world_translation = [
             0.0,
-            (vertical * 0.32 * gait + landing * 0.28) * world_gain,
-            side * 0.12 * gait * world_gain,
+            (vertical * 0.24 * gait + landing * 0.22) * world_gain,
+            side * 0.08 * gait * world_gain,
         ];
         let world_rotation = [0.0; 3];
 
@@ -317,6 +336,24 @@ impl MotionGenerator {
             self.reset();
             return GeneratedMotion::IDENTITY;
         };
+
+        let viewmodel_precision_gain = 1.0 + (config.aim_motion() - 1.0) * self.aim_weight;
+        let viewmodel_gain =
+            config.weapon_motion() * viewmodel_precision_gain * (1.0 - self.animation_weight);
+        let common_translation = world_pose.translation();
+        let viewmodel_translation = [
+            common_translation[0] + (fore * 0.10 * gait + landing * 0.08) * viewmodel_gain,
+            common_translation[1] + (vertical * 0.08 * gait + landing * 0.32) * viewmodel_gain,
+            common_translation[2]
+                + (side * 0.08 * gait + self.yaw_inertia.position * 24.0) * viewmodel_gain,
+        ];
+        let viewmodel_rotation = [
+            (-side * 0.0016 * gait - self.yaw_inertia.velocity * 0.000_08) * viewmodel_gain,
+            self.yaw_inertia.position * viewmodel_gain,
+            ((2.0 * phase + 0.20).sin() * 0.0012 * gait + self.pitch_inertia.position
+                - landing * 0.0012)
+                * viewmodel_gain,
+        ];
         let Some(viewmodel_pose) =
             bounded_viewmodel_pose(viewmodel_translation, viewmodel_rotation)
         else {

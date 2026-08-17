@@ -293,9 +293,10 @@ impl MotionState {
             sample.motion.delta_seconds(),
             sample.motion.relative_velocity(),
             sample.motion.locomotion(),
+            sample.motion.directional_locomotion(),
             look_delta,
             sample.motion.aiming(),
-            sample.motion.animation_blocked(),
+            sample.motion.authored_animation(),
         );
         let generated = self.generator.update(motion, config);
         MotionAdvance::Published(CameraMotionFrame {
@@ -340,6 +341,7 @@ mod tests {
                 1.0 / 60.0,
                 [120.0, 0.0, 0.0],
                 LocomotionState::Grounded,
+                true,
                 [0.0; 2],
                 false,
                 false,

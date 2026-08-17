@@ -1,9 +1,10 @@
 //! MCM-owned first-person presentation settings.
 //!
-//! Camera and viewmodel gains remain independent. The camera gain controls the
-//! conservative world listener, while the weapon gain controls only the
-//! separately rendered hands/weapon listener. Either exact zero therefore
-//! removes every native write owned by that listener.
+//! The camera gain controls the common conservative head layer applied to both
+//! render cameras. The weapon gain controls only motion of the separately
+//! rendered hands/weapon camera relative to that head layer. This separation
+//! lets exact zero disable procedural weapon motion without disconnecting the
+//! hands from a moving scene.
 
 use core::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 
@@ -61,7 +62,7 @@ impl FirstPersonConfig {
         self.camera_motion
     }
 
-    /// Return the master hands/weapon motion gain in `[0, 1]`.
+    /// Return the hands/weapon motion gain relative to the head in `[0, 1]`.
     #[inline]
     pub const fn weapon_motion(self) -> f32 {
         self.weapon_motion
