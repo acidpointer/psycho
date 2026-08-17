@@ -429,7 +429,7 @@ struct DirectionalLight {
     world_direction: [f32; 3],
     linear_color: [f32; 3],
     linear_disk_delta: [f32; 3],
-    daylight: f32,
+    radiance_scale: f32,
     projection: crate::backend::SunProjectionFrame,
 }
 
@@ -939,13 +939,9 @@ impl AtmosphereEffect {
 
         self.ensure_targets(device, desc, settings.target_scale())?;
         let contributions = resolve_contributions(frame, settings);
-        let shaft_requested = contributions.light.is_some_and(|light| {
-            light.projection.facing > 0.001
-                && light.projection.on_screen
-                && light.projection.edge_fade > 0.0
-                && (settings.shaft_strength > 0.0
-                    || matches!(settings.lighting_debug_view(), 1 | 2))
-        });
+        let shaft_light = contributions.light.and_then(resolve_projected_shaft_light);
+        let shaft_requested = shaft_light.is_some()
+            && (settings.shaft_strength > 0.0 || matches!(settings.lighting_debug_view(), 1 | 2));
         if shaft_requested && self.shaft_pipeline.is_some() {
             self.ensure_shaft_targets(device, desc);
         }
@@ -969,7 +965,7 @@ impl AtmosphereEffect {
         let shaft_ready = if shaft_requested {
             if let (Some(shaft_targets), Some(light), Some(pipeline)) = (
                 self.shaft_targets.as_ref(),
-                contributions.light,
+                shaft_light,
                 self.shaft_pipeline.as_ref(),
             ) {
                 draw_shaft_mask(device, &pipeline.mask_shader, targets, shaft_targets, frame)?;
@@ -1528,7 +1524,7 @@ fn draw_integration(
     let world_direction = light.map_or([0.0; 3], |light| light.world_direction);
     let sun_color = light.map_or([0.0; 3], |light| light.linear_color);
     let sun_disk_delta = light.map_or([0.0; 3], |light| light.linear_disk_delta);
-    let daylight = light.map_or(0.0, |light| light.daylight);
+    let radiance_scale = light.map_or(0.0, |light| light.radiance_scale);
     let fog_density = if settings.fog_enabled {
         settings.height_density
     } else {
@@ -1598,7 +1594,7 @@ fn draw_integration(
                 world_direction[2],
                 if shaft_ready { 1.0 } else { 0.0 },
             ],
-            [sun_color[0], sun_color[1], sun_color[2], daylight],
+            [sun_color[0], sun_color[1], sun_color[2], radiance_scale],
             [sun_disk_delta[0], sun_disk_delta[1], sun_disk_delta[2], 0.0],
             [settings.lighting_medium_density, 0.0, 0.0, 0.0],
         ],
@@ -2106,7 +2102,7 @@ fn draw_debug(
     let direction = light.map_or([0.0; 3], |light| light.world_direction);
     let color = light.map_or([0.0; 3], |light| light.linear_color);
     let disk_delta = light.map_or([0.0; 3], |light| light.linear_disk_delta);
-    let daylight = light.map_or(0.0, |light| light.daylight);
+    let radiance_scale = light.map_or(0.0, |light| light.radiance_scale);
     device.set_pixel_shader_constant_f(
         0,
         &[
@@ -2157,7 +2153,7 @@ fn draw_debug(
                 direction[2],
                 if shaft_ready { 1.0 } else { 0.0 },
             ],
-            [color[0], color[1], color[2], daylight],
+            [color[0], color[1], color[2], radiance_scale],
             [disk_delta[0], disk_delta[1], disk_delta[2], 0.0],
             [settings.lighting_medium_density, 0.0, 0.0, 0.0],
         ],
@@ -2333,7 +2329,7 @@ fn resolve_contributions(
         fog: medium_color.is_some(),
         light: settings
             .lighting_enabled
-            .then(|| resolve_directional_light(frame))
+            .then(|| resolve_directional_scattering(frame))
             .flatten(),
     }
 }
@@ -2349,7 +2345,13 @@ fn base_medium_density(
     }
 }
 
-fn resolve_directional_light(frame: AtmosphereFrame) -> Option<DirectionalLight> {
+/// Resolve the view-independent directional medium contribution.
+///
+/// Sun projection belongs only to the optional radial-shaft mask. Directional
+/// scattering remains physically present while the sun is outside the current
+/// viewport; culling it at a screen edge makes the entire atmosphere pop off
+/// even though the world-space light and medium are still valid.
+fn resolve_directional_scattering(frame: AtmosphereFrame) -> Option<DirectionalLight> {
     if !frame.material_state.exterior_known || !frame.material_state.is_exterior {
         return None;
     }
@@ -2370,16 +2372,36 @@ fn resolve_directional_light(frame: AtmosphereFrame) -> Option<DirectionalLight>
         (linear_disk[2] - linear_color[2]).max(0.0),
     ];
     let projection = project_sun_from_captured_camera(frame.camera, sun_direction);
-    if projection.facing <= 0.001 || !projection.on_screen || projection.edge_fade <= 0.0 {
-        return None;
-    }
     Some(DirectionalLight {
         world_direction: sun_direction,
         linear_color,
         linear_disk_delta,
-        daylight: sky.daylight.clamp(0.0, 1.0) * projection.edge_fade,
+        // Sky +0x6C is the final native directional color after FNV's
+        // weather and time-of-day interpolation. Daylight remains an
+        // availability contract above; multiplying the final color by the
+        // same transition again made twilight radiance fade quadratically.
+        radiance_scale: 1.0,
         projection,
     })
+}
+
+/// Apply the screen-projection contract owned by the optional radial shafts.
+fn resolve_projected_shaft_light(light: DirectionalLight) -> Option<DirectionalLight> {
+    let projection = light.projection;
+    if projection.facing <= 0.001 || !projection.on_screen || projection.edge_fade <= 0.0 {
+        return None;
+    }
+    Some(light)
+}
+
+/// Resolve the screen-bounded sun contribution used by projection tests.
+///
+/// Production directional scattering uses [`resolve_directional_scattering`].
+/// The radial-shaft subpass and these legacy projection tests share
+/// [`resolve_projected_shaft_light`] for projection admission and edge fade.
+#[cfg(test)]
+fn resolve_directional_light(frame: AtmosphereFrame) -> Option<DirectionalLight> {
+    resolve_projected_shaft_light(resolve_directional_scattering(frame)?)
 }
 
 fn linearize_native_color(color: [f32; 3]) -> Option<[f32; 3]> {
@@ -2808,8 +2830,9 @@ mod feature_tests {
         integrated_uniform_scatter, layered_tap_weight, linearize_native_color,
         local_light_draw_count, local_light_scissor, option_component, project_native_shadow,
         project_sun_from_captured_camera, ray_sphere_interval, resolve_contributions,
-        resolve_directional_light, resolve_medium_color, selected_debug_view,
-        shaft_visibility_from_blocked_fraction, union_scissor, write_batched_light_constants,
+        resolve_directional_light, resolve_medium_color, resolve_projected_shaft_light,
+        selected_debug_view, shaft_visibility_from_blocked_fraction, union_scissor,
+        write_batched_light_constants,
     };
     use crate::{
         backend::{
@@ -3221,10 +3244,32 @@ mod feature_tests {
         frame.sky = Some(valid_sky(normalize([1.0, 0.0, 1.02])));
         let outside = resolve_directional_light(frame);
 
-        assert!(centered.daylight > near_edge.daylight);
-        assert!(near_edge.daylight > 0.0);
+        assert!(centered.projection.edge_fade > near_edge.projection.edge_fade);
+        assert!(near_edge.projection.edge_fade > 0.0);
         assert!(at_edge.is_none());
         assert!(outside.is_none());
+    }
+
+    #[test]
+    fn base_directional_scattering_survives_projection_boundaries() {
+        let mut frame = valid_frame();
+        let mut lighting = settings();
+        lighting.fog_enabled = false;
+        lighting.lighting_enabled = true;
+
+        for direction in [[1.0, 0.0, 2.0], [-1.0, 0.0, 0.0]] {
+            let length = direction
+                .into_iter()
+                .map(|component| component * component)
+                .sum::<f32>()
+                .sqrt();
+            let direction = direction.map(|component| component / length);
+            frame.sky = Some(valid_sky(direction));
+            let base = resolve_contributions(frame, lighting)
+                .light
+                .expect("valid world-space directional scattering");
+            assert!(resolve_projected_shaft_light(base).is_none());
+        }
     }
 
     #[test]
@@ -3238,15 +3283,15 @@ mod feature_tests {
                 .sqrt();
             direction.map(|value| value / length)
         };
-        let daylight_at = |frame: &mut AtmosphereFrame, edge: f32| {
+        let edge_fade_at = |frame: &mut AtmosphereFrame, edge: f32| {
             let vertical = (1.0 - 2.0 * edge) * frame.camera.frustum_top;
             frame.sky = Some(valid_sky(normalize([1.0, vertical, 0.0])));
-            resolve_directional_light(*frame).map_or(0.0, |light| light.daylight)
+            resolve_directional_light(*frame).map_or(0.0, |light| light.projection.edge_fade)
         };
 
-        let first_visible = daylight_at(&mut frame, 0.01);
-        let four_percent_inside = daylight_at(&mut frame, 0.04);
-        let fully_inside = daylight_at(&mut frame, 0.15);
+        let first_visible = edge_fade_at(&mut frame, 0.01);
+        let four_percent_inside = edge_fade_at(&mut frame, 0.04);
+        let fully_inside = edge_fade_at(&mut frame, 0.15);
         let legacy_four_percent_fade = {
             let value = (0.04_f32 / 0.035).clamp(0.0, 1.0);
             value * value * (3.0 - 2.0 * value)
@@ -3256,7 +3301,7 @@ mod feature_tests {
         assert!(first_visible > 0.0);
         assert!(first_visible < four_percent_inside);
         assert!(four_percent_inside < fully_inside * 0.4);
-        assert!((fully_inside - 0.85).abs() < 0.000001);
+        assert!((fully_inside - 1.0).abs() < 0.000001);
     }
 
     #[test]
@@ -3301,6 +3346,134 @@ mod feature_tests {
         assert!(side > 0.005);
         assert!(forward > side * 30.0);
         assert!(forward * 8.0 > forward);
+    }
+
+    #[test]
+    fn native_twilight_sun_color_reaches_the_integrator_once() {
+        let mut frame = valid_frame();
+        let mut sky = valid_sky([1.0, 0.0, 0.0]);
+        // This is the daylight value from the rejected installed frame. The
+        // native Sky update has already interpolated color slot four across
+        // time and weather before publishing Sky +0x6C; applying the climate
+        // transition again makes the delivered radiance fade twice.
+        sky.daylight = 0.4252;
+        sky.sun_disk = sky.sun_light;
+        frame.sky = Some(sky);
+
+        let mut lighting = settings();
+        lighting.fog_enabled = false;
+        lighting.lighting_enabled = true;
+        lighting.anisotropy = 0.0;
+        lighting.lighting_intensity = 1.0;
+        let light = resolve_contributions(frame, lighting)
+            .light
+            .expect("valid exterior directional light");
+        let scatter =
+            directional_scatter_amount(1.0, 1.0, lighting.lighting_medium_density, 10_000.0);
+        let delivered = light.linear_color[0]
+            * light.radiance_scale
+            * directional_phase_response(1.0, lighting.anisotropy)
+            * scatter;
+        let native_once = linearize_native_color(sky.sun_light)
+            .expect("finite native directional color")[0]
+            * directional_phase_response(1.0, lighting.anisotropy)
+            * scatter;
+
+        assert!(native_once > 0.0);
+        assert!(
+            (delivered - native_once).abs() < 0.000001,
+            "native={native_once}, delivered={delivered}"
+        );
+    }
+
+    #[test]
+    fn rejected_twilight_frame_changes_composed_reference_pixels() {
+        let mut frame = valid_frame();
+        let mut sky = valid_sky([1.0, 0.0, 0.0]);
+        sky.daylight = 0.4252;
+        sky.sun_disk = sky.sun_light;
+        frame.sky = Some(sky);
+
+        let mut lighting = settings();
+        lighting.fog_enabled = true;
+        lighting.lighting_enabled = true;
+        lighting.lighting_intensity = 0.95;
+        lighting.lighting_medium_density = 0.0000025;
+        lighting.anisotropy = 0.58;
+        lighting.shaft_strength = 0.72;
+        let contributions = resolve_contributions(frame, lighting);
+        let light = contributions
+            .light
+            .expect("rejected frame has native directional light");
+
+        // This is a deterministic reference pixel for the shipped integration
+        // and composition shaders. It uses an exactly matched reduced-depth
+        // tap, a horizontal ray at the logged camera height, and neutral fog
+        // noise. Fully blocked default shafts are the weakest supported
+        // directional case: their configured 0.72 influence retains 0.28 of
+        // the base response. A one-code-step extended-sRGB change is the
+        // minimum observable output contract.
+        let source = [0.25_f32; 3];
+        let source_linear = source.map(decode_extended_srgb);
+        let medium =
+            linearize_native_color([0.8342, 0.8342, 0.6029]).expect("logged fog color is finite");
+        let density_at_origin = lighting.height_density
+            * (-lighting.height_falloff * (13_894.94 - lighting.base_height)).exp();
+        let shaft = shaft_visibility_from_blocked_fraction(1.0, 1.0, lighting.shaft_strength);
+        let composed_delta = |distance: f32, mu: f32, radiance_scale: f32| {
+            let transmittance = (-density_at_origin * distance).exp();
+            let ambient_amount = (1.0 - transmittance) * lighting.scattering_albedo;
+            let baseline_linear: [f32; 3] = std::array::from_fn(|channel| {
+                source_linear[channel] * transmittance + medium[channel] * ambient_amount
+            });
+            let directional_amount = directional_scatter_amount(
+                transmittance,
+                lighting.scattering_albedo,
+                lighting.lighting_medium_density,
+                distance,
+            );
+            let phase = directional_phase_response(mu, lighting.anisotropy);
+            let lit_linear: [f32; 3] = std::array::from_fn(|channel| {
+                baseline_linear[channel]
+                    + light.linear_color[channel]
+                        * radiance_scale
+                        * lighting.lighting_intensity
+                        * phase
+                        * directional_amount
+                        * shaft
+            });
+            let baseline = baseline_linear.map(encode_extended_srgb);
+            let lit = lit_linear.map(encode_extended_srgb);
+            lit.into_iter()
+                .zip(baseline)
+                .map(|(lit, baseline)| lit - baseline)
+                .fold(0.0_f32, f32::max)
+        };
+
+        let cases = [
+            (10_000.0, -0.5),
+            (30_000.0, 0.0),
+            (60_000.0, 0.5),
+            (120_000.0, 0.9),
+        ];
+        let minimum_corrected = cases
+            .into_iter()
+            .map(|(distance, mu)| composed_delta(distance, mu, light.radiance_scale))
+            .fold(f32::INFINITY, f32::min);
+        let minimum_rejected = cases
+            .into_iter()
+            .map(|(distance, mu)| composed_delta(distance, mu, sky.daylight))
+            .fold(f32::INFINITY, f32::min);
+        let one_code_step = 1.0 / 255.0;
+
+        assert!(
+            minimum_rejected < one_code_step,
+            "negative control unexpectedly visible: {minimum_rejected}"
+        );
+        assert!(
+            minimum_corrected >= one_code_step,
+            "corrected output remained invisible: {minimum_corrected}"
+        );
     }
 
     #[test]

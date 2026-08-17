@@ -15,14 +15,15 @@ use super::contract::{
     dismember_partition_is_renderable, effective_contact_distance, evsm4_moments, evsm4_visibility,
     exterior_point_shadow_radiance, interior_shadow_factor, local_light_clear_coverage,
     local_light_shadow_energy, local_light_shadow_weight, local_light_source_guard,
-    nvr_contact_sample_offsets, point_caster_depth, point_caster_inventory_is_complete,
-    point_consumer_plan, point_light_distance_fade, point_light_influence_is_eligible,
-    point_light_radii, point_only_shadow_radiance, point_shadow_presentation_weight,
-    point_shadow_transition, point_shadow_visibility, practical_cascade_splits,
-    publication_epoch_is_usable, publication_identity_is_usable, retained_cascade_refresh,
-    select_point_lights, select_point_lights_stable, shadow_receiver_is_valid,
-    skinned_position_reference, snap_shadow_center, source_owned_shadow_radiance,
-    sphere_intersects_cube_face, sphere_intersects_point_light, terrain_lod_shadow_z,
+    manager_light_chain_is_complete, nvr_contact_sample_offsets, point_caster_depth,
+    point_caster_inventory_is_complete, point_consumer_plan, point_light_distance_fade,
+    point_light_influence_is_eligible, point_light_radii, point_only_shadow_radiance,
+    point_shadow_presentation_weight, point_shadow_transition, point_shadow_visibility,
+    practical_cascade_splits, publication_epoch_is_usable, publication_identity_is_usable,
+    retained_cascade_refresh, select_point_lights, select_point_lights_stable,
+    shadow_receiver_is_valid, skinned_position_reference, snap_shadow_center,
+    source_owned_shadow_radiance, sphere_intersects_cube_face, sphere_intersects_point_light,
+    terrain_lod_shadow_z,
 };
 use super::engine::{
     EngineCallAbi, FNV_EXE_SHA256, GeometryKind, HookSiteContract, NativeLayout,
@@ -235,6 +236,22 @@ fn selected_point_lights_require_a_complete_canonical_root_inventory() {
     assert!(
         !point_caster_inventory_is_complete(1, false),
         "a partial inventory could cache a cube face without its occluding wall"
+    );
+}
+
+#[test]
+fn terminated_manager_light_chain_ignores_a_stale_cached_count() {
+    assert!(
+        manager_light_chain_is_complete(2, 1, false, 2),
+        "a terminating native chain was rejected only because its cached count lagged"
+    );
+    assert!(
+        manager_light_chain_is_complete(1, 2, false, 2),
+        "a terminating native chain was rejected only because its cached count led"
+    );
+    assert!(
+        !manager_light_chain_is_complete(2, 2, true, 2),
+        "an over-limit or cyclic chain was certified from a bounded prefix"
     );
 }
 

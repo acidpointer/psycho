@@ -76,7 +76,7 @@ static BLOCK_REASON: AtomicU32 = AtomicU32::new(BLOCK_REASON_NONE);
 /// Callers obtain this token from [`prepare_direct_draw`] and must pass it to
 /// [`finish_direct_draw`] after the corresponding draw, regardless of the
 /// draw's HRESULT.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Default)]
 #[must_use]
 pub(crate) struct PbrDirectDrawScope {
     restore_after_draw: bool,

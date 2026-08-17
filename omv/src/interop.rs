@@ -152,8 +152,8 @@ pub(crate) fn capability_snapshot() -> Vec<InteropCapability> {
         InteropCapability::route(
             "PBR selection",
             pbr.selection_ready,
-            "the live PPLighting selector slot is chained",
-            "the PPLighting selector slot is unavailable",
+            "the common selector-setup caller is chained",
+            "the common selector-setup caller is unavailable",
             [pbr.selection_predecessor, None, None],
         ),
         InteropCapability::route(

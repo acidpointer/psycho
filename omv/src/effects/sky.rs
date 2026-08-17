@@ -32,6 +32,7 @@ use parking_lot::Mutex;
 const SKY_SELECTOR_CACHE_ADDR: usize = 0x011F9570;
 const SKY_UPDATE_CONSTANTS_VTABLE_OFFSET: usize = 0x7C;
 const SKY_SHADER_PROPERTY_VTABLE: usize = 0x010B8CE0;
+const CURRENT_DRAW_ENTRY_ADDR: usize = 0x011F91E0;
 const CURRENT_PASS_ADDR: usize = 0x0126F74C;
 const PASS_PIXEL_SHADER_OFFSET: usize = 0x44;
 const PASS_VERTEX_SHADER_OFFSET: usize = 0x5C;
@@ -284,6 +285,7 @@ static PENDING_EVALUATED: AtomicBool = AtomicBool::new(true);
 static PENDING_VERTEX_INDEX: AtomicU32 = AtomicU32::new(NO_INDEX);
 static PENDING_PIXEL_INDEX: AtomicU32 = AtomicU32::new(NO_INDEX);
 static PENDING_OBJECT_TYPE: AtomicU32 = AtomicU32::new(8);
+static PENDING_GEOMETRY: AtomicUsize = AtomicUsize::new(0);
 static PENDING_NATIVE_VERTEX: AtomicUsize = AtomicUsize::new(0);
 static PENDING_NATIVE_PIXEL: AtomicUsize = AtomicUsize::new(0);
 static DIRECT_ACTIVE: AtomicBool = AtomicBool::new(false);
@@ -480,13 +482,18 @@ pub(crate) fn service_present_frame() {
     }
 }
 
-/// Admit and bind one pending sky replacement before renderer geometry work.
+/// Admit and bind one pending sky replacement before its exact geometry work.
 ///
-/// A `true` result owns a draw-local restoration and must be paired with
-/// [`finish_direct_draw`] after the native geometry submission.
+/// `UpdateConstants` publishes the consuming geometry from the engine's
+/// current pass entry. A different geometry leaves this transaction pending
+/// and remains available to PBR. A `true` result owns a draw-local restoration
+/// and must be paired with [`finish_direct_draw`] after native submission.
 #[must_use]
-pub(crate) fn prepare_direct_draw() -> bool {
+pub(crate) fn prepare_direct_draw(geometry: *mut c_void) -> bool {
     if !PENDING.load(Ordering::Acquire) {
+        return false;
+    }
+    if geometry.is_null() || PENDING_GEOMETRY.load(Ordering::Acquire) != geometry as usize {
         return false;
     }
     if !ENABLED.load(Ordering::Acquire)
@@ -993,10 +1000,17 @@ unsafe extern "thiscall" fn hook_update_constants(
     let Some(native_pixel) = shader_handle(pixel_wrapper, Stage::Pixel) else {
         return;
     };
+    let Some(draw_entry) = read_ptr(CURRENT_DRAW_ENTRY_ADDR as *const c_void) else {
+        return;
+    };
+    let Some(geometry) = read_ptr(draw_entry.cast_const()) else {
+        return;
+    };
 
     PENDING_VERTEX_INDEX.store(vertex_index as u32, Ordering::Release);
     PENDING_PIXEL_INDEX.store(pixel_index as u32, Ordering::Release);
     PENDING_OBJECT_TYPE.store(object_type, Ordering::Release);
+    PENDING_GEOMETRY.store(geometry as usize, Ordering::Release);
     PENDING_NATIVE_VERTEX.store(native_vertex as usize, Ordering::Release);
     PENDING_NATIVE_PIXEL.store(native_pixel as usize, Ordering::Release);
     PENDING_EVALUATED.store(false, Ordering::Release);
@@ -1338,6 +1352,7 @@ fn clear_pending() {
     PENDING_EVALUATED.store(true, Ordering::Release);
     PENDING_VERTEX_INDEX.store(NO_INDEX, Ordering::Release);
     PENDING_PIXEL_INDEX.store(NO_INDEX, Ordering::Release);
+    PENDING_GEOMETRY.store(0, Ordering::Release);
     PENDING_NATIVE_VERTEX.store(0, Ordering::Release);
     PENDING_NATIVE_PIXEL.store(0, Ordering::Release);
 }

@@ -15,10 +15,10 @@ use libpsycho::os::windows::memory::validate_memory_range;
 use super::{
     contract::{
         ALL_CUBE_FACES, CASCADE_COUNT, DirectionalRootSetSignature, NVR_POINT_LIGHT_COUNT,
-        SceneKind, TraversalBudget, complete_bounded_count, directional_actor_root_is_active,
-        directional_form_type_is_enabled, point_light_influence_is_eligible, point_light_radii,
-        sphere_intersects_cube_face, sphere_intersects_point_light,
-        stable_point_light_distance_squared,
+        SceneKind, TraversalBudget, directional_actor_root_is_active,
+        directional_form_type_is_enabled, manager_light_chain_is_complete,
+        point_light_influence_is_eligible, point_light_radii, sphere_intersects_cube_face,
+        sphere_intersects_point_light, stable_point_light_distance_squared,
     },
     engine::NativeLayout,
     math::{ActorBounds, CascadeProjection, Sphere, dynamic_caster_cascade_mask},
@@ -517,9 +517,12 @@ pub(super) unsafe fn directional_fov_compensation() -> f32 {
 /// remain present in native scene color without growing the cube-map budget;
 /// OMV never redraws or globally attenuates their illumination.
 ///
-/// `None` rejects an over-limit or internally inconsistent manager inventory.
-/// A prefix cannot prove which lights are actually nearest, so the caller must
-/// preserve native shadow ownership for that transaction.
+/// `None` rejects an over-limit or cyclic manager inventory. The terminating
+/// chain is authoritative, matching Fallout's own `0x00B5C450` traversal; the
+/// cached manager count is advisory because other mods can update it before or
+/// after relinking the chain. A bounded prefix still cannot prove which lights
+/// are actually nearest, so the caller must preserve native shadow ownership
+/// for that transaction.
 ///
 /// # Safety
 ///
@@ -541,13 +544,10 @@ pub(super) unsafe fn select_point_lights(
     if manager.is_null() {
         return Some(selected);
     }
-    let count = complete_bounded_count(
-        unsafe { read::<u32>(manager, SHADOW_SCENE_MANAGER_LIGHT_COUNT) } as usize,
-        MAX_MANAGER_LIGHTS,
-    )?;
+    let cached_count = unsafe { read::<u32>(manager, SHADOW_SCENE_MANAGER_LIGHT_COUNT) } as usize;
     let mut node = unsafe { read::<*mut u8>(manager, SHADOW_SCENE_MANAGER_LIGHTS) };
     let mut scanned = 0usize;
-    while !node.is_null() && scanned < count {
+    while !node.is_null() && scanned < MAX_MANAGER_LIGHTS {
         let next = unsafe { read::<*mut u8>(node, NI_TLIST_NEXT) };
         let scene_light = unsafe { read::<*mut u8>(node, NI_TLIST_DATA) };
         if let Some(mut candidate) = unsafe {
@@ -573,10 +573,8 @@ pub(super) unsafe fn select_point_lights(
         node = next;
         scanned += 1;
     }
-    // A mismatched count/list pair is not a complete nearest-light inventory.
-    // Returning a prefix could replace an actually-nearer light and make a
-    // whole cube owner blink as the native manager repairs its list.
-    (scanned == count && node.is_null()).then_some(selected)
+    manager_light_chain_is_complete(scanned, cached_count, !node.is_null(), MAX_MANAGER_LIGHTS)
+        .then_some(selected)
 }
 
 /// Immutable point-caster ownership for one cube and each of its six faces.

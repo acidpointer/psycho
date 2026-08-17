@@ -157,6 +157,24 @@ pub(super) const fn complete_bounded_count(count: usize, limit: usize) -> Option
     if count <= limit { Some(count) } else { None }
 }
 
+/// Decide whether a bounded native light-chain walk saw the complete chain.
+///
+/// Fallout's native shadow consumers follow `ShadowSceneNode + 0xB4` until a
+/// null link and do not consult the cached count at `+0xBC`. A mod may update
+/// those independently inside the serialized shadow transaction, so the
+/// terminating link is the completeness proof and the count is advisory. The
+/// fixed budget still rejects cycles and over-limit inventories rather than
+/// accepting a prefix that could select the wrong nearest lights.
+pub(super) const fn manager_light_chain_is_complete(
+    visited_nodes: usize,
+    cached_count: usize,
+    has_unvisited_node: bool,
+    limit: usize,
+) -> bool {
+    let _advisory_count = cached_count;
+    visited_nodes <= limit && !has_unvisited_node
+}
+
 /// Binary shadow-map representation supported by one alpha property.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) enum AlphaCasterMode {

@@ -406,8 +406,13 @@ unsafe fn render_geometry(
         return;
     }
 
-    let pbr_draw = pbr::prepare_direct_draw(geometry);
-    let sky_draw = sky::prepare_direct_draw();
+    // UpdateConstants publishes the exact geometry that owns a sky pair. Give
+    // that draw exclusive shader ownership; a stale sky callback must neither
+    // consume an unrelated PBR draw nor overwrite its engine-owned pair.
+    let sky_draw = sky::prepare_direct_draw(geometry);
+    let pbr_draw = (!sky_draw)
+        .then(|| pbr::prepare_direct_draw(geometry))
+        .unwrap_or_default();
     unsafe { original(renderer, geometry) };
     if sky_draw {
         sky::finish_direct_draw();

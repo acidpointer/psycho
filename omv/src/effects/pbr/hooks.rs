@@ -1,9 +1,10 @@
 //! Native shader interception and draw-scoped PBR ownership.
 //!
-//! `SetShaders` classifies the native pass and exposes replacement handles only
-//! for the duration of the original engine call. That makes `NiDX9RenderState`
-//! the authoritative owner of the bound pair, matching both researched NVR
-//! implementations, while engine wrappers return immediately to native handles.
+//! The common selector-setup caller runs every live selector predecessor first,
+//! then `SetShaders` exposes replacement handles only for one final native bind.
+//! That makes `NiDX9RenderState` the authoritative owner of the bound pair while
+//! remaining independent of per-selector cloned vtables. Engine wrappers return
+//! immediately to native handles.
 //! The direct draw hook still validates samplers and geometry-specific constants
 //! immediately before submission. A rejected draw temporarily binds vanilla and
 //! then restores the engine-owned replacement. Close terrain normally keeps the
@@ -36,7 +37,7 @@ use libpsycho::os::windows::{
     directx9::{
         D3DSAMP_MAGFILTER, D3DSAMP_MINFILTER, D3DSAMP_SRGBTEXTURE, D3DTEXF_POINT, Device9Ref,
     },
-    hook::pointer::PointerSlotHookContainer,
+    hook::{callsite::Rel32CallHookContainer, pointer::PointerSlotHookContainer},
     memory::validate_memory_range,
 };
 
@@ -48,8 +49,9 @@ use super::{
 use engine_contracts::ObjectDrawRejectReason;
 use object_contracts::{ObjectContractDecision, ObjectContractState};
 
-const PPLIGHTING_SELECTOR_CACHE_ADDR: usize = 0x011F9558;
-const PPLIGHTING_SET_SHADERS_VTABLE_OFFSET: usize = 0xF4;
+const SELECTOR_SETUP_CALL_ADDR: usize = 0x00B9_9539;
+const RENDER_STATE_SET_PIXEL_SHADER_VTABLE_OFFSET: usize = 0x7C;
+const RENDER_STATE_SET_VERTEX_SHADER_VTABLE_OFFSET: usize = 0x8C;
 const RENDER_STATE_SET_TEXTURE_VTABLE_OFFSET: usize = 0xDC;
 const PPLIGHTING_VERTEX_GROUP_A_ADDR: usize = 0x011FDD88;
 const PPLIGHTING_VERTEX_GROUP_B_ADDR: usize = 0x011FDE04;
@@ -151,14 +153,17 @@ struct PreparedObjectReplacement {
     diagnostics_enabled: bool,
 }
 
-type SetShadersFn = unsafe extern "thiscall" fn(*mut c_void, u32);
+type SetShadersFn = unsafe extern "thiscall" fn(*mut c_void, u32) -> bool;
+type SetRenderStateShaderFn = unsafe extern "thiscall" fn(*mut c_void, *mut c_void, u32);
+type SelectorSetupFn = unsafe extern "cdecl" fn(u32, *mut c_void);
 type SetTextureFn = unsafe extern "thiscall" fn(*mut c_void, u32, *mut c_void);
 
-static SET_SHADERS_HOOK: LazyLock<PointerSlotHookContainer<SetShadersFn>> =
-    LazyLock::new(PointerSlotHookContainer::new);
+static SET_SHADERS_HOOK: LazyLock<Rel32CallHookContainer<SelectorSetupFn>> =
+    LazyLock::new(Rel32CallHookContainer::new);
 static SET_TEXTURE_HOOK: LazyLock<PointerSlotHookContainer<SetTextureFn>> =
     LazyLock::new(PointerSlotHookContainer::new);
 static HOOKS_READY: AtomicBool = AtomicBool::new(false);
+static ENGINE_SHADER_BINDERS_READY: AtomicBool = AtomicBool::new(false);
 static NATIVE_FALLBACK_ACTIVE: AtomicBool = AtomicBool::new(false);
 static PENDING_VERTEX_WRAPPER: AtomicUsize = AtomicUsize::new(0);
 static PENDING_PIXEL_WRAPPER: AtomicUsize = AtomicUsize::new(0);
@@ -189,6 +194,7 @@ static CLOSE_TERRAIN_FIRST_BIND_LOGGED: AtomicBool = AtomicBool::new(false);
 static CLOSE_TERRAIN_FIRST_CANOPY_BIND_LOGGED: AtomicBool = AtomicBool::new(false);
 static CLOSE_TERRAIN_WARMING_LOGGED: AtomicBool = AtomicBool::new(false);
 static CLOSE_TERRAIN_FAILURE_LOGGED: AtomicBool = AtomicBool::new(false);
+static OBJECT_FIRST_BIND_LOGGED: AtomicBool = AtomicBool::new(false);
 static DIRECT_RESTORE_FAILURE_LOGGED: AtomicBool = AtomicBool::new(false);
 static SUPPLEMENTAL_TEXTURE_RESTORE_FAILURE_LOGGED: AtomicBool = AtomicBool::new(false);
 static LAND_LOD_LAST_CONSTANT_SIGNATURE: AtomicU32 = AtomicU32::new(0);
@@ -232,19 +238,19 @@ pub(super) fn install() -> Result<()> {
         return Ok(());
     }
 
-    // Resolve both mandatory engine-owned slots before publishing either PBR
-    // capability. Neither operation touches a shared function entry: an
-    // existing mod remains the captured predecessor whether it changed the
-    // live vtable slot or detoured the function that the slot currently names.
+    // Resolve both mandatory engine-owned boundaries before publishing either
+    // PBR capability. The selector-setup callsite captures the complete live
+    // setup predecessor, including an entry detour, and avoids assuming that
+    // every selector instance still shares one cached object's vtable.
     // The texture observer is shared with native sky and may remain resident
     // when PBR itself fails closed; SetShaders is never left active without it.
-    let set_shaders_prepared = prepare_set_shaders_hook();
+    let set_shaders_prepared = prepare_set_shaders_hook() && prepare_engine_shader_binders();
     let texture_tracking_prepared = prepare_set_texture_hook();
     let texture_tracking_ready =
         texture_tracking_prepared && enable_prepared_pointer(&SET_TEXTURE_HOOK, "SetTexture");
     let set_shaders_ready = texture_tracking_ready
         && set_shaders_prepared
-        && enable_prepared_pointer(&SET_SHADERS_HOOK, "SetShaders");
+        && enable_prepared_callsite(&SET_SHADERS_HOOK, "selector setup");
     super::samplers::set_texture_tracking_ready(texture_tracking_ready);
     let mandatory_ready = set_shaders_ready && texture_tracking_ready;
     HOOKS_READY.store(mandatory_ready, Ordering::Release);
@@ -269,7 +275,7 @@ pub(super) fn install() -> Result<()> {
         log::info!("[PBR] Object PBR adopted {adopted} existing shader wrapper(s)");
     }
 
-    log::info!("[PBR] Object PBR SetShaders selector slot chained");
+    log::info!("[PBR] Common selector-setup caller chained for final PBR binding");
     log::info!(
         "[PBR] Shader wrappers use startup and first-use adoption; shared shader-creation entries are not hooked"
     );
@@ -374,29 +380,68 @@ fn prepare_set_shaders_hook() -> bool {
     if SET_SHADERS_HOOK.is_initialized() {
         return true;
     }
-    let Some(selector) = read_non_null_pointer(
-        PPLIGHTING_SELECTOR_CACHE_ADDR as *const c_void,
-        "PPLighting selector cache",
-    ) else {
-        return false;
-    };
-    let Some(slot) = resolve_vtable_slot(
-        selector,
-        PPLIGHTING_SET_SHADERS_VTABLE_OFFSET,
-        "PPLighting::SetShaders",
-    ) else {
-        return false;
-    };
-
-    match unsafe { SET_SHADERS_HOOK.init("FNV PPLighting::SetShaders", slot, hook_set_shaders) } {
+    match unsafe {
+        SET_SHADERS_HOOK.init(
+            "FNV common selector-setup caller",
+            SELECTOR_SETUP_CALL_ADDR as *mut c_void,
+            hook_selector_setup,
+        )
+    } {
         Ok(()) => {}
         Err(err) => {
-            log::warn!("[PBR] SetShaders hook skipped: {err}");
+            log::warn!("[PBR] Selector-setup caller skipped: {err}");
             return false;
         }
     }
 
     true
+}
+
+fn prepare_engine_shader_binders() -> bool {
+    if ENGINE_SHADER_BINDERS_READY.load(Ordering::Acquire) {
+        return true;
+    }
+    let render_state = match crate::backend::render_state_ptr() {
+        Ok(render_state) => render_state,
+        Err(reason) => {
+            log::warn!("[PBR] Engine shader binders skipped: {reason}");
+            return false;
+        }
+    };
+    let ready = [
+        (
+            RENDER_STATE_SET_VERTEX_SHADER_VTABLE_OFFSET,
+            "NiDX9RenderState::SetVertexShader",
+        ),
+        (
+            RENDER_STATE_SET_PIXEL_SHADER_VTABLE_OFFSET,
+            "NiDX9RenderState::SetPixelShader",
+        ),
+    ]
+    .into_iter()
+    .all(|(offset, label)| {
+        resolve_vtable_slot(render_state, offset, label)
+            .and_then(|slot| read_non_null_pointer(slot.cast_const().cast(), label))
+            .is_some()
+    });
+    ENGINE_SHADER_BINDERS_READY.store(ready, Ordering::Release);
+    ready
+}
+
+fn enable_prepared_callsite<F>(hook: &Rel32CallHookContainer<F>, label: &'static str) -> bool
+where
+    F: libpsycho::ffi::fnptr::Function,
+{
+    if hook.is_enabled() {
+        return true;
+    }
+    match hook.enable() {
+        Ok(()) => true,
+        Err(err) => {
+            log::warn!("[PBR] {label} caller could not be chained: {err}");
+            false
+        }
+    }
 }
 
 /// Enable a prepared engine-owned pointer without treating residency as a
@@ -453,10 +498,29 @@ fn read_non_null_pointer(address: *const c_void, label: &str) -> Option<*mut c_v
     Some(value)
 }
 
-unsafe extern "thiscall" fn hook_set_shaders(shader: *mut c_void, pass_index: u32) {
+unsafe extern "cdecl" fn hook_selector_setup(pass_index: u32, selector: *mut c_void) {
     let Ok(original) = SET_SHADERS_HOOK.original() else {
         return;
     };
+    reconcile_pending_before_selector_setup();
+    unsafe { original(pass_index, selector) };
+    unsafe { hook_set_shaders(selector, pass_index) };
+}
+
+fn reconcile_pending_before_selector_setup() {
+    let _ = restore_close_terrain_fast_shader();
+    let previous_kind = PENDING_DRAW_KIND.swap(PENDING_DRAW_NONE, Ordering::AcqRel);
+    if previous_kind == PENDING_DRAW_NONE {
+        return;
+    }
+    restore_engine_owned_replacement();
+    clear_pending_shader_pair();
+    PENDING_REQUIRED_SAMPLER_MASK.store(0, Ordering::Release);
+    PENDING_MISSING_SAMPLER_MASK.store(0, Ordering::Release);
+}
+
+unsafe extern "thiscall" fn hook_set_shaders(shader: *mut c_void, pass_index: u32) {
+    let original = native_set_shaders();
     crate::graphics_diagnostics::add(crate::graphics_diagnostics::Counter::SetShaders, 1);
 
     // The engine cache owns the native-only replacement selected by the prior
@@ -466,9 +530,6 @@ unsafe extern "thiscall" fn hook_set_shaders(shader: *mut c_void, pass_index: u3
     let _ = restore_close_terrain_fast_shader();
 
     if !super::shader_enabled() {
-        unsafe {
-            original(shader, pass_index);
-        }
         return;
     }
 
@@ -481,7 +542,6 @@ unsafe extern "thiscall" fn hook_set_shaders(shader: *mut c_void, pass_index: u3
         // prior raw fallback ceases to own D3D state after it returns.
         PENDING_DRAW_KIND.store(PENDING_DRAW_NONE, Ordering::Release);
         PENDING_REQUIRED_SAMPLER_MASK.store(0, Ordering::Relaxed);
-        unsafe { original(shader, pass_index) };
         NATIVE_FALLBACK_ACTIVE.store(false, Ordering::Release);
         return;
     }
@@ -511,9 +571,6 @@ unsafe extern "thiscall" fn hook_set_shaders(shader: *mut c_void, pass_index: u3
             set_pending_draw(PENDING_DRAW_LAND_LOD, pass_index, 0, pair);
             return;
         }
-        unsafe {
-            original(shader, pass_index);
-        }
         if super::land_lod_contracts_ready() {
             log_land_lod_failure("engine-owned replacement pair could not be selected");
         } else {
@@ -532,9 +589,6 @@ unsafe extern "thiscall" fn hook_set_shaders(shader: *mut c_void, pass_index: u3
         {
             set_pending_draw(PENDING_DRAW_TERRAIN_FADE, pass_index, 0, pair);
             return;
-        }
-        unsafe {
-            original(shader, pass_index);
         }
         if super::terrain_fade_contracts_ready() {
             log_terrain_fade_failure("engine-owned replacement pair could not be selected");
@@ -575,9 +629,6 @@ unsafe extern "thiscall" fn hook_set_shaders(shader: *mut c_void, pass_index: u3
         } else {
             diagnostics::record_terrain_fallback(diagnostics::TerrainDrawFamily::CloseTerrain);
         }
-        unsafe {
-            original(shader, pass_index);
-        }
         return;
     }
 
@@ -589,10 +640,78 @@ unsafe extern "thiscall" fn hook_set_shaders(shader: *mut c_void, pass_index: u3
         set_pending_draw(PENDING_DRAW_OBJECT, pass_index, 0, replacement.pair);
         return;
     }
+}
 
-    unsafe {
-        original(shader, pass_index);
+fn native_set_shaders() -> SetShadersFn {
+    bind_engine_shader_pair
+}
+
+unsafe extern "thiscall" fn bind_engine_shader_pair(
+    _selector: *mut c_void,
+    _pass_index: u32,
+) -> bool {
+    if !ENGINE_SHADER_BINDERS_READY.load(Ordering::Acquire) {
+        return false;
     }
+    let Some((vertex_wrapper, pixel_wrapper)) = engine_contracts::current_pass_shaders_fast()
+    else {
+        return false;
+    };
+    let Some(vertex) = engine_contracts::shader_handle_fast(vertex_wrapper, ShaderStage::Vertex)
+    else {
+        return false;
+    };
+    let Some(pixel) = engine_contracts::shader_handle_fast(pixel_wrapper, ShaderStage::Pixel)
+    else {
+        return false;
+    };
+    let Ok(render_state) = crate::backend::render_state_ptr() else {
+        return false;
+    };
+    let Some(vtable) = live_pointer_fast(render_state) else {
+        return false;
+    };
+    let Some(set_vertex) =
+        live_vtable_function_fast(vtable, RENDER_STATE_SET_VERTEX_SHADER_VTABLE_OFFSET)
+    else {
+        return false;
+    };
+    let Some(set_pixel) =
+        live_vtable_function_fast(vtable, RENDER_STATE_SET_PIXEL_SHADER_VTABLE_OFFSET)
+    else {
+        return false;
+    };
+
+    // This is the exact cache-owning tail of native SetShaders: vertex first,
+    // then pixel, with the native save-previous flag clear. Both setters use
+    // `ret 8`; omitting that second stack argument corrupts the caller. Re-entering
+    // SetShaders itself would run a selector policy detour a second time and
+    // could replace OMV's final pair.
+    let set_vertex: SetRenderStateShaderFn = unsafe { core::mem::transmute(set_vertex) };
+    let set_pixel: SetRenderStateShaderFn = unsafe { core::mem::transmute(set_pixel) };
+    unsafe {
+        set_vertex(render_state, vertex, 0);
+        set_pixel(render_state, pixel, 0);
+    }
+    true
+}
+
+fn live_pointer_fast(owner: *mut c_void) -> Option<*mut c_void> {
+    const MIN_ENGINE_PTR: usize = 0x1_0000;
+
+    if (owner as usize) < MIN_ENGINE_PTR {
+        return None;
+    }
+    let value = unsafe { owner.cast::<*mut c_void>().read() };
+    (value as usize >= MIN_ENGINE_PTR).then_some(value)
+}
+
+fn live_vtable_function_fast(vtable: *mut c_void, offset: usize) -> Option<usize> {
+    const MIN_ENGINE_PTR: usize = 0x1_0000;
+
+    let address = (vtable as usize).checked_add(offset)? as *const usize;
+    let value = unsafe { address.read() };
+    (value >= MIN_ENGINE_PTR).then_some(value)
 }
 
 fn call_original_with_replacement(
@@ -608,11 +727,9 @@ fn call_original_with_replacement(
         pair.pixel_wrapper,
         pair.native_pixel,
         pair.replacement_pixel,
-        || unsafe {
-            original(shader, pass_index);
-        },
+        || unsafe { original(shader, pass_index) },
     )
-    .is_some()
+    .unwrap_or(false)
 }
 
 fn set_pending_draw(
@@ -1937,6 +2054,9 @@ fn bind_object_replacement(pass_index: u32, pending_pair: ShaderPairSelection) -
             replacement.contract_state,
         );
         diagnostics::record_object_replacement();
+    }
+    if !OBJECT_FIRST_BIND_LOGGED.swap(true, Ordering::AcqRel) {
+        log::info!("[PBR] Object PBR active pass={pass_index}");
     }
     true
 }

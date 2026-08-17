@@ -102,7 +102,8 @@ enum ShadowProductionStage {
     StaticCascade(u8),
     ActorBounds(u8),
     ActorOverlay(u8),
-    PointInputs,
+    PointLightInputs,
+    PointCasterInputs,
     PointStatic(u8, u8),
     PointPublish(u8, u8),
     PointAnimated(u8, u8),
@@ -419,9 +420,14 @@ impl ShadowPipeline {
             .map(|context| context.generation_camera);
         let temporal_camera =
             live_camera.and_then(crate::fnv_world_pipeline::shadow_generation_camera);
-        let Some(camera) = temporal_camera
+        // A receiver context already carries the exact posed, unjittered
+        // camera captured for its world context. It must outrank both a
+        // process-global live read and the earlier TAA-only producer view;
+        // otherwise the jittered camera can replace provenance that the
+        // receiver boundary already captured successfully.
+        let Some(camera) = context_camera
+            .or(temporal_camera)
             .or(live_camera)
-            .or(context_camera)
             .filter(|camera| camera.available && camera.world_transform.available)
         else {
             return ReplacementResult::FallbackNative;
@@ -454,13 +460,44 @@ impl ShadowPipeline {
 
         let directional = settings.directional_enabled_for(scene.kind);
         let point_lights = settings.point_enabled_for(scene.kind);
+        // Select once before provisioning cube maps. The selection is a fixed
+        // scalar snapshot; passing it through planning and generation avoids
+        // both a second native-light walk and allocating the configured
+        // maximum when this location currently exposes fewer eligible lights.
+        let points = if point_lights {
+            let retained_identities = if self.point_cell_identity == scene.cell as usize {
+                self.point_cache.identities()
+            } else {
+                [0; NVR_POINT_LIGHT_COUNT]
+            };
+            let Some(points) = (unsafe {
+                native::select_point_lights(
+                    camera.world_transform.translation,
+                    shadow_camera.forward,
+                    retained_identities,
+                    settings.interior_shadowed_lights,
+                    settings.interior_light_radius_multiplier,
+                    settings.interior_light_draw_distance,
+                )
+            }) else {
+                return ReplacementResult::FallbackNative;
+            };
+            points
+        } else {
+            native::PointLightSelection::default()
+        };
+        let point_capacity = requested_point_resource_capacity(
+            point_lights,
+            settings.interior_shadowed_lights,
+            points.shadowed().len(),
+        );
         let Some(resources) = self.resources.as_mut() else {
             let error = direct3d_failure();
             self.log_error("shared shadow resources disappeared", &error);
             return ReplacementResult::FallbackNative;
         };
         let branch_result =
-            resources.ensure_branch(&device, directional, point_lights, generation, settings);
+            resources.ensure_branch(&device, directional, point_capacity, generation, settings);
         let transition = match branch_result {
             Ok(transition) => transition,
             Err(_) => return ReplacementResult::FallbackNative,
@@ -482,7 +519,14 @@ impl ShadowPipeline {
         if self.last_dynamic_cascade_mask == 0
             && !self.point_cache.has_dynamic_casters()
             && let Some(publication) = unsafe {
-                self.try_republish_without_d3d(identity, scene, camera, shadow_camera, settings)
+                self.try_republish_without_d3d(
+                    identity,
+                    scene,
+                    camera,
+                    shadow_camera,
+                    points,
+                    settings,
+                )
             }
         {
             self.published = Some(publication);
@@ -492,8 +536,15 @@ impl ShadowPipeline {
         // before touching them so a later failure cannot expose a partly
         // updated atlas or cube family to pre-alpha composition.
         self.published = None;
-        let result =
-            self.produce_transaction(&device, identity, scene, camera, shadow_camera, settings);
+        let result = self.produce_transaction(
+            &device,
+            identity,
+            scene,
+            camera,
+            shadow_camera,
+            points,
+            settings,
+        );
         match result {
             Ok(publication) => {
                 if let Some(publication) = publication {
@@ -545,6 +596,7 @@ impl ShadowPipeline {
         scene: NativeScene,
         camera: CameraFrame,
         shadow_camera: ShadowCamera,
+        points: native::PointLightSelection,
         settings: NativeShadowsSettings,
     ) -> Option<PublishedFrame> {
         let now_millis = self
@@ -626,25 +678,6 @@ impl ShadowPipeline {
             None
         };
 
-        let retained_identities = if self.point_cell_identity == scene.cell as usize {
-            self.point_cache.identities()
-        } else {
-            [0; NVR_POINT_LIGHT_COUNT]
-        };
-        let points = if point_lights {
-            unsafe {
-                native::select_point_lights(
-                    camera.world_transform.translation,
-                    shadow_camera.forward,
-                    retained_identities,
-                    settings.interior_shadowed_lights,
-                    settings.interior_light_radius_multiplier,
-                    settings.interior_light_draw_distance,
-                )?
-            }
-        } else {
-            native::PointLightSelection::default()
-        };
         // The complete root vector is borrowed only inside this serialized
         // scope and is restored on every outcome. It replaces up to twelve
         // independent native light-geometry walks in the no-work path.
@@ -817,6 +850,7 @@ impl ShadowPipeline {
         scene: NativeScene,
         camera: CameraFrame,
         shadow_camera: ShadowCamera,
+        points: native::PointLightSelection,
         settings: NativeShadowsSettings,
     ) -> Direct3DResult<Option<PublishedFrame>> {
         let slots = RenderTargetSlots::from_reported_count(
@@ -887,6 +921,7 @@ impl ShadowPipeline {
                 scene,
                 camera,
                 shadow_camera,
+                points,
                 &mut scheduler,
                 &mut last_scene,
                 &mut last_sun,
@@ -1455,6 +1490,18 @@ impl PointResources {
     }
 }
 
+fn requested_point_resource_capacity(
+    point_lights: bool,
+    configured_capacity: usize,
+    selected_count: usize,
+) -> usize {
+    if point_lights {
+        selected_count.min(configured_capacity.clamp(1, NVR_POINT_LIGHT_COUNT))
+    } else {
+        0
+    }
+}
+
 impl ShadowResources {
     fn create(device: &Device9Ref<'_>, bytecode: &ShadowBytecode) -> Direct3DResult<Self> {
         let render_target_count = device.simultaneous_render_target_count()?.min(4);
@@ -1516,15 +1563,13 @@ impl ShadowResources {
         &mut self,
         device: &Device9Ref<'_>,
         directional: bool,
-        point_lights: bool,
+        point_capacity: usize,
         generation: u32,
         settings: NativeShadowsSettings,
     ) -> Direct3DResult<BranchTransition> {
         let mut transition = BranchTransition::default();
-        if point_lights {
-            let requested = settings
-                .interior_shadowed_lights
-                .clamp(1, NVR_POINT_LIGHT_COUNT);
+        if point_capacity != 0 {
+            let requested = point_capacity;
             let resolution = settings.dynamic_shadow_quality.cube_resolution();
             let has_matching_resources = self
                 .points
@@ -1611,6 +1656,7 @@ impl ShadowResources {
         scene: NativeScene,
         camera: CameraFrame,
         shadow_camera: ShadowCamera,
+        points: native::PointLightSelection,
         scheduler: &mut CascadeScheduler,
         last_scene: &mut Option<SceneKind>,
         last_sun: &mut Option<[f32; 3]>,
@@ -1946,31 +1992,12 @@ impl ShadowResources {
         // Omitting their cubes made the Pip-Boy and practical lights cast no
         // shadow whenever a directional atlas was active. Selection is still
         // capped by the same user-owned budget and unchanged cubes are cached.
-        self.production_stage = ShadowProductionStage::PointInputs;
-        let points = if point_lights {
-            unsafe {
-                let retained_identities = if *point_cell_identity == scene.cell as usize {
-                    point_cache.identities()
-                } else {
-                    [0; NVR_POINT_LIGHT_COUNT]
-                };
-                native::select_point_lights(
-                    camera.world_transform.translation,
-                    shadow_camera.forward,
-                    retained_identities,
-                    settings.interior_shadowed_lights,
-                    settings.interior_light_radius_multiplier,
-                    settings.interior_light_draw_distance,
-                )
-                .ok_or_else(direct3d_failure)?
-            }
-        } else {
-            native::PointLightSelection::default()
-        };
+        self.production_stage = ShadowProductionStage::PointLightInputs;
         let mut current = [PointMapSignature::EMPTY; NVR_POINT_LIGHT_COUNT];
         let mut current_static_faces = [[0_u64; 6]; NVR_POINT_LIGHT_COUNT];
         let mut dynamic_faces = [0_u8; NVR_POINT_LIGHT_COUNT];
         let has_points = points.shadowed().len() != 0;
+        self.production_stage = ShadowProductionStage::PointCasterInputs;
         if !point_caster_inventory_is_complete(points.shadowed().len(), roots_complete) {
             // `directional_roots` owns a large preallocated buffer. Restore it
             // before aborting OMV production so one exceptional overflow
@@ -3669,8 +3696,8 @@ mod tests {
         ShadowProductionStage, cascade_split_change_mask, consumer_selection_spheres,
         directional_no_work_state_changed, prepare_local_light_accumulation,
         projection_materially_changed, publish_static_point_face,
-        remember_first_production_failure, set_point_clamp_sampler, set_viewport,
-        translate_shadow_matrix,
+        remember_first_production_failure, requested_point_resource_capacity,
+        set_point_clamp_sampler, set_viewport, translate_shadow_matrix,
     };
 
     use crate::effects::shadows::{
@@ -3691,6 +3718,14 @@ mod tests {
         winapi::{get_active_window, get_desktop_window, get_foreground_window},
     };
     use std::cell::Cell;
+
+    #[test]
+    fn point_resource_capacity_follows_actual_selected_demand() {
+        assert_eq!(requested_point_resource_capacity(false, 12, 7), 0);
+        assert_eq!(requested_point_resource_capacity(true, 12, 0), 0);
+        assert_eq!(requested_point_resource_capacity(true, 12, 3), 3);
+        assert_eq!(requested_point_resource_capacity(true, 2, 7), 2);
+    }
 
     #[test]
     fn producer_cleanup_does_not_overwrite_the_first_failure_stage() {

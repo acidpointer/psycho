@@ -2875,11 +2875,7 @@ mod depth_capture_tests {
         };
 
         assert_eq!(
-            resolve.temporal_depth_epoch(
-                0x5678_usize as *mut core::ffi::c_void,
-                1920,
-                1080,
-            ),
+            resolve.temporal_depth_epoch(0x5678_usize as *mut core::ffi::c_void, 1920, 1080,),
             Some(7),
             "an exact NvAPI source alias owns current pixels even though no private INTZ target exists"
         );
