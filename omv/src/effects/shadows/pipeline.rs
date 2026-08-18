@@ -172,10 +172,13 @@ struct PublishedPointLight {
 pub(crate) struct VolumetricPointLight {
     /// Native light identity shared by selection, cube ownership, and atmosphere.
     pub(crate) identity: usize,
+    #[cfg(test)]
     /// Absolute world-space position copied by the shadow producer.
     pub(crate) position: [f32; 3],
+    #[cfg(test)]
     /// Effective native RGB after the light dimmer.
     pub(crate) color: [f32; 3],
+    #[cfg(test)]
     /// Native attenuation radius used by receivers and volumetric integration.
     pub(crate) receiver_radius: f32,
     /// Radial-depth normalization radius used to generate the cube.
@@ -449,8 +452,11 @@ impl ShadowPipeline {
                 .retain_base_texture();
             Some(VolumetricPointLight {
                 identity: point.identity,
+                #[cfg(test)]
                 position: point.position,
+                #[cfg(test)]
                 color: point.color,
+                #[cfg(test)]
                 receiver_radius: point.receiver_radius,
                 cube_radius: point.cube_radius,
                 receiver_bias: point.receiver_bias,
@@ -477,6 +483,7 @@ impl ShadowPipeline {
         scene: NativeScene,
         bytecode: &ShadowBytecode,
         settings: NativeShadowsSettings,
+        scene_lights: Option<&crate::fnv_local_lights::SceneLightFrame>,
     ) -> ReplacementResult {
         let Some(device_ptr) = backend::d3d_device_ptr() else {
             return ReplacementResult::FallbackNative;
@@ -540,21 +547,23 @@ impl ShadowPipeline {
         // both a second native-light walk and allocating the configured
         // maximum when this location currently exposes fewer eligible lights.
         let points = if point_lights {
+            let Some(scene_lights) = scene_lights else {
+                return ReplacementResult::FallbackNative;
+            };
             let retained_identities = if self.point_cell_identity == scene.cell as usize {
                 self.point_cache.identities()
             } else {
                 [0; NVR_POINT_LIGHT_COUNT]
             };
-            let Some(points) = (unsafe {
-                native::select_point_lights(
-                    camera.world_transform.translation,
-                    shadow_camera.forward,
-                    retained_identities,
-                    settings.interior_shadowed_lights,
-                    settings.interior_light_radius_multiplier,
-                    settings.interior_light_draw_distance,
-                )
-            }) else {
+            let Some(points) = native::select_point_lights(
+                scene_lights,
+                camera.world_transform.translation,
+                shadow_camera.forward,
+                retained_identities,
+                settings.interior_shadowed_lights,
+                settings.interior_light_radius_multiplier,
+                settings.interior_light_draw_distance,
+            ) else {
                 return ReplacementResult::FallbackNative;
             };
             points

@@ -379,25 +379,38 @@ clears `+0xC0` shadow candidates and their resources, not `+0xB4`. In contrast,
 `0x00B5B880` is called only inside the nonzero native-shadow path and therefore
 cannot own OMV's light epoch.
 
-Phase 6 now hooks the complete `0x00871290` transaction, copies and ranks up to
-16 positional-light value records from `+0xB4`, and publishes at most four
-visible volumes. Their shadowless integration is batched into one near/far draw
-pair while retaining the full per-light sample budget. Native `0x00B9F780`
-completion remains an optional enrichment producer:
-its retained texture and matrices are joined by copied native-light identity
-inside the same synchronous transaction. No node, native light pointer, camera,
-or manager owner survives publication. A missing or busy shadow producer yields
-a shadowless volume instead of suppressing the light. OMV never changes native
-shadow settings or asks the engine to render an additional shadow map.
+Phase 6 hooks the complete `0x00871290` transaction and copies the bounded
+`+0xB4` chain into one immutable scalar frame per exact render epoch, cell,
+scene kind, device, and reset generation. The producer admits only
+source-enabled records and retains source identity, effect type, world
+position, diffuse, dimmer, radius, and the PBR-only LOD/fade scalars. It retains
+no engine or D3D pointer. Shadow-prefix active state is native shadow staging
+and cannot remove an enabled source light. The reusable 512-record allocation
+is created at `DeferredInit` and leased outside its owner lock. The manager
+inventory is global and camera-independent, so callback ancestry is not source
+ownership: the first complete common-transaction observation for the exact
+identity is immutable. Later nested, direct, special, screenshot, or repeated
+callbacks reuse it. Cell, scene, epoch, and device checks at the consumer reject
+foreign observations. This keeps source policy separate from shadow-route
+policy and bounds manager traversal and the 64-light terrain atomic publication
+to once per exact producer epoch.
 
-The same proven transaction now has a second, scalar-only consumer for native
-close-terrain PBR. When terrain PBR is enabled, the shared traversal also copies
-at most the first 64 active/enabled manager entries into a separate fixed
-mailbox tagged with render epoch and D3D device identity. Terrain draws use
-`try_lock`, reject stale or foreign-device publications, and retain no engine
-pointer. This consumer does not enable `0x00B9F780` shadow capture, retain a
-texture, change atmosphere ranking, or keep atmosphere publications alive when
-volumetric local lighting is disabled.
+The common-shadow producer and the pre-alpha atmosphere consumer are adjacent
+engine transactions and can straddle one presentation increment. Scalar
+publication therefore admits the producer epoch or its immediate successor,
+while device identity and reset generation remain exact. A second increment is
+stale and cannot reach atmosphere pixels or debug output.
+
+Shadows, atmosphere, and close-terrain PBR are independent consumers of that
+frame. Shadows applies its own distance, nearest-N, hysteresis, and cube budget.
+Atmosphere applies the exact pre-alpha presentation camera to its own rank,
+16-light publication, configured
+distance, and 2/4-light quality budget. Terrain applies its existing normalized
+distance rank and 64-light scalar mailbox. Toggling or reducing any shadow
+policy therefore cannot remove, shorten, or reorder atmosphere or terrain
+inventory. Native `0x00B9F780` completion and OMV point cubes remain optional
+identity-matched enrichment only; a missing, stale, empty, foreign-device, or
+out-of-budget resource yields the same scalar light without a shadow binding.
 
 The native point-light values used by `0x00B70820` are also concrete: the
 retained native light at `+0xF8` supplies NiAVObject world position at
@@ -422,31 +435,33 @@ can expose a linked point light while that cache is zero; trusting the cache
 therefore erased all local volumetric lights even though the shadow pipeline
 selected the same record.
 
-That manager path is now fallback-only when OMV does not own point-shadow
-replacement. During replacement, shadows publish one canonical, immutable
-point frame containing the selected native identities, scalar light values,
-receiver/cube radii, receiver bias, and exact radial-depth cubes. Atmosphere
-consumes the current or immediately preceding producer publication at the
-pre-alpha world boundary immediately after shadow composition and preserves
-its stable nearest-light order; it never repeats the manager traversal, reranks
-the inventory, or joins a cube by a second selection. Directional sun remains
-a distinct sky/weather source because it has no point-light identity or radial
-cube.
+The scalar frame, not a shadow-selected subset, is the canonical producer in
+both native-prefix and OMV-replacement paths. Replacement shadows receive the
+frame before the native tail; a native-prefix transaction refreshes it after
+the prefix so PBR sees current staging. The optional cube publication carries
+only derived resource ownership and joins by native identity after atmosphere
+has independently selected its lights. Directional sun remains a distinct
+sky/weather source because it has no local-light identity or radial cube.
 
-The shipped-HLSL behavior gate reproduces both stale caches, then sends the
-live-shaped record through the production linked-chain capture, bounded rank,
-publication mailbox, and exact frame/device admission before a real D3D9
-readback. It failed at capture while atmosphere trusted `+0xF4`; a centered,
-nonzero interior volume is required after source-owned classification. Separate
-black-output controls retain the two rejected coordinate and transition
-regressions.
+The shipped-HLSL behavior gate reproduces stale native caches and sends the
+live-shaped record through the production linked-chain capture and bounded
+rank before a real D3D9 readback. Its final-composition path also sends a
+complete scalar observation with no shadow-route authority through the reusable
+source mailbox, admits it at the immediately following presentation epoch with
+the exact presentation camera, and renders it through the shipped depth,
+integration, and HDR composition shaders. Final pixels must remain visibly
+non-black. Restoring the rejected ancestry gate makes this test return
+`NoVisibleContribution`; that failing negative control caught the runtime hole.
+Separate black-output controls retain rejected coordinate and transition
+regressions, and a two-boundary-old scalar epoch is rejected.
 
-A second shipped-HLSL D3D9 gate validates the active replacement path through
-the production shadow-frame admission and the complete interior atmosphere
-composition. The exact OMV radial-depth cube comparison must leave final HDR
-point-light scattering visible and strongly suppress it when all six cube
-faces contain a nearer occluder; a two-epoch-old publication must be rejected
-and leave final pixels black. This does not execute the native callback
+A second shipped-HLSL D3D9 gate validates final interior and exterior pixels
+for an independently published scalar light. A spatially localized cube
+blocker must create visible contrast without removing the volume envelope or
+creating a zero-energy fragment. An expired optional cube must fall back to the
+same visible scalar light rather than erase it. Cube visibility uses a smooth
+radial comparison, fades before the source attenuation boundary, and retains a
+bounded multiple-scattering floor. This does not execute the native callback
 lifecycle; final exterior and interior game pixels remain required.
 
 That gate uses the shipped `0.0000025` lighting medium, not a maximum-density
@@ -763,52 +778,30 @@ contract:
 
 ### Phase 6: local volumetric lights
 
-Status: scene-wide zero-shadow ownership accepted in game; scalable shadowless
-batching is statically validated with 115 i686 tests on 2026-07-19 and awaits
-runtime performance acceptance.
+Status: scene-wide scalar ownership and callback-independent single-producer
+publication are implemented; final exterior/interior game acceptance and
+runtime performance acceptance are pending.
 
 The complete implementation, performance, ownership, failure, and test
 contract is in
 `docs/graphics_fnv_atmosphere_phase6_local_lighting_plan.md`. That document is
 authoritative when this summary omits detail.
 
-The initial production contract is the engine's completed, shadow-selected
-local-light subset:
+The production contract is the scene manager's complete bounded scalar list:
 
-1. Detour `0x00B9F780`, call the original first, then copy position, RGB,
-   radius, intensity multiplier, `+0x10`, `+0x50`, and `+0x90` matrices.
-2. AddRef the completed `+0x10C` rendered texture. Never retain
-   `ShadowSceneLight`, its native light, camera, accumulator, or list nodes.
-3. Build a fixed-capacity four-entry staging epoch from native priority indices
-   `0..=3` (queued slots `0x11..0x14`); reject null textures, invalid radii,
-   non-finite values, and unsupported formats. The native loop can continue
-   beyond four when actor-shadow counts are higher. Count and ignore those
-   later slots without tainting the coherent first four.
-4. Publish the immutable epoch after `0x00B5B880` returns. If any render-path
-   owner is busy, keep the last complete immutable epoch unchanged; never
-   publish a partial list. Explicit empty publication, disable, reset, or
-   device change clears it on the render/reset path.
-5. Integrate each retained light with an analytic ray-sphere bound at half or
-   quarter resolution. Clip the march by opaque scene depth and the sphere
-   interval before taking samples.
-6. Transform each ray sample with copied `+0x10`, reject invalid/out-of-range
-   projections, sample shadow `.r`, and apply the proven native comparison.
-   Start with one shadow tap per march step; spatial/temporal reconstruction is
-   cheaper than native 5/9-tap PCF inside every step.
-7. Use R32F directly. Support A8R8G8B8 as the same red scalar with an explicit
-   quantization bias floor; fail closed for every other format.
-8. Cull by projected bounds, distance, intensity, and estimated contribution.
-   Expose captured, rendered, rejected, and overflow counts in telemetry.
-9. Keep at most one complete four-light epoch. Release replaced, explicitly
-   emptied, disabled, reset, or device-changed resources on the render/reset
-   path, never while a shadow texture is bound. A missing epoch bypasses local
-   volumetrics without altering native lighting.
-10. Add static shader tests for projection math, compare direction, both native
-    bias families, R32F and quantized-red sampling, behind-light/out-of-atlas
-    rejection, finite output, zero-radius rejection, and bounded loop counts.
-
-An unshadowed implementation is permitted only as an explicitly labelled debug
-view for contract validation, not as the shipped local-light quality path.
+1. Traverse `ShadowSceneNode +0xB4` only while the serialized native transaction
+   owns it, copy values, and retain no engine pointer.
+2. Publish the first complete manager frame for an exact epoch/cell/device
+   identity; callback ancestry remains shadow policy and cannot gate source
+   enumeration.
+3. Let shadows, Atmosphere, and PBR apply independent selection, range, budget,
+   configuration, and resource policy.
+4. Join native 2D shadows and OMV point cubes by source identity only after a
+   consumer selects its scalar lights. Missing resources preserve the light.
+5. Atmosphere selects with the exact presentation camera, then integrates each
+   admitted sphere through the shipped bounded HLSL path.
+6. Clear scalar and resource publications on disable, reset, device change, or
+   cell mismatch; never expose partial or stale frames.
 
 Do not port Anomaly's slice renderer until FNV provides equivalent volume and
 shadow inputs. A fullscreen ray-volume intersection may fit OMV better once the

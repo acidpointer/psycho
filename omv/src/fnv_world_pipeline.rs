@@ -761,12 +761,16 @@ impl FnvWorldPipelineRuntime {
         if desc.Width == 0 || desc.Height == 0 {
             return Ok(());
         }
-        let (local_ready, local_unknown) =
-            self.refresh_local_lights(settings, device.as_raw() as usize, epoch);
         let admission_frame = backend::atmosphere_frame_before_depth(
             self.config.depth_provider,
             &desc,
             settings.max_distance,
+            epoch,
+        );
+        let (local_ready, local_unknown) = self.refresh_local_lights(
+            settings,
+            admission_frame.camera,
+            device.as_raw() as usize,
             epoch,
         );
         if atmosphere_admission(admission_frame, settings, local_ready, local_unknown)
@@ -943,12 +947,16 @@ impl FnvWorldPipelineRuntime {
         let mut atmosphere_remaining =
             settings.requires_world_color() && !self.epoch.atmosphere_complete;
         if atmosphere_remaining {
-            let (local_ready, local_unknown) =
-                self.refresh_local_lights(settings, device.as_raw() as usize, epoch);
             let admission_frame = backend::atmosphere_frame_before_depth(
                 self.config.depth_provider,
                 &desc,
                 settings.max_distance,
+                epoch,
+            );
+            let (local_ready, local_unknown) = self.refresh_local_lights(
+                settings,
+                admission_frame.camera,
+                device.as_raw() as usize,
                 epoch,
             );
             if atmosphere_admission(admission_frame, settings, local_ready, local_unknown)
@@ -1130,14 +1138,14 @@ impl FnvWorldPipelineRuntime {
 
     /// Refresh the local-light inventory for atmosphere admission.
     ///
-    /// Shadows is authoritative when it has a usable point publication: its
-    /// immediately preceding producer epoch owns the exact cubes consumed at
-    /// this pre-alpha boundary. The native-light mailbox remains a nonblocking
-    /// fallback when shadows is unavailable. A busy fallback reports
-    /// `unknown=true` so admission conservatively keeps the transaction.
+    /// The scalar scene-light producer is authoritative. Optional shadow maps
+    /// are identity-matched enrichment inside that publication and therefore
+    /// cannot replace its inventory, range, or menu ownership. A busy mailbox
+    /// reports `unknown=true` so admission conservatively keeps the transaction.
     fn refresh_local_lights(
         &mut self,
         settings: AtmosphereSettings,
+        camera: crate::backend::CameraFrame,
         device_identity: usize,
         render_epoch: u32,
     ) -> (bool, bool) {
@@ -1147,18 +1155,15 @@ impl FnvWorldPipelineRuntime {
         }
 
         let device_generation = crate::backend::d3d_device_generation();
-        if let Some(epoch) = crate::fnv_local_lights::try_shadow_point_epoch_for_consumer(
-            device_identity,
-            device_generation,
-            render_epoch,
-        ) {
-            let ready = epoch.light_count() != 0;
-            self.local_lights = Some(epoch);
-            return (ready, false);
-        }
-
-        let access =
-            crate::fnv_local_lights::try_take_published(&mut self.local_lights, device_identity);
+        let access = unsafe {
+            crate::fnv_local_lights::try_build_atmosphere_epoch(
+                &mut self.local_lights,
+                camera,
+                device_identity,
+                device_generation,
+                render_epoch,
+            )
+        };
         let current = self.local_lights.as_ref().is_some_and(|epoch| {
             epoch.is_current(device_identity, device_generation, render_epoch)
         });

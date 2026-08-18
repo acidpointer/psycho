@@ -8,7 +8,7 @@
 //! cubes keep landscape receiver-only to avoid hard self-shadow islands.
 //! Device resources and scalar publication live in the renderer module instead.
 
-use core::{ffi::c_void, mem::transmute, ptr::read_unaligned};
+use core::{ffi::c_void, ptr::read_unaligned};
 
 use libpsycho::os::windows::memory::validate_memory_range;
 
@@ -16,18 +16,14 @@ use super::{
     contract::{
         ALL_CUBE_FACES, CASCADE_COUNT, DirectionalRootSetSignature, NVR_POINT_LIGHT_COUNT,
         SceneKind, TraversalBudget, directional_actor_root_is_active,
-        directional_form_type_is_enabled, manager_light_chain_is_complete,
-        point_light_influence_is_eligible, point_light_radii, sphere_intersects_cube_face,
-        sphere_intersects_point_light, stable_point_light_distance_squared,
+        directional_form_type_is_enabled, point_light_influence_is_eligible, point_light_radii,
+        sphere_intersects_cube_face, sphere_intersects_point_light,
+        stable_point_light_distance_squared,
     },
     engine::NativeLayout,
     math::{ActorBounds, CascadeProjection, Sphere, dynamic_caster_cascade_mask},
 };
 
-const SHADOW_SCENE_MANAGER_GETTER_ADDR: usize = 0x0045_0B80;
-const SHADOW_SCENE_MANAGER_LIGHTS: usize = 0xB4;
-const SHADOW_SCENE_MANAGER_LIGHT_COUNT: usize = 0xBC;
-const MAX_MANAGER_LIGHTS: usize = 512;
 const MAX_GRID_SIDE: usize = 15;
 const MAX_CELL_REFERENCES: usize = 4_096;
 /// Preallocated root cache used to avoid rescanning every loaded cell once per
@@ -43,26 +39,12 @@ const CELL_STRUCT_MASTER_NODE: usize = 0x00;
 const LAND_CHILD_INDEX: usize = 2;
 const LIST_ITEM: usize = 0x00;
 const LIST_NEXT: usize = 0x04;
-const NI_TLIST_NEXT: usize = 0x00;
-const NI_TLIST_DATA: usize = 0x08;
 const NI_TARRAY_DATA: usize = 0x04;
 const NI_TARRAY_END: usize = 0x0A;
 
 const CELL_INTERIOR: u8 = 1 << 0;
 const CELL_BEHAVES_LIKE_EXTERIOR: u8 = 1 << 7;
 const FORM_NOT_CAST_SHADOWS: u32 = 0x0000_0200;
-
-const SHADOW_LIGHT_SOURCE: usize = 0xF8;
-
-const NATIVE_LIGHT_DISABLED_FLAGS: usize = 0x30;
-const NATIVE_LIGHT_POSITION: usize = 0x8C;
-const NATIVE_LIGHT_EFFECT_TYPE: usize = 0x9D;
-const NATIVE_LIGHT_DIMMER: usize = 0xC4;
-const NATIVE_LIGHT_DIFFUSE: usize = 0xD4;
-const NATIVE_LIGHT_RADIUS: usize = 0xE0;
-const NATIVE_POINT_LIGHT: u8 = 2;
-
-type ShadowSceneManagerGetter = unsafe extern "cdecl" fn(i32) -> *mut u8;
 
 #[repr(C)]
 #[derive(Clone, Copy)]
@@ -517,17 +499,11 @@ pub(super) unsafe fn directional_fov_compensation() -> f32 {
 /// remain present in native scene color without growing the cube-map budget;
 /// OMV never redraws or globally attenuates their illumination.
 ///
-/// `None` rejects an over-limit or cyclic manager inventory. The terminating
-/// chain is authoritative, matching Fallout's own `0x00B5C450` traversal; the
-/// cached manager count is advisory because other mods can update it before or
-/// after relinking the chain. A bounded prefix still cannot prove which lights
-/// are actually nearest, so the caller must preserve native shadow ownership
-/// for that transaction.
-///
-/// # Safety
-///
-/// The common shadow transaction must own the scene manager and its light list.
-pub(super) unsafe fn select_point_lights(
+/// `None` rejects an over-limit or cyclic producer inventory. A bounded prefix
+/// cannot prove which lights are actually nearest, so the caller preserves
+/// native shadow ownership for that transaction.
+pub(super) fn select_point_lights(
+    scene_lights: &crate::fnv_local_lights::SceneLightFrame,
     camera_translation: [f32; 3],
     camera_forward: [f32; 3],
     retained_identities: [usize; NVR_POINT_LIGHT_COUNT],
@@ -539,26 +515,17 @@ pub(super) unsafe fn select_point_lights(
     if !camera_translation.into_iter().all(f32::is_finite) {
         return Some(selected);
     }
-    let getter: ShadowSceneManagerGetter = unsafe { transmute(SHADOW_SCENE_MANAGER_GETTER_ADDR) };
-    let manager = unsafe { getter(0) };
-    if manager.is_null() {
-        return Some(selected);
+    if !scene_lights.is_complete() {
+        return None;
     }
-    let cached_count = unsafe { read::<u32>(manager, SHADOW_SCENE_MANAGER_LIGHT_COUNT) } as usize;
-    let mut node = unsafe { read::<*mut u8>(manager, SHADOW_SCENE_MANAGER_LIGHTS) };
-    let mut scanned = 0usize;
-    while !node.is_null() && scanned < MAX_MANAGER_LIGHTS {
-        let next = unsafe { read::<*mut u8>(node, NI_TLIST_NEXT) };
-        let scene_light = unsafe { read::<*mut u8>(node, NI_TLIST_DATA) };
-        if let Some(mut candidate) = unsafe {
-            point_light(
-                scene_light,
-                camera_translation,
-                camera_forward,
-                radius_multiplier,
-                draw_distance,
-            )
-        } {
+    for source in scene_lights.lights().iter().copied() {
+        if let Some(mut candidate) = point_light(
+            source,
+            camera_translation,
+            camera_forward,
+            radius_multiplier,
+            draw_distance,
+        ) {
             if retained_identities.contains(&candidate.identity) {
                 // Stable cube ownership needs a small admission hysteresis at
                 // the nearest-N boundary. Without it, two almost equidistant
@@ -570,11 +537,8 @@ pub(super) unsafe fn select_point_lights(
             }
             selected.insert(candidate);
         }
-        node = next;
-        scanned += 1;
     }
-    manager_light_chain_is_complete(scanned, cached_count, !node.is_null(), MAX_MANAGER_LIGHTS)
-        .then_some(selected)
+    Some(selected)
 }
 
 /// Immutable point-caster ownership for one cube and each of its six faces.
@@ -1107,35 +1071,20 @@ unsafe fn visit_cell_roots(
     true
 }
 
-unsafe fn point_light(
-    scene_light: *mut u8,
+fn point_light(
+    source: crate::fnv_local_lights::SceneLight,
     camera_translation: [f32; 3],
     camera_forward: [f32; 3],
     radius_multiplier: f32,
     draw_distance: f32,
 ) -> Option<PointLight> {
-    if scene_light.is_null() {
+    if !source.is_point() {
         return None;
     }
-    let native = unsafe { read::<*mut u8>(scene_light, SHADOW_LIGHT_SOURCE) };
-    if native.is_null()
-        || unsafe { read::<u8>(native, NATIVE_LIGHT_EFFECT_TYPE) } != NATIVE_POINT_LIGHT
-        || unsafe { read::<u8>(native, NATIVE_LIGHT_DISABLED_FLAGS) } & 1 != 0
-    {
-        return None;
-    }
-    let position = unsafe { read_vec3(native, NATIVE_LIGHT_POSITION) };
-    let diffuse = unsafe { read_vec3(native, NATIVE_LIGHT_DIFFUSE) };
-    let dimmer = unsafe { read::<f32>(native, NATIVE_LIGHT_DIMMER) };
-    let native_radius = unsafe { read::<f32>(native, NATIVE_LIGHT_RADIUS) };
-    if !position.into_iter().all(f32::is_finite)
-        || !diffuse.into_iter().all(f32::is_finite)
-        || !dimmer.is_finite()
-        || !native_radius.is_finite()
-        || native_radius <= 0.1
-    {
-        return None;
-    }
+    let position = source.position;
+    let diffuse = source.diffuse;
+    let dimmer = source.dimmer;
+    let native_radius = source.radius;
     // Receiver and cube coverage must match native lighting. The persisted
     // multiplier stays in this call solely to preserve the schema-one settings
     // boundary; point_light_radii deliberately gives it no rendering effect.
@@ -1164,7 +1113,7 @@ unsafe fn point_light(
         return None;
     }
     Some(PointLight {
-        identity: native as usize,
+        identity: source.native_light_identity,
         position,
         relative_position,
         color,
@@ -1201,16 +1150,6 @@ unsafe fn read_global_ptr(address: usize) -> Option<*mut u8> {
 
 unsafe fn read<T: Copy>(base: *const u8, offset: usize) -> T {
     unsafe { read_unaligned(base.add(offset).cast::<T>()) }
-}
-
-unsafe fn read_vec3(base: *const u8, offset: usize) -> [f32; 3] {
-    unsafe {
-        [
-            read(base, offset),
-            read(base, offset + 4),
-            read(base, offset + 8),
-        ]
-    }
 }
 
 fn dot3(left: [f32; 3], right: [f32; 3]) -> f32 {

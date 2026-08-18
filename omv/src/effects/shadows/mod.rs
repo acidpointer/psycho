@@ -393,12 +393,16 @@ pub(crate) fn install(settings: NativeShadowsSettings) -> Result<()> {
 /// outer player-visible destination.
 pub(crate) unsafe fn handle_common_entry(
     invocation: ShadowInvocationContext,
-) -> CommonEntryOutcome {
+    capture_scene_lights: impl FnOnce() -> Option<crate::fnv_local_lights::SceneLightFrameLease>,
+) -> (
+    CommonEntryOutcome,
+    Option<crate::fnv_local_lights::SceneLightFrameLease>,
+) {
     if !ROUTE_READY.load(Ordering::Acquire) {
-        return CommonEntryOutcome::NativePrefix;
+        return (CommonEntryOutcome::NativePrefix, None);
     }
     let Some(scene) = (unsafe { native::current_scene() }) else {
-        return CommonEntryOutcome::NativePrefix;
+        return (CommonEntryOutcome::NativePrefix, None);
     };
     let settings = current_settings().with_master_enabled(crate::runtime::effects_enabled());
     let bytecode = shaders::prepared_bytecode();
@@ -406,41 +410,77 @@ pub(crate) unsafe fn handle_common_entry(
         .contract()
         .hook_action(scene.kind, true, bytecode.is_some())
     {
-        HookAction::NativePrefix => CommonEntryOutcome::NativePrefix,
+        HookAction::NativePrefix => (CommonEntryOutcome::NativePrefix, None),
         HookAction::TailOnly => {
             if let Some(mut pipeline) = PIPELINE.try_lock() {
                 pipeline.invalidate_publication();
             }
-            CommonEntryOutcome::TailOnly
+            (CommonEntryOutcome::TailOnly, None)
         }
         HookAction::ReplacementThenTail => {
             let Some(bytecode) = bytecode else {
                 // `hook_action` admits this branch only with complete
                 // bytecode. Keep the native fallback explicit if that pure
                 // contract ever changes.
-                return CommonEntryOutcome::NativePrefix;
+                return (CommonEntryOutcome::NativePrefix, None);
             };
             let Some(mut pipeline) = PIPELINE.try_lock() else {
-                return CommonEntryOutcome::NativePrefix;
+                return (CommonEntryOutcome::NativePrefix, None);
             };
             let Some(identity) =
                 pipeline.current_publication_identity(scene.kind, invocation as u8)
             else {
-                return CommonEntryOutcome::NativePrefix;
+                return (CommonEntryOutcome::NativePrefix, None);
             };
             if pipeline.has_current_publication(identity) {
                 // Some engine paths can reach the common entry more than once
                 // before Present advances the epoch. The first complete
                 // publication is immutable; repeating 4 cascades or 72 cube
                 // faces would add cost without changing its global inputs.
-                return CommonEntryOutcome::TailOnly;
+                return (CommonEntryOutcome::TailOnly, None);
             }
-            match unsafe { pipeline.produce(identity, scene, &bytecode, settings) } {
+            let scene_lights = settings
+                .point_enabled_for(scene.kind)
+                .then(capture_scene_lights)
+                .flatten();
+            if settings.point_enabled_for(scene.kind) && scene_lights.is_none() {
+                return (CommonEntryOutcome::NativePrefix, None);
+            }
+            let outcome = match unsafe {
+                pipeline.produce(
+                    identity,
+                    scene,
+                    &bytecode,
+                    settings,
+                    scene_lights.as_deref(),
+                )
+            } {
                 ReplacementResult::Produced => CommonEntryOutcome::ReplacementThenTail,
                 ReplacementResult::FallbackNative => CommonEntryOutcome::NativePrefix,
-            }
+            };
+            (outcome, scene_lights)
         }
     }
+}
+
+/// Return the current gameplay cell identity and stable scene classification.
+///
+/// This is source metadata, not shadow policy: the shared local-light producer
+/// records it so consumers cannot admit a nested or previous-cell inventory at
+/// a later presentation boundary.
+///
+/// # Safety
+///
+/// Must execute on Fallout's serialized render thread while the player and
+/// current cell are live.
+pub(crate) unsafe fn local_light_scene_identity() -> Option<(usize, u8)> {
+    let scene = unsafe { native::current_scene() }?;
+    let kind = match scene.kind {
+        contract::SceneKind::Exterior => 0,
+        contract::SceneKind::BehavesLikeExterior => 1,
+        contract::SceneKind::Interior => 2,
+    };
+    Some((scene.cell as usize, kind))
 }
 
 #[allow(clippy::too_many_arguments)]

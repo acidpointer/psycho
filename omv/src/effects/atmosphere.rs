@@ -2903,7 +2903,7 @@ pub(crate) mod local_light_shader_behavior {
     }
 
     #[test]
-    fn omv_point_cube_controls_the_shipped_local_volume_by_radial_depth() {
+    fn omv_point_cube_bounds_occlusion_without_erasing_the_local_volume() {
         let values = LocalLightValues {
             position: [100.0, 0.0, 0.0],
             color: [1.0, 0.7, 0.35],
@@ -2932,8 +2932,12 @@ pub(crate) mod local_light_shader_behavior {
             "the exact shadow-selected light produced no volume: {visible:?}"
         );
         assert!(
-            occluded_energy < visible_energy * 0.45,
-            "the OMV radial-depth cube did not occlude the shipped local volume: visible={visible_energy}, occluded={occluded_energy}"
+            occluded_energy < visible_energy * 0.9,
+            "the OMV radial-depth cube created no bounded occlusion: visible={visible_energy}, occluded={occluded_energy}"
+        );
+        assert!(
+            occluded_energy > visible_energy * 0.4,
+            "the optional cube erased the producer-owned local volume: visible={visible_energy}, occluded={occluded_energy}"
         );
     }
 }
@@ -2959,15 +2963,18 @@ mod directional_shader_behavior {
         },
         config::{AtmosphereQuality, VolumetricFogConfig, VolumetricLightingConfig},
         effects::shadows::{VolumetricPointLight, VolumetricPointLightFrame},
-        fnv_local_lights::{LocalLightEpoch, shadow_point_epoch_for_consumer},
+        fnv_local_lights::{
+            LocalLightEpoch, LocalLightValues, common_source_epoch_for_shader_behavior,
+            shadow_point_epoch_for_consumer, source_epoch_for_shader_behavior,
+        },
     };
     use libpsycho::os::windows::{
         directx9::{
             CubeTexture9, D3DCLEAR_TARGET, D3DCUBEMAP_FACE_NEGATIVE_X, D3DCUBEMAP_FACE_NEGATIVE_Y,
             D3DCUBEMAP_FACE_NEGATIVE_Z, D3DCUBEMAP_FACE_POSITIVE_X, D3DCUBEMAP_FACE_POSITIVE_Y,
             D3DCUBEMAP_FACE_POSITIVE_Z, D3DDEVTYPE_HAL, D3DDEVTYPE_NULLREF, D3DFMT_A8R8G8B8,
-            D3DFMT_A16B16G16R16F, D3DFMT_R32F, D3DPOOL_MANAGED, Device9, Device9Ref, Texture9,
-            create_direct3d9,
+            D3DFMT_A16B16G16R16F, D3DFMT_R32F, D3DPOOL_MANAGED, Device9, Device9Ref, RECT,
+            Texture9, create_direct3d9,
         },
         winapi::{get_active_window, get_desktop_window, get_foreground_window},
     };
@@ -3293,8 +3300,8 @@ mod directional_shader_behavior {
         AtmosphereSettings::from_config(fog, VolumetricLightingConfig::default())
     }
 
-    fn local_light_frame(depth: &Texture9, is_exterior: bool) -> AtmosphereFrame {
-        let camera = CameraFrame {
+    fn local_light_camera() -> CameraFrame {
+        CameraFrame {
             near_z: 1.0,
             far_z: 1_000.0,
             aspect_ratio: 1.0,
@@ -3307,7 +3314,11 @@ mod directional_shader_behavior {
                 ..CameraTransformFrame::default()
             },
             available: true,
-        };
+        }
+    }
+
+    fn local_light_frame(depth: &Texture9, is_exterior: bool) -> AtmosphereFrame {
+        let camera = local_light_camera();
         let projection = DepthProjectionFrame {
             camera,
             reversed_depth: Some(true),
@@ -3363,6 +3374,31 @@ mod directional_shader_behavior {
                 .clear_attachments(D3DCLEAR_TARGET as u32, u32::from(depth) << 16, 1.0, 0)
                 .expect("constant point-cube radial depth");
         }
+        cube
+    }
+
+    fn localized_point_blocker_cube(device: &Device9Ref<'_>) -> CubeTexture9 {
+        let cube = constant_point_cube(device, 255);
+        let surface = cube
+            .surface(D3DCUBEMAP_FACE_NEGATIVE_X, 0)
+            .expect("localized point-cube face");
+        device
+            .set_render_target(0, &surface)
+            .expect("localized point-cube target");
+        device
+            .clear_attachment_rect(
+                &RECT {
+                    left: 3,
+                    top: 1,
+                    right: 5,
+                    bottom: 7,
+                },
+                D3DCLEAR_TARGET as u32,
+                32u32 << 16,
+                1.0,
+                0,
+            )
+            .expect("localized radial-depth blocker");
         cube
     }
 
@@ -3430,7 +3466,7 @@ mod directional_shader_behavior {
     }
 
     #[test]
-    fn previous_shadow_epoch_reaches_interior_shipped_composition_and_obeys_cube_occlusion() {
+    fn common_scalar_source_reaches_shipped_local_lighting_without_shadow_ownership() {
         const SHADOW_EPOCH: u32 = 71;
         const PRESENT_EPOCH: u32 = SHADOW_EPOCH + 1;
 
@@ -3501,7 +3537,7 @@ mod directional_shader_behavior {
             "the same admitted point light is not visibly present in an exterior at shipped menu defaults: {exterior_peak}"
         );
 
-        let blocked_cube = constant_point_cube(&device, 32);
+        let blocked_cube = localized_point_blocker_cube(&device);
         let blocked_epoch = shadow_point_epoch_for_consumer(
             shadow_point_frame(&device, &blocked_cube, SHADOW_EPOCH),
             device_identity,
@@ -3519,9 +3555,30 @@ mod directional_shader_behavior {
         );
         assert_eq!(blocked_outcome, AtmosphereDrawOutcome::ComposedWithLighting);
         let blocked_energy = total_luminance(&blocked_pixels);
+        let strongest_local_occlusion = open_pixels
+            .iter()
+            .zip(&blocked_pixels)
+            .map(|(open, blocked)| luminance(*open) - luminance(*blocked))
+            .fold(0.0f32, f32::max);
         assert!(
-            blocked_energy < open_energy * 0.45,
-            "the exact shadow cube did not suppress final interior scattering: open={open_energy}, blocked={blocked_energy}"
+            strongest_local_occlusion > 0.002,
+            "the localized blocker created no visible volumetric shadow: {strongest_local_occlusion}"
+        );
+        assert!(
+            blocked_energy > open_energy * 0.72,
+            "a localized blocker cut away the producer-owned light volume: open={open_energy}, blocked={blocked_energy}"
+        );
+        let weakest_retained_fraction = open_pixels
+            .iter()
+            .zip(&blocked_pixels)
+            .filter_map(|(open, blocked)| {
+                let open = luminance(*open);
+                (open > 0.01).then(|| luminance(*blocked) / open)
+            })
+            .fold(1.0f32, f32::min);
+        assert!(
+            weakest_retained_fraction > 0.4,
+            "the blocker created a detached zero-energy fragment inside the light volume: {weakest_retained_fraction}"
         );
 
         let stale = shadow_point_epoch_for_consumer(
@@ -3531,20 +3588,63 @@ mod directional_shader_behavior {
             PRESENT_EPOCH + 1,
         );
         assert!(stale.is_none(), "a two-epoch-old point frame was admitted");
+        let mut callback_camera = local_light_camera();
+        callback_camera.world_transform.rotation[0][0] = -1.0;
+        let callback_selected = source_epoch_for_shader_behavior(
+            LocalLightValues {
+                position: [100.0, 0.0, 0.0],
+                color: [1.0, 0.7, 0.35],
+                radius: 32.0,
+            },
+            callback_camera,
+            PRESENT_EPOCH + 1,
+            device_identity,
+            device_generation,
+        );
+        let (callback_outcome, callback_pixels) = render_local_light(
+            &mut effect,
+            &device,
+            &world_color,
+            Some(&callback_selected),
+            interior_local_settings(),
+            false,
+        );
+        assert_eq!(
+            callback_outcome,
+            AtmosphereDrawOutcome::NoVisibleContribution
+        );
+        assert!(
+            callback_pixels
+                .iter()
+                .all(|pixel| luminance(*pixel) <= 0.000_001),
+            "the mismatched producer callback camera unexpectedly admitted the light"
+        );
+
+        let scalar = common_source_epoch_for_shader_behavior(
+            LocalLightValues {
+                position: [100.0, 0.0, 0.0],
+                color: [1.0, 0.7, 0.35],
+                radius: 32.0,
+            },
+            local_light_camera(),
+            PRESENT_EPOCH,
+            PRESENT_EPOCH + 1,
+            device_identity,
+            device_generation,
+        );
         let (stale_outcome, stale_pixels) = render_local_light(
             &mut effect,
             &device,
             &world_color,
-            stale.as_ref(),
+            scalar.as_ref(),
             interior_local_settings(),
             false,
         );
-        assert_eq!(stale_outcome, AtmosphereDrawOutcome::NoVisibleContribution);
+        assert_eq!(stale_outcome, AtmosphereDrawOutcome::ComposedWithLighting);
+        let stale_energy = total_luminance(&stale_pixels);
         assert!(
-            stale_pixels
-                .iter()
-                .all(|pixel| luminance(*pixel) <= 0.000_001),
-            "an expired shadow publication changed final interior HDR pixels"
+            stale_energy > open_energy * 0.9,
+            "an expired optional cube removed or dimmed the producer-owned light: open={open_energy}, scalar={stale_energy}"
         );
     }
 
@@ -3567,14 +3667,23 @@ mod directional_shader_behavior {
             .create_render_target_texture(TEST_SIZE, TEST_SIZE, D3DFMT_A16B16G16R16F)
             .expect("HDR world color");
         clear_target(&device, &world_color);
-        let cube = constant_point_cube(&device, 255);
-        let epoch = shadow_point_epoch_for_consumer(
-            shadow_point_frame(&device, &cube, SHADOW_EPOCH),
-            device.as_raw() as usize,
-            crate::backend::d3d_device_generation(),
-            PRESENT_EPOCH,
-        )
-        .expect("current point frame");
+        let device_identity = device.as_raw() as usize;
+        let device_generation = crate::backend::d3d_device_generation();
+        let epoch = source_epoch_for_shader_behavior(
+            LocalLightValues {
+                position: [100.0, 0.0, 0.0],
+                color: [1.0, 0.7, 0.35],
+                radius: 32.0,
+            },
+            local_light_camera(),
+            SHADOW_EPOCH,
+            device_identity,
+            device_generation,
+        );
+        assert!(
+            epoch.is_current(device_identity, device_generation, PRESENT_EPOCH),
+            "the preceding scalar producer epoch must reach the debug renderer"
+        );
 
         let settings = interior_local_settings();
         let (enabled_outcome, enabled_pixels) = render_local_light(

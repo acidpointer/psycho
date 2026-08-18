@@ -143,9 +143,21 @@ float ShadowVisibility(float3 worldPosition) {
 	float normalizedDistance = distance / max(ShadowCubeData.x, ProjectionEpsilon);
 	float3 cubeDirection = toLight * float3(-1.0f, -1.0f, 1.0f);
 	float casterDepth = texCUBElod(OmvShadowCube, float4(cubeDirection, 0.0f)).r;
-	float visibility = casterDepth + LocalControl.x * normalizedDistance >= normalizedDistance
-		? 1.0f : 0.0f;
-	return lerp(1.0f, visibility, casterDepth > 0.0f && casterDepth < 1.0f);
+	float validDepth = casterDepth > 0.0f && casterDepth < 1.0f;
+	float comparisonBias = LocalControl.x * max(normalizedDistance, 0.25f);
+	float comparisonWidth = max(comparisonBias, 0.02f);
+	float visibility = 1.0f - smoothstep(
+		casterDepth + comparisonBias - comparisonWidth,
+		casterDepth + comparisonBias + comparisonWidth,
+		normalizedDistance
+	);
+	// Point cubes are a derived shadow-consumer resource, not ownership of the
+	// source volume. Preserve its outer attenuation envelope and retain a
+	// multiple-scattering floor so a cube edge can form a bounded ray without
+	// cutting the light into detached sphere fragments.
+	float innerShadowWeight = 1.0f - smoothstep(0.72f, 1.0f, normalizedDistance);
+	float boundedVisibility = lerp(1.0f, visibility, 0.55f * innerShadowWeight);
+	return lerp(1.0f, boundedVisibility, validDepth);
 #else
 	return 1.0f;
 #endif

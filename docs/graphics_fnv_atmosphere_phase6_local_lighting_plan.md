@@ -13,21 +13,21 @@ pending.
 The manager-epoch follow-up supersedes the original shadow-selected ownership
 model recorded later in this document:
 
-- When OMV replaces the native shadow prefix, the shadow pipeline is the one
-  point-light producer. Its immutable publication pairs native identity,
-  position, dimmer-weighted color, receiver radius, cube radius, receiver bias,
-  and the exact retained cube for one render/device epoch. Atmosphere consumes
-  that publication at the pre-alpha world boundary immediately after shadow
-  composition and does not walk the manager again.
-- Atmosphere preserves the shadow producer's stable nearest-light order and
-  draws the first two/four visible entries within its fixed budget. It cannot
-  invent a different source, rerank away a valid cube, or join a cube by slot
-  guess. The sun is deliberately separate: directional atmosphere continues
-  to use the stabilized native sky/weather direction and color contract.
-- Native-prefix fallback and disabled point shadows retain the scene-manager
-  scalar path below so volumetric local lights remain independent from shadow
-  configuration. Native completed 2D maps remain optional enrichment only in
-  that fallback branch.
+- The scene manager's complete bounded scalar frame is the single point-light
+  producer. Shadows, Atmosphere, and terrain PBR independently select from it;
+  no consumer owns another consumer's inventory, range, rank, switch, or
+  budget. The sun remains a separate sky/weather source.
+- The first complete observation for an exact render epoch, cell, scene kind,
+  device, and reset generation is immutable. The manager list is global and
+  camera-independent, so nested/direct/special callback ancestry is shadow
+  routing metadata, not scalar-source authority.
+- Shadows attach their exact retained cubes and native completed 2D maps by
+  native identity only after independent selection. Missing, disabled, stale,
+  or busy shadow ownership preserves the scalar light and selects the cheaper
+  shadowless Atmosphere shader.
+- Repeated callbacks in the same source epoch reuse the published frame. This
+  bounds the 512-node manager copy and 64-light terrain atomic publication to
+  one producer operation instead of repeating both for nested and outer routes.
 
 - DeferredInit hooks the complete world light/shadow transaction at
   `0x00871290`. This owner runs when native shadow counts are zero. At return,
@@ -121,15 +121,15 @@ defaults, retains cube occlusion and stale-frame rejection, and separately
 proves half-intensity reduction, zero-intensity output, enable/disable output,
 debug selection, and debug disable behavior.
 
-The rejected common-hook-only handoff published this same data through the
-atmosphere scalar mailbox. Runtime evidence showed a valid interior point cube
-and successful shadow composition while atmosphere still reported the
-interior/no-local integration gate. The shadow producer and mailbox producer
-have different invocation cadence, so the scalar owner is not a reliable
-bridge for a shadow-owned frame. The durable primary bridge is the established
-frame graph: shadow composition completes, then the world atmosphere pipeline
-clones and admits the still-live shadow publication. The scalar mailbox is
-fallback only when the shadow owner has no usable point frame or is busy.
+The rejected authority-gated handoff treated an executable call chain as
+scalar-source ownership. Runtime evidence showed valid interior point cubes and
+successful shadow composition while Atmosphere still reported no local-light
+draws. The shipped-HLSL regression now publishes a complete scalar frame with
+no shadow-route authority, consumes it at the adjacent presentation epoch, and
+requires non-black final HDR pixels. The old authority check makes that exact
+test return `NoVisibleContribution`. The durable bridge is therefore the
+callback-independent scalar mailbox; shadow publications are optional resource
+joins only.
 
 The first two batched builds were rejected in game despite successful shader
 compilation. Capture and draw telemetry remained correct, but all local
