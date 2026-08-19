@@ -21,6 +21,9 @@ static MOVEMENT_SCOPE_CALLS: AtomicU32 = AtomicU32::new(0);
 static MOVEMENT_SCOPES_ADMITTED: AtomicU32 = AtomicU32::new(0);
 static MOVEMENT_CALLS: AtomicU32 = AtomicU32::new(0);
 static MOVEMENT_OVERRIDES: AtomicU32 = AtomicU32::new(0);
+static PITCH_HOLDS: AtomicU32 = AtomicU32::new(0);
+static HEADING_HOLDS: AtomicU32 = AtomicU32::new(0);
+static RECENTER_SUPPRESSIONS: AtomicU32 = AtomicU32::new(0);
 static OWNED_OBSERVATIONS: AtomicU32 = AtomicU32::new(0);
 static OBSERVATIONS: [AtomicU32; NativeRejection::COUNT] =
     [const { AtomicU32::new(0) }; NativeRejection::COUNT];
@@ -39,6 +42,9 @@ pub(super) struct Snapshot {
     pub(super) movement_scopes_admitted: u32,
     pub(super) movement_calls: u32,
     pub(super) movement_overrides: u32,
+    pub(super) pitch_holds: u32,
+    pub(super) heading_holds: u32,
+    pub(super) recenter_suppressions: u32,
     pub(super) owned_observations: u32,
     observations: [u32; NativeRejection::COUNT],
 }
@@ -101,6 +107,18 @@ pub(super) fn mark_movement(applied: bool) {
     }
 }
 
+pub(super) fn mark_pitch_hold() {
+    increment(&PITCH_HOLDS);
+}
+
+pub(super) fn mark_heading_hold() {
+    increment(&HEADING_HOLDS);
+}
+
+pub(super) fn mark_recenter_suppressed() {
+    increment(&RECENTER_SUPPRESSIONS);
+}
+
 pub(super) fn mark_observation(reason: NativeRejection, owned: bool) {
     increment(&OBSERVATIONS[reason as usize]);
     if owned {
@@ -121,6 +139,9 @@ pub(super) fn snapshot() -> Snapshot {
         movement_scopes_admitted: MOVEMENT_SCOPES_ADMITTED.load(Ordering::Relaxed),
         movement_calls: MOVEMENT_CALLS.load(Ordering::Relaxed),
         movement_overrides: MOVEMENT_OVERRIDES.load(Ordering::Relaxed),
+        pitch_holds: PITCH_HOLDS.load(Ordering::Relaxed),
+        heading_holds: HEADING_HOLDS.load(Ordering::Relaxed),
+        recenter_suppressions: RECENTER_SUPPRESSIONS.load(Ordering::Relaxed),
         owned_observations: OWNED_OBSERVATIONS.load(Ordering::Relaxed),
         observations: load_observations(),
     }
@@ -135,7 +156,7 @@ fn increment(counter: &AtomicU32) {
     });
 }
 
-fn stage_counters() -> [&'static AtomicU32; 12] {
+fn stage_counters() -> [&'static AtomicU32; 15] {
     [
         &HEADING_CALLS,
         &HEADING_CONSUMED,
@@ -148,6 +169,9 @@ fn stage_counters() -> [&'static AtomicU32; 12] {
         &MOVEMENT_SCOPES_ADMITTED,
         &MOVEMENT_CALLS,
         &MOVEMENT_OVERRIDES,
+        &PITCH_HOLDS,
+        &HEADING_HOLDS,
+        &RECENTER_SUPPRESSIONS,
         &OWNED_OBSERVATIONS,
     ]
 }

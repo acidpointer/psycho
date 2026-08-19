@@ -160,12 +160,13 @@ unsafe extern "thiscall" fn update_camera_detour(player: *mut c_void, first: u8,
         return;
     };
     let third_person_scope = ThirdPersonCameraScope::enter(player);
+    let shared_motion = third_person_scope.motion_sample();
     unsafe { predecessor(player, first, second) };
     // Scope only native construction. Post-update sampling must observe the
     // completed native state without extending the heading substitution into
     // unrelated Atom work.
     drop(third_person_scope);
-    unsafe { sample_after_update(player) };
+    unsafe { sample_after_update(player, shared_motion) };
 }
 
 struct ThirdPersonCameraScope {
@@ -177,6 +178,10 @@ impl ThirdPersonCameraScope {
         Self {
             scope: super::third_person::enter_camera_update_scope(player),
         }
+    }
+
+    fn motion_sample(&self) -> Option<super::NativeMotionCarrier> {
+        self.scope.and_then(|scope| scope.motion_sample())
     }
 }
 
@@ -228,7 +233,12 @@ unsafe fn render_route_body(
     };
 
     let frame = unsafe { begin_world_render(route) };
-    let world_pose = frame.map(|value| value.world_pose());
+    // First- and third-person poses are mutually exclusive by native POV.
+    // Third-person contributes only a render-scoped additive rotation; the
+    // already-built chase endpoint and its collision result remain untouched.
+    let world_pose = frame
+        .map(|value| value.world_pose())
+        .or_else(super::third_person::render_camera_pose);
     let guard = match world_pose.filter(|pose| !pose.is_identity()) {
         Some(pose) => {
             diagnostics::mark_world_pose();

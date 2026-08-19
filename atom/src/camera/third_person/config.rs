@@ -24,6 +24,15 @@ pub struct ThirdPersonConfig {
     movement_enabled: bool,
     turn_speed_degrees: f32,
     drawn_360: bool,
+    framing_enabled: bool,
+    minimum_distance: f32,
+    maximum_distance: f32,
+    start_distance: f32,
+    side_offset: f32,
+    height_offset: f32,
+    motion_enabled: bool,
+    motion_strength: f32,
+    landing_motion: f32,
 }
 
 impl ThirdPersonConfig {
@@ -39,6 +48,15 @@ impl ThirdPersonConfig {
         movement_enabled: false,
         turn_speed_degrees: 540.0,
         drawn_360: false,
+        framing_enabled: false,
+        minimum_distance: 30.0,
+        maximum_distance: 240.0,
+        start_distance: 170.0,
+        side_offset: 40.0,
+        height_offset: -10.0,
+        motion_enabled: false,
+        motion_strength: 0.20,
+        landing_motion: 0.15,
     };
 
     /// Deserialize the `[Camera]` and `[Movement]` sections.
@@ -57,10 +75,27 @@ impl ThirdPersonConfig {
             ("Camera:fZoomStep", camera.zoom_step),
             ("Camera:fCenterDelay", camera.center_delay),
             ("Camera:fCenterSpeed", camera.center_speed_degrees),
+            ("Camera:fMinDistance", camera.minimum_distance),
+            ("Camera:fMaxDistance", camera.maximum_distance),
+            ("Camera:fStartDistance", camera.start_distance),
+            ("Camera:fSideOffset", camera.side_offset),
+            ("Camera:fHeightOffset", camera.height_offset),
+            ("Camera:fMotionStrength", camera.motion_strength),
+            ("Camera:fLandMotion", camera.landing_motion),
             ("Movement:fTurnSpeed", movement.turn_speed_degrees),
         ] {
             validate_finite(field, value)?;
         }
+
+        let minimum_distance = camera.minimum_distance.clamp(30.0, 150.0);
+        let maximum_distance = camera
+            .maximum_distance
+            .clamp(60.0, 300.0)
+            .max(minimum_distance);
+        let start_distance = camera
+            .start_distance
+            .clamp(30.0, 300.0)
+            .clamp(minimum_distance, maximum_distance);
 
         Ok(Self {
             follow_enabled: numeric_bool("Camera:bFollowCamera", camera.follow_enabled)?,
@@ -74,17 +109,25 @@ impl ThirdPersonConfig {
             movement_enabled: numeric_bool("Movement:b360Movement", movement.enabled)?,
             turn_speed_degrees: movement.turn_speed_degrees.clamp(90.0, 1080.0),
             drawn_360: numeric_bool("Movement:bDrawn360", movement.drawn_360)?,
+            framing_enabled: numeric_bool("Camera:bFraming", camera.framing_enabled)?,
+            minimum_distance,
+            maximum_distance,
+            start_distance,
+            side_offset: camera.side_offset.clamp(-200.0, 200.0),
+            height_offset: camera.height_offset.clamp(-100.0, 100.0),
+            motion_enabled: numeric_bool("Camera:bMotion", camera.motion_enabled)?,
+            motion_strength: camera.motion_strength.clamp(0.0, 1.0),
+            landing_motion: camera.landing_motion.clamp(0.0, 1.0),
         })
     }
 
-    /// Return whether either independently configurable feature is requested.
+    /// Return whether any independently configurable camera feature is requested.
     ///
-    /// Follow and 360-degree movement intentionally have no hidden dependency
-    /// on one another. This combined predicate is used only for ownership
-    /// admission; each output path still checks its own setting.
+    /// This combined predicate is used by wheel and ownership admission. Each
+    /// framing, follow, motion, and movement output still checks its own flag.
     #[inline]
     pub const fn enabled(self) -> bool {
-        self.follow_enabled || self.movement_enabled
+        self.follow_enabled || self.movement_enabled || self.framing_enabled || self.motion_enabled
     }
 
     /// Return whether dynamic third-person follow is requested.
@@ -164,6 +207,60 @@ impl ThirdPersonConfig {
     pub const fn drawn_360(self) -> bool {
         self.drawn_360
     }
+
+    /// Return whether Atom owns native third-person distance and shoulder settings.
+    #[inline]
+    pub const fn framing_enabled(self) -> bool {
+        self.framing_enabled
+    }
+
+    /// Return the configured native minimum chase distance.
+    #[inline]
+    pub const fn minimum_distance(self) -> f32 {
+        self.minimum_distance
+    }
+
+    /// Return the configured native maximum chase distance.
+    #[inline]
+    pub const fn maximum_distance(self) -> f32 {
+        self.maximum_distance
+    }
+
+    /// Return the desired distance used when framing first acquires ownership.
+    #[inline]
+    pub const fn start_distance(self) -> f32 {
+        self.start_distance
+    }
+
+    /// Return the native horizontal shoulder offset.
+    #[inline]
+    pub const fn side_offset(self) -> f32 {
+        self.side_offset
+    }
+
+    /// Return the native vertical shoulder offset.
+    #[inline]
+    pub const fn height_offset(self) -> f32 {
+        self.height_offset
+    }
+
+    /// Return whether restrained third-person procedural motion is requested.
+    #[inline]
+    pub const fn motion_enabled(self) -> bool {
+        self.motion_enabled
+    }
+
+    /// Return the normalized gait-motion gain.
+    #[inline]
+    pub const fn motion_strength(self) -> f32 {
+        self.motion_strength
+    }
+
+    /// Return the normalized landing-motion gain.
+    #[inline]
+    pub const fn landing_motion(self) -> f32 {
+        self.landing_motion
+    }
 }
 
 impl Default for ThirdPersonConfig {
@@ -214,6 +311,24 @@ struct CameraSection {
     center_delay: f32,
     #[serde(rename = "fCenterSpeed")]
     center_speed_degrees: f32,
+    #[serde(rename = "bFraming")]
+    framing_enabled: u8,
+    #[serde(rename = "fMinDistance")]
+    minimum_distance: f32,
+    #[serde(rename = "fMaxDistance")]
+    maximum_distance: f32,
+    #[serde(rename = "fStartDistance")]
+    start_distance: f32,
+    #[serde(rename = "fSideOffset")]
+    side_offset: f32,
+    #[serde(rename = "fHeightOffset")]
+    height_offset: f32,
+    #[serde(rename = "bMotion")]
+    motion_enabled: u8,
+    #[serde(rename = "fMotionStrength")]
+    motion_strength: f32,
+    #[serde(rename = "fLandMotion")]
+    landing_motion: f32,
 }
 
 impl Default for CameraSection {
@@ -228,6 +343,15 @@ impl Default for CameraSection {
             auto_center: u8::from(defaults.auto_center),
             center_delay: defaults.center_delay,
             center_speed_degrees: defaults.center_speed_degrees,
+            framing_enabled: u8::from(defaults.framing_enabled),
+            minimum_distance: defaults.minimum_distance,
+            maximum_distance: defaults.maximum_distance,
+            start_distance: defaults.start_distance,
+            side_offset: defaults.side_offset,
+            height_offset: defaults.height_offset,
+            motion_enabled: u8::from(defaults.motion_enabled),
+            motion_strength: defaults.motion_strength,
+            landing_motion: defaults.landing_motion,
         }
     }
 }
@@ -273,7 +397,7 @@ fn validate_finite(field: &'static str, value: f32) -> Result<(), ThirdPersonCon
 pub(super) struct ConfigStore {
     sequence: AtomicU32,
     booleans: AtomicU32,
-    values: [AtomicU32; 7],
+    values: [AtomicU32; 14],
 }
 
 impl ConfigStore {
@@ -290,6 +414,13 @@ impl ConfigStore {
                 AtomicU32::new(defaults.center_delay.to_bits()),
                 AtomicU32::new(defaults.center_speed_degrees.to_bits()),
                 AtomicU32::new(defaults.turn_speed_degrees.to_bits()),
+                AtomicU32::new(defaults.minimum_distance.to_bits()),
+                AtomicU32::new(defaults.maximum_distance.to_bits()),
+                AtomicU32::new(defaults.start_distance.to_bits()),
+                AtomicU32::new(defaults.side_offset.to_bits()),
+                AtomicU32::new(defaults.height_offset.to_bits()),
+                AtomicU32::new(defaults.motion_strength.to_bits()),
+                AtomicU32::new(defaults.landing_motion.to_bits()),
             ],
         }
     }
@@ -306,6 +437,13 @@ impl ConfigStore {
             config.center_delay,
             config.center_speed_degrees,
             config.turn_speed_degrees,
+            config.minimum_distance,
+            config.maximum_distance,
+            config.start_distance,
+            config.side_offset,
+            config.height_offset,
+            config.motion_strength,
+            config.landing_motion,
         ]) {
             target.store(value.to_bits(), Ordering::Relaxed);
         }
@@ -326,6 +464,8 @@ impl ConfigStore {
                     auto_center: booleans & 2 != 0,
                     movement_enabled: booleans & 4 != 0,
                     drawn_360: booleans & 8 != 0,
+                    framing_enabled: booleans & 16 != 0,
+                    motion_enabled: booleans & 32 != 0,
                     follow_speed: values[0],
                     soft_zone: values[1],
                     look_ahead: values[2],
@@ -333,6 +473,13 @@ impl ConfigStore {
                     center_delay: values[4],
                     center_speed_degrees: values[5],
                     turn_speed_degrees: values[6],
+                    minimum_distance: values[7],
+                    maximum_distance: values[8],
+                    start_distance: values[9],
+                    side_offset: values[10],
+                    height_offset: values[11],
+                    motion_strength: values[12],
+                    landing_motion: values[13],
                 };
             }
         }
@@ -354,4 +501,6 @@ const fn pack_booleans(config: ThirdPersonConfig) -> u32 {
         | ((config.auto_center as u32) << 1)
         | ((config.movement_enabled as u32) << 2)
         | ((config.drawn_360 as u32) << 3)
+        | ((config.framing_enabled as u32) << 4)
+        | ((config.motion_enabled as u32) << 5)
 }

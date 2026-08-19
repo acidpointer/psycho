@@ -8,7 +8,9 @@
 //! never the other. Object selection through the native reticle cast is
 //! independently useful and safe to admit. Optional projectile convergence
 //! joins it only when the spawn call still targets vanilla, because an
-//! uncoordinated launch transformation cannot compose safely.
+//! uncoordinated launch transformation cannot compose safely. The hip-fire
+//! pose adapter is a separate chained animation-entry capability and changes
+//! only paired group IDs for the admitted live player.
 
 use core::ffi::c_void;
 use std::sync::LazyLock;
@@ -34,6 +36,7 @@ const MOVEMENT_SCOPE_ENTRY: usize = 0x009E_9E50;
 const MOVEMENT_REQUEST_CALLSITE: usize = 0x008A_6339;
 const RETICLE_CALLSITE: usize = 0x0070_C130;
 const SPAWN_CALLSITE: usize = 0x0052_45BD;
+const MORPH_GROUP_ENTRY: usize = 0x0049_48C0;
 
 const NATIVE_PLAYER_HEADING: usize = 0x0095_3F20;
 const NATIVE_PLAYER_PITCH: usize = 0x0093_1D70;
@@ -74,6 +77,7 @@ type SpawnFn = unsafe extern "C" fn(
     f32,
     *mut c_void,
 ) -> *mut c_void;
+type MorphGroupFn = unsafe extern "thiscall" fn(*mut c_void, u16, i32) -> *mut c_void;
 
 static CAMERA_HEADING_HOOK: PointerSlotHookContainer<PlayerHeadingFn> =
     PointerSlotHookContainer::new();
@@ -86,6 +90,8 @@ static MOVEMENT_REQUEST_HOOK: Rel32CallHookContainer<MovementRequestFn> =
     Rel32CallHookContainer::new();
 static RETICLE_HOOK: Rel32CallHookContainer<ViewCasterFn> = Rel32CallHookContainer::new();
 static SPAWN_HOOK: Rel32CallHookContainer<SpawnFn> = Rel32CallHookContainer::new();
+static HIP_FIRE_POSE_HOOK: LazyLock<InlineHookContainer<MorphGroupFn>> =
+    LazyLock::new(InlineHookContainer::new);
 
 const MOVEMENT_FINGERPRINTS: &[(usize, &[u8])] = &[
     (
@@ -172,6 +178,20 @@ const AIM_FINGERPRINTS: &[(usize, &[u8])] = &[
     ),
 ];
 
+// Compatible animation plugins may already own the mutable function entry.
+// Fingerprint immutable original-body instructions so InlineHook can chain a
+// complete entry JMP while Atom still rejects an unsupported executable.
+const HIP_FIRE_POSE_FINGERPRINTS: &[(usize, &[u8])] = &[
+    (
+        MORPH_GROUP_ENTRY + 0x09,
+        &[0x0F, 0xB7, 0x45, 0x08, 0x3D, 0xFF, 0x00, 0x00, 0x00],
+    ),
+    (
+        MORPH_GROUP_ENTRY + 0xCE,
+        &[0x8B, 0xE5, 0x5D, 0xC2, 0x08, 0x00],
+    ),
+];
+
 /// Failure to validate or install the required third-person hook group.
 #[derive(Debug, Error)]
 pub(crate) enum HookInstallError {
@@ -187,7 +207,7 @@ pub(crate) enum HookInstallError {
     /// The PlayerCharacter adjusted-heading vtable slot could not be chained.
     #[error(transparent)]
     Pointer(#[from] PointerSlotHookError),
-    /// The scoped PlayerMover entry could not be chained.
+    /// A required native function entry could not be chained.
     #[error(transparent)]
     Inline(#[from] InlineHookError),
 }
@@ -288,6 +308,15 @@ pub(super) fn install_movement() -> Result<MovementPredecessors, HookInstallErro
 /// Admit camera-correct object selection, then optional projectile convergence.
 pub(super) fn install_aim() -> Result<AimPredecessors, HookInstallError> {
     validate_fingerprints(AIM_FINGERPRINTS)?;
+    let combat_ray_admitted = match super::native::validate_combat_ray_contract() {
+        Ok(()) => true,
+        Err(error) => {
+            log::warn!(
+                "[AIM] Muzzle convergence is unavailable: {error:#}. Camera-correct interaction remains available"
+            );
+            false
+        }
+    };
     unsafe {
         RETICLE_HOOK.init(
             "Atom third-person reticle ray",
@@ -306,10 +335,11 @@ pub(super) fn install_aim() -> Result<AimPredecessors, HookInstallError> {
         reticle_admitted: false,
         aim_admitted: false,
     };
-    let (reticle_admitted, aim_admitted) = super::reticle_and_convergence_admission(
+    let (reticle_admitted, native_spawn_admitted) = super::reticle_and_convergence_admission(
         predecessors.reticle == NATIVE_RETICLE,
         predecessors.spawn == NATIVE_SPAWN,
     );
+    let aim_admitted = native_spawn_admitted && combat_ray_admitted;
     if !reticle_admitted {
         return Ok(predecessors);
     }
@@ -325,6 +355,40 @@ pub(super) fn install_aim() -> Result<AimPredecessors, HookInstallError> {
         aim_admitted,
         ..predecessors
     })
+}
+
+/// Install the ranged hip-fire animation-group adapter independently.
+///
+/// FNV's morph entry remains the transition owner. The detour changes only a
+/// paired group ID and calls the captured predecessor once, leaving kNVSE's
+/// internal sequence lookup and transition hooks in their established chain.
+pub(super) fn install_hip_fire_pose() -> Result<usize, HookInstallError> {
+    validate_fingerprints(HIP_FIRE_POSE_FINGERPRINTS)?;
+    unsafe {
+        HIP_FIRE_POSE_HOOK.init(
+            "Atom third-person hip-fire pose",
+            MORPH_GROUP_ENTRY as *mut c_void,
+            hip_fire_pose_detour,
+        )?;
+    }
+    let predecessor = HIP_FIRE_POSE_HOOK.original()? as *const () as usize;
+    let mut transaction = ModificationTransaction::new();
+    transaction.enable_inline(&HIP_FIRE_POSE_HOOK)?;
+    transaction.commit();
+    Ok(predecessor)
+}
+
+/// Request one native crossfade through the already captured morph chain.
+///
+/// # Safety
+///
+/// `anim_data` and `group` must be the synchronous values selected from the
+/// live player graph by `native::hip_fire_transition_group`.
+pub(super) unsafe fn morph_hip_fire_group(anim_data: *mut c_void, group: u16) -> bool {
+    let Ok(predecessor) = HIP_FIRE_POSE_HOOK.original() else {
+        return false;
+    };
+    !unsafe { predecessor(anim_data, group, -1) }.is_null()
 }
 
 fn validate_fingerprints(fingerprints: &[(usize, &[u8])]) -> Result<(), HookInstallError> {
@@ -348,6 +412,18 @@ unsafe extern "thiscall" fn zoom_detour(owner: *mut c_void, axis: u32) -> i32 {
     }
 }
 
+unsafe extern "thiscall" fn hip_fire_pose_detour(
+    anim_data: *mut c_void,
+    group: u16,
+    sequence_type: i32,
+) -> *mut c_void {
+    let Ok(predecessor) = HIP_FIRE_POSE_HOOK.original() else {
+        return core::ptr::null_mut();
+    };
+    let group = super::remap_hip_fire_animation(anim_data, group);
+    unsafe { predecessor(anim_data, group, sequence_type) }
+}
+
 unsafe extern "thiscall" fn camera_heading_detour(player: *mut c_void, adjusted: u8) -> f32 {
     let predecessor = CAMERA_HEADING_HOOK
         .original()
@@ -363,7 +439,9 @@ unsafe extern "thiscall" fn camera_pitch_detour(player: *mut c_void) -> f32 {
         .original()
         .unwrap_or_else(|_| native_player_pitch());
     let native = unsafe { predecessor(player) };
-    super::scoped_camera_pitch(player).unwrap_or(native)
+    super::scoped_camera_pitch(player)
+        .or_else(|| super::fallback_camera_pitch(player))
+        .unwrap_or(native)
 }
 
 unsafe extern "thiscall" fn follow_detour(
@@ -384,21 +462,26 @@ unsafe extern "thiscall" fn follow_detour(
         unsafe { predecessor(player, desired, pivot, mode) };
         return;
     }
-    let Some(offset) = super::scoped_follow_offset(player) else {
+    let Some((follow_offset, motion_offset)) = super::scoped_camera_offsets(player) else {
         unsafe { predecessor(player, desired, pivot, mode) };
         return;
     };
-    super::diagnostics::mark_follow_offset(offset);
+    super::diagnostics::mark_follow_offset(follow_offset + motion_offset);
 
-    let Some(composed) = super::compose_follow_camera(*desired_value, *pivot_value, offset) else {
+    let Some(followed) = super::compose_follow_camera(*desired_value, *pivot_value, follow_offset)
+    else {
+        unsafe { predecessor(player, desired, pivot, mode) };
+        return;
+    };
+    let Some(composed) = super::compose_motion_camera(followed, motion_offset) else {
         unsafe { predecessor(player, desired, pivot, mode) };
         return;
     };
 
     // The pivot is the player's logical position and the origin of FNV's
-    // clearance ray. Keep it exact so native collision still covers the full
-    // player-to-camera segment. Follow may alter only distance along FNV's
-    // already-built shoulder/distance ray before the native owner resolves it.
+    // clearance ray. Keep it exact so native collision covers the full
+    // player-to-camera segment. Follow changes only distance; bounded motion
+    // may translate the endpoint before the native owner resolves both.
     let mut adjusted_desired = composed;
     unsafe { predecessor(player, &mut adjusted_desired, pivot, mode) };
     unsafe { desired.write(adjusted_desired) };
@@ -452,12 +535,17 @@ unsafe extern "thiscall" fn movement_request_detour(
         return unsafe { predecessor(actor, dt, movement, flags) };
     };
     let Some(output) = super::movement_override(actor, *native, flags, dt) else {
+        if let Some(output) = super::fallback_movement_override(actor, *native, flags) {
+            super::diagnostics::mark_movement(true);
+            let mut transformed = output.vector();
+            return unsafe { predecessor(actor, dt, &mut transformed, output.flags()) };
+        }
         super::diagnostics::mark_movement(false);
-        // This exact callsite is the proven raw-Actor-yaw movement seam. A
-        // failed Atom override may mean POV/native ownership changed after
-        // the mover scope; fold any persistent camera-only offset before the
-        // native request converts actor-local movement into world space.
-        super::prepare_native_horizontal_heading(actor);
+        // This exact callsite is the proven raw-Actor-yaw movement seam. Hard
+        // camera-owner transitions fold Atom's offset before chaining native.
+        // Internal and short soft misses retain the already-published offset
+        // so actor-facing updates cannot drag the camera during reacquisition.
+        super::prepare_native_movement_heading(actor);
         return unsafe { predecessor(actor, dt, movement, flags) };
     };
     super::diagnostics::mark_movement(true);
@@ -500,6 +588,18 @@ unsafe extern "thiscall" fn reticle_detour(
             )
         };
     }
+    if out_distance.is_null() || out_alternate_hit.is_null() {
+        return unsafe {
+            predecessor(
+                caster,
+                origin,
+                direction,
+                max_distance,
+                out_distance,
+                out_alternate_hit,
+            )
+        };
+    }
     let Some(prepared) = super::prepare_view_cast(*origin_value, max_distance) else {
         return unsafe {
             predecessor(
@@ -521,20 +621,45 @@ unsafe extern "thiscall" fn reticle_detour(
         origin.write(prepared.origin());
         direction.write(prepared.direction());
     }
-    let selected = unsafe {
+    let Some(cast_distance) = prepared.cast_distance() else {
+        unsafe { clear_view_cast_outputs(out_distance, out_alternate_hit) };
+        return core::ptr::null_mut();
+    };
+    let mut selected = unsafe {
         predecessor(
             caster,
             origin,
             direction,
-            max_distance,
+            cast_distance,
             out_distance,
             out_alternate_hit,
         )
     };
-    if let Some(distance) = unsafe { out_distance.as_ref() } {
-        super::finish_view_cast(prepared, *distance);
+    let distance = unsafe { out_distance.as_ref() }.copied();
+    let accepted_distance =
+        distance.filter(|value| !selected.is_null() && prepared.accepts_hit(*value));
+    if !selected.is_null() && accepted_distance.is_none() {
+        // Match ViewCaster's researched no-hit outputs exactly. An object or
+        // obstruction between the remote camera and the player's native
+        // reach sphere may block the cursor ray, but it is never activatable.
+        unsafe { clear_view_cast_outputs(out_distance, out_alternate_hit) };
+        selected = core::ptr::null_mut();
     }
     selected
+}
+
+/// Publish the exact no-hit values initialized by FNV ViewCaster 0x00631D60.
+///
+/// # Safety
+///
+/// Both pointers must be the non-null caller-owned outputs from the admitted
+/// InterfaceManager callsite.
+unsafe fn clear_view_cast_outputs(out_distance: *mut f32, out_alternate_hit: *mut u8) {
+    let (distance, alternate) = super::view_cast_no_hit_outputs();
+    unsafe {
+        out_distance.write(distance);
+        out_alternate_hit.write(alternate);
+    }
 }
 
 #[allow(clippy::too_many_arguments)]

@@ -23,8 +23,8 @@ use thiserror::Error;
 use crate::input::{ActionContext, latest_action_frame};
 
 use super::{
-    CameraPose, CameraTransform, LocomotionState, MotionInput, compose_transform,
-    native_owners_allow_camera,
+    CameraPose, CameraTransform, LocomotionState, MotionInput, NativeMotionCarrier,
+    compose_transform, native_owners_allow_camera,
 };
 
 const PLAYER_PTR: usize = 0x011D_EA3C;
@@ -383,6 +383,7 @@ pub(super) fn validate_contract() -> Result<(), NativeContractError> {
 /// entry, and its chained native predecessor must already have returned.
 pub(super) unsafe fn sample_after_update(
     player: *mut c_void,
+    shared_motion: Option<NativeMotionCarrier>,
 ) -> Result<NativeUpdateSample, NativeRejection> {
     unsafe { hard_owner_allows(player)? };
     let action_frame = latest_action_frame();
@@ -425,6 +426,54 @@ pub(super) unsafe fn sample_after_update(
         function(process) != 0
     };
 
+    let motion =
+        resolve_motion_carrier(shared_motion, || unsafe { sample_motion_carrier(player) })?;
+    let velocity = motion.relative_velocity();
+
+    let delta_seconds = unsafe { read_value::<f32>(TIME_GLOBAL as *const u8, TIME_SECONDS_PASSED) };
+    let yaw = unsafe { core::ptr::read_unaligned(LOGICAL_YAW as *const f32) };
+    let pitch = unsafe { core::ptr::read_unaligned(LOGICAL_PITCH as *const f32) };
+    let authored_animation = authored_action_owns_weapon_motion(current_action);
+    let cell = unsafe { read_ptr(player.cast::<u8>(), PLAYER_PARENT_CELL) }
+        .ok_or(NativeRejection::Cell)? as usize;
+    let values = [
+        delta_seconds,
+        yaw,
+        pitch,
+        velocity[0],
+        velocity[1],
+        velocity[2],
+    ];
+    if cell < MIN_ENGINE_POINTER || !values.into_iter().all(f32::is_finite) {
+        return Err(NativeRejection::InvalidValues);
+    }
+
+    Ok(NativeUpdateSample {
+        input_frame_id: action_frame.frame_id(),
+        cell,
+        logical_angles: [yaw, pitch],
+        motion: MotionInput::new(
+            delta_seconds,
+            velocity,
+            motion.locomotion(),
+            motion.directional_locomotion(),
+            [0.0; 2],
+            aiming,
+            authored_animation,
+        ),
+    })
+}
+
+fn resolve_motion_carrier(
+    shared: Option<NativeMotionCarrier>,
+    fallback: impl FnOnce() -> Result<NativeMotionCarrier, NativeRejection>,
+) -> Result<NativeMotionCarrier, NativeRejection> {
+    shared.map_or_else(fallback, Ok)
+}
+
+unsafe fn sample_motion_carrier(
+    player: *mut c_void,
+) -> Result<NativeMotionCarrier, NativeRejection> {
     let mover =
         unsafe { read_ptr(player.cast::<u8>(), PLAYER_MOVER) }.ok_or(NativeRejection::Mover)?;
     let movement_flags = unsafe { read_value::<u32>(mover.cast::<u8>(), PLAYER_MOVER_FLAGS) };
@@ -445,39 +494,17 @@ pub(super) unsafe fn sample_after_update(
     }
     let mut velocity = NativePoint3::default();
     unsafe { get_relative_velocity()(controller, &mut velocity) };
-
-    let delta_seconds = unsafe { read_value::<f32>(TIME_GLOBAL as *const u8, TIME_SECONDS_PASSED) };
-    let yaw = unsafe { core::ptr::read_unaligned(LOGICAL_YAW as *const f32) };
-    let pitch = unsafe { core::ptr::read_unaligned(LOGICAL_PITCH as *const f32) };
-    let authored_animation = authored_action_owns_weapon_motion(current_action);
-    let cell = unsafe { read_ptr(player.cast::<u8>(), PLAYER_PARENT_CELL) }
-        .ok_or(NativeRejection::Cell)? as usize;
-    let values = [
-        delta_seconds,
-        yaw,
-        pitch,
-        velocity.x,
-        velocity.y,
-        velocity.z,
-    ];
-    if cell < MIN_ENGINE_POINTER || !values.into_iter().all(f32::is_finite) {
+    if ![velocity.x, velocity.y, velocity.z]
+        .into_iter()
+        .all(f32::is_finite)
+    {
         return Err(NativeRejection::InvalidValues);
     }
-
-    Ok(NativeUpdateSample {
-        input_frame_id: action_frame.frame_id(),
-        cell,
-        logical_angles: [yaw, pitch],
-        motion: MotionInput::new(
-            delta_seconds,
-            [velocity.x, velocity.y, velocity.z],
-            locomotion,
-            directional_locomotion,
-            [0.0; 2],
-            aiming,
-            authored_animation,
-        ),
-    })
+    Ok(NativeMotionCarrier::new(
+        [velocity.x, velocity.y, velocity.z],
+        locomotion,
+        directional_locomotion,
+    ))
 }
 
 /// Recheck same-update native camera ownership before a render write.
@@ -1057,11 +1084,14 @@ fn update_niavobject() -> UpdateNiAvObjectFn {
 
 #[cfg(test)]
 mod tests {
+    use core::cell::Cell;
+
     use super::{
-        CameraPose, CameraTransform, NIAVOBJECT_LOCAL_TRANSLATION, NIAVOBJECT_WORLD_ROTATION,
-        NIAVOBJECT_WORLD_TRANSLATION, NativeUpdateData, ViewmodelTransformGuard,
-        WorldTransformGuard, authored_action_owns_weapon_motion, directional_locomotion,
-        menu_mode_from_fields, read_local_transform, read_transform, write_local_transform,
+        CameraPose, CameraTransform, LocomotionState, NIAVOBJECT_LOCAL_TRANSLATION,
+        NIAVOBJECT_WORLD_ROTATION, NIAVOBJECT_WORLD_TRANSLATION, NativeMotionCarrier,
+        NativeRejection, NativeUpdateData, ViewmodelTransformGuard, WorldTransformGuard,
+        authored_action_owns_weapon_motion, directional_locomotion, menu_mode_from_fields,
+        read_local_transform, read_transform, resolve_motion_carrier, write_local_transform,
         write_transform, write_translation,
     };
 
@@ -1109,6 +1139,27 @@ mod tests {
         assert!(menu_mode_from_fields(1, 0));
         assert!(menu_mode_from_fields(1, 2));
         assert_eq!(core::mem::size_of::<NativeUpdateData>(), 12);
+    }
+
+    #[test]
+    fn shared_third_person_motion_sample_prevents_a_second_native_query() {
+        let sample = NativeMotionCarrier::new([10.0, 20.0, -3.0], LocomotionState::Grounded, true);
+        let fallback_calls = Cell::new(0);
+        let reused = resolve_motion_carrier(Some(sample), || {
+            fallback_calls.set(fallback_calls.get() + 1);
+            Err(NativeRejection::Controller)
+        })
+        .expect("shared sample must be reused");
+        assert_eq!(reused, sample);
+        assert_eq!(fallback_calls.get(), 0);
+
+        let sampled = resolve_motion_carrier(None, || {
+            fallback_calls.set(fallback_calls.get() + 1);
+            Ok(sample)
+        })
+        .expect("first-person-only path must sample once");
+        assert_eq!(sampled, sample);
+        assert_eq!(fallback_calls.get(), 1);
     }
 
     #[test]

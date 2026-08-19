@@ -247,6 +247,12 @@ fn initialize_inner(
                                     "[CAMERA] Third-person follow predecessor: 0x{predecessor:08X}"
                                 );
                             }
+                            if hooks.framing_admitted {
+                                log::info!("[CAMERA] Third-person framing controls are available");
+                            }
+                            if hooks.motion_admitted {
+                                log::info!("[CAMERA] Third-person motion is available");
+                            }
                             if let (Some(heading), Some(pitch), Some(scope), Some(movement)) = (
                                 hooks.camera_heading_predecessor,
                                 hooks.camera_pitch_predecessor,
@@ -289,6 +295,16 @@ fn initialize_inner(
                                 log::info!(
                                     "[AIM] Convergence remains native because camera-relative movement is unavailable"
                                 );
+                            }
+                            if hooks.hip_fire_pose_admitted {
+                                log::info!(
+                                    "[AIM] Debounced third-person hip-fire pose is available"
+                                );
+                                if let Some(predecessor) = hooks.hip_fire_pose_predecessor {
+                                    log::debug!(
+                                        "[AIM] Hip-fire animation predecessor: 0x{predecessor:08X}"
+                                    );
+                                }
                             }
                         }
                         Err(error) => log::warn!(
@@ -504,10 +520,14 @@ fn apply_config(config: AtomConfig, process_summary_request: bool, report_unchan
     }
     if third_person_config != previous_third_person || report_unchanged {
         log::info!(
-            "[CONFIG] Third-person settings active: follow={}, movement={}, drawn_360={}, zoom_step={:.1}",
+            "[CONFIG] Third-person settings active: follow={}, movement={}, drawn_360={}, framing={}, distance={:.0}-{:.0}, motion={}, zoom_step={:.1}",
             third_person_config.follow_enabled(),
             third_person_config.movement_enabled(),
             third_person_config.drawn_360(),
+            third_person_config.framing_enabled(),
+            third_person_config.minimum_distance(),
+            third_person_config.maximum_distance(),
+            third_person_config.motion_enabled(),
             third_person_config.zoom_step(),
         );
     }

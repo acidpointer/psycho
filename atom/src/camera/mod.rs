@@ -15,8 +15,8 @@
 //! and image-space effects observe one camera. A nested viewmodel scope adds
 //! weapon-relative motion only while no authored animation owns it. The exact
 //! native transforms are restored before the route returns. Stable world motion
-//! is constrained to sub-unit lateral and vertical translation with no camera
-//! rotation; aiming suppresses it exactly.
+//! is constrained to bounded translation. Third person may add sub-degree
+//! render-scoped roll/pitch after chase collision; aiming suppresses it.
 
 mod aim;
 mod config;
@@ -94,6 +94,44 @@ pub(crate) struct SharedCameraHookStatus {
 pub(super) enum RenderRoute {
     A = 1,
     B = 2,
+}
+
+/// Pointer-free locomotion carrier shared by both camera presentation paths.
+///
+/// Third-person motion samples this before native camera construction. The
+/// complete UpdateCamera wrapper may reuse that same value for the subsequent
+/// first-person update, avoiding a second Havok controller lock in one call.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(super) struct NativeMotionCarrier {
+    relative_velocity: [f32; 3],
+    locomotion: LocomotionState,
+    directional_locomotion: bool,
+}
+
+impl NativeMotionCarrier {
+    pub(super) const fn new(
+        relative_velocity: [f32; 3],
+        locomotion: LocomotionState,
+        directional_locomotion: bool,
+    ) -> Self {
+        Self {
+            relative_velocity,
+            locomotion,
+            directional_locomotion,
+        }
+    }
+
+    pub(super) const fn relative_velocity(self) -> [f32; 3] {
+        self.relative_velocity
+    }
+
+    pub(super) const fn locomotion(self) -> LocomotionState {
+        self.locomotion
+    }
+
+    pub(super) const fn directional_locomotion(self) -> bool {
+        self.directional_locomotion
+    }
 }
 
 /// Single-consumer route token joining one world call to its immediate
@@ -339,7 +377,10 @@ pub(crate) fn observe_native_vertical_heading(player: *mut c_void) {
 /// # Safety
 ///
 /// `player` must be the receiver supplied to the researched UpdateCamera entry.
-pub(super) unsafe fn sample_after_update(player: *mut c_void) {
+pub(super) unsafe fn sample_after_update(
+    player: *mut c_void,
+    shared_motion: Option<NativeMotionCarrier>,
+) {
     if !FIRST_PERSON_ACTIVE.load(Ordering::Acquire) {
         return;
     }
@@ -350,7 +391,7 @@ pub(super) unsafe fn sample_after_update(player: *mut c_void) {
         invalidate_render_token();
         return;
     }
-    let sample = match unsafe { native::sample_after_update(player) } {
+    let sample = match unsafe { native::sample_after_update(player, shared_motion) } {
         Ok(sample) => sample,
         Err(reason) => {
             diagnostics::mark_sample_rejected(reason);

@@ -136,8 +136,19 @@ Third-person follow is disabled by default. When enabled, Atom requires one
 stable no-write native frame before acquiring an ownership epoch, follows the
 logical player pivot through dead/soft zones, bounded horizontal lookahead,
 and analytic damping, and composes the result into FNV's desired endpoint while
-preserving the native collision pivot. Follow-only mode retains native
-actor/view coupling.
+preserving the native collision pivot. Only horizontal locomotion contributes
+to axial chase lag: actor-height changes from road contours, holes, and small
+rocks remain native translation and cannot lengthen a skyward collision ray.
+Follow-only mode retains native actor/view coupling.
+
+`Enable Motion` derives gait phase from support-relative velocity plus FNV's
+committed movement word. Bounded side/forward/up translation enters the native
+chase endpoint before collision. A separate sub-degree roll/pitch layer is
+composed onto the live predecessor camera only for the complete world-render
+route and restored afterward; rough ground therefore cannot erase the visible
+gait signal by contracting the endpoint. The layer is additive to an existing
+camera transform, performs no graph search, and is suppressed by effective ADS
+rather than ordinary weapon-ready or hip-fire state.
 
 `360 Movement` separately admits immediate free orbit, camera-relative reuse
 of FNV's existing movement vector, low-direction-bit policy, and bounded
@@ -150,12 +161,57 @@ control, furniture/scripted action, death/ragdoll, incomplete world state,
 cell change, and explicit external owner revokes the complete output set before
 another Atom write. `Drawn 360` selects relaxed drawn locomotion; aim, fire,
 block, and ready/reload intent still select view-facing combat policy. On AIM
-or Combat entry, Atom uses the current sampled aim/block action rather than
-waiting for the later process-state transition, hands the existing logical
-view yaw and pitch to the authoritative Actor setters, adopts FNV's clamped
-pitch, and immediately compensates PlayerCharacter's camera offset. The body
-therefore faces the already-rendered direction on the first stationary AIM
-frame without moving the camera.
+or Combat entry, Atom uses both held input and buffered press edges rather than
+waiting for the later process-state transition, hands the existing logical view
+yaw and pitch to the authoritative Actor setters, adopts FNV's clamped pitch,
+and immediately compensates PlayerCharacter's camera offset. The body therefore
+faces the already-rendered direction on the first stationary AIM or hip-fire
+frame without moving the camera. After native attack admission, actions 2
+through 6 retain Combat through attack, follow-through, latency, and thrown-item
+release even when the input edge has ended. Outside an active hip-fire pose
+session, Atom retains view-facing Combat for 650 ms so repeated actions do not
+chatter between locomotion policies. It then returns to movement-facing
+Explore over 350 ms using shortest-angle bounded Actor yaw recovery. Pitch is
+never interpolated by the release timer: native Combat look owns its final
+value and the existing Explore edge performs the one neutralization.
+A new combat edge restarts the envelope immediately; hard camera owners,
+holstering, loading, and invalid world state clear it.
+
+Supported third-person ranged hip fire additionally owns one debounced weapon
+pose session. The first buffered attack edge routes the current Aim/Attack
+normal, up, or down group to its matching IS group before native attack
+admission. Every held or authored active attack sequence refreshes the session.
+After the last action, the actor and weapon remain registered to the cursor for
+a default 800 ms. A fixed-size cadence observer can extend that quiet window to
+at most 1.4 seconds when a modded automatic or burst graph exposes wider
+between-shot gaps. Atom then stops remapping new requests and calls FNV's
+native sequence-type 4 stop owner, which fades the Aim/AimUp/AimDown and IS
+variants together back to locomotion. Camera-facing Combat remains
+authoritative through the native 650 ms fade grace; only then does Actor yaw
+return to movement-facing Explore through the shared 350 ms smooth recovery.
+If the live graph cannot
+accept the stop at the boundary, Atom retries for at most 750 ms. Explicit
+transitions never select an Attack group, so release cannot replay a firing
+action. The session therefore never alternates low-ready and aimed groups
+between shots. Physical ADS supersedes it immediately. The process IsAiming
+bit must remain stable for 120 ms when no aim input exists, and a bit retained
+by automatic fire is quarantined until it clears or a new aim input proves an
+ADS transition. This prevents stale mod/engine state from leaving head and body
+tracking biased after hip fire while retaining toggle-aim compatibility.
+Holster, POV, menu, VATS, world, lifecycle, or external-owner boundaries clear
+the session immediately. Atom changes no sequence weight per frame, does not
+extend or restart an attack action, and does not force ADS.
+
+The adapter hooks `AnimData::MorphToSequenceIDOrGroup` at `0x004948C0`, changes
+only the admitted live player's paired group ID, and calls the captured
+predecessor once. FNV remains the transition owner; kNVSE's internal custom
+path and blend hooks remain in the same resolution chain. Immutable interior
+instructions, rather than mutable entry bytes, validate the supported body, so
+a compatible complete entry jump installed earlier is chained. A weapon with
+`No3rdPersonISAnims` retains camera-facing firing policy but its graph passes
+through unchanged. Ballistic ownership
+is separate: the sole native projectile still starts at the real muzzle and
+uses Atom's spread-preserving convergence toward the rendered cursor ray.
 Subsequent horizontal AIM input stays on FNV's Actor-yaw route and Atom adopts
 the raw result, while non-aiming Explore input remains camera-only.
 When POV, native camera ownership, or a disabled movement path ends that
@@ -171,13 +227,17 @@ no-write seed frame. Any renewed owner restarts that interval. On the first
 camera-only frame Atom also checks live Actor `rotX`, so a native interruption
 cannot erase cleanup of a stale AIM pitch merely by clearing temporal state.
 
-When both native aim callsites are unowned at deferred admission, Atom reuses
-the normal ViewCaster result, resolves the real weapon projectile node, and
-converges the native muzzle-origin shot while preserving the sampled native
-spread delta. Unsupported projectile types, stale view samples, first person,
-VATS, TFC, other aim owners, or missing native context remain exact native
-behavior. Near cover remains authoritative because the original projectile is
-still launched from the real muzzle through its normal collision path.
+When both native aim callsites are unowned at deferred admission, Atom keeps
+interaction and ballistics separate. The normal ViewCaster remains restricted
+to the player's activation-reach sphere. At the admitted launch seam, one
+stack-owned projectile-layer ray instead resolves long-range depth from the
+completed render camera, after which Atom resolves the real weapon projectile
+node and converges the native muzzle-origin shot while preserving its sampled
+spread delta. Multi-projectile attacks share one depth sample per input frame.
+Unsupported projectile types, first person, VATS, TFC, other aim owners, or
+missing native context remain exact native behavior. Near cover remains
+authoritative because the sole visible and damaging projectile still starts at
+the real muzzle and follows its normal collision path.
 The reticle wrapper writes the corrected origin and direction into the exact
 caller-owned stack locals before chaining ViewCaster. FNV reuses those locals
 after the cast to publish `InterfaceManager +0x104`; keeping them corrected is
@@ -212,7 +272,7 @@ downstream convergence owner observe one world target.
 | `atom/src/camera/movement.rs` | Immutable camera-relative intent, post-setter compensation, vector/flag policy, and bounded facing math. |
 | `atom/src/camera/aim.rs` | Render-camera selection ray, logical direction, and spread-preserving convergence math. |
 | `atom/src/camera/third_person/native.rs` | Hard owner gates, audited view/pitch helpers, virtual facing, camera origin, and real-muzzle reads. |
-| `atom/src/camera/third_person/hooks.rs` | Independent follow/movement transactions, reticle alignment, and optional launch convergence. |
+| `atom/src/camera/third_person/hooks.rs` | Independent follow/movement transactions, hip-fire group adapter, reticle alignment, and optional launch convergence. |
 | `atom/src/input/config.rs` | Serde/serini section model, validation, bounds, and atomic live config. |
 | `atom/src/input/frame.rs` | Native value types, derived edges, controller processing, and coherent frame publication. |
 | `atom/src/input/actions.rs` | 28-action binding resolution, mixed devices, focus epochs, contexts, and coherent publication. |
@@ -222,7 +282,7 @@ downstream convergence owner observe one world target.
 | `atom/src/input/mouse.rs` | Stateless player-camera mouse transform. |
 | `atom/src/input/controller.rs` | Radial stick shaping and trigger hysteresis. |
 | `atom/src/input/telemetry.rs` | Optional QPC markers and saturating fixed histograms. |
-| `atom/mcm/Atom.json` | The shipped MCM Extender UI and persistence contract. |
+| `atom/mcm/Atom.json` | The complete MCM Extender UI and persistence contract. |
 
 Gameplay hooks belong in Atom, not `psycho-engine-fixes-helper`, OMV, Syringe,
 or an ESP. Atom reuses `libpsycho` for the logger, WinAPI wrappers, validated
@@ -265,7 +325,8 @@ At `DeferredInit`, Atom performs this ordered transaction:
 9. validate the third-person hard-owner data contract, independently admit the
    follow transaction and complete heading/movement/facing transaction, admit
    the reticle when movement is available and its call remains vanilla, then
-   additionally admit launch convergence only when spawn also remains vanilla;
+   additionally admit launch convergence only when spawn also remains vanilla,
+   and append the ranged hip-fire animation adapter;
 10. independently fingerprint and enable the five Ballistics callsites plus
    MissileProjectile update slot in one rollback-capable transaction;
 11. subscribe to MCM Extender's `MCMExtUpdate` event for menu-close reloads.
@@ -592,9 +653,9 @@ Raw disassembly evidence and the established field contract live in
 
 ## MCM Extender and configuration ownership
 
-The installed menu is `Data/MCM/Atom.json`. Its DLL requirement uses Atom
-plugin version 2, so a stray menu cannot advertise a plugin which did not load.
-MCM persists values to `Data/config/Atom/Atom.ini`.
+The only installed menu is `Data/MCM/Atom.json`. It requires Atom plugin
+version 2 and persists to `Data/config/Atom/Atom.ini`. All third-person
+framing, orbit, movement, and presentation controls live on its Camera page.
 
 The page hierarchy follows user-facing features rather than implementation
 modules:
@@ -655,14 +716,22 @@ entire candidate; live reload keeps the previous coherent configuration.
 | `Camera:fCenterDelay` | `1.25` | `0.00` to `5.00` seconds |
 | `Camera:fCenterSpeed` | `120` | `15` to `360` degrees/second |
 | `Camera:fZoomStep` | `2.0` | `1.0` to `10.0` game units |
+| `Camera:bFraming` | `0` | `0` or `1` |
+| `Camera:fMinDistance` | `30` | `30` to `150` game units |
+| `Camera:fMaxDistance` | `240` | `60` to `300`, never below minimum |
+| `Camera:fStartDistance` | `170` | clamped between minimum and maximum |
+| `Camera:fSideOffset` | `40` | `-200` to `200` game units |
+| `Camera:fHeightOffset` | `-10` | `-100` to `100` game units |
+| `Camera:bMotion` | `0` | `0` or `1` |
+| `Camera:fMotionStrength` | `0.20` | `0.00` to `1.00` |
+| `Camera:fLandMotion` | `0.15` | `0.00` to `1.00` |
 | `Movement:b360Movement` | `0` | `0` or `1` |
 | `Movement:fTurnSpeed` | `540` | `90` to `1080` degrees/second |
 | `Movement:bDrawn360` | `0` | `0` or `1` |
 
-Native defaults and every shipped MCM default are behaviorally compared by the
-shipped-artifact test. Settings apply when MCM closes. To request another
-telemetry summary, close MCM once with the request off, then close it with the
-request on.
+Native defaults and MCM defaults must remain identical. Settings apply when
+MCM closes. To request another telemetry summary, close MCM once with the
+request off, then close it with the request on.
 
 MCM Extender saves every cached INI before dispatching `MCMExtUpdate` with one
 array argument. xNVSE's native-handler API accepts only an event name already
@@ -707,8 +776,16 @@ Third-person configuration is another coherent atomic snapshot. Its temporal
 state is one fixed `UnsafeCell` protected by an atomic try-lease; contention or
 reentrancy chains native output instead of waiting. Ownership, follow,
 recenter, movement, facing, and aim samples are fixed size. The hook path adds
-no allocation, blocking lock, file I/O, or routine log. It reuses FNV's one
-normal ViewCaster invocation and adds no collision or aim cast.
+no allocation, blocking lock, file I/O, or routine log. Interaction reuses
+FNV's one normal ViewCaster invocation. Convergence adds one synchronous
+projectile-layer ray for the first admitted launch in an input frame; pellets
+reuse that immutable depth and every launch still creates only its original
+native projectile. When both camera motion systems are active, the shared
+`UpdateCamera` wrapper carries
+third-person's validated support-relative locomotion sample across the native
+call for first-person reuse. The normal combined path therefore locks and
+queries the Havok character controller once per accepted input frame, not once
+per camera subsystem.
 
 Telemetry is off by default. When enabled, each admitted marker performs one
 wrapped QPC call and 32-bit atomic updates. Bucket thresholds and the two-second
@@ -780,14 +857,21 @@ The focused behavioral suite covers:
   cell and live-disable invalidation, analytic follow partitioning,
   camera-relative cardinal mapping, magnitude/high-flag preservation,
   shortest-angle facing, and spread-preserving convergence;
+- same-frame pitch identity, bounded soft-gap yaw continuity, immediate hard-owner
+  handoff, skyward recenter suppression, and camera-relative fallback movement;
+- eye-sphere interaction intervals from a distant rendered camera, out-of-reach
+  rejection, exact native no-hit outputs, and camera-basis motion composition;
+- perceptible bounded gait and landing output, frame partitioning, aim identity,
+  smooth release/settling, framing bounds, and ownership-safe restoration;
 - native Ballistics form/runtime layouts, thread/form policy matching,
   repeated same-form initialization, earlier-owner physical results,
   nested-launch restoration, immutable launch-path correlation, four-way live
   marker reporting, accepted-on defaults, and special-context fallback;
 - the shipped MCM JSON, four-page feature hierarchy, section order, absence of
   filler rows, per-page setting ownership, DLL version gate, persistence path,
-  unique persisted keys, slider bounds, equality of MCM/native defaults, and
-  the one-to-three word viewport limit for every visible text value.
+  unique persisted keys, slider bounds, equality of MCM/native defaults, exactly
+  one `Atom.json` menu, and the one-to-three word viewport limit for every
+  visible text value.
 
 Required static gates are:
 

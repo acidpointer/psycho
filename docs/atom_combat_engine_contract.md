@@ -194,6 +194,90 @@ The canonical launch call is `0x005245BD -> 0x009BCA60`. The spawn function
 allocates the correct projectile subtype and applies native source, equipment,
 range, throwing-velocity perk, and launch context.
 
+`PlayerCharacter::Update` calls the camera/input helper at `0x0093F8D9`, the
+attack-input processor at `0x009420FC`, Actor animation/event update
+`0x008BA600` at `0x0094380E`, and its final camera update at `0x00943825`.
+Actor update reaches the shared fire routine at `0x008BADE9`. A camera policy
+which follows only the physical attack button can therefore return to relaxed
+facing before the later animation event launches a shot. The player high
+process exposes the authored lifetime as current animation actions 2 through 6:
+attack, follow-through, latency, throw attach, and throw release. Buffered
+attack input is the entry edge; those process phases retain view-facing combat
+until the native action ends. Neither observation is permission to authorize,
+delay, or synthesize the shot.
+
+For relaxed drawn locomotion, Atom retains only its presentation policy after
+the active native or hip-fire-pose lifetime ends: 650 ms of view-facing grace
+followed by 350 ms of shortest-angle movement-facing yaw recovery. The envelope
+advances once per input frame, restarts on any new fire/aim/block/ready intent,
+and clears at hard camera, lifecycle, world, cell, or holster boundaries. It
+never writes the native action, restarts an animation, or delays projectile
+admission. Actor pitch is never interpolated by this timer; native Combat look
+retains its last value and the established Explore ownership edge performs one
+neutralization. During recovery, camera recenter remains suppressed.
+
+Supported player hip fire has a separate visual lifetime. One buffered attack
+edge opens the session before native attack admission; held input, native
+actions 2 through 6, and active Attack-family graph slots refresh it. When the
+last action ends, Atom retains the view-facing weapon-ready pose for a default
+800 ms. Observed between-shot gaps can extend that bounded quiet interval to
+1.4 seconds, so automatic, burst, low-frame-rate, and replacement animation
+cadences remain one session instead of alternating families. The Combat facing
+envelope does not begin its fade grace until this session ends. Physical ADS,
+holster, POV, menu, VATS, cell/world, lifecycle, external-owner, unsupported
+weapon, and invalid graph boundaries clear the session.
+
+Release is a bounded transaction rather than a posture-family morph. Atom
+first stops remapping new native groups, then searches only the live Aim/AimIS
+posture family. If one is visible it calls `AnimData`'s native sequence-type 4
+stop owner once; if the graph is temporarily unavailable it retries for at
+most 750 ms. No visible Aim-family sequence means there is nothing left for
+Atom to release. Attack groups remain event-driven and are never selected by
+explicit entry or exit, so retry cannot replay a shot.
+
+The native adapter is the entry of
+`AnimData::MorphToSequenceIDOrGroup` at `0x004948C0`, with ABI
+`BSAnimGroupSequence* __thiscall(AnimData*, u16 group, i32 sequenceType)`.
+Its researched body resolves the requested group at `0x004948E6` and performs
+the transition at `0x00494989`. Atom remaps only the live third-person player's
+supported ranged Aim/Attack normal/up/down triplet to the corresponding IS
+triplet while the session is active. It preserves high group bits and the
+sequence-type argument, then calls the captured predecessor exactly once.
+Explicit posture morphs call that same captured chain with automatic sequence
+type. This retains FNV's authored transition and kNVSE's internal
+custom-path and blend hooks; Atom neither writes sequence weights nor moves a
+weapon or skeleton node per frame. The admission fingerprint covers immutable
+interior instructions and the epilogue rather than the mutable entry, allowing
+Atom's inline owner to chain a compatible complete jump installed earlier. A
+weapon whose flags declare `No3rdPersonISAnims` keeps camera-facing policy but
+never enters the group adapter.
+
+Release uses the separate native owner at `0x004994F0`, with ABI
+`void __thiscall(AnimData*, u32 sequenceType, u8 flag)`. The supported-runtime
+animation-group table at `0x011977D8` classifies Aim and AimIS as sequence type
+4, their up variants as type 5, and their down variants as type 6. The type-4
+branch stops types 5 and 6 before stopping type 4, using FNV's existing fade
+and process callbacks. Therefore `AimIS -> Aim` is not relaxation: both groups
+remain the same upper-body combat sequence type. Atom fingerprints this owner
+through immutable interior lookup and epilogue instructions before admitting
+the hip-fire adapter and never calls it from a per-frame path.
+
+FNV exposes process IsAiming independently from the physical aim action, and
+third-party animation/controller mods may retain that process bit after
+automatic fire. Atom admits physical aim immediately. Process-only aim must be
+stable for 120 ms outside a firing session; a bit observed during hip fire is
+quarantined until it clears or a new physical aim edge proves a fresh ADS
+transition. This prevents a retained bit from permanently routing head/body
+look to one shoulder while preserving toggle-aim providers.
+
+The pose does not become ballistic authority. Camera-facing Actor yaw/pitch
+keeps the IS animation registered toward the logical view, while the existing
+single-projectile real-muzzle convergence remains the exact gameplay path to
+the rendered cursor target. Atom never translates the Actor to hide parallax.
+Static contract and Wine-hosted suites pass; this presentation remains an
+unaccepted candidate until a fresh Proton process verifies the full transition
+matrix and confirms Atom, rather than another launch owner, owns convergence.
+
 Broad attack admission occurs earlier in `0x00893A40`. That function mixes
 action state, process state, animations, ammunition, condition, jam decisions,
 VATS, and player/NPC behavior. It is not an appropriate first policy hook.
@@ -210,6 +294,8 @@ VATS, and player/NPC behavior. It is not an appropriate first policy hook.
 - Preserve the ten weapon-condition curves used for rate of fire, jam, and
   reload jam.
 - Preserve perk-driven attack, reload, equip, and aiming-movement speed.
+- Keep one hip-fire pose session across repeated shots; do not force the native
+  aiming flag, restart attack animations, or write animation weights per frame.
 - Treat reload as a stateful native operation, including extended clips, ammo
   swaps/hotkeys, animation selection, and VATS playback. An instant inventory
   transfer is not an equivalent replacement.
@@ -257,8 +343,9 @@ A modern handling module may derive recoil from effective caliber/proxy energy,
 weapon family, mass, stance, burst history, and actor state, but those are Atom
 policy. It must not overwrite shared weapon spread or use spread as camera kick.
 
-First- and third-person camera/animation ownership remains an open focused
-research item. No recoil hook address is approved by this document.
+First- and third-person recoil camera/animation ownership remains an open
+focused research item. The proven hip-fire group adapter does not authorize a
+recoil hook or any per-frame skeleton manipulation.
 
 ### Aim convergence and cover
 
@@ -272,28 +359,40 @@ The camera follow-up research closes both native boundaries. At
 `0x0070C130 -> 0x00631D60`, the existing `ViewCaster` accepts start, direction,
 maximum distance, and distance/alternate-hit outputs, excludes the player, and
 uses the native reticle collision filter. While Atom owns stable third person,
-a scoped wrapper supplies Atom's logical view ray, chains the live predecessor,
-and captures its fixed-size result with the camera ownership epoch and logical
-view snapshot. The caller also publishes the resolved crosshair point at
-`InterfaceManager +0x104`. Native states pass the original arguments unchanged.
+a scoped wrapper supplies Atom's logical view ray and chains the live
+predecessor only through the eye-centered activation-reach interval. The caller
+also publishes the resolved crosshair point at `InterfaceManager +0x104`.
+Native states pass the original arguments unchanged. This interaction result
+is never reused as weapon depth because activation reach is shorter than valid
+projectile range.
 
 At the normal ranged spawn call `0x005245BD -> 0x009BCA60`, Atom can resolve the
-real `##ProjectileNode` muzzle, point the native projectile at the captured
-view target, preserve the sampled angular spread already in the launch
-arguments, and call the live spawn predecessor. Because the real native
-projectile starts at the muzzle, native collision makes near obstruction win;
-an additional approximate muzzle cast is neither necessary nor desirable.
+real `##ProjectileNode` muzzle and synchronously query the completed render
+camera ray through `TES::PickObject` at `0x00458420`. The stack-owned,
+16-byte-aligned `bhkPickData` is constructed by `0x004A3C20`; its `0xB0` layout
+places the collision filter at `+0x24`, hit fraction at `+0x40`, and failure
+byte at `+0xAC`. `PlayerCharacter::GetCollisionFilter` at `0x00931ED0` supplies
+the live collision group, while Atom replaces only the low collision layer
+with projectile layer 6. The query therefore ignores the firing player's own
+group and observes projectile-relevant world collision without mutable global
+scratch state.
+
+Atom points the native projectile at the first camera-ray collision, preserves
+the sampled angular spread already in the launch arguments, and calls the live
+spawn predecessor exactly once. Because the real native projectile starts at
+the muzzle, native collision makes near obstruction win; an additional muzzle
+cast is neither necessary nor desirable.
 Projectile class, hitscan/physical flags, velocity, gravity, range, collision,
 and impact remain engine-owned. The visual and damaging shot are the same
 native instance launched from the real muzzle. Visual camera shake never feeds
 back into the logical view ray.
 
-The fire wrapper accepts only the latest completed reticle sample whose live
-player, ownership epoch, origin, and direction still match. A stale/mismatched
-sample leaves that shot native. Proton telemetry must prove the UI/player-update
-sample-age policy before this optional capability can be enabled by default;
-Atom will not solve ordering uncertainty by adding a second allocating
-`ViewCaster` call to the shot path.
+The fire wrapper accepts only a live player, owned camera epoch, supported
+weapon/projectile pair, finite render-camera basis, and validated ray output.
+The first launch in an input frame publishes a pointer-free depth sample keyed
+by player, ownership epoch, frame, camera origin/direction, and projectile
+range. Shotgun pellets reuse that depth but retain their independently sampled
+native spread. Any mismatch or native ray failure leaves the launch unchanged.
 
 This needs an exclusive capability owner. Atom must chain an existing launch
 predecessor and fail admission if another inline aim transformation cannot be

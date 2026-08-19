@@ -547,11 +547,157 @@
           ]
         },
         "17": {
+          "type": 4,
+          "title": "Enable Framing",
+          "enable": 1,
+          "vars": [
+            {
+              "configINI": "Camera:bFraming",
+              "default": 0
+            }
+          ]
+        },
+        "18": {
+          "type": 2.5,
+          "title": "Min Distance",
+          "mouse": "World Units",
+          "enable": 1,
+          "scale": {
+            "valueDecimal": 0,
+            "valueIncrement": 5.0,
+            "valueMin": 30.0,
+            "valueMax": 150.0
+          },
+          "vars": [
+            {
+              "configINI": "Camera:fMinDistance",
+              "default": 30.0
+            }
+          ]
+        },
+        "19": {
+          "type": 2.5,
+          "title": "Max Distance",
+          "mouse": "World Units",
+          "enable": 1,
+          "scale": {
+            "valueDecimal": 0,
+            "valueIncrement": 5.0,
+            "valueMin": 60.0,
+            "valueMax": 300.0
+          },
+          "vars": [
+            {
+              "configINI": "Camera:fMaxDistance",
+              "default": 240.0
+            }
+          ]
+        },
+        "20": {
+          "type": 2.5,
+          "title": "Start Distance",
+          "mouse": "World Units",
+          "enable": 1,
+          "scale": {
+            "valueDecimal": 0,
+            "valueIncrement": 5.0,
+            "valueMin": 30.0,
+            "valueMax": 300.0
+          },
+          "vars": [
+            {
+              "configINI": "Camera:fStartDistance",
+              "default": 170.0
+            }
+          ]
+        },
+        "21": {
+          "type": 2.5,
+          "title": "Side Offset",
+          "mouse": "World Units",
+          "enable": 1,
+          "scale": {
+            "valueDecimal": 0,
+            "valueIncrement": 5.0,
+            "valueMin": -200.0,
+            "valueMax": 200.0
+          },
+          "vars": [
+            {
+              "configINI": "Camera:fSideOffset",
+              "default": 40.0
+            }
+          ]
+        },
+        "22": {
+          "type": 2.5,
+          "title": "Height Offset",
+          "mouse": "World Units",
+          "enable": 1,
+          "scale": {
+            "valueDecimal": 0,
+            "valueIncrement": 5.0,
+            "valueMin": -100.0,
+            "valueMax": 100.0
+          },
+          "vars": [
+            {
+              "configINI": "Camera:fHeightOffset",
+              "default": -10.0
+            }
+          ]
+        },
+        "23": {
+          "type": 4,
+          "title": "Enable Motion",
+          "enable": 1,
+          "vars": [
+            {
+              "configINI": "Camera:bMotion",
+              "default": 0
+            }
+          ]
+        },
+        "24": {
+          "type": 2.5,
+          "title": "Motion Strength",
+          "enable": 1,
+          "scale": {
+            "valueDecimal": 2,
+            "valueIncrement": 0.05,
+            "valueMin": 0.0,
+            "valueMax": 1.0
+          },
+          "vars": [
+            {
+              "configINI": "Camera:fMotionStrength",
+              "default": 0.2
+            }
+          ]
+        },
+        "25": {
+          "type": 2.5,
+          "title": "Land Motion",
+          "enable": 1,
+          "scale": {
+            "valueDecimal": 2,
+            "valueIncrement": 0.05,
+            "valueMin": 0.0,
+            "valueMax": 1.0
+          },
+          "vars": [
+            {
+              "configINI": "Camera:fLandMotion",
+              "default": 0.15
+            }
+          ]
+        },
+        "26": {
           "type": 0,
           "title": "Third Movement",
           "enable": 1
         },
-        "18": {
+        "27": {
           "type": 4,
           "title": "360 Movement",
           "mouse": "Camera Relative",
@@ -563,7 +709,7 @@
             }
           ]
         },
-        "19": {
+        "28": {
           "type": 2.5,
           "title": "Turn Speed",
           "mouse": "Degrees Second",
@@ -581,7 +727,7 @@
             }
           ]
         },
-        "20": {
+        "29": {
           "type": 4,
           "title": "Drawn 360",
           "mouse": "Weapons Drawn",

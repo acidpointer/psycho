@@ -54,8 +54,10 @@ viewmodel system. It implements the complete researched path:
   collision, clamp, POV, and direction-specific multiplier ownership;
 - the native ViewCaster aligned independently to the rendered camera for
   crosshair/object selection, with optional real-projectile-node muzzle
-  convergence when the launch call is available, preserving the exact native
-  spread delta and projectile class, range, collision, and impact ownership;
+  convergence when the launch call is available. Interaction remains bounded
+  to activation reach; convergence uses one separate projectile-layer depth
+  query per input frame and preserves the exact native spread delta and
+  projectile class, range, collision, and impact ownership;
 - one documented C interop entry point,
   `AtomCamera_SetExternalOwner(nonzero_token, active)`, for vehicle or scripted
   camera providers whose ownership cannot be inferred from base FNV state.
@@ -67,7 +69,8 @@ is enabled, which closes the Phase 2 stationary/free-orbit ambiguity without
 silently narrowing movement correctness. Reticle alignment is enabled after
 the movement group is available when its call still targets vanilla. Optional
 projectile convergence additionally requires the spawn call to target vanilla;
-an existing spawn owner does not disable independent object alignment.
+the stack-owned combat-ray contract must also validate. An existing spawn owner
+does not disable independent object alignment.
 
 Configuration is MCM-owned and atomically published. Bounds are `1..20` follow
 speed, `0..48` soft zone, `0..32` lookahead, `0..5` seconds center delay,
@@ -78,10 +81,12 @@ effect until follow and movement are active.
 
 The implementation uses fixed atomics plus one nonblocking `UnsafeCell` lease
 for main-thread temporal state. Lease contention, reentrancy, invalid pointers,
-non-finite values, stale aim samples, unsupported projectile capabilities, and
-native-owner transitions all chain the current predecessor unchanged. Hook
-paths perform no routine allocation, blocking lock, file I/O, or logging. The
-existing ViewCaster allocation is native work and is never duplicated.
+non-finite values, mismatched combat-depth samples, unsupported projectile
+capabilities, and native-owner transitions all chain the current predecessor
+unchanged. Hook paths perform no routine allocation, blocking lock, file I/O,
+or logging. The interaction ViewCaster is never duplicated. Only the first
+admitted launch in an input frame performs the synchronous projectile-layer
+world ray; subsequent pellets reuse its pointer-free depth.
 
 ## Executive decision
 
@@ -805,7 +810,7 @@ changes count even when first execution is deferred.
 | `atom/src/camera/third_person/hooks.rs` | Per-capability fingerprints, typed predecessors, scoped detours, and independent rollback transactions. |
 | `atom/src/input/hooks.rs` | Existing final heading hooks extended with an internal camera dispatch, not hooked again. |
 | `atom/src/runtime.rs` | Deferred admission order, subsystem fallback, logging, and MCM update routing. |
-| `atom/mcm/Atom.json` | Laconic live camera/movement configuration. |
+| `atom/mcm/Atom.json` | Complete laconic camera, framing, motion, and movement configuration. |
 
 Public Rust APIs and modules will have doc comments describing ownership,
 units, valid states, and failure behavior. Complex comments will explain why a
@@ -1540,3 +1545,266 @@ threads, workers, and logging initialization are unchanged. Static evidence
 therefore does not promote this artifact to the load-to-gameplay baseline. It
 requires the ordinary Proton/BaseObjectSwapper load-to-gameplay and behavioral
 acceptance described above.
+
+## 2026-08-18 framing, reach, and motion candidate
+
+Status remains unaccepted pending the runtime gates below. This candidate adds
+no new native hook. It extends the existing complete `UpdateCamera`, collision,
+and reticle seams and preserves every established predecessor transaction.
+
+### Camera stability
+
+Horizontal free orbit already has a durable native representation in player
+camera-heading offset `+0x6E4`. Logical pitch does not: if the nonblocking
+runtime store is temporarily busy while an `UpdateCamera` scope is prepared,
+the pitch detour can otherwise expose Actor rotX, normally zero in Explore, for
+one call. Atom now publishes one last-safe pitch snapshot bound to player,
+thread, Atom input frame, and reset generation. Only an internal same-frame
+scope miss may consume it. A completed native-owner rejection, configuration
+reset, POV/menu/load boundary, different thread, or later input frame invalidates
+it and uses the live native result.
+
+Runtime acceptance then reproduced a separate yaw reset with Auto Center
+disabled. The cause was the fail-native movement path folding `+0x6E4` into
+Actor yaw for every ownership miss. Once the offset was cleared, ordinary
+movement-facing updates dragged the camera toward the actor before Atom could
+reacquire. Atom now retains the already-published offset across internal misses
+and at most 120 ms of disabled-control or non-gameplay-context interruption in
+otherwise valid third person. The token is player, reset-generation, and
+current/adjacent-input-frame bound. POV, menu, VATS, free/special camera,
+scripted action, death, invalid world state, external ownership, or a longer
+interruption still performs the immediate native handoff.
+
+Automatic recentering now fades between 70 and 82 degrees absolute pitch and
+stops at the upper boundary. Manual look remains immediate. This prevents a
+hidden yaw change at the vertical pole from appearing as a sudden actor-facing
+reset when the player lowers the view. Requested diagnostics count last-safe
+pitch holds and vertical recenter suppressions without logging in camera hooks.
+
+### Player-reach selection
+
+The native InterfaceManager cast uses `iActivatePickLength`, default 150, as
+its distance. Moving the ray origin from the native eye to a distant render
+camera while retaining 150 shortens or eliminates player-space interaction.
+Atom now intersects the rendered cursor ray with a sphere of that native radius
+centered on the original eye origin. It casts no farther than the ray's exit
+from the sphere and accepts a selected reference only within the inside-sphere
+interval. A closer camera-side obstruction blocks selection but cannot become
+an out-of-reach interactable.
+
+When the rendered ray does not enter the reach sphere, or ViewCaster returns a
+hit before entry, Atom publishes the exact researched ViewCaster no-hit ABI:
+null reference, alternate-hit zero, and `FLT_MAX` distance. Native candidate
+filtering, corpse/object ownership, activation sphere behavior, and downstream
+InterfaceManager publication remain intact. This changes no global activation
+distance and performs at most the existing single ViewCaster call.
+
+### Framing ownership
+
+The existing Camera page in `Atom.json` owns Distance, Position, and Motion
+controls alongside follow, orbit, and movement. `MCMExtUpdate` parses and
+coherently publishes the single saved `Atom.ini` after MCM saves it. Missing
+values keep framing and motion off. No secondary Atom menu is permitted.
+
+Opt-in framing captures `fVanityModeWheelMin`, `fChaseCameraMax`,
+`fVanityModeWheelMax`, `fOverShoulderPosX`, and `fOverShoulderPosZ`, then writes
+the configured profile once at DeferredInit or MCM update. Initial acquisition
+sets desired distance to Start Distance; later updates clamp the live desired
+distance without erasing wheel history. Disable or explicit external ownership
+restores only fields which still equal Atom's last write, so a newer provider
+is not overwritten. Atom never writes these settings each frame and does not
+touch `fVanityModeForceDefault`.
+
+### Third-person motion
+
+The motion generator samples the already-proven native character-controller
+support state, support-relative velocity, and committed directional movement
+word. The last gate prevents platforms and physics pushes from manufacturing
+footsteps. It derives stride continuously from speed, analytically filters
+cadence, integrates phase by distance, and uses separate attack/release and
+one-shot landing envelopes. Output is a bounded camera-right, camera-forward,
+and world-up translation with enough world amplitude to remain perceptible at
+normal chase distances. The later adaptive-presentation correction adds only
+bounded render-scoped roll/pitch; there is no procedural yaw, random noise,
+skeleton dependency, allocation, lock, I/O, or hot-path diagnostic.
+
+Motion is exactly zero while aiming and eases back after aim release. Its
+world-space cap remains small while desired-distance scaling keeps comparable
+screen-space weight across the configured zoom range. The translated endpoint
+is composed after axial follow and before the existing native collision helper;
+the original player pivot is unchanged, so native collision covers the entire
+adjusted player-to-camera segment. Axial follow projects only horizontal player
+lag. Actor Z tracks every terrain contour, so admitting vertical pivot lag as
+chase distance made holes and small road rocks lengthen a downward or skyward
+camera ray and repeatedly trigger native contraction. Terrain height now moves
+the native camera and pivot together without entering Atom's chase arm.
+
+The first runtime performance report had both first- and third-person motion
+enabled. Static call-chain review found that each subsystem independently
+invoked support-relative velocity wrapper `0x00812B00` around the same native
+`UpdateCamera` call. That wrapper locks the character controller, reads its
+Havok rigid-body velocity, unlocks it, subtracts transformed support velocity,
+and converts the result. Atom now carries third-person's validated pointer-free
+velocity, locomotion, and direction sample across the chained camera call and
+reuses it in the post-update first-person generator. Combined motion performs
+one controller query; either subsystem alone retains its existing one-query
+path. The carrier is stack-owned by that exact `UpdateCamera` invocation and
+retains no controller or engine pointer. Runtime frame-pacing recovery remains
+an A/B acceptance item rather than a static performance claim.
+
+### Automated behavior gate
+
+Tests call the production policies and math used by the hooks. They reject a
+soft-gap yaw reset before 120 ms, stale pitch admission across player, thread,
+frame, or reset epochs, movement fallback that changes the intended world
+direction, and automatic recentering at skyward pitch. Reach tests place the
+rendered camera 240 units behind the eye, require the cast interval to enter and
+exit the unchanged native reach sphere, reject nearer and farther hits, and
+preserve native no-hit outputs. Motion tests require visible gait on all three
+translation axes, exact aim identity, bounded output, analytic settling,
+frame-partition stability, one landing compression, camera-basis composition,
+native collision ordering, and reuse of a shared locomotion carrier without a
+second native query. Configuration and artifact tests enforce all framing/motion
+bounds and defaults, ownership-safe restoration, and exactly one MCM menu named
+`Atom.json`.
+
+### Remaining acceptance
+
+Static tests and a release build cannot accept camera images or runtime
+ownership. Acceptance requires three representative Proton cold starts with
+BaseObjectSwapper present, normal gameplay entry, and no startup fault. In
+game, test steep up-look while moving with auto-center both off and on; wheel
+and collision recovery at 30, 120, 170, 240, and 300 units; object and corpse
+selection inside native player reach and rejection outside it; walls and low
+ceilings; gait starts/stops, walking, sprinting, jumping, landing, aiming,
+VATS, menus, and POV transitions at stable and irregular frame rates. The
+expanded `Atom` Camera page and saved values also require direct MCM inspection.
+
+The 2026-08-19 terrain-collision correction remains an unaccepted candidate.
+Static inspection proves that Atom previously projected vertical follow lag
+onto the three-dimensional chase axis before `0x0094A0C0`; the reported road
+surface changes therefore could alter available camera distance even though
+FNV already translated the camera with the actor. The correction removes only
+that duplicate vertical contribution and retains the original pivot, endpoint
+ordering, collision cast, wall contraction, and native outward recovery.
+Acceptance must repeat rough-road, rock, hole, steep up-look, wall, low-ceiling,
+and slope traversal with Follow Camera both off and on.
+
+## 2026-08-18 hip-fire lifecycle correction candidate
+
+Status remains unaccepted pending Proton behavior. With `Drawn 360` enabled,
+Atom previously classified Combat only from the physical attack, block, or
+ready button. A buffered fast attack can remain a native pressed edge after the
+button is no longer down. After admission, the native attack animation can also
+remain in attack, follow-through, latency, throw-attach, or throw-release while
+the physical edge has ended. Returning to Explore during either interval lets
+movement-facing rotate the actor before the late animation event launches the
+shot.
+
+The corrected classifier enters Combat from held or buffered-pressed input and
+retains it while the already-read player-process action is 2 through 6. The
+existing Combat handoff aligns Actor yaw and pitch to the logical view and
+preserves native strafe presentation. The action itself remains entirely
+native: Atom does not force ADS, delay a shot, modify spread or cadence, select
+an animation, or create a projectile. This classifier stage adds no hook,
+extra virtual call, allocation, lock, raycast, configuration value, or MCM
+control; the separately documented pose adapter owns presentation after it.
+
+Projectile convergence remains an exclusive capability. When the launch seam
+has another owner, Atom continues to decline its own muzzle transform and must
+not stack another camera-ray projectile over the predecessor. Runtime acceptance
+must cover fast semi-automatic taps, held and automatic fire, movement with the
+view 90 and 180 degrees away, thrown-item attach/release, ADS, near cover,
+first person, VATS, menus, reload, jam, equip, and holster. Before firing, the
+relaxed pose remains available; during every committed shot the actor and
+weapon must be view-facing without a camera snap or sideways/backward visible
+projectile; Explore may resume only after the authored attack action ends.
+
+## 2026-08-19 hip-fire release correction candidate
+
+The first release correction was disproved by Proton playtest. At the 800 ms
+boundary it changed AimIS to Aim while the camera-facing Combat envelope was
+already ending. Aim and AimIS are both upper-body combat sequences, so the
+graph remained visibly in combat while movement-facing Explore could rotate
+the actor opposite the camera; Actor pitch was also cleared to zero in one
+write.
+
+The corrected contract uses FNV's native stop/fade owner at `0x004994F0`.
+Supported-runtime group metadata classifies Aim/AimIS as sequence type 4,
+their up variants as type 5, and their down variants as type 6; stopping type 4
+natively releases all three slots. The hip-fire pose lifetime now also retains
+camera-facing Combat. After the quiet interval it requests that native fade, preserves
+Combat through the existing 650 ms grace, and only then blends Actor yaw into
+Explore over 350 ms. The later correction below removes timer-driven pitch
+blending entirely. A temporarily unavailable graph receives a
+bounded retry, while Attack groups remain entirely event-driven.
+
+This remains an unaccepted candidate. Proton acceptance must cover single
+shots, paced follow-up shots on both sides of the quiet interval, held fire,
+reload immediately after fire, weapon switch, holster, ADS takeover, custom
+kNVSE animations, POV and menu interruption, and movement in every direction
+with the camera offset by 90 and 180 degrees. Idle observation must prove that
+the pose, pitch, and facing return once without a snap, reversal, or later
+oscillation.
+
+## 2026-08-19 adaptive presentation correction candidate
+
+The live log disproved admission of the preceding hip-fire adapter: mutable
+bytes at `0x004948C0` already belonged to another animation entry hook, so Atom
+rejected the capability before any pose smoothing could run. The supported
+body still exposes immutable group decode at `+0x09` and its sole `ret 8`
+epilogue at `+0xCE`. Atom now fingerprints those interior instructions and lets
+the existing inline-hook mechanism chain a compatible complete entry jump.
+The release owner at `0x004994F0` is validated the same way through its
+sequence-slot lookup and epilogue. No provider is identified by filename,
+version, or plugin name.
+
+One pose epoch now combines three capability signals: buffered/held attack,
+native actions 2 through 6, and a live Attack-family sequence in one of the
+eight current `AnimData` slots. Inactive sequence states are ignored. The
+default 800 ms quiet window learns an observed inter-shot gap and may extend to
+1.4 seconds, so replacement automatic and burst animations do not cross the
+release boundary between shots. The graph scan runs only while attack begins
+or a session is already active. Weapons with `No3rdPersonISAnims` retain
+camera-facing Combat but never have a missing IS group forced into their graph.
+
+Physical aim remains an immediate native handoff. A process-only IsAiming value
+is admitted only after 120 ms of stable non-fire state. If that value remains
+set during hip fire, Atom quarantines it until it clears or a new physical aim
+edge proves a fresh transition. Atom owns no head, neck, spine, hand, or weapon
+node, so installed skeleton/animation providers retain their transforms; this
+filter removes the Atom-side route by which a retained process flag could keep
+native head/body look biased to one shoulder after firing.
+
+The previous timed pitch recovery is removed. It interpolated Actor `rotX`
+toward zero while yaw was returning to movement-facing Explore, producing the
+reported downward look and apparent turn opposite the camera. Native Combat
+look now retains the last pitch, and the established CameraOnly ownership edge
+performs the single neutralization. Only Actor yaw uses the 350 ms recovery.
+
+Third-person motion retains its bounded pre-collision translation and adds a
+sub-degree gait/landing roll and pitch around the complete world-render route.
+The pose composes onto the live predecessor camera and restores the exact
+native transform after rendering. Terrain collision can still contract the
+endpoint, but it cannot erase this rotation, which makes the configured motion
+perceptible without changing the logical cursor ray or collision geometry.
+Combat-ready and hip-fire states no longer suppress it; effective ADS does.
+The render path adds fixed pointer/state checks and one nonblocking lease, with
+no allocation, graph traversal, controller query, I/O, or diagnostic.
+
+Projectile correctness remains the existing exclusive real-muzzle convergence
+capability. Atom does not translate the Actor or rotate skeleton nodes to fake
+registration. When Atom owns the native launch seam, the visible and damaging
+projectile is the same native instance directed from `##ProjectileNode` to the
+camera-ray target with sampled spread preserved. If another launch owner is
+present, Atom retains the reticle and pose capabilities but leaves that owner
+exclusive.
+
+This candidate passes static compilation and the existing Wine-hosted Atom
+suite but is not behaviorally accepted. Proton acceptance must verify the
+adapter is admitted with the installed animation stack; single, paced,
+automatic, burst, low-frame-rate, and reload-interrupted fire; no pose family
+chatter; one authored fade after the adaptive quiet interval; physical and
+toggle ADS; no persistent left head bias; visible but restrained walk, sprint,
+jump, and landing motion; rough-road collision; exact cursor/tracer/impact
+agreement; and clean POV, VATS, menu, holster, cell, and external-owner handoff.
