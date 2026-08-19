@@ -60,6 +60,8 @@ pub(crate) struct EditableConfig {
     /// Restart-only model EditorMarker transaction serialization preference.
     pub model_postprocess_serialization_fix: bool,
     pub queued_task_lifetime_guard: bool,
+    /// Restart-only patrol-owner FormID containment preference.
+    pub patrol_owner_form_id_guard: bool,
     pub parallel_io: bool,
     pub lod_enabled: bool,
     pub lod_prefetch_enabled: bool,
@@ -112,6 +114,7 @@ impl Default for EditableConfig {
             lowprocess_generic_locations_fix: true,
             model_postprocess_serialization_fix: true,
             queued_task_lifetime_guard: true,
+            patrol_owner_form_id_guard: true,
             parallel_io: true,
             lod_enabled: true,
             lod_prefetch_enabled: true,
@@ -306,6 +309,12 @@ impl EditableConfig {
             .or_else(|| read_bool(doc, "memory", "gheap_task_safety"))
             .or_else(|| read_bool(doc, "memory", "gheap_task_release_guard"))
             .unwrap_or(defaults.queued_task_lifetime_guard),
+            patrol_owner_form_id_guard: bool_or(
+                doc,
+                "engine_fixes",
+                "patrol_owner_form_id_guard",
+                defaults.patrol_owner_form_id_guard,
+            ),
             parallel_io: bool_or(doc, "io", "parallel_enabled", defaults.parallel_io),
             lod_enabled: bool_or(doc, "lod", "enabled", defaults.lod_enabled),
             lod_prefetch_enabled: bool_or(
@@ -659,6 +668,7 @@ fn write_document(doc: &mut DocumentMut, config: &EditableConfig) {
     engine!(lowprocess_generic_locations_fix);
     engine!(model_postprocess_serialization_fix);
     engine!(queued_task_lifetime_guard);
+    engine!(patrol_owner_form_id_guard);
 
     macro_rules! setting {
         ($section:literal, $key:literal, $field:ident) => {

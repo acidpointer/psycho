@@ -236,6 +236,16 @@ extraownership_invalid_owner_guard = true
 # the native reference -> cell -> worldspace precedence before returning NULL.
 encounter_zone_invalid_form_guard = true
 
+# Prevents AI patrol selection from calling an actor-only virtual method when a
+# saved patrol-owner FormID has been reused by a different kind of live form.
+# Psycho validates only this patrol-owner lookup. A wrong subtype becomes NULL,
+# letting vanilla clear the stale saved ID and continue marker selection.
+#
+# Character and Creature results remain unchanged. Because the extra contains
+# no generation token, reuse by another actor of the same subtype is not
+# distinguishable. Leave this ON unless isolating a confirmed hook conflict.
+patrol_owner_form_id_guard = true
+
 # Prevents a retired reference from remaining in its cell's render-phase list
 # after the reference has been freed. This can occur when mutable reference
 # state changes between native list insertion and removal, including corpse

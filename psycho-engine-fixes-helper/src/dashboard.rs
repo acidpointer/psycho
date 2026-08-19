@@ -157,6 +157,11 @@ const ENGINE_FIX_HELP: [(&str, &str); 21] = [
     ),
 ];
 
+const PATROL_OWNER_FORM_ID_HELP: (&str, &str) = (
+    "Patrol owner FormID guard",
+    "Stops patrol selection from calling an actor-only operation when a saved patrol owner ID now resolves to another kind of live form. Valid NPC and creature owners are unchanged.",
+);
+
 // Runtime status rows reuse the configuration help catalog. Named indices
 // keep that cross-page wording stable when a new restart-only control is added.
 const ENGINE_FIX_DISPLAY_INDEX: usize = 0;
@@ -1069,6 +1074,12 @@ impl DashboardRuntime {
                 ENGINE_FIX_HELP[ENGINE_FIX_CELL_RENDER_RETIREMENT_INDEX].1,
             ),
             (
+                PATROL_OWNER_FORM_ID_HELP.0,
+                engine_fixes::DASHBOARD_FEATURE_PATROL_OWNER_FORM_ID_GUARD,
+                "Rejects wrong-subtype reuse before actor-only dispatch",
+                PATROL_OWNER_FORM_ID_HELP.1,
+            ),
+            (
                 "Model postprocess serialization",
                 engine_fixes::DASHBOARD_FEATURE_MODEL_POSTPROCESS,
                 "Process-global EditorMarker traversal ownership",
@@ -1960,6 +1971,12 @@ fn draw_configuration(ui: &mut Ui<'_>, editor: &mut ConfigEditor) {
     for ((label, help), value) in ENGINE_FIX_HELP.into_iter().zip(engine_fix_values) {
         checkbox_help(ui, label, value, help);
     }
+    checkbox_help(
+        ui,
+        PATROL_OWNER_FORM_ID_HELP.0,
+        &mut config.patrol_owner_form_id_guard,
+        PATROL_OWNER_FORM_ID_HELP.1,
+    );
 
     ui.spacing();
     ui.separator_text(&cstring("IO and LOD streaming"));

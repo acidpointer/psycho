@@ -370,6 +370,8 @@ pub struct EngineFixesConfig {
     pub model_postprocess_serialization_fix: bool,
     /// Guard queued-task dispatch and release lifetime contracts.
     pub queued_task_lifetime_guard: bool,
+    /// Reject patrol-owner lookups that resolve to a non-actor form.
+    pub patrol_owner_form_id_guard: bool,
 }
 
 impl Default for EngineFixesConfig {
@@ -402,6 +404,7 @@ impl Default for EngineFixesConfig {
             lowprocess_generic_locations_fix: true,
             model_postprocess_serialization_fix: true,
             queued_task_lifetime_guard: true,
+            patrol_owner_form_id_guard: true,
         }
     }
 }
@@ -498,6 +501,9 @@ impl EngineFixesConfig {
                 .queued_task_lifetime_guard
                 .or(legacy_task_safety)
                 .unwrap_or(default.queued_task_lifetime_guard),
+            patrol_owner_form_id_guard: raw
+                .patrol_owner_form_id_guard
+                .unwrap_or(default.patrol_owner_form_id_guard),
         }
     }
 }
@@ -614,6 +620,7 @@ struct RawEngineFixesConfig {
     lowprocess_generic_locations_fix: Option<bool>,
     model_postprocess_serialization_fix: Option<bool>,
     queued_task_lifetime_guard: Option<bool>,
+    patrol_owner_form_id_guard: Option<bool>,
 }
 
 #[derive(Default, Deserialize)]

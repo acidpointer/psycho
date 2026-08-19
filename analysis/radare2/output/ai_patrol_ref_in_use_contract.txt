@@ -1,0 +1,155 @@
+AI patrol retained-owner FormID contract audit
+==============================================
+
+Audit date: 2026-08-19
+Primary tool: radare2 MCP, analysis level 2
+Binary: fnv_reverse/FalloutNV.exe
+Format: PE32 x86, fixed image base 0x00400000, no relocation table
+SHA-256: 42fee7d6cd74e801372aa89c8f71c974cebd3c20ec9ad43d1465b8fa9646b49c
+
+Problem evidence
+----------------
+
+.reports/CrashLogger--ai-linear-task-thread.log records an access violation on
+the AI Linear Task Thread after 3:27:56 of play. EIP and EAX are 0x7F7FFFFF.
+ECX is 0xED311A40 with vtable 0x0108CE74, identified as CombatController. The
+first native return is 0x00437B00 and the stack contains
+ExtraPatrolRefInUseData, PatrolActorPackageData, Character FF000BA8, patrol
+markers 0D0076D2/0D0076D3, package 0D0024D0, and cell 0D000A22.
+
+.reports/psycho-engine-fixes-latest--ai-linear-task-thread.log records the
+main-loop watchdog after the worker fault. ai_start=242978, ai_join=242977,
+and ai_active=true prove that the main thread was waiting for the incomplete
+AI batch. Virtual memory and allocator reserves were available. One rejected
+interior free occurred almost three hours earlier; no retained call, object,
+or allocation connects it to this failure.
+
+Immediate failing contract
+--------------------------
+
+FUN_00437AB0 validates one ExtraPatrolRefInUseData for a current actor. The
+extra is in ECX and the optional current actor is its sole stack argument.
+
+If the current actor is non-NULL and its refID matches extra+0x0C, the function
+returns true without a global lookup. Otherwise it resolves the saved ID:
+
+  0x00437AD6  8B 55 F4                 mov edx,[ebp-0xC]
+  0x00437AD9  8B 42 0C                 mov eax,[edx+0xC]
+  0x00437ADC  50                       push eax
+  0x00437ADD  E8 DE BE 04 00           call 0x004839C0
+  0x00437AE2  83 C4 04                 add esp,4
+  0x00437AE5  89 45 FC                 mov [ebp-4],eax
+  0x00437AE8  83 7D FC 00              cmp [ebp-4],0
+  0x00437AEC  74 28                    je 0x00437B16
+  0x00437AEE  6A 00                    push 0
+  0x00437AF0  8B 4D FC                 mov ecx,[ebp-4]
+  0x00437AF3  8B 11                    mov edx,[ecx]
+  0x00437AF5  8B 4D FC                 mov ecx,[ebp-4]
+  0x00437AF8  8B 82 2C 02 00 00        mov eax,[edx+0x22C]
+  0x00437AFE  FF D0                    call eax
+  0x00437B00  0F B6 C8                 movzx ecx,al
+
+Only after that reference-only virtual dispatch and another flags helper does
+the validator call vtable slot +0x100 and apply its later actor gate. The
+subtype proof is therefore ordered after the unsafe subtype-specific call.
+
+The NULL branch is native recovery, not an error return:
+
+  0x00437B16  8B 45 F4                 mov eax,[ebp-0xC]
+  0x00437B19  C7 40 0C 00 00 00 00     mov dword [eax+0xC],0
+  0x00437B20  B0 01                    mov al,1
+  0x00437B22  EB 66                    jmp 0x00437B8A
+
+Returning NULL from only the call at 0x00437ADD therefore clears the stale
+saved ID and accepts the marker without reproducing package policy.
+
+Caller ownership and thread
+---------------------------
+
+FUN_0042F3D0 obtains extra type 0x88 through BaseExtraList::GetByType at
+0x00410220 and calls FUN_00437AB0 at 0x0042F3FA. No extra means available;
+otherwise it returns the validator result.
+
+FUN_009F31C0 enumerates the PatrolActorPackageData marker candidates, obtains
+each marker's extra list, and calls FUN_0042F3D0 with the package actor stored
+at PatrolActorPackageData+0x10. FUN_009F2BA0 initializes that actor and the
+remaining patrol-selection state. The captured native returns at 0x009F32D6,
+0x009F2C22, 0x0092ADD4, 0x0096BEA1, and 0x008C7C9C lead to the standard AI
+linear-task worker entry. The native validator already owns any mutation of
+the extra's saved ID; the intervention does not add shared-list mutation.
+
+Saved-ID ownership and reuse
+----------------------------
+
+FUN_004379A0 constructs ExtraPatrolRefInUseData and stores only the supplied
+actor refID at extra+0x0C. FUN_0042F300 is its creation owner. The validator's
+NULL recovery is the only other meaningful writer found for that field. The
+extra therefore holds a weak identifier, not an actor pointer or lifetime pin.
+
+TESForm construction at 0x00483370 obtains a runtime ID through
+TESDataHandler::GetNextID at 0x00469800 and registers the resulting form in the
+global map rooted at 0x011C54C0. CombatController inherits TESPackage, whose
+base construction reaches TESForm registration. xNVSE's retained engine
+contract independently states that TESObjectREFR::Destroy frees its FormID for
+reuse.
+
+The resolved object in this crash was a legitimate live form:
+
+- CombatController inherits TESPackage and has size 0x188.
+- TESPackage form type is 0x49.
+- actor-reference types are Character 0x3B and Creature 0x3C.
+- CombatController's vtable was 0x0108CE74.
+- vtable+0x22C addressed adjacent data containing 0x7F7FFFFF, so the indirect
+  call dispatched to the captured EIP.
+
+Gheap size classes also exclude one direct same-cell overwrite explanation.
+CombatController size 0x188 rounds to the 448-byte class containing
+0xED311A40, while a Character object extends beyond that class and rounds to a
+different fixed slab. The immediate failure is subtype confusion through an
+aliased FormID, not a Character allocation reused in place as CombatController.
+
+Safe intervention
+-----------------
+
+The direct cdecl call at 0x00437ADD has the exact ABI
+`u32 saved_ref -> TESForm*`. Redirecting only this call can preserve any
+ABI-compatible direct-call predecessor. The call displacement remains
+chainable while fixed bytes before it, after it, and at the NULL repair prove
+the supported function and control flow.
+
+The guard admits only Character type 0x3B or Creature type 0x3C whose embedded
+TESForm.refID still equals the requested saved ID. A NULL, wrong subtype, or
+identity mismatch returns NULL. No allocator state, RTTI traversal, global
+resolver hook, extra-list repair, package selection, or AI scheduling change
+is required.
+
+The surrounding native AI evaluation immediately dereferences every non-NULL
+result and therefore requires it to remain a readable TESForm through this
+synchronous validation. The resolver itself provides no lifetime pin. The
+guard relies on the same caller-owned lifetime and adds none. Its valid path
+therefore needs only the base type/refID reads. Low and unaligned results can
+be rejected before those reads, as can a base-field range that wraps the
+address space. OS readability probes, locks, allocations, and logging are not
+needed on the valid path.
+
+Evidence classification
+-----------------------
+
+Proven: crash thread and registers; CombatController identity; validator
+instruction order; virtual slot and indirect call; NULL repair; caller/package
+chain; extra type and saved-ID field; CombatController/TESPackage inheritance;
+form-type mismatch; AI batch left unjoined; safe cdecl intervention and NULL
+semantics.
+
+Reasoned inference: the extra retained an actor ID after that actor's
+destruction and the released ID was later assigned to the captured
+CombatController. The weak storage, engine ID allocation/registration, xNVSE
+reuse contract, and live wrong-subtype result support this mechanism, but the
+reports do not preserve the saved ID or its former actor owner.
+
+Excluded by evidence: OOM, a global allocator-map failure, direct
+CombatController/Character same-cell reuse, parallel IO, and a main-thread
+deadlock as the initiating failure.
+
+Runtime limit: no fixed candidate has yet reproduced and rejected the stale
+alias. Static proof and compilation cannot establish gameplay acceptance.

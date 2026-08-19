@@ -18,9 +18,9 @@ The control deck has five pages:
   includes explicit watch and critical pressure bands; the commit timeline uses
   a padded scale because it has no honest universal failure threshold.
 - **Runtime Fixes** identifies active patch families, including dynamic actor
-  retirement and encounter-zone form containment, and exposes cumulative
-  save/form/task exceptions, rare native IO fallbacks, current LOD ownership,
-  and the bounded native-IO scheduling policy.
+  retirement, encounter-zone containment, and patrol-owner FormID containment,
+  and exposes cumulative save/form/task exceptions, rare native IO fallbacks,
+  current LOD ownership, and the bounded native-IO scheduling policy.
 - **Configuration** edits the complete supported Psycho TOML surface. Saving is
   explicitly labelled **Save for next launch**; it never changes live core
   state.
@@ -41,15 +41,15 @@ Dear ImGui's normal tooltip delay, then opens a wrapped, width-limited
 plain-language explanation. The delay prevents popups from flashing while the
 pointer merely crosses the dashboard.
 
-Every one of the 26 `[engine_fixes]` controls has focused hover documentation
-that answers three gamer-facing questions: what broken situation it handles,
-what the enabled fix does, and whether normal valid behavior is preserved. The
-21 engine-safety controls share one ordered help catalog; borderless windowed,
-cursor confinement, and system-key passthrough have their own window/input
-help; and the installation-path repair gate and Fallout 3 text field explain
-their restart-only registry contract. The same explanation is reused where a
-fix appears on the Runtime Fixes page, so saved configuration and installed
-runtime state do not describe one feature in conflicting language.
+Every `[engine_fixes]` control exposed by the dashboard has focused hover
+documentation that answers three gamer-facing questions: what broken
+situation it handles, what the enabled fix does, and whether normal valid
+behavior is preserved. Borderless windowed, cursor confinement, and system-key
+passthrough have dedicated window/input help; the installation-path repair gate
+and Fallout 3 text field explain their restart-only registry contract. The
+same explanation is reused where a fix appears on the Runtime Fixes page, so
+saved configuration and installed runtime state do not describe one feature
+in conflicting language.
 
 All other supported configuration controls also explain their practical
 effect and tradeoff, including allocator modes, the experimental PDD purge,
@@ -483,6 +483,14 @@ and version-4 counters for false-predicate cleanups and post-install provider
 ownership loss. The active bit is derived from current provider bytes rather
 than startup success alone. The helper does not inspect a cell or reference; it
 only mirrors the core's fixed-width snapshot.
+
+The **Patrol owner FormID guard** checkbox owns
+`[engine_fixes].patrol_owner_form_id_guard`. It defaults on and changes only
+next-launch core activation. Runtime Fixes reads additive bit 12 from
+`active_features` to show whether the audited patrol-owner resolver call was
+redirected successfully. The helper never resolves a FormID, inspects patrol
+data, or initializes the core guard; it only edits the next-launch setting and
+mirrors the existing fixed-width snapshot.
 
 ## Failure behavior and compatibility boundary
 

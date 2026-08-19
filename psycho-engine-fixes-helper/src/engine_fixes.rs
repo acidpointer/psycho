@@ -50,6 +50,8 @@ pub(crate) const DASHBOARD_FEATURE_MODEL_POSTPROCESS: u64 = 1 << 9;
 pub(crate) const DASHBOARD_FEATURE_ENCOUNTER_ZONE_GUARD: u64 = 1 << 10;
 /// Core feature bit for a live cell render-list retirement cleanup provider.
 pub(crate) const DASHBOARD_FEATURE_CELL_RENDER_RETIREMENT: u64 = 1 << 11;
+/// Core feature bit for installed patrol-owner FormID containment.
+pub(crate) const DASHBOARD_FEATURE_PATROL_OWNER_FORM_ID_GUARD: u64 = 1 << 12;
 
 type NotifyEventFn =
     unsafe extern "system" fn(kind: u32, data: *const u8, data_len: usize, bool_value: i32) -> i32;

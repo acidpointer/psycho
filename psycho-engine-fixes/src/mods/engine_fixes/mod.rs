@@ -27,6 +27,7 @@ mod memset;
 mod model_postprocess;
 mod navmesh;
 mod patching;
+mod patrol_ref_in_use;
 mod queued_tasks;
 mod ragdoll;
 mod save_integrity;
@@ -63,6 +64,8 @@ pub(crate) const DASHBOARD_FEATURE_MODEL_POSTPROCESS: u64 = 1 << 9;
 pub(crate) const DASHBOARD_FEATURE_ENCOUNTER_ZONE_GUARD: u64 = 1 << 10;
 /// Dashboard bit proving a retirement cleanup provider remains active.
 pub(crate) const DASHBOARD_FEATURE_CELL_RENDER_RETIREMENT: u64 = 1 << 11;
+/// Dashboard bit proving that patrol-owner FormID containment installed.
+pub(crate) const DASHBOARD_FEATURE_PATROL_OWNER_FORM_ID_GUARD: u64 = 1 << 12;
 
 #[derive(Clone, Copy, Default)]
 pub(crate) struct DashboardCounters {
@@ -163,6 +166,9 @@ pub(crate) fn dashboard_counters() -> DashboardCounters {
     }
     if cell_render.installed {
         active_features |= DASHBOARD_FEATURE_CELL_RENDER_RETIREMENT;
+    }
+    if patrol_ref_in_use::is_installed() {
+        active_features |= DASHBOARD_FEATURE_PATROL_OWNER_FORM_ID_GUARD;
     }
 
     DashboardCounters {
@@ -271,8 +277,19 @@ pub fn install(
         model_postprocess_ready,
     );
     lod::install(lod_config, diagnostics, io_safety);
+    install_patrol_ref_in_use_guard(config);
 
     Ok(())
+}
+
+fn install_patrol_ref_in_use_guard(config: &EngineFixesConfig) {
+    if !config.patrol_owner_form_id_guard {
+        log::info!("[AI_PATROL] Patrol owner FormID guard disabled by config");
+        return;
+    }
+    if let Err(error) = patrol_ref_in_use::install() {
+        log::warn!("[AI_PATROL] Patrol owner FormID guard unavailable: {error:#}");
+    }
 }
 
 fn install_actor_container_guard(config: &EngineFixesConfig) {
