@@ -1729,15 +1729,26 @@ graph remained visibly in combat while movement-facing Explore could rotate
 the actor opposite the camera; Actor pitch was also cleared to zero in one
 write.
 
-The corrected contract uses FNV's native stop/fade owner at `0x004994F0`.
-Supported-runtime group metadata classifies Aim/AimIS as sequence type 4,
-their up variants as type 5, and their down variants as type 6; stopping type 4
-natively releases all three slots. The hip-fire pose lifetime now also retains
-camera-facing Combat. After the quiet interval it requests that native fade, preserves
-Combat through the existing 650 ms grace, and only then blends Actor yaw into
-Explore over 350 ms. The later correction below removes timer-driven pitch
-blending entirely. A temporarily unavailable graph receives a
-bounded retry, while Attack groups remain entirely event-driven.
+The direct native stop/fade correction at `0x004994F0` was also disproved by
+Proton playtest: the last shot still remained in Combat until the user produced
+a real aim-on/aim-off edge. Static engine research explains that result. Atom's
+pose adapter never sets process IsAiming, so ordinary `Actor::AimWeapon(false)`
+returns at its same-state guard and a direct type-4 stop omits the actor-owned
+sighting, state, and graph reconciliation performed by a real aim transition.
+
+The current correction stops Atom's group remapping after the quiet interval
+and calls `Actor::AimWeapon(false, true, false)` at `0x008BB650`. Its true middle
+argument bypasses only that same-state guard; desired aim remains false, so no
+ADS state is granted. The call runs outside Atom's runtime-state lease because
+the native animation path may reenter the morph detour. A player/frame/ownership
+epoch token prevents it from crossing lifecycle or ownership boundaries, and
+the request is consumed before the call so reentry cannot repeatedly issue it.
+Only a transient safety rejection can restore the bounded 750 ms request.
+Physical ADS and hard camera-owner, holster, POV, menu, VATS, world, cell,
+lifecycle, and external-owner transitions cancel it without a synthetic false
+edge. Camera-facing Combat remains retained through this transaction and the
+existing 650 ms grace; only then does Actor yaw blend into Explore over 350 ms.
+The later correction below removes timer-driven pitch blending entirely.
 
 This remains an unaccepted candidate. Proton acceptance must cover single
 shots, paced follow-up shots on both sides of the quiet interval, held fire,
@@ -1755,18 +1766,24 @@ rejected the capability before any pose smoothing could run. The supported
 body still exposes immutable group decode at `+0x09` and its sole `ret 8`
 epilogue at `+0xCE`. Atom now fingerprints those interior instructions and lets
 the existing inline-hook mechanism chain a compatible complete entry jump.
-The release owner at `0x004994F0` is validated the same way through its
-sequence-slot lookup and epilogue. No provider is identified by filename,
-version, or plugin name.
+The complete actor release owner at `0x008BB650` is validated through immutable
+same-state-guard, process-setter, and epilogue instructions. Its lower-level
+stop owner at `0x004994F0` retains the existing sequence-slot and epilogue
+validation. No provider is identified by filename, version, or plugin name.
 
-One pose epoch now combines three capability signals: buffered/held attack,
-native actions 2 through 6, and a live Attack-family sequence in one of the
-eight current `AnimData` slots. Inactive sequence states are ignored. The
-default 800 ms quiet window learns an observed inter-shot gap and may extend to
-1.4 seconds, so replacement automatic and burst animations do not cross the
-release boundary between shots. The graph scan runs only while attack begins
-or a session is already active. Weapons with `No3rdPersonISAnims` retain
-camera-facing Combat but never have a missing IS group forced into their graph.
+One pose epoch now combines buffered/held attack, native actions 2 through 6,
+and transition edges from a live Attack-family sequence in one of the eight
+current `AnimData` slots. Inactive sequence states are ignored. An unchanged
+sequence identity is not an event: `AttackLoop` can remain a live ready slot
+after the last shot and therefore cannot keep Combat or the pose alive. Graph
+edges are admitted only for the first 350 ms after live input or process fire;
+that hard bound also prevents a provider which churns sequence objects from
+sustaining the pose. The default 800 ms quiet window learns an observed
+inter-shot gap and may extend to 1.4 seconds, so replacement automatic and
+burst animations do not cross the release boundary between shots. The graph
+scan runs only inside that bridge while attack begins or a session is already
+active. Weapons with `No3rdPersonISAnims` retain camera-facing Combat but never
+have a missing IS group forced into their graph.
 
 Physical aim remains an immediate native handoff. A process-only IsAiming value
 is admitted only after 120 ms of stable non-fire state. If that value remains

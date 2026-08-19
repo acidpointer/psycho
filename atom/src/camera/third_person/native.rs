@@ -74,6 +74,7 @@ const ACTOR_SET_YAW_VTBL: usize = 0x2C4;
 const ACTIVE_3D: usize = 0x0095_0BE0;
 const WEAPON_PROJECTILE_NODE: usize = 0x0052_5700;
 const MATRIX_TO_ANGLES: usize = 0x00A5_9400;
+const ACTOR_AIM_WEAPON: usize = 0x008B_B650;
 const STOP_ANIMATION_SEQUENCE_TYPE: usize = 0x0049_94F0;
 const ACTOR_SET_PITCH: usize = 0x0093_1D90;
 const GET_CHARACTER_CONTROLLER: usize = 0x0093_06D0;
@@ -138,7 +139,7 @@ type TesPickObjectFn = unsafe extern "thiscall" fn(*mut c_void, *mut NativePickD
 type ProjectileNodeFn = unsafe extern "thiscall" fn(*mut c_void, *mut c_void) -> *mut c_void;
 type MatrixAnglesFn =
     unsafe extern "thiscall" fn(*const [[f32; 3]; 3], *mut f32, *mut f32, *mut f32) -> u8;
-type StopAnimationSequenceTypeFn = unsafe extern "thiscall" fn(*mut c_void, u32, u8);
+type ActorAimWeaponFn = unsafe extern "thiscall" fn(*mut c_void, u8, u8, u8);
 
 #[derive(Clone, Copy, Debug, Default)]
 #[repr(C)]
@@ -407,13 +408,33 @@ pub(super) fn validate_motion_contract() -> Result<(), NativeContractError> {
     Ok(())
 }
 
-/// Validate FNV's native upper-body stop/fade owner used at hip-fire release.
+/// Validate FNV's complete actor aim transition and its upper-body fade owner.
 pub(super) fn validate_hip_fire_pose_contract() -> Result<(), NativeContractError> {
-    // The entry is intentionally not fingerprinted: compatible animation
-    // plugins commonly install a complete JMP there before Atom reaches
-    // DeferredInit. Immutable instructions inside the original body prove the
-    // native stop/type lookup and epilogue while leaving the entry chainable.
+    // Both entries are intentionally not fingerprinted: compatible animation
+    // plugins may install complete JMPs before Atom reaches DeferredInit.
+    // Immutable interior instructions prove the force-same-state argument,
+    // process setter dispatch, stop/type lookup, and both x86 epilogues while
+    // leaving current entry owners chainable.
     let fingerprints: &[(usize, &[u8])] = &[
+        (
+            ACTOR_AIM_WEAPON + 0x34,
+            &[
+                0x0F, 0xB6, 0x55, 0x0C, 0x85, 0xD2, 0x75, 0x18, 0x8B, 0x4D, 0xD0, 0xE8, 0x7C, 0x05,
+                0x00, 0x00,
+            ],
+        ),
+        (
+            ACTOR_AIM_WEAPON + 0x123,
+            &[
+                0x0F, 0xB6, 0x55, 0x08, 0x52, 0x8B, 0x45, 0xD0, 0x8B, 0x48, 0x68, 0x8B, 0x55, 0xD0,
+                0x8B, 0x42, 0x68, 0x8B, 0x11, 0x8B, 0xC8, 0x8B, 0x82, 0x00, 0x04, 0x00, 0x00, 0xFF,
+                0xD0,
+            ],
+        ),
+        (
+            ACTOR_AIM_WEAPON + 0x576,
+            &[0x5E, 0x8B, 0xE5, 0x5D, 0xC2, 0x0C, 0x00],
+        ),
         (
             STOP_ANIMATION_SEQUENCE_TYPE + 0x61,
             &[
@@ -1090,17 +1111,31 @@ pub(super) unsafe fn hip_fire_is_animation_supported(player: *mut c_void) -> boo
     (unsafe { read_u32(weapon.cast(), WEAPON_FLAGS_2) } & WEAPON_NO_THIRD_PERSON_IS_ANIMS) == 0
 }
 
-/// Return whether an authored third-person attack sequence is still active.
+/// Return a stable signature for the current authored attack graph state.
 ///
 /// This graph observation complements native input/process actions for kNVSE
-/// animation replacements whose authored lifetime can outlast either signal.
-pub(super) unsafe fn hip_fire_attack_sequence_active(player: *mut c_void) -> bool {
-    let Some(anim_data) = (unsafe { player_anim_data(player) }) else {
-        return false;
-    };
-    (0..ANIM_SEQUENCE_COUNT).any(|index| unsafe {
-        active_sequence_group(anim_data, index).is_some_and(is_attack_group)
-    })
+/// animation replacements. Callers must treat only a signature change as an
+/// event: a looping AttackLoop sequence can remain active after firing and
+/// must never become a level-triggered combat owner.
+pub(super) unsafe fn hip_fire_attack_sequence_signature(player: *mut c_void) -> Option<u32> {
+    let anim_data = unsafe { player_anim_data(player) }?;
+    let mut signature = 0_u32;
+    let mut found = false;
+    for index in 0..ANIM_SEQUENCE_COUNT {
+        let Some(sequence) = (unsafe { active_sequence(anim_data, index) }) else {
+            continue;
+        };
+        if !is_attack_group(sequence.group) {
+            continue;
+        }
+        found = true;
+        let pointer = sequence.pointer as usize as u32;
+        let slot = (index as u32).wrapping_mul(0x9E37_79B9);
+        signature ^= pointer.rotate_left((index as u32 * 5) & 31)
+            ^ u32::from(sequence.group).rotate_left(19)
+            ^ slot;
+    }
+    found.then_some(signature | 1)
 }
 
 /// Admit one player animation request for Atom's active hip-fire session.
@@ -1156,17 +1191,6 @@ pub(super) enum HipFireTransition {
     Morph { anim_data: *mut c_void, group: u16 },
 }
 
-/// Resolution of one native hip-fire posture release request.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(super) enum HipFireRelease {
-    /// The live graph cannot currently expose a supported posture sequence.
-    Unavailable,
-    /// No supported Aim-family sequence remains to release.
-    Settled,
-    /// FNV accepted one native stop/fade request for the upper-body sequence type.
-    Requested,
-}
-
 /// Select the current weapon-posture group for one smooth pose transition.
 ///
 /// The returned receiver and group are valid only for the surrounding camera
@@ -1220,47 +1244,54 @@ pub(super) unsafe fn hip_fire_transition_group(
     }
 }
 
-/// Ask FNV to fade the live unaimed-fire upper-body posture back to locomotion.
+/// Ask FNV to reconcile the complete actor aim state back to locomotion.
 ///
-/// Aim and AimIS are variants of native sequence type 4; AimUp/AimISUp and
-/// AimDown/AimISDown use types 5 and 6. FNV's type-4 stop owner releases all
-/// three together with the graph's authored fade and process callbacks. A
-/// morph from AimIS to Aim would retain combat posture and is not a release.
+/// Atom's pose adapter does not set native `IsAiming`, so an ordinary
+/// `AimWeapon(false)` would return at the same-state guard. The second argument
+/// is FNV's force-reconcile path for queued presentation work. It preserves a
+/// false gameplay aim state while running the actor-owned graph resolution,
+/// process update, sighting cleanup, and authored type-4/5/6 fade together.
+/// No true/ADS transition is synthesized.
 ///
 /// # Safety
 ///
 /// [`validate_hip_fire_pose_contract`] must have succeeded during
 /// `DeferredInit`, and `player` must be live for the surrounding camera call.
-pub(super) unsafe fn release_hip_fire_pose(player: *mut c_void) -> HipFireRelease {
+/// Returns `true` only when the complete native transition was invoked.
+pub(super) unsafe fn release_hip_fire_pose(player: *mut c_void) -> bool {
     if !is_engine_pointer(player) || player != self::player() {
-        return HipFireRelease::Unavailable;
+        return false;
     }
     let process = unsafe { read_ptr(player.cast(), PLAYER_PROCESS) };
-    let anim_data = if is_engine_pointer(process) {
-        unsafe { read_ptr(process.cast(), PROCESS_ANIM_DATA) }
-    } else {
-        core::ptr::null_mut()
-    };
-    if !unsafe { hip_fire_anim_data_owned(anim_data, player) } {
-        return HipFireRelease::Unavailable;
+    if !is_engine_pointer(process) {
+        return false;
     }
-
-    let mut aim_family_visible = false;
-    for index in 0..ANIM_SEQUENCE_COUNT {
-        let Some(group) = (unsafe { active_sequence_group(anim_data, index) }) else {
-            continue;
-        };
-        if (17..=22).contains(&group) {
-            aim_family_visible = true;
-            break;
+    let Some(observation) = (unsafe { observe_process(process) }) else {
+        return false;
+    };
+    if !observation.state.weapon_out
+        || observation.attack_active
+        || !unsafe { process_has_supported_ranged_weapon(process) }
+        || !unsafe { hip_fire_is_animation_supported(player) }
+    {
+        return false;
+    }
+    let actions = latest_action_frame();
+    if actions.frame_id() == 0 || actions.context() != ActionContext::Gameplay {
+        return false;
+    }
+    for action in [ActionId::Use, ActionId::Block, ActionId::ReadyItem] {
+        let state = actions.action(action);
+        if state.down() || state.pressed() {
+            return false;
         }
     }
-    if !aim_family_visible {
-        return HipFireRelease::Settled;
-    }
 
-    unsafe { stop_animation_sequence_type()(anim_data, 4, 0) };
-    HipFireRelease::Requested
+    // `force_same_state = 1` bypasses Actor::AimWeapon's equality early-out.
+    // The desired state remains false, so this cannot grant ADS gameplay
+    // state; it only makes FNV finish the presentation transition Atom opened.
+    unsafe { actor_aim_weapon()(player, 0, 1, 0) };
+    true
 }
 
 /// Map paired third-person Aim/Attack groups without changing their variant.
@@ -1321,6 +1352,16 @@ unsafe fn player_anim_data(player: *mut c_void) -> Option<*mut c_void> {
 }
 
 unsafe fn active_sequence_group(anim_data: *mut c_void, index: usize) -> Option<u8> {
+    unsafe { active_sequence(anim_data, index) }.map(|sequence| sequence.group)
+}
+
+#[derive(Clone, Copy)]
+struct ActiveSequence {
+    pointer: *mut c_void,
+    group: u8,
+}
+
+unsafe fn active_sequence(anim_data: *mut c_void, index: usize) -> Option<ActiveSequence> {
     let sequence = unsafe {
         read_ptr(
             anim_data.cast(),
@@ -1332,11 +1373,15 @@ unsafe fn active_sequence_group(anim_data: *mut c_void, index: usize) -> Option<
     }
     // NiControllerSequence states 1..=6 are live graph participants. Dead and
     // inactive slots must not keep a session alive or be selected for morph.
-    if !(1..=6).contains(&unsafe { read_u32(sequence.cast(), ANIM_SEQUENCE_STATE) }) {
+    let state = unsafe { read_u32(sequence.cast(), ANIM_SEQUENCE_STATE) };
+    if !(1..=6).contains(&state) {
         return None;
     }
     let anim_group = unsafe { read_ptr(sequence.cast(), ANIM_SEQUENCE_GROUP) };
-    is_engine_pointer(anim_group).then(|| unsafe { read_u8(anim_group.cast(), ANIM_GROUP_CODE) })
+    is_engine_pointer(anim_group).then(|| ActiveSequence {
+        pointer: sequence,
+        group: unsafe { read_u8(anim_group.cast(), ANIM_GROUP_CODE) },
+    })
 }
 
 fn is_attack_group(group: u8) -> bool {
@@ -1670,8 +1715,8 @@ fn matrix_to_angles() -> MatrixAnglesFn {
     unsafe { core::mem::transmute(MATRIX_TO_ANGLES) }
 }
 
-fn stop_animation_sequence_type() -> StopAnimationSequenceTypeFn {
-    unsafe { core::mem::transmute(STOP_ANIMATION_SEQUENCE_TYPE) }
+fn actor_aim_weapon() -> ActorAimWeaponFn {
+    unsafe { core::mem::transmute(ACTOR_AIM_WEAPON) }
 }
 
 fn get_character_controller() -> GetCharacterControllerFn {

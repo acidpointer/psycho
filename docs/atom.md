@@ -180,26 +180,34 @@ holstering, loading, and invalid world state clear it.
 Supported third-person ranged hip fire additionally owns one debounced weapon
 pose session. The first buffered attack edge routes the current Aim/Attack
 normal, up, or down group to its matching IS group before native attack
-admission. Every held or authored active attack sequence refreshes the session.
+admission. Held input and native attack actions refresh the session; a newly
+observed Attack-family graph identity may bridge one replacement-animation
+transition only during the first 350 ms after native fire ends. An unchanged
+loop cannot refresh it, and graph churn cannot postpone release beyond that
+bridge.
 After the last action, the actor and weapon remain registered to the cursor for
 a default 800 ms. A fixed-size cadence observer can extend that quiet window to
 at most 1.4 seconds when a modded automatic or burst graph exposes wider
 between-shot gaps. Atom then stops remapping new requests and calls FNV's
-native sequence-type 4 stop owner, which fades the Aim/AimUp/AimDown and IS
-variants together back to locomotion. Camera-facing Combat remains
-authoritative through the native 650 ms fade grace; only then does Actor yaw
-return to movement-facing Explore through the shared 350 ms smooth recovery.
-If the live graph cannot
-accept the stop at the boundary, Atom retries for at most 750 ms. Explicit
-transitions never select an Attack group, so release cannot replay a firing
-action. The session therefore never alternates low-ready and aimed groups
+complete `Actor::AimWeapon(false)` transition with its same-state guard
+explicitly bypassed. Atom never requests true aim: the forced false edge makes
+FNV update the already-false process state and resolve the sighting, graph, and
+authored type-4/5/6 fade that an ordinary false call would skip. Camera-facing
+Combat remains authoritative through the native 650 ms fade grace; only then
+does Actor yaw return to movement-facing Explore through the shared 350 ms
+smooth recovery.
+If the live actor cannot safely accept the transition at the boundary, Atom
+retries for at most 750 ms. Real ADS and hard owner, holster, POV, menu, VATS,
+world, and lifecycle transitions cancel the request rather than synthesizing a
+false edge across native ownership. Explicit transitions never select an
+Attack group, so release cannot replay a firing action. The session therefore
+never alternates low-ready and aimed groups
 between shots. Physical ADS supersedes it immediately. The process IsAiming
 bit must remain stable for 120 ms when no aim input exists, and a bit retained
 by automatic fire is quarantined until it clears or a new aim input proves an
 ADS transition. This prevents stale mod/engine state from leaving head and body
 tracking biased after hip fire while retaining toggle-aim compatibility.
-Holster, POV, menu, VATS, world, lifecycle, or external-owner boundaries clear
-the session immediately. Atom changes no sequence weight per frame, does not
+Atom changes no sequence weight per frame, does not
 extend or restart an attack action, and does not force ADS.
 
 The adapter hooks `AnimData::MorphToSequenceIDOrGroup` at `0x004948C0`, changes

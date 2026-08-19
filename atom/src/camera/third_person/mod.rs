@@ -53,6 +53,7 @@ const COMBAT_RECOVERY_SECONDS: f32 = 0.35;
 const HIP_FIRE_HOLD_SECONDS: f32 = 0.80;
 const HIP_FIRE_HOLD_MAX_SECONDS: f32 = 1.40;
 const HIP_FIRE_CADENCE_MARGIN_SECONDS: f32 = 0.18;
+const HIP_FIRE_GRAPH_BRIDGE_SECONDS: f32 = 0.35;
 const HIP_FIRE_PROCESS_AIM_SETTLE_SECONDS: f32 = 0.12;
 const HIP_FIRE_RELEASE_RETRY_SECONDS: f32 = 0.75;
 const TRANSIENT_HEADING_HOLD_SECONDS: f32 = 0.12;
@@ -143,15 +144,26 @@ struct CombatPresentation {
 
 /// Debounced ownership of one third-person unaimed-fire pose session.
 ///
-/// Native input, attack actions, and active graph sequences start or refresh
-/// the session. A bounded cadence-adaptive quiet interval spans follow-up
-/// shots, after which Atom requests one native stop/fade back to locomotion.
-/// The state never drives sequence weights or restarts an attack animation.
+/// Native input and attack actions start or refresh the session. For replaced
+/// animation graphs, a changed Attack-family signature may bridge only the
+/// first 350 ms after native fire ends; a persistent loop is never activity.
+/// A bounded cadence-adaptive quiet interval then spans follow-up shots, after
+/// which Atom requests one complete native false-aim reconciliation back to
+/// locomotion. The state never drives sequence weights, requests true aim, or
+/// restarts an attack animation.
 #[derive(Clone, Copy, Debug, Default)]
 struct HipFirePresentation {
     active: bool,
     quiet_seconds: f32,
     hold_seconds: f32,
+}
+
+/// Identity of one natural hip-fire timeout awaiting native relaxation.
+#[derive(Clone, Copy)]
+struct HipFireReleaseCommand {
+    player: u32,
+    frame_id: u32,
+    epoch: u32,
 }
 
 impl HipFirePresentation {
@@ -1404,6 +1416,21 @@ pub(crate) fn enter_camera_update_scope(player: *mut c_void) -> Option<CameraUpd
         clear_preparing_camera_scope(generation, owner_thread);
         return None;
     };
+    if let Some(command) = prepared.hip_fire_release {
+        // Actor::AimWeapon can reenter Atom's animation detour, so invoke it
+        // only after releasing RuntimeStore. Identity and generation checks
+        // prevent a queued relaxation from crossing a player, reset, or
+        // camera-scope boundary.
+        let invoked = pointer_word(player) == command.player
+            && RESET_GENERATION.load(Ordering::Acquire) == reset_generation
+            && CAMERA_SCOPE_STATE.load(Ordering::Acquire) == SCOPE_PREPARING
+            && CAMERA_SCOPE_GENERATION.load(Ordering::Relaxed) == generation
+            && CAMERA_SCOPE_THREAD.load(Ordering::Relaxed) == owner_thread
+            && unsafe { native::release_hip_fire_pose(player) };
+        let _ = RUNTIME.with_mut(|runtime| {
+            runtime.complete_hip_fire_release(command, invoked);
+        });
+    }
     let actor_heading_succeeded = prepared.align_actor_heading.is_none_or(|target| {
         let Some(_facing_scope) = FacingCallScope::enter() else {
             return false;
@@ -2248,6 +2275,8 @@ struct RuntimeState {
     hip_fire_pose_published: bool,
     hip_fire_release_pending: bool,
     hip_fire_release_seconds: f32,
+    hip_fire_graph_signature: u32,
+    hip_fire_graph_bridge_seconds: f32,
     hip_fire_process_aim_seconds: f32,
     hip_fire_process_aim_blocked: bool,
     motion_aiming: bool,
@@ -2285,6 +2314,8 @@ impl RuntimeState {
             hip_fire_pose_published: false,
             hip_fire_release_pending: false,
             hip_fire_release_seconds: 0.0,
+            hip_fire_graph_signature: 0,
+            hip_fire_graph_bridge_seconds: HIP_FIRE_GRAPH_BRIDGE_SECONDS + MAX_DT,
             hip_fire_process_aim_seconds: 0.0,
             hip_fire_process_aim_blocked: false,
             motion_aiming: false,
@@ -2332,6 +2363,8 @@ impl RuntimeState {
         }
         self.hip_fire_release_pending = false;
         self.hip_fire_release_seconds = 0.0;
+        self.hip_fire_graph_signature = 0;
+        self.hip_fire_graph_bridge_seconds = HIP_FIRE_GRAPH_BRIDGE_SECONDS + MAX_DT;
         self.hip_fire_process_aim_seconds = 0.0;
         self.hip_fire_process_aim_blocked = false;
         self.motion_aiming = false;
@@ -2341,6 +2374,8 @@ impl RuntimeState {
         &mut self,
         player: *mut c_void,
         requested: bool,
+        natural_release: bool,
+        release_allowed: bool,
         delta_seconds: f32,
     ) {
         if requested {
@@ -2365,35 +2400,62 @@ impl RuntimeState {
         }
 
         if self.hip_fire_pose_published {
-            // Stop remapping new native requests immediately after the quiet
-            // interval, but retain a bounded release transaction until the
-            // live graph can accept FNV's authored upper-body fade.
+            // Stop remapping before any native relaxation. ADS and hard-owner
+            // handoffs deliberately do not synthesize a false aim edge; only
+            // expiry of Atom's own quiet interval requests reconciliation.
             publish_hip_fire_pose(core::ptr::null_mut(), false);
             self.hip_fire_pose_published = false;
-            self.hip_fire_release_pending = true;
+            self.hip_fire_release_pending = natural_release && release_allowed;
+            self.hip_fire_release_seconds = 0.0;
+        }
+        if !release_allowed {
+            self.hip_fire_release_pending = false;
             self.hip_fire_release_seconds = 0.0;
         }
         if !self.hip_fire_release_pending {
             return;
         }
 
-        match unsafe { native::release_hip_fire_pose(player) } {
-            native::HipFireRelease::Settled | native::HipFireRelease::Requested => {
-                self.hip_fire_release_pending = false;
-            }
-            native::HipFireRelease::Unavailable => {}
+        let dt = if delta_seconds.is_finite() && delta_seconds > 0.0 {
+            delta_seconds.min(MAX_DT)
+        } else {
+            0.0
+        };
+        self.hip_fire_release_seconds =
+            (self.hip_fire_release_seconds + dt).min(HIP_FIRE_RELEASE_RETRY_SECONDS + MAX_DT);
+        if self.hip_fire_release_seconds >= HIP_FIRE_RELEASE_RETRY_SECONDS {
+            self.hip_fire_release_pending = false;
+            self.hip_fire_release_seconds = 0.0;
         }
-        if self.hip_fire_release_pending {
-            let dt = if delta_seconds.is_finite() && delta_seconds > 0.0 {
-                delta_seconds.min(MAX_DT)
-            } else {
-                0.0
-            };
-            self.hip_fire_release_seconds =
-                (self.hip_fire_release_seconds + dt).min(HIP_FIRE_RELEASE_RETRY_SECONDS + MAX_DT);
-            if self.hip_fire_release_seconds >= HIP_FIRE_RELEASE_RETRY_SECONDS {
-                self.hip_fire_release_pending = false;
+    }
+
+    fn take_hip_fire_release_command(
+        &mut self,
+        frame: native::NativeFrame,
+    ) -> Option<HipFireReleaseCommand> {
+        if !self.hip_fire_release_pending {
+            return None;
+        }
+        self.hip_fire_release_pending = false;
+        Some(HipFireReleaseCommand {
+            player: pointer_word(frame.player),
+            frame_id: frame.frame_id,
+            epoch: self.ownership.epoch(),
+        })
+    }
+
+    fn complete_hip_fire_release(&mut self, command: HipFireReleaseCommand, invoked: bool) {
+        if self.player == command.player
+            && self.last_frame_id == command.frame_id
+            && self.ownership.epoch() == command.epoch
+        {
+            if invoked {
                 self.hip_fire_release_seconds = 0.0;
+            } else if !self.hip_fire_presentation.active() {
+                // A transient native precondition may clear on the next
+                // camera frame. Restore the bounded request only while this
+                // is still the same completed hip-fire session.
+                self.hip_fire_release_pending = true;
             }
         }
     }
@@ -2477,11 +2539,34 @@ impl RuntimeState {
         let ranged_weapon =
             presentation_valid && unsafe { native::hip_fire_weapon_supported(frame.player) };
         let native_hip_fire = frame_advanced && native::hip_fire_requested(frame.combat_intent);
-        let graph_attack = frame_advanced
+        if frame_advanced {
+            if native_hip_fire {
+                self.hip_fire_graph_bridge_seconds = 0.0;
+            } else {
+                self.hip_fire_graph_bridge_seconds = (self.hip_fire_graph_bridge_seconds
+                    + validated_delta(frame.delta_seconds))
+                .min(HIP_FIRE_GRAPH_BRIDGE_SECONDS + MAX_DT);
+            }
+        }
+        let graph_bridge_active =
+            self.hip_fire_graph_bridge_seconds <= HIP_FIRE_GRAPH_BRIDGE_SECONDS;
+        let graph_signature = (frame_advanced
             && ranged_weapon
-            && (native_hip_fire || self.hip_fire_presentation.active())
-            && unsafe { native::hip_fire_attack_sequence_active(frame.player) };
-        let hip_fire_activity = ranged_weapon && (native_hip_fire || graph_attack);
+            && graph_bridge_active
+            && (native_hip_fire || self.hip_fire_presentation.active()))
+        .then(|| unsafe { native::hip_fire_attack_sequence_signature(frame.player) })
+        .flatten();
+        let graph_attack_edge = graph_bridge_active
+            && graph_signature.is_some_and(|signature| signature != self.hip_fire_graph_signature);
+        if let Some(signature) = graph_signature {
+            self.hip_fire_graph_signature = signature;
+        } else if frame_advanced && self.hip_fire_presentation.active() {
+            self.hip_fire_graph_signature = 0;
+        }
+        // Graph changes can bridge a replacement animation's admission edge,
+        // but only close to real input/process fire. The hard time bound also
+        // guarantees release if a provider churns sequence objects or slots.
+        let hip_fire_activity = ranged_weapon && (native_hip_fire || graph_attack_edge);
         let physical_aim = unsafe { native::player_aim_input_requested(frame.player) };
         let process_aim = unsafe { native::player_process_aiming(frame.player) };
         if frame_advanced {
@@ -2515,18 +2600,28 @@ impl RuntimeState {
             && self.hip_fire_process_aim_seconds >= HIP_FIRE_PROCESS_AIM_SETTLE_SECONDS;
         self.motion_aiming = physical_aim || settled_process_aim;
         let hip_fire_context_valid = ranged_weapon && !physical_aim && !settled_process_aim;
+        let hip_fire_was_active = self.hip_fire_presentation.active();
         self.hip_fire_presentation.advance(
             hip_fire_activity,
             hip_fire_context_valid,
             frame.delta_seconds,
             frame_advanced,
         );
+        let natural_hip_fire_release = frame_advanced
+            && hip_fire_was_active
+            && !self.hip_fire_presentation.active()
+            && hip_fire_context_valid
+            && presentation_valid
+            && !hip_fire_activity;
         // Keep camera-facing Combat active through the complete debounced
         // weapon-ready session. Its grace/fade and recovery may begin only
         // after the posture owner releases, otherwise Explore movement can
         // rotate the body while the graph still visibly presents Combat.
         self.combat_presentation.advance(
-            native_combat || self.hip_fire_presentation.active(),
+            native_combat
+                || self.hip_fire_presentation.active()
+                || self.hip_fire_release_pending
+                || natural_hip_fire_release,
             presentation_valid,
             frame.delta_seconds,
             frame_advanced,
@@ -2536,7 +2631,9 @@ impl RuntimeState {
         let combat = frame.weapon_out
             && (!config.drawn_360()
                 || self.combat_presentation.owns_combat_facing()
-                || self.hip_fire_presentation.active());
+                || self.hip_fire_presentation.active()
+                || self.hip_fire_release_pending
+                || natural_hip_fire_release);
         let native_state_clear = enabled && frame.hard_valid && !external_owner && !fighting_owner;
         let handoff_delta = if frame_advanced {
             frame.delta_seconds
@@ -2584,14 +2681,21 @@ impl RuntimeState {
             self.clear_temporal();
         }
         if frame_advanced {
+            let hip_fire_animation_supported = HIP_FIRE_POSE_ADMITTED.load(Ordering::Acquire)
+                && unsafe { native::hip_fire_is_animation_supported(frame.player) };
             let hip_fire_pose_requested = self.ownership.state().is_owned()
                 && hip_fire_context_valid
-                && HIP_FIRE_POSE_ADMITTED.load(Ordering::Acquire)
-                && unsafe { native::hip_fire_is_animation_supported(frame.player) }
+                && hip_fire_animation_supported
                 && self.hip_fire_presentation.active();
+            let hip_fire_release_allowed = self.ownership.state().is_owned()
+                && presentation_valid
+                && hip_fire_context_valid
+                && hip_fire_animation_supported;
             self.reconcile_hip_fire_pose(
                 frame.player,
                 hip_fire_pose_requested,
+                natural_hip_fire_release,
+                hip_fire_release_allowed,
                 frame.delta_seconds,
             );
         }
@@ -2671,7 +2775,13 @@ impl RuntimeState {
         let framing_enabled =
             config.framing_enabled() && FRAMING_CONTRACT_ACTIVE.load(Ordering::Acquire);
         let motion_enabled = config.motion_enabled() && MOTION_ACTIVE.load(Ordering::Acquire);
-        if !follow_enabled && !movement_enabled && !framing_enabled && !motion_enabled {
+        let hip_fire_release = self.take_hip_fire_release_command(frame);
+        if !follow_enabled
+            && !movement_enabled
+            && !framing_enabled
+            && !motion_enabled
+            && hip_fire_release.is_none()
+        {
             return None;
         }
 
@@ -2756,6 +2866,7 @@ impl RuntimeState {
             follow_offset,
             motion_offset: self.motion_offset,
             motion_sample,
+            hip_fire_release,
         })
     }
 
@@ -2880,6 +2991,7 @@ struct PreparedCameraFrame {
     follow_offset: Vec3,
     motion_offset: Vec3,
     motion_sample: Option<super::NativeMotionCarrier>,
+    hip_fire_release: Option<HipFireReleaseCommand>,
 }
 
 #[derive(Clone, Copy)]

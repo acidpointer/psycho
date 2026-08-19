@@ -217,22 +217,30 @@ retains its last value and the established Explore ownership edge performs one
 neutralization. During recovery, camera recenter remains suppressed.
 
 Supported player hip fire has a separate visual lifetime. One buffered attack
-edge opens the session before native attack admission; held input, native
-actions 2 through 6, and active Attack-family graph slots refresh it. When the
-last action ends, Atom retains the view-facing weapon-ready pose for a default
-800 ms. Observed between-shot gaps can extend that bounded quiet interval to
-1.4 seconds, so automatic, burst, low-frame-rate, and replacement animation
-cadences remain one session instead of alternating families. The Combat facing
-envelope does not begin its fade grace until this session ends. Physical ADS,
-holster, POV, menu, VATS, cell/world, lifecycle, external-owner, unsupported
-weapon, and invalid graph boundaries clear the session.
+edge opens the session before native attack admission; held input and native
+actions 2 through 6 refresh it. A newly observed Attack-family graph identity
+may bridge one replacement-animation transition during the first 350 ms after
+native fire ends. An unchanged loop is not fire intent, and sequence churn
+cannot postpone release beyond that hard bridge. When the last action ends,
+Atom retains the view-facing weapon-ready pose for a default 800 ms after the
+last admitted activity. Observed between-shot gaps can extend that bounded
+quiet interval to 1.4 seconds, so automatic, burst, low-frame-rate, and
+replacement animation cadences remain one session instead of alternating
+families. The Combat facing envelope does not begin its fade grace until this
+session ends. Physical ADS, holster, POV, menu, VATS, cell/world, lifecycle,
+external-owner, unsupported weapon, and invalid graph boundaries clear the
+session.
 
-Release is a bounded transaction rather than a posture-family morph. Atom
-first stops remapping new native groups, then searches only the live Aim/AimIS
-posture family. If one is visible it calls `AnimData`'s native sequence-type 4
-stop owner once; if the graph is temporarily unavailable it retries for at
-most 750 ms. No visible Aim-family sequence means there is nothing left for
-Atom to release. Attack groups remain event-driven and are never selected by
+Release is a bounded complete actor transition rather than a posture-family
+morph or direct sequence stop. Atom first stops remapping new native groups,
+then calls `Actor::AimWeapon(false, true, false)` only for expiry of Atom's own
+quiet interval. The true middle argument bypasses the native same-state guard:
+Atom's visual adapter never set process IsAiming, so the ordinary false call
+would otherwise return before graph cleanup. Desired aim remains false, and
+Atom never synthesizes a true ADS edge. A temporarily unsafe actor/action
+boundary retains the request for at most 750 ms. Physical ADS and hard owner,
+holster, POV, menu, VATS, cell/world, lifecycle, and external-owner boundaries
+cancel it instead. Attack groups remain event-driven and are never selected by
 explicit entry or exit, so retry cannot replay a shot.
 
 The native adapter is the entry of
@@ -252,15 +260,22 @@ Atom's inline owner to chain a compatible complete jump installed earlier. A
 weapon whose flags declare `No3rdPersonISAnims` keeps camera-facing policy but
 never enters the group adapter.
 
-Release uses the separate native owner at `0x004994F0`, with ABI
-`void __thiscall(AnimData*, u32 sequenceType, u8 flag)`. The supported-runtime
+The complete release owner is `Actor::AimWeapon` at `0x008BB650`, with ABI
+`void __thiscall(Actor*, u8 shouldAim, u8 forceSameState, u8 queuedGuard)`.
+At `0x008BB684`, `forceSameState` bypasses the comparison against the process
+IsAiming virtual; at `0x008BB773`, the routine dispatches the process state
+setter at vtable offset `0x400` and retains FNV's sighting-node, animation
+resolution, and fade policy. Its internal stop owner remains `0x004994F0`, with
+ABI `void __thiscall(AnimData*, u32 sequenceType, u8 flag)`. The supported
 animation-group table at `0x011977D8` classifies Aim and AimIS as sequence type
 4, their up variants as type 5, and their down variants as type 6. The type-4
-branch stops types 5 and 6 before stopping type 4, using FNV's existing fade
-and process callbacks. Therefore `AimIS -> Aim` is not relaxation: both groups
-remain the same upper-body combat sequence type. Atom fingerprints this owner
-through immutable interior lookup and epilogue instructions before admitting
-the hip-fire adapter and never calls it from a per-frame path.
+branch stops types 5 and 6 before stopping type 4. Therefore `AimIS -> Aim` is
+not relaxation: both groups remain the same upper-body combat sequence type,
+and a direct type-4 stop is an incomplete substitute for the actor-owned state
+transition. Atom fingerprints immutable interiors and epilogues of both
+owners, calls the current actor entry so a compatible earlier hook remains in
+the chain, and invokes it outside `RuntimeStore` because animation resolution
+can reenter Atom's morph detour.
 
 FNV exposes process IsAiming independently from the physical aim action, and
 third-party animation/controller mods may retain that process bit after
@@ -294,8 +309,8 @@ VATS, and player/NPC behavior. It is not an appropriate first policy hook.
 - Preserve the ten weapon-condition curves used for rate of fire, jam, and
   reload jam.
 - Preserve perk-driven attack, reload, equip, and aiming-movement speed.
-- Keep one hip-fire pose session across repeated shots; do not force the native
-  aiming flag, restart attack animations, or write animation weights per frame.
+- Keep one hip-fire pose session across repeated shots; never request true
+  native aim, restart attack animations, or write animation weights per frame.
 - Treat reload as a stateful native operation, including extended clips, ammo
   swaps/hotkeys, animation selection, and VATS playback. An instant inventory
   transfer is not an equivalent replacement.
