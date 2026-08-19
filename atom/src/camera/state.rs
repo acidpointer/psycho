@@ -299,15 +299,33 @@ impl MotionState {
             sample.motion.authored_animation(),
         );
         let generated = self.generator.update(motion, config);
+        // The head rotation is a world render layer, just like third-person
+        // gait rotation. The close-up weapon camera uses a different projection
+        // and FNV already animates its graph, so copying either common head
+        // translation or rotation there exaggerates the motion on screen.
+        // Publish only Atom's non-oscillating weapon-inertia remainder there.
+        let head_rotation = generated.head_rotation();
         MotionAdvance::Published(CameraMotionFrame {
             epoch: self.epoch,
             valid: config.enabled(),
             locomotion: motion.locomotion(),
             aiming: motion.aiming(),
-            world_pose: generated.world_pose(),
-            viewmodel_pose: generated.viewmodel_pose(),
+            world_pose: add_common_head_rotation(generated.world_pose(), head_rotation),
+            viewmodel_pose: generated.relative_viewmodel_pose(),
         })
     }
+}
+
+fn add_common_head_rotation(pose: CameraPose, head_rotation: [f32; 3]) -> CameraPose {
+    let relative = pose.rotation();
+    CameraPose::new(
+        pose.translation(),
+        [
+            relative[0] + head_rotation[0],
+            relative[1] + head_rotation[1],
+            relative[2] + head_rotation[2],
+        ],
+    )
 }
 
 fn wrapped_angle_delta(current: f32, previous: f32) -> f32 {

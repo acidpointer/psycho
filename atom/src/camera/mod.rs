@@ -13,10 +13,11 @@
 //! immutable pose pair, and applies the world pose around one complete native
 //! render route so sky preparation, world rendering, first-person rendering,
 //! and image-space effects observe one camera. A nested viewmodel scope adds
-//! weapon-relative motion only while no authored animation owns it. The exact
-//! native transforms are restored before the route returns. Stable world motion
-//! is constrained to bounded translation. Third person may add sub-degree
-//! render-scoped roll/pitch after chase collision; aiming suppresses it.
+//! bounded weapon inertia only while no authored animation owns it; FNV retains
+//! ownership of close-up weapon cadence. The exact native transforms are
+//! restored before the route returns. First- and third-person world cameras
+//! may add bounded sub-degree render-scoped roll/pitch. Aiming suppresses
+//! first-person world-camera motion exactly.
 
 mod aim;
 mod config;

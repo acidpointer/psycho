@@ -6,11 +6,12 @@
 //! gait phase only while the native mover has directional locomotion; analytic
 //! damping controls envelopes, cadence, and viewmodel inertia; landing is a
 //! one-shot air-to-ground event. Cadence is analytically filtered and capped
-//! before it reaches one smooth footfall waveform. A translation-only head
-//! layer is shared by the world and first-person cameras so the weapon remains
-//! registered with the scene. The first-person camera then receives a smaller
-//! relative layer for weapon weight and look inertia. Authored actions own that
-//! relative layer exclusively. Every result is zero-centered and bounded
+//! before it reaches one smooth footfall waveform. A conservative translation
+//! plus sub-degree render rotation forms the world-camera head layer. FNV's
+//! native first-person graph remains the sole owner of locomotion cadence for
+//! the close-up hands/weapon projection; Atom adds only a non-oscillating
+//! movement-weight offset and bounded look inertia there. Authored actions own
+//! that relative layer exclusively. Every result is zero-centered and bounded
 //! before it can reach a native transform.
 
 use core::f32::consts::PI;
@@ -34,29 +35,63 @@ const LANDING_DEAD_ZONE: f32 = 120.0;
 const LANDING_SATURATION: f32 = 620.0;
 const ENVELOPE_SETTLE_EPSILON: f32 = 1.0e-5;
 const SPRING_SETTLE_EPSILON: f32 = 1.0e-6;
+const HEAD_GAIT_ROLL_RADIANS: f32 = 0.0065;
+const HEAD_GAIT_PITCH_RADIANS: f32 = 0.0045;
+const HEAD_LANDING_PITCH_RADIANS: f32 = 0.0050;
+const MAX_HEAD_PITCH_RADIANS: f32 = 0.0080;
 
-/// Bounded world and viewmodel poses generated for one accepted update.
+/// Bounded world and relative-viewmodel bases for one accepted update.
+///
+/// The public composite accessor preserves the logical head-plus-weapon pose
+/// used by pure motion consumers. The frame publisher applies only the
+/// relative pose to FNV's separately projected close-up weapon camera; copying
+/// the world head layer there visibly amplifies it through viewmodel parallax.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct GeneratedMotion {
     world_pose: CameraPose,
-    viewmodel_pose: CameraPose,
+    relative_viewmodel_pose: CameraPose,
+    head_rotation: [f32; 3],
 }
 
 impl GeneratedMotion {
     /// An exact identity result which performs no camera write.
     pub const IDENTITY: Self = Self {
         world_pose: CameraPose::IDENTITY,
-        viewmodel_pose: CameraPose::IDENTITY,
+        relative_viewmodel_pose: CameraPose::IDENTITY,
+        head_rotation: [0.0; 3],
     };
 
-    /// Return the additive world-camera pose.
+    /// Return the additive world-camera translation base.
     pub const fn world_pose(self) -> CameraPose {
         self.world_pose
     }
 
-    /// Return the common head pose plus additive hands/weapon motion.
+    /// Return logical head translation plus additive hands/weapon motion.
     pub const fn viewmodel_pose(self) -> CameraPose {
-        self.viewmodel_pose
+        let common = self.world_pose.translation();
+        let relative = self.relative_viewmodel_pose.translation();
+        CameraPose::new(
+            [
+                common[0] + relative[0],
+                common[1] + relative[1],
+                common[2] + relative[2],
+            ],
+            self.relative_viewmodel_pose.rotation(),
+        )
+    }
+
+    /// Return only motion Atom may add to the close-up weapon projection.
+    pub(super) const fn relative_viewmodel_pose(self) -> CameraPose {
+        self.relative_viewmodel_pose
+    }
+
+    /// Return world render-only `[roll, yaw, pitch]` head rotation.
+    ///
+    /// The frame publisher composes this onto the world pose only. Keeping it
+    /// separate mirrors third-person motion's render layer and prevents the
+    /// close-up weapon projection from magnifying it.
+    pub(super) const fn head_rotation(self) -> [f32; 3] {
+        self.head_rotation
     }
 }
 
@@ -96,7 +131,7 @@ impl MotionInput {
     /// `[yaw, pitch]` in radians for this update, after Atom Input and native
     /// heading processing. `aiming` controls precision attenuation;
     /// `authored_animation` grants native animation exclusive ownership of
-    /// motion relative to the common head pose.
+    /// motion relative to the world presentation.
     pub const fn new(
         delta_seconds: f32,
         relative_velocity: [f32; 3],
@@ -300,7 +335,6 @@ impl MotionGenerator {
         // fourth harmonic amplified a normal sprint into visible rapid shake
         // even though each individual offset remained numerically small.
         let vertical = (2.0 * phase - PI * 0.5).sin();
-        let fore = (2.0 * phase + 0.50).sin();
         // Squaring the analytic envelope keeps slow movement restrained while
         // preserving full-scale running motion and the exact zero boundary.
         // Cadence still follows distance, so this changes weight, not timing.
@@ -309,17 +343,17 @@ impl MotionGenerator {
             landing_curve(self.landing_amplitude, self.landing_age) * config.landing_motion();
 
         // The native collision helper is a stateful chase-camera transaction,
-        // not a reusable first-person clearance query. Stable head motion is
-        // therefore kept well below one game unit. Stable mode is translation
-        // only: even a forward-axis roll preserves aim direction but moves the
-        // horizon and is a known comfort hazard. Fore/aft movement also remains
-        // viewmodel-only because its tiny absolute-world offset is vulnerable
-        // to high-coordinate quantization and adds near-wall parallax.
+        // not a reusable first-person clearance query. Positional head motion
+        // therefore stays well below one game unit and fore/aft movement
+        // remains viewmodel-only. A sub-degree roll/pitch layer supplies the
+        // perceptible world motion without adding near-wall translation. It is
+        // composed only for world rendering. Applying that same transform to
+        // the separately projected close-up weapon camera magnifies its screen
+        // displacement, while FNV's weapon graph already supplies locomotion.
         // Aiming removes the world offset immediately; leaving it fades back
         // through the analytic aim envelope. Weapon animation does not remove
-        // locomotion from the player's head. Instead, that same head pose is
-        // inherited by the first-person camera while native animation alone
-        // owns motion relative to the scene.
+        // locomotion from the player's head. Native animation alone owns the
+        // weapon's movement relative to that scene motion.
         let world_gain = if input.aiming {
             0.0
         } else {
@@ -331,8 +365,18 @@ impl MotionGenerator {
             side * 0.08 * gait * world_gain,
         ];
         let world_rotation = [0.0; 3];
+        let head_rotation = [
+            -side * HEAD_GAIT_ROLL_RADIANS * gait * world_gain,
+            0.0,
+            (vertical * HEAD_GAIT_PITCH_RADIANS * gait + landing * HEAD_LANDING_PITCH_RADIANS)
+                * world_gain,
+        ];
 
         let Some(world_pose) = bounded_world_pose(world_translation, world_rotation) else {
+            self.reset();
+            return GeneratedMotion::IDENTITY;
+        };
+        let Some(head_rotation) = bounded_head_rotation(head_rotation) else {
             self.reset();
             return GeneratedMotion::IDENTITY;
         };
@@ -340,21 +384,20 @@ impl MotionGenerator {
         let viewmodel_precision_gain = 1.0 + (config.aim_motion() - 1.0) * self.aim_weight;
         let viewmodel_gain =
             config.weapon_motion() * viewmodel_precision_gain * (1.0 - self.animation_weight);
-        let common_translation = world_pose.translation();
         let viewmodel_translation = [
-            common_translation[0] + (fore * 0.10 * gait + landing * 0.08) * viewmodel_gain,
-            common_translation[1] + (vertical * 0.08 * gait + landing * 0.32) * viewmodel_gain,
-            common_translation[2]
-                + (side * 0.08 * gait + self.yaw_inertia.position * 24.0) * viewmodel_gain,
+            // Preserve controllable weapon weight without another footstep
+            // waveform. This follows only the analytic movement envelope, so
+            // it eases once on start/stop instead of oscillating.
+            -0.015 * gait * viewmodel_gain,
+            0.0,
+            self.yaw_inertia.position * 24.0 * viewmodel_gain,
         ];
         let viewmodel_rotation = [
-            (-side * 0.0016 * gait - self.yaw_inertia.velocity * 0.000_08) * viewmodel_gain,
+            -self.yaw_inertia.velocity * 0.000_08 * viewmodel_gain,
             self.yaw_inertia.position * viewmodel_gain,
-            ((2.0 * phase + 0.20).sin() * 0.0012 * gait + self.pitch_inertia.position
-                - landing * 0.0012)
-                * viewmodel_gain,
+            self.pitch_inertia.position * viewmodel_gain,
         ];
-        let Some(viewmodel_pose) =
+        let Some(relative_viewmodel_pose) =
             bounded_viewmodel_pose(viewmodel_translation, viewmodel_rotation)
         else {
             self.reset();
@@ -362,7 +405,8 @@ impl MotionGenerator {
         };
         GeneratedMotion {
             world_pose,
-            viewmodel_pose,
+            relative_viewmodel_pose,
+            head_rotation,
         }
     }
 
@@ -488,6 +532,16 @@ fn bounded_world_pose(translation: [f32; 3], rotation: [f32; 3]) -> Option<Camer
         ],
         [rotation[0].clamp(-0.006, 0.006), 0.0, 0.0],
     ))
+}
+
+fn bounded_head_rotation(rotation: [f32; 3]) -> Option<[f32; 3]> {
+    rotation.into_iter().all(f32::is_finite).then(|| {
+        [
+            rotation[0].clamp(-HEAD_GAIT_ROLL_RADIANS, HEAD_GAIT_ROLL_RADIANS),
+            0.0,
+            rotation[2].clamp(-MAX_HEAD_PITCH_RADIANS, MAX_HEAD_PITCH_RADIANS),
+        ]
+    })
 }
 
 fn bounded_viewmodel_pose(translation: [f32; 3], rotation: [f32; 3]) -> Option<CameraPose> {

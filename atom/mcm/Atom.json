@@ -27,7 +27,7 @@
         "2": {
           "type": 4,
           "title": "Enable Input",
-          "mouse": "All Devices",
+          "mouse": "Input overhaul",
           "enable": 1,
           "vars": [
             {
@@ -44,7 +44,7 @@
         "4": {
           "type": 1,
           "title": "Response Profile",
-          "mouse": "Look Processing",
+          "mouse": "Look processing",
           "enable": 1,
           "strings": [
             "Native",
@@ -61,6 +61,7 @@
         "5": {
           "type": 2.5,
           "title": "Sensitivity",
+          "mouse": "Overall speed",
           "enable": 1,
           "scale": {
             "valueDecimal": 2,
@@ -78,6 +79,7 @@
         "6": {
           "type": 2.5,
           "title": "Horizontal Scale",
+          "mouse": "Horizontal speed",
           "enable": 1,
           "scale": {
             "valueDecimal": 2,
@@ -95,6 +97,7 @@
         "7": {
           "type": 2.5,
           "title": "Vertical Scale",
+          "mouse": "Vertical speed",
           "enable": 1,
           "scale": {
             "valueDecimal": 2,
@@ -112,6 +115,7 @@
         "8": {
           "type": 4,
           "title": "Invert Horizontal",
+          "mouse": "Reverse horizontal",
           "enable": 1,
           "vars": [
             {
@@ -123,6 +127,7 @@
         "9": {
           "type": 4,
           "title": "Invert Vertical",
+          "mouse": "Reverse vertical",
           "enable": 1,
           "vars": [
             {
@@ -139,6 +144,7 @@
         "11": {
           "type": 2.5,
           "title": "Left Deadzone",
+          "mouse": "Move deadzone",
           "enable": 1,
           "scale": {
             "valueDecimal": 2,
@@ -156,6 +162,7 @@
         "12": {
           "type": 2.5,
           "title": "Right Deadzone",
+          "mouse": "Look deadzone",
           "enable": 1,
           "scale": {
             "valueDecimal": 2,
@@ -173,6 +180,7 @@
         "13": {
           "type": 2.5,
           "title": "Response Curve",
+          "mouse": "Stick response",
           "enable": 1,
           "scale": {
             "valueDecimal": 2,
@@ -190,6 +198,7 @@
         "14": {
           "type": 2.5,
           "title": "Anti-Deadzone",
+          "mouse": "Minimum output",
           "enable": 1,
           "scale": {
             "valueDecimal": 2,
@@ -207,6 +216,7 @@
         "15": {
           "type": 2.5,
           "title": "Saturation",
+          "mouse": "Maximum output",
           "enable": 1,
           "scale": {
             "valueDecimal": 2,
@@ -224,6 +234,7 @@
         "16": {
           "type": 2.5,
           "title": "Horizontal Scale",
+          "mouse": "Horizontal speed",
           "enable": 1,
           "scale": {
             "valueDecimal": 2,
@@ -241,6 +252,7 @@
         "17": {
           "type": 2.5,
           "title": "Vertical Scale",
+          "mouse": "Vertical speed",
           "enable": 1,
           "scale": {
             "valueDecimal": 2,
@@ -258,6 +270,7 @@
         "18": {
           "type": 4,
           "title": "Invert X",
+          "mouse": "Reverse horizontal",
           "enable": 1,
           "vars": [
             {
@@ -269,6 +282,7 @@
         "19": {
           "type": 4,
           "title": "Invert Y",
+          "mouse": "Reverse vertical",
           "enable": 1,
           "vars": [
             {
@@ -285,6 +299,7 @@
         "21": {
           "type": 2.5,
           "title": "Press Threshold",
+          "mouse": "Press point",
           "enable": 1,
           "scale": {
             "valueDecimal": 2,
@@ -302,7 +317,7 @@
         "22": {
           "type": 2.5,
           "title": "Release Threshold",
-          "mouse": "Below Press",
+          "mouse": "Release point",
           "enable": 1,
           "scale": {
             "valueDecimal": 2,
@@ -333,6 +348,7 @@
         "2": {
           "type": 4,
           "title": "Enable Motion",
+          "mouse": "All first-person motion",
           "enable": 1,
           "vars": [
             {
@@ -344,6 +360,7 @@
         "3": {
           "type": 2.5,
           "title": "Head Motion",
+          "mouse": "World bob strength",
           "enable": 1,
           "scale": {
             "valueDecimal": 2,
@@ -361,6 +378,7 @@
         "4": {
           "type": 2.5,
           "title": "Weapon Motion",
+          "mouse": "Weapon inertia",
           "enable": 1,
           "scale": {
             "valueDecimal": 2,
@@ -378,6 +396,7 @@
         "5": {
           "type": 2.5,
           "title": "Land Motion",
+          "mouse": "Head landing strength",
           "enable": 1,
           "scale": {
             "valueDecimal": 2,
@@ -395,6 +414,7 @@
         "6": {
           "type": 2.5,
           "title": "Aim Motion",
+          "mouse": "ADS inertia fraction",
           "enable": 1,
           "scale": {
             "valueDecimal": 2,
@@ -417,6 +437,7 @@
         "8": {
           "type": 4,
           "title": "Enable Follow",
+          "mouse": "Smooth follow",
           "enable": 1,
           "vars": [
             {
@@ -428,6 +449,7 @@
         "9": {
           "type": 2.5,
           "title": "Follow Speed",
+          "mouse": "Follow response",
           "enable": 1,
           "scale": {
             "valueDecimal": 2,
@@ -445,6 +467,7 @@
         "10": {
           "type": 2.5,
           "title": "Soft Zone",
+          "mouse": "Center tolerance",
           "enable": 1,
           "scale": {
             "valueDecimal": 1,
@@ -462,6 +485,7 @@
         "11": {
           "type": 2.5,
           "title": "Look Ahead",
+          "mouse": "Movement lead",
           "enable": 1,
           "scale": {
             "valueDecimal": 1,
@@ -484,6 +508,7 @@
         "13": {
           "type": 4,
           "title": "Auto Center",
+          "mouse": "Movement recenter",
           "enable": 1,
           "vars": [
             {
@@ -495,7 +520,7 @@
         "14": {
           "type": 2.5,
           "title": "Center Delay",
-          "mouse": "Seconds",
+          "mouse": "Idle delay",
           "enable": 1,
           "scale": {
             "valueDecimal": 2,
@@ -513,7 +538,7 @@
         "15": {
           "type": 2.5,
           "title": "Center Speed",
-          "mouse": "Degrees Second",
+          "mouse": "Recenter speed",
           "enable": 1,
           "scale": {
             "valueDecimal": 0,
@@ -531,7 +556,7 @@
         "16": {
           "type": 2.5,
           "title": "Zoom Step",
-          "mouse": "World Units",
+          "mouse": "Scroll distance",
           "enable": 1,
           "scale": {
             "valueDecimal": 1,
@@ -549,6 +574,7 @@
         "17": {
           "type": 4,
           "title": "Enable Framing",
+          "mouse": "Custom position",
           "enable": 1,
           "vars": [
             {
@@ -560,7 +586,7 @@
         "18": {
           "type": 2.5,
           "title": "Min Distance",
-          "mouse": "World Units",
+          "mouse": "Closest distance",
           "enable": 1,
           "scale": {
             "valueDecimal": 0,
@@ -578,7 +604,7 @@
         "19": {
           "type": 2.5,
           "title": "Max Distance",
-          "mouse": "World Units",
+          "mouse": "Farthest distance",
           "enable": 1,
           "scale": {
             "valueDecimal": 0,
@@ -596,7 +622,7 @@
         "20": {
           "type": 2.5,
           "title": "Start Distance",
-          "mouse": "World Units",
+          "mouse": "Initial distance",
           "enable": 1,
           "scale": {
             "valueDecimal": 0,
@@ -614,7 +640,7 @@
         "21": {
           "type": 2.5,
           "title": "Side Offset",
-          "mouse": "World Units",
+          "mouse": "Horizontal position",
           "enable": 1,
           "scale": {
             "valueDecimal": 0,
@@ -632,7 +658,7 @@
         "22": {
           "type": 2.5,
           "title": "Height Offset",
-          "mouse": "World Units",
+          "mouse": "Vertical position",
           "enable": 1,
           "scale": {
             "valueDecimal": 0,
@@ -650,6 +676,7 @@
         "23": {
           "type": 4,
           "title": "Enable Motion",
+          "mouse": "Third person bob",
           "enable": 1,
           "vars": [
             {
@@ -661,6 +688,7 @@
         "24": {
           "type": 2.5,
           "title": "Motion Strength",
+          "mouse": "Movement intensity",
           "enable": 1,
           "scale": {
             "valueDecimal": 2,
@@ -678,6 +706,7 @@
         "25": {
           "type": 2.5,
           "title": "Land Motion",
+          "mouse": "Landing intensity",
           "enable": 1,
           "scale": {
             "valueDecimal": 2,
@@ -700,7 +729,7 @@
         "27": {
           "type": 4,
           "title": "360 Movement",
-          "mouse": "Camera Relative",
+          "mouse": "Camera relative",
           "enable": 1,
           "vars": [
             {
@@ -712,7 +741,7 @@
         "28": {
           "type": 2.5,
           "title": "Turn Speed",
-          "mouse": "Degrees Second",
+          "mouse": "Actor turn speed",
           "enable": 1,
           "scale": {
             "valueDecimal": 0,
@@ -730,7 +759,7 @@
         "29": {
           "type": 4,
           "title": "Drawn 360",
-          "mouse": "Weapons Drawn",
+          "mouse": "Weapons drawn",
           "enable": 1,
           "vars": [
             {
@@ -755,7 +784,7 @@
         "2": {
           "type": 4,
           "title": "Physical Rounds",
-          "mouse": "Native Flight",
+          "mouse": "Real projectile flight",
           "enable": 1,
           "vars": [
             {
@@ -780,7 +809,7 @@
         "2": {
           "type": 4,
           "title": "Telemetry",
-          "mouse": "Runtime Counters",
+          "mouse": "Runtime counters",
           "enable": 1,
           "vars": [
             {
@@ -792,7 +821,7 @@
         "3": {
           "type": 4,
           "title": "Runtime Summary",
-          "mouse": "Next Close",
+          "mouse": "Log on close",
           "enable": 1,
           "vars": [
             {
@@ -809,7 +838,7 @@
         "5": {
           "type": 4,
           "title": "Flight Trace",
-          "mouse": "Flight Events",
+          "mouse": "Projectile events",
           "enable": 1,
           "vars": [
             {
@@ -821,7 +850,7 @@
         "6": {
           "type": 4,
           "title": "Flight Summary",
-          "mouse": "Next Close",
+          "mouse": "Log on close",
           "enable": 1,
           "vars": [
             {

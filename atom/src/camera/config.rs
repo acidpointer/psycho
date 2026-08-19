@@ -1,10 +1,11 @@
 //! MCM-owned first-person presentation settings.
 //!
-//! The camera gain controls the common conservative head layer applied to both
-//! render cameras. The weapon gain controls only motion of the separately
-//! rendered hands/weapon camera relative to that head layer. This separation
-//! lets exact zero disable procedural weapon motion without disconnecting the
-//! hands from a moving scene.
+//! The camera gain controls the conservative world-camera head layer. The
+//! weapon gain controls only a bounded movement-weight offset and look inertia
+//! on the separately rendered hands/weapon camera; FNV retains ownership of
+//! its native locomotion cadence.
+//! Keeping those projections separate prevents close-up weapon motion from
+//! visually amplifying otherwise comfortable world-camera bob.
 
 use core::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 
@@ -62,7 +63,7 @@ impl FirstPersonConfig {
         self.camera_motion
     }
 
-    /// Return the hands/weapon motion gain relative to the head in `[0, 1]`.
+    /// Return the hands/weapon inertia gain in `[0, 1]`.
     #[inline]
     pub const fn weapon_motion(self) -> f32 {
         self.weapon_motion
@@ -74,7 +75,7 @@ impl FirstPersonConfig {
         self.landing_motion
     }
 
-    /// Return the fraction of ordinary motion retained while aiming.
+    /// Return the fraction of weapon inertia retained while aiming.
     #[inline]
     pub const fn aim_motion(self) -> f32 {
         self.aim_motion

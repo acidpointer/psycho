@@ -13,9 +13,13 @@ therefore outermost around the complete graphics-owner chain without detecting
 or modifying OMV. The correction is statically validated; an ordinary installed
 visual test remains the runtime acceptance gate.
 
-The earlier presentation-quality correction remains in this candidate:
-locomotion is a common head layer inherited by both render cameras, and every
-non-None authored action exclusively owns weapon-relative motion.
+The current presentation correction extends world-camera motion with the same
+render-only principle proven by third person: restrained gait roll/pitch is
+applied to the world render, while every non-None authored action exclusively
+owns weapon-relative motion. The close-up weapon camera no longer copies the
+world gait because its separate projection magnifies that transform and FNV's
+weapon graph already supplies locomotion. Positional world motion remains
+sub-unit and has no fore/aft component.
 
 ## Implemented safe stage (2026-08-16)
 
@@ -35,19 +39,18 @@ Atom now implements the Stable Phase 2 wrapper:
 - gait cadence derives from support-relative distance, is analytically filtered
   without frame-rate dependence, and cannot exceed 1.6 full strides per second;
 - one-shot landing compression uses capped downward air velocity;
-- grounded gait and landing publish one common head pose bounded to zero
-  forward, 0.50 up, and 0.15 right game units; the world and first-person
-  cameras inherit the same translation so the hands stay registered;
-- Stable world rotation is exact identity; horizon roll, yaw, pitch, and
-  fore/aft near-wall parallax remain weapon-relative or absent;
+- grounded gait and landing publish one world head pose bounded to zero
+  forward, 0.50 up, and 0.15 right game units;
+- common world rotation is bounded to sub-degree gait roll/pitch; yaw remains
+  zero and fore/aft near-wall parallax remains weapon-relative or absent;
 - logical yaw/pitch deltas drive bounded analytic viewmodel inertia without
   changing input or the logical camera;
 - native `IsAiming` suppresses world motion exactly and attenuates the relative
   weapon layer to the configured precision fraction;
 - every non-None `GetCurrentAnimAction` value immediately suppresses Atom's
-  relative weapon layer; release fades over an analytic envelope while the
-  common locomotion pose continues through ordinary equip, fire, recoil,
-  block, and reload animation;
+  relative weapon layer; release fades over an analytic envelope while world
+  locomotion continues through ordinary equip, fire, recoil, block, and reload
+  animation;
 - both main world callers publish a route/epoch token, all three
   RenderFirstPerson callers are wrapped, and the unclassified special route
   permanently passes through;
@@ -73,16 +76,20 @@ Atom now implements the Stable Phase 2 wrapper:
   predicate when the optional complete-mask interface slot is null, preserving
   one native ownership query per gate on the installed xNVSE layout.
 
-The world pose is non-identity during ordinary grounded movement but contains
-only smooth vertical and lateral translation. Its amplitude uses the square
-of the analytic locomotion envelope, keeping low-speed traversal restrained
-without changing distance-driven cadence. Relative weapon gait is smaller
-than the head layer, while look inertia and hard-landing compression remain
-distinct contextual sources. Atom does not claim a general collision-resolved
-displaced camera: the half-unit clearance envelope is a conservative inference
-and must be playtested against walls and low ceilings. ADS publishes exact
-identity world motion, and `Camera Motion = 0` prevents every world-camera
-write.
+The world pose is non-identity during ordinary grounded movement and contains
+smooth vertical/lateral translation plus sub-degree roll/pitch. Its amplitude
+uses the square of the analytic locomotion envelope, keeping low-speed
+traversal restrained without changing distance-driven cadence. Rotation is
+render-only and cannot add near-wall displacement. The separately projected
+weapon camera receives no copy of the world pose and no procedural gait or
+landing waveform. Atom adds only a tiny non-oscillating movement-weight offset
+and critically damped look inertia there, without competing with FNV's
+authored weapon graph.
+Atom does not claim a general
+collision-resolved displaced camera: the half-unit translation envelope is a
+conservative inference and must be playtested against walls and low ceilings.
+ADS publishes exact identity world motion, and `Camera Motion = 0` prevents
+every world-camera write.
 
 Source ownership is `atom/src/camera/`: `motion.rs` owns the pure generator,
 `pose.rs` the native-basis composition, `state.rs` coherent publication and
@@ -97,12 +104,13 @@ Static and runtime evidence is recorded in
 `analysis/radare2/output/perf/fnv_first_person_camera_contract.txt`. Focused
 tests cover 30/60/120 Hz and uneven partitioning, a 1.6 Hz full-stride ceiling
 under extreme native speed, a derived 6.7 game-unit/second steady-gait
-world-pose velocity bound at full gain, translation-only Stable output,
+translation-base velocity bounds,
 stationary moving-support behavior, exact idle rejection despite deliberately
 large residual controller velocity, landing monotonicity, exact ADS/zero-gain
 boundaries, matrix axes, finite-sky recentering with exact graph restoration,
 and million-unit viewmodel rebasing with unwind restoration. Static tests do
-not establish camera feel or near-geometry image correctness.
+not establish final world render rotation, camera feel, or near-geometry image
+correctness.
 
 ### Current OMV compatibility-correction evidence
 
@@ -352,14 +360,14 @@ weapon as one camera:
 |---|---|---|
 | Control pose | FNV and Atom Input | Logical look, crosshair, activation, aiming, and combat direction. |
 | World presentation pose | Atom camera wrapper | Small render-only body motion applied around the world draw. |
-| Viewmodel pose | Native setup plus Atom | Common head pose plus smaller weapon-relative motion after native iron-sight setup. |
+| Viewmodel pose | Native setup plus Atom | Native weapon animation plus bounded inertia after native iron-sight setup. |
 
 The native control pose is never smoothed. Atom samples the completed native
 camera and adds a short-lived presentation transform only while the renderer
 consumes it. The exact native transform is restored before the wrapped call
-returns. Hands and weapons inherit the exact common head translation through
-FNV's separate first-person camera, then receive an independently tuned
-secondary transform only while Atom owns weapon-relative presentation.
+returns. Hands and weapons retain FNV's native projection and animation, then
+receive an independently tuned inertia transform only while Atom owns
+weapon-relative presentation.
 
 This is the central safety property:
 
@@ -657,12 +665,11 @@ Each modifier returns zero-centered translation and rotation. No modifier
 edits another modifier's state or uses the prior frame's final presented pose
 as its new target. This prevents drift and positive feedback.
 
-The world listener consumes the bounded common head pose. The viewmodel
-listener starts with that exact pose, then adds a smaller relative weapon pose
-with its own allowed axes and gain. This base-plus-secondary composition keeps
-hands registered with the scene while allowing restrained weight and look lag.
-Authored actions suppress only the secondary pose; they do not manufacture an
-unnaturally motionless head during ordinary movement.
+The world listener consumes the bounded head pose. The viewmodel listener
+receives only its separate inertia pose with its own allowed axes and
+gain. FNV remains the sole owner of close-up weapon locomotion. Authored actions
+suppress Atom's weapon inertia; they do not manufacture an unnaturally motionless
+world camera during ordinary movement.
 
 ## Locomotion inputs
 
@@ -758,30 +765,32 @@ These are starting playtest bands, not approved shipped defaults:
 
 | Component | World listener | Viewmodel listener |
 |---|---:|---:|
-| Vertical gait | `0.15-0.45%` eye height | `0.3-1.0%` eye height |
-| Lateral gait | `0.05-0.20%` eye height | `0.2-0.7%` eye height |
-| Fore/aft gait | initially zero | `0.1-0.5%` eye height |
-| Roll | initially zero in Stable | `0.10-0.45 deg` |
-| Pitch | initially zero in Stable | `0.05-0.30 deg` |
-| Yaw | zero | at most `0.15 deg` |
+| Vertical gait | `0.15-0.45%` eye height | native only |
+| Lateral gait | `0.05-0.20%` eye height | native only |
+| Fore/aft gait | zero | native only |
+| Roll | at most `0.37 deg` | look inertia only |
+| Pitch | at most `0.46 deg` | look inertia only |
+| Yaw | zero | look inertia only |
 
 Eye height is measured from a stable native first-person pose rather than a
 hard-coded game-unit assumption. All final values require FOV, weapon,
 animation, clipping, and comfort playtests at 30, 60, 120, and unstable FPS.
 
-The current normalized implementation uses common-head coefficients `0.24`
-up and `0.08` right, reduced from the rejected `0.32/0.12` candidate. The
-weapon-relative gait uses `0.10` forward, `0.08` up, and `0.08` right rather
-than the former independently rendered `0.18/0.46/0.30`. Configured gains and
-the squared locomotion envelope multiply those values before the established
-world/viewmodel clamps. These are game-unit presentation coefficients, not
-claims about biological eye displacement. The reduction and common-base
-composition are code-backed; only live play can accept their subjective feel.
+The current normalized implementation uses world-head coefficients `0.24` up
+and `0.08` right, reduced from the rejected `0.32/0.12` candidate. Atom adds no
+weapon-relative cadence because the native weapon graph already owns it.
+`Weapon Motion` scales a tiny movement-weight offset plus critically damped
+look inertia. These are game-unit
+presentation coefficients, not claims about biological eye displacement. The
+separate world/viewmodel composition is code-backed; only live play can accept
+its subjective feel.
 
-The `Stable` mode keeps gait rotation off on the world listener. An optional
-`Full` mode may admit very small world pitch/roll only after reticle and motion
-sickness tests. Rotation must never be hidden inside the basic intensity
-slider.
+The current common head layer uses the same restrained render-only roll/pitch
+principle accepted for third person. `Head Motion` scales translation and
+rotation together, retains exact zero as native behavior, and never adds yaw or
+dynamic FOV. This requested immersive policy supersedes the earlier
+translation-only Stable proposal; final comfort and reticle behavior remain a
+Proton playtest gate.
 
 ## Landing and movement impulses
 
@@ -845,12 +854,12 @@ The more precise the action, the less world motion Atom should add:
 
 | State | World gait | Viewmodel gait | Look inertia | Landing |
 |---|---:|---:|---:|---:|
-| Hip fire | low | normal | normal | normal |
-| Iron sights transition | zero | fade down | fade down | reduced |
-| Iron sights held | zero by default | low | low | low |
-| Magnified scope | zero | zero or absent | zero | zero |
-| Melee/unarmed | low | profile-dependent | low | normal |
-| Reload/equip | low common head | common head only | zero | common head |
+| Hip fire | low | native | normal | normal |
+| Iron sights transition | zero | native | fade down | zero |
+| Iron sights held | zero | native | configured fraction | zero |
+| Magnified scope | zero | native | configured fraction | zero |
+| Melee/unarmed | low | native | low | normal |
+| Reload/equip | low | native | zero | normal |
 
 The aim weight follows proven native aiming state with a time-based blend. It
 does not infer aim solely from the right mouse button. The world listener
@@ -865,8 +874,8 @@ viewmodel pose is zero instead of double-animating the hands. FNV's
 value therefore fails closed to native relative animation. Entry is exact on
 the first sample. After the native action returns to None, Atom releases its
 suppression with a 12/s analytic envelope so procedural motion cannot pop back
-on the clip boundary. The common head pose continues during ordinary authored
-weapon actions and is inherited identically by both render cameras.
+on the clip boundary. World-camera head motion continues during ordinary
+authored weapon actions without being copied into the weapon projection.
 
 ## Survival-state feedback
 
@@ -923,15 +932,15 @@ without moving the logical activation/shot ray changes parallax; rotating it
 also changes the screen-center direction. Calling the transform "visual" does
 not make that mismatch disappear.
 
-Atom's Stable policy is therefore conservative:
+Atom's current policy remains conservative:
 
-1. allow no world rotation;
-2. suppress world translation exactly while aiming or animation-owned;
+1. bound world rotation to sub-degree roll/pitch and allow no yaw;
+2. suppress the complete world pose exactly while aiming;
 3. clamp hip-fire translation to zero forward, 0.50 up, and 0.15 right units;
 4. leave the reticle and UI fixed;
-5. make viewmodel motion carry most of the perceived weight;
-6. do not ship yaw or pitch world rotation until reticle, activation, and projectile
-   tests establish acceptable behavior;
+5. leave native weapon gait intact and add only bounded weapon inertia;
+6. require reticle, activation, projectile, clipping, and comfort playtests for
+   the final render behavior;
 7. make zero camera intensity exact native behavior regardless of weapon
    intensity.
 
@@ -1127,8 +1136,8 @@ live skeleton and every external hook ordering.
 
 [B42 Weapon Inertia](https://www.nexusmods.com/newvegas/mods/64335) already
 adds skeleton-dependent weapon inertia. Atom must not detect or patch it. The
-separate `Weapon Motion` control lets a user set Atom's relative viewmodel
-gain to zero while retaining the common head pose on both render cameras. Hook
+separate `Weapon Motion` control lets a user set Atom's viewmodel inertia to
+zero while retaining world-camera head motion. Hook
 preflight and exact snapshot restoration prevent lost predecessors, but visual
 double-inertia outside FNV's authored action window still requires user choice
 and playtest.
@@ -1169,12 +1178,10 @@ not a numeric Atom threshold.
 Atom requirements:
 
 - `Camera Motion = 0` performs no world-camera write;
-- `Weapon Motion = 0` removes the relative weapon pose; the first-person
-  camera still inherits nonzero common head motion to remain registered;
+- `Weapon Motion = 0` removes Atom's weapon inertia;
 - camera, weapon, and landing gains are separately adjustable;
-- `Stable` is the default mode; `Full` is explicit opt-in;
 - no FOV pulse, sprint zoom, forced motion blur, or moving UI;
-- no automatic camera roll in Stable mode;
+- common roll/pitch remains sub-degree and yaw stays zero;
 - aim and scope attenuation is mandatory, not a hidden preset detail;
 - menu changes apply from `MCMExtUpdate` after the INI save;
 - disabling or changing mode clears temporal state at a safe epoch;
@@ -1208,8 +1215,8 @@ hypotheses for calibration, not approved shipping values. Sanitization clamps
 all gains to `[0, 1]`; unknown fields remain owned by MCM/future Atom versions.
 `iMotionMode` is not persisted because Stable is the only admitted world mode.
 `fCameraMotion` independently reaches exact identity and is shown as `Head
-Motion` on the MCM page. `fWeaponMotion` scales only movement relative to that
-head layer; it never disconnects the hands from nonzero head motion.
+Motion` on the MCM page. `fWeaponMotion` scales only weapon inertia, and
+`fAimMotion` is the fraction retained while aiming.
 
 Every visible MCM string must remain one to three words. A compliant initial
 page can use:
@@ -1217,15 +1224,15 @@ page can use:
 | Role | Text |
 |---|---|
 | Page | `First Person` |
-| Toggle | `First Person` |
+| Toggle | `Enable Motion` |
 | Slider | `Head Motion` |
 | Slider | `Weapon Motion` |
 | Slider | `Land Motion` |
 | Slider | `Aim Motion` |
-| Help | `World movement` |
-| Help | `Weapon movement` |
-| Help | `Landing impact` |
-| Help | `Aiming movement` |
+| Help | `World bob strength` |
+| Help | `Weapon inertia` |
+| Help | `Head landing strength` |
+| Help | `ADS inertia fraction` |
 
 The shipped MCM artifact test must reject longer text, duplicate INI keys,
 defaults outside bounds, and disagreement with Rust defaults.
@@ -1359,9 +1366,9 @@ Acceptance:
 
 Add support-relative cadence, stance profiles, gait envelopes, and landing
 impulses. The admitted world listener adds only sub-unit vertical/lateral local
-translation, with exact ADS suppression and independent gain. The viewmodel
-inherits that pose and adds a subordinate relative layer only when no authored
-action owns the weapon.
+translation plus bounded roll/pitch, with exact ADS suppression and independent
+gain. The viewmodel retains native gait and adds only a subordinate look layer
+when no authored action owns the weapon.
 
 Acceptance:
 
@@ -1489,7 +1496,7 @@ The user must test the release artifact through Proton/Wine.
 
 - `Camera Motion = 0` removes common head motion and `Weapon Motion = 0`
   removes relative weapon motion immediately and permanently;
-- Stable does not add world roll or dynamic FOV;
+- head rotation remains sub-degree and adds no yaw or dynamic FOV;
 - motion remains subtle during long traversal and does not obscure targets;
 - ADS and scopes become visibly stable;
 - no UI element bobs;
@@ -1596,8 +1603,10 @@ so static equivalence does not replace the required Proton/BaseObjectSwapper
 load-to-gameplay test.
 
 The first visible playtest later rejected this waveform as unplayable rapid
-jitter. It is retained here only as artifact history; the current Stable
-contract is the translation-only, cadence-capped correction documented below.
+jitter. It is retained here only as artifact history; the then-current Stable
+contract became the translation-only, cadence-capped correction documented
+below. The current common render-rotation layer retains that cadence cap and
+uses only its restrained smooth waveform.
 
 ### 2026-08-16 complete UpdateCamera entry correction
 
@@ -2016,12 +2025,12 @@ visual-only ownership.
 Rejected. It bobs against walls, during blocked movement, and at the wrong
 controller magnitude. Actual support-relative locomotion is required.
 
-### Apply only one identical transform to world and weapon
+### Copy world motion to weapon
 
-Rejected. A common head translation is required to keep the hands registered,
-but using it as the complete viewmodel pose would discard the proven separate
-camera's useful relative motion. Atom instead composes common head translation
-with a smaller weapon-only pose whose axes, gain, aim attenuation, and authored
+Rejected by live play. FNV projects the close-up weapon through a separate
+camera, so copying an equal world-head transform makes the hands move farther
+on screen than the scene. Atom leaves native weapon locomotion intact and adds
+only a smaller look-inertia pose whose gain, aim attenuation, and authored
 animation ownership are independent.
 
 ### Add procedural noise everywhere
@@ -2040,10 +2049,9 @@ or reorders another mod based on identity.
 
 Build Atom First Person as a render-scoped, additive camera wrapper over the
 native control pose. Preserve immediate look and native gameplay truth; drive a
-distance-phased, support-relative gait plus event-based landing; share the
-subtle Stable head pose across both render cameras; put only secondary weight
-into the separate viewmodel listener; make Stable subtle and Full
-explicit; and make zero gains exact native behavior.
+distance-phased, support-relative world gait plus event-based landing; leave
+native weapon locomotion intact; put only bounded inertia into the
+separate viewmodel listener; and make zero gains exact native behavior.
 
 The native renderer provides the right structural split for this design. The
 remaining hard problems are not waveform creativity: they are velocity and

@@ -114,12 +114,17 @@ the direction bits are a separate hard gait gate, so persistent physics
 velocity cannot manufacture head bob while the mover is idle. Engine time then
 drives filtered distance-phased gait, one-shot landing compression, and
 bounded look inertia. A 1.6 Hz full-stride ceiling prevents extreme SpeedMult
-values or physics noise from becoming rapid camera shake. The Stable head
-listener applies only sub-unit lateral/vertical translation around the world
-draw; it adds no rotation or fore/aft parallax, and aiming suppresses the world
-pose immediately. The separately rendered hands/weapon camera inherits that
-exact head translation, then receives a smaller relative gait/look/landing
-layer only while no authored weapon action owns presentation. Every non-None
+values or physics noise from becoming rapid camera shake. The head listener
+applies sub-unit lateral/vertical translation plus restrained sub-degree
+roll/pitch around the complete world draw; it adds no fore/aft parallax, and
+aiming suppresses the world pose immediately. The separately rendered
+hands/weapon camera does not copy that world pose: its close projection
+visually magnifies even equal transforms, and FNV's graph already supplies
+locomotion animation. Atom adds only critically damped look inertia while no
+authored weapon action owns presentation, plus a tiny movement offset which
+eases once on start/stop. It adds no procedural cadence or landing waveform to
+the weapon camera.
+Every non-None
 native animation action suppresses the relative layer immediately, with an
 analytic release after the action ends. The world guard recenters FNV's finite
 Sky and Weather graphs with the posed camera, while the hands guard performs
@@ -128,9 +133,10 @@ steps. Scoped guards restore both cameras and every temporarily moved root
 before their wrapped calls return.
 
 The `First Person` MCM page exposes `First Person`, `Head Motion`, `Weapon
-Motion`, `Land Motion`, and `Aim Motion`. `Head Motion = 0` removes common head
-motion. `Weapon Motion = 0` removes only motion relative to the head, so hands
-remain registered whenever head motion is nonzero.
+Motion`, `Land Motion`, and `Aim Motion`. `Head Motion = 0` removes world-camera
+bob. `Weapon Motion = 0` removes Atom's movement weight and look inertia. `Land
+Motion` scales world-camera landing response, and `Aim Motion` is the fraction
+of weapon inertia retained during ADS.
 
 Third-person follow is disabled by default. When enabled, Atom requires one
 stable no-write native frame before acquiring an ownership epoch, follows the
@@ -858,7 +864,7 @@ The focused behavioral suite covers:
   32-event overflow bounding;
 - final float Fallout 4 scale and sub-native-threshold radial stick actions;
 - filtered and cadence-capped support-relative gait, extreme-speed continuity,
-  frame partitioning, translation-only Stable output, landing events, aim
+  frame partitioning, bounded translation bases, landing events, aim
   attenuation, invalid-state reset, bounded pose composition, and exact scoped
   native-transform restoration;
 - native/acquire/explore/combat/release traces, all VATS ownership classes,
