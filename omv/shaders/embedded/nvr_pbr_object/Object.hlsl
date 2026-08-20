@@ -100,6 +100,51 @@ float3 getPointLightLightingAtt(float3 lightDir, float att, float3 lightColor, f
     #endif
 }
 
+#if defined(SPECULAR)
+float3 getBoundedLightingWithNativeCeiling(
+    float3 lightDir,
+    float3 nativeHalfway,
+    float att,
+    float3 lightColor,
+    float3 viewDir,
+    float3 normal,
+    float3 albedo,
+    float gloss,
+    float glossPower,
+    PbrObjectSurface surface,
+    out float3 nativeLighting
+) {
+    // The replacement needs a per-pixel view vector for its PBR response, but
+    // the native high-light vertex rows publish an independently normalized
+    // halfway vector in TEXCOORD5..7. Preserve that interpolated value for the
+    // native ceiling: rebuilding it per pixel makes the ceiling depend on
+    // camera distance and triangle perspective differently from native.
+    lightDir = StableNormalize(lightDir);
+    const float3 pbrHalfway = StableHalfway(viewDir, lightDir);
+    nativeHalfway = StableNormalize(nativeHalfway);
+    const float NdotL = shades(normal, lightDir);
+    const float pbrNdotH = shades(normal, pbrHalfway);
+    const float nativeNdotH = shades(normal, nativeHalfway);
+    const float LdotH = shades(lightDir, pbrHalfway);
+
+    const float3 pbrLightColor = lightColor * TESR_PBRData.z;
+    const float3 fresnel = Fresnel(float(0.04).rrr, (1.0).xxx, LdotH);
+    const float distribution = pow(pbrNdotH, surface.materialResponse) * surface.distributionScale;
+    const float3 radiance = NdotL * pbrLightColor * att;
+    const float3 diffuse = (1 - fresnel) * surface.diffuseColor * radiance * PI;
+    const float3 specular = fresnel * distribution * radiance;
+
+    const float nativeSpecular = gloss * pow(abs(nativeNdotH), glossPower);
+    nativeLighting = albedo * NdotL * lightColor * att;
+    nativeLighting += (0.2 >= NdotL
+        ? nativeSpecular * saturate(NdotL + 0.5)
+        : nativeSpecular)
+        * lightColor * att * surface.specularFade;
+
+    return diffuse + saturate(specular * surface.specularStrength) * surface.specularFade;
+}
+#endif
+
 float3 getSunLighting(float3 lightDir, float3 lightColor, float3 viewDir, float3 normal, PbrObjectSurface surface) {
     lightColor = lightColor * TESR_PBRData.z;
 

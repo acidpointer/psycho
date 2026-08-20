@@ -10425,9 +10425,9 @@ fn draw_local_lights_diagnostics(ui: &mut psycho_imgui::Ui<'_>, sources: &[Scree
         })
         .unwrap_or(1);
     let budget = match quality {
-        0 => "Performance: quarter resolution, 2 lights, 4 samples, 2 shadowless draws",
-        2 => "Ultra: half resolution, 4 lights, 10 samples, 2 shadowless draws",
-        _ => "High: half resolution, 4 lights, 6 samples, 2 shadowless draws",
+        0 => "Performance: quarter resolution, 4 lights, 4 samples, 2 shadowless draws",
+        2 => "Ultra: half resolution, 16 lights, 10 samples, 8 shadowless draws",
+        _ => "High: half resolution, 8 lights, 6 samples, 4 shadowless draws",
     };
     ui.text_colored(MENU_MUTED_TEXT, &cstring(budget));
 }
@@ -10642,7 +10642,7 @@ fn draw_native_shadows_config(
         }
         ui.text_colored(
             MENU_MUTED_TEXT,
-            &cstring("At 12 lights, point maps use 36.25 MiB, 145 MiB, or 580 MiB by tier."),
+            &cstring("At 16 lights, point maps use 48.25 MiB, 193 MiB, or 772 MiB by tier."),
         );
         changed |= draw_float_slider(
             ui,
@@ -10662,7 +10662,7 @@ fn draw_native_shadows_config(
             "native_shadows.interior_shadowed_lights",
             &mut config.interior_shadowed_lights,
             1,
-            12,
+            16,
         );
         changed |= draw_float_slider(
             ui,

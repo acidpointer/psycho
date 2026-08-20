@@ -1195,6 +1195,1235 @@ mod shader_compile_tests {
         "../../../../.research/fnv-vanilla-plus-terrain-main/shaders/TerrainTemplate.hlsl"
     );
 
+    mod object_shader_behavior {
+        //! D3D9 readback gate for shipped object-to-bloom behavior.
+        //!
+        //! The fixture renders native package bytecode and the shipped PBR
+        //! replacement with identical inputs, then runs both images through the
+        //! shipped bloom shader. Assertions are made only on GPU pixels.
+
+        use super::super::{ShaderStage, object_template_id, object_template_source};
+        use libpsycho::os::windows::{
+            directx9::{
+                D3DBLEND_ONE, D3DCLEAR_TARGET, D3DCLEAR_ZBUFFER, D3DCMP_LESSEQUAL, D3DCULL_NONE,
+                D3DDEVTYPE_HAL, D3DDEVTYPE_NULLREF, D3DFMT_A8R8G8B8, D3DFMT_A16B16G16R16F,
+                D3DFMT_D24S8, D3DFVF_XYZ, D3DMULTISAMPLE_NONE, D3DPOOL_MANAGED, D3DPT_TRIANGLELIST,
+                D3DRS_ALPHABLENDENABLE, D3DRS_COLORWRITEENABLE, D3DRS_CULLMODE, D3DRS_DESTBLEND,
+                D3DRS_SRCBLEND, D3DRS_ZENABLE, D3DRS_ZFUNC, D3DRS_ZWRITEENABLE, D3DSAMP_ADDRESSU,
+                D3DSAMP_ADDRESSV, D3DSAMP_MAGFILTER, D3DSAMP_MINFILTER, D3DSAMP_MIPFILTER,
+                D3DTADDRESS_CLAMP, D3DTEXF_NONE, D3DTEXF_POINT, D3DVIEWPORT9, Device9, Device9Ref,
+                Surface9, create_direct3d9,
+            },
+            winapi::{get_active_window, get_desktop_window, get_foreground_window},
+        };
+
+        const TEST_SIZE: u32 = 32;
+        // Exact native pixel bytecode extracted from the installed
+        // high-quality package. Embedding the affected helper rows keeps the
+        // GPU oracle independent of a local Fallout installation.
+        const NATIVE_2037: &[u32] = &[
+            0xFFFF0201, 0x004BFFFE, 0x42415443, 0x0000001C, 0x000000F7, 0xFFFF0201, 0x00000005,
+            0x0000001C, 0x20000100, 0x000000F0, 0x00000080, 0x00010002, 0x00060001, 0x00000090,
+            0x00000000, 0x000000A0, 0x00040003, 0x00120001, 0x000000B0, 0x00000000, 0x000000C0,
+            0x00000003, 0x00020001, 0x000000B0, 0x00000000, 0x000000C8, 0x00010003, 0x00060001,
+            0x000000B0, 0x00000000, 0x000000D2, 0x00030002, 0x000E0002, 0x000000E0, 0x00000000,
+            0x69626D41, 0x43746E65, 0x726F6C6F, 0xABABAB00, 0x00030001, 0x00040001, 0x00000001,
+            0x00000000, 0x65747441, 0x7461756E, 0x4D6E6F69, 0xAB007061, 0x000C0004, 0x00010001,
+            0x00000001, 0x00000000, 0x65736142, 0x0070614D, 0x6D726F4E, 0x614D6C61, 0x53500070,
+            0x6867694C, 0x6C6F4374, 0xAB00726F, 0x00030001, 0x00040001, 0x0000000A, 0x00000000,
+            0x325F7370, 0x4D00625F, 0x6F726369, 0x74666F73, 0x29522820, 0x534C4820, 0x6853204C,
+            0x72656461, 0x6D6F4320, 0x656C6970, 0x2E392072, 0x392E3332, 0x322E3934, 0x00383733,
+            0x05000051, 0xA00F0000, 0xBF000000, 0x3F800000, 0x00000000, 0x00000000, 0x0200001F,
+            0x80000000, 0xB0670001, 0x0200001F, 0x80000000, 0xB0670002, 0x0200001F, 0x80000000,
+            0xB02F0004, 0x0200001F, 0x80000000, 0xB0230000, 0x0200001F, 0x90000000, 0xA00F0800,
+            0x0200001F, 0x90000000, 0xA00F0801, 0x0200001F, 0x90000000, 0xA00F0804, 0x02000001,
+            0x80210000, 0xB0AA0004, 0x02000001, 0x80220000, 0xB0FF0004, 0x03000042, 0x802F0000,
+            0x80E40000, 0xA0E40804, 0x03000042, 0x802F0001, 0xB0E40004, 0xA0E40804, 0x03000042,
+            0x802F0002, 0xB0E40000, 0xA0E40801, 0x03000042, 0x802F0003, 0xB0E40000, 0xA0E40800,
+            0x03000002, 0x80280002, 0x81000001, 0xA0550000, 0x03000002, 0x80380002, 0x81000000,
+            0x80FF0002, 0x03000002, 0x80070000, 0x80E40002, 0xA0000000, 0x03000002, 0x80270000,
+            0x80E40000, 0x80E40000, 0x02000024, 0x80270001, 0x80E40000, 0x02000024, 0x80270000,
+            0xB0E40002, 0x03000008, 0x80380001, 0x80E40001, 0x80E40000, 0x03000008, 0x80310000,
+            0x80E40001, 0xB0E40001, 0x03000005, 0x802E0000, 0x80FF0001, 0xA01B0004, 0x03000005,
+            0x802E0000, 0x80FF0002, 0x80E40000, 0x04000004, 0x80270000, 0xA0E40003, 0x80000000,
+            0x801B0000, 0x03000002, 0x80270003, 0x80E40000, 0xA0E40001, 0x02000001, 0x802F0800,
+            0x80E40003, 0x0000FFFF,
+        ];
+        const NATIVE_2038: &[u32] = &[
+            0xFFFF0201, 0x005BFFFE, 0x42415443, 0x0000001C, 0x00000137, 0xFFFF0201, 0x00000007,
+            0x0000001C, 0x20000100, 0x00000130, 0x000000A8, 0x00010002, 0x00060001, 0x000000B8,
+            0x00000000, 0x000000C8, 0x00040003, 0x00120001, 0x000000D8, 0x00000000, 0x000000E8,
+            0x00000003, 0x00020001, 0x000000D8, 0x00000000, 0x000000F0, 0x00020002, 0x000A0001,
+            0x000000B8, 0x00000000, 0x000000FF, 0x00030003, 0x000E0001, 0x000000D8, 0x00000000,
+            0x00000107, 0x00010003, 0x00060001, 0x000000D8, 0x00000000, 0x00000111, 0x00030002,
+            0x000E0002, 0x00000120, 0x00000000, 0x69626D41, 0x43746E65, 0x726F6C6F, 0xABABAB00,
+            0x00030001, 0x00040001, 0x00000001, 0x00000000, 0x65747441, 0x7461756E, 0x4D6E6F69,
+            0xAB007061, 0x000C0004, 0x00010001, 0x00000001, 0x00000000, 0x65736142, 0x0070614D,
+            0x74696D45, 0x636E6174, 0x6C6F4365, 0x4700726F, 0x4D776F6C, 0x4E007061, 0x616D726F,
+            0x70614D6C, 0x4C535000, 0x74686769, 0x6F6C6F43, 0xABAB0072, 0x00030001, 0x00040001,
+            0x0000000A, 0x00000000, 0x325F7370, 0x4D00625F, 0x6F726369, 0x74666F73, 0x29522820,
+            0x534C4820, 0x6853204C, 0x72656461, 0x6D6F4320, 0x656C6970, 0x2E392072, 0x392E3332,
+            0x322E3934, 0x00383733, 0x05000051, 0xA00F0000, 0xBF000000, 0x3F800000, 0x00000000,
+            0x00000000, 0x0200001F, 0x80000000, 0xB0670001, 0x0200001F, 0x80000000, 0xB0670002,
+            0x0200001F, 0x80000000, 0xB02F0004, 0x0200001F, 0x80000000, 0xB0230000, 0x0200001F,
+            0x90000000, 0xA00F0800, 0x0200001F, 0x90000000, 0xA00F0801, 0x0200001F, 0x90000000,
+            0xA00F0803, 0x0200001F, 0x90000000, 0xA00F0804, 0x02000001, 0x80210000, 0xB0AA0004,
+            0x02000001, 0x80220000, 0xB0FF0004, 0x03000042, 0x802F0000, 0x80E40000, 0xA0E40804,
+            0x03000042, 0x802F0001, 0xB0E40004, 0xA0E40804, 0x03000042, 0x802F0002, 0xB0E40000,
+            0xA0E40801, 0x03000042, 0x800F0003, 0xB0E40000, 0xA0E40803, 0x03000042, 0x802F0004,
+            0xB0E40000, 0xA0E40800, 0x03000002, 0x80280002, 0x81000001, 0xA0550000, 0x03000002,
+            0x80380002, 0x81000000, 0x80FF0002, 0x03000002, 0x80070000, 0x80E40002, 0xA0000000,
+            0x03000002, 0x80270000, 0x80E40000, 0x80E40000, 0x02000024, 0x80270001, 0x80E40000,
+            0x02000024, 0x80270000, 0xB0E40002, 0x03000008, 0x80380001, 0x80E40001, 0x80E40000,
+            0x03000008, 0x80380003, 0x80E40001, 0xB0E40001, 0x03000005, 0x80270000, 0x80FF0001,
+            0xA0E40004, 0x03000005, 0x80270000, 0x80FF0002, 0x80E40000, 0x04000004, 0x80270000,
+            0xA0E40003, 0x80FF0003, 0x80E40000, 0x02000001, 0x80070001, 0xA0E40002, 0x04000004,
+            0x80270001, 0x80E40001, 0x80E40003, 0xA0E40001, 0x03000002, 0x80270004, 0x80E40000,
+            0x80E40001, 0x02000001, 0x802F0800, 0x80E40004, 0x0000FFFF,
+        ];
+        // Executable tokens from installed high-quality package 019 SLS2034.
+        // The non-semantic CTAB comment is omitted; all shader instructions
+        // remain byte-for-byte native.
+        const NATIVE_2034: &[u32] = &[
+            0xFFFF0201, 0x05000051, 0xA00F0000, 0x40000000, 0x00000000, 0x3F800000, 0x00000000,
+            0x05000051, 0xA00F0006, 0xBF000000, 0x3F800000, 0x3E4CCCCD, 0x3F000000, 0x0200001F,
+            0x80000000, 0xB0070002, 0x0200001F, 0x80000000, 0xB0070003, 0x0200001F, 0x80000000,
+            0xB0070004, 0x0200001F, 0x80000000, 0xB0070005, 0x0200001F, 0x80000000, 0xB0070006,
+            0x0200001F, 0x80000000, 0xB0070007, 0x0200001F, 0x80000000, 0xB0030000, 0x0200001F,
+            0x80000000, 0xB00F0001, 0x0200001F, 0x80000000, 0x90070000, 0x0200001F, 0x80000000,
+            0x900F0001, 0x0200001F, 0x90000000, 0xA00F0800, 0x0200001F, 0x90000000, 0xA00F0801,
+            0x03000042, 0x802F0000, 0xB0E40000, 0xA0E40800, 0x02000001, 0x80280001, 0xA0550006,
+            0x03000002, 0x80010001, 0x81FF0001, 0xA0FF0001, 0x04000058, 0x80010001, 0x80000001,
+            0xA0550000, 0xA0AA0000, 0x03000002, 0x80020001, 0x80FF0000, 0xA1FF001B, 0x03000005,
+            0x800F0002, 0x80000001, 0x80550001, 0x01000041, 0x800F0002, 0x03000042, 0x802F0002,
+            0xB0E40000, 0xA0E40801, 0x03000005, 0x80270001, 0x80E40000, 0x90E40000, 0x04000058,
+            0x80270000, 0xA100001B, 0x80E40000, 0x80E40001, 0x03000005, 0x80280003, 0x80FF0000,
+            0xA0FF0001, 0x03000002, 0x80070001, 0xB1E40001, 0xA0E40013, 0x02000006, 0x80080000,
+            0xA0FF0013, 0x03000005, 0x80270001, 0x80E40001, 0x80FF0000, 0x03000008, 0x80320001,
+            0x80E40001, 0x80E40001, 0x03000002, 0x80070004, 0xB1E40001, 0xA0E40014, 0x02000006,
+            0x80080000, 0xA0FF0014, 0x03000005, 0x80270004, 0x80E40004, 0x80FF0000, 0x03000008,
+            0x80340001, 0x80E40004, 0x80E40004, 0x03000002, 0x80260001, 0x81E40001, 0xA0550006,
+            0x02000024, 0x80270004, 0xB0E40005, 0x03000002, 0x80070002, 0x80E40002, 0xA0000006,
+            0x03000002, 0x80270002, 0x80E40002, 0x80E40002, 0x02000024, 0x80270005, 0x80E40002,
+            0x03000008, 0x80380000, 0x80E40005, 0x80E40004, 0x0200000F, 0x80210002, 0x80FF0000,
+            0x02000024, 0x80270004, 0xB0E40006, 0x03000008, 0x80380000, 0x80E40005, 0x80E40004,
+            0x0200000F, 0x80220002, 0x80FF0000, 0x02000024, 0x80270004, 0xB0E40007, 0x03000008,
+            0x80380000, 0x80E40005, 0x80E40004, 0x0200000F, 0x80240002, 0x80FF0000, 0x03000005,
+            0x80270002, 0x80E40002, 0xA0AA001B, 0x0200000E, 0x80210004, 0x80000002, 0x0200000E,
+            0x80220004, 0x80550002, 0x0200000E, 0x80240004, 0x80AA0002, 0x03000005, 0x80270002,
+            0x80FF0002, 0x80E40004, 0x02000001, 0x80210001, 0xA0550006, 0x03000005, 0x80270002,
+            0x80E40001, 0x80E40002, 0x03000008, 0x80220004, 0x80E40005, 0xB0E40003, 0x03000008,
+            0x80240004, 0x80E40005, 0xB0E40004, 0x03000008, 0x80210004, 0x80E40005, 0xB0E40002,
+            0x02000001, 0x80380000, 0x80000004, 0x03000005, 0x80270006, 0x80FF0000, 0xA0E40003,
+            0x03000002, 0x80370007, 0x80E40004, 0xA0FF0006, 0x03000002, 0x80070004, 0x81E40004,
+            0xA0AA0006, 0x03000005, 0x80270007, 0x80E40002, 0x80E40007, 0x04000058, 0x80270002,
+            0x80E40004, 0x80E40007, 0x80E40002, 0x03000005, 0x80270004, 0x80000002, 0xA0E40003,
+            0x04000004, 0x80270007, 0x80550002, 0xA0E40004, 0x80E40004, 0x03000002, 0x80080000,
+            0x80FF0001, 0xA1FF0002, 0x04000058, 0x80270004, 0x80FF0000, 0x80E40004, 0x80E40007,
+            0x04000004, 0x80270002, 0x80AA0002, 0xA0E40005, 0x80E40004, 0x02000001, 0x80280002,
+            0xA0000000, 0x03000002, 0x80080002, 0x80FF0002, 0xA1FF0002, 0x04000058, 0x80270002,
+            0x80FF0002, 0x80E40004, 0x80E40002, 0x03000005, 0x80270002, 0x80E40002, 0xB0FF0001,
+            0x02000024, 0x80270004, 0xB0E40003, 0x03000008, 0x80380005, 0x80E40005, 0x80E40004,
+            0x03000005, 0x80270004, 0x80FF0005, 0xA0E40004, 0x04000004, 0x80270004, 0x80E40004,
+            0x80550001, 0x80E40006, 0x04000058, 0x80270004, 0x80FF0000, 0x80E40006, 0x80E40004,
+            0x02000024, 0x80270006, 0xB0E40004, 0x03000008, 0x80380000, 0x80E40005, 0x80E40006,
+            0x03000005, 0x80270005, 0x80FF0000, 0xA0E40005, 0x04000004, 0x80270001, 0x80E40005,
+            0x80AA0001, 0x80E40004, 0x04000058, 0x80270001, 0x80FF0002, 0x80E40004, 0x80E40001,
+            0x03000002, 0x80270001, 0x80E40001, 0xA0E40001, 0x0300000B, 0x80270004, 0x80E40001,
+            0xA0550000, 0x04000004, 0x80270000, 0x80E40004, 0x80E40000, 0x80E40002, 0x04000012,
+            0x80270001, 0x90FF0001, 0x90E40001, 0x80E40000, 0x04000058, 0x80270003, 0xA155001B,
+            0x80E40000, 0x80E40001, 0x02000001, 0x802F0800, 0x80E40003, 0x0000FFFF,
+        ];
+        const NATIVE_2045: &[u32] = &[
+            0xFFFF0201, 0x0037FFFE, 0x42415443, 0x0000001C, 0x000000A7, 0xFFFF0201, 0x00000003,
+            0x0000001C, 0x20000100, 0x000000A0, 0x00000058, 0x00030003, 0x000E0001, 0x00000068,
+            0x00000000, 0x00000078, 0x00000003, 0x00020001, 0x00000068, 0x00000000, 0x00000082,
+            0x00030002, 0x000E0002, 0x00000090, 0x00000000, 0x65747441, 0x7461756E, 0x4D6E6F69,
+            0xAB007061, 0x000C0004, 0x00010001, 0x00000001, 0x00000000, 0x6D726F4E, 0x614D6C61,
+            0x53500070, 0x6867694C, 0x6C6F4374, 0xAB00726F, 0x00030001, 0x00040001, 0x0000000A,
+            0x00000000, 0x325F7370, 0x4D00625F, 0x6F726369, 0x74666F73, 0x29522820, 0x534C4820,
+            0x6853204C, 0x72656461, 0x6D6F4320, 0x656C6970, 0x2E392072, 0x392E3332, 0x322E3934,
+            0x00383733, 0x05000051, 0xA00F0000, 0xBF000000, 0x3F800000, 0x00000000, 0x00000000,
+            0x0200001F, 0x80000000, 0xB0670001, 0x0200001F, 0x80000000, 0xB0670002, 0x0200001F,
+            0x80000000, 0xB02F0004, 0x0200001F, 0x80000000, 0xB02F0005, 0x0200001F, 0x80000000,
+            0xB0230000, 0x0200001F, 0x90000000, 0xA00F0800, 0x0200001F, 0x90000000, 0xA00F0803,
+            0x02000001, 0x80210000, 0xB0AA0005, 0x02000001, 0x80220000, 0xB0FF0005, 0x02000001,
+            0x80210001, 0xB0AA0004, 0x02000001, 0x80220001, 0xB0FF0004, 0x03000042, 0x802F0000,
+            0x80E40000, 0xA0E40803, 0x03000042, 0x802F0002, 0xB0E40005, 0xA0E40803, 0x03000042,
+            0x802F0003, 0xB0E40000, 0xA0E40800, 0x03000042, 0x802F0001, 0x80E40001, 0xA0E40803,
+            0x03000042, 0x802F0004, 0xB0E40004, 0xA0E40803, 0x03000002, 0x80280003, 0x81000002,
+            0xA0550000, 0x03000002, 0x80380003, 0x81000000, 0x80FF0003, 0x03000002, 0x80070000,
+            0x80E40003, 0xA0000000, 0x03000002, 0x80270000, 0x80E40000, 0x80E40000, 0x02000024,
+            0x80270002, 0x80E40000, 0x02000024, 0x80270000, 0xB0E40002, 0x03000008, 0x80380002,
+            0x80E40002, 0x80E40000, 0x03000005, 0x80270000, 0x80FF0002, 0xA0E40004, 0x03000005,
+            0x80270000, 0x80FF0003, 0x80E40000, 0x03000002, 0x80280000, 0x81000004, 0xA0550000,
+            0x03000002, 0x80380000, 0x81000001, 0x80FF0000, 0x02000024, 0x80270001, 0xB0E40001,
+            0x03000008, 0x80310001, 0x80E40002, 0x80E40001, 0x03000005, 0x80270001, 0x80000001,
+            0xA0E40003, 0x04000004, 0x80270000, 0x80E40001, 0x80FF0000, 0x80E40000, 0x02000001,
+            0x80280000, 0xA0550000, 0x02000001, 0x802F0800, 0x80E40000, 0x0000FFFF,
+        ];
+        const NATIVE_2046: &[u32] = &[
+            0xFFFF0201, 0x0037FFFE, 0x42415443, 0x0000001C, 0x000000A7, 0xFFFF0201, 0x00000003,
+            0x0000001C, 0x20000100, 0x000000A0, 0x00000058, 0x00030003, 0x000E0001, 0x00000068,
+            0x00000000, 0x00000078, 0x00000003, 0x00020001, 0x00000068, 0x00000000, 0x00000082,
+            0x00030002, 0x000E0003, 0x00000090, 0x00000000, 0x65747441, 0x7461756E, 0x4D6E6F69,
+            0xAB007061, 0x000C0004, 0x00010001, 0x00000001, 0x00000000, 0x6D726F4E, 0x614D6C61,
+            0x53500070, 0x6867694C, 0x6C6F4374, 0xAB00726F, 0x00030001, 0x00040001, 0x0000000A,
+            0x00000000, 0x325F7370, 0x4D00625F, 0x6F726369, 0x74666F73, 0x29522820, 0x534C4820,
+            0x6853204C, 0x72656461, 0x6D6F4320, 0x656C6970, 0x2E392072, 0x392E3332, 0x322E3934,
+            0x00383733, 0x05000051, 0xA00F0000, 0xBF000000, 0x3F800000, 0x00000000, 0x00000000,
+            0x0200001F, 0x80000000, 0xB0670001, 0x0200001F, 0x80000000, 0xB0670002, 0x0200001F,
+            0x80000000, 0xB0670003, 0x0200001F, 0x80000000, 0xB02F0004, 0x0200001F, 0x80000000,
+            0xB02F0005, 0x0200001F, 0x80000000, 0xB02F0006, 0x0200001F, 0x80000000, 0xB0230000,
+            0x0200001F, 0x90000000, 0xA00F0800, 0x0200001F, 0x90000000, 0xA00F0803, 0x02000001,
+            0x80210000, 0xB0AA0004, 0x02000001, 0x80220000, 0xB0FF0004, 0x02000001, 0x80210001,
+            0xB0AA0005, 0x02000001, 0x80220001, 0xB0FF0005, 0x02000001, 0x80210002, 0xB0AA0006,
+            0x02000001, 0x80220002, 0xB0FF0006, 0x03000042, 0x802F0000, 0x80E40000, 0xA0E40803,
+            0x03000042, 0x802F0003, 0xB0E40004, 0xA0E40803, 0x03000042, 0x802F0001, 0x80E40001,
+            0xA0E40803, 0x03000042, 0x802F0004, 0xB0E40005, 0xA0E40803, 0x03000042, 0x802F0005,
+            0xB0E40000, 0xA0E40800, 0x03000042, 0x802F0002, 0x80E40002, 0xA0E40803, 0x03000042,
+            0x802F0006, 0xB0E40006, 0xA0E40803, 0x03000002, 0x80280005, 0x81000003, 0xA0550000,
+            0x03000002, 0x80380005, 0x81000000, 0x80FF0005, 0x03000002, 0x80210000, 0x81000004,
+            0xA0550000, 0x03000002, 0x80310000, 0x81000001, 0x80000000, 0x02000024, 0x80270001,
+            0xB0E40002, 0x03000002, 0x800E0000, 0x801B0005, 0xA0000000, 0x03000002, 0x80270003,
+            0x801B0000, 0x801B0000, 0x02000024, 0x80270004, 0x80E40003, 0x03000008, 0x80380004,
+            0x80E40004, 0x80E40001, 0x03000005, 0x802E0000, 0x80FF0004, 0xA01B0004, 0x03000005,
+            0x80270000, 0x80000000, 0x801B0000, 0x02000024, 0x80270001, 0xB0E40001, 0x03000008,
+            0x80380000, 0x80E40004, 0x80E40001, 0x03000005, 0x80270001, 0x80FF0000, 0xA0E40003,
+            0x04000004, 0x80270000, 0x80E40001, 0x80FF0005, 0x80E40000, 0x03000002, 0x80280000,
+            0x81000006, 0xA0550000, 0x03000002, 0x80380000, 0x81000002, 0x80FF0000, 0x02000024,
+            0x80270001, 0xB0E40003, 0x03000008, 0x80310001, 0x80E40004, 0x80E40001, 0x03000005,
+            0x80270001, 0x80000001, 0xA0E40005, 0x04000004, 0x80270000, 0x80E40001, 0x80FF0000,
+            0x80E40000, 0x02000001, 0x80280000, 0xA0550000, 0x02000001, 0x802F0800, 0x80E40000,
+            0x0000FFFF,
+        ];
+        #[repr(C)]
+        #[derive(Clone, Copy)]
+        struct PositionVertex {
+            position: [f32; 3],
+        }
+
+        fn raster_device() -> Device9 {
+            let window = [
+                get_active_window(),
+                get_foreground_window(),
+                get_desktop_window().unwrap_or(std::ptr::null_mut()),
+            ]
+            .into_iter()
+            .find(|window| !window.is_null())
+            .expect("Wine must expose a window for object shader validation");
+            let direct3d = create_direct3d9().expect("D3D9 runtime");
+            direct3d
+                .create_windowed_device(window, TEST_SIZE, TEST_SIZE, D3DDEVTYPE_HAL)
+                .or_else(|_| {
+                    direct3d.create_windowed_device(
+                        window,
+                        TEST_SIZE,
+                        TEST_SIZE,
+                        D3DDEVTYPE_NULLREF,
+                    )
+                })
+                .expect("HAL or NULLREF D3D9 device")
+        }
+
+        fn set_point_clamp_sampler(device: &Device9Ref<'_>, stage: u32) {
+            device
+                .set_sampler_state(stage, D3DSAMP_ADDRESSU, D3DTADDRESS_CLAMP.0 as u32)
+                .expect("clamp U");
+            device
+                .set_sampler_state(stage, D3DSAMP_ADDRESSV, D3DTADDRESS_CLAMP.0 as u32)
+                .expect("clamp V");
+            device
+                .set_sampler_state(stage, D3DSAMP_MINFILTER, D3DTEXF_POINT.0 as u32)
+                .expect("point minification");
+            device
+                .set_sampler_state(stage, D3DSAMP_MAGFILTER, D3DTEXF_POINT.0 as u32)
+                .expect("point magnification");
+            device
+                .set_sampler_state(stage, D3DSAMP_MIPFILTER, D3DTEXF_NONE.0 as u32)
+                .expect("no mip filter");
+        }
+
+        fn read_pixels(device: &Device9Ref<'_>, surface: &Surface9) -> Vec<[f32; 4]> {
+            let staging = device
+                .create_system_memory_surface(TEST_SIZE, TEST_SIZE, D3DFMT_A16B16G16R16F)
+                .expect("object shader readback surface");
+            device
+                .copy_render_target_data(surface, &staging)
+                .expect("object shader render-target readback");
+            staging.read_rgba16f().expect("object shader HDR pixels")
+        }
+
+        fn only_light_fixture_vertex_source() -> &'static [u8] {
+            br#"
+struct Input { float4 position : POSITION; };
+struct Output {
+    float4 position : POSITION;
+    float4 fogColor : COLOR1;
+    float2 uv : TEXCOORD0;
+    float4 lightDir : TEXCOORD1;
+    float4 light2Dir : TEXCOORD2;
+    float4 light3Dir : TEXCOORD3;
+    float4 light2Attenuation : TEXCOORD4;
+    float4 light3Attenuation : TEXCOORD5;
+    float3 viewDir : TEXCOORD6;
+};
+Output Main(Input input) {
+    Output output;
+    output.position = input.position;
+    output.fogColor = 0.0;
+    output.uv = 0.5;
+    output.lightDir = float4(0.0, 0.0, 1.0, 0.0);
+    output.light2Dir = float4(0.0, 0.0, 1.0, 0.0);
+    output.light3Dir = 0.0;
+    output.light2Attenuation = 0.5;
+    output.light3Attenuation = 0.5;
+    output.viewDir = float3(0.0, 0.0, 1.0);
+    return output;
+}
+"#
+        }
+
+        fn render_only_light_pixel_shader(
+            device: &Device9Ref<'_>,
+            native: bool,
+            self_illuminated: bool,
+        ) -> (Vec<[f32; 4]>, Vec<[f32; 4]>) {
+            let vertex_bytecode = crate::shaders::compile_hlsl_source_target(
+                "only_light_behavior.vs",
+                only_light_fixture_vertex_source(),
+                "vs_3_0",
+            )
+            .expect("only-light fixture vertex shader");
+            let sls = if self_illuminated { 2038 } else { 2037 };
+            let pixel_bytecode = if native {
+                if self_illuminated {
+                    NATIVE_2038.to_vec()
+                } else {
+                    NATIVE_2037.to_vec()
+                }
+            } else {
+                let template = object_template_id(ShaderStage::Pixel, sls)
+                    .expect("only-light object pixel template")
+                    .template;
+                crate::shaders::compile_hlsl_source_target(
+                    "pbr_only_light_behavior.ps",
+                    object_template_source(template).as_ref(),
+                    "ps_3_0",
+                )
+                .expect("shipped PBR only-light pixel shader")
+            };
+            let vertex_shader = device
+                .create_vertex_shader(&vertex_bytecode)
+                .expect("only-light fixture vertex object");
+            let pixel_shader = device
+                .create_pixel_shader(&pixel_bytecode)
+                .expect("only-light pixel object");
+
+            let base = device
+                .create_texture(1, 1, 1, 0, D3DFMT_A8R8G8B8, D3DPOOL_MANAGED)
+                .expect("only-light base texture");
+            base.write_level0_argb_pixel(0xFF08_0410)
+                .expect("only-light base texel");
+            let normal = device
+                .create_texture(1, 1, 1, 0, D3DFMT_A8R8G8B8, D3DPOOL_MANAGED)
+                .expect("only-light normal texture");
+            normal
+                .write_level0_argb_pixel(0xFF80_80FF)
+                .expect("only-light normal texel");
+            let glow = device
+                .create_texture(1, 1, 1, 0, D3DFMT_A8R8G8B8, D3DPOOL_MANAGED)
+                .expect("only-light glow texture");
+            glow.write_level0_argb_pixel(0xFF40_4020)
+                .expect("only-light glow texel");
+            let attenuation = device
+                .create_texture(1, 1, 1, 0, D3DFMT_A8R8G8B8, D3DPOOL_MANAGED)
+                .expect("only-light attenuation texture");
+            attenuation
+                .write_level0_argb_pixel(0xFF00_0000)
+                .expect("only-light attenuation texel");
+            let output = device
+                .create_render_target_texture(TEST_SIZE, TEST_SIZE, D3DFMT_A16B16G16R16F)
+                .expect("only-light HDR target");
+            let surface = output.surface_level(0).expect("only-light HDR surface");
+
+            device
+                .set_render_target(0, &surface)
+                .expect("only-light HDR binding");
+            device
+                .set_depth_stencil_surface(None)
+                .expect("no only-light depth surface");
+            device
+                .set_viewport(&D3DVIEWPORT9 {
+                    X: 0,
+                    Y: 0,
+                    Width: TEST_SIZE,
+                    Height: TEST_SIZE,
+                    MinZ: 0.0,
+                    MaxZ: 1.0,
+                })
+                .expect("only-light viewport");
+            device
+                .clear_attachments(D3DCLEAR_TARGET as u32, 0, 1.0, 0)
+                .expect("clear only-light target");
+            device.set_fvf(D3DFVF_XYZ).expect("only-light position FVF");
+            device
+                .set_vertex_shader(&vertex_shader)
+                .expect("only-light fixture vertex shader");
+            device
+                .set_pixel_shader(&pixel_shader)
+                .expect("only-light pixel shader");
+            device
+                .set_texture(0, &base)
+                .expect("only-light base sampler");
+            device
+                .set_texture(1, &normal)
+                .expect("only-light normal sampler");
+            device
+                .set_texture(3, &glow)
+                .expect("only-light glow sampler");
+            device
+                .set_texture(4, &attenuation)
+                .expect("only-light attenuation sampler");
+            for stage in [0, 1, 3, 4] {
+                set_point_clamp_sampler(device, stage);
+            }
+            device
+                .set_render_state(D3DRS_ZENABLE, 0)
+                .expect("disable only-light depth test");
+            device
+                .set_render_state(D3DRS_ZWRITEENABLE, 0)
+                .expect("disable only-light depth writes");
+            device
+                .set_render_state(D3DRS_ALPHABLENDENABLE, 0)
+                .expect("disable only-light blending");
+            device
+                .set_render_state(D3DRS_COLORWRITEENABLE, 0xF)
+                .expect("enable only-light color writes");
+            device
+                .set_render_state(D3DRS_CULLMODE, D3DCULL_NONE.0 as u32)
+                .expect("disable only-light culling");
+
+            let mut constants = [[0.0f32; 4]; 34];
+            constants[1] = [0.02, 0.015, 0.01, 1.0];
+            constants[2] = [0.15, 0.08, 0.04, 1.0];
+            constants[3] = [0.42, 0.18, 0.08, 0.0];
+            constants[4] = [0.36, 0.15, 0.06, 0.0];
+            constants[32] = [0.0, 0.751_681_4, 1.315_789, 0.865_497_1];
+            constants[33] = [1.0, 0.0, 0.0, 0.0];
+            device
+                .set_pixel_shader_constant_f(0, &constants)
+                .expect("only-light pixel constants");
+
+            let triangle = [
+                PositionVertex {
+                    position: [-1.0, -1.0, 0.5],
+                },
+                PositionVertex {
+                    position: [3.0, -1.0, 0.5],
+                },
+                PositionVertex {
+                    position: [-1.0, 3.0, 0.5],
+                },
+            ];
+            device
+                .begin_scene()
+                .expect("begin only-light behavior draw");
+            unsafe {
+                device
+                    .draw_primitive_up(D3DPT_TRIANGLELIST, 1, &triangle)
+                    .expect("only-light behavior draw");
+            }
+            device.end_scene().expect("end only-light behavior draw");
+            let object_pixels = read_pixels(device, &surface);
+            let bloom_pixels = render_bloom_extract(device, &output);
+            (object_pixels, bloom_pixels)
+        }
+
+        fn diffuse_point_fixture_vertex_source() -> &'static [u8] {
+            br#"
+float4 FixtureLight : register(c0);
+float4 FixtureView : register(c1);
+
+struct Input { float4 position : POSITION; };
+struct Output {
+    float4 position : POSITION;
+    float4 fogColor : COLOR1;
+    float2 uv : TEXCOORD0;
+    float4 lightDir : TEXCOORD1;
+    float4 light2Dir : TEXCOORD2;
+    float4 light3Dir : TEXCOORD3;
+    float4 lightAttenuation : TEXCOORD4;
+    float4 light2Attenuation : TEXCOORD5;
+    float4 light3Attenuation : TEXCOORD6;
+    float3 viewDir : TEXCOORD7;
+};
+
+Output Main(Input input) {
+    Output output;
+    float3 view = normalize(FixtureView.xyz);
+    output.position = input.position;
+    output.fogColor = 0.0;
+    output.uv = 0.5;
+    output.lightDir = FixtureLight;
+    output.light2Dir = FixtureLight;
+    output.light3Dir = FixtureLight;
+    output.lightAttenuation = 0.5;
+    output.light2Attenuation = 0.5;
+    output.light3Attenuation = 0.5;
+    output.viewDir = view;
+    return output;
+}
+"#
+        }
+
+        fn high_light_fixture_vertex_source() -> &'static [u8] {
+            br#"
+float4 FixtureLight : register(c0);
+float4 FixtureView : register(c1);
+
+struct Input { float4 position : POSITION; };
+struct Output {
+    float4 position : POSITION;
+    float4 vertexColor : COLOR0;
+    float4 fogColor : COLOR1;
+    float2 uv : TEXCOORD0;
+    float4 localPosition : TEXCOORD1;
+    float4 lightDir : TEXCOORD2;
+    float4 light2Dir : TEXCOORD3;
+    float4 light3Dir : TEXCOORD4;
+    float3 halfway : TEXCOORD5;
+    float3 halfway2 : TEXCOORD6;
+    float3 halfway3 : TEXCOORD7;
+};
+
+Output Main(Input input) {
+    Output output;
+    float3 light = normalize(FixtureLight.xyz);
+    // Match the native high-row contract: view is normalized per vertex and
+    // its halfway vectors are then interpolated independently of the packed
+    // view components consumed by OMV's per-pixel PBR response.
+    float3 localPosition = float3(input.position.xy, 0.0);
+    float3 view = normalize(FixtureView.xyz * FixtureView.w - localPosition);
+    output.position = input.position;
+    output.vertexColor = 1.0;
+    output.fogColor = 0.0;
+    output.uv = 0.5;
+    output.localPosition = float4(0.0, 0.0, 0.0, FixtureLight.w);
+    output.lightDir = float4(light, view.x);
+    output.light2Dir = float4(light, view.y);
+    output.light3Dir = float4(light, view.z);
+    output.halfway = normalize(light + view);
+    output.halfway2 = output.halfway;
+    output.halfway3 = output.halfway;
+    return output;
+}
+"#
+        }
+
+        fn append_fence_bar(vertices: &mut Vec<PositionVertex>, rising: bool, offset: f32) {
+            let x0 = -1.6;
+            let x1 = 1.6;
+            let half_width = 0.025;
+            let slope = if rising { 1.0 } else { -1.0 };
+            let p0 = PositionVertex {
+                position: [x0, slope * x0 + offset - half_width, 0.2],
+            };
+            let p1 = PositionVertex {
+                position: [x1, slope * x1 + offset - half_width, 0.2],
+            };
+            let p2 = PositionVertex {
+                position: [x1, slope * x1 + offset + half_width, 0.2],
+            };
+            let p3 = PositionVertex {
+                position: [x0, slope * x0 + offset + half_width, 0.2],
+            };
+            vertices.extend_from_slice(&[p0, p1, p2, p0, p2, p3]);
+        }
+
+        fn render_diffuse_point_fence_scene(
+            device: &Device9Ref<'_>,
+            native: bool,
+            light_count: u32,
+            camera_angle_degrees: f32,
+        ) -> (Vec<[f32; 4]>, Vec<[f32; 4]>) {
+            let fixture_vertex_bytecode = crate::shaders::compile_hlsl_source_target(
+                "diffuse_point_fence_behavior.vs",
+                diffuse_point_fixture_vertex_source(),
+                "vs_3_0",
+            )
+            .expect("only-specular fence fixture vertex shader");
+            let solid_vertex_bytecode = crate::shaders::compile_hlsl_source_target(
+                "object_fence_depth.vs",
+                br#"
+struct Input { float4 position : POSITION; };
+float4 Main(Input input) : POSITION { return input.position; }
+"#,
+                "vs_3_0",
+            )
+            .expect("fence depth vertex shader");
+            let solid_pixel_bytecode = crate::shaders::compile_hlsl_source_target(
+                "object_fence_depth.ps",
+                br#"float4 Main() : COLOR0 { return float4(0.035, 0.035, 0.035, 1.0); }"#,
+                "ps_3_0",
+            )
+            .expect("fence depth pixel shader");
+            let sls = match light_count {
+                2 => 2045,
+                3 => 2046,
+                _ => panic!("unsupported diffuse-point light count"),
+            };
+            let pixel_bytecode = if native {
+                if light_count == 2 {
+                    NATIVE_2045.to_vec()
+                } else {
+                    NATIVE_2046.to_vec()
+                }
+            } else {
+                let template = object_template_id(ShaderStage::Pixel, sls)
+                    .expect("diffuse-point object pixel template")
+                    .template;
+                crate::shaders::compile_hlsl_source_target(
+                    "pbr_diffuse_point_fence_behavior.ps",
+                    object_template_source(template).as_ref(),
+                    "ps_3_0",
+                )
+                .expect("shipped PBR two-light diffuse-point pixel shader")
+            };
+            let fixture_vertex_shader = device
+                .create_vertex_shader(&fixture_vertex_bytecode)
+                .expect("diffuse-point fixture vertex object");
+            let solid_vertex_shader = device
+                .create_vertex_shader(&solid_vertex_bytecode)
+                .expect("fence depth vertex object");
+            let solid_pixel_shader = device
+                .create_pixel_shader(&solid_pixel_bytecode)
+                .expect("fence depth pixel object");
+            let pixel_shader = device
+                .create_pixel_shader(&pixel_bytecode)
+                .expect("diffuse-point pixel object");
+
+            let normal = device
+                .create_texture(1, 1, 1, 0, D3DFMT_A8R8G8B8, D3DPOOL_MANAGED)
+                .expect("diffuse-point normal texture");
+            normal
+                .write_level0_argb_pixel(0xFF80_80FF)
+                .expect("diffuse-point normal texel");
+            let attenuation = device
+                .create_texture(1, 1, 1, 0, D3DFMT_A8R8G8B8, D3DPOOL_MANAGED)
+                .expect("diffuse-point attenuation texture");
+            attenuation
+                .write_level0_argb_pixel(0xFF00_0000)
+                .expect("diffuse-point attenuation texel");
+            let output = device
+                .create_render_target_texture(TEST_SIZE, TEST_SIZE, D3DFMT_A16B16G16R16F)
+                .expect("only-specular fence HDR target");
+            let surface = output
+                .surface_level(0)
+                .expect("only-specular fence HDR surface");
+            let depth = device
+                .create_depth_stencil_surface(
+                    TEST_SIZE,
+                    TEST_SIZE,
+                    D3DFMT_D24S8,
+                    D3DMULTISAMPLE_NONE,
+                    0,
+                    true,
+                )
+                .expect("only-specular fence depth surface");
+
+            device
+                .set_render_target(0, &surface)
+                .expect("only-specular fence HDR binding");
+            device
+                .set_depth_stencil_surface(Some(&depth))
+                .expect("only-specular fence depth binding");
+            device
+                .set_viewport(&D3DVIEWPORT9 {
+                    X: 0,
+                    Y: 0,
+                    Width: TEST_SIZE,
+                    Height: TEST_SIZE,
+                    MinZ: 0.0,
+                    MaxZ: 1.0,
+                })
+                .expect("only-specular fence viewport");
+            device
+                .clear_attachments(
+                    D3DCLEAR_TARGET as u32 | D3DCLEAR_ZBUFFER as u32,
+                    0xFF10_1010,
+                    1.0,
+                    0,
+                )
+                .expect("clear only-specular fence scene");
+            device
+                .set_fvf(D3DFVF_XYZ)
+                .expect("only-specular fence position FVF");
+            device
+                .set_render_state(D3DRS_COLORWRITEENABLE, 0xF)
+                .expect("enable only-specular fence color writes");
+            device
+                .set_render_state(D3DRS_CULLMODE, D3DCULL_NONE.0 as u32)
+                .expect("disable only-specular fence culling");
+            device
+                .set_render_state(D3DRS_ZENABLE, 1)
+                .expect("enable only-specular fence depth test");
+            device
+                .set_render_state(D3DRS_ZFUNC, D3DCMP_LESSEQUAL.0 as u32)
+                .expect("only-specular fence depth function");
+
+            let mut fence = Vec::with_capacity(36);
+            for offset in [-1.0, 0.0, 1.0] {
+                append_fence_bar(&mut fence, true, offset);
+                append_fence_bar(&mut fence, false, offset);
+            }
+
+            device
+                .begin_scene()
+                .expect("begin only-specular fence scene");
+            device
+                .set_vertex_shader(&solid_vertex_shader)
+                .expect("fence depth vertex shader");
+            device
+                .set_pixel_shader(&solid_pixel_shader)
+                .expect("fence depth pixel shader");
+            device
+                .set_render_state(D3DRS_ZWRITEENABLE, 1)
+                .expect("enable fence depth writes");
+            device
+                .set_render_state(D3DRS_ALPHABLENDENABLE, 0)
+                .expect("disable fence blending");
+            unsafe {
+                device
+                    .draw_primitive_up(D3DPT_TRIANGLELIST, (fence.len() / 3) as u32, &fence)
+                    .expect("fence depth draw");
+            }
+
+            device
+                .set_vertex_shader(&fixture_vertex_shader)
+                .expect("only-specular fixture vertex shader");
+            device
+                .set_pixel_shader(&pixel_shader)
+                .expect("only-specular pixel shader");
+            device
+                .set_texture(0, &normal)
+                .expect("diffuse-point normal sampler");
+            device
+                .set_texture(3, &attenuation)
+                .expect("diffuse-point attenuation sampler");
+            for stage in [0, 3] {
+                set_point_clamp_sampler(device, stage);
+            }
+            device
+                .set_render_state(D3DRS_ZWRITEENABLE, 0)
+                .expect("disable only-specular depth writes");
+            device
+                .set_render_state(D3DRS_ALPHABLENDENABLE, 1)
+                .expect("enable native additive blending");
+            device
+                .set_render_state(D3DRS_SRCBLEND, D3DBLEND_ONE.0 as u32)
+                .expect("only-specular source blend");
+            device
+                .set_render_state(D3DRS_DESTBLEND, D3DBLEND_ONE.0 as u32)
+                .expect("only-specular destination blend");
+
+            let radians = camera_angle_degrees.to_radians();
+            let light = [radians.sin(), 0.0, radians.cos(), 1.0];
+            let view = [-radians.sin(), 0.0, radians.cos(), 0.0];
+            device
+                .set_vertex_shader_constant_f(0, &[light, view])
+                .expect("only-specular camera/light fixture constants");
+            let mut constants = [[0.0f32; 4]; 34];
+            constants[3] = [0.4, 0.4, 0.4, 0.0];
+            constants[4] = [0.4, 0.4, 0.4, 0.0];
+            constants[5] = [0.4, 0.4, 0.4, 0.0];
+            constants[27] = [0.0, 0.0, 60.0, 0.0];
+            constants[32] = [0.0, 0.751_681_4, 1.315_789, 0.865_497_1];
+            constants[33] = [1.0, 0.0, 0.0, 0.0];
+            device
+                .set_pixel_shader_constant_f(0, &constants)
+                .expect("only-specular pixel constants");
+
+            let wearable = [
+                PositionVertex {
+                    position: [-1.0, -1.0, 0.7],
+                },
+                PositionVertex {
+                    position: [3.0, -1.0, 0.7],
+                },
+                PositionVertex {
+                    position: [-1.0, 3.0, 0.7],
+                },
+            ];
+            unsafe {
+                device
+                    .draw_primitive_up(D3DPT_TRIANGLELIST, 1, &wearable)
+                    .expect("only-specular wearable draw");
+            }
+            device.end_scene().expect("end only-specular fence scene");
+            let scene_pixels = read_pixels(device, &surface);
+            let bloom_pixels = render_bloom_extract(device, &output);
+            (scene_pixels, bloom_pixels)
+        }
+
+        fn render_high_light_fence_scene(
+            device: &Device9Ref<'_>,
+            native: bool,
+            camera_angle_degrees: f32,
+            camera_distance: f32,
+            specular_fade: f32,
+        ) -> (Vec<[f32; 4]>, Vec<[f32; 4]>) {
+            let fixture_vertex_bytecode = crate::shaders::compile_hlsl_source_target(
+                "high_light_fence_behavior.vs",
+                high_light_fixture_vertex_source(),
+                "vs_3_0",
+            )
+            .expect("high-light fence fixture vertex shader");
+            let solid_vertex_bytecode = crate::shaders::compile_hlsl_source_target(
+                "object_only_specular_fence_depth.vs",
+                br#"
+struct Input { float4 position : POSITION; };
+float4 Main(Input input) : POSITION { return input.position; }
+"#,
+                "vs_3_0",
+            )
+            .expect("only-specular fence depth vertex shader");
+            let solid_pixel_bytecode = crate::shaders::compile_hlsl_source_target(
+                "object_only_specular_fence_depth.ps",
+                br#"float4 Main() : COLOR0 { return float4(0.035, 0.035, 0.035, 1.0); }"#,
+                "ps_3_0",
+            )
+            .expect("only-specular fence depth pixel shader");
+            let pixel_bytecode = if native {
+                NATIVE_2034.to_vec()
+            } else {
+                let template = object_template_id(ShaderStage::Pixel, 2034)
+                    .expect("three-light specular object pixel template")
+                    .template;
+                crate::shaders::compile_hlsl_source_target(
+                    "pbr_high_light_fence_behavior.ps",
+                    object_template_source(template).as_ref(),
+                    "ps_3_0",
+                )
+                .expect("shipped PBR high-light pixel shader")
+            };
+            let fixture_vertex_shader = device
+                .create_vertex_shader(&fixture_vertex_bytecode)
+                .expect("only-specular fixture vertex object");
+            let solid_vertex_shader = device
+                .create_vertex_shader(&solid_vertex_bytecode)
+                .expect("only-specular fence depth vertex object");
+            let solid_pixel_shader = device
+                .create_pixel_shader(&solid_pixel_bytecode)
+                .expect("only-specular fence depth pixel object");
+            let pixel_shader = device
+                .create_pixel_shader(&pixel_bytecode)
+                .expect("only-specular pixel object");
+
+            let base = device
+                .create_texture(1, 1, 1, 0, D3DFMT_A8R8G8B8, D3DPOOL_MANAGED)
+                .expect("high-light base texture");
+            base.write_level0_argb_pixel(0xFFB0_8040)
+                .expect("high-light base texel");
+            let normal = device
+                .create_texture(1, 1, 1, 0, D3DFMT_A8R8G8B8, D3DPOOL_MANAGED)
+                .expect("high-light normal texture");
+            normal
+                .write_level0_argb_pixel(0xFF80_80FF)
+                .expect("high-light normal texel");
+            let output = device
+                .create_render_target_texture(TEST_SIZE, TEST_SIZE, D3DFMT_A16B16G16R16F)
+                .expect("only-specular fence HDR target");
+            let surface = output
+                .surface_level(0)
+                .expect("only-specular fence HDR surface");
+            let depth = device
+                .create_depth_stencil_surface(
+                    TEST_SIZE,
+                    TEST_SIZE,
+                    D3DFMT_D24S8,
+                    D3DMULTISAMPLE_NONE,
+                    0,
+                    true,
+                )
+                .expect("only-specular fence depth surface");
+
+            device
+                .set_render_target(0, &surface)
+                .expect("only-specular fence HDR binding");
+            device
+                .set_depth_stencil_surface(Some(&depth))
+                .expect("only-specular fence depth binding");
+            device
+                .set_viewport(&D3DVIEWPORT9 {
+                    X: 0,
+                    Y: 0,
+                    Width: TEST_SIZE,
+                    Height: TEST_SIZE,
+                    MinZ: 0.0,
+                    MaxZ: 1.0,
+                })
+                .expect("only-specular fence viewport");
+            device
+                .clear_attachments(
+                    D3DCLEAR_TARGET as u32 | D3DCLEAR_ZBUFFER as u32,
+                    0xFF10_1010,
+                    1.0,
+                    0,
+                )
+                .expect("clear only-specular fence scene");
+            device.set_fvf(D3DFVF_XYZ).expect("only-specular fence FVF");
+            device
+                .set_render_state(D3DRS_COLORWRITEENABLE, 0xF)
+                .expect("enable only-specular fence color writes");
+            device
+                .set_render_state(D3DRS_CULLMODE, D3DCULL_NONE.0 as u32)
+                .expect("disable only-specular fence culling");
+            device
+                .set_render_state(D3DRS_ZENABLE, 1)
+                .expect("enable only-specular fence depth test");
+            device
+                .set_render_state(D3DRS_ZFUNC, D3DCMP_LESSEQUAL.0 as u32)
+                .expect("only-specular fence depth function");
+
+            let mut fence = Vec::with_capacity(36);
+            for offset in [-1.0, 0.0, 1.0] {
+                append_fence_bar(&mut fence, true, offset);
+                append_fence_bar(&mut fence, false, offset);
+            }
+            let wearable = [
+                PositionVertex {
+                    position: [-1.0, -1.0, 0.7],
+                },
+                PositionVertex {
+                    position: [3.0, -1.0, 0.7],
+                },
+                PositionVertex {
+                    position: [-1.0, 3.0, 0.7],
+                },
+            ];
+
+            device
+                .begin_scene()
+                .expect("begin only-specular fence scene");
+            device
+                .set_vertex_shader(&solid_vertex_shader)
+                .expect("only-specular fence depth vertex shader");
+            device
+                .set_pixel_shader(&solid_pixel_shader)
+                .expect("only-specular fence depth pixel shader");
+            device
+                .set_render_state(D3DRS_ZWRITEENABLE, 1)
+                .expect("enable only-specular fence depth writes");
+            device
+                .set_render_state(D3DRS_ALPHABLENDENABLE, 0)
+                .expect("disable only-specular fence blending");
+            unsafe {
+                device
+                    .draw_primitive_up(D3DPT_TRIANGLELIST, (fence.len() / 3) as u32, &fence)
+                    .expect("only-specular fence depth draw");
+            }
+
+            device
+                .set_vertex_shader(&fixture_vertex_shader)
+                .expect("only-specular fixture vertex shader");
+            device
+                .set_pixel_shader(&pixel_shader)
+                .expect("high-light pixel shader");
+            device
+                .set_texture(0, &base)
+                .expect("high-light base sampler");
+            device
+                .set_texture(1, &normal)
+                .expect("high-light normal sampler");
+            for stage in [0, 1] {
+                set_point_clamp_sampler(device, stage);
+            }
+            device
+                .set_render_state(D3DRS_ZWRITEENABLE, 0)
+                .expect("disable only-specular depth writes");
+            device
+                .set_render_state(D3DRS_ALPHABLENDENABLE, 0)
+                .expect("disable high-light blending");
+
+            let radians = camera_angle_degrees.to_radians();
+            let light = [radians.sin(), 0.0, radians.cos(), specular_fade];
+            let view = [-radians.sin(), 0.0, radians.cos(), camera_distance];
+            device
+                .set_vertex_shader_constant_f(0, &[light, view])
+                .expect("only-specular camera/light fixture constants");
+            let mut constants = [[0.0f32; 4]; 34];
+            constants[1] = [0.04, 0.04, 0.04, 1.0];
+            constants[2] = [0.0, 0.0, 0.0, 3.0];
+            constants[3] = [0.75, 0.55, 0.35, 0.0];
+            constants[4] = [0.65, 0.42, 0.24, 0.0];
+            constants[5] = [0.55, 0.34, 0.18, 0.0];
+            constants[19] = [0.0, 0.0, 1.0, 1.0];
+            constants[20] = [0.0, 0.0, 1.0, 1.0];
+            constants[27] = [0.0, 0.0, 60.0, 0.0];
+            constants[32] = [0.0, 0.751_681_4, 1.315_789, 0.865_497_1];
+            constants[33] = [1.0, 0.0, 0.0, 0.0];
+            device
+                .set_pixel_shader_constant_f(0, &constants)
+                .expect("high-light pixel constants");
+            unsafe {
+                device
+                    .draw_primitive_up(D3DPT_TRIANGLELIST, 1, &wearable)
+                    .expect("high-light wearable draw");
+            }
+            device.end_scene().expect("end only-specular fence scene");
+            let scene_pixels = read_pixels(device, &surface);
+            let bloom_pixels = render_bloom_extract(device, &output);
+            (scene_pixels, bloom_pixels)
+        }
+
+        fn render_bloom_extract(
+            device: &Device9Ref<'_>,
+            scene: &libpsycho::os::windows::directx9::Texture9,
+        ) -> Vec<[f32; 4]> {
+            let vertex_bytecode = crate::shaders::compile_hlsl_source_target(
+                "object_neon_bloom_extract.vs",
+                br#"
+struct Input { float4 position : POSITION; };
+struct Output { float4 position : POSITION; float2 uv : TEXCOORD0; };
+Output Main(Input input) {
+    Output output;
+    output.position = input.position;
+    output.uv = float2(input.position.x * 0.5 + 0.5, 0.5 - input.position.y * 0.5);
+    return output;
+}
+"#,
+                "vs_3_0",
+            )
+            .expect("bloom-extract fixture vertex shader");
+            let pixel_bytecode = crate::shaders::compile_hlsl_source_target(
+                "bloom_hdr_extract.hlsl",
+                include_bytes!("../../../shaders/embedded/bloom_hdr_extract.hlsl"),
+                "ps_3_0",
+            )
+            .expect("shipped bloom-extract pixel shader");
+            let vertex_shader = device
+                .create_vertex_shader(&vertex_bytecode)
+                .expect("bloom-extract vertex object");
+            let pixel_shader = device
+                .create_pixel_shader(&pixel_bytecode)
+                .expect("bloom-extract pixel object");
+            let output = device
+                .create_render_target_texture(TEST_SIZE, TEST_SIZE, D3DFMT_A16B16G16R16F)
+                .expect("bloom-extract HDR target");
+            let surface = output.surface_level(0).expect("bloom-extract HDR surface");
+
+            device
+                .set_render_target(0, &surface)
+                .expect("bloom-extract target binding");
+            device
+                .set_depth_stencil_surface(None)
+                .expect("detach bloom-extract depth surface");
+            device
+                .clear_attachments(D3DCLEAR_TARGET as u32, 0, 1.0, 0)
+                .expect("clear bloom-extract target");
+            device
+                .set_vertex_shader(&vertex_shader)
+                .expect("bloom-extract vertex shader");
+            device
+                .set_pixel_shader(&pixel_shader)
+                .expect("bloom-extract pixel shader");
+            device.set_texture(0, scene).expect("bloom scene sampler");
+            set_point_clamp_sampler(device, 0);
+            device
+                .set_render_state(D3DRS_ZENABLE, 0)
+                .expect("disable bloom-extract depth test");
+            device
+                .set_render_state(D3DRS_ZWRITEENABLE, 0)
+                .expect("disable bloom-extract depth writes");
+            device
+                .set_render_state(D3DRS_ALPHABLENDENABLE, 0)
+                .expect("disable bloom-extract blending");
+
+            let mut constants = [[0.0f32; 4]; 6];
+            constants[0] = [
+                TEST_SIZE as f32,
+                TEST_SIZE as f32,
+                1.0 / TEST_SIZE as f32,
+                1.0 / TEST_SIZE as f32,
+            ];
+            constants[3] = [0.34, 0.62, 0.0, 0.28];
+            device
+                .set_pixel_shader_constant_f(0, &constants)
+                .expect("bloom-extract constants");
+
+            let triangle = [
+                PositionVertex {
+                    position: [-1.0, -1.0, 0.5],
+                },
+                PositionVertex {
+                    position: [3.0, -1.0, 0.5],
+                },
+                PositionVertex {
+                    position: [-1.0, 3.0, 0.5],
+                },
+            ];
+            device.begin_scene().expect("begin bloom-extract draw");
+            unsafe {
+                device
+                    .draw_primitive_up(D3DPT_TRIANGLELIST, 1, &triangle)
+                    .expect("bloom-extract draw");
+            }
+            device.end_scene().expect("end bloom-extract draw");
+            read_pixels(device, &surface)
+        }
+
+        #[test]
+        fn megaton_only_light_rows_match_native_hdr_and_bloom_energy() {
+            let owner = raster_device();
+            let device = owner.as_ref();
+            device
+                .direct3d()
+                .expect("D3D9 interface")
+                .check_default_render_target_texture_support(D3DFMT_A16B16G16R16F)
+                .expect("HDR object targets");
+
+            for self_illuminated in [false, true] {
+                let (native, native_bloom) =
+                    render_only_light_pixel_shader(&device, true, self_illuminated);
+                let (pbr, pbr_bloom) =
+                    render_only_light_pixel_shader(&device, false, self_illuminated);
+                for (index, (native, pbr)) in native.iter().zip(&pbr).enumerate() {
+                    for component in 0..3 {
+                        assert!(
+                            (pbr[component] - native[component]).abs() <= 0.01,
+                            "only-light row changed native HDR energy (SI={self_illuminated}, pixel {index}, component {component}): native={native:?}, pbr={pbr:?}, native_bloom={:?}, pbr_bloom={:?}",
+                            native_bloom[index],
+                            pbr_bloom[index],
+                        );
+                    }
+                }
+                for (index, (native, pbr)) in native_bloom.iter().zip(&pbr_bloom).enumerate() {
+                    for component in 0..3 {
+                        assert!(
+                            (pbr[component] - native[component]).abs() <= 0.01,
+                            "only-light row changed shipped bloom energy (SI={self_illuminated}, pixel {index}, component {component}): native={native:?}, pbr={pbr:?}"
+                        );
+                    }
+                }
+            }
+        }
+
+        #[test]
+        fn megaton_diffuse_point_rows_do_not_neon_bloom_through_fence() {
+            let owner = raster_device();
+            let device = owner.as_ref();
+            device
+                .direct3d()
+                .expect("D3D9 interface")
+                .check_default_render_target_texture_support(D3DFMT_A16B16G16R16F)
+                .expect("HDR object targets");
+
+            let mut worst_hdr_error = 0.0f32;
+            let mut worst_fence_bloom_error = 0.0f32;
+            let mut worst_angle = 0.0f32;
+            let mut worst_light_count = 0u32;
+            let mut occluded_samples = 0usize;
+            for light_count in [2u32, 3] {
+                for angle in [0.0f32, 35.0, 55.0, 68.0, 78.0] {
+                    let (native_scene, native_bloom) =
+                        render_diffuse_point_fence_scene(&device, true, light_count, angle);
+                    let (pbr_scene, pbr_bloom) =
+                        render_diffuse_point_fence_scene(&device, false, light_count, angle);
+
+                    for index in 0..native_scene.len() {
+                        let hdr_error = (pbr_scene[index][0] - native_scene[index][0]).abs();
+                        if hdr_error > worst_hdr_error {
+                            worst_hdr_error = hdr_error;
+                            worst_angle = angle;
+                            worst_light_count = light_count;
+                        }
+
+                        // The depth-writing fence is the only region which
+                        // stays below this scene value. Bloom at these pixels
+                        // is light leaking spatially from the visible wearable
+                        // in its gaps.
+                        if native_scene[index][0] < 0.1 {
+                            occluded_samples += 1;
+                            let native_luma = native_bloom[index][0] * 0.2126
+                                + native_bloom[index][1] * 0.7152
+                                + native_bloom[index][2] * 0.0722;
+                            let pbr_luma = pbr_bloom[index][0] * 0.2126
+                                + pbr_bloom[index][1] * 0.7152
+                                + pbr_bloom[index][2] * 0.0722;
+                            worst_fence_bloom_error =
+                                worst_fence_bloom_error.max((pbr_luma - native_luma).abs());
+                        }
+                    }
+                }
+            }
+
+            assert!(occluded_samples > 0, "fence did not occlude the wearable");
+            assert!(
+                worst_hdr_error <= 0.02 && worst_fence_bloom_error <= 0.02,
+                "DIFFUSE helper diverged from native additive energy during the camera sweep: HDR error={worst_hdr_error:.4} with {worst_light_count} lights at {worst_angle:.1} degrees, bloom error over depth-occluding fence={worst_fence_bloom_error:.4}"
+            );
+        }
+
+        #[test]
+        fn megaton_high_light_wearable_does_not_neon_bloom_through_fence() {
+            let owner = raster_device();
+            let device = owner.as_ref();
+            device
+                .direct3d()
+                .expect("D3D9 interface")
+                .check_default_render_target_texture_support(D3DFMT_A16B16G16R16F)
+                .expect("HDR object targets");
+
+            let mut worst_hdr_excess = 0.0f32;
+            let mut worst_fence_bloom_excess = 0.0f32;
+            let mut worst_angle = 0.0f32;
+            let mut worst_distance = 0.0f32;
+            let mut worst_fade = 0.0f32;
+            let mut occluded_samples = 0usize;
+            for fade in [0.0f32, 0.2, 0.65, 1.0] {
+                for distance in [0.75f32, 1.5, 4.0, 12.0] {
+                    for angle in [0.0f32, 25.0, 45.0, 60.0, 72.0, 80.0] {
+                        let (native_scene, native_bloom) =
+                            render_high_light_fence_scene(&device, true, angle, distance, fade);
+                        let (pbr_scene, pbr_bloom) =
+                            render_high_light_fence_scene(&device, false, angle, distance, fade);
+
+                        for index in 0..native_scene.len() {
+                            for component in 0..3 {
+                                let excess =
+                                    pbr_scene[index][component] - native_scene[index][component];
+                                if excess > worst_hdr_excess {
+                                    worst_hdr_excess = excess;
+                                    worst_angle = angle;
+                                    worst_distance = distance;
+                                    worst_fade = fade;
+                                }
+                            }
+                            if native_scene[index][0] < 0.1 {
+                                occluded_samples += 1;
+                                let native_luma = native_bloom[index][0] * 0.2126
+                                    + native_bloom[index][1] * 0.7152
+                                    + native_bloom[index][2] * 0.0722;
+                                let pbr_luma = pbr_bloom[index][0] * 0.2126
+                                    + pbr_bloom[index][1] * 0.7152
+                                    + pbr_bloom[index][2] * 0.0722;
+                                worst_fence_bloom_excess =
+                                    worst_fence_bloom_excess.max(pbr_luma - native_luma);
+                            }
+                        }
+                    }
+                }
+            }
+
+            assert!(occluded_samples > 0, "fence did not occlude the wearable");
+            assert!(
+                worst_hdr_excess <= 0.02 && worst_fence_bloom_excess <= 0.02,
+                "high-light wearable exceeded native HDR energy during the camera sweep: HDR excess={worst_hdr_excess:.4} at fade {worst_fade:.2}, distance {worst_distance:.2}, angle {worst_angle:.1} degrees, bloom excess over depth-occluding fence={worst_fence_bloom_excess:.4}"
+            );
+        }
+    }
+
     fn dot(left: [f32; 3], right: [f32; 3]) -> f32 {
         left[0] * right[0] + left[1] * right[1] + left[2] * right[2]
     }
@@ -2364,8 +3593,8 @@ float4 Main(float2 uv : TEXCOORD0) : COLOR0
     fn every_object_shader_stays_within_static_gpu_budget() {
         let representative_limits = [
             ("SLS2017_p_specular", 2_204, 115, 2),
-            ("SLS2034_p_specular_lights4", 4_020, 235, 2),
-            ("SLS2035_p_specular_lights4_opt", 3_860, 231, 2),
+            ("SLS2034_p_specular_lights4", 5_320, 322, 2),
+            ("SLS2035_p_specular_lights4_opt", 5_192, 320, 2),
         ];
         for template_id in 0..object_template_count() {
             let template = object_template_at(template_id as u16).unwrap();

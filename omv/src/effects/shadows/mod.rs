@@ -110,7 +110,7 @@ static INTERIOR_DARKNESS: AtomicU32 = AtomicU32::new(0);
 // The released light-count atomic has twenty-eight unused bits. Packing the
 // millisecond fade duration into that existing publication word preserves the
 // loader-visible static owner set and .bss size while keeping one coherent
-// seqlock transaction. The low byte remains the bounded 1..=12 light count.
+// seqlock transaction. The low byte remains the bounded 1..=16 light count.
 static INTERIOR_SHADOWED_LIGHTS: AtomicU32 = AtomicU32::new(0);
 static INTERIOR_LIGHT_RADIUS_MULTIPLIER: AtomicU32 = AtomicU32::new(0);
 static INTERIOR_LIGHT_DRAW_DISTANCE: AtomicU32 = AtomicU32::new(0);

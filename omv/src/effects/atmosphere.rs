@@ -15,6 +15,7 @@ use std::{
         atomic::{AtomicBool, Ordering},
     },
     thread,
+    time::Instant,
 };
 
 use anyhow::Result;
@@ -58,6 +59,10 @@ const DENSITY_NOISE_SIZE: u32 = 64;
 const DENSITY_NOISE_SEED: u32 = 0xA7F4_31D9;
 const LIGHTING_DEBUG_BASE: i32 = 8;
 const SHAFT_TARGET_SCALE: u32 = 4;
+const LOCAL_LIGHT_ACTIVE_CAPACITY: usize = 16;
+const LOCAL_LIGHT_TRACK_CAPACITY: usize = crate::fnv_local_lights::LOCAL_LIGHT_CAPACITY;
+const LOCAL_LIGHT_BATCH_SIZE: usize = 4;
+const LOCAL_LIGHT_SELECTION_LEASE_MILLIS: u64 = 2_000;
 
 static COMPILE_STARTED: AtomicBool = AtomicBool::new(false);
 static COMPILE_FAILED: AtomicBool = AtomicBool::new(false);
@@ -89,6 +94,7 @@ pub(crate) struct AtmosphereSettings {
     pub(crate) local_lights_enabled: bool,
     local_lights_intensity: f32,
     local_lights_quality: AtmosphereQuality,
+    local_lights_fade_seconds: f32,
 }
 
 impl AtmosphereSettings {
@@ -128,6 +134,8 @@ impl AtmosphereSettings {
             local_lights_enabled: lighting.local_lights_enabled,
             local_lights_intensity: finite(lighting.local_lights_intensity, 1.5).clamp(0.0, 4.0),
             local_lights_quality: lighting.local_lights_quality,
+            local_lights_fade_seconds: finite(lighting.local_lights_fade_seconds, 0.75)
+                .clamp(0.05, 5.0),
         }
     }
 
@@ -176,6 +184,7 @@ impl AtmosphereSettings {
             .map_or(AtmosphereQuality::High, |value| {
                 AtmosphereQuality::from_index(finite_i32(value[2]))
             });
+        let local_lights_fade_seconds = option_component(lighting_constants, 3, 0, 0.75);
         let quality = fog_quality.or(lighting_quality).unwrap_or_default();
 
         Self {
@@ -206,6 +215,7 @@ impl AtmosphereSettings {
             local_lights_enabled,
             local_lights_intensity: finite(local_lights_intensity, 1.5).clamp(0.0, 4.0),
             local_lights_quality,
+            local_lights_fade_seconds: finite(local_lights_fade_seconds, 0.75).clamp(0.05, 5.0),
         }
     }
 
@@ -292,8 +302,9 @@ impl AtmosphereSettings {
 
     fn local_max_lights(self) -> usize {
         match self.local_lights_quality {
-            AtmosphereQuality::Performance => 2,
-            AtmosphereQuality::High | AtmosphereQuality::Ultra => 4,
+            AtmosphereQuality::Performance => 4,
+            AtmosphereQuality::High => 8,
+            AtmosphereQuality::Ultra => 16,
         }
     }
 
@@ -618,8 +629,40 @@ pub(crate) struct AtmosphereEffect {
     integration_draws: u64,
     shaft_draws: u64,
     local_light_draws: u64,
+    local_light_tracks: [LocalLightTrack; LOCAL_LIGHT_TRACK_CAPACITY],
+    local_light_selection: [usize; LOCAL_LIGHT_ACTIVE_CAPACITY],
+    local_light_selection_count: usize,
+    local_light_cell_identity: usize,
+    local_light_selection_started_millis: u64,
+    local_light_last_update_millis: u64,
+    local_light_clock_origin: Instant,
+    #[cfg(test)]
+    local_light_test_millis: Option<u64>,
     composition_draws: u64,
     debug_draws: u64,
+}
+
+#[derive(Clone, Copy, Debug)]
+struct LocalLightTrack {
+    identity: usize,
+    values: crate::fnv_local_lights::LocalLightValues,
+    weight: f32,
+    target_visible: bool,
+}
+
+impl Default for LocalLightTrack {
+    fn default() -> Self {
+        Self {
+            identity: 0,
+            values: crate::fnv_local_lights::LocalLightValues {
+                position: [0.0; 3],
+                color: [0.0; 3],
+                radius: 0.0,
+            },
+            weight: 0.0,
+            target_visible: false,
+        }
+    }
 }
 
 struct AtmosphereBytecode {
@@ -640,7 +683,7 @@ struct ShaftBytecode {
 struct LocalLightBytecode {
     shadowless: [[Vec<u32>; 4]; 3],
     native_shadowed: [Vec<u32>; 3],
-    cube_shadowed: [Vec<u32>; 3],
+    cube_shadowed: [[Vec<u32>; 4]; 3],
 }
 
 impl AtmosphereBytecode {
@@ -721,18 +764,9 @@ impl LocalLightBytecode {
                 )?,
             ],
             cube_shadowed: [
-                shaders::compile_hlsl_source(
-                    "atmosphere_local_light.hlsl:performance:cube-shadowed",
-                    &local_light_cube_shader_source(4, false),
-                )?,
-                shaders::compile_hlsl_source(
-                    "atmosphere_local_light.hlsl:high:cube-shadowed",
-                    &local_light_cube_shader_source(6, true),
-                )?,
-                shaders::compile_hlsl_source(
-                    "atmosphere_local_light.hlsl:ultra:cube-shadowed",
-                    &local_light_cube_shader_source(10, true),
-                )?,
+                compile_local_light_cube_batch_bytecode("performance", 4, false)?,
+                compile_local_light_cube_batch_bytecode("high", 6, true)?,
+                compile_local_light_cube_batch_bytecode("ultra", 10, true)?,
             ],
         })
     }
@@ -870,9 +904,197 @@ impl AtmosphereEffect {
             integration_draws: 0,
             shaft_draws: 0,
             local_light_draws: 0,
+            local_light_tracks: [LocalLightTrack::default(); LOCAL_LIGHT_TRACK_CAPACITY],
+            local_light_selection: [0; LOCAL_LIGHT_ACTIVE_CAPACITY],
+            local_light_selection_count: 0,
+            local_light_cell_identity: 0,
+            local_light_selection_started_millis: 0,
+            local_light_last_update_millis: 0,
+            local_light_clock_origin: Instant::now(),
+            #[cfg(test)]
+            local_light_test_millis: None,
             composition_draws: 0,
             debug_draws: 0,
         })
+    }
+
+    fn reset_local_light_history(&mut self) {
+        self.local_light_tracks = [LocalLightTrack::default(); LOCAL_LIGHT_TRACK_CAPACITY];
+        self.local_light_selection = [0; LOCAL_LIGHT_ACTIVE_CAPACITY];
+        self.local_light_selection_count = 0;
+        self.local_light_cell_identity = 0;
+        self.local_light_selection_started_millis = 0;
+        self.local_light_last_update_millis = 0;
+    }
+
+    fn resolve_local_lights(
+        &mut self,
+        epoch: &crate::fnv_local_lights::LocalLightEpoch,
+        device_identity: usize,
+        frame: AtmosphereFrame,
+        width: u32,
+        height: u32,
+        settings: AtmosphereSettings,
+    ) -> [Option<UsableLocalLight>; LOCAL_LIGHT_TRACK_CAPACITY] {
+        #[cfg(test)]
+        let now_millis = self.local_light_test_millis.unwrap_or_else(|| {
+            self.local_light_clock_origin
+                .elapsed()
+                .as_millis()
+                .min(u64::MAX as u128) as u64
+        });
+        #[cfg(not(test))]
+        let now_millis = self
+            .local_light_clock_origin
+            .elapsed()
+            .as_millis()
+            .min(u64::MAX as u128) as u64;
+        if self.local_light_cell_identity != epoch.cell_identity {
+            self.reset_local_light_history();
+            self.local_light_cell_identity = epoch.cell_identity;
+        }
+
+        let mut candidates = [None; LOCAL_LIGHT_TRACK_CAPACITY];
+        let mut candidate_count = 0usize;
+        for light in epoch.lights() {
+            if candidate_count == LOCAL_LIGHT_TRACK_CAPACITY {
+                break;
+            }
+            if local_light_scissor(
+                frame.camera,
+                width,
+                height,
+                light.values.position,
+                light.values.radius,
+                settings.max_distance,
+            )
+            .is_none()
+            {
+                continue;
+            }
+            candidates[candidate_count] = Some(light);
+            candidate_count += 1;
+        }
+
+        let lease_expired = self.local_light_selection_count == 0
+            || now_millis.saturating_sub(self.local_light_selection_started_millis)
+                >= LOCAL_LIGHT_SELECTION_LEASE_MILLIS;
+        let mut desired = [0usize; LOCAL_LIGHT_ACTIVE_CAPACITY];
+        let mut desired_count = 0usize;
+        if !lease_expired {
+            for identity in self.local_light_selection[..self.local_light_selection_count]
+                .iter()
+                .copied()
+            {
+                if candidates[..candidate_count]
+                    .iter()
+                    .flatten()
+                    .any(|light| light.identity() == identity)
+                {
+                    desired[desired_count] = identity;
+                    desired_count += 1;
+                }
+            }
+        }
+        for light in candidates[..candidate_count].iter().flatten() {
+            if desired_count >= settings.local_max_lights() {
+                break;
+            }
+            let identity = light.identity();
+            if !desired[..desired_count].contains(&identity) {
+                desired[desired_count] = identity;
+                desired_count += 1;
+            }
+        }
+        if lease_expired {
+            self.local_light_selection_started_millis = now_millis;
+        }
+        self.local_light_selection = desired;
+        self.local_light_selection_count = desired_count;
+
+        for track in &mut self.local_light_tracks {
+            track.target_visible = false;
+        }
+        for identity in desired[..desired_count].iter().copied() {
+            let Some(light) = candidates[..candidate_count]
+                .iter()
+                .flatten()
+                .find(|light| light.identity() == identity)
+            else {
+                continue;
+            };
+            let track_index = self
+                .local_light_tracks
+                .iter()
+                .position(|track| track.identity == identity)
+                .or_else(|| {
+                    self.local_light_tracks
+                        .iter()
+                        .position(|track| track.identity == 0)
+                })
+                .unwrap_or_else(|| {
+                    self.local_light_tracks
+                        .iter()
+                        .enumerate()
+                        .filter(|(_, track)| !track.target_visible)
+                        .min_by(|(_, left), (_, right)| left.weight.total_cmp(&right.weight))
+                        .map_or(0, |(index, _)| index)
+                });
+            let track = &mut self.local_light_tracks[track_index];
+            if track.identity != identity {
+                *track = LocalLightTrack {
+                    identity,
+                    values: light.values,
+                    weight: 0.0,
+                    target_visible: true,
+                };
+            } else {
+                track.values = light.values;
+                track.target_visible = true;
+            }
+        }
+
+        let elapsed_millis = if self.local_light_last_update_millis == 0 {
+            0
+        } else {
+            now_millis.saturating_sub(self.local_light_last_update_millis)
+        };
+        self.local_light_last_update_millis = now_millis.max(1);
+        let fade_millis = (settings.local_lights_fade_seconds * 1_000.0).max(1.0);
+        let weight_step = elapsed_millis as f32 / fade_millis;
+        for track in &mut self.local_light_tracks {
+            if track.identity == 0 {
+                continue;
+            }
+            if track.target_visible {
+                track.weight = (track.weight + weight_step).min(1.0);
+            } else {
+                track.weight = (track.weight - weight_step).max(0.0);
+                if track.weight == 0.0 {
+                    *track = LocalLightTrack::default();
+                }
+            }
+        }
+
+        let mut usable = [None; LOCAL_LIGHT_TRACK_CAPACITY];
+        let mut usable_count = 0usize;
+        for track in self.local_light_tracks.iter().copied() {
+            if track.identity == 0 || track.weight <= 0.0001 {
+                continue;
+            }
+            let shadow = candidates[..candidate_count]
+                .iter()
+                .flatten()
+                .find(|light| light.identity() == track.identity)
+                .and_then(|light| light.shadow_binding(device_identity));
+            usable[usable_count] = Some(UsableLocalLight {
+                values: track.values,
+                visibility: track.weight,
+                shadow,
+            });
+            usable_count += 1;
+        }
+        usable
     }
 
     pub(crate) fn draw(
@@ -894,8 +1116,7 @@ impl AtmosphereEffect {
             taa_enabled,
             taa_alpha_ready,
         );
-        let mut usable_local_lights = [None; 4];
-        let mut usable_local_count = 0usize;
+        let mut usable_local_lights = [None; LOCAL_LIGHT_TRACK_CAPACITY];
         let mut captured_local_count = 0usize;
         let mut captured_local_age = 0u32;
         if settings.local_lights_enabled
@@ -910,29 +1131,18 @@ impl AtmosphereEffect {
         {
             captured_local_count = epoch.light_count();
             captured_local_age = crate::hooks::render_epoch().wrapping_sub(epoch.render_epoch);
-            for light in epoch.lights() {
-                if usable_local_count >= settings.local_max_lights() {
-                    break;
-                }
-                if local_light_scissor(
-                    frame.camera,
-                    desc.Width,
-                    desc.Height,
-                    light.values.position,
-                    light.values.radius,
-                    settings.max_distance,
-                )
-                .is_none()
-                {
-                    continue;
-                }
-                usable_local_lights[usable_local_count] = Some(UsableLocalLight {
-                    light,
-                    shadow: light.shadow_binding(device.as_raw() as usize),
-                });
-                usable_local_count += 1;
-            }
+            usable_local_lights = self.resolve_local_lights(
+                epoch,
+                device.as_raw() as usize,
+                frame,
+                desc.Width,
+                desc.Height,
+                settings,
+            );
+        } else if !settings.local_lights_enabled || settings.local_lights_intensity <= 0.0 {
+            self.reset_local_light_history();
         }
+        let usable_local_count = usable_local_lights.iter().flatten().count();
         let local_ready = usable_local_count != 0;
         let integration_gate = fog_integration_gate(frame, settings, local_ready);
         self.log_integration_gate(integration_gate, settings);
@@ -1066,32 +1276,26 @@ impl AtmosphereEffect {
                     .saturating_add(local_stats.draws as u64);
                 crate::fnv_local_lights::record_rendered_lights(local_stats.lights);
                 if local_stats.draws != 0 && self.local_light_draws == local_stats.draws as u64 {
+                    let shadowed_count = usable_local_lights
+                        .iter()
+                        .flatten()
+                        .filter(|light| light.shadow.is_some())
+                        .count();
+                    let shadowless_count = usable_local_count - shadowed_count;
+                    let draw_upper_bound = local_light_draw_count(shadowless_count, shadowed_count);
+                    debug_assert!(local_stats.draws <= draw_upper_bound);
                     log::info!(
-                        "[ATMOSPHERE LOCAL] Scissored scene-wide integration active: quality={:?}, scale={}, samples={}, captured={}, usable={}, shadowed={}, capture_age={}, max_lights={}, draw_ceiling={}",
+                        "[ATMOSPHERE LOCAL] Scissored scene-wide integration active: quality={:?}, scale={}, samples={}, captured={}, usable={}, shadowed={}, capture_age={}, max_lights={}, draws={}, upper_bound={}",
                         settings.local_lights_quality,
                         targets.scale,
                         settings.local_sample_count(),
                         captured_local_count,
                         usable_local_count,
-                        usable_local_lights
-                            .iter()
-                            .flatten()
-                            .filter(|light| light.shadow.is_some())
-                            .count(),
+                        shadowed_count,
                         captured_local_age,
                         settings.local_max_lights(),
-                        local_light_draw_count(
-                            usable_local_lights
-                                .iter()
-                                .flatten()
-                                .filter(|light| light.shadow.is_none())
-                                .count(),
-                            usable_local_lights
-                                .iter()
-                                .flatten()
-                                .filter(|light| light.shadow.is_some())
-                                .count(),
-                        ),
+                        local_stats.draws,
+                        draw_upper_bound,
                     );
                 }
             }
@@ -1633,9 +1837,57 @@ struct ScissorRect {
     bottom: i32,
 }
 
+impl ScissorRect {
+    const fn pixels(self) -> u64 {
+        (self.right - self.left) as u64 * (self.bottom - self.top) as u64
+    }
+
+    fn union(self, other: Self) -> Self {
+        Self {
+            left: self.left.min(other.left),
+            top: self.top.min(other.top),
+            right: self.right.max(other.right),
+            bottom: self.bottom.max(other.bottom),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct LocalLightBatch {
+    indices: [u8; LOCAL_LIGHT_BATCH_SIZE],
+    count: u8,
+    scissor: ScissorRect,
+}
+
+impl LocalLightBatch {
+    const EMPTY: Self = Self {
+        indices: [0; LOCAL_LIGHT_BATCH_SIZE],
+        count: 0,
+        scissor: ScissorRect {
+            left: 0,
+            top: 0,
+            right: 0,
+            bottom: 0,
+        },
+    };
+}
+
 #[derive(Clone, Copy)]
-struct UsableLocalLight<'a> {
-    light: &'a crate::fnv_local_lights::LocalVolumetricLight,
+struct LocalLightBatchPlan {
+    batches: [LocalLightBatch; LOCAL_LIGHT_TRACK_CAPACITY],
+    len: usize,
+}
+
+impl LocalLightBatchPlan {
+    fn batches(self) -> impl Iterator<Item = LocalLightBatch> {
+        self.batches.into_iter().take(self.len)
+    }
+}
+
+#[derive(Clone, Copy)]
+struct UsableLocalLight {
+    values: crate::fnv_local_lights::LocalLightValues,
+    visibility: f32,
     shadow: Option<crate::fnv_local_lights::LocalShadowBinding>,
 }
 
@@ -1774,6 +2026,138 @@ fn local_light_scissor(
     (rect.left < rect.right && rect.top < rect.bottom).then_some(rect)
 }
 
+/// Schedule spatially neighboring lights without increasing compiled shader work.
+///
+/// The constants are the exact instruction decomposition of the shipped
+/// `ps_3_0` variants: `shared + light_count * per_light`. They are asserted
+/// against compiler output below. Comparing the union against separate
+/// scissors therefore keeps batching from turning empty screen space into a
+/// larger static fragment-instruction workload.
+fn local_light_batch_plan(
+    lights: &[Option<UsableLocalLight>; LOCAL_LIGHT_TRACK_CAPACITY],
+    count: usize,
+    camera: crate::backend::CameraFrame,
+    width: u32,
+    height: u32,
+    max_distance: f32,
+    quality_index: usize,
+    cube_shadowed: bool,
+) -> LocalLightBatchPlan {
+    let count = count.min(LOCAL_LIGHT_TRACK_CAPACITY);
+    let mut scissors = [None; LOCAL_LIGHT_TRACK_CAPACITY];
+    let mut visible = [u8::MAX; LOCAL_LIGHT_TRACK_CAPACITY];
+    let mut visible_len = 0usize;
+    for index in 0..count {
+        let Some(light) = lights[index] else {
+            continue;
+        };
+        let Some(scissor) = local_light_scissor(
+            camera,
+            width,
+            height,
+            light.values.position,
+            light.values.radius,
+            max_distance,
+        ) else {
+            continue;
+        };
+        scissors[index] = Some(scissor);
+        visible[visible_len] = index as u8;
+        visible_len += 1;
+    }
+
+    // Selection order is camera distance, not screen position. This fixed
+    // insertion sort places neighboring scissors together without allocation.
+    for index in 1..visible_len {
+        let value = visible[index];
+        let Some(rectangle) = scissors[value as usize] else {
+            continue;
+        };
+        let key = (
+            i64::from(rectangle.left) + i64::from(rectangle.right),
+            i64::from(rectangle.top) + i64::from(rectangle.bottom),
+        );
+        let mut insertion = index;
+        while insertion > 0 {
+            let Some(previous) = scissors[visible[insertion - 1] as usize] else {
+                break;
+            };
+            let previous_key = (
+                i64::from(previous.left) + i64::from(previous.right),
+                i64::from(previous.top) + i64::from(previous.bottom),
+            );
+            if previous_key <= key {
+                break;
+            }
+            visible[insertion] = visible[insertion - 1];
+            insertion -= 1;
+        }
+        visible[insertion] = value;
+    }
+
+    let work = |rectangle: ScissorRect, light_count: u8| {
+        rectangle.pixels()
+            * local_light_shader_instruction_work(
+                quality_index,
+                cube_shadowed,
+                usize::from(light_count),
+            )
+    };
+    let mut plan = LocalLightBatchPlan {
+        batches: [LocalLightBatch::EMPTY; LOCAL_LIGHT_TRACK_CAPACITY],
+        len: 0,
+    };
+    let mut current = LocalLightBatch::EMPTY;
+    for source in visible.into_iter().take(visible_len) {
+        let Some(rectangle) = scissors[source as usize] else {
+            continue;
+        };
+        if current.count == 0 {
+            current.indices[0] = source;
+            current.count = 1;
+            current.scissor = rectangle;
+            continue;
+        }
+        let combined_scissor = current.scissor.union(rectangle);
+        let combined_count = current.count + 1;
+        let combined_work = work(combined_scissor, combined_count);
+        let separate_work = work(current.scissor, current.count) + work(rectangle, 1);
+        if usize::from(combined_count) <= LOCAL_LIGHT_BATCH_SIZE && combined_work <= separate_work {
+            current.indices[current.count as usize] = source;
+            current.count = combined_count;
+            current.scissor = combined_scissor;
+        } else {
+            plan.batches[plan.len] = current;
+            plan.len += 1;
+            current = LocalLightBatch {
+                indices: [source, 0, 0, 0],
+                count: 1,
+                scissor: rectangle,
+            };
+        }
+    }
+    if current.count != 0 {
+        plan.batches[plan.len] = current;
+        plan.len += 1;
+    }
+    plan
+}
+
+fn local_light_shader_instruction_work(
+    quality_index: usize,
+    cube_shadowed: bool,
+    light_count: usize,
+) -> u64 {
+    let (shared, per_light) = match (quality_index.min(2), cube_shadowed) {
+        (0, false) => (128, 257),
+        (1 | 2, false) => (130, 283),
+        (0, true) => (130, 304),
+        (1 | 2, true) => (133, 330),
+        _ => (130, 330),
+    };
+    shared + per_light * light_count as u64
+}
+
 #[allow(clippy::too_many_arguments)]
 fn draw_local_lights(
     device: &Device9Ref<'_>,
@@ -1782,13 +2166,13 @@ fn draw_local_lights(
     density_noise: &Texture9,
     frame: AtmosphereFrame,
     settings: AtmosphereSettings,
-    lights: &[Option<UsableLocalLight<'_>>; 4],
+    lights: &[Option<UsableLocalLight>; LOCAL_LIGHT_TRACK_CAPACITY],
 ) -> Direct3DResult<LocalLightDrawStats> {
-    let mut shadowless = [None; 4];
+    let mut shadowless = [None; LOCAL_LIGHT_TRACK_CAPACITY];
     let mut shadowless_count = 0usize;
-    let mut native_shadowed = [None; 4];
+    let mut native_shadowed = [None; LOCAL_LIGHT_TRACK_CAPACITY];
     let mut native_shadowed_count = 0usize;
-    let mut cube_shadowed = [None; 4];
+    let mut cube_shadowed = [None; LOCAL_LIGHT_TRACK_CAPACITY];
     let mut cube_shadowed_count = 0usize;
     for usable in lights.iter().flatten().copied() {
         match LocalShadowMode::from_binding(usable.shadow) {
@@ -1808,7 +2192,22 @@ fn draw_local_lights(
     }
 
     let mut stats = LocalLightDrawStats::default();
-    if shadowless_count != 0 {
+    let shadowless_plan = local_light_batch_plan(
+        &shadowless,
+        shadowless_count,
+        frame.camera,
+        targets.width,
+        targets.height,
+        settings.max_distance,
+        settings.local_shader_index(),
+        false,
+    );
+    for scheduled in shadowless_plan.batches() {
+        let batch = std::array::from_fn(|index| {
+            (index < usize::from(scheduled.count))
+                .then(|| shadowless[scheduled.indices[index] as usize])
+                .flatten()
+        });
         stats.add(draw_local_light_batch(
             device,
             pipeline,
@@ -1816,9 +2215,10 @@ fn draw_local_lights(
             density_noise,
             frame,
             settings,
-            &shadowless,
-            shadowless_count,
+            &batch,
+            usize::from(scheduled.count),
             LocalShadowMode::None,
+            scheduled.scissor,
         )?);
     }
     for usable in native_shadowed
@@ -1826,6 +2226,16 @@ fn draw_local_lights(
         .take(native_shadowed_count)
         .flatten()
     {
+        let Some(scissor) = local_light_scissor(
+            frame.camera,
+            targets.width,
+            targets.height,
+            usable.values.position,
+            usable.values.radius,
+            settings.max_distance,
+        ) else {
+            continue;
+        };
         stats.add(draw_local_light_batch(
             device,
             pipeline,
@@ -1836,13 +2246,25 @@ fn draw_local_lights(
             &[Some(usable), None, None, None],
             1,
             LocalShadowMode::NativeProjected,
+            scissor,
         )?);
     }
-    for usable in cube_shadowed
-        .into_iter()
-        .take(cube_shadowed_count)
-        .flatten()
-    {
+    let cube_plan = local_light_batch_plan(
+        &cube_shadowed,
+        cube_shadowed_count,
+        frame.camera,
+        targets.width,
+        targets.height,
+        settings.max_distance,
+        settings.local_shader_index(),
+        true,
+    );
+    for scheduled in cube_plan.batches() {
+        let batch = std::array::from_fn(|index| {
+            (index < usize::from(scheduled.count))
+                .then(|| cube_shadowed[scheduled.indices[index] as usize])
+                .flatten()
+        });
         stats.add(draw_local_light_batch(
             device,
             pipeline,
@@ -1850,9 +2272,10 @@ fn draw_local_lights(
             density_noise,
             frame,
             settings,
-            &[Some(usable), None, None, None],
-            1,
+            &batch,
+            usize::from(scheduled.count),
             LocalShadowMode::OmvCube,
+            scheduled.scissor,
         )?);
     }
     Ok(stats)
@@ -1872,16 +2295,12 @@ impl LocalLightDrawStats {
 }
 
 fn local_light_draw_count(shadowless_count: usize, shadowed_count: usize) -> u32 {
-    2 * (u32::from(shadowless_count != 0) + shadowed_count.min(4) as u32)
+    2 * (shadowless_count.saturating_add(shadowed_count) as u32)
 }
 
+#[cfg(test)]
 fn union_scissor(current: Option<ScissorRect>, next: ScissorRect) -> ScissorRect {
-    current.map_or(next, |current| ScissorRect {
-        left: current.left.min(next.left),
-        top: current.top.min(next.top),
-        right: current.right.max(next.right),
-        bottom: current.bottom.max(next.bottom),
-    })
+    current.map_or(next, |current| current.union(next))
 }
 
 fn write_batched_light_constants(
@@ -1908,12 +2327,13 @@ fn draw_local_light_batch(
     density_noise: &Texture9,
     frame: AtmosphereFrame,
     settings: AtmosphereSettings,
-    lights: &[Option<UsableLocalLight<'_>>; 4],
+    lights: &[Option<UsableLocalLight>; 4],
     batch_size: usize,
     shadow_mode: LocalShadowMode,
+    scissor: ScissorRect,
 ) -> Direct3DResult<LocalLightDrawStats> {
     debug_assert!((1..=4).contains(&batch_size));
-    debug_assert!(shadow_mode == LocalShadowMode::None || batch_size == 1);
+    debug_assert!(shadow_mode != LocalShadowMode::NativeProjected || batch_size == 1);
     let contributions = resolve_contributions(frame, settings);
     let fog_active = contributions.fog;
     let view_to_world = view_to_world_rows(frame.camera);
@@ -1968,46 +2388,38 @@ fn draw_local_light_batch(
         settings.noise_scale,
     ];
 
-    let mut scissor = None;
     for (index, usable) in lights.iter().take(batch_size).flatten().enumerate() {
-        let light = usable.light;
         write_batched_light_constants(
             &mut constants,
             index,
-            light.values,
-            settings.local_lights_intensity,
+            usable.values,
+            settings.local_lights_intensity * usable.visibility,
         );
-        if let Some(light_scissor) = local_light_scissor(
-            frame.camera,
-            targets.width,
-            targets.height,
-            light.values.position,
-            light.values.radius,
-            settings.max_distance,
-        ) {
-            scissor = Some(union_scissor(scissor, light_scissor));
-        }
     }
-    let Some(scissor) = scissor else {
-        return Ok(LocalLightDrawStats::default());
-    };
 
-    let shadow = lights[0].and_then(|usable| usable.shadow);
-    match (shadow_mode, shadow) {
+    let shadows = lights.map(|usable| usable.and_then(|usable| usable.shadow));
+    match (shadow_mode, shadows[0]) {
         (LocalShadowMode::NativeProjected, Some(shadow))
             if shadow.values.format != crate::fnv_local_lights::ShadowTextureFormat::OmvCube =>
         {
             constants[16][0] = shadow.values.format.bias();
             constants[17..21].copy_from_slice(&shadow.values.shadow_matrix);
         }
-        (LocalShadowMode::OmvCube, Some(shadow)) => {
-            let Some((cube_radius, receiver_bias)) = shadow.values.omv_cube_contract() else {
-                return Ok(LocalLightDrawStats::default());
-            };
-            constants[16][0] = receiver_bias;
-            constants[17][0] = cube_radius;
+        (LocalShadowMode::OmvCube, Some(_)) => {
+            for (index, shadow) in shadows.iter().take(batch_size).enumerate() {
+                let Some((cube_radius, receiver_bias)) =
+                    shadow.and_then(|shadow| shadow.values.omv_cube_contract())
+                else {
+                    return Ok(LocalLightDrawStats::default());
+                };
+                // All OMV cubes normally share one menu-owned receiver bias.
+                // Taking the maximum remains conservative if a publication
+                // straddles a runtime setting transition.
+                constants[16][0] = constants[16][0].max(receiver_bias);
+                constants[17][index] = cube_radius;
+            }
         }
-        (LocalShadowMode::None, None) => {}
+        (LocalShadowMode::None, None) if shadows[..batch_size].iter().all(Option::is_none) => {}
         _ => return Ok(LocalLightDrawStats::default()),
     }
     constants[16][2] = settings.anisotropy;
@@ -2019,7 +2431,7 @@ fn draw_local_light_batch(
         &targets.near_atmosphere.surface,
         targets,
         density_noise,
-        shadow,
+        &shadows,
         scissor,
         shader,
         &constants,
@@ -2031,7 +2443,7 @@ fn draw_local_light_batch(
         &targets.far_atmosphere.surface,
         targets,
         density_noise,
-        shadow,
+        &shadows,
         scissor,
         shader,
         &constants,
@@ -2049,17 +2461,17 @@ fn draw_local_light_layer(
     target: &Surface9,
     targets: &AtmosphereTargets,
     density_noise: &Texture9,
-    shadow: Option<crate::fnv_local_lights::LocalShadowBinding>,
+    shadows: &[Option<crate::fnv_local_lights::LocalShadowBinding>; 4],
     scissor: ScissorRect,
     shader: &PixelShader9,
     constants: &[[f32; 4]; 21],
 ) -> Direct3DResult<()> {
-    // bind_target clears s0..s4 to prevent render-target feedback. Every input
+    // bind_target clears s0..s5 to prevent render-target feedback. Every input
     // must be rebound after it, for both the near and far layer.
     bind_target(device, target, targets.width, targets.height)?;
     device.set_texture(0, &targets.depth.texture)?;
     device.set_texture(1, density_noise)?;
-    if let Some(shadow) = shadow {
+    if let Some(shadow) = shadows[0] {
         unsafe { device.set_raw_base_texture(2, shadow.texture)? };
         set_sampler_filter(device, 2, D3DTEXF_POINT.0 as u32)?;
         device.set_sampler_state(2, D3DSAMP_ADDRESSU, D3DTADDRESS_CLAMP.0 as u32)?;
@@ -2067,6 +2479,18 @@ fn draw_local_light_layer(
         device.set_sampler_state(2, D3DSAMP_ADDRESSW, D3DTADDRESS_CLAMP.0 as u32)?;
     } else {
         device.clear_texture(2)?;
+    }
+    for (index, shadow) in shadows.iter().enumerate().skip(1) {
+        let stage = 2 + index as u32;
+        if let Some(shadow) = shadow {
+            unsafe { device.set_raw_base_texture(stage, shadow.texture)? };
+            set_sampler_filter(device, stage, D3DTEXF_POINT.0 as u32)?;
+            device.set_sampler_state(stage, D3DSAMP_ADDRESSU, D3DTADDRESS_CLAMP.0 as u32)?;
+            device.set_sampler_state(stage, D3DSAMP_ADDRESSV, D3DTADDRESS_CLAMP.0 as u32)?;
+            device.set_sampler_state(stage, D3DSAMP_ADDRESSW, D3DTADDRESS_CLAMP.0 as u32)?;
+        } else {
+            device.clear_texture(stage)?;
+        }
     }
     set_sampler_filter(device, 0, D3DTEXF_POINT.0 as u32)?;
     set_sampler_filter(device, 1, D3DTEXF_LINEAR.0 as u32)?;
@@ -2575,8 +2999,12 @@ fn local_light_shader_source(
     )
 }
 
-fn local_light_cube_shader_source(sample_count: u32, use_noise: bool) -> Vec<u8> {
-    local_light_shader_source_mode(sample_count, 1, use_noise, 2)
+fn local_light_cube_shader_source(
+    sample_count: u32,
+    batch_size: usize,
+    use_noise: bool,
+) -> Vec<u8> {
+    local_light_shader_source_mode(sample_count, batch_size, use_noise, 2)
 }
 
 fn local_light_shader_source_mode(
@@ -2587,7 +3015,7 @@ fn local_light_shader_source_mode(
 ) -> Vec<u8> {
     debug_assert!((1..=4).contains(&batch_size));
     debug_assert!(shadow_mode <= 2);
-    debug_assert!(shadow_mode == 0 || batch_size == 1);
+    debug_assert!(shadow_mode != 1 || batch_size == 1);
     let mut variant = format!(
         "#define LOCAL_LIGHT_SAMPLE_COUNT {sample_count}\n#define LOCAL_LIGHT_BATCH_SIZE {batch_size}\n#define LOCAL_LIGHT_USE_NOISE {}\n#define LOCAL_LIGHT_SHADOW_MODE {shadow_mode}\n",
         u8::from(use_noise),
@@ -2695,6 +3123,7 @@ fn bind_target(
     device.clear_texture(2)?;
     device.clear_texture(3)?;
     device.clear_texture(4)?;
+    device.clear_texture(5)?;
     device.set_depth_stencil_surface(None)?;
     for index in 1..=3 {
         device.clear_render_target(index)?;
@@ -2736,9 +3165,8 @@ pub(crate) mod local_light_shader_behavior {
     //! without introducing a source-text or implementation-mirroring oracle.
 
     use super::{
-        bind_pipeline_state, bind_target, draw_quad, local_light_cube_shader_source,
-        local_light_shader_source, set_sampler_filter, view_to_world_rows,
-        write_batched_light_constants,
+        LOCAL_LIGHT_SHADER, bind_pipeline_state, bind_target, draw_quad, local_light_shader_source,
+        set_sampler_filter, view_to_world_rows, write_batched_light_constants,
     };
     use crate::{backend::CameraFrame, fnv_local_lights::LocalLightValues};
     use libpsycho::os::windows::{
@@ -2781,10 +3209,11 @@ pub(crate) mod local_light_shader_behavior {
         staging.read_r32f().expect("local-light R32F pixels")
     }
 
-    fn render_with_cube(
-        values: LocalLightValues,
+    fn render_with_cubes(
+        values: [LocalLightValues; 4],
         camera: CameraFrame,
-        cube_depth: Option<u8>,
+        cube_depths: [Option<u8>; 4],
+        batch_size: usize,
     ) -> Vec<f32> {
         let owner = raster_device();
         let device = owner.as_ref();
@@ -2803,10 +3232,15 @@ pub(crate) mod local_light_shader_behavior {
             .create_render_target_texture(TEST_SIZE, TEST_SIZE, D3DFMT_R32F)
             .expect("local-light output texture");
         let output_surface = output.surface_level(0).expect("local-light output surface");
-        let shader_source = if cube_depth.is_some() {
-            local_light_cube_shader_source(6, false)
+        let shader_source = if cube_depths[..batch_size].iter().any(Option::is_some) {
+            let mut source = format!(
+                "#define LOCAL_LIGHT_SAMPLE_COUNT 6\n#define LOCAL_LIGHT_BATCH_SIZE {batch_size}\n#define LOCAL_LIGHT_USE_NOISE 0\n#define LOCAL_LIGHT_SHADOW_MODE 2\n"
+            )
+            .into_bytes();
+            source.extend_from_slice(LOCAL_LIGHT_SHADER);
+            source
         } else {
-            local_light_shader_source(6, 1, false, false)
+            local_light_shader_source(6, batch_size, false, false)
         };
         let bytecode = crate::shaders::compile_hlsl_source_target(
             "atmosphere_local_light_behavior.ps",
@@ -2826,38 +3260,44 @@ pub(crate) mod local_light_shader_behavior {
             .expect("clear local-light output");
         device.set_texture(0, &depth).expect("encoded-depth input");
         set_sampler_filter(&device, 0, D3DTEXF_POINT.0 as u32).expect("depth point sampling");
-        let shadow_cube = cube_depth.map(|depth| {
-            let cube = device
-                .create_cube_render_target_texture(TEST_SIZE, D3DFMT_R32F)
-                .expect("OMV radial-depth test cube");
-            for face in [
-                D3DCUBEMAP_FACE_POSITIVE_X,
-                D3DCUBEMAP_FACE_NEGATIVE_X,
-                D3DCUBEMAP_FACE_POSITIVE_Y,
-                D3DCUBEMAP_FACE_NEGATIVE_Y,
-                D3DCUBEMAP_FACE_POSITIVE_Z,
-                D3DCUBEMAP_FACE_NEGATIVE_Z,
-            ] {
-                let surface = cube.surface(face, 0).expect("radial-depth cube face");
-                device
-                    .set_render_target(0, &surface)
-                    .expect("radial-depth cube target");
-                device
-                    .clear_attachments(D3DCLEAR_TARGET as u32, u32::from(depth) << 16, 1.0, 0)
-                    .expect("constant radial-depth cube face");
-            }
-            cube
+        let shadow_cubes = cube_depths.map(|cube_depth| {
+            cube_depth.map(|depth| {
+                let cube = device
+                    .create_cube_render_target_texture(TEST_SIZE, D3DFMT_R32F)
+                    .expect("OMV radial-depth test cube");
+                for face in [
+                    D3DCUBEMAP_FACE_POSITIVE_X,
+                    D3DCUBEMAP_FACE_NEGATIVE_X,
+                    D3DCUBEMAP_FACE_POSITIVE_Y,
+                    D3DCUBEMAP_FACE_NEGATIVE_Y,
+                    D3DCUBEMAP_FACE_POSITIVE_Z,
+                    D3DCUBEMAP_FACE_NEGATIVE_Z,
+                ] {
+                    let surface = cube.surface(face, 0).expect("radial-depth cube face");
+                    device
+                        .set_render_target(0, &surface)
+                        .expect("radial-depth cube target");
+                    device
+                        .clear_attachments(D3DCLEAR_TARGET as u32, u32::from(depth) << 16, 1.0, 0)
+                        .expect("constant radial-depth cube face");
+                }
+                cube
+            })
         });
         bind_target(&device, &output_surface, TEST_SIZE, TEST_SIZE)
             .expect("restore local-light output target");
         device
             .set_texture(0, &depth)
             .expect("restore encoded-depth input");
-        if let Some(cube) = shadow_cube.as_ref() {
+        for (index, cube) in shadow_cubes.iter().enumerate().take(batch_size) {
+            let Some(cube) = cube else {
+                continue;
+            };
             device
-                .set_cube_texture(2, cube)
+                .set_cube_texture((2 + index) as u32, cube)
                 .expect("OMV radial-depth cube input");
-            set_sampler_filter(&device, 2, D3DTEXF_POINT.0 as u32).expect("cube point sampling");
+            set_sampler_filter(&device, (2 + index) as u32, D3DTEXF_POINT.0 as u32)
+                .expect("cube point sampling");
         }
 
         let view_to_world = view_to_world_rows(camera);
@@ -2878,10 +3318,12 @@ pub(crate) mod local_light_shader_behavior {
         constants[3..6].copy_from_slice(&view_to_world);
         constants[6] = [0.002, 0.0, 0.000_08, camera.world_transform.translation[2]];
         constants[7] = [1_000.0, 1.0, 0.0, 1.0];
-        write_batched_light_constants(&mut constants, 0, values, 1.0);
-        if cube_depth.is_some() {
+        for (index, value) in values.into_iter().enumerate().take(batch_size) {
+            write_batched_light_constants(&mut constants, index, value, 1.0);
+            constants[17][index] = value.radius;
+        }
+        if cube_depths[..batch_size].iter().any(Option::is_some) {
             constants[16][0] = 0.018;
-            constants[17][0] = values.radius;
         }
         device
             .set_pixel_shader_constant_f(0, &constants)
@@ -2895,6 +3337,14 @@ pub(crate) mod local_light_shader_behavior {
         draw_quad(&device, TEST_SIZE, TEST_SIZE).expect("local-light behavior draw");
         device.end_scene().expect("end local-light behavior draw");
         read_r32f(&device, &output_surface)
+    }
+
+    fn render_with_cube(
+        values: LocalLightValues,
+        camera: CameraFrame,
+        cube_depth: Option<u8>,
+    ) -> Vec<f32> {
+        render_with_cubes([values; 4], camera, [cube_depth, None, None, None], 1)
     }
 
     /// Render one production-captured local light through the shipped HLSL.
@@ -2938,6 +3388,46 @@ pub(crate) mod local_light_shader_behavior {
         assert!(
             occluded_energy > visible_energy * 0.4,
             "the optional cube erased the producer-owned local volume: visible={visible_energy}, occluded={occluded_energy}"
+        );
+    }
+
+    #[test]
+    fn four_cube_shadowed_lights_match_individual_shipped_hlsl_contributions() {
+        let values = LocalLightValues {
+            position: [100.0, 0.0, 0.0],
+            color: [1.0, 0.7, 0.35],
+            radius: 32.0,
+        };
+        let camera = CameraFrame {
+            near_z: 1.0,
+            far_z: 1_000.0,
+            frustum_left: -0.1,
+            frustum_right: 0.1,
+            frustum_bottom: -0.1,
+            frustum_top: 0.1,
+            world_transform: crate::backend::CameraTransformFrame {
+                available: true,
+                ..crate::backend::CameraTransformFrame::default()
+            },
+            available: true,
+            ..CameraFrame::default()
+        };
+        let depths = [255, 32, 160, 64];
+        let individual_energy: f32 = depths
+            .into_iter()
+            .map(|depth| {
+                render_with_cube(values, camera, Some(depth))
+                    .into_iter()
+                    .sum::<f32>()
+            })
+            .sum();
+        let batched_energy: f32 = render_with_cubes([values; 4], camera, depths.map(Some), 4)
+            .into_iter()
+            .sum();
+        let relative_error = (batched_energy - individual_energy).abs() / individual_energy;
+        assert!(
+            relative_error <= 0.02,
+            "a four-light cube-shadow batch changed shipped HLSL output: individual={individual_energy}, batch={batched_energy}, relative_error={relative_error}"
         );
     }
 }
@@ -3025,6 +3515,7 @@ mod directional_shader_behavior {
             local_lights_enabled: false,
             local_lights_intensity: 0.0,
             local_lights_quality: AtmosphereQuality::High,
+            local_lights_fade_seconds: 0.75,
         }
     }
 
@@ -3425,7 +3916,7 @@ mod directional_shader_behavior {
         }
     }
 
-    fn render_local_light(
+    fn render_local_light_once(
         effect: &mut AtmosphereEffect,
         device: &Device9Ref<'_>,
         world_color: &Texture9,
@@ -3463,6 +3954,25 @@ mod directional_shader_behavior {
             .expect("HDR local-light readback");
         let pixels = staging.read_rgba16f().expect("HDR local-light pixels");
         (outcome, pixels)
+    }
+
+    fn render_local_light(
+        effect: &mut AtmosphereEffect,
+        device: &Device9Ref<'_>,
+        world_color: &Texture9,
+        epoch: Option<&LocalLightEpoch>,
+        settings: AtmosphereSettings,
+        is_exterior: bool,
+    ) -> (AtmosphereDrawOutcome, Vec<[f32; 4]>) {
+        if effect.local_light_test_millis.is_none() {
+            effect.local_light_test_millis = Some(1);
+        }
+        let _ = render_local_light_once(effect, device, world_color, epoch, settings, is_exterior);
+        let fade_millis = (settings.local_lights_fade_seconds * 1_000.0).ceil() as u64;
+        effect.local_light_test_millis = effect
+            .local_light_test_millis
+            .map(|millis| millis.saturating_add(fade_millis + 1));
+        render_local_light_once(effect, device, world_color, epoch, settings, is_exterior)
     }
 
     #[test]
@@ -3791,6 +4301,126 @@ mod directional_shader_behavior {
             "local debug output remained active after its menu enable was cleared"
         );
     }
+
+    #[test]
+    fn local_light_admission_and_retirement_fade_in_final_hdr_pixels() {
+        let owner = raster_device();
+        let device = owner.as_ref();
+        device
+            .direct3d()
+            .expect("D3D9 interface")
+            .check_default_render_target_texture_support(D3DFMT_A16B16G16R16F)
+            .expect("HDR atmosphere targets");
+        let bytecode = AtmosphereBytecode::compile().expect("shipped atmosphere bytecode");
+        let mut effect = AtmosphereEffect::create_from_bytecode(&device, &bytecode)
+            .expect("production atmosphere pipeline");
+        effect.local_light_test_millis = Some(1);
+        let world_color = device
+            .create_render_target_texture(TEST_SIZE, TEST_SIZE, D3DFMT_A16B16G16R16F)
+            .expect("HDR world color");
+        clear_target(&device, &world_color);
+        let device_identity = device.as_raw() as usize;
+        let device_generation = crate::backend::d3d_device_generation();
+        let visible = source_epoch_for_shader_behavior(
+            LocalLightValues {
+                position: [100.0, 0.0, 0.0],
+                color: [1.0, 0.7, 0.35],
+                radius: 32.0,
+            },
+            local_light_camera(),
+            91,
+            device_identity,
+            device_generation,
+        );
+        let retired = source_epoch_for_shader_behavior(
+            LocalLightValues {
+                position: [-100.0, 0.0, 0.0],
+                color: [1.0, 0.7, 0.35],
+                radius: 32.0,
+            },
+            local_light_camera(),
+            92,
+            device_identity,
+            device_generation,
+        );
+        let mut settings = interior_local_settings();
+        settings.local_lights_fade_seconds = 0.4;
+
+        let (_, start) = render_local_light_once(
+            &mut effect,
+            &device,
+            &world_color,
+            Some(&visible),
+            settings,
+            false,
+        );
+        effect.local_light_test_millis = Some(201);
+        let (_, halfway_in) = render_local_light_once(
+            &mut effect,
+            &device,
+            &world_color,
+            Some(&visible),
+            settings,
+            false,
+        );
+        effect.local_light_test_millis = Some(401);
+        let (_, full) = render_local_light_once(
+            &mut effect,
+            &device,
+            &world_color,
+            Some(&visible),
+            settings,
+            false,
+        );
+        let start_energy = total_luminance(&start);
+        let halfway_in_energy = total_luminance(&halfway_in);
+        let full_energy = total_luminance(&full);
+        assert!(
+            start_energy <= 0.000_001,
+            "new light appeared instantly: {start_energy}"
+        );
+        assert!(
+            halfway_in_energy > 0.001 && halfway_in_energy < full_energy * 0.75,
+            "local-light fade-in did not produce an intermediate HDR image: half={halfway_in_energy}, full={full_energy}"
+        );
+
+        let _ = render_local_light_once(
+            &mut effect,
+            &device,
+            &world_color,
+            Some(&retired),
+            settings,
+            false,
+        );
+        effect.local_light_test_millis = Some(601);
+        let (_, halfway_out) = render_local_light_once(
+            &mut effect,
+            &device,
+            &world_color,
+            Some(&retired),
+            settings,
+            false,
+        );
+        effect.local_light_test_millis = Some(801);
+        let (_, gone) = render_local_light_once(
+            &mut effect,
+            &device,
+            &world_color,
+            Some(&retired),
+            settings,
+            false,
+        );
+        let halfway_out_energy = total_luminance(&halfway_out);
+        let gone_energy = total_luminance(&gone);
+        assert!(
+            halfway_out_energy > 0.001 && halfway_out_energy < full_energy * 0.75,
+            "local-light fade-out did not produce an intermediate HDR image: half={halfway_out_energy}, full={full_energy}"
+        );
+        assert!(
+            gone_energy <= 0.000_001,
+            "retired light remained visible: {gone_energy}"
+        );
+    }
 }
 
 fn finite(value: f32, fallback: f32) -> f32 {
@@ -3859,7 +4489,7 @@ struct EffectTarget {
 struct LocalLightPipeline {
     shadowless_shaders: [[PixelShader9; 4]; 3],
     native_shadowed_shaders: [PixelShader9; 3],
-    cube_shadowed_shaders: [PixelShader9; 3],
+    cube_shadowed_shaders: [[PixelShader9; 4]; 3],
 }
 
 impl LocalLightPipeline {
@@ -3879,9 +4509,9 @@ impl LocalLightPipeline {
                 device.create_pixel_shader(&bytecode.native_shadowed[2])?,
             ],
             cube_shadowed_shaders: [
-                device.create_pixel_shader(&bytecode.cube_shadowed[0])?,
-                device.create_pixel_shader(&bytecode.cube_shadowed[1])?,
-                device.create_pixel_shader(&bytecode.cube_shadowed[2])?,
+                create_local_light_batch(device, &bytecode.cube_shadowed[0])?,
+                create_local_light_batch(device, &bytecode.cube_shadowed[1])?,
+                create_local_light_batch(device, &bytecode.cube_shadowed[2])?,
             ],
         })
     }
@@ -3901,8 +4531,7 @@ impl LocalLightPipeline {
                 &self.native_shadowed_shaders[quality_index]
             }
             LocalShadowMode::OmvCube => {
-                debug_assert_eq!(batch_size, 1);
-                &self.cube_shadowed_shaders[quality_index]
+                &self.cube_shadowed_shaders[quality_index][batch_size.saturating_sub(1).min(3)]
             }
         }
     }
@@ -3943,6 +4572,20 @@ fn compile_local_light_batch_bytecode(
             &local_light_shader_source(sample_count, 4, use_noise, false),
         )?,
     ])
+}
+
+fn compile_local_light_cube_batch_bytecode(
+    quality: &str,
+    sample_count: u32,
+    use_noise: bool,
+) -> Result<[Vec<u32>; 4]> {
+    let compile = |batch_size| {
+        shaders::compile_hlsl_source(
+            &format!("atmosphere_local_light.hlsl:{quality}:cube-shadowed:batch={batch_size}"),
+            &local_light_cube_shader_source(sample_count, batch_size, use_noise),
+        )
+    };
+    Ok([compile(1)?, compile(2)?, compile(3)?, compile(4)?])
 }
 
 struct ShaftPipeline {
@@ -4054,6 +4697,7 @@ mod feature_tests {
             local_lights_enabled: false,
             local_lights_intensity: 1.0,
             local_lights_quality: AtmosphereQuality::High,
+            local_lights_fade_seconds: 0.75,
         }
     }
 
@@ -5110,11 +5754,11 @@ mod feature_tests {
     }
 
     #[test]
-    fn shadowless_light_count_does_not_increase_draw_count() {
+    fn local_light_draw_upper_bound_admits_unprofitable_splits() {
         assert_eq!(local_light_draw_count(0, 0), 0);
         assert_eq!(local_light_draw_count(1, 0), 2);
-        assert_eq!(local_light_draw_count(2, 0), 2);
-        assert_eq!(local_light_draw_count(4, 0), 2);
+        assert_eq!(local_light_draw_count(2, 0), 4);
+        assert_eq!(local_light_draw_count(4, 0), 8);
         assert_eq!(local_light_draw_count(1, 1), 4);
         assert_eq!(local_light_draw_count(1, 3), 8);
         assert_eq!(local_light_draw_count(0, 4), 8);
@@ -5261,10 +5905,30 @@ mod shader_compile_tests {
     use super::{
         COMPOSE_SHADER, DEBUG_SHADER, DEPTH_REDUCE_SHADER, INTEGRATE_SHADER, LOCAL_LIGHT_SHADER,
         SHAFT_MASK_SHADER, SHAFT_RADIAL_SHADER, depth_reduce_shader_source,
-        integration_shader_source, local_light_cube_shader_source, local_light_shader_source,
-        shaft_radial_shader_source, view_to_world_rows,
+        integration_shader_source, local_light_cube_shader_source,
+        local_light_shader_instruction_work, local_light_shader_source, shaft_radial_shader_source,
+        view_to_world_rows,
     };
     use crate::backend::{CameraFrame, CameraTransformFrame};
+
+    fn instruction_count(bytecode: &[u32]) -> usize {
+        const COMMENT: u16 = 0xfffe;
+        const END: u16 = 0xffff;
+        let mut offset = 1;
+        let mut count = 0;
+        while offset < bytecode.len() {
+            let token = bytecode[offset];
+            match token as u16 {
+                END => return count,
+                COMMENT => offset += 1 + ((token >> 16) & 0x7fff) as usize,
+                _ => {
+                    offset += 1 + ((token >> 24) & 0x0f) as usize;
+                    count += 1;
+                }
+            }
+        }
+        panic!("shader bytecode has no END token");
+    }
 
     #[test]
     fn atmosphere_foundation_shaders_compile() {
@@ -5312,11 +5976,15 @@ mod shader_compile_tests {
                 &local_light_shader_source(samples, 1, noise, true),
                 "ps_3_0",
             );
-            crate::shaders::assert_hlsl_compiles(
-                &format!("atmosphere_local_light.hlsl:{samples}:cube-shadowed"),
-                &local_light_cube_shader_source(samples, noise),
-                "ps_3_0",
-            );
+            for batch_size in 1..=4 {
+                crate::shaders::assert_hlsl_compiles(
+                    &format!(
+                        "atmosphere_local_light.hlsl:{samples}:cube-shadowed:batch={batch_size}"
+                    ),
+                    &local_light_cube_shader_source(samples, batch_size, noise),
+                    "ps_3_0",
+                );
+            }
         }
         crate::shaders::assert_hlsl_compiles("atmosphere_compose.hlsl", COMPOSE_SHADER, "ps_3_0");
         crate::shaders::assert_hlsl_compiles("atmosphere_debug.hlsl", DEBUG_SHADER, "ps_3_0");
@@ -5373,7 +6041,8 @@ mod shader_compile_tests {
         assert!(source.contains("ReducedDepth : register(s0)"));
         assert!(source.contains("DensityNoise : register(s1)"));
         assert!(source.contains("NativeShadow : register(s2)"));
-        assert!(source.contains("OmvShadowCube : register(s2)"));
+        assert!(source.contains("OmvShadowCube0 : register(s2)"));
+        assert!(source.contains("OmvShadowCube3 : register(s5)"));
         assert!(source.contains("#if LOCAL_LIGHT_SHADOW_MODE == 1"));
         assert!(source.contains("LocalPositionRadius0 : register(c8)"));
         assert!(source.contains("LocalPositionRadius3 : register(c11)"));
@@ -5418,40 +6087,53 @@ mod shader_compile_tests {
                 "#define LOCAL_LIGHT_SAMPLE_COUNT {samples}\n#define LOCAL_LIGHT_BATCH_SIZE 1\n#define LOCAL_LIGHT_USE_NOISE {}\n#define LOCAL_LIGHT_SHADOW_MODE 1\n",
                 u8::from(noise),
             )));
-            let cube = String::from_utf8(local_light_cube_shader_source(samples, noise))
-                .expect("cube-shadowed local-light variant");
-            assert!(cube.starts_with(&format!(
-                "#define LOCAL_LIGHT_SAMPLE_COUNT {samples}\n#define LOCAL_LIGHT_BATCH_SIZE 1\n#define LOCAL_LIGHT_USE_NOISE {}\n#define LOCAL_LIGHT_SHADOW_MODE 2\n",
-                u8::from(noise),
-            )));
+            for batch_size in 1..=4 {
+                let cube =
+                    String::from_utf8(local_light_cube_shader_source(samples, batch_size, noise))
+                        .expect("cube-shadowed local-light variant");
+                assert!(cube.starts_with(&format!(
+                    "#define LOCAL_LIGHT_SAMPLE_COUNT {samples}\n#define LOCAL_LIGHT_BATCH_SIZE {batch_size}\n#define LOCAL_LIGHT_USE_NOISE {}\n#define LOCAL_LIGHT_SHADOW_MODE 2\n",
+                    u8::from(noise),
+                )));
+            }
         }
     }
 
     #[test]
     fn batched_local_light_bytecode_stays_within_the_ps3_budget() {
-        for (samples, noise) in [(4, false), (6, true), (10, true)] {
+        for (quality_index, samples, noise) in [(0, 4, false), (1, 6, true), (2, 10, true)] {
             let single = crate::shaders::compile_hlsl_source_target(
                 "local-light-single-budget",
                 &local_light_shader_source(samples, 1, noise, false),
                 "ps_3_0",
             )
             .expect("single local-light shader");
+            assert_eq!(
+                instruction_count(&single) as u64,
+                local_light_shader_instruction_work(quality_index, false, 1),
+            );
             assert!(
                 single.len() * 4 <= 12_288,
                 "single shader grew to {} bytes",
                 single.len() * 4,
             );
-            let cube = crate::shaders::compile_hlsl_source_target(
-                "local-light-cube-shadow-budget",
-                &local_light_cube_shader_source(samples, noise),
-                "ps_3_0",
-            )
-            .expect("cube-shadowed local-light shader");
-            assert!(
-                cube.len() * 4 <= 16_384,
-                "cube-shadowed shader grew to {} bytes",
-                cube.len() * 4,
-            );
+            for batch_size in 1..=4 {
+                let cube = crate::shaders::compile_hlsl_source_target(
+                    "local-light-cube-shadow-budget",
+                    &local_light_cube_shader_source(samples, batch_size, noise),
+                    "ps_3_0",
+                )
+                .expect("cube-shadowed local-light shader");
+                assert_eq!(
+                    instruction_count(&cube) as u64,
+                    local_light_shader_instruction_work(quality_index, true, batch_size),
+                );
+                assert!(
+                    cube.len() * 4 <= 32_768,
+                    "cube-shadowed batch {batch_size} grew to {} bytes",
+                    cube.len() * 4,
+                );
+            }
             for batch_size in 2..=4 {
                 let batch = crate::shaders::compile_hlsl_source_target(
                     "local-light-batch-budget",
@@ -5459,6 +6141,10 @@ mod shader_compile_tests {
                     "ps_3_0",
                 )
                 .expect("batched local-light shader");
+                assert_eq!(
+                    instruction_count(&batch) as u64,
+                    local_light_shader_instruction_work(quality_index, false, batch_size),
+                );
                 assert!(
                     batch.len() * 4 <= 32_768,
                     "batch {batch_size} grew to {} bytes",

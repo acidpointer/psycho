@@ -173,10 +173,18 @@ impl PresetVisualSettingsV1 {
     }
 
     fn apply(self, target: &mut GraphicsMenuConfig) {
+        let local_lights_fade_seconds = target
+            .embedded_effects
+            .volumetric_lighting
+            .local_lights_fade_seconds;
         target.screen_space_shaders = self.omv_enabled;
         self.native_pbr.apply(&mut target.native_pbr);
         target.native_sky = self.native_sky;
         target.embedded_effects = self.embedded_effects;
+        target
+            .embedded_effects
+            .volumetric_lighting
+            .local_lights_fade_seconds = local_lights_fade_seconds;
     }
 }
 

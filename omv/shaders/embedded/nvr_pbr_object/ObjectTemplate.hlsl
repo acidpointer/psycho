@@ -358,12 +358,19 @@ struct VS_OUTPUT {
     float4 lightDir : TEXCOORD2;  // .w = .x of viewDir
     float4 light2 : TEXCOORD3;   // .w = .y of viewDir
     float4 light3 : TEXCOORD4;  // .w = .z of viewDir
-#if MAX_LIGHTS > 3
+#if defined(SPECULAR)
+    // Native ADTS10 specular rows interpolate vertex-normalized halfway
+    // vectors. OMV also packs the view vector above for its per-pixel PBR
+    // response, so both contracts fit without sharing an approximation.
+    float3 nativeHalfway : TEXCOORD5;
+    float3 nativeHalfway2 : TEXCOORD6;
+    float3 nativeHalfway3 : TEXCOORD7;
+#elif MAX_LIGHTS > 3
     float4 light4 : TEXCOORD5;
-#endif
-#if MAX_LIGHTS > 4
+    #if MAX_LIGHTS > 4
     float4 light5 : TEXCOORD6;
     float4 light6 : TEXCOORD7;
+    #endif
 #endif
 };
 
@@ -439,6 +446,20 @@ VS_OUTPUT main(VS_INPUT IN) {
     lightUsed = 2 < lightsThreshold ? 1.0 : 0.0;
     OUT.light3.xyz = lightUsed * mul(tbn, LightData[lightOffset + 2].xyz - position.xyz);
     OUT.light3.w = viewDir.z;
+
+    #if defined(SPECULAR)
+        const float3 stableViewDir = StableNormalize(viewDir);
+        #ifndef OPT
+            OUT.nativeHalfway = StableHalfway(stableViewDir, StableNormalize(OUT.lightDir.xyz));
+        #else
+            OUT.nativeHalfway = (0 < lightsThreshold ? 1.0 : 0.0)
+                * StableHalfway(stableViewDir, StableNormalize(OUT.lightDir.xyz));
+        #endif
+        OUT.nativeHalfway2 = (1 < lightsThreshold ? 1.0 : 0.0)
+            * StableHalfway(stableViewDir, StableNormalize(OUT.light2.xyz));
+        OUT.nativeHalfway3 = (2 < lightsThreshold ? 1.0 : 0.0)
+            * StableHalfway(stableViewDir, StableNormalize(OUT.light3.xyz));
+    #endif
     
     #if MAX_LIGHTS > 3
         lightUsed = 3 < lightsThreshold ? 1.0 : 0.0;
@@ -577,10 +598,6 @@ PS_OUTPUT main(PS_INPUT IN) {
     
     #if !defined(DIFFUSE) && !defined(ONLY_SPECULAR)
         float4 baseColor = tex2D(BaseMap, IN.uv.xy);
-    
-        #if defined(ONLY_LIGHT)
-            baseColor.rgb = 1;
-        #endif
     #else
         float4 baseColor = 1;
     #endif
@@ -639,8 +656,40 @@ PS_OUTPUT main(PS_INPUT IN) {
     #endif
     
     #if defined(DIFFUSE)
-        float attenuation = sampleObjectAttenuation(IN.lightAttenuation);
-        float3 lighting = getPointLightLightingAtt(IN.lightDir.xyz, attenuation, PSLightColor[0].rgb * shadowMultiplier, viewDir, normal.xyz, pbrSurface);
+        // DIFFUSE rows are additive point-light helpers. Their native shader
+        // emits Lambert lighting with lookup-texture attenuation and no object
+        // PBR scale or view-dependent Fresnel term. Applying the ordinary PBR
+        // material equation here raises an otherwise sub-threshold wearable
+        // above bloom and makes the spill change with camera angle.
+        float3 lighting = shades(normal.xyz, StableNormalize(IN.lightDir.xyz))
+            * sampleObjectAttenuation(IN.lightAttenuation) * PSLightColor[0].rgb * shadowMultiplier;
+        #if LIGHTS > 1
+            lighting += shades(normal.xyz, StableNormalize(IN.light2Dir.xyz))
+                * sampleObjectAttenuation(IN.light2Attenuation) * PSLightColor[1].rgb;
+        #endif
+        #if LIGHTS > 2
+            lighting += shades(normal.xyz, StableNormalize(IN.light3Dir.xyz))
+                * sampleObjectAttenuation(IN.light3Attenuation) * PSLightColor[2].rgb;
+        #endif
+    #elif defined(ONLY_LIGHT) && !defined(ONLY_SPECULAR)
+        // These rows are native additive passes, not material-lighting
+        // replacements. Preserve their ambient, SI, and unscaled light energy
+        // so the later engine blend cannot turn ordinary wearables into HDR
+        // emitters when the user increases the PBR object light scale. The base
+        // texture supplies alpha only for this pass in the native bytecode.
+        float3 lighting = AmbientColor.rgb;
+        lighting += shades(normal.xyz, StableNormalize(IN.lightDir.xyz)) * PSLightColor[0].rgb * shadowMultiplier;
+        #ifdef SI
+            lighting += tex2D(GlowMap, IN.uv.xy).rgb * EmittanceColor.rgb;
+        #endif
+        #if LIGHTS > 1
+            lighting += shades(normal.xyz, StableNormalize(IN.light2Dir.xyz))
+                * sampleObjectAttenuation(IN.light2Attenuation) * PSLightColor[1].rgb;
+        #endif
+        #if LIGHTS > 2
+            lighting += shades(normal.xyz, StableNormalize(IN.light3Dir.xyz))
+                * sampleObjectAttenuation(IN.light3Attenuation) * PSLightColor[2].rgb;
+        #endif
     #elif defined(POINT)
         float3 lighting = getPointLightLighting(IN.lightDir.xyz, IN.lightDir.w, PSLightColor[0].rgb * shadowMultiplier, viewDir, normal.xyz, pbrSurface);
     #else
@@ -648,17 +697,17 @@ PS_OUTPUT main(PS_INPUT IN) {
     #endif
     
     // Self emmitance.
-    #ifdef SI
+    #if defined(SI) && (!defined(ONLY_LIGHT) || defined(DIFFUSE))
         float3 glow = tex2D(GlowMap, IN.uv.xy).rgb;
         lighting += baseColor.rgb * glow.rgb * EmittanceColor.rgb;
     #endif
     
-    #if !defined(DIFFUSE) && !defined(ONLY_SPECULAR)
+    #if !defined(DIFFUSE) && !defined(ONLY_SPECULAR) && !defined(ONLY_LIGHT)
         lighting += getAmbientLighting(AmbientColor.rgb, materialAlbedo);
     #endif
     
     // Other light sources.
-    #if LIGHTS > 1 || NUM_PT_LIGHTS > 1
+    #if (LIGHTS > 1 || NUM_PT_LIGHTS > 1) && (!defined(ONLY_LIGHT) || defined(ONLY_SPECULAR))
         #ifdef NATIVE_ATTENUATION
             lighting += getPointLightLightingAtt(IN.light2Dir.xyz, sampleObjectAttenuation(IN.light2Attenuation), PSLightColor[1].rgb, viewDir, normal.xyz, pbrSurface);
         #else
@@ -666,7 +715,7 @@ PS_OUTPUT main(PS_INPUT IN) {
         #endif
     #endif
     
-    #if LIGHTS > 2 || NUM_PT_LIGHTS > 2
+    #if (LIGHTS > 2 || NUM_PT_LIGHTS > 2) && (!defined(ONLY_LIGHT) || defined(ONLY_SPECULAR))
         #ifdef NATIVE_ATTENUATION
             lighting += getPointLightLightingAtt(IN.light3Dir.xyz, sampleObjectAttenuation(IN.light3Attenuation), PSLightColor[2].rgb, viewDir, normal.xyz, pbrSurface);
         #else
@@ -723,12 +772,16 @@ struct PS_INPUT {
     float4 lightDir : TEXCOORD2_centroid;  // .w = .x of viewDir
     float4 light2 : TEXCOORD3_centroid; // .w = .y of viewDir
     float4 light3 : TEXCOORD4_centroid; // .w = .z of viewDir
-#if MAX_LIGHTS > 3
+#if defined(SPECULAR)
+    float3 nativeHalfway : TEXCOORD5;
+    float3 nativeHalfway2 : TEXCOORD6;
+    float3 nativeHalfway3 : TEXCOORD7;
+#elif MAX_LIGHTS > 3
     float4 light4 : TEXCOORD5_centroid;
-#endif
-#if MAX_LIGHTS > 4
+    #if MAX_LIGHTS > 4
     float4 light5 : TEXCOORD6_centroid;
     float4 light6 : TEXCOORD7_centroid;
+    #endif
 #endif
 };
 
@@ -790,41 +843,87 @@ PS_OUTPUT main(PS_INPUT IN) {
     PbrObjectSurface pbrSurface = PreparePbrObjectSurface(materialAlbedo, materialResponse, normal.a, nativeSpecularFade);
     
     float att;
+    #if defined(SPECULAR)
+        float3 nativeLight;
+    #endif
     
     #ifndef OPT
-        float3 lighting = getSunLighting(IN.lightDir.xyz, PSLightColor[0].rgb, viewDir, normal.xyz, pbrSurface);
+        #if defined(SPECULAR)
+            float3 lighting = getBoundedLightingWithNativeCeiling(IN.lightDir.xyz, IN.nativeHalfway, 1.0, PSLightColor[0].rgb, viewDir, normal.xyz, baseColor.rgb, normal.a, glossPow, pbrSurface, nativeLight);
+            float3 nativeLightingCeiling = nativeLight;
+        #else
+            float3 lighting = getSunLighting(IN.lightDir.xyz, PSLightColor[0].rgb, viewDir, normal.xyz, pbrSurface);
+        #endif
     #else
         att = vanillaAtt(PSLightPosition[0].xyz - IN.lPosition.xyz, PSLightPosition[0].w);
-        float3 lighting = getPointLightLightingAtt(IN.lightDir.xyz, att, PSLightColor[0].rgb, viewDir, normal.xyz, pbrSurface);
+        #if defined(SPECULAR)
+            float3 lighting = getBoundedLightingWithNativeCeiling(IN.lightDir.xyz, IN.nativeHalfway, att, PSLightColor[0].rgb, viewDir, normal.xyz, baseColor.rgb, normal.a, glossPow, pbrSurface, nativeLight);
+            float3 nativeLightingCeiling = nativeLight;
+        #else
+            float3 lighting = getPointLightLightingAtt(IN.lightDir.xyz, att, PSLightColor[0].rgb, viewDir, normal.xyz, pbrSurface);
+        #endif
     #endif
     
     [branch] if (lightsUsed > 1) {
         att = vanillaAtt(PSLightPosition[lightOffset + 0].xyz - IN.lPosition.xyz, PSLightPosition[lightOffset + 0].w);
-        lighting += getPointLightLightingAtt(IN.light2.xyz, att, PSLightColor[1].rgb, viewDir, normal.xyz, pbrSurface);
+        #if defined(SPECULAR)
+            lighting += getBoundedLightingWithNativeCeiling(IN.light2.xyz, IN.nativeHalfway2, att, PSLightColor[1].rgb, viewDir, normal.xyz, baseColor.rgb, normal.a, glossPow, pbrSurface, nativeLight);
+            nativeLightingCeiling += nativeLight;
+        #else
+            lighting += getPointLightLightingAtt(IN.light2.xyz, att, PSLightColor[1].rgb, viewDir, normal.xyz, pbrSurface);
+        #endif
     }
     
     [branch] if (lightsUsed > 2) {
         att = vanillaAtt(PSLightPosition[lightOffset + 1].xyz - IN.lPosition.xyz, PSLightPosition[lightOffset + 1].w);
-        lighting += getPointLightLightingAtt(IN.light3.xyz, att, PSLightColor[2].rgb, viewDir, normal.xyz, pbrSurface);
+        #if defined(SPECULAR)
+            lighting += getBoundedLightingWithNativeCeiling(IN.light3.xyz, IN.nativeHalfway3, att, PSLightColor[2].rgb, viewDir, normal.xyz, baseColor.rgb, normal.a, glossPow, pbrSurface, nativeLight);
+            nativeLightingCeiling += nativeLight;
+        #else
+            lighting += getPointLightLightingAtt(IN.light3.xyz, att, PSLightColor[2].rgb, viewDir, normal.xyz, pbrSurface);
+        #endif
     }
     
     #if MAX_LIGHTS > 3
         [branch] if (lightsUsed > 3) {
             att = vanillaAtt(PSLightPosition[lightOffset + 2].xyz - IN.lPosition.xyz, PSLightPosition[lightOffset + 2].w);
-            lighting += getPointLightLightingAtt(IN.light4.xyz, att, PSLightColor[3].rgb, viewDir, normal.xyz, pbrSurface);
+            #if defined(SPECULAR)
+                lighting += getBoundedLightingWithNativeCeiling(IN.light4.xyz, att, PSLightColor[3].rgb, viewDir, normal.xyz, baseColor.rgb, normal.a, glossPow, pbrSurface, nativeLight);
+                nativeLightingCeiling += nativeLight;
+            #else
+                lighting += getPointLightLightingAtt(IN.light4.xyz, att, PSLightColor[3].rgb, viewDir, normal.xyz, pbrSurface);
+            #endif
         }
     #endif
     
     #if MAX_LIGHTS > 4
         [branch] if (lightsUsed > 4) {
             att = vanillaAtt(PSLightPosition[3].xyz - IN.lPosition.xyz, PSLightPosition[3].w);
-            lighting += getPointLightLightingAtt(IN.light5.xyz, att, PSLightColor[4].rgb, viewDir, normal.xyz, pbrSurface);
+            #if defined(SPECULAR)
+                lighting += getBoundedLightingWithNativeCeiling(IN.light5.xyz, att, PSLightColor[4].rgb, viewDir, normal.xyz, baseColor.rgb, normal.a, glossPow, pbrSurface, nativeLight);
+                nativeLightingCeiling += nativeLight;
+            #else
+                lighting += getPointLightLightingAtt(IN.light5.xyz, att, PSLightColor[4].rgb, viewDir, normal.xyz, pbrSurface);
+            #endif
         }
 
         [branch] if (lightsUsed > 5) {
             att = vanillaAtt(PSLightPosition[4].xyz - IN.lPosition.xyz, PSLightPosition[4].w);
-            lighting += getPointLightLightingAtt(IN.light6.xyz, att, PSLightColor[5].rgb, viewDir, normal.xyz, pbrSurface);
+            #if defined(SPECULAR)
+                lighting += getBoundedLightingWithNativeCeiling(IN.light6.xyz, att, PSLightColor[5].rgb, viewDir, normal.xyz, baseColor.rgb, normal.a, glossPow, pbrSurface, nativeLight);
+                nativeLightingCeiling += nativeLight;
+            #else
+                lighting += getPointLightLightingAtt(IN.light6.xyz, att, PSLightColor[5].rgb, viewDir, normal.xyz, pbrSurface);
+            #endif
         }
+    #endif
+
+    #if defined(SPECULAR)
+        // ADTS10 can accumulate several PBR-scaled light lobes into one HDR
+        // material pass. Preserve the PBR response while keeping that sum
+        // inside the native material's direct-light envelope; otherwise a
+        // grazing skinned wearable becomes an emitter before bloom.
+        lighting = min(lighting, nativeLightingCeiling);
     #endif
 
     lighting += getAmbientLighting(AmbientColor.rgb, materialAlbedo);

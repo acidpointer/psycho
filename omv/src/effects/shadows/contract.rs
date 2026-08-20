@@ -17,6 +17,12 @@ pub(super) const CASCADE_COUNT: usize = 4;
 pub(super) const NVR_CASCADE_RESOLUTION: u32 = 2048;
 /// Number of replacement point-light cube maps produced and sampled.
 pub(super) const NVR_POINT_LIGHT_COUNT: usize = 12;
+/// Total point lights which may own cubes across one or more consumer draws.
+///
+/// Keep this separate from the twelve-sampler shader specialization: D3D9 can
+/// consume a larger selected set through additive batches without placing all
+/// cubes in one pixel-shader invocation.
+pub(super) const POINT_LIGHT_CAPACITY: usize = 16;
 /// Bit mask containing all six D3D cube faces.
 pub(super) const ALL_CUBE_FACES: u8 = 0x3f;
 /// Released schema-one default for the inert point-radius compatibility field.
@@ -1319,7 +1325,7 @@ impl PointConsumerDraw {
 /// Fixed-capacity point-light draw schedule with no render-thread allocation.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) struct PointConsumerPlan {
-    draws: [PointConsumerDraw; NVR_POINT_LIGHT_COUNT],
+    draws: [PointConsumerDraw; POINT_LIGHT_CAPACITY],
     len: usize,
 }
 
@@ -1465,16 +1471,16 @@ pub(super) fn local_light_clear_coverage(
 /// disjoint lights have `union == sum`, yet batching makes every covered pixel
 /// evaluate both lights. The conservative model rounds the compiled receiver
 /// and per-light costs upward so uncertain unions split instead of overshading.
-pub(super) fn point_consumer_plan(
-    scissors: [Option<LightScissorRect>; NVR_POINT_LIGHT_COUNT],
+pub(super) fn point_consumer_plan<const N: usize>(
+    scissors: [Option<LightScissorRect>; N],
     count: usize,
 ) -> PointConsumerPlan {
     let mut plan = PointConsumerPlan {
-        draws: [PointConsumerDraw::EMPTY; NVR_POINT_LIGHT_COUNT],
+        draws: [PointConsumerDraw::EMPTY; POINT_LIGHT_CAPACITY],
         len: 0,
     };
-    let count = count.min(NVR_POINT_LIGHT_COUNT);
-    let mut visible = [u8::MAX; NVR_POINT_LIGHT_COUNT];
+    let count = count.min(N).min(POINT_LIGHT_CAPACITY);
+    let mut visible = [u8::MAX; POINT_LIGHT_CAPACITY];
     let mut visible_len = 0;
     for index in 0..count {
         if scissors[index].is_some() {
@@ -2341,8 +2347,8 @@ impl PointMapSignature {
 /// them in `ShadowResources` preserves the accepted pre-Deferred owner layout.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub(super) struct PointStaticFaceCache {
-    signatures: [[u64; 6]; NVR_POINT_LIGHT_COUNT],
-    valid_faces: [u8; NVR_POINT_LIGHT_COUNT],
+    signatures: [[u64; 6]; POINT_LIGHT_CAPACITY],
+    valid_faces: [u8; POINT_LIGHT_CAPACITY],
 }
 
 impl PointStaticFaceCache {
@@ -2361,38 +2367,38 @@ impl PointStaticFaceCache {
     }
 }
 
-/// Transactional cache for twelve expensive six-face point maps.
+/// Transactional cache for the configured six-face point-map capacity.
 #[derive(Clone, Copy, Debug)]
 pub(super) struct PointMapCache {
-    signatures: [PointMapSignature; NVR_POINT_LIGHT_COUNT],
+    signatures: [PointMapSignature; POINT_LIGHT_CAPACITY],
     // The previous dynamic footprint is retained for one transaction. When a
     // moving actor crosses a cube edge, both its old and new faces must be
     // cleared and regenerated or the abandoned face keeps a ghost silhouette.
-    dynamic_faces: [u8; NVR_POINT_LIGHT_COUNT],
+    dynamic_faces: [u8; POINT_LIGHT_CAPACITY],
 }
 
 impl Default for PointMapCache {
     fn default() -> Self {
         Self {
-            signatures: [PointMapSignature::EMPTY; NVR_POINT_LIGHT_COUNT],
-            dynamic_faces: [0; NVR_POINT_LIGHT_COUNT],
+            signatures: [PointMapSignature::EMPTY; POINT_LIGHT_CAPACITY],
+            dynamic_faces: [0; POINT_LIGHT_CAPACITY],
         }
     }
 }
 
 /// Point-map work and metadata which must commit as one D3D transaction.
 #[derive(Clone, Copy, Debug)]
-pub(super) struct PointMapPlan {
+pub(super) struct PointMapPlan<const N: usize> {
     /// Face bits regenerated for each cube during this transaction.
-    pub(super) render_faces: [u8; NVR_POINT_LIGHT_COUNT],
+    pub(super) render_faces: [u8; N],
     /// Faces whose immutable geometry is resubmitted.
-    pub(super) static_faces: [u8; NVR_POINT_LIGHT_COUNT],
+    pub(super) static_faces: [u8; N],
     /// Faces receiving current animated geometry after static restoration.
-    pub(super) dynamic_draw_faces: [u8; NVR_POINT_LIGHT_COUNT],
+    pub(super) dynamic_draw_faces: [u8; N],
     /// Map-paired values safe for the consumer to sample.
-    pub(super) published: [PointMapSignature; NVR_POINT_LIGHT_COUNT],
+    pub(super) published: [PointMapSignature; N],
     /// Current nearest-order entry assigned to each stable physical cube.
-    source_indices: [u8; NVR_POINT_LIGHT_COUNT],
+    source_indices: [u8; N],
     /// Cache state committed only after draw, EndScene, and restoration pass.
     pub(super) next: PointMapCache,
     /// Face-local state committed beside `next` after the same transaction.
@@ -2415,7 +2421,7 @@ pub(super) enum PointFaceOperation {
     MergeAnimated,
 }
 
-impl PointMapPlan {
+impl<const N: usize> PointMapPlan<N> {
     /// Return the current selected-light index owned by one physical cube.
     pub(super) fn source_index(self, slot: usize) -> Option<usize> {
         let index = *self.source_indices.get(slot)?;
@@ -2454,7 +2460,7 @@ impl PointMapPlan {
 
 impl PointMapCache {
     /// Return stable light identities currently owning physical cube slots.
-    pub(super) fn identities(self) -> [usize; NVR_POINT_LIGHT_COUNT] {
+    pub(super) fn identities(self) -> [usize; POINT_LIGHT_CAPACITY] {
         self.signatures.map(|signature| signature.identity)
     }
 
@@ -2470,12 +2476,12 @@ impl PointMapCache {
     /// Moving skinned casters update only cube faces touched by their current
     /// or immediately previous bounds, which removes abandoned silhouettes at
     /// face crossings without paying six traversals for every affected light.
-    pub(super) fn plan(
+    pub(super) fn plan<const N: usize>(
         self,
-        current: [PointMapSignature; NVR_POINT_LIGHT_COUNT],
-        dynamic_faces: [u8; NVR_POINT_LIGHT_COUNT],
+        current: [PointMapSignature; N],
+        dynamic_faces: [u8; N],
         count: usize,
-    ) -> PointMapPlan {
+    ) -> PointMapPlan<N> {
         self.plan_internal(current, dynamic_faces, count, None)
     }
 
@@ -2487,14 +2493,14 @@ impl PointMapCache {
     /// update selected faces only when light position and radius exactly match
     /// the retained projection; otherwise every face is rebuilt so one cube
     /// never mixes projections from two light transforms.
-    pub(super) fn plan_with_static_faces(
+    pub(super) fn plan_with_static_faces<const N: usize>(
         self,
         previous_static_faces: PointStaticFaceCache,
-        current: [PointMapSignature; NVR_POINT_LIGHT_COUNT],
-        current_static_faces: [[u64; 6]; NVR_POINT_LIGHT_COUNT],
-        dynamic_faces: [u8; NVR_POINT_LIGHT_COUNT],
+        current: [PointMapSignature; N],
+        current_static_faces: [[u64; 6]; N],
+        dynamic_faces: [u8; N],
         count: usize,
-    ) -> PointMapPlan {
+    ) -> PointMapPlan<N> {
         self.plan_internal(
             current,
             dynamic_faces,
@@ -2503,22 +2509,22 @@ impl PointMapCache {
         )
     }
 
-    fn plan_internal(
+    fn plan_internal<const N: usize>(
         self,
-        current: [PointMapSignature; NVR_POINT_LIGHT_COUNT],
-        dynamic_faces: [u8; NVR_POINT_LIGHT_COUNT],
+        current: [PointMapSignature; N],
+        dynamic_faces: [u8; N],
         count: usize,
-        static_face_signatures: Option<(PointStaticFaceCache, [[u64; 6]; NVR_POINT_LIGHT_COUNT])>,
-    ) -> PointMapPlan {
-        let count = count.min(NVR_POINT_LIGHT_COUNT);
+        static_face_signatures: Option<(PointStaticFaceCache, [[u64; 6]; N])>,
+    ) -> PointMapPlan<N> {
+        let count = count.min(N).min(POINT_LIGHT_CAPACITY);
         let mut next = PointMapCache::default();
         let mut next_static_faces = PointStaticFaceCache::default();
-        let mut render_faces = [0; NVR_POINT_LIGHT_COUNT];
-        let mut static_faces = [0; NVR_POINT_LIGHT_COUNT];
-        let mut dynamic_draw_faces = [0; NVR_POINT_LIGHT_COUNT];
-        let mut published = [PointMapSignature::EMPTY; NVR_POINT_LIGHT_COUNT];
-        let mut source_indices = [u8::MAX; NVR_POINT_LIGHT_COUNT];
-        let mut source_claimed = [false; NVR_POINT_LIGHT_COUNT];
+        let mut render_faces = [0; N];
+        let mut static_faces = [0; N];
+        let mut dynamic_draw_faces = [0; N];
+        let mut published = [PointMapSignature::EMPTY; N];
+        let mut source_indices = [u8::MAX; N];
+        let mut source_claimed = [false; N];
 
         // Preserve every still-selected identity in its existing physical
         // slot. Camera distance changes may reorder the input array, but they

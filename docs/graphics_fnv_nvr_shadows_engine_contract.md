@@ -6835,6 +6835,78 @@ tests and doc tests and the supported optimized OMV build. Static closure
 proves the bounded provenance and existing shader/resource contracts, not
 visible shadow continuity on the installed mod list.
 
+### Point-selection lease (2026-08-19)
+
+The ten-percent nearest-boundary preference prevented tiny distance changes
+from replacing a retained point light, but it did not stop repeated exchanges
+among several similarly ranked sources in an over-budget room. Point-shadow
+selection now gives the current valid identities a two-second membership
+lease. During that interval they retain the configured cube slots regardless
+of relative distance; a source that disappears or fails normal eligibility is
+removed immediately. Expiry performs a fresh nearest selection with the
+existing bounded hysteresis, records that result as the next lease, and keeps
+the established physical-slot transition fade for actual replacements. A cell
+change, pipeline release, or device reset invalidates the lease.
+
+The point-shadow maximum remains twelve. The one-pass compositor has one scene
+depth sampler plus twelve cube samplers under the `ps_3_0` sixteen-sampler
+limit, and Ultra already costs about 580 MiB for a full twelve-light family.
+The stability fix adds only fixed scalar identities and timestamps to the boxed
+post-Deferred pipeline; it adds no resource, pass, draw, shader sample, native
+pointer retention, or loader-visible owner. Static selection checks cannot
+prove the reported gameplay continuity. Acceptance requires a lamp-filled room
+above the configured limit, a stationary and slowly moving camera across
+multiple lease expiries, cell changes, Pip-Boy use, and device reset with no
+frame-to-frame source churn or stuck shadow.
+
+### Sixteen-light batching and crowded-actor cost correction (2026-08-19)
+
+The twelve-light limit above was rejected by the user. Production now separates
+the total retained point-family capacity from the per-draw sampler capacity.
+Up to sixteen lights may own complete cubes. Each accumulation draw still binds
+at most twelve cubes beside scene depth, and any remaining lights enter a second
+additive batch using the existing exact deficit/total MRT contract. The shipped
+default remains twelve; the ImGui maximum and detached shadow-table bound are
+sixteen. At that maximum the two cube families and shared depth surface use
+48.25 MiB, 193 MiB, or 772 MiB at the 256, 512, or 1024 tiers respectively.
+Demand-sized allocation still provisions only the selected configured count.
+
+The fail-first D3D9 regression submitted sixteen identical visible point lights
+through the production batch planner and shipped accumulation shader. Before the
+capacity split its output was `12.000002` times one-light energy instead of
+sixteen, proving that four configured lights were discarded. It now reaches all
+sixteen through a twelve-plus-four draw schedule without increasing any shader's
+sampler ABI.
+
+Volumetric shadow enrichment had a separate multiplicative cost. Shadowless
+local lights already shared four-light integration draws, but every
+cube-shadowed light forced its own two-layer draw pair. A fail-first shipped-HLSL
+readback test showed that naively batching four cubes reused the first cube for
+all lights and changed energy by `33.032304%`. The shader and binding ABI now
+carry one cube and radius per light. Production may group up to four overlapping
+cube-shadowed lights, but separates distant scissors whenever their union would
+increase the compiler-derived fragment-instruction model. Six co-located
+shadowed lights therefore require four near/far draws instead of twelve while
+preserving the sum of the same six individual contributions; separated lights
+retain their individual coverage.
+
+Crowded NPC scenes also repeated actor light-volume and cube-face classification
+before traversing every dirty cube face. The producer now copies active actor
+bounds once, computes one face-mask byte for every actor/selected-light pair,
+and reuses those aligned masks during animated submission. Rejected faces never
+enter skinning/material/child traversal. A missing/invalid bound or fixed-cache
+overflow still uses the complete canonical root inventory and conservatively
+admits the affected faces; descendant bounds retain the existing finer
+rejection. This removes repeated classification and unrelated hierarchy walks
+without reducing caster or face coverage.
+
+The GPU regressions prove the sixteen-light and batched-volumetric shader
+results. The root-bound optimization is independently checkable from enclosing
+bound geometry and the unchanged conservative fallback, but FPS is not inferred
+from it. Runtime acceptance still requires the reported interior and exterior
+frame-rate comparison at the same quality/count, plus continuity across lease
+expiry, camera motion, the Pip-Boy, cell changes, and device reset.
+
 ## Primary evidence index
 
 ### Current executable and static artifacts

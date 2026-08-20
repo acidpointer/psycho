@@ -52,7 +52,8 @@ const WORLD_LIGHT_TAIL_ADDR: usize = 0x0087_1A50;
 const SHADOW_SCENE_MANAGER_GETTER_ADDR: usize = 0x0045_0B80;
 const RENDER_LOCAL_SHADOW_CALL_ADDR: usize = 0x00B5_B9DC;
 const WORLD_LIGHT_EPOCH_PROLOGUE: &[u8] = &[0x55, 0x8B, 0xEC, 0x81, 0xEC, 0x9C, 0x00, 0x00, 0x00];
-const LOCAL_LIGHT_CAPACITY: usize = 16;
+/// Maximum ranked scalar-light candidates available to Atmosphere.
+pub(crate) const LOCAL_LIGHT_CAPACITY: usize = 32;
 const TERRAIN_LIGHT_CAPACITY: usize = 64;
 const NATIVE_SHADOW_CAPACITY: usize = 4;
 const MAX_SCENE_LIGHT_SCAN: usize = 512;
@@ -579,6 +580,11 @@ pub(crate) struct LocalVolumetricLight {
 }
 
 impl LocalVolumetricLight {
+    /// Return the stable engine-object identity for temporal selection.
+    pub(crate) const fn identity(&self) -> usize {
+        self.native_light_identity
+    }
+
     /// Borrow the retained native shadow texture for the current D3D device.
     ///
     /// A device mismatch rejects stale reset-era resources without consulting
@@ -648,6 +654,8 @@ pub(crate) struct LocalLightEpoch {
     pub(crate) device_identity: usize,
     /// Device lifecycle generation that owns every retained shadow resource.
     pub(crate) device_generation: u32,
+    /// Native cell identity used to invalidate temporal selection state.
+    pub(crate) cell_identity: usize,
     slots: [Option<LocalVolumetricLight>; LOCAL_LIGHT_CAPACITY],
 }
 
@@ -1205,6 +1213,7 @@ fn try_build_atmosphere_epoch_for_scene(
         source_render_epoch,
         device_identity,
         device_generation,
+        cell_identity,
         ranked,
         shadows,
         point_frame,
@@ -2257,6 +2266,7 @@ fn build_epoch(
         render_epoch,
         device_identity,
         device_generation,
+        0,
         ranked,
         shadows,
         None,
@@ -2268,6 +2278,7 @@ fn build_scene_epoch(
     render_epoch: u32,
     device_identity: usize,
     device_generation: u32,
+    cell_identity: usize,
     ranked: [Option<RankedSceneLight>; LOCAL_LIGHT_CAPACITY],
     mut shadows: [Option<CapturedShadow>; NATIVE_SHADOW_CAPACITY],
     mut point_frame: Option<crate::effects::shadows::VolumetricPointLightFrame>,
@@ -2319,6 +2330,7 @@ fn build_scene_epoch(
         render_epoch,
         device_identity,
         device_generation,
+        cell_identity,
         slots,
     }
 }
@@ -2350,6 +2362,7 @@ fn build_shadow_resource_epoch(
         render_epoch,
         device_identity,
         device_generation,
+        cell_identity: 0,
         slots,
     }
 }
@@ -2387,6 +2400,7 @@ fn build_shadow_point_epoch(
         render_epoch: frame.render_epoch,
         device_identity: frame.device_identity,
         device_generation: frame.device_generation,
+        cell_identity: 0,
         slots,
     }
 }
@@ -2451,6 +2465,7 @@ pub(crate) fn source_epoch_for_shader_behavior(
         render_epoch,
         device_identity,
         device_generation,
+        0,
         ranked,
         std::array::from_fn(|_| None),
         None,
@@ -2815,6 +2830,7 @@ mod tests {
             render_epoch,
             device_identity,
             device_generation: 0,
+            cell_identity: 0,
             slots: std::array::from_fn(|_| None),
         }
     }

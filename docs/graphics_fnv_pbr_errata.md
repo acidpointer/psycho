@@ -679,7 +679,15 @@ Cause:
 
 The first object path covered only nearby/runtime-hit object shader variants. Distant object or LOD variants used different shader families and were not replaced. Current OMV contracts now cover the proven base, LOD, ordinary specular, and ADTS10 high-light object pairs, so this is historical context rather than the current widespread failure.
 
-Vanilla object shaders do multiply accumulated specular lighting by the native fade carried by `LightData[0].w`. The complete archive in `analysis/shaders_disasm/` proves this across all 16 installed quality packages for ordinary and ADTS10 combined-specular rows. However, vanilla applies the fade to a bounded gloss lobe: normal-map alpha is amplitude, `glossPower` is lobe width, and the per-light result is saturated before the fade.
+Vanilla object shaders do multiply accumulated specular lighting by the native
+fade carried by `LightData[0].w`. The complete archive in
+`analysis/shaders_disasm/` proves this across all 16 installed quality packages
+for ordinary and ADTS10 combined-specular rows. The exact bounding order is
+family-specific: ordinary rows bound their gloss result before the fade, while
+high-quality package 019 `SLS2034.pso` accumulates the colored high-light gloss
+terms without saturating each light and multiplies the summed specular by the
+fade. Normal-map alpha remains amplitude and `glossPower` remains lobe width in
+both contracts.
 
 Ghidra closes the complete native contract. `BSShaderPPLightingProperty::GetSpecularFade` returns `1` before the configured start distance, `0` at or beyond the end distance, and a linear `1 - (distance - start) / (end - start)` weight between them. `FUN_00B70820` writes that value into staged `LightData[0].w`; `FUN_00B78A90` copies it to renderer vertex constant `c25.w`; the ordinary and ADTS10 object vertex paths pass it to the pixel shader.
 
@@ -783,6 +791,45 @@ Current material-faithful implementation (2026-07-16):
   gloss exponents, attenuation, strength, and fade monotonicity. Registry,
   native attenuation ABI, sampler masks, finite attenuation, light-count gates,
   shader compilation, and GPU budgets are all exhaustive static gates.
+
+Megaton wearable neon (2026-08-19):
+
+- The earlier `ONLY_LIGHT` and `DIFFUSE` corrections were insufficient. The
+  installed result first made the artifact rarer, then still reproduced it
+  reliably through a fence. Their GPU checks protect real helper-row contracts,
+  but they did not cover the statically independent high-light material family
+  and therefore did not accept this bug.
+- The replacement regression renders the high-light object row for a wearable
+  plane behind a depth-writing diagonal fence, sweeps six surface/view angles
+  through 80 degrees at four camera distances and four native specular-fade
+  values, and applies the shipped bloom extractor. The reference pixel shader
+  is the exact instruction stream from installed high-quality package 019
+  `SLS2034.pso`, with only its non-semantic CTAB comment removed. The oracle
+  compares visible HDR energy and bloom only on fence-occluded pixels. This is
+  a real D3D9 shader-path regression, but it is not the supplied Megaton scene
+  and cannot accept the runtime defect.
+- The `LIGHTS >= 4` specular family accumulated several PBR-scaled direct-light
+  lobes into one HDR material pass without the native direct-light envelope.
+  Grazing skinned wearables could therefore cross the bloom threshold even
+  though the corresponding native material remained bounded.
+- Package 019 `SLS2025.vso` and `SLS2026.vso` also prove that the native
+  combined-specular ABI normalizes each vertex halfway vector into
+  `TEXCOORD5..7`; `SLS2034.pso` normalizes those interpolated values again per
+  pixel for its gloss ceiling. The earlier replacement rebuilt the ceiling
+  halfway from separately interpolated view and light vectors. Those equations
+  disagree under perspective, making the ceiling camera-angle and distance
+  dependent even when the PBR lobe itself remains finite.
+- The high-light path now accumulates the native diffuse/specular envelope for
+  the same active sun and point lights using the paired native halfway
+  interpolants. It preserves the package-019 order by applying `LightData[0].w`
+  after the colored specular sum without per-light saturation, then bounds only
+  the summed direct PBR result by that envelope before ambient lighting. Its
+  PBR response still uses the independently reconstructed per-pixel view
+  vector. Non-specular and lower-light families keep their established
+  equations. Cache contract revision 10 invalidates earlier object bytecode.
+- The high-light fence/camera GPU test now passes. Release acceptance still
+  requires the same-save Megaton sweep on the shirt, boys' hat, and Pip-Boy with
+  PBR and bloom enabled; this candidate has not received that runtime result.
 
 ### 8. Vertex Shader Replacement Must Match the Pixel Path
 

@@ -36,10 +36,10 @@ model recorded later in this document:
 - The zero-shadow branch clears manager `+0xC0` shadow candidates and native
   shadow resources, not the `+0xB4` scene list. `0x00B5B880` is conditional and
   is no longer used as the epoch owner.
-- OMV scans at most 512 nodes, ranks a fixed 16-light candidate epoch by bounded
-  camera contribution, and draws at most two Performance or four High/Ultra
-  volumes. Published records retain no list node, manager, camera, or native
-  light pointer.
+- OMV scans at most 512 nodes, publishes a fixed 32-light candidate epoch by
+  bounded camera contribution, and admits at most 4, 8, or 16 Performance,
+  High, or Ultra volumes. Published records retain no list node, manager,
+  camera, or native light pointer.
 - The native `0x00B9F780` completion hook is optional enrichment. If the engine
   already renders a matching shadow, OMV retains its `BSRenderedTexture` and
   matrices and joins it by copied identity during the same transaction. OMV
@@ -56,12 +56,13 @@ model recorded later in this document:
   red-channel compare, and format-specific bias. Unsupported or foreign-device
   resources fail closed for that light only.
 - Performance, High, and Ultra are deterministic 4/6/10-step variants, compiled
-  separately for shadowless batch sizes one through four and native-shadow
-  sampling. One to four shadowless lights share a single near/far draw pair,
-  depth decode, world-ray reconstruction, constant publication, and FP16 target
-  traffic. Every light retains its full sample count and independent sphere
-  interval. The render path uses fixed stack storage, no temporal jitter, no
-  local history, and no additional render target or scene-color copy.
+  separately for shadowless and OMV-cube batch sizes one through four plus
+  single native-projected-shadow sampling. Spatially neighboring lights share
+  one near/far draw pair only when the union scissor cannot increase the exact
+  compiled fragment-instruction model. Every light retains its full sample
+  count and independent sphere interval. The render path uses fixed storage,
+  leased admission and fade history, no temporal jitter, and no additional
+  render target or scene-color copy.
 - Configuration, wrapped ImGui controls, local debug views, rejection and lock
   telemetry, reset ownership, and device validation keep local capture
   independent from the directional-sun toggle.
@@ -71,12 +72,13 @@ model recorded later in this document:
 Static validation covers epoch rollover and busy-owner preservation, explicit
 empty replacement, foreign-device invalidation, zero-native-shadow publication,
 bounded deterministic ranking, native projection and compare math, ray/sphere
-and batched-scissor edge cases, quality-tier energy invariance, constant
-shadowless draw count, interior/exterior medium gating, and real D3D compilation
-of all fifteen local shader variants. A bytecode regression test also proves
-that every fixed-register batch remains inside the recorded shader-model-3
-budget. Static validation cannot certify final game pixels, so runtime
-acceptance remains.
+and batched-scissor edge cases, quality-tier energy invariance, conservative
+draw bounds, interior/exterior medium gating, and real D3D compilation of all
+27 local shader variants. A bytecode regression test also proves every
+fixed-register batch remains inside the recorded shader-model-3 budget and
+that the batching work constants equal the compiled instruction decomposition.
+Static validation cannot certify final game pixels, so runtime acceptance
+remains.
 
 The native-value regression passes synthetic `ShadowSceneLight` and `NiLight`
 records in an actual synthetic manager-list node through the production chain
@@ -779,6 +781,43 @@ gheap, or the native shadow selector.
 8. Add telemetry, debug views, documentation, and performance-budget status.
 9. Run formatting, every i686 Wine test, the full supported i686 release build,
    and diff checks. Only then build/install for one feature-first playtest.
+
+## Stable admission and fade contract (2026-08-19)
+
+The four-record capture limit was an OMV budget rather than a native limit and
+made crowded scenes exchange complete volumetric sources at the selection
+boundary. The producer now publishes the nearest 32 copied scalar candidates.
+Atmosphere admits 4, 8, or 16 of them at Performance, High, or Ultra and keeps
+an admitted identity for a two-second lease while it remains valid and
+on-screen. At lease expiry it recomputes from the current ranked epoch. A
+missing light drops from the desired set immediately, and a cell-identity
+change, device recreation, disable, or zero intensity invalidates the history.
+No native pointer or shadow COM resource is retained by the temporal state.
+
+Admission and retirement multiply only local volumetric intensity by a linear
+visibility weight. The duration is the ImGui `Local-light fade seconds` value,
+sanitized to 0.05 through 5 seconds with a 0.75-second default. A retiring light
+keeps its last copied scalar values but not a stale shadow binding; it therefore
+fades as an unshadowed contribution. Incoming and outgoing records share a
+fixed 32-track owner, which covers a complete 16-out/16-in Ultra replacement.
+The existing shader still consumes at most four lights per draw. Shadowless and
+OMV-cube sets may use four-wide batches; native projected shadows remain single
+because each owns a distinct 2D matrix/texture contract. Candidate batches are
+sorted by screen position and admitted only when their union scissor times the
+exact compiled `shared + light_count * per_light` instruction count does not
+exceed separate draws. This preserves batching for overlapping volumes without
+overshading the empty rectangle between separated lights. Visual presets
+preserve the active fade preference so the frozen schema-one preset payload
+does not gain a new field.
+
+The deterministic D3D9 image test drives the shipped local-light shader and
+final FP16 composition at the beginning, midpoint, and end of admission and
+retirement. It requires black, intermediate, full, intermediate, and black HDR
+images in that order. This proves shader-output fade behavior, not native-list
+continuity or visible gameplay. Runtime acceptance must exceed the active
+quality limit in one room, hold a still camera across several two-second lease
+boundaries, cross the light radius, change the fade value in ImGui, change
+cells, and reset the device without flicker, stuck light, or stale shadow.
 
 ## One feature-first playtest
 

@@ -14,7 +14,7 @@ use libpsycho::os::windows::memory::validate_memory_range;
 
 use super::{
     contract::{
-        ALL_CUBE_FACES, CASCADE_COUNT, DirectionalRootSetSignature, NVR_POINT_LIGHT_COUNT,
+        ALL_CUBE_FACES, CASCADE_COUNT, DirectionalRootSetSignature, POINT_LIGHT_CAPACITY,
         SceneKind, TraversalBudget, directional_actor_root_is_active,
         directional_form_type_is_enabled, point_light_influence_is_eligible, point_light_radii,
         sphere_intersects_cube_face, sphere_intersects_point_light,
@@ -142,6 +142,36 @@ impl DirectionalRoot {
                 bound[3],
                 light_position,
                 light_radius,
+            )
+        })
+    }
+
+    /// Return whether this root can touch one selected point-cube face.
+    ///
+    /// Root world bounds enclose their descendants. Rejecting an unrelated
+    /// face here avoids traversing and classifying the same skinned hierarchy
+    /// for every other actor-owned face in a crowded light volume. Missing
+    /// bounds remain conservatively admitted.
+    pub(super) fn intersects_point_face(
+        self,
+        light_position: [f32; 3],
+        light_radius: f32,
+        face: usize,
+    ) -> bool {
+        self.world_bound.is_none_or(|bound| {
+            sphere_intersects_point_light(
+                [bound[0], bound[1], bound[2]],
+                bound[3],
+                light_position,
+                light_radius,
+            ) && sphere_intersects_cube_face(
+                [
+                    bound[0] - light_position[0],
+                    bound[1] - light_position[1],
+                    bound[2] - light_position[2],
+                ],
+                bound[3],
+                face,
             )
         })
     }
@@ -321,14 +351,14 @@ pub(super) struct PointLight {
 /// Fixed-capacity point-light selection shared by all six-face producers.
 #[derive(Clone, Copy, Debug)]
 pub(super) struct PointLightSet {
-    values: [Option<PointLight>; NVR_POINT_LIGHT_COUNT],
+    values: [Option<PointLight>; POINT_LIGHT_CAPACITY],
     len: usize,
 }
 
 impl Default for PointLightSet {
     fn default() -> Self {
         Self {
-            values: [None; NVR_POINT_LIGHT_COUNT],
+            values: [None; POINT_LIGHT_CAPACITY],
             len: 0,
         }
     }
@@ -356,7 +386,7 @@ impl PointLightSet {
 
     /// Insert by stable distance order and return a rejected or evicted tail.
     fn insert(&mut self, candidate: PointLight, capacity: usize) -> Option<PointLight> {
-        let capacity = capacity.min(NVR_POINT_LIGHT_COUNT);
+        let capacity = capacity.min(POINT_LIGHT_CAPACITY);
         if capacity == 0 {
             return Some(candidate);
         }
@@ -391,7 +421,7 @@ pub(super) struct PointLightSelection {
 impl PointLightSelection {
     fn with_shadow_limit(shadow_limit: usize) -> Self {
         Self {
-            shadow_limit: shadow_limit.clamp(1, NVR_POINT_LIGHT_COUNT),
+            shadow_limit: shadow_limit.clamp(1, POINT_LIGHT_CAPACITY),
             ..Self::default()
         }
     }
@@ -491,11 +521,11 @@ pub(super) unsafe fn directional_fov_compensation() -> f32 {
     ratio.clamp(1.0, 4.0)
 }
 
-/// Select up to twelve cube lights and twelve tracked fallback lights.
+/// Select up to sixteen cube lights for one retained point-shadow family.
 ///
 /// Equal-distance candidates use native pointer identity as a deterministic
 /// tiebreaker, so no light is lost through the float-key collision present in
-/// NVR's `std::map<float, ...>` path. Candidates beyond the nearest twelve
+/// NVR's `std::map<float, ...>` path. Candidates beyond the configured limit
 /// remain present in native scene color without growing the cube-map budget;
 /// OMV never redraws or globally attenuates their illumination.
 ///
@@ -506,7 +536,8 @@ pub(super) fn select_point_lights(
     scene_lights: &crate::fnv_local_lights::SceneLightFrame,
     camera_translation: [f32; 3],
     camera_forward: [f32; 3],
-    retained_identities: [usize; NVR_POINT_LIGHT_COUNT],
+    retained_identities: [usize; POINT_LIGHT_CAPACITY],
+    selection_lease_active: bool,
     shadow_limit: usize,
     radius_multiplier: f32,
     draw_distance: f32,
@@ -527,13 +558,18 @@ pub(super) fn select_point_lights(
             draw_distance,
         ) {
             if retained_identities.contains(&candidate.identity) {
-                // Stable cube ownership needs a small admission hysteresis at
-                // the nearest-N boundary. Without it, two almost equidistant
-                // room lights exchange a six-face map on sub-unit camera
-                // motion and whole shadow groups blink. The bounded ten-percent
-                // preference still admits a materially nearer replacement.
-                candidate.distance_squared =
-                    stable_point_light_distance_squared(candidate.distance_squared, true);
+                candidate.distance_squared = if selection_lease_active {
+                    // Hold an admitted source for one short lease so candidates
+                    // at the nearest-N boundary cannot exchange whole shadow
+                    // groups every presentation. Missing or invalid lights are
+                    // still removed immediately; expiry then recomputes the
+                    // true nearest set.
+                    0.0
+                } else {
+                    // Outside the lease, keep only the established bounded
+                    // hysteresis while the fresh nearest set is chosen.
+                    stable_point_light_distance_squared(candidate.distance_squared, true)
+                };
             }
             selected.insert(candidate);
         }
@@ -670,22 +706,53 @@ pub(super) fn point_light_dynamic_faces_from_bounds(
 ) -> u8 {
     let mut faces = 0_u8;
     for bound in bounds {
-        if !sphere_intersects_point_light(
-            [bound[0], bound[1], bound[2]],
-            bound[3],
-            light_position,
-            light_radius,
-        ) {
-            continue;
-        }
-        let center_from_light = std::array::from_fn(|axis| bound[axis] - light_position[axis]);
-        for face in 0..6 {
-            if sphere_intersects_cube_face(center_from_light, bound[3], face) {
-                faces |= 1 << face;
-            }
-        }
+        faces |= point_actor_bound_faces(*bound, light_position, light_radius);
     }
     faces
+}
+
+fn point_actor_bound_faces(bound: [f32; 4], light_position: [f32; 3], light_radius: f32) -> u8 {
+    if !sphere_intersects_point_light(
+        [bound[0], bound[1], bound[2]],
+        bound[3],
+        light_position,
+        light_radius,
+    ) {
+        return 0;
+    }
+    let center_from_light = std::array::from_fn(|axis| bound[axis] - light_position[axis]);
+    (0..6).fold(0_u8, |faces, face| {
+        faces | ((sphere_intersects_cube_face(center_from_light, bound[3], face) as u8) << face)
+    })
+}
+
+/// Build face masks aligned with the compact actor-root inventory.
+///
+/// This performs the actor/light sphere and cube-face classification once per
+/// transaction. Dynamic submissions then use one byte lookup instead of
+/// repeating the same bound tests before walking each dirty face. Returning
+/// `None` reports insufficient reusable capacity and requires the conservative
+/// complete-root fallback.
+pub(super) fn collect_point_actor_face_masks(
+    bounds: &[[f32; 4]],
+    points: &PointLightSet,
+    masks: &mut Vec<[u8; POINT_LIGHT_CAPACITY]>,
+) -> Option<[u8; POINT_LIGHT_CAPACITY]> {
+    masks.clear();
+    if bounds.len() > masks.capacity() {
+        return None;
+    }
+    let mut dynamic_faces = [0_u8; POINT_LIGHT_CAPACITY];
+    for bound in bounds.iter().copied() {
+        let mut actor_faces = [0_u8; POINT_LIGHT_CAPACITY];
+        for (index, point) in points.iter().enumerate() {
+            let faces = point_actor_bound_faces(bound, point.position, point.cube_radius);
+            actor_faces[index] = faces;
+            dynamic_faces[index] |= faces;
+        }
+        masks.push(actor_faces);
+    }
+    Some(dynamic_faces)
 }
 
 /// Collect directional roots once for all maps due in this transaction.
@@ -1164,8 +1231,9 @@ const fn size_of<T>() -> usize {
 mod tests {
     use super::{
         DirectionalRoot, NativeBound, PointLight, PointLightSelection,
-        directional_root_set_signatures, point_scene_static_signatures, push_directional_root,
-        retained_object_state_signature,
+        collect_point_actor_face_masks, directional_root_set_signatures,
+        point_light_dynamic_faces_from_bounds, point_scene_static_signatures,
+        push_directional_root, retained_object_state_signature,
     };
 
     fn point(identity: usize, distance_squared: f32) -> PointLight {
@@ -1214,6 +1282,41 @@ mod tests {
             .map(|light| light.identity)
             .collect();
         assert_eq!(shadowed, [1, 2, 3, 4]);
+    }
+
+    #[test]
+    fn actor_face_masks_preserve_each_selected_light_union_without_allocation() {
+        let mut selection = PointLightSelection::with_shadow_limit(2);
+        let mut first = point(1, 1.0);
+        first.position = [0.0, 0.0, 0.0];
+        first.cube_radius = 64.0;
+        selection.insert(first);
+        let mut second = point(2, 2.0);
+        second.position = [96.0, 0.0, 0.0];
+        second.cube_radius = 48.0;
+        selection.insert(second);
+
+        let bounds = [
+            [24.0, 0.0, 0.0, 4.0],
+            [72.0, 12.0, 0.0, 8.0],
+            [512.0, 0.0, 0.0, 4.0],
+        ];
+        let mut masks = Vec::with_capacity(bounds.len());
+        let capacity = masks.capacity();
+        let unions = collect_point_actor_face_masks(&bounds, selection.shadowed(), &mut masks)
+            .expect("fixed actor-mask capacity");
+        assert_eq!(masks.len(), bounds.len());
+        assert_eq!(masks.capacity(), capacity);
+        for (source, light) in selection.shadowed().iter().enumerate() {
+            let mask_union = masks
+                .iter()
+                .fold(0_u8, |union, masks| union | masks[source]);
+            assert_eq!(mask_union, unions[source]);
+            assert_eq!(
+                mask_union,
+                point_light_dynamic_faces_from_bounds(&bounds, light.position, light.cube_radius,)
+            );
+        }
     }
 
     #[test]

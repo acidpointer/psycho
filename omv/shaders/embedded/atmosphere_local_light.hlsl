@@ -3,7 +3,16 @@ sampler2D DensityNoise : register(s1);
 #if LOCAL_LIGHT_SHADOW_MODE == 1
 sampler2D NativeShadow : register(s2);
 #elif LOCAL_LIGHT_SHADOW_MODE == 2
-samplerCUBE OmvShadowCube : register(s2);
+samplerCUBE OmvShadowCube0 : register(s2);
+#if LOCAL_LIGHT_BATCH_SIZE >= 2
+samplerCUBE OmvShadowCube1 : register(s3);
+#endif
+#if LOCAL_LIGHT_BATCH_SIZE >= 3
+samplerCUBE OmvShadowCube2 : register(s4);
+#endif
+#if LOCAL_LIGHT_BATCH_SIZE >= 4
+samplerCUBE OmvShadowCube3 : register(s5);
+#endif
 #endif
 
 #ifndef LOCAL_LIGHT_SAMPLE_COUNT
@@ -45,7 +54,7 @@ float4 ShadowMatrix1 : register(c18);
 float4 ShadowMatrix2 : register(c19);
 float4 ShadowMatrix3 : register(c20);
 #elif LOCAL_LIGHT_SHADOW_MODE == 2
-float4 ShadowCubeData : register(c17); // x cube radius
+float4 ShadowCubeData : register(c17); // xyzw cube radii
 #endif
 
 static const float MaximumOpticalDepth = 40.0f;
@@ -113,7 +122,14 @@ float HenyeyGreenstein(float mu, float anisotropy) {
 	return (1.0f - g * g) / (denominator * sqrt(denominator));
 }
 
-float ShadowVisibility(float3 worldPosition) {
+float ShadowVisibility(
+	float3 worldPosition,
+	float4 positionRadius
+#if LOCAL_LIGHT_SHADOW_MODE == 2
+	, samplerCUBE shadowCube,
+	float cubeRadius
+#endif
+) {
 #if LOCAL_LIGHT_SHADOW_MODE == 1
 	float4 homogeneous = float4(worldPosition, 1.0f);
 	float4 shadowPosition = float4(
@@ -138,11 +154,11 @@ float ShadowVisibility(float3 worldPosition) {
 	float shadowDepth = tex2Dlod(NativeShadow, float4(shadowUv, 0.0f, 0.0f)).r;
 	return shadowPosition.z < shadowDepth + LocalControl.x ? 1.0f : 0.0f;
 #elif LOCAL_LIGHT_SHADOW_MODE == 2
-	float3 toLight = LocalPositionRadius0.xyz - worldPosition;
+	float3 toLight = positionRadius.xyz - worldPosition;
 	float distance = length(toLight);
-	float normalizedDistance = distance / max(ShadowCubeData.x, ProjectionEpsilon);
+	float normalizedDistance = distance / max(cubeRadius, ProjectionEpsilon);
 	float3 cubeDirection = toLight * float3(-1.0f, -1.0f, 1.0f);
-	float casterDepth = texCUBElod(OmvShadowCube, float4(cubeDirection, 0.0f)).r;
+	float casterDepth = texCUBElod(shadowCube, float4(cubeDirection, 0.0f)).r;
 	float validDepth = casterDepth > 0.0f && casterDepth < 1.0f;
 	float comparisonBias = LocalControl.x * max(normalizedDistance, 0.25f);
 	float comparisonWidth = max(comparisonBias, 0.02f);
@@ -169,6 +185,10 @@ float3 IntegrateLocalLight(
 	float depthDistance,
 	float4 positionRadius,
 	float4 colorIntensity
+#if LOCAL_LIGHT_SHADOW_MODE == 2
+	, samplerCUBE shadowCube,
+	float cubeRadius
+#endif
 ) {
 	float3 toCenter = positionRadius.xyz - worldOrigin;
 	float projectedCenter = dot(toCenter, worldDirection);
@@ -205,7 +225,14 @@ float3 IntegrateLocalLight(
 		float inverseLightDistance = rsqrt(max(distanceSquared, ProjectionEpsilon));
 		float3 directionToLight = lightVector * inverseLightDistance;
 		float phase = HenyeyGreenstein(dot(worldDirection, directionToLight), LocalControl.z);
-		float visibility = ShadowVisibility(worldPosition);
+		float visibility = ShadowVisibility(
+			worldPosition,
+			positionRadius
+#if LOCAL_LIGHT_SHADOW_MODE == 2
+			, shadowCube,
+			cubeRadius
+#endif
+		);
 		visibilitySum += visibility;
 		float scatterAmount = (1.0f - stepTransmittance) * saturate(MediumData1.y);
 		scattering += colorIntensity.rgb
@@ -265,6 +292,10 @@ float4 Main(PixelInput input) : COLOR0 {
 		depthDistance,
 		LocalPositionRadius0,
 		LocalColorIntensity0
+#if LOCAL_LIGHT_SHADOW_MODE == 2
+		, OmvShadowCube0,
+		ShadowCubeData.x
+#endif
 	);
 #if LOCAL_LIGHT_BATCH_SIZE >= 2
 	result += IntegrateLocalLight(
@@ -273,6 +304,10 @@ float4 Main(PixelInput input) : COLOR0 {
 		depthDistance,
 		LocalPositionRadius1,
 		LocalColorIntensity1
+#if LOCAL_LIGHT_SHADOW_MODE == 2
+		, OmvShadowCube1,
+		ShadowCubeData.y
+#endif
 	);
 #endif
 #if LOCAL_LIGHT_BATCH_SIZE >= 3
@@ -282,6 +317,10 @@ float4 Main(PixelInput input) : COLOR0 {
 		depthDistance,
 		LocalPositionRadius2,
 		LocalColorIntensity2
+#if LOCAL_LIGHT_SHADOW_MODE == 2
+		, OmvShadowCube2,
+		ShadowCubeData.z
+#endif
 	);
 #endif
 #if LOCAL_LIGHT_BATCH_SIZE >= 4
@@ -291,6 +330,10 @@ float4 Main(PixelInput input) : COLOR0 {
 		depthDistance,
 		LocalPositionRadius3,
 		LocalColorIntensity3
+#if LOCAL_LIGHT_SHADOW_MODE == 2
+		, OmvShadowCube3,
+		ShadowCubeData.w
+#endif
 	);
 #endif
 	return float4(result, 0.0f);

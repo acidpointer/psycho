@@ -46,7 +46,7 @@ use super::{
     contract::{
         CASCADE_COUNT, CascadeDirty, CascadeScheduler, CascadeSplit, ClipmapRect, ClipmapScroll,
         DirectionalRootSetSignature, LightScissorRect, MAX_CLIPMAP_STRIP_WIDTH,
-        NVR_CASCADE_RESOLUTION, NVR_POINT_LIGHT_COUNT, POINT_CONSUMER_BATCH_SIZE,
+        NVR_CASCADE_RESOLUTION, POINT_CONSUMER_BATCH_SIZE, POINT_LIGHT_CAPACITY,
         PointFaceOperation, PointMapCache, PointMapPlan, PointMapSignature, PointStaticFaceCache,
         SceneKind, ShadowConsumerWorkPlan, ShadowMapUpdate, ShadowPublicationIdentity,
         SunCompetition, cascade_minimum_caster_radius, clipmap_texel_delta,
@@ -72,6 +72,7 @@ use super::{
 const ATLAS_RESOLUTION: u32 = NVR_CASCADE_RESOLUTION * 2;
 const ACTOR_MAP_RESOLUTION: u32 = NVR_CASCADE_RESOLUTION / 2;
 const MAX_ERROR_LOGS: u32 = 8;
+const POINT_SELECTION_LEASE_MILLIS: u64 = 2_000;
 const AMD_ALPHA_TO_COVERAGE_OFF: u32 = u32::from_le_bytes(*b"A2M0");
 
 const CUBE_FACES: [D3DCUBEMAP_FACES; 6] = [
@@ -198,7 +199,7 @@ pub(crate) struct VolumetricPointLightFrame {
     /// Reset generation that owns the publication.
     pub(crate) device_generation: u32,
     /// Fixed, nearest-order point inventory published by shadows.
-    pub(crate) lights: [Option<VolumetricPointLight>; NVR_POINT_LIGHT_COUNT],
+    pub(crate) lights: [Option<VolumetricPointLight>; POINT_LIGHT_CAPACITY],
 }
 
 impl PublishedPointLight {
@@ -242,7 +243,7 @@ struct PublishedFrame {
     /// Actor-only moments available for near, middle, and far cascades.
     actor_overlay_mask: u8,
     splits: [CascadeSplit; CASCADE_COUNT],
-    points: [PublishedPointLight; NVR_POINT_LIGHT_COUNT],
+    points: [PublishedPointLight; POINT_LIGHT_CAPACITY],
     point_count: usize,
     /// Same-epoch native sunlight used only by dynamic-only exterior composition.
     sun_competition: SunCompetition,
@@ -284,8 +285,11 @@ pub(super) struct ShadowPipeline {
     last_directional_roots: Option<[DirectionalRootSetSignature; CASCADE_COUNT]>,
     point_cache: PointMapCache,
     point_cell_identity: usize,
-    point_transition_identities: [usize; NVR_POINT_LIGHT_COUNT],
-    point_transition_starts: [u64; NVR_POINT_LIGHT_COUNT],
+    point_transition_identities: [usize; POINT_LIGHT_CAPACITY],
+    point_transition_starts: [u64; POINT_LIGHT_CAPACITY],
+    point_selection_cell_identity: usize,
+    point_selection_identities: [usize; POINT_LIGHT_CAPACITY],
+    point_selection_started_millis: u64,
     resource_failure_generation: Option<u32>,
     error_logs: u32,
     production_logged: [bool; 2],
@@ -309,8 +313,11 @@ impl Default for ShadowPipeline {
             last_directional_roots: None,
             point_cache: PointMapCache::default(),
             point_cell_identity: 0,
-            point_transition_identities: [0; NVR_POINT_LIGHT_COUNT],
-            point_transition_starts: [0; NVR_POINT_LIGHT_COUNT],
+            point_transition_identities: [0; POINT_LIGHT_CAPACITY],
+            point_transition_starts: [0; POINT_LIGHT_CAPACITY],
+            point_selection_cell_identity: 0,
+            point_selection_identities: [0; POINT_LIGHT_CAPACITY],
+            point_selection_started_millis: 0,
             resource_failure_generation: None,
             error_logs: 0,
             production_logged: [false; 2],
@@ -336,8 +343,11 @@ impl ShadowPipeline {
         self.last_directional_roots = None;
         self.point_cache = PointMapCache::default();
         self.point_cell_identity = 0;
-        self.point_transition_identities = [0; NVR_POINT_LIGHT_COUNT];
-        self.point_transition_starts = [0; NVR_POINT_LIGHT_COUNT];
+        self.point_transition_identities = [0; POINT_LIGHT_CAPACITY];
+        self.point_transition_starts = [0; POINT_LIGHT_CAPACITY];
+        self.point_selection_cell_identity = 0;
+        self.point_selection_identities = [0; POINT_LIGHT_CAPACITY];
+        self.point_selection_started_millis = 0;
         self.resource_failure_generation = None;
         self.production_logged = [false; 2];
         self.composition_logged = [false; 2];
@@ -542,6 +552,11 @@ impl ShadowPipeline {
 
         let directional = settings.directional_enabled_for(scene.kind);
         let point_lights = settings.point_enabled_for(scene.kind);
+        let now_millis = self
+            .clock_origin
+            .elapsed()
+            .as_millis()
+            .min(u64::MAX as u128) as u64;
         // Select once before provisioning cube maps. The selection is a fixed
         // scalar snapshot; passing it through planning and generation avoids
         // both a second native-light walk and allocating the configured
@@ -550,22 +565,38 @@ impl ShadowPipeline {
             let Some(scene_lights) = scene_lights else {
                 return ReplacementResult::FallbackNative;
             };
-            let retained_identities = if self.point_cell_identity == scene.cell as usize {
+            let same_selection_cell = self.point_selection_cell_identity == scene.cell as usize;
+            let selection_lease_active = same_selection_cell
+                && now_millis.saturating_sub(self.point_selection_started_millis)
+                    < POINT_SELECTION_LEASE_MILLIS;
+            let retained_identities = if selection_lease_active {
+                self.point_selection_identities
+            } else if self.point_cell_identity == scene.cell as usize {
                 self.point_cache.identities()
             } else {
-                [0; NVR_POINT_LIGHT_COUNT]
+                [0; POINT_LIGHT_CAPACITY]
             };
             let Some(points) = native::select_point_lights(
                 scene_lights,
                 camera.world_transform.translation,
                 shadow_camera.forward,
                 retained_identities,
+                selection_lease_active,
                 settings.interior_shadowed_lights,
                 settings.interior_light_radius_multiplier,
                 settings.interior_light_draw_distance,
             ) else {
                 return ReplacementResult::FallbackNative;
             };
+            let mut selected_identities = [0; POINT_LIGHT_CAPACITY];
+            for (index, point) in points.shadowed().iter().enumerate() {
+                selected_identities[index] = point.identity;
+            }
+            self.point_selection_identities = selected_identities;
+            self.point_selection_cell_identity = scene.cell as usize;
+            if !selection_lease_active {
+                self.point_selection_started_millis = now_millis;
+            }
             points
         } else {
             native::PointLightSelection::default()
@@ -593,8 +624,8 @@ impl ShadowPipeline {
             self.published = None;
             self.point_cache = PointMapCache::default();
             self.point_cell_identity = 0;
-            self.point_transition_identities = [0; NVR_POINT_LIGHT_COUNT];
-            self.point_transition_starts = [0; NVR_POINT_LIGHT_COUNT];
+            self.point_transition_identities = [0; POINT_LIGHT_CAPACITY];
+            self.point_transition_starts = [0; POINT_LIGHT_CAPACITY];
         }
         // Build the no-work transcript before capturing a render target,
         // state block, scene pair, or native renderer journal. Re-publishing
@@ -763,7 +794,7 @@ impl ShadowPipeline {
         };
 
         // The complete root vector is borrowed only inside this serialized
-        // scope and is restored on every outcome. It replaces up to twelve
+        // scope and is restored on every outcome. It replaces up to sixteen
         // independent native light-geometry walks in the no-work path.
         let (mut roots, mut actor_bounds, mut actor_roots) = {
             let resources = self.resources.as_mut()?;
@@ -796,9 +827,9 @@ impl ShadowPipeline {
                 camera.world_transform.translation,
             )
         });
-        let mut signatures = [PointMapSignature::EMPTY; NVR_POINT_LIGHT_COUNT];
-        let mut static_face_signatures = [[0_u64; 6]; NVR_POINT_LIGHT_COUNT];
-        let mut dynamic_faces = [0_u8; NVR_POINT_LIGHT_COUNT];
+        let mut signatures = [PointMapSignature::EMPTY; POINT_LIGHT_CAPACITY];
+        let mut static_face_signatures = [[0_u64; 6]; POINT_LIGHT_CAPACITY];
+        let mut dynamic_faces = [0_u8; POINT_LIGHT_CAPACITY];
         for (index, point) in points.shadowed().iter().enumerate() {
             if !roots_complete {
                 continue;
@@ -869,7 +900,7 @@ impl ShadowPipeline {
             return None;
         }
 
-        let mut published_points = [PublishedPointLight::default(); NVR_POINT_LIGHT_COUNT];
+        let mut published_points = [PublishedPointLight::default(); POINT_LIGHT_CAPACITY];
         for (slot, published) in published_points
             .iter_mut()
             .enumerate()
@@ -899,7 +930,7 @@ impl ShadowPipeline {
                 transition_start_millis: transition_start,
             };
         }
-        for slot in points.shadowed().len()..NVR_POINT_LIGHT_COUNT {
+        for slot in points.shadowed().len()..POINT_LIGHT_CAPACITY {
             self.point_transition_identities[slot] = 0;
             self.point_transition_starts[slot] = now_millis;
         }
@@ -1182,7 +1213,7 @@ fn point_consumer_plan_for_frame(
     width: u32,
     height: u32,
 ) -> Option<super::contract::PointConsumerPlan> {
-    let mut scissors = [None; NVR_POINT_LIGHT_COUNT];
+    let mut scissors = [None; POINT_LIGHT_CAPACITY];
     if publication.point_count == 0 {
         return Some(point_consumer_plan(scissors, 0));
     }
@@ -1190,7 +1221,7 @@ fn point_consumer_plan_for_frame(
     for (index, scissor) in scissors
         .iter_mut()
         .enumerate()
-        .take(publication.point_count.min(NVR_POINT_LIGHT_COUNT))
+        .take(publication.point_count.min(POINT_LIGHT_CAPACITY))
     {
         let light = publication.points[index];
         let relative: [f32; 3] = std::array::from_fn(|axis| {
@@ -1255,6 +1286,7 @@ struct ShadowResources {
     directional_roots: Vec<DirectionalRoot>,
     point_actor_bounds: Vec<[f32; 4]>,
     point_actor_roots: Vec<DirectionalRoot>,
+    point_actor_face_masks: Vec<[u8; POINT_LIGHT_CAPACITY]>,
     /// Face-local static identities allocated only with post-Deferred device
     /// resources, outside the frozen loader-visible pipeline owner.
     point_static_faces: PointStaticFaceCache,
@@ -1344,6 +1376,7 @@ struct DirectionalStripResources {
 struct PointCasterIndex<'a> {
     roots: &'a [DirectionalRoot],
     actor_roots: &'a [DirectionalRoot],
+    actor_face_masks: &'a [[u8; POINT_LIGHT_CAPACITY]],
     actor_bounds_complete: bool,
 }
 
@@ -1582,7 +1615,7 @@ fn requested_point_resource_capacity(
     selected_count: usize,
 ) -> usize {
     if point_lights {
-        selected_count.min(configured_capacity.clamp(1, NVR_POINT_LIGHT_COUNT))
+        selected_count.min(configured_capacity.clamp(1, POINT_LIGHT_CAPACITY))
     } else {
         0
     }
@@ -1629,6 +1662,7 @@ impl ShadowResources {
             directional_roots: Vec::with_capacity(DIRECTIONAL_ROOT_CACHE_CAPACITY),
             point_actor_bounds: Vec::with_capacity(POINT_ACTOR_BOUND_CACHE_CAPACITY),
             point_actor_roots: Vec::with_capacity(POINT_ACTOR_BOUND_CACHE_CAPACITY),
+            point_actor_face_masks: Vec::with_capacity(POINT_ACTOR_BOUND_CACHE_CAPACITY),
             point_static_faces: PointStaticFaceCache::default(),
             cascade_matrices: [[[0.0; 4]; 4]; CASCADE_COUNT],
             cascade_projections: [None; CASCADE_COUNT],
@@ -1753,8 +1787,8 @@ impl ShadowResources {
         point_cache: &mut PointMapCache,
         point_cell_identity: &mut usize,
         point_static_faces: &mut PointStaticFaceCache,
-        point_transition_identities: &mut [usize; NVR_POINT_LIGHT_COUNT],
-        point_transition_starts: &mut [u64; NVR_POINT_LIGHT_COUNT],
+        point_transition_identities: &mut [usize; POINT_LIGHT_CAPACITY],
+        point_transition_starts: &mut [u64; POINT_LIGHT_CAPACITY],
         now_millis: u64,
         settings: NativeShadowsSettings,
     ) -> Direct3DResult<Option<PublishedFrame>> {
@@ -2079,9 +2113,9 @@ impl ShadowResources {
         // shadow whenever a directional atlas was active. Selection is still
         // capped by the same user-owned budget and unchanged cubes are cached.
         self.production_stage = ShadowProductionStage::PointLightInputs;
-        let mut current = [PointMapSignature::EMPTY; NVR_POINT_LIGHT_COUNT];
-        let mut current_static_faces = [[0_u64; 6]; NVR_POINT_LIGHT_COUNT];
-        let mut dynamic_faces = [0_u8; NVR_POINT_LIGHT_COUNT];
+        let mut current = [PointMapSignature::EMPTY; POINT_LIGHT_CAPACITY];
+        let mut current_static_faces = [[0_u64; 6]; POINT_LIGHT_CAPACITY];
+        let mut dynamic_faces = [0_u8; POINT_LIGHT_CAPACITY];
         let has_points = points.shadowed().len() != 0;
         self.production_stage = ShadowProductionStage::PointCasterInputs;
         if !point_caster_inventory_is_complete(points.shadowed().len(), roots_complete) {
@@ -2094,7 +2128,8 @@ impl ShadowResources {
         }
         let mut point_actor_bounds = core::mem::take(&mut self.point_actor_bounds);
         let mut point_actor_roots = core::mem::take(&mut self.point_actor_roots);
-        let actor_bounds_complete = !has_points
+        let mut point_actor_face_masks = core::mem::take(&mut self.point_actor_face_masks);
+        let mut actor_bounds_complete = !has_points
             || unsafe {
                 native::collect_point_actor_bounds(
                     directional_roots.as_slice(),
@@ -2102,16 +2137,20 @@ impl ShadowResources {
                     &mut point_actor_roots,
                 )
             };
+        let prepared_dynamic_faces = actor_bounds_complete.then(|| {
+            native::collect_point_actor_face_masks(
+                point_actor_bounds.as_slice(),
+                points.shadowed(),
+                &mut point_actor_face_masks,
+            )
+        });
+        let prepared_dynamic_faces = prepared_dynamic_faces.flatten();
+        if prepared_dynamic_faces.is_none() {
+            actor_bounds_complete = false;
+        }
         for (index, point) in points.shadowed().iter().enumerate() {
-            let current_dynamic_faces = if actor_bounds_complete {
-                native::point_light_dynamic_faces_from_bounds(
-                    point_actor_bounds.as_slice(),
-                    point.position,
-                    point.cube_radius,
-                )
-            } else {
-                super::contract::ALL_CUBE_FACES
-            };
+            let current_dynamic_faces = prepared_dynamic_faces
+                .map_or(super::contract::ALL_CUBE_FACES, |faces| faces[index]);
             let static_signatures = native::point_scene_static_signatures(
                 directional_roots.as_slice(),
                 point.position,
@@ -2152,6 +2191,7 @@ impl ShadowResources {
                 PointCasterIndex {
                     roots: directional_roots.as_slice(),
                     actor_roots: point_actor_roots.as_slice(),
+                    actor_face_masks: point_actor_face_masks.as_slice(),
                     actor_bounds_complete,
                 },
                 plan,
@@ -2166,7 +2206,7 @@ impl ShadowResources {
         // advances for interiors too, so the retained atlas is neutralized and
         // rebuilt when the next exterior becomes active.
         *last_scene = Some(scene.kind);
-        let mut published_points = [PublishedPointLight::default(); NVR_POINT_LIGHT_COUNT];
+        let mut published_points = [PublishedPointLight::default(); POINT_LIGHT_CAPACITY];
         for slot in 0..points.shadowed().len() {
             let source = plan.source_index(slot).ok_or_else(direct3d_failure)?;
             let point = points.shadowed().get(source).ok_or_else(direct3d_failure)?;
@@ -2193,7 +2233,7 @@ impl ShadowResources {
                 transition_start_millis: transition_start,
             };
         }
-        for slot in points.shadowed().len()..NVR_POINT_LIGHT_COUNT {
+        for slot in points.shadowed().len()..POINT_LIGHT_CAPACITY {
             point_transition_identities[slot] = 0;
             point_transition_starts[slot] = now_millis;
         }
@@ -2205,6 +2245,8 @@ impl ShadowResources {
         self.point_actor_bounds = point_actor_bounds;
         point_actor_roots.clear();
         self.point_actor_roots = point_actor_roots;
+        point_actor_face_masks.clear();
+        self.point_actor_face_masks = point_actor_face_masks;
         Ok(Some(PublishedFrame {
             identity,
             scene: scene.kind,
@@ -2556,7 +2598,7 @@ impl ShadowResources {
         camera: CameraFrame,
         points: &PointLightSet,
         casters: PointCasterIndex<'_>,
-        plan: PointMapPlan,
+        plan: PointMapPlan<POINT_LIGHT_CAPACITY>,
     ) -> Direct3DResult<()> {
         if !plan.render_faces.into_iter().any(|faces| faces != 0) {
             return Ok(());
@@ -2661,6 +2703,9 @@ impl ShadowResources {
                                 // every scheduled face.
                                 casters.roots
                             };
+                            let actor_face_masks = casters
+                                .actor_bounds_complete
+                                .then_some(casters.actor_face_masks);
                             unsafe {
                                 self.draw_point_dynamic_roots(
                                     device,
@@ -2669,7 +2714,9 @@ impl ShadowResources {
                                     point,
                                     views[face].world_to_shadow,
                                     face,
+                                    source,
                                     actor_roots,
+                                    actor_face_masks,
                                 )?
                             };
                         }
@@ -2683,13 +2730,16 @@ impl ShadowResources {
     /// Submit animated point casters from the transaction's canonical roots.
     ///
     /// Filtering at root ownership keeps hidden third-person/view-model leaves
-    /// from bypassing their canonical parent state. Ordinary light-volume and
-    /// cube-face tests still occur during root traversal.
+    /// from bypassing their canonical parent state. Complete actor bounds use
+    /// the transaction's aligned face masks; the incomplete-bound fallback
+    /// repeats the conservative root test before descendant traversal.
     ///
     /// # Safety
     ///
     /// `scene`, `point`, and all `roots` must belong to the active serialized
-    /// common-shadow transaction.
+    /// common-shadow transaction. When present, `actor_face_masks` must align
+    /// one-to-one with `roots`, and `source` must identify the current point in
+    /// each mask.
     #[allow(clippy::too_many_arguments)]
     unsafe fn draw_point_dynamic_roots(
         &mut self,
@@ -2699,7 +2749,9 @@ impl ShadowResources {
         point: &native::PointLight,
         world_to_shadow: [[f32; 4]; 4],
         face: usize,
+        source: usize,
         roots: &[DirectionalRoot],
+        actor_face_masks: Option<&[[u8; POINT_LIGHT_CAPACITY]]>,
     ) -> Direct3DResult<()> {
         render::configure_generation_state(device)?;
         render::begin_point_face(
@@ -2713,10 +2765,19 @@ impl ShadowResources {
                 point.cube_radius,
             ],
         )?;
-        for root in roots.iter().copied() {
+        for (root_index, root) in roots.iter().copied().enumerate() {
+            let touches_face = actor_face_masks
+                .and_then(|masks| masks.get(root_index))
+                .is_none_or(|masks| {
+                    masks
+                        .get(source)
+                        .is_some_and(|faces| faces & (1 << face) != 0)
+                });
             if !root.is_dynamic_actor()
                 || !unsafe { root.is_active_dynamic_actor() }
-                || !root.intersects_point_light(point.position, point.cube_radius)
+                || !touches_face
+                || (actor_face_masks.is_none()
+                    && !root.intersects_point_face(point.position, point.cube_radius, face))
             {
                 continue;
             }
@@ -3781,9 +3842,9 @@ fn dot3(left: [f32; 3], right: [f32; 3]) -> f32 {
 mod tests {
     use super::{
         CUBE_FACES, LocalLightConsumerTargets, PointResources, PublishedPointLight,
-        ShadowProductionStage, cascade_split_change_mask, consumer_selection_spheres,
-        directional_no_work_state_changed, prepare_local_light_accumulation,
-        projection_materially_changed, publish_static_point_face,
+        ShadowProductionStage, bind_fullscreen_state, cascade_split_change_mask,
+        consumer_selection_spheres, directional_no_work_state_changed, draw_quad,
+        prepare_local_light_accumulation, projection_materially_changed, publish_static_point_face,
         remember_first_production_failure, requested_point_resource_capacity,
         set_point_clamp_sampler, set_viewport, translate_shadow_matrix,
     };
@@ -3791,17 +3852,21 @@ mod tests {
     use crate::effects::shadows::{
         contract::{
             CascadeDirty, LightScissorRect, NVR_CASCADE_RESOLUTION, cascade_sphere_selection,
-            clipmap_texel_delta, practical_cascade_splits,
+            clipmap_texel_delta, point_consumer_plan, practical_cascade_splits,
         },
         math::{ShadowCamera, cascade_projection},
-        shaders::CUBE_PIXEL_SOURCE,
+        shaders::{CUBE_PIXEL_SOURCE, point_accumulation_source},
     };
     use libpsycho::os::windows::{
         directx9::{
-            D3DCLEAR_TARGET, D3DCULL_NONE, D3DDEVTYPE_HAL, D3DDEVTYPE_NULLREF, D3DFMT_R32F,
-            D3DFVF_XYZ, D3DPT_TRIANGLELIST, D3DRS_ALPHABLENDENABLE, D3DRS_COLORWRITEENABLE,
-            D3DRS_CULLMODE, D3DRS_ZENABLE, D3DRS_ZWRITEENABLE, Device9, Device9Ref, RECT,
-            ShadowConsumerState9, ShadowProducerState9, Surface9, create_direct3d9,
+            D3DBLEND_ONE, D3DBLENDOP_ADD, D3DCLEAR_TARGET, D3DCUBEMAP_FACE_NEGATIVE_X,
+            D3DCUBEMAP_FACE_NEGATIVE_Y, D3DCUBEMAP_FACE_NEGATIVE_Z, D3DCUBEMAP_FACE_POSITIVE_X,
+            D3DCUBEMAP_FACE_POSITIVE_Y, D3DCUBEMAP_FACE_POSITIVE_Z, D3DCULL_NONE, D3DDEVTYPE_HAL,
+            D3DDEVTYPE_NULLREF, D3DFMT_R32F, D3DFVF_XYZ, D3DPT_TRIANGLELIST,
+            D3DRS_ALPHABLENDENABLE, D3DRS_BLENDOP, D3DRS_COLORWRITEENABLE, D3DRS_CULLMODE,
+            D3DRS_DESTBLEND, D3DRS_SCISSORTESTENABLE, D3DRS_SRCBLEND, D3DRS_ZENABLE,
+            D3DRS_ZWRITEENABLE, Device9, Device9Ref, RECT, ShadowConsumerState9,
+            ShadowProducerState9, Surface9, create_direct3d9,
         },
         winapi::{get_active_window, get_desktop_window, get_foreground_window},
     };
@@ -3912,6 +3977,180 @@ mod tests {
             .copy_render_target_data(surface, &staging)
             .expect("render-target readback");
         staging.read_r32f().expect("R32F pixels")
+    }
+
+    fn render_planned_point_energy(device: &Device9Ref<'_>, light_count: usize) -> f32 {
+        const CANDIDATE_COUNT: usize = 16;
+        let rectangle = LightScissorRect {
+            left: 0,
+            top: 0,
+            right: 4,
+            bottom: 4,
+        };
+        let scissors: [Option<LightScissorRect>; CANDIDATE_COUNT] =
+            std::array::from_fn(|index| (index < light_count).then_some(rectangle));
+        let plan = point_consumer_plan(scissors, light_count);
+        let depth = device
+            .create_render_target_texture(4, 4, D3DFMT_R32F)
+            .expect("point behavior depth");
+        let depth_surface = depth
+            .surface_level(0)
+            .expect("point behavior depth surface");
+        device
+            .set_render_target(0, &depth_surface)
+            .expect("point behavior depth target");
+        device
+            .clear_attachments(D3DCLEAR_TARGET as u32, 0x0080_0000, 1.0, 0)
+            .expect("point behavior planar depth");
+
+        let cube = device
+            .create_cube_render_target_texture(4, D3DFMT_R32F)
+            .expect("point behavior cube");
+        for face in [
+            D3DCUBEMAP_FACE_POSITIVE_X,
+            D3DCUBEMAP_FACE_NEGATIVE_X,
+            D3DCUBEMAP_FACE_POSITIVE_Y,
+            D3DCUBEMAP_FACE_NEGATIVE_Y,
+            D3DCUBEMAP_FACE_POSITIVE_Z,
+            D3DCUBEMAP_FACE_NEGATIVE_Z,
+        ] {
+            let surface = cube.surface(face, 0).expect("point behavior cube face");
+            device
+                .set_render_target(0, &surface)
+                .expect("point behavior cube target");
+            device
+                .clear_attachments(D3DCLEAR_TARGET as u32, 0x00FF_0000, 1.0, 0)
+                .expect("open point behavior cube");
+        }
+
+        let deficit = device
+            .create_render_target_texture(4, 4, D3DFMT_R32F)
+            .expect("point behavior deficit");
+        let total = device
+            .create_render_target_texture(4, 4, D3DFMT_R32F)
+            .expect("point behavior total");
+        let deficit_surface = deficit
+            .surface_level(0)
+            .expect("point behavior deficit surface");
+        let total_surface = total
+            .surface_level(0)
+            .expect("point behavior total surface");
+        device
+            .set_render_target(0, &deficit_surface)
+            .expect("point behavior deficit target");
+        device
+            .set_render_target(1, &total_surface)
+            .expect("point behavior total target");
+        device
+            .clear_attachments(D3DCLEAR_TARGET as u32, 0, 1.0, 0)
+            .expect("clear point behavior outputs");
+        set_viewport(device, 0, 0, 4, 4).expect("point behavior viewport");
+        bind_fullscreen_state(device).expect("point behavior fixed state");
+        device
+            .set_texture(0, &depth)
+            .expect("point behavior depth input");
+        set_point_clamp_sampler(device, 0).expect("point behavior depth sampler");
+
+        let bytecode = [1usize, 6, 12].map(|capacity| {
+            crate::shaders::compile_hlsl_source_target(
+                "shadow_point_accumulate_behavior.ps",
+                &point_accumulation_source(capacity),
+                "ps_3_0",
+            )
+            .expect("shipped point accumulation bytecode")
+        });
+        let shaders = bytecode.map(|bytecode| {
+            device
+                .create_pixel_shader(&bytecode)
+                .expect("shipped point accumulation shader")
+        });
+        let common = [
+            [4.0, 4.0, 0.25, 0.25],
+            [1.0, 0.0, 0.0, 1.0],
+            [-1.0, 1.0, -1.0, 1.0],
+            [1.0, 0.0, 0.0, 0.0],
+            [0.0, 1.0, 0.0, 0.0],
+            [0.0, 0.0, 1.0, 0.0],
+        ];
+        device
+            .set_pixel_shader_constant_f(0, &common)
+            .expect("point behavior camera constants");
+        device.begin_scene().expect("begin point behavior draws");
+        let mut drew_batch = false;
+        for draw in plan.draws() {
+            let shader = match draw.count {
+                0 | 1 => &shaders[0],
+                2..=6 => &shaders[1],
+                _ => &shaders[2],
+            };
+            device
+                .set_pixel_shader(shader)
+                .expect("point behavior shader");
+            let mut positions = [[0.0; 4]; 12];
+            let mut colors = [[0.0; 4]; 12];
+            let mut metadata = [[0.0; 4]; 12];
+            for slot in 0..draw.count as usize {
+                positions[slot] = [0.0, 0.0, 0.0, 2.0];
+                colors[slot] = [1.0, 0.0, 0.0, 0.0];
+                metadata[slot] = [10.0, 1.0, 0.0, 0.0];
+                device
+                    .set_cube_texture((slot + 1) as u32, &cube)
+                    .expect("point behavior cube input");
+                set_point_clamp_sampler(device, (slot + 1) as u32)
+                    .expect("point behavior cube sampler");
+            }
+            device
+                .set_pixel_shader_constant_f(6, &[[0.0, draw.count as f32, 0.018, 0.0]])
+                .expect("point behavior control");
+            device
+                .set_pixel_shader_constant_f(7, &positions)
+                .expect("point behavior positions");
+            device
+                .set_pixel_shader_constant_f(19, &colors)
+                .expect("point behavior colors");
+            device
+                .set_pixel_shader_constant_f(31, &metadata)
+                .expect("point behavior metadata");
+            device
+                .set_render_state(D3DRS_ALPHABLENDENABLE, drew_batch as u32)
+                .expect("point behavior blend enable");
+            device
+                .set_render_state(D3DRS_SRCBLEND, D3DBLEND_ONE.0 as u32)
+                .expect("point behavior source blend");
+            device
+                .set_render_state(D3DRS_DESTBLEND, D3DBLEND_ONE.0 as u32)
+                .expect("point behavior destination blend");
+            device
+                .set_render_state(D3DRS_BLENDOP, D3DBLENDOP_ADD.0 as u32)
+                .expect("point behavior blend operation");
+            device
+                .set_render_state(D3DRS_SCISSORTESTENABLE, 0)
+                .expect("point behavior full coverage");
+            draw_quad(device, 0, 0, 4, 4).expect("point behavior draw");
+            drew_batch = true;
+        }
+        device.end_scene().expect("end point behavior draws");
+        device
+            .clear_render_target(1)
+            .expect("unbind point behavior MRT");
+        read_r32f(device, &total_surface).into_iter().sum()
+    }
+
+    #[test]
+    fn sixteen_shadowed_lights_survive_additive_shipped_hlsl_batches() {
+        let owner = raster_test_device();
+        let device = owner.as_ref();
+        let one = render_planned_point_energy(&device, 1);
+        let sixteen = render_planned_point_energy(&device, 16);
+        assert!(
+            one > 0.001,
+            "one shipped point light produced no energy: {one}"
+        );
+        let ratio = sixteen / one;
+        assert!(
+            (ratio - 16.0).abs() <= 0.1,
+            "the configured sixteen-light set did not survive production batching through the shipped point shader: ratio={ratio}"
+        );
     }
 
     #[test]

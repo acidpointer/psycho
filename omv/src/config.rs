@@ -285,7 +285,9 @@ impl NativeShadowsConfig {
         );
         self.interior_darkness =
             finite_clamp(self.interior_darkness, defaults.interior_darkness, 0.0, 1.0);
-        self.interior_shadowed_lights = self.interior_shadowed_lights.clamp(1, 12);
+        if !(1..=16).contains(&self.interior_shadowed_lights) {
+            self.interior_shadowed_lights = defaults.interior_shadowed_lights;
+        }
         self.interior_light_radius_multiplier = finite_clamp(
             self.interior_light_radius_multiplier,
             defaults.interior_light_radius_multiplier,
@@ -554,6 +556,13 @@ pub(crate) struct VolumetricLightingConfig {
     pub(crate) local_lights_quality: AtmosphereQuality,
     pub(crate) temporal_stability: f32,
     pub(crate) debug_view: i32,
+    /// Seconds used to reveal and retire local volumetric-light energy.
+    ///
+    /// The working config has an explicit TOML writer for this local temporal
+    /// preference. Omitting it from generic serialization keeps the frozen
+    /// schema-one visual-preset payload unchanged.
+    #[serde(skip_serializing)]
+    pub(crate) local_lights_fade_seconds: f32,
 }
 
 impl Default for VolumetricLightingConfig {
@@ -572,6 +581,7 @@ impl Default for VolumetricLightingConfig {
             local_lights_quality: AtmosphereQuality::High,
             temporal_stability: 0.9,
             debug_view: 0,
+            local_lights_fade_seconds: 0.75,
         }
     }
 }
@@ -587,6 +597,8 @@ impl VolumetricLightingConfig {
         self.local_lights_intensity = finite_clamp(self.local_lights_intensity, 1.5, 0.0, 4.0);
         self.temporal_stability = finite_clamp(self.temporal_stability, 0.9, 0.0, 0.98);
         self.debug_view = self.debug_view.clamp(0, 8);
+        self.local_lights_fade_seconds =
+            finite_clamp(self.local_lights_fade_seconds, 0.75, 0.05, 5.0);
         self
     }
 }
@@ -1864,6 +1876,8 @@ fn save_embedded_effect_config(doc: &mut DocumentMut, config: &EmbeddedEffectsCo
         value(lighting.temporal_stability as f64);
     doc["graphics"]["embedded_effects"]["volumetric_lighting"]["debug_view"] =
         value(lighting.debug_view as i64);
+    doc["graphics"]["embedded_effects"]["volumetric_lighting"]["local_lights_fade_seconds"] =
+        value(lighting.local_lights_fade_seconds as f64);
 
     let fast_fxaa = &config.fast_fxaa;
     doc["graphics"]["embedded_effects"]["fast_fxaa"]["enabled"] = value(fast_fxaa.enabled);

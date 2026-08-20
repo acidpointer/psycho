@@ -658,3 +658,23 @@ bounded shadow/Atom code delta; they do not accept runtime startup or pixels.
 The baseline remains unchanged until three cold Proton launches with
 BaseObjectSwapper reach gameplay and the full Atom camera off/on graphics
 matrix passes on these exact hashes.
+
+### 2026-08-19 volumetric local-light fade candidate
+
+The local-light fade control appends `local_lights_fade_seconds` to the existing
+schema-one working-config volumetric-lighting table and screen-effect option
+payload. The frozen schema-one visual-preset payload omits this local temporal
+preference and preserves the active value during preset application. Missing
+working-config values use 0.75 seconds, and loaded or ImGui-written values are
+sanitized to 0.05 through 5 seconds. This does not add a parser, owner, lock,
+TLS value, thread, worker, hook, D3D resource, or publication boundary. It does
+change the configuration value and menu-source layouts copied during plugin
+load, so code review, tests, and a release build cannot establish startup
+compatibility.
+
+This remains an unaccepted candidate until three cold Proton launches with
+BaseObjectSwapper reach both DeferredInit markers and gameplay. The same
+artifact must then save/reload the fade value and complete a cell transition,
+Pip-Boy toggle, and device reset without a startup crash or stale local-light
+history. Until that result exists, the accepted startup baseline above is
+unchanged.

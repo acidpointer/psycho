@@ -177,6 +177,7 @@ temporal_stability = 0.9
 # 4 = directional scattering, 5 = combined atmosphere acceptance,
 # 6 = local-light bounds, 7 = local shadow visibility, 8 = local scattering
 debug_view = 0
+local_lights_fade_seconds = 0.75
 
 [graphics.embedded_effects.blooming_hdr]
 # Engine-owned bloom/HDR pass. Fixed phase: final_image_space.
