@@ -45,8 +45,12 @@ Atom now implements the Stable Phase 2 wrapper:
   zero and fore/aft near-wall parallax remains weapon-relative or absent;
 - logical yaw/pitch deltas drive bounded analytic viewmodel inertia without
   changing input or the logical camera;
-- native `IsAiming` suppresses world motion exactly and attenuates the relative
-  weapon layer to the configured precision fraction;
+- the effective-projectile-count call at `0x00524413` publishes one event for
+  each positive-count player invocation of the shared ranged-fire routine;
+  the world listener converts it to a bounded pitch impulse which survives the
+  native attack/recoil action, while multi-projectile loops remain one event;
+- native `IsAiming` suppresses locomotion motion exactly and attenuates the
+  relative weapon layer and shot listener to the configured precision fraction;
 - every non-None `GetCurrentAnimAction` value immediately suppresses Atom's
   relative weapon layer; release fades over an analytic envelope while world
   locomotion continues through ordinary equip, fire, recoil, block, and reload
@@ -88,8 +92,9 @@ authored weapon graph.
 Atom does not claim a general
 collision-resolved displaced camera: the half-unit translation envelope is a
 conservative inference and must be playtested against walls and low ceilings.
-ADS publishes exact identity world motion, and `Camera Motion = 0` prevents
-every world-camera write.
+ADS publishes exact identity locomotion/landing motion while retaining only the
+configured fraction of the camera-only shot response. `Camera Motion = 0`
+prevents every world-camera write.
 
 Source ownership is `atom/src/camera/`: `motion.rs` owns the pure generator,
 `pose.rs` the native-basis composition, `state.rs` coherent publication and
@@ -391,6 +396,8 @@ The first implementation owns:
 
 - locomotion gait motion;
 - landing and bounded movement impulses;
+- a bounded player-shot presentation impulse sourced from positive-count native
+  ranged fire;
 - viewmodel look inertia and settle;
 - state-dependent attenuation for hip fire, iron sights, scopes, and menus;
 - accessibility controls and exact pass-through;
@@ -656,7 +663,7 @@ The internal modifier order is deterministic:
 1. stance and locomotion envelope;
 2. gait waveform;
 3. acceleration and landing springs;
-4. later combat/event impulses;
+4. combat/event impulses;
 5. accessibility and state attenuation;
 6. per-listener world/viewmodel gain;
 7. final translation/rotation clamps and finite validation.
@@ -892,9 +899,10 @@ must obey these constraints:
 - no nausea-inducing low-frequency roll by default.
 
 Breathing belongs primarily on the viewmodel listener. World-camera breathing
-starts at zero and requires explicit opt-in. Atom combat may later publish a
-logical recoil event; camera presentation can add a secondary kick, but the
-combat module remains the owner of actual aim and projectile behavior.
+starts at zero and requires explicit opt-in. The Ballistics observer publishes
+a pointer-free logical player-shot event from the shared ranged-fire routine.
+Camera presentation adds a secondary kick, but native combat remains the owner
+of actual aim, projectile behavior, and weapon animation.
 
 ## Time and numerical behavior
 
@@ -1144,7 +1152,13 @@ and playtest.
 
 Recoil systems remain the owner of their gameplay and animation paths. Atom's
 camera API accepts a bounded presentation impulse only through an explicit
-capability; it never infers recoil by inspecting a mod or animation name.
+capability; it never infers recoil by inspecting a mod or animation name. The
+current capability is the positive effective-count result at `0x00524413` in
+`0x00523150`. That call executes once before the count-controlled launch loop
+at `0x005245BD`, so one shotgun or split-beam action cannot manufacture one
+camera event per projectile. Exact player-singleton source classification,
+first-person ownership seeding, and lifecycle generation changes prevent NPC,
+third-person, or stale events from reaching the listener.
 
 ### Enhanced Camera and visible bodies
 
@@ -1381,9 +1395,10 @@ Acceptance:
 
 ### Phase 3: survival profiles and event API
 
-Add restrained, proven-state breathing/handling profiles and an internal fixed
-capacity impulse interface for Atom combat. Do not add world random noise by
-default.
+The first internal event channel is implemented for authoritative player
+ranged fire. Extend it only with restrained, proven-state breathing/handling
+profiles or additional named combat capabilities. Do not add world random
+noise by default.
 
 Acceptance:
 

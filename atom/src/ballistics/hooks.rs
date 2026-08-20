@@ -5,7 +5,9 @@
 //! them. Immutable surrounding instructions prove the supported FNV caller;
 //! the mutable `E8` displacement is deliberately excluded. A scoped policy
 //! request makes FNV's initializer construct physical flight before launch
-//! returns; Atom never rewrites an already-initialized projectile.
+//! returns; Atom never rewrites an already-initialized projectile. The positive
+//! player count result also publishes one pointer-free camera event before the
+//! native multi-projectile loop.
 
 use core::ffi::c_void;
 use core::sync::atomic::{AtomicU32, Ordering};
@@ -23,7 +25,7 @@ use thiserror::Error;
 use super::adapter;
 use super::native::{self, NiPoint3};
 use super::pool::{Correlation, InsertOutcome, observations};
-use super::{ProjectileCapability, ShotContext, telemetry};
+use super::{ProjectileCapability, ShotContext, SourceKind, telemetry};
 
 static COUNT_HOOK: Rel32CallHookContainer<native::CountFn> = Rel32CallHookContainer::new();
 static LAUNCH_HOOK: Rel32CallHookContainer<native::LaunchFn> = Rel32CallHookContainer::new();
@@ -219,6 +221,9 @@ unsafe extern "thiscall" fn count_detour(
     let count = unsafe { predecessor(weapon, apply_perk, use_ammo, source) };
     if telemetry::enabled() {
         telemetry::record_projectile_count(count);
+    }
+    if count != 0 && unsafe { native::source_kind(source) } == SourceKind::Player {
+        crate::camera::publish_player_shot();
     }
     count
 }

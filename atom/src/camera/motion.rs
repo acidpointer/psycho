@@ -1,18 +1,19 @@
 //! Frame-rate-independent first-person motion synthesis.
 //!
 //! The generator consumes engine time, support-relative velocity, native
-//! locomotion state and movement admission, logical look deltas, and aiming
-//! state. It never reads devices or engine memory itself. Distance advances
-//! gait phase only while the native mover has directional locomotion; analytic
-//! damping controls envelopes, cadence, and viewmodel inertia; landing is a
-//! one-shot air-to-ground event. Cadence is analytically filtered and capped
-//! before it reaches one smooth footfall waveform. A conservative translation
-//! plus sub-degree render rotation forms the world-camera head layer. FNV's
-//! native first-person graph remains the sole owner of locomotion cadence for
-//! the close-up hands/weapon projection; Atom adds only a non-oscillating
-//! movement-weight offset and bounded look inertia there. Authored actions own
-//! that relative layer exclusively. Every result is zero-centered and bounded
-//! before it can reach a native transform.
+//! locomotion state and movement admission, logical look deltas, aiming state,
+//! and pointer-free player-shot events. It never reads devices or engine memory
+//! itself. Distance advances gait phase only while the native mover has
+//! directional locomotion; analytic damping controls envelopes, cadence, and
+//! viewmodel inertia; landing is a one-shot air-to-ground event, while ranged
+//! fire produces one bounded pitch response. Cadence is analytically filtered
+//! and capped before it reaches one smooth footfall waveform. A conservative
+//! translation plus sub-degree render rotation forms the world-camera head
+//! layer. FNV's native first-person graph remains the sole owner of locomotion
+//! cadence for the close-up hands/weapon projection; Atom adds only a
+//! non-oscillating movement-weight offset and bounded look inertia there.
+//! Authored actions own that relative layer exclusively. Every result is
+//! zero-centered and bounded before it can reach a native transform.
 
 use core::f32::consts::PI;
 use core::f64::consts::TAU;
@@ -37,8 +38,9 @@ const ENVELOPE_SETTLE_EPSILON: f32 = 1.0e-5;
 const SPRING_SETTLE_EPSILON: f32 = 1.0e-6;
 const HEAD_GAIT_ROLL_RADIANS: f32 = 0.0065;
 const HEAD_GAIT_PITCH_RADIANS: f32 = 0.0045;
-const HEAD_LANDING_PITCH_RADIANS: f32 = 0.0050;
+const HEAD_IMPULSE_PITCH_RADIANS: f32 = 0.0050;
 const MAX_HEAD_PITCH_RADIANS: f32 = 0.0080;
+const IMPULSE_SETTLE_RATE: f32 = 9.0;
 
 /// Bounded world and relative-viewmodel bases for one accepted update.
 ///
@@ -212,6 +214,8 @@ pub struct MotionGenerator {
     minimum_air_velocity: f32,
     landing_amplitude: f32,
     landing_age: f32,
+    shot_amplitude: f32,
+    shot_age: f32,
 }
 
 impl MotionGenerator {
@@ -229,12 +233,24 @@ impl MotionGenerator {
             minimum_air_velocity: 0.0,
             landing_amplitude: 0.0,
             landing_age: 0.0,
+            shot_amplitude: 0.0,
+            shot_age: 0.0,
         }
     }
 
-    /// Clear gait, landing, aiming, and look-inertia history.
+    /// Clear gait, landing, shot, aiming, and look-inertia history.
     pub fn reset(&mut self) {
         *self = Self::new();
+    }
+
+    /// Start one bounded camera-only response to an authoritative player shot.
+    ///
+    /// A new event replaces any unfinished response instead of accumulating,
+    /// so high-rate fire cannot grow the camera offset without limit. Native
+    /// weapon animation, logical aim, and projectile behavior remain separate.
+    pub(crate) fn trigger_shot_impulse(&mut self) {
+        self.shot_amplitude = 1.0;
+        self.shot_age = 0.0;
     }
 
     /// Advance one native update and return both bounded presentation poses.
@@ -297,6 +313,7 @@ impl MotionGenerator {
         }
 
         self.update_landing(input.locomotion, input.relative_velocity[2], dt);
+        self.update_shot(dt);
         let precision_target = f32::from(input.aiming);
         self.aim_weight =
             approach_exponential(self.aim_weight, precision_target, AIM_BLEND_RATE, dt);
@@ -341,6 +358,10 @@ impl MotionGenerator {
         let gait = self.gait_envelope * self.gait_envelope;
         let landing =
             landing_curve(self.landing_amplitude, self.landing_age) * config.landing_motion();
+        // A shot begins at its peak and reuses landing's analytic recovery
+        // rate. Restarting this monotonic envelope can only restore the bounded
+        // peak; it cannot drop the current response or accumulate random shake.
+        let shot = shot_curve(self.shot_amplitude, self.shot_age);
 
         // The native collision helper is a stateful chase-camera transaction,
         // not a reusable first-person clearance query. Positional head motion
@@ -359,6 +380,12 @@ impl MotionGenerator {
         } else {
             config.camera_motion() * (1.0 - self.aim_weight)
         };
+        let shot_precision_gain = if input.aiming {
+            config.aim_motion()
+        } else {
+            1.0 + (config.aim_motion() - 1.0) * self.aim_weight
+        };
+        let shot_gain = config.camera_motion() * shot_precision_gain;
         let world_translation = [
             0.0,
             (vertical * 0.24 * gait + landing * 0.22) * world_gain,
@@ -368,8 +395,9 @@ impl MotionGenerator {
         let head_rotation = [
             -side * HEAD_GAIT_ROLL_RADIANS * gait * world_gain,
             0.0,
-            (vertical * HEAD_GAIT_PITCH_RADIANS * gait + landing * HEAD_LANDING_PITCH_RADIANS)
-                * world_gain,
+            (vertical * HEAD_GAIT_PITCH_RADIANS * gait + landing * HEAD_IMPULSE_PITCH_RADIANS)
+                * world_gain
+                + shot * HEAD_IMPULSE_PITCH_RADIANS * shot_gain,
         ];
 
         let Some(world_pose) = bounded_world_pose(world_translation, world_rotation) else {
@@ -440,6 +468,16 @@ impl MotionGenerator {
             if self.landing_age >= 0.8 {
                 self.landing_amplitude = 0.0;
                 self.landing_age = 0.0;
+            }
+        }
+    }
+
+    fn update_shot(&mut self, dt: f32) {
+        if self.shot_amplitude > 0.0 {
+            self.shot_age += dt;
+            if self.shot_age >= 0.8 {
+                self.shot_amplitude = 0.0;
+                self.shot_age = 0.0;
             }
         }
     }
@@ -517,7 +555,11 @@ fn smooth01(value: f32) -> f32 {
 fn landing_curve(amplitude: f32, age: f32) -> f32 {
     // The difference of decays begins at zero, compresses once, and returns
     // monotonically from its single trough without an oscillatory bounce.
-    -amplitude * 1.55 * ((-9.0 * age).exp() - (-32.0 * age).exp())
+    -amplitude * 1.55 * ((-IMPULSE_SETTLE_RATE * age).exp() - (-32.0 * age).exp())
+}
+
+fn shot_curve(amplitude: f32, age: f32) -> f32 {
+    amplitude * (-IMPULSE_SETTLE_RATE * age).exp()
 }
 
 fn bounded_world_pose(translation: [f32; 3], rotation: [f32; 3]) -> Option<CameraPose> {
@@ -564,7 +606,8 @@ fn bounded_viewmodel_pose(translation: [f32; 3], rotation: [f32; 3]) -> Option<C
 
 #[cfg(test)]
 mod tests {
-    use super::{CriticalSpring, landing_curve};
+    use super::{CriticalSpring, HEAD_IMPULSE_PITCH_RADIANS, landing_curve, shot_curve};
+    use crate::camera::{FirstPersonConfig, LocomotionState, MotionGenerator, MotionInput};
 
     #[test]
     fn critical_spring_is_frame_partition_invariant() {
@@ -592,5 +635,109 @@ mod tests {
             .expect("landing samples");
         assert!(minimum > 0 && minimum < values.len() - 1);
         assert!(values[minimum..].windows(2).all(|pair| pair[1] >= pair[0]));
+    }
+
+    #[test]
+    fn shot_response_has_one_peak_and_returns_monotonically() {
+        let values = [0.0, 0.03, 0.06, 0.12, 0.24, 0.48].map(|age| shot_curve(1.0, age));
+        assert_eq!(values[0], 1.0);
+        assert!(values.windows(2).all(|pair| pair[1] < pair[0]));
+    }
+
+    #[test]
+    fn shot_impulse_survives_authored_recoil_is_bounded_and_settles() {
+        let config = FirstPersonConfig::from_ini(
+            "[FirstPerson]\nbEnabled=1\nfCameraMotion=1\nfWeaponMotion=1\nfAimMotion=0.25\n",
+        )
+        .expect("valid first-person test config");
+        let authored = MotionInput::new(
+            1.0 / 60.0,
+            [0.0; 3],
+            LocomotionState::Grounded,
+            false,
+            [0.0; 2],
+            false,
+            true,
+        );
+        let mut generator = MotionGenerator::new();
+        generator.trigger_shot_impulse();
+        let fired = generator.update(authored, config);
+        assert!(fired.head_rotation()[2] > 0.0);
+        assert!(fired.head_rotation()[2] <= HEAD_IMPULSE_PITCH_RADIANS);
+        assert!(fired.relative_viewmodel_pose().is_identity());
+
+        let mut settled = fired;
+        for _ in 0..60 {
+            settled = generator.update(authored, config);
+        }
+        assert_eq!(settled.head_rotation(), [0.0; 3]);
+        assert!(settled.relative_viewmodel_pose().is_identity());
+    }
+
+    #[test]
+    fn aiming_attenuates_the_shot_listener_without_changing_native_weapon_ownership() {
+        let config = FirstPersonConfig::from_ini(
+            "[FirstPerson]\nbEnabled=1\nfCameraMotion=1\nfWeaponMotion=1\nfAimMotion=0.25\n",
+        )
+        .expect("valid first-person test config");
+        let sample = |aiming| {
+            MotionInput::new(
+                1.0 / 60.0,
+                [0.0; 3],
+                LocomotionState::Grounded,
+                false,
+                [0.0; 2],
+                aiming,
+                true,
+            )
+        };
+        let mut hip = MotionGenerator::new();
+        hip.trigger_shot_impulse();
+        let hip_kick = hip.update(sample(false), config).head_rotation()[2];
+        let mut aim = MotionGenerator::new();
+        aim.trigger_shot_impulse();
+        let aim_kick = aim.update(sample(true), config).head_rotation()[2];
+
+        assert!((aim_kick / hip_kick - config.aim_motion()).abs() < 1.0e-6);
+    }
+
+    #[test]
+    fn repeated_shots_saturate_and_zero_camera_gain_is_exact_pass_through() {
+        let enabled = FirstPersonConfig::from_ini(
+            "[FirstPerson]\nbEnabled=1\nfCameraMotion=1\nfWeaponMotion=1\n",
+        )
+        .expect("valid first-person test config");
+        let camera_off = FirstPersonConfig::from_ini(
+            "[FirstPerson]\nbEnabled=1\nfCameraMotion=0\nfWeaponMotion=1\n",
+        )
+        .expect("valid first-person test config");
+        let authored = MotionInput::new(
+            1.0 / 60.0,
+            [0.0; 3],
+            LocomotionState::Grounded,
+            false,
+            [0.0; 2],
+            false,
+            true,
+        );
+        let mut burst = MotionGenerator::new();
+        burst.trigger_shot_impulse();
+        let first = burst.update(authored, enabled).head_rotation()[2];
+        let decayed = burst.update(authored, enabled).head_rotation()[2];
+        assert!(decayed < first);
+        burst.trigger_shot_impulse();
+        let restarted = burst.update(authored, enabled).head_rotation()[2];
+        assert!(restarted > decayed);
+        for _ in 0..120 {
+            burst.trigger_shot_impulse();
+            let kick = burst.update(authored, enabled).head_rotation()[2];
+            assert!(kick > 0.0 && kick <= HEAD_IMPULSE_PITCH_RADIANS);
+        }
+
+        let mut disabled = MotionGenerator::new();
+        disabled.trigger_shot_impulse();
+        let passthrough = disabled.update(authored, camera_off);
+        assert_eq!(passthrough.head_rotation(), [0.0; 3]);
+        assert!(passthrough.relative_viewmodel_pose().is_identity());
     }
 }

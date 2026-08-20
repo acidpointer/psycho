@@ -1,7 +1,9 @@
 //! MCM-owned first-person presentation settings.
 //!
-//! The camera gain controls the conservative world-camera head layer. The
-//! weapon gain controls only a bounded movement-weight offset and look inertia
+//! The camera gain controls the conservative world-camera head layer, including
+//! its bounded shot response. The aiming gain attenuates both that response and
+//! weapon inertia. The weapon gain controls only a bounded movement-weight
+//! offset and look inertia
 //! on the separately rendered hands/weapon camera; FNV retains ownership of
 //! its native locomotion cadence.
 //! Keeping those projections separate prevents close-up weapon motion from
@@ -75,7 +77,8 @@ impl FirstPersonConfig {
         self.landing_motion
     }
 
-    /// Return the fraction of weapon inertia retained while aiming.
+    /// Return the fraction of weapon inertia and shot response retained while
+    /// aiming.
     #[inline]
     pub const fn aim_motion(self) -> f32 {
         self.aim_motion

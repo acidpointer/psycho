@@ -17,7 +17,8 @@
 //! ownership of close-up weapon cadence. The exact native transforms are
 //! restored before the route returns. First- and third-person world cameras
 //! may add bounded sub-degree render-scoped roll/pitch. Aiming suppresses
-//! first-person world-camera motion exactly.
+//! first-person locomotion/landing motion and attenuates its player-shot
+//! response.
 
 mod aim;
 mod config;
@@ -51,6 +52,7 @@ static CONFIG: ConfigStore = ConfigStore::new();
 static FRAMES: FrameStore = FrameStore::new();
 static MOTION: MotionStateCell = MotionStateCell::new();
 static RESET_GENERATION: AtomicU32 = AtomicU32::new(0);
+static PLAYER_SHOT_SEQUENCE: AtomicU32 = AtomicU32::new(0);
 static RENDER_TOKEN: RenderTokenStore = RenderTokenStore::new();
 static EXTERNAL_OWNER: AtomicU32 = AtomicU32::new(0);
 static PLAYER_CONTROLS: OnceLock<PlayerControlsReader> = OnceLock::new();
@@ -181,6 +183,16 @@ pub(crate) fn publish_config(config: FirstPersonConfig) {
     if config != previous {
         clear_state();
     }
+}
+
+/// Publish one authoritative player ranged-fire event for camera presentation.
+///
+/// The sequence carries no engine pointer or gameplay value. The first-person
+/// update owner consumes only a sequence change observed during its current
+/// ownership epoch, so shots fired in third person or across a lifecycle reset
+/// cannot leak into a later first-person frame.
+pub(crate) fn publish_player_shot() {
+    PLAYER_SHOT_SEQUENCE.fetch_add(1, Ordering::Release);
 }
 
 /// Install the shared camera-update entry required by both camera systems.
@@ -401,7 +413,8 @@ pub(super) unsafe fn sample_after_update(
         }
     };
     let generation = RESET_GENERATION.load(Ordering::Acquire);
-    let Some(advance) = MOTION.advance(sample, config, generation) else {
+    let shot_sequence = PLAYER_SHOT_SEQUENCE.load(Ordering::Acquire);
+    let Some(advance) = MOTION.advance(sample, config, generation, shot_sequence) else {
         diagnostics::mark_motion_busy();
         clear_state();
         return;

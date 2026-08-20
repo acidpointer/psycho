@@ -117,7 +117,12 @@ bounded look inertia. A 1.6 Hz full-stride ceiling prevents extreme SpeedMult
 values or physics noise from becoming rapid camera shake. The head listener
 applies sub-unit lateral/vertical translation plus restrained sub-degree
 roll/pitch around the complete world draw; it adds no fore/aft parallax, and
-aiming suppresses the world pose immediately. The separately rendered
+aiming suppresses locomotion motion immediately. The authoritative ranged-fire
+path also publishes one player event before its projectile loop. The head
+listener turns that event into one bounded pitch impulse, including during the
+native attack/recoil action, then settles monotonically. Multi-projectile shots
+remain one event and high-rate bursts replace rather than accumulate an
+unfinished response. The separately rendered
 hands/weapon camera does not copy that world pose: its close projection
 visually magnifies even equal transforms, and FNV's graph already supplies
 locomotion animation. Atom adds only critically damped look inertia while no
@@ -134,9 +139,10 @@ before their wrapped calls return.
 
 The `First Person` MCM page exposes `First Person`, `Head Motion`, `Weapon
 Motion`, `Land Motion`, and `Aim Motion`. `Head Motion = 0` removes world-camera
-bob. `Weapon Motion = 0` removes Atom's movement weight and look inertia. `Land
-Motion` scales world-camera landing response, and `Aim Motion` is the fraction
-of weapon inertia retained during ADS.
+bob and shot response. `Weapon Motion = 0` removes Atom's movement weight and
+look inertia. `Land Motion` scales world-camera landing response, and `Aim
+Motion` is the fraction of weapon inertia and shot response retained during
+ADS.
 
 Third-person follow is disabled by default. When enabled, Atom requires one
 stable no-write native frame before acquiring an ownership epoch, follows the

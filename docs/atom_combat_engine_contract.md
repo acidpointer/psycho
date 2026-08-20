@@ -190,6 +190,16 @@ animation/event execution and by the script `FireWeapon` path. It owns effective
 equipment resolution, muzzle and aim, dispersion, projectile count and spawn,
 sounds, clip state, and ammunition consumption.
 
+Its effective-projectile-count call at `0x00524413 -> 0x00525B20` executes once
+before the positive-count loop. The loop tests the stored byte at `0x0052441E`,
+launches at `0x005245BD`, decrements it at `0x0052466B`, and returns to the test
+at `0x0052467A`. The post-predecessor positive count is therefore a proven
+single event boundary for presentation: it observes the current hook owner's
+effective result, covers player, AI, script, and animation-event firing, and
+does not multiply one shotgun or Split Beam action by its projectile count.
+Exact source-pointer comparison with the validated player singleton narrows
+Atom's first-person listener to player events.
+
 The canonical launch call is `0x005245BD -> 0x009BCA60`. The spawn function
 allocates the correct projectile subtype and applies native source, equipment,
 range, throwing-velocity perk, and launch context.
@@ -358,9 +368,14 @@ A modern handling module may derive recoil from effective caliber/proxy energy,
 weapon family, mass, stance, burst history, and actor state, but those are Atom
 policy. It must not overwrite shared weapon spread or use spread as camera kick.
 
-First- and third-person recoil camera/animation ownership remains an open
-focused research item. The proven hip-fire group adapter does not authorize a
-recoil hook or any per-frame skeleton manipulation.
+Atom's first-person camera now has one narrowly owned secondary presentation
+response: the proven positive-count player event publishes a pointer-free
+sequence, and the render-only world listener applies a bounded pitch impulse.
+It does not write control pitch, spread, projectile direction, weapon nodes, or
+native animation. Native recoil internals, gameplay recoil policy, and
+third-person camera/animation ownership remain open focused research items.
+The proven hip-fire group adapter still does not authorize a recoil hook or any
+per-frame skeleton manipulation.
 
 ### Aim convergence and cover
 
@@ -1146,7 +1161,7 @@ not assert source text, hook symbol names, or textual call order.
 
 The following issues still require focused static work or runtime acceptance:
 
-1. First-/third-person recoil camera and animation ownership.
+1. Native recoil internals plus third-person camera and animation ownership.
 2. Physical adaptation of native hitscan, especially VATS, beams, tracers,
    shotguns, script observations, and synchronous impact ordering.
 3. Runtime acceptance of the now-proven reticle/spawn convergence seam,

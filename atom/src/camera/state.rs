@@ -3,6 +3,9 @@
 //! The complete native UpdateCamera entry is the only motion writer. Its first
 //! accepted completion for each Atom Input frame advances the generator;
 //! transition and maintenance callers in that same frame are deduplicated.
+//! Pointer-free player-shot sequence changes remain pending across a duplicate
+//! and are consumed only by the next advancing frame in the same ownership
+//! epoch.
 //! Render callbacks load a fixed atomic snapshot and never lock or advance
 //! time. A nonblocking writer lease prevents recursive chains from creating
 //! two mutable references to the generator.
@@ -200,11 +203,12 @@ impl MotionStateCell {
         sample: NativeUpdateSample,
         config: FirstPersonConfig,
         reset_generation: u32,
+        shot_sequence: u32,
     ) -> Option<MotionAdvance> {
         let lease = self.try_borrow()?;
         // SAFETY: `lease` owns the only mutable access until it is dropped.
         let state = unsafe { &mut *self.state.get() };
-        let frame = state.advance(sample, config, reset_generation);
+        let frame = state.advance(sample, config, reset_generation, shot_sequence);
         drop(lease);
         Some(frame)
     }
@@ -232,6 +236,7 @@ struct MotionState {
     epoch: u32,
     input_frame_id: u32,
     reset_generation: u32,
+    shot_sequence: u32,
     cell: usize,
     previous_angles: [f32; 2],
     acquired: bool,
@@ -244,6 +249,7 @@ impl MotionState {
             epoch: 0,
             input_frame_id: 0,
             reset_generation: 0,
+            shot_sequence: 0,
             cell: 0,
             previous_angles: [0.0; 2],
             acquired: false,
@@ -255,6 +261,7 @@ impl MotionState {
         sample: NativeUpdateSample,
         config: FirstPersonConfig,
         reset_generation: u32,
+        shot_sequence: u32,
     ) -> MotionAdvance {
         let ownership_changed =
             !self.acquired || self.reset_generation != reset_generation || self.cell != sample.cell;
@@ -271,6 +278,7 @@ impl MotionState {
         if ownership_changed {
             self.generator.reset();
             self.reset_generation = reset_generation;
+            self.shot_sequence = shot_sequence;
             self.cell = sample.cell;
             self.previous_angles = sample.logical_angles;
             self.acquired = true;
@@ -289,6 +297,14 @@ impl MotionState {
             wrapped_angle_delta(sample.logical_angles[1], self.previous_angles[1]),
         ];
         self.previous_angles = sample.logical_angles;
+        if shot_sequence != self.shot_sequence {
+            // The authoritative fire routine may run after an earlier
+            // UpdateCamera caller in this same Input epoch. A duplicate leaves
+            // the sequence pending; the next advancing first-person sample
+            // consumes the whole burst as one bounded presentation impulse.
+            self.generator.trigger_shot_impulse();
+        }
+        self.shot_sequence = shot_sequence;
         let motion = MotionInput::new(
             sample.motion.delta_seconds(),
             sample.motion.relative_velocity(),
@@ -377,23 +393,42 @@ mod tests {
     #[test]
     fn multiple_update_camera_callers_advance_motion_once_per_input_frame() {
         let mut state = MotionState::new();
-        let first = state.advance(sample(41), config(), 0);
+        let first = state.advance(sample(41), config(), 0, 0);
         assert!(matches!(first, MotionAdvance::Published(frame) if frame.epoch() == 1));
 
-        let duplicate = state.advance(sample(41), config(), 0);
+        let duplicate = state.advance(sample(41), config(), 0, 0);
         assert!(matches!(duplicate, MotionAdvance::Duplicate));
 
-        let next = state.advance(sample(42), config(), 0);
+        let next = state.advance(sample(42), config(), 0, 0);
         assert!(matches!(next, MotionAdvance::Published(frame) if frame.epoch() == 2));
     }
 
     #[test]
     fn ownership_reset_reacquires_even_with_the_same_input_frame() {
         let mut state = MotionState::new();
-        let first = state.advance(sample(7), config(), 0);
+        let first = state.advance(sample(7), config(), 0, 0);
         assert!(matches!(first, MotionAdvance::Published(frame) if frame.epoch() == 1));
 
-        let reacquired = state.advance(sample(7), config(), 1);
+        let reacquired = state.advance(sample(7), config(), 1, 1);
         assert!(matches!(reacquired, MotionAdvance::Published(frame) if frame.epoch() == 2));
+    }
+
+    #[test]
+    fn shot_events_wait_for_an_advancing_frame_and_do_not_cross_reacquisition() {
+        let mut state = MotionState::new();
+        let _ = state.advance(sample(11), config(), 0, 4);
+
+        let duplicate = state.advance(sample(11), config(), 0, 5);
+        assert!(matches!(duplicate, MotionAdvance::Duplicate));
+
+        let fired = state.advance(sample(12), config(), 0, 5);
+        assert!(
+            matches!(fired, MotionAdvance::Published(frame) if !frame.world_pose().is_identity())
+        );
+
+        let reacquired = state.advance(sample(13), config(), 1, 6);
+        assert!(
+            matches!(reacquired, MotionAdvance::Published(frame) if frame.world_pose().is_identity())
+        );
     }
 }
