@@ -201,8 +201,11 @@ impl FollowSolver {
     /// Advance the follow point from one logical player pivot.
     ///
     /// `view_yaw` is the camera's logical horizontal heading in radians.
-    /// Invalid, paused, or teleport-sized input resets immediately so stale
-    /// spring energy cannot cross an ownership or world discontinuity.
+    /// Invalid geometry or teleport-sized movement resets immediately. A
+    /// missing time step holds the last finite solution; lifecycle ownership
+    /// explicitly resets the solver when a real world discontinuity occurs.
+    /// Long finite frames use their real elapsed time for velocity observation
+    /// while bounding only spring integration.
     pub fn advance(
         &mut self,
         pivot: Vec3,
@@ -213,18 +216,24 @@ impl FollowSolver {
         if !self.initialized
             || !pivot.is_finite()
             || !view_yaw.is_finite()
-            || !dt.is_finite()
-            || dt <= 0.0
-            || dt > MAX_STEP_SECONDS
             || (pivot - self.last_pivot).length() > TELEPORT_DISTANCE
         {
             self.reset(pivot);
             return self.position;
         }
+        if !dt.is_finite() || dt <= 0.0 {
+            // The presentation pose is frozen, but this finite pivot is still
+            // the newest observation. Retaining the older pivot would divide
+            // movement from multiple callbacks by the next single-frame dt
+            // and manufacture a follow-velocity spike after the gap.
+            self.last_pivot = pivot;
+            return self.position;
+        }
 
         let instantaneous_velocity = (pivot - self.last_pivot) * dt.recip();
         self.last_pivot = pivot;
-        let filter_alpha = 1.0 - (-VELOCITY_FILTER_RATE * dt).exp();
+        let step_seconds = dt.min(MAX_STEP_SECONDS);
+        let filter_alpha = 1.0 - (-VELOCITY_FILTER_RATE * step_seconds).exp();
         self.filtered_velocity += (instantaneous_velocity - self.filtered_velocity) * filter_alpha;
         self.filtered_velocity.z = 0.0;
 
@@ -252,21 +261,21 @@ impl FollowSolver {
             &mut self.velocity.x,
             desired.x,
             horizontal_rate,
-            dt,
+            step_seconds,
         );
         self.position.y = spring_step(
             self.position.y,
             &mut self.velocity.y,
             desired.y,
             horizontal_rate,
-            dt,
+            step_seconds,
         );
         self.position.z = spring_step(
             self.position.z,
             &mut self.velocity.z,
             desired.z,
             horizontal_rate * 0.8,
-            dt,
+            step_seconds,
         );
         self.position
     }

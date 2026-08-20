@@ -18,6 +18,7 @@ mod hooks;
 mod motion;
 mod native;
 mod ownership;
+mod presentation;
 mod zoom;
 
 use core::cell::UnsafeCell;
@@ -34,8 +35,8 @@ use motion::MotionInput;
 pub use super::aim::{AimAngles, ViewRay, converge_angles, third_person_view_ray, view_direction};
 pub use super::follow::{FollowSolver, SpringAxis, Vec3};
 pub use super::movement::{
-    FacingPolicy, LocomotionSector, MovementIntent, MovementOutput, MovementResolution,
-    camera_relative_heading, remap_movement, step_heading, wrap_angle,
+    FacingPolicy, MovementIntent, MovementOutput, camera_relative_heading, remap_movement,
+    step_heading, wrap_angle,
 };
 pub use config::{ThirdPersonConfig, ThirdPersonConfigError};
 pub use ownership::{OwnershipInput, OwnershipMachine, OwnershipState, OwnershipTransition};
@@ -564,19 +565,6 @@ pub fn compose_follow_camera(desired: Vec3, pivot: Vec3, follow: Vec3) -> Option
     composed.is_finite().then_some(composed)
 }
 
-/// Add bounded procedural translation to a desired camera endpoint.
-///
-/// The caller must pass the unchanged native pivot separately to FNV's
-/// collision owner. Motion changes only the candidate endpoint and therefore
-/// remains covered by the complete native player-to-camera clearance ray.
-pub(crate) fn compose_motion_camera(desired: Vec3, motion: Vec3) -> Option<Vec3> {
-    if !desired.is_finite() || !motion.is_finite() {
-        return None;
-    }
-    let composed = desired + motion;
-    composed.is_finite().then_some(composed)
-}
-
 #[inline]
 fn camera_motion_to_world(local: Vec3, view_yaw: f32) -> Option<Vec3> {
     if !local.is_finite() || !view_yaw.is_finite() {
@@ -597,7 +585,8 @@ static RUNTIME: RuntimeStore = RuntimeStore::new();
 static HOOKS_ACTIVE: AtomicBool = AtomicBool::new(false);
 static FOLLOW_ACTIVE: AtomicBool = AtomicBool::new(false);
 static MOVEMENT_ACTIVE: AtomicBool = AtomicBool::new(false);
-static MOTION_ACTIVE: AtomicBool = AtomicBool::new(false);
+static MOTION_GENERATOR_ACTIVE: AtomicBool = AtomicBool::new(false);
+static MOTION_POSITION_ACTIVE: AtomicBool = AtomicBool::new(false);
 static FRAMING_CONTRACT_ACTIVE: AtomicBool = AtomicBool::new(false);
 static FRAMING_DIRTY: AtomicBool = AtomicBool::new(true);
 static FRAMING: FramingStore = FramingStore::new();
@@ -684,6 +673,7 @@ pub(crate) struct ThirdPersonHookStatus {
     pub(crate) camera_heading_predecessor: Option<usize>,
     pub(crate) camera_pitch_predecessor: Option<usize>,
     pub(crate) follow_predecessor: Option<usize>,
+    pub(crate) motion_position_predecessor: Option<usize>,
     pub(crate) movement_scope_predecessor: Option<usize>,
     pub(crate) player_movement_predecessor: Option<usize>,
     pub(crate) reticle_predecessor: Option<usize>,
@@ -868,19 +858,42 @@ pub(crate) fn install_native_system(
             None
         }
     };
-    let motion_admitted = follow_predecessor.is_some()
-        && match native::validate_motion_contract() {
-            Ok(()) => {
-                MOTION_ACTIVE.store(true, Ordering::Release);
-                true
-            }
+    let motion_admitted = match native::validate_motion_contract() {
+        Ok(()) => {
+            MOTION_GENERATOR_ACTIVE.store(true, Ordering::Release);
+            true
+        }
+        Err(error) => {
+            log::warn!(
+                "[CAMERA] Third-person gait motion is unavailable: {error:#}. Follow and movement remain independently available"
+            );
+            false
+        }
+    };
+    let motion_position_predecessor = if motion_admitted {
+        match native::validate_motion_position_contract() {
+            Ok(()) => match hooks::install_motion_position() {
+                Ok(predecessor) => {
+                    MOTION_POSITION_ACTIVE.store(true, Ordering::Release);
+                    Some(predecessor)
+                }
+                Err(error) => {
+                    log::warn!(
+                        "[CAMERA] Third-person motion translation is unavailable: {error:#}. Render bob remains available"
+                    );
+                    None
+                }
+            },
             Err(error) => {
                 log::warn!(
-                    "[CAMERA] Third-person motion is unavailable: {error:#}. Follow and movement remain independently available"
+                    "[CAMERA] Third-person motion translation is unavailable: {error:#}. Render bob remains available"
                 );
-                false
+                None
             }
-        };
+        }
+    } else {
+        None
+    };
     let framing_admitted = match native::validate_framing_contract() {
         Ok(()) => {
             FRAMING_CONTRACT_ACTIVE.store(true, Ordering::Release);
@@ -920,6 +933,8 @@ pub(crate) fn install_native_system(
     };
     HOOKS_ACTIVE.store(
         follow_predecessor.is_some()
+            || motion_admitted
+            || motion_position_predecessor.is_some()
             || movement_predecessors.is_some()
             || hip_fire_pose_predecessor.is_some(),
         Ordering::Release,
@@ -929,6 +944,7 @@ pub(crate) fn install_native_system(
         camera_heading_predecessor: movement_predecessors.map(|value| value.camera_heading),
         camera_pitch_predecessor: movement_predecessors.map(|value| value.camera_pitch),
         follow_predecessor,
+        motion_position_predecessor,
         movement_scope_predecessor: movement_predecessors.map(|value| value.movement_scope),
         player_movement_predecessor: movement_predecessors.map(|value| value.player_movement),
         reticle_predecessor: aim_predecessors.map(|value| value.reticle),
@@ -1007,7 +1023,7 @@ pub(super) fn remap_hip_fire_animation(anim_data: *mut c_void, group: u16) -> u1
 /// fail to the exact native render.
 pub(super) fn render_camera_pose() -> Option<super::CameraPose> {
     if !HOOKS_ACTIVE.load(Ordering::Acquire)
-        || !MOTION_ACTIVE.load(Ordering::Acquire)
+        || !MOTION_GENERATOR_ACTIVE.load(Ordering::Acquire)
         || external_owner_active()
     {
         return None;
@@ -1158,7 +1174,7 @@ pub(crate) fn consume_horizontal_heading(player: *mut c_void, delta: f32) -> boo
             if delta.abs() > 0.000_001 {
                 runtime.manual_idle_seconds = 0.0;
                 runtime.recenter_speed = 0.0;
-                runtime.recenter_target = None;
+                runtime.recenter_intent = None;
             }
             true
         })
@@ -1189,7 +1205,7 @@ fn consume_retained_horizontal_heading(player: *mut c_void, delta: f32) -> bool 
             if delta.abs() > 0.000_001 {
                 runtime.manual_idle_seconds = 0.0;
                 runtime.recenter_speed = 0.0;
-                runtime.recenter_target = None;
+                runtime.recenter_intent = None;
             }
         }
     });
@@ -1219,7 +1235,7 @@ pub(crate) fn observe_native_horizontal_heading(player: *mut c_void) {
             if wrap_angle(heading - runtime.view_yaw).abs() > 0.000_001 {
                 runtime.manual_idle_seconds = 0.0;
                 runtime.recenter_speed = 0.0;
-                runtime.recenter_target = None;
+                runtime.recenter_intent = None;
             }
             runtime.view_yaw = heading;
             Some(heading)
@@ -1271,14 +1287,35 @@ pub(crate) fn fallback_movement_override(
     if !view_yaw.is_finite() {
         return None;
     }
+    let recenter_heading = if policy == FacingPolicy::Explore {
+        // A feature-only observation gap may retain an existing recenter
+        // transaction, but it cannot mutate or reseed one. If the runtime
+        // lease is unavailable, chain native unchanged instead of rebuilding
+        // movement from a camera basis that may currently be turning.
+        let snapshot = RUNTIME.with_mut(|runtime| {
+            if runtime.player != pointer_word(actor) {
+                return Err(());
+            }
+            let local_heading = (native_movement.horizontal_length() > f32::EPSILON)
+                .then(|| wrap_angle(native_movement.x.atan2(native_movement.y)));
+            Ok(runtime
+                .recenter_intent
+                .zip(local_heading)
+                .filter(|(recenter, local)| recenter.matches(*local))
+                .map(|(recenter, _)| recenter.world_travel_heading))
+        })?;
+        snapshot.ok()?
+    } else {
+        None
+    };
     diagnostics::mark_heading_hold();
-    Some(remap_movement(
-        native_movement,
-        flags,
-        actor_yaw,
-        view_yaw,
-        policy,
-    ))
+    let intent = recenter_heading.map_or_else(
+        || MovementIntent::new(native_movement, flags, view_yaw, policy),
+        |heading| {
+            MovementIntent::with_world_heading(native_movement, flags, view_yaw, policy, heading)
+        },
+    );
+    Some(intent.resolve(actor_yaw))
 }
 
 pub(crate) fn consume_vertical_heading(player: *mut c_void, delta: f32) -> bool {
@@ -1310,7 +1347,7 @@ pub(crate) fn consume_vertical_heading(player: *mut c_void, delta: f32) -> bool 
                 // must cancel a pending horizontal recenter just as yaw does.
                 runtime.manual_idle_seconds = 0.0;
                 runtime.recenter_speed = 0.0;
-                runtime.recenter_target = None;
+                runtime.recenter_intent = None;
             }
             true
         })
@@ -1430,6 +1467,7 @@ pub(crate) fn enter_camera_update_scope(player: *mut c_void) -> Option<CameraUpd
             runtime.view_pitch,
             runtime.retained_follow_offset,
             runtime.retained_motion_offset,
+            runtime.retained_spatial_flags,
         )
     });
     let Some(prepared) = prepared else {
@@ -1445,14 +1483,15 @@ pub(crate) fn enter_camera_update_scope(player: *mut c_void) -> Option<CameraUpd
         retained_pitch,
         retained_follow_offset,
         retained_motion_offset,
+        retained_spatial_flags,
     ) = prepared;
     let Some(mut prepared) = prepared else {
         // Feature admission and view ownership are independent. A transient
         // mover, collision, process, or active-3D gap cannot run follow or
         // movement, but the current callback has already proven that no real
-        // camera owner took over. Publish the last complete view axes and
-        // pre-collision spatial contributions so UpdateCamera cannot expose
-        // an intervening native pose as a one-frame position or angle snap.
+        // camera owner took over. Publish the last complete view axes, axial
+        // follow input, and post-solve motion so UpdateCamera cannot expose an
+        // intervening native pose as a one-frame position or angle snap.
         if heading_handoff_required {
             let _ = release_owned_camera_heading(player);
             invalidate_safe_pitch();
@@ -1464,6 +1503,7 @@ pub(crate) fn enter_camera_update_scope(player: *mut c_void) -> Option<CameraUpd
             retained_pitch,
             retained_follow_offset,
             retained_motion_offset,
+            retained_spatial_flags,
             generation,
             owner_thread,
             reset_generation,
@@ -1582,6 +1622,7 @@ fn activate_retained_view_scope(
     pitch: f32,
     follow_offset: Vec3,
     motion_offset: Vec3,
+    spatial_flags: u32,
     generation: u32,
     owner_thread: u32,
     reset_generation: u32,
@@ -1606,7 +1647,8 @@ fn activate_retained_view_scope(
 
     CAMERA_SCOPE_PLAYER.store(pointer_word(player), Ordering::Relaxed);
     CAMERA_SCOPE_FLAGS.store(
-        CAMERA_SCOPE_RETAINED_VIEW | CAMERA_SCOPE_FOLLOW_ACTIVE | CAMERA_SCOPE_MOTION_ACTIVE,
+        CAMERA_SCOPE_RETAINED_VIEW
+            | spatial_flags & (CAMERA_SCOPE_FOLLOW_ACTIVE | CAMERA_SCOPE_MOTION_ACTIVE),
         Ordering::Relaxed,
     );
     CAMERA_SCOPE_HEADING.store(heading.to_bits(), Ordering::Relaxed);
@@ -1721,12 +1763,10 @@ fn fallback_pitch_identity_matches(
     current.player != 0 && published == current
 }
 
-/// Return scoped axial-follow and procedural-motion displacements.
-pub(crate) fn scoped_camera_offsets(player: *mut c_void) -> Option<(Vec3, Vec3)> {
+/// Return the scoped axial-follow displacement for the active camera update.
+pub(crate) fn scoped_follow_offset(player: *mut c_void) -> Option<Vec3> {
     if !camera_scope_matches(player)
-        || CAMERA_SCOPE_FLAGS.load(Ordering::Relaxed)
-            & (CAMERA_SCOPE_FOLLOW_ACTIVE | CAMERA_SCOPE_MOTION_ACTIVE)
-            == 0
+        || CAMERA_SCOPE_FLAGS.load(Ordering::Relaxed) & CAMERA_SCOPE_FOLLOW_ACTIVE == 0
     {
         return None;
     }
@@ -1735,12 +1775,23 @@ pub(crate) fn scoped_camera_offsets(player: *mut c_void) -> Option<(Vec3, Vec3)>
         f32::from_bits(CAMERA_SCOPE_FOLLOW_Y.load(Ordering::Relaxed)),
         f32::from_bits(CAMERA_SCOPE_FOLLOW_Z.load(Ordering::Relaxed)),
     );
+    follow.is_finite().then_some(follow)
+}
+
+/// Return the scoped post-solve motion displacement for the active update.
+pub(crate) fn scoped_motion_offset(player: *mut c_void) -> Option<Vec3> {
+    if !MOTION_POSITION_ACTIVE.load(Ordering::Acquire)
+        || !camera_scope_matches(player)
+        || CAMERA_SCOPE_FLAGS.load(Ordering::Relaxed) & CAMERA_SCOPE_MOTION_ACTIVE == 0
+    {
+        return None;
+    }
     let motion = Vec3::new(
         f32::from_bits(CAMERA_SCOPE_MOTION_X.load(Ordering::Relaxed)),
         f32::from_bits(CAMERA_SCOPE_MOTION_Y.load(Ordering::Relaxed)),
         f32::from_bits(CAMERA_SCOPE_MOTION_Z.load(Ordering::Relaxed)),
     );
-    (follow.is_finite() && motion.is_finite()).then_some((follow, motion))
+    motion.is_finite().then_some(motion)
 }
 
 /// Identity token for one native player-mover update invocation.
@@ -1837,8 +1888,9 @@ pub(crate) fn leave_movement_scope(scope: MovementScope) {
 /// Build one complete camera-relative player movement transaction.
 ///
 /// The virtual wrapper receives PlayerMover's finalized vector and complete
-/// flags together, before it consumes either. Facing, compensation, and the
-/// locomotion sector are therefore all derived from the same post-turn yaw.
+/// flags together, before it consumes either. Facing and compensation are
+/// therefore derived from the same owned world heading and post-turn yaw,
+/// while the complete engine-authored flags pass through unchanged.
 pub(crate) fn movement_override(
     actor: *mut c_void,
     native_movement: Vec3,
@@ -1863,24 +1915,19 @@ pub(crate) fn movement_override(
         {
             return None;
         }
-        let (policy, previous_sector, recovery_weight) =
-            if runtime.ownership.state() == OwnershipState::Combat {
-                // Combat owns a different animation vocabulary. Preserve its
-                // native low direction bits and discard Explore hysteresis.
-                runtime.locomotion_sector = None;
-                runtime.recenter_target = None;
-                (FacingPolicy::Combat, None, 0.0)
-            } else {
-                (
-                    FacingPolicy::Explore,
-                    runtime.locomotion_sector,
-                    runtime.combat_presentation.recovery_weight(),
-                )
-            };
-        let intent = MovementIntent::new(native_movement, flags, runtime.view_yaw, policy);
-        let movement_heading = intent.movement_heading();
+        let (policy, recovery_weight) = if runtime.ownership.state() == OwnershipState::Combat {
+            runtime.recenter_intent = None;
+            (FacingPolicy::Combat, 0.0)
+        } else {
+            (
+                FacingPolicy::Explore,
+                runtime.combat_presentation.recovery_weight(),
+            )
+        };
+        let live_intent = MovementIntent::new(native_movement, flags, runtime.view_yaw, policy);
+        let live_movement_heading = live_intent.movement_heading();
         let movement_input_heading =
-            movement_heading.map(|_| wrap_angle(native_movement.x.atan2(native_movement.y)));
+            live_movement_heading.map(|_| wrap_angle(native_movement.x.atan2(native_movement.y)));
         let input_changed = match (runtime.movement_input_heading, movement_input_heading) {
             (Some(previous), Some(current)) => {
                 wrap_angle(current - previous).abs() > RECENTER_INPUT_CHANGE_RADIANS
@@ -1891,15 +1938,30 @@ pub(crate) fn movement_override(
         if input_changed {
             runtime.manual_idle_seconds = 0.0;
             runtime.recenter_speed = 0.0;
-            runtime.recenter_target = None;
+            runtime.recenter_intent = None;
         }
         runtime.movement_input_heading = movement_input_heading;
+        let movement_heading = match (policy, runtime.recenter_intent, movement_input_heading) {
+            (FacingPolicy::Explore, Some(recenter), Some(local)) if recenter.matches(local) => {
+                Some(recenter.world_travel_heading)
+            }
+            _ => live_movement_heading,
+        };
+        let intent = movement_heading.map_or(live_intent, |heading| {
+            MovementIntent::with_world_heading(
+                native_movement,
+                flags,
+                runtime.view_yaw,
+                policy,
+                heading,
+            )
+        });
         if let Some(heading) = movement_heading {
             runtime.last_movement_heading = heading;
             runtime.last_movement_magnitude = native_movement.horizontal_length();
         } else {
             runtime.last_movement_magnitude = 0.0;
-            runtime.recenter_target = None;
+            runtime.recenter_intent = None;
         }
         let facing_target = if recovery_weight > 0.0 {
             movement_heading.map(|heading| {
@@ -1922,7 +1984,6 @@ pub(crate) fn movement_override(
         Some(PreparedMovement {
             intent,
             facing,
-            previous_sector,
             logical_heading: runtime.view_yaw,
             next_turn_speed,
             player: runtime.player,
@@ -1931,20 +1992,16 @@ pub(crate) fn movement_override(
     })??;
     let actual_actor_yaw =
         apply_movement_heading(actor, prepared.facing, prepared.logical_heading)?;
-    let resolution = prepared
-        .intent
-        .resolve_stateful(actual_actor_yaw, prepared.previous_sector);
-    let locomotion_sector = resolution.locomotion_sector();
+    let output = prepared.intent.resolve(actual_actor_yaw);
     let _ = RUNTIME.with_mut(|runtime| {
         if runtime.ownership.state().is_owned()
             && runtime.ownership.epoch() == prepared.epoch
             && runtime.player == prepared.player
         {
-            runtime.locomotion_sector = locomotion_sector;
             runtime.actor_turn_speed = prepared.next_turn_speed;
         }
     });
-    Some(resolution.output())
+    Some(output)
 }
 
 fn apply_movement_heading(
@@ -1996,7 +2053,6 @@ fn apply_movement_heading(
 struct PreparedMovement {
     intent: MovementIntent,
     facing: Option<f32>,
-    previous_sector: Option<LocomotionSector>,
     logical_heading: f32,
     next_turn_speed: f32,
     player: u32,
@@ -2425,6 +2481,29 @@ impl RuntimeStore {
     }
 }
 
+/// One held input direction and the world travel direction it owned when
+/// camera recentering began.
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct RecenterIntent {
+    local_input_heading: f32,
+    world_travel_heading: f32,
+}
+
+impl RecenterIntent {
+    fn new(local_input_heading: f32, world_travel_heading: f32) -> Option<Self> {
+        (local_input_heading.is_finite() && world_travel_heading.is_finite()).then_some(Self {
+            local_input_heading: wrap_angle(local_input_heading),
+            world_travel_heading: wrap_angle(world_travel_heading),
+        })
+    }
+
+    fn matches(self, local_input_heading: f32) -> bool {
+        local_input_heading.is_finite()
+            && wrap_angle(local_input_heading - self.local_input_heading).abs()
+                <= RECENTER_INPUT_CHANGE_RADIANS
+    }
+}
+
 struct RuntimeState {
     ownership: OwnershipMachine,
     native_handoff: NativeHandoffGuard,
@@ -2450,16 +2529,16 @@ struct RuntimeState {
     motion_offset: Vec3,
     retained_follow_offset: Vec3,
     retained_motion_offset: Vec3,
+    retained_spatial_flags: u32,
     render_motion_rotation: Vec3,
     last_camera_frame: u32,
     manual_idle_seconds: f32,
     recenter_speed: f32,
-    recenter_target: Option<f32>,
+    recenter_intent: Option<RecenterIntent>,
     movement_input_heading: Option<f32>,
     actor_turn_speed: f32,
     last_movement_heading: f32,
     last_movement_magnitude: f32,
-    locomotion_sector: Option<LocomotionSector>,
     native_pitch_owned: bool,
     combat_aim: CombatAimSample,
 }
@@ -2491,16 +2570,16 @@ impl RuntimeState {
             motion_offset: Vec3::new(0.0, 0.0, 0.0),
             retained_follow_offset: Vec3::new(0.0, 0.0, 0.0),
             retained_motion_offset: Vec3::new(0.0, 0.0, 0.0),
+            retained_spatial_flags: 0,
             render_motion_rotation: Vec3::new(0.0, 0.0, 0.0),
             last_camera_frame: 0,
             manual_idle_seconds: 0.0,
             recenter_speed: 0.0,
-            recenter_target: None,
+            recenter_intent: None,
             movement_input_heading: None,
             actor_turn_speed: 0.0,
             last_movement_heading: 0.0,
             last_movement_magnitude: 0.0,
-            locomotion_sector: None,
             native_pitch_owned: false,
             combat_aim: CombatAimSample {
                 valid: false,
@@ -2634,15 +2713,15 @@ impl RuntimeState {
         self.motion_offset = Vec3::default();
         self.retained_follow_offset = Vec3::default();
         self.retained_motion_offset = Vec3::default();
+        self.retained_spatial_flags = 0;
         self.render_motion_rotation = Vec3::default();
         self.last_camera_frame = 0;
         self.manual_idle_seconds = 0.0;
         self.recenter_speed = 0.0;
-        self.recenter_target = None;
+        self.recenter_intent = None;
         self.movement_input_heading = None;
         self.actor_turn_speed = 0.0;
         self.last_movement_magnitude = 0.0;
-        self.locomotion_sector = None;
         self.native_pitch_owned = false;
         self.combat_aim = CombatAimSample::default();
     }
@@ -2666,15 +2745,15 @@ impl RuntimeState {
         self.motion_offset = Vec3::default();
         self.retained_follow_offset = Vec3::default();
         self.retained_motion_offset = Vec3::default();
+        self.retained_spatial_flags = 0;
         self.render_motion_rotation = Vec3::default();
         self.manual_idle_seconds = 0.0;
         self.recenter_speed = 0.0;
-        self.recenter_target = None;
+        self.recenter_intent = None;
         self.movement_input_heading = None;
         self.actor_turn_speed = 0.0;
         self.last_movement_heading = 0.0;
         self.last_movement_magnitude = 0.0;
-        self.locomotion_sector = None;
         self.native_pitch_owned = false;
         self.combat_aim = CombatAimSample::default();
     }
@@ -2712,7 +2791,7 @@ impl RuntimeState {
                 self.hip_fire_graph_bridge_seconds = 0.0;
             } else {
                 self.hip_fire_graph_bridge_seconds = (self.hip_fire_graph_bridge_seconds
-                    + validated_delta(frame.delta_seconds))
+                    + bounded_delta(frame.delta_seconds))
                 .min(HIP_FIRE_GRAPH_BRIDGE_SECONDS + MAX_DT);
             }
         }
@@ -2754,7 +2833,7 @@ impl RuntimeState {
             {
                 self.hip_fire_process_aim_seconds = 0.0;
             } else if process_aim {
-                let dt = validated_delta(frame.delta_seconds);
+                let dt = bounded_delta(frame.delta_seconds);
                 self.hip_fire_process_aim_seconds = (self.hip_fire_process_aim_seconds + dt)
                     .min(HIP_FIRE_PROCESS_AIM_SETTLE_SECONDS);
             } else {
@@ -2972,7 +3051,10 @@ impl RuntimeState {
         let movement_enabled = config.movement_enabled() && MOVEMENT_ACTIVE.load(Ordering::Acquire);
         let framing_enabled =
             config.framing_enabled() && FRAMING_CONTRACT_ACTIVE.load(Ordering::Acquire);
-        let motion_enabled = config.motion_enabled() && MOTION_ACTIVE.load(Ordering::Acquire);
+        let motion_enabled =
+            config.motion_enabled() && MOTION_GENERATOR_ACTIVE.load(Ordering::Acquire);
+        let motion_position_enabled =
+            motion_enabled && MOTION_POSITION_ACTIVE.load(Ordering::Acquire);
         let hip_fire_release = self.take_hip_fire_release_command(frame);
         if !follow_enabled
             && !movement_enabled
@@ -3051,15 +3133,16 @@ impl RuntimeState {
         if follow_enabled {
             flags |= CAMERA_SCOPE_FOLLOW_ACTIVE;
         }
-        if motion_enabled {
+        if motion_position_enabled {
             flags |= CAMERA_SCOPE_MOTION_ACTIVE;
         }
-        // These are the last complete pre-collision spatial contributions.
-        // A feature-only observation gap may reuse them with the next native
-        // desired point and pivot, preserving camera continuity while the
-        // predecessor still owns collision and the final position write.
+        // These are the last complete spatial contributions. A feature-only
+        // observation gap may reuse axial follow with the next native ray and
+        // procedural motion with the next completed native position.
         self.retained_follow_offset = follow_offset;
         self.retained_motion_offset = self.motion_offset;
+        self.retained_spatial_flags =
+            flags & (CAMERA_SCOPE_FOLLOW_ACTIVE | CAMERA_SCOPE_MOTION_ACTIVE);
         Some(PreparedCameraFrame {
             flags,
             frame_id: frame.frame_id,
@@ -3094,7 +3177,7 @@ impl RuntimeState {
             self.view_pitch = frame.pitch.clamp(-MAX_VIEW_PITCH, MAX_VIEW_PITCH);
         }
 
-        let dt = validated_delta(frame.delta_seconds);
+        let dt = bounded_delta(frame.delta_seconds);
         self.manual_idle_seconds = (self.manual_idle_seconds + dt).min(60.0);
         if follow_enabled
             && movement_enabled
@@ -3106,26 +3189,32 @@ impl RuntimeState {
         {
             let recenter_weight = recenter_horizon_weight(self.view_pitch);
             if recenter_weight > 0.0 {
-                // Camera-relative intent changes as the camera turns. Latch
-                // one world-space target so recenter cannot chase a lateral
-                // or backward direction around the player forever.
-                if self.recenter_target.is_none() {
-                    diagnostics::mark_recenter_started();
+                // Latch input identity and world travel together. Movement
+                // then uses the same world heading while this camera turn is
+                // active, so a held diagonal cannot be steered by the changing
+                // view basis or diverge from Actor facing.
+                if self.recenter_intent.is_none()
+                    && let Some(local_heading) = self.movement_input_heading
+                {
+                    self.recenter_intent =
+                        RecenterIntent::new(local_heading, self.last_movement_heading);
+                    if self.recenter_intent.is_some() {
+                        diagnostics::mark_recenter_started();
+                    }
                 }
-                let target = *self
-                    .recenter_target
-                    .get_or_insert(self.last_movement_heading);
-                self.view_yaw = step_heading(
-                    self.view_yaw,
-                    target,
-                    &mut self.recenter_speed,
-                    config.center_speed_radians() * recenter_weight,
-                    config.center_speed_radians() * 5.0 * recenter_weight,
-                    dt,
-                );
+                if let Some(recenter) = self.recenter_intent {
+                    self.view_yaw = step_heading(
+                        self.view_yaw,
+                        recenter.world_travel_heading,
+                        &mut self.recenter_speed,
+                        config.center_speed_radians() * recenter_weight,
+                        config.center_speed_radians() * 5.0 * recenter_weight,
+                        dt,
+                    );
+                }
             } else {
                 self.recenter_speed = 0.0;
-                self.recenter_target = None;
+                self.recenter_intent = None;
                 // A pole-suppressed view must not accumulate a hidden target
                 // and execute it as soon as the player lowers the camera.
                 // Returning to an admissible pitch earns a fresh full delay.
@@ -3139,7 +3228,7 @@ impl RuntimeState {
                 || self.combat_presentation.recovering()
                 || self.last_movement_magnitude <= 0.05
             {
-                self.recenter_target = None;
+                self.recenter_intent = None;
             }
         }
 
@@ -3147,16 +3236,24 @@ impl RuntimeState {
         // then copied into one immutable scope publication for every native
         // heading and collision query in this UpdateCamera invocation.
         if follow_enabled {
-            self.follow.advance(frame.pivot, self.view_yaw, dt, config);
+            self.follow
+                .advance(frame.pivot, self.view_yaw, frame.delta_seconds, config);
         }
-        let motion_sample = if motion_enabled {
-            unsafe { native::motion_sample(frame.player) }
-        } else {
-            None
-        };
+        let motion_observation =
+            motion_enabled.then(|| unsafe { native::motion_sample(frame.player) });
+        let mut shared_motion = None;
         if motion_enabled {
-            self.motion_offset = match (motion_sample, unsafe { native::desired_distance() }) {
-                (Some(sample), Some(distance)) => {
+            match motion_observation {
+                Some(native::MotionObservation::Sample(sample)) => {
+                    shared_motion = Some(sample);
+                    let Some(distance) = (unsafe { native::desired_distance() }) else {
+                        self.last_camera_frame = frame.frame_id;
+                        return shared_motion;
+                    };
+                    if dt <= 0.0 {
+                        self.last_camera_frame = frame.frame_id;
+                        return shared_motion;
+                    }
                     let velocity = sample.relative_velocity();
                     let local = self.motion.update(
                         dt,
@@ -3174,21 +3271,27 @@ impl RuntimeState {
                         config,
                     );
                     self.render_motion_rotation = self.motion.render_rotation();
-                    camera_motion_to_world(local, self.view_yaw).unwrap_or_default()
+                    self.motion_offset =
+                        camera_motion_to_world(local, self.view_yaw).unwrap_or_default();
                 }
-                _ => {
+                Some(native::MotionObservation::Unsupported) => {
                     self.motion.reset();
+                    self.motion_offset = Vec3::default();
                     self.render_motion_rotation = Vec3::default();
-                    Vec3::default()
                 }
-            };
+                Some(native::MotionObservation::Unavailable) | None => {
+                    // A missing controller sample is not a camera-owner
+                    // transition. Freeze the last finite pose for this one
+                    // scope instead of exposing native identity as a snap.
+                }
+            }
         } else {
             self.motion.reset();
             self.motion_offset = Vec3::default();
             self.render_motion_rotation = Vec3::default();
         }
         self.last_camera_frame = frame.frame_id;
-        motion_sample
+        shared_motion
     }
 }
 
@@ -3212,13 +3315,10 @@ struct PreparedActorPitchWrite {
     adopt_result: bool,
 }
 
-fn validated_delta(dt: f32) -> f32 {
-    if dt.is_finite() && dt > 0.0 && dt <= MAX_DT {
-        dt
+fn bounded_delta(dt: f32) -> f32 {
+    if dt.is_finite() && dt > 0.0 {
+        dt.min(MAX_DT)
     } else {
-        // Zero reaches FollowSolver's reset boundary. Substituting a nominal
-        // frame after pause or a discontinuity would preserve stale spring
-        // energy and make camera motion depend on callback count.
         0.0
     }
 }
@@ -3236,7 +3336,7 @@ fn runtime_camera_enabled(config: ThirdPersonConfig) -> bool {
     (config.follow_enabled() && FOLLOW_ACTIVE.load(Ordering::Acquire))
         || (config.movement_enabled() && MOVEMENT_ACTIVE.load(Ordering::Acquire))
         || (config.framing_enabled() && FRAMING_CONTRACT_ACTIVE.load(Ordering::Acquire))
-        || (config.motion_enabled() && MOTION_ACTIVE.load(Ordering::Acquire))
+        || (config.motion_enabled() && MOTION_GENERATOR_ACTIVE.load(Ordering::Acquire))
         || HIP_FIRE_POSE_ADMITTED.load(Ordering::Acquire)
 }
 
@@ -3482,8 +3582,8 @@ mod tests {
 
     use super::{
         CameraSnapshotIdentity, OwnershipInput, OwnershipState, RuntimeState, ThirdPersonConfig,
-        Vec3, camera_motion_to_world, compose_motion_camera, fallback_pitch_identity_matches,
-        native, recenter_horizon_weight,
+        Vec3, camera_motion_to_world, fallback_pitch_identity_matches, native,
+        recenter_horizon_weight,
     };
 
     fn frame(frame_id: u32, pivot: Vec3, heading: f32, dt: f32) -> native::NativeFrame {
@@ -3534,6 +3634,7 @@ mod tests {
         own_explore(&mut state);
         state.follow.reset(Vec3::default());
         state.view_yaw = -1.0;
+        state.movement_input_heading = Some(0.0);
         state.last_movement_heading = 1.0;
         state.last_movement_magnitude = 1.0;
 
@@ -3622,7 +3723,7 @@ mod tests {
     }
 
     #[test]
-    fn local_motion_uses_camera_right_forward_and_world_up_before_collision() {
+    fn local_motion_uses_camera_right_forward_and_world_up() {
         let local = Vec3::new(1.0, 2.0, 3.0);
         assert_eq!(camera_motion_to_world(local, 0.0), Some(local));
         let quarter_turn = camera_motion_to_world(local, core::f32::consts::FRAC_PI_2)
@@ -3631,12 +3732,6 @@ mod tests {
         assert!((quarter_turn.y + 1.0).abs() < 0.000_01);
         assert_eq!(quarter_turn.z, 3.0);
 
-        let desired = Vec3::new(10.0, 20.0, 30.0);
-        assert_eq!(
-            compose_motion_camera(desired, quarter_turn),
-            Some(desired + quarter_turn),
-        );
         assert!(camera_motion_to_world(local, f32::NAN).is_none());
-        assert!(compose_motion_camera(desired, Vec3::new(f32::NAN, 0.0, 0.0)).is_none());
     }
 }

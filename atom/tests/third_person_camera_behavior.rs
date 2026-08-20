@@ -3,15 +3,14 @@
 use core::f32::consts::{FRAC_PI_2, PI};
 
 use atom::camera::third_person::{
-    AimAngles, FacingPolicy, FollowSolver, HeadingContinuity, HeadingContinuityEvent,
-    LocomotionSector, LookRoute, MovementIntent, NativeHandoffGuard, OwnershipInput,
-    OwnershipMachine, OwnershipState, SpringAxis, ThirdPersonConfig, Vec3,
-    actor_heading_handoff_target, advance_actor_pitch_ownership, advance_logical_pitch,
-    axial_follow_offset, camera_relative_heading, compensated_camera_heading_offset,
-    compose_follow_camera, converge_angles, horizontal_look_route, linear_zoom_delta,
-    logical_heading_after_native_look, remap_movement, reticle_and_convergence_admission,
-    step_heading, third_person_view_ray, vertical_look_route, view_cast_no_hit_outputs,
-    view_direction, view_reach_interval, wrap_angle,
+    AimAngles, FacingPolicy, FollowSolver, HeadingContinuity, HeadingContinuityEvent, LookRoute,
+    MovementIntent, NativeHandoffGuard, OwnershipInput, OwnershipMachine, OwnershipState,
+    SpringAxis, ThirdPersonConfig, Vec3, actor_heading_handoff_target,
+    advance_actor_pitch_ownership, advance_logical_pitch, axial_follow_offset,
+    camera_relative_heading, compensated_camera_heading_offset, compose_follow_camera,
+    converge_angles, horizontal_look_route, linear_zoom_delta, logical_heading_after_native_look,
+    remap_movement, reticle_and_convergence_admission, step_heading, third_person_view_ray,
+    vertical_look_route, view_cast_no_hit_outputs, view_direction, view_reach_interval, wrap_angle,
 };
 
 fn fnv_world_vector(local: Vec3, actor_yaw: f32) -> Vec3 {
@@ -178,80 +177,40 @@ fn analytic_spring_is_equivalent_across_common_frame_partitions() {
 }
 
 #[test]
-fn camera_relative_mapping_preserves_magnitude_and_unowned_flags() {
+fn camera_relative_mapping_preserves_magnitude_and_complete_native_flags() {
     let native = Vec3::new(0.0, 0.75, -0.2);
-    let high_flags = 0xA5A5_0000;
-    for (yaw, sector) in [
-        (0.0, LocomotionSector::Forward),
-        (FRAC_PI_2, LocomotionSector::Right),
-        (PI, LocomotionSector::Backward),
-        (-FRAC_PI_2, LocomotionSector::Left),
-    ] {
-        let explore = remap_movement(native, high_flags | 0x0A, 0.0, yaw, FacingPolicy::Explore);
+    let native_flags = 0xA5A5_000A;
+    for yaw in [0.0, FRAC_PI_2, PI, -FRAC_PI_2] {
+        let explore = remap_movement(native, native_flags, 0.0, yaw, FacingPolicy::Explore);
         assert!((explore.vector().horizontal_length() - 0.75).abs() < 0.000_01);
-        assert_eq!(explore.flags() & !0x0F, high_flags);
-        assert_eq!(explore.flags() & 0x0F, sector.direction_bits());
+        assert_eq!(explore.flags(), native_flags);
         assert!((wrap_angle(explore.movement_heading().unwrap() - yaw)).abs() < 0.000_01);
 
-        let combat = remap_movement(native, high_flags | 0x0A, 0.0, yaw, FacingPolicy::Combat);
-        assert_eq!(combat.flags(), high_flags | 0x0A);
+        let combat = remap_movement(native, native_flags, 0.0, yaw, FacingPolicy::Combat);
+        assert_eq!(combat.flags(), native_flags);
     }
 }
 
 #[test]
-fn explore_locomotion_selects_all_eight_native_direction_sectors() {
-    let sectors = [
-        LocomotionSector::Forward,
-        LocomotionSector::ForwardRight,
-        LocomotionSector::Right,
-        LocomotionSector::BackwardRight,
-        LocomotionSector::Backward,
-        LocomotionSector::BackwardLeft,
-        LocomotionSector::Left,
-        LocomotionSector::ForwardLeft,
-    ];
-    for (index, expected) in sectors.into_iter().enumerate() {
-        let view_yaw = wrap_angle(index as f32 * PI / 4.0);
-        let resolution = MovementIntent::new(
-            Vec3::new(0.0, 1.0, 0.0),
-            0xA500_0001,
+fn held_diagonal_keeps_one_world_heading_while_camera_and_actor_turn() {
+    let native = Vec3::new(0.75, 0.75, -0.2);
+    let native_flags = 0xA500_0009;
+    let latched_world_heading = 1.2;
+    for (view_yaw, actor_yaw) in [(-1.0, -0.8), (-0.4, -0.1), (0.2, 0.5), (0.9, 1.0)] {
+        let output = MovementIntent::with_world_heading(
+            native,
+            native_flags,
             view_yaw,
             FacingPolicy::Explore,
+            latched_world_heading,
         )
-        .resolve_stateful(0.0, None);
-        assert_eq!(resolution.locomotion_sector(), Some(expected));
-        assert_eq!(
-            resolution.output().flags() & 0x0F,
-            expected.direction_bits()
-        );
-        assert_vec3_close(
-            fnv_world_vector(resolution.output().vector(), 0.0),
-            fnv_world_vector(Vec3::new(0.0, 1.0, 0.0), view_yaw),
-        );
+        .resolve(actor_yaw);
+        let world = fnv_world_vector(output.vector(), actor_yaw);
+        assert!(wrap_angle(world.x.atan2(world.y) - latched_world_heading).abs() < 0.000_01);
+        assert!((world.horizontal_length() - native.horizontal_length()).abs() < 0.000_01);
+        assert_eq!(world.z, native.z);
+        assert_eq!(output.flags(), native_flags);
     }
-}
-
-#[test]
-fn explore_locomotion_hysteresis_prevents_boundary_flag_chatter() {
-    let resolve = |degrees: f32, previous| {
-        MovementIntent::new(
-            Vec3::new(0.0, 1.0, 0.0),
-            1,
-            degrees.to_radians(),
-            FacingPolicy::Explore,
-        )
-        .resolve_stateful(0.0, previous)
-    };
-    let retained = resolve(24.0, Some(LocomotionSector::Forward));
-    assert_eq!(
-        retained.locomotion_sector(),
-        Some(LocomotionSector::Forward)
-    );
-    let crossed = resolve(28.0, retained.locomotion_sector());
-    assert_eq!(
-        crossed.locomotion_sector(),
-        Some(LocomotionSector::ForwardRight)
-    );
 }
 
 #[test]
@@ -309,19 +268,12 @@ fn movement_intent_resolves_against_observed_not_requested_facing() {
     // A native setter may normalize to a value different from the requested
     // one. Only the observed post-setter heading is authoritative.
     let normalized_actor_yaw = wrap_angle(requested_actor_yaw + 2.0 * PI);
-    let normalized = intent.resolve_stateful(normalized_actor_yaw, None);
+    let normalized = intent.resolve(normalized_actor_yaw);
     assert_vec3_close(
-        fnv_world_vector(normalized.output().vector(), normalized_actor_yaw),
+        fnv_world_vector(normalized.vector(), normalized_actor_yaw),
         fnv_world_vector(native, view_yaw),
     );
-    assert_eq!(
-        normalized.output().flags(),
-        0xA500_0000
-            | normalized
-                .locomotion_sector()
-                .expect("nonzero Explore intent has a sector")
-                .direction_bits()
-    );
+    assert_eq!(normalized.flags(), 0xA500_000A);
 }
 
 #[test]
@@ -472,6 +424,29 @@ fn follow_solver_lags_settles_and_resets_on_teleport() {
         solver.advance(teleported, 0.0, 1.0 / 60.0, config),
         teleported,
     );
+}
+
+#[test]
+fn follow_solver_holds_zero_time_and_bounds_long_frame_integration() {
+    let config = ThirdPersonConfig::from_ini(
+        "[Camera]\n\
+         bFollowCamera=1\n\
+         fFollowSpeed=7.5\n\
+         fSoftZone=0\n\
+         fLookAhead=0\n",
+    )
+    .expect("valid follow settings");
+    let mut solver = FollowSolver::new();
+    solver.reset(Vec3::default());
+    let moving = solver.advance(Vec3::new(0.0, 20.0, 0.0), 0.0, 1.0 / 60.0, config);
+    assert_eq!(
+        solver.advance(Vec3::new(0.0, 30.0, 0.0), 0.0, 0.0, config),
+        moving
+    );
+
+    let after_hitch = solver.advance(Vec3::new(0.0, 40.0, 0.0), 0.0, 0.25, config);
+    assert!(after_hitch.is_finite());
+    assert!(after_hitch.y > moving.y && after_hitch.y < 40.0);
 }
 
 #[test]

@@ -249,11 +249,15 @@ After the call:
   later code combines camera offsets, pitch, rotation multipliers, and the
   helper's collision/distance state before committing the camera object
 
-The production composition rule is direct: axial follow and bounded motion
-alter only the desired endpoint passed at 0x0094B7D2. Preserve the exact native
-player-root pivot and mode byte, chain the live 0x0094A0C0 predecessor exactly
-once, and copy its resolved desired endpoint back. Do not retain either
-stack-local pointer beyond the call.
+The production composition rule is split. Axial follow may alter the desired
+endpoint passed at 0x0094B7D2 because it intentionally participates in the
+native chase-distance solve. Bounded procedural motion must not alter that
+endpoint: changing its direction changes the collision ray and can contract
+the persistent chase-distance state against geometry which native camera
+framing would not have queried. Preserve the exact native player-root pivot
+and mode byte, chain the live 0x0094A0C0 predecessor exactly once, and copy its
+resolved desired endpoint back. Do not retain either stack-local pointer beyond
+the call.
 
 
 7. Native third-person collision and distance helper
@@ -289,12 +293,44 @@ Selected collision sequence:
   0x0094A374  set 0x011E07C2 when the available distance is constrained
   0x0094A409..0x0094A598  update/clamp 0x011E0768
 
-The helper owns both inward contraction and outward recovery through current
-distance state 0x011E0768. No separate recovery hook is needed for the initial
-implementation. A camera-space offset applied only after UpdateCamera returns
-would bypass this resolution and can place the camera inside geometry; Atom
-must compose the desired endpoint before this helper and preserve it
-downstream.
+The nested collision query is independently callable without entering that
+persistent distance policy:
+
+  0x0094A2C1  construct the aligned 0x70-byte hit record through 0x00621C40
+  0x0094A32C  push hit record, mutable destination, and origin
+  0x0094A340  load collision owner from player +0x21C as this
+  0x0094A344  call 0x00620BC0
+
+0x00620BC0 has the effective ABI
+`bool __thiscall(owner, const Vec3 *from, Vec3 *to_in_out, Hit *out)` and
+returns with `ret 0x0C`. It copies both endpoints, obtains the collision world
+through owner accessor 0x00559450, casts with the native player/VATS filters,
+copies the nearest accepted 0x70-byte hit, and writes its position through the
+mutable destination only on success. It contains no reference to 0x011E0768 or
+0x011E07C2; all mutations of those persistent camera fields occur in caller
+0x0094A0C0.
+
+Live compatibility observation, 2026-08-20: 0x00559450 is a shared function
+entry and may already be chained by a compatible provider before Atom reaches
+DeferredInit. The lower 0x00620BC0 query calls that live entry itself. Atom's
+position capability must therefore validate the accessor range, the immutable
+lower-query ABI, and the hit constructor, but not require vanilla bytes at the
+accessor entry. Every synchronous cast still calls the live accessor and
+rejects a missing/invalid world. Controller motion generation and render-only
+bob do not depend on this positional contract and must be admitted first.
+
+Registration at 0x00FA892D maps `fCameraCasterSize:HAVOK` to setting object
+0x011E0934. The native caller reads its float value at +4 and halves it at
+0x0094A383. A short final-position cast must therefore keep the native resolved
+position as origin, use the proposed motion position as mutable destination,
+and stop one half caster size before the returned hit point.
+
+The outer helper owns both inward contraction and outward recovery through
+current distance state 0x011E0768. Axial follow remains inside that solve. A
+raw camera-space offset after the helper would bypass clearance and could place
+the camera inside geometry; bounded procedural motion is admissible there only
+when the independent 0x00620BC0 query clips that short segment first. It must
+not re-enter 0x0094A0C0 or change its persistent distance state.
 
 Normal third-person final-offset proof:
 
@@ -328,8 +364,11 @@ Final transform proof:
   0x0094BB6A  call 0x00440460
 
 0x00440460 copies the three floats to camera +0x58. Rotation is committed
-later through 0x00A59C60 at 0x0094BB90. This is the final native position seam,
-not an admitted post-collision edit point.
+later through 0x00A59C60 at 0x0094BB90. The direct call at 0x0094BB6A is the
+admitted post-solve position seam: chain its live predecessor exactly once with
+either the untouched native position or the independently clipped bounded
+motion position. On any missing pointer, non-finite value, unsupported code
+fingerprint, or query failure, pass the untouched native position.
 
 
 8. Movement flags, vector carrier, and downstream ownership
@@ -516,36 +555,35 @@ earlier:
   0x00894FFA  test right bit 0x08 and select group 14
   0x00895017  resolve the active animation group through the live actor path
 
-This is the current-invocation visible animation selector. Its direct callsite
-is the safe presentation seam: Atom may replace only the low direction nibble
-in that call's value and chain its captured live predecessor exactly once. The
-selector runs before the complete movement wrapper, so its body-relative
-classification uses the current raw Actor yaw and the retained logical view.
-It must not write PlayerMover state, call a skeleton correction node, or alter
-Combat flags. The rejected late +0x94 write is removed rather than relocated.
+This is the current-invocation visible animation selector, but it does not make
+the wrapper flags presentation-only. The complete +0x250 wrapper copies its
+flags into native physical movement request objects. The diagonal camera
+failure therefore provides no authority to alter the earlier animation call;
+Atom preserves its current owner and removes the rejected late +0x94 write
+without relocating a derived nibble.
 
-Derived mapping with the native matrix convention:
+Derived mapping with the native matrix convention, where local_input_heading
+is the heading of the original local vector and desired_world_heading is owned
+by either the current view or a paired recenter transaction:
 
-  desired_world = E(view_heading) * local_input
-  request_local = E(view_heading - request_actor_heading) * local_input
-  native_world  = E(request_actor_heading) * request_local
-                = desired_world
+  normal_desired_world = E(view_heading) * local_input
+  desired_world_heading = heading(normal_desired_world) or retained heading
+  request_local = E(desired_world_heading - request_actor_heading
+                    - local_input_heading) * local_input
+  native_world = E(request_actor_heading) * request_local
+               = vector with original magnitude at desired_world_heading
 
-Explore turns the actor toward nonzero desired_world and gives the complete
-player wrapper the matching native eight-way low nibble. Combat turns the actor
-toward the view and retains the original low nibble so native
-forward/back/strafe intent stays correct around that facing. All unsupported
-states preserve the original vector and complete flags. The derived nibble may
-be passed to 0x00894F90 only at its proven PlayerCharacter callsite. It must
-not be written back to PlayerMover state. Atom does not alter analog magnitude
-or any skeleton/root transform.
+Explore turns the actor toward nonzero desired_world. Combat turns the actor
+toward the view. Both pass the complete original flags through +0x250 exactly;
+unsupported states preserve both original vector and flags. Atom does not
+alter analog magnitude or any skeleton/root transform.
 
-The order is part of the contract. Atom first computes desired world heading
-from `E(view_heading) * local_input`, advances and writes Actor facing, samples
-the resulting raw rotZ, compensates the vector, and selects the sector from
-`heading(desired_world) - actual_actor_heading`. Forward, left, right, and
-diagonal presentation consequently describe physical travel relative to the
-post-turn body. The rejected split classified before that heading existed.
+The order is part of the contract. Atom first computes desired world heading,
+advances and writes Actor facing, samples the resulting raw rotZ, and
+compensates the vector against that observed heading. While recentering, it
+latches local input heading and desired world heading together so the changing
+camera basis cannot steer a held diagonal away from the camera target. No
+movement flag changes as Actor yaw crosses a sector boundary.
 
 Lifetime:
 
@@ -1319,11 +1357,11 @@ Native movement direction vocabulary already established at 0x0092F260:
   right     0x08
 
 The engine accepts cardinal bits and their forward/back plus left/right
-combinations. Atom's camera-relative vector is already exact after composition
-with the raw post-setter actor yaw. Therefore diagonal refinement requires no
-new movement seam and must not alter that vector. The safe intervention is the
-same proven low direction nibble: classify desired world movement relative to
-the post-setter raw actor yaw, retain high flags, and leave Combat native.
+combinations. Later static inspection of 0x0092F260 proves that the complete
+flags are copied into native physical movement request objects. Atom's
+camera-relative correction must therefore preserve every flag bit. The only
+admissible correction at +0x250 is the vector compensation resolved against
+post-setter raw Actor yaw.
 
 Normal third-person wheel call:
 
@@ -1367,8 +1405,8 @@ endpoint construction, collision contraction, and outward recovery. A
 non-finite/nonpositive operand, a setting multiplier of zero, or an unavailable
 hook must pass the original signed delta unchanged. These address and formula
 facts are direct binary evidence. The two-unit default, 1..10 MCM bounds,
-five-degree sector hysteresis, independent hook transaction, and fractional
-residual policy are Atom design decisions.
+independent hook transaction, and fractional residual policy are Atom design
+decisions. The former five-degree sector hysteresis is rejected and removed.
 
 Static extension artifact:
 

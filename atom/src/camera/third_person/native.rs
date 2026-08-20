@@ -16,6 +16,7 @@ use crate::camera::LocomotionState;
 use crate::input::{ActionContext, ActionId, latest_action_frame};
 
 use super::super::NativeMotionCarrier;
+use super::presentation::CameraMotionClearance;
 use super::{AimAngles, Vec3};
 
 const PLAYER_PTR: usize = 0x011D_EA3C;
@@ -35,6 +36,7 @@ const VANITY_WHEEL_MAX_SETTING: usize = 0x011C_DE14;
 const CHASE_CAMERA_MAX_SETTING: usize = 0x011C_D568;
 const OVER_SHOULDER_X_SETTING: usize = 0x011C_DC5C;
 const OVER_SHOULDER_Z_SETTING: usize = 0x011C_DC44;
+const CAMERA_CASTER_SIZE_SETTING: usize = 0x011E_0934;
 const FLOAT_SETTING_VALUE: usize = 0x04;
 
 const PLAYER_PARENT_CELL: usize = 0x040;
@@ -80,6 +82,9 @@ const ACTOR_SET_PITCH: usize = 0x0093_1D90;
 const GET_CHARACTER_CONTROLLER: usize = 0x0093_06D0;
 const GET_CONTROLLER_STATE: usize = 0x005C_0880;
 const GET_SUPPORT_RELATIVE_VELOCITY: usize = 0x0081_2B00;
+const COLLISION_WORLD_ACCESSOR: usize = 0x0055_9450;
+const CAMERA_COLLISION_QUERY: usize = 0x0062_0BC0;
+const CAMERA_HIT_CONSTRUCTOR: usize = 0x0062_1C40;
 const PICK_DATA_CONSTRUCTOR: usize = 0x004A_3C20;
 const PICK_DATA_SET_FROM: usize = 0x004A_3DA0;
 const PICK_DATA_SET_TO: usize = 0x004A_3EB0;
@@ -106,6 +111,7 @@ const PICK_DATA_FILTER: usize = 0x024;
 const PICK_DATA_HIT_FRACTION: usize = 0x040;
 const PICK_DATA_FAILED: usize = 0x0AC;
 const PICK_DATA_SIZE: usize = 0x0B0;
+const CAMERA_HIT_SIZE: usize = 0x070;
 const PROJECTILE_COLLISION_LAYER: u32 = 6;
 const MIN_ENGINE_POINTER: usize = 0x1_0000;
 // HighProcess::AnimAction values which keep a native attack authored after
@@ -131,6 +137,11 @@ type ActorSetPitchFn = unsafe extern "thiscall" fn(*mut c_void, f32);
 type GetCharacterControllerFn = unsafe extern "thiscall" fn(*mut c_void) -> *mut c_void;
 type GetControllerStateFn = unsafe extern "thiscall" fn(*mut c_void) -> u32;
 type GetRelativeVelocityFn = unsafe extern "thiscall" fn(*mut c_void, *mut NativePoint3);
+type CollisionWorldAccessorFn = unsafe extern "thiscall" fn(*mut c_void) -> *mut c_void;
+type CameraHitConstructorFn =
+    unsafe extern "thiscall" fn(*mut NativeCameraHit) -> *mut NativeCameraHit;
+type CameraCollisionQueryFn =
+    unsafe extern "thiscall" fn(*mut c_void, *const Vec3, *mut Vec3, *mut NativeCameraHit) -> u8;
 type PickDataConstructorFn =
     unsafe extern "thiscall" fn(*mut NativePickData) -> *mut NativePickData;
 type PickDataPointFn = unsafe extern "thiscall" fn(*mut NativePickData, *const Vec3);
@@ -157,6 +168,15 @@ struct NativePoint3 {
 #[repr(C, align(16))]
 struct NativePickData {
     bytes: [u8; PICK_DATA_SIZE],
+}
+
+/// Stack-owned FNV camera collision result for one synchronous short cast.
+///
+/// The native type contains two aligned vector bases and fixed hit metadata.
+/// Its researched constructor and query retain no pointer to this storage.
+#[repr(C, align(16))]
+struct NativeCameraHit {
+    bytes: [u8; CAMERA_HIT_SIZE],
 }
 
 /// Native distance and shoulder values owned as one framing profile.
@@ -210,6 +230,17 @@ pub(super) struct NativeFrame {
 pub(super) struct NativeZoomSample {
     pub(super) desired_distance: f32,
     pub(super) multiplier: f32,
+}
+
+/// Classified result of one third-person controller-motion observation.
+#[derive(Clone, Copy, Debug)]
+pub(super) enum MotionObservation {
+    /// All native inputs required by the generator were copied successfully.
+    Sample(NativeMotionCarrier),
+    /// The controller reported a real locomotion state outside Atom's contract.
+    Unsupported,
+    /// Required native state was transiently unavailable or non-finite.
+    Unavailable,
 }
 
 /// First fail-closed reason attached to one native ownership observation.
@@ -433,6 +464,38 @@ pub(super) fn validate_motion_contract() -> Result<(), NativeContractError> {
     Ok(())
 }
 
+/// Validate the post-solve camera-position clearance contract.
+pub(super) fn validate_motion_position_contract() -> Result<(), NativeContractError> {
+    validate_memory_range(
+        (CAMERA_CASTER_SIZE_SETTING + FLOAT_SETTING_VALUE) as *const c_void,
+        size_of::<f32>(),
+    )?;
+    validate_memory_range(COLLISION_WORLD_ACCESSOR as *const c_void, 1)?;
+    // The collision-world accessor is a shared live entry and the lower
+    // query invokes its current owner internally. Validate Atom's actual call
+    // boundary and constructor, then require a valid world from the live
+    // accessor at each synchronous query instead of rejecting a compatible
+    // predecessor installed before DeferredInit.
+    let fingerprints: &[(usize, &[u8])] = &[
+        (
+            CAMERA_COLLISION_QUERY,
+            &[
+                0x53, 0x8B, 0xDC, 0x83, 0xEC, 0x08, 0x83, 0xE4, 0xF0, 0x83, 0xC4, 0x04,
+            ],
+        ),
+        (
+            CAMERA_HIT_CONSTRUCTOR,
+            &[0x55, 0x8B, 0xEC, 0x51, 0x89, 0x4D, 0xFC],
+        ),
+    ];
+    for &(address, expected) in fingerprints {
+        if read_bytes(address as *const c_void, expected.len())? != expected {
+            return Err(NativeContractError::FingerprintMismatch { address });
+        }
+    }
+    Ok(())
+}
+
 /// Validate FNV's complete actor aim transition and its upper-body fade owner.
 pub(super) fn validate_hip_fire_pose_contract() -> Result<(), NativeContractError> {
     // Both entries are intentionally not fingerprinted: compatible animation
@@ -633,6 +696,60 @@ pub(super) unsafe fn desired_distance() -> Option<f32> {
     (value.is_finite() && value > 0.0).then_some(value)
 }
 
+/// Query clearance for Atom's short post-solve camera translation.
+///
+/// FNV's lower camera cast applies the native world/reference filters but does
+/// not update the persistent chase distance or collision flag owned by its
+/// `0x0094A0C0` caller. A clear result and an unavailable query are kept
+/// distinct so the hook never treats missing Havok state as permission to move.
+///
+/// # Safety
+///
+/// [`validate_motion_position_contract`] must have succeeded. `player` must be
+/// the receiver of the active researched `UpdateCamera` callback, and both
+/// vectors must be finite values owned by that synchronous callback.
+pub(super) unsafe fn camera_motion_clearance(
+    player: *mut c_void,
+    from: Vec3,
+    to: Vec3,
+) -> Option<CameraMotionClearance> {
+    if !from.is_finite()
+        || !to.is_finite()
+        || !is_engine_pointer(player)
+        || player != self::player()
+    {
+        return None;
+    }
+    let collision = unsafe { read_ptr(player.cast(), PLAYER_COLLISION_OWNER) };
+    if !is_engine_pointer(collision)
+        || !is_engine_pointer(unsafe { collision_world_accessor()(collision) })
+    {
+        return None;
+    }
+    let caster_size =
+        unsafe { read_f32_volatile(CAMERA_CASTER_SIZE_SETTING + FLOAT_SETTING_VALUE) };
+    if !caster_size.is_finite() || caster_size < 0.0 {
+        return None;
+    }
+
+    let mut hit = NativeCameraHit {
+        bytes: [0; CAMERA_HIT_SIZE],
+    };
+    if unsafe { camera_hit_constructor()(&mut hit) } != &mut hit {
+        return None;
+    }
+    let mut accepted = to;
+    let obstructed =
+        unsafe { camera_collision_query()(collision, &from, &mut accepted, &mut hit) } != 0;
+    if !obstructed {
+        return Some(CameraMotionClearance::Clear);
+    }
+    accepted.is_finite().then_some(CameraMotionClearance::Hit {
+        position: accepted,
+        caster_radius: caster_size * 0.5,
+    })
+}
+
 /// Set the collision-independent native desired chase distance.
 ///
 /// # Safety
@@ -653,33 +770,33 @@ pub(super) unsafe fn write_desired_distance(value: f32) -> bool {
 ///
 /// [`validate_motion_contract`] must have succeeded and `player` must be the
 /// receiver of the active researched `UpdateCamera` callback.
-pub(super) unsafe fn motion_sample(player: *mut c_void) -> Option<NativeMotionCarrier> {
+pub(super) unsafe fn motion_sample(player: *mut c_void) -> MotionObservation {
     if !is_engine_pointer(player) {
-        return None;
+        return MotionObservation::Unavailable;
     }
     let mover = unsafe { read_ptr(player.cast(), PLAYER_MOVER) };
     if !is_engine_pointer(mover) {
-        return None;
+        return MotionObservation::Unavailable;
     }
     let directional_locomotion =
         unsafe { read_u32(mover.cast(), PLAYER_MOVER_FLAGS) } & MOVEMENT_DIRECTION_MASK != 0;
     let controller = unsafe { get_character_controller()(player) };
     if !is_engine_pointer(controller) {
-        return None;
+        return MotionObservation::Unavailable;
     }
     let locomotion = match unsafe { get_controller_state()(controller) } {
         0 => LocomotionState::Grounded,
         1 => LocomotionState::Jumping,
         2 => LocomotionState::Airborne,
-        _ => LocomotionState::Unsupported,
+        _ => return MotionObservation::Unsupported,
     };
-    if locomotion == LocomotionState::Unsupported {
-        return None;
-    }
     let mut velocity = NativePoint3::default();
     unsafe { get_relative_velocity()(controller, &mut velocity) };
     let velocity = Vec3::new(velocity.x, velocity.y, velocity.z);
-    velocity.is_finite().then_some(NativeMotionCarrier::new(
+    if !velocity.is_finite() {
+        return MotionObservation::Unavailable;
+    }
+    MotionObservation::Sample(NativeMotionCarrier::new(
         [velocity.x, velocity.y, velocity.z],
         locomotion,
         directional_locomotion,
@@ -1779,6 +1896,18 @@ fn get_controller_state() -> GetControllerStateFn {
 
 fn get_relative_velocity() -> GetRelativeVelocityFn {
     unsafe { core::mem::transmute(GET_SUPPORT_RELATIVE_VELOCITY) }
+}
+
+fn collision_world_accessor() -> CollisionWorldAccessorFn {
+    unsafe { core::mem::transmute(COLLISION_WORLD_ACCESSOR) }
+}
+
+fn camera_hit_constructor() -> CameraHitConstructorFn {
+    unsafe { core::mem::transmute(CAMERA_HIT_CONSTRUCTOR) }
+}
+
+fn camera_collision_query() -> CameraCollisionQueryFn {
+    unsafe { core::mem::transmute(CAMERA_COLLISION_QUERY) }
 }
 
 fn pick_data_constructor() -> PickDataConstructorFn {

@@ -6,8 +6,9 @@
 //! allocation, synchronization, or diagnostics. Output is restrained
 //! translation along camera-right, camera-forward, and world-up plus a
 //! sub-degree render-only roll/pitch signal. Effective aiming attenuates both.
-//! Translation is bounded before native chase-camera collision sees the
-//! adjusted endpoint; rotation never changes collision geometry.
+//! Translation is bounded and applied only after FNV completes its persistent
+//! chase-distance solve, then limited by a separate short native clearance
+//! cast. Rotation never changes collision geometry.
 
 use core::f32::consts::PI;
 use core::f64::consts::TAU;
@@ -32,6 +33,8 @@ const LANDING_VERTICAL_UNITS: f32 = 3.25;
 const GAIT_ROLL_RADIANS: f32 = 0.0065;
 const GAIT_PITCH_RADIANS: f32 = 0.0045;
 const LANDING_PITCH_RADIANS: f32 = 0.0050;
+/// Strict Euclidean bound implied by the three component clamps below.
+pub(super) const MAX_TRANSLATION_LENGTH: f32 = 6.0;
 
 /// Immutable native observations consumed by one generator step.
 #[derive(Clone, Copy, Debug)]
@@ -80,9 +83,9 @@ impl MotionGenerator {
 
     /// Return render-only local roll/yaw/pitch for the latest accepted step.
     ///
-    /// Translation is composed before FNV collision. Rotation is deliberately
-    /// deferred to the complete render route so terrain clearance cannot erase
-    /// the visual gait signal and no collision endpoint is displaced twice.
+    /// Translation is composed at FNV's final camera-position seam. Rotation is
+    /// deferred to the complete render route so clearance cannot erase the
+    /// visual gait signal and no camera endpoint is displaced twice.
     pub(super) const fn render_rotation(&self) -> Vec3 {
         self.render_rotation
     }
@@ -105,7 +108,6 @@ impl MotionGenerator {
             || (config.motion_strength() == 0.0 && config.landing_motion() == 0.0)
             || !delta_seconds.is_finite()
             || delta_seconds <= 0.0
-            || delta_seconds > MAX_STEP_SECONDS
             || !input.velocity.is_finite()
             || !input.desired_distance.is_finite()
             || input.desired_distance <= 0.0
@@ -115,7 +117,7 @@ impl MotionGenerator {
             return Vec3::default();
         }
 
-        let dt = delta_seconds;
+        let dt = delta_seconds.min(MAX_STEP_SECONDS);
         let speed = input.velocity.horizontal_length();
         let grounded = input.locomotion == LocomotionState::Grounded;
         let gait_target = if grounded && input.directional_locomotion {
@@ -357,6 +359,25 @@ mod tests {
         assert!((at_60_hz.x - at_120_hz.x).abs() < 0.000_1);
         assert!((at_60_hz.y - at_120_hz.y).abs() < 0.000_1);
         assert!((at_60_hz.z - at_120_hz.z).abs() < 0.000_1);
+    }
+
+    #[test]
+    fn long_finite_frame_clamps_integration_without_resetting_motion() {
+        let mut long_frame = MotionGenerator::new();
+        for _ in 0..90 {
+            long_frame.update(FRAME_SECONDS, walking(false), config());
+        }
+        let mut bounded_frame = long_frame;
+
+        let long = long_frame.update(0.25, walking(false), config());
+        let bounded = bounded_frame.update(0.1, walking(false), config());
+        assert!((long.x - bounded.x).abs() < 0.000_01);
+        assert!((long.y - bounded.y).abs() < 0.000_01);
+        assert!((long.z - bounded.z).abs() < 0.000_01);
+        assert_eq!(
+            long_frame.render_rotation(),
+            bounded_frame.render_rotation()
+        );
     }
 
     #[test]

@@ -251,7 +251,13 @@ fn initialize_inner(
                                 log::info!("[CAMERA] Third-person framing controls are available");
                             }
                             if hooks.motion_admitted {
-                                log::info!("[CAMERA] Third-person motion is available");
+                                log::info!("[CAMERA] Third-person render bob is available");
+                            }
+                            if let Some(predecessor) = hooks.motion_position_predecessor {
+                                log::info!("[CAMERA] Third-person motion translation is available");
+                                log::debug!(
+                                    "[CAMERA] Motion position predecessor: 0x{predecessor:08X}"
+                                );
                             }
                             if let (Some(heading), Some(pitch), Some(scope), Some(movement)) = (
                                 hooks.camera_heading_predecessor,

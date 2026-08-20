@@ -3,10 +3,11 @@
 //! Immutable instructions around each mutable call displacement prove the
 //! supported FNV semantic context. Direct-call hooks capture the live target
 //! as a typed predecessor so compatible earlier owners remain in the chain.
-//! Follow and movement/facing are independent rollback-capable transactions.
-//! A compatible owner at one seam therefore disables only that capability,
-//! never the other. Object selection through the native reticle cast is
-//! independently useful and safe to admit. Optional projectile convergence
+//! Follow, final-position motion, and movement/facing are independent
+//! rollback-capable transactions. A compatible owner at one seam therefore
+//! disables only that capability, never the others. Object selection through
+//! the native reticle cast is independently useful and safe to admit. Optional
+//! projectile convergence
 //! joins it only when the spawn call still targets vanilla, because an
 //! uncoordinated launch transformation cannot compose safely. The hip-fire
 //! pose adapter is a separate chained animation-entry capability and changes
@@ -32,6 +33,7 @@ const PLAYER_HEADING_SLOT: usize = 0x0108_ACF8;
 const CAMERA_PITCH_CALLSITE: usize = 0x0094_AE94;
 const ZOOM_CALLSITE: usize = 0x0094_59BB;
 const FOLLOW_CALLSITE: usize = 0x0094_B7D2;
+const MOTION_POSITION_CALLSITE: usize = 0x0094_BB6A;
 const MOVEMENT_SCOPE_ENTRY: usize = 0x009E_9E50;
 const PLAYER_MOVEMENT_SLOT: usize = 0x0108_AC8C;
 const RETICLE_CALLSITE: usize = 0x0070_C130;
@@ -42,6 +44,7 @@ const NATIVE_PLAYER_HEADING: usize = 0x0095_3F20;
 const NATIVE_PLAYER_PITCH: usize = 0x0093_1D70;
 const NATIVE_MOUSE_GETTER: usize = 0x00A2_39E0;
 const NATIVE_FOLLOW: usize = 0x0094_A0C0;
+const NATIVE_POSITION_SETTER: usize = 0x0044_0460;
 const NATIVE_PLAYER_MOVEMENT: usize = 0x008A_62B0;
 const NATIVE_RETICLE: usize = 0x0063_1D60;
 const NATIVE_SPAWN: usize = 0x009B_CA60;
@@ -50,6 +53,7 @@ type PlayerHeadingFn = unsafe extern "thiscall" fn(*mut c_void, u8) -> f32;
 type PlayerPitchFn = unsafe extern "thiscall" fn(*mut c_void) -> f32;
 type MouseGetterFn = unsafe extern "thiscall" fn(*mut c_void, u32) -> i32;
 type FollowFn = unsafe extern "thiscall" fn(*mut c_void, *mut Vec3, *const Vec3, u8);
+type CameraPositionFn = unsafe extern "thiscall" fn(*mut c_void, *const Vec3);
 type PlayerMoverUpdateFn = unsafe extern "thiscall" fn(*mut c_void, f32);
 type PlayerMovementFn =
     unsafe extern "thiscall" fn(*mut c_void, f32, *mut Vec3, u32) -> *mut c_void;
@@ -84,6 +88,8 @@ static CAMERA_HEADING_HOOK: PointerSlotHookContainer<PlayerHeadingFn> =
 static CAMERA_PITCH_HOOK: Rel32CallHookContainer<PlayerPitchFn> = Rel32CallHookContainer::new();
 static ZOOM_HOOK: Rel32CallHookContainer<MouseGetterFn> = Rel32CallHookContainer::new();
 static FOLLOW_HOOK: Rel32CallHookContainer<FollowFn> = Rel32CallHookContainer::new();
+static MOTION_POSITION_HOOK: Rel32CallHookContainer<CameraPositionFn> =
+    Rel32CallHookContainer::new();
 static MOVEMENT_SCOPE_HOOK: LazyLock<InlineHookContainer<PlayerMoverUpdateFn>> =
     LazyLock::new(InlineHookContainer::new);
 static PLAYER_MOVEMENT_HOOK: PointerSlotHookContainer<PlayerMovementFn> =
@@ -149,6 +155,17 @@ const FOLLOW_FINGERPRINTS: &[(usize, &[u8])] = &[
         ],
     ),
     (0x0094_B7D7, &[0x8D, 0x95, 0xAC, 0xFE, 0xFF, 0xFF, 0x52]),
+];
+
+const MOTION_POSITION_FINGERPRINTS: &[(usize, &[u8])] = &[
+    (
+        0x0094_BB61,
+        &[0x8D, 0x55, 0xA0, 0x52, 0xB9, 0x20, 0x0C, 0x1E, 0x01],
+    ),
+    (
+        0x0094_BB6F,
+        &[0x6A, 0x00, 0x6A, 0x00, 0x51, 0xD9, 0xEE, 0xD9, 0x1C, 0x24],
+    ),
 ];
 
 const ZOOM_FINGERPRINTS: &[(usize, &[u8])] = &[
@@ -269,6 +286,23 @@ pub(super) fn install_follow() -> Result<usize, HookInstallError> {
     let predecessor = FOLLOW_HOOK.predecessor_address()?;
     let mut transaction = ModificationTransaction::new();
     transaction.enable_callsite(&FOLLOW_HOOK)?;
+    transaction.commit();
+    Ok(predecessor)
+}
+
+/// Install post-solve positional motion independently from axial follow.
+pub(super) fn install_motion_position() -> Result<usize, HookInstallError> {
+    validate_fingerprints(MOTION_POSITION_FINGERPRINTS)?;
+    unsafe {
+        MOTION_POSITION_HOOK.init(
+            "Atom third-person presentation position",
+            MOTION_POSITION_CALLSITE as *mut c_void,
+            motion_position_detour,
+        )?;
+    }
+    let predecessor = MOTION_POSITION_HOOK.predecessor_address()?;
+    let mut transaction = ModificationTransaction::new();
+    transaction.enable_callsite(&MOTION_POSITION_HOOK)?;
     transaction.commit();
     Ok(predecessor)
 }
@@ -471,27 +505,64 @@ unsafe extern "thiscall" fn follow_detour(
         unsafe { predecessor(player, desired, pivot, mode) };
         return;
     }
-    let Some((follow_offset, motion_offset)) = super::scoped_camera_offsets(player) else {
+    let Some(follow_offset) = super::scoped_follow_offset(player) else {
         unsafe { predecessor(player, desired, pivot, mode) };
         return;
     };
-    super::diagnostics::mark_follow_offset(follow_offset + motion_offset);
+    super::diagnostics::mark_follow_offset(follow_offset);
 
     let Some(followed) = super::compose_follow_camera(*desired_value, *pivot_value, follow_offset)
     else {
         unsafe { predecessor(player, desired, pivot, mode) };
         return;
     };
-    let Some(composed) = super::compose_motion_camera(followed, motion_offset) else {
-        unsafe { predecessor(player, desired, pivot, mode) };
-        return;
-    };
 
-    // Keep FNV's player-root pivot exact. Moving it changes the collision set
-    // and makes the camera react to shoulder-height clutter and actors.
-    let mut adjusted_desired = composed;
+    // Keep both the player-root pivot and native ray direction exact. Follow
+    // may alter only distance; procedural translation is applied after FNV's
+    // persistent chase-distance solver at the final position callsite.
+    let mut adjusted_desired = followed;
     unsafe { predecessor(player, &mut adjusted_desired, pivot, mode) };
     unsafe { desired.write(adjusted_desired) };
+}
+
+unsafe extern "thiscall" fn motion_position_detour(camera: *mut c_void, position: *const Vec3) {
+    let predecessor = MOTION_POSITION_HOOK
+        .original()
+        .unwrap_or_else(|_| native_position_setter());
+    let Some(native_position) = (unsafe { position.as_ref() }).copied() else {
+        unsafe { predecessor(camera, position) };
+        return;
+    };
+    let player = super::native::player();
+    let Some(motion) = super::scoped_motion_offset(player) else {
+        unsafe { predecessor(camera, position) };
+        return;
+    };
+    let Some(candidate) = super::presentation::resolve_motion_endpoint(
+        native_position,
+        motion,
+        super::presentation::CameraMotionClearance::Clear,
+    ) else {
+        unsafe { predecessor(camera, position) };
+        return;
+    };
+    if candidate == native_position {
+        unsafe { predecessor(camera, position) };
+        return;
+    }
+    let Some(clearance) =
+        (unsafe { super::native::camera_motion_clearance(player, native_position, candidate) })
+    else {
+        unsafe { predecessor(camera, position) };
+        return;
+    };
+    let Some(resolved) =
+        super::presentation::resolve_motion_endpoint(native_position, motion, clearance)
+    else {
+        unsafe { predecessor(camera, position) };
+        return;
+    };
+    unsafe { predecessor(camera, &resolved) };
 }
 
 unsafe extern "thiscall" fn movement_scope_detour(mover: *mut c_void, dt: f32) {
@@ -727,6 +798,10 @@ fn native_mouse_getter() -> MouseGetterFn {
 
 fn native_follow() -> FollowFn {
     unsafe { core::mem::transmute(NATIVE_FOLLOW) }
+}
+
+fn native_position_setter() -> CameraPositionFn {
+    unsafe { core::mem::transmute(NATIVE_POSITION_SETTER) }
 }
 
 fn native_movement_scope() -> PlayerMoverUpdateFn {
