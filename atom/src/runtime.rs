@@ -257,11 +257,11 @@ fn initialize_inner(
                                 hooks.camera_heading_predecessor,
                                 hooks.camera_pitch_predecessor,
                                 hooks.movement_scope_predecessor,
-                                hooks.movement_request_predecessor,
+                                hooks.player_movement_predecessor,
                             ) {
                                 log::info!("[CAMERA] Camera-relative movement hooks installed");
                                 log::debug!(
-                                    "[CAMERA] Movement predecessors: heading=0x{heading:08X}, pitch=0x{pitch:08X}, scope=0x{scope:08X}, movement=0x{movement:08X}"
+                                    "[CAMERA] Movement predecessors: heading=0x{heading:08X}, pitch=0x{pitch:08X}, scope=0x{scope:08X}, wrapper=0x{movement:08X}"
                                 );
                             }
                             if hooks.reticle_admitted {

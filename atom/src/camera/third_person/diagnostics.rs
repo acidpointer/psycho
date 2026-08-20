@@ -24,6 +24,7 @@ static MOVEMENT_OVERRIDES: AtomicU32 = AtomicU32::new(0);
 static PITCH_HOLDS: AtomicU32 = AtomicU32::new(0);
 static HEADING_HOLDS: AtomicU32 = AtomicU32::new(0);
 static RECENTER_SUPPRESSIONS: AtomicU32 = AtomicU32::new(0);
+static RECENTER_STARTS: AtomicU32 = AtomicU32::new(0);
 static OWNED_OBSERVATIONS: AtomicU32 = AtomicU32::new(0);
 static OBSERVATIONS: [AtomicU32; NativeRejection::COUNT] =
     [const { AtomicU32::new(0) }; NativeRejection::COUNT];
@@ -45,6 +46,7 @@ pub(super) struct Snapshot {
     pub(super) pitch_holds: u32,
     pub(super) heading_holds: u32,
     pub(super) recenter_suppressions: u32,
+    pub(super) recenter_starts: u32,
     pub(super) owned_observations: u32,
     observations: [u32; NativeRejection::COUNT],
 }
@@ -119,6 +121,10 @@ pub(super) fn mark_recenter_suppressed() {
     increment(&RECENTER_SUPPRESSIONS);
 }
 
+pub(super) fn mark_recenter_started() {
+    increment(&RECENTER_STARTS);
+}
+
 pub(super) fn mark_observation(reason: NativeRejection, owned: bool) {
     increment(&OBSERVATIONS[reason as usize]);
     if owned {
@@ -142,6 +148,7 @@ pub(super) fn snapshot() -> Snapshot {
         pitch_holds: PITCH_HOLDS.load(Ordering::Relaxed),
         heading_holds: HEADING_HOLDS.load(Ordering::Relaxed),
         recenter_suppressions: RECENTER_SUPPRESSIONS.load(Ordering::Relaxed),
+        recenter_starts: RECENTER_STARTS.load(Ordering::Relaxed),
         owned_observations: OWNED_OBSERVATIONS.load(Ordering::Relaxed),
         observations: load_observations(),
     }
@@ -156,7 +163,7 @@ fn increment(counter: &AtomicU32) {
     });
 }
 
-fn stage_counters() -> [&'static AtomicU32; 15] {
+fn stage_counters() -> [&'static AtomicU32; 16] {
     [
         &HEADING_CALLS,
         &HEADING_CONSUMED,
@@ -172,6 +179,7 @@ fn stage_counters() -> [&'static AtomicU32; 15] {
         &PITCH_HOLDS,
         &HEADING_HOLDS,
         &RECENTER_SUPPRESSIONS,
+        &RECENTER_STARTS,
         &OWNED_OBSERVATIONS,
     ]
 }

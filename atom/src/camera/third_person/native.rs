@@ -296,6 +296,31 @@ impl NativeRejection {
             Self::ExternalOwner => "external camera owner",
         }
     }
+
+    /// Return whether this rejection transfers visible heading to a native owner.
+    ///
+    /// Missing feature inputs and transient controller/action gaps can make a
+    /// camera frame inadmissible without changing who owns the third-person
+    /// view. Folding Atom's persistent yaw for those gaps visibly snaps the
+    /// camera to Actor facing. Only explicit camera or presentation owners
+    /// require that handoff.
+    pub(super) const fn owns_heading(self) -> bool {
+        matches!(
+            self,
+            Self::InvalidPlayer
+                | Self::PlayerMismatch
+                | Self::Perspective
+                | Self::FlyCamera
+                | Self::Vats
+                | Self::Menu
+                | Self::SpecialCamera
+                | Self::Dead
+                | Self::Knocked
+                | Self::Furniture
+                | Self::ScriptedAction
+                | Self::ExternalOwner
+        )
+    }
 }
 
 /// Failure to admit the fixed third-person native contract.
@@ -1437,6 +1462,20 @@ pub(super) unsafe fn raw_actor_yaw(actor: *mut c_void) -> Option<f32> {
     yaw.is_finite().then_some(yaw)
 }
 
+/// Read the persistent camera-only yaw offset paired with raw Actor yaw.
+///
+/// # Safety
+///
+/// `player` must be the live player supplied by the current camera or scoped
+/// movement callback. The scalar is copied and no engine pointer is retained.
+pub(super) unsafe fn raw_camera_heading_offset(player: *mut c_void) -> Option<f32> {
+    if !is_engine_pointer(player) || player != self::player() {
+        return None;
+    }
+    let offset = unsafe { read_f32(player.cast(), PLAYER_CAMERA_HEADING_OFFSET) };
+    offset.is_finite().then_some(offset)
+}
+
 /// Publish Atom's compensated camera-only heading offset.
 ///
 /// FNV itself reads and writes PlayerCharacter `+0x6E4` as a scalar camera
@@ -1475,7 +1514,18 @@ pub(super) unsafe fn synchronize_camera_heading(
     let native_adjusted = unsafe { actor_adjusted_heading(player) }?;
     let offset =
         super::compensated_camera_heading_offset(native_adjusted, current_offset, logical_heading)?;
-    unsafe { write_camera_heading_offset(player, offset) }.then_some(offset)
+    if !unsafe { write_camera_heading_offset(player, offset) } {
+        return None;
+    }
+    let Some(actual) = (unsafe { actor_adjusted_heading(player) }) else {
+        let _ = unsafe { write_camera_heading_offset(player, current_offset) };
+        return None;
+    };
+    if super::wrap_angle(actual - logical_heading).abs() <= super::VIEW_MATCH_EPSILON {
+        return Some(offset);
+    }
+    let _ = unsafe { write_camera_heading_offset(player, current_offset) };
+    None
 }
 
 /// Fold Atom's camera-only yaw offset into native Actor facing.

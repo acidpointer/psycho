@@ -33,7 +33,7 @@ const CAMERA_PITCH_CALLSITE: usize = 0x0094_AE94;
 const ZOOM_CALLSITE: usize = 0x0094_59BB;
 const FOLLOW_CALLSITE: usize = 0x0094_B7D2;
 const MOVEMENT_SCOPE_ENTRY: usize = 0x009E_9E50;
-const MOVEMENT_REQUEST_CALLSITE: usize = 0x008A_6339;
+const PLAYER_MOVEMENT_SLOT: usize = 0x0108_AC8C;
 const RETICLE_CALLSITE: usize = 0x0070_C130;
 const SPAWN_CALLSITE: usize = 0x0052_45BD;
 const MORPH_GROUP_ENTRY: usize = 0x0049_48C0;
@@ -42,7 +42,7 @@ const NATIVE_PLAYER_HEADING: usize = 0x0095_3F20;
 const NATIVE_PLAYER_PITCH: usize = 0x0093_1D70;
 const NATIVE_MOUSE_GETTER: usize = 0x00A2_39E0;
 const NATIVE_FOLLOW: usize = 0x0094_A0C0;
-const NATIVE_MOVEMENT_REQUEST: usize = 0x0092_F260;
+const NATIVE_PLAYER_MOVEMENT: usize = 0x008A_62B0;
 const NATIVE_RETICLE: usize = 0x0063_1D60;
 const NATIVE_SPAWN: usize = 0x009B_CA60;
 
@@ -51,7 +51,7 @@ type PlayerPitchFn = unsafe extern "thiscall" fn(*mut c_void) -> f32;
 type MouseGetterFn = unsafe extern "thiscall" fn(*mut c_void, u32) -> i32;
 type FollowFn = unsafe extern "thiscall" fn(*mut c_void, *mut Vec3, *const Vec3, u8);
 type PlayerMoverUpdateFn = unsafe extern "thiscall" fn(*mut c_void, f32);
-type MovementRequestFn =
+type PlayerMovementFn =
     unsafe extern "thiscall" fn(*mut c_void, f32, *mut Vec3, u32) -> *mut c_void;
 type ViewCasterFn = unsafe extern "thiscall" fn(
     *mut c_void,
@@ -86,8 +86,8 @@ static ZOOM_HOOK: Rel32CallHookContainer<MouseGetterFn> = Rel32CallHookContainer
 static FOLLOW_HOOK: Rel32CallHookContainer<FollowFn> = Rel32CallHookContainer::new();
 static MOVEMENT_SCOPE_HOOK: LazyLock<InlineHookContainer<PlayerMoverUpdateFn>> =
     LazyLock::new(InlineHookContainer::new);
-static MOVEMENT_REQUEST_HOOK: Rel32CallHookContainer<MovementRequestFn> =
-    Rel32CallHookContainer::new();
+static PLAYER_MOVEMENT_HOOK: PointerSlotHookContainer<PlayerMovementFn> =
+    PointerSlotHookContainer::new();
 static RETICLE_HOOK: Rel32CallHookContainer<ViewCasterFn> = Rel32CallHookContainer::new();
 static SPAWN_HOOK: Rel32CallHookContainer<SpawnFn> = Rel32CallHookContainer::new();
 static HIP_FIRE_POSE_HOOK: LazyLock<InlineHookContainer<MorphGroupFn>> =
@@ -115,10 +115,19 @@ const MOVEMENT_FINGERPRINTS: &[(usize, &[u8])] = &[
             0xFF, 0xFF, 0x8B, 0x82, 0xBC, 0x02, 0x00, 0x00, 0xFF, 0xD0,
         ],
     ),
+    // The entry may already contain a compatible chained JMP. Fingerprint
+    // immutable body and epilogue instructions instead of mutable entry bytes.
     (
-        MOVEMENT_SCOPE_ENTRY,
+        0x009E_9E59,
+        &[0x56, 0x89, 0x4D, 0xA8, 0xA1, 0x6C, 0x42, 0x1F, 0x01],
+    ),
+    (0x009E_A2E2, &[0x5E, 0x8B, 0xE5, 0x5D, 0xC2, 0x04, 0x00]),
+    (0x009E_A207, &[0x8B, 0x0D, 0x3C, 0xEA, 0x1D, 0x01]),
+    (
+        0x009E_A212,
         &[
-            0x55, 0x8B, 0xEC, 0x81, 0xEC, 0x80, 0x00, 0x00, 0x00, 0x56, 0x89, 0x4D, 0xA8,
+            0x50, 0x8D, 0x4D, 0xF0, 0x51, 0x51, 0xD9, 0x45, 0x08, 0xD9, 0x1C, 0x24, 0x8B, 0x15,
+            0x3C, 0xEA, 0x1D, 0x01,
         ],
     ),
     (
@@ -218,7 +227,7 @@ pub(super) struct MovementPredecessors {
     pub(super) camera_heading: usize,
     pub(super) camera_pitch: usize,
     pub(super) movement_scope: usize,
-    pub(super) movement_request: usize,
+    pub(super) player_movement: usize,
 }
 
 /// Captured live targets and independent reticle/convergence admission result.
@@ -283,10 +292,10 @@ pub(super) fn install_movement() -> Result<MovementPredecessors, HookInstallErro
             MOVEMENT_SCOPE_ENTRY as *mut c_void,
             movement_scope_detour,
         )?;
-        MOVEMENT_REQUEST_HOOK.init(
-            "Atom camera-relative movement request",
-            MOVEMENT_REQUEST_CALLSITE as *mut c_void,
-            movement_request_detour,
+        PLAYER_MOVEMENT_HOOK.init(
+            "Atom complete player movement",
+            PLAYER_MOVEMENT_SLOT as *mut *mut c_void,
+            player_movement_detour,
         )?;
     }
 
@@ -294,13 +303,13 @@ pub(super) fn install_movement() -> Result<MovementPredecessors, HookInstallErro
         camera_heading: CAMERA_HEADING_HOOK.predecessor_address()?,
         camera_pitch: CAMERA_PITCH_HOOK.predecessor_address()?,
         movement_scope: MOVEMENT_SCOPE_HOOK.original()? as *const () as usize,
-        movement_request: MOVEMENT_REQUEST_HOOK.predecessor_address()?,
+        player_movement: PLAYER_MOVEMENT_HOOK.predecessor_address()?,
     };
     let mut transaction = ModificationTransaction::new();
     transaction.enable_pointer(&CAMERA_HEADING_HOOK)?;
     transaction.enable_callsite(&CAMERA_PITCH_HOOK)?;
     transaction.enable_inline(&MOVEMENT_SCOPE_HOOK)?;
-    transaction.enable_callsite(&MOVEMENT_REQUEST_HOOK)?;
+    transaction.enable_pointer(&PLAYER_MOVEMENT_HOOK)?;
     transaction.commit();
     Ok(predecessors)
 }
@@ -478,10 +487,8 @@ unsafe extern "thiscall" fn follow_detour(
         return;
     };
 
-    // The pivot is the player's logical position and the origin of FNV's
-    // clearance ray. Keep it exact so native collision covers the full
-    // player-to-camera segment. Follow changes only distance; bounded motion
-    // may translate the endpoint before the native owner resolves both.
+    // Keep FNV's player-root pivot exact. Moving it changes the collision set
+    // and makes the camera react to shoulder-height clutter and actors.
     let mut adjusted_desired = composed;
     unsafe { predecessor(player, &mut adjusted_desired, pivot, mode) };
     unsafe { desired.write(adjusted_desired) };
@@ -521,15 +528,15 @@ impl Drop for MovementScopeGuard {
     }
 }
 
-unsafe extern "thiscall" fn movement_request_detour(
+unsafe extern "thiscall" fn player_movement_detour(
     actor: *mut c_void,
     dt: f32,
     movement: *mut Vec3,
     flags: u32,
 ) -> *mut c_void {
-    let predecessor = MOVEMENT_REQUEST_HOOK
+    let predecessor = PLAYER_MOVEMENT_HOOK
         .original()
-        .unwrap_or_else(|_| native_movement_request());
+        .unwrap_or_else(|_| native_player_movement());
     let Some(native) = (unsafe { movement.as_ref() }) else {
         super::diagnostics::mark_movement(false);
         return unsafe { predecessor(actor, dt, movement, flags) };
@@ -541,11 +548,8 @@ unsafe extern "thiscall" fn movement_request_detour(
             return unsafe { predecessor(actor, dt, &mut transformed, output.flags()) };
         }
         super::diagnostics::mark_movement(false);
-        // This exact callsite is the proven raw-Actor-yaw movement seam. Hard
-        // camera-owner transitions fold Atom's offset before chaining native.
-        // Internal and short soft misses retain the already-published offset
-        // so actor-facing updates cannot drag the camera during reacquisition.
-        super::prepare_native_movement_heading(actor);
+        // A movement miss is not a camera-owner transition. Chaining native
+        // unchanged must not fold or clear Atom's persistent view heading.
         return unsafe { predecessor(actor, dt, movement, flags) };
     };
     super::diagnostics::mark_movement(true);
@@ -729,8 +733,8 @@ fn native_movement_scope() -> PlayerMoverUpdateFn {
     unsafe { core::mem::transmute(MOVEMENT_SCOPE_ENTRY) }
 }
 
-fn native_movement_request() -> MovementRequestFn {
-    unsafe { core::mem::transmute(NATIVE_MOVEMENT_REQUEST) }
+fn native_player_movement() -> PlayerMovementFn {
+    unsafe { core::mem::transmute(NATIVE_PLAYER_MOVEMENT) }
 }
 
 fn native_reticle() -> ViewCasterFn {

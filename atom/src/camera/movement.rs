@@ -1,10 +1,10 @@
 //! Camera-relative movement and authoritative actor-facing math.
 //!
 //! FNV has already produced an actor-local vector and complete movement flags
-//! before this module runs. The native movement request subsequently rotates
+//! before this module runs. The native movement wrapper subsequently rotates
 //! that vector into world space with the actor's authoritative Z heading.
 //! Atom compensates the local vector for the heading that will actually reach
-//! that request, preserving magnitude and every unowned flag bit.
+//! that wrapper, preserving magnitude and every unowned flag bit.
 
 use core::f32::consts::{PI, TAU};
 

@@ -249,10 +249,11 @@ After the call:
   later code combines camera offsets, pitch, rotation multipliers, and the
   helper's collision/distance state before committing the camera object
 
-The production composition rule is now direct: alter the desired endpoint
-passed at 0x0094B7D2, preserve the pivot and mode byte, then chain the live
-0x0094A0C0 predecessor. Do not retain either stack-local pointer beyond the
-call.
+The production composition rule is direct: axial follow and bounded motion
+alter only the desired endpoint passed at 0x0094B7D2. Preserve the exact native
+player-root pivot and mode byte, chain the live 0x0094A0C0 predecessor exactly
+once, and copy its resolved desired endpoint back. Do not retain either
+stack-local pointer beyond the call.
 
 
 7. Native third-person collision and distance helper
@@ -295,6 +296,31 @@ would bypass this resolution and can place the camera inside geometry; Atom
 must compose the desired endpoint before this helper and preserve it
 downstream.
 
+Normal third-person final-offset proof:
+
+  0x0094B9E6  read collision result byte 0x011E07C2
+  0x0094BA53  no-collision branch begins reading normal offset settings
+  0x011CDA34  fOverShoulderOffsetPointX setting object
+  0x011CDFB4  fOverShoulderOffsetPointY setting object
+  0x011CD31C  fOverShoulderOffsetPointZ setting object
+  0x0094BAB8  build X/pitch matrix from 0x011E0764
+  0x0094BAD1  transform the selected offset by pitch
+  0x0094BB04  transform that result by the already-built Z/yaw matrix
+
+The X builder 0x00524AC0 and vector transform 0x004B4500 prove the exact
+mapping `x'=x`, `y'=cos(pitch)*y + sin(pitch)*z`,
+`z'=-sin(pitch)*y + cos(pitch)*z`. The existing camera yaw mapping is then
+applied after the native clearance query.
+
+Runtime rejection, 2026-08-19: feeding this post-collision offset backward by
+translating both query endpoints preserves ray length but changes the world
+segment and its hit set. Proton showed new contractions against tables, small
+objects, walls, and actors in close interiors, without fixing the heading
+reset. The collision helper updates the desired endpoint, distance state
+0x011E0768, and result byte 0x011E07C2; it does not own view yaw. Atom must keep
+the native pivot exact and must not use collision geometry to address a yaw
+ownership failure.
+
 Final transform proof:
 
   0x0094BB61  address of resolved camera local var_60h
@@ -330,9 +356,10 @@ Established higher bits remain:
 
 The final flags are committed through actorMover virtual slot +0x0C at
 0x0093FC57. PlayerMover's vtable is 0x0109297C and +0x0C resolves to
-0x009EA3E0. That setter stores the full word at PlayerMover +0x94 and preserves
-its stateful 0x0400 and 0x0030 side effects. Atom must not replace or synthesize
-that flags path.
+0x009EA3E0. That setter stores the full word at PlayerMover +0x94. Its only
+conditional work compares bit 0x0400 and masks bits 0x0030; no branch or call
+depends on low direction bits 0x000F. Atom must not replace or synthesize this
+native publication path.
 
 Analog and movement-vector construction:
 
@@ -345,9 +372,10 @@ Analog and movement-vector construction:
 
 The earlier ledger revision attributed a horizontal transform in this path to
 0x00931D70. Exact axis closure disproves that attribution: 0x00931D70 is the
-Actor rotX/pitch getter. The accepted 0x008A6339 seam is actor-local because
-its callee performs the actor-heading-to-world transform described below; Atom
-does not depend on a semantic name for every intermediate var_1E0 producer.
+Actor rotX/pitch getter. The vector reaching player virtual +0x250 remains
+actor-local because its nested callee performs the actor-heading-to-world
+transform described below; Atom does not depend on a semantic name for every
+intermediate var_1E0 producer.
 
 Vector carrier:
 
@@ -372,8 +400,22 @@ movement vector, checks low flags at +0x94, and, on its normal movement path:
   - calls PlayerCharacter virtual +0x250 with dt, the resulting Vec3, and the
     unchanged flags at 0x009EA207..0x009EA232.
 
-The player +0x250 slot resolves to 0x008A62B0. After its actor/process gates it
-pushes flags, Vec3 pointer, and dt, then calls 0x0092F260 at 0x008A6339:
+The PlayerCharacter vtable begins at 0x0108AA3C. Its +0x250 slot at 0x0108AC8C
+contains 0x008A62B0. This complete wrapper has the ABI:
+
+  thiscall(
+    PlayerCharacter *player,
+    float dt,
+    Vec3 *movement_in_out,
+    uint32_t movement_flags
+  ) -> process pointer
+
+  callee return: ret 0x0C
+
+At 0x008A62D9 it begins native actor gating. At 0x008A62E8 it masks the
+supplied flags with 0x3F and can return before the nested movement request.
+After further actor/process gates it pushes the same flags, Vec3 pointer, and
+dt, then calls 0x0092F260 at 0x008A6339:
 
   thiscall(
     MobileObject *actor,
@@ -417,23 +459,70 @@ for local input L and heading h, define:
   )
 
 Local +Y is forward and becomes `(sin(h), cos(h))` in world space. This closes
-the 0x008A6339 input as actor-local and makes raw rotZ, not adjusted camera
-heading, the downstream transform authority.
+the vector supplied to virtual +0x250 as actor-local and makes raw rotZ, not
+adjusted camera heading, the downstream transform authority.
 
-0x008A6339 is the admitted complete 360 seam, not 0x0094280B. A scoped wrapper
-can copy and rotate the post-PlayerMover vector, preserve its magnitude and all
-high flags, map only the low direction nibble for the selected facing policy,
-and call the live 0x0092F260 predecessor. Native behavior passes every original
-argument unchanged.
+PlayerMover consumes the movement word before the late movement request:
 
-The 0x008A6339 callsite belongs to the common actor movement wrapper. Derived
-admission design therefore uses a second chained entry hook at
-PlayerMover::Update 0x009E9E50. It opens a stack-scoped token only when
-`this == live_player->actorMover`, the ownership epoch is current, and no token
-is already active. The nested 0x008A6339 wrapper transforms only while that
-token is active and while `actor == live_player`; otherwise it calls its
-predecessor unchanged. RAII clears the token on all returns. This is the safe
-main-thread/caller scope; player identity alone is not accepted as sufficient.
+  0x009E9F95  first read mover +0x94 and mask the low direction nibble
+  0x009EA062  split forward/back bits from left/right bits
+  0x009EA11B  left/right bits alter the prepared local movement vector
+  0x009EA20D  call 0x008846E0 for the complete flags passed to the player
+  0x009EA232  call player virtual +0x250 with that prepared vector
+  0x008A62E8  wrapper consumes flags before its nested request
+  0x008A6339  nested actor movement request inside the +0x250 path
+
+Runtime rejection, 2026-08-19: PlayerMover +0x88 is not the direction passed to
+the player wrapper. The function initializes its output from global/native
+state at 0x009E9E5D, may replace it through native helpers, and uses +0x88 only
+inside its magnitude/override normalization. Treating +0x88 as final direction
+rotated Actor facing by a constant 90 degrees in Proton.
+
+Runtime rejection, 2026-08-19: splitting ownership between the getter at
+0x009EA20D and nested call at 0x008A6339 is not coherent. The getter ABI has no
+movement-vector argument, so it classified flags against pre-turn Actor yaw.
+The nested hook then changed Actor yaw and the vector after the complete wrapper
+had already consumed those flags. Proton showed cardinal input collapsing into
+diagonal presentation.
+
+Runtime rejection, 2026-08-19: correcting only the flags argument of the
+complete +0x250 wrapper did not correct the visible cardinal family at a
+90-degree camera/body offset. That Proton result rejects the wrapper-only
+candidate; it does not by itself prove which later animation consumer selected
+the wrong family.
+
+Runtime rejection, later 2026-08-19: writing Atom's selected low nibble to
+PlayerMover +0x94 after PlayerMover::Update returns is not an animation fix.
+There is no later +0x94 read between the +0x250 call at 0x009EA232 and the
+0x009EA2E6 epilogue. The write therefore cannot affect the animation selected
+for that invocation. Instead it survives as input to the next invocation,
+whose first low-nibble read is 0x009E9F95 and whose direction-dependent vector
+work continues through 0x009EA1B9. Repeated or overlapping A/D input exposed
+stale lateral feedback, incorrect movement, and coupled camera/body rotation
+in Proton. PlayerMover +0x94 is an input/state word, not a safe late
+presentation seam; Atom must never publish its derived animation sector there.
+
+The PlayerCharacter +0x250 vtable slot is a coherent movement seam: it is the
+first callable boundary where the finalized post-PlayerMover Vec3 and complete
+flags are available together, before any wrapper consumer. It is not the
+presentation seam. PlayerCharacter::Update selects directional locomotion
+earlier:
+
+  0x009422D1  load the current movement byte from local var_6Ch
+  0x009422D9  call 0x00894F90 with PlayerCharacter and that byte
+  0x00894FC4  test forward bit 0x01 and select group 11
+  0x00894FD6  test backward bit 0x02 and select group 12
+  0x00894FE8  test left bit 0x04 and select group 13
+  0x00894FFA  test right bit 0x08 and select group 14
+  0x00895017  resolve the active animation group through the live actor path
+
+This is the current-invocation visible animation selector. Its direct callsite
+is the safe presentation seam: Atom may replace only the low direction nibble
+in that call's value and chain its captured live predecessor exactly once. The
+selector runs before the complete movement wrapper, so its body-relative
+classification uses the current raw Actor yaw and the retained logical view.
+It must not write PlayerMover state, call a skeleton correction node, or alter
+Combat flags. The rejected late +0x94 write is removed rather than relocated.
 
 Derived mapping with the native matrix convention:
 
@@ -442,21 +531,21 @@ Derived mapping with the native matrix convention:
   native_world  = E(request_actor_heading) * request_local
                 = desired_world
 
-Explore turns the actor toward nonzero desired_world and passes low direction
-0x01 so the downstream native request selects forward locomotion. Combat turns
-the actor toward the view and retains the original low nibble so native
+Explore turns the actor toward nonzero desired_world and gives the complete
+player wrapper the matching native eight-way low nibble. Combat turns the actor
+toward the view and retains the original low nibble so native
 forward/back/strafe intent stays correct around that facing. All unsupported
-states preserve the original vector and complete flags. This avoids changing
-analog magnitude, PlayerMover state, high action flags, or any skeleton/root
-transform directly. Exact visual quality for installed animation assets remains
-a runtime acceptance item.
+states preserve the original vector and complete flags. The derived nibble may
+be passed to 0x00894F90 only at its proven PlayerCharacter callsite. It must
+not be written back to PlayerMover state. Atom does not alter analog magnitude
+or any skeleton/root transform.
 
-The order is part of the contract. Atom first computes the desired world
-heading from `E(view_heading) * local_input`, advances and writes the actor's
-actual request heading, then compensates against that written heading. The
-rejected implementation compensated against the old actor heading and wrote a
-new heading before chaining 0x0092F260; native then applied the new heading a
-second time. That directly produced diagonal and wrong-direction controls.
+The order is part of the contract. Atom first computes desired world heading
+from `E(view_heading) * local_input`, advances and writes Actor facing, samples
+the resulting raw rotZ, compensates the vector, and selects the sector from
+`heading(desired_world) - actual_actor_heading`. Forward, left, right, and
+diagonal presentation consequently describe physical travel relative to the
+post-turn body. The rejected split classified before that heading existed.
 
 Lifetime:
 
@@ -583,6 +672,44 @@ and otherwise requires the camera feature to be disabled for that vehicle
 profile. This is version-agnostic capability interop; Atom must not inspect a
 named plugin.
 
+Horizontal-input branch coverage correction, 2026-08-19:
+
+The main player camera/input helper 0x009445B0 has two distinct horizontal-yaw
+write paths after it computes the mouse delta in local var_1D4:
+
+  0x00945E58  call player virtual +0x214
+  0x00945E6E  retain its returned state value
+  0x00945E74  compare that value with 4
+  0x00945E81  state 4: read PlayerCharacter +0x6E4
+  0x00945E8D  add var_1D4
+  0x00945E99  write PlayerCharacter +0x6E4 directly
+  0x00945E9F..0x00945EF1 clamp and rewrite +0x6E4
+  0x00945F10  state 0: enter the Actor-yaw branch
+  0x00945F90  call incremental yaw setter 0x00931D30
+
+For the supported PlayerCharacter vtable, +0x214 resolves through slot
+0x0108AC50 to 0x008D8800, which returns Actor +0x1AC. xNVSE's GameObjects.h
+identifies the virtual as the sit/sleep-state query; Stewie's matching layout
+places sitSleepState at +0x1AC, and GameProcess.h defines value 4 as sitting.
+The direct +0x6E4 branch is therefore a sitting-camera path, not an ordinary
+standing terrain or collision path.
+
+Atom currently hooks only the call at 0x00945F90. The state-4 branch never
+enters that detour, but it is outside Atom's admitted standing Explore state
+and cannot explain the reported road, slope, or A/D failures. Hooking the whole
+helper on that theory would broaden ownership incorrectly.
+
+The standing reset is an ownership-gap problem in Atom instead. A cell change
+or transient missing mover/collision/process/active-3D observation releases
+feature output, while the logical heading token deliberately remains owned.
+The rejected implementation then ran UpdateCamera without a scope. Any Actor
+yaw or +0x6E4 change made before that unscoped adjusted-heading read could
+become a one-frame Actor-facing snap. A retained-heading scope is safe only
+after the current UpdateCamera entry has observed the same live player,
+stable third person, and no native or registered external view owner. It may
+retain logical yaw and pitch only; follow, collision, distance, and motion
+remain native for that gap.
+
 
 10. Authoritative actor-yaw ABI and call context
 -------------------------------------------------
@@ -611,12 +738,14 @@ player +0x6E4. It is the adjusted horizontal camera heading. By contrast,
 for player movement. Atom keeps adjusted camera heading, pitch, and raw actor
 facing separate when seeding view state and computing movement compensation.
 
-Safe execution context is the scoped movement-request callsite at 0x008A6339,
-after PlayerMover processing and immediately before the native 0x0092F260
-pipeline. It is the same player-main-thread phase that already owns locomotion.
-Atom may call live player virtual +0x2C4 there after all ownership predicates
-pass, before chaining the movement predecessor, with an explicit reentrancy
-guard. It retains no player/vtable pointer beyond the scope.
+Safe execution context is the PlayerCharacter +0x250 wrapper reached at
+0x009EA232 while the validated PlayerMover::Update token is active. It is the
+first player-main-thread boundary after PlayerMover processing where the final
+Vec3 and complete flags are available together and neither has been consumed
+by the wrapper. Atom may call live player virtual +0x2C4 there after every
+ownership predicate passes, before chaining the captured +0x250 predecessor,
+with an explicit reentrancy guard. It retains no player/vtable pointer beyond
+the scope.
 
 
 11. Installed 360 Movement audit
@@ -944,10 +1073,11 @@ Directly proven static contracts:
     native contraction/recovery, and returns the resolved endpoint in place.
   - 0x0094BB61 commits the resolved position to the native camera object.
   - Low movement flags, analog magnitude, heading conversion, PlayerMover
-    direction carrier/lifetime, and the coupled vector/flag movement request
-    are closed. The admitted scoped request seam is 0x008A6339.
+    direction carrier/lifetime, and the coupled vector/flag wrapper are closed.
+    PlayerCharacter vtable +0x250 at slot 0x0108AC8C is a coherent movement
+    seam but is not a proven animation-presentation seam.
   - Live player virtual +0x2C4 is the authoritative absolute-yaw route and is
-    safe only in the validated scoped movement-request context.
+    safe only in that validated PlayerMover-scoped wrapper context.
   - Base-game POV, VATS, TFC, menu, furniture, scripted animation, death,
     ragdoll, world-readiness, cell, and 3D ownership predicates are closed.
   - Native ViewCaster and native spawn are the admitted reticle/convergence
@@ -957,17 +1087,20 @@ Reasoned Atom policies, not claims about vanilla:
 
   - one stable normal third-person frame is required before acquisition;
   - parent-cell pointer change invalidates the ownership epoch;
-  - Atom rotates the existing movement vector, maps only its low direction
-    nibble by facing policy, and never edits PlayerMover state or root
-    transforms;
+  - Atom may rotate the existing movement vector and map only a proven
+    current-invocation low direction field by facing policy; PlayerMover state
+    and root transforms must remain untouched;
   - reticle results require a matching camera epoch/view snapshot and the
     runtime-accepted sample-age bound;
   - arbitrary vehicle mods require an explicit capability signal because the
     base player has no universal vehicle-owner state;
   - a skeleton-node correction system cannot be authoritative locomotion.
 
-No static Phase 0 implementation gap remains. Mutating work may begin at
-Phase 1 in the documented order. Each implementation phase must still close:
+Static Phase 0 has closed both reopened contracts. The directional animation
+selector is `0x009422D9 -> 0x00894F90`. The apparent second horizontal path is
+selected by sit/sleep state 4 (sitting), so normal standing Explore retains the
+existing state-0 hook rather than broadening ownership. Runtime acceptance
+retains its existing gates:
 
   - exact immutable caller-byte fingerprint and typed live predecessor at
     DeferredInit;
@@ -1029,11 +1162,19 @@ Follow/collision input, call at 0x0094B7D2:
               8D 8D D4 FE FF FF 51 8B 8D EC FB FF FF
   0x0094B7D7  8D 95 AC FE FF FF 52
 
-PlayerMover scope entry at 0x009E9E50:
+Immutable PlayerMover scope body and epilogue:
 
-  55 8B EC 81 EC 80 00 00 00 56 89 4D A8
+  0x009E9E59  56 89 4D A8 A1 6C 42 1F 01
+  0x009EA2E2  5E 8B E5 5D C2 04 00
 
-Coupled movement request, call at 0x008A6339:
+Complete PlayerCharacter +0x250 call and slot:
+
+  0x009EA207  8B 0D 3C EA 1D 01
+  0x009EA212  50 8D 4D F0 51 51 D9 45 08 D9 1C 24
+              8B 15 3C EA 1D 01
+  0x0108AC8C  supported-executable slot target 0x008A62B0
+
+Immutable complete-wrapper body around its nested request:
 
   0x008A6327  8B 4D 10 51 8B 55 0C 52 51 D9 45 08
               D9 1C 24 8B 4D AC

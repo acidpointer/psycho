@@ -28,10 +28,12 @@ fn shipped_mcm_menu_exposes_every_runtime_setting_with_matching_defaults() {
     let expected = BTreeMap::from([
         ("Ballistics:bEnabled", f64::from(ballistics.enabled())),
         ("Camera:bAutoCenter", f64::from(third_person.auto_center())),
+        ("Camera:bFraming", f64::from(third_person.framing_enabled())),
         (
             "Camera:bFollowCamera",
             f64::from(third_person.follow_enabled()),
         ),
+        ("Camera:bMotion", f64::from(third_person.motion_enabled())),
         (
             "Camera:fCenterDelay",
             f64::from(third_person.center_delay()),
@@ -44,8 +46,33 @@ fn shipped_mcm_menu_exposes_every_runtime_setting_with_matching_defaults() {
             "Camera:fFollowSpeed",
             f64::from(third_person.follow_speed()),
         ),
+        (
+            "Camera:fHeightOffset",
+            f64::from(third_person.height_offset()),
+        ),
+        (
+            "Camera:fLandMotion",
+            f64::from(third_person.landing_motion()),
+        ),
         ("Camera:fLookAhead", f64::from(third_person.look_ahead())),
+        (
+            "Camera:fMaxDistance",
+            f64::from(third_person.maximum_distance()),
+        ),
+        (
+            "Camera:fMinDistance",
+            f64::from(third_person.minimum_distance()),
+        ),
+        (
+            "Camera:fMotionStrength",
+            f64::from(third_person.motion_strength()),
+        ),
+        ("Camera:fSideOffset", f64::from(third_person.side_offset())),
         ("Camera:fSoftZone", f64::from(third_person.soft_zone())),
+        (
+            "Camera:fStartDistance",
+            f64::from(third_person.start_distance()),
+        ),
         ("Camera:fZoomStep", f64::from(third_person.zoom_step())),
         (
             "Controller:bInvertRightX",
@@ -156,6 +183,27 @@ fn shipped_mcm_menu_exposes_every_runtime_setting_with_matching_defaults() {
             "MCM default for {key} is {actual}, runtime default is {expected}"
         );
     }
+}
+
+#[test]
+fn atom_ships_exactly_one_mcm_menu() {
+    let mcm_directory = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("mcm");
+    let mut menus = fs::read_dir(mcm_directory)
+        .expect("the Atom MCM directory must be readable")
+        .map(|entry| entry.expect("MCM directory entry must be readable").path())
+        .filter(|path| {
+            path.extension()
+                .is_some_and(|extension| extension == "json")
+        })
+        .map(|path| {
+            path.file_name()
+                .expect("MCM menu needs a file name")
+                .to_string_lossy()
+                .into_owned()
+        })
+        .collect::<Vec<_>>();
+    menus.sort();
+    assert_eq!(menus, ["Atom.json"]);
 }
 
 #[test]

@@ -3,14 +3,15 @@
 use core::f32::consts::{FRAC_PI_2, PI};
 
 use atom::camera::third_person::{
-    AimAngles, FacingPolicy, FollowSolver, LocomotionSector, LookRoute, MovementIntent,
-    NativeHandoffGuard, OwnershipInput, OwnershipMachine, OwnershipState, SpringAxis,
-    ThirdPersonConfig, Vec3, actor_heading_handoff_target, advance_actor_pitch_ownership,
-    advance_logical_pitch, axial_follow_offset, camera_relative_heading,
-    compensated_camera_heading_offset, compose_follow_camera, converge_angles,
-    horizontal_look_route, linear_zoom_delta, logical_heading_after_native_look, remap_movement,
-    reticle_and_convergence_admission, step_heading, third_person_view_ray, vertical_look_route,
-    view_direction, wrap_angle,
+    AimAngles, FacingPolicy, FollowSolver, HeadingContinuity, HeadingContinuityEvent,
+    LocomotionSector, LookRoute, MovementIntent, NativeHandoffGuard, OwnershipInput,
+    OwnershipMachine, OwnershipState, SpringAxis, ThirdPersonConfig, Vec3,
+    actor_heading_handoff_target, advance_actor_pitch_ownership, advance_logical_pitch,
+    axial_follow_offset, camera_relative_heading, compensated_camera_heading_offset,
+    compose_follow_camera, converge_angles, horizontal_look_route, linear_zoom_delta,
+    logical_heading_after_native_look, remap_movement, reticle_and_convergence_admission,
+    step_heading, third_person_view_ray, vertical_look_route, view_cast_no_hit_outputs,
+    view_direction, view_reach_interval, wrap_angle,
 };
 
 fn fnv_world_vector(local: Vec3, actor_yaw: f32) -> Vec3 {
@@ -324,6 +325,63 @@ fn movement_intent_resolves_against_observed_not_requested_facing() {
 }
 
 #[test]
+fn transient_heading_gaps_preserve_view_then_hard_owners_release_it() {
+    let mut continuity = HeadingContinuity::new();
+    assert!(continuity.advance(HeadingContinuityEvent::Stable, 1.0 / 60.0));
+
+    for frame in 1..=7 {
+        assert!(
+            continuity.advance(HeadingContinuityEvent::SoftGap, 1.0 / 60.0),
+            "soft gap frame {frame} must retain the last rendered heading",
+        );
+    }
+    assert!(
+        !continuity.advance(HeadingContinuityEvent::SoftGap, 1.0 / 60.0),
+        "a prolonged observation failure must fail back to native ownership",
+    );
+
+    assert!(continuity.advance(HeadingContinuityEvent::Stable, 1.0 / 60.0));
+    assert!(
+        !continuity.advance(HeadingContinuityEvent::HardOwner, 1.0 / 60.0),
+        "menus, VATS, POV, scripted cameras, and other hard owners cannot inherit Atom yaw",
+    );
+    assert!(
+        !continuity.advance(HeadingContinuityEvent::SoftGap, f32::NAN),
+        "invalid engine time must invalidate continuity",
+    );
+}
+
+#[test]
+fn transient_movement_fallback_keeps_the_camera_relative_world_direction() {
+    let native = Vec3::new(0.35, 0.90, -0.25);
+    let actor_yaw = -0.82;
+    let retained_view_yaw = 1.31;
+    let output = remap_movement(
+        native,
+        0xA500_0005,
+        actor_yaw,
+        retained_view_yaw,
+        FacingPolicy::Explore,
+    );
+
+    assert_vec3_close(
+        fnv_world_vector(output.vector(), actor_yaw),
+        fnv_world_vector(native, retained_view_yaw),
+    );
+    assert!(
+        wrap_angle(
+            actor_yaw
+                + compensated_camera_heading_offset(actor_yaw, 0.0, retained_view_yaw)
+                    .expect("finite retained camera heading")
+                - retained_view_yaw,
+        )
+        .abs()
+            < 0.000_01,
+        "movement fallback must not rotate the rendered view to actor facing",
+    );
+}
+
+#[test]
 fn fine_zoom_produces_constant_world_unit_notches_across_the_native_range() {
     for desired_distance in [30.0, 60.0, 120.0] {
         for (raw_delta, multiplier) in [(120, 0.05), (-120, 0.10)] {
@@ -362,17 +420,30 @@ fn fine_zoom_preserves_batched_and_high_resolution_wheel_input() {
 }
 
 #[test]
-fn follow_and_movement_settings_are_independent() {
-    for (follow, movement) in [(false, false), (true, false), (false, true), (true, true)] {
+fn camera_feature_toggles_are_independent_and_each_admits_runtime_ownership() {
+    for mask in 0_u8..16 {
+        let follow = mask & 1 != 0;
+        let movement = mask & 2 != 0;
+        let framing = mask & 4 != 0;
+        let motion = mask & 8 != 0;
         let config = ThirdPersonConfig::from_ini(&format!(
-            "[Camera]\nbFollowCamera={}\n[Movement]\nb360Movement={}\n",
+            "[Camera]\n\
+             bFollowCamera={}\n\
+             bFraming={}\n\
+             bMotion={}\n\
+             [Movement]\n\
+             b360Movement={}\n",
             u8::from(follow),
+            u8::from(framing),
+            u8::from(motion),
             u8::from(movement),
         ))
         .expect("valid feature combination");
         assert_eq!(config.follow_enabled(), follow);
         assert_eq!(config.movement_enabled(), movement);
-        assert_eq!(config.enabled(), follow || movement);
+        assert_eq!(config.framing_enabled(), framing);
+        assert_eq!(config.motion_enabled(), motion);
+        assert_eq!(config.enabled(), follow || movement || framing || motion);
     }
 }
 
@@ -654,6 +725,51 @@ fn object_selection_ray_uses_rendered_camera_origin_and_logical_axes() {
 }
 
 #[test]
+fn distant_camera_cursor_reaches_only_objects_inside_the_native_eye_sphere() {
+    let native_eye = Vec3::default();
+    let camera = Vec3::new(0.0, -240.0, 0.0);
+    let direction = Vec3::new(0.0, 1.0, 0.0);
+    let interval = view_reach_interval(native_eye, camera, direction, 150.0)
+        .expect("the rendered ray crosses the native interaction sphere");
+
+    assert!((interval.entry() - 90.0).abs() < 0.000_01);
+    assert!((interval.exit() - 390.0).abs() < 0.000_01);
+    assert!(interval.accepts_hit(240.0));
+    assert!(!interval.accepts_hit(40.0));
+    assert!(!interval.accepts_hit(400.0));
+    let accepted = camera + direction * 240.0;
+    assert!((accepted - native_eye).length() <= 150.0);
+    assert!(
+        interval.exit() > 150.0,
+        "camera distance must not consume the player's interaction reach",
+    );
+}
+
+#[test]
+fn cursor_reach_rejects_misses_and_preserves_native_no_hit_outputs() {
+    assert!(
+        view_reach_interval(
+            Vec3::default(),
+            Vec3::new(300.0, -240.0, 0.0),
+            Vec3::new(0.0, 1.0, 0.0),
+            150.0,
+        )
+        .is_none(),
+        "a camera ray which misses the eye-centered reach sphere must not extend interaction",
+    );
+    let inside = view_reach_interval(
+        Vec3::default(),
+        Vec3::new(0.0, -60.0, 0.0),
+        Vec3::new(0.0, 1.0, 0.0),
+        150.0,
+    )
+    .expect("camera inside the reach sphere");
+    assert_eq!(inside.entry(), 0.0);
+    assert!((inside.exit() - 210.0).abs() < 0.000_01);
+    assert_eq!(view_cast_no_hit_outputs(), (f32::MAX, 0));
+}
+
+#[test]
 fn sustained_lateral_facing_changes_cannot_rotate_the_camera() {
     let logical_heading = 1.15;
     let mut actor_base_heading = -0.4;
@@ -786,6 +902,15 @@ fn configuration_is_coherent_bounded_and_strict_for_invalid_values() {
          bAutoCenter=0\n\
          fCenterDelay=9\n\
          fCenterSpeed=900\n\
+         bFraming=1\n\
+         fMinDistance=200\n\
+         fMaxDistance=60\n\
+         fStartDistance=300\n\
+         fSideOffset=300\n\
+         fHeightOffset=-200\n\
+         bMotion=1\n\
+         fMotionStrength=2\n\
+         fLandMotion=-1\n\
          [Movement]\n\
          b360Movement=1\n\
          fTurnSpeed=20\n\
@@ -800,11 +925,24 @@ fn configuration_is_coherent_bounded_and_strict_for_invalid_values() {
     assert!(!config.auto_center());
     assert_eq!(config.center_delay(), 5.0);
     assert_eq!(config.center_speed_degrees(), 360.0);
+    assert!(config.framing_enabled());
+    assert_eq!(config.minimum_distance(), 150.0);
+    assert_eq!(config.maximum_distance(), 150.0);
+    assert_eq!(config.start_distance(), 150.0);
+    assert_eq!(config.side_offset(), 200.0);
+    assert_eq!(config.height_offset(), -100.0);
+    assert!(config.motion_enabled());
+    assert_eq!(config.motion_strength(), 1.0);
+    assert_eq!(config.landing_motion(), 0.0);
     assert!(config.movement_enabled());
     assert_eq!(config.turn_speed_degrees(), 90.0);
     assert!(config.drawn_360());
 
     assert!(ThirdPersonConfig::from_ini("[Camera]\nbFollowCamera=2\n").is_err());
+    assert!(ThirdPersonConfig::from_ini("[Camera]\nbFraming=2\n").is_err());
+    assert!(ThirdPersonConfig::from_ini("[Camera]\nbMotion=2\n").is_err());
     assert!(ThirdPersonConfig::from_ini("[Movement]\nfTurnSpeed=NaN\n").is_err());
     assert!(ThirdPersonConfig::from_ini("[Camera]\nfZoomStep=NaN\n").is_err());
+    assert!(ThirdPersonConfig::from_ini("[Camera]\nfMinDistance=NaN\n").is_err());
+    assert!(ThirdPersonConfig::from_ini("[Camera]\nfMotionStrength=NaN\n").is_err());
 }

@@ -1,8 +1,8 @@
 # Atom third-person camera and 360 movement plan
 
-Status: implementation candidate on the supported 32-bit target. Behavior is
-unaccepted pending the documented Proton/BaseObjectSwapper, transition,
-collision, animation, movement-isolation, and aim playtests.
+Status: **current third-person locomotion/yaw candidate rejected** on the
+supported 32-bit target. The lateral-input regression, wrong 90-degree
+animation, and remaining camera reset are open; no release is accepted.
 
 ## Intended result
 
@@ -212,7 +212,7 @@ must observe one stable normal third-person frame, seed every Atom state from
 the native result, and only then reacquire ownership. No stale spring velocity,
 view offset, recenter timer, or actor-turn target may cross that boundary.
 
-### Movement boundary is closed
+### Movement-vector boundary is closed; animation boundary is open
 
 The final player movement flags are committed through `actorMover` virtual
 slot `+0x0C` at `0x0093FC57`. Direct branches in `PlayerCharacter::Update`
@@ -227,36 +227,48 @@ The resulting three-float movement vector is local `var_1E0` in
 it. `0x009E9E50` normalizes the override direction but restores the magnitude
 of the native vector and applies its low-bit diagonal policy.
 
-The final coupled seam is later: `0x008A6339 -> 0x0092F260` passes frame time,
-the post-`PlayerMover` actor-local vector, and movement flags together into the
-native movement request. For the live player, `0x0092F260` reads raw Actor
-`rotZ` through `0x0080F790`, builds the native Z matrix, and rotates that local
-vector into world space. It stores vector and flags in the same request and
-keeps animation, physics, scene/root transform, and landing work downstream.
-Atom replaces that scoped call, preserves length, maps only the low direction
-nibble according to the active facing policy, and chains the live predecessor.
-It preserves every high flag and does not edit `PlayerMover` state or a
-skeleton/root transform.
+The first coherent seam is PlayerCharacter virtual `+0x250`, called at
+`0x009EA232` with the finalized post-`PlayerMover` actor-local vector and
+complete flags. The PlayerCharacter slot is `0x0108AC8C`; its supported native
+target is `0x008A62B0`. That wrapper consumes flags at `0x008A62E8` before it
+later calls `0x0092F260` at `0x008A6339`. Splitting correction between the
+earlier flags getter and that later nested request is therefore invalid.
 
-The direct callsite is shared by the actor movement wrapper, so player identity
-alone is not sufficient scope. A chained entry hook on `PlayerMover::Update`
-at `0x009E9E50` opens a stack-scoped, main-thread movement token only when its
-`this` equals the current player's mover at `+0x190` and the ownership snapshot
-is current. The nested `0x008A6339` wrapper may transform only while that token
-is active. Reentrancy or a second entry fails native. The token is cleared by
-RAII on every return path and contains no retained engine pointer.
+The rejected candidate chains the live `+0x250` slot target and transforms
+vector plus flags in one transaction. For the live player, downstream
+`0x0092F260` reads raw Actor `rotZ` through `0x0080F790`, builds the native Z
+matrix, and rotates the local vector into world space. That proves the movement
+geometry, but passing a mapped Explore nibble through this wrapper did not fix
+the visible 90-degree animation family. The subsequent masked write to
+`PlayerMover +0x94` is invalid: it occurs after the last read in the current
+update and becomes stale input to the next update. It must be removed, not
+moved earlier. Combat and unsupported states leave that persistent word
+unchanged.
+
+The visible selector is the earlier direct call at `0x009422D9` to
+`0x00894F90`. It receives the current `PlayerCharacter::Update` movement byte
+and maps forward, backward, left, and right to animation groups 11, 12, 13,
+and 14 before resolving the active animation path. Atom chains this exact
+callsite and substitutes only its body-relative low nibble in Explore. The
+live predecessor, higher bits, Combat policy, PlayerMover state, skeleton,
+and animation assets remain with their existing owners.
+
+A chained entry hook on `PlayerMover::Update` at `0x009E9E50` opens a
+stack-scoped, main-thread movement token only when its `this` equals the current
+player's mover at `+0x190` and the ownership snapshot is current. The nested
+player `+0x250` call may transform only while that token is active. Reentrancy
+or a second entry fails native. RAII clears the token on every return path, and
+the token contains no retained engine pointer.
 
 Define FNV's proven local-to-world matrix as
 `E(h) * (x, y) = (cos(h)x + sin(h)y, -sin(h)x + cos(h)y)`. For native local
 input `L`, logical view heading `v`, and the actual actor heading `a'` that
 will reach `0x0092F260`, Atom passes `E(v - a') * L`; native then produces
-`E(a') * E(v - a') * L = E(v) * L`. Atom computes the desired world movement
-heading first, advances and writes `a'`, and only then performs this
-compensation. In `Explore`, the actor faces nonzero movement and
-the downstream low nibble becomes native forward `0x01`, producing forward
-locomotion. In `Combat`, actor facing is view-relative and the original low
-nibble remains the correct forward/back/strafe animation intent. Unsupported
-states retain both original vector and flags.
+`E(a') * E(v - a') * L = E(v) * L`. The rejected candidate computes the
+desired world movement heading first, advances and writes `a'`, and only then
+performs this compensation. That algebra preserves physical travel direction,
+while the independent `0x009422D9` call owns visible directional locomotion.
+Combat and unsupported states retain both original vector and flags.
 
 ## Why the installed 360 Movement fails
 
@@ -629,11 +641,11 @@ direction    = normalize(world_intent) when speed is nonzero
 FNV builds both keyboard and controller intent into the same native vector and
 uses `0x01/0x02/0x04/0x08` for forward/back/left/right. Its heading transform
 uses the engine rotation matrix with the negative authoritative horizontal
-heading. Atom will reuse that convention and rotate only the final existing
-vector at `0x008A6339`; it will not synthesize a new speed. It maps the low
-nibble only to express the documented Explore or Combat animation policy and
-preserves all higher walk/run/sneak, auto-move, disabled-control, action, and
-controller-magnitude semantics.
+heading. Atom reuses that convention and rotates only the finalized vector at
+the scoped PlayerCharacter `+0x250` wrapper; it does not synthesize a new
+speed. It maps the low nibble only to express the documented Explore or Combat
+animation policy and preserves all higher walk/run/sneak, auto-move,
+disabled-control, action, and controller-magnitude semantics.
 
 ### Facing policies
 
@@ -650,8 +662,8 @@ transform storage and never skeleton correction nodes. The slot resolves to
 `0x008A6A00`, which gates the actor state and calls absolute-heading setter
 `0x00931B60`; that setter normalizes the angle and routes it through the
 native actor/3D update. Calls are admitted only from the scoped
-`0x008A6339` player movement-request context, before the native movement
-predecessor, with explicit reentrancy protection. Shortest-angle wrapping,
+PlayerCharacter `+0x250` context, before the captured wrapper predecessor,
+with explicit reentrancy protection. Shortest-angle wrapping,
 maximum turn speed, and acceleration prevent visual snapping while the
 separately rotated movement vector remains authoritative.
 
@@ -758,15 +770,16 @@ still validate the immutable caller bytes and live predecessor at
 
 | Capability | Candidate boundary | Plan |
 |---|---:|---|
-| Horizontal view | existing Atom hook at `0x00945F90` | Dispatch transformed delta to native actor yaw or Atom view yaw by ownership state. |
+| Horizontal view | existing Atom hook at `0x00945F90` | Own the normal standing Actor-yaw route. The other `+0x6E4` branch is sitting-only and remains native. |
 | Vertical view | existing Atom hook at `0x00945FD8` | Preserve the native actor-pitch route or update Atom logical pitch without adding a second input filter. |
 | Camera-update scope | shared complete entry at `0x0094AE40` | Chain the complete UpdateCamera predecessor for all eleven native callers while publishing a matching-player scope only during admitted normal third person. |
 | Camera heading | PlayerCharacter vtable slot `0x0108ACF8` (`+0x2BC`) | Always call the live predecessor; substitute Atom view heading only inside the admitted UpdateCamera scope. |
 | Camera pitch | call at `0x0094AE94` | Always call the live raw-pitch predecessor; substitute Atom logical pitch only inside the admitted UpdateCamera scope. |
 | Follow target | call at `0x0094B7D2` | Compose proven vector arguments, then call the exact captured native collision predecessor. |
 | Player movement scope | entry `0x009E9E50` | Chain `PlayerMover::Update` while opening a stack-scoped token only for the current live player mover. |
-| Movement request | call at `0x008A6339` | Capture immutable world intent, invoke facing, re-read raw Actor `rotZ`, compensate the post-`PlayerMover` vector against that observed heading, preserve magnitude/high flags, map only the low direction nibble by policy, then chain `0x0092F260`. |
-| Actor facing | live player virtual `+0x2C4` | Call the absolute native yaw route from the scoped movement-request seam and the stationary AIM/Combat camera handoff with shared reentrancy protection; sample raw `rotZ` after its void return. |
+| Complete player movement | PlayerCharacter vtable `+0x250`, slot `0x0108AC8C` | Chain the live wrapper target; transform its finalized vector and complete flags together, advance facing, re-read raw Actor `rotZ`, preserve magnitude/high flags, and map only the Explore low direction nibble from that same yaw. |
+| Directional animation | call `0x009422D9` to `0x00894F90` | Chain the current-invocation group selector and substitute only body-relative Explore direction. Never write the result to PlayerMover state. |
+| Actor facing | live player virtual `+0x2C4` | Call the absolute native yaw route from the scoped complete-wrapper seam and the stationary AIM/Combat camera handoff with shared reentrancy protection; sample raw `rotZ` after its void return. |
 | Reticle/view target | call at `0x0070C130` | Substitute Atom's logical view ray only while owned, chain the live `ViewCaster` predecessor, and capture its result by ownership epoch. |
 | Projectile convergence | call at `0x005245BD` | For admitted projectile capabilities, preserve native sampled spread and spawn the native class from the real muzzle toward the captured view target. |
 
@@ -907,26 +920,26 @@ records the direct disassembly and the proof/inference boundary. Closure is:
    already owns both contraction and outward distance recovery, so Phase 2
    needs no separate recovery hook.
 3. Direction bits, analog carrier, native heading transform, vector setter,
-   coupled vector/flag request, downstream animation/physics/root-transform
-   ownership, and `PlayerMover` lifetime are closed. The admitted request seam
-   is `0x008A6339`.
+   coupled vector/flag wrapper, and `PlayerMover` lifetime are closed.
+   PlayerCharacter vtable `+0x250` at slot `0x0108AC8C` is a coherent movement
+   seam. The current-invocation directional animation selector is the call at
+   `0x009422D9` to `0x00894F90`.
 4. The native ownership table above closes every base-game state. Arbitrary
    mod vehicles have no base-game predicate and require an explicit external
    ownership capability; this is a proven compatibility boundary, not a
    guessed offset.
 5. The authoritative absolute heading route is live player virtual `+0x2C4`,
    resolving through `0x008A6A00` to `0x00931B60`, called from the scoped
-   movement-request context before the native predecessor.
+   complete-wrapper context before the captured predecessor.
 6. Native reticle casting, muzzle lookup, base and spread angles, spawn ABI,
    projectile subtype dispatch, hitscan/physical ownership, continuous types,
    range, and obstruction ownership are closed. The admitted Phase 5 seams are
    `0x0070C130` and `0x005245BD`.
 
-Gate result: mutating implementation may begin with Phase 1 and proceed in
-order. This is a static safety result, not runtime acceptance. Every hook still
-needs a validated instruction fingerprint/live predecessor, focused behavior
-tests, the supported release build, and the listed Proton playtest before its
-capability is enabled by default.
+Gate correction, 2026-08-19: movement presentation and horizontal-yaw dispatch
+are not closed. No further locomotion or horizontal-view mutation may proceed
+until the two open contracts above are proven. This does not invalidate the
+unrelated camera, collision, or aiming contracts.
 
 ### Phase 1: lifecycle and passive observer
 
@@ -1566,14 +1579,22 @@ it and uses the live native result.
 
 Runtime acceptance then reproduced a separate yaw reset with Auto Center
 disabled. The cause was the fail-native movement path folding `+0x6E4` into
-Actor yaw for every ownership miss. Once the offset was cleared, ordinary
-movement-facing updates dragged the camera toward the actor before Atom could
-reacquire. Atom now retains the already-published offset across internal misses
-and at most 120 ms of disabled-control or non-gameplay-context interruption in
-otherwise valid third person. The token is player, reset-generation, and
-current/adjacent-input-frame bound. POV, menu, VATS, free/special camera,
-scripted action, death, invalid world state, external ownership, or a longer
-interruption still performs the immediate native handoff.
+Actor yaw for every ownership miss. The first retention fix reduced the reset
+rate but Proton still reproduced it on travel: the horizontal-input detour
+could fail feature admission, skip Atom, and invoke native look after the same
+fold. Once the offset was cleared, ordinary movement-facing updates dragged
+the camera toward the actor before Atom could reacquire.
+
+Feature admission and visible-view ownership are now separate. Missing mover,
+process, cell, collision owner, active 3D, action frame, disabled controls, or
+gameplay context may reject follow/movement work, but do not by themselves
+transfer view yaw. The last finite `+0x6E4` representation remains bound to the
+live player and reset generation for the entire internal gap. Explore input
+continues to advance and republish that camera-only heading without calling
+the native incremental look routine. Only POV, menu, VATS, free/special
+camera, scripted action, death/knockdown, furniture, explicit external
+ownership, player mismatch, invalid perspective, or lifecycle reset performs
+the native handoff.
 
 Automatic recentering now fades between 70 and 82 degrees absolute pitch and
 stops at the upper boundary. Manual look remains immediate. This prevents a
@@ -1632,12 +1653,14 @@ Motion is exactly zero while aiming and eases back after aim release. Its
 world-space cap remains small while desired-distance scaling keeps comparable
 screen-space weight across the configured zoom range. The translated endpoint
 is composed after axial follow and before the existing native collision helper;
-the original player pivot is unchanged, so native collision covers the entire
-adjusted player-to-camera segment. Axial follow projects only horizontal player
-lag. Actor Z tracks every terrain contour, so admitting vertical pivot lag as
-chase distance made holes and small road rocks lengthen a downward or skyward
-camera ray and repeatedly trigger native contraction. Terrain height now moves
-the native camera and pivot together without entering Atom's chase arm.
+motion itself leaves the player pivot unchanged. The native collision segment
+must keep that exact actor-derived pivot: moving the whole segment changes its
+world-space hit set and makes interior clutter behave as camera obstructions.
+Axial follow projects only horizontal player lag. Actor Z tracks every terrain
+contour, so admitting vertical pivot lag as chase distance made holes and small
+road rocks lengthen a downward or skyward camera ray and repeatedly trigger
+native contraction. Terrain height now moves the native camera and pivot
+together without entering Atom's chase arm.
 
 The first runtime performance report had both first- and third-person motion
 enabled. Static call-chain review found that each subsystem independently
@@ -1685,8 +1708,9 @@ Static inspection proves that Atom previously projected vertical follow lag
 onto the three-dimensional chase axis before `0x0094A0C0`; the reported road
 surface changes therefore could alter available camera distance even though
 FNV already translated the camera with the actor. The correction removes only
-that duplicate vertical contribution and retains the original pivot, endpoint
-ordering, collision cast, wall contraction, and native outward recovery.
+that duplicate vertical contribution. Atom retains the exact native pivot,
+endpoint ordering, single collision cast, wall contraction, and native outward
+recovery.
 Acceptance must repeat rough-road, rock, hole, steep up-look, wall, low-ceiling,
 and slope traversal with Follow Camera both off and on.
 
@@ -1825,3 +1849,183 @@ chatter; one authored fade after the adaptive quiet interval; physical and
 toggle ADS; no persistent left head bias; visible but restrained walk, sprint,
 jump, and landing motion; rough-road collision; exact cursor/tracer/impact
 agreement; and clean POV, VATS, menu, holster, cell, and external-owner handoff.
+
+## 2026-08-19 camera-yaw and coherent-locomotion correction candidate
+
+Status: **rejected by Proton behavior**. The candidate makes lateral movement
+and camera stability worse and must not be released. No MCM page or setting is
+added; all eventual corrections remain under the existing `Atom.json` Camera
+configuration.
+
+### Correct intervention points
+
+Direct executable evidence closes the stale-input cause. The formerly
+suspected state-4 horizontal path is sitting-only and does not explain normal
+travel. `PlayerMover::Update`
+reads and branches on its low direction nibble at `0x009E9F95` and
+`0x009EA062`, including left/right vector preparation beginning at
+`0x009EA11B`. It then calls the live movement-flags getter at `0x009EA20D` and
+immediately passes that result with the finalized vector to the player movement
+virtual at `0x009EA232`. Atom's nested movement request at `0x008A6339` was
+therefore too late to change the locomotion family seen by the complete player
+wrapper.
+
+The first correction incorrectly used `PlayerMover +0x88` for early facing.
+Proton disproved that assumption with a constant 90-degree body error. Direct
+disassembly shows that PlayerMover initializes and mutates a different local
+vector from global/native helpers; `+0x88` participates only in its
+magnitude/override normalization and is not the final wrapper direction.
+
+The corrected seam is PlayerCharacter vtable `+0x250`: slot `0x0108AC8C`,
+whose supported native target is the complete wrapper at `0x008A62B0`. This is
+the first boundary where the finalized post-PlayerMover Vec3 and complete flags
+exist together, before the wrapper consumes either. Atom chains the live slot
+target so another compatible provider remains in the predecessor chain. The
+outer `PlayerMover::Update` scope admits only the live player's nested call.
+
+Atom leaves `PlayerMover +0x88` and its complete preprocessing untouched.
+Within the admitted `+0x250` call, it derives world intent, advances facing,
+reads the actual resulting raw Actor yaw, compensates the vector, and classifies
+the Explore low nibble against that same yaw. Vector and flags then reach the
+captured wrapper predecessor together. Every high flag is preserved; Combat
+keeps native forward/back/strafe flags.
+
+The added post-update write to `PlayerMover +0x94` is now disproven. No code in
+`PlayerMover::Update` reads `+0x94` after the nested `+0x250` call, so the write
+cannot change that invocation's animation. It instead survives until the next
+update, where `0x009E9F95` consumes it as movement input and the native lateral
+and diagonal paths can feed it into vector preparation. Repeated or overlapping
+A/D input therefore exposes stale direction feedback. This write must be
+removed. The proven replacement is the current-invocation `0x009422D9` call to
+`0x00894F90`; it changes only that animation selector argument and never
+publishes the derived nibble to PlayerMover.
+
+The rejected terrain-clearance change translated both collision endpoints by
+the shoulder offset. Equal translation preserves segment length, but it moves
+the segment through a different set of world objects. Proton showed exactly
+the resulting regressions: tables, cups, actors, walls, and other close-interior
+clutter contracted the camera, while the reported heading reset remained. The
+native helper owns distance and collision, not view yaw. Atom now passes the
+original native pivot pointer unchanged and performs no extra clearance query.
+Only the desired endpoint contains Atom's bounded follow and motion offsets.
+
+The travel reset is handled as a yaw-ownership failure. An internal feature
+miss of any duration is not a camera-owner transition and therefore cannot
+fold or clear Atom's persistent camera-only heading. The horizontal-input hook
+consumes Explore input from the retained heading during such a gap and
+republishes `+0x6E4`; it must not call native look because that routine starts
+from adjusted heading and would apply the old offset a second time. Real
+ownership transitions still release through the established POV, VATS, menu,
+scripted, death, furniture, knockdown, and external-owner gates. This separates
+collision contraction from view-yaw lifetime instead of trying to repair one
+with the other.
+
+The apparent second normal-look path is not a terrain path. Player virtual
+`+0x214` resolves to the sit/sleep-state query, Actor `+0x1AC` is its state,
+and value 4 is sitting in the matching xNVSE headers. The direct
+`0x00945E81..0x00945EF1` `+0x6E4` update is therefore outside normal standing
+travel and must not motivate a broad helper hook.
+
+The remaining standing gap is inside Atom's own scope lifecycle. Cell changes
+and transient missing mover/collision/process/active-3D observations reject
+feature work while the same player still owns logical yaw. The rejected build
+then ran that `UpdateCamera` invocation without a scope, allowing an intervening
+Actor-yaw or `+0x6E4` change to reach the native adjusted-heading read. The
+candidate now publishes a retained scope after the current callback proves
+stable third person and no real camera owner. It retains logical yaw, pitch,
+and the last complete pre-collision follow/motion contributions while leaving
+the native helper in control of collision and the final position write.
+
+Auto-center no longer latches a hidden target while pitch is inside its
+vertical suppression zone. Suppression clears the target and restarts the
+configured idle delay, so returning from a long skyward or groundward look
+cannot execute a deferred yaw correction immediately.
+
+### Behavioral acceptance matrix
+
+Repository policy prohibits adding or rewriting Rust/gameplay tests. The
+existing Wine-hosted suite validates reusable policy math but cannot observe
+FNV animation selection, collision geometry, chained providers, or camera
+images. The following Proton gameplay scenarios are therefore the required
+behavioral tests; every row must pass on the same release artifact.
+
+| Scenario | Procedure | Pass condition | Current result |
+|---|---|---|---|
+| Rough terrain | At 30, 120, 170, 240, and 300 units, walk and sprint both directions over cracked roads, loose rocks, holes, and a mountainside; hold level, steep up, and steep down views for 20 seconds each. Repeat with Follow Camera off and on. | View yaw never resets to Actor facing. Camera distance changes only when the unchanged native segment encounters visible geometry. Motion remains continuous. | **FAIL:** 2026-08-20 Proton report says behavior is better but the camera-position glitch remains. |
+| Close interior | Walk through a furnished room beside tables, loose objects, NPCs, door frames, and walls at practical interior distance. | Atom behaves like the native collision route: no new contraction from a translated collider, and ordinary navigation remains usable. | **FAIL:** current report says A/D can stick or rotate the camera in complex geometry. The earlier translated-pivot candidate also contracted against clutter. |
+| Real obstruction | At every practical distance, back into a wall, cross a doorway, pass under a low ceiling, and circle a narrow pillar. | The native camera contracts before geometry, never clips through it, and returns monotonically without popping after clearance. | Not run on current candidate. |
+| Recenter isolation | Repeat rough-terrain travel with Auto Center off. Then enable it, hold above the suppression pitch longer than Center Delay, return to level, and keep moving. | Off never changes view yaw. On waits one complete fresh Center Delay after leaving the pole, then turns smoothly at the configured rate. | **FAIL:** camera reset remains with Auto Center off on the current rejected candidate. |
+| Axis identity | Align camera and actor, start from rest, and press forward, backward, left, and right separately at world headings 0, 90, 180, and 270 degrees. Repeat with Actor yaw held 90 degrees from camera yaw before each input. | Each cardinal input preserves its camera-relative world direction. No input adds a constant 90-degree body rotation and no cardinal collapses into a diagonal. | **PARTIAL:** 2026-08-20 Proton report confirms sole LEFT and RIGHT now select LEFT and RIGHT animations. The complete heading matrix was not reported. |
+| Camera/body quadrants | Holster or draw a weapon without aiming. Place the camera at 0, 45, 90, 135, and 180 degrees from actor yaw; press every keyboard direction and diagonal, then trace slow and fast full circles on a controller. | World travel follows the camera, while the visible locomotion family matches travel relative to the Actor's actual post-turn yaw. Body-forward travel uses forward animation; actual body-left travel uses left animation. Sector boundaries do not chatter. | **PARTIAL:** sole LEFT and RIGHT animation identity passes on the 2026-08-20 candidate; the remaining quadrant and controller cases were not reported. |
+| Combat isolation | From every camera quadrant, hold ADS or sustained hip fire while moving through every cardinal and diagonal direction, then release combat and continue moving. | Combat preserves native strafing and firing presentation; Explore eight-way presentation resumes once, with no direction flash, body reversal, or camera snap. | Not run on current candidate. |
+| Ownership transitions | During movement enter and leave first person, VATS, Pip-Boy, pause, console, loading/cell transition, scripted animation, knockdown, and an external camera-owner token. | Native ownership is immediate; reacquisition has one stable frame and no stale direction nibble, recenter target, collision distance, or spring state. | Not run on current candidate. |
+| Provider compatibility | Repeat camera/body quadrants and obstruction tests with the intended third-person animation/camera stack, then with each provider independently disabled. | Results remain geometrically and directionally correct. A provider may keep its authored style, but Atom does not double-turn, overwrite later movement flags, add a cast, or oscillate ownership. | Not run on current candidate. |
+| Frame pacing | Repeat rough terrain, quadrant circles, and obstruction recovery at capped 30, 60, and 120 FPS and uncapped irregular load. Compare Atom Camera enabled/disabled over the same route. | No new recurring hitch or degradation appears. Telemetry shows one admitted complete-wrapper decision per player movement call and zero per-frame log spam. | Not run on current candidate. |
+
+Three cold Proton starts with BaseObjectSwapper present must reach normal
+gameplay before this matrix. A recorded failure in any row leaves the artifact
+an unaccepted candidate. Static tests, compilation, and telemetry alone cannot
+substitute for these observations.
+
+### Rejection tests added from the lateral regression
+
+These are real Proton behavioral tests, not Rust models. Repository policy
+prohibits adding or rewriting gameplay tests, and a host process cannot render
+FNV's animation graph or exercise its native collision world. Each test is
+therefore a deterministic playtest procedure with a visible oracle. A
+controlled recording must reproduce the marked failures on the rejected
+2026-08-19 artifact; the replacement must pass every row on one unchanged
+artifact.
+
+For camera tests, disable Auto Center and do not touch the mouse after placing
+the view. Use a distant fixed landmark where possible so ordinary translation
+parallax cannot be mistaken for yaw. Record at 60 FPS or higher from five
+seconds before input until five seconds after release. Any uncommanded yaw,
+instant return toward Actor facing, reversal, oscillation, or failure to settle
+is a failure.
+
+| ID | Setup and stimulus | Observable oracle | Rejected-candidate result |
+|---|---|---|---|
+| `LAT-01` | Flat exterior, holstered, camera held 90 degrees from Actor. Hold A for one second, release for 250 ms, hold D for one second, release for 250 ms. Repeat 30 times without mouse input. | Travel reverses cleanly. Camera world yaw remains fixed. Actor and animation change direction once per edge and settle after release. | **FAIL:** user reports incorrect 90-degree walk presentation. |
+| `LAT-02` | Same setup, but perform `A -> A+D -> D -> none`, 250 ms per phase, for 50 cycles. Repeat with the order reversed. | The overlap phase produces no stale motion. Releasing both keys stops directional locomotion and camera motion. The next sole key always owns the correct side. | **FAIL:** user reports severe A/D camera sticking and rapid rotation. This sequence directly stresses the persisted `+0x94` feedback. |
+| `LAT-03` | Repeat `LAT-01` and `LAT-02` in a furnished interior beside walls, tables, loose clutter, door frames, and NPCs at 30, 120, and 240 camera units. | Collision may change distance only. It never changes yaw, input ownership, direction family, or settling. | **FAIL:** user reports the lateral camera defect is easier to reproduce in complex geometry. |
+| `YAW-01` | Flat exterior negative control, Auto Center off. Choose an arbitrary nonzero camera/body offset, then travel forward, backward, left, and right for 60 seconds each without look input. | Camera world yaw stays at the chosen value for the full run. | **FAIL:** rare reset remains according to the 2026-08-19 report. |
+| `YAW-02` | Walk and sprint a fixed route over rocks, holes, slopes, and a mountainside for ten minutes. Alternate 20-second level, steep-up, and steep-down views. Auto Center remains off. | No frame resets, clamps, or eases yaw toward Actor facing. Native collision changes distance only. | **FAIL:** resets are less frequent but still present. |
+| `YAW-03` | In both flat and cluttered locations, repeat `LAT-02` while beginning at camera/body offsets of 45, 90, 135, and 180 degrees. | With zero mouse input, each run retains its initial world-view yaw through every input edge and overlap. | **FAIL:** combines both currently reported regressions and catches branch-dependent yaw divergence. |
+| `ANIM-90` | At each 90-degree camera/body relation, choose the camera-relative cardinal that moves along Actor visual forward, then the one that moves along Actor visual left. Repeat holstered and weapon-drawn without ADS. | Physical Actor-forward travel uses forward locomotion; physical Actor-left travel uses left locomotion. No diagonal or side family persists after raw Actor yaw aligns. | **FAIL:** current animation family remains wrong at 90 degrees. |
+| `OWNER-01` | Repeat `YAW-03`, interrupting separate cycles with POV, menu, VATS, console, furniture, knockdown, and an external-owner token. | Native owner takes control immediately. Atom reacquires only after the established stable interval and restores no pre-owner input or yaw. | Not run on rejected candidate. |
+| `PROVIDER-01` | Run `LAT-02`, `YAW-03`, and `ANIM-90` with the intended animation/camera providers, then with each provider independently disabled. | Geometry and direction stay correct in every profile; only authored visual style may differ. | Not run on rejected candidate. |
+
+The flat/cluttered pairs are intentional controls. If both fail identically,
+the defect is input/yaw ownership rather than collision. If only cluttered
+geometry fails, the next run must capture native rejection counters before any
+collision change is proposed. The overlap phase is also essential: ordinary
+single-key tests did not expose the future-frame `PlayerMover +0x94` feedback.
+
+### Candidate correction and remaining gate
+
+The rejected artifact already fails the explicit `LAT-02`, `YAW-01..03`, and
+`ANIM-90` behavioral oracles above. Repository policy prohibits adding or
+rewriting native/gameplay test programs, so these deterministic Proton
+scenarios are the acceptance gate. The candidate implementation is:
+
+1. Remove the post-`PlayerMover::Update` low-nibble publication completely.
+   `PlayerMover +0x94` returns to exclusive native/chained-owner control. Do
+   not replace it with an earlier write.
+2. Leave `0x009422D9 -> 0x00894F90` under native/chained-owner control. Its
+   current-invocation direction bits already represent the sole cardinal input;
+   recomputing them from a pre-update Actor yaw manufactured the diagonals.
+3. On a feature-only rejection, publish retained view axes and the last complete
+   pre-collision spatial contributions only when the current observation proves
+   the same player, stable third person, and no native or registered external
+   view owner. Keep collision and the final position write native.
+4. Retain the state-0 normal horizontal hook. Leave the sitting-only state-4
+   branch native instead of broadening Atom ownership from a disproven terrain
+   theory.
+5. The 2026-08-20 Proton check confirms sole LEFT/RIGHT animation identity but
+   still reproduces the camera-position glitch. Preserve this snapshot as a
+   rejected partial candidate, then catch the remaining camera failure before
+   another production edit. Run the
+   complete matrix, three cold BaseObjectSwapper starts, the existing static
+   suite, and the explicit 32-bit release build. Any behavioral failure rejects
+   the candidate without another release claim.
