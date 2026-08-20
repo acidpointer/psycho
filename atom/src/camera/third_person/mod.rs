@@ -746,6 +746,14 @@ pub(crate) fn log_diagnostics_summary() {
         snapshot.nonzero_follow_offsets,
     );
     log::info!(
+        "[CAMERA_TELEMETRY] Native camera collision: samples={}, distance_drops={}, max_contraction={:.3}, max_frame_drop={:.3}, max_unexplained_drop={:.3}",
+        snapshot.follow_collision_samples,
+        snapshot.follow_distance_drops,
+        f32::from_bits(snapshot.max_collision_contraction_bits),
+        f32::from_bits(snapshot.max_resolved_distance_drop_bits),
+        f32::from_bits(snapshot.max_unexplained_distance_drop_bits),
+    );
+    log::info!(
         "[CAMERA_TELEMETRY] Third-person movement: scope_calls={}, admitted_scopes={}, wrapper_calls={}, overridden={}",
         snapshot.movement_scope_calls,
         snapshot.movement_scopes_admitted,

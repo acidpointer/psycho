@@ -501,19 +501,34 @@ unsafe extern "thiscall" fn follow_detour(
         unsafe { predecessor(player, desired, pivot, mode) };
         return;
     };
+    let requested = *desired_value;
+    let pivot_value = *pivot_value;
     if !desired_value.is_finite() || !pivot_value.is_finite() {
         unsafe { predecessor(player, desired, pivot, mode) };
         return;
     }
     let Some(follow_offset) = super::scoped_follow_offset(player) else {
         unsafe { predecessor(player, desired, pivot, mode) };
+        if let Some(resolved) = (unsafe { desired.as_ref() }).copied() {
+            super::diagnostics::mark_follow_collision(
+                player as usize as u32,
+                requested - pivot_value,
+                resolved - pivot_value,
+            );
+        }
         return;
     };
     super::diagnostics::mark_follow_offset(follow_offset);
 
-    let Some(followed) = super::compose_follow_camera(*desired_value, *pivot_value, follow_offset)
-    else {
+    let Some(followed) = super::compose_follow_camera(requested, pivot_value, follow_offset) else {
         unsafe { predecessor(player, desired, pivot, mode) };
+        if let Some(resolved) = (unsafe { desired.as_ref() }).copied() {
+            super::diagnostics::mark_follow_collision(
+                player as usize as u32,
+                requested - pivot_value,
+                resolved - pivot_value,
+            );
+        }
         return;
     };
 
@@ -522,6 +537,11 @@ unsafe extern "thiscall" fn follow_detour(
     // persistent chase-distance solver at the final position callsite.
     let mut adjusted_desired = followed;
     unsafe { predecessor(player, &mut adjusted_desired, pivot, mode) };
+    super::diagnostics::mark_follow_collision(
+        player as usize as u32,
+        followed - pivot_value,
+        adjusted_desired - pivot_value,
+    );
     unsafe { desired.write(adjusted_desired) };
 }
 
