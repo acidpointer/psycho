@@ -342,6 +342,18 @@ model_postprocess_serialization_fix = true
 # every allocator mode.
 queued_task_lifetime_guard = true
 
+# Prevents the shared source-texture cache publisher from calling through
+# unreadable or non-executable virtual dispatch. The guard checks the three
+# callbacks used immediately by the native publisher and confirms that the
+# source still names the same vtable before forwarding. Valid objects and
+# plugin-provided executable callbacks are left unchanged.
+#
+# A rejected object is not retained, released, freed, repaired, or substituted;
+# only that cache insertion is skipped. The check does not prove or repair the
+# unknown invalidating owner. It applies with allocator modes 0, 1, and 2 and
+# does not identify or special-case any mod.
+source_texture_cache_publication_guard = true
+
 # =============================================================================
 # NATIVE IO
 # =============================================================================

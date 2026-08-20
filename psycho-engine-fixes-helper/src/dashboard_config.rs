@@ -81,6 +81,8 @@ pub(crate) struct EditableConfig {
     pub hitch_profiling: bool,
     pub task_lifetime_trace: bool,
     pub lod_streaming_trace: bool,
+    /// Restart-only invalid source-texture dispatch containment.
+    pub source_texture_cache_publication_guard: bool,
 }
 
 impl Default for EditableConfig {
@@ -134,6 +136,7 @@ impl Default for EditableConfig {
             hitch_profiling: false,
             task_lifetime_trace: false,
             lod_streaming_trace: false,
+            source_texture_cache_publication_guard: true,
         }
     }
 }
@@ -407,6 +410,12 @@ impl EditableConfig {
                 "lod_streaming_trace",
                 defaults.lod_streaming_trace,
             ),
+            source_texture_cache_publication_guard: bool_or(
+                doc,
+                "engine_fixes",
+                "source_texture_cache_publication_guard",
+                defaults.source_texture_cache_publication_guard,
+            ),
         }
         .sanitized()
     }
@@ -669,6 +678,7 @@ fn write_document(doc: &mut DocumentMut, config: &EditableConfig) {
     engine!(model_postprocess_serialization_fix);
     engine!(queued_task_lifetime_guard);
     engine!(patrol_owner_form_id_guard);
+    engine!(source_texture_cache_publication_guard);
 
     macro_rules! setting {
         ($section:literal, $key:literal, $field:ident) => {
@@ -791,6 +801,7 @@ mod_owned_key = "untouched"
         config.encounter_zone_invalid_form_guard = false;
         config.cell_render_reference_retirement_fix = false;
         config.model_postprocess_serialization_fix = false;
+        config.source_texture_cache_publication_guard = false;
         write_document(&mut document, &config);
         let saved = document.to_string();
 
@@ -807,6 +818,7 @@ mod_owned_key = "untouched"
         assert!(saved.contains("encounter_zone_invalid_form_guard = false"));
         assert!(saved.contains("cell_render_reference_retirement_fix = false"));
         assert!(saved.contains("model_postprocess_serialization_fix = false"));
+        assert!(saved.contains("source_texture_cache_publication_guard = false"));
         let reparsed = parse_document(&saved).expect("parse saved document");
         assert!(!EditableConfig::from_document(&reparsed).install_path_registry_repair);
         assert_eq!(
@@ -820,6 +832,7 @@ mod_owned_key = "untouched"
         assert!(!EditableConfig::from_document(&reparsed).encounter_zone_invalid_form_guard);
         assert!(!EditableConfig::from_document(&reparsed).cell_render_reference_retirement_fix);
         assert!(!EditableConfig::from_document(&reparsed).model_postprocess_serialization_fix);
+        assert!(!EditableConfig::from_document(&reparsed).source_texture_cache_publication_guard);
     }
 
     #[test]

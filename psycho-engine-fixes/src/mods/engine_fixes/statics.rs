@@ -155,6 +155,15 @@ pub const TASK_DISPATCH_BYTES: [u8; 13] = [
     0x8B, 0x55, 0xC8, 0x8B, 0x02, 0x8B, 0x4D, 0xC8, 0x8B, 0x50, 0x1C, 0xFF, 0xD2,
 ];
 
+// ---- Source-texture cache publication ----
+
+/// Shared cache publisher reached by all eight verified native callsites.
+pub const SOURCE_TEXTURE_CACHE_PUBLISH_ADDR: usize = 0x00A6_1C50;
+
+pub static SOURCE_TEXTURE_CACHE_PUBLISH_HOOK: LazyLock<
+    InlineHookContainer<SourceTextureCachePublishFn>,
+> = LazyLock::new(InlineHookContainer::new);
+
 // ---- LOD streaming and distant-to-real handoff ----
 
 pub const LOD_TERRAIN_DEMAND_ADDR: usize = 0x006F_E550;

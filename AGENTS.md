@@ -17,11 +17,11 @@ Do not trade correctness for speed. Do not add process, diagnostics, or abstract
 
 1. Restate the outcome internally; identify files, invariants, and explicit constraints.
 2. Inspect only relevant code, tests, docs, and `git status`. Use `rg`/`rg --files`; batch independent reads.
-3. Resolve material unknowns from code or authoritative research. Make reversible assumptions; ask only when a choice is blocking, destructive, or changes scope.
-4. Define the exact observable behavior that will accept the bug fix or feature. Do not add a source-code test unless it directly validates shipped HLSL shader behavior.
-5. Make the smallest coherent change. Avoid opportunistic refactors and unrelated formatting.
-6. Validate in layers: focused check, affected suite, then one release build when required.
-7. Inspect the final diff for accidental changes. Report the outcome, evidence, and any remaining playtest need concisely.
+3. Resolve every material unknown from direct evidence. Never fill a gap with an assumption; if authorized inspection cannot prove it, stop and ask for the missing evidence or decision.
+4. Establish the exact behavioral acceptance test. For troubleshooting, run it against the unchanged affected behavior and record its failure before research or production edits.
+5. Research the proven failing path, then make the smallest coherent change. Avoid opportunistic refactors and unrelated formatting.
+6. Run the same behavioral test and validate in layers: focused check, affected suite, then one release build when required.
+7. Inspect the final diff for accidental changes. Report the outcome, evidence, and any remaining behavioral gate concisely.
 
 Stop when the requested outcome is proven. Do not continue speculative cleanup or research.
 
@@ -66,26 +66,73 @@ A change is done only when:
 - `git diff --check` passes and the diff contains no unintended edits;
 - unsupported claims and unverified runtime behavior are identified honestly.
 
-The release gate requires a behavioral test that precisely validates the
-requested result. If such a test is technically impossible, it instead
-requires complete, independently checkable correctness evidence and the user's
-explicit strict approval. Models, unit tests, logs, builds, static contracts,
-and plausible architecture do not substitute for behavior. Until the gate
-passes, label the work an unaccepted candidate; do not release, package,
-commit, call it complete, or present it as ready.
+The behavioral gate below has no static-evidence exception. If the exact
+behavior cannot be tested, implementation is blocked. Until the gate passes,
+do not release, package, commit, call the work complete, or present it as ready.
 
 Documentation-only changes need document checks and diff inspection, not a
 Rust build. Compilation never proves runtime or image correctness.
 
-## Test creation prohibition
+## No guessing and behavioral-test gate
 
-Do not add or rewrite tests for Rust, C/C++, native hooks, gameplay,
-configuration, manifests, source/order text, binaries, or documentation.
-Existing non-HLSL tests may only be run. New tests are allowed solely for
-shipped `.hlsl` behavior: compilation, bytecode budgets, deterministic
-reference images, or shader-output properties. Each must demonstrably reject a
-real defect or protect a concrete shader contract; never add coverage,
-implementation-mirroring, mocked-result, or process-only tests.
+Guessing is forbidden in troubleshooting, feature work, research, test design,
+validation, and reporting. Never derive a cause, path, contract, value, oracle,
+expected result, or implementation from assumption, resemblance, analogy,
+likelihood, a reconstructed stand-in, a synthetic proxy, or unverified
+inference. Every material decision requires an explicit user requirement or
+direct evidence from actual behavior, executed code/data, an authoritative
+source, or a verified binary. Unknown means stop: inspect it or request the
+missing evidence.
+
+A behavioral test executes the actual shipped path and observes the requested
+result at its real boundary. Models, mocks, source assertions, reimplemented
+references, synthetic lookalikes, compilation, logs, builds, bytecode, and
+static contracts do not substitute. Visual tests use the affected assets,
+materials, passes, state, order, and composition. Performance tests measure the
+same workload and settings against an explicit metric. Startup, gameplay,
+native-hook, and engine behavior runs through the real runtime.
+
+Define a feature's behavioral expectations and test before implementation;
+completion requires every expected behavior. For troubleshooting, first run it
+against the unchanged defect and preserve the failure. Only then research; fix
+only the proven failing path; the same test must pass after. No reproduction or
+authorized environment means stop, with no production edit. Test-only
+instrumentation may expose the actual boundary but must not alter behavior.
+
+Add or rewrite tests only when behavioral, or as essential support beside an
+established behavioral test. Never add coverage-only, mirrored, mocked,
+source/order, symbol/manifest, or process tests.
+
+### Explicit reporter-only Psycho engine-fix exception
+
+For `psycho-engine-fixes` only, a user may explicitly authorize an unreleased
+defensive engine-fix candidate when a supplied real-runtime crash report proves
+the faulting native consumer and invalid input contract but neither the
+reporter's modded workload nor a local reproduction is available. That
+authorization overrides only the fail-first, same-test, and no-production-edit
+requirements above for the named incident. It does not relax the no-guessing,
+binary-contract, scope, safety, compatibility, or reporting rules.
+
+Before editing under this exception, use the supported executable to prove the
+shared intervention point, complete native caller coverage, ABI, every field or
+callback inspected by the guard, and a native fail-closed result that callers
+already tolerate. Keep the invalidating owner, exact lifetime race, allocator
+attribution, and mod attribution explicitly unresolved unless direct evidence
+proves them. The candidate must be allocator-mode agnostic and mod agnostic: do
+not classify allocator ownership, identify modules, allowlist vtables or code,
+mutate ownership or reference counts, hook destructors, or patch another mod.
+Valid inputs must chain the provider already installed at the shared boundary
+unchanged; invalid inputs may only take the proven fail-closed result.
+
+Static qualification requires focused affected-crate tests, the supported
+32-bit release build, formatting, `git diff --check`, final diff review, and a
+durable engine-contract document that separates runtime evidence, binary proof,
+and unresolved facts. The implementation may then be handed off only as a
+reporter-validation candidate. Do not release, package, commit, or describe its
+runtime behavior as accepted until the reporter runs the actual workload and
+confirms both at least one guard rejection and continued gameplay. When the
+change affects the pre-DeferredInit footprint, the startup-safety document's
+representative Proton load-to-gameplay gate also remains required for release.
 
 ## Commit creation
 
@@ -199,7 +246,7 @@ Use research only to close a material knowledge gap.
   first; otherwise prepare a focused script, never run Ghidra, and ask the user
   to return its output. Before scripting, read
   `analysis/ghidra/scripts/SCRIPT_RULES.md` completely.
-- Before a crash or engine-contract patch, prove the failing function, caller ownership, layout, lifetime, concurrency, ABI, and safe intervention point. Distinguish direct binary or crash evidence from inference.
+- Before a crash or engine-contract patch, prove the failing function, caller ownership, layout, lifetime, concurrency, ABI, and safe intervention point. An inference is not patch authority; unresolved facts remain unknown.
 - The user runs through Proton/Wine. Prefer static research, logs, crash reports, minidumps, and targeted telemetry; do not depend on native Windows debuggers.
 
 Do not invoke static engine research for a straightforward repository-local change whose contract is already proven.
@@ -212,8 +259,8 @@ documentation for its own sake. Record purpose, behavior, ownership,
 lifecycle/order, invariants, failure and performance costs, compatibility,
 acceptance, and unresolved approval. Reverse-engineered documents additionally
 record executable identity, addresses/call chain, layouts, lifetime/threading,
-ABI, intervention point, evidence paths, and clearly separate proof,
-inference, and observation. Link raw analysis instead of duplicating dumps.
+ABI, intervention point, evidence paths, and clearly separate proof from
+observation and unresolved unknowns. Link raw analysis instead of duplicating dumps.
 
 Do not put DLL hashes, binary sizes, section/import/TLS inventories, routine
 test counts, command transcripts, transient candidate chronology, or other
@@ -230,7 +277,7 @@ explicitly requests it. Report only the minimum result needed for that problem.
   documentation must be ASCII.
 - Prefer safe, idiomatic Rust. Keep `unsafe` code in the smallest auditable
   boundary; document its safety contract and prove pointer validity, ABI,
-  alignment, lifetime, aliasing, initialization, and thread assumptions that
+  alignment, lifetime, aliasing, initialization, and proven thread conditions that
   apply. Never use `unsafe` to bypass a sound ownership design.
 - Handle failure explicitly and preserve valid state. Do not panic or unwind
   across FFI; validate external data, engine state, arithmetic, and conversions;
@@ -256,15 +303,15 @@ explicitly requests it. Report only the minimum result needed for that problem.
 - Treat architecture, safety, and performance as design inputs before coding.
   For cross-module or engine-facing changes, identify ownership, lifecycle,
   concurrency, failure containment, and hot-path cost before implementation.
-- Do not write new source-code tests except practical tests that directly
-  validate shipped `.hlsl` shaders. Never test implementation source text,
-  textual call order, symbol-name presence, manifest contents, mocked native
-  behavior, or a model that cannot reproduce the reported defect.
+- Tests must follow the repository behavioral-test gate. Never test
+  implementation source text, textual call order, symbol-name presence,
+  manifest contents, mocked native behavior, or a model that cannot reproduce
+  the reported defect.
 - Rust DLLs must use `libpsycho::logger::Logger` and the `log` facade for diagnostics. Do not use `println!`, `eprintln!`, or subsystem-owned file writes for logs, reports, or telemetry; route requested summaries through the established logger. Initialize logging only at the subsystem's documented safe lifecycle boundary.
 - Write logs for a human reader and include a stable subsystem tag. Use `debug` for technical detail such as validated addresses, `info` for normal lifecycle/configuration milestones and user-requested summaries, `warn` for recoverable degradation with the resulting fallback, and `error` when a requested capability cannot remain available or correctness is lost. State the consequence, not only the low-level failure.
 - Keep every visible MCM Extender text value laconic: one to three words, including titles, descriptions, help text, status text, and choices. Review shipped menus directly; do not add a non-HLSL artifact test.
 - MCM Extender-backed settings must apply from `MCMExtUpdate` after its INI save. Native listeners must define the published event parameter contract before handler admission and tolerate an already-defined event; do not poll pause state or parse configuration every frame.
-- Never hide uncertainty. Distinguish code evidence, static proof, inference, and playtest results.
+- Never hide uncertainty. Distinguish direct evidence, static proof, behavioral results, and unresolved unknowns; never fill an unknown with inference.
 - Do not present disabling a feature, reducing supported coverage, or weakening a test as a fix.
 - Avoid routine allocations, blocking locks, file I/O, shader compilation, and diagnostics in hot paths.
 

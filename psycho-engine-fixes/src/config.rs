@@ -372,6 +372,8 @@ pub struct EngineFixesConfig {
     pub queued_task_lifetime_guard: bool,
     /// Reject patrol-owner lookups that resolve to a non-actor form.
     pub patrol_owner_form_id_guard: bool,
+    /// Reject invalid dispatch at the shared source-texture cache publisher.
+    pub source_texture_cache_publication_guard: bool,
 }
 
 impl Default for EngineFixesConfig {
@@ -405,6 +407,7 @@ impl Default for EngineFixesConfig {
             model_postprocess_serialization_fix: true,
             queued_task_lifetime_guard: true,
             patrol_owner_form_id_guard: true,
+            source_texture_cache_publication_guard: true,
         }
     }
 }
@@ -504,6 +507,9 @@ impl EngineFixesConfig {
             patrol_owner_form_id_guard: raw
                 .patrol_owner_form_id_guard
                 .unwrap_or(default.patrol_owner_form_id_guard),
+            source_texture_cache_publication_guard: raw
+                .source_texture_cache_publication_guard
+                .unwrap_or(default.source_texture_cache_publication_guard),
         }
     }
 }
@@ -621,6 +627,7 @@ struct RawEngineFixesConfig {
     model_postprocess_serialization_fix: Option<bool>,
     queued_task_lifetime_guard: Option<bool>,
     patrol_owner_form_id_guard: Option<bool>,
+    source_texture_cache_publication_guard: Option<bool>,
 }
 
 #[derive(Default, Deserialize)]
@@ -788,6 +795,21 @@ cell_render_reference_retirement_fix = false
 
         assert!(default.engine_fixes.cell_render_reference_retirement_fix);
         assert!(!disabled.engine_fixes.cell_render_reference_retirement_fix);
+    }
+
+    #[test]
+    fn source_texture_cache_guard_defaults_on_and_honors_explicit_disable() {
+        let default: PsychoConfig = toml::from_str("").expect("parse default configuration");
+        let disabled: PsychoConfig = toml::from_str(
+            r#"
+[engine_fixes]
+source_texture_cache_publication_guard = false
+"#,
+        )
+        .expect("parse source-texture cache guard setting");
+
+        assert!(default.engine_fixes.source_texture_cache_publication_guard);
+        assert!(!disabled.engine_fixes.source_texture_cache_publication_guard);
     }
 
     #[test]

@@ -286,9 +286,61 @@ impl<F: Function> InlineHook<F> {
         self.original_fn.as_fn()
     }
 
-    /// Return whether the hook currently owns an installed entry jump.
+    /// Return whether this hook has completed activation.
+    ///
+    /// This is lifecycle state, not a live executable-byte ownership check. A
+    /// later provider can replace the target entry without changing it.
     pub fn is_enabled(&self) -> bool {
         self.enabled.load(Ordering::Acquire)
+    }
+
+    /// Compare the live target entry with this hook's installed jump.
+    ///
+    /// This is intended for diagnostics and ownership-sensitive teardown, not
+    /// hot paths. A false result after activation means another writer
+    /// displaced the entry; it does not prove whether that writer chains to
+    /// this hook.
+    pub fn owns_entry(&self) -> InlineHookResult<bool> {
+        let _guard = self.guard.read();
+        if !self.enabled.load(Ordering::Acquire) {
+            return Ok(false);
+        }
+
+        validate_memory_access(self.target_ptr.as_ptr())?;
+        #[cfg(target_pointer_width = "32")]
+        {
+            // A 32-bit x86 rel32 JMP can reach the complete address space. Its
+            // encoding is always E9 plus the wrapping displacement used by
+            // create_jump_bytes(), so diagnostics need no temporary Vec.
+            let displacement = (self.detour_fn.as_ptr() as usize)
+                .wrapping_sub(self.target_ptr.as_ptr() as usize)
+                .wrapping_sub(5) as u32;
+            let displacement = displacement.to_le_bytes();
+            let expected = [
+                0xE9,
+                displacement[0],
+                displacement[1],
+                displacement[2],
+                displacement[3],
+            ];
+            // SAFETY: InlineHook::new requires the target to remain a live
+            // function for this hook's lifetime; validation confirmed that
+            // its entry is currently accessible.
+            let current_bytes = unsafe {
+                std::slice::from_raw_parts(self.target_ptr.as_ptr().cast::<u8>(), expected.len())
+            };
+            Ok(current_bytes == expected)
+        }
+        #[cfg(not(target_pointer_width = "32"))]
+        {
+            let jump_bytes = create_jump_bytes(self.target_ptr.as_ptr(), self.detour_fn.as_ptr())?;
+            // SAFETY: The same construction-time target-lifetime invariant and
+            // access validation above cover the generated jump byte range.
+            let current_bytes = unsafe {
+                std::slice::from_raw_parts(self.target_ptr.as_ptr().cast::<u8>(), jump_bytes.len())
+            };
+            Ok(current_bytes == jump_bytes.as_slice())
+        }
     }
 
     /// Returns whether the hook is in a failed state
@@ -451,9 +503,14 @@ impl<F: Function> ScopedInlineHook<F> {
         Ok(result)
     }
 
-    /// Return whether the contained hook currently owns its target entry.
+    /// Return whether the contained hook has completed activation.
     pub fn is_enabled(&self) -> bool {
         self.inner.is_enabled()
+    }
+
+    /// Compare the live target entry with the contained hook's jump.
+    pub fn owns_entry(&self) -> InlineHookResult<bool> {
+        self.inner.owns_entry()
     }
 
     /// Returns whether the hook has failed
@@ -559,10 +616,19 @@ impl<T: Function> InlineHookContainer<T> {
         }
     }
 
-    /// Return whether the initialized hook currently owns its target entry.
+    /// Return whether the initialized hook has completed activation.
     pub fn is_enabled(&self) -> bool {
         let hook_lock = self.hook.read();
         hook_lock.as_ref().is_some_and(InlineHook::is_enabled)
+    }
+
+    /// Compare the live target entry with the initialized hook's jump.
+    ///
+    /// Returns `Ok(false)` when the container has not been initialized or the
+    /// hook has not been activated.
+    pub fn owns_entry(&self) -> InlineHookResult<bool> {
+        let hook_lock = self.hook.read();
+        hook_lock.as_ref().map_or(Ok(false), InlineHook::owns_entry)
     }
 
     pub fn is_initialized(&self) -> bool {
@@ -615,7 +681,9 @@ mod tests {
             )
         }
         .expect("the unmodified test function must be hookable");
+        assert!(!first.owns_entry().expect("inactive ownership query"));
         first.enable().expect("first owner must install");
+        assert!(first.owns_entry().expect("first ownership query"));
 
         let second = unsafe {
             InlineHook::new(
@@ -631,9 +699,17 @@ mod tests {
         // returns through the new trampoline's caller.
         assert_eq!(unsafe { second.original()() }, 41);
         second.enable().expect("second owner must install");
+        assert!(!first.owns_entry().expect("displaced first ownership query"));
+        assert!(second.owns_entry().expect("second ownership query"));
         assert_eq!(unsafe { target() }, 42);
 
         second.disable().expect("second owner must restore first");
+        assert!(first.owns_entry().expect("restored first ownership query"));
+        assert!(
+            !second
+                .owns_entry()
+                .expect("inactive second ownership query")
+        );
         assert_eq!(unsafe { target() }, 41);
         first.disable().expect("first owner must restore native");
         assert_eq!(unsafe { target() }, 1);

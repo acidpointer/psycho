@@ -70,7 +70,7 @@ const RELOAD_ACTIVE: [f32; 4] = [0.82, 0.51, 0.12, 1.0];
 const HOVER_HELP_HINT: &str =
     "Hover a setting or technical label for a plain-language explanation.";
 
-const ENGINE_FIX_HELP: [(&str, &str); 21] = [
+const ENGINE_FIX_HELP: [(&str, &str); 22] = [
     (
         "Display / Alt-Tab repair",
         "Keeps fullscreen startup, renderer resets, focus changes, and Alt-Tab from using broken window size or placement. Leave it on unless another window mod has a confirmed conflict.",
@@ -155,6 +155,10 @@ const ENGINE_FIX_HELP: [(&str, &str); 21] = [
         "Queued-task lifetime guard",
         "Stops a dead texture or background task before the game calls or releases it again. Useful with every allocator mode.",
     ),
+    (
+        "Texture cache guard",
+        "Rejects unreadable or non-executable source-texture dispatch before the shared cache publisher calls it. Valid objects and mod-provided executable callbacks continue unchanged.",
+    ),
 ];
 
 const PATROL_OWNER_FORM_ID_HELP: (&str, &str) = (
@@ -171,6 +175,7 @@ const ENGINE_FIX_ENCOUNTER_ZONE_INDEX: usize = 6;
 const ENGINE_FIX_CELL_RENDER_RETIREMENT_INDEX: usize = 7;
 const ENGINE_FIX_MODEL_POSTPROCESS_INDEX: usize = 19;
 const ENGINE_FIX_QUEUED_TASK_INDEX: usize = 20;
+const ENGINE_FIX_SOURCE_TEXTURE_CACHE_INDEX: usize = 21;
 
 static READY: AtomicBool = AtomicBool::new(false);
 static OPEN_REQUESTED: AtomicBool = AtomicBool::new(false);
@@ -1054,6 +1059,12 @@ impl DashboardRuntime {
                 engine_fixes::DASHBOARD_FEATURE_TASK_GUARD,
                 "Dispatch and final-release ownership",
                 ENGINE_FIX_HELP[ENGINE_FIX_QUEUED_TASK_INDEX].1,
+            ),
+            (
+                "Texture cache guard",
+                engine_fixes::DASHBOARD_FEATURE_SOURCE_TEXTURE_CACHE_GUARD,
+                "Directly owns source-cache dispatch admission",
+                ENGINE_FIX_HELP[ENGINE_FIX_SOURCE_TEXTURE_CACHE_INDEX].1,
             ),
             (
                 "Dynamic actor container guard",
@@ -1967,6 +1978,7 @@ fn draw_configuration(ui: &mut Ui<'_>, editor: &mut ConfigEditor) {
         &mut config.lowprocess_generic_locations_fix,
         &mut config.model_postprocess_serialization_fix,
         &mut config.queued_task_lifetime_guard,
+        &mut config.source_texture_cache_publication_guard,
     ];
     for ((label, help), value) in ENGINE_FIX_HELP.into_iter().zip(engine_fix_values) {
         checkbox_help(ui, label, value, help);
@@ -2439,8 +2451,8 @@ mod tests {
         ENGINE_FIX_ACTOR_CONTAINER_INDEX, ENGINE_FIX_CELL_RENDER_RETIREMENT_INDEX,
         ENGINE_FIX_DISPLAY_INDEX, ENGINE_FIX_ENCOUNTER_ZONE_INDEX, ENGINE_FIX_HELP,
         ENGINE_FIX_MODEL_POSTPROCESS_INDEX, ENGINE_FIX_QUEUED_TASK_INDEX, ENGINE_FIX_SAVE_INDEX,
-        GameRenderHandles, LogFilters, LogLevel, LogTailReader, MemoryHealth, Page, SamplingState,
-        parse_log_line, take_driver_refresh,
+        ENGINE_FIX_SOURCE_TEXTURE_CACHE_INDEX, GameRenderHandles, LogFilters, LogLevel,
+        LogTailReader, MemoryHealth, Page, SamplingState, parse_log_line, take_driver_refresh,
     };
     use crate::engine_fixes::{DASHBOARD_FLAG_VAS_VALID, DashboardSnapshot};
 
@@ -2482,7 +2494,7 @@ mod tests {
 
     #[test]
     fn every_engine_fix_has_concise_unique_hover_help() {
-        assert_eq!(ENGINE_FIX_HELP.len(), 21);
+        assert_eq!(ENGINE_FIX_HELP.len(), 22);
         for (index, expected) in [
             (ENGINE_FIX_DISPLAY_INDEX, "Display / Alt-Tab repair"),
             (ENGINE_FIX_SAVE_INDEX, "Durable save integrity"),
@@ -2500,6 +2512,7 @@ mod tests {
                 "Model postprocess serialization",
             ),
             (ENGINE_FIX_QUEUED_TASK_INDEX, "Queued-task lifetime guard"),
+            (ENGINE_FIX_SOURCE_TEXTURE_CACHE_INDEX, "Texture cache guard"),
         ] {
             assert_eq!(ENGINE_FIX_HELP[index].0, expected);
         }

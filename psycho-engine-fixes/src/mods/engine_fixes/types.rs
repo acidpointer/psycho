@@ -94,6 +94,14 @@ pub type TaskReleaseFn = unsafe extern "fastcall" fn(*mut c_void);
 /// Queued-task vtable slot +0x1C.
 pub type TaskCallbackFn = unsafe extern "thiscall" fn(*mut c_void, usize);
 
+/// Shared source-texture cache publisher at `0x00A61C50`.
+///
+/// All eight native callers clean two words after the call. Seven pass null as
+/// the second word; `0x0043C596` can pass the opaque value returned from
+/// `QueuedTexture+0x2C`. The native body consumes only the source word, but a
+/// chained provider must receive the opaque context unchanged.
+pub type SourceTextureCachePublishFn = unsafe extern "C" fn(*mut c_void, *mut c_void);
+
 /// Terrain/object/tree LOD demand predicates. ECX owns the terrain node and
 /// the stack argument points to the camera XY(Z) vector.
 pub type LodDemandFn = unsafe extern "thiscall" fn(*mut c_void, *const f32) -> i32;

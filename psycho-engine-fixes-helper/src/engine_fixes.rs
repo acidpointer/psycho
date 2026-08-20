@@ -52,6 +52,8 @@ pub(crate) const DASHBOARD_FEATURE_ENCOUNTER_ZONE_GUARD: u64 = 1 << 10;
 pub(crate) const DASHBOARD_FEATURE_CELL_RENDER_RETIREMENT: u64 = 1 << 11;
 /// Core feature bit for installed patrol-owner FormID containment.
 pub(crate) const DASHBOARD_FEATURE_PATROL_OWNER_FORM_ID_GUARD: u64 = 1 << 12;
+/// Core feature bit for current direct ownership of the source-cache entry.
+pub(crate) const DASHBOARD_FEATURE_SOURCE_TEXTURE_CACHE_GUARD: u64 = 1 << 13;
 
 type NotifyEventFn =
     unsafe extern "system" fn(kind: u32, data: *const u8, data_len: usize, bool_value: i32) -> i32;

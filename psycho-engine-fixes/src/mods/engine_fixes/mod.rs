@@ -31,6 +31,7 @@ mod patrol_ref_in_use;
 mod queued_tasks;
 mod ragdoll;
 mod save_integrity;
+mod source_texture_cache_guard;
 mod statics;
 mod types;
 mod window_input;
@@ -66,6 +67,8 @@ pub(crate) const DASHBOARD_FEATURE_ENCOUNTER_ZONE_GUARD: u64 = 1 << 10;
 pub(crate) const DASHBOARD_FEATURE_CELL_RENDER_RETIREMENT: u64 = 1 << 11;
 /// Dashboard bit proving that patrol-owner FormID containment installed.
 pub(crate) const DASHBOARD_FEATURE_PATROL_OWNER_FORM_ID_GUARD: u64 = 1 << 12;
+/// Dashboard bit proving current direct ownership of the source-cache entry.
+pub(crate) const DASHBOARD_FEATURE_SOURCE_TEXTURE_CACHE_GUARD: u64 = 1 << 13;
 
 #[derive(Clone, Copy, Default)]
 pub(crate) struct DashboardCounters {
@@ -170,6 +173,9 @@ pub(crate) fn dashboard_counters() -> DashboardCounters {
     if patrol_ref_in_use::is_installed() {
         active_features |= DASHBOARD_FEATURE_PATROL_OWNER_FORM_ID_GUARD;
     }
+    if source_texture_cache_guard::diagnostic_snapshot().entry_owned {
+        active_features |= DASHBOARD_FEATURE_SOURCE_TEXTURE_CACHE_GUARD;
+    }
 
     DashboardCounters {
         active_features,
@@ -271,6 +277,7 @@ pub fn install(
     install_lowprocess_fix(config)?;
     let model_postprocess_ready = install_model_postprocess_fix(config);
     install_queued_task_guard(config, diagnostics)?;
+    install_source_texture_cache_guard(config);
     let io_safety = io::install(
         io_config,
         lod_config.enabled && lod_config.prefetch_enabled,
@@ -394,6 +401,7 @@ pub(crate) fn append_diagnostic_report(out: &mut String) {
     let low = lowprocess::diagnostic_snapshot();
     let model = model_postprocess::snapshot();
     let task = queued_tasks::diagnostic_snapshot();
+    let source_texture = source_texture_cache_guard::diagnostic_snapshot();
     let save = save_integrity::diagnostic_snapshot();
     let io = io::diagnostic_snapshot();
     let lod = lod::diagnostic_snapshot();
@@ -454,6 +462,13 @@ pub(crate) fn append_diagnostic_report(out: &mut String) {
         cell_render.installed,
         "Encounter zones",
         encounter_zone.installed,
+    );
+    push_feature_pair(
+        out,
+        "Source texture cache",
+        source_texture.entry_owned,
+        "Patrol owner",
+        patrol_ref_in_use::is_installed(),
     );
 
     let covered_move_sites = display
@@ -707,6 +722,30 @@ pub(crate) fn append_diagnostic_report(out: &mut String) {
         ),
     );
     push_report_value(out, "Task trace dumps", task.trace_dumps);
+    push_report_value(
+        out,
+        "Source cache guard",
+        format!(
+            "{} / installed {} / {} rejected / last {:08X} ({})",
+            source_texture.entry_status,
+            on_off(source_texture.installed),
+            source_texture.rejections,
+            source_texture.last_object,
+            source_texture.last_reason,
+        ),
+    );
+    push_report_value(
+        out,
+        "Source reject types",
+        format!(
+            "{} address / {} object / {} vtable / {} callback / {} changed",
+            source_texture.malformed_objects,
+            source_texture.unreadable_objects,
+            source_texture.unreadable_vtables,
+            source_texture.non_executable_callbacks,
+            source_texture.changed_dispatches,
+        ),
+    );
     push_report_value(
         out,
         "LowProcess slots",
@@ -1108,6 +1147,16 @@ fn install_queued_task_guard(
         log::warn!("[QUEUED_TASK] Lifetime guard disabled: {:#}", err);
     }
     Ok(())
+}
+
+fn install_source_texture_cache_guard(config: &EngineFixesConfig) {
+    if !config.source_texture_cache_publication_guard {
+        log::info!("[SOURCE_TEXTURE_CACHE] Publication guard disabled by config");
+        return;
+    }
+    if let Err(err) = source_texture_cache_guard::install() {
+        log::warn!("[SOURCE_TEXTURE_CACHE] Publication guard unavailable: {err:#}");
+    }
 }
 
 fn install_navmesh_low_pointer(config: &EngineFixesConfig) -> anyhow::Result<()> {
