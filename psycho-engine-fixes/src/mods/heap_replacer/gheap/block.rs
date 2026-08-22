@@ -1,7 +1,10 @@
 //! Variable-size block allocator for medium allocations (3585 B..16 MB).
 //!
 //! Direct port of NVHR's dheap (heap_replacer/dheap/dheap.h):
-//! variable-size cells, 16 MB blocks, split/coalesce, never retires.
+//! variable-size cells, 16 MB blocks, and split/coalesce metadata. Normal
+//! frees retain their reservations so short reuse cycles preserve zombie
+//! payloads and avoid reserve/commit churn. Fully empty VirtualAlloc-backed
+//! blocks retire only after a direct-VA failure or proven process VAS pressure.
 //!
 //! Layout:
 //!   No upfront tier reservation. Each `new_block` owns one separate
@@ -377,8 +380,8 @@ impl Block {
 struct BlockHeap {
     /// Slot table. `Some` means a block owns a 16 MB reservation; `None`
     /// means the slot is empty. Normal frees never retire blocks. Empty
-    /// VirtualAlloc blocks can retire only during a failed large-allocation
-    /// recovery. The slot index is an internal handle, not an address.
+    /// VirtualAlloc blocks can retire only during bounded OOM recovery. The
+    /// slot index is an internal handle, not an address.
     blocks: [Option<Block>; BLOCK_COUNT],
     alloc_hint: u8,
     high_scan_hint: usize,
@@ -699,22 +702,16 @@ impl BlockHeap {
         Some(block.free(offset))
     }
 
-    /// Release slots with no live user allocations. Fires only from
-    /// va_alloc's OOM recovery path; NOT periodic. A slot qualifies when
-    /// its `used_by_offset` map is empty -- no game pointer is live in
-    /// that 16 MB region. VirtualFree(MEM_RELEASE) returns the VAS to
-    /// the OS; the next big-contiguous VirtualAlloc retry gets first
-    /// crack at it.
+    /// Release VirtualAlloc slots with no live user allocations. A slot
+    /// qualifies only when its `used_by_offset` map is empty, so no live game
+    /// pointer can reference the released 16 MB region. Adopted Default-heap
+    /// tail slots remain owned by the vanilla reservation.
     ///
-    /// Different from the periodic retire-on-empty design removed before:
-    /// that one cycled retire/commit 93 times in 9 ms under a worst-case
-    /// pattern. This only runs when va_alloc has already failed, so the
-    /// alternative is a NULL return + crash.
-    ///
-    /// Returns (slots_retired, bytes_freed).
-    fn emergency_retire_empty(&mut self) -> (usize, usize) {
-        let mut slots = 0usize;
-        let mut bytes = 0usize;
+    /// This is never called from normal `free`. The direct-VA path calls it
+    /// only after an allocation failure, while process-pressure recovery is
+    /// rate-limited by the watchdog and uses a non-blocking heap-lock attempt.
+    fn retire_empty(&mut self, reason: RetirementReason) -> BlockRetirement {
+        let mut result = BlockRetirement::default();
         for i in 0..BLOCK_COUNT {
             let is_empty = matches!(
                 self.blocks[i].as_ref(),
@@ -731,39 +728,46 @@ impl BlockHeap {
                 self.blocks[i] = Some(b);
                 continue;
             }
+            result.eligible_slots += 1;
+            let committed = b.committed;
             if let Err(e) = unsafe { virtual_release(b.base as *mut c_void) } {
                 log::error!(
-                    "[BLOCK] Emergency retire VirtualFree failed: slot {} base=0x{:08x} err={:?}",
+                    "[BLOCK] Empty-block release failed: reason={} slot={} base=0x{:08x} err={:?}",
+                    reason.label(),
                     i,
                     base,
                     e,
                 );
                 self.blocks[i] = Some(b);
+                result.release_failures += 1;
                 continue;
             }
             self.unmap_block_address(b.base);
-            let base = b.base as usize;
             if (BLOCK_HIGH_SCAN_MIN..=BLOCK_HIGH_SCAN_START).contains(&base) {
                 self.high_scan_hint = self.high_scan_hint.max(base);
             }
-            slots += 1;
-            bytes += BLOCK_SIZE;
-            log::info!(
-                "[BLOCK] Emergency retired slot {} at 0x{:08x} ({} MB)",
-                i,
-                base,
-                BLOCK_SIZE / 1024 / 1024,
-            );
+            result.slots_retired += 1;
+            result.reserved_bytes += BLOCK_SIZE;
+            result.committed_bytes += committed;
         }
-        if slots > 0 {
+
+        if self.blocks[self.alloc_hint as usize].is_none() {
+            self.alloc_hint = self.blocks.iter().position(Option::is_some).unwrap_or(0) as u8;
+        }
+
+        if reason == RetirementReason::DirectVaFailure && result.slots_retired > 0 {
             log::info!(
-                "[BLOCK] Emergency retirement complete: {} slots, {} MB reclaimed (live={})",
-                slots,
-                bytes / 1024 / 1024,
+                "[BLOCK] Empty-block recovery: reason={} retired={}/{} slots reserved={}MB committed={}MB failures={} live_slots={}",
+                reason.label(),
+                result.slots_retired,
+                result.eligible_slots,
+                result.reserved_bytes / 1024 / 1024,
+                result.committed_bytes / 1024 / 1024,
+                result.release_failures,
                 self.live_count(),
             );
         }
-        (slots, bytes)
+        result
     }
 
     fn size_of(&self, ptr: *const c_void) -> Option<usize> {
@@ -781,26 +785,6 @@ impl BlockHeap {
         Some(block.usable_size(ptr).map(|size| size as usize))
     }
 
-    fn block_count(&self) -> usize {
-        self.live_count()
-    }
-
-    fn live_allocations(&self) -> usize {
-        self.blocks
-            .iter()
-            .flatten()
-            .map(|block| block.used_by_offset.len())
-            .sum()
-    }
-
-    fn live_bytes(&self) -> usize {
-        self.blocks
-            .iter()
-            .flatten()
-            .map(|block| block.live_bytes)
-            .sum()
-    }
-
     fn committed_bytes(&self) -> usize {
         self.blocks
             .iter()
@@ -810,12 +794,69 @@ impl BlockHeap {
     }
 }
 
+/// Cold aggregate of the independently reserved medium-block tier.
 #[derive(Clone, Copy, Default)]
 pub struct BlockSnapshot {
+    /// All occupied block-table slots.
     pub slots: usize,
+    /// Slots backed by independent VirtualAlloc reservations.
+    pub virtual_alloc_slots: usize,
+    /// Slots adopted from the vanilla Default-heap tail.
+    pub default_tail_slots: usize,
+    /// Empty VirtualAlloc slots eligible for emergency retirement.
+    pub empty_virtual_alloc_slots: usize,
+    /// Slots containing at least one live allocation.
+    pub partially_live_slots: usize,
+    /// Exact number of live medium allocations.
     pub live_allocations: usize,
+    /// Sum of live medium-cell sizes.
     pub live_bytes: usize,
+    /// Sum of committed prefixes across every block.
     pub committed_bytes: usize,
+    /// Complete reservations recoverable from empty VirtualAlloc slots.
+    pub reclaimable_reserved_bytes: usize,
+    /// Committed prefixes recoverable from empty VirtualAlloc slots.
+    pub reclaimable_committed_bytes: usize,
+    /// Committed slack retained inside blocks that still contain live cells.
+    pub stranded_committed_bytes: usize,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum RetirementReason {
+    DirectVaFailure,
+    ProcessPressure,
+}
+
+impl RetirementReason {
+    const fn label(self) -> &'static str {
+        match self {
+            Self::DirectVaFailure => "direct-va-failure",
+            Self::ProcessPressure => "process-pressure",
+        }
+    }
+}
+
+/// Result of a bounded empty-block retirement attempt.
+#[derive(Clone, Copy, Default)]
+pub(crate) struct BlockRetirement {
+    /// Empty VirtualAlloc slots selected for release.
+    pub eligible_slots: usize,
+    /// Selected slots successfully returned to Windows.
+    pub slots_retired: usize,
+    /// Reservation bytes successfully returned to Windows.
+    pub reserved_bytes: usize,
+    /// Committed bytes contained by successfully released slots.
+    pub committed_bytes: usize,
+    /// Selected slots retained after VirtualFree failed.
+    pub release_failures: usize,
+}
+
+/// Non-blocking pressure-retirement result for the Phase 10 consumer.
+pub(crate) enum TryRetireResult {
+    /// Another allocator operation currently owns the block mutex.
+    Busy,
+    /// The lock was acquired and the bounded pass completed.
+    Complete(BlockRetirement),
 }
 
 #[derive(Clone, Copy, Default)]
@@ -999,23 +1040,51 @@ pub fn take_timing_snapshot() -> BlockTimingSnapshot {
 }
 
 fn block_snapshot(heap: &BlockHeap) -> BlockSnapshot {
-    BlockSnapshot {
-        slots: heap.block_count(),
-        live_allocations: heap.live_allocations(),
-        live_bytes: heap.live_bytes(),
-        committed_bytes: heap.committed_bytes(),
+    let mut snapshot = BlockSnapshot::default();
+    for block in heap.blocks.iter().flatten() {
+        snapshot.slots += 1;
+        snapshot.live_allocations += block.used_by_offset.len();
+        snapshot.live_bytes += block.live_bytes;
+        snapshot.committed_bytes += block.committed;
+
+        match block.backing {
+            BlockBacking::VirtualAlloc => snapshot.virtual_alloc_slots += 1,
+            BlockBacking::DefaultHeapTail => snapshot.default_tail_slots += 1,
+        }
+
+        if block.used_by_offset.is_empty() {
+            if block.backing == BlockBacking::VirtualAlloc {
+                snapshot.empty_virtual_alloc_slots += 1;
+                snapshot.reclaimable_reserved_bytes += BLOCK_SIZE;
+                snapshot.reclaimable_committed_bytes += block.committed;
+            }
+        } else {
+            snapshot.partially_live_slots += 1;
+            snapshot.stranded_committed_bytes += block.committed.saturating_sub(block.live_bytes);
+        }
     }
+    snapshot
 }
 
-/// Release block slots with no live user allocations. Called by
-/// `va_alloc::alloc` after its first `VirtualAlloc` fails; gives the
-/// OS back any fully-empty 16 MB slots so the next VirtualAlloc retry
-/// sees additional free VAS for contiguous big-texture requests.
+/// Release empty VirtualAlloc-backed slots after direct-VA allocation failure.
 ///
-/// Safe under the same lock as other block operations. Returns
-/// `(slots_retired, bytes_freed)`.
+/// This blocking path is already on a terminal OOM branch. It returns the
+/// number of retired slots and the amount of reservation returned to Windows.
 pub fn emergency_retire_empty() -> (usize, usize) {
-    with_heap(|h| h.emergency_retire_empty())
+    with_heap(|h| {
+        let result = h.retire_empty(RetirementReason::DirectVaFailure);
+        (result.slots_retired, result.reserved_bytes)
+    })
+}
+
+/// Attempt pressure-driven retirement without blocking the Phase 10 thread.
+///
+/// A busy allocator leaves the watchdog request pending for a later frame.
+pub(crate) fn try_retire_empty_for_pressure() -> TryRetireResult {
+    let Some(mut heap) = HEAP.try_lock() else {
+        return TryRetireResult::Busy;
+    };
+    TryRetireResult::Complete(heap.retire_empty(RetirementReason::ProcessPressure))
 }
 
 pub fn committed_bytes() -> usize {
@@ -1180,5 +1249,102 @@ mod tests {
         assert_eq!(drained.alloc_calls, 0);
         assert_eq!(drained.lock_wait_total_us, 0);
         assert_eq!(drained.reserve_calls, 0);
+    }
+
+    #[test]
+    fn pressure_retirement_releases_only_empty_virtualalloc_blocks() {
+        use libpsycho::os::windows::winapi::{MemoryState, virtual_query};
+
+        fn reserved_block() -> Block {
+            // SAFETY: the test owns the returned reservation and either the
+            // retirement path or test cleanup releases it exactly once.
+            let base = unsafe { virtual_reserve(None, BLOCK_SIZE) };
+            assert!(!base.is_null(), "test block reservation");
+            // SAFETY: `base` owns a BLOCK_SIZE reservation, and COMMIT_CHUNK
+            // is the production allocator's first committed prefix.
+            let committed = unsafe { virtual_commit(base.cast_const(), COMMIT_CHUNK) };
+            assert_eq!(committed, base, "test block commit");
+            Block::new(
+                base.cast(),
+                BLOCK_SIZE as u32,
+                BlockBacking::VirtualAlloc,
+                COMMIT_CHUNK,
+            )
+        }
+
+        let mut heap = BlockHeap::empty();
+        let mut live = reserved_block();
+        let live_cell = live.alloc(8 * 1024).expect("live allocation");
+        let live_offset = live.cells[live_cell as usize].offset as usize;
+        // SAFETY: the selected cell is inside the committed test prefix and
+        // remains live until the assertions below complete.
+        unsafe { live.base.add(live_offset).write_bytes(0xa5, 8 * 1024) };
+        let live_base = live.base;
+        heap.blocks[0] = Some(live);
+        heap.map_block_address(0, live_base);
+
+        let empty = reserved_block();
+        let empty_base = empty.base;
+        heap.blocks[1] = Some(empty);
+        heap.map_block_address(1, empty_base);
+
+        let mut default_tail_storage = vec![0u8; TEST_BLOCK_SIZE];
+        heap.blocks[2] = Some(Block::new(
+            default_tail_storage.as_mut_ptr(),
+            TEST_BLOCK_SIZE as u32,
+            BlockBacking::DefaultHeapTail,
+            TEST_BLOCK_SIZE,
+        ));
+
+        let before = block_snapshot(&heap);
+        assert_eq!(before.slots, 3);
+        assert_eq!(before.empty_virtual_alloc_slots, 1);
+        assert_eq!(before.reclaimable_reserved_bytes, BLOCK_SIZE);
+        assert_eq!(before.reclaimable_committed_bytes, COMMIT_CHUNK);
+        assert_eq!(before.partially_live_slots, 1);
+
+        let result = heap.retire_empty(RetirementReason::ProcessPressure);
+        assert_eq!(result.eligible_slots, 1);
+        assert_eq!(result.slots_retired, 1);
+        assert_eq!(result.reserved_bytes, BLOCK_SIZE);
+        assert_eq!(result.committed_bytes, COMMIT_CHUNK);
+        assert_eq!(result.release_failures, 0);
+        assert!(heap.blocks[1].is_none());
+        assert!(heap.blocks[2].is_some());
+        assert_eq!(
+            virtual_query(empty_base.cast())
+                .expect("released block query")
+                .memory_state(),
+            MemoryState::Free,
+        );
+
+        let live = heap.blocks[0].as_ref().expect("live block retained");
+        assert_eq!(live.used_by_offset.len(), 1);
+        // SAFETY: pressure retirement proved the block live and therefore did
+        // not release its committed prefix.
+        assert!(unsafe {
+            std::slice::from_raw_parts(live.base.add(live_offset), 8 * 1024)
+                .iter()
+                .all(|byte| *byte == 0xa5)
+        });
+
+        assert!(
+            heap.blocks[0]
+                .as_mut()
+                .expect("live block")
+                .free(live_offset as u32)
+        );
+        let cleanup = heap.retire_empty(RetirementReason::DirectVaFailure);
+        assert_eq!(cleanup.slots_retired, 1);
+        heap.blocks[2] = None;
+    }
+
+    #[test]
+    fn pressure_retirement_does_not_wait_for_the_global_heap_lock() {
+        let _guard = HEAP.lock();
+        assert!(matches!(
+            try_retire_empty_for_pressure(),
+            TryRetireResult::Busy
+        ));
     }
 }

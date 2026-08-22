@@ -12,10 +12,10 @@
 //! the main thread it races with the physics step and frees objects
 //! the stepper is walking.
 //!
-//! Cleanup (havok_gc / mi_collect) only runs on the main thread at
-//! Phase 7/8 hooks, where it is serialised against physics and AI.
-//! Per-tier allocators do not decommit, so no background reclaim
-//! path is needed here.
+//! The watchdog never performs engine cleanup or allocator mutation. A
+//! detailed sample that proves high process VAS pressure publishes an atomic
+//! request; the existing Phase 10 main-thread boundary may then release only
+//! fully empty allocator-owned VirtualAlloc blocks.
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU32, AtomicU64, AtomicUsize, Ordering};
@@ -295,7 +295,7 @@ fn log_diagnostics(poll_count: u32, info: &MiMallocProcessInfo) {
     super::hang::log_if_main_stale();
 
     let vas = super::vas::sample();
-    log_pressure(
+    let free_state = log_pressure(
         info.get_current_commit(),
         vas.map(|summary| summary.total_free),
     );
@@ -325,7 +325,7 @@ fn log_diagnostics(poll_count: u32, info: &MiMallocProcessInfo) {
     let va_peak = super::va_alloc::peak_live_bytes() / 1024 / 1024;
     let va_max = super::va_alloc::max_allocation_bytes() / 1024 / 1024;
     log::debug!(
-        "[MEM] Pool: {}MB cells + {}/{}MB metadata / {}MB user reserved (overflow={}/{}MB user/meta, {} live) | Blocks: {} slots, {}/{}MB live/committed, {} allocs, sample={} | VA: {}/{}MB live/peak, {}MB max | Rate: {}/s",
+        "[MEM] Pool: {}MB cells + {}/{}MB metadata / {}MB user reserved (overflow={}/{}MB user/meta, {} live) | Blocks: {} slots (va={} tail={} empty_va={} partial={}), {}/{}MB live/committed, reclaimable={}/{}MB reserved/committed, stranded={}MB, {} allocs, sample={} | VA: {}/{}MB live/peak, {}MB max | Rate: {}/s",
         pool_mb,
         pool_metadata_mb,
         pool_metadata_reserved_mb,
@@ -334,8 +334,15 @@ fn log_diagnostics(poll_count: u32, info: &MiMallocProcessInfo) {
         pool_overflow_metadata_mb,
         pool_live,
         blocks.slots,
+        blocks.virtual_alloc_slots,
+        blocks.default_tail_slots,
+        blocks.empty_virtual_alloc_slots,
+        blocks.partially_live_slots,
         blocks.live_bytes / 1024 / 1024,
         blocks.committed_bytes / 1024 / 1024,
+        blocks.reclaimable_reserved_bytes / 1024 / 1024,
+        blocks.reclaimable_committed_bytes / 1024 / 1024,
+        blocks.stranded_committed_bytes / 1024 / 1024,
         blocks.live_allocations,
         block_sample,
         va_live,
@@ -391,16 +398,22 @@ fn log_diagnostics(poll_count: u32, info: &MiMallocProcessInfo) {
             vas.regions,
             vas.holes,
         );
-        log_largest_hole_pressure(vas);
+        let hole_state = log_largest_hole_pressure(vas);
+        if (free_state == Some(PressureState::High) || hole_state == PressureState::High)
+            && let Some(pressure) = PressureRelief::instance()
+        {
+            pressure.publish_vas_pressure(vas.total_free, vas.largest_free);
+        }
 
         if poll_count.is_multiple_of(INFO_SUMMARY_INTERVAL) {
             log::info!(
-                "[MEM] commit={} peak={} pool={}/{}MB blocks={} va={}MB largest_free={}MB total_free={}MB rate={}/s",
+                "[MEM] commit={} peak={} pool={}/{}MB blocks={} reclaimable={}MB va={}MB largest_free={}MB total_free={}MB rate={}/s",
                 info.virtual_memory_usage_human(),
                 libpsycho::common::helpers::format_bytes(info.get_peak_commit()),
                 pool_mb,
                 pool_reserved_mb,
                 blocks.slots,
+                blocks.reclaimable_reserved_bytes / super::vas::MB,
                 va_live,
                 vas.largest_free / super::vas::MB,
                 vas.total_free / super::vas::MB,
@@ -410,9 +423,9 @@ fn log_diagnostics(poll_count: u32, info: &MiMallocProcessInfo) {
     }
 }
 
-fn log_pressure(commit: usize, free_vas: Option<usize>) {
+fn log_pressure(commit: usize, free_vas: Option<usize>) -> Option<PressureState> {
     let Some(pr) = PressureRelief::instance() else {
-        return;
+        return None;
     };
 
     let baseline = pr.baseline_commit();
@@ -450,7 +463,7 @@ fn log_pressure(commit: usize, free_vas: Option<usize>) {
         (commit, normal_abs, normal_abs + 500 * 1024 * 1024)
     };
 
-    if let Some(free_vas) = free_vas {
+    let free_state = free_vas.map(|free_vas| {
         let free_state = classify_free_vas(free_vas);
         log_state_change(
             &FREE_VAS_STATE,
@@ -469,7 +482,8 @@ fn log_pressure(commit: usize, free_vas: Option<usize>) {
                 )
             },
         );
-    }
+        free_state
+    });
 
     let commit_state = classify_commit_growth(growth, normal_thresh, high_thresh);
     let rate = GROWTH_RATE.load(Ordering::Relaxed);
@@ -500,9 +514,10 @@ fn log_pressure(commit: usize, free_vas: Option<usize>) {
             )
         },
     );
+    free_state
 }
 
-fn log_largest_hole_pressure(vas: super::vas::Summary) {
+fn log_largest_hole_pressure(vas: super::vas::Summary) -> PressureState {
     let old = state_from_usize(HOLE_STATE.load(Ordering::Acquire));
     let state = classify_largest_hole(vas.largest_free, old);
     log_state_change(
@@ -530,6 +545,7 @@ fn log_largest_hole_pressure(vas: super::vas::Summary) {
             )
         },
     );
+    state
 }
 
 fn classify_free_vas(free_vas: usize) -> PressureState {
@@ -600,5 +616,30 @@ fn format_rate(bytes_per_sec: i32) -> String {
         format!("{}{}KB", sign, abs / 1024)
     } else {
         format!("{}{}B", sign, abs)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn only_established_high_vas_states_request_emergency_relief() {
+        assert!(matches!(
+            classify_free_vas(super::super::allocator::VAS_EMERGENCY_REMAINING + 1),
+            PressureState::Watch
+        ));
+        assert!(matches!(
+            classify_free_vas(super::super::allocator::VAS_EMERGENCY_REMAINING),
+            PressureState::High
+        ));
+        assert!(matches!(
+            classify_largest_hole(97 * super::super::vas::MB, PressureState::Normal),
+            PressureState::Watch
+        ));
+        assert!(matches!(
+            classify_largest_hole(96 * super::super::vas::MB, PressureState::Normal),
+            PressureState::High
+        ));
     }
 }

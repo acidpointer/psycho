@@ -95,7 +95,7 @@ impl MemStats {
     }
 
     fn gheap_report() -> String {
-        let mut r = String::with_capacity(1024);
+        let mut r = String::with_capacity(1280);
 
         let pool_commit = pool::committed_bytes();
         let pool_metadata = pool::metadata_bytes();
@@ -149,6 +149,25 @@ impl MemStats {
                 format_bytes(blocks.live_bytes),
                 format_bytes(blocks.committed_bytes),
                 blocks.slots
+            ),
+        );
+        push_value(
+            &mut r,
+            "Block reclaimable",
+            format!(
+                "{} reserve / {} commit / {} slots",
+                format_bytes(blocks.reclaimable_reserved_bytes),
+                format_bytes(blocks.reclaimable_committed_bytes),
+                blocks.empty_virtual_alloc_slots,
+            ),
+        );
+        push_value(
+            &mut r,
+            "Block stranded",
+            format!(
+                "{} commit / {} partial slots",
+                format_bytes(blocks.stranded_committed_bytes),
+                blocks.partially_live_slots,
             ),
         );
         push_value(

@@ -245,9 +245,9 @@ pub fn initialize_gheap_runtime() -> anyhow::Result<()> {
         return Err(anyhow::anyhow!("Pool allocator initialization failed"));
     }
 
-    // Block allocator: single contiguous tier reservation. Keeps all
-    // medium allocations in one VA island instead of scattering
-    // 16 MB reservations across free VAS per save-load burst.
+    // Block allocator: lazy independent 16 MB reservations. Empty
+    // VirtualAlloc-backed slots can therefore return their complete VAS range
+    // during bounded OOM recovery; no address space is reserved at init.
     if !gheap::block::init() {
         log::warn!(
             "[HEAP REPLACER] Block tier reservation failed; medium \

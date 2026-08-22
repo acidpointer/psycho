@@ -76,7 +76,7 @@ Source ownership:
 | Medium objects | `gheap/block.rs` | On-demand independent 16 MB reservations, 1 MB progressive commit, exact 16-byte alignment, split/coalesce metadata outside user bytes, 64-slot ceiling. |
 | Huge objects | `gheap/va_alloc.rs` | Page-rounded reserve+commit above 16 MB; exact side-table ownership; release on free; one retry after retiring fully empty VA-backed medium blocks. |
 | Dispatch | `gheap/allocator.rs` | Size-only tier selection; pool failure may use blocks; final failure returns `NULL`. |
-| Pressure | `gheap/vas.rs`, `watchdog.rs`, `pressure.rs` | `VirtualQuery` total/holes, commit growth, tier occupancy, fallback/failure counters. No routine cleanup is initiated by the watchdog. |
+| Pressure | `gheap/vas.rs`, `watchdog.rs`, `pressure.rs` | `VirtualQuery` total/holes, commit growth, tier occupancy, fallback/failure counters. A detailed high-VAS-pressure sample may request Phase 10 retirement of fully empty VirtualAlloc medium blocks; the watchdog never mutates allocator or engine state. |
 | Lifetime safety | pool/block metadata and targeted engine guards | Free does not overwrite pool/block payload bytes. Reuse is immediate; only proven stale-reader families receive targeted guards. |
 
 Controller-sequence IDTag retirement is a separate engine-object contract, not
@@ -852,6 +852,89 @@ failure: logger documentation uses unsuffixed `0xDEADBEEF`, which overflows
 `i32` on the supported 32-bit target. That source was not changed as part of
 this allocator correction. Extreme-modlist runtime validation and a complete
 CrashLogger stack remain pending.
+
+## August 22, 2026 retained-medium-block OOM candidate
+
+This incident proves 32-bit process VAS exhaustion and a gheap recovery
+coverage gap. It does not identify the final native allocation owner or faulting
+instruction. The preserved CrashLogger report is
+`.reports/CrashLogger.2026-08-22-20-01-46.log`; the live Psycho log was
+inspected before a later game launch replaced the `latest` file.
+
+### Runtime evidence
+
+The mode-2 session started with 1,004 MB free VAS. A startup/load burst grew
+the medium tier from five to 27 independent blocks, and it later reached 32
+blocks. Immediately before the crash:
+
+- the medium tier held 154 MB live in 512 MB committed across 32 slots;
+- direct VA had no live allocation, and pool, block, and direct-VA counters
+  were stable or decreasing;
+- total free VAS fell from 196 MB to 43 MB in one minute;
+- the largest free hole fell from 15 MB to 1 MB;
+- process commit rose by 325 MB and private commit rose by 328 MB while mapped
+  and image commit were effectively stable; and
+- CrashLogger ended with access violation `C0000005`, Win32 error 8, and no
+  usable instruction or stack because its exception handler also failed.
+
+The final surge therefore occurred outside the logged gheap tiers. The thread
+label `LibAudioUpdate` does not prove audio ownership, and save activity near
+the end does not prove a save allocation caused the surge. The current
+ScrapHeap reusable reserve reported no final failure, so this is not a repeat
+of the July 29 ScrapHeap backing defect.
+
+Normal medium frees coalesce cells but retain every 16 MB reservation and its
+committed prefix. Before this correction, the only empty-block release was
+reachable after Psycho's own direct-VA allocation failed. A D3D, audio, or
+other Win32 consumer could therefore exhaust process VAS without entering that
+recovery path even when gheap owned completely empty medium blocks.
+
+### Bounded correction
+
+The watchdog remains diagnostic-only with respect to mutation. On its existing
+detailed cadence, an actual `VirtualQuery` sample publishes an allocation-free
+request only when total free VAS is at or below 200 MB or the largest hole is
+at or below 96 MB. Commit growth alone cannot publish a request.
+
+The existing Phase 10 pressure span consumes the latest request on the main
+thread. It tries the block mutex without waiting; contention leaves the request
+pending for the next frame. One successful consumption may release every
+fully empty, independently VirtualAlloc-backed medium block. It never releases
+a block with a live allocation or an adopted Default-heap tail, and it never
+calls PDD, Havok, cell unloading, IO cleanup, or a vanilla OOM stage. A
+`VirtualFree` failure preserves the block and ownership map. The next detailed
+high-pressure sample may publish another request, which bounds retirement to
+at most one attempt per detailed sample instead of coupling it to `free`.
+
+Cold snapshots now distinguish empty/reclaimable VirtualAlloc slots from
+committed slack stranded inside partially live blocks. If reporter evidence
+shows few or no empty blocks during pressure, this candidate cannot recover
+the retained VAS. Allocation placement or an exact-size transient lane then
+requires a separately captured size/lifetime trace; no threshold or placement
+change is authorized by the aggregate incident counters alone.
+
+### Three-way tradeoff and acceptance
+
+- **OOM recovery:** external Win32 consumers can now benefit from empty gheap
+  reservations before their own allocation fails. The correction cannot move
+  live cells or recover slack inside a partially live block.
+- **UAF protection:** normal and watch-pressure frees remain readable and
+  unchanged. During proven high VAS pressure, stale pointers into a completely
+  empty retired block become unreadable. This is the same last-resort tradeoff
+  already made after a direct-VA failure, but it can occur before Psycho sees
+  an allocator failure.
+- **Performance:** allocation and free placement are unchanged. Detailed
+  sampling extends an existing non-blocking snapshot; Phase 10 uses `try_lock`
+  and does no work without a pending request. Retirement is bounded by the
+  watchdog cadence, preventing the prior rapid retire/recommit cycle.
+
+The candidate is offline-qualified only after the production block path proves
+that empty VirtualAlloc slots return to `MEM_FREE` while live and Default-tail
+blocks remain valid, the affected tests and supported release build pass, and
+the startup footprint checks pass. Runtime acceptance still requires the same
+modlist, save, route, settings, and Proton/Wine workload to pass its previous
+failure point with a recorded pressure request/recovery outcome and without an
+OOM, UAF, or allocator-hitch regression.
 
 ## Validation matrix for an extreme setup
 
