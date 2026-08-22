@@ -331,15 +331,44 @@ fn initialize_inner(
         Ok(ballistics_hooks) => {
             log::info!("[BALLISTICS] Native physical-flight policy is active");
             log::debug!(
-                "[BALLISTICS] Chained predecessors: count=0x{:08X}, launch=0x{:08X}, hit_build=0x{:08X}, hit_commit=0x{:08X}, collision=0x{:08X}, hitscan_policy=0x{:08X}, missile_update=0x{:08X}",
+                "[BALLISTICS] Chained predecessors: count=0x{:08X}, launch=0x{:08X}, hit_build=0x{:08X}, hit_commit=0x{:08X}, collision=0x{:08X}, hitscan_policy=0x{:08X}, muzzle=0x{:08X}, movement_a=0x{:08X}, movement_b=0x{:08X}, missile_update=0x{:08X}",
                 ballistics_hooks.count_predecessor,
                 ballistics_hooks.launch_predecessor,
                 ballistics_hooks.hit_build_predecessor,
                 ballistics_hooks.hit_commit_predecessor,
                 ballistics_hooks.collision_predecessor,
                 ballistics_hooks.hitscan_policy_predecessor,
+                ballistics_hooks.muzzle_flash_predecessor,
+                ballistics_hooks.movement_step_a_predecessor,
+                ballistics_hooks.movement_step_b_predecessor,
                 ballistics_hooks.missile_update_predecessor,
             );
+            match ballistics::install_ricochet_observer() {
+                Ok(status) => {
+                    if status.mutation_admitted {
+                        log::info!("[BALLISTICS] Native child-projectile ricochet path installed");
+                    } else {
+                        log::warn!(
+                            "[BALLISTICS] Ricochet remains observe-only because a required child seam is unsupported: common_impact={} (current=0x{:08X}, expected=0x{:08X}), child_presentation={} (current=0x{:08X}, expected=0x{:08X})",
+                            status.common_impact_supported,
+                            status.common_impact_predecessor,
+                            ballistics::EXPECTED_COMMON_IMPACT_PREDECESSOR,
+                            status.child_presentation_supported,
+                            status.child_presentation_predecessor,
+                            ballistics::EXPECTED_CHILD_PRESENTATION_PREDECESSOR,
+                        );
+                    }
+                    log::debug!(
+                        "[BALLISTICS] Ricochet admission: launch=chained/non-gating (0x{:08X}), common_impact=0x{:08X}, child_presentation=0x{:08X}",
+                        status.launch_predecessor,
+                        status.common_impact_predecessor,
+                        status.child_presentation_predecessor,
+                    );
+                }
+                Err(error) => log::warn!(
+                    "[BALLISTICS] Ricochet impact diagnostics are unavailable: {error:#}. Native impact behavior remains active"
+                ),
+            }
         }
         Err(error) => log::warn!(
             "[BALLISTICS] Native physical-flight policy is unavailable: {error:#}. Ballistics remains native"
@@ -556,9 +585,24 @@ fn apply_config(config: AtomConfig, process_summary_request: bool, report_unchan
     );
     if ballistics_config != previous_ballistics || report_unchanged {
         log::info!(
-            "[CONFIG] Ballistics settings active: enabled={}, trace={}",
+            "[CONFIG] Ballistics settings active: enabled={}, ricochet={}, trace={}",
             ballistics_config.enabled(),
+            ballistics_config.ricochet_enabled(),
             ballistics_config.trace_enabled(),
+        );
+        let energy = ballistics_config.ricochet_energy();
+        log::info!(
+            "[CONFIG] Ricochet energy active: stone={}% dirt={}% grass={}% glass={}% metal={}% wood={}% organic={}% cloth={}% water={}% hollow_metal={}%",
+            energy.stone(),
+            energy.dirt(),
+            energy.grass(),
+            energy.glass(),
+            energy.metal(),
+            energy.wood(),
+            energy.organic(),
+            energy.cloth(),
+            energy.water(),
+            energy.hollow_metal(),
         );
     }
 

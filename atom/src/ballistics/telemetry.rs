@@ -9,7 +9,15 @@ use core::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use libpsycho::os::windows::winapi::{get_current_thread_id, query_performance_counter};
 
 use super::adapter::PolicyResult;
-use super::native::{ProjectileRuntimeSample, RuntimeFlightPath, RuntimePolicyMarkers};
+use super::native::{
+    ChildInitializationError, ImpactListSample, ProjectileRuntimeSample, RuntimeFlightPath,
+    RuntimePolicyMarkers,
+};
+use super::pool::ImpactObservation;
+use super::ricochet::{
+    self, CANONICAL_MATERIAL_COUNT, ContinuationEnergy, FirstStepEvidence, FirstStepOutcome,
+    FollowupContact, HARD_MATERIAL_COUNT, RicochetPlan,
+};
 use super::{ProjectileCapability, SourceKind};
 
 const IMPACT_BUCKET_US: [u32; 10] = [
@@ -24,6 +32,20 @@ const STEP_ERROR_PERCENT: [f32; 5] = [1.0, 5.0, 10.0, 25.0, 50.0];
 const STEP_ERROR_BUCKET_COUNT: usize = STEP_ERROR_PERCENT.len() + 1;
 const UPDATE_PATH_COUNT: usize = 5;
 const RUNTIME_MARKER_COUNT: usize = 4;
+const COMMON_IMPACT_LIST_SHAPE_COUNT: usize = 4;
+const COMMON_IMPACT_RESULT_COUNT: usize = 2;
+const GRAZING_ANGLE_UPPER_DEGREES: [u8; 10] = [5, 10, 15, 20, 30, 45, 60, 75, 85, 90];
+const GRAZING_ANGLE_BUCKET_COUNT: usize = GRAZING_ANGLE_UPPER_DEGREES.len() + 1;
+const FOLLOWUP_DISTANCE_UPPER_UNITS: [f32; 5] = [0.01, 0.1, 1.0, 8.0, 32.0];
+const FOLLOWUP_DISTANCE_BUCKET_COUNT: usize = FOLLOWUP_DISTANCE_UPPER_UNITS.len() + 1;
+const DIRECTION_ERROR_UPPER_DEGREES: [f32; 6] = [0.5, 1.0, 5.0, 15.0, 45.0, 90.0];
+const DIRECTION_ERROR_BUCKET_COUNT: usize = DIRECTION_ERROR_UPPER_DEGREES.len() + 1;
+const RICOCHET_SPEED_UPPER: [f32; 5] = [6_400.0, 10_000.0, 20_000.0, 40_000.0, 80_000.0];
+const RICOCHET_SPEED_BUCKET_COUNT: usize = RICOCHET_SPEED_UPPER.len() + 1;
+const RICOCHET_DAMAGE_UPPER: [f32; 6] = [6.0, 10.0, 20.0, 40.0, 80.0, 160.0];
+const RICOCHET_DAMAGE_BUCKET_COUNT: usize = RICOCHET_DAMAGE_UPPER.len() + 1;
+const RICOCHET_DEPTH_UPPER: [u32; 5] = [1, 2, 3, 4, 8];
+const RICOCHET_DEPTH_BUCKET_COUNT: usize = RICOCHET_DEPTH_UPPER.len() + 1;
 
 static ENABLED: AtomicBool = AtomicBool::new(false);
 static MAX_INTERVAL_TICKS: AtomicU32 = AtomicU32::new(0);
@@ -75,6 +97,143 @@ static UPDATE_FRAME_TIME: [AtomicU32; UPDATE_FRAME_BUCKET_COUNT] =
     [const { AtomicU32::new(0) }; UPDATE_FRAME_BUCKET_COUNT];
 static STEP_ERROR: [AtomicU32; STEP_ERROR_BUCKET_COUNT] =
     [const { AtomicU32::new(0) }; STEP_ERROR_BUCKET_COUNT];
+static COMMON_IMPACT_CALLS: AtomicU32 = AtomicU32::new(0);
+static COMMON_IMPACT_TRACKED: AtomicU32 = AtomicU32::new(0);
+static COMMON_IMPACT_PHYSICAL: AtomicU32 = AtomicU32::new(0);
+static COMMON_IMPACT_ACTOR: AtomicU32 = AtomicU32::new(0);
+static COMMON_IMPACT_LIST_TRUNCATED: AtomicU32 = AtomicU32::new(0);
+static COMMON_IMPACT_UNKNOWN_MATERIAL: AtomicU32 = AtomicU32::new(0);
+static COMMON_IMPACT_INVALID_GEOMETRY: AtomicU32 = AtomicU32::new(0);
+static COMMON_IMPACT_MEASURABLE_HARD_WORLD: AtomicU32 = AtomicU32::new(0);
+static COMMON_IMPACTS_BY_SOURCE: [AtomicU32; SourceKind::COUNT] =
+    [const { AtomicU32::new(0) }; SourceKind::COUNT];
+static COMMON_IMPACT_LIST_SHAPES: [AtomicU32; COMMON_IMPACT_LIST_SHAPE_COUNT] =
+    [const { AtomicU32::new(0) }; COMMON_IMPACT_LIST_SHAPE_COUNT];
+static COMMON_IMPACT_RESULTS: [AtomicU32; COMMON_IMPACT_RESULT_COUNT] =
+    [const { AtomicU32::new(0) }; COMMON_IMPACT_RESULT_COUNT];
+static COMMON_IMPACT_MATERIALS: [AtomicU32; CANONICAL_MATERIAL_COUNT] =
+    [const { AtomicU32::new(0) }; CANONICAL_MATERIAL_COUNT];
+static COMMON_IMPACT_HARD_MATERIALS: [AtomicU32; HARD_MATERIAL_COUNT] =
+    [const { AtomicU32::new(0) }; HARD_MATERIAL_COUNT];
+static COMMON_IMPACT_GRAZING_ANGLES: [AtomicU32; GRAZING_ANGLE_BUCKET_COUNT] =
+    [const { AtomicU32::new(0) }; GRAZING_ANGLE_BUCKET_COUNT];
+static RICOCHET_CANDIDATES: AtomicU32 = AtomicU32::new(0);
+static RICOCHET_PUBLICATIONS: AtomicU32 = AtomicU32::new(0);
+static RICOCHET_CANDIDATES_BY_MATERIAL: [AtomicU32; CANONICAL_MATERIAL_COUNT] =
+    [const { AtomicU32::new(0) }; CANONICAL_MATERIAL_COUNT];
+static RICOCHET_PUBLICATIONS_BY_MATERIAL: [AtomicU32; CANONICAL_MATERIAL_COUNT] =
+    [const { AtomicU32::new(0) }; CANONICAL_MATERIAL_COUNT];
+static RICOCHET_CONFIRMED_BY_MATERIAL: [AtomicU32; CANONICAL_MATERIAL_COUNT] =
+    [const { AtomicU32::new(0) }; CANONICAL_MATERIAL_COUNT];
+static RICOCHET_CANDIDATES_BY_ANGLE: [AtomicU32; GRAZING_ANGLE_BUCKET_COUNT] =
+    [const { AtomicU32::new(0) }; GRAZING_ANGLE_BUCKET_COUNT];
+static RICOCHET_PUBLICATIONS_BY_ANGLE: [AtomicU32; GRAZING_ANGLE_BUCKET_COUNT] =
+    [const { AtomicU32::new(0) }; GRAZING_ANGLE_BUCKET_COUNT];
+static RICOCHET_CANDIDATES_BY_DEPTH: [AtomicU32; RICOCHET_DEPTH_BUCKET_COUNT] =
+    [const { AtomicU32::new(0) }; RICOCHET_DEPTH_BUCKET_COUNT];
+static RICOCHET_PUBLICATIONS_BY_DEPTH: [AtomicU32; RICOCHET_DEPTH_BUCKET_COUNT] =
+    [const { AtomicU32::new(0) }; RICOCHET_DEPTH_BUCKET_COUNT];
+static RICOCHET_CONFIRMED_BY_DEPTH: [AtomicU32; RICOCHET_DEPTH_BUCKET_COUNT] =
+    [const { AtomicU32::new(0) }; RICOCHET_DEPTH_BUCKET_COUNT];
+static RICOCHET_PUBLICATION_INVALID: AtomicU32 = AtomicU32::new(0);
+static RICOCHET_MOVEMENT_BOUNDARIES: AtomicU32 = AtomicU32::new(0);
+static RICOCHET_MOVEMENT_TARGET_STATUS: [AtomicU32; 3] = [const { AtomicU32::new(0) }; 3];
+static RICOCHET_FIRST_STEPS: AtomicU32 = AtomicU32::new(0);
+static RICOCHET_FIRST_STEP_OUTWARD: AtomicU32 = AtomicU32::new(0);
+static RICOCHET_FIRST_STEP_NON_OUTWARD: AtomicU32 = AtomicU32::new(0);
+static RICOCHET_FIRST_STEP_STATIONARY: AtomicU32 = AtomicU32::new(0);
+static RICOCHET_FIRST_STEP_INVALID: AtomicU32 = AtomicU32::new(0);
+static RICOCHET_FIRST_STEP_STATE_RACES: AtomicU32 = AtomicU32::new(0);
+static RICOCHET_PENDING_LOST: AtomicU32 = AtomicU32::new(0);
+static RICOCHET_PUBLICATION_AUTHORITY_ERROR: [AtomicU32; DIRECTION_ERROR_BUCKET_COUNT] =
+    [const { AtomicU32::new(0) }; DIRECTION_ERROR_BUCKET_COUNT];
+static RICOCHET_PRE_MOVEMENT_AUTHORITY_ERROR: [AtomicU32; DIRECTION_ERROR_BUCKET_COUNT] =
+    [const { AtomicU32::new(0) }; DIRECTION_ERROR_BUCKET_COUNT];
+static RICOCHET_IMMEDIATE_MOVEMENT_ERROR: [AtomicU32; DIRECTION_ERROR_BUCKET_COUNT] =
+    [const { AtomicU32::new(0) }; DIRECTION_ERROR_BUCKET_COUNT];
+static RICOCHET_FIRST_STEP_AUTHORITY_ERROR: [AtomicU32; DIRECTION_ERROR_BUCKET_COUNT] =
+    [const { AtomicU32::new(0) }; DIRECTION_ERROR_BUCKET_COUNT];
+static RICOCHET_FIRST_STEP_MOVEMENT_ERROR: [AtomicU32; DIRECTION_ERROR_BUCKET_COUNT] =
+    [const { AtomicU32::new(0) }; DIRECTION_ERROR_BUCKET_COUNT];
+static RICOCHET_FIRST_STEP_POSITION_ERROR: [AtomicU32; DIRECTION_ERROR_BUCKET_COUNT] =
+    [const { AtomicU32::new(0) }; DIRECTION_ERROR_BUCKET_COUNT];
+static RICOCHET_POST_BOUNCE_CONTACTS: AtomicU32 = AtomicU32::new(0);
+static RICOCHET_POST_BOUNCE_ACTOR_HITS: AtomicU32 = AtomicU32::new(0);
+static RICOCHET_FOLLOWUP_SAME_TARGET: AtomicU32 = AtomicU32::new(0);
+static RICOCHET_FOLLOWUP_SAME_MATERIAL: AtomicU32 = AtomicU32::new(0);
+static RICOCHET_FOLLOWUP_OUTWARD: AtomicU32 = AtomicU32::new(0);
+static RICOCHET_FOLLOWUP_NON_OUTWARD: AtomicU32 = AtomicU32::new(0);
+static RICOCHET_FOLLOWUP_INVALID_DIRECTION: AtomicU32 = AtomicU32::new(0);
+static RICOCHET_FOLLOWUP_INVALID_DISTANCE: AtomicU32 = AtomicU32::new(0);
+static RICOCHET_FOLLOWUP_INVALID_POINT: AtomicU32 = AtomicU32::new(0);
+static RICOCHET_FOLLOWUP_DISTANCE: [AtomicU32; FOLLOWUP_DISTANCE_BUCKET_COUNT] =
+    [const { AtomicU32::new(0) }; FOLLOWUP_DISTANCE_BUCKET_COUNT];
+static RICOCHET_FOLLOWUP_POINT_SEPARATION: [AtomicU32; FOLLOWUP_DISTANCE_BUCKET_COUNT] =
+    [const { AtomicU32::new(0) }; FOLLOWUP_DISTANCE_BUCKET_COUNT];
+static RICOCHET_PUBLICATIONS_BY_SOURCE: [AtomicU32; SourceKind::COUNT] =
+    [const { AtomicU32::new(0) }; SourceKind::COUNT];
+static RICOCHET_CONFIRMED_BY_SOURCE: [AtomicU32; SourceKind::COUNT] =
+    [const { AtomicU32::new(0) }; SourceKind::COUNT];
+static RICOCHET_REJECTIONS: [AtomicU32; RicochetRejection::COUNT] =
+    [const { AtomicU32::new(0) }; RicochetRejection::COUNT];
+static RICOCHET_CHILD_STATE_REJECTIONS: [AtomicU32; ChildInitializationError::COUNT] =
+    [const { AtomicU32::new(0) }; ChildInitializationError::COUNT];
+static RICOCHET_CURRENT_SPEED: [AtomicU32; RICOCHET_SPEED_BUCKET_COUNT] =
+    [const { AtomicU32::new(0) }; RICOCHET_SPEED_BUCKET_COUNT];
+static RICOCHET_NEXT_SPEED: [AtomicU32; RICOCHET_SPEED_BUCKET_COUNT] =
+    [const { AtomicU32::new(0) }; RICOCHET_SPEED_BUCKET_COUNT];
+static RICOCHET_CURRENT_DAMAGE: [AtomicU32; RICOCHET_DAMAGE_BUCKET_COUNT] =
+    [const { AtomicU32::new(0) }; RICOCHET_DAMAGE_BUCKET_COUNT];
+static RICOCHET_NEXT_DAMAGE: [AtomicU32; RICOCHET_DAMAGE_BUCKET_COUNT] =
+    [const { AtomicU32::new(0) }; RICOCHET_DAMAGE_BUCKET_COUNT];
+static RICOCHET_PARENT_DEPTH: [AtomicU32; RICOCHET_DEPTH_BUCKET_COUNT] =
+    [const { AtomicU32::new(0) }; RICOCHET_DEPTH_BUCKET_COUNT];
+
+/// Stable reason why one impact retained its complete native result.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[repr(u8)]
+pub(crate) enum RicochetRejection {
+    Disabled = 0,
+    CriticalAdmission = 1,
+    Untracked = 2,
+    Capability = 3,
+    LaunchContext = 4,
+    SpecialForm = 5,
+    SpecialOutcome = 6,
+    ImpactShape = 7,
+    UnsupportedMaterial = 8,
+    InvalidGeometry = 9,
+    InvalidEnergy = 10,
+    EnergySpeed = 11,
+    EnergyDamage = 12,
+    EnergySpeedAndDamage = 13,
+    FirstStepPending = 14,
+    OutboundFailed = 15,
+    ActorTarget = 16,
+    PredecessorResult = 17,
+    Postcondition = 18,
+    StateRace = 19,
+    NativeAccess = 20,
+    Clearance = 21,
+    ChildSpawn = 22,
+    ChildPolicy = 23,
+    ChildState = 24,
+    StateTransfer = 25,
+    MaterialDisabled = 26,
+}
+
+impl RicochetRejection {
+    pub(crate) const COUNT: usize = 27;
+}
+
+/// Value-only sample captured around one unchanged native impact traversal.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct CommonImpactObservation {
+    pub(crate) launch: Option<ImpactObservation>,
+    pub(crate) runtime: Option<ProjectileRuntimeSample>,
+    pub(crate) impacts: Option<ImpactListSample>,
+    pub(crate) predecessor_result: u8,
+}
 
 /// Point-in-time copy of Ballistics observation counters.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -118,6 +277,66 @@ pub struct BallisticsTelemetrySnapshot {
     runtime_markers: [u32; RUNTIME_MARKER_COUNT],
     update_frame_time: [u32; UPDATE_FRAME_BUCKET_COUNT],
     step_error: [u32; STEP_ERROR_BUCKET_COUNT],
+    common_impact_calls: u32,
+    common_impact_tracked: u32,
+    common_impact_physical: u32,
+    common_impact_actor: u32,
+    common_impact_list_truncated: u32,
+    common_impact_unknown_material: u32,
+    common_impact_invalid_geometry: u32,
+    common_impact_measurable_hard_world: u32,
+    common_impacts_by_source: [u32; SourceKind::COUNT],
+    common_impact_list_shapes: [u32; COMMON_IMPACT_LIST_SHAPE_COUNT],
+    common_impact_results: [u32; COMMON_IMPACT_RESULT_COUNT],
+    common_impact_materials: [u32; CANONICAL_MATERIAL_COUNT],
+    common_impact_hard_materials: [u32; HARD_MATERIAL_COUNT],
+    common_impact_grazing_angles: [u32; GRAZING_ANGLE_BUCKET_COUNT],
+    ricochet_candidates: u32,
+    ricochet_publications: u32,
+    ricochet_candidates_by_material: [u32; CANONICAL_MATERIAL_COUNT],
+    ricochet_publications_by_material: [u32; CANONICAL_MATERIAL_COUNT],
+    ricochet_confirmed_by_material: [u32; CANONICAL_MATERIAL_COUNT],
+    ricochet_candidates_by_angle: [u32; GRAZING_ANGLE_BUCKET_COUNT],
+    ricochet_publications_by_angle: [u32; GRAZING_ANGLE_BUCKET_COUNT],
+    ricochet_candidates_by_depth: [u32; RICOCHET_DEPTH_BUCKET_COUNT],
+    ricochet_publications_by_depth: [u32; RICOCHET_DEPTH_BUCKET_COUNT],
+    ricochet_confirmed_by_depth: [u32; RICOCHET_DEPTH_BUCKET_COUNT],
+    ricochet_current_speed: [u32; RICOCHET_SPEED_BUCKET_COUNT],
+    ricochet_next_speed: [u32; RICOCHET_SPEED_BUCKET_COUNT],
+    ricochet_current_damage: [u32; RICOCHET_DAMAGE_BUCKET_COUNT],
+    ricochet_next_damage: [u32; RICOCHET_DAMAGE_BUCKET_COUNT],
+    ricochet_parent_depth: [u32; RICOCHET_DEPTH_BUCKET_COUNT],
+    ricochet_child_state_rejections: [u32; ChildInitializationError::COUNT],
+    ricochet_publication_invalid: u32,
+    ricochet_movement_boundaries: u32,
+    ricochet_movement_target_status: [u32; 3],
+    ricochet_first_steps: u32,
+    ricochet_first_step_outward: u32,
+    ricochet_first_step_non_outward: u32,
+    ricochet_first_step_stationary: u32,
+    ricochet_first_step_invalid: u32,
+    ricochet_first_step_state_races: u32,
+    ricochet_pending_lost: u32,
+    ricochet_publication_authority_error: [u32; DIRECTION_ERROR_BUCKET_COUNT],
+    ricochet_pre_movement_authority_error: [u32; DIRECTION_ERROR_BUCKET_COUNT],
+    ricochet_immediate_movement_error: [u32; DIRECTION_ERROR_BUCKET_COUNT],
+    ricochet_first_step_authority_error: [u32; DIRECTION_ERROR_BUCKET_COUNT],
+    ricochet_first_step_movement_error: [u32; DIRECTION_ERROR_BUCKET_COUNT],
+    ricochet_first_step_position_error: [u32; DIRECTION_ERROR_BUCKET_COUNT],
+    ricochet_post_bounce_contacts: u32,
+    ricochet_post_bounce_actor_hits: u32,
+    ricochet_followup_same_target: u32,
+    ricochet_followup_same_material: u32,
+    ricochet_followup_outward: u32,
+    ricochet_followup_non_outward: u32,
+    ricochet_followup_invalid_direction: u32,
+    ricochet_followup_invalid_distance: u32,
+    ricochet_followup_invalid_point: u32,
+    ricochet_followup_distance: [u32; FOLLOWUP_DISTANCE_BUCKET_COUNT],
+    ricochet_followup_point_separation: [u32; FOLLOWUP_DISTANCE_BUCKET_COUNT],
+    ricochet_publications_by_source: [u32; SourceKind::COUNT],
+    ricochet_confirmed_by_source: [u32; SourceKind::COUNT],
+    ricochet_rejections: [u32; RicochetRejection::COUNT],
 }
 
 impl BallisticsTelemetrySnapshot {
@@ -337,6 +556,276 @@ impl BallisticsTelemetrySnapshot {
     pub const fn step_error(self) -> [u32; STEP_ERROR_BUCKET_COUNT] {
         self.step_error
     }
+
+    /// Return inclusive grazing-angle histogram bounds in degrees.
+    pub const fn grazing_angle_upper_degrees() -> &'static [u8; 10] {
+        &GRAZING_ANGLE_UPPER_DEGREES
+    }
+
+    /// Return all calls through the verified common-impact seam.
+    pub const fn common_impact_calls(self) -> u32 {
+        self.common_impact_calls
+    }
+
+    /// Return common-impact calls correlated with Atom's canonical launch seam.
+    pub const fn common_impact_tracked(self) -> u32 {
+        self.common_impact_tracked
+    }
+
+    /// Return correlated calls whose launch-time path was physical.
+    pub const fn common_impact_physical(self) -> u32 {
+        self.common_impact_physical
+    }
+
+    /// Return tracked calls whose predecessor built actor hit data.
+    pub const fn common_impact_actor(self) -> u32 {
+        self.common_impact_actor
+    }
+
+    /// Return impact lists that exceeded the bounded observation walk.
+    pub const fn common_impact_list_truncated(self) -> u32 {
+        self.common_impact_list_truncated
+    }
+
+    /// Return physical records whose raw material was outside FNV's proven map.
+    pub const fn common_impact_unknown_material(self) -> u32 {
+        self.common_impact_unknown_material
+    }
+
+    /// Return hard-world records with invalid direction or normal geometry.
+    pub const fn common_impact_invalid_geometry(self) -> u32 {
+        self.common_impact_invalid_geometry
+    }
+
+    /// Return single-record hard-world contacts with measured incidence.
+    pub const fn common_impact_measurable_hard_world(self) -> u32 {
+        self.common_impact_measurable_hard_world
+    }
+
+    /// Return tracked common-impact calls indexed by [`SourceKind`].
+    pub const fn common_impacts_by_source(self) -> [u32; SourceKind::COUNT] {
+        self.common_impacts_by_source
+    }
+
+    /// Return missing, empty, single-ready, and multiple-ready list counts.
+    pub const fn common_impact_list_shapes(self) -> [u32; COMMON_IMPACT_LIST_SHAPE_COUNT] {
+        self.common_impact_list_shapes
+    }
+
+    /// Return zero and nonzero native predecessor result counts.
+    pub const fn common_impact_results(self) -> [u32; COMMON_IMPACT_RESULT_COUNT] {
+        self.common_impact_results
+    }
+
+    /// Return physical record counts indexed by canonical material slot.
+    pub const fn common_impact_materials(self) -> [u32; CANONICAL_MATERIAL_COUNT] {
+        self.common_impact_materials
+    }
+
+    /// Return physical stone, metal, and hollow-metal record counts.
+    pub const fn common_impact_hard_materials(self) -> [u32; HARD_MATERIAL_COUNT] {
+        self.common_impact_hard_materials
+    }
+
+    /// Return measured hard-world grazing-angle histogram counts.
+    pub const fn common_impact_grazing_angles(self) -> [u32; GRAZING_ANGLE_BUCKET_COUNT] {
+        self.common_impact_grazing_angles
+    }
+
+    pub(crate) const fn ricochet_candidates(self) -> u32 {
+        self.ricochet_candidates
+    }
+
+    pub(crate) const fn ricochet_publications(self) -> u32 {
+        self.ricochet_publications
+    }
+
+    pub(crate) const fn ricochet_material_coverage(
+        self,
+    ) -> (
+        [u32; CANONICAL_MATERIAL_COUNT],
+        [u32; CANONICAL_MATERIAL_COUNT],
+        [u32; CANONICAL_MATERIAL_COUNT],
+    ) {
+        (
+            self.ricochet_candidates_by_material,
+            self.ricochet_publications_by_material,
+            self.ricochet_confirmed_by_material,
+        )
+    }
+
+    pub(crate) const fn ricochet_angle_coverage(
+        self,
+    ) -> (
+        [u32; GRAZING_ANGLE_BUCKET_COUNT],
+        [u32; GRAZING_ANGLE_BUCKET_COUNT],
+    ) {
+        (
+            self.ricochet_candidates_by_angle,
+            self.ricochet_publications_by_angle,
+        )
+    }
+
+    pub(crate) const fn ricochet_depth_coverage(
+        self,
+    ) -> (
+        [u32; RICOCHET_DEPTH_BUCKET_COUNT],
+        [u32; RICOCHET_DEPTH_BUCKET_COUNT],
+        [u32; RICOCHET_DEPTH_BUCKET_COUNT],
+        [u32; RICOCHET_DEPTH_BUCKET_COUNT],
+    ) {
+        (
+            self.ricochet_parent_depth,
+            self.ricochet_candidates_by_depth,
+            self.ricochet_publications_by_depth,
+            self.ricochet_confirmed_by_depth,
+        )
+    }
+
+    pub(crate) const fn ricochet_energy_histograms(
+        self,
+    ) -> (
+        [u32; RICOCHET_SPEED_BUCKET_COUNT],
+        [u32; RICOCHET_SPEED_BUCKET_COUNT],
+        [u32; RICOCHET_DAMAGE_BUCKET_COUNT],
+        [u32; RICOCHET_DAMAGE_BUCKET_COUNT],
+    ) {
+        (
+            self.ricochet_current_speed,
+            self.ricochet_next_speed,
+            self.ricochet_current_damage,
+            self.ricochet_next_damage,
+        )
+    }
+
+    pub(crate) const fn ricochet_child_state_rejections(
+        self,
+    ) -> [u32; ChildInitializationError::COUNT] {
+        self.ricochet_child_state_rejections
+    }
+
+    pub(crate) const fn ricochet_depth_upper() -> &'static [u32; 5] {
+        &RICOCHET_DEPTH_UPPER
+    }
+
+    pub(crate) const fn ricochet_speed_upper() -> &'static [f32; 5] {
+        &RICOCHET_SPEED_UPPER
+    }
+
+    pub(crate) const fn ricochet_damage_upper() -> &'static [f32; 6] {
+        &RICOCHET_DAMAGE_UPPER
+    }
+
+    pub(crate) const fn ricochet_publication_invalid(self) -> u32 {
+        self.ricochet_publication_invalid
+    }
+
+    pub(crate) const fn ricochet_movement_target_status(self) -> [u32; 4] {
+        [
+            self.ricochet_movement_boundaries,
+            self.ricochet_movement_target_status[0],
+            self.ricochet_movement_target_status[1],
+            self.ricochet_movement_target_status[2],
+        ]
+    }
+
+    pub(crate) const fn ricochet_first_step_outcomes(self) -> [u32; 6] {
+        [
+            self.ricochet_first_steps,
+            self.ricochet_first_step_outward,
+            self.ricochet_first_step_non_outward,
+            self.ricochet_first_step_stationary,
+            self.ricochet_first_step_invalid,
+            self.ricochet_first_step_state_races,
+        ]
+    }
+
+    pub(crate) const fn ricochet_pending_lost(self) -> u32 {
+        self.ricochet_pending_lost
+    }
+
+    pub(crate) const fn direction_error_upper_degrees() -> &'static [f32; 6] {
+        &DIRECTION_ERROR_UPPER_DEGREES
+    }
+
+    pub(crate) const fn ricochet_publication_errors(self) -> [u32; DIRECTION_ERROR_BUCKET_COUNT] {
+        self.ricochet_publication_authority_error
+    }
+
+    pub(crate) const fn ricochet_first_step_errors(
+        self,
+    ) -> [[u32; DIRECTION_ERROR_BUCKET_COUNT]; 3] {
+        [
+            self.ricochet_first_step_authority_error,
+            self.ricochet_first_step_movement_error,
+            self.ricochet_first_step_position_error,
+        ]
+    }
+
+    pub(crate) const fn ricochet_movement_boundary_errors(
+        self,
+    ) -> [[u32; DIRECTION_ERROR_BUCKET_COUNT]; 2] {
+        [
+            self.ricochet_pre_movement_authority_error,
+            self.ricochet_immediate_movement_error,
+        ]
+    }
+
+    pub(crate) const fn ricochet_post_bounce_contacts(self) -> u32 {
+        self.ricochet_post_bounce_contacts
+    }
+
+    pub(crate) const fn ricochet_post_bounce_actor_hits(self) -> u32 {
+        self.ricochet_post_bounce_actor_hits
+    }
+
+    pub(crate) const fn ricochet_followup_identity(self) -> [u32; 2] {
+        [
+            self.ricochet_followup_same_target,
+            self.ricochet_followup_same_material,
+        ]
+    }
+
+    pub(crate) const fn ricochet_followup_directions(self) -> [u32; 3] {
+        [
+            self.ricochet_followup_outward,
+            self.ricochet_followup_non_outward,
+            self.ricochet_followup_invalid_direction,
+        ]
+    }
+
+    pub(crate) const fn ricochet_followup_invalid_geometry(self) -> [u32; 2] {
+        [
+            self.ricochet_followup_invalid_distance,
+            self.ricochet_followup_invalid_point,
+        ]
+    }
+
+    pub(crate) const fn ricochet_followup_distance(self) -> [u32; FOLLOWUP_DISTANCE_BUCKET_COUNT] {
+        self.ricochet_followup_distance
+    }
+
+    pub(crate) const fn ricochet_followup_point_separation(
+        self,
+    ) -> [u32; FOLLOWUP_DISTANCE_BUCKET_COUNT] {
+        self.ricochet_followup_point_separation
+    }
+
+    pub(crate) const fn followup_distance_upper_units() -> &'static [f32; 5] {
+        &FOLLOWUP_DISTANCE_UPPER_UNITS
+    }
+
+    pub(crate) const fn ricochet_publications_by_source(self) -> [u32; SourceKind::COUNT] {
+        self.ricochet_publications_by_source
+    }
+
+    pub(crate) const fn ricochet_confirmed_by_source(self) -> [u32; SourceKind::COUNT] {
+        self.ricochet_confirmed_by_source
+    }
+
+    pub(crate) const fn ricochet_rejections(self) -> [u32; RicochetRejection::COUNT] {
+        self.ricochet_rejections
+    }
 }
 
 pub(crate) fn configure(enabled: bool, frequency: i64) {
@@ -375,6 +864,38 @@ pub(crate) fn reset() {
         .chain(&RUNTIME_MARKERS)
         .chain(&UPDATE_FRAME_TIME)
         .chain(&STEP_ERROR)
+        .chain(&COMMON_IMPACTS_BY_SOURCE)
+        .chain(&COMMON_IMPACT_LIST_SHAPES)
+        .chain(&COMMON_IMPACT_RESULTS)
+        .chain(&COMMON_IMPACT_MATERIALS)
+        .chain(&COMMON_IMPACT_HARD_MATERIALS)
+        .chain(&COMMON_IMPACT_GRAZING_ANGLES)
+        .chain(&RICOCHET_CANDIDATES_BY_MATERIAL)
+        .chain(&RICOCHET_PUBLICATIONS_BY_MATERIAL)
+        .chain(&RICOCHET_CONFIRMED_BY_MATERIAL)
+        .chain(&RICOCHET_CANDIDATES_BY_ANGLE)
+        .chain(&RICOCHET_PUBLICATIONS_BY_ANGLE)
+        .chain(&RICOCHET_CANDIDATES_BY_DEPTH)
+        .chain(&RICOCHET_PUBLICATIONS_BY_DEPTH)
+        .chain(&RICOCHET_CONFIRMED_BY_DEPTH)
+        .chain(&RICOCHET_PUBLICATIONS_BY_SOURCE)
+        .chain(&RICOCHET_CONFIRMED_BY_SOURCE)
+        .chain(&RICOCHET_REJECTIONS)
+        .chain(&RICOCHET_CHILD_STATE_REJECTIONS)
+        .chain(&RICOCHET_CURRENT_SPEED)
+        .chain(&RICOCHET_NEXT_SPEED)
+        .chain(&RICOCHET_CURRENT_DAMAGE)
+        .chain(&RICOCHET_NEXT_DAMAGE)
+        .chain(&RICOCHET_PARENT_DEPTH)
+        .chain(&RICOCHET_FOLLOWUP_DISTANCE)
+        .chain(&RICOCHET_FOLLOWUP_POINT_SEPARATION)
+        .chain(&RICOCHET_PUBLICATION_AUTHORITY_ERROR)
+        .chain(&RICOCHET_PRE_MOVEMENT_AUTHORITY_ERROR)
+        .chain(&RICOCHET_IMMEDIATE_MOVEMENT_ERROR)
+        .chain(&RICOCHET_FIRST_STEP_AUTHORITY_ERROR)
+        .chain(&RICOCHET_FIRST_STEP_MOVEMENT_ERROR)
+        .chain(&RICOCHET_FIRST_STEP_POSITION_ERROR)
+        .chain(&RICOCHET_MOVEMENT_TARGET_STATUS)
     {
         counter.store(0, Ordering::Relaxed);
     }
@@ -610,6 +1131,303 @@ pub(crate) fn record_contact_during_update() {
     increment(&CONTACTS_DURING_UPDATE);
 }
 
+/// Record one behavior-neutral sample around the native common-impact path.
+pub(crate) fn record_common_impact(observation: CommonImpactObservation) {
+    record_thread();
+    increment(&COMMON_IMPACT_CALLS);
+    increment(&COMMON_IMPACT_RESULTS[usize::from(observation.predecessor_result != 0)]);
+
+    let list_shape = match observation.impacts {
+        None => 0,
+        Some(impacts) if impacts.ready_count == 0 => 1,
+        Some(impacts) if impacts.ready_count == 1 => 2,
+        Some(_) => 3,
+    };
+    increment(&COMMON_IMPACT_LIST_SHAPES[list_shape]);
+    if observation
+        .impacts
+        .is_some_and(|impacts| impacts.traversal_truncated)
+    {
+        increment(&COMMON_IMPACT_LIST_TRUNCATED);
+    }
+
+    let Some(launch) = observation.launch else {
+        return;
+    };
+    increment(&COMMON_IMPACT_TRACKED);
+    increment(&COMMON_IMPACTS_BY_SOURCE[launch.source_kind as usize]);
+    if launch.actor_hit {
+        increment(&COMMON_IMPACT_ACTOR);
+    }
+    if launch.selected_path != RuntimeFlightPath::Physical {
+        return;
+    }
+    increment(&COMMON_IMPACT_PHYSICAL);
+
+    let Some(impacts) = observation.impacts else {
+        return;
+    };
+    let Some(record) = impacts.first_ready else {
+        return;
+    };
+    let Some(material) = ricochet::canonical_material(record.raw_material) else {
+        increment(&COMMON_IMPACT_UNKNOWN_MATERIAL);
+        return;
+    };
+    increment(&COMMON_IMPACT_MATERIALS[material as usize]);
+    let Some(hard_material) = ricochet::hard_material(material) else {
+        return;
+    };
+    increment(&COMMON_IMPACT_HARD_MATERIALS[hard_material as usize]);
+
+    if launch.actor_hit
+        || impacts.ready_count != 1
+        || !matches!(
+            launch.capability,
+            ProjectileCapability::DiscreteHitscan | ProjectileCapability::DiscretePhysical
+        )
+    {
+        return;
+    }
+    let Some(runtime) = observation.runtime else {
+        return;
+    };
+    if !runtime.is_finite() || !record.is_finite() {
+        increment(&COMMON_IMPACT_INVALID_GEOMETRY);
+        return;
+    }
+    let incidence = match ricochet::incidence(runtime.direction, record.normal) {
+        Ok(incidence) => incidence,
+        Err(_) => {
+            increment(&COMMON_IMPACT_INVALID_GEOMETRY);
+            return;
+        }
+    };
+    increment(&COMMON_IMPACT_MEASURABLE_HARD_WORLD);
+    let angle = incidence.grazing_degrees();
+    let bucket = GRAZING_ANGLE_UPPER_DEGREES
+        .iter()
+        .position(|upper| angle <= f32::from(*upper))
+        .unwrap_or(GRAZING_ANGLE_BUCKET_COUNT - 1);
+    increment(&COMMON_IMPACT_GRAZING_ANGLES[bucket]);
+}
+
+pub(crate) fn record_ricochet_candidate(plan: RicochetPlan, child_depth: u32) {
+    increment(&RICOCHET_CANDIDATES);
+    increment(&RICOCHET_CANDIDATES_BY_MATERIAL[plan.material() as usize]);
+    increment(&RICOCHET_CANDIDATES_BY_ANGLE[grazing_angle_bucket(plan.grazing_degrees())]);
+    increment(&RICOCHET_CANDIDATES_BY_DEPTH[ricochet_depth_bucket(child_depth)]);
+}
+
+pub(crate) fn record_ricochet_rejection(reason: RicochetRejection) {
+    increment(&RICOCHET_REJECTIONS[reason as usize]);
+}
+
+pub(crate) fn record_ricochet_child_state_rejection(reason: ChildInitializationError) {
+    increment(&RICOCHET_CHILD_STATE_REJECTIONS[reason as usize]);
+}
+
+pub(crate) fn record_ricochet_energy(parent_depth: u32, energy: ContinuationEnergy) {
+    record_f32_bucket(
+        energy.current_effective_speed(),
+        &RICOCHET_SPEED_UPPER,
+        &RICOCHET_CURRENT_SPEED,
+    );
+    record_f32_bucket(
+        energy.next_effective_speed(),
+        &RICOCHET_SPEED_UPPER,
+        &RICOCHET_NEXT_SPEED,
+    );
+    record_f32_bucket(
+        energy.current_damage(),
+        &RICOCHET_DAMAGE_UPPER,
+        &RICOCHET_CURRENT_DAMAGE,
+    );
+    record_f32_bucket(
+        energy.next_damage(),
+        &RICOCHET_DAMAGE_UPPER,
+        &RICOCHET_NEXT_DAMAGE,
+    );
+    let bucket = RICOCHET_DEPTH_UPPER
+        .iter()
+        .position(|upper| parent_depth <= *upper)
+        .unwrap_or(RICOCHET_DEPTH_BUCKET_COUNT - 1);
+    increment(&RICOCHET_PARENT_DEPTH[bucket]);
+}
+
+pub(crate) fn record_ricochet_publication(
+    source: SourceKind,
+    authority_error_degrees: Option<f32>,
+    child_coherent: bool,
+    plan: RicochetPlan,
+    child_depth: u32,
+) {
+    increment(&RICOCHET_PUBLICATIONS);
+    increment(&RICOCHET_PUBLICATIONS_BY_SOURCE[source as usize]);
+    increment(&RICOCHET_PUBLICATIONS_BY_MATERIAL[plan.material() as usize]);
+    increment(&RICOCHET_PUBLICATIONS_BY_ANGLE[grazing_angle_bucket(plan.grazing_degrees())]);
+    increment(&RICOCHET_PUBLICATIONS_BY_DEPTH[ricochet_depth_bucket(child_depth)]);
+    record_direction_error(
+        authority_error_degrees,
+        &RICOCHET_PUBLICATION_AUTHORITY_ERROR,
+    );
+    if authority_error_degrees.is_none() || !child_coherent {
+        increment(&RICOCHET_PUBLICATION_INVALID);
+    }
+}
+
+pub(crate) fn record_ricochet_movement_boundary(
+    flight_target_present: Option<bool>,
+    authority_error_degrees: Option<f32>,
+    movement_error_degrees: Option<f32>,
+) {
+    increment(&RICOCHET_MOVEMENT_BOUNDARIES);
+    let target_status = match flight_target_present {
+        Some(false) => 0,
+        Some(true) => 1,
+        None => 2,
+    };
+    increment(&RICOCHET_MOVEMENT_TARGET_STATUS[target_status]);
+    record_direction_error(
+        authority_error_degrees,
+        &RICOCHET_PRE_MOVEMENT_AUTHORITY_ERROR,
+    );
+    record_direction_error(movement_error_degrees, &RICOCHET_IMMEDIATE_MOVEMENT_ERROR);
+}
+
+pub(crate) fn record_ricochet_first_step(
+    source: SourceKind,
+    bounce_depth: u32,
+    raw_material: u32,
+    authority_error_degrees: Option<f32>,
+    evidence: Option<FirstStepEvidence>,
+    state_committed: bool,
+) {
+    increment(&RICOCHET_FIRST_STEPS);
+    record_direction_error(
+        authority_error_degrees,
+        &RICOCHET_FIRST_STEP_AUTHORITY_ERROR,
+    );
+    if !state_committed {
+        increment(&RICOCHET_FIRST_STEP_STATE_RACES);
+    }
+    let Some(evidence) = evidence else {
+        increment(&RICOCHET_FIRST_STEP_INVALID);
+        return;
+    };
+    match evidence.outcome {
+        FirstStepOutcome::Outward => {
+            increment(&RICOCHET_FIRST_STEP_OUTWARD);
+            if state_committed {
+                increment(&RICOCHET_CONFIRMED_BY_SOURCE[source as usize]);
+                increment(&RICOCHET_CONFIRMED_BY_DEPTH[ricochet_depth_bucket(bounce_depth)]);
+                if let Some(material) = ricochet::canonical_material(raw_material) {
+                    increment(&RICOCHET_CONFIRMED_BY_MATERIAL[material as usize]);
+                }
+            }
+        }
+        FirstStepOutcome::NonOutward => increment(&RICOCHET_FIRST_STEP_NON_OUTWARD),
+        FirstStepOutcome::Stationary => increment(&RICOCHET_FIRST_STEP_STATIONARY),
+        FirstStepOutcome::Invalid => increment(&RICOCHET_FIRST_STEP_INVALID),
+    }
+    record_direction_error(
+        evidence.expected_error_degrees,
+        &RICOCHET_FIRST_STEP_MOVEMENT_ERROR,
+    );
+    record_direction_error(
+        evidence.position_error_degrees,
+        &RICOCHET_FIRST_STEP_POSITION_ERROR,
+    );
+}
+
+pub(crate) fn record_ricochet_pending_lost(count: u32) {
+    add(&RICOCHET_PENDING_LOST, count);
+}
+
+pub(crate) fn record_ricochet_post_bounce_contact(followup: Option<FollowupContact>) {
+    increment(&RICOCHET_POST_BOUNCE_CONTACTS);
+    let Some(followup) = followup else {
+        return;
+    };
+    if followup.same_target {
+        increment(&RICOCHET_FOLLOWUP_SAME_TARGET);
+    }
+    if followup.same_material {
+        increment(&RICOCHET_FOLLOWUP_SAME_MATERIAL);
+    }
+    match followup.outward_dot {
+        Some(value) if value > f32::EPSILON => increment(&RICOCHET_FOLLOWUP_OUTWARD),
+        Some(_) => increment(&RICOCHET_FOLLOWUP_NON_OUTWARD),
+        None => increment(&RICOCHET_FOLLOWUP_INVALID_DIRECTION),
+    }
+    record_followup_distance(
+        followup.distance_progress,
+        &RICOCHET_FOLLOWUP_DISTANCE,
+        &RICOCHET_FOLLOWUP_INVALID_DISTANCE,
+    );
+    record_followup_distance(
+        followup.point_separation,
+        &RICOCHET_FOLLOWUP_POINT_SEPARATION,
+        &RICOCHET_FOLLOWUP_INVALID_POINT,
+    );
+}
+
+fn record_followup_distance(
+    value: Option<f32>,
+    buckets: &[AtomicU32; FOLLOWUP_DISTANCE_BUCKET_COUNT],
+    invalid: &AtomicU32,
+) {
+    let Some(value) = value.filter(|value| value.is_finite()) else {
+        increment(invalid);
+        return;
+    };
+    let bucket = FOLLOWUP_DISTANCE_UPPER_UNITS
+        .iter()
+        .position(|upper| value <= *upper)
+        .unwrap_or(FOLLOWUP_DISTANCE_BUCKET_COUNT - 1);
+    increment(&buckets[bucket]);
+}
+
+fn record_direction_error(value: Option<f32>, buckets: &[AtomicU32; DIRECTION_ERROR_BUCKET_COUNT]) {
+    let Some(value) = value.filter(|value| value.is_finite() && *value >= 0.0) else {
+        return;
+    };
+    let bucket = DIRECTION_ERROR_UPPER_DEGREES
+        .iter()
+        .position(|upper| value <= *upper)
+        .unwrap_or(DIRECTION_ERROR_BUCKET_COUNT - 1);
+    increment(&buckets[bucket]);
+}
+
+fn record_f32_bucket<const N: usize>(value: f32, upper_bounds: &[f32], buckets: &[AtomicU32; N]) {
+    if !value.is_finite() || value < 0.0 {
+        return;
+    }
+    let bucket = upper_bounds
+        .iter()
+        .position(|upper| value <= *upper)
+        .unwrap_or(N - 1);
+    increment(&buckets[bucket]);
+}
+
+fn grazing_angle_bucket(value: f32) -> usize {
+    GRAZING_ANGLE_UPPER_DEGREES
+        .iter()
+        .position(|upper| value <= f32::from(*upper))
+        .unwrap_or(GRAZING_ANGLE_BUCKET_COUNT - 1)
+}
+
+fn ricochet_depth_bucket(value: u32) -> usize {
+    RICOCHET_DEPTH_UPPER
+        .iter()
+        .position(|upper| value <= *upper)
+        .unwrap_or(RICOCHET_DEPTH_BUCKET_COUNT - 1)
+}
+
+pub(crate) fn record_ricochet_post_bounce_actor_hit() {
+    increment(&RICOCHET_POST_BOUNCE_ACTOR_HITS);
+}
+
 /// Copy the current bounded counters without stopping collection.
 pub fn snapshot() -> BallisticsTelemetrySnapshot {
     BallisticsTelemetrySnapshot {
@@ -652,6 +1470,69 @@ pub fn snapshot() -> BallisticsTelemetrySnapshot {
         runtime_markers: load_array(&RUNTIME_MARKERS),
         update_frame_time: load_array(&UPDATE_FRAME_TIME),
         step_error: load_array(&STEP_ERROR),
+        common_impact_calls: COMMON_IMPACT_CALLS.load(Ordering::Relaxed),
+        common_impact_tracked: COMMON_IMPACT_TRACKED.load(Ordering::Relaxed),
+        common_impact_physical: COMMON_IMPACT_PHYSICAL.load(Ordering::Relaxed),
+        common_impact_actor: COMMON_IMPACT_ACTOR.load(Ordering::Relaxed),
+        common_impact_list_truncated: COMMON_IMPACT_LIST_TRUNCATED.load(Ordering::Relaxed),
+        common_impact_unknown_material: COMMON_IMPACT_UNKNOWN_MATERIAL.load(Ordering::Relaxed),
+        common_impact_invalid_geometry: COMMON_IMPACT_INVALID_GEOMETRY.load(Ordering::Relaxed),
+        common_impact_measurable_hard_world: COMMON_IMPACT_MEASURABLE_HARD_WORLD
+            .load(Ordering::Relaxed),
+        common_impacts_by_source: load_array(&COMMON_IMPACTS_BY_SOURCE),
+        common_impact_list_shapes: load_array(&COMMON_IMPACT_LIST_SHAPES),
+        common_impact_results: load_array(&COMMON_IMPACT_RESULTS),
+        common_impact_materials: load_array(&COMMON_IMPACT_MATERIALS),
+        common_impact_hard_materials: load_array(&COMMON_IMPACT_HARD_MATERIALS),
+        common_impact_grazing_angles: load_array(&COMMON_IMPACT_GRAZING_ANGLES),
+        ricochet_candidates: RICOCHET_CANDIDATES.load(Ordering::Relaxed),
+        ricochet_publications: RICOCHET_PUBLICATIONS.load(Ordering::Relaxed),
+        ricochet_candidates_by_material: load_array(&RICOCHET_CANDIDATES_BY_MATERIAL),
+        ricochet_publications_by_material: load_array(&RICOCHET_PUBLICATIONS_BY_MATERIAL),
+        ricochet_confirmed_by_material: load_array(&RICOCHET_CONFIRMED_BY_MATERIAL),
+        ricochet_candidates_by_angle: load_array(&RICOCHET_CANDIDATES_BY_ANGLE),
+        ricochet_publications_by_angle: load_array(&RICOCHET_PUBLICATIONS_BY_ANGLE),
+        ricochet_candidates_by_depth: load_array(&RICOCHET_CANDIDATES_BY_DEPTH),
+        ricochet_publications_by_depth: load_array(&RICOCHET_PUBLICATIONS_BY_DEPTH),
+        ricochet_confirmed_by_depth: load_array(&RICOCHET_CONFIRMED_BY_DEPTH),
+        ricochet_current_speed: load_array(&RICOCHET_CURRENT_SPEED),
+        ricochet_next_speed: load_array(&RICOCHET_NEXT_SPEED),
+        ricochet_current_damage: load_array(&RICOCHET_CURRENT_DAMAGE),
+        ricochet_next_damage: load_array(&RICOCHET_NEXT_DAMAGE),
+        ricochet_parent_depth: load_array(&RICOCHET_PARENT_DEPTH),
+        ricochet_child_state_rejections: load_array(&RICOCHET_CHILD_STATE_REJECTIONS),
+        ricochet_publication_invalid: RICOCHET_PUBLICATION_INVALID.load(Ordering::Relaxed),
+        ricochet_movement_boundaries: RICOCHET_MOVEMENT_BOUNDARIES.load(Ordering::Relaxed),
+        ricochet_movement_target_status: load_array(&RICOCHET_MOVEMENT_TARGET_STATUS),
+        ricochet_first_steps: RICOCHET_FIRST_STEPS.load(Ordering::Relaxed),
+        ricochet_first_step_outward: RICOCHET_FIRST_STEP_OUTWARD.load(Ordering::Relaxed),
+        ricochet_first_step_non_outward: RICOCHET_FIRST_STEP_NON_OUTWARD.load(Ordering::Relaxed),
+        ricochet_first_step_stationary: RICOCHET_FIRST_STEP_STATIONARY.load(Ordering::Relaxed),
+        ricochet_first_step_invalid: RICOCHET_FIRST_STEP_INVALID.load(Ordering::Relaxed),
+        ricochet_first_step_state_races: RICOCHET_FIRST_STEP_STATE_RACES.load(Ordering::Relaxed),
+        ricochet_pending_lost: RICOCHET_PENDING_LOST.load(Ordering::Relaxed),
+        ricochet_publication_authority_error: load_array(&RICOCHET_PUBLICATION_AUTHORITY_ERROR),
+        ricochet_pre_movement_authority_error: load_array(&RICOCHET_PRE_MOVEMENT_AUTHORITY_ERROR),
+        ricochet_immediate_movement_error: load_array(&RICOCHET_IMMEDIATE_MOVEMENT_ERROR),
+        ricochet_first_step_authority_error: load_array(&RICOCHET_FIRST_STEP_AUTHORITY_ERROR),
+        ricochet_first_step_movement_error: load_array(&RICOCHET_FIRST_STEP_MOVEMENT_ERROR),
+        ricochet_first_step_position_error: load_array(&RICOCHET_FIRST_STEP_POSITION_ERROR),
+        ricochet_post_bounce_contacts: RICOCHET_POST_BOUNCE_CONTACTS.load(Ordering::Relaxed),
+        ricochet_post_bounce_actor_hits: RICOCHET_POST_BOUNCE_ACTOR_HITS.load(Ordering::Relaxed),
+        ricochet_followup_same_target: RICOCHET_FOLLOWUP_SAME_TARGET.load(Ordering::Relaxed),
+        ricochet_followup_same_material: RICOCHET_FOLLOWUP_SAME_MATERIAL.load(Ordering::Relaxed),
+        ricochet_followup_outward: RICOCHET_FOLLOWUP_OUTWARD.load(Ordering::Relaxed),
+        ricochet_followup_non_outward: RICOCHET_FOLLOWUP_NON_OUTWARD.load(Ordering::Relaxed),
+        ricochet_followup_invalid_direction: RICOCHET_FOLLOWUP_INVALID_DIRECTION
+            .load(Ordering::Relaxed),
+        ricochet_followup_invalid_distance: RICOCHET_FOLLOWUP_INVALID_DISTANCE
+            .load(Ordering::Relaxed),
+        ricochet_followup_invalid_point: RICOCHET_FOLLOWUP_INVALID_POINT.load(Ordering::Relaxed),
+        ricochet_followup_distance: load_array(&RICOCHET_FOLLOWUP_DISTANCE),
+        ricochet_followup_point_separation: load_array(&RICOCHET_FOLLOWUP_POINT_SEPARATION),
+        ricochet_publications_by_source: load_array(&RICOCHET_PUBLICATIONS_BY_SOURCE),
+        ricochet_confirmed_by_source: load_array(&RICOCHET_CONFIRMED_BY_SOURCE),
+        ricochet_rejections: load_array(&RICOCHET_REJECTIONS),
     }
 }
 
@@ -700,7 +1581,7 @@ fn ticks_for(frequency: u32, microseconds: u32) -> u32 {
         .min(u64::from(u32::MAX)) as u32
 }
 
-fn all_scalar_counters() -> [&'static AtomicU32; 30] {
+fn all_scalar_counters() -> [&'static AtomicU32; 58] {
     [
         &LAUNCHES,
         &ACTOR_HITS,
@@ -732,6 +1613,34 @@ fn all_scalar_counters() -> [&'static AtomicU32; 30] {
         &PROGRESSIVE_UPDATES,
         &STATIONARY_UPDATES,
         &IMPACTED_UPDATES,
+        &COMMON_IMPACT_CALLS,
+        &COMMON_IMPACT_TRACKED,
+        &COMMON_IMPACT_PHYSICAL,
+        &COMMON_IMPACT_ACTOR,
+        &COMMON_IMPACT_LIST_TRUNCATED,
+        &COMMON_IMPACT_UNKNOWN_MATERIAL,
+        &COMMON_IMPACT_INVALID_GEOMETRY,
+        &COMMON_IMPACT_MEASURABLE_HARD_WORLD,
+        &RICOCHET_CANDIDATES,
+        &RICOCHET_PUBLICATIONS,
+        &RICOCHET_PUBLICATION_INVALID,
+        &RICOCHET_MOVEMENT_BOUNDARIES,
+        &RICOCHET_FIRST_STEPS,
+        &RICOCHET_FIRST_STEP_OUTWARD,
+        &RICOCHET_FIRST_STEP_NON_OUTWARD,
+        &RICOCHET_FIRST_STEP_STATIONARY,
+        &RICOCHET_FIRST_STEP_INVALID,
+        &RICOCHET_FIRST_STEP_STATE_RACES,
+        &RICOCHET_PENDING_LOST,
+        &RICOCHET_POST_BOUNCE_CONTACTS,
+        &RICOCHET_POST_BOUNCE_ACTOR_HITS,
+        &RICOCHET_FOLLOWUP_SAME_TARGET,
+        &RICOCHET_FOLLOWUP_SAME_MATERIAL,
+        &RICOCHET_FOLLOWUP_OUTWARD,
+        &RICOCHET_FOLLOWUP_NON_OUTWARD,
+        &RICOCHET_FOLLOWUP_INVALID_DIRECTION,
+        &RICOCHET_FOLLOWUP_INVALID_DISTANCE,
+        &RICOCHET_FOLLOWUP_INVALID_POINT,
     ]
 }
 

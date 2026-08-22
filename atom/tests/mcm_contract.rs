@@ -21,12 +21,57 @@ fn shipped_mcm_menu_exposes_every_runtime_setting_with_matching_defaults() {
     let defaults = AtomConfig::default();
     let input = defaults.input();
     let ballistics = defaults.ballistics();
+    let ricochet_energy = ballistics.ricochet_energy();
     let first_person = defaults.first_person();
     let third_person = defaults.third_person();
     let mouse = input.mouse();
     let controller = input.controller();
     let expected = BTreeMap::from([
         ("Ballistics:bEnabled", f64::from(ballistics.enabled())),
+        (
+            "Ballistics:bRicochet",
+            f64::from(ballistics.ricochet_enabled()),
+        ),
+        (
+            "Ballistics:iRicochetClothEnergy",
+            f64::from(ricochet_energy.cloth()),
+        ),
+        (
+            "Ballistics:iRicochetDirtEnergy",
+            f64::from(ricochet_energy.dirt()),
+        ),
+        (
+            "Ballistics:iRicochetGlassEnergy",
+            f64::from(ricochet_energy.glass()),
+        ),
+        (
+            "Ballistics:iRicochetGrassEnergy",
+            f64::from(ricochet_energy.grass()),
+        ),
+        (
+            "Ballistics:iRicochetHollowMetalEnergy",
+            f64::from(ricochet_energy.hollow_metal()),
+        ),
+        (
+            "Ballistics:iRicochetMetalEnergy",
+            f64::from(ricochet_energy.metal()),
+        ),
+        (
+            "Ballistics:iRicochetOrganicEnergy",
+            f64::from(ricochet_energy.organic()),
+        ),
+        (
+            "Ballistics:iRicochetStoneEnergy",
+            f64::from(ricochet_energy.stone()),
+        ),
+        (
+            "Ballistics:iRicochetWaterEnergy",
+            f64::from(ricochet_energy.water()),
+        ),
+        (
+            "Ballistics:iRicochetWoodEnergy",
+            f64::from(ricochet_energy.wood()),
+        ),
         ("Camera:bAutoCenter", f64::from(third_person.auto_center())),
         ("Camera:bFraming", f64::from(third_person.framing_enabled())),
         (
@@ -233,7 +278,7 @@ fn shipped_mcm_uses_feature_categories_without_filler_rows() {
         (
             "3",
             "Ballistics",
-            &["Projectiles"][..],
+            &["Projectiles", "Ricochet Energy"][..],
             &["Ballistics:"][..],
         ),
         (
@@ -289,6 +334,19 @@ fn shipped_mcm_uses_feature_categories_without_filler_rows() {
     assert_eq!(submenus["1"]["active"], 1);
     for submenu_id in ["2", "3", "4"] {
         assert!(submenus[submenu_id].get("active").is_none());
+    }
+
+    let ballistics = submenus["3"]["options"]
+        .as_object()
+        .expect("Ballistics options must be an object");
+    for option_id in 5..=14 {
+        let option = &ballistics[&option_id.to_string()];
+        assert_eq!(option["type"], 2, "material energy uses integer sliders");
+        assert_eq!(option["scale"]["suffix"], "%");
+        assert_eq!(option["scale"]["valueDecimal"], 0);
+        assert_eq!(option["scale"]["valueIncrement"], 1);
+        assert_eq!(option["scale"]["valueMin"], 0);
+        assert_eq!(option["scale"]["valueMax"], 75);
     }
 }
 

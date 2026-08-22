@@ -224,6 +224,11 @@ The installed Default profile was audited directly:
   run (`0x10CC11B4`) and blends spawn position to the camera at 100 percent.
   Atom's scope surrounds and calls that current predecessor, so its launch
   transform remains authoritative.
+- A later run without Third Person Aim Fix captured a different launch owner at
+  `0x0A7DE850`. The physical-flight policy still forced all 152 eligible
+  launches, proving that launch-owner chaining is functional. Ricochet child
+  admission must not compare this address with the native spawn target: the
+  child calls that target directly with its reflected transform.
 - The script-based 3rd Person Aim Fix explicitly creates a temporary type-1
   projectile with hitscan cleared and classifies beam, flame, and continuous
   families separately. Atom sees that temporary form as already physical and
@@ -643,6 +648,7 @@ empty scaffolding.
 | `atom/src/ballistics/telemetry.rs` | Saturating counters/histograms and requested snapshots |
 | `atom/src/ballistics/profile.rs` | Capability classification and native-data profile resolver |
 | `atom/src/ballistics/flight.rs` | Analytic shadow trajectory and bounded chord subdivision |
+| `atom/src/ballistics/ricochet.rs` | Material response, reflection, and child segment geometry |
 | `atom/src/ballistics/impact.rs` | Material and continuation policy after Phase 4 admission |
 
 `atom/src/lib.rs` remains the xNVSE lifecycle router. `atom/src/runtime.rs`
@@ -932,12 +938,22 @@ logical hit or block the projectile update.
 
 ### Phase 5: material response
 
-The first production material-response slice is the strict, one-bounce
-gameplay ricochet specified in
+The first production material-response slice is the deterministic,
+energy-depleting gameplay ricochet specified in
 [`atom_ballistics_ricochet_research.md`](atom_ballistics_ricochet_research.md).
-The native collision, material map, terminal impact, same-projectile movement,
-damage attenuation, safe hook, installed-content compatibility, failure, test,
-and bounded-playtest contracts are complete there.
+The native collision, material map, terminal parent impact, child spawn,
+clearance, damage attenuation, safe hook, installed-content compatibility,
+failure, test, and bounded-playtest contracts are defined there. The current
+child transition and material-energy policy are runtime accepted.
+
+Every known canonical world material has an MCM-owned retained grazing-energy
+percentage from 0 through 75. Zero disables continuation for that material;
+every nonzero material remains eligible across finite 0-90 degree incidence.
+Material energy and angle determine retained speed and damage. A confirmed
+child may continue again while predicted effective speed remains at least 6400
+and predicted damage remains at least 6; there is no fixed bounce count. A
+menu-close material-policy change clears tracked continuation state before the
+new coherent snapshot is published, so one chain cannot mix policies.
 
 Penetration remains a separate later impact policy. It still requires a proven
 exit-point and thickness query, remaining-energy representation, maximum
@@ -1070,15 +1086,15 @@ These are runtime-acceptance or later-phase limits, not invitations to guess:
 3. **Phase 3:** prove native collision uses the required swept path for the
    admitted speed/FPS envelope.
 4. **Phase 5 implementation:** validate the proven canonical material map and
-   strict stone/metal/hollow-metal admission across representative terrain,
-   static, destructible, and movable collision in the bounded acceptance
-   session.
-5. **Phase 5 implementation:** prove the researched same-projectile
-   continuation at runtime without duplicate damage or missing effects.
+   full-angle coverage across representative hard and non-hard terrain, static,
+   destructible, and movable collision in the bounded acceptance session.
+5. **Phase 5 implementation:** prove the corrected child-projectile transition
+   and an energy-admitted multi-bounce chain at runtime without duplicate
+   damage, muzzle presentation, or missing effects.
 6. **Phase 7:** map VATS queued timing/playback and every special projectile
    family separately.
 
 The focused Phase 3 gate has passed. The remaining Phase 3 items harden its
-coverage and do not block the accepted default. Phase 5's static material and
-continuation contract is complete; its Rust implementation, build, and bounded
-runtime acceptance evidence remain open.
+coverage and do not block the accepted default. Phase 5's material and child
+transition implementation is offline-qualified; bounded runtime acceptance
+evidence remains open.

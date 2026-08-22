@@ -2,8 +2,9 @@
 
 Status: Atom Input, first-person head/viewmodel motion, native physical
 Ballistics, and third-person follow/360 movement/aim convergence are
-implemented. Physical Ballistics is runtime accepted and defaults on; camera
-features retain their separately documented gates.
+implemented. Physical Ballistics, including per-material child-projectile
+ricochet, is runtime accepted and defaults on; camera features retain their
+separately documented gates.
 
 ## Purpose and scope
 
@@ -94,6 +95,12 @@ projectile form, chains the initializer's current hitscan-policy owner once,
 and changes only a true predicate answer to false. FNV derives the complete
 physical runtime state itself. Forms, completed objects, damage values, source
 attribution, collision, effects, and `ApplyHit` remain native.
+
+`Ricochet` enables deterministic child-projectile continuation for eligible
+contacts. The Ballistics page exposes retained grazing energy for all ten
+canonical FNV materials as integer percentages. Zero disables that material;
+values above zero retain the existing full-angle attenuation curve and the
+speed/damage energy floors determine the number of bounces.
 
 `Ballistics Trace` enables bounded launch-to-contact/update diagnostics, and
 `Write Ballistics` emits one summary after MCM closes on a false-to-true
@@ -684,7 +691,7 @@ modules:
 |---|---|---|
 | Input | General, Mouse, Controller, Triggers | All device processing and response settings. |
 | Camera | First Person, Third Person, Third Orbit, Third Movement | Both perspective modes and camera-relative movement. |
-| Ballistics | Projectiles | Native physical-flight policy. |
+| Ballistics | Projectiles, Ricochet Energy | Native physical flight and per-material retained energy. |
 | Diagnostics | Runtime, Ballistics | Opt-in counters, traces, and summaries. |
 
 Section headers use MCM type `0`. Every interactive row owns exactly one INI
@@ -703,6 +710,17 @@ entire candidate; live reload keeps the previous coherent configuration.
 | Setting | Default | Accepted/bounded value |
 |---|---:|---|
 | `Ballistics:bEnabled` | `1` | `0` or `1` |
+| `Ballistics:bRicochet` | `1` | `0` or `1` |
+| `Ballistics:iRicochetStoneEnergy` | `36` | `0` to `75` percent |
+| `Ballistics:iRicochetDirtEnergy` | `18` | `0` to `75` percent |
+| `Ballistics:iRicochetGrassEnergy` | `15` | `0` to `75` percent |
+| `Ballistics:iRicochetGlassEnergy` | `12` | `0` to `75` percent |
+| `Ballistics:iRicochetMetalEnergy` | `56` | `0` to `75` percent |
+| `Ballistics:iRicochetWoodEnergy` | `20` | `0` to `75` percent |
+| `Ballistics:iRicochetOrganicEnergy` | `0` | `0` to `75` percent |
+| `Ballistics:iRicochetClothEnergy` | `0` | `0` to `75` percent |
+| `Ballistics:iRicochetWaterEnergy` | `10` | `0` to `75` percent |
+| `Ballistics:iRicochetHollowMetalEnergy` | `46` | `0` to `75` percent |
 | `Input:bEnabled` | `0` | `0` or `1` |
 | `Mouse:iProfile` | `2` | Native `0`, Direct `1`, Fallout 4 Direct `2` |
 | `Mouse:fSensitivity` | `1.00` | `0.05` to `8.00` |
@@ -752,6 +770,11 @@ entire candidate; live reload keeps the previous coherent configuration.
 Native defaults and MCM defaults must remain identical. Settings apply when
 MCM closes. To request another telemetry summary, close MCM once with the
 request off, then close it with the request on.
+
+Ricochet energy is one coherently published Ballistics snapshot. When any
+material percentage changes, Atom drops only its tracked continuation state
+before publishing the new policy; existing projectiles retain native behavior
+instead of mixing old and new energy values in one chain.
 
 MCM Extender saves every cached INI before dispatching `MCMExtUpdate` with one
 array argument. xNVSE's native-handler API accepts only an event name already

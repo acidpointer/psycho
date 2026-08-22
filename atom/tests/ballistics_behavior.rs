@@ -56,7 +56,7 @@ fn capability_classification_depends_on_live_behavior_not_form_origin() {
 fn shared_ini_publishes_independent_input_and_ballistics_snapshots() {
     let config = AtomConfig::from_ini(
         "[Input]\nbEnabled=1\n\
-         [Ballistics]\nbEnabled=1\n\
+         [Ballistics]\nbEnabled=1\nbRicochet=1\n\
          [Diagnostics]\nbTelemetry=0\nbWriteSummary=0\n\
          bBallisticsTrace=1\nbBallisticsSummary=1\n\
          [Future]\nvalue=42\n",
@@ -65,8 +65,31 @@ fn shared_ini_publishes_independent_input_and_ballistics_snapshots() {
 
     assert!(config.input().enabled());
     assert!(config.ballistics().enabled());
+    assert!(config.ballistics().ricochet_enabled());
     assert!(config.ballistics().trace_enabled());
     assert!(config.ballistics().summary_requested());
+}
+
+#[test]
+fn ricochet_material_energy_is_part_of_the_ballistics_snapshot() {
+    let configured = AtomConfig::from_ini("[Ballistics]\niRicochetWoodEnergy=75\n").unwrap();
+
+    let energy = configured.ballistics().ricochet_energy();
+    assert_eq!(energy.wood(), 75);
+    assert_eq!(energy.stone(), 36);
+    assert_ne!(configured.ballistics(), AtomConfig::default().ballistics());
+}
+
+#[test]
+fn manually_edited_ricochet_energy_is_bounded_or_rejected() {
+    let bounded = AtomConfig::from_ini("[Ballistics]\niRicochetMetalEnergy=255\n").unwrap();
+    assert_eq!(bounded.ballistics().ricochet_energy().metal(), 75);
+
+    let error = AtomConfig::from_ini("[Ballistics]\niRicochetMetalEnergy=-1\n").unwrap_err();
+    assert!(matches!(
+        error,
+        atom::config::AtomConfigError::Ballistics(BallisticsConfigError::Deserialize(_))
+    ));
 }
 
 #[test]

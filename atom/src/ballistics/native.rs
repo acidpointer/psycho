@@ -18,11 +18,19 @@ pub(crate) const HIT_COMMIT_CALLSITE: usize = 0x009C_1E96;
 pub(crate) const HIT_COMMIT_TARGET: usize = 0x0089_A760;
 pub(crate) const COLLISION_CALLSITE: usize = 0x009C_2058;
 pub(crate) const COLLISION_TARGET: usize = 0x009C_20E0;
+pub(crate) const COMMON_IMPACT_CALLSITE: usize = 0x009B_8BD8;
+pub(crate) const COMMON_IMPACT_TARGET: usize = 0x009C_1B70;
 pub(crate) const MISSILE_UPDATE_SLOT: usize = 0x0108_FD54;
 pub(crate) const MISSILE_UPDATE_TARGET: usize = 0x009B_8030;
+pub(crate) const MOVEMENT_STEP_CALLSITE_A: usize = 0x009B_83E5;
+pub(crate) const MOVEMENT_STEP_CALLSITE_B: usize = 0x009B_847C;
+pub(crate) const MOVEMENT_STEP_TARGET: usize = 0x009B_F300;
 pub(crate) const HITSCAN_POLICY_CALLSITE: usize = 0x009B_7D08;
 pub(crate) const HITSCAN_POLICY_TARGET: usize = 0x009A_7F80;
+pub(crate) const MUZZLE_FLASH_CALLSITE: usize = 0x009B_DCA2;
+pub(crate) const MUZZLE_FLASH_TARGET: usize = 0x009C_2FF0;
 
+const TES_SINGLETON: usize = 0x011D_EA10;
 const PLAYER_SINGLETON: usize = 0x011D_EA3C;
 const PROJECTILE_TYPE_MASK: u32 = 0x001F_0000;
 const TYPE_MISSILE: u32 = 0x0001_0000;
@@ -35,6 +43,13 @@ const FLAG_EXPLOSION: u16 = 1 << 1;
 const RUNTIME_FLAG_HITSCAN: u32 = 0x2000;
 const RUNTIME_FLAG_PHYSICAL: u32 = 0x8000;
 const EFFECTIVE_SPEED_TARGET: usize = 0x0096_69C0;
+const RAYCAST_TARGET: usize = 0x0045_8440;
+const PROJECTILE_TERMINATE_TARGET: usize = 0x009B_C8F0;
+const VATS_CAMERA_DATA: usize = 0x011F_2250;
+const VATS_MODE_OFFSET: usize = 0x08;
+const MIN_ENGINE_POINTER: usize = 0x1_0000;
+const MAX_IMPACT_SCAN_NODES: usize = 8;
+const HAVOK_UNITS_PER_GAME_UNIT: f32 = f32::from_bits(0x3E12_4DD2);
 
 /// Three-component Gamebryo position passed by value in the spawn ABI.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
@@ -57,6 +72,80 @@ struct ProjectileFormView {
     explosion: *mut c_void,
 }
 
+#[repr(C)]
+struct ImpactDataView {
+    target: *mut c_void,
+    point: NiPoint3,
+    normal: NiPoint3,
+    rigid_body: *mut c_void,
+    raw_material: u32,
+    hit_location: u32,
+    marker: u8,
+    ready: u8,
+    tail: [u8; 6],
+}
+
+#[repr(C)]
+struct ImpactListNode {
+    data: *mut ImpactDataView,
+    next: *mut ImpactListNode,
+}
+
+/// FNV's 32-bit Havok world-ray input and output record.
+#[repr(C, align(16))]
+struct RayCastData {
+    position_start: [f32; 4],
+    position_end: [f32; 4],
+    byte_20: u8,
+    padding_21: [u8; 3],
+    layer_type: u8,
+    filter_flags: u8,
+    group: u16,
+    unknown_28: [u32; 6],
+    fraction: f32,
+    unknown_44: [u32; 15],
+    collision_body: u32,
+    unknown_84: [u32; 3],
+    hit_normal: [f32; 4],
+    unknown_a0: [u32; 3],
+    byte_ac: u8,
+    padding_ad: [u8; 3],
+}
+
+impl RayCastData {
+    fn new(start: [f32; 3], end: [f32; 3], group: u16) -> Self {
+        let to_havok = |point: [f32; 3]| {
+            [
+                point[0] * HAVOK_UNITS_PER_GAME_UNIT,
+                point[1] * HAVOK_UNITS_PER_GAME_UNIT,
+                point[2] * HAVOK_UNITS_PER_GAME_UNIT,
+                0.0,
+            ]
+        };
+        let mut data = Self {
+            position_start: to_havok(start),
+            position_end: to_havok(end),
+            byte_20: 0,
+            padding_21: [0; 3],
+            layer_type: 6,
+            filter_flags: 0,
+            group,
+            unknown_28: [0; 6],
+            fraction: 1.0,
+            unknown_44: [0; 15],
+            collision_body: 0,
+            unknown_84: [0; 3],
+            hit_normal: [0.0; 4],
+            unknown_a0: [0; 3],
+            byte_ac: 0,
+            padding_ad: [0; 3],
+        };
+        data.unknown_44[0] = u32::MAX;
+        data.unknown_44[3] = u32::MAX;
+        data
+    }
+}
+
 /// Read-only fields whose offsets are shared by every runtime Projectile.
 ///
 /// The padding is intentional: it makes the audited layout executable in
@@ -64,11 +153,16 @@ struct ProjectileFormView {
 /// Atom reads this view only while a native callback owns the live object.
 #[repr(C)]
 struct ProjectileRuntimeView {
-    prefix: [u8; 0x30],
+    prefix: [u8; 0x20],
+    base_form: *mut c_void,
+    rotation_x: f32,
+    rotation_y: f32,
+    rotation_z: f32,
     position: NiPoint3,
-    before_impact_list: [u8; 0x4C],
-    impact_list_head: *mut c_void,
-    impact_list_tail: *mut c_void,
+    before_parent_cell: [u8; 0x04],
+    parent_cell: *mut c_void,
+    before_impact_list: [u8; 0x44],
+    impact_list: ImpactListNode,
     has_impacted: u8,
     before_flags: [u8; 0x37],
     flags: u32,
@@ -84,6 +178,34 @@ struct ProjectileRuntimeView {
     live_target: *mut c_void,
     direction: NiPoint3,
     distance_travelled: f32,
+    before_flight_target: [u8; 0x2C],
+    flight_target: *mut c_void,
+    rock_it_entry: *mut c_void,
+    before_impact_result: [u8; 0x08],
+    impact_result: u32,
+}
+
+/// Value-only copy of one ready native impact record.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct ImpactRecordSample {
+    pub(crate) target_token: u32,
+    pub(crate) point: [f32; 3],
+    pub(crate) normal: [f32; 3],
+    pub(crate) raw_material: u32,
+}
+
+impl ImpactRecordSample {
+    pub(crate) fn is_finite(self) -> bool {
+        self.point.into_iter().all(f32::is_finite) && self.normal.into_iter().all(f32::is_finite)
+    }
+}
+
+/// Bounded view of the ready records owned by one native impact traversal.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub(crate) struct ImpactListSample {
+    pub(crate) first_ready: Option<ImpactRecordSample>,
+    pub(crate) ready_count: u8,
+    pub(crate) traversal_truncated: bool,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -108,6 +230,11 @@ pub(crate) enum RuntimePolicyMarkers {
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) struct ProjectileRuntimeSample {
+    pub(crate) base_form_token: u32,
+    pub(crate) parent_cell_token: u32,
+    /// Native reference yaw and pitch. Ordinary Missile movement consumes
+    /// these values before refreshing `direction` with the completed step.
+    pub(crate) rotation: [f32; 2],
     pub(crate) position: [f32; 3],
     pub(crate) impact_list_empty: bool,
     pub(crate) has_impacted: bool,
@@ -120,8 +247,12 @@ pub(crate) struct ProjectileRuntimeSample {
     pub(crate) weapon_condition: f32,
     pub(crate) source_weapon_token: u32,
     pub(crate) source_token: u32,
+    pub(crate) live_target_token: u32,
     pub(crate) direction: [f32; 3],
     pub(crate) distance_travelled: f32,
+    pub(crate) flight_target_token: u32,
+    pub(crate) rock_it_entry_token: u32,
+    pub(crate) impact_result: u32,
 }
 
 impl ProjectileRuntimeSample {
@@ -130,7 +261,8 @@ impl ProjectileRuntimeSample {
     }
 
     pub(crate) fn is_finite(self) -> bool {
-        self.position.into_iter().all(f32::is_finite)
+        self.rotation.into_iter().all(f32::is_finite)
+            && self.position.into_iter().all(f32::is_finite)
             && self.direction.into_iter().all(f32::is_finite)
             && [
                 self.power,
@@ -200,11 +332,21 @@ pub(crate) type CollisionFn = unsafe extern "thiscall" fn(
     u32,
 );
 
+pub(crate) type CommonImpactFn = unsafe extern "thiscall" fn(*mut c_void) -> u8;
+
 pub(crate) type MissileUpdateFn = unsafe extern "thiscall" fn(*mut c_void, f32);
+
+pub(crate) type MovementStepFn = unsafe extern "thiscall" fn(*mut c_void, f32);
 
 pub(crate) type HitscanPolicyFn = unsafe extern "thiscall" fn(*mut c_void) -> u8;
 
+pub(crate) type MuzzleFlashFn = unsafe extern "thiscall" fn(*mut c_void);
+
 type EffectiveSpeedFn = unsafe extern "thiscall" fn(*mut c_void) -> f32;
+
+type RayCastFn = unsafe extern "thiscall" fn(*mut c_void, *mut RayCastData, u32) -> *mut c_void;
+
+type ProjectileTerminateFn = unsafe extern "thiscall" fn(*mut c_void);
 
 /// Classify a pointer-free projectile profile by native capabilities.
 pub fn classify_profile(profile: ProjectileProfile) -> ProjectileCapability {
@@ -254,12 +396,15 @@ pub(crate) unsafe fn source_kind(source: *mut c_void) -> SourceKind {
 pub(crate) unsafe fn runtime_sample(projectile: *mut c_void) -> Option<ProjectileRuntimeSample> {
     let projectile = unsafe { projectile.cast::<ProjectileRuntimeView>().as_ref() }?;
     Some(ProjectileRuntimeSample {
+        base_form_token: projectile.base_form as usize as u32,
+        parent_cell_token: projectile.parent_cell as usize as u32,
+        rotation: [projectile.rotation_z, projectile.rotation_x],
         position: [
             projectile.position.x,
             projectile.position.y,
             projectile.position.z,
         ],
-        impact_list_empty: projectile.impact_list_head.is_null(),
+        impact_list_empty: projectile.impact_list.data.is_null(),
         has_impacted: projectile.has_impacted != 0,
         flags: projectile.flags,
         power: projectile.power,
@@ -270,13 +415,310 @@ pub(crate) unsafe fn runtime_sample(projectile: *mut c_void) -> Option<Projectil
         weapon_condition: projectile.weapon_condition,
         source_weapon_token: projectile.source_weapon as usize as u32,
         source_token: projectile.source as usize as u32,
+        live_target_token: projectile.live_target as usize as u32,
         direction: [
             projectile.direction.x,
             projectile.direction.y,
             projectile.direction.z,
         ],
         distance_travelled: projectile.distance_travelled,
+        flight_target_token: projectile.flight_target as usize as u32,
+        rock_it_entry_token: projectile.rock_it_entry as usize as u32,
+        impact_result: projectile.impact_result,
     })
+}
+
+/// Snapshot at most two ready impact records from the callback-owned list.
+///
+/// # Safety
+///
+/// `projectile` must be the live object supplied to the synchronous native
+/// ProcessImpacts callback. Its embedded list and every traversed node must
+/// remain engine-owned and valid for the duration of this call. No pointer is
+/// retained in the returned value.
+pub(crate) unsafe fn impact_list_sample(projectile: *mut c_void) -> Option<ImpactListSample> {
+    let projectile = unsafe { projectile.cast::<ProjectileRuntimeView>().as_ref() }?;
+    let mut sample = ImpactListSample::default();
+    let mut node = &projectile.impact_list as *const ImpactListNode;
+
+    for _ in 0..MAX_IMPACT_SCAN_NODES {
+        let current = unsafe { node.as_ref() }?;
+        if let Some(data) = unsafe { current.data.as_ref() }
+            && data.ready != 0
+        {
+            sample.ready_count = sample.ready_count.saturating_add(1);
+            if sample.first_ready.is_none() {
+                sample.first_ready = Some(ImpactRecordSample {
+                    target_token: data.target as usize as u32,
+                    point: [data.point.x, data.point.y, data.point.z],
+                    normal: [data.normal.x, data.normal.y, data.normal.z],
+                    raw_material: data.raw_material,
+                });
+            }
+            if sample.ready_count >= 2 {
+                return Some(sample);
+            }
+        }
+
+        if current.next.is_null() {
+            return Some(sample);
+        }
+        node = current.next;
+    }
+
+    sample.traversal_truncated = true;
+    Some(sample)
+}
+
+/// Return whether FNV's live VATS camera state is active.
+pub(crate) unsafe fn vats_active() -> bool {
+    unsafe { core::ptr::read_unaligned((VATS_CAMERA_DATA + VATS_MODE_OFFSET) as *const u32) != 0 }
+}
+
+/// Ask FNV's collision world whether the complete outbound child segment is usable.
+///
+/// This reproduces the working comparison mod's `RayCastCoords` contract:
+/// player collision group, layer 6, a 1024-unit ray, and a loaded endpoint when
+/// the query returns no obstruction. The child origin is admitted only when
+/// the first obstruction lies strictly beyond 32 units.
+///
+/// # Safety
+///
+/// The supported executable must be active at its normal gameplay lifecycle.
+/// The validated TES/player singleton chains and `0x00458440` ABI must match
+/// the executable contract.
+pub(crate) unsafe fn outbound_clearance_available(path: super::ricochet::ChildSpawnPath) -> bool {
+    let Some(tes) = (unsafe { read_global_pointer(TES_SINGLETON) }) else {
+        return false;
+    };
+    let Some(group) = (unsafe { player_collision_group() }) else {
+        return false;
+    };
+    let mut ray = RayCastData::new(path.ray_start(), path.ray_end(), group);
+    let raycast: RayCastFn = unsafe { core::mem::transmute(RAYCAST_TARGET) };
+    let hit = unsafe { raycast(tes, &mut ray, 1) };
+    if !ray.fraction.is_finite() || !(0.0..=1.0).contains(&ray.fraction) {
+        return false;
+    }
+    if hit.is_null() && !unsafe { ray_endpoint_is_loaded(tes, path.ray_end()) } {
+        return false;
+    }
+    ray.fraction * super::ricochet::RICOCHET_TRACE_UNITS
+        > super::ricochet::RICOCHET_SPAWN_CLEARANCE_UNITS
+}
+
+/// Exact invariant that prevented publication of a freshly spawned child.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[repr(u8)]
+pub(crate) enum ChildInitializationError {
+    InvalidInput = 0,
+    SampleUnavailable = 1,
+    BaseForm = 2,
+    ParentCell = 3,
+    SourceWeapon = 4,
+    Source = 5,
+    LiveTarget = 6,
+    ImpactList = 7,
+    Impacted = 8,
+    RockIt = 9,
+    ImpactResult = 10,
+    InvalidEnergy = 11,
+    PublishedSampleUnavailable = 12,
+    PostWriteMismatch = 13,
+}
+
+impl ChildInitializationError {
+    pub(crate) const COUNT: usize = 14;
+}
+
+/// Transfer only audited scalar flight state into a freshly spawned child.
+///
+/// Native launch owns the new object's references, impact list, flags, render
+/// state, and auxiliary pointers. Atom retains the original round's live
+/// energy/range progression without copying native ownership state.
+///
+/// # Safety
+///
+/// `child` must be the non-null return from the synchronous native spawn call
+/// and must not alias the still-live parent. `parent` must be a sample captured
+/// from that parent in the same common-impact callback.
+pub(crate) unsafe fn initialize_ricochet_child(
+    child: *mut c_void,
+    parent: ProjectileRuntimeSample,
+    speed_retention: f32,
+    damage_retention: f32,
+) -> Result<ProjectileRuntimeSample, ChildInitializationError> {
+    if (child as usize) < MIN_ENGINE_POINTER
+        || !speed_retention.is_finite()
+        || !damage_retention.is_finite()
+    {
+        return Err(ChildInitializationError::InvalidInput);
+    }
+    let before =
+        unsafe { runtime_sample(child) }.ok_or(ChildInitializationError::SampleUnavailable)?;
+    if before.base_form_token != parent.base_form_token {
+        return Err(ChildInitializationError::BaseForm);
+    }
+    if before.parent_cell_token != parent.parent_cell_token {
+        return Err(ChildInitializationError::ParentCell);
+    }
+    if before.source_weapon_token != parent.source_weapon_token {
+        return Err(ChildInitializationError::SourceWeapon);
+    }
+    if before.source_token != parent.source_token {
+        return Err(ChildInitializationError::Source);
+    }
+    if before.live_target_token != 0 {
+        return Err(ChildInitializationError::LiveTarget);
+    }
+    if !before.impact_list_empty {
+        return Err(ChildInitializationError::ImpactList);
+    }
+    if before.has_impacted {
+        return Err(ChildInitializationError::Impacted);
+    }
+    if before.rock_it_entry_token != 0 {
+        return Err(ChildInitializationError::RockIt);
+    }
+    if before.impact_result != 0 {
+        return Err(ChildInitializationError::ImpactResult);
+    }
+    let speed_multiplier = parent.speed_multiplier * speed_retention;
+    let damage = parent.damage * damage_retention;
+    if !speed_multiplier.is_finite()
+        || speed_multiplier <= 0.0
+        || !damage.is_finite()
+        || damage <= 0.0
+    {
+        return Err(ChildInitializationError::InvalidEnergy);
+    }
+
+    let child = unsafe { &mut *child.cast::<ProjectileRuntimeView>() };
+    child.power = parent.power;
+    child.speed_multiplier = speed_multiplier;
+    child.range = parent.range;
+    child.age = parent.age;
+    child.damage = damage;
+    child.weapon_condition = parent.weapon_condition;
+    child.distance_travelled = parent.distance_travelled;
+
+    let published = unsafe { runtime_sample(child as *mut ProjectileRuntimeView as *mut c_void) }
+        .ok_or(ChildInitializationError::PublishedSampleUnavailable)?;
+    (published.power.to_bits() == parent.power.to_bits()
+        && published.speed_multiplier.to_bits() == speed_multiplier.to_bits()
+        && published.range.to_bits() == parent.range.to_bits()
+        && published.age.to_bits() == parent.age.to_bits()
+        && published.damage.to_bits() == damage.to_bits()
+        && published.weapon_condition.to_bits() == parent.weapon_condition.to_bits()
+        && published.distance_travelled.to_bits() == parent.distance_travelled.to_bits())
+    .then_some(published)
+    .ok_or(ChildInitializationError::PostWriteMismatch)
+}
+
+/// End a failed synthetic child through the projectile's native terminal path.
+///
+/// # Safety
+///
+/// `projectile` must be a live projectile returned by `0x009BCA60` that Atom
+/// cannot publish. The function must be called at most once for that object.
+pub(crate) unsafe fn terminate_projectile(projectile: *mut c_void) {
+    let terminate: ProjectileTerminateFn =
+        unsafe { core::mem::transmute(PROJECTILE_TERMINATE_TARGET) };
+    unsafe { terminate(projectile) };
+}
+
+/// Read the base form token needed to scope synthetic muzzle suppression.
+///
+/// # Safety
+///
+/// `projectile` must be the live projectile passed by the native muzzle call.
+pub(crate) unsafe fn runtime_base_form_token(projectile: *mut c_void) -> u32 {
+    unsafe { projectile.cast::<ProjectileRuntimeView>().as_ref() }
+        .map(|projectile| projectile.base_form as usize as u32)
+        .unwrap_or(0)
+}
+
+unsafe fn player_collision_group() -> Option<u16> {
+    let player = unsafe { read_global_pointer(PLAYER_SINGLETON) }?;
+    let process = unsafe { read_pointer(player, 0x68) }?;
+    let controller = unsafe { read_pointer(process, 0x138) }?;
+    let phantom = unsafe { read_pointer(controller, 0x594) }?;
+    let world_object = unsafe { read_pointer(phantom, 0x08) }?;
+    let filter_info =
+        unsafe { core::ptr::read_unaligned((world_object as *const u8).add(0x2C).cast::<u32>()) };
+    Some((filter_info >> 16) as u16)
+}
+
+unsafe fn ray_endpoint_is_loaded(tes: *mut c_void, endpoint: [f32; 3]) -> bool {
+    if unsafe { read_pointer(tes, 0x34) }.is_some() {
+        return true;
+    }
+    let Some(grid) = (unsafe { read_pointer(tes, 0x08) }) else {
+        return false;
+    };
+    let grid = grid as *const u8;
+    let origin_x = unsafe { core::ptr::read_unaligned(grid.add(0x04).cast::<i32>()) };
+    let origin_y = unsafe { core::ptr::read_unaligned(grid.add(0x08).cast::<i32>()) };
+    let grid_size = unsafe { core::ptr::read_unaligned(grid.add(0x0C).cast::<u32>()) };
+    let cells = unsafe { core::ptr::read_unaligned(grid.add(0x10).cast::<*const u32>()) };
+    if grid_size == 0 || grid_size > 31 || (cells as usize) < MIN_ENGINE_POINTER {
+        return false;
+    }
+    let Some(cell_x) = world_cell_coordinate(endpoint[0]) else {
+        return false;
+    };
+    let Some(cell_y) = world_cell_coordinate(endpoint[1]) else {
+        return false;
+    };
+    let Some(index) = loaded_grid_index(grid_size, origin_x, origin_y, cell_x, cell_y) else {
+        return false;
+    };
+    unsafe { core::ptr::read_unaligned(cells.add(index)) != 0 }
+}
+
+fn loaded_grid_index(
+    grid_size: u32,
+    origin_x: i32,
+    origin_y: i32,
+    cell_x: i32,
+    cell_y: i32,
+) -> Option<usize> {
+    if grid_size == 0 || grid_size > 31 {
+        return None;
+    }
+    let half = i64::from(grid_size >> 1);
+    let x = i64::from(cell_x) - i64::from(origin_x) + half;
+    let y = i64::from(cell_y) - i64::from(origin_y) + half;
+    if x < 0 || y < 0 || x >= i64::from(grid_size) || y >= i64::from(grid_size) {
+        return None;
+    }
+    let index = u32::try_from(x)
+        .ok()?
+        .checked_mul(grid_size)?
+        .checked_add(u32::try_from(y).ok()?)?;
+    usize::try_from(index).ok()
+}
+
+fn world_cell_coordinate(value: f32) -> Option<i32> {
+    if !value.is_finite() || value < i32::MIN as f32 || value > i32::MAX as f32 {
+        return None;
+    }
+    Some((value.trunc() as i32) >> 12)
+}
+
+unsafe fn read_global_pointer(address: usize) -> Option<*mut c_void> {
+    let value = unsafe { core::ptr::read_unaligned(address as *const *mut c_void) };
+    ((value as usize) >= MIN_ENGINE_POINTER).then_some(value)
+}
+
+unsafe fn read_pointer(owner: *mut c_void, offset: usize) -> Option<*mut c_void> {
+    if (owner as usize) < MIN_ENGINE_POINTER {
+        return None;
+    }
+    let value = unsafe {
+        core::ptr::read_unaligned((owner as *const u8).add(offset).cast::<*mut c_void>())
+    };
+    ((value as usize) >= MIN_ENGINE_POINTER).then_some(value)
 }
 
 pub(crate) unsafe fn effective_speed(projectile: *mut c_void) -> f32 {
@@ -304,12 +746,24 @@ pub(crate) fn native_collision() -> CollisionFn {
     unsafe { core::mem::transmute(COLLISION_TARGET) }
 }
 
+pub(crate) fn native_common_impacts() -> CommonImpactFn {
+    unsafe { core::mem::transmute(COMMON_IMPACT_TARGET) }
+}
+
 pub(crate) fn native_missile_update() -> MissileUpdateFn {
     unsafe { core::mem::transmute(MISSILE_UPDATE_TARGET) }
 }
 
+pub(crate) fn native_movement_step() -> MovementStepFn {
+    unsafe { core::mem::transmute(MOVEMENT_STEP_TARGET) }
+}
+
 pub(crate) fn native_hitscan_policy() -> HitscanPolicyFn {
     unsafe { core::mem::transmute(HITSCAN_POLICY_TARGET) }
+}
+
+pub(crate) fn native_muzzle_flash() -> MuzzleFlashFn {
+    unsafe { core::mem::transmute(MUZZLE_FLASH_TARGET) }
 }
 
 #[cfg(test)]
@@ -317,8 +771,9 @@ mod tests {
     use core::mem::{offset_of, size_of};
 
     use super::{
-        NiPoint3, ProjectileFormView, ProjectileRuntimeView, RuntimeFlightPath,
-        RuntimePolicyMarkers, runtime_flight_path, runtime_policy_markers,
+        ImpactDataView, ImpactListNode, NiPoint3, ProjectileFormView, ProjectileRuntimeView,
+        RayCastData, RuntimeFlightPath, RuntimePolicyMarkers, loaded_grid_index,
+        runtime_flight_path, runtime_policy_markers, world_cell_coordinate,
     };
 
     #[test]
@@ -334,8 +789,13 @@ mod tests {
 
     #[test]
     fn audited_runtime_projectile_offsets_match_native_update_layout() {
+        assert_eq!(offset_of!(ProjectileRuntimeView, base_form), 0x20);
+        assert_eq!(offset_of!(ProjectileRuntimeView, rotation_x), 0x24);
+        assert_eq!(offset_of!(ProjectileRuntimeView, rotation_y), 0x28);
+        assert_eq!(offset_of!(ProjectileRuntimeView, rotation_z), 0x2C);
         assert_eq!(offset_of!(ProjectileRuntimeView, position), 0x30);
-        assert_eq!(offset_of!(ProjectileRuntimeView, impact_list_head), 0x88);
+        assert_eq!(offset_of!(ProjectileRuntimeView, parent_cell), 0x40);
+        assert_eq!(offset_of!(ProjectileRuntimeView, impact_list), 0x88);
         assert_eq!(offset_of!(ProjectileRuntimeView, has_impacted), 0x90);
         assert_eq!(offset_of!(ProjectileRuntimeView, flags), 0xC8);
         assert_eq!(offset_of!(ProjectileRuntimeView, power), 0xCC);
@@ -348,6 +808,49 @@ mod tests {
         assert_eq!(offset_of!(ProjectileRuntimeView, source), 0xFC);
         assert_eq!(offset_of!(ProjectileRuntimeView, direction), 0x104);
         assert_eq!(offset_of!(ProjectileRuntimeView, distance_travelled), 0x110);
+        assert_eq!(offset_of!(ProjectileRuntimeView, flight_target), 0x140);
+        assert_eq!(offset_of!(ProjectileRuntimeView, rock_it_entry), 0x144);
+        assert_eq!(offset_of!(ProjectileRuntimeView, impact_result), 0x150);
+    }
+
+    #[test]
+    fn audited_impact_and_raycast_layouts_match_native_traversal() {
+        assert_eq!(size_of::<ImpactListNode>(), 0x08);
+        assert_eq!(offset_of!(ImpactListNode, data), 0x00);
+        assert_eq!(offset_of!(ImpactListNode, next), 0x04);
+        assert_eq!(size_of::<ImpactDataView>(), 0x30);
+        assert_eq!(offset_of!(ImpactDataView, target), 0x00);
+        assert_eq!(offset_of!(ImpactDataView, point), 0x04);
+        assert_eq!(offset_of!(ImpactDataView, normal), 0x10);
+        assert_eq!(offset_of!(ImpactDataView, rigid_body), 0x1C);
+        assert_eq!(offset_of!(ImpactDataView, raw_material), 0x20);
+        assert_eq!(offset_of!(ImpactDataView, hit_location), 0x24);
+        assert_eq!(offset_of!(ImpactDataView, marker), 0x28);
+        assert_eq!(offset_of!(ImpactDataView, ready), 0x29);
+        assert_eq!(size_of::<RayCastData>(), 0xB0);
+        assert_eq!(offset_of!(RayCastData, position_start), 0x00);
+        assert_eq!(offset_of!(RayCastData, position_end), 0x10);
+        assert_eq!(offset_of!(RayCastData, layer_type), 0x24);
+        assert_eq!(offset_of!(RayCastData, group), 0x26);
+        assert_eq!(offset_of!(RayCastData, fraction), 0x40);
+        assert_eq!(offset_of!(RayCastData, collision_body), 0x80);
+        assert_eq!(offset_of!(RayCastData, hit_normal), 0x90);
+        assert_eq!(offset_of!(RayCastData, byte_ac), 0xAC);
+    }
+
+    #[test]
+    fn loaded_grid_coordinates_and_index_stay_inside_the_runtime_array() {
+        assert_eq!(world_cell_coordinate(0.0), Some(0));
+        assert_eq!(world_cell_coordinate(4095.9), Some(0));
+        assert_eq!(world_cell_coordinate(4096.0), Some(1));
+        assert_eq!(world_cell_coordinate(-1.0), Some(-1));
+        assert_eq!(world_cell_coordinate(f32::NAN), None);
+
+        assert_eq!(loaded_grid_index(5, 10, 20, 10, 20), Some(12));
+        assert_eq!(loaded_grid_index(5, 10, 20, 8, 18), Some(0));
+        assert_eq!(loaded_grid_index(5, 10, 20, 12, 22), Some(24));
+        assert_eq!(loaded_grid_index(5, 10, 20, 13, 20), None);
+        assert_eq!(loaded_grid_index(7, 10, 20, 13, 23), Some(48));
     }
 
     #[test]

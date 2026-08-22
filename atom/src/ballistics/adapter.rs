@@ -21,6 +21,7 @@ struct PolicySlot {
     force_physical: AtomicBool,
     observed: AtomicBool,
     forced: AtomicBool,
+    synthetic_child: AtomicBool,
 }
 
 impl PolicySlot {
@@ -31,6 +32,7 @@ impl PolicySlot {
             force_physical: AtomicBool::new(false),
             observed: AtomicBool::new(false),
             forced: AtomicBool::new(false),
+            synthetic_child: AtomicBool::new(false),
         }
     }
 }
@@ -60,6 +62,7 @@ struct PreviousFrame {
     force_physical: bool,
     observed: bool,
     forced: bool,
+    synthetic_child: bool,
 }
 
 /// RAII publication of one native physical-policy request.
@@ -81,6 +84,18 @@ pub(crate) struct NativePolicyScope {
 impl NativePolicyScope {
     /// Begin a policy scope for an eligible canonical launch.
     pub(crate) fn begin(context: ShotContext) -> Result<Self, PolicyResult> {
+        if context.capability() != ProjectileCapability::DiscreteHitscan {
+            return Err(PolicyResult::ContextRejected);
+        }
+        Self::begin_scoped(context, false)
+    }
+
+    /// Begin physical policy and presentation suppression for a synthetic child.
+    pub(crate) fn begin_child(context: ShotContext) -> Result<Self, PolicyResult> {
+        Self::begin_scoped(context, true)
+    }
+
+    fn begin_scoped(context: ShotContext, synthetic_child: bool) -> Result<Self, PolicyResult> {
         if !context_is_supported(context) {
             return Err(PolicyResult::ContextRejected);
         }
@@ -100,11 +115,14 @@ impl NativePolicyScope {
                     force_physical: slot.force_physical.swap(false, Ordering::AcqRel),
                     observed: slot.observed.load(Ordering::Relaxed),
                     forced: slot.forced.load(Ordering::Relaxed),
+                    synthetic_child: slot.synthetic_child.load(Ordering::Relaxed),
                 };
                 slot.form_token
                     .store(context.projectile().form_token(), Ordering::Relaxed);
                 slot.observed.store(false, Ordering::Relaxed);
                 slot.forced.store(false, Ordering::Relaxed);
+                slot.synthetic_child
+                    .store(synthetic_child, Ordering::Relaxed);
                 slot.force_physical.store(true, Ordering::Release);
                 return Ok(Self {
                     slot_index,
@@ -128,6 +146,8 @@ impl NativePolicyScope {
                 .store(context.projectile().form_token(), Ordering::Relaxed);
             slot.observed.store(false, Ordering::Relaxed);
             slot.forced.store(false, Ordering::Relaxed);
+            slot.synthetic_child
+                .store(synthetic_child, Ordering::Relaxed);
             slot.force_physical.store(true, Ordering::Release);
             ACTIVE_ROOT_SCOPES.fetch_add(1, Ordering::Release);
             return Ok(Self {
@@ -167,6 +187,7 @@ impl NativePolicyScope {
                 slot.form_token.store(0, Ordering::Relaxed);
                 slot.observed.store(false, Ordering::Relaxed);
                 slot.forced.store(false, Ordering::Relaxed);
+                slot.synthetic_child.store(false, Ordering::Relaxed);
                 slot.thread_id.store(0, Ordering::Release);
                 ACTIVE_ROOT_SCOPES.fetch_sub(1, Ordering::Release);
             }
@@ -181,12 +202,15 @@ impl NativePolicyScope {
                 .store(previous.form_token, Ordering::Relaxed);
             slot.observed.store(previous.observed, Ordering::Relaxed);
             slot.forced.store(previous.forced, Ordering::Relaxed);
+            slot.synthetic_child
+                .store(previous.synthetic_child, Ordering::Relaxed);
             slot.force_physical
                 .store(previous.force_physical, Ordering::Release);
         } else {
             slot.form_token.store(0, Ordering::Relaxed);
             slot.observed.store(false, Ordering::Relaxed);
             slot.forced.store(false, Ordering::Relaxed);
+            slot.synthetic_child.store(false, Ordering::Relaxed);
             slot.thread_id.store(0, Ordering::Release);
             ACTIVE_ROOT_SCOPES.fetch_sub(1, Ordering::Release);
         }
@@ -238,9 +262,24 @@ pub(crate) fn apply_native_policy(form_token: u32, predecessor_hitscan: bool) ->
     false
 }
 
+/// Return whether the current thread is launching Atom's matching child form.
+pub(crate) fn synthetic_child_active(form_token: u32) -> bool {
+    if form_token == 0 || ACTIVE_ROOT_SCOPES.load(Ordering::Acquire) == 0 {
+        return false;
+    }
+    let thread_id = get_current_thread_id();
+    POLICY_SLOTS.iter().any(|slot| {
+        slot.thread_id.load(Ordering::Acquire) == thread_id
+            && slot.synthetic_child.load(Ordering::Relaxed)
+            && slot.form_token.load(Ordering::Relaxed) == form_token
+    })
+}
+
 fn context_is_supported(context: ShotContext) -> bool {
-    context.capability() == ProjectileCapability::DiscreteHitscan
-        && context.projectile().form_token() != 0
+    matches!(
+        context.capability(),
+        ProjectileCapability::DiscreteHitscan | ProjectileCapability::DiscretePhysical
+    ) && context.projectile().form_token() != 0
         && context.source_kind() != SourceKind::Unknown
         && context.source_token() != 0
         && !context.always_hit()
@@ -250,7 +289,10 @@ fn context_is_supported(context: ShotContext) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{NativePolicyScope, PolicyResult, apply_native_policy, context_is_supported};
+    use super::{
+        NativePolicyScope, PolicyResult, apply_native_policy, context_is_supported,
+        synthetic_child_active,
+    };
     use crate::ballistics::{ProjectileCapability, ProjectileProfile, ShotContext, SourceKind};
 
     fn context(form_token: u32) -> ShotContext {
@@ -302,6 +344,40 @@ mod tests {
         assert_eq!(inner.finish(), PolicyResult::ForcedPhysical);
         assert!(apply_native_policy(30, true));
         assert_eq!(outer.finish(), PolicyResult::ForcedPhysical);
+    }
+
+    #[test]
+    fn child_presentation_scope_is_form_and_thread_bounded() {
+        let outer = NativePolicyScope::begin(context(30)).unwrap();
+        assert!(!synthetic_child_active(30));
+        let child = NativePolicyScope::begin_child(context(31)).unwrap();
+        assert!(!synthetic_child_active(30));
+        assert!(synthetic_child_active(31));
+        assert_eq!(child.finish(), PolicyResult::PolicyNotObserved);
+        assert!(!synthetic_child_active(31));
+        assert!(!synthetic_child_active(30));
+        assert_eq!(outer.finish(), PolicyResult::PolicyNotObserved);
+    }
+
+    #[test]
+    fn native_physical_child_needs_presentation_scope_without_policy_observation() {
+        let physical = ShotContext::new(
+            1,
+            SourceKind::Actor,
+            20,
+            10,
+            ProjectileProfile::new(31, 0x0001_0000, 0, 0.4, 40_640.0, 10_000.0, false),
+            ProjectileCapability::DiscretePhysical,
+            [0.0; 3],
+            [0.0; 2],
+            false,
+            false,
+            false,
+        );
+        let child = NativePolicyScope::begin_child(physical).unwrap();
+        assert!(synthetic_child_active(31));
+        assert_eq!(child.finish(), PolicyResult::PolicyNotObserved);
+        assert!(!synthetic_child_active(31));
     }
 
     #[test]
