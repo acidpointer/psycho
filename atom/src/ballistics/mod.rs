@@ -248,13 +248,11 @@ pub fn current_config() -> BallisticsConfig {
 
 pub(crate) fn publish_config(config: BallisticsConfig, qpc_frequency: i64) {
     let previous = CONFIG.load();
-    if config.ricochet_enabled() != previous.ricochet_enabled()
+    let invalidates_observations = config.ricochet_enabled() != previous.ricochet_enabled()
         || config.ricochet_energy() != previous.ricochet_energy()
-        || (config.trace_enabled() && !previous.trace_enabled())
-    {
-        if let Some(observations) = pool::observations() {
-            let _ = observations.clear();
-        }
+        || (config.trace_enabled() && !previous.trace_enabled());
+    if invalidates_observations && let Some(observations) = pool::observations() {
+        let _ = observations.clear();
     }
     if config.trace_enabled() && !previous.trace_enabled() {
         telemetry::reset();

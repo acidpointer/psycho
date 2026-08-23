@@ -27,8 +27,9 @@ use super::adapter;
 use super::native::{self, NiPoint3};
 use super::pool::{Correlation, ImpactObservation, InsertOutcome, RicochetState, observations};
 use super::ricochet::{
-    ContactSignature, FirstStepOutcome, ResponseError, RicochetPlan, child_spawn_path,
-    direction_error_degrees, direction_from_rotation, first_step_evidence,
+    ContactSignature, FirstStepOutcome, FollowupContact, FollowupSample, ResponseError,
+    RicochetPlan, child_spawn_path, direction_error_degrees, direction_from_rotation,
+    first_step_evidence,
 };
 use super::{ProjectileCapability, ShotContext, SourceKind, telemetry};
 
@@ -712,32 +713,50 @@ unsafe extern "thiscall" fn common_impact_detour(projectile: *mut c_void) -> u8 
     let impacts = unsafe { native::impact_list_sample(projectile) };
     let launch = observations().and_then(|pool| pool.impact_observation(token));
 
-    if tracing
+    let sample_followup = launch.is_some_and(|launch| {
+        matches!(
+            launch.ricochet_state,
+            RicochetState::Published | RicochetState::Probing
+        ) || (tracing
+            && matches!(
+                launch.ricochet_state,
+                RicochetState::Confirmed | RicochetState::Failed
+            ))
+    });
+    let followup = if sample_followup
         && let (Some(pool), Some(launch), Some(runtime), Some(_), Some(record)) = (
             observations(),
             launch,
             runtime,
             impacts,
             impacts.and_then(|impacts| impacts.first_ready),
-        )
-        && matches!(
-            launch.ricochet_state,
-            RicochetState::Published
-                | RicochetState::Probing
-                | RicochetState::Confirmed
-                | RicochetState::Failed
-        )
-    {
-        let followup = pool.followup_contact(
+        ) {
+        pool.followup_contact(
             token,
             launch.generation,
             launch.lifecycle,
-            record.target_token,
-            record.point,
-            record.raw_material,
-            runtime.distance_travelled,
-            runtime.direction,
-        );
+            FollowupSample {
+                target_token: record.target_token,
+                point: record.point,
+                raw_material: record.raw_material,
+                distance_travelled: runtime.distance_travelled,
+                direction: runtime.direction,
+            },
+        )
+    } else {
+        None
+    };
+    if tracing
+        && launch.is_some_and(|launch| {
+            matches!(
+                launch.ricochet_state,
+                RicochetState::Published
+                    | RicochetState::Probing
+                    | RicochetState::Confirmed
+                    | RicochetState::Failed
+            )
+        })
+    {
         telemetry::record_ricochet_post_bounce_contact(followup);
     }
 
@@ -749,6 +768,7 @@ unsafe extern "thiscall" fn common_impact_detour(projectile: *mut c_void) -> u8 
                 launch,
                 runtime,
                 impacts,
+                followup,
             )
         } else {
             Err(if config.ricochet_enabled() {
@@ -1008,16 +1028,10 @@ fn prepare_ricochet(
     launch: Option<ImpactObservation>,
     runtime: Option<native::ProjectileRuntimeSample>,
     impacts: Option<native::ImpactListSample>,
+    followup: Option<FollowupContact>,
 ) -> Result<PreparedRicochet, telemetry::RicochetRejection> {
     let launch = launch.ok_or(telemetry::RicochetRejection::Untracked)?;
-    match launch.ricochet_state {
-        RicochetState::Available | RicochetState::Confirmed => {}
-        RicochetState::Reserved => return Err(telemetry::RicochetRejection::StateRace),
-        RicochetState::Published | RicochetState::Probing => {
-            return Err(telemetry::RicochetRejection::FirstStepPending);
-        }
-        RicochetState::Failed => return Err(telemetry::RicochetRejection::OutboundFailed),
-    }
+    validate_ricochet_state(launch.ricochet_state, followup)?;
     if launch.selected_path != native::RuntimeFlightPath::Physical
         || !matches!(
             launch.capability,
@@ -1084,6 +1098,25 @@ fn prepare_ricochet(
         record,
         plan,
     })
+}
+
+fn validate_ricochet_state(
+    state: RicochetState,
+    followup: Option<FollowupContact>,
+) -> Result<(), telemetry::RicochetRejection> {
+    match state {
+        RicochetState::Available | RicochetState::Confirmed => Ok(()),
+        RicochetState::Reserved => Err(telemetry::RicochetRejection::StateRace),
+        RicochetState::Published | RicochetState::Probing
+            if followup.is_some_and(FollowupContact::proves_outward_progress) =>
+        {
+            Ok(())
+        }
+        RicochetState::Published | RicochetState::Probing => {
+            Err(telemetry::RicochetRejection::FirstStepPending)
+        }
+        RicochetState::Failed => Err(telemetry::RicochetRejection::OutboundFailed),
+    }
 }
 
 fn map_response_error(error: ResponseError) -> telemetry::RicochetRejection {
@@ -1334,10 +1367,46 @@ unsafe extern "thiscall" fn missile_update_detour(projectile: *mut c_void, delta
 
 #[cfg(test)]
 mod tests {
-    use super::{RicochetAdmission, selected_flight_path};
+    use super::{RicochetAdmission, selected_flight_path, validate_ricochet_state};
     use crate::ballistics::ProjectileCapability;
     use crate::ballistics::adapter::PolicyResult;
     use crate::ballistics::native::{COMMON_IMPACT_TARGET, MUZZLE_FLASH_TARGET, RuntimeFlightPath};
+    use crate::ballistics::pool::RicochetState;
+    use crate::ballistics::ricochet::FollowupContact;
+    use crate::ballistics::telemetry::RicochetRejection;
+
+    #[test]
+    fn outward_first_update_contact_is_energy_eligible() {
+        let outward = FollowupContact {
+            same_target: false,
+            same_material: false,
+            distance_progress: Some(40.0),
+            point_separation: Some(40.0),
+            outward_dot: Some(0.5),
+        };
+        for state in [RicochetState::Published, RicochetState::Probing] {
+            assert_eq!(validate_ricochet_state(state, Some(outward)), Ok(()));
+            for unproven in [
+                FollowupContact {
+                    distance_progress: Some(0.0),
+                    ..outward
+                },
+                FollowupContact {
+                    point_separation: Some(0.0),
+                    ..outward
+                },
+                FollowupContact {
+                    outward_dot: Some(-0.5),
+                    ..outward
+                },
+            ] {
+                assert_eq!(
+                    validate_ricochet_state(state, Some(unproven)),
+                    Err(RicochetRejection::FirstStepPending),
+                );
+            }
+        }
+    }
 
     #[test]
     fn weapon_launch_owner_does_not_gate_child_ricochet() {

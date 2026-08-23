@@ -66,9 +66,10 @@ A change is done only when:
 - `git diff --check` passes and the diff contains no unintended edits;
 - unsupported claims and unverified runtime behavior are identified honestly.
 
-The behavioral gate below has no static-evidence exception. If the exact
-behavior cannot be tested, implementation is blocked. Until the gate passes,
-do not release, package, commit, call the work complete, or present it as ready.
+Except for the explicit OMV no-game-runtime exception below, the behavioral
+gate has no static-evidence exception. If the exact behavior cannot be tested,
+implementation is blocked. Until the gate passes, do not release, package,
+commit, call the work complete, or present it as ready.
 
 Documentation-only changes need document checks and diff inspection, not a
 Rust build. Compilation never proves runtime or image correctness.
@@ -102,6 +103,35 @@ instrumentation may expose the actual boundary but must not alter behavior.
 Add or rewrite tests only when behavioral, or as essential support beside an
 established behavioral test. Never add coverage-only, mirrored, mocked,
 source/order, symbol/manifest, or process tests.
+
+### Explicit OMV no-game-runtime exception
+
+For `omv` only, agents cannot run Fallout New Vegas and a local game run is not
+an implementation, qualification, handoff, release, packaging, or commit gate.
+The repository owner alone decides whether and when to perform gameplay
+validation. Do not request, require, schedule, or wait for that validation.
+This overrides the Definition of done's real-runtime gate and the fail-first,
+same-runtime-test, and no-production-edit requirements above for OMV work.
+
+Before editing, establish an offline behavioral acceptance test wherever the
+affected shipped behavior can execute outside the game. Exercise the actual
+production Rust or compiled HLSL path with evidence-backed inputs and fail it
+on the unchanged defect before changing production code. Do not substitute a
+mock, mirrored formula, reconstructed shader, source assertion, compilation,
+or static contract for behavior that the repository can execute offline. When
+game-only composition or integration cannot execute offline, use the owner's
+report as the behavioral requirement and direct source, binary, and engine
+evidence for every implementation decision; the no-guessing rule still
+applies.
+
+Qualify the result with the applicable offline behavioral regressions, all
+production shader variants and budgets, the affected crate suite, the
+supported 32-bit release build, formatting, `git diff --check`, and final diff
+review. For performance work, compare deterministic GPU/CPU work budgets and
+executable benchmarks where available; never translate those results into an
+FPS claim. Report the result as offline-qualified and identify game-only image,
+integration, and performance behavior as not run, unless the owner voluntarily
+provides gameplay results.
 
 ### Explicit reporter-only Psycho engine-fix exception
 
@@ -206,8 +236,10 @@ inspect the complete pre-Deferred footprint only when a concrete startup or
 ABI risk makes that comparison necessary. A function
 does not need to execute to change that footprint: PE imports, TLS callbacks,
 static sections, CRT work, dependency features, configuration value layout,
-and code moved between final DLLs all count. Static tests and a release build
-cannot replace the required Proton load-to-gameplay playtest.
+and code moved between final DLLs all count. Outside the explicit OMV
+no-game-runtime exception, static tests and a release build cannot replace the
+required Proton load-to-gameplay playtest. OMV agents report that behavior as
+not run and never request it from the owner.
 
 The observed third-party fault is never permission to detect, inspect, patch,
 hook, reorder, disable, or add a compatibility path for another mod. Do not

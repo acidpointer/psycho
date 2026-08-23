@@ -257,6 +257,16 @@ pub(crate) struct ContactSignature {
     pub(crate) distance_travelled: f32,
 }
 
+/// Live values from a later contact of a published ricochet child.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct FollowupSample {
+    pub(crate) target_token: u32,
+    pub(crate) point: [f32; 3],
+    pub(crate) raw_material: u32,
+    pub(crate) distance_travelled: f32,
+    pub(crate) direction: [f32; 3],
+}
+
 /// Value-only evidence describing the first contact after a continuation.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) struct FollowupContact {
@@ -265,6 +275,19 @@ pub(crate) struct FollowupContact {
     pub(crate) distance_progress: Option<f32>,
     pub(crate) point_separation: Option<f32>,
     pub(crate) outward_dot: Option<f32>,
+}
+
+impl FollowupContact {
+    /// Return whether native movement proves that this child left its prior surface.
+    pub(crate) fn proves_outward_progress(self) -> bool {
+        self.outward_dot.is_some_and(|value| value > f32::EPSILON)
+            && self
+                .distance_progress
+                .is_some_and(|value| value > f32::EPSILON)
+            && self
+                .point_separation
+                .is_some_and(|value| value > f32::EPSILON)
+    }
 }
 
 /// Result of the first native movement update after Atom publishes a bounce.
@@ -290,25 +313,18 @@ pub(crate) enum FirstStepOutcome {
 
 impl ContactSignature {
     /// Compare a later contact with the continued contact without changing policy.
-    pub(crate) fn followup_contact(
-        self,
-        target_token: u32,
-        point: [f32; 3],
-        raw_material: u32,
-        distance_travelled: f32,
-        direction: [f32; 3],
-    ) -> FollowupContact {
-        let distance_progress = (distance_travelled - self.distance_travelled)
+    pub(crate) fn followup_contact(self, sample: FollowupSample) -> FollowupContact {
+        let distance_progress = (sample.distance_travelled - self.distance_travelled)
             .is_finite()
-            .then_some(distance_travelled - self.distance_travelled);
-        let point_separation = finite_length(subtract(point, self.point));
-        let outward_dot = normalize(direction)
+            .then_some(sample.distance_travelled - self.distance_travelled);
+        let point_separation = finite_length(subtract(sample.point, self.point));
+        let outward_dot = normalize(sample.direction)
             .ok()
             .map(|direction| dot(direction, self.oriented_normal))
             .filter(|value| value.is_finite());
         FollowupContact {
-            same_target: self.target_token == target_token,
-            same_material: self.raw_material == raw_material,
+            same_target: self.target_token == sample.target_token,
+            same_material: self.raw_material == sample.raw_material,
             distance_progress,
             point_separation,
             outward_dot,

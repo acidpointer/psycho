@@ -170,8 +170,10 @@ The common-impact detour performs this bounded transaction:
    movement, native impact result, and launch context.
 2. Build the reflection and predicted child energy. Require retained effective
    speed of at least 6400 and retained damage of at least 6.
-3. Reserve either an original `available` generation or an outward-confirmed
-   child generation, retaining the prior state for exact rollback.
+3. Reserve an original `available` generation, an outward-confirmed child, or
+   a published/probing child whose current contact proves positive completed
+   distance, positive point separation, and travel away from its prior surface.
+   Retain the prior state for exact rollback.
 4. Call the captured common-impact predecessor exactly once.
 5. Require its nonzero result, ordinary destroy state, world target, unchanged
    source and scalar values, and the still-reserved generation.
@@ -269,22 +271,29 @@ preserve those semantics. This is a capability boundary, not a mod allowlist:
 Atom performs no DLL-name, version, FormID, or load-order classification.
 
 The observation pool is fixed-capacity, allocation-free in hooks, and keyed by
-opaque runtime address plus generation. Its transition is:
+opaque runtime address plus generation. Callback flags are generation-tagged,
+so a callback that loses an address-reuse race cannot mark the replacement.
+Its transition is:
 
 ```text
 parent available -> parent reserved -> child published -> child probing
-                 -> outward confirmed -> reserved -> next child published ...
-                                      \-> energy depleted / native terminal
-                                  \-> failed / native terminal
+                                      |             \-> failed / native terminal
+                                      \-> outward confirmed
+                                      |             \-> energy depleted / native terminal
+                                      \-> outward contact during update
+                                                    \-> reserved -> next child published ...
 ```
 
 The parent key is removed only when the child key is published. Lifecycle clear
 races remove transactional state. Reservation records whether the parent was
-originally available or confirmed so any failed transaction restores the exact
-prior state. The minimal published-to-confirmed transition runs whenever
-ricochet is enabled; tracing only adds counters and therefore cannot control
-multi-bounce gameplay. No impact is cleared and no duplicate-effect exception
-is needed because every spawn requires a clear outbound origin.
+available, published, probing, or confirmed so any failed transaction restores
+the exact prior state. When a nested contact publishes the next child before
+the enclosing Missile update returns, the consumed parent's generation-owned
+reservation completes that first-step probe without a false state race. The
+minimal published-to-confirmed transition runs whenever ricochet is enabled;
+tracing only adds counters and therefore cannot control multi-bounce gameplay.
+No impact is cleared and no duplicate-effect exception is needed because every
+spawn requires a clear outbound origin.
 
 The eligible-impact hot path adds one stack-only native raycast and one native
 projectile spawn. Rejected impacts do bounded arithmetic and atomic operations.
@@ -306,13 +315,13 @@ observe-only.
 
 Offline qualification executes the production reflection/path and energy
 functions, every canonical material and finite angle boundary, runtime and
-raycast layouts, nested policy scope, stale-address child rekey, confirmed-child
-reservation and rollback, full Atom test suite, and supported 32-bit release
-build. Static qualification cannot prove expanded FNV gameplay movement or
-damage.
+raycast layouts, nested policy scope, stale-address child rekey, generation-safe
+callback races, confirmed-child reservation and rollback, first-update child
+transfer, full Atom test suite, and supported 32-bit release build. Static
+qualification cannot prove expanded FNV gameplay movement or damage.
 
-The repository owner subsequently accepted the expanded behavior in game.
-Future ricochet changes must repeat this runtime matrix:
+Release qualification additionally requires owner gameplay acceptance using
+this runtime matrix:
 
 - installation with a non-native ordinary launch predecessor and zero
   critical-admission rejections;
@@ -330,6 +339,6 @@ Configuration acceptance additionally requires all ten MCM sliders to persist
 through `MCMExtUpdate`, one enabled material to stop at zero, and the same
 material to resume eligible continuation after a nonzero menu-close update.
 
-The owner's gameplay confirmation closes the current runtime gate. A later
-change to the native path, material policy, configuration layout, or startup
-footprint reopens the applicable matrix.
+Owner gameplay confirmation closes the runtime gate. Any later change to the
+native path, material policy, configuration layout, or startup footprint
+reopens the applicable matrix before release.

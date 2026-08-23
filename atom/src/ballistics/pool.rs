@@ -4,21 +4,25 @@
 //! table. Slot payload fields are atomic because callbacks are not assumed to
 //! share a thread. Publication changes `RESERVED` to `LIVE` with release
 //! ordering; readers acquire that state before reading the immutable payload.
+//! Mutable callback flags carry the payload generation so address reuse cannot
+//! transfer an observation to a different projectile.
 
+#[cfg(test)]
+use core::sync::atomic::AtomicUsize;
 use core::sync::atomic::{AtomicU8, AtomicU32, Ordering};
 use std::sync::OnceLock;
 
 use super::ShotContext;
 use super::native::RuntimeFlightPath;
-use super::ricochet::{ContactSignature, FollowupContact};
+use super::ricochet::{ContactSignature, FollowupContact, FollowupSample};
 
 const EMPTY: u8 = 0;
 const RESERVED: u8 = 1;
 const LIVE: u8 = 2;
-const FLAG_ACTOR_HIT: u8 = 1 << 0;
-const FLAG_CONTACT: u8 = 1 << 1;
-const FLAG_UPDATE: u8 = 1 << 2;
 const RICOCHET_GENERATION_MASK: u32 = 0x1FFF_FFFF;
+const FLAG_ACTOR_HIT: u32 = 0x2000_0000;
+const FLAG_CONTACT: u32 = 0x4000_0000;
+const FLAG_UPDATE: u32 = 0x8000_0000;
 const RICOCHET_AVAILABLE: u32 = 0x0000_0000;
 const RICOCHET_RESERVED: u32 = 0x2000_0000;
 const RICOCHET_PUBLISHED: u32 = 0x4000_0000;
@@ -29,6 +33,11 @@ const TABLE_CAPACITY: usize = 2048;
 const PROBE_LIMIT: usize = 32;
 
 static OBSERVATIONS: OnceLock<Box<ObservationPool<TABLE_CAPACITY>>> = OnceLock::new();
+
+#[cfg(test)]
+static RECORD_INTERLEAVE_STAGE: AtomicU8 = AtomicU8::new(0);
+#[cfg(test)]
+static RECORD_INTERLEAVE_POOL: AtomicUsize = AtomicUsize::new(0);
 
 pub(crate) fn initialize() {
     // The large table is intentionally allocated on first use at DeferredInit
@@ -138,7 +147,7 @@ pub(crate) struct ClearSummary {
 
 struct Slot {
     state: AtomicU8,
-    observation_flags: AtomicU8,
+    observation_flags: AtomicU32,
     ricochet_state: AtomicU32,
     bounce_depth: AtomicU32,
     token: AtomicU32,
@@ -171,7 +180,7 @@ impl Slot {
     const fn new() -> Self {
         Self {
             state: AtomicU8::new(EMPTY),
-            observation_flags: AtomicU8::new(0),
+            observation_flags: AtomicU32::new(0),
             ricochet_state: AtomicU32::new(RICOCHET_AVAILABLE),
             bounce_depth: AtomicU32::new(0),
             token: AtomicU32::new(0),
@@ -245,10 +254,13 @@ impl Slot {
             | (u8::from(context.has_live_target()) << 2)
             | (u8::from(projectile.has_explosion()) << 3);
         self.launch_flags.store(flags, Ordering::Relaxed);
-        self.observation_flags.store(0, Ordering::Relaxed);
         let generation =
             self.generation.load(Ordering::Relaxed).wrapping_add(1) & RICOCHET_GENERATION_MASK;
         self.generation.store(generation, Ordering::Relaxed);
+        // Correlation flags carry the same generation as the payload. A stale
+        // callback can no longer set a flag after this slot is republished for
+        // another projectile.
+        self.observation_flags.store(generation, Ordering::Relaxed);
         self.ricochet_state.store(
             ricochet_word(generation, RICOCHET_AVAILABLE),
             Ordering::Relaxed,
@@ -352,12 +364,9 @@ impl<const N: usize> ObservationPool<N> {
     }
 
     pub(crate) fn record_actor_hit(&self, token: u32) -> Correlation {
-        let Some(slot) = self.find(token) else {
+        let Some((previous, ())) = self.mutate_observation(token, FLAG_ACTOR_HIT, |_| ()) else {
             return Correlation::Missing;
         };
-        let previous = slot
-            .observation_flags
-            .fetch_or(FLAG_ACTOR_HIT, Ordering::Relaxed);
         if previous & FLAG_ACTOR_HIT == 0 {
             Correlation::First
         } else {
@@ -366,16 +375,15 @@ impl<const N: usize> ObservationPool<N> {
     }
 
     pub(crate) fn record_contact(&self, token: u32) -> Contact {
-        let Some(slot) = self.find(token) else {
+        let Some((previous, launch_tick)) = self.mutate_observation(token, FLAG_CONTACT, |slot| {
+            slot.launch_tick.load(Ordering::Relaxed)
+        }) else {
             return Contact {
                 correlation: Correlation::Missing,
                 actor_hit: false,
                 launch_tick: 0,
             };
         };
-        let previous = slot
-            .observation_flags
-            .fetch_or(FLAG_CONTACT, Ordering::Relaxed);
         Contact {
             correlation: if previous & FLAG_CONTACT == 0 {
                 Correlation::First
@@ -383,23 +391,26 @@ impl<const N: usize> ObservationPool<N> {
                 Correlation::Duplicate
             },
             actor_hit: previous & FLAG_ACTOR_HIT != 0,
-            launch_tick: slot.launch_tick.load(Ordering::Relaxed),
+            launch_tick,
         }
     }
 
     pub(crate) fn record_update(&self, token: u32) -> Option<UpdateObservation> {
-        let slot = self.find(token)?;
-        let previous = slot
-            .observation_flags
-            .fetch_or(FLAG_UPDATE, Ordering::Relaxed);
+        let (previous, (capability, selected_path)) =
+            self.mutate_observation(token, FLAG_UPDATE, |slot| {
+                (
+                    decode_capability(slot.capability.load(Ordering::Relaxed)),
+                    decode_flight_path(slot.selected_path.load(Ordering::Relaxed)),
+                )
+            })?;
         Some(UpdateObservation {
             correlation: if previous & FLAG_UPDATE == 0 {
                 Correlation::First
             } else {
                 Correlation::Duplicate
             },
-            capability: decode_capability(slot.capability.load(Ordering::Relaxed)),
-            selected_path: decode_flight_path(slot.selected_path.load(Ordering::Relaxed)),
+            capability,
+            selected_path,
         })
     }
 
@@ -412,6 +423,10 @@ impl<const N: usize> ObservationPool<N> {
         let slot = self.find(token)?;
         let generation = slot.generation.load(Ordering::Acquire);
         let launch_flags = slot.launch_flags.load(Ordering::Relaxed);
+        let observation_flags = slot.observation_flags.load(Ordering::Acquire);
+        if observation_flags & RICOCHET_GENERATION_MASK != generation {
+            return None;
+        }
         let ricochet_word = slot.ricochet_state.load(Ordering::Acquire);
         if ricochet_word & RICOCHET_GENERATION_MASK != generation {
             return None;
@@ -422,7 +437,7 @@ impl<const N: usize> ObservationPool<N> {
             source_kind: decode_source_kind(slot.source_kind.load(Ordering::Relaxed)),
             capability: decode_capability(slot.capability.load(Ordering::Relaxed)),
             selected_path: decode_flight_path(slot.selected_path.load(Ordering::Relaxed)),
-            actor_hit: slot.observation_flags.load(Ordering::Relaxed) & FLAG_ACTOR_HIT != 0,
+            actor_hit: observation_flags & FLAG_ACTOR_HIT != 0,
             projectile_flags: slot.projectile_flags.load(Ordering::Relaxed) as u16,
             always_hit: launch_flags & (1 << 0) != 0,
             ignore_gravity: launch_flags & (1 << 1) != 0,
@@ -459,7 +474,10 @@ impl<const N: usize> ObservationPool<N> {
         let prior_state = decode_ricochet_state(current);
         if !matches!(
             prior_state,
-            RicochetState::Available | RicochetState::Confirmed
+            RicochetState::Available
+                | RicochetState::Published
+                | RicochetState::Probing
+                | RicochetState::Confirmed
         ) {
             return None;
         }
@@ -633,6 +651,12 @@ impl<const N: usize> ObservationPool<N> {
         }
         let slot = self.find(token)?;
         let generation = slot.generation.load(Ordering::Acquire);
+        if slot.state.load(Ordering::Acquire) != LIVE
+            || slot.token.load(Ordering::Relaxed) != token
+            || self.lifecycle_sequence.load(Ordering::Acquire) != lifecycle
+        {
+            return None;
+        }
         slot.ricochet_state
             .compare_exchange(
                 ricochet_word(generation, RICOCHET_PUBLISHED),
@@ -641,7 +665,16 @@ impl<const N: usize> ObservationPool<N> {
                 Ordering::Acquire,
             )
             .ok()?;
-        self.probing_first_step(token, lifecycle, generation)
+        let probe = self.probing_first_step(token, lifecycle, generation);
+        if probe.is_none() {
+            let _ = slot.ricochet_state.compare_exchange(
+                ricochet_word(generation, RICOCHET_PROBING),
+                ricochet_word(generation, RICOCHET_PUBLISHED),
+                Ordering::AcqRel,
+                Ordering::Acquire,
+            );
+        }
+        probe
     }
 
     /// Snapshot the generation currently claimed by the Missile update wrapper.
@@ -690,6 +723,10 @@ impl<const N: usize> ObservationPool<N> {
     }
 
     /// Complete the single claimed post-bounce update observation.
+    ///
+    /// A nested impact may consume the probed child by publishing its own
+    /// continuation before the enclosing Missile update returns. That exact
+    /// successful transfer also completes this observation.
     pub(crate) fn complete_first_step(
         &self,
         token: u32,
@@ -702,7 +739,7 @@ impl<const N: usize> ObservationPool<N> {
             return false;
         }
         let Some(slot) = self.find_generation(token, probe.generation) else {
-            return false;
+            return self.first_step_was_consumed(token, probe);
         };
         let target = if confirmed {
             RICOCHET_CONFIRMED
@@ -719,24 +756,41 @@ impl<const N: usize> ObservationPool<N> {
             .is_ok()
     }
 
+    fn first_step_was_consumed(&self, token: u32, probe: FirstStepProbe) -> bool {
+        let start = hash(token) & (N - 1);
+        for offset in 0..PROBE_LIMIT.min(N) {
+            let slot = &self.slots[(start + offset) & (N - 1)];
+            if slot.state.load(Ordering::Acquire) != EMPTY
+                || slot.token.load(Ordering::Relaxed) != token
+                || slot.generation.load(Ordering::Acquire) != probe.generation
+                || slot.ricochet_state.load(Ordering::Acquire)
+                    != ricochet_word(probe.generation, RICOCHET_RESERVED)
+            {
+                continue;
+            }
+
+            // Successful child publication leaves the consumed parent empty
+            // with its generation-owned reservation intact. Recheck state and
+            // lifecycle after the payload reads so slot reuse or teardown
+            // cannot be mistaken for that transfer.
+            return slot.state.load(Ordering::Acquire) == EMPTY
+                && self.lifecycle_sequence.load(Ordering::Acquire) == probe.lifecycle;
+        }
+        false
+    }
+
     /// Describe a later child contact without changing native impact policy.
     pub(crate) fn followup_contact(
         &self,
         token: u32,
         generation: u32,
         lifecycle: u32,
-        target_token: u32,
-        point: [f32; 3],
-        raw_material: u32,
-        distance_travelled: f32,
-        direction: [f32; 3],
+        sample: FollowupSample,
     ) -> Option<FollowupContact> {
         if lifecycle & 1 != 0 || self.lifecycle_sequence.load(Ordering::Acquire) != lifecycle {
             return None;
         }
-        let Some(slot) = self.find_generation(token, generation) else {
-            return None;
-        };
+        let slot = self.find_generation(token, generation)?;
         let current = slot.ricochet_state.load(Ordering::Acquire);
         if current & RICOCHET_GENERATION_MASK != generation
             || !ricochet_is_after_publication(decode_ricochet_state(current))
@@ -750,13 +804,7 @@ impl<const N: usize> ObservationPool<N> {
             raw_material: slot.contact_material.load(Ordering::Relaxed),
             distance_travelled: f32::from_bits(slot.contact_distance.load(Ordering::Relaxed)),
         };
-        let followup = contact.followup_contact(
-            target_token,
-            point,
-            raw_material,
-            distance_travelled,
-            direction,
-        );
+        let followup = contact.followup_contact(sample);
         if slot.state.load(Ordering::Acquire) == LIVE
             && slot.token.load(Ordering::Relaxed) == token
             && slot.generation.load(Ordering::Acquire) == generation
@@ -772,7 +820,20 @@ impl<const N: usize> ObservationPool<N> {
         // Odd sequence values close admission while lifecycle teardown sweeps
         // the table. A writer or ricochet transaction that began on the prior
         // even value verifies it again before publishing gameplay state.
-        self.lifecycle_sequence.fetch_add(1, Ordering::AcqRel);
+        let lifecycle = self.lifecycle_sequence.load(Ordering::Acquire);
+        if lifecycle & 1 != 0
+            || self
+                .lifecycle_sequence
+                .compare_exchange(
+                    lifecycle,
+                    lifecycle.wrapping_add(1),
+                    Ordering::AcqRel,
+                    Ordering::Acquire,
+                )
+                .is_err()
+        {
+            return ClearSummary::default();
+        }
         let mut summary = ClearSummary::default();
         for slot in &self.slots {
             if slot
@@ -792,8 +853,59 @@ impl<const N: usize> ObservationPool<N> {
                 summary.pending_ricochets = summary.pending_ricochets.saturating_add(1);
             }
         }
-        self.lifecycle_sequence.fetch_add(1, Ordering::Release);
+        self.lifecycle_sequence
+            .store(lifecycle.wrapping_add(2), Ordering::Release);
         summary
+    }
+
+    fn mutate_observation<T>(
+        &self,
+        token: u32,
+        flag: u32,
+        snapshot: impl FnOnce(&Slot) -> T,
+    ) -> Option<(u32, T)> {
+        let lifecycle = self.lifecycle_sequence.load(Ordering::Acquire);
+        if lifecycle & 1 != 0 {
+            return None;
+        }
+        let slot = self.find(token)?;
+        let generation = slot.generation.load(Ordering::Acquire);
+        pause_record_for_test(self as *const Self as usize);
+        if slot.state.load(Ordering::Acquire) != LIVE
+            || slot.token.load(Ordering::Relaxed) != token
+            || slot.generation.load(Ordering::Acquire) != generation
+            || self.lifecycle_sequence.load(Ordering::Acquire) != lifecycle
+        {
+            return None;
+        }
+
+        let mut current = slot.observation_flags.load(Ordering::Acquire);
+        let previous = loop {
+            if current & RICOCHET_GENERATION_MASK != generation {
+                return None;
+            }
+            match slot.observation_flags.compare_exchange_weak(
+                current,
+                current | flag,
+                Ordering::AcqRel,
+                Ordering::Acquire,
+            ) {
+                Ok(previous) => break previous,
+                Err(observed) => current = observed,
+            }
+        };
+        let payload = snapshot(slot);
+        if slot.state.load(Ordering::Acquire) == LIVE
+            && slot.token.load(Ordering::Relaxed) == token
+            && slot.generation.load(Ordering::Acquire) == generation
+            && slot.observation_flags.load(Ordering::Acquire) & RICOCHET_GENERATION_MASK
+                == generation
+            && self.lifecycle_sequence.load(Ordering::Acquire) == lifecycle
+        {
+            Some((previous, payload))
+        } else {
+            None
+        }
     }
 
     fn publish_insert(
@@ -845,6 +957,23 @@ impl<const N: usize> ObservationPool<N> {
         }
     }
 }
+
+#[cfg(test)]
+fn pause_record_for_test(pool: usize) {
+    if RECORD_INTERLEAVE_POOL.load(Ordering::Acquire) == pool
+        && RECORD_INTERLEAVE_STAGE
+            .compare_exchange(1, 2, Ordering::AcqRel, Ordering::Acquire)
+            .is_ok()
+    {
+        while RECORD_INTERLEAVE_STAGE.load(Ordering::Acquire) == 2 {
+            core::hint::spin_loop();
+        }
+    }
+}
+
+#[cfg(not(test))]
+#[inline]
+fn pause_record_for_test(_pool: usize) {}
 
 fn hash(token: u32) -> usize {
     // Pointer alignment makes low bits weak. This is the 32-bit finalizer from
@@ -950,8 +1079,12 @@ fn load_f32_array(source: &[AtomicU32; 3]) -> [f32; 3] {
 #[cfg(test)]
 mod tests {
     use core::mem::size_of;
+    use core::sync::atomic::Ordering;
 
-    use super::{Correlation, InsertOutcome, ObservationPool, RicochetState};
+    use super::{
+        Correlation, InsertOutcome, ObservationPool, RECORD_INTERLEAVE_POOL,
+        RECORD_INTERLEAVE_STAGE, RicochetState,
+    };
     use crate::ballistics::native::RuntimeFlightPath;
     use crate::ballistics::ricochet::ContactSignature;
     use crate::ballistics::{ProjectileCapability, ProjectileProfile, ShotContext, SourceKind};
@@ -985,6 +1118,34 @@ mod tests {
         );
         assert_eq!(pool.record_actor_hit(0x1000), Correlation::First);
         assert_eq!(pool.record_actor_hit(0x1000), Correlation::Duplicate);
+    }
+
+    #[test]
+    fn stale_actor_callback_cannot_mark_a_replacement_generation() {
+        let pool = ObservationPool::<1>::new();
+        assert_eq!(
+            pool.insert(0x1000, context(1), RuntimeFlightPath::Physical, 10, 100),
+            InsertOutcome::Added,
+        );
+
+        RECORD_INTERLEAVE_POOL.store(&pool as *const _ as usize, Ordering::Release);
+        RECORD_INTERLEAVE_STAGE.store(1, Ordering::Release);
+        std::thread::scope(|scope| {
+            let record = scope.spawn(|| pool.record_actor_hit(0x1000));
+            while RECORD_INTERLEAVE_STAGE.load(Ordering::Acquire) != 2 {
+                std::thread::yield_now();
+            }
+            assert_eq!(
+                pool.insert(0x1000, context(2), RuntimeFlightPath::Physical, 200, 1),
+                InsertOutcome::ReplacedGeneration,
+            );
+            RECORD_INTERLEAVE_STAGE.store(3, Ordering::Release);
+            assert_eq!(record.join().unwrap(), Correlation::Missing);
+        });
+
+        assert!(!pool.impact_observation(0x1000).unwrap().actor_hit);
+        RECORD_INTERLEAVE_STAGE.store(0, Ordering::Release);
+        RECORD_INTERLEAVE_POOL.store(0, Ordering::Release);
     }
 
     #[test]
@@ -1120,6 +1281,110 @@ mod tests {
         let next = pool.impact_observation(0x3000).unwrap();
         assert_eq!(next.ricochet_state, RicochetState::Published);
         assert_eq!(next.bounce_depth, 2);
+    }
+
+    #[test]
+    fn child_contact_during_first_update_can_reserve_the_next_bounce() {
+        let pool = ObservationPool::<8>::new();
+        pool.insert(0x1000, context(1), RuntimeFlightPath::Physical, 10, 100);
+        let original = pool.impact_observation(0x1000).unwrap();
+        let first = pool
+            .reserve_ricochet(0x1000, original.generation, original.lifecycle)
+            .unwrap();
+        assert!(pool.publish_ricochet_child(
+            0x1000,
+            first,
+            0x2000,
+            context(2),
+            11,
+            ContactSignature {
+                target_token: 7,
+                point: [1.0, 2.0, 3.0],
+                oriented_normal: [0.0, 1.0, 0.0],
+                raw_material: 5,
+                distance_travelled: 10.0,
+            },
+            [1.0, 0.1, 0.0],
+        ));
+
+        let probe = pool.reserve_first_step(0x2000).unwrap();
+        let child = pool.impact_observation(0x2000).unwrap();
+        assert_eq!(child.ricochet_state, RicochetState::Probing);
+        let reservation = pool
+            .reserve_ricochet(0x2000, child.generation, child.lifecycle)
+            .expect("an outward first-update contact must remain energy-eligible");
+        assert_eq!(reservation.bounce_depth(), 1);
+        assert!(pool.publish_ricochet_child(
+            0x2000,
+            reservation,
+            0x3000,
+            context(3),
+            12,
+            ContactSignature {
+                target_token: 8,
+                point: [4.0, 5.0, 6.0],
+                oriented_normal: [1.0, 0.0, 0.0],
+                raw_material: 0,
+                distance_travelled: 20.0,
+            },
+            [0.1, 1.0, 0.0],
+        ));
+        assert!(pool.complete_first_step(0x2000, probe, true));
+        assert_eq!(pool.impact_observation(0x3000).unwrap().bounce_depth, 2);
+    }
+
+    #[test]
+    fn stale_first_step_cannot_complete_after_replacement_or_clear() {
+        let pool = ObservationPool::<8>::new();
+        pool.insert(0x1000, context(1), RuntimeFlightPath::Physical, 10, 100);
+        let parent = pool.impact_observation(0x1000).unwrap();
+        let reservation = pool
+            .reserve_ricochet(0x1000, parent.generation, parent.lifecycle)
+            .unwrap();
+        assert!(pool.publish_ricochet_child(
+            0x1000,
+            reservation,
+            0x2000,
+            context(2),
+            11,
+            ContactSignature {
+                target_token: 7,
+                point: [1.0, 2.0, 3.0],
+                oriented_normal: [0.0, 1.0, 0.0],
+                raw_material: 5,
+                distance_travelled: 10.0,
+            },
+            [1.0, 0.1, 0.0],
+        ));
+        let replaced_probe = pool.reserve_first_step(0x2000).unwrap();
+        assert_eq!(
+            pool.insert(0x2000, context(3), RuntimeFlightPath::Physical, 12, 100,),
+            InsertOutcome::ReplacedGenerationPendingRicochet,
+        );
+        assert!(!pool.complete_first_step(0x2000, replaced_probe, true));
+
+        let replacement = pool.impact_observation(0x2000).unwrap();
+        let reservation = pool
+            .reserve_ricochet(0x2000, replacement.generation, replacement.lifecycle)
+            .unwrap();
+        assert!(pool.publish_ricochet_child(
+            0x2000,
+            reservation,
+            0x3000,
+            context(4),
+            13,
+            ContactSignature {
+                target_token: 8,
+                point: [4.0, 5.0, 6.0],
+                oriented_normal: [1.0, 0.0, 0.0],
+                raw_material: 0,
+                distance_travelled: 20.0,
+            },
+            [0.1, 1.0, 0.0],
+        ));
+        let cleared_probe = pool.reserve_first_step(0x3000).unwrap();
+        let _ = pool.clear();
+        assert!(!pool.complete_first_step(0x3000, cleared_probe, true));
     }
 
     #[test]

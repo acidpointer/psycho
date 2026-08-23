@@ -1,8 +1,10 @@
 //! Bounded, allocation-free Ballistics observation telemetry.
 //!
-//! Native wrappers perform QPC queries and relaxed saturating increments only
-//! while tracing is enabled. Snapshot formatting and logging happen later on
-//! the MCM event callback, never inside a combat hook.
+//! Native wrappers use QPC timestamps for the bounded observation lifetime
+//! whenever ricochet or tracing retains launches. Diagnostic collection uses
+//! relaxed saturating increments only while tracing is enabled. Snapshot
+//! formatting and logging happen later on the MCM event callback, never inside
+//! a combat hook.
 
 use core::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 
