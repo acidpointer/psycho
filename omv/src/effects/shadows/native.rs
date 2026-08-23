@@ -537,7 +537,6 @@ pub(super) fn select_point_lights(
     camera_translation: [f32; 3],
     camera_forward: [f32; 3],
     retained_identities: [usize; POINT_LIGHT_CAPACITY],
-    selection_lease_active: bool,
     shadow_limit: usize,
     radius_multiplier: f32,
     draw_distance: f32,
@@ -558,18 +557,13 @@ pub(super) fn select_point_lights(
             draw_distance,
         ) {
             if retained_identities.contains(&candidate.identity) {
-                candidate.distance_squared = if selection_lease_active {
-                    // Hold an admitted source for one short lease so candidates
-                    // at the nearest-N boundary cannot exchange whole shadow
-                    // groups every presentation. Missing or invalid lights are
-                    // still removed immediately; expiry then recomputes the
-                    // true nearest set.
-                    0.0
-                } else {
-                    // Outside the lease, keep only the established bounded
-                    // hysteresis while the fresh nearest set is chosen.
-                    stable_point_light_distance_squared(candidate.distance_squared, true)
-                };
+                // Continuous bounded hysteresis lets a materially nearer
+                // source replace this cube while preventing tiny camera or
+                // flame motion from exchanging a complete shadow group. A
+                // shared timed lease instead synchronized every crowded-room
+                // replacement at its expiry boundary.
+                candidate.distance_squared =
+                    stable_point_light_distance_squared(candidate.distance_squared, true);
             }
             selected.insert(candidate);
         }
@@ -605,6 +599,33 @@ impl StaticSignatureAccumulator {
     }
 }
 
+fn point_static_root_identity(root: DirectionalRoot) -> u64 {
+    let mut mixed = root.root as u64;
+    mixed ^= u64::from(root.signature_profile()).rotate_left(17);
+    mixed ^= u64::from(root.world_state).wrapping_mul(0x9E37_79B1_85EB_CA87);
+    mixed ^= mixed >> 33;
+    mixed = mixed.wrapping_mul(0xFF51_AFD7_ED55_8CCD);
+    mixed ^ (mixed >> 33)
+}
+
+/// Hash the complete immutable point-caster root set once per transaction.
+///
+/// This uses the same order-independent root identity as the regional cache.
+/// Stable point cubes can reuse their retained regional and face-local
+/// signatures when that complete identity is unchanged instead of rescanning
+/// every root for every light.
+pub(super) fn point_static_root_set_signature(roots: &[DirectionalRoot]) -> u64 {
+    let mut signature = StaticSignatureAccumulator::default();
+    for root in roots
+        .iter()
+        .copied()
+        .filter(|root| !root.is_land && !root.is_dynamic_actor())
+    {
+        signature.include(point_static_root_identity(root));
+    }
+    signature.finish()
+}
+
 /// Hash immutable point-caster ownership inside one light's influence sphere.
 ///
 /// Bounds and world-state hashes were copied by the single cell-root snapshot,
@@ -624,24 +645,10 @@ pub(super) fn point_scene_static_signatures(
         .copied()
         .filter(|root| root.is_point_static_caster(light_position, light_radius))
     {
-        let mut mixed = root.root as u64;
-        mixed ^= u64::from(root.signature_profile()).rotate_left(17);
-        mixed ^= u64::from(root.world_state).wrapping_mul(0x9E37_79B1_85EB_CA87);
-        mixed ^= mixed >> 33;
-        mixed = mixed.wrapping_mul(0xFF51_AFD7_ED55_8CCD);
-        mixed ^= mixed >> 33;
+        let mixed = point_static_root_identity(root);
         cube.include(mixed);
 
-        let face_mask = root.world_bound.map_or(ALL_CUBE_FACES, |bound| {
-            let center_from_light = std::array::from_fn(|axis| bound[axis] - light_position[axis]);
-            (0..6).fold(0_u8, |mask, face| {
-                mask | (u8::from(sphere_intersects_cube_face(
-                    center_from_light,
-                    bound[3],
-                    face,
-                )) << face)
-            })
-        });
+        let face_mask = point_static_root_face_mask(root, light_position, light_radius);
         for (face, accumulator) in faces.iter_mut().enumerate() {
             if face_mask & (1 << face) != 0 {
                 accumulator.include(mixed);
@@ -652,6 +659,64 @@ pub(super) fn point_scene_static_signatures(
         cube: cube.finish(),
         faces: faces.map(StaticSignatureAccumulator::finish),
     }
+}
+
+fn point_static_root_face_mask(
+    root: DirectionalRoot,
+    light_position: [f32; 3],
+    light_radius: f32,
+) -> u8 {
+    if !root.is_point_static_caster(light_position, light_radius) {
+        return 0;
+    }
+    root.world_bound.map_or(ALL_CUBE_FACES, |bound| {
+        let center_from_light = std::array::from_fn(|axis| bound[axis] - light_position[axis]);
+        (0..6).fold(0_u8, |mask, face| {
+            mask | (u8::from(sphere_intersects_cube_face(
+                center_from_light,
+                bound[3],
+                face,
+            )) << face)
+        })
+    })
+}
+
+/// Build one selected light's signatures and root-face masks in one scan.
+///
+/// `masks` is root-aligned and allocated by the post-Deferred resource owner.
+/// Other light columns remain unchanged, allowing exact retained projections
+/// to skip their regional scan entirely. Failure reports incomplete capacity;
+/// the renderer then falls back to its conservative per-face root predicate.
+pub(super) fn collect_point_static_face_masks_for_light(
+    roots: &[DirectionalRoot],
+    light_position: [f32; 3],
+    light_radius: f32,
+    light: usize,
+    masks: &mut [[u8; POINT_LIGHT_CAPACITY]],
+) -> Option<PointStaticSignatures> {
+    if light >= POINT_LIGHT_CAPACITY || masks.len() != roots.len() {
+        return None;
+    }
+    let mut cube = StaticSignatureAccumulator::default();
+    let mut faces = [StaticSignatureAccumulator::default(); 6];
+    for (root_index, root) in roots.iter().copied().enumerate() {
+        let face_mask = point_static_root_face_mask(root, light_position, light_radius);
+        masks[root_index][light] = face_mask;
+        if face_mask == 0 {
+            continue;
+        }
+        let mixed = point_static_root_identity(root);
+        cube.include(mixed);
+        for (face, accumulator) in faces.iter_mut().enumerate() {
+            if face_mask & (1 << face) != 0 {
+                accumulator.include(mixed);
+            }
+        }
+    }
+    Some(PointStaticSignatures {
+        cube: cube.finish(),
+        faces: faces.map(StaticSignatureAccumulator::finish),
+    })
 }
 
 /// Copy active actor bounds out of the borrowed root list.
@@ -1231,9 +1296,10 @@ const fn size_of<T>() -> usize {
 mod tests {
     use super::{
         DirectionalRoot, NativeBound, PointLight, PointLightSelection,
-        collect_point_actor_face_masks, directional_root_set_signatures,
-        point_light_dynamic_faces_from_bounds, point_scene_static_signatures,
-        push_directional_root, retained_object_state_signature,
+        collect_point_actor_face_masks, collect_point_static_face_masks_for_light,
+        directional_root_set_signatures, point_light_dynamic_faces_from_bounds,
+        point_scene_static_signatures, point_static_root_set_signature, push_directional_root,
+        retained_object_state_signature,
     };
 
     fn point(identity: usize, distance_squared: f32) -> PointLight {
@@ -1485,6 +1551,54 @@ mod tests {
     }
 
     #[test]
+    fn point_static_root_identity_changes_only_with_immutable_caster_inputs() {
+        let fixture = DirectionalRoot {
+            root: 0x1000,
+            form_type: Some(0x20),
+            is_land: false,
+            is_lod: false,
+            world_state: 11,
+            world_bound: Some([10.0, 0.0, 0.0, 2.0]),
+        };
+        let actor = DirectionalRoot {
+            root: 0x2000,
+            form_type: Some(0x2A),
+            is_land: false,
+            is_lod: false,
+            world_state: 22,
+            world_bound: Some([20.0, 0.0, 0.0, 2.0]),
+        };
+        let baseline = point_static_root_set_signature(&[fixture, actor]);
+        assert_eq!(
+            baseline,
+            point_static_root_set_signature(&[actor, fixture]),
+            "root-list order changed the retained static identity"
+        );
+        assert_eq!(
+            baseline,
+            point_static_root_set_signature(&[
+                fixture,
+                DirectionalRoot {
+                    world_state: 99,
+                    ..actor
+                },
+            ]),
+            "animated actor pose dirtied immutable point-cube signatures"
+        );
+        assert_ne!(
+            baseline,
+            point_static_root_set_signature(&[
+                DirectionalRoot {
+                    world_state: 12,
+                    ..fixture
+                },
+                actor,
+            ]),
+            "an immutable caster transform change reused stale point signatures"
+        );
+    }
+
+    #[test]
     fn point_static_signature_excludes_landscape_self_occluders() {
         let landscape = DirectionalRoot {
             root: 0x1000,
@@ -1544,6 +1658,46 @@ mod tests {
             moved.faces[1..],
             "a +X-only caster invalidated unrelated cube directions"
         );
+    }
+
+    #[test]
+    fn point_static_root_masks_match_the_signature_face_ownership() {
+        let positive_x = DirectionalRoot {
+            root: 0x1000,
+            form_type: None,
+            is_land: false,
+            is_lod: false,
+            world_state: 11,
+            world_bound: Some([10.0, 0.0, 0.0, 0.1]),
+        };
+        let missing_bound = DirectionalRoot {
+            root: 0x2000,
+            world_state: 22,
+            world_bound: None,
+            ..positive_x
+        };
+        let roots = [positive_x, missing_bound];
+        let mut masks = vec![[0_u8; super::POINT_LIGHT_CAPACITY]; roots.len()];
+        let indexed = collect_point_static_face_masks_for_light(
+            &roots,
+            [0.0; 3],
+            64.0,
+            3,
+            masks.as_mut_slice(),
+        )
+        .expect("root-aligned mask capacity");
+
+        assert_eq!(
+            indexed,
+            point_scene_static_signatures(&roots, [0.0; 3], 64.0)
+        );
+        assert_eq!(masks[0][3], 1 << 0);
+        assert_eq!(masks[1][3], super::ALL_CUBE_FACES);
+        assert!(masks.iter().all(|root| {
+            root.iter()
+                .enumerate()
+                .all(|(light, faces)| light == 3 || *faces == 0)
+        }));
     }
 
     #[test]

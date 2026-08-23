@@ -1340,11 +1340,11 @@ fn ultrawide_point_shadow_work_matches_the_production_consumer_transcript() {
     assert_eq!(point_only_metrics.point_draws, 1);
     assert_eq!(point_only_metrics.point_fragments, local.pixels());
     assert_eq!(point_only_metrics.contact_fragments, 0);
-    assert_eq!(point_only_metrics.composite_fragments, pixels);
+    assert_eq!(point_only_metrics.composite_fragments, local.pixels());
     assert_eq!(
         point_only_metrics.total_fragments(),
-        pixels + local.pixels(),
-        "point-only work drifted from one scissored accumulation plus one full-screen composite"
+        local.pixels() * 2,
+        "point-only work drifted from matching scissored accumulation and composition"
     );
 
     let combined = ShadowConsumerWorkPlan::new(true, points).expect("combined shadow work");

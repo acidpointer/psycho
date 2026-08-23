@@ -158,14 +158,16 @@ pub(super) struct GenerationPrograms {
 
 /// Geometry ownership selected for one shadow-map submission.
 ///
-/// Point cubes keep immutable world geometry in a backing cube and refresh
-/// only animated skins in the visible cube faces. Directional traversal still
+/// Retained point cubes keep non-actor geometry in a backing cube and refresh
+/// actor-owned rigid and skinned geometry in the visible cube faces. A moved
+/// light instead rebuilds both root families directly. Directional traversal
 /// uses `All` because its static/actor split happens at root admission.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) enum CasterSubset {
     All,
     Static,
-    Dynamic,
+    DynamicMerge,
+    DynamicDirect,
 }
 
 impl CasterSubset {
@@ -173,12 +175,18 @@ impl CasterSubset {
         match self {
             Self::All => true,
             Self::Static => !skinned,
-            Self::Dynamic => skinned,
+            // Actor-owned roots can contain rigid equipment beside skinned
+            // body geometry. Both belong to the current presentation pose.
+            Self::DynamicMerge | Self::DynamicDirect => true,
         }
     }
 
     const fn owns_presentation_visibility(self) -> bool {
-        matches!(self, Self::Dynamic)
+        matches!(self, Self::DynamicMerge | Self::DynamicDirect)
+    }
+
+    const fn merges_static_depth(self) -> bool {
+        matches!(self, Self::DynamicMerge)
     }
 }
 
@@ -831,10 +839,9 @@ unsafe fn draw_geometry(
     if geometry.is_null() {
         return Ok(());
     }
-    // Point animation revisits only a few cube faces but the native light list
-    // may contain thousands of immutable geometries. Reject the opposite
-    // ownership family from the one pointer read needed to identify a skin,
-    // before material, ancestry, bound, texture, and buffer classification.
+    // Retained static work rejects skins from non-actor roots. Actor-root work
+    // admits both rigid equipment and skins; root admission, rather than the
+    // skin pointer, owns that presentation family.
     let skinned = !unsafe { read::<*mut u8>(geometry, NativeLayout::NI_GEOMETRY_SKIN) }.is_null();
     if !context.subset.admits(skinned) {
         return Ok(());
@@ -856,11 +863,11 @@ unsafe fn draw_geometry(
     }
     if let Some(radius) = context.cube_radius {
         geometry_data[2] = radius;
-        // Dynamic point-cube draws sample the immutable static cube in s1 and
-        // publish the nearer static-or-animated radial depth. The D3D depth
-        // surface covers only the animated pass, so this shader merge is what
-        // prevents an actor behind a wall from replacing the wall.
-        geometry_data[3] = if context.subset == CasterSubset::Dynamic {
+        // A retained-projection actor pass samples the immutable static cube
+        // in s1 and publishes the nearer radial depth. A direct moved-source
+        // rebuild instead shares hardware depth with its preceding static
+        // pass and must not sample the old backing cube.
+        geometry_data[3] = if context.subset.merges_static_depth() {
             1.0
         } else {
             0.0
@@ -1693,11 +1700,13 @@ mod tests {
     use crate::effects::shadows::engine::NativeLayout;
 
     #[test]
-    fn point_static_and_dynamic_caster_subsets_are_disjoint_and_complete() {
+    fn point_actor_subsets_cover_rigid_equipment_and_skinned_geometry() {
         assert!(CasterSubset::Static.admits(false));
         assert!(!CasterSubset::Static.admits(true));
-        assert!(!CasterSubset::Dynamic.admits(false));
-        assert!(CasterSubset::Dynamic.admits(true));
+        assert!(CasterSubset::DynamicMerge.admits(false));
+        assert!(CasterSubset::DynamicMerge.admits(true));
+        assert!(CasterSubset::DynamicDirect.admits(false));
+        assert!(CasterSubset::DynamicDirect.admits(true));
         assert!(CasterSubset::All.admits(false));
         assert!(CasterSubset::All.admits(true));
     }

@@ -1,15 +1,18 @@
 # OMV graphics rules
 
-These are only the OMV-specific deltas to the repository root rules; all root
-acceptance, testing, commit, research, documentation, code-quality, safety, and
-performance rules remain inherited. For graphics work, visual quality and
-performance are independent release gates.
+OMV inherits all root rules; these are subtree deltas. Graphics quality and
+performance are separate release gates.
 
-For permitted HLSL validation, the ambient-occlusion suite in
-`src/effects/ambient_occlusion.rs` is the minimum pattern for shader
-compilation, bytecode inspection, deterministic reference rendering,
-regression power, and static work budgets. Reuse its shader-test
-infrastructure; never weaken or bypass it to land a change.
+The root OMV no-game-runtime exception applies to every section below. Agents
+must use offline executable behavioral tests and direct static evidence, not a
+game run. Gameplay validation belongs exclusively to the repository owner and
+is never an agent gate. OMV still permits no guessing: a synthetic scene or
+reconstructed shader cannot evidence a reported path without direct proof that
+it is exact.
+
+For permitted HLSL tests, the `src/effects/ambient_occlusion.rs` suite is the
+minimum pattern for compilation, bytecode, deterministic rendering, regression
+power, and work budgets. Never weaken or bypass it.
 
 ## BaseObjectSwapper-sensitive startup contract
 
@@ -52,28 +55,31 @@ policy. BaseObjectSwapper is an observed fault site, not a patch target or
 proof of attribution.
 
 Run applicable existing checks, the OMV suite, and the release build. Static
-success cannot establish startup safety; require the user's normal
-BaseObjectSwapper load-to-gameplay approval. Record only durable accepted
+success cannot establish startup safety. Report startup behavior as not run
+unless the owner voluntarily provides a gameplay result; do not require or
+request a BaseObjectSwapper load-to-gameplay test. Record only durable accepted
 conclusions, never hashes or routine artifact inventories.
 
 ## Effect contract
 
-Before implementation, define the applicable production contract and its
-behavioral acceptance evidence. New automated tests may cover only shipped
-HLSL behavior:
+Before implementation, prove the applicable production contract and establish
+the exact behavioral acceptance test. Repository-local automated graphics
+tests may cover shipped HLSL behavior:
 
 - native/effect phase, ordering, ownership, and unavailable-input fallback;
-- all resource inputs/outputs, formats, dimensions, MSAA, color/depth meaning,
-  ranges, sampling, and invalid values;
+- resource I/O, formats, dimensions, MSAA, color/depth meaning, ranges,
+  sampling, and invalid values;
 - shader variant/ABI plus viewport, scissor, topology, half-pixel, and
   cross-resolution mapping;
 - allocation/reset/history lifecycle and disabled-path cost.
 
-Resolve unknown engine facts through the root research route. A plausible frame
-is not proof. Update the owning durable feature document with material native
+Resolve unknown engine facts through the root research route. An unproven frame
+is not an implementation target. Update the owning durable feature document with material native
 phase, resource, ownership, ABI, quality, and performance contracts.
 
-Third-party graphics source under `.research/` is reference-only. OMV fixes must be OMV-side, capability-based, mod-agnostic, and safe if future dependency versions change or already correct the behavior.
+Third-party graphics source under `.research/` is reference-only. OMV fixes
+remain OMV-side, capability-based, mod-agnostic, and safe across dependency
+versions.
 
 ## D3D9 ownership
 
@@ -98,26 +104,25 @@ boundary or complete engine evidence; do not add a mocked Rust/native test.
 
 ## Static quality validation
 
-Every new HLSL effect or material shader change needs a deterministic CPU
-reference renderer or equivalently strong offline image test modeling the
-relevant production sampling, reconstruction, filtering, temporal, and
-composition math. Such a test is permitted only because it directly targets
-shipped HLSL behavior. String or source-text checks are prohibited.
+Every HLSL effect or material change needs a deterministic reference
+oracle and an offline image test executing the relevant shipped shader path,
+sampling, reconstruction, filtering, temporal behavior, and composition math.
+It is behavioral only when direct evidence proves those inputs and stages are
+the reported production path. String or source-text checks are prohibited.
 
-Cover applicable disabled/constant/flat/background cases; gradients, grazing
-planes, thin features, occluders and discontinuities; borders, odd/even sizes,
-fullscreen seams and resolution mapping; near/far, standard/reversed,
-clear/invalid and accepted quantization; subpixel motion; first/stale/cut/reset
-history; and interacting families with sky, fog, water, first person, UI, and
-masks. Prove finite bounded output, clean excluded regions, local correctly
-signed signal, preserved edges, and stable motion/history. Reject fills,
-seams, bands, lines, points, speckles, crawl, flicker, pop, and ghosting.
+Cover boundary cases relevant to the proven report: disabled/flat/background,
+gradients/grazing/thin/occluders, borders/resolution/depth, motion/history, and
+interacting passes. Reject nonfinite output, lost edges, fills, seams, flicker,
+pops, and ghosts.
 
-For each reported HLSL bug, keep a practical shader regression that reproduces
-its artifact class and show that it fails against the buggy shader or a minimal
-negative control. For native integration, hook, camera, configuration, or
-effect-ownership bugs, do not add a source-code test; require exact behavioral
-reproduction or complete correctness evidence plus strict user approval.
+For each reported HLSL bug, run a practical offline regression through the
+proven production shader path with the affected inputs and oracle, and show
+that the unchanged buggy shader fails it before editing. Reproducing only an
+artifact class or a minimal negative control is insufficient. For native
+integration, hook, camera, configuration, or effect-ownership behavior that
+cannot execute outside the game, derive the requirement from the owner's
+report and prove every implementation decision from direct source, binary, and
+engine evidence. Do not create a substitute mocked test.
 
 For user-accepted HLSL effects, preserve representative golden buffers and/or
 structural metrics. Prefer robust properties and tight tolerances over fragile
@@ -135,14 +140,19 @@ Budget compiled bytecode, not HLSL line count. Budget Fast, Contact, Combined, a
 
 Render callbacks must not compile shaders, perform file I/O, allocate routinely, log per draw/pixel, or block. Precompute constants, cache variants, reuse resources, and use `try_lock`. Exit unavailable-input and zero-strength paths before expensive setup.
 
-Static counts prove bounded work, not FPS. Do not claim runtime gains without runtime evidence, and do not make the user perform diagnostic gameplay. A normal playtest is final acceptance after static gates pass.
+Static counts prove bounded work, not FPS. Establish a fail-first deterministic
+work-budget or executable benchmark for each affected cost that can be tested
+offline. A game-only performance report from the owner defines the remaining
+requirement but is not an agent gate. Claim only the measured offline cost
+change; do not claim an FPS or gameplay-performance gain without owner-supplied
+runtime evidence.
 
 ## Change sequence
 
 1. Read applicable errata and current evidence; identify accepted behavior and budgets.
-2. Define objective behavioral acceptance. Add a failing regression or negative control only for shipped HLSL behavior.
-3. Prove missing engine, resource, phase, and lifetime facts.
+2. Define the owner's reported game-only requirement and run each applicable offline behavioral test against the unchanged code; require a fail-first result wherever the shipped path can execute offline.
+3. Prove the failing shader/engine, resource, phase, and lifetime path from direct evidence without proxies or assumptions.
 4. Make the smallest complete engine-and-shader change; avoid unrelated visual changes.
-5. For HLSL changes, run focused variant compilation, bytecode, reference-image, temporal, and budget tests. For non-HLSL changes, do not create substitute mocked tests.
+5. Run the identical offline behavioral test. Then run HLSL variant compilation, bytecode, image, temporal, and budget support checks as applicable; never create a substitute mocked test.
 6. Run `cargo test --target i686-pc-windows-gnu -p omv`, then `cargo build --release --target i686-pc-windows-gnu -p omv` once.
-7. Inspect the diff and keep the result explicitly unreleased until the exact behavioral gate passes or the user strictly approves complete evidence.
+7. Inspect the diff, report offline qualification, and state which game-only behavior was not run. Gameplay validation occurs only if the owner independently chooses it.

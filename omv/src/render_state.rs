@@ -12,7 +12,8 @@
 //! corruption.
 
 use libpsycho::os::windows::directx9::{
-    D3DTEXF_NONE, Device9Ref, Direct3DResult, StateBlock9, Surface9, Texture9, direct3d_failure,
+    D3DTEXF_NONE, Device9Ref, Direct3DResult, RECT, StateBlock9, Surface9, Texture9,
+    direct3d_failure,
 };
 
 const MAX_D3D9_RENDER_TARGETS: u32 = 4;
@@ -215,6 +216,21 @@ pub(crate) fn copy_exact_color_surface(
     crate::graphics_diagnostics::add(crate::graphics_diagnostics::Counter::ColorCopy, 1);
     let _span = crate::graphics_diagnostics::span(crate::graphics_diagnostics::Interval::ColorCopy);
     device.stretch_rect(source, None, destination, None, D3DTEXF_NONE)
+}
+
+/// Copy one equal-coordinate color region without filtering or conversion.
+///
+/// `region` applies to both surfaces, whose dimensions and format must match.
+/// Callers must have removed every sampler alias of `destination`.
+pub(crate) fn copy_exact_color_surface_region(
+    device: &Device9Ref<'_>,
+    source: &Surface9,
+    destination: &Surface9,
+    region: Option<&RECT>,
+) -> Direct3DResult<()> {
+    crate::graphics_diagnostics::add(crate::graphics_diagnostics::Counter::ColorCopy, 1);
+    let _span = crate::graphics_diagnostics::span(crate::graphics_diagnostics::Interval::ColorCopy);
+    device.stretch_rect(source, region, destination, region, D3DTEXF_NONE)
 }
 
 fn restore_target(

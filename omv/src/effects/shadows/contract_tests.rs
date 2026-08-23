@@ -14,16 +14,15 @@ use super::contract::{
     directional_form_type_is_enabled, directional_receiver_position, directional_root_set_dirty,
     dismember_partition_is_renderable, effective_contact_distance, evsm4_moments, evsm4_visibility,
     exterior_point_shadow_radiance, interior_shadow_factor, local_light_clear_coverage,
-    local_light_shadow_energy, local_light_shadow_weight, local_light_source_guard,
-    manager_light_chain_is_complete, nvr_contact_sample_offsets, point_caster_depth,
-    point_caster_inventory_is_complete, point_consumer_plan, point_light_distance_fade,
-    point_light_influence_is_eligible, point_light_radii, point_only_shadow_radiance,
-    point_shadow_presentation_weight, point_shadow_transition, point_shadow_visibility,
-    practical_cascade_splits, publication_epoch_is_usable, publication_identity_is_usable,
-    retained_cascade_refresh, select_point_lights, select_point_lights_stable,
-    shadow_receiver_is_valid, skinned_position_reference, snap_shadow_center,
-    source_owned_shadow_radiance, sphere_intersects_cube_face, sphere_intersects_point_light,
-    terrain_lod_shadow_z,
+    local_light_shadow_energy, local_light_shadow_weight, manager_light_chain_is_complete,
+    nvr_contact_sample_offsets, point_caster_depth, point_caster_inventory_is_complete,
+    point_consumer_plan, point_light_distance_fade, point_light_influence_is_eligible,
+    point_light_radii, point_only_shadow_radiance, point_shadow_presentation_weight,
+    point_shadow_transition, point_shadow_visibility, practical_cascade_splits,
+    publication_epoch_is_usable, publication_identity_is_usable, retained_cascade_refresh,
+    select_point_lights, select_point_lights_stable, shadow_receiver_is_valid,
+    skinned_position_reference, snap_shadow_center, source_owned_shadow_radiance,
+    sphere_intersects_cube_face, sphere_intersects_point_light, terrain_lod_shadow_z,
 };
 use super::engine::{
     EngineCallAbi, FNV_EXE_SHA256, GeometryKind, HookSiteContract, NativeLayout,
@@ -1555,8 +1554,14 @@ fn point_cube_cache_pairs_metadata_and_refreshes_only_changed_lights() {
     let retained = periodic
         .next
         .plan(sub_threshold, dynamic_faces, NVR_POINT_LIGHT_COUNT);
-    assert_eq!(retained.render_faces[4], 0);
-    assert_eq!(retained.published[4], current[4]);
+    assert_eq!(
+        retained.render_faces[4], 0x3f,
+        "any source movement must rebuild one coherent current-origin cube"
+    );
+    assert_eq!(
+        retained.published[4], sub_threshold[4],
+        "the current source was paired with a retained older map origin"
+    );
 
     let mut moved = sub_threshold;
     moved[4].position[0] += 0.25;
@@ -1564,7 +1569,8 @@ fn point_cube_cache_pairs_metadata_and_refreshes_only_changed_lights() {
         .next
         .plan(moved, dynamic_faces, NVR_POINT_LIGHT_COUNT);
     assert_eq!(refreshed.render_faces[4], 0x3f);
-    assert_eq!(refreshed.static_faces[4], 0x3f);
+    assert_eq!(refreshed.static_faces[4], 0);
+    assert_eq!(refreshed.direct_faces[4], 0x3f);
     assert_eq!(refreshed.published[4], moved[4]);
 
     dynamic_faces[2] = 1 << 4;
@@ -1607,6 +1613,42 @@ fn point_cube_cache_pairs_metadata_and_refreshes_only_changed_lights() {
         departed.dynamic_draw_faces[2], 0,
         "an abandoned face must receive the static copy but no actor submission"
     );
+}
+
+#[test]
+fn moving_point_source_does_not_copy_an_old_static_projection() {
+    let mut signatures = [PointMapSignature::EMPTY; NVR_POINT_LIGHT_COUNT];
+    signatures[0] = PointMapSignature {
+        identity: 0x1234,
+        position: [0.0; 3],
+        radius: 512.0,
+        caster_signature: 1,
+    };
+    let initial = PointMapCache::default().plan(signatures, [0; NVR_POINT_LIGHT_COUNT], 1);
+    signatures[0].position[0] = 0.375;
+    let moved = initial.next.plan(signatures, [0; NVR_POINT_LIGHT_COUNT], 1);
+    assert_eq!(moved.render_faces[0], 0x3f);
+    for face in 0..6 {
+        assert_eq!(
+            moved.face_operations(0, face),
+            [Some(PointFaceOperation::RebuildPublished), None, None]
+        );
+    }
+
+    let static_copies = (0..6)
+        .flat_map(|face| moved.face_operations(0, face))
+        .flatten()
+        .filter(|operation| *operation == PointFaceOperation::PublishStatic)
+        .count();
+    assert_eq!(
+        static_copies, 0,
+        "a moving source copied six faces generated from an older projection"
+    );
+
+    signatures[0].position[0] = 0.0;
+    let returned = moved.next.plan(signatures, [0; NVR_POINT_LIGHT_COUNT], 1);
+    assert_eq!(returned.direct_faces[0], 0x3f);
+    assert_eq!(returned.published[0], signatures[0]);
 }
 
 #[test]
@@ -1731,8 +1773,46 @@ fn point_cube_cache_localizes_static_changes_only_with_an_exact_projection() {
         1,
     );
     assert_eq!(
-        moved_projection.static_faces[0], 0x3f,
-        "partial static refresh mixed two point-light projections in one cube"
+        moved_projection.direct_faces[0], 0x3f,
+        "source movement did not rebuild the complete current projection"
+    );
+    assert_eq!(moved_projection.static_faces[0], 0);
+}
+
+#[test]
+fn unchanged_static_root_set_reuses_retained_per_light_signatures() {
+    let mut signatures = [PointMapSignature::EMPTY; NVR_POINT_LIGHT_COUNT];
+    signatures[0] = PointMapSignature {
+        identity: 0x1234,
+        position: [0.0; 3],
+        radius: 512.0,
+        caster_signature: 0xAABB,
+    };
+    let mut faces = [[0_u64; 6]; NVR_POINT_LIGHT_COUNT];
+    faces[0] = [10, 20, 30, 40, 50, 60];
+    let initial = PointMapCache::default().plan_with_static_faces(
+        PointStaticFaceCache::default(),
+        signatures,
+        faces,
+        [0; NVR_POINT_LIGHT_COUNT],
+        1,
+    );
+
+    let mut current = signatures[0];
+    current.caster_signature = 0;
+    assert_eq!(
+        initial
+            .next
+            .retained_static_signatures(initial.next_static_faces, current),
+        Some((0xAABB, faces[0]))
+    );
+    current.position[0] += 0.30;
+    assert_eq!(
+        initial
+            .next
+            .retained_static_signatures(initial.next_static_faces, current),
+        None,
+        "a projection-changed light skipped the regional static-root scan"
     );
 }
 
@@ -1849,13 +1929,17 @@ fn contact_ray_uses_nvrs_cumulative_depth_comparison_positions() {
 }
 
 #[test]
-fn local_light_source_geometry_is_never_subtracted_to_black() {
-    assert_eq!(local_light_source_guard(0.0), Some(0.0));
-    assert_eq!(local_light_source_guard(0.02), Some(0.0));
-    assert_eq!(local_light_source_guard(0.08), Some(1.0));
-    let transition = local_light_source_guard(0.05).expect("finite guard");
-    assert!(transition > 0.0 && transition < 1.0);
-    assert!(local_light_source_guard(f32::NAN).is_none());
+fn nearby_opaque_lamp_cage_retains_cube_proven_occlusion() {
+    assert_eq!(
+        local_light_shadow_weight(0.0, 1.0),
+        Some(0.0),
+        "the singular light-origin ray became subtractable shadow energy"
+    );
+    let weight = local_light_shadow_weight(0.01, 1.0).expect("finite nearby receiver");
+    assert!(
+        weight > 0.99,
+        "a radius-wide source guard suppressed the valid cage shadow: {weight}"
+    );
 }
 
 #[test]

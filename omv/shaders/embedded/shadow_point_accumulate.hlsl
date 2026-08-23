@@ -94,12 +94,6 @@ float3 WorldNormal(float3 viewNormal) {
     return normal * rsqrt(max(dot(normal, normal), 0.0000001f));
 }
 
-float SourceGuard(float normalizedDistance) {
-    // The emitting mesh is not direct irradiance owned by this pass. The
-    // fade also rejects unreliable radial depths immediately around a source.
-    return smoothstep(0.02f, 0.08f, normalizedDistance);
-}
-
 struct LightEnergy {
     float3 total;
     float3 deficit;
@@ -152,8 +146,12 @@ LightEnergy EvaluateLight(
     float outerEnvelope = 1.0f - smoothstep(0.8f, 1.0f, normalizedReceiverDistance);
     // These presentation weights belong only to subtractable occluded energy.
     // Applying them to `total` as well makes deficit/total cancel every fade.
-    float shadowWeight = SourceGuard(normalizedReceiverDistance) * outerEnvelope
-        * lightMetadata.y;
+    // The radial depth bias already keeps a generating surface from
+    // self-shadowing, and final composition independently preserves HDR
+    // emission. A radius-wide source guard also suppresses nearby opaque
+    // fixtures, so it made lamp-cage shadows pulse as the flame moved.
+    float validReceiverRay = normalizedReceiverDistance > 0.000001f;
+    float shadowWeight = validReceiverRay * outerEnvelope * lightMetadata.y;
     float3 deficit = contribution * (1.0f - shadowVisibility) * shadowWeight;
     LightEnergy result;
     result.total = contribution;

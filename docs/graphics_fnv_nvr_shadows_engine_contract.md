@@ -5991,11 +5991,13 @@ bind, or sample point targets for an empty local branch.
 
 The fixed-capacity `PointConsumerPlan` remains the single production schedule.
 `ShadowConsumerWorkMetrics` derives draw and fragment counts from that exact
-plan: point-only work is one scissored accumulation per scheduled batch plus
-one full-screen compositor; experimental directional contact adds one
-full-resolution generation pass. The obsolete three-half-resolution-pass
-formula is gone. `empty_interior_publication_performs_no_depth_or_color_transaction`
-provides the offscreen negative control, while
+plan: point-only work uses the current receiver-coverage union for both source
+copy/composition and one scissored accumulation per scheduled batch;
+directional composition remains full-resolution, and experimental directional
+contact adds one full-resolution generation pass. The obsolete
+three-half-resolution-pass formula is gone.
+`empty_interior_publication_performs_no_depth_or_color_transaction` provides
+the offscreen negative control, while
 `ultrawide_point_shadow_work_matches_the_production_consumer_transcript` locks
 the current pass topology without presenting fragment counts as measured GPU
 time.
@@ -6835,29 +6837,31 @@ tests and doc tests and the supported optimized OMV build. Static closure
 proves the bounded provenance and existing shader/resource contracts, not
 visible shadow continuity on the installed mod list.
 
-### Point-selection lease (2026-08-19)
+### Rejected point-selection lease (2026-08-19; superseded 2026-08-21)
 
 The ten-percent nearest-boundary preference prevented tiny distance changes
 from replacing a retained point light, but it did not stop repeated exchanges
-among several similarly ranked sources in an over-budget room. Point-shadow
-selection now gives the current valid identities a two-second membership
-lease. During that interval they retain the configured cube slots regardless
-of relative distance; a source that disappears or fails normal eligibility is
-removed immediately. Expiry performs a fresh nearest selection with the
-existing bounded hysteresis, records that result as the next lease, and keeps
-the established physical-slot transition fade for actual replacements. A cell
-change, pipeline release, or device reset invalidates the lease.
+among several similarly ranked sources in an over-budget room. The 2026-08-19
+revision added a two-second membership lease to the complete selected set.
+During the lease, valid retained identities scored as distance zero; at the
+single shared expiry boundary every source returned to nearest selection with
+the existing bounded hysteresis. A source that disappeared or failed normal
+eligibility was still removed immediately.
 
-The point-shadow maximum remains twelve. The one-pass compositor has one scene
-depth sampler plus twelve cube samplers under the `ps_3_0` sixteen-sampler
-limit, and Ultra already costs about 580 MiB for a full twelve-light family.
-The stability fix adds only fixed scalar identities and timestamps to the boxed
-post-Deferred pipeline; it adds no resource, pass, draw, shader sample, native
-pointer retention, or loader-visible owner. Static selection checks cannot
-prove the reported gameplay continuity. Acceptance requires a lamp-filled room
-above the configured limit, a stationary and slowly moving camera across
-multiple lease expiries, cell changes, Pip-Boy use, and device reset with no
-frame-to-frame source churn or stuck shadow.
+The lease is not the current contract. The owner's later crowded-interior lamp
+report identified periodic loss of moving flame/cage shadows, while source
+history showed that every retained light shared the same lease start and
+expiry. Expiry could therefore replace a group of complete six-face cubes in
+one transaction and start their presentation transitions together. The
+2026-08-21 correction below removes the timer and retains only continuous,
+bounded ten-percent distance hysteresis.
+
+At that revision, the point-shadow maximum remained twelve. The one-pass
+compositor had one scene-depth sampler plus twelve cube samplers under the
+`ps_3_0` sixteen-sampler limit, and Ultra cost about 580 MiB for a full
+twelve-light family. The stability change added only fixed scalar identities
+and timestamps to the boxed post-Deferred pipeline; it added no resource,
+pass, draw, shader sample, native pointer retention, or loader-visible owner.
 
 ### Sixteen-light batching and crowded-actor cost correction (2026-08-19)
 
@@ -6903,9 +6907,156 @@ without reducing caster or face coverage.
 The GPU regressions prove the sixteen-light and batched-volumetric shader
 results. The root-bound optimization is independently checkable from enclosing
 bound geometry and the unchanged conservative fallback, but FPS is not inferred
-from it. Runtime acceptance still requires the reported interior and exterior
-frame-rate comparison at the same quality/count, plus continuity across lease
-expiry, camera motion, the Pip-Boy, cell changes, and device reset.
+from it. Under the repository's OMV no-game-runtime exception, these results
+remain offline qualifications; gameplay comparison is performed only if the
+repository owner independently chooses it.
+
+### First lamp correction (2026-08-21; root-cause attribution superseded)
+
+The owner reported that oil-lamp flame shadows previously moved smoothly across
+the metal cage, but the current revision instead blinked, especially when many
+lamps occupied a small interior. The report also identified strong local-shadow
+cost and stated that early shadow revisions did not exhibit the lamp failure.
+No Lumen implementation was inspected or changed: the corrected boundaries are
+entirely inside OMV's mod-agnostic point-shadow producer and consumer.
+
+The first investigation found four independent defects, but the owner later
+identified a stale shadow overlapping the moving lamp as the reported blinking
+mechanism. The source guard, selection, root-scan, and resource-growth changes
+below remain separately qualified corrections; they are not the final root
+cause of that overlap. The exact projection fault and its correction follow in
+the next section.
+
+The first investigation found these four regressions:
+
+1. The two-second selection lease above had one timestamp for the complete
+   selected set. Every expiry could exchange multiple physical cube owners and
+   begin their six-face rebuilds and transition fades in the same frame.
+2. `shadow_point_accumulate.hlsl` multiplied cube-proven deficit by a generic
+   source guard which was zero through two percent of light radius and faded to
+   full only at eight percent. That distance cannot distinguish the emitting
+   flame mesh from a nearby opaque cage. The unchanged shader failed the
+   shipped-HLSL D3D9 regression with zero deficit and `15.940841` total energy
+   for a valid near-light occluder. The compositor already preserves HDR source
+   radiance independently, and radial cube comparison already owns receiver
+   bias. Modern NVR's authoritative point comparison and OMV's shipped
+   configuration both use a `0.018` distance-scaled bias, so changing that
+   proven default is not part of the correction.
+3. A retained room scanned the complete copied root list independently for
+   every selected light merely to rediscover unchanged static signatures. At
+   the fixed 32,768-root and sixteen-light bounds that admitted 524,288
+   root/light predicate visits before actor classification or rendering.
+4. Increasing selected count at the same quality created a complete replacement
+   point-resource family, discarded every cached face, and reset publication.
+   Existing and replacement cube families also overlapped until the successful
+   assignment, producing avoidable peak allocation in a crowded room.
+
+Selection now applies the existing ten-percent distance advantage continuously
+to each retained valid identity. A materially nearer source can replace one
+slot immediately; there is no group timer or synchronized expiry. The retained
+field remains the same-width scalar but records the configured light limit, so
+the pre-Deferred `ShadowPipeline` owner layout does not grow. A cell or limit
+change performs a fresh nearest selection.
+
+Point accumulation now rejects only the singular zero-length receiver ray.
+Every other valid receiver may retain cube-proven occlusion through the
+existing outer-radius and discovery fades. The identical D3D9 regression now
+retains more than ninety percent deficit relative to its analytic energy, and
+the scalar production oracle separately covers the exact-origin exclusion.
+Removing the broad guard also removes one `smoothstep` from every evaluated
+point light without adding a texture operation or pass.
+
+At that revision, static invalidation hashed the complete immutable root set
+once per point transaction. When that identity, cell, native light, radius, and
+bounded light position matched the retained publication, the already paired
+cube and six face-local signatures were reused. New or materially moved lights
+and any root set change kept the complete regional scan and conservative face
+invalidation.
+The stable sixteen-light bound therefore falls from 524,288 to 32,768 root
+visits, a 93.75-percent reduction in this planning component; this is an exact
+work bound, not an FPS claim.
+
+Same-resolution point capacity now grows transactionally by constructing only
+the missing cube owners and face interfaces in temporary vectors, then
+appending them to pre-reserved fixed-capacity arrays. Existing cube and face
+COM identities, depth contents, static signatures, and publication remain
+owned. A quality/resolution change still creates a complete transactional
+replacement because its maps are incompatible. The D3D9 resource regression
+confirms that one-to-two growth preserves both existing face identities and a
+seeded `R32F` depth value while exposing all faces of the new slot.
+
+Offline qualification executes the shipped compiled point shader, real D3D9
+cube resources and readback, production cache/signature code, every shadow
+shader variant and budget, the supported-target OMV suite, and the optimized
+OMV build. Fallout New Vegas gameplay, image continuity, and FPS are not run by
+agents under the repository exception; the owner alone decides whether to
+perform any gameplay validation.
+
+### Stale point-projection overlap and moving-lamp cost correction (2026-08-21)
+
+The owner's closer observation superseded the first blink diagnosis: one old
+shadow remained across the lantern, partly hidden by its geometry, while the
+native animated light moved. Static source history confirms the mechanism.
+Commit `dcbea04` introduced a 0.25-world-unit point-position reuse radius. The
+committed planner accepted every position inside that sphere as the retained
+projection and continued publishing the retained map position. When actor
+coverage dirtied a face, `PublishStatic` copied backing depth generated from
+the retained source before `MergeAnimated` submitted actor geometry with the
+current source and current cube view. That face could therefore contain depths
+from two ray origins. With no dynamic dirtiness, the complete old cube and old
+published position remained while Fallout's native light continued animating.
+An oscillating flame that never left the retained 0.25-unit sphere could keep
+that displaced shadow indefinitely. The result is the reported overlap whose
+visible portion changes sharply as the animated light and cage move.
+
+The first native-shadow implementation at `46c9d0b` had no point-map cache. It
+cleared and rebuilt all six faces of every selected interior light in each
+producer transaction, so it could not retain a prior light projection. That
+history agrees with the owner's observation that the early implementation did
+not blink this way. The later tolerance reduced work by weakening the
+map/source coherence invariant, not by safely reusing one projection.
+
+The current invariant is exact: native light identity, finite position bits,
+and finite radius bits define one cube projection. Any change rebuilds all six
+sampled faces from the current source. The new `RebuildPublished` operation
+clears each sampled face once, submits current immutable roots, then submits
+current actor-owned rigid and skinned geometry against the same hardware depth
+surface. It never restores or samples the old static cube. The previous static
+backing stays invalid until a later stationary transaction recreates it, so a
+failed or interrupted move cannot be mistaken for reusable depth. If any point
+texture write is followed by a producer, `EndScene`, attachment, or state
+restore failure, the complete point cache and backing-face validity are also
+discarded before another publication is admitted.
+
+Exact coherence makes six current face rasters unavoidable when a source
+moves, but it removes the six full-face R32F `PublishStatic` copies formerly
+attached to a complete refresh. At High that avoids 6 MiB of logical copy
+traffic per moving light transaction; at Ultra it avoids 24 MiB. A
+post-Deferred, preallocated root-aligned mask stores one face byte per selected
+light (at most 512 KiB for 32,768 roots and sixteen lights). Each root/light
+pair is classified once, and each face traversal visits only roots whose
+conservative sphere touches that finite light and face. Stable exact
+projections still reuse the scene-wide root signature and retained face
+signatures without repeating the regional scan.
+
+Point-only consumer work now uses the union of current receiver scissors for
+both equal-coordinate source copying and final composition. Directional frames
+remain full-screen because their cascades may affect every receiver. The real
+D3D9 regression seeds distinct source and destination values, copies a 2-by-2
+region of a 4-by-4 target, and proves that all twelve outside pixels remain
+unchanged. This removes full-screen copy and compositor fragments from small
+interior lights without changing their sampled coordinates or image result.
+
+Fail-first cache tests recorded the committed fault before production changes:
+a 0.125-unit move scheduled no face work and retained the old publication, and
+a moving source scheduled six old-static publication copies. The corrected
+tests require all six current faces, exact current metadata, zero old-static
+copies, and the same behavior when the source moves back inside the former
+tolerance. Face-mask ownership is checked against the production signature
+calculation, and the shipped-target D3D test covers the regional source copy.
+These are offline behavior and static-history results only. They do not claim
+Fallout image continuity or FPS; gameplay validation remains solely the
+owner's decision.
 
 ## Primary evidence index
 

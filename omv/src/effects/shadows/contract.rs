@@ -34,10 +34,6 @@ const COMPLETE_CASCADE_MASK: u8 = (1 << CASCADE_COUNT) - 1;
 const NVR_CASCADE_MIN_RADIUS_PIXELS: [f32; CASCADE_COUNT] = [1.0, 1.0, 10.0, 10.0];
 const EVSM4_POSITIVE_EXPONENT_FP16: f32 = 5.54;
 const EVSM4_NEGATIVE_EXPONENT: f32 = 5.0;
-// A retained cube and its published light position are one transform pair.
-// Sub-unit tolerance absorbs floating-point noise without allowing a carried
-// Pip-Boy light to trail the player for several visible world units.
-const POINT_POSITION_REFRESH_DISTANCE: f32 = 0.25;
 /// Fixed linear-depth range represented by contact G16 values.
 ///
 /// This covers the complete schema-one contact slider rather than the current
@@ -1048,27 +1044,13 @@ pub(super) const fn nvr_contact_sample_offsets() -> [f32; 4] {
     [1.0, 3.0, 6.0, 10.0]
 }
 
-/// Suppress estimated direct-light subtraction on the emitting source.
-///
-/// Cube depth and reconstructed normals are least reliable at the light
-/// origin. More importantly, the source's emissive appearance is not direct
-/// irradiance that this post-process owns. The guard reaches full strength
-/// outside eight percent of the selected light radius.
-pub(super) fn local_light_source_guard(normalized_distance: f32) -> Option<f32> {
-    if !normalized_distance.is_finite() || normalized_distance < 0.0 {
-        return None;
-    }
-    let t = ((normalized_distance - 0.02) / 0.06).clamp(0.0, 1.0);
-    Some(t * t * (3.0 - 2.0 * t))
-}
-
 /// Weight point-shadow subtraction without changing analytic light energy.
 ///
-/// The compositor divides occluded energy by total local-light energy. Source,
-/// discovery, and influence-edge fades therefore belong only to the occluded
-/// numerator; multiplying the denominator by the same value cancels the fade
-/// and recreates a hard shadow boundary. The outer envelope starts at 80% of
-/// the native receiver radius and reaches zero at its exact edge.
+/// The compositor divides occluded energy by total local-light energy. Exact
+/// origin rejection, discovery, and influence-edge fades therefore belong only
+/// to the occluded numerator; multiplying the denominator by the same value
+/// cancels the fade and recreates a hard shadow boundary. The outer envelope
+/// starts at 80% of the native receiver radius and reaches zero at its edge.
 pub(super) fn local_light_shadow_weight(
     normalized_receiver_distance: f32,
     discovery_weight: f32,
@@ -1080,9 +1062,12 @@ pub(super) fn local_light_shadow_weight(
     {
         return None;
     }
+    if normalized_receiver_distance <= 1.0e-6 {
+        return Some(0.0);
+    }
     let edge = ((1.0 - normalized_receiver_distance) / 0.2).clamp(0.0, 1.0);
     let edge = edge * edge * (3.0 - 2.0 * edge);
-    Some(local_light_source_guard(normalized_receiver_distance)? * edge * discovery_weight)
+    Some(edge * discovery_weight)
 }
 
 /// Model the point accumulator's energy ownership for one scalar channel.
@@ -1440,7 +1425,11 @@ impl ShadowConsumerWorkPlan {
             } else {
                 0
             },
-            composite_fragments: pixels,
+            composite_fragments: if self.directional {
+                pixels
+            } else {
+                self.points.coverage().map_or(0, LightScissorRect::pixels)
+            },
         }
     }
 }
@@ -2308,29 +2297,23 @@ impl PointMapSignature {
         caster_signature: 0,
     };
 
-    fn spatially_matches(self, current: Self) -> bool {
+    fn projection_matches(self, current: Self) -> bool {
         if self.identity == 0
             || self.identity != current.identity
             || !self.position.into_iter().all(f32::is_finite)
             || !current.position.into_iter().all(f32::is_finite)
             || !self.radius.is_finite()
             || !current.radius.is_finite()
-            || (self.radius - current.radius).abs() > 0.01
-            || current.caster_signature == u64::MAX
         {
             return false;
         }
-        let movement_squared = (0..3)
-            .map(|axis| {
-                let delta = self.position[axis] - current.position[axis];
-                delta * delta
-            })
-            .sum::<f32>();
-        movement_squared < POINT_POSITION_REFRESH_DISTANCE * POINT_POSITION_REFRESH_DISTANCE
+        self.has_exact_projection(current)
     }
 
     fn materially_matches(self, current: Self) -> bool {
-        self.spatially_matches(current) && self.caster_signature == current.caster_signature
+        self.projection_matches(current)
+            && current.caster_signature != u64::MAX
+            && self.caster_signature == current.caster_signature
     }
 
     fn has_exact_projection(self, current: Self) -> bool {
@@ -2393,6 +2376,8 @@ pub(super) struct PointMapPlan<const N: usize> {
     pub(super) render_faces: [u8; N],
     /// Faces whose immutable geometry is resubmitted.
     pub(super) static_faces: [u8; N],
+    /// Faces rebuilt directly in the sampled cube from one current projection.
+    pub(super) direct_faces: [u8; N],
     /// Faces receiving current animated geometry after static restoration.
     pub(super) dynamic_draw_faces: [u8; N],
     /// Map-paired values safe for the consumer to sample.
@@ -2407,12 +2392,14 @@ pub(super) struct PointMapPlan<const N: usize> {
 
 /// One ordered operation required to publish a point-cube face.
 ///
-/// `PublishStatic` is mandatory for every dirty face, including animated
-/// refreshes and a departed actor's former face. That explicit operation is
-/// what prevents an optimization from replacing the complete shadow map with
-/// an empty, animated-only target while preserving all of its GPU cost.
+/// A retained-projection dirty face restores immutable depth before merging
+/// presentation geometry. A moved projection instead rebuilds both subsets
+/// directly in the sampled cube, because copying the old static face would
+/// publish a current light beside stale shadow depth.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) enum PointFaceOperation {
+    /// Rebuild the sampled face directly from current static and animated casters.
+    RebuildPublished,
     /// Rebuild the retained immutable face before publication.
     RefreshStatic,
     /// Seed the sampled face with the retained immutable depth.
@@ -2449,6 +2436,9 @@ impl<const N: usize> PointMapPlan<N> {
         if render_faces & mask == 0 {
             return [None; 3];
         }
+        if self.direct_faces[slot] & mask != 0 {
+            return [Some(PointFaceOperation::RebuildPublished), None, None];
+        }
         [
             (self.static_faces[slot] & mask != 0).then_some(PointFaceOperation::RefreshStatic),
             Some(PointFaceOperation::PublishStatic),
@@ -2464,6 +2454,29 @@ impl PointMapCache {
         self.signatures.map(|signature| signature.identity)
     }
 
+    /// Reuse face-local caster identities when the complete static root set is
+    /// unchanged and this light still samples its retained projection.
+    ///
+    /// The caller owns the scene-wide root-set comparison. This method closes
+    /// the remaining identity/projection boundary: a new, replaced, or
+    /// projection-changed light must perform the regional root scan, while a
+    /// stable light can reuse the signatures already paired with its physical
+    /// cube. Input order is irrelevant because lookup follows native identity.
+    pub(super) fn retained_static_signatures(
+        self,
+        faces: PointStaticFaceCache,
+        current: PointMapSignature,
+    ) -> Option<(u64, [u64; 6])> {
+        self.signatures
+            .iter()
+            .copied()
+            .enumerate()
+            .find_map(|(slot, retained)| {
+                (retained.projection_matches(current) && faces.valid_faces[slot] == ALL_CUBE_FACES)
+                    .then_some((retained.caster_signature, faces.signatures[slot]))
+            })
+    }
+
     /// Whether the previous cube publication contained animated coverage.
     pub(super) fn has_dynamic_casters(self) -> bool {
         self.dynamic_faces.into_iter().any(|faces| faces != 0)
@@ -2471,11 +2484,12 @@ impl PointMapCache {
 
     /// Bound cube work while retaining complete spatial quality per map.
     ///
-    /// New, replaced, or materially moved lights update all six faces
+    /// New, replaced, or projection-changed lights update all six faces
     /// synchronously. An unchanged static light retains its immutable cube.
-    /// Moving skinned casters update only cube faces touched by their current
-    /// or immediately previous bounds, which removes abandoned silhouettes at
-    /// face crossings without paying six traversals for every affected light.
+    /// Moving actor-owned casters update only cube faces touched by their
+    /// current or immediately previous bounds, which removes abandoned
+    /// silhouettes at face crossings without paying six traversals for every
+    /// affected light.
     pub(super) fn plan<const N: usize>(
         self,
         current: [PointMapSignature; N],
@@ -2521,6 +2535,7 @@ impl PointMapCache {
         let mut next_static_faces = PointStaticFaceCache::default();
         let mut render_faces = [0; N];
         let mut static_faces = [0; N];
+        let mut direct_faces = [0; N];
         let mut dynamic_draw_faces = [0; N];
         let mut published = [PointMapSignature::EMPTY; N];
         let mut source_indices = [u8::MAX; N];
@@ -2570,41 +2585,45 @@ impl PointMapCache {
                 continue;
             };
             let retained = self.signatures[slot];
-            let spatially_matches = retained.spatially_matches(current[source]);
+            let same_identity =
+                retained.identity != 0 && retained.identity == current[source].identity;
+            let projection_matches = retained.projection_matches(current[source]);
             let materially_matches = if static_face_signatures.is_some() {
-                spatially_matches
+                projection_matches
             } else {
                 retained.materially_matches(current[source])
             };
-            if !materially_matches {
+            if same_identity && !projection_matches {
+                // Translating a point source changes every ray origin. Reusing
+                // or copying any old backing face would pair current native
+                // light energy with a previous shadow. Rebuild the sampled
+                // cube directly and leave its old immutable backing invalid.
+                render_faces[slot] = ALL_CUBE_FACES;
+                direct_faces[slot] = ALL_CUBE_FACES;
+                next.signatures[slot] = current[source];
+            } else if !materially_matches {
                 render_faces[slot] = ALL_CUBE_FACES;
                 static_faces[slot] = ALL_CUBE_FACES;
                 next.signatures[slot] = current[source];
             } else {
-                let mut changed_static_faces = static_face_signatures
-                    .map_or(0, |(previous, faces)| {
-                        previous.dirty_faces(slot, faces[source])
-                    });
-                if changed_static_faces != 0 && !retained.has_exact_projection(current[source]) {
-                    // A sub-threshold source movement normally retains the
-                    // old cube. If it also changes caster ownership, partial
-                    // regeneration would mix old and current projections in
-                    // one sampled cube, so take the complete safe refresh.
-                    changed_static_faces = ALL_CUBE_FACES;
-                }
+                let changed_static_faces = static_face_signatures.map_or(0, |(previous, faces)| {
+                    previous.dirty_faces(slot, faces[source])
+                });
                 render_faces[slot] =
                     (changed_static_faces | self.dynamic_faces[slot] | dynamic_faces[source])
                         & ALL_CUBE_FACES;
                 static_faces[slot] = changed_static_faces;
-                // Retain exact map-defining metadata until a material move
-                // causes this physical cube to be regenerated.
+                // Retain exact map-defining metadata until a projection
+                // change causes this physical cube to be regenerated.
                 next.signatures[slot] = retained;
                 // Face-local comparisons replace only caster invalidation.
                 // Publishing the current aggregate prevents the compatibility
                 // identity from remaining stale after all changed faces commit.
                 next.signatures[slot].caster_signature = current[source].caster_signature;
             }
-            if let Some((_, faces)) = static_face_signatures {
+            if direct_faces[slot] == 0
+                && let Some((_, faces)) = static_face_signatures
+            {
                 next_static_faces.publish(slot, faces[source]);
             }
             next.dynamic_faces[slot] = dynamic_faces[source] & ALL_CUBE_FACES;
@@ -2614,6 +2633,7 @@ impl PointMapCache {
         PointMapPlan {
             render_faces,
             static_faces,
+            direct_faces,
             dynamic_draw_faces,
             published,
             source_indices,
