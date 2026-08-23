@@ -2633,12 +2633,22 @@ impl FnvDepthResolve {
         width: u32,
         height: u32,
     ) -> Option<u64> {
-        (self.temporal_depth_proven
-            && self.device_ptr == device_ptr as usize
-            && self.world_capture.texture_ptr != 0
+        let persistent_target_matches = self
+            .world_target
+            .as_ref()
+            .is_some_and(|target| target.width == width && target.height == height);
+        let current_capture_matches = self.world_capture.texture_ptr != 0
             && self.world_capture.frame_epoch == self.frame_epoch
             && self.world_capture.width == width
-            && self.world_capture.height == height)
+            && self.world_capture.height == height;
+
+        // Epoch rollover invalidates captured pixels, but the owned RESZ or
+        // NvAPI-copy target remains the proven destination for the next world
+        // resolve. An exact current capture independently covers the NvAPI
+        // alias path, which may not allocate a private target.
+        (self.temporal_depth_proven
+            && self.device_ptr == device_ptr as usize
+            && (persistent_target_matches || current_capture_matches))
             .then_some(self.frame_epoch)
     }
 
@@ -2727,18 +2737,52 @@ impl FnvDepthResolve {
 
 #[cfg(test)]
 mod depth_capture_tests {
-    use libpsycho::os::windows::directx9::{
-        D3DFMT_A8R8G8B8, D3DFMT_D15S1, D3DFMT_D16, D3DFMT_D24S8, D3DFMT_D32,
+    use libpsycho::os::windows::{
+        directx9::{
+            D3DDEVTYPE_HAL, D3DDEVTYPE_NULLREF, D3DFMT_A8R8G8B8, D3DFMT_D15S1, D3DFMT_D16,
+            D3DFMT_D24S8, D3DFMT_D32, D3DSURFACE_DESC, Device9, create_direct3d9,
+        },
+        winapi::{get_active_window, get_desktop_window, get_foreground_window},
     };
 
     use super::{
         AlphaCoverageMode, D3DERR_NOTAVAILABLE_CODE, DepthProjectionFrame, DepthResolveRouteKind,
-        DepthResolveStage, FnvDepthResolve, NVAPI_UNREGISTERED_RESOURCE, ResolvedDepthCapture,
-        alpha_coverage_mode_from_raw, decode_third_person_view,
-        nvapi_depth_copy_needs_registration, nvapi_stage_uses_alias,
+        DepthResolveSlot, DepthResolveStage, FnvDepthResolve, FnvDepthTarget,
+        NVAPI_UNREGISTERED_RESOURCE, ResolvedDepthCapture, alpha_coverage_mode_from_raw,
+        decode_third_person_view, nvapi_depth_copy_needs_registration, nvapi_stage_uses_alias,
         resz_failure_requires_fallback, sampled_depth_bits, select_depth_resolve_route,
         underwater_frame_for_publication,
     };
+
+    const TEMPORAL_TEST_SIZE: u32 = 64;
+
+    fn raster_device() -> Device9 {
+        let window = [
+            get_active_window(),
+            get_foreground_window(),
+            get_desktop_window().unwrap_or(std::ptr::null_mut()),
+        ]
+        .into_iter()
+        .find(|window| !window.is_null())
+        .expect("Wine must expose a window for TAA depth validation");
+        let direct3d = create_direct3d9().expect("D3D9 runtime");
+        direct3d
+            .create_windowed_device(
+                window,
+                TEMPORAL_TEST_SIZE,
+                TEMPORAL_TEST_SIZE,
+                D3DDEVTYPE_HAL,
+            )
+            .or_else(|_| {
+                direct3d.create_windowed_device(
+                    window,
+                    TEMPORAL_TEST_SIZE,
+                    TEMPORAL_TEST_SIZE,
+                    D3DDEVTYPE_NULLREF,
+                )
+            })
+            .expect("HAL or NULLREF D3D9 device")
+    }
 
     fn capture(
         texture_ptr: usize,
@@ -2882,6 +2926,61 @@ mod depth_capture_tests {
         assert_eq!(
             resolve.temporal_depth_epoch(0x5678_usize as *mut core::ffi::c_void, 1280, 720),
             None
+        );
+    }
+
+    #[test]
+    fn persistent_resz_target_authorizes_only_the_matching_next_taa_epoch() {
+        let device = raster_device();
+        let desc = D3DSURFACE_DESC {
+            Width: TEMPORAL_TEST_SIZE,
+            Height: TEMPORAL_TEST_SIZE,
+            ..D3DSURFACE_DESC::default()
+        };
+        let target =
+            FnvDepthTarget::create(&device.as_ref(), &desc).expect("persistent OMV INTZ target");
+        let mut resolve = FnvDepthResolve {
+            device_ptr: device.as_raw() as usize,
+            frame_epoch: 7,
+            temporal_depth_proven: true,
+            world_capture: capture(0x1234, 7, TEMPORAL_TEST_SIZE, TEMPORAL_TEST_SIZE),
+            world_target: Some(target),
+            ..FnvDepthResolve::default()
+        };
+
+        // The production pre-world query advances the snapshot epoch before
+        // testing the persistent depth resource needed by the jittered frame.
+        resolve.begin_epoch(8);
+
+        assert_eq!(
+            resolve.temporal_depth_epoch(device.as_raw(), TEMPORAL_TEST_SIZE, TEMPORAL_TEST_SIZE,),
+            Some(8),
+            "a proven OMV RESZ target must authorize the next jittered world render"
+        );
+        assert_eq!(
+            resolve.temporal_depth_epoch(
+                (device.as_raw() as usize + 4) as *mut core::ffi::c_void,
+                TEMPORAL_TEST_SIZE,
+                TEMPORAL_TEST_SIZE,
+            ),
+            None,
+            "a different D3D device cannot reuse temporal depth"
+        );
+        assert_eq!(
+            resolve.temporal_depth_epoch(
+                device.as_raw(),
+                TEMPORAL_TEST_SIZE / 2,
+                TEMPORAL_TEST_SIZE,
+            ),
+            None,
+            "a resized world target must prime a new temporal sequence"
+        );
+
+        resolve.invalidate_capture(DepthResolveSlot::World);
+        assert_eq!(
+            resolve.temporal_depth_epoch(device.as_raw(), TEMPORAL_TEST_SIZE, TEMPORAL_TEST_SIZE,),
+            None,
+            "a failed world capture must revoke persistent temporal readiness"
         );
     }
 

@@ -87,6 +87,32 @@ path, inspect world alpha consumers, sky/geometry disocclusion, camera cuts,
 stationary specular detail, first-person separation, and device reset, and
 record repeatable frame-time distributions before claiming the measured gain.
 
+## 2026-08-22 pre-world depth-readiness correction
+
+The OMV depth provider owns two distinct lifetimes that TAA must not conflate:
+
+- `ResolvedDepthCapture` describes pixels and projection metadata from one
+  render epoch and is cleared when the next epoch begins;
+- the private INTZ target used by RESZ and coherent-world NvAPI copies remains
+  allocated across epochs and proves that the matching device and dimensions
+  can resolve the next jittered world frame.
+
+The pre-world jitter query necessarily begins the new epoch before current
+world pixels exist. Requiring a current-epoch `ResolvedDepthCapture` at that
+boundary therefore rejected every OMV-provider jitter attempt even though the
+private depth target remained valid. TAA continued allocating history and
+executing its color resolve, so ordinary transaction counters could report
+successful application while the world projection received no Halton sample.
+
+Temporal readiness now accepts either the matching persistent private target
+or an exact current-epoch capture. The latter preserves the no-private-target
+NvAPI alias contract. Both paths still require prior valid depth/projection
+proof, exact D3D device identity, and matching dimensions. A failed world
+capture, device change, provider transition, target recreation, resize, camera
+cut, or temporal epoch gap continues to reject history and prime an
+unjittered sequence. The correction adds no render allocation, D3D call,
+shader work, lock, or resource.
+
 ## 2026-07-21 stationary-world jitter correction
 
 Tester observation: a stationary metallic roof at night visibly jittered rather
