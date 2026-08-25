@@ -1974,3 +1974,72 @@ corrupted control flow; pointer checks could not make that ABI mismatch safe.
 OMV now passes the required zero argument to both calls. Rust tests and HLSL
 tests cannot execute these FalloutNV.exe virtual calls, so installed save-load
 and first-world-draw coverage remains mandatory behavioral acceptance.
+
+## Batch-flip visibility corrections (2026-08-25)
+
+A captured runtime session (`omv-latest.log`, 2026-08-25) proved three silent
+fail-closed paths while the owner reported intermittent object brightness
+changes and terrain patches without expected shading:
+
+- `LandLOD PBR kept vanilla: missing_sampler_mask=0x0010` — stage `s4`
+  (`LODParentTex`) unbound at admission, flipping distant terrain between PBR
+  and native across batches.
+- One early `CloseTerrain PBR kept vanilla: engine ownership of supplemental
+  sampler s14 is unknown`.
+- No object-admission failure lines at all, although production mode evaluates
+  every batch through the same fail-closed gates.
+
+### Object admission rejections are now visible
+
+Every object batch rejection reason emits exactly one process-lifetime warning
+stating that later batches retry automatically: sampler-mirror unknown/null,
+wrapper-handle mismatch, device-generation mismatch, missing replacement
+resource, D3D state loss, table identity failures, unsupported pairs, and the
+pass-entry terrain classes that ordinary non-object PPLighting rows produce.
+Two additional one-shot lines cover a ready contract whose exact SLS row lost
+its eye-position flag and a failed temporary handle swap around the original
+`SetShaders`. The once-per-reason bound keeps geometry-heavy scenes free of
+per-draw logging; detailed diagnostics remain the exhaustive record.
+
+### Texture-mirror warmup priming
+
+After tracking starts or any reset, all sixteen mirror slots are unknown, and
+unknown rejects replacement identically to a missing texture. Whole batches
+therefore rendered native until the engine happened to rebind every stage
+through the observed path. The tracker now arms one bounded priming cycle on
+that transition. At the established Present boundary — never during geometry
+submission — each still-unknown slot receives one authoritative `GetTexture`
+observation and becomes known-bound or known-null. Slots already published by
+the SetTexture hook are never overridden, draw-path admission remains
+read-only, and a failed observation records known-null safely because real
+device loss advances the device generation and resets the tracker first. This
+is the module's single deliberate readback exception; the no-readback rule for
+draw paths is unchanged.
+
+### Eye-position flags refresh on package transitions
+
+The SLS eye-position flag table refreshed on a fixed 240-frame cadence. A
+shader-package transition that rebuilt that table without the flag bits could
+silently disable object classification for up to 239 renders. Both proven
+`SetShaderPackage` callers now request one immediate republication; the fixed
+cadence remains the fallback. The decision helper honors the request ahead of
+interval boundaries and not-ready states.
+
+### Close-terrain draw matrix sample
+
+Admitted close-terrain geometries increment one of twenty-eight zero-init
+buckets indexed by texture count, supplemental-payload mode, and engine row
+parity. With detailed diagnostics configured, Present emits a few summary
+lines at a fixed interval. These counts decide how far the canopy-shadow
+design must cover payload-carrying odd rows from measured runtime weight
+instead of assumption.
+
+### Runtime acceptance still open
+
+Static qualification for these corrections: focused regressions (real-D3D9
+priming behavior, once-per-reason semantics, matrix indexing/emission gating,
+refresh-request truth table), the complete explicit-target OMV suite, and the
+optimized OMV build. Game-only behavior remains unproven until an installed
+playtest exercises object batches across camera movement, a shader reload,
+and a device reset, then confirms that rejection lines identify the reported
+blink mechanism and that no new flip class appears.

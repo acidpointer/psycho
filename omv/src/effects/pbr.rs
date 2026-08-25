@@ -766,6 +766,7 @@ pub(crate) fn service_present_frame() {
     let configured = SHADER_ENABLED.load(Ordering::Acquire);
     if configured {
         engine_contracts::service_frame();
+        samplers::service_texture_priming();
         compiler::ensure_object_prewarm_started();
         let resource_delta = device_resources::service_frame();
         if resource_delta.device_changed {
@@ -794,6 +795,7 @@ pub(crate) fn service_present_frame() {
     refresh_block_reason();
     if diagnostics::detailed_enabled() {
         samplers::service_frame();
+        hooks::log_close_terrain_draw_samples_if_due(true);
         diagnostics::service_frame(shader_enabled(), DEBUG_LOG_DRAWS.load(Ordering::Acquire));
     }
 }

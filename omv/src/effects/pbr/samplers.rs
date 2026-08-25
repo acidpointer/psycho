@@ -1,22 +1,41 @@
 //! Sampler and texture binding policy.
 //!
 //! This module validates the samplers declared by each NVR template without
-//! reading state back from the D3D device. The resident
+//! reading state back from the D3D device on draw paths. The resident
 //! `NiDX9RenderState::SetTexture` hook sees the requested pointer even when the
 //! native cache suppresses the driver call, so it is the authoritative and
 //! cheapest observation boundary.
 //!
 //! Every slot distinguishes unknown from a known null binding. Reset makes all
 //! slots unknown; either unknown or null rejects replacement until the engine
-//! publishes a valid identity. The tracker never invents a fallback texture,
-//! validates a pointer, allocates, takes a lock, or calls `GetTexture`. Equal
-//! repeated binds use read-only atomics unless detailed diagnostics are active;
-//! no unrelated global generation invalidates draw caches.
+//! publishes a valid identity. Draw-path admission never invents a fallback
+//! texture, validates a pointer, allocates, takes a lock, or calls
+//! `GetTexture`. Equal repeated binds use read-only atomics unless detailed
+//! diagnostics are active; no unrelated global generation invalidates draw
+//! caches.
+//!
+//! One deliberate exception closes the post-reset warmup window: immediately
+//! after tracking starts or a device reset, every required stage is unknown,
+//! so fail-closed object admission would render whole batches native until
+//! each stage happened to be rebound. [`service_texture_priming`] runs at the
+//! established Present boundary, outside every draw hook, and converts each
+//! still-unknown slot into an authoritative known-bound or known-null entry
+//! from one deferred `GetTexture` observation per stage. It never runs during
+//! geometry submission and never overrides a value the SetTexture hook has
+//! already published.
+//!
+//! # Fail-closed ownership
+//!
+//! A failed `GetTexture` (lost device) is recorded as known-null. That is safe
+//! because any real loss advances the D3D device generation, which resets this
+//! tracker before the stale entries can admit a draw.
 
 use std::sync::{
     LazyLock,
     atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering},
 };
+
+use libpsycho::os::windows::directx9::Device9Ref;
 
 use super::shader_registry::{self, ShaderStage, ShaderTemplate};
 
@@ -50,6 +69,13 @@ const TEXTURE_STAGE_COUNT: usize = 16;
 static TEXTURE_TRACKING_READY: AtomicBool = AtomicBool::new(false);
 static TEXTURE_SLOTS: LazyLock<[TextureStageSlot; TEXTURE_STAGE_COUNT]> =
     LazyLock::new(|| std::array::from_fn(|_| TextureStageSlot::new()));
+// Warmup-priming ownership. The pending flag is armed whenever tracking
+// transitions to ready or reset clears the slots, and is retired once every
+// stage carries a known identity. The attempt bound keeps a device that never
+// exposes textures from paying a permanent per-present query.
+static PRIMING_PENDING: AtomicBool = AtomicBool::new(false);
+static PRIMING_ATTEMPTS: AtomicU32 = AtomicU32::new(0);
+const PRIMING_ATTEMPT_LIMIT: u32 = 600;
 static OBJECT_SAMPLER_LAYOUTS: LazyLock<Vec<ObjectSamplerLayout>> = LazyLock::new(|| {
     (0..shader_registry::object_template_count())
         .map(|template_id| {
@@ -128,7 +154,74 @@ pub(super) struct ObjectSamplerIdentity {
 }
 
 pub(super) fn set_texture_tracking_ready(ready: bool) {
-    TEXTURE_TRACKING_READY.store(ready, Ordering::Release);
+    let previous = TEXTURE_TRACKING_READY.swap(ready, Ordering::AcqRel);
+    if ready && !previous {
+        arm_texture_priming();
+    }
+}
+
+/// Arm one warmup-priming cycle.
+///
+/// Called when tracking becomes ready and whenever reset clears the slots, so
+/// the next Present boundary repopulates every stage from authoritative device
+/// state instead of leaving admission fail-closed until the engine happens to
+/// rebind each texture.
+fn arm_texture_priming() {
+    PRIMING_ATTEMPTS.store(0, Ordering::Release);
+    PRIMING_PENDING.store(true, Ordering::Release);
+}
+
+/// Convert unknown slots into known identities from one device observation.
+///
+/// Returns the number of slots primed. Only still-unknown stages are touched,
+/// so a value the SetTexture hook already published is never overridden. A
+/// `GetTexture` failure or null binding records a known-null slot; the module
+/// documentation explains why that cannot admit against a lost device.
+pub(super) fn prime_from_device(device: &Device9Ref<'_>) -> usize {
+    let mut primed = 0;
+    for (stage, slot) in TEXTURE_SLOTS.iter().enumerate() {
+        if slot.known.load(Ordering::Acquire) {
+            continue;
+        }
+        let identity = device
+            .texture_raw(stage as u32)
+            .map_or(0, |ptr| ptr as usize);
+        slot.texture.store(identity, Ordering::Relaxed);
+        slot.known.store(true, Ordering::Release);
+        primed += 1;
+    }
+    primed
+}
+
+/// Retire the warmup-priming cycle at the Present boundary.
+///
+/// Runs only while a cycle is armed, then performs at most one bounded device
+/// query pass per present until every stage is known. Geometry submission never
+/// calls this; draw-path admission stays read-only against published slots.
+pub(super) fn service_texture_priming() {
+    if !PRIMING_PENDING.load(Ordering::Acquire) {
+        return;
+    }
+    if PRIMING_ATTEMPTS.fetch_add(1, Ordering::Relaxed) >= PRIMING_ATTEMPT_LIMIT {
+        PRIMING_PENDING.store(false, Ordering::Release);
+        return;
+    }
+    let Some(device_ptr) = crate::backend::d3d_device_ptr() else {
+        return;
+    };
+    let Some(device) = (unsafe { Device9Ref::from_raw_void(device_ptr) }) else {
+        return;
+    };
+    let _ = prime_from_device(&device);
+    if all_texture_stages_known() {
+        PRIMING_PENDING.store(false, Ordering::Release);
+    }
+}
+
+fn all_texture_stages_known() -> bool {
+    TEXTURE_SLOTS
+        .iter()
+        .all(|slot| slot.known.load(Ordering::Acquire))
 }
 
 /// Publish an engine-observed texture binding without driver state queries.
@@ -422,6 +515,10 @@ pub(super) fn reset() {
         slot.texture.store(0, Ordering::Release);
         slot.selector.store(0, Ordering::Release);
     }
+    // Cleared slots are unknown again. Arm one priming cycle so the next
+    // Present repopulates them from device state instead of leaving object
+    // admission fail-closed until each stage happens to be rebound.
+    arm_texture_priming();
     OBJECT_SAMPLER_CHECKS_LAST_FRAME.store(0, Ordering::Release);
     OBJECT_SAMPLER_FALLBACKS_LAST_FRAME.store(0, Ordering::Release);
     OBJECT_SAMPLER_SELECTOR_MISMATCHES_LAST_FRAME.store(0, Ordering::Release);
@@ -658,10 +755,18 @@ fn sampler_fallback_label(reason: u32) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::{
-        OBJECT_SAMPLER_LAYOUT_NONE, TrackedTextureBinding, classify_tracked_texture,
-        object_sampler_layout,
+        OBJECT_SAMPLER_LAYOUT_NONE, PRIMING_PENDING, TEXTURE_SLOTS, TrackedTextureBinding,
+        classify_tracked_texture, missing_required_mask, object_sampler_layout, prime_from_device,
+        reset, set_texture_tracking_ready, tracked_texture_binding,
     };
     use crate::effects::pbr::shader_registry::{self, ShaderStage};
+    use libpsycho::os::windows::{
+        directx9::{
+            D3DDEVTYPE_HAL, D3DDEVTYPE_NULLREF, D3DFMT_A8R8G8B8, Device9, create_direct3d9,
+        },
+        winapi::{get_active_window, get_desktop_window, get_foreground_window},
+    };
+    use std::sync::atomic::Ordering;
 
     fn sampler_mask(sls_number: u16) -> u32 {
         let template = shader_registry::object_template_id(ShaderStage::Pixel, sls_number)
@@ -728,5 +833,93 @@ mod tests {
             classify_tracked_texture(true, 0x1234),
             TrackedTextureBinding::Bound(0x1234)
         );
+    }
+
+    /// Exercise the shipped priming ownership end to end against a real D3D9
+    /// device. The shared slot statics force one serialized test body: a raw
+    /// engine-style bind bypassing the SetTexture mirror must leave a required
+    /// stage fail-closed unknown before priming and known-bound after it, an
+    /// unbound stage becomes authoritative known-null, and only a false->true
+    /// tracking transition arms one bounded cycle.
+    #[test]
+    fn warmup_priming_converts_unknown_device_bindings_into_known_identities() {
+        set_texture_tracking_ready(false);
+        set_texture_tracking_ready(false);
+        assert!(!PRIMING_PENDING.load(Ordering::Acquire));
+        set_texture_tracking_ready(true);
+        assert!(PRIMING_PENDING.load(Ordering::Acquire));
+        // A repeated ready publication must not restart the bounded cycle.
+        set_texture_tracking_ready(true);
+        assert!(PRIMING_PENDING.load(Ordering::Acquire));
+
+        let window = [
+            get_active_window(),
+            get_foreground_window(),
+            get_desktop_window().unwrap_or(std::ptr::null_mut()),
+        ]
+        .into_iter()
+        .find(|window| !window.is_null())
+        .expect("Wine must expose a window for sampler-priming validation");
+        let direct3d = create_direct3d9().expect("D3D9 runtime");
+        let device: Device9 = direct3d
+            .create_windowed_device(window, 64, 64, D3DDEVTYPE_HAL)
+            .or_else(|_| direct3d.create_windowed_device(window, 64, 64, D3DDEVTYPE_NULLREF))
+            .expect("HAL or NULLREF D3D9 device");
+
+        let snapshot: Vec<(bool, usize)> = TEXTURE_SLOTS
+            .iter()
+            .map(|slot| {
+                (
+                    slot.known.load(Ordering::Acquire),
+                    slot.texture.load(Ordering::Relaxed),
+                )
+            })
+            .collect();
+
+        reset();
+        assert_eq!(
+            tracked_texture_binding(3),
+            TrackedTextureBinding::Unknown,
+            "reset must leave stages unknown"
+        );
+        // Fail-first control: the unchanged admission primitive rejects the
+        // required stage even though valid device state exists.
+        assert_eq!(missing_required_mask(1u16 << 3), 1u16 << 3);
+
+        let texture = device
+            .as_ref()
+            .create_render_target_texture(8, 8, D3DFMT_A8R8G8B8)
+            .expect("priming test texture");
+        let texture_identity = texture.as_raw_base_texture() as usize;
+        unsafe {
+            device
+                .as_ref()
+                .set_raw_base_texture(3, texture.as_raw_base_texture())
+                .expect("raw stage bind");
+        }
+
+        let primed = prime_from_device(&device.as_ref());
+        assert!(primed >= 1, "priming must observe at least one stage");
+
+        assert_eq!(
+            tracked_texture_binding(3),
+            TrackedTextureBinding::Bound(texture_identity)
+        );
+        assert_eq!(
+            tracked_texture_binding(5),
+            TrackedTextureBinding::Null,
+            "an unbound stage must become authoritative known-null"
+        );
+        assert_eq!(
+            missing_required_mask(1u16 << 3),
+            0,
+            "primed state must admit the required stage"
+        );
+
+        for (slot, (known, identity)) in TEXTURE_SLOTS.iter().zip(snapshot) {
+            slot.known.store(known, Ordering::Release);
+            slot.texture.store(identity, Ordering::Release);
+        }
+        set_texture_tracking_ready(false);
     }
 }

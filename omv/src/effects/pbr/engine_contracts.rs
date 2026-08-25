@@ -86,6 +86,11 @@ static EYE_POSITION_CONTRACT_READY: AtomicBool = AtomicBool::new(false);
 static SHADER_PACKAGE_LIFETIME_READY: AtomicBool = AtomicBool::new(false);
 static SHADER_PACKAGE_TRANSITION_READY: AtomicBool = AtomicBool::new(false);
 static EYE_POSITION_REFRESH_FRAME: AtomicU32 = AtomicU32::new(0);
+// Set by the shader-package transition detour. A package reload can rebuild
+// the SLS flag table without carrying the eye-position bits, and waiting for
+// the fixed refresh interval would silently disable object classification for
+// up to `EYE_POSITION_REFRESH_INTERVAL_FRAMES` renders.
+static EYE_POSITION_REFRESH_REQUESTED: AtomicBool = AtomicBool::new(false);
 
 type SetShaderPackageFn = unsafe extern "cdecl" fn(i32, i32, u8, i32, *mut c_char, i32);
 
@@ -516,9 +521,27 @@ fn object_distance_fade_weight(
 #[cfg(test)]
 mod tests {
     use super::{
-        SetShaderPackageFn, hook_set_shader_package_reload, hook_set_shader_package_startup,
-        object_specular_fade_weight,
+        SetShaderPackageFn, eye_position_refresh_due, hook_set_shader_package_reload,
+        hook_set_shader_package_startup, object_specular_fade_weight,
     };
+
+    #[test]
+    fn package_transition_requests_repair_eye_position_immediately() {
+        const INTERVAL: u32 = 240;
+
+        // A transition request is honored on the next frame service even in
+        // the middle of an interval and while the contract already looks ready.
+        assert!(eye_position_refresh_due(true, 1, true));
+        assert!(eye_position_refresh_due(true, INTERVAL - 1, true));
+
+        // Without a request, only the zeroth frame, the interval boundary, or
+        // a not-ready state republishes.
+        assert!(eye_position_refresh_due(false, 0, true));
+        assert!(eye_position_refresh_due(false, INTERVAL, true));
+        assert!(!eye_position_refresh_due(false, 1, true));
+        assert!(!eye_position_refresh_due(false, INTERVAL - 1, true));
+        assert!(eye_position_refresh_due(false, 7, false));
+    }
 
     #[test]
     fn shader_package_callsite_wrappers_use_the_executable_proven_cdecl_abi() {
@@ -769,12 +792,24 @@ fn enable_eye_position_for_all_sls_passes() -> bool {
     true
 }
 
+/// Decide whether the eye-position flag table must be republished this frame.
+///
+/// A package transition request outranks every other input so a reload that
+/// dropped the eye-position bits is repaired on the next frame service instead
+/// of at an arbitrary interval boundary. The zeroth frame, the fixed cadence,
+/// and any not-ready state also force a republication.
+fn eye_position_refresh_due(requested: bool, frame: u32, ready: bool) -> bool {
+    requested || frame == 0 || frame % EYE_POSITION_REFRESH_INTERVAL_FRAMES == 0 || !ready
+}
+
 fn service_eye_position_contract() {
+    let requested = EYE_POSITION_REFRESH_REQUESTED.swap(false, Ordering::AcqRel);
     let frame = EYE_POSITION_REFRESH_FRAME.fetch_add(1, Ordering::Relaxed);
-    if frame == 0
-        || frame % EYE_POSITION_REFRESH_INTERVAL_FRAMES == 0
-        || !EYE_POSITION_CONTRACT_READY.load(Ordering::Acquire)
-    {
+    if eye_position_refresh_due(
+        requested,
+        frame,
+        EYE_POSITION_CONTRACT_READY.load(Ordering::Acquire),
+    ) {
         enable_eye_position_for_all_sls_passes();
     }
 }
@@ -943,6 +978,10 @@ unsafe fn forward_shader_package(
     publish_shader_package_7();
     probe_terrain_contract();
     super::refresh_terrain_capture_demand();
+    // The package transition may have rebuilt the SLS flag tables. Request one
+    // immediate eye-position republication instead of leaving object
+    // classification silently unavailable until the fixed refresh interval.
+    EYE_POSITION_REFRESH_REQUESTED.store(true, Ordering::Release);
 }
 
 fn publish_shader_package_7() {

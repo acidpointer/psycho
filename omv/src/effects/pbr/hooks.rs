@@ -204,6 +204,22 @@ static CLOSE_TERRAIN_FAILURE_LOGGED: AtomicBool = AtomicBool::new(false);
 static OBJECT_FIRST_BIND_LOGGED: AtomicBool = AtomicBool::new(false);
 static DIRECT_RESTORE_FAILURE_LOGGED: AtomicBool = AtomicBool::new(false);
 static SUPPLEMENTAL_TEXTURE_RESTORE_FAILURE_LOGGED: AtomicBool = AtomicBool::new(false);
+// One warn line per object-admission rejection reason per process. Production
+// mode previously recorded these failures only in detailed diagnostics, so an
+// intermittent fail-closed batch flip was indistinguishable from a shader
+// equation change in the shipped log.
+static OBJECT_REJECTION_LOGGED_BITS: AtomicU32 = AtomicU32::new(0);
+static OBJECT_EYE_POSITION_LOGGED: AtomicBool = AtomicBool::new(false);
+static OBJECT_BIND_OVERRIDE_LOGGED: AtomicBool = AtomicBool::new(false);
+// Opt-in frequency sample of admitted close-terrain geometry, indexed by
+// texture count, supplemental-payload mode, and engine row parity. The counts
+// decide how much of the canopy/sampler design must cover payload-carrying
+// odd rows without guessing at their runtime weight.
+const CLOSE_TERRAIN_SAMPLE_BUCKETS: usize = 28;
+static CLOSE_TERRAIN_DRAW_SAMPLES: LazyLock<[AtomicU32; CLOSE_TERRAIN_SAMPLE_BUCKETS]> =
+    LazyLock::new(|| std::array::from_fn(|_| AtomicU32::new(0)));
+static CLOSE_TERRAIN_SAMPLE_EMISSION_FRAME: AtomicU32 = AtomicU32::new(0);
+const CLOSE_TERRAIN_SAMPLE_EMISSION_INTERVAL_FRAMES: u32 = 600;
 static LAND_LOD_LAST_CONSTANT_SIGNATURE: AtomicU32 = AtomicU32::new(0);
 static LAND_LOD_CONSTANT_LOG_COUNT: AtomicU32 = AtomicU32::new(0);
 static SHADER_TABLES_READABLE: LazyLock<bool> = LazyLock::new(|| {
@@ -641,13 +657,37 @@ unsafe extern "thiscall" fn hook_set_shaders(shader: *mut c_void, pass_index: u3
         return;
     }
 
-    if super::object_contract_available()
-        && engine_contracts::eye_position_ready_for_pass(pass_index)
-        && let Some(replacement) = try_prepare_object_replacement_for_selector(shader, pass_index)
-        && call_original_with_replacement(original, shader, pass_index, replacement.pair)
-    {
-        set_pending_object_draw(pass_index, replacement.pixel_template_id, replacement.pair);
-        return;
+    if super::object_contract_available() {
+        // A ready contract whose exact pass row lost its eye-position flag
+        // silently disabled classification for up to one refresh interval.
+        // Surface that state once; the package-transition refresh request now
+        // repairs it within one frame.
+        if engine_contracts::eye_position_ready()
+            && !engine_contracts::eye_position_ready_for_pass(pass_index)
+            && !OBJECT_EYE_POSITION_LOGGED.swap(true, Ordering::AcqRel)
+        {
+            log::warn!(
+                "[PBR] Object pass {pass_index} kept native: eye-position flag unavailable for this SLS row"
+            );
+        }
+        if engine_contracts::eye_position_ready_for_pass(pass_index)
+            && let Some(replacement) =
+                try_prepare_object_replacement_for_selector(shader, pass_index)
+        {
+            if call_original_with_replacement(original, shader, pass_index, replacement.pair) {
+                set_pending_object_draw(
+                    pass_index,
+                    replacement.pixel_template_id,
+                    replacement.pair,
+                );
+                return;
+            }
+            if !OBJECT_BIND_OVERRIDE_LOGGED.swap(true, Ordering::AcqRel) {
+                log::warn!(
+                    "[PBR] Object draw kept native: replacement pair could not be bound around native SetShaders"
+                );
+            }
+        }
     }
 }
 
@@ -1124,6 +1164,11 @@ fn bind_close_terrain_replacement(
         return false;
     };
     let supplemental_lights = super::terrain_lights::capture_current_for_draw(geometry_identity);
+    record_close_terrain_draw_sample(
+        variant.texture_count,
+        !supplemental_lights.is_empty(),
+        variant.native_canopy_row,
+    );
     if supplemental_lights.is_empty()
         && !set_close_terrain_supplemental_shader(&device, variant, pair, false)
     {
@@ -1670,12 +1715,64 @@ fn log_land_lod_failure(reason: &'static str) {
     }
 }
 
+/// Native sampler names for one terrain family's required stages.
+const LAND_LOD_SAMPLER_LABELS: &[(u32, &str)] = &[
+    (0, "BaseMap"),
+    (1, "NormalMap"),
+    (4, "LODParentTex"),
+    (6, "LODParentNormals"),
+    (7, "LODLandNoise"),
+];
+
+const TERRAIN_FADE_SAMPLER_LABELS: &[(u32, &str)] =
+    &[(0, "BaseMap"), (1, "NormalMap"), (2, "LODLandNoise")];
+
+/// Render the missing bits of `mask` as `s<stage> <native name>` entries.
+///
+/// Cold path: only runs inside an already rate-limited warn branch, so the
+/// small allocation is irrelevant next to making the next captured log
+/// self-identifying.
+fn missing_sampler_label_list(labels: &[(u32, &str)], mask: u16) -> String {
+    let mut text = String::new();
+    for (stage, name) in labels {
+        if *stage < 16 && mask & (1u16 << stage) != 0 {
+            if !text.is_empty() {
+                text.push_str(", ");
+            }
+            text.push_str(&format!("s{stage} {name}"));
+        }
+    }
+    text
+}
+
+fn close_terrain_sampler_label(stage: u32) -> String {
+    match stage {
+        0..=6 => format!("s{stage} BaseMap[{stage}]"),
+        7..=13 => format!("s{stage} NormalMap[{}]", stage - 7),
+        _ => format!("s{stage} canopy/supplemental"),
+    }
+}
+
+fn close_terrain_missing_sampler_labels(mask: u16) -> String {
+    let mut text = String::new();
+    for stage in 0..16u32 {
+        if mask & (1u16 << stage) != 0 {
+            if !text.is_empty() {
+                text.push_str(", ");
+            }
+            text.push_str(&close_terrain_sampler_label(stage));
+        }
+    }
+    text
+}
+
 fn log_land_lod_missing_samplers(missing_sampler_mask: u16) {
     diagnostics::record_terrain_fallback(diagnostics::TerrainDrawFamily::LandLod);
     if !LAND_LOD_MISSING_SAMPLER_LOGGED.swap(true, Ordering::AcqRel) {
         log::warn!(
-            "[PBR] LandLOD PBR kept vanilla: missing_sampler_mask=0x{missing_sampler_mask:04X} required_sampler_mask=0x{:04X}",
+            "[PBR] LandLOD PBR kept vanilla: missing_sampler_mask=0x{missing_sampler_mask:04X} required_sampler_mask=0x{:04X} missing=[{}]",
             required_sampler_mask(LAND_LOD_SAMPLERS),
+            missing_sampler_label_list(LAND_LOD_SAMPLER_LABELS, missing_sampler_mask),
         );
     }
 }
@@ -1691,8 +1788,9 @@ fn log_terrain_fade_missing_samplers(missing_sampler_mask: u16) {
     diagnostics::record_terrain_fallback(diagnostics::TerrainDrawFamily::TerrainFade);
     if !TERRAIN_FADE_MISSING_SAMPLER_LOGGED.swap(true, Ordering::AcqRel) {
         log::warn!(
-            "[PBR] TerrainFade PBR kept vanilla: missing_sampler_mask=0x{missing_sampler_mask:04X} required_sampler_mask=0x{:04X}",
+            "[PBR] TerrainFade PBR kept vanilla: missing_sampler_mask=0x{missing_sampler_mask:04X} required_sampler_mask=0x{:04X} missing=[{}]",
             required_sampler_mask(TERRAIN_FADE_SAMPLERS),
+            missing_sampler_label_list(TERRAIN_FADE_SAMPLER_LABELS, missing_sampler_mask),
         );
     }
 }
@@ -1712,8 +1810,121 @@ fn log_close_terrain_missing_samplers(
     diagnostics::record_terrain_fallback(diagnostics::TerrainDrawFamily::CloseTerrain);
     if !CLOSE_TERRAIN_FAILURE_LOGGED.swap(true, Ordering::AcqRel) {
         log::warn!(
-            "[PBR] CloseTerrain PBR kept vanilla: pixel=B[{pixel_index}] textures={texture_count} missing_sampler_mask=0x{missing_sampler_mask:04X}"
+            "[PBR] CloseTerrain PBR kept vanilla: pixel=B[{pixel_index}] textures={texture_count} missing_sampler_mask=0x{missing_sampler_mask:04X} missing=[{}]",
+            close_terrain_missing_sampler_labels(missing_sampler_mask),
         );
+    }
+}
+
+/// Map one admission rejection to a stable log bit and human-readable label.
+fn object_rejection_log_entry(reason: ObjectDrawRejectReason) -> (u32, &'static str) {
+    match reason {
+        ObjectDrawRejectReason::CloseTerrainMaterial => (0, "close-terrain material row"),
+        ObjectDrawRejectReason::TerrainZeroResource => (1, "terrain zero-resource row"),
+        ObjectDrawRejectReason::TerrainLightResource => (2, "terrain light-resource row"),
+        ObjectDrawRejectReason::TerrainHelper => (3, "terrain helper row"),
+        ObjectDrawRejectReason::MissingD3DState => (4, "D3D state unavailable"),
+        ObjectDrawRejectReason::MissingShaderRecord => (5, "shader record unavailable"),
+        ObjectDrawRejectReason::MissingTableIdentity => (6, "shader table identity unavailable"),
+        ObjectDrawRejectReason::TableIdentityMismatch => (7, "shader table identity mismatch"),
+        ObjectDrawRejectReason::TerrainTableSlot => (8, "terrain table slot"),
+        ObjectDrawRejectReason::EnvMapTableSlot => (9, "env-map table slot"),
+        ObjectDrawRejectReason::UnsupportedObjectPair => (10, "unsupported object pair"),
+        ObjectDrawRejectReason::MissingReplacementResource => {
+            (11, "replacement resource not ready")
+        }
+        ObjectDrawRejectReason::HandleStateMismatch => (12, "native wrapper handle state changed"),
+        ObjectDrawRejectReason::MissingSampler => (13, "required material sampler unbound"),
+    }
+}
+
+/// Warn once per rejection reason when an object batch keeps native shading.
+///
+/// Every rejection is transient by design — the next batch re-evaluates — so
+/// the line states the consequence and the automatic retry instead of
+/// implying a permanent failure.
+fn log_object_admission_failure_once(reason: ObjectDrawRejectReason) {
+    let (bit, label) = object_rejection_log_entry(reason);
+    let mask = 1u32 << bit;
+    if OBJECT_REJECTION_LOGGED_BITS.fetch_or(mask, Ordering::AcqRel) & mask == 0 {
+        log::warn!("[PBR] Object draw kept native ({label}); later batches retry automatically");
+    }
+}
+
+fn close_terrain_sample_index(
+    texture_count: u32,
+    supplemental: bool,
+    odd_row: bool,
+) -> Option<usize> {
+    if texture_count == 0 || texture_count > 7 {
+        return None;
+    }
+    Some((texture_count - 1) as usize + 7 * usize::from(supplemental) + 14 * usize::from(odd_row))
+}
+
+/// Record one admitted-to-light-capture close-terrain geometry sample.
+///
+/// The population is every geometry that passed sampler validation, because
+/// the canopy design decision depends on how often payload-carrying draws
+/// coincide with odd engine rows and high layer counts on real terrain paths.
+pub(super) fn record_close_terrain_draw_sample(
+    texture_count: u32,
+    supplemental: bool,
+    odd_row: bool,
+) {
+    if let Some(index) = close_terrain_sample_index(texture_count, supplemental, odd_row) {
+        CLOSE_TERRAIN_DRAW_SAMPLES[index].fetch_add(1, Ordering::Relaxed);
+    }
+}
+
+fn close_terrain_emission_due(frame: u32) -> bool {
+    frame != 0 && frame % CLOSE_TERRAIN_SAMPLE_EMISSION_INTERVAL_FRAMES == 0
+}
+
+fn close_terrain_sample_group_total(supplemental: bool, odd_row: bool) -> (u64, String) {
+    let mut total = 0u64;
+    let mut detail = String::new();
+    for texture_count in 1..=7u32 {
+        let index = match close_terrain_sample_index(texture_count, supplemental, odd_row) {
+            Some(index) => index,
+            None => continue,
+        };
+        let count = CLOSE_TERRAIN_DRAW_SAMPLES[index].load(Ordering::Relaxed);
+        if count == 0 {
+            continue;
+        }
+        total += u64::from(count);
+        if !detail.is_empty() {
+            detail.push(' ');
+        }
+        detail.push_str(&format!("{texture_count}:{count}"));
+    }
+    (total, detail)
+}
+
+/// Emit the bounded close-terrain draw matrix at the opt-in diagnostic cadence.
+///
+/// Detailed diagnostics are already gated by the caller; this adds only the
+/// interval check so an open menu produces a few summary lines instead of
+/// per-draw traffic.
+pub(super) fn log_close_terrain_draw_samples_if_due(detailed: bool) {
+    if !detailed {
+        return;
+    }
+    let frame = CLOSE_TERRAIN_SAMPLE_EMISSION_FRAME.fetch_add(1, Ordering::Relaxed);
+    if !close_terrain_emission_due(frame) {
+        return;
+    }
+    for (odd_row, parity) in [(false, "even"), (true, "odd")] {
+        for (supplemental, mode) in [(false, "native-only"), (true, "supplemental")] {
+            let (total, detail) = close_terrain_sample_group_total(supplemental, odd_row);
+            if total == 0 {
+                continue;
+            }
+            log::info!(
+                "[PBR] Close terrain samples {parity}/{mode}: total={total} textures={detail}"
+            );
+        }
     }
 }
 
@@ -1816,6 +2027,7 @@ fn try_prepare_object_replacement_for_selector(
         crate::graphics_diagnostics::Interval::PbrObjectPreparation,
     );
     let Some((vertex_shader, pixel_shader)) = engine_contracts::current_pass_shaders_fast() else {
+        log_object_admission_failure_once(ObjectDrawRejectReason::MissingD3DState);
         return None;
     };
     let diagnostics_enabled = diagnostics::detailed_enabled();
@@ -1833,6 +2045,7 @@ fn try_prepare_object_replacement_for_selector(
                 );
                 diagnostics::record_object_draw_gate_rejection(reason, 0, 0);
             }
+            log_object_admission_failure_once(reason);
             return None;
         }
     };
@@ -1849,6 +2062,7 @@ fn try_prepare_object_replacement_for_selector(
                 );
                 diagnostics::record_object_draw_gate_rejection(reason, 0, 0);
             }
+            log_object_admission_failure_once(reason);
             return None;
         }
     };
@@ -1860,6 +2074,7 @@ fn try_prepare_object_replacement_for_selector(
                 0,
             );
         }
+        log_object_admission_failure_once(ObjectDrawRejectReason::TableIdentityMismatch);
         return None;
     }
     let vertex_record = ensure_table_identity(vertex_record);
@@ -1882,6 +2097,7 @@ fn try_prepare_object_replacement_for_selector(
                 selector as usize,
             );
         }
+        log_object_admission_failure_once(ObjectDrawRejectReason::MissingD3DState);
         return None;
     }
     if let ObjectDrawAdmission::Reject(rejection) = admission {
@@ -1922,6 +2138,7 @@ fn try_prepare_object_replacement_for_selector(
                 rejection.selector,
             );
         }
+        log_object_admission_failure_once(rejection.reason);
         return None;
     }
 
@@ -1946,6 +2163,7 @@ fn try_prepare_object_replacement_for_selector(
                 );
                 diagnostics::record_object_draw_gate_rejection(reason, 0, 0);
             }
+            log_object_admission_failure_once(reason);
             return None;
         }
     };
@@ -1958,6 +2176,7 @@ fn try_prepare_object_replacement_for_selector(
             );
             diagnostics::record_object_draw_gate_rejection(reason, 0, 0);
         }
+        log_object_admission_failure_once(reason);
         return None;
     }
 
@@ -1987,16 +2206,19 @@ fn try_prepare_object_replacement_for_selector(
                 0,
             );
         }
+        log_object_admission_failure_once(ObjectDrawRejectReason::MissingReplacementResource);
         return None;
     };
     let Some(native_vertex) =
         engine_contracts::shader_handle_fast(vertex_record.shader, ShaderStage::Vertex)
     else {
+        log_object_admission_failure_once(ObjectDrawRejectReason::HandleStateMismatch);
         return None;
     };
     let Some(native_pixel) =
         engine_contracts::shader_handle_fast(pixel_record.shader, ShaderStage::Pixel)
     else {
+        log_object_admission_failure_once(ObjectDrawRejectReason::HandleStateMismatch);
         return None;
     };
 
@@ -2130,6 +2352,9 @@ fn record_optional_object_bind_failure(
     replacement: Option<PreparedObjectReplacement>,
     reason: ObjectDrawRejectReason,
 ) {
+    // Production mode carries no diagnostics record for these failures, so
+    // the shipped log must still expose the flip class once per reason.
+    log_object_admission_failure_once(reason);
     if let Some(replacement) = replacement {
         record_object_bind_failure(replacement, reason);
     }
@@ -2403,16 +2628,20 @@ fn object_draw_key(
 #[cfg(test)]
 mod tests {
     use super::{
-        CLOSE_TERRAIN_FIRST_PIXEL_INDEX, CLOSE_TERRAIN_PASS_TO_PIXEL_OFFSET, DirectSamplerChange,
-        LAND_LOD_SAMPLERS, PENDING_DRAW_CLOSE_TERRAIN, PENDING_DRAW_LAND_LOD, PENDING_DRAW_OBJECT,
-        PENDING_DRAW_TERRAIN_FADE, TERRAIN_FADE_SAMPLERS, close_terrain_draw,
-        close_terrain_required_sampler_mask, close_terrain_variant, direct_draw_requires_finish,
+        CLOSE_TERRAIN_DRAW_SAMPLES, CLOSE_TERRAIN_FIRST_PIXEL_INDEX,
+        CLOSE_TERRAIN_PASS_TO_PIXEL_OFFSET, DirectSamplerChange, LAND_LOD_SAMPLERS,
+        OBJECT_REJECTION_LOGGED_BITS, PENDING_DRAW_CLOSE_TERRAIN, PENDING_DRAW_LAND_LOD,
+        PENDING_DRAW_OBJECT, PENDING_DRAW_TERRAIN_FADE, TERRAIN_FADE_SAMPLERS, close_terrain_draw,
+        close_terrain_emission_due, close_terrain_required_sampler_mask,
+        close_terrain_sample_index, close_terrain_variant, direct_draw_requires_finish,
         direct_required_sampler_mask, direct_sampler_change, draw_needs_evaluation,
-        hash_light_data, native_shadow_depth_table_indices, object_draw_key, required_sampler_mask,
-        supplemental_shader_transition_needed,
+        hash_light_data, log_object_admission_failure_once, missing_sampler_label_list,
+        native_shadow_depth_table_indices, object_draw_key, record_close_terrain_draw_sample,
+        required_sampler_mask, supplemental_shader_transition_needed,
     };
-    use crate::effects::pbr::engine_contracts::DrawSnapshot;
+    use crate::effects::pbr::engine_contracts::{DrawSnapshot, ObjectDrawRejectReason};
     use crate::effects::pbr::shader_registry::{self, ShaderStage};
+    use std::sync::atomic::Ordering;
 
     #[test]
     fn object_draw_key_ignores_pass_identity() {
@@ -2451,6 +2680,91 @@ mod tests {
     fn terrain_sampler_masks_match_the_native_shader_abi() {
         assert_eq!(required_sampler_mask(LAND_LOD_SAMPLERS), 0x00D3);
         assert_eq!(required_sampler_mask(TERRAIN_FADE_SAMPLERS), 0x0007);
+    }
+
+    #[test]
+    fn missing_sampler_labels_identify_every_required_native_stage() {
+        assert_eq!(
+            missing_sampler_label_list(
+                &[(0, "BaseMap"), (4, "LODParentTex"), (7, "LODLandNoise")],
+                0b1001_0001,
+            ),
+            "s0 BaseMap, s4 LODParentTex, s7 LODLandNoise"
+        );
+        // Bits outside the family table render nothing instead of lying.
+        assert_eq!(
+            missing_sampler_label_list(&[(0, "BaseMap")], (1 << 3) | (1 << 15)),
+            ""
+        );
+    }
+
+    #[test]
+    fn object_admission_failure_logging_is_once_per_reason() {
+        let first = ObjectDrawRejectReason::MissingSampler;
+        let second = ObjectDrawRejectReason::MissingReplacementResource;
+
+        OBJECT_REJECTION_LOGGED_BITS.store(0, Ordering::Release);
+        log_object_admission_failure_once(first);
+        let after_first = OBJECT_REJECTION_LOGGED_BITS.load(Ordering::Acquire);
+        log_object_admission_failure_once(first);
+        assert_eq!(
+            OBJECT_REJECTION_LOGGED_BITS.load(Ordering::Acquire),
+            after_first,
+            "a repeated reason must not re-arm its log line"
+        );
+        log_object_admission_failure_once(second);
+        assert_ne!(
+            OBJECT_REJECTION_LOGGED_BITS.load(Ordering::Acquire),
+            after_first,
+            "a distinct reason must arm its own bit"
+        );
+        OBJECT_REJECTION_LOGGED_BITS.store(0, Ordering::Release);
+    }
+
+    #[test]
+    fn close_terrain_draw_samples_index_all_production_buckets() {
+        for texture_count in 1..=7u32 {
+            for supplemental in [false, true] {
+                for odd_row in [false, true] {
+                    let index = close_terrain_sample_index(texture_count, supplemental, odd_row)
+                        .expect("in-range bucket");
+                    assert!(index < CLOSE_TERRAIN_DRAW_SAMPLES.len());
+                }
+            }
+        }
+        // Out-of-range layer counts are rejected instead of aliasing buckets.
+        assert_eq!(close_terrain_sample_index(0, false, false), None);
+        assert_eq!(close_terrain_sample_index(8, false, false), None);
+    }
+
+    #[test]
+    fn close_terrain_draw_sample_recording_and_emission_gate() {
+        CLOSE_TERRAIN_DRAW_SAMPLES
+            .iter()
+            .for_each(|bucket| bucket.store(0, Ordering::Release));
+        record_close_terrain_draw_sample(3, true, true);
+        record_close_terrain_draw_sample(3, true, true);
+        record_close_terrain_draw_sample(1, false, false);
+
+        let supplemental_odd = close_terrain_sample_index(3, true, true).unwrap();
+        let base_even = close_terrain_sample_index(1, false, false).unwrap();
+        assert_eq!(
+            CLOSE_TERRAIN_DRAW_SAMPLES[supplemental_odd].load(Ordering::Acquire),
+            2
+        );
+        assert_eq!(
+            CLOSE_TERRAIN_DRAW_SAMPLES[base_even].load(Ordering::Acquire),
+            1
+        );
+
+        // Emission fires only on interval boundaries after warmup frames.
+        assert!(!close_terrain_emission_due(0));
+        assert!(!close_terrain_emission_due(599));
+        assert!(close_terrain_emission_due(600));
+
+        CLOSE_TERRAIN_DRAW_SAMPLES
+            .iter()
+            .for_each(|bucket| bucket.store(0, Ordering::Release));
     }
 
     #[test]
