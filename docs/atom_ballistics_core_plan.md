@@ -1098,3 +1098,82 @@ The focused Phase 3 gate has passed. The remaining Phase 3 items harden its
 coverage and do not block the accepted default. Phase 5's material and child
 transition implementation is offline-qualified; bounded runtime acceptance
 evidence remains open.
+
+## 2026-08-24 ricochet helper-contract correction
+
+Status: **root cause proven by construction; fix implemented; runtime
+unverified**.
+
+### Root cause
+
+The 2026-08-24 compatibility work added an admission-time interior-body gate
+over four helpers ricochet calls by fixed address (effective speed
+`0x009669C0`, clearance raycast `0x00458440`, projectile terminate
+`0x009BC8F0`, launch `0x009BCA60`). One encoded window was wrong: launch
+`+0x4D` transcribed `cmp dword [ebp-0xE0], 0x40000` with the immediate's
+bytes reordered (`…FF 00 04 00 00` instead of `…FF 00 00 04 00`). The gate
+therefore failed deterministically in every environment on first run, kept
+the helper flag false, and left ricochet observe-only while Physical Rounds
+stayed active — exactly "ricochet entirely broken" with no other mod
+involved. A foreign in-place patcher was suspected first; that hypothesis is
+withdrawn as unnecessary.
+
+### Change set
+
+1. Both drifted windows were corrected against the authoritative ledger:
+   the launch immediate byte order, and the terminate body window restored
+   to its full recorded 11-byte length at `+0x21`.
+2. A permanent sync-guard test parses the raw-p8 section of
+   `analysis/radare2/output/perf/fnv_ballistics_runtime_helper_contract.txt`
+   and compares every window's address and bytes, so code can never drift
+   from evidence again.
+3. Gate semantics split for durability: admission requires entry readiness
+   only (each target mapped executable memory). Interior-body comparison is
+   now a named diagnostic WARN listing `label @ address` per differing
+   helper; it never disables capability. Ecosystem patchers either hook
+   entries with ABI-preserving jumps or edit instructions in place; both are
+   safe to call through. An ABI-breaking rewrite of these four helpers
+   remains unsupported-by-consequence and is recorded as accepted risk with
+   visibility in `docs/atom_compatibility_contract.md`.
+4. `RicochetAdmission` no longer carries any body-difference input;
+   regression tests pin entries-ready gating and the absence of a body
+   input.
+5. Trace effective-speed sampling follows entry readiness.
+
+Runtime acceptance: one load-to-gameplay replay plus a ricochet smoke test —
+children publish (`published>0` in the requested summary), no helper WARNs
+in a clean install, and Physical Rounds unchanged.
+
+## 2026-08-24 callsite displacement incident
+
+Status: **instrumentation implemented; displacer attribution pending one
+runtime log**.
+
+A runtime session reported both `[INTEGRITY]` displacement WARNs for the
+projectile-launch observation (`0x005245BD`) and the native flight-policy
+observation (`0x009B7D08`) while ricochet was dead. Byte-level displacement
+of exactly those two seams bypasses Atom's launch recording and policy
+override while every other hook keeps working — the reported symptom.
+
+Healthy earlier sessions recorded a foreign launch predecessor
+(`0x10CE11B4` / `0x0A7DE850` trampolines), proving a native aim/fire patcher
+owned that seam *before* Atom there. The displaced session means that writer
+installed or re-asserted its hooks after Atom this time. A Detours-style
+restore-cached-original-then-repatch pass produces precisely this state.
+
+Atom cannot and will not identify, re-overwrite, or patch the other writer.
+The durable response is truth instrumentation plus documented ordering:
+
+1. `CallsiteOwnership::Displaced` now decodes the live `CALL rel32` target;
+   the audit WARN prints it. A vanilla target (`0x009BCA60`,
+   `0x009A7F80`) identifies the blind-restore class; a foreign address
+   identifies another detour.
+2. Every Ballistics detour increments a saturating entry counter. The
+   requested summary prints `Detour entries`; an advancing counter beside a
+   displacement WARN proves chaining (feature alive), a frozen zero proves
+   bypass.
+3. A first ownership audit runs at the end of DeferredInit installation, so
+   comparing it with the post-render audit timestamps the takeover window.
+4. The compatibility contract documents the ordering rule for native
+   launcher/policy patchers: they must load before Atom; remediation for the
+   displaced state is moving that provider above Atom in the load order.

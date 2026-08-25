@@ -12,6 +12,11 @@
 //! uncoordinated launch transformation cannot compose safely. The hip-fire
 //! pose adapter is a separate chained animation-entry capability and changes
 //! only paired group IDs for the admitted live player.
+//!
+//! Detour predecessor fallbacks to vanilla addresses are unreachable by
+//! construction (containers initialize before enabling) and are never an
+//! admission path for replaced helper bodies; admission contracts reject
+//! those before any hook opens.
 
 use core::ffi::c_void;
 use std::sync::LazyLock;
@@ -28,6 +33,7 @@ use libpsycho::os::windows::{
 use thiserror::Error;
 
 use super::{AimAngles, Vec3};
+use crate::integrity;
 
 const PLAYER_HEADING_SLOT: usize = 0x0108_ACF8;
 const CAMERA_PITCH_CALLSITE: usize = 0x0094_AE94;
@@ -345,6 +351,7 @@ pub(super) fn install_movement() -> Result<MovementPredecessors, HookInstallErro
     transaction.enable_inline(&MOVEMENT_SCOPE_HOOK)?;
     transaction.enable_pointer(&PLAYER_MOVEMENT_HOOK)?;
     transaction.commit();
+    integrity::register_inline("Atom player movement scope", &MOVEMENT_SCOPE_HOOK);
     Ok(predecessors)
 }
 
@@ -418,6 +425,7 @@ pub(super) fn install_hip_fire_pose() -> Result<usize, HookInstallError> {
     let mut transaction = ModificationTransaction::new();
     transaction.enable_inline(&HIP_FIRE_POSE_HOOK)?;
     transaction.commit();
+    integrity::register_inline("Atom third-person hip-fire pose", &HIP_FIRE_POSE_HOOK);
     Ok(predecessor)
 }
 
@@ -576,9 +584,14 @@ unsafe extern "thiscall" fn motion_position_detour(camera: *mut c_void, position
         unsafe { predecessor(camera, position) };
         return;
     };
-    let Some(resolved) =
-        super::presentation::resolve_motion_endpoint(native_position, motion, clearance)
-    else {
+    // Recovery memory rate-limits re-expansion after a clipped frame so a
+    // grazing obstruction clearing cannot step the presented position.
+    let Some(resolved) = super::presentation::resolve_motion_endpoint_with_recovery(
+        native_position,
+        motion,
+        clearance,
+        unsafe { super::native::seconds_passed() },
+    ) else {
         unsafe { predecessor(camera, position) };
         return;
     };

@@ -47,6 +47,15 @@ use motion::MotionGenerator;
 
 const EXTERNAL_OWNER_CAPACITY: usize = 8;
 const MAX_DT: f32 = 0.1;
+/// World-validity gaps shorter than this never release an owned epoch.
+///
+/// Rough terrain transiently removes the mover, collision owner, controller,
+/// or active 3D for isolated frames while nothing observable takes the
+/// third-person view. Releasing on the first such frame discarded the whole
+/// spatial composition and snapped the camera by the current axial follow
+/// delta; the retained-scope machinery already publishes that composition
+/// across gap frames, so ownership only needs to survive with it.
+const WORLD_GAP_RELEASE_SECONDS: f32 = 0.25;
 const MAX_VIEW_PITCH: f32 = 1.553_343;
 const NATIVE_HANDOFF_SETTLE_SECONDS: f32 = 0.15;
 const COMBAT_GRACE_SECONDS: f32 = 0.65;
@@ -433,6 +442,147 @@ impl NativeHandoffGuard {
     }
 }
 
+/// Result of one world-validity observation while an epoch is owned.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum WorldGapDecision {
+    /// This frame was fully valid; no gap is accumulating.
+    Clear,
+    /// The frame was invalid but the gap has not outlived its budget; keep
+    /// the epoch and publish last-complete spatial output.
+    Hold,
+    /// The gap outlived [`WORLD_GAP_RELEASE_SECONDS`]; release the epoch.
+    ReleasePersisted,
+}
+
+/// Persistence gate for world-validity gaps during an owned epoch.
+///
+/// Genuine visible owners (VATS, menus, TFC, death, external tokens) are
+/// decided before this guard runs and release immediately regardless of its
+/// state. Only bare capability-input gaps — missing mover, process,
+/// collision owner, active 3D, action frame, or non-finite sampled values —
+/// accumulate here.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct WorldGapGuard {
+    held_seconds: f32,
+}
+
+impl WorldGapGuard {
+    /// Construct a guard with no accumulated gap time.
+    pub const fn new() -> Self {
+        Self { held_seconds: 0.0 }
+    }
+
+    /// Discard all accumulated gap time.
+    pub fn reset(&mut self) {
+        self.held_seconds = 0.0;
+    }
+
+    /// Classify one owned-epoch frame against the world-gap budget.
+    ///
+    /// `owner_active` short-circuits to a clean state: genuine owners decide
+    /// the epoch elsewhere and must never inherit stale accumulation. Time
+    /// advances only on fresh input frames so repeated native callers within
+    /// one input frame cannot double-count.
+    pub fn advance(
+        &mut self,
+        owned: bool,
+        owner_active: bool,
+        world_valid: bool,
+        delta_seconds: f32,
+    ) -> WorldGapDecision {
+        if !owned
+            || owner_active
+            || world_valid
+            || !delta_seconds.is_finite()
+            || delta_seconds < 0.0
+        {
+            self.reset();
+            return WorldGapDecision::Clear;
+        }
+        let bounded_delta = bounded_delta(delta_seconds);
+        self.held_seconds = (self.held_seconds + bounded_delta).min(WORLD_GAP_RELEASE_SECONDS);
+        if self.held_seconds >= WORLD_GAP_RELEASE_SECONDS {
+            WorldGapDecision::ReleasePersisted
+        } else {
+            WorldGapDecision::Hold
+        }
+    }
+}
+
+/// Decision for one observed parent-cell token change.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum CellObservation {
+    /// The swap is a continuous exterior-grid crossing or equivalent
+    /// relocation of the same player under clear ownership; adopt the token
+    /// and keep the epoch, springs, and retained composition alive.
+    Adopt(u32),
+    /// Anything else (load, player swap, owner takeover, zero token): revoke
+    /// exactly as before.
+    Revoke,
+}
+
+/// Decide whether an observed parent-cell change preserves ownership.
+///
+/// Walking across an exterior grid boundary swaps the player's parent-cell
+/// pointer continuously. Revoking on that swap discarded the follow solver
+/// mid-stride and snapped the camera at every border crossing, so adoption
+/// requires the full continuity contract instead: same player, stable third
+/// person, every owner predicate clear, and both tokens non-zero.
+pub fn resolve_cell_observation(
+    previous_cell: u32,
+    observed_cell: u32,
+    owned_or_acquiring: bool,
+    stable_third_person: bool,
+    owner_clear: bool,
+    player_unchanged: bool,
+) -> CellObservation {
+    let different = previous_cell != 0 && observed_cell != 0 && previous_cell != observed_cell;
+    if different && owned_or_acquiring && stable_third_person && owner_clear && player_unchanged {
+        CellObservation::Adopt(observed_cell)
+    } else {
+        CellObservation::Revoke
+    }
+}
+
+/// Axial magnitude of a follow offset in game units.
+///
+/// This is the same view-axis projection `axial_follow_offset` publishes, so
+/// the recorded release drop equals the chase-distance delta that was live
+/// when the epoch released. A non-finite offset or a degenerate view axis
+/// records nothing instead of inventing a magnitude.
+fn dropped_axial_units(offset: Vec3, view_yaw: f32, view_pitch: f32) -> Option<f32> {
+    if !offset.is_finite() {
+        return None;
+    }
+    let axis = view_direction(view_yaw, view_pitch)?;
+    let projected = offset
+        .x
+        .mul_add(axis.x, offset.y.mul_add(axis.y, offset.z * axis.z));
+    projected.is_finite().then_some(projected.abs())
+}
+
+/// Record one owned-epoch release before its temporal state is discarded.
+fn mark_release_from(
+    previous: OwnershipState,
+    class: Option<diagnostics::ReleaseClass>,
+    state: &RuntimeState,
+) {
+    let Some(class) = class else {
+        return;
+    };
+    if !previous.is_owned() {
+        return;
+    }
+    let Some(dropped) = dropped_axial_units(
+        state.retained_follow_offset,
+        state.view_yaw,
+        state.view_pitch,
+    ) else {
+        return;
+    };
+    diagnostics::mark_release(class, dropped);
+}
+
 /// Advance finite logical camera pitch within FNV's established view limit.
 pub fn advance_logical_pitch(current: f32, delta: f32) -> Option<f32> {
     (current.is_finite() && delta.is_finite())
@@ -766,6 +916,13 @@ pub(crate) fn log_diagnostics_summary() {
         snapshot.pitch_holds,
         snapshot.recenter_suppressions,
         snapshot.recenter_starts,
+    );
+    log::info!(
+        "[CAMERA_TELEMETRY] Third-person releases: owner={}, world_gap_persisted={}, identity_swap={}, max_dropped_follow={:.3}",
+        snapshot.releases_owner,
+        snapshot.releases_world_gap,
+        snapshot.releases_identity,
+        f32::from_bits(snapshot.max_release_drop_bits),
     );
     if let Some((state, epoch, frame_id)) = runtime {
         log::info!(
@@ -1625,6 +1782,10 @@ pub(crate) fn leave_camera_update_scope(scope: CameraUpdateScope) {
     }
 }
 
+// Eight parameters mirror the immutable scope identity the native callbacks
+// publish; splitting them into structs would obscure the per-field atomic
+// publication this module documents.
+#[allow(clippy::too_many_arguments)]
 fn activate_retained_view_scope(
     player: *mut c_void,
     pitch: f32,
@@ -2515,6 +2676,7 @@ impl RecenterIntent {
 struct RuntimeState {
     ownership: OwnershipMachine,
     native_handoff: NativeHandoffGuard,
+    world_gap: WorldGapGuard,
     heading_handoff_required: bool,
     heading_continuity: HeadingContinuity,
     combat_presentation: CombatPresentation,
@@ -2556,6 +2718,7 @@ impl RuntimeState {
         Self {
             ownership: OwnershipMachine::new(),
             native_handoff: NativeHandoffGuard::new(),
+            world_gap: WorldGapGuard::new(),
             heading_handoff_required: true,
             heading_continuity: HeadingContinuity::new(),
             combat_presentation: CombatPresentation::new(),
@@ -2604,6 +2767,7 @@ impl RuntimeState {
 
     fn reset(&mut self) {
         *self = Self::new();
+        presentation::reset_recovery();
     }
 
     fn clear_hip_fire_pose(&mut self) {
@@ -2713,6 +2877,7 @@ impl RuntimeState {
 
     fn clear_temporal(&mut self) {
         clear_zoom_residual();
+        presentation::reset_recovery();
         self.follow = FollowSolver::new();
         self.heading_continuity = HeadingContinuity::new();
         self.combat_presentation.reset();
@@ -2745,6 +2910,7 @@ impl RuntimeState {
 
     fn clear_temporal_after_follow_seed(&mut self) {
         clear_zoom_residual();
+        presentation::reset_recovery();
         self.last_camera_frame = 0;
         self.heading_continuity = HeadingContinuity::new();
         self.combat_presentation.reset();
@@ -2892,6 +3058,24 @@ impl RuntimeState {
         let player_word = pointer_word(frame.player);
         let observed_cell = pointer_word(frame.cell);
         let proven_view_owner = frame.rejection.owns_heading() || external_owner || fighting_owner;
+        // Continuous exterior-grid crossings swap the parent-cell token while
+        // every owner predicate stays clear. Adopting that swap keeps the
+        // follow solver and retained composition alive across the border;
+        // loads, player swaps, and owner takeovers still revoke below.
+        match resolve_cell_observation(
+            self.cell,
+            observed_cell,
+            self.ownership.state().is_owned() || self.ownership.state() == OwnershipState::Acquire,
+            frame.stable_third_person,
+            !proven_view_owner,
+            self.player == player_word && player_word != 0,
+        ) {
+            CellObservation::Adopt(cell) => {
+                self.cell = cell;
+                self.ownership.adopt_cell(cell);
+            }
+            CellObservation::Revoke => {}
+        }
         // A missing capability pointer is not evidence that another camera
         // owner took the view. Retain the established player/cell epoch while
         // stable third person still identifies the same player. Capability
@@ -2910,7 +3094,21 @@ impl RuntimeState {
         } else {
             0
         };
-        let ownership_world_ready = frame.world_ready || retained_view_identity;
+        // World-validity gaps never prove a visible owner. Holding the epoch
+        // across short gaps keeps the retained composition continuous; the
+        // guard defers to genuine owners and releases once a gap persists.
+        let gap_decision = self.world_gap.advance(
+            self.ownership.state().is_owned(),
+            proven_view_owner,
+            frame.world_valid,
+            if frame_advanced {
+                bounded_delta(frame.delta_seconds)
+            } else {
+                0.0
+            },
+        );
+        let ownership_world_ready =
+            frame.world_ready || retained_view_identity || gap_decision == WorldGapDecision::Hold;
         let native_state_clear = enabled
             && frame.stable_third_person
             && player_word != 0
@@ -2925,6 +3123,15 @@ impl RuntimeState {
             .native_handoff
             .advance(native_state_clear, handoff_delta);
         let native_owner = proven_view_owner || !handoff_ready;
+        let release_kind = if proven_view_owner {
+            Some(diagnostics::ReleaseClass::OwnerPredicate)
+        } else if self.player != player_word || (observed_cell != 0 && self.cell != observed_cell) {
+            Some(diagnostics::ReleaseClass::IdentitySwap)
+        } else if gap_decision == WorldGapDecision::ReleasePersisted {
+            Some(diagnostics::ReleaseClass::WorldGapPersisted)
+        } else {
+            None
+        };
         let input = OwnershipInput::new(
             enabled,
             frame.stable_third_person,
@@ -2945,6 +3152,7 @@ impl RuntimeState {
                 self.combat_presentation = combat_presentation;
                 self.hip_fire_presentation = hip_fire_presentation;
             } else if transition.current() == OwnershipState::Release {
+                mark_release_from(transition.previous(), release_kind, &*self);
                 self.native_handoff.reset();
                 self.clear_temporal();
             }
@@ -2956,6 +3164,11 @@ impl RuntimeState {
             // Loading can swap the player or parent cell between native calls
             // that share an input-frame id. Revoke immediately instead of
             // waiting for the next normal classifier advance.
+            mark_release_from(
+                self.ownership.state(),
+                release_kind.or(Some(diagnostics::ReleaseClass::IdentitySwap)),
+                self,
+            );
             self.ownership.force_release();
             self.native_handoff.reset();
             self.clear_temporal();
@@ -3608,6 +3821,7 @@ mod tests {
             delta_seconds: dt,
             stable_third_person: true,
             world_ready: true,
+            world_valid: true,
             native_owner: false,
             hard_valid: true,
             rejection: native::NativeRejection::Accepted,
@@ -3741,5 +3955,158 @@ mod tests {
         assert_eq!(quarter_turn.z, 3.0);
 
         assert!(camera_motion_to_world(local, f32::NAN).is_none());
+    }
+
+    #[test]
+    fn short_world_gaps_hold_the_owned_epoch_and_persisted_gaps_release() {
+        let mut guard = super::WorldGapGuard::new();
+        let step = super::WORLD_GAP_RELEASE_SECONDS / 4.0;
+
+        // Isolated invalid frames hold; any valid frame clears the budget.
+        for _ in 0..3 {
+            assert_eq!(
+                guard.advance(true, false, false, step),
+                super::WorldGapDecision::Hold
+            );
+        }
+        assert_eq!(
+            guard.advance(true, false, true, step),
+            super::WorldGapDecision::Clear
+        );
+        // The cleared budget must not carry toward a later release.
+        for _ in 0..3 {
+            assert_eq!(
+                guard.advance(true, false, false, step),
+                super::WorldGapDecision::Hold
+            );
+        }
+        assert_eq!(
+            guard.advance(true, false, false, step * 2.0),
+            super::WorldGapDecision::ReleasePersisted
+        );
+    }
+
+    #[test]
+    fn world_gap_holds_are_frame_partition_invariant_and_owner_scoped() {
+        let mut single = super::WorldGapGuard::new();
+        let split = super::WorldGapGuard::new();
+        let mut split = split;
+        let total = super::WORLD_GAP_RELEASE_SECONDS - 0.05;
+
+        assert_eq!(
+            single.advance(true, false, false, total),
+            super::WorldGapDecision::Hold
+        );
+        let half = total / 2.0;
+        assert_eq!(
+            split.advance(true, false, false, half),
+            super::WorldGapDecision::Hold
+        );
+        // A zero interval contributes no time: refresh passes zero for native
+        // callers that share an already-counted input frame.
+        assert_eq!(
+            split.advance(true, false, false, 0.0),
+            super::WorldGapDecision::Hold
+        );
+        assert_eq!(
+            split.advance(true, false, false, half),
+            super::WorldGapDecision::Hold
+        );
+        // Crossing the budget releases exactly once the sum reaches it.
+        assert_eq!(
+            split.advance(true, false, false, 0.06),
+            super::WorldGapDecision::ReleasePersisted
+        );
+
+        // A genuine owner short-circuits accumulation entirely.
+        assert_eq!(
+            single.advance(true, true, false, total),
+            super::WorldGapDecision::Clear
+        );
+        assert_eq!(
+            single.advance(true, false, false, 0.01),
+            super::WorldGapDecision::Hold
+        );
+    }
+
+    #[test]
+    fn unowned_and_invalid_time_never_accumulate_gap_credit() {
+        let mut guard = super::WorldGapGuard::new();
+        assert_eq!(
+            guard.advance(false, false, false, super::WORLD_GAP_RELEASE_SECONDS),
+            super::WorldGapDecision::Clear
+        );
+        assert_eq!(
+            guard.advance(true, false, false, f32::NAN),
+            super::WorldGapDecision::Clear
+        );
+        assert_eq!(
+            guard.advance(true, false, false, -1.0),
+            super::WorldGapDecision::Clear
+        );
+        // Zero-delta samples preserve an incomplete gap like the handoff guard.
+        assert_eq!(
+            guard.advance(true, false, false, 0.0),
+            super::WorldGapDecision::Hold
+        );
+    }
+
+    #[test]
+    fn cell_adoption_requires_full_continuity() {
+        use super::{CellObservation, resolve_cell_observation};
+        const A: u32 = 0x30_0000;
+        const B: u32 = 0x31_0000;
+
+        let continuity = |observed, owned, stable, owner_clear, same_player| {
+            resolve_cell_observation(A, observed, owned, stable, owner_clear, same_player)
+        };
+
+        assert_eq!(
+            continuity(B, true, true, true, true),
+            CellObservation::Adopt(B)
+        );
+        // Any broken contract revokes exactly as before.
+        assert_eq!(
+            continuity(B, false, true, true, true),
+            CellObservation::Revoke
+        );
+        assert_eq!(
+            continuity(B, true, false, true, true),
+            CellObservation::Revoke
+        );
+        assert_eq!(
+            continuity(B, true, true, false, true),
+            CellObservation::Revoke
+        );
+        assert_eq!(
+            continuity(B, true, true, true, false),
+            CellObservation::Revoke
+        );
+        // Equal tokens and zero tokens are never adoptions.
+        assert_eq!(
+            continuity(A, true, true, true, true),
+            CellObservation::Revoke
+        );
+        assert_eq!(
+            continuity(0, true, true, true, true),
+            CellObservation::Revoke
+        );
+    }
+
+    #[test]
+    fn release_drop_measures_only_the_live_axial_composition() {
+        use super::dropped_axial_units;
+        let offset = Vec3::new(0.0, -6.5, 1.25);
+        let dropped = dropped_axial_units(offset, 0.0, 0.0).expect("finite view axis");
+        assert!((dropped - 6.5).abs() < 0.000_1);
+
+        // Sideways composition is not chase distance and must not count.
+        let sideways = Vec3::new(9.0, 0.0, 0.0);
+        assert_eq!(dropped_axial_units(sideways, 0.0, 0.0), Some(0.0));
+
+        assert_eq!(
+            dropped_axial_units(Vec3::new(f32::NAN, 0.0, 0.0), 0.0, 0.0),
+            None
+        );
     }
 }

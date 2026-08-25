@@ -5,6 +5,13 @@
 //! allowing a compatible earlier hook owner to remain the typed predecessor.
 //! Every callsite, entry trampoline, and pointer-slot write is committed as one
 //! rollback-capable transaction.
+//!
+//! Detours fall back to transmuted vanilla addresses when their container's
+//! captured predecessor is somehow unavailable. That path is unreachable by
+//! construction: containers are initialized before the transaction that can
+//! enable them, and a detour only executes while its hook is enabled. The
+//! fallbacks exist because Rust requires a value; they are never an admission
+//! path for a replaced helper body, which admission-time contracts reject.
 
 use core::ffi::c_void;
 use core::sync::atomic::{AtomicI32, Ordering};
@@ -25,6 +32,7 @@ use super::mouse::{MouseAxis, MouseHeadingInput, MouseTransform};
 use super::{
     buffered, capture_native_sample, controller_transform_active, mouse_config, native, telemetry,
 };
+use crate::integrity;
 
 const SAMPLE_CALLSITE: usize = 0x0086_F39E;
 const MOUSE_X_CALLSITE: usize = 0x0094_5995;
@@ -263,7 +271,17 @@ pub(super) fn install() -> Result<HookPredecessors, HookInstallError> {
     transaction.enable_pointer(buffered::hook())?;
     transaction.enable_inline(&BOUND_ACTION_HOOK)?;
     transaction.commit();
+    register_audits();
     Ok(predecessors)
+}
+
+/// Register every committed input inline entry for post-activation audits.
+///
+/// Direct callsites and pointer slots are intentionally not byte-audited;
+/// their health is behavioral (the actions they feed) rather than
+/// byte-ownership.
+fn register_audits() {
+    integrity::register_inline("Atom buffered bound-action bridge", &BOUND_ACTION_HOOK);
 }
 
 fn validate_fingerprints() -> Result<(), HookInstallError> {

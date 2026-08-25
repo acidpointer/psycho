@@ -1,0 +1,94 @@
+# FNV Ballistics runtime-helper contract evidence
+
+Executable: FalloutNV.exe 1.4.0.525
+SHA-256: 42fee7d6cd74e801372aa89c8f71c974cebd3c20ec9ad43d1465b8fa9646b49c
+Tool: radare2 CLI (`r2 -q -c "s <va>; pd N" fnv_reverse/FalloutNV.exe`, raw via `p8`)
+Date: 2026-08-24
+
+Purpose: admission-time interior-body and epilogue fingerprints for the four
+helper functions Atom calls directly at runtime (effective speed, Havok world
+raycast, projectile termination, canonical projectile launch used by ricochet
+children). Fingerprints deliberately start beyond offset +0x09 so a compatible
+earlier owner's complete entry JMP/E9 patch does not reject the function;
+interior instructions prove the supported body regardless of who owns the
+mutable entry bytes.
+
+## Effective speed 0x009669C0
+
+Small thiscall helper. Reads runtime power [ecx+0xCC] and speed multiplier
+[ecx+0xD0], matches the documented MissileProjectile layout. Ends `ret` at
+0x009669FF.
+
+Body window @+0x14 (0x009669D4):
+  mov ecx,[ebp-4]; push ecx; fld dword [ecx+0xCC]; fstp dword [esp]
+  bytes: 8b 4d fc 51 d9 81 cc 00 00 00 d9 1c 24
+
+Epilogue @+0x39 (0x009669F9):
+  add esp,0xc; mov esp,ebp; pop ebp; ret
+  bytes: 83 c4 0c 8b e5 5d c3
+
+## Havok raycast wrapper 0x00458440
+
+thiscall(tes, RayCastData*, u32) -> hit*. Layer/group handling and the
+[ecx+8] world access visible below match the ricochet clearance usage.
+
+Body window A @+0x09 (0x00458449):
+  movzx eax, byte [ebp+0xc]; test eax, eax
+  bytes: 0f b6 45 0c 85 c0
+
+Body window B @+0x22 (0x00458462):
+  mov ecx, 0x11c63cc; call 0x43d4d0
+  bytes: b9 cc 63 1c 01 e8 64 50 fe ff
+
+Epilogue @+0x81 (0x004584C1):
+  mov esp,ebp; pop ebp; ret 8
+  bytes: 8b e5 5d c2 08 00
+
+## Projectile terminate 0x009BC8F0
+
+thiscall(projectile). Touches impact list at +0x88 (matches audited layout)
+and ends with a virtual destructor dispatch through [eax+0xC4]. Ends
+`ret` at 0x009BCA5F immediately before launch 0x009BCA60.
+
+Body window A @+0x21 (0x009BC911):
+  add ecx,0x88; call 0x8256d0
+  bytes: 81 c1 88 00 00 00 e8 b4 8d e6 ff
+
+Body window B @+0x15A (0x009BCA4A):
+  mov edx,[eax+0xC4]; call edx
+  bytes: 8b 90 c4 00 00 00 ff d2
+
+Epilogue @+0x16C (0x009BCA5C):
+  mov esp,ebp; pop ebp; ret
+  bytes: 8b e5 5d c3
+
+## Canonical projectile launch 0x009BCA60
+
+cdecl 14-argument ranged-launch ABI (established contract). SEH frame with
+fs:[0] chain setup; type-dispatch switch on the derived projectile kind.
+
+Body window A @+0x2A (0x009BCA8A):
+  mov dword [ebp-0x14],0; mov byte [ebp-0xd],1
+  bytes: c7 45 ec 00 00 00 00 c6 45 f3 01
+
+Body window B @+0x4D (0x009BCAAD):
+  cmp dword [ebp-0xe0],0x40000
+  bytes: 81 bd 20 ff ff ff 00 04 00 00
+
+Epilogue @+0xAC3 (0x009BD523):
+  mov dword fs:[0],ecx; pop ecx; pop edi; pop esi; mov esp,ebp; pop ebp; ret
+  bytes: 64 89 0d 00 00 00 00 59 5f 5e 8b e5 5d c3
+
+## Raw p8 dumps (authoritative)
+
+0x009669D4 len 13: 8b4dfc51d981cc000000d91c24
+0x009669F9 len 07: 83c40c8be55dc3
+0x00458449 len 06: 0fb6450c85c0
+0x00458462 len 10: b9cc631c01e86450feff
+0x004584C1 len 06: 8be55dc20800
+0x009BC911 len 11: 81c188000000e8b48de6ff
+0x009BCA4A len 08: 8b90c4000000ffd2
+0x009BCA5C len 04: 8be55dc3
+0x009BCA8A len 11: c745ec00000000c645f301
+0x009BCAAD len 10: 81bd20ffffff00000400
+0x009BD523 len 14: 64890d00000000595f5e8be55dc3

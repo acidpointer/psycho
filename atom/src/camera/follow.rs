@@ -2,8 +2,10 @@
 //!
 //! The solver follows the player's logical transform, never an animated
 //! skeleton node. Dead/soft zones shape the target, horizontal logical
-//! velocity contributes bounded lookahead, and an analytic critically damped
-//! spring advances the result without fixed-frame interpolation.
+//! velocity contributes bounded lookahead, and a velocity feed-forward
+//! cancels the moving-target tracking lag, so constant actor speed produces
+//! zero steady-state chase-distance error instead of a speed-proportional
+//! contraction.
 
 use core::ops::{Add, AddAssign, Mul, Sub};
 
@@ -12,6 +14,18 @@ use super::third_person::ThirdPersonConfig;
 const MAX_STEP_SECONDS: f32 = 0.1;
 const TELEPORT_DISTANCE: f32 = 512.0;
 const VELOCITY_FILTER_RATE: f32 = 8.0;
+/// Faster than the pivot filter because the shaped command is already smooth
+/// and must brake with the command during stops; a slow estimate here would
+/// keep feeding forward after the command stopped and overshoot the camera.
+const COMMAND_FILTER_RATE: f32 = 20.0;
+/// Physical ceiling for the shaped-command velocity observation.
+///
+/// Legitimate locomotion stays far below this, so the bound never engages in
+/// normal play. It exists because one observed sample is weighted heavily by
+/// the fast command filter: an unobserved script displacement or physics
+/// shove divided by a short frame time would otherwise become a feed-forward
+/// shift of hundreds of units for a few frames.
+const MAX_COMMAND_SPEED: f32 = 450.0;
 
 /// Three-component FNV vector used for world positions and local directions.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
@@ -155,12 +169,24 @@ impl SpringAxis {
 }
 
 /// Fixed-size follow target and spring state for one ownership epoch.
+///
+/// An absolute critically damped spring tracking a moving target settles at
+/// a `2 * speed / rate` lag behind it. At sprint speed that previously became
+/// a ~50 unit chase-distance contraction. The solver therefore feeds the
+/// filtered shaped-target velocity forward into the spring target
+/// (`2 * v / rate`), which cancels that steady-state error exactly while
+/// keeping the absolute spring's low-pass smoothing of seed frames,
+/// frozen-presentation gaps, and abrupt zone transitions. Deriving the
+/// feed-forward from the shaped command instead of the raw pivot makes the
+/// compensation brake with the command, avoiding a deceleration overshoot.
 #[derive(Clone, Copy, Debug)]
 pub struct FollowSolver {
     target: Vec3,
     position: Vec3,
     velocity: Vec3,
     filtered_velocity: Vec3,
+    filtered_command_velocity: Vec3,
+    previous_desired: Vec3,
     last_pivot: Vec3,
     initialized: bool,
 }
@@ -173,6 +199,8 @@ impl FollowSolver {
             position: Vec3::new(0.0, 0.0, 0.0),
             velocity: Vec3::new(0.0, 0.0, 0.0),
             filtered_velocity: Vec3::new(0.0, 0.0, 0.0),
+            filtered_command_velocity: Vec3::new(0.0, 0.0, 0.0),
+            previous_desired: Vec3::new(0.0, 0.0, 0.0),
             last_pivot: Vec3::new(0.0, 0.0, 0.0),
             initialized: false,
         }
@@ -194,6 +222,10 @@ impl FollowSolver {
         self.position = pivot;
         self.velocity = Vec3::default();
         self.filtered_velocity = Vec3::default();
+        // The first post-seed desired equals the seed pivot, so seeding the
+        // command history here yields a zero first-frame command velocity.
+        self.filtered_command_velocity = Vec3::default();
+        self.previous_desired = pivot;
         self.last_pivot = pivot;
         self.initialized = true;
     }
@@ -206,6 +238,14 @@ impl FollowSolver {
     /// explicitly resets the solver when a real world discontinuity occurs.
     /// Long finite frames use their real elapsed time for velocity observation
     /// while bounding only spring integration.
+    ///
+    /// The spring target is shifted forward by the filtered shaped-command
+    /// velocity times `2 / rate`. That feed-forward is itself low-passed, so
+    /// constant actor speed settles with zero chase-distance error while seed
+    /// frames, frozen-presentation gaps, and zone transitions remain smoothed
+    /// by the unchanged absolute spring dynamics. Because the command stops
+    /// advancing the moment its shaping terms stop changing, the compensation
+    /// brakes with the command instead of overshooting on deceleration.
     pub fn advance(
         &mut self,
         pivot: Vec3,
@@ -254,19 +294,45 @@ impl FollowSolver {
         let speed = horizontal_velocity.horizontal_length();
         let lookahead_distance = (speed * 0.08).min(config.look_ahead());
         let desired = self.target + horizontal_velocity.normalized() * lookahead_distance;
+        if !desired.is_finite() {
+            // Hold the last finite solution instead of letting a non-finite
+            // command poison the feed-forward state or the spring.
+            return self.position;
+        }
+
+        // Track the shaped command's own velocity. Zone corrections and
+        // lookahead changes are part of the command, so this observes braking
+        // and turning earlier than the pivot velocity alone would.
+        let mut command_velocity = (desired - self.previous_desired) * dt.recip();
+        let command_speed = command_velocity.horizontal_length();
+        if command_speed > MAX_COMMAND_SPEED {
+            command_velocity = command_velocity * (MAX_COMMAND_SPEED / command_speed);
+        }
+        self.previous_desired = desired;
+        let command_alpha = 1.0 - (-COMMAND_FILTER_RATE * step_seconds).exp();
+        self.filtered_command_velocity +=
+            (command_velocity - self.filtered_command_velocity) * command_alpha;
+        self.filtered_command_velocity.z = 0.0;
+
+        // Cancel the critically damped ramp-tracking error. The filtered
+        // command velocity keeps this shift continuous through starts, stops,
+        // and direction changes, so it never becomes a step input of its own.
+        let lag_feed_forward = 2.0 / config.follow_speed();
+        let desired_x = desired.x + self.filtered_command_velocity.x * lag_feed_forward;
+        let desired_y = desired.y + self.filtered_command_velocity.y * lag_feed_forward;
 
         let horizontal_rate = config.follow_speed();
         self.position.x = spring_step(
             self.position.x,
             &mut self.velocity.x,
-            desired.x,
+            desired_x,
             horizontal_rate,
             step_seconds,
         );
         self.position.y = spring_step(
             self.position.y,
             &mut self.velocity.y,
-            desired.y,
+            desired_y,
             horizontal_rate,
             step_seconds,
         );
@@ -298,17 +364,68 @@ fn zone_correction(value: f32, soft_radius: f32) -> f32 {
     }
     let sign = value.signum();
     if magnitude >= soft_radius {
-        return value - sign * soft_radius;
+        // Pin the residual at the same `dead_radius` the soft band converges
+        // to, so the shaped target is continuous across the band boundary.
+        // Clamping to `soft_radius` here instead produced a one-frame target
+        // step of `soft - dead` whenever locomotion crossed the boundary.
+        return value - sign * dead_radius;
     }
     let t = (magnitude - dead_radius) / (soft_radius - dead_radius);
     let smooth = t * t * (3.0 - 2.0 * t);
     sign * (magnitude - dead_radius) * smooth
 }
 
+/// Advance one critically damped spring axis toward its target.
 fn spring_step(position: f32, velocity: &mut f32, target: f32, rate: f32, dt: f32) -> f32 {
     let error = position - target;
     let c = *velocity + rate * error;
     let decay = (-rate * dt).exp();
     *velocity = (*velocity - rate * c * dt) * decay;
     target + (error + c * dt) * decay
+}
+
+#[cfg(test)]
+mod tests {
+    use super::zone_correction;
+
+    #[test]
+    fn zone_shaping_is_continuous_and_clamps_to_the_band_exit_residual() {
+        let soft_radius = 12.0;
+        let dead_radius = soft_radius * 0.35;
+
+        // Sweep through the dead edge, the whole soft band, and well past the
+        // clamp boundary. Adjacent samples must stay close: a discontinuity
+        // here becomes a one-frame follow-target step during locomotion.
+        let mut previous = 0.0_f32;
+        for step in 0..=4000 {
+            let magnitude = step as f32 * 0.01;
+            let correction = zone_correction(magnitude, soft_radius);
+            if step > 0 {
+                assert!(
+                    (correction - previous).abs() < 0.02,
+                    "zone correction jumped {:+.4} between displacements {:.2} and {:.2}",
+                    correction - previous,
+                    magnitude - 0.01,
+                    magnitude
+                );
+            }
+            previous = correction;
+        }
+
+        // The clamp must hold the same residual the band converges to.
+        let band_exit_magnitude = soft_radius - f32::EPSILON;
+        let band_exit_residual =
+            band_exit_magnitude - zone_correction(band_exit_magnitude, soft_radius).abs();
+        let clamped_magnitude = soft_radius + 40.0;
+        let clamped_residual =
+            clamped_magnitude - zone_correction(clamped_magnitude, soft_radius).abs();
+        assert!((band_exit_residual - dead_radius).abs() < 1.0);
+        assert!(
+            (clamped_residual - dead_radius).abs() < 1.0,
+            "clamped residual {clamped_residual:.2} does not match the band exit {dead_radius:.2}"
+        );
+
+        // Inside the dead zone the target is never corrected.
+        assert_eq!(zone_correction(dead_radius, soft_radius), 0.0);
+    }
 }

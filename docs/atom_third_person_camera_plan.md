@@ -2109,3 +2109,64 @@ Static acceptance requires the focused Atom suite, the supported release build,
 unchanged pre-DeferredInit import/TLS footprint, and a clean scoped diff. The
 Proton obstruction, clutter, frame-pacing, ownership, and cold-start rows remain
 the behavioral release gate.
+
+## 2026-08-24 epoch-flapping correction
+
+Status: **implemented from static evidence and code-trace proof; runtime
+unverified**. Travel pops are reduced but not eliminated on installed
+candidates; this section documents the remaining mechanism and its fix. No
+runtime result is claimed.
+
+### Root cause
+
+The follow solver, zone shaping, retained-scope publication, and post-solve
+motion are all continuous. The residual instant position changes come from
+ownership-epoch flapping. `OwnershipMachine::advance` releases on the first
+frame whose input is ineligible, and `clear_temporal` then discards the follow
+solver *and* every retained offset. That frame's camera scope never activates,
+so `scoped_follow_offset` returns none and the follow detour chains the native
+desired endpoint unchanged: the camera steps instantly by the full live axial
+delta (lookahead plus zone residual plus spring deflection, routinely more
+than ten units). Reacquisition requires 0.15 seconds of continuous clean
+state and re-seeds the solver at zero offset, so each flap is one hard step
+followed by a rigid interval and a soft ramp.
+
+Three trigger classes fire during ordinary travel:
+
+1. World-validity gaps: a single frame with a missing mover, process,
+   collision owner, active 3D, action frame, or non-finite sampled value.
+   Rough terrain produces these routinely; the retained-view scope already
+   publishes last-complete output for such frames but only while ownership
+   survives, which it did not.
+2. Parent-cell swaps at exterior grid borders revoke immediately even though
+   the crossing is continuous movement with clear owners.
+3. Per-frame flicker of owner predicates (per-mod disabled-control bits,
+   non-gameplay action context) releases exactly like real owners.
+
+### Change set
+
+1. `NativeFrame.world_valid` separates capability-input validity from owner
+   evidence. A new fixed `WorldGapGuard` holds an owned epoch across invalid
+   frames for up to 0.25 seconds of accumulated gameplay time; genuine owners
+   short-circuit the guard and release immediately as before. Held frames
+   keep publishing through the existing retained-scope machinery.
+2. `resolve_cell_observation` adopts a parent-cell swap only under the full
+   continuity contract (same player word, stable third person, all owner
+   predicates clear, both tokens non-zero); adoption updates the stored token
+   via `OwnershipMachine::adopt_cell` without an ownership boundary.
+   Loads, player swaps, and owner takeovers revoke exactly as before.
+3. Every owned-epoch release now records its class (owner predicate /
+   persisted world gap / identity swap) plus the dropped axial distance in
+   the requested `[CAMERA_TELEMETRY]` summary, attributing any residual pop.
+4. Post-solve motion re-expansion after a collision clip is rate-limited
+   (~0.12-second recovery) while clipping stays immediate, so a grazing
+   obstruction clearing cannot step the presented position.
+
+Static acceptance: focused third-person unit tests (gap hold/persist matrix,
+cell-adoption contract, drop projection, recovery rate), the full Atom suite,
+strict Clippy, formatting, and the supported release build. Runtime
+acceptance remains the existing behavioral matrix — rough terrain, close
+interiors, ownership transitions — plus straight-line sprint across at least
+two exterior cell borders with Diagnostics enabled. Pass requires no visible
+position step and zero world-gap/identity release counters; VATS, Pip-Boy,
+and death handoffs must remain immediate native transitions.

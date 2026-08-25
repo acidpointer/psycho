@@ -449,6 +449,140 @@ fn follow_solver_holds_zero_time_and_bounds_long_frame_integration() {
     assert!(after_hitch.y > moving.y && after_hitch.y < 40.0);
 }
 
+/// Axial component of one follow solution along the logical view axis.
+///
+/// `compose_follow_camera` adds exactly this scalar to the native chase
+/// distance, so it is the camera-to-actor distance contribution.
+fn axial_offset_scalar(solved: Vec3, yaw: f32, pitch: f32) -> f32 {
+    let offset = axial_follow_offset(solved, yaw, pitch).expect("finite axial projection");
+    let axis = view_direction(yaw, pitch).expect("finite view axis");
+    offset
+        .x
+        .mul_add(axis.x, offset.y.mul_add(axis.y, offset.z * axis.z))
+}
+
+#[test]
+fn steady_run_offset_stays_bounded_and_settled() {
+    let config = ThirdPersonConfig::from_ini(
+        "[Camera]\n\
+         bFollowCamera=1\n\
+         fFollowSpeed=7.5\n\
+         fSoftZone=12\n\
+         fLookAhead=8\n",
+    )
+    .expect("valid follow settings");
+    let mut solver = FollowSolver::new();
+    solver.reset(Vec3::default());
+    let dt = 1.0 / 60.0;
+    let run_speed = 190.0;
+    let mut pivot = Vec3::default();
+
+    // Accelerate onto a steady run and hold it for ten simulated seconds.
+    for frame in 0..660 {
+        let speed = if frame < 24 {
+            run_speed * (frame + 1) as f32 / 24.0
+        } else {
+            run_speed
+        };
+        pivot.y += speed * dt;
+        solver.advance(pivot, 0.0, dt, config);
+    }
+
+    let settled_axial = axial_offset_scalar(solver.position() - pivot, 0.0, -0.15);
+    let bound = config.soft_zone() + config.look_ahead() + 1.0;
+    assert!(
+        settled_axial.abs() <= bound,
+        "steady-run chase-distance contribution {settled_axial:.2} exceeds the shaped bound {bound}"
+    );
+
+    // The settled state must not drift: speed-proportional spring lag would
+    // keep growing the offset for seconds after every speed change.
+    let mut worst_drift = 0.0_f32;
+    let mut previous_axial = axial_offset_scalar(solver.position() - pivot, 0.0, -0.15);
+    for _ in 0..300 {
+        pivot.y += run_speed * dt;
+        solver.advance(pivot, 0.0, dt, config);
+        let axial = axial_offset_scalar(solver.position() - pivot, 0.0, -0.15);
+        worst_drift = worst_drift.max((axial - previous_axial).abs());
+        previous_axial = axial;
+    }
+    assert!(
+        worst_drift < 0.05,
+        "steady-run offset keeps drifting at {worst_drift:.4} units/frame"
+    );
+}
+
+#[test]
+fn speed_transitions_move_the_camera_smoothly() {
+    let config = ThirdPersonConfig::from_ini(
+        "[Camera]\n\
+         bFollowCamera=1\n\
+         fFollowSpeed=7.5\n\
+         fSoftZone=12\n\
+         fLookAhead=8\n",
+    )
+    .expect("valid follow settings");
+    let mut solver = FollowSolver::new();
+    solver.reset(Vec3::default());
+    let dt = 1.0 / 60.0;
+    let mut pivot = Vec3::default();
+    let pitch = -0.15;
+
+    // Idle settle, sprint up, hold, brake, and stop, mirroring real
+    // locomotion speed edges.
+    let mut distance_series = Vec::with_capacity(320);
+    let mut push_distance = |solver: &FollowSolver, pivot: Vec3| {
+        let desired = pivot + view_direction(0.0, pitch).expect("view axis") * 170.0;
+        let offset = axial_follow_offset(solver.position() - pivot, 0.0, pitch)
+            .expect("finite axial projection");
+        let composed =
+            compose_follow_camera(desired, pivot, offset).expect("composable follow ray");
+        distance_series.push((composed - pivot).length());
+    };
+
+    for _ in 0..30 {
+        solver.advance(pivot, 0.0, dt, config);
+    }
+    for frame in 0..24 {
+        pivot.y += 190.0 * (frame + 1) as f32 / 24.0 * dt;
+        solver.advance(pivot, 0.0, dt, config);
+    }
+    for _ in 0..90 {
+        pivot.y += 190.0 * dt;
+        solver.advance(pivot, 0.0, dt, config);
+        push_distance(&solver, pivot);
+    }
+    for frame in 0..15 {
+        pivot.y += 190.0 * (1.0 - (frame + 1) as f32 / 15.0) * dt;
+        solver.advance(pivot, 0.0, dt, config);
+        push_distance(&solver, pivot);
+    }
+    for _ in 0..120 {
+        solver.advance(pivot, 0.0, dt, config);
+        push_distance(&solver, pivot);
+    }
+
+    let mut worst_jump = 0.0_f32;
+    let mut minimum = f32::MAX;
+    let mut maximum = f32::MIN;
+    for pair in distance_series.windows(2) {
+        worst_jump = worst_jump.max((pair[1] - pair[0]).abs());
+    }
+    for distance in &distance_series {
+        minimum = minimum.min(*distance);
+        maximum = maximum.max(*distance);
+    }
+    assert!(
+        worst_jump <= 1.25,
+        "speed transition moved the camera {worst_jump:.3} units in one frame"
+    );
+    assert!(
+        maximum - minimum <= 26.0,
+        "one sprint cycle swung the chase distance {:.1} units",
+        maximum - minimum
+    );
+}
+
 #[test]
 fn vertical_look_routes_explore_orbit_away_from_actor_pitch_but_preserves_aim() {
     assert_eq!(

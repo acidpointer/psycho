@@ -19,7 +19,9 @@ runtime type, data, capabilities, and relationships so mod-added items,
 weapons, actors, and other records participate without per-plugin patches. A
 record identity check is allowed only for a separately documented mechanic
 which inherently targets that exact record; it is not Atom's generic
-compatibility strategy.
+compatibility strategy. The authoritative compatibility reference — guaranteed
+classes, coexistence rules, fully incompatible behaviors, residual
+non-guarantees, and the ownership audit — is `docs/atom_compatibility_contract.md`.
 
 The first gameplay milestone implements an engine-semantic input wrapper. It
 does not replace DirectInput or XInput, and it does not claim that every source
@@ -829,6 +831,16 @@ third-person's validated support-relative locomotion sample across the native
 call for first-person reuse. The normal combined path therefore locks and
 queries the Havok character controller once per accepted input frame, not once
 per camera subsystem.
+
+Owned epochs survive short world-validity gaps (missing mover, process,
+collision owner, active 3D, action frame, or non-finite values) instead of
+releasing: the retained composition keeps publishing while a 0.25-second
+guard accumulates, so rough terrain cannot snap the camera by the live axial
+follow delta. Continuous exterior parent-cell swaps are adopted rather than
+revoking. Genuine visible owners (VATS, menus, TFC, death, POV, disabled
+controls, external tokens) release immediately as before. Every owned-epoch
+release records its class and the dropped axial distance in the requested
+third-person diagnostics summary.
 
 Telemetry is off by default. When enabled, each admitted marker performs one
 wrapped QPC call and 32-bit atomic updates. Bucket thresholds and the two-second

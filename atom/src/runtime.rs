@@ -28,6 +28,7 @@ use crate::ballistics;
 use crate::camera;
 use crate::config::{AtomConfig, AtomConfigError};
 use crate::input::{self, InputInstallError};
+use crate::integrity;
 
 const STATE_COLD: u8 = 0;
 const STATE_INITIALIZING: u8 = 1;
@@ -347,6 +348,10 @@ fn initialize_inner(
                 Ok(status) => {
                     if status.mutation_admitted {
                         log::info!("[BALLISTICS] Native child-projectile ricochet path installed");
+                    } else if !status.helper_entries_ready {
+                        log::warn!(
+                            "[BALLISTICS] Ricochet remains observe-only because a directly-called runtime helper entry is unavailable"
+                        );
                     } else {
                         log::warn!(
                             "[BALLISTICS] Ricochet remains observe-only because a required child seam is unsupported: common_impact={} (current=0x{:08X}, expected=0x{:08X}), child_presentation={} (current=0x{:08X}, expected=0x{:08X})",
@@ -374,6 +379,13 @@ fn initialize_inner(
             "[BALLISTICS] Native physical-flight policy is unavailable: {error:#}. Ballistics remains native"
         ),
     }
+
+    // First ownership audit: everything installed so far is now on the table.
+    // A displacement reported here happened inside the DeferredInit listener
+    // window (a later-loading writer); the post-render audit below catches
+    // anything that occurs after that boundary. Comparing the two pinpoints
+    // when the takeover happened without identifying the writer.
+    integrity::audit_and_log();
 
     // MCM Extender is optional at native runtime. Failure to subscribe leaves
     // settings restart-applied while preserving the already validated input
@@ -439,6 +451,10 @@ pub(crate) fn activate_post_deferred_render_hooks() {
                 first_person_hooks.first_person_a,
                 first_person_hooks.first_person_b,
             );
+            // Every subsystem has now committed its hooks, including any
+            // deferred graphics wrappers captured as predecessors. This is
+            // the earliest point where one audit covers the complete set.
+            integrity::audit_and_log();
         }
         Err(error) => log::warn!(
             "[CAMERA] First-person render motion is unavailable: {error:#}. Third-person capabilities remain independently active"
@@ -607,15 +623,23 @@ fn apply_config(config: AtomConfig, process_summary_request: bool, report_unchan
     }
 
     if process_summary_request {
+        let mut summary_emitted = false;
         let was_requested = SUMMARY_LATCH.swap(input_config.summary_requested(), Ordering::AcqRel);
         if input_config.summary_requested() && !was_requested {
             log_telemetry_summary();
             camera::log_diagnostics_summary();
+            summary_emitted = true;
         }
         let ballistics_was_requested =
             BALLISTICS_SUMMARY_LATCH.swap(ballistics_config.summary_requested(), Ordering::AcqRel);
         if ballistics_config.summary_requested() && !ballistics_was_requested {
             ballistics::log_requested_summary();
+            summary_emitted = true;
+        }
+        // A requested summary is also the user-visible re-audit edge: it can
+        // expose a capability displaced after installation without any hot-path cost.
+        if summary_emitted {
+            integrity::audit_and_log();
         }
     }
 }

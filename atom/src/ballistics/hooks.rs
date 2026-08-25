@@ -9,6 +9,15 @@
 //! outbound segment and lets the completed parent retain its terminal result.
 //! The positive player count result also publishes one pointer-free camera
 //! event before the native multi-projectile loop.
+//!
+//! Directly-called runtime helpers are admitted on entry readiness alone:
+//! each fixed target must be mapped executable memory before Atom ever calls
+//! it, and a failure keeps those addresses unreachable while physical-rounds
+//! policy stays active. Interior-body windows are diagnostic only — they name
+//! which helper an ecosystem patcher touched without disabling anything,
+//! because entry-hook wrappers and in-place instruction edits both preserve
+//! the calling convention. Detour predecessor fallbacks to vanilla addresses
+//! follow the same unreachable-by-construction rule as the other subsystems.
 
 use core::ffi::c_void;
 use core::sync::atomic::{AtomicBool, AtomicU32, Ordering};
@@ -55,6 +64,69 @@ static SHOT_SEQUENCE: AtomicU32 = AtomicU32::new(0);
 static ACTIVE_LAUNCHES: AtomicU32 = AtomicU32::new(0);
 static ACTIVE_UPDATES: AtomicU32 = AtomicU32::new(0);
 static RICOCHET_MUTATION_ADMITTED: AtomicBool = AtomicBool::new(false);
+/// Admission result of `native::validate_helper_entries`.
+///
+/// False keeps every directly-called helper address unreachable from Atom:
+/// ricochet stays observe-only and trace speed sampling stops, while the
+/// physical-rounds policy (which never calls helpers) remains active.
+/// Interior-body differences are diagnostic only and never set this flag.
+static HELPER_ENTRIES_READY: AtomicBool = AtomicBool::new(false);
+
+/// Saturating entry counters for every Ballistics detour.
+///
+/// Byte-level ownership can be lost to a later writer that still chains Atom
+/// (feature alive) or bypasses it (feature dead). Only execution proves
+/// which. One relaxed increment per native callback is negligible next to
+/// the callback's own work and gives the diagnostics summary ground truth
+/// even when telemetry is disabled.
+#[derive(Clone, Copy, Default)]
+pub(crate) struct DetourCallCounts {
+    pub(crate) count: u32,
+    pub(crate) launch: u32,
+    pub(crate) hit_build: u32,
+    pub(crate) hit_commit: u32,
+    pub(crate) collision: u32,
+    pub(crate) hitscan_policy: u32,
+    pub(crate) muzzle_flash: u32,
+    pub(crate) movement_step_a: u32,
+    pub(crate) movement_step_b: u32,
+    pub(crate) missile_update: u32,
+    pub(crate) common_impact: u32,
+}
+
+static COUNT_CALLS: AtomicU32 = AtomicU32::new(0);
+static LAUNCH_CALLS: AtomicU32 = AtomicU32::new(0);
+static HIT_BUILD_CALLS: AtomicU32 = AtomicU32::new(0);
+static HIT_COMMIT_CALLS: AtomicU32 = AtomicU32::new(0);
+static COLLISION_CALLS: AtomicU32 = AtomicU32::new(0);
+static HITSCAN_POLICY_CALLS: AtomicU32 = AtomicU32::new(0);
+static MUZZLE_FLASH_CALLS: AtomicU32 = AtomicU32::new(0);
+static MOVEMENT_STEP_A_CALLS: AtomicU32 = AtomicU32::new(0);
+static MOVEMENT_STEP_B_CALLS: AtomicU32 = AtomicU32::new(0);
+static MISSILE_UPDATE_CALLS: AtomicU32 = AtomicU32::new(0);
+static COMMON_IMPACT_CALLS: AtomicU32 = AtomicU32::new(0);
+
+fn note_call(counter: &AtomicU32) {
+    let _ = counter.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |value| {
+        Some(value.saturating_add(1))
+    });
+}
+
+pub(crate) fn detour_call_counts() -> DetourCallCounts {
+    DetourCallCounts {
+        count: COUNT_CALLS.load(Ordering::Relaxed),
+        launch: LAUNCH_CALLS.load(Ordering::Relaxed),
+        hit_build: HIT_BUILD_CALLS.load(Ordering::Relaxed),
+        hit_commit: HIT_COMMIT_CALLS.load(Ordering::Relaxed),
+        collision: COLLISION_CALLS.load(Ordering::Relaxed),
+        hitscan_policy: HITSCAN_POLICY_CALLS.load(Ordering::Relaxed),
+        muzzle_flash: MUZZLE_FLASH_CALLS.load(Ordering::Relaxed),
+        movement_step_a: MOVEMENT_STEP_A_CALLS.load(Ordering::Relaxed),
+        movement_step_b: MOVEMENT_STEP_B_CALLS.load(Ordering::Relaxed),
+        missile_update: MISSILE_UPDATE_CALLS.load(Ordering::Relaxed),
+        common_impact: COMMON_IMPACT_CALLS.load(Ordering::Relaxed),
+    }
+}
 
 const PROJECTILE_FLAG_EXPLOSION: u16 = 0x0002;
 const PROJECTILE_FLAG_NATIVE_BOUNCE: u16 = 0x0010;
@@ -196,6 +268,9 @@ pub(crate) enum HookInstallError {
     /// The MissileProjectile update slot could not be chained transactionally.
     #[error(transparent)]
     Pointer(#[from] PointerSlotHookError),
+    /// A directly-called helper body no longer matches the supported binary.
+    #[error(transparent)]
+    Helper(#[from] native::HelperContractError),
 }
 
 /// Current call targets captured during deferred installation.
@@ -224,6 +299,7 @@ pub(crate) struct RicochetAdmission {
     pub(crate) launch_predecessor: usize,
     pub(crate) common_impact_predecessor: usize,
     pub(crate) muzzle_flash_predecessor: usize,
+    pub(crate) helper_entries_ready: bool,
 }
 
 impl RicochetAdmission {
@@ -236,12 +312,39 @@ impl RicochetAdmission {
     }
 
     pub(crate) const fn mutation_admitted(self) -> bool {
-        self.common_impact_supported() && self.child_presentation_supported()
+        self.common_impact_supported()
+            && self.child_presentation_supported()
+            && self.helper_entries_ready
     }
+}
+
+/// Return whether every directly-called runtime helper entry is mapped
+/// executable memory.
+pub(crate) fn helper_entries_ready() -> bool {
+    HELPER_ENTRIES_READY.load(Ordering::Acquire)
 }
 
 pub(crate) fn install() -> Result<HookPredecessors, HookInstallError> {
     validate_fingerprints(FINGERPRINTS)?;
+    match native::validate_helper_entries() {
+        Ok(()) => HELPER_ENTRIES_READY.store(true, Ordering::Release),
+        Err(error) => log::warn!(
+            "[BALLISTICS] Runtime helper entry contract failed: {error}. Ricochet stays observe-only and trace speed sampling is disabled; physical rounds remain active"
+        ),
+    }
+    let scan = native::scan_helper_bodies();
+    if let Some(summary) = scan.summary() {
+        // Diagnostic only. Ecosystem patchers edit helper bodies in place or
+        // chain their entries with ABI-preserving jumps; both remain safe to
+        // call through, so this names the touched helpers without disabling
+        // anything.
+        log::warn!(
+            "[BALLISTICS] {} of {} directly-called helper bodies differ from the researched binary ({}). Ricochet stays active; an ABI-breaking rewrite remains unsupported",
+            scan.differing,
+            scan.checked,
+            summary
+        );
+    }
     unsafe {
         COUNT_HOOK.init(
             "Atom projectile count observation",
@@ -338,6 +441,7 @@ pub(crate) fn install_ricochet_observer() -> Result<RicochetAdmission, HookInsta
         launch_predecessor,
         common_impact_predecessor: COMMON_IMPACT_HOOK.predecessor_address()?,
         muzzle_flash_predecessor,
+        helper_entries_ready: helper_entries_ready(),
     };
     let mut transaction = ModificationTransaction::new();
     transaction.enable_callsite(&COMMON_IMPACT_HOOK)?;
@@ -361,6 +465,7 @@ unsafe extern "thiscall" fn count_detour(
     use_ammo: u8,
     source: *mut c_void,
 ) -> u8 {
+    note_call(&COUNT_CALLS);
     let predecessor = COUNT_HOOK
         .original()
         .unwrap_or_else(|_| native::native_count());
@@ -391,6 +496,7 @@ unsafe extern "C" fn launch_detour(
     angular_x: f32,
     cell: *mut c_void,
 ) -> *mut c_void {
+    note_call(&LAUNCH_CALLS);
     let predecessor = LAUNCH_HOOK
         .original()
         .unwrap_or_else(|_| native::native_launch());
@@ -575,6 +681,7 @@ fn selected_flight_path(
 }
 
 unsafe extern "thiscall" fn hitscan_policy_detour(projectile_form: *mut c_void) -> u8 {
+    note_call(&HITSCAN_POLICY_CALLS);
     let predecessor = HITSCAN_POLICY_HOOK
         .original()
         .unwrap_or_else(|_| native::native_hitscan_policy());
@@ -587,6 +694,7 @@ unsafe extern "thiscall" fn hitscan_policy_detour(projectile_form: *mut c_void) 
 }
 
 unsafe extern "thiscall" fn muzzle_flash_detour(projectile: *mut c_void) {
+    note_call(&MUZZLE_FLASH_CALLS);
     let predecessor = MUZZLE_FLASH_HOOK
         .original()
         .unwrap_or_else(|_| native::native_muzzle_flash());
@@ -604,6 +712,7 @@ unsafe extern "C" fn hit_build_detour(
     attacker_context: *mut c_void,
     projectile: *mut c_void,
 ) {
+    note_call(&HIT_BUILD_CALLS);
     note_early_contact();
     let predecessor = HIT_BUILD_HOOK
         .original()
@@ -645,6 +754,7 @@ unsafe extern "C" fn hit_build_detour(
 }
 
 unsafe extern "thiscall" fn hit_commit_detour(target: *mut c_void, hit_data: *mut c_void) {
+    note_call(&HIT_COMMIT_CALLS);
     let predecessor = HIT_COMMIT_HOOK
         .original()
         .unwrap_or_else(|_| native::native_hit_commit());
@@ -662,6 +772,7 @@ unsafe extern "thiscall" fn collision_detour(
     rigid_body_value: *mut c_void,
     raw_material: u32,
 ) {
+    note_call(&COLLISION_CALLS);
     note_early_contact();
     let observation = if telemetry::enabled() {
         observations().map(|pool| pool.record_contact(projectile as usize as u32))
@@ -699,6 +810,7 @@ unsafe extern "thiscall" fn collision_detour(
 }
 
 unsafe extern "thiscall" fn common_impact_detour(projectile: *mut c_void) -> u8 {
+    note_call(&COMMON_IMPACT_CALLS);
     let predecessor = COMMON_IMPACT_HOOK
         .original()
         .unwrap_or_else(|_| native::native_common_impacts());
@@ -1199,6 +1311,7 @@ fn note_early_contact() {
 }
 
 unsafe extern "thiscall" fn movement_step_a_detour(projectile: *mut c_void, delta_seconds: f32) {
+    note_call(&MOVEMENT_STEP_A_CALLS);
     let predecessor = MOVEMENT_STEP_A_HOOK
         .original()
         .unwrap_or_else(|_| native::native_movement_step());
@@ -1206,6 +1319,7 @@ unsafe extern "thiscall" fn movement_step_a_detour(projectile: *mut c_void, delt
 }
 
 unsafe extern "thiscall" fn movement_step_b_detour(projectile: *mut c_void, delta_seconds: f32) {
+    note_call(&MOVEMENT_STEP_B_CALLS);
     let predecessor = MOVEMENT_STEP_B_HOOK
         .original()
         .unwrap_or_else(|_| native::native_movement_step());
@@ -1244,6 +1358,7 @@ unsafe fn observe_movement_step(
 }
 
 unsafe extern "thiscall" fn missile_update_detour(projectile: *mut c_void, delta_seconds: f32) {
+    note_call(&MISSILE_UPDATE_CALLS);
     let predecessor = MISSILE_UPDATE_HOOK
         .original()
         .unwrap_or_else(|_| native::native_missile_update());
@@ -1282,11 +1397,12 @@ unsafe extern "thiscall" fn missile_update_detour(projectile: *mut c_void, delta
         );
     }
 
-    let effective_speed = if tracing && observation.is_some() && pre.is_some() {
-        unsafe { native::effective_speed(projectile) }
-    } else {
-        0.0
-    };
+    let effective_speed =
+        if tracing && observation.is_some() && pre.is_some() && helper_entries_ready() {
+            unsafe { native::effective_speed(projectile) }
+        } else {
+            0.0
+        };
     ACTIVE_UPDATES.fetch_add(1, Ordering::AcqRel);
     unsafe { predecessor(projectile, delta_seconds) };
     ACTIVE_UPDATES.fetch_sub(1, Ordering::AcqRel);
@@ -1416,6 +1532,7 @@ mod tests {
                     launch_predecessor,
                     common_impact_predecessor: COMMON_IMPACT_TARGET,
                     muzzle_flash_predecessor: MUZZLE_FLASH_TARGET,
+                    helper_entries_ready: true,
                 }
                 .mutation_admitted()
             );
@@ -1428,6 +1545,7 @@ mod tests {
             launch_predecessor: 0x0A7D_E850,
             common_impact_predecessor: COMMON_IMPACT_TARGET,
             muzzle_flash_predecessor: MUZZLE_FLASH_TARGET,
+            helper_entries_ready: true,
         };
         assert!(native.mutation_admitted());
         assert!(
@@ -1443,6 +1561,43 @@ mod tests {
                 ..native
             }
             .mutation_admitted()
+        );
+    }
+
+    #[test]
+    fn unavailable_helper_entry_keeps_ricochet_observe_only() {
+        let admitted = RicochetAdmission {
+            launch_predecessor: 0x009B_CA60,
+            common_impact_predecessor: COMMON_IMPACT_TARGET,
+            muzzle_flash_predecessor: MUZZLE_FLASH_TARGET,
+            helper_entries_ready: true,
+        };
+        assert!(admitted.mutation_admitted());
+        assert!(
+            !RicochetAdmission {
+                helper_entries_ready: false,
+                ..admitted
+            }
+            .mutation_admitted()
+        );
+    }
+
+    #[test]
+    fn admission_has_no_body_difference_input_to_regress() {
+        // The 2026-08-24 regression came from gating ricochet on interior-body
+        // fingerprints. The struct must not carry such an input at all; this
+        // compile-level guarantee is pinned by constructing every field
+        // explicitly and asserting admission depends only on seams + entries.
+        let full = RicochetAdmission {
+            launch_predecessor: 0x009B_CA60,
+            common_impact_predecessor: COMMON_IMPACT_TARGET,
+            muzzle_flash_predecessor: MUZZLE_FLASH_TARGET,
+            helper_entries_ready: true,
+        };
+        assert!(full.mutation_admitted());
+        assert_eq!(
+            full.mutation_admitted(),
+            full.common_impact_supported() && full.child_presentation_supported()
         );
     }
 

@@ -238,6 +238,7 @@ pub(crate) struct RicochetHookStatus {
     pub(crate) child_presentation_predecessor: usize,
     pub(crate) common_impact_supported: bool,
     pub(crate) child_presentation_supported: bool,
+    pub(crate) helper_entries_ready: bool,
     pub(crate) mutation_admitted: bool,
 }
 
@@ -286,6 +287,7 @@ pub(crate) fn install_ricochet_observer() -> Result<RicochetHookStatus, Ballisti
         child_presentation_predecessor: admission.muzzle_flash_predecessor,
         common_impact_supported: admission.common_impact_supported(),
         child_presentation_supported: admission.child_presentation_supported(),
+        helper_entries_ready: admission.helper_entries_ready,
         mutation_admitted: admission.mutation_admitted(),
     })
 }
@@ -306,8 +308,26 @@ pub(crate) fn log_requested_summary() {
     let source = snapshot.launches_by_source();
     let capability = snapshot.launches_by_capability();
     let counts = snapshot.projectile_counts();
+    let detours = hooks::detour_call_counts();
     log::info!("[BALLISTICS_TELEMETRY] ---------------------------------------------------");
     log::info!("[BALLISTICS_TELEMETRY] Requested native lifecycle summary");
+    log::info!(
+        "[BALLISTICS_TELEMETRY] Detour entries: count={}, launch={}, policy={}, hit_build={}, hit_commit={}, collision={}, muzzle={}, move_a={}, move_b={}, update={}, common_impact={}",
+        detours.count,
+        detours.launch,
+        detours.hitscan_policy,
+        detours.hit_build,
+        detours.hit_commit,
+        detours.collision,
+        detours.muzzle_flash,
+        detours.movement_step_a,
+        detours.movement_step_b,
+        detours.missile_update,
+        detours.common_impact,
+    );
+    log::info!(
+        "[BALLISTICS_TELEMETRY] A zero entry beside a nonzero sibling means that capability was bypassed by a later writer; see the [INTEGRITY] lines for the live call target",
+    );
     log::info!(
         "[BALLISTICS_TELEMETRY] Launches: total={}, player={}, actor={}, unknown={}",
         snapshot.launches(),

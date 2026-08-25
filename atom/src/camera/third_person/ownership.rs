@@ -177,6 +177,18 @@ impl OwnershipMachine {
         }
     }
 
+    /// Adopt a new parent-cell token without an ownership boundary.
+    ///
+    /// Continuous exterior-grid crossings swap the parent cell while every
+    /// owner predicate stays clear. Recording the new token here keeps the
+    /// classifier's cell-change comparison from treating the next sample as a
+    /// load-scale discontinuity. Ownership, epoch, and state are untouched.
+    pub fn adopt_cell(&mut self, cell: u32) {
+        if cell != 0 && (self.state.is_owned() || self.state == OwnershipState::Acquire) {
+            self.cell = cell;
+        }
+    }
+
     /// Revoke ownership and discard the current cell token immediately.
     pub fn force_release(&mut self) -> OwnershipTransition {
         let previous = self.state;

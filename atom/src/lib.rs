@@ -15,6 +15,7 @@ pub mod ballistics;
 pub mod camera;
 pub mod config;
 pub mod input;
+pub(crate) mod integrity;
 
 mod plugininfo;
 mod runtime;

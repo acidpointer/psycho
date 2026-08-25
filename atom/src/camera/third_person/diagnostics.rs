@@ -40,6 +40,22 @@ static RECENTER_STARTS: AtomicU32 = AtomicU32::new(0);
 static OWNED_OBSERVATIONS: AtomicU32 = AtomicU32::new(0);
 static OBSERVATIONS: [AtomicU32; NativeRejection::COUNT] =
     [const { AtomicU32::new(0) }; NativeRejection::COUNT];
+static RELEASES_OWNER: AtomicU32 = AtomicU32::new(0);
+static RELEASES_WORLD_GAP: AtomicU32 = AtomicU32::new(0);
+static RELEASES_IDENTITY: AtomicU32 = AtomicU32::new(0);
+static MAX_RELEASE_DROP: AtomicU32 = AtomicU32::new(0);
+
+/// Why an owned third-person epoch released its outputs.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) enum ReleaseClass {
+    /// A genuine visible owner appeared (VATS, menu, TFC, death, external
+    /// token, controls takeover). Immediate native handoff is correct.
+    OwnerPredicate,
+    /// World-validity inputs stayed invalid past the hold budget.
+    WorldGapPersisted,
+    /// The player pointer or a non-adoptable parent cell changed.
+    IdentitySwap,
+}
 
 /// Point-in-time copy of third-person runtime-path counters.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -65,6 +81,10 @@ pub(super) struct Snapshot {
     pub(super) recenter_suppressions: u32,
     pub(super) recenter_starts: u32,
     pub(super) owned_observations: u32,
+    pub(super) releases_owner: u32,
+    pub(super) releases_world_gap: u32,
+    pub(super) releases_identity: u32,
+    pub(super) max_release_drop_bits: u32,
     observations: [u32; NativeRejection::COUNT],
 }
 
@@ -227,6 +247,25 @@ pub(super) fn mark_observation(reason: NativeRejection, owned: bool) {
     }
 }
 
+/// Record one owned-epoch release with the axial distance it stopped applying.
+///
+/// `dropped_units` is the magnitude of the follow offset that was published
+/// until this release; it quantifies how far the camera would have stepped
+/// had the release dropped the composition instead of a future fix. The
+/// register is a max, so zero means no owned epoch ever released with a
+/// live spatial composition.
+pub(super) fn mark_release(class: ReleaseClass, dropped_units: f32) {
+    if !ENABLED.load(Ordering::Acquire) {
+        return;
+    }
+    match class {
+        ReleaseClass::OwnerPredicate => increment(&RELEASES_OWNER),
+        ReleaseClass::WorldGapPersisted => increment(&RELEASES_WORLD_GAP),
+        ReleaseClass::IdentitySwap => increment(&RELEASES_IDENTITY),
+    }
+    record_max(&MAX_RELEASE_DROP, dropped_units);
+}
+
 pub(super) fn snapshot() -> Snapshot {
     Snapshot {
         heading_calls: HEADING_CALLS.load(Ordering::Relaxed),
@@ -250,6 +289,10 @@ pub(super) fn snapshot() -> Snapshot {
         recenter_suppressions: RECENTER_SUPPRESSIONS.load(Ordering::Relaxed),
         recenter_starts: RECENTER_STARTS.load(Ordering::Relaxed),
         owned_observations: OWNED_OBSERVATIONS.load(Ordering::Relaxed),
+        releases_owner: RELEASES_OWNER.load(Ordering::Relaxed),
+        releases_world_gap: RELEASES_WORLD_GAP.load(Ordering::Relaxed),
+        releases_identity: RELEASES_IDENTITY.load(Ordering::Relaxed),
+        max_release_drop_bits: MAX_RELEASE_DROP.load(Ordering::Relaxed),
         observations: load_observations(),
     }
 }
@@ -272,7 +315,7 @@ fn record_max(target: &AtomicU32, candidate: f32) {
     });
 }
 
-fn stage_counters() -> [&'static AtomicU32; 21] {
+fn stage_counters() -> [&'static AtomicU32; 24] {
     [
         &HEADING_CALLS,
         &HEADING_CONSUMED,
@@ -295,6 +338,9 @@ fn stage_counters() -> [&'static AtomicU32; 21] {
         &RECENTER_SUPPRESSIONS,
         &RECENTER_STARTS,
         &OWNED_OBSERVATIONS,
+        &RELEASES_OWNER,
+        &RELEASES_WORLD_GAP,
+        &RELEASES_IDENTITY,
     ]
 }
 

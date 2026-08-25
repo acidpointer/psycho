@@ -218,6 +218,12 @@ pub(super) struct NativeFrame {
     pub(super) delta_seconds: f32,
     pub(super) stable_third_person: bool,
     pub(super) world_ready: bool,
+    /// Fresh action data, complete engine pointers, and finite sampled values.
+    ///
+    /// A false value is evidence that this frame cannot run Atom's spatial
+    /// work, never that another visible owner took the view. Short runs of
+    /// false are held by the ownership layer instead of releasing it.
+    pub(super) world_valid: bool,
     pub(super) native_owner: bool,
     pub(super) hard_valid: bool,
     pub(super) rejection: NativeRejection,
@@ -919,6 +925,7 @@ pub(super) unsafe fn observe(
         delta_seconds: 0.0,
         stable_third_person: false,
         world_ready: false,
+        world_valid: false,
         native_owner: true,
         hard_valid: false,
         rejection: NativeRejection::InvalidPlayer,
@@ -974,7 +981,6 @@ pub(super) unsafe fn observe(
     // +0x24. Virtual +0x2BC is adjusted horizontal heading, not pitch.
     frame.pitch = unsafe { read_f32(live_player.cast(), PLAYER_ROTATION_X) };
     frame.delta_seconds = unsafe { read_f32(TIME_GLOBAL as *const u8, TIME_SECONDS_PASSED) };
-
     let process_observation = if is_engine_pointer(process) {
         unsafe { observe_process(process) }
     } else {
@@ -1028,7 +1034,19 @@ pub(super) unsafe fn observe(
     frame.native_owner = frame.rejection != NativeRejection::Accepted;
     frame.hard_valid =
         frame.stable_third_person && frame.world_ready && !frame.native_owner && values_valid;
+    // The MissingActionFrame early return above leaves world_valid false:
+    // without fresh action data this frame cannot run Atom's spatial work.
+    frame.world_valid = frame.world_ready && values_valid;
     frame
+}
+
+/// Return FNV's monotonic gameplay seconds for presentation-rate integration.
+///
+/// # Safety
+///
+/// The validated `TimeGlobal` address must match the supported executable.
+pub(super) unsafe fn seconds_passed() -> f32 {
+    unsafe { read_f32(TIME_GLOBAL as *const u8, TIME_SECONDS_PASSED) }
 }
 
 #[allow(clippy::too_many_arguments)]

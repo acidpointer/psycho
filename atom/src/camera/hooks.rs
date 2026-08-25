@@ -32,6 +32,7 @@ use super::{
     RenderRoute, begin_world_render, consume_viewmodel_render, diagnostics,
     invalidate_render_token, native, sample_after_update,
 };
+use crate::integrity;
 
 const UPDATE_CAMERA_ENTRY: usize = 0x0094_AE40;
 // Main::Render selects these two complete routes. Their exact thiscall ABI and
@@ -97,6 +98,10 @@ pub(crate) fn install_update_entry() -> Result<usize, HookInstallError> {
     let mut transaction = ModificationTransaction::new();
     transaction.enable_inline(&UPDATE_CAMERA_HOOK)?;
     transaction.commit();
+    integrity::register_inline(
+        "Atom complete post-UpdateCamera sample",
+        &UPDATE_CAMERA_HOOK,
+    );
     Ok(predecessor)
 }
 
