@@ -177,6 +177,8 @@ const ENGINE_FIX_MODEL_POSTPROCESS_INDEX: usize = 19;
 const ENGINE_FIX_QUEUED_TASK_INDEX: usize = 20;
 const ENGINE_FIX_SOURCE_TEXTURE_CACHE_INDEX: usize = 21;
 
+const TILE_VALUE_INTEGRITY_HELP: (&str, &str) = ("Tile values", "NULL slots removed.");
+
 static READY: AtomicBool = AtomicBool::new(false);
 static OPEN_REQUESTED: AtomicBool = AtomicBool::new(false);
 static OPEN: AtomicBool = AtomicBool::new(false);
@@ -1065,6 +1067,12 @@ impl DashboardRuntime {
                 engine_fixes::DASHBOARD_FEATURE_SOURCE_TEXTURE_CACHE_GUARD,
                 "Directly owns source-cache dispatch admission",
                 ENGINE_FIX_HELP[ENGINE_FIX_SOURCE_TEXTURE_CACHE_INDEX].1,
+            ),
+            (
+                TILE_VALUE_INTEGRITY_HELP.0,
+                engine_fixes::DASHBOARD_FEATURE_TILE_VALUE_INTEGRITY,
+                "NULL slots removed",
+                TILE_VALUE_INTEGRITY_HELP.1,
             ),
             (
                 "Dynamic actor container guard",
@@ -1988,6 +1996,12 @@ fn draw_configuration(ui: &mut Ui<'_>, editor: &mut ConfigEditor) {
         PATROL_OWNER_FORM_ID_HELP.0,
         &mut config.patrol_owner_form_id_guard,
         PATROL_OWNER_FORM_ID_HELP.1,
+    );
+    checkbox_help(
+        ui,
+        TILE_VALUE_INTEGRITY_HELP.0,
+        &mut config.tile_value_null_slot_guard,
+        TILE_VALUE_INTEGRITY_HELP.1,
     );
 
     ui.spacing();

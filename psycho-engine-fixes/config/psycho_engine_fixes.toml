@@ -358,6 +358,12 @@ queued_task_lifetime_guard = true
 # does not identify or special-case any mod.
 source_texture_cache_publication_guard = true
 
+# Removes only NULL entries from a Tile's active value array before Fallout or
+# an installed provider searches it. This contains the proven NULL-slot crash
+# without inspecting, freeing, or changing valid Tile values. Leave ON unless
+# isolating a confirmed hook conflict.
+tile_value_null_slot_guard = true
+
 # =============================================================================
 # NATIVE IO
 # =============================================================================

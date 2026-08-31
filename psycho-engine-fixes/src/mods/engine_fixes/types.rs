@@ -102,6 +102,12 @@ pub type TaskCallbackFn = unsafe extern "thiscall" fn(*mut c_void, usize);
 /// chained provider must receive the opaque context unchanged.
 pub type SourceTextureCachePublishFn = unsafe extern "C" fn(*mut c_void, *mut c_void);
 
+/// Tile::GetOrCreateValueWithID at `0x00A01000`.
+///
+/// The Tile owner is in `ECX`; the trait ID is one stack word; and the callee
+/// returns a `Tile::Value*` with `ret 4`.
+pub type TileGetOrCreateValueFn = unsafe extern "thiscall" fn(*mut c_void, u32) -> *mut c_void;
+
 /// Terrain/object/tree LOD demand predicates. ECX owns the terrain node and
 /// the stack argument points to the camera XY(Z) vector.
 pub type LodDemandFn = unsafe extern "thiscall" fn(*mut c_void, *const f32) -> i32;

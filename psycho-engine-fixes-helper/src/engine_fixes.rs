@@ -54,6 +54,8 @@ pub(crate) const DASHBOARD_FEATURE_CELL_RENDER_RETIREMENT: u64 = 1 << 11;
 pub(crate) const DASHBOARD_FEATURE_PATROL_OWNER_FORM_ID_GUARD: u64 = 1 << 12;
 /// Core feature bit for current direct ownership of the source-cache entry.
 pub(crate) const DASHBOARD_FEATURE_SOURCE_TEXTURE_CACHE_GUARD: u64 = 1 << 13;
+/// Core feature bit for current direct ownership of Tile-value containment.
+pub(crate) const DASHBOARD_FEATURE_TILE_VALUE_INTEGRITY: u64 = 1 << 14;
 
 type NotifyEventFn =
     unsafe extern "system" fn(kind: u32, data: *const u8, data_len: usize, bool_value: i32) -> i32;

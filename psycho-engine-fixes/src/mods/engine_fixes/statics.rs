@@ -164,6 +164,20 @@ pub static SOURCE_TEXTURE_CACHE_PUBLISH_HOOK: LazyLock<
     InlineHookContainer<SourceTextureCachePublishFn>,
 > = LazyLock::new(InlineHookContainer::new);
 
+// ---- Tile value NULL-slot containment ----
+
+/// Shared Tile value lookup-and-create boundary reached by native setters and
+/// reference-value action construction.
+pub const TILE_GET_OR_CREATE_ADDR: usize = 0x00A0_1000;
+/// Vanilla entry bytes before the optional provider body at `0x00A0101B`.
+pub const TILE_GET_OR_CREATE_ENTRY_BYTES: [u8; 9] =
+    [0x55, 0x8B, 0xEC, 0x83, 0xEC, 0x1C, 0x89, 0x4D, 0xE8];
+/// Host-owned Tile lock used by the native lookup, insertion, and setters.
+pub const TILE_CRITICAL_SECTION_ADDR: usize = 0x011F_3330;
+
+pub static TILE_GET_OR_CREATE_HOOK: LazyLock<InlineHookContainer<TileGetOrCreateValueFn>> =
+    LazyLock::new(InlineHookContainer::new);
+
 // ---- LOD streaming and distant-to-real handoff ----
 
 pub const LOD_TERRAIN_DEMAND_ADDR: usize = 0x006F_E550;

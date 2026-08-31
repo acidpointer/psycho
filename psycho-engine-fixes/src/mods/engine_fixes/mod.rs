@@ -33,6 +33,7 @@ mod ragdoll;
 mod save_integrity;
 mod source_texture_cache_guard;
 mod statics;
+mod tile_value_integrity;
 mod types;
 mod window_input;
 
@@ -69,6 +70,8 @@ pub(crate) const DASHBOARD_FEATURE_CELL_RENDER_RETIREMENT: u64 = 1 << 11;
 pub(crate) const DASHBOARD_FEATURE_PATROL_OWNER_FORM_ID_GUARD: u64 = 1 << 12;
 /// Dashboard bit proving current direct ownership of the source-cache entry.
 pub(crate) const DASHBOARD_FEATURE_SOURCE_TEXTURE_CACHE_GUARD: u64 = 1 << 13;
+/// Dashboard bit proving direct ownership of the Tile value containment entry.
+pub(crate) const DASHBOARD_FEATURE_TILE_VALUE_INTEGRITY: u64 = 1 << 14;
 
 #[derive(Clone, Copy, Default)]
 pub(crate) struct DashboardCounters {
@@ -124,6 +127,7 @@ pub(crate) fn dashboard_counters() -> DashboardCounters {
     let lod = lod::dashboard_snapshot();
     let encounter_zone = encounter_zone::dashboard_snapshot();
     let cell_render = cell_render_retirement::dashboard_snapshot();
+    let tile_values = tile_value_integrity::diagnostic_snapshot();
 
     let mut active_features = 0;
     if display.create_window_installed || display.installed {
@@ -175,6 +179,9 @@ pub(crate) fn dashboard_counters() -> DashboardCounters {
     }
     if source_texture_cache_guard::diagnostic_snapshot().entry_owned {
         active_features |= DASHBOARD_FEATURE_SOURCE_TEXTURE_CACHE_GUARD;
+    }
+    if tile_values.entry_owned {
+        active_features |= DASHBOARD_FEATURE_TILE_VALUE_INTEGRITY;
     }
 
     DashboardCounters {
@@ -274,6 +281,7 @@ pub fn install(
     install_ragdoll_detached_phantom(config)?;
     install_havok_guards(config)?;
     install_memset_null_dst(config)?;
+    install_tile_value_integrity(config)?;
     install_lowprocess_fix(config)?;
     let model_postprocess_ready = install_model_postprocess_fix(config);
     install_queued_task_guard(config, diagnostics)?;
@@ -403,6 +411,7 @@ pub(crate) fn append_diagnostic_report(out: &mut String) {
     let task = queued_tasks::diagnostic_snapshot();
     let source_texture = source_texture_cache_guard::diagnostic_snapshot();
     let allocation = memset::diagnostic_snapshot();
+    let tile_values = tile_value_integrity::diagnostic_snapshot();
     let save = save_integrity::diagnostic_snapshot();
     let io = io::diagnostic_snapshot();
     let lod = lod::diagnostic_snapshot();
@@ -477,6 +486,18 @@ pub(crate) fn append_diagnostic_report(out: &mut String) {
         allocation.installed,
         "Pixel converter",
         allocation.callsite_owned,
+    );
+    push_report_value(
+        out,
+        "Tile values",
+        format!(
+            "{} / installed {} / {} repairs / {} slots / {} bypasses",
+            tile_values.entry_status,
+            on_off(tile_values.installed),
+            tile_values.repairs,
+            tile_values.removed_values,
+            tile_values.header_bypasses,
+        ),
     );
 
     let covered_move_sites = display
@@ -768,6 +789,14 @@ pub(crate) fn append_diagnostic_report(out: &mut String) {
         format!(
             "{:08X} ({})",
             allocation.last_destination, allocation.last_reason,
+        ),
+    );
+    push_report_value(
+        out,
+        "Last Tile values",
+        format!(
+            "repair {:08X} / bypass {:08X}",
+            tile_values.last_tile, tile_values.last_header_bypass_tile,
         ),
     );
     push_report_value(
@@ -1186,6 +1215,14 @@ fn install_source_texture_cache_guard(config: &EngineFixesConfig) {
     if let Err(err) = source_texture_cache_guard::install() {
         log::warn!("[SOURCE_TEXTURE_CACHE] Publication guard unavailable: {err:#}");
     }
+}
+
+fn install_tile_value_integrity(config: &EngineFixesConfig) -> anyhow::Result<()> {
+    if !config.tile_value_null_slot_guard {
+        log::info!("[TILE_VALUES] NULL-slot guard disabled by config");
+        return Ok(());
+    }
+    tile_value_integrity::install()
 }
 
 fn install_navmesh_low_pointer(config: &EngineFixesConfig) -> anyhow::Result<()> {

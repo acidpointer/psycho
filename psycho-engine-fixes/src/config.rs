@@ -374,6 +374,8 @@ pub struct EngineFixesConfig {
     pub patrol_owner_form_id_guard: bool,
     /// Reject invalid dispatch at the shared source-texture cache publisher.
     pub source_texture_cache_publication_guard: bool,
+    /// Compact NULL slots before Tile value lookup and creation.
+    pub tile_value_null_slot_guard: bool,
 }
 
 impl Default for EngineFixesConfig {
@@ -408,6 +410,7 @@ impl Default for EngineFixesConfig {
             queued_task_lifetime_guard: true,
             patrol_owner_form_id_guard: true,
             source_texture_cache_publication_guard: true,
+            tile_value_null_slot_guard: true,
         }
     }
 }
@@ -510,6 +513,9 @@ impl EngineFixesConfig {
             source_texture_cache_publication_guard: raw
                 .source_texture_cache_publication_guard
                 .unwrap_or(default.source_texture_cache_publication_guard),
+            tile_value_null_slot_guard: raw
+                .tile_value_null_slot_guard
+                .unwrap_or(default.tile_value_null_slot_guard),
         }
     }
 }
@@ -628,6 +634,7 @@ struct RawEngineFixesConfig {
     queued_task_lifetime_guard: Option<bool>,
     patrol_owner_form_id_guard: Option<bool>,
     source_texture_cache_publication_guard: Option<bool>,
+    tile_value_null_slot_guard: Option<bool>,
 }
 
 #[derive(Default, Deserialize)]
@@ -810,6 +817,21 @@ source_texture_cache_publication_guard = false
 
         assert!(default.engine_fixes.source_texture_cache_publication_guard);
         assert!(!disabled.engine_fixes.source_texture_cache_publication_guard);
+    }
+
+    #[test]
+    fn tile_value_guard_defaults_on_and_honors_explicit_disable() {
+        let default: PsychoConfig = toml::from_str("").expect("parse default configuration");
+        let disabled: PsychoConfig = toml::from_str(
+            r#"
+[engine_fixes]
+tile_value_null_slot_guard = false
+"#,
+        )
+        .expect("parse Tile-value guard setting");
+
+        assert!(default.engine_fixes.tile_value_null_slot_guard);
+        assert!(!disabled.engine_fixes.tile_value_null_slot_guard);
     }
 
     #[test]
