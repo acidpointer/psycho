@@ -362,7 +362,7 @@ pub struct EngineFixesConfig {
     pub havok_post_add_null_entity_guard: bool,
     /// Replace unsafe Havok remove-agent unlock dead-argument rereads.
     pub havok_remove_agent_null_reread_guard: bool,
-    /// Guard the two allocator consumers that zero unchecked NULL results.
+    /// Contain proven zero-allocation and NiPixelData backing-allocation failures.
     pub memset_null_dst_guard: bool,
     /// Enforce LowProcess generic-location ownership in live scans and saves.
     pub lowprocess_generic_locations_fix: bool,
@@ -810,6 +810,21 @@ source_texture_cache_publication_guard = false
 
         assert!(default.engine_fixes.source_texture_cache_publication_guard);
         assert!(!disabled.engine_fixes.source_texture_cache_publication_guard);
+    }
+
+    #[test]
+    fn allocation_failure_guard_defaults_on_and_honors_explicit_disable() {
+        let default: PsychoConfig = toml::from_str("").expect("parse default configuration");
+        let disabled: PsychoConfig = toml::from_str(
+            r#"
+[engine_fixes]
+memset_null_dst_guard = false
+"#,
+        )
+        .expect("parse allocation-failure setting");
+
+        assert!(default.engine_fixes.memset_null_dst_guard);
+        assert!(!disabled.engine_fixes.memset_null_dst_guard);
     }
 
     #[test]

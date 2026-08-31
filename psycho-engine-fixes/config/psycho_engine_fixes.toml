@@ -304,11 +304,15 @@ havok_remove_agent_null_reread_guard = true
 # --- Allocation failure and object lifetime -------------------------------
 
 # Prevents two known out-of-memory paths from writing an alignment marker or
-# zeroing memory through a NULL allocation result. The failure is returned to
-# the caller instead of becoming an immediate address-zero crash.
+# zeroing memory through a NULL allocation result. It also prevents an
+# incomplete NiPixelData object from reaching the image-converter provider
+# after its backing allocation fails; the converter caller's native
+# false-result path then abandons the operation instead of copying through a
+# NULL-derived field.
 #
-# Technical: only the two unsafe allocator consumers are replaced; Psycho does
-# not add a check to the global memset hot path.
+# Technical: only the two unsafe allocator consumers and the proven NiPixelData
+# converter callsite are covered. Psycho does not patch the global memset hot
+# path, classify allocator ownership, or replace an installed image converter.
 memset_null_dst_guard = true
 
 # Fixes ownership of LowProcess generic-location lists and contains already-

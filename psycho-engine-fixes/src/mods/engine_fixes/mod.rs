@@ -402,6 +402,7 @@ pub(crate) fn append_diagnostic_report(out: &mut String) {
     let model = model_postprocess::snapshot();
     let task = queued_tasks::diagnostic_snapshot();
     let source_texture = source_texture_cache_guard::diagnostic_snapshot();
+    let allocation = memset::diagnostic_snapshot();
     let save = save_integrity::diagnostic_snapshot();
     let io = io::diagnostic_snapshot();
     let lod = lod::diagnostic_snapshot();
@@ -469,6 +470,13 @@ pub(crate) fn append_diagnostic_report(out: &mut String) {
         source_texture.entry_owned,
         "Patrol owner",
         patrol_ref_in_use::is_installed(),
+    );
+    push_feature_pair(
+        out,
+        "Allocation OOM",
+        allocation.installed,
+        "Pixel converter",
+        allocation.callsite_owned,
     );
 
     let covered_move_sites = display
@@ -744,6 +752,22 @@ pub(crate) fn append_diagnostic_report(out: &mut String) {
             source_texture.unreadable_vtables,
             source_texture.non_executable_callbacks,
             source_texture.changed_dispatches,
+        ),
+    );
+    push_report_value(
+        out,
+        "Allocation OOM",
+        format!(
+            "{} NULL / {} conversion rejects",
+            allocation.null_returns, allocation.conversion_rejections,
+        ),
+    );
+    push_report_value(
+        out,
+        "Last OOM reject",
+        format!(
+            "{:08X} ({})",
+            allocation.last_destination, allocation.last_reason,
         ),
     );
     push_report_value(
@@ -1034,6 +1058,9 @@ pub(crate) fn append_diagnostic_report(out: &mut String) {
         .vertex_buffers
         .null_allocation_failures
         .saturating_add(io.vertex_buffers.invalid_publications);
+    let allocation_alerts = allocation
+        .null_returns
+        .saturating_add(allocation.conversion_rejections);
 
     push_report_section(out, "Warnings");
     let alert_total = display_alerts
@@ -1043,7 +1070,8 @@ pub(crate) fn append_diagnostic_report(out: &mut String) {
         .saturating_add(lod_alerts)
         .saturating_add(tree_alerts)
         .saturating_add(scheduler_alerts)
-        .saturating_add(vertex_buffer_alerts);
+        .saturating_add(vertex_buffer_alerts)
+        .saturating_add(allocation_alerts);
     if alert_total == 0 {
         out.push_str("  No runtime warnings.\n");
     } else {
@@ -1055,6 +1083,7 @@ pub(crate) fn append_diagnostic_report(out: &mut String) {
         push_nonzero(out, "SpeedTree", tree_alerts);
         push_nonzero(out, "LOD scheduler", scheduler_alerts);
         push_nonzero(out, "Vertex buffers", vertex_buffer_alerts);
+        push_nonzero(out, "Allocation OOM", allocation_alerts);
         out.push_str("  Handled events are listed above.\n");
     }
 
@@ -1376,7 +1405,9 @@ fn install_memset_null_dst(config: &EngineFixesConfig) -> anyhow::Result<()> {
         return Ok(());
     }
 
-    memset::install_zero_alloc_guards()?;
-    log::info!("[OOM] Zero-allocation NULL guards active at allocator vtable consumers");
+    memset::install_allocation_failure_guards()?;
+    log::info!(
+        "[OOM] Allocation-failure guards active at zero-allocation providers and NiPixelData conversion"
+    );
     Ok(())
 }
