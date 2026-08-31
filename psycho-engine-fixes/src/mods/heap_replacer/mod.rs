@@ -37,7 +37,7 @@ pub(crate) use gheap::pool::PoolTaskPinResult as TaskPoolPinResult;
 
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct TaskCellInfo {
-    pub pool_index: u8,
+    pub pool_index: u16,
     pub item_size: u32,
     pub cell_index: usize,
 }

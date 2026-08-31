@@ -72,6 +72,11 @@ static DEFAULT_TAIL_FREE_COUNT: AtomicUsize = AtomicUsize::new(0);
 static DEFAULT_TAIL_LAST_POLL_MS: AtomicUsize = AtomicUsize::new(0);
 static DEFAULT_TAIL_FRONT_ACTIVITY_LOGGED: AtomicBool = AtomicBool::new(false);
 
+#[cfg(test)]
+pub(crate) fn disable_default_tail_for_tests() {
+    DEFAULT_TAIL_DISABLED.store(true, Ordering::Release);
+}
+
 #[derive(Clone, Copy)]
 struct Snapshot {
     heap: usize,

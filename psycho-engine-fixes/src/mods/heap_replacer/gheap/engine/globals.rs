@@ -21,6 +21,31 @@ use super::addr;
 
 static IO_BARRIER_LAYOUT_FAILURES: AtomicU32 = AtomicU32::new(0);
 static IO_BARRIER_TIMEOUTS: AtomicU32 = AtomicU32::new(0);
+const IO_BARRIER_LABEL: &[u8] = b"Psycho memory lifecycle\0";
+
+type EngineSpinLockFn = unsafe extern "thiscall" fn(*mut c_void, *const u8);
+type EngineSpinUnlockFn = unsafe extern "fastcall" fn(*mut c_void);
+
+/// Exclusive IO dequeue barrier used by coordinated engine destruction.
+///
+/// The native reentrant lock at `IOManager+0x20` prevents a worker from
+/// starting another task while the current iterations are drained. Dropping
+/// the guard performs the native lock's proven counter/owner release sequence.
+pub(crate) struct IoDequeueBarrier {
+    lock: Option<*mut u32>,
+}
+
+impl Drop for IoDequeueBarrier {
+    fn drop(&mut self) {
+        let Some(lock) = self.lock else {
+            return;
+        };
+        let release =
+            unsafe { FnPtr::<EngineSpinUnlockFn>::from_address_unchecked(addr::SPIN_LOCK_RELEASE) }
+                .as_fn();
+        unsafe { release(lock.cast()) };
+    }
+}
 
 // ---------------------------------------------------------------------------
 // Game state reads (all safe -- reading from known static addresses)
@@ -317,6 +342,26 @@ pub unsafe fn run_single_oom_stage(stage: i32) -> (i32, bool) {
     (next, done != 0)
 }
 
+/// Invoke the captured native OOM stage provider without re-entering Psycho's
+/// stage-8 guard.
+///
+/// # Safety
+/// Stages 0 through 6 require the main thread and the complete native
+/// destruction transaction: IO dequeue barrier, drained AI/Havok task groups,
+/// and paired pre/post scene ownership. The caller must preserve those
+/// conditions for the complete retry sequence.
+pub unsafe fn run_original_oom_stage(stage: i32) -> i32 {
+    let heap_singleton = addr::HEAP_SINGLETON as *mut c_void;
+    let primary_heap = unsafe {
+        *((heap_singleton as *const u8).add(addr::HEAP_PRIMARY_OFFSET) as *const *mut c_void)
+    };
+    let Ok(original) = super::super::statics::OOM_STAGE_EXEC_HOOK.original() else {
+        return stage + 1;
+    };
+    let mut done = 0u8;
+    unsafe { original(heap_singleton, primary_heap, stage, &mut done) }
+}
+
 // ---------------------------------------------------------------------------
 // Cell management -- destruction protocol helpers
 // ---------------------------------------------------------------------------
@@ -373,9 +418,9 @@ pub unsafe fn find_cell_to_unload(manager: *mut c_void) -> bool {
     (unsafe { find(manager) } & 0xFF) != 0
 }
 
-/// Lock the Havok world and invalidate the scene graph for safe destruction.
-/// Returns an opaque 12-byte state buffer that must be passed to
-/// post_destruction_restore.
+/// Pause the native IOManager workers and invalidate scene/renderer ownership
+/// for safe destruction. Returns an opaque 12-byte state buffer that must be
+/// passed to `post_destruction_restore`.
 ///
 /// Safety: must be called on the main thread.
 pub unsafe fn pre_destruction_setup() -> [u8; 12] {
@@ -388,7 +433,7 @@ pub unsafe fn pre_destruction_setup() -> [u8; 12] {
     state
 }
 
-/// Unlock the Havok world and restore state after destruction.
+/// Restore scene/renderer ownership and resume the native IOManager workers.
 ///
 /// Safety: must be called after pre_destruction_setup on the main thread.
 pub unsafe fn post_destruction_restore(state: &mut [u8; 12]) {
@@ -472,20 +517,38 @@ pub unsafe fn start_havok() {
     unsafe { start(1) };
 }
 
-/// Wait for all BSTaskManagerThreads to finish their current iteration.
+/// Prevent new IO dequeues and wait for active BSTaskManagerThread iterations.
 ///
 /// Probes each thread's iter_sem (BSTaskManagerThread+0x1C) with a zero-
-/// timeout WaitForSingleObject. WAIT_TIMEOUT = thread busy processing a
-/// task. Retries up to 500ms per thread (1ms sleep between probes).
+/// timeout WaitForSingleObject. WAIT_TIMEOUT means the thread is processing a
+/// task. `wait_limit_ms` is one aggregate budget shared by every worker and
+/// the background-clone thread. Zero performs a nonblocking acquisition.
 ///
 /// Must be called from the main thread before Stage 5 cell unload.
 /// Without this barrier, IO threads and BackgroundCloneThread read
 /// freed cell data -> UAF crash (see crash_root_cause_io_thread_uaf.md).
-pub unsafe fn wait_for_io_idle() {
+///
+/// # Safety
+///
+/// The executable identity and IOManager layouts must match the validated
+/// addresses in [`addr`]. The caller must be the main thread and must retain
+/// the returned guard across the complete destruction transaction.
+pub(crate) unsafe fn acquire_io_dequeue_barrier(wait_limit_ms: u32) -> Option<IoDequeueBarrier> {
     let io_mgr = unsafe { *(addr::IO_MANAGER_SINGLETON as *const *mut c_void) };
     if io_mgr.is_null() {
-        return;
+        return Some(IoDequeueBarrier { lock: None });
     }
+
+    let lock = unsafe {
+        (io_mgr.cast::<u8>())
+            .add(addr::IO_DEQUEUE_LOCK_OFFSET)
+            .cast::<u32>()
+    };
+    let acquire =
+        unsafe { FnPtr::<EngineSpinLockFn>::from_address_unchecked(addr::SPIN_LOCK_ACQUIRE) }
+            .as_fn();
+    unsafe { acquire(lock.cast(), IO_BARRIER_LABEL.as_ptr()) };
+    let barrier = IoDequeueBarrier { lock: Some(lock) };
 
     let thread_count =
         unsafe { *((io_mgr as *const u8).add(addr::IO_THREAD_COUNT_OFFSET) as *const u32) };
@@ -495,8 +558,7 @@ pub unsafe fn wait_for_io_idle() {
             "[IO_BARRIER] Implausible IO worker count {}, skipping worker barrier",
             thread_count
         );
-        unsafe { wait_for_background_clone_thread() };
-        return;
+        return None;
     }
 
     let thread_array = unsafe {
@@ -505,40 +567,51 @@ pub unsafe fn wait_for_io_idle() {
     if thread_array.is_null() {
         IO_BARRIER_LAYOUT_FAILURES.fetch_add(1, Ordering::Relaxed);
         log::error!("[IO_BARRIER] IO worker array is null, skipping worker barrier");
-        unsafe { wait_for_background_clone_thread() };
-        return;
+        return None;
     }
 
+    let mut wait_budget_ms = wait_limit_ms;
     for index in 0..thread_count {
         let thread = unsafe { *thread_array.add(index as usize) };
-        if !thread.is_null() {
-            unsafe { wait_for_bstask_thread(thread, Some(index)) };
+        if !thread.is_null()
+            && !unsafe { wait_for_bstask_thread(thread, Some(index), &mut wait_budget_ms) }
+        {
+            return None;
         }
     }
 
-    unsafe { wait_for_background_clone_thread() };
+    if !unsafe { wait_for_background_clone_thread(&mut wait_budget_ms) } {
+        return None;
+    }
+    Some(barrier)
 }
 
-unsafe fn wait_for_background_clone_thread() {
+unsafe fn wait_for_background_clone_thread(wait_budget_ms: &mut u32) -> bool {
     let model_loader = unsafe { *(addr::MODEL_LOADER as *const *mut c_void) };
     if model_loader.is_null() {
-        return;
+        return true;
     }
     let thread = unsafe { *((model_loader as *const u8).add(0x28) as *const *mut c_void) };
-    if !thread.is_null() {
-        unsafe { wait_for_bstask_thread(thread, None) };
+    if thread.is_null() {
+        true
+    } else {
+        unsafe { wait_for_bstask_thread(thread, None, wait_budget_ms) }
     }
 }
 
-unsafe fn wait_for_bstask_thread(thread: *mut c_void, index: Option<u32>) {
+unsafe fn wait_for_bstask_thread(
+    thread: *mut c_void,
+    index: Option<u32>,
+    wait_budget_ms: &mut u32,
+) -> bool {
     let sem_raw = unsafe {
         *((thread as *const u8).add(addr::BST_ITER_SEM_HANDLE_OFFSET) as *const *mut c_void)
     };
     if sem_raw.is_null() {
-        return;
+        return false;
     }
     let Ok(sem) = (unsafe { BorrowedHandle::from_raw(sem_raw) }) else {
-        return;
+        return false;
     };
 
     let mut waited = 0u32;
@@ -549,27 +622,31 @@ unsafe fn wait_for_bstask_thread(thread: *mut c_void, index: Option<u32>) {
                 break;
             }
             WaitResult::Timeout => {
-                waited += 1;
-                if waited >= 500 {
+                if *wait_budget_ms == 0 {
+                    if waited == 0 {
+                        return false;
+                    }
                     IO_BARRIER_TIMEOUTS.fetch_add(1, Ordering::Relaxed);
                     match index {
                         Some(index) => log::warn!(
-                            "[IO_BARRIER] Worker {} still busy after 500ms, proceeding",
-                            index
+                            "[IO_BARRIER] Worker {} still busy after aggregate wait budget expired; memory cleanup deferred",
+                            index,
                         ),
                         None => log::warn!(
-                            "[IO_BARRIER] Background clone thread still busy after 500ms"
+                            "[IO_BARRIER] Background clone thread still busy after aggregate wait budget expired; memory cleanup deferred"
                         ),
                     }
-                    break;
+                    return false;
                 }
+                waited += 1;
+                *wait_budget_ms -= 1;
                 winapi::sleep(1);
             }
-            _ => break,
+            _ => return false,
         }
     }
 
-    if waited > 0 && waited < 500 {
+    if waited > 0 {
         match index {
             Some(index) => {
                 log::debug!("[IO_BARRIER] Worker {} idle after {}ms", index, waited)
@@ -580,6 +657,7 @@ unsafe fn wait_for_bstask_thread(thread: *mut c_void, index: Option<u32>) {
             ),
         }
     }
+    true
 }
 
 pub fn io_barrier_diagnostic_counts() -> (u64, u64) {

@@ -1,143 +1,85 @@
-//! Variable-size block allocator for medium allocations (3585 B..16 MB).
+//! Reclaimable extent allocator for medium game-heap allocations.
 //!
-//! Direct port of NVHR's dheap (heap_replacer/dheap/dheap.h):
-//! variable-size cells, 16 MB blocks, and split/coalesce metadata. Normal
-//! frees retain their reservations so short reuse cycles preserve zombie
-//! payloads and avoid reserve/commit churn. Fully empty VirtualAlloc-backed
-//! blocks retire only after a direct-VA failure or proven process VAS pressure.
+//! Requests through 1 MiB share independently reserved 1 MiB extents. Larger
+//! requests use 64 KiB-rounded, request-sized extents. Keeping the two bands
+//! separate prevents a long-lived small object from pinning a 16 MiB streaming
+//! buffer, which was the dominant source of committed and reserved VAS growth
+//! in repeated cell transitions.
 //!
-//! Layout:
-//!   No upfront tier reservation. Each `new_block` owns one separate
-//!   16 MB reservation. We first consume adopted vanilla Default-heap
-//!   tail space, then try exact high-address placement, and only then
-//!   let the OS choose the address. The tier grows organically; we hold
-//!   only what we actually commit. This leaves low/mid contiguous VAS
-//!   available for the game's own large allocations (LOD textures, save
-//!   buffers -- the 89 MB texture load that crashed on a previous build
-//!   with the unified-reserve design).
+//! Four shards keep unrelated allocation threads off one global mutex. Each
+//! shard has an exact best-fit index, so allocation performs logarithmic
+//! metadata work rather than scanning every historical block. A 64 KiB page
+//! table encodes shard and extent ownership for constant-time free and size
+//! dispatch.
 //!
-//!   Earlier we kept a contiguous upfront reservation to avoid VAS
-//!   fragmentation, but the cost was hard: 640 MB pre-reserved with
-//!   only ~384 MB ever committed left 256 MB of unusable VAS, and
-//!   on heavy modlists the game's own VirtualAlloc could not find
-//!   even an 89 MB hole. NVHR's scattered model -- max 40 blocks,
-//!   each independent -- proves robust in practice.
+//! Cell metadata and free indexes remain out of band. Normal free never writes
+//! user bytes and never releases an extent, preserving zombie readability.
+//! Fully empty VirtualAlloc extents are returned only while the coordinated
+//! engine-memory lifecycle holds its destruction barriers. Default-heap tail
+//! extents cannot be released independently and remain mapped.
 //!
-//! Why cells up to 16 MB:
-//!   A 10 MB game allocation must fit somewhere. If BLOCK_MAX_ALLOC
-//!   is too small, these go to va_alloc and fragment VAS one per
-//!   request. 16 MB cells inside 16 MB blocks let split/coalesce
-//!   handle them with tight packing.
-//!
-//! Cells carry their metadata in a separate `Vec<Cell>` array per
-//! block, so user cell data is never overwritten on free (zombie-safe).
+//! Frequent 1 MiB extents use normal OS placement, which clusters them without
+//! an address-map walk. The much rarer large extents use the OS top-down
+//! primitive so transition buffers preserve low/mid contiguous VAS through one
+//! atomic cold-path reservation rather than racing the pool tier for a hint.
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::ptr::null_mut;
-use std::sync::atomic::{AtomicU8, AtomicU64, Ordering};
-
-use rustc_hash::FxBuildHasher;
+use std::sync::atomic::{AtomicBool, AtomicU16, AtomicU64, Ordering};
 
 use libc::c_void;
-use libpsycho::os::windows::winapi::{virtual_commit, virtual_release, virtual_reserve};
+#[cfg(test)]
+use libpsycho::os::windows::winapi::{MemoryState, virtual_query};
+use libpsycho::os::windows::winapi::{
+    virtual_commit, virtual_release, virtual_reserve, virtual_reserve_top_down,
+};
 use parking_lot::Mutex;
+use rustc_hash::FxBuildHasher;
 
 use crate::mods::diagnostics;
 
-// ---------------------------------------------------------------------------
-// Constants
-// ---------------------------------------------------------------------------
-
-/// Size of each independently reserved medium-allocation block.
+/// Largest request handled by the medium tier.
 pub const BLOCK_SIZE: usize = 16 * 1024 * 1024;
-
-/// Commit charge grows independently from the 16 MB VAS reservation. One MB
-/// amortizes VirtualAlloc calls while avoiding a full 16 MB commit per block.
-const COMMIT_CHUNK: usize = 1024 * 1024;
-
-/// Minimum cell size. Leftover below this cannot be split off.
+const SMALL_EXTENT_SIZE: usize = 1024 * 1024;
+const EXTENT_GRANULARITY: usize = 64 * 1024;
+const COMMIT_CHUNK: usize = EXTENT_GRANULARITY;
+const SMALL_EXTENT_MAX_ALLOC: usize = SMALL_EXTENT_SIZE;
 pub const MIN_CELL: u32 = 4 * 1024;
-
-/// GameHeap allocations require 16-byte alignment. Larger alignment wastes
-/// committed memory and increases block/VAS pressure on large modlists.
 pub const CELL_ALIGN: u32 = 16;
-
-/// Upper size the block tier handles. Above goes to va_alloc.
 pub const BLOCK_MAX_ALLOC: usize = BLOCK_SIZE;
 
-/// Hard cap on live blocks. NVHR uses 128 (2 GB ceiling); we cap
-/// lower because the game's own VAS need is heavier on modded TTW
-/// builds. Above this we fall through to va_alloc. No memory is
-/// reserved upfront -- this is just the size of the slot table.
-const BLOCK_COUNT: usize = 64;
+const SHARD_COUNT: usize = 4;
+const MAX_EXTENTS_PER_SHARD: usize = 256;
+const MAX_EXTENTS: usize = SHARD_COUNT * MAX_EXTENTS_PER_SHARD;
+const EXTENT_ADDRESS_SHIFT: usize = 16;
+const EXTENT_ADDRESS_SLOTS: usize = 1 << (32 - EXTENT_ADDRESS_SHIFT);
+const NO_EXTENT: u16 = u16::MAX;
+const _: () = assert!(MAX_EXTENTS < NO_EXTENT as usize);
 
-/// High-half fallback scan for post-Default-tail blocks. Pool slabs
-/// already use high-fit placement; putting block fallback there too
-/// avoids consuming the large low/mid holes that D3D and texture
-/// streaming need for contiguous VirtualAlloc requests.
-const BLOCK_HIGH_SCAN_START: usize = 0xfe00_0000;
-const BLOCK_HIGH_SCAN_MIN: usize = 0x8000_0000;
-
-/// Windows reservations are at least 64 KB aligned. A compact 64 KB-page
-/// table classifies block pointers without scanning every live block.
-const BLOCK_ADDRESS_SHIFT: usize = 16;
-const BLOCK_ADDRESS_SLOTS: usize = 1 << (32 - BLOCK_ADDRESS_SHIFT);
-const NO_BLOCK: u8 = u8::MAX;
-const AMBIGUOUS_BLOCK: u8 = u8::MAX - 1;
-const _: () = assert!(BLOCK_COUNT < AMBIGUOUS_BLOCK as usize);
-
-/// Published after a block slot is initialized and cleared after retirement.
-/// A `NO_BLOCK` load is sufficient to reject foreign pointers without taking
-/// the global heap lock. All other values require locked revalidation.
-static ADDRESS_TO_BLOCK: [AtomicU8; BLOCK_ADDRESS_SLOTS] =
-    [const { AtomicU8::new(NO_BLOCK) }; BLOCK_ADDRESS_SLOTS];
-
-/// Sentinel "no cell" index inside a block's cell array.
+static ADDRESS_TO_EXTENT: [AtomicU16; EXTENT_ADDRESS_SLOTS] =
+    [const { AtomicU16::new(NO_EXTENT) }; EXTENT_ADDRESS_SLOTS];
+static INIT_LOGGED: AtomicBool = AtomicBool::new(false);
 const NO_CELL: u32 = u32::MAX;
-
-// ---------------------------------------------------------------------------
-// Cell (metadata, kept out of user data)
-// ---------------------------------------------------------------------------
 
 #[derive(Clone, Copy)]
 struct Cell {
     offset: u32,
     size: u32,
     free: bool,
-    addr_prev: u32, // cell index of previous cell by address
-    addr_next: u32, // cell index of next cell by address
+    addr_prev: u32,
+    addr_next: u32,
 }
-
-// ---------------------------------------------------------------------------
-// Block
-// ---------------------------------------------------------------------------
 
 struct Block {
     base: *mut u8,
-    #[allow(dead_code)]
     size: u32,
     backing: BlockBacking,
+    kind: ExtentKind,
     committed: usize,
-
-    /// Dense cell array. Once allocated, a slot is never shrunk; it may
-    /// be reused when coalescing retires a cell.
     cells: Vec<Cell>,
-    /// Free slots in `cells` (indices that can be reused).
     free_slots: Vec<u32>,
-
-    /// size -> cell indices that are free and of that exact size.
-    /// Best-fit selection uses `range(size..).next()`. Empty vecs are
-    /// pruned.
     free_by_size: BTreeMap<u32, Vec<u32>>,
-
-    /// offset -> cell index for in-use cells. Populated on alloc,
-    /// consumed on free for O(1) lookup. FxBuildHasher: default SipHash
-    /// is overkill for internal u32 keys and roughly 5x slower. This
-    /// map is hit on every block::free so the hasher matters.
     used_by_offset: HashMap<u32, u32, FxBuildHasher>,
-
-    /// Sum of live cell sizes. Maintained under the heap lock so periodic
-    /// diagnostics never walk every allocation during gameplay.
     live_bytes: usize,
 }
 
@@ -156,12 +98,40 @@ impl BlockBacking {
     }
 }
 
-// Safety: Block is only accessed under the BlockHeap mutex.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum ExtentKind {
+    Small,
+    Large,
+}
+
+impl ExtentKind {
+    const fn for_request(size: usize) -> Self {
+        if size <= SMALL_EXTENT_MAX_ALLOC {
+            Self::Small
+        } else {
+            Self::Large
+        }
+    }
+
+    const fn label(self) -> &'static str {
+        match self {
+            Self::Small => "small",
+            Self::Large => "large",
+        }
+    }
+}
+
 unsafe impl Send for Block {}
 unsafe impl Sync for Block {}
 
 impl Block {
-    fn new(base: *mut u8, size: u32, backing: BlockBacking, committed: usize) -> Self {
+    fn new(
+        base: *mut u8,
+        size: u32,
+        backing: BlockBacking,
+        kind: ExtentKind,
+        committed: usize,
+    ) -> Self {
         let mut cells = Vec::with_capacity(64);
         cells.push(Cell {
             offset: 0,
@@ -172,11 +142,11 @@ impl Block {
         });
         let mut free_by_size = BTreeMap::new();
         free_by_size.insert(size, vec![0]);
-
         Self {
             base,
             size,
             backing,
+            kind,
             committed,
             cells,
             free_slots: Vec::new(),
@@ -186,677 +156,450 @@ impl Block {
         }
     }
 
-    #[allow(dead_code)]
     #[inline]
     fn contains(&self, ptr: *const c_void) -> bool {
-        let a = ptr as usize;
-        let b = self.base as usize;
-        a >= b && a < b + self.size as usize
+        let address = ptr as usize;
+        let base = self.base as usize;
+        address >= base && address < base + self.size as usize
     }
 
-    /// Add a cell index to the free-by-size index.
-    fn add_free(&mut self, idx: u32) {
-        let size = self.cells[idx as usize].size;
-        self.free_by_size.entry(size).or_default().push(idx);
+    fn largest_free(&self) -> Option<u32> {
+        self.free_by_size.last_key_value().map(|(&size, _)| size)
     }
 
-    /// Remove a cell index from the free-by-size index.
-    fn remove_free(&mut self, idx: u32) {
-        let size = self.cells[idx as usize].size;
-        if let Some(v) = self.free_by_size.get_mut(&size) {
-            if let Some(pos) = v.iter().position(|&x| x == idx) {
-                v.swap_remove(pos);
+    fn add_free(&mut self, index: u32) {
+        let size = self.cells[index as usize].size;
+        self.free_by_size.entry(size).or_default().push(index);
+    }
+
+    fn remove_free(&mut self, index: u32) {
+        let size = self.cells[index as usize].size;
+        if let Some(indices) = self.free_by_size.get_mut(&size) {
+            if let Some(position) = indices.iter().position(|&entry| entry == index) {
+                indices.swap_remove(position);
             }
-            if v.is_empty() {
+            if indices.is_empty() {
                 self.free_by_size.remove(&size);
             }
         }
     }
 
-    /// Allocate a new cell slot (reuse a retired one if possible).
     fn take_slot(&mut self, cell: Cell) -> u32 {
-        if let Some(idx) = self.free_slots.pop() {
-            self.cells[idx as usize] = cell;
-            idx
+        if let Some(index) = self.free_slots.pop() {
+            self.cells[index as usize] = cell;
+            index
         } else {
-            let idx = self.cells.len() as u32;
+            let index = self.cells.len() as u32;
             self.cells.push(cell);
-            idx
+            index
         }
     }
 
-    /// Retire a cell slot (the cell has been coalesced into a neighbour
-    /// or removed from the list).
-    fn retire_slot(&mut self, idx: u32) {
-        self.free_slots.push(idx);
+    fn retire_slot(&mut self, index: u32) {
+        self.free_slots.push(index);
     }
 
-    /// First-fit alloc by size. Returns the cell index of an in-use
-    /// cell, or None if no free cell is large enough.
     fn alloc(&mut self, requested: u32) -> Option<u32> {
-        // Pick the smallest free cell with size >= requested.
-        let (picked_size, picked_idx) = self
+        let (picked_size, picked_index) = self
             .free_by_size
             .range(requested..)
             .next()
-            .and_then(|(&sz, v)| v.last().map(|&i| (sz, i)))?;
+            .and_then(|(&size, indices)| indices.last().map(|&index| (size, index)))?;
 
-        // Remove from free index.
-        {
-            let Some(v) = self.free_by_size.get_mut(&picked_size) else {
-                log::error!(
-                    "[GHEAP] Free index corrupt: size bucket {} missing for cell {}",
-                    picked_size,
-                    picked_idx
-                );
-                return None;
-            };
-            v.pop();
-            if v.is_empty() {
-                self.free_by_size.remove(&picked_size);
-            }
+        let indices = self.free_by_size.get_mut(&picked_size)?;
+        indices.pop();
+        if indices.is_empty() {
+            self.free_by_size.remove(&picked_size);
         }
 
         let remainder = picked_size - requested;
         if remainder >= MIN_CELL {
-            // Split: shrink this cell to `requested`, create a new free
-            // cell of `remainder` after it.
-            let base_cell = self.cells[picked_idx as usize];
-            let new_offset = base_cell.offset + requested;
-            let new_idx = self.take_slot(Cell {
-                offset: new_offset,
+            let picked = self.cells[picked_index as usize];
+            let new_index = self.take_slot(Cell {
+                offset: picked.offset + requested,
                 size: remainder,
                 free: true,
-                addr_prev: picked_idx,
-                addr_next: base_cell.addr_next,
+                addr_prev: picked_index,
+                addr_next: picked.addr_next,
             });
-            // Link the new free cell into the addr list.
-            self.cells[picked_idx as usize].size = requested;
-            self.cells[picked_idx as usize].addr_next = new_idx;
-            if base_cell.addr_next != NO_CELL {
-                self.cells[base_cell.addr_next as usize].addr_prev = new_idx;
+            self.cells[picked_index as usize].size = requested;
+            self.cells[picked_index as usize].addr_next = new_index;
+            if picked.addr_next != NO_CELL {
+                self.cells[picked.addr_next as usize].addr_prev = new_index;
             }
-            // Register the new free cell by size.
-            self.add_free(new_idx);
+            self.add_free(new_index);
         }
-        self.cells[picked_idx as usize].free = false;
 
-        let offset = self.cells[picked_idx as usize].offset;
+        self.cells[picked_index as usize].free = false;
+        let offset = self.cells[picked_index as usize].offset;
         self.live_bytes = self
             .live_bytes
-            .saturating_add(self.cells[picked_idx as usize].size as usize);
-        self.used_by_offset.insert(offset, picked_idx);
-        Some(picked_idx)
+            .saturating_add(self.cells[picked_index as usize].size as usize);
+        self.used_by_offset.insert(offset, picked_index);
+        Some(picked_index)
     }
 
-    /// Free the cell at the given offset. Coalesces with free neighbours.
-    /// Returns true if the offset was known.
     fn free(&mut self, offset: u32) -> bool {
-        let idx = match self.used_by_offset.remove(&offset) {
-            Some(i) => i,
-            None => return false,
+        let Some(index) = self.used_by_offset.remove(&offset) else {
+            return false;
         };
-
         self.live_bytes = self
             .live_bytes
-            .saturating_sub(self.cells[idx as usize].size as usize);
-        self.cells[idx as usize].free = true;
+            .saturating_sub(self.cells[index as usize].size as usize);
+        self.cells[index as usize].free = true;
 
-        // Coalesce left: if prev exists and is free, absorb it.
-        let prev = self.cells[idx as usize].addr_prev;
-        if prev != NO_CELL && self.cells[prev as usize].free {
-            self.remove_free(prev);
-            // prev absorbs idx (prev stays, we lose idx).
-            let prev_cell = self.cells[prev as usize];
-            let idx_cell = self.cells[idx as usize];
-            let merged_size = prev_cell.size + idx_cell.size;
-            // Relink addr list: prev.next = idx.next; idx.next.prev = prev
-            self.cells[prev as usize].size = merged_size;
-            self.cells[prev as usize].addr_next = idx_cell.addr_next;
-            if idx_cell.addr_next != NO_CELL {
-                self.cells[idx_cell.addr_next as usize].addr_prev = prev;
+        let previous = self.cells[index as usize].addr_prev;
+        if previous != NO_CELL && self.cells[previous as usize].free {
+            self.remove_free(previous);
+            let previous_cell = self.cells[previous as usize];
+            let current_cell = self.cells[index as usize];
+            self.cells[previous as usize].size = previous_cell.size + current_cell.size;
+            self.cells[previous as usize].addr_next = current_cell.addr_next;
+            if current_cell.addr_next != NO_CELL {
+                self.cells[current_cell.addr_next as usize].addr_prev = previous;
             }
-            self.retire_slot(idx);
-            // Continue from prev as the current "free cell".
-            return self.coalesce_right_then_index(prev);
+            self.retire_slot(index);
+            return self.coalesce_right_then_index(previous);
         }
-
-        // Coalesce right only.
-        self.coalesce_right_then_index(idx)
+        self.coalesce_right_then_index(index)
     }
 
-    /// Given a free cell `idx`, try to absorb its free right neighbour,
-    /// then register the resulting cell back into the free-by-size index.
-    fn coalesce_right_then_index(&mut self, idx: u32) -> bool {
-        let next = self.cells[idx as usize].addr_next;
+    fn coalesce_right_then_index(&mut self, index: u32) -> bool {
+        let next = self.cells[index as usize].addr_next;
         if next != NO_CELL && self.cells[next as usize].free {
             self.remove_free(next);
-            let idx_cell = self.cells[idx as usize];
-            let next_cell = self.cells[next as usize];
-            let merged_size = idx_cell.size + next_cell.size;
-            self.cells[idx as usize].size = merged_size;
-            self.cells[idx as usize].addr_next = next_cell.addr_next;
-            if next_cell.addr_next != NO_CELL {
-                self.cells[next_cell.addr_next as usize].addr_prev = idx;
+            let current = self.cells[index as usize];
+            let right = self.cells[next as usize];
+            self.cells[index as usize].size = current.size + right.size;
+            self.cells[index as usize].addr_next = right.addr_next;
+            if right.addr_next != NO_CELL {
+                self.cells[right.addr_next as usize].addr_prev = index;
             }
             self.retire_slot(next);
         }
-        self.add_free(idx);
+        self.add_free(index);
         true
     }
 
-    /// Look up the user size reported for a pointer in this block.
     fn usable_size(&self, ptr: *const c_void) -> Option<u32> {
-        let offset = (ptr as usize - self.base as usize) as u32;
+        let offset = (ptr as usize).checked_sub(self.base as usize)? as u32;
         self.used_by_offset
             .get(&offset)
-            .map(|&idx| self.cells[idx as usize].size)
+            .map(|&index| self.cells[index as usize].size)
     }
 
     fn ensure_committed(&mut self, end: usize) -> bool {
         if end <= self.committed {
             return true;
         }
-        let target = round_up_usize(end, COMMIT_CHUNK).min(BLOCK_SIZE);
-        let commit_len = target - self.committed;
-        let commit_base = unsafe { self.base.add(self.committed) };
+        let target = round_up_usize(end, COMMIT_CHUNK).min(self.size as usize);
+        let length = target - self.committed;
+        let base = unsafe { self.base.add(self.committed) };
         let success = if diagnostics::hitch_profiling_enabled() {
-            commit_profiled(commit_base, commit_len)
+            commit_profiled(base, length)
         } else {
-            unsafe { virtual_commit(commit_base.cast(), commit_len) == commit_base.cast() }
+            unsafe { virtual_commit(base.cast(), length) == base.cast() }
         };
-        if !success {
-            return false;
+        if success {
+            self.committed = target;
         }
-        self.committed = target;
-        true
+        success
     }
 }
 
-// ---------------------------------------------------------------------------
-// BlockHeap
-// ---------------------------------------------------------------------------
-
 struct BlockHeap {
-    /// Slot table. `Some` means a block owns a 16 MB reservation; `None`
-    /// means the slot is empty. Normal frees never retire blocks. Empty
-    /// VirtualAlloc blocks can retire only during bounded OOM recovery. The
-    /// slot index is an internal handle, not an address.
-    blocks: [Option<Block>; BLOCK_COUNT],
-    alloc_hint: u8,
-    high_scan_hint: usize,
+    blocks: Vec<Option<Block>>,
+    free_slots: Vec<u16>,
+    small_available: BTreeSet<(u32, u16)>,
+    large_available: BTreeSet<(u32, u16)>,
+    allow_default_tail: bool,
 }
 
-// Raw pointers inside `Block` are only touched under the global HEAP mutex.
 unsafe impl Send for BlockHeap {}
 unsafe impl Sync for BlockHeap {}
 
 impl BlockHeap {
     const fn empty() -> Self {
         Self {
-            blocks: [const { None }; BLOCK_COUNT],
-            alloc_hint: 0,
-            high_scan_hint: BLOCK_HIGH_SCAN_START,
+            blocks: Vec::new(),
+            free_slots: Vec::new(),
+            small_available: BTreeSet::new(),
+            large_available: BTreeSet::new(),
+            allow_default_tail: true,
         }
     }
 
-    /// Announce that the lazy tier is available. No VA is reserved here.
-    fn init(&mut self) -> bool {
-        log::info!(
-            "[BLOCK] Block tier ready: lazy on-demand mode, cap={} slots ({} MB max)",
-            BLOCK_COUNT,
-            (BLOCK_COUNT * BLOCK_SIZE) / 1024 / 1024,
-        );
-        true
-    }
-
-    fn live_count(&self) -> usize {
-        self.blocks.iter().filter(|b| b.is_some()).count()
-    }
-
-    /// Highest `base + BLOCK_SIZE` across currently-live slots, used
-    /// as the placement hint for the next block. Returns `None` when
-    /// no slot is live.
-    ///
-    /// This drives adjacency in `new_block`: the OS honors the hint
-    /// when that address is free, so a burst of allocations (e.g. a
-    /// cell-load storm) lands as a contiguous cluster. Under sporadic
-    /// load the hint may be taken by game VAS; we fall back to
-    /// OS-picked placement.
-    fn preferred_next_address(&self) -> Option<usize> {
-        let mut highest_end: usize = 0;
-        for b in self.blocks.iter().flatten() {
-            let end = b.base as usize + BLOCK_SIZE;
-            if end > highest_end {
-                highest_end = end;
-            }
-        }
-        if highest_end > 0 {
-            Some(highest_end)
-        } else {
-            None
+    #[cfg(test)]
+    fn without_default_tail() -> Self {
+        Self {
+            allow_default_tail: false,
+            ..Self::empty()
         }
     }
 
-    /// Reserve a fresh 16 MB region. Default-tail adoption is best because it
-    /// reuses vanilla's reservation. User pages are committed progressively
-    /// in 1 MB chunks by `ensure_committed`. After that we scan high addresses
-    /// exactly before falling back to OS-picked placement; low/mid holes are
-    /// more valuable to D3D than to us.
-    ///
-    /// Each slot is still its own independent `MEM_RESERVE` so the
-    /// retirement path (`VirtualFree(MEM_RELEASE)`) works unchanged.
-    fn new_block(&mut self) -> Option<usize> {
-        let idx = self.blocks.iter().position(|b| b.is_none())?;
-
-        let mut ptr =
-            super::vanilla_large_heap::try_alloc_default_tail(BLOCK_SIZE, 0x1000, "block", false);
-        let mut backing = BlockBacking::VirtualAlloc;
-
-        // Best VAS outcome: consume the already-reserved vanilla
-        // Default heap tail before taking fresh address-space holes.
-        // The adopted range is still a normal 16 MB block after this.
-        if !ptr.is_null() {
-            backing = BlockBacking::DefaultHeapTail;
+    fn index_for(&self, kind: ExtentKind) -> &BTreeSet<(u32, u16)> {
+        match kind {
+            ExtentKind::Small => &self.small_available,
+            ExtentKind::Large => &self.large_available,
         }
+    }
 
-        if ptr.is_null() {
-            ptr = self.reserve_high_block();
+    fn index_for_mut(&mut self, kind: ExtentKind) -> &mut BTreeSet<(u32, u16)> {
+        match kind {
+            ExtentKind::Small => &mut self.small_available,
+            ExtentKind::Large => &mut self.large_available,
         }
+    }
 
-        // If the high half is already fragmented or unavailable, try
-        // to land adjacent to the highest live slot before giving the
-        // OS full control. Silent on failure -- hint collisions are
-        // expected and the fallback path below handles them cleanly.
-        if ptr.is_null()
-            && let Some(hint) = self.preferred_next_address()
-        {
-            ptr = reserve_block(Some(hint as *const c_void));
+    fn remove_availability(&mut self, slot: u16) {
+        let Some(block) = self.blocks.get(slot as usize).and_then(Option::as_ref) else {
+            return;
+        };
+        if let Some(size) = block.largest_free() {
+            self.index_for_mut(block.kind).remove(&(size, slot));
         }
+    }
 
-        // Fallback: OS picks placement anywhere.
-        if ptr.is_null() {
-            ptr = reserve_block(None);
+    fn add_availability(&mut self, slot: u16) {
+        let Some(block) = self.blocks.get(slot as usize).and_then(Option::as_ref) else {
+            return;
+        };
+        if let Some(size) = block.largest_free() {
+            self.index_for_mut(block.kind).insert((size, slot));
         }
+    }
 
-        if ptr.is_null() {
-            let fails = FAIL_COUNT.fetch_add(1, Ordering::Relaxed) + 1;
-            if fails.is_power_of_two() {
-                if let Some(vas) = super::vas::sample() {
-                    log::warn!(
-                        "[BLOCK] VirtualAlloc(MEM_RESERVE, {}MB) failed: err={} total_fails={} live={} largest=0x{:08x}+{}MB free={}MB",
-                        BLOCK_SIZE / 1024 / 1024,
-                        std::io::Error::last_os_error(),
-                        fails,
-                        self.live_count(),
-                        vas.largest_base,
-                        vas.largest_free / super::vas::MB,
-                        vas.total_free / super::vas::MB,
-                    );
-                } else {
-                    log::warn!(
-                        "[BLOCK] VirtualAlloc(MEM_RESERVE, {}MB) failed: err={} (total_fails={}, live={})",
-                        BLOCK_SIZE / 1024 / 1024,
-                        std::io::Error::last_os_error(),
-                        fails,
-                        self.live_count(),
-                    );
-                }
-            }
+    fn take_slot(&mut self) -> Option<u16> {
+        if let Some(slot) = self.free_slots.pop() {
+            return Some(slot);
+        }
+        if self.blocks.len() >= MAX_EXTENTS_PER_SHARD {
             return None;
         }
-        let addr = ptr as *mut u8;
-        let committed = 0;
-        self.blocks[idx] = Some(Block::new(addr, BLOCK_SIZE as u32, backing, committed));
-        self.map_block_address(idx, addr);
-        self.alloc_hint = idx as u8;
+        let slot = self.blocks.len() as u16;
+        self.blocks.push(None);
+        Some(slot)
+    }
+
+    fn new_block(&mut self, request: usize, shard: usize) -> Option<u16> {
+        let kind = ExtentKind::for_request(request);
+        let extent_size = match kind {
+            ExtentKind::Small => SMALL_EXTENT_SIZE,
+            ExtentKind::Large => round_up_usize(request, EXTENT_GRANULARITY),
+        };
+        let slot = self.take_slot()?;
+
+        let mut pointer = if self.allow_default_tail {
+            super::vanilla_large_heap::try_alloc_default_tail(
+                extent_size,
+                EXTENT_GRANULARITY,
+                "extent",
+                false,
+            )
+        } else {
+            null_mut()
+        };
+        let mut backing = BlockBacking::VirtualAlloc;
+        if !pointer.is_null() {
+            backing = BlockBacking::DefaultHeapTail;
+        }
+        if pointer.is_null() {
+            pointer = match kind {
+                // Win32 documents top-down placement as slower when allocation
+                // counts are high. Small-extent growth can create hundreds of
+                // reservations during load, so it uses normal clustered OS
+                // placement directly.
+                ExtentKind::Small => reserve_extent(None, extent_size),
+                ExtentKind::Large => reserve_extent_top_down(extent_size),
+            };
+        }
+        if pointer.is_null() && kind == ExtentKind::Large {
+            pointer = reserve_extent(None, extent_size);
+        }
+        if pointer.is_null() {
+            self.free_slots.push(slot);
+            log_reserve_failure(extent_size, self.live_count());
+            return None;
+        }
+
+        let base = pointer.cast::<u8>();
+        if !map_extent_address(shard, slot, base, extent_size) {
+            if backing == BlockBacking::VirtualAlloc {
+                let _ = unsafe { virtual_release(pointer) };
+            }
+            self.free_slots.push(slot);
+            log::error!(
+                "[BLOCK] Extent ownership collision: shard={} slot={} base=0x{:08X} size={}KB",
+                shard,
+                slot,
+                base as usize,
+                extent_size / 1024,
+            );
+            return None;
+        }
+
+        self.blocks[slot as usize] = Some(Block::new(base, extent_size as u32, backing, kind, 0));
+        self.add_availability(slot);
         if diagnostics::hitch_profiling_enabled() {
-            record_new_block_profiled();
+            TIMED_NEW_BLOCKS.fetch_add(1, Ordering::Relaxed);
         }
         log::debug!(
-            "[BLOCK] slot {} allocated at 0x{:08x} source={} (live={})",
-            idx,
-            addr as usize,
+            "[BLOCK] {} extent allocated: shard={} slot={} base=0x{:08X} size={}KB source={} live={}",
+            kind.label(),
+            shard,
+            slot,
+            base as usize,
+            extent_size / 1024,
             backing.label(),
             self.live_count(),
         );
-        Some(idx)
+        Some(slot)
     }
 
-    fn map_block_address(&mut self, block_idx: usize, base: *mut u8) {
-        let start = (base as usize) >> BLOCK_ADDRESS_SHIFT;
-        let end = (base as usize).saturating_add(BLOCK_SIZE - 1) >> BLOCK_ADDRESS_SHIFT;
-        for slot in start..=end.min(BLOCK_ADDRESS_SLOTS - 1) {
-            let mapped = ADDRESS_TO_BLOCK[slot].load(Ordering::Relaxed);
-            if mapped == NO_BLOCK {
-                ADDRESS_TO_BLOCK[slot].store(block_idx as u8, Ordering::Release);
-            } else if mapped != block_idx as u8 {
-                ADDRESS_TO_BLOCK[slot].store(AMBIGUOUS_BLOCK, Ordering::Release);
-            }
-        }
+    fn live_count(&self) -> usize {
+        self.blocks.iter().filter(|block| block.is_some()).count()
     }
 
-    fn rebuild_address_slot(&mut self, slot: usize) {
-        let page_start = (slot as u64) << BLOCK_ADDRESS_SHIFT;
-        let page_end = page_start + (1u64 << BLOCK_ADDRESS_SHIFT);
-        let mut mapped = NO_BLOCK;
-        for (idx, block) in self.blocks.iter().enumerate() {
-            let Some(block) = block.as_ref() else {
-                continue;
-            };
-            let block_start = block.base as usize as u64;
-            let block_end = block_start + block.size as u64;
-            if block_start >= page_end || block_end <= page_start {
-                continue;
-            }
-            if mapped != NO_BLOCK {
-                mapped = AMBIGUOUS_BLOCK;
-                break;
-            }
-            mapped = idx as u8;
-        }
-        ADDRESS_TO_BLOCK[slot].store(mapped, Ordering::Release);
-    }
-
-    fn unmap_block_address(&mut self, base: *mut u8) {
-        let start = (base as usize) >> BLOCK_ADDRESS_SHIFT;
-        let end = (base as usize).saturating_add(BLOCK_SIZE - 1) >> BLOCK_ADDRESS_SHIFT;
-        for slot in start..=end.min(BLOCK_ADDRESS_SLOTS - 1) {
-            self.rebuild_address_slot(slot);
-        }
-    }
-
-    fn reserve_high_block(&mut self) -> *mut c_void {
-        let mut hint = self.high_scan_hint;
-        while hint >= BLOCK_HIGH_SCAN_MIN {
-            self.high_scan_hint = hint
-                .checked_sub(BLOCK_SIZE)
-                .filter(|next| *next >= BLOCK_HIGH_SCAN_MIN)
-                .unwrap_or(0);
-            let ptr = reserve_block(Some(hint as *const c_void));
-            if !ptr.is_null() {
-                if ptr as usize == hint {
-                    return ptr;
-                }
-                let _ = unsafe { virtual_release(ptr) };
-            }
-
-            if self.high_scan_hint == 0 {
-                break;
-            }
-            hint = self.high_scan_hint;
-        }
-
-        null_mut()
-    }
-
-    /// Fast ownership lookup by 64 KB address page. The range check handles
-    /// the first and last page when an adopted Default-heap tail is not
-    /// block-aligned. A linear fallback covers any overlapping boundary page.
-    #[inline]
-    fn find_block(&self, ptr: *const c_void) -> Option<usize> {
-        let a = ptr as usize;
-        let slot = a >> BLOCK_ADDRESS_SHIFT;
-        if slot < BLOCK_ADDRESS_SLOTS {
-            let block_idx = ADDRESS_TO_BLOCK[slot].load(Ordering::Acquire);
-            if block_idx == NO_BLOCK {
-                return None;
-            }
-            if block_idx != AMBIGUOUS_BLOCK {
-                let block_idx = block_idx as usize;
-                if self
-                    .blocks
-                    .get(block_idx)
-                    .and_then(Option::as_ref)
-                    .is_some_and(|block| block.contains(ptr))
-                {
-                    return Some(block_idx);
-                }
-            }
-        }
-
-        for i in 0..BLOCK_COUNT {
-            if let Some(b) = self.blocks[i].as_ref() {
-                let base = b.base as usize;
-                if a >= base && a < base + BLOCK_SIZE {
-                    return Some(i);
-                }
-            }
-        }
-        None
-    }
-
-    fn alloc(&mut self, size: usize) -> *mut c_void {
+    fn alloc(&mut self, size: usize, shard: usize) -> *mut c_void {
         let rounded = round_up(size as u32, CELL_ALIGN);
-
-        // Start with the last successful slot. Streaming bursts generally
-        // reuse its remaining space and avoid walking cold full blocks.
-        let start = self.alloc_hint as usize;
-        for step in 0..BLOCK_COUNT {
-            let i = (start + step) % BLOCK_COUNT;
-            let Some(block) = self.blocks[i].as_mut() else {
-                continue;
-            };
-            if let Some(cell_idx) = block.alloc(rounded) {
-                let Some(cell) = block.cells.get(cell_idx as usize) else {
-                    log::error!(
-                        "[GHEAP] Allocated cell index {} is missing in block {}",
-                        cell_idx,
-                        i
-                    );
-                    return null_mut();
-                };
-                let offset = cell.offset;
-                let cell_size = cell.size as usize;
-                if !block.ensure_committed(offset as usize + cell_size) {
-                    let _ = block.free(offset);
-                    log_commit_failure(block.base as usize, offset as usize, cell_size);
-                    continue;
-                }
-                let addr = unsafe { block.base.add(offset as usize) };
-                self.alloc_hint = i as u8;
-                return addr as *mut c_void;
-            }
-        }
-
-        // No live block could fit. Commit a new slot.
-        let new_idx = match self.new_block() {
-            Some(i) => i,
-            None => return null_mut(),
-        };
-        let Some(block) = self.blocks[new_idx].as_mut() else {
-            log::error!("[GHEAP] New block slot {} is empty after commit", new_idx);
+        let kind = ExtentKind::for_request(size);
+        let slot = self
+            .index_for(kind)
+            .range((rounded, 0)..)
+            .next()
+            .map(|&(_, slot)| slot)
+            .or_else(|| self.new_block(size, shard));
+        let Some(slot) = slot else {
             return null_mut();
         };
-        match block.alloc(rounded) {
-            Some(cell_idx) => {
-                let Some(cell) = block.cells.get(cell_idx as usize) else {
-                    log::error!(
-                        "[GHEAP] Allocated cell index {} is missing in new block {}",
-                        cell_idx,
-                        new_idx
-                    );
-                    return null_mut();
-                };
-                let offset = cell.offset;
-                let cell_size = cell.size as usize;
-                if !block.ensure_committed(offset as usize + cell_size) {
-                    let _ = block.free(offset);
-                    log_commit_failure(block.base as usize, offset as usize, cell_size);
-                    return null_mut();
+
+        self.remove_availability(slot);
+        let result = match self.blocks.get_mut(slot as usize).and_then(Option::as_mut) {
+            Some(block) => match block.alloc(rounded) {
+                Some(cell_index) => {
+                    let cell = block.cells[cell_index as usize];
+                    if !block.ensure_committed(cell.offset as usize + cell.size as usize) {
+                        let _ = block.free(cell.offset);
+                        log_commit_failure(
+                            block.base as usize,
+                            cell.offset as usize,
+                            cell.size as usize,
+                        );
+                        null_mut()
+                    } else {
+                        unsafe { block.base.add(cell.offset as usize).cast() }
+                    }
                 }
-                let addr = unsafe { block.base.add(offset as usize) };
-                addr as *mut c_void
-            }
+                None => null_mut(),
+            },
             None => null_mut(),
-        }
-    }
-
-    fn free_if_owned(&mut self, ptr: *mut c_void) -> Option<bool> {
-        let block_idx = self.find_block(ptr)?;
-        let block = self.blocks.get_mut(block_idx)?.as_mut()?;
-        let offset = (ptr as usize - block.base as usize) as u32;
-        // Slot stays committed even when empty -- NVHR dheap semantics.
-        // Decommitting on empty caused pathological retire/commit churn
-        // on workloads that bounced a single cell inside one block.
-        Some(block.free(offset))
-    }
-
-    /// Release VirtualAlloc slots with no live user allocations. A slot
-    /// qualifies only when its `used_by_offset` map is empty, so no live game
-    /// pointer can reference the released 16 MB region. Adopted Default-heap
-    /// tail slots remain owned by the vanilla reservation.
-    ///
-    /// This is never called from normal `free`. The direct-VA path calls it
-    /// only after an allocation failure, while process-pressure recovery is
-    /// rate-limited by the watchdog and uses a non-blocking heap-lock attempt.
-    fn retire_empty(&mut self, reason: RetirementReason) -> BlockRetirement {
-        let mut result = BlockRetirement::default();
-        for i in 0..BLOCK_COUNT {
-            let is_empty = matches!(
-                self.blocks[i].as_ref(),
-                Some(b) if b.used_by_offset.is_empty()
-            );
-            if !is_empty {
-                continue;
-            }
-            let Some(b) = self.blocks[i].take() else {
-                continue;
-            };
-            let base = b.base as usize;
-            if b.backing == BlockBacking::DefaultHeapTail {
-                self.blocks[i] = Some(b);
-                continue;
-            }
-            result.eligible_slots += 1;
-            let committed = b.committed;
-            if let Err(e) = unsafe { virtual_release(b.base as *mut c_void) } {
-                log::error!(
-                    "[BLOCK] Empty-block release failed: reason={} slot={} base=0x{:08x} err={:?}",
-                    reason.label(),
-                    i,
-                    base,
-                    e,
-                );
-                self.blocks[i] = Some(b);
-                result.release_failures += 1;
-                continue;
-            }
-            self.unmap_block_address(b.base);
-            if (BLOCK_HIGH_SCAN_MIN..=BLOCK_HIGH_SCAN_START).contains(&base) {
-                self.high_scan_hint = self.high_scan_hint.max(base);
-            }
-            result.slots_retired += 1;
-            result.reserved_bytes += BLOCK_SIZE;
-            result.committed_bytes += committed;
-        }
-
-        if self.blocks[self.alloc_hint as usize].is_none() {
-            self.alloc_hint = self.blocks.iter().position(Option::is_some).unwrap_or(0) as u8;
-        }
-
-        if reason == RetirementReason::DirectVaFailure && result.slots_retired > 0 {
-            log::info!(
-                "[BLOCK] Empty-block recovery: reason={} retired={}/{} slots reserved={}MB committed={}MB failures={} live_slots={}",
-                reason.label(),
-                result.slots_retired,
-                result.eligible_slots,
-                result.reserved_bytes / 1024 / 1024,
-                result.committed_bytes / 1024 / 1024,
-                result.release_failures,
-                self.live_count(),
-            );
-        }
+        };
+        self.add_availability(slot);
         result
     }
 
-    fn size_of(&self, ptr: *const c_void) -> Option<usize> {
-        let block_idx = self.find_block(ptr)?;
-        self.blocks
-            .get(block_idx)?
-            .as_ref()?
-            .usable_size(ptr)
-            .map(|size| size as usize)
+    fn free_if_owned(&mut self, slot: u16, ptr: *mut c_void) -> Option<bool> {
+        self.remove_availability(slot);
+        let result = match self.blocks.get_mut(slot as usize).and_then(Option::as_mut) {
+            Some(block) if block.contains(ptr) => {
+                let offset = (ptr as usize - block.base as usize) as u32;
+                Some(block.free(offset))
+            }
+            _ => None,
+        };
+        self.add_availability(slot);
+        result
     }
 
-    fn live_size_if_owned(&self, ptr: *const c_void) -> Option<Option<usize>> {
-        let block_idx = self.find_block(ptr)?;
-        let block = self.blocks.get(block_idx)?.as_ref()?;
+    fn size_of(&self, slot: u16, ptr: *const c_void) -> Option<usize> {
+        let block = self.blocks.get(slot as usize)?.as_ref()?;
+        if !block.contains(ptr) {
+            return None;
+        }
+        block.usable_size(ptr).map(|size| size as usize)
+    }
+
+    fn live_size_if_owned(&self, slot: u16, ptr: *const c_void) -> Option<Option<usize>> {
+        let block = self.blocks.get(slot as usize)?.as_ref()?;
+        if !block.contains(ptr) {
+            return None;
+        }
         Some(block.usable_size(ptr).map(|size| size as usize))
     }
 
-    fn committed_bytes(&self) -> usize {
-        self.blocks
-            .iter()
-            .flatten()
-            .map(|block| block.committed)
-            .sum()
+    fn retire_empty(&mut self, shard: usize) -> BlockRetirement {
+        let mut result = BlockRetirement::default();
+        for slot in 0..self.blocks.len() {
+            let empty = matches!(
+                self.blocks[slot].as_ref(),
+                Some(block) if block.used_by_offset.is_empty()
+                    && block.backing == BlockBacking::VirtualAlloc
+            );
+            if !empty {
+                continue;
+            }
+            self.remove_availability(slot as u16);
+            let Some(block) = self.blocks[slot].take() else {
+                continue;
+            };
+            result.eligible_slots += 1;
+            let base = block.base as usize;
+            let reserved = block.size as usize;
+            if let Err(error) = unsafe { virtual_release(block.base.cast()) } {
+                log::error!(
+                    "[BLOCK] Empty extent release failed: reason=engine-cleanup shard={} slot={} base=0x{:08X} err={:?}",
+                    shard,
+                    slot,
+                    base,
+                    error,
+                );
+                self.blocks[slot] = Some(block);
+                self.add_availability(slot as u16);
+                result.release_failures += 1;
+                continue;
+            }
+            unmap_extent_address(shard, slot as u16, block.base, reserved);
+            self.free_slots.push(slot as u16);
+            result.slots_retired += 1;
+            result.reserved_bytes += reserved;
+            result.committed_bytes += block.committed;
+        }
+        result
     }
 }
 
-/// Cold aggregate of the independently reserved medium-block tier.
 #[derive(Clone, Copy, Default)]
 pub struct BlockSnapshot {
-    /// All occupied block-table slots.
     pub slots: usize,
-    /// Slots backed by independent VirtualAlloc reservations.
     pub virtual_alloc_slots: usize,
-    /// Slots adopted from the vanilla Default-heap tail.
     pub default_tail_slots: usize,
-    /// Empty VirtualAlloc slots eligible for emergency retirement.
     pub empty_virtual_alloc_slots: usize,
-    /// Slots containing at least one live allocation.
     pub partially_live_slots: usize,
-    /// Exact number of live medium allocations.
     pub live_allocations: usize,
-    /// Sum of live medium-cell sizes.
     pub live_bytes: usize,
-    /// Sum of committed prefixes across every block.
     pub committed_bytes: usize,
-    /// Complete reservations recoverable from empty VirtualAlloc slots.
     pub reclaimable_reserved_bytes: usize,
-    /// Committed prefixes recoverable from empty VirtualAlloc slots.
     pub reclaimable_committed_bytes: usize,
-    /// Committed slack retained inside blocks that still contain live cells.
     pub stranded_committed_bytes: usize,
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum RetirementReason {
-    DirectVaFailure,
-    ProcessPressure,
-}
-
-impl RetirementReason {
-    const fn label(self) -> &'static str {
-        match self {
-            Self::DirectVaFailure => "direct-va-failure",
-            Self::ProcessPressure => "process-pressure",
-        }
-    }
-}
-
-/// Result of a bounded empty-block retirement attempt.
 #[derive(Clone, Copy, Default)]
 pub(crate) struct BlockRetirement {
-    /// Empty VirtualAlloc slots selected for release.
     pub eligible_slots: usize,
-    /// Selected slots successfully returned to Windows.
     pub slots_retired: usize,
-    /// Reservation bytes successfully returned to Windows.
     pub reserved_bytes: usize,
-    /// Committed bytes contained by successfully released slots.
     pub committed_bytes: usize,
-    /// Selected slots retained after VirtualFree failed.
     pub release_failures: usize,
 }
 
-/// Non-blocking pressure-retirement result for the Phase 10 consumer.
-pub(crate) enum TryRetireResult {
-    /// Another allocator operation currently owns the block mutex.
-    Busy,
-    /// The lock was acquired and the bounded pass completed.
-    Complete(BlockRetirement),
+impl BlockRetirement {
+    fn merge(&mut self, other: Self) {
+        self.eligible_slots += other.eligible_slots;
+        self.slots_retired += other.slots_retired;
+        self.reserved_bytes += other.reserved_bytes;
+        self.committed_bytes += other.committed_bytes;
+        self.release_failures += other.release_failures;
+    }
 }
 
 #[derive(Clone, Copy, Default)]
@@ -888,12 +631,12 @@ enum TimedOperation {
 }
 
 const TIMED_OPERATION_COUNT: usize = 3;
-
-// ---------------------------------------------------------------------------
-// Global singleton
-// ---------------------------------------------------------------------------
-
-static HEAP: Mutex<BlockHeap> = Mutex::new(BlockHeap::empty());
+static HEAPS: [Mutex<BlockHeap>; SHARD_COUNT] = [
+    Mutex::new(BlockHeap::empty()),
+    Mutex::new(BlockHeap::empty()),
+    Mutex::new(BlockHeap::empty()),
+    Mutex::new(BlockHeap::empty()),
+];
 
 static TIMED_OPERATION_CALLS: [AtomicU64; TIMED_OPERATION_COUNT] =
     [const { AtomicU64::new(0) }; TIMED_OPERATION_COUNT];
@@ -910,38 +653,18 @@ static TIMED_COMMIT_FAILURES: AtomicU64 = AtomicU64::new(0);
 static TIMED_COMMIT_TOTAL_US: AtomicU64 = AtomicU64::new(0);
 static TIMED_COMMIT_MAX_US: AtomicU64 = AtomicU64::new(0);
 static TIMED_NEW_BLOCKS: AtomicU64 = AtomicU64::new(0);
-
-/// Running count of tier-commit failures. Used to power-of-two gate
-/// the error log so OOM recovery retry storms do not flood the file.
 static FAIL_COUNT: AtomicU64 = AtomicU64::new(0);
 
-#[inline]
-fn with_heap<R>(f: impl FnOnce(&mut BlockHeap) -> R) -> R {
-    let mut guard = HEAP.lock();
-    f(&mut guard)
-}
-
-#[cold]
-#[inline(never)]
-fn with_heap_profiled<R>(operation: TimedOperation, f: impl FnOnce(&mut BlockHeap) -> R) -> R {
-    let wait_timer = diagnostics::Stopwatch::start();
-    let mut guard = HEAP.lock();
-    let wait_us = wait_timer.elapsed_us().unwrap_or(0);
-    TIMED_OPERATION_CALLS[operation as usize].fetch_add(1, Ordering::Relaxed);
-    TIMED_LOCK_WAIT_TOTAL_US.fetch_add(wait_us, Ordering::Relaxed);
-    diagnostics::update_max_u64(&TIMED_LOCK_WAIT_MAX_US, wait_us);
-
-    let operation_timer = diagnostics::Stopwatch::start();
-    let result = f(&mut guard);
-    let operation_us = operation_timer.elapsed_us().unwrap_or(0);
-    TIMED_OPERATION_TOTAL_US.fetch_add(operation_us, Ordering::Relaxed);
-    diagnostics::update_max_u64(&TIMED_OPERATION_MAX_US, operation_us);
-    result
-}
-
-/// Initialize the lazy block tier. This does not reserve address space.
 pub fn init() -> bool {
-    with_heap(|h| h.init())
+    if !INIT_LOGGED.swap(true, Ordering::AcqRel) {
+        log::info!(
+            "[BLOCK] Medium extent tier ready: {} shards, {}MB small extents, 64KB-rounded large extents, {} total slots",
+            SHARD_COUNT,
+            SMALL_EXTENT_SIZE / 1024 / 1024,
+            MAX_EXTENTS,
+        );
+    }
+    true
 }
 
 #[inline]
@@ -949,72 +672,84 @@ pub fn alloc(size: usize) -> *mut c_void {
     if size == 0 || size > BLOCK_MAX_ALLOC {
         return null_mut();
     }
-    if diagnostics::hitch_profiling_enabled() {
-        return with_heap_profiled(TimedOperation::Alloc, |h| h.alloc(size));
+    let preferred = preferred_shard(size);
+    for step in 0..SHARD_COUNT {
+        let shard = (preferred + step) % SHARD_COUNT;
+        let pointer = if diagnostics::hitch_profiling_enabled() {
+            with_shard_profiled(shard, TimedOperation::Alloc, |heap| heap.alloc(size, shard))
+        } else {
+            HEAPS[shard].lock().alloc(size, shard)
+        };
+        if !pointer.is_null() {
+            return pointer;
+        }
     }
-    with_heap(|h| h.alloc(size))
+    null_mut()
 }
 
-/// Free a pointer if it belongs to a block reservation. `Some(false)`
-/// represents an invalid or already-freed pointer in an owned reservation.
 #[inline]
 pub fn free_if_owned(ptr: *mut c_void) -> Option<bool> {
-    if ptr.is_null() {
-        return None;
-    }
-    if !address_maybe_owned(ptr.cast_const()) {
-        return None;
-    }
+    let (shard, slot) = owner_for_address(ptr.cast_const())?;
     if diagnostics::hitch_profiling_enabled() {
-        return with_heap_profiled(TimedOperation::Free, |h| h.free_if_owned(ptr));
+        return with_shard_profiled(shard, TimedOperation::Free, |heap| {
+            heap.free_if_owned(slot, ptr)
+        });
     }
-    with_heap(|h| h.free_if_owned(ptr))
+    HEAPS[shard].lock().free_if_owned(slot, ptr)
 }
 
 #[inline]
 pub fn size_of(ptr: *const c_void) -> Option<usize> {
-    if ptr.is_null() {
-        return None;
-    }
-    if !address_maybe_owned(ptr) {
-        return None;
-    }
+    let (shard, slot) = owner_for_address(ptr)?;
     if diagnostics::hitch_profiling_enabled() {
-        return with_heap_profiled(TimedOperation::Size, |h| h.size_of(ptr));
+        return with_shard_profiled(shard, TimedOperation::Size, |heap| heap.size_of(slot, ptr));
     }
-    with_heap(|h| h.size_of(ptr))
+    HEAPS[shard].lock().size_of(slot, ptr)
 }
 
-/// Return exact live size for a pointer in a block reservation.
-///
-/// `None` means the address is not block-owned. `Some(None)` means the
-/// address is owned but is an interior, free, or otherwise invalid allocation
-/// start. This distinction is reserved for cold lifetime validation.
 #[inline]
 pub fn live_size_if_owned(ptr: *const c_void) -> Option<Option<usize>> {
-    if ptr.is_null() || !address_maybe_owned(ptr) {
-        return None;
-    }
-    with_heap(|h| h.live_size_if_owned(ptr))
-}
-
-#[inline]
-fn address_maybe_owned(ptr: *const c_void) -> bool {
-    let slot = (ptr as usize) >> BLOCK_ADDRESS_SHIFT;
-    slot < BLOCK_ADDRESS_SLOTS && ADDRESS_TO_BLOCK[slot].load(Ordering::Acquire) != NO_BLOCK
+    let (shard, slot) = owner_for_address(ptr)?;
+    HEAPS[shard].lock().live_size_if_owned(slot, ptr)
 }
 
 pub fn snapshot() -> BlockSnapshot {
-    with_heap(|h| block_snapshot(h))
+    let mut snapshot = BlockSnapshot::default();
+    for heap in &HEAPS {
+        merge_snapshot(&mut snapshot, &heap.lock());
+    }
+    snapshot
 }
 
-/// Read diagnostics without waiting behind an active block allocation.
-///
-/// Dashboard sampling runs off the render thread, but it still must not add a
-/// periodic contender to the variable-size allocator's global lock. A missed
-/// sample is preferable to perturbing allocation latency.
 pub fn try_snapshot() -> Option<BlockSnapshot> {
-    HEAP.try_lock().map(|heap| block_snapshot(&heap))
+    let mut snapshot = BlockSnapshot::default();
+    for heap in &HEAPS {
+        let guard = heap.try_lock()?;
+        merge_snapshot(&mut snapshot, &guard);
+    }
+    Some(snapshot)
+}
+
+pub(crate) fn retire_empty_after_engine_cleanup() -> BlockRetirement {
+    retire_all_blocking()
+}
+
+pub fn committed_bytes() -> usize {
+    HEAPS
+        .iter()
+        .map(|heap| {
+            heap.lock()
+                .blocks
+                .iter()
+                .flatten()
+                .map(|block| block.committed)
+                .sum::<usize>()
+        })
+        .sum()
+}
+
+pub fn fail_count() -> u64 {
+    FAIL_COUNT.load(Ordering::Relaxed)
 }
 
 pub fn take_timing_snapshot() -> BlockTimingSnapshot {
@@ -1039,23 +774,28 @@ pub fn take_timing_snapshot() -> BlockTimingSnapshot {
     }
 }
 
-fn block_snapshot(heap: &BlockHeap) -> BlockSnapshot {
-    let mut snapshot = BlockSnapshot::default();
+fn retire_all_blocking() -> BlockRetirement {
+    let mut result = BlockRetirement::default();
+    for (shard, heap) in HEAPS.iter().enumerate() {
+        result.merge(heap.lock().retire_empty(shard));
+    }
+    result
+}
+
+fn merge_snapshot(snapshot: &mut BlockSnapshot, heap: &BlockHeap) {
     for block in heap.blocks.iter().flatten() {
         snapshot.slots += 1;
         snapshot.live_allocations += block.used_by_offset.len();
         snapshot.live_bytes += block.live_bytes;
         snapshot.committed_bytes += block.committed;
-
         match block.backing {
             BlockBacking::VirtualAlloc => snapshot.virtual_alloc_slots += 1,
             BlockBacking::DefaultHeapTail => snapshot.default_tail_slots += 1,
         }
-
         if block.used_by_offset.is_empty() {
             if block.backing == BlockBacking::VirtualAlloc {
                 snapshot.empty_virtual_alloc_slots += 1;
-                snapshot.reclaimable_reserved_bytes += BLOCK_SIZE;
+                snapshot.reclaimable_reserved_bytes += block.size as usize;
                 snapshot.reclaimable_committed_bytes += block.committed;
             }
         } else {
@@ -1063,106 +803,217 @@ fn block_snapshot(heap: &BlockHeap) -> BlockSnapshot {
             snapshot.stranded_committed_bytes += block.committed.saturating_sub(block.live_bytes);
         }
     }
-    snapshot
 }
 
-/// Release empty VirtualAlloc-backed slots after direct-VA allocation failure.
-///
-/// This blocking path is already on a terminal OOM branch. It returns the
-/// number of retired slots and the amount of reservation returned to Windows.
-pub fn emergency_retire_empty() -> (usize, usize) {
-    with_heap(|h| {
-        let result = h.retire_empty(RetirementReason::DirectVaFailure);
-        (result.slots_retired, result.reserved_bytes)
-    })
+fn preferred_shard(size: usize) -> usize {
+    let thread = libpsycho::os::windows::winapi::get_current_thread_id() as usize;
+    (thread ^ size.rotate_right(7)) & (SHARD_COUNT - 1)
 }
 
-/// Attempt pressure-driven retirement without blocking the Phase 10 thread.
-///
-/// A busy allocator leaves the watchdog request pending for a later frame.
-pub(crate) fn try_retire_empty_for_pressure() -> TryRetireResult {
-    let Some(mut heap) = HEAP.try_lock() else {
-        return TryRetireResult::Busy;
-    };
-    TryRetireResult::Complete(heap.retire_empty(RetirementReason::ProcessPressure))
+fn encode_owner(shard: usize, slot: u16) -> u16 {
+    (shard * MAX_EXTENTS_PER_SHARD + slot as usize) as u16
 }
 
-pub fn committed_bytes() -> usize {
-    with_heap(|h| h.committed_bytes())
-}
-
-pub fn fail_count() -> u64 {
-    FAIL_COUNT.load(Ordering::Relaxed)
-}
-
-#[inline]
-fn round_up(v: u32, align: u32) -> u32 {
-    (v + align - 1) & !(align - 1)
-}
-
-#[inline]
-fn round_up_usize(v: usize, align: usize) -> usize {
-    (v + align - 1) & !(align - 1)
-}
-
-fn reserve_block(address: Option<*const c_void>) -> *mut c_void {
-    if diagnostics::hitch_profiling_enabled() {
-        return reserve_block_profiled(address);
+fn decode_owner(encoded: u16) -> Option<(usize, u16)> {
+    if encoded == NO_EXTENT {
+        return None;
     }
-    unsafe { virtual_reserve(address, BLOCK_SIZE) }
+    let encoded = encoded as usize;
+    let shard = encoded / MAX_EXTENTS_PER_SHARD;
+    let slot = (encoded % MAX_EXTENTS_PER_SHARD) as u16;
+    (shard < SHARD_COUNT).then_some((shard, slot))
+}
+
+/// Return whether a range overlaps a published medium extent.
+///
+/// The pool's cold reservation path uses this to skip exact high-address
+/// candidates already occupied by this tier. Publication is lock-free, so it
+/// cannot create a pool/block lock cycle; a concurrent not-yet-published
+/// extent is still rejected atomically by `VirtualAlloc`.
+pub(super) fn range_overlaps_extent(base: usize, size: usize) -> bool {
+    if size == 0 {
+        return false;
+    }
+    let start = base >> EXTENT_ADDRESS_SHIFT;
+    if start >= EXTENT_ADDRESS_SLOTS {
+        return false;
+    }
+    let end = base.saturating_add(size - 1) >> EXTENT_ADDRESS_SHIFT;
+    (start..=end.min(EXTENT_ADDRESS_SLOTS - 1))
+        .any(|page| ADDRESS_TO_EXTENT[page].load(Ordering::Acquire) != NO_EXTENT)
+}
+
+fn owner_for_address(ptr: *const c_void) -> Option<(usize, u16)> {
+    if ptr.is_null() {
+        return None;
+    }
+    let page = (ptr as usize) >> EXTENT_ADDRESS_SHIFT;
+    let encoded = ADDRESS_TO_EXTENT.get(page)?.load(Ordering::Acquire);
+    decode_owner(encoded)
+}
+
+fn map_extent_address(shard: usize, slot: u16, base: *mut u8, size: usize) -> bool {
+    let start = (base as usize) >> EXTENT_ADDRESS_SHIFT;
+    let end = (base as usize).saturating_add(size - 1) >> EXTENT_ADDRESS_SHIFT;
+    if end >= EXTENT_ADDRESS_SLOTS {
+        return false;
+    }
+    let encoded = encode_owner(shard, slot);
+    let mut claimed_end = start;
+    for page in start..=end {
+        if ADDRESS_TO_EXTENT[page]
+            .compare_exchange(NO_EXTENT, encoded, Ordering::AcqRel, Ordering::Acquire)
+            .is_err()
+        {
+            for claimed in start..claimed_end {
+                let _ = ADDRESS_TO_EXTENT[claimed].compare_exchange(
+                    encoded,
+                    NO_EXTENT,
+                    Ordering::AcqRel,
+                    Ordering::Acquire,
+                );
+            }
+            return false;
+        }
+        claimed_end = page + 1;
+    }
+    true
+}
+
+fn unmap_extent_address(shard: usize, slot: u16, base: *mut u8, size: usize) {
+    let encoded = encode_owner(shard, slot);
+    let start = (base as usize) >> EXTENT_ADDRESS_SHIFT;
+    let end = (base as usize).saturating_add(size - 1) >> EXTENT_ADDRESS_SHIFT;
+    for page in start..=end.min(EXTENT_ADDRESS_SLOTS - 1) {
+        let _ = ADDRESS_TO_EXTENT[page].compare_exchange(
+            encoded,
+            NO_EXTENT,
+            Ordering::AcqRel,
+            Ordering::Acquire,
+        );
+    }
 }
 
 #[cold]
-#[inline(never)]
-fn reserve_block_profiled(address: Option<*const c_void>) -> *mut c_void {
+fn with_shard_profiled<R>(
+    shard: usize,
+    operation: TimedOperation,
+    f: impl FnOnce(&mut BlockHeap) -> R,
+) -> R {
+    let wait_timer = diagnostics::Stopwatch::start();
+    let mut guard = HEAPS[shard].lock();
+    let wait_us = wait_timer.elapsed_us().unwrap_or(0);
+    TIMED_OPERATION_CALLS[operation as usize].fetch_add(1, Ordering::Relaxed);
+    TIMED_LOCK_WAIT_TOTAL_US.fetch_add(wait_us, Ordering::Relaxed);
+    diagnostics::update_max_u64(&TIMED_LOCK_WAIT_MAX_US, wait_us);
+    let operation_timer = diagnostics::Stopwatch::start();
+    let result = f(&mut guard);
+    let operation_us = operation_timer.elapsed_us().unwrap_or(0);
+    TIMED_OPERATION_TOTAL_US.fetch_add(operation_us, Ordering::Relaxed);
+    diagnostics::update_max_u64(&TIMED_OPERATION_MAX_US, operation_us);
+    result
+}
+
+fn reserve_extent(address: Option<*const c_void>, size: usize) -> *mut c_void {
+    if !diagnostics::hitch_profiling_enabled() {
+        return unsafe { virtual_reserve(address, size) };
+    }
     let timer = diagnostics::Stopwatch::start();
-    let result = unsafe { virtual_reserve(address, BLOCK_SIZE) };
+    let result = unsafe { virtual_reserve(address, size) };
     TIMED_RESERVE_CALLS.fetch_add(1, Ordering::Relaxed);
     if result.is_null() {
         TIMED_RESERVE_FAILURES.fetch_add(1, Ordering::Relaxed);
     }
-    if let Some(elapsed_us) = timer.elapsed_us() {
-        TIMED_RESERVE_TOTAL_US.fetch_add(elapsed_us, Ordering::Relaxed);
-        diagnostics::update_max_u64(&TIMED_RESERVE_MAX_US, elapsed_us);
+    if let Some(elapsed) = timer.elapsed_us() {
+        TIMED_RESERVE_TOTAL_US.fetch_add(elapsed, Ordering::Relaxed);
+        diagnostics::update_max_u64(&TIMED_RESERVE_MAX_US, elapsed);
+    }
+    result
+}
+
+/// Ask the OS to select the highest suitable extent atomically.
+///
+/// The pool tier grows downward through exact-address reservations. A manual
+/// `VirtualQuery` walk here both revisits every pool mapping and races the pool
+/// for the free range it just observed. `MEM_TOP_DOWN` performs selection and
+/// reservation in one Win32 operation, preserving high placement without
+/// adding address-map work proportional to the current mapping count.
+fn reserve_extent_top_down(size: usize) -> *mut c_void {
+    if !diagnostics::hitch_profiling_enabled() {
+        return virtual_reserve_top_down(size).unwrap_or(null_mut());
+    }
+    let timer = diagnostics::Stopwatch::start();
+    let result = virtual_reserve_top_down(size).unwrap_or(null_mut());
+    TIMED_RESERVE_CALLS.fetch_add(1, Ordering::Relaxed);
+    if result.is_null() {
+        TIMED_RESERVE_FAILURES.fetch_add(1, Ordering::Relaxed);
+    }
+    if let Some(elapsed) = timer.elapsed_us() {
+        TIMED_RESERVE_TOTAL_US.fetch_add(elapsed, Ordering::Relaxed);
+        diagnostics::update_max_u64(&TIMED_RESERVE_MAX_US, elapsed);
     }
     result
 }
 
 #[cold]
-#[inline(never)]
-fn commit_profiled(commit_base: *mut u8, commit_len: usize) -> bool {
+fn commit_profiled(base: *mut u8, size: usize) -> bool {
     let timer = diagnostics::Stopwatch::start();
-    let committed = unsafe { virtual_commit(commit_base.cast(), commit_len) };
-    let success = committed == commit_base.cast();
+    let committed = unsafe { virtual_commit(base.cast(), size) };
+    let success = committed == base.cast();
     TIMED_COMMIT_CALLS.fetch_add(1, Ordering::Relaxed);
     if !success {
         TIMED_COMMIT_FAILURES.fetch_add(1, Ordering::Relaxed);
     }
-    if let Some(elapsed_us) = timer.elapsed_us() {
-        TIMED_COMMIT_TOTAL_US.fetch_add(elapsed_us, Ordering::Relaxed);
-        diagnostics::update_max_u64(&TIMED_COMMIT_MAX_US, elapsed_us);
+    if let Some(elapsed) = timer.elapsed_us() {
+        TIMED_COMMIT_TOTAL_US.fetch_add(elapsed, Ordering::Relaxed);
+        diagnostics::update_max_u64(&TIMED_COMMIT_MAX_US, elapsed);
     }
     success
 }
 
 #[cold]
-#[inline(never)]
-fn record_new_block_profiled() {
-    TIMED_NEW_BLOCKS.fetch_add(1, Ordering::Relaxed);
+fn log_reserve_failure(size: usize, live: usize) {
+    let failures = FAIL_COUNT.fetch_add(1, Ordering::Relaxed) + 1;
+    if !failures.is_power_of_two() {
+        return;
+    }
+    if let Some(vas) = super::vas::sample() {
+        log::warn!(
+            "[BLOCK] Extent reserve failed: size={}KB err={} failures={} live={} largest=0x{:08X}+{}MB free={}MB",
+            size / 1024,
+            std::io::Error::last_os_error(),
+            failures,
+            live,
+            vas.largest_base,
+            vas.largest_free / super::vas::MB,
+            vas.total_free / super::vas::MB,
+        );
+    }
 }
 
+#[cold]
 fn log_commit_failure(base: usize, offset: usize, size: usize) {
-    let fails = FAIL_COUNT.fetch_add(1, Ordering::Relaxed) + 1;
-    if fails.is_power_of_two() {
+    let failures = FAIL_COUNT.fetch_add(1, Ordering::Relaxed) + 1;
+    if failures.is_power_of_two() {
         log::warn!(
-            "[BLOCK] VirtualAlloc(MEM_COMMIT) failed: base=0x{:08X} offset={} size={} err={} total_fails={}",
+            "[BLOCK] Extent commit failed: base=0x{:08X} offset={} size={} err={} failures={}",
             base,
             offset,
             size,
             std::io::Error::last_os_error(),
-            fails,
+            failures,
         );
     }
+}
+
+#[inline]
+fn round_up(value: u32, alignment: u32) -> u32 {
+    (value + alignment - 1) & !(alignment - 1)
+}
+
+#[inline]
+fn round_up_usize(value: usize, alignment: usize) -> usize {
+    (value + alignment - 1) & !(alignment - 1)
 }
 
 #[cfg(test)]
@@ -1176,6 +1027,7 @@ mod tests {
             storage.as_mut_ptr(),
             TEST_BLOCK_SIZE as u32,
             BlockBacking::VirtualAlloc,
+            ExtentKind::Small,
             TEST_BLOCK_SIZE,
         )
     }
@@ -1184,28 +1036,19 @@ mod tests {
     fn split_free_and_coalesce_restore_the_complete_block() {
         let mut storage = vec![0u8; TEST_BLOCK_SIZE];
         let mut block = test_block(&mut storage);
-
         let first = block.alloc(8 * 1024).expect("first allocation");
         let second = block.alloc(12 * 1024).expect("second allocation");
         let third = block.alloc(4 * 1024).expect("third allocation");
         let first_offset = block.cells[first as usize].offset;
         let second_offset = block.cells[second as usize].offset;
         let third_offset = block.cells[third as usize].offset;
-
         assert!(block.free(second_offset));
         assert!(block.free(first_offset));
         assert!(block.free(third_offset));
         assert!(!block.free(first_offset));
         assert!(block.used_by_offset.is_empty());
         assert_eq!(block.live_bytes, 0);
-        assert_eq!(block.free_by_size.len(), 1);
-        assert_eq!(
-            block
-                .free_by_size
-                .get(&(TEST_BLOCK_SIZE as u32))
-                .map(Vec::len),
-            Some(1),
-        );
+        assert_eq!(block.largest_free(), Some(TEST_BLOCK_SIZE as u32));
     }
 
     #[test]
@@ -1216,7 +1059,6 @@ mod tests {
         let offset = block.cells[cell as usize].offset as usize;
         let size = block.cells[cell as usize].size as usize;
         storage[offset..offset + size].fill(0xa5);
-
         assert!(block.free(offset as u32));
         assert!(
             storage[offset..offset + size]
@@ -1226,8 +1068,8 @@ mod tests {
     }
 
     #[test]
-    fn definitely_foreign_page_does_not_require_heap_lock() {
-        assert!(!address_maybe_owned(0x0001_0000usize as *const c_void));
+    fn definitely_foreign_page_does_not_require_a_shard_lock() {
+        assert_eq!(owner_for_address(0x0001_0000usize as *const c_void), None);
     }
 
     #[test]
@@ -1237,114 +1079,114 @@ mod tests {
         TIMED_LOCK_WAIT_MAX_US.store(11, Ordering::Relaxed);
         TIMED_RESERVE_CALLS.store(2, Ordering::Relaxed);
         TIMED_RESERVE_FAILURES.store(1, Ordering::Relaxed);
-
         let snapshot = take_timing_snapshot();
         assert_eq!(snapshot.alloc_calls, 3);
         assert_eq!(snapshot.lock_wait_total_us, 17);
         assert_eq!(snapshot.lock_wait_max_us, 11);
         assert_eq!(snapshot.reserve_calls, 2);
         assert_eq!(snapshot.reserve_failures, 1);
-
         let drained = take_timing_snapshot();
         assert_eq!(drained.alloc_calls, 0);
-        assert_eq!(drained.lock_wait_total_us, 0);
         assert_eq!(drained.reserve_calls, 0);
     }
 
     #[test]
-    fn pressure_retirement_releases_only_empty_virtualalloc_blocks() {
-        use libpsycho::os::windows::winapi::{MemoryState, virtual_query};
-
+    fn pressure_retirement_releases_only_empty_virtualalloc_extents() {
         fn reserved_block() -> Block {
-            // SAFETY: the test owns the returned reservation and either the
-            // retirement path or test cleanup releases it exactly once.
-            let base = unsafe { virtual_reserve(None, BLOCK_SIZE) };
-            assert!(!base.is_null(), "test block reservation");
-            // SAFETY: `base` owns a BLOCK_SIZE reservation, and COMMIT_CHUNK
-            // is the production allocator's first committed prefix.
+            let base = unsafe { virtual_reserve(None, SMALL_EXTENT_SIZE) };
+            assert!(!base.is_null());
             let committed = unsafe { virtual_commit(base.cast_const(), COMMIT_CHUNK) };
-            assert_eq!(committed, base, "test block commit");
+            assert_eq!(committed, base);
             Block::new(
                 base.cast(),
-                BLOCK_SIZE as u32,
+                SMALL_EXTENT_SIZE as u32,
                 BlockBacking::VirtualAlloc,
+                ExtentKind::Small,
                 COMMIT_CHUNK,
             )
         }
 
-        let mut heap = BlockHeap::empty();
+        let mut heap = BlockHeap::without_default_tail();
         let mut live = reserved_block();
         let live_cell = live.alloc(8 * 1024).expect("live allocation");
         let live_offset = live.cells[live_cell as usize].offset as usize;
-        // SAFETY: the selected cell is inside the committed test prefix and
-        // remains live until the assertions below complete.
         unsafe { live.base.add(live_offset).write_bytes(0xa5, 8 * 1024) };
         let live_base = live.base;
-        heap.blocks[0] = Some(live);
-        heap.map_block_address(0, live_base);
+        heap.blocks.push(Some(live));
+        assert!(map_extent_address(0, 0, live_base, SMALL_EXTENT_SIZE));
+        heap.add_availability(0);
 
         let empty = reserved_block();
         let empty_base = empty.base;
-        heap.blocks[1] = Some(empty);
-        heap.map_block_address(1, empty_base);
+        heap.blocks.push(Some(empty));
+        assert!(map_extent_address(0, 1, empty_base, SMALL_EXTENT_SIZE));
+        heap.add_availability(1);
 
-        let mut default_tail_storage = vec![0u8; TEST_BLOCK_SIZE];
-        heap.blocks[2] = Some(Block::new(
-            default_tail_storage.as_mut_ptr(),
+        let mut default_storage = vec![0u8; TEST_BLOCK_SIZE];
+        heap.blocks.push(Some(Block::new(
+            default_storage.as_mut_ptr(),
             TEST_BLOCK_SIZE as u32,
             BlockBacking::DefaultHeapTail,
+            ExtentKind::Small,
             TEST_BLOCK_SIZE,
-        ));
+        )));
+        heap.add_availability(2);
 
-        let before = block_snapshot(&heap);
-        assert_eq!(before.slots, 3);
-        assert_eq!(before.empty_virtual_alloc_slots, 1);
-        assert_eq!(before.reclaimable_reserved_bytes, BLOCK_SIZE);
-        assert_eq!(before.reclaimable_committed_bytes, COMMIT_CHUNK);
-        assert_eq!(before.partially_live_slots, 1);
-
-        let result = heap.retire_empty(RetirementReason::ProcessPressure);
-        assert_eq!(result.eligible_slots, 1);
+        let result = heap.retire_empty(0);
         assert_eq!(result.slots_retired, 1);
-        assert_eq!(result.reserved_bytes, BLOCK_SIZE);
-        assert_eq!(result.committed_bytes, COMMIT_CHUNK);
-        assert_eq!(result.release_failures, 0);
-        assert!(heap.blocks[1].is_none());
-        assert!(heap.blocks[2].is_some());
+        assert_eq!(result.reserved_bytes, SMALL_EXTENT_SIZE);
         assert_eq!(
-            virtual_query(empty_base.cast())
-                .expect("released block query")
-                .memory_state(),
+            virtual_query(empty_base.cast()).unwrap().memory_state(),
             MemoryState::Free,
         );
-
-        let live = heap.blocks[0].as_ref().expect("live block retained");
-        assert_eq!(live.used_by_offset.len(), 1);
-        // SAFETY: pressure retirement proved the block live and therefore did
-        // not release its committed prefix.
+        let live = heap.blocks[0].as_ref().expect("live extent retained");
         assert!(unsafe {
             std::slice::from_raw_parts(live.base.add(live_offset), 8 * 1024)
                 .iter()
                 .all(|byte| *byte == 0xa5)
         });
-
-        assert!(
-            heap.blocks[0]
-                .as_mut()
-                .expect("live block")
-                .free(live_offset as u32)
-        );
-        let cleanup = heap.retire_empty(RetirementReason::DirectVaFailure);
+        assert_eq!(heap.free_if_owned(0, live_base.cast()), Some(true));
+        let cleanup = heap.retire_empty(0);
         assert_eq!(cleanup.slots_retired, 1);
         heap.blocks[2] = None;
     }
 
     #[test]
-    fn pressure_retirement_does_not_wait_for_the_global_heap_lock() {
-        let _guard = HEAP.lock();
-        assert!(matches!(
-            try_retire_empty_for_pressure(),
-            TryRetireResult::Busy
-        ));
+    fn transition_sized_churn_does_not_pin_large_extents_behind_small_survivors() {
+        const TRANSITIONS: usize = 12;
+        const ANCHOR_SIZE: usize = MIN_CELL as usize;
+        const TRANSIENT_SIZE: usize = BLOCK_SIZE - ANCHOR_SIZE;
+
+        let mut heap = BlockHeap::without_default_tail();
+        let mut anchors = Vec::with_capacity(TRANSITIONS);
+        let mut transients = Vec::with_capacity(TRANSITIONS);
+        for _ in 0..TRANSITIONS {
+            let anchor = heap.alloc(ANCHOR_SIZE, 0);
+            assert!(!anchor.is_null());
+            anchors.push(anchor);
+            let transient = heap.alloc(TRANSIENT_SIZE, 0);
+            assert!(!transient.is_null());
+            transients.push(transient);
+        }
+        for transient in transients {
+            let (_, slot) = owner_for_address(transient).expect("owned transient");
+            assert_eq!(heap.free_if_owned(slot, transient), Some(true));
+        }
+        let pressure = heap.retire_empty(0);
+        let mut retained = BlockSnapshot::default();
+        merge_snapshot(&mut retained, &heap);
+        for anchor in anchors {
+            let (_, slot) = owner_for_address(anchor).expect("owned anchor");
+            assert_eq!(heap.free_if_owned(slot, anchor), Some(true));
+        }
+        let _ = heap.retire_empty(0);
+
+        assert_eq!(pressure.slots_retired, TRANSITIONS);
+        assert!(
+            retained.stranded_committed_bytes <= TRANSITIONS * SMALL_EXTENT_SIZE,
+            "{} MiB remained pinned by {} KiB of survivors",
+            retained.stranded_committed_bytes / 1024 / 1024,
+            retained.live_bytes / 1024,
+        );
     }
 }

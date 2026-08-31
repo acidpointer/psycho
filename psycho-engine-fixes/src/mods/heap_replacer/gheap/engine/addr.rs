@@ -175,6 +175,11 @@ pub const DEFERRED_CLEANUP_SMALL: usize = 0x00878250;
 /// convention: ECX = lock ptr, one stack diagnostic-label param, RET 0x4.
 pub const SPIN_LOCK_ACQUIRE: usize = 0x0040FBF0;
 
+/// FUN_0040FBA0: release for the same reentrant engine lock. Fastcall ECX is
+/// the lock pointer; the function preserves nested depth and publishes owner
+/// zero only for the outermost release.
+pub const SPIN_LOCK_RELEASE: usize = 0x0040FBA0;
+
 // ---------------------------------------------------------------------------
 // Havok physics synchronization
 // ---------------------------------------------------------------------------

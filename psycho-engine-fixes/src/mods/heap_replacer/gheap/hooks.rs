@@ -4,10 +4,10 @@
 //! is limited to things that are not allocator-state dependent:
 //!   - main-thread id capture on the first Phase 7 frame
 //!   - vanilla per-frame PDD drain pass-through
-//!   - periodic full PDD drain (10 s cooldown) -- PDD maintenance only,
-//!     does not consult game loading/menu state
+//!   - optional legacy full PDD drain (10 s cooldown)
+//!   - coordinated native reclamation under proven process VAS pressure
 //!   - AI start / AI join sync flags
-//!   - OOM Stage 8 safe BSTaskManagerThread semaphore release
+//!   - native OOM retry with safe BSTaskManagerThread semaphore release
 //!
 //! No explicit `havok_gc` call here. It races with AI Linear Task
 //! Threads (PPL Concurrency Runtime pool dispatched by IOManager),
@@ -142,6 +142,7 @@ pub unsafe extern "thiscall" fn hook_main_loop_maintenance(this: *mut c_void) {
             pr.calibrate_baseline();
             pr.relieve_pending_vas_pressure();
         }
+        super::memory_lifecycle::on_main_thread_frame();
     });
     hang::mark_main_detail(Site::Phase10AfterPressure);
 
@@ -368,6 +369,26 @@ pub unsafe extern "thiscall" fn hook_oom_stage_exec(
     stage: i32,
     done: *mut u8,
 ) -> i32 {
+    if (0..=6).contains(&stage) {
+        if !super::engine::globals::is_main_thread_by_tid() {
+            let trigger = unsafe { (heap_singleton as *const u8).add(0x134) } as *mut i32;
+            let pending = unsafe { trigger.read_volatile() };
+            if pending < 6 {
+                unsafe { trigger.write_volatile(6) };
+            }
+            return stage + 1;
+        }
+        if let Ok(original) = statics::OOM_STAGE_EXEC_HOOK.original() {
+            let guarded = unsafe {
+                super::memory_lifecycle::run_guarded_oom_stage(|| {
+                    original(heap_singleton, primary_heap, stage, done)
+                })
+            };
+            return guarded.unwrap_or(stage + 1);
+        }
+        return stage + 1;
+    }
+
     if stage != 8 {
         if let Ok(original) = statics::OOM_STAGE_EXEC_HOOK.original() {
             return unsafe { original(heap_singleton, primary_heap, stage, done) };

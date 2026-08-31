@@ -1,10 +1,9 @@
 //! Size-class pool allocator for small allocations.
 //!
 //! Adapted from NVHR's mheap with one critical divergence: each size
-//! class is split into 8 MB subpools that reserve lazily. Free dispatch
-//! stays O(1) via `addr_to_pool[ptr >> POOL_ALIGN_BITS]`. Each subpool
-//! grows by committing `POOL_BLOCK_SIZE` (1 MB) blocks on demand and
-//! never decommits.
+//! class is split into 1 MB slabs that reserve lazily. Free dispatch
+//! stays O(1) via `addr_to_pool[ptr >> POOL_ALIGN_BITS]`. A slab is committed
+//! when first used and never decommits while it remains active.
 //!
 //! # Why lazy reservation
 //!
@@ -17,13 +16,13 @@
 //!
 //! Lazy subpools move per-class VA into the allocator's own lifetime:
 //! if a size class is never used, no VA is reserved. If a class is used
-//! early, only its first 8 MB subpool is reserved. More subpools appear
+//! early, only its first 1 MB slab is reserved. More slabs appear
 //! as actual demand grows, matching vanilla SBM's grow-on-demand
 //! contract without paying the old 512 MB first-touch cost.
 //!
 //! # Lifecycle
 //!
-//! - `PoolHeap::create()` expands size-class descriptors into 8 MB
+//! - `PoolHeap::create()` expands size-class descriptors into 1 MB
 //!   base subpools plus dormant exact-size overflow descriptors and builds
 //!   the `size_to_class` lookup. It does not call `VirtualAlloc`.
 //! - `PoolHeap::alloc(size)` dispatches to a size class, starts from a
@@ -65,7 +64,9 @@
 
 use std::ptr::{self, null_mut};
 use std::sync::Mutex;
-use std::sync::atomic::{AtomicI32, AtomicU8, AtomicU32, AtomicU64, AtomicUsize, Ordering};
+use std::sync::atomic::{
+    AtomicI32, AtomicU8, AtomicU16, AtomicU32, AtomicU64, AtomicUsize, Ordering,
+};
 
 use libc::c_void;
 use libpsycho::os::windows::winapi::{virtual_commit, virtual_release, virtual_reserve};
@@ -86,12 +87,11 @@ const POOL_STATE_PERMANENT: u8 = 4;
 // Constants
 // ---------------------------------------------------------------------------
 
-/// Reservation alignment. Every subpool is placed at `i * POOL_ALIGN` for
-/// some `i`, and the free path uses `ptr >> POOL_ALIGN_BITS` to reach
-/// the exact subpool. 8 MB trades some first-touch VAS for fewer
-/// reservations and less fragmentation under heavy modlists.
-pub const POOL_ALIGN: usize = 0x0080_0000; // 8 MB
-const POOL_ALIGN_BITS: u32 = 23; // log2(POOL_ALIGN)
+/// Reservation alignment. One independently reserved slab is also the commit
+/// unit, eliminating the multi-megabyte uncommitted tails observed after long
+/// transition-heavy sessions.
+pub const POOL_ALIGN: usize = 0x0010_0000; // 1 MB
+const POOL_ALIGN_BITS: u32 = 20;
 const POOL_SUBPOOL_SIZE: u32 = POOL_ALIGN as u32;
 
 /// Extra exact-size capacity available after a class's normal reservation is
@@ -131,31 +131,31 @@ pub struct PoolTimingSnapshot {
     pub grow_max_us: u64,
     pub grow_user_bytes: u64,
     pub grow_metadata_bytes: u64,
-    pub grow_slowest_pool: u8,
+    pub grow_slowest_pool: u16,
     pub grow_slowest_item_size: u16,
     pub initializations: u64,
     pub init_total_us: u64,
     pub init_max_us: u64,
-    pub init_slowest_pool: u8,
+    pub init_slowest_pool: u16,
     pub init_slowest_item_size: u16,
 }
 
-fn pack_timing(elapsed_us: u64, pool_index: u8, item_size: u32) -> u64 {
+fn pack_timing(elapsed_us: u64, pool_index: u16, item_size: u32) -> u64 {
     let elapsed = elapsed_us.min(u32::MAX as u64);
     (elapsed << 32) | (u64::from(pool_index) << 16) | u64::from(item_size.min(u16::MAX as u32))
 }
 
-fn unpack_timing(value: u64) -> (u64, u8, u16) {
+fn unpack_timing(value: u64) -> (u64, u16, u16) {
     (
         value >> 32,
-        ((value >> 16) & 0xff) as u8,
+        ((value >> 16) & 0xffff) as u16,
         (value & 0xffff) as u16,
     )
 }
 
 fn record_grow_timing(
     timer: diagnostics::Stopwatch,
-    pool_index: u8,
+    pool_index: u16,
     item_size: u32,
     success: bool,
     user_bytes: usize,
@@ -178,7 +178,7 @@ fn record_grow_timing(
     );
 }
 
-fn record_init_timing(timer: diagnostics::Stopwatch, pool_index: u8, item_size: u32) {
+fn record_init_timing(timer: diagnostics::Stopwatch, pool_index: u16, item_size: u32) {
     let Some(elapsed_us) = timer.elapsed_us() else {
         return;
     };
@@ -224,12 +224,12 @@ pub const POOL_MAX_SIZE: usize = 3584;
 /// Size-to-pool lookup length. Index = `(size + 3) >> 2`.
 const SIZE_LOOKUP_LEN: usize = (POOL_MAX_SIZE >> 2) + 1;
 
-/// Address-to-pool lookup length. Covers 4 GB of user VA at 8 MB
+/// Address-to-pool lookup length. Covers 4 GB of user VA at 1 MB
 /// granularity, more than the 3 GB LAA ceiling needs.
-const ADDR_LOOKUP_LEN: usize = 512;
+const ADDR_LOOKUP_LEN: usize = 4096;
 
-/// Sentinel in the lookup tables for "no pool here".
-const NO_POOL: u8 = 0xff;
+const NO_CLASS: u8 = u8::MAX;
+const NO_POOL: u16 = u16::MAX;
 
 #[cold]
 fn log_overflow_refusal(class_index: u8, item_size: u32, reason: &'static str, value_mb: usize) {
@@ -327,7 +327,7 @@ enum ClassAllocResult {
 ///   Common subclasses:
 ///     32, 64, 128, 256, 320 B: 16 MB each
 ///
-///   Baseline (never observed saturating): one 8 MB subpool.
+///   Baseline (never observed saturating): eight lazy 1 MB slabs.
 ///
 /// Accepted exhaust risks on 552 MB budget:
 ///   - 80 B heavy load (Run B pattern): 80 MB vs 96 MB ideal -> expect
@@ -563,7 +563,7 @@ const FREE_LINK_TAIL: *mut FreeLink = std::ptr::dangling_mut::<FreeLink>();
 
 #[derive(Copy, Clone, Debug)]
 pub struct PoolPtrInfo {
-    pub pool_index: u8,
+    pub pool_index: u16,
     pub item_size: u32,
     pub cell_index: usize,
     pub cell_start: usize,
@@ -631,7 +631,7 @@ struct Pool {
     metadata_bytes: AtomicU32,
 
     /// Pool index (for diagnostics).
-    index: u8,
+    index: u16,
 
     /// Per-pool lifecycle state. Start: `POOL_STATE_NOT_INIT`. First
     /// alloc flips NotInit -> Initing -> Init (or Failed). Checked
@@ -858,8 +858,8 @@ impl Pool {
     /// and memory note project_bstreenode_crash_chain.md):
     ///
     ///   1. Cell transition queues BSTreeNode to PDD NiNode queue.
-    ///   2. Per-frame PDD (10-20 entries/frame) plus our periodic Stage 4
-    ///      (10 s cooldown) drain the queue. Stage 4 can free a child
+    ///   2. Per-frame PDD (10-20 entries/frame) plus the optional periodic
+    ///      Stage 4 drain the queue. Stage 4 can free a child
     ///      NiRefObject before the parent BSTreeNode is processed within
     ///      the same Stage 4 call.
     ///   3. Because this freelist is LIFO with zero reuse cooldown, the
@@ -944,7 +944,7 @@ impl Pool {
     ///
     /// A general reuse cooldown or epoch quarantine conflicts with the
     /// rest of this allocator's design (NVHR-style immediate reuse,
-    /// bounded 512 MB budget, no epoch infrastructure). A scoped PDD
+    /// bounded pool budget, no epoch infrastructure). A scoped PDD
     /// freeze experiment was removed after playtesting showed it could
     /// hang the game faster. This path is back to immediate LIFO reuse;
     /// stale-pointer protection belongs in specific engine guards until
@@ -1073,7 +1073,7 @@ impl Pool {
 pub struct PoolHeap {
     pools: [Pool; NUM_TOTAL_POOLS],
     /// First concrete subpool index for each size class.
-    class_start: [u8; NUM_BASE_POOLS],
+    class_start: [u16; NUM_BASE_POOLS],
     /// Number of concrete subpools for each size class.
     class_count: [u8; NUM_BASE_POOLS],
     /// Allocation starts here for each class. Updated on successful
@@ -1085,7 +1085,7 @@ pub struct PoolHeap {
     /// upper bits change on every free or retry generation. A failure CAS can
     /// therefore never overwrite a concurrent free notification.
     class_state: [AtomicU32; NUM_BASE_POOLS],
-    /// size_to_class[(size + 3) >> 2] = class index, or NO_POOL if size
+    /// size_to_class[(size + 3) >> 2] = class index, or NO_CLASS if size
     /// exceeds POOL_MAX_SIZE. Filled at heap create; independent of
     /// per-subpool reservation state.
     size_to_class: [u8; SIZE_LOOKUP_LEN],
@@ -1094,10 +1094,10 @@ pub struct PoolHeap {
     /// `lazy_init_pool` as individual pools come online; entries are
     /// guarded by `INIT_LOCK`.
     ///
-    /// Uses `AtomicU8` so readers on the alloc/free hot path can load
+    /// Uses `AtomicU16` so readers on the alloc/free hot path can load
     /// without locking. Writers (lazy init) hold `INIT_LOCK` to
     /// serialise slot claims.
-    addr_to_pool: [AtomicU8; ADDR_LOOKUP_LEN],
+    addr_to_pool: [AtomicU16; ADDR_LOOKUP_LEN],
     /// Serialises the "scan free slots + VirtualAlloc + claim slots"
     /// sequence across concurrent lazy-init attempts on different
     /// pools. Not taken on the alloc/free hot paths -- only on the
@@ -1112,7 +1112,7 @@ unsafe impl Sync for PoolHeap {}
 /// so size dispatch works before any subpool has lazy-inited.
 fn assign_pool_desc(
     pool: &mut Pool,
-    pool_idx: u8,
+    pool_idx: u16,
     class_idx: u8,
     desc: &PoolDesc,
     subpool_idx: u8,
@@ -1154,8 +1154,8 @@ impl PoolHeap {
             class_hint: std::array::from_fn(|_| AtomicU8::new(0)),
             class_exhaustions: std::array::from_fn(|_| AtomicU64::new(0)),
             class_state: std::array::from_fn(|_| AtomicU32::new(0)),
-            size_to_class: [NO_POOL; SIZE_LOOKUP_LEN],
-            addr_to_pool: std::array::from_fn(|_| AtomicU8::new(NO_POOL)),
+            size_to_class: [NO_CLASS; SIZE_LOOKUP_LEN],
+            addr_to_pool: std::array::from_fn(|_| AtomicU16::new(NO_POOL)),
             init_lock: Mutex::new(()),
         });
 
@@ -1165,7 +1165,7 @@ impl PoolHeap {
         for (class_idx, desc) in POOL_DESC.iter().enumerate() {
             let base_count = subpool_count_for(desc.max_size);
             let count = base_count + overflow_subpool_count(class_idx);
-            heap.class_start[class_idx] = pool_idx as u8;
+            heap.class_start[class_idx] = pool_idx as u16;
             heap.class_count[class_idx] = count as u8;
             for subpool_idx in 0..count {
                 let Some(pool) = heap.pools.get_mut(pool_idx) else {
@@ -1177,7 +1177,7 @@ impl PoolHeap {
                 };
                 assign_pool_desc(
                     pool,
-                    pool_idx as u8,
+                    pool_idx as u16,
                     class_idx as u8,
                     desc,
                     subpool_idx as u8,
@@ -1202,11 +1202,11 @@ impl PoolHeap {
         for (class_idx, desc) in POOL_DESC.iter().enumerate() {
             let upper = (desc.item_size as usize >> 2).min(SIZE_LOOKUP_LEN - 1);
             let mut i = upper;
-            while i > 0 && heap.size_to_class[i] == NO_POOL {
+            while i > 0 && heap.size_to_class[i] == NO_CLASS {
                 heap.size_to_class[i] = class_idx as u8;
                 i -= 1;
             }
-            if i == 0 && heap.size_to_class[0] == NO_POOL {
+            if i == 0 && heap.size_to_class[0] == NO_CLASS {
                 heap.size_to_class[0] = class_idx as u8;
             }
         }
@@ -1448,6 +1448,11 @@ impl PoolHeap {
                         break;
                     }
                 }
+                if clear
+                    && super::block::range_overlaps_extent(slot * POOL_ALIGN, max_size as usize)
+                {
+                    clear = false;
+                }
                 if clear {
                     let hint = (slot * POOL_ALIGN) as *mut c_void;
                     let ptr = unsafe { virtual_reserve(Some(hint), max_size as usize) };
@@ -1491,7 +1496,7 @@ impl PoolHeap {
         // our writes once state flips to INIT (Release pair in
         // `lazy_init_pool` with an Acquire load in `is_inited`).
         for s in claim_slot..claim_slot + slots_needed {
-            self.addr_to_pool[s].store(idx as u8, Ordering::Relaxed);
+            self.addr_to_pool[s].store(idx as u16, Ordering::Relaxed);
         }
 
         if overflow {
@@ -1499,7 +1504,7 @@ impl PoolHeap {
             OVERFLOW_METADATA_RESERVED_BYTES.fetch_add(metadata_reserved_bytes, Ordering::Relaxed);
         }
 
-        record_init_timing(timer, idx as u8, item_size);
+        record_init_timing(timer, idx as u16, item_size);
 
         log::debug!(
             "[POOL] class #{} {}B initialized: subpool {}/{} (#{}) user={}MB at 0x{:08x}..0x{:08x} metadata={}KB source={} overflow={}",
@@ -1602,7 +1607,7 @@ impl PoolHeap {
             return null_mut();
         }
         let class_idx = self.size_to_class[idx];
-        if class_idx == NO_POOL {
+        if class_idx == NO_CLASS {
             return null_mut();
         }
 
@@ -1935,4 +1940,20 @@ pub fn overflow_user_reserved_bytes() -> usize {
 
 pub fn overflow_metadata_reserved_bytes() -> usize {
     OVERFLOW_METADATA_RESERVED_BYTES.load(Ordering::Relaxed)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn first_small_class_allocation_reserves_only_its_commit_unit() {
+        super::super::vanilla_large_heap::disable_default_tail_for_tests();
+        let heap = PoolHeap::create().expect("pool heap shell");
+        let allocation = heap.alloc(POOL_MAX_SIZE);
+        assert!(!allocation.is_null());
+        assert_eq!(heap.committed_bytes(), POOL_BLOCK_SIZE);
+        assert_eq!(heap.reserved_bytes(), POOL_BLOCK_SIZE);
+        assert!(heap.free(allocation));
+    }
 }

@@ -4,7 +4,7 @@
 //! This module provides:
 //!   - baseline commit calibration;
 //!   - an allocation-free watchdog-to-main-thread pressure mailbox; and
-//!   - bounded empty-block relief at the existing Phase 10 boundary.
+//!   - pressure forwarding to the coordinated engine-memory lifecycle.
 //!
 //! # Hook positions
 //!
@@ -13,8 +13,6 @@
 
 use std::sync::LazyLock;
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
-
-use super::block::TryRetireResult;
 
 // ---------------------------------------------------------------------------
 // PressureRelief
@@ -85,43 +83,17 @@ impl PressureRelief {
         self.request_generation.fetch_add(1, Ordering::Release);
     }
 
-    /// Consume bounded allocator-owned relief at the Phase 10 main-thread
-    /// boundary. A busy block allocator leaves the request pending rather than
-    /// stalling the frame.
+    /// Forward one proven VAS-pressure sample at the Phase 10 main-thread
+    /// boundary. The lifecycle controller retains the request until native
+    /// IO, scene, and Havok destruction barriers can be acquired.
     pub(crate) fn relieve_pending_vas_pressure(&self) {
         let Some(request) = self.pending_request() else {
             return;
         };
 
-        let TryRetireResult::Complete(result) = super::block::try_retire_empty_for_pressure()
-        else {
-            return;
-        };
+        super::memory_lifecycle::request_pressure(request.generation);
         self.handled_generation
             .store(request.generation, Ordering::Release);
-
-        if result.slots_retired > 0 {
-            log::warn!(
-                "[PRESSURE] Released empty medium blocks: request={} retired={}/{} slots reserved={}MB committed={}MB failures={} sampled_free={}MB sampled_largest={}MB",
-                request.generation,
-                result.slots_retired,
-                result.eligible_slots,
-                result.reserved_bytes / super::vas::MB,
-                result.committed_bytes / super::vas::MB,
-                result.release_failures,
-                request.total_free / super::vas::MB,
-                request.largest_free / super::vas::MB,
-            );
-        } else {
-            log::warn!(
-                "[PRESSURE] No empty medium blocks released: request={} eligible={} failures={} sampled_free={}MB sampled_largest={}MB; live blocks retain their allocations",
-                request.generation,
-                result.eligible_slots,
-                result.release_failures,
-                request.total_free / super::vas::MB,
-                request.largest_free / super::vas::MB,
-            );
-        }
     }
 
     fn pending_request(&self) -> Option<PressureRequest> {

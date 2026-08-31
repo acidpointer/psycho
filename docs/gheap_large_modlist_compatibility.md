@@ -50,6 +50,7 @@ Authoritative API references:
 
 - [MEMORYSTATUSEX](https://learn.microsoft.com/en-us/windows/win32/api/sysinfoapi/ns-sysinfoapi-memorystatusex)
 - [32-bit virtual address space](https://learn.microsoft.com/en-us/windows/win32/memory/virtual-address-space)
+- [VirtualAlloc](https://learn.microsoft.com/en-us/windows/win32/api/memoryapi/nf-memoryapi-virtualalloc)
 - [D3DXCreateTextureFromFileInMemory](https://learn.microsoft.com/en-us/windows/win32/direct3d9/d3dxcreatetexturefromfileinmemory)
 - [D3DPOOL](https://learn.microsoft.com/en-us/windows/win32/direct3d9/d3dpool)
 - [EvictManagedResources](https://learn.microsoft.com/en-us/windows/win32/api/d3d9/nf-d3d9-idirect3ddevice9-evictmanagedresources)
@@ -72,12 +73,12 @@ Source ownership:
 | Area | Files | Contract |
 |---|---|---|
 | Activation | `heap_replacer/install.rs`, `manifest.rs` | Preflight, initialize, then transactionally publish all allocation domains. |
-| Small objects | `gheap/pool.rs` | 34 exact size classes through 3584 bytes; 69 base and 181 dormant overflow descriptors; lazy 8 MB user reservations with separate metadata. |
-| Medium objects | `gheap/block.rs` | On-demand independent 16 MB reservations, 1 MB progressive commit, exact 16-byte alignment, split/coalesce metadata outside user bytes, 64-slot ceiling. |
-| Huge objects | `gheap/va_alloc.rs` | Page-rounded reserve+commit above 16 MB; exact side-table ownership; release on free; one retry after retiring fully empty VA-backed medium blocks. |
-| Dispatch | `gheap/allocator.rs` | Size-only tier selection; pool failure may use blocks; final failure returns `NULL`. |
-| Pressure | `gheap/vas.rs`, `watchdog.rs`, `pressure.rs` | `VirtualQuery` total/holes, commit growth, tier occupancy, fallback/failure counters. A detailed high-VAS-pressure sample may request Phase 10 retirement of fully empty VirtualAlloc medium blocks; the watchdog never mutates allocator or engine state. |
-| Lifetime safety | pool/block metadata and targeted engine guards | Free does not overwrite pool/block payload bytes. Reuse is immediate; only proven stale-reader families receive targeted guards. |
+| Small objects | `gheap/pool.rs` | 34 exact size classes through 3584 bytes; 552 lazy 1 MiB base slabs and 181 dormant 1 MiB overflow slabs with separate metadata. Reservation and commit units match. |
+| Medium objects | `gheap/block.rs` | Four shards; 1 MiB small-object extents and 64 KiB-rounded request-sized large extents; exact best-fit indexes and 64 KiB-page ownership dispatch; 1024 lazy extent slots. |
+| Huge objects | `gheap/va_alloc.rs` | Page-rounded reserve+commit above 16 MiB; exact side-table ownership; release on free. Final failure enters coordinated native recovery. |
+| Dispatch | `gheap/allocator.rs`, `gheap/memory_lifecycle.rs` | Size-only tier selection; pool failure may use medium extents; final failure retries through the native stage policy without re-entering the hooked GameHeap allocator. |
+| Pressure | `gheap/vas.rs`, `watchdog.rs`, `pressure.rs`, `memory_lifecycle.rs` | `VirtualQuery` total/holes, commit growth, tier occupancy, and failure counters. Proven VAS pressure is forwarded to one barrier-protected native reclamation transaction; the watchdog never mutates engine or allocator state. |
+| Lifetime safety | pool/block metadata, `memory_lifecycle.rs`, and targeted engine guards | Ordinary free does not overwrite pool/block payload bytes. Independently reserved empty medium extents are released only inside the coordinated IO/Havok/scene destruction boundary. |
 
 Controller-sequence IDTag retirement is a separate engine-object contract, not
 an allocator policy. The August 17 report had ample VAS and an exact
@@ -129,11 +130,12 @@ the driver/default copy; the system-memory backing remains. Therefore:
 Two allocation callsites in this function do not establish a final-OOM safety
 contract. The initial source allocation is consumed by the file read without a
 local `NULL` branch, and the mip-rewrite allocation is followed immediately by
-`memcpy` and header writes. Gheap retries a failed huge direct allocation after
-retiring empty medium blocks, but if all owned tiers still fail it returns
-`NULL`. Patching these sites to fabricate success would corrupt ownership;
-changing them requires a separately proven failure branch and runtime behavior
-for a missing texture. This remains a hard boundary, not a solved guarantee.
+`memcpy` and header writes. Gheap now retries a failed allocation through the
+engine's native cleanup stages and coordinated empty-extent release, but if
+those mechanisms cannot produce a suitable hole it still returns `NULL`.
+Patching these sites to fabricate success would corrupt ownership; changing
+them requires a separately proven failure branch and runtime behavior for a
+missing texture. This remains a hard boundary, not a solved guarantee.
 
 Existing raw evidence remains in:
 
@@ -573,10 +575,10 @@ save rotates them.
   active driver resources fit concurrently.
 - Small-object populations beyond the original 552 MB fixed base capacity,
   within the per-class overflow descriptor counts and VAS admission policy.
-- Medium streamed allocations up to 16 MB in as many as 64 on-demand blocks,
-  subject to actual VAS and commit.
-- Huge allocations above 16 MB through exact direct reservations, including
-  one recovery retry after safe retirement of fully empty VA-backed blocks.
+- Medium streamed allocations up to 16 MiB through 1 MiB small extents or
+  request-sized large extents, subject to actual VAS and commit.
+- Huge allocations above 16 MiB through exact direct reservations and the
+  coordinated native cleanup/retry policy.
 - Pre-hook pointers from recognized ownership domains, which free/size/realloc
   route back to their original heap.
 
@@ -604,54 +606,48 @@ save rotates them.
 
 ### OOM and VAS recovery
 
-The correction improves admission and diagnostics by using actual process
-holes. Progressive commit and huge-allocation empty-block retirement are
-unchanged. No broad synchronous cleanup was added: re-entering vanilla SBM
-recurses through hooked CRT allocation, and arbitrary cleanup from allocation
-threads violates Havok/IO ownership. Cost: under true low-VAS pressure, an
-overflow class may reach the emergency block fallback sooner. This favors
-address-space reserve over peak small-allocation throughput but cannot by
-itself guarantee later D3D success. In all three allocator modes, the
-actor-container guard does not alter allocation, reclamation, routing, or retry
-policy. On the exceptional corrupt-retirement path only, it trades a bounded
-leak of uncertain list members for process safety.
+Admission uses actual process holes. Pool reservation now matches its 1 MiB
+commit unit, medium placement separates small survivors from large transients,
+and final failure enters the engine's native cleanup stages without re-entering
+vanilla SBM. Proven process pressure can run one coordinated PDD/async/model
+transaction and release empty medium extents. This cannot guarantee success
+when no resulting hole fits an external D3D or native request. In all three
+allocator modes, the actor-container guard does not alter allocation,
+reclamation, routing, or retry policy. On the exceptional corrupt-retirement
+path only, it trades a bounded leak of uncertain list members for process
+safety.
 
 ### UAF protection
 
-No reuse timing or cleanup stage changed. Pool/block metadata remains outside
-user bytes, and a focused regression test proves block free does not overwrite
-payload. Immediate address reuse still exists and requires the established
-targeted engine guards. Empty-block emergency retirement applies only when the
-block has no live allocations; it does not make zombie pointers valid. The
-atomic address-page directory publishes a slot only after the block is fully
-initialized and locked consumers revalidate every possibly owned pointer, so
-lock-free rejection does not weaken retirement safety. Dynamic actor
-retirement now validates exact allocation starts against gheap or Windows-heap
+Pool/block metadata remains outside user bytes, and block free does not
+overwrite payload. Immediate address reuse still exists and requires the
+established targeted engine guards. Pool slabs remain mapped. An empty medium
+extent is released only while the IO dequeue barrier, worker drains,
+AI/Havok stop, and native pre-destruction ownership are active. The atomic
+address-page directory publishes an extent only after initialization and
+locked consumers revalidate every possibly owned pointer. Dynamic actor
+retirement validates exact allocation starts against gheap or Windows-heap
 ownership, or exact structurally plausible vanilla SBM cells, and detaches a
 malformed container before vanilla's promotion/free helper can consume it.
-Modes `2`, `1`, and `0` therefore protect the same proven family without
-changing global reuse timing or pretending to identify the original stale
-writer.
 
 ### Performance
 
-There is no new routine per-allocation scan, allocation, log, or lock. A free
-or size query for a page definitely outside the medium tier now returns after
-one atomic directory load instead of acquiring the medium heap mutex. Owned or
-ambiguous pages still take the mutex and revalidate against the live slot;
-medium allocation behavior is unchanged. The
-watchdog retains a light five-second process-accounting poll for commit growth
+There is no new routine per-allocation scan, allocation, or log. A free or size
+query for a page outside the medium tier returns after one atomic directory
+load. Owned pages take only their encoded shard lock and revalidate the live
+extent. Medium allocation begins in one shard and uses its logarithmic
+best-fit index instead of scanning all historical blocks under a global mutex.
+The watchdog retains a light five-second process-accounting poll for commit growth
 and failed-reservation retry state. Full `VirtualQuery` enumeration, allocator
 snapshots, class sorting, and detailed log writes run once per 60 seconds,
 during baseline calibration, on an explicit dashboard request, or on a lazy
 overflow reservation attempt. Normal dashboard chart sampling reads the
 published VAS and process caches without starting either operation.
-Pressure-state output is
-diagnostic only; allocator admission still samples actual VAS when it needs a
-decision. Peak/max telemetry adds relaxed atomics only to allocations larger
-than 16 MB. The block allocator remains a global mutex and is an emergency path
-for small pool failures, not a scalable steady state for millions of small
-objects.
+Pressure-state output also forwards one request to the main-thread lifecycle;
+allocator admission still samples actual VAS when it needs a decision.
+Peak/max telemetry adds relaxed atomics only to allocations larger than 16
+MiB. Small pool failures may still use the medium tier as an emergency path,
+but four shards prevent unrelated worker traffic from serializing globally.
 
 When opt-in hitch profiling is enabled at process startup, its compact span
 report measures the active portion of the five-second light memory poll
@@ -665,11 +661,10 @@ non-inlined path. With profiling disabled, each medium operation takes one flag
 branch directly into the original lean mutex path; QPC calls, 64-bit timing
 atomics, and their error handling are absent from the normal i686 code path.
 
-These changes improve contention and attribution without altering OOM cleanup,
-VAS placement, commit policy, emergency retirement, or freed-byte readability.
-Runtime evidence must still select any larger synchronization redesign; the
-global medium-heap mutex is intentionally retained until its measured wait time
-justifies the additional lifetime risk.
+These changes improve contention, placement, and native OOM recovery while
+preserving ordinary freed-byte readability. Cleanup and mapping release remain
+cold and barrier-protected; runtime evidence must still establish their hitch
+cost on the supplied workload.
 
 The actor guard adds one form-ID read to actor destruction. Only retiring
 `FFxxxxxx` actors walk their containers. One allocator inspection reads all
@@ -891,6 +886,11 @@ recovery path even when gheap owned completely empty medium blocks.
 
 ### Bounded correction
 
+This August 22 candidate released an empty block directly from Phase 10. The
+August 29 evidence below proved that empty-block retirement alone did not
+address the dominant partially-live pinning pattern. It is superseded by the
+barrier-protected lifecycle and extent placement contract in the next section.
+
 The watchdog remains diagnostic-only with respect to mutation. On its existing
 detailed cadence, an actual `VirtualQuery` sample publishes an allocation-free
 request only when total free VAS is at or below 200 MB or the largest hole is
@@ -935,6 +935,214 @@ the startup footprint checks pass. Runtime acceptance still requires the same
 modlist, save, route, settings, and Proton/Wine workload to pass its previous
 failure point with a recorded pressure request/recovery outcome and without an
 OOM, UAF, or allocator-hitch regression.
+
+## August 29, 2026 transition-retention and native-retry correction
+
+This is the current allocator and engine-memory lifecycle contract. The
+preserved combined report is `.reports/mixed-logs-crash.txt`; native proof is
+in `analysis/ghidra/output/memory/gheap_oom_deferred_retry_contract.txt`, with
+the IO ownership constraints in `docs/parallel_io_engine_contract.md`.
+
+### Runtime root cause
+
+The report proves allocator retention rather than a growing live medium
+working set. At `05:18:57`, 30 fixed 16 MiB blocks held 323 MiB live and 474
+MiB committed, leaving 150 MiB stranded in partially live blocks. Before the
+final failure, the tier had grown to 47 blocks while live bytes had fallen to
+233 MiB; commit had risen to 752 MiB and stranded committed bytes to 502 MiB.
+Almost every block was partially live, so empty-block pressure retirement
+normally had nothing to release. Small survivors and transition-sized buffers
+shared the same fixed extent and made the transient reservation lifetime equal
+to the survivor lifetime.
+
+The small tier independently retained reservation tails. The final stable
+sample reported 543 MiB committed inside 672 MiB of pool user reservations.
+The former 8 MiB reservation paired with 1 MiB progressive commit, so each
+active class/subpool could retain up to 7 MiB of unusable uncommitted tail.
+
+These two Psycho-owned mechanisms consumed about 630 MiB of address space
+beyond then-live allocator payload at the last sample: 502 MiB of committed
+medium slack and 129 MiB of pool reservation-over-commit. The final minute also
+contained a separate process-wide burst: free VAS fell from 641 MiB to 225 MiB
+while the logged pool was stable and the medium tier added only one 16 MiB
+block. At the failed 22,369,768-byte direct allocation, 202 MiB remained free
+but the largest hole was only 21 MiB. The report therefore proves both
+Psycho-owned long-session fragmentation and a final external/native allocation
+burst. It does not identify the owner of that final burst; D3D, a plugin, or a
+specific content package remains unresolved.
+
+### Allocator correction
+
+Pool reservation and commit are now both 1 MiB. Each class advances to another
+slab only after the current slab is full, bounding uncommitted user tail to
+less than one slab per active class instead of less than 8 MiB. Address
+classification expands from 8 MiB `u8` slots to 1 MiB `u16` slots because the
+same configured capacity now has 733 lazy descriptors. Pool frees remain
+out-of-band and pool slabs remain mapped, preserving the established readable
+zombie contract.
+
+Medium requests are separated by lifetime/size geometry:
+
+- requests through 1 MiB share independently reserved 1 MiB extents;
+- larger requests receive request-sized, 64 KiB-rounded extents and never
+  share with small survivors;
+- four shards replace the process-wide allocator mutex;
+- each shard owns an exact `BTreeSet<(largest_free, slot)>` best-fit index;
+- one process-wide 64 KiB-page table gives constant-time shard/extent dispatch
+  for free, size, and pointer validation; and
+- ordinary free coalesces metadata without overwriting payload or releasing
+  address space.
+
+This placement makes a transition-sized allocation independently reclaimable
+after its own lifetime ends. Fully empty VirtualAlloc extents are released
+only from the coordinated engine-memory lifecycle. Adopted Default-heap tail
+space is never independently released.
+
+### Native cleanup and retry contract
+
+The supported executable's `GameHeap::Allocate` at `0x00AA3E40` owns a
+synchronous allocate/cleanup/retry loop through the stage executor at
+`0x00866A90`. Replacing that entry with pure tier dispatch had removed the
+engine recovery policy. The stage executor is shared by GameHeap, the
+per-frame HeapCompact consumer at `0x00878080`, and two other native heap
+paths, so the correction remains at this shared provider boundary rather than
+patching consumers or identifying mods.
+
+Final gheap failure now retries the allocation after each native main-thread
+stage 0 through 6. Stage 5 may repeat while native cell eviction succeeds.
+Worker failures retain native stage 8: publish trigger 6 for the main thread,
+release only a semaphore proven to be owned by the current worker, wait one
+millisecond, and retry up to the native 15-second bound. A process-wide owner
+prevents cleanup allocations from recursively starting another recovery.
+Valid calls to the shared stage hook chain its captured predecessor.
+
+Stages that may destroy ownership run only after all required barriers:
+
+1. acquire the IOManager dequeue lock at `+0x20` with the engine's reentrant
+   lock ABI (`0x0040FBF0`/`0x0040FBA0`);
+2. drain each native IO worker and the BackgroundCloneThread iteration
+   semaphore; preventative pressure cleanup never waits for a busy worker,
+   while final allocation failure has one 500 ms aggregate emergency budget;
+3. stop and drain AI/Havok task groups;
+4. enter native pre-destruction setup at `0x00878160`;
+5. run the native stage or the pressure transaction at `0x00878250`;
+6. release wholly empty gheap extents while those owners remain quiescent;
+7. restore native state at `0x00878200`, restart Havok, then release the IO
+   dequeue lock.
+
+A detailed watchdog sample at or below the established VAS thresholds forwards
+one request to this transaction at Phase 10. It is production pressure relief,
+not a diagnostic-only mode. It performs the engine's full PDD, async/model
+cleanup, pending cleanup, and allocator extent retirement once per request. It
+does not enable periodic PDD, run unconditional cleanup after every load, hook
+destructors, change reference counts, classify modules, or patch another mod.
+
+### Three-way acceptance and unresolved runtime gate
+
+- **OOM/VAS:** 1 MiB pool slabs eliminate 7 MiB first-use tails; size-banded
+  extents prevent small survivors from pinning transition-sized allocations;
+  the native allocate/cleanup/retry policy is restored; and pressure cleanup
+  can release empty extents before an external consumer exhausts the process.
+- **UAF:** ordinary pool and medium frees still leave payload readable. Empty
+  medium mappings become unreadable only while native IO, AI/Havok, scene,
+  PDD, and model ownership are quiescent. Pool slabs and Default-tail extents
+  are never released by this policy.
+- **Performance:** small-pool hot allocation still begins at one class hint;
+  medium allocation takes one shard lock and logarithmic metadata work, and
+  pointer dispatch is constant-time. The costs are more lazy 1 MiB OS
+  reservations, about 64 KiB more initialized block-directory storage plus
+  7.5 KiB more heap-owned pool-directory storage, and cold native cleanup only
+  on proven pressure or allocation failure.
+
+Two executable regressions cover the allocator mechanisms. Against the old
+production code, one 3,584-byte allocation committed 1 MiB but reserved 8 MiB;
+the corrected path reserves exactly 1 MiB. A transition workload containing
+12 small survivors and 12 nearly-16-MiB transient allocations previously left
+all 12 large reservations pinned; the corrected path retires all 12 large
+extents while retaining the survivors in bounded 1 MiB extents.
+
+The final native/D3D burst owner, the exact lifetime of every small survivor,
+and gameplay hitch/plateau behavior remain unresolved by static evidence. The
+change alters pre-DeferredInit storage and allocator descriptor ownership, so
+the representative Proton load-to-gameplay startup gate also remains required.
+The supported release artifact retains the baseline imported capability set,
+TLS section size, and TLS callback names; no configuration layout or startup
+callback was added. This static comparison does not replace the startup gate.
+Until the supplied transition-heavy route confirms stable gameplay, at least
+one pressure or OOM recovery when exercised, and a non-degrading VAS plateau,
+this is an offline-qualified production candidate rather than runtime-accepted
+support.
+
+## August 31, 2026 save-load placement regression
+
+The reporter's immediate load test of the preceding candidate did not reach
+gameplay. The live `psycho-engine-fixes-latest.log` records 220 small and 17
+large medium extents between `22:19:59.097` and `22:22:42.249`. Long contiguous
+runs place successive extents about 0.50-0.55 seconds apart. Every logged
+extent landed in low/mid VAS through the normal `VirtualAlloc` fallback; none
+used the attempted high candidate. The main-loop watchdog then reported a
+46,117 ms stale heartbeat while the save remained in load state 5 at
+`changed-form-owner-enter`.
+
+This failure precedes the new reclamation policy. At the watchdog samples,
+total free VAS remained 942 MiB and then 845 MiB, the largest hole remained
+637 MiB, no allocator reserve failed, `heap_trigger` was zero, all PDD queues
+were empty, and no `[MEMORY] Native reclamation` transaction ran. The load was
+therefore not blocked by pressure cleanup, PDD, an IO barrier, or an exhausted
+VAS hole.
+
+The allocator path establishes the cause. Each of four medium shards started a
+manual `VirtualQuery` walk at `0xFE000000`. Pool slabs are independent 1 MiB
+reservations growing down from the same range, so a new extent revisited those
+mappings and then attempted an exact address that could race further pool
+growth. When that placement did not succeed, the shard retained its original
+scan start and repeated the work for its next extent. Splitting former 16 MiB
+blocks into 1 MiB extents correctly removed survivor pinning, but multiplied
+this preexisting unbounded placement work from tens of block creations to
+hundreds of extent creations. The resulting delay accounts for the observed
+load stall; the VAS and lifecycle counters exclude the alternative new paths.
+
+The correction retains the size-banded allocator and native lifecycle:
+
+- frequent 1 MiB extents go directly to normal OS placement, which the failed
+  run already demonstrated clusters adjacent low/mid reservations;
+- rarer request-sized large extents use one `VirtualAlloc` reservation with
+  `MEM_TOP_DOWN`, which Microsoft defines as selecting the highest possible
+  address, and fall back once to normal placement if necessary;
+- the pool's cold high-address search consults the medium tier's published
+  64 KiB ownership directory, avoiding repeated failed exact reservations for
+  top-down large extents; and
+- no pool/block free, readable-zombie, pressure threshold, native cleanup,
+  barrier, or tier-dispatch behavior changes.
+
+The deterministic work bound is now one reservation call for a new small
+extent and at most two for a new large extent. It contains no `VirtualQuery`
+loop and no per-shard high-scan restart. The three-way impact is:
+
+- **OOM/VAS:** small reservations retain the observed adjacent OS clustering;
+  large transition buffers still prefer high VAS, remain independently
+  releasable, and cannot be pinned by small survivors.
+- **UAF:** payload readability and barrier-protected empty-extent retirement
+  are unchanged.
+- **Performance:** hot allocation/free and shard locking are unchanged. Cold
+  extent growth is constant-work with respect to process mapping count; the
+  pool avoids syscalls for published medium-range collisions. Microsoft notes
+  that top-down placement can be slower with many allocations, which is why it
+  is excluded from the high-count 1 MiB path.
+
+The reporter subsequently confirmed good results with the corrected candidate
+on the affected save-load workload. This closes the immediate blocked and slow
+load regression for that artifact and setup. No post-fix log or timing was
+supplied, so exact load duration and the long-session VAS plateau remain
+unquantified.
+
+Because medium allocation is already active before `DeferredInit`, this is
+also startup-sensitive. Relative to the deployed failing candidate, the
+reviewed release DLL has the same import sequence and eight-byte TLS section;
+the correction adds no configuration, static owner, callback, or worker. The
+successful reporter run reached the affected gameplay load, providing the
+required startup observation for this correction without proving unrelated
+future footprint changes safe.
 
 ## Validation matrix for an extreme setup
 

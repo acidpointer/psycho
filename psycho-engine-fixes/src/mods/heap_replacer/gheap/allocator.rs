@@ -5,20 +5,12 @@
 //!   3585 <= size <= 16 MB        -> block (variable-size, NVHR dheap style)
 //!   size > 16 MB                 -> va_alloc (direct VirtualAlloc)
 //!   pool failure                 -> existing/new block as an emergency path
-//!   all remaining tiers fail     -> NULL (NVHR semantics)
+//!   all remaining tiers fail     -> native cleanup/retry, then NULL
 //!
-//! The allocator has no knowledge of game state -- no loading flags, no
-//! menu-mode checks, no pool-active gating, no OOM recovery stages. That
-//! was a workaround layer that added failure modes without changing
-//! behaviour that actually belongs in the allocator.
-//!
-//! On final OOM we return NULL rather than calling the vanilla
-//! `FormHeap_Allocate` trampoline. The trampoline approach caused two
-//! bugs: (1) it hangs worker threads for 15 s in vanilla's Stage 8
-//! retry loop, and (2) vanilla's last-resort CRT `_malloc` escape
-//! calls into our own `hook_malloc`, which calls back into this
-//! function -- infinite recursion through the game's OOM stages.
-//! NVHR accepts the NULL-return failure mode for the same reason.
+//! Tier dispatch is size-only. After every owned tier fails, the lifecycle
+//! controller runs the engine's proven synchronous cleanup/retry policy. It
+//! invokes stages directly rather than calling the GameHeap trampoline, so the
+//! vanilla CRT escape cannot recurse through Psycho's CRT hooks.
 //!
 //! Zombie safety:
 //!   pool - out-of-band freelist; freed cell bytes are untouched.
@@ -275,6 +267,20 @@ pub fn block_overflow_count() -> u64 {
 /// is not consulted. See module docs for tier boundaries.
 #[inline]
 pub unsafe fn alloc(size: usize) -> *mut c_void {
+    let pointer = unsafe { alloc_once(size) };
+    if !pointer.is_null() {
+        return pointer;
+    }
+    unsafe { super::memory_lifecycle::recover_allocation(size) }
+}
+
+/// Perform one allocator-tier attempt without engine cleanup.
+///
+/// This is the retry primitive used by the lifecycle controller. It must stay
+/// free of engine calls so cleanup-triggered nested allocations fail closed
+/// instead of recursively entering another destruction transaction.
+#[inline]
+pub(crate) unsafe fn alloc_once(size: usize) -> *mut c_void {
     let size = if size == 0 {
         // Ghidra: vanilla GameHeap::Allocate (0x00AA3E40) rounds any
         // request below 9 bytes up to 8 after the SBM is initialized.
@@ -315,11 +321,8 @@ pub unsafe fn alloc(size: usize) -> *mut c_void {
         return ptr;
     }
 
-    // All tiers refused. Return NULL -- same as NVHR. The trampoline
-    // path was a recursion trap: vanilla's CRT _malloc escape calls
-    // back into our own hook_malloc, which calls back into this
-    // function. Workers would also hang 15 s in vanilla's Stage 8
-    // sleep-retry loop. Honest NULL on OOM is safer.
+    // The lifecycle controller owns recovery and retry. Never call the
+    // GameHeap trampoline from here: its CRT escape re-enters this allocator.
     null_mut()
 }
 
