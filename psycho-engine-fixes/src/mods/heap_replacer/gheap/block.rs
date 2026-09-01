@@ -1,16 +1,19 @@
 //! Reclaimable extent allocator for medium game-heap allocations.
 //!
-//! Requests through 1 MiB share independently reserved 1 MiB extents. Larger
-//! requests use 64 KiB-rounded, request-sized extents. Keeping the two bands
-//! separate prevents a long-lived small object from pinning a 16 MiB streaming
-//! buffer, which was the dominant source of committed and reserved VAS growth
-//! in repeated cell transitions.
+//! Requests from 3,585 bytes through 1 MiB share independently reserved 1 MiB
+//! variable extents. An exhausted pool class grows into its own fixed-size
+//! 1 MiB spill extent instead of mixing small lifetimes into that variable
+//! tier. Larger requests use 64 KiB-rounded, request-sized extents. Keeping
+//! these bands separate prevents a long-lived small object from pinning a
+//! transition buffer or unrelated small-class overflow.
 //!
 //! Four shards keep unrelated allocation threads off one global mutex. Each
-//! shard has an exact best-fit index, so allocation performs logarithmic
-//! metadata work rather than scanning every historical block. A 64 KiB page
-//! table encodes shard and extent ownership for constant-time free and size
-//! dispatch.
+//! shard has a segregated-fit extent index. Inside a variable extent, two-level
+//! segregated bitmaps select one fitting cell in constant bounded work; all
+//! cell and start metadata is allocated once when the extent is created.
+//! Exact spill uses an out-of-band FIFO and large extents use one live record,
+//! so neither path grows routine metadata. A 64 KiB page table encodes shard
+//! and extent ownership for constant-time free and size dispatch.
 //!
 //! Cell metadata and free indexes remain out of band. Normal free never writes
 //! user bytes and never releases an extent, preserving zombie readability.
@@ -23,7 +26,6 @@
 //! primitive so transition buffers preserve low/mid contiguous VAS through one
 //! atomic cold-path reservation rather than racing the pool tier for a hint.
 
-use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::ptr::null_mut;
 use std::sync::atomic::{AtomicBool, AtomicU16, AtomicU64, Ordering};
 
@@ -34,7 +36,6 @@ use libpsycho::os::windows::winapi::{
     virtual_commit, virtual_release, virtual_reserve, virtual_reserve_top_down,
 };
 use parking_lot::Mutex;
-use rustc_hash::FxBuildHasher;
 
 use crate::mods::diagnostics;
 
@@ -60,6 +61,22 @@ static ADDRESS_TO_EXTENT: [AtomicU16; EXTENT_ADDRESS_SLOTS] =
     [const { AtomicU16::new(NO_EXTENT) }; EXTENT_ADDRESS_SLOTS];
 static INIT_LOGGED: AtomicBool = AtomicBool::new(false);
 const NO_CELL: u32 = u32::MAX;
+const VARIABLE_FIRST_LOG2: usize = 11;
+const VARIABLE_LAST_LOG2: usize = 20;
+const VARIABLE_FIRST_LEVELS: usize = VARIABLE_LAST_LOG2 - VARIABLE_FIRST_LOG2 + 1;
+const VARIABLE_SECOND_LEVELS: usize = 32;
+const VARIABLE_BIN_COUNT: usize = VARIABLE_FIRST_LEVELS * VARIABLE_SECOND_LEVELS;
+const VARIABLE_START_SHIFT: usize = 11;
+const VARIABLE_START_SLOTS: usize = SMALL_EXTENT_SIZE >> VARIABLE_START_SHIFT;
+const MIN_VARIABLE_REQUEST: u32 = super::pool::POOL_MAX_SIZE as u32 + 1;
+const MAX_VARIABLE_CELLS: usize = SMALL_EXTENT_SIZE / super::pool::POOL_MAX_SIZE;
+const NO_USED_CELL: u16 = u16::MAX;
+const SMALL_AVAILABLE_BINS: usize = VARIABLE_BIN_COUNT;
+const LARGE_FIRST_UNIT: usize = SMALL_EXTENT_SIZE / EXTENT_GRANULARITY + 1;
+const LARGE_AVAILABLE_BINS: usize = BLOCK_SIZE / EXTENT_GRANULARITY - LARGE_FIRST_UNIT + 1;
+const LARGE_AVAILABLE_WORDS: usize = LARGE_AVAILABLE_BINS.div_ceil(u32::BITS as usize);
+const AVAILABLE_BIN_COUNT: usize = SMALL_AVAILABLE_BINS + LARGE_AVAILABLE_BINS;
+const NO_AVAILABLE_BIN: u16 = u16::MAX;
 
 #[derive(Clone, Copy)]
 struct Cell {
@@ -68,6 +85,8 @@ struct Cell {
     free: bool,
     addr_prev: u32,
     addr_next: u32,
+    free_prev: u32,
+    free_next: u32,
 }
 
 struct Block {
@@ -78,9 +97,121 @@ struct Block {
     committed: usize,
     cells: Vec<Cell>,
     free_slots: Vec<u32>,
-    free_by_size: BTreeMap<u32, Vec<u32>>,
-    used_by_offset: HashMap<u32, u32, FxBuildHasher>,
+    free_heads: Vec<u32>,
+    free_first_bitmap: u16,
+    free_second_bitmap: Vec<u32>,
+    used_by_start: Vec<u16>,
+    live_allocations: u32,
     live_bytes: usize,
+    mode: BlockMode,
+}
+
+/// Allocation policy inside an extent.
+///
+/// Variable extents retain the coalescing allocator used for ordinary medium
+/// requests. Exact spill extents are created only for an exhausted pool class
+/// and use bounded, out-of-band FIFO metadata. Large extents are request-sized
+/// and therefore need only one live bit rather than variable-cell indexes.
+enum BlockMode {
+    Variable,
+    Exact(ExactState),
+    Large(LargeState),
+}
+
+struct ExactState {
+    item_size: u32,
+    class_index: u8,
+    next_virgin: u32,
+    free_head: u32,
+    free_tail: u32,
+    links: Vec<u32>,
+    live_cells: u32,
+}
+
+struct LargeState {
+    live: bool,
+    usable_size: u32,
+}
+
+const EXACT_NONE: u32 = u32::MAX;
+const EXACT_ALLOCATED: u32 = u32::MAX - 1;
+const EXACT_UNISSUED: u32 = u32::MAX - 2;
+
+impl ExactState {
+    fn try_new(extent_size: u32, class_index: u8, item_size: u32) -> Option<Self> {
+        if item_size == 0 {
+            return None;
+        }
+        let capacity = extent_size / item_size;
+        let mut links = Vec::new();
+        links.try_reserve_exact(capacity as usize).ok()?;
+        links.resize(capacity as usize, EXACT_UNISSUED);
+        Some(Self {
+            item_size,
+            class_index,
+            next_virgin: 0,
+            free_head: EXACT_NONE,
+            free_tail: EXACT_NONE,
+            links,
+            live_cells: 0,
+        })
+    }
+
+    #[inline]
+    fn has_capacity(&self) -> bool {
+        self.free_head != EXACT_NONE || self.next_virgin < self.links.len() as u32
+    }
+
+    fn alloc(&mut self) -> Option<u32> {
+        let index = if self.free_head != EXACT_NONE {
+            let index = self.free_head;
+            self.free_head = self.links[index as usize];
+            if self.free_head == EXACT_NONE {
+                self.free_tail = EXACT_NONE;
+            }
+            index
+        } else {
+            if self.next_virgin >= self.links.len() as u32 {
+                return None;
+            }
+            let index = self.next_virgin;
+            self.next_virgin += 1;
+            index
+        };
+        self.links[index as usize] = EXACT_ALLOCATED;
+        self.live_cells += 1;
+        Some(index * self.item_size)
+    }
+
+    fn free(&mut self, offset: u32) -> bool {
+        if !offset.is_multiple_of(self.item_size) {
+            return false;
+        }
+        let index = offset / self.item_size;
+        if index >= self.next_virgin || self.links[index as usize] != EXACT_ALLOCATED {
+            return false;
+        }
+        self.links[index as usize] = EXACT_NONE;
+        if self.free_head == EXACT_NONE {
+            self.free_head = index;
+            self.free_tail = index;
+        } else {
+            debug_assert_ne!(self.free_tail, EXACT_NONE);
+            self.links[self.free_tail as usize] = index;
+            self.free_tail = index;
+        }
+        self.live_cells -= 1;
+        true
+    }
+
+    fn usable_size(&self, offset: u32) -> Option<u32> {
+        if !offset.is_multiple_of(self.item_size) {
+            return None;
+        }
+        let index = offset / self.item_size;
+        (index < self.next_virgin && self.links[index as usize] == EXACT_ALLOCATED)
+            .then_some(self.item_size)
+    }
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -124,36 +255,129 @@ impl ExtentKind {
 unsafe impl Send for Block {}
 unsafe impl Sync for Block {}
 
+/// Round a variable-tier request to a two-level segregated class.
+///
+/// Thirty-two subdivisions per power-of-two range cap internal rounding below
+/// 3.125%. In return, every free cell in the selected class is guaranteed to
+/// satisfy the request, so allocation never scans cells or grows metadata.
+fn round_variable_request(size: u32) -> u32 {
+    let size = size.max(MIN_VARIABLE_REQUEST);
+    let first = (u32::BITS - 1 - size.leading_zeros()) as usize;
+    let base = 1u32 << first;
+    let step = base / VARIABLE_SECOND_LEVELS as u32;
+    round_up(size, step.max(CELL_ALIGN))
+}
+
+fn variable_bin(size: u32) -> (usize, usize) {
+    debug_assert!(((1u32 << VARIABLE_FIRST_LOG2)..=SMALL_EXTENT_SIZE as u32).contains(&size));
+    let first_log2 = (u32::BITS - 1 - size.leading_zeros()) as usize;
+    let first = first_log2.saturating_sub(VARIABLE_FIRST_LOG2);
+    let base = 1u32 << first_log2;
+    let step = base / VARIABLE_SECOND_LEVELS as u32;
+    let second = ((size - base) / step) as usize;
+    (
+        first.min(VARIABLE_FIRST_LEVELS - 1),
+        second.min(VARIABLE_SECOND_LEVELS - 1),
+    )
+}
+
+fn variable_bin_lower(first: usize, second: usize) -> u32 {
+    let base = 1u32 << (first + VARIABLE_FIRST_LOG2);
+    base + second as u32 * (base / VARIABLE_SECOND_LEVELS as u32)
+}
+
+fn variable_bin_index(first: usize, second: usize) -> usize {
+    first * VARIABLE_SECOND_LEVELS + second
+}
+
 impl Block {
-    fn new(
+    fn try_new(
         base: *mut u8,
         size: u32,
         backing: BlockBacking,
         kind: ExtentKind,
         committed: usize,
-    ) -> Self {
-        let mut cells = Vec::with_capacity(64);
+    ) -> Option<Self> {
+        let mut cells = Vec::new();
+        cells.try_reserve_exact(MAX_VARIABLE_CELLS).ok()?;
         cells.push(Cell {
             offset: 0,
             size,
             free: true,
             addr_prev: NO_CELL,
             addr_next: NO_CELL,
+            free_prev: NO_CELL,
+            free_next: NO_CELL,
         });
-        let mut free_by_size = BTreeMap::new();
-        free_by_size.insert(size, vec![0]);
-        Self {
+        let mut free_slots = Vec::new();
+        free_slots.try_reserve_exact(MAX_VARIABLE_CELLS).ok()?;
+        let mut used_by_start = Vec::new();
+        used_by_start.try_reserve_exact(VARIABLE_START_SLOTS).ok()?;
+        used_by_start.resize(VARIABLE_START_SLOTS, NO_USED_CELL);
+        let mut free_heads = Vec::new();
+        free_heads.try_reserve_exact(VARIABLE_BIN_COUNT).ok()?;
+        free_heads.resize(VARIABLE_BIN_COUNT, NO_CELL);
+        let mut free_second_bitmap = Vec::new();
+        free_second_bitmap
+            .try_reserve_exact(VARIABLE_FIRST_LEVELS)
+            .ok()?;
+        free_second_bitmap.resize(VARIABLE_FIRST_LEVELS, 0);
+        let mut block = Self {
             base,
             size,
             backing,
             kind,
             committed,
             cells,
-            free_slots: Vec::new(),
-            free_by_size,
-            used_by_offset: HashMap::with_hasher(FxBuildHasher),
+            free_slots,
+            free_heads,
+            free_first_bitmap: 0,
+            free_second_bitmap,
+            used_by_start,
+            live_allocations: 0,
             live_bytes: 0,
+            mode: BlockMode::Variable,
+        };
+        block.add_free(0);
+        Some(block)
+    }
+
+    fn new_large(base: *mut u8, size: u32, backing: BlockBacking, committed: usize) -> Self {
+        Self {
+            base,
+            size,
+            backing,
+            kind: ExtentKind::Large,
+            committed,
+            cells: Vec::new(),
+            free_slots: Vec::new(),
+            free_heads: Vec::new(),
+            free_first_bitmap: 0,
+            free_second_bitmap: Vec::new(),
+            used_by_start: Vec::new(),
+            live_allocations: 0,
+            live_bytes: 0,
+            mode: BlockMode::Large(LargeState {
+                live: false,
+                usable_size: 0,
+            }),
         }
+    }
+
+    fn convert_empty_to_exact(&mut self, state: ExactState) -> bool {
+        if !matches!(self.mode, BlockMode::Variable) || self.live_allocations != 0 {
+            return false;
+        }
+        self.cells = Vec::new();
+        self.free_slots = Vec::new();
+        self.free_heads = Vec::new();
+        self.free_first_bitmap = 0;
+        self.free_second_bitmap = Vec::new();
+        self.used_by_start = Vec::new();
+        self.live_allocations = 0;
+        self.live_bytes = 0;
+        self.mode = BlockMode::Exact(state);
+        true
     }
 
     #[inline]
@@ -164,64 +388,170 @@ impl Block {
     }
 
     fn largest_free(&self) -> Option<u32> {
-        self.free_by_size.last_key_value().map(|(&size, _)| size)
+        match &self.mode {
+            BlockMode::Variable => {
+                if self.free_first_bitmap == 0 {
+                    return None;
+                }
+                let first =
+                    u16::BITS as usize - 1 - self.free_first_bitmap.leading_zeros() as usize;
+                let second_bits = self.free_second_bitmap[first];
+                debug_assert_ne!(second_bits, 0);
+                let second = u32::BITS as usize - 1 - second_bits.leading_zeros() as usize;
+                Some(variable_bin_lower(first, second))
+            }
+            // Exact extents are intentionally absent from the variable-size
+            // availability index and are reached by their pool class only.
+            BlockMode::Exact(_) => None,
+            BlockMode::Large(state) => (!state.live).then_some(self.size),
+        }
+    }
+
+    fn is_empty(&self) -> bool {
+        match &self.mode {
+            BlockMode::Variable => self.live_allocations == 0,
+            BlockMode::Exact(state) => state.live_cells == 0,
+            BlockMode::Large(state) => !state.live,
+        }
+    }
+
+    fn live_allocations(&self) -> usize {
+        match &self.mode {
+            BlockMode::Variable => self.live_allocations as usize,
+            BlockMode::Exact(state) => state.live_cells as usize,
+            BlockMode::Large(state) => usize::from(state.live),
+        }
+    }
+
+    fn live_bytes(&self) -> usize {
+        match &self.mode {
+            BlockMode::Variable => self.live_bytes,
+            BlockMode::Exact(state) => state.live_cells as usize * state.item_size as usize,
+            BlockMode::Large(state) => {
+                if state.live {
+                    state.usable_size as usize
+                } else {
+                    0
+                }
+            }
+        }
+    }
+
+    fn exact_class(&self) -> Option<u8> {
+        match &self.mode {
+            BlockMode::Exact(state) => Some(state.class_index),
+            _ => None,
+        }
+    }
+
+    fn exact_has_capacity(&self) -> bool {
+        matches!(&self.mode, BlockMode::Exact(state) if state.has_capacity())
     }
 
     fn add_free(&mut self, index: u32) {
         let size = self.cells[index as usize].size;
-        self.free_by_size.entry(size).or_default().push(index);
+        let (first, second) = variable_bin(size);
+        let bin = variable_bin_index(first, second);
+        let head = self.free_heads[bin];
+        self.cells[index as usize].free_prev = NO_CELL;
+        self.cells[index as usize].free_next = head;
+        if head != NO_CELL {
+            self.cells[head as usize].free_prev = index;
+        }
+        self.free_heads[bin] = index;
+        self.free_second_bitmap[first] |= 1u32 << second;
+        self.free_first_bitmap |= 1u16 << first;
     }
 
     fn remove_free(&mut self, index: u32) {
         let size = self.cells[index as usize].size;
-        if let Some(indices) = self.free_by_size.get_mut(&size) {
-            if let Some(position) = indices.iter().position(|&entry| entry == index) {
-                indices.swap_remove(position);
-            }
-            if indices.is_empty() {
-                self.free_by_size.remove(&size);
+        let (first, second) = variable_bin(size);
+        let bin = variable_bin_index(first, second);
+        let previous = self.cells[index as usize].free_prev;
+        let next = self.cells[index as usize].free_next;
+        if previous == NO_CELL {
+            debug_assert_eq!(self.free_heads[bin], index);
+            self.free_heads[bin] = next;
+        } else {
+            self.cells[previous as usize].free_next = next;
+        }
+        if next != NO_CELL {
+            self.cells[next as usize].free_prev = previous;
+        }
+        self.cells[index as usize].free_prev = NO_CELL;
+        self.cells[index as usize].free_next = NO_CELL;
+        if self.free_heads[bin] == NO_CELL {
+            self.free_second_bitmap[first] &= !(1u32 << second);
+            if self.free_second_bitmap[first] == 0 {
+                self.free_first_bitmap &= !(1u16 << first);
             }
         }
     }
 
-    fn take_slot(&mut self, cell: Cell) -> u32 {
+    fn take_slot(&mut self, cell: Cell) -> Option<u32> {
         if let Some(index) = self.free_slots.pop() {
             self.cells[index as usize] = cell;
-            index
+            Some(index)
         } else {
+            if self.cells.len() >= MAX_VARIABLE_CELLS {
+                return None;
+            }
             let index = self.cells.len() as u32;
             self.cells.push(cell);
-            index
+            Some(index)
         }
     }
 
     fn retire_slot(&mut self, index: u32) {
+        debug_assert!(self.free_slots.len() < self.free_slots.capacity());
         self.free_slots.push(index);
     }
 
-    fn alloc(&mut self, requested: u32) -> Option<u32> {
-        let (picked_size, picked_index) = self
-            .free_by_size
-            .range(requested..)
-            .next()
-            .and_then(|(&size, indices)| indices.last().map(|&index| (size, index)))?;
-
-        let indices = self.free_by_size.get_mut(&picked_size)?;
-        indices.pop();
-        if indices.is_empty() {
-            self.free_by_size.remove(&picked_size);
+    fn take_suitable_free(&mut self, requested: u32) -> Option<u32> {
+        let (requested_first, requested_second) = variable_bin(requested);
+        let same_first = self.free_second_bitmap[requested_first] & (u32::MAX << requested_second);
+        let (first, second) = if same_first != 0 {
+            (requested_first, same_first.trailing_zeros() as usize)
+        } else {
+            let lower_mask = (1u16 << (requested_first + 1)) - 1;
+            let higher_first = self.free_first_bitmap & !lower_mask;
+            if higher_first == 0 {
+                return None;
+            }
+            let first = higher_first.trailing_zeros() as usize;
+            let second = self.free_second_bitmap[first].trailing_zeros() as usize;
+            (first, second)
+        };
+        let index = self.free_heads[variable_bin_index(first, second)];
+        if index == NO_CELL {
+            return None;
         }
+        debug_assert!(self.cells[index as usize].size >= requested);
+        self.remove_free(index);
+        Some(index)
+    }
+
+    fn alloc(&mut self, requested: u32) -> Option<u32> {
+        debug_assert!(matches!(self.mode, BlockMode::Variable));
+        let requested = round_variable_request(requested);
+        let picked_index = self.take_suitable_free(requested)?;
+        let picked_size = self.cells[picked_index as usize].size;
 
         let remainder = picked_size - requested;
         if remainder >= MIN_CELL {
             let picked = self.cells[picked_index as usize];
-            let new_index = self.take_slot(Cell {
+            let Some(new_index) = self.take_slot(Cell {
                 offset: picked.offset + requested,
                 size: remainder,
                 free: true,
                 addr_prev: picked_index,
                 addr_next: picked.addr_next,
-            });
+                free_prev: NO_CELL,
+                free_next: NO_CELL,
+            }) else {
+                self.add_free(picked_index);
+                return None;
+            };
             self.cells[picked_index as usize].size = requested;
             self.cells[picked_index as usize].addr_next = new_index;
             if picked.addr_next != NO_CELL {
@@ -232,17 +562,71 @@ impl Block {
 
         self.cells[picked_index as usize].free = false;
         let offset = self.cells[picked_index as usize].offset;
+        let start_slot = offset as usize >> VARIABLE_START_SHIFT;
+        if start_slot >= self.used_by_start.len() || self.used_by_start[start_slot] != NO_USED_CELL
+        {
+            self.cells[picked_index as usize].free = true;
+            self.add_free(picked_index);
+            return None;
+        }
+        self.used_by_start[start_slot] = picked_index as u16;
+        self.live_allocations += 1;
         self.live_bytes = self
             .live_bytes
             .saturating_add(self.cells[picked_index as usize].size as usize);
-        self.used_by_offset.insert(offset, picked_index);
         Some(picked_index)
     }
 
+    fn alloc_offset(&mut self, requested: u32) -> Option<(u32, u32)> {
+        match &mut self.mode {
+            BlockMode::Exact(state) => {
+                if requested != state.item_size {
+                    return None;
+                }
+                state.alloc().map(|offset| (offset, state.item_size))
+            }
+            BlockMode::Large(state) => {
+                if state.live || requested > self.size {
+                    return None;
+                }
+                state.live = true;
+                state.usable_size = requested;
+                Some((0, requested))
+            }
+            BlockMode::Variable => {
+                let cell_index = self.alloc(requested)?;
+                let cell = self.cells[cell_index as usize];
+                Some((cell.offset, cell.size))
+            }
+        }
+    }
+
     fn free(&mut self, offset: u32) -> bool {
-        let Some(index) = self.used_by_offset.remove(&offset) else {
+        match &mut self.mode {
+            BlockMode::Exact(state) => return state.free(offset),
+            BlockMode::Large(state) => {
+                if offset != 0 || !state.live {
+                    return false;
+                }
+                state.live = false;
+                state.usable_size = 0;
+                return true;
+            }
+            BlockMode::Variable => {}
+        }
+        let start_slot = offset as usize >> VARIABLE_START_SHIFT;
+        let Some(&encoded) = self.used_by_start.get(start_slot) else {
             return false;
         };
+        if encoded == NO_USED_CELL {
+            return false;
+        }
+        let index = encoded as u32;
+        if self.cells[index as usize].offset != offset || self.cells[index as usize].free {
+            return false;
+        }
+        self.used_by_start[start_slot] = NO_USED_CELL;
+        self.live_allocations -= 1;
         self.live_bytes = self
             .live_bytes
             .saturating_sub(self.cells[index as usize].size as usize);
@@ -283,9 +667,20 @@ impl Block {
 
     fn usable_size(&self, ptr: *const c_void) -> Option<u32> {
         let offset = (ptr as usize).checked_sub(self.base as usize)? as u32;
-        self.used_by_offset
-            .get(&offset)
-            .map(|&index| self.cells[index as usize].size)
+        match &self.mode {
+            BlockMode::Variable => {
+                let encoded = *self
+                    .used_by_start
+                    .get(offset as usize >> VARIABLE_START_SHIFT)?;
+                if encoded == NO_USED_CELL {
+                    return None;
+                }
+                let cell = self.cells.get(encoded as usize)?;
+                (cell.offset == offset && !cell.free).then_some(cell.size)
+            }
+            BlockMode::Exact(state) => state.usable_size(offset),
+            BlockMode::Large(state) => (offset == 0 && state.live).then_some(state.usable_size),
+        }
     }
 
     fn ensure_committed(&mut self, end: usize) -> bool {
@@ -310,8 +705,17 @@ impl Block {
 struct BlockHeap {
     blocks: Vec<Option<Block>>,
     free_slots: Vec<u16>,
-    small_available: BTreeSet<(u32, u16)>,
-    large_available: BTreeSet<(u32, u16)>,
+    available_head: [u16; AVAILABLE_BIN_COUNT],
+    available_next: [u16; MAX_EXTENTS_PER_SHARD],
+    available_prev: [u16; MAX_EXTENTS_PER_SHARD],
+    available_bin: [u16; MAX_EXTENTS_PER_SHARD],
+    small_first_bitmap: u16,
+    small_second_bitmap: [u32; VARIABLE_FIRST_LEVELS],
+    large_word_bitmap: u8,
+    large_bitmap: [u32; LARGE_AVAILABLE_WORDS],
+    exact_head: [u16; super::pool::NUM_POOL_CLASSES],
+    exact_next: [u16; MAX_EXTENTS_PER_SHARD],
+    exact_linked: [bool; MAX_EXTENTS_PER_SHARD],
     allow_default_tail: bool,
 }
 
@@ -323,8 +727,17 @@ impl BlockHeap {
         Self {
             blocks: Vec::new(),
             free_slots: Vec::new(),
-            small_available: BTreeSet::new(),
-            large_available: BTreeSet::new(),
+            available_head: [NO_EXTENT; AVAILABLE_BIN_COUNT],
+            available_next: [NO_EXTENT; MAX_EXTENTS_PER_SHARD],
+            available_prev: [NO_EXTENT; MAX_EXTENTS_PER_SHARD],
+            available_bin: [NO_AVAILABLE_BIN; MAX_EXTENTS_PER_SHARD],
+            small_first_bitmap: 0,
+            small_second_bitmap: [0; VARIABLE_FIRST_LEVELS],
+            large_word_bitmap: 0,
+            large_bitmap: [0; LARGE_AVAILABLE_WORDS],
+            exact_head: [NO_EXTENT; super::pool::NUM_POOL_CLASSES],
+            exact_next: [NO_EXTENT; MAX_EXTENTS_PER_SHARD],
+            exact_linked: [false; MAX_EXTENTS_PER_SHARD],
             allow_default_tail: true,
         }
     }
@@ -337,26 +750,52 @@ impl BlockHeap {
         }
     }
 
-    fn index_for(&self, kind: ExtentKind) -> &BTreeSet<(u32, u16)> {
-        match kind {
-            ExtentKind::Small => &self.small_available,
-            ExtentKind::Large => &self.large_available,
-        }
-    }
-
-    fn index_for_mut(&mut self, kind: ExtentKind) -> &mut BTreeSet<(u32, u16)> {
-        match kind {
-            ExtentKind::Small => &mut self.small_available,
-            ExtentKind::Large => &mut self.large_available,
-        }
+    fn prepare_metadata(&mut self) -> bool {
+        self.blocks.try_reserve_exact(MAX_EXTENTS_PER_SHARD).is_ok()
+            && self
+                .free_slots
+                .try_reserve_exact(MAX_EXTENTS_PER_SHARD)
+                .is_ok()
     }
 
     fn remove_availability(&mut self, slot: u16) {
-        let Some(block) = self.blocks.get(slot as usize).and_then(Option::as_ref) else {
+        let bin = self.available_bin[slot as usize];
+        if bin == NO_AVAILABLE_BIN {
             return;
-        };
-        if let Some(size) = block.largest_free() {
-            self.index_for_mut(block.kind).remove(&(size, slot));
+        }
+        let bin = bin as usize;
+        let previous = self.available_prev[slot as usize];
+        let next = self.available_next[slot as usize];
+        if previous == NO_EXTENT {
+            debug_assert_eq!(self.available_head[bin], slot);
+            self.available_head[bin] = next;
+        } else {
+            self.available_next[previous as usize] = next;
+        }
+        if next != NO_EXTENT {
+            self.available_prev[next as usize] = previous;
+        }
+        self.available_prev[slot as usize] = NO_EXTENT;
+        self.available_next[slot as usize] = NO_EXTENT;
+        self.available_bin[slot as usize] = NO_AVAILABLE_BIN;
+        if self.available_head[bin] != NO_EXTENT {
+            return;
+        }
+        if bin < SMALL_AVAILABLE_BINS {
+            let first = bin / VARIABLE_SECOND_LEVELS;
+            let second = bin % VARIABLE_SECOND_LEVELS;
+            self.small_second_bitmap[first] &= !(1u32 << second);
+            if self.small_second_bitmap[first] == 0 {
+                self.small_first_bitmap &= !(1u16 << first);
+            }
+        } else {
+            let large = bin - SMALL_AVAILABLE_BINS;
+            let word = large / u32::BITS as usize;
+            let bit = large % u32::BITS as usize;
+            self.large_bitmap[word] &= !(1u32 << bit);
+            if self.large_bitmap[word] == 0 {
+                self.large_word_bitmap &= !(1u8 << word);
+            }
         }
     }
 
@@ -364,13 +803,97 @@ impl BlockHeap {
         let Some(block) = self.blocks.get(slot as usize).and_then(Option::as_ref) else {
             return;
         };
-        if let Some(size) = block.largest_free() {
-            self.index_for_mut(block.kind).insert((size, slot));
+        let Some(size) = block.largest_free() else {
+            return;
+        };
+        debug_assert_eq!(self.available_bin[slot as usize], NO_AVAILABLE_BIN);
+        let bin = match block.kind {
+            ExtentKind::Small => {
+                let (first, second) = variable_bin(size);
+                self.small_second_bitmap[first] |= 1u32 << second;
+                self.small_first_bitmap |= 1u16 << first;
+                variable_bin_index(first, second)
+            }
+            ExtentKind::Large => {
+                let units = size as usize / EXTENT_GRANULARITY;
+                let large = units.saturating_sub(LARGE_FIRST_UNIT);
+                debug_assert!(large < LARGE_AVAILABLE_BINS);
+                let word = large / u32::BITS as usize;
+                let bit = large % u32::BITS as usize;
+                self.large_bitmap[word] |= 1u32 << bit;
+                self.large_word_bitmap |= 1u8 << word;
+                SMALL_AVAILABLE_BINS + large
+            }
+        };
+        let head = self.available_head[bin];
+        self.available_prev[slot as usize] = NO_EXTENT;
+        self.available_next[slot as usize] = head;
+        if head != NO_EXTENT {
+            self.available_prev[head as usize] = slot;
         }
+        self.available_head[bin] = slot;
+        self.available_bin[slot as usize] = bin as u16;
+    }
+
+    fn find_available(&self, kind: ExtentKind, requested: u32) -> Option<u16> {
+        let bin = match kind {
+            ExtentKind::Small => {
+                let (requested_first, requested_second) = variable_bin(requested);
+                let same_first =
+                    self.small_second_bitmap[requested_first] & (u32::MAX << requested_second);
+                if same_first != 0 {
+                    variable_bin_index(requested_first, same_first.trailing_zeros() as usize)
+                } else {
+                    let lower_mask = (1u16 << (requested_first + 1)) - 1;
+                    let higher_first = self.small_first_bitmap & !lower_mask;
+                    if higher_first == 0 {
+                        return None;
+                    }
+                    let first = higher_first.trailing_zeros() as usize;
+                    variable_bin_index(
+                        first,
+                        self.small_second_bitmap[first].trailing_zeros() as usize,
+                    )
+                }
+            }
+            ExtentKind::Large => {
+                let units = requested as usize / EXTENT_GRANULARITY;
+                let requested_large = units.saturating_sub(LARGE_FIRST_UNIT);
+                if requested_large >= LARGE_AVAILABLE_BINS {
+                    return None;
+                }
+                let requested_word = requested_large / u32::BITS as usize;
+                let requested_bit = requested_large % u32::BITS as usize;
+                let same_word = self.large_bitmap[requested_word] & (u32::MAX << requested_bit);
+                let (word, bit) = if same_word != 0 {
+                    (requested_word, same_word.trailing_zeros() as usize)
+                } else {
+                    let higher_words = if requested_word + 1 >= LARGE_AVAILABLE_WORDS {
+                        0
+                    } else {
+                        let lower_mask = (1u8 << (requested_word + 1)) - 1;
+                        self.large_word_bitmap & !lower_mask
+                    };
+                    if higher_words == 0 {
+                        return None;
+                    }
+                    let word = higher_words.trailing_zeros() as usize;
+                    (word, self.large_bitmap[word].trailing_zeros() as usize)
+                };
+                SMALL_AVAILABLE_BINS + word * u32::BITS as usize + bit
+            }
+        };
+        let slot = self.available_head[bin];
+        (slot != NO_EXTENT).then_some(slot)
     }
 
     fn take_slot(&mut self) -> Option<u16> {
         if let Some(slot) = self.free_slots.pop() {
+            self.available_next[slot as usize] = NO_EXTENT;
+            self.available_prev[slot as usize] = NO_EXTENT;
+            self.available_bin[slot as usize] = NO_AVAILABLE_BIN;
+            self.exact_next[slot as usize] = NO_EXTENT;
+            self.exact_linked[slot as usize] = false;
             return Some(slot);
         }
         if self.blocks.len() >= MAX_EXTENTS_PER_SHARD {
@@ -379,6 +902,39 @@ impl BlockHeap {
         let slot = self.blocks.len() as u16;
         self.blocks.push(None);
         Some(slot)
+    }
+
+    fn register_exact(&mut self, slot: u16, class_index: u8) {
+        if self.exact_linked[slot as usize] {
+            return;
+        }
+        let head = &mut self.exact_head[class_index as usize];
+        self.exact_next[slot as usize] = *head;
+        *head = slot;
+        self.exact_linked[slot as usize] = true;
+    }
+
+    fn unregister_exact(&mut self, slot: u16, class_index: u8) {
+        if !self.exact_linked[slot as usize] {
+            return;
+        }
+        let mut current = self.exact_head[class_index as usize];
+        let mut previous = NO_EXTENT;
+        while current != NO_EXTENT {
+            let next = self.exact_next[current as usize];
+            if current == slot {
+                if previous == NO_EXTENT {
+                    self.exact_head[class_index as usize] = next;
+                } else {
+                    self.exact_next[previous as usize] = next;
+                }
+                self.exact_next[current as usize] = NO_EXTENT;
+                self.exact_linked[current as usize] = false;
+                return;
+            }
+            previous = current;
+            current = next;
+        }
     }
 
     fn new_block(&mut self, request: usize, shard: usize) -> Option<u16> {
@@ -423,6 +979,24 @@ impl BlockHeap {
         }
 
         let base = pointer.cast::<u8>();
+        let block = match kind {
+            ExtentKind::Small => Block::try_new(base, extent_size as u32, backing, kind, 0),
+            ExtentKind::Large => Some(Block::new_large(base, extent_size as u32, backing, 0)),
+        };
+        let Some(block) = block else {
+            if backing == BlockBacking::VirtualAlloc {
+                let _ = unsafe { virtual_release(pointer) };
+            }
+            self.free_slots.push(slot);
+            log::error!(
+                "[BLOCK] Extent metadata allocation failed: shard={} slot={} size={}KB source={}",
+                shard,
+                slot,
+                extent_size / 1024,
+                backing.label(),
+            );
+            return None;
+        };
         if !map_extent_address(shard, slot, base, extent_size) {
             if backing == BlockBacking::VirtualAlloc {
                 let _ = unsafe { virtual_release(pointer) };
@@ -438,7 +1012,7 @@ impl BlockHeap {
             return None;
         }
 
-        self.blocks[slot as usize] = Some(Block::new(base, extent_size as u32, backing, kind, 0));
+        self.blocks[slot as usize] = Some(block);
         self.add_availability(slot);
         if diagnostics::hitch_profiling_enabled() {
             TIMED_NEW_BLOCKS.fetch_add(1, Ordering::Relaxed);
@@ -456,18 +1030,114 @@ impl BlockHeap {
         Some(slot)
     }
 
+    fn new_exact_block(&mut self, class_index: u8, item_size: u32, shard: usize) -> Option<u16> {
+        let state = ExactState::try_new(SMALL_EXTENT_SIZE as u32, class_index, item_size)?;
+        let reusable = self.blocks.iter().position(|entry| {
+            matches!(
+                entry,
+                Some(block)
+                    if block.kind == ExtentKind::Small
+                        && block.is_empty()
+                        && matches!(block.mode, BlockMode::Variable)
+            )
+        });
+        let slot = match reusable {
+            Some(slot) => {
+                let slot = slot as u16;
+                self.remove_availability(slot);
+                slot
+            }
+            None => {
+                let slot = self.new_block(item_size as usize, shard)?;
+                self.remove_availability(slot);
+                slot
+            }
+        };
+        let converted = self.blocks[slot as usize]
+            .as_mut()
+            .is_some_and(|block| block.convert_empty_to_exact(state));
+        if !converted {
+            self.add_availability(slot);
+            return None;
+        }
+        self.register_exact(slot, class_index);
+        log::debug!(
+            "[BLOCK] Exact spill extent ready: shard={} slot={} class={} item_size={} base=0x{:08X}",
+            shard,
+            slot,
+            class_index,
+            item_size,
+            self.blocks[slot as usize]
+                .as_ref()
+                .map(|block| block.base as usize)
+                .unwrap_or(0),
+        );
+        Some(slot)
+    }
+
+    fn alloc_exact(&mut self, class_index: u8, item_size: u32, shard: usize) -> *mut c_void {
+        let slot = self.exact_head[class_index as usize];
+        if slot != NO_EXTENT {
+            let result = self
+                .blocks
+                .get_mut(slot as usize)
+                .and_then(Option::as_mut)
+                .filter(|block| {
+                    block.exact_class() == Some(class_index) && block.exact_has_capacity()
+                })
+                .and_then(|block| {
+                    let (offset, size) = block.alloc_offset(item_size)?;
+                    if !block.ensure_committed(offset as usize + size as usize) {
+                        let _ = block.free(offset);
+                        log_commit_failure(block.base as usize, offset as usize, size as usize);
+                        return None;
+                    }
+                    Some((
+                        unsafe { block.base.add(offset as usize).cast() },
+                        block.exact_has_capacity(),
+                    ))
+                });
+            if let Some((pointer, remains_available)) = result {
+                if !remains_available {
+                    self.unregister_exact(slot, class_index);
+                }
+                return pointer;
+            }
+        }
+
+        let Some(slot) = self.new_exact_block(class_index, item_size, shard) else {
+            return null_mut();
+        };
+        let Some(block) = self.blocks[slot as usize].as_mut() else {
+            return null_mut();
+        };
+        let Some((offset, size)) = block.alloc_offset(item_size) else {
+            return null_mut();
+        };
+        if !block.ensure_committed(offset as usize + size as usize) {
+            let _ = block.free(offset);
+            log_commit_failure(block.base as usize, offset as usize, size as usize);
+            return null_mut();
+        }
+        unsafe { block.base.add(offset as usize).cast() }
+    }
+
     fn live_count(&self) -> usize {
         self.blocks.iter().filter(|block| block.is_some()).count()
     }
 
     fn alloc(&mut self, size: usize, shard: usize) -> *mut c_void {
-        let rounded = round_up(size as u32, CELL_ALIGN);
         let kind = ExtentKind::for_request(size);
+        let rounded = match kind {
+            ExtentKind::Small => round_variable_request(size as u32),
+            ExtentKind::Large => round_up(size as u32, CELL_ALIGN),
+        };
+        let required_capacity = match kind {
+            ExtentKind::Small => rounded,
+            ExtentKind::Large => round_up(size as u32, EXTENT_GRANULARITY as u32),
+        };
         let slot = self
-            .index_for(kind)
-            .range((rounded, 0)..)
-            .next()
-            .map(|&(_, slot)| slot)
+            .find_available(kind, required_capacity)
             .or_else(|| self.new_block(size, shard));
         let Some(slot) = slot else {
             return null_mut();
@@ -475,19 +1145,14 @@ impl BlockHeap {
 
         self.remove_availability(slot);
         let result = match self.blocks.get_mut(slot as usize).and_then(Option::as_mut) {
-            Some(block) => match block.alloc(rounded) {
-                Some(cell_index) => {
-                    let cell = block.cells[cell_index as usize];
-                    if !block.ensure_committed(cell.offset as usize + cell.size as usize) {
-                        let _ = block.free(cell.offset);
-                        log_commit_failure(
-                            block.base as usize,
-                            cell.offset as usize,
-                            cell.size as usize,
-                        );
+            Some(block) => match block.alloc_offset(rounded) {
+                Some((offset, size)) => {
+                    if !block.ensure_committed(offset as usize + size as usize) {
+                        let _ = block.free(offset);
+                        log_commit_failure(block.base as usize, offset as usize, size as usize);
                         null_mut()
                     } else {
-                        unsafe { block.base.add(cell.offset as usize).cast() }
+                        unsafe { block.base.add(offset as usize).cast() }
                     }
                 }
                 None => null_mut(),
@@ -500,13 +1165,26 @@ impl BlockHeap {
 
     fn free_if_owned(&mut self, slot: u16, ptr: *mut c_void) -> Option<bool> {
         self.remove_availability(slot);
+        let mut exact_became_available = None;
         let result = match self.blocks.get_mut(slot as usize).and_then(Option::as_mut) {
             Some(block) if block.contains(ptr) => {
+                let exact_was_full = block.exact_class().filter(|_| !block.exact_has_capacity());
                 let offset = (ptr as usize - block.base as usize) as u32;
-                Some(block.free(offset))
+                let freed = block.free(offset);
+                if freed {
+                    exact_became_available = exact_was_full;
+                }
+                Some(freed)
             }
-            _ => None,
+            // The address directory published this owner before the shard
+            // lock was acquired. Retirement may have removed the extent in
+            // that interval; keep the pointer owned and fail closed instead
+            // of allowing allocator dispatch to pass it to another heap.
+            _ => Some(false),
         };
+        if let Some(class_index) = exact_became_available {
+            self.register_exact(slot, class_index);
+        }
         self.add_availability(slot);
         result
     }
@@ -532,7 +1210,7 @@ impl BlockHeap {
         for slot in 0..self.blocks.len() {
             let empty = matches!(
                 self.blocks[slot].as_ref(),
-                Some(block) if block.used_by_offset.is_empty()
+                Some(block) if block.is_empty()
                     && block.backing == BlockBacking::VirtualAlloc
             );
             if !empty {
@@ -559,6 +1237,9 @@ impl BlockHeap {
                 continue;
             }
             unmap_extent_address(shard, slot as u16, block.base, reserved);
+            if let Some(class_index) = block.exact_class() {
+                self.unregister_exact(slot as u16, class_index);
+            }
             self.free_slots.push(slot as u16);
             result.slots_retired += 1;
             result.reserved_bytes += reserved;
@@ -656,6 +1337,15 @@ static TIMED_NEW_BLOCKS: AtomicU64 = AtomicU64::new(0);
 static FAIL_COUNT: AtomicU64 = AtomicU64::new(0);
 
 pub fn init() -> bool {
+    for (shard, heap) in HEAPS.iter().enumerate() {
+        if !heap.lock().prepare_metadata() {
+            log::error!(
+                "[BLOCK] Fixed shard metadata allocation failed: shard={}",
+                shard,
+            );
+            return false;
+        }
+    }
     if !INIT_LOGGED.swap(true, Ordering::AcqRel) {
         log::info!(
             "[BLOCK] Medium extent tier ready: {} shards, {}MB small extents, 64KB-rounded large extents, {} total slots",
@@ -687,6 +1377,36 @@ pub fn alloc(size: usize) -> *mut c_void {
     null_mut()
 }
 
+/// Allocate from a dedicated exact-size spill extent after a pool class has
+/// exhausted all of its lazy slabs.
+///
+/// Spill extents retain block-tier ownership and retirement semantics, but
+/// never admit unrelated sizes. Their fixed out-of-band queue performs no
+/// routine metadata allocation and preserves freed payload bytes.
+#[inline]
+pub(crate) fn alloc_pool_spill(class_index: u8, item_size: u32) -> *mut c_void {
+    if class_index as usize >= super::pool::NUM_POOL_CLASSES || item_size == 0 {
+        return null_mut();
+    }
+    let preferred = preferred_shard(item_size as usize);
+    for step in 0..SHARD_COUNT {
+        let shard = (preferred + step) % SHARD_COUNT;
+        let pointer = if diagnostics::hitch_profiling_enabled() {
+            with_shard_profiled(shard, TimedOperation::Alloc, |heap| {
+                heap.alloc_exact(class_index, item_size, shard)
+            })
+        } else {
+            HEAPS[shard]
+                .lock()
+                .alloc_exact(class_index, item_size, shard)
+        };
+        if !pointer.is_null() {
+            return pointer;
+        }
+    }
+    null_mut()
+}
+
 #[inline]
 pub fn free_if_owned(ptr: *mut c_void) -> Option<bool> {
     let (shard, slot) = owner_for_address(ptr.cast_const())?;
@@ -701,16 +1421,26 @@ pub fn free_if_owned(ptr: *mut c_void) -> Option<bool> {
 #[inline]
 pub fn size_of(ptr: *const c_void) -> Option<usize> {
     let (shard, slot) = owner_for_address(ptr)?;
-    if diagnostics::hitch_profiling_enabled() {
-        return with_shard_profiled(shard, TimedOperation::Size, |heap| heap.size_of(slot, ptr));
-    }
-    HEAPS[shard].lock().size_of(slot, ptr)
+    let size = if diagnostics::hitch_profiling_enabled() {
+        with_shard_profiled(shard, TimedOperation::Size, |heap| heap.size_of(slot, ptr))
+    } else {
+        HEAPS[shard].lock().size_of(slot, ptr)
+    };
+    // Once the page directory identifies this tier, a concurrent retirement
+    // cannot turn the pointer into foreign ownership. Zero is the allocator's
+    // existing fail-closed result for an invalid owned size query.
+    Some(size.unwrap_or(0))
 }
 
 #[inline]
 pub fn live_size_if_owned(ptr: *const c_void) -> Option<Option<usize>> {
     let (shard, slot) = owner_for_address(ptr)?;
-    HEAPS[shard].lock().live_size_if_owned(slot, ptr)
+    Some(
+        HEAPS[shard]
+            .lock()
+            .live_size_if_owned(slot, ptr)
+            .unwrap_or(None),
+    )
 }
 
 pub fn snapshot() -> BlockSnapshot {
@@ -785,14 +1515,14 @@ fn retire_all_blocking() -> BlockRetirement {
 fn merge_snapshot(snapshot: &mut BlockSnapshot, heap: &BlockHeap) {
     for block in heap.blocks.iter().flatten() {
         snapshot.slots += 1;
-        snapshot.live_allocations += block.used_by_offset.len();
-        snapshot.live_bytes += block.live_bytes;
+        snapshot.live_allocations += block.live_allocations();
+        snapshot.live_bytes += block.live_bytes();
         snapshot.committed_bytes += block.committed;
         match block.backing {
             BlockBacking::VirtualAlloc => snapshot.virtual_alloc_slots += 1,
             BlockBacking::DefaultHeapTail => snapshot.default_tail_slots += 1,
         }
-        if block.used_by_offset.is_empty() {
+        if block.is_empty() {
             if block.backing == BlockBacking::VirtualAlloc {
                 snapshot.empty_virtual_alloc_slots += 1;
                 snapshot.reclaimable_reserved_bytes += block.size as usize;
@@ -800,7 +1530,7 @@ fn merge_snapshot(snapshot: &mut BlockSnapshot, heap: &BlockHeap) {
             }
         } else {
             snapshot.partially_live_slots += 1;
-            snapshot.stranded_committed_bytes += block.committed.saturating_sub(block.live_bytes);
+            snapshot.stranded_committed_bytes += block.committed.saturating_sub(block.live_bytes());
         }
     }
 }
@@ -1023,13 +1753,14 @@ mod tests {
     const TEST_BLOCK_SIZE: usize = 64 * 1024;
 
     fn test_block(storage: &mut [u8]) -> Block {
-        Block::new(
+        Block::try_new(
             storage.as_mut_ptr(),
             TEST_BLOCK_SIZE as u32,
             BlockBacking::VirtualAlloc,
             ExtentKind::Small,
             TEST_BLOCK_SIZE,
         )
+        .expect("test block metadata")
     }
 
     #[test]
@@ -1046,7 +1777,7 @@ mod tests {
         assert!(block.free(first_offset));
         assert!(block.free(third_offset));
         assert!(!block.free(first_offset));
-        assert!(block.used_by_offset.is_empty());
+        assert!(block.is_empty());
         assert_eq!(block.live_bytes, 0);
         assert_eq!(block.largest_free(), Some(TEST_BLOCK_SIZE as u32));
     }
@@ -1065,6 +1796,83 @@ mod tests {
                 .iter()
                 .all(|byte| *byte == 0xa5)
         );
+    }
+
+    #[test]
+    fn variable_churn_uses_fixed_metadata_and_restores_the_extent() {
+        let mut storage = vec![0u8; TEST_BLOCK_SIZE];
+        let mut block = test_block(&mut storage);
+        let cell_capacity = block.cells.capacity();
+        let retired_capacity = block.free_slots.capacity();
+        let start_capacity = block.used_by_start.capacity();
+        let head_capacity = block.free_heads.capacity();
+        let bitmap_capacity = block.free_second_bitmap.capacity();
+        let requests = [3585u32, 4097, 6145, 8193, 12_289, 16_385];
+
+        for cycle in 0..32 {
+            let mut allocations = Vec::new();
+            for step in 0..requests.len() {
+                let requested = requests[(cycle + step) % requests.len()];
+                let Some(cell) = block.alloc(requested) else {
+                    break;
+                };
+                let offset = block.cells[cell as usize].offset;
+                let usable = block.cells[cell as usize].size;
+                assert!(usable >= requested);
+                assert!(usable - requested < requested.div_ceil(32));
+                allocations.push(offset);
+            }
+            for offset in allocations.into_iter().rev() {
+                assert!(block.free(offset));
+            }
+            assert!(block.is_empty());
+            assert_eq!(block.largest_free(), Some(TEST_BLOCK_SIZE as u32));
+        }
+
+        assert_eq!(block.cells.capacity(), cell_capacity);
+        assert_eq!(block.free_slots.capacity(), retired_capacity);
+        assert_eq!(block.used_by_start.capacity(), start_capacity);
+        assert_eq!(block.free_heads.capacity(), head_capacity);
+        assert_eq!(block.free_second_bitmap.capacity(), bitmap_capacity);
+    }
+
+    #[test]
+    fn every_variable_request_maps_to_a_guaranteed_fitting_class() {
+        for requested in MIN_VARIABLE_REQUEST..=SMALL_EXTENT_SIZE as u32 {
+            let rounded = round_variable_request(requested);
+            assert!(rounded >= requested);
+            assert!(
+                (rounded - requested) as u64 * (VARIABLE_SECOND_LEVELS as u64) < requested as u64
+            );
+            let (first, second) = variable_bin(rounded);
+            assert_eq!(variable_bin_lower(first, second), rounded);
+        }
+    }
+
+    #[test]
+    fn every_large_size_class_is_found_without_scanning_slots() {
+        let mut heap = BlockHeap::without_default_tail();
+        for large in 0..LARGE_AVAILABLE_BINS {
+            let size = (large + LARGE_FIRST_UNIT) * EXTENT_GRANULARITY;
+            let slot = heap.blocks.len() as u16;
+            heap.blocks.push(Some(Block::new_large(
+                null_mut(),
+                size as u32,
+                BlockBacking::VirtualAlloc,
+                0,
+            )));
+            heap.add_availability(slot);
+        }
+        for large in 0..LARGE_AVAILABLE_BINS {
+            let size = (large + LARGE_FIRST_UNIT) * EXTENT_GRANULARITY;
+            let slot = heap
+                .find_available(ExtentKind::Large, size as u32)
+                .expect("large class available");
+            assert_eq!(
+                heap.blocks[slot as usize].as_ref().unwrap().size,
+                size as u32
+            );
+        }
     }
 
     #[test]
@@ -1097,13 +1905,14 @@ mod tests {
             assert!(!base.is_null());
             let committed = unsafe { virtual_commit(base.cast_const(), COMMIT_CHUNK) };
             assert_eq!(committed, base);
-            Block::new(
+            Block::try_new(
                 base.cast(),
                 SMALL_EXTENT_SIZE as u32,
                 BlockBacking::VirtualAlloc,
                 ExtentKind::Small,
                 COMMIT_CHUNK,
             )
+            .expect("reserved block metadata")
         }
 
         let mut heap = BlockHeap::without_default_tail();
@@ -1123,13 +1932,16 @@ mod tests {
         heap.add_availability(1);
 
         let mut default_storage = vec![0u8; TEST_BLOCK_SIZE];
-        heap.blocks.push(Some(Block::new(
-            default_storage.as_mut_ptr(),
-            TEST_BLOCK_SIZE as u32,
-            BlockBacking::DefaultHeapTail,
-            ExtentKind::Small,
-            TEST_BLOCK_SIZE,
-        )));
+        heap.blocks.push(Some(
+            Block::try_new(
+                default_storage.as_mut_ptr(),
+                TEST_BLOCK_SIZE as u32,
+                BlockBacking::DefaultHeapTail,
+                ExtentKind::Small,
+                TEST_BLOCK_SIZE,
+            )
+            .expect("default-tail test metadata"),
+        ));
         heap.add_availability(2);
 
         let result = heap.retire_empty(0);
@@ -1149,6 +1961,144 @@ mod tests {
         let cleanup = heap.retire_empty(0);
         assert_eq!(cleanup.slots_retired, 1);
         heap.blocks[2] = None;
+    }
+
+    #[test]
+    fn published_owner_fails_closed_after_extent_retirement() {
+        let base = unsafe { virtual_reserve(None, SMALL_EXTENT_SIZE) };
+        assert!(!base.is_null());
+        let committed = unsafe { virtual_commit(base.cast_const(), COMMIT_CHUNK) };
+        assert_eq!(committed, base);
+
+        let mut heap = BlockHeap::without_default_tail();
+        heap.blocks.push(Some(
+            Block::try_new(
+                base.cast(),
+                SMALL_EXTENT_SIZE as u32,
+                BlockBacking::VirtualAlloc,
+                ExtentKind::Small,
+                COMMIT_CHUNK,
+            )
+            .expect("retired block metadata"),
+        ));
+        assert!(map_extent_address(0, 0, base.cast(), SMALL_EXTENT_SIZE));
+        heap.add_availability(0);
+        assert_eq!(owner_for_address(base.cast()), Some((0, 0)));
+
+        let retired = heap.retire_empty(0);
+        assert_eq!(retired.slots_retired, 1);
+        assert_eq!(heap.free_if_owned(0, base), Some(false));
+    }
+
+    #[test]
+    fn exact_spill_reuses_an_empty_extent_without_mixing_sizes() {
+        let mut heap = BlockHeap::without_default_tail();
+        let variable = heap.alloc(8 * 1024, 0);
+        assert!(!variable.is_null());
+        let (_, original_slot) = owner_for_address(variable).expect("owned variable allocation");
+        assert_eq!(heap.free_if_owned(original_slot, variable), Some(true));
+
+        let first = heap.alloc_exact(21, 448, 0);
+        let second = heap.alloc_exact(21, 448, 0);
+        assert!(!first.is_null());
+        assert!(!second.is_null());
+        let (_, exact_slot) = owner_for_address(first).expect("owned exact allocation");
+        assert_eq!(exact_slot, original_slot);
+        assert_eq!(owner_for_address(second), Some((0, exact_slot)));
+        assert_eq!(heap.size_of(exact_slot, first), Some(448));
+
+        let variable_after_conversion = heap.alloc(8 * 1024, 0);
+        assert!(!variable_after_conversion.is_null());
+        let (_, variable_slot) =
+            owner_for_address(variable_after_conversion).expect("owned variable allocation");
+        assert_ne!(variable_slot, exact_slot);
+
+        unsafe {
+            first.cast::<u8>().write(0xa5);
+            second.cast::<u8>().write(0x5a);
+        }
+        assert_eq!(heap.free_if_owned(exact_slot, first), Some(true));
+        assert_eq!(heap.free_if_owned(exact_slot, second), Some(true));
+        assert_eq!(heap.alloc_exact(21, 448, 0), first);
+        assert_eq!(unsafe { first.cast::<u8>().read() }, 0xa5);
+        assert_eq!(heap.alloc_exact(21, 448, 0), second);
+        assert_eq!(unsafe { second.cast::<u8>().read() }, 0x5a);
+
+        assert_eq!(heap.free_if_owned(exact_slot, first), Some(true));
+        assert_eq!(heap.free_if_owned(exact_slot, second), Some(true));
+        assert_eq!(
+            heap.free_if_owned(variable_slot, variable_after_conversion),
+            Some(true)
+        );
+        let cleanup = heap.retire_empty(0);
+        assert_eq!(cleanup.slots_retired, 2);
+    }
+
+    #[test]
+    fn full_exact_extent_leaves_and_reenters_the_available_class_head() {
+        const CLASS_INDEX: u8 = 33;
+        const ITEM_SIZE: u32 = 3584;
+        let mut heap = BlockHeap::without_default_tail();
+        let capacity = SMALL_EXTENT_SIZE / ITEM_SIZE as usize;
+        let mut first_extent = Vec::with_capacity(capacity);
+        for _ in 0..capacity {
+            let allocation = heap.alloc_exact(CLASS_INDEX, ITEM_SIZE, 0);
+            assert!(!allocation.is_null());
+            first_extent.push(allocation);
+        }
+        let (_, first_slot) = owner_for_address(first_extent[0]).expect("first exact extent");
+        assert!(!heap.exact_linked[first_slot as usize]);
+
+        let second_extent = heap.alloc_exact(CLASS_INDEX, ITEM_SIZE, 0);
+        let (_, second_slot) = owner_for_address(second_extent).expect("second exact extent");
+        assert_ne!(first_slot, second_slot);
+        assert_eq!(heap.exact_head[CLASS_INDEX as usize], second_slot);
+
+        assert_eq!(heap.free_if_owned(first_slot, first_extent[0]), Some(true));
+        assert_eq!(heap.exact_head[CLASS_INDEX as usize], first_slot);
+        assert_eq!(heap.alloc_exact(CLASS_INDEX, ITEM_SIZE, 0), first_extent[0]);
+
+        for allocation in first_extent {
+            assert_eq!(heap.free_if_owned(first_slot, allocation), Some(true));
+        }
+        assert_eq!(heap.free_if_owned(second_slot, second_extent), Some(true));
+        let cleanup = heap.retire_empty(0);
+        assert_eq!(cleanup.slots_retired, 2);
+    }
+
+    #[test]
+    fn request_sized_large_extent_uses_single_allocation_metadata() {
+        const REQUEST: usize = SMALL_EXTENT_SIZE + 17;
+        let mut heap = BlockHeap::without_default_tail();
+        let allocation = heap.alloc(REQUEST, 0);
+        assert!(!allocation.is_null());
+        let (_, slot) = owner_for_address(allocation).expect("owned large allocation");
+        let block = heap.blocks[slot as usize].as_ref().expect("large extent");
+        assert!(matches!(block.mode, BlockMode::Large(_)));
+        assert!(block.cells.is_empty());
+        assert!(block.used_by_start.is_empty());
+        assert_eq!(
+            heap.size_of(slot, allocation),
+            Some(round_up(REQUEST as u32, CELL_ALIGN) as usize)
+        );
+        assert_eq!(heap.free_if_owned(slot, allocation), Some(true));
+        let cleanup = heap.retire_empty(0);
+        assert_eq!(cleanup.slots_retired, 1);
+    }
+
+    #[test]
+    fn maximum_large_extent_reuses_the_fixed_availability_index() {
+        let mut heap = BlockHeap::without_default_tail();
+        let first = heap.alloc(BLOCK_SIZE, 0);
+        assert!(!first.is_null());
+        let (_, slot) = owner_for_address(first).expect("owned maximum extent");
+        assert_eq!(heap.free_if_owned(slot, first), Some(true));
+
+        let reused = heap.alloc(BLOCK_SIZE, 0);
+        assert_eq!(reused, first);
+        assert_eq!(heap.free_if_owned(slot, reused), Some(true));
+        let cleanup = heap.retire_empty(0);
+        assert_eq!(cleanup.slots_retired, 1);
     }
 
     #[test]

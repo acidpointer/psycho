@@ -35,7 +35,7 @@
 //! - Subsequent allocs skip the ensure-init path (single Acquire load).
 //! - A subpool commits user memory in 1 MB chunks. Virgin cells are handed
 //!   out by a monotonically increasing index; only returned cells enter the
-//!   LIFO free list. This keeps refill constant-work instead of constructing
+//!   FIFO reuse queue. This keeps refill constant-work instead of constructing
 //!   a link for every cell in the new chunk.
 //!
 //! # Zombie safety
@@ -504,7 +504,9 @@ const fn count_base_pools() -> usize {
     n
 }
 
-const NUM_BASE_POOLS: usize = POOL_DESC.len();
+/// Number of exact size classes exposed to the block spill tier.
+pub(crate) const NUM_POOL_CLASSES: usize = POOL_DESC.len();
+const NUM_BASE_POOLS: usize = NUM_POOL_CLASSES;
 const NUM_BASE_SUBPOOLS: usize = count_base_pools();
 
 const fn overflow_subpool_count(class_index: usize) -> usize {
@@ -617,6 +619,10 @@ struct Pool {
     cell_links: *mut FreeLink,
     /// Head of the list containing only cells returned by `free`.
     free_head: *mut FreeLink,
+    /// Tail of the returned-cell list. FIFO reuse spreads allocations across
+    /// the released working set instead of immediately recycling the most
+    /// recently destroyed engine object.
+    free_tail: *mut FreeLink,
     /// First cell never returned to the game. All lower indices have been
     /// issued at least once and therefore have meaningful link state.
     next_virgin_cell: u32,
@@ -672,6 +678,7 @@ impl Pool {
             end: ptr::null_mut(),
             cell_links: ptr::null_mut(),
             free_head: ptr::null_mut(),
+            free_tail: ptr::null_mut(),
             next_virgin_cell: 0,
             committed_cell_count: 0,
             live_cells: AtomicU32::new(0),
@@ -809,15 +816,15 @@ impl Pool {
         GrowResult::Grown
     }
 
-    /// Fast path allocation. Reuse returned cells first to preserve the
-    /// allocator's existing LIFO and memory-pressure behavior; otherwise
-    /// advance through the committed virgin-cell prefix.
+    /// Fast path allocation. Reuse returned cells in release order before
+    /// advancing through the committed virgin-cell prefix.
     unsafe fn alloc(&mut self) -> PoolAllocResult {
         let cell = if !self.free_head.is_null() {
             let link = self.free_head;
             unsafe {
                 let next = (*link).next;
                 self.free_head = if next == FREE_LINK_TAIL {
+                    self.free_tail = null_mut();
                     null_mut()
                 } else {
                     next
@@ -846,7 +853,7 @@ impl Pool {
         PoolAllocResult::Allocated(cell)
     }
 
-    /// Fast path free: push a cell onto the returned-cell list. No writes to
+    /// Fast path free: append a cell to the returned-cell queue. No writes to
     /// cell data.
     ///
     /// # Known latent crash: BSTreeNode C0000417
@@ -943,12 +950,12 @@ impl Pool {
     /// # Current status
     ///
     /// A general reuse cooldown or epoch quarantine conflicts with the
-    /// rest of this allocator's design (NVHR-style immediate reuse,
-    /// bounded pool budget, no epoch infrastructure). A scoped PDD
-    /// freeze experiment was removed after playtesting showed it could
-    /// hang the game faster. This path is back to immediate LIFO reuse;
-    /// stale-pointer protection belongs in specific engine guards until
-    /// we have a proven allocator-wide contract.
+    /// allocator's bounded pool budget and has no proven engine epoch. A
+    /// scoped PDD freeze experiment was removed after playtesting showed it
+    /// could hang the game faster. FIFO keeps immediate capacity reuse and
+    /// untouched zombie bytes while maximizing reuse distance within the
+    /// class; specific engine guards remain responsible for stale pointers
+    /// that outlive the complete returned-cell queue.
     unsafe fn free(&mut self, cell: *mut u8) -> bool {
         let link = self.cell_to_link(cell);
         unsafe {
@@ -963,12 +970,15 @@ impl Pool {
                 );
                 return false;
             }
-            (*link).next = if self.free_head.is_null() {
-                FREE_LINK_TAIL
+            (*link).next = FREE_LINK_TAIL;
+            if self.free_head.is_null() {
+                self.free_head = link;
+                self.free_tail = link;
             } else {
-                self.free_head
-            };
-            self.free_head = link;
+                debug_assert!(!self.free_tail.is_null());
+                (*self.free_tail).next = link;
+                self.free_tail = link;
+            }
         }
         self.live_cells.fetch_sub(1, Ordering::Relaxed);
         true
@@ -1487,6 +1497,7 @@ impl PoolHeap {
             (*pool_ptr).end = reserved_base.add(max_size as usize);
             (*pool_ptr).cell_links = metadata_ptr as *mut FreeLink;
             (*pool_ptr).free_head = ptr::null_mut();
+            (*pool_ptr).free_tail = ptr::null_mut();
             (*pool_ptr).next_virgin_cell = 0;
             (*pool_ptr).committed_cell_count = 0;
             (*pool_ptr).metadata_bytes.store(0, Ordering::Relaxed);
@@ -1630,6 +1641,16 @@ impl PoolHeap {
         self.record_class_failure(size, class_idx_u, reason)
     }
 
+    #[inline]
+    fn class_for_size(&self, size: usize) -> Option<(u8, u32)> {
+        let lookup = (size + 3) >> 2;
+        let class_index = *self.size_to_class.get(lookup)?;
+        if class_index == NO_CLASS {
+            return None;
+        }
+        Some((class_index, POOL_DESC[class_index as usize].item_size))
+    }
+
     #[cold]
     fn record_class_failure(
         &self,
@@ -1708,14 +1729,9 @@ impl PoolHeap {
         }
     }
 
-    pub fn contains(&self, ptr: *const c_void) -> bool {
-        self.pool_from_addr(ptr).is_some()
-    }
-
-    pub fn usable_size(&self, ptr: *const c_void) -> usize {
-        self.pool_from_addr(ptr)
-            .map(|p| p.item_size as usize)
-            .unwrap_or(0)
+    #[inline]
+    fn size_if_owned(&self, ptr: *const c_void) -> Option<usize> {
+        self.pool_from_addr(ptr).map(|pool| pool.item_size as usize)
     }
 
     pub fn ptr_info(&self, ptr: *const c_void) -> Option<PoolPtrInfo> {
@@ -1842,19 +1858,21 @@ pub fn init() -> bool {
 }
 
 #[inline]
-pub fn is_pool_ptr(ptr: *const c_void) -> bool {
-    match HEAP.get() {
-        Some(h) => h.contains(ptr),
-        None => false,
-    }
-}
-
-#[inline]
 pub fn alloc(size: usize) -> *mut c_void {
     match HEAP.get() {
         Some(h) => h.alloc(size),
         None => null_mut(),
     }
+}
+
+/// Return the exact class selected by the production pool lookup.
+///
+/// This is used only after that class refuses an allocation, allowing the
+/// block tier to preserve exact-size placement without duplicating the size
+/// table or class boundaries.
+#[inline]
+pub(crate) fn class_for_size(size: usize) -> Option<(u8, u32)> {
+    HEAP.get().and_then(|heap| heap.class_for_size(size))
 }
 
 #[inline]
@@ -1865,12 +1883,10 @@ pub fn free(ptr: *mut c_void) -> bool {
     }
 }
 
+/// Resolve pool ownership and usable size with one address-directory lookup.
 #[inline]
-pub fn usable_size(ptr: *const c_void) -> usize {
-    match HEAP.get() {
-        Some(h) => h.usable_size(ptr),
-        None => 0,
-    }
+pub(crate) fn size_if_owned(ptr: *const c_void) -> Option<usize> {
+    HEAP.get().and_then(|heap| heap.size_if_owned(ptr))
 }
 
 #[inline]
@@ -1955,5 +1971,22 @@ mod tests {
         assert_eq!(heap.committed_bytes(), POOL_BLOCK_SIZE);
         assert_eq!(heap.reserved_bytes(), POOL_BLOCK_SIZE);
         assert!(heap.free(allocation));
+    }
+
+    #[test]
+    fn returned_cells_are_reused_in_release_order() {
+        super::super::vanilla_large_heap::disable_default_tail_for_tests();
+        let heap = PoolHeap::create().expect("pool heap shell");
+        let first = heap.alloc(448);
+        let second = heap.alloc(448);
+        assert!(!first.is_null());
+        assert!(!second.is_null());
+        assert_ne!(first, second);
+
+        assert!(heap.free(first));
+        assert!(heap.free(second));
+
+        assert_eq!(heap.alloc(448), first);
+        assert_eq!(heap.alloc(448), second);
     }
 }

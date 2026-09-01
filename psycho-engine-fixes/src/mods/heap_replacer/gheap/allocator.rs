@@ -4,7 +4,8 @@
 //!   1 <= size <= 3584            -> pool (size-class, NVHR mheap style)
 //!   3585 <= size <= 16 MB        -> block (variable-size, NVHR dheap style)
 //!   size > 16 MB                 -> va_alloc (direct VirtualAlloc)
-//!   pool failure                 -> existing/new block as an emergency path
+//!   pool capacity exhaustion     -> exact-size block spill extent
+//!   exact spill resource failure -> native cleanup/retry
 //!   all remaining tiers fail     -> native cleanup/retry, then NULL
 //!
 //! Tier dispatch is size-only. After every owned tier fails, the lifecycle
@@ -156,7 +157,10 @@ mod tests {
 /// because the block tier was full. Rate-limited to power-of-two
 /// reporting so save-load bursts don't spam the log.
 static BLOCK_OVERFLOW_COUNT: AtomicU64 = AtomicU64::new(0);
-static POOL_FALLBACK_COUNT: AtomicU64 = AtomicU64::new(0);
+/// Count of pool-class requests for which neither the primary pool nor its
+/// exact-size spill tier could supply storage. Successful spill allocations
+/// are normal tier service and deliberately do not increment this counter.
+static POOL_EXACT_FAILURE_COUNT: AtomicU64 = AtomicU64::new(0);
 
 /// Exact ownership state for cold engine-lifetime guards.
 ///
@@ -232,11 +236,11 @@ fn classify_pool_info(info: super::pool::PoolPtrInfo) -> AllocationState {
 }
 
 #[cold]
-fn log_pool_fallback(size: usize) {
-    let n = POOL_FALLBACK_COUNT.fetch_add(1, Ordering::Relaxed) + 1;
+fn log_pool_failure(size: usize) {
+    let n = POOL_EXACT_FAILURE_COUNT.fetch_add(1, Ordering::Relaxed) + 1;
     if n.is_power_of_two() {
         log::warn!(
-            "[ALLOC] exact pool unavailable: size={} total={} (using emergency block fallback)",
+            "[ALLOC] pool and exact spill unavailable: size={} total={} (entering native recovery)",
             size,
             n,
         );
@@ -297,12 +301,18 @@ pub(crate) unsafe fn alloc_once(size: usize) -> *mut c_void {
             return ptr;
         }
 
-        // Exact-size overflow is the normal growth path. Reaching here means
-        // that it could not reserve or commit more memory. This is an
-        // emergency safety valve rather than a sustained strategy, but it is
-        // still safer than returning immediate NULL while an existing block
-        // has reusable space.
-        log_pool_fallback(size);
+        if let Some((class_index, item_size)) = super::pool::class_for_size(size) {
+            let ptr = super::block::alloc_pool_spill(class_index, item_size);
+            if !ptr.is_null() {
+                return ptr;
+            }
+        }
+
+        // Mixing this request into a variable extent recreates the long-lived
+        // fragmentation pattern exact spill is designed to remove. Both exact
+        // tiers failed, so enter the existing cleanup/retry controller.
+        log_pool_failure(size);
+        return null_mut();
     }
 
     if size <= super::block::BLOCK_MAX_ALLOC {
@@ -367,8 +377,8 @@ pub unsafe fn msize(ptr: *mut c_void) -> usize {
         return 0;
     }
 
-    if super::pool::is_pool_ptr(ptr as *const c_void) {
-        return super::pool::usable_size(ptr as *const c_void);
+    if let Some(size) = super::pool::size_if_owned(ptr as *const c_void) {
+        return size;
     }
 
     if let Some(size) = super::block::size_of(ptr as *const c_void) {
@@ -407,8 +417,8 @@ pub unsafe fn realloc(ptr: *mut c_void, new_size: usize) -> *mut c_void {
         return null_mut();
     }
 
-    let old_size_opt = if super::pool::is_pool_ptr(ptr as *const c_void) {
-        Some(super::pool::usable_size(ptr as *const c_void))
+    let old_size_opt = if let Some(size) = super::pool::size_if_owned(ptr as *const c_void) {
+        Some(size)
     } else if let Some(size) = super::block::size_of(ptr as *const c_void) {
         Some(size)
     } else {

@@ -1,7 +1,8 @@
 //! Game heap replacement: size-dispatched allocator.
 //!
 //! Primary tier: `pool` (fixed-size cells, NVHR-style mheap port).
-//! Secondary tier: `block` (variable-size cells, NVHR-style dheap port).
+//! Secondary tier: `block` (exact spill, bounded variable cells, and
+//! request-sized large extents).
 //! Huge allocations: `va_alloc` (direct VirtualAlloc).
 //! Exhaustion: retry through the native engine cleanup policy after every
 //! owned tier fails; never re-enter original SBM because its CRT escape would

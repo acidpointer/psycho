@@ -74,9 +74,9 @@ Source ownership:
 |---|---|---|
 | Activation | `heap_replacer/install.rs`, `manifest.rs` | Preflight, initialize, then transactionally publish all allocation domains. |
 | Small objects | `gheap/pool.rs` | 34 exact size classes through 3584 bytes; 552 lazy 1 MiB base slabs and 181 dormant 1 MiB overflow slabs with separate metadata. Reservation and commit units match. |
-| Medium objects | `gheap/block.rs` | Four shards; 1 MiB small-object extents and 64 KiB-rounded request-sized large extents; exact best-fit indexes and 64 KiB-page ownership dispatch; 1024 lazy extent slots. |
+| Medium objects | `gheap/block.rs` | Four shards; exhausted pool classes use dedicated 1 MiB exact-spill extents, 3,585-byte through 1 MiB requests use bounded segregated variable extents, and larger requests use 64 KiB-rounded request-sized extents; fixed availability indexes and 64 KiB-page ownership dispatch cover 1024 lazy extent slots. |
 | Huge objects | `gheap/va_alloc.rs` | Page-rounded reserve+commit above 16 MiB; exact side-table ownership; release on free. Final failure enters coordinated native recovery. |
-| Dispatch | `gheap/allocator.rs`, `gheap/memory_lifecycle.rs` | Size-only tier selection; pool failure may use medium extents; final failure retries through the native stage policy without re-entering the hooked GameHeap allocator. |
+| Dispatch | `gheap/allocator.rs`, `gheap/memory_lifecycle.rs` | Size-only tier selection; pool capacity grows through its matching exact-spill class, while exact resource failure enters native cleanup/retry without contaminating variable extents or re-entering the hooked GameHeap allocator. |
 | Pressure | `gheap/vas.rs`, `watchdog.rs`, `pressure.rs`, `memory_lifecycle.rs` | `VirtualQuery` total/holes, commit growth, tier occupancy, and failure counters. Proven VAS pressure is forwarded to one barrier-protected native reclamation transaction; the watchdog never mutates engine or allocator state. |
 | Lifetime safety | pool/block metadata, `memory_lifecycle.rs`, and targeted engine guards | Ordinary free does not overwrite pool/block payload bytes. Independently reserved empty medium extents are released only inside the coordinated IO/Havok/scene destruction boundary. |
 
@@ -574,7 +574,8 @@ save rotates them.
 - Large compressed texture packs whose encoded buffers, managed backing, and
   active driver resources fit concurrently.
 - Small-object populations beyond the original 552 MB fixed base capacity,
-  within the per-class overflow descriptor counts and VAS admission policy.
+  first through per-class overflow descriptors and then dedicated exact-spill
+  extents, subject to VAS, commit, and the shared extent-slot bound.
 - Medium streamed allocations up to 16 MiB through 1 MiB small extents or
   request-sized large extents, subject to actual VAS and commit.
 - Huge allocations above 16 MiB through exact direct reservations and the
@@ -594,8 +595,9 @@ save rotates them.
   entrypoint or raw instruction role. Startup rejects incompatible surfaces;
   it cannot merge arbitrary allocator semantics.
 - Safety for every unknown stale pointer retained by arbitrary engine/plugin
-  code. Pool/block free preserves bytes, but the address can be reused
-  immediately. Targeted guards cover proven families only.
+  code. Pool/block free preserves bytes and FIFO increases pool reuse distance,
+  but an address can still be reused without a proven engine epoch. Targeted
+  guards cover proven families only.
 - Valid behavior from corrupt DDS/NIF/BSA data, unsupported GPU formats or
   dimensions, driver bugs, script runaway allocation, or mutually incompatible
   content plugins.
@@ -620,8 +622,9 @@ safety.
 ### UAF protection
 
 Pool/block metadata remains outside user bytes, and block free does not
-overwrite payload. Immediate address reuse still exists and requires the
-established targeted engine guards. Pool slabs remain mapped. An empty medium
+overwrite payload. FIFO returned-cell queues increase exact-class reuse
+distance, but reuse still exists and requires the established targeted engine
+guards. Pool slabs remain mapped. An empty medium
 extent is released only while the IO dequeue barrier, worker drains,
 AI/Havok stop, and native pre-destruction ownership are active. The atomic
 address-page directory publishes an extent only after initialization and
@@ -632,11 +635,12 @@ malformed container before vanilla's promotion/free helper can consume it.
 
 ### Performance
 
-There is no new routine per-allocation scan, allocation, or log. A free or size
+There is no routine per-allocation scan, metadata allocation, or log. A free or size
 query for a page outside the medium tier returns after one atomic directory
 load. Owned pages take only their encoded shard lock and revalidate the live
-extent. Medium allocation begins in one shard and uses its logarithmic
-best-fit index instead of scanning all historical blocks under a global mutex.
+extent. Medium allocation begins in one shard and uses fixed two-level bitmaps
+instead of scanning historical blocks or allocating collection nodes under a
+global mutex.
 The watchdog retains a light five-second process-accounting poll for commit growth
 and failed-reservation retry state. Full `VirtualQuery` enumeration, allocator
 snapshots, class sorting, and detailed log writes run once per 60 seconds,
@@ -646,8 +650,10 @@ published VAS and process caches without starting either operation.
 Pressure-state output also forwards one request to the main-thread lifecycle;
 allocator admission still samples actual VAS when it needs a decision.
 Peak/max telemetry adds relaxed atomics only to allocations larger than 16
-MiB. Small pool failures may still use the medium tier as an emergency path,
-but four shards prevent unrelated worker traffic from serializing globally.
+MiB. Pool exhaustion stays in a matching fixed-size spill extent; if both exact
+tiers encounter a resource failure, native cleanup/retry runs instead of
+mixing that lifetime into a variable extent. Four shards prevent unrelated
+worker traffic from serializing globally.
 
 When opt-in hitch profiling is enabled at process startup, its compact span
 report measures the active portion of the five-second light memory poll
@@ -987,11 +993,12 @@ Medium requests are separated by lifetime/size geometry:
 - larger requests receive request-sized, 64 KiB-rounded extents and never
   share with small survivors;
 - four shards replace the process-wide allocator mutex;
-- each shard owns an exact `BTreeSet<(largest_free, slot)>` best-fit index;
+- each shard owns fixed two-level availability bitmaps for small and large
+  extents;
 - one process-wide 64 KiB-page table gives constant-time shard/extent dispatch
   for free, size, and pointer validation; and
-- ordinary free coalesces metadata without overwriting payload or releasing
-  address space.
+- ordinary variable free coalesces preallocated metadata without overwriting
+  payload or releasing address space.
 
 This placement makes a transition-sized allocation independently reclaimable
 after its own lifetime ends. Fully empty VirtualAlloc extents are released
@@ -1048,7 +1055,7 @@ destructors, change reference counts, classify modules, or patch another mod.
   PDD, and model ownership are quiescent. Pool slabs and Default-tail extents
   are never released by this policy.
 - **Performance:** small-pool hot allocation still begins at one class hint;
-  medium allocation takes one shard lock and logarithmic metadata work, and
+  medium allocation takes one shard lock and bounded bitmap/list work, and
   pointer dispatch is constant-time. The costs are more lazy 1 MiB OS
   reservations, about 64 KiB more initialized block-directory storage plus
   7.5 KiB more heap-owned pool-directory storage, and cold native cleanup only
@@ -1143,6 +1150,91 @@ the correction adds no configuration, static owner, callback, or worker. The
 successful reporter run reached the affected gameplay load, providing the
 required startup observation for this correction without proving unrelated
 future footprint changes safe.
+
+## September 1, 2026 bounded-metadata and reuse-distance candidate
+
+The accepted August 31 placement correction removed the save-load stall. Its
+post-fix allocator log also exposes the next bounded costs rather than another
+VAS collapse. Near the end of the supplied session, the pool held about
+325-326 MiB, the block tier had 281 slots with 118 empty, and approximately
+147 MiB live occupied 345 MiB committed. About 167 MiB was immediately
+reclaimable and only about 30 MiB was stranded inside partially live extents.
+The process still had about 625 MiB free VAS with a 454 MiB largest hole. This
+is materially different from the August 29 failure, where partially live
+blocks stranded 502 MiB and the largest hole fell below the failed request.
+
+One remaining cross-tier defect is direct: pool class 21, the exact 448-byte
+class, used all thirteen configured slabs and then recorded 983 refusals. The
+accepted allocator routed each refusal into the general variable block tier.
+That preserved allocation success but mixed a sustained small-object lifetime
+back into the tier whose reclaimability depends on whole 1 MiB extents. The
+source also performed routine `BTreeMap`, `BTreeSet`, `HashMap`, and nested
+`Vec` mutation for variable-block placement, and request-sized large extents
+paid that general metadata cost despite holding only one live allocation.
+
+The correction is allocator policy, not a diagnostic build:
+
+- after the configured pool slabs refuse a class, that class receives a
+  dedicated 1 MiB exact-spill extent with an out-of-band FIFO and no unrelated
+  allocation sizes;
+- a completely empty variable extent is converted to the needed exact class
+  before any new reservation is made, preserving the existing VAS map when
+  possible;
+- exact resource failure enters the established native cleanup/retry path
+  instead of falling back into a variable extent;
+- variable extents use 32 subdivisions per power-of-two range, fixed bitmaps,
+  intrusive free links, and an exact-start table allocated once when the
+  extent is created; request rounding remains below 3.125 percent;
+- shard-level small and large availability uses fixed bitmaps and intrusive
+  slot links, so allocation does not create or destroy collection nodes;
+- request-sized large extents keep only their live/usable-size state and do
+  not allocate variable-cell metadata;
+- pool and exact-spill returned cells are reused in release order. This keeps
+  immediate capacity availability and readable freed bytes while maximizing
+  reuse distance within the active class; it is not an epoch quarantine; and
+- once the block address directory publishes ownership, a retirement race
+  remains fail-closed for free, size, and live-state consumers. A missing or
+  replaced slot cannot fall through into the vanilla or CRT allocator domain.
+
+### Three-way effect
+
+- **OOM/VAS:** exact spill prevents observed 448-byte overflow from seeding
+  general variable extents and reuses an empty extent first. It still consumes
+  one 1 MiB reservation when no reusable extent exists, remains subject to the
+  shared slot bound, and is retired only by the existing barrier-protected
+  lifecycle. No pressure threshold, PDD stage, worker barrier, or mapping
+  release rule changes.
+- **UAF:** FIFO increases the number of same-class releases before an address
+  is reused, while all free paths continue to leave payload bytes untouched.
+  It does not prove arbitrary stale-pointer safety; targeted engine guards
+  remain required. The ownership-race correction only changes invalid-input
+  dispatch from foreign fallthrough to the allocator's existing fail-closed
+  result.
+- **Performance:** initialized pool allocation/free remains constant work under
+  the existing per-pool lock. Exact spill uses one class head, variable and
+  shard availability use bounded bitmap operations, and large extents avoid
+  general cell maps. Variable metadata is preallocated for at most 292 cells
+  and 512 exact-start slots; creation failure returns allocation failure rather
+  than publishing a partially initialized extent. The cost is bounded
+  per-extent side metadata and at most 3.125 percent variable-tier internal
+  size rounding.
+
+Offline regressions execute the production pool and block paths. They preserve
+the original failures for reverse-order pool reuse and post-retirement owner
+fallthrough, then require FIFO order and fail-closed ownership. Further
+coverage fills and reopens an exact extent, proves exact spill can convert an
+empty variable extent without mixing sizes, preserves freed payload, exercises
+all variable size bands through repeated split/coalesce churn without metadata
+growth, and proves large extents omit variable metadata.
+
+This changes pre-Deferred allocator storage. The representative Proton/Wine
+run started with this artifact, reached sustained gameplay, completed repeated
+saves, and continued for approximately 50 minutes. The observed 448-byte
+burst entered exact spill during initial loading, a later 192-byte burst also
+entered its own exact class, and barrier-protected VAS reclamation completed
+without an extent-release failure. The owner accepted the runtime result and
+approved the commit after that session. No configuration, engine cleanup call,
+module classification, or third-party compatibility branch is added.
 
 ## Validation matrix for an extreme setup
 

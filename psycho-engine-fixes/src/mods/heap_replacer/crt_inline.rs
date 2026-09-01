@@ -70,7 +70,9 @@ pub static FREE_HOOK: LazyLock<InlineHookContainer<FreeFn>> =
 
 #[inline]
 fn is_our_ptr(ptr: *const c_void) -> bool {
-    pool::is_pool_ptr(ptr) || block::size_of(ptr).is_some() || va_alloc::size_of(ptr).is_some()
+    pool::size_if_owned(ptr).is_some()
+        || block::size_of(ptr).is_some()
+        || va_alloc::size_of(ptr).is_some()
 }
 
 #[inline]
@@ -192,8 +194,8 @@ pub unsafe extern "C" fn hook_msize(ptr: *mut c_void) -> usize {
         return 0;
     }
 
-    if pool::is_pool_ptr(ptr as *const c_void) {
-        return pool::usable_size(ptr as *const c_void);
+    if let Some(size) = pool::size_if_owned(ptr as *const c_void) {
+        return size;
     }
     if let Some(size) = block::size_of(ptr as *const c_void) {
         return size;
