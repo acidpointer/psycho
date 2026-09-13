@@ -8,7 +8,9 @@
 //!
 //! The first add loop in `FUN_00C94BD0` forgets to filter and writes:
 //!
-//!     MOV dword ptr [ESI + 0xD4], EAX   ; ESI = entity
+//! ```text
+//! MOV dword ptr [ESI + 0xD4], EAX   ; ESI = entity
+//! ```
 //!
 //! so a NULL slot faults writing `[0xD4]`. We compact NULL slots at the
 //! central batch entry before vanilla sees the array.
@@ -17,7 +19,9 @@
 //! `hkpWorld::addEntityBatch` once per slot after broadphase. The very first
 //! instruction of `FUN_00CFFA00` is:
 //!
-//!     MOV EBX, dword ptr [EAX + 0x214]   ; EAX = entity
+//! ```text
+//! MOV EBX, dword ptr [EAX + 0x214]   ; EAX = entity
+//! ```
 //!
 //! so the post-add guard remains as a second defensive layer.
 //!

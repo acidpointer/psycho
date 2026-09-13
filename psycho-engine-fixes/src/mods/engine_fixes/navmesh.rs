@@ -3,7 +3,9 @@
 //! Stress testing with gheap exposed a tasklet crash at
 //! `0x0069083A`, inside `FUN_00690830`:
 //!
-//!     CMP dword ptr [EAX + 0x1c], 0
+//! ```text
+//! CMP dword ptr [EAX + 0x1c], 0
+//! ```
 //!
 //! The crash register state had `ECX=EAX=4`, so the pathfinding helper
 //! received a small sentinel value where it expected a NavMeshInfo-like
