@@ -813,6 +813,7 @@ impl ShadowPipeline {
             mut roots,
             mut actor_bounds,
             mut actor_roots,
+            mut point_static_spatial,
             retained_static_faces,
             retained_static_root_signature,
         ) = {
@@ -821,6 +822,7 @@ impl ShadowPipeline {
                 core::mem::take(&mut resources.directional_roots),
                 core::mem::take(&mut resources.point_actor_bounds),
                 core::mem::take(&mut resources.point_actor_roots),
+                core::mem::take(&mut resources.point_static_spatial),
                 resources.point_static_faces,
                 resources.point_static_root_signature,
             )
@@ -866,6 +868,8 @@ impl ShadowPipeline {
         let mut signatures = [PointMapSignature::EMPTY; POINT_LIGHT_CAPACITY];
         let mut static_face_signatures = [[0_u64; 6]; POINT_LIGHT_CAPACITY];
         let mut dynamic_faces = [0_u8; POINT_LIGHT_CAPACITY];
+        let mut spatial_attempted = false;
+        let mut spatial_complete = false;
         for (index, point) in points.shadowed().iter().enumerate() {
             if !roots_complete {
                 continue;
@@ -879,11 +883,26 @@ impl ShadowPipeline {
             let retained = can_reuse_static_signatures
                 .then(|| active_cache.retained_static_signatures(active_static_faces, signature));
             let (cube_signature, face_signatures) = retained.flatten().unwrap_or_else(|| {
-                let current = native::point_scene_static_signatures(
-                    roots.as_slice(),
-                    point.position,
-                    point.cube_radius,
-                );
+                if !spatial_attempted {
+                    spatial_complete = point_static_spatial.rebuild(roots.as_slice());
+                    spatial_attempted = true;
+                }
+                let current = spatial_complete
+                    .then(|| {
+                        point_static_spatial.signatures_for_light(
+                            roots.as_slice(),
+                            point.position,
+                            point.cube_radius,
+                        )
+                    })
+                    .flatten()
+                    .unwrap_or_else(|| {
+                        native::point_scene_static_signatures(
+                            roots.as_slice(),
+                            point.position,
+                            point.cube_radius,
+                        )
+                    });
                 (current.cube, current.faces)
             });
             signature.caster_signature = cube_signature;
@@ -913,6 +932,7 @@ impl ShadowPipeline {
         resources.directional_roots = roots;
         resources.point_actor_bounds = actor_bounds;
         resources.point_actor_roots = actor_roots;
+        resources.point_static_spatial = point_static_spatial;
         let directional_changed = directional_no_work_state_changed(
             directional,
             directional_root_set_dirty(self.last_directional_roots, directional_signatures),
@@ -1332,6 +1352,9 @@ struct ShadowResources {
     point_actor_face_masks: Vec<[u8; POINT_LIGHT_CAPACITY]>,
     /// Root-aligned static face coverage for selected point lights.
     point_static_face_masks: Vec<[u8; POINT_LIGHT_CAPACITY]>,
+    /// Bounded root-index hierarchy rebuilt only when a selected light needs
+    /// regional static ownership. It never retains native scene pointers.
+    point_static_spatial: native::PointStaticSpatialIndex,
     /// Face-local static identities allocated only with post-Deferred device
     /// resources, outside the frozen loader-visible pipeline owner.
     point_static_faces: PointStaticFaceCache,
@@ -1429,6 +1452,7 @@ struct DirectionalStripResources {
 struct PointCasterIndex<'a> {
     roots: &'a [DirectionalRoot],
     static_face_masks: Option<&'a [[u8; POINT_LIGHT_CAPACITY]]>,
+    static_spatial: Option<&'a native::PointStaticSpatialIndex>,
     actor_roots: &'a [DirectionalRoot],
     actor_face_masks: &'a [[u8; POINT_LIGHT_CAPACITY]],
     actor_bounds_complete: bool,
@@ -1761,6 +1785,7 @@ impl ShadowResources {
             point_actor_roots: Vec::with_capacity(POINT_ACTOR_BOUND_CACHE_CAPACITY),
             point_actor_face_masks: Vec::with_capacity(POINT_ACTOR_BOUND_CACHE_CAPACITY),
             point_static_face_masks: Vec::with_capacity(DIRECTIONAL_ROOT_CACHE_CAPACITY),
+            point_static_spatial: native::PointStaticSpatialIndex::with_capacity(),
             point_static_faces: PointStaticFaceCache::default(),
             point_static_root_signature: None,
             cascade_matrices: [[[0.0; 4]; 4]; CASCADE_COUNT],
@@ -2253,6 +2278,7 @@ impl ShadowResources {
         let mut point_actor_roots = core::mem::take(&mut self.point_actor_roots);
         let mut point_actor_face_masks = core::mem::take(&mut self.point_actor_face_masks);
         let mut point_static_face_masks = core::mem::take(&mut self.point_static_face_masks);
+        let mut point_static_spatial = core::mem::take(&mut self.point_static_spatial);
         point_static_face_masks.clear();
         let mut static_masks_complete =
             directional_roots.len() <= point_static_face_masks.capacity();
@@ -2290,6 +2316,8 @@ impl ShadowResources {
         };
         let can_reuse_static_signatures =
             same_point_cell && current_static_root_signature == *point_static_root_signature;
+        let mut spatial_attempted = false;
+        let mut spatial_complete = false;
         for (index, point) in points.shadowed().iter().enumerate() {
             let current_dynamic_faces = prepared_dynamic_faces
                 .map_or(super::contract::ALL_CUBE_FACES, |faces| faces[index]);
@@ -2310,13 +2338,30 @@ impl ShadowResources {
                         point_static_face_masks
                             .resize(directional_roots.len(), [0; POINT_LIGHT_CAPACITY]);
                     }
-                    match native::collect_point_static_face_masks_for_light(
-                        directional_roots.as_slice(),
-                        point.position,
-                        point.cube_radius,
-                        index,
-                        point_static_face_masks.as_mut_slice(),
-                    ) {
+                    if !spatial_attempted {
+                        spatial_complete =
+                            point_static_spatial.rebuild(directional_roots.as_slice());
+                        spatial_attempted = true;
+                    }
+                    let indexed = spatial_complete.then(|| {
+                        point_static_spatial.collect_face_masks_for_light(
+                            directional_roots.as_slice(),
+                            point.position,
+                            point.cube_radius,
+                            index,
+                            point_static_face_masks.as_mut_slice(),
+                        )
+                    });
+                    let current = indexed.flatten().or_else(|| {
+                        native::collect_point_static_face_masks_for_light(
+                            directional_roots.as_slice(),
+                            point.position,
+                            point.cube_radius,
+                            index,
+                            point_static_face_masks.as_mut_slice(),
+                        )
+                    });
+                    match current {
                         Some(current) => current,
                         None => {
                             static_masks_complete = false;
@@ -2358,6 +2403,7 @@ impl ShadowResources {
                     roots: directional_roots.as_slice(),
                     static_face_masks: static_masks_complete
                         .then_some(point_static_face_masks.as_slice()),
+                    static_spatial: spatial_complete.then_some(&point_static_spatial),
                     actor_roots: point_actor_roots.as_slice(),
                     actor_face_masks: point_actor_face_masks.as_slice(),
                     actor_bounds_complete,
@@ -2365,6 +2411,7 @@ impl ShadowResources {
                 plan,
             )
         };
+        self.point_static_spatial = point_static_spatial;
         // Native pointers never survive this transaction, but all scalar
         // allocations remain reusable even when one D3D face operation fails.
         point_static_face_masks.clear();
@@ -2834,6 +2881,7 @@ impl ShadowResources {
                                     source,
                                     casters.roots,
                                     casters.static_face_masks,
+                                    casters.static_spatial,
                                 )?
                             };
                             if plan.dynamic_draw_faces[index] & (1 << face) != 0 {
@@ -2895,6 +2943,7 @@ impl ShadowResources {
                                     source,
                                     casters.roots,
                                     casters.static_face_masks,
+                                    casters.static_spatial,
                                 )?
                             };
                         }
@@ -3072,6 +3121,7 @@ impl ShadowResources {
         source: usize,
         roots: &[DirectionalRoot],
         static_face_masks: Option<&[[u8; POINT_LIGHT_CAPACITY]]>,
+        static_spatial: Option<&native::PointStaticSpatialIndex>,
     ) -> Direct3DResult<()> {
         render::configure_generation_state(device)?;
         render::begin_point_face(
@@ -3085,19 +3135,20 @@ impl ShadowResources {
                 point.cube_radius,
             ],
         )?;
-        for (root_index, root) in roots.iter().copied().enumerate() {
+        let mut draw_candidate = |root_index: usize| -> Direct3DResult<()> {
+            let root = roots[root_index];
             let touches_face = static_face_masks
                 .and_then(|masks| masks.get(root_index))
                 .and_then(|masks| masks.get(source))
                 .is_some_and(|faces| faces & (1 << face) != 0);
             if static_face_masks.is_some() && !touches_face {
-                continue;
+                return Ok(());
             }
             if static_face_masks.is_none()
                 && (!root.is_point_static_caster(point.position, point.cube_radius)
                     || !root.intersects_point_face(point.position, point.cube_radius, face))
             {
-                continue;
+                return Ok(());
             }
             unsafe {
                 render::draw_point_root(
@@ -3115,6 +3166,19 @@ impl ShadowResources {
                     CasterSubset::Static,
                     &mut self.scratch,
                 )?
+            }
+            Ok(())
+        };
+        if let Some(spatial) = static_spatial {
+            spatial.try_visit_light_candidates(
+                roots,
+                point.position,
+                point.cube_radius,
+                &mut draw_candidate,
+            )?;
+        } else {
+            for root_index in 0..roots.len() {
+                draw_candidate(root_index)?;
             }
         }
         Ok(())

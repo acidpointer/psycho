@@ -12,7 +12,7 @@
 
 #![cfg_attr(not(test), allow(dead_code))]
 
-use core::ops::Range;
+use core::{mem::size_of, ops::Range, ptr::read_unaligned};
 
 /// SHA-256 identity of the only executable covered by the native contract.
 pub(super) const FNV_EXE_SHA256: &str =
@@ -126,7 +126,7 @@ impl NativeLayout {
     pub(super) const NI_AV_OBJECT_SIZE: usize = 0x9C;
     /// `NiAVObject::m_parent`.
     pub(super) const NI_AV_OBJECT_PARENT: usize = 0x18;
-    /// Pointer to `NiAVObject::m_kWorldBound`.
+    /// Optional pointer to `NiAVObject::m_kWorldBound`.
     pub(super) const NI_AV_OBJECT_WORLD_BOUND: usize = 0x20;
     /// `NiAVObject::m_flags`.
     pub(super) const NI_AV_OBJECT_FLAGS: usize = 0x30;
@@ -212,6 +212,38 @@ impl NativeLayout {
     pub(super) const SHADOW_SCENE_LIGHT_SIZE: usize = 0x250;
     /// The native list is borrowed only during the common-prefix transaction.
     pub(super) const SHADOW_GEOMETRY_LIST_VALID_ONLY_DURING_COMMON_PREFIX_EPOCH: bool = true;
+}
+
+/// Native sphere shared by NiAVObject and multibound callbacks.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub(super) struct NativeBound {
+    /// Absolute center for a NiAVObject world bound.
+    pub(super) center: [f32; 3],
+    /// Conservative sphere radius.
+    pub(super) radius: f32,
+}
+
+const _: () = assert!(size_of::<NativeBound>() == 0x10);
+
+/// Copy the pointed-to world sphere from a live NiAVObject.
+///
+/// # Safety
+///
+/// `object` and its optional bound must remain live for the current serialized
+/// shadow transaction. The returned value owns no engine borrow.
+pub(super) unsafe fn read_world_bound(object: *mut u8) -> Option<NativeBound> {
+    if object.is_null() {
+        return None;
+    }
+    let bound = unsafe {
+        read_unaligned(
+            object
+                .add(NativeLayout::NI_AV_OBJECT_WORLD_BOUND)
+                .cast::<*const NativeBound>(),
+        )
+    };
+    (!bound.is_null()).then(|| unsafe { read_unaligned(bound) })
 }
 
 /// Version-one vertex/pixel register ABI of the generation shader family.

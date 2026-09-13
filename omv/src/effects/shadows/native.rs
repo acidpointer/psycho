@@ -9,6 +9,7 @@
 //! Device resources and scalar publication live in the renderer module instead.
 
 use core::{ffi::c_void, ptr::read_unaligned};
+use std::cmp::Ordering;
 
 use libpsycho::os::windows::memory::validate_memory_range;
 
@@ -20,7 +21,7 @@ use super::{
         sphere_intersects_cube_face, sphere_intersects_point_light,
         stable_point_light_distance_squared,
     },
-    engine::NativeLayout,
+    engine::{NativeBound, NativeLayout, read_world_bound},
     math::{ActorBounds, CascadeProjection, Sphere, dynamic_caster_cascade_mask},
 };
 
@@ -31,6 +32,10 @@ const MAX_CELL_REFERENCES: usize = 4_096;
 pub(super) const DIRECTIONAL_ROOT_CACHE_CAPACITY: usize = 32_768;
 /// Bounded scalar actor cache shared by directional and point-light planning.
 pub(super) const POINT_ACTOR_BOUND_CACHE_CAPACITY: usize = 1_024;
+const POINT_SPATIAL_LEAF_CAPACITY: usize = 8;
+const POINT_SPATIAL_NODE_CAPACITY: usize =
+    (DIRECTIONAL_ROOT_CACHE_CAPACITY / POINT_SPATIAL_LEAF_CAPACITY) * 2;
+const POINT_SPATIAL_LEAF_BIT: u16 = 1 << 15;
 
 const GRID_SIZE: usize = 0x0C;
 const GRID_CELLS: usize = 0x10;
@@ -45,13 +50,6 @@ const NI_TARRAY_END: usize = 0x0A;
 const CELL_INTERIOR: u8 = 1 << 0;
 const CELL_BEHAVES_LIKE_EXTERIOR: u8 = 1 << 7;
 const FORM_NOT_CAST_SHADOWS: u32 = 0x0000_0200;
-
-#[repr(C)]
-#[derive(Clone, Copy)]
-struct NativeBound {
-    center: [f32; 3],
-    radius: f32,
-}
 
 /// Native scene ownership recovered at the common shadow entry.
 #[derive(Clone, Copy, Debug)]
@@ -193,6 +191,376 @@ impl DirectionalRoot {
     }
 }
 
+/// Post-Deferred spatial ownership for immutable local-light casters.
+///
+/// Nodes and leaves contain only indices into the current transaction's root
+/// slice. The index is rebuilt before use, so no engine pointer or borrowed
+/// lifetime crosses a common-shadow boundary. Invalid or missing bounds live
+/// in a conservative tail visited by every light. Building and querying reuse
+/// fixed-capacity vectors and never allocate in the render transaction.
+#[derive(Default)]
+pub(super) struct PointStaticSpatialIndex {
+    nodes: Vec<PointSpatialNode>,
+    indices: Vec<u16>,
+    unbounded_start: usize,
+    root_count: usize,
+}
+
+#[derive(Clone, Copy, Default)]
+struct PointSpatialNode {
+    minimum: [f32; 3],
+    maximum: [f32; 3],
+    first: u16,
+    second: u16,
+}
+
+impl PointStaticSpatialIndex {
+    /// Allocate the complete bounded index outside the per-frame path.
+    pub(super) fn with_capacity() -> Self {
+        Self {
+            nodes: Vec::with_capacity(POINT_SPATIAL_NODE_CAPACITY),
+            indices: Vec::with_capacity(DIRECTIONAL_ROOT_CACHE_CAPACITY),
+            unbounded_start: 0,
+            root_count: 0,
+        }
+    }
+
+    /// Rebuild from the exact root slice borrowed by this shadow transaction.
+    ///
+    /// `false` leaves an empty index and tells the caller to retain the
+    /// exhaustive correctness path. It can occur only when the bounded native
+    /// inventory exceeds its proven cache or internal node capacity.
+    pub(super) fn rebuild(&mut self, roots: &[DirectionalRoot]) -> bool {
+        self.nodes.clear();
+        self.indices.clear();
+        self.unbounded_start = 0;
+        self.root_count = 0;
+        if roots.len() > self.indices.capacity() {
+            return false;
+        }
+
+        let mut center_minimum = [f32::INFINITY; 3];
+        let mut center_maximum = [f32::NEG_INFINITY; 3];
+        for (index, root) in roots.iter().copied().enumerate() {
+            if root.is_land || root.is_dynamic_actor() {
+                continue;
+            }
+            let Some(bound) = root.world_bound.filter(|bound| valid_spatial_bound(*bound)) else {
+                continue;
+            };
+            self.indices.push(index as u16);
+            for axis in 0..3 {
+                center_minimum[axis] = center_minimum[axis].min(bound[axis]);
+                center_maximum[axis] = center_maximum[axis].max(bound[axis]);
+            }
+        }
+
+        let bounded_len = self.indices.len();
+        if bounded_len != 0 {
+            let sort_axis = (1..3).fold(0, |largest, axis| {
+                let largest_extent = center_maximum[largest] - center_minimum[largest];
+                let extent = center_maximum[axis] - center_minimum[axis];
+                if extent > largest_extent {
+                    axis
+                } else {
+                    largest
+                }
+            });
+            self.indices[..bounded_len].sort_unstable_by(|left, right| {
+                // Both indices were admitted above only after proving a valid
+                // bound, and `roots` is immutable for the complete rebuild.
+                let left = roots[*left as usize]
+                    .world_bound
+                    .expect("bounded spatial root")[sort_axis];
+                let right = roots[*right as usize]
+                    .world_bound
+                    .expect("bounded spatial root")[sort_axis];
+                left.partial_cmp(&right).unwrap_or(Ordering::Equal)
+            });
+            if self.build_node(roots, 0, bounded_len).is_none() {
+                self.nodes.clear();
+                self.indices.clear();
+                return false;
+            }
+        }
+
+        self.unbounded_start = self.indices.len();
+        for (index, root) in roots.iter().copied().enumerate() {
+            if !root.is_land
+                && !root.is_dynamic_actor()
+                && root
+                    .world_bound
+                    .is_none_or(|bound| !valid_spatial_bound(bound))
+            {
+                self.indices.push(index as u16);
+            }
+        }
+        self.root_count = roots.len();
+        true
+    }
+
+    fn build_node(&mut self, roots: &[DirectionalRoot], start: usize, end: usize) -> Option<u16> {
+        if start >= end || self.nodes.len() == self.nodes.capacity() {
+            return None;
+        }
+        let node_index = self.nodes.len();
+        self.nodes.push(PointSpatialNode::default());
+        let count = end - start;
+        let node = if count <= POINT_SPATIAL_LEAF_CAPACITY {
+            let (minimum, maximum) = spatial_range_bounds(roots, &self.indices[start..end])?;
+            PointSpatialNode {
+                minimum,
+                maximum,
+                first: start as u16,
+                second: POINT_SPATIAL_LEAF_BIT | count as u16,
+            }
+        } else {
+            let middle = start + count / 2;
+            let left = self.build_node(roots, start, middle)?;
+            let right = self.build_node(roots, middle, end)?;
+            let left_node = self.nodes[left as usize];
+            let right_node = self.nodes[right as usize];
+            PointSpatialNode {
+                minimum: std::array::from_fn(|axis| {
+                    left_node.minimum[axis].min(right_node.minimum[axis])
+                }),
+                maximum: std::array::from_fn(|axis| {
+                    left_node.maximum[axis].max(right_node.maximum[axis])
+                }),
+                first: left,
+                second: right,
+            }
+        };
+        self.nodes[node_index] = node;
+        Some(node_index as u16)
+    }
+
+    /// Build one light's exact signatures and root-aligned face masks.
+    ///
+    /// The caller supplies a freshly zeroed column. Only roots whose finite
+    /// bounds intersect this light, plus every unbounded root, are classified.
+    pub(super) fn collect_face_masks_for_light(
+        &self,
+        roots: &[DirectionalRoot],
+        light_position: [f32; 3],
+        light_radius: f32,
+        light: usize,
+        masks: &mut [[u8; POINT_LIGHT_CAPACITY]],
+    ) -> Option<PointStaticSignatures> {
+        self.collect_face_masks_for_light_with_observer(
+            roots,
+            light_position,
+            light_radius,
+            light,
+            masks,
+            |_| {},
+        )
+    }
+
+    /// Hash exact static ownership without materializing root-aligned masks.
+    ///
+    /// This is the no-D3D publication path: it uses the same candidate query
+    /// and face predicate as generation while leaving the reusable mask buffer
+    /// untouched until a draw transaction actually needs it.
+    pub(super) fn signatures_for_light(
+        &self,
+        roots: &[DirectionalRoot],
+        light_position: [f32; 3],
+        light_radius: f32,
+    ) -> Option<PointStaticSignatures> {
+        if roots.len() > self.indices.capacity()
+            || !light_position.into_iter().all(f32::is_finite)
+            || !light_radius.is_finite()
+            || light_radius < 0.0
+        {
+            return None;
+        }
+        let mut cube = StaticSignatureAccumulator::default();
+        let mut faces = [StaticSignatureAccumulator::default(); 6];
+        self.try_visit_light_candidates(
+            roots,
+            light_position,
+            light_radius,
+            |root_index| -> Result<(), ()> {
+                let root = roots[root_index];
+                let face_mask = point_static_root_face_mask(root, light_position, light_radius);
+                if face_mask == 0 {
+                    return Ok(());
+                }
+                let mixed = point_static_root_identity(root);
+                cube.include(mixed);
+                for (face, accumulator) in faces.iter_mut().enumerate() {
+                    if face_mask & (1 << face) != 0 {
+                        accumulator.include(mixed);
+                    }
+                }
+                Ok(())
+            },
+        )
+        .ok()?;
+        Some(PointStaticSignatures {
+            cube: cube.finish(),
+            faces: faces.map(StaticSignatureAccumulator::finish),
+        })
+    }
+
+    fn collect_face_masks_for_light_with_observer(
+        &self,
+        roots: &[DirectionalRoot],
+        light_position: [f32; 3],
+        light_radius: f32,
+        light: usize,
+        masks: &mut [[u8; POINT_LIGHT_CAPACITY]],
+        mut observe_root: impl FnMut(usize),
+    ) -> Option<PointStaticSignatures> {
+        if light >= POINT_LIGHT_CAPACITY
+            || masks.len() != roots.len()
+            || roots.len() > self.indices.capacity()
+            || !light_position.into_iter().all(f32::is_finite)
+            || !light_radius.is_finite()
+            || light_radius < 0.0
+        {
+            return None;
+        }
+        let mut cube = StaticSignatureAccumulator::default();
+        let mut faces = [StaticSignatureAccumulator::default(); 6];
+        let mut include = |root_index: usize| -> Result<(), ()> {
+            observe_root(root_index);
+            include_point_static_root(
+                roots[root_index],
+                root_index,
+                light_position,
+                light_radius,
+                light,
+                masks,
+                &mut cube,
+                &mut faces,
+            );
+            Ok(())
+        };
+        self.try_visit_light_candidates(roots, light_position, light_radius, &mut include)
+            .ok()?;
+        Some(PointStaticSignatures {
+            cube: cube.finish(),
+            faces: faces.map(StaticSignatureAccumulator::finish),
+        })
+    }
+
+    /// Visit only static roots which can intersect one finite local light.
+    ///
+    /// A mismatched root slice or invalid light conservatively visits the
+    /// complete immutable inventory. The index must otherwise have been
+    /// rebuilt from this exact borrowed slice immediately before the call.
+    pub(super) fn try_visit_light_candidates<E>(
+        &self,
+        roots: &[DirectionalRoot],
+        light_position: [f32; 3],
+        light_radius: f32,
+        mut visit: impl FnMut(usize) -> Result<(), E>,
+    ) -> Result<(), E> {
+        if roots.len() != self.root_count
+            || !light_position.into_iter().all(f32::is_finite)
+            || !light_radius.is_finite()
+            || light_radius < 0.0
+        {
+            for (index, root) in roots.iter().copied().enumerate() {
+                if !root.is_land && !root.is_dynamic_actor() {
+                    visit(index)?;
+                }
+            }
+            return Ok(());
+        }
+        if !self.nodes.is_empty() {
+            self.try_visit_node(0, roots, light_position, light_radius, &mut visit)?;
+        }
+        for root_index in self.indices[self.unbounded_start..].iter().copied() {
+            visit(root_index as usize)?;
+        }
+        Ok(())
+    }
+
+    fn try_visit_node<E>(
+        &self,
+        node_index: usize,
+        roots: &[DirectionalRoot],
+        light_position: [f32; 3],
+        light_radius: f32,
+        visit: &mut impl FnMut(usize) -> Result<(), E>,
+    ) -> Result<(), E> {
+        let node = self.nodes[node_index];
+        if !sphere_intersects_spatial_node(light_position, light_radius, node) {
+            return Ok(());
+        }
+        if node.second & POINT_SPATIAL_LEAF_BIT != 0 {
+            let start = node.first as usize;
+            let end = start + (node.second & !POINT_SPATIAL_LEAF_BIT) as usize;
+            for root_index in self.indices[start..end].iter().copied() {
+                let root_index = root_index as usize;
+                if roots[root_index].intersects_point_light(light_position, light_radius) {
+                    visit(root_index)?;
+                }
+            }
+            return Ok(());
+        }
+        self.try_visit_node(
+            node.first as usize,
+            roots,
+            light_position,
+            light_radius,
+            visit,
+        )?;
+        self.try_visit_node(
+            node.second as usize,
+            roots,
+            light_position,
+            light_radius,
+            visit,
+        )?;
+        Ok(())
+    }
+}
+
+fn valid_spatial_bound(bound: [f32; 4]) -> bool {
+    bound.into_iter().all(f32::is_finite)
+        && bound[3] >= 0.0
+        && (0..3).all(|axis| {
+            (bound[axis] - bound[3]).is_finite() && (bound[axis] + bound[3]).is_finite()
+        })
+}
+
+fn spatial_range_bounds(
+    roots: &[DirectionalRoot],
+    indices: &[u16],
+) -> Option<([f32; 3], [f32; 3])> {
+    let mut minimum = [f32::INFINITY; 3];
+    let mut maximum = [f32::NEG_INFINITY; 3];
+    for index in indices.iter().copied() {
+        let bound = roots[index as usize].world_bound?;
+        if !valid_spatial_bound(bound) {
+            return None;
+        }
+        for axis in 0..3 {
+            minimum[axis] = minimum[axis].min(bound[axis] - bound[3]);
+            maximum[axis] = maximum[axis].max(bound[axis] + bound[3]);
+        }
+    }
+    Some((minimum, maximum))
+}
+
+fn sphere_intersects_spatial_node(position: [f32; 3], radius: f32, node: PointSpatialNode) -> bool {
+    let distance_squared = (0..3).fold(0.0, |distance, axis| {
+        let separation = if position[axis] < node.minimum[axis] {
+            node.minimum[axis] - position[axis]
+        } else if position[axis] > node.maximum[axis] {
+            position[axis] - node.maximum[axis]
+        } else {
+            0.0
+        };
+        distance + separation * separation
+    });
+    distance_squared <= radius * radius
+}
+
 /// Identify the borrowed static roots owned by each cascade profile.
 ///
 /// LOD roots are absent from the near and middle signatures because those
@@ -312,12 +680,7 @@ pub(super) unsafe fn directional_actor_bounds(
 ///
 /// `root` must remain a live engine object for this common-shadow invocation.
 unsafe fn directional_actor_sphere(root: DirectionalRoot, origin: [f32; 3]) -> Option<Sphere> {
-    let bound =
-        unsafe { read::<*mut NativeBound>(root.node(), NativeLayout::NI_AV_OBJECT_WORLD_BOUND) };
-    if bound.is_null() {
-        return None;
-    }
-    let bound = unsafe { read_unaligned(bound) };
+    let bound = unsafe { read_world_bound(root.node()) }?;
     if !bound.center.into_iter().all(f32::is_finite)
         || !bound.radius.is_finite()
         || bound.radius < 0.0
@@ -681,6 +1044,31 @@ fn point_static_root_face_mask(
     })
 }
 
+#[allow(clippy::too_many_arguments)]
+fn include_point_static_root(
+    root: DirectionalRoot,
+    root_index: usize,
+    light_position: [f32; 3],
+    light_radius: f32,
+    light: usize,
+    masks: &mut [[u8; POINT_LIGHT_CAPACITY]],
+    cube: &mut StaticSignatureAccumulator,
+    faces: &mut [StaticSignatureAccumulator; 6],
+) {
+    let face_mask = point_static_root_face_mask(root, light_position, light_radius);
+    masks[root_index][light] = face_mask;
+    if face_mask == 0 {
+        return;
+    }
+    let mixed = point_static_root_identity(root);
+    cube.include(mixed);
+    for (face, accumulator) in faces.iter_mut().enumerate() {
+        if face_mask & (1 << face) != 0 {
+            accumulator.include(mixed);
+        }
+    }
+}
+
 /// Build one selected light's signatures and root-face masks in one scan.
 ///
 /// `masks` is root-aligned and allocated by the post-Deferred resource owner.
@@ -700,18 +1088,16 @@ pub(super) fn collect_point_static_face_masks_for_light(
     let mut cube = StaticSignatureAccumulator::default();
     let mut faces = [StaticSignatureAccumulator::default(); 6];
     for (root_index, root) in roots.iter().copied().enumerate() {
-        let face_mask = point_static_root_face_mask(root, light_position, light_radius);
-        masks[root_index][light] = face_mask;
-        if face_mask == 0 {
-            continue;
-        }
-        let mixed = point_static_root_identity(root);
-        cube.include(mixed);
-        for (face, accumulator) in faces.iter_mut().enumerate() {
-            if face_mask & (1 << face) != 0 {
-                accumulator.include(mixed);
-            }
-        }
+        include_point_static_root(
+            root,
+            root_index,
+            light_position,
+            light_radius,
+            light,
+            masks,
+            &mut cube,
+            &mut faces,
+        );
     }
     Some(PointStaticSignatures {
         cube: cube.finish(),
@@ -1033,8 +1419,7 @@ unsafe fn retained_object_world_snapshot(object: *mut u8) -> RetainedWorldSnapsh
             bound: None,
         };
     }
-    let bound = unsafe { read::<*mut NativeBound>(object, NativeLayout::NI_AV_OBJECT_WORLD_BOUND) };
-    let bound = (!bound.is_null()).then(|| unsafe { read_unaligned(bound) });
+    let bound = unsafe { read_world_bound(object) };
     let transform = unsafe {
         read_unaligned::<[f32; 13]>(
             object
@@ -1295,7 +1680,7 @@ const fn size_of<T>() -> usize {
 #[cfg(test)]
 mod tests {
     use super::{
-        DirectionalRoot, NativeBound, PointLight, PointLightSelection,
+        DirectionalRoot, NativeBound, PointLight, PointLightSelection, PointStaticSpatialIndex,
         collect_point_actor_face_masks, collect_point_static_face_masks_for_light,
         directional_root_set_signatures, point_light_dynamic_faces_from_bounds,
         point_scene_static_signatures, point_static_root_set_signature, push_directional_root,
@@ -1698,6 +2083,124 @@ mod tests {
                 .enumerate()
                 .all(|(light, faces)| light == 3 || *faces == 0)
         }));
+    }
+
+    #[test]
+    fn point_static_planning_visits_only_influence_candidates() {
+        let roots: Vec<_> = (0..super::DIRECTIONAL_ROOT_CACHE_CAPACITY)
+            .map(|index| DirectionalRoot {
+                root: index + 1,
+                form_type: Some(0x20),
+                is_land: false,
+                is_lod: false,
+                world_state: index as u32,
+                world_bound: Some([index as f32 * 128.0, 0.0, 0.0, 1.0]),
+            })
+            .collect();
+        let mut masks = vec![[0_u8; super::POINT_LIGHT_CAPACITY]; roots.len()];
+        let mut spatial = PointStaticSpatialIndex::with_capacity();
+        assert!(spatial.rebuild(roots.as_slice()));
+        let mut visited = 0_usize;
+        let mut expected = 0_usize;
+
+        for light in 0..super::POINT_LIGHT_CAPACITY {
+            let position = [light as f32 * 262_144.0, 0.0, 0.0];
+            let radius = 256.0;
+            expected += roots
+                .iter()
+                .copied()
+                .filter(|root| root.intersects_point_light(position, radius))
+                .count();
+            spatial
+                .collect_face_masks_for_light_with_observer(
+                    roots.as_slice(),
+                    position,
+                    radius,
+                    light,
+                    masks.as_mut_slice(),
+                    |_| visited += 1,
+                )
+                .expect("root-aligned mask capacity");
+        }
+
+        assert_eq!(
+            visited, expected,
+            "point planning classified roots outside every selected light's finite influence"
+        );
+    }
+
+    #[test]
+    fn point_static_spatial_masks_match_the_exhaustive_caster_contract() {
+        let bounded = DirectionalRoot {
+            root: 0x1000,
+            form_type: Some(0x20),
+            is_land: false,
+            is_lod: false,
+            world_state: 11,
+            world_bound: Some([16.0, 0.0, 0.0, 2.0]),
+        };
+        let roots = [
+            bounded,
+            DirectionalRoot {
+                root: 0x2000,
+                world_state: 12,
+                world_bound: None,
+                ..bounded
+            },
+            DirectionalRoot {
+                root: 0x3000,
+                world_state: 13,
+                world_bound: Some([4_096.0, 0.0, 0.0, 2.0]),
+                ..bounded
+            },
+            DirectionalRoot {
+                root: 0x4000,
+                is_land: true,
+                world_state: 14,
+                world_bound: Some([0.0, 0.0, 0.0, 32.0]),
+                ..bounded
+            },
+            DirectionalRoot {
+                root: 0x5000,
+                form_type: Some(0x2A),
+                world_state: 0,
+                world_bound: Some([8.0, 0.0, 0.0, 2.0]),
+                ..bounded
+            },
+            DirectionalRoot {
+                root: 0x6000,
+                world_state: 15,
+                world_bound: Some([f32::NAN, 0.0, 0.0, 2.0]),
+                ..bounded
+            },
+        ];
+        let mut exhaustive_masks = vec![[0_u8; super::POINT_LIGHT_CAPACITY]; roots.len()];
+        let exhaustive = collect_point_static_face_masks_for_light(
+            &roots,
+            [0.0; 3],
+            64.0,
+            2,
+            exhaustive_masks.as_mut_slice(),
+        )
+        .expect("root-aligned exhaustive masks");
+
+        let mut spatial = PointStaticSpatialIndex::with_capacity();
+        let index_capacity = spatial.indices.capacity();
+        let node_capacity = spatial.nodes.capacity();
+        assert!(spatial.rebuild(&roots));
+        let mut spatial_masks = vec![[0_u8; super::POINT_LIGHT_CAPACITY]; roots.len()];
+        let indexed = spatial
+            .collect_face_masks_for_light(&roots, [0.0; 3], 64.0, 2, spatial_masks.as_mut_slice())
+            .expect("root-aligned indexed masks");
+
+        assert_eq!(indexed, exhaustive);
+        assert_eq!(
+            spatial.signatures_for_light(&roots, [0.0; 3], 64.0),
+            Some(exhaustive)
+        );
+        assert_eq!(spatial_masks, exhaustive_masks);
+        assert_eq!(spatial.indices.capacity(), index_capacity);
+        assert_eq!(spatial.nodes.capacity(), node_capacity);
     }
 
     #[test]

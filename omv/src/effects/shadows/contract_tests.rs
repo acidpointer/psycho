@@ -25,8 +25,8 @@ use super::contract::{
     sphere_intersects_cube_face, sphere_intersects_point_light, terrain_lod_shadow_z,
 };
 use super::engine::{
-    EngineCallAbi, FNV_EXE_SHA256, GeometryKind, HookSiteContract, NativeLayout,
-    ShadowGenerationAbi,
+    EngineCallAbi, FNV_EXE_SHA256, GeometryKind, HookSiteContract, NativeBound, NativeLayout,
+    ShadowGenerationAbi, read_world_bound,
 };
 use super::math::{
     ActorBounds, ShadowCamera, Sphere, cascade_projection, dynamic_caster_cascade_mask,
@@ -358,6 +358,30 @@ fn native_scene_and_geometry_offsets_match_the_proven_32_bit_layouts() {
     assert_eq!(NativeLayout::NI_POINT_LIGHT_SIZE, 0xFC);
     assert_eq!(NativeLayout::NI_POINT_LIGHT_CASTS_SHADOWS, 0x9E);
     assert_eq!(NativeLayout::NI_POINT_LIGHT_SPECULAR, 0xE0);
+}
+
+#[test]
+fn niavobject_world_bound_is_copied_through_its_native_pointer() {
+    let mut object =
+        [0_u8; NativeLayout::NI_AV_OBJECT_WORLD_BOUND + core::mem::size_of::<NativeBound>()];
+    let expected = NativeBound {
+        center: [67_599.07, -37_020.53, 114.45],
+        radius: 256.0,
+    };
+    unsafe {
+        core::ptr::write_unaligned(
+            object
+                .as_mut_ptr()
+                .add(NativeLayout::NI_AV_OBJECT_WORLD_BOUND)
+                .cast::<*const NativeBound>(),
+            &expected,
+        );
+    }
+
+    let observed = unsafe { read_world_bound(object.as_mut_ptr()) }.expect("native world bound");
+
+    assert_eq!(observed.center, expected.center);
+    assert_eq!(observed.radius, expected.radius);
 }
 
 #[test]

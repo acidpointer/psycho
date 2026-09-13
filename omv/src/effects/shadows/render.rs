@@ -28,7 +28,7 @@ use super::{
         first_person_caster_is_excluded, skinned_submission_is_available,
         sphere_intersects_cube_face, sphere_intersects_point_light,
     },
-    engine::{GeometryKind, NativeLayout, ShadowGenerationAbi},
+    engine::{GeometryKind, NativeBound, NativeLayout, ShadowGenerationAbi, read_world_bound},
     math::{CascadeProjection, Sphere, camera_relative_world_matrix},
 };
 
@@ -135,13 +135,6 @@ type DrawSkinnedGeometry = unsafe extern "thiscall" fn(*mut c_void, *mut u8, *mu
 struct NativeRtti {
     _name: *const u8,
     parent: *const NativeRtti,
-}
-
-#[repr(C)]
-#[derive(Clone, Copy)]
-struct NativeBound {
-    center: [f32; 3],
-    radius: f32,
 }
 
 /// Device shader objects shared by every shadow-map generation pass.
@@ -1459,11 +1452,7 @@ unsafe fn object_bound_within(context: DrawContext<'_>, object: *mut u8) -> bool
 }
 
 unsafe fn object_bound(object: *mut u8, camera_translation: [f32; 3]) -> Option<Sphere> {
-    let bound = unsafe { read::<*mut NativeBound>(object, NativeLayout::NI_AV_OBJECT_WORLD_BOUND) };
-    if bound.is_null() {
-        return None;
-    }
-    let bound = unsafe { read_unaligned(bound) };
+    let bound = unsafe { read_world_bound(object) }?;
     let center = std::array::from_fn(|index| bound.center[index] - camera_translation[index]);
     (center.into_iter().all(f32::is_finite) && bound.radius.is_finite() && bound.radius >= 0.0)
         .then_some(Sphere {
@@ -1473,9 +1462,13 @@ unsafe fn object_bound(object: *mut u8, camera_translation: [f32; 3]) -> Option<
 }
 
 unsafe fn multibound_within(context: DrawContext<'_>, node: *mut u8) -> bool {
-    let Some(projection) = context.projection else {
+    if context.projection.is_none()
+        && (context.cube_center.is_none()
+            || context.cube_radius.is_none()
+            || context.cube_face.is_none())
+    {
         return true;
-    };
+    }
     let multibound = unsafe { read::<*mut u8>(node, BS_MULTIBOUND) };
     if multibound.is_null() {
         return true;
@@ -1500,7 +1493,35 @@ unsafe fn multibound_within(context: DrawContext<'_>, node: *mut u8) -> bool {
         }),
         radius: bound.radius,
     };
-    projection.contains(sphere)
+    if let Some(projection) = context.projection {
+        return projection.contains(sphere);
+    }
+    let (Some(center), Some(radius), Some(face)) =
+        (context.cube_center, context.cube_radius, context.cube_face)
+    else {
+        return true;
+    };
+    point_multibound_sphere_within(sphere, center, radius, face)
+}
+
+fn point_multibound_sphere_within(
+    sphere: Sphere,
+    light_center: [f32; 3],
+    light_radius: f32,
+    face: usize,
+) -> bool {
+    if !sphere.center.into_iter().all(f32::is_finite)
+        || !sphere.radius.is_finite()
+        || sphere.radius < 0.0
+    {
+        return true;
+    }
+    sphere_intersects_point_light(sphere.center, sphere.radius, light_center, light_radius)
+        && sphere_intersects_cube_face(
+            std::array::from_fn(|axis| sphere.center[axis] - light_center[axis]),
+            sphere.radius,
+            face,
+        )
 }
 
 unsafe fn faded_by_parent(mut object: *mut u8) -> bool {
@@ -1693,11 +1714,12 @@ mod tests {
 
     use super::{
         CasterSubset, NI_AV_OBJECT_APP_CULLED, TraversalScratch, object_is_beneath_root,
-        presentation_object_is_visible, push_traversal_node, read,
+        point_multibound_sphere_within, presentation_object_is_visible, push_traversal_node, read,
         skinned_partition_bones_are_supported, switch_active_child_index, traversal_stack_has_room,
         write,
     };
     use crate::effects::shadows::engine::NativeLayout;
+    use crate::effects::shadows::math::Sphere;
 
     #[test]
     fn point_actor_subsets_cover_rigid_equipment_and_skinned_geometry() {
@@ -1709,6 +1731,38 @@ mod tests {
         assert!(CasterSubset::DynamicDirect.admits(true));
         assert!(CasterSubset::All.admits(false));
         assert!(CasterSubset::All.admits(true));
+    }
+
+    #[test]
+    fn point_multibounds_reject_only_hierarchies_outside_the_light_and_face() {
+        let positive_x = Sphere {
+            center: [32.0, 0.0, 0.0],
+            radius: 2.0,
+        };
+        assert!(point_multibound_sphere_within(
+            positive_x, [0.0; 3], 64.0, 0
+        ));
+        assert!(!point_multibound_sphere_within(
+            positive_x, [0.0; 3], 64.0, 1
+        ));
+        assert!(!point_multibound_sphere_within(
+            Sphere {
+                center: [4_096.0, 0.0, 0.0],
+                radius: 2.0,
+            },
+            [0.0; 3],
+            64.0,
+            0
+        ));
+        assert!(point_multibound_sphere_within(
+            Sphere {
+                center: [f32::NAN, 0.0, 0.0],
+                radius: 2.0,
+            },
+            [0.0; 3],
+            64.0,
+            0
+        ));
     }
 
     #[test]

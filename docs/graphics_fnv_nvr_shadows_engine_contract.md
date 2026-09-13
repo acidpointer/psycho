@@ -7058,6 +7058,73 @@ These are offline behavior and static-history results only. They do not claim
 Fallout image continuity or FPS; gameplay validation remains solely the
 owner's decision.
 
+### Location-density point-caster index (2026-09-01)
+
+Large modded cells exposed a remaining multiplicative CPU path. Whenever a
+new or moved selected light could not reuse retained regional signatures, the
+planner classified the complete canonical root inventory for that light. A
+dirty cube face then walked that complete root slice again merely to read its
+already-computed face-mask byte. The fixed upper bound was therefore 32,768
+roots times sixteen selected lights before any admitted hierarchy traversal.
+
+`ShadowResources`, which is boxed and created after DeferredInit, now owns one
+fixed-capacity spatial index beside the existing root-aligned mask buffer. The
+index is rebuilt only when at least one light actually needs regional static
+ownership. It contains scalar root indices, never native pointers. Bounded
+immutable roots are sorted along the largest current center extent and grouped
+into eight-root leaves; internal nodes store conservative world-space AABBs.
+Missing or invalid bounds occupy a separate tail visited by every light.
+Landscape and dynamic actors retain their independent established paths.
+
+Both signature/mask planning and dirty-face submission query the same index.
+The light sphere first rejects unrelated nodes, the existing exact root-sphere
+predicate rejects leaf false positives, and the unchanged cube-face predicate
+owns final face coverage. Thus a root admitted by the previous exhaustive
+contract produces the same signature, mask, and draw, while roots outside the
+finite light volume no longer enter face classification or submission scans.
+The deterministic maximum-inventory regression recorded 524,288 classifications
+on the unchanged path for a spatially distributed sixteen-light scene, with 78
+actual influence candidates; the indexed production path visits exactly those
+78 candidates.
+
+Inside an admitted root, an authored `BSMultiBoundNode` now applies its native
+shape bound to point cubes as well as directional cascades. A multibound sphere
+outside the finite light or current cube face rejects that complete child
+hierarchy before geometry/material traversal. Missing shapes, callbacks, or
+invalid returned bounds remain admitted. This consumes existing mod/vanilla
+authoring without attempting to reconstruct a portal graph or assuming that a
+room boundary is opaque.
+
+The index has no cross-frame engine lifetime. It is rebuilt from the exact
+borrowed root slice and consumed before the common-shadow call returns; only
+its preallocated scalar storage survives. Capacity mismatch, build failure, or
+an invalid query preserves the exhaustive path. Root-cache overflow still
+rejects OMV point production rather than accepting a partial caster set. No
+configuration switch, light-count reduction, draw-distance reduction, or
+mod-specific classification is involved.
+
+The broader native main-view culling audit, safe append boundary, and rejected
+MOC integration are documented in
+`docs/location_density_rendering_engine_contract.md`.
+
+The subsequent save-load correction was itself invalid. Constructor
+`0x00A5AA20` only initializes neighboring fields to zero. Native owner
+`0x00A59DC0` releases and replaces the allocation referenced at
+`NiAVObject+0x20`; consumers `0x00A5DBE0` and `0x00A5DD70` null-check that
+pointer and read/copy the 16-byte center/radius payload, including radius at
+pointed offset `+0x0C`. The reporter then observed that all shadows were absent
+while OMV still logged successful map production. The incorrect inline reader
+had fed pointer bits and adjacent object fields into actor-bound,
+retained-root-snapshot, and caster-admission decisions.
+
+All three now use one typed optional-pointer copy helper. A present sphere is
+copied during the serialized shadow transaction; a missing sphere retains its
+existing conservative behavior. This changes no spatial-index membership
+policy, shadow draw, cache lifetime, or work budget and adds no render-path
+allocation or virtual-memory query. The no-shadow logs are preserved as
+`.reports/*-no-shadows.log`; corrected game image behavior is not statically
+accepted.
+
 ## Primary evidence index
 
 ### Current executable and static artifacts
