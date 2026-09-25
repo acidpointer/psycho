@@ -10,12 +10,15 @@
 //! uses the game-owned dispatcher and original enumeration/math helpers. No
 //! provider DLL is patched. Unknown providers retain dynamic native dispatch.
 //! The station bridge skips only the native empty/inactive no-effect branch.
+//! The music module separately bounds native playback-offset synchronization
+//! so an unavailable duration cannot trap a FalloutAudioMedia worker.
 //!
 //! All code bridges install transactionally at the quiescent pre-CRT boundary;
 //! DeferredInit verifies ownership and publishes optional capabilities. No job,
 //! result, or engine pointer survives a scan. Profiling stays opt-in; normal
 //! expansion admission allocates nothing and reads no timers or diagnostics.
 
+mod music;
 mod provider;
 
 use std::{
@@ -358,13 +361,19 @@ impl Drop for RadioScanScope {
     }
 }
 
-/// Installs synchronous scan/station bridges at the quiescent core startup boundary.
+/// Installs music synchronization repair and synchronous scan/station bridges
+/// at the quiescent core startup boundary.
 ///
 /// Native query and destructor calls remain untouched. Related activations roll
 /// back on failure without overwriting another component's later hook. Returns
 /// an error if the supported caller signatures or hook ownership do not match.
 /// This must run once before gameplay; it does not support live reinstallation.
 pub fn install_radio_scan_fix() -> anyhow::Result<()> {
+    if let Err(error) = music::install() {
+        log::error!(
+            "[RADIO] Music duration fix unavailable; native synchronization retained: {error:#}"
+        );
+    }
     verify_call_target(
         PERIODIC_RADIO_SCAN_CALL_ADDR,
         RADIO_SIGNAL_SCAN_ADDR,
