@@ -21,8 +21,9 @@ animation, camera, menu, and gameplay state machines can delay or reject an
 action after input has already been accepted, and each such report needs its own
 consumer trace.
 
-No Atom feature is implemented by this research. Addresses are evidence for the
-supported executable, not permission to install broad or unverified patches.
+Atom's implementation is described in [the wrapper design](atom_input_wrapper_design.md).
+Addresses here establish narrow contracts for the supported executable, not
+permission to install broad or unverified patches.
 
 ## Executive findings
 
@@ -208,12 +209,36 @@ problem in Fallout under Proton.
    calls XInput for controller index zero. Enumerated DirectInput joysticks are
    processed separately.
 2. It copies the current 256-byte keyboard array to the previous array.
-3. It calls keyboard `Acquire`, `Poll`, and `GetDeviceState(256)`. If the route
-   fails, it clears the current keyboard array.
+3. It calls keyboard `Acquire`, `Poll`, and `GetDeviceState(256)`. Acquisition
+   failure clears the current keyboard array; the later `GetDeviceState`
+   result is not checked.
 4. It copies the current 20-byte mouse state to the previous mouse state and
    clears the auxiliary mouse field.
-5. It calls mouse `Acquire`, `Poll`, and `GetDeviceState(20)`. If the route
-   fails, it clears the current mouse state.
+5. It calls mouse `Acquire`, `Poll`, and `GetDeviceState(20)`. Acquisition
+   failure clears the current mouse state; the later `GetDeviceState`
+   result is not checked.
+
+The focused deep audit corrects the earlier claim that state-retrieval failure
+also reaches clearing. Keyboard `GetDeviceState` at `0x00A231E1` is followed
+by an unconditional jump at `0x00A231E3`; mouse `GetDeviceState` at
+`0x00A23292` is followed by an unconditional jump at `0x00A23294`. Neither
+checks EAX. Both calls use COM vtable slot `+0x24`, stdcall, with the device,
+buffer size, and engine-owned current-state pointer. `Acquire` uses `+0x1C`
+and `Poll` uses `+0x64`; Poll's result is also ignored. All calls occur within
+the synchronous native sampler, after the current-to-previous copy. See the
+[raw deep-audit evidence](../analysis/ghidra/output/perf/atom_input_deep_radare2_audit.txt).
+
+The checked-in xNVSE wrapper returns failed state-read HRESULTs without
+processing mouse data or publishing its temporary keyboard array. Upstream
+[Wine's device implementation](https://github.com/wine-mirror/wine/blob/master/dlls/dinput/device.c)
+also has failure branches before initializing the caller's state buffer.
+Together these establish a path where an ignored failed read can leave prior
+state available to consumers. They do not establish a failure in the owner's
+session or the exact behavior of the installed Proton/provider chain. Atom's
+outer sampler hook has a void return and cannot recover those HRESULTs.
+A corrective engine patch requires a separately proven intervention point,
+live-provider preservation, and failure/reacquisition semantics; none is
+implemented by this audit.
 
 The COM slots agree with xNVSE's wrappers: `GetDeviceState` is vtable `+0x24`
 and `GetDeviceData` is `+0x28`. Microsoft defines `GetDeviceState` as an
@@ -235,8 +260,35 @@ blocking, and focus/window flows:
 | `0x007040FC` | blocking flow |
 | `0x00871CC8` | focus/window flow |
 
-`0x00A237B0` drains buffered keyboard events with `GetDeviceData` on a
-message/focus route. This is not the normal gameplay action source.
+`0x00A237B0` flushes buffered keyboard events with `GetDeviceData` on a
+message/focus route. Reinspection proves a null output pointer, count
+`0xFFFFFFFF`, event size 20, and flags zero. It does not test the returned
+HRESULT or count. This is not the normal gameplay action source.
+
+The nearby `0x00A23820` reader requests one event through the same keyboard
+vtable slot. The call at `0x00A2385E` is followed by `test eax, eax` and a
+nonzero-result rejection. On zero HRESULT and a nonzero count, it writes the
+event offset through its stack argument and returns 1 for a press or 2 for a
+release; otherwise it returns zero without writing that output. Both functions
+receive the input owner in ECX; this reader returns with `ret 4`.
+`0x00A237F0` directly calls the reader and tests for result 1.
+
+Consequently, this reader rejects `DI_BUFFEROVERFLOW` even though
+[DirectInput documents it as a successful, truncated read](https://learn.microsoft.com/en-us/previous-versions/windows/desktop/ee417894(v=vs.85)).
+Atom's former mirror retained its overflow flag until the mirror emptied.
+Given successful provider calls and one-event reads through this reader, that
+policy could consume multiple entries that the reader reported as no event.
+The implementation now reports pending mirror overflow on the first successful
+non-peek call and then clears that flag, including for zero-count queries.
+Peeks and failed calls do not acknowledge it. This follows the researched Wine
+provider boundary and retains truthful overflow reporting; the first overflow
+read is still rejected by the native reader. These are source/binary
+consequences, not an observed failure or a mouse-latency result. Complete
+reader/flush caller coverage and focus-transition ordering remain unproven. The
+[buffered-consumer disassembly](../analysis/ghidra/output/perf/atom_keyboard_buffer_consumers_radare2_audit.txt)
+records the executable identity, ABI, arguments, and branches. The mirror
+storage is now a bounded ring. Acquisition/reset ownership remains unresolved;
+no native reader patch or unconditional device-loss discard is implemented.
 
 ### Immediate-state consequences
 
@@ -478,13 +530,121 @@ mode-selected, low-dimensional controller state rather than modern per-device
 identity, stable hotplug routing, simultaneous-device actions, or user-specific
 controller assignment.
 
+## Atom refinement contracts
+
+The supported executable identity above was reverified for this static audit.
+Focused instruction evidence is preserved in
+[atom_input_static_refinement.txt](../analysis/radare2/output/perf/atom_input_static_refinement.txt).
+These contracts support the radial correction, pending controller settings,
+mouse look-disable guard, and optional ADS/scope factors. They establish neither
+a runtime success result nor a measured latency reduction.
+
+### Controller handoff and radial geometry
+
+`0x00A23390` returns signed XInput axes 7-10 from `0x011F35B0` through
+`0x011F35B6` when controller mode is active, without a gameplay deadzone.
+InterfaceManager calls it for axes 7 and 8 at `0x007119D8` and `0x007119E7`.
+It multiplies those values by the setting returned for `0x011D8C5C` and converts
+to integers at `0x00711A04` and `0x00711A23`. Consequently a stick value inside
+Atom's radial deadzone is not proven invisible to every native consumer.
+`0x00A23E10` also treats any positive trigger byte as held and compares current
+and previous bytes for edges. Together these are counterexamples to a general
+deadzone-based ownership handoff. No broader safe threshold has been proven.
+
+Atom retains zero buttons, triggers, and stick axes as the handoff condition.
+The sampler also applies pending controller settings at that same boundary;
+the current MCM settings remain the requested values. The old and new settings
+both map that physical zero to zero. Trigger hysteresis is not reset during a
+settings change, allowing the actual release to propagate. Native previous
+state is retained. Exact-zero drift and reconnection limitations remain:
+controller-mode false is not evidence that the native payload was cleared.
+
+Separately, `process_stick` previously clamped magnitude before using it as the
+direction divisor. XInput bounds axes independently, so a normalized `(1, 1)`
+has length `sqrt(2)`. Dividing by the clamped value 1 left direction `(1, 1)`.
+The correction divides by the original length, then clamps radial strength.
+At default axis scales, the full diagonal direction is therefore unit length;
+the explicit scale, inversion, curve, and integer-output policies are retained.
+This is an algebraic source result, not a measured improvement in device noise
+or sample timing.
+
+### Native look admission
+
+FNV reads relative X/Y at `0x00945995` and `0x009459A8`, where Atom caches the
+counts. It subsequently passes mask 2 to `0x005A03F0` at `0x009459ED`. That
+thiscall helper tests the byte at player `+0x680` and returns the boolean in AL;
+a disabled result zeroes the local X, Y, and wheel values. The yaw branch at
+`0x00945D97` permits an alternate path with zero local X, eventually reaching
+the final heading call at `0x00945F90`. Rebuilding heading from the earlier
+cached count could therefore overrule the zeroed native local.
+
+Atom checks xNVSE's combined LOOKING-disable policy before either direct-profile
+transform. The reader includes vanilla and per-mod flags. xNVSE extends the
+native helper with a jump at `0x005A03F7`; neither its vanilla bytes nor a read
+of the player byte alone represents the installed policy. Missing reader
+capability preserves native heading. Atom also requires no live
+InterfaceManager menu. The keyboard/action phase and its sampled Gameplay
+context do not gate mouse heading: the camera getter hooks supply its counts
+inside the native camera consumer, independently of the action mirror's
+admission state. A rejected live look guard chains its
+native heading unchanged. Player identity must match global `0x011DEA3C`.
+These reads occur synchronously on the game thread at the existing heading
+calls; the live player and interface owners are not retained. Native branches
+that omit the final call still omit Atom entirely. Native profile remains exact
+passthrough. This guard does not change camera ownership or action consumers.
+
+### ADS and scope context
+
+| Contract | Native evidence |
+|---|---|
+| Player process | `0x008BBC10` checks actor `+0x68` for null |
+| ADS query | `0x008BBC2E` loads process vtable `+0x404`; `0x008BBC34` calls it with ECX = process, no stack arguments, result in AL |
+| HUD singleton | `0x011D96C0`, published at `0x0076C0EB`, cleared at `0x0076BF2E` |
+| Scope visibility byte | HUD `+0x1FC`, initialized to zero at `0x0076BD11` |
+| Scope setter | `0x0077F3C0` requires HUD and scope node, writes its boolean argument to `+0x1FC` at `0x0077F3F9`, then updates visibility |
+| Scope transitions | HUD state `0x17` enters through setter(true) at `0x00771C36`; departure calls setter(false) at `0x00771C57` |
+| Scope reset | `0x0077F270` clears the scope byte after detaching the native scope node |
+
+Atom uses the live process virtual slot rather than the mutable helper entry,
+preserving a compatible installed provider. It reads HUD/process state only
+when an ADS or scope multiplier differs from 1.0. Scope visibility takes
+precedence over ADS; they are separate factors, never a product. Missing HUD,
+process, vtable, or callback now uses neutral context gain after the live look
+guard succeeds, preserving the selected direct profile and axis settings.
+These are engine-owned objects at the synchronous player update boundary, not cached
+owners. Small-address rejection detects absent/invalid low pointers; it does
+not establish the lifetime of arbitrary corrupt engine objects. Safety relies
+on the native player-update ownership contract, as does the native query.
+
+Admission validates the global slots and actual live hook capabilities.
+Supporting field-access instructions remain offline research evidence, never
+runtime fingerprints. It installs no new helper hook, modifies no scope/ADS state,
+identifies no third-party module, and adds no device acquisition. The hot path
+adds bounded state reads and, for nonidentity context settings outside visible
+scope, one live ADS virtual call per heading invocation. All new configuration
+arrives through the existing post-save `MCMExtUpdate` route. The configuration
+layout and applied-state static change the pre-DeferredInit footprint; static
+compilation cannot establish startup compatibility.
+
+### Qualification boundary
+
+The refinement is restricted to static analysis and compilation by the owner.
+No new telemetry, executable tests, gameplay runs, or performance measurements
+are part of this qualification. The buffered keyboard drain/mirror, phase gate,
+and held-control suppression were reviewed and remain unchanged: no additional
+consumer flush or event queue is justified by this audit. Default scope/ADS
+factors are identity, native profile is unchanged, and native sampler placement
+is unchanged. Runtime smoothness, focus/menu integration, installed-provider
+compatibility, and end-to-end latency remain unverified.
+
 ## Focus, menus, and known device-state defects
 
 Foreground cooperative levels mean the devices can become unacquired when the
 window loses focus. The sampler attempts acquisition each time and clears
-current state on failure. Consequences include synthetic releases, lost
-transitions during the gap, and different first-frame behavior after focus
-returns.
+current state on acquisition failure. It does not check subsequent state-read
+failure, as detailed above. Consequences of acquisition loss include synthetic
+releases, lost transitions during the gap, and different first-frame behavior
+after focus returns.
 
 The native setup has separate startup and focus-reacquire cooperative-level
 sites. This explains why changing only initialization can appear to work until
@@ -760,8 +920,8 @@ option belongs in MCM Extender, consistent with Atom's project contract.
 - Existing native binds remain a compatibility surface. Extended bindings may
   mirror a primary native binding but must not corrupt `FalloutPrefs.ini` or
   silently steal another action.
-- Hook admission uses the supported executable fingerprint and owned
-  signatures/capabilities. Never detect or patch a third-party mod by name.
+- Hook admission uses the supported runtime and live hook capabilities,
+  without vanilla-byte matching. Never detect or patch a third-party mod by name.
 - Atom does not change D3D presentation, DXVK configuration, or OMV state.
 
 ### Safe native boundary
@@ -901,6 +1061,7 @@ capability.
 Native and established local evidence:
 
 - [focused radare2 address ledger](../analysis/radare2/output/perf/fnv_actor_input_contract.txt)
+- [deep input audit and state-read correction](../analysis/ghidra/output/perf/atom_input_deep_radare2_audit.txt)
 - [window input policy](window_input_policy.md)
 - [window input radare2 evidence](../analysis/radare2/output/perf/window_input_policy_contract.txt)
 - [established display/message/input audit](../analysis/ghidra/output/perf/display_message_input_contract_audit.txt)

@@ -1165,7 +1165,7 @@ pub fn set_external_owner(owner_token: u32, active: bool) -> bool {
 
 /// Remap one live player animation request while a hip-fire session owns it.
 ///
-/// This is called only by the fingerprinted morph-entry detour. Pointer and
+/// This is called only by the chained morph-entry detour. Pointer and
 /// ADS validation remain in the native boundary; every rejected context keeps
 /// the exact requested group and chains its predecessor unchanged.
 pub(super) fn remap_hip_fire_animation(anim_data: *mut c_void, group: u16) -> u16 {
@@ -3790,7 +3790,7 @@ fn clear_zoom_residual() {
 }
 
 fn input_frame_id() -> u32 {
-    crate::input::latest_action_frame().frame_id()
+    crate::input::latest_action_header().frame_id()
 }
 
 fn pointer_word(pointer: *mut c_void) -> u32 {

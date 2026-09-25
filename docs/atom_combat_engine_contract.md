@@ -264,9 +264,9 @@ sequence-type argument, then calls the captured predecessor exactly once.
 Explicit posture morphs call that same captured chain with automatic sequence
 type. This retains FNV's authored transition and kNVSE's internal
 custom-path and blend hooks; Atom neither writes sequence weights nor moves a
-weapon or skeleton node per frame. The admission fingerprint covers immutable
-interior instructions and the epilogue rather than the mutable entry, allowing
-Atom's inline owner to chain a compatible complete jump installed earlier. A
+weapon or skeleton node per frame. Atom's inline owner validates relocation
+and chains a compatible complete jump installed earlier, without comparing
+interior instructions or epilogues with vanilla bytes. A
 weapon whose flags declare `No3rdPersonISAnims` keeps camera-facing policy but
 never enters the group adapter.
 
@@ -282,8 +282,8 @@ animation-group table at `0x011977D8` classifies Aim and AimIS as sequence type
 branch stops types 5 and 6 before stopping type 4. Therefore `AimIS -> Aim` is
 not relaxation: both groups remain the same upper-body combat sequence type,
 and a direct type-4 stop is an incomplete substitute for the actor-owned state
-transition. Atom fingerprints immutable interiors and epilogues of both
-owners, calls the current actor entry so a compatible earlier hook remains in
+transition. Atom requires executable helper entries and calls the current
+actor entry so a compatible earlier hook remains in
 the chain, and invokes it outside `RuntimeStore` because animation resolution
 can reenter Atom's morph detour.
 
@@ -509,8 +509,8 @@ precedent for a per-object physical policy while later consumers retain the
 form's original semantics.
 
 Atom captures the current target encoded at `0x009B7D08` and calls it exactly
-once. Immutable fingerprints cover instructions before and after the mutable
-five-byte call without requiring a vanilla displacement. The canonical launch
+once. Hook preparation checks the live call and executable target without
+requiring vanilla surrounding instructions or displacement. The canonical launch
 wrapper publishes a bounded thread/form scope only while its own captured
 launch predecessor executes. A matching true result is changed to false; a
 matching false result from an earlier owner stays false; unmatched forms,
@@ -866,7 +866,7 @@ one feature rather than all combat.
 
 ```text
 combat::native
-  executable admission, instruction fingerprints, typed calls, process guards
+  executable admission, live hook capabilities, typed calls, process guards
 
 combat::forms
   read-only WeaponView, EffectiveAmmo, ProjectileSpec, ExplosionSpec,

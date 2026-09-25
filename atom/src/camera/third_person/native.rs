@@ -9,11 +9,13 @@ use core::ffi::c_void;
 use core::mem::size_of;
 
 use libnvse::api::player_controls::{ControlFlags, DisabledCheck, PlayerControlsReader};
-use libpsycho::os::windows::memory::{MemoryError, read_bytes, validate_memory_range};
+use libpsycho::os::windows::memory::{MemoryError, validate_memory_access, validate_memory_range};
 use thiserror::Error;
 
 use crate::camera::LocomotionState;
-use crate::input::{ActionContext, ActionId, latest_action_frame};
+use crate::input::{
+    ActionContext, ActionId, latest_action, latest_action_frame, latest_action_header,
+};
 
 use super::super::NativeMotionCarrier;
 use super::presentation::CameraMotionClearance;
@@ -366,9 +368,6 @@ pub(crate) enum NativeContractError {
     /// A required native data or function range is unavailable.
     #[error(transparent)]
     Memory(#[from] MemoryError),
-    /// A supported-runtime helper differs from the researched executable.
-    #[error("third-person native fingerprint mismatch at 0x{address:08X}")]
-    FingerprintMismatch { address: usize },
 }
 
 pub(super) fn validate_data_contract() -> Result<(), NativeContractError> {
@@ -386,25 +385,13 @@ pub(super) fn validate_data_contract() -> Result<(), NativeContractError> {
     ] {
         validate_memory_range(address as *const c_void, length)?;
     }
-    let fingerprints: &[(usize, &[u8])] = &[
-        (ACTIVE_3D, &[0x55, 0x8B, 0xEC, 0x51, 0x89, 0x4D, 0xFC]),
-        (
-            WEAPON_PROJECTILE_NODE,
-            &[0x55, 0x8B, 0xEC, 0x83, 0xEC, 0x0C, 0x89, 0x4D, 0xF4],
-        ),
-        (
-            MATRIX_TO_ANGLES,
-            &[0x51, 0x56, 0x8B, 0xF1, 0xD9, 0x46, 0x1C],
-        ),
-        (
-            ACTOR_SET_PITCH,
-            &[0x55, 0x8B, 0xEC, 0x83, 0xEC, 0x10, 0x89, 0x4D, 0xF4],
-        ),
-    ];
-    for &(address, expected) in fingerprints {
-        if read_bytes(address as *const c_void, expected.len())? != expected {
-            return Err(NativeContractError::FingerprintMismatch { address });
-        }
+    for address in [
+        ACTIVE_3D,
+        WEAPON_PROJECTILE_NODE,
+        MATRIX_TO_ANGLES,
+        ACTOR_SET_PITCH,
+    ] {
+        validate_memory_access(address as *mut c_void)?;
     }
     Ok(())
 }
@@ -448,24 +435,12 @@ pub(super) fn validate_motion_contract() -> Result<(), NativeContractError> {
         DESIRED_THIRD_PERSON_DISTANCE as *const c_void,
         size_of::<f32>(),
     )?;
-    let fingerprints: &[(usize, &[u8])] = &[
-        (
-            GET_CHARACTER_CONTROLLER,
-            &[0x55, 0x8B, 0xEC, 0x51, 0x89, 0x4D, 0xFC],
-        ),
-        (
-            GET_CONTROLLER_STATE,
-            &[0x55, 0x8B, 0xEC, 0x51, 0x89, 0x4D, 0xFC],
-        ),
-        (
-            GET_SUPPORT_RELATIVE_VELOCITY,
-            &[0x53, 0x8B, 0xDC, 0x51, 0x83, 0xE4, 0xF0, 0x83, 0xC4, 0x04],
-        ),
-    ];
-    for &(address, expected) in fingerprints {
-        if read_bytes(address as *const c_void, expected.len())? != expected {
-            return Err(NativeContractError::FingerprintMismatch { address });
-        }
+    for address in [
+        GET_CHARACTER_CONTROLLER,
+        GET_CONTROLLER_STATE,
+        GET_SUPPORT_RELATIVE_VELOCITY,
+    ] {
+        validate_memory_access(address as *mut c_void)?;
     }
     Ok(())
 }
@@ -476,75 +451,24 @@ pub(super) fn validate_motion_position_contract() -> Result<(), NativeContractEr
         (CAMERA_CASTER_SIZE_SETTING + FLOAT_SETTING_VALUE) as *const c_void,
         size_of::<f32>(),
     )?;
-    validate_memory_range(COLLISION_WORLD_ACCESSOR as *const c_void, 1)?;
+    validate_memory_access(COLLISION_WORLD_ACCESSOR as *mut c_void)?;
     // The collision-world accessor is a shared live entry and the lower
     // query invokes its current owner internally. Validate Atom's actual call
     // boundary and constructor, then require a valid world from the live
     // accessor at each synchronous query instead of rejecting a compatible
     // predecessor installed before DeferredInit.
-    let fingerprints: &[(usize, &[u8])] = &[
-        (
-            CAMERA_COLLISION_QUERY,
-            &[
-                0x53, 0x8B, 0xDC, 0x83, 0xEC, 0x08, 0x83, 0xE4, 0xF0, 0x83, 0xC4, 0x04,
-            ],
-        ),
-        (
-            CAMERA_HIT_CONSTRUCTOR,
-            &[0x55, 0x8B, 0xEC, 0x51, 0x89, 0x4D, 0xFC],
-        ),
-    ];
-    for &(address, expected) in fingerprints {
-        if read_bytes(address as *const c_void, expected.len())? != expected {
-            return Err(NativeContractError::FingerprintMismatch { address });
-        }
+    for address in [CAMERA_COLLISION_QUERY, CAMERA_HIT_CONSTRUCTOR] {
+        validate_memory_access(address as *mut c_void)?;
     }
     Ok(())
 }
 
 /// Validate FNV's complete actor aim transition and its upper-body fade owner.
 pub(super) fn validate_hip_fire_pose_contract() -> Result<(), NativeContractError> {
-    // Both entries are intentionally not fingerprinted: compatible animation
-    // plugins may install complete JMPs before Atom reaches DeferredInit.
-    // Immutable interior instructions prove the force-same-state argument,
-    // process setter dispatch, stop/type lookup, and both x86 epilogues while
-    // leaving current entry owners chainable.
-    let fingerprints: &[(usize, &[u8])] = &[
-        (
-            ACTOR_AIM_WEAPON + 0x34,
-            &[
-                0x0F, 0xB6, 0x55, 0x0C, 0x85, 0xD2, 0x75, 0x18, 0x8B, 0x4D, 0xD0, 0xE8, 0x7C, 0x05,
-                0x00, 0x00,
-            ],
-        ),
-        (
-            ACTOR_AIM_WEAPON + 0x123,
-            &[
-                0x0F, 0xB6, 0x55, 0x08, 0x52, 0x8B, 0x45, 0xD0, 0x8B, 0x48, 0x68, 0x8B, 0x55, 0xD0,
-                0x8B, 0x42, 0x68, 0x8B, 0x11, 0x8B, 0xC8, 0x8B, 0x82, 0x00, 0x04, 0x00, 0x00, 0xFF,
-                0xD0,
-            ],
-        ),
-        (
-            ACTOR_AIM_WEAPON + 0x576,
-            &[0x5E, 0x8B, 0xE5, 0x5D, 0xC2, 0x0C, 0x00],
-        ),
-        (
-            STOP_ANIMATION_SEQUENCE_TYPE + 0x61,
-            &[
-                0x8B, 0x45, 0xE8, 0x8B, 0x4D, 0xDC, 0x8B, 0x94, 0x81, 0xE0, 0x00, 0x00, 0x00, 0x89,
-                0x55,
-            ],
-        ),
-        (
-            STOP_ANIMATION_SEQUENCE_TYPE + 0x2AC,
-            &[0x8B, 0xE5, 0x5D, 0xC2, 0x08, 0x00],
-        ),
-    ];
-    for &(address, expected) in fingerprints {
-        if read_bytes(address as *const c_void, expected.len())? != expected {
-            return Err(NativeContractError::FingerprintMismatch { address });
-        }
+    // Both helpers retain their supported ABI through compatible entry or
+    // interior patches. Check executability without requiring vanilla bytes.
+    for address in [ACTOR_AIM_WEAPON, STOP_ANIMATION_SEQUENCE_TYPE] {
+        validate_memory_access(address as *mut c_void)?;
     }
     Ok(())
 }
@@ -556,32 +480,14 @@ pub(super) fn validate_hip_fire_pose_contract() -> Result<(), NativeContractErro
 /// selection away from the user.
 pub(super) fn validate_combat_ray_contract() -> Result<(), NativeContractError> {
     validate_memory_range(TES_PTR as *const c_void, size_of::<*mut c_void>())?;
-    let fingerprints: &[(usize, &[u8])] = &[
-        (
-            PICK_DATA_CONSTRUCTOR,
-            &[0x55, 0x8B, 0xEC, 0x51, 0x89, 0x4D, 0xFC],
-        ),
-        (
-            PICK_DATA_SET_FROM,
-            &[0x53, 0x8B, 0xDC, 0x51, 0x83, 0xE4, 0xF0, 0x83, 0xC4, 0x04],
-        ),
-        (
-            PICK_DATA_SET_TO,
-            &[0x53, 0x8B, 0xDC, 0x51, 0x83, 0xE4, 0xF0, 0x83, 0xC4, 0x04],
-        ),
-        (
-            TES_PICK_OBJECT,
-            &[0x55, 0x8B, 0xEC, 0x51, 0x89, 0x4D, 0xFC, 0x6A, 0x01],
-        ),
-        (
-            PLAYER_COLLISION_FILTER,
-            &[0x55, 0x8B, 0xEC, 0x83, 0xEC, 0x18, 0x89, 0x4D, 0xEC],
-        ),
-    ];
-    for &(address, expected) in fingerprints {
-        if read_bytes(address as *const c_void, expected.len())? != expected {
-            return Err(NativeContractError::FingerprintMismatch { address });
-        }
+    for address in [
+        PICK_DATA_CONSTRUCTOR,
+        PICK_DATA_SET_FROM,
+        PICK_DATA_SET_TO,
+        TES_PICK_OBJECT,
+        PLAYER_COLLISION_FILTER,
+    ] {
+        validate_memory_access(address as *mut c_void)?;
     }
     Ok(())
 }
@@ -819,7 +725,7 @@ pub(super) unsafe fn motion_sample(player: *mut c_void) -> MotionObservation {
 /// # Safety
 ///
 /// [`validate_zoom_contract`] must have succeeded during `DeferredInit` and
-/// this function may be called only from the fingerprinted player-camera wheel
+/// this function may be called only from the admitted player-camera wheel
 /// callsite.
 pub(super) unsafe fn zoom_sample(raw_delta: i32) -> Option<NativeZoomSample> {
     if raw_delta == 0 {
@@ -887,7 +793,7 @@ pub(super) unsafe fn render_owner_allows(
         || unsafe { read_u32(VATS_CAMERA_DATA as *const u8, VATS_MODE) } != 0
         || unsafe { read_u8(SPECIAL_CAMERA_STATE as *const u8, 0) } != 0
         || unsafe { menu_mode_active() }
-        || latest_action_frame().context() != ActionContext::Gameplay
+        || latest_action_header().context() != ActionContext::Gameplay
     {
         return false;
     }
@@ -1177,9 +1083,8 @@ pub(super) unsafe fn player_aim_input_requested(player: *mut c_void) -> bool {
     if !is_engine_pointer(player) || player != self::player() {
         return false;
     }
-    let actions = latest_action_frame();
+    let (actions, block) = latest_action(ActionId::Block);
     if actions.frame_id() != 0 && actions.context() == ActionContext::Gameplay {
-        let block = actions.action(ActionId::Block);
         if block.down() || block.pressed() {
             return true;
         }
@@ -1306,7 +1211,7 @@ pub(super) unsafe fn hip_fire_attack_sequence_signature(player: *mut c_void) -> 
 ///
 /// # Safety
 ///
-/// `anim_data` must be the receiver of the active, fingerprinted animation
+/// `anim_data` must be the receiver of the active, chained animation
 /// morph entry. `player` must be the Atom-published live player token.
 pub(super) unsafe fn hip_fire_anim_data_owned(anim_data: *mut c_void, player: *mut c_void) -> bool {
     if !is_engine_pointer(anim_data)

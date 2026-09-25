@@ -131,6 +131,10 @@ struct MouseSection {
     invert_x: u8,
     #[serde(rename = "bInvertY")]
     invert_y: u8,
+    #[serde(rename = "fAimScale")]
+    aim_scale: f32,
+    #[serde(rename = "fScopeScale")]
+    scope_scale: f32,
 }
 
 impl Default for MouseSection {
@@ -143,6 +147,8 @@ impl Default for MouseSection {
             vertical_scale: defaults.vertical_scale,
             invert_x: u8::from(defaults.invert_x),
             invert_y: u8::from(defaults.invert_y),
+            aim_scale: defaults.aim_scale,
+            scope_scale: defaults.scope_scale,
         }
     }
 }
@@ -209,6 +215,8 @@ impl TryFrom<PersistedConfig> for InputConfig {
         validate_finite("Mouse:fSensitivity", value.mouse.sensitivity)?;
         validate_finite("Mouse:fHorizontalScale", value.mouse.horizontal_scale)?;
         validate_finite("Mouse:fVerticalScale", value.mouse.vertical_scale)?;
+        validate_finite("Mouse:fAimScale", value.mouse.aim_scale)?;
+        validate_finite("Mouse:fScopeScale", value.mouse.scope_scale)?;
         validate_finite("Controller:fLeftDeadzone", value.controller.left_deadzone)?;
         validate_finite("Controller:fRightDeadzone", value.controller.right_deadzone)?;
         validate_finite(
@@ -244,6 +252,8 @@ impl TryFrom<PersistedConfig> for InputConfig {
                 vertical_scale: value.mouse.vertical_scale,
                 invert_x: numeric_bool("Mouse:bInvertX", value.mouse.invert_x)?,
                 invert_y: numeric_bool("Mouse:bInvertY", value.mouse.invert_y)?,
+                aim_scale: value.mouse.aim_scale,
+                scope_scale: value.mouse.scope_scale,
             },
             controller: ControllerSettings {
                 left_deadzone: value.controller.left_deadzone,
@@ -319,6 +329,8 @@ pub(crate) struct ConfigStore {
     controller_trigger_release: AtomicU32,
     telemetry_enabled: AtomicBool,
     summary_requested: AtomicBool,
+    mouse_aim_scale: AtomicU32,
+    mouse_scope_scale: AtomicU32,
 }
 
 impl ConfigStore {
@@ -352,6 +364,8 @@ impl ConfigStore {
             ),
             telemetry_enabled: AtomicBool::new(defaults.telemetry_enabled),
             summary_requested: AtomicBool::new(defaults.summary_requested),
+            mouse_aim_scale: AtomicU32::new(defaults.mouse.aim_scale.to_bits()),
+            mouse_scope_scale: AtomicU32::new(defaults.mouse.scope_scale.to_bits()),
         }
     }
 
@@ -367,6 +381,8 @@ impl ConfigStore {
             .store(config.mouse.invert_x, Ordering::Relaxed);
         self.mouse_invert_y
             .store(config.mouse.invert_y, Ordering::Relaxed);
+        store_f32(&self.mouse_aim_scale, config.mouse.aim_scale);
+        store_f32(&self.mouse_scope_scale, config.mouse.scope_scale);
         store_f32(
             &self.controller_left_deadzone,
             config.controller.left_deadzone,
@@ -429,20 +445,10 @@ impl ConfigStore {
                     vertical_scale: load_f32(&self.mouse_vertical),
                     invert_x: self.mouse_invert_x.load(Ordering::Relaxed),
                     invert_y: self.mouse_invert_y.load(Ordering::Relaxed),
+                    aim_scale: load_f32(&self.mouse_aim_scale),
+                    scope_scale: load_f32(&self.mouse_scope_scale),
                 },
-                controller: ControllerSettings {
-                    left_deadzone: load_f32(&self.controller_left_deadzone),
-                    right_deadzone: load_f32(&self.controller_right_deadzone),
-                    response_exponent: load_f32(&self.controller_exponent),
-                    anti_deadzone: load_f32(&self.controller_anti_deadzone),
-                    output_saturation: load_f32(&self.controller_saturation),
-                    right_horizontal_scale: load_f32(&self.controller_right_horizontal),
-                    right_vertical_scale: load_f32(&self.controller_right_vertical),
-                    invert_right_x: self.controller_invert_right_x.load(Ordering::Relaxed),
-                    invert_right_y: self.controller_invert_right_y.load(Ordering::Relaxed),
-                    trigger_press: load_f32(&self.controller_trigger_press),
-                    trigger_release: load_f32(&self.controller_trigger_release),
-                },
+                controller: self.read_controller(),
                 telemetry_enabled: self.telemetry_enabled.load(Ordering::Relaxed),
                 summary_requested: self.summary_requested.load(Ordering::Relaxed),
             };
@@ -450,6 +456,47 @@ impl ConfigStore {
             if before == self.sequence.load(Ordering::Acquire) {
                 return config;
             }
+        }
+    }
+
+    /// Read only input admission, using the existing publication sequence.
+    #[inline]
+    pub(crate) fn load_enabled(&self) -> bool {
+        loop {
+            let before = self.begin_read();
+            let enabled = self.enabled.load(Ordering::Relaxed);
+            if before == self.sequence.load(Ordering::Acquire) {
+                return enabled;
+            }
+        }
+    }
+
+    /// Read one coherent controller configuration without loading mouse fields.
+    #[inline]
+    pub(crate) fn load_controller(&self) -> ControllerSettings {
+        loop {
+            let before = self.begin_read();
+            let controller = self.read_controller();
+            if before == self.sequence.load(Ordering::Acquire) {
+                return controller;
+            }
+        }
+    }
+
+    // Callers validate the publication sequence before exposing these fields.
+    fn read_controller(&self) -> ControllerSettings {
+        ControllerSettings {
+            left_deadzone: load_f32(&self.controller_left_deadzone),
+            right_deadzone: load_f32(&self.controller_right_deadzone),
+            response_exponent: load_f32(&self.controller_exponent),
+            anti_deadzone: load_f32(&self.controller_anti_deadzone),
+            output_saturation: load_f32(&self.controller_saturation),
+            right_horizontal_scale: load_f32(&self.controller_right_horizontal),
+            right_vertical_scale: load_f32(&self.controller_right_vertical),
+            invert_right_x: self.controller_invert_right_x.load(Ordering::Relaxed),
+            invert_right_y: self.controller_invert_right_y.load(Ordering::Relaxed),
+            trigger_press: load_f32(&self.controller_trigger_press),
+            trigger_release: load_f32(&self.controller_trigger_release),
         }
     }
 
@@ -466,6 +513,8 @@ impl ConfigStore {
                 vertical_scale: load_f32(&self.mouse_vertical),
                 invert_x: self.mouse_invert_x.load(Ordering::Relaxed),
                 invert_y: self.mouse_invert_y.load(Ordering::Relaxed),
+                aim_scale: load_f32(&self.mouse_aim_scale),
+                scope_scale: load_f32(&self.mouse_scope_scale),
             };
             if before == self.sequence.load(Ordering::Acquire) {
                 return (enabled, mouse);

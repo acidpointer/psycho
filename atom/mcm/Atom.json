@@ -65,7 +65,7 @@
           "enable": 1,
           "scale": {
             "valueDecimal": 2,
-            "valueIncrement": 0.05,
+            "valueIncrement": 0.01,
             "valueMin": 0.05,
             "valueMax": 8.0
           },
@@ -329,6 +329,47 @@
             {
               "configINI": "Controller:fTriggerRelease",
               "default": 0.08
+            }
+          ]
+        },
+        "23": {
+          "type": 0,
+          "title": "Mouse Aiming",
+          "enable": 1
+        },
+        "24": {
+          "type": 2.5,
+          "title": "ADS Scale",
+          "mouse": "Aimed sensitivity",
+          "enable": 1,
+          "scale": {
+            "valueDecimal": 2,
+            "valueIncrement": 0.05,
+            "valueMin": 0.05,
+            "valueMax": 8.0
+          },
+          "vars": [
+            {
+              "configINI": "Mouse:fAimScale",
+              "default": 1.0
+            }
+          ]
+        },
+        "25": {
+          "type": 2.5,
+          "title": "Scope Scale",
+          "mouse": "Scoped sensitivity",
+          "enable": 1,
+          "scale": {
+            "valueDecimal": 2,
+            "valueIncrement": 0.05,
+            "valueMin": 0.05,
+            "valueMax": 8.0
+          },
+          "vars": [
+            {
+              "configINI": "Mouse:fScopeScale",
+              "default": 1.0
             }
           ]
         }

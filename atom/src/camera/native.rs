@@ -1,7 +1,7 @@
 //! Fallout: New Vegas 1.4.0.525 first-person native contract.
 //!
 //! Fixed addresses are admitted only after plugin query rejects other runtime
-//! versions. DeferredInit validates the shared UpdateCamera body; the first
+//! versions. DeferredInit admits the live UpdateCamera entry; the first
 //! post-Deferred main-loop boundary validates the render contract immediately
 //! before installing its callsites. The update sampler runs after native
 //! `PlayerCharacter::UpdateCamera`; render access occurs only inside the proven
@@ -17,10 +17,10 @@
 use core::ffi::c_void;
 use core::mem::size_of;
 
-use libpsycho::os::windows::memory::{MemoryError, read_bytes, validate_memory_range};
+use libpsycho::os::windows::memory::{MemoryError, validate_memory_access, validate_memory_range};
 use thiserror::Error;
 
-use crate::input::{ActionContext, latest_action_frame};
+use crate::input::{ActionContext, latest_action_header};
 
 use super::{
     CameraPose, CameraTransform, LocomotionState, MotionInput, NativeMotionCarrier,
@@ -99,23 +99,6 @@ const GET_SUPPORT_RELATIVE_VELOCITY: usize = 0x0081_2B00;
 const GET_WORLD_SKY_ANCHOR: usize = 0x0055_8310;
 const UPDATE_NIAVOBJECT: usize = 0x00A5_9C60;
 const SET_PLAYER_MOVER_FLAGS: usize = 0x009E_A3E0;
-
-// The entry itself is deliberately omitted: another camera plugin may already
-// own a compatible entry trampoline by DeferredInit. These immutable interior
-// stores and the sole epilogue prove that the chained body is still the
-// supported UpdateCamera implementation with thiscall stack cleanup.
-const UPDATE_CAMERA_INTERIOR_FINGERPRINTS: &[(usize, &[u8])] = &[
-    (0x0094_AE6A, &[0x89, 0x8D, 0xEC, 0xFB, 0xFF, 0xFF]),
-    (0x0094_AE88, &[0xD9, 0x1D, 0x6C, 0x07, 0x1E, 0x01]),
-    (0x0094_AE99, &[0xD9, 0x1D, 0x64, 0x07, 0x1E, 0x01]),
-    (
-        0x0094_C366,
-        &[
-            0x8B, 0x4D, 0xF4, 0x64, 0x89, 0x0D, 0x00, 0x00, 0x00, 0x00, 0x59, 0x5F, 0x5E, 0x8B,
-            0xE5, 0x5D, 0xC2, 0x08, 0x00,
-        ],
-    ),
-];
 
 const DISABLED_CONTROL_MASK: u8 = 0x1F;
 const ANIM_ACTION_NONE: i16 = -1;
@@ -288,22 +271,18 @@ pub(crate) enum NativeContractError {
     /// A proven native range is not readable in this process.
     #[error(transparent)]
     Memory(#[from] MemoryError),
-    /// A supported-runtime function prologue differs from the researched EXE.
-    #[error("first-person native fingerprint mismatch at 0x{address:08X}")]
-    FingerprintMismatch { address: usize },
 }
 
-/// Validate the shared complete UpdateCamera body and ABI at `DeferredInit`.
+/// Require an executable UpdateCamera entry at `DeferredInit`.
+///
+/// The supported runtime defines the ABI; entry relocation and live-provider
+/// chaining are checked by the hook container, without vanilla-body matching.
 ///
 /// This contract is intentionally independent from first-person render state
 /// so third-person ownership is not lost when an unrelated render capability
 /// is unavailable.
 pub(super) fn validate_update_camera_contract() -> Result<(), NativeContractError> {
-    for &(address, expected) in UPDATE_CAMERA_INTERIOR_FINGERPRINTS {
-        if read_bytes(address as *const c_void, expected.len())? != expected {
-            return Err(NativeContractError::FingerprintMismatch { address });
-        }
-    }
+    validate_memory_access(0x0094_AE40 as *mut c_void)?;
     Ok(())
 }
 
@@ -334,43 +313,15 @@ pub(super) fn validate_contract() -> Result<(), NativeContractError> {
         validate_memory_range(address as *const c_void, size_of::<f32>())?;
     }
 
-    let fingerprints: &[(usize, &[u8])] = &[
-        (
-            GET_CHARACTER_CONTROLLER,
-            &[0x55, 0x8B, 0xEC, 0x51, 0x89, 0x4D, 0xFC],
-        ),
-        (
-            GET_CONTROLLER_STATE,
-            &[0x55, 0x8B, 0xEC, 0x51, 0x89, 0x4D, 0xFC],
-        ),
-        (
-            GET_SUPPORT_RELATIVE_VELOCITY,
-            &[0x53, 0x8B, 0xDC, 0x51, 0x83, 0xE4, 0xF0, 0x83, 0xC4, 0x04],
-        ),
-        (
-            GET_WORLD_SKY_ANCHOR,
-            &[0x55, 0x8B, 0xEC, 0x51, 0x89, 0x4D, 0xFC, 0x6A, 0x00],
-        ),
-        (
-            UPDATE_NIAVOBJECT,
-            &[0x56, 0x8B, 0xF1, 0x8B, 0x4C, 0x24, 0x08, 0x8B, 0x06],
-        ),
-        (
-            SET_PLAYER_MOVER_FLAGS,
-            &[
-                0x55, 0x8B, 0xEC, 0x83, 0xEC, 0x18, 0x56, 0x89, 0x4D, 0xE8, 0x8B, 0x45, 0xE8, 0x8B,
-                0x88, 0x94, 0x00, 0x00, 0x00,
-            ],
-        ),
-        (
-            SET_PLAYER_MOVER_FLAGS + 0x5E,
-            &[0x89, 0x82, 0x94, 0x00, 0x00, 0x00],
-        ),
-    ];
-    for &(address, expected) in fingerprints {
-        if read_bytes(address as *const c_void, expected.len())? != expected {
-            return Err(NativeContractError::FingerprintMismatch { address });
-        }
+    for address in [
+        GET_CHARACTER_CONTROLLER,
+        GET_CONTROLLER_STATE,
+        GET_SUPPORT_RELATIVE_VELOCITY,
+        GET_WORLD_SKY_ANCHOR,
+        UPDATE_NIAVOBJECT,
+        SET_PLAYER_MOVER_FLAGS,
+    ] {
+        validate_memory_access(address as *mut c_void)?;
     }
     Ok(())
 }
@@ -386,7 +337,7 @@ pub(super) unsafe fn sample_after_update(
     shared_motion: Option<NativeMotionCarrier>,
 ) -> Result<NativeUpdateSample, NativeRejection> {
     unsafe { hard_owner_allows(player)? };
-    let action_frame = latest_action_frame();
+    let action_frame = latest_action_header();
     if action_frame.frame_id() == 0 {
         return Err(NativeRejection::ActionFrame);
     }
@@ -515,7 +466,7 @@ unsafe fn sample_motion_carrier(
 pub(super) unsafe fn render_owner_allows() -> Result<(), NativeRejection> {
     let player = unsafe { read_global_ptr(PLAYER_PTR) };
     unsafe { hard_owner_allows(player)? };
-    if latest_action_frame().context() != ActionContext::Gameplay {
+    if latest_action_header().context() != ActionContext::Gameplay {
         return Err(NativeRejection::ActionContext);
     }
     Ok(())

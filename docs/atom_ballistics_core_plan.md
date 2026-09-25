@@ -39,7 +39,7 @@ The current change implements the complete no-op observation slice:
   existing input snapshot plus an independent `BallisticsConfig` snapshot;
 - MCM exposes disabled-by-default `Ballistics Trace` and `Write Ballistics`
   diagnostics, both applied from `MCMExtUpdate` after MCM saves;
-- immutable caller fingerprints guard the projectile-count, launch, hit-build,
+- live direct-call capability checks guard the projectile-count, launch, hit-build,
   projectile `ApplyHit`, and collision-effect callsites;
 - those five typed direct-call hooks plus the live MissileProjectile update
   vtable slot capture their current targets and enable in one Ballistics-only
@@ -756,10 +756,10 @@ callsite and chain it without naming its owner.
 | Actor hit commit | `0x009C1E96` | `0x0089A760` | Count commit, call predecessor once |
 | Collision presentation | `0x009C2058` | `0x009C20E0` | Observe world/material contact, call predecessor once |
 
-Fingerprints cover immutable instructions around each caller but exclude the
-call displacement. Installation is one Ballistics transaction at
-`DeferredInit`. A mismatch rolls back Ballistics only; Atom Input remains
-active.
+The hook library validates the live call instruction and executable target,
+then captures that provider. Surrounding instructions need not match vanilla.
+Installation is one Ballistics transaction at `DeferredInit`; an unchainable
+capability rolls back Ballistics only, leaving Atom Input active.
 
 ### Update observation
 
@@ -786,9 +786,8 @@ then constructs the full non-hitscan policy before common initialization,
 allowing native movement, collision, impact traversal, effects, attribution,
 and `ApplyHit` to remain in control.
 
-This is behind an MCM gate rather than a custom raycaster. The
-immutable caller instructions on both sides of the mutable `E8` are validated
-before a transactional hook installation. The hook captures and calls the
+This is behind an MCM gate rather than a custom raycaster. Live hook
+capabilities are validated before transactional installation. The hook captures and calls the
 current target exactly once. A bounded launch scope matches by callback thread
 and live form token, so unrelated predicate calls and later form semantics are
 unchanged. There is no post-launch projectile mutation.
@@ -1001,7 +1000,7 @@ search implementation source text.
 ### Hook and artifact tests
 
 - typed x86 ABI sizes and offsets for every field Atom reads;
-- immutable caller fingerprints around each admitted callsite;
+- live instruction decoding and executable predecessor admission;
 - callsite transaction rollback when any member fails;
 - predecessor chaining in a synthetic rel32-call harness;
 - update-entry or vtable chain ownership harness before Phase 2;

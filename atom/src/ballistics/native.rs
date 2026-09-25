@@ -1,12 +1,12 @@
 //! Audited Fallout: New Vegas 1.4.0.525 ballistics ABI.
 //!
 //! Addresses and layouts in this module are valid only for the executable
-//! accepted by Atom's plugin query. Caller fingerprints are validated again
-//! immediately before deferred hook installation.
+//! accepted by Atom's plugin query. Deferred hook installation validates live
+//! callsites and executable providers without requiring vanilla body bytes.
 
 use core::ffi::c_void;
 
-use libpsycho::os::windows::memory::{MemoryError, read_bytes, validate_memory_access};
+use libpsycho::os::windows::memory::{MemoryError, validate_memory_access};
 use thiserror::Error;
 
 use super::{ProjectileCapability, ProjectileProfile, SourceKind};
@@ -396,148 +396,13 @@ const HELPER_KINDS: [HelperKind; 4] = [
     HelperKind::ProjectileLaunch,
 ];
 
-/// One interior-body window that differs from the researched binary.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) struct HelperFinding {
-    pub(crate) kind: HelperKind,
-    pub(crate) address: usize,
-}
-
-/// Diagnostic result of comparing every interior-body window at admission.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) struct HelperScan {
-    /// First differing window per helper kind; `None` while it matches.
-    pub(crate) findings: [Option<HelperFinding>; HELPER_KINDS.len()],
-    /// Windows that differ from the researched binary.
-    pub(crate) differing: usize,
-    /// Windows actually compared (unreadable windows are unverifiable, not
-    /// differing, and are skipped).
-    pub(crate) checked: usize,
-}
-
-impl HelperScan {
-    const CLEAN: Self = Self {
-        findings: [None; HELPER_KINDS.len()],
-        differing: 0,
-        checked: 0,
-    };
-
-    /// Human-readable summary of the differing helpers, if any.
-    pub(crate) fn summary(&self) -> Option<String> {
-        let names: Vec<String> = self
-            .findings
-            .iter()
-            .flatten()
-            .map(|finding| format!("{} @ 0x{:08X}", finding.kind.label(), finding.address))
-            .collect();
-        (!names.is_empty()).then(|| names.join(", "))
-    }
-}
-
-/// Interior-body and epilogue evidence for every directly-called helper.
-///
-/// These windows are **diagnostic only**: they name which helper a third-party
-/// patcher touched. They never disable anything. Admission gates on entry
-/// readiness alone ([`validate_helper_entries`]); ecosystem patchers either
-/// hook entries with ABI-preserving jumps or edit instructions in place, and
-/// both remain safe to call through.
-///
-/// Each window starts beyond offset +0x09 so a compatible earlier owner's
-/// complete entry jump never reports as a difference. Evidence:
-/// `analysis/radare2/output/perf/fnv_ballistics_runtime_helper_contract.txt`.
-pub(crate) struct HelperWindow {
-    pub(crate) kind: HelperKind,
-    pub(crate) offset: usize,
-    pub(crate) bytes: &'static [u8],
-}
-
-impl HelperWindow {
-    pub(crate) const fn address(&self) -> usize {
-        self.kind.target() + self.offset
-    }
-
-    pub(crate) fn matches(&self, actual: &[u8]) -> bool {
-        actual == self.bytes
-    }
-}
-
-pub(crate) const RUNTIME_HELPER_WINDOWS: &[HelperWindow] = &[
-    // BGSProjectile-derived effective speed 0x009669C0.
-    HelperWindow {
-        kind: HelperKind::EffectiveSpeed,
-        offset: 0x14,
-        bytes: &[
-            0x8B, 0x4D, 0xFC, 0x51, 0xD9, 0x81, 0xCC, 0x00, 0x00, 0x00, 0xD9, 0x1C, 0x24,
-        ],
-    },
-    HelperWindow {
-        kind: HelperKind::EffectiveSpeed,
-        offset: 0x39,
-        bytes: &[0x83, 0xC4, 0x0C, 0x8B, 0xE5, 0x5D, 0xC3],
-    },
-    // Havok world-ray wrapper 0x00458440.
-    HelperWindow {
-        kind: HelperKind::ClearanceRaycast,
-        offset: 0x09,
-        bytes: &[0x0F, 0xB6, 0x45, 0x0C, 0x85, 0xC0],
-    },
-    HelperWindow {
-        kind: HelperKind::ClearanceRaycast,
-        offset: 0x22,
-        bytes: &[0xB9, 0xCC, 0x63, 0x1C, 0x01, 0xE8, 0x64, 0x50, 0xFE, 0xFF],
-    },
-    HelperWindow {
-        kind: HelperKind::ClearanceRaycast,
-        offset: 0x81,
-        bytes: &[0x8B, 0xE5, 0x5D, 0xC2, 0x08, 0x00],
-    },
-    // Projectile terminal path 0x009BC8F0.
-    HelperWindow {
-        kind: HelperKind::ProjectileTerminate,
-        offset: 0x21,
-        bytes: &[
-            0x81, 0xC1, 0x88, 0x00, 0x00, 0x00, 0xE8, 0xB4, 0x8D, 0xE6, 0xFF,
-        ],
-    },
-    HelperWindow {
-        kind: HelperKind::ProjectileTerminate,
-        offset: 0x15A,
-        bytes: &[0x8B, 0x90, 0xC4, 0x00, 0x00, 0x00, 0xFF, 0xD2],
-    },
-    HelperWindow {
-        kind: HelperKind::ProjectileTerminate,
-        offset: 0x16C,
-        bytes: &[0x8B, 0xE5, 0x5D, 0xC3],
-    },
-    // Canonical ranged launch 0x009BCA60.
-    HelperWindow {
-        kind: HelperKind::ProjectileLaunch,
-        offset: 0x2A,
-        bytes: &[
-            0xC7, 0x45, 0xEC, 0x00, 0x00, 0x00, 0x00, 0xC6, 0x45, 0xF3, 0x01,
-        ],
-    },
-    HelperWindow {
-        kind: HelperKind::ProjectileLaunch,
-        offset: 0x4D,
-        bytes: &[0x81, 0xBD, 0x20, 0xFF, 0xFF, 0xFF, 0x00, 0x00, 0x04, 0x00],
-    },
-    HelperWindow {
-        kind: HelperKind::ProjectileLaunch,
-        offset: 0xAC3,
-        bytes: &[
-            0x64, 0x89, 0x0D, 0x00, 0x00, 0x00, 0x00, 0x59, 0x5F, 0x5E, 0x8B, 0xE5, 0x5D, 0xC3,
-        ],
-    },
-];
-
 /// Validate that every directly-called helper entry is mapped executable
 /// memory.
 ///
-/// This is the complete call-safety precondition Atom can prove: invoking an
-/// unmapped or non-executable address would crash regardless of who owns the
-/// body. Body ownership is deliberately not an admission condition; see
-/// [`scan_helper_bodies`] for the diagnostic counterpart.
+/// Executability is necessary but does not prove the ABI. Atom uses the
+/// supported runtime's documented ABI and requires installed providers to
+/// preserve it. Body ownership and vanilla-byte equality are not admission
+/// conditions.
 pub fn validate_helper_entries() -> Result<(), HelperContractError> {
     for kind in HELPER_KINDS {
         let address = kind.target();
@@ -549,35 +414,6 @@ pub fn validate_helper_entries() -> Result<(), HelperContractError> {
         })?;
     }
     Ok(())
-}
-
-/// Compare every interior-body window against the researched binary.
-///
-/// Purely diagnostic: differences are reported to the user and recorded in
-/// logs, never used to disable capability. Unreadable windows are counted as
-/// unchecked rather than differing.
-pub(crate) fn scan_helper_bodies() -> HelperScan {
-    let mut scan = HelperScan::CLEAN;
-    for window in RUNTIME_HELPER_WINDOWS {
-        let Ok(actual) = read_bytes(window.address() as *const c_void, window.bytes.len()) else {
-            continue;
-        };
-        scan.checked += 1;
-        if !window.matches(&actual) && scan.differing < scan.findings.len() {
-            let slot = HELPER_KINDS
-                .iter()
-                .position(|kind| *kind == window.kind)
-                .unwrap_or_default();
-            if scan.findings[slot].is_none() {
-                scan.findings[slot] = Some(HelperFinding {
-                    kind: window.kind,
-                    address: window.address(),
-                });
-            }
-            scan.differing += 1;
-        }
-    }
-    scan
 }
 
 type EffectiveSpeedFn = unsafe extern "thiscall" fn(*mut c_void) -> f32;
@@ -1010,63 +846,9 @@ mod tests {
 
     use super::{
         HELPER_KINDS, HelperKind, ImpactDataView, ImpactListNode, NiPoint3, ProjectileFormView,
-        ProjectileRuntimeView, RUNTIME_HELPER_WINDOWS, RayCastData, RuntimeFlightPath,
-        RuntimePolicyMarkers, loaded_grid_index, runtime_flight_path, runtime_policy_markers,
-        world_cell_coordinate,
+        ProjectileRuntimeView, RayCastData, RuntimeFlightPath, RuntimePolicyMarkers,
+        loaded_grid_index, runtime_flight_path, runtime_policy_markers, world_cell_coordinate,
     };
-
-    /// Ledger section that pins every window's exact bytes.
-    const LEDGER_PATH: &str = concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/../analysis/radare2/output/perf/fnv_ballistics_runtime_helper_contract.txt"
-    );
-
-    #[test]
-    fn helper_windows_match_the_evidence_ledger_byte_for_byte() {
-        let ledger = std::fs::read_to_string(LEDGER_PATH).expect("helper contract ledger");
-        let mut matched = 0;
-        for line in ledger.lines() {
-            let Some((address_text, bytes_text)) = line.split_once(" len ") else {
-                continue;
-            };
-            let Some((length_text, hex_text)) = bytes_text.split_once(": ") else {
-                continue;
-            };
-            let address = usize::from_str_radix(address_text.trim().trim_start_matches("0x"), 16)
-                .expect("ledger address");
-            let _ = length_text;
-            for window in RUNTIME_HELPER_WINDOWS {
-                if window.address() != address {
-                    continue;
-                }
-                let expected_len = window.bytes.len();
-                assert_eq!(
-                    hex_text.len(),
-                    expected_len * 2,
-                    "ledger length drift at 0x{address:08X}"
-                );
-                for (index, byte) in window.bytes.iter().enumerate() {
-                    let parsed = u8::from_str_radix(
-                        hex_text.get(index * 2..index * 2 + 2).expect("hex pair"),
-                        16,
-                    )
-                    .expect("ledger hex byte");
-                    assert_eq!(
-                        *byte,
-                        parsed,
-                        "window {:#x} byte {index} drifted from the ledger",
-                        window.address()
-                    );
-                }
-                matched += 1;
-            }
-        }
-        assert_eq!(
-            matched,
-            RUNTIME_HELPER_WINDOWS.len(),
-            "every window must be pinned by a ledger line"
-        );
-    }
 
     #[test]
     fn helper_labels_are_distinct_and_cover_all_targets() {

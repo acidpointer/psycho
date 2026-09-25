@@ -210,7 +210,10 @@ fn initialize_inner(
 
     let config = load_config(&config_path)?;
     apply_config(config, false, true);
-    let hooks = input::install_native_bridge()?;
+    let input_controls = player_controls
+        .ok()
+        .and_then(|controls| controls.reader().ok());
+    let hooks = input::install_native_bridge(input_controls)?;
     match player_controls {
         Ok(controls) => match controls.reader() {
             Ok(reader) => {

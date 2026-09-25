@@ -3,18 +3,25 @@
 //! Fixed addresses and offsets in this module are admitted only after plugin
 //! query rejects other runtimes and DeferredInit validates the surrounding
 //! executable/data ranges. The sampler detour receives the native input owner
-//! as `this`; reads below occur only after the chained sampler returns, when
-//! xNVSE has completed its normal input injection path.
+//! as `this`; device snapshots occur after the chained sampler returns, when
+//! xNVSE has completed its normal input injection path. Final-heading guards
+//! read engine-owned player/HUD state synchronously on the same game thread.
+//! No native owner is retained. Unavailable optional mouse context uses neutral
+//! context gain after the live look guard admits the configured profile. Hot
+//! paths use bounded reads and at most one live ADS virtual call.
 
 use core::ffi::c_void;
 use core::mem::size_of;
+use std::sync::OnceLock;
 
+use libnvse::api::player_controls::{ControlFlags, DisabledCheck, PlayerControlsReader};
 use libpsycho::os::windows::memory::{MemoryError, validate_memory_range};
 use libpsycho::os::windows::winapi::get_foreground_window;
 use thiserror::Error;
 
 use super::controller::NativeControllerState;
 use super::frame::{NativeInputState, NativeMouseState};
+use super::mouse::MouseContext;
 
 pub(super) const NATIVE_SAMPLER_ADDRESS: usize = 0x00A2_3010;
 pub(super) const NATIVE_MOUSE_GETTER_ADDRESS: usize = 0x00A2_39E0;
@@ -30,6 +37,17 @@ const CONTROLLER_MODE_ADDRESS: usize = 0x011F_35C8;
 const TOP_LEVEL_WINDOW_ADDRESS: usize = 0x011C_6FC0;
 const INPUT_OWNER_ADDRESS: usize = 0x011F_35CC;
 const INTERFACE_MANAGER_ADDRESS: usize = 0x011D_8A80;
+const PLAYER_ADDRESS: usize = 0x011D_EA3C;
+const HUD_MAIN_MENU_ADDRESS: usize = 0x011D_96C0;
+const HUD_SCOPE_VISIBLE_OFFSET: usize = 0x1FC;
+const PLAYER_PROCESS_OFFSET: usize = 0x68;
+const PROCESS_IS_AIMING_VTABLE_OFFSET: usize = 0x404;
+
+// Published at DeferredInit from the service captured during plugin load.
+// The reader contains process-lifetime callbacks and performs no mutation.
+static PLAYER_CONTROLS: OnceLock<PlayerControlsReader> = OnceLock::new();
+
+type ProcessIsAimingFn = unsafe extern "thiscall" fn(*mut c_void) -> u8;
 const KEYBOARD_BINDINGS_OFFSET: usize = 0x1B94;
 const MOUSE_BINDINGS_OFFSET: usize = 0x1BB0;
 // FNV keeps DirectInput joystick binds at +0x1BCC and the active XInput binds
@@ -44,6 +62,17 @@ const MIN_ENGINE_POINTER: usize = 0x1_0000;
 
 const _: [(); 20] = [(); size_of::<NativeMouseState>()];
 const _: [(); 16] = [(); size_of::<NativeControllerState>()];
+
+/// Retain the read-only combined control query before input hooks activate.
+///
+/// The optional reader was acquired from xNVSE during plugin load and remains
+/// valid for the process lifetime. If absent, final mouse transforms preserve
+/// native heading rather than ignoring script-owned look suppression.
+pub(super) fn publish_player_controls(controls: Option<PlayerControlsReader>) {
+    if let Some(controls) = controls {
+        let _ = PLAYER_CONTROLS.set(controls);
+    }
+}
 
 /// Failure to admit the fixed native input data contract.
 #[derive(Debug, Error)]
@@ -78,6 +107,11 @@ pub(super) fn validate_data_contract() -> Result<(), NativeContractError> {
     )?;
     validate_memory_range(
         INTERFACE_MANAGER_ADDRESS as *const c_void,
+        size_of::<*mut c_void>(),
+    )?;
+    validate_memory_range(PLAYER_ADDRESS as *const c_void, size_of::<*mut c_void>())?;
+    validate_memory_range(
+        HUD_MAIN_MENU_ADDRESS as *const c_void,
         size_of::<*mut c_void>(),
     )?;
 
@@ -192,6 +226,80 @@ pub(super) fn controller_mode() -> bool {
 /// Return the vanilla Y-inversion setting applied after the mouse getter.
 pub(super) fn vanilla_y_inverted() -> bool {
     unsafe { core::ptr::read_volatile(VANILLA_INVERT_Y_VALUE_ADDRESS as *const u8) != 0 }
+}
+
+/// Preserve native look-disable and live menu guards at the heading boundary.
+///
+/// # Safety
+///
+/// Called only on the game thread with the live player received by the
+/// admitted heading callsite. The player and InterfaceManager remain owned by
+/// the engine throughout this synchronous call; no pointer is retained.
+pub(super) unsafe fn mouse_heading_allowed(player: *mut c_void) -> bool {
+    let current = unsafe { core::ptr::read_volatile(PLAYER_ADDRESS as *const *mut c_void) };
+    if !is_engine_pointer(player.cast()) || player != current {
+        return false;
+    }
+    // xNVSE extends the engine's 0x005A03F0 query with per-mod flags. Reading
+    // player+0x680 alone would bypass those owners when rebuilding cached
+    // counts. Use its public combined query, as the camera owners already do.
+    let Some(controls) = PLAYER_CONTROLS.get() else {
+        return false;
+    };
+    !controls.any_disabled(DisabledCheck::ByAnyModOrVanilla, ControlFlags::LOOKING)
+        && !unsafe { menu_mode_active() }
+}
+
+/// Read scope visibility first, then the process' native ADS predicate.
+///
+/// Missing owners or callback return `None` so the caller retains its selected
+/// profile with neutral context gain. Native creation/destruction publishes
+/// and clears HUD ownership; the scope byte is maintained by 0x0077F3C0 and
+/// reset by 0x0077F270.
+/// The live process vtable is used, preserving a compatible installed provider.
+///
+/// # Safety
+///
+/// `player` must satisfy [`mouse_heading_allowed`]'s game-thread lifetime
+/// contract. Its process and live vtable must satisfy FNV's IsAiming ABI
+/// (thiscall, no arguments, boolean in AL), as in 0x008BBC10. No pointer escapes.
+pub(super) unsafe fn mouse_context(player: *mut c_void) -> Option<MouseContext> {
+    let hud = unsafe { core::ptr::read_volatile(HUD_MAIN_MENU_ADDRESS as *const *const u8) };
+    if !is_engine_pointer(hud) {
+        return None;
+    }
+    if unsafe { core::ptr::read_unaligned(hud.add(HUD_SCOPE_VISIBLE_OFFSET)) } != 0 {
+        return Some(MouseContext::Scope);
+    }
+    let process = unsafe {
+        core::ptr::read_unaligned(
+            player
+                .cast::<u8>()
+                .add(PLAYER_PROCESS_OFFSET)
+                .cast::<*mut c_void>(),
+        )
+    };
+    if !is_engine_pointer(process.cast()) {
+        return None;
+    }
+    let vtable = unsafe { core::ptr::read_unaligned(process.cast::<*const u8>()) };
+    if !is_engine_pointer(vtable) {
+        return None;
+    }
+    let callback = unsafe {
+        core::ptr::read_unaligned(vtable.add(PROCESS_IS_AIMING_VTABLE_OFFSET).cast::<usize>())
+    };
+    if callback < MIN_ENGINE_POINTER {
+        return None;
+    }
+    // The native virtual dispatch at 0x008BBC2E proves the slot and ABI. Use
+    // its live target, without identifying or allowlisting a provider module.
+    let is_aiming: ProcessIsAimingFn = unsafe { core::mem::transmute(callback) };
+    Some(if unsafe { is_aiming(process) } != 0 {
+        MouseContext::Aim
+    } else {
+        MouseContext::Hip
+    })
 }
 
 fn validate_boolean(address: usize) -> Result<(), NativeContractError> {

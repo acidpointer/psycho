@@ -1,8 +1,9 @@
 //! Deferred, ownership-aware native input callsite hooks.
 //!
-//! Atom fingerprints the immutable caller context around each direct call but
-//! deliberately excludes its displacement. This proves the FNV consumer while
-//! allowing a compatible earlier hook owner to remain the typed predecessor.
+//! The supported runtime defines each call's ABI. Hook preparation validates
+//! the live instruction and executable target, then captures that target as
+//! the typed predecessor. Surrounding code is not compared with vanilla bytes:
+//! xNVSE and compatible providers can legitimately replace those instructions.
 //! Every callsite, entry trampoline, and pointer-slot write is committed as one
 //! rollback-capable transaction.
 //!
@@ -11,24 +12,21 @@
 //! construction: containers are initialized before the transaction that can
 //! enable them, and a detour only executes while its hook is enabled. The
 //! fallbacks exist because Rust requires a value; they are never an admission
-//! path for a replaced helper body, which admission-time contracts reject.
+//! path around failed hook preparation.
 
 use core::ffi::c_void;
 use core::sync::atomic::{AtomicI32, Ordering};
 use std::sync::LazyLock;
 
-use libpsycho::os::windows::{
-    hook::{
-        callsite::{Rel32CallHookContainer, Rel32CallHookError},
-        inline::{errors::InlineHookError, inlinehook::InlineHookContainer},
-        pointer::PointerSlotHookError,
-        transaction::ModificationTransaction,
-    },
-    memory::{MemoryError, read_bytes},
+use libpsycho::os::windows::hook::{
+    callsite::{Rel32CallHookContainer, Rel32CallHookError},
+    inline::{errors::InlineHookError, inlinehook::InlineHookContainer},
+    pointer::PointerSlotHookError,
+    transaction::ModificationTransaction,
 };
 use thiserror::Error;
 
-use super::mouse::{MouseAxis, MouseHeadingInput, MouseTransform};
+use super::mouse::{MouseAxis, MouseHeadingInput, MouseProfile, MouseTransform};
 use super::{
     buffered, capture_native_sample, controller_transform_active, mouse_config, native, telemetry,
 };
@@ -76,76 +74,9 @@ static LAST_MOUSE_Y: AtomicI32 = AtomicI32::new(0);
 static DIRECT_CONTROLLER_EXPONENT: i32 = 1;
 static DIRECT_CONTROLLER_MIN_SPEED: f32 = 0.0;
 
-const FINGERPRINTS: &[(usize, &[u8])] = &[
-    // The preceding call's displacement is excluded for the same reason as
-    // Atom's owned callsites: a compatible earlier owner may already chain it.
-    (0x0086_F397, &[0xE8]),
-    (0x0086_F39C, &[0x8B, 0xC8]),
-    (0x0086_F3A3, &[0xB9, 0x94, 0x63, 0x1F, 0x01]),
-    (
-        0x0094_598D,
-        &[0x6A, 0x01, 0x8B, 0x8D, 0xD4, 0xFE, 0xFF, 0xFF],
-    ),
-    (0x0094_599A, &[0x89, 0x85, 0x9C, 0xFE, 0xFF, 0xFF]),
-    (
-        0x0094_59A0,
-        &[0x6A, 0x02, 0x8B, 0x8D, 0xD4, 0xFE, 0xFF, 0xFF],
-    ),
-    (0x0094_59AD, &[0x89, 0x85, 0xC8, 0xFE, 0xFF, 0xFF]),
-    (
-        0x0094_5F80,
-        &[0xD9, 0x85, 0xA8, 0xFD, 0xFF, 0xFF, 0x51, 0xD9, 0x1C, 0x24],
-    ),
-    (0x0094_5F95, &[0x83, 0xBD, 0xC8, 0xFE, 0xFF, 0xFF, 0x00]),
-    (
-        0x0094_5FC8,
-        &[0xD9, 0x85, 0x9C, 0xFD, 0xFF, 0xFF, 0x51, 0xD9, 0x1C, 0x24],
-    ),
-    (0x0094_5FDD, &[0x83, 0xBD, 0x9C, 0xFE, 0xFF, 0xFF, 0x00]),
-    (0x0094_55E5, &[0x8B, 0x8D, 0x70, 0xFE, 0xFF, 0xFF, 0x51]),
-    (
-        0x0094_55F1,
-        &[0x83, 0xC4, 0x04, 0x3D, 0xF1, 0x21, 0x00, 0x00],
-    ),
-    (0x0094_5634, &[0x8B, 0x95, 0x9C, 0xFE, 0xFF, 0xFF, 0x52]),
-    (
-        0x0094_5640,
-        &[0x83, 0xC4, 0x04, 0x3D, 0xF1, 0x21, 0x00, 0x00],
-    ),
-    (0x0094_56E0, &[0x8B, 0x8D, 0x9C, 0xFE, 0xFF, 0xFF, 0x51]),
-    (
-        0x0094_56EC,
-        &[0x83, 0xC4, 0x04, 0x3D, 0xF1, 0x21, 0x00, 0x00],
-    ),
-    (0x0094_5700, &[0x8B, 0x95, 0xC8, 0xFE, 0xFF, 0xFF, 0x52]),
-    (
-        0x0094_570C,
-        &[0x83, 0xC4, 0x04, 0x3D, 0xF1, 0x21, 0x00, 0x00],
-    ),
-    (0x0094_5834, &[0xB9, 0x90, 0x0A, 0x1E, 0x01]),
-    (0x0094_583E, &[0x8B, 0x8D, 0x38, 0xFE, 0xFF, 0xFF]),
-    (0x0094_5877, &[0xB9, 0xA0, 0x08, 0x1E, 0x01]),
-    (0x0094_5881, &[0x8B, 0x8D, 0x34, 0xFE, 0xFF, 0xFF]),
-    (0x0094_589F, &[0xB9, 0x18, 0x08, 0x1E, 0x01]),
-    (
-        0x0094_58A9,
-        &[0xD9, 0x00, 0xD9, 0x9D, 0x48, 0xFE, 0xFF, 0xFF],
-    ),
-    (
-        BOUND_ACTION_ADDRESS,
-        &[0x55, 0x8B, 0xEC, 0x83, 0xEC, 0x14, 0x89, 0x4D, 0xF0],
-    ),
-];
-
 /// Failure to validate or transactionally install Atom's input hooks.
 #[derive(Debug, Error)]
 pub(crate) enum HookInstallError {
-    /// Reading a caller fingerprint failed.
-    #[error(transparent)]
-    Memory(#[from] MemoryError),
-    /// A supported-runtime call context differs from the researched binary.
-    #[error("native input caller fingerprint mismatch at 0x{address:08X}")]
-    FingerprintMismatch { address: usize },
     /// A direct call could not be captured, chained, enabled, or rolled back.
     #[error(transparent)]
     Callsite(#[from] Rel32CallHookError),
@@ -175,8 +106,6 @@ pub(super) struct HookPredecessors {
 
 /// Install the post-sample and player-camera hooks at DeferredInit.
 pub(super) fn install() -> Result<HookPredecessors, HookInstallError> {
-    validate_fingerprints()?;
-
     unsafe {
         buffered::prepare(native::input_owner())?;
         SAMPLE_HOOK.init(
@@ -284,15 +213,6 @@ fn register_audits() {
     integrity::register_inline("Atom buffered bound-action bridge", &BOUND_ACTION_HOOK);
 }
 
-fn validate_fingerprints() -> Result<(), HookInstallError> {
-    for &(address, expected) in FINGERPRINTS {
-        if read_bytes(address as *const c_void, expected.len())? != expected {
-            return Err(HookInstallError::FingerprintMismatch { address });
-        }
-    }
-    Ok(())
-}
-
 unsafe extern "thiscall" fn sample_detour(input_owner: *mut c_void) {
     super::begin_native_sample();
     let predecessor = SAMPLE_HOOK.original().unwrap_or_else(|_| native_sampler());
@@ -330,11 +250,14 @@ unsafe extern "thiscall" fn heading_x_detour(player: *mut c_void, native_heading
     let predecessor = HEADING_X_HOOK
         .original()
         .unwrap_or_else(|_| native_heading_x_consumer());
-    let heading = transform_heading(
-        MouseAxis::X,
-        LAST_MOUSE_X.load(Ordering::Relaxed),
-        native_heading,
-    );
+    let heading = unsafe {
+        transform_heading(
+            player,
+            MouseAxis::X,
+            LAST_MOUSE_X.load(Ordering::Relaxed),
+            native_heading,
+        )
+    };
     // Explore free orbit diverts yaw only after the camera epoch machine
     // admits stable third person. AIM/Combat retains native Actor yaw, then
     // copies its absolute result into the logical view and compensates the
@@ -350,11 +273,14 @@ unsafe extern "thiscall" fn heading_y_detour(player: *mut c_void, native_heading
     let predecessor = HEADING_Y_HOOK
         .original()
         .unwrap_or_else(|_| native_heading_y_consumer());
-    let heading = transform_heading(
-        MouseAxis::Y,
-        LAST_MOUSE_Y.load(Ordering::Relaxed),
-        native_heading,
-    );
+    let heading = unsafe {
+        transform_heading(
+            player,
+            MouseAxis::Y,
+            LAST_MOUSE_Y.load(Ordering::Relaxed),
+            native_heading,
+        )
+    };
     // Explore free orbit owns pitch without writing Actor rotX. Combat keeps
     // native Actor pitch so aim presentation and gameplay direction remain
     // coupled, then copies the native-clamped result into logical view state.
@@ -366,18 +292,41 @@ unsafe extern "thiscall" fn heading_y_detour(player: *mut c_void, native_heading
     }
 }
 
-fn transform_heading(axis: MouseAxis, source_delta: i32, native_heading: f32) -> f32 {
+// Safety: player is the live this pointer from either admitted heading call.
+unsafe fn transform_heading(
+    player: *mut c_void,
+    axis: MouseAxis,
+    source_delta: i32,
+    native_heading: f32,
+) -> f32 {
     let (enabled, settings) = mouse_config();
     if !enabled || native::controller_mode() {
         return native_heading;
     }
+    if settings.profile() == MouseProfile::Native {
+        telemetry::record_mouse_heading(axis, source_delta, native_heading);
+        return native_heading;
+    }
+    // These counts came from the native camera getters, not the keyboard
+    // action mirror. Its sample/Present phase and cached context must not
+    // select between native and configured mouse sensitivity. Preserve the
+    // live look guard because native code can zero its locals after our
+    // getter hooks, then still reach the yaw consumer.
+    if !unsafe { native::mouse_heading_allowed(player) } {
+        return native_heading;
+    }
     let native_y_inverted = axis == MouseAxis::Y && native::vanilla_y_inverted();
-    let transformed = MouseTransform::new(settings).apply_heading(MouseHeadingInput::new(
-        axis,
-        source_delta,
-        native_heading,
-        native_y_inverted,
-    ));
+    let mut input = MouseHeadingInput::new(axis, source_delta, native_heading, native_y_inverted);
+    // Identity defaults need no extra HUD/process traversal or virtual call.
+    // Optional context loss must not select native sensitivity after the live
+    // look guard admitted the configured profile. The default Hip context
+    // supplies neutral gain without caching a stale ADS/scope state.
+    if settings.needs_context()
+        && let Some(context) = unsafe { native::mouse_context(player) }
+    {
+        input = input.with_context(context);
+    }
+    let transformed = MouseTransform::new(settings).apply_heading(input);
     telemetry::record_mouse_heading(axis, source_delta, transformed);
     transformed
 }
@@ -485,22 +434,29 @@ unsafe extern "thiscall" fn bound_action_detour(
         Ok(predecessor) => unsafe { predecessor(input_owner, control, state) },
         Err(_) => 0,
     };
-    let input_enabled = super::input_enabled();
-    let controller_active = super::controller_transform_active();
     if native != 0
-        || (!input_enabled && !controller_active)
         || !super::action_bridge_open()
         || control >= super::ACTION_COUNT as u32
         || control == super::ActionId::MenuMode as u32
+        || state > 3
     {
         return native;
     }
 
-    let frame = super::latest_action_frame();
+    let controller_active = super::controller_transform_active();
+    // Held queries have no keyboard supplement. Preserve native priority and
+    // avoid settings/frame reads when no controller supplement can answer.
+    if state == 0 && !controller_active {
+        return native;
+    }
+    let input_enabled = state != 0 && super::input_enabled();
+    if !input_enabled && !controller_active {
+        return native;
+    }
+    let (frame, action) = super::latest_action(super::ActionId::ALL[control as usize]);
     if frame.context() != super::ActionContext::Gameplay {
         return native;
     }
-    let action = frame.action(super::ActionId::ALL[control as usize]);
     let controller_down = action.sources().controller();
     let controller_pressed = action.pressed() && action.controller_pressed();
     let controller_released = action.released() && action.controller_released();

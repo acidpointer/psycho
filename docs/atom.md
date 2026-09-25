@@ -283,7 +283,7 @@ downstream convergence owner observe one world target.
 | `atom/src/ballistics/mod.rs` | Ballistics config, deferred admission, lifecycle, and requested summaries. |
 | `atom/src/ballistics/adapter.rs` | Fail-closed thread/form policy scope with nested-launch restoration. |
 | `atom/src/ballistics/native.rs` | Audited x86 ABIs, form/runtime views, addresses, and capability classification. |
-| `atom/src/ballistics/hooks.rs` | Caller fingerprints and one rollback-capable callsite/vtable transaction. |
+| `atom/src/ballistics/hooks.rs` | Live typed predecessors and one rollback-capable callsite/vtable transaction. |
 | `atom/src/ballistics/context.rs` | Immutable pointer-free launch and projectile-profile values. |
 | `atom/src/ballistics/flight.rs` | Constant-acceleration shadow math and bounded chord subdivision. |
 | `atom/src/ballistics/pool.rs` | Fixed open-addressed correlation table and generation handling. |
@@ -343,7 +343,7 @@ At `DeferredInit`, Atom performs this ordered transaction:
 2. resolve `Data/config/Atom/Atom.ini` from xNVSE's runtime directory;
 3. deserialize and validate the unified current MCM configuration;
 4. initialize QPC-domain telemetry bounds outside the hook path;
-5. validate the fixed data globals and immutable caller contexts;
+5. validate fixed data globals and publish the load-captured combined-control reader;
 6. capture every Deferred-owned callsite, entry, and keyboard-slot predecessor;
 7. enable the complete input bridge in one rollback-capable transaction;
 8. obtain the load-captured xNVSE combined-control reader, validate and install
@@ -356,7 +356,7 @@ At `DeferredInit`, Atom performs this ordered transaction:
    the reticle when movement is available and its call remains vanilla, then
    additionally admit launch convergence only when spawn also remains vanilla,
    and append the ranged hip-fire animation adapter;
-10. independently fingerprint and enable the five Ballistics callsites plus
+10. independently capture and enable the Ballistics callsites plus
    MissileProjectile update slot in one rollback-capable transaction;
 11. subscribe to MCM Extender's `MCMExtUpdate` event for menu-close reloads.
 
@@ -634,9 +634,9 @@ The fixed executable is FalloutNV.exe 1.4.0.525, SHA-256
 | Reticle ray | `0x0070C130` | `0x00631D60` | x86 `thiscall(caster, start*, direction*, range, distance*, alternate*) -> reference*` |
 | Projectile spawn | `0x005245BD` | `0x009BCA60` | x86 `cdecl`, exact 14-argument ranged-launch ABI |
 
-Atom fingerprints private helpers and caller contexts whose exact bodies it
-consumes, but the first-person render group requires only the proven typed
-direct-call capabilities because its wrappers forward every argument unchanged.
+Atom validates live typed hook capabilities and helper executability without
+matching vanilla helper or surrounding caller bytes. Supported-runtime ABI and
+layout evidence remains offline; providers must preserve those contracts.
 No callsite requires its displacement to still name the vanilla target. The
 target present at DeferredInit becomes Atom's typed predecessor, preserving
 capability-based chaining. The keyboard slot is resolved from the live input
@@ -1249,8 +1249,8 @@ the canonical launch predecessor is executing. Radare2 proves the form pointer
 is in `ECX`, the Boolean returns in `AL`, and the following instructions store
 that result as the single local policy from which FNV derives the complete
 MissileProjectile runtime flag family. VATS state 4 supplies false to the same
-local path without changing the shared form. The wrapper validates immutable
-instructions on both sides of the mutable call, captures its current owner,
+local path without changing the shared form. The wrapper validates the live
+direct-call capability, captures its current owner,
 and changes only a scoped true answer to false.
 
 The former post-launch flag writer and its 19 rejection gates are deleted.

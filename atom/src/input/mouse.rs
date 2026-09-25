@@ -4,8 +4,11 @@
 //! The transform therefore never multiplies by frame time and carries no
 //! history. Runtime integration observes counts at the two proven mouse getter
 //! calls and applies the final transform at the later float heading consumers.
-//! This preserves sub-count precision: a low angular scale never rounds a
-//! one-count movement to zero merely because FNV's getter ABI uses integers.
+//! This preserves fractional camera angles: a low angular scale never rounds
+//! a one-count movement back to an integer count. It cannot recover movement
+//! smaller than the integer counts reported by the input device. Higher device
+//! DPI with proportionally lower sensitivity provides finer angular steps at
+//! the same nominal physical turn speed.
 //! Menu cursor, console, fly camera, and the native input snapshot remain
 //! untouched.
 
@@ -70,6 +73,8 @@ pub struct MouseSettings {
     pub(crate) vertical_scale: f32,
     pub(crate) invert_x: bool,
     pub(crate) invert_y: bool,
+    pub(crate) aim_scale: f32,
+    pub(crate) scope_scale: f32,
 }
 
 impl MouseSettings {
@@ -80,6 +85,8 @@ impl MouseSettings {
         vertical_scale: 1.0,
         invert_x: false,
         invert_y: false,
+        aim_scale: 1.0,
+        scope_scale: 1.0,
     };
 
     /// Return the selected profile.
@@ -112,10 +119,26 @@ impl MouseSettings {
         self.invert_y
     }
 
+    /// Return the additional ADS multiplier when the scope overlay is absent.
+    pub const fn aim_scale(self) -> f32 {
+        self.aim_scale
+    }
+
+    /// Return the scope-overlay multiplier, which takes precedence over ADS.
+    pub const fn scope_scale(self) -> f32 {
+        self.scope_scale
+    }
+
+    pub(crate) fn needs_context(self) -> bool {
+        self.aim_scale != 1.0 || self.scope_scale != 1.0
+    }
+
     pub(crate) fn sanitized(mut self) -> Self {
         self.sensitivity = finite_or(self.sensitivity, 1.0).clamp(0.05, 8.0);
         self.horizontal_scale = finite_or(self.horizontal_scale, 1.0).clamp(0.1, 4.0);
         self.vertical_scale = finite_or(self.vertical_scale, 1.0).clamp(0.1, 4.0);
+        self.aim_scale = finite_or(self.aim_scale, 1.0).clamp(0.05, 8.0);
+        self.scope_scale = finite_or(self.scope_scale, 1.0).clamp(0.05, 8.0);
         self
     }
 }
@@ -135,6 +158,20 @@ pub enum MouseAxis {
     Y,
 }
 
+/// Native presentation/aim state at the final player-heading boundary.
+///
+/// Scope visibility takes precedence over the process' ADS state. These are
+/// native state observations, not predictions from an aim-button press.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum MouseContext {
+    /// Neither native ADS nor the scope overlay is active.
+    Hip,
+    /// The process reports ADS, with no visible scope overlay.
+    Aim,
+    /// The native HUD reports the scope overlay visible.
+    Scope,
+}
+
 /// Inputs available at FNV's final player-heading consumer.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct MouseHeadingInput {
@@ -142,6 +179,7 @@ pub struct MouseHeadingInput {
     source_delta: i32,
     native_heading: f32,
     native_y_inverted: bool,
+    context: MouseContext,
 }
 
 impl MouseHeadingInput {
@@ -157,7 +195,14 @@ impl MouseHeadingInput {
             source_delta,
             native_heading,
             native_y_inverted,
+            context: MouseContext::Hip,
         }
+    }
+
+    /// Attach the current native context; [`Self::new`] defaults to hip fire.
+    pub const fn with_context(mut self, context: MouseContext) -> Self {
+        self.context = context;
+        self
     }
 
     /// Return the heading axis.
@@ -224,6 +269,13 @@ impl MouseTransform {
     /// float boundary avoids integer quantization and removes undocumented
     /// FNV mouse-context multipliers from the nominal count-to-angle mapping.
     ///
+    /// Both direct profiles then apply the explicit ADS or scope multiplier.
+    /// Scope takes precedence rather than multiplying both values. Hip fire
+    /// has no extra multiplier; both configurable defaults are identity.
+    /// The native adapter also uses that neutral context when optional ADS or
+    /// scope ownership is unavailable, retaining the selected profile's gain.
+    /// Non-finite transformed output returns zero.
+    ///
     /// `Native` returns `native_heading` without arithmetic, including for
     /// non-finite values, because exact predecessor passthrough is its public
     /// compatibility contract.
@@ -253,7 +305,12 @@ impl MouseTransform {
             MouseProfile::Direct => input.native_heading,
             MouseProfile::Fallout4Direct => input.source_delta as f32 * FALLOUT4_RADIANS_PER_COUNT,
         };
-        let heading = base * self.settings.sensitivity * axis_scale * direction;
+        let context_scale = match input.context {
+            MouseContext::Hip => 1.0,
+            MouseContext::Aim => self.settings.aim_scale,
+            MouseContext::Scope => self.settings.scope_scale,
+        };
+        let heading = base * self.settings.sensitivity * axis_scale * direction * context_scale;
         if heading.is_finite() { heading } else { 0.0 }
     }
 }

@@ -32,16 +32,21 @@ pub use controller::{
 };
 pub use frame::{InputFrame, InputPipeline, MouseFrame, NativeInputState, NativeMouseState};
 pub use mouse::{
-    FALLOUT4_RADIANS_PER_COUNT, MouseAxis, MouseHeadingInput, MouseProfile, MouseProfileError,
-    MouseSettings, MouseTransform,
+    FALLOUT4_RADIANS_PER_COUNT, MouseAxis, MouseContext, MouseHeadingInput, MouseProfile,
+    MouseProfileError, MouseSettings, MouseTransform,
 };
 pub use telemetry::{MouseHeadingSummary, TelemetrySnapshot};
 
 use config::ConfigStore;
 use core::sync::atomic::{AtomicBool, Ordering};
+use libnvse::api::player_controls::PlayerControlsReader;
 use thiserror::Error;
 
 static CONFIG: ConfigStore = ConfigStore::new();
+// Reuse the coherent configuration store for the controller's applied values.
+// Only the sampler writes this store, at exact physical neutral. Requested
+// settings remain in CONFIG so MCM never has to write a pending value back.
+static APPLIED_CONTROLLER_CONFIG: ConfigStore = ConfigStore::new();
 static PIPELINE: InputPipeline = InputPipeline::new();
 static CONTROLLER_TRANSFORM_ACTIVE: AtomicBool = AtomicBool::new(false);
 static ACTION_BRIDGE_OPEN: AtomicBool = AtomicBool::new(false);
@@ -83,13 +88,30 @@ pub fn latest_action_frame() -> ActionFrame {
     PIPELINE.latest_actions()
 }
 
+/// Read coherent frame identity and context without loading action payloads.
+pub(crate) fn latest_action_header() -> actions::ActionFrameHeader {
+    PIPELINE.latest_action_header()
+}
+
+/// Read one action and its frame header from the same publication.
+pub(crate) fn latest_action(action: ActionId) -> (actions::ActionFrameHeader, ActionState) {
+    PIPELINE.latest_action(action)
+}
+
 pub(crate) fn publish_config(config: InputConfig) {
     CONFIG.publish(config);
 }
 
 pub(crate) fn capture_native_sample(native: NativeInputState, keyboard_events: KeyboardEventBatch) {
     let config = CONFIG.load();
-    let frame = PIPELINE.capture_with_keyboard_events(native, config.controller(), keyboard_events);
+    let mut controller_settings = APPLIED_CONTROLLER_CONFIG.load_controller();
+    if native.controller_current().is_neutral() && controller_settings != config.controller() {
+        controller_settings = config.controller();
+        APPLIED_CONTROLLER_CONFIG.publish(config);
+        // Both configurations map this physical sample to zero. Keep trigger
+        // history and native previous state so a real release remains visible.
+    }
+    let frame = PIPELINE.capture_with_keyboard_events(native, controller_settings, keyboard_events);
     buffered::publish(keyboard_events.with_frame_id(frame.frame_id()));
     reconcile_controller_output(config.enabled(), frame.controller());
     telemetry::mark_sample(frame.frame_id());
@@ -121,16 +143,18 @@ pub(crate) fn controller_transform_active() -> bool {
 }
 
 pub(crate) fn input_enabled() -> bool {
-    CONFIG.load().enabled()
+    CONFIG.load_enabled()
 }
 
 fn reconcile_controller_output(requested: bool, controller: ControllerFrame) {
     let mut active = CONTROLLER_TRANSFORM_ACTIVE.load(Ordering::Acquire);
     let neutral = controller.raw().is_neutral();
 
-    // Starting or stopping only on a physically neutral sample prevents a
+    // Starting or stopping only on an exactly neutral sample prevents a
     // live MCM toggle from creating an artificial press, release, or stick
-    // jump in FNV's current/previous controller comparison.
+    // jump in FNV's current/previous controller comparison. Native triggers
+    // treat any positive value as held, and UI consumers read stick axes
+    // without the gameplay deadzone; a radial threshold is not sufficient.
     if !active && requested && neutral {
         active = true;
         CONTROLLER_TRANSFORM_ACTIVE.store(true, Ordering::Release);
@@ -146,8 +170,16 @@ fn reconcile_controller_output(requested: bool, controller: ControllerFrame) {
     }
 }
 
-pub(crate) fn install_native_bridge() -> Result<InputHookStatus, InputInstallError> {
+/// Validate data ranges, publish the process-lifetime control reader, and
+/// install input hooks at the quiescent DeferredInit boundary.
+///
+/// Missing control-query capability preserves native mouse heading. Other
+/// errors are returned before the caller admits dependent camera systems.
+pub(crate) fn install_native_bridge(
+    controls: Option<PlayerControlsReader>,
+) -> Result<InputHookStatus, InputInstallError> {
     native::validate_data_contract()?;
+    native::publish_player_controls(controls);
     let predecessors = hooks::install()?;
     Ok(InputHookStatus {
         sampler_predecessor: predecessors.sampler,

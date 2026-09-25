@@ -1,6 +1,6 @@
 # Atom input wrapper design
 
-## Implementation status (2026-08-16)
+## Implementation status
 
 Stages 0 through 3 are implemented as an opt-in playtest build. Atom captures
 the post-xNVSE sample, publishes coherent device and 28-action frames, records
@@ -13,7 +13,9 @@ The value is a documented radians-per-count inference, not a claim that every
 Fallout 4 camera context is identical. `Direct` instead scales FNV's native
 final heading, while `Native` remains exact float passthrough.
 
-Controller output is published only after a physically neutral handoff. Four
+Controller output is published only after an exactly neutral handoff. Live
+controller edits remain requested until the same boundary; the sampler owns
+the applied controller settings and preserves trigger release history. Four
 player-camera deadzone calls and three curve setting calls are dynamically
 bypassed only while that output is active. The action layer merges keyboard,
 mouse, and controller bindings, tracks focus epochs and menu context, and
@@ -35,6 +37,15 @@ not implemented because stages 1-3 do not require Raw Input takeover.
 Configuration is MCM-owned `Atom.ini`, deserialized read-only through Serde and
 `serini`. Diagnostics use Psycho's established asynchronous logger; there is no
 custom ImGui UI or subsystem-owned telemetry file.
+
+The direct mouse profiles expose separate ADS and scope multipliers, both
+defaulting to 1.0. Visible native scope state takes precedence over the process'
+ADS predicate. Native profile remains exact passthrough. The final-heading
+bridge requires no live menu and an enabled native look control before
+transforming cached counts. Missing optional context owners retain the selected
+profile with neutral context gain. These changes have static qualification only;
+runtime behavior, startup compatibility, and latency improvements have not been
+established by this refinement. No additional telemetry was introduced.
 
 The 2026-08-16 runtime stack changes the broadly shared `MenuMode` entry at
 `0x00702360` before Atom's deferred callbacks. Atom Input originally continued
@@ -67,10 +78,11 @@ It must not:
 - assume every perceived delayed action is an input-transport defect;
 - use an ESP, form list, plugin-name compatibility check, or custom ImGui menu.
 
-This design can remove all avoidable delay owned by Atom's input and player
-control boundary. It cannot remove hardware report time, display scanout,
-runtime/GPU presentation queues, or an intentional weapon/animation gate. Those
-parts must be measured and fixed by their actual owner.
+The wrapper preserves buffered keyboard transitions and changes the transfer
+functions at proven player boundaries without adding a history-based filter.
+It retains native sample placement and introduces no proven reduction in
+sample-to-display time. Hardware report time, display scanout, runtime/GPU
+presentation queues, and weapon/animation gates remain outside its ownership.
 
 ## Why the Fallout 4 comparison is useful
 
@@ -198,6 +210,22 @@ blocking synchronization. Keyboard and mouse arrays remain unchanged.
 Controller current state changes only after the neutral activation policy has
 admitted Atom's processed output.
 
+Neutral means zero buttons, zero trigger bytes, and zero signed stick axes.
+Packet sequence is not an input. Requested settings stay in the MCM-owned
+configuration store; a separate coherent applied store changes only on a raw
+neutral sample, before controller processing. Existing trigger hysteresis is
+retained through that sample so a genuine release can be observed. No current
+or previous native slot is cleared to force a handoff. Native trigger queries
+treat any positive byte as held, and UI consumers use raw axes without the
+gameplay deadzone. Consequently noisy hardware can keep enable, disable, or
+settings changes pending indefinitely. A disconnected-mode flag is not proof
+that the native XInput payload is zero.
+
+Radial processing normalizes direction with the original stick-vector length,
+then clamps only radial strength. Per-axis XInput endpoints can produce a
+length greater than one; clamping the normalization divisor first amplified
+those diagonals. Explicit axis scales still apply after radial processing.
+
 Atom consumes post-xNVSE state rather than bypassing the xNVSE wrapper. This
 preserves `TapKey`, held/injected keys, disabled controls, script-visible state,
 and any established wrapper ordering.
@@ -302,7 +330,36 @@ predictable camera response with early visible motion and no added history.
 - Clamp only pathological accumulated deltas after a stall/focus transition;
   normal high-speed flicks must not be flattened.
 
-### Proposed transform
+### Implemented context policy
+
+`Mouse:fAimScale` applies when the live process reports ADS and the scope
+overlay is absent. `Mouse:fScopeScale` applies while the native HUD scope byte
+is set. Scope takes precedence; the factors do not multiply together. Hip fire
+uses 1.0. `Direct` composes this factor with FNV's existing FOV/context scaling;
+`Fallout 4 Direct` applies it to the nominal count-to-heading preset. `Native`
+ignores both values and remains bitwise passthrough. No new first/third-person
+multiplier or guessed Fallout 4 zoom formula is introduced.
+
+The hook reads scope/ADS only if at least one factor is nonidentity. Missing
+HUD, process, vtable, or callback uses neutral context gain for that call while
+retaining the selected profile, sensitivity, and axis settings.
+The live process virtual slot preserves compatible providers without checking
+their module identity. The native helper entries are neither called nor
+patched. Supported-runtime layout evidence stays offline; DeferredInit checks
+live hook capabilities and data ranges, without requiring vanilla helper bytes.
+
+The getter caches counts before native code zeros its locals for disabled look.
+The yaw path can still reach its final consumer with those locals zero, so
+rebuilding from cached counts requires an explicit look-disable check. Both
+direct profiles recheck the live menu and xNVSE's combined LOOKING-disable
+state. These checks preserve native heading on rejection. The keyboard/action
+mirror's phase and sampled context do not gate mouse transformation. Native
+branches that skip the heading call remain in
+control; buffered keyboard mirroring and action-boundary suppression are
+unchanged. The native evidence is recorded in
+[the actor input contract](fnv_actor_input_contract.md#atom-refinement-contracts).
+
+### Nominal transform
 
 For an ordinary gameplay frame:
 
@@ -318,6 +375,111 @@ The transform should operate in documented camera-angle units. MCM can expose
 a familiar sensitivity slider, but internally Atom should also support a
 calibrated degrees-per-count value so the same mouse DPI produces a repeatable
 cm/360.
+
+### Angular precision and sensitivity calibration
+
+The shipped heading transform preserves fractional camera angles, not
+fractional hardware counts. In `Fallout 4 Direct`,
+`MouseTransform::apply_heading` converts the integer getter result to a float
+before applying its angular scale; it does not round that result back to an
+integer count. It cannot recover movement that the input device has not
+reported. `Direct` scales the native float heading instead.
+
+For `Fallout 4 Direct`, the nominal per-count angle is:
+
+```text
+radians_per_count = 0.00063 * sensitivity * axis_scale * context_scale
+```
+
+For example, sensitivity 2.8 with identity axis/context scales produces
+0.001764 radians, approximately 0.1011 degrees, per count. This arithmetic
+establishes angular granularity, not a reduced input update rate or an FPS
+loss. A perceived first-person stutter cannot be attributed to that granularity
+from source inspection alone.
+
+When the device supports higher hardware DPI, preserve nominal physical turn
+speed by scaling sensitivity inversely:
+
+```text
+new_sensitivity = old_sensitivity * old_DPI / new_DPI
+```
+
+Quadrupling DPI and changing sensitivity from 2.8 to 0.7 therefore reduces the
+nominal angle per count fourfold without changing nominal physical turn speed.
+This assumes proportional device counts and unchanged axis/context factors;
+the requested value must remain within Atom's 0.05-8.00 sensitivity bounds.
+It is a calibration relationship, not an automatic device adjustment or a
+verified runtime smoothness improvement. Microsoft's
+[high-definition mouse guidance](https://learn.microsoft.com/en-us/windows/win32/dxtecharts/taking-advantage-of-high-dpi-mouse-movement)
+describes the precision available from higher-resolution device data.
+
+MCM exposes base sensitivity in 0.01 increments with two decimal places. The
+increment controls adjustment granularity only; the heading path continues to
+use the saved floating-point value. Defaults, bounds, option IDs, and INI keys
+are unchanged. MCM remains the sole writer, and the existing `MCMExtUpdate`
+handler applies the saved configuration without polling or new hot-path work.
+
+### First-person static smoothness audit
+
+The source and supported-executable contracts establish the following scope:
+
+- The getter hooks at `0x00945995` and `0x009459A8` cache their predecessor's
+  integer result and return it unchanged. The later float heading hooks at
+  `0x00945F90` and `0x00945FD8` perform no history filtering, frame-time
+  multiplication, extra device poll, or additional integer rounding.
+- The keyboard/action phase closes before native sampling, opens after
+  successful capture, and closes at `OnFramePresent`. Mouse heading does not
+  depend on that phase or the action frame's cached context. Its live look
+  guard preserves native heading on rejection. Nonidentity ADS/scope factors
+  use neutral context gain when their context cannot be read. Static
+  inspection does not establish how often these conditions occur in a modded
+  run.
+- The first-person world render scope composes its additive pose with the
+  camera transform read at that render entry and restores that entry snapshot
+  after its predecessor returns. It does not substitute a previous update's
+  absolute heading. Mouse-driven spring inertia is confined to weapon motion;
+  the world pose contains gait, landing, and shot motion.
+
+Native address/layout evidence belongs to the
+[actor input contract](fnv_actor_input_contract.md) and its linked raw analysis.
+Camera scope ownership belongs to the
+[first-person camera design](atom_first_person_camera_design.md). These facts
+do not prove live sample freshness or cadence under additional providers, nor
+exclude camera mutations inside a chained render provider. No stale-count,
+duplicate-heading, or render-restoration defect causing the reported feeling
+has been established. Hardware DPI, report cadence, presentation timing, and
+the report's cause remain unresolved; no latency or smoothness gain is claimed.
+
+### Mouse admission regression rollback
+
+The owner reports worse first-person mouse motion after the input refinement.
+Compared with the preceding implementation, the default direct transform's
+count-to-angle formula is unchanged: the new ADS/scope factors default to 1.0.
+The angular-granularity calculation above therefore does not explain that
+regression by itself.
+
+The refinement had made final mouse heading depend on `ACTION_BRIDGE_OPEN`
+and the last keyboard/action frame's `Gameplay` context. Rejection returned
+the native heading, selecting a different sensitivity path. Neither condition
+is the ownership boundary of the camera getter values used by that invocation.
+The phase exists to prevent buffered digital-action replay during native sample
+maintenance; it is not a mouse-sampling timestamp or a camera-update token.
+Reading the context also loaded the 59-word action snapshot at each eligible
+heading call, although no individual action was needed.
+
+The rollback removes those two newly introduced dependencies from mouse look.
+It retains them for the digital-action adapter and retains the live player,
+menu, and combined LOOKING-disable checks at mouse heading. No device state,
+camera feature, sample placement, or transform history changes. Accumulated
+counts still map directly to angles without a frame-time multiplier or an
+added frame queue. Frame-independent angular gain does not establish
+frame-independent displayed motion or measured low input-to-display latency.
+
+The owner subsequently reports that input is much better after this rollback.
+That is direct subjective evidence of improvement, without isolating which
+gate or removed work caused it. Residual smoothness and end-to-end latency
+remain unmeasured under the owner's static-only constraint. Retain this
+improved behavior as the basis for further input changes.
 
 ### Fallout 4 calibrated preset
 
@@ -365,12 +527,16 @@ object go directly to the captured predecessor. The fixed mirror preserves:
 - `DIGDD_PEEK` without consumption;
 - event order, timestamp, sequence, and caller-requested count;
 - `DI_BUFFEROVERFLOW` propagation;
-- focus loss and reacquisition;
+- provider failure status without publishing mirrored events as a valid read;
 - menu/console drains after Atom already captured an event.
 
-The newest 32 events are retained, matching FNV's configured bound. A non-NULL
-peek is answered from the mirror after a non-peek predecessor drain because
-xNVSE's current injected queue explicitly halts on that peek shape. Short
+The newest 32 events are retained as Atom's explicit mirror policy. This is
+not exact native overflow equivalence: usable DirectInput capacity is one less
+than its configured buffer size. Acquisition epochs remain provider-owned;
+Atom does not infer an unconditional mirror discard from a failed read. A
+positive-count non-NULL peek fills available mirror space through a non-peek
+predecessor drain because xNVSE's injected queue halts on direct non-NULL
+peeks. Full-mirror and zero-count peeks use a NULL provider status query. Short
 `try_lock` contention falls through to the predecessor and increments a bounded
 health counter; the hook never blocks or logs in the input path.
 
@@ -513,8 +679,10 @@ Rules:
 
 ## Hook and compatibility contract
 
-Every engine patch must be a small transactional hook with a complete native
-fingerprint, rollback, and local-unavailability failure mode.
+Every engine patch must be a small transactional hook with a proven native
+ABI, live capability validation, rollback, and a defined failure mode.
+Vanilla-body fingerprints are not runtime gates; see
+[Atom's admission contract](atom_compatibility_contract.md#runtime-admission).
 
 Required boundaries:
 
@@ -535,8 +703,10 @@ Atom live GetDeviceData capability mirror
 ```
 
 Do not patch xNVSE, Wine, DXVK, another input mod, or a third-party vtable by
-identity. If the expected capability or fingerprint is unavailable, Atom Input
-falls back to native behavior while unrelated Atom modules continue.
+identity. Hook preparation rejects unchainable live capabilities. Input
+installation remains a prerequisite for the shared sample and camera owners;
+an input-installation error aborts initialization. Surrounding byte changes
+alone are not errors.
 
 No input hook belongs in DllMain, TLS, `NVSEPlugin_Query`, or
 `NVSEPlugin_Load`. Installation and state allocation occur at DeferredInit or a
@@ -563,11 +733,13 @@ toggles. Late sampling failed admission and is not shown.
 | Option | Initial default | Range/choices |
 |---|---|---|
 | Mouse profile | Fallout 4 Direct | Native, Direct, Fallout 4 Direct |
-| Base sensitivity | 1.00 | 0.05-8.00 |
+| Base sensitivity | 1.00 | 0.05-8.00, step 0.01 |
 | Horizontal scale | 1.00 | 0.10-4.00 |
 | Vertical scale | 1.00 | 0.10-4.00 |
 | Invert X | off | boolean |
 | Invert Y | preserve native preference | boolean |
+| ADS scale | 1.00 | 0.05-8.00 |
+| Scope scale | 1.00 | 0.05-8.00 |
 
 No smoothing or acceleration slider should exist in the first version because
 the desired profile deliberately has neither. A setting that reintroduces delay
@@ -582,6 +754,10 @@ without a proven use case would undermine the module.
 - independent stick X/Y scale and inversion;
 
 MCM Extender owns ordinary reset/default behavior; Atom does not write the INI.
+Mouse factors use the existing `MCMExtUpdate` handler after the INI save.
+Controller values are requested immediately and applied at exact neutral;
+neither path adds per-frame file reads or pause polling. Existing option IDs
+and persisted keys are preserved.
 
 ### Input / Diagnostics
 
@@ -755,21 +931,184 @@ proposal.
 
 Not required and not implemented.
 
-## Recommendation
+## Input refinement implementation and remaining gates
 
-Retain the implemented stages 0 through 3 and complete runtime acceptance before
-expanding the input surface. The resulting architecture is:
+The owner approved implementation with static review and compilation only.
+No telemetry, executable tests, game runs, or benchmarks are added or run.
+The restored mouse admission path remains the baseline. These changes address
+source/binary-backed costs and correctness paths; they do not establish the
+cause of reported mouse stutter or prove improved runtime latency.
 
-1. direct no-history mouse heading with independent axes and calibrated camera
-   context scales;
-2. one coherent post-xNVSE action snapshot;
-3. radial controller output with neutral live handoff;
-4. bounded keyboard edge preservation behind native/xNVSE ownership;
-5. presentation latency measured and handled by OMV/DXVK rather than Atom.
+### Coherent narrow reads
 
-This combination reproduces the parts of Fallout 4's input architecture which
-are relevant to feel without pretending FNV is Fallout 4 or breaking the
-existing input stack. Raw Input takeover, universal time-based action buffering,
-and render-only late latching remain outside the admitted design because the
-current executable evidence does not establish safe ownership boundaries for
-them.
+`ConfigStore::load_enabled` and `load_controller` reuse the existing atomic
+storage and publication sequence. They read only the enabled field or the
+controller settings respectively. No duplicate published flags, configuration
+layout changes, or hot-path parsing are introduced.
+
+`ActionStore` provides a two-word header read and a four-word header-plus-action
+read, compared with the full frame's 59 payload words. Both validate the same
+sequence and retain the existing neutral sentinel. Action decoding is shared
+with the full snapshot. Consumers needing multiple actions keep that snapshot.
+These are source-level payload counts, not measured instruction or latency
+budgets.
+
+The bound-action predecessor still runs first and exactly once. Native nonzero
+results, unsupported controls/states, control 14, and closed action phase return
+before configuration/action loads. Held queries need no enabled-field load and
+return early when no controller supplement is active. Camera callers needing
+only context/frame identity use the header; the single Block query reads its
+header and action together. Camera admission, update epochs, and composition
+are unchanged. Mouse heading has no new dependency on these reads.
+
+### Keyboard transaction and bounded storage
+
+`buffered.rs` chains the existing live keyboard provider under the existing
+non-blocking mirror lock. Its implemented caller contract is:
+
+| Request | Behavior |
+|---|---|
+| Other device, unsupported size/flags, or null count | Forward unchanged before modifying the mirror. |
+| Null-output peek | Query the provider; on success combine its count with the mirror within the requested limit. |
+| Non-null positive-count peek with mirror space | Fill through a consuming provider call, then copy the mirror without consuming it. |
+| Full-mirror or zero-count non-null peek | Use a null-output zero-count provider peek to observe acquisition/overflow without draining events. |
+| Consuming read or null-output flush | Call the provider first; only success copies/removes the mirror prefix. Successful flush drains both sources. |
+| Failed admitted provider read | Propagate HRESULT, publish count zero, and do not copy/consume the mirror. Provider-written output is invalid. |
+| Successful consuming read, including zero count | Report pending overflow, then acknowledge the mirror overflow flag. |
+
+The local xNVSE `DIHookControl::ProcessBufferedData` supports null-output peeks
+but halts on non-null peeks while its injected queue is nonempty. The consuming
+fill workaround remains. The full-mirror status probe adds one provider call
+where the old code made none; it is needed to avoid reporting cached input as
+valid when acquisition has failed. No additional device call is added to the
+normal gameplay capture.
+
+The fixed ring retains the newest 32 complete events, preserving order,
+timestamps, sequence numbers, and application data. Append overwrites at most
+one oldest entry per incoming event. Consume advances the head; output copies
+at most two contiguous spans. Neither operation shifts retained events. The
+existing mutex owns the ring head and length; no new worker, lock, allocation,
+telemetry counter, or hook is introduced. The ring adds a head index to the
+existing static mirror; startup behavior has not been runtime-qualified.
+
+Overflow acknowledgement deliberately follows the successful non-peek boundary
+in upstream [Wine's GetDeviceData](https://github.com/wine-mirror/wine/blob/master/dlls/dinput/device.c),
+including zero-count queries. Peeks and failures retain pending mirror overflow.
+This changes the prior policy that reported overflow until the mirror emptied.
+The native reader at `0x00A23820` consumes one event but accepts only zero
+HRESULT; the former policy could therefore make it reject every retained event.
+The new policy still reports the actual overflow and cannot recover already
+lost events. It does not patch that reader or mask the first overflow result.
+See the [native consumer contract](fnv_actor_input_contract.md#normal-frame-sampler)
+and [DirectInput's API contract](https://learn.microsoft.com/en-us/previous-versions/windows/desktop/ee417894(v=vs.85)).
+The upstream source is comparison evidence, not identification of installed
+Proton. Atom's newest-retained overflow differs from Wine's native queue,
+which stops accepting events while overflowed.
+
+### Acquisition limit
+
+Reacquisition clearing remains unimplemented. The native sampler calls Acquire
+before Atom's buffered capture, and its outer void return exposes no HRESULT.
+xNVSE forwards Acquire/Unacquire directly. Atom's action epoch comes from
+sampled foreground-window equality; its edge suppression does not clear the
+keyboard mirror. Those observations cannot identify every device-loss interval.
+
+Upstream [Wine keyboard callbacks](https://github.com/wine-mirror/wine/blob/master/dlls/dinput/keyboard.c)
+and [acquisition bookkeeping](https://github.com/wine-mirror/wine/blob/master/dlls/dinput/dinput_main.c)
+do not establish an unconditional event-queue reset: unacquisition clears
+immediate key state and updates device registration. Microsoft's
+[acquisition contract](https://learn.microsoft.com/en-us/previous-versions/windows/desktop/ee415221(v=vs.85))
+also does not prescribe an Atom-mirror discard rule.
+
+A failed admitted read now exposes no mirrored events as successful input, but
+retained events' validity after reacquisition is still unresolved. The native
+flush helper ignores failure. Complete flush/acquire caller order, provider
+lifetime, and a valid epoch boundary are prerequisites to changing discard
+policy. No speculative acquisition hook or focus-based clearing is added.
+
+### Optional mouse context fallback
+
+Disabled input, Native profile, controller mode, and a rejected live look guard
+retain exact native passthrough. Once that guard admits a direct profile,
+unavailable optional ADS/scope context uses neutral factor 1.0 while preserving
+base sensitivity, axis scales, and inversion. Scope still takes precedence
+when visible; identity defaults skip the context traversal entirely.
+
+This removes the fallback to unrelated native sensitivity. It can still change
+effective gain when a valid nonidentity context disappears; it is not seamless
+recovery of an unknown state. No historical motion, smoothing queue, extra
+mouse poll, frame-time multiplier, or sampling relocation is introduced. This
+case does not explain the earlier report with identity context settings.
+
+### Research tracks with unresolved implementation gates
+
+**Native state-read failure.** Complete the live callsite/caller/lifetime
+contract before implementing a guard around failed immediate-state reads.
+The intended invariant is that a failed read cannot masquerade as fresh
+relative motion or held input. Preserve successful provider behavior and
+existing injection, use one read, and preserve the HRESULT; do not reacquire
+or retry in a new loop. Prove the effect on previous/current button edges and
+focus recovery. A general native engine correction belongs to
+`psycho-engine-fixes`, not Syringe or a patch to another mod. The binary defect
+is established; an admitted intervention and real-workload failure are not.
+
+**Controller handoff.** Research initialization/disconnection/reset boundaries
+or output-equivalent settings transitions that can make pending changes live
+without fabricating native edges. Preserve current/previous state and trigger
+hysteresis. A loose radial "near zero" test is insufficient because native UI
+and trigger consumers can distinguish those values. Keep this independent of
+the mouse path.
+
+**Action fidelity.** Keep the current short-tap supplement's scope explicit.
+Action-specific jump, attack, reload, or activation improvements require the
+actual consumer's remembered-state contract. Frame-count `held_samples` is
+not a duration in seconds and has no current gameplay consumer in Atom;
+future timing-dependent actions must not derive durations from that count.
+
+**Sampling and presentation.** Retain the existing rejection of relocating
+the coupled native sampler. A mouse-only later read would still need proof
+that earlier consumers, relative-count reset, buttons/wheel, xNVSE injection,
+simulation aim, projectiles, camera transforms, and presentation stay coherent.
+Render-only late latching would additionally split displayed aim from gameplay
+unless those consumers are integrated. These are research projects, not
+approved latency patches.
+
+### Transport and smoothness boundaries
+
+The direct count-to-angle transfer already has no frame-time term. For fixed
+settings and context, accumulated counts define total angular input; native
+clamping and float accumulation remain downstream. Visible updates still
+arrive with rendered frames. First-person weapon inertia uses analytic time
+integration, while main-view mouse heading does not go through that spring.
+No source finding justifies smoothing or predicting the main view.
+
+Upstream [Wine mouse input](https://github.com/wine-mirror/wine/blob/master/dlls/dinput/mouse.c)
+accumulates relative reports and enables its Raw Input route for DirectInput 8.
+This is comparison evidence, not identification of the installed Proton build.
+Microsoft documents that only one window per device class receives Raw Input
+within a process and cautions libraries against overriding registration:
+[RegisterRawInputDevices](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-registerrawinputdevices).
+Adding a second registration or a second relative-device poll is therefore
+not the next improvement. Atom also does not own DXVK/compositor scheduling.
+
+### Qualification and delivery
+
+The explicit static-only implementation approval overrides the runtime
+reproduction prerequisite for this candidate. Qualification consists of static
+diff/contract review, formatting, supported-target compilation of all Atom
+targets, and the `i686-pc-windows-gnu` release build. No test executable, game,
+or benchmark is run. No deployment, package, commit, or runtime acceptance is
+implied by that approval.
+
+Camera headbob, weapon sway, third-person follow, ballistics, ricochet, and the
+existing live look guard retain their implementations. No runtime fingerprint,
+third-party identification, startup callback, configuration layout, import API,
+or TLS owner is added. The ring head changes the existing mirror's static
+storage; startup compatibility remains unverified under this qualification.
+
+Remaining behavioral limits include the actual float-heading admission path,
+native provider failures and acquisition epochs, overflow through the native
+one-event reader, injected input, camera composition, startup, and presentation
+latency. Compilation and source-level work counts cannot certify those results.
+Controller handoff, sampler relocation, native state-read guards, and render
+late latching remain separate research tracks.

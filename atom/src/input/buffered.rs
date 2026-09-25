@@ -11,6 +11,12 @@
 //! hook captures the current capability rather than identifying xNVSE or any
 //! other owner. Calls use a short `try_lock`; contention falls through to the
 //! predecessor instead of blocking an input thread.
+//!
+//! The mirror is a bounded FIFO with newest-retained overflow. Failed reads
+//! expose no mirrored events and do not commit consumption. Successful
+//! consuming calls acknowledge mirror overflow once, including zero-count
+//! queries; peeks retain it. Device reacquisition is still owned by FNV and
+//! the provider, not inferred from sampled focus or a failed HRESULT here.
 
 use core::ffi::c_void;
 use core::mem::size_of;
@@ -323,6 +329,7 @@ unsafe extern "system" fn get_device_data_detour(
     if device as usize != KEYBOARD_DEVICE.load(Ordering::Acquire)
         || data_size as usize != size_of::<DirectInputEvent>()
         || count.is_null()
+        || flags & !DIGDD_PEEK != 0
     {
         return unsafe { predecessor(device, data_size, output, count, flags) };
     }
@@ -368,6 +375,11 @@ unsafe fn peek_events(
                 DIGDD_PEEK,
             )
         };
+        if result < 0 {
+            // A failed provider may leave its in/out count unchanged.
+            unsafe { core::ptr::write(count, 0) };
+            return result;
+        }
         unsafe {
             core::ptr::write(
                 count,
@@ -382,11 +394,17 @@ unsafe fn peek_events(
     // xNVSE cannot safely service non-NULL DIGDD_PEEK while its injected queue
     // is nonempty. Drain into Atom's mirror first, then return a non-consuming
     // copy. This preserves both the caller's peek contract and xNVSE events.
-    fill_from_predecessor(predecessor, device, mirror);
+    // A zero-count peek must not drain input. A full mirror still needs a
+    // provider status check so cached events cannot hide acquisition failure.
+    let result = fill_from_predecessor(predecessor, device, mirror, requested != 0);
+    if result < 0 {
+        unsafe { core::ptr::write(count, 0) };
+        return result;
+    }
     let copied = requested.min(mirror.len as u32) as usize;
-    unsafe { core::ptr::copy_nonoverlapping(mirror.events.as_ptr(), output, copied) };
+    unsafe { mirror.copy_to(output, copied) };
     unsafe { core::ptr::write(count, copied as u32) };
-    merged_result(DI_OK, mirror.overflowed)
+    merged_result(result, mirror.overflowed)
 }
 
 unsafe fn consume_events(
@@ -399,13 +417,6 @@ unsafe fn consume_events(
     mirror: &mut MirrorState,
 ) -> i32 {
     let mirrored = requested.min(mirror.len as u32) as usize;
-    if !output.is_null() && mirrored != 0 {
-        unsafe {
-            core::ptr::copy_nonoverlapping(mirror.events.as_ptr(), output, mirrored);
-        }
-    }
-    mirror.consume(mirrored);
-
     let mut native_count = requested.saturating_sub(mirrored as u32);
     let native_output = if output.is_null() {
         core::ptr::null_mut()
@@ -421,13 +432,32 @@ unsafe fn consume_events(
             flags,
         )
     };
+    if result < 0 {
+        // Do not copy the mirror prefix or consume events on provider failure.
+        // Any provider-written tail is invalid. This does not infer a new
+        // acquisition epoch or discard its history.
+        unsafe { core::ptr::write(count, 0) };
+        return result;
+    }
+    if !output.is_null() {
+        // The predecessor wrote only the tail, leaving this prefix available.
+        unsafe { mirror.copy_to(output, mirrored) };
+    }
+    mirror.consume(mirrored);
     unsafe {
-        core::ptr::write(count, (mirrored as u32).saturating_add(native_count));
+        core::ptr::write(
+            count,
+            (mirrored as u32)
+                .saturating_add(native_count)
+                .min(requested),
+        );
     }
     let overflowed = mirror.overflowed;
-    if mirror.len == 0 && flags & DIGDD_PEEK == 0 {
-        mirror.overflowed = false;
-    }
+    // Match the researched Wine acknowledgement boundary: a successful
+    // non-peek read reports prior overflow, then clears it even for zero
+    // requested events. Keeping it until empty makes FNV's one-event reader
+    // reject every remaining event, since that reader accepts only DI_OK.
+    mirror.overflowed = false;
     merged_result(result, overflowed)
 }
 
@@ -435,10 +465,22 @@ fn fill_from_predecessor(
     predecessor: GetDeviceDataFn,
     device: *mut c_void,
     mirror: &mut MirrorState,
-) {
+    drain: bool,
+) -> i32 {
     let remaining = EVENT_CAPACITY.saturating_sub(mirror.len);
-    if remaining == 0 {
-        return;
+    if remaining == 0 || !drain {
+        let mut count = 0;
+        // xNVSE supports NULL peeks even when injected events are pending.
+        // This observes status without consuming or acknowledging overflow.
+        return unsafe {
+            predecessor(
+                device,
+                size_of::<DirectInputEvent>() as u32,
+                core::ptr::null_mut(),
+                &mut count,
+                DIGDD_PEEK,
+            )
+        };
     }
     let mut events = [DirectInputEvent::new(0, 0, 0, 0, 0); EVENT_CAPACITY];
     let mut count = remaining as u32;
@@ -453,13 +495,14 @@ fn fill_from_predecessor(
     };
     if result < 0 {
         NATIVE_FAILURES.fetch_add(1, Ordering::Relaxed);
-        return;
+        return result;
     }
     mirror.append(&events[..count.min(remaining as u32) as usize]);
     if result == DI_BUFFEROVERFLOW {
         mirror.overflowed = true;
         BUFFER_OVERFLOWS.fetch_add(1, Ordering::Relaxed);
     }
+    result
 }
 
 fn merged_result(native: i32, mirrored_overflow: bool) -> i32 {
@@ -482,6 +525,7 @@ fn try_mirror() -> Option<MutexGuard<'static, MirrorState>> {
 
 struct MirrorState {
     events: [DirectInputEvent; EVENT_CAPACITY],
+    head: usize,
     len: usize,
     overflowed: bool,
 }
@@ -490,6 +534,7 @@ impl MirrorState {
     const fn new() -> Self {
         Self {
             events: [DirectInputEvent::new(0, 0, 0, 0, 0); EVENT_CAPACITY],
+            head: 0,
             len: 0,
             overflowed: false,
         }
@@ -498,19 +543,43 @@ impl MirrorState {
     fn append(&mut self, events: &[DirectInputEvent]) {
         for event in events {
             if self.len == EVENT_CAPACITY {
-                self.events.copy_within(1..EVENT_CAPACITY, 0);
-                self.len -= 1;
+                self.consume(1);
                 self.overflowed = true;
             }
-            self.events[self.len] = *event;
+            self.events[(self.head + self.len) % EVENT_CAPACITY] = *event;
             self.len += 1;
         }
     }
 
     fn consume(&mut self, count: usize) {
         let count = count.min(self.len);
-        self.events.copy_within(count..self.len, 0);
+        self.head = (self.head + count) % EVENT_CAPACITY;
         self.len -= count;
+    }
+
+    /// Copy a FIFO prefix without moving retained events or consuming them.
+    ///
+    /// # Safety
+    ///
+    /// For nonzero `count`, `output` must reference at least `count` writable,
+    /// aligned events disjoint from this mirror. The DirectInput caller owns
+    /// that storage for the call; the mirror lock protects both source spans.
+    unsafe fn copy_to(&self, output: *mut DirectInputEvent, count: usize) {
+        let count = count.min(self.len);
+        if count == 0 {
+            return;
+        }
+        let first = count.min(EVENT_CAPACITY - self.head);
+        unsafe {
+            core::ptr::copy_nonoverlapping(self.events.as_ptr().add(self.head), output, first);
+            if first < count {
+                core::ptr::copy_nonoverlapping(
+                    self.events.as_ptr(),
+                    output.add(first),
+                    count - first,
+                );
+            }
+        }
     }
 }
 

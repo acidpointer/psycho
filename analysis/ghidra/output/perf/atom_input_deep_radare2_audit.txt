@@ -1,0 +1,164 @@
+Atom deep input audit: immediate-state failure handling
+
+Executable: fnv_reverse/FalloutNV.exe, FNV 1.4.0.525, PE32 x86
+SHA-256: 42fee7d6cd74e801372aa89c8f71c974cebd3c20ec9ad43d1465b8fa9646b49c
+Primary interface: radare2 MCP, disassemble; static inspection only.
+Date: 2026-09-25
+
+These excerpts preserve disassembler instruction output. Automatically inferred
+argument annotations and non-instruction comment lines are omitted. The first
+keyboard excerpt is taken from sequential disassembly beginning at 0x00A23010.
+The continuation overlaps at 0x00A231AD. No live process or device was queried.
+
+Contract correction
+===================
+
+Both device branches test Acquire's HRESULT (0 or 1 accepted), but neither
+checks Poll's or GetDeviceState's HRESULT. Keyboard GetDeviceState is called
+at 0x00A231E1, followed by an unconditional jump. Mouse GetDeviceState is called
+at 0x00A23292, also followed by an unconditional jump. The state-clearing
+branches are reached on the earlier acquisition failure, not on a failed
+GetDeviceState. The prior ledger's "acquisition/state retrieval fails"
+description was too broad. Keep that historical raw ledger unchanged and use
+this correction with docs/fnv_actor_input_contract.md.
+
+This proves missing native error handling, not an observed failure in the
+owner's workload. Atom's outer sampler call chains a void thiscall function
+and receives no device HRESULT. A future intervention must still establish
+the live-provider and caller contract; these excerpts do not authorize one.
+
+Keyboard current/previous copy and acquisition
+=============================================
+0x00a2315c      mov eax, dword [ebp - 0xc]
+0x00a2315f      cmp dword [eax + 0x2c], 0
+0x00a23163      je 0xa231fe
+0x00a23169      push 0x100
+0x00a2316e      mov ecx, dword [ebp - 0xc]
+0x00a23171      add ecx, 0x18f8
+0x00a23177      push ecx
+0x00a23178      mov edx, dword [ebp - 0xc]
+0x00a2317b      add edx, 0x19f8
+0x00a23181      push edx
+0x00a23182      call 0xec44d0
+0x00a23187      add esp, 0xc
+0x00a2318a      mov eax, dword [ebp - 0xc]
+0x00a2318d      mov ecx, dword [eax + 0x2c]
+0x00a23190      mov edx, dword [ebp - 0xc]
+0x00a23193      mov eax, dword [edx + 0x2c]
+0x00a23196      mov ecx, dword [ecx]
+0x00a23198      push eax
+0x00a23199      mov edx, dword [ecx + 0x1c]
+0x00a2319c      call edx
+0x00a2319e      mov dword [ebp - 8], eax
+0x00a231a1      cmp dword [ebp - 8], 0
+0x00a231a5      je 0xa231ad
+0x00a231a7      cmp dword [ebp - 8], 1
+0x00a231ab      jne 0xa231e5
+0x00a231ad      mov eax, dword [ebp - 0xc]
+0x00a231b0      mov ecx, dword [eax + 0x2c]
+
+Keyboard Poll and GetDeviceState continuation
+============================================
+0x00a231ad      mov eax, dword [ebp - 0xc]
+0x00a231b0      mov ecx, dword [eax + 0x2c]
+0x00a231b3      mov edx, dword [ebp - 0xc]
+0x00a231b6      mov eax, dword [edx + 0x2c]
+0x00a231b9      mov ecx, dword [ecx]
+0x00a231bb      push eax
+0x00a231bc      mov edx, dword [ecx + 0x64]
+0x00a231bf      call edx
+0x00a231c1      mov eax, dword [ebp - 0xc]
+0x00a231c4      add eax, 0x18f8
+0x00a231c9      push eax
+0x00a231ca      push 0x100
+0x00a231cf      mov ecx, dword [ebp - 0xc]
+0x00a231d2      mov edx, dword [ecx + 0x2c]
+0x00a231d5      mov eax, dword [ebp - 0xc]
+0x00a231d8      mov ecx, dword [eax + 0x2c]
+0x00a231db      mov edx, dword [edx]
+0x00a231dd      push ecx
+0x00a231de      mov eax, dword [edx + 0x24]
+0x00a231e1      call eax
+0x00a231e3      jmp 0xa231fe
+0x00a231e5      push 0x100
+0x00a231ea      push 0
+0x00a231ec      mov ecx, dword [ebp - 0xc]
+
+Keyboard acquisition-failure clearing continuation
+=================================================
+0x00a231e5      push 0x100
+0x00a231ea      push 0
+0x00a231ec      mov ecx, dword [ebp - 0xc]
+0x00a231ef      add ecx, 0x18f8
+0x00a231f5      push ecx
+0x00a231f6      call 0xec61c0
+0x00a231fb      add esp, 0xc
+0x00a231fe      mov edx, dword [ebp - 0xc]
+
+Mouse current/previous copy, acquisition, Poll, GetDeviceState, and clearing
+=========================================================================
+0x00a231fe      mov edx, dword [ebp - 0xc]
+0x00a23201      cmp dword [edx + 0x30], 0
+0x00a23205      je 0xa232b4
+0x00a2320b      push 0x14
+0x00a2320d      mov eax, dword [ebp - 0xc]
+0x00a23210      add eax, 0x1b24
+0x00a23215      push eax
+0x00a23216      mov ecx, dword [ebp - 0xc]
+0x00a23219      add ecx, 0x1b38
+0x00a2321f      push ecx
+0x00a23220      call 0xec44d0
+0x00a23225      add esp, 0xc
+0x00a23228      push 8
+0x00a2322a      push 0
+0x00a2322c      mov edx, dword [ebp - 0xc]
+0x00a2322f      add edx, 0x1b58
+0x00a23235      push edx
+0x00a23236      call 0xec61c0
+0x00a2323b      add esp, 0xc
+0x00a2323e      mov eax, dword [ebp - 0xc]
+0x00a23241      mov ecx, dword [eax + 0x30]
+0x00a23244      mov edx, dword [ebp - 0xc]
+0x00a23247      mov eax, dword [edx + 0x30]
+0x00a2324a      mov ecx, dword [ecx]
+0x00a2324c      push eax
+0x00a2324d      mov edx, dword [ecx + 0x1c]
+0x00a23250      call edx
+0x00a23252      mov dword [ebp - 8], eax
+0x00a23255      cmp dword [ebp - 8], 0
+0x00a23259      je 0xa23261
+0x00a2325b      cmp dword [ebp - 8], 1
+0x00a2325f      jne 0xa23296
+0x00a23261      mov eax, dword [ebp - 0xc]
+0x00a23264      mov ecx, dword [eax + 0x30]
+0x00a23267      mov edx, dword [ebp - 0xc]
+0x00a2326a      mov eax, dword [edx + 0x30]
+0x00a2326d      mov ecx, dword [ecx]
+0x00a2326f      push eax
+0x00a23270      mov edx, dword [ecx + 0x64]
+0x00a23273      call edx
+0x00a23275      mov eax, dword [ebp - 0xc]
+0x00a23278      add eax, 0x1b24
+0x00a2327d      push eax
+0x00a2327e      push 0x14
+0x00a23280      mov ecx, dword [ebp - 0xc]
+0x00a23283      mov edx, dword [ecx + 0x30]
+0x00a23286      mov eax, dword [ebp - 0xc]
+0x00a23289      mov ecx, dword [eax + 0x30]
+0x00a2328c      mov edx, dword [edx]
+0x00a2328e      push ecx
+0x00a2328f      mov eax, dword [edx + 0x24]
+0x00a23292      call eax
+0x00a23294      jmp 0xa232ac
+0x00a23296      push 0x14
+0x00a23298      push 0
+0x00a2329a      mov ecx, dword [ebp - 0xc]
+0x00a2329d      add ecx, 0x1b24
+0x00a232a3      push ecx
+0x00a232a4      call 0xec61c0
+0x00a232a9      add esp, 0xc
+0x00a232ac      mov ecx, dword [ebp - 0xc]
+0x00a232af      call 0xa232c0
+0x00a232b4      mov esp, ebp
+0x00a232b6      pop ebp
+0x00a232b7      ret

@@ -1,0 +1,140 @@
+Atom keyboard buffered-consumer audit
+
+Executable: fnv_reverse/FalloutNV.exe, FNV 1.4.0.525, PE32 x86
+SHA-256: 42fee7d6cd74e801372aa89c8f71c974cebd3c20ec9ad43d1465b8fa9646b49c
+Primary interface: radare2 MCP, disassemble at 0x00A237B0.
+Date: 2026-09-25. Static inspection only; no live device calls.
+
+Instruction output below is retained verbatim. Non-instruction annotations and
+padding after 0x00A2388F are omitted. Existing audit output is unchanged.
+
+Observed contracts
+==================
+0x00A237B0 takes the input owner in ECX and returns with plain RET. If the
+keyboard at owner+0x2C exists, it calls its vtable+0x28 with size 20,
+output NULL, requested count 0xFFFFFFFF, flags zero. This is the documented
+GetDeviceData flush shape. The HRESULT and resulting count are not tested.
+
+0x00A23820 takes the input owner in ECX and one stack output-pointer argument.
+It requests one 20-byte event, flags zero, through the same device slot at
+0x00A2385E. At 0x00A23860 it tests EAX and rejects every nonzero result,
+including DI_BUFFEROVERFLOW (1). On zero HRESULT and nonzero output count,
+it writes the event offset to the caller pointer and returns 1 for a press
+(data bit 0x80 set), 2 for a release. Rejected/empty reads return zero without
+writing the caller's output. RET 4 confirms one stack argument.
+
+0x00A237F0 forwards its output argument to 0x00A23820 and returns true only
+for result 1. This establishes one direct native consumer; complete caller
+coverage, invocation frequency, focus-transition order, and runtime incidence
+are not established by this excerpt.
+
+Atom source comparison
+======================
+atom/src/input/buffered.rs consume_events removes mirror entries before the
+provider call and keeps mirror.overflowed until mirror.len reaches zero.
+merged_result returns 1 whenever mirror overflow remains and the provider
+has not failed. Thus, conditional on an overflowed mirror and successful
+one-event reads by 0x00A23820, those reads consume entries but return zero to
+the caller while overflow is reported. This is a source/binary consequence,
+not a reproduced runtime failure and not evidence of mouse stutter.
+
+Acquisition status cannot be recovered from Atom's outer void sampler result.
+The existing immediate-state audit records native Acquire before the
+post-sample GetDeviceData capture. Atom's focus epoch comes from sampled
+foreground-window equality, not a device acquisition notification. No new
+hook or mirror-discard policy is authorized by this evidence.
+
+Disassembly
+===========
+0x00a237b0      push ebp
+0x00a237b1      mov ebp, esp
+0x00a237b3      sub esp, 8
+0x00a237b6      mov dword [ebp - 8], ecx
+0x00a237b9      mov eax, dword [ebp - 8]
+0x00a237bc      cmp dword [eax + 0x2c], 0
+0x00a237c0      je 0xa237e7
+0x00a237c2      mov dword [ebp - 4], 0xffffffff
+0x00a237c9      push 0
+0x00a237cb      lea ecx, [ebp - 4]
+0x00a237ce      push ecx
+0x00a237cf      push 0
+0x00a237d1      push 0x14
+0x00a237d3      mov edx, dword [ebp - 8]
+0x00a237d6      mov eax, dword [edx + 0x2c]
+0x00a237d9      mov ecx, dword [ebp - 8]
+0x00a237dc      mov edx, dword [ecx + 0x2c]
+0x00a237df      mov eax, dword [eax]
+0x00a237e1      push edx
+0x00a237e2      mov ecx, dword [eax + 0x28]
+0x00a237e5      call ecx
+0x00a237e7      mov esp, ebp
+0x00a237e9      pop ebp
+0x00a237ea      ret
+0x00a237eb      int3
+0x00a237ec      int3
+0x00a237ed      int3
+0x00a237ee      int3
+0x00a237ef      int3
+0x00a237f0      push ebp
+0x00a237f1      mov ebp, esp
+0x00a237f3      push ecx
+0x00a237f4      mov dword [ebp - 4], ecx
+0x00a237f7      mov eax, dword [ebp - 4]
+0x00a237fa      cmp dword [eax + 0x2c], 0
+0x00a237fe      je 0xa23818
+0x00a23800      mov ecx, dword [ebp + 8]
+0x00a23803      push ecx
+0x00a23804      mov ecx, dword [ebp - 4]
+0x00a23807      call 0xa23820
+0x00a2380c      cmp eax, 1
+0x00a2380f      jne 0xa23818
+0x00a23811      mov eax, 1
+0x00a23816      jmp 0xa2381a
+0x00a23818      xor eax, eax
+0x00a2381a      mov esp, ebp
+0x00a2381c      pop ebp
+0x00a2381d      ret 4
+0x00a23820      push ebp
+0x00a23821      mov ebp, esp
+0x00a23823      sub esp, 0x20
+0x00a23826      mov dword [ebp - 0x20], ecx
+0x00a23829      mov eax, dword [ebp - 0x20]
+0x00a2382c      xor ecx, ecx
+0x00a2382e      cmp dword [eax + 0x2c], 0
+0x00a23832      setne cl
+0x00a23835      test ecx, ecx
+0x00a23837      je 0xa2388a
+0x00a23839      mov dword [ebp - 0x1c], 1
+0x00a23840      push 0
+0x00a23842      lea edx, [ebp - 0x1c]
+0x00a23845      push edx
+0x00a23846      lea eax, [ebp - 0x14]
+0x00a23849      push eax
+0x00a2384a      push 0x14
+0x00a2384c      mov ecx, dword [ebp - 0x20]
+0x00a2384f      mov edx, dword [ecx + 0x2c]
+0x00a23852      mov eax, dword [ebp - 0x20]
+0x00a23855      mov ecx, dword [eax + 0x2c]
+0x00a23858      mov edx, dword [edx]
+0x00a2385a      push ecx
+0x00a2385b      mov eax, dword [edx + 0x28]
+0x00a2385e      call eax
+0x00a23860      test eax, eax
+0x00a23862      jne 0xa2388a
+0x00a23864      cmp dword [ebp - 0x1c], 0
+0x00a23868      je 0xa2388a
+0x00a2386a      mov ecx, dword [ebp - 0x10]
+0x00a2386d      and ecx, 0x80
+0x00a23873      neg ecx
+0x00a23875      sbb ecx, ecx
+0x00a23877      add ecx, 2
+0x00a2387a      mov dword [ebp - 0x18], ecx
+0x00a2387d      mov edx, dword [ebp + 8]
+0x00a23880      mov eax, dword [ebp - 0x14]
+0x00a23883      mov dword [edx], eax
+0x00a23885      mov eax, dword [ebp - 0x18]
+0x00a23888      jmp 0xa2388c
+0x00a2388a      xor eax, eax
+0x00a2388c      mov esp, ebp
+0x00a2388e      pop ebp
+0x00a2388f      ret 4

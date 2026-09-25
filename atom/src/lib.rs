@@ -36,8 +36,9 @@ const SUPPORTED_RUNTIME_VERSION: u32 = 0x0400_20D0;
 ///
 /// Atom deliberately rejects the editor, no-gore executable, and other
 /// runtime versions before any callback can reach fixed engine addresses.
-/// Deferred installation additionally validates the exact call contexts, so a
-/// same-version executable with a different binary shape fails locally.
+/// Deferred installation additionally validates the live hook instructions,
+/// targets, and data ranges. Compatible providers must preserve the supported
+/// ABIs; surrounding code is not required to retain vanilla bytes.
 ///
 /// # Safety
 ///

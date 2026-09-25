@@ -782,7 +782,7 @@ capability, not scan for a named DLL.
 
 Every address below belongs only to the supported executable identity. Phase 0
 has closed argument, ABI, lifetime, and semantic ownership. Implementation must
-still validate the immutable caller bytes and live predecessor at
+still validate the actual live hook instruction and executable predecessor at
 `DeferredInit` before enabling each hook.
 
 | Capability | Candidate boundary | Plan |
@@ -837,7 +837,7 @@ changes count even when first execution is deferred.
 | `atom/src/camera/third_person/zoom.rs` | Pure constant-step conversion and fractional wheel-unit retention. |
 | `atom/src/camera/aim.rs` | View direction and spread-preserving muzzle-convergence math. |
 | `atom/src/camera/third_person/native.rs` | Audited addresses, layouts, hard predicates, virtual calls, and muzzle reads. |
-| `atom/src/camera/third_person/hooks.rs` | Per-capability fingerprints, typed predecessors, scoped detours, and independent rollback transactions. |
+| `atom/src/camera/third_person/hooks.rs` | Live capability checks, typed predecessors, scoped detours, and independent rollback transactions. |
 | `atom/src/input/hooks.rs` | Existing final heading hooks extended with an internal camera dispatch, not hooked again. |
 | `atom/src/runtime.rs` | Deferred admission order, subsystem fallback, logging, and MCM update routing. |
 | `atom/mcm/Atom.json` | Complete laconic camera, framing, motion, and movement configuration. |
@@ -1216,7 +1216,7 @@ They are closed at existing proven boundaries:
   pitch. Stable Explore free orbit now consumes the delta without the actor
   write. Combat and native aim retain that predecessor and resample its
   clamped Actor pitch so character aim stays correct. The independently
-  fingerprinted `0x0094AE94 -> 0x00931D70` call chains its live predecessor and
+  admitted `0x0094AE94 -> 0x00931D70` call chains its live predecessor and
   substitutes the finite logical pitch only inside the matching complete
   UpdateCamera scope. Native, first-person, VATS, menu, transition,
   external-owner, and contended calls remain unchanged.
@@ -1255,7 +1255,7 @@ additional defects at existing native seams:
 - Combat/native aim correctly retained Actor `rotX`, but no handoff cleared it
   when the same ownership epoch returned to Explore. Atom now records native
   pitch ownership and, on the first camera-only Explore update, calls the
-  fingerprinted `0x00931D90` setter with zero. Logical camera pitch is retained,
+  live `0x00931D90` setter with zero. Logical camera pitch is retained,
   so releasing aim neutralizes only character presentation.
 - Reticle and projectile convergence had been admitted as one transaction. The
   runtime's spawn predecessor was already owned, so Atom disabled its otherwise
@@ -1488,10 +1488,10 @@ second sector policy.
 
 ### Zoom native contract and intervention point
 
-The independently fingerprinted direct call at `0x009459BB` reads DirectInput
-axis 3 through `0x00A239E0` inside normal `UpdateCamera`. Immutable bytes at
-`0x009459B3` and `0x009459C0` prove the axis argument, receiver setup, and result
-store while allowing the live direct-call target to be chained. FNV then uses
+The independently admitted direct call at `0x009459BB` reads DirectInput
+axis 3 through `0x00A239E0` inside normal `UpdateCamera`. Offline disassembly at
+`0x009459B3` and `0x009459C0` proves the axis argument, receiver setup, and result
+store. Runtime admission chains the live target without matching those bytes. FNV then uses
 the desired distance at `0x011E0B5C` and direction-specific setting values at
 `0x011CDC9C` (`fVanityModeWheelInMult`, default `0.05`) or `0x011CD2B0`
 (`fVanityModeWheelOutMult`, default `0.10`):
@@ -1517,7 +1517,7 @@ owner.
 
 The zoom contract and hook are admitted after the established follow,
 movement, and aim transactions during `DeferredInit`. Invalid values, missing
-memory, a fingerprint mismatch, hook contention, a menu/VATS/POV/loading or
+memory, an unchainable hook, contention, a menu/VATS/POV/loading or
 disabled-control state, explicit external ownership, or a zero live multiplier
 leaves the raw wheel delta and all other third-person capabilities intact. A
 zero multiplier notably respects an Advanced 3rd Person Camera profile that

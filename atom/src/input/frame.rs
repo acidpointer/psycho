@@ -9,7 +9,7 @@
 
 use core::sync::atomic::{AtomicU32, Ordering};
 
-use super::actions::{ActionFrame, ActionResolver};
+use super::actions::{ActionFrame, ActionFrameHeader, ActionId, ActionResolver, ActionState};
 use super::buffered::KeyboardEventBatch;
 use super::controller::{
     ControllerFrame, ControllerProcessor, ControllerSettings, NativeControllerState, StickVector,
@@ -410,6 +410,16 @@ impl InputPipeline {
     /// Load the coherent logical actions resolved from the latest frame.
     pub fn latest_actions(&self) -> ActionFrame {
         self.actions.latest()
+    }
+
+    /// Load only coherent action-frame identity and context.
+    pub(crate) fn latest_action_header(&self) -> ActionFrameHeader {
+        self.actions.latest_header()
+    }
+
+    /// Load one action and its header from the same publication.
+    pub(crate) fn latest_action(&self, action: ActionId) -> (ActionFrameHeader, ActionState) {
+        self.actions.latest_action(action)
     }
 
     /// Clear controller hysteresis for a neutral handoff.

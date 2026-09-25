@@ -250,6 +250,25 @@ impl ActionState {
         controller_released: false,
     };
 
+    fn decode(state: u32, bindings: u32) -> Self {
+        Self {
+            down: state & 1 != 0,
+            pressed: state & 2 != 0,
+            released: state & 4 != 0,
+            sources: ActionSources(((state >> 3) & 0x7) as u8),
+            buffered_pressed: state & (1 << 6) != 0,
+            buffered_released: state & (1 << 7) != 0,
+            controller_pressed: state & (1 << 8) != 0,
+            controller_released: state & (1 << 9) != 0,
+            held_samples: state >> 12,
+            bindings: ActionBindings {
+                keyboard: bindings as u8,
+                mouse: (bindings >> 8) as u8,
+                controller: (bindings >> 16) as u8,
+            },
+        }
+    }
+
     /// Return whether at least one bound device is down.
     pub const fn down(self) -> bool {
         self.down
@@ -298,6 +317,39 @@ impl ActionState {
     /// Return whether the controller source fell in this sample.
     pub const fn controller_released(self) -> bool {
         self.controller_released
+    }
+}
+
+/// Coherent frame identity and context without the action payload.
+///
+/// Uses the action store's existing publication sequence and neutral sentinel.
+#[derive(Clone, Copy)]
+pub(crate) struct ActionFrameHeader {
+    frame_id: u32,
+    context: ActionContext,
+}
+
+impl ActionFrameHeader {
+    const NEUTRAL: Self = Self {
+        frame_id: ActionFrame::NEUTRAL.frame_id,
+        context: ActionFrame::NEUTRAL.context,
+    };
+
+    fn decode(frame_id: u32, flags: u32) -> Self {
+        Self {
+            frame_id,
+            context: ActionContext::from_u8(flags as u8),
+        }
+    }
+
+    /// Return the matching native input-frame sequence number.
+    pub(crate) const fn frame_id(self) -> u32 {
+        self.frame_id
+    }
+
+    /// Return the context captured with this frame.
+    pub(crate) const fn context(self) -> ActionContext {
+        self.context
     }
 }
 
@@ -374,22 +426,7 @@ impl ActionFrame {
             let base = 3 + index * 2;
             let state = words[base];
             let bindings = words[base + 1];
-            *action = ActionState {
-                down: state & 1 != 0,
-                pressed: state & 2 != 0,
-                released: state & 4 != 0,
-                sources: ActionSources(((state >> 3) & 0x7) as u8),
-                buffered_pressed: state & (1 << 6) != 0,
-                buffered_released: state & (1 << 7) != 0,
-                controller_pressed: state & (1 << 8) != 0,
-                controller_released: state & (1 << 9) != 0,
-                held_samples: state >> 12,
-                bindings: ActionBindings {
-                    keyboard: bindings as u8,
-                    mouse: (bindings >> 8) as u8,
-                    controller: (bindings >> 16) as u8,
-                },
-            };
+            *action = ActionState::decode(state, bindings);
         }
         Self {
             frame_id: words[0],
@@ -557,6 +594,16 @@ impl ActionResolver {
     /// Load one coherent copy of the latest resolved action frame.
     pub fn latest(&self) -> ActionFrame {
         self.store.load()
+    }
+
+    /// Load frame identity and context from one publication.
+    pub(crate) fn latest_header(&self) -> ActionFrameHeader {
+        self.store.load_header()
+    }
+
+    /// Load frame identity, context, and one action from the same publication.
+    pub(crate) fn latest_action(&self, action: ActionId) -> (ActionFrameHeader, ActionState) {
+        self.store.load_action(action)
     }
 
     fn resolve_last_active_device(
@@ -784,6 +831,44 @@ impl ActionStore {
             target.store(value, Ordering::Relaxed);
         }
         self.sequence.fetch_add(1, Ordering::Release);
+    }
+
+    fn load_header(&self) -> ActionFrameHeader {
+        match self.load_words([0, 2]) {
+            Some([frame_id, flags]) => ActionFrameHeader::decode(frame_id, flags),
+            None => ActionFrameHeader::NEUTRAL,
+        }
+    }
+
+    fn load_action(&self, action: ActionId) -> (ActionFrameHeader, ActionState) {
+        let base = 3 + action.index() * 2;
+        match self.load_words([0, 2, base, base + 1]) {
+            Some([frame_id, flags, state, bindings]) => (
+                ActionFrameHeader::decode(frame_id, flags),
+                ActionState::decode(state, bindings),
+            ),
+            None => (ActionFrameHeader::NEUTRAL, ActionState::NEUTRAL),
+        }
+    }
+
+    // Decode only after sequence validation; selected fields must belong to
+    // the same publication just like a full frame. Zero retains the existing
+    // unpublished-store behavior. No second cache or publisher is introduced.
+    fn load_words<const N: usize>(&self, indices: [usize; N]) -> Option<[u32; N]> {
+        loop {
+            let before = self.sequence.load(Ordering::Acquire);
+            if before == 0 {
+                return None;
+            }
+            if before & 1 != 0 {
+                core::hint::spin_loop();
+                continue;
+            }
+            let words = indices.map(|index| self.words[index].load(Ordering::Relaxed));
+            if before == self.sequence.load(Ordering::Acquire) {
+                return Some(words);
+            }
+        }
     }
 
     fn load(&self) -> ActionFrame {

@@ -1,10 +1,10 @@
 //! Deferred, ownership-aware third-person native hooks.
 //!
-//! Immutable instructions around each mutable call displacement prove the
-//! supported FNV semantic context. Direct-call hooks capture the live target
+//! The supported runtime defines the calling contracts. Direct-call hooks
+//! validate the live instruction and executable target, then capture that target
 //! as a typed predecessor so compatible earlier owners remain in the chain.
 //! Follow, final-position motion, and movement/facing are independent
-//! rollback-capable transactions. A compatible owner at one seam therefore
+//! rollback-capable transactions. An unchainable owner at one seam therefore
 //! disables only that capability, never the others. Object selection through
 //! the native reticle cast is independently useful and safe to admit. Optional
 //! projectile convergence
@@ -15,20 +15,17 @@
 //!
 //! Detour predecessor fallbacks to vanilla addresses are unreachable by
 //! construction (containers initialize before enabling) and are never an
-//! admission path for replaced helper bodies; admission contracts reject
-//! those before any hook opens.
+//! admission path around failed hook preparation. Vanilla helper bodies and
+//! surrounding caller instructions are not runtime admission invariants.
 
 use core::ffi::c_void;
 use std::sync::LazyLock;
 
-use libpsycho::os::windows::{
-    hook::{
-        callsite::{Rel32CallHookContainer, Rel32CallHookError},
-        inline::{errors::InlineHookError, inlinehook::InlineHookContainer},
-        pointer::{PointerSlotHookContainer, PointerSlotHookError},
-        transaction::ModificationTransaction,
-    },
-    memory::{MemoryError, read_bytes},
+use libpsycho::os::windows::hook::{
+    callsite::{Rel32CallHookContainer, Rel32CallHookError},
+    inline::{errors::InlineHookError, inlinehook::InlineHookContainer},
+    pointer::{PointerSlotHookContainer, PointerSlotHookError},
+    transaction::ModificationTransaction,
 };
 use thiserror::Error;
 
@@ -105,134 +102,9 @@ static SPAWN_HOOK: Rel32CallHookContainer<SpawnFn> = Rel32CallHookContainer::new
 static HIP_FIRE_POSE_HOOK: LazyLock<InlineHookContainer<MorphGroupFn>> =
     LazyLock::new(InlineHookContainer::new);
 
-const MOVEMENT_FINGERPRINTS: &[(usize, &[u8])] = &[
-    (
-        0x0094_AE70,
-        &[
-            0x6A, 0x00, 0x8B, 0x85, 0xEC, 0xFB, 0xFF, 0xFF, 0x8B, 0x10, 0x8B, 0x8D, 0xEC, 0xFB,
-            0xFF, 0xFF, 0x8B, 0x82, 0xBC, 0x02, 0x00, 0x00, 0xFF, 0xD0,
-        ],
-    ),
-    (
-        0x0094_AE88,
-        &[
-            0xD9, 0x1D, 0x6C, 0x07, 0x1E, 0x01, 0x8B, 0x8D, 0xEC, 0xFB, 0xFF, 0xFF,
-        ],
-    ),
-    (0x0094_AE99, &[0xD9, 0x1D, 0x64, 0x07, 0x1E, 0x01]),
-    (
-        0x0094_B434,
-        &[
-            0x6A, 0x00, 0x8B, 0x8D, 0xEC, 0xFB, 0xFF, 0xFF, 0x8B, 0x11, 0x8B, 0x8D, 0xEC, 0xFB,
-            0xFF, 0xFF, 0x8B, 0x82, 0xBC, 0x02, 0x00, 0x00, 0xFF, 0xD0,
-        ],
-    ),
-    // The entry may already contain a compatible chained JMP. Fingerprint
-    // immutable body and epilogue instructions instead of mutable entry bytes.
-    (
-        0x009E_9E59,
-        &[0x56, 0x89, 0x4D, 0xA8, 0xA1, 0x6C, 0x42, 0x1F, 0x01],
-    ),
-    (0x009E_A2E2, &[0x5E, 0x8B, 0xE5, 0x5D, 0xC2, 0x04, 0x00]),
-    (0x009E_A207, &[0x8B, 0x0D, 0x3C, 0xEA, 0x1D, 0x01]),
-    (
-        0x009E_A212,
-        &[
-            0x50, 0x8D, 0x4D, 0xF0, 0x51, 0x51, 0xD9, 0x45, 0x08, 0xD9, 0x1C, 0x24, 0x8B, 0x15,
-            0x3C, 0xEA, 0x1D, 0x01,
-        ],
-    ),
-    (
-        0x008A_6327,
-        &[
-            0x8B, 0x4D, 0x10, 0x51, 0x8B, 0x55, 0x0C, 0x52, 0x51, 0xD9, 0x45, 0x08, 0xD9, 0x1C,
-            0x24, 0x8B, 0x4D, 0xAC,
-        ],
-    ),
-    (0x008A_633E, &[0x89, 0x45, 0xE8, 0x83, 0x7D, 0xE8, 0x00]),
-];
-
-const FOLLOW_FINGERPRINTS: &[(usize, &[u8])] = &[
-    (
-        0x0094_B7B9,
-        &[
-            0x0F, 0xB6, 0x55, 0x08, 0x52, 0x8D, 0x85, 0xC8, 0xFE, 0xFF, 0xFF, 0x50, 0x8D, 0x8D,
-            0xD4, 0xFE, 0xFF, 0xFF, 0x51, 0x8B, 0x8D, 0xEC, 0xFB, 0xFF, 0xFF,
-        ],
-    ),
-    (0x0094_B7D7, &[0x8D, 0x95, 0xAC, 0xFE, 0xFF, 0xFF, 0x52]),
-];
-
-const MOTION_POSITION_FINGERPRINTS: &[(usize, &[u8])] = &[
-    (
-        0x0094_BB61,
-        &[0x8D, 0x55, 0xA0, 0x52, 0xB9, 0x20, 0x0C, 0x1E, 0x01],
-    ),
-    (
-        0x0094_BB6F,
-        &[0x6A, 0x00, 0x6A, 0x00, 0x51, 0xD9, 0xEE, 0xD9, 0x1C, 0x24],
-    ),
-];
-
-const ZOOM_FINGERPRINTS: &[(usize, &[u8])] = &[
-    (
-        0x0094_59B3,
-        &[0x6A, 0x03, 0x8B, 0x8D, 0xD4, 0xFE, 0xFF, 0xFF],
-    ),
-    (0x0094_59C0, &[0x89, 0x85, 0xD0, 0xFE, 0xFF, 0xFF]),
-];
-
-const AIM_FINGERPRINTS: &[(usize, &[u8])] = &[
-    (
-        0x0070_C119,
-        &[
-            0xD9, 0x1C, 0x24, 0x8D, 0x55, 0x84, 0x52, 0x8D, 0x45, 0x90, 0x50, 0x8B, 0x8D, 0x98,
-            0xFE, 0xFF, 0xFF, 0x8B, 0x89, 0x3C, 0x01, 0x00, 0x00,
-        ],
-    ),
-    (
-        0x0070_C135,
-        &[
-            0x89, 0x85, 0x7C, 0xFF, 0xFF, 0xFF, 0xC6, 0x85, 0x27, 0xFF, 0xFF, 0xFF, 0x01,
-        ],
-    ),
-    (
-        0x0052_45A1,
-        &[
-            0x51, 0x8B, 0x55, 0x90, 0x52, 0x8B, 0x45, 0x08, 0x50, 0x8B, 0x8D, 0x48, 0xFE, 0xFF,
-            0xFF, 0x51, 0x8B, 0x8D, 0xC8, 0xFD, 0xFF, 0xFF,
-        ],
-    ),
-    (0x0052_45BC, &[0x50]),
-    (
-        0x0052_45C2,
-        &[0x83, 0xC4, 0x40, 0x89, 0x85, 0x58, 0xFE, 0xFF, 0xFF],
-    ),
-];
-
-// Compatible animation plugins may already own the mutable function entry.
-// Fingerprint immutable original-body instructions so InlineHook can chain a
-// complete entry JMP while Atom still rejects an unsupported executable.
-const HIP_FIRE_POSE_FINGERPRINTS: &[(usize, &[u8])] = &[
-    (
-        MORPH_GROUP_ENTRY + 0x09,
-        &[0x0F, 0xB7, 0x45, 0x08, 0x3D, 0xFF, 0x00, 0x00, 0x00],
-    ),
-    (
-        MORPH_GROUP_ENTRY + 0xCE,
-        &[0x8B, 0xE5, 0x5D, 0xC2, 0x08, 0x00],
-    ),
-];
-
 /// Failure to validate or install the required third-person hook group.
 #[derive(Debug, Error)]
 pub(crate) enum HookInstallError {
-    /// Reading a required caller fingerprint failed.
-    #[error(transparent)]
-    Memory(#[from] MemoryError),
-    /// A required caller differs from the supported executable.
-    #[error("third-person caller fingerprint mismatch at 0x{address:08X}")]
-    FingerprintMismatch { address: usize },
     /// A required direct call could not be captured or enabled.
     #[error(transparent)]
     Callsite(#[from] Rel32CallHookError),
@@ -264,7 +136,6 @@ pub(super) struct AimPredecessors {
 
 /// Install linear wheel-distance conversion at the normal camera read only.
 pub(super) fn install_zoom() -> Result<usize, HookInstallError> {
-    validate_fingerprints(ZOOM_FINGERPRINTS)?;
     unsafe {
         ZOOM_HOOK.init(
             "Atom third-person fine zoom",
@@ -281,7 +152,6 @@ pub(super) fn install_zoom() -> Result<usize, HookInstallError> {
 
 /// Install the native-collision follow capability independently.
 pub(super) fn install_follow() -> Result<usize, HookInstallError> {
-    validate_fingerprints(FOLLOW_FINGERPRINTS)?;
     unsafe {
         FOLLOW_HOOK.init(
             "Atom third-person collision input",
@@ -298,7 +168,6 @@ pub(super) fn install_follow() -> Result<usize, HookInstallError> {
 
 /// Install post-solve positional motion independently from axial follow.
 pub(super) fn install_motion_position() -> Result<usize, HookInstallError> {
-    validate_fingerprints(MOTION_POSITION_FINGERPRINTS)?;
     unsafe {
         MOTION_POSITION_HOOK.init(
             "Atom third-person presentation position",
@@ -315,7 +184,6 @@ pub(super) fn install_motion_position() -> Result<usize, HookInstallError> {
 
 /// Install logical view axes, mover scope, and request as one capability.
 pub(super) fn install_movement() -> Result<MovementPredecessors, HookInstallError> {
-    validate_fingerprints(MOVEMENT_FINGERPRINTS)?;
     unsafe {
         CAMERA_HEADING_HOOK.init(
             "Atom third-person adjusted heading",
@@ -357,7 +225,6 @@ pub(super) fn install_movement() -> Result<MovementPredecessors, HookInstallErro
 
 /// Admit camera-correct object selection, then optional projectile convergence.
 pub(super) fn install_aim() -> Result<AimPredecessors, HookInstallError> {
-    validate_fingerprints(AIM_FINGERPRINTS)?;
     let combat_ray_admitted = match super::native::validate_combat_ray_contract() {
         Ok(()) => true,
         Err(error) => {
@@ -413,7 +280,6 @@ pub(super) fn install_aim() -> Result<AimPredecessors, HookInstallError> {
 /// paired group ID and calls the captured predecessor once, leaving kNVSE's
 /// internal sequence lookup and transition hooks in their established chain.
 pub(super) fn install_hip_fire_pose() -> Result<usize, HookInstallError> {
-    validate_fingerprints(HIP_FIRE_POSE_FINGERPRINTS)?;
     unsafe {
         HIP_FIRE_POSE_HOOK.init(
             "Atom third-person hip-fire pose",
@@ -440,15 +306,6 @@ pub(super) unsafe fn morph_hip_fire_group(anim_data: *mut c_void, group: u16) ->
         return false;
     };
     !unsafe { predecessor(anim_data, group, -1) }.is_null()
-}
-
-fn validate_fingerprints(fingerprints: &[(usize, &[u8])]) -> Result<(), HookInstallError> {
-    for &(address, expected) in fingerprints {
-        if read_bytes(address as *const c_void, expected.len())? != expected {
-            return Err(HookInstallError::FingerprintMismatch { address });
-        }
-    }
-    Ok(())
 }
 
 unsafe extern "thiscall" fn zoom_detour(owner: *mut c_void, axis: u32) -> i32 {

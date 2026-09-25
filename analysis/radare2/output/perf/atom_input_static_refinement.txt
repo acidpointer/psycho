@@ -1,0 +1,441 @@
+Atom input refinement: focused native contract evidence
+
+Executable: fnv_reverse/FalloutNV.exe, FNV 1.4.0.525, PE32 x86
+SHA-256: 42fee7d6cd74e801372aa89c8f71c974cebd3c20ec9ad43d1465b8fa9646b49c
+Primary interface: radare2 MCP, disassemble; static inspection only.
+The instruction lines below are excerpts of tool output. Analysis-generated
+argument annotations and lines outside the named ranges are omitted.
+Interpretation, ownership, limitations: docs/fnv_actor_input_contract.md,
+section "Atom refinement contracts". No runtime or latency result is asserted.
+
+Cached counts and later native look-disable
+0x0094598d      push 1
+0x0094598f      mov ecx, dword [var_12ch]
+0x00945995      call fcn.00a239e0
+0x0094599a      mov dword [var_164h], eax
+0x009459a0      push 2
+0x009459a2      mov ecx, dword [var_12ch]
+0x009459a8      call fcn.00a239e0
+0x009459ad      mov dword [var_138h], eax
+0x009459b3      push 3
+0x009459b5      mov ecx, dword [var_12ch]
+0x009459bb      call fcn.00a239e0
+0x009459c0      mov dword [var_130h], eax
+0x009459c6      mov ecx, 0x11e0a5c
+0x009459cb      call fcn.00408d60
+0x009459d0      movzx eax, byte [eax]
+0x009459d3      test eax, eax
+0x009459d5      je 0x9459e5
+0x009459d7      mov ecx, dword [var_138h]
+0x009459dd      neg ecx
+0x009459df      mov dword [var_138h], ecx
+0x009459e5      push 2
+0x009459e7      mov ecx, dword [var_1f4h]
+0x009459ed      call fcn.005a03f0
+0x009459f2      movzx edx, al
+0x009459f5      test edx, edx
+0x009459f7      je 0x945a17
+0x009459f9      mov dword [var_164h], 0
+0x00945a03      mov dword [var_138h], 0
+0x00945a0d      mov dword [var_130h], 0
+
+Native disabled-control byte and ABI
+0x005a03f0      push ebp
+0x005a03f1      mov ebp, esp
+0x005a03f3      push ecx
+0x005a03f4      mov dword [var_4h], ecx
+0x005a03f7      mov eax, dword [var_4h]
+0x005a03fa      movzx ecx, byte [eax + 0x680]
+0x005a0401      and ecx, dword [arg_8h]
+0x005a0404      setne al
+0x005a0407      mov esp, ebp
+0x005a0409      pop ebp
+0x005a040a      ret 4
+
+Yaw zero-count alternate path and final heading consumers
+0x00945d97      cmp dword [ebp - 0x164], 0
+0x00945d9e      jne 0x945dac
+0x00945da0      movzx edx, byte [ebp + 0xc]
+0x00945da4      test edx, edx
+0x00945da6      je 0x945f95
+0x00945dac      fild dword [ebp - 0x164]
+0x00945db2      mov ecx, 0x11e0a6c
+0x00945db7      fstp qword [ebp - 0x24c]
+0x00945dbd      call 0x403e20
+0x00945dc2      fld dword [eax]
+0x00945dc4      fmul qword [ebp - 0x24c]
+0x00945dca      fstp dword [ebp - 0x1d4]
+0x00945dd0      cmp dword [ebp + 0x10], 0
+0x00945dd4      je 0x945e1b
+0x00945dd6      cmp dword [ebp - 0x164], 0
+0x00945ddd      je 0x945e03
+0x00945ddf      fld dword [ebp - 0x1d4]
+0x00945de5      fcomp qword [0x1012060]
+0x00945deb      fnstsw ax
+0x00945ded      test ah, 5
+0x00945df0      jp 0x945e03
+0x00945df2      mov eax, dword [ebp + 0x10]
+0x00945df5      movzx ecx, word [eax]
+0x00945df8      or ecx, 0x10
+0x00945dfb      mov edx, dword [ebp + 0x10]
+0x00945dfe      mov word [edx], cx
+0x00945e01      jmp 0x945e1b
+0x00945e03      cmp dword [ebp - 0x164], 0
+0x00945e0a      je 0x945e1b
+0x00945e0c      mov eax, dword [ebp + 0x10]
+0x00945e0f      movzx ecx, word [eax]
+0x00945e12      or ecx, 0x20
+0x00945e15      mov edx, dword [ebp + 0x10]
+0x00945e18      mov word [edx], cx
+0x00945e1b      mov ecx, dword [ebp - 0x1f4]
+0x00945e21      call 0x4f8960
+0x00945e26      test eax, eax
+0x00945e28      jne 0x945f95
+0x00945e2e      mov ecx, dword [ebp - 0x1f4]
+0x00945e34      call 0x8a7570
+0x00945e39      cmp eax, 0xa
+0x00945e3c      je 0x945f95
+0x00945e42      mov ecx, dword [ebp - 0x1f4]
+0x00945e48      call 0x93a740
+0x00945e4d      movzx eax, al
+0x00945e50      test eax, eax
+0x00945e52      jne 0x945f95
+0x00945e58      mov ecx, dword [ebp - 0x1f4]
+0x00945e5e      mov edx, dword [ecx]
+0x00945e60      mov ecx, dword [ebp - 0x1f4]
+0x00945e66      mov eax, dword [edx + 0x214]
+0x00945e6c      call eax
+0x00945e6e      mov dword [ebp - 0x1d8], eax
+0x00945e74      cmp dword [ebp - 0x1d8], 4
+0x00945e7b      jne 0x945f10
+0x00945e81      mov ecx, dword [ebp - 0x1f4]
+0x00945e87      fld dword [ecx + 0x6e4]
+0x00945e8d      fadd dword [ebp - 0x1d4]
+0x00945e93      mov edx, dword [ebp - 0x1f4]
+0x00945e99      fstp dword [edx + 0x6e4]
+0x00945e9f      mov eax, dword [ebp - 0x1f4]
+0x00945ea5      fld dword [eax + 0x6e4]
+0x00945eab      fcomp qword [0x108b098]
+0x00945eb1      fnstsw ax
+0x00945eb3      test ah, 5
+0x00945eb6      jp 0x945ecc
+0x00945eb8      mov ecx, dword [ebp - 0x1f4]
+0x00945ebe      fld dword [0x1016b78]
+0x00945ec4      fstp dword [ecx + 0x6e4]
+0x00945eca      jmp 0x945ef7
+0x00945ecc      mov edx, dword [ebp - 0x1f4]
+0x00945ed2      fld dword [edx + 0x6e4]
+0x00945ed8      fcomp qword [0x1030f38]
+0x00945ede      fnstsw ax
+0x00945ee0      test ah, 0x41
+0x00945ee3      jne 0x945ef7
+0x00945ee5      mov eax, dword [ebp - 0x1f4]
+0x00945eeb      fld dword [0x101ff38]
+0x00945ef1      fstp dword [eax + 0x6e4]
+0x00945ef7      movzx ecx, byte [ebp + 0xc]
+0x00945efb      test ecx, ecx
+0x00945efd      je 0x945f0b
+0x00945eff      fld dword [0x1016088]
+0x00945f05      fstp dword [0x11a3b40]
+0x00945f0b      jmp 0x945f95
+0x00945f10      cmp dword [ebp - 0x1d8], 0
+0x00945f17      jne 0x945f95
+0x00945f19      push ecx
+0x00945f1a      fld dword [ebp - 0x1d4]
+0x00945f20      fstp dword [esp]
+0x00945f23      call 0x408860
+0x00945f28      add esp, 4
+0x00945f2b      mov ecx, 0x11e0a6c
+0x00945f30      fstp qword [ebp - 0x254]
+0x00945f36      call 0x403e20
+0x00945f3b      fld dword [eax]
+0x00945f3d      fmul qword [0x10356d8]
+0x00945f43      fdivr qword [ebp - 0x254]
+0x00945f49      fstp dword [0x11a3b40]
+0x00945f4f      fld dword [0x11a3b40]
+0x00945f55      fcomp qword [0x1016ff0]
+0x00945f5b      fnstsw ax
+0x00945f5d      test ah, 0x41
+0x00945f60      jne 0x945f6e
+0x00945f62      fld dword [0x1016088]
+0x00945f68      fstp dword [0x11a3b40]
+0x00945f6e      fld dword [ebp - 0x1d4]
+0x00945f74      fmul dword [ebp - 0x18c]
+0x00945f7a      fstp dword [ebp - 0x258]
+0x00945f80      fld dword [ebp - 0x258]
+0x00945f86      push ecx
+0x00945f87      fstp dword [esp]
+0x00945f8a      mov ecx, dword [ebp - 0x1f4]
+0x00945f90      call 0x931d30
+0x00945f95      cmp dword [ebp - 0x138], 0
+0x00945f9c      je 0x945fdd
+0x00945f9e      fild dword [ebp - 0x138]
+0x00945fa4      mov ecx, 0x11e0a6c
+0x00945fa9      fstp qword [ebp - 0x260]
+0x00945faf      call 0x403e20
+0x00945fb4      fld dword [eax]
+0x00945fb6      fmul qword [ebp - 0x260]
+0x00945fbc      fmul dword [ebp - 0x18c]
+0x00945fc2      fstp dword [ebp - 0x264]
+0x00945fc8      fld dword [ebp - 0x264]
+0x00945fce      push ecx
+0x00945fcf      fstp dword [esp]
+0x00945fd2      mov ecx, dword [ebp - 0x1f4]
+0x00945fd8      call 0x931e50
+
+Native process ADS virtual dispatch
+0x008bbc10      push ebp
+0x008bbc11      mov ebp, esp
+0x008bbc13      push ecx
+0x008bbc14      mov dword [var_4h], ecx
+0x008bbc17      mov eax, dword [var_4h]
+0x008bbc1a      cmp dword [eax + 0x68], 0
+0x008bbc1e      je 0x8bbc38
+0x008bbc20      mov ecx, dword [var_4h]
+0x008bbc23      mov edx, dword [ecx + 0x68]
+0x008bbc26      mov eax, dword [var_4h]
+0x008bbc29      mov ecx, dword [eax + 0x68]
+0x008bbc2c      mov edx, dword [edx]
+0x008bbc2e      mov eax, dword [edx + 0x404]
+0x008bbc34      call eax
+0x008bbc36      jmp 0x8bbc3a
+0x008bbc38      xor al, al
+0x008bbc3a      mov esp, ebp
+0x008bbc3c      pop ebp
+0x008bbc3d      ret
+
+HUD initialization
+0x0076bd09      mov dword [0x11d96ac], eax
+0x0076bd0e      mov edx, dword [var_10h]
+0x0076bd11      mov byte [edx + 0x1fc], 0
+0x0076bd18      mov eax, dword [var_10h]
+
+HUD publication
+0x0076c0da      push 0
+0x0076c0dc      mov ecx, dword [var_14h]
+0x0076c0df      push ecx
+0x0076c0e0      mov ecx, dword [var_1ch]
+0x0076c0e3      call fcn.00a1dc70
+0x0076c0e8      mov edx, dword [var_1ch]
+0x0076c0eb      mov dword [0x11d96c0], edx
+
+HUD teardown
+0x0076bf2e      mov dword [0x11d96c0], 0
+
+Scope flag and presentation setter
+0x0077f3c0      push ebp
+0x0077f3c1      mov ebp, esp
+0x0077f3c3      cmp dword [0x11d96c0], 0
+0x0077f3ca      je 0x77f41d
+0x0077f3cc      mov ecx, 0x11d9770
+0x0077f3d1      call fcn.00559450
+0x0077f3d6      test eax, eax
+0x0077f3d8      je 0x77f41d
+0x0077f3da      push 0
+0x0077f3dc      mov ecx, 0x11d9770
+0x0077f3e1      call fcn.00559450
+0x0077f3e6      mov ecx, eax
+0x0077f3e8      call fcn.0045bc00
+0x0077f3ed      test eax, eax
+0x0077f3ef      je 0x77f41d
+0x0077f3f1      mov eax, dword [0x11d96c0]
+0x0077f3f6      mov cl, byte [arg_8h]
+0x0077f3f9      mov byte [eax + 0x1fc], cl
+0x0077f3ff      movzx edx, byte [arg_8h]
+0x0077f403      test edx, edx
+0x0077f405      sete al
+0x0077f408      movzx ecx, al
+0x0077f40b      push ecx
+0x0077f40c      mov ecx, 0x11d9770
+0x0077f411      call fcn.00559450
+0x0077f416      mov ecx, eax
+0x0077f418      call fcn.00450f90
+0x0077f41d      pop ebp
+
+Scope reset
+0x0077f270      push ebp
+0x0077f271      mov ebp, esp
+0x0077f273      push ecx
+0x0077f274      cmp dword [0x11d96c0], 0
+0x0077f27b      je 0x77f2e0
+0x0077f27d      mov ecx, 0x11d9770
+0x0077f282      call fcn.00559450
+0x0077f287      test eax, eax
+0x0077f289      je 0x77f2e0
+0x0077f28b      push 0
+0x0077f28d      mov ecx, 0x11d9770
+0x0077f292      call fcn.00559450
+0x0077f297      mov ecx, eax
+0x0077f299      call fcn.0045bc00
+0x0077f29e      test eax, eax
+0x0077f2a0      je 0x77f2e0
+0x0077f2a2      mov ecx, 0x11d9770
+0x0077f2a7      call fcn.00559450
+0x0077f2ac      mov dword [var_4h], eax
+0x0077f2af      push 0
+0x0077f2b1      mov ecx, 0x11d9770
+0x0077f2b6      call fcn.00559450
+0x0077f2bb      mov ecx, eax
+0x0077f2bd      call fcn.0043b4a0
+0x0077f2c2      push eax
+0x0077f2c3      mov eax, dword [var_4h]
+0x0077f2c6      mov edx, dword [eax]
+0x0077f2c8      mov ecx, dword [var_4h]
+0x0077f2cb      mov eax, dword [edx + 0xe8]
+0x0077f2d1      call eax
+0x0077f2d3      mov ecx, dword [0x11d96c0]
+0x0077f2d9      mov byte [ecx + 0x1fc], 0
+0x0077f2e0      mov esp, ebp
+0x0077f2e2      pop ebp
+0x0077f2e3      ret
+
+HUD state transition into/out of scope
+0x00771c20      mov eax, dword [0x11d96c0]
+0x00771c25      cmp dword [eax + 0x1c4], 0x17
+0x00771c2c      je 0x771c40
+0x00771c2e      cmp dword [var_4h], 0x17
+0x00771c32      jne 0x771c40
+0x00771c34      push 1
+0x00771c36      call fcn.0077f3c0
+0x00771c3b      add esp, 4
+0x00771c3e      jmp 0x771c5f
+0x00771c40      mov ecx, dword [0x11d96c0]
+0x00771c46      cmp dword [ecx + 0x1c4], 0x17
+0x00771c4d      jne 0x771c5f
+0x00771c4f      cmp dword [var_4h], 0x17
+0x00771c53      je 0x771c5f
+0x00771c55      push 0
+0x00771c57      call fcn.0077f3c0
+0x00771c5c      add esp, 4
+0x00771c5f      mov edx, dword [0x11d96c0]
+0x00771c65      mov eax, dword [var_4h]
+0x00771c68      mov dword [edx + 0x1c4], eax
+
+Native XInput stick getter (no gameplay deadzone)
+0x00a23401      movzx eax, byte [0x11f35c8]
+0x00a23408      test eax, eax
+0x00a2340a      je 0xa23415
+0x00a2340c      movsx eax, word [0x11f35b0]
+0x00a23413      jmp 0xa23459
+0x00a23415      jmp 0xa23457
+0x00a23417      movzx ecx, byte [0x11f35c8]
+0x00a2341e      test ecx, ecx
+0x00a23420      je 0xa2342b
+0x00a23422      movsx eax, word [0x11f35b2]
+0x00a23429      jmp 0xa23459
+0x00a2342b      jmp 0xa23457
+0x00a2342d      movzx edx, byte [0x11f35c8]
+0x00a23434      test edx, edx
+0x00a23436      je 0xa23441
+0x00a23438      movsx eax, word [0x11f35b4]
+0x00a2343f      jmp 0xa23459
+0x00a23441      jmp 0xa23457
+0x00a23443      movzx eax, byte [0x11f35c8]
+0x00a2344a      test eax, eax
+0x00a2344c      je 0xa23457
+0x00a2344e      movsx eax, word [0x11f35b6]
+0x00a23455      jmp 0xa23459
+0x00a23457      xor eax, eax
+0x00a23459      mov esp, ebp
+0x00a2345b      pop ebp
+0x00a2345c      ret 8
+
+UI consumes raw XInput axes
+0x007119d1      push 7
+0x007119d3      push 0
+0x007119d5      mov ecx, dword [var_10h]
+0x007119d8      call fcn.00a23390
+0x007119dd      mov dword [var_38h], eax
+0x007119e0      push 8
+0x007119e2      push 0
+0x007119e4      mov ecx, dword [var_10h]
+0x007119e7      call fcn.00a23390
+0x007119ec      mov dword [var_18h], eax
+0x007119ef      fild dword [ebp - 0x38]
+0x007119f2      mov ecx, 0x11d8c5c
+0x007119f7      fstp qword [ebp - 0x44]
+0x007119fa      call fcn.00403e20
+0x007119ff      fld dword [eax]
+0x00711a01      fmul qword [var_44h]
+0x00711a04      call fcn.00ec62c0
+0x00711a09      mov dword [var_38h], eax
+0x00711a0c      fild dword [ebp - 0x18]
+0x00711a0f      fchs
+0x00711a11      mov ecx, 0x11d8c5c
+0x00711a16      fstp qword [ebp - 0x4c]
+0x00711a19      call fcn.00403e20
+0x00711a1e      fld dword [eax]
+0x00711a20      fmul qword [var_4ch]
+0x00711a23      call fcn.00ec62c0
+
+Native trigger current/previous byte semantics
+0x00a23eb7      cmp dword [ebp + 8], 0x10
+0x00a23ebb      jne 0xa23f37
+0x00a23ebd      mov eax, dword [ebp + 0xc]
+0x00a23ec0      mov dword [ebp - 0x1c], eax
+0x00a23ec3      cmp dword [ebp - 0x1c], 3
+0x00a23ec7      ja 0xa23f32
+0x00a23ec9      mov ecx, dword [ebp - 0x1c]
+0x00a23ecc      jmp dword [ecx*4 + 0xa24048]
+0x00a23ed3      movzx edx, byte [0x11f35ae]
+0x00a23eda      test edx, edx
+0x00a23edc      jle 0xa23ee2
+0x00a23ede      mov byte [ebp - 5], 1
+0x00a23ee2      jmp 0xa23f32
+0x00a23ee4      movzx eax, byte [0x11f35ae]
+0x00a23eeb      test eax, eax
+0x00a23eed      jle 0xa23efe
+0x00a23eef      movzx ecx, byte [0x11f35be]
+0x00a23ef6      test ecx, ecx
+0x00a23ef8      jne 0xa23efe
+0x00a23efa      mov byte [ebp - 5], 1
+0x00a23efe      jmp 0xa23f32
+0x00a23f00      movzx edx, byte [0x11f35ae]
+0x00a23f07      test edx, edx
+0x00a23f09      jne 0xa23f1a
+0x00a23f0b      movzx eax, byte [0x11f35be]
+0x00a23f12      test eax, eax
+0x00a23f14      jle 0xa23f1a
+0x00a23f16      mov byte [ebp - 5], 1
+0x00a23f1a      jmp 0xa23f32
+0x00a23f1c      movzx ecx, byte [0x11f35ae]
+0x00a23f23      movzx edx, byte [0x11f35be]
+0x00a23f2a      cmp ecx, edx
+0x00a23f2c      je 0xa23f32
+0x00a23f2e      mov byte [ebp - 5], 1
+0x00a23f32      jmp 0xa24028
+0x00a23f37      cmp dword [ebp + 8], 0x11
+0x00a23f3b      jne 0xa23fb4
+0x00a23f3d      mov eax, dword [ebp + 0xc]
+0x00a23f40      mov dword [ebp - 0x20], eax
+0x00a23f43      cmp dword [ebp - 0x20], 3
+0x00a23f47      ja 0xa23fb2
+0x00a23f49      mov ecx, dword [ebp - 0x20]
+0x00a23f4c      jmp dword [ecx*4 + 0xa24058]
+0x00a23f53      movzx edx, byte [0x11f35af]
+0x00a23f5a      test edx, edx
+0x00a23f5c      jle 0xa23f62
+0x00a23f5e      mov byte [ebp - 5], 1
+0x00a23f62      jmp 0xa23fb2
+0x00a23f64      movzx eax, byte [0x11f35af]
+0x00a23f6b      test eax, eax
+0x00a23f6d      jle 0xa23f7e
+0x00a23f6f      movzx ecx, byte [0x11f35bf]
+0x00a23f76      test ecx, ecx
+0x00a23f78      jne 0xa23f7e
+0x00a23f7a      mov byte [ebp - 5], 1
+0x00a23f7e      jmp 0xa23fb2
+0x00a23f80      movzx edx, byte [0x11f35af]
+0x00a23f87      test edx, edx
+0x00a23f89      jne 0xa23f9a
+0x00a23f8b      movzx eax, byte [0x11f35bf]
+0x00a23f92      test eax, eax
+0x00a23f94      jle 0xa23f9a
+0x00a23f96      mov byte [ebp - 5], 1
+0x00a23f9a      jmp 0xa23fb2
+0x00a23f9c      movzx ecx, byte [0x11f35af]
+0x00a23fa3      movzx edx, byte [0x11f35bf]
+0x00a23faa      cmp ecx, edx
+0x00a23fac      je 0xa23fb2
+0x00a23fae      mov byte [ebp - 5], 1
+0x00a23fb2      jmp 0xa24028

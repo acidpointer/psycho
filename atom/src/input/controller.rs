@@ -460,14 +460,17 @@ fn process_stick(
 ) -> StickVector {
     let x = normalize_axis(raw_x);
     let y = normalize_axis(raw_y);
-    let magnitude = x.hypot(y).min(1.0);
+    let magnitude = x.hypot(y);
     if magnitude <= deadzone || magnitude == 0.0 {
         return StickVector::default();
     }
 
     let direction_x = x / magnitude;
     let direction_y = y / magnitude;
-    let rescaled = ((magnitude - deadzone) / (1.0 - deadzone)).clamp(0.0, 1.0);
+    // XInput bounds each axis independently, so a valid diagonal can exceed
+    // unit length. Normalize with its original length before clamping radial
+    // strength; clamping the divisor would amplify diagonal output.
+    let rescaled = ((magnitude.min(1.0) - deadzone) / (1.0 - deadzone)).clamp(0.0, 1.0);
     let curved = rescaled.powf(settings.response_exponent);
     let saturated = (curved / settings.output_saturation).min(1.0);
     let output = settings.anti_deadzone + (1.0 - settings.anti_deadzone) * saturated;

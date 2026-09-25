@@ -172,7 +172,7 @@ pub(super) fn mark_follow_collision(
         (requested_distance - resolved_distance).max(0.0),
     );
 
-    let frame = crate::input::latest_action_frame().frame_id();
+    let frame = crate::input::latest_action_header().frame_id();
     if FOLLOW_SAMPLE_VALID.load(Ordering::Acquire)
         && FOLLOW_SAMPLE_PLAYER.load(Ordering::Relaxed) == player
         && frame == FOLLOW_SAMPLE_FRAME.load(Ordering::Relaxed).wrapping_add(1)

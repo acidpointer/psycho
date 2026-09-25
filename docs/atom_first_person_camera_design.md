@@ -610,8 +610,9 @@ gameplay mode 1. The `6f6c2a...` runtime proved that the shared helper entry at
 `0x00702360` is no longer byte-identical by `DeferredInit`, while the on-disk
 supported executable retains its vanilla prologue. Atom therefore validates
 the global slot and reads the proven fields instead of fingerprinting or
-calling that mutable entry. Private helper fingerprints remain strict; the
-transparent callsites use the typed direct-call capability described below.
+calling that mutable entry. Direct helpers require executable entries;
+callsites use the typed live capability described below. No live helper body
+is compared with vanilla bytes.
 The direct evidence and inference boundary is recorded in the
 [first-person camera ledger](../analysis/radare2/output/perf/fnv_first_person_camera_contract.txt).
 
@@ -1018,7 +1019,7 @@ For exact world phase and an admitted first-person motion frame:
 3. snapshot the camera world transform and read its local transform;
 4. compose the same clamped local offset into the world camera and the local
    center used by the two finite graphs;
-5. update Sky and Weather through the fingerprinted native `0x00A59C60`
+5. update Sky and Weather through the live native `0x00A59C60`
    helper with the same zeroed `NiUpdateData` used by `0x00872B00`;
 6. publish a render token and call that callsite's live predecessor;
 7. recursively restore both graphs, reapply their exact root snapshots, and
@@ -1643,10 +1644,10 @@ evidence classification.
 
 Atom now wraps the live UpdateCamera entry rather than one caller. The entry
 trampoline covers all native branches and compatible external callers, calls
-the complete predecessor first, and samples afterward. Immutable interior and
-epilogue fingerprints prove the supported body without rejecting a compatible
-earlier entry hook. The entry and five render wrappers remain one rollback
-transaction, so partial admission leaves the first-person camera fully native.
+the complete predecessor first, and samples afterward. Admission checks the
+live entry's executability and relocatability without matching vanilla body
+bytes. The shared entry and post-Deferred render group use separate rollback
+transactions, so render admission does not suppress third-person ownership.
 
 The shared inline decoder admits an existing complete first-instruction
 redirect when that single instruction is at least as wide as Atom's entry
@@ -1769,7 +1770,7 @@ old camera. The runtime symptom follows directly from that ownership mismatch.
 The corrected world guard resolves every object and finite transform before
 its first write. It composes the Stable pose once against camera world space
 and once against camera local space, applies the posed world camera, gives Sky
-and Weather the posed local center, and calls the same fingerprinted native
+and Weather the posed local center, and calls the same live native
 update helper with the same initialized data contract. On every return or Rust
 unwind it restores both graphs through their native recursive update, reapplies
 the exact root local/world snapshots to remove multiplication rounding, and

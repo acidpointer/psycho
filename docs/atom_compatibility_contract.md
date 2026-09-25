@@ -5,6 +5,30 @@ Input, first-person camera, third-person camera, and native Ballistics
 systems, including admission-time runtime-helper validation and the
 post-activation ownership audit.
 
+## Runtime admission
+
+Atom does not compare live game code with vanilla byte fingerprints, either
+as feature gates or as helper-body diagnostics. Supported FNV version and
+statically researched layouts establish the ABI contract. At installation,
+the hook library validates the live instruction at the actual patch site,
+executable predecessor/detour targets, relocatable entry instructions, and
+pointer-slot ownership. Directly called helpers must be executable. Hook
+transactions preserve the captured live providers and roll back on failure.
+These checks admit compatible entry and interior patches without identifying
+their owner. Executability alone cannot prove ABI compatibility; providers
+must preserve the supported calling and object-lifetime contracts.
+
+The 2026-09-25 input regression demonstrates why surrounding bytes are not
+an admission contract. xNVSE installs a five-byte jump at `0x005A03F7`, which
+overlaps Atom's former `0x005A03FA` field-access fingerprint. The resulting
+input error aborted DeferredInit before camera or Ballistics installation.
+The retained failure is
+[atom-2026-09-25-input-admission-failure.log](../.reports/atom-2026-09-25-input-admission-failure.log).
+The source proof is `TogglePlayerControlsAlt::WriteHooks` and
+`ModifyPlayerControlFlags` in `libnvse/xnvse/nvse/nvse/Hooks_Gameplay.cpp`.
+Atom now reads the combined disabled-control policy through xNVSE's existing
+`PlayerControlsReader`, including script-owned LOOKING suppression.
+
 ## Purpose and scope
 
 This document defines what "compatible with Atom" means, which mod classes are
@@ -34,7 +58,7 @@ capability-based; plugin names appear only as examples of a class.
 | Class | Mechanism | Notes |
 |---|---|---|
 | Content and data mods (weapons, projectiles, ammo, perks) | Runtime classification from live form type, flags, explosion link, and launch arguments (`docs/atom_ballistics_core_plan.md`). No ESP, load-order slot, or form-ID dependency exists. | Mod-added discrete hitscan/physical rounds participate automatically; beams, flames, continuous emitters, explosives, grenades, and thrown projectiles remain native by capability. |
-| Animation packs and graph providers (kNVSE-class) | The hip-fire adapter chains whatever complete entry owner exists at `AnimData::MorphToSequenceIDOrGroup`; immutable interior fingerprints reject only unsupported executable bodies. | kNVSE's internal custom path and blend hooks stay in the same resolution chain. |
+| Animation packs and graph providers (kNVSE-class) | The hip-fire adapter chains the live entry at `AnimData::MorphToSequenceIDOrGroup` after relocation checks, without requiring vanilla interior bytes. | kNVSE's internal custom path and blend hooks stay in the same resolution chain. |
 | Script-driven projectile spawns (script extenders, quest scripts) | The same launch callsite and thread/form-scoped policy slots serve any source. Unknown sources, targeted launches, `always-hit`, and `ignore-gravity` launches remain native. | Observed callback-thread sets are handled; policy slots are keyed by Windows thread ID with nested-frame restoration. |
 | Graphics wrappers and deferred graphics plugins | First-person render callsites install at the first post-Deferred `MainGameLoop`, capturing every deferred wrapper as typed predecessor so Atom's pose encloses the whole graphics transaction. | Proven with OMV in both plugin orders (`.reports/atom-omv-camera-chain-2026-08-16.txt`). |
 | Earlier hook owners at any hooked address | Callsite hooks capture the live call target; entry hooks relocate a complete existing entry jump into the trampoline; pointer-slot hooks CAS-chain the current value. Installation order does not matter. | Field-proven against trampoline-based predecessors on UpdateCamera, bound actions, movement scope, hip-fire pose, keyboard sampling, and the ranged-launch chain. |
@@ -66,17 +90,14 @@ A mod with any of these behaviors is incompatible regardless of name:
    before Atom with a partial or non-relocatable patch, Atom fails closed and
    leaves that capability native. Neither direction crashes, but the affected
    features cannot coexist.
-2. **In-place edits of directly-called helper bodies are diagnosed, not
-   fatal.** Atom validates only that each fixed helper entry (projectile
+2. **Compatible in-place helper edits are accepted.** Atom validates only
+   that each fixed helper entry (projectile
    launch, termination, clearance raycast, effective speed) is mapped
    executable memory before calling it; a failure disables ricochet's child
-   path while Physical Rounds stay active. Interior-body differences from
-   the researched binary are reported as one named WARN per helper and
-   never disable anything: ecosystem patchers either hook entries with
-   ABI-preserving jumps or edit instructions in place, and both remain safe
-   to call through. An ABI-breaking rewrite of these four helpers is the
-   one residual unsupported case — recorded here as accepted risk with
-   visibility rather than a crash-safety claim.
+   path while Physical Rounds stay active. Helper bodies are not compared
+   with the researched executable. Providers may use entry jumps or interior
+   edits while preserving the ABI and lifetime contract. ABI-breaking rewrites
+   remain unsupported; executable-memory checks do not prove their safety.
 3. **Runtime self-unloading or byte-restoring hook providers.** Atom's typed
    predecessors must remain mapped and unmodified for process lifetime. A
    framework that unloads itself or restores saved vanilla bytes at game

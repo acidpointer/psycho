@@ -2,8 +2,8 @@
 //!
 //! Every detour captures and calls the target currently encoded by its native
 //! caller. This composes with earlier callsite owners without identifying
-//! them. Immutable surrounding instructions prove the supported FNV caller;
-//! the mutable `E8` displacement is deliberately excluded. A scoped policy
+//! them. Hook preparation validates the live instruction and executable
+//! target without comparing surrounding code to vanilla bytes. A scoped policy
 //! request makes FNV's initializer construct physical flight before launch
 //! returns. Ricochet creates a fresh native child on a collision-verified
 //! outbound segment and lets the completed parent retain its terminal result.
@@ -13,22 +13,18 @@
 //! Directly-called runtime helpers are admitted on entry readiness alone:
 //! each fixed target must be mapped executable memory before Atom ever calls
 //! it, and a failure keeps those addresses unreachable while physical-rounds
-//! policy stays active. Interior-body windows are diagnostic only — they name
-//! which helper an ecosystem patcher touched without disabling anything,
-//! because entry-hook wrappers and in-place instruction edits both preserve
-//! the calling convention. Detour predecessor fallbacks to vanilla addresses
+//! policy stays active. Compatible entry wrappers and interior patches must
+//! preserve the supported ABI; vanilla-body equality cannot establish that
+//! contract and is not checked. Detour predecessor fallbacks to vanilla addresses
 //! follow the same unreachable-by-construction rule as the other subsystems.
 
 use core::ffi::c_void;
 use core::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 
-use libpsycho::os::windows::{
-    hook::{
-        callsite::{Rel32CallHookContainer, Rel32CallHookError},
-        pointer::{PointerSlotHookContainer, PointerSlotHookError},
-        transaction::ModificationTransaction,
-    },
-    memory::{MemoryError, read_bytes},
+use libpsycho::os::windows::hook::{
+    callsite::{Rel32CallHookContainer, Rel32CallHookError},
+    pointer::{PointerSlotHookContainer, PointerSlotHookError},
+    transaction::ModificationTransaction,
 };
 use thiserror::Error;
 
@@ -132,143 +128,16 @@ const PROJECTILE_FLAG_EXPLOSION: u16 = 0x0002;
 const PROJECTILE_FLAG_NATIVE_BOUNCE: u16 = 0x0010;
 const IMPACT_RESULT_DESTROY: u32 = 1;
 
-const FINGERPRINTS: &[(usize, &[u8])] = &[
-    (
-        0x0052_4402,
-        &[
-            0x8B, 0x45, 0xD4, 0x50, 0x6A, 0x00, 0x0F, 0xB6, 0x4D, 0xEA, 0x51, 0x8B, 0x8D, 0xC8,
-            0xFD, 0xFF, 0xFF,
-        ],
-    ),
-    (
-        0x0052_4418,
-        &[
-            0x88, 0x85, 0x5F, 0xFE, 0xFF, 0xFF, 0x0F, 0xB6, 0x95, 0x5F, 0xFE, 0xFF, 0xFF,
-        ],
-    ),
-    (
-        0x0052_45A1,
-        &[
-            0x51, 0x8B, 0x55, 0x90, 0x52, 0x8B, 0x45, 0x08, 0x50, 0x8B, 0x8D, 0x48, 0xFE, 0xFF,
-            0xFF, 0x51, 0x8B, 0x8D, 0xC8, 0xFD, 0xFF, 0xFF,
-        ],
-    ),
-    (0x0052_45BC, &[0x50]),
-    (
-        0x0052_45C2,
-        &[0x83, 0xC4, 0x40, 0x89, 0x85, 0x58, 0xFE, 0xFF, 0xFF],
-    ),
-    (
-        0x009B_7CFE,
-        &[0x8B, 0x4D, 0xF8, 0xE8, 0xDA, 0x04, 0xA6, 0xFF, 0x8B, 0xC8],
-    ),
-    (
-        0x009B_7D0D,
-        &[
-            0x88, 0x45, 0xF7, 0x8A, 0x45, 0xF7, 0x88, 0x45, 0xFC, 0x8B, 0x4D, 0xF8,
-        ],
-    ),
-    (
-        0x009C_1E4C,
-        &[
-            0x8B, 0x55, 0xA8, 0x52, 0x6A, 0x00, 0x8B, 0x45, 0xC8, 0x50, 0x6A, 0x00, 0x8D, 0x4D,
-            0xC4,
-        ],
-    ),
-    (0x009C_1E60, &[0x50]),
-    (
-        0x009C_1E66,
-        &[0x83, 0xC4, 0x14, 0x6A, 0x00, 0x8B, 0x4D, 0xC8],
-    ),
-    (0x009C_1E92, &[0x50, 0x8B, 0x4D, 0xC8]),
-    (
-        0x009C_1E9B,
-        &[0xC7, 0x45, 0xFC, 0xFF, 0xFF, 0xFF, 0xFF, 0x8D, 0x4D, 0xC4],
-    ),
-    (
-        0x009C_2038,
-        &[
-            0x8B, 0x45, 0xE4, 0x8B, 0x48, 0x20, 0x51, 0x8B, 0x55, 0xC0, 0x52, 0x8B, 0x45, 0xE4,
-            0x83, 0xC0, 0x10, 0x50, 0x8B, 0x4D, 0xE4, 0x83, 0xC1, 0x04, 0x51, 0x8B, 0x55, 0xE8,
-            0x52, 0x8B, 0x4D, 0xA8,
-        ],
-    ),
-    (
-        0x009C_205D,
-        &[
-            0x8B, 0x45, 0xC0, 0x50, 0x8D, 0x4D, 0xAC, 0x51, 0x8B, 0x4D, 0xA8,
-        ],
-    ),
-    (
-        0x009B_83D5,
-        &[
-            0x89, 0x45, 0x90, 0x51, 0xD9, 0x45, 0x08, 0xD9, 0x1C, 0x24, 0x8B, 0x8D, 0xFC, 0xFE,
-            0xFF, 0xFF,
-        ],
-    ),
-    (
-        0x009B_83EA,
-        &[
-            0x8B, 0x8D, 0xFC, 0xFE, 0xFF, 0xFF, 0x8B, 0x11, 0x8B, 0x8D, 0xFC, 0xFE, 0xFF, 0xFF,
-            0x8B, 0x82, 0xF4, 0x01, 0x00, 0x00,
-        ],
-    ),
-    (
-        0x009B_846F,
-        &[
-            0x51, 0xD9, 0x45, 0x08, 0xD9, 0x1C, 0x24, 0x8B, 0x8D, 0xFC, 0xFE, 0xFF, 0xFF,
-        ],
-    ),
-    (
-        0x009B_8481,
-        &[
-            0x8B, 0x8D, 0xFC, 0xFE, 0xFF, 0xFF, 0x81, 0xC1, 0x88, 0x00, 0x00, 0x00,
-        ],
-    ),
-    (
-        0x009B_DC97,
-        &[
-            0x0F, 0xB6, 0x55, 0xF3, 0x85, 0xD2, 0x75, 0x08, 0x8B, 0x4D, 0xBC,
-        ],
-    ),
-    (
-        0x009B_DCA7,
-        &[0x0F, 0xB6, 0x45, 0xEB, 0x85, 0xC0, 0x74, 0x16],
-    ),
-];
-
-const COMMON_IMPACT_FINGERPRINTS: &[(usize, &[u8])] = &[
-    (
-        0x009B_8BCD,
-        &[
-            0x0F, 0xB6, 0x55, 0xFE, 0x85, 0xD2, 0x74, 0x0B, 0x8B, 0x4D, 0xF4,
-        ],
-    ),
-    (
-        0x009B_8BDD,
-        &[
-            0x88, 0x45, 0xFF, 0x0F, 0xB6, 0x45, 0xFF, 0x85, 0xC0, 0x0F, 0x84, 0x81, 0x00, 0x00,
-            0x00,
-        ],
-    ),
-];
-
 /// Failure to validate or install Ballistics observation hooks.
 #[derive(Debug, Error)]
 pub(crate) enum HookInstallError {
-    /// Reading an immutable caller fingerprint failed.
-    #[error(transparent)]
-    Memory(#[from] MemoryError),
-    /// A supported-runtime call context differs from the researched binary.
-    #[error("native ballistics caller fingerprint mismatch at 0x{address:08X}")]
-    FingerprintMismatch { address: usize },
     /// A direct call could not be captured, chained, enabled, or rolled back.
     #[error(transparent)]
     Callsite(#[from] Rel32CallHookError),
     /// The MissileProjectile update slot could not be chained transactionally.
     #[error(transparent)]
     Pointer(#[from] PointerSlotHookError),
-    /// A directly-called helper body no longer matches the supported binary.
+    /// A directly-called helper entry is not executable.
     #[error(transparent)]
     Helper(#[from] native::HelperContractError),
 }
@@ -325,25 +194,11 @@ pub(crate) fn helper_entries_ready() -> bool {
 }
 
 pub(crate) fn install() -> Result<HookPredecessors, HookInstallError> {
-    validate_fingerprints(FINGERPRINTS)?;
     match native::validate_helper_entries() {
         Ok(()) => HELPER_ENTRIES_READY.store(true, Ordering::Release),
         Err(error) => log::warn!(
             "[BALLISTICS] Runtime helper entry contract failed: {error}. Ricochet stays observe-only and trace speed sampling is disabled; physical rounds remain active"
         ),
-    }
-    let scan = native::scan_helper_bodies();
-    if let Some(summary) = scan.summary() {
-        // Diagnostic only. Ecosystem patchers edit helper bodies in place or
-        // chain their entries with ABI-preserving jumps; both remain safe to
-        // call through, so this names the touched helpers without disabling
-        // anything.
-        log::warn!(
-            "[BALLISTICS] {} of {} directly-called helper bodies differ from the researched binary ({}). Ricochet stays active; an ABI-breaking rewrite remains unsupported",
-            scan.differing,
-            scan.checked,
-            summary
-        );
     }
     unsafe {
         COUNT_HOOK.init(
@@ -427,7 +282,6 @@ pub(crate) fn install() -> Result<HookPredecessors, HookInstallError> {
 
 /// Install the common-impact child-spawn seam independently.
 pub(crate) fn install_ricochet_observer() -> Result<RicochetAdmission, HookInstallError> {
-    validate_fingerprints(COMMON_IMPACT_FINGERPRINTS)?;
     let launch_predecessor = LAUNCH_HOOK.predecessor_address()?;
     let muzzle_flash_predecessor = MUZZLE_FLASH_HOOK.predecessor_address()?;
     unsafe {
@@ -448,15 +302,6 @@ pub(crate) fn install_ricochet_observer() -> Result<RicochetAdmission, HookInsta
     transaction.commit();
     RICOCHET_MUTATION_ADMITTED.store(admission.mutation_admitted(), Ordering::Release);
     Ok(admission)
-}
-
-fn validate_fingerprints(fingerprints: &[(usize, &[u8])]) -> Result<(), HookInstallError> {
-    for &(address, expected) in fingerprints {
-        if read_bytes(address as *const c_void, expected.len())? != expected {
-            return Err(HookInstallError::FingerprintMismatch { address });
-        }
-    }
-    Ok(())
 }
 
 unsafe extern "thiscall" fn count_detour(
