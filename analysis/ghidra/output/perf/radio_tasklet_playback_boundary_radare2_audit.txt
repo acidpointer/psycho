@@ -1,0 +1,571 @@
+RADIO TASKLET AVAILABILITY AND PLAYBACK BOUNDARY AUDIT
+
+Date: 2026-09-25
+Interface: radare2 MCP, focused disassemble calls.
+Executable: fnv_reverse/FalloutNV.exe
+SHA-256: 42fee7d6cd74e801372aa89c8f71c974cebd3c20ec9ad43d1465b8fa9646b49c
+
+Static evidence only. No game run or reporter transition was reproduced.
+Instruction bytes/operands and control flow are evidence; radare2 generated
+call-argument annotations are not verified ABI or runtime argument values.
+ECX at the signal setters is wrapper + 4, so their +0x14/+0x11 offsets
+refer to wrapper +0x18/+0x15 respectively.
+
+======================================================================
+Mode-0 result consumption @ 0x004FF397
+======================================================================
+   ; 0x6d4eb0(0x0, 0x0, 0x0, 0x0)
+0x004ff397      call 0x6d4eb0
+0x004ff39c      add esp, 0x14
+0x004ff39f      fstp dword [ebp - 0x14]
+0x004ff3a2      mov byte [ebp - 4], 0
+0x004ff3a6      lea ecx, [ebp - 0x104]
+   ; 0x4ff7e0(0x0, 0x0, 0xfffffefc, 0x0)
+0x004ff3ac      call 0x4ff7e0
+; -1
+0x004ff3b1      mov dword [ebp - 4], 0xffffffff
+0x004ff3b8      lea ecx, [ebp - 0xdc]
+   ; 0x4ff7e0(0x0, 0x0, 0xffffff24, 0x0)
+0x004ff3be      call 0x4ff7e0
+0x004ff3c3      mov ecx, dword [ebp - 0x24]
+   ; 0x56b190(0x0, 0x0, -1, 0x0)
+0x004ff3c6      call 0x56b190
+0x004ff3cb      fld dword [ebp - 0x14]
+0x004ff3ce      fcompp
+0x004ff3d0      fnstsw ax
+; 5
+0x004ff3d2      test ah, 5
+   ; likely
+0x004ff3d5      jp 0x4ff3db
+0x004ff3d7      mov byte [ebp - 0xd], 1
+0x004ff3db      jmp 0x4ff77f
+0x004ff3e0      mov byte [ebp - 0xd], 1
+0x004ff3e4      fld dword [0x1012054]
+0x004ff3ea      fstp dword [ebp - 0x14]
+0x004ff3ed      jmp 0x4ff77f
+0x004ff3f2      mov ecx, dword [ebp - 0x24]
+
+
+======================================================================
+Scanner output admission @ 0x004FF77F
+======================================================================
+0x004ff77f      movzx edx, byte [ebp - 0xd]
+0x004ff783      test edx, edx
+   ; unlikely
+0x004ff785      je 0x4ff7a5
+0x004ff787      lea eax, [ebp - 0x24]
+0x004ff78a      push eax
+0x004ff78b      mov ecx, dword [ebp + 0xc]
+   ; 0x5ae3d0(0xffffffdc, 0x0, -1, 0xff)
+0x004ff78e      call 0x5ae3d0
+0x004ff793      cmp dword [ebp + 0x10], 0
+   ; unlikely
+0x004ff797      je 0x4ff7a5
+0x004ff799      lea ecx, [ebp - 0x14]
+0x004ff79c      push ecx
+0x004ff79d      mov ecx, dword [ebp + 0x10]
+   ; 0x4ff980(0xffffffdc, 0x0, -1, 0xff)
+0x004ff7a0      call 0x4ff980
+0x004ff7a5      mov ecx, dword [ebp - 0x20]
+   ; 0x726070(0xffffffdc, 0x0, -1, 0xff)
+0x004ff7a8      call 0x726070
+0x004ff7ad      mov dword [ebp - 0x20], eax
+0x004ff7b0      jmp 0x4ff227
+0x004ff7b5      mov ecx, dword [ebp - 0xc]
+0x004ff7b8      mov dword fs:[0], ecx
+0x004ff7bf      pop ecx
+0x004ff7c0      pop esi
+0x004ff7c1      mov esp, ebp
+0x004ff7c3      pop ebp
+0x004ff7c4      ret
+0x004ff7c5      lea ecx, [ecx]
+
+
+======================================================================
+Station match and loss-flag clearing @ 0x00833f65
+======================================================================
+0x00833f65      movzx edx, byte [ebp + 8]
+0x00833f69      test edx, edx
+   ; unlikely
+0x00833f6b      je 0x8340b3
+0x00833f71      cmp dword [ebp - 0x1c], 0
+   ; unlikely
+0x00833f75      je 0x8340b3
+0x00833f7b      cmp dword [ebp - 0x18], 0
+   ; unlikely
+0x00833f7f      je 0x8340b3
+0x00833f85      mov ecx, dword [ebp - 0x1c]
+   ; 0x6815c0(0x0, 0x0, -1, 0xff)
+0x00833f88      call 0x6815c0
+0x00833f8d      mov ecx, dword [ebp - 0x5c]
+0x00833f90      mov edx, dword [eax]
+0x00833f92      cmp edx, dword [ecx]
+   ; unlikely
+0x00833f94      jne 0x834098
+0x00833f9a      mov byte [ebp - 0x3d], 1
+; 'd'
+0x00833f9e      mov byte [ebp - 0x35], 0x64
+0x00833fa2      push 0
+0x00833fa4      mov ecx, dword [ebp - 0x5c]
+0x00833fa7      add ecx, 4
+   ; 0x834210(0x0, 0x0, 0x3, -1)
+0x00833faa      call 0x834210
+0x00833faf      mov ecx, dword [ebp - 0x18]
+   ; 0x6815c0(0x0, 0x0, -1, -1)
+0x00833fb2      call 0x6815c0
+0x00833fb7      fld dword [eax]
+0x00833fb9      fstp dword [ebp - 0x20]
+0x00833fbc      mov eax, dword [ebp - 0x5c]
+0x00833fbf      mov ecx, dword [eax]
+   ; 0x56b190(-1, 0x0, -1, -1)
+0x00833fc1      call 0x56b190
+0x00833fc6      fstp dword [ebp - 0x34]
+
+
+======================================================================
+Missing station sets loss flag and zero signal target @ 0x008340b3
+======================================================================
+0x008340b3      movzx ecx, byte [ebp + 8]
+0x008340b7      test ecx, ecx
+   ; unlikely
+0x008340b9      je 0x8340dd
+0x008340bb      movzx edx, byte [ebp - 0x3d]
+0x008340bf      test edx, edx
+   ; likely
+0x008340c1      jne 0x8340dd
+; 1
+0x008340c3      push 1
+0x008340c5      mov ecx, dword [ebp - 0x5c]
+0x008340c8      add ecx, 4
+   ; 0x834210(0x0, 0x0, 0x3, 0xff)
+0x008340cb      call 0x834210
+0x008340d0      push 0
+0x008340d2      mov ecx, dword [ebp - 0x5c]
+0x008340d5      add ecx, 4
+   ; 0x458b30(0x0, 0x0, 0x3, 0xff)
+0x008340d8      call 0x458b30
+0x008340dd      movzx eax, byte [ebp - 0x3d]
+0x008340e1      test eax, eax
+   ; unlikely
+0x008340e3      je 0x8341b0
+; [0x11dd430:4]=0
+0x008340e9      mov ecx, dword [0x11dd430]
+0x008340ef      cmp ecx, dword [ebp - 0x5c]
+
+
+======================================================================
+Embedded radio-state flag setter @ 0x00834210
+======================================================================
+0x00834210      push ebp
+0x00834211      mov ebp, esp
+0x00834213      sub esp, 8
+0x00834216      mov dword [ebp - 4], ecx
+0x00834219      movzx eax, byte [ebp + 8]
+0x0083421d      test eax, eax
+   ; unlikely
+0x0083421f      je 0x83423b
+0x00834221      mov ecx, dword [ebp - 4]
+0x00834224      mov edx, dword [ecx + 0x14]
+0x00834227      or edx, 4
+0x0083422a      mov eax, dword [ebp - 4]
+0x0083422d      mov dword [eax + 0x14], edx
+0x00834230      mov ecx, dword [ebp - 4]
+0x00834233      mov edx, dword [ecx + 0x14]
+0x00834236      mov dword [ebp - 8], edx
+0x00834239      jmp 0x834253
+0x0083423b      mov eax, dword [ebp - 4]
+0x0083423e      mov ecx, dword [eax + 0x14]
+; 4294967291
+0x00834241      and ecx, 0xfffffffb
+0x00834244      mov edx, dword [ebp - 4]
+0x00834247      mov dword [edx + 0x14], ecx
+0x0083424a      mov eax, dword [ebp - 4]
+0x0083424d      mov ecx, dword [eax + 0x14]
+
+
+======================================================================
+Embedded radio-state signal target setter @ 0x00458b30
+======================================================================
+0x00458b30      push ebp
+0x00458b31      mov ebp, esp
+0x00458b33      push ecx
+0x00458b34      mov dword [ebp - 4], ecx
+0x00458b37      mov eax, dword [ebp - 4]
+0x00458b3a      mov cl, byte [ebp + 8]
+0x00458b3d      mov byte [eax + 0x11], cl
+0x00458b40      mov esp, ebp
+0x00458b42      pop ebp
+0x00458b43      ret 4
+0x00458b46      int3
+0x00458b47      int3
+0x00458b48      int3
+
+
+======================================================================
+Station update remains on caller thread @ 0x008341b0
+======================================================================
+0x008341b0      mov ecx, dword [ebp - 0x5c]
+0x008341b3      push ecx
+   ; 0x834260(0x0, 0x0, -1, 0x0)
+0x008341b4      call 0x834260
+0x008341b9      add esp, 4
+0x008341bc      mov ecx, dword [ebp - 0x3c]
+   ; 0x726070(0x0, 0x0, -1, 0x0)
+0x008341bf      call 0x726070
+0x008341c4      mov dword [ebp - 0x3c], eax
+0x008341c7      jmp 0x833f18
+0x008341cc      lea ecx, [ebp - 0x14]
+
+
+======================================================================
+Native inactive-empty station fast path @ 0x008342f7
+======================================================================
+; [0x11dd42c:4]=0
+0x008342f7      cmp ecx, dword [0x11dd42c]
+0x008342fd      sete dl
+0x00834300      mov byte [ebp - 0x39], dl
+0x00834303      fld dword [0x104fca0]
+0x00834309      fstp dword [ebp - 0x28]
+0x0083430c      lea eax, [ebp - 0x24]
+0x0083430f      push eax
+   ; 0x453a70(0xffffffdc, 0x0, 0x0, 0x1)
+0x00834310      call 0x453a70
+0x00834315      mov ecx, eax
+   ; 0xad78e0(0xffffffdc, 0x0, 0xffffffdc, 0x1)
+0x00834317      call 0xad78e0
+; 0x107ceb0
+; "FalloutRadio::UpdateStation"
+0x0083431c      push str.FalloutRadio::UpdateStation
+0x00834321      mov ecx, 0x11dd5e8
+   ; 0x4538a0(0xffffffdc, 0x0, 0x11dd5e8, 0x1)
+0x00834326      call 0x4538a0
+0x0083432b      mov ecx, dword [ebp + 8]
+0x0083432e      cmp dword [ecx + 4], 0
+   ; unlikely
+0x00834332      je 0x834347
+0x00834334      mov edx, dword [ebp + 8]
+0x00834337      mov ecx, dword [edx + 4]
+   ; 0x83c820(0xffffffdc, 0x0, -1, -1)
+0x0083433a      call 0x83c820
+0x0083433f      mov dword [ebp - 0x1c4], eax
+0x00834345      jmp 0x834351
+0x00834347      mov dword [ebp - 0x1c4], 0
+0x00834351      mov eax, dword [ebp - 0x1c4]
+0x00834357      mov dword [ebp - 0x44], eax
+0x0083435a      mov ecx, dword [ebp + 8]
+; 28
+0x0083435d      add ecx, 0x1c
+0x00834360      mov dword [ebp - 0x40], ecx
+; [0x11dd436:1]=0
+0x00834363      movzx edx, byte [0x11dd436]
+0x0083436a      test edx, edx
+   ; likely
+0x0083436c      je 0x834373
+0x0083436e      jmp 0x83562f
+0x00834373      movzx eax, byte [ebp - 0x39]
+0x00834377      test eax, eax
+   ; likely
+0x00834379      jne 0x83439c
+0x0083437b      mov ecx, dword [ebp + 8]
+; 28
+0x0083437e      add ecx, 0x1c
+   ; 0x8256d0(0xff, 0x0, 0x1b, 0x0)
+0x00834381      call 0x8256d0
+0x00834386      movzx ecx, al
+0x00834389      test ecx, ecx
+   ; unlikely
+0x0083438b      je 0x83439c
+0x0083438d      mov ecx, 0x11dd5e8
+   ; 0x4538c0(0xff, 0x0, 0x11dd5e8, 0x0)
+0x00834392      call 0x4538c0
+0x00834397      jmp 0x83562f
+; [0x11dd440:4]=0
+0x0083439c      mov edx, dword [0x11dd440]
+0x008343a2      mov dword [ebp - 0x2c], edx
+0x008343a5      cmp dword [ebp + 8], 0
+   ; unlikely
+0x008343a9      je 0x8343f4
+0x008343ab      mov eax, dword [ebp + 8]
+0x008343ae      cmp dword [eax], 0
+
+
+======================================================================
+Embedded radio-state loss-flag getter @ 0x00833bc0
+======================================================================
+0x00833bc0      push ebp
+0x00833bc1      mov ebp, esp
+0x00833bc3      push ecx
+0x00833bc4      mov dword [ebp - 4], ecx
+0x00833bc7      mov eax, dword [ebp - 4]
+0x00833bca      mov eax, dword [eax + 0x14]
+0x00833bcd      and eax, 4
+0x00833bd0      neg eax
+0x00833bd2      sbb eax, eax
+0x00833bd4      neg eax
+0x00833bd6      mov esp, ebp
+0x00833bd8      pop ebp
+0x00833bd9      ret
+0x00833bda      int3
+0x00833bdb      int3
+0x00833bdc      int3
+0x00833bdd      int3
+0x00833bde      int3
+0x00833bdf      int3
+0x00833be0      push ebp
+
+
+======================================================================
+Current-station loss consumer @ 0x008331c0
+======================================================================
+0x008331c0      push ebp
+0x008331c1      mov ebp, esp
+0x008331c3      push 0xffffffffffffffff
+0x008331c5      push 0xf11f42
+0x008331ca      mov eax, dword fs:[0]
+0x008331d0      push eax
+0x008331d1      sub esp, 0x1d4
+; [0x11c16bc:4]=0xbb40e64e
+0x008331d7      mov eax, dword [0x11c16bc]
+0x008331dc      xor eax, ebp
+0x008331de      mov dword [ebp - 0x48], eax
+0x008331e1      push eax
+0x008331e2      lea eax, [ebp - 0xc]
+0x008331e5      mov dword fs:[0], eax
+; [0x11dd42c:4]=0
+0x008331eb      cmp dword [0x11dd42c], 0
+   ; likely
+0x008331f2      je 0x83321f
+; [0x11dd42c:4]=0
+0x008331f4      mov ecx, dword [0x11dd42c]
+0x008331fa      add ecx, 4
+   ; 0x833c20(0xfffffff0, 0x0, 0x4, 0x0)
+0x008331fd      call 0x833c20
+0x00833202      movzx eax, al
+0x00833205      mov dword [ebp - 0x194], eax
+0x0083320b      fild dword [ebp - 0x194]
+; [0x1017a40:8]=0x4059000000000000
+0x00833211      fdiv qword [0x1017a40]
+0x00833217      fstp qword [ebp - 0x19c]
+0x0083321d      jmp 0x833227
+0x0083321f      fldz
+0x00833221      fstp qword [ebp - 0x19c]
+0x00833227      fld qword [ebp - 0x19c]
+0x0083322d      fstp dword [ebp - 0x14]
+0x00833230      mov byte [ebp - 0xd], 0
+; [0x11dd42c:4]=0
+0x00833234      cmp dword [0x11dd42c], 0
+   ; likely
+0x0083323b      je 0x83332d
+; [0x11dd42c:4]=0
+0x00833241      mov ecx, dword [0x11dd42c]
+0x00833247      add ecx, 4
+   ; 0x833bc0(0xf0, 0x0, 0x4, 0x0)
+0x0083324a      call 0x833bc0
+0x0083324f      movzx ecx, al
+0x00833252      test ecx, ecx
+   ; unlikely
+0x00833254      je 0x83332d
+0x0083325a      lea ecx, [ebp - 0x1c]
+   ; 0x4037b0(0xf0, 0x0, 0xffffffe0, 0x0)
+0x0083325d      call 0x4037b0
+0x00833262      mov dword [ebp - 4], 0
+0x00833269      push 0x100121
+; 0x107ce80
+; "UIRadioSignalLost"
+0x0083326e      push str.UIRadioSignalLost
+0x00833273      lea edx, [ebp - 0x28]
+0x00833276      push edx
+   ; 0x453a70(0xf0, 0x0, 0xffffffe0, 0xffffffd4)
+0x00833277      call 0x453a70
+0x0083327c      mov ecx, eax
+   ; 0xad7550(0xf0, 0x0, 0xf0, 0xffffffd4)
+0x0083327e      call 0xad7550
+0x00833283      mov byte [ebp - 4], 1
+0x00833287      push 0
+0x00833289      lea ecx, [ebp - 0x28]
+   ; 0xad8830(0xf0, 0x0, 0xffffffd4, 0xffffffd4)
+0x0083328c      call 0xad8830
+; [0x11dd42c:4]=0
+0x00833291      mov eax, dword [0x11dd42c]
+0x00833296      mov ecx, dword [eax]
+   ; 0x55d520(0x0, 0x0, -1, 0xffffffd4)
+0x00833298      call 0x55d520
+0x0083329d      push eax
+
+
+======================================================================
+Loss branch invokes radio deactivation @ 0x008332b5
+======================================================================
+; [0x11dd42c:4]=0
+0x008332b5      mov edx, dword [0x11dd42c]
+; [0x11dd430:4]=0
+0x008332bb      mov dword [0x11dd430], edx
+0x008332c1      push 0
+   ; 0x8324e0(0x0, 0x0, 0x0, 0x0)
+0x008332c3      call 0x8324e0
+0x008332c8      add esp, 4
+0x008332cb      mov ecx, 0x11dd638
+   ; 0xad88f0(0x0, 0x0, 0x11dd638, 0x0)
+0x008332d0      call 0xad88f0
+0x008332d5      mov ecx, 0x11dd638
+   ; 0xad8d10(0x0, 0x0, 0x11dd638, 0x0)
+0x008332da      call 0xad8d10
+0x008332df      push 0
+0x008332e1      push ecx
+
+
+======================================================================
+Deactivation clears selected station @ 0x008324e0
+======================================================================
+0x008324e0      push ebp
+0x008324e1      mov ebp, esp
+; [0x11dd436:1]=0
+0x008324e3      movzx eax, byte [0x11dd436]
+0x008324ea      test eax, eax
+   ; likely
+0x008324ec      je 0x8324f5
+0x008324ee      xor al, al
+0x008324f0      jmp 0x832596
+0x008324f5      movzx ecx, byte [ebp + 8]
+0x008324f9      test ecx, ecx
+   ; unlikely
+0x008324fb      je 0x83253b
+; [0x11dd437:1]=0
+0x008324fd      movzx edx, byte [0x11dd437]
+0x00832504      test edx, edx
+   ; unlikely
+0x00832506      jne 0x832539
+   ; 0x8304a0(0x0, 0x0, 0xff, 0x0)
+0x00832508      call 0x8304a0
+; 1
+0x0083250d      push 1
+   ; 0x8325a0(0x0, 0x0, 0xff, 0x0)
+0x0083250f      call 0x8325a0
+0x00832514      add esp, 4
+0x00832517      push 0
+0x00832519      push ecx
+0x0083251a      fldz
+0x0083251c      fstp dword [esp]
+0x0083251f      push 0
+0x00832521      push 0
+; 1000
+0x00832523      push 0x3e8
+0x00832528      push 0
+; 7
+0x0083252a      push 7
+   ; 0x8300c0(0x0, 0x0, 0xff, 0x0)
+0x0083252c      call 0x8300c0
+0x00832531      add esp, 0x1c
+   ; 0x8304c0(0x0, 0x0, 0xff, 0x0)
+0x00832534      call 0x8304c0
+0x00832539      jmp 0x832588
+   ; 0x830ad0(0x0, 0x0, 0xff, 0x0)
+0x0083253b      call 0x830ad0
+0x00832540      movzx eax, al
+0x00832543      test eax, eax
+   ; likely
+0x00832545      je 0x832556
+   ; 0x8304a0(0x0, 0x0, 0xff, 0x0)
+0x00832547      call 0x8304a0
+0x0083254c      push 0
+   ; 0x8325a0(0x0, 0x0, 0xff, 0x0)
+0x0083254e      call 0x8325a0
+0x00832553      add esp, 4
+0x00832556      mov ecx, 0x11dd5bc
+   ; 0xad88f0(0x0, 0x0, 0x11dd5bc, 0x0)
+0x0083255b      call 0xad88f0
+0x00832560      mov ecx, 0x11dd5bc
+   ; 0xad8d10(0x0, 0x0, 0x11dd5bc, 0x0)
+0x00832565      call 0xad8d10
+; [0x11dd42c:4]=0
+0x0083256a      mov dword [0x11dd42c], 0
+0x00832574      mov ecx, 0x11dd638
+   ; 0xad88f0(0x0, 0x0, 0x11dd638, 0x0)
+0x00832579      call 0xad88f0
+0x0083257e      mov ecx, 0x11dd638
+   ; 0xad8d10(0x0, 0x0, 0x11dd638, 0x0)
+0x00832583      call 0xad8d10
+0x00832588      mov cl, byte [ebp + 8]
+; [0x11dd434:1]=0
+0x0083258b      mov byte [0x11dd434], cl
+; [0x11dd434:1]=0
+0x00832591      mov al, byte [0x11dd434]
+0x00832596      pop ebp
+0x00832597      ret
+0x00832598      int3
+0x00832599      int3
+0x0083259a      int3
+0x0083259b      int3
+0x0083259c      int3
+0x0083259d      int3
+0x0083259e      int3
+0x0083259f      int3
+0x008325a0      push ebp
+0x008325a1      mov ebp, esp
+0x008325a3      mov al, byte [ebp + 8]
+
+
+======================================================================
+Live path endpoint construction @ 0x006DCD70
+======================================================================
+0x006dcd70      push ebp
+0x006dcd71      mov ebp, esp
+0x006dcd73      sub esp, 0xc
+0x006dcd76      mov dword [ebp - 0xc], ecx
+0x006dcd79      mov eax, dword [ebp - 0xc]
+; [0x102583c:4]=0x6def40
+0x006dcd7c      mov dword [eax], 0x102583c
+0x006dcd82      mov ecx, dword [ebp - 0xc]
+0x006dcd85      add ecx, 4
+   ; 0x6815c0(-1, 0x0, 0x3, 0x0)
+0x006dcd88      call 0x6815c0
+0x006dcd8d      mov ecx, dword [ebp + 8]
+   ; 0x8d6f30(-1, 0x0, -1, 0x0)
+0x006dcd90      call 0x8d6f30
+0x006dcd95      mov dword [ebp - 8], eax
+0x006dcd98      mov ecx, dword [ebp + 8]
+   ; 0x575d70(-1, 0x0, -1, 0x0)
+0x006dcd9b      call 0x575d70
+0x006dcda0      mov dword [ebp - 4], eax
+0x006dcda3      cmp dword [ebp - 8], 0
+   ; likely
+0x006dcda7      jne 0x6dcddc
+0x006dcda9      cmp dword [ebp - 4], 0
+   ; likely
+0x006dcdad      jne 0x6dcddc
+0x006dcdaf      mov ecx, dword [ebp + 8]
+; [0x11dea3c:4]=0
+0x006dcdb2      cmp ecx, dword [0x11dea3c]
+   ; likely
+0x006dcdb8      jne 0x6dcddc
+; [0x11dea10:4]=0
+0x006dcdba      mov ecx, dword [0x11dea10]
+   ; 0x5f36f0(-1, 0x0, 0x0, 0x0)
+0x006dcdc0      call 0x5f36f0
+0x006dcdc5      mov dword [ebp - 8], eax
+0x006dcdc8      cmp dword [ebp - 8], 0
+   ; likely
+0x006dcdcc      jne 0x6dcddc
+; [0x11dea10:4]=0
+0x006dcdce      mov ecx, dword [0x11dea10]
+   ; 0x4fd3e0(-1, 0x0, 0x0, 0x0)
+0x006dcdd4      call 0x4fd3e0
+0x006dcdd9      mov dword [ebp - 4], eax
+0x006dcddc      mov edx, dword [ebp - 4]
+0x006dcddf      push edx
+0x006dcde0      mov eax, dword [ebp - 8]
+0x006dcde3      push eax
+0x006dcde4      mov ecx, dword [ebp + 8]
+0x006dcde7      mov edx, dword [ecx]
+0x006dcde9      mov ecx, dword [ebp + 8]
+0x006dcdec      mov eax, dword [edx + 0x1f4]
+   ; 0xffffffff(-1, 0x0, -1, -1)
+0x006dcdf2      call eax
+0x006dcdf4      push eax
+0x006dcdf5      mov ecx, dword [ebp - 0xc]
+   ; 0x6dd280(-1, 0x0, -1, -1)
+0x006dcdf8      call 0x6dd280
+0x006dcdfd      mov eax, dword [ebp - 0xc]
+0x006dce00      mov esp, ebp
+0x006dce02      pop ebp
+0x006dce03      ret 4

@@ -1,0 +1,473 @@
+Radio provider adapter: offline qualification
+Date: 2026-09-25
+Artifact: target/i686-pc-windows-gnu/release/psycho_engine_fixes.dll
+Primary emitted-code interface: radare2 MCP, reopened after the final build.
+Executable contract: radio_provider_dispatch_radare2_audit.txt and
+radio_synchronous_policy_radare2_audit.txt.
+Radare2 inferred call-argument comments are not ABI proof.
+
+Scope:
+- Synchronous radio answers, native policy omission for (0,3)/(1,1)/(2,1).
+- Five-byte game-owned dispatch; no provider DLL or vtable-slot write.
+- Complete provider/setup admission with six bound operands.
+- No cross-scan engine objects, graph cache, tasklet, or new profiling.
+- Dormant bridges installed at pre-CRT; DeferredInit only verifies/publishes.
+
+Validation:
+- Focused surviving radio behavior tests: 2 passed.
+- Final affected core suite: 171 passed under Wine, 0 failed.
+- i686-pc-windows-gnu release build passed.
+- cargo fmt --all -- --check and git diff --check passed.
+- Existing mimalloc C and stdcall export linker warnings remain.
+- Wine's sandbox socket restriction required the already-authorized external
+  test runner. No production runtime was launched or artifact deployed.
+
+Emitted-code conclusions:
+- Constructor preserves original EBP as an internal argument, aligns the C
+  call, returns native EAX/data and RET 4.
+- Accessibility preserves ECX and three stack arguments, aligns its C call,
+  and returns RET 12.
+- Dispatch preserves ECX/EDX and two stack arguments; unrelated/unpublished
+  cases tail-jump through the actual [EDX+4]. Admitted bridge returns RET 8.
+- Expanded body reads scan TLS once per expansion, restores nonvolatile
+  registers, preserves original ECX/EDX on fallback, calls the captured
+  enumerator and native 0x410220/0x6F3E30/0x7CB2E0 boundaries.
+- Linked door is reread after the child-cell callback. Minimum-use disposition
+  1 penalty is 0x48C80000; disposition 3 excludes it. Original GetPos remains.
+- edge_cost preserves scalar SSE Y/X/Z squared-add order, captured helper call,
+  UCOMISS/LAHF/TEST/JNP zero/unordered classification, COMISS/JB radius test,
+  post-helper node/max-cost reads and exact cost/penalty addition order.
+- Node descriptor/heuristic/link fields and native append remain query-owned.
+- Omitted policy setup/access/free do not appear in the admitted expansion.
+- These are static contract and emitted-code findings, not native traversal,
+  audio, Proton startup, CPU-time or FPS results.
+
+Runtime limits:
+- The on-disk provider establishes the admitted compiled contract, not its
+  activation in the reporter's process.
+- Unknown/changed providers continue their original dynamic callback.
+- Live code unloading/rewriting during a native call is outside the native
+  lifetime contract; between-scan changes are rechecked.
+- First TLS use can initialize the existing thread-local owner. Steady-state
+  admission adds no heap allocation; native traversal allocations remain.
+- The 120 FPS ceiling is 8.333... ms for the whole frame; scan and frame-time
+  acceptance has not run. No timing guarantee follows from this audit.
+- Pre-change artifact is an offline comparison reference only. Its exact
+  Proton acceptance and source provenance are not established, so section
+  deltas below are not attributed exclusively to this radio edit.
+
+
+=== constructor ===
+; psycho_engine_fixes::mods::perf::radio::hook_door_policy_setup
+;-- psycho_engine_fixes::mods::perf::radio::hook_door_policy_setup:
+0x100cf720      mov eax, ebp
+0x100cf722      push ebp
+0x100cf723      mov ebp, esp
+0x100cf725      and esp, 0xfffffff0
+0x100cf728      sub esp, 4
+0x100cf72b      push eax
+0x100cf72c      push dword [ebp + 8]
+0x100cf72f      push ecx
+   ; sym.psycho_engine_fixes::mods::perf::radio::native_door_policy_setup
+   ; sym.psycho_engine_fixes::mods::perf::radio::native_door_policy_setup(0x0, 0x0, 0x0, 0x0)
+0x100cf730      call sym.psycho_engine_fixes::mods::perf::radio::native_door_policy_setup
+0x100cf735      mov esp, ebp
+0x100cf737      pop ebp
+0x100cf738      ret 4
+
+
+=== accessibility ===
+; psycho_engine_fixes::mods::perf::radio::hook_door_accessibility
+;-- psycho_engine_fixes::mods::perf::radio::hook_door_accessibility:
+0x100cf740      push ebp
+0x100cf741      mov ebp, esp
+0x100cf743      and esp, 0xfffffff0
+0x100cf746      push dword [ebp + 0x10]
+0x100cf749      push dword [ebp + 0xc]
+0x100cf74c      push dword [ebp + 8]
+0x100cf74f      push ecx
+   ; sym.psycho_engine_fixes::mods::perf::radio::native_door_accessibility
+   ; sym.psycho_engine_fixes::mods::perf::radio::native_door_accessibility(0x0, 0x0, 0x0, 0x0)
+0x100cf750      call sym.psycho_engine_fixes::mods::perf::radio::native_door_accessibility
+0x100cf755      mov esp, ebp
+0x100cf757      pop ebp
+0x100cf758      ret 0xc
+
+
+=== dispatch ===
+;-- @_RNvNtNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf5radio8provider8dispatch@16:
+0x100a0b90      cmp edx, 0x106d8fc
+   ; likely
+0x100a0b96      jne 0x100a0bba
+; [0x104fe351:1]=0
+0x100a0b98      cmp byte [0x104fe351], 0
+   ; likely
+0x100a0b9f      je 0x100a0bba
+0x100a0ba1      push ebp
+0x100a0ba2      mov ebp, esp
+0x100a0ba4      and esp, 0xfffffff0
+0x100a0ba7      push dword [ebp + 0xc]
+0x100a0baa      push dword [ebp + 8]
+0x100a0bad      push edx
+0x100a0bae      push ecx
+   ; sym.psycho_engine_fixes::mods::perf::radio::provider::dispatch_body
+   ; sym.psycho_engine_fixes::mods::perf::radio::provider::dispatch_body(0x0, 0x0, 0x0, 0x0)
+0x100a0baf      call sym.psycho_engine_fixes::mods::perf::radio::provider::dispatch_body
+0x100a0bb4      mov esp, ebp
+0x100a0bb6      pop ebp
+0x100a0bb7      ret 8
+0x100a0bba      mov eax, dword [edx + 4]
+0x100a0bbd      jmp eax
+
+
+=== edge_cost ===
+; psycho_engine_fixes::mods::perf::radio::provider::edge_cost
+;-- psycho_engine_fixes::mods::perf::radio::provider::edge_cost:
+0x100a0bc0      push ebp
+0x100a0bc1      mov ebp, esp
+0x100a0bc3      and esp, 0xfffffff0
+0x100a0bc6      sub esp, 0x10
+0x100a0bc9      mov dword [esp], 0
+0x100a0bd0      mov edx, dword [ebp + 0x10]
+0x100a0bd3      mov eax, dword [ebp + 0x14]
+0x100a0bd6      movss xmm2, dword [edx]
+0x100a0bda      movss xmm0, dword [edx + 4]
+0x100a0bdf      subss xmm0, dword [eax + 4]
+0x100a0be4      subss xmm2, dword [eax]
+0x100a0be8      movss xmm1, dword [edx + 8]
+0x100a0bed      subss xmm1, dword [eax + 8]
+0x100a0bf2      mulss xmm0, xmm0
+0x100a0bf6      mulss xmm2, xmm2
+0x100a0bfa      mulss xmm1, xmm1
+0x100a0bfe      addss xmm0, xmm2
+0x100a0c02      addss xmm0, xmm1
+; 28
+   ; 0x1c(-1, 0x0, 0x0, -1)
+0x100a0c06      call dword [ebp + 0x1c]
+0x100a0c09      mov edx, dword [ebp + 8]
+0x100a0c0c      movss xmm2, dword [edx + 0x209c]
+0x100a0c14      movaps xmm1, xmm0
+0x100a0c17      ucomiss xmm2, dword [esp]
+0x100a0c1b      lahf
+; 68
+0x100a0c1c      test ah, 0x44
+0x100a0c1f      mov eax, dword [ebp + 0xc]
+   ; unlikely
+0x100a0c22      jnp 0x100a0c2d
+0x100a0c24      addss xmm0, dword [eax]
+0x100a0c28      comiss xmm2, xmm0
+   ; unlikely
+0x100a0c2b      jb 0x100a0c44
+0x100a0c2d      addss xmm1, dword [eax]
+0x100a0c31      addss xmm1, dword [ebp + 0x18]
+0x100a0c36      mov eax, dword [ebp + 0x20]
+0x100a0c39      movss dword [eax], xmm1
+0x100a0c3d      mov eax, 1
+0x100a0c42      jmp 0x100a0c46
+0x100a0c44      xor eax, eax
+0x100a0c46      mov esp, ebp
+0x100a0c48      pop ebp
+0x100a0c49      ret
+
+
+=== body ===
+; psycho_engine_fixes::mods::perf::radio::provider::dispatch_body
+;-- psycho_engine_fixes::mods::perf::radio::provider::dispatch_body:
+0x100ab210      push ebp
+0x100ab211      mov ebp, esp
+0x100ab213      push ebx
+0x100ab214      push edi
+0x100ab215      push esi
+0x100ab216      sub esp, 0x24
+0x100ab219      mov ebx, dword [ebp + 0xc]
+0x100ab21c      mov esi, dword [ebx + 4]
+0x100ab21f      push 0
+; '`h:\x10'
+0x100ab221      push 0x103a6860
+   ; sym.__RINvMs2_NtNtNtCs3U2idwLkfcg_3std3sys12thread_local2osINtB6_7StorageINtNtCs32tIC4fDiEl_4core4cell4CellNtNtNtNtCs92LXG9HUj0y_19
+   ; sym.__RINvMs2_NtNtNtCs3U2idwLkfcg_3std3sys12thread_local2osINtB6_7StorageINtNtCs32tIC4fDiEl_4core4cell4CellNtNtNtNtCs92LXG9HUj0y_19(0x0, -1, 0x0, 0x0)
+0x100ab226      call sym.__RINvMs2_NtNtNtCs3U2idwLkfcg_3std3sys12thread_local2osINtB6_7StorageINtNtCs32tIC4fDiEl_4core4cell4CellNtNtNtNtCs92LXG9HUj0y_19
+0x100ab22b      add esp, 8
+0x100ab22e      test eax, eax
+   ; likely
+0x100ab230      je 0x100ab4b2
+0x100ab236      mov ecx, dword [eax]
+0x100ab238      cmp ecx, 0xffffffff
+   ; likely
+0x100ab23b      je 0x100ab4b2
+0x100ab241      mov edi, dword [ebp + 8]
+; 1
+0x100ab244      cmp ecx, 1
+   ; likely
+0x100ab247      jne 0x100ab269
+0x100ab249      test edi, edi
+   ; unlikely
+0x100ab24b      je 0x100ab269
+0x100ab24d      cmp dword [eax + 0x1c], 0
+   ; unlikely
+0x100ab251      je 0x100ab269
+0x100ab253      cmp esi, dword [eax + 4]
+   ; unlikely
+0x100ab256      jne 0x100ab269
+0x100ab258      cmp dword [edi], 0x106d8fc
+   ; likely
+0x100ab25e      jne 0x100ab269
+0x100ab260      cmp dword [edi + 0x20a0], 0
+   ; unlikely
+0x100ab267      je 0x100ab27d
+0x100ab269      mov ecx, edi
+0x100ab26b      mov edx, ebx
+0x100ab26d      push dword [ebp + 0x14]
+0x100ab270      push dword [ebp + 0x10]
+   ; 0xffffffff(0x0, -1, -1, -1)
+0x100ab273      call esi
+0x100ab275      add esp, 0x24
+0x100ab278      pop esi
+0x100ab279      pop edi
+0x100ab27a      pop ebx
+0x100ab27b      pop ebp
+0x100ab27c      ret
+0x100ab27d      mov edx, dword [eax + 0xc]
+0x100ab280      mov eax, dword [eax + 0x10]
+0x100ab283      mov ecx, dword [edi + 0x2098]
+0x100ab289      mov dword [ebp - 0x30], eax
+0x100ab28c      mov eax, dword [edi + 0x20b4]
+; 2
+0x100ab292      cmp ecx, 2
+   ; unlikely
+0x100ab295      je 0x100ab2a7
+; 1
+0x100ab297      cmp ecx, 1
+   ; unlikely
+0x100ab29a      je 0x100ab2a7
+0x100ab29c      test ecx, ecx
+   ; likely
+0x100ab29e      jne 0x100ab269
+; 3
+0x100ab2a0      cmp eax, 3
+   ; likely
+0x100ab2a3      jne 0x100ab269
+0x100ab2a5      jmp 0x100ab2ac
+; 1
+0x100ab2a7      cmp eax, 1
+   ; likely
+0x100ab2aa      jne 0x100ab269
+0x100ab2ac      mov eax, dword [ebp + 0x10]
+; [0x20ac:4]=-1
+0x100ab2af      mov dword [edi + 0x20ac], 0
+0x100ab2b9      cmp byte [eax + 8], 0
+   ; unlikely
+0x100ab2bd      je 0x100ab2ce
+0x100ab2bf      mov eax, dword [eax + 0xc]
+0x100ab2c2      mov ecx, dword [eax + 0x34]
+0x100ab2c5      test ecx, ecx
+   ; likely
+0x100ab2c7      jne 0x100ab2d1
+0x100ab2c9      jmp 0x100ab4ab
+0x100ab2ce      mov ecx, dword [eax + 0x10]
+0x100ab2d1      lea eax, [edi + 0x20a4]
+0x100ab2d7      mov esi, edx
+0x100ab2d9      xor edx, edx
+0x100ab2db      push eax
+   ; 0xffffffff(0x20a3, -1, -1, 0x0)
+0x100ab2dc      call esi
+0x100ab2de      cmp dword [edi + 0x20ac], 0
+   ; unlikely
+0x100ab2e5      je 0x100ab4ab
+0x100ab2eb      mov eax, dword [ebp + 0x10]
+0x100ab2ee      xor esi, esi
+; 24
+0x100ab2f0      add eax, 0x18
+0x100ab2f3      mov dword [ebp - 0x28], eax
+0x100ab2f6      jmp 0x100ab35d
+0x100ab2f8      mov ecx, dword [ebp - 0x2c]
+0x100ab2fb      mov eax, dword [ebp - 0x18]
+0x100ab2fe      mov edx, dword [ebp - 0x10]
+0x100ab301      mov byte [eax + 8], cl
+0x100ab304      test cl, cl
+0x100ab306      mov ecx, 0
+0x100ab30b      mov dword [eax + 0xc], edx
+0x100ab30e      mov edx, dword [ebp - 0x1c]
+0x100ab311      cmovne ebx, ecx
+0x100ab314      mov ecx, dword [ebp - 0x20]
+0x100ab317      mov dword [eax + 0x10], ebx
+; [0x3f800000:4]=-1
+0x100ab31a      mov dword [eax + 4], 0x3f800000
+0x100ab321      mov dword [eax + 0x14], ecx
+0x100ab324      movsd xmm0, qword [edx + 4]
+0x100ab329      movsd qword [eax + 0x18], xmm0
+0x100ab32e      mov ecx, dword [edx + 0xc]
+0x100ab331      mov dword [eax + 0x20], ecx
+0x100ab334      mov ecx, dword [ebp + 0x14]
+0x100ab337      lea eax, [ebp - 0x18]
+0x100ab33a      push eax
+0x100ab33b      mov eax, 0x7cb2e0
+   ; 0x7cb2e0(0x7cb2e0, 0x0, -1, -1)
+0x100ab340      call eax
+0x100ab342      nop word cs:[eax + eax]
+0x100ab34c      nop dword [eax]
+0x100ab350      inc esi
+0x100ab351      cmp esi, dword [edi + 0x20ac]
+   ; unlikely
+0x100ab357      jae 0x100ab4ab
+0x100ab35d      mov eax, dword [edi + 0x20a8]
+0x100ab363      mov ebx, dword [eax + esi*4]
+0x100ab366      test byte [ebx + 9], 8
+   ; likely
+0x100ab36a      jne 0x100ab350
+0x100ab36c      lea ecx, [ebx + 0x44]
+; '+'
+; 43
+0x100ab36f      push 0x2b
+0x100ab371      mov eax, 0x410220
+   ; 0x410220(0x410220, -1, 0x43, -1)
+0x100ab376      call eax
+0x100ab378      mov edx, dword [eax + 0xc]
+0x100ab37b      mov ecx, dword [edx]
+0x100ab37d      mov dword [ebp - 0x1c], edx
+0x100ab380      test ecx, ecx
+   ; unlikely
+0x100ab382      je 0x100ab3c9
+0x100ab384      mov eax, dword [ecx + 0x40]
+0x100ab387      test eax, eax
+   ; likely
+0x100ab389      jne 0x100ab39a
+0x100ab38b      mov eax, dword [ecx + 0x18]
+; 24
+0x100ab38e      add ecx, 0x18
+   ; 0xffffffff(-1, -1, 0x17, -1)
+0x100ab391      call dword [eax]
+0x100ab393      mov edx, dword [ebp - 0x1c]
+0x100ab396      test eax, eax
+   ; unlikely
+0x100ab398      je 0x100ab3b2
+0x100ab39a      test byte [eax + 0x24], 1
+   ; likely
+0x100ab39e      jne 0x100ab3b2
+0x100ab3a0      mov eax, dword [eax + 0xc0]
+0x100ab3a6      mov cl, 1
+0x100ab3a8      test eax, eax
+0x100ab3aa      mov dword [ebp - 0x10], eax
+0x100ab3ad      mov dword [ebp - 0x14], eax
+   ; likely
+0x100ab3b0      jne 0x100ab3d9
+0x100ab3b2      mov eax, dword [edx]
+0x100ab3b4      test eax, eax
+   ; unlikely
+0x100ab3b6      je 0x100ab3c9
+0x100ab3b8      mov eax, dword [eax + 0x40]
+0x100ab3bb      xor ecx, ecx
+0x100ab3bd      mov dword [ebp - 0x10], 0
+0x100ab3c4      mov dword [ebp - 0x14], eax
+0x100ab3c7      jmp 0x100ab3d9
+0x100ab3c9      xor ecx, ecx
+0x100ab3cb      mov dword [ebp - 0x10], 0
+0x100ab3d2      mov dword [ebp - 0x14], 0
+0x100ab3d9      mov eax, dword [edi + 0x2098]
+; 1
+0x100ab3df      cmp eax, 1
+   ; unlikely
+0x100ab3e2      je 0x100ab3f3
+; 2
+0x100ab3e4      cmp eax, 2
+   ; likely
+0x100ab3e7      jne 0x100ab406
+0x100ab3e9      test cl, cl
+   ; unlikely
+0x100ab3eb      jne 0x100ab350
+0x100ab3f1      jmp 0x100ab406
+0x100ab3f3      test cl, cl
+   ; likely
+0x100ab3f5      je 0x100ab406
+0x100ab3f7      mov eax, dword [ebp - 0x10]
+0x100ab3fa      cmp eax, dword [edi + 0x205c]
+   ; unlikely
+0x100ab400      jne 0x100ab350
+0x100ab406      mov eax, dword [ebx + 0x20]
+0x100ab409      mov dword [ebp - 0x20], ebx
+0x100ab40c      xor ebx, ebx
+0x100ab40e      mov dword [ebp - 0x2c], ecx
+0x100ab411      test byte [eax + 0x84], 8
+   ; unlikely
+0x100ab418      je 0x100ab42e
+0x100ab41a      cmp dword [edi + 0x20b4], 3
+0x100ab421      mov ebx, 0x48c80000
+0x100ab426      mov eax, 0
+0x100ab42b      cmove ebx, eax
+0x100ab42e      mov ecx, dword [ebp - 0x20]
+0x100ab431      mov eax, dword [ecx]
+; 500
+   ; 0x1f4(-1, 0x48c80000, -1, -1)
+0x100ab433      call dword [eax + 0x1f4]
+0x100ab439      mov ecx, dword [ebp + 0x10]
+0x100ab43c      lea edx, [edi + 0x2068]
+0x100ab442      cmp dword [ecx + 0x24], 0
+0x100ab446      mov ecx, dword [ebp - 0x28]
+0x100ab449      mov dword [ebp - 0x24], 0
+0x100ab450      cmove ecx, edx
+0x100ab453      lea edx, [ebp - 0x24]
+0x100ab456      push edx
+0x100ab457      push dword [ebp - 0x30]
+0x100ab45a      push ebx
+0x100ab45b      push eax
+0x100ab45c      push ecx
+0x100ab45d      push dword [ebp + 0x10]
+0x100ab460      push edi
+   ; sym.psycho_engine_fixes::mods::perf::radio::provider::edge_cost
+   ; sym.psycho_engine_fixes::mods::perf::radio::provider::edge_cost(-1, 0x48c80000, -1, 0xffffffdb)
+0x100ab461      call sym.psycho_engine_fixes::mods::perf::radio::provider::edge_cost
+0x100ab466      add esp, 0x1c
+0x100ab469      test eax, eax
+   ; unlikely
+0x100ab46b      je 0x100ab350
+0x100ab471      lea eax, [ebp - 0x18]
+0x100ab474      mov dword [ebp - 0x18], 0
+0x100ab47b      mov ecx, edi
+0x100ab47d      push eax
+0x100ab47e      push dword [ebp - 0x24]
+0x100ab481      mov ebx, dword [ebp - 0x14]
+0x100ab484      push ebx
+; '0>o'
+0x100ab485      mov eax, 0x6f3e30
+   ; 0x6f3e30(0x6f3e30, -1, -1, 0xffffffdb)
+0x100ab48a      call eax
+0x100ab48c      test eax, eax
+   ; unlikely
+0x100ab48e      je 0x100ab2f8
+0x100ab494      mov ecx, dword [ebp - 0x20]
+0x100ab497      mov edx, dword [ebp - 0x1c]
+; 1
+0x100ab49a      cmp eax, 1
+   ; likely
+0x100ab49d      jne 0x100ab350
+0x100ab4a3      mov eax, dword [ebp - 0x18]
+0x100ab4a6      jmp 0x100ab321
+0x100ab4ab      mov al, 1
+0x100ab4ad      jmp 0x100ab275
+
+
+
+=== PE startup comparison ===
+{
+  "baseline": "local pre-change artifact; Proton acceptance not established",
+  "before_sha256": "eef1ff281d051e00adfdefd53280bc22061ec4cd1700ad38dfe75a06e5fde5eb",
+  "after_sha256": "773d9d3a826bea78e1d4025bdbc81c45fbbc4b17163d43319e850fab22562701",
+  "machine": "0x14c",
+  "added_imports": [],
+  "removed_imports": [],
+  "tls_before": {
+    "template_bytes": 4,
+    "zero_fill": 0,
+    "callback_count": 4
+  },
+  "tls_after": {
+    "template_bytes": 4,
+    "zero_fill": 0,
+    "callback_count": 4
+  },
+  "static_section_size_deltas": {
+    ".data": 11648,
+    ".rdata": 2880,
+    ".bss": -3328
+  }
+}

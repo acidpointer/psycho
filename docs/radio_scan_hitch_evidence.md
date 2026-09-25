@@ -2,6 +2,539 @@
 
 ## Status
 
+The [synchronous candidate](#synchronous-radio-candidate) is the current source
+implementation. It is offline-qualified, with owner-reported normal operation,
+and remains unreleased. The [rework plan](#radio-playback-rework-contract-and-plan) records
+its scope and remaining performance gate. The
+[implementation contract](#implementation-readiness-and-remaining-evidence)
+records the implemented provider-dispatch contract. Older scheduling sections describe
+retired implementations and do not establish playback correctness.
+
+## Synchronous radio candidate
+
+The owner explicitly approved a radio-specific exception allowing implementation
+from verified source/native contracts and offline tests/build without first
+reproducing the silent-music incident. The owner subsequently reported that it
+appears to work normally and explicitly approved committing the radio changes.
+This does not establish measured performance, a complete runtime acceptance
+matrix, or release/packaging approval. Native-contract proof and the prohibition
+on changes to another mod remain in force.
+
+### Implemented ownership and behavior
+
+`psycho-engine-fixes/src/mods/perf/radio.rs` now calls the original periodic
+scanner synchronously. The mode-0 distance call, both connected-query calls,
+and both result destructors remain native instructions. The scanner's provider
+selection, result arrays, post-filters, and station output are therefore owned
+and consumed in their original call. There is no absent/pending answer to turn
+into signal loss, and no previous-generation answer to reuse after movement.
+Native negative results and actual signal loss remain effective.
+
+Removed radio-owned machinery includes the generation pipeline, prepared engine
+objects, tasklet/group allocation, queue priority, worker-priority changes,
+completion polling, frame pacing, capacity fallback, query/destructor handoffs,
+and world-lifetime joins. The cooperative game-thread fallback was removed too;
+it had the same deferred-answer contract. The core retains its shared event ABI
+and helper forwarding. Radio handles only its idempotent DeferredInit setup.
+
+The periodic station fast path still skips only empty inactive native entries.
+Selected stations, entries owning audio nodes, and list reset continue through
+`0x00834260`. Playback sequencing, track selection, music/voice decoding, and
+native audio ownership are unchanged. This is structural evidence for removing
+the known pending-as-failure route, not an observed cure of the reported audio
+transition.
+
+### Engine-owned policy optimization
+
+The native optimization owns two calls inside the native provider:
+`0x006F3879 -> 0x00501D20` and `0x006F389A -> 0x00502450`. The constructor
+adapter reads the actual query from native caller `EBP-0x80`, admits the three
+proven actor-free radio tuples, and initializes only the temporary's cleanup
+pointer at `+0x08`. Its paired accessibility adapter returns the exact native
+null-actor result, false with output flag zero. If pairing exists but admission
+changes, it constructs the complete temporary before chaining accessibility.
+All minimum-use penalties, geometry, native results, and cleanup remain native.
+Both bridges explicitly align their internal Rust calls and preserve the
+original thiscall stack cleanup.
+
+`radio/provider.rs` owns the five-byte neighbor dispatch at `0x006F40D0`.
+For the complete verified inlined contract, it performs the equivalent radio
+expansion with unused policy preparation/access/cleanup omitted. It retains
+the installed enumerator and math helper, live geometry callbacks, native node
+allocation/relaxation, neighbor append order, and the outer native queue and
+result consumers. Its numeric bridge preserves the compiled scalar SSE order
+and unordered radius comparisons. Connected modes retain their minimum-use
+penalty. No provider DLL or vtable slot is modified.
+
+`radio/provider_contract.rs` contains complete admission bytes, not executable
+copies. Six explicitly bound call/relocation operands are the only variable
+bytes. DeferredInit discovers the capability through the actual native vtable;
+outer scans revalidate its code and constants. Nested scans restore their prior
+context, and each expansion checks its actual incoming target. Unrecognized or
+changed providers execute their original dynamic callback. The dispatcher
+chains directly for other vtables or unpublished capabilities.
+
+The adapter stores only immutable code addresses across scans. Candidate arrays,
+query nodes, station state, and results retain native ownership and lifetime.
+Steady-state admission uses bounded comparisons/page queries without allocating
+buffers, logging, or timing. It does not add a graph cache, query pool, worker,
+or new TLS owner. The existing scan TLS owner now also carries the admitted
+capability and native-policy flag. Native allocations and helper locks remain.
+
+### Installation and startup footprint
+
+The scan/station bridges and optional optimization bridges install at the
+existing pre-CRT boundary, in separate ownership-aware transactions. Policy
+accessibility is installed before constructor interception, and every optional
+bridge initially chains original computation. Successful transaction completion
+is recorded separately from capability readiness. DeferredInit performs only
+contract verification and publication, with no executable-memory writes.
+Each outer scan rechecks the owned native policy callsites and admitted windows.
+A failed optional install or mismatched contract leaves synchronous native
+computation available; rollback never overwrites a later owner's hook.
+
+The core's existing pre-CRT barrier requirement supplies the quiescent code-write
+boundary. The helper, event ABI, configuration layout, dependencies, and worker
+lifecycle are unchanged by the adapter. The new dispatch patch, small immutable
+capability storage, expanded existing scan context, and earlier dormant policy
+bridges change the core's loader-visible footprint. An available pre-change DLL
+is only an offline comparison reference, not an accepted Proton startup baseline.
+The startup-safety runtime gate remains open.
+
+### Qualification and remaining work
+
+The native graph/scan path cannot execute in the offline test process. The
+owner's explicit authorization permits this unreleased implementation from the
+retained runtime evidence and verified engine contracts. Surviving production
+station-predicate and bounded-report tests cover only their own behavior; no
+mocked graph, copied reference solver, source-text assertion, or synthetic audio
+result substitutes for actual native traversal or music playback.
+
+The final core tests, supported release build, emitted bridge/numeric ABI audit,
+formatting, and diff inspection qualify only the offline candidate. Evidence is
+retained in
+[the adapter qualification audit](../analysis/ghidra/output/perf/radio_provider_adapter_qualification.txt).
+No DLL was deployed or packaged by this work. The owner's qualitative normal-
+operation report supports the commit authorization; it does not identify the
+tested artifact or establish the full playback/provider/startup matrix or
+affected-machine scan/frame times. The 120 FPS performance gate remains open.
+
+The deterministic work reduction is the removed asynchronous machinery and
+unused policy object lifetime. For admitted inlined expansions there is no
+policy setup, policy allocation/free, ownership/rank/global lookup, or access
+predicate call. Required teleport lookup, enumeration, native graph work, and
+station post-filters remain. Existing safety guards still handle the required
+calls. Unknown providers receive no promised acceleration, and static work
+reduction is not an FPS or elapsed-time result. The candidate remains unreleased.
+Existing policy-bypass counters describe the paired native callsites only;
+the inlined adapter adds no new per-door instrumentation.
+
+## Synchronous cost analysis
+
+Focused radare2 verification against the same executable identity recorded below
+is preserved in
+[the cost audit](../analysis/ghidra/output/perf/radio_synchronous_cost_radare2_audit.txt).
+This establishes the work performed by the native code, not the elapsed time of
+the current candidate or the reporter's machine.
+
+### Repeated searches and discarded setup
+
+The scanner constructs a fresh query for each station that needs a path. The
+connected-query wrapper at `0x006D4D20` constructs its stack-owned search at
+`0x006D4D72`, dispatches at `0x006D4DBF`, and destroys it on success and failure.
+The query constructor initializes its own search table and queue. Searches do
+not share a completed traversal across stations. Each expanded node dispatches
+the active provider through vtable `+0x04` at `0x006F40D3`; candidate processing,
+distance evaluation, node lookup/creation, and queue updates repeat in each
+search. There is no elapsed-time budget in the native traversal loop.
+
+The station-mode number and internal query-mode number are different:
+
+| Station mode | Native scanner call | Query mode | Maximum cost | Actor | Disposition |
+| --- | --- | --- | --- | --- | --- |
+| 0, distance | `0x004FF397` via distance wrapper | 0 | Native radius argument | null | 3 |
+| 2, worldspace and connected interiors | `0x004FF4C6` | 1 | 0.0 | null | 1 |
+| 3, interiors | `0x004FF645` | 2 | 0.0 | null | 1 |
+
+Zero maximum cost disables distance pruning in the provider
+(`0x006F399D` through `0x006F39E1`). Thus the connected searches have no radius
+cutoff. The traversal continues until goal success, queue exhaustion, or its
+existing predecessor-cycle failure; disconnected queries can exhaust the
+allowed reachable graph. Mode-specific worldspace restrictions still apply.
+Success also produces a native path chain which the scanner post-filters; a
+replacement boolean reachability result is not an equivalent contract.
+
+Every candidate that passes the provider's initial filters reaches temporary
+door-policy construction at `0x006F3879` before distance pruning and node
+lookup. Construction resolves lock and ownership data and can allocate/copy
+temporary lock data even if the later radius or node-cost checks reject that
+candidate. The result is passed to accessibility at `0x006F389A` and then cleaned
+up. This is repeated per candidate, per expansion, per station query.
+
+An important correction to the historical explanation: the native accessibility
+function itself does **not** perform actor/crime/ownership predicates for these
+radio tuples. At `0x0050246A`, a null actor branches directly to the return at
+`0x0050253C`, producing false and an output flag of zero without reading the
+prepared policy object. The expensive avoidable work is its preceding setup
+and associated cleanup; the historical combined bypass timing does not provide
+separate setup/accessibility timings.
+
+The provider examines disposition only after this call. Disposition 0 rejects
+inaccessible doors, disposition 2 adds a penalty, and dispositions 1 and 3
+continue with zero accessibility penalty. Therefore the prepared accessibility
+data is discarded for the connected radio tuples as well as distance queries.
+However, the subsequent minimum-use door check at `0x006F38FB` through
+`0x006F3926` applies a penalty for disposition 1. It must remain intact along
+with geometry, ordering, parent links, and result production. Broadly skipping
+all door policy would change the connected-query contract.
+
+### Evidence and limits
+
+The historical measured mode-0 workload already isolates the dominant avoidable
+cost: candidate memoization left scans at 42-44 ms, while bypassing 7,746 paired
+setup/accessibility calls reduced the recorded average from 42,756 us to
+5,202 us. That was the previously instrumented replacement-provider workload,
+not a measurement of today's candidate. Its source likewise prepares policy
+before calling native accessibility, but its private setup is outside the
+current engine-owned callsites.
+
+The [supplied interior log](../.reports/psycho-engine-fixes-latest--interior-stutters.log)
+records a 112,712 us game-thread scan and 10,504 us
+total mode-0 worker execution spread over 438 ms. It does not contain per-mode
+timings for the remaining synchronous queries. The binary now establishes why
+those connected searches can be expensive, but does not assign the 112,712 us
+between them or prove they alone explain that interval. Nor does static work
+count establish an allocator stall, a CPU-specific fault, or an FPS gain.
+
+The tasklet design adds a separate correctness problem: deferred answers can
+reach native availability consumers as failure before completion. Moving these
+searches back into the scanner removes that pending-answer route but preserves
+their computational cost. It is not sufficient to meet the lightweight-radio
+requirement.
+
+### Implemented cost reduction
+
+The paired temporary setup bypass now includes radio query modes 1 and 2 with
+null actor and disposition 1, preserving the minimum-use branch and every native
+result consumer. Actual-caller admission, paired cleanup safety, signature
+checks, and predecessor chaining remain required.
+
+That extension alone cannot recover the historical improvement for a provider
+which performs its own private setup. The dispatch contract below supplies
+the selected game-owned intervention for the verified inlined implementation.
+Arbitrary provider behavior is preserved by ordinary dispatch, with no promised
+acceleration. Patching another provider, assuming graph equivalence, reusing
+stale results, or turning unfinished work into unavailable stations remains
+outside the design.
+
+## Implementation readiness and remaining evidence
+
+The focused follow-up is preserved in
+[the implementation-gap audit](../analysis/ghidra/output/perf/radio_implementation_gap_radare2_audit.txt).
+It reuses the executable identity above and the earlier complete provider,
+constructor, accessibility, and destructor listings. The findings below are
+implementation contracts and explicit limits, not a declaration that the full
+performance requirement is ready or accepted.
+
+### Native optimization contract
+
+The radio-owned native change has a concrete scope:
+
+- Admit the actual caller's live query only within the synchronous scan, with
+  the native query vtable, null actor, and one of `(mode, disposition)` equal
+  to `(0, 3)`, `(1, 1)`, or `(2, 1)`. Query setup stores these at `+0x2098`,
+  `+0x20A0`, and `+0x20B4`. Do not admit unrelated actors or modes.
+- Omit only the temporary constructor at `0x006F3879`. Its thiscall adapter
+  receives `ECX=data`, one stack door argument, returns `data` in EAX, and
+  returns with `RET 4`. The native frame owns a 24-byte temporary; initialize
+  only its cleanup pointer at `+0x08` to null.
+- Keep the owned accessibility callsite paired with that omission. Return
+  the exact native null-actor result, **false with output flag zero**, instead
+  of an equivalent disposition-only result of true.
+  If the pair cannot be admitted, reconstruct the temporary before chaining
+  the captured accessibility target. Nonmatching setup calls chain normally.
+- Preserve the minimum-use check, distance/radius checks, query-private node
+  relaxation, parent selection, path extraction, scanner post-filters, and all
+  native temporary cleanup paths. No result object moves between queries.
+- Prepare optional code interceptions transactionally at the existing pre-CRT
+  boundary, initially chaining originals. DeferredInit validates and publishes
+  optimization admission without writing executable instructions. Declining
+  optimization must never report an unavailable station. See the installation
+  contract below; DeferredInit no longer writes these instructions.
+
+The native null-actor branch offers a possible further simplification: after
+writing zero to the flag, `0x0050246A` jumps to `0x0050253C` and returns without
+reading any field of the temporary or door. Between the constructor and this
+call, the provider only prepares arguments; it invokes no intervening callback.
+The destructor reads only `temporary+8`. For the unchanged executable, omitting
+construction and calling native accessibility is sufficient, with no fake
+accessibility result or pairing state.
+
+That observation does not prove that a subsequently replaced accessibility
+consumer would accept a partially initialized temporary. The existing paired
+callsite design retains ownership of that consumer boundary. Keep it for the
+implementation; removing it requires an additional consumer-stability
+contract and is not needed to remove the measured preparation cost. This
+separates the verified native data-flow simplification from a compatibility
+claim about hooks installed later.
+
+### Shared preparation costs and safety dependencies
+
+The historical replacement provider's source does not call native constructor
+`0x00501D20`. It prepares the fields privately and only then calls
+`0x00502450`. Therefore hooking the latter cannot recover already-spent setup
+work. Its private setup and allocation cannot be removed by the native
+constructor callsite optimization.
+
+The shared callees are concrete, but do not carry the same dead-data contract:
+
+| Boundary | Actual input/behavior | Consequence |
+| --- | --- | --- |
+| `0x00567790`, ownership resolution | Receives a reference, follows reference/linked-door/zone/cell precedence, and includes a virtual call. | It receives no radio query or disposition. Returning an invented owner inside a scan would affect any provider that actually uses ownership. |
+| `0x00567D20`, encounter-zone resolution | Receives a reference, resolves reference/cell/worldspace state. | A whole-resolver cache also needs all source, lifetime, and mutation dependencies; radio scope alone supplies none of these. |
+| `0x00410220`, extra-data lookup | Receives list and type; presence test, TLS cache, then locked linked-list traversal on a miss. | It is shared by required teleport geometry and optional policy data. Skipping all extra-data work would change adjacency. |
+| `0x0040FBF0`, extra-list lock acquisition | Receives a lock object and diagnostic label. It waits/retries for ownership and supports recursion. | Removing the lock or returning early violates reader/writer protection; its presence is not evidence that a particular scan waited. |
+
+Current Psycho code adds work at these shared boundaries. With a non-null,
+valid ownership extra and owner, `extraownership::scrub_extraownership` calls
+`VirtualQuery` for the extra, owner, and vtable: three queries per such access.
+Null owner and absent-extra paths do less work. With a valid non-null encounter
+zone, `encounter_zone::validate_encounter_zone` checks readable storage and
+resolves its FormID to verify live pointer identity. Invalid paths can repair
+storage and record diagnostics. Neither guard is a pure cached getter that may
+be silently bypassed; both remain required for calls which still execute.
+
+The latest local log at inspection recorded both guards active and the
+synchronous radio scanner/native mode-0 optimization active. It contained no
+`[RADIO_SCAN]` attribution. Activation is observed; playback, lower-CPU scan
+cost, and the division of cost between these callees remain unmeasured. These
+newly identified guard costs are not retrospectively assigned to the older
+42.8 ms or 112.7 ms measurements.
+
+### Cache and scheduling limits
+
+Native extra-data caching already uses one list owner per thread, a 147-entry
+type array, and a global invalidation counter at `0x011C38E4`. Changing owners
+clears 588 bytes at `0x0040FA6E`. A list-cache miss can traverse under lock
+`0x011C3920`; its acquisition loop calls the native sleep wrapper with zero,
+then one after repeated failures. This is a concrete possible cost, separate
+from graph traversal's optional 50-node yield; no new lock profiling is needed
+to select the already-measured policy omission.
+
+This counter is **not** a radio graph generation. Native removal invalidates
+cached extra pointers; native add at `0x0040FF60` links an extra and updates its
+presence bit without incrementing that counter. A cache of prior absent
+values keyed only by this counter can therefore miss a later addition. More
+generally, reference positions, flags, teleport payload contents, cell links,
+and worldspace fields are not covered by an extra-node removal counter.
+The existing graph-invalidation gap cannot be closed by reusing this value.
+
+The retired worker ran complete queries under `ThreadPriority::Idle`, and
+these queries can acquire the same extra-list lock used by other engine work.
+Consequently lowering the worker's priority is not proof that it cannot delay
+the game thread: a preempted lock holder remains its owner. This is a structural
+contention route, not an observed priority-inversion event in the supplied log.
+The synchronous candidate removes the radio-owned idle-worker participant;
+it does not establish that all remaining native lock waits vanish.
+
+### Selected game-owned expansion boundary
+
+The owner declined further profiling. The retained removal experiment already
+selects the material work: bypassing 7,746 setup/access pairs reduced that
+workload's average scan from 42,756 us to 5,202 us. Separating the preparation's
+lookup, guard, allocation, and lock costs is not an implementation prerequisite.
+No additional telemetry, profiling capture, or profiling dependency is planned.
+The historical measurement is not a timing result for the new candidate.
+
+The remaining provider boundary is now identified in
+[the provider-dispatch audit](../analysis/ghidra/output/perf/radio_provider_dispatch_radare2_audit.txt).
+The game dispatches each expansion at `0x006F40D0`:
+
+```text
+ECX = live query; EDX = its actual vtable
+stack arguments = current node, caller-owned neighbor array
+006F40D0  mov eax, [edx+4]    ; 8B 42 04
+006F40D3  call eax           ; FF D0
+006F40D5  continuation
+```
+
+These five bytes form one replaceable call window. A Psycho adapter can select
+an equivalent expansion before private preparation begins, without changing
+the vtable slot, provider DLL, candidate enumerator, or search algorithm.
+The dispatch shim must preserve the original ECX/EDX arguments, both stack
+arguments, nonvolatile registers, AL result, and `RET 8` stack cleanup. Its Rust
+body needs an explicitly aligned stack; ordinary Rust entry at an arbitrary
+native stack alignment is not an ABI proof. Audit the emitted shim after build.
+Fallback must invoke the target from the actual incoming vtable, including its
+original EDX value, rather than a cached default provider.
+
+Keep the non-radio fast path in the shim: a nonmatching vtable or unpublished
+capability chains through the original `mov eax, [edx+4]` and tail jump with
+the original stack. It must not enter Rust profiling or provider-validation
+code for every unrelated engine expansion.
+
+The comparison binary was read from the local Stewie installation. Its identity,
+complete provider bytes/disassembly, setup, enumerator, and math-helper evidence
+are retained in the audit. This establishes a compiled contract; it does not
+identify which DLL is mapped into a currently running game. No mod name,
+version, file hash, or private address becomes a runtime allowlist.
+
+The selected expansion adapter has two paths:
+
+1. Native provider: continue through the installed provider and the paired
+   native callsite optimization described above. Extend its admission to all
+   three proven radio tuples and return exact null-actor accessibility output.
+2. Verified inlined provider: execute Psycho's equivalent neighbor expansion
+   at the game-owned dispatch. Omit only the discarded temporary preparation,
+   accessibility call, and its allocation cleanup. Retain the original
+   enumerator and math helper, and all required native operations below.
+
+An unrecognized provider always executes normally. This preserves station
+coverage; it does not promise acceleration of arbitrary replacement code.
+Do not replace an unknown provider with vanilla enumeration. The inspected
+inlined enumerator has different filters from vanilla, so that substitution
+would change adjacency even though both functions enumerate teleport doors.
+
+### Inlined expansion equivalence contract
+
+The source comparison covers the relevant `Pathing.cpp` blocks from 9.90, 9.95,
+and 10.00. The latter renames the ownership call, but its implementation still
+calls game ownership resolver `0x00567790`. Source similarity alone does not
+admit another compiled provider; runtime admission uses the complete compiled
+contract below.
+
+| Operation | Required implementation behavior |
+| --- | --- |
+| Query admission | Active synchronous radio scope, actual query vtable `0x0106D8FC`, null actor, and exactly `(mode, disposition) = (0,3), (1,1), (2,1)`. Read the current query, not an outer query's cached decision. |
+| Candidates | Reset only the live query's candidate count at `+0x20AC`; call the captured enumerator with the same cell and array at `+0x20A4`. Preserve candidate order, live count reads, disabled checks, and cell locking in that helper. |
+| Teleport geometry | Call the existing `0x00410220` lookup for type `0x2B`. Preserve linked-door parent-cell/child-cell resolution, virtual callbacks, worldspace selection, and descriptor key, including the original null-key path. |
+| Mode filters | Mode 1 admits interior links or links in the source worldspace at `+0x205C`; mode 2 excludes worldspace links. Mode 0 retains its distance/radius behavior. |
+| Policy omission | Null-actor accessibility does not read the prepared object. Dispositions 1 and 3 discard its decision. Remove the whole unused preparation lifetime, not individual shared getters or safety guards. |
+| Minimum-use door | Preserve the base-door flag at `+0x84`, bit 3. Disposition 1 still adds 409600; disposition 3 does not. Connected queries are not blanket zero-penalty queries. |
+| Position | Invoke the same door virtual `GetPos` slot `+0x1F4`. Select node teleport position `+0x18` when node `+0x24` is nonzero, otherwise query source position `+0x2068`. |
+| Arithmetic | Preserve the compiled scalar SSE sequence: squared Y plus squared X, then squared Z; invoke the captured XMM0-in/XMM0-out math helper; preserve cost addition order and the actual unordered/zero/radius branches. Do not substitute Rust `sqrt`, native-provider x87 arithmetic, reassociation, or an approximate distance. |
+| Node ownership | Call installed game entry `0x006F3E30` as thiscall `(query, key, cost, out_node)`, `RET 12`. Return 0 initializes domain descriptor and heuristic 1.0; return 1 updates link data; return 2 skips the candidate. Retain native hash, allocation, relaxation, and queue-removal behavior. |
+| Neighbor output | Preserve door pointer and teleport destination writes, then call `0x007CB2E0` as thiscall `(array, pointer_to_node_pointer)`, `RET 4`, in the original order. Do not clear the caller's array again or retain nodes outside the query. |
+| Completion | Return AL=1 with the original stack cleanup. The outer native traversal continues goal checks, queue insertion, predecessor assignment, cycle handling, extraction, and destruction. |
+
+The retained math helper performs double-precision square root and converts
+back to scalar float on its ordinary path. Its alternate branch is also
+retained by calling the helper itself. The original expansion's exact
+floating-point comparisons, including unordered handling, matter for node
+relaxation and ties. A mathematically similar rewrite is insufficient.
+
+Calling the native node and queue operations preserves the inspected provider's
+separate hash and queue patches. Returning a direct connectivity boolean,
+recomputing distance from node cost, caching a graph, or sharing nodes between
+stations would discard those contracts and is outside this implementation.
+Required extra-data operations continue through installed safety guards.
+Omitted unused policy lookups no longer invoke those guards; this is part of
+removing their unused callers, not a global guard bypass.
+
+### Capability admission, lifetime, and installation
+
+Admission must validate the whole reachable provider body, not its historical
+short entry signature. The comparison body is 766 bytes, ending after `RET 8`.
+Normalize only the three relative call operands and the three relocated data
+addresses. Bind each operand explicitly:
+
+- provider `+0x39`: original candidate enumerator;
+- provider `+0x12B`: preparation routine, whose full 389-byte body must match
+  the proven discarded-data contract;
+- provider `+0x1FA`: original math helper;
+- provider `+0x170` and `+0x185`: the same 409600.0 constant;
+- provider `+0x20D`: positive zero used by the original comparison.
+
+All other bytes, branch destinations, native callees, field offsets, and
+constants remain significant. Validate readable/executable ranges and checked
+address arithmetic before reading code or publishing bindings. The two
+retained helpers are invoked with their original physical ABIs; their behavior
+is not reimplemented. A mismatch means complete provider fallback, never a
+partial optimization or a guessed nearby helper. This is a bounded contract
+check reached from the actual vtable slot, not a module search or version list.
+
+At each outer scan, recheck that the bound provider/setup code and constants
+still match, using bounded storage and the existing WinAPI page-query wrapper.
+Do not use allocating `read_bytes` in this recurring path. Publish admission
+only for that synchronous scan; nested scans restore the previous scope.
+Each expansion also compares the actual target before using captured helpers.
+An in-place change detected between scans, changed slot, or failed check takes
+the original dynamic target. Do not rescan signatures per door or per node.
+No log, timer, heap allocation, or blocking lock is introduced by normal
+expansion admission. Native traversal allocations and helper locks remain.
+
+xNVSE's `PluginManager.cpp` unloads failed plugins during load and successful
+plugins in `DeInit`; its inspected normal operation retains loaded plugins.
+Bind helpers only after successful plugin loading, at DeferredInit. Captured
+code is valid under that normal plugin lifetime, and is used only while the
+same provider remains installed. This is not support for concurrently unloading
+or rewriting executable code during an active native call; the original
+provider has no such lifetime guarantee either. No engine object or helper
+result is retained across scans, loads, or world teardown.
+
+`OwnedCodePatch` can own the exact five-byte dispatch replacement and participate
+in `ModificationTransaction`. That transaction explicitly does not suspend
+threads or make code writes atomic. Therefore install the dispatch and paired
+native callsite bridges, initially forwarding, at the existing pre-CRT core
+boundary. `entry.rs` refuses core activation without that barrier, and
+`startup.rs` already installs scan/station hooks there. This avoids assuming
+that all traversal workers are quiescent at DeferredInit.
+
+DeferredInit becomes verification and capability publication only. Recheck
+ownership of the installed game callsites after plugins load. If another
+component changed an interception, do not overwrite it or enable a dependent
+constructor omission. Publish immutable bindings/readiness only after all
+checks pass; retain original computation when they do not. Install optional
+optimization as a separate transaction so failure does not undo synchronous
+scan correctness. Rollback must remain ownership-aware.
+
+This changes the early hook footprint. Keep it confined to
+the core and existing radio lifecycle; add no dependency, worker, new TLS owner,
+config field, helper forwarding, or shared-library redesign. Follow
+[the startup-safety contract](nvse_startup_phase_safety.md) for the resulting
+artifact. Static installation proof does not close the Proton startup gate.
+
+### Implementation and acceptance limits
+
+The implemented candidate follows this sequence for the native and proven
+inlined provider contracts:
+
+1. Keep synchronous scan results and native station/audio ownership. Extend
+   native policy admission to the two connected modes, preserving minimum-use
+   penalties and exact null-actor output.
+2. Add the bounded provider-contract admission and equivalent expansion behind
+   the game-owned dispatcher. Keep the engine boundary and unsafe ABI code in
+   a focused radio-owned module; do not build a generic provider framework.
+3. Install dormant bridges at pre-CRT, then verify and publish capabilities at
+   DeferredInit. Preserve original dynamic dispatch for every unsupported case.
+4. Audit the emitted i686 bridges and numeric sequence against the retained
+   binary proof. Run surviving applicable production behavior tests, the core
+   crate suite, one supported release build, formatting, and diff review.
+   Do not introduce a mocked graph or copied reference algorithm as proof of
+   native traversal equivalence.
+5. Report the result only as an unreleased offline-qualified candidate under
+   the owner's existing authorization. Playback, provider equivalence in the
+   actual game, startup compatibility, and elapsed scan/frame times remain
+   unverified until real-runtime evidence exists. No new profiling work is a
+   prerequisite for implementing this candidate.
+
+The owner set 120 FPS: `1000 / 120 = 8.333... ms` is the entire frame budget.
+Each synchronous scan must be strictly below it, with enough remaining time
+for the rest of the frame. This is an acceptance ceiling, not a guaranteed
+execution deadline or permission for radio to consume the whole frame. Do not
+average a slow scan across its refresh interval. If exact work exceeds the
+budget, retain its correct result and report the performance requirement unmet;
+never truncate search, drop a station, or turn pending work into failure.
+
+The technical selection no longer depends on identifying which policy getter
+accounts for which fraction of the historical cost. The selected optimization
+removes their entire unused caller lifetime. Unknown-provider acceleration,
+a universal millisecond bound, and the cause of every possible audio failure
+are not proven by this contract. The actual reported speech-to-music outcome
+and 120 FPS target remain runtime results, not conclusions of static analysis.
+
+## Historical tasklet implementation (superseded)
+
 This report records the radio hitch investigation begun on 2026-07-16 and the
 cooperative and native-tasklet scheduling changes implemented on 2026-07-22
 and 2026-07-23.
@@ -80,6 +613,349 @@ and Win32 priority-restoration regressions pass. Full suite and release
 validation are recorded below. The scheduler correction is statically proven
 and fail-closed; final frame-time and gameplay acceptance still requires one
 runtime pass of this corrected build.
+
+## Radio playback rework contract and plan
+
+Status: the synchronous candidate above implements the source-backed portion
+under the owner's explicit offline-candidate exception. Runtime acceptance and
+the additional query-cost reduction remain open. The owner reports radio silence, including announcer
+speech followed by missing music, and identifies Psycho's tasklet-based radio
+handling as the area to rework. This investigation does not require a CPU
+classification. The exact reported transition has not been captured or run
+here. The reporter-only crash exception does not apply to this incident.
+
+### Proven implementation problems
+
+The pre-change production path was in
+`psycho-engine-fixes/src/mods/perf/radio.rs`:
+
+- `cooperative_distance_body` maps a missing published result to the engine's
+  failure distance. `cooperative_connected_body` maps it to unavailable.
+  Pending computation and a completed negative query are indistinguishable
+  to the scanner. This also applies to the first asynchronous generation.
+- `QueryPipeline::complete` publishes only after every serial request finishes.
+  One incomplete request withholds all new answers. While executing,
+  `begin_scan` cannot collect a replacement batch and `observe_query` cannot
+  add newly encountered requests.
+- `schedule_tasklet_generation` submits at most one job per frame callback and
+  never overlaps jobs. Queue priority is 63; `radio_tasklet_execute` temporarily
+  lowers the shared worker to idle priority. There is no completion deadline
+  or overdue-query recovery. The frame-event timeout checks callback delivery,
+  not worker progress. The source therefore provides no one-refresh upper
+  bound on answer age.
+- Published lookup uses reference FormIDs, query kind, and radius bits or the
+  expected worldspace FormID. It does not key the actual endpoint positions,
+  cells, or graph revision. Failed preparation retains the previous snapshot.
+  These facts do not prove a particular stale playback event, but prevent a
+  claim that every consumed answer describes the current query.
+- Query timing ends after the first successful publication. Existing first-use
+  logs cannot establish progress at a later speech-to-music failure.
+
+### Native consequence and evidence boundary
+
+The current `fnv_reverse/FalloutNV.exe` identity matches the existing radio
+audits: SHA-256
+`42fee7d6cd74e801372aa89c8f71c974cebd3c20ec9ad43d1465b8fa9646b49c`.
+Focused radare2 reconfirmation is retained in
+[the playback-boundary audit](../analysis/ghidra/output/perf/radio_tasklet_playback_boundary_radare2_audit.txt).
+The complete historical caller and station-update listings are in
+[the station contract](../analysis/ghidra/output/crash/radio_station_post_load_stale_entry_contract.txt).
+
+1. `0x004FF397` consumes the distance result; `0x004FF77F` adds a station to
+   the scanner output only when the local availability predicate succeeds.
+2. `0x00833D00` immediately consumes those caller-owned output lists. When a
+   refresh does not find a registered station, `0x008340CB` calls
+   `0x00834210(1)` with `ECX = wrapper + 4`, setting flag mask `0x04` at
+   wrapper `+0x18`.
+   `0x008340D8` then calls `0x00458B30(0)`, setting wrapper `+0x15` to zero.
+   The matched branch clears the flag at `0x00833FAA`.
+3. The current-station path in `0x008331C0` reads that same flag through
+   `0x00833BC0`. Its loss branch names `UIRadioSignalLost`, saves the selected
+   wrapper to `0x011DD430`, and calls `0x008324E0(0)` at `0x008332C3`.
+   Outside radio-list reset, that deactivation path clears current station
+   `0x011DD42C` and invokes the native audio cleanup routines.
+4. `0x008341B4` still calls the station update on its original caller thread.
+   Psycho's empty-inactive fast path excludes the current station, audio-bearing
+   entries, and list reset. Native instructions at `0x008342F7..0x00834397`
+   reconfirm the original inactive-empty return predicate.
+
+Thus pending availability can enter the native signal-loss/deactivation
+protocol. That is a statically established consequence of the current design,
+not merely a slow discovery list. It does not prove which request was pending
+in the reporter's run, whether a previously published answer existed, or why
+that run specifically retained speech but lost music. No new music-decoder,
+allocator, or mod attribution follows from this evidence.
+
+### Recommended design
+
+Remove deferred tasklet generations from authoritative radio availability.
+Keep discovery, signal decisions, station transitions, and playback updates
+in the engine's existing order. Every consumed answer must be computed for
+that scan through the active provider, or obtained through an optimization
+whose exact equivalence has been proved. A negative answer must represent an
+actual negative query, never unscheduled, pending, aborted, or timed-out work.
+
+This removes the batch-completion dependency by design. It does not establish
+that synchronous queries are cheap. Historical runs still spent about 5-7 ms
+on the optimized query set, and connected-interior work previously produced
+a much larger stall. Returning the same expensive work to one frame is not a
+finished performance solution. Query-cost reduction and playback correctness
+are joint acceptance requirements.
+
+Do not replace this with another background thread, higher worker priority,
+an arbitrary grace period, indefinite last-known-good answers, or a synchronous
+timeout that can overlap a still-running native query. Partial publication
+alone also leaves cold misses and stale-input validity unresolved. An async
+accelerator would require a complete invalidation and ownership contract plus
+an exact timely consumer path; the existing audits do not prove that contract.
+
+The intended steady-state ownership is simpler: caller-owned scan containers,
+query/result storage with native construction and destruction in the same
+call, and no cross-frame engine pointers, native group waits, or scheduler
+mutexes in the radio decision path. Preserve the installed provider ABI,
+distance/range semantics, connected-path post-filters, and all station modes.
+Keep the proven empty-inactive station fast path. Do not rewrite the music or
+dialogue player without evidence of a separate defect there.
+
+### Full change set
+
+The implementation target is a synchronous, optimized engine scan followed by
+the original station update. This is a cold-start DLL replacement, not a live
+switch between schedulers. No native tasklet may survive a runtime unpatch;
+live unpatching is outside this plan.
+
+| Owner | Planned change |
+|---|---|
+| `psycho-engine-fixes/src/mods/perf/radio.rs` | Remove asynchronous query and publication machinery; retain a minimal synchronous scan scope, native station fast path, verified engine-owned optimizations, and opt-in attribution. |
+| `psycho-engine-fixes/src/mods/perf/mod.rs` | Update lifecycle documentation and retain DeferredInit routing for optional radio optimization setup. |
+| `psycho-engine-fixes/src/startup.rs` | Keep the existing install phase; update capability/error messages to describe the installed synchronous behavior accurately. |
+| `psycho-engine-fixes/src/host_events.rs`, `events.rs` | Preserve exported ABI, numeric event IDs, and dispatch to other engine fixes. No event deletion is required. |
+| `psycho-engine-fixes-helper/src/events.rs` | Preserve shared forwarding, DeferredInit gating, and dashboard events. Radio no longer using frame events is not authority to remove them. |
+| `psycho-engine-fixes/src/config.rs` and shipped TOML | Preserve configuration layout and obsolete-field handling. Reuse existing diagnostic controls; no scheduler tuning settings or schema migration. Update comments only if diagnostic output changes. |
+| `libpsycho/src/os/windows/winapi.rs` | Stop importing the scoped priority API from radio; leave the shared API in place. No unrelated shared-library cleanup. |
+| Radio tests and this document | Replace the retired scheduler's assertions with the actual new acceptance evidence; document final ownership, hooks, costs, and limits. |
+
+#### 1. Establish the regression and measurement boundary
+
+The original plan required a preserved run of the speech-to-music failure
+before production edits. The owner waived that prerequisite for this unreleased
+candidate; a runtime comparison remains necessary for acceptance. Use the actual affected assets and workload.
+This is a playback regression, so compilation, synthetic audio, a state-machine
+test, and first-use tasklet logs cannot substitute for that run.
+
+If additional observation is needed, add only opt-in, behavior-neutral
+instrumentation under the existing diagnostic controls. Capture selected
+station identity, query mode, missing versus completed result, job age and
+completion, native loss state, and the station/audio transition. Reconfirm
+additional native fields, caller ownership, and ABIs before touching them.
+Keep counters bounded; use the established logger for transition records and
+aggregates. Do not log each frame/query or allocate on every event. Record
+diagnostic saturation explicitly rather than inventing missing events.
+
+Keep three measurements separate: total radio CPU work, elapsed scan/query
+time, and time until the next playable audio item. Existing stopwatch values
+are wall time. CPU attribution needs an actual thread CPU measurement or
+profiler; do not relabel wall duration. Fix the route, station set, settings,
+and audio assets for before/after comparison, and measure instrumentation cost
+with the controls disabled as well.
+
+#### 2. Replace the authoritative query path
+
+Remove these radio-owned mechanisms together:
+
+- `QueryPipeline`, `QueryWork`, `QueryRequest`, `QueryKey`, `PublishedResult`,
+  deferred `QueryValue` publication, and their generation/capacity bookkeeping;
+- `EngineTasklet`, `TaskletHandle`, `PreparedQuery`, `PreparedBatch`,
+  `RadioTasklet`, `SharedRadioTasklet`, `TaskletBackend`, their unsafe sharing
+  implementations, native group APIs, and lazy task storage;
+- frame-paced scheduling, cadence normalization, frame-thread admission,
+  priority lowering/restoration, completion polling, group joins, and the
+  cooperative main-thread fallback, which still delays answers;
+- `PendingConnectedResult`, query/destructor handoff TLS, and the naked
+  asynchronous query/destructor bridges;
+- scheduler-only FormID re-resolution, reconstructed endpoint/result storage,
+  capacity fallback, first-publication telemetry, constants, and imports.
+
+Remove storage helpers only when they have no remaining production consumer.
+The replacement should not reconstruct native path result objects merely to
+reduce them back to booleans. Let the original scanner own those objects and
+execute its existing post-filters and destructors.
+
+`RadioScanScope` becomes a scope for synchronous radio identification and
+optional measurements. It retains balanced nesting and policy-pair cleanup on
+all exits, but does not collect, publish, reset, or lock a generation. Preserve
+`RADIO_SCAN_DEPTH` or an equivalent existing scoped marker: the traversal
+optimization tests `radio_scan_active()`, and deleting that scope would
+silently remove a real cost reduction. Worker-only `RadioPathQueryScope` can
+then disappear. Avoid adding TLS or eager runtime owners.
+
+The query-callsite disposition is explicit:
+
+| Callsite | Planned disposition |
+|---|---|
+| `0x00833D86 -> 0x004FF1A0` | Retain a thin periodic scan scope/profiling bridge; call the original scanner once and return its native lists. |
+| `0x004FF397 -> 0x006D4EB0` | Stop installing the cooperative distance replacement. Preserve the native x87 result and caller-owned locations. |
+| `0x004FF4C6`, `0x004FF645 -> 0x006D4D20` | Stop installing the connected-query replacements. Execute native success/failure and parent-space filtering within the scan. |
+| `0x004FF561`, `0x004FF73D -> 0x006F4930` | Stop installing destructor bridges. Restore normal native cleanup by leaving the original calls intact at startup. |
+| `0x008341B4 -> 0x00834260` | Retain the proven empty-inactive fast path; every current/audio-bearing/reset case reaches native update. |
+| `0x006F3FB0` | Retain radio-scoped traversal interception only if needed by the verified cost optimization or enabled diagnostics. |
+| `0x006D4D20`, `0x0056B210` profiling hooks | Keep optional attribution; preserve all original arguments and results. |
+
+Any additional query hook requires a measured optimization and its own native
+contract. No change to station cadence, signal interpolation, playlist timing,
+audio handles, dialogue ownership, or music request ordering is part of the
+correctness repair. A genuine native failed query retains its original result.
+
+#### 3. Deliver actual query-cost reduction
+
+Scheduler removal eliminates Psycho's queue/group/lock/preparation overhead,
+but the historical remaining traversal cost must also be addressed. Performance
+work must cover distance and both connected-query branches, including branches
+that bypass pathfinding already. Preserve these native fast paths rather than
+forcing every station through one general algorithm.
+
+Use the retained path-query, discarded-door-policy, and geometry-invalidation
+audits before new research. For each candidate, record the measured cost,
+input/output equivalence, side effects, ownership, ABI, fallback, and native
+behavioral comparison before selecting it:
+
+| Work | Decision and evidence needed |
+|---|---|
+| Empty inactive station update | Retain the already-proven no-effect branch. It must never suppress current-station progression. |
+| Disposition-3 door policy | Preserve the proven semantics of discarded policy work through a verified game-owned boundary; recheck scope and cleanup under synchronous execution. |
+| Connected query traversal | Use the subsequently proven mode-1/mode-2 contracts above. Omit only dead policy setup; retain their minimum-use penalties, filters, and predecessor-chain semantics. |
+| Repeated endpoint/setup work | Consider only if measured material and all inputs, getter side effects, lifetime, and same-call reuse are proved. No cross-scan pointer cache. |
+| Query-private allocation/reset | Consider only with a complete constructor/reset/destructor and ownership contract. Existing evidence does not authorize object pooling. |
+| Scanner bookkeeping and diagnostics | Remove scheduler-only work; avoid resetting large profiling state, timer reads, and statistic updates when profiling is off. Retain the minimal policy scope required for correctness. |
+
+The existing `resolve_policy_setup_target`/`verify_inlined_policy_provider`
+path can derive a setup target in the replacement provider's allocation, then
+`install_door_policy_bypass_hooks` hooks that target. It is not an exclusively
+game-owned optimization. Do not carry that private-provider interception into
+the replacement or expand its signature catalogue. Replace it with a proven
+engine-owned boundary that preserves the installed provider's behavior.
+Unrecognized/unsupported optimization cases must execute the original provider
+normally. Removing that acceleration alone is not a performance solution;
+installed-provider workloads must pass the same cost gate.
+
+Do not select a TTL cache, reverse multi-source search, Euclidean substitute,
+shared query nodes, or reused graph snapshot without the missing equivalence
+and invalidation proofs. Previous failed optimizations remain failed evidence;
+do not repeat them without a new measured condition. If the remaining exact
+work cannot meet the performance gate, keep the candidate unreleased and close
+that specific cost contract. Increasing radio delays or dropping stations is
+not an allowed fallback.
+
+#### 4. Make installation and lifecycle deterministic
+
+Prepare and verify retained hooks before enabling dependent interceptions.
+Use the existing ownership-aware callsite/inline containers and
+`ModificationTransaction` rather than extending raw patch ownership logic.
+For every dependency group, failed activation must restore its prior provider
+or leave an independently correct synchronous path. Do not overwrite a hook
+installed by another component during rollback.
+
+Independent optional optimization failure leaves native behavior available and
+logs the concrete fallback. Hook ownership loss or incomplete rollback is an
+error, not a successful install. Publish capability messages only after the
+corresponding transaction commits. Remove messages describing tasklet capacity,
+worker priority, generations, or cooperative fallback from the final design.
+
+Keep the accepted early scan/station installation boundary. The subsequent
+dispatch contract above places dormant optional code bridges at that quiescent
+boundary too; DeferredInit verifies them and publishes capabilities without
+code writes. `radio::observe_event` handles only the
+setup/lifecycle work still needed; `OnFramePresent` and world teardown no longer
+schedule or join radio jobs. `perf::observe_event` remains for DeferredInit.
+Do not delete shared event IDs, forwarding, dashboard calls, or other fixes'
+handlers. DeferredInit remains idempotent, and unsupported signatures fail to
+the original native behavior rather than disabling radio.
+
+Follow [the startup-safety contract](nvse_startup_phase_safety.md): identify
+the last accepted load-to-gameplay artifact before implementation and review
+the resulting imports/TLS/static/hook footprint against it. Code and TLS
+removal can change that footprint too. No loader-lock work, new worker,
+configuration layout change, helper initialization, or cross-DLL relocation is
+needed by this design. The final artifact still requires representative Proton
+load-to-gameplay acceptance.
+
+#### 5. Qualify behavior and cost at the real boundary
+
+Define each expected outcome before implementing its change. The owner's
+radio-specific authorization permits the unreleased candidate without a new
+failure reproduction or profiling capture. The runtime matrix remains the
+acceptance contract, not a completed result or an implementation prerequisite:
+
+| Case | Required observation |
+|---|---|
+| Reported announcer-to-music failure | The intended music becomes audible and subsequent transitions continue through the original reproduction interval. |
+| Music-to-music, tuning, off/on | Normal playback progression; no reset loop, skipped native progression, or permanently silent selected station. |
+| First scan and newly discovered station | Actual scan-time availability; no artificial unavailable interval while waiting for a generation. |
+| Genuine signal loss/recovery | Native range/domain decisions, fade/stop/reacquisition behavior preserved; no forced always-available station. |
+| Interior/exterior and connected stations | Native distance and both connected-query predicates agree; native no-query branches remain intact. |
+| Stationary and moving player/station | Each decision uses current native inputs; no previous-position or previous-cell result reuse. |
+| Save/load, new game, fast travel, menu return | Normal playback and discovery resume; no radio worker join or stale published state. |
+| World radios and Pip-Boy radio | Active/audio-bearing station work remains native, including cleanup and changes of selected station. |
+| Tasklet congestion and delayed frame delivery | No radio availability dependency on Psycho tasklet completion or Present-event frequency; inspect actual playback, not only counters. |
+| Installed provider and native-provider comparison | Correct behavior with each supported environment, without provider-name allowlists or private-provider patches. |
+| Unsupported optional optimization | Original query behavior and valid radio playback remain available. |
+
+The eventual performance acceptance evidence must cover total radio CPU per
+refresh, maximum scan wall time, and frame-time tails on the same workload.
+Steady play and transitions are separate cases so averages cannot hide a
+periodic stall. The selected ceiling is the owner's 120 FPS frame budget,
+8.333... ms, with room for the game's other work. The final result must
+reduce actual radio work and must not restore the previous periodic hitch;
+no CPU/FPS improvement is claimed by static removal of tasklet machinery.
+
+Retire tests whose production scheduler, tasklet ABI, or connected-result
+handoff is removed. This is removal of the obsolete mechanism, not permission
+to weaken the playback gate. Retain applicable behavior tests for surviving
+production functions. Add only tests that execute changed shipped behavior,
+with evidence-backed inputs, alongside the real runtime regression. Do not
+add source assertions, synthetic engine graphs, mocked music/provider output,
+or object-layout tests as substitutes for playback and cost measurements.
+
+Run focused behavior checks, then the affected crate suite and one release
+build with the explicit supported target:
+
+```bash
+cargo test --target i686-pc-windows-gnu -p psycho-engine-fixes --lib
+cargo build --release --target i686-pc-windows-gnu -p psycho-engine-fixes
+cargo fmt --all -- --check
+git diff --check
+```
+
+If implementation changes helper/shared-library code, add the affected suites
+and final DLL builds; the current plan does not require those edits. Complete
+the real playback/performance matrix and applicable startup gate before
+packaging or calling the fix complete. No commit is authorized by this plan.
+
+### Execution order and completion criteria
+
+1. Use the retained failing/timing evidence and the owner's authorization for
+   an unreleased candidate; retain the startup-baseline qualification limit.
+2. Implement against the completed source/binary contracts in the subsequent
+   implementation-readiness section above. No new profiling is required.
+3. Implement synchronous results, selected cost reductions, hook transactions,
+   and lifecycle cleanup as one coherent candidate. Keep unrelated dirty work.
+4. Run focused and affected-suite checks, build once, inspect the final diff,
+   then repeat playback, performance, and startup acceptance on that artifact.
+5. Update the current-behavior sections of this document, replacing obsolete
+   generation guarantees with the accepted synchronous contract and measured
+   limits. Retain raw historical evidence without duplicating it.
+
+The planning deliverable covers the full affected surface. Implementation is
+done only when playback works and the cost gate passes together; a scheduler
+deletion that fixes silence but restores hitches is an intermediate candidate.
+
+The remaining acceptance gates are the captured playback comparison and a
+measured, equivalent reduction of the expensive native query work. The source and binary
+evidence are sufficient to reject the current pending-as-failure contract and
+to choose the synchronous correctness boundary. They are not sufficient to
+claim a fully lightweight replacement algorithm or accepted playback fix.
+The historical complete-generation requirement elsewhere in this document
+describes the retired implementation, not a constraint on this rework.
 
 ## 2026-07-27 Interior Connected-Path Coverage Gap
 
@@ -798,14 +1674,17 @@ part. In active mode it eliminated 1,456 repeated enumerations and replayed
 scan still performed 1,941 Stewie provider expansions. That runtime result
 supersedes the earlier candidate-boundary optimization hypothesis.
 
-Stewie's provider performs two expensive policy operations for every accepted
+Stewie's provider prepares door policy and calls accessibility for every accepted
 door candidate before constructing the query-local path node:
 
 1. `TeleportDoorData__Setup` resolves lock data, linked-door ownership, rank,
    encounter-zone state, and global data, including temporary game-heap
    allocation/copy when lock data exists.
-2. Game `FUN_00502450` evaluates door accessibility using actor, ownership,
-   crime, and rank predicates.
+2. Game `FUN_00502450` receives that data. The current static cost audit proves
+   that radio's null actor makes it return immediately, without evaluating its
+   actor, ownership, crime, and rank predicates. The preparation is discarded;
+   the historical combined bypass measurement does not time these two calls
+   separately.
 
 The focused Ghidra audit proves the radio query tuple is exactly:
 
@@ -929,8 +1808,8 @@ The periodic radio path is:
 Other radio query callsites are:
 
 ```text
-0x004FF4C6 -> 0x006D4D20  mode 2
-0x004FF645 -> 0x006D4D20  mode 3
+0x004FF4C6 -> 0x006D4D20  station mode 2, query mode 1
+0x004FF645 -> 0x006D4D20  station mode 3, query mode 2
 ```
 
 The radio query vtable is statically located at `0x0106D8FC`:

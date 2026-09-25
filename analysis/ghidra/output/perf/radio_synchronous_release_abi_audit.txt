@@ -1,0 +1,130 @@
+RADIO SYNCHRONOUS CANDIDATE OFFLINE ABI REVIEW
+
+The pre-change local release artifact is a comparison reference only; its
+runtime provenance is not established. Neither PE agreement nor tests prove
+Proton startup, radio playback, provider equivalence, or workload performance.
+No game artifact was deployed or packaged.
+
+The constructor adapter preserves ECX/data and its stack/door argument,
+passes native EBP to the cdecl body, removes its own 12 argument bytes, and
+returns with RET 4. EAX carries the body result back to the native caller.
+This is emitted-code inspection, not a runtime behavioral test.
+
+
+target/i686-pc-windows-gnu/release/psycho_engine_fixes.dll:     file format pei-i386
+
+
+Disassembly of section .text:
+
+1006e860 <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf5radio22hook_door_policy_setup>:
+1006e860:	55                   	push   %ebp
+1006e861:	ff 74 24 08          	push   0x8(%esp)
+1006e865:	51                   	push   %ecx
+1006e866:	e8 d5 6d 00 00       	call   10075640 <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf5radio24native_door_policy_setup>
+1006e86b:	83 c4 0c             	add    $0xc,%esp
+1006e86e:	c2 04 00             	ret    $0x4
+
+PE comparison:
+{
+  "reference": "pre-change local release artifact; runtime provenance not established",
+  "before_sha256": "96834f0f776a03771e618c70019caad7f20830098f855348dad20aacb95aa8e9",
+  "after_sha256": "d136b55be8c0f03d7d6e0a48b9b57b545695920255f664e8d61e63214e6ce498",
+  "added_imports": [],
+  "removed_imports": [],
+  "tls_before": {
+    "tls_template_bytes": 4,
+    "tls_zero_fill": 0,
+    "tls_callback_rvas": [
+      "0x2f7110",
+      "0x3569e0",
+      "0x3569a0",
+      "0x351d60"
+    ]
+  },
+  "tls_after": {
+    "tls_template_bytes": 4,
+    "tls_zero_fill": 0,
+    "tls_callback_rvas": [
+      "0x2f09d0",
+      "0x3502a0",
+      "0x350260",
+      "0x34b620"
+    ]
+  },
+  "sections_before": [
+    [
+      ".text",
+      3691536
+    ],
+    [
+      ".data",
+      231636
+    ],
+    [
+      ".rdata",
+      955792
+    ],
+    [
+      ".eh_fram",
+      377444
+    ],
+    [
+      ".bss",
+      48976
+    ],
+    [
+      ".edata",
+      294
+    ],
+    [
+      ".idata",
+      11740
+    ],
+    [
+      ".tls",
+      8
+    ],
+    [
+      ".reloc",
+      167860
+    ]
+  ],
+  "sections_after": [
+    [
+      ".text",
+      3665104
+    ],
+    [
+      ".data",
+      210772
+    ],
+    [
+      ".rdata",
+      950992
+    ],
+    [
+      ".eh_fram",
+      375636
+    ],
+    [
+      ".bss",
+      45520
+    ],
+    [
+      ".edata",
+      294
+    ],
+    [
+      ".idata",
+      11740
+    ],
+    [
+      ".tls",
+      8
+    ],
+    [
+      ".reloc",
+      170116
+    ]
+  ]
+}

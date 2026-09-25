@@ -180,7 +180,7 @@ fn install_runtime_hooks(performance: &PerformanceConfig) -> anyhow::Result<()> 
     }
 
     if let Err(error) = install_radio_scan_fix() {
-        log::warn!("[RADIO] Scan fix disabled: {error:#}");
+        log::warn!("[RADIO] Scan optimization installation failed: {error:#}");
     }
 
     if performance.post_load_reconciliation_prepass {

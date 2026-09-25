@@ -1,54 +1,41 @@
-//! Worker-backed radio path queries, station maintenance, and hitch attribution.
+//! Synchronous radio availability, native station maintenance, and hitch attribution.
 //!
-//! Fallout New Vegas refreshes radio availability in a periodic game-thread
-//! scan. The scanner performs three expensive path operations: a mode-0
-//! distance query and two connected-interior queries whose returned parent
-//! spaces are reduced to booleans. This module collects all three operations
-//! during one scan, consumes only the last complete generation, and recomputes
-//! the next generation as individually paced native tasklets.
+//! The periodic engine scanner owns all query inputs, results, and station lists
+//! until it returns. This module never defers an answer or substitutes a pending
+//! query for signal loss: distance and connected queries retain their native
+//! callsites, post-filters, and destruction order.
 //!
-//! Engine object ownership remains on the threads required by the executable:
-//! reference FormIDs are captured by the scanner, `PathingLocation` values are
-//! constructed and released on the game thread, and each connected-query
-//! result is constructed, reduced, and destroyed entirely on its worker. A
-//! world-lifetime barrier joins the native group before load or menu teardown.
-//! Only typed scalar results cross from the worker back to the scanner.
+//! A scoped marker admits the three proven actor-free radio query tuples.
+//! Native policy calls keep caller-owned cleanup; a verified inlined expansion
+//! uses the game-owned dispatcher and original enumeration/math helpers. No
+//! provider DLL is patched. Unknown providers retain dynamic native dispatch.
+//! The station bridge skips only the native empty/inactive no-effect branch.
 //!
-//! The connected-query callsites need an asymmetric bridge. Returning success
-//! directly would make vanilla inspect an empty caller-owned path result. The
-//! query bridge therefore returns false after placing the reduced answer in
-//! thread-local state; a matching result-destructor bridge applies that answer
-//! only after vanilla cleanup. Exact callsite signatures and transactional
-//! rollback keep the original synchronous query and post-filter as the
-//! fail-closed path.
-//!
-//! Provider replacement is handled at the game-owned virtual ABI boundary.
-//! The exact disposition-3 door-policy bypass remains optional and is scoped
-//! only to mode-0 radio traversal. Diagnostics are bounded to first-use proof
-//! and aggregated hitch reports; no logging is performed per query.
+//! All code bridges install transactionally at the quiescent pre-CRT boundary;
+//! DeferredInit verifies ownership and publishes optional capabilities. No job,
+//! result, or engine pointer survives a scan. Profiling stays opt-in; normal
+//! expansion admission allocates nothing and reads no timers or diagnostics.
+
+mod provider;
 
 use std::{
-    cell::{Cell, RefCell, UnsafeCell},
+    cell::{Cell, RefCell},
     sync::{
         LazyLock,
-        atomic::{AtomicBool, AtomicU32, AtomicU64, AtomicUsize, Ordering},
+        atomic::{AtomicBool, AtomicU64, Ordering},
     },
 };
 
-use anyhow::{Context, ensure};
+use anyhow::ensure;
 use libc::c_void;
-use parking_lot::Mutex;
-
 use libpsycho::{
     ffi::fnptr::FnPtr,
     os::windows::{
-        hook::{inline::inlinehook::InlineHookContainer, transaction::ModificationTransaction},
-        memory::read_bytes,
-        patch::module_address,
-        winapi::{
-            ThreadPriority, lower_current_thread_priority_scoped, patch_bytes, replace_call,
-            virtual_query,
+        hook::{
+            callsite::Rel32CallHookContainer, inline::inlinehook::InlineHookContainer,
+            transaction::ModificationTransaction,
         },
+        memory::read_bytes,
     },
 };
 
@@ -58,43 +45,14 @@ const PERIODIC_RADIO_SCAN_CALL_ADDR: usize = 0x00833D86;
 const RADIO_SIGNAL_SCAN_ADDR: usize = 0x004FF1A0;
 const PERIODIC_RADIO_STATION_UPDATE_CALL_ADDR: usize = 0x008341B4;
 const RADIO_STATION_UPDATE_ADDR: usize = 0x00834260;
-const MODE0_RADIO_DISTANCE_CALL_ADDR: usize = 0x004FF397;
-const MODE0_RADIO_DISTANCE_ADDR: usize = 0x006D4EB0;
-const MODE1_CONNECTED_QUERY_CALL_ADDR: usize = 0x004FF4C6;
-const MODE1_RESULT_DESTROY_CALL_ADDR: usize = 0x004FF561;
-const MODE2_CONNECTED_QUERY_CALL_ADDR: usize = 0x004FF645;
-const MODE2_RESULT_DESTROY_CALL_ADDR: usize = 0x004FF73D;
-const PATHING_LOCATION_INIT_ADDR: usize = 0x006DCD70;
-const PATHING_LOCATION_DESTROY_ADDR: usize = 0x004FF7E0;
-const PATH_RESULT_CONSTRUCT_ADDR: usize = 0x006F48B0;
-const PATH_RESULT_DESTROY_ADDR: usize = 0x006F4930;
-const LOOKUP_FORM_BY_ID_ADDR: usize = 0x004839C0;
-const PATH_FAILURE_DISTANCE_ADDR: usize = 0x01016970;
-const CONNECTED_SIGNAL_VALUE_ADDR: usize = 0x01012054;
-const LOADING_FLAG_ADDR: usize = 0x011DEA2B;
 const CURRENT_RADIO_STATION_ADDR: usize = 0x011DD42C;
 const RADIO_LIST_RESETTING_ADDR: usize = 0x011DD436;
 const RADIO_ENTRY_AUDIO_LIST_HEAD_OFFSET: usize = 0x1C;
 const RADIO_ENTRY_AUDIO_LIST_NEXT_OFFSET: usize = 0x20;
-const TASKLET_MANAGER_ADDR: usize = 0x00B00A00;
-const TASKLET_GROUP_CREATE_ADDR: usize = 0x00B00A80;
-const TASKLET_GROUP_ACTIVATE_ADDR: usize = 0x00B00AE0;
-const TASKLET_SUBMIT_ADDR: usize = 0x00B00B40;
-const TASKLET_GROUP_CLOSE_ADDR: usize = 0x00B00BC0;
-const TASKLET_GROUP_WAIT_ADDR: usize = 0x00B02920;
-const TASKLET_PRIORITY_ENQUEUE_ADDR: usize = 0x00B02159;
-const TASKLET_PRIORITY_DISPATCH_ADDR: usize = 0x00B024C7;
-const TASKLET_GROUP_LAYOUT_ADDR: usize = 0x00B02833;
-const TASKLET_GROUP_PRIORITY_OFFSET: usize = 0x30;
-const TASKLET_GROUP_SUBMITTED_OFFSET: usize = 0x34;
-const TASKLET_GROUP_COMPLETED_OFFSET: usize = 0x38;
-const TASKLET_LOWEST_QUEUE_PRIORITY: u32 = 0x3F;
-const BSTASKLET_VTABLE: usize = 0x0106C5D8;
 const PATH_QUERY_ADDR: usize = 0x006D4D20;
 const PATH_TRAVERSAL_ADDR: usize = 0x006F3FB0;
 const STATION_MODE_ADDR: usize = 0x0056B210;
 const RADIO_QUERY_VTABLE: usize = 0x0106D8FC;
-const TELEPORT_DOOR_PROVIDER_SLOT: usize = 0x0106D900;
 const DOOR_ACCESSIBILITY_ADDR: usize = 0x00502450;
 const VANILLA_PROVIDER_ADDR: usize = 0x006F36D0;
 const VANILLA_POLICY_SETUP_ADDR: usize = 0x00501D20;
@@ -106,82 +64,11 @@ const VANILLA_ACCESSIBILITY_RESULT_OFFSET: usize = 0x1CF;
 const VANILLA_DISPOSITION_BRANCH_OFFSET: usize = 0x1E7;
 const VANILLA_MIN_USE_BRANCH_OFFSET: usize = 0x22B;
 const VANILLA_POLICY_CLEANUP_CALL_OFFSETS: [usize; 3] = [0x221, 0x307, 0x412];
-const INLINED_POLICY_SETUP_CALL_OFFSET: usize = 0x12B;
-const INLINED_POLICY_BLOCK_OFFSET: usize = 0x118;
-const INLINED_ACCESSIBILITY_CALL_OFFSET: usize = 0x140;
-const INLINED_ACCESSIBILITY_RESULT_OFFSET: usize = 0x153;
-const INLINED_DISPOSITION_BRANCH_OFFSET: usize = 0x174;
-const INLINED_MIN_USE_BRANCH_OFFSET: usize = 0x199;
-const INLINED_LOCK_CLEANUP_OFFSET: usize = 0x2C4;
 const PRIORITY_BUCKET_COUNT: usize = 20;
 const SLOW_SCAN_US: u64 = 5_000;
 const SCAN_REPORT_MS: u32 = 1_000;
-const FRAME_EVENT_TIMEOUT_MS: u32 = 1_000;
-const FALLBACK_REPORT_DELAY_MS: u32 = 2_000;
-const DEFAULT_SCAN_CADENCE_MS: u32 = 250;
-const MIN_SCAN_CADENCE_MS: u32 = 16;
-const MAX_SCAN_CADENCE_MS: u32 = 500;
-const MAX_COOPERATIVE_QUERIES: usize = 512;
-const TASKLET_QUERIES_PER_SUBMISSION: usize = 1;
-
-const MODE0_CALL_PREFIX_SIGNATURE: &[u8] = &[0x8B, 0x85, 0x3C, 0xFE, 0xFF, 0xFF, 0x50, 0xE8];
-const MODE0_CALL_SUFFIX_SIGNATURE: &[u8] = &[0x83, 0xC4, 0x14, 0xD9, 0x5D, 0xEC];
-const MODE1_QUERY_CALL_PREFIX_SIGNATURE: &[u8] = &[0x8B, 0x95, 0x2C, 0xFE, 0xFF, 0xFF, 0x52, 0xE8];
-const MODE1_QUERY_CALL_SUFFIX_SIGNATURE: &[u8] =
-    &[0x83, 0xC4, 0x1C, 0x88, 0x85, 0xFB, 0xFE, 0xFF, 0xFF];
-const MODE1_DESTROY_CALL_PREFIX_SIGNATURE: &[u8] = &[
-    0xC7, 0x45, 0xFC, 0xFF, 0xFF, 0xFF, 0xFF, 0x8D, 0x4D, 0x98, 0xE8,
-];
-const MODE1_DESTROY_CALL_SUFFIX_SIGNATURE: &[u8] = &[0xE9, 0x14, 0x02, 0x00, 0x00];
-const MODE2_QUERY_CALL_PREFIX_SIGNATURE: &[u8] = &[0x8B, 0x95, 0x1C, 0xFE, 0xFF, 0xFF, 0x52, 0xE8];
-const MODE2_QUERY_CALL_SUFFIX_SIGNATURE: &[u8] = &[0x83, 0xC4, 0x1C, 0x0F, 0xB6, 0xC0, 0x85, 0xC0];
-const MODE2_DESTROY_CALL_PREFIX_SIGNATURE: &[u8] = &[
-    0xC7, 0x45, 0xFC, 0xFF, 0xFF, 0xFF, 0xFF, 0x8D, 0x8D, 0x54, 0xFF, 0xFF, 0xFF, 0xE8,
-];
-const MODE2_DESTROY_CALL_SUFFIX_SIGNATURE: &[u8] = &[0xEB, 0x3B];
 const STATION_UPDATE_CALL_PREFIX_SIGNATURE: &[u8] = &[0x8B, 0x4D, 0xA4, 0x51, 0xE8];
 const STATION_UPDATE_CALL_SUFFIX_SIGNATURE: &[u8] = &[0x83, 0xC4, 0x04, 0x8B, 0x4D, 0xC4, 0xE8];
-const PATH_QUERY_SIGNATURE: &[u8] = &[
-    0x55, 0x8B, 0xEC, 0x6A, 0xFF, 0x68, 0xB6, 0x4D, 0xF0, 0x00, 0x64, 0xA1, 0x00, 0x00, 0x00, 0x00,
-    0x50, 0xB8, 0xD8, 0x20, 0x00, 0x00,
-];
-const PATH_RESULT_CONSTRUCT_SIGNATURE: &[u8] = &[
-    0x55, 0x8B, 0xEC, 0x6A, 0xFF, 0x68, 0x43, 0x6C, 0xF0, 0x00, 0x64, 0xA1, 0x00, 0x00, 0x00, 0x00,
-    0x50, 0x51,
-];
-const PATH_RESULT_DESTROY_SIGNATURE: &[u8] = &[
-    0x55, 0x8B, 0xEC, 0x6A, 0xFF, 0x68, 0x68, 0x6C, 0xF0, 0x00, 0x64, 0xA1, 0x00, 0x00, 0x00, 0x00,
-    0x50, 0x51,
-];
-const LOOKUP_FORM_BY_ID_SIGNATURE: &[u8] = &[
-    0x55, 0x8B, 0xEC, 0x51, 0xC7, 0x45, 0xFC, 0x00, 0x00, 0x00, 0x00, 0x83, 0x3D, 0xC0, 0x54, 0x1C,
-    0x01, 0x00,
-];
-const TASKLET_MANAGER_SIGNATURE: &[u8] =
-    &[0x55, 0x8B, 0xEC, 0x6A, 0xFF, 0x68, 0x9E, 0x38, 0xF2, 0x00];
-const TASKLET_GROUP_CREATE_SIGNATURE: &[u8] =
-    &[0x55, 0x8B, 0xEC, 0x83, 0xEC, 0x14, 0x89, 0x4D, 0xEC];
-const TASKLET_GROUP_ACTIVATE_SIGNATURE: &[u8] =
-    &[0x55, 0x8B, 0xEC, 0x83, 0xEC, 0x14, 0x89, 0x4D, 0xF0];
-const TASKLET_SUBMIT_SIGNATURE: &[u8] = &[0x55, 0x8B, 0xEC, 0x83, 0xEC, 0x1C, 0x89, 0x4D, 0xE8];
-const TASKLET_GROUP_CLOSE_SIGNATURE: &[u8] =
-    &[0x55, 0x8B, 0xEC, 0x83, 0xEC, 0x14, 0x89, 0x4D, 0xF0];
-const TASKLET_GROUP_WAIT_SIGNATURE: &[u8] = &[0x55, 0x8B, 0xEC, 0x83, 0xEC, 0x08, 0x89, 0x4D, 0xF8];
-const TASKLET_PRIORITY_ENQUEUE_SIGNATURE: &[u8] = &[
-    0x8B, 0x45, 0x08, 0x8B, 0x48, 0x08, 0x89, 0x4D, 0xF0, 0x8B, 0x55, 0xF0, 0x8B, 0x42, 0x30, 0x89,
-    0x45, 0xFC, 0x83, 0x7D, 0xFC, 0x40, 0x72, 0x07, 0xC7, 0x45, 0xFC, 0x3F, 0x00, 0x00, 0x00, 0x8B,
-    0x4D, 0xFC, 0x8B, 0x55, 0xE8, 0x83, 0x7C, 0x8A, 0x6C, 0x00,
-];
-const TASKLET_PRIORITY_DISPATCH_SIGNATURE: &[u8] = &[
-    0xC7, 0x45, 0xF4, 0x00, 0x00, 0x00, 0x00, 0x8B, 0x45, 0xDC, 0x83, 0xC0, 0x6C, 0x89, 0x45, 0xF0,
-    0xEB, 0x12, 0x8B, 0x4D, 0xF4, 0x83, 0xC1, 0x01, 0x89, 0x4D, 0xF4, 0x8B, 0x55, 0xF0, 0x83, 0xC2,
-    0x04, 0x89, 0x55, 0xF0, 0x83, 0x7D, 0xF4, 0x40, 0x73, 0x26, 0x8B, 0x45, 0xF0, 0x8B, 0x08,
-];
-const TASKLET_GROUP_LAYOUT_SIGNATURE: &[u8] = &[
-    0x8B, 0x45, 0xF4, 0xC6, 0x40, 0x2E, 0x00, 0x8B, 0x4D, 0xF4, 0xC7, 0x41, 0x30, 0x00, 0x00, 0x00,
-    0x00, 0x8B, 0x55, 0xF4, 0xC7, 0x42, 0x34, 0x00, 0x00, 0x00, 0x00, 0x8B, 0x45, 0xF4, 0xC7, 0x40,
-];
-
 const VANILLA_PROVIDER_SIGNATURE: &[u8] = &[
     0x55, 0x8B, 0xEC, 0x6A, 0xFF, 0x68, 0xA8, 0x6B, 0xF0, 0x00, 0x64, 0xA1, 0x00, 0x00, 0x00, 0x00,
     0x50, 0x81, 0xEC, 0x84, 0x00, 0x00, 0x00,
@@ -213,37 +100,6 @@ const VANILLA_POLICY_CLEANUP_SIGNATURE: &[u8] = &[
     0x55, 0x8B, 0xEC, 0x83, 0xEC, 0x08, 0x89, 0x4D, 0xF8, 0x8B, 0x45, 0xF8, 0x83, 0x78, 0x08, 0x00,
     0x74, 0x15, 0x8B, 0x4D, 0xF8, 0x8B, 0x51, 0x08, 0x89, 0x55, 0xFC, 0x8B, 0x45, 0xFC, 0x50,
 ];
-const INLINED_PROVIDER_SIGNATURE: &[u8] = &[
-    0x55, 0x8B, 0xEC, 0x83, 0xE4, 0xF8, 0x83, 0xEC, 0x34, 0x53, 0x56, 0x57, 0x8B, 0xF9, 0x8B, 0x4D,
-    0x08,
-];
-const INLINED_POLICY_BLOCK_SIGNATURE: &[u8] = &[
-    0x8B, 0x4C, 0x24, 0x18, 0x33, 0xD2, 0x51, 0x8D, 0x4C, 0x24, 0x2C, 0xC7, 0x44, 0x24, 0x34, 0x00,
-    0x00, 0x00, 0x00, 0xE8,
-];
-const INLINED_ACCESSIBILITY_CALL_SIGNATURE: &[u8] = &[
-    0xF3, 0x0F, 0x11, 0x44, 0x24, 0x24, 0xFF, 0xB7, 0xA0, 0x20, 0x00, 0x00, 0xB8, 0x50, 0x24, 0x50,
-    0x00, 0xFF, 0xD0,
-];
-const INLINED_ACCESSIBILITY_RESULT_SIGNATURE: &[u8] = &[
-    0x84, 0xC0, 0x74, 0x07, 0x80, 0x7C, 0x24, 0x13, 0x00, 0x74, 0x23, 0x8B, 0x87, 0xB4, 0x20, 0x00,
-    0x00, 0x85, 0xC0, 0x0F, 0x84, 0x58, 0x01, 0x00, 0x00,
-];
-const INLINED_DISPOSITION_BRANCH_SIGNATURE: &[u8] = &[
-    0x83, 0xF8, 0x02, 0x75, 0x10, 0xF3, 0x0F, 0x11, 0x44, 0x24, 0x1C, 0xEB, 0x08,
-];
-const INLINED_MIN_USE_BRANCH_SIGNATURE: &[u8] = &[
-    0xA8, 0x01, 0x74, 0x0F, 0x83, 0xBF, 0xB4, 0x20, 0x00, 0x00, 0x03, 0x74, 0x06, 0xF3, 0x0F, 0x11,
-    0x44, 0x24, 0x1C,
-];
-const INLINED_LOCK_CLEANUP_SIGNATURE: &[u8] = &[
-    0x8B, 0x44, 0x24, 0x30, 0x85, 0xC0, 0x74, 0x0D, 0x50, 0xB9, 0x38, 0x62, 0x1F, 0x01, 0xB8, 0x60,
-    0x40, 0xAA, 0x00, 0xFF, 0xD0,
-];
-const INLINED_POLICY_SETUP_SIGNATURE: &[u8] = &[
-    0x53, 0x55, 0x8B, 0x6C, 0x24, 0x0C, 0xBA, 0x20, 0x02, 0x41, 0x00, 0x56, 0x57, 0x8B, 0xF9, 0x33,
-    0xF6, 0x8B, 0x45, 0x40,
-];
 const DOOR_ACCESSIBILITY_SIGNATURE: &[u8] = &[
     0x55, 0x8B, 0xEC, 0x83, 0xEC, 0x0C, 0x89, 0x4D, 0xF4, 0xC6, 0x45, 0xFF, 0x00, 0xC7, 0x45, 0xF8,
     0x00, 0x00, 0x00, 0x00,
@@ -251,35 +107,10 @@ const DOOR_ACCESSIBILITY_SIGNATURE: &[u8] = &[
 
 type RadioSignalScanFn = unsafe extern "C" fn(*mut c_void, *mut c_void, *mut c_void);
 type RadioStationUpdateFn = unsafe extern "C" fn(*mut c_void);
-type Mode0RadioDistanceFn =
-    unsafe extern "C" fn(*mut PathingLocation, *mut PathingLocation, f32, *mut c_void, u32) -> f32;
-type GenericPathQueryFn = unsafe extern "C" fn(
-    *mut PathingLocation,
-    *mut PathingLocation,
-    *mut PathQueryResult,
-    u32,
-    f32,
-    u32,
-    u32,
-) -> u8;
-type PathingLocationInitFn =
-    unsafe extern "thiscall" fn(*mut PathingLocation, *mut c_void) -> *mut PathingLocation;
-type PathingLocationDestroyFn = unsafe extern "thiscall" fn(*mut PathingLocation);
-type PathResultConstructFn =
-    unsafe extern "thiscall" fn(*mut PathQueryResult) -> *mut PathQueryResult;
-type PathResultDestroyFn = unsafe extern "thiscall" fn(*mut PathQueryResult);
-type LookupFormByIdFn = unsafe extern "C" fn(u32) -> *mut c_void;
-type TaskletManagerFn = unsafe extern "C" fn() -> *mut c_void;
-type TaskletGroupCreateFn = unsafe extern "thiscall" fn(*mut c_void, *mut *mut c_void) -> u8;
-type TaskletGroupActivateFn = unsafe extern "thiscall" fn(*mut c_void, *mut *mut c_void) -> u8;
-type TaskletSubmitFn =
-    unsafe extern "thiscall" fn(*mut c_void, *mut *mut c_void, *mut TaskletHandle, u8) -> u8;
-type TaskletGroupCloseFn = unsafe extern "thiscall" fn(*mut c_void, *mut *mut c_void) -> u8;
-type TaskletGroupWaitFn = unsafe extern "thiscall" fn(*mut c_void, u32);
 type PathQueryFn = unsafe extern "C" fn(usize, usize, *mut c_void, u32, f32, u32, u32) -> u8;
 type PathTraversalFn = unsafe extern "fastcall" fn(*mut c_void) -> usize;
 type StationModeFn = unsafe extern "fastcall" fn(*mut c_void) -> u32;
-type DoorPolicySetupFn = unsafe extern "fastcall" fn(*mut c_void, *mut c_void, *mut c_void);
+type DoorPolicySetupFn = unsafe extern "thiscall" fn(*mut c_void, *mut c_void) -> *mut c_void;
 type DoorAccessibilityFn =
     unsafe extern "thiscall" fn(*mut c_void, *mut c_void, *mut c_void, *mut u8) -> u8;
 
@@ -289,572 +120,17 @@ static PATH_TRAVERSAL_HOOK: LazyLock<InlineHookContainer<PathTraversalFn>> =
     LazyLock::new(InlineHookContainer::new);
 static STATION_MODE_HOOK: LazyLock<InlineHookContainer<StationModeFn>> =
     LazyLock::new(InlineHookContainer::new);
-static DOOR_POLICY_SETUP_HOOK: LazyLock<InlineHookContainer<DoorPolicySetupFn>> =
-    LazyLock::new(InlineHookContainer::new);
-static DOOR_ACCESSIBILITY_HOOK: LazyLock<InlineHookContainer<DoorAccessibilityFn>> =
-    LazyLock::new(InlineHookContainer::new);
+static SCAN_HOOK: Rel32CallHookContainer<RadioSignalScanFn> = Rel32CallHookContainer::new();
+static STATION_UPDATE_HOOK: Rel32CallHookContainer<RadioStationUpdateFn> =
+    Rel32CallHookContainer::new();
+static DOOR_POLICY_SETUP_HOOK: Rel32CallHookContainer<DoorPolicySetupFn> =
+    Rel32CallHookContainer::new();
+static DOOR_ACCESSIBILITY_HOOK: Rel32CallHookContainer<DoorAccessibilityFn> =
+    Rel32CallHookContainer::new();
 static SCAN_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 static POLICY_INSTALL_ATTEMPTED: AtomicBool = AtomicBool::new(false);
-static COOPERATIVE_CAPACITY_EXCEEDED: AtomicBool = AtomicBool::new(false);
-static RADIO_THREAD_ID: AtomicU32 = AtomicU32::new(0);
-static FRAME_THREAD_ID: AtomicU32 = AtomicU32::new(0);
-static LAST_FRAME_EVENT_MS: AtomicU32 = AtomicU32::new(0);
-static DEFERRED_INIT_MS: AtomicU32 = AtomicU32::new(0);
-static COOPERATIVE_FALLBACK_REPORTED: AtomicBool = AtomicBool::new(false);
-static COOPERATIVE_COLLECTION_REPORTED: AtomicBool = AtomicBool::new(false);
-static COOPERATIVE_PUBLICATION_REPORTED: AtomicBool = AtomicBool::new(false);
-static TASKLET_BACKEND_AVAILABLE: AtomicBool = AtomicBool::new(false);
-static TASKLET_BACKEND_FAILURE_REPORTED: AtomicBool = AtomicBool::new(false);
-static TASKLET_PRIORITY_FAILED: AtomicBool = AtomicBool::new(false);
-static RADIO_DEFERRED_READY: AtomicBool = AtomicBool::new(false);
-static TASKLET_BATCH_ABORTED: AtomicBool = AtomicBool::new(false);
-static TASKLET_WORKER_THREAD_ID: AtomicU32 = AtomicU32::new(0);
-static TASKLET_PROVIDER: AtomicUsize = AtomicUsize::new(0);
-static COOPERATIVE_TIMED_JOBS: AtomicU32 = AtomicU32::new(0);
-static COOPERATIVE_TIMED_TOTAL_US: AtomicU64 = AtomicU64::new(0);
-static COOPERATIVE_TIMED_MAX_US: AtomicU64 = AtomicU64::new(0);
-static TASKLET_PREP_TOTAL_US: AtomicU64 = AtomicU64::new(0);
-static TASKLET_PREP_MAX_US: AtomicU64 = AtomicU64::new(0);
-static COOPERATIVE_COLLECTION_MS: AtomicU32 = AtomicU32::new(0);
-static LAST_RADIO_SCAN_MS: AtomicU32 = AtomicU32::new(0);
-static QUERY_PIPELINE: LazyLock<Mutex<QueryPipeline>> =
-    LazyLock::new(|| Mutex::new(QueryPipeline::new()));
-static TASKLET_BACKEND: LazyLock<Mutex<TaskletBackend>> =
-    LazyLock::new(|| Mutex::new(TaskletBackend::new()));
-
-#[repr(C, align(4))]
-struct PathingLocation {
-    bytes: [u8; 0x28],
-}
-
-impl PathingLocation {
-    const fn uninit_storage() -> Self {
-        Self { bytes: [0; 0x28] }
-    }
-}
-
-/// Caller-owned output populated by the engine's generic path query.
-///
-/// The engine constructor and destructor are mandatory: the object contains
-/// two dynamic arrays even though this module reads only the first array.
-#[repr(C, align(4))]
-struct PathQueryResult {
-    bytes: [u8; 0x38],
-}
-
-impl PathQueryResult {
-    const fn uninit_storage() -> Self {
-        Self { bytes: [0; 0x38] }
-    }
-
-    unsafe fn parent_space_count(&self) -> u32 {
-        unsafe { core::ptr::read_unaligned(self.bytes.as_ptr().add(0x08).cast()) }
-    }
-
-    unsafe fn parent_space(&self, index: u32) -> *const ParentSpaceNode {
-        let data = unsafe {
-            core::ptr::read_unaligned(
-                self.bytes
-                    .as_ptr()
-                    .add(0x04)
-                    .cast::<*const ParentSpaceNode>(),
-            )
-        };
-        unsafe { data.add(index as usize) }
-    }
-}
-
-/// One element in the result's first `BSSimpleArray`.
-///
-/// Only `worldspace` participates in radio acceptance. The surrounding words
-/// are retained so pointer arithmetic matches the executable's 0x0C stride.
-#[repr(C)]
-struct ParentSpaceNode {
-    _parent: *mut c_void,
-    worldspace: *mut c_void,
-    _teleport: *mut c_void,
-}
-
-#[repr(C)]
-struct TaskletVtable {
-    finish: unsafe extern "thiscall" fn(*mut EngineTasklet),
-    ready: unsafe extern "thiscall" fn(*mut EngineTasklet) -> u8,
-    execute: unsafe extern "thiscall" fn(*mut EngineTasklet),
-    reserved: unsafe extern "thiscall" fn(*mut EngineTasklet),
-}
-
-#[repr(C)]
-struct EngineTasklet {
-    // BSWin32TaskletManager reads these fields directly while the group owns
-    // the task; keep the verified 0x18-byte FalloutNV.exe layout exact.
-    vtable: *const TaskletVtable,
-    requeue: u8,
-    _pad_05: [u8; 3],
-    group: *mut c_void,
-    check_ready: u8,
-    _pad_0d: [u8; 3],
-    claimed: u32,
-    next: *mut EngineTasklet,
-}
-
-#[repr(C)]
-struct TaskletHandle {
-    vtable: usize,
-    task: *mut EngineTasklet,
-}
-
-#[repr(C)]
-struct PreparedQuery {
-    work: QueryWork,
-    station: PathingLocation,
-    current: PathingLocation,
-    // This pointer is resolved from a FormID on the game thread and exists
-    // only while a world-lifetime-protected native group owns the batch. It is
-    // never stored in the pipeline or a published generation.
-    expected_worldspace: *mut c_void,
-    output: QueryValue,
-    initialized: bool,
-}
-
-impl PreparedQuery {
-    const fn empty() -> Self {
-        Self {
-            work: QueryWork {
-                generation: 0,
-                index: 0,
-                request: QueryRequest {
-                    key: QueryKey {
-                        station_form_id: 0,
-                        current_ref_form_id: 0,
-                        kind: QueryKind::Distance,
-                        parameter_bits: 0,
-                    },
-                },
-            },
-            station: PathingLocation::uninit_storage(),
-            current: PathingLocation::uninit_storage(),
-            expected_worldspace: core::ptr::null_mut(),
-            output: QueryValue::distance(0.0),
-            initialized: false,
-        }
-    }
-}
-
-#[repr(C)]
-struct PreparedBatch {
-    count: usize,
-    queries: [PreparedQuery; TASKLET_QUERIES_PER_SUBMISSION],
-}
-
-impl PreparedBatch {
-    const fn new() -> Self {
-        Self {
-            count: 0,
-            queries: [const { PreparedQuery::empty() }; TASKLET_QUERIES_PER_SUBMISSION],
-        }
-    }
-}
-
-#[repr(C)]
-struct RadioTasklet {
-    engine: EngineTasklet,
-    batch: PreparedBatch,
-}
-
-impl RadioTasklet {
-    const fn new() -> Self {
-        Self {
-            engine: EngineTasklet {
-                vtable: &RADIO_TASKLET_VTABLE,
-                requeue: 0,
-                _pad_05: [0; 3],
-                group: core::ptr::null_mut(),
-                check_ready: 1,
-                _pad_0d: [0; 3],
-                claimed: 0,
-                next: core::ptr::null_mut(),
-            },
-            batch: PreparedBatch::new(),
-        }
-    }
-}
-
-struct SharedRadioTasklet(UnsafeCell<RadioTasklet>);
-
-// The game thread alone prepares and destroys the batch outside an active
-// group. The tasklet worker owns it until the native group's completed count
-// reaches its submitted count and the nonblocking group wait transfers
-// ownership back.
-unsafe impl Send for SharedRadioTasklet {}
-unsafe impl Sync for SharedRadioTasklet {}
-
-static RADIO_TASKLET_VTABLE: TaskletVtable = TaskletVtable {
-    finish: radio_tasklet_finish,
-    ready: radio_tasklet_ready,
-    execute: radio_tasklet_execute,
-    reserved: radio_tasklet_finish,
-};
-static RADIO_TASKLET: LazyLock<Box<SharedRadioTasklet>> =
-    LazyLock::new(|| Box::new(SharedRadioTasklet(UnsafeCell::new(RadioTasklet::new()))));
-
-struct TaskletBackend {
-    group: usize,
-    group_active: bool,
-    group_closed: bool,
-    in_flight: bool,
-}
-
-impl TaskletBackend {
-    const fn new() -> Self {
-        Self {
-            group: 0,
-            group_active: false,
-            group_closed: false,
-            in_flight: false,
-        }
-    }
-}
-
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-#[repr(u32)]
-enum QueryKind {
-    /// Mode-0 path distance/radius query.
-    #[default]
-    Distance = 0,
-    /// Mode-1 query accepting null or one exact station worldspace.
-    NullOrStationWorldspace = 1,
-    /// Mode-2 query accepting only null worldspaces.
-    InteriorOnly = 2,
-}
-
-impl QueryKind {
-    fn connected_mode(mode: u32) -> Option<Self> {
-        match mode {
-            1 => Some(Self::NullOrStationWorldspace),
-            2 => Some(Self::InteriorOnly),
-            _ => None,
-        }
-    }
-
-    fn is_connected(self) -> bool {
-        self != Self::Distance
-    }
-
-    fn scanner_result_offset(self) -> Option<usize> {
-        match self {
-            Self::NullOrStationWorldspace => Some(0x68),
-            Self::InteriorOnly => Some(0xAC),
-            Self::Distance => None,
-        }
-    }
-}
-
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-struct QueryKey {
-    station_form_id: u32,
-    current_ref_form_id: u32,
-    kind: QueryKind,
-    // Radius bits for Distance, expected worldspace FormID for mode 1, and
-    // zero for mode 2. Keeping the discriminator in the key prevents unlike
-    // radio semantics from sharing a cached scalar.
-    parameter_bits: u32,
-}
-
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-struct QueryRequest {
-    key: QueryKey,
-}
-
-impl QueryRequest {
-    fn distance(station_form_id: u32, current_ref_form_id: u32, radius: f32) -> Self {
-        Self {
-            key: QueryKey {
-                station_form_id,
-                current_ref_form_id,
-                kind: QueryKind::Distance,
-                parameter_bits: radius.to_bits(),
-            },
-        }
-    }
-
-    fn connected(
-        station_form_id: u32,
-        current_ref_form_id: u32,
-        kind: QueryKind,
-        expected_worldspace_form_id: u32,
-    ) -> Self {
-        debug_assert!(kind.is_connected());
-        debug_assert!(
-            kind == QueryKind::NullOrStationWorldspace || expected_worldspace_form_id == 0
-        );
-        Self {
-            key: QueryKey {
-                station_form_id,
-                current_ref_form_id,
-                kind,
-                parameter_bits: expected_worldspace_form_id,
-            },
-        }
-    }
-}
-
-/// Tagged scalar crossing the native tasklet ownership boundary.
-///
-/// `bits` contains IEEE-754 distance bits for mode 0 and 0/1 availability for
-/// connected modes. The tag is checked again at publication and consumption.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-struct QueryValue {
-    kind: QueryKind,
-    bits: u32,
-}
-
-impl QueryValue {
-    const fn distance(distance: f32) -> Self {
-        Self {
-            kind: QueryKind::Distance,
-            bits: distance.to_bits(),
-        }
-    }
-
-    const fn availability(kind: QueryKind, available: bool) -> Self {
-        Self {
-            kind,
-            bits: available as u32,
-        }
-    }
-
-    fn as_distance(self) -> Option<f32> {
-        (self.kind == QueryKind::Distance).then(|| f32::from_bits(self.bits))
-    }
-
-    fn as_availability(self, expected_kind: QueryKind) -> Option<bool> {
-        (self.kind == expected_kind && expected_kind.is_connected() && self.bits <= 1)
-            .then_some(self.bits != 0)
-    }
-}
-
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-struct PublishedResult {
-    key: QueryKey,
-    value: QueryValue,
-}
-
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-struct QueryKindCounts {
-    distance: usize,
-    mode1: usize,
-    mode2: usize,
-}
-
-impl QueryKindCounts {
-    fn observe(&mut self, kind: QueryKind) {
-        match kind {
-            QueryKind::Distance => self.distance += 1,
-            QueryKind::NullOrStationWorldspace => self.mode1 += 1,
-            QueryKind::InteriorOnly => self.mode2 += 1,
-        }
-    }
-}
-
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-enum PipelineState {
-    #[default]
-    Idle,
-    Collecting,
-    Executing,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq)]
-struct QueryWork {
-    generation: u32,
-    index: usize,
-    request: QueryRequest,
-}
-
-struct QueryPipeline {
-    state: PipelineState,
-    generation: u32,
-    published_count: usize,
-    build_count: usize,
-    next_index: usize,
-    completed_count: usize,
-    collection_failed: bool,
-    scan_cadence_ms: u32,
-    next_job_due_ms: u32,
-    job_spacing_ms: u32,
-    published: [PublishedResult; MAX_COOPERATIVE_QUERIES],
-    requests: [QueryRequest; MAX_COOPERATIVE_QUERIES],
-    results: [PublishedResult; MAX_COOPERATIVE_QUERIES],
-}
-
-impl QueryPipeline {
-    fn new() -> Self {
-        Self {
-            state: PipelineState::Idle,
-            generation: 0,
-            published_count: 0,
-            build_count: 0,
-            next_index: 0,
-            completed_count: 0,
-            collection_failed: false,
-            scan_cadence_ms: DEFAULT_SCAN_CADENCE_MS,
-            next_job_due_ms: 0,
-            job_spacing_ms: 0,
-            published: [PublishedResult::default(); MAX_COOPERATIVE_QUERIES],
-            requests: [QueryRequest::default(); MAX_COOPERATIVE_QUERIES],
-            results: [PublishedResult::default(); MAX_COOPERATIVE_QUERIES],
-        }
-    }
-
-    fn begin_scan(&mut self, now_ms: u32, scan_cadence_ms: u32) {
-        if self.state != PipelineState::Idle {
-            return;
-        }
-
-        self.generation = self.generation.wrapping_add(1).max(1);
-        self.state = PipelineState::Collecting;
-        self.build_count = 0;
-        self.next_index = 0;
-        self.completed_count = 0;
-        self.collection_failed = false;
-        self.scan_cadence_ms = scan_cadence_ms;
-        self.next_job_due_ms = now_ms;
-        self.job_spacing_ms = 0;
-    }
-
-    fn end_scan(&mut self) -> bool {
-        if self.state != PipelineState::Collecting {
-            return false;
-        }
-        if self.collection_failed {
-            self.state = PipelineState::Idle;
-            self.build_count = 0;
-            return false;
-        }
-        if self.build_count == 0 {
-            self.published_count = 0;
-            self.state = PipelineState::Idle;
-            return false;
-        }
-
-        self.job_spacing_ms = (self.scan_cadence_ms / self.build_count as u32).max(1);
-        self.state = PipelineState::Executing;
-        true
-    }
-
-    fn observe_query(&mut self, request: QueryRequest) -> Option<QueryValue> {
-        let published = self.lookup_published(request.key);
-        if self.state != PipelineState::Collecting {
-            return published;
-        }
-
-        if self.requests[..self.build_count]
-            .iter()
-            .any(|candidate| candidate.key == request.key)
-        {
-            return published;
-        }
-        if self.build_count == MAX_COOPERATIVE_QUERIES {
-            self.collection_failed = true;
-            return published;
-        }
-
-        self.requests[self.build_count] = request;
-        self.build_count += 1;
-        published
-    }
-
-    fn take_next(&mut self, now_ms: u32) -> Option<QueryWork> {
-        if self.state != PipelineState::Executing
-            || self.next_index == self.build_count
-            || !tick_reached(now_ms, self.next_job_due_ms)
-        {
-            return None;
-        }
-
-        let index = self.next_index;
-        self.next_index += 1;
-        self.next_job_due_ms = self.next_job_due_ms.wrapping_add(self.job_spacing_ms);
-        Some(QueryWork {
-            generation: self.generation,
-            index,
-            request: self.requests[index],
-        })
-    }
-
-    fn complete(&mut self, work: QueryWork, value: Option<QueryValue>) -> bool {
-        if self.state != PipelineState::Executing
-            || work.generation != self.generation
-            || work.index != self.completed_count
-            || work.index >= self.build_count
-        {
-            return false;
-        }
-
-        let Some(value) = value.filter(|value| value.kind == work.request.key.kind) else {
-            self.abort_build();
-            return false;
-        };
-        self.results[work.index] = PublishedResult {
-            key: work.request.key,
-            value,
-        };
-        self.completed_count += 1;
-        if self.completed_count != self.build_count {
-            return false;
-        }
-
-        self.published[..self.build_count].copy_from_slice(&self.results[..self.build_count]);
-        self.published_count = self.build_count;
-        self.state = PipelineState::Idle;
-        self.build_count = 0;
-        true
-    }
-
-    fn reset(&mut self) {
-        self.state = PipelineState::Idle;
-        self.published_count = 0;
-        self.build_count = 0;
-        self.next_index = 0;
-        self.completed_count = 0;
-        self.collection_failed = false;
-        self.next_job_due_ms = 0;
-        self.job_spacing_ms = 0;
-    }
-
-    fn abort_build(&mut self) {
-        self.state = PipelineState::Idle;
-        self.build_count = 0;
-        self.next_index = 0;
-        self.completed_count = 0;
-        self.collection_failed = false;
-        self.next_job_due_ms = 0;
-        self.job_spacing_ms = 0;
-    }
-
-    fn lookup_published(&self, key: QueryKey) -> Option<QueryValue> {
-        self.published[..self.published_count]
-            .iter()
-            .find(|candidate| candidate.key == key)
-            .map(|candidate| candidate.value)
-    }
-
-    fn request_kind_counts(&self) -> QueryKindCounts {
-        let mut counts = QueryKindCounts::default();
-        for request in &self.requests[..self.build_count] {
-            counts.observe(request.key.kind);
-        }
-        counts
-    }
-
-    fn published_kind_counts(&self) -> QueryKindCounts {
-        let mut counts = QueryKindCounts::default();
-        for result in &self.published[..self.published_count] {
-            counts.observe(result.key.kind);
-        }
-        counts
-    }
-}
+static POLICY_INSTALLED: AtomicBool = AtomicBool::new(false);
+static POLICY_READY: AtomicBool = AtomicBool::new(false);
 
 #[derive(Clone, Copy, Default)]
 struct Timing {
@@ -1022,419 +298,211 @@ struct RadioScanState {
     reporter: ScanReporter,
 }
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-enum PendingConnectedResult {
-    #[default]
-    None,
-    Mode1(bool),
-    Mode2(bool),
-}
-
-impl PendingConnectedResult {
-    fn new(kind: QueryKind, available: bool) -> Self {
-        match kind {
-            QueryKind::NullOrStationWorldspace => Self::Mode1(available),
-            QueryKind::InteriorOnly => Self::Mode2(available),
-            QueryKind::Distance => Self::None,
-        }
-    }
-
-    fn consume_for(self, kind: QueryKind) -> Option<bool> {
-        match (self, kind) {
-            (Self::Mode1(available), QueryKind::NullOrStationWorldspace)
-            | (Self::Mode2(available), QueryKind::InteriorOnly) => Some(available),
-            _ => None,
-        }
-    }
-}
-
 thread_local! {
-    static RADIO_SCAN_DEPTH: Cell<u32> = const { Cell::new(0) };
-    static COOPERATIVE_SCAN_ACTIVE: Cell<bool> = const { Cell::new(false) };
-    // A connected query and its branch-specific result destructor are
-    // adjacent on the scanner thread. This one-shot handoff avoids exposing a
-    // fabricated path array to vanilla while preserving its mandatory dtor.
-    static PENDING_CONNECTED_RESULT: Cell<PendingConnectedResult> =
-        const { Cell::new(PendingConnectedResult::None) };
-    static POLICY_BYPASS_DEPTH: Cell<u32> = const { Cell::new(0) };
+    static RADIO_SCAN_CONTEXT: Cell<ScanContext> = const { Cell::new(ScanContext::EMPTY) };
     static PENDING_POLICY_ACCESS: Cell<(usize, usize)> = const { Cell::new((0, 0)) };
     static RADIO_SCAN_STATE: RefCell<RadioScanState> = RefCell::new(RadioScanState::default());
 }
 
+#[derive(Clone, Copy)]
+struct ScanContext {
+    depth: u32,
+    provider: Option<provider::Bindings>,
+    native_policy: bool,
+}
+
+impl ScanContext {
+    const EMPTY: Self = Self {
+        depth: 0,
+        provider: None,
+        native_policy: false,
+    };
+}
+
 struct RadioScanScope {
-    outermost: bool,
-    cooperative: bool,
+    previous: ScanContext,
+    previous_pending: (usize, usize),
 }
 
 impl RadioScanScope {
-    fn enter(now_ms: u32, scan_cadence_ms: u32) -> Self {
-        let outermost = RADIO_SCAN_DEPTH.with(|depth| {
-            let current = depth.get();
-            depth.set(current.saturating_add(1));
-            current == 0
-        });
-        if outermost {
-            PENDING_CONNECTED_RESULT.with(|pending| pending.set(PendingConnectedResult::None));
-            RADIO_SCAN_STATE.with(|state| {
-                let mut state = state.borrow_mut();
-                state.stats = ScanStats::default();
-            });
-        }
-
-        let loading = game_is_loading();
-        let cooperative = outermost && cooperative_scheduler_available() && !loading;
-        if cooperative {
-            QUERY_PIPELINE.lock().begin_scan(now_ms, scan_cadence_ms);
-            COOPERATIVE_SCAN_ACTIVE.with(|active| active.set(true));
-        } else if outermost {
-            QUERY_PIPELINE.lock().reset();
-            if !loading {
-                report_cooperative_fallback_once();
+    fn enter() -> Self {
+        let previous = RADIO_SCAN_CONTEXT.with(Cell::get);
+        let current = if previous.depth == 0 {
+            ScanContext {
+                depth: 1,
+                provider: provider::for_scan(),
+                native_policy: POLICY_READY.load(Ordering::Acquire) && native_policy_owned(),
             }
+        } else {
+            ScanContext {
+                depth: previous.depth.saturating_add(1),
+                ..previous
+            }
+        };
+        RADIO_SCAN_CONTEXT.with(|context| context.set(current));
+        if previous.depth == 0 && diagnostics::hitch_profiling_enabled() {
+            RADIO_SCAN_STATE.with(|state| state.borrow_mut().stats = ScanStats::default());
         }
+        let previous_pending = PENDING_POLICY_ACCESS.with(|pending| pending.replace((0, 0)));
         Self {
-            outermost,
-            cooperative,
+            previous,
+            previous_pending,
         }
     }
 }
 
 impl Drop for RadioScanScope {
     fn drop(&mut self) {
-        RADIO_SCAN_DEPTH.with(|depth| {
-            let current = depth.get();
-            depth.set(current.saturating_sub(1));
-        });
-        if self.outermost {
-            if self.cooperative {
-                QUERY_PIPELINE.lock().end_scan();
-                COOPERATIVE_SCAN_ACTIVE.with(|active| active.set(false));
-            }
-            PENDING_CONNECTED_RESULT.with(|pending| pending.set(PendingConnectedResult::None));
-            PENDING_POLICY_ACCESS.with(|pending| pending.set((0, 0)));
-        }
+        RADIO_SCAN_CONTEXT.with(|context| context.set(self.previous));
+        PENDING_POLICY_ACCESS.with(|pending| pending.set(self.previous_pending));
     }
 }
 
-struct RadioPathQueryScope;
-
-impl RadioPathQueryScope {
-    fn enter() -> Self {
-        RADIO_SCAN_DEPTH.with(|depth| depth.set(depth.get().saturating_add(1)));
-        Self
-    }
-}
-
-impl Drop for RadioPathQueryScope {
-    fn drop(&mut self) {
-        RADIO_SCAN_DEPTH.with(|depth| depth.set(depth.get().saturating_sub(1)));
-        PENDING_POLICY_ACCESS.with(|pending| pending.set((0, 0)));
-    }
-}
-
-struct DoorPolicyBypassScope {
-    active: bool,
-}
-
-impl DoorPolicyBypassScope {
-    unsafe fn enter(query: *const u8) -> Self {
-        let active = unsafe { is_exact_radio_policy_query(query) };
-        if active {
-            POLICY_BYPASS_DEPTH.with(|depth| depth.set(depth.get().saturating_add(1)));
-            PENDING_POLICY_ACCESS.with(|pending| pending.set((0, 0)));
-            with_active_stats(|stats| {
-                stats.policy_queries = stats.policy_queries.saturating_add(1);
-            });
-        }
-        Self { active }
-    }
-}
-
-impl Drop for DoorPolicyBypassScope {
-    fn drop(&mut self) {
-        if !self.active {
-            return;
-        }
-        PENDING_POLICY_ACCESS.with(|pending| pending.set((0, 0)));
-        POLICY_BYPASS_DEPTH.with(|depth| depth.set(depth.get().saturating_sub(1)));
-    }
-}
-
-/// Installs the verified radio scanner, cooperative query, and profiling hooks.
+/// Installs synchronous scan/station bridges at the quiescent core startup boundary.
 ///
-/// Installation is fail-closed. Every executable address and surrounding
-/// instruction window is checked before any call is redirected, and callsite
-/// replacements are rolled back as a set if a later write fails.
+/// Native query and destructor calls remain untouched. Related activations roll
+/// back on failure without overwriting another component's later hook. Returns
+/// an error if the supported caller signatures or hook ownership do not match.
+/// This must run once before gameplay; it does not support live reinstallation.
 pub fn install_radio_scan_fix() -> anyhow::Result<()> {
-    verify_rel_call(PERIODIC_RADIO_SCAN_CALL_ADDR, RADIO_SIGNAL_SCAN_ADDR)?;
-    verify_rel_call(
+    verify_call_target(
+        PERIODIC_RADIO_SCAN_CALL_ADDR,
+        RADIO_SIGNAL_SCAN_ADDR,
+        "periodic radio scan",
+    )?;
+    verify_call_target(
         PERIODIC_RADIO_STATION_UPDATE_CALL_ADDR,
         RADIO_STATION_UPDATE_ADDR,
-    )?;
-    verify_rel_call(MODE0_RADIO_DISTANCE_CALL_ADDR, MODE0_RADIO_DISTANCE_ADDR)?;
-    verify_rel_call(MODE1_CONNECTED_QUERY_CALL_ADDR, PATH_QUERY_ADDR)?;
-    verify_rel_call(MODE2_CONNECTED_QUERY_CALL_ADDR, PATH_QUERY_ADDR)?;
-    verify_rel_call(MODE1_RESULT_DESTROY_CALL_ADDR, PATH_RESULT_DESTROY_ADDR)?;
-    verify_rel_call(MODE2_RESULT_DESTROY_CALL_ADDR, PATH_RESULT_DESTROY_ADDR)?;
-    verify_signature(
-        MODE0_RADIO_DISTANCE_CALL_ADDR - 7,
-        MODE0_CALL_PREFIX_SIGNATURE,
-        "mode-0 radio distance call prefix",
-    )?;
-    verify_signature(
-        MODE0_RADIO_DISTANCE_CALL_ADDR + 5,
-        MODE0_CALL_SUFFIX_SIGNATURE,
-        "mode-0 radio distance call suffix",
-    )?;
-    verify_signature(
-        MODE1_CONNECTED_QUERY_CALL_ADDR - 7,
-        MODE1_QUERY_CALL_PREFIX_SIGNATURE,
-        "mode-1 connected-query call prefix",
-    )?;
-    verify_signature(
-        MODE1_CONNECTED_QUERY_CALL_ADDR + 5,
-        MODE1_QUERY_CALL_SUFFIX_SIGNATURE,
-        "mode-1 connected-query call suffix",
-    )?;
-    verify_signature(
-        MODE1_RESULT_DESTROY_CALL_ADDR - 10,
-        MODE1_DESTROY_CALL_PREFIX_SIGNATURE,
-        "mode-1 result-destroy call prefix",
-    )?;
-    verify_signature(
-        MODE1_RESULT_DESTROY_CALL_ADDR + 5,
-        MODE1_DESTROY_CALL_SUFFIX_SIGNATURE,
-        "mode-1 result-destroy call suffix",
-    )?;
-    verify_signature(
-        MODE2_CONNECTED_QUERY_CALL_ADDR - 7,
-        MODE2_QUERY_CALL_PREFIX_SIGNATURE,
-        "mode-2 connected-query call prefix",
-    )?;
-    verify_signature(
-        MODE2_CONNECTED_QUERY_CALL_ADDR + 5,
-        MODE2_QUERY_CALL_SUFFIX_SIGNATURE,
-        "mode-2 connected-query call suffix",
-    )?;
-    verify_signature(
-        MODE2_RESULT_DESTROY_CALL_ADDR - 13,
-        MODE2_DESTROY_CALL_PREFIX_SIGNATURE,
-        "mode-2 result-destroy call prefix",
-    )?;
-    verify_signature(
-        MODE2_RESULT_DESTROY_CALL_ADDR + 5,
-        MODE2_DESTROY_CALL_SUFFIX_SIGNATURE,
-        "mode-2 result-destroy call suffix",
+        "periodic station update",
     )?;
     verify_signature(
         PERIODIC_RADIO_STATION_UPDATE_CALL_ADDR - 4,
         STATION_UPDATE_CALL_PREFIX_SIGNATURE,
-        "periodic radio station update call prefix",
+        "periodic station update prefix",
     )?;
     verify_signature(
         PERIODIC_RADIO_STATION_UPDATE_CALL_ADDR + 5,
         STATION_UPDATE_CALL_SUFFIX_SIGNATURE,
-        "periodic radio station update call suffix",
+        "periodic station update suffix",
     )?;
-    verify_signature(
-        LOOKUP_FORM_BY_ID_ADDR,
-        LOOKUP_FORM_BY_ID_SIGNATURE,
-        "loaded FormID resolver",
-    )?;
-    verify_signature(PATH_QUERY_ADDR, PATH_QUERY_SIGNATURE, "generic path query")?;
-    verify_signature(
-        PATH_RESULT_CONSTRUCT_ADDR,
-        PATH_RESULT_CONSTRUCT_SIGNATURE,
-        "generic path-result constructor",
-    )?;
-    verify_signature(
-        PATH_RESULT_DESTROY_ADDR,
-        PATH_RESULT_DESTROY_SIGNATURE,
-        "generic path-result destructor",
-    )?;
+    // SAFETY: the verified game callers have exactly these cdecl signatures.
+    // Preparation publishes predecessors before any detour becomes reachable.
     unsafe {
-        replace_calls_transactionally(&[
-            // Destructor bridges are behavior-neutral without TLS state. They
-            // must exist before a query bridge can suppress vanilla's loop.
-            (
-                MODE1_RESULT_DESTROY_CALL_ADDR,
-                mode1_result_destroy_entry as *mut c_void,
-            ),
-            (
-                MODE2_RESULT_DESTROY_CALL_ADDR,
-                mode2_result_destroy_entry as *mut c_void,
-            ),
-            (
-                MODE1_CONNECTED_QUERY_CALL_ADDR,
-                cooperative_connected_entry as *mut c_void,
-            ),
-            (
-                MODE2_CONNECTED_QUERY_CALL_ADDR,
-                cooperative_connected_entry as *mut c_void,
-            ),
-            (
-                MODE0_RADIO_DISTANCE_CALL_ADDR,
-                cooperative_distance_entry as *mut c_void,
-            ),
-            (
-                PERIODIC_RADIO_SCAN_CALL_ADDR,
-                hook_periodic_radio_signal_scan as *mut c_void,
-            ),
-            (
-                PERIODIC_RADIO_STATION_UPDATE_CALL_ADDR,
-                skip_empty_inactive_station_update as *mut c_void,
-            ),
-        ])?;
+        SCAN_HOOK.init(
+            "radio_signal_scan",
+            PERIODIC_RADIO_SCAN_CALL_ADDR as *mut c_void,
+            hook_periodic_radio_signal_scan,
+        )?;
+        STATION_UPDATE_HOOK.init(
+            "radio_station_update",
+            PERIODIC_RADIO_STATION_UPDATE_CALL_ADDR as *mut c_void,
+            skip_empty_inactive_station_update,
+        )?;
     }
-
+    let mut transaction = ModificationTransaction::new();
+    transaction.enable_callsite(&SCAN_HOOK)?;
+    transaction.enable_callsite(&STATION_UPDATE_HOOK)?;
+    transaction.commit();
     log::info!(
-        "[RADIO] Game-owned radio bridge active: scan=0x{:08X} query0/1/2=0x{:08X}/0x{:08X}/0x{:08X} station_update=0x{:08X} capacity={}",
-        PERIODIC_RADIO_SCAN_CALL_ADDR,
-        MODE0_RADIO_DISTANCE_CALL_ADDR,
-        MODE1_CONNECTED_QUERY_CALL_ADDR,
-        MODE2_CONNECTED_QUERY_CALL_ADDR,
-        PERIODIC_RADIO_STATION_UPDATE_CALL_ADDR,
-        MAX_COOPERATIVE_QUERIES,
+        "[RADIO] Synchronous availability active; native query results and station playback retained"
     );
 
-    let profiling = diagnostics::hitch_profiling_enabled();
-
-    unsafe {
-        PATH_TRAVERSAL_HOOK.init(
-            "radio_path_traversal_policy_scope",
-            PATH_TRAVERSAL_ADDR as *mut c_void,
-            hook_path_traversal,
-        )?;
-        if profiling {
-            PATH_QUERY_HOOK.init(
-                "radio_path_query_profile",
-                PATH_QUERY_ADDR as *mut c_void,
-                hook_path_query,
-            )?;
-            STATION_MODE_HOOK.init(
-                "radio_station_mode_profile",
-                STATION_MODE_ADDR as *mut c_void,
-                hook_station_mode,
-            )?;
-        }
-    }
-
-    let mut transaction = ModificationTransaction::new();
-    transaction.enable_inline(&PATH_TRAVERSAL_HOOK)?;
-    if profiling {
-        transaction.enable_inline(&PATH_QUERY_HOOK)?;
-        transaction.enable_inline(&STATION_MODE_HOOK)?;
-    }
-    transaction.commit();
-
-    if profiling {
-        log::info!(
-            "[RADIO] Scan hot-path profiling active: modes=0x{:08X} query=0x{:08X} traversal=0x{:08X}",
-            STATION_MODE_ADDR,
-            PATH_QUERY_ADDR,
-            PATH_TRAVERSAL_ADDR,
+    // Optional bridges start inert. No gameplay traversal exists at this
+    // pre-CRT boundary; DeferredInit performs no executable-memory writes.
+    if let Err(error) = install_door_policy_bypass_hooks() {
+        log::warn!(
+            "[RADIO] Native policy bridge unavailable; original queries retained: {error:#}"
         );
+    }
+    if let Err(error) = provider::install() {
+        log::warn!("[RADIO] Expansion bridge unavailable; original provider retained: {error:#}");
+    }
+
+    // Profiling is independent: its failure cannot invalidate the synchronous
+    // scan/station bridges or replace a query result with an invented failure.
+    if diagnostics::hitch_profiling_enabled() {
+        if let Err(error) = install_query_profiling() {
+            log::warn!(
+                "[RADIO] Query profiling unavailable; native radio behavior retained: {error:#}"
+            );
+        }
     }
     Ok(())
 }
 
-/// Feeds lifecycle and frame events into the radio tasklet scheduler.
-///
-/// World-lifetime events synchronously join any active native tasklet before
-/// engine forms can be invalidated. `ON_FRAME_PRESENT` performs nonblocking
-/// completion polling and releases at most one paced query per invocation.
+fn install_query_profiling() -> anyhow::Result<()> {
+    // SAFETY: these existing engine entries and their ABIs are unchanged.
+    unsafe {
+        PATH_QUERY_HOOK.init(
+            "radio_path_query_profile",
+            PATH_QUERY_ADDR as *mut c_void,
+            hook_path_query,
+        )?;
+        PATH_TRAVERSAL_HOOK.init(
+            "radio_path_traversal_profile",
+            PATH_TRAVERSAL_ADDR as *mut c_void,
+            hook_path_traversal,
+        )?;
+        STATION_MODE_HOOK.init(
+            "radio_station_mode_profile",
+            STATION_MODE_ADDR as *mut c_void,
+            hook_station_mode,
+        )?;
+    }
+    let mut transaction = ModificationTransaction::new();
+    transaction.enable_inline(&PATH_QUERY_HOOK)?;
+    transaction.enable_inline(&PATH_TRAVERSAL_HOOK)?;
+    transaction.enable_inline(&STATION_MODE_HOOK)?;
+    transaction.commit();
+    Ok(())
+}
+
+/// Verifies and publishes optional optimization once after plugin loading.
+/// No executable code is written here; world/frame events need no radio work.
 pub(crate) fn observe_event(kind: u32) {
-    if kind == crate::events::ON_FRAME_PRESENT {
-        observe_frame_present();
-        return;
-    }
-    if is_world_lifetime_event(kind) {
-        if !world_lifetime_barrier_ready(kind, RADIO_DEFERRED_READY.load(Ordering::Acquire)) {
-            return;
-        }
-        if TASKLET_BACKEND_AVAILABLE.load(Ordering::Acquire) {
-            quiesce_tasklet_queries();
-        }
-        QUERY_PIPELINE.lock().reset();
-        return;
-    }
     if kind != crate::events::DEFERRED_INIT || POLICY_INSTALL_ATTEMPTED.swap(true, Ordering::AcqRel)
     {
         return;
     }
-    DEFERRED_INIT_MS.store(
-        libpsycho::os::windows::winapi::get_tick_count(),
-        Ordering::Release,
-    );
-
-    if let Err(error) = enable_tasklet_backend() {
-        log::warn!(
-            "[RADIO] Native tasklet radio queries unavailable; cooperative main-thread fallback retained: {error:#}"
-        );
+    if native_policy_owned() {
+        POLICY_READY.store(true, Ordering::Release);
+        log::info!("[RADIO] Native policy optimization active for radio query modes 0/1/2");
+    } else {
+        log::warn!("[RADIO] Native policy contract changed; complete native computation retained");
     }
-    if let Err(error) = install_door_policy_bypass_hooks() {
-        log::warn!(
-            "[RADIO] Dead door-policy bypass unavailable; original provider retained: {error:#}"
-        );
+    if let Err(error) = provider::publish() {
+        log::warn!("[RADIO] Optional expansion unavailable: {error:#}");
     }
-    RADIO_DEFERRED_READY.store(true, Ordering::Release);
-}
-
-fn is_world_lifetime_event(kind: u32) -> bool {
-    matches!(
-        kind,
-        crate::events::PRE_LOAD_GAME | crate::events::EXIT_TO_MAIN_MENU | crate::events::NEW_GAME
-    )
-}
-
-fn world_lifetime_barrier_ready(kind: u32, deferred_ready: bool) -> bool {
-    deferred_ready && is_world_lifetime_event(kind)
 }
 
 fn install_door_policy_bypass_hooks() -> anyhow::Result<()> {
-    let provider = unsafe { read_u32(TELEPORT_DOOR_PROVIDER_SLOT as *const u8, 0) } as usize;
-    let provider_label =
-        module_address(provider).unwrap_or_else(|| format!("unknown!0x{provider:08X}"));
-    let setup_target = resolve_policy_setup_target(provider)?;
+    verify_vanilla_policy_provider()?;
     verify_signature(
         DOOR_ACCESSIBILITY_ADDR,
         DOOR_ACCESSIBILITY_SIGNATURE,
         "game teleport-door accessibility predicate",
     )?;
-
+    // SAFETY: both calls belong to the verified native provider. Setup is
+    // thiscall(data, door), returning data; accessibility is thiscall with
+    // three stack arguments. No replacement provider is inspected or patched.
     unsafe {
         DOOR_POLICY_SETUP_HOOK.init(
-            "radio_dead_door_policy_setup",
-            setup_target as *mut c_void,
+            "radio_native_door_policy_setup",
+            (VANILLA_PROVIDER_ADDR + VANILLA_POLICY_SETUP_CALL_OFFSET) as *mut c_void,
             hook_door_policy_setup,
         )?;
         DOOR_ACCESSIBILITY_HOOK.init(
-            "radio_dead_door_accessibility",
-            DOOR_ACCESSIBILITY_ADDR as *mut c_void,
+            "radio_native_door_accessibility",
+            (VANILLA_PROVIDER_ADDR + VANILLA_ACCESSIBILITY_CALL_OFFSET) as *mut c_void,
             hook_door_accessibility,
         )?;
     }
     let mut transaction = ModificationTransaction::new();
-    transaction.enable_inline(&DOOR_POLICY_SETUP_HOOK)?;
-    transaction.enable_inline(&DOOR_ACCESSIBILITY_HOOK)?;
+    transaction.enable_callsite(&DOOR_ACCESSIBILITY_HOOK)?;
+    transaction.enable_callsite(&DOOR_POLICY_SETUP_HOOK)?;
     transaction.commit();
-
-    log::info!(
-        "[RADIO] Exact mode-0 dead door-policy bypass active: provider={} setup={} accessibility=0x{:08X}",
-        provider_label,
-        module_address(setup_target).unwrap_or_else(|| format!("unknown!0x{setup_target:08X}")),
-        DOOR_ACCESSIBILITY_ADDR,
-    );
+    POLICY_INSTALLED.store(true, Ordering::Release);
     Ok(())
-}
-
-fn resolve_policy_setup_target(provider: usize) -> anyhow::Result<usize> {
-    if provider == VANILLA_PROVIDER_ADDR {
-        verify_vanilla_policy_provider()?;
-        return Ok(VANILLA_POLICY_SETUP_ADDR);
-    }
-
-    verify_inlined_policy_provider(provider)
 }
 
 fn verify_vanilla_policy_provider() -> anyhow::Result<()> {
@@ -1442,6 +510,16 @@ fn verify_vanilla_policy_provider() -> anyhow::Result<()> {
         VANILLA_PROVIDER_ADDR,
         VANILLA_PROVIDER_SIGNATURE,
         "vanilla TeleportDoorSearch provider",
+    )?;
+    verify_signature(
+        0x006F36F8,
+        &[0x89, 0x4D, 0x80],
+        "native provider query frame",
+    )?;
+    verify_signature(
+        0x006F3872,
+        &[0x8B, 0x55, 0xE8, 0x52, 0x8D, 0x4D, 0xB0, 0xE8],
+        "native policy setup arguments",
     )?;
     verify_signature(
         VANILLA_PROVIDER_ADDR + VANILLA_DISPOSITION_ADMISSION_OFFSET,
@@ -1493,1026 +571,57 @@ fn verify_vanilla_policy_provider() -> anyhow::Result<()> {
     Ok(())
 }
 
-fn verify_inlined_policy_provider(provider: usize) -> anyhow::Result<usize> {
-    verify_signature(
-        provider,
-        INLINED_PROVIDER_SIGNATURE,
-        "inlined TeleportDoorSearch provider",
-    )?;
-    verify_signature(
-        provider + INLINED_POLICY_BLOCK_OFFSET,
-        INLINED_POLICY_BLOCK_SIGNATURE,
-        "inlined door-policy block",
-    )?;
-    verify_signature(
-        provider + INLINED_ACCESSIBILITY_CALL_OFFSET,
-        INLINED_ACCESSIBILITY_CALL_SIGNATURE,
-        "inlined accessibility call",
-    )?;
-    verify_signature(
-        provider + INLINED_ACCESSIBILITY_RESULT_OFFSET,
-        INLINED_ACCESSIBILITY_RESULT_SIGNATURE,
-        "inlined accessibility result branch",
-    )?;
-    verify_signature(
-        provider + INLINED_DISPOSITION_BRANCH_OFFSET,
-        INLINED_DISPOSITION_BRANCH_SIGNATURE,
-        "inlined disposition penalty branch",
-    )?;
-    verify_signature(
-        provider + INLINED_MIN_USE_BRANCH_OFFSET,
-        INLINED_MIN_USE_BRANCH_SIGNATURE,
-        "inlined minimum-use penalty branch",
-    )?;
-    verify_signature(
-        provider + INLINED_LOCK_CLEANUP_OFFSET,
-        INLINED_LOCK_CLEANUP_SIGNATURE,
-        "inlined temporary lock-data cleanup",
-    )?;
-
-    let setup_target = relative_call_target(provider + INLINED_POLICY_SETUP_CALL_OFFSET)
-        .context("resolve inlined door-policy setup call")?;
-    let provider_info = virtual_query(provider as *mut c_void)
-        .context("query inlined provider allocation owner")?;
-    let setup_info = virtual_query(setup_target as *mut c_void)
-        .context("query inlined setup allocation owner")?;
-    ensure!(
-        provider_info.allocation_base == setup_info.allocation_base,
-        "inlined door-policy setup target belongs to a different allocation: {}",
-        module_address(setup_target).unwrap_or_else(|| format!("unknown!0x{setup_target:08X}"))
-    );
-    verify_signature(
-        setup_target,
-        INLINED_POLICY_SETUP_SIGNATURE,
-        "inlined TeleportDoorData setup",
-    )?;
-    Ok(setup_target)
-}
-
-fn enable_tasklet_backend() -> anyhow::Result<()> {
-    let provider = unsafe { read_u32(TELEPORT_DOOR_PROVIDER_SLOT as *const u8, 0) } as usize;
-    let provider_label =
-        module_address(provider).unwrap_or_else(|| format!("unknown!0x{provider:08X}"));
-    verify_tasklet_provider_target(provider)?;
-
-    verify_signature(
-        TASKLET_MANAGER_ADDR,
-        TASKLET_MANAGER_SIGNATURE,
-        "tasklet manager singleton",
-    )?;
-    verify_signature(
-        TASKLET_GROUP_CREATE_ADDR,
-        TASKLET_GROUP_CREATE_SIGNATURE,
-        "tasklet group creation wrapper",
-    )?;
-    verify_signature(
-        TASKLET_GROUP_ACTIVATE_ADDR,
-        TASKLET_GROUP_ACTIVATE_SIGNATURE,
-        "tasklet group activation wrapper",
-    )?;
-    verify_signature(
-        TASKLET_SUBMIT_ADDR,
-        TASKLET_SUBMIT_SIGNATURE,
-        "tasklet submission wrapper",
-    )?;
-    verify_signature(
-        TASKLET_GROUP_CLOSE_ADDR,
-        TASKLET_GROUP_CLOSE_SIGNATURE,
-        "tasklet group close wrapper",
-    )?;
-    verify_signature(
-        TASKLET_GROUP_WAIT_ADDR,
-        TASKLET_GROUP_WAIT_SIGNATURE,
-        "tasklet group completion wait",
-    )?;
-    verify_signature(
-        TASKLET_PRIORITY_ENQUEUE_ADDR,
-        TASKLET_PRIORITY_ENQUEUE_SIGNATURE,
-        "tasklet priority enqueue buckets",
-    )?;
-    verify_signature(
-        TASKLET_PRIORITY_DISPATCH_ADDR,
-        TASKLET_PRIORITY_DISPATCH_SIGNATURE,
-        "tasklet ascending-priority dispatcher",
-    )?;
-    verify_signature(
-        TASKLET_GROUP_LAYOUT_ADDR,
-        TASKLET_GROUP_LAYOUT_SIGNATURE,
-        "tasklet group priority layout",
-    )?;
-
-    // Keep tasklet state out of the eagerly mapped DLL image and do not
-    // allocate it while xNVSE and other plugins are still loading.
-    LazyLock::force(&RADIO_TASKLET);
-    TASKLET_PROVIDER.store(provider, Ordering::Release);
-    TASKLET_BACKEND_AVAILABLE.store(true, Ordering::Release);
-    log::info!(
-        "[RADIO] Native tasklet query backend active: provider={} manager=0x{:08X} queue_priority={} worker_priority=idle endpoint_ownership=game-thread",
-        provider_label,
-        TASKLET_MANAGER_ADDR,
-        TASKLET_LOWEST_QUEUE_PRIORITY,
-    );
-    Ok(())
-}
-
-unsafe fn tasklet_manager() -> *mut c_void {
-    let get_manager =
-        unsafe { FnPtr::<TaskletManagerFn>::from_address_unchecked(TASKLET_MANAGER_ADDR) }.as_fn();
-    unsafe { get_manager() }
-}
-
-unsafe fn ensure_tasklet_group(backend: &mut TaskletBackend) -> anyhow::Result<()> {
-    if backend.group != 0 {
-        return Ok(());
-    }
-
-    let manager = unsafe { tasklet_manager() };
-    ensure!(!manager.is_null(), "tasklet manager is null");
-    let create =
-        unsafe { FnPtr::<TaskletGroupCreateFn>::from_address_unchecked(TASKLET_GROUP_CREATE_ADDR) }
-            .as_fn();
-    let mut group = core::ptr::null_mut();
-    ensure!(
-        unsafe { create(manager, &mut group) } != 0 && !group.is_null(),
-        "tasklet group creation failed"
-    );
-    backend.group = group as usize;
-    Ok(())
-}
-
-unsafe fn set_tasklet_group_priority(group: *mut u8, priority: u32) {
-    debug_assert!(!group.is_null());
-    debug_assert!(priority <= TASKLET_LOWEST_QUEUE_PRIORITY);
+/// Recheck the native omission/cleanup contract and both owned callsites.
+/// Fixed game ranges are process-lifetime mappings verified before activation.
+/// This recurring check does not allocate, log, or read timing counters.
+fn native_policy_owned() -> bool {
+    use provider::{game_bytes_equal as bytes, game_call_matches as call};
+    // SAFETY: these fixed process-lifetime executable ranges were validated at
+    // the pre-CRT install boundary. Native traversal never races code writes.
     unsafe {
-        core::ptr::write_volatile(
-            group.add(TASKLET_GROUP_PRIORITY_OFFSET).cast::<u32>(),
-            priority,
-        );
-    }
-}
-
-unsafe fn activate_tasklet_group(backend: &mut TaskletBackend) -> anyhow::Result<()> {
-    unsafe { ensure_tasklet_group(backend) }?;
-    if backend.group_active {
-        return Ok(());
-    }
-
-    let manager = unsafe { tasklet_manager() };
-    let activate = unsafe {
-        FnPtr::<TaskletGroupActivateFn>::from_address_unchecked(TASKLET_GROUP_ACTIVATE_ADDR)
-    }
-    .as_fn();
-    let mut group = backend.group as *mut c_void;
-    ensure!(
-        unsafe { activate(manager, &mut group) } != 0,
-        "tasklet group activation failed"
-    );
-    ensure!(
-        group as usize == backend.group,
-        "tasklet group identity changed during activation"
-    );
-    // The manager scans queue 0 first. Radio work must yield every queue slot
-    // to frame-critical engine tasklets even though group construction uses 0.
-    unsafe {
-        set_tasklet_group_priority(group.cast(), TASKLET_LOWEST_QUEUE_PRIORITY);
-    }
-    backend.group_active = true;
-    backend.group_closed = false;
-    Ok(())
-}
-
-unsafe fn close_tasklet_group(backend: &mut TaskletBackend) -> bool {
-    if !backend.group_active || backend.group_closed {
-        return true;
-    }
-
-    let manager = unsafe { tasklet_manager() };
-    let close =
-        unsafe { FnPtr::<TaskletGroupCloseFn>::from_address_unchecked(TASKLET_GROUP_CLOSE_ADDR) }
-            .as_fn();
-    let mut group = backend.group as *mut c_void;
-    let closed = unsafe { close(manager, &mut group) } != 0;
-    if closed {
-        backend.group_closed = true;
-    }
-    closed
-}
-
-unsafe fn wait_tasklet_group(backend: &mut TaskletBackend) {
-    if !backend.group_active {
-        return;
-    }
-
-    let group = backend.group as *mut c_void;
-    let wait =
-        unsafe { FnPtr::<TaskletGroupWaitFn>::from_address_unchecked(TASKLET_GROUP_WAIT_ADDR) }
-            .as_fn();
-    unsafe { wait(group, 0) };
-    backend.group_active = false;
-    backend.group_closed = false;
-    backend.in_flight = false;
-}
-
-unsafe fn prepare_tasklet_work(work: QueryWork) -> bool {
-    let lookup =
-        unsafe { FnPtr::<LookupFormByIdFn>::from_address_unchecked(LOOKUP_FORM_BY_ID_ADDR) }
-            .as_fn();
-    let init = unsafe {
-        FnPtr::<PathingLocationInitFn>::from_address_unchecked(PATHING_LOCATION_INIT_ADDR)
-    }
-    .as_fn();
-    let tasklet = unsafe { &mut *RADIO_TASKLET.0.get() };
-    debug_assert_eq!(tasklet.batch.count, 0);
-    let station_ref = unsafe { lookup(work.request.key.station_form_id) };
-    let current_ref = unsafe { lookup(work.request.key.current_ref_form_id) };
-    if station_ref.is_null() || current_ref.is_null() {
-        return false;
-    }
-    let expected_worldspace = match work.request.key.kind {
-        QueryKind::NullOrStationWorldspace => {
-            let worldspace = unsafe { lookup(work.request.key.parameter_bits) };
-            if worldspace.is_null() {
-                return false;
-            }
-            worldspace
-        }
-        QueryKind::Distance | QueryKind::InteriorOnly => core::ptr::null_mut(),
-    };
-
-    let prepared = &mut tasklet.batch.queries[0];
-    prepared.work = work;
-    prepared.expected_worldspace = expected_worldspace;
-    prepared.output = QueryValue::default();
-    unsafe {
-        init(&mut prepared.station, station_ref);
-        init(&mut prepared.current, current_ref);
-    }
-    prepared.initialized = true;
-    tasklet.batch.count = 1;
-    true
-}
-
-unsafe fn cleanup_prepared_batch() {
-    let tasklet = unsafe { &mut *RADIO_TASKLET.0.get() };
-    if tasklet.batch.count == 0 {
-        return;
-    }
-
-    let destroy = unsafe {
-        FnPtr::<PathingLocationDestroyFn>::from_address_unchecked(PATHING_LOCATION_DESTROY_ADDR)
-    }
-    .as_fn();
-    for prepared in &mut tasklet.batch.queries[..tasklet.batch.count] {
-        if prepared.initialized {
-            unsafe {
-                destroy(&mut prepared.station);
-                destroy(&mut prepared.current);
-            }
-            prepared.initialized = false;
-            prepared.expected_worldspace = core::ptr::null_mut();
-            prepared.output = QueryValue::default();
-        }
-    }
-    tasklet.batch.count = 0;
-}
-
-unsafe fn submit_tasklet_batch(backend: &mut TaskletBackend) -> anyhow::Result<()> {
-    let manager = unsafe { tasklet_manager() };
-    let submit =
-        unsafe { FnPtr::<TaskletSubmitFn>::from_address_unchecked(TASKLET_SUBMIT_ADDR) }.as_fn();
-    let tasklet = unsafe { &mut *RADIO_TASKLET.0.get() };
-    let mut group = backend.group as *mut c_void;
-    let mut handle = TaskletHandle {
-        vtable: BSTASKLET_VTABLE,
-        task: &mut tasklet.engine,
-    };
-    TASKLET_BATCH_ABORTED.store(false, Ordering::Release);
-    ensure!(
-        unsafe { submit(manager, &mut group, &mut handle, 0) } != 0,
-        "tasklet submission failed"
-    );
-    backend.in_flight = true;
-    Ok(())
-}
-
-fn finish_completed_tasklet(backend: &mut TaskletBackend, now_ms: u32) -> bool {
-    if !backend.in_flight {
-        return false;
-    }
-    if !unsafe { close_tasklet_group(backend) } {
-        return false;
-    }
-    if !unsafe { tasklet_group_completion_observed(backend.group as *const u8) } {
-        return false;
-    }
-    unsafe {
-        wait_tasklet_group(backend);
-    }
-    let published = unsafe { publish_prepared_batch() };
-    unsafe {
-        cleanup_prepared_batch();
-    }
-    if published {
-        report_tasklet_publication(now_ms);
-    }
-    true
-}
-
-unsafe fn tasklet_group_completion_observed(group: *const u8) -> bool {
-    if group.is_null() {
-        return false;
-    }
-    let submitted = unsafe {
-        core::ptr::read_volatile(group.add(TASKLET_GROUP_SUBMITTED_OFFSET).cast::<u32>())
-    };
-    let completed = unsafe {
-        core::ptr::read_volatile(group.add(TASKLET_GROUP_COMPLETED_OFFSET).cast::<u32>())
-    };
-    tasklet_group_counts_complete(submitted, completed)
-}
-
-fn tasklet_group_counts_complete(submitted: u32, completed: u32) -> bool {
-    submitted != 0 && submitted == completed
-}
-
-fn schedule_tasklet_generation(now_ms: u32) -> anyhow::Result<()> {
-    ensure!(
-        !TASKLET_PRIORITY_FAILED.load(Ordering::Acquire),
-        "radio tasklet worker priority isolation failed"
-    );
-    let provider = unsafe { read_u32(TELEPORT_DOOR_PROVIDER_SLOT as *const u8, 0) } as usize;
-    if provider != TASKLET_PROVIDER.load(Ordering::Acquire) {
-        verify_tasklet_provider_target(provider)
-            .context("teleport-door provider changed to a non-callable target")?;
-        TASKLET_PROVIDER.store(provider, Ordering::Release);
-    }
-    let mut backend = TASKLET_BACKEND.lock();
-    if backend.in_flight {
-        finish_completed_tasklet(&mut backend, now_ms);
-        if backend.in_flight {
-            return Ok(());
-        }
-    }
-    let Some(work) = QUERY_PIPELINE.lock().take_next(now_ms) else {
-        return Ok(());
-    };
-
-    unsafe { activate_tasklet_group(&mut backend) }?;
-    let prep_timer = (!COOPERATIVE_PUBLICATION_REPORTED.load(Ordering::Acquire))
-        .then(diagnostics::Stopwatch::start);
-    if !unsafe { prepare_tasklet_work(work) } {
-        QUERY_PIPELINE.lock().abort_build();
-        ensure!(
-            unsafe { close_tasklet_group(&mut backend) },
-            "empty tasklet group could not be closed"
-        );
-        unsafe { wait_tasklet_group(&mut backend) };
-        return Ok(());
-    }
-    if let Some(elapsed_us) = prep_timer.and_then(diagnostics::Stopwatch::elapsed_us) {
-        TASKLET_PREP_TOTAL_US.fetch_add(elapsed_us, Ordering::Relaxed);
-        diagnostics::update_max_u64(&TASKLET_PREP_MAX_US, elapsed_us);
-    }
-    if let Err(error) = unsafe { submit_tasklet_batch(&mut backend) } {
-        let _ = unsafe { close_tasklet_group(&mut backend) };
-        unsafe {
-            wait_tasklet_group(&mut backend);
-            cleanup_prepared_batch();
-        }
-        QUERY_PIPELINE.lock().abort_build();
-        return Err(error);
-    }
-    if !unsafe { close_tasklet_group(&mut backend) } {
-        log::error!("[RADIO] Submitted tasklet group could not be closed; completion retry armed");
-    }
-    Ok(())
-}
-
-fn quiesce_tasklet_queries() {
-    let mut backend = TASKLET_BACKEND.lock();
-    if backend.group_active {
-        // World teardown cannot outlive query endpoints. Closing prevents new
-        // group work and the native wait joins any callback already running.
-        if !unsafe { close_tasklet_group(&mut backend) } {
-            log::error!("[RADIO] Tasklet group close failed at world-lifetime barrier");
-            return;
-        }
-        unsafe { wait_tasklet_group(&mut backend) };
-    }
-    unsafe { cleanup_prepared_batch() };
-    QUERY_PIPELINE.lock().abort_build();
-}
-
-fn report_tasklet_publication(now_ms: u32) {
-    if COOPERATIVE_PUBLICATION_REPORTED.swap(true, Ordering::AcqRel) {
-        return;
-    }
-    let (published_count, kinds) = {
-        let pipeline = QUERY_PIPELINE.lock();
-        (pipeline.published_count, pipeline.published_kind_counts())
-    };
-    log::info!(
-        "[RADIO] Native paced tasklet generation verified: results={} kinds=distance:{}/mode1:{}/mode2:{} jobs={} worker_wall_total/max={}/{}us game_thread_prep_total/max={}/{}us latency_ms={:?} worker_thread=0x{:08X}",
-        published_count,
-        kinds.distance,
-        kinds.mode1,
-        kinds.mode2,
-        COOPERATIVE_TIMED_JOBS.load(Ordering::Relaxed),
-        COOPERATIVE_TIMED_TOTAL_US.load(Ordering::Relaxed),
-        COOPERATIVE_TIMED_MAX_US.load(Ordering::Relaxed),
-        TASKLET_PREP_TOTAL_US.load(Ordering::Relaxed),
-        TASKLET_PREP_MAX_US.load(Ordering::Relaxed),
-        (COOPERATIVE_COLLECTION_MS.load(Ordering::Acquire) != 0)
-            .then(|| now_ms.wrapping_sub(COOPERATIVE_COLLECTION_MS.load(Ordering::Relaxed))),
-        TASKLET_WORKER_THREAD_ID.load(Ordering::Acquire),
-    );
-}
-
-unsafe extern "thiscall" fn radio_tasklet_finish(_tasklet: *mut EngineTasklet) {}
-
-unsafe extern "thiscall" fn radio_tasklet_ready(_tasklet: *mut EngineTasklet) -> u8 {
-    1
-}
-
-unsafe extern "thiscall" fn radio_tasklet_execute(tasklet: *mut EngineTasklet) {
-    TASKLET_WORKER_THREAD_ID.store(
-        libpsycho::os::windows::winapi::get_current_thread_id(),
-        Ordering::Release,
-    );
-    // Queue priority orders engine tasklets; OS priority also prevents the
-    // running path query from competing equally with the game/render threads.
-    let mut priority_guard = match lower_current_thread_priority_scoped(ThreadPriority::Idle) {
-        Ok(guard) => guard,
-        Err(_) => {
-            TASKLET_PRIORITY_FAILED.store(true, Ordering::Release);
-            TASKLET_BATCH_ABORTED.store(true, Ordering::Release);
-            return;
-        }
-    };
-    let tasklet = unsafe { &mut *tasklet.cast::<RadioTasklet>() };
-    for prepared in &mut tasklet.batch.queries[..tasklet.batch.count] {
-        if game_is_loading() {
-            TASKLET_BATCH_ABORTED.store(true, Ordering::Release);
-            break;
-        }
-
-        let timer = (!COOPERATIVE_PUBLICATION_REPORTED.load(Ordering::Acquire))
-            .then(diagnostics::Stopwatch::start);
-        let output = unsafe { execute_prepared_query(prepared) };
-        if let Some(elapsed_us) = timer.and_then(diagnostics::Stopwatch::elapsed_us) {
-            COOPERATIVE_TIMED_JOBS.fetch_add(1, Ordering::Relaxed);
-            COOPERATIVE_TIMED_TOTAL_US.fetch_add(elapsed_us, Ordering::Relaxed);
-            diagnostics::update_max_u64(&COOPERATIVE_TIMED_MAX_US, elapsed_us);
-        }
-        prepared.output = output;
-    }
-    if priority_guard.restore().is_err() {
-        TASKLET_PRIORITY_FAILED.store(true, Ordering::Release);
-        TASKLET_BATCH_ABORTED.store(true, Ordering::Release);
-    }
-}
-
-unsafe fn publish_prepared_batch() -> bool {
-    let tasklet = unsafe { &*RADIO_TASKLET.0.get() };
-    let mut pipeline = QUERY_PIPELINE.lock();
-    if TASKLET_BATCH_ABORTED.load(Ordering::Acquire) || tasklet.batch.count != 1 {
-        pipeline.abort_build();
-        return false;
-    }
-    let prepared = &tasklet.batch.queries[0];
-    pipeline.complete(prepared.work, Some(prepared.output))
-}
-
-unsafe fn execute_prepared_query(prepared: &mut PreparedQuery) -> QueryValue {
-    let scope = RadioPathQueryScope::enter();
-    let value = match prepared.work.request.key.kind {
-        QueryKind::Distance => QueryValue::distance(unsafe {
-            call_mode0_distance(
-                &mut prepared.station,
-                &mut prepared.current,
-                f32::from_bits(prepared.work.request.key.parameter_bits),
-                core::ptr::null_mut(),
-                3,
+        POLICY_INSTALLED.load(Ordering::Acquire)
+            && DOOR_POLICY_SETUP_HOOK.is_enabled()
+            && DOOR_ACCESSIBILITY_HOOK.is_enabled()
+            && bytes(VANILLA_PROVIDER_ADDR, VANILLA_PROVIDER_SIGNATURE)
+            && bytes(0x006F36F8, &[0x89, 0x4D, 0x80])
+            && bytes(
+                0x006F3872,
+                &[0x8B, 0x55, 0xE8, 0x52, 0x8D, 0x4D, 0xB0, 0xE8],
             )
-        }),
-        kind @ (QueryKind::NullOrStationWorldspace | QueryKind::InteriorOnly) => {
-            QueryValue::availability(kind, unsafe {
-                execute_connected_query(
-                    &mut prepared.station,
-                    &mut prepared.current,
-                    kind,
-                    prepared.expected_worldspace,
-                )
-            })
-        }
-    };
-    drop(scope);
-    value
-}
-
-unsafe fn execute_connected_query(
-    station: *mut PathingLocation,
-    current: *mut PathingLocation,
-    kind: QueryKind,
-    expected_worldspace: *mut c_void,
-) -> bool {
-    debug_assert!(kind.is_connected());
-    debug_assert!(kind != QueryKind::NullOrStationWorldspace || !expected_worldspace.is_null());
-
-    let construct = unsafe {
-        FnPtr::<PathResultConstructFn>::from_address_unchecked(PATH_RESULT_CONSTRUCT_ADDR)
+            && bytes(
+                VANILLA_PROVIDER_ADDR + VANILLA_DISPOSITION_ADMISSION_OFFSET,
+                VANILLA_DISPOSITION_ADMISSION_SIGNATURE,
+            )
+            && bytes(
+                VANILLA_PROVIDER_ADDR + VANILLA_ACCESSIBILITY_RESULT_OFFSET,
+                VANILLA_ACCESSIBILITY_RESULT_SIGNATURE,
+            )
+            && bytes(
+                VANILLA_PROVIDER_ADDR + VANILLA_DISPOSITION_BRANCH_OFFSET,
+                VANILLA_DISPOSITION_BRANCH_SIGNATURE,
+            )
+            && bytes(
+                VANILLA_PROVIDER_ADDR + VANILLA_MIN_USE_BRANCH_OFFSET,
+                VANILLA_MIN_USE_BRANCH_SIGNATURE,
+            )
+            && bytes(VANILLA_POLICY_SETUP_ADDR, VANILLA_POLICY_SETUP_SIGNATURE)
+            && bytes(
+                VANILLA_POLICY_CLEANUP_ADDR,
+                VANILLA_POLICY_CLEANUP_SIGNATURE,
+            )
+            && bytes(DOOR_ACCESSIBILITY_ADDR, DOOR_ACCESSIBILITY_SIGNATURE)
+            && call(
+                VANILLA_PROVIDER_ADDR + VANILLA_POLICY_SETUP_CALL_OFFSET,
+                hook_door_policy_setup as *const () as usize,
+            )
+            && call(
+                VANILLA_PROVIDER_ADDR + VANILLA_ACCESSIBILITY_CALL_OFFSET,
+                hook_door_accessibility as *const () as usize,
+            )
+            && VANILLA_POLICY_CLEANUP_CALL_OFFSETS
+                .iter()
+                .all(|&offset| call(VANILLA_PROVIDER_ADDR + offset, VANILLA_POLICY_CLEANUP_ADDR))
     }
-    .as_fn();
-    let destroy =
-        unsafe { FnPtr::<PathResultDestroyFn>::from_address_unchecked(PATH_RESULT_DESTROY_ADDR) }
-            .as_fn();
-    let mut result = PathQueryResult::uninit_storage();
-    unsafe {
-        construct(&mut result);
-    }
-
-    // Once constructed, every exit must run the engine destructor on this
-    // same worker. The query owns its large temporary object on its own stack;
-    // only this small caller result contains dynamic arrays.
-    let query_succeeded =
-        unsafe { call_generic_path_query(station, current, &mut result, kind as u32, 0.0, 0, 1) }
-            != 0;
-    let accepted =
-        query_succeeded && unsafe { connected_result_accepts(&result, kind, expected_worldspace) };
-    unsafe {
-        destroy(&mut result);
-    }
-    accepted
-}
-
-unsafe fn connected_result_accepts(
-    result: &PathQueryResult,
-    kind: QueryKind,
-    expected_worldspace: *mut c_void,
-) -> bool {
-    let count = unsafe { result.parent_space_count() };
-    for index in 0..count {
-        let node = unsafe { result.parent_space(index) };
-        let worldspace =
-            unsafe { core::ptr::read_unaligned(core::ptr::addr_of!((*node).worldspace)) };
-        if !connected_worldspace_is_allowed(kind, expected_worldspace, worldspace) {
-            return false;
-        }
-    }
-    true
-}
-
-fn connected_worldspace_is_allowed(
-    kind: QueryKind,
-    expected_worldspace: *mut c_void,
-    worldspace: *mut c_void,
-) -> bool {
-    match kind {
-        QueryKind::NullOrStationWorldspace => {
-            worldspace.is_null() || worldspace == expected_worldspace
-        }
-        QueryKind::InteriorOnly => worldspace.is_null(),
-        QueryKind::Distance => false,
-    }
-}
-
-#[unsafe(naked)]
-unsafe extern "C" fn cooperative_distance_entry(
-    _station: *mut PathingLocation,
-    _current_ref: *mut PathingLocation,
-    _radius: f32,
-    _actor_data: *mut c_void,
-    _disposition: u32,
-) -> f32 {
-    core::arch::naked_asm!(
-        "mov eax, esp",
-        "push dword ptr [eax + 20]",
-        "push dword ptr [eax + 16]",
-        "push dword ptr [eax + 12]",
-        "push dword ptr [eax + 8]",
-        "push dword ptr [eax + 4]",
-        "push ebp",
-        "call {}",
-        "add esp, 24",
-        "ret",
-        sym cooperative_distance_body,
-    );
-}
-
-unsafe extern "C" fn cooperative_distance_body(
-    caller_ebp: usize,
-    station: *mut PathingLocation,
-    current_location: *mut PathingLocation,
-    radius: f32,
-    actor_data: *mut c_void,
-    disposition: u32,
-) -> f32 {
-    if !cooperative_scan_active() || caller_ebp == 0 || !actor_data.is_null() || disposition != 3 {
-        return unsafe {
-            call_mode0_distance(station, current_location, radius, actor_data, disposition)
-        };
-    }
-
-    let station_ref =
-        unsafe { core::ptr::read_unaligned(caller_ebp.wrapping_sub(0x24) as *const *mut c_void) };
-    let current_ref =
-        unsafe { core::ptr::read_unaligned(caller_ebp.wrapping_add(8) as *const *mut c_void) };
-    let Some(station_form_id) = (unsafe { reference_form_id(station_ref) }) else {
-        return unsafe {
-            call_mode0_distance(station, current_location, radius, actor_data, disposition)
-        };
-    };
-    let Some(current_ref_form_id) = (unsafe { reference_form_id(current_ref) }) else {
-        return unsafe {
-            call_mode0_distance(station, current_location, radius, actor_data, disposition)
-        };
-    };
-
-    let request = QueryRequest::distance(station_form_id, current_ref_form_id, radius);
-    let (value, collection_failed) = {
-        let mut pipeline = QUERY_PIPELINE.lock();
-        let value = pipeline.observe_query(request);
-        (value, pipeline.collection_failed)
-    };
-    if collection_failed {
-        report_cooperative_capacity_failure();
-    }
-    value
-        .and_then(QueryValue::as_distance)
-        .unwrap_or_else(path_failure_distance)
-}
-
-/// Copies the generic query's caller-owned arguments without consuming them.
-///
-/// `FUN_004FF1A0` removes the original 28 argument bytes after this function
-/// returns. The thunk adds scanner EBP as an eighth argument for the Rust
-/// body, removes only its 32-byte copy, and leaves the engine stack untouched.
-#[unsafe(naked)]
-unsafe extern "C" fn cooperative_connected_entry(
-    _station: *mut PathingLocation,
-    _current: *mut PathingLocation,
-    _result: *mut PathQueryResult,
-    _mode: u32,
-    _max_cost: f32,
-    _filter: u32,
-    _behavior: u32,
-) -> u8 {
-    core::arch::naked_asm!(
-        "mov eax, esp",
-        "push dword ptr [eax + 28]",
-        "push dword ptr [eax + 24]",
-        "push dword ptr [eax + 20]",
-        "push dword ptr [eax + 16]",
-        "push dword ptr [eax + 12]",
-        "push dword ptr [eax + 8]",
-        "push dword ptr [eax + 4]",
-        "push ebp",
-        "call {}",
-        "add esp, 32",
-        "ret",
-        sym cooperative_connected_body,
-    );
-}
-
-unsafe extern "C" fn cooperative_connected_body(
-    caller_ebp: usize,
-    station: *mut PathingLocation,
-    current: *mut PathingLocation,
-    result: *mut PathQueryResult,
-    mode: u32,
-    max_cost: f32,
-    filter: u32,
-    behavior: u32,
-) -> u8 {
-    // Clear first so every fallback path leaves its matching vanilla
-    // destructor behavior-neutral.
-    PENDING_CONNECTED_RESULT.with(|pending| pending.set(PendingConnectedResult::None));
-
-    let Some(kind) = QueryKind::connected_mode(mode) else {
-        return unsafe {
-            call_generic_path_query(station, current, result, mode, max_cost, filter, behavior)
-        };
-    };
-    let Some(result_offset) = kind.scanner_result_offset() else {
-        return unsafe {
-            call_generic_path_query(station, current, result, mode, max_cost, filter, behavior)
-        };
-    };
-    if !cooperative_scan_active()
-        || caller_ebp == 0
-        || station.is_null()
-        || current.is_null()
-        || result.is_null()
-        || result as usize != caller_ebp.wrapping_sub(result_offset)
-        || max_cost.to_bits() != 0
-        || filter != 0
-        || behavior != 1
-    {
-        return unsafe {
-            call_generic_path_query(station, current, result, mode, max_cost, filter, behavior)
-        };
-    }
-
-    let station_ref =
-        unsafe { core::ptr::read_unaligned(caller_ebp.wrapping_sub(0x24) as *const *mut c_void) };
-    let current_ref =
-        unsafe { core::ptr::read_unaligned(caller_ebp.wrapping_add(8) as *const *mut c_void) };
-    let Some(station_form_id) = (unsafe { reference_form_id(station_ref) }) else {
-        return unsafe {
-            call_generic_path_query(station, current, result, mode, max_cost, filter, behavior)
-        };
-    };
-    let Some(current_ref_form_id) = (unsafe { reference_form_id(current_ref) }) else {
-        return unsafe {
-            call_generic_path_query(station, current, result, mode, max_cost, filter, behavior)
-        };
-    };
-
-    let expected_worldspace_form_id = if kind == QueryKind::NullOrStationWorldspace {
-        let expected_worldspace = unsafe {
-            core::ptr::read_unaligned(caller_ebp.wrapping_sub(0x30) as *const *mut c_void)
-        };
-        let Some(form_id) = (unsafe { reference_form_id(expected_worldspace) }) else {
-            return unsafe {
-                call_generic_path_query(station, current, result, mode, max_cost, filter, behavior)
-            };
-        };
-        let lookup =
-            unsafe { FnPtr::<LookupFormByIdFn>::from_address_unchecked(LOOKUP_FORM_BY_ID_ADDR) }
-                .as_fn();
-        // Vanilla compares parent-space pointers, not FormIDs. Round-tripping
-        // here proves that the scalar key can later reconstruct that exact
-        // canonical pointer without carrying a live form through the pipeline.
-        if unsafe { lookup(form_id) } != expected_worldspace {
-            return unsafe {
-                call_generic_path_query(station, current, result, mode, max_cost, filter, behavior)
-            };
-        }
-        form_id
-    } else {
-        0
-    };
-
-    let request = QueryRequest::connected(
-        station_form_id,
-        current_ref_form_id,
-        kind,
-        expected_worldspace_form_id,
-    );
-    let (value, collection_failed) = {
-        let mut pipeline = QUERY_PIPELINE.lock();
-        let value = pipeline.observe_query(request);
-        (value, pipeline.collection_failed)
-    };
-    if collection_failed {
-        report_cooperative_capacity_failure();
-        return unsafe {
-            call_generic_path_query(station, current, result, mode, max_cost, filter, behavior)
-        };
-    }
-
-    let available = value
-        .and_then(|value| value.as_availability(kind))
-        .unwrap_or(false);
-    PENDING_CONNECTED_RESULT
-        .with(|pending| pending.set(PendingConnectedResult::new(kind, available)));
-
-    // False skips vanilla's parent-space loop. The matching destructor bridge
-    // applies the reduced scalar only after the empty caller result is safely
-    // destroyed; returning true here would fabricate an accepted empty path.
-    0
-}
-
-/// Mode-1 result cleanup bridge.
-///
-/// The engine passes the result in ECX and no stack arguments. The thunk
-/// forwards ECX plus the scanner's EBP and a constant mode to the shared body.
-#[unsafe(naked)]
-unsafe extern "C" fn mode1_result_destroy_entry() {
-    core::arch::naked_asm!(
-        "push ecx",
-        "push ebp",
-        "push 1",
-        "call {}",
-        "add esp, 12",
-        "ret",
-        sym connected_result_destroy_body,
-    );
-}
-
-/// Mode-2 result cleanup bridge; see [`mode1_result_destroy_entry`].
-#[unsafe(naked)]
-unsafe extern "C" fn mode2_result_destroy_entry() {
-    core::arch::naked_asm!(
-        "push ecx",
-        "push ebp",
-        "push 2",
-        "call {}",
-        "add esp, 12",
-        "ret",
-        sym connected_result_destroy_body,
-    );
-}
-
-unsafe extern "C" fn connected_result_destroy_body(
-    mode: u32,
-    caller_ebp: usize,
-    result: *mut PathQueryResult,
-) {
-    // Cleanup always happens first. Even a TLS mismatch, invalid caller
-    // frame, or non-cooperative early mode-2 branch must retain vanilla's
-    // dynamic-array destruction exactly once.
-    unsafe { call_path_result_destroy(result) };
-
-    let Some(kind) = QueryKind::connected_mode(mode) else {
-        return;
-    };
-    let Some(available) = take_pending_connected_result(kind) else {
-        return;
-    };
-    let Some(result_offset) = kind.scanner_result_offset() else {
-        return;
-    };
-    if caller_ebp == 0 || result as usize != caller_ebp.wrapping_sub(result_offset) {
-        return;
-    }
-
-    unsafe {
-        core::ptr::write_unaligned(
-            caller_ebp.wrapping_sub(0x0D) as *mut u8,
-            u8::from(available),
-        );
-    }
-    if available {
-        let signal_value =
-            unsafe { core::ptr::read_volatile(CONNECTED_SIGNAL_VALUE_ADDR as *const f32) };
-        unsafe {
-            core::ptr::write_unaligned(caller_ebp.wrapping_sub(0x14) as *mut f32, signal_value);
-        }
-    }
-}
-
-fn take_pending_connected_result(kind: QueryKind) -> Option<bool> {
-    PENDING_CONNECTED_RESULT
-        .with(|pending| pending.replace(PendingConnectedResult::None))
-        .consume_for(kind)
-}
-
-fn report_cooperative_capacity_failure() {
-    COOPERATIVE_SCAN_ACTIVE.with(|active| active.set(false));
-    if !COOPERATIVE_CAPACITY_EXCEEDED.swap(true, Ordering::AcqRel) {
-        log::error!(
-            "[RADIO] Cooperative query capacity exceeded ({}); future scans retain the original synchronous path",
-            MAX_COOPERATIVE_QUERIES,
-        );
-    }
-}
-
-fn observe_frame_present() {
-    let thread_id = libpsycho::os::windows::winapi::get_current_thread_id();
-    let now_ms = libpsycho::os::windows::winapi::get_tick_count();
-    FRAME_THREAD_ID.store(thread_id, Ordering::Release);
-    LAST_FRAME_EVENT_MS.store(now_ms, Ordering::Release);
-
-    if RADIO_THREAD_ID.load(Ordering::Acquire) != thread_id {
-        return;
-    }
-    if game_is_loading() {
-        if TASKLET_BACKEND_AVAILABLE.load(Ordering::Acquire) {
-            quiesce_tasklet_queries();
-        }
-        QUERY_PIPELINE.lock().reset();
-        return;
-    }
-    if TASKLET_BACKEND_AVAILABLE.load(Ordering::Acquire) {
-        match schedule_tasklet_generation(now_ms) {
-            Ok(()) => return,
-            Err(error) => {
-                TASKLET_BACKEND_AVAILABLE.store(false, Ordering::Release);
-                quiesce_tasklet_queries();
-                if !TASKLET_BACKEND_FAILURE_REPORTED.swap(true, Ordering::AcqRel) {
-                    log::error!(
-                        "[RADIO] Native tasklet backend failed; cooperative main-thread fallback restored: {error:#}"
-                    );
-                }
-            }
-        }
-    }
-
-    let Some(work) = QUERY_PIPELINE.lock().take_next(now_ms) else {
-        return;
-    };
-    let timer = (!COOPERATIVE_PUBLICATION_REPORTED.load(Ordering::Acquire))
-        .then(diagnostics::Stopwatch::start);
-    let value = unsafe { execute_query_work(work) };
-    if let Some(elapsed_us) = timer.and_then(diagnostics::Stopwatch::elapsed_us) {
-        COOPERATIVE_TIMED_JOBS.fetch_add(1, Ordering::Relaxed);
-        COOPERATIVE_TIMED_TOTAL_US.fetch_add(elapsed_us, Ordering::Relaxed);
-        diagnostics::update_max_u64(&COOPERATIVE_TIMED_MAX_US, elapsed_us);
-    }
-
-    let (published, published_count, kinds) = {
-        let mut pipeline = QUERY_PIPELINE.lock();
-        let published = pipeline.complete(work, value);
-        (
-            published,
-            pipeline.published_count,
-            pipeline.published_kind_counts(),
-        )
-    };
-    if published && !COOPERATIVE_PUBLICATION_REPORTED.swap(true, Ordering::AcqRel) {
-        log::info!(
-            "[RADIO] Cooperative generation verified: results={} kinds=distance:{}/mode1:{}/mode2:{} jobs={} total/max={}/{}us spread_ms={:?} thread=0x{:08X}",
-            published_count,
-            kinds.distance,
-            kinds.mode1,
-            kinds.mode2,
-            COOPERATIVE_TIMED_JOBS.load(Ordering::Relaxed),
-            COOPERATIVE_TIMED_TOTAL_US.load(Ordering::Relaxed),
-            COOPERATIVE_TIMED_MAX_US.load(Ordering::Relaxed),
-            (COOPERATIVE_COLLECTION_MS.load(Ordering::Acquire) != 0)
-                .then(|| now_ms.wrapping_sub(COOPERATIVE_COLLECTION_MS.load(Ordering::Relaxed))),
-            libpsycho::os::windows::winapi::get_current_thread_id(),
-        );
-    }
-}
-
-unsafe fn execute_query_work(work: QueryWork) -> Option<QueryValue> {
-    let lookup =
-        unsafe { FnPtr::<LookupFormByIdFn>::from_address_unchecked(LOOKUP_FORM_BY_ID_ADDR) }
-            .as_fn();
-    let station_ref = unsafe { lookup(work.request.key.station_form_id) };
-    let current_ref = unsafe { lookup(work.request.key.current_ref_form_id) };
-    if station_ref.is_null() || current_ref.is_null() {
-        return None;
-    }
-    let expected_worldspace = match work.request.key.kind {
-        QueryKind::NullOrStationWorldspace => {
-            let worldspace = unsafe { lookup(work.request.key.parameter_bits) };
-            if worldspace.is_null() {
-                return None;
-            }
-            worldspace
-        }
-        QueryKind::Distance | QueryKind::InteriorOnly => core::ptr::null_mut(),
-    };
-
-    let init = unsafe {
-        FnPtr::<PathingLocationInitFn>::from_address_unchecked(PATHING_LOCATION_INIT_ADDR)
-    }
-    .as_fn();
-    let destroy = unsafe {
-        FnPtr::<PathingLocationDestroyFn>::from_address_unchecked(PATHING_LOCATION_DESTROY_ADDR)
-    }
-    .as_fn();
-    let mut prepared = PreparedQuery::empty();
-    prepared.work = work;
-    prepared.expected_worldspace = expected_worldspace;
-    unsafe {
-        init(&mut prepared.station, station_ref);
-        init(&mut prepared.current, current_ref);
-    }
-    prepared.initialized = true;
-    let value = unsafe { execute_prepared_query(&mut prepared) };
-    unsafe {
-        destroy(&mut prepared.station);
-        destroy(&mut prepared.current);
-    }
-    Some(value)
-}
-
-unsafe fn call_mode0_distance(
-    station: *mut PathingLocation,
-    current_ref: *mut PathingLocation,
-    radius: f32,
-    actor_data: *mut c_void,
-    disposition: u32,
-) -> f32 {
-    let original =
-        unsafe { FnPtr::<Mode0RadioDistanceFn>::from_address_unchecked(MODE0_RADIO_DISTANCE_ADDR) }
-            .as_fn();
-    unsafe { original(station, current_ref, radius, actor_data, disposition) }
-}
-
-unsafe fn call_generic_path_query(
-    station: *mut PathingLocation,
-    current: *mut PathingLocation,
-    result: *mut PathQueryResult,
-    mode: u32,
-    max_cost: f32,
-    filter: u32,
-    behavior: u32,
-) -> u8 {
-    let original =
-        unsafe { FnPtr::<GenericPathQueryFn>::from_address_unchecked(PATH_QUERY_ADDR) }.as_fn();
-    unsafe { original(station, current, result, mode, max_cost, filter, behavior) }
-}
-
-unsafe fn call_path_result_destroy(result: *mut PathQueryResult) {
-    let destroy =
-        unsafe { FnPtr::<PathResultDestroyFn>::from_address_unchecked(PATH_RESULT_DESTROY_ADDR) }
-            .as_fn();
-    unsafe { destroy(result) };
 }
 
 unsafe extern "C" fn skip_empty_inactive_station_update(station: *mut c_void) {
@@ -2554,9 +663,11 @@ unsafe extern "C" fn skip_empty_inactive_station_update(station: *mut c_void) {
         return;
     }
 
-    let original =
-        unsafe { FnPtr::<RadioStationUpdateFn>::from_address_unchecked(RADIO_STATION_UPDATE_ADDR) }
-            .as_fn();
+    // The predecessor is published before activation. The native address also
+    // preserves behavior if this function is ever reached before preparation.
+    let original = STATION_UPDATE_HOOK.original().unwrap_or_else(|_| unsafe {
+        FnPtr::<RadioStationUpdateFn>::from_address_unchecked(RADIO_STATION_UPDATE_ADDR).as_fn()
+    });
     unsafe { original(station) };
 }
 
@@ -2570,167 +681,23 @@ fn should_skip_empty_inactive_station_update(
     station != current && !resetting && audio_list_head == 0 && audio_list_next == 0
 }
 
-unsafe fn reference_form_id(reference: *mut c_void) -> Option<u32> {
-    if reference.is_null() {
-        return None;
-    }
-    let form_id = unsafe { core::ptr::read_unaligned(reference.cast::<u8>().add(0x0C).cast()) };
-    (form_id != 0).then_some(form_id)
-}
-
-fn path_failure_distance() -> f32 {
-    unsafe { core::ptr::read_volatile(PATH_FAILURE_DISTANCE_ADDR as *const f32) }
-}
-
-fn register_radio_thread() {
-    let thread_id = libpsycho::os::windows::winapi::get_current_thread_id();
-    let _ = RADIO_THREAD_ID.compare_exchange(0, thread_id, Ordering::AcqRel, Ordering::Acquire);
-}
-
-fn cooperative_scheduler_available() -> bool {
-    if COOPERATIVE_CAPACITY_EXCEEDED.load(Ordering::Acquire) {
-        return false;
-    }
-    let thread_id = libpsycho::os::windows::winapi::get_current_thread_id();
-    if RADIO_THREAD_ID.load(Ordering::Acquire) != thread_id
-        || FRAME_THREAD_ID.load(Ordering::Acquire) != thread_id
-    {
-        return false;
-    }
-
-    let last_frame_ms = LAST_FRAME_EVENT_MS.load(Ordering::Acquire);
-    last_frame_ms != 0
-        && libpsycho::os::windows::winapi::get_tick_count().wrapping_sub(last_frame_ms)
-            <= FRAME_EVENT_TIMEOUT_MS
-}
-
-fn observe_scan_cadence(now_ms: u32) -> u32 {
-    let previous_ms = LAST_RADIO_SCAN_MS.swap(now_ms, Ordering::AcqRel);
-    let elapsed_ms = (previous_ms != 0).then(|| now_ms.wrapping_sub(previous_ms));
-    normalize_scan_cadence(elapsed_ms)
-}
-
-fn normalize_scan_cadence(elapsed_ms: Option<u32>) -> u32 {
-    elapsed_ms
-        .filter(|elapsed_ms| (MIN_SCAN_CADENCE_MS..=MAX_SCAN_CADENCE_MS).contains(elapsed_ms))
-        .unwrap_or(DEFAULT_SCAN_CADENCE_MS)
-}
-
-fn tick_reached(now_ms: u32, due_ms: u32) -> bool {
-    now_ms.wrapping_sub(due_ms) < 0x8000_0000
-}
-
-fn report_cooperative_fallback_once() {
-    if COOPERATIVE_FALLBACK_REPORTED.load(Ordering::Acquire) {
-        return;
-    }
-
-    let deferred_init_ms = DEFERRED_INIT_MS.load(Ordering::Acquire);
-    if deferred_init_ms == 0 {
-        return;
-    }
-    let now_ms = libpsycho::os::windows::winapi::get_tick_count();
-    if now_ms.wrapping_sub(deferred_init_ms) < FALLBACK_REPORT_DELAY_MS {
-        return;
-    }
-    if COOPERATIVE_FALLBACK_REPORTED.swap(true, Ordering::AcqRel) {
-        return;
-    }
-
-    let radio_thread = RADIO_THREAD_ID.load(Ordering::Acquire);
-    let frame_thread = FRAME_THREAD_ID.load(Ordering::Acquire);
-    let last_frame_ms = LAST_FRAME_EVENT_MS.load(Ordering::Acquire);
-    let frame_age_ms = (last_frame_ms != 0).then(|| now_ms.wrapping_sub(last_frame_ms));
-    let reason = cooperative_fallback_reason(
-        COOPERATIVE_CAPACITY_EXCEEDED.load(Ordering::Acquire),
-        radio_thread,
-        frame_thread,
-        frame_age_ms,
-    );
-    log::warn!(
-        "[RADIO] Cooperative scheduler fallback: reason={} radio_thread=0x{:08X} frame_thread=0x{:08X} frame_age_ms={:?}",
-        reason,
-        radio_thread,
-        frame_thread,
-        frame_age_ms,
-    );
-}
-
-fn cooperative_fallback_reason(
-    capacity_exceeded: bool,
-    radio_thread: u32,
-    frame_thread: u32,
-    frame_age_ms: Option<u32>,
-) -> &'static str {
-    if capacity_exceeded {
-        return "capacity-exceeded";
-    }
-    if radio_thread == 0 {
-        return "radio-thread-missing";
-    }
-    if frame_thread == 0 || frame_age_ms.is_none() {
-        return "frame-event-missing";
-    }
-    if radio_thread != frame_thread {
-        return "thread-mismatch";
-    }
-    if frame_age_ms.is_some_and(|age_ms| age_ms > FRAME_EVENT_TIMEOUT_MS) {
-        return "frame-event-stale";
-    }
-    "unknown"
-}
-
-fn cooperative_scan_active() -> bool {
-    COOPERATIVE_SCAN_ACTIVE.with(|active| active.get())
-}
-
-fn game_is_loading() -> bool {
-    unsafe { core::ptr::read_volatile(LOADING_FLAG_ADDR as *const u8) != 0 }
-}
-
 unsafe extern "C" fn hook_periodic_radio_signal_scan(
     current_ref: *mut c_void,
     out_stations: *mut c_void,
     out_meta: *mut c_void,
 ) {
-    register_radio_thread();
-    let scan_started_ms = libpsycho::os::windows::winapi::get_tick_count();
-    let scan_cadence_ms = observe_scan_cadence(scan_started_ms);
+    // SAFETY: this exact caller owns all three engine arguments until return.
+    // The bridge does not inspect, retain, or recreate its output containers.
+    let scan = SCAN_HOOK.original().unwrap_or_else(|_| unsafe {
+        FnPtr::<RadioSignalScanFn>::from_address_unchecked(RADIO_SIGNAL_SCAN_ADDR).as_fn()
+    });
+    let scope = RadioScanScope::enter();
+    let outermost = scope.previous.depth == 0;
     let timer = diagnostics::Stopwatch::start_if_hitch_profiling();
-    let scope = RadioScanScope::enter(scan_started_ms, scan_cadence_ms);
-    let first_collection_timer = (scope.cooperative
-        && !COOPERATIVE_COLLECTION_REPORTED.load(Ordering::Acquire))
-    .then(diagnostics::Stopwatch::start);
-    let cooperative = scope.cooperative;
-    let scan =
-        unsafe { FnPtr::<RadioSignalScanFn>::from_address_unchecked(RADIO_SIGNAL_SCAN_ADDR) }
-            .as_fn();
     unsafe { scan(current_ref, out_stations, out_meta) };
     drop(scope);
-
-    if cooperative && !COOPERATIVE_COLLECTION_REPORTED.swap(true, Ordering::AcqRel) {
-        let (requests, kinds, spacing_ms, state) = {
-            let pipeline = QUERY_PIPELINE.lock();
-            (
-                pipeline.build_count,
-                pipeline.request_kind_counts(),
-                pipeline.job_spacing_ms,
-                pipeline.state,
-            )
-        };
-        COOPERATIVE_COLLECTION_MS.store(scan_started_ms, Ordering::Release);
-        log::info!(
-            "[RADIO] Cooperative collection verified: requests={} kinds=distance:{}/mode1:{}/mode2:{} cadence/spacing={}/{}ms scan_us={:?} state={:?} thread=0x{:08X}",
-            requests,
-            kinds.distance,
-            kinds.mode1,
-            kinds.mode2,
-            scan_cadence_ms,
-            spacing_ms,
-            first_collection_timer.and_then(diagnostics::Stopwatch::elapsed_us),
-            state,
-            libpsycho::os::windows::winapi::get_current_thread_id(),
-        );
+    if !outermost {
+        return;
     }
 
     let Some(elapsed_us) = timer.elapsed_us() else {
@@ -2843,21 +810,15 @@ unsafe extern "fastcall" fn hook_path_traversal(query: *mut c_void) -> usize {
     if !radio_scan_active() {
         return unsafe { original(query) };
     }
-
-    let policy_scope = unsafe { DoorPolicyBypassScope::enter(query.cast()) };
-    if !diagnostics::hitch_profiling_enabled() {
-        let result = unsafe { original(query) };
-        drop(policy_scope);
-        return result;
-    }
+    let policy_query = unsafe { is_exact_radio_policy_query(query.cast()) };
 
     let probe = unsafe { TraversalProbe::capture(query.cast()) };
     let timer = diagnostics::Stopwatch::start();
     let result = unsafe { original(query) };
-    drop(policy_scope);
     let elapsed_us = timer.elapsed_us();
     with_active_stats(|stats| {
         stats.traversals.record(elapsed_us);
+        stats.policy_queries = stats.policy_queries.saturating_add(u32::from(policy_query));
         probe.record(result, stats);
     });
     result
@@ -2941,51 +902,132 @@ impl TraversalProbe {
     }
 }
 
-unsafe extern "fastcall" fn hook_door_policy_setup(
-    data: *mut c_void,
-    edx: *mut c_void,
-    door: *mut c_void,
-) {
-    let Ok(original) = DOOR_POLICY_SETUP_HOOK.original() else {
-        return;
-    };
-    if !policy_bypass_active() || data.is_null() || door.is_null() {
-        unsafe { original(data, edx, door) };
-        return;
-    }
-
-    unsafe { core::ptr::write_unaligned(data.cast::<u8>().add(0x08).cast::<usize>(), 0) };
-    PENDING_POLICY_ACCESS.with(|pending| pending.set((data as usize, door as usize)));
-    with_active_stats(|stats| {
-        stats.policy_setup_bypasses = stats.policy_setup_bypasses.saturating_add(1);
-    });
+/// Adapts the verified native constructor call without changing its ABI.
+///
+/// The provider keeps its live query at caller EBP-0x80. Pass that frame as a
+/// third internal argument; preserve the native thiscall return and ret 4.
+#[unsafe(naked)]
+unsafe extern "thiscall" fn hook_door_policy_setup(
+    _data: *mut c_void,
+    _door: *mut c_void,
+) -> *mut c_void {
+    core::arch::naked_asm!(
+        "mov eax, ebp",
+        "push ebp",
+        "mov ebp, esp",
+        "and esp, -16",
+        "sub esp, 4",
+        "push eax",
+        "push dword ptr [ebp + 8]",
+        "push ecx",
+        "call {body}",
+        "mov esp, ebp",
+        "pop ebp",
+        "ret 4",
+        body = sym native_door_policy_setup,
+    );
 }
 
+unsafe extern "C" fn native_door_policy_setup(
+    data: *mut c_void,
+    door: *mut c_void,
+    caller_ebp: usize,
+) -> *mut c_void {
+    let original = DOOR_POLICY_SETUP_HOOK
+        .original()
+        .unwrap_or_else(|_| unsafe {
+            FnPtr::<DoorPolicySetupFn>::from_address_unchecked(VANILLA_POLICY_SETUP_ADDR).as_fn()
+        });
+    PENDING_POLICY_ACCESS.with(|pending| pending.set((0, 0)));
+    let context = RADIO_SCAN_CONTEXT.with(Cell::get);
+    if !context.native_policy
+        || context.depth == 0
+        || data.is_null()
+        || door.is_null()
+        || caller_ebp == 0
+    {
+        return unsafe { original(data, door) };
+    }
+    // SAFETY: the verified native provider saves ECX at EBP-0x80 before
+    // reaching this call. That query remains live on this thread throughout
+    // enumeration. Read the actual caller's query rather than inheriting an
+    // outer traversal's policy when a provider performs nested path work.
+    let query = unsafe { core::ptr::read_unaligned((caller_ebp - 0x80) as *const *const u8) };
+    if !unsafe { radio_query_fields_match(query) } {
+        return unsafe { original(data, door) };
+    }
+    // SAFETY: the verified caller reserves this 0x18-byte object on its stack.
+    // Only the paired accessibility call and native destructor consume it.
+    // The bypass skips the former; the latter reads only its +0x08 pointer.
+    unsafe { core::ptr::write_unaligned(data.cast::<u8>().add(8).cast::<usize>(), 0) };
+    PENDING_POLICY_ACCESS.with(|pending| pending.set((data as usize, door as usize)));
+    with_active_stats(|stats| {
+        stats.policy_setup_bypasses = stats.policy_setup_bypasses.saturating_add(1)
+    });
+    data
+}
+
+/// Align the native thiscall stack before entering the Rust accessibility body.
+/// ECX and three stack arguments are unchanged; the native caller expects RET 12.
+#[unsafe(naked)]
 unsafe extern "thiscall" fn hook_door_accessibility(
+    _data: *mut c_void,
+    _actor: *mut c_void,
+    _door: *mut c_void,
+    _flag: *mut u8,
+) -> u8 {
+    core::arch::naked_asm!(
+        "push ebp", "mov ebp, esp", "and esp, -16",
+        "push dword ptr [ebp + 16]", "push dword ptr [ebp + 12]",
+        "push dword ptr [ebp + 8]", "push ecx",
+        "call {body}", "mov esp, ebp", "pop ebp", "ret 12",
+        body = sym native_door_accessibility,
+    );
+}
+
+unsafe extern "C" fn native_door_accessibility(
     data: *mut c_void,
     actor_data: *mut c_void,
     door: *mut c_void,
     out_flag: *mut u8,
 ) -> u8 {
-    let Ok(original) = DOOR_ACCESSIBILITY_HOOK.original() else {
-        return 0;
-    };
-
-    let expected = (data as usize, door as usize);
-    let paired = policy_bypass_active()
-        && actor_data.is_null()
-        && !out_flag.is_null()
-        && PENDING_POLICY_ACCESS.with(|pending| pending.get() == expected);
-    if !paired {
-        return unsafe { original(data, actor_data, door, out_flag) };
-    }
-
-    PENDING_POLICY_ACCESS.with(|pending| pending.set((0, 0)));
-    unsafe { out_flag.write(0) };
-    with_active_stats(|stats| {
-        stats.policy_access_bypasses = stats.policy_access_bypasses.saturating_add(1);
+    let original = DOOR_ACCESSIBILITY_HOOK
+        .original()
+        .unwrap_or_else(|_| unsafe {
+            FnPtr::<DoorAccessibilityFn>::from_address_unchecked(DOOR_ACCESSIBILITY_ADDR).as_fn()
+        });
+    let paired = PENDING_POLICY_ACCESS.with(|pending| {
+        let expected = (data as usize, door as usize);
+        if expected.0 != 0 && pending.get() == expected {
+            pending.set((0, 0));
+            true
+        } else {
+            false
+        }
     });
-    1
+    if paired && actor_data.is_null() && !out_flag.is_null() {
+        // SAFETY: the verified native caller supplies one writable flag byte.
+        // All three admitted tuples discard accessibility policy. Return the
+        // exact native null-actor result; minimum-use handling remains native.
+        unsafe { out_flag.write(0) };
+        with_active_stats(|stats| {
+            stats.policy_access_bypasses = stats.policy_access_bypasses.saturating_add(1)
+        });
+        return 0;
+    }
+    if paired {
+        // Setup was skipped, but admission changed: construct the object before
+        // the original predicate can read any of its otherwise uninitialized
+        // fields. Its +0x08 cleanup pointer is still null, so nothing is leaked.
+        let setup = DOOR_POLICY_SETUP_HOOK
+            .original()
+            .unwrap_or_else(|_| unsafe {
+                FnPtr::<DoorPolicySetupFn>::from_address_unchecked(VANILLA_POLICY_SETUP_ADDR)
+                    .as_fn()
+            });
+        unsafe { setup(data, door) };
+    }
+    unsafe { original(data, actor_data, door, out_flag) }
 }
 
 unsafe extern "fastcall" fn hook_station_mode(station: *mut c_void) -> u32 {
@@ -3006,23 +1048,35 @@ unsafe extern "fastcall" fn hook_station_mode(station: *mut c_void) -> u32 {
 }
 
 fn radio_scan_active() -> bool {
-    RADIO_SCAN_DEPTH.with(|depth| depth.get() != 0)
-}
-
-fn policy_bypass_active() -> bool {
-    POLICY_BYPASS_DEPTH.with(|depth| depth.get() != 0)
+    RADIO_SCAN_CONTEXT.with(|context| context.get().depth != 0)
 }
 
 unsafe fn is_exact_radio_policy_query(query: *const u8) -> bool {
-    !query.is_null()
-        && radio_scan_active()
-        && unsafe { read_u32(query, 0) } as usize == RADIO_QUERY_VTABLE
-        && unsafe { read_u32(query, 0x2098) } == 0
-        && unsafe { read_u32(query, 0x20A0) } == 0
-        && unsafe { read_u32(query, 0x20B4) } == 3
+    radio_scan_active() && unsafe { radio_query_fields_match(query) }
+}
+
+/// Match the native query tuple after the caller has checked its scan scope.
+/// Keeping field admission separate avoids repeated TLS lookups per expansion.
+/// The pointer must name the current native query if it is non-null.
+unsafe fn radio_query_fields_match(query: *const u8) -> bool {
+    if query.is_null()
+        || unsafe { read_u32(query, 0) } as usize != RADIO_QUERY_VTABLE
+        || unsafe { read_u32(query, 0x20A0) } != 0
+    {
+        return false;
+    }
+    // SAFETY: this is the live native query from the verified provider frame.
+    // These are the exact tuples constructed by the three radio query callers.
+    matches!(
+        unsafe { (read_u32(query, 0x2098), read_u32(query, 0x20B4)) },
+        (0, 3) | (1, 1) | (2, 1)
+    )
 }
 
 fn with_active_stats(f: impl FnOnce(&mut ScanStats)) {
+    if !diagnostics::hitch_profiling_enabled() {
+        return;
+    }
     RADIO_SCAN_STATE.with(|state| {
         if let Ok(mut state) = state.try_borrow_mut() {
             f(&mut state.stats)
@@ -3061,57 +1115,6 @@ fn verify_signature(address: usize, expected: &[u8], label: &str) -> anyhow::Res
     Ok(())
 }
 
-unsafe fn replace_calls_transactionally(patches: &[(usize, *mut c_void)]) -> anyhow::Result<()> {
-    let originals = patches
-        .iter()
-        .map(|(address, _)| {
-            read_bytes(*address as *const c_void, 5)
-                .with_context(|| format!("snapshot CALL at 0x{address:08X}"))
-        })
-        .collect::<anyhow::Result<Vec<_>>>()?;
-
-    for (applied, (address, target)) in patches.iter().enumerate() {
-        if let Err(error) = unsafe { replace_call(*address as *mut c_void, *target) } {
-            // These patches are installed before gameplay begins, but partial
-            // connected coverage is still unsafe: a query bridge must never
-            // exist without its destructor handoff. Restore complete original
-            // instructions in reverse order and report any rollback failure.
-            let mut rollback_failures = Vec::new();
-            for index in (0..=applied).rev() {
-                if let Err(rollback_error) = unsafe {
-                    patch_bytes(patches[index].0 as *mut c_void, originals[index].as_slice())
-                } {
-                    rollback_failures.push(format!("0x{:08X}: {rollback_error}", patches[index].0));
-                }
-            }
-            if rollback_failures.is_empty() {
-                return Err(error).with_context(|| {
-                    format!("replace CALL at 0x{address:08X}; prior writes rolled back")
-                });
-            }
-            return Err(anyhow::anyhow!(
-                "replace CALL at 0x{address:08X}: {error}; rollback failures: {}",
-                rollback_failures.join(", ")
-            ));
-        }
-    }
-    Ok(())
-}
-
-fn verify_tasklet_provider_target(provider: usize) -> anyhow::Result<()> {
-    ensure!(
-        provider >= 0x10000,
-        "teleport-door provider target 0x{provider:08X} is invalid"
-    );
-    let info = virtual_query(provider as *mut c_void)
-        .with_context(|| format!("query teleport-door provider target 0x{provider:08X}"))?;
-    ensure!(
-        info.is_executable(),
-        "teleport-door provider target 0x{provider:08X} is not executable"
-    );
-    Ok(())
-}
-
 unsafe fn first_queued_node(query: *const u8) -> usize {
     for bucket in 0..PRIORITY_BUCKET_COUNT {
         let node = unsafe { read_u32(query, 0x1FF8 + bucket * 4) } as usize;
@@ -3126,444 +1129,9 @@ unsafe fn read_u32(base: *const u8, offset: usize) -> u32 {
     unsafe { core::ptr::read_unaligned(base.add(offset).cast()) }
 }
 
-fn verify_rel_call(call_addr: usize, expected_target: usize) -> anyhow::Result<()> {
-    let opcode = unsafe { core::ptr::read_volatile(call_addr as *const u8) };
-    if opcode != 0xE8 {
-        return Err(anyhow::anyhow!(
-            "callsite mismatch at 0x{call_addr:08X}: expected CALL opcode 0xE8, found 0x{opcode:02X}"
-        ));
-    }
-
-    let displacement = unsafe { core::ptr::read_unaligned((call_addr + 1) as *const i32) };
-    let observed_target = call_addr
-        .wrapping_add(5)
-        .wrapping_add_signed(displacement as isize);
-    if observed_target != expected_target {
-        return Err(anyhow::anyhow!(
-            "callsite mismatch at 0x{call_addr:08X}: expected target 0x{expected_target:08X}, found 0x{observed_target:08X}"
-        ));
-    }
-
-    Ok(())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn request(station_form_id: u32, radius: f32) -> QueryRequest {
-        QueryRequest::distance(station_form_id, 0x14, radius)
-    }
-
-    fn connected_request(
-        station_form_id: u32,
-        kind: QueryKind,
-        expected_worldspace_form_id: u32,
-    ) -> QueryRequest {
-        QueryRequest::connected(station_form_id, 0x14, kind, expected_worldspace_form_id)
-    }
-
-    fn distance(distance: f32) -> Option<QueryValue> {
-        Some(QueryValue::distance(distance))
-    }
-
-    #[test]
-    fn cooperative_generation_is_published_only_when_complete() {
-        let mut pipeline = QueryPipeline::new();
-        let first = request(0x0100_0001, 10_000.0);
-        let second = request(0x0100_0002, 20_000.0);
-
-        pipeline.begin_scan(1_000, 250);
-        assert_eq!(pipeline.observe_query(first), None);
-        assert_eq!(pipeline.observe_query(second), None);
-        assert!(pipeline.end_scan());
-
-        let first_work = pipeline.take_next(1_000).expect("first frame work");
-        assert!(!pipeline.complete(first_work, distance(1_500.0)));
-        assert_eq!(pipeline.lookup_published(first.key), None);
-        assert_eq!(pipeline.lookup_published(second.key), None);
-
-        let second_work = pipeline.take_next(1_125).expect("second frame work");
-        assert!(pipeline.complete(second_work, distance(2_500.0)));
-        assert_eq!(pipeline.lookup_published(first.key), distance(1_500.0));
-        assert_eq!(pipeline.lookup_published(second.key), distance(2_500.0));
-    }
-
-    #[test]
-    fn failed_generation_preserves_the_last_complete_snapshot() {
-        let mut pipeline = QueryPipeline::new();
-        let old = request(0x0100_0001, 10_000.0);
-
-        pipeline.begin_scan(1_000, 250);
-        pipeline.observe_query(old);
-        pipeline.end_scan();
-        let work = pipeline.take_next(1_000).expect("seed work");
-        assert!(pipeline.complete(work, distance(1_500.0)));
-
-        pipeline.begin_scan(2_000, 250);
-        assert_eq!(pipeline.observe_query(old), distance(1_500.0));
-        let added = request(0x0100_0002, 20_000.0);
-        assert_eq!(pipeline.observe_query(added), None);
-        pipeline.end_scan();
-        let work = pipeline.take_next(2_000).expect("failed work");
-        assert!(!pipeline.complete(work, None));
-
-        assert_eq!(pipeline.lookup_published(old.key), distance(1_500.0));
-        assert_eq!(pipeline.lookup_published(added.key), None);
-    }
-
-    #[test]
-    fn duplicate_queries_share_one_frame_job() {
-        let mut pipeline = QueryPipeline::new();
-        let request = request(0x0100_0001, 10_000.0);
-
-        pipeline.begin_scan(1_000, 250);
-        pipeline.observe_query(request);
-        pipeline.observe_query(request);
-        assert_eq!(pipeline.build_count, 1);
-        pipeline.end_scan();
-        let work = pipeline.take_next(1_000).expect("deduplicated work");
-        assert!(pipeline.complete(work, distance(1_500.0)));
-        assert!(pipeline.take_next(1_001).is_none());
-    }
-
-    #[test]
-    fn mixed_query_kinds_publish_as_one_complete_generation() {
-        let mut pipeline = QueryPipeline::new();
-        let distance_request = request(0x0100_0001, 10_000.0);
-        let mode1_request =
-            connected_request(0x0100_0002, QueryKind::NullOrStationWorldspace, 0x0000_003C);
-        let mode2_request = connected_request(0x0100_0003, QueryKind::InteriorOnly, 0);
-
-        pipeline.begin_scan(1_000, 240);
-        pipeline.observe_query(distance_request);
-        pipeline.observe_query(mode1_request);
-        pipeline.observe_query(mode2_request);
-        assert_eq!(
-            pipeline.request_kind_counts(),
-            QueryKindCounts {
-                distance: 1,
-                mode1: 1,
-                mode2: 1,
-            }
-        );
-        assert!(pipeline.end_scan());
-
-        let first = pipeline.take_next(1_000).expect("distance work");
-        assert!(!pipeline.complete(first, distance(1_500.0)));
-        let second = pipeline.take_next(1_080).expect("mode-1 work");
-        assert!(!pipeline.complete(
-            second,
-            Some(QueryValue::availability(
-                QueryKind::NullOrStationWorldspace,
-                true,
-            )),
-        ));
-        assert_eq!(pipeline.published_count, 0);
-
-        let third = pipeline.take_next(1_160).expect("mode-2 work");
-        assert!(pipeline.complete(
-            third,
-            Some(QueryValue::availability(QueryKind::InteriorOnly, false)),
-        ));
-        assert_eq!(
-            pipeline.published_kind_counts(),
-            QueryKindCounts {
-                distance: 1,
-                mode1: 1,
-                mode2: 1,
-            }
-        );
-    }
-
-    #[test]
-    fn query_kind_and_kind_specific_parameter_prevent_cache_aliases() {
-        let distance_request = request(0x0100_0001, 60.0);
-        let first_worldspace =
-            connected_request(0x0100_0001, QueryKind::NullOrStationWorldspace, 0x0000_003C);
-        let second_worldspace =
-            connected_request(0x0100_0001, QueryKind::NullOrStationWorldspace, 0x0000_003D);
-        let interior = connected_request(0x0100_0001, QueryKind::InteriorOnly, 0);
-
-        let mut pipeline = QueryPipeline::new();
-        pipeline.begin_scan(1_000, 250);
-        pipeline.observe_query(distance_request);
-        pipeline.observe_query(first_worldspace);
-        pipeline.observe_query(second_worldspace);
-        pipeline.observe_query(interior);
-        assert_eq!(pipeline.build_count, 4);
-    }
-
-    #[test]
-    fn mismatched_result_tag_aborts_without_publishing() {
-        let mut pipeline = QueryPipeline::new();
-        pipeline.begin_scan(1_000, 250);
-        pipeline.observe_query(request(0x0100_0001, 10_000.0));
-        pipeline.end_scan();
-        let work = pipeline.take_next(1_000).expect("distance work");
-
-        assert!(!pipeline.complete(
-            work,
-            Some(QueryValue::availability(QueryKind::InteriorOnly, true)),
-        ));
-        assert_eq!(pipeline.state, PipelineState::Idle);
-        assert_eq!(pipeline.published_count, 0);
-    }
-
-    #[test]
-    fn capacity_failure_rejects_the_generation_and_preserves_snapshot() {
-        let mut pipeline = QueryPipeline::new();
-        let old = request(0x0100_0001, 10_000.0);
-        pipeline.begin_scan(1_000, 250);
-        pipeline.observe_query(old);
-        pipeline.end_scan();
-        let work = pipeline.take_next(1_000).expect("seed work");
-        assert!(pipeline.complete(work, distance(1_500.0)));
-
-        pipeline.begin_scan(2_000, 250);
-        for form_id in 1..=MAX_COOPERATIVE_QUERIES as u32 {
-            pipeline.observe_query(request(form_id, 20_000.0));
-        }
-        pipeline.observe_query(request(u32::MAX, 20_000.0));
-        assert!(pipeline.collection_failed);
-        assert!(!pipeline.end_scan());
-        assert_eq!(pipeline.lookup_published(old.key), distance(1_500.0));
-    }
-
-    #[test]
-    fn connected_parent_space_predicates_match_the_scanner() {
-        let expected = 0x1000usize as *mut c_void;
-        let other = 0x2000usize as *mut c_void;
-
-        assert!(connected_worldspace_is_allowed(
-            QueryKind::NullOrStationWorldspace,
-            expected,
-            core::ptr::null_mut(),
-        ));
-        assert!(connected_worldspace_is_allowed(
-            QueryKind::NullOrStationWorldspace,
-            expected,
-            expected,
-        ));
-        assert!(!connected_worldspace_is_allowed(
-            QueryKind::NullOrStationWorldspace,
-            expected,
-            other,
-        ));
-        assert!(connected_worldspace_is_allowed(
-            QueryKind::InteriorOnly,
-            core::ptr::null_mut(),
-            core::ptr::null_mut(),
-        ));
-        assert!(!connected_worldspace_is_allowed(
-            QueryKind::InteriorOnly,
-            core::ptr::null_mut(),
-            expected,
-        ));
-    }
-
-    #[test]
-    fn result_reduction_uses_the_verified_array_offsets_and_stride() {
-        let expected = 0x1000usize as *mut c_void;
-        let nodes = [
-            ParentSpaceNode {
-                _parent: core::ptr::null_mut(),
-                worldspace: core::ptr::null_mut(),
-                _teleport: core::ptr::null_mut(),
-            },
-            ParentSpaceNode {
-                _parent: core::ptr::null_mut(),
-                worldspace: expected,
-                _teleport: core::ptr::null_mut(),
-            },
-        ];
-        let mut result = PathQueryResult::uninit_storage();
-        unsafe {
-            core::ptr::write_unaligned(
-                result
-                    .bytes
-                    .as_mut_ptr()
-                    .add(0x04)
-                    .cast::<*const ParentSpaceNode>(),
-                nodes.as_ptr(),
-            );
-            core::ptr::write_unaligned(result.bytes.as_mut_ptr().add(0x08).cast::<u32>(), 2);
-        }
-
-        assert!(unsafe {
-            connected_result_accepts(&result, QueryKind::NullOrStationWorldspace, expected)
-        });
-        assert!(!unsafe {
-            connected_result_accepts(&result, QueryKind::InteriorOnly, core::ptr::null_mut())
-        });
-    }
-
-    #[test]
-    fn pending_connected_result_is_mode_matched_and_one_shot() {
-        PENDING_CONNECTED_RESULT.with(|pending| pending.set(PendingConnectedResult::Mode1(true)));
-        assert_eq!(take_pending_connected_result(QueryKind::InteriorOnly), None);
-        assert_eq!(
-            take_pending_connected_result(QueryKind::NullOrStationWorldspace),
-            None,
-            "a mismatched cleanup must consume the stale handoff"
-        );
-
-        PENDING_CONNECTED_RESULT.with(|pending| pending.set(PendingConnectedResult::Mode2(false)));
-        assert_eq!(
-            take_pending_connected_result(QueryKind::InteriorOnly),
-            Some(false)
-        );
-        assert_eq!(take_pending_connected_result(QueryKind::InteriorOnly), None);
-    }
-
-    #[test]
-    fn cooperative_jobs_are_evenly_released_across_the_scan_cadence() {
-        let mut pipeline = QueryPipeline::new();
-        let first = request(0x0100_0001, 10_000.0);
-        let second = request(0x0100_0002, 20_000.0);
-        let third = request(0x0100_0003, 30_000.0);
-
-        pipeline.begin_scan(1_000, 240);
-        pipeline.observe_query(first);
-        pipeline.observe_query(second);
-        pipeline.observe_query(third);
-        assert!(pipeline.end_scan());
-        assert_eq!(pipeline.job_spacing_ms, 80);
-
-        let work = pipeline.take_next(1_000).expect("first paced work");
-        assert!(!pipeline.complete(work, distance(1_000.0)));
-        assert!(pipeline.take_next(1_079).is_none());
-
-        let work = pipeline.take_next(1_080).expect("second paced work");
-        assert!(!pipeline.complete(work, distance(2_000.0)));
-        assert!(pipeline.take_next(1_159).is_none());
-
-        let work = pipeline.take_next(1_160).expect("third paced work");
-        assert!(pipeline.complete(work, distance(3_000.0)));
-    }
-
-    #[test]
-    fn delayed_frames_catch_up_without_releasing_more_than_one_job_per_call() {
-        let mut pipeline = QueryPipeline::new();
-        pipeline.begin_scan(1_000, 200);
-        for form_id in 1..=4 {
-            pipeline.observe_query(request(form_id, 10_000.0));
-        }
-        assert!(pipeline.end_scan());
-        assert_eq!(pipeline.job_spacing_ms, 50);
-
-        let first = pipeline.take_next(1_000).expect("first work");
-        assert_eq!(first.index, 0);
-        assert!(!pipeline.complete(first, distance(1_000.0)));
-
-        let second = pipeline.take_next(1_125).expect("delayed second work");
-        assert_eq!(second.index, 1);
-        assert!(!pipeline.complete(second, distance(2_000.0)));
-
-        let third = pipeline.take_next(1_140).expect("catch-up third work");
-        assert_eq!(third.index, 2);
-    }
-
-    #[test]
-    fn worker_queries_follow_the_same_serial_cadence_as_the_fallback() {
-        let mut pipeline = QueryPipeline::new();
-        pipeline.begin_scan(1_000, 240);
-        for form_id in 1..=3 {
-            pipeline.observe_query(request(form_id, 10_000.0));
-        }
-        assert!(pipeline.end_scan());
-
-        let first = pipeline.take_next(1_000).expect("first worker job");
-        assert!(pipeline.take_next(1_079).is_none());
-        assert!(!pipeline.complete(first, distance(1_000.0)));
-
-        let second = pipeline.take_next(1_080).expect("second worker job");
-        assert!(pipeline.take_next(1_159).is_none());
-        assert!(!pipeline.complete(second, distance(2_000.0)));
-
-        let third = pipeline.take_next(1_160).expect("third worker job");
-        assert_eq!(first.generation, second.generation);
-        assert_eq!(second.generation, third.generation);
-        assert_eq!([first.index, second.index, third.index], [0, 1, 2]);
-        assert!(pipeline.complete(third, distance(3_000.0)));
-        assert_eq!(
-            pipeline.lookup_published(first.request.key),
-            distance(1_000.0)
-        );
-        assert_eq!(
-            pipeline.lookup_published(second.request.key),
-            distance(2_000.0)
-        );
-        assert_eq!(
-            pipeline.lookup_published(third.request.key),
-            distance(3_000.0)
-        );
-    }
-
-    #[test]
-    fn scan_cadence_rejects_startup_and_loading_gaps() {
-        assert_eq!(normalize_scan_cadence(None), DEFAULT_SCAN_CADENCE_MS);
-        assert_eq!(normalize_scan_cadence(Some(15)), DEFAULT_SCAN_CADENCE_MS);
-        assert_eq!(normalize_scan_cadence(Some(250)), 250);
-        assert_eq!(
-            normalize_scan_cadence(Some(MAX_SCAN_CADENCE_MS + 1)),
-            DEFAULT_SCAN_CADENCE_MS
-        );
-    }
-
-    #[test]
-    fn pathing_location_layout_matches_the_engine_contract() {
-        assert_eq!(core::mem::size_of::<PathingLocation>(), 0x28);
-        assert_eq!(core::mem::align_of::<PathingLocation>(), 4);
-        assert_eq!(core::mem::size_of::<PathQueryResult>(), 0x38);
-        assert_eq!(core::mem::align_of::<PathQueryResult>(), 4);
-        assert_eq!(core::mem::size_of::<ParentSpaceNode>(), 0x0C);
-        assert_eq!(core::mem::offset_of!(ParentSpaceNode, worldspace), 0x04);
-    }
-
-    #[test]
-    fn tasklet_layout_matches_the_engine_queue_contract() {
-        assert_eq!(core::mem::size_of::<EngineTasklet>(), 0x18);
-        assert_eq!(core::mem::align_of::<EngineTasklet>(), 4);
-        assert_eq!(core::mem::offset_of!(EngineTasklet, group), 0x08);
-        assert_eq!(core::mem::offset_of!(EngineTasklet, check_ready), 0x0C);
-        assert_eq!(core::mem::offset_of!(EngineTasklet, claimed), 0x10);
-        assert_eq!(core::mem::offset_of!(EngineTasklet, next), 0x14);
-        assert_eq!(core::mem::size_of::<TaskletHandle>(), 0x08);
-        assert_eq!(core::mem::offset_of!(RadioTasklet, engine), 0);
-        assert_eq!(core::mem::offset_of!(RadioTasklet, batch), 0x18);
-        assert_eq!(core::mem::size_of::<PreparedQuery>(), 0x78);
-        assert_eq!(core::mem::size_of::<PreparedBatch>(), 0x7C);
-        assert_eq!(core::mem::size_of::<RadioTasklet>(), 0x94);
-    }
-
-    #[test]
-    fn radio_tasklet_group_uses_the_dispatchers_lowest_priority_bucket() {
-        let mut group = [0u8; 0x3C];
-        unsafe {
-            set_tasklet_group_priority(group.as_mut_ptr(), TASKLET_LOWEST_QUEUE_PRIORITY);
-        }
-        assert_eq!(
-            unsafe {
-                core::ptr::read_unaligned(
-                    group
-                        .as_ptr()
-                        .add(TASKLET_GROUP_PRIORITY_OFFSET)
-                        .cast::<u32>(),
-                )
-            },
-            0x3F
-        );
-    }
-
-    #[test]
-    fn radio_worker_priority_change_is_restorable() {
-        let mut guard = lower_current_thread_priority_scoped(ThreadPriority::Idle)
-            .expect("lower current test-thread priority");
-        guard
-            .restore()
-            .expect("restore current test-thread priority");
-    }
 
     #[test]
     fn periodic_station_update_skips_only_the_original_empty_inactive_branch() {
@@ -3582,42 +1150,6 @@ mod tests {
         ));
         assert!(!should_skip_empty_inactive_station_update(
             station, 0x5678, false, 0, 1
-        ));
-    }
-
-    #[test]
-    fn tasklet_provider_capability_is_not_tied_to_a_module_or_version() {
-        unsafe extern "C" fn arbitrary_provider_target() {}
-
-        verify_tasklet_provider_target(arbitrary_provider_target as *const () as usize)
-            .expect("an executable provider target satisfies the game-owned virtual ABI");
-        assert!(verify_tasklet_provider_target(0).is_err());
-    }
-
-    #[test]
-    fn tasklet_callback_return_is_not_native_group_completion() {
-        assert!(!tasklet_group_counts_complete(1, 0));
-        assert!(tasklet_group_counts_complete(1, 1));
-        assert!(!tasklet_group_counts_complete(0, 0));
-    }
-
-    #[test]
-    fn tasklet_storage_is_not_embedded_in_the_eager_dll_image() {
-        assert!(
-            core::mem::size_of_val(&RADIO_TASKLET) <= 2 * core::mem::size_of::<usize>(),
-            "tasklet state must be allocated only after DeferredInit"
-        );
-    }
-
-    #[test]
-    fn world_lifetime_barrier_remains_dormant_before_deferred_init() {
-        assert!(!world_lifetime_barrier_ready(
-            crate::events::PRE_LOAD_GAME,
-            false
-        ));
-        assert!(world_lifetime_barrier_ready(
-            crate::events::PRE_LOAD_GAME,
-            true
         ));
     }
 
@@ -3653,33 +1185,5 @@ mod tests {
         assert_eq!(report.residual_us, 8_000);
         assert_eq!(report.stats.mode_queries[0].calls, 3);
         assert_eq!(report.stats.mode_queries[0].total_us, 5_000);
-    }
-
-    #[test]
-    fn cooperative_fallback_reason_preserves_the_first_failed_guard() {
-        assert_eq!(
-            cooperative_fallback_reason(true, 1, 1, Some(0)),
-            "capacity-exceeded"
-        );
-        assert_eq!(
-            cooperative_fallback_reason(false, 0, 1, Some(0)),
-            "radio-thread-missing"
-        );
-        assert_eq!(
-            cooperative_fallback_reason(false, 1, 0, None),
-            "frame-event-missing"
-        );
-        assert_eq!(
-            cooperative_fallback_reason(false, 1, 2, Some(0)),
-            "thread-mismatch"
-        );
-        assert_eq!(
-            cooperative_fallback_reason(false, 1, 1, Some(FRAME_EVENT_TIMEOUT_MS + 1)),
-            "frame-event-stale"
-        );
-        assert_eq!(
-            cooperative_fallback_reason(false, 1, 1, Some(FRAME_EVENT_TIMEOUT_MS)),
-            "unknown"
-        );
     }
 }

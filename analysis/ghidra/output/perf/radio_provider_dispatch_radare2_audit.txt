@@ -1,0 +1,745 @@
+Radio provider-dispatch feasibility audit
+
+=== native expansion dispatch, FalloutNV.exe ===
+0x006f40ba      lea ecx, [ebp - 0x24]
+0x006f40bd      push ecx
+0x006f40be      mov edx, dword [ebp - 0x44]
+0x006f40c1      mov eax, dword [edx + 0x204c]
+0x006f40c7      push eax
+0x006f40c8      mov ecx, dword [ebp - 0x44]
+0x006f40cb      mov edx, dword [ecx]
+0x006f40cd      mov ecx, dword [ebp - 0x44]
+0x006f40d0      mov eax, dword [edx + 4]
+   ; 0xffffffff(-1, 0x0, -1, -1)
+0x006f40d3      call eax
+0x006f40d5      mov dword [ebp - 0x2c], 0
+0x006f40dc      jmp 0x6f40e7
+0x006f40de      mov ecx, dword [ebp - 0x2c]
+0x006f40e1      add ecx, 1
+0x006f40e4      mov dword [ebp - 0x2c], ecx
+0x006f40e7      lea ecx, [ebp - 0x24]
+   ; 0x44ddc0(-1, 0x0, 0xffffffdc, -1)
+0x006f40ea      call 0x44ddc0
+0x006f40ef      cmp dword [ebp - 0x2c], eax
+
+
+=== setup ===
+0x1002c3a0      push ebx
+0x1002c3a1      push ebp
+0x1002c3a2      mov ebp, dword [esp + 0xc]
+0x1002c3a6      mov edx, 0x410220
+0x1002c3ab      push esi
+0x1002c3ac      push edi
+0x1002c3ad      mov edi, ecx
+0x1002c3af      xor esi, esi
+0x1002c3b1      mov eax, dword [ebp + 0x40]
+0x1002c3b4      lea ecx, [ebp + 0x44]
+; '*'
+; 42
+0x1002c3b7      push 0x2a
+0x1002c3b9      xor ebx, ebx
+0x1002c3bb      mov dword [edi], eax
+   ; 0x410220(-1, 0x0, 0x43, 0x410220)
+0x1002c3bd      call edx
+0x1002c3bf      test eax, eax
+   ; unlikely
+0x1002c3c1      je 0x1002c3c6
+0x1002c3c3      mov esi, dword [eax + 0xc]
+; '+'
+; 43
+0x1002c3c6      push 0x2b
+0x1002c3c8      lea ecx, [ebp + 0x44]
+0x1002c3cb      mov eax, 0x410220
+   ; 0x410220(0x410220, 0x0, 0x43, 0x410220)
+0x1002c3d0      call eax
+0x1002c3d2      test eax, eax
+   ; unlikely
+0x1002c3d4      je 0x1002c432
+0x1002c3d6      mov eax, dword [eax + 0xc]
+0x1002c3d9      test eax, eax
+   ; unlikely
+0x1002c3db      je 0x1002c432
+0x1002c3dd      mov ebx, dword [eax]
+0x1002c3df      test ebx, ebx
+   ; unlikely
+0x1002c3e1      je 0x1002c432
+0x1002c3e3      mov eax, dword [ebx + 0x40]
+0x1002c3e6      mov dword [esp + 0x14], eax
+0x1002c3ea      test esi, esi
+   ; likely
+0x1002c3ec      jne 0x1002c405
+; '*'
+; 42
+0x1002c3ee      push 0x2a
+0x1002c3f0      lea ecx, [ebx + 0x44]
+0x1002c3f3      mov eax, 0x410220
+   ; 0x410220(0x410220, -1, 0x43, 0x410220)
+0x1002c3f8      call eax
+0x1002c3fa      test eax, eax
+   ; unlikely
+0x1002c3fc      je 0x1002c401
+0x1002c3fe      mov esi, dword [eax + 0xc]
+0x1002c401      mov eax, dword [esp + 0x14]
+0x1002c405      mov dword [edi + 4], eax
+0x1002c408      mov eax, dword [edi + 8]
+0x1002c40b      test esi, esi
+   ; unlikely
+0x1002c40d      je 0x1002c436
+0x1002c40f      test eax, eax
+   ; likely
+0x1002c411      jne 0x1002c424
+; 20
+0x1002c413      push 0x14
+0x1002c415      mov eax, 0xaa3e40
+0x1002c41a      mov ecx, 0x11f6238
+   ; 0xaa3e40(0xaa3e40, -1, 0x11f6238, 0x410220)
+0x1002c41f      call eax
+0x1002c421      mov dword [edi + 8], eax
+0x1002c424      movups xmm0, xmmword [esi]
+0x1002c427      movups xmmword [eax], xmm0
+0x1002c42a      mov ecx, dword [esi + 0x10]
+0x1002c42d      mov dword [eax + 0x10], ecx
+0x1002c430      jmp 0x1002c44e
+0x1002c432      xor eax, eax
+0x1002c434      jmp 0x1002c405
+0x1002c436      test eax, eax
+   ; likely
+0x1002c438      je 0x1002c44e
+0x1002c43a      push eax
+0x1002c43b      mov eax, 0xaa4060
+0x1002c440      mov ecx, 0x11f6238
+   ; 0xaa4060(0xaa4060, -1, 0x11f6238, 0x410220)
+0x1002c445      call eax
+0x1002c447      mov dword [edi + 8], 0
+0x1002c44e      mov eax, 0x567790
+0x1002c453      mov ecx, ebp
+   ; 0x567790(0x567790, -1, -1, 0x410220)
+0x1002c455      call eax
+; '#'
+; 35
+0x1002c457      push 0x23
+0x1002c459      lea ecx, [ebp + 0x44]
+0x1002c45c      mov dword [edi + 0xc], eax
+0x1002c45f      mov esi, 0x410220
+   ; 0x410220(0x567790, -1, 0x43, 0x410220)
+0x1002c464      call esi
+0x1002c466      test eax, eax
+   ; unlikely
+0x1002c468      je 0x1002c472
+0x1002c46a      mov eax, dword [eax + 0xc]
+0x1002c46d      cmp eax, 0xffffffff
+   ; unlikely
+0x1002c470      jne 0x1002c4c0
+0x1002c472      test ebx, ebx
+   ; unlikely
+0x1002c474      je 0x1002c489
+; '#'
+; 35
+0x1002c476      push 0x23
+0x1002c478      lea ecx, [ebx + 0x44]
+   ; 0x410220(-1, -1, 0x43, 0x410220)
+0x1002c47b      call esi
+0x1002c47d      test eax, eax
+   ; unlikely
+0x1002c47f      je 0x1002c489
+0x1002c481      mov eax, dword [eax + 0xc]
+0x1002c484      cmp eax, 0xffffffff
+   ; unlikely
+0x1002c487      jne 0x1002c4c0
+; ' }V'
+0x1002c489      mov eax, 0x567d20
+0x1002c48e      mov ecx, ebp
+   ; 0x567d20(0x567d20, -1, -1, 0x410220)
+0x1002c490      call eax
+0x1002c492      test eax, eax
+   ; unlikely
+0x1002c494      je 0x1002c4a4
+; [0x11c9520:4]=-1
+0x1002c496      cmp eax, dword [0x11c9520]
+   ; unlikely
+0x1002c49c      je 0x1002c4a4
+0x1002c49e      movzx eax, byte [eax + 0x1c]
+0x1002c4a2      jmp 0x1002c4c0
+0x1002c4a4      mov ecx, dword [ebp + 0x40]
+0x1002c4a7      test ecx, ecx
+   ; unlikely
+0x1002c4a9      je 0x1002c4be
+; '#'
+; 35
+0x1002c4ab      push 0x23
+; 40
+0x1002c4ad      add ecx, 0x28
+   ; 0x410220(0xff, -1, 0x27, 0x410220)
+0x1002c4b0      call esi
+0x1002c4b2      test eax, eax
+   ; unlikely
+0x1002c4b4      je 0x1002c4be
+0x1002c4b6      mov eax, dword [eax + 0xc]
+0x1002c4b9      cmp eax, 0xffffffff
+   ; unlikely
+0x1002c4bc      jne 0x1002c4c0
+0x1002c4be      xor eax, eax
+0x1002c4c0      mov dword [edi + 0x10], eax
+0x1002c4c3      lea ecx, [ebp + 0x44]
+; '\"'
+; 34
+0x1002c4c6      push 0x22
+0x1002c4c8      mov eax, 0x410220
+0x1002c4cd      xor esi, esi
+   ; 0x410220(0x410220, -1, 0x43, 0x410220)
+0x1002c4cf      call eax
+0x1002c4d1      test eax, eax
+   ; unlikely
+0x1002c4d3      je 0x1002c4dc
+0x1002c4d5      mov esi, dword [eax + 0xc]
+0x1002c4d8      test esi, esi
+   ; likely
+0x1002c4da      jne 0x1002c4f7
+0x1002c4dc      test ebx, ebx
+
+
+=== enumerator ===
+0x1002c320      push ebx
+0x1002c321      push ebp
+0x1002c322      push esi
+0x1002c323      push edi
+0x1002c324      mov edi, ecx
+0x1002c326      lea ecx, [edi + 0x80]
+   ; 0x10003e00(0x0, 0x0, 0x80, 0x0)
+0x1002c32c      call 0x10003e00
+0x1002c331      mov ebx, dword [esp + 0x14]
+0x1002c335      lea eax, [edi + 0xac]
+0x1002c33b      mov ebp, 0x7cb2e0
+0x1002c340      test eax, eax
+   ; unlikely
+0x1002c342      je 0x1002c385
+0x1002c344      mov ecx, dword [eax]
+0x1002c346      lea esi, [eax + 4]
+0x1002c349      test ecx, ecx
+   ; likely
+0x1002c34b      jne 0x1002c351
+0x1002c34d      cmp dword [esi], ecx
+   ; likely
+0x1002c34f      je 0x1002c385
+0x1002c351      mov dword [esp + 0x14], ecx
+0x1002c355      mov edx, dword [ecx + 8]
+0x1002c358      mov eax, edx
+0x1002c35a      shr eax, 0xb
+; 1
+0x1002c35d      test al, 1
+   ; likely
+0x1002c35f      jne 0x1002c381
+0x1002c361      shr edx, 5
+; 1
+0x1002c364      test dl, 1
+   ; likely
+0x1002c367      jne 0x1002c381
+0x1002c369      mov eax, dword [ecx + 0x20]
+0x1002c36c      cmp byte [eax + 4], 0x1c
+   ; likely
+0x1002c370      jne 0x1002c381
+0x1002c372      test byte [ecx + 0x51], 8
+   ; unlikely
+0x1002c376      je 0x1002c381
+0x1002c378      lea eax, [esp + 0x14]
+0x1002c37c      mov ecx, ebx
+0x1002c37e      push eax
+   ; 0x7cb2e0(0x0, -1, -1, 0x7ffffff)
+0x1002c37f      call ebp
+0x1002c381      mov eax, dword [esi]
+0x1002c383      jmp 0x1002c340
+0x1002c385      add dword [edi + 0x84], 0xffffffff
+   ; likely
+0x1002c38c      jne 0x1002c398
+0x1002c38e      mov dword [edi + 0x80], 0
+0x1002c398      pop edi
+0x1002c399      pop esi
+0x1002c39a      pop ebp
+0x1002c39b      pop ebx
+0x1002c39c      ret 4
+0x1002c39f      int3
+
+Comparison binary: /data/storage0/Games/FalloutNV_TTW/mods/Stewie Tweaks/NVSE/plugins/nvse_stewie_tweaks.dll
+This file is an on-disk comparison artifact, not proof of the active runtime mapping.
+Preferred image base: 0x10000000
+Provider location: 0x1002C530, unique match of the historical provider entry signature.
+Primary engine evidence: radio_synchronous_cost_radare2_audit.txt (FalloutNV.exe).
+Interface: radare2 MCP disassemble, 2026-09-25.
+
+=== sqrt ===
+0x1000f1a0      push ebp
+0x1000f1a1      mov ebp, esp
+0x1000f1a3      and esp, 0xfffffff8
+0x1000f1a6      cvtss2sd xmm0, xmm0
+0x1000f1aa      xorps xmm1, xmm1
+0x1000f1ad      ucomisd xmm1, xmm0
+   ; likely
+0x1000f1b1      ja 0x1000f1bf
+0x1000f1b3      sqrtsd xmm0, xmm0
+0x1000f1b7      cvtsd2ss xmm0, xmm0
+0x1000f1bb      mov esp, ebp
+0x1000f1bd      pop ebp
+0x1000f1be      ret
+Autogenerated comments are not ABI or call-argument proof.
+
+=== comparison provider ===
+0x1002c530      push ebp
+0x1002c531      mov ebp, esp
+0x1002c533      and esp, 0xfffffff8
+0x1002c536      sub esp, 0x34
+0x1002c539      push ebx
+0x1002c53a      push esi
+0x1002c53b      push edi
+0x1002c53c      mov edi, ecx
+0x1002c53e      mov ecx, dword [ebp + 8]
+; [0x20ac:4]=-1
+0x1002c541      mov dword [edi + 0x20ac], 0
+0x1002c54b      cmp byte [ecx + 8], 0
+   ; unlikely
+0x1002c54f      je 0x1002c55d
+0x1002c551      mov eax, dword [ecx + 0xc]
+0x1002c554      mov ecx, dword [eax + 0x34]
+0x1002c557      test ecx, ecx
+   ; unlikely
+0x1002c559      je 0x1002c56e
+0x1002c55b      jmp 0x1002c560
+0x1002c55d      mov ecx, dword [ecx + 0x10]
+0x1002c560      lea eax, [edi + 0x20a4]
+0x1002c566      xor edx, edx
+0x1002c568      push eax
+   ; 0x1002c320(0x20a4, 0x0, -1, 0x0)
+0x1002c569      call 0x1002c320
+0x1002c56e      mov eax, dword [edi + 0x20b4]
+; 1
+0x1002c574      cmp eax, 1
+   ; unlikely
+0x1002c577      je 0x1002c58b
+; 3
+0x1002c579      cmp eax, 3
+   ; unlikely
+0x1002c57c      je 0x1002c58b
+0x1002c57e      cmp dword [edi + 0x20a0], 0
+   ; unlikely
+0x1002c585      je 0x1002c823
+0x1002c58b      xor ecx, ecx
+0x1002c58d      mov dword [esp + 0x24], ecx
+0x1002c591      cmp dword [edi + 0x20ac], ecx
+   ; unlikely
+0x1002c597      jbe 0x1002c823
+0x1002c59d      mov edx, 0x410220
+0x1002c5a2      mov eax, dword [edi + 0x20a8]
+0x1002c5a8      mov ecx, dword [eax + ecx*4]
+0x1002c5ab      mov dword [esp + 0x18], ecx
+0x1002c5af      mov eax, dword [ecx + 8]
+0x1002c5b2      shr eax, 0xb
+; 1
+0x1002c5b5      test al, 1
+   ; likely
+0x1002c5b7      jne 0x1002c80e
+; '+'
+; 43
+0x1002c5bd      push 0x2b
+; 68
+0x1002c5bf      add ecx, 0x44
+   ; 0x410220(0x1fffff, 0x0, 0x43, 0x410220)
+0x1002c5c2      call edx
+0x1002c5c4      mov eax, dword [eax + 0xc]
+0x1002c5c7      mov dword [esp + 0x20], eax
+0x1002c5cb      mov ecx, dword [eax]
+0x1002c5cd      test ecx, ecx
+   ; unlikely
+0x1002c5cf      je 0x1002c60e
+0x1002c5d1      mov esi, dword [ecx + 0x40]
+0x1002c5d4      test esi, esi
+   ; unlikely
+0x1002c5d6      je 0x1002c5ea
+0x1002c5d8      test byte [esi + 0x24], 1
+   ; unlikely
+0x1002c5dc      je 0x1002c5e2
+0x1002c5de      xor esi, esi
+0x1002c5e0      jmp 0x1002c606
+0x1002c5e2      mov esi, dword [esi + 0xc0]
+0x1002c5e8      jmp 0x1002c606
+0x1002c5ea      mov eax, dword [ecx + 0x18]
+; 24
+0x1002c5ed      add ecx, 0x18
+   ; 0xffffffff(-1, 0x0, 0x17, 0x410220)
+0x1002c5f0      call dword [eax]
+0x1002c5f2      test eax, eax
+   ; unlikely
+0x1002c5f4      je 0x1002c60e
+0x1002c5f6      test byte [eax + 0x24], 1
+   ; unlikely
+0x1002c5fa      je 0x1002c600
+0x1002c5fc      xor esi, esi
+0x1002c5fe      jmp 0x1002c606
+0x1002c600      mov esi, dword [eax + 0xc0]
+0x1002c606      mov ebx, esi
+0x1002c608      test esi, esi
+   ; likely
+0x1002c60a      jne 0x1002c61f
+0x1002c60c      jmp 0x1002c612
+0x1002c60e      xor esi, esi
+0x1002c610      xor ebx, ebx
+0x1002c612      mov eax, dword [esp + 0x20]
+0x1002c616      mov eax, dword [eax]
+0x1002c618      test eax, eax
+   ; unlikely
+0x1002c61a      je 0x1002c61f
+0x1002c61c      mov ebx, dword [eax + 0x40]
+0x1002c61f      mov eax, dword [edi + 0x2098]
+; 1
+0x1002c625      cmp eax, 1
+   ; likely
+0x1002c628      jne 0x1002c63b
+0x1002c62a      test esi, esi
+   ; likely
+0x1002c62c      je 0x1002c648
+0x1002c62e      cmp esi, dword [edi + 0x205c]
+   ; unlikely
+0x1002c634      je 0x1002c648
+0x1002c636      jmp 0x1002c809
+; 2
+0x1002c63b      cmp eax, 2
+   ; likely
+0x1002c63e      jne 0x1002c648
+0x1002c640      test esi, esi
+   ; unlikely
+0x1002c642      jne 0x1002c809
+0x1002c648      mov ecx, dword [esp + 0x18]
+0x1002c64c      xor edx, edx
+0x1002c64e      push ecx
+0x1002c64f      lea ecx, [esp + 0x2c]
+0x1002c653      mov dword [esp + 0x34], 0
+   ; 0x1002c3a0(-1, -1, 0xffffffcc, 0x0)
+0x1002c65b      call 0x1002c3a0
+0x1002c660      lea eax, [esp + 0x13]
+0x1002c664      xorps xmm0, xmm0
+0x1002c667      push eax
+0x1002c668      push dword [esp + 0x1c]
+0x1002c66c      lea ecx, [esp + 0x30]
+0x1002c670      movss dword [esp + 0x24], xmm0
+0x1002c676      push dword [edi + 0x20a0]
+; 'P$P'
+0x1002c67c      mov eax, 0x502450
+   ; 0x502450(0x502450, -1, 0xffffffc4, 0x0)
+0x1002c681      call eax
+0x1002c683      test al, al
+   ; unlikely
+0x1002c685      je 0x1002c68e
+0x1002c687      cmp byte [esp + 0x13], 0
+   ; unlikely
+0x1002c68c      je 0x1002c6b1
+0x1002c68e      mov eax, dword [edi + 0x20b4]
+0x1002c694      test eax, eax
+   ; unlikely
+0x1002c696      je 0x1002c7f4
+; [0x100eda7c:4]=0x48c80000
+0x1002c69c      movss xmm0, dword [0x100eda7c]
+; 2
+0x1002c6a4      cmp eax, 2
+   ; likely
+0x1002c6a7      jne 0x1002c6b9
+0x1002c6a9      movss dword [esp + 0x1c], xmm0
+0x1002c6af      jmp 0x1002c6b9
+; [0x100eda7c:4]=0x48c80000
+0x1002c6b1      movss xmm0, dword [0x100eda7c]
+0x1002c6b9      mov ecx, dword [esp + 0x18]
+0x1002c6bd      mov eax, dword [ecx + 0x20]
+0x1002c6c0      mov eax, dword [eax + 0x84]
+0x1002c6c6      shr eax, 3
+; 1
+0x1002c6c9      test al, 1
+   ; unlikely
+0x1002c6cb      je 0x1002c6dc
+0x1002c6cd      cmp dword [edi + 0x20b4], 3
+   ; unlikely
+0x1002c6d4      je 0x1002c6dc
+0x1002c6d6      movss dword [esp + 0x1c], xmm0
+0x1002c6dc      mov eax, dword [ecx]
+; 500
+   ; 0x1f4(-1, -1, -1, 0x0)
+0x1002c6de      call dword [eax + 0x1f4]
+0x1002c6e4      mov ecx, dword [ebp + 8]
+0x1002c6e7      mov edx, dword [ebp + 8]
+; 24
+0x1002c6ea      add edx, 0x18
+0x1002c6ed      cmp dword [ecx + 0x24], 0
+0x1002c6f1      lea ecx, [edi + 0x2068]
+0x1002c6f7      cmove edx, ecx
+0x1002c6fa      movss xmm2, dword [edx]
+0x1002c6fe      movss xmm0, dword [edx + 4]
+0x1002c703      subss xmm0, dword [eax + 4]
+0x1002c708      subss xmm2, dword [eax]
+0x1002c70c      movss xmm1, dword [edx + 8]
+0x1002c711      subss xmm1, dword [eax + 8]
+0x1002c716      mulss xmm0, xmm0
+0x1002c71a      mulss xmm2, xmm2
+0x1002c71e      mulss xmm1, xmm1
+0x1002c722      addss xmm0, xmm2
+0x1002c726      addss xmm0, xmm1
+   ; 0x1000f1a0(-1, -1, 0x2068, 0x17)
+0x1002c72a      call 0x1000f1a0
+0x1002c72f      movss xmm2, dword [edi + 0x209c]
+0x1002c737      movaps xmm1, xmm0
+0x1002c73a      ucomiss xmm2, dword [0x100ed73c]
+0x1002c741      lahf
+; 68
+0x1002c742      test ah, 0x44
+0x1002c745      mov eax, dword [ebp + 8]
+   ; unlikely
+0x1002c748      jnp 0x1002c757
+0x1002c74a      addss xmm0, dword [eax]
+0x1002c74e      comiss xmm2, xmm0
+   ; unlikely
+0x1002c751      jb 0x1002c7f4
+0x1002c757      addss xmm1, dword [eax]
+0x1002c75b      lea eax, [esp + 0x14]
+0x1002c75f      push eax
+0x1002c760      push ecx
+0x1002c761      mov ecx, edi
+; '0>o'
+0x1002c763      mov eax, 0x6f3e30
+0x1002c768      addss xmm1, dword [esp + 0x24]
+0x1002c76e      movss dword [esp], xmm1
+0x1002c773      push ebx
+   ; 0x6f3e30(0x6f3e30, -1, 0x0, 0x17)
+0x1002c774      call eax
+0x1002c776      test eax, eax
+   ; unlikely
+0x1002c778      je 0x1002c781
+; 1
+0x1002c77a      cmp eax, 1
+   ; likely
+0x1002c77d      jne 0x1002c7f4
+0x1002c77f      jmp 0x1002c7c2
+0x1002c781      mov eax, dword [esp + 0x14]
+0x1002c785      test esi, esi
+   ; likely
+0x1002c787      je 0x1002c7a1
+0x1002c789      mov byte [eax + 8], 1
+0x1002c78d      mov eax, dword [esp + 0x14]
+0x1002c791      mov dword [eax + 0x10], 0
+0x1002c798      mov eax, dword [esp + 0x14]
+0x1002c79c      mov dword [eax + 0xc], esi
+0x1002c79f      jmp 0x1002c7b7
+0x1002c7a1      mov byte [eax + 8], 0
+0x1002c7a5      mov eax, dword [esp + 0x14]
+0x1002c7a9      mov dword [eax + 0xc], 0
+0x1002c7b0      mov eax, dword [esp + 0x14]
+0x1002c7b4      mov dword [eax + 0x10], ebx
+0x1002c7b7      mov eax, dword [esp + 0x14]
+; [0x3f800000:4]=-1
+0x1002c7bb      mov dword [eax + 4], 0x3f800000
+0x1002c7c2      mov eax, dword [esp + 0x14]
+0x1002c7c6      mov ecx, dword [esp + 0x18]
+0x1002c7ca      mov dword [eax + 0x14], ecx
+0x1002c7cd      mov ecx, dword [esp + 0x14]
+0x1002c7d1      mov eax, dword [esp + 0x20]
+0x1002c7d5      movq xmm0, qword [eax + 4]
+0x1002c7da      movq qword [ecx + 0x18], xmm0
+0x1002c7df      mov eax, dword [eax + 0xc]
+0x1002c7e2      mov dword [ecx + 0x20], eax
+0x1002c7e5      lea eax, [esp + 0x14]
+0x1002c7e9      mov ecx, dword [ebp + 0xc]
+0x1002c7ec      push eax
+0x1002c7ed      mov eax, 0x7cb2e0
+   ; 0x7cb2e0(0x7cb2e0, -1, -1, 0x17)
+0x1002c7f2      call eax
+0x1002c7f4      mov eax, dword [esp + 0x30]
+0x1002c7f8      test eax, eax
+   ; unlikely
+0x1002c7fa      je 0x1002c809
+0x1002c7fc      push eax
+0x1002c7fd      mov ecx, 0x11f6238
+0x1002c802      mov eax, 0xaa4060
+   ; 0xaa4060(0xaa4060, -1, 0x11f6238, 0x17)
+0x1002c807      call eax
+0x1002c809      mov edx, 0x410220
+0x1002c80e      mov ecx, dword [esp + 0x24]
+0x1002c812      inc ecx
+0x1002c813      mov dword [esp + 0x24], ecx
+0x1002c817      cmp ecx, dword [edi + 0x20ac]
+   ; likely
+0x1002c81d      jb 0x1002c5a2
+0x1002c823      pop edi
+0x1002c824      pop esi
+0x1002c825      mov al, 1
+0x1002c827      pop ebx
+0x1002c828      mov esp, ebp
+0x1002c82a      pop ebp
+0x1002c82b      ret 8
+0x1002c82e      int3
+0x1002c82f      int3
+
+=== setup continuation ===
+0x1002c4dc      test ebx, ebx
+   ; likely
+0x1002c4de      je 0x1002c501
+0x1002c4e0      lea ecx, [ebx + 0x44]
+0x1002c4e3      mov ebx, 0x410220
+; '\"'
+; 34
+0x1002c4e8      push 0x22
+   ; 0x410220(0x0, 0x410220, 0x44, 0x0)
+0x1002c4ea      call ebx
+0x1002c4ec      test eax, eax
+   ; likely
+0x1002c4ee      je 0x1002c506
+0x1002c4f0      mov esi, dword [eax + 0xc]
+0x1002c4f3      test esi, esi
+   ; unlikely
+0x1002c4f5      je 0x1002c506
+0x1002c4f7      mov dword [edi + 0x14], esi
+0x1002c4fa      pop edi
+0x1002c4fb      pop esi
+0x1002c4fc      pop ebp
+0x1002c4fd      pop ebx
+0x1002c4fe      ret 4
+0x1002c501      mov ebx, 0x410220
+0x1002c506      mov ecx, dword [ebp + 0x40]
+0x1002c509      test ecx, ecx
+   ; unlikely
+0x1002c50b      je 0x1002c4f7
+; '\"'
+; 34
+0x1002c50d      push 0x22
+; 40
+0x1002c50f      add ecx, 0x28
+   ; 0x410220(0x0, 0x410220, 0x27, 0x0)
+0x1002c512      call ebx
+0x1002c514      test eax, eax
+   ; likely
+0x1002c516      je 0x1002c4f7
+0x1002c518      mov eax, dword [eax + 0xc]
+0x1002c51b      mov dword [edi + 0x14], eax
+0x1002c51e      pop edi
+0x1002c51f      pop esi
+0x1002c520      pop ebp
+0x1002c521      pop ebx
+0x1002c522      ret 4
+0x1002c525      int3
+
+
+=== math helper alternate branch (retained, not replaced) ===
+   ; 0x100b4a60(0x0, 0x0, 0x0, 0x0)
+0x1000f1bf      call 0x100b4a60
+0x1000f1c4      cvtsd2ss xmm0, xmm0
+0x1000f1c8      mov esp, ebp
+0x1000f1ca      pop ebp
+0x1000f1cb      ret
+
+
+=== native node helper allocation/return continuation ===
+0x006f3f3a      mov ecx, dword [ebp - 0x10]
+0x006f3f3d      add ecx, 4
+   ; 0x6f4340(0x0, 0x0, 0x3, 0x0)
+0x006f3f40      call 0x6f4340
+0x006f3f45      mov ecx, dword [ebp + 0x10]
+0x006f3f48      mov dword [ecx], eax
+0x006f3f4a      mov edx, dword [ebp + 0x10]
+0x006f3f4d      mov eax, dword [edx]
+0x006f3f4f      mov ecx, dword [ebp + 8]
+0x006f3f52      mov dword [eax + 0x30], ecx
+0x006f3f55      mov edx, dword [ebp + 0x10]
+0x006f3f58      mov eax, dword [edx]
+0x006f3f5a      fld dword [ebp + 0xc]
+0x006f3f5d      fstp dword [eax]
+0x006f3f5f      mov ecx, dword [ebp + 0x10]
+0x006f3f62      mov edx, dword [ecx]
+0x006f3f64      mov eax, dword [ebp - 4]
+0x006f3f67      mov ecx, dword [eax]
+0x006f3f69      mov dword [edx + 0x34], ecx
+0x006f3f6c      mov edx, dword [ebp - 4]
+0x006f3f6f      mov eax, dword [ebp + 0x10]
+0x006f3f72      mov ecx, dword [eax]
+0x006f3f74      mov dword [edx], ecx
+0x006f3f76      xor eax, eax
+0x006f3f78      mov esp, ebp
+
+0x006f3f7a      pop ebp
+0x006f3f7b      ret 0xc
+
+=== Exact comparison identity and bounded admission inputs ===
+SHA-256: c19007b47f39df2ce07cfc1add1a27090302cf35e1673ba35bee61cb5800db95
+provider bytes (exclude trailing INT3):
+1002c530  55 8b ec 83 e4 f8 83 ec 34 53 56 57 8b f9 8b 4d
+1002c540  08 c7 87 ac 20 00 00 00 00 00 00 80 79 08 00 74
+1002c550  0c 8b 41 0c 8b 48 34 85 c9 74 13 eb 03 8b 49 10
+1002c560  8d 87 a4 20 00 00 33 d2 50 e8 b2 fd ff ff 8b 87
+1002c570  b4 20 00 00 83 f8 01 74 12 83 f8 03 74 0d 83 bf
+1002c580  a0 20 00 00 00 0f 84 98 02 00 00 33 c9 89 4c 24
+1002c590  24 39 8f ac 20 00 00 0f 86 86 02 00 00 ba 20 02
+1002c5a0  41 00 8b 87 a8 20 00 00 8b 0c 88 89 4c 24 18 8b
+1002c5b0  41 08 c1 e8 0b a8 01 0f 85 51 02 00 00 6a 2b 83
+1002c5c0  c1 44 ff d2 8b 40 0c 89 44 24 20 8b 08 85 c9 74
+1002c5d0  3d 8b 71 40 85 f6 74 12 f6 46 24 01 74 04 33 f6
+1002c5e0  eb 24 8b b6 c0 00 00 00 eb 1c 8b 41 18 83 c1 18
+1002c5f0  ff 10 85 c0 74 18 f6 40 24 01 74 04 33 f6 eb 06
+1002c600  8b b0 c0 00 00 00 8b de 85 f6 75 13 eb 04 33 f6
+1002c610  33 db 8b 44 24 20 8b 00 85 c0 74 03 8b 58 40 8b
+1002c620  87 98 20 00 00 83 f8 01 75 11 85 f6 74 1a 3b b7
+1002c630  5c 20 00 00 74 12 e9 ce 01 00 00 83 f8 02 75 08
+1002c640  85 f6 0f 85 c1 01 00 00 8b 4c 24 18 33 d2 51 8d
+1002c650  4c 24 2c c7 44 24 34 00 00 00 00 e8 40 fd ff ff
+1002c660  8d 44 24 13 0f 57 c0 50 ff 74 24 1c 8d 4c 24 30
+1002c670  f3 0f 11 44 24 24 ff b7 a0 20 00 00 b8 50 24 50
+1002c680  00 ff d0 84 c0 74 07 80 7c 24 13 00 74 23 8b 87
+1002c690  b4 20 00 00 85 c0 0f 84 58 01 00 00 f3 0f 10 05
+1002c6a0  7c da 0e 10 83 f8 02 75 10 f3 0f 11 44 24 1c eb
+1002c6b0  08 f3 0f 10 05 7c da 0e 10 8b 4c 24 18 8b 41 20
+1002c6c0  8b 80 84 00 00 00 c1 e8 03 a8 01 74 0f 83 bf b4
+1002c6d0  20 00 00 03 74 06 f3 0f 11 44 24 1c 8b 01 ff 90
+1002c6e0  f4 01 00 00 8b 4d 08 8b 55 08 83 c2 18 83 79 24
+1002c6f0  00 8d 8f 68 20 00 00 0f 44 d1 f3 0f 10 12 f3 0f
+1002c700  10 42 04 f3 0f 5c 40 04 f3 0f 5c 10 f3 0f 10 4a
+1002c710  08 f3 0f 5c 48 08 f3 0f 59 c0 f3 0f 59 d2 f3 0f
+1002c720  59 c9 f3 0f 58 c2 f3 0f 58 c1 e8 71 2a fe ff f3
+1002c730  0f 10 97 9c 20 00 00 0f 28 c8 0f 2e 15 3c d7 0e
+1002c740  10 9f f6 c4 44 8b 45 08 7b 0d f3 0f 58 00 0f 2f
+1002c750  d0 0f 82 9d 00 00 00 f3 0f 58 08 8d 44 24 14 50
+1002c760  51 8b cf b8 30 3e 6f 00 f3 0f 58 4c 24 24 f3 0f
+1002c770  11 0c 24 53 ff d0 85 c0 74 07 83 f8 01 75 75 eb
+1002c780  41 8b 44 24 14 85 f6 74 18 c6 40 08 01 8b 44 24
+1002c790  14 c7 40 10 00 00 00 00 8b 44 24 14 89 70 0c eb
+1002c7a0  16 c6 40 08 00 8b 44 24 14 c7 40 0c 00 00 00 00
+1002c7b0  8b 44 24 14 89 58 10 8b 44 24 14 c7 40 04 00 00
+1002c7c0  80 3f 8b 44 24 14 8b 4c 24 18 89 48 14 8b 4c 24
+1002c7d0  14 8b 44 24 20 f3 0f 7e 40 04 66 0f d6 41 18 8b
+1002c7e0  40 0c 89 41 20 8d 44 24 14 8b 4d 0c 50 b8 e0 b2
+1002c7f0  7c 00 ff d0 8b 44 24 30 85 c0 74 0d 50 b9 38 62
+1002c800  1f 01 b8 60 40 aa 00 ff d0 ba 20 02 41 00 8b 4c
+1002c810  24 24 41 89 4c 24 24 3b 8f ac 20 00 00 0f 82 7f
+1002c820  fd ff ff 5f 5e b0 01 5b 8b e5 5d c2 08 00
+setup bytes (exclude trailing INT3):
+1002c3a0  53 55 8b 6c 24 0c ba 20 02 41 00 56 57 8b f9 33
+1002c3b0  f6 8b 45 40 8d 4d 44 6a 2a 33 db 89 07 ff d2 85
+1002c3c0  c0 74 03 8b 70 0c 6a 2b 8d 4d 44 b8 20 02 41 00
+1002c3d0  ff d0 85 c0 74 5c 8b 40 0c 85 c0 74 55 8b 18 85
+1002c3e0  db 74 4f 8b 43 40 89 44 24 14 85 f6 75 17 6a 2a
+1002c3f0  8d 4b 44 b8 20 02 41 00 ff d0 85 c0 74 03 8b 70
+1002c400  0c 8b 44 24 14 89 47 04 8b 47 08 85 f6 74 27 85
+1002c410  c0 75 11 6a 14 b8 40 3e aa 00 b9 38 62 1f 01 ff
+1002c420  d0 89 47 08 0f 10 06 0f 11 00 8b 4e 10 89 48 10
+1002c430  eb 1c 33 c0 eb cf 85 c0 74 14 50 b8 60 40 aa 00
+1002c440  b9 38 62 1f 01 ff d0 c7 47 08 00 00 00 00 b8 90
+1002c450  77 56 00 8b cd ff d0 6a 23 8d 4d 44 89 47 0c be
+1002c460  20 02 41 00 ff d6 85 c0 74 08 8b 40 0c 83 f8 ff
+1002c470  75 4e 85 db 74 13 6a 23 8d 4b 44 ff d6 85 c0 74
+1002c480  08 8b 40 0c 83 f8 ff 75 37 b8 20 7d 56 00 8b cd
+1002c490  ff d0 85 c0 74 0e 3b 05 20 95 1c 01 74 06 0f b6
+1002c4a0  40 1c eb 1c 8b 4d 40 85 c9 74 13 6a 23 83 c1 28
+1002c4b0  ff d6 85 c0 74 08 8b 40 0c 83 f8 ff 75 02 33 c0
+1002c4c0  89 47 10 8d 4d 44 6a 22 b8 20 02 41 00 33 f6 ff
+1002c4d0  d0 85 c0 74 07 8b 70 0c 85 f6 75 1b 85 db 74 21
+1002c4e0  8d 4b 44 bb 20 02 41 00 6a 22 ff d3 85 c0 74 16
+1002c4f0  8b 70 0c 85 f6 74 0f 89 77 14 5f 5e 5d 5b c2 04
+1002c500  00 bb 20 02 41 00 8b 4d 40 85 c9 74 ea 6a 22 83
+1002c510  c1 28 ff d3 85 c0 74 df 8b 40 0c 89 47 14 5f 5e
+1002c520  5d 5b c2 04 00
+constant 100eda7c: 00 00 c8 48 = 409600.0
+constant 100ed73c: 00 00 00 00 = 0.0
+HIGHLOW relocations inside provider/setup:
+1002c6a0 -> 100eda7c
+1002c6b5 -> 100eda7c
+1002c73d -> 100ed73c
