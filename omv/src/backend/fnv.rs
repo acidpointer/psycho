@@ -19,7 +19,7 @@ use std::sync::{
 };
 
 use super::{
-    AlphaCoverageMode, CameraFrame, CameraTransformFrame, DepthAccess, DepthFrame,
+    AlphaCoverageMode, CameraFrame, CameraTransformFrame, DepthAccess, DepthFrame, DepthImageFrame,
     DepthProjectionFrame, DepthProvider, DepthResolveOutcome, DepthResolveSlot, DepthResolveStage,
     DepthTexture, EnvironmentFrame, InitialDepthActivation, MaterialStateFrame, NativeSkyFrame,
     SunFrame, UnderwaterFrame, choose_initial_depth_provider,
@@ -38,7 +38,13 @@ use libpsycho::os::windows::{
 };
 use parking_lot::Mutex;
 
+mod depth_adoption;
 mod depth_resolve_provider;
+mod depth_snapshot;
+pub(crate) mod owned_depth;
+
+#[cfg(test)]
+mod owned_depth_tests;
 
 pub(crate) type ProviderMarkerCounters = depth_resolve_provider::MarkerCounters;
 
@@ -90,7 +96,6 @@ const NICAMERA_FRUSTUM_BOTTOM_OFFSET: usize = 0xE8;
 const NICAMERA_FRUSTUM_NEAR_OFFSET: usize = 0xEC;
 const NICAMERA_FRUSTUM_FAR_OFFSET: usize = 0xF0;
 const BSRENDEREDTEXTURE_SIZE: usize = 0x40;
-const BSRENDEREDTEXTURE_RENDER_TARGET_GROUP0_OFFSET: usize = 0x08;
 const NIRENDERTARGETGROUP_SIZE: usize = 0x28;
 const NIRENDERTARGETGROUP_BUFFER0_OFFSET: usize = 0x0C;
 const NIRENDERTARGETGROUP_BUFFER_COUNT_OFFSET: usize = 0x1C;
@@ -160,6 +165,8 @@ pub(crate) enum DepthResolveRouteStatus {
     Unprobed,
     Resz,
     Nvapi,
+    Owned,
+    Preparing,
     Unavailable,
 }
 
@@ -169,6 +176,7 @@ pub(crate) struct DepthCopyCounters {
     pub(crate) pre_alpha_physical: u32,
     pub(crate) coherent_world_physical: u32,
     pub(crate) first_person_physical: u32,
+    pub(crate) snapshot_draws: u32,
     pub(crate) exact_cache_hits: u32,
     pub(crate) nvapi_register_calls: u32,
     pub(crate) nvapi_alias_creations: u32,
@@ -190,6 +198,18 @@ pub(crate) fn depth_resolve_status() -> DepthResolveStatus {
             reason: "depth resolver is busy",
         };
     };
+    if depth_snapshot::is_current() {
+        return DepthResolveStatus {
+            route: DepthResolveRouteStatus::Owned,
+            reason: "Sampleable depth with raw R32F snapshots; single sample",
+        };
+    }
+    if owned_depth::preparing() {
+        return DepthResolveStatus {
+            route: DepthResolveRouteStatus::Preparing,
+            reason: "Waiting for safe depth adoption or native MSAA conversion",
+        };
+    }
     resolve.route.status()
 }
 
@@ -292,6 +312,7 @@ pub(super) fn depth_copy_counters() -> DepthCopyCounters {
         pre_alpha_physical: PRE_ALPHA_PHYSICAL_COPIES.load(Ordering::Relaxed),
         coherent_world_physical: COHERENT_WORLD_PHYSICAL_COPIES.load(Ordering::Relaxed),
         first_person_physical: FIRST_PERSON_PHYSICAL_COPIES.load(Ordering::Relaxed),
+        snapshot_draws: depth_snapshot::capture_count(),
         exact_cache_hits: EXACT_DEPTH_CACHE_HITS.load(Ordering::Relaxed),
         nvapi_register_calls: NVAPI_REGISTER_CALLS.load(Ordering::Relaxed),
         nvapi_alias_creations: NVAPI_ALIAS_CREATIONS.load(Ordering::Relaxed),
@@ -649,20 +670,15 @@ pub(super) fn rendered_texture_color_surface(rendered_texture: *mut c_void) -> O
 }
 
 pub(super) unsafe fn current_world_rendered_texture() -> Option<*mut c_void> {
-    unsafe {
-        read_ptr_checked(
-            BSSHADERMANAGER_CURRENT_RENDER_TARGET_PTR,
-            "unreadable current render target",
-        )
-        .ok()
-        .map(|target| target.cast::<c_void>())
-    }
+    // Null is the native world selector's default-group branch, distinct from
+    // an unreadable global. Only world-scoped callers may interpret it so.
+    unsafe { read_ptr(BSSHADERMANAGER_CURRENT_RENDER_TARGET_PTR).map(|p| p.cast()) }
 }
 
 pub(super) unsafe fn rendered_texture_depth_surface(
     rendered_texture: *mut c_void,
 ) -> Option<*mut c_void> {
-    unsafe { read_rendered_texture_depth_surface(rendered_texture).ok() }
+    unsafe { read_world_depth_surface(rendered_texture).ok() }
 }
 
 pub(super) unsafe fn resolve_scene_depth(
@@ -831,6 +847,9 @@ pub(super) fn try_reset_depth_resources() -> bool {
     let Some(mut external) = EXTERNAL_DEPTH_RESOLVE.try_lock() else {
         return false;
     };
+    if !depth_snapshot::release() {
+        return false;
+    }
     resolve.release();
     external.release();
     depth_resolve_provider::reset_device_state();
@@ -1038,6 +1057,10 @@ unsafe fn read_rendered_texture_color_surface(
 ) -> Result<*mut c_void, &'static str> {
     let group = unsafe { read_rendered_texture_group(rendered_texture)? };
 
+    unsafe { read_group_color_surface(group) }
+}
+
+unsafe fn read_group_color_surface(group: *mut u8) -> Result<*mut c_void, &'static str> {
     let buffer_count =
         unsafe { read_u32(group as usize + NIRENDERTARGETGROUP_BUFFER_COUNT_OFFSET) }
             .ok_or("unreadable render target buffer count")?;
@@ -1054,10 +1077,7 @@ unsafe fn read_rendered_texture_color_surface(
     unsafe { read_ni_buffer_surface(buffer, "color buffer") }
 }
 
-unsafe fn read_rendered_texture_depth_surface(
-    rendered_texture: *mut c_void,
-) -> Result<*mut c_void, &'static str> {
-    let group = unsafe { read_rendered_texture_group(rendered_texture)? };
+unsafe fn read_group_depth_surface(group: *mut u8) -> Result<*mut c_void, &'static str> {
     let buffer = unsafe {
         read_ptr_checked(
             group as usize + NIRENDERTARGETGROUP_DEPTH_BUFFER_OFFSET,
@@ -1065,6 +1085,28 @@ unsafe fn read_rendered_texture_depth_surface(
         )?
     };
     unsafe { read_ni_buffer_surface(buffer, "depth buffer") }
+}
+
+unsafe fn read_world_depth_surface(
+    rendered_texture: *mut c_void,
+) -> Result<*mut c_void, &'static str> {
+    let group = unsafe { read_world_group(rendered_texture)? };
+    unsafe { read_group_depth_surface(group) }
+}
+
+unsafe fn read_world_group(rendered_texture: *mut c_void) -> Result<*mut u8, &'static str> {
+    if !rendered_texture.is_null() {
+        return unsafe { read_rendered_texture_group(rendered_texture) };
+    }
+    let renderer = renderer_ptr()?;
+    // Native world selection at 0x872F50 explicitly uses renderer +0x884 when
+    // its BSRenderedTexture is null. Do not substitute an arbitrary current
+    // device surface, which could belong to a later offscreen/first-person pass.
+    let group =
+        unsafe { read_ptr_checked(renderer as usize + 0x884, "missing default world group")? };
+    validate_memory_range(group.cast(), NIRENDERTARGETGROUP_SIZE)
+        .map_err(|_| "unreadable default world group")?;
+    Ok(group)
 }
 
 unsafe fn read_rendered_texture_group(
@@ -1076,12 +1118,12 @@ unsafe fn read_rendered_texture_group(
     validate_memory_range(rendered_texture.cast_const(), BSRENDEREDTEXTURE_SIZE)
         .map_err(|_| "unreadable rendered texture")?;
 
-    let group = unsafe {
-        read_ptr_checked(
-            rendered_texture as usize + BSRENDEREDTEXTURE_RENDER_TARGET_GROUP0_OFFSET,
-            "missing render target group",
-        )?
-    };
+    // The native getter accounts for the active cube face. Hardcoding group
+    // zero selects the wrong native depth identity for the other five faces.
+    type GetGroup = unsafe extern "thiscall" fn(*mut c_void) -> *mut u8;
+    let getter = unsafe { FnPtr::<GetGroup>::from_raw(0x00B6B260 as *mut c_void) }
+        .map_err(|_| "native group getter is unavailable")?;
+    let group = unsafe { getter.as_fn()(rendered_texture) };
     if group.is_null() {
         return Err("missing render target group");
     }
@@ -1985,6 +2027,9 @@ struct FnvDepthResolve {
     success_logs: u32,
     frame_epoch: u64,
     temporal_depth_proven: bool,
+    // Last successfully captured image domain. Pixel publication expires at
+    // epoch rollover; this allocation proof survives only with its targets.
+    temporal_image: DepthImageFrame,
     world_capture: ResolvedDepthCapture,
     first_person_capture: ResolvedDepthCapture,
 }
@@ -2045,7 +2090,8 @@ impl ResolvedDepthCapture {
 }
 
 fn depth_projection_matches(left: DepthProjectionFrame, right: DepthProjectionFrame) -> bool {
-    left.reversed_depth == right.reversed_depth
+    left.image == right.image
+        && left.reversed_depth == right.reversed_depth
         && left.depth_function == right.depth_function
         && left.source_surface == right.source_surface
         && left.sampled_depth_bits == right.sampled_depth_bits
@@ -2106,15 +2152,13 @@ impl ExternalDepthResolve {
 
         let rendered_texture = match source_rendered_texture {
             Some(rendered_texture) => rendered_texture,
-            None => unsafe {
-                read_ptr_checked(
-                    BSSHADERMANAGER_CURRENT_RENDER_TARGET_PTR,
-                    "unreadable current render target",
-                )?
-                .cast::<c_void>()
-            },
+            None => unsafe { current_world_rendered_texture() }.ok_or("unreadable world target")?,
         };
-        let source_surface = unsafe { read_rendered_texture_depth_surface(rendered_texture)? };
+        let group = unsafe { read_world_group(rendered_texture)? };
+        let source_surface = unsafe { read_group_depth_surface(group)? };
+        let color_surface = unsafe { read_group_color_surface(group)? };
+        let color_desc =
+            unsafe { Surface9::raw_desc(color_surface) }.map_err(|_| "unreadable world color")?;
         let desc =
             unsafe { Surface9::raw_desc(source_surface) }.map_err(|_| "unreadable world depth")?;
         if desc.Width == 0 || desc.Height == 0 {
@@ -2123,9 +2167,9 @@ impl ExternalDepthResolve {
 
         let depth_function = device.render_state(D3DRS_ZFUNC).ok();
         let camera = match world_projection_override {
-            Some(camera) if projection_matches_surface(camera, &desc) => camera,
+            Some(camera) if projection_matches_surface(camera, &color_desc) => camera,
             Some(_) => return Err("invalid world camera projection override"),
-            None => unsafe { read_world_camera_frame(&desc) }
+            None => unsafe { read_world_camera_frame(&color_desc) }
                 .ok_or("missing persistent world camera projection")?,
         };
         let projection = DepthProjectionFrame {
@@ -2134,6 +2178,12 @@ impl ExternalDepthResolve {
             depth_function,
             source_surface: source_surface as usize,
             sampled_depth_bits: sampled_depth_bits(desc.Format),
+            image: DepthImageFrame {
+                color_surface: color_surface as usize,
+                color_extent: [color_desc.Width, color_desc.Height],
+                allocation_extent: [desc.Width, desc.Height],
+                sampled_extent: [color_desc.Width, color_desc.Height],
+            },
         };
 
         if self.world_capture.matches_complete_source(
@@ -2148,7 +2198,7 @@ impl ExternalDepthResolve {
             return Ok(());
         }
 
-        let texture = depth_resolve_provider::shared_texture(Some(&desc))?;
+        let texture = depth_resolve_provider::shared_texture(Some(&color_desc))?;
         self.world_capture = ResolvedDepthCapture {
             texture_ptr: texture.as_raw_base_texture() as usize,
             projection,
@@ -2244,25 +2294,28 @@ impl FnvDepthResolve {
         let (rendered_texture, source_label) = match source_rendered_texture {
             Some(rendered_texture) => (rendered_texture, "explicit rendered texture"),
             None => {
-                let rendered_texture = unsafe {
-                    read_ptr_checked(
-                        BSSHADERMANAGER_CURRENT_RENDER_TARGET_PTR,
-                        "unreadable current render target",
-                    )?
-                };
+                let rendered_texture =
+                    unsafe { current_world_rendered_texture() }.ok_or("unreadable world target")?;
                 (
                     rendered_texture.cast::<c_void>(),
                     "world current render target",
                 )
             }
         };
-        let source_surface = unsafe { read_rendered_texture_depth_surface(rendered_texture)? };
+        let group = if slot == DepthResolveSlot::World {
+            unsafe { read_world_group(rendered_texture)? }
+        } else {
+            unsafe { read_rendered_texture_group(rendered_texture)? }
+        };
+        let source_surface = unsafe { read_group_depth_surface(group)? };
+        let color_surface = unsafe { read_group_color_surface(group)? };
 
         unsafe {
             self.resolve_from_surface(
                 &device,
                 device_ptr,
                 source_surface,
+                color_surface,
                 slot,
                 stage,
                 world_projection_override,
@@ -2277,6 +2330,7 @@ impl FnvDepthResolve {
         device: &Device9Ref<'_>,
         device_ptr: *mut c_void,
         source_surface: *mut c_void,
+        color_surface: *mut c_void,
         slot: DepthResolveSlot,
         stage: DepthResolveStage,
         world_projection_override: Option<CameraFrame>,
@@ -2293,23 +2347,34 @@ impl FnvDepthResolve {
         }
 
         let desc = unsafe { Surface9::raw_desc(source_surface)? };
+        let color_desc = unsafe { Surface9::raw_desc(color_surface)? };
         if desc.Width == 0 || desc.Height == 0 {
             return Err(FnvDepthResolveError::Static("empty depth surface"));
+        }
+        if color_desc.Width == 0
+            || color_desc.Height == 0
+            || color_desc.Width > desc.Width
+            || color_desc.Height > desc.Height
+        {
+            return Err(FnvDepthResolveError::Static(
+                "invalid depth/color attachment extents",
+            ));
         }
         let depth_function = device.render_state(D3DRS_ZFUNC).ok();
         let camera = match (slot, world_projection_override) {
             (DepthResolveSlot::World, Some(camera)) => {
-                if !projection_matches_surface(camera, &desc) {
+                if !projection_matches_surface(camera, &color_desc) {
                     return Err(FnvDepthResolveError::Static(
                         "invalid world camera projection override",
                     ));
                 }
                 camera
             }
-            (DepthResolveSlot::World, None) => unsafe { read_world_camera_frame(&desc) }.ok_or(
-                FnvDepthResolveError::Static("missing persistent world camera projection"),
-            )?,
-            (DepthResolveSlot::FirstPerson, _) => unsafe { read_camera_frame(&desc) }.ok_or(
+            (DepthResolveSlot::World, None) => unsafe { read_world_camera_frame(&color_desc) }
+                .ok_or(FnvDepthResolveError::Static(
+                    "missing persistent world camera projection",
+                ))?,
+            (DepthResolveSlot::FirstPerson, _) => unsafe { read_camera_frame(&color_desc) }.ok_or(
                 FnvDepthResolveError::Static("missing first-person camera projection"),
             )?,
         };
@@ -2319,6 +2384,12 @@ impl FnvDepthResolve {
             depth_function,
             source_surface: source_surface as usize,
             sampled_depth_bits: sampled_depth_bits(desc.Format),
+            image: DepthImageFrame {
+                color_surface: color_surface as usize,
+                color_extent: [color_desc.Width, color_desc.Height],
+                allocation_extent: [desc.Width, desc.Height],
+                sampled_extent: [color_desc.Width, color_desc.Height],
+            },
         };
 
         if self.capture_mut(slot).matches_complete_source(
@@ -2333,64 +2404,101 @@ impl FnvDepthResolve {
             return Ok(());
         }
 
-        self.ensure_route(device)?;
-        let use_alias =
-            self.route.kind() == DepthResolveRouteKind::Nvapi && nvapi_stage_uses_alias(stage);
-        if !use_alias {
-            self.ensure_resources(device, &desc, slot)?;
-        }
-
-        let texture_ptr = match self.route.kind() {
-            DepthResolveRouteKind::Resz => {
-                if let Err(err) = unsafe { self.resolve_resz(device, source_surface, slot) } {
-                    let requests_fallback = matches!(
-                        &err,
-                        FnvDepthResolveError::D3d(d3d_err)
-                            if resz_failure_requires_fallback(
-                                self.route.kind(),
-                                d3d_err.code().0
-                            )
-                    );
-                    if !requests_fallback {
-                        return Err(err);
-                    }
-
-                    self.fallback_from_rejected_resz(&err)?;
-                    self.ensure_resources(device, &desc, slot)?;
-                    self.resolve_nvapi_copy(device_ptr, source_surface, slot)?;
-                }
-                record_physical_depth_copy(stage);
-                self.target_texture_ptr(slot)?
+        let texture_ptr = if desc.Format == D3DFMT_INTZ
+            && desc.MultiSampleType == libpsycho::os::windows::directx9::D3DMULTISAMPLE_NONE
+        {
+            // The actual texture container owns the sampled pixels. This route
+            // is admitted before any RESZ/NvAPI query or resource registration.
+            let source = unsafe { Surface9::retain_raw(source_surface)? };
+            let snapshot = depth_snapshot::capture(
+                device,
+                &source,
+                slot,
+                [color_desc.Width, color_desc.Height],
+            )?;
+            record_physical_depth_copy(stage);
+            snapshot
+        } else {
+            depth_snapshot::mark_unused();
+            self.ensure_route(device)?;
+            // A larger native allocation needs an INTZ copy followed by the
+            // same image crop as owned depth. An alias's vendor format is not
+            // an authority for an INTZ snapshot, so use the registered-copy
+            // route for that case; equal-sized alias support is unchanged.
+            let use_alias = self.route.kind() == DepthResolveRouteKind::Nvapi
+                && nvapi_stage_uses_alias(stage)
+                && desc.Width == color_desc.Width
+                && desc.Height == color_desc.Height;
+            if !use_alias {
+                self.ensure_resources(device, &desc, slot)?;
             }
-            DepthResolveRouteKind::Nvapi => {
-                if use_alias {
-                    match self.resolve_nvapi_alias(device_ptr, source_surface)? {
-                        Some(alias) => alias as usize,
-                        None => {
-                            // Alias rejection is cached for this exact source,
-                            // so later frames enter this bounded registered-copy
-                            // fallback without repeating setup or error traffic.
-                            self.ensure_resources(device, &desc, slot)?;
-                            self.resolve_nvapi_copy(device_ptr, source_surface, slot)?;
-                            record_physical_depth_copy(stage);
-                            self.target_texture_ptr(slot)?
+
+            let resolved = match self.route.kind() {
+                DepthResolveRouteKind::Resz => {
+                    if let Err(err) = unsafe { self.resolve_resz(device, source_surface, slot) } {
+                        let requests_fallback = matches!(
+                            &err,
+                            FnvDepthResolveError::D3d(d3d_err)
+                                if resz_failure_requires_fallback(
+                                    self.route.kind(),
+                                    d3d_err.code().0
+                                )
+                        );
+                        if !requests_fallback {
+                            return Err(err);
                         }
+
+                        self.fallback_from_rejected_resz(&err)?;
+                        self.ensure_resources(device, &desc, slot)?;
+                        self.resolve_nvapi_copy(device_ptr, source_surface, slot)?;
                     }
-                } else {
-                    self.resolve_nvapi_copy(device_ptr, source_surface, slot)?;
                     record_physical_depth_copy(stage);
                     self.target_texture_ptr(slot)?
                 }
-            }
-            DepthResolveRouteKind::Unavailable => {
-                return Err(FnvDepthResolveError::Static(
-                    "depth resolve is unavailable for this D3D device",
-                ));
-            }
-            DepthResolveRouteKind::Unprobed => {
-                return Err(FnvDepthResolveError::Static(
-                    "depth resolve route was not initialized",
-                ));
+                DepthResolveRouteKind::Nvapi => {
+                    if use_alias {
+                        match self.resolve_nvapi_alias(device_ptr, source_surface)? {
+                            Some(alias) => alias as usize,
+                            None => {
+                                // Alias rejection is cached for this exact source,
+                                // so later frames enter this bounded registered-copy
+                                // fallback without repeating setup or error traffic.
+                                self.ensure_resources(device, &desc, slot)?;
+                                self.resolve_nvapi_copy(device_ptr, source_surface, slot)?;
+                                record_physical_depth_copy(stage);
+                                self.target_texture_ptr(slot)?
+                            }
+                        }
+                    } else {
+                        self.resolve_nvapi_copy(device_ptr, source_surface, slot)?;
+                        record_physical_depth_copy(stage);
+                        self.target_texture_ptr(slot)?
+                    }
+                }
+                DepthResolveRouteKind::Unavailable => {
+                    return Err(FnvDepthResolveError::Static(
+                        "depth resolve is unavailable for this D3D device",
+                    ));
+                }
+                DepthResolveRouteKind::Unprobed => {
+                    return Err(FnvDepthResolveError::Static(
+                        "depth resolve route was not initialized",
+                    ));
+                }
+            };
+            if desc.Width != color_desc.Width || desc.Height != color_desc.Height {
+                let texture = unsafe { Texture9::retain_raw(resolved as *mut c_void)? };
+                let source = texture.surface_level(0)?;
+                let snapshot = depth_snapshot::capture(
+                    device,
+                    &source,
+                    slot,
+                    [color_desc.Width, color_desc.Height],
+                )?;
+                record_physical_depth_copy(stage);
+                snapshot
+            } else {
+                resolved
             }
         };
         *self.capture_mut(slot) = ResolvedDepthCapture {
@@ -2402,6 +2510,7 @@ impl FnvDepthResolve {
             height: desc.Height,
         };
         if slot == DepthResolveSlot::World {
+            self.temporal_image = projection.image;
             self.temporal_depth_proven =
                 projection.reversed_depth.is_some() && projection.camera.world_transform.available;
         }
@@ -2633,16 +2742,23 @@ impl FnvDepthResolve {
         width: u32,
         height: u32,
     ) -> Option<u64> {
+        let copied_image_matches = self.temporal_image.color_extent == [width, height]
+            && self.world_target.as_ref().is_some_and(|target| {
+                [target.width, target.height] == self.temporal_image.allocation_extent
+            });
         let persistent_target_matches = self
             .world_target
             .as_ref()
-            .is_some_and(|target| target.width == width && target.height == height);
+            .is_some_and(|target| target.width == width && target.height == height)
+            || (depth_snapshot::world_target_matches(device_ptr as usize, width, height)
+                && (copied_image_matches
+                    || owned_depth::world_source_ready(device_ptr as usize, width, height)));
         let current_capture_matches = self.world_capture.texture_ptr != 0
             && self.world_capture.frame_epoch == self.frame_epoch
-            && self.world_capture.width == width
-            && self.world_capture.height == height;
+            && self.world_capture.projection.image.sampled_extent == [width, height];
 
-        // Epoch rollover invalidates captured pixels, but the owned RESZ or
+        // Epoch rollover invalidates captured pixels. An owned snapshot requires
+        // its live native backing as well as a persistent destination. The RESZ or
         // NvAPI-copy target remains the proven destination for the next world
         // resolve. An exact current capture independently covers the NvAPI
         // alias path, which may not allocate a private target.
@@ -2794,6 +2910,12 @@ mod depth_capture_tests {
             texture_ptr,
             projection: DepthProjectionFrame {
                 source_surface: texture_ptr,
+                image: crate::backend::DepthImageFrame {
+                    color_surface: texture_ptr,
+                    color_extent: [width, height],
+                    allocation_extent: [width, height],
+                    sampled_extent: [width, height],
+                },
                 ..DepthProjectionFrame::default()
             },
             frame_epoch,

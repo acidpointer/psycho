@@ -1,0 +1,213 @@
+FalloutNV.exe first-person depth camera continuation
+Executable: fnv_reverse/FalloutNV.exe
+SHA256: 42fee7d6cd74e801372aa89c8f71c974cebd3c20ec9ad43d1465b8fa9646b49c
+PE32 x86, preferred base 0x00400000; radare2 MCP.
+
+Scope: camera/target provenance and native accumulation. Not an implementation approval for a lone inner-call capture; earlier B6C0D0 submissions also require coverage.
+
+firstPersonAccumulatorEntryVerified
+   ; fcn.00b6b260
+0x008758ad      call fcn.00b6b260
+0x008758b2      push eax
+; 6
+0x008758b3      push 6
+   ; fcn.00b6b8d0
+   ; fcn.00b6b8d0(0x0, 0x0)
+0x008758b5      call fcn.00b6b8d0
+0x008758ba      add esp, 8
+; [0x11f9426:1]=0
+0x008758bd      movzx ecx, byte [0x11f9426]
+0x008758c4      test ecx, ecx
+   ; likely
+0x008758c6      je 0x8758d9
+0x008758c8      push 0x11ad840
+   ; fcn.00524c90
+0x008758cd      call fcn.00524c90
+0x008758d2      mov ecx, eax
+   ; fcn.00712e60
+   ; fcn.00712e60(0x0)
+0x008758d4      call fcn.00712e60
+; CODE XREFS from fcn.00875110 @ 0x87587a(x), 0x875886(x), 0x875898(x), 0x8758c6(x)
+   ; fcn.0045c670
+0x008758d9      call fcn.0045c670
+0x008758de      mov dword [var_68h], eax
+0x008758e1      mov edx, dword [arg_14h]
+0x008758e4      push edx
+0x008758e5      mov ecx, dword [var_bch]
+; 160
+0x008758eb      add ecx, 0xa0
+   ; fcn.00559450
+0x008758f1      call fcn.00559450
+0x008758f6      push eax
+0x008758f7      mov ecx, dword [var_bch]
+; 140
+0x008758fd      add ecx, 0x8c
+   ; fcn.00559450
+0x00875903      call fcn.00559450
+0x00875908      mov ecx, eax
+   ; fcn.00b64570
+   ; fcn.00b64570(0x0, 0x0, 0x0)
+0x0087590a      call fcn.00b64570
+0x0087590f      push 0
+0x00875911      push 0
+0x00875913      mov eax, dword [arg_14h]
+0x00875916      push eax
+0x00875917      mov ecx, dword [var_bch]
+   ; eip
+   ; fcn.00874b50(0x0, 0x0)
+0x0087591d      call fcn.00874b50
+0x00875922      mov byte [var_4h], 0
+0x00875926      lea ecx, [var_64h]
+   ; fcn.00404ee0
+0x00875929      call fcn.00404ee0
+; CODE XREF from fcn.00875110 @ 0x875850(x)
+; [0x11de9d1:1]=0
+0x0087592e      movzx ecx, byte [0x11de9d1]
+0x00875935      test ecx, ecx
+   ; likely
+0x00875937      je 0x8759c9
+0x0087593d      push 0
+0x0087593f      push 0
+0x00875941      push ecx
+0x00875942      fldz
+0x00875944      fstp dword [esp]
+
+
+firstPersonCull0xb6c0d0
+; XREFS(42)
+84: fcn.00b6c0d0 (int32_t arg_ch_2, int32_t arg_ch);
+`- args(sp[0x4..0x8])
+; [0x11f4748:4]=0
+0x00b6c0d0      mov ecx, dword [0x11f4748]
+0x00b6c0d6      push esi
+0x00b6c0d7      mov esi, dword [arg_ch]
+0x00b6c0db      test ecx, ecx
+; likely
+0x00b6c0dd      je 0xb6c117
+0x00b6c0df      push edi
+0x00b6c0e0      mov edi, dword [arg_ch_2]
+0x00b6c0e4      test edi, edi
+; likely
+0x00b6c0e6      je 0xb6c116
+0x00b6c0e8      push edi
+; fcn.004e9bb0
+; fcn.004e9bb0(0x0)
+0x00b6c0e9      call fcn.004e9bb0
+0x00b6c0ee      push esi
+; [0x11f917c:4]=0
+0x00b6c0ef      mov dword [0x11f917c], edi
+; fcn.00b54b10
+; fcn.00b54b10(0x0)
+0x00b6c0f5      call fcn.00b54b10
+0x00b6c0fa      mov eax, dword [esi]
+0x00b6c0fc      mov edx, dword [eax + 0x8c]
+0x00b6c102      add esp, 4
+0x00b6c105      push edi
+0x00b6c106      mov ecx, esi
+; 0xffffffff(-1, 0x0, 0x0, -1)
+0x00b6c108      call edx
+0x00b6c10a      mov eax, dword [esi]
+0x00b6c10c      mov edx, dword [eax + 0xa8]
+0x00b6c112      mov ecx, esi
+; 0xffffffff(-1, 0x0, 0x0, -1)
+0x00b6c114      call edx
+; CODE XREF from fcn.00b6c0d0 @ 0xb6c0e6(x)
+; ebp
+0x00b6c116      pop edi
+; CODE XREF from fcn.00b6c0d0 @ 0xb6c0dd(x)
+0x00b6c117      mov eax, dword [esi]
+0x00b6c119      mov edx, dword [eax + 0xac]
+0x00b6c11f      mov ecx, esi
+0x00b6c121      pop esi
+0x00b6c122      jmp edx
+
+
+firstPersonCull0xb6bee0
+; XREFS(50)
+209: fcn.00b6bee0 (int32_t arg_24h, int32_t arg_28h, int32_t arg_2ch);
+`- args(sp[0x4..0xc]) vars(8:sp[0x4..0x20])
+0x00b6bee0      push 0xffffffffffffffff
+0x00b6bee2      push 0xf2ad18
+0x00b6bee7      mov eax, dword fs:[0]
+0x00b6beed      push eax
+0x00b6beee      push ecx
+0x00b6beef      push ebx
+0x00b6bef0      push esi
+0x00b6bef1      push edi
+; [0x11c16bc:4]=0xbb40e64e
+0x00b6bef2      mov eax, dword [0x11c16bc]
+0x00b6bef7      xor eax, esp
+0x00b6bef9      push eax
+0x00b6befa      lea eax, [var_14h]
+0x00b6befe      mov dword fs:[0], eax
+; [0x11f4748:4]=0
+0x00b6bf04      mov ecx, dword [0x11f4748]
+0x00b6bf0a      test ecx, ecx
+; likely
+0x00b6bf0c      je 0xb6bf9e
+0x00b6bf12      mov ebx, dword [arg_24h]
+0x00b6bf16      test ebx, ebx
+; likely
+0x00b6bf18      je 0xb6bf9e
+0x00b6bf1e      mov edi, dword [arg_28h]
+0x00b6bf22      test edi, edi
+; likely
+0x00b6bf24      je 0xb6bf9e
+; [0x126fd98:4]=0
+0x00b6bf26      mov eax, dword [0x126fd98]
+0x00b6bf2b      mov edx, dword fs:[0x2c]
+0x00b6bf32      mov eax, dword [edx + eax*4]
+0x00b6bf35      cmp dword [eax + 0x2bc], 0
+0x00b6bf3c      mov esi, dword [arg_2ch]
+; likely
+0x00b6bf40      jne 0xb6bf82
+0x00b6bf42      mov eax, dword [ecx + 8]
+0x00b6bf45      mov dword [var_10h], eax
+0x00b6bf49      test eax, eax
+; unlikely
+0x00b6bf4b      je 0xb6bf5d
+0x00b6bf4d      add eax, 4
+0x00b6bf50      push eax
+; 0xfdf1c0
+; reloc.KERNEL32.dll_InterlockedIncrement
+; sym.imp.KERNEL32.dll_InterlockedIncrement(0x3, 0x0, 0x0, -1)
+0x00b6bf51      call dword [sym.imp.KERNEL32.dll_InterlockedIncrement]
+; [0x11f4748:4]=0
+0x00b6bf57      mov ecx, dword [0x11f4748]
+; CODE XREF from fcn.00b6bee0 @ 0xb6bf4b(x)
+0x00b6bf5d      mov eax, dword [esi + 0xc4]
+0x00b6bf63      push eax
+0x00b6bf64      mov dword [var_20h], 0
+; fcn.004dc540
+; fcn.004dc540(-1)
+0x00b6bf6c      call fcn.004dc540
+0x00b6bf71      lea ecx, [var_14h_2]
+; [0xffffffff:4]=-1
+; -1
+0x00b6bf75      mov dword [var_14h], 0xffffffff
+; fcn.0045cec0
+0x00b6bf7d      call fcn.0045cec0
+; CODE XREF from fcn.00b6bee0 @ 0xb6bf40(x)
+0x00b6bf82      mov ecx, dword [esi + 0xc4]
+0x00b6bf88      push ecx
+; fcn.00b54ac0
+; fcn.00b54ac0(-1)
+0x00b6bf89      call fcn.00b54ac0
+0x00b6bf8e      mov edx, dword [esi]
+0x00b6bf90      mov eax, dword [edx + 0x48]
+0x00b6bf93      add esp, 4
+0x00b6bf96      push 0
+0x00b6bf98      push edi
+0x00b6bf99      push ebx
+0x00b6bf9a      mov ecx, esi
+; 0xffffffff(-1, 0x0, 0x0, -1)
+0x00b6bf9c      call eax
+; CODE XREFS from fcn.00b6bee0 @ 0xb6bf0c(x), 0xb6bf18(x), 0xb6bf24(x)
+0x00b6bf9e      mov ecx, dword [var_14h]
+0x00b6bfa2      mov dword fs:[0], ecx
+0x00b6bfa9      pop ecx
+0x00b6bfaa      pop edi
+0x00b6bfab      pop esi
+0x00b6bfac      pop ebx
+0x00b6bfad      add esp, 0x10
+0x00b6bfb0      ret

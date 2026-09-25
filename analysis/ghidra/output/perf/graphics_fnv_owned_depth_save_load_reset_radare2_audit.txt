@@ -1,0 +1,1415 @@
+OMV save-load recreation: native query cleanup contract
+
+Executable: fnv_reverse/FalloutNV.exe, 1.4.0.525, PE32 image base 0x400000
+SHA256: 42fee7d6cd74e801372aa89c8f71c974cebd3c20ec9ad43d1465b8fa9646b49c
+Interface: radare2 MCP, level-1 analysis, 2026-09-25.
+Runtime evidence: .reports/omv-2026-09-25-save-load-freeze.log
+The process was stopped by the owner; no thread stack was captured.
+The log proves successful adoption and a later OMV recreation request, not
+which instruction blocked. The supported binary proves the cleanup defect.
+Radare2 inferred argument names and comment values are not ABI evidence.
+Exact comparison bytes: radare2 calculate [8:0x00B632DF] = 0x750000000148bf83.
+
+
+## List insertion and count ownership
+; CALL XREF from fcn.00886cb0 @ 0x88717e(x)
+231: fcn.00b65f60 (int32_t arg_ch, int32_t arg_14h, int8_t arg_14h_2);
+`- args(sp[0x4..0xc])
+0x00b65f60      push ebx
+0x00b65f61      push esi
+0x00b65f62      mov esi, dword [arg_ch]
+0x00b65f66      push edi
+0x00b65f67      mov edi, ecx
+0x00b65f69      mov eax, dword [edi + 0x140]
+0x00b65f6f      xor ebx, ebx
+0x00b65f71      cmp eax, ebx
+; unlikely
+0x00b65f73      je 0xb65f89
+0x00b65f75      lea ecx, [eax + 8]
+0x00b65f78      mov ecx, dword [ecx]
+0x00b65f7a      mov eax, dword [eax]
+0x00b65f7c      cmp ecx, ebx
+; unlikely
+0x00b65f7e      je 0xb65f85
+0x00b65f80      cmp dword [ecx + 0x10], esi
+; likely
+0x00b65f83      je 0xb65fd3
+0x00b65f85      cmp eax, ebx
+; likely
+0x00b65f87      jne 0xb65f75
+0x00b65f89      push ebp
+; 32
+0x00b65f8a      push 0x20
+0x00b65f8c      mov ecx, 0x11f6238
+; fcn.00aa3e40
+; fcn.00aa3e40(-1)
+0x00b65f91      call fcn.00aa3e40
+0x00b65f96      cmp eax, ebx
+; unlikely
+0x00b65f98      je 0xb65ffa
+0x00b65f9a      mov ecx, dword [arg_ch]
+0x00b65f9e      mov edx, dword [ecx]
+0x00b65fa0      fld dword [ecx + 0xc]
+0x00b65fa3      mov dword [eax], edx
+0x00b65fa5      fstp dword [esp + 0x1c]
+0x00b65fa9      mov edx, dword [ecx + 4]
+0x00b65fac      fld dword [esp + 0x1c]
+0x00b65fb0      mov dword [eax + 4], edx
+0x00b65fb3      mov ecx, dword [ecx + 8]
+0x00b65fb6      fstp dword [eax + 0xc]
+0x00b65fb9      mov dword [eax + 8], ecx
+0x00b65fbc      mov dword [eax + 0x10], esi
+0x00b65fbf      mov dword [eax + 0x14], ebx
+0x00b65fc2      mov byte [eax + 0x18], bl
+0x00b65fc5      mov byte [eax + 0x19], bl
+0x00b65fc8      mov byte [eax + 0x1a], 1
+0x00b65fcc      mov dword [eax + 0x1c], ebx
+0x00b65fcf      mov ebp, eax
+0x00b65fd1      jmp 0xb65ffc
+0x00b65fd3      mov eax, dword [arg_14h]
+0x00b65fd7      mov edx, dword [eax]
+0x00b65fd9      mov dword [ecx], edx
+0x00b65fdb      mov edx, dword [eax + 4]
+0x00b65fde      mov dword [ecx + 4], edx
+0x00b65fe1      mov edx, dword [eax + 8]
+0x00b65fe4      pop edi
+0x00b65fe5      mov dword [ecx + 8], edx
+0x00b65fe8      fld dword [eax + 0xc]
+0x00b65feb      mov al, byte [arg_14h_2]
+0x00b65fef      fstp dword [ecx + 0xc]
+0x00b65ff2      pop esi
+0x00b65ff3      mov byte [ecx + 0x1a], al
+0x00b65ff6      pop ebx
+0x00b65ff7      ret 0xc
+0x00b65ffa      xor ebp, ebp
+; CODE XREF from fcn.00b65f60 @ 0xb65fd1(x)
+0x00b65ffc      lea esi, [edi + 0x148]
+0x00b66002      mov ecx, esi
+; fcn.0043a010
+0x00b66004      call fcn.0043a010
+0x00b66009      mov dword [eax + 8], ebp
+0x00b6600c      mov dword [eax + 4], ebx
+0x00b6600f      mov edx, dword [edi + 0x140]
+0x00b66015      mov dword [eax], edx
+0x00b66017      mov ecx, dword [edi + 0x140]
+0x00b6601d      pop ebp
+0x00b6601e      cmp ecx, ebx
+; likely
+0x00b66020      je 0xb66033
+0x00b66022      mov dword [ecx + 4], eax
+0x00b66025      inc dword [esi]
+0x00b66027      mov dword [edi + 0x140], eax
+0x00b6602d      pop edi
+0x00b6602e      pop esi
+0x00b6602f      pop ebx
+0x00b66030      ret 0xc
+0x00b66033      inc dword [esi]
+0x00b66035      mov dword [edi + 0x144], eax
+0x00b6603b      mov dword [edi + 0x140], eax
+0x00b66041      pop edi
+0x00b66042      pop esi
+0x00b66043      pop ebx
+0x00b66044      ret 0xc
+
+
+## Accumulator constructor
+; XREFS: CALL 0x0049fd6f  CALL 0x004bc008  CALL 0x004e9e76
+; XREFS: CALL 0x004eab63  CALL 0x004eb0d4  CALL 0x004ec0bc
+; XREFS: CALL 0x0054eac5  CALL 0x00640620  CALL 0x0070a793
+; XREFS: CALL 0x0070a814  CALL 0x007fc1a1  CALL 0x008000a0
+; XREFS: CALL 0x0086c2ba  CALL 0x0086c30d  CALL 0x0086c38e
+; XREFS: CALL 0x0086c40c  CALL 0x0086c476  CALL 0x0087538b
+; XREFS: CALL 0x00b577fc  CALL 0x00bd8415
+1055: fcn.00b660d0 ();
+afv: vars(14:sp[0x4..0x60])
+0x00b660d0      push 0xffffffffffffffff
+0x00b660d2      push 0xf28227
+0x00b660d7      mov eax, dword fs:[0]
+0x00b660dd      push eax
+0x00b660de      sub esp, 0x18
+0x00b660e1      push ebx
+0x00b660e2      push ebp
+0x00b660e3      push esi
+0x00b660e4      push edi
+; [0x11c16bc:4]=0xbb40e64e
+0x00b660e5      mov eax, dword [0x11c16bc]
+0x00b660ea      xor eax, esp
+0x00b660ec      push eax
+0x00b660ed      lea eax, [var_2ch]
+0x00b660f1      mov dword fs:[0], eax
+0x00b660f7      mov esi, ecx
+0x00b660f9      mov dword [var_14h], esi
+; fcn.00a9b480
+0x00b660fd      call fcn.00a9b480
+0x00b66102      fldz
+; [0x10adff8:4]=0xb664f0 fcn.00b664f0
+0x00b66104      mov dword [esi], 0x10adff8
+0x00b6610a      fst dword [esi + 0x50]
+0x00b6610d      xor ebx, ebx
+0x00b6610f      fst dword [esi + 0x64]
+0x00b66112      lea edi, [esi + 0x90]
+0x00b66118      fstp dword [esi + 0x78]
+0x00b6611b      mov dword [esi + 0x48], ebx
+0x00b6611e      mov byte [esi + 0x4c], bl
+0x00b66121      mov dword [esi + 0x54], ebx
+0x00b66124      mov dword [esi + 0x58], ebx
+0x00b66127      mov dword [esi + 0x5c], ebx
+0x00b6612a      mov byte [esi + 0x60], bl
+0x00b6612d      mov dword [esi + 0x68], ebx
+0x00b66130      mov dword [esi + 0x6c], ebx
+0x00b66133      mov dword [esi + 0x70], ebx
+0x00b66136      mov byte [esi + 0x74], bl
+0x00b66139      mov dword [esi + 0x7c], ebx
+0x00b6613c      mov dword [esi + 0x80], ebx
+0x00b66142      mov dword [var_34h], ebx
+0x00b66146      mov dword [edi + 8], ebx
+0x00b66149      mov dword [edi], ebx
+0x00b6614b      mov dword [edi + 4], ebx
+0x00b6614e      push 0xb656b0
+; 0xb988c0
+0x00b66153      push fcn.00b988c0
+; 4
+0x00b66158      push 4
+; 20
+0x00b6615a      push 0x14
+0x00b6615c      lea eax, [esi + 0x9c]
+0x00b66162      push eax
+0x00b66163      mov byte [var_34h], 1
+; fcn.00ec782f
+; fcn.00ec782f(0x9c, 0x0, 0x0)
+0x00b66168      call fcn.00ec782f
+0x00b6616d      push 0xb656b0
+; 0xb988c0
+0x00b66172      push fcn.00b988c0
+; 4
+0x00b66177      push 4
+; 20
+0x00b66179      push 0x14
+0x00b6617b      lea ecx, [esi + 0xec]
+0x00b66181      push ecx
+0x00b66182      mov byte [var_48h], 2
+; fcn.00ec782f
+; fcn.00ec782f(0x9c, 0x0, 0xec)
+0x00b66187      call fcn.00ec782f
+0x00b6618c      mov dword [esi + 0x13c], ebx
+0x00b66192      mov dword [esi + 0x148], ebx
+0x00b66198      mov dword [esi + 0x140], ebx
+0x00b6619e      mov dword [esi + 0x144], ebx
+0x00b661a4      fldz
+0x00b661a6      fst dword [esi + 0x154]
+0x00b661ac      fst dword [esi + 0x158]
+0x00b661b2      fst dword [esi + 0x15c]
+0x00b661b8      fstp dword [esi + 0x160]
+0x00b661be      mov dword [esi + 0x198], ebx
+0x00b661c4      mov dword [esi + 0x1a0], ebx
+0x00b661ca      push ebx
+0x00b661cb      push ebx
+; 1
+0x00b661cc      push 1
+; 757
+0x00b661ce      push 0x2f5
+0x00b661d3      lea edx, [esi + 0x1a4]
+0x00b661d9      push ebx
+0x00b661da      push edx
+0x00b661db      mov byte [var_4ch], 7
+; fcn.00ba8ec0
+; fcn.00ba8ec0(0x9c, 0x0, 0xec, 0x1a4, 0x0)
+0x00b661e0      call fcn.00ba8ec0
+; 148
+0x00b661e5      push 0x94
+0x00b661ea      mov byte [var_4ch], 8
+; [0x10adfbc:4]=0xb63e30 fcn.00b63e30
+0x00b661ef      mov dword [esi + 0x1b4], 0x10adfbc
+; '%'
+; [0x25:4]=-1
+; 37
+0x00b661f9      mov dword [esi + 0x1b8], 0x25
+0x00b66203      mov dword [esi + 0x1c0], ebx
+; fcn.00aa1070
+; fcn.00aa1070(0x9c)
+0x00b66209      call fcn.00aa1070
+0x00b6620e      mov ecx, dword [esi + 0x1b8]
+0x00b66214      add ecx, ecx
+0x00b66216      add ecx, ecx
+0x00b66218      push ecx
+0x00b66219      mov dword [esi + 0x1bc], eax
+0x00b6621f      push ebx
+0x00b66220      push eax
+; fcn.00ec61c0
+; fcn.00ec61c0(0x9c, 0x0, 0xfffffffc)
+0x00b66221      call fcn.00ec61c0
+0x00b66226      add esp, 0x28
+; [0x10adfd8:4]=0xb63e70 fcn.00b63e70
+0x00b66229      mov dword [esi + 0x1b4], 0x10adfd8
+0x00b66233      lea eax, [esi + 0x200]
+0x00b66239      push eax
+; 0xfdf054
+; reloc.KERNEL32.dll_InitializeCriticalSection
+; VOID InitializeCriticalSection(-1)
+; VOID InitializeCriticalSection(LPCRITICAL_SECTION lpCriticalSection)
+0x00b6623a      call dword [sym.imp.KERNEL32.dll_InitializeCriticalSection]
+; 200
+0x00b66240      push 0xc8
+0x00b66245      mov ecx, 0x11f6238
+0x00b6624a      mov byte [var_4ch], 0xa
+0x00b6624f      mov byte [esi + 0x84], 1
+0x00b66256      mov byte [esi + 0x85], bl
+0x00b6625c      mov byte [esi + 0x86], 1
+; fcn.00aa3e40
+; fcn.00aa3e40(0x200)
+0x00b66263      call fcn.00aa3e40
+0x00b66268      mov dword [esi + 0x8c], eax
+0x00b6626e      xor eax, eax
+; '2'
+; 50
+0x00b66270      mov ecx, 0x32
+0x00b66275      mov word [esi + 0x88], ax
+0x00b6627c      mov word [esi + 0x8a], cx
+0x00b66283      mov edx, dword [esi + 0x8c]
+0x00b66289      mov dword [eax + edx], ebx
+0x00b6628c      add eax, 4
+; 200
+0x00b6628f      cmp eax, 0xc8
+; likely
+0x00b66294      jl 0xb66283
+0x00b66296      mov ecx, edi
+; fcn.00b71300
+0x00b66298      call fcn.00b71300
+0x00b6629d      fld1
+0x00b6629f      fstp dword [esi + 0x44]
+0x00b662a2      mov byte [esi + 0x40], bl
+0x00b662a5      fldz
+0x00b662a7      mov dword [esi + 0x3c], ebx
+0x00b662aa      lea eax, [esi + 0x4c]
+0x00b662ad      mov ecx, 3
+0x00b662b2      fst dword [eax + 4]
+0x00b662b5      mov dword [eax - 4], ebx
+0x00b662b8      mov byte [eax], bl
+0x00b662ba      mov dword [eax + 8], ebx
+0x00b662bd      mov dword [eax + 0xc], ebx
+; 20
+0x00b662c0      add eax, 0x14
+0x00b662c3      sub ecx, 1
+; likely
+0x00b662c6      jne 0xb662b2
+; 4
+0x00b662c8      push 4
+0x00b662ca      fstp st(0)
+0x00b662cc      mov ecx, 0x11f6238
+0x00b662d1      mov dword [esi + 0x14c], ebx
+0x00b662d7      mov byte [esi + 0x150], bl
+; fcn.00aa3e40
+; fcn.00aa3e40(0x60)
+0x00b662dd      call fcn.00aa3e40
+0x00b662e2      mov dword [var_18h], eax
+; [0xb:1]=255
+; 11
+0x00b662e6      mov byte [var_34h_2], 0xb
+0x00b662eb      cmp eax, ebx
+; unlikely
+0x00b662ed      je 0xb662f8
+0x00b662ef      mov ecx, eax
+; fcn.00bd9120
+0x00b662f1      call fcn.00bd9120
+0x00b662f6      jmp 0xb662fa
+0x00b662f8      xor eax, eax
+; CODE XREF from fcn.00b660d0 @ 0xb662f6(x)
+0x00b662fa      mov ecx, dword [var_14h]
+0x00b662fe      mov dword [esi + 0x170], eax
+0x00b66304      mov eax, dword [var_40h]
+; 152
+0x00b66308      push 0x98
+0x00b6630d      mov byte [var_34h_2], 0xa
+0x00b66312      mov dword [esi + 0x18c], eax
+0x00b66318      mov dword [esi + 0x190], ecx
+; fcn.00aa13e0
+; fcn.00aa13e0(-1)
+0x00b6631e      call fcn.00aa13e0
+0x00b66323      add esp, 4
+0x00b66326      mov dword [var_40h], eax
+0x00b6632a      mov edi, dword [var_4ch]
+; [0xc:1]=255
+; 12
+0x00b6632e      mov byte [var_34h_2], 0xc
+0x00b66333      cmp eax, ebx
+; unlikely
+0x00b66335      je 0xb66348
+0x00b66337      mov edx, dword [esi + 0x190]
+0x00b6633d      push edi
+0x00b6633e      push edx
+0x00b6633f      mov ecx, eax
+; fcn.00b9a5b0
+0x00b66341      call fcn.00b9a5b0
+0x00b66346      jmp 0xb6634a
+0x00b66348      xor eax, eax
+; CODE XREF from fcn.00b660d0 @ 0xb66346(x)
+0x00b6634a      cmp dword [esi + 0x18c], 2
+0x00b66351      mov byte [var_34h_2], 0xa
+0x00b66356      mov dword [esi + 0x174], eax
+; likely
+0x00b6635c      jne 0xb663a3
+; 152
+0x00b6635e      push 0x98
+; fcn.00aa13e0
+; fcn.00aa13e0(0x0)
+0x00b66363      call fcn.00aa13e0
+0x00b66368      add esp, 4
+0x00b6636b      mov dword [var_40h], eax
+; [0xd:1]=255
+; 13
+0x00b6636f      mov byte [var_34h_2], 0xd
+0x00b66374      cmp eax, ebx
+; likely
+0x00b66376      je 0xb66394
+0x00b66378      mov ecx, dword [esi + 0x190]
+0x00b6637e      push edi
+0x00b6637f      push ecx
+0x00b66380      mov ecx, eax
+; fcn.00b9a5b0
+0x00b66382      call fcn.00b9a5b0
+0x00b66387      mov byte [var_34h_3], 0xa
+0x00b6638c      mov dword [esi + 0x178], eax
+0x00b66392      jmp 0xb663a9
+0x00b66394      xor eax, eax
+0x00b66396      mov byte [var_34h_2], 0xa
+0x00b6639b      mov dword [esi + 0x178], eax
+0x00b663a1      jmp 0xb663a9
+0x00b663a3      mov dword [esi + 0x178], ebx
+; CODE XREFS from fcn.00b660d0 @ 0xb66392(x), 0xb663a1(x)
+0x00b663a9      mov eax, dword [esi + 0x18c]
+0x00b663af      xor ecx, ecx
+0x00b663b1      mov edx, 4
+0x00b663b6      mul edx
+0x00b663b8      seto cl
+0x00b663bb      neg ecx
+0x00b663bd      or eax, ecx
+0x00b663bf      push eax
+0x00b663c0      mov ecx, 0x11f6238
+; fcn.00aa3e40
+; fcn.00aa3e40(-1)
+0x00b663c5      call fcn.00aa3e40
+0x00b663ca      mov dword [esi + 0x17c], eax
+0x00b663d0      mov eax, dword [esi + 0x18c]
+0x00b663d6      xor ecx, ecx
+0x00b663d8      mov edx, 4
+0x00b663dd      mul edx
+0x00b663df      seto cl
+0x00b663e2      neg ecx
+0x00b663e4      or eax, ecx
+0x00b663e6      push eax
+0x00b663e7      mov ecx, 0x11f6238
+; fcn.00aa3e40
+; fcn.00aa3e40(-1)
+0x00b663ec      call fcn.00aa3e40
+0x00b663f1      mov dword [esi + 0x180], eax
+0x00b663f7      mov eax, dword [esi + 0x18c]
+0x00b663fd      push eax
+0x00b663fe      mov ecx, 0x11f6238
+; fcn.00aa3e40
+; fcn.00aa3e40(-1)
+0x00b66403      call fcn.00aa3e40
+0x00b66408      mov dword [esi + 0x184], eax
+0x00b6640e      mov eax, dword [esi + 0x18c]
+0x00b66414      push eax
+0x00b66415      mov ecx, 0x11f6238
+; fcn.00aa3e40
+; fcn.00aa3e40(-1)
+0x00b6641a      call fcn.00aa3e40
+; [0xfdf1c4:4]=0xd80cb8 reloc.KERNEL32.dll_InterlockedDecrement
+; reloc.KERNEL32.dll_InterlockedDecrement
+0x00b6641f      mov ebp, dword [sym.imp.KERNEL32.dll_InterlockedDecrement]
+0x00b66425      mov dword [esi + 0x188], eax
+0x00b6642b      mov dword [esi + 0x19c], ebx
+0x00b66431      mov edi, dword [esi + 0x1a0]
+0x00b66437      cmp edi, ebx
+; unlikely
+0x00b66439      je 0xb66454
+0x00b6643b      lea eax, [edi + 4]
+0x00b6643e      push eax
+; reloc.KERNEL32.dll_InterlockedDecrement
+; reloc.KERNEL32.dll_InterlockedDecrement(0x3, 0x0, 0x11f6238, 0x3)
+0x00b6643f      call ebp
+0x00b66441      test eax, eax
+; likely
+0x00b66443      jne 0xb6644e
+0x00b66445      mov edx, dword [edi]
+0x00b66447      mov eax, dword [edx + 4]
+0x00b6644a      mov ecx, edi
+; 0xffffffff(-1, 0x0, -1, -1)
+0x00b6644c      call eax
+0x00b6644e      mov dword [esi + 0x1a0], ebx
+; [0x126fd98:4]=0
+0x00b66454      mov ecx, dword [0x126fd98]
+0x00b6645a      mov edx, dword fs:[0x2c]
+0x00b66461      mov eax, dword [edx + ecx*4]
+0x00b66464      mov dword [eax + 0x2bc], ebx
+0x00b6646a      mov byte [esi + 0x16c], 1
+0x00b66471      mov edi, dword [esi + 0x198]
+0x00b66477      cmp edi, ebx
+; unlikely
+0x00b66479      je 0xb66494
+0x00b6647b      lea ecx, [edi + 4]
+0x00b6647e      push ecx
+; reloc.KERNEL32.dll_InterlockedDecrement
+; reloc.KERNEL32.dll_InterlockedDecrement(-1, 0x0, 0x3, -1)
+0x00b6647f      call ebp
+0x00b66481      test eax, eax
+; likely
+0x00b66483      jne 0xb6648e
+0x00b66485      mov edx, dword [edi]
+0x00b66487      mov eax, dword [edx + 4]
+0x00b6648a      mov ecx, edi
+; 0xffffffff(-1, 0x0, -1, -1)
+0x00b6648c      call eax
+0x00b6648e      mov dword [esi + 0x198], ebx
+0x00b66494      fld dword [0x1017870]
+0x00b6649a      mov byte [esi + 0x3a], bl
+0x00b6649d      fst dword [esp + 0x1c]
+0x00b664a1      mov ecx, dword [var_1ch]
+0x00b664a5      fst dword [esp + 0x20]
+0x00b664a9      mov edx, dword [var_1ch]
+0x00b664ad      fstp dword [esp + 0x24]
+0x00b664b1      mov eax, dword [var_20h]
+0x00b664b5      fld1
+0x00b664b7      mov dword [esi + 0x154], ecx
+0x00b664bd      fstp dword [esp + 0x28]
+0x00b664c1      mov dword [esi + 0x158], edx
+0x00b664c7      mov ecx, dword [var_18h]
+0x00b664cb      mov dword [esi + 0x15c], eax
+0x00b664d1      mov dword [esi + 0x160], ecx
+0x00b664d7      mov eax, esi
+0x00b664d9      mov ecx, dword [var_18h]
+0x00b664dd      mov dword fs:[0], ecx
+0x00b664e4      pop ecx
+0x00b664e5      pop edi
+0x00b664e6      pop esi
+0x00b664e7      pop ebp
+0x00b664e8      pop ebx
+0x00b664e9      add esp, 0x24
+0x00b664ec      ret 0xc
+
+
+## Outer recreation callsite
+   ; fcn.008705d0
+0x0086edf0      call fcn.008705d0
+; [0x11c6fbb:1]=0
+0x0086edf5      movzx eax, byte [0x11c6fbb]
+0x0086edfc      test eax, eax
+   ; likely
+0x0086edfe      je 0x86ee0c
+   ; fcn.004dc360
+0x0086ee00      call fcn.004dc360
+; [0x11c6fbb:1]=0
+0x0086ee05      mov byte [0x11c6fbb], 0
+; [0x11dea2b:1]=0
+0x0086ee0c      movzx ecx, byte [0x11dea2b]
+0x0086ee13      test ecx, ecx
+   ; likely
+0x0086ee15      je 0x86ee22
+; [0x11dea2d:1]=0
+0x0086ee17      movzx edx, byte [0x11dea2d]
+0x0086ee1e      test edx, edx
+   ; likely
+0x0086ee20      je 0x86ee5f
+; [0x11dea2e:1]=0
+0x0086ee22      movzx eax, byte [0x11dea2e]
+0x0086ee29      test eax, eax
+   ; unlikely
+0x0086ee2b      jne 0x86ee5f
+0x0086ee2d      mov ecx, dword [var_18h]
+
+
+## Displaced comparison and continuation
+0x00b6328c      cmp dword [edi + 0x148], 0
+0x00b63293      mov byte [edi + 0x40], bl
+0x00b63296      mov ebx, dword [edi + 0x140]
+   ; unlikely
+0x00b6329c      je 0xb632e8
+0x00b6329e      mov edi, edi
+0x00b632a0      mov esi, dword [ebx + 8]
+0x00b632a3      lea eax, [ebx + 8]
+0x00b632a6      mov ebx, dword [ebx]
+0x00b632a8      test esi, esi
+   ; unlikely
+0x00b632aa      je 0xb632df
+0x00b632ac      mov ecx, dword [esi + 0x14]
+0x00b632af      test ecx, ecx
+   ; unlikely
+0x00b632b1      je 0xb632df
+; 1
+0x00b632b3      push 1
+0x00b632b5      lea edx, [var_14h]
+0x00b632b9      push edx
+   ; fcn.00c4edf0
+   ; fcn.00c4edf0(0x7, -1)
+0x00b632ba      call fcn.00c4edf0
+0x00b632bf      mov ebp, dword [esi + 0x14]
+0x00b632c2      test ebp, ebp
+   ; unlikely
+0x00b632c4      je 0xb632d8
+0x00b632c6      mov ecx, ebp
+   ; fcn.00c4ed40
+0x00b632c8      call fcn.00c4ed40
+0x00b632cd      push ebp
+0x00b632ce      mov ecx, 0x11f6238
+   ; fcn.00aa4060
+   ; fcn.00aa4060(0x7)
+0x00b632d3      call fcn.00aa4060
+0x00b632d8      mov dword [esi + 0x14], 0
+0x00b632df      cmp dword [edi + 0x148], 0
+   ; likely
+0x00b632e6      jne 0xb632a0
+0x00b632e8      mov edx, dword [edi + 0x8c]
+0x00b632ee      xor ecx, ecx
+0x00b632f0      xor eax, eax
+0x00b632f2      mov word [edi + 0x8a], cx
+
+Function/instruction output 0x00B631D0
+; CALL XREF from fcn.00453dc0 @ 0x454268(x)
+; CALL XREF from fcn.004dc360 @ 0x4dc394(x)
+; CALL XREF from fcn.00872570 @ 0x8725f0(x)
+; CALL XREF from fcn.008774a0 @ 0x877674(x)
+321: fcn.00b631d0 ();
+afv: vars(1:sp[0x4..0x4])
+0x00b631d0      push ecx
+0x00b631d1      push ebx
+0x00b631d2      push ebp
+0x00b631d3      push esi
+0x00b631d4      push edi
+0x00b631d5      mov edi, ecx
+0x00b631d7      xor eax, eax
+0x00b631d9      xor esi, esi
+0x00b631db      cmp ax, word [edi + 0x8a]
+; unlikely
+0x00b631e2      jae 0xb63245
+0x00b631e4      jmp 0xb631f0
+..
+; CODE XREF from fcn.00b631d0 @ 0xb631e4(x)
+0x00b631f0      mov ecx, dword [edi + 0x8c]
+0x00b631f6      cmp dword [ecx + esi*4], 0
+0x00b631fa      lea eax, [ecx + esi*4]
+; unlikely
+0x00b631fd      je 0xb63239
+0x00b631ff      mov ecx, dword [eax]
+; 1
+0x00b63201      push 1
+0x00b63203      lea edx, [var_14h]
+0x00b63207      push edx
+; fcn.00c4edf0
+; fcn.00c4edf0(-1, 0x0)
+0x00b63208      call fcn.00c4edf0
+0x00b6320d      mov eax, dword [edi + 0x8c]
+0x00b63213      mov ebp, dword [eax + esi*4]
+0x00b63216      test ebp, ebp
+; unlikely
+0x00b63218      je 0xb6322c
+0x00b6321a      mov ecx, ebp
+; fcn.00c4ed40
+0x00b6321c      call fcn.00c4ed40
+0x00b63221      push ebp
+0x00b63222      mov ecx, 0x11f6238
+; fcn.00aa4060
+; fcn.00aa4060(-1)
+0x00b63227      call fcn.00aa4060
+0x00b6322c      mov ecx, dword [edi + 0x8c]
+0x00b63232      mov dword [ecx + esi*4], 0
+0x00b63239      movzx edx, word [edi + 0x8a]
+0x00b63240      inc esi
+0x00b63241      cmp esi, edx
+; likely
+0x00b63243      jl 0xb631f0
+0x00b63245      lea esi, [edi + 0x48]
+0x00b63248      mov ebx, 3
+0x00b6324d      lea ecx, [ecx]
+0x00b63250      mov ecx, dword [esi]
+0x00b63252      test ecx, ecx
+; unlikely
+0x00b63254      je 0xb63284
+; 1
+0x00b63256      push 1
+0x00b63258      lea eax, [var_14h]
+0x00b6325c      push eax
+; fcn.00c4edf0
+; fcn.00c4edf0(0xffffffe4, 0x3)
+0x00b6325d      call fcn.00c4edf0
+0x00b63262      mov ebp, dword [esi]
+0x00b63264      test ebp, ebp
+; unlikely
+0x00b63266      je 0xb6327a
+0x00b63268      mov ecx, ebp
+; fcn.00c4ed40
+0x00b6326a      call fcn.00c4ed40
+0x00b6326f      push ebp
+0x00b63270      mov ecx, 0x11f6238
+; fcn.00aa4060
+; fcn.00aa4060(0xffffffe4)
+0x00b63275      call fcn.00aa4060
+0x00b6327a      mov dword [esi], 0
+0x00b63280      mov byte [esi + 4], 0
+; 20
+0x00b63284      add esi, 0x14
+0x00b63287      sub ebx, 1
+; likely
+0x00b6328a      jne 0xb63250
+0x00b6328c      cmp dword [edi + 0x148], 0
+0x00b63293      mov byte [edi + 0x40], bl
+0x00b63296      mov ebx, dword [edi + 0x140]
+; unlikely
+0x00b6329c      je 0xb632e8
+0x00b6329e      mov edi, edi
+0x00b632a0      mov esi, dword [ebx + 8]
+0x00b632a3      lea eax, [ebx + 8]
+0x00b632a6      mov ebx, dword [ebx]
+0x00b632a8      test esi, esi
+; unlikely
+0x00b632aa      je 0xb632df
+0x00b632ac      mov ecx, dword [esi + 0x14]
+0x00b632af      test ecx, ecx
+; unlikely
+0x00b632b1      je 0xb632df
+; 1
+0x00b632b3      push 1
+0x00b632b5      lea edx, [var_14h]
+0x00b632b9      push edx
+; fcn.00c4edf0
+; fcn.00c4edf0(0x7, -1)
+0x00b632ba      call fcn.00c4edf0
+0x00b632bf      mov ebp, dword [esi + 0x14]
+0x00b632c2      test ebp, ebp
+; unlikely
+0x00b632c4      je 0xb632d8
+0x00b632c6      mov ecx, ebp
+; fcn.00c4ed40
+0x00b632c8      call fcn.00c4ed40
+0x00b632cd      push ebp
+0x00b632ce      mov ecx, 0x11f6238
+; fcn.00aa4060
+; fcn.00aa4060(0x7)
+0x00b632d3      call fcn.00aa4060
+0x00b632d8      mov dword [esi + 0x14], 0
+0x00b632df      cmp dword [edi + 0x148], 0
+; likely
+0x00b632e6      jne 0xb632a0
+0x00b632e8      mov edx, dword [edi + 0x8c]
+0x00b632ee      xor ecx, ecx
+0x00b632f0      xor eax, eax
+0x00b632f2      mov word [edi + 0x8a], cx
+0x00b632f9      push edx
+0x00b632fa      mov ecx, 0x11f6238
+0x00b632ff      mov word [edi + 0x88], ax
+; fcn.00aa4060
+; fcn.00aa4060(0x0)
+0x00b63306      call fcn.00aa4060
+0x00b6330b      mov dword [edi + 0x8c], 0
+0x00b63315      pop edi
+0x00b63316      pop esi
+0x00b63317      pop ebp
+0x00b63318      pop ebx
+0x00b63319      pop ecx
+0x00b6331a      ret
+
+Function/instruction output 0x00B6328C
+0x00b6328c      cmp dword [edi + 0x148], 0
+0x00b63293      mov byte [edi + 0x40], bl
+0x00b63296      mov ebx, dword [edi + 0x140]
+   ; unlikely
+0x00b6329c      je 0xb632e8
+0x00b6329e      mov edi, edi
+0x00b632a0      mov esi, dword [ebx + 8]
+0x00b632a3      lea eax, [ebx + 8]
+0x00b632a6      mov ebx, dword [ebx]
+0x00b632a8      test esi, esi
+   ; unlikely
+0x00b632aa      je 0xb632df
+0x00b632ac      mov ecx, dword [esi + 0x14]
+0x00b632af      test ecx, ecx
+   ; unlikely
+0x00b632b1      je 0xb632df
+; 1
+0x00b632b3      push 1
+0x00b632b5      lea edx, [var_14h]
+0x00b632b9      push edx
+   ; fcn.00c4edf0
+   ; fcn.00c4edf0(0x7, -1)
+0x00b632ba      call fcn.00c4edf0
+0x00b632bf      mov ebp, dword [esi + 0x14]
+0x00b632c2      test ebp, ebp
+   ; unlikely
+0x00b632c4      je 0xb632d8
+0x00b632c6      mov ecx, ebp
+   ; fcn.00c4ed40
+0x00b632c8      call fcn.00c4ed40
+0x00b632cd      push ebp
+0x00b632ce      mov ecx, 0x11f6238
+   ; fcn.00aa4060
+   ; fcn.00aa4060(0x7)
+0x00b632d3      call fcn.00aa4060
+0x00b632d8      mov dword [esi + 0x14], 0
+0x00b632df      cmp dword [edi + 0x148], 0
+   ; likely
+0x00b632e6      jne 0xb632a0
+0x00b632e8      mov edx, dword [edi + 0x8c]
+0x00b632ee      xor ecx, ecx
+0x00b632f0      xor eax, eax
+0x00b632f2      mov word [edi + 0x8a], cx
+0x00b632f9      push edx
+0x00b632fa      mov ecx, 0x11f6238
+0x00b632ff      mov word [edi + 0x88], ax
+   ; fcn.00aa4060
+   ; fcn.00aa4060(0x0)
+0x00b63306      call fcn.00aa4060
+0x00b6330b      mov dword [edi + 0x8c], 0
+0x00b63315      pop edi
+0x00b63316      pop esi
+0x00b63317      pop ebp
+0x00b63318      pop ebx
+0x00b63319      pop ecx
+0x00b6331a      ret
+0x00b6331b      int3
+0x00b6331c      int3
+0x00b6331d      int3
+0x00b6331e      int3
+0x00b6331f      int3
+  ; CALL XREF from fcn.00b64020 @ 0xb643d5(x)
+249: fcn.00b63320 (int32_t arg_ch, int32_t arg_14h);
+`- args(sp[0x4..0x8])
+0x00b63320      push ebp
+; [0x11f4748:4]=0
+0x00b63321      mov ebp, dword [0x11f4748]
+0x00b63327      push esi
+0x00b63328      mov esi, dword [arg_ch]
+0x00b6332c      push edi
+0x00b6332d      mov edi, dword [arg_14h]
+; [0x11f91e4:4]=0
+0x00b63331      mov dword [0x11f91e4], edi
+; [0x11f91e0:4]=0
+0x00b63337      mov dword [0x11f91e0], esi
+0x00b6333d      mov ecx, dword [esi]
+; 3
+0x00b6333f      push 3
+   ; fcn.00a59d30
+   ; fcn.00a59d30(0x0)
+0x00b63341      call fcn.00a59d30
+0x00b63346      test eax, eax
+
+Function/instruction output 0x00C4EDF0
+; XREFS: CALL 0x004a43c1  CALL 0x0068de48  CALL 0x0080051d
+; XREFS: CALL 0x00800540  CALL 0x0080270c  CALL 0x00802777
+; XREFS: CALL 0x00b63208  CALL 0x00b6325d  CALL 0x00b632ba
+; XREFS: CALL 0x00b63646  CALL 0x00b636f0
+80: fcn.00c4edf0 (int32_t arg_8h, int8_t arg_ch);
+`- args(sp[0x4..0x8]) vars(3:sp[0x8..0x10])
+0x00c4edf0      push ebp
+0x00c4edf1      mov ebp, esp
+0x00c4edf3      sub esp, 0xc
+0x00c4edf6      mov dword [var_ch], ecx
+0x00c4edf9      mov dword [var_8h], 0
+0x00c4ee00      movzx eax, byte [arg_ch]
+0x00c4ee04      test eax, eax
+; unlikely
+0x00c4ee06      je 0xc4ee0f
+0x00c4ee08      mov dword [var_8h], 1
+0x00c4ee0f      mov ecx, dword [var_8h]
+0x00c4ee12      push ecx
+; 4
+0x00c4ee13      push 4
+0x00c4ee15      mov edx, dword [arg_8h]
+0x00c4ee18      push edx
+0x00c4ee19      mov eax, dword [var_ch]
+0x00c4ee1c      mov ecx, dword [eax]
+0x00c4ee1e      mov edx, dword [var_ch]
+0x00c4ee21      mov eax, dword [edx]
+0x00c4ee23      mov ecx, dword [ecx]
+0x00c4ee25      push eax
+0x00c4ee26      mov edx, dword [ecx + 0x1c]
+; 0xffffffff(-1, 0x0, -1, -1)
+0x00c4ee29      call edx
+0x00c4ee2b      mov dword [var_4h], eax
+0x00c4ee2e      cmp dword [var_4h], 0
+; likely
+0x00c4ee32      jne 0xc4ee38
+0x00c4ee34      mov al, 1
+0x00c4ee36      jmp 0xc4ee3a
+0x00c4ee38      xor al, al
+; CODE XREF from fcn.00c4edf0 @ 0xc4ee36(x)
+0x00c4ee3a      mov esp, ebp
+0x00c4ee3c      pop ebp
+0x00c4ee3d      ret 8
+
+Function/instruction output 0x00C4ED40
+; XREFS: CALL 0x004a441a  CALL 0x00b6321c  CALL 0x00b6326a
+; XREFS: CALL 0x00b632c8  CALL 0x00b635f2  CALL 0x00b63653
+; XREFS: CALL 0x00b6371b  CALL 0x00b655da  CALL 0x00b65796
+; XREFS: CALL 0x00b6584b  CALL 0x00b66094  0x00c4ece1
+37: fcn.00c4ed40 ();
+afv: vars(1:sp[0x8..0x8])
+0x00c4ed40      push ebp
+0x00c4ed41      mov ebp, esp
+0x00c4ed43      push ecx
+0x00c4ed44      mov dword [var_4h], ecx
+0x00c4ed47      mov eax, dword [var_4h]
+0x00c4ed4a      cmp dword [eax], 0
+; unlikely
+0x00c4ed4d      je 0xc4ed61
+0x00c4ed4f      mov ecx, dword [var_4h]
+0x00c4ed52      mov edx, dword [ecx]
+0x00c4ed54      mov eax, dword [var_4h]
+0x00c4ed57      mov ecx, dword [eax]
+0x00c4ed59      mov edx, dword [edx]
+0x00c4ed5b      push ecx
+0x00c4ed5c      mov eax, dword [edx + 8]
+; 0xffffffff(-1, 0x0, -1, -1)
+0x00c4ed5f      call eax
+0x00c4ed61      mov esp, ebp
+0x00c4ed63      pop ebp
+0x00c4ed64      ret
+
+Function/instruction output 0x00B66050
+; CALL XREF from fcn.0087dcb0 @ 0x87df51(x)
+; CALL XREF from fcn.00882b90 @ 0x882c1f(x)
+; CALL XREF from fcn.00883240 @ 0x8832ea(x)
+; CALL XREF from fcn.00883800 @ 0x883892(x)
+120: fcn.00b66050 (int32_t arg_ch, int32_t arg_8h);
+`- args(sp[0x0..0x4]) vars(1:sp[0x4..0x4])
+0x00b66050      mov eax, dword [ecx + 0x140]
+0x00b66056      push ebx
+0x00b66057      lea ebx, [ecx + 0x140]
+0x00b6605d      test eax, eax
+; unlikely
+0x00b6605f      je 0xb660c4
+0x00b66061      mov edx, dword [arg_8h]
+0x00b66065      push esi
+0x00b66066      mov esi, dword [eax + 8]
+0x00b66069      lea ecx, [eax + 8]
+0x00b6606c      mov eax, dword [eax]
+0x00b6606e      mov dword [arg_8h], esi
+0x00b66072      test esi, esi
+; unlikely
+0x00b66074      je 0xb6607b
+0x00b66076      cmp dword [esi + 0x10], edx
+; likely
+0x00b66079      je 0xb66084
+0x00b6607b      test eax, eax
+; likely
+0x00b6607d      jne 0xb66066
+0x00b6607f      pop esi
+0x00b66080      pop ebx
+0x00b66081      ret 4
+0x00b66084      cmp dword [esi + 0x14], 0
+; unlikely
+0x00b66088      je 0xb660ac
+0x00b6608a      push edi
+0x00b6608b      mov edi, dword [esi + 0x14]
+0x00b6608e      test edi, edi
+; unlikely
+0x00b66090      je 0xb660a4
+0x00b66092      mov ecx, edi
+; fcn.00c4ed40
+0x00b66094      call fcn.00c4ed40
+0x00b66099      push edi
+0x00b6609a      mov ecx, 0x11f6238
+; fcn.00aa4060
+; fcn.00aa4060(-1)
+0x00b6609f      call fcn.00aa4060
+0x00b660a4      mov dword [esi + 0x14], 0
+0x00b660ab      pop edi
+0x00b660ac      push esi
+0x00b660ad      mov ecx, 0x11f6238
+; fcn.00aa4060
+; fcn.00aa4060(-1)
+0x00b660b2      call fcn.00aa4060
+0x00b660b7      lea eax, [arg_ch]
+0x00b660bb      push eax
+0x00b660bc      mov ecx, ebx
+; fcn.00e7db70
+; fcn.00e7db70(0x0)
+0x00b660be      call fcn.00e7db70
+0x00b660c3      pop esi
+0x00b660c4      pop ebx
+0x00b660c5      ret 4
+
+Function/instruction output 0x00B4F5C0
+; XREFS(58)
+6: fcn.00b4f5c0 ();
+; [0x11f95ec:4]=0
+0x00b4f5c0      mov eax, dword [0x11f95ec]
+0x00b4f5c5      ret
+
+Function/instruction output 0x00872570
+; DATA XREFS from fcn.0086a850 @ 0x86b055(w), 0x86b94f(w)
+518: fcn.00872570 (int8_t arg_8h);
+`- args(sp[0x4..0x4]) vars(12:sp[0x8..0x34])
+0x00872570      push ebp
+0x00872571      mov ebp, esp
+0x00872573      sub esp, 0x30
+0x00872576      movzx eax, byte [arg_8h]
+0x0087257a      test eax, eax
+; unlikely
+0x0087257c      je 0x87271d
+; CODE XREF from fcn.00872570 @ 0x872598(x)
+; fcn.0086bdf0
+0x00872582      call fcn.0086bdf0
+0x00872587      movzx ecx, al
+0x0087258a      test ecx, ecx
+; likely
+0x0087258c      jne 0x87259a
+; 5
+0x0087258e      push 5
+; fcn.0040fca0
+; fcn.0040fca0(0xff)
+0x00872590      call fcn.0040fca0
+0x00872595      add esp, 4
+0x00872598      jmp 0x872582
+; [0x126fac4:4]=0
+0x0087259a      mov ecx, dword [0x126fac4]
+; fcn.00ec17c0
+0x008725a0      call fcn.00ec17c0
+0x008725a5      movzx edx, al
+0x008725a8      test edx, edx
+; unlikely
+0x008725aa      je 0x8725c2
+; [0x126fac4:4]=0
+0x008725ac      mov ecx, dword [0x126fac4]
+; fcn.00ec29b0
+0x008725b2      call fcn.00ec29b0
+; [0x126fac4:4]=0
+0x008725b7      mov ecx, dword [0x126fac4]
+; fcn.00ec1800
+0x008725bd      call fcn.00ec1800
+; [0x126fac4:4]=0
+0x008725c2      mov ecx, dword [0x126fac4]
+; fcn.00872780
+0x008725c8      call fcn.00872780
+0x008725cd      movzx eax, al
+0x008725d0      test eax, eax
+; unlikely
+0x008725d2      je 0x8725df
+; [0x126fac4:4]=0
+0x008725d4      mov ecx, dword [0x126fac4]
+; fcn.00ec25e0
+0x008725da      call fcn.00ec25e0
+; fcn.00b4f5c0
+0x008725df      call fcn.00b4f5c0
+0x008725e4      mov dword [var_4h], eax
+0x008725e7      cmp dword [var_4h], 0
+; unlikely
+0x008725eb      je 0x8725f5
+0x008725ed      mov ecx, dword [var_4h]
+; fcn.00b631d0
+0x008725f0      call fcn.00b631d0
+; [0x11dea10:4]=0
+0x008725f5      mov ecx, dword [0x11dea10]
+; fcn.0044ddc0
+0x008725fb      call fcn.0044ddc0
+0x00872600      mov ecx, eax
+; fcn.0084e3a0
+0x00872602      call fcn.0084e3a0
+0x00872607      mov dword [var_8h], eax
+0x0087260a      mov dword [var_ch], 0
+0x00872611      jmp 0x87261c
+; CODE XREF from fcn.00872570 @ 0x87268d(x)
+0x00872613      mov ecx, dword [var_ch]
+0x00872616      add ecx, 1
+0x00872619      mov dword [var_ch], ecx
+; CODE XREF from fcn.00872570 @ 0x872611(x)
+0x0087261c      mov edx, dword [var_ch]
+0x0087261f      cmp edx, dword [var_8h]
+; likely
+0x00872622      jge 0x87268f
+0x00872624      mov dword [var_10h], 0
+0x0087262b      jmp 0x872636
+; CODE XREF from fcn.00872570 @ 0x87268b(x)
+0x0087262d      mov eax, dword [var_10h]
+0x00872630      add eax, 1
+0x00872633      mov dword [var_10h], eax
+; CODE XREF from fcn.00872570 @ 0x87262b(x)
+0x00872636      mov ecx, dword [var_10h]
+0x00872639      cmp ecx, dword [var_8h]
+; likely
+0x0087263c      jge 0x87268d
+0x0087263e      mov edx, dword [var_10h]
+0x00872641      push edx
+0x00872642      mov eax, dword [var_ch]
+0x00872645      push eax
+; [0x11dea10:4]=0
+0x00872646      mov ecx, dword [0x11dea10]
+; fcn.00457050
+; fcn.00457050(-1, 0x0)
+0x0087264c      call fcn.00457050
+0x00872651      mov ecx, dword [eax]
+0x00872653      mov dword [var_14h], ecx
+0x00872656      cmp dword [var_14h], 0
+; unlikely
+0x0087265a      je 0x87268b
+0x0087265c      lea edx, [var_1ch]
+0x0087265f      push edx
+0x00872660      lea eax, [var_18h]
+0x00872663      push eax
+0x00872664      mov ecx, dword [var_14h]
+; fcn.005477f0
+; fcn.005477f0(0xffffffe4, 0x0)
+0x00872667      call fcn.005477f0
+0x0087266c      cmp dword [var_18h], 0
+; unlikely
+0x00872670      je 0x87268b
+0x00872672      cmp dword [var_1ch], 0
+; unlikely
+0x00872676      je 0x87268b
+0x00872678      mov ecx, dword [var_1ch]
+0x0087267b      cmp dword [ecx + 4], 0
+; unlikely
+0x0087267f      je 0x87268b
+0x00872681      mov edx, dword [var_1ch]
+0x00872684      mov dword [edx + 4], 0
+0x0087268b      jmp 0x87262d
+0x0087268d      jmp 0x872613
+; [0x11dea0c:4]=0
+0x0087268f      mov ecx, dword [0x11dea0c]
+; fcn.00877430
+0x00872695      call fcn.00877430
+; fcn.00446e10
+0x0087269a      call fcn.00446e10
+0x0087269f      movzx eax, al
+0x008726a2      test eax, eax
+; unlikely
+0x008726a4      je 0x87271b
+0x008726a6      mov dword [var_30h], 0
+0x008726ad      mov dword [var_2ch], 0
+; fcn.004dc1f0
+0x008726b4      call fcn.004dc1f0
+0x008726b9      mov dword [var_28h], eax
+; fcn.004dc200
+0x008726bc      call fcn.004dc200
+0x008726c1      mov dword [var_24h], eax
+0x008726c4      mov dword [var_20h], 0
+0x008726cb      push 0xfffffffffffffff0
+; [0x11dea0c:4]=0
+0x008726cd      mov ecx, dword [0x11dea0c]
+0x008726d3      mov edx, dword [ecx + 8]
+0x008726d6      push edx
+; 0xfdf2e8
+; reloc.USER32.dll_GetWindowLongA
+; LONG GetWindowLongA(-1, -1)
+; LONG GetWindowLongA(HWND hWnd, int nIndex)
+0x008726d7      call dword [sym.imp.USER32.dll_GetWindowLongA]
+0x008726dd      mov dword [var_20h], eax
+0x008726e0      push 0
+0x008726e2      push 0
+0x008726e4      mov eax, dword [var_20h]
+0x008726e7      push eax
+0x008726e8      lea ecx, [var_30h]
+0x008726eb      push ecx
+; 0xfdf2f8
+; reloc.USER32.dll_AdjustWindowRectEx
+; BOOL AdjustWindowRectEx(-1, -1, -1, -1)
+; BOOL AdjustWindowRectEx(LPRECT lpRect, DWORD dwStyle, BOOL bMenu, DWORD dwExStyle)
+0x008726ec      call dword [sym.imp.USER32.dll_AdjustWindowRectEx]
+0x008726f2      push 0
+0x008726f4      mov edx, dword [var_2ch]
+0x008726f7      sub edx, dword [var_24h]
+0x008726fa      push edx
+0x008726fb      mov eax, dword [var_28h]
+0x008726fe      sub eax, dword [var_30h]
+0x00872701      push eax
+0x00872702      mov ecx, dword [var_24h]
+0x00872705      push ecx
+0x00872706      mov edx, dword [var_30h]
+0x00872709      push edx
+0x0087270a      push 0
+; [0x11dea0c:4]=0
+0x0087270c      mov eax, dword [0x11dea0c]
+0x00872711      mov ecx, dword [eax + 8]
+0x00872714      push ecx
+; 0xfdf2a4
+; reloc.USER32.dll_SetWindowPos
+; BOOL SetWindowPos(-1, -1, -1, -1, -1, -1, -1)
+; BOOL SetWindowPos(HWND hWnd, HWND hWndInsertAfter, int X, int Y, int cx, int cy, UINT uFlags)
+0x00872715      call dword [sym.imp.USER32.dll_SetWindowPos]
+0x0087271b      jmp 0x872770
+; [0x11f941e:1]=0
+0x0087271d      movzx edx, byte [0x11f941e]
+0x00872724      test edx, edx
+; likely
+0x00872726      je 0x87272d
+; fcn.00bad4a0
+0x00872728      call fcn.00bad4a0
+; [0x11dea10:4]=0
+0x0087272d      mov ecx, dword [0x11dea10]
+; fcn.0070ec90
+0x00872733      call fcn.0070ec90
+0x00872738      test eax, eax
+; likely
+0x0087273a      je 0x872770
+; fcn.005d2a40
+0x0087273c      call fcn.005d2a40
+0x00872741      movzx eax, al
+0x00872744      test eax, eax
+; likely
+0x00872746      je 0x872770
+0x00872748      push 0
+; 1
+0x0087274a      push 1
+; [0x11dea10:4]=0
+0x0087274c      mov ecx, dword [0x11dea10]
+; fcn.0070ec90
+0x00872752      call fcn.0070ec90
+0x00872757      mov ecx, eax
+; fcn.004e6620
+; fcn.004e6620(0x0, 0x0)
+0x00872759      call fcn.004e6620
+; [0x11dea10:4]=0
+0x0087275e      mov ecx, dword [0x11dea10]
+; fcn.0070ec90
+0x00872764      call fcn.0070ec90
+0x00872769      mov ecx, eax
+; fcn.004e65d0
+0x0087276b      call fcn.004e65d0
+; CODE XREF from fcn.00872570 @ 0x87271b(x)
+0x00872770      mov al, 1
+0x00872772      mov esp, ebp
+0x00872774      pop ebp
+0x00872775      ret
+
+Function/instruction output 0x0078D490
+215: fcn.0078d490 ();
+afv: vars(3:sp[0x8..0x10])
+0x0078d490      push ebp
+0x0078d491      mov ebp, esp
+0x0078d493      sub esp, 0xc
+0x0078d496      mov dword [var_ch], ecx
+; fcn.00457fe0
+0x0078d499      call fcn.00457fe0
+0x0078d49e      mov dword [var_4h], eax
+; '2'
+; 50
+0x0078d4a1      mov dword [var_8h], 0x32
+; CODE XREF from fcn.0078d490 @ 0x78d55c(x)
+0x0078d4a8      mov eax, dword [var_ch]
+0x0078d4ab      movzx ecx, byte [eax + 0x4a]
+; 1
+0x0078d4af      cmp ecx, 1
+; unlikely
+0x0078d4b2      je 0x78d561
+; fcn.00457fe0
+0x0078d4b8      call fcn.00457fe0
+0x0078d4bd      cmp eax, dword [var_4h]
+; likely
+0x0078d4c0      jae 0x78d4d5
+; fcn.00457fe0
+0x0078d4c2      call fcn.00457fe0
+0x0078d4c7      mov edx, dword [var_4h]
+0x0078d4ca      sub edx, eax
+0x0078d4cc      push edx
+; fcn.0040fca0
+; fcn.0040fca0(-1)
+0x0078d4cd      call fcn.0040fca0
+0x0078d4d2      add esp, 4
+0x0078d4d5      mov eax, dword [var_ch]
+0x0078d4d8      movzx ecx, byte [eax + 0x48]
+0x0078d4dc      test ecx, ecx
+; unlikely
+0x0078d4de      je 0x78d541
+; [0x11a0294:1]=1
+0x0078d4e0      movzx edx, byte [0x11a0294]
+0x0078d4e7      test edx, edx
+; unlikely
+0x0078d4e9      je 0x78d511
+0x0078d4eb      mov ecx, 0x11ded5c
+; fcn.00403df0
+0x0078d4f0      call fcn.00403df0
+0x0078d4f5      movsx eax, byte [eax]
+0x0078d4f8      test eax, eax
+; likely
+0x0078d4fa      jne 0x78d511
+; [0x11da0c0:4]=0
+0x0078d4fc      mov ecx, dword [0x11da0c0]
+0x0078d502      mov ecx, dword [ecx + 0x28]
+; fcn.0078a1f0
+0x0078d505      call fcn.0078a1f0
+0x0078d50a      movzx edx, al
+0x0078d50d      test edx, edx
+; likely
+0x0078d50f      jne 0x78d541
+0x0078d511      mov ecx, dword [var_ch]
+; 60
+0x0078d514      add ecx, 0x3c
+; fcn.00442550
+0x0078d517      call fcn.00442550
+0x0078d51c      mov eax, dword [var_ch]
+0x0078d51f      mov byte [eax + 0x49], 1
+0x0078d523      mov ecx, dword [var_ch]
+; 48
+0x0078d526      add ecx, 0x30
+; fcn.004424e0
+0x0078d529      call fcn.004424e0
+0x0078d52e      push 0xffffffffffffffff
+0x0078d530      mov ecx, dword [var_ch]
+; fcn.00aa6560
+; fcn.00aa6560(-1)
+0x0078d533      call fcn.00aa6560
+0x0078d538      mov ecx, dword [var_ch]
+0x0078d53b      mov byte [ecx + 0x49], 0
+0x0078d53f      jmp 0x78d54c
+; fcn.00457fe0
+0x0078d541      call fcn.00457fe0
+0x0078d546      add eax, dword [var_8h]
+0x0078d549      mov dword [var_4h], eax
+; CODE XREF from fcn.0078d490 @ 0x78d53f(x)
+; [0x11da0c0:4]=0
+0x0078d54c      mov ecx, dword [0x11da0c0]
+; fcn.00789820
+0x0078d552      call fcn.00789820
+; fcn.0078d080
+0x0078d557      call fcn.0078d080
+0x0078d55c      jmp 0x78d4a8
+0x0078d561      xor eax, eax
+0x0078d563      mov esp, ebp
+0x0078d565      pop ebp
+0x0078d566      ret
+
+Function/instruction output 0x0078D080
+; CALL XREF from fcn.007890e0 @ 0x7896d9(x)
+; CALL XREF from fcn.0078d490 @ 0x78d557(x)
+331: fcn.0078d080 ();
+afv: vars(2:sp[0x8..0xc])
+0x0078d080      push ebp
+0x0078d081      mov ebp, esp
+0x0078d083      sub esp, 8
+; fcn.0043c4b0
+0x0078d086      call fcn.0043c4b0
+0x0078d08b      mov ecx, eax
+; fcn.004a0370
+0x0078d08d      call fcn.004a0370
+; fcn.00713d70
+0x0078d092      call fcn.00713d70
+0x0078d097      mov dword [var_4h], eax
+0x0078d09a      mov ecx, dword [var_4h]
+; fcn.0044b130
+0x0078d09d      call fcn.0044b130
+0x0078d0a2      movzx eax, al
+0x0078d0a5      test eax, eax
+; unlikely
+0x0078d0a7      jne 0x78d0ba
+; fcn.0043c4b0
+0x0078d0a9      call fcn.0043c4b0
+0x0078d0ae      mov ecx, eax
+; fcn.004a03c0
+0x0078d0b0      call fcn.004a03c0
+0x0078d0b5      jmp 0x78d1c7
+0x0078d0ba      mov ecx, 0x11f4380
+; fcn.0078d1d0
+0x0078d0bf      call fcn.0078d1d0
+0x0078d0c4      test eax, eax
+; unlikely
+0x0078d0c6      jne 0x78d0e1
+0x0078d0c8      mov ecx, dword [var_4h]
+; fcn.0082f1f0
+0x0078d0cb      call fcn.0082f1f0
+; fcn.0043c4b0
+0x0078d0d0      call fcn.0043c4b0
+0x0078d0d5      mov ecx, eax
+; fcn.004a03c0
+0x0078d0d7      call fcn.004a03c0
+0x0078d0dc      jmp 0x78d1c7
+; [0x11a0295:1]=1
+0x0078d0e1      movzx ecx, byte [0x11a0295]
+0x0078d0e8      test ecx, ecx
+; unlikely
+0x0078d0ea      je 0x78d11b
+; fcn.0078d1f0
+0x0078d0ec      call fcn.0078d1f0
+0x0078d0f1      movzx edx, al
+0x0078d0f4      test edx, edx
+; unlikely
+0x0078d0f6      jne 0x78d11b
+0x0078d0f8      mov ecx, 0x11f4380
+; fcn.0082f1f0
+0x0078d0fd      call fcn.0082f1f0
+0x0078d102      mov ecx, dword [var_4h]
+; fcn.0082f1f0
+0x0078d105      call fcn.0082f1f0
+; fcn.0043c4b0
+0x0078d10a      call fcn.0043c4b0
+0x0078d10f      mov ecx, eax
+; fcn.004a03c0
+0x0078d111      call fcn.004a03c0
+0x0078d116      jmp 0x78d1c7
+; [0x11a0295:1]=1
+0x0078d11b      movzx eax, byte [0x11a0295]
+0x0078d122      test eax, eax
+; unlikely
+0x0078d124      je 0x78d135
+; 1
+0x0078d126      push 1
+; fcn.00a04200
+; fcn.00a04200(0x1)
+0x0078d128      call fcn.00a04200
+0x0078d12d      add esp, 4
+; fcn.00452530
+0x0078d130      call fcn.00452530
+; fcn.004ea970
+0x0078d135      call fcn.004ea970
+0x0078d13a      mov ecx, eax
+; fcn.00ba2f30
+0x0078d13c      call fcn.00ba2f30
+0x0078d141      mov dword [var_8h], 1
+0x0078d148      jmp 0x78d153
+; CODE XREF from fcn.0078d080 @ 0x78d17d(x)
+0x0078d14a      mov ecx, dword [var_8h]
+0x0078d14d      add ecx, 1
+0x0078d150      mov dword [var_8h], ecx
+; CODE XREF from fcn.0078d080 @ 0x78d148(x)
+0x0078d153      cmp dword [var_8h], 0x17
+; unlikely
+0x0078d157      jge 0x78d17f
+0x0078d159      mov edx, dword [var_8h]
+0x0078d15c      push edx
+0x0078d15d      push 0
+; fcn.004ea970
+0x0078d15f      call fcn.004ea970
+0x0078d164      mov ecx, eax
+; fcn.00ba30f0
+; fcn.00ba30f0(0x1)
+0x0078d166      call fcn.00ba30f0
+0x0078d16b      mov eax, dword [var_8h]
+0x0078d16e      push eax
+; 1
+0x0078d16f      push 1
+; fcn.004ea970
+0x0078d171      call fcn.004ea970
+0x0078d176      mov ecx, eax
+; fcn.00ba3130
+; fcn.00ba3130(-1, 0x0)
+0x0078d178      call fcn.00ba3130
+0x0078d17d      jmp 0x78d14a
+; [0x11c70f8:1]=0
+0x0078d17f      mov byte [0x11c70f8], 1
+0x0078d186      push 0
+0x0078d188      push 0
+; fcn.004b7210
+0x0078d18a      call fcn.004b7210
+0x0078d18f      mov ecx, eax
+; fcn.00713fb0
+0x0078d191      call fcn.00713fb0
+; [0x11c70f8:1]=0
+0x0078d196      mov byte [0x11c70f8], 0
+; fcn.004ea970
+0x0078d19d      call fcn.004ea970
+0x0078d1a2      mov ecx, eax
+; fcn.00ba2fa0
+0x0078d1a4      call fcn.00ba2fa0
+; fcn.0043c4b0
+0x0078d1a9      call fcn.0043c4b0
+0x0078d1ae      mov ecx, eax
+; fcn.004a03c0
+0x0078d1b0      call fcn.004a03c0
+0x0078d1b5      mov ecx, dword [var_4h]
+; fcn.0082f1f0
+0x0078d1b8      call fcn.0082f1f0
+0x0078d1bd      mov ecx, 0x11f4380
+; fcn.0082f1f0
+0x0078d1c2      call fcn.0082f1f0
+; CODE XREFS from fcn.0078d080 @ 0x78d0b5(x), 0x78d0dc(x), 0x78d116(x)
+0x0078d1c7      mov esp, ebp
+0x0078d1c9      pop ebp
+0x0078d1ca      ret

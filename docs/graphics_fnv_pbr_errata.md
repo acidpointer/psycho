@@ -69,6 +69,9 @@ camera path.
 
 ## Ground Truth
 
+For the current black-terrain report and input-ownership correction plan, see
+[Black terrain with an incomplete constant producer](#black-terrain-with-an-incomplete-constant-producer-2026-09-25).
+
 Use these sources before making terrain or lighting changes:
 
 - `analysis/ghidra/output/perf/graphics_fnv_pbr_close_terrain_true_land_discriminator_audit.txt`
@@ -2043,3 +2046,164 @@ optimized OMV build. Game-only behavior remains unproven until an installed
 playtest exercises object batches across camera movement, a shader reload,
 and a device reset, then confirms that rejection lines identify the reported
 blink mechanism and that no new flip class appears.
+
+## Black terrain with an incomplete constant producer (2026-09-25)
+
+Status: a correction candidate exists in the working tree; completion and full
+offline qualification remain outstanding. The owner reports
+black terrain with PBR enabled, normal terrain when only PBR is disabled, and
+apparently unaffected object PBR. Close versus distant coverage was not
+specified. The current record does not prove the failing draw's register
+values or identify depth activation as the cause.
+
+### Direct evidence
+
+The preserved session is `.reports/omv-2026-09-25-black-terrain.log`.
+It records successful single-sample acquisition without renderer reset,
+complete PBR shader-cache preparation, and active object, close-terrain,
+TerrainFade and LandLOD replacements. Close terrain first admits C[100]/B[108],
+three textures and zero native point lights. Shader warmup alone cannot explain
+that admitted draw. The session contains no terrain constant-register capture.
+
+The active MO2 Default profile disables both `Vanilla Plus Terrain` and its
+texture package. The session independently reports that its DLL is absent,
+while the shader loader is present. Older preserved September sessions report
+the terrain provider present. This is an observed environment difference,
+not authorization to change the user's mod list or use a filename as an ABI
+capability test.
+
+OMV's `engine_contracts::probe_terrain_contract` tests eye-position publication,
+package lifetime and `hooks::probe_terrain_shader_contract`. The latter only
+checks native row bounds, wrapper stage identity and non-null shader handles.
+It never establishes the additional terrain constant producers. The log's
+`Functional terrain contract available=true` therefore overstates the proven
+contract. Ordinary native wrappers can pass the same test.
+
+The source-level consumer/producer mismatch in the reported version is concrete:
+
+| Consumer | Required input | Reported version publication |
+|---|---|---|
+| Close terrain | Pixel c32/c33 material-specular availability | VPT's `LandSpec` extension; OMV does not upload it |
+| Close terrain | Pixel c36/c37 full fog parameters and color | VPT's `StandardFogParams`/`StandardFogColor` extensions; OMV does not upload them |
+| Lit close terrain | Pixel c39..c62 colors, c63..c86 positions/radii, c88 count | VPT's expanded point-light staging; OMV's supplemental path excludes native-pass identities |
+| LandLOD and TerrainFade | Pixel c38 `LandLODSpec` | VPT extension; independent family semantics must be retained |
+| All terrain replacements | Pixel c89/c90 user controls, plus c91 for close-terrain supplements | Explicitly uploaded by OMV |
+
+`LandHeight` is declared at c34/c35 but is not consumed by the current close
+shader. Do not introduce an unrequested parallax feature as part of this repair.
+Close-terrain material shading uses the sign of each `LandSpec` component;
+it does not consume the original exponent magnitude.
+
+The read-only VPT source at
+`.research/fnv-vanilla-plus-terrain-main/VanillaPlusTerrain/main.cpp` explicitly
+adds these entries in `InitShaderConstants`, stages lights in `UpdateLightsAlt`,
+and enables/updates material and fog entries in `UpdateToggles`. Shader files
+and matching wrapper rows alone do not supply those CPU producers.
+
+The supported executable's original `0x00B7E430` registers different native
+maps. Its vertex map has full fog vectors at c14/c15 from
+`0x011FA280/0x011FA290`; its pixel map has separate native fog entries at
+c14/c15 from `0x011FD8C4/0x011FD8D4`. Neither is proof of the replacement's
+pixel c36/c37 values. The complete authoritative map is in
+`analysis/ghidra/output/perf/graphics_fnv_pbr_close_terrain_constant_register_contract_closure.txt`.
+The [radare2 follow-up](../analysis/ghidra/output/perf/graphics_fnv_pbr_terrain_pixel_fog_radare2_audit.txt)
+reconfirms the native pixel mapping. The executable identity remains
+SHA-256 `42fee7d6cd74e801372aa89c8f71c974cebd3c20ec9ad43d1465b8fa9646b49c`,
+PE32, image base `0x00400000`.
+
+The close-terrain pixel shader computes its final fog blend directly from
+c36/c37. Without an established producer, that result depends on unwritten or
+previous-draw values. The object path does not consume those terrain-specific
+registers. This proves the admission/ownership defect and explains the family
+asymmetry; attribution of the exact black pixels to a particular register value
+remains unverified. Do not assert that c36/c37 were zero, or that the recent
+depth pass overwrote them, without direct evidence.
+
+### Durable correction plan
+
+1. **Own a complete terrain input contract.** Replace the single wrapper-based
+   availability bit with explicit readiness for each family's consumed
+   geometry, material, fog and light inputs. Keep the existing shader-row,
+   sampler, exterior and device-generation requirements. Resource readiness
+   and producer readiness are separate. A missing producer must be reported
+   accurately; rejecting the replacement alone is containment, not completion
+   of the requested terrain fix.
+2. **Supply missing inputs inside OMV.** Introduce a focused terrain-input
+   owner beside `constants.rs` and `terrain_lights.rs`. At the existing
+   geometry submission boundary, after native setup, obtain the current
+   material flags, full fog vectors and point-light payload from proven native
+   producers. Upload only the terrain replacement's required registers before
+   submission. A compatible extended producer may remain the source when its
+   actual data contract is proven; do not identify it by DLL name, version or
+   byte signature. Do not add a reset, rebuild native UI, change MSAA policy,
+   or change terrain/user lighting controls.
+3. **Preserve material and light semantics.** Close terrain, TerrainFade and
+   LandLOD need distinct adapters. Do not reinterpret native packed flags as
+   VPT exponent arrays or reuse one family's specular rule in another. Native
+   pass membership is not proof that c39/c63 were uploaded: publish those
+   lights before excluding their identities from supplemental recovery.
+   Preserve native ordering, coordinate transforms, all 24 light slots,
+   RGB-only visibility, existing layer blending and supplemental fast paths.
+4. **Keep publication tied to the current draw.** Shader setup can cover more
+   than one geometry. Bind the input snapshot to the actual geometry/pass and
+   renderer generation, with no retained unowned engine pointers. Preserve
+   native shader-cache ownership and restore any temporarily overwritten
+   constant range on failure or return to a native consumer. Reset, shader
+   reload, runtime toggles and device replacement invalidate the appropriate
+   producer/resource generations. Use existing bounded caches; add no
+   per-draw allocations, blocking locks, shader compilation or broad readback.
+5. **Prove the pixel result and integration separately.** Before production
+   changes, construct a failing offline regression through the shipped
+   terrain shader and actual production input upload path with binary-backed
+   inputs. Unknown stale register contents are not a valid oracle. Once the
+   adapter exists, exercise valid black fog as well as ordinary colored fog,
+   specular flags, zero/6/12/24 lights, one/seven layers, canopy companions,
+   native/supplemental membership and object-to-terrain transitions. Run the
+   same real-D3D9 terrain draw before/after the production INTZ adoption and
+   snapshot transactions to check state preservation independently of this
+   producer defect. Include TerrainFade and LandLOD rather than treating
+   close-terrain success as coverage for both. Qualify all production variants
+   and budgets, the OMV suite, supported 32-bit release build and diff checks.
+
+### Candidate ownership and remaining completion work
+
+The [native input-owner audit](../analysis/ghidra/output/perf/graphics_fnv_pbr_terrain_input_owner_radare2_audit.txt)
+closes the selected native adapter's sources. Material data uses the property
+texture count at `+0xA8`, normal-texture array at `+0xB0`, exponent-array pointer
+at `+0xC4` and alpha-availability-array pointer at `+0xCC`. The exponent data is
+an array of bytes behind a pointer, not inline flags. Scene selection supplies
+the live fog property and its complete fog vectors. Native geometry-light
+membership belongs to the BSRenderPass published at `0x011F91E0`; the shader
+pass at `0x0126F74C` has a different layout and cannot serve that purpose.
+The candidate corrects both terrain consumers to use the geometry pass and
+requires its geometry pointer to match the current callback.
+
+`terrain_inputs.rs` now captures owned material/fog/light values for close,
+fade and LOD terrain. `terrain_lights.rs` supplies the native ordered payload
+before supplemental exclusion, preserving zero-RGB native slots. The draw
+scope journals only overwritten constant ranges and restores them around
+native fallback and subsequent consumers. No native producer pointer is kept
+after submission. Resource readiness and per-draw input readiness are now
+distinct in admission and reporting.
+
+Focused HAL tests have executed the shipped terrain shader families, material
+flags, fog endpoints, native light capacities and supplemental companions.
+Additional tests execute actual input publication/restoration and the real
+depth adoption/snapshot transaction between terrain draws. These are shader
+ABI and state-preservation evidence, not a replay of the owner's unknown
+stale register contents or an accepted gameplay image.
+
+Finish the candidate by auditing all success, rejection and return paths;
+avoid constant queries when native inputs are already unavailable; report
+upload failures as well as capture failures; and bound restoration-error
+logging through the existing failure latch. Preserve c32/c33 object-PBR cache
+coherence, gap registers, native light ordering, all terrain families and all
+user controls. Reconfirm shader reload, device loss and runtime-toggle
+ownership against the existing hook lifecycle. Then run the complete shader
+variant/budget checks, affected suites and supported release build together
+with the depth-coordinate correction.
+
+The owner-reported PBR-only failure remains the game-only behavioral
+requirement under the OMV exception. Gameplay is not an agent gate. The
+[integrated correction plan](graphics_fnv_portable_depth_transport.md#integrated-correction-plan)
+orders the remaining work and its offline acceptance boundaries.

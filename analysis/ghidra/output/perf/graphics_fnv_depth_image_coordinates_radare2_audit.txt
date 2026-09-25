@@ -1,0 +1,725 @@
+FNV DEPTH IMAGE COORDINATE CONTRACT CONTINUATION
+
+Executable: fnv_reverse/FalloutNV.exe, PE32 image base 0x00400000.
+SHA256: 42fee7d6cd74e801372aa89c8f71c974cebd3c20ec9ad43d1465b8fa9646b49c
+Primary interface: radare2 MCP.
+
+Owner evidence: .reports/omv-latest-nvidia-only.log
+Native final image-space rectangle selection and draw at 0x00C03D80.
+The first few bytes of the requested window precede an instruction boundary;
+use the decoded boundary at 0x00C03ED7 onward.
+
+0x00c03ed0      add byte [edx], al
+0x00c03ed2      add byte [eax], al
+0x00c03ed4      add byte [ebp - 0x52], dh
+0x00c03ed7      mov ecx, edi
+   ; fcn.00b6b260
+0x00c03ed9      call fcn.00b6b260
+0x00c03ede      push eax
+0x00c03edf      push ebx
+   ; fcn.00b6b8d0
+   ; fcn.00b6b8d0(0x0, 0x0)
+0x00c03ee0      call fcn.00b6b8d0
+0x00c03ee5      jmp 0xc03e7c
+0x00c03ee7      xor ebp, ebp
+; CODE XREF from fcn.00c03d80 @ 0xc03e94(x)
+0x00c03ee9      test edi, edi
+   ; unlikely
+0x00c03eeb      jne 0xc03f25
+; [0x11f9426:1]=0
+0x00c03eed      cmp byte [0x11f9426], 0
+   ; likely
+0x00c03ef4      je 0xc03f25
+0x00c03ef6      mov edx, dword [ecx]
+0x00c03ef8      mov eax, dword [edx + 0xc8]
+0x00c03efe      mov ebx, ecx
+   ; 0xffffffff(-1, 0x0, 0x0, -1)
+0x00c03f00      call eax
+0x00c03f02      mov edx, dword [ebx]
+0x00c03f04      mov edx, dword [edx + 0xcc]
+0x00c03f0a      mov ecx, ebx
+0x00c03f0c      mov dword [var_14h], eax
+   ; 0xffffffff(-1, 0x0, 0x0, -1)
+0x00c03f10      call edx
+0x00c03f12      mov ecx, dword [var_14h]
+0x00c03f16      cmp ecx, eax
+; [0x11f4748:4]=0
+0x00c03f18      mov ecx, dword [0x11f4748]
+   ; likely
+0x00c03f1e      jne 0xc03f25
+0x00c03f20      mov ebp, 0x11ad840
+0x00c03f25      mov eax, dword [ecx + 0x200]
+; 1
+0x00c03f2b      cmp eax, 1
+   ; unlikely
+0x00c03f2e      je 0xc03f35
+; 2
+0x00c03f30      cmp eax, 2
+   ; likely
+0x00c03f33      jne 0xc03f49
+0x00c03f35      cmp byte [ecx + 0x208], 1
+   ; likely
+0x00c03f3c      jne 0xc03f49
+0x00c03f3e      mov eax, dword [ecx]
+0x00c03f40      mov edx, dword [eax + 0x190]
+0x00c03f46      push ebp
+   ; 0xffffffff(-1, 0x0, 0x0, -1)
+0x00c03f47      call edx
+0x00c03f49      mov eax, dword [esi]
+0x00c03f4b      mov edx, dword [eax + 0xf4]
+; 758
+0x00c03f51      push 0x2f6
+0x00c03f56      mov ecx, esi
+   ; 0xffffffff(-1, 0x0, 0x0, -1)
+0x00c03f58      call edx
+0x00c03f5a      mov eax, dword [var_3ch]
+0x00c03f5e      push 0
+0x00c03f60      push 0
+; 1
+0x00c03f62      push 1
+; 758
+0x00c03f64      push 0x2f6
+0x00c03f69      push eax
+0x00c03f6a      lea ecx, [var_40h]
+   ; "b#"
+0x00c03f6e      push ecx
+   ; fcn.00ba8ec0
+   ; fcn.00ba8ec0(0x0, 0x0, 0x178004, -1, 0x0)
+0x00c03f6f      call fcn.00ba8ec0
+0x00c03f74      push 0
+   ; "'"
+0x00c03f76      push 0
+0x00c03f78      push 0
+   ; ebp
+0x00c03f7a      lea edx, [var_40h]
+; 758
+0x00c03f7e      push 0x2f6
+0x00c03f83      push edx
+0x00c03f84      mov byte [var_70h], 1
+   ; fcn.00b994f0
+   ; fcn.00b994f0(0x0, 0x0, 0x178004)
+0x00c03f89      call fcn.00b994f0
+0x00c03f8e      add esp, 0x2c
+0x00c03f91      test edi, edi
+   ; likely
+0x00c03f93      je 0xc03fbc
+0x00c03f95      cmp byte [arg_4ch], 0
+   ; likely
+0x00c03f9a      je 0xc03fbc
+; [0x11f4748:4]=0
+0x00c03f9c      mov ecx, dword [0x11f4748]
+0x00c03fa2      mov eax, dword [ecx]
+0x00c03fa4      mov edx, dword [eax + 0xc8]
+   ; 0xffffffff(-1, 0x0, 0x0, -1)
+0x00c03faa      call edx
+0x00c03fac      mov esi, eax
+   ; fcn.00b6b100
+0x00c03fae      call fcn.00b6b100
+0x00c03fb3      cmp eax, esi
+   ; likely
+0x00c03fb5      je 0xc03fbc
+   ; fcn.00b6b790
+0x00c03fb7      call fcn.00b6b790
+0x00c03fbc      mov eax, dword [arg_54h_2]
+0x00c03fc0      test byte [eax + 0x28], 1
+   ; unlikely
+0x00c03fc4      je 0xc03fdb
+; [0x11f9508:4]=0
+0x00c03fc6      mov ecx, dword [0x11f9508]
+0x00c03fcc      mov edx, dword [ecx]
+0x00c03fce      mov edx, dword [edx + 0xac]
+0x00c03fd4      lea eax, [var_1ch]
+   ; "b#"
+0x00c03fd8      push eax
+   ; (pstr 0x010829c4) "D:\_Fallout3\Platforms\Common\Code\Fallout\Misc\Main.cpp"
+   ; 0xffffffff(0x177fe0, 0x0, 0x0, -1)
+0x00c03fd9      call edx
+0x00c03fdb      lea ecx, [var_40h]
+0x00c03fdf      mov byte [var_70h], 0
+   ; fcn.00ba8cd0
+0x00c03fe4      call fcn.00ba8cd0
+; [0xffffffff:4]=-1
+; -1
+0x00c03fe9      mov dword [var_70h], 0xffffffff
+0x00c03ff1      test edi, edi
+   ; likely
+0x00c03ff3      je 0xc0400c
+0x00c03ff5      lea eax, [edi + 4]
+   ; "'"
+0x00c03ff8      push eax
+; 0xfdf1c4
+   ; reloc.KERNEL32.dll_InterlockedDecrement
+   ; sym.imp.KERNEL32.dll_InterlockedDecrement(0x4, 0x0, 0x177fe8, -1)
+0x00c03ff9      call dword [sym.imp.KERNEL32.dll_InterlockedDecrement]
+0x00c03fff      test eax, eax
+   ; likely
+0x00c04001      jne 0xc0400c
+0x00c04003      mov edx, dword [edi]
+0x00c04005      mov eax, dword [edx + 4]
+0x00c04008      mov ecx, edi
+   ; 0xffffffff(-1, 0x0, 0x0, -1)
+0x00c0400a      call eax
+0x00c0400c      mov ecx, dword [var_3ch_2]
+0x00c04010      mov dword fs:[0], ecx
+0x00c04017      pop ecx
+   ; "'"
+0x00c04018      pop edi
+0x00c04019      pop esi
+   ; (pstr 0x010829c4) "D:\_Fallout3\Platforms\Common\Code\Fallout\Misc\Main.cpp"
+0x00c0401a      pop ebp
+   ; "b#"
+   ; "D:\_Fallout3\Platforms\Common\Code\Fallout\Misc\Main.cpp" str.D:_Fallout3PlatformsCommonCodeFalloutMiscMain.cpp
+0x00c0401b      pop ebx
+0x00c0401c      add esp, 0x34
+0x00c0401f      ret 0x10
+0x00c04022      int3
+0x00c04023      int3
+0x00c04024      int3
+0x00c04025      int3
+0x00c04026      int3
+0x00c04027      int3
+0x00c04028      int3
+Additional verified viewport conversion: renderer SetScreenSpaceCameraData
+0x00E6CF40 and SetCameraData viewport tail 0x00E6CDA4.
+Both read current target group (+0x888) color-0 width/height via +0x8C/+0x90.
+NiRect layout is left/right/top/bottom. X=trunc(left*W),
+Y=trunc((1-top)*H), Width=trunc((right-left)*W), Height=trunc((top-bottom)*H).
+Both publish D3D viewport MinZ=0, MaxZ=1 using device vtable +0xBC.
+
+971: fcn.00e6cf40 ();
+afv: vars(7:sp[0x1c..0x54])
+0x00e6cf40      sub esp, 0x34
+0x00e6cf43      push esi
+0x00e6cf44      mov esi, ecx
+0x00e6cf46      cmp byte [esi + 0x6fc], 0
+   ; likely
+0x00e6cf4d      jne 0xe6d304
+0x00e6cf53      mov ecx, dword [esi + 0x888]
+0x00e6cf59      mov eax, dword [ecx]
+0x00e6cf5b      mov edx, dword [eax + 0x8c]
+0x00e6cf61      push ebp
+   ; "b#"
+0x00e6cf62      push edi
+   ; (pstr 0x010829c4) "D:\_Fallout3\Platforms\Common\Code\Fallout\Misc\Main.cpp"
+0x00e6cf63      push 0
+   ; 0xffffffff(-1, 0x0, -1, -1)
+0x00e6cf65      call edx
+0x00e6cf67      mov ecx, dword [esi + 0x888]
+0x00e6cf6d      mov edi, eax
+0x00e6cf6f      mov eax, dword [ecx]
+0x00e6cf71      mov edx, dword [eax + 0x90]
+   ; "'"
+0x00e6cf77      push 0
+   ; 0xffffffff(-1, 0x0, -1, -1)
+0x00e6cf79      call edx
+0x00e6cf7b      mov ebp, eax
+0x00e6cf7d      mov eax, edi
+0x00e6cf7f      mov dword [var_14h], eax
+0x00e6cf83      fild dword [esp + 0x14]
+0x00e6cf87      test eax, eax
+   ; unlikely
+0x00e6cf89      jge 0xe6cf91
+0x00e6cf8b      fadd dword [0x1099378]
+0x00e6cf91      mov ecx, ebp
+0x00e6cf93      fstp dword [esp + 0xc]
+0x00e6cf97      mov dword [var_14h], ecx
+0x00e6cf9b      fild dword [esp + 0x14]
+0x00e6cf9f      test ecx, ecx
+   ; unlikely
+0x00e6cfa1      jge 0xe6cfa9
+0x00e6cfa3      fadd dword [0x1099378]
+0x00e6cfa9      fstp dword [esp + 0x14]
+0x00e6cfad      lea eax, [esi + 0x980]
+0x00e6cfb3      fld1
+0x00e6cfb5      mov ecx, dword [esi + 0x288]
+0x00e6cfbb      fst dword [eax]
+0x00e6cfbd      push eax
+0x00e6cfbe      fldz
+; 2
+0x00e6cfc0      push 2
+; [0x984:4]=-1
+; 2436
+0x00e6cfc2      fst dword [esi + 0x984]
+0x00e6cfc8      push ecx
+; [0x988:4]=-1
+; 2440
+0x00e6cfc9      fst dword [esi + 0x988]
+; [0x98c:4]=-1
+; 2444
+0x00e6cfcf      fst dword [esi + 0x98c]
+; [0x990:4]=-1
+; 2448
+0x00e6cfd5      fst dword [esi + 0x990]
+0x00e6cfdb      fld dword [0x1012054]
+; [0x994:4]=-1
+; 2452
+0x00e6cfe1      fst dword [esi + 0x994]
+0x00e6cfe7      fxch st(1)
+; [0x998:4]=-1
+; 2456
+0x00e6cfe9      fst dword [esi + 0x998]
+; [0x99c:4]=-1
+; 2460
+0x00e6cfef      fst dword [esi + 0x99c]
+; [0x9a0:4]=-1
+; 2464
+0x00e6cff5      fst dword [esi + 0x9a0]
+; [0x9a4:4]=-1
+; 2468
+0x00e6cffb      fst dword [esi + 0x9a4]
+; [0x9ac:4]=-1
+; 2476
+0x00e6d001      fst dword [esi + 0x9ac]
+0x00e6d007      fxch st(2)
+; [0x9a8:4]=-1
+; 2472
+0x00e6d009      fst dword [esi + 0x9a8]
+0x00e6d00f      fld dword [0x102295c]
+; [0x9b0:4]=-1
+; 2480
+0x00e6d015      fstp dword [esi + 0x9b0]
+0x00e6d01b      fld dword [0x1016248]
+; [0x9b4:4]=-1
+; 2484
+0x00e6d021      fst dword [esi + 0x9b4]
+; [0xa70:4]=-1
+; 2672
+0x00e6d027      fst dword [esi + 0xa70]
+; [0xa74:4]=-1
+; 2676
+0x00e6d02d      fstp dword [esi + 0xa74]
+; [0x9b8:4]=-1
+; 2488
+0x00e6d033      fst dword [esi + 0x9b8]
+; [0x9bc:4]=-1
+; 2492
+0x00e6d039      fst dword [esi + 0x9bc]
+; [0xa40:4]=-1
+; 2624
+0x00e6d03f      fst dword [esi + 0xa40]
+; [0xa68:4]=-1
+; 2664
+0x00e6d045      fst dword [esi + 0xa68]
+; [0xa7c:4]=-1
+; 2684
+0x00e6d04b      fstp dword [esi + 0xa7c]
+0x00e6d051      fxch st(1)
+; [0xa44:4]=-1
+; 2628
+0x00e6d053      fst dword [esi + 0xa44]
+; [0xa48:4]=-1
+; 2632
+0x00e6d059      fst dword [esi + 0xa48]
+; [0xa4c:4]=-1
+; 2636
+0x00e6d05f      fst dword [esi + 0xa4c]
+; [0xa50:4]=-1
+; 2640
+0x00e6d065      fst dword [esi + 0xa50]
+; [0xa58:4]=-1
+; 2648
+0x00e6d06b      fst dword [esi + 0xa58]
+; [0xa5c:4]=-1
+; 2652
+0x00e6d071      fst dword [esi + 0xa5c]
+; [0xa60:4]=-1
+; 2656
+0x00e6d077      fst dword [esi + 0xa60]
+; [0xa64:4]=-1
+; 2660
+0x00e6d07d      fst dword [esi + 0xa64]
+; [0xa6c:4]=-1
+; 2668
+0x00e6d083      fstp dword [esi + 0xa6c]
+; [0xa54:4]=-1
+; 2644
+0x00e6d089      fst dword [esi + 0xa54]
+; [0xa78:4]=-1
+; 2680
+0x00e6d08f      fstp dword [esi + 0xa78]
+0x00e6d095      mov edx, dword [ecx]
+0x00e6d097      mov eax, dword [edx + 0xb0]
+   ; 0xffffffff(-1, 0x0, -1, -1)
+0x00e6d09d      call eax
+0x00e6d09f      fld1
+0x00e6d0a1      fst dword [esp + 0x1c]
+0x00e6d0a5      fldz
+   ; "D:\_Fallout3\Platforms\Common\Code\Fallout\Misc\Main.cpp" str.D:_Fallout3PlatformsCommonCodeFalloutMiscMain.cpp
+0x00e6d0a7      mov eax, dword [var_1ch]
+0x00e6d0ab      fst dword [esp + 0x20]
+; [0x64c:4]=-1
+; 1612
+0x00e6d0af      mov dword [esi + 0x64c], eax
+0x00e6d0b5      fst dword [esp + 0x24]
+; [0x634:4]=-1
+; 1588
+0x00e6d0b9      mov dword [esi + 0x634], eax
+0x00e6d0bf      mov ecx, dword [var_14h]
+0x00e6d0c3      fst dword [esp + 0x1c]
+0x00e6d0c7      fld dword [0x1012054]
+0x00e6d0cd      mov edx, dword [var_24h]
+   ; "D:\_Fallout3\Platforms\Common\Code\Fallout\Misc\Main.cpp" str.D:_Fallout3PlatformsCommonCodeFalloutMiscMain.cpp
+0x00e6d0d1      mov eax, dword [var_1ch]
+0x00e6d0d5      fstp dword [esp + 0x20]
+; [0x650:4]=-1
+; 1616
+0x00e6d0d9      mov dword [esi + 0x650], ecx
+; [0x638:4]=-1
+; 1592
+0x00e6d0df      mov dword [esi + 0x638], ecx
+0x00e6d0e5      mov ecx, dword [var_14h]
+0x00e6d0e9      fst dword [esp + 0x24]
+; [0x658:4]=-1
+; 1624
+0x00e6d0ed      mov dword [esi + 0x658], eax
+0x00e6d0f3      fxch st(1)
+; [0x640:4]=-1
+; 1600
+0x00e6d0f5      mov dword [esi + 0x640], eax
+; [0x684:4]=-1
+; 1668
+0x00e6d0fb      fst dword [esi + 0x684]
+; [0x654:4]=-1
+; 1620
+0x00e6d101      mov dword [esi + 0x654], edx
+0x00e6d107      fld dword [0x10ed968]
+; [0x63c:4]=-1
+; 1596
+0x00e6d10d      mov dword [esi + 0x63c], edx
+0x00e6d113      mov edx, dword [var_24h]
+; [0x688:4]=-1
+; 1672
+0x00e6d117      fstp dword [esi + 0x688]
+; [0x65c:4]=-1
+; 1628
+0x00e6d11d      mov dword [esi + 0x65c], ecx
+; [0x644:4]=-1
+; 1604
+0x00e6d123      mov dword [esi + 0x644], ecx
+; [0x660:4]=-1
+; 1632
+0x00e6d129      mov dword [esi + 0x660], edx
+; [0x648:4]=-1
+; 1608
+0x00e6d12f      mov dword [esi + 0x648], edx
+0x00e6d135      lea eax, [esi + 0x9c0]
+0x00e6d13b      fld dword [0x10162c0]
+0x00e6d141      mov ecx, dword [esi + 0x288]
+0x00e6d147      fst dword [eax]
+0x00e6d149      push eax
+0x00e6d14a      fxch st(2)
+; 3
+0x00e6d14c      push 3
+; [0x9d0:4]=-1
+; 2512
+0x00e6d14e      fst dword [esi + 0x9d0]
+0x00e6d154      push ecx
+; [0x9e0:4]=-1
+; 2528
+0x00e6d155      fst dword [esi + 0x9e0]
+0x00e6d15b      fld dword [esp + 0x18]
+0x00e6d15f      fdivr qword [0x101a6b0]
+; [0x9f0:4]=-1
+; 2544
+0x00e6d165      fstp dword [esi + 0x9f0]
+; [0x9c4:4]=-1
+; 2500
+0x00e6d16b      fst dword [esi + 0x9c4]
+; [0x9e4:4]=-1
+; 2532
+0x00e6d171      fst dword [esi + 0x9e4]
+0x00e6d177      fxch st(2)
+; [0x9d4:4]=-1
+; 2516
+0x00e6d179      fstp dword [esi + 0x9d4]
+0x00e6d17f      fld dword [esp + 0x20]
+0x00e6d183      fld1
+0x00e6d185      fdivrp st(1)
+; [0x9f4:4]=-1
+; 2548
+0x00e6d187      fstp dword [esi + 0x9f4]
+0x00e6d18d      fxch st(1)
+; [0x9c8:4]=-1
+; 2504
+0x00e6d18f      fst dword [esi + 0x9c8]
+; [0x9d8:4]=-1
+; 2520
+0x00e6d195      fst dword [esi + 0x9d8]
+0x00e6d19b      fld dword [0x10ed964]
+; [0x9e8:4]=-1
+; 2536
+0x00e6d1a1      fstp dword [esi + 0x9e8]
+0x00e6d1a7      fld dword [0x10ed960]
+; [0x9f8:4]=-1
+; 2552
+0x00e6d1ad      fstp dword [esi + 0x9f8]
+; [0x9cc:4]=-1
+; 2508
+0x00e6d1b3      fst dword [esi + 0x9cc]
+; [0x9dc:4]=-1
+; 2524
+0x00e6d1b9      fst dword [esi + 0x9dc]
+; [0x9ec:4]=-1
+; 2540
+0x00e6d1bf      fstp dword [esi + 0x9ec]
+; [0x9fc:4]=-1
+; 2556
+0x00e6d1c5      fstp dword [esi + 0x9fc]
+0x00e6d1cb      mov edx, dword [ecx]
+0x00e6d1cd      mov eax, dword [edx + 0xb0]
+   ; 0xffffffff(-1, 0x0, -1, -1)
+0x00e6d1d3      call eax
+0x00e6d1d5      mov ecx, dword [var_44h]
+0x00e6d1d9      test ecx, ecx
+   ; likely
+0x00e6d1db      je 0xe6d2a9
+0x00e6d1e1      fld dword [ecx]
+0x00e6d1e3      fld dword [esp + 0xc]
+0x00e6d1e7      fld st(0)
+0x00e6d1e9      fmulp st(2)
+0x00e6d1eb      fnstcw word [esp + 0x44]
+0x00e6d1ef      movzx eax, word [var_44h]
+0x00e6d1f4      fxch st(1)
+; 3072
+0x00e6d1f6      or eax, 0xc00
+0x00e6d1fb      mov dword [var_ch], eax
+0x00e6d1ff      fldcw word [esp + 0xc]
+
+
+0x00e6d1d5      mov ecx, dword [var_44h]
+0x00e6d1d9      test ecx, ecx
+   ; likely
+0x00e6d1db      je 0xe6d2a9
+0x00e6d1e1      fld dword [ecx]
+0x00e6d1e3      fld dword [esp + 0xc]
+0x00e6d1e7      fld st(0)
+0x00e6d1e9      fmulp st(2)
+0x00e6d1eb      fnstcw word [esp + 0x44]
+0x00e6d1ef      movzx eax, word [var_44h]
+0x00e6d1f4      fxch st(1)
+; 3072
+0x00e6d1f6      or eax, 0xc00
+0x00e6d1fb      mov dword [var_ch], eax
+0x00e6d1ff      fldcw word [esp + 0xc]
+0x00e6d203      fistp qword [esp + 0xc]
+0x00e6d207      mov edx, dword [var_ch]
+0x00e6d20b      mov dword [var_1ch], edx
+0x00e6d20f      fldcw word [esp + 0x44]
+0x00e6d213      fld dword [ecx + 8]
+0x00e6d216      fld1
+0x00e6d218      fsubrp st(1)
+0x00e6d21a      fld dword [esp + 0x14]
+0x00e6d21e      fld st(0)
+0x00e6d220      fnstcw word [esp + 0x44]
+0x00e6d224      fmulp st(2)
+0x00e6d226      movzx eax, word [var_44h]
+0x00e6d22b      fxch st(1)
+; 3072
+0x00e6d22d      or eax, 0xc00
+0x00e6d232      mov dword [var_14h_2], eax
+0x00e6d236      fldcw word [esp + 0x14]
+0x00e6d23a      fistp qword [esp + 0x14]
+0x00e6d23e      mov eax, dword [var_14h_2]
+0x00e6d242      mov dword [var_14h], eax
+0x00e6d246      fldcw word [esp + 0x44]
+0x00e6d24a      fld dword [ecx + 4]
+0x00e6d24d      fsub dword [ecx]
+0x00e6d24f      fnstcw word [esp + 0x44]
+0x00e6d253      fmulp st(2)
+0x00e6d255      movzx eax, word [var_44h]
+0x00e6d25a      fxch st(1)
+; 3072
+0x00e6d25c      or eax, 0xc00
+0x00e6d261      mov dword [var_14h_2], eax
+0x00e6d265      fldcw word [esp + 0x14]
+0x00e6d269      fistp qword [esp + 0x14]
+0x00e6d26d      mov edx, dword [var_14h_2]
+0x00e6d271      mov dword [var_24h], edx
+0x00e6d275      fldcw word [esp + 0x44]
+0x00e6d279      fld dword [ecx + 8]
+0x00e6d27c      fsub dword [ecx + 0xc]
+0x00e6d27f      fnstcw word [esp + 0x44]
+0x00e6d283      fmulp st(1)
+0x00e6d285      movzx eax, word [var_44h]
+; 3072
+0x00e6d28a      or eax, 0xc00
+0x00e6d28f      mov dword [var_14h_2], eax
+0x00e6d293      fldcw word [esp + 0x14]
+0x00e6d297      fistp qword [esp + 0x14]
+0x00e6d29b      mov eax, dword [var_14h_2]
+0x00e6d29f      mov dword [var_34h], eax
+0x00e6d2a3      fldcw word [esp + 0x44]
+0x00e6d2a7      jmp 0xe6d2c1
+0x00e6d2a9      mov dword [var_1ch], 0
+0x00e6d2b1      mov dword [var_14h], 0
+0x00e6d2b9      mov dword [var_24h], edi
+0x00e6d2bd      mov dword [var_34h], ebp
+; CODE XREF from fcn.00e6cf40 @ 0xe6d2a7(x)
+0x00e6d2c1      fldz
+0x00e6d2c3      mov eax, dword [esi + 0x288]
+0x00e6d2c9      fstp dword [esp + 0x38]
+0x00e6d2cd      lea edx, [var_1ch]
+0x00e6d2d1      fld1
+0x00e6d2d3      push edx
+0x00e6d2d4      fstp dword [esp + 0x40]
+0x00e6d2d8      push eax
+0x00e6d2d9      mov ecx, dword [eax]
+0x00e6d2db      mov eax, dword [ecx + 0xbc]
+   ; 0xffffffff(-1, 0x0, -1, 0x178028)
+0x00e6d2e1      call eax
+0x00e6d2e3      fld dword [0x1022958]
+0x00e6d2e9      mov ecx, dword [esi + 0x8b8]
+0x00e6d2ef      mov edx, dword [ecx]
+0x00e6d2f1      mov eax, dword [edx + 0x48]
+0x00e6d2f4      sub esp, 8
+0x00e6d2f7      fstp dword [esp + 4]
+0x00e6d2fb      fld1
+0x00e6d2fd      fstp dword [esp]
+   ; 0xffffffff(-1, 0x0, -1, -1)
+0x00e6d300      call eax
+0x00e6d302      pop edi
+0x00e6d303      pop ebp
+0x00e6d304      pop esi
+0x00e6d305      add esp, 0x34
+0x00e6d308      ret 4
+0x00e6d30b      int3
+0x00e6d30c      int3
+0x00e6d30d      int3
+0x00e6d30e      int3
+0x00e6d30f      int3
+  ; CALL XREFS from fcn.00b99110 @ 0xb992e3(x), 0xb99339(x)
+130: fcn.00e6d310 (int16_t arg_22h, int32_t arg_14h, int32_t arg_1ch);
+`- args(sp[0x4..0xe]) vars(4:sp[0x4..0x24])
+0x00e6d310      sub esp, 8
+0x00e6d313      push ebx
+0x00e6d314      push edi
+0x00e6d315      mov edi, dword [arg_14h]
+0x00e6d319      xor ebx, ebx
+0x00e6d31b      mov dword [var_ch], ecx
+0x00e6d31f      mov dword [var_8h], ebx
+
+
+0x00e6cda0      fstp st(1)
+0x00e6cda2      fstp st(0)
+; CODE XREF from fcn.00e6c780 @ 0xe6cd9e(x)
+0x00e6cda4      mov eax, dword [esi + 0x288]
+0x00e6cdaa      mov ecx, dword [eax]
+0x00e6cdac      mov edx, dword [ecx + 0xb0]
+0x00e6cdb2      push ebx
+; 3
+0x00e6cdb3      push 3
+0x00e6cdb5      push eax
+   ; 0xffffffff(-1, 0x0, -1, -1)
+0x00e6cdb6      call edx
+0x00e6cdb8      mov ecx, dword [esi + 0x888]
+0x00e6cdbe      mov eax, dword [ecx]
+0x00e6cdc0      mov edx, dword [eax + 0x8c]
+0x00e6cdc6      push 0
+   ; 0xffffffff(-1, 0x0, -1, -1)
+0x00e6cdc8      call edx
+0x00e6cdca      mov dword [var_28h_2], eax
+0x00e6cdce      fild dword [esp + 0x28]
+0x00e6cdd2      test eax, eax
+   ; unlikely
+0x00e6cdd4      jge 0xe6cddc
+0x00e6cdd6      fadd dword [0x1099378]
+0x00e6cddc      mov ecx, dword [esi + 0x888]
+0x00e6cde2      fstp dword [esp + 0x28]
+0x00e6cde6      mov eax, dword [ecx]
+0x00e6cde8      mov edx, dword [eax + 0x90]
+0x00e6cdee      push 0
+   ; 0xffffffff(-1, 0x0, -1, -1)
+0x00e6cdf0      call edx
+0x00e6cdf2      mov dword [var_24h], eax
+0x00e6cdf6      fild dword [esp + 0x24]
+0x00e6cdfa      test eax, eax
+   ; unlikely
+0x00e6cdfc      jge 0xe6ce04
+0x00e6cdfe      fadd dword [0x1099378]
+0x00e6ce04      mov ecx, dword [arg_1ch]
+0x00e6ce07      fstp dword [esp + 0x24]
+0x00e6ce0b      fld dword [esp + 0x28]
+0x00e6ce0f      fld st(0)
+0x00e6ce11      fmul dword [ecx]
+0x00e6ce13      fnstcw word [esp + 0x18]
+0x00e6ce17      movzx eax, word [var_18h]
+; 3072
+0x00e6ce1c      or eax, 0xc00
+0x00e6ce21      mov dword [var_28h_3], eax
+0x00e6ce25      fldcw word [esp + 0x28]
+0x00e6ce29      fistp qword [esp + 0x28]
+0x00e6ce2d      mov eax, dword [var_28h_3]
+0x00e6ce31      mov dword [var_68h], eax
+0x00e6ce35      fldcw word [esp + 0x18]
+0x00e6ce39      fld dword [ecx + 8]
+0x00e6ce3c      fld1
+0x00e6ce3e      fsubrp st(1)
+0x00e6ce40      fld dword [esp + 0x24]
+0x00e6ce44      fld st(0)
+0x00e6ce46      fmulp st(2)
+0x00e6ce48      fnstcw word [esp + 0x18]
+0x00e6ce4c      fxch st(1)
+0x00e6ce4e      movzx eax, word [var_18h]
+; 3072
+0x00e6ce53      or eax, 0xc00
+0x00e6ce58      mov dword [var_28h_3], eax
+0x00e6ce5c      fldcw word [esp + 0x28]
+0x00e6ce60      fistp qword [esp + 0x28]
+0x00e6ce64      mov edx, dword [var_28h_3]
+0x00e6ce68      mov dword [var_6ch], edx
+0x00e6ce6c      fldcw word [esp + 0x18]
+0x00e6ce70      fld dword [ecx + 4]
+0x00e6ce73      fsub dword [ecx]
+0x00e6ce75      fnstcw word [esp + 0x18]
+0x00e6ce79      fmulp st(2)
+0x00e6ce7b      movzx eax, word [var_18h]
+0x00e6ce80      fxch st(1)
+; 3072
+0x00e6ce82      or eax, 0xc00
+0x00e6ce87      mov dword [var_28h_3], eax
+0x00e6ce8b      fldcw word [esp + 0x28]
+0x00e6ce8f      fistp qword [esp + 0x28]
+0x00e6ce93      mov eax, dword [var_28h_3]
+0x00e6ce97      mov dword [var_70h], eax
+0x00e6ce9b      fldcw word [esp + 0x18]
+0x00e6ce9f      fld dword [ecx + 8]
+0x00e6cea2      fsub dword [ecx + 0xc]
+0x00e6cea5      fnstcw word [esp + 0x18]
+0x00e6cea9      fmulp st(1)
+0x00e6ceab      movzx eax, word [var_18h]
+; 3072
+0x00e6ceb0      or eax, 0xc00
+0x00e6ceb5      mov dword [var_28h_3], eax
+0x00e6ceb9      mov eax, dword [esi + 0x288]
+0x00e6cebf      fldcw word [esp + 0x28]
+0x00e6cec3      fistp qword [esp + 0x28]
+0x00e6cec7      mov ecx, dword [var_28h_3]
+0x00e6cecb      mov dword [var_74h], ecx
+0x00e6cecf      lea ecx, [var_68h]
+0x00e6ced3      push ecx
+0x00e6ced4      fldcw word [esp + 0x1c]
+0x00e6ced8      push eax
+0x00e6ced9      fldz
+0x00e6cedb      fstp dword [esp + 0x80]
+0x00e6cee2      fld1
+0x00e6cee4      fstp dword [esp + 0x84]
+0x00e6ceeb      mov edx, dword [eax]
+0x00e6ceed      mov edx, dword [edx + 0xbc]
+   ; 0xffffffff(-1, 0x0, 0x178048, -1)
+0x00e6cef3      call edx
+0x00e6cef5      push ebx
+0x00e6cef6      lea eax, [esi + 0x980]
+0x00e6cefc      push eax
+0x00e6cefd      lea eax, [esi + 0xa00]
+0x00e6cf03      push eax
+   ; sub.d3dx9_38.dll_D3DXMatrixMultiply
+0x00e6cf04      call sub.d3dx9_38.dll_D3DXMatrixMultiply
+0x00e6cf09      fld dword [edi + 0x14]
+0x00e6cf0c      mov esi, dword [esi + 0x8b8]
+0x00e6cf12      mov edx, dword [esi]
+0x00e6cf14      mov eax, dword [edx + 0x48]
+   ; (pstr 0x010829c4) "D:\_Fallout3\Platforms\Common\Code\Fallout\Misc\Main.cpp"
+0x00e6cf17      sub esp, 8
+0x00e6cf1a      fstp dword [esp + 4]
+0x00e6cf1e      mov ecx, esi
+0x00e6cf20      fld dword [edi + 0x10]

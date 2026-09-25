@@ -179,11 +179,14 @@ pub(super) fn install_core_contracts() {
     }
 }
 
-/// Probe and publish the live executable/resource terrain contract.
+/// Probe and publish terrain resource prerequisites, not per-draw input readiness.
 ///
 /// Provider filenames are intentionally absent. Availability follows the
-/// package lifetime, constant publication, exact wrapper rows, stage vtables,
-/// and native shader resources that OMV actually consumes. A later native
+/// package lifetime, eye-position publication, exact wrapper rows, stage vtables,
+/// and native shader resources. The geometry admission boundary additionally
+/// requires terrain_inputs to capture and publish the family's material, fog
+/// and native-light inputs. A wrapper alone never establishes those inputs.
+/// A later native
 /// shader-package transition repeats this bounded probe so an FSL-style reload
 /// can replace wrappers without needing a provider-specific adapter.
 pub(super) fn probe_terrain_contract() -> bool {
@@ -1006,11 +1009,14 @@ fn current_geometry() -> Option<*mut c_void> {
     read_ptr(draw_slot.cast_const())
 }
 
-/// Return the current native pass identity inside a serialized draw callback.
-pub(super) fn current_pass_fast() -> Option<*mut c_void> {
+/// Return the current geometry/light pass inside a serialized draw callback.
+/// B994F0 publishes this entry at 11F91E0: geometry at +0, light count at +9,
+/// layer at +B, light array at +C. The NiD3DPass at 126F74C instead owns shader
+/// wrappers and must never be interpreted with the geometry-pass layout.
+pub(super) fn current_geometry_pass_fast() -> Option<*mut c_void> {
     const MIN_ENGINE_PTR: usize = 0x10000;
 
-    let pass = unsafe { (CURRENT_PASS_GLOBAL_ADDR as *const usize).read() };
+    let pass = unsafe { (CURRENT_GEOMETRY_SLOT_ADDR as *const usize).read() };
     (pass >= MIN_ENGINE_PTR).then_some(pass as *mut c_void)
 }
 

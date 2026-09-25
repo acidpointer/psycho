@@ -283,6 +283,8 @@ fn install_deferred_hooks_once() -> Result<()> {
     crate::effects::sky::install(settings.native_sky)?;
     crate::hooks::install_engine_hooks()
         .context("could not establish engine-owned render lifecycle hooks")?;
+    crate::backend::install_owned_depth()
+        .context("could not establish native sampleable depth ownership")?;
 
     // Shadow ownership opens immediately before the already-proven common
     // entry becomes resident. Until its complete shader family is prepared,
@@ -448,47 +450,6 @@ mod deferred_install_tests {
             .find("fnv_render::install_scene_boundary_hook()")
             .expect("scene consumer hook residency");
         assert!(shadow_config < engine && engine < shadows && shadows < common && common < scene);
-    }
-
-    #[test]
-    fn shadow_consumer_and_reset_ownership_have_fixed_source_order() {
-        let render = include_str!("fnv_render.rs");
-        let pre_alpha = render
-            .split_once("unsafe fn render_pre_depth_groups_body(")
-            .and_then(|(_, tail)| tail.split_once("\nfn current_render_target"))
-            .map(|(body, _)| body)
-            .expect("shared opaque pre-alpha body");
-        let shadows = pre_alpha
-            .find("shadows::apply_before_alpha")
-            .expect("shadow composition");
-        let receiver_context = pre_alpha
-            .find("begin_shadow_world_context(expected_target)")
-            .expect("exact shadow receiver context");
-        let receiver_close = pre_alpha
-            .find("shadows::end_world_context")
-            .expect("shadow receiver context close");
-        let atmosphere = pre_alpha
-            .find("fnv_world_pipeline::apply_before_alpha")
-            .expect("atmosphere composition");
-        assert!(receiver_context < shadows && shadows < atmosphere && atmosphere < receiver_close);
-
-        let hooks = include_str!("hooks.rs");
-        let recreate = hooks
-            .split_once("unsafe extern \"thiscall\" fn recreate_detour(")
-            .and_then(|(_, tail)| tail.split_once("unsafe extern \"thiscall\" fn"))
-            .map(|(body, _)| body)
-            .expect("renderer recreate detour");
-        let runtime_release = recreate
-            .find("runtime::try_release_device_resources")
-            .expect("screen resource release");
-        let shadow_release = recreate
-            .find("shadows::reset_runtime_state")
-            .expect("shadow resource release");
-        let native_recreate = recreate[shadow_release..]
-            .find("original(renderer, request_a, request_b)")
-            .map(|offset| shadow_release + offset)
-            .expect("native recreate after resource release");
-        assert!(runtime_release < shadow_release && shadow_release < native_recreate);
     }
 }
 

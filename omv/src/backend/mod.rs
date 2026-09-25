@@ -71,6 +71,11 @@ pub(crate) fn renderer_ptr() -> Result<*mut c_void, &'static str> {
     fnv::renderer_ptr()
 }
 
+/// Install the complete native depth ownership group at DeferredInit.
+pub(crate) fn install_owned_depth() -> anyhow::Result<()> {
+    fnv::owned_depth::install()
+}
+
 /// Resolve the engine-owned render-state object for DeferredInit hook setup.
 ///
 /// This deliberately does not expose or retain a D3D device vtable. Graphics
@@ -461,10 +466,14 @@ pub(crate) fn rendered_texture_color_surface(
     }
 }
 
+/// Read the native world selector. Some(null) explicitly selects its default
+/// group; None means the selector could not be read.
 pub(crate) unsafe fn current_fnv_world_rendered_texture() -> Option<*mut c_void> {
     unsafe { fnv::current_world_rendered_texture() }
 }
 
+/// Read world depth, including the native null/default-group branch.
+/// Caller must own the world scope and independently admit its active target.
 pub(crate) unsafe fn rendered_texture_depth_surface(
     rendered_texture: *mut c_void,
 ) -> Option<*mut c_void> {
@@ -587,6 +596,11 @@ pub(crate) unsafe fn publish_external_depth_after_world(
 /// Return fixed-size marker counters for runtime diagnostics.
 pub(crate) fn provider_marker_counters() -> ProviderMarkerCounters {
     fnv::provider_marker_counters()
+}
+
+/// Describe effective native MSAA/depth ownership without changing policy.
+pub(crate) fn owned_depth_status_label() -> &'static str {
+    fnv::owned_depth::status_label()
 }
 
 /// Return physical depth-copy and exact-cache counters.
@@ -1094,6 +1108,21 @@ pub(crate) struct DepthProjectionFrame {
     pub(crate) depth_function: Option<u32>,
     pub(crate) source_surface: usize,
     pub(crate) sampled_depth_bits: u8,
+    /// Native color attachment paired with this depth source. Allocation
+    /// dimensions are kept separately: shared depth may be larger than color.
+    pub(crate) image: DepthImageFrame,
+}
+
+/// Immutable resource domain of one depth publication. The native color
+/// identity is borrowed only as an epoch/generation key, never dereferenced by
+/// a consumer. Pixel contents remain owned by the provider's semantic slot.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub(crate) struct DepthImageFrame {
+    pub(crate) color_surface: usize,
+    pub(crate) color_extent: [u32; 2],
+    pub(crate) allocation_extent: [u32; 2],
+    /// Actual published texture extent, distinct from native depth backing.
+    pub(crate) sampled_extent: [u32; 2],
 }
 
 impl DepthProjectionFrame {

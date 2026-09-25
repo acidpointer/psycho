@@ -201,8 +201,9 @@ Initialize, RegisterResource, UnregisterResource, and StretchRectEx;
 AliasSurfaceAsTexture upgrades that route with two stages that issue no
 explicit OMV copy command. If the copied route is unavailable, OMV falls back
 to the live device's RESZ capability. This capability-based order makes native
-NVIDIA prefer NvAPI even if its driver also advertises RESZ, while AMD and
-current Proton/DXVK remain on RESZ when D3D9 NvAPI is not implemented.
+NVIDIA prefer NvAPI even if its driver also advertises RESZ. Proton/DXVK can
+use RESZ when the live device exposes it; physical NVIDIA hardware alone
+does not establish either route. See the compatibility investigation below.
 
 The source and coherent destination are registered once per identity. A
 `NVAPI_UNREGISTERED_RESOURCE` result permits one bounded re-registration and
@@ -321,3 +322,100 @@ the known healthy Proton behavior. It does not exercise native Windows D3D9
 NvAPI, even if Proton selected a physical NVIDIA adapter. Native Windows
 NVIDIA exterior/interior performance, persistent alias counters, reset, and
 image acceptance therefore remain unverified.
+
+## NVIDIA unavailable-depth investigation and repair plan
+
+### Report and scope
+
+The owner reports the same unavailable RESZ/NvAPI symptom on an NVIDIA laptop
+and from another user. The laptop runs the same Linux OS as the development
+PC; its GPU model was recalled as A500 or similar. The exact model, active
+D3D implementation, DXVK configuration/version, and failing API result are
+not established. These reports establish a recurring failure, but do not
+establish that native Windows D3D9 and DXVK fail for the same reason.
+
+### Proven compatibility failure mechanism
+
+The following is a source-proven path to the reported unavailable state,
+not a claim that the laptop's exact runtime configuration was inspected:
+
+1. DXVK 2.7.1 and the upstream source inspected on 2026-09-24 expose RESZ
+   only for the D3D9 adapter's AMD compatibility identity. An NVIDIA
+   compatibility identity returns `D3DERR_NOTAVAILABLE` from the RESZ
+   `CheckDeviceFormat` query. This is distinct from physical GPU identity.
+   See [DXVK 2.7.1 adapter implementation](https://github.com/doitsujin/dxvk/blob/v2.7.1/src/d3d9/d3d9_adapter.cpp).
+2. The current DXVK device implementation also gates the actual RESZ trigger
+   on that AMD identity. Ignoring the failed query and issuing the magic
+   point-size value cannot repair this path. See
+   [DXVK render-state implementation](https://github.com/doitsujin/dxvk/blob/master/src/d3d9/d3d9_device.cpp).
+3. DXVK-NvAPI's inspected interface implementation does not expose
+   `NvAPI_D3D9_RegisterResource`, `NvAPI_D3D9_UnregisterResource`, or
+   `NvAPI_D3D9_StretchRectEx`. Loading its DLL or finding Initialize does not
+   provide an alternate depth route. See
+   [DXVK-NvAPI interface implementation](https://github.com/jp7677/dxvk-nvapi/blob/master/src/nvapi_interface.cpp).
+4. OMV's `NvapiDepthResolve::load` requires those copied-depth entry points.
+   `FnvDepthResolve::ensure_route` then queries RESZ on the actual game device.
+   If both fail, it caches `Unavailable` until resolver release. This affects
+   depth consumers before their shader code can repair anything. Both paths
+   are in `omv/src/backend/fnv.rs`; the actual-device format query is in
+   `libpsycho/src/os/windows/directx9.rs`.
+
+DXVK already supplies a workaround: its Fallout profile sets
+`d3d9.hideNvidiaGpu = True`, exposing the AMD compatibility identity while
+retaining the physical rendering GPU. The
+[2.7.1 release notes](https://github.com/doitsujin/dxvk/releases/tag/v2.7.1)
+explicitly identify the missing NVIDIA depth API as the reason for the
+override. The [2.7.1 profile](https://github.com/doitsujin/dxvk/blob/v2.7.1/src/util/config/config.cpp)
+matches `FalloutNV.exe` by filename. The
+[current profile](https://github.com/doitsujin/dxvk/blob/master/src/util/config/config.cpp)
+also requires a directory matching `Fallout( -)? New Vegas.*`; a custom
+installation directory can therefore miss it. Neither profile activation
+nor an overriding user configuration has been established for this incident.
+
+This mechanism depends on the D3D implementation and its effective
+configuration, rather than OS name. It can apply wherever that DXVK path is
+used. It does not prove a native NVIDIA driver failure.
+
+### OMV findings independent of incident attribution
+
+- The RESZ query already uses `GetCreationParameters` and the live device's
+  adapter ordinal/type. Replacing an assumed adapter-zero probe is not a fix.
+- NvAPI function IDs match the supplied NVIDIA SDK. AliasSurfaceAsTexture is
+  optional; its absence alone does not reject the copied-depth route.
+- The menu retains only the aggregate unavailable reason. Detailed NvAPI
+  loader, missing-function, or initialization errors exist only in the
+  one-time log entry. It cannot distinguish the causes from the recalled
+  menu message.
+- The existing route-priority unit test exercises a separate Boolean helper;
+  source-text tests do not execute the production loader or resolve. They
+  cannot establish NVIDIA compatibility.
+
+### Repair requirement and acceptance
+
+The owner requires latest-DXVK support without version pins, vendor overrides,
+or configuration changes. The configuration workaround above describes the
+failure mechanism; it is not an accepted repair. No game configuration was
+changed. OMV must not patch DXVK or fake capability-query success.
+
+The [owned-depth implementation plan](graphics_fnv_portable_depth_transport.md#full-implementation-plan-owned-single-sample-depth)
+owns the replacement architecture, verified native ownership contracts,
+implementation record and offline qualification. The owner accepts replacing native
+MSAA with OMV AA, so single-sample owned depth is the preferred path and Vulkan
+interop is an alternative only. All three semantic captures remain required.
+Operational native-NvAPI/legacy-RESZ paths may remain capability fallbacks;
+they are not prerequisites for the owned path. Native Windows compatibility
+remains a separate qualification question.
+
+The menu should retain a bounded structured failure result for the active
+device generation, including unsupported RESZ, NvAPI DLL/export/entry-point
+failure, initialization status, and operational resolve failure. Existing
+deferred ownership and logging must prevent per-frame loading or retry storms.
+Better diagnostics are supporting work, not a replacement depth transport.
+
+Status: the owned single-sample transport is implemented. Its
+[offline qualification](graphics_fnv_portable_depth_transport.md#implemented-ownership-and-offline-qualification)
+executes production snapshot pixels on WineD3D and DXVK 3.1.1, including a
+physical NVIDIA GPU with RESZ and NvAPI unavailable. Native engine integration
+and native Windows behavior were not run. Attribution of both original reports
+to the same installation cause remains unresolved; a universal NVIDIA or all-OS
+root cause is not established.

@@ -512,7 +512,10 @@ pub(super) fn invalidate_draw_cache() {
 
 unsafe fn prepare_draw_inputs(geometry_identity: usize) -> Option<TerrainDrawInputs> {
     let geometry = geometry_identity as *mut c_void;
-    let render_pass = engine_contracts::current_pass_fast()?;
+    let render_pass = engine_contracts::current_geometry_pass_fast()?;
+    if unsafe { read_ptr_offset(render_pass, 0) }? != geometry {
+        return None;
+    }
     let property = unsafe { read_ptr_offset(geometry, GEOMETRY_LIGHTING_PROPERTY_OFFSET) }?;
     let selector = unsafe { read_ptr_offset(geometry, GEOMETRY_SELECTOR_OFFSET) }
         .map_or(0, |selector| selector as usize);
@@ -671,6 +674,20 @@ fn shader_light(
     candidate: TerrainLightCandidate,
     context: TerrainLightContext,
 ) -> Option<ShaderTerrainLight> {
+    let light = encode_light(candidate, context)?;
+    light.color_visibility[..3]
+        .iter()
+        .any(|component| *component > LIGHT_COMPONENT_MIN)
+        .then_some(light)
+}
+
+// Native membership includes black/dim lights. Filtering those here would
+// change the ordered native payload and its capacity reservation; only the
+// supplemental search may discard lights with no visible contribution.
+fn encode_light(
+    candidate: TerrainLightCandidate,
+    context: TerrainLightContext,
+) -> Option<ShaderTerrainLight> {
     if !candidate.point
         || candidate.ambient
         || !candidate.in_multibound
@@ -717,12 +734,7 @@ fn shader_light(
             * candidate.lod_dimmer;
         candidate.diffuse.map(|component| component * dimmer)
     };
-    if !radius.is_finite()
-        || radius <= 0.0
-        || !color.iter().all(|component| component.is_finite())
-        || !color
-            .iter()
-            .any(|component| *component > LIGHT_COMPONENT_MIN)
+    if !radius.is_finite() || radius <= 0.0 || !color.iter().all(|component| component.is_finite())
     {
         return None;
     }
@@ -739,6 +751,92 @@ fn shader_light(
         // equivalent if the supplemental ABI is inspected independently.
         color_visibility: [color[0], color[1], color[2], 1.0],
     })
+}
+
+/// Owned native-pass payload in the replacement's expanded constant ABI.
+pub(super) struct NativeTerrainLights {
+    pub(super) colors: [[f32; 4]; MAX_TERRAIN_POINT_LIGHTS],
+    pub(super) positions: [[f32; 4]; MAX_TERRAIN_POINT_LIGHTS],
+    pub(super) count: usize,
+}
+
+/// Encode native pass membership in order, including zero-color entries.
+///
+/// Safety: called only with the renderer's live geometry/property/pass after
+/// native setup. Their light array and scene lights remain render-thread owned
+/// through submission. No pointer is retained; no general-light scan occurs.
+pub(super) unsafe fn capture_native(
+    geometry: *mut c_void,
+    property: *mut c_void,
+    pass: *mut c_void,
+) -> Option<NativeTerrainLights> {
+    let mut output = NativeTerrainLights {
+        colors: [[0.0; 4]; MAX_TERRAIN_POINT_LIGHTS],
+        positions: [[0.0; 4]; MAX_TERRAIN_POINT_LIGHTS],
+        count: 0,
+    };
+    let count = usize::from(unsafe { read_copy::<u8>(pass, RENDER_PASS_LIGHT_COUNT_OFFSET) });
+    if count > MAX_RENDER_PASS_LIGHTS {
+        return None;
+    }
+    if count == 0 {
+        return Some(output);
+    }
+    let array = unsafe { read_ptr_offset(pass, RENDER_PASS_LIGHT_ARRAY_OFFSET) }?;
+    // Defer matrix construction until the first point light. Sun-only terrain
+    // has no point payload and must keep its existing cheap path.
+    let mut context = None;
+    for index in 0..count {
+        let Some(scene_light) = (unsafe { read_ptr_offset(array, index * size_of::<usize>()) })
+        else {
+            continue;
+        };
+        if unsafe { read_copy::<u8>(scene_light, SCENE_LIGHT_POINT_OFFSET) } == 0
+            || unsafe { read_copy::<u8>(scene_light, SCENE_LIGHT_AMBIENT_OFFSET) } != 0
+        {
+            continue;
+        }
+        let Some(native) =
+            (unsafe { read_ptr_offset(scene_light, SCENE_LIGHT_NATIVE_LIGHT_OFFSET) })
+        else {
+            continue;
+        };
+        if output.count == MAX_TERRAIN_POINT_LIGHTS {
+            return None;
+        }
+        if context.is_none() {
+            let node = unsafe { read_shadow_scene_node() }?;
+            context = Some(TerrainLightContext {
+                transform: unsafe { read_geometry_transform(geometry) }?,
+                lighting_offset: unsafe { read_vec3(node, SHADOW_SCENE_NODE_LIGHTING_OFFSET) },
+                property_light_scale: unsafe {
+                    read_copy(property, LIGHTING_PROPERTY_LIGHT_SCALE_OFFSET)
+                },
+                native_black_color: unsafe { read_vec3(NATIVE_BLACK_COLOR_ADDR as *mut c_void, 0) },
+                hdr: unsafe { (HDR_ENABLED_ADDR as *const u8).read() != 0 },
+            });
+        }
+        // Native membership already owns classification/visibility. In
+        // particular, do not run the supplemental disabled/multibound filter.
+        let light = encode_light(
+            TerrainLightCandidate {
+                identity: native as usize,
+                point: true,
+                ambient: false,
+                relative_position: unsafe { read_vec3(native, NATIVE_LIGHT_POSITION_OFFSET) },
+                radius: unsafe { read_copy(native, NATIVE_LIGHT_RADIUS_OFFSET) },
+                diffuse: unsafe { read_vec3(native, NATIVE_LIGHT_DIFFUSE_OFFSET) },
+                dimmer: unsafe { read_copy(native, NATIVE_LIGHT_DIMMER_OFFSET) },
+                lod_dimmer: unsafe { read_copy(scene_light, SCENE_LIGHT_LOD_DIMMER_OFFSET) },
+                in_multibound: true,
+            },
+            context?,
+        )?;
+        output.colors[output.count] = light.color_visibility;
+        output.positions[output.count] = light.position_radius;
+        output.count += 1;
+    }
+    Some(output)
 }
 
 fn inverse_transform_point(point: [f32; 3], transform: GeometryTransform) -> Option<[f32; 3]> {
@@ -1293,6 +1391,9 @@ mod tests {
         let mut native_dark_path = context();
         native_dark_path.property_light_scale = 0.999;
         let dark_candidate = candidate(0x20000);
+        let native = super::encode_light(dark_candidate, native_dark_path).unwrap();
+        assert_eq!(native.color_visibility, [0.0, 0.0, 0.0, 1.0]);
+        assert_eq!(native.position_radius, [501.0, 1002.0, 1503.0, 40.0]);
         let mut merge = TerrainLightMerge::new(&[], 0, native_dark_path);
 
         assert!(!merge.consider(dark_candidate));

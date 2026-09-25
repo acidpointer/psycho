@@ -9297,6 +9297,8 @@ fn draw_depth_diagnostics(
         backend::DepthResolveRouteStatus::Unprobed => (MENU_WARN_TEXT, "Waiting for D3D device"),
         backend::DepthResolveRouteStatus::Resz => (MENU_GOOD_TEXT, "RESZ"),
         backend::DepthResolveRouteStatus::Nvapi => (MENU_GOOD_TEXT, "NVIDIA NvAPI"),
+        backend::DepthResolveRouteStatus::Owned => (MENU_GOOD_TEXT, "Owned depth"),
+        backend::DepthResolveRouteStatus::Preparing => (MENU_WARN_TEXT, "Preparing"),
         backend::DepthResolveRouteStatus::Unavailable => (MENU_ERROR_TEXT, "Unavailable"),
     };
     ui.text_colored(color, &cstring(format!("Resolve route: {route}")));
@@ -9322,7 +9324,18 @@ fn draw_depth_diagnostics(
             markers.external_publications,
         )),
     );
+    ui.text_colored(
+        MENU_MUTED_TEXT,
+        &cstring(format!(
+            "Native depth: {}",
+            backend::owned_depth_status_label()
+        )),
+    );
     let copies = backend::depth_copy_counters();
+    ui.text_colored(
+        MENU_MUTED_TEXT,
+        &cstring(format!("Depth snapshot draws: {}", copies.snapshot_draws)),
+    );
     ui.text_colored(
         MENU_MUTED_TEXT,
         &cstring(format!(

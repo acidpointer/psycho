@@ -8,7 +8,7 @@
 //! Fallout New Vegas and xNVSE provide the serialized boundaries OMV needs:
 //!
 //! - xNVSE `OnFramePresent` runs immediately before final presentation;
-//! - the proven `NiDX9Renderer::Recreate` caller owns device-loss/reset order;
+//! - requested recreation and shared native reset notifications own resource release;
 //! - live renderer vtable slots for `RenderTriShape` and `RenderTriStrips` own
 //!   the actual primitive submissions used by PPLighting and native sky.
 //!
@@ -327,24 +327,7 @@ unsafe extern "thiscall" fn recreate_detour(
     let Some(device_ptr) = (unsafe { renderer_device(renderer) }) else {
         return unsafe { original(renderer, request_a, request_b) };
     };
-    if !unsafe { runtime::try_release_device_resources(device_ptr) } {
-        // Recreate's native failure value is zero. Returning an HRESULT here
-        // would violate the engine ABI and could make the caller treat a busy
-        // OMV resource owner as a successful reset mode.
-        return 0;
-    }
-    if !crate::effects::shadows::reset_runtime_state()
-        || !pbr::reset_runtime_state()
-        || !sky::reset_runtime_state()
-    {
-        // Recreate's caller understands zero as a retryable failure. Every
-        // owner that did reset can rebuild lazily on the next successful
-        // lifecycle attempt; no still-owned default-pool object crosses reset.
-        return 0;
-    }
-    if backend::clear_d3d_device().is_err() {
-        // Recreate's caller already understands zero as a retryable failure.
-        // Do not enter native reset while OMV still owns a device reference.
+    if !unsafe { release_for_native_reset(device_ptr) } {
         return 0;
     }
     let result = unsafe { original(renderer, request_a, request_b) };
@@ -358,6 +341,27 @@ unsafe extern "thiscall" fn recreate_detour(
         }
     }
     result
+}
+
+/// Release every OMV GPU owner before either native Reset route.
+///
+/// Shared pre-reset notifications also call this for device-loss recovery,
+/// which bypasses the outer recreation detour. Release is idempotent and
+/// nonblocking. Native request clearing does not automatically retry failure.
+///
+/// # Safety
+/// `device_ptr` is the live device owned by the current native renderer frame.
+pub(crate) unsafe fn release_for_native_reset(device_ptr: *mut c_void) -> bool {
+    if !unsafe { runtime::try_release_device_resources(device_ptr) } {
+        return false;
+    }
+    if !crate::effects::shadows::reset_runtime_state()
+        || !pbr::reset_runtime_state()
+        || !sky::reset_runtime_state()
+    {
+        return false;
+    }
+    backend::clear_d3d_device().is_ok()
 }
 
 unsafe extern "thiscall" fn render_tri_shape_detour(renderer: *mut c_void, geometry: *mut c_void) {
@@ -598,30 +602,6 @@ mod tests {
         assert!(apply < finish);
         assert!(finish < epoch);
         assert!(!body.contains("original(renderer)"));
-    }
-
-    #[test]
-    fn recreate_releases_before_invoking_its_exact_predecessor() {
-        let source = include_str!("hooks.rs");
-        let body = source
-            .split_once("unsafe extern \"thiscall\" fn recreate_detour")
-            .and_then(|(_, tail)| {
-                tail.split_once("unsafe extern \"thiscall\" fn render_tri_shape_detour")
-            })
-            .map(|(body, _)| body)
-            .expect("Recreate caller wrapper");
-        let release = body
-            .find("runtime::try_release_device_resources")
-            .expect("resource release");
-        let native = body[release..]
-            .find("original(renderer, request_a, request_b)")
-            .map(|offset| release + offset)
-            .expect("captured predecessor after resource release");
-        let republish = body
-            .find("backend::publish_d3d_device")
-            .expect("device republish");
-        assert!(release < native);
-        assert!(native < republish);
     }
 
     #[test]

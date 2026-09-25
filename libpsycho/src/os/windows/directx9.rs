@@ -29,23 +29,25 @@ pub use windows::Win32::Graphics::Direct3D9::D3DSAMPLERSTATETYPE;
 pub use windows::Win32::Graphics::Direct3D9::{
     D3D_SDK_VERSION, D3DBLEND_DESTCOLOR, D3DBLEND_ONE, D3DBLEND_ZERO, D3DBLENDOP_ADD,
     D3DBLENDOP_REVSUBTRACT, D3DCAPS9, D3DCLEAR_STENCIL, D3DCLEAR_TARGET, D3DCLEAR_ZBUFFER,
-    D3DCMP_ALWAYS, D3DCMP_LESSEQUAL, D3DCUBEMAP_FACE_NEGATIVE_X, D3DCUBEMAP_FACE_NEGATIVE_Y,
-    D3DCUBEMAP_FACE_NEGATIVE_Z, D3DCUBEMAP_FACE_POSITIVE_X, D3DCUBEMAP_FACE_POSITIVE_Y,
-    D3DCUBEMAP_FACE_POSITIVE_Z, D3DCUBEMAP_FACES, D3DCULL, D3DCULL_CCW, D3DCULL_CW, D3DCULL_NONE,
-    D3DDEVTYPE, D3DDEVTYPE_HAL, D3DDEVTYPE_NULLREF, D3DDEVTYPE_REF, D3DDEVTYPE_SW, D3DFMT_A8R8G8B8,
-    D3DFMT_R32F, D3DFORMAT, D3DFVF_DIFFUSE, D3DFVF_TEX1, D3DFVF_XYZ, D3DFVF_XYZRHW,
-    D3DMULTISAMPLE_4_SAMPLES, D3DMULTISAMPLE_NONE, D3DMULTISAMPLE_TYPE, D3DPOOL_DEFAULT,
-    D3DPOOL_MANAGED, D3DPT_POINTLIST, D3DPT_TRIANGLELIST, D3DPT_TRIANGLESTRIP,
+    D3DCMP_ALWAYS, D3DCMP_EQUAL, D3DCMP_GREATER, D3DCMP_LESSEQUAL, D3DCUBEMAP_FACE_NEGATIVE_X,
+    D3DCUBEMAP_FACE_NEGATIVE_Y, D3DCUBEMAP_FACE_NEGATIVE_Z, D3DCUBEMAP_FACE_POSITIVE_X,
+    D3DCUBEMAP_FACE_POSITIVE_Y, D3DCUBEMAP_FACE_POSITIVE_Z, D3DCUBEMAP_FACES, D3DCULL, D3DCULL_CCW,
+    D3DCULL_CW, D3DCULL_NONE, D3DDEVTYPE, D3DDEVTYPE_HAL, D3DDEVTYPE_NULLREF, D3DDEVTYPE_REF,
+    D3DDEVTYPE_SW, D3DFMT_A8R8G8B8, D3DFMT_R32F, D3DFORMAT, D3DFVF_DIFFUSE, D3DFVF_TEX1,
+    D3DFVF_XYZ, D3DFVF_XYZRHW, D3DMULTISAMPLE_4_SAMPLES, D3DMULTISAMPLE_NONE, D3DMULTISAMPLE_TYPE,
+    D3DPOOL_DEFAULT, D3DPOOL_MANAGED, D3DPT_POINTLIST, D3DPT_TRIANGLELIST, D3DPT_TRIANGLESTRIP,
     D3DRS_ADAPTIVETESS_Y, D3DRS_ALPHABLENDENABLE, D3DRS_ALPHAFUNC, D3DRS_ALPHAREF,
-    D3DRS_ALPHATESTENABLE, D3DRS_BLENDOP, D3DRS_COLORWRITEENABLE, D3DRS_COLORWRITEENABLE1,
-    D3DRS_CULLMODE, D3DRS_DEPTHBIAS, D3DRS_DESTBLEND, D3DRS_MULTISAMPLEANTIALIAS,
-    D3DRS_MULTISAMPLEMASK, D3DRS_POINTSIZE, D3DRS_SCISSORTESTENABLE, D3DRS_SLOPESCALEDEPTHBIAS,
-    D3DRS_SRCBLEND, D3DRS_SRGBWRITEENABLE, D3DRS_STENCILENABLE, D3DRS_ZENABLE, D3DRS_ZFUNC,
-    D3DRS_ZWRITEENABLE, D3DRTYPE_SURFACE, D3DRTYPE_TEXTURE, D3DSAMP_ADDRESSU, D3DSAMP_ADDRESSV,
-    D3DSAMP_ADDRESSW, D3DSAMP_MAGFILTER, D3DSAMP_MINFILTER, D3DSAMP_MIPFILTER, D3DSAMP_SRGBTEXTURE,
-    D3DSBT_ALL, D3DSURFACE_DESC, D3DTA_TEXTURE, D3DTADDRESS_CLAMP, D3DTADDRESS_WRAP,
-    D3DTEXF_LINEAR, D3DTEXF_NONE, D3DTEXF_POINT, D3DTOP_SELECTARG1, D3DTSS_ALPHAARG1,
-    D3DTSS_ALPHAOP, D3DTSS_COLORARG1, D3DTSS_COLOROP, D3DVIEWPORT9,
+    D3DRS_ALPHATESTENABLE, D3DRS_BLENDOP, D3DRS_CLIPPLANEENABLE, D3DRS_COLORWRITEENABLE,
+    D3DRS_COLORWRITEENABLE1, D3DRS_CULLMODE, D3DRS_DEPTHBIAS, D3DRS_DESTBLEND, D3DRS_FOGENABLE,
+    D3DRS_MULTISAMPLEANTIALIAS, D3DRS_MULTISAMPLEMASK, D3DRS_POINTSIZE, D3DRS_SCISSORTESTENABLE,
+    D3DRS_SLOPESCALEDEPTHBIAS, D3DRS_SRCBLEND, D3DRS_SRGBWRITEENABLE, D3DRS_STENCILENABLE,
+    D3DRS_STENCILFUNC, D3DRS_STENCILMASK, D3DRS_STENCILPASS, D3DRS_STENCILREF,
+    D3DRS_STENCILWRITEMASK, D3DRS_ZENABLE, D3DRS_ZFUNC, D3DRS_ZWRITEENABLE, D3DRTYPE_SURFACE,
+    D3DRTYPE_TEXTURE, D3DSAMP_ADDRESSU, D3DSAMP_ADDRESSV, D3DSAMP_ADDRESSW, D3DSAMP_MAGFILTER,
+    D3DSAMP_MINFILTER, D3DSAMP_MIPFILTER, D3DSAMP_SRGBTEXTURE, D3DSBT_ALL, D3DSTENCILOP_KEEP,
+    D3DSURFACE_DESC, D3DTA_TEXTURE, D3DTADDRESS_CLAMP, D3DTADDRESS_WRAP, D3DTEXF_LINEAR,
+    D3DTEXF_NONE, D3DTEXF_POINT, D3DTOP_SELECTARG1, D3DTSS_ALPHAARG1, D3DTSS_ALPHAOP,
+    D3DTSS_COLORARG1, D3DTSS_COLOROP, D3DVIEWPORT9,
 };
 use windows::Win32::Graphics::Direct3D9::{
     D3DADAPTER_DEFAULT, D3DADAPTER_IDENTIFIER9, D3DBACKBUFFER_TYPE, D3DBACKBUFFER_TYPE_MONO,
@@ -55,10 +57,15 @@ use windows::Win32::Graphics::Direct3D9::{
     D3DPRIMITIVETYPE, D3DRECT, D3DRENDERSTATETYPE, D3DRESOURCETYPE, D3DSTATEBLOCKTYPE,
     D3DSWAPEFFECT_DISCARD, D3DTEXTUREFILTERTYPE, D3DTEXTURESTAGESTATETYPE, D3DUSAGE_DEPTHSTENCIL,
     D3DUSAGE_DYNAMIC, D3DUSAGE_QUERY_FILTER, D3DUSAGE_QUERY_POSTPIXELSHADER_BLENDING,
-    D3DUSAGE_RENDERTARGET, D3DVERTEXELEMENT9, Direct3DCreate9, IDirect3D9, IDirect3DBaseTexture9,
+    D3DUSAGE_RENDERTARGET, Direct3DCreate9, IDirect3D9, IDirect3DBaseTexture9,
     IDirect3DCubeTexture9, IDirect3DDevice9, IDirect3DIndexBuffer9, IDirect3DPixelShader9,
     IDirect3DStateBlock9, IDirect3DSurface9, IDirect3DTexture9, IDirect3DVertexBuffer9,
     IDirect3DVertexDeclaration9, IDirect3DVertexShader9,
+};
+pub use windows::Win32::Graphics::Direct3D9::{
+    D3DDECLTYPE_FLOAT3, D3DDECLTYPE_FLOAT4, D3DDECLTYPE_UNUSED, D3DDECLUSAGE_BINORMAL,
+    D3DDECLUSAGE_COLOR, D3DDECLUSAGE_NORMAL, D3DDECLUSAGE_POSITION, D3DDECLUSAGE_TANGENT,
+    D3DDECLUSAGE_TEXCOORD, D3DVERTEXELEMENT9,
 };
 pub use windows::core::Error as Direct3DError;
 use windows::core::{
@@ -434,6 +441,43 @@ impl<'a> Device9Ref<'a> {
     /// Get the owning Direct3D object. The returned wrapper owns that COM reference.
     pub fn direct3d(&self) -> Direct3DResult<Direct3D9> {
         unsafe { self.inner.GetDirect3D().map(Direct3D9::new) }
+    }
+
+    /// Check a sampleable depth format on this device's actual adapter/type.
+    /// The query preserves driver errors and does not imply pixel correctness.
+    pub fn check_depth_texture_support(&self, format: D3DFORMAT) -> Direct3DResult<()> {
+        let creation = self.creation_parameters()?;
+        let d3d = self.direct3d()?;
+        let mode = d3d.adapter_display_mode(creation.adapter_ordinal)?;
+        d3d.check_device_format(
+            creation.adapter_ordinal,
+            creation.device_type,
+            mode.Format,
+            D3DUSAGE_DEPTHSTENCIL as u32,
+            D3DRTYPE_TEXTURE,
+            format,
+        )
+    }
+
+    /// Check color/depth format compatibility on the adapter owning this device.
+    /// Dimensions and multisample compatibility remain the caller's responsibility.
+    pub fn check_depth_stencil_match(
+        &self,
+        color: D3DFORMAT,
+        depth: D3DFORMAT,
+    ) -> Direct3DResult<()> {
+        let creation = self.creation_parameters()?;
+        let d3d = self.direct3d()?;
+        let mode = d3d.adapter_display_mode(creation.adapter_ordinal)?;
+        unsafe {
+            d3d.inner.CheckDepthStencilMatch(
+                creation.adapter_ordinal,
+                creation.device_type,
+                mode.Format,
+                color,
+                depth,
+            )
+        }
     }
 
     /// Return whether the live device's adapter and device type expose RESZ.
@@ -1033,6 +1077,13 @@ impl<'a> Device9Ref<'a> {
         Ok(viewport)
     }
 
+    /// Get the current scissor rectangle, including while its test is disabled.
+    pub fn scissor_rect(&self) -> Direct3DResult<RECT> {
+        let mut rect = RECT::default();
+        unsafe { self.inner.GetScissorRect(&mut rect)? };
+        Ok(rect)
+    }
+
     /// Get a render state value.
     pub fn render_state(&self, state: D3DRENDERSTATETYPE) -> Direct3DResult<u32> {
         let mut value = 0;
@@ -1151,6 +1202,38 @@ impl<'a> Device9Ref<'a> {
         Ok(fvf)
     }
 
+    /// Create an owned vertex declaration from a terminated element slice.
+    ///
+    /// The final element must be D3DDECL_END (stream 0xFF, type UNUSED), so
+    /// the native pointer-only API cannot scan beyond the borrowed slice.
+    /// Invalid termination fails before calling D3D; other layout validation
+    /// and errors belong to the device. No element pointer is retained.
+    /// Call on the device's owning thread unless its creation allows otherwise.
+    pub fn create_vertex_declaration(
+        &self,
+        elements: &[D3DVERTEXELEMENT9],
+    ) -> Direct3DResult<VertexDeclaration9> {
+        if elements
+            .last()
+            .is_none_or(|end| end.Stream != 0xFF || end.Type != D3DDECLTYPE_UNUSED.0 as u8)
+        {
+            return Err(direct3d_failure());
+        }
+        // The checked terminator bounds every native element read.
+        unsafe {
+            self.inner
+                .CreateVertexDeclaration(elements.as_ptr())
+                .map(|inner| VertexDeclaration9 { inner })
+        }
+    }
+
+    /// Bind an owned declaration created by this device.
+    /// Returns the device's error for an incompatible resource or device state.
+    /// Obeys the same device-threading contract as other state setters.
+    pub fn set_vertex_declaration(&self, declaration: &VertexDeclaration9) -> Direct3DResult<()> {
+        unsafe { self.inner.SetVertexDeclaration(&declaration.inner) }
+    }
+
     /// Capture the currently bound programmable vertex declaration.
     pub fn vertex_declaration_snapshot(&self) -> Direct3DResult<VertexDeclarationSnapshot> {
         let declaration = unsafe { self.inner.GetVertexDeclaration()? };
@@ -1187,6 +1270,12 @@ impl<'a> Device9Ref<'a> {
     /// Set the fixed-function vertex format.
     pub fn set_fvf(&self, fvf: u32) -> Direct3DResult<()> {
         unsafe { self.inner.SetFVF(fvf) }
+    }
+
+    /// Set stream frequency; one selects ordinary non-instanced vertices.
+    /// Callers that temporarily change it must restore the previous draw state.
+    pub fn set_stream_source_frequency(&self, stream: u32, frequency: u32) -> Direct3DResult<()> {
+        unsafe { self.inner.SetStreamSourceFreq(stream, frequency) }
     }
 
     /// Bind or clear a borrowed engine-owned vertex declaration.
@@ -1833,6 +1922,24 @@ impl Surface9 {
     /// Consume the wrapper and return the owned Windows binding interface.
     pub fn into_inner(self) -> IDirect3DSurface9 {
         self.inner
+    }
+
+    /// Transfer this owned COM reference to a native owner, without releasing it.
+    /// The recipient must eventually call Release exactly once.
+    pub fn into_raw(self) -> *mut c_void {
+        self.inner.into_raw()
+    }
+
+    /// Take ownership of one existing surface reference without adding a reference.
+    ///
+    /// # Safety
+    /// `surface` must be a live IDirect3DSurface9 pointer whose owned reference
+    /// is transferred exclusively to this wrapper. Null is rejected.
+    pub unsafe fn from_owned_raw(surface: *mut c_void) -> Direct3DResult<Self> {
+        if surface.is_null() {
+            return Err(WindowsError::from_hresult(E_POINTER));
+        }
+        Ok(Self::new(unsafe { IDirect3DSurface9::from_raw(surface) }))
     }
 
     /// Return surface description.
@@ -2878,6 +2985,13 @@ impl PixelShader9 {
     pub fn into_inner(self) -> IDirect3DPixelShader9 {
         self.inner
     }
+}
+
+/// Owned programmable vertex declaration, released when its last owner drops.
+/// Creation and binding stay behind Device9Ref; native COM ownership is private.
+#[derive(Clone, Debug)]
+pub struct VertexDeclaration9 {
+    inner: IDirect3DVertexDeclaration9,
 }
 
 /// Owned `IDirect3DVertexShader9` reference.

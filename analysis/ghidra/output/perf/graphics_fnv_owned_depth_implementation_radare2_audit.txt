@@ -1,0 +1,181 @@
+OMV owned-depth implementation boundary revalidation
+Executable: fnv_reverse/FalloutNV.exe
+SHA256: 42fee7d6cd74e801372aa89c8f71c974cebd3c20ec9ad43d1465b8fa9646b49c
+Interface: radare2 MCP
+
+{
+  "a": "0x010EE4BC+0x154",
+  "result": {
+    "content": [
+      {
+        "type": "text",
+        "text": "0xe69a20"
+      }
+    ]
+  }
+}
+
+{
+  "a": "0x010EE4BC+0x140",
+  "result": {
+    "content": [
+      {
+        "type": "text",
+        "text": "0xe6dc80"
+      }
+    ]
+  }
+}
+
+{
+  "a": "0x010EE4BC+0x108",
+  "result": {
+    "content": [
+      {
+        "type": "text",
+        "text": "0xe6f9b0"
+      }
+    ]
+  }
+}
+
+{
+  "a": "0x010EF114+0",
+  "result": {
+    "content": [
+      {
+        "type": "text",
+        "text": "0xe7d620"
+      }
+    ]
+  }
+}
+
+{
+  "a": "0x010EF114+0x58",
+  "result": {
+    "content": [
+      {
+        "type": "text",
+        "text": "0xe7ce30"
+      }
+    ]
+  }
+}
+
+{
+  "a": "0x010EF114+0x60",
+  "result": {
+    "content": [
+      {
+        "type": "text",
+        "text": "0xe7cdb0"
+      }
+    ]
+  }
+}
+
+{
+  "a": "0x010EF114+0x68",
+  "result": {
+    "content": [
+      {
+        "type": "text",
+        "text": "0xe7d180"
+      }
+    ]
+  }
+}
+
+{
+  "a": "0x010EF184+0",
+  "result": {
+    "content": [
+      {
+        "type": "text",
+        "text": "0xe7dc40"
+      }
+    ]
+  }
+}
+
+{
+  "a": "0x010EF184+0x58",
+  "result": {
+    "content": [
+      {
+        "type": "text",
+        "text": "0xe7cf50"
+      }
+    ]
+  }
+}
+
+{
+  "a": "0x010EF184+0x60",
+  "result": {
+    "content": [
+      {
+        "type": "text",
+        "text": "0xe7cdb0"
+      }
+    ]
+  }
+}
+
+{
+  "a": "0x010EF184+0x68",
+  "result": {
+    "content": [
+      {
+        "type": "text",
+        "text": "0xe7d180"
+      }
+    ]
+  }
+}
+
+{
+  "args": {
+    "address": "0x86BAE0",
+    "num_instructions": 55
+  },
+  "result": {
+    "content": [
+      {
+        "type": "text",
+        "text": "  ; CALL XREF from fcn.0086a850 @ 0x86b061(x)\n  ; NULL XREF from fcn.0086ba90 @ +0x4f(x)\n61: fcn.0086bae0 (int32_t arg_8h, int32_t arg_ch);\n`- args(sp[0x4..0x8]) vars(2:sp[0x8..0xc])\n0x0086bae0      push ebp\n0x0086bae1      mov ebp, esp\n0x0086bae3      sub esp, 8\n0x0086bae6      mov dword [var_8h], ecx\n0x0086bae9      lea eax, [arg_8h]\n0x0086baec      push eax\n0x0086baed      mov ecx, dword [var_8h]\n; 2772\n0x0086baf0      add ecx, 0xad4\n   ; fcn.00877a50\n   ; fcn.00877a50(0x178004)\n0x0086baf6      call fcn.00877a50\n0x0086bafb      mov dword [var_4h], eax\n0x0086bafe      lea ecx, [arg_ch]\n0x0086bb01      push ecx\n0x0086bb02      mov edx, dword [var_4h]\n0x0086bb05      push edx\n0x0086bb06      mov ecx, dword [var_8h]\n; 2788\n0x0086bb09      add ecx, 0xae4\n   ; fcn.00470000\n   ; fcn.00470000(0x178004, 0x0)\n0x0086bb0f      call fcn.00470000\n0x0086bb14      mov eax, dword [var_4h]\n0x0086bb17      mov esp, ebp\n0x0086bb19      pop ebp\n0x0086bb1a      ret 8\n0x0086bb1d      int3\n0x0086bb1e      int3\n0x0086bb1f      int3\n  ; CALL XREF from fcn.0086a850 @ 0x86b95b(x)\n78: fcn.0086bb20 (int32_t arg_8h);\n`- args(sp[0x4..0x4]) vars(2:sp[0x8..0xc])\n0x0086bb20      push ebp\n0x0086bb21      mov ebp, esp\n0x0086bb23      sub esp, 8\n0x0086bb26      mov dword [var_8h], ecx\n0x0086bb29      mov eax, dword [arg_8h]\n0x0086bb2c      push eax\n0x0086bb2d      mov ecx, dword [var_8h]\n   ; fcn.0086bb70\n   ; fcn.0086bb70(-1)\n0x0086bb30      call fcn.0086bb70\n0x0086bb35      mov dword [var_4h], eax\n0x0086bb38      cmp dword [var_4h], 0xffffffff\n   ; likely\n0x0086bb3c      jne 0x86bb42\n0x0086bb3e      xor al, al\n0x0086bb40      jmp 0x86bb68\n0x0086bb42      mov ecx, dword [var_4h]\n0x0086bb45      push ecx\n0x0086bb46      mov ecx, dword [var_8h]\n; 2772\n0x0086bb49      add ecx, 0xad4\n   ; fcn.009e98d0\n   ; fcn.009e98d0(0xffffff00)\n0x0086bb4f      call fcn.009e98d0\n0x0086bb54      mov edx, dword [var_4h]\n0x0086bb57      push edx\n0x0086bb58      mov ecx, dword [var_8h]\n; 2788\n0x0086bb5b      add ecx, 0xae4\n   ; fcn.009e98d0\n   ; fcn.009e98d0(0xffffff00)\n0x0086bb61      call fcn.009e98d0\n0x0086bb66      mov al, 1\n; CODE XREF from fcn.0086bb20 @ 0x86bb40(x)\n0x0086bb68      mov esp, ebp\n0x0086bb6a      pop ebp\n0x0086bb6b      ret 4\n0x0086bb6e      int3\n0x0086bb6f      int3\n  ; CALL XREF from fcn.0086bb20 @ 0x86bb30(x)\n87: fcn.0086bb70 (int32_t arg_8h);\n`- args(sp[0x4..0x4]) vars(2:sp[0x8..0xc])\n0x0086bb70      push ebp\n0x0086bb71      mov ebp, esp\n"
+      }
+    ]
+  }
+}
+
+{
+  "args": {
+    "address": "0xE73EB0",
+    "num_instructions": 55
+  },
+  "result": {
+    "content": [
+      {
+        "type": "text",
+        "text": "  ; CALL XREF from fcn.004dc360 @ 0x4dc41f(x)\n175: fcn.00e73eb0 (int32_t arg_54h);\n`- args() vars(2:sp[0x4..0x40])\n0x00e73eb0      sub esp, 0x38\n0x00e73eb3      push esi\n0x00e73eb4      push edi\n0x00e73eb5      mov edi, ecx\n0x00e73eb7      mov ecx, dword [edi + 0x884]\n0x00e73ebd      mov eax, dword [ecx]\n0x00e73ebf      mov edx, dword [eax + 0xb0]\n0x00e73ec5      push 0\n   ; 0xffffffff(-1, 0x0, -1, -1)\n0x00e73ec7      call edx\n0x00e73ec9      mov ecx, dword [eax + 0x10]\n0x00e73ecc      test ecx, ecx\n   ; likely\n0x00e73ece      jne 0xe73ed4\n0x00e73ed0      xor eax, eax\n0x00e73ed2      jmp 0xe73ede\n0x00e73ed4      push 0x126f5d8\n   ; fcn.00e69b00\n   ; fcn.00e69b00(0x0)\n0x00e73ed9      call fcn.00e69b00\n; CODE XREF from fcn.00e73eb0 @ 0xe73ed2(x)\n0x00e73ede      lea esi, [eax + 0x20]\n; '8'\n; 56\n0x00e73ee1      push 0x38\n0x00e73ee3      lea eax, [var_ch]\n0x00e73ee7      push esi\n0x00e73ee8      push eax\n   ; fcn.00ec44d0\n   ; fcn.00ec44d0(0x177fb8, 0x0, -1)\n0x00e73ee9      call fcn.00ec44d0\n0x00e73eee      mov ecx, dword [var_50h]\n0x00e73ef2      mov edx, dword [arg_54h]\n0x00e73ef6      mov dword [esi], ecx\n0x00e73ef8      add esp, 0xc\n0x00e73efb      mov ecx, edi\n0x00e73efd      mov dword [esi + 4], edx\n   ; fcn.00e736b0\n0x00e73f00      call fcn.00e736b0\n0x00e73f05      test al, al\n   ; likely\n0x00e73f07      jne 0xe73f52\n; 0x10ee398\n; \"NiDX9Renderer::Recreate> Could not reset device to desired parameters - trying to recover original values\\n\"\n0x00e73f09      push str.NiDX9Renderer::Recreate__Could_not_reset_device_to_desired_parameters___trying_to_recover_original_values_n\n   ; fcn.00a29680\n0x00e73f0e      call fcn.00a29680\n; '8'\n; 56\n0x00e73f13      push 0x38\n0x00e73f15      lea eax, [var_ch]\n0x00e73f19      push eax\n0x00e73f1a      push esi\n   ; fcn.00ec44d0\n   ; fcn.00ec44d0(0x177fac, 0x0, 0x0)\n0x00e73f1b      call fcn.00ec44d0\n0x00e73f20      add esp, 0x10\n0x00e73f23      mov ecx, edi\n   ; fcn.00e736b0\n0x00e73f25      call fcn.00e736b0\n0x00e73f2a      test al, al\n   ; likely\n0x00e73f2c      jne 0xe73f45\n; 0x10ee348\n; \"NiDX9Renderer::Recreate> Could not recover original presentation parameters\\n\"\n0x00e73f2e      push str.NiDX9Renderer::Recreate__Could_not_recover_original_presentation_parameters_n\n   ; fcn.00a29680\n0x00e73f33      call fcn.00a29680\n0x00e73f38      add esp, 4\n0x00e73f3b      pop edi\n0x00e73f3c      xor eax, eax\n0x00e73f3e      pop esi\n0x00e73f3f      add esp, 0x38\n0x00e73f42      ret 8\n0x00e73f45      pop edi\n0x00e73f46      mov eax, 1\n0x00e73f4b      pop esi\n0x00e73f4c      add esp, 0x38\n"
+      }
+    ]
+  }
+}
+
+{
+  "args": {
+    "address": "0x86EDF0",
+    "num_instructions": 15
+  },
+  "result": {
+    "content": [
+      {
+        "type": "text",
+        "text": "   ; fcn.008705d0\n0x0086edf0      call fcn.008705d0\n; [0x11c6fbb:1]=0\n0x0086edf5      movzx eax, byte [0x11c6fbb]\n0x0086edfc      test eax, eax\n   ; likely\n0x0086edfe      je 0x86ee0c\n   ; fcn.004dc360\n0x0086ee00      call fcn.004dc360\n; [0x11c6fbb:1]=0\n0x0086ee05      mov byte [0x11c6fbb], 0\n; [0x11dea2b:1]=0\n0x0086ee0c      movzx ecx, byte [0x11dea2b]\n0x0086ee13      test ecx, ecx\n   ; likely\n0x0086ee15      je 0x86ee22\n; [0x11dea2d:1]=0\n0x0086ee17      movzx edx, byte [0x11dea2d]\n0x0086ee1e      test edx, edx\n   ; likely\n0x0086ee20      je 0x86ee5f\n; [0x11dea2e:1]=0\n0x0086ee22      movzx eax, byte [0x11dea2e]\n0x0086ee29      test eax, eax\n   ; unlikely\n0x0086ee2b      jne 0x86ee5f\n"
+      }
+    ]
+  }
+}

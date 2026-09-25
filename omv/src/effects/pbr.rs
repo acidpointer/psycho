@@ -44,7 +44,11 @@ mod object_replacement_record;
 mod samplers;
 mod shader_record;
 mod shader_registry;
+mod terrain_inputs;
 mod terrain_lights;
+
+#[cfg(test)]
+pub(crate) use terrain_inputs::tests::exercise_shaders as exercise_terrain_input_shaders;
 
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 
@@ -76,10 +80,11 @@ static BLOCK_REASON: AtomicU32 = AtomicU32::new(BLOCK_REASON_NONE);
 /// Callers obtain this token from [`prepare_direct_draw`] and must pass it to
 /// [`finish_direct_draw`] after the corresponding draw, regardless of the
 /// draw's HRESULT.
-#[derive(Clone, Copy, Debug, Default)]
+#[derive(Debug, Default)]
 #[must_use]
 pub(crate) struct PbrDirectDrawScope {
     restore_after_draw: bool,
+    terrain_constants: Option<terrain_inputs::ConstantScope>,
 }
 
 /// Immutable native-PBR settings staged from startup or the runtime menu.
@@ -421,7 +426,9 @@ pub(crate) fn install(settings: NativePbrSettings) -> Result<()> {
     INSTALL_BOUNDARY_REACHED.store(true, Ordering::Release);
     hooks::install()?;
     let terrain_contract = engine_contracts::probe_terrain_contract();
-    log::info!("[PBR] Functional terrain contract available={terrain_contract}");
+    log::info!(
+        "[PBR] Terrain resources available={terrain_contract}; material, fog and light inputs are validated per draw"
+    );
     INSTALLED.store(hooks::hooks_ready(), Ordering::Release);
     if !settings.enabled {
         SHADER_ENABLED.store(false, Ordering::Release);
@@ -447,9 +454,7 @@ pub(crate) fn set_draw_boundary_ready(ready: bool) {
 /// draw returns, including on D3D failure.
 #[must_use]
 pub(crate) fn prepare_direct_draw(geometry: *mut std::ffi::c_void) -> PbrDirectDrawScope {
-    PbrDirectDrawScope {
-        restore_after_draw: hooks::prepare_direct_draw(geometry),
-    }
+    hooks::prepare_direct_draw(geometry)
 }
 
 /// Releases draw-scoped PBR state represented by `scope`.
@@ -458,7 +463,7 @@ pub(crate) fn prepare_direct_draw(geometry: *mut std::ffi::c_void) -> PbrDirectD
 /// state: batch-scoped families remain active until [`finish_draw_batches`] or
 /// another native pass.
 pub(crate) fn finish_direct_draw(scope: PbrDirectDrawScope) {
-    hooks::finish_direct_draw(scope.restore_after_draw);
+    hooks::finish_direct_draw(scope);
 }
 
 /// Clears all batch-scoped PBR draw ownership at the frame boundary.

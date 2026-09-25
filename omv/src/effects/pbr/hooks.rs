@@ -1510,28 +1510,28 @@ pub(super) fn release_device_resources() {
 
 /// Evaluates pending native PBR ownership before one D3D draw.
 ///
-/// Returns `true` only for a close-terrain draw boundary that must be passed to
+/// Returns the terrain constant/sampler cleanup token that must be passed to
 /// [`finish_direct_draw`] after the native draw, including when replacement
 /// admission fell back.
 #[must_use]
-pub(super) fn prepare_direct_draw(geometry: *mut c_void) -> bool {
+pub(super) fn prepare_direct_draw(geometry: *mut c_void) -> super::PbrDirectDrawScope {
     let kind = PENDING_DRAW_KIND.load(Ordering::Acquire);
     if kind == PENDING_DRAW_NONE {
         crate::graphics_diagnostics::add(crate::graphics_diagnostics::Counter::PbrPendingNone, 1);
-        return false;
+        return super::PbrDirectDrawScope::default();
     }
     if !super::shader_enabled() {
-        return false;
+        return super::PbrDirectDrawScope::default();
     }
     if !draw_needs_evaluation(PENDING_DRAW_EVALUATED.load(Ordering::Acquire)) {
-        return false;
+        return super::PbrDirectDrawScope::default();
     }
 
     PENDING_DRAW_EVALUATED.store(true, Ordering::Release);
 
     let Some(pair) = pending_shader_pair() else {
         PENDING_DRAW_KIND.store(PENDING_DRAW_NONE, Ordering::Release);
-        return false;
+        return super::PbrDirectDrawScope::default();
     };
     let _span =
         crate::graphics_diagnostics::span(crate::graphics_diagnostics::Interval::PbrAdmission);
@@ -1542,7 +1542,51 @@ pub(super) fn prepare_direct_draw(geometry: *mut c_void) -> bool {
     // reporting admission against a device state OMV does not own.
     restore_engine_owned_replacement();
     let replacement_ready = !NATIVE_FALLBACK_ACTIVE.load(Ordering::Acquire);
-    let admitted = replacement_ready
+    let family = match kind {
+        PENDING_DRAW_LAND_LOD => Some(super::terrain_inputs::Family::Lod),
+        PENDING_DRAW_TERRAIN_FADE => Some(super::terrain_inputs::Family::Fade),
+        PENDING_DRAW_CLOSE_TERRAIN => close_terrain_variant(
+            PENDING_DRAW_PASS_INDEX.load(Ordering::Acquire),
+            PENDING_DRAW_AUXILIARY.load(Ordering::Acquire) as usize,
+        )
+        .map(|variant| super::terrain_inputs::Family::Close {
+            layers: variant.texture_count as usize,
+            lights: variant.point_light_capacity as usize,
+        }),
+        _ => None,
+    };
+    let device =
+        crate::backend::d3d_device_ptr().and_then(|ptr| unsafe { Device9Ref::from_raw_void(ptr) });
+    let inputs = family.and_then(|family| {
+        // The renderer callback owns the live geometry through finish below.
+        unsafe { super::terrain_inputs::capture(geometry, family) }
+    });
+    let mut constant_scope = family.and_then(|family| {
+        inputs.as_ref()?;
+        super::terrain_inputs::ConstantScope::capture(device.as_ref()?, family)
+    });
+    let inputs_ready =
+        kind == PENDING_DRAW_OBJECT || (inputs.is_some() && constant_scope.is_some());
+    let inputs_uploaded = replacement_ready
+        && inputs_ready
+        && inputs
+            .as_ref()
+            .is_none_or(|inputs| device.as_ref().is_some_and(|device| inputs.upload(device)));
+    if replacement_ready && !inputs_uploaded {
+        match kind {
+            PENDING_DRAW_LAND_LOD => log_land_lod_failure(
+                "current material/fog publication or constant ownership unavailable",
+            ),
+            PENDING_DRAW_TERRAIN_FADE => log_terrain_fade_failure(
+                "current material/fog publication or constant ownership unavailable",
+            ),
+            PENDING_DRAW_CLOSE_TERRAIN => log_close_terrain_failure(
+                "current material/fog/native-light publication or constant ownership unavailable",
+            ),
+            _ => {}
+        }
+    }
+    let admitted = inputs_uploaded
         && match kind {
             PENDING_DRAW_OBJECT => {
                 let pass_and_template = PENDING_DRAW_PASS_INDEX.load(Ordering::Acquire);
@@ -1564,29 +1608,45 @@ pub(super) fn prepare_direct_draw(geometry: *mut c_void) -> bool {
         crate::graphics_diagnostics::add(crate::graphics_diagnostics::Counter::PbrAdmission, 1);
     } else {
         crate::graphics_diagnostics::add(crate::graphics_diagnostics::Counter::PbrFallback, 1);
+        if let Some(scope) = constant_scope.take()
+            && let Some(device) = device.as_ref()
+            && !scope.restore(device)
+            && !DIRECT_RESTORE_FAILURE_LOGGED.swap(true, Ordering::AcqRel)
+        {
+            log::error!("[PBR] Terrain constant rollback failed; device state is unavailable");
+        }
         bind_native_fallback(pair);
     }
 
-    // Re-arm close-terrain admission after this geometry even when binding fell
+    // Re-arm terrain admission after this geometry even when binding fell
     // back. A later geometry can be valid without another SetShaders call, so
     // a failed first draw cannot close the batch.
-    direct_draw_requires_finish(kind)
+    super::PbrDirectDrawScope {
+        restore_after_draw: direct_draw_requires_finish(kind),
+        terrain_constants: constant_scope,
+    }
 }
 
 /// Restores and re-arms state acquired by [`prepare_direct_draw`].
-pub(super) fn finish_direct_draw(restore_after_draw: bool) {
-    if !restore_after_draw {
+pub(super) fn finish_direct_draw(scope: super::PbrDirectDrawScope) {
+    if !scope.restore_after_draw {
         return;
     }
 
     if let Some(device_ptr) = crate::backend::d3d_device_ptr()
         && let Some(device) = unsafe { Device9Ref::from_raw_void(device_ptr) }
     {
+        if let Some(constants) = scope.terrain_constants
+            && !constants.restore(&device)
+            && !DIRECT_RESTORE_FAILURE_LOGGED.swap(true, Ordering::AcqRel)
+        {
+            log::error!("[PBR] Terrain constant restore failed; device state is unavailable");
+        }
         restore_supplemental_sampler_state(&device);
         restore_supplemental_light_texture(&device);
     }
 
-    // Close terrain is admitted per renderer geometry, not per SetShaders
+    // Terrain is admitted per renderer geometry, not per SetShaders
     // batch. A rejected geometry used vanilla for this submission; restore the cache-owned replacement
     // before re-arming so a later valid geometry keeps full PBR coverage.
     restore_engine_owned_replacement();
@@ -1616,7 +1676,10 @@ fn draw_needs_evaluation(evaluated: bool) -> bool {
 }
 
 fn direct_draw_requires_finish(kind: u32) -> bool {
-    kind == PENDING_DRAW_CLOSE_TERRAIN
+    matches!(
+        kind,
+        PENDING_DRAW_CLOSE_TERRAIN | PENDING_DRAW_TERRAIN_FADE | PENDING_DRAW_LAND_LOD
+    )
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -2785,10 +2848,10 @@ mod tests {
     }
 
     #[test]
-    fn only_close_terrain_requires_per_geometry_cleanup() {
+    fn terrain_families_require_per_geometry_cleanup() {
         assert!(!direct_draw_requires_finish(PENDING_DRAW_OBJECT));
-        assert!(!direct_draw_requires_finish(PENDING_DRAW_LAND_LOD));
-        assert!(!direct_draw_requires_finish(PENDING_DRAW_TERRAIN_FADE));
+        assert!(direct_draw_requires_finish(PENDING_DRAW_LAND_LOD));
+        assert!(direct_draw_requires_finish(PENDING_DRAW_TERRAIN_FADE));
         assert!(direct_draw_requires_finish(PENDING_DRAW_CLOSE_TERRAIN));
     }
 

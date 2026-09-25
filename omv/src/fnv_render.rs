@@ -752,6 +752,12 @@ unsafe fn begin_shadow_world_context(
     // against this rendered texture at consumption.
     let depth_surface =
         unsafe { crate::backend::rendered_texture_depth_surface(rendered_texture)? as usize };
+    // World source selection includes the native default group when its
+    // BSRenderedTexture is null. Admit that identity only while this scope's
+    // actual depth binding agrees, including shared temporary-group aliases.
+    if device.depth_stencil_surface().ok()??.as_raw() as usize != depth_surface {
+        return None;
+    }
     let native_camera =
         unsafe { crate::backend::fnv_world_camera_frame_fast(desc.Width, desc.Height) }
             .filter(|camera| camera.available && camera.world_transform.available)?;

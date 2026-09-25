@@ -1,0 +1,282 @@
+Terrain constant publication follow-up, 2026-09-25
+Executable: fnv_reverse/FalloutNV.exe, PE32, image base 0x00400000.
+SHA-256: 42fee7d6cd74e801372aa89c8f71c974cebd3c20ec9ad43d1465b8fa9646b49c
+Primary interface: radare2 MCP, disassemble at 0x00B7F12D.
+Existing full constant-map evidence:
+graphics_fnv_pbr_close_terrain_constant_register_contract_closure.txt,
+PPLighting shader constant/interface setup at 0x00B7E430.
+This excerpt reconfirms native pixel FogParams/FogColor at c14/c15,
+not the extension's StandardFogParams/StandardFogColor at c36/c37.
+It does not capture the failing game's live shader registers.
+
+0x00b7f12d      mov ecx, dword [esi + 0x30]
+0x00b7f130      mov eax, dword [ecx]
+0x00b7f132      mov edx, dword [eax + 8]
+0x00b7f135      push 0
+0x00b7f137      push 0x11fa300
+; 4
+0x00b7f13c      push 4
+; 16
+0x00b7f13e      push 0x10
+0x00b7f140      push 0x1011584
+; 1
+0x00b7f145      push 1
+; 31
+0x00b7f147      push 0x1f
+0x00b7f149      push 0
+0x00b7f14b      push 0x10000007
+; 0x10af4d0
+; "LODTEXPARAMS"
+0x00b7f150      push str.LODTEXPARAMS
+   ; 0xffffffff(-1, 0x0, -1, -1)
+0x00b7f155      call edx
+0x00b7f157      mov ecx, dword [esi + 0x30]
+0x00b7f15a      mov eax, dword [ecx]
+0x00b7f15c      mov edx, dword [eax + 8]
+0x00b7f15f      push 0
+0x00b7f161      push 0x11fd944
+; 4
+0x00b7f166      push 4
+; 4
+0x00b7f168      push 4
+0x00b7f16a      push 0x1011584
+; 1
+0x00b7f16f      push 1
+; 29
+0x00b7f171      push 0x1d
+0x00b7f173      push 0
+0x00b7f175      push 0x10000004
+; 0x10af4bc
+; "RefractionParams"
+0x00b7f17a      push str.RefractionParams
+   ; 0xffffffff(-1, 0x0, -1, -1)
+0x00b7f17f      call edx
+0x00b7f181      mov ecx, dword [esi + 0x30]
+0x00b7f184      mov eax, dword [ecx]
+0x00b7f186      mov edx, dword [eax + 8]
+0x00b7f189      push 0
+0x00b7f18b      push 0x11fd8c4
+; 4
+0x00b7f190      push 4
+; 4
+0x00b7f192      push 4
+0x00b7f194      push 0x1011584
+; 1
+0x00b7f199      push 1
+; 14
+0x00b7f19b      push 0xe
+0x00b7f19d      push 0
+0x00b7f19f      push 0x10000004
+; 0x10af4b0
+; "FogParams"
+0x00b7f1a4      push str.FogParams
+   ; 0xffffffff(-1, 0x0, -1, -1)
+0x00b7f1a9      call edx
+0x00b7f1ab      mov ecx, dword [esi + 0x30]
+0x00b7f1ae      mov eax, dword [ecx]
+0x00b7f1b0      mov edx, dword [eax + 8]
+0x00b7f1b3      push 0
+0x00b7f1b5      push 0x11fd8d4
+; 4
+0x00b7f1ba      push 4
+; 4
+0x00b7f1bc      push 4
+0x00b7f1be      push 0x1011584
+; 1
+0x00b7f1c3      push 1
+; 15
+0x00b7f1c5      push 0xf
+0x00b7f1c7      push 0
+0x00b7f1c9      push 0x10000004
+; 0x10a16ec
+; "FogColor"
+0x00b7f1ce      push str.FogColor
+   ; 0xffffffff(-1, 0x0, -1, -1)
+0x00b7f1d3      call edx
+0x00b7f1d5      mov ecx, dword [esi + 0x30]
+0x00b7f1d8      mov eax, dword [ecx]
+0x00b7f1da      push 0
+0x00b7f1dc      push 0x11fd8e4
+; 4
+0x00b7f1e1      push 4
+0x00b7f1e3      mov edx, dword [eax + 8]
+; 4
+0x00b7f1e6      push 4
+0x00b7f1e8      push 0x1011584
+; 1
+0x00b7f1ed      push 1
+; 16
+0x00b7f1ef      push 0x10
+0x00b7f1f1      push 0
+0x00b7f1f3      push 0x10000004
+; 0x10af4a4
+; "FogPlane"
+0x00b7f1f8      push str.FogPlane
+   ; 0xffffffff(-1, 0x0, -1, -1)
+0x00b7f1fd      call edx
+0x00b7f1ff      mov ecx, dword [esi + 0x30]
+0x00b7f202      mov eax, dword [ecx]
+0x00b7f204      mov edx, dword [eax + 0x70]
+; 0x1043608
+; "HairTint"
+0x00b7f207      push str.HairTint
+   ; 0xffffffff(-1, 0x0, -1, -1)
+0x00b7f20c      call edx
+0x00b7f20e      mov edi, eax
+; [0x11fec6c:4]=0
+0x00b7f210      mov eax, dword [0x11fec6c]
+0x00b7f215      cmp eax, edi
+   ; unlikely
+0x00b7f217      je 0xb7f246
+0x00b7f219      test eax, eax
+   ; likely
+0x00b7f21b      je 0xb7f232
+0x00b7f21d      mov ebx, eax
+0x00b7f21f      add eax, 4
+0x00b7f222      push eax
+   ; pe_dos_header(0x4, 0x0, -1, -1)
+0x00b7f223      call ebp
+0x00b7f225      test eax, eax
+   ; likely
+0x00b7f227      jne 0xb7f232
+0x00b7f229      mov eax, dword [ebx]
+0x00b7f22b      mov edx, dword [eax + 4]
+0x00b7f22e      mov ecx, ebx
+   ; 0xffffffff(-1, 0x0, 0x0, -1)
+0x00b7f230      call edx
+; [0x11fec6c:4]=0
+0x00b7f232      mov dword [0x11fec6c], edi
+0x00b7f238      test edi, edi
+   ; unlikely
+0x00b7f23a      je 0xb7f246
+0x00b7f23c      add edi, 4
+0x00b7f23f      push edi
+; 0xfdf1c0
+   ; reloc.KERNEL32.dll_InterlockedIncrement
+   ; sym.imp.KERNEL32.dll_InterlockedIncrement(-1, 0x0, 0x0, -1)
+0x00b7f240      call dword [sym.imp.KERNEL32.dll_InterlockedIncrement]
+0x00b7f246      mov ecx, dword [esi + 0x30]
+0x00b7f249      mov eax, dword [ecx]
+0x00b7f24b      mov edx, dword [eax + 0x70]
+; 0x10af578
+; "eye dir"
+0x00b7f24e      push str.eye_dir
+   ; 0xffffffff(-1, 0x0, -1, -1)
+0x00b7f253      call edx
+0x00b7f255      mov edi, eax
+; [0x11fec30:4]=0
+0x00b7f257      mov eax, dword [0x11fec30]
+0x00b7f25c      cmp eax, edi
+   ; unlikely
+0x00b7f25e      je 0xb7f28d
+0x00b7f260      test eax, eax
+   ; likely
+0x00b7f262      je 0xb7f279
+0x00b7f264      mov ebx, eax
+0x00b7f266      add eax, 4
+0x00b7f269      push eax
+   ; pe_dos_header(0x4, 0x0, -1, -1)
+0x00b7f26a      call ebp
+0x00b7f26c      test eax, eax
+   ; likely
+0x00b7f26e      jne 0xb7f279
+0x00b7f270      mov eax, dword [ebx]
+0x00b7f272      mov edx, dword [eax + 4]
+0x00b7f275      mov ecx, ebx
+   ; 0xffffffff(-1, 0x0, 0x0, -1)
+0x00b7f277      call edx
+; [0x11fec30:4]=0
+0x00b7f279      mov dword [0x11fec30], edi
+0x00b7f27f      test edi, edi
+   ; unlikely
+0x00b7f281      je 0xb7f28d
+0x00b7f283      add edi, 4
+0x00b7f286      push edi
+; 0xfdf1c0
+   ; reloc.KERNEL32.dll_InterlockedIncrement
+   ; sym.imp.KERNEL32.dll_InterlockedIncrement(-1, 0x0, 0x0, -1)
+0x00b7f287      call dword [sym.imp.KERNEL32.dll_InterlockedIncrement]
+0x00b7f28d      mov ecx, dword [esi + 0x30]
+0x00b7f290      mov eax, dword [ecx]
+0x00b7f292      mov edx, dword [eax + 0x70]
+; 0x10af568
+; "Ambient Color"
+0x00b7f295      push str.Ambient_Color
+   ; 0xffffffff(-1, 0x0, -1, -1)
+0x00b7f29a      call edx
+0x00b7f29c      mov edi, eax
+; [0x11fec34:4]=0
+0x00b7f29e      mov eax, dword [0x11fec34]
+0x00b7f2a3      cmp eax, edi
+   ; unlikely
+0x00b7f2a5      je 0xb7f2d4
+0x00b7f2a7      test eax, eax
+   ; likely
+0x00b7f2a9      je 0xb7f2c0
+0x00b7f2ab      mov ebx, eax
+0x00b7f2ad      add eax, 4
+0x00b7f2b0      push eax
+   ; pe_dos_header(0x4, 0x0, -1, -1)
+0x00b7f2b1      call ebp
+0x00b7f2b3      test eax, eax
+   ; likely
+0x00b7f2b5      jne 0xb7f2c0
+0x00b7f2b7      mov eax, dword [ebx]
+0x00b7f2b9      mov edx, dword [eax + 4]
+0x00b7f2bc      mov ecx, ebx
+   ; 0xffffffff(-1, 0x0, 0x0, -1)
+0x00b7f2be      call edx
+; [0x11fec34:4]=0
+0x00b7f2c0      mov dword [0x11fec34], edi
+0x00b7f2c6      test edi, edi
+   ; unlikely
+0x00b7f2c8      je 0xb7f2d4
+0x00b7f2ca      add edi, 4
+0x00b7f2cd      push edi
+; 0xfdf1c0
+   ; reloc.KERNEL32.dll_InterlockedIncrement
+   ; sym.imp.KERNEL32.dll_InterlockedIncrement(-1, 0x0, 0x0, -1)
+0x00b7f2ce      call dword [sym.imp.KERNEL32.dll_InterlockedIncrement]
+0x00b7f2d4      mov ecx, dword [esi + 0x30]
+0x00b7f2d7      mov eax, dword [ecx]
+0x00b7f2d9      mov edx, dword [eax + 0x70]
+; 0x10af55c
+; "LightColors"
+0x00b7f2dc      push str.LightColors
+   ; 0xffffffff(-1, 0x0, -1, -1)
+0x00b7f2e1      call edx
+0x00b7f2e3      mov edi, eax
+; [0x11fec38:4]=0
+0x00b7f2e5      mov eax, dword [0x11fec38]
+0x00b7f2ea      cmp eax, edi
+   ; unlikely
+0x00b7f2ec      je 0xb7f31b
+0x00b7f2ee      test eax, eax
+   ; likely
+0x00b7f2f0      je 0xb7f307
+0x00b7f2f2      mov ebx, eax
+0x00b7f2f4      add eax, 4
+0x00b7f2f7      push eax
+   ; pe_dos_header(0x4, 0x0, -1, -1)
+0x00b7f2f8      call ebp
+0x00b7f2fa      test eax, eax
+   ; likely
+0x00b7f2fc      jne 0xb7f307
+0x00b7f2fe      mov eax, dword [ebx]
+0x00b7f300      mov edx, dword [eax + 4]
+0x00b7f303      mov ecx, ebx
+   ; 0xffffffff(-1, 0x0, 0x0, -1)
+0x00b7f305      call edx
+; [0x11fec38:4]=0
+0x00b7f307      mov dword [0x11fec38], edi
+0x00b7f30d      test edi, edi
+   ; unlikely
+0x00b7f30f      je 0xb7f31b
+0x00b7f311      add edi, 4
+0x00b7f314      push edi
+; 0xfdf1c0
+   ; reloc.KERNEL32.dll_InterlockedIncrement
+   ; sym.imp.KERNEL32.dll_InterlockedIncrement(-1, 0x0, 0x0, -1)
+0x00b7f315      call dword [sym.imp.KERNEL32.dll_InterlockedIncrement]
+0x00b7f31b      mov ecx, dword [esi + 0x30]
+0x00b7f31e      mov eax, dword [ecx]

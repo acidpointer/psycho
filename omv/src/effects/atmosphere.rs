@@ -3541,6 +3541,7 @@ mod directional_shader_behavior {
             depth_function: Some(7),
             source_surface: depth.as_raw_base_texture() as usize,
             sampled_depth_bits: 24,
+            image: Default::default(),
         };
         AtmosphereFrame {
             camera,
@@ -3816,6 +3817,7 @@ mod directional_shader_behavior {
             depth_function: Some(7),
             source_surface: depth.as_raw_base_texture() as usize,
             sampled_depth_bits: 24,
+            image: Default::default(),
         };
         AtmosphereFrame {
             camera,
@@ -4722,6 +4724,7 @@ mod feature_tests {
             depth_function: Some(7),
             source_surface: 1,
             sampled_depth_bits: 24,
+            image: Default::default(),
         };
         AtmosphereFrame {
             camera,
