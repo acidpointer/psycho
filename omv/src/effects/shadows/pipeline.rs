@@ -3520,7 +3520,9 @@ impl ShadowResources {
         if contact_enabled {
             let contact = targets.contact.as_ref().ok_or_else(direct3d_failure)?;
             device.set_texture(7, &contact.raw)?;
-            set_point_clamp_sampler(device, 7)?;
+            // The half-resolution march is blended into composition with a
+            // linear filter; point sampling would expose texel steps.
+            set_linear_clamp_sampler(device, 7)?;
         }
         let point_darkness = if publication.scene == SceneKind::Interior {
             settings.interior_darkness
@@ -3791,9 +3793,17 @@ fn prepare_local_light_accumulation(
 }
 
 impl ContactConsumerTargets {
+    /// Half-resolution contact march.
+    ///
+    /// Contact evidence is a short-ray visibility field filtered by a
+    /// depth-tolerance gate before composition; halving both dimensions cuts
+    /// the per-pixel ray march fourfold while the consumer's depth-key
+    /// comparison keeps foreign samples rejected exactly as before. The
+    /// consumer samples this target with a linear filter so the composition
+    /// blends adjacent evidence instead of showing texel steps.
     fn create(device: &Device9Ref<'_>, desc: &D3DSURFACE_DESC) -> Direct3DResult<Self> {
-        let width = desc.Width.max(1);
-        let height = desc.Height.max(1);
+        let width = (desc.Width / 2).max(1);
+        let height = (desc.Height / 2).max(1);
         let raw = device.create_render_target_texture(width, height, D3DFMT_G16R16F)?;
         Ok(Self {
             raw_surface: raw.surface_level(0)?,
