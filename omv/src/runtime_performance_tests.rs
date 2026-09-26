@@ -692,3 +692,155 @@ fn present_restores_native_state_after_visual_resource_release() {
         assert_eq!(device.render_state(D3DRS_ZWRITEENABLE).unwrap(), 1);
     }
 }
+
+/// Disabling user-facing Bloom while Halation stays enabled must keep the
+/// fused final-color pipeline drawing correct output through the real
+/// letterboxed phase path: every frame with a moving camera must produce a
+/// fresh image (no stale reuse), the toggle must change the output, and the
+/// re-enable cycle must not strand stale state. This drives the real phase
+/// graph through both configurations on one device.
+#[test]
+fn disabling_bloom_keeps_the_final_color_output_current() {
+    let _execution = RUNTIME_EXECUTION
+        .lock()
+        .unwrap_or_else(|err| err.into_inner());
+    let owner = create_direct3d9()
+        .unwrap()
+        .create_windowed_device(get_desktop_window().unwrap(), 32, 24, D3DDEVTYPE_HAL)
+        .unwrap();
+    let device = owner.as_ref();
+    let target = device.render_target(0).unwrap();
+    let desc = target.desc().unwrap();
+    let readback = device
+        .create_system_memory_surface(32, 24, desc.Format)
+        .unwrap();
+
+    let mut config = crate::config::EmbeddedEffectsConfig::default();
+    config.blooming_hdr.enabled = true;
+    config.color_grade.enabled = true;
+    config.color_grade.halation_enabled = true;
+    config.color_grade.chromatic_aberration_enabled = true;
+    let mut runtime = ScreenShaderRuntime::default();
+    runtime.sources = shaders::merge_embedded_sources(&config, Vec::new())
+        .into_iter()
+        .filter(|source| {
+            matches!(
+                source.embedded_effect_kind(),
+                Some(EmbeddedEffectKind::BloomingHdr) | Some(EmbeddedEffectKind::ColorGrade)
+            )
+        })
+        .collect();
+    for source in &mut runtime.sources {
+        source.enabled = true;
+    }
+    runtime.final_color_shaders = Some(Arc::new(
+        blooming_hdr::FinalColorShaderBytecode::prepare().unwrap(),
+    ));
+    runtime.ensure_shaders(&device);
+    runtime.render_target_slots(&device).unwrap();
+    let phase = ShaderPhase::FinalImageSpace;
+
+    // Letterboxed image viewport on the full target: the shipped laptop
+    // geometry (1920x1079 image on a 1920x1200 backbuffer) in miniature.
+    let image_viewport = D3DVIEWPORT9 {
+        X: 0,
+        Y: 0,
+        Width: 32,
+        Height: 20,
+        MinZ: 0.0,
+        MaxZ: 1.0,
+    };
+
+    let mut draw_frame = |runtime: &mut ScreenShaderRuntime, epoch: u32, step: u32| {
+        runtime.begin_render_epoch(epoch);
+        let angle = 0.01 * step as f32;
+        let frame = backend::FrameInputs {
+            camera: backend::CameraFrame {
+                near_z: 5.0,
+                far_z: 3500.0,
+                aspect_ratio: 32.0 / 20.0,
+                frustum_left: -0.8,
+                frustum_right: 0.8,
+                frustum_bottom: -0.6,
+                frustum_top: 0.6,
+                world_transform: backend::CameraTransformFrame {
+                    rotation: [
+                        [1.0, 0.0, 0.0],
+                        [0.0, angle.cos(), angle.sin()],
+                        [0.0, -angle.sin(), angle.cos()],
+                    ],
+                    translation: [3.0, 5.0, 7.0],
+                    scale: 1.0,
+                    available: true,
+                },
+                available: true,
+            },
+            environment: backend::EnvironmentFrame {
+                fog_color: [0.4, 0.4, 0.45],
+                fog_start: 100.0,
+                fog_end: 3000.0,
+                fog_power: 1.0,
+                fog_available: true,
+            },
+            sun: backend::SunFrame {
+                screen_x: 0.6,
+                screen_y: 0.3,
+                available: true,
+                daylight: 0.9,
+            },
+            ..backend::FrameInputs::default()
+        };
+        device.set_viewport(&image_viewport).unwrap();
+        if runtime.phase_has_applicable_work(phase, &desc, &frame) {
+            runtime
+                .ensure_phase_color_copy(&device, &desc, phase)
+                .unwrap();
+            device.begin_scene().unwrap();
+            runtime
+                .draw_passes(&device, &target, &desc, phase, &frame)
+                .unwrap();
+            device.end_scene().unwrap();
+        }
+        device.copy_render_target_data(&target, &readback).unwrap();
+        readback.read_rgba8().unwrap().to_vec()
+    };
+
+    let before_a = draw_frame(&mut runtime, 1, 1);
+    let before_b = draw_frame(&mut runtime, 2, 2);
+
+    // Disable user-facing Bloom; Halation must keep the pipeline alive.
+    for source in &mut runtime.sources {
+        if source.embedded_effect_kind() == Some(EmbeddedEffectKind::BloomingHdr) {
+            source.enabled = false;
+        }
+    }
+    runtime.rebuild_execution_plan();
+    let after_a = draw_frame(&mut runtime, 3, 3);
+    let after_b = draw_frame(&mut runtime, 4, 4);
+
+    // Re-enable once more: the reported cycle must not strand stale state.
+    for source in &mut runtime.sources {
+        if source.embedded_effect_kind() == Some(EmbeddedEffectKind::BloomingHdr) {
+            source.enabled = true;
+        }
+    }
+    runtime.rebuild_execution_plan();
+    let reenabled = draw_frame(&mut runtime, 5, 5);
+
+    assert_ne!(
+        before_a, before_b,
+        "a moving camera must refresh the composed image"
+    );
+    assert_ne!(
+        after_a, after_b,
+        "a moving camera must refresh the composed image after the Bloom toggle"
+    );
+    assert_ne!(
+        before_b, after_a,
+        "the Bloom toggle must change the composed output"
+    );
+    assert_ne!(
+        after_b, reenabled,
+        "re-enabling Bloom must change the composed output again"
+    );
+}
