@@ -60,6 +60,20 @@ behavior must not be represented as tested compatibility.
 
 ## Depth image coordinates: larger backing and letterboxed presentation
 
+Presentation UI has a separate ownership boundary from scene effects. With
+the depth provider disabled, the final effect fallback runs at Present;
+failure to read its native image rectangle must still allow the menu and PBR
+preparation overlay to render. The effect error remains reportable. Before
+either overlay, OMV detaches depth and auxiliary targets and explicitly binds
+the swapchain backbuffer: Dear ImGui's DX9 backend sets its viewport and draw
+state but inherits RT0. A cropped effect graph can leave its scratch target
+bound after the rectangle copy. The surrounding Present transaction restores
+native attachments and captured state even on failure or menu-driven resource
+retirement. No additional UI target work runs when both overlays are absent.
+Offline regressions execute the actual Present and ImGui paths, checking visible
+backbuffer pixels with unavailable scene metadata and an offscreen attachment,
+plus restoration of that attachment and viewport. Game integration is not run.
+
 The owner's NVIDIA-only report is
 [omv-latest-nvidia-only.log](../.reports/omv-latest-nvidia-only.log), with
 [exterior](../.reports/broken_godrays.png) and
@@ -332,13 +346,123 @@ unchanged allocation-based transport reads those rows beginning at color row
 value. This proves the source-publication boundary, not post-image-space
 letterboxing, projection reconstruction or the reported gameplay images.
 
-The attachment binder retains successfully validated MRT surface identities.
-Unchanged identities skip descriptor and format-compatibility queries, and
+The attachment binder retains the two most recent successfully validated MRT
+sets for each adopted depth identity. A cache containing only the current set
+repeats descriptor and capability discovery on every A/B target alternation.
+The capability helper includes GetCreationParameters, GetDirect3D,
+GetAdapterDisplayMode and CheckDepthStencilMatch; it is not a local format
+comparison. The real-device alternating-target regression previously issued
+128 capability queries for 128 binds of two resources; bounded retention issues
+two. Eviction requires full validation again. This is an API-work reduction,
+not evidence of the reported gameplay FPS loss's cause or recovery.
+
+Retained identities skip descriptor and format-compatibility queries, and
 steady-state binds skip the second registry update after the initial backup
 has retired. COM retention prevents an address-reuse cache hit; replacement
-owners retire outside the registry lock. Actual MRT identities are still
-queried at binding. Master-off prevents optional adoption, while resident
-bind/release/reset hooks continue maintaining adopted native resources.
+owners retire outside the registry lock. The cache retains at most eight
+surface references per depth identity (two sets of four); it can extend those
+color resources' lifetime until eviction or native depth release/reset and
+does not allocate GPU copies. Validation is tied to that depth generation,
+not a global format or unretained pointer cache. Actual MRT identities are still
+queried at binding. Bind/release/reset hooks continue maintaining adopted
+native resources independently of the master switch.
+
+### Provider readiness and live effect changes
+
+Backing preparation follows deferred device capability admission, independent
+of provider selection, the master switch and the currently enabled consumers.
+Only the selected OMV provider changes future native MSAA acquisition policy.
+Creation, recreation and a complete depth/stencil clear are safe
+replacement opportunities; enabling an effect later is not. Gating those
+opportunities on effect demand can leave a populated shared native surface
+without sampleable backing. Neither a partial world clear nor a depth-only
+first-person clear authorizes replacing that surface.
+
+The owner-supplied
+[depth performance log](../.reports/omv-latest-depth-performance.log) starts
+with OMV selected and the master disabled. After enabling the master, the
+legacy fallback is unavailable and all capture counters remain zero until the
+first successful interior capture. This proves missing usable depth during
+that interval. It does not identify the failing source's format/sample count
+or prove that every unavailable source missed a master-gated clear. Preparing
+at eligible boundaries independently of effect demand corrects the lifecycle
+hole without weakening coverage or requesting a device reset. Existing
+resources which never encounter a safe boundary remain unavailable; this is
+not permission to replace their retained pixels.
+
+The subsequent [broken-depth report](../.reports/omv-latest-broken-depth.log)
+starts with provider `none`, then switches to OMV during gameplay. It records
+unavailable RESZ/NvAPI and zero physical depth copies through 5,472 world
+callbacks; the first full-clear adoption message is at the report's end. The
+source gated both capability admission and backing adoption on OMV selection,
+so earlier safe opportunities could not prepare backing. Admission now runs
+once per device generation at the existing post-frame boundary, including
+with depth disabled. Eligible existing single-sample backing is prepared at
+the same creation/full-clear boundaries. This adds no reset, partial-clear
+replacement, capture, shader draw, or pre-DeferredInit work. Once admitted,
+disabled/external providers exit initialization before recurring D3D queries;
+native policy changes retain their OMV-selection and parked-worker gates.
+
+The native callback scheduling cannot execute offline. Existing real-device
+tests cover the unchanged full-clear preparation, partial-clear rejection,
+terrain state preservation and stable snapshot transport. They do not prove
+the game's timing of those opportunities. This report also rules out physical
+OMV depth copies as work performed during its failing interval: all copy
+counters are zero. Per-frame hooks, scene inputs, local lights, custom shaders
+and color processing remain separate costs; the report has no timings that
+attribute the reported FPS loss among them. No FPS recovery is established.
+
+Per-frame snapshots, color copies and effects still follow consumer demand.
+The actual screen-source publication regression verifies no depth capture
+request for an empty graph or color-only work, a request for DOF, and no request
+with master-off. That boundary must not be confused with resource preparation.
+
+Recurring owned clears perform native field reads and one nonblocking registry
+lookup, then chain the original clear. They perform zero OMV memory-region
+queries, COM calls, capability checks or allocation. Previously three
+memory-region validations preceded the owned-identity lookup. For unowned
+backing, a stock group's mismatched color/depth extents reject preparation
+before those queries as well. Native renderer suppression and nonzero viewport
+origins also reject early. Complete D3D coverage and compatibility validation
+still precede every actual replacement.
+
+The [clear-admission audit](../analysis/ghidra/output/perf/graphics_fnv_depth_readiness_clear_admission_radare2_audit.txt)
+reverifies the supported executable, ClearBuffer's caller-held lifetimes,
+RT0 width/height getters and buffer dimensions. The metadata rejection is
+used only for the audited group and unchanged getter slots; other getters
+retain the D3D validation path. No rejection is cached by target size or raw
+identity, so a later complete clear remains eligible. The native callback
+cannot execute offline; these cost bounds are source/binary evidence, not a
+measured gameplay speedup.
+
+### Presentation restoration across menu teardown
+
+A menu edit can retire visual resources inside the active presentation draw.
+The presentation transaction must retain its captured state block locally
+until attachment and draw-state restoration finish. Reading the runtime's
+optional state block after menu teardown loses that owner and returns an error
+without restoring render state. The supplied log records this error alongside
+master-off transitions.
+
+`with_present_state` owns that transaction. Its real-device regression executes
+the production visual-resource release inside the production presentation
+transaction, checks both success and draw-error paths, and observes restored
+render targets, depth attachment, viewport, scissor and depth-write state. The
+previous implementation fails the success-path assertion. The retained block
+is released on return and is never republished after teardown. This adds one
+bounded COM retention, not another capture/apply or persistent visual owner.
+
+### Limits of the supplied performance evidence
+
+The successful interior interval records one pre-alpha and one coherent depth
+snapshot per presentation, without accumulating retries or transaction errors.
+The provider toggle also changes TAA and atmosphere admission; local volumetric
+integration is active in that recorded interval. These observations do not
+invalidate the owner's separate all-effects-off report, but this log cannot
+assign the remaining frame time between transport, state changes and consumers.
+Its counters are work counts, not GPU durations. The 1920x1200 allocation and
+1920x1080 world image remain distinct valid resource domains; successful capture
+does not qualify final image-space letterbox mapping or gameplay pixels.
 
 A missed bind journal chains the native binder under the proven target-use
 critical section. A saturating untracked-bind serial prohibits restoration
@@ -350,6 +474,182 @@ Native failure before a fully observed first use retains the existing rollback
 transaction. These changes establish deterministic call/allocation reductions;
 they do not establish an FPS improvement.
 
+### Image-local phase graph and stage-exact publication
+
+The snapshot crop alone did not finish presentation mapping. Screen phases
+still used the full native target, stretching image-local depth into the
+letterbox allocation. The phase graph now reads the native image rectangle
+before OMV changes targets. Scene-pre consumes its rendered-texture source;
+post-image-space and Present select the native default-group letterbox
+rectangle or ImageSpaceManager main-texture rectangle by surface identity.
+No aspect-ratio inference or fixed bar height is used. The renderer getters
+were reverified in
+[the destination audit](../analysis/ghidra/output/perf/graphics_fnv_image_destination_getters_radare2_audit.txt).
+The existing coordinate audit owns rectangle layout and x87 truncation proof.
+
+Each cropped phase extracts only that rectangle into the existing two-texture
+graph. All shaders retain image-local UVs and image-sized constants, including
+custom screen shaders. Neighborhood filters cannot see presentation bars.
+The final cropped writer stays offscreen, followed by one exact rectangle
+copy into the native target. Outside pixels are never rewritten. Full-target
+phases retain direct final writes and their existing copy budget. Cropped
+phases add one bounded final rectangle copy; they do not add a third texture
+or alternate full-target/image-sized allocations each frame. Motion-blur
+admission and camera fallback use the same image description as drawing.
+Image-size changes flow through existing target/history invalidation. Moving
+the presentation rectangle without changing its logical image coordinates
+does not itself move history pixels.
+
+The world-effects owner may complete after pre-alpha atmosphere without
+requiring a coherent capture of its own. The native post-world boundary now
+independently services screen consumers' coherent-depth demand. It reuses an
+existing coherent publication only for the same epoch and color target, so it
+does not recapture a TAA projection after native camera jitter is restored.
+Late publication rejects pre-alpha depth; synchronous pre-alpha consumers
+continue receiving their explicitly requested stage. The external provider
+uses the same stage check. First-person lifetime and stable snapshot ownership
+remain unchanged.
+
+Offline acceptance executes the actual sunshaft phase at the reported
+1920x1080/1920x1200 extents. Before correction it modifies native bar pixels.
+After correction those pixels remain exact and the active image matches the
+same production graph on an image-sized target within one 8-bit output code
+step. A separate production resolver regression rejects pre-alpha publication
+for late readers before accepting the coherent capture and checking its raw
+pixels. These tests establish resource/image contracts, not an unrecorded
+gameplay composition.
+
+The interleaved snapshot benchmark now reports CPU submission and GPU elapsed
+time separately for captures, native depth clears, and clears followed by
+captures. It uses libpsycho-owned D3D9 timestamp/disjoint/frequency queries;
+polling and flushes occur only in the offline benchmark, outside measured
+submission. The original unchanged-depth submission benchmark is not evidence
+of gameplay performance. The available interleaved measurement does not
+reproduce the owner's 50-percent laptop slowdown. Draw-heavy native rendering,
+the laptop's complete driver workload, and its exact bottleneck remain
+unresolved; no FPS recovery or direct-INTZ borrowing optimization is claimed.
+
+### Performance audit after two-device image acceptance
+
+The owner accepted the implemented image correction on both devices at
+commit `64692f9`, then reported roughly halved FPS on the NVIDIA laptop with
+OMV enabled. No new laptop log or controlled workload is available. The older
+`.reports/omv-latest-nvidia-only.log` establishes executed capture routes and
+counts, not the cost distribution of this later build. Do not attribute the
+whole slowdown to depth ownership from that report alone.
+
+The owner reports that the submission optimizations below did not resolve
+the 40-50% gameplay FPS loss and confirms that master-off restores performance.
+The owner clarified that all effects were enabled with the same settings as
+the main PC. This is an enabled-pipeline performance report, not an idle-graph
+reproduction. The remaining investigation must include native PBR, shadow
+production/consumption, atmosphere, temporal effects and final processing;
+the snapshot-only benchmark cannot attribute their combined frame cost.
+For an actually empty configured graph, source admission
+rejects empty phases before acquiring attachments or building frame inputs;
+depth capture checks consumer requirements before resolving. PBR and sky
+pending-draw gates remain bounded. Preset reconciliation consumes a one-shot
+flag, asset publication uses channel polling and generations, and Current Look
+autosave requires pending work. These are not evidence of a repeated full
+render or synchronous disk operation with every effect disabled. Background
+asset discovery remains active with the master enabled, as required for live
+reload; unchanged LUT assets retain shared references rather than reload data.
+
+The audit follows capture admission, native geometry/attachment hooks,
+world atmosphere/TAA, phase color graphs, presentation services, and the D3D9
+implementation boundary. Its implementation targets are zero work for an
+empty final-color phase, retirement of an idle screen graph, and bounded state
+ownership for each required depth snapshot. Existing images, samples, effect
+quality, native reset behavior, and semantic capture boundaries remain
+acceptance requirements.
+
+| Path | Direct evidence and cost consequence |
+| --- | --- |
+| Depth transport | Owned INTZ takes precedence over vendor probing. The earlier report has no RESZ/NvAPI activity or depth retries. Each requested capture submits one point-sampled fullscreen R32F draw. There is no readback, query wait, forced flush, or shader compilation in steady-state capture. |
+| Snapshot state | The former persistent `D3DSBT_ALL` owner captured/replayed unrelated constants, transforms, lights, streams and texture-stage state. The new call-local `DepthSnapshotState9` journals only the actual mutation set and releases native binding references after restoration. |
+| Empty final color | `phase_has_applicable_work` previously equated shader readiness with useful work. `draw_final_color_pipeline` could subsequently reject every sub-effect after the initial full-image copy and graph allocations. Admission now uses its existing `FinalColorWorkPlan`, including actual LUT availability; skipped adaptive history is still invalidated. |
+| Disabled screen graph | Disabling the last screen effect previously retained its color targets, histories and broad state block until master-off/reset. Configuration/catalog schedule rebuilding now retires those owners when all three screen phases are disabled. CPU bytecode/device shaders remain reusable; native PBR, sky and world-effect owners remain independent. |
+| Geometry hooks | Native TriShape/TriStrips hooks bypass optional PBR/sky work when master-off. Pending-draw gates precede replacement preparation. There is no OMV interposition on the driver device's primitive vtable. |
+| Attachment lifetime | Owned bind/release/reset must remain active after master-off so the game can continue using adopted backing. Retained MRT identities already avoid descriptor/capability checks on unchanged bindings. Removing those lifetime obligations is not an off-path optimization. |
+| World effects | Atmosphere and TAA have independent requirement bits. Local volumetric lighting remains independent of directional lighting and fog. The earlier report explicitly records active local integration; disabling only those other controls does not remove that workload. |
+| Phase copies | The color graph copies once per admitted phase, alternates intermediates, and writes its last planned stage to the engine target. Broad state blocks remain around multi-effect phases; narrowing them requires the union of every admitted effect's mutations, unlike the one-shader depth transaction. |
+| Presentation | The existing menu/preparation guards skip drawing while closed and idle. Configuration generation gates mailbox reads; production graphics-attribution spans compile to no-ops. |
+
+The new depth journal owns 15 render states, six sampler-zero states, 16 pixel
+texture bindings and four vertex texture bindings when supported, both shader
+bindings, FVF/declaration mode, stream zero plus its frequency, viewport and
+scissor. It touches zero shader constant rows, transforms, lights, index
+bindings, other streams or texture-stage states. `DrawPrimitiveUP` clears
+stream zero, and attachment changes reset viewport/scissor, so those restores
+cannot be omitted. All COM calls stay in `libpsycho`. The journal is stack
+storage with temporary owned references; no new static, TLS, startup work,
+hook, setting, or worker is introduced.
+
+Authoritative implementation evidence is DXVK's
+[state-block capture masks](https://github.com/doitsujin/dxvk/blob/master/src/d3d9/d3d9_stateblock.cpp),
+[state replay](https://github.com/doitsujin/dxvk/blob/master/src/d3d9/d3d9_stateblock.h),
+and [device state/hazard handling](https://github.com/doitsujin/dxvk/blob/master/src/d3d9/d3d9_device.cpp),
+plus Microsoft's
+[DrawPrimitiveUP contract](https://learn.microsoft.com/en-us/windows/win32/api/d3d9/nf-d3d9-idirect3ddevice9-drawprimitiveup).
+The inspected DXVK setter compares constant contents before marking them
+dirty: broad replay proves CPU traversal, not an unconditional GPU upload of
+every constant. Its depth feedback path requires an actually sampled writable
+attachment. OMV detaches depth and clears sampler aliases before snapshotting;
+sampleable ownership alone does not prove feedback-loop barriers on every
+native draw. These observations inform the OMV-side scope, not a DXVK-version
+condition or a proposed driver configuration workaround.
+
+The unchanged production final-color scheduler failed the HAL regression:
+one physical phase copy was observed with all finishing sub-effects disabled,
+where its own draw work plan specified none. The corrected path observes zero
+copies and allocates no phase targets. The same regression covers a missing
+LUT and an enabled finishing shader, including actual output pixels.
+Extending that same executed rendering test also failed on the old retention
+behavior after disabling its final source. The corrected lifecycle releases
+the real target/history owners and renders the same pixels after re-enabling.
+This removes retained screen-graph allocations; it does not establish that
+the laptop exceeded its memory budget or that memory pressure caused its FPS
+loss. Depth attachment ownership cannot be retired at this boundary because
+the game continues using those adopted resources.
+
+An explicit offline benchmark executes the actual 1920x1200 INTZ to 1920x1080
+R32F snapshot, with preparation outside timing and pixel readback afterward.
+On the available WineD3D HAL, seven batches of 128 submissions changed from
+`[20046, 8961, 4849, 4819, 5834, 5082, 4596]` microseconds to
+`[3767, 4407, 3872, 4323, 4999, 4623, 4675]`. Median batch submission time
+changed from 5082 to 4407 microseconds. These are unoptimized test-build CPU
+wall intervals, including possible driver backpressure, not GPU execution
+time or a laptop FPS measurement. The small measured delta does not explain
+the reported factor-of-two loss. Run the explicit ignored benchmark separately
+from qualification; it logs through `libpsycho::logger::Logger`.
+
+The same benchmark also executes through the installed DXVK 3.1 development
+build on the local NVIDIA RTX 5060. With only the snapshot transaction restored
+to its accepted baseline for comparison, batches were
+`[22807, 22569, 22613, 21755, 20882, 21134, 21744]` microseconds. The bounded
+journal produced `[2558, 2525, 2516, 2505, 2492, 2504, 2508]`. Median batch
+time changed from 21755 to 2508 microseconds, or approximately 170 to 20
+microseconds per submission. This verifies a local DXVK/NVIDIA submission
+cost reduction without changing the depth shader or pixel workload. It is
+still not a GPU-duration or laptop-FPS measurement. The real depth, paired
+terrain-shader, native-state and reset regressions also pass on this backend.
+The full OMV shader/behavior suite, shared-wrapper suite and supported release
+build qualify the final code offline; native gameplay integration was not run.
+
+For image size W by H, each unchanged required snapshot samples W*H depth
+texels and writes W*H R32F pixels. A removed empty-phase copy avoids W*H source
+reads plus W*H destination writes in the actual color format. These logical
+work counts exclude compression, caches, driver layout transitions and hidden
+allocation, so they cannot be converted into measured bandwidth or FPS.
+Do not merge pre-alpha/coherent snapshots by surface identity: later native
+writers and first-person clearing give them distinct content lifetimes.
+
+The exact current laptop bottleneck remains unresolved. Static work budgets
+and local submission measurements qualify these reductions; they cannot
+establish the laptop's CPU/GPU critical path, driver scheduling cost, or final
+gameplay performance. No frame skipping, quality reduction, feature disable,
+native depth lifetime shortcut, or version pin is used to conceal that limit.
+
 ### Remaining camera and grass integration contracts
 
 Source-image normalization alone does not finish the integrated correction.
@@ -357,6 +657,18 @@ Post-image consumers still need the native letterbox mapping, independent
 first-person provenance, viewport-aware sampling/reconstruction, and matching
 history identities. External provider texture-domain admission and the forced
 multisampled-presentation case also remain unresolved.
+
+The owner's subsequent observation that effects alter the top/bottom black
+bars confirms an outstanding final-image boundary requirement. The current
+`prepare_scene_phase_target` supplies the complete color-surface description;
+`draw_passes` uses that extent for its color graph and fullscreen quad, and
+`bind_common_state` explicitly sets a full-surface viewport. None transports
+the native final-image rectangle described above. Cropping the producer's raw
+depth snapshot therefore does not protect presentation borders. The remaining
+correction must preserve pixels outside the native image rectangle and map
+color, world/first-person depth, filtering and history within that rectangle.
+This report does not prove that the snapshot reverted to allocation-sized
+capture, nor that letterbox handling causes the all-effects-off FPS loss.
 
 The first-person audit must cover both the earlier `0x00B6C0D0` submissions
 at `0x0087550F`/`0x008755F4` and the late `0x00B64570` call at `0x0087590A`.

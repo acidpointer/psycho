@@ -13,6 +13,12 @@
 //! release OMV resources and invalidate generations without rewriting resource
 //! sample preferences. Allocation failure retains the native backing.
 //!
+//! Backing readiness is independent of provider/effect selection. Safe
+//! creation/full-clear opportunities may precede a live provider change;
+//! missing them cannot be repaired by replacing populated depth at capture.
+//! Native MSAA policy changes require OMV selection. Snapshot and effect work
+//! remain independently consumer-gated; preparation performs no frame copies.
+//!
 //! Locks are try-only and never cross native/COM calls. Policy changes run on
 //! the renderer thread with the loading worker parked; the worker may bind an
 //! already adopted identity under native renderer serialization. See
@@ -104,7 +110,31 @@ struct Attachment {
     generation: u32,
     // Retention prevents address reuse from admitting a different surface.
     // Native release/reset retires these owners together with the depth.
-    checked_colors: Option<CheckedColors>,
+    checked_colors: ColorValidationCache,
+}
+
+/// Two recent successful MRT sets, bounded independently of native pool size.
+/// Keeping the preceding set avoids rediscovering compatibility when targets
+/// alternate. Eviction only costs revalidation; it never weakens admission.
+/// All owners retire with their depth attachment before native reset/release.
+#[derive(Default)]
+struct ColorValidationCache {
+    sets: [Option<CheckedColors>; 2],
+}
+
+impl ColorValidationCache {
+    fn identities(&self) -> [[usize; 4]; 2] {
+        self.sets
+            .each_ref()
+            .map(|set| set.as_ref().map_or([0; 4], CheckedColors::identities))
+    }
+
+    /// Publish only after native success. Return the evicted COM owners so
+    /// the caller releases them after dropping the attachment registry lock.
+    fn publish(&mut self, colors: CheckedColors) -> Option<CheckedColors> {
+        let previous = self.sets[0].replace(colors);
+        std::mem::replace(&mut self.sets[1], previous)
+    }
 }
 
 /// Successfully validated MRT identities. Surface descriptions cannot change
@@ -124,7 +154,7 @@ impl CheckedColors {
     }
 }
 
-/// Query the actual bindings and validate only new identities. The native
+/// Query the actual bindings and validate only uncached identities. The native
 /// target-use critical section serializes this call with attachment retirement,
 /// so `checked` remains backed by its retained surfaces throughout the call.
 /// A changed set is returned for publication after the native bind succeeds.
@@ -133,13 +163,13 @@ fn validate_colors(
     device: &Device9Ref<'_>,
     native: &D3DSURFACE_DESC,
     mrt_count: u32,
-    checked: Option<[usize; 4]>,
+    checked: [[usize; 4]; 2],
 ) -> Result<Option<CheckedColors>> {
     if !(1..=4).contains(&mrt_count) {
         bail!("invalid MRT count");
     }
     let mut surfaces = [None, None, None, None];
-    let mut changed = checked.is_none();
+    let mut changed = false;
     for index in 0..mrt_count {
         let color = device.optional_render_target(index)?;
         let identity = color
@@ -148,9 +178,14 @@ fn validate_colors(
         if index == 0 && identity == 0 {
             bail!("missing color target");
         }
-        if checked.is_none_or(|identities| identities[index as usize] != identity) {
+        if checked[0][index as usize] != identity {
             changed = true;
-            if let Some(color) = &color {
+            // The retained COM identity proves an immutable description, even
+            // when it moves to a different MRT slot. Do not cache by format:
+            // new resources must still pass extent and sample validation.
+            if let Some(color) = &color
+                && !checked.iter().flatten().any(|&cached| cached == identity)
+            {
                 let desc = color.desc()?;
                 if desc.Width > native.Width
                     || desc.Height > native.Height
@@ -158,6 +193,8 @@ fn validate_colors(
                 {
                     bail!("incompatible depth attachment dimensions or samples");
                 }
+                #[cfg(test)]
+                color_binding_tests::CAPABILITY_QUERIES.fetch_add(1, Ordering::Relaxed);
                 device.check_depth_stencil_match(desc.Format, D3DFMT_INTZ)?;
             }
         }
@@ -171,8 +208,12 @@ mod color_binding_tests {
     use super::*;
     use libpsycho::os::windows::{directx9::*, winapi::get_desktop_window};
 
+    static TEST_LOCK: Mutex<()> = Mutex::new(());
+    pub(super) static CAPABILITY_QUERIES: AtomicU32 = AtomicU32::new(0);
+
     #[test]
-    fn retained_color_validation_tracks_actual_mrt_changes() {
+    fn alternating_live_targets_reuse_depth_compatibility() {
+        let _serial = TEST_LOCK.lock();
         let owner = create_direct3d9()
             .unwrap()
             .create_windowed_device(get_desktop_window().unwrap(), 16, 16, D3DDEVTYPE_HAL)
@@ -183,11 +224,67 @@ mod color_binding_tests {
             .unwrap();
         let desc = depth.surface_level(0).unwrap().desc().unwrap();
         let count = device.device_caps().unwrap().NumSimultaneousRTs;
-        let checked = validate_colors(&device, &desc, count, None)
+        let first = device.render_target(0).unwrap();
+        let second_texture = device
+            .create_render_target_texture(16, 16, first.desc().unwrap().Format)
+            .unwrap();
+        let second = second_texture.surface_level(0).unwrap();
+        let mut checked = ColorValidationCache::default();
+        CAPABILITY_QUERIES.store(0, Ordering::Relaxed);
+        for surface in [&first, &second].into_iter().cycle().take(128) {
+            device.set_render_target(0, surface).unwrap();
+            let updated = validate_colors(&device, &desc, count, checked.identities()).unwrap();
+            device
+                .set_depth_stencil_surface(Some(&depth.surface_level(0).unwrap()))
+                .unwrap();
+            if let Some(updated) = updated {
+                drop(checked.publish(updated));
+            }
+        }
+        // Both actual resources were validated once. Rebinding a still-live
+        // target must not repeat adapter/device capability discovery.
+        assert_eq!(CAPABILITY_QUERIES.load(Ordering::Relaxed), 2);
+
+        // Bound retention must not turn eviction into an unchecked identity
+        // hit. A third target evicts the first set; returning to it validates
+        // again even though the test still holds its original COM reference.
+        let third_texture = device
+            .create_render_target_texture(16, 16, first.desc().unwrap().Format)
+            .unwrap();
+        let third = third_texture.surface_level(0).unwrap();
+        for surface in [&third, &first] {
+            device.set_render_target(0, surface).unwrap();
+            let updated = validate_colors(&device, &desc, count, checked.identities())
+                .unwrap()
+                .unwrap();
+            device
+                .set_depth_stencil_surface(Some(&depth.surface_level(0).unwrap()))
+                .unwrap();
+            drop(checked.publish(updated));
+        }
+        assert_eq!(CAPABILITY_QUERIES.load(Ordering::Relaxed), 4);
+    }
+
+    #[test]
+    fn retained_color_validation_tracks_actual_mrt_changes() {
+        let _serial = TEST_LOCK.lock();
+        let owner = create_direct3d9()
+            .unwrap()
+            .create_windowed_device(get_desktop_window().unwrap(), 16, 16, D3DDEVTYPE_HAL)
+            .unwrap();
+        let device = owner.as_ref();
+        let depth = device
+            .create_depth_stencil_texture(16, 16, D3DFMT_INTZ)
+            .unwrap();
+        let desc = depth.surface_level(0).unwrap().desc().unwrap();
+        let count = device.device_caps().unwrap().NumSimultaneousRTs;
+        let mut cache = ColorValidationCache::default();
+        let checked = validate_colors(&device, &desc, count, cache.identities())
             .unwrap()
             .unwrap();
+        drop(cache.publish(checked));
         assert!(
-            validate_colors(&device, &desc, count, Some(checked.identities()))
+            validate_colors(&device, &desc, count, cache.identities())
                 .unwrap()
                 .is_none()
         );
@@ -199,12 +296,13 @@ mod color_binding_tests {
             .unwrap();
         let surface = color.surface_level(0).unwrap();
         device.set_render_target(0, &surface).unwrap();
-        let changed = validate_colors(&device, &desc, count, Some(checked.identities()))
+        let changed = validate_colors(&device, &desc, count, cache.identities())
             .unwrap()
             .unwrap();
         assert_eq!(changed.identities()[0], surface.as_raw() as usize);
+        drop(cache.publish(changed));
         assert!(
-            validate_colors(&device, &desc, count, Some(changed.identities()))
+            validate_colors(&device, &desc, count, cache.identities())
                 .unwrap()
                 .is_none()
         );
@@ -218,16 +316,17 @@ mod color_binding_tests {
         device
             .set_render_target(0, &larger.surface_level(0).unwrap())
             .unwrap();
-        assert!(validate_colors(&device, &desc, count, Some(changed.identities())).is_err());
+        assert!(validate_colors(&device, &desc, count, cache.identities()).is_err());
         device.set_render_target(0, &surface).unwrap();
         if count > 1 {
             device.set_render_target(1, &surface).unwrap();
-            let mrt = validate_colors(&device, &desc, count, Some(changed.identities()))
+            let mrt = validate_colors(&device, &desc, count, cache.identities())
                 .unwrap()
                 .unwrap();
             assert_eq!(mrt.identities()[1], surface.as_raw() as usize);
+            drop(cache.publish(mrt));
             device.clear_render_target(1).unwrap();
-            let cleared = validate_colors(&device, &desc, count, Some(mrt.identities()))
+            let cleared = validate_colors(&device, &desc, count, cache.identities())
                 .unwrap()
                 .unwrap();
             assert_eq!(cleared.identities()[1], 0);
@@ -287,14 +386,11 @@ impl Hooks {
         self.ready.load(Ordering::Acquire) && crate::startup::deferred_graphics_ready()
     }
     fn adopts(&self) -> bool {
-        // Adoption is optional allocation work. Resident bind/release/reset
-        // hooks independently maintain attachments already given to native
-        // rendering, including while the master switch is off.
-        crate::runtime::effects_enabled()
-            && self.admitted()
-            && self.on_thread()
-            && self.capable.load(Ordering::Acquire)
-            && crate::backend::active_depth_provider() == super::DepthProvider::FalloutNewVegas
+        // Provider selection can change after the last complete clear. Keep
+        // compatible backing ready at its safe lifecycle boundary even while
+        // depth is disabled or externally supplied. Existing adopted backing
+        // already survives provider changes; this also covers None -> OMV.
+        self.admitted() && self.on_thread() && self.capable.load(Ordering::Acquire)
     }
 }
 
@@ -515,16 +611,22 @@ unsafe extern "thiscall" fn frame_finished(main: *mut c_void) {
     service_initialization();
 }
 
-/// Activate native allocation policy after frame teardown. This changes only
-/// future acquisitions: old entries keep their keys, backing and native owners.
-/// The renderer/global identities were validated at deferred installation.
+/// Admit compatible backing after frame teardown, before provider selection
+/// can miss its initializing clear. Only the selected OMV provider activates
+/// single-sample allocation policy; old entries keep their keys and owners.
+/// All renderer/global identities were validated at deferred installation.
 fn service_initialization() {
     let Some(hooks) = HOOKS.get() else { return };
     if !hooks.admitted()
         || !hooks.on_thread()
-        || crate::backend::active_depth_provider() != super::DepthProvider::FalloutNewVegas
         || !matches!(hooks.policy.load(Ordering::Acquire), DORMANT | ADMITTED)
     {
+        return;
+    }
+    let selected = crate::backend::active_depth_provider() == super::DepthProvider::FalloutNewVegas;
+    if hooks.policy.load(Ordering::Acquire) == ADMITTED && !selected {
+        // Device capabilities are settled for this generation. A disabled or
+        // external provider does no recurring D3D queries or worker inspection.
         return;
     }
     // Post-frame native code has returned. No drawing or target-use interval
@@ -584,7 +686,7 @@ fn service_initialization() {
                 return;
             }
         }
-        if !native_policy_change_ready() {
+        if !selected || !native_policy_change_ready() {
             return;
         }
         // Only these two native globals select subsequent scene policy and
@@ -611,19 +713,33 @@ unsafe extern "thiscall" fn clear_buffer(renderer: *mut c_void, rectangle: *cons
         // Current group/buffer/data are held by the native ClearBuffer caller.
         // This boundary follows native binding and precedes any new pixels.
         let preparation = (|| -> Result<()> {
+            // These scalar conditions already exclude a complete native clear.
+            // Reject before walking attachments or querying the D3D device.
+            if unsafe {
+                *((hooks.renderer + 0x6FC) as *const u8) != 0
+                    || *((hooks.renderer + 0x6CC) as *const u32) != 0
+                    || *((hooks.renderer + 0x6D0) as *const u32) != 0
+            } {
+                return Ok(());
+            }
+
+            // The native caller owns the current group, its depth buffer and
+            // renderer data throughout ClearBuffer under renderer serialization
+            // (E6F0C0/E6F0E2, E6F330..E6F415). These are borrowed live native
+            // objects, not asynchronous pointers. Already-owned identities need
+            // no VirtualQuery, COM query or allocation on recurring clears.
             let group = unsafe { *((hooks.renderer + 0x888) as *const usize) };
-            validate_memory_range(group as *const c_void, 0x24)?;
+            if group == 0 {
+                return Ok(());
+            }
             let buffer = unsafe { *((group + 0x20) as *const usize) };
             if buffer == 0 {
                 return Ok(());
             }
-            validate_memory_range(buffer as *const c_void, 0x14)?;
             let data = unsafe { *((buffer + 0x10) as *const usize) };
-            validate_memory_range(data as *const c_void, 0x18)?;
-            let table = unsafe { *(data as *const usize) };
-            let Some(index) = DEPTH_TABLES.iter().position(|t| *t == table) else {
+            if data == 0 {
                 return Ok(());
-            };
+            }
             {
                 let Some(registry) = hooks.attachments.try_lock() else {
                     return Ok(());
@@ -632,6 +748,37 @@ unsafe extern "thiscall" fn clear_buffer(renderer: *mut c_void, rectangle: *cons
                     return Ok(());
                 }
             }
+            // The stock width/height getters (EE8490/EE84B0) read RT0's
+            // Ni2DBuffer +8/+C. Native depth recreation fills those same fields
+            // from GetDesc via A8F080. A smaller native clear cannot cover the
+            // shared depth allocation. This rejection needs no COM queries or
+            // memory-region scans and retains no negative cache: a subsequent
+            // full-size group must remain eligible. If a provider replaces the
+            // getters, defer to the existing D3D coverage validation instead.
+            let group_table = unsafe { *(group as *const usize) };
+            if group_table == 0x011010EC
+                && unsafe { *((group_table + 0x8C) as *const usize) } == 0x00EE8490
+                && unsafe { *((group_table + 0x90) as *const usize) } == 0x00EE84B0
+            {
+                let color = unsafe { *((group + 0x0C) as *const usize) };
+                if color == 0 {
+                    return Ok(());
+                }
+                let color_extent =
+                    unsafe { core::ptr::read_unaligned((color + 8) as *const [u32; 2]) };
+                let depth_extent =
+                    unsafe { core::ptr::read_unaligned((buffer + 8) as *const [u32; 2]) };
+                if color_extent != depth_extent {
+                    return Ok(());
+                }
+            }
+            validate_memory_range(group as *const c_void, 0x24)?;
+            validate_memory_range(buffer as *const c_void, 0x14)?;
+            validate_memory_range(data as *const c_void, 0x18)?;
+            let table = unsafe { *(data as *const usize) };
+            let Some(index) = DEPTH_TABLES.iter().position(|t| *t == table) else {
+                return Ok(());
+            };
             if hooks
                 .clear_attempts
                 .try_lock()
@@ -641,9 +788,6 @@ unsafe extern "thiscall" fn clear_buffer(renderer: *mut c_void, rectangle: *cons
             }
             let ptr = unsafe { *((data + 0x14) as *const *mut c_void) };
             let source = unsafe { Surface9::retain_raw(ptr)? };
-            if unsafe { *((hooks.renderer + 0x6FC) as *const u8) } != 0 {
-                return Ok(());
-            }
             let rect = if rectangle.is_null() {
                 None
             } else {
@@ -829,7 +973,7 @@ unsafe fn adopt(
                 backup_bind_serial: hooks.untracked_bind_serial.load(Ordering::Acquire),
                 native: desc,
                 generation: hooks.generation.load(Ordering::Acquire),
-                checked_colors: None,
+                checked_colors: ColorValidationCache::default(),
             },
         );
         Ok(())
@@ -928,7 +1072,7 @@ unsafe fn bind(index: usize, data: *mut c_void, device_ptr: *mut c_void) -> bool
                 a.surface,
                 a.native,
                 a.generation,
-                a.checked_colors.as_ref().map(CheckedColors::identities),
+                a.checked_colors.identities(),
                 a.backup.is_some(),
             )
         })
@@ -963,7 +1107,7 @@ unsafe fn bind(index: usize, data: *mut c_void, device_ptr: *mut c_void) -> bool
             let backup = if let Some(mut registry) = hooks.attachments.try_lock() {
                 registry.get_mut(&(data as usize)).and_then(|a| {
                     if let Some(colors) = colors.take() {
-                        retired_colors = a.checked_colors.replace(colors);
+                        retired_colors = a.checked_colors.publish(colors);
                     }
                     a.backup.take()
                 })

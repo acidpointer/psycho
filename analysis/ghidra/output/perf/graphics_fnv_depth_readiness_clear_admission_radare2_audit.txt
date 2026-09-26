@@ -1,0 +1,65 @@
+FNV depth readiness and recurring clear admission
+Target: fnv_reverse/FalloutNV.exe, PE32 x86, runtime 1.4.0.525
+SHA256: 42fee7d6cd74e801372aa89c8f71c974cebd3c20ec9ad43d1465b8fa9646b49c
+Interface: radare2 MCP disassemble
+
+0x00EE8490
+0x00ee8490      mov eax, dword [esp + 4]
+0x00ee8494      mov eax, dword [ecx + eax*4 + 0xc]
+0x00ee8498      test eax, eax
+   ; unlikely
+0x00ee849a      je 0xee84a2
+0x00ee849c      mov eax, dword [eax + 8]
+0x00ee849f      ret 4
+0x00ee84a2      xor eax, eax
+0x00ee84a4      ret 4
+0x00ee84a7      int3
+0x00ee84a8      int3
+0x00ee84a9      int3
+0x00ee84aa      int3
+0x00ee84ab      int3
+0x00ee84ac      int3
+0x00ee84ad      int3
+0x00ee84ae      int3
+0x00ee84af      int3
+0x00ee84b0      mov eax, dword [esp + 4]
+0x00ee84b4      mov eax, dword [ecx + eax*4 + 0xc]
+0x00ee84b8      test eax, eax
+   ; unlikely
+0x00ee84ba      je 0xee84c2
+0x00ee84bc      mov eax, dword [eax + 0xc]
+0x00ee84bf      ret 4
+0x00ee84c2      xor eax, eax
+
+
+0x00A8F080
+0x00a8f080      mov eax, dword [esp + 4]
+0x00a8f084      mov edx, dword [esp + 8]
+0x00a8f088      mov dword [ecx + 8], eax
+0x00a8f08b      mov dword [ecx + 0xc], edx
+0x00a8f08e      ret 8
+
+
+0x00E6F0C0
+0x00e6f0c0      mov dword [ebp + 0x888], edi
+0x00e6f0c6      test eax, eax
+   ; likely
+0x00e6f0c8      je 0xe6f0d0
+0x00e6f0ca      mov dword [ebp + 0x88c], edi
+0x00e6f0d0      mov ecx, dword [esp + 0x18]
+0x00e6f0d4      mov eax, dword [ebp]
+0x00e6f0d7      mov edx, dword [eax + 0x188]
+0x00e6f0dd      push ecx
+0x00e6f0de      push 0
+0x00e6f0e0      mov ecx, ebp
+   ; 0xffffffff(-1, 0x0, 0x0, -1)
+0x00e6f0e2      call edx
+0x00e6f0e4      pop edi
+0x00e6f0e5      pop esi
+0x00e6f0e6      pop ebp
+
+
+ClearBuffer 0x00E6F310 was reverified through its return at 0x00E6F4D6.
+Complete retained disassembly: graphics_fnv_owned_depth_startup_remediation_radare2_audit.txt, section 0x00E6F310.
+It obtains group RT0 dimensions through virtual +0x8C/+0x90; the clear rectangle and viewport dimensions use those values. It does not clear the full larger depth allocation.
+Default depth recreation 0x00E7CE30 was reverified: GetDesc at E7CE68 supplies dimensions to A8F080 at E7CEA5. Retained complete output: graphics_fnv_owned_depth_radare2_audit.txt, section 0x00e7ce30.

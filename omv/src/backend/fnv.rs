@@ -352,6 +352,71 @@ pub(super) fn renderer_ptr() -> Result<*mut c_void, &'static str> {
     }
 }
 
+/// Read the native image-space destination rectangle on the render thread.
+/// This is called only after DeferredInit at an image-space/Present boundary.
+/// C03D80 selects ImageSpaceManager+308 for its main texture, or 11AD840
+/// for the default group with letterboxing enabled. E6CF40 converts that
+/// NiRect (left,right,top,bottom) to integer pixels using truncation.
+/// No D3D or engine state is changed; unreadable/invalid metadata is rejected.
+pub(super) fn image_space_viewport(
+    target: *mut c_void,
+    desc: &D3DSURFACE_DESC,
+) -> Result<libpsycho::os::windows::directx9::D3DVIEWPORT9, &'static str> {
+    use libpsycho::os::windows::directx9::D3DVIEWPORT9;
+    let mut view = D3DVIEWPORT9 {
+        X: 0,
+        Y: 0,
+        Width: desc.Width,
+        Height: desc.Height,
+        MinZ: 0.0,
+        MaxZ: 1.0,
+    };
+    // SAFETY: all reads validate their exact ranges; engine owners live for
+    // this serialized callback. Surface pointers are compared, not retained.
+    unsafe {
+        let renderer = renderer_ptr()?;
+        let default = read_ptr_checked(renderer as usize + 0x884, "missing default image group")?;
+        let mut rectangle = None;
+        if read_group_color_surface(default)? == target {
+            if read_u8(0x011F9426).ok_or("unreadable letterbox flag")? != 0 {
+                rectangle = Some(0x011AD840);
+            }
+        } else {
+            let manager = read_ptr_checked(0x011F91AC, "missing image-space manager")?;
+            let main = read_ptr_checked(manager as usize, "missing main image texture")?;
+            if !main.is_null() && read_rendered_texture_color_surface(main.cast())? == target {
+                rectangle = Some(manager as usize + 0x308);
+            }
+        }
+        if let Some(address) = rectangle {
+            validate_memory_range(address as *const c_void, 16)
+                .map_err(|_| "unreadable native image rectangle")?;
+            let rect = (address as *const [f32; 4]).read();
+            let [left, right, top, bottom] = rect.map(f64::from);
+            if !rect.iter().all(|v| v.is_finite())
+                || left < 0.0
+                || right > 1.0
+                || bottom < 0.0
+                || top > 1.0
+                || left >= right
+                || bottom >= top
+            {
+                return Err("invalid native image rectangle");
+            }
+            // Match native x87 arithmetic before integer truncation, rather
+            // than rounding intermediate products to f32 or rounding pixels.
+            view.X = (left * f64::from(desc.Width)) as u32;
+            view.Y = ((1.0 - top) * f64::from(desc.Height)) as u32;
+            view.Width = ((right - left) * f64::from(desc.Width)) as u32;
+            view.Height = ((top - bottom) * f64::from(desc.Height)) as u32;
+            if view.Width == 0 || view.Height == 0 {
+                return Err("empty native image rectangle");
+            }
+        }
+    }
+    Ok(view)
+}
+
 /// Resolve the live engine-owned render-state object during `DeferredInit`.
 ///
 /// Unlike the device pointer, this identity is needed only once to prepare the
@@ -705,7 +770,7 @@ pub(super) unsafe fn resolve_scene_depth(
         )
     } {
         Ok(()) => DepthResolveOutcome::Resolved {
-            depth: resolve.depth_frame(),
+            depth: resolve.depth_frame_at_stage(stage),
             underwater: underwater_frame(resolve.frame_epoch),
         },
         Err(err) => {
@@ -780,7 +845,7 @@ pub(super) unsafe fn external_depth_outcome(
         log_depth_resolve_skip(slot, reason, &FnvDepthResolveError::Static(err));
         return DepthResolveOutcome::Rejected;
     }
-    let depth = resolve.depth_frame();
+    let depth = resolve.depth_frame_at_stage(stage);
     DepthResolveOutcome::Resolved {
         depth,
         underwater: underwater_frame(resolve.frame_epoch),
@@ -2231,10 +2296,22 @@ impl ExternalDepthResolve {
         .then_some(self.frame_epoch)
     }
 
+    /// Late readers require a coherent world publication. Pre-alpha is only
+    /// available synchronously from its explicitly requested boundary.
     fn depth_frame(&self) -> DepthFrame {
+        self.depth_frame_at_stage(DepthResolveStage::CoherentWorld)
+    }
+
+    fn depth_frame_at_stage(&self, stage: DepthResolveStage) -> DepthFrame {
         let capture = (self.world_capture.texture_ptr != 0
-            && self.world_capture.frame_epoch == self.frame_epoch)
-            .then_some(self.world_capture);
+            && self.world_capture.frame_epoch == self.frame_epoch
+            && self.world_capture.stage
+                == if stage == DepthResolveStage::PreAlphaWorld {
+                    DepthResolveStage::PreAlphaWorld
+                } else {
+                    DepthResolveStage::CoherentWorld
+                })
+        .then_some(self.world_capture);
         let texture =
             capture.and_then(|capture| DepthTexture::new(capture.texture_ptr as *mut c_void));
         DepthFrame::from_textures(
@@ -2768,10 +2845,22 @@ impl FnvDepthResolve {
             .then_some(self.frame_epoch)
     }
 
+    /// Late readers require a coherent world publication. Pre-alpha is only
+    /// available synchronously from its explicitly requested boundary.
     fn depth_frame(&self) -> DepthFrame {
+        self.depth_frame_at_stage(DepthResolveStage::CoherentWorld)
+    }
+
+    fn depth_frame_at_stage(&self, stage: DepthResolveStage) -> DepthFrame {
         let world_capture = (self.world_capture.texture_ptr != 0
-            && self.world_capture.frame_epoch == self.frame_epoch)
-            .then_some(self.world_capture);
+            && self.world_capture.frame_epoch == self.frame_epoch
+            && self.world_capture.stage
+                == if stage == DepthResolveStage::PreAlphaWorld {
+                    DepthResolveStage::PreAlphaWorld
+                } else {
+                    DepthResolveStage::CoherentWorld
+                })
+        .then_some(self.world_capture);
         let texture =
             world_capture.and_then(|capture| DepthTexture::new(capture.texture_ptr as *mut c_void));
         let first_person_matches_world = world_capture.is_none_or(|world| {

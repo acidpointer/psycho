@@ -6,7 +6,7 @@
 //! Captures never compile, block, or publish a partially rendered texture.
 
 use super::DepthResolveSlot;
-use crate::render_state::{RenderAttachments, RenderTargetSlots, finish_render_transaction};
+use crate::render_state::{RenderAttachments, RenderTargetSlots, finish_exact_render_transaction};
 use libpsycho::os::windows::directx9::*;
 use parking_lot::Mutex;
 
@@ -30,7 +30,6 @@ struct Target {
 struct Pipeline {
     device: usize,
     shader: PixelShader9,
-    state: StateBlock9,
     slots: RenderTargetSlots,
     vertex_textures: bool,
     targets: [Option<Target>; 2],
@@ -152,7 +151,6 @@ pub(super) fn capture(
         service.pipeline = Some(Pipeline {
             device: device.as_raw() as usize,
             shader: device.create_pixel_shader(&service.bytecode)?,
-            state: device.create_state_block(D3DSBT_ALL)?,
             slots: RenderTargetSlots::query(device)?,
             vertex_textures: device.device_caps()?.VertexTextureFilterCaps != 0,
             targets: [None, None],
@@ -180,12 +178,21 @@ pub(super) fn capture(
     let target = pipeline.targets[index]
         .as_ref()
         .ok_or_else(direct3d_failure)?;
-    let attachments = RenderAttachments::capture(device, pipeline.slots)?;
-    // Reuse the state block instead of allocating one per capture. Its saved
-    // references are released with the entire pipeline before every Reset.
-    pipeline.state.capture()?;
+    let mut attachments = RenderAttachments::capture(device, pipeline.slots)?;
+    // The snapshot draw disables depth testing and writing, so a compatible
+    // bound depth stays bound through the draw. Retention removes the
+    // detach/rebind pair that would split the driver render pass around the
+    // draw; the restored attachment set is unchanged either way.
+    attachments.retain_compatible_depth(device, target.width, target.height, D3DFMT_R32F);
+    // Only journal states this draw mutates. Broad state blocks also replay
+    // unrelated native constants, transforms, lights and texture-stage state.
+    let state = DepthSnapshotState9::capture(device, pipeline.vertex_textures)?;
     let draw = (|| {
-        pipeline.slots.prepare_target_change(device)?;
+        if attachments.depth_retained() {
+            pipeline.slots.clear_auxiliary(device)?;
+        } else {
+            pipeline.slots.prepare_target_change(device)?;
+        }
         // A previous consumer may still have either snapshot bound. Remove all
         // pixel sampler aliases before binding the snapshot as a target.
         for sampler in 0..16 {
@@ -262,7 +269,7 @@ pub(super) fn capture(
         // ScreenVertex's repr(C) and FVF exactly describe these three vertices.
         unsafe { device.draw_primitive_up(D3DPT_TRIANGLELIST, 1, &vertices) }
     })();
-    finish_render_transaction(device, &attachments, Some(&pipeline.state), draw)?;
+    finish_exact_render_transaction(device, &attachments, draw, || state.restore(device))?;
     service.current = true;
     service.captures = service.captures.saturating_add(1);
     Ok(target.texture.as_raw_base_texture() as usize)

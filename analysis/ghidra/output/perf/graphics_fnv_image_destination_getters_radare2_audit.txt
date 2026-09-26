@@ -1,0 +1,23 @@
+FNV image-space destination getter verification
+Executable: fnv_reverse/FalloutNV.exe
+SHA256: 42fee7d6cd74e801372aa89c8f71c974cebd3c20ec9ad43d1465b8fa9646b49c
+Primary interface: radare2 MCP.
+
+NiDX9Renderer table 010EE4BC:
+radare2 calculate [4:0x010ee584] (vtable + C8): 0xe69600
+radare2 calculate [4:0x010ee588] (vtable + CC): 0xe75810
+
+0x00e69600      mov eax, dword [ecx + 0x884]
+0x00e69606      ret
+0x00e69607      int3
+
+0x00e75810      mov eax, dword [ecx + 0x888]
+0x00e75816      ret
+0x00e75817      int3
+
+
+Rectangle selection at C03D80 and NiRect conversion at E6CF40 were
+reverified directly with the same MCP and executable. The existing exact
+instruction output remains in graphics_fnv_depth_image_coordinates_radare2_audit.txt.
+Default/current group comparison uses renderer +884/+888, respectively.
+No executable or third-party graphics module was changed.

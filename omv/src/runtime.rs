@@ -20,9 +20,11 @@
 //!
 //! Each native image-space phase executes through a two-texture color graph.
 //! The engine target is copied once at phase entry, intermediate effects
-//! alternate renderable textures, and the last planned writer targets the
-//! engine surface directly. Dynamic no-draw stages use one bounded fallback
-//! commit only when an earlier writer would otherwise remain offscreen. This
+//! alternate renderable textures, and the last predicted writer targets the
+//! engine surface directly. Phase admission predicts the per-frame
+//! drawing-stage count from the same per-effect contracts the draw
+//! re-evaluates, so a predicted rejection never costs a copy; the bounded
+//! fallback commit remains only for an unexpectedly failed writer. This
 //! replaces the former copy-before-every-effect feedback loop without changing
 //! shader order, equations, formats, or sampler contracts.
 //!
@@ -501,19 +503,25 @@ mod render_callback_io_tests {
         );
     }
 
-    fn simulate_phase_color_chain(initial: i32, draws: &[bool]) -> (i32, bool) {
+    fn simulate_phase_color_chain(initial: i32, planned_draws: &[bool]) -> (i32, bool) {
+        // Production predicts the per-frame drawing-stage count from the same
+        // per-effect admission the draw re-evaluates. Only stages expected to
+        // draw consume a color location and decrement the remaining count, so
+        // a predicted rejection leaves the last drawing stage targeting the
+        // engine surface directly instead of forcing a fallback copy.
+        let mut remaining = planned_draws.iter().filter(|draw| **draw).count() as i32;
         let mut primary = initial;
         let mut scratch = 0;
         let mut engine = initial;
         let mut current = PhaseColorLocation::Primary;
         let mut any_draw = false;
-        for (stage, should_draw) in draws.iter().copied().enumerate() {
+        for (stage, should_draw) in planned_draws.iter().copied().enumerate() {
             let input = match current {
                 PhaseColorLocation::Primary => primary,
                 PhaseColorLocation::Scratch => scratch,
                 PhaseColorLocation::Engine => engine,
             };
-            let output = next_phase_color_location(current, stage + 1 < draws.len());
+            let output = next_phase_color_location(current, remaining > 1);
             if should_draw {
                 // Distinct affine transforms make reordering, duplication, or
                 // sampling a stale target observable in the final integer.
@@ -525,6 +533,7 @@ mod render_callback_io_tests {
                 }
                 current = output;
                 any_draw = true;
+                remaining -= 1;
             }
         }
         let fallback_commit = any_draw && current != PhaseColorLocation::Engine;
@@ -560,14 +569,18 @@ mod render_callback_io_tests {
             [false, true, true],
             [false, false, false],
         ] {
-            let (actual, _) = simulate_phase_color_chain(7, &draws);
+            let (actual, fallback_commit) = simulate_phase_color_chain(7, &draws);
             assert_eq!(actual, sequential_color_chain(7, &draws));
+            // Only an unexpectedly failed stage may leave a drawn result
+            // offscreen. Predicted rejections are excluded from the count, so
+            // a rejected tail can never force the bounded fallback copy.
+            assert!(!fallback_commit);
         }
 
         let tail_rejected = [true, false];
         let (actual, fallback_commit) = simulate_phase_color_chain(7, &tail_rejected);
         assert_eq!(actual, sequential_color_chain(7, &tail_rejected));
-        assert!(fallback_commit);
+        assert!(!fallback_commit);
     }
 
     #[test]
@@ -675,31 +688,6 @@ mod render_callback_io_tests {
         assert!(creation < helper_body.len());
         assert!(!pipeline_body.contains("copy_phase_color_for_sampling"));
         assert!(!helper_body.contains("copy_phase_color_for_sampling"));
-    }
-
-    #[test]
-    fn a_phase_with_only_rejected_effects_allocates_no_color_copy() {
-        let source = include_str!("runtime.rs");
-        for suffix in ["present_frame(", "scene_phase("] {
-            let function = ["\n    unsafe fn apply_", suffix].concat();
-            let body = source
-                .split_once(&function)
-                .map(|(_, tail)| tail)
-                .and_then(|tail| tail.split_once("\n    fn "))
-                .map(|(body, _)| body)
-                .expect("phase body");
-            let preflight = body
-                .find("phase_has_applicable_work")
-                .expect("phase applicability preflight");
-            let allocation = body
-                .find("ensure_phase_color_copy")
-                .expect("phase color-copy allocation");
-            let state_block = body
-                .find("ensure_state_block")
-                .expect("phase D3D state-block preparation");
-            assert!(preflight < allocation);
-            assert!(preflight < state_block);
-        }
     }
 
     #[test]
@@ -857,47 +845,6 @@ mod render_callback_io_tests {
             );
         }
     }
-
-    #[test]
-    fn screen_transactions_restore_attachments_before_state_blocks() {
-        let source = include_str!("runtime.rs");
-        for suffix in ["present_frame(", "scene_phase("] {
-            let function = ["\n    unsafe fn apply_", suffix].concat();
-            let body = source
-                .split_once(&function)
-                .map(|(_, tail)| tail)
-                .and_then(|tail| tail.split_once("\n    fn "))
-                .map(|(body, _)| body)
-                .expect("screen transaction body");
-            let capture = body
-                .find("RenderAttachments::capture")
-                .expect("render attachment capture");
-            let draw = body.find("draw_passes").expect("screen draw");
-            let restore = body
-                .find("finish_render_transaction")
-                .expect("ordered render transaction restore");
-
-            assert!(capture < draw);
-            assert!(draw < restore);
-        }
-
-        let transaction = include_str!("render_state.rs");
-        let function = ["pub(crate) fn finish_render_", "transaction("].concat();
-        let body = transaction
-            .split_once(&function)
-            .map(|(_, tail)| tail)
-            .and_then(|tail| tail.split_once("\n}\n"))
-            .map(|(body, _)| body)
-            .expect("render transaction restore body");
-        let attachments = body
-            .find("attachments.restore")
-            .expect("render attachment restore");
-        let state_apply = body.find("apply_state_block").expect("state-block restore");
-        assert!(
-            attachments < state_apply,
-            "SetRenderTarget must precede viewport/scissor restoration"
-        );
-    }
 }
 
 pub(crate) fn needs_native_dof_query() -> bool {
@@ -942,6 +889,15 @@ fn ambient_occlusion_boundary(provider: DepthProvider) -> AmbientOcclusionBounda
 
 fn ambient_occlusion_allowed_at_scene_pre(provider: DepthProvider) -> bool {
     ambient_occlusion_boundary(provider) == AmbientOcclusionBoundary::ScenePreImageSpace
+}
+
+/// Stable slot for the per-phase predicted drawing-stage counts.
+const fn phase_slot(phase: ShaderPhase) -> usize {
+    match phase {
+        ShaderPhase::ScenePreImageSpace => 0,
+        ShaderPhase::ScenePostImageSpace => 1,
+        ShaderPhase::FinalImageSpace => 2,
+    }
 }
 
 pub(crate) unsafe fn apply_present_frame(
@@ -1573,6 +1529,11 @@ struct ScreenShaderRuntime {
     world_only_ao_info_logged: bool,
     applied_phases: AppliedShaderPhases,
     native_dof_active_this_frame: bool,
+    /// Per-phase predicted drawing-stage count from phase admission. The
+    /// color graph consumes it so a predicted rejection leaves the last
+    /// drawing stage targeting the engine surface directly. `None` falls
+    /// back to the configuration-derived planned count.
+    predicted_drawing_stages: [Option<u32>; 3],
 }
 
 impl Default for ScreenShaderRuntime {
@@ -1641,6 +1602,7 @@ impl Default for ScreenShaderRuntime {
             world_only_ao_info_logged: false,
             applied_phases: AppliedShaderPhases::default(),
             native_dof_active_this_frame: false,
+            predicted_drawing_stages: [None; 3],
         }
     }
 }
@@ -1657,6 +1619,7 @@ impl ScreenShaderRuntime {
         self.ambient_occlusion_after_world_applied = false;
         self.native_dof_active_this_frame = false;
         self.first_person_motion_blur_target = 0;
+        self.predicted_drawing_stages = [None; 3];
         // A token from an older epoch can never name a valid retry. Clear it
         // during lazy reconciliation as well as at Present completion so a
         // skipped callback cannot leak work into a later frame.
@@ -1796,31 +1759,47 @@ impl ScreenShaderRuntime {
             return Ok(());
         }
 
-        let shader_target = if has_shader_work && has_drawable_shader {
-            let backbuffer = match device.back_buffer(0, 0) {
-                Ok(backbuffer) => backbuffer,
-                Err(err) => {
-                    self.release_default_pool_resources();
-                    return Err(err);
+        // Scene metadata belongs to optional effect work. Preserve its error
+        // for the caller, but never let it bypass the configuration overlay.
+        let shader_target = (|| -> Direct3DResult<_> {
+            if has_shader_work && has_drawable_shader {
+                let backbuffer = match device.back_buffer(0, 0) {
+                    Ok(backbuffer) => backbuffer,
+                    Err(err) => {
+                        self.release_default_pool_resources();
+                        return Err(err);
+                    }
+                };
+                let desc = backbuffer.desc()?;
+                if desc.Width == 0 || desc.Height == 0 {
+                    return Ok(None);
                 }
-            };
-            let desc = backbuffer.desc()?;
-            if desc.Width == 0 || desc.Height == 0 {
-                return Ok(());
-            }
-            let frame_inputs = self.build_frame_inputs(&desc, ShaderPhase::FinalImageSpace);
-            if self.phase_has_applicable_work(ShaderPhase::FinalImageSpace, &desc, &frame_inputs) {
-                self.ensure_phase_color_copy(&device, &desc, ShaderPhase::FinalImageSpace)?;
-                Some((backbuffer, desc, frame_inputs))
+                let image = backend::fnv_image_space_viewport(backbuffer.as_raw().cast(), &desc)
+                    .map_err(runtime_error)?;
+                let image_desc = image_description(&desc, &image);
+                let frame_inputs =
+                    self.build_frame_inputs(&image_desc, ShaderPhase::FinalImageSpace);
+                if self.phase_has_applicable_work(
+                    ShaderPhase::FinalImageSpace,
+                    &image_desc,
+                    &frame_inputs,
+                ) {
+                    Ok(Some((backbuffer, desc, frame_inputs, image)))
+                } else {
+                    self.maintain_rejected_phase_state(ShaderPhase::FinalImageSpace, &frame_inputs);
+                    Ok(None)
+                }
             } else {
-                self.maintain_rejected_phase_state(ShaderPhase::FinalImageSpace, &frame_inputs);
-                None
+                Ok(None)
             }
-        } else {
-            None
-        };
+        })();
 
-        if shader_target.is_none() && !menu_open && !preparation_overlay {
+        if !menu_open && !preparation_overlay && shader_target.is_err() {
+            // With no overlay to service, retain the cheap failed-preflight
+            // exit instead of capturing state for an empty transaction.
+            return shader_target.map(|_| ());
+        }
+        if matches!(shader_target, Ok(None)) && !menu_open && !preparation_overlay {
             if has_shader_work {
                 self.applied_phases
                     .mark_applied(ShaderPhase::FinalImageSpace);
@@ -1829,49 +1808,72 @@ impl ScreenShaderRuntime {
         }
 
         let render_target_slots = self.render_target_slots(&device)?;
-        let attachments = RenderAttachments::capture(&device, render_target_slots)?;
-        self.ensure_state_block(&device)?;
-
-        let Some(state_block) = self.state_block.as_ref() else {
-            return Err(runtime_error(
-                "[SHADERS] Missing D3D state block before capture",
-            ));
-        };
-        crate::render_state::capture_state_block(state_block)?;
-
-        let draw_result = match shader_target.as_ref() {
-            Some((backbuffer, desc, frame_inputs)) => render_target_slots
-                .prepare_target_change(&device)
-                .and_then(|()| {
-                    self.draw_passes(
-                        &device,
-                        backbuffer,
-                        desc,
-                        ShaderPhase::FinalImageSpace,
-                        frame_inputs,
-                    )
-                }),
-            None => Ok(()),
-        };
-        let menu_result = if menu_open {
-            self.draw_menu()
-        } else if preparation_overlay {
-            self.draw_pbr_preparation(pbr_preparation)
-        } else {
-            Ok(())
-        };
-        finish_render_transaction(
-            &device,
-            &attachments,
-            self.state_block.as_ref(),
-            draw_result.and(menu_result),
-        )?;
+        self.with_present_state(&device, |runtime| {
+            let draw_result = match shader_target {
+                Ok(Some((backbuffer, desc, frame_inputs, image))) => render_target_slots
+                    .prepare_target_change(&device)
+                    .and_then(|()| {
+                        device.set_viewport(&image)?;
+                        runtime.draw_passes(
+                            &device,
+                            &backbuffer,
+                            &desc,
+                            ShaderPhase::FinalImageSpace,
+                            &frame_inputs,
+                        )
+                    }),
+                Ok(None) => Ok(()),
+                Err(err) => Err(err),
+            };
+            let menu_result = if menu_open || preparation_overlay {
+                // ImGui sets draw state and its viewport, but does not bind
+                // RT0. A cropped graph commits by StretchRect and can leave
+                // its scratch attachment bound. UI always owns the swapchain,
+                // independent of depth availability and the last effect target.
+                (|| {
+                    let backbuffer = device.back_buffer(0, 0)?;
+                    render_target_slots.prepare_target_change(&device)?;
+                    device.set_render_target(0, &backbuffer)?;
+                    if menu_open {
+                        runtime.draw_menu()
+                    } else {
+                        runtime.draw_pbr_preparation(pbr_preparation)
+                    }
+                })()
+            } else {
+                Ok(())
+            };
+            draw_result.and(menu_result)
+        })?;
         if has_shader_work {
             self.applied_phases
                 .mark_applied(ShaderPhase::FinalImageSpace);
         }
 
         Ok(())
+    }
+
+    /// Execute presentation drawing and menu resource retirement inside the
+    /// same native-state transaction. Only the serialized render thread calls
+    /// this; state restoration runs even when drawing returns an error.
+    fn with_present_state(
+        &mut self,
+        device: &Device9Ref<'_>,
+        draw: impl FnOnce(&mut Self) -> Direct3DResult<()>,
+    ) -> Direct3DResult<()> {
+        let slots = self.render_target_slots(device)?;
+        let attachments = RenderAttachments::capture(device, slots)?;
+        self.ensure_state_block(device)?;
+        // The menu may retire the persistent owner while this transaction is
+        // active. Retain the captured block locally through restoration; never
+        // republish it after teardown or retain it beyond this call.
+        let state_block = self
+            .state_block
+            .clone()
+            .ok_or_else(|| runtime_error("missing presentation state"))?;
+        crate::render_state::capture_state_block(&state_block)?;
+        let result = draw(self);
+        finish_render_transaction(device, &attachments, Some(&state_block), result)
     }
 
     unsafe fn apply_first_person_motion_blur_after_world(
@@ -2196,7 +2198,9 @@ impl ScreenShaderRuntime {
             return Ok(());
         };
         let desc = *prepared_target.desc();
-        let frame_inputs = self.build_frame_inputs(&desc, phase);
+        let image = prepared_target.image_viewport()?;
+        let image_desc = image_description(&desc, &image);
+        let frame_inputs = self.build_frame_inputs(&image_desc, phase);
         if phase == ShaderPhase::ScenePreImageSpace
             && ambient_occlusion_boundary(self.settings.depth_provider)
                 == AmbientOcclusionBoundary::AfterWorldBeforeFirstPerson
@@ -2207,13 +2211,11 @@ impl ScreenShaderRuntime {
             // invalidate history, even when another scene-pre pass will draw.
             self.reset_missed_world_only_ao_history();
         }
-        if !self.phase_has_applicable_work(phase, &desc, &frame_inputs) {
+        if !self.phase_has_applicable_work(phase, &image_desc, &frame_inputs) {
             self.maintain_rejected_phase_state(phase, &frame_inputs);
             self.applied_phases.mark_applied(phase);
             return Ok(());
         }
-        self.ensure_phase_color_copy(&device, &desc, phase)?;
-
         let render_target_slots = self.render_target_slots(&device)?;
         let attachments = RenderAttachments::capture(&device, render_target_slots)?;
         self.ensure_state_block(&device)?;
@@ -2231,6 +2233,7 @@ impl ScreenShaderRuntime {
             // exact native set even if selection or drawing fails.
             render_target_slots.prepare_target_change(&device)?;
             let render_target = unsafe { prepared_target.bind(&device)? };
+            device.set_viewport(&image)?;
             self.draw_passes(&device, &render_target, &desc, phase, &frame_inputs)
         })();
 
@@ -2808,6 +2811,21 @@ impl ScreenShaderRuntime {
             .compiled
             .as_ref()
             .map(|passes| CompiledExecutionPlan::build(&self.sources, passes));
+        // Configuration/catalog edits are the retirement boundary for an
+        // idle screen graph. Keeping the master enabled must not pin its
+        // full-resolution targets, histories or captured native bindings.
+        // Native PBR/sky and world-owned effects have separate owners. Keep
+        // compiled shaders so re-enabling only recreates disposable targets.
+        if ![
+            ShaderPhase::ScenePreImageSpace,
+            ShaderPhase::ScenePostImageSpace,
+            ShaderPhase::FinalImageSpace,
+        ]
+        .into_iter()
+        .any(|phase| self.has_enabled_shader_for_phase(phase))
+        {
+            self.release_default_pool_resources();
+        }
     }
 
     fn invalidate_compiled_shaders(&mut self) {
@@ -3054,33 +3072,37 @@ impl ScreenShaderRuntime {
         let ambient_occlusion_allowed =
             ambient_occlusion_allowed_at_scene_pre(self.settings.depth_provider);
         let mut ao_checked = false;
+        let mut final_color_checked = false;
+        let mut predicted_stages = 0u32;
 
+        // Admission evaluates every planned family instead of stopping at the
+        // first one: the color graph needs the per-frame drawing-stage count
+        // so a predicted rejection never forces the bounded fallback commit.
         for pass in phase_plan.passes(ambient_occlusion_allowed).iter() {
             let source = pass.source.as_ref();
-            let Some(kind) = source.embedded_effect_kind() else {
-                return true;
-            };
-            match kind {
-                EmbeddedEffectKind::FastAmbientOcclusion
-                | EmbeddedEffectKind::ContactAmbientOcclusion => {
+            match source.embedded_effect_kind() {
+                Some(
+                    EmbeddedEffectKind::FastAmbientOcclusion
+                    | EmbeddedEffectKind::ContactAmbientOcclusion,
+                ) => {
                     if ambient_occlusion_allowed && !ao_checked {
                         ao_checked = true;
                         if (self.ambient_occlusion.is_some()
                             || ambient_occlusion::preparation_ready())
                             && ambient_occlusion::should_draw(frame_inputs, fast_ao, contact_ao)
                         {
-                            return true;
+                            predicted_stages += 1;
                         }
                     }
                 }
-                EmbeddedEffectKind::Sunshafts => {
+                Some(EmbeddedEffectKind::Sunshafts) => {
                     if (self.sunshafts.is_some() || sunshafts::preparation_ready())
                         && sunshafts::should_draw(frame_inputs, source)
                     {
-                        return true;
+                        predicted_stages += 1;
                     }
                 }
-                EmbeddedEffectKind::DepthOfField => {
+                Some(EmbeddedEffectKind::DepthOfField) => {
                     if (self.depth_of_field.is_some() || depth_of_field::preparation_ready())
                         && depth_of_field::should_draw(
                             frame_inputs,
@@ -3088,37 +3110,57 @@ impl ScreenShaderRuntime {
                             self.native_dof_active_this_frame,
                         )
                     {
-                        return true;
+                        predicted_stages += 1;
                     }
                 }
-                EmbeddedEffectKind::MotionBlur => {
+                Some(EmbeddedEffectKind::MotionBlur) => {
                     if self.prepared_motion_blur_frame.is_some_and(|frame| {
                         self.motion_blur
                             .as_ref()
                             .is_none_or(|effect| effect.has_applicable_work(frame))
                     }) {
-                        return true;
+                        predicted_stages += 1;
                     }
                 }
-                kind if kind.is_final_color() => {
-                    if self.blooming_hdr.is_some() || self.final_color_shaders.is_some() {
-                        return true;
+                Some(kind) if kind.is_final_color() => {
+                    if !final_color_checked {
+                        final_color_checked = true;
+                        if (self.blooming_hdr.is_some() || self.final_color_shaders.is_some())
+                            && blooming_hdr::FinalColorWorkPlan::from_sources_with_lut_available(
+                                phase_plan.bloom_source.as_deref(),
+                                phase_plan.color_grade_source.as_deref(),
+                                Self::selected_final_color_lut(
+                                    &self.color_luts,
+                                    phase_plan.color_grade_source.as_deref(),
+                                )
+                                .is_some(),
+                            )
+                            .has_work()
+                        {
+                            predicted_stages += 1;
+                        }
                     }
                 }
-                EmbeddedEffectKind::FastFxaa
-                | EmbeddedEffectKind::Nfaa
-                | EmbeddedEffectKind::Axaa
-                | EmbeddedEffectKind::Dlaa
-                | EmbeddedEffectKind::Smaa => {
+                Some(
+                    EmbeddedEffectKind::FastFxaa
+                    | EmbeddedEffectKind::Nfaa
+                    | EmbeddedEffectKind::Axaa
+                    | EmbeddedEffectKind::Dlaa
+                    | EmbeddedEffectKind::Smaa,
+                ) => {
                     if self.anti_aliasing.is_some() || anti_aliasing::preparation_ready() {
-                        return true;
+                        predicted_stages += 1;
                     }
                 }
-                _ => return true,
+                // External sub-passes each alternate one graph location, so
+                // they count individually exactly like the draw loop.
+                None => predicted_stages += source.pass_count.max(1),
+                Some(_) => predicted_stages += 1,
             }
         }
 
-        false
+        self.predicted_drawing_stages[phase_slot(phase)] = Some(predicted_stages);
+        predicted_stages > 0
     }
 
     fn maintain_rejected_phase_state(
@@ -3169,6 +3211,15 @@ impl ScreenShaderRuntime {
             self.motion_blur_temporal.reset();
             self.prepared_motion_blur_frame = None;
         }
+        if phase_plan
+            .as_ref()
+            .is_some_and(|plan| plan.bloom_source.is_some() || plan.color_grade_source.is_some())
+            && let Some(effect) = self.blooming_hdr.as_mut()
+        {
+            // The early no-work gate bypasses draw_final_color_pipeline, so
+            // retire its adaptive history at the same skipped-frame boundary.
+            effect.note_skipped();
+        }
     }
 
     fn reset_missed_world_only_ao_history(&mut self) {
@@ -3185,6 +3236,35 @@ impl ScreenShaderRuntime {
         phase: ShaderPhase,
         frame_inputs: &backend::FrameInputs,
     ) -> Direct3DResult<()> {
+        // The caller supplies the native image viewport before any OMV target
+        // binding resets it. Keep every shader in image-local coordinates;
+        // presentation bars never enter filtering or temporal inputs.
+        let image = device.viewport()?;
+        if image.Width == 0
+            || image.Height == 0
+            || image
+                .X
+                .checked_add(image.Width)
+                .is_none_or(|x| x > desc.Width)
+            || image
+                .Y
+                .checked_add(image.Height)
+                .is_none_or(|y| y > desc.Height)
+        {
+            return Err(runtime_error("[SHADERS] Invalid native image viewport"));
+        }
+        let native_rect = libpsycho::os::windows::directx9::RECT {
+            left: image.X as i32,
+            top: image.Y as i32,
+            right: (image.X + image.Width) as i32,
+            bottom: (image.Y + image.Height) as i32,
+        };
+        let cropped = image.X != 0
+            || image.Y != 0
+            || image.Width != desc.Width
+            || image.Height != desc.Height;
+        let image_desc = image_description(desc, &image);
+        let desc = &image_desc;
         let ambient_occlusion_allowed =
             ambient_occlusion_allowed_at_scene_pre(self.settings.depth_provider);
         let Some(phase_plan) = self
@@ -3202,6 +3282,11 @@ impl ScreenShaderRuntime {
             return Ok(());
         }
 
+        if self.compiled.is_none() {
+            return Ok(());
+        }
+        self.ensure_phase_color_copy(device, desc, phase)?;
+
         let Some(copy) = self.phase_color_copy(phase).cloned() else {
             return Ok(());
         };
@@ -3215,11 +3300,28 @@ impl ScreenShaderRuntime {
         // D3D9 cannot sample the active engine target. Copy it once, then
         // alternate full-resolution effects between the two graph textures.
         // The final planned stage writes directly to the engine target.
-        self.copy_phase_color_for_sampling(device, backbuffer, &copy)?;
+        if cropped {
+            crate::render_state::copy_scene_color_region_for_sampling(
+                device,
+                backbuffer,
+                Some(&native_rect),
+                &copy.surface,
+                None,
+                self.sampler3_scene_color(&copy.texture),
+            )?;
+        } else {
+            self.copy_phase_color_for_sampling(device, backbuffer, &copy)?;
+        }
         PHASE_INITIAL_COLOR_COPIES.fetch_add(1, Ordering::Relaxed);
         let mut color_graph = PhaseColorGraph::new(copy, scratch);
+        color_graph.image_rect = cropped.then_some(native_rect);
+        // The predicted drawing-stage count makes the final drawing stage
+        // target the engine surface directly; the planned count remains the
+        // fallback when this phase was admitted on an older epoch path.
         let mut stages_remaining =
-            phase_plan.logical_stages(ambient_occlusion_allowed, motion_blur_allowed);
+            self.predicted_drawing_stages[phase_slot(phase)].unwrap_or_else(|| {
+                phase_plan.logical_stages(ambient_occlusion_allowed, motion_blur_allowed)
+            });
         let planned_passes = phase_plan.passes(ambient_occlusion_allowed);
 
         let pass_count = enabled_count as f32;
@@ -3259,7 +3361,9 @@ impl ScreenShaderRuntime {
                         phase_plan.contact_ao_source.as_deref(),
                     )?;
                     color_graph.commit(output_location, drew);
-                    stages_remaining = stages_remaining.saturating_sub(1);
+                    if drew {
+                        stages_remaining = stages_remaining.saturating_sub(1);
+                    }
                     ambient_occlusion_drawn = true;
                 }
                 pass_index = pass_index.saturating_add(source_pass_count);
@@ -3285,7 +3389,9 @@ impl ScreenShaderRuntime {
                         phase_plan.color_grade_source.as_deref(),
                     )?;
                     color_graph.commit(output_location, drew);
-                    stages_remaining = stages_remaining.saturating_sub(1);
+                    if drew {
+                        stages_remaining = stages_remaining.saturating_sub(1);
+                    }
                     final_color_drawn = true;
                 }
                 pass_index = pass_index.saturating_add(source_pass_count);
@@ -3305,7 +3411,9 @@ impl ScreenShaderRuntime {
                     source,
                 )?;
                 color_graph.commit(output_location, drew);
-                stages_remaining = stages_remaining.saturating_sub(1);
+                if drew {
+                    stages_remaining = stages_remaining.saturating_sub(1);
+                }
                 pass_index = pass_index.saturating_add(source.pass_count.max(1));
                 continue;
             }
@@ -3318,7 +3426,9 @@ impl ScreenShaderRuntime {
                 let drew =
                     self.draw_depth_of_field_pipeline(device, &output, desc, frame_inputs, &input)?;
                 color_graph.commit(output_location, drew);
-                stages_remaining = stages_remaining.saturating_sub(1);
+                if drew {
+                    stages_remaining = stages_remaining.saturating_sub(1);
+                }
                 pass_index = pass_index.saturating_add(source_pass_count);
                 continue;
             }
@@ -3338,7 +3448,9 @@ impl ScreenShaderRuntime {
                 let drew =
                     self.draw_motion_blur_pipeline(device, &output, desc, frame_inputs, &input)?;
                 color_graph.commit(output_location, drew);
-                stages_remaining = stages_remaining.saturating_sub(1);
+                if drew {
+                    stages_remaining = stages_remaining.saturating_sub(1);
+                }
                 pass_index = pass_index.saturating_add(source_pass_count);
                 continue;
             }
@@ -3359,7 +3471,9 @@ impl ScreenShaderRuntime {
                 let drew =
                     self.draw_anti_aliasing_pipeline(device, &output, desc, &input, source)?;
                 color_graph.commit(output_location, drew);
-                stages_remaining = stages_remaining.saturating_sub(1);
+                if drew {
+                    stages_remaining = stages_remaining.saturating_sub(1);
+                }
                 pass_index = pass_index.saturating_add(source.pass_count.max(1));
                 continue;
             }
@@ -3511,6 +3625,25 @@ impl ScreenShaderRuntime {
         Ok(true)
     }
 
+    /// Resolve the same LUT ownership for phase admission and actual drawing.
+    /// A selected but missing asset cannot justify a full-resolution color copy.
+    fn selected_final_color_lut<'a>(
+        catalog: &'a luts::LutCatalog,
+        color_grade_source: Option<&ScreenShaderSource>,
+    ) -> Option<&'a luts::LutAsset> {
+        let index = color_grade_source?.options.iter().find_map(|option| {
+            if option.key == "lut_file" {
+                match option.value {
+                    ShaderOptionValue::Integer(index) => Some(index),
+                    _ => None,
+                }
+            } else {
+                None
+            }
+        })?;
+        catalog.selected(index)
+    }
+
     fn draw_final_color_pipeline(
         &mut self,
         device: &Device9Ref<'_>,
@@ -3521,19 +3654,7 @@ impl ScreenShaderRuntime {
         bloom_source: Option<&ScreenShaderSource>,
         color_grade_source: Option<&ScreenShaderSource>,
     ) -> Direct3DResult<bool> {
-        let selected_lut_index = color_grade_source.and_then(|source| {
-            source.options.iter().find_map(|option| {
-                if option.key == "lut_file" {
-                    match option.value {
-                        ShaderOptionValue::Integer(index) => Some(index),
-                        _ => None,
-                    }
-                } else {
-                    None
-                }
-            })
-        });
-        let selected_lut = selected_lut_index.and_then(|index| self.color_luts.selected(index));
+        let selected_lut = Self::selected_final_color_lut(&self.color_luts, color_grade_source);
         let work = blooming_hdr::FinalColorWorkPlan::from_sources_with_lut_available(
             bloom_source,
             color_grade_source,
@@ -5284,6 +5405,24 @@ enum PreparedScenePhaseTarget {
 }
 
 impl PreparedScenePhaseTarget {
+    /// Resolve geometry before an OMV target bind can reset the native viewport.
+    fn image_viewport(&self) -> Direct3DResult<D3DVIEWPORT9> {
+        match self {
+            Self::Current { surface, desc } => {
+                backend::fnv_image_space_viewport(surface.as_raw().cast(), desc)
+                    .map_err(runtime_error)
+            }
+            Self::RenderedTexture { desc, .. } => Ok(D3DVIEWPORT9 {
+                X: 0,
+                Y: 0,
+                Width: desc.Width,
+                Height: desc.Height,
+                MinZ: 0.0,
+                MaxZ: 1.0,
+            }),
+        }
+    }
+
     fn desc(&self) -> &D3DSURFACE_DESC {
         match self {
             Self::Current { desc, .. } | Self::RenderedTexture { desc, .. } => desc,
@@ -5305,6 +5444,14 @@ impl PreparedScenePhaseTarget {
             }
         }
     }
+}
+
+/// Describe image-local shader inputs while retaining native format/sample data.
+fn image_description(desc: &D3DSURFACE_DESC, image: &D3DVIEWPORT9) -> D3DSURFACE_DESC {
+    let mut result = *desc;
+    result.Width = image.Width;
+    result.Height = image.Height;
+    result
 }
 
 #[derive(Default)]
@@ -5373,6 +5520,9 @@ struct PhaseColorGraph {
     scratch: BackbufferCopy,
     current: PhaseColorLocation,
     any_draw: bool,
+    // A cropped image must finish through one exact rectangle copy. Individual
+    // effects always bind zero-origin targets and cannot overwrite native bars.
+    image_rect: Option<libpsycho::os::windows::directx9::RECT>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -5403,6 +5553,7 @@ impl PhaseColorGraph {
             scratch,
             current: PhaseColorLocation::Primary,
             any_draw: false,
+            image_rect: None,
         }
     }
 
@@ -5424,7 +5575,10 @@ impl PhaseColorGraph {
         engine_target: &Surface9,
         later_stage_planned: bool,
     ) -> (Surface9, PhaseColorLocation) {
-        let output = next_phase_color_location(self.current, later_stage_planned);
+        let output = next_phase_color_location(
+            self.current,
+            later_stage_planned || self.image_rect.is_some(),
+        );
         match output {
             PhaseColorLocation::Engine => (engine_target.clone(), output),
             PhaseColorLocation::Scratch => {
@@ -5453,9 +5607,24 @@ impl PhaseColorGraph {
             PhaseColorLocation::Engine => unreachable!(),
         };
         PHASE_FALLBACK_COLOR_COMMITS.fetch_add(1, Ordering::Relaxed);
-        copy_scene_color_for_sampling(device, surface, engine_target, texture)
+        if let Some(rect) = self.image_rect.as_ref() {
+            crate::render_state::copy_scene_color_region_for_sampling(
+                device,
+                surface,
+                None,
+                engine_target,
+                Some(rect),
+                texture,
+            )
+        } else {
+            copy_scene_color_for_sampling(device, surface, engine_target, texture)
+        }
     }
 }
+
+#[cfg(test)]
+#[path = "runtime_performance_tests.rs"]
+mod performance_tests;
 
 const FRAME_PACING_HISTORY: usize = 2_048;
 const FRAME_PACING_CHART_POINTS: usize = 240;

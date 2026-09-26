@@ -11,6 +11,158 @@ use libpsycho::os::windows::{directx9::*, winapi::get_desktop_window};
 // exercise its prepare/release lifetime, without changing production locking.
 static SNAPSHOT_TEST_OWNER: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
+/// Exercise the actual snapshot service with intervening native Clear writes.
+/// This measures a resource transition contract, not a substitute game frame.
+#[test]
+#[ignore = "explicit offline interleaved CPU/GPU benchmark"]
+fn depth_snapshot_interleaved_benchmark() {
+    let _owner = SNAPSHOT_TEST_OWNER.lock().unwrap();
+    let _ = libpsycho::logger::Logger::new()
+        .with_level(log::LevelFilter::Info)
+        .init();
+    depth_snapshot::prepare().unwrap();
+    let owner = create_direct3d9()
+        .unwrap()
+        .create_windowed_device(get_desktop_window().unwrap(), 1920, 1200, D3DDEVTYPE_HAL)
+        .unwrap();
+    let device = owner.as_ref();
+    let depth = device
+        .create_depth_stencil_texture(1920, 1200, D3DFMT_INTZ)
+        .unwrap();
+    let surface = depth.surface_level(0).unwrap();
+    device.set_depth_stencil_surface(Some(&surface)).unwrap();
+    device
+        .clear_attachments(D3DCLEAR_ZBUFFER as u32, 0, 0.375, 0)
+        .unwrap();
+    // Prepare the exact production resources outside either timed interval.
+    device.begin_scene().unwrap();
+    depth_snapshot::capture(&device, &surface, DepthResolveSlot::World, [1920, 1080]).unwrap();
+    device.end_scene().unwrap();
+    let mut timer = GpuTimer9::new(&device).ok();
+    let mut captured = 0;
+    for (writes, copies) in [(false, true), (true, false), (true, true)] {
+        let mut cpu = [0u128; 5];
+        let mut gpu = [None; 5];
+        for batch in 0..5 {
+            device.begin_scene().unwrap();
+            if let Some(timer) = timer.as_mut() {
+                timer.begin().unwrap();
+            }
+            let started = std::time::Instant::now();
+            for _ in 0..64 {
+                if writes {
+                    device
+                        .clear_attachments(D3DCLEAR_ZBUFFER as u32, 0, 0.375, 0)
+                        .unwrap();
+                }
+                if copies {
+                    captured = depth_snapshot::capture(
+                        &device,
+                        &surface,
+                        DepthResolveSlot::World,
+                        [1920, 1080],
+                    )
+                    .unwrap();
+                }
+            }
+            cpu[batch] = started.elapsed().as_micros();
+            if let Some(timer) = timer.as_mut() {
+                timer.end().unwrap();
+            }
+            device.end_scene().unwrap();
+            if let Some(timer) = timer.as_ref() {
+                let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+                loop {
+                    if let Some(seconds) = timer.poll_seconds(true).unwrap() {
+                        gpu[batch] = Some(seconds * 1_000_000.0);
+                        break;
+                    }
+                    assert!(std::time::Instant::now() < deadline, "GPU query timed out");
+                    std::thread::yield_now();
+                }
+            }
+        }
+        log::info!(
+            "[DEPTH BENCH] 64 iterations writes={writes} copies={copies}: CPU us={cpu:?}, GPU us={gpu:?}"
+        );
+    }
+    let texture = unsafe { Texture9::retain_raw(captured as *mut c_void) }.unwrap();
+    let readback = device
+        .create_system_memory_surface(1920, 1080, D3DFMT_R32F)
+        .unwrap();
+    device
+        .copy_render_target_data(&texture.surface_level(0).unwrap(), &readback)
+        .unwrap();
+    assert!(
+        readback
+            .read_r32f()
+            .unwrap()
+            .iter()
+            .all(|d| (*d - 0.375).abs() < 2.0 / 16777215.0)
+    );
+    assert!(depth_snapshot::release());
+    libpsycho::logger::Logger::shutdown();
+}
+
+/// Time repeated production captures, excluding shader/resource preparation.
+/// This is submission wall time on the available HAL backend, not game FPS
+/// or a GPU duration. Pixel readback remains outside the timed interval.
+#[test]
+#[ignore = "explicit offline submission benchmark"]
+fn depth_snapshot_submission_benchmark() {
+    let _owner = SNAPSHOT_TEST_OWNER.lock().unwrap();
+    let _ = libpsycho::logger::Logger::new()
+        .with_level(log::LevelFilter::Info)
+        .init();
+    depth_snapshot::prepare().unwrap();
+    let owner = create_direct3d9()
+        .unwrap()
+        .create_windowed_device(get_desktop_window().unwrap(), 1920, 1200, D3DDEVTYPE_HAL)
+        .unwrap();
+    let device = owner.as_ref();
+    let depth = device
+        .create_depth_stencil_texture(1920, 1200, D3DFMT_INTZ)
+        .unwrap();
+    let source = depth.surface_level(0).unwrap();
+    device.set_depth_stencil_surface(Some(&source)).unwrap();
+    device
+        .clear_attachments(D3DCLEAR_ZBUFFER as u32, 0, 0.375, 0)
+        .unwrap();
+    device.begin_scene().unwrap();
+    for _ in 0..16 {
+        depth_snapshot::capture(&device, &source, DepthResolveSlot::World, [1920, 1080]).unwrap();
+    }
+    let mut samples = [0u128; 7];
+    let mut captured = 0usize;
+    for sample in &mut samples {
+        let started = std::time::Instant::now();
+        for _ in 0..128 {
+            captured =
+                depth_snapshot::capture(&device, &source, DepthResolveSlot::World, [1920, 1080])
+                    .unwrap();
+        }
+        *sample = started.elapsed().as_micros();
+    }
+    device.end_scene().unwrap();
+    let texture = unsafe { Texture9::retain_raw(captured as *mut c_void) }.unwrap();
+    let readback = device
+        .create_system_memory_surface(1920, 1080, D3DFMT_R32F)
+        .unwrap();
+    device
+        .copy_render_target_data(&texture.surface_level(0).unwrap(), &readback)
+        .unwrap();
+    assert!(
+        readback
+            .read_r32f()
+            .unwrap()
+            .iter()
+            .all(|value| (*value - 0.375).abs() < 2.0 / 16777215.0)
+    );
+    log::info!("[DEPTH BENCH] Seven batches of 128 captures, microseconds: {samples:?}");
+    assert!(depth_snapshot::release());
+    libpsycho::logger::Logger::shutdown();
+}
+
 /// The laptop report records a 1920x1080 world target sharing 1920x1200
 /// depth. Exercise the actual resolver with that resource contract and the
 /// recorded camera, independently of an unavailable gameplay image fixture.
@@ -67,6 +219,27 @@ fn world_depth_accepts_color_projection_with_larger_native_backing() {
     };
     let mut resolver = FnvDepthResolve::default();
     resolver.begin_epoch(1);
+    device.begin_scene().unwrap();
+    unsafe {
+        resolver
+            .resolve_from_surface(
+                &device,
+                owner.as_raw(),
+                source.as_raw(),
+                device.render_target(0).unwrap().as_raw(),
+                DepthResolveSlot::World,
+                DepthResolveStage::PreAlphaWorld,
+                Some(camera),
+                "pre-alpha publication",
+                "offline native resource contract",
+            )
+            .unwrap();
+    }
+    device.end_scene().unwrap();
+    assert!(
+        !resolver.depth_frame().is_available(),
+        "late consumers must not receive pre-alpha depth as coherent world depth"
+    );
     device.begin_scene().unwrap();
     let result = unsafe {
         resolver.resolve_from_surface(
@@ -317,9 +490,79 @@ fn texture_backed_depth_publishes_stable_raw_snapshot() {
         }
         device.begin_scene().unwrap();
         unsafe { device.draw_primitive_up(D3DPT_TRIANGLELIST, 1, &vertices) }.unwrap();
+        let native_viewport = device.viewport().unwrap();
+        let native_scissor = device.scissor_rect().unwrap();
+        device
+            .set_viewport(&D3DVIEWPORT9 {
+                X: 3,
+                Y: 2,
+                Width: 19,
+                Height: 13,
+                MinZ: 0.1,
+                MaxZ: 0.9,
+            })
+            .unwrap();
+        device.set_scissor_rect(4, 3, 17, 12).unwrap();
+        device.set_texture(15, &snapshot).unwrap();
+        let vertex_textures = device.device_caps().unwrap().VertexTextureFilterCaps != 0;
+        if vertex_textures {
+            device.set_texture(257, &snapshot).unwrap();
+        }
+        device
+            .set_sampler_state(0, D3DSAMP_ADDRESSU, D3DTADDRESS_WRAP.0 as u32)
+            .unwrap();
+        let vertex_constants = [[0.125, 0.25, 0.5, 1.0]; 4];
+        let pixel_constants = [[0.75, 0.5, 0.25, 0.0]; 4];
+        device
+            .set_vertex_shader_constant_f(200, &vertex_constants)
+            .unwrap();
+        device
+            .set_pixel_shader_constant_f(200, &pixel_constants)
+            .unwrap();
         let pointer =
             depth_snapshot::capture(&device, &surface, DepthResolveSlot::FirstPerson, [32, 24])
                 .expect("first-person snapshot transport");
+        let restored = device.viewport().unwrap();
+        assert_eq!(
+            (restored.X, restored.Y, restored.Width, restored.Height),
+            (3, 2, 19, 13)
+        );
+        assert_eq!((restored.MinZ, restored.MaxZ), (0.1, 0.9));
+        let scissor = device.scissor_rect().unwrap();
+        assert_eq!(
+            (scissor.left, scissor.top, scissor.right, scissor.bottom),
+            (4, 3, 17, 12)
+        );
+        assert_eq!(device.fvf().unwrap(), ScreenVertex::FVF);
+        assert_eq!(
+            device.sampler_state(0, D3DSAMP_ADDRESSU).unwrap(),
+            D3DTADDRESS_WRAP.0 as u32
+        );
+        assert_eq!(device.texture_raw(15), Some(snapshot.as_raw_base_texture()));
+        if vertex_textures {
+            assert_eq!(
+                device.texture_raw(257),
+                Some(snapshot.as_raw_base_texture())
+            );
+            device.clear_texture(257).unwrap();
+        }
+        device.clear_texture(15).unwrap();
+        let mut constants = [[0.0; 4]; 4];
+        device
+            .vertex_shader_constant_f(200, &mut constants)
+            .unwrap();
+        assert_eq!(constants, vertex_constants);
+        device.pixel_shader_constant_f(200, &mut constants).unwrap();
+        assert_eq!(constants, pixel_constants);
+        device.set_viewport(&native_viewport).unwrap();
+        device
+            .set_scissor_rect(
+                native_scissor.left,
+                native_scissor.top,
+                native_scissor.right,
+                native_scissor.bottom,
+            )
+            .unwrap();
         device.end_scene().unwrap();
         let captured = unsafe { Texture9::retain_raw(pointer as *mut c_void) }.unwrap();
         assert_ne!(
@@ -598,6 +841,103 @@ fn exercise_clear_adoption(device: &Device9Ref<'_>) {
     state.apply().unwrap();
     drop(captured);
     drop(texture);
+    assert!(depth_snapshot::release());
+}
+
+/// The depth-snapshot transaction retains a compatible bound depth instead of
+/// detaching and rebinding it around the draw. This proves both the retention
+/// decision (driver-validated pairing, dimensions, multisample mode) and that
+/// the executed capture preserves the engine's exact attachment bindings.
+#[test]
+fn snapshot_retains_compatible_bound_depth_and_restores_attachments() {
+    let _owner = SNAPSHOT_TEST_OWNER.lock().unwrap();
+    depth_snapshot::prepare().unwrap();
+    let owner = create_direct3d9()
+        .unwrap()
+        .create_windowed_device(get_desktop_window().unwrap(), 64, 64, D3DDEVTYPE_HAL)
+        .unwrap();
+    let device = owner.as_ref();
+    let slots = crate::render_state::RenderTargetSlots::query(&device).unwrap();
+
+    // Positive control: an INTZ depth at least as large as the R32F target
+    // and accepted by the driver's own depth-pairing query is retained.
+    let depth = device
+        .create_depth_stencil_texture(64, 64, D3DFMT_INTZ)
+        .unwrap();
+    let depth_surface = depth.surface_level(0).unwrap();
+    device
+        .set_depth_stencil_surface(Some(&depth_surface))
+        .unwrap();
+    device
+        .clear_attachments(D3DCLEAR_ZBUFFER as u32, 0, 0.375, 0)
+        .unwrap();
+    let mut attachments = crate::render_state::RenderAttachments::capture(&device, slots).unwrap();
+    attachments.retain_compatible_depth(&device, 64, 64, D3DFMT_R32F);
+    assert!(
+        attachments.depth_retained(),
+        "a driver-validated INTZ/R32F pairing must retain its depth binding"
+    );
+
+    // Negative control: a depth smaller than the render target fails D3D9's
+    // attachment rule and must keep the detach/rebind transaction.
+    let small = device
+        .create_depth_stencil_texture(16, 16, D3DFMT_INTZ)
+        .unwrap();
+    device
+        .set_depth_stencil_surface(Some(&small.surface_level(0).unwrap()))
+        .unwrap();
+    let mut smaller_attachments =
+        crate::render_state::RenderAttachments::capture(&device, slots).unwrap();
+    smaller_attachments.retain_compatible_depth(&device, 64, 64, D3DFMT_R32F);
+    assert!(
+        !smaller_attachments.depth_retained(),
+        "depth smaller than the target must not be retained"
+    );
+    device
+        .set_depth_stencil_surface(Some(&depth_surface))
+        .unwrap();
+
+    // End-to-end: the executed capture must publish exact pixels while the
+    // engine's RT0 and depth-stencil bindings come back exactly as they were.
+    let color = device
+        .create_render_target_texture(64, 64, D3DFMT_A8R8G8B8)
+        .unwrap();
+    let color_surface = color.surface_level(0).unwrap();
+    device.set_render_target(0, &color_surface).unwrap();
+    let original_target = device.render_target(0).unwrap();
+    device.begin_scene().unwrap();
+    let captured =
+        depth_snapshot::capture(&device, &depth_surface, DepthResolveSlot::World, [64, 64])
+            .unwrap();
+    device.end_scene().unwrap();
+    assert_eq!(
+        device.render_target(0).unwrap().as_raw(),
+        original_target.as_raw(),
+        "the capture transaction must restore RT0"
+    );
+    assert_eq!(
+        device
+            .depth_stencil_surface()
+            .unwrap()
+            .map(|surface| surface.as_raw()),
+        Some(depth_surface.as_raw()),
+        "the capture transaction must restore the depth-stencil binding"
+    );
+    let texture = unsafe { Texture9::retain_raw(captured as *mut c_void) }.unwrap();
+    let readback = device
+        .create_system_memory_surface(64, 64, D3DFMT_R32F)
+        .unwrap();
+    device
+        .copy_render_target_data(&texture.surface_level(0).unwrap(), &readback)
+        .unwrap();
+    assert!(
+        readback
+            .read_r32f()
+            .unwrap()
+            .iter()
+            .all(|value| (*value - 0.375).abs() < 2.0 / 16777215.0),
+        "retained-depth capture must publish the same exact raw depth"
+    );
     assert!(depth_snapshot::release());
 }
 

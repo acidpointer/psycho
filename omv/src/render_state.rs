@@ -12,8 +12,8 @@
 //! corruption.
 
 use libpsycho::os::windows::directx9::{
-    D3DTEXF_NONE, Device9Ref, Direct3DResult, RECT, StateBlock9, Surface9, Texture9,
-    direct3d_failure,
+    D3DFORMAT, D3DMULTISAMPLE_NONE, D3DTEXF_NONE, Device9Ref, Direct3DResult, RECT, StateBlock9,
+    Surface9, Texture9, direct3d_failure,
 };
 
 const MAX_D3D9_RENDER_TARGETS: u32 = 4;
@@ -67,6 +67,11 @@ pub(crate) struct RenderAttachments {
     targets: [Option<Surface9>; MAX_D3D9_RENDER_TARGETS as usize],
     depth: Option<Surface9>,
     slots: RenderTargetSlots,
+    /// The captured depth attachment already satisfies D3D9's attachment rule
+    /// for the transaction's target, so it stays bound throughout. Restore
+    /// must then skip both the detach and the rebind: that binding pair is
+    /// what splits the driver render pass around the transaction's draw.
+    retain_depth: bool,
 }
 
 impl RenderAttachments {
@@ -84,15 +89,60 @@ impl RenderAttachments {
             targets,
             depth: device.depth_stencil_surface()?,
             slots,
+            retain_depth: false,
         })
+    }
+
+    /// Retain the captured depth when it already satisfies D3D9's rule for a
+    /// render target of the given size and format: the depth must be at least
+    /// as large as the target with the same multisample mode, and the driver
+    /// must accept the target/depth format pairing. Every check is the same
+    /// validation `SetRenderTarget` performs with depth bound; failing any
+    /// check leaves retention off and the detach/rebind transaction intact.
+    /// Call before the draw; [`Self::restore`] then leaves the depth binding
+    /// untouched.
+    pub(crate) fn retain_compatible_depth(
+        &mut self,
+        device: &Device9Ref<'_>,
+        width: u32,
+        height: u32,
+        format: D3DFORMAT,
+    ) {
+        if self.retain_depth {
+            return;
+        }
+        let Some(depth) = self.depth.as_ref().and_then(|depth| depth.desc().ok()) else {
+            return;
+        };
+        if depth.MultiSampleType != D3DMULTISAMPLE_NONE
+            || depth.Width < width
+            || depth.Height < height
+            || device
+                .check_depth_stencil_match(format, depth.Format)
+                .is_err()
+        {
+            return;
+        }
+        self.retain_depth = true;
+    }
+
+    /// Whether the depth attachment is retained for this transaction.
+    pub(crate) fn depth_retained(&self) -> bool {
+        self.retain_depth
     }
 
     /// Restore every captured attachment while preserving the first D3D failure.
     pub(crate) fn restore(&self, device: &Device9Ref<'_>) -> Direct3DResult<()> {
         // Depth and auxiliary targets can be incompatible with RT0's dimensions
         // or multisample mode. Detach them before changing RT0, then rebuild the
-        // exact engine attachment set in dependency order.
-        let mut result = device.set_depth_stencil_surface(None);
+        // exact engine attachment set in dependency order. A retained depth was
+        // never detached and already satisfies the new RT0, so both depth
+        // calls are redundant driver traffic and render-pass splits.
+        let mut result = if self.retain_depth {
+            Ok(())
+        } else {
+            device.set_depth_stencil_surface(None)
+        };
         for index in self.slots.auxiliary_indices() {
             keep_first_error(&mut result, device.clear_render_target(index));
         }
@@ -105,10 +155,12 @@ impl RenderAttachments {
                 restore_target(device, index, self.targets[index as usize].as_ref()),
             );
         }
-        keep_first_error(
-            &mut result,
-            device.set_depth_stencil_surface(self.depth.as_ref()),
-        );
+        if !self.retain_depth {
+            keep_first_error(
+                &mut result,
+                device.set_depth_stencil_surface(self.depth.as_ref()),
+            );
+        }
         result
     }
 }
@@ -201,6 +253,32 @@ pub(crate) fn copy_scene_color_for_sampling(
     // s3 remains part of the public loose-shader ABI. Rebind only after the
     // destination is no longer writable so downstream shaders retain either
     // the captured world color or the documented current-color fallback.
+    device.set_texture(3, sampler3_texture)
+}
+
+/// Copy an image between independently positioned rectangles without filtering.
+/// Rectangle extents must agree. The caller owns the outer state transaction;
+/// this removes phase-input aliases and restores the public s3 color binding.
+pub(crate) fn copy_scene_color_region_for_sampling(
+    device: &Device9Ref<'_>,
+    source: &Surface9,
+    source_rect: Option<&RECT>,
+    destination: &Surface9,
+    destination_rect: Option<&RECT>,
+    sampler3_texture: &Texture9,
+) -> Direct3DResult<()> {
+    for sampler in SCENE_COPY_SAMPLERS {
+        device.clear_texture(sampler)?;
+    }
+    crate::graphics_diagnostics::add(crate::graphics_diagnostics::Counter::ColorCopy, 1);
+    let _span = crate::graphics_diagnostics::span(crate::graphics_diagnostics::Interval::ColorCopy);
+    device.stretch_rect(
+        source,
+        source_rect,
+        destination,
+        destination_rect,
+        D3DTEXF_NONE,
+    )?;
     device.set_texture(3, sampler3_texture)
 }
 

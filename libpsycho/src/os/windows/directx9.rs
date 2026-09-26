@@ -67,6 +67,10 @@ pub use windows::Win32::Graphics::Direct3D9::{
     D3DDECLUSAGE_COLOR, D3DDECLUSAGE_NORMAL, D3DDECLUSAGE_POSITION, D3DDECLUSAGE_TANGENT,
     D3DDECLUSAGE_TEXCOORD, D3DVERTEXELEMENT9,
 };
+use windows::Win32::Graphics::Direct3D9::{
+    D3DGETDATA_FLUSH, D3DISSUE_BEGIN, D3DISSUE_END, D3DQUERYTYPE_TIMESTAMP,
+    D3DQUERYTYPE_TIMESTAMPDISJOINT, D3DQUERYTYPE_TIMESTAMPFREQ, IDirect3DQuery9,
+};
 pub use windows::core::Error as Direct3DError;
 use windows::core::{
     BOOL, GUID, HRESULT, IUnknown, IUnknown_Vtbl, Interface, InterfaceRef, PCSTR,
@@ -79,6 +83,110 @@ use crate::ffi::fnptr::FnPtr;
 use crate::os::windows::winapi::{
     get_module_handle_a, get_proc_address, load_library_a, load_system_library_w,
 };
+
+/// Device-owned asynchronous GPU interval for offline benchmarks or profiling.
+/// All methods belong on the creating device's render thread. Queries retain
+/// their COM owner and must be dropped before device Reset. No method waits.
+/// A disjoint clock is an error, never a usable timing sample.
+pub struct GpuTimer9 {
+    start: IDirect3DQuery9,
+    end: IDirect3DQuery9,
+    frequency: IDirect3DQuery9,
+    disjoint: IDirect3DQuery9,
+    state: u8,
+}
+
+impl GpuTimer9 {
+    /// Allocate four queries on `device`; unsupported timestamp queries return
+    /// the driver error. Partially created queries release automatically.
+    pub fn new(device: &Device9Ref<'_>) -> Direct3DResult<Self> {
+        // SAFETY: the borrowed device is live and every returned query is owned.
+        unsafe {
+            Ok(Self {
+                start: device.inner.CreateQuery(D3DQUERYTYPE_TIMESTAMP)?,
+                end: device.inner.CreateQuery(D3DQUERYTYPE_TIMESTAMP)?,
+                frequency: device.inner.CreateQuery(D3DQUERYTYPE_TIMESTAMPFREQ)?,
+                disjoint: device.inner.CreateQuery(D3DQUERYTYPE_TIMESTAMPDISJOINT)?,
+                state: 0,
+            })
+        }
+    }
+
+    /// Start a new interval, discarding any previous result. Does not flush.
+    pub fn begin(&mut self) -> Direct3DResult<()> {
+        self.state = 0;
+        // SAFETY: owned queries use their documented BEGIN/END protocols.
+        unsafe {
+            self.disjoint.Issue(D3DISSUE_BEGIN)?;
+            self.start.Issue(D3DISSUE_END)?;
+        }
+        self.state = 1;
+        Ok(())
+    }
+
+    /// End the active interval. Returns an error if `begin` did not succeed.
+    pub fn end(&mut self) -> Direct3DResult<()> {
+        if self.state != 1 {
+            return Err(direct3d_failure());
+        }
+        self.state = 0;
+        // SAFETY: owned queries and an active disjoint interval.
+        unsafe {
+            self.end.Issue(D3DISSUE_END)?;
+            self.frequency.Issue(D3DISSUE_END)?;
+            self.disjoint.Issue(D3DISSUE_END)?;
+        }
+        self.state = 2;
+        Ok(())
+    }
+
+    /// Poll elapsed seconds, returning `None` while GPU work is pending.
+    /// `flush` submits pending commands; use it only outside measured rendering.
+    /// Invalid sequence, disjoint clocks and device errors return an error.
+    pub fn poll_seconds(&self, flush: bool) -> Direct3DResult<Option<f64>> {
+        if self.state != 2 {
+            return Err(direct3d_failure());
+        }
+        let mut disjoint = 0u32;
+        let mut start = 0u64;
+        let mut end = 0u64;
+        let mut frequency = 0u64;
+        // SAFETY: D3D9 specifies BOOL for TIMESTAMPDISJOINT and UINT64 for
+        // TIMESTAMP/FREQ. Each pointer is aligned, writable and correctly sized.
+        for (query, data, bytes) in [
+            (
+                &self.disjoint,
+                (&mut disjoint as *mut u32).cast::<c_void>(),
+                4,
+            ),
+            (&self.start, (&mut start as *mut u64).cast::<c_void>(), 8),
+            (&self.end, (&mut end as *mut u64).cast::<c_void>(), 8),
+            (
+                &self.frequency,
+                (&mut frequency as *mut u64).cast::<c_void>(),
+                8,
+            ),
+        ] {
+            // Preserve S_FALSE: the generated Result<()> wrapper discards it.
+            let hr = unsafe {
+                (query.vtable().GetData)(
+                    query.as_raw(),
+                    data,
+                    bytes,
+                    if flush { D3DGETDATA_FLUSH } else { 0 },
+                )
+            };
+            if hr.0 == 1 {
+                return Ok(None);
+            }
+            hr.ok()?;
+        }
+        if disjoint != 0 || frequency == 0 || end < start {
+            return Err(direct3d_failure());
+        }
+        Ok(Some((end - start) as f64 / frequency as f64))
+    }
+}
 
 /// Byte offset of `IDirect3DDevice9::TestCooperativeLevel` in the device vtable.
 pub const DEVICE9_VTBL_TEST_COOPERATIVE_LEVEL: usize = 0x0c;
@@ -2917,6 +3025,186 @@ mod optional_binding_tests {
 fn keep_first_error(result: &mut Direct3DResult<()>, next: Direct3DResult<()>) {
     if result.is_ok() && next.is_err() {
         *result = next;
+    }
+}
+
+const DEPTH_SNAPSHOT_RENDER_STATES: [D3DRENDERSTATETYPE; 15] = [
+    D3DRS_ZENABLE,
+    D3DRS_ZWRITEENABLE,
+    D3DRS_STENCILENABLE,
+    D3DRS_ALPHATESTENABLE,
+    D3DRS_ALPHABLENDENABLE,
+    D3DRS_CULLMODE,
+    D3DRS_SCISSORTESTENABLE,
+    D3DRS_FOGENABLE,
+    D3DRS_CLIPPLANEENABLE,
+    D3DRS_SRGBWRITEENABLE,
+    D3DRS_COLORWRITEENABLE,
+    D3DRS_MULTISAMPLEANTIALIAS,
+    D3DRS_MULTISAMPLEMASK,
+    D3DRS_ADAPTIVETESS_Y,
+    D3DRS_POINTSIZE,
+];
+
+/// Call-local journal for OMV's raw depth snapshot draw.
+///
+/// Owns shader/FVF/declaration bindings, stream zero and its frequency,
+/// viewport/scissor, the 15 render states above, six sampler-zero states,
+/// and all pixel/available vertex texture bindings cleared to avoid feedback.
+/// The snapshot changes no constants, transforms, lights, index binding, other
+/// streams or texture-stage state, so these are never captured or reapplied.
+/// This avoids broad state-block work and releases retained native bindings
+/// when the draw transaction ends instead of retaining them between frames.
+/// Capture allocates no storage. Use on the serialized device owner thread;
+/// restore after attachments because SetRenderTarget resets viewport/scissor.
+pub struct DepthSnapshotState9 {
+    fvf: u32,
+    declaration: Option<IDirect3DVertexDeclaration9>,
+    vertex_shader: Option<IDirect3DVertexShader9>,
+    pixel_shader: Option<IDirect3DPixelShader9>,
+    stream: DrawStreamState9,
+    frequency: u32,
+    viewport: D3DVIEWPORT9,
+    scissor: RECT,
+    render_states: [u32; DEPTH_SNAPSHOT_RENDER_STATES.len()],
+    sampler_states: [u32; SHADOW_SAMPLER_STATES.len()],
+    textures: [Option<IDirect3DBaseTexture9>; 20],
+    vertex_textures: bool,
+}
+
+impl DepthSnapshotState9 {
+    /// Capture every state mutated by the depth snapshot before any mutation.
+    /// `vertex_textures` must match the device capability used by the draw.
+    /// Query errors abort capture and release partial COM ownership.
+    pub fn capture(device: &Device9Ref<'_>, vertex_textures: bool) -> Direct3DResult<Self> {
+        let fvf = device.fvf()?;
+        let declaration = optional_binding(unsafe { device.inner.GetVertexDeclaration() })?;
+        let vertex_shader = optional_binding(unsafe { device.inner.GetVertexShader() })?;
+        let pixel_shader = optional_binding(unsafe { device.inner.GetPixelShader() })?;
+        let mut stream = DrawStreamState9 {
+            buffer: None,
+            offset: 0,
+            stride: 0,
+        };
+        let mut frequency = 0;
+        unsafe {
+            device.inner.GetStreamSource(
+                0,
+                &mut stream.buffer,
+                &mut stream.offset,
+                &mut stream.stride,
+            )?;
+            device.inner.GetStreamSourceFreq(0, &mut frequency)?;
+        }
+        let viewport = device.viewport()?;
+        let scissor = device.scissor_rect()?;
+        let mut render_states = [0; DEPTH_SNAPSHOT_RENDER_STATES.len()];
+        for (state, value) in DEPTH_SNAPSHOT_RENDER_STATES
+            .into_iter()
+            .zip(&mut render_states)
+        {
+            *value = device.render_state(state)?;
+        }
+        let mut sampler_states = [0; SHADOW_SAMPLER_STATES.len()];
+        for (state, value) in SHADOW_SAMPLER_STATES.into_iter().zip(&mut sampler_states) {
+            *value = device.sampler_state(0, state)?;
+        }
+        let mut textures = std::array::from_fn(|_| None);
+        for (index, texture) in
+            textures
+                .iter_mut()
+                .enumerate()
+                .take(if vertex_textures { 20 } else { 16 })
+        {
+            let sampler = if index < 16 {
+                index as u32
+            } else {
+                257 + (index - 16) as u32
+            };
+            *texture = optional_binding(unsafe { device.inner.GetTexture(sampler) })?;
+        }
+        Ok(Self {
+            fvf,
+            declaration,
+            vertex_shader,
+            pixel_shader,
+            stream,
+            frequency,
+            viewport,
+            scissor,
+            render_states,
+            sampler_states,
+            textures,
+            vertex_textures,
+        })
+    }
+
+    /// Attempt all state restores, returning the first device error.
+    /// The journal retains each COM binding until the caller drops it.
+    pub fn restore(&self, device: &Device9Ref<'_>) -> Direct3DResult<()> {
+        let mut result = Ok(());
+        for (state, value) in DEPTH_SNAPSHOT_RENDER_STATES
+            .into_iter()
+            .zip(self.render_states)
+        {
+            keep_first_error(&mut result, device.set_render_state(state, value));
+        }
+        for (state, value) in SHADOW_SAMPLER_STATES.into_iter().zip(self.sampler_states) {
+            keep_first_error(&mut result, device.set_sampler_state(0, state, value));
+        }
+        for (index, texture) in self
+            .textures
+            .iter()
+            .enumerate()
+            .take(if self.vertex_textures { 20 } else { 16 })
+        {
+            let sampler = if index < 16 {
+                index as u32
+            } else {
+                257 + (index - 16) as u32
+            };
+            // The snapshot transaction cleared every sampler. A sampler whose
+            // captured binding was already unbound therefore still holds the
+            // captured value; re-setting None is a redundant driver call.
+            if texture.is_none() {
+                continue;
+            }
+            keep_first_error(&mut result, unsafe {
+                device.inner.SetTexture(sampler, texture.as_ref())
+            });
+        }
+        keep_first_error(&mut result, unsafe {
+            device.inner.SetVertexShader(self.vertex_shader.as_ref())
+        });
+        keep_first_error(&mut result, unsafe {
+            device.inner.SetPixelShader(self.pixel_shader.as_ref())
+        });
+        keep_first_error(&mut result, unsafe {
+            device.inner.SetStreamSource(
+                0,
+                self.stream.buffer.as_ref(),
+                self.stream.offset,
+                self.stream.stride,
+            )
+        });
+        keep_first_error(
+            &mut result,
+            device.set_stream_source_frequency(0, self.frequency),
+        );
+        // FVF and explicit declaration are different modes; restoring both
+        // would change GetFVF to zero on a previously fixed-function draw.
+        if self.fvf != 0 {
+            keep_first_error(&mut result, device.set_fvf(self.fvf));
+        } else {
+            keep_first_error(&mut result, unsafe {
+                device.inner.SetVertexDeclaration(self.declaration.as_ref())
+            });
+        }
+        keep_first_error(&mut result, device.set_viewport(&self.viewport));
+        keep_first_error(&mut result, unsafe {
+            device.inner.SetScissorRect(&self.scissor)
+        });
+        result
     }
 }
 

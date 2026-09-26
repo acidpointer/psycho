@@ -575,6 +575,7 @@ unsafe fn render_world_scene_graph_body(
         let camera_jitter = world_scene_graph
             .then(|| begin_temporal_aa_jitter())
             .flatten();
+        let jittered_target = camera_jitter.as_ref().and_then(|_| current_render_target());
         let pre_alpha_target = world_scene_graph
             .then(current_render_target)
             .flatten()
@@ -605,6 +606,7 @@ unsafe fn render_world_scene_graph_body(
         // 0x00870AE8 pushes 1, 0x00870E18 pushes 0. The second u8 is not the
         // world/first-person discriminator.
         if world_scene_graph {
+            let rendered_projection = camera_jitter.as_ref().map(|jitter| jitter.projection());
             drop(camera_jitter);
             if let Some(device_ptr) = crate::backend::d3d_device_ptr() {
                 // Depth Resolve's post-water texture is fresh only after the
@@ -617,10 +619,24 @@ unsafe fn render_world_scene_graph_body(
                 );
                 if crate::fnv_world_pipeline::needs_depth(crate::backend::DepthResolveSlot::World) {
                     crate::fnv_world_pipeline::apply_primary(device_ptr);
-                } else {
+                }
+                let coherent_target = current_render_target();
+                // World effects may complete before resolving (for example,
+                // atmosphere already drew pre-alpha and TAA is disabled).
+                // Screen consumers still own a coherent-depth deadline here.
+                // Reuse an existing coherent publication without re-resolving
+                // a jittered camera against its restored native projection.
+                if crate::runtime::needs_fnv_depth_capture(crate::backend::DepthResolveSlot::World)
+                    && !matches!(crate::backend::try_depth_frame(
+                        crate::backend::active_depth_provider(), crate::hooks::render_epoch(),
+                    ), crate::backend::DepthAccess::Ready(frame)
+                        if frame.is_available()
+                            && Some(frame.world_projection.image.color_surface) == coherent_target)
+                {
                     capture_depth(
                         crate::backend::DepthResolveSlot::World,
                         None,
+                        rendered_projection.filter(|_| jittered_target == coherent_target),
                         "FNV after world scene graph",
                     );
                 }
@@ -874,6 +890,7 @@ unsafe fn render_first_person_body(
                     capture_depth(
                         crate::backend::DepthResolveSlot::World,
                         None,
+                        None,
                         "FNV before first-person motion blur retry",
                     );
                 }
@@ -891,6 +908,7 @@ unsafe fn render_first_person_body(
         capture_depth(
             crate::backend::DepthResolveSlot::FirstPerson,
             Some(rendered_texture),
+            None,
             "FNV after first-person depth",
         );
     }
@@ -899,6 +917,7 @@ unsafe fn render_first_person_body(
 unsafe fn capture_depth(
     slot: crate::backend::DepthResolveSlot,
     source_rendered_texture: Option<*mut c_void>,
+    world_projection_override: Option<crate::backend::CameraFrame>,
     reason: &'static str,
 ) {
     if !crate::runtime::needs_fnv_depth_capture(slot)
@@ -928,7 +947,7 @@ unsafe fn capture_depth(
                     crate::backend::DepthResolveStage::FirstPerson
                 }
             },
-            None,
+            world_projection_override,
             reason,
             crate::hooks::render_epoch(),
         )

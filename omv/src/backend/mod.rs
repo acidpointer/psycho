@@ -466,6 +466,16 @@ pub(crate) fn rendered_texture_color_surface(
     }
 }
 
+/// Obtain the engine's image rectangle for a live post-image-space target.
+/// Call only at serialized FNV render boundaries after DeferredInit. Failure
+/// preserves the native image by preventing an unbounded OMV phase draw.
+pub(crate) fn fnv_image_space_viewport(
+    target: *mut c_void,
+    desc: &D3DSURFACE_DESC,
+) -> Result<libpsycho::os::windows::directx9::D3DVIEWPORT9, &'static str> {
+    fnv::image_space_viewport(target, desc)
+}
+
 /// Read the native world selector. Some(null) explicitly selects its default
 /// group; None means the selector could not be read.
 pub(crate) unsafe fn current_fnv_world_rendered_texture() -> Option<*mut c_void> {
