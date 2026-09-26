@@ -33,7 +33,7 @@ use libpsycho::os::windows::{
         D3DRS_ZWRITEENABLE, D3DSURFACE_DESC, D3DTEXF_NONE, Device9, Device9Ref,
         Direct3DError as WindowsError, Direct3DResult, PositionVertex, Surface9, Texture9,
     },
-    memory::validate_memory_range,
+    memory::validate_memory_range_for_epoch,
     winapi::{HModule, get_module_handle_a, get_proc_address, load_library_a},
 };
 use parking_lot::Mutex;
@@ -389,7 +389,7 @@ pub(super) fn image_space_viewport(
             }
         }
         if let Some(address) = rectangle {
-            validate_memory_range(address as *const c_void, 16)
+            validate_memory_range_for_epoch(read_validation_epoch(), address as *const c_void, 16)
                 .map_err(|_| "unreadable native image rectangle")?;
             let rect = (address as *const [f32; 4]).read();
             let [left, right, top, bottom] = rect.map(f64::from);
@@ -684,7 +684,8 @@ pub(super) unsafe fn jitter_world_camera(
     if camera.is_null() {
         return None;
     }
-    validate_memory_range(
+    validate_memory_range_for_epoch(
+        read_validation_epoch(),
         unsafe { camera.add(NICAMERA_FRUSTUM_LEFT_OFFSET) }.cast::<c_void>(),
         NICAMERA_FRUSTUM_BOTTOM_OFFSET + size_of::<f32>() - NICAMERA_FRUSTUM_LEFT_OFFSET,
     )
@@ -946,37 +947,48 @@ fn underwater_frame_for_publication(
     }
 }
 
+/// Current render epoch used as the engine-read validation cache domain.
+///
+/// All per-frame engine reads share the serialized render epoch: a structure
+/// validated earlier in the same epoch needs no repeated `VirtualQuery`
+/// syscall, while an epoch change revalidates every range.
+#[inline]
+fn read_validation_epoch() -> u32 {
+    crate::hooks::render_epoch()
+}
+
 unsafe fn read_ptr(address: usize) -> Option<*mut u8> {
     unsafe { read_ptr_checked(address, "unreadable pointer").ok() }
 }
 
 unsafe fn read_ptr_checked(address: usize, cause: &'static str) -> Result<*mut u8, &'static str> {
     let slot = address as *const c_void;
-    validate_memory_range(slot, size_of::<*mut u8>()).map_err(|_| cause)?;
+    validate_memory_range_for_epoch(read_validation_epoch(), slot, size_of::<*mut u8>())
+        .map_err(|_| cause)?;
     Ok(unsafe { (address as *const *mut u8).read() })
 }
 
 unsafe fn read_f32(address: usize) -> Option<f32> {
     let slot = address as *const c_void;
-    validate_memory_range(slot, size_of::<f32>()).ok()?;
+    validate_memory_range_for_epoch(read_validation_epoch(), slot, size_of::<f32>()).ok()?;
     Some(unsafe { (address as *const f32).read() })
 }
 
 unsafe fn read_f64(address: usize) -> Option<f64> {
     let slot = address as *const c_void;
-    validate_memory_range(slot, size_of::<f64>()).ok()?;
+    validate_memory_range_for_epoch(read_validation_epoch(), slot, size_of::<f64>()).ok()?;
     Some(unsafe { (address as *const f64).read() })
 }
 
 unsafe fn read_u8(address: usize) -> Option<u8> {
     let slot = address as *const c_void;
-    validate_memory_range(slot, size_of::<u8>()).ok()?;
+    validate_memory_range_for_epoch(read_validation_epoch(), slot, size_of::<u8>()).ok()?;
     Some(unsafe { (address as *const u8).read() })
 }
 
 unsafe fn read_u32(address: usize) -> Option<u32> {
     let slot = address as *const c_void;
-    validate_memory_range(slot, size_of::<u32>()).ok()?;
+    validate_memory_range_for_epoch(read_validation_epoch(), slot, size_of::<u32>()).ok()?;
     Some(unsafe { (address as *const u32).read() })
 }
 
@@ -1010,7 +1022,8 @@ unsafe fn read_camera_frame_from_ptr(
         return None;
     }
 
-    validate_memory_range(
+    validate_memory_range_for_epoch(
+        read_validation_epoch(),
         unsafe { camera.add(NIAVOBJECT_WORLD_ROTATION_OFFSET) }.cast::<c_void>(),
         NICAMERA_FRUSTUM_FAR_OFFSET + size_of::<f32>() - NIAVOBJECT_WORLD_ROTATION_OFFSET,
     )
@@ -1169,8 +1182,12 @@ unsafe fn read_world_group(rendered_texture: *mut c_void) -> Result<*mut u8, &'s
     // device surface, which could belong to a later offscreen/first-person pass.
     let group =
         unsafe { read_ptr_checked(renderer as usize + 0x884, "missing default world group")? };
-    validate_memory_range(group.cast(), NIRENDERTARGETGROUP_SIZE)
-        .map_err(|_| "unreadable default world group")?;
+    validate_memory_range_for_epoch(
+        read_validation_epoch(),
+        group.cast(),
+        NIRENDERTARGETGROUP_SIZE,
+    )
+    .map_err(|_| "unreadable default world group")?;
     Ok(group)
 }
 
@@ -1180,8 +1197,12 @@ unsafe fn read_rendered_texture_group(
     if rendered_texture.is_null() {
         return Err("missing rendered texture");
     }
-    validate_memory_range(rendered_texture.cast_const(), BSRENDEREDTEXTURE_SIZE)
-        .map_err(|_| "unreadable rendered texture")?;
+    validate_memory_range_for_epoch(
+        read_validation_epoch(),
+        rendered_texture.cast_const(),
+        BSRENDEREDTEXTURE_SIZE,
+    )
+    .map_err(|_| "unreadable rendered texture")?;
 
     // The native getter accounts for the active cube face. Hardcoding group
     // zero selects the wrong native depth identity for the other five faces.
@@ -1192,8 +1213,12 @@ unsafe fn read_rendered_texture_group(
     if group.is_null() {
         return Err("missing render target group");
     }
-    validate_memory_range(group as *const c_void, NIRENDERTARGETGROUP_SIZE)
-        .map_err(|_| "unreadable render target group")?;
+    validate_memory_range_for_epoch(
+        read_validation_epoch(),
+        group as *const c_void,
+        NIRENDERTARGETGROUP_SIZE,
+    )
+    .map_err(|_| "unreadable render target group")?;
 
     Ok(group)
 }
@@ -1208,7 +1233,12 @@ unsafe fn read_ni_buffer_surface(
             _ => "missing render target color buffer",
         });
     }
-    validate_memory_range(buffer as *const c_void, NI2DBUFFER_SIZE).map_err(|_| match label {
+    validate_memory_range_for_epoch(
+        read_validation_epoch(),
+        buffer as *const c_void,
+        NI2DBUFFER_SIZE,
+    )
+    .map_err(|_| match label {
         "depth buffer" => "unreadable render target depth buffer",
         _ => "unreadable render target color buffer",
     })?;
@@ -1244,11 +1274,14 @@ unsafe fn read_ni_buffer_surface(
             _ => "missing color buffer D3D surface",
         });
     }
-    validate_memory_range(surface as *const c_void, size_of::<*mut c_void>()).map_err(|_| {
-        match label {
-            "depth buffer" => "unreadable depth buffer D3D surface",
-            _ => "unreadable color buffer D3D surface",
-        }
+    validate_memory_range_for_epoch(
+        read_validation_epoch(),
+        surface as *const c_void,
+        size_of::<*mut c_void>(),
+    )
+    .map_err(|_| match label {
+        "depth buffer" => "unreadable depth buffer D3D surface",
+        _ => "unreadable color buffer D3D surface",
     })?;
 
     Ok(surface.cast::<c_void>())
@@ -1272,7 +1305,12 @@ unsafe fn read_environment_frame() -> Option<EnvironmentFrame> {
     if fog_property.is_null() {
         return None;
     }
-    validate_memory_range(fog_property as *const c_void, BSFOGPROPERTY_SIZE).ok()?;
+    validate_memory_range_for_epoch(
+        read_validation_epoch(),
+        fog_property as *const c_void,
+        BSFOGPROPERTY_SIZE,
+    )
+    .ok()?;
 
     let vtable = unsafe { read_ptr(fog_property as usize)? } as usize;
     if vtable != BSFOGPROPERTY_VTABLE {
@@ -1410,7 +1448,7 @@ unsafe fn validate_object(object: *mut u8, size: usize) -> Option<()> {
     if object.is_null() {
         return None;
     }
-    validate_memory_range(object.cast::<c_void>(), size).ok()
+    validate_memory_range_for_epoch(read_validation_epoch(), object.cast::<c_void>(), size).ok()
 }
 
 unsafe fn read_prevalidated<T: Copy>(object: *mut u8, offset: usize) -> T {
@@ -1436,7 +1474,8 @@ unsafe fn read_native_daylight_strength(sky: *mut u8, game_hour: f32) -> Option<
 }
 
 unsafe fn read_cached_daylight_times_contiguous() -> Option<DaylightTimes> {
-    validate_memory_range(
+    validate_memory_range_for_epoch(
+        read_validation_epoch(),
         CACHED_SUNRISE_BEGIN as *const c_void,
         CACHED_DAYLIGHT_TIMES_SIZE,
     )
@@ -1455,7 +1494,8 @@ unsafe fn read_prevalidated_climate_daylight_times(sky: *mut u8) -> Option<Dayli
     if climate.is_null() {
         return None;
     }
-    validate_memory_range(
+    validate_memory_range_for_epoch(
+        read_validation_epoch(),
         unsafe { climate.add(CLIMATE_SUN_TIME_BYTES_OFFSET) }.cast::<c_void>(),
         CLIMATE_SUN_TIME_BYTES_LEN,
     )
@@ -1654,7 +1694,8 @@ unsafe fn read_climate_daylight_times(sky: *mut u8) -> Option<DaylightTimes> {
     if climate.is_null() {
         return None;
     }
-    validate_memory_range(
+    validate_memory_range_for_epoch(
+        read_validation_epoch(),
         unsafe { climate.add(CLIMATE_SUN_TIME_BYTES_OFFSET) }.cast::<c_void>(),
         CLIMATE_SUN_TIME_BYTES_LEN,
     )

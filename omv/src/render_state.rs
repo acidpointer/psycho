@@ -12,9 +12,10 @@
 //! corruption.
 
 use libpsycho::os::windows::directx9::{
-    D3DFORMAT, D3DMULTISAMPLE_NONE, D3DTEXF_NONE, Device9Ref, Direct3DResult, RECT, StateBlock9,
-    Surface9, Texture9, direct3d_failure,
+    D3DFORMAT, D3DMULTISAMPLE_NONE, D3DPT_TRIANGLESTRIP, D3DTEXF_NONE, Device9Ref, Direct3DResult,
+    RECT, ScreenVertex, StateBlock9, Surface9, Texture9, VertexBuffer9,
 };
+use parking_lot::Mutex;
 
 const MAX_D3D9_RENDER_TARGETS: u32 = 4;
 const SCENE_COPY_SAMPLERS: [u32; 2] = [0, 3];
@@ -165,23 +166,6 @@ impl RenderAttachments {
     }
 }
 
-/// Finish a screen draw and restore all native D3D state on every result path.
-pub(crate) fn finish_render_transaction(
-    device: &Device9Ref<'_>,
-    attachments: &RenderAttachments,
-    state_block: Option<&StateBlock9>,
-    mut draw_result: Direct3DResult<()>,
-) -> Direct3DResult<()> {
-    // SetRenderTarget resets viewport and scissor state. Attachments must
-    // therefore be restored first and the all-state block applied last.
-    keep_first_error(&mut draw_result, attachments.restore(device));
-    keep_first_error(
-        &mut draw_result,
-        state_block.map_or_else(|| Err(direct3d_failure()), apply_state_block),
-    );
-    draw_result
-}
-
 /// Finish a transaction whose caller owns a bounded state journal.
 ///
 /// Attachment restoration still precedes draw-state restoration because
@@ -311,6 +295,38 @@ pub(crate) fn copy_exact_color_surface_region(
     device.stretch_rect(source, region, destination, region, D3DTEXF_NONE)
 }
 
+/// Capture the exact bounded state one OMV screen transaction mutates.
+///
+/// This replaces the driver `D3DSBT_ALL` capture with the
+/// [`libpsycho::os::windows::directx9::ScreenTransactionState9`] journal:
+/// same restoration contract, roughly 75 device calls instead of the broad
+/// driver-defined capture measured at ~104 us per capture+apply under DXVK.
+/// Use on the serialized render thread only.
+pub(crate) fn capture_screen_transaction(
+    device: &Device9Ref<'_>,
+) -> Direct3DResult<libpsycho::os::windows::directx9::ScreenTransactionState9> {
+    crate::render_state::capture_exact_render_state(|| {
+        libpsycho::os::windows::directx9::ScreenTransactionState9::capture(device)
+    })
+}
+
+/// Finish a screen transaction: restore attachments first, then the journal,
+/// because SetRenderTarget resets viewport and scissor state.
+pub(crate) fn finish_screen_transaction(
+    device: &Device9Ref<'_>,
+    attachments: &RenderAttachments,
+    draw_result: Direct3DResult<()>,
+    state: &libpsycho::os::windows::directx9::ScreenTransactionState9,
+) -> Direct3DResult<()> {
+    let mut draw_result = draw_result;
+    keep_first_error(&mut draw_result, attachments.restore(device));
+    crate::graphics_diagnostics::add(crate::graphics_diagnostics::Counter::StateApply, 1);
+    let _span =
+        crate::graphics_diagnostics::span(crate::graphics_diagnostics::Interval::StateApply);
+    keep_first_error(&mut draw_result, state.restore(device));
+    draw_result
+}
+
 fn restore_target(
     device: &Device9Ref<'_>,
     index: u32,
@@ -319,6 +335,100 @@ fn restore_target(
     match target {
         Some(target) => device.set_render_target(index, target),
         None => device.clear_render_target(index),
+    }
+}
+
+/// Persistent fullscreen vertex stream for OMV screen passes.
+///
+/// `DrawPrimitiveUP` performs a driver upload allocation per call (measured
+/// ~11-25 us per submission under DXVK); one dynamic buffer with a discard
+/// lock uploads the same four vertices without that per-call cost. The
+/// buffer is default-pool owned: it is released on device reset and
+/// re-created from its generation marker at the next submission.
+static FULLSCREEN_STREAM: Mutex<Option<FullscreenStream>> = Mutex::new(None);
+
+struct FullscreenStream {
+    device: usize,
+    generation: u32,
+    buffer: VertexBuffer9,
+}
+
+const SCREEN_VERTEX_BYTES: usize = size_of::<ScreenVertex>();
+
+/// Submit one fullscreen strip through the persistent stream.
+///
+/// `quad` is the exact four-vertex geometry the caller's shader expects, in
+/// `ScreenVertex` layout. The stream source is rebound to this buffer for
+/// the submission; the caller's state transaction restores the native
+/// binding. Contentions fall back to the caller-owned single `UP` draw
+/// instead of blocking.
+///
+/// # Safety
+///
+/// The FVF/declaration at submission time must accept `ScreenVertex`.
+pub(crate) unsafe fn draw_fullscreen_quad(
+    device: &Device9Ref<'_>,
+    quad: &[ScreenVertex; 4],
+) -> Direct3DResult<()> {
+    if let Some(mut slot) = FULLSCREEN_STREAM.try_lock() {
+        let generation = crate::backend::d3d_device_generation();
+        let stream = match slot.as_ref() {
+            Some(stream)
+                if stream.device == device.as_raw() as usize && stream.generation == generation =>
+            {
+                Some(stream)
+            }
+            _ => None,
+        };
+        let owned = match stream {
+            Some(stream) => Some(stream),
+            None => {
+                *slot = None;
+                match device.create_dynamic_vertex_buffer(
+                    (quad.len() * SCREEN_VERTEX_BYTES) as u32,
+                    ScreenVertex::FVF,
+                ) {
+                    Ok(buffer) => {
+                        *slot = Some(FullscreenStream {
+                            device: device.as_raw() as usize,
+                            generation,
+                            buffer,
+                        });
+                        slot.as_ref()
+                    }
+                    Err(_) => None,
+                }
+            }
+        };
+        if let Some(stream) = owned {
+            // SAFETY: quad is exactly ScreenVertex::LEN elements of the
+            // repr(C) layout ScreenVertex::FVF describes.
+            let bytes = unsafe {
+                std::slice::from_raw_parts(
+                    quad.as_ptr() as *const u8,
+                    quad.len() * SCREEN_VERTEX_BYTES,
+                )
+            };
+            stream.buffer.replace_discard(bytes)?;
+            unsafe {
+                device.set_raw_stream_source(
+                    0,
+                    stream.buffer.as_raw(),
+                    0,
+                    SCREEN_VERTEX_BYTES as u32,
+                )?;
+            }
+            device.draw_primitive(D3DPT_TRIANGLESTRIP, 0, 2)?;
+            return Ok(());
+        }
+    }
+    unsafe { device.draw_primitive_up(D3DPT_TRIANGLESTRIP, 2, quad) }
+}
+
+/// Release the persistent fullscreen stream before a device reset.
+pub(crate) fn release_fullscreen_stream() {
+    if let Some(mut slot) = FULLSCREEN_STREAM.try_lock() {
+        *slot = None;
     }
 }
 

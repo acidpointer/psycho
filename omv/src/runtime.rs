@@ -89,14 +89,13 @@ use std::{
 
 use libpsycho::os::windows::{
     directx9::{
-        D3DCULL_NONE, D3DFORMAT, D3DPT_TRIANGLESTRIP, D3DRS_ALPHABLENDENABLE,
-        D3DRS_ALPHATESTENABLE, D3DRS_COLORWRITEENABLE, D3DRS_CULLMODE, D3DRS_ZENABLE,
-        D3DRS_ZWRITEENABLE, D3DSAMP_ADDRESSU, D3DSAMP_ADDRESSV, D3DSAMP_MAGFILTER,
-        D3DSAMP_MINFILTER, D3DSAMP_MIPFILTER, D3DSBT_ALL, D3DSURFACE_DESC, D3DTA_TEXTURE,
-        D3DTADDRESS_CLAMP, D3DTEXF_LINEAR, D3DTEXF_NONE, D3DTEXF_POINT, D3DTOP_SELECTARG1,
-        D3DTSS_ALPHAARG1, D3DTSS_ALPHAOP, D3DTSS_COLORARG1, D3DTSS_COLOROP, D3DVIEWPORT9,
-        Device9Ref, Direct3DError as WindowsError, Direct3DResult, PixelShader9, ScreenVertex,
-        StateBlock9, Surface9, Texture9, direct3d_failure,
+        D3DCULL_NONE, D3DFORMAT, D3DRS_ALPHABLENDENABLE, D3DRS_ALPHATESTENABLE,
+        D3DRS_COLORWRITEENABLE, D3DRS_CULLMODE, D3DRS_ZENABLE, D3DRS_ZWRITEENABLE,
+        D3DSAMP_ADDRESSU, D3DSAMP_ADDRESSV, D3DSAMP_MAGFILTER, D3DSAMP_MINFILTER,
+        D3DSAMP_MIPFILTER, D3DSURFACE_DESC, D3DTA_TEXTURE, D3DTADDRESS_CLAMP, D3DTEXF_LINEAR,
+        D3DTEXF_NONE, D3DTEXF_POINT, D3DTOP_SELECTARG1, D3DTSS_ALPHAARG1, D3DTSS_ALPHAOP,
+        D3DTSS_COLORARG1, D3DTSS_COLOROP, D3DVIEWPORT9, Device9Ref, Direct3DError as WindowsError,
+        Direct3DResult, PixelShader9, ScreenVertex, Surface9, Texture9, direct3d_failure,
     },
     winapi::{
         get_active_window, is_window, query_performance_counter, query_performance_frequency,
@@ -121,10 +120,7 @@ use crate::{
         PresetActiveState, PresetCatalog, PresetEvent, PresetKey, PresetPublishRequest,
         PresetService, suggest_next_patch_version,
     },
-    render_state::{
-        RenderAttachments, RenderTargetSlots, copy_scene_color_for_sampling,
-        finish_render_transaction,
-    },
+    render_state::{RenderAttachments, RenderTargetSlots, copy_scene_color_for_sampling},
     shaders::{self, EmbeddedEffectKind, ScreenShaderSource, ShaderOptionValue, ShaderPhase},
 };
 
@@ -1494,7 +1490,6 @@ struct ScreenShaderRuntime {
     scene_post_color_scratch: Option<BackbufferCopy>,
     world_color_copy: Option<BackbufferCopy>,
     world_color_source_target: usize,
-    state_block: Option<StateBlock9>,
     render_target_slots: Option<RenderTargetSlots>,
     gpu_diagnostics: Option<GpuDiagnosticsProfile>,
     imgui: Option<psycho_imgui::Dx9Context>,
@@ -1567,7 +1562,6 @@ impl Default for ScreenShaderRuntime {
             scene_post_color_scratch: None,
             world_color_copy: None,
             world_color_source_target: 0,
-            state_block: None,
             render_target_slots: None,
             gpu_diagnostics: None,
             imgui: None,
@@ -1863,17 +1857,9 @@ impl ScreenShaderRuntime {
     ) -> Direct3DResult<()> {
         let slots = self.render_target_slots(device)?;
         let attachments = RenderAttachments::capture(device, slots)?;
-        self.ensure_state_block(device)?;
-        // The menu may retire the persistent owner while this transaction is
-        // active. Retain the captured block locally through restoration; never
-        // republish it after teardown or retain it beyond this call.
-        let state_block = self
-            .state_block
-            .clone()
-            .ok_or_else(|| runtime_error("missing presentation state"))?;
-        crate::render_state::capture_state_block(&state_block)?;
+        let state = crate::render_state::capture_screen_transaction(device)?;
         let result = draw(self);
-        finish_render_transaction(device, &attachments, Some(&state_block), result)
+        crate::render_state::finish_screen_transaction(device, &attachments, result, &state)
     }
 
     unsafe fn apply_first_person_motion_blur_after_world(
@@ -1974,13 +1960,7 @@ impl ScreenShaderRuntime {
         };
         let render_target_slots = self.render_target_slots(&device)?;
         let attachments = RenderAttachments::capture(&device, render_target_slots)?;
-        self.ensure_state_block(&device)?;
-        let Some(state_block) = self.state_block.as_ref() else {
-            return Err(runtime_error(
-                "[MOTION_BLUR] Missing D3D state block before post-world capture",
-            ));
-        };
-        crate::render_state::capture_state_block(state_block)?;
+        let state = crate::render_state::capture_screen_transaction(&device)?;
 
         let draw_result = (|| {
             // RT0 is already the validated completed-world target. Detach
@@ -2001,12 +1981,7 @@ impl ScreenShaderRuntime {
             .map(|_| ())
         })();
 
-        finish_render_transaction(
-            &device,
-            &attachments,
-            self.state_block.as_ref(),
-            draw_result,
-        )?;
+        crate::render_state::finish_screen_transaction(&device, &attachments, draw_result, &state)?;
         Ok(FirstPersonMotionBlurOutcome::Consumed)
     }
 
@@ -2116,13 +2091,7 @@ impl ScreenShaderRuntime {
         };
         let render_target_slots = self.render_target_slots(&device)?;
         let attachments = RenderAttachments::capture(&device, render_target_slots)?;
-        self.ensure_state_block(&device)?;
-        let Some(state_block) = self.state_block.as_ref() else {
-            return Err(runtime_error(
-                "[AO] Missing D3D state block before post-world capture",
-            ));
-        };
-        crate::render_state::capture_state_block(state_block)?;
+        let state = crate::render_state::capture_screen_transaction(&device)?;
 
         let draw_result = (|| {
             // RenderWorldSceneGraph has returned, so RT0 is the completed
@@ -2146,12 +2115,7 @@ impl ScreenShaderRuntime {
             .map(|_| ())
         })();
 
-        finish_render_transaction(
-            &device,
-            &attachments,
-            self.state_block.as_ref(),
-            draw_result,
-        )?;
+        crate::render_state::finish_screen_transaction(&device, &attachments, draw_result, &state)?;
         self.ambient_occlusion_after_world_applied = true;
         if !self.world_only_ao_info_logged {
             log::info!("[AO] World-only-provider AO is drawing on the active post-world target");
@@ -2218,13 +2182,7 @@ impl ScreenShaderRuntime {
         }
         let render_target_slots = self.render_target_slots(&device)?;
         let attachments = RenderAttachments::capture(&device, render_target_slots)?;
-        self.ensure_state_block(&device)?;
-        let Some(state_block) = self.state_block.as_ref() else {
-            return Err(runtime_error(
-                "[SHADERS] Missing D3D state block before scene capture",
-            ));
-        };
-        crate::render_state::capture_state_block(state_block)?;
+        let state = crate::render_state::capture_screen_transaction(&device)?;
 
         let draw_result = (|| {
             // The engine attachments can differ in size or multisample mode
@@ -2237,12 +2195,7 @@ impl ScreenShaderRuntime {
             self.draw_passes(&device, &render_target, &desc, phase, &frame_inputs)
         })();
 
-        finish_render_transaction(
-            &device,
-            &attachments,
-            self.state_block.as_ref(),
-            draw_result,
-        )?;
+        crate::render_state::finish_screen_transaction(&device, &attachments, draw_result, &state)?;
 
         self.applied_phases.mark_applied(phase);
         if self.scene_apply_logs < 8 {
@@ -2938,14 +2891,6 @@ impl ScreenShaderRuntime {
         Ok(())
     }
 
-    fn ensure_state_block(&mut self, device: &Device9Ref<'_>) -> Direct3DResult<()> {
-        if self.state_block.is_none() {
-            self.state_block = Some(device.create_state_block(D3DSBT_ALL)?);
-        }
-
-        Ok(())
-    }
-
     fn render_target_slots(
         &mut self,
         device: &Device9Ref<'_>,
@@ -3550,7 +3495,7 @@ impl ScreenShaderRuntime {
                     source.name
                 );
                 unsafe {
-                    device.draw_primitive_up(D3DPT_TRIANGLESTRIP, 2, &quad)?;
+                    crate::render_state::draw_fullscreen_quad(device, &quad)?;
                 }
                 color_graph.commit(output_location, true);
                 stages_remaining = stages_remaining.saturating_sub(1);
@@ -4591,6 +4536,7 @@ impl ScreenShaderRuntime {
     fn release_device_resources(&mut self) {
         set_menu_diagnostics_active(false);
         self.release_visual_resources();
+        crate::render_state::release_fullscreen_stream();
         if let Some(imgui) = self.imgui.as_mut() {
             imgui.invalidate_device_objects();
             self.imgui_needs_device_objects = true;
@@ -4629,7 +4575,6 @@ impl ScreenShaderRuntime {
         self.prepared_motion_blur_frame = None;
         self.first_person_motion_blur_target = 0;
         self.world_color_captured_this_frame = false;
-        self.state_block = None;
     }
 
     fn log_frame_error(&mut self, err: &WindowsError) {

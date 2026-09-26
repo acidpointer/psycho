@@ -655,10 +655,6 @@ fn present_restores_native_state_after_visual_resource_release() {
             fail_draw,
             "menu retirement must retain restoration state"
         );
-        assert!(
-            runtime.state_block.is_none(),
-            "retired resources must stay retired"
-        );
         assert_eq!(device.render_target(0).unwrap().as_raw(), target.as_raw());
         assert_eq!(
             device

@@ -40,7 +40,7 @@ use libpsycho::os::windows::{
         Texture9, USAGE_RENDER_TARGET, raw_texture_2d_description,
     },
     hook::{callsite::Rel32CallHookContainer, transaction::ModificationTransaction},
-    memory::validate_memory_range,
+    memory::{validate_memory_range, validate_memory_range_for_epoch},
 };
 use parking_lot::Mutex;
 
@@ -1656,6 +1656,14 @@ fn authoritative_light_invocation(invocation: ShadowInvocation) -> bool {
         && invocation.variant != ShadowDispatcherVariant::Unknown
 }
 
+/// Current render epoch for the light-capture validation cache, shared with
+/// the backend engine-read cache domain: a shadow or texture record validated
+/// earlier in the same epoch needs no repeated `VirtualQuery` syscall.
+#[inline]
+fn capture_validation_epoch() -> u32 {
+    crate::hooks::render_epoch()
+}
+
 fn validate_exact_hook_entry(address: usize, expected: &[u8], label: &'static str) -> bool {
     if validate_memory_range(address as *const c_void, expected.len()).is_err() {
         log::warn!("[ATMOSPHERE LOCAL] Cannot read {label} entry at 0x{address:08X}");
@@ -1794,13 +1802,23 @@ unsafe fn capture_shadow(
     if device_identity == 0 {
         return None;
     }
-    validate_memory_range(shadow_scene_light.cast(), SHADOW_SCENE_LIGHT_SIZE).ok()?;
+    validate_memory_range_for_epoch(
+        capture_validation_epoch(),
+        shadow_scene_light.cast(),
+        SHADOW_SCENE_LIGHT_SIZE,
+    )
+    .ok()?;
     if unsafe { read_at_unchecked::<u8>(shadow_scene_light, SHADOW_POSITIONAL_OFFSET) } == 0 {
         return None;
     }
     let native_light =
         unsafe { read_at_unchecked::<*mut u8>(shadow_scene_light, SHADOW_NATIVE_LIGHT_OFFSET) };
-    validate_memory_range(native_light.cast(), NATIVE_LIGHT_SIZE).ok()?;
+    validate_memory_range_for_epoch(
+        capture_validation_epoch(),
+        native_light.cast(),
+        NATIVE_LIGHT_SIZE,
+    )
+    .ok()?;
     let rendered_texture =
         unsafe { read_at_unchecked::<*mut u8>(shadow_scene_light, SHADOW_RENDERED_TEXTURE_OFFSET) };
 
@@ -2693,14 +2711,25 @@ unsafe fn read_vec3_unchecked(base: *mut u8, offset: usize) -> [f32; 3] {
 }
 
 unsafe fn resolve_texture_chain(rendered_texture: *mut u8) -> Option<ResolvedTexture> {
-    validate_memory_range(rendered_texture.cast(), RENDERED_TEXTURE_SIZE).ok()?;
+    validate_memory_range_for_epoch(
+        capture_validation_epoch(),
+        rendered_texture.cast(),
+        RENDERED_TEXTURE_SIZE,
+    )
+    .ok()?;
     let texture = unsafe {
         read_at_unchecked::<*mut u8>(rendered_texture, RENDERED_TEXTURE_TEXTURE_ZERO_OFFSET)
     };
-    validate_memory_range(texture.cast(), NI_TEXTURE_SIZE).ok()?;
+    validate_memory_range_for_epoch(capture_validation_epoch(), texture.cast(), NI_TEXTURE_SIZE)
+        .ok()?;
     let renderer_data =
         unsafe { read_at_unchecked::<*mut u8>(texture, NI_TEXTURE_RENDERER_DATA_OFFSET) };
-    validate_memory_range(renderer_data.cast(), DX9_TEXTURE_DATA_SIZE).ok()?;
+    validate_memory_range_for_epoch(
+        capture_validation_epoch(),
+        renderer_data.cast(),
+        DX9_TEXTURE_DATA_SIZE,
+    )
+    .ok()?;
     let raw_texture = unsafe {
         read_at_unchecked::<*mut c_void>(renderer_data, DX9_TEXTURE_DATA_BASE_TEXTURE_OFFSET)
     };
@@ -2736,9 +2765,15 @@ fn texture_format(format: D3DFORMAT) -> Option<ShadowTextureFormat> {
 }
 
 fn validate_com_texture(texture: *mut c_void) -> Option<()> {
-    validate_memory_range(texture.cast_const(), size_of::<usize>()).ok()?;
+    validate_memory_range_for_epoch(
+        capture_validation_epoch(),
+        texture.cast_const(),
+        size_of::<usize>(),
+    )
+    .ok()?;
     let vtable = unsafe { texture.cast::<*const c_void>().read_unaligned() };
-    validate_memory_range(vtable, COM_TEXTURE_VTABLE_BYTES).ok()?;
+    validate_memory_range_for_epoch(capture_validation_epoch(), vtable, COM_TEXTURE_VTABLE_BYTES)
+        .ok()?;
     Some(())
 }
 

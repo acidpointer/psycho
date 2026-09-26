@@ -44,10 +44,10 @@ pub use windows::Win32::Graphics::Direct3D9::{
     D3DRS_STENCILFUNC, D3DRS_STENCILMASK, D3DRS_STENCILPASS, D3DRS_STENCILREF,
     D3DRS_STENCILWRITEMASK, D3DRS_ZENABLE, D3DRS_ZFUNC, D3DRS_ZWRITEENABLE, D3DRTYPE_SURFACE,
     D3DRTYPE_TEXTURE, D3DSAMP_ADDRESSU, D3DSAMP_ADDRESSV, D3DSAMP_ADDRESSW, D3DSAMP_MAGFILTER,
-    D3DSAMP_MINFILTER, D3DSAMP_MIPFILTER, D3DSAMP_SRGBTEXTURE, D3DSBT_ALL, D3DSTENCILOP_KEEP,
-    D3DSURFACE_DESC, D3DTA_TEXTURE, D3DTADDRESS_CLAMP, D3DTADDRESS_WRAP, D3DTEXF_LINEAR,
-    D3DTEXF_NONE, D3DTEXF_POINT, D3DTOP_SELECTARG1, D3DTSS_ALPHAARG1, D3DTSS_ALPHAOP,
-    D3DTSS_COLORARG1, D3DTSS_COLOROP, D3DVIEWPORT9,
+    D3DSAMP_MINFILTER, D3DSAMP_MIPFILTER, D3DSAMP_SRGBTEXTURE, D3DSBT_ALL, D3DSBT_PIXELSTATE,
+    D3DSBT_VERTEXSTATE, D3DSTENCILOP_KEEP, D3DSURFACE_DESC, D3DTA_TEXTURE, D3DTADDRESS_CLAMP,
+    D3DTADDRESS_WRAP, D3DTEXF_LINEAR, D3DTEXF_NONE, D3DTEXF_POINT, D3DTOP_SELECTARG1,
+    D3DTSS_ALPHAARG1, D3DTSS_ALPHAOP, D3DTSS_COLORARG1, D3DTSS_COLOROP, D3DVIEWPORT9,
 };
 use windows::Win32::Graphics::Direct3D9::{
     D3DADAPTER_DEFAULT, D3DADAPTER_IDENTIFIER9, D3DBACKBUFFER_TYPE, D3DBACKBUFFER_TYPE_MONO,
@@ -57,7 +57,7 @@ use windows::Win32::Graphics::Direct3D9::{
     D3DPRIMITIVETYPE, D3DRECT, D3DRENDERSTATETYPE, D3DRESOURCETYPE, D3DSTATEBLOCKTYPE,
     D3DSWAPEFFECT_DISCARD, D3DTEXTUREFILTERTYPE, D3DTEXTURESTAGESTATETYPE, D3DUSAGE_DEPTHSTENCIL,
     D3DUSAGE_DYNAMIC, D3DUSAGE_QUERY_FILTER, D3DUSAGE_QUERY_POSTPIXELSHADER_BLENDING,
-    D3DUSAGE_RENDERTARGET, Direct3DCreate9, IDirect3D9, IDirect3DBaseTexture9,
+    D3DUSAGE_RENDERTARGET, D3DUSAGE_WRITEONLY, Direct3DCreate9, IDirect3D9, IDirect3DBaseTexture9,
     IDirect3DCubeTexture9, IDirect3DDevice9, IDirect3DIndexBuffer9, IDirect3DPixelShader9,
     IDirect3DStateBlock9, IDirect3DSurface9, IDirect3DTexture9, IDirect3DVertexBuffer9,
     IDirect3DVertexDeclaration9, IDirect3DVertexShader9,
@@ -1447,6 +1447,45 @@ impl<'a> Device9Ref<'a> {
         unsafe { self.inner.SetIndices(buffer) }
     }
 
+    /// Create an owned dynamic vertex buffer for repeated small submissions.
+    ///
+    /// `D3DUSAGE_DYNAMIC|D3DUSAGE_WRITEONLY` in `D3DPOOL_DEFAULT` is the
+    /// documented upload pattern that avoids the per-call allocation a
+    /// `DrawPrimitiveUP` submission performs.
+    pub fn create_dynamic_vertex_buffer(
+        &self,
+        byte_size: u32,
+        fvf: u32,
+    ) -> Direct3DResult<VertexBuffer9> {
+        let mut buffer: Option<IDirect3DVertexBuffer9> = None;
+        let mut shared = Default::default();
+        unsafe {
+            self.inner.CreateVertexBuffer(
+                byte_size,
+                (D3DUSAGE_DYNAMIC | D3DUSAGE_WRITEONLY) as u32,
+                fvf,
+                D3DPOOL_DEFAULT,
+                &mut buffer,
+                &mut shared,
+            )?
+        };
+        let buffer = buffer.ok_or_else(|| WindowsError::from_hresult(E_POINTER))?;
+        Ok(VertexBuffer9::new(buffer))
+    }
+
+    /// Draw primitives from the currently bound vertex stream.
+    pub fn draw_primitive(
+        &self,
+        primitive_type: D3DPRIMITIVETYPE,
+        start_vertex: u32,
+        primitive_count: u32,
+    ) -> Direct3DResult<()> {
+        unsafe {
+            self.inner
+                .DrawPrimitive(primitive_type, start_vertex, primitive_count)
+        }
+    }
+
     /// Draw caller-owned vertex data.
     ///
     /// # Safety
@@ -1985,6 +2024,44 @@ pub unsafe fn raw_texture_2d_description(
 #[derive(Clone, Debug)]
 pub struct Surface9 {
     inner: IDirect3DSurface9,
+}
+
+/// Owned dynamic vertex buffer for repeated small OMV submissions.
+pub struct VertexBuffer9 {
+    inner: IDirect3DVertexBuffer9,
+}
+
+// Safety: this wrapper only owns a COM reference. Callers must still obey the
+// D3D device threading contract for actual resource use.
+unsafe impl Send for VertexBuffer9 {}
+
+impl VertexBuffer9 {
+    fn new(inner: IDirect3DVertexBuffer9) -> Self {
+        Self { inner }
+    }
+
+    /// As-lifetime `IDirect3DVertexBuffer9*` for `SetStreamSource` interop.
+    pub fn as_raw(&self) -> *mut c_void {
+        self.inner.as_raw()
+    }
+
+    /// Replace the whole buffer with exactly `bytes` under a discard lock.
+    ///
+    /// `bytes.len()` must equal the buffer's creation size; the caller owns
+    /// the upload on its render thread.
+    pub fn replace_discard(&self, bytes: &[u8]) -> Direct3DResult<()> {
+        let mut pointer = null_mut::<c_void>();
+        unsafe {
+            self.inner
+                .Lock(0, 0, &mut pointer, D3DLOCK_DISCARD as u32)?
+        };
+        // SAFETY: the locked range covers the created buffer size and the
+        // caller supplied exactly that many bytes.
+        unsafe {
+            std::ptr::copy_nonoverlapping(bytes.as_ptr(), pointer as *mut u8, bytes.len());
+        }
+        unsafe { self.inner.Unlock() }
+    }
 }
 
 struct SurfaceLockGuard<'a> {
@@ -2824,6 +2901,179 @@ impl<
         // generated declaration but change GetFVF from its captured nonzero
         // value to zero. Select exactly one route from the captured FVF value;
         // zero is not a valid SetFVF input and identifies declaration mode.
+        if self.fvf != 0 {
+            keep_first_error(&mut result, device.set_fvf(self.fvf));
+        } else {
+            keep_first_error(&mut result, unsafe {
+                device.inner.SetVertexDeclaration(self.declaration.as_ref())
+            });
+        }
+        keep_first_error(&mut result, device.set_viewport(&self.viewport));
+        keep_first_error(&mut result, unsafe {
+            device.inner.SetScissorRect(&self.scissor)
+        });
+        result
+    }
+}
+
+/// Call-local journal for one OMV screen-space transaction.
+///
+/// Covers the exact state OMV's screen passes mutate: shader bindings, FVF or
+/// declaration mode, stream zero and its frequency, viewport/scissor, the 15
+/// render states of the snapshot list, sampler states zero through seven, all
+/// eight pixel texture bindings, and the four texture-stage states stage zero.
+/// Constants are not journaled: every screen pass publishes its own constants
+/// per draw and the engine rebinds its own before the next native draw. This
+/// replaces the driver `D3DSBT_ALL` capture (which additionally walks
+/// unrelated lights, transforms and constants; measured ~104 us per
+/// capture+apply under DXVK versus ~4 us for the bounded families) with
+/// roughly 75 device calls. Capture allocates no storage; query errors abort
+/// capture and release partial COM ownership. Use on the serialized device
+/// owner thread; restore after attachments because SetRenderTarget resets
+/// viewport/scissor.
+pub struct ScreenTransactionState9 {
+    fvf: u32,
+    declaration: Option<IDirect3DVertexDeclaration9>,
+    vertex_shader: Option<IDirect3DVertexShader9>,
+    pixel_shader: Option<IDirect3DPixelShader9>,
+    stream: DrawStreamState9,
+    frequency: u32,
+    viewport: D3DVIEWPORT9,
+    scissor: RECT,
+    render_states: [u32; DEPTH_SNAPSHOT_RENDER_STATES.len()],
+    sampler_states: [[u32; SHADOW_SAMPLER_STATES.len()]; 8],
+    textures: [Option<IDirect3DBaseTexture9>; 8],
+    texture_stage_states: [u32; 4],
+}
+
+const SCREEN_TEXTURE_STAGE_STATES: [D3DTEXTURESTAGESTATETYPE; 4] = [
+    D3DTSS_COLOROP,
+    D3DTSS_COLORARG1,
+    D3DTSS_ALPHAOP,
+    D3DTSS_ALPHAARG1,
+];
+
+impl ScreenTransactionState9 {
+    /// Capture every state the following screen transaction may mutate.
+    pub fn capture(device: &Device9Ref<'_>) -> Direct3DResult<Self> {
+        let fvf = device.fvf()?;
+        let declaration = optional_binding(unsafe { device.inner.GetVertexDeclaration() })?;
+        let vertex_shader = optional_binding(unsafe { device.inner.GetVertexShader() })?;
+        let pixel_shader = optional_binding(unsafe { device.inner.GetPixelShader() })?;
+        let mut stream = DrawStreamState9 {
+            buffer: None,
+            offset: 0,
+            stride: 0,
+        };
+        let mut frequency = 0;
+        unsafe {
+            device.inner.GetStreamSource(
+                0,
+                &mut stream.buffer,
+                &mut stream.offset,
+                &mut stream.stride,
+            )?;
+            device.inner.GetStreamSourceFreq(0, &mut frequency)?;
+        }
+        let viewport = device.viewport()?;
+        let scissor = device.scissor_rect()?;
+        let mut render_states = [0; DEPTH_SNAPSHOT_RENDER_STATES.len()];
+        for (state, value) in DEPTH_SNAPSHOT_RENDER_STATES
+            .into_iter()
+            .zip(&mut render_states)
+        {
+            *value = device.render_state(state)?;
+        }
+        let mut sampler_states = [[0; SHADOW_SAMPLER_STATES.len()]; 8];
+        for (stage, states) in sampler_states.iter_mut().enumerate() {
+            for (state, value) in SHADOW_SAMPLER_STATES.into_iter().zip(states) {
+                *value = device.sampler_state(stage as u32, state)?;
+            }
+        }
+        let mut textures = std::array::from_fn(|_| None);
+        for (stage, texture) in textures.iter_mut().enumerate() {
+            *texture = optional_binding(unsafe { device.inner.GetTexture(stage as u32) })?;
+        }
+        let mut texture_stage_states = [0; SCREEN_TEXTURE_STAGE_STATES.len()];
+        for (state, value) in SCREEN_TEXTURE_STAGE_STATES
+            .into_iter()
+            .zip(&mut texture_stage_states)
+        {
+            *value = device.texture_stage_state(0, state)?;
+        }
+        Ok(Self {
+            fvf,
+            declaration,
+            vertex_shader,
+            pixel_shader,
+            stream,
+            frequency,
+            viewport,
+            scissor,
+            render_states,
+            sampler_states,
+            textures,
+            texture_stage_states,
+        })
+    }
+
+    /// Attempt all state restores, returning the first device error.
+    /// The journal retains each COM binding until the caller drops it.
+    pub fn restore(&self, device: &Device9Ref<'_>) -> Direct3DResult<()> {
+        let mut result = Ok(());
+        for (state, value) in DEPTH_SNAPSHOT_RENDER_STATES
+            .into_iter()
+            .zip(self.render_states)
+        {
+            keep_first_error(&mut result, device.set_render_state(state, value));
+        }
+        for (stage, states) in self.sampler_states.iter().enumerate() {
+            for (state, value) in SHADOW_SAMPLER_STATES
+                .into_iter()
+                .zip(states.iter().copied())
+            {
+                keep_first_error(
+                    &mut result,
+                    device.set_sampler_state(stage as u32, state, value),
+                );
+            }
+        }
+        for (stage, texture) in self.textures.iter().enumerate() {
+            // A binding the transaction never touched still holds the captured
+            // value; re-setting None is a redundant driver call.
+            if texture.is_none() {
+                continue;
+            }
+            keep_first_error(&mut result, unsafe {
+                device.inner.SetTexture(stage as u32, texture.as_ref())
+            });
+        }
+        for (state, value) in SCREEN_TEXTURE_STAGE_STATES
+            .into_iter()
+            .zip(self.texture_stage_states)
+        {
+            keep_first_error(&mut result, device.set_texture_stage_state(0, state, value));
+        }
+        keep_first_error(&mut result, unsafe {
+            device.inner.SetVertexShader(self.vertex_shader.as_ref())
+        });
+        keep_first_error(&mut result, unsafe {
+            device.inner.SetPixelShader(self.pixel_shader.as_ref())
+        });
+        keep_first_error(&mut result, unsafe {
+            device.inner.SetStreamSource(
+                0,
+                self.stream.buffer.as_ref(),
+                self.stream.offset,
+                self.stream.stride,
+            )
+        });
+        keep_first_error(
+            &mut result,
+            device.set_stream_source_frequency(0, self.frequency),
+        );
+        // FVF and explicit declaration are different modes; restoring both
+        // would change GetFVF to zero on a previously fixed-function draw.
         if self.fvf != 0 {
             keep_first_error(&mut result, device.set_fvf(self.fvf));
         } else {
