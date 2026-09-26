@@ -281,6 +281,188 @@ The xNVSE `.nvse` cosave is not atomically paired with `.fos` promotion by this
 module. A future paired transaction requires an xNVSE ownership contract and
 must not be inferred from the core file path.
 
+## Save guard performance research and proposed changes
+
+Status: unreleased LowProcess optimization candidate. The owner reports
+substantially slower saving on weaker machines, cannot reproduce it on the
+main PC, and has no
+affected-machine log. The available successful-save log has no start or phase
+timings. No candidate below is established as the cause, and no elapsed-time
+or FPS improvement is claimed. The save-integrity setting has not been
+excluded by a supplied controlled comparison.
+
+The owner explicitly authorized skipping the unavailable reproduction/log
+step and proceeding with an unreleased implementation. This waives the
+baseline requirement for this incident, not the safety-contract requirements
+or the distinction between static qualification and runtime performance.
+
+The objective is lower save latency with the same valid serialization,
+corruption containment, durable recovery, and promotion behavior. Source-level
+work reductions are useful design budgets, not substitutes for measuring that
+objective. The radio investigation's 120 FPS target is not a save-duration
+budget.
+
+### Evidence and boundaries
+
+The executable identity above was reconfirmed for this research. Focused native
+rechecks are in
+[`save_guard_optimization_radare2_audit.txt`](../analysis/ghidra/output/perf/save_guard_optimization_radare2_audit.txt).
+They confirm the following boundaries:
+
+- Inventory list save at `0x004D4090` calls `0x004BED60` at `0x004D410D`,
+  then increments the serialized count. The existing list-level interception
+  must remain; bypassing the body alone corrupts the count contract.
+- LowProcess serialization uses the embedded head at process `+0x6C`, calls
+  data at `0x009105A6`, payload serialization at `0x009105BF`, and next at
+  `0x009105D0`. Native dereferences the data accessor result immediately.
+  An empty head still reaches the accessor path. Preserve captured providers,
+  the permanent readable NULL cell, and native count finalization.
+- Ragdoll `0x00C75B40` consumes transform root `+0x58`, hierarchy `+0x2A4`,
+  transform buffer `+0x94`, and bone table `+0xA4`, then writes bone transforms.
+  Its direct caller at `0x004953B5` was reconfirmed. This proves the consumer,
+  not its invocation frequency or contribution during a reported slow save.
+
+Existing ownership and lifetime evidence remains authoritative:
+
+- [`entrydata_save_skip_contract_audit.txt`](../analysis/ghidra/output/crash/entrydata_save_skip_contract_audit.txt)
+- [`save_snapshot_lock_ownership_followup.txt`](../analysis/ghidra/output/crash/save_snapshot_lock_ownership_followup.txt)
+- [`ragdoll_save_load_contract_deep_audit.txt`](../analysis/ghidra/output/crash/ragdoll_save_load_contract_deep_audit.txt)
+- [LowProcess containment contract](crash_20260717_lowprocess_save_structural_containment_plan.md)
+
+The save barrier does not prove universal exclusion of mutations. A readable
+mapping does not prove an object's lifetime or generation. In particular,
+neither a save-wide validity cache nor cached successful ragdoll readiness has
+a proven invalidation contract. These are excluded from the proposed patch.
+
+### Inventory: bound reuse to one validation
+
+`entrydata.rs::is_valid_entry` currently performs exactly three memory queries
+for each accepted entry: entry storage, form storage, and vtable storage.
+There are no native callbacks between these three checks, but the serializer
+calls native code between entries.
+
+Proposed change: evaluate a stack-local cache of at most three queried readable
+regions inside one save-side `is_valid_entry` call. Three is derived from the
+three existing range checks. Discard it before the native body, logging, or
+next-node call; never retain an accepted form or entry result. Preserve the
+same pointer reads, range coverage, vtable/text bounds, rejection decisions,
+serialized count, flags, and writer state. Keep load-side behavior scoped out
+of this optimization.
+
+For stable mappings this changes the query budget from three to the number of
+distinct queried regions, between one and three. It cannot promise a reduction
+when all ranges occupy different regions, and initialization/comparison costs
+must be considered. No allocation, global cache, TLS, or additional lock is
+needed. Before implementation, close the within-validation mapping-stability
+contract; callback-free source alone does not exclude other threads. If that
+contract cannot be established, retain fresh queries rather than weaken the
+guard. Reuse across entries is a separate, currently unsupported proposal.
+
+### LowProcess: resolve context once per intercepted call
+
+`lowprocess.rs` caches four readable and four executable regions per
+traversal. Before this optimization, on the accepted nonterminal-node path,
+context resolution occurred
+twice in the data hook, once in the payload hook, and four times in the next
+hook. Each resolution fetches the current thread ID and searches up to four
+owner slots. `FnPtr::from_raw` only checks NULL; it is not another memory query
+and does not justify a function-pointer redesign.
+
+Implemented: resolve the existing owner slot once on entry to each data/next
+hook; pass call-local `SaveTraversalAccess` to validation operations instead
+of rediscovering it. Payload validation still resolves once, and a NULL
+payload still requires no lookup. The normal nonterminal-node budget becomes
+three slot resolutions rather than seven. The non-Send, non-Sync handle holds
+only a pointer to the existing context storage across a native predecessor
+call, never a mutable context reference. Checks reborrow the context after
+the call so nested saves can replace and restore it without Rust aliasing
+violations. Construction is unsafe and restricted to the intercepted call's
+owner lifetime; the handle never claims, releases, or owns a slot.
+The existing owner wrapper, four-slot admission, nesting restoration, and
+missing-context behavior remain in force.
+
+Retain validation of the predecessor's returned data cell, node alignment,
+payload contract, 256-node bound, Brent cycle detection, count behavior, and
+sampled anomaly counters. Do not skip native accessors on an empty list or
+drop the owner wrapper on that path: an empty payload does not authorize
+bypassing an installed provider. Do not increase cache lifetimes or capacities
+as part of this change. This is the first implementation candidate because
+it removes repeated bookkeeping without extending memory-validation reuse.
+
+### Ragdoll: retain regions within one readiness check
+
+`ragdoll.rs::ragdoll_ready_for_bone_update` currently remembers only the most
+recent readable region. It checks up to six ranges: controller, scene root,
+transform root, hierarchy, bone group, and bone table. Alternation between
+regions can therefore repeat queries within one invocation. The bone loop
+checks pointer values; it does not perform a memory query per bone.
+
+Proposed change: allow the existing readiness validator to retain at most six
+regions for the writeback hook, with capacity derived from those six checks.
+Keep the most recent region as the first lookup to preserve the current cheap
+hit. Preserve one-region behavior in the other update wrappers initially, so
+the save investigation does not silently change recurring frame costs. Use
+stack storage and discard it before native writeback; no controller-address
+cache, ready bit, frame cache, or lifecycle hooks.
+
+Retain every existing root, count, capacity, and bone-pointer check, including
+the full bone loop and its 512-bone bound. Do not replace it with sampling or
+validate only once per controller. Under stable mappings the query count is
+at most the existing six, with reductions only when earlier regions recur.
+The larger cache adds comparisons and stack initialization, so adopt it only
+when the affected path benefits. Mapping stability within the validation
+still requires proof; the existing one-region cache is precedent for the
+mechanism, not proof that arbitrarily broader caching is safe.
+
+### Durable commit and implementation order
+
+The save write wrapper calls its predecessor and checks the returned byte
+count; it does not flush every write. The commit boundary validates only the
+bounded envelope, flushes the completed temporary image, independently copies
+and flushes the old final, and performs write-through promotion. Preserve all
+of these operations, failure propagation, canary checks, and recovery order.
+Do not move serialization or promotion to tasklets or workers. A later I/O
+optimization needs a separately proven durability and Proton/MO2 contract.
+
+Planned order:
+
+1. The owner waived the unavailable failing actual-save baseline for this
+   unreleased candidate. Runtime timing remains unverified.
+   If diagnostic instrumentation becomes useful, reuse `hitch_profiling`, the
+   existing stopwatch, and logger. Aggregate counts and emit one end-of-save
+   summary, not one log or timer per entry. Separate owner duration,
+   serialization, and commit costs only at verified boundaries; do not label
+   the unaccounted remainder as a particular engine phase.
+2. LowProcess slot lookup is refactored with predecessor calls, native ABIs,
+   existing static storage, hook installation, and nested-context ownership
+   preserved. No imports, TLS, configuration, startup callbacks, or shared
+   library APIs are added by this source change.
+3. Inventory and ragdoll cache expansion is deferred: the retained barrier
+   and lifetime evidence does not establish mapping stability against all
+   concurrent mutation sources. Their production code and fresh-query
+   behavior remain intact. Skipping runtime logs does not close this gap.
+4. Run applicable affected-crate checks, one supported 32-bit release build,
+   formatting, and diff review. Do not add mirrored engine models, source
+   assertions, or synthetic save workloads as behavioral substitutes.
+5. Compare the same real save workload before and after, retaining the same
+   mod set, allocator, storage path, save type, and diagnostic settings.
+   Measure end-to-end duration and candidate contribution; use repeated
+   runs to compare median and tail latency rather than a single sample.
+   Vanilla is a contextual baseline, not the correctness oracle for Psycho's
+   additional durability work.
+
+Acceptance requires a reproducible reduction in affected save latency,
+unchanged valid inventory and gameplay state after reload, the same corrupt
+input containment and stream counts, and continued durable-save recovery.
+Include manual, quick, and autosave paths, relevant allocator modes, and
+existing supported providers. Cache-only changes must not regress ordinary
+update timing. Existing LowProcess performance limits remain applicable;
+there is no supplied absolute whole-save latency target. Builds and reduced
+operation counts alone do not demonstrate the reported slowdown is fixed.
+The owner authorized this unreleased candidate without reproduction and
+subsequently requested its commit. Runtime performance acceptance and
+packaging are not implied.
+
 ## Evidence classification
 
 Proven by executable disassembly:

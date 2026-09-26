@@ -33,6 +33,10 @@
 //! 3. Save-only callsite wrappers terminate corrupt traversal and encode an
 //!    unreadable form as NULL without mutating uncertain memory.
 //!
+//! Each save callsite resolves its thread-owned traversal slot once. Only the
+//! slot address crosses a native call; context borrows end before chaining so
+//! nested serializers can replace and restore the same storage safely.
+//!
 //! Vtable installation is capability based. During a bounded startup window,
 //! each slot captures any executable current target independently and places a
 //! distinct wrapper above it. No module name, version, hash, or third-party
@@ -733,7 +737,10 @@ unsafe extern "thiscall" fn lowprocess_save_with_traversal_context(
 }
 
 unsafe extern "fastcall" fn checked_list_data(current: *mut ListNode) -> *mut ListNode {
-    if !begin_save_node(current) {
+    // SAFETY: this handle stays inside the intercepted serializer call. The
+    // owner wrapper retains the slot until this call and any nesting return.
+    let mut access = unsafe { SaveTraversalAccess::current() };
+    if !begin_save_node(&mut access, current) {
         // Native immediately dereferences the accessor result. A stable NULL
         // cell terminates this element without exposing an invalid pointer.
         return null_list_data();
@@ -746,13 +753,15 @@ unsafe extern "fastcall" fn checked_list_data(current: *mut ListNode) -> *mut Li
         LIST_DATA_ADDR
     };
     let Ok(original) = (unsafe { FnPtr::<ListDataFn>::from_raw(target as *mut c_void) }) else {
-        block_save_traversal();
+        block_save_traversal(&mut access);
         return null_list_data();
     };
     let result = unsafe { original.as_fn()(current) };
-    if result.is_null() || !save_pointer_is_readable(result as usize, size_of::<usize>()) {
+    if result.is_null()
+        || !save_pointer_is_readable(&mut access, result as usize, size_of::<usize>())
+    {
         mark_invalid_save_node(result as usize);
-        block_save_traversal();
+        block_save_traversal(&mut access);
         // A predecessor result is not trusted until its returned data cell is
         // independently checked against the active save context.
         return null_list_data();
@@ -761,14 +770,17 @@ unsafe extern "fastcall" fn checked_list_data(current: *mut ListNode) -> *mut Li
 }
 
 unsafe extern "fastcall" fn checked_list_next(current: *mut ListNode) -> *mut ListNode {
-    if save_traversal_is_blocked() {
+    // SAFETY: the intercepted call cannot outlive its owning serializer. No
+    // context borrow is retained while the native next provider executes.
+    let mut access = unsafe { SaveTraversalAccess::current() };
+    if save_traversal_is_blocked(&mut access) {
         return ptr::null_mut();
     }
-    if !save_pointer_is_readable(current as usize, size_of::<ListNode>()) {
+    if !save_pointer_is_readable(&mut access, current as usize, size_of::<ListNode>()) {
         if !current.is_null() {
             mark_invalid_save_node(current as usize);
         }
-        block_save_traversal();
+        block_save_traversal(&mut access);
         return ptr::null_mut();
     }
 
@@ -779,21 +791,21 @@ unsafe extern "fastcall" fn checked_list_next(current: *mut ListNode) -> *mut Li
         LIST_NEXT_ADDR
     };
     let Ok(original) = (unsafe { FnPtr::<ListNextFn>::from_raw(target as *mut c_void) }) else {
-        block_save_traversal();
+        block_save_traversal(&mut access);
         return ptr::null_mut();
     };
     let next = unsafe { original.as_fn()(current) };
     if next.is_null() {
         return next;
     }
-    if !save_pointer_is_readable(next as usize, size_of::<ListNode>()) {
+    if !save_pointer_is_readable(&mut access, next as usize, size_of::<ListNode>()) {
         mark_invalid_save_link(current as usize, next as usize);
-        block_save_traversal();
+        block_save_traversal(&mut access);
         return ptr::null_mut();
     }
-    if save_link_completes_cycle(current as usize, next as usize) {
+    if save_link_completes_cycle(&mut access, current as usize, next as usize) {
         mark_save_cycle(current as usize, next as usize);
-        block_save_traversal();
+        block_save_traversal(&mut access);
         return ptr::null_mut();
     }
     // Returning NULL on failure preserves the serializer's own element-count
@@ -808,7 +820,9 @@ unsafe extern "thiscall" fn checked_append_ref_id(
 ) {
     // The save format already represents a missing reference as NULL. Preserve
     // stream structure without repairing or freeing an unknown payload.
-    let checked = if form.is_null() || is_valid_tes_form(form) {
+    // SAFETY: validation completes inside this serializer call, before the
+    // predecessor is invoked, and cannot outlive the thread-owned slot.
+    let checked = if form.is_null() || unsafe { is_valid_tes_form(form) } {
         form
     } else {
         let n = INVALID_SAVE_FORMS.fetch_add(1, Ordering::Relaxed) + 1;
@@ -1421,23 +1435,50 @@ fn claim_save_traversal_slot(thread_id: u32) -> Option<&'static SaveTraversalSlo
     None
 }
 
-fn with_save_traversal_context<T>(
-    operation: impl FnOnce(&mut SaveTraversalContext) -> T,
-) -> Option<T> {
-    let thread_id = get_current_thread_id();
-    for slot in &SAVE_TRAVERSAL_SLOTS {
-        if slot.owner_thread.load(Ordering::Acquire) != thread_id {
-            continue;
-        }
-        // SAFETY: claim_save_traversal_slot grants this thread exclusive access
-        // until the owner wrapper release-publishes owner_thread=0.
-        let context = unsafe { &mut *slot.context.get() };
-        return Some(operation(context));
-    }
-    None
+/// Call-local access to the existing traversal storage; owns no engine data.
+///
+/// NonNull keeps this handle non-Send and non-Sync. The slot is resolved once,
+/// but its context is borrowed anew for each check, after any nested native
+/// serialization has restored the outer context. A missing slot stays absent
+/// and retains the existing fail-closed behavior without allocating storage.
+struct SaveTraversalAccess {
+    context: Option<ptr::NonNull<SaveTraversalContext>>,
 }
 
-fn begin_save_node(current: *mut ListNode) -> bool {
+impl SaveTraversalAccess {
+    /// Resolve the current thread's slot without claiming or releasing it.
+    ///
+    /// # Safety
+    ///
+    /// The handle must remain inside the current intercepted save call, whose
+    /// owner retains the slot until it returns. No other context borrow may be
+    /// live when using this handle, including during reentrant native calls.
+    unsafe fn current() -> Self {
+        let thread_id = get_current_thread_id();
+        let context = SAVE_TRAVERSAL_SLOTS
+            .iter()
+            .find(|slot| slot.owner_thread.load(Ordering::Acquire) == thread_id)
+            .and_then(|slot| ptr::NonNull::new(slot.context.get()));
+        Self { context }
+    }
+
+    /// Borrow only for local checks. Operations must not invoke native code
+    /// that can reenter serialization; predecessor calls stay outside this
+    /// closure. The result cannot borrow from the context.
+    fn with_context<T>(
+        &mut self,
+        operation: impl FnOnce(&mut SaveTraversalContext) -> T,
+    ) -> Option<T> {
+        // SAFETY: current's caller bounds the handle to the owning thread and
+        // serializer invocation. &mut self prevents overlapping use through
+        // this handle; all callers end this borrow before native reentry.
+        self.context
+            .as_mut()
+            .map(|context| operation(unsafe { context.as_mut() }))
+    }
+}
+
+fn begin_save_node(access: &mut SaveTraversalAccess, current: *mut ListNode) -> bool {
     enum SaveNodeStatus {
         Valid,
         Blocked,
@@ -1445,7 +1486,7 @@ fn begin_save_node(current: *mut ListNode) -> bool {
         Invalid,
     }
 
-    let result = with_save_traversal_context(|context| {
+    let result = access.with_context(|context| {
         if context.blocked {
             return SaveNodeStatus::Blocked;
         }
@@ -1492,38 +1533,46 @@ fn begin_save_node(current: *mut ListNode) -> bool {
     }
 }
 
-fn save_pointer_is_readable(address: usize, len: usize) -> bool {
+fn save_pointer_is_readable(access: &mut SaveTraversalAccess, address: usize, len: usize) -> bool {
     if address < 0x10000 || address & 3 != 0 {
         return false;
     }
-    with_save_traversal_context(|context| {
-        (address == context.embedded_head && len <= size_of::<ListNode>())
-            || context.readable_regions.readable(address, len)
-    })
-    .unwrap_or(false)
+    access
+        .with_context(|context| {
+            (address == context.embedded_head && len <= size_of::<ListNode>())
+                || context.readable_regions.readable(address, len)
+        })
+        .unwrap_or(false)
 }
 
-fn save_traversal_is_blocked() -> bool {
-    with_save_traversal_context(|context| context.blocked).unwrap_or(true)
+fn save_traversal_is_blocked(access: &mut SaveTraversalAccess) -> bool {
+    access
+        .with_context(|context| context.blocked)
+        .unwrap_or(true)
 }
 
-fn save_link_completes_cycle(current: usize, next: usize) -> bool {
-    with_save_traversal_context(|context| {
-        // Brent's algorithm needs constant storage, unlike a visited-node
-        // array, and fits the save wrapper's allocation-free contract.
-        if context.cycle_power == context.cycle_length {
-            context.cycle_tortoise = current;
-            context.cycle_power = context.cycle_power.saturating_mul(2);
-            context.cycle_length = 0;
-        }
-        context.cycle_length = context.cycle_length.saturating_add(1);
-        context.cycle_tortoise == next
-    })
-    .unwrap_or(true)
+fn save_link_completes_cycle(
+    access: &mut SaveTraversalAccess,
+    current: usize,
+    next: usize,
+) -> bool {
+    access
+        .with_context(|context| {
+            // Brent's algorithm needs constant storage, unlike a visited-node
+            // array, and fits the save wrapper's allocation-free contract.
+            if context.cycle_power == context.cycle_length {
+                context.cycle_tortoise = current;
+                context.cycle_power = context.cycle_power.saturating_mul(2);
+                context.cycle_length = 0;
+            }
+            context.cycle_length = context.cycle_length.saturating_add(1);
+            context.cycle_tortoise == next
+        })
+        .unwrap_or(true)
 }
 
-fn block_save_traversal() {
-    let _ = with_save_traversal_context(|context| {
+fn block_save_traversal(access: &mut SaveTraversalAccess) {
+    let _ = access.with_context(|context| {
         context.blocked = true;
     });
 }
@@ -1650,19 +1699,28 @@ fn mark_slot_unsupported(
     );
 }
 
-fn is_valid_tes_form(form: *mut c_void) -> bool {
-    with_save_traversal_context(|context| {
-        is_valid_tes_form_cached(
-            form,
-            &mut context.readable_regions,
-            &mut context.executable_regions,
-        )
-    })
-    .unwrap_or_else(|| {
-        let mut readable_regions = RegionCache::new();
-        let mut executable_regions = RegionCache::new();
-        is_valid_tes_form_cached(form, &mut readable_regions, &mut executable_regions)
-    })
+/// Validate a save payload using the current traversal's existing caches.
+///
+/// # Safety
+///
+/// Must execute inside an intercepted save call, with no other context borrow
+/// live. The temporary access handle must not outlive that call's owner.
+unsafe fn is_valid_tes_form(form: *mut c_void) -> bool {
+    // SAFETY: forwarded from this helper's sole caller, the payload hook.
+    let mut access = unsafe { SaveTraversalAccess::current() };
+    access
+        .with_context(|context| {
+            is_valid_tes_form_cached(
+                form,
+                &mut context.readable_regions,
+                &mut context.executable_regions,
+            )
+        })
+        .unwrap_or_else(|| {
+            let mut readable_regions = RegionCache::new();
+            let mut executable_regions = RegionCache::new();
+            is_valid_tes_form_cached(form, &mut readable_regions, &mut executable_regions)
+        })
 }
 
 fn is_valid_tes_form_cached(

@@ -239,6 +239,15 @@ valid path.
 
 ## Performance contract
 
+The save callsite wrappers resolve their existing thread-owned traversal
+storage once per hook. A call-local, non-Send handle retains only the storage
+address across a native provider call; mutable context borrows end before
+chaining and resume after nested serialization restores the outer state.
+This removes repeated thread/slot lookups without extending the lifetime of
+cached memory validations or changing traversal admission. See the
+[save performance research](save_integrity.md#save-guard-performance-research-and-proposed-changes)
+for the static work budget and unresolved runtime timing.
+
 The fix is acceptable only with all of these properties:
 
 - zero permanent hooks in the per-frame main-task drain after startup;
