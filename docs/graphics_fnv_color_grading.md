@@ -9,7 +9,7 @@ Automatic exposure and adaptive tone mapping were integrated and then
 corrected for transient behavior, visible final-stage tone response, and
 bounded update cost on 2026-08-11. A 2026-08-12 playtest then proved the
 near-white curve was still inert across ordinary display values; its
-photographic response and independent-control correction is in
+current contrast-preserving response and independent-control contract is in
 `graphics_fnv_auto_exposure_and_adaptive_tone.md`.
 Deterministic repository, parser, menu, resource-planning, CPU image-reference,
 shader compilation, bytecode-budget, and packaging coverage is complete.
@@ -192,8 +192,9 @@ metadata, and stable-ID synchronization. `omv/src/runtime.rs` owns the ten
 virtual finishing selections, filters each detail editor to its controls,
 performs the joint shader/LUT scan transaction, and schedules the final phase.
 `omv/src/effects/blooming_hdr.rs` owns D3D9 resources and CPU constants.
-`adaptive_tone.hlsl` owns bounded exposure metering, independent highlight-tail
-measurement, temporal state, and the 128x1 response curve;
+`adaptive_meter.hlsl` owns spatial metering/reduction; `adaptive_tone.hlsl`
+owns temporal state and the 512x1 response curve; `display_tone.hlsl` owns
+the shared fixed/automatic contrast and shoulder;
 `bloom_hdr_compose.hlsl` owns fused Bloom/color/tone composition;
 `chromatic_aberration.hlsl` owns the optional optical pass.
 
@@ -203,8 +204,8 @@ image-space first, then OMV scene-post and final-image phases. Built-in order is
 
 1. native image-space and OMV scene-post work;
 2. highlight extraction and two-axis blur when Bloom or halation is enabled;
-3. low-resolution response generation, at no more than 60 Hz, when automatic
-   exposure or tone requires it;
+3. spatial metering, reduction, and response generation, at no more than
+   60 Hz, when automatic exposure or tone requires them;
 4. fused Bloom/color compose, creative finishing, then final display tone when
    any family has work;
 5. optional chromatic aberration;
@@ -220,8 +221,9 @@ Established phase evidence remains in
 No new engine address or native layout was inferred for this change.
 
 Grade-only rendering needs current scene color and no depth, normal, velocity,
-or mask. Automatic display adaptation additionally owns 128x1 FP16 ping-pong
-response curves; fixed tone and disabled adaptation do not. Bloom can consume
+or mask. Automatic display adaptation additionally owns 512x1 FP16 ping-pong
+response curves and 16x16/1x1 metering targets; fixed tone and disabled
+adaptation do not allocate these targets. Bloom can consume
 the existing point-sampled first-person depth to suppress weapon/hand glow.
 Chromatic aberration uses only final scene color. Later native overlays retain
 their established owner; OMV does not claim a new HUD mask.
@@ -370,12 +372,15 @@ Fused compose bindings:
 | `c10..c14` | Grade values, strengths, master/debug flags, environment state. |
 | `c15..c16` | Independent family enable flags and grain particle size. |
 | `c17..c18` | LUT input-domain scale/bias and LUT size. |
-| `c19` | Automatic-exposure enable, tone mode, and tone strength. |
+| `c19` | Fixed-tone slope, shoulder reserve, and tone strength. |
 
-Response generation binds display color at `s0`, previous point-sampled curve
-at `s1`, completed Bloom at `s4`, and adaptation/Bloom values at `c0..c3`. Its
-R lane stores luminance-indexed scale; G/B/A replicate adapted log luminance,
-applied transient EV, and automatic-tone activity.
+Metering binds display color at `s0`, previous point-sampled history at `s1`,
+and completed Bloom at `s4`. Reduction and response generation consume the
+preceding statistics at `s0`. Constants `c0..c3` carry adaptation/Bloom policy.
+Response R stores luminance-indexed scale; G stores coarse adapted log except
+texel 1, which stores its precision remainder; B/A replicate exposure EV and
+shoulder activity. The complete contract is in
+`docs/graphics_fnv_auto_exposure_and_adaptive_tone.md`.
 
 Chromatic bindings are `s0` scene color, `c0` dimensions/inverse dimensions,
 and `c3.x` master-scaled displacement in pixels. It samples center plus
@@ -431,12 +436,13 @@ failure.
 
 Analytic controls operate on finite display code values and end in a bounded
 write. OMV does not reapply sRGB or replace Fallout's native tonemapper. The
-optional display-referred meter uses one fixed center-weighted 4x4 grid,
-prior-anchored log-luminance winsorization, and bounded temporal response.
-Exposure is isolated from OMV output. Automatic tone uses a separate native and
-Bloom upper-tail signal to modulate an always-present extended-Reinhard display
-curve. Its hue-preserving response runs after grade, LUT, halation, and
-vignette so final saturation cannot erase it. CPU settings
+optional display-referred meter integrates a center-weighted 64x64 stratified
+grid through two small passes, retaining prior-anchored log-luminance
+winsorization and bounded temporal response. Exposure is isolated from OMV
+output. Automatic tone uses scene/Bloom over-range peaks to adjust only the
+highlight shoulder; ordinary sky occupancy does not change global contrast.
+Its hue-preserving contrast curve runs after grade, LUT, halation, and
+vignette, with a uniform RGB gain limit at the display boundary. CPU settings
 sanitize every untrusted numeric value before constants are bound. The complete
 adaptation and neutral curve math is documented in
 `graphics_fnv_auto_exposure_and_adaptive_tone.md`.
@@ -467,7 +473,8 @@ the routine draw path. A catalog change releases the effect so removed LUT and
 grain resources cannot linger. Device loss releases the effect and default-pool
 quarter-resolution Bloom targets; reset recreates them lazily. Resize/format
 changes recreate only the two Bloom targets. Automatic mode additionally owns
-two persistent 128x1 FP16 response targets and invalidates them across
+two persistent 512x1 FP16 response targets plus two small metering targets.
+It invalidates history across
 Present gaps, resize, disable, and device recreation. Grain texture
 allocation/upload failure aborts effect construction
 through the existing error path, so no partially initialized resource set is
@@ -482,7 +489,9 @@ Static upper bounds enforced from compiled bytecode are:
 | Fused compose | 500 instructions | 14 |
 | Fixed tone compose | 530 instructions | 14 |
 | Adaptive compose | 515 instructions | 15 |
-| 128x1 response generator | 420 instructions | 4 |
+| 16x16 spatial meter | 260 instructions | 4 |
+| 1x1 statistics reduction | 60 instructions | 1 |
+| 512x1 response generator | 420 instructions | 3 |
 | Chromatic aberration | 70 instructions | 3 |
 
 Grade only is one phase copy plus one full-resolution draw. Bloom is one copy,
@@ -493,12 +502,12 @@ adds one full-resolution draw and uses the already captured scene. Chromatic
 after compose writes compose to its persistent renderable intermediate and
 adds one full-resolution draw; it does not copy the backbuffer. Because
 chromatic aberration now defaults on, the previous Bloom-plus-grade plan is
-five effect draws. Shipped automatic adaptation adds one 128x1 draw when its
-60 Hz scheduler is due, for at most six effect draws on that Present. At 120 Hz
-the response draw normally runs every other Present. Disabling adaptive
+five effect draws. Automatic adaptation adds three small draws when its
+60 Hz scheduler is due, for at most eight effect draws on that Present. At
+120 Hz these draws normally run every other Present. Disabling adaptive
 exposure/tone restores the previous plan exactly; fixed-neutral tone changes
-only the compose variant. The first active automatic draw creates both response
-targets and logs one success line; steady-state operation performs no file I/O,
+only the compose variant. The first active automatic draw creates the complete meter/history
+set and logs one success line; steady-state operation performs no file I/O,
 shader compilation, locks, routine allocation, capability queries, or routine
 logging. The attachment transaction
 adds owned COM references for the active native attachments once per applied
@@ -510,7 +519,8 @@ work, not per-frame work.
 The supported `i686-pc-windows-gnu` tests cover:
 
 - compilation and bytecode inspection of extract, blur, all compose variants,
-  the 128x1 response generator, and chromatic entry points, including
+  the spatial meter, reduction, 512x1 response generator, and chromatic entry
+  points, including
   instruction/texture ceilings and prohibited derivatives;
 - exact `c10..c18`, `s5..s6`, chromatic `c0/c3/s0`, alpha, half-pixel, sampler,
   render-target hazard, and explicit D3D state contracts;

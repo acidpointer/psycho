@@ -1099,13 +1099,13 @@ impl ToneMapperMode {
 pub(crate) struct AdaptiveToneConfig {
     /// Enables GPU-metered transient adaptation between changing views.
     pub(crate) auto_exposure_enabled: bool,
-    /// Symmetric maximum transient response in photographic stops.
+    /// Symmetric maximum transient response in approximate display-linear stops.
     pub(crate) exposure_range_ev: f32,
     /// Scalar applied to the calibrated asymmetric eye-adaptation rates.
     pub(crate) adaptation_speed: f32,
     /// Selects disabled, fixed, or automatically modulated display response.
     pub(crate) tone_mapper_mode: ToneMapperMode,
-    /// Controls the fixed or automatically modulated photographic curve exponent.
+    /// Controls display contrast and highlight shoulder strength.
     pub(crate) tone_mapper_strength: f32,
 }
 

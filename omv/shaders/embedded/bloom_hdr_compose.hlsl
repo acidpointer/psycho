@@ -24,8 +24,8 @@ float4 GradeData5 : register(c15);
 float4 GradeData6 : register(c16);
 float4 LutDomainScale : register(c17);
 float4 LutDomainBias : register(c18);
-// x = auto exposure enabled, y = tone mode (0 off, 1 neutral, 2 automatic),
-// z = photographic curve exponent, w = reserved. Variant 0 ignores this ABI.
+// x = fixed contrast slope, y = fixed shoulder reserve,
+// z = tone strength, w = reserved. Variants 0 and 2 ignore this ABI.
 float4 AdaptiveToneData : register(c19);
 
 static const float DepthEndpointEpsilon = 0.000001f;
@@ -165,26 +165,19 @@ float3 ApplyAnalyticGrade(float3 inputColor) {
 #if OMV_TONE_VARIANT == 1
 float3 ApplyAdaptiveDisplayMapping(float3 inputColor) {
     float displayLuma = max(Luma(inputColor), 0.0f);
-    float linearLuma = pow(displayLuma, 2.2f);
-    float reinhardRatio = (1.0f + linearLuma / 6.25f) / (1.0f + linearLuma);
-
-    // A scalar luminance ratio keeps hue exactly stable and costs one special
-    // function pair instead of three per-channel pairs. Raising the ratio by
-    // strength extends control beyond a binary blend: zero is identity, one
-    // is the calibrated photographic curve, and values above one remain
-    // smooth, monotonic, and bounded rather than extrapolating below black.
-    float responseScale = pow(
-        max(reinhardRatio, 0.00001f),
-        AdaptiveToneData.z / 2.2f
-    );
-    return inputColor * responseScale;
+    float responseScale = DisplayToneScale(displayLuma, AdaptiveToneData.x, AdaptiveToneData.y);
+    // Limit gain uniformly at the display gamut boundary. Independent channel
+    // clipping would desaturate bright colored skies after contrast expansion.
+    float peak = max(inputColor.r, max(inputColor.g, inputColor.b));
+    return inputColor * min(responseScale, rcp(max(peak, 0.00001f)));
 }
 #elif OMV_TONE_VARIANT == 2
 float3 ApplyAdaptiveDisplayMapping(float3 inputColor) {
     float displayLuma = max(Luma(inputColor), 0.0f);
     float responseUv = saturate(displayLuma * 0.25f);
     float responseScale = tex2D(AdaptiveToneResponse, float2(responseUv, 0.5f)).r;
-    return inputColor * responseScale;
+    float peak = max(inputColor.r, max(inputColor.g, inputColor.b));
+    return inputColor * min(responseScale, rcp(max(peak, 0.00001f)));
 }
 #endif
 

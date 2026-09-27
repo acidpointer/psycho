@@ -3281,6 +3281,12 @@ impl ScreenShaderRuntime {
         let mut final_color_drawn = false;
 
         for planned_pass in planned_passes.iter() {
+            // Admission can reject planned tail stages. Once its last drawing
+            // stage has finished, the engine surface cannot be sampled again.
+            // Newly prepared work is admitted on the next frame.
+            if stages_remaining == 0 {
+                break;
+            }
             let pass_position = planned_pass.compiled_position;
             let source = planned_pass.source.as_ref();
 
