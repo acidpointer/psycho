@@ -210,6 +210,26 @@ float3 IntegrateLocalLight(
 	float cameraTransmittance = exp(-clamp(entryOpticalDepth, 0.0f, MaximumOpticalDepth));
 	float3 scattering = 0.0f;
 	float visibilitySum = 0.0f;
+	// One shadow probe per light instead of one per ray step.
+	//
+	// Owner-approved approximation (2026-09 interior performance contract):
+	// volumetric rays near a point light are short and the cube comparison
+	// field is evaluated at the ray's closest approach to the light center -
+	// the strongest-attenuation point and the most representative occlusion
+	// sample. Every other per-step term (density, optical depth,
+	// transmittance, attenuation, phase) keeps its exact ray-positioned
+	// evaluation. This removes the per-step cube taps (six to ten per pixel
+	// per light at the shipped qualities).
+	float probeDistance = clamp(projectedCenter, entry, exitDistance);
+	float3 probePosition = worldOrigin + worldDirection * probeDistance;
+	float rayVisibility = ShadowVisibility(
+		probePosition,
+		positionRadius
+#if LOCAL_LIGHT_SHADOW_MODE == 2
+		, shadowCube,
+		cubeRadius
+#endif
+	);
 	[loop]
 	for (int sampleIndex = 0; sampleIndex < LOCAL_LIGHT_SAMPLE_COUNT; ++sampleIndex) {
 		float sampleDistance = entry + (sampleIndex + 0.5f) * stepLength;
@@ -225,14 +245,7 @@ float3 IntegrateLocalLight(
 		float inverseLightDistance = rsqrt(max(distanceSquared, ProjectionEpsilon));
 		float3 directionToLight = lightVector * inverseLightDistance;
 		float phase = HenyeyGreenstein(dot(worldDirection, directionToLight), LocalControl.z);
-		float visibility = ShadowVisibility(
-			worldPosition,
-			positionRadius
-#if LOCAL_LIGHT_SHADOW_MODE == 2
-			, shadowCube,
-			cubeRadius
-#endif
-		);
+		float visibility = rayVisibility;
 		visibilitySum += visibility;
 		float scatterAmount = (1.0f - stepTransmittance) * saturate(MediumData1.y);
 		scattering += colorIntensity.rgb
