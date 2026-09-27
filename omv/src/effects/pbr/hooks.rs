@@ -91,6 +91,33 @@ const PENDING_DRAW_LAND_LOD: u32 = 2;
 const PENDING_DRAW_TERRAIN_FADE: u32 = 3;
 const PENDING_DRAW_CLOSE_TERRAIN: u32 = 4;
 const TABLE_LOOKUP_CACHE_COUNT: usize = 512;
+/// Capacity of one per-table index map. It covers the largest PPLighting
+/// group (pixel group B, 0xA0 entries) so every group can share one size.
+const TABLE_INDEX_MAP_CAPACITY: usize = 0xA0;
+/// (base address, entry count) for every indexed PPLighting group, in a
+/// fixed order matched by `table_index_map_for_base`.
+const TABLE_INDEX_GROUPS: [(usize, usize); 5] = [
+    (
+        PPLIGHTING_VERTEX_GROUP_A_ADDR,
+        PPLIGHTING_VERTEX_GROUP_A_COUNT,
+    ),
+    (
+        PPLIGHTING_VERTEX_GROUP_B_ADDR,
+        PPLIGHTING_VERTEX_GROUP_B_COUNT,
+    ),
+    (
+        PPLIGHTING_VERTEX_GROUP_C_ADDR,
+        PPLIGHTING_VERTEX_GROUP_C_COUNT,
+    ),
+    (
+        PPLIGHTING_PIXEL_GROUP_A_ADDR,
+        PPLIGHTING_PIXEL_GROUP_A_COUNT,
+    ),
+    (
+        PPLIGHTING_PIXEL_GROUP_B_ADDR,
+        PPLIGHTING_PIXEL_GROUP_B_COUNT,
+    ),
+];
 const PENDING_OBJECT_TEMPLATE_SHIFT: u32 = 16;
 const PENDING_OBJECT_PASS_MASK: u32 = (1 << PENDING_OBJECT_TEMPLATE_SHIFT) - 1;
 
@@ -252,6 +279,25 @@ static SHADER_TABLES_READABLE: LazyLock<bool> = LazyLock::new(|| {
 });
 static TABLE_LOOKUP_CACHE: LazyLock<[TableLookupCacheEntry; TABLE_LOOKUP_CACHE_COUNT]> =
     LazyLock::new(|| std::array::from_fn(|_| TableLookupCacheEntry::new()));
+
+/// Per-group open-addressed shader-pointer index maps, ordered like
+/// `TABLE_INDEX_GROUPS`. All slots are zero-initialized POD atomics first
+/// touched from the serialized render path after the deferred handoff.
+static TABLE_INDEX_MAPS: LazyLock<
+    [TableIndexEntry; TABLE_INDEX_GROUPS.len() * TABLE_INDEX_MAP_CAPACITY],
+> = LazyLock::new(|| std::array::from_fn(|_| TableIndexEntry::empty()));
+
+/// Drop every cached table index entry.
+///
+/// Called from the shader-package transition hook: a transition can rebuild
+/// every PPLighting group, voiding both positive and negative entries at a
+/// non-hot lifecycle boundary.
+pub(super) fn invalidate_shader_table_maps() {
+    let maps = &*TABLE_INDEX_MAPS;
+    for entry in maps.iter() {
+        entry.shader.store(0, Ordering::Release);
+    }
+}
 
 pub(super) fn install() -> Result<()> {
     if HOOKS_READY.load(Ordering::Acquire) {
@@ -2690,6 +2736,107 @@ fn object_draw_key(
 
 #[cfg(test)]
 mod tests {
+
+    use super::{
+        TABLE_INDEX_GROUPS, TABLE_INDEX_MAP_CAPACITY, TableIndexEntry, TableIndexHit,
+        table_index_map_for_base, table_index_map_insert, table_index_map_lookup,
+        table_index_map_probe,
+    };
+    use std::sync::LazyLock;
+
+    fn fresh_maps() -> Box<[TableIndexEntry]> {
+        (0..TABLE_INDEX_GROUPS.len() * TABLE_INDEX_MAP_CAPACITY)
+            .map(|_| TableIndexEntry::empty())
+            .collect::<Vec<_>>()
+            .into_boxed_slice()
+    }
+
+    #[test]
+    fn every_indexed_group_base_resolves_and_counts_fit_capacity() {
+        assert_eq!(TABLE_INDEX_GROUPS.len(), 5);
+        for (base, count) in TABLE_INDEX_GROUPS {
+            assert_eq!(
+                table_index_map_for_base(base),
+                TABLE_INDEX_GROUPS.iter().position(|group| group.0 == base)
+            );
+            assert!(
+                count <= TABLE_INDEX_MAP_CAPACITY,
+                "group exceeds map capacity"
+            );
+        }
+        assert_eq!(table_index_map_for_base(0x1234), None);
+    }
+
+    #[test]
+    fn map_lookup_requires_a_validated_live_slot() {
+        // The lookup validates against caller-supplied table memory, so the
+        // test owns a fake table instead of touching engine addresses.
+        let mut fake_table: [*mut core::ffi::c_void; TABLE_INDEX_MAP_CAPACITY] =
+            [core::ptr::null_mut(); TABLE_INDEX_MAP_CAPACITY];
+        let base = fake_table.as_mut_ptr() as usize;
+        let maps = fresh_maps();
+        let group = 0usize;
+        let count = TABLE_INDEX_GROUPS[group].1;
+        let shader = 0x0055_5550usize; // 16-aligned, nonzero
+        table_index_map_insert(&maps, group, shader, 7, 0);
+        // A stale or wrong table cannot satisfy the lookup.
+        assert!(matches!(
+            table_index_map_lookup(&maps, group, base, count, shader),
+            TableIndexHit::Miss
+        ));
+        // Once the live slot at the mapped index holds the shader, the
+        // lookup validates and returns the index.
+        let mapped = {
+            let mut found = None;
+            for index in 0..TABLE_INDEX_MAP_CAPACITY {
+                let entry = &maps[group * TABLE_INDEX_MAP_CAPACITY + index];
+                if entry.shader.load(std::sync::atomic::Ordering::Acquire) == shader {
+                    found = Some(entry.index.load(std::sync::atomic::Ordering::Relaxed) as usize);
+                }
+            }
+            found.expect("stored entry")
+        };
+        fake_table[mapped] = shader as *mut core::ffi::c_void;
+        assert!(matches!(
+            table_index_map_lookup(&maps, group, base, count, shader),
+            TableIndexHit::Positive(7)
+        ));
+        // A different live shader at the mapped slot invalidates the entry.
+        fake_table[mapped] = 0x0055_5560usize as *mut core::ffi::c_void;
+        assert!(matches!(
+            table_index_map_lookup(&maps, group, base, count, shader),
+            TableIndexHit::Miss
+        ));
+    }
+
+    #[test]
+    fn map_probe_stays_bounded_and_handles_collisions() {
+        let maps = fresh_maps();
+        let group = 4usize; // pixel group B, the largest group
+        let base_shader = (table_index_map_probe(0x0055_5550) + 1) * 16;
+        for index in 0..TABLE_INDEX_MAP_CAPACITY {
+            table_index_map_insert(&maps, group, base_shader + index * 16, index as u32, 0);
+        }
+        // The map is full; one more store must not panic or loop.
+        table_index_map_insert(
+            &maps,
+            group,
+            base_shader + TABLE_INDEX_MAP_CAPACITY * 16,
+            0,
+            0,
+        );
+        // A stored shader still resolves its probe slot without validation
+        // (lookup validation needs a live table, so only probe reachability
+        // is checked here through a direct slot scan).
+        let probe = table_index_map_probe(base_shader);
+        let entry = &maps[group * TABLE_INDEX_MAP_CAPACITY + probe];
+        assert_ne!(
+            entry.shader.load(std::sync::atomic::Ordering::Acquire),
+            0,
+            "hash slot must hold the first insert"
+        );
+    }
+
     use super::{
         CLOSE_TERRAIN_DRAW_SAMPLES, CLOSE_TERRAIN_FIRST_PIXEL_INDEX,
         CLOSE_TERRAIN_PASS_TO_PIXEL_OFFSET, DirectSamplerChange, LAND_LOD_SAMPLERS,
@@ -3403,6 +3550,146 @@ fn identify_pplighting_table_slot(
     None
 }
 
+/// One open-addressed slot of a per-table shader-pointer index map.
+///
+/// Slot zero is the empty marker: native shader COM pointers are at least
+/// 16-byte aligned, so a null shader slot never collides with a live entry.
+struct TableIndexEntry {
+    shader: AtomicUsize,
+    index: AtomicU32,
+    /// Table fingerprint validating negative entries: the last slot's shader
+    /// pointer at the time the absence was recorded. A rebuilt or grown table
+    /// changes the fingerprint and voids the cached absence.
+    fingerprint: AtomicUsize,
+}
+
+/// Index sentinel marking a proven-absent shader. Validated against the
+/// group's table fingerprint instead of a live slot.
+const TABLE_INDEX_NEGATIVE: u32 = u32::MAX;
+
+impl TableIndexEntry {
+    const fn empty() -> Self {
+        Self {
+            shader: AtomicUsize::new(0),
+            index: AtomicU32::new(0),
+            fingerprint: AtomicUsize::new(0),
+        }
+    }
+}
+
+/// Return which per-table index map serves `base`, with the group's count.
+///
+/// The map turns the first full linear scan of a group into a population
+/// pass: every subsequently encountered shader resolves through one probe
+/// and one validated slot read instead of rescanning the group.
+fn table_index_map_for_base(base: usize) -> Option<usize> {
+    TABLE_INDEX_GROUPS.iter().position(|group| group.0 == base)
+}
+
+fn table_index_map_probe(shader: usize) -> usize {
+    (shader >> 4) % TABLE_INDEX_MAP_CAPACITY
+}
+
+/// Look `shader` up in the group's map and validate the mapped slot.
+///
+/// Validation reads the live table slot and compares it with the requested
+/// shader, so a stale entry left by a rebuilt shader package cannot return a
+/// wrong index; it is simply treated as a miss and overwritten by the next
+/// scan.
+/// Outcome of one validated map probe.
+enum TableIndexHit {
+    /// Live slot validated at the returned index.
+    Positive(u32),
+    /// Proven absence whose table fingerprint still matches.
+    Negative,
+    /// No entry, or an entry whose validation failed.
+    Miss,
+}
+
+/// Look `shader` up in the group's map and validate the mapped entry.
+///
+/// Positive entries validate against the live table slot, so a stale entry
+/// left by a rebuilt shader package cannot return a wrong index. Negative
+/// entries validate against the group's last-slot fingerprint, so a table
+/// that grew or was rebuilt voids the cached absence and the caller rescans.
+fn table_index_map_lookup(
+    maps: &[TableIndexEntry],
+    group: usize,
+    base: usize,
+    count: usize,
+    shader: usize,
+) -> TableIndexHit {
+    let map = &maps[group * TABLE_INDEX_MAP_CAPACITY..(group + 1) * TABLE_INDEX_MAP_CAPACITY];
+    let mut probe = table_index_map_probe(shader);
+    for _ in 0..TABLE_INDEX_MAP_CAPACITY {
+        let entry = &map[probe];
+        let stored = entry.shader.load(Ordering::Acquire);
+        if stored == 0 {
+            // Linear probing keeps every live entry at or after its hash
+            // slot, so the first empty slot ends the probe.
+            return TableIndexHit::Miss;
+        }
+        if stored == shader {
+            let index = entry.index.load(Ordering::Relaxed);
+            if index == TABLE_INDEX_NEGATIVE {
+                let fingerprint = entry.fingerprint.load(Ordering::Relaxed);
+                let last = unsafe { (base as *const *mut c_void).add(count - 1).read() };
+                if fingerprint != 0 && last as usize == fingerprint {
+                    return TableIndexHit::Negative;
+                }
+                return TableIndexHit::Miss;
+            }
+            if (index as usize) < count {
+                let slot = unsafe { (base as *const *mut c_void).add(index as usize).read() };
+                if slot as usize == shader {
+                    return TableIndexHit::Positive(index);
+                }
+            }
+            return TableIndexHit::Miss;
+        }
+        probe = (probe + 1) % TABLE_INDEX_MAP_CAPACITY;
+    }
+    TableIndexHit::Miss
+}
+
+/// Insert one live slot into the group's map, best-effort.
+///
+/// A full or contended map simply leaves the entry out; later lookups for
+/// that shader fall back to the bounded linear scan, exactly as before.
+fn table_index_map_insert(
+    maps: &[TableIndexEntry],
+    group: usize,
+    shader: usize,
+    index: u32,
+    fingerprint: usize,
+) {
+    if shader == 0 {
+        return;
+    }
+    let map = &maps[group * TABLE_INDEX_MAP_CAPACITY..(group + 1) * TABLE_INDEX_MAP_CAPACITY];
+    let mut probe = table_index_map_probe(shader);
+    for _ in 0..TABLE_INDEX_MAP_CAPACITY {
+        let entry = &map[probe];
+        match entry
+            .shader
+            .compare_exchange(0, shader, Ordering::AcqRel, Ordering::Acquire)
+        {
+            Ok(_) => {
+                entry.index.store(index, Ordering::Release);
+                entry.fingerprint.store(fingerprint, Ordering::Release);
+                return;
+            }
+            Err(stored) if stored == shader => {
+                entry.index.store(index, Ordering::Release);
+                entry.fingerprint.store(fingerprint, Ordering::Release);
+                return;
+            }
+            Err(_) => {}
+        }
+        probe = (probe + 1) % TABLE_INDEX_MAP_CAPACITY;
+    }
+}
+
 fn find_shader_array_index(base: usize, count: usize, shader: *mut c_void) -> Option<u32> {
     if shader.is_null() || !*SHADER_TABLES_READABLE {
         return None;
@@ -3427,17 +3714,72 @@ fn find_shader_array_index(base: usize, count: usize, shader: *mut c_void) -> Op
     }
 
     crate::graphics_diagnostics::add(crate::graphics_diagnostics::Counter::ShaderTableMiss, 1);
+    let Some(group) = table_index_map_for_base(base) else {
+        // An unindexed group keeps the original bounded linear scan.
+        for index in 0..count {
+            crate::graphics_diagnostics::add(
+                crate::graphics_diagnostics::Counter::ShaderTableEntry,
+                1,
+            );
+            let slot = unsafe { (base as *const *mut c_void).add(index) };
+            if unsafe { slot.read() } == shader {
+                cached.shader.store(0, Ordering::Release);
+                cached.base.store(base, Ordering::Relaxed);
+                cached.index.store(index as u32, Ordering::Relaxed);
+                cached.shader.store(shader as usize, Ordering::Release);
+                return Some(index as u32);
+            }
+        }
+        return None;
+    };
+    let maps = &*TABLE_INDEX_MAPS;
+    match table_index_map_lookup(maps, group, base, count, shader as usize) {
+        TableIndexHit::Positive(index) => {
+            crate::graphics_diagnostics::add(
+                crate::graphics_diagnostics::Counter::ShaderTablePositiveHit,
+                1,
+            );
+            cached.shader.store(0, Ordering::Release);
+            cached.base.store(base, Ordering::Relaxed);
+            cached.index.store(index, Ordering::Relaxed);
+            cached.shader.store(shader as usize, Ordering::Release);
+            return Some(index);
+        }
+        // A validated absence skips the rescan; the fingerprint check inside
+        // the lookup already voided stale negatives from rebuilt tables.
+        TableIndexHit::Negative => {
+            return None;
+        }
+        TableIndexHit::Miss => {}
+    }
+    // One bounded scan answers this lookup and populates the group's map, so
+    // later first-encounters of other shaders in this group resolve through
+    // a single validated probe.
+    let fingerprint = unsafe { (base as *const *mut c_void).add(count - 1).read() } as usize;
     for index in 0..count {
         crate::graphics_diagnostics::add(crate::graphics_diagnostics::Counter::ShaderTableEntry, 1);
         let slot = unsafe { (base as *const *mut c_void).add(index) };
-        if unsafe { slot.read() } == shader {
+        let found = unsafe { slot.read() };
+        if found == shader {
+            table_index_map_insert(maps, group, found as usize, index as u32, 0);
             cached.shader.store(0, Ordering::Release);
             cached.base.store(base, Ordering::Relaxed);
             cached.index.store(index as u32, Ordering::Relaxed);
             cached.shader.store(shader as usize, Ordering::Release);
             return Some(index as u32);
         }
+        table_index_map_insert(maps, group, found as usize, index as u32, 0);
     }
+    // The shader is absent from this group. Cache the absence with the table
+    // fingerprint so repeated negative lookups skip the scan; a table that
+    // changes voids the entry through the fingerprint validation.
+    table_index_map_insert(
+        maps,
+        group,
+        shader as usize,
+        TABLE_INDEX_NEGATIVE,
+        fingerprint,
+    );
     None
 }
 

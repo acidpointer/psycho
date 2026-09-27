@@ -500,9 +500,12 @@ pub(crate) unsafe fn resolve_scene_depth(
     reason: &'static str,
     render_epoch: u32,
 ) -> DepthResolveOutcome {
-    match depth_resolution_route(depth_provider, slot, stage) {
+    let outcome = match depth_resolution_route(depth_provider, slot, stage) {
         DepthResolutionRoute::Rejected => DepthResolveOutcome::Rejected,
         DepthResolutionRoute::OmvResolve => unsafe {
+            let _span = crate::graphics_diagnostics::span(
+                crate::graphics_diagnostics::Interval::DepthResolveOmv,
+            );
             fnv::resolve_scene_depth(
                 device_ptr,
                 source_rendered_texture,
@@ -514,6 +517,9 @@ pub(crate) unsafe fn resolve_scene_depth(
             )
         },
         DepthResolutionRoute::ExternalBoundarySnapshot => unsafe {
+            let _span = crate::graphics_diagnostics::span(
+                crate::graphics_diagnostics::Interval::DepthSnapshotExternal,
+            );
             fnv::external_depth_outcome(
                 device_ptr,
                 source_rendered_texture,
@@ -524,7 +530,22 @@ pub(crate) unsafe fn resolve_scene_depth(
                 render_epoch,
             )
         },
+    };
+    match outcome {
+        DepthResolveOutcome::Resolved { .. } => crate::graphics_diagnostics::add(
+            crate::graphics_diagnostics::Counter::DepthResolveResolved,
+            1,
+        ),
+        DepthResolveOutcome::Busy => crate::graphics_diagnostics::add(
+            crate::graphics_diagnostics::Counter::DepthResolveBusy,
+            1,
+        ),
+        DepthResolveOutcome::Rejected => crate::graphics_diagnostics::add(
+            crate::graphics_diagnostics::Counter::DepthResolveRejected,
+            1,
+        ),
     }
+    outcome
 }
 
 /// Concrete producer action selected by the provider-neutral depth API.

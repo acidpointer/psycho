@@ -2060,6 +2060,10 @@ impl ShadowResources {
                 for index in 0..CASCADE_COUNT {
                     if plan.render[index] {
                         self.production_stage = ShadowProductionStage::StaticCascade(index as u8);
+                        crate::graphics_diagnostics::add(
+                            crate::graphics_diagnostics::Counter::ShadowCascade,
+                            1,
+                        );
                         let requested_projection = projections[index];
                         let minimum_radius = cascade_minimum_caster_radius(
                             index,
@@ -2582,7 +2586,7 @@ impl ShadowResources {
         let (atlas_x, atlas_y) = cascade_origin(cascade);
         let source_overlap = offset_rect(scroll.source_overlap(), atlas_x, atlas_y);
         let destination_overlap = d3d_rect(scroll.overlap());
-        device.clear_texture(0)?;
+        crate::render_state::clear_sampler(device, 0)?;
         device.stretch_rect(
             &directional.atlas_surface,
             Some(&source_overlap),
@@ -2639,7 +2643,7 @@ impl ShadowResources {
                     )?
                 };
             }
-            device.clear_texture(0)?;
+            crate::render_state::clear_sampler(device, 0)?;
             device.stretch_rect(
                 &strip.generation_surface,
                 None,
@@ -2738,7 +2742,7 @@ impl ShadowResources {
         // persistent packed slot. A full 2048x2048 static/actor merge every
         // frame was substantially more work than selecting the nearer moments
         // only at visible receivers.
-        device.clear_texture(0)?;
+        crate::render_state::clear_sampler(device, 0)?;
         device.stretch_rect(
             &directional.directional_actor_generation_surface,
             None,
@@ -2788,7 +2792,7 @@ impl ShadowResources {
     ) -> Direct3DResult<()> {
         let directional = self.directional.as_ref().ok_or_else(direct3d_failure)?;
         let (x, y) = cascade_origin(cascade);
-        device.clear_texture(0)?;
+        crate::render_state::clear_sampler(device, 0)?;
         // D3D9 resolves a multisampled render target only through a full-size
         // StretchRect into a single-sample surface of the same format. Keep
         // this explicit intermediate separate from the quadrant copy; a
@@ -2838,7 +2842,7 @@ impl ShadowResources {
         // sampler, so unbind every pixel sampler inside the state-blocked
         // transaction before touching either persistent cube family.
         for sampler in 0..16 {
-            device.clear_texture(sampler)?;
+            crate::render_state::clear_sampler(device, sampler)?;
         }
         for index in 0..points.len() {
             if plan.render_faces[index] == 0 {
@@ -2854,8 +2858,12 @@ impl ShadowResources {
                         PointFaceOperation::RebuildPublished => {
                             self.production_stage =
                                 ShadowProductionStage::PointDirect(index as u8, face as u8);
+                            crate::graphics_diagnostics::add(
+                                crate::graphics_diagnostics::Counter::ShadowFaceStatic,
+                                1,
+                            );
                             self.point_texture_writes_started = true;
-                            device.clear_texture(1)?;
+                            crate::render_state::clear_sampler(device, 1)?;
                             let point_resources =
                                 self.points.as_ref().ok_or_else(direct3d_failure)?;
                             let published_surface = point_resources.point_surface(index, face)?;
@@ -2912,12 +2920,16 @@ impl ShadowResources {
                         PointFaceOperation::RefreshStatic => {
                             self.production_stage =
                                 ShadowProductionStage::PointStatic(index as u8, face as u8);
+                            crate::graphics_diagnostics::add(
+                                crate::graphics_diagnostics::Counter::ShadowFaceStatic,
+                                1,
+                            );
                             self.point_texture_writes_started = true;
                             // The backup owns only immutable geometry. It
                             // changes solely with the map signature, never
                             // with actor animation, so walls and clutter are
                             // not walked at presentation cadence.
-                            device.clear_texture(1)?;
+                            crate::render_state::clear_sampler(device, 1)?;
                             let point_resources =
                                 self.points.as_ref().ok_or_else(direct3d_failure)?;
                             let static_surface = point_resources.static_surface(index, face)?;
@@ -2963,6 +2975,10 @@ impl ShadowResources {
                             publish_static_point_face(device, &static_surface, &published_surface)?;
                         }
                         PointFaceOperation::MergeAnimated => {
+                            crate::graphics_diagnostics::add(
+                                crate::graphics_diagnostics::Counter::ShadowFaceDynamic,
+                                1,
+                            );
                             self.production_stage =
                                 ShadowProductionStage::PointAnimated(index as u8, face as u8);
                             self.point_texture_writes_started = true;
@@ -3471,7 +3487,7 @@ impl ShadowResources {
         // A scene copy lets one pass preserve sky/HDR emitters and combine both
         // terms without an illegal read/write alias or two incompatible blends.
         for sampler in 0..=8 {
-            device.clear_texture(sampler)?;
+            crate::render_state::clear_sampler(device, sampler)?;
         }
         let point_only_coverage = (!work.has_directional_work())
             .then(|| work.points().coverage())
@@ -4173,7 +4189,7 @@ fn publish_static_point_face(
     static_surface: &Surface9,
     published_surface: &Surface9,
 ) -> Direct3DResult<()> {
-    device.clear_texture(1)?;
+    crate::render_state::clear_sampler(device, 1)?;
     device.stretch_rect(static_surface, None, published_surface, None, D3DTEXF_NONE)
 }
 

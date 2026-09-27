@@ -14,6 +14,11 @@ float4 Main(float2 uv : TEXCOORD0) : COLOR0 {
     float2 edge = SampleEdges(uv);
     float4 weights = 0.0;
 
+    // Each search side is guarded on its running openness. A closed side
+    // contributes exactly zero to `open` and `span` for every remaining step,
+    // so skipping its samples cannot change the resulting span or weights;
+    // the guards only remove texture fetches that the unguarded search would
+    // multiply into zero.
     [branch] if (edge.r > 0.0) {
         float2 span = 0.0;
         float2 open = 1.0;
@@ -21,17 +26,26 @@ float4 Main(float2 uv : TEXCOORD0) : COLOR0 {
                              SampleEdges(uv + float2(0.0, t.y)).r);
         open *= step(0.5, pair);
         span += open;
-        pair = float2(SampleEdges(uv + float2(0.0, -2.0 * t.y)).r,
-                      SampleEdges(uv + float2(0.0, 2.0 * t.y)).r);
-        open *= step(0.5, pair);
+        [branch] if (open.x > 0.0) {
+            open.x *= step(0.5, SampleEdges(uv + float2(0.0, -2.0 * t.y)).r);
+        }
+        [branch] if (open.y > 0.0) {
+            open.y *= step(0.5, SampleEdges(uv + float2(0.0, 2.0 * t.y)).r);
+        }
         span += open;
-        pair = float2(SampleEdges(uv + float2(0.0, -3.0 * t.y)).r,
-                      SampleEdges(uv + float2(0.0, 3.0 * t.y)).r);
-        open *= step(0.5, pair);
+        [branch] if (open.x > 0.0) {
+            open.x *= step(0.5, SampleEdges(uv + float2(0.0, -3.0 * t.y)).r);
+        }
+        [branch] if (open.y > 0.0) {
+            open.y *= step(0.5, SampleEdges(uv + float2(0.0, 3.0 * t.y)).r);
+        }
         span += open;
-        pair = float2(SampleEdges(uv + float2(0.0, -4.0 * t.y)).r,
-                      SampleEdges(uv + float2(0.0, 4.0 * t.y)).r);
-        open *= step(0.5, pair);
+        [branch] if (open.x > 0.0) {
+            open.x *= step(0.5, SampleEdges(uv + float2(0.0, -4.0 * t.y)).r);
+        }
+        [branch] if (open.y > 0.0) {
+            open.y *= step(0.5, SampleEdges(uv + float2(0.0, 4.0 * t.y)).r);
+        }
         span += open;
         weights.rg = (span.yx + 0.5) / (span.x + span.y + 2.0);
     }
@@ -42,17 +56,26 @@ float4 Main(float2 uv : TEXCOORD0) : COLOR0 {
                              SampleEdges(uv + float2(t.x, 0.0)).g);
         open *= step(0.5, pair);
         span += open;
-        pair = float2(SampleEdges(uv + float2(-2.0 * t.x, 0.0)).g,
-                      SampleEdges(uv + float2(2.0 * t.x, 0.0)).g);
-        open *= step(0.5, pair);
+        [branch] if (open.x > 0.0) {
+            open.x *= step(0.5, SampleEdges(uv + float2(-2.0 * t.x, 0.0)).g);
+        }
+        [branch] if (open.y > 0.0) {
+            open.y *= step(0.5, SampleEdges(uv + float2(2.0 * t.x, 0.0)).g);
+        }
         span += open;
-        pair = float2(SampleEdges(uv + float2(-3.0 * t.x, 0.0)).g,
-                      SampleEdges(uv + float2(3.0 * t.x, 0.0)).g);
-        open *= step(0.5, pair);
+        [branch] if (open.x > 0.0) {
+            open.x *= step(0.5, SampleEdges(uv + float2(-3.0 * t.x, 0.0)).g);
+        }
+        [branch] if (open.y > 0.0) {
+            open.y *= step(0.5, SampleEdges(uv + float2(3.0 * t.x, 0.0)).g);
+        }
         span += open;
-        pair = float2(SampleEdges(uv + float2(-4.0 * t.x, 0.0)).g,
-                      SampleEdges(uv + float2(4.0 * t.x, 0.0)).g);
-        open *= step(0.5, pair);
+        [branch] if (open.x > 0.0) {
+            open.x *= step(0.5, SampleEdges(uv + float2(-4.0 * t.x, 0.0)).g);
+        }
+        [branch] if (open.y > 0.0) {
+            open.y *= step(0.5, SampleEdges(uv + float2(4.0 * t.x, 0.0)).g);
+        }
         span += open;
         weights.ba = (span.yx + 0.5) / (span.x + span.y + 2.0);
     }

@@ -12,8 +12,8 @@
 //! corruption.
 
 use libpsycho::os::windows::directx9::{
-    D3DFORMAT, D3DMULTISAMPLE_NONE, D3DPT_TRIANGLESTRIP, D3DTEXF_NONE, Device9Ref, Direct3DResult,
-    RECT, ScreenVertex, StateBlock9, Surface9, Texture9, VertexBuffer9,
+    D3DFORMAT, D3DMULTISAMPLE_NONE, D3DPRIMITIVETYPE, D3DPT_TRIANGLESTRIP, D3DTEXF_NONE,
+    Device9Ref, Direct3DResult, RECT, ScreenVertex, StateBlock9, Surface9, Texture9, VertexBuffer9,
 };
 use parking_lot::Mutex;
 
@@ -215,6 +215,16 @@ pub(crate) fn apply_state_block(state_block: &StateBlock9) -> Direct3DResult<()>
     state_block.apply()
 }
 
+/// Unbind one sampler texture through `clear_texture`, counting the call.
+///
+/// Every OMV sampler unbind routes through here so the performance
+/// investigation can attribute per-frame clear work. The clear itself is
+/// unchanged.
+pub(crate) fn clear_sampler(device: &Device9Ref<'_>, sampler: u32) -> Direct3DResult<()> {
+    crate::graphics_diagnostics::add(crate::graphics_diagnostics::Counter::TargetClear, 1);
+    device.clear_texture(sampler)
+}
+
 /// Copy a screen-color surface into a texture that will be sampled by OMV.
 ///
 /// The phase copy participates in two shader ABIs: `s0` is the current effect
@@ -229,7 +239,7 @@ pub(crate) fn copy_scene_color_for_sampling(
     sampler3_texture: &Texture9,
 ) -> Direct3DResult<()> {
     for sampler in SCENE_COPY_SAMPLERS {
-        device.clear_texture(sampler)?;
+        clear_sampler(device, sampler)?;
     }
     // Source and destination have identical phase dimensions, so NONE performs
     // an exact copy without requiring optional StretchRect filtering support.
@@ -252,7 +262,7 @@ pub(crate) fn copy_scene_color_region_for_sampling(
     sampler3_texture: &Texture9,
 ) -> Direct3DResult<()> {
     for sampler in SCENE_COPY_SAMPLERS {
-        device.clear_texture(sampler)?;
+        clear_sampler(device, sampler)?;
     }
     crate::graphics_diagnostics::add(crate::graphics_diagnostics::Counter::ColorCopy, 1);
     let _span = crate::graphics_diagnostics::span(crate::graphics_diagnostics::Interval::ColorCopy);
@@ -350,10 +360,95 @@ static FULLSCREEN_STREAM: Mutex<Option<FullscreenStream>> = Mutex::new(None);
 struct FullscreenStream {
     device: usize,
     generation: u32,
+    capacity_vertices: usize,
     buffer: VertexBuffer9,
 }
 
 const SCREEN_VERTEX_BYTES: usize = size_of::<ScreenVertex>();
+
+/// Minimum stream capacity: one four-vertex strip, the most common shape.
+const FULLSCREEN_STREAM_MIN_VERTICES: usize = 4;
+
+/// Submit fullscreen geometry through the persistent vertex stream.
+///
+/// `vertices` is the exact geometry the caller's shader expects, in
+/// `ScreenVertex` layout; `primitive_type` and `primitive_count` describe the
+/// same submission the caller would have issued with `draw_primitive_up`.
+/// The stream source is rebound to this buffer for the submission; the
+/// caller's state transaction restores the native binding. Contentions or
+/// stream-creation failures fall back to the caller-owned single `UP` draw
+/// instead of blocking. The buffer grows to fit the largest shape seen and is
+/// re-created from its generation marker after a device reset.
+///
+/// # Safety
+///
+/// The FVF/declaration at submission time must accept `ScreenVertex`.
+pub(crate) unsafe fn draw_fullscreen_vertices(
+    device: &Device9Ref<'_>,
+    vertices: &[ScreenVertex],
+    primitive_type: D3DPRIMITIVETYPE,
+    primitive_count: u32,
+) -> Direct3DResult<()> {
+    let needed = vertices.len().max(FULLSCREEN_STREAM_MIN_VERTICES);
+    if let Some(mut slot) = FULLSCREEN_STREAM.try_lock() {
+        let generation = crate::backend::d3d_device_generation();
+        let reusable = slot.as_ref().is_some_and(|stream| {
+            stream.device == device.as_raw() as usize
+                && stream.generation == generation
+                && stream.capacity_vertices >= needed
+        });
+        if !reusable {
+            *slot = None;
+            match device.create_dynamic_vertex_buffer(
+                (needed * SCREEN_VERTEX_BYTES) as u32,
+                ScreenVertex::FVF,
+            ) {
+                Ok(buffer) => {
+                    *slot = Some(FullscreenStream {
+                        device: device.as_raw() as usize,
+                        generation,
+                        capacity_vertices: needed,
+                        buffer,
+                    });
+                }
+                // Creation failure keeps this submission on the UP fallback;
+                // the next submission retries the stream.
+                Err(_) => {}
+            }
+        }
+        if let Some(stream) = slot.as_ref() {
+            // SAFETY: vertices are exactly the repr(C) layout
+            // ScreenVertex::FVF describes.
+            let bytes = unsafe {
+                std::slice::from_raw_parts(
+                    vertices.as_ptr() as *const u8,
+                    vertices.len() * SCREEN_VERTEX_BYTES,
+                )
+            };
+            // A failed submission must not leave the cached buffer in place:
+            // a device recreated underneath the stream would otherwise poison
+            // every later fullscreen pass for the device's lifetime. Drop the
+            // stream so the next submission re-creates it.
+            let submission = (|| -> Direct3DResult<()> {
+                stream.buffer.replace_discard(bytes)?;
+                unsafe {
+                    device.set_raw_stream_source(
+                        0,
+                        stream.buffer.as_raw(),
+                        0,
+                        SCREEN_VERTEX_BYTES as u32,
+                    )?;
+                }
+                device.draw_primitive(primitive_type, 0, primitive_count)
+            })();
+            if submission.is_err() {
+                *slot = None;
+            }
+            return submission;
+        }
+    }
+    unsafe { device.draw_primitive_up(primitive_type, primitive_count, vertices) }
+}
 
 /// Submit one fullscreen strip through the persistent stream.
 ///
@@ -370,59 +465,7 @@ pub(crate) unsafe fn draw_fullscreen_quad(
     device: &Device9Ref<'_>,
     quad: &[ScreenVertex; 4],
 ) -> Direct3DResult<()> {
-    if let Some(mut slot) = FULLSCREEN_STREAM.try_lock() {
-        let generation = crate::backend::d3d_device_generation();
-        let stream = match slot.as_ref() {
-            Some(stream)
-                if stream.device == device.as_raw() as usize && stream.generation == generation =>
-            {
-                Some(stream)
-            }
-            _ => None,
-        };
-        let owned = match stream {
-            Some(stream) => Some(stream),
-            None => {
-                *slot = None;
-                match device.create_dynamic_vertex_buffer(
-                    (quad.len() * SCREEN_VERTEX_BYTES) as u32,
-                    ScreenVertex::FVF,
-                ) {
-                    Ok(buffer) => {
-                        *slot = Some(FullscreenStream {
-                            device: device.as_raw() as usize,
-                            generation,
-                            buffer,
-                        });
-                        slot.as_ref()
-                    }
-                    Err(_) => None,
-                }
-            }
-        };
-        if let Some(stream) = owned {
-            // SAFETY: quad is exactly ScreenVertex::LEN elements of the
-            // repr(C) layout ScreenVertex::FVF describes.
-            let bytes = unsafe {
-                std::slice::from_raw_parts(
-                    quad.as_ptr() as *const u8,
-                    quad.len() * SCREEN_VERTEX_BYTES,
-                )
-            };
-            stream.buffer.replace_discard(bytes)?;
-            unsafe {
-                device.set_raw_stream_source(
-                    0,
-                    stream.buffer.as_raw(),
-                    0,
-                    SCREEN_VERTEX_BYTES as u32,
-                )?;
-            }
-            device.draw_primitive(D3DPT_TRIANGLESTRIP, 0, 2)?;
-            return Ok(());
-        }
-    }
-    unsafe { device.draw_primitive_up(D3DPT_TRIANGLESTRIP, 2, quad) }
+    unsafe { draw_fullscreen_vertices(device, quad, D3DPT_TRIANGLESTRIP, 2) }
 }
 
 /// Release the persistent fullscreen stream before a device reset.
@@ -494,7 +537,9 @@ mod tests {
         assert!(body.contains("for sampler in SCENE_COPY_SAMPLERS"));
         assert!(body.contains("copy_exact_color_surface"));
         assert!(!body.contains("D3DTEXF_POINT"));
-        let unbind = body.find("device.clear_texture").expect("sampler unbind");
+        let unbind = body
+            .find("clear_sampler(device, sampler)")
+            .expect("sampler unbind");
         let copy = body.find("copy_exact_color_surface").expect("surface copy");
         let rebind = body.find("device.set_texture").expect("sampler rebind");
         assert!(unbind < copy);

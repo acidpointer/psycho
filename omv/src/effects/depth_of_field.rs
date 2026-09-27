@@ -1290,7 +1290,7 @@ fn bind_target(
     // s0-s4 are the complete DOF sampler ABI. Clearing only this proven set
     // prevents read/write aliasing without ten redundant COM calls per pass.
     for sampler in 0..=4 {
-        device.clear_texture(sampler)?;
+        crate::render_state::clear_sampler(device, sampler)?;
     }
     device.set_render_target(0, surface)?;
     device.set_viewport(&D3DVIEWPORT9 {
@@ -1443,7 +1443,9 @@ fn draw_quad(device: &Device9Ref<'_>, width: u32, height: u32) -> Direct3DResult
         ScreenVertex::new(width * 2.0 - 0.5, -0.5, 2.0, 0.0),
         ScreenVertex::new(-0.5, height * 2.0 - 0.5, 0.0, 2.0),
     ];
-    unsafe { device.draw_primitive_up(D3DPT_TRIANGLELIST, 1, &triangle) }
+    unsafe {
+        crate::render_state::draw_fullscreen_vertices(device, &triangle, D3DPT_TRIANGLELIST, 1)
+    }
 }
 
 struct DofTargets {

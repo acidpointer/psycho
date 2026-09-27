@@ -861,6 +861,12 @@ pub(crate) fn present_services_required() -> bool {
     )
 }
 
+/// Return whether the OMV in-game menu is currently open.
+#[inline]
+pub(crate) fn menu_open() -> bool {
+    MENU_OPEN.load(Ordering::Acquire)
+}
+
 fn present_services_required_for(
     effects_enabled: bool,
     menu_open: bool,
@@ -911,6 +917,8 @@ pub(crate) unsafe fn apply_present_frame(
         crate::fnv_world_pipeline::publish_config(runtime.settings.menu_config);
     }
 
+    let _present_span =
+        crate::graphics_diagnostics::span(crate::graphics_diagnostics::Interval::PresentFrameTotal);
     let result = unsafe { runtime.apply_present_frame(device_ptr, hwnd_hint, loading_screen) };
     if let Err(err) = result {
         runtime.log_frame_error(&err);
@@ -934,6 +942,8 @@ pub(crate) unsafe fn apply_fnv_ao_after_world(device_ptr: *mut c_void) {
     };
     runtime.begin_render_epoch(crate::hooks::render_epoch());
 
+    let _ao_span =
+        crate::graphics_diagnostics::span(crate::graphics_diagnostics::Interval::WorldAoAfterWorld);
     let result = unsafe { runtime.apply_ambient_occlusion_after_world(device_ptr) };
     if !runtime.ambient_occlusion_after_world_applied {
         // A missing snapshot, target rejection, or device error must break AO
@@ -996,6 +1006,9 @@ pub(crate) unsafe fn apply_fnv_motion_blur_after_world(device_ptr: *mut c_void) 
     };
     runtime.begin_render_epoch(epoch);
 
+    let _mb_span = crate::graphics_diagnostics::span(
+        crate::graphics_diagnostics::Interval::FirstPersonMotionBlur,
+    );
     let result = unsafe { runtime.apply_first_person_motion_blur_after_world(device_ptr, target) };
     match result {
         Ok(FirstPersonMotionBlurOutcome::Retryable) => {
@@ -1107,6 +1120,8 @@ pub(crate) unsafe fn apply_fnv_scene_pre_image_space(
     };
     runtime.begin_render_epoch(crate::hooks::render_epoch());
 
+    let _phase_span =
+        crate::graphics_diagnostics::span(crate::graphics_diagnostics::Interval::ScenePrePhase);
     let result = unsafe {
         runtime.apply_scene_phase(
             device_ptr,
@@ -1134,6 +1149,8 @@ pub(crate) unsafe fn apply_fnv_scene_post_image_space(
     runtime.begin_render_epoch(crate::hooks::render_epoch());
 
     runtime.native_dof_active_this_frame = native_dof_active;
+    let _phase_span =
+        crate::graphics_diagnostics::span(crate::graphics_diagnostics::Interval::ScenePostPhase);
     let result = unsafe {
         runtime.apply_scene_phase(
             device_ptr,
@@ -1157,6 +1174,8 @@ pub(crate) unsafe fn apply_fnv_final_image_space(device_ptr: *mut c_void) {
     };
     runtime.begin_render_epoch(crate::hooks::render_epoch());
 
+    let _phase_span =
+        crate::graphics_diagnostics::span(crate::graphics_diagnostics::Interval::FinalPhase);
     let result = unsafe {
         runtime.apply_scene_phase(
             device_ptr,
@@ -1729,6 +1748,11 @@ impl ScreenShaderRuntime {
         self.ensure_imgui(&device, hwnd_hint);
 
         let menu_open = MENU_OPEN.load(Ordering::Acquire);
+        if menu_open {
+            // Marks sampled frames whose present servicing included menu
+            // drawing, so perf summaries can be interpreted accordingly.
+            crate::graphics_diagnostics::add(crate::graphics_diagnostics::Counter::MenuFrame, 1);
+        }
         let pbr_preparation = pbr::preparation_status();
         let preparation_overlay = !menu_open && pbr_preparation.active() && self.imgui.is_some();
         // xNVSE reports loading-screen presentation explicitly. FinalImageSpace
@@ -1944,6 +1968,13 @@ impl ScreenShaderRuntime {
                 }
             }
         }
+        if crate::graphics_diagnostics::family_skipped(
+            crate::graphics_diagnostics::Family::MotionBlur,
+        ) {
+            // Profile skip after temporal consumption behaves exactly like a
+            // frame with no drawable motion blur: no color copy, no draw.
+            return Ok(FirstPersonMotionBlurOutcome::Consumed);
+        }
         let should_draw = self
             .motion_blur
             .as_ref()
@@ -1982,6 +2013,9 @@ impl ScreenShaderRuntime {
         })();
 
         crate::render_state::finish_screen_transaction(&device, &attachments, draw_result, &state)?;
+        crate::graphics_diagnostics::note_family_draw(
+            crate::graphics_diagnostics::Family::MotionBlur,
+        );
         Ok(FirstPersonMotionBlurOutcome::Consumed)
     }
 
@@ -2025,6 +2059,13 @@ impl ScreenShaderRuntime {
         &mut self,
         device_ptr: *mut c_void,
     ) -> Direct3DResult<()> {
+        if crate::graphics_diagnostics::family_skipped(
+            crate::graphics_diagnostics::Family::AmbientOcclusion,
+        ) {
+            // Profile skip behaves exactly like AO with no work this frame:
+            // the caller's not-applied handling breaks temporal continuity.
+            return Ok(());
+        }
         if ambient_occlusion_boundary(self.settings.depth_provider)
             != AmbientOcclusionBoundary::AfterWorldBeforeFirstPerson
             || self.ambient_occlusion_after_world_applied
@@ -2117,6 +2158,9 @@ impl ScreenShaderRuntime {
 
         crate::render_state::finish_screen_transaction(&device, &attachments, draw_result, &state)?;
         self.ambient_occlusion_after_world_applied = true;
+        crate::graphics_diagnostics::note_family_draw(
+            crate::graphics_diagnostics::Family::AmbientOcclusion,
+        );
         if !self.world_only_ao_info_logged {
             log::info!("[AO] World-only-provider AO is drawing on the active post-world target");
             self.world_only_ao_info_logged = true;
@@ -3208,6 +3252,15 @@ impl ScreenShaderRuntime {
             || image.Y != 0
             || image.Width != desc.Width
             || image.Height != desc.Height;
+        // Letterbox evidence: which frames compose into a sub-rectangle and
+        // when that rectangle changes, for the wrong-rectangle bug class.
+        crate::graphics_diagnostics::note_image_rect(
+            cropped,
+            image.X,
+            image.Y,
+            image.Width,
+            image.Height,
+        );
         let image_desc = image_description(desc, &image);
         let desc = &image_desc;
         let ambient_occlusion_allowed =
@@ -3302,7 +3355,11 @@ impl ScreenShaderRuntime {
                     let (output, output_location) =
                         color_graph.output(backbuffer, stages_remaining > 1);
                     let input = color_graph.input_texture().clone();
-                    let drew = self.draw_ambient_occlusion_pipeline(
+                    // Profile skip behaves exactly like an effect with no
+                    // work: the graph commits a non-drawing stage.
+                    let drew = !crate::graphics_diagnostics::family_skipped(
+                        crate::graphics_diagnostics::Family::AmbientOcclusion,
+                    ) && self.draw_ambient_occlusion_pipeline(
                         device,
                         &output,
                         desc,
@@ -3313,6 +3370,22 @@ impl ScreenShaderRuntime {
                     )?;
                     color_graph.commit(output_location, drew);
                     if drew {
+                        crate::graphics_diagnostics::note_family_draw(
+                            crate::graphics_diagnostics::Family::MotionBlur,
+                        );
+                    }
+                    if drew {
+                        crate::graphics_diagnostics::note_family_draw(
+                            crate::graphics_diagnostics::Family::AmbientOcclusion,
+                        );
+                    }
+                    // A profile-skipped stage consumes its predicted slot so the last real
+                    // stage still writes the engine target instead of a fallback commit.
+                    if drew
+                        || crate::graphics_diagnostics::family_skipped(
+                            crate::graphics_diagnostics::Family::AmbientOcclusion,
+                        )
+                    {
                         stages_remaining = stages_remaining.saturating_sub(1);
                     }
                     ambient_occlusion_drawn = true;
@@ -3330,7 +3403,11 @@ impl ScreenShaderRuntime {
                     let (output, output_location) =
                         color_graph.output(backbuffer, stages_remaining > 1);
                     let input = color_graph.input_texture().clone();
-                    let drew = self.draw_final_color_pipeline(
+                    // Profile skip behaves exactly like an effect with no
+                    // work: the graph commits a non-drawing stage.
+                    let drew = !crate::graphics_diagnostics::family_skipped(
+                        crate::graphics_diagnostics::Family::FinalColor,
+                    ) && self.draw_final_color_pipeline(
                         device,
                         &output,
                         desc,
@@ -3341,6 +3418,17 @@ impl ScreenShaderRuntime {
                     )?;
                     color_graph.commit(output_location, drew);
                     if drew {
+                        crate::graphics_diagnostics::note_family_draw(
+                            crate::graphics_diagnostics::Family::FinalColor,
+                        );
+                    }
+                    // A profile-skipped stage consumes its predicted slot so the last real
+                    // stage still writes the engine target instead of a fallback commit.
+                    if drew
+                        || crate::graphics_diagnostics::family_skipped(
+                            crate::graphics_diagnostics::Family::FinalColor,
+                        )
+                    {
                         stages_remaining = stages_remaining.saturating_sub(1);
                     }
                     final_color_drawn = true;
@@ -3353,7 +3441,10 @@ impl ScreenShaderRuntime {
                 let (output, output_location) =
                     color_graph.output(backbuffer, stages_remaining > 1);
                 let input = color_graph.input_texture().clone();
-                let drew = self.draw_sunshafts_pipeline(
+                // Profile skip behaves exactly like an effect with no work.
+                let drew = !crate::graphics_diagnostics::family_skipped(
+                    crate::graphics_diagnostics::Family::Sunshafts,
+                ) && self.draw_sunshafts_pipeline(
                     device,
                     &output,
                     desc,
@@ -3363,6 +3454,17 @@ impl ScreenShaderRuntime {
                 )?;
                 color_graph.commit(output_location, drew);
                 if drew {
+                    crate::graphics_diagnostics::note_family_draw(
+                        crate::graphics_diagnostics::Family::Sunshafts,
+                    );
+                }
+                // A profile-skipped stage consumes its predicted slot so the last real
+                // stage still writes the engine target instead of a fallback commit.
+                if drew
+                    || crate::graphics_diagnostics::family_skipped(
+                        crate::graphics_diagnostics::Family::Sunshafts,
+                    )
+                {
                     stages_remaining = stages_remaining.saturating_sub(1);
                 }
                 pass_index = pass_index.saturating_add(source.pass_count.max(1));
@@ -3374,10 +3476,29 @@ impl ScreenShaderRuntime {
                 let (output, output_location) =
                     color_graph.output(backbuffer, stages_remaining > 1);
                 let input = color_graph.input_texture().clone();
-                let drew =
-                    self.draw_depth_of_field_pipeline(device, &output, desc, frame_inputs, &input)?;
+                // Profile skip behaves exactly like an effect with no work.
+                let drew = !crate::graphics_diagnostics::family_skipped(
+                    crate::graphics_diagnostics::Family::DepthOfField,
+                ) && self.draw_depth_of_field_pipeline(
+                    device,
+                    &output,
+                    desc,
+                    frame_inputs,
+                    &input,
+                )?;
                 color_graph.commit(output_location, drew);
                 if drew {
+                    crate::graphics_diagnostics::note_family_draw(
+                        crate::graphics_diagnostics::Family::DepthOfField,
+                    );
+                }
+                // A profile-skipped stage consumes its predicted slot so the last real
+                // stage still writes the engine target instead of a fallback commit.
+                if drew
+                    || crate::graphics_diagnostics::family_skipped(
+                        crate::graphics_diagnostics::Family::DepthOfField,
+                    )
+                {
                     stages_remaining = stages_remaining.saturating_sub(1);
                 }
                 pass_index = pass_index.saturating_add(source_pass_count);
@@ -3396,11 +3517,29 @@ impl ScreenShaderRuntime {
                 let (output, output_location) =
                     color_graph.output(backbuffer, stages_remaining > 1);
                 let input = color_graph.input_texture().clone();
-                let drew =
-                    self.draw_motion_blur_pipeline(device, &output, desc, frame_inputs, &input)?;
+                // Profile skip behaves exactly like an effect with no work.
+                let drew = !crate::graphics_diagnostics::family_skipped(
+                    crate::graphics_diagnostics::Family::MotionBlur,
+                ) && self.draw_motion_blur_pipeline(
+                    device,
+                    &output,
+                    desc,
+                    frame_inputs,
+                    &input,
+                )?;
                 color_graph.commit(output_location, drew);
-                if drew {
+                // A profile-skipped stage consumes its predicted slot so the last real
+                // stage still writes the engine target instead of a fallback commit.
+                let motion_blur_skipped = crate::graphics_diagnostics::family_skipped(
+                    crate::graphics_diagnostics::Family::MotionBlur,
+                );
+                if drew || motion_blur_skipped {
                     stages_remaining = stages_remaining.saturating_sub(1);
+                }
+                if drew {
+                    crate::graphics_diagnostics::note_family_draw(
+                        crate::graphics_diagnostics::Family::MotionBlur,
+                    );
                 }
                 pass_index = pass_index.saturating_add(source_pass_count);
                 continue;
@@ -3419,10 +3558,40 @@ impl ScreenShaderRuntime {
                 let (output, output_location) =
                     color_graph.output(backbuffer, stages_remaining > 1);
                 let input = color_graph.input_texture().clone();
-                let drew =
-                    self.draw_anti_aliasing_pipeline(device, &output, desc, &input, source)?;
+                // Profile skip behaves exactly like an effect with no work.
+                let drew = !crate::graphics_diagnostics::family_skipped(
+                    crate::graphics_diagnostics::Family::AntiAliasing,
+                ) && self
+                    .draw_anti_aliasing_pipeline(device, &output, desc, &input, source)?;
                 color_graph.commit(output_location, drew);
                 if drew {
+                    crate::graphics_diagnostics::note_family_draw(
+                        crate::graphics_diagnostics::Family::AntiAliasing,
+                    );
+                    let variant_counter = match source.embedded_effect_kind() {
+                        Some(EmbeddedEffectKind::FastFxaa) => {
+                            crate::graphics_diagnostics::Counter::AaFastFxaa
+                        }
+                        Some(EmbeddedEffectKind::Nfaa) => {
+                            crate::graphics_diagnostics::Counter::AaNfaa
+                        }
+                        Some(EmbeddedEffectKind::Axaa) => {
+                            crate::graphics_diagnostics::Counter::AaAxaa
+                        }
+                        Some(EmbeddedEffectKind::Dlaa) => {
+                            crate::graphics_diagnostics::Counter::AaDlaa
+                        }
+                        _ => crate::graphics_diagnostics::Counter::AaSmaa,
+                    };
+                    crate::graphics_diagnostics::add(variant_counter, 1);
+                }
+                // A profile-skipped stage consumes its predicted slot so the last real
+                // stage still writes the engine target instead of a fallback commit.
+                if drew
+                    || crate::graphics_diagnostics::family_skipped(
+                        crate::graphics_diagnostics::Family::AntiAliasing,
+                    )
+                {
                     stages_remaining = stages_remaining.saturating_sub(1);
                 }
                 pass_index = pass_index.saturating_add(source.pass_count.max(1));
@@ -3522,6 +3691,8 @@ impl ScreenShaderRuntime {
         fast_source: Option<&ScreenShaderSource>,
         contact_source: Option<&ScreenShaderSource>,
     ) -> Direct3DResult<bool> {
+        let _span =
+            crate::graphics_diagnostics::span(crate::graphics_diagnostics::Interval::AoPipeline);
         if !ambient_occlusion::should_draw(frame_inputs, fast_source, contact_source) {
             if !ambient_occlusion::family_selected(fast_source, contact_source)
                 && let Some(effect) = self.ambient_occlusion.as_mut()
@@ -3562,6 +3733,8 @@ impl ScreenShaderRuntime {
         scene_color: &Texture9,
         source: &ScreenShaderSource,
     ) -> Direct3DResult<bool> {
+        let _span =
+            crate::graphics_diagnostics::span(crate::graphics_diagnostics::Interval::AaPipeline);
         if self.anti_aliasing.is_none() {
             let Some(effect) = anti_aliasing::AntiAliasingEffect::create(device)? else {
                 return Ok(false);
@@ -3605,6 +3778,9 @@ impl ScreenShaderRuntime {
         bloom_source: Option<&ScreenShaderSource>,
         color_grade_source: Option<&ScreenShaderSource>,
     ) -> Direct3DResult<bool> {
+        let _span = crate::graphics_diagnostics::span(
+            crate::graphics_diagnostics::Interval::FinalColorPipeline,
+        );
         let selected_lut = Self::selected_final_color_lut(&self.color_luts, color_grade_source);
         let work = blooming_hdr::FinalColorWorkPlan::from_sources_with_lut_available(
             bloom_source,
@@ -3660,6 +3836,9 @@ impl ScreenShaderRuntime {
         scene_color: &Texture9,
         source: &ScreenShaderSource,
     ) -> Direct3DResult<bool> {
+        let _span = crate::graphics_diagnostics::span(
+            crate::graphics_diagnostics::Interval::SunshaftsPipeline,
+        );
         if !sunshafts::should_draw(frame_inputs, source) {
             return Ok(false);
         }
@@ -3694,6 +3873,9 @@ impl ScreenShaderRuntime {
         frame_inputs: &backend::FrameInputs,
         scene_color: &Texture9,
     ) -> Direct3DResult<bool> {
+        let _span = crate::graphics_diagnostics::span(
+            crate::graphics_diagnostics::Interval::DepthOfFieldPipeline,
+        );
         let config = self.settings.menu_config.embedded_effects.depth_of_field;
         let native_dof_active = self.native_dof_active_this_frame;
         if !depth_of_field::should_draw(frame_inputs, config, native_dof_active) {
@@ -3746,6 +3928,9 @@ impl ScreenShaderRuntime {
         frame_inputs: &backend::FrameInputs,
         scene_color: &Texture9,
     ) -> Direct3DResult<bool> {
+        let _span = crate::graphics_diagnostics::span(
+            crate::graphics_diagnostics::Interval::MotionBlurPipeline,
+        );
         let Some(frame) = self.prepared_motion_blur_frame.take() else {
             return Ok(false);
         };
@@ -4339,14 +4524,14 @@ impl ScreenShaderRuntime {
                 device.set_raw_base_texture(1, depth_texture.as_ptr())?;
             }
         } else {
-            device.clear_texture(1)?;
+            crate::render_state::clear_sampler(device, 1)?;
         }
         if let Some(depth_texture) = frame_inputs.depth.first_person_texture {
             unsafe {
                 device.set_raw_base_texture(2, depth_texture.as_ptr())?;
             }
         } else {
-            device.clear_texture(2)?;
+            crate::render_state::clear_sampler(device, 2)?;
         }
         device.set_texture(3, self.sampler3_scene_color(scene_color))?;
         device.set_texture_stage_state(0, D3DTSS_COLOROP, D3DTOP_SELECTARG1.0 as u32)?;
@@ -5558,6 +5743,14 @@ impl PhaseColorGraph {
             PhaseColorLocation::Engine => unreachable!(),
         };
         PHASE_FALLBACK_COLOR_COMMITS.fetch_add(1, Ordering::Relaxed);
+        crate::graphics_diagnostics::add(
+            crate::graphics_diagnostics::Counter::PhaseFallbackCommit,
+            1,
+        );
+        crate::graphics_diagnostics::add(
+            crate::graphics_diagnostics::Counter::PhaseFallbackCommit,
+            1,
+        );
         if let Some(rect) = self.image_rect.as_ref() {
             crate::render_state::copy_scene_color_region_for_sampling(
                 device,
@@ -9842,6 +10035,22 @@ fn draw_global_config(
         "Enable OMV graphics",
         "global.screen_space_shaders",
         &mut config.screen_space_shaders,
+    );
+
+    // Session-only performance profiler: not part of the saved config, never
+    // armed by default, and the checkbox is the only activation path. The
+    // disabled instrumentation is one relaxed load per entry point.
+    ui.separator_text(&cstring("PROFILING"));
+    let mut profiler_active = crate::graphics_diagnostics::profiler_active();
+    if ui.checkbox(
+        &cstring("Performance profiler##global.profiler"),
+        &mut profiler_active,
+    ) {
+        crate::graphics_diagnostics::set_profiler_active(profiler_active);
+    }
+    ui.text_colored(
+        MENU_MUTED_TEXT,
+        &cstring("Session-only; evidence lines appear in the log."),
     );
 
     changed |= draw_menu_keybind_control(ui, &mut config.menu_toggle_key);

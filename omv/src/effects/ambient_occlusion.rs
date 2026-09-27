@@ -468,13 +468,11 @@ mod shader_compile_tests {
         };
         let directions = [
             ([1.0, 0.0], 0.28),
-            ([0.7071, 0.7071], 0.40),
-            ([0.0, 1.0], 0.52),
-            ([-0.7071, 0.7071], 0.64),
-            ([-1.0, 0.0], 0.73),
-            ([-0.7071, -0.7071], 0.82),
-            ([0.0, -1.0], 0.91),
-            ([0.7071, -0.7071], 1.0),
+            ([0.5, 0.866_025_4], 0.45),
+            ([-0.5, 0.866_025_4], 0.62),
+            ([-1.0, 0.0], 0.76),
+            ([-0.5, -0.866_025_4], 0.88),
+            ([0.5, -0.866_025_4], 1.0),
         ];
         let mut occlusion = 0.0;
         for (direction, scale) in directions {
@@ -506,7 +504,7 @@ mod shader_compile_tests {
             let falloff = 1.0 - smooth01(depth_delta.abs() / radius.max(0.001));
             occlusion += falloff * falloff;
         }
-        occlusion * 0.125
+        occlusion / 6.0
     }
 
     fn render_reference_ao(depths: &[f32], contact: bool) -> Vec<f32> {
@@ -648,22 +646,23 @@ mod shader_compile_tests {
     }
 
     #[test]
-    fn ao_kernel_preserves_the_original_eight_samples_exactly() {
-        let expected = [0.28f32, 0.40, 0.52, 0.64, 0.73, 0.82, 0.91, 1.0];
+    fn ao_kernel_preserves_the_six_sample_circle_contract() {
+        let expected = [0.28f32, 0.45, 0.62, 0.76, 0.88, 1.0];
         for (sample_index, expected_scale) in expected.into_iter().enumerate() {
-            let sample_scale = if sample_index < 4 {
-                0.28 + 0.12 * sample_index as f32
+            let sample_scale = if sample_index < 3 {
+                0.28 + 0.17 * sample_index as f32
             } else {
-                0.73 + 0.09 * (sample_index - 4) as f32
+                0.76 + 0.12 * (sample_index - 3) as f32
             };
             assert!((sample_scale - expected_scale).abs() < 1.0e-6);
         }
 
         let extract = shader_source(EXTRACT_SHADER);
-        assert!(extract.contains("sampleIndex < 8"));
-        assert!(extract.contains("0.28f + 0.12f * sampleIndex"));
-        assert!(extract.contains("0.73f + 0.09f * (sampleIndex - 4)"));
-        assert!(extract.contains("static const float KernelTurn = 0.70710678f"));
+        assert!(extract.contains("sampleIndex < 6"));
+        assert!(extract.contains("0.28f + 0.17f * sampleIndex"));
+        assert!(extract.contains("0.76f + 0.12f * (sampleIndex - 3)"));
+        assert!(extract.contains("static const float KernelStepCos = 0.5f"));
+        assert!(extract.contains("static const float KernelStepSin = 0.8660254f"));
         assert_eq!(extract.matches("SampleProjectedOcclusion(").count(), 2);
         assert!(extract.contains("float3 hemisphereDirection = normalize("));
         assert!(extract.contains("[loop]"));
@@ -672,9 +671,9 @@ mod shader_compile_tests {
     #[test]
     fn fast_contact_and_combined_extract_work_is_fixed() {
         let expected = [
-            (AmbientOcclusionFamily::Fast, 8usize),
-            (AmbientOcclusionFamily::Contact, 8),
-            (AmbientOcclusionFamily::Combined, 16),
+            (AmbientOcclusionFamily::Fast, 6usize),
+            (AmbientOcclusionFamily::Contact, 6),
+            (AmbientOcclusionFamily::Combined, 12),
         ];
         for (family, kernel_samples) in expected {
             let variant = extract_shader_source(family);
@@ -685,7 +684,7 @@ mod shader_compile_tests {
             )));
             assert_eq!(
                 kernel_samples,
-                8 * usize::from(family == AmbientOcclusionFamily::Combined) + 8
+                6 * usize::from(family == AmbientOcclusionFamily::Combined) + 6
             );
         }
 
@@ -868,9 +867,9 @@ mod shader_compile_tests {
         let normal_and_center_fetches = 5usize;
         let optional_first_person_fetch = 1usize;
         let expected = [
-            (AmbientOcclusionFamily::Fast, 8usize, 14usize),
-            (AmbientOcclusionFamily::Contact, 8, 14),
-            (AmbientOcclusionFamily::Combined, 16, 22),
+            (AmbientOcclusionFamily::Fast, 6usize, 12usize),
+            (AmbientOcclusionFamily::Contact, 6, 12),
+            (AmbientOcclusionFamily::Combined, 12, 18),
         ];
 
         for (family, kernel_fetches, maximum_fetches) in expected {
@@ -1199,7 +1198,7 @@ impl AmbientOcclusionEffect {
             frame_index,
         )?;
 
-        device.clear_texture(4)?;
+        crate::render_state::clear_sampler(device, 4)?;
         device.stretch_rect(
             ao_surface,
             None,
@@ -1632,8 +1631,8 @@ fn bind_target(
         MaxZ: 1.0,
     };
 
-    device.clear_texture(0)?;
-    device.clear_texture(4)?;
+    crate::render_state::clear_sampler(device, 0)?;
+    crate::render_state::clear_sampler(device, 4)?;
     device.set_depth_stencil_surface(None)?;
     for index in 1..=3 {
         device.clear_render_target(index)?;
@@ -1652,7 +1651,7 @@ fn bind_depth_inputs(
             device.set_raw_base_texture(1, depth.as_ptr())?;
         }
     } else {
-        device.clear_texture(1)?;
+        crate::render_state::clear_sampler(device, 1)?;
     }
 
     if let Some(depth) = first_person_depth {
@@ -1660,7 +1659,7 @@ fn bind_depth_inputs(
             device.set_raw_base_texture(2, depth.as_ptr())?;
         }
     } else {
-        device.clear_texture(2)?;
+        crate::render_state::clear_sampler(device, 2)?;
     }
 
     Ok(())

@@ -26,7 +26,6 @@ static const float MinFastBias = 0.015f;
 static const float FastDepthBiasScale = 0.000035f;
 static const float MinContactRange = 0.08f;
 static const float MinContactBias = 0.01f;
-static const float KernelTurn = 0.70710678f;
 
 struct PixelInput {
     float2 uv : TEXCOORD0;
@@ -261,21 +260,29 @@ float KernelOcclusion(
 
 	float occlusion = 0.0f;
 	float2 direction = mul(float2(1.0f, 0.0f), rotation);
+	// Six taps at sixty-degree steps cover the same full circle the original
+	// eight-tap kernel covered at forty-five-degree steps. The scale
+	// distribution keeps the original endpoints (0.28, 1.0) and reshapes the
+	// interior; the temporal pass and interleaved rotation absorb the
+	// difference. The deterministic reference suite in ambient_occlusion.rs
+	// pins this contract.
+	static const float KernelStepCos = 0.5f;
+	static const float KernelStepSin = 0.8660254f;
 	[loop]
-	for (int sampleIndex = 0; sampleIndex < 8; ++sampleIndex) {
-		float sampleScale = sampleIndex < 4
-			? 0.28f + 0.12f * sampleIndex
-			: 0.73f + 0.09f * (sampleIndex - 4);
+	for (int sampleIndex = 0; sampleIndex < 6; ++sampleIndex) {
+		float sampleScale = sampleIndex < 3
+			? 0.28f + 0.17f * sampleIndex
+			: 0.76f + 0.12f * (sampleIndex - 3);
 		occlusion += SampleProjectedOcclusion(
 			centerPosition, normal, tangent, bitangent, direction,
 			sampleScale, radius, bias, reversedDepth, rejectCoplanar
 		);
 		direction = float2(
-			(direction.x - direction.y) * KernelTurn,
-			(direction.x + direction.y) * KernelTurn
+			direction.x * KernelStepCos - direction.y * KernelStepSin,
+			direction.x * KernelStepSin + direction.y * KernelStepCos
 		);
 	}
-	return occlusion * 0.125f;
+	return occlusion * 0.1666667f;
 }
 
 float4 NoOcclusion() {

@@ -129,10 +129,6 @@ pub(crate) fn initialize_for_nvse() -> Result<()> {
     let cfg = crate::config::load_config();
 
     initialize_logging(&cfg.diagnostics)?;
-    // Normal builds compile this call away. Attribution builds still require
-    // the explicit diagnostics switch and sample only one frame per 120, so
-    // installing a diagnostic binary does not imply per-draw timing traffic.
-    crate::graphics_diagnostics::configure(cfg.diagnostics.debug_log, 120);
     log::info!("[INIT] Oh My Vegas graphics initialized through xNVSE");
     log::info!(
         "[INIT] OMV build unix={} target={} profile={}",

@@ -606,6 +606,184 @@ fn rejected_tail_stage_leaves_the_last_drawing_stage_on_the_engine_surface() {
     }
 }
 
+/// The reported stale-image defect: spatial AA never bound its own viewport,
+/// so on letterboxed frames its passes inherited the native Y-offset viewport
+/// and rendered the SMAA offset in pixels too low onto the cropped-size graph
+/// and scratch targets. The top rows kept the previous frame's content and
+/// the finish rectangle copy published it. This test drives the real
+/// letterboxed final-phase path with SMAA over two frames with different
+/// scene content and requires every frame to match a fresh same-frame
+/// reference drawn on an image-sized target.
+#[test]
+fn smaa_letterboxed_phase_matches_a_fresh_reference_every_frame() {
+    let _execution = RUNTIME_EXECUTION
+        .lock()
+        .unwrap_or_else(|err| err.into_inner());
+    let owner = create_direct3d9()
+        .unwrap()
+        .create_windowed_device(get_desktop_window().unwrap(), 32, 24, D3DDEVTYPE_HAL)
+        .unwrap();
+    let device = owner.as_ref();
+    // Production releases the persistent fullscreen stream on every device
+    // change (release_for_new_device); tests create raw devices without the
+    // backend publication that bumps the generation, so mirror the reset
+    // contract here before any fullscreen submission.
+    crate::render_state::release_fullscreen_stream();
+    let target = device.render_target(0).unwrap();
+    let desc = target.desc().unwrap();
+
+    anti_aliasing::service_preparation();
+    let deadline = Instant::now() + std::time::Duration::from_secs(30);
+    while !anti_aliasing::preparation_ready() && Instant::now() < deadline {
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    assert!(anti_aliasing::preparation_ready());
+
+    let mut config = crate::config::EmbeddedEffectsConfig::default();
+    config.smaa.enabled = true;
+    let mut runtime = ScreenShaderRuntime::default();
+    runtime.sources = shaders::merge_embedded_sources(&config, Vec::new())
+        .into_iter()
+        .filter(|source| source.embedded_effect_kind() == Some(EmbeddedEffectKind::Smaa))
+        .collect();
+    assert_eq!(runtime.sources.len(), 1);
+    runtime.sources[0].enabled = true;
+    runtime.ensure_shaders(&device);
+    runtime.render_target_slots(&device).unwrap();
+    let phase = ShaderPhase::FinalImageSpace;
+
+    // Letterboxed image viewport with a Y offset on the full target: the
+    // shipped laptop geometry in miniature.
+    let image_viewport = D3DVIEWPORT9 {
+        X: 0,
+        Y: 2,
+        Width: 32,
+        Height: 20,
+        MinZ: 0.0,
+        MaxZ: 1.0,
+    };
+    let image_desc = D3DSURFACE_DESC {
+        Width: 32,
+        Height: 20,
+        ..desc.clone()
+    };
+    let image_target = device
+        .create_render_target_texture(32, 20, desc.Format)
+        .unwrap();
+    let image_surface = image_target.surface_level(0).unwrap();
+    let readback = device
+        .create_system_memory_surface(32, 24, desc.Format)
+        .unwrap();
+    let image_readback = device
+        .create_system_memory_surface(32, 20, desc.Format)
+        .unwrap();
+
+    let mut draw_frame = |runtime: &mut ScreenShaderRuntime, frame_color: u32| {
+        // Letterboxed production draw on the full target: the native engine
+        // clears the whole surface black and renders scene content only
+        // inside the image rectangle.
+        device.set_render_target(0, &target).unwrap();
+        device
+            .clear_attachments(D3DCLEAR_TARGET as u32, 0, 1.0, 0)
+            .unwrap();
+        device
+            .clear_attachment_rect(
+                &RECT {
+                    left: 0,
+                    top: 2,
+                    right: 32,
+                    bottom: 22,
+                },
+                D3DCLEAR_TARGET as u32,
+                frame_color,
+                1.0,
+                0,
+            )
+            .unwrap();
+        device.set_viewport(&image_viewport).unwrap();
+        device.begin_scene().unwrap();
+        runtime
+            .draw_passes(
+                &device,
+                &target,
+                &desc,
+                phase,
+                &backend::FrameInputs::default(),
+            )
+            .unwrap();
+        device.end_scene().unwrap();
+        device.copy_render_target_data(&target, &readback).unwrap();
+        let pixels = readback.read_rgba8().unwrap();
+
+        // Fresh same-frame reference on the image-sized target.
+        device.set_render_target(0, &image_surface).unwrap();
+        device
+            .clear_attachments(D3DCLEAR_TARGET as u32, frame_color, 1.0, 0)
+            .unwrap();
+        device
+            .set_viewport(&D3DVIEWPORT9 {
+                X: 0,
+                Y: 0,
+                Width: 32,
+                Height: 20,
+                MinZ: 0.0,
+                MaxZ: 1.0,
+            })
+            .unwrap();
+        device.begin_scene().unwrap();
+        runtime
+            .draw_passes(
+                &device,
+                &image_surface,
+                &image_desc,
+                phase,
+                &backend::FrameInputs::default(),
+            )
+            .unwrap();
+        device.end_scene().unwrap();
+        device
+            .copy_render_target_data(&image_surface, &image_readback)
+            .unwrap();
+        let reference = image_readback.read_rgba8().unwrap();
+        (pixels, reference)
+    };
+
+    for frame in 0..2u32 {
+        let frame_color = if frame == 0 { 0xFF30_4050 } else { 0xFF80_A0C0 };
+        let (pixels, reference) = draw_frame(&mut runtime, frame_color);
+        // The letterbox bars must stay untouched.
+        for pixel in pixels[..2 * 32].iter().chain(&pixels[22 * 32..]) {
+            assert_eq!(
+                &pixel[..3],
+                &[0.0, 0.0, 0.0],
+                "SMAA letterboxed draw modified native letterbox pixels"
+            );
+        }
+        // Every image pixel must match the fresh same-frame reference; a
+        // stale or shifted band cannot.
+        let mismatch = pixels[2 * 32..22 * 32]
+            .iter()
+            .zip(&reference)
+            .enumerate()
+            .find(|(_, (actual, expected))| {
+                actual
+                    .iter()
+                    .zip(expected.iter())
+                    .any(|(a, b)| (a - b).abs() > 1.0 / 255.0 + f32::EPSILON)
+            });
+        if let Some((index, (actual, expected))) = mismatch {
+            let (x, y) = (index % 32, index / 32);
+            panic!(
+                "frame {frame}: SMAA letterboxed output diverged at ({x},{y}): actual {:?} expected {:?}; actual row0 {:?}; expected row0 {:?}",
+                actual,
+                expected,
+                &pixels[2 * 32..2 * 32 + 4],
+                &reference[..4],
+            );
+        }
+    }
+}
+
 /// The menu releases visual resources inside the active Present transaction.
 /// Exercise that shipped boundary on a real device, including draw failure.
 #[test]

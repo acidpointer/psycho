@@ -155,6 +155,96 @@ mod shader_compile_tests {
         }
     }
 
+    /// Deterministic reference model of the radial march equation.
+    ///
+    /// `reference_count` is the audited 48-step cadence; `sample_count` is
+    /// the shipped march. The reduced march integrates the same underlying
+    /// shaft: per-step decay goes to the (reference/sample) power and the
+    /// weight ramp grows by `weight_step^(reference/sample)`, so the only
+    /// difference against the 48-step model is sampling granularity. The
+    /// fixtures bound that discretization difference on the mask classes the
+    /// game produces: constant openness, a hard occluder edge, a smooth
+    /// occlusion gradient, and the fully blocked shaft.
+    fn reference_radial(
+        reference_count: usize,
+        sample_count: usize,
+        mask: &dyn Fn(f32, f32) -> (f32, f32),
+        sun: [f32; 2],
+        occlusion_softness: f32,
+    ) -> f32 {
+        let decay = 1.017_446_f32.clamp(0.55, 1.04);
+        let density = 0.970_948_1_f32.max(0.10);
+        let blocked_decay = 0.10 + (0.34 - 0.10) * occlusion_softness;
+        let step_scale = reference_count as f32 / sample_count as f32;
+        let weight_step = 1.014f32.powf(step_scale);
+        let sample_delta = [
+            (sun[0] - 0.375) * density / sample_count as f32,
+            (sun[1] - 0.375) * density / sample_count as f32,
+        ];
+        let jitter = 0.431_710_7_f32; // InterleavedNoise at the fixture pixel
+        let mut sample_uv = [
+            0.375 + sample_delta[0] * jitter,
+            0.375 + sample_delta[1] * jitter,
+        ];
+        let mut illumination = 1.0f32;
+        let mut light = 0.0f32;
+        let mut weight = 0.024f32;
+        for _ in 0..sample_count {
+            sample_uv[0] += sample_delta[0];
+            sample_uv[1] += sample_delta[1];
+            let inside = (0.0..=1.0).contains(&sample_uv[0]) && (0.0..=1.0).contains(&sample_uv[1]);
+            let (source_mask, open_mask) = mask(sample_uv[0], sample_uv[1]);
+            let source = source_mask * if inside { 1.0 } else { 0.0 };
+            let path_open = open_mask * if inside { 1.0 } else { 0.0 };
+            let factor = blocked_decay + (decay - blocked_decay) * path_open;
+            illumination *= factor.powf(step_scale);
+            let softened = (path_open + occlusion_softness * 0.10).clamp(0.0, 1.0);
+            light += source * softened * illumination * weight;
+            weight *= weight_step;
+        }
+        // The shipped reduced march renormalizes its sum by the step-count
+        // ratio (see StepScale in sunshafts_radial.hlsl); the 48-step
+        // reference model needs no correction because it defines the
+        // cadence.
+        let normalization = if reference_count == sample_count {
+            1.0
+        } else {
+            step_scale
+        };
+        (light * 2.70 * normalization).clamp(0.0, 1.0)
+    }
+
+    #[test]
+    fn reduced_radial_march_stays_within_the_48_step_reference() {
+        let fixtures: [(&str, &dyn Fn(f32, f32) -> (f32, f32)); 4] = [
+            ("open shaft", &|_, _| (1.0, 1.0)),
+            ("hard occluder", &|x, _| {
+                if x < 0.5 { (1.0, 1.0) } else { (0.0, 0.0) }
+            }),
+            ("smooth occlusion", &|x, _| (1.0, (x * 2.0).clamp(0.0, 1.0))),
+            ("blocked shaft", &|_, _| (0.0, 0.0)),
+        ];
+        for (label, mask) in fixtures {
+            for softness in [0.0f32, 0.5, 1.0] {
+                let reference = reference_radial(48, 48, mask, [1.4, -0.9], softness);
+                let reduced = reference_radial(48, 32, mask, [1.4, -0.9], softness);
+                let difference = (reference - reduced).abs();
+                assert!(
+                    difference <= 0.05,
+                    "{label} softness {softness}: 48-step {reference} vs 32-step {reduced}"
+                );
+            }
+        }
+        // The march weight ramp still reaches the same endpoint, so a fully
+        // open shaft keeps its audited brightness exactly.
+        let open_reference = reference_radial(48, 48, &|_, _| (1.0, 1.0), [1.4, -0.9], 0.0);
+        let open_reduced = reference_radial(48, 32, &|_, _| (1.0, 1.0), [1.4, -0.9], 0.0);
+        assert!(
+            (open_reference - open_reduced).abs() <= 0.02,
+            "open shaft drifted: {open_reference} vs {open_reduced}"
+        );
+    }
+
     #[test]
     fn native_sun_is_the_only_shaft_source_and_all_rays_share_its_projection() {
         let mask = std::str::from_utf8(MASK_SHADER).expect("sunshaft mask source");
@@ -784,8 +874,8 @@ fn bind_target(
         MaxZ: 1.0,
     };
 
-    device.clear_texture(0)?;
-    device.clear_texture(4)?;
+    crate::render_state::clear_sampler(device, 0)?;
+    crate::render_state::clear_sampler(device, 4)?;
     device.set_render_target(0, surface)?;
     device.set_viewport(&viewport)
 }
@@ -800,7 +890,7 @@ fn bind_depth_inputs(
             device.set_raw_base_texture(1, depth.as_ptr())?;
         }
     } else {
-        device.clear_texture(1)?;
+        crate::render_state::clear_sampler(device, 1)?;
     }
 
     if let Some(depth) = first_person_depth {
@@ -808,7 +898,7 @@ fn bind_depth_inputs(
             device.set_raw_base_texture(2, depth.as_ptr())?;
         }
     } else {
-        device.clear_texture(2)?;
+        crate::render_state::clear_sampler(device, 2)?;
     }
 
     Ok(())

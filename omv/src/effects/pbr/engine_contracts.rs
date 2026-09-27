@@ -978,6 +978,9 @@ unsafe fn forward_shader_package(
         crate::graphics_diagnostics::Counter::ShaderPackageTransition,
         1,
     );
+    // A transition can rebuild every PPLighting group, voiding the shader
+    // table index maps' positive and negative entries in one sweep.
+    super::hooks::invalidate_shader_table_maps();
     publish_shader_package_7();
     probe_terrain_contract();
     super::refresh_terrain_capture_demand();

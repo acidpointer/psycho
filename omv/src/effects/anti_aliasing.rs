@@ -13,8 +13,8 @@ use std::{
 
 use anyhow::Result;
 use libpsycho::os::windows::directx9::{
-    D3DFMT_A8R8G8B8, D3DPT_TRIANGLESTRIP, D3DSAMP_MAGFILTER, D3DSAMP_MINFILTER, D3DSURFACE_DESC,
-    D3DTEXF_LINEAR, Device9Ref, Direct3DResult, PixelShader9, ScreenVertex, Surface9, Texture9,
+    D3DFMT_A8R8G8B8, D3DSAMP_MAGFILTER, D3DSAMP_MINFILTER, D3DSURFACE_DESC, D3DTEXF_LINEAR,
+    D3DVIEWPORT9, Device9Ref, Direct3DResult, PixelShader9, ScreenVertex, Surface9, Texture9,
     direct3d_failure,
 };
 
@@ -120,6 +120,142 @@ mod shader_compile_tests {
             ("aa_smaa_blend.hlsl", SMAA_BLEND_SHADER),
         ] {
             crate::shaders::assert_hlsl_compiles(name, source, "ps_3_0");
+        }
+    }
+
+    /// Compiled-cost inventory for every spatial-AA variant family.
+    ///
+    /// Counts legacy ps_3_0 instruction tokens and static texture-op sites
+    /// through OMV's real compilation path, mirroring the ambient-occlusion
+    /// suite's budget pattern. Ceilings are pinned to the audited values so a
+    /// quality-neutral optimization that lowers real cost must also lower its
+    /// ceiling deliberately, and silent shader growth fails the suite.
+    #[test]
+    fn spatial_aa_variant_compiled_cost_inventory() {
+        const COMMENT: u16 = 0xfffe;
+        const END: u16 = 0xffff;
+        const TEXLD: u16 = 66;
+        const TEXLDD: u16 = 93;
+        const TEXLDL: u16 = 95;
+
+        let compiled_instruction_opcodes = |bytecode: &[u32]| -> Vec<u16> {
+            let mut opcodes = Vec::new();
+            let mut offset = 1usize;
+            while offset < bytecode.len() {
+                let token = bytecode[offset];
+                let opcode = token as u16;
+                if opcode == END {
+                    break;
+                }
+                if opcode == COMMENT {
+                    offset += 1 + ((token >> 16) & 0x7fff) as usize;
+                    continue;
+                }
+                opcodes.push(opcode);
+                offset += 1 + ((token >> 24) & 0x0f) as usize;
+            }
+            assert!(offset < bytecode.len(), "shader bytecode has no END token");
+            opcodes
+        };
+
+        for (name, source, instruction_limit, texture_limit) in [
+            ("aa_fast_fxaa.hlsl", FAST_FXAA_SHADER, 111, 9),
+            ("aa_nfaa.hlsl", NFAA_SHADER, 138, 9),
+            ("aa_axaa.hlsl", AXAA_SHADER, 372, 12),
+            ("aa_dlaa_prefilter.hlsl", DLAA_PREFILTER_SHADER, 31, 5),
+            ("aa_dlaa_resolve.hlsl", DLAA_RESOLVE_SHADER, 265, 17),
+            ("aa_smaa_edges.hlsl", SMAA_EDGES_SHADER, 113, 5),
+            // The guarded search trades ~100 scalar branch tokens for up to six
+            // skipped point fetches per edge pixel; dynamic texture behavior
+            // is reduced, static texture sites are unchanged.
+            ("aa_smaa_weights.hlsl", SMAA_WEIGHTS_SHADER, 310, 17),
+            ("aa_smaa_blend.hlsl", SMAA_BLEND_SHADER, 142, 9),
+        ] {
+            let bytecode = crate::shaders::compile_hlsl_source_target(name, source, "ps_3_0")
+                .unwrap_or_else(|error| panic!("{name} failed to compile: {error:#}"));
+            let opcodes = compiled_instruction_opcodes(&bytecode);
+            let texture_count = opcodes
+                .iter()
+                .filter(|opcode| matches!(**opcode, TEXLD | TEXLDD | TEXLDL))
+                .count();
+            assert!(
+                opcodes.len() <= instruction_limit,
+                "{name} grew to {} instructions (limit {instruction_limit})",
+                opcodes.len()
+            );
+            assert!(
+                texture_count <= texture_limit,
+                "{name} grew to {texture_count} texture sites (limit {texture_limit})"
+            );
+        }
+    }
+
+    /// Prove the closed-side short-circuit is output-identical to the
+    /// unguarded four-step search.
+    ///
+    /// The edge shader emits binary edge values, so `step(0.5, edge)` keeps
+    /// each side's running openness on the {0, 1} lattice. Exhaustive
+    /// enumeration over every reachable per-side pattern shows the guarded
+    /// search computes the same span with fewer executed samples: once a
+    /// side's openness reaches zero, every remaining `open *= step` and
+    /// `span += open` is the identity.
+    #[test]
+    fn smaa_weight_search_short_circuit_is_output_identical() {
+        // One side of one orientation: four bounded steps.
+        // Reference executes every sample; the guarded path skips a side's
+        // remaining samples once its openness is zero.
+        fn reference_span(edges: [f32; 4]) -> f32 {
+            let mut open = 1.0f32;
+            let mut span = 0.0f32;
+            for edge in edges {
+                open *= step(edge);
+                span += open;
+            }
+            span
+        }
+
+        fn guarded_span(edges: [f32; 4]) -> (f32, usize) {
+            let mut open = 1.0f32;
+            let mut span = 0.0f32;
+            let mut samples = 0usize;
+            for edge in edges {
+                if open > 0.0 {
+                    open *= step(edge);
+                    samples += 1;
+                }
+                span += open;
+            }
+            (span, samples)
+        }
+
+        fn step(edge: f32) -> f32 {
+            if edge >= 0.5 { 1.0 } else { 0.0 }
+        }
+
+        // Exhaustive over the binary lattice the edge pass emits.
+        for pattern in 0..16u32 {
+            let edges: [f32; 4] = std::array::from_fn(|index| {
+                if (pattern >> index) & 1 == 1 {
+                    1.0
+                } else {
+                    0.0
+                }
+            });
+            let (span, samples) = guarded_span(edges);
+            assert_eq!(
+                reference_span(edges),
+                span,
+                "guarded span diverged for pattern {pattern:04b}"
+            );
+            assert!(
+                samples <= 4,
+                "guarded search executed more samples than the reference"
+            );
+            if edges[0] == 0.0 {
+                // A side closed at the first pair must skip its three
+                // remaining samples.
+                assert_eq!(samples, 1, "closed-side samples not skipped");
+            }
         }
     }
 
@@ -319,7 +455,7 @@ impl AntiAliasingEffect {
         device.set_texture(2, &edges.texture)?;
         device.set_pixel_shader(&blend_shader)?;
         draw_quad(device, desc)?;
-        device.clear_texture(1)?;
+        crate::render_state::clear_sampler(device, 1)?;
         device.clear_texture(2)
     }
 }
@@ -369,9 +505,28 @@ fn bind_constants(
 fn bind_target(
     device: &Device9Ref<'_>,
     surface: &Surface9,
-    _desc: &D3DSURFACE_DESC,
+    desc: &D3DSURFACE_DESC,
 ) -> Direct3DResult<()> {
-    device.clear_texture(0)?;
+    crate::render_state::clear_sampler(device, 0)?;
+    // Spatial AA is the only screen pipeline whose passes previously
+    // inherited FVF, vertex-shader, and viewport state from whatever ran
+    // before them. After a native draw left its own vertex format, or on a
+    // letterboxed frame whose viewport carries the native Y offset, the
+    // quad rendered with the wrong vertex interpretation: garbage geometry
+    // over a rectangle of the target while the rest kept the previous
+    // frame. Every pass now binds its full drawing state explicitly.
+    device.clear_vertex_shader()?;
+    device.set_fvf(ScreenVertex::FVF)?;
+    // Viewport ownership hygiene: RHW quads ignore the viewport offset under
+    // DXVK, but the pass must not depend on that driver behavior.
+    device.set_viewport(&D3DVIEWPORT9 {
+        X: 0,
+        Y: 0,
+        Width: desc.Width,
+        Height: desc.Height,
+        MinZ: 0.0,
+        MaxZ: 1.0,
+    })?;
     device.set_render_target(0, surface)
 }
 
@@ -384,7 +539,7 @@ fn draw_quad(device: &Device9Ref<'_>, desc: &D3DSURFACE_DESC) -> Direct3DResult<
         ScreenVertex::new(-0.5, height - 0.5, 0.0, 1.0),
         ScreenVertex::new(width - 0.5, height - 0.5, 1.0, 1.0),
     ];
-    unsafe { device.draw_primitive_up(D3DPT_TRIANGLESTRIP, 2, &quad) }
+    unsafe { crate::render_state::draw_fullscreen_quad(device, &quad) }
 }
 
 struct EffectTarget {

@@ -10,7 +10,19 @@ float4 EnvironmentData : register(c6);
 float4 OptionData3 : register(c7);
 float4 SunData : register(c8);
 
-static const int SampleCount = 48;
+static const int SampleCount = 32;
+// The marched distance, total extinction, and weight ramp must stay matched
+// to the audited 48-step reference equation (48/32 = 1.5). Fewer, longer
+// steps apply the per-step decay factor to the 1.5 power (f^1.5, written as
+// f * sqrt(f)), and the weight ramp grows by 1.014^1.5, so the 32-step march
+// integrates the same underlying shaft with coarser sampling rather than a
+// shorter or brighter one. The deterministic reference test in sunshafts.rs
+// bounds the discretization difference against the 48-step model.
+static const float WeightStep = 1.021193f;
+// The march has no per-step length factor, so the reduced march renormalizes
+// its sum by the step-count ratio; without it, a constant mask would darken
+// by exactly 48/32.
+static const float StepScale = 1.5f;
 
 struct PixelInput {
     float2 uv : TEXCOORD0;
@@ -46,11 +58,12 @@ float4 Main(PixelInput input) : COLOR0 {
         float2 mask = tex2Dlod(ShaftMask, float4(sampleUv, 0.0f, 0.0f)).rg;
         float source = mask.r * inside;
         float pathOpen = mask.g * inside;
-        illumination *= lerp(blockedDecay, decay, pathOpen);
+        float decayFactor = lerp(blockedDecay, decay, pathOpen);
+        illumination *= decayFactor * sqrt(decayFactor);
         float softenedOpen = saturate(pathOpen + occlusionSoftness * 0.10f);
         light += source * softenedOpen * illumination * weight;
-        weight *= 1.014f;
+        weight *= WeightStep;
     }
 
-    return float4(saturate(light * 2.70f), 0.0f, 0.0f, 1.0f);
+    return float4(saturate(light * 2.70f * StepScale), 0.0f, 0.0f, 1.0f);
 }

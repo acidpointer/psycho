@@ -22,14 +22,14 @@ use std::{
 
 use libpsycho::os::windows::directx9::{
     D3DCULL_NONE, D3DFMT_A8R8G8B8, D3DFMT_A16B16G16R16F, D3DFORMAT, D3DPOOL_MANAGED,
-    D3DPT_TRIANGLESTRIP, D3DRS_ADAPTIVETESS_Y, D3DRS_ALPHABLENDENABLE, D3DRS_ALPHATESTENABLE,
-    D3DRS_COLORWRITEENABLE, D3DRS_CULLMODE, D3DRS_MULTISAMPLEANTIALIAS, D3DRS_MULTISAMPLEMASK,
-    D3DRS_POINTSIZE, D3DRS_SCISSORTESTENABLE, D3DRS_SRGBWRITEENABLE, D3DRS_STENCILENABLE,
-    D3DRS_ZENABLE, D3DRS_ZWRITEENABLE, D3DSAMP_ADDRESSU, D3DSAMP_ADDRESSV, D3DSAMP_MAGFILTER,
-    D3DSAMP_MINFILTER, D3DSAMP_MIPFILTER, D3DSAMP_SRGBTEXTURE, D3DSURFACE_DESC, D3DTA_TEXTURE,
-    D3DTADDRESS_CLAMP, D3DTADDRESS_WRAP, D3DTEXF_LINEAR, D3DTEXF_NONE, D3DTEXF_POINT,
-    D3DTOP_SELECTARG1, D3DTSS_ALPHAARG1, D3DTSS_ALPHAOP, D3DTSS_COLORARG1, D3DTSS_COLOROP,
-    D3DVIEWPORT9, Device9Ref, Direct3DResult, PixelShader9, ScreenVertex, Surface9, Texture9,
+    D3DRS_ADAPTIVETESS_Y, D3DRS_ALPHABLENDENABLE, D3DRS_ALPHATESTENABLE, D3DRS_COLORWRITEENABLE,
+    D3DRS_CULLMODE, D3DRS_MULTISAMPLEANTIALIAS, D3DRS_MULTISAMPLEMASK, D3DRS_POINTSIZE,
+    D3DRS_SCISSORTESTENABLE, D3DRS_SRGBWRITEENABLE, D3DRS_STENCILENABLE, D3DRS_ZENABLE,
+    D3DRS_ZWRITEENABLE, D3DSAMP_ADDRESSU, D3DSAMP_ADDRESSV, D3DSAMP_MAGFILTER, D3DSAMP_MINFILTER,
+    D3DSAMP_MIPFILTER, D3DSAMP_SRGBTEXTURE, D3DSURFACE_DESC, D3DTA_TEXTURE, D3DTADDRESS_CLAMP,
+    D3DTADDRESS_WRAP, D3DTEXF_LINEAR, D3DTEXF_NONE, D3DTEXF_POINT, D3DTOP_SELECTARG1,
+    D3DTSS_ALPHAARG1, D3DTSS_ALPHAOP, D3DTSS_COLORARG1, D3DTSS_COLOROP, D3DVIEWPORT9, Device9Ref,
+    Direct3DResult, PixelShader9, ScreenVertex, Surface9, Texture9,
 };
 
 use crate::{
@@ -1269,8 +1269,8 @@ mod shader_compile_tests {
                 "device.set_sampler_state(6, D3DSAMP_ADDRESSV, D3DTADDRESS_WRAP.0 as u32)?"
             )
         );
-        assert!(source.contains("device.clear_texture(6)?"));
-        assert!(source.contains("device.clear_texture(7)?"));
+        assert!(source.contains("crate::render_state::clear_sampler(device, 6)?"));
+        assert!(source.contains("crate::render_state::clear_sampler(device, 7)?"));
         assert!(source.contains("configure_adaptive_sampler(device, 7, false)?"));
         assert!(source.contains("D3DFMT_A8R8G8B8, D3DPOOL_MANAGED"));
         assert!(source.contains("device.create_render_target_texture(width, height, format)"));
@@ -1303,10 +1303,7 @@ mod shader_compile_tests {
             quad.iter()
                 .all(|vertex| vertex.z == 0.0 && vertex.rhw == 1.0)
         );
-        assert!(
-            include_str!("blooming_hdr.rs")
-                .contains("device.draw_primitive_up(D3DPT_TRIANGLESTRIP, 2, &quad)")
-        );
+        assert!(include_str!("blooming_hdr.rs").contains("device.draw_primitive_up(2, &quad)"));
     }
 
     #[test]
@@ -3002,8 +2999,8 @@ impl BloomingHdrEffect {
             return Ok(false);
         };
 
-        device.clear_texture(1)?;
-        device.clear_texture(7)?;
+        crate::render_state::clear_sampler(device, 1)?;
+        crate::render_state::clear_sampler(device, 7)?;
         // bind_pipeline_state already establishes linear scene sampling on s0
         // and point history sampling on s1 for the complete transaction.
         bind_target(
@@ -3049,9 +3046,9 @@ impl BloomingHdrEffect {
         device.set_texture(1, &previous.texture)?;
         device.set_pixel_shader(&pipeline.response_shader)?;
         let draw_result = draw_quad(device, ADAPTIVE_RESPONSE_WIDTH, 1);
-        device.clear_texture(0)?;
-        device.clear_texture(1)?;
-        device.clear_texture(4)?;
+        crate::render_state::clear_sampler(device, 0)?;
+        crate::render_state::clear_sampler(device, 1)?;
+        crate::render_state::clear_sampler(device, 4)?;
         draw_result?;
         history.commit_write();
         Ok(true)
@@ -3221,7 +3218,7 @@ impl BloomingHdrEffect {
         } else {
             // Never retain a history texture in a sampler slot when the next
             // draw may alternate that same texture into RT0.
-            device.clear_texture(7)?;
+            crate::render_state::clear_sampler(device, 7)?;
         }
         bind_compose_constants(
             device,
@@ -3344,10 +3341,10 @@ fn bind_target(
         MaxZ: 1.0,
     };
 
-    device.clear_texture(0)?;
-    device.clear_texture(4)?;
-    device.clear_texture(5)?;
-    device.clear_texture(6)?;
+    crate::render_state::clear_sampler(device, 0)?;
+    crate::render_state::clear_sampler(device, 4)?;
+    crate::render_state::clear_sampler(device, 5)?;
+    crate::render_state::clear_sampler(device, 6)?;
     render_target_slots.prepare_target_change(device)?;
     device.set_render_target(0, surface)?;
     device.set_viewport(&viewport)
@@ -3362,7 +3359,7 @@ fn bind_depth_inputs(
             device.set_raw_base_texture(2, depth.as_ptr())?;
         }
     } else {
-        device.clear_texture(2)?;
+        crate::render_state::clear_sampler(device, 2)?;
     }
 
     Ok(())
@@ -3964,7 +3961,7 @@ fn native_environment_weight(frame_inputs: &FrameInputs) -> f32 {
 
 fn draw_quad(device: &Device9Ref<'_>, width: u32, height: u32) -> Direct3DResult<()> {
     let quad = fullscreen_quad(width, height);
-    unsafe { device.draw_primitive_up(D3DPT_TRIANGLESTRIP, 2, &quad) }
+    unsafe { crate::render_state::draw_fullscreen_quad(device, &quad) }
 }
 
 fn fullscreen_quad(width: u32, height: u32) -> [ScreenVertex; 4] {

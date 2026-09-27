@@ -762,6 +762,8 @@ fn object_template_label(stage: shader_registry::ShaderStage, sls_number: u32) -
 }
 
 pub(crate) fn service_present_frame() {
+    let _span =
+        crate::graphics_diagnostics::span(crate::graphics_diagnostics::Interval::PbrPresentService);
     if ENABLE_PENDING.swap(false, Ordering::AcqRel) {
         if let Err(err) = activate() {
             SHADER_ENABLED.store(false, Ordering::Release);

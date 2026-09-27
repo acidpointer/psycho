@@ -21,16 +21,16 @@ use std::{
 use anyhow::Result;
 use libpsycho::os::windows::directx9::{
     D3DBLEND_ONE, D3DBLENDOP_ADD, D3DCULL_NONE, D3DFMT_A8R8G8B8, D3DFMT_A16B16G16R16F,
-    D3DFMT_G16R16F, D3DFORMAT, D3DPOOL_MANAGED, D3DPT_TRIANGLESTRIP, D3DRS_ADAPTIVETESS_Y,
-    D3DRS_ALPHABLENDENABLE, D3DRS_ALPHATESTENABLE, D3DRS_BLENDOP, D3DRS_COLORWRITEENABLE,
-    D3DRS_CULLMODE, D3DRS_DESTBLEND, D3DRS_MULTISAMPLEANTIALIAS, D3DRS_MULTISAMPLEMASK,
-    D3DRS_POINTSIZE, D3DRS_SCISSORTESTENABLE, D3DRS_SRCBLEND, D3DRS_SRGBWRITEENABLE,
-    D3DRS_STENCILENABLE, D3DRS_ZENABLE, D3DRS_ZWRITEENABLE, D3DSAMP_ADDRESSU, D3DSAMP_ADDRESSV,
-    D3DSAMP_ADDRESSW, D3DSAMP_MAGFILTER, D3DSAMP_MINFILTER, D3DSAMP_MIPFILTER, D3DSAMP_SRGBTEXTURE,
-    D3DSURFACE_DESC, D3DTA_TEXTURE, D3DTADDRESS_CLAMP, D3DTADDRESS_WRAP, D3DTEXF_LINEAR,
-    D3DTEXF_NONE, D3DTEXF_POINT, D3DTOP_SELECTARG1, D3DTSS_ALPHAARG1, D3DTSS_ALPHAOP,
-    D3DTSS_COLORARG1, D3DTSS_COLOROP, D3DVIEWPORT9, Device9Ref, Direct3DResult, PixelShader9,
-    ScreenVertex, Surface9, Texture9, USAGE_RENDER_TARGET, direct3d_failure,
+    D3DFMT_G16R16F, D3DFORMAT, D3DPOOL_MANAGED, D3DRS_ADAPTIVETESS_Y, D3DRS_ALPHABLENDENABLE,
+    D3DRS_ALPHATESTENABLE, D3DRS_BLENDOP, D3DRS_COLORWRITEENABLE, D3DRS_CULLMODE, D3DRS_DESTBLEND,
+    D3DRS_MULTISAMPLEANTIALIAS, D3DRS_MULTISAMPLEMASK, D3DRS_POINTSIZE, D3DRS_SCISSORTESTENABLE,
+    D3DRS_SRCBLEND, D3DRS_SRGBWRITEENABLE, D3DRS_STENCILENABLE, D3DRS_ZENABLE, D3DRS_ZWRITEENABLE,
+    D3DSAMP_ADDRESSU, D3DSAMP_ADDRESSV, D3DSAMP_ADDRESSW, D3DSAMP_MAGFILTER, D3DSAMP_MINFILTER,
+    D3DSAMP_MIPFILTER, D3DSAMP_SRGBTEXTURE, D3DSURFACE_DESC, D3DTA_TEXTURE, D3DTADDRESS_CLAMP,
+    D3DTADDRESS_WRAP, D3DTEXF_LINEAR, D3DTEXF_NONE, D3DTEXF_POINT, D3DTOP_SELECTARG1,
+    D3DTSS_ALPHAARG1, D3DTSS_ALPHAOP, D3DTSS_COLORARG1, D3DTSS_COLOROP, D3DVIEWPORT9, Device9Ref,
+    Direct3DResult, PixelShader9, ScreenVertex, Surface9, Texture9, USAGE_RENDER_TARGET,
+    direct3d_failure,
 };
 
 use crate::{
@@ -2478,7 +2478,7 @@ fn draw_local_light_layer(
         device.set_sampler_state(2, D3DSAMP_ADDRESSV, D3DTADDRESS_CLAMP.0 as u32)?;
         device.set_sampler_state(2, D3DSAMP_ADDRESSW, D3DTADDRESS_CLAMP.0 as u32)?;
     } else {
-        device.clear_texture(2)?;
+        crate::render_state::clear_sampler(device, 2)?;
     }
     for (index, shadow) in shadows.iter().enumerate().skip(1) {
         let stage = 2 + index as u32;
@@ -2489,7 +2489,7 @@ fn draw_local_light_layer(
             device.set_sampler_state(stage, D3DSAMP_ADDRESSV, D3DTADDRESS_CLAMP.0 as u32)?;
             device.set_sampler_state(stage, D3DSAMP_ADDRESSW, D3DTADDRESS_CLAMP.0 as u32)?;
         } else {
-            device.clear_texture(stage)?;
+            crate::render_state::clear_sampler(device, stage)?;
         }
     }
     set_sampler_filter(device, 0, D3DTEXF_POINT.0 as u32)?;
@@ -3118,12 +3118,12 @@ fn bind_target(
     width: u32,
     height: u32,
 ) -> Direct3DResult<()> {
-    device.clear_texture(0)?;
-    device.clear_texture(1)?;
-    device.clear_texture(2)?;
-    device.clear_texture(3)?;
-    device.clear_texture(4)?;
-    device.clear_texture(5)?;
+    crate::render_state::clear_sampler(device, 0)?;
+    crate::render_state::clear_sampler(device, 1)?;
+    crate::render_state::clear_sampler(device, 2)?;
+    crate::render_state::clear_sampler(device, 3)?;
+    crate::render_state::clear_sampler(device, 4)?;
+    crate::render_state::clear_sampler(device, 5)?;
     device.set_depth_stencil_surface(None)?;
     for index in 1..=3 {
         device.clear_render_target(index)?;
@@ -3153,7 +3153,7 @@ fn draw_quad(device: &Device9Ref<'_>, width: u32, height: u32) -> Direct3DResult
         ScreenVertex::new(-0.5, height - 0.5, 0.0, 1.0),
         ScreenVertex::new(width - 0.5, height - 0.5, 1.0, 1.0),
     ];
-    unsafe { device.draw_primitive_up(D3DPT_TRIANGLESTRIP, 2, &quad) }
+    unsafe { crate::render_state::draw_fullscreen_quad(device, &quad) }
 }
 
 #[cfg(test)]

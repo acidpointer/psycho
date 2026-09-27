@@ -742,10 +742,10 @@ impl TemporalAaEffect {
         device.set_pixel_shader(self.mrt_shader.as_ref().unwrap_or(&self.shader))?;
         draw_quad(device, desc)?;
 
-        device.clear_texture(0)?;
-        device.clear_texture(1)?;
-        device.clear_texture(2)?;
-        device.clear_texture(3)?;
+        crate::render_state::clear_sampler(device, 0)?;
+        crate::render_state::clear_sampler(device, 1)?;
+        crate::render_state::clear_sampler(device, 2)?;
+        crate::render_state::clear_sampler(device, 3)?;
         if use_mrt {
             device.clear_render_target(1)?;
             // StretchRect cannot portably read a surface that is still bound
@@ -766,7 +766,7 @@ impl TemporalAaEffect {
             bind_depth_key_constants(device, depth)?;
             device.set_pixel_shader(&self.depth_key_shader)?;
             draw_quad(device, desc)?;
-            device.clear_texture(0)?;
+            crate::render_state::clear_sampler(device, 0)?;
         }
         device.stretch_rect(
             &targets.color_history[write_index].surface,
@@ -1039,7 +1039,7 @@ fn bind_target(
     surface: &Surface9,
     desc: &D3DSURFACE_DESC,
 ) -> Direct3DResult<()> {
-    device.clear_texture(0)?;
+    crate::render_state::clear_sampler(device, 0)?;
     device.set_render_target(0, surface)?;
     device.set_viewport(&D3DVIEWPORT9 {
         X: 0,
@@ -1061,7 +1061,9 @@ fn draw_quad(device: &Device9Ref<'_>, desc: &D3DSURFACE_DESC) -> Direct3DResult<
         ScreenVertex::new(width * 2.0 - 0.5, -0.5, 2.0, 0.0),
         ScreenVertex::new(-0.5, height * 2.0 - 0.5, 0.0, 2.0),
     ];
-    unsafe { device.draw_primitive_up(D3DPT_TRIANGLELIST, 1, &triangle) }
+    unsafe {
+        crate::render_state::draw_fullscreen_vertices(device, &triangle, D3DPT_TRIANGLELIST, 1)
+    }
 }
 
 struct TemporalTargets {

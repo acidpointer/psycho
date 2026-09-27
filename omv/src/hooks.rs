@@ -309,9 +309,10 @@ pub(crate) fn on_frame_present(loading_screen: bool) {
     }
     unsafe { runtime::finish_present_frame(render_epoch, present_started_at) };
     crate::fnv_world_pipeline::finish_present(render_epoch);
-    if crate::graphics_diagnostics::seal_frame(render_epoch) {
-        crate::graphics_diagnostics::log_latest_sample();
-    }
+    // The profile excludes menu and loading-screen frames from its frame-time
+    // windows, so the A/B schedule measures representative gameplay only.
+    crate::graphics_diagnostics::note_frame_context(runtime::menu_open(), loading_screen);
+    crate::graphics_diagnostics::seal_frame(render_epoch);
     advance_render_epoch(&RENDER_EPOCH);
 }
 
