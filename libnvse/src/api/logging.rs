@@ -6,8 +6,14 @@
 //! # Usage
 //!
 //! ```no_run
+//! use libnvse::api::interface::NVSEInterface;
+//!
+//! # fn example(nvse: &NVSEInterface) -> Result<(), Box<dyn std::error::Error>> {
+//! let logging = nvse.query_logging()?;
 //! let log_path = logging.plugin_log_path()?;
-//! println!("Logs go to: {}", log_path);
+//! log::info!("Logs go to: {}", log_path);
+//! # Ok(())
+//! # }
 //! ```
 
 use std::ffi::CStr;

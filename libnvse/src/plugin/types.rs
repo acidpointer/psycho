@@ -30,9 +30,17 @@ use crate::{
 /// # Example
 ///
 /// ```
+/// use libnvse::plugin::types::FormId;
+///
 /// let caps = FormId::new(0xF);
+/// assert_eq!(caps, FormId::CAPS);
+///
 /// let player = FormId::PLAYER_REF;
 /// assert_eq!(player.raw(), 0x7);
+///
+/// let modded = FormId::from_parts(0x05, 0x001234);
+/// assert_eq!(modded.plugin_index(), 0x05);
+/// assert_eq!(modded.local_id(), 0x001234);
 /// ```
 #[derive(Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct FormId(u32);
@@ -165,12 +173,15 @@ impl ArrayId {
 /// # Example
 ///
 /// ```
+/// use libnvse::plugin::types::{FormId, Value};
+///
 /// let greeting = Value::text("Hello, Courier!");
 /// let damage = Value::number(42.0);
 /// let target = Value::form(FormId::PLAYER_REF);
 ///
 /// assert_eq!(greeting.as_str(), Some("Hello, Courier!"));
 /// assert_eq!(damage.as_f64(), Some(42.0));
+/// assert_eq!(target.as_form_id(), Some(FormId::PLAYER_REF));
 /// ```
 #[derive(Debug, Clone, PartialEq)]
 pub enum Value {

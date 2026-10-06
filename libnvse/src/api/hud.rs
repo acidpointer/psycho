@@ -6,13 +6,16 @@
 //! # Usage
 //!
 //! ```no_run
-//! use libnvse::api::hud::{hud_message, Emotion};
+//! use libnvse::api::hud::{Emotion, HudResult, hud_message, hud_message_with};
 //!
+//! # fn example() -> HudResult<()> {
 //! // Simple notification
 //! hud_message("Hello from Rust!")?;
 //!
 //! // With a specific Vault Boy expression
 //! hud_message_with("Ouch!", Emotion::Pain, 3.0)?;
+//! # Ok(())
+//! # }
 //! ```
 
 use libpsycho::{

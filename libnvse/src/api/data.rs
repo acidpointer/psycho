@@ -7,11 +7,20 @@
 //! # Usage
 //!
 //! ```no_run
+//! use libnvse::api::data::DataFunc;
+//! use libnvse::api::interface::NVSEInterface;
+//!
+//! # fn example(nvse: &NVSEInterface) -> Result<(), Box<dyn std::error::Error>> {
+//! let data = nvse.query_data()?;
+//!
 //! // Clear the script data cache
 //! data.clear_script_data_cache();
 //!
 //! // Get a raw function pointer by ID
-//! let func_ptr = data.get_func(DataFunc::DecompileScript);
+//! let func_ptr = data.get_func(DataFunc::DecompileScript)?;
+//! # let _ = func_ptr;
+//! # Ok(())
+//! # }
 //! ```
 
 use std::ptr::NonNull;

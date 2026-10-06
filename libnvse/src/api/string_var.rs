@@ -7,12 +7,22 @@
 //! # Usage
 //!
 //! ```no_run
+//! use libnvse::api::interface::NVSEInterface;
+//!
+//! # fn example(nvse: &NVSEInterface) -> Result<(), Box<dyn std::error::Error>> {
+//! let string_vars = nvse.query_string_vars()?;
+//!
+//! // Create a persistent string variable
+//! let string_id = string_vars.create("initial value", std::ptr::null_mut())?;
+//!
 //! // Get a string value by its variable ID
 //! let value = string_vars.get(string_id)?;
 //! log::info!("String value: {}", value);
 //!
 //! // Set a string variable's value
 //! string_vars.set(string_id, "new value")?;
+//! # Ok(())
+//! # }
 //! ```
 
 use std::ffi::CStr;

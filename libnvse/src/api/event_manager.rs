@@ -10,7 +10,8 @@
 //! Plugins can define their own events that scripts can listen to:
 //!
 //! ```no_run
-//! use libnvse::api::event_manager::{EventParamType, EventFlags};
+//! use libnvse::api::event_manager::{EventFlags, EventParamType};
+//! use libnvse::api::interface::NVSEInterface;
 //!
 //! // Define parameter types (must be 'static - stored permanently)
 //! static MY_PARAMS: &[EventParamType] = &[
@@ -18,18 +19,38 @@
 //!     EventParamType::String,
 //! ];
 //!
+//! # fn example(nvse: &NVSEInterface) -> Result<(), Box<dyn std::error::Error>> {
+//! let events = nvse.query_event_manager()?;
+//!
 //! // Register the event
 //! events.register_event("MyPlugin:OnSomething", MY_PARAMS, EventFlags::NONE)?;
 //!
-//! // Later, dispatch it when something happens
-//! events.dispatch("MyPlugin:OnSomething", some_ref, some_form_ptr, some_string_ptr)?;
+//! // Later, dispatch it through `events.raw_dispatch_fn()` when something
+//! // happens, passing one argument per declared parameter type.
+//! # Ok(())
+//! # }
 //! ```
 //!
 //! # Native event handlers
 //!
 //! ```no_run
-//! // Handle an existing game event
-//! events.set_native_handler("OnHit", my_on_hit_handler)?;
+//! use libnvse::api::interface::NVSEInterface;
+//!
+//! // Native handlers must be plain functions that live for the game session.
+//! unsafe extern "C" fn my_on_hit_handler(
+//!     _this_obj: *mut libnvse::TESObjectREFR,
+//!     _parameters: *mut std::ffi::c_void,
+//! ) {
+//!     log::info!("OnHit fired");
+//! }
+//!
+//! fn setup(nvse: &NVSEInterface) -> Result<(), Box<dyn std::error::Error>> {
+//!     let events = nvse.query_event_manager()?;
+//!
+//!     // Handle an existing game event
+//!     events.set_native_handler("OnHit", Some(my_on_hit_handler))?;
+//!     Ok(())
+//! }
 //! ```
 
 use std::ptr::NonNull;
@@ -369,11 +390,28 @@ impl EventManager {
     /// # Example (unsafe)
     ///
     /// ```no_run
-    /// let dispatch_fn = events.raw_dispatch_fn()?;
-    /// let name = WinString::new("MyPlugin:OnFoo")?;
-    /// name.with_ansi(|name_ptr| unsafe {
-    ///     dispatch_fn(name_ptr, some_ref, arg1, arg2);
-    /// });
+    /// use std::ffi::c_void;
+    ///
+    /// use libnvse::api::event_manager::EventManager;
+    ///
+    /// // Dispatches "MyPlugin:OnFoo", registered with the parameter types
+    /// // `[EventParamType::AnyForm, EventParamType::String]`. `form` is a
+    /// // `TESForm*` obtained from the engine.
+    /// fn dispatch_on_foo(
+    ///     events: &EventManager,
+    ///     form: *mut c_void,
+    /// ) -> Result<bool, Box<dyn std::error::Error>> {
+    ///     let dispatch_fn = events.raw_dispatch_fn()?;
+    ///     let delivered = unsafe {
+    ///         dispatch_fn(
+    ///             c"MyPlugin:OnFoo".as_ptr(),
+    ///             std::ptr::null_mut(), // no calling reference
+    ///             form,
+    ///             c"hello".as_ptr(),
+    ///         )
+    ///     };
+    ///     Ok(delivered)
+    /// }
     /// ```
     pub fn raw_dispatch_fn(
         &self,

@@ -3,9 +3,15 @@
 //! # Usage
 //!
 //! ```no_run
+//! use libnvse::api::interface::NVSEInterface;
+//!
+//! # fn example(nvse: &NVSEInterface) -> Result<(), Box<dyn std::error::Error>> {
+//! let console = nvse.query_console()?;
 //! console.run("player.additem 000000F 100")?;
 //! console.run_silent("set MyGlobal to 1")?;
 //! console.print("Hello from Rust!")?;
+//! # Ok(())
+//! # }
 //! ```
 
 use std::ptr::NonNull;

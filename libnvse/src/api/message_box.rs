@@ -7,6 +7,9 @@
 //! be kept alive until the player dismisses the dialog.
 //!
 //! ```no_run
+//! use libnvse::api::message_box::{MessageBox, MessageBoxResult};
+//!
+//! # fn example() -> MessageBoxResult<()> {
 //! // The returned MessageBox owns the callback. Store it somewhere that
 //! // outlives the dialog (e.g. a struct field, a static, a Vec).
 //! let _active = MessageBox::show("Hello!", "OK", || {
@@ -15,6 +18,8 @@
 //!
 //! // When _active is dropped the callback becomes invalid.
 //! // Only drop it AFTER the player has clicked the button.
+//! # Ok(())
+//! # }
 //! ```
 
 use closure_ffi::BareFn;
@@ -83,6 +88,8 @@ pub type MessageBoxResult<T> = std::result::Result<T, MessageBoxError>;
 ///
 /// Store it in a field:
 /// ```no_run
+/// use libnvse::api::message_box::{MessageBox, MessageBoxResult};
+///
 /// struct MyPlugin {
 ///     active_dialog: Option<MessageBox<'static>>,
 /// }
@@ -99,13 +106,21 @@ pub type MessageBoxResult<T> = std::result::Result<T, MessageBoxError>;
 ///
 /// Or use a long-lived container:
 /// ```no_run
-/// static DIALOGS: Mutex<Vec<MessageBox<'static>>> = Mutex::new(Vec::new());
+/// use std::cell::RefCell;
+///
+/// use libnvse::api::message_box::{MessageBox, MessageBoxResult};
+///
+/// // NVSE callbacks run on the main game thread, and `MessageBox` is not
+/// // `Send`, so a thread-local container keeps dialogs alive.
+/// thread_local! {
+///     static DIALOGS: RefCell<Vec<MessageBox<'static>>> = const { RefCell::new(Vec::new()) };
+/// }
 ///
 /// fn show_greeting() -> MessageBoxResult<()> {
 ///     let mb = MessageBox::show("Hello!", "OK", || {
 ///         log::info!("Clicked!");
 ///     })?;
-///     DIALOGS.lock().push(mb);
+///     DIALOGS.with_borrow_mut(|dialogs| dialogs.push(mb));
 ///     Ok(())
 /// }
 /// ```

@@ -12,23 +12,53 @@
 //! # Usage
 //!
 //! ```no_run
-//! // Register save/load callbacks during plugin load
-//! serialization.set_save_callback(plugin_handle, my_save_handler)?;
-//! serialization.set_load_callback(plugin_handle, my_load_handler)?;
-//! serialization.set_new_game_callback(plugin_handle, my_new_game_handler)?;
+//! use libnvse::api::interface::NVSEInterface;
+//! use libnvse::api::serialization::{Serialization, SerializationResult};
 //!
 //! // In your save callback:
-//! serialization.write_record(b"DATA", 1, &my_data)?;
+//! fn save(serialization: &Serialization, my_data: &[u8]) -> SerializationResult<()> {
+//!     serialization.write_record(b"DATA", 1, my_data)
+//! }
 //!
 //! // In your load callback:
-//! while let Some(record) = serialization.next_record()? {
-//!     match &record.record_type {
-//!         b"DATA" => {
-//!             let mut buf = vec![0u8; record.length as usize];
-//!             serialization.read_data(&mut buf)?;
+//! fn load(serialization: &Serialization) -> SerializationResult<()> {
+//!     while let Some(record) = serialization.next_record()? {
+//!         match &record.record_type {
+//!             b"DATA" => {
+//!                 let mut buf = vec![0u8; record.length as usize];
+//!                 serialization.read_data(&mut buf)?;
+//!             }
+//!             _ => serialization.skip(record.length)?,
 //!         }
-//!         _ => {}
 //!     }
+//!     Ok(())
+//! }
+//!
+//! // Register save/load callbacks during plugin load. The registering
+//! // `Serialization` owns the callbacks, so keep it alive for the session.
+//! fn register(nvse: &NVSEInterface<'static>) -> Result<Serialization<'static>, Box<dyn std::error::Error>> {
+//!     let plugin_handle = nvse.get_plugin_handle().get_handle();
+//!     let mut serialization = nvse.query_serialization()?;
+//!
+//!     let saver = nvse.query_serialization()?;
+//!     serialization.set_save_callback(plugin_handle, move || {
+//!         if let Err(err) = save(&saver, b"payload") {
+//!             log::error!("Co-save write failed: {err}");
+//!         }
+//!     })?;
+//!
+//!     let loader = nvse.query_serialization()?;
+//!     serialization.set_load_callback(plugin_handle, move || {
+//!         if let Err(err) = load(&loader) {
+//!             log::error!("Co-save read failed: {err}");
+//!         }
+//!     })?;
+//!
+//!     serialization.set_new_game_callback(plugin_handle, || {
+//!         log::info!("New game: reset plugin state");
+//!     })?;
+//!
+//!     Ok(serialization)
 //! }
 //! ```
 
