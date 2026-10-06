@@ -4,119 +4,162 @@
 
 The synchronous scan rework did not eliminate the reported silence: the owner
 subsequently heard an announcer followed by silence, then lost every station
-while other game sounds continued. The current source also contains the
-[native music synchronization repair](#native-music-synchronization-repair).
-It is an unreleased static-evidence candidate; the recurrence has no captured
-worker stack proving its exact cause. The [rework plan](#radio-playback-rework-contract-and-plan) records
-its scope and remaining performance gate. The
+while other game sounds continued. A later unreleased music candidate caused
+stations to play for less than a second during station switching. The current
+source contains a revised [native music request candidate](#native-music-request-candidate).
+The later
+weak-CPU recurrence has no capture proving its exact worker interleaving. The
+[rework plan](#radio-playback-rework-contract-and-plan) records scan scope and
+its remaining performance gate. The
 [implementation contract](#implementation-readiness-and-remaining-evidence)
 records the implemented provider-dispatch contract. Older scheduling sections describe
 retired implementations and do not establish playback correctness.
 
-## Native music synchronization repair
+## Native music request candidate
 
-### Observation and authorization
+### Report and static evidence
 
-The recurrence log is retained as
-`.reports/psycho-engine-fixes-2026-09-25-radio-all-stations-silent.log`.
-It records synchronous availability and both policy optimizations active.
-The owner reported working non-radio sounds, then exited and rebooted before
-the worker state could be inspected. The owner explicitly rejected diagnostic-
-only builds and authorized a repair based on reverse-engineered evidence.
-The earlier radio-specific static implementation authorization still applies.
+The owner heard the same Galaxy News Radio song restart after an announcer and
+later reported missing or looping music more often on a loaded, weaker CPU.
+After trying the first native music request candidate, the owner reported that
+stations now played for less than one second when switching between them. That
+candidate intercepted `put_CurrentPosition` and `Run`, converted any negative
+HRESULT to a synthetic terminal error, stopped the worker, and forced station
+expiry. The supported executable instead ignores both HRESULTs at
+`0x008318B2` and `0x00831963`, continues to its native playback/event path,
+and only exits on its own conditions. The candidate also treated graph
+`EC_ERRORABORT` as a station completion. Neither return value nor that event
+proves that the current station entry has finished: station switching can
+cancel an in-flight request, and seeking may be rejected while playback can
+still proceed. Those forced-expiry paths have been removed. The candidate also
+sent the full elapsed station time into the seek path when duration was zero;
+that offset had no proven track bound and could reach the track end
+immediately. The earlier bounded patch instead entered native playback for
+zero duration, and this behavior has been restored. The owner's report shows
+a regression in the first candidate; without a runtime trace, which of these
+paths fired remains unresolved.
+No capture from the latter session exists. The earlier all-stations-silent log
+is retained at `.reports/psycho-engine-fixes-2026-09-25-radio-all-stations-silent.log`.
+These observations define the reported failure, but do not identify the exact
+worker interleaving in either session. The owner authorized a generic native
+radio fix using static evidence and will run any game validation personally.
+The supported executable is `fnv_reverse/FalloutNV.exe`; the prior focused
+[duration-loop audit](../analysis/ghidra/output/perf/radio_music_duration_loop_radare2_audit.txt)
+contains the worker call chain and original synchronization instructions.
 
-### Proven native defect
+The native music call at `0x0083398D` submits priority 7 through
+`0x008300C0`. Both publication branches, `0x008302A8..0x008302E7` and
+`0x008303CA..0x00830409`, set a new generation and signal a worker without
+clearing the reused slot duration. Their respective duration words are
+`0x011DD320` and `0x011DD354`. The worker first clears that word only after
+it is scheduled, at `0x00830C97` or `0x00830D2C`. The station queries
+`0x008308C0` immediately after submission at `0x008339CC`; it stores a
+positive answer at station `+0x10` and later refreshes only values at or
+below zero. Thus a delayed worker can make a prior song's positive duration
+stick to the new song. This is a proven race schedule that explains load
+sensitivity; whether it occurred in the owner's run remains unobserved.
+An older worker can also write its duration at `0x0083135D` or
+`0x008313D7` after a newer request has reused the slot. Native reset and
+generation-matched cleanup write only zero; the two initial and two periodic
+worker stores are the complete worker writer set for these duration words.
 
-Executable identity remains SHA256
-`42fee7d6cd74e801372aa89c8f71c974cebd3c20ec9ad43d1465b8fa9646b49c`.
-The focused radare2 evidence is in
-[the music duration audit](../analysis/ghidra/output/perf/radio_music_duration_loop_radare2_audit.txt).
+The worker calls `IMediaPosition::get_Duration` at `0x008311E9` and
+`0x008312ED`. The periodic call reuses the qword just used by
+`get_CurrentPosition` at `0x00831287`; both results were converted without
+checking HRESULT or the output. A failed duration call can therefore turn a
+position into a duration. The original repeated-subtraction sync loop at
+`0x00831790` never progresses if the duration is zero. The bounded patch
+fixes that loop and enters native playback when duration is unavailable. The
+first candidate changed this to an unbounded elapsed seek, which could reach
+the end of a track. Native `put_CurrentPosition` at
+`0x008318B2` and `IMediaControl::Run` at `0x00831963` ignore their HRESULTs.
+Native station expiry at `0x00834680` requires a positive duration; a song
+that completes without one does not take that playlist path. The normal radio
+music request does not enable native worker replay (`0x008319EB` checks bit
+`0x20`, which that request leaves clear).
 
-The selected station starts music at `0x0083398D -> 0x008300C0`, passing
-its start tick as the final argument. Media initialization at `0x0082F830`
-constructs two workers, each with stride `0x4C`, through global `0x011DD1F4`.
-Submission at `0x0082F760` copies the request identity/slot and signals its
-worker. `0x0082F7B0` waits and runs the shared request consumer `0x00830B30`.
-These are native media workers, separate from Psycho's removed scan tasklets
-and the native RadioConvTask conversation prefetch.
+The shared native reset at `0x0082FA30` clears both slot generations and
+durations. Its three direct callers are `0x007D0ACD`, `0x008300F6`, and
+`0x008304A8`; station cancellation reaches it through `0x008304A0`.
+Without a matching cache reset, a completed request can still satisfy the
+station identity after native media state has been cleared. Also,
+`0x00834680..0x0083469C` waits for the station's stored positive timer even
+when the graph has posted `EC_COMPLETE`. A duration longer than rendered
+playback can leave silence until that timer expires. The exact ordering or
+duration mismatch in the owner's run remains unobserved.
 
-The consumer obtains `IMediaPosition` using IID
-`56A868B2-0AD4-11CE-B03A-0020AF0BA770` at `0x00831158`.
-The supported executable and MinGW `control.h` agree on the interface slots:
-`+0x1C` gets duration, `+0x24` gets current position, and `+0x20` seeks.
-At `0x008312ED`, duration is queried and converted to milliseconds in local
-`[EBP-0x14]`. The call's HRESULT is not checked. The null-interface branch
-also explicitly stores zero. No positive-duration admission precedes sync.
+### Candidate behavior and ownership
 
-When the start tick is nonzero, `0x0083176F..0x00831790` computes unsigned
-`now - start`. The loop at `0x00831790..0x008317AC` repeatedly subtracts
-duration while that offset is greater than duration. With zero duration and
-positive offset it never changes its loop state. With a small positive
-duration and a future start tick, unsigned underflow can require billions of
-iterations before the existing future-start clamp is finally reached.
+`radio/music.rs` installs the related patches in one ownership-aware
+transaction at the existing pre-CRT boundary. The two queue callsites clear
+only the selected slot duration while `0x008300C0` owns the media lock, before
+`SetEvent`. The four worker duration stores also require that their copied
+generation still owns the slot, preventing an older worker from republishing
+a stale duration. The queue bridges capture the native generation and current
+station entry/start only for the verified station music caller. Other native
+media requests still clear reused durations but never enter station-specific
+progression. The three native reset callers clear cached request identity,
+completion admission, and remembered duration before chaining native reset.
+Workers never dereference station, entry, or graph pointers.
 
-The loop contains no wait, cancellation check, or shared-lock release. It
-occurs after the media-state lock has been released, so another station can
-submit a new request without making the stuck consumer return. Playback
-control, graph events, and request-identity cancellation occur later at
-`0x008318C2..0x00831AFC`. Both media workers execute this consumer; exhausting
-them prevents further music requests from reaching playback while unrelated
-sound paths can continue. This is a proven failure mechanism, not proof that
-both workers occupied that loop in the owner's exited session. The source of
-a zero duration in that session, exact interleaving, and mod attribution remain
-unknown. No evidence establishes tasklet scheduling or Stewie as its cause.
+The worker's duration and position calls now pass through the same installed
+COM provider and admit only successful, finite, representable outputs. A failed
+duration query for the current radio generation uses its last validated value,
+or zero if none exists. Other native audio requests receive validated output
+without radio's retained-duration substitution. The initial query runs outside
+the media lock, so the retained value is atomically paired with its generation;
+an old worker cannot overwrite a new request's value after reuse. A failed
+position query supplies zero. A bounded positive duration keeps the native
+inclusive endpoint and native seek policy. A zero duration enters native
+playback without a seek.
+Seek and Run use the original native calls and control flow.
+Their HRESULTs do not change station duration or trigger playlist expiry.
 
-### Repair contract and cost
+For a matching current generation, completion retains the worker's final
+validated positive duration across native slot cleanup so the station can
+latch it. An actual graph completion enters the native next-entry path once
+after the start tick, whether the station duration is zero or positive. For a
+positive duration, admission clears that completed entry's duration so the
+following native timer comparison succeeds. A graph error or failed seek/Run
+cannot force that path. The selected station, entry, and start tick must still
+match; reset, tuning, announcer changes, cancellation, and a later request
+invalidate old events.
+Native list advance, dialogue selection, graph ownership, and cleanup remain
+engine-owned. The callsites and entry comparison are shared by stations that
+use the native radio player, including modded stations; a mod that replaces
+the player is outside this intervention point.
 
-`radio/music.rs` replaces only the 39 bytes at
-`0x00831790..0x008317B7` (exclusive). Installation checks the original bytes,
-input-producing prefix, and native continuation windows, and uses the existing
-ownership-aware patch transaction before native worker creation. A signature
-mismatch reports the unavailable repair and retains the existing code. The
-scanner and its optimizations install independently.
+The added fixed two-slot record and `parking_lot::Mutex` are used at request
+publication, native reset, worker completion, and station completion admission.
+An atomic completion mask lets ordinary positive-duration station updates
+return without taking that lock. There is no per-frame
+allocation, file I/O, log, worker, new TLS owner,
+configuration field, helper dependency, or third-party mod hook. The core's
+pre-DeferredInit footprint still changes, so its startup compatibility is not
+established by a build.
 
-The entry contract is native EBP, EAX containing `now`, and EDX containing
-unsigned `now - start`. Duration is `[EBP-0x14]`, start is `[EBP-0x40]`,
-and offset is `[EBP-0x1F4]`. The patch has no calls or stack changes and only
-clobbers scratch registers/flags which the continuations overwrite. It neither
-retains nor changes graph interfaces, request identities, station pointers,
-worker ownership, or native cancellation/cleanup.
+### Qualification and limits
 
-- Duration zero branches to `0x008318C2`. It defers only seeking; playback,
-  events, cancellation, and the next native duration query remain reachable.
-- Positive duration with a future start reaches the existing clamp/log path
-  at `0x008317B7` before doing unnecessary wrapping work.
-- An in-range offset reaches native seek policy at `0x008317D9` unchanged.
-- Larger offsets use `(offset - 1) % duration + 1`. This preserves the native
-  inclusive endpoint: an exact positive multiple yields duration, not zero.
-  Zero is checked before DIV, and zero elapsed never enters that arithmetic.
+The prior zero-duration fail-first test executed the original x86 loop and
+observed nontermination; the existing instruction tests execute the shipped
+bounded replacement against native positive-duration behavior. The new
+asynchronous graph/station boundary cannot run outside Fallout New Vegas.
+Static review verified the patched instruction windows against the supported
+executable, including both queue sites, both duration calls, both position
+calls, all three reset callsites, four station duration calls, terminal event,
+and expiry.
+The bridge ABI requires thiscall/stdcall stack cleanup and the native frame
+offsets shown above; offline byte checks and compilation do not prove audible
+playback, startup compatibility under Proton, or the owner's loaded-machine
+outcome.
 
-The worker cost is bounded branches and at most one unsigned division, with
-no allocation, lock, timer, per-frame counter, or logging. There are no new
-threads, TLS owners, dependencies, configuration fields, or helper changes. The
-small immutable patch data and startup installation do change the core's
-pre-DeferredInit footprint; the startup-safety gameplay gate remains unrun.
-No other mod is inspected or modified by the repair. Native song selection,
-dialogue order, reception, volume, and valid-duration seek policy are retained.
-
-### Offline qualification and limits
-
-Before production editing, the exact original instruction bytes were executed
-on the host x86 CPU in an isolated 32-bit harness with `now=1000`, `start=900`,
-and `duration=0`. The loop did not terminate within the one-second test limit.
-The repaired block reaches the native playback continuation with those same
-inputs. This executes the real instruction block; it does not reproduce a
-DirectShow graph or the complete game incident.
-
-Focused tests execute the exact shipped replacement bytes and compare valid
-offset results and continuation choices with execution of the original bytes.
-They cover unavailable duration, zero elapsed, exact endpoints, future starts,
-and full-width unsigned offsets. Continuation stubs observe only the block's
-exit boundary; they do not stand in for a codec or claim successful playback.
-The focused tests, affected crate suite, supported 32-bit release build,
-formatting, and diff checks pass. End-to-end audio, startup compatibility,
-and the owner's particular recurrence remain untested. The owner authorized
-committing this offline-qualified candidate; it remains unreleased.
+A provider that never supplies duration and cannot seek cannot resume an
+interrupted song at its previous position from static information alone. The
+candidate advances only after a matching graph completion; it does not promise
+that every media file can be decoded or resumed. Requests with neither a
+usable duration nor a graph completion remain an unresolved native provider
+limitation. The exact cause in either owner session is still unknown without a
+runtime capture, and the revised candidate remains unreleased.
 
 ## Synchronous radio candidate
 

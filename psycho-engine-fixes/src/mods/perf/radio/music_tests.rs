@@ -76,7 +76,7 @@ unsafe extern "C" fn execute(_block: *mut c_void, _frame_end: *mut u32) -> u32 {
 }
 
 #[test]
-fn zero_duration_reaches_playback_without_seeking() {
+fn zero_duration_reaches_native_playback_without_unbounded_seek() {
     let patched = ExecutableBlock::new(&REPLACEMENT);
     for (now, start) in [(1000, 900), (900, 900), (899, 900), (u32::MAX, 1)] {
         assert_eq!(
