@@ -7125,6 +7125,128 @@ allocation or virtual-memory query. The no-shadow logs are preserved as
 `.reports/*-no-shadows.log`; corrected game image behavior is not statically
 accepted.
 
+## Point receiver geometry and shared producer preparation
+
+The owner reports line-shaped shadows at grazing views, circular darkening on
+unlit sides of street lamps, and excessive shadow cost. No matching frame,
+material/depth capture, or timing measurement is available. These reports define
+the requirements; the source defects below do not establish which pass caused
+every reported pixel. Static/compiler qualification cannot establish image,
+startup, integration, or frame-rate acceptance.
+
+### Direct-light ownership
+
+The point accumulator previously interpolated Lambert lighting toward an
+isotropic value near each source. That admitted positive subtractable energy
+on backfaces. Because the compositor divides deficit by total energy, that
+energy could become a full occluded fraction and darken unrelated native
+radiance. Only a positive normal/light dot product now contributes; a singular
+source ray and zero-energy light return before cube addressing or sampling.
+No radius-wide exclusion is introduced: nearby front-facing opaque fixtures
+retain shadow coverage. Point-only composition returns the original source,
+including alpha and color encoding, when accepted deficit is zero.
+
+This is an energy-eligibility correction. The source-owned post-process still
+cannot separate ordinary ambient and material emission from direct lighting.
+Its existing HDR preservation is not a general material/emitter classification.
+No claim is made that all street-light circles have this cause.
+
+### Exact sampled cube ray
+
+Point cubes store single-sample R32F radial distance; their vertex program does
+not shift projected positions by half a pixel. D3D9 raster centers are integer
+screen coordinates, while a texture texel is addressed at its half-integer
+center. Consequently the distance stored at cube texel `(i,j)` belongs to the
+face ray at `(i/N,j/N)`, not the requested receiver direction or the texture
+center. See Microsoft's
+[texel/pixel mapping](https://learn.microsoft.com/en-us/windows/win32/direct3d9/directly-mapping-texels-to-pixels)
+and [cube mapping](https://learn.microsoft.com/en-us/windows/win32/direct3d9/cubic-environment-mapping).
+The six production views and the existing `(-x,-y,+z)` receiver mapping own
+the face-coordinate orientation.
+
+The consumer explicitly chooses a major face, quantizes its two coordinates,
+and samples inside that texel. This makes equal-major-axis directions
+unambiguous. It reconstructs the integer-center generation ray and intersects
+that ray with the receiver's local plane. For the receiver vector `t` toward
+the light, world normal `n`, and reconstructed vector `q` in the same convention,
+the compared radial distance is `dot(n,t)*length(q)/dot(n,q)`. Only a positive
+intersection inside the cube radius replaces the original radial comparison.
+Parallel, opposite-facing, nonfinite, or out-of-volume intersections retain the
+original distance comparison and configured radial bias. The actual allocated
+cube resolution is uploaded through point constant `c6.w`; no quality-specific
+resolution is embedded in the shader.
+
+The correction addresses the explicit mismatch between sampled caster and
+receiver rays on a locally planar surface. Fixed radial bias alone cannot
+cancel that slope error for every angle. Raster depth bias is not a replacement:
+the compared radial value is written to a color target, rather than sampled
+from the z-buffer. See Microsoft's
+[depth-bias contract](https://learn.microsoft.com/en-us/windows/win32/direct3d9/depth-bias).
+
+### Shared depth normal and directional audit
+
+Point accumulation and exterior sunlight competition use the same helper and
+full-resolution texel centers. Neighbor positions use clamped sampled UVs;
+clear endpoints and invalid linear depths return the center. The shorter valid
+edge on each axis supports the cross product; a missing or degenerate supporting
+triangle returns zero. There is no arbitrary fallback normal or isotropic
+light. These depths still cannot prove a material normal or that neighbors
+belong to one primitive. Silhouettes, thin surfaces, and discontinuities remain
+unverified image cases.
+
+The directional actor path was audited separately: it compares normalized
+coverage-weighted linear depth with `0.0005` tolerance and retries shadowed
+receivers with at most one world unit of normal displacement. Those bounds do
+not track every actor texel footprint. The report supplies no directional
+attribution, and source inspection provides no accepted replacement tolerance
+or displacement. Both equations remain unchanged. Contact shadows retain their
+existing quantization/plane validation and sample sequence. No speculative
+sun/contact retuning is presented as a confirmed fix for the line report.
+
+### Cost and lifecycle
+
+A scoped `PreparedShadowInputs` moves the existing reserved vectors from the
+post-Deferred device resource owner. Root collection, actor bounds/masks,
+directional root signatures, regional static signatures/masks, and point-map
+planning are prepared once per common-shadow invocation. A failed no-work
+publication attempt consumes the same snapshot in D3D generation rather than
+repeating those traversals and classifications. Stable retained signatures
+still avoid building the spatial index and static mask buffer. The existing
+no-work admission for prior dynamic casters is preserved.
+
+Every normal success/error return after preparation clears borrowed root
+identities and returns all vector/index storage before the native tail resumes.
+Spatial storage retains scalar indices only. Texture writes and cache
+publication still use the existing D3D/native-journal transaction and invalidation
+rules. No new persistent pipeline field, hook, config layout, worker, TLS owner,
+or pre-Deferred access is introduced.
+
+The correction intentionally adds arithmetic to eligible lit receivers.
+Instruction ceilings are 544/1536/2752 for the 1/6/12-light specializations;
+texture ceilings remain 6/11/17, including the five shared depth reads. Exterior
+point composition allows 448 instructions and at most 256 more than interior
+composition for validated normal support; texture ceilings remain nine/five.
+These bounds cover the exact ray-plane correction and invalid-depth handling.
+A compact component-wise face quantization replaces the more costly explicit
+three-basis branch construction. The simpler original fixed-bias comparison
+omits the slope correction; increasing bias globally displaces real shadows.
+Adding PCF samples would increase texture work without fixing the center-ray
+mismatch. A separate normal target would add a full-resolution write/read
+and pass; the shared helper retains the existing resource topology. Therefore
+these arithmetic bounds deliberately replace the former fixed-bias bounds;
+they are not an assertion that the worst lit path became cheaper. Backfaces
+and zero-energy receivers skip the new cube work. No FPS improvement follows
+from these static budgets.
+
+Resource estimates accept an explicit point capacity through sixteen; legacy
+comparison helpers retain twelve. Requested/selected count and resident
+high-water allocation count are distinct. Allocation lifecycle logs report
+actual retained cube/depth payload bytes, excluding driver overhead. At 1024,
+two R32F cube families require 48 MiB per allocated light, plus one shared
+4 MiB depth surface; sixteen allocated lights therefore require 772 MiB before
+consumer targets. A quality replacement may temporarily retain both families.
+Light counts, quality resolutions, spatial coverage, and batching are preserved.
+
 ## Primary evidence index
 
 ### Current executable and static artifacts

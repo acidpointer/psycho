@@ -622,6 +622,34 @@ impl ShadowPipeline {
             self.point_transition_identities = [0; POINT_LIGHT_CAPACITY];
             self.point_transition_starts = [0; POINT_LIGHT_CAPACITY];
         }
+        let same_point_cell = self.point_cell_identity == scene.cell as usize;
+        // Branch provisioning above returned only with a live resource owner.
+        let resources = self
+            .resources
+            .as_mut()
+            .expect("shared resources exist after branch provisioning");
+        // SAFETY: preparation and both consumers run before this serialized
+        // common-shadow invocation resumes its native tail. No pointer escapes.
+        let prepared = unsafe {
+            resources.prepare_shadow_inputs(
+                scene,
+                points,
+                directional,
+                if same_point_cell {
+                    self.point_cache
+                } else {
+                    PointMapCache::default()
+                },
+                if same_point_cell {
+                    resources.point_static_faces
+                } else {
+                    PointStaticFaceCache::default()
+                },
+                same_point_cell
+                    .then_some(resources.point_static_root_signature)
+                    .flatten(),
+            )
+        };
         // Build the no-work transcript before capturing a render target,
         // state block, scene pair, or native renderer journal. Re-publishing
         // immutable maps for a new epoch is a CPU metadata operation; making
@@ -636,9 +664,15 @@ impl ShadowPipeline {
                     shadow_camera,
                     points,
                     settings,
+                    &prepared,
                 )
             }
         {
+            prepared.restore(
+                self.resources
+                    .as_mut()
+                    .expect("preparation retains shared resources"),
+            );
             self.published = Some(publication);
             return ReplacementResult::Produced;
         }
@@ -654,6 +688,12 @@ impl ShadowPipeline {
             shadow_camera,
             points,
             settings,
+            &prepared,
+        );
+        prepared.restore(
+            self.resources
+                .as_mut()
+                .expect("generation retains shared resources"),
         );
         match result {
             Ok(publication) => {
@@ -726,6 +766,7 @@ impl ShadowPipeline {
         shadow_camera: ShadowCamera,
         points: native::PointLightSelection,
         settings: NativeShadowsSettings,
+        prepared: &PreparedShadowInputs,
     ) -> Option<PublishedFrame> {
         let now_millis = self
             .clock_origin
@@ -806,133 +847,17 @@ impl ShadowPipeline {
             None
         };
 
-        // The complete root vector is borrowed only inside this serialized
-        // scope and is restored on every outcome. It replaces up to sixteen
-        // independent native light-geometry walks in the no-work path.
-        let (
-            mut roots,
-            mut actor_bounds,
-            mut actor_roots,
-            mut point_static_spatial,
-            retained_static_faces,
-            retained_static_root_signature,
-        ) = {
-            let resources = self.resources.as_mut()?;
-            (
-                core::mem::take(&mut resources.directional_roots),
-                core::mem::take(&mut resources.point_actor_bounds),
-                core::mem::take(&mut resources.point_actor_roots),
-                core::mem::take(&mut resources.point_static_spatial),
-                resources.point_static_faces,
-                resources.point_static_root_signature,
-            )
-        };
-        let has_points = points.shadowed().len() != 0;
-        let needs_roots = directional || has_points;
-        let roots_complete =
-            !needs_roots || unsafe { native::collect_directional_roots(scene, &mut roots) };
-        let actor_bounds_complete = !has_points
-            || (roots_complete
-                && unsafe {
-                    native::collect_point_actor_bounds(
-                        roots.as_slice(),
-                        &mut actor_bounds,
-                        &mut actor_roots,
-                    )
-                });
-        let directional_signatures =
-            directional_inputs.map(|_| native::directional_root_set_signatures(roots.as_slice()));
+        let roots_complete = prepared.roots_complete;
+        let actor_bounds_complete = prepared.actor_bounds_complete;
+        let directional_signatures = prepared.directional_signatures;
         let dynamic_mask = directional_inputs.map(|(_, splits)| unsafe {
             native::directional_dynamic_cascade_mask(
-                roots.as_slice(),
+                prepared.roots.as_slice(),
                 splits,
                 shadow_camera.forward,
                 camera.world_transform.translation,
             )
         });
-        let current_static_root_signature =
-            has_points.then(|| native::point_static_root_set_signature(roots.as_slice()));
-        let same_point_cell = self.point_cell_identity == scene.cell as usize;
-        let active_cache = if same_point_cell {
-            self.point_cache
-        } else {
-            PointMapCache::default()
-        };
-        let active_static_faces = if same_point_cell {
-            retained_static_faces
-        } else {
-            PointStaticFaceCache::default()
-        };
-        let can_reuse_static_signatures =
-            same_point_cell && current_static_root_signature == retained_static_root_signature;
-        let mut signatures = [PointMapSignature::EMPTY; POINT_LIGHT_CAPACITY];
-        let mut static_face_signatures = [[0_u64; 6]; POINT_LIGHT_CAPACITY];
-        let mut dynamic_faces = [0_u8; POINT_LIGHT_CAPACITY];
-        let mut spatial_attempted = false;
-        let mut spatial_complete = false;
-        for (index, point) in points.shadowed().iter().enumerate() {
-            if !roots_complete {
-                continue;
-            }
-            let mut signature = PointMapSignature {
-                identity: point.identity,
-                position: point.position,
-                radius: point.cube_radius,
-                caster_signature: 0,
-            };
-            let retained = can_reuse_static_signatures
-                .then(|| active_cache.retained_static_signatures(active_static_faces, signature));
-            let (cube_signature, face_signatures) = retained.flatten().unwrap_or_else(|| {
-                if !spatial_attempted {
-                    spatial_complete = point_static_spatial.rebuild(roots.as_slice());
-                    spatial_attempted = true;
-                }
-                let current = spatial_complete
-                    .then(|| {
-                        point_static_spatial.signatures_for_light(
-                            roots.as_slice(),
-                            point.position,
-                            point.cube_radius,
-                        )
-                    })
-                    .flatten()
-                    .unwrap_or_else(|| {
-                        native::point_scene_static_signatures(
-                            roots.as_slice(),
-                            point.position,
-                            point.cube_radius,
-                        )
-                    });
-                (current.cube, current.faces)
-            });
-            signature.caster_signature = cube_signature;
-            signatures[index] = signature;
-            static_face_signatures[index] = face_signatures;
-            dynamic_faces[index] = if actor_bounds_complete {
-                native::point_light_dynamic_faces_from_bounds(
-                    actor_bounds.as_slice(),
-                    point.position,
-                    point.cube_radius,
-                )
-            } else {
-                super::contract::ALL_CUBE_FACES
-            };
-        }
-        roots.clear();
-        actor_bounds.clear();
-        actor_roots.clear();
-        // `resources` was present when all allocations were taken and this
-        // method never replaces it. Use an invariant assertion instead of an
-        // optional exit: every ordinary return after the native snapshot must
-        // first return all reusable allocations and discard their pointers.
-        let resources = self
-            .resources
-            .as_mut()
-            .expect("shadow resources remain owned throughout no-work planning");
-        resources.directional_roots = roots;
-        resources.point_actor_bounds = actor_bounds;
-        resources.point_actor_roots = actor_roots;
-        resources.point_static_spatial = point_static_spatial;
         let directional_changed = directional_no_work_state_changed(
             directional,
             directional_root_set_dirty(self.last_directional_roots, directional_signatures),
@@ -942,13 +867,7 @@ impl ShadowPipeline {
         if !roots_complete || !actor_bounds_complete || directional_changed {
             return None;
         }
-        let point_plan = active_cache.plan_with_static_faces(
-            active_static_faces,
-            signatures,
-            static_face_signatures,
-            dynamic_faces,
-            points.shadowed().len(),
-        );
+        let point_plan = prepared.points;
         if point_plan.render_faces.into_iter().any(|faces| faces != 0) {
             return None;
         }
@@ -988,8 +907,10 @@ impl ShadowPipeline {
             self.point_transition_starts[slot] = now_millis;
         }
         self.point_cache = point_plan.next;
+        // The resource owner remains present throughout this common call.
+        let resources = self.resources.as_mut()?;
         resources.point_static_faces = point_plan.next_static_faces;
-        resources.point_static_root_signature = current_static_root_signature;
+        resources.point_static_root_signature = prepared.static_root_signature;
         self.point_cell_identity = scene.cell as usize;
         self.last_scene = Some(scene.kind);
         if let Some((sun, _)) = directional_inputs {
@@ -1023,6 +944,7 @@ impl ShadowPipeline {
         shadow_camera: ShadowCamera,
         points: native::PointLightSelection,
         settings: NativeShadowsSettings,
+        prepared: &PreparedShadowInputs,
     ) -> Direct3DResult<Option<PublishedFrame>> {
         let slots = RenderTargetSlots::from_reported_count(
             self.resources
@@ -1114,6 +1036,7 @@ impl ShadowPipeline {
                 &mut point_transition_starts,
                 now_millis,
                 settings,
+                prepared,
             )
         };
         let mut failure_stage = draw_result
@@ -1378,6 +1301,44 @@ struct ShadowResources {
     production_stage: ShadowProductionStage,
     /// Whether the active transaction may have changed a persistent point face.
     point_texture_writes_started: bool,
+}
+
+/// Caster data prepared once and consumed within one common-shadow invocation.
+///
+/// Owns the existing reusable vectors temporarily. Borrowed root identities
+/// must be cleared before `restore` returns their storage to device resources;
+/// neither a no-work miss nor a D3D failure may extend their engine lifetime.
+struct PreparedShadowInputs {
+    roots: Vec<DirectionalRoot>,
+    roots_complete: bool,
+    directional_signatures: Option<[DirectionalRootSetSignature; CASCADE_COUNT]>,
+    actor_bounds: Vec<[f32; 4]>,
+    actor_roots: Vec<DirectionalRoot>,
+    actor_face_masks: Vec<[u8; POINT_LIGHT_CAPACITY]>,
+    actor_bounds_complete: bool,
+    static_face_masks: Vec<[u8; POINT_LIGHT_CAPACITY]>,
+    static_spatial: native::PointStaticSpatialIndex,
+    static_masks_complete: bool,
+    spatial_complete: bool,
+    points: PointMapPlan<POINT_LIGHT_CAPACITY>,
+    static_root_signature: Option<u64>,
+}
+
+impl PreparedShadowInputs {
+    /// Discard all borrowed identities and restore reusable allocation owners.
+    fn restore(mut self, resources: &mut ShadowResources) {
+        self.roots.clear();
+        self.actor_bounds.clear();
+        self.actor_roots.clear();
+        self.actor_face_masks.clear();
+        self.static_face_masks.clear();
+        resources.directional_roots = self.roots;
+        resources.point_actor_bounds = self.actor_bounds;
+        resources.point_actor_roots = self.actor_roots;
+        resources.point_actor_face_masks = self.actor_face_masks;
+        resources.point_static_face_masks = self.static_face_masks;
+        resources.point_static_spatial = self.static_spatial;
+    }
 }
 
 /// Exact failed point-resource request retained until its inputs change.
@@ -1702,6 +1663,14 @@ impl PointResources {
         Ok(())
     }
 
+    /// Report retained texture/depth payload, excluding driver bookkeeping.
+    ///
+    /// Cube owners grow to demand and do not shrink with selected-light count.
+    fn payload_bytes(&self) -> u64 {
+        u64::from(self.resolution).pow(2)
+            * ((self.point_cubes.len() + self.static_cubes.len()) as u64 * 6 * 4 + 4)
+    }
+
     /// Return whether this family can satisfy a request without reallocating.
     fn supports(&self, capacity: usize, resolution: u32) -> bool {
         self.resolution == resolution && self.point_cubes.len() >= capacity
@@ -1846,9 +1815,10 @@ impl ShadowResources {
                 match point_update {
                     Ok(Some(points)) => {
                         log::info!(
-                            "[SHADOWS] Local-light resources ready ({} x {} cube maps)",
+                            "[SHADOWS] Local-light resources ready (lights={}, cube_resolution={}, retained_bytes={})",
                             requested,
-                            resolution
+                            resolution,
+                            points.payload_bytes()
                         );
                         // Assignment is the commit point: until every cube and
                         // the matching depth surface exists, `self.points`
@@ -1861,9 +1831,12 @@ impl ShadowResources {
                     }
                     Ok(None) => {
                         log::info!(
-                            "[SHADOWS] Local-light resources expanded ({} x {} cube maps)",
+                            "[SHADOWS] Local-light resources expanded (lights={}, cube_resolution={}, retained_bytes={})",
                             requested,
-                            resolution
+                            resolution,
+                            self.points
+                                .as_ref()
+                                .map_or(0, PointResources::payload_bytes)
                         );
                         // Same-resolution growth appends complete cube owners
                         // transactionally. Existing maps and their cache
@@ -1915,6 +1888,156 @@ impl ShadowResources {
         Ok(transition)
     }
 
+    /// Prepare one borrowed caster snapshot and point-map plan before D3D work.
+    ///
+    /// Native owners remain live only for this serialized common-shadow call.
+    /// All vectors retain their existing reserved capacity
+    /// and must be returned with `restore` before the native tail resumes.
+    unsafe fn prepare_shadow_inputs(
+        &mut self,
+        scene: NativeScene,
+        points: native::PointLightSelection,
+        directional: bool,
+        active_cache: PointMapCache,
+        active_static_faces: PointStaticFaceCache,
+        retained_root_signature: Option<u64>,
+    ) -> PreparedShadowInputs {
+        self.production_stage = ShadowProductionStage::PointLightInputs;
+        let mut prepared = PreparedShadowInputs {
+            roots: core::mem::take(&mut self.directional_roots),
+            roots_complete: false,
+            directional_signatures: None,
+            actor_bounds: core::mem::take(&mut self.point_actor_bounds),
+            actor_roots: core::mem::take(&mut self.point_actor_roots),
+            actor_face_masks: core::mem::take(&mut self.point_actor_face_masks),
+            actor_bounds_complete: false,
+            static_face_masks: core::mem::take(&mut self.point_static_face_masks),
+            static_spatial: core::mem::take(&mut self.point_static_spatial),
+            static_masks_complete: false,
+            spatial_complete: false,
+            points: PointMapPlan::empty(),
+            static_root_signature: None,
+        };
+        let has_points = points.shadowed().len() != 0;
+        prepared.roots_complete = !(directional || has_points)
+            || unsafe { native::collect_directional_roots(scene, &mut prepared.roots) };
+        prepared.directional_signatures = (directional && prepared.roots_complete)
+            .then(|| native::directional_root_set_signatures(prepared.roots.as_slice()));
+        prepared.actor_bounds_complete = !has_points
+            || (prepared.roots_complete
+                && unsafe {
+                    native::collect_point_actor_bounds(
+                        prepared.roots.as_slice(),
+                        &mut prepared.actor_bounds,
+                        &mut prepared.actor_roots,
+                    )
+                });
+        let mut current = [PointMapSignature::EMPTY; POINT_LIGHT_CAPACITY];
+        let mut current_static_faces = [[0_u64; 6]; POINT_LIGHT_CAPACITY];
+        let mut dynamic_faces = [0_u8; POINT_LIGHT_CAPACITY];
+        prepared.static_face_masks.clear();
+        let mut static_masks_complete =
+            prepared.roots.len() <= prepared.static_face_masks.capacity();
+        let prepared_dynamic_faces = prepared
+            .actor_bounds_complete
+            .then(|| {
+                native::collect_point_actor_face_masks(
+                    prepared.actor_bounds.as_slice(),
+                    points.shadowed(),
+                    &mut prepared.actor_face_masks,
+                )
+            })
+            .flatten();
+        if prepared_dynamic_faces.is_none() {
+            prepared.actor_bounds_complete = false;
+        }
+        let current_static_root_signature =
+            has_points.then(|| native::point_static_root_set_signature(prepared.roots.as_slice()));
+        let can_reuse_static_signatures = current_static_root_signature == retained_root_signature;
+        let mut spatial_attempted = false;
+        let mut spatial_complete = false;
+        for (index, point) in points.shadowed().iter().enumerate() {
+            let current_dynamic_faces = prepared_dynamic_faces
+                .map_or(super::contract::ALL_CUBE_FACES, |faces| faces[index]);
+            let mut signature = PointMapSignature {
+                identity: point.identity,
+                position: point.position,
+                radius: point.cube_radius,
+                caster_signature: 0,
+            };
+            let retained = can_reuse_static_signatures
+                .then(|| active_cache.retained_static_signatures(active_static_faces, signature));
+            let (cube_signature, face_signatures) = retained.flatten().unwrap_or_else(|| {
+                let current = if static_masks_complete {
+                    if prepared.static_face_masks.is_empty() && !prepared.roots.is_empty() {
+                        // Stable rooms do not touch the 512 KiB mask buffer.
+                        // Initialize it only when one exact projection or root
+                        // change actually needs regional caster ownership.
+                        prepared
+                            .static_face_masks
+                            .resize(prepared.roots.len(), [0; POINT_LIGHT_CAPACITY]);
+                    }
+                    if !spatial_attempted {
+                        spatial_complete =
+                            prepared.static_spatial.rebuild(prepared.roots.as_slice());
+                        spatial_attempted = true;
+                    }
+                    let indexed = spatial_complete.then(|| {
+                        prepared.static_spatial.collect_face_masks_for_light(
+                            prepared.roots.as_slice(),
+                            point.position,
+                            point.cube_radius,
+                            index,
+                            prepared.static_face_masks.as_mut_slice(),
+                        )
+                    });
+                    let current = indexed.flatten().or_else(|| {
+                        native::collect_point_static_face_masks_for_light(
+                            prepared.roots.as_slice(),
+                            point.position,
+                            point.cube_radius,
+                            index,
+                            prepared.static_face_masks.as_mut_slice(),
+                        )
+                    });
+                    match current {
+                        Some(current) => current,
+                        None => {
+                            static_masks_complete = false;
+                            native::point_scene_static_signatures(
+                                prepared.roots.as_slice(),
+                                point.position,
+                                point.cube_radius,
+                            )
+                        }
+                    }
+                } else {
+                    native::point_scene_static_signatures(
+                        prepared.roots.as_slice(),
+                        point.position,
+                        point.cube_radius,
+                    )
+                };
+                (current.cube, current.faces)
+            });
+            signature.caster_signature = cube_signature;
+            current[index] = signature;
+            current_static_faces[index] = face_signatures;
+            dynamic_faces[index] = current_dynamic_faces;
+        }
+        prepared.points = active_cache.plan_with_static_faces(
+            active_static_faces,
+            current,
+            current_static_faces,
+            dynamic_faces,
+            points.shadowed().len(),
+        );
+        prepared.static_masks_complete = static_masks_complete;
+        prepared.spatial_complete = spatial_complete;
+        prepared.static_root_signature = current_static_root_signature;
+        prepared
+    }
+
     #[allow(clippy::too_many_arguments)]
     unsafe fn draw_maps(
         &mut self,
@@ -1939,6 +2062,7 @@ impl ShadowResources {
         point_transition_starts: &mut [u64; POINT_LIGHT_CAPACITY],
         now_millis: u64,
         settings: NativeShadowsSettings,
+        prepared: &PreparedShadowInputs,
     ) -> Direct3DResult<Option<PublishedFrame>> {
         clear_auxiliary_targets(device, self.render_target_count)?;
         let directional = settings.directional_enabled_for(scene.kind);
@@ -1949,8 +2073,8 @@ impl ShadowResources {
         // overlays, and point-light actor coverage. Rewalking every selected
         // light's potentially 8,192-entry geometry list was the dominant CPU
         // cost in light-heavy exteriors and interiors.
-        let mut directional_roots = core::mem::take(&mut self.directional_roots);
-        let mut roots_complete = false;
+        let directional_roots = &prepared.roots;
+        let roots_complete = prepared.roots_complete;
         if directional {
             self.production_stage = ShadowProductionStage::DirectionalInputs;
             let sky = backend::native_sky_frame().ok_or_else(direct3d_failure)?;
@@ -1978,10 +2102,7 @@ impl ShadowResources {
             // independent overlay and invalidate only intersecting outer maps.
             // The same cache is then reused by every submitted map; it never
             // survives the engine-owned common-shadow transaction.
-            roots_complete =
-                unsafe { native::collect_directional_roots(scene, &mut directional_roots) };
-            let current_root_signature = roots_complete
-                .then(|| native::directional_root_set_signatures(directional_roots.as_slice()));
+            let current_root_signature = prepared.directional_signatures;
             let dynamic_cascade_mask = if roots_complete {
                 unsafe {
                     native::directional_dynamic_cascade_mask(
@@ -2255,148 +2376,15 @@ impl ShadowResources {
             }
         }
 
-        if !directional && point_lights {
-            roots_complete =
-                unsafe { native::collect_directional_roots(scene, &mut directional_roots) };
-        }
-
         // Local sources remain part of native scene lighting outdoors too.
         // Omitting their cubes made the Pip-Boy and practical lights cast no
         // shadow whenever a directional atlas was active. Selection is still
         // capped by the same user-owned budget and unchanged cubes are cached.
-        self.production_stage = ShadowProductionStage::PointLightInputs;
-        let mut current = [PointMapSignature::EMPTY; POINT_LIGHT_CAPACITY];
-        let mut current_static_faces = [[0_u64; 6]; POINT_LIGHT_CAPACITY];
-        let mut dynamic_faces = [0_u8; POINT_LIGHT_CAPACITY];
-        let has_points = points.shadowed().len() != 0;
         self.production_stage = ShadowProductionStage::PointCasterInputs;
         if !point_caster_inventory_is_complete(points.shadowed().len(), roots_complete) {
-            // `directional_roots` owns a large preallocated buffer. Restore it
-            // before aborting OMV production so one exceptional overflow
-            // cannot turn every later frame into another zero-capacity failure.
-            directional_roots.clear();
-            self.directional_roots = directional_roots;
             return Err(direct3d_failure());
         }
-        let mut point_actor_bounds = core::mem::take(&mut self.point_actor_bounds);
-        let mut point_actor_roots = core::mem::take(&mut self.point_actor_roots);
-        let mut point_actor_face_masks = core::mem::take(&mut self.point_actor_face_masks);
-        let mut point_static_face_masks = core::mem::take(&mut self.point_static_face_masks);
-        let mut point_static_spatial = core::mem::take(&mut self.point_static_spatial);
-        point_static_face_masks.clear();
-        let mut static_masks_complete =
-            directional_roots.len() <= point_static_face_masks.capacity();
-        let mut actor_bounds_complete = !has_points
-            || unsafe {
-                native::collect_point_actor_bounds(
-                    directional_roots.as_slice(),
-                    &mut point_actor_bounds,
-                    &mut point_actor_roots,
-                )
-            };
-        let prepared_dynamic_faces = actor_bounds_complete.then(|| {
-            native::collect_point_actor_face_masks(
-                point_actor_bounds.as_slice(),
-                points.shadowed(),
-                &mut point_actor_face_masks,
-            )
-        });
-        let prepared_dynamic_faces = prepared_dynamic_faces.flatten();
-        if prepared_dynamic_faces.is_none() {
-            actor_bounds_complete = false;
-        }
-        let current_static_root_signature = has_points
-            .then(|| native::point_static_root_set_signature(directional_roots.as_slice()));
-        let same_point_cell = *point_cell_identity == scene.cell as usize;
-        let active_cache = if same_point_cell {
-            *point_cache
-        } else {
-            PointMapCache::default()
-        };
-        let active_static_faces = if same_point_cell {
-            *point_static_faces
-        } else {
-            PointStaticFaceCache::default()
-        };
-        let can_reuse_static_signatures =
-            same_point_cell && current_static_root_signature == *point_static_root_signature;
-        let mut spatial_attempted = false;
-        let mut spatial_complete = false;
-        for (index, point) in points.shadowed().iter().enumerate() {
-            let current_dynamic_faces = prepared_dynamic_faces
-                .map_or(super::contract::ALL_CUBE_FACES, |faces| faces[index]);
-            let mut signature = PointMapSignature {
-                identity: point.identity,
-                position: point.position,
-                radius: point.cube_radius,
-                caster_signature: 0,
-            };
-            let retained = can_reuse_static_signatures
-                .then(|| active_cache.retained_static_signatures(active_static_faces, signature));
-            let (cube_signature, face_signatures) = retained.flatten().unwrap_or_else(|| {
-                let current = if static_masks_complete {
-                    if point_static_face_masks.is_empty() && !directional_roots.is_empty() {
-                        // Stable rooms do not touch the 512 KiB mask buffer.
-                        // Initialize it only when one exact projection or root
-                        // change actually needs regional caster ownership.
-                        point_static_face_masks
-                            .resize(directional_roots.len(), [0; POINT_LIGHT_CAPACITY]);
-                    }
-                    if !spatial_attempted {
-                        spatial_complete =
-                            point_static_spatial.rebuild(directional_roots.as_slice());
-                        spatial_attempted = true;
-                    }
-                    let indexed = spatial_complete.then(|| {
-                        point_static_spatial.collect_face_masks_for_light(
-                            directional_roots.as_slice(),
-                            point.position,
-                            point.cube_radius,
-                            index,
-                            point_static_face_masks.as_mut_slice(),
-                        )
-                    });
-                    let current = indexed.flatten().or_else(|| {
-                        native::collect_point_static_face_masks_for_light(
-                            directional_roots.as_slice(),
-                            point.position,
-                            point.cube_radius,
-                            index,
-                            point_static_face_masks.as_mut_slice(),
-                        )
-                    });
-                    match current {
-                        Some(current) => current,
-                        None => {
-                            static_masks_complete = false;
-                            native::point_scene_static_signatures(
-                                directional_roots.as_slice(),
-                                point.position,
-                                point.cube_radius,
-                            )
-                        }
-                    }
-                } else {
-                    native::point_scene_static_signatures(
-                        directional_roots.as_slice(),
-                        point.position,
-                        point.cube_radius,
-                    )
-                };
-                (current.cube, current.faces)
-            });
-            signature.caster_signature = cube_signature;
-            current[index] = signature;
-            current_static_faces[index] = face_signatures;
-            dynamic_faces[index] = current_dynamic_faces;
-        }
-        let plan = active_cache.plan_with_static_faces(
-            active_static_faces,
-            current,
-            current_static_faces,
-            dynamic_faces,
-            points.shadowed().len(),
-        );
+        let plan = prepared.points;
         let point_draw_result = unsafe {
             self.draw_point_maps(
                 device,
@@ -2405,35 +2393,23 @@ impl ShadowResources {
                 points.shadowed(),
                 PointCasterIndex {
                     roots: directional_roots.as_slice(),
-                    static_face_masks: static_masks_complete
-                        .then_some(point_static_face_masks.as_slice()),
-                    static_spatial: spatial_complete.then_some(&point_static_spatial),
-                    actor_roots: point_actor_roots.as_slice(),
-                    actor_face_masks: point_actor_face_masks.as_slice(),
-                    actor_bounds_complete,
+                    static_face_masks: prepared
+                        .static_masks_complete
+                        .then_some(prepared.static_face_masks.as_slice()),
+                    static_spatial: prepared
+                        .spatial_complete
+                        .then_some(&prepared.static_spatial),
+                    actor_roots: prepared.actor_roots.as_slice(),
+                    actor_face_masks: prepared.actor_face_masks.as_slice(),
+                    actor_bounds_complete: prepared.actor_bounds_complete,
                 },
                 plan,
             )
         };
-        self.point_static_spatial = point_static_spatial;
-        // Native pointers never survive this transaction, but all scalar
-        // allocations remain reusable even when one D3D face operation fails.
-        point_static_face_masks.clear();
-        self.point_static_face_masks = point_static_face_masks;
-        point_actor_bounds.clear();
-        self.point_actor_bounds = point_actor_bounds;
-        point_actor_roots.clear();
-        self.point_actor_roots = point_actor_roots;
-        point_actor_face_masks.clear();
-        self.point_actor_face_masks = point_actor_face_masks;
-        if let Err(error) = point_draw_result {
-            directional_roots.clear();
-            self.directional_roots = directional_roots;
-            return Err(error);
-        }
+        point_draw_result?;
         *point_cache = plan.next;
         *point_static_faces = plan.next_static_faces;
-        *point_static_root_signature = current_static_root_signature;
+        *point_static_root_signature = prepared.static_root_signature;
         *point_cell_identity = scene.cell as usize;
         let point_map_metadata = plan.published;
 
@@ -2474,8 +2450,6 @@ impl ShadowResources {
         }
         // Native nodes never cross the common-prefix lifetime boundary. Only
         // the allocation is retained for the next serialized invocation.
-        directional_roots.clear();
-        self.directional_roots = directional_roots;
         Ok(Some(PublishedFrame {
             identity,
             scene: scene.kind,
@@ -3342,7 +3316,10 @@ impl ShadowResources {
                 depth.world_projection.reversed_depth_f32(),
                 0.0,
                 settings.interior_receiver_bias,
-                0.0,
+                self.points
+                    .as_ref()
+                    .ok_or_else(direct3d_failure)?
+                    .resolution as f32,
             ];
             device.set_pixel_shader_constant_f(0, &constants)?;
             device.set_render_target(0, &local_lights.deficit_surface)?;
@@ -4490,7 +4467,7 @@ mod tests {
                     .expect("point behavior cube sampler");
             }
             device
-                .set_pixel_shader_constant_f(6, &[[0.0, draw.count as f32, 0.018, 0.0]])
+                .set_pixel_shader_constant_f(6, &[[0.0, draw.count as f32, 0.018, 4.0]])
                 .expect("point behavior control");
             device
                 .set_pixel_shader_constant_f(7, &positions)

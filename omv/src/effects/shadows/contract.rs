@@ -2409,6 +2409,23 @@ pub(super) enum PointFaceOperation {
 }
 
 impl<const N: usize> PointMapPlan<N> {
+    /// Construct an unassigned work transcript without running cache planning.
+    ///
+    /// Preparation replaces this value with one complete plan before either
+    /// publication or generation consumes it. No slot owns a sampled map.
+    pub(super) fn empty() -> Self {
+        Self {
+            render_faces: [0; N],
+            static_faces: [0; N],
+            direct_faces: [0; N],
+            dynamic_draw_faces: [0; N],
+            published: [PointMapSignature::EMPTY; N],
+            source_indices: [u8::MAX; N],
+            next: PointMapCache::default(),
+            next_static_faces: PointStaticFaceCache::default(),
+        }
+    }
+
     /// Return the current selected-light index owned by one physical cube.
     pub(super) fn source_index(self, slot: usize) -> Option<usize> {
         let index = *self.source_indices.get(slot)?;
@@ -3889,8 +3906,37 @@ impl ProducerResourcePlan {
         width: u32,
         height: u32,
     ) -> Option<Self> {
+        Self::for_point_capacity(
+            settings,
+            dynamic_quality,
+            scene,
+            width,
+            height,
+            NVR_POINT_LIGHT_COUNT,
+        )
+    }
+
+    /// Estimate payload bytes for an explicit allocated or requested cube count.
+    ///
+    /// Counts through the production sixteen-light capacity are supported;
+    /// larger counts or empty dimensions return `None`. Callers must supply
+    /// retained allocation count for resident memory, or requested count for
+    /// a proposed family. Selection count alone does not describe retained
+    /// high-water allocations. Driver metadata and replacement overlap are
+    /// excluded. Legacy helpers retain their twelve-light comparison profile.
+    pub(super) fn for_point_capacity(
+        settings: ShadowSettings,
+        dynamic_quality: crate::config::DynamicShadowQuality,
+        scene: SceneKind,
+        width: u32,
+        height: u32,
+        point_capacity: usize,
+    ) -> Option<Self> {
+        if point_capacity > POINT_LIGHT_CAPACITY {
+            return None;
+        }
         let directional = settings.directional_enabled_for(scene);
-        let point_lights = settings.point_enabled_for(scene);
+        let point_lights = settings.point_enabled_for(scene) && point_capacity != 0;
         if width == 0 || height == 0 || (!directional && !point_lights) {
             return None;
         }
@@ -3911,7 +3957,7 @@ impl ProducerResourcePlan {
         let point_cube_resolution = dynamic_quality.cube_resolution();
         let point_face_pixels = u64::from(point_cube_resolution).pow(2);
         let point_cubes = if point_lights {
-            point_face_pixels * 6 * 4 * NVR_POINT_LIGHT_COUNT as u64
+            point_face_pixels * 6 * 4 * point_capacity as u64
         } else {
             0
         };
@@ -3961,8 +4007,9 @@ impl ProducerResourcePlan {
             point_cubes + point_static_cubes + point_depth + consumer
         };
         let combined_directional = settings.enabled && settings.sun_shadows;
-        let combined_points =
-            settings.enabled && (settings.exterior_enabled || settings.interior_enabled);
+        let combined_points = settings.enabled
+            && point_capacity != 0
+            && (settings.exterior_enabled || settings.interior_enabled);
         let combined_estimated_bytes = (if combined_directional {
             persistent_cascades
                 + generation_moments
@@ -3976,7 +4023,7 @@ impl ProducerResourcePlan {
         } else {
             0
         }) + if combined_points {
-            point_face_pixels * 6 * 4 * NVR_POINT_LIGHT_COUNT as u64 * 2
+            point_face_pixels * 6 * 4 * point_capacity as u64 * 2
                 + point_face_pixels * 4
                 + receiver_pixels * 8 * 2
         } else {
@@ -4016,12 +4063,12 @@ impl ProducerResourcePlan {
             receiver_filter_samples: if directional { 3 } else { 0 },
             actor_overlay_fullscreen_merge_draws: 0,
             point_light_count: if point_lights {
-                NVR_POINT_LIGHT_COUNT as u32
+                point_capacity as u32
             } else {
                 0
             },
             point_cube_texture_count: if point_lights {
-                (NVR_POINT_LIGHT_COUNT * 2) as u32
+                (point_capacity * 2) as u32
             } else {
                 0
             },

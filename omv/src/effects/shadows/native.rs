@@ -359,9 +359,9 @@ impl PointStaticSpatialIndex {
 
     /// Hash exact static ownership without materializing root-aligned masks.
     ///
-    /// This is the no-D3D publication path: it uses the same candidate query
-    /// and face predicate as generation while leaving the reusable mask buffer
-    /// untouched until a draw transaction actually needs it.
+    /// Offline comparison helper. Production prepares signatures and
+    /// face masks together once for reuse and generation.
+    #[cfg(test)]
     pub(super) fn signatures_for_light(
         &self,
         roots: &[DirectionalRoot],
@@ -1150,6 +1150,7 @@ pub(super) unsafe fn collect_point_actor_bounds(
 /// in the loaded scene dirties the face pointing toward it even though the
 /// generation traversal later rejects that actor from the finite light. The
 /// resulting empty refresh still copies and clears a complete cube face.
+#[cfg(test)]
 pub(super) fn point_light_dynamic_faces_from_bounds(
     bounds: &[[f32; 4]],
     light_position: [f32; 3],

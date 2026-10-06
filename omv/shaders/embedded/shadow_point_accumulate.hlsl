@@ -9,7 +9,7 @@ float4 CameraFrustum : register(c2);
 float4 ViewToWorld0 : register(c3);
 float4 ViewToWorld1 : register(c4);
 float4 ViewToWorld2 : register(c5);
-float4 PointControl : register(c6); // x reversed depth, y light count, z radial bias
+float4 PointControl : register(c6); // x reversed depth, y light count, z radial bias, w cube resolution
 float4 LightPositionRadius[12] : register(c7);
 float4 LightColorIntensity[12] : register(c19);
 float4 LightMetadata[12] : register(c31); // x native receiver radius, y shadow weight
@@ -54,6 +54,8 @@ static const float ShadowDepthKeyRange = 250000.0f;
 
 struct PixelInput { float2 uv : TEXCOORD0; };
 
+float3 ShadowReceiverWorldNormal(float2 uv, float depth);
+
 float3 ViewPosition(float2 uv, float depth) {
     return float3(
         lerp(CameraFrustum.x, CameraFrustum.y, uv.x) * depth,
@@ -73,25 +75,31 @@ float2 SnapDepthUv(float2 uv) {
     return (texel + 0.5f) * ScreenData.zw;
 }
 
-float3 SampleViewPosition(float2 uv) {
-    // Main snaps centerUv once. Adding or subtracting one full-resolution
-    // texel therefore remains on an exact depth-texel center; snapping every
-    // neighbor again only repeats floor/clamp arithmetic in the hottest
-    // receiver path.
-    float rawDepth = tex2Dlod(SceneDepth, float4(uv, 0.0f, 0.0f)).r;
-    return ViewPosition(uv, LinearDepth(rawDepth));
-}
-
 float3 RelativeWorldPosition(float2 uv, float depth) {
     float4 view = float4(ViewPosition(uv, depth), 1.0f);
     return float3(dot(ViewToWorld0, view), dot(ViewToWorld1, view), dot(ViewToWorld2, view));
 }
 
-float3 WorldNormal(float3 viewNormal) {
-    float4 normalVector = float4(viewNormal, 0.0f);
-    float3 normal = float3(
-        dot(ViewToWorld0, normalVector), dot(ViewToWorld1, normalVector), dot(ViewToWorld2, normalVector));
-    return normal * rsqrt(max(dot(normal, normal), 0.0000001f));
+// Select a face explicitly and sample inside its texel, avoiding ambiguous
+// hardware face selection on equal major axes. The basis follows the six
+// production right-handed cube views after the receiver's (-x,-y,+z) mapping.
+float3 PointCubeSampleDirection(float3 direction, out float3 rasterRay) {
+    float3 axis = abs(direction);
+    float major = max(axis.x, max(axis.y, axis.z));
+    float xFace = axis.x >= axis.y && axis.x >= axis.z ? 1.0f : 0.0f;
+    float yFace = xFace == 0.0f && axis.y >= axis.z ? 1.0f : 0.0f;
+    float zFace = 1.0f - xFace - yFace;
+    float3 faceMask = float3(xFace, yFace, zFace);
+    float3 side = direction >= 0.0f ? 1.0f : -1.0f;
+    float3 orientation = float3(lerp(1.0f, side.z, zFace), -1.0f, lerp(side.y, -side.x, xFace));
+    float3 projected = direction / major;
+    float3 texel = clamp(floor((projected * orientation * 0.5f + 0.5f) * PointControl.w), 0.0f, PointControl.w - 1.0f);
+    // D3D9 generation uses integer pixel centers; texture addressing uses
+    // half-integer centers. Restore the major axis after quantizing the two
+    // face coordinates so sampling cannot select a different face at a tie.
+    float3 raster = texel * (2.0f / PointControl.w) - 1.0f;
+    rasterRay = lerp(raster * orientation, projected, faceMask) * float3(-1.0f, -1.0f, 1.0f);
+    return lerp((raster + 1.0f / PointControl.w) * orientation, projected, faceMask);
 }
 
 struct LightEnergy {
@@ -112,31 +120,39 @@ LightEnergy EvaluateLight(
     float4 lightColorIntensity,
     float4 lightMetadata)
 {
+    LightEnergy empty;
+    empty.total = 0.0f;
+    empty.deficit = 0.0f;
     float3 toLight = lightPositionRadius.xyz - worldPosition;
     float distance = length(toLight);
     float normalizedReceiverDistance = distance / lightMetadata.x;
-    // CPU selection admits only finite positive receiver/cube radii, and the
-    // static light-count branches never evaluate an uninitialized slot.
-    if (normalizedReceiverDistance >= 1.0f) {
-        LightEnergy empty;
-        empty.total = 0.0f;
-        empty.deficit = 0.0f;
-        return empty;
-    }
+    // A singular source ray has no direction or visibility. Native lighting
+    // remains unchanged there; no radius-wide fixture exclusion is involved.
+    if (!(distance > 0.0f && normalizedReceiverDistance < 1.0f)) return empty;
+    float normalDotLight = dot(toLight, normal);
+    // Only front-facing direct light owns a subtractable shadow. Positive
+    // isotropic energy on backfaces canceled in deficit/total and darkened
+    // unrelated native radiance inside a radius-shaped near-source region.
+    if (!(normalDotLight > 0.0f)) return empty;
 
     float radial = saturate(1.0f - normalizedReceiverDistance * normalizedReceiverDistance);
     radial = radial * radial
         / max(1.0f + 5.0f * normalizedReceiverDistance * normalizedReceiverDistance, 0.001f);
-    float lambert = dot(toLight / max(distance, 0.001f), normal);
-    // Depth-derived normals are least reliable close to a point source. Keep
-    // the established isotropic near-source transition; immutable visibility
-    // below, rather than a receiver-facing heuristic, owns wall containment.
-    float diffuse = saturate(lerp(
-        1.0f, lambert, smoothstep(0.0f, 0.2f, normalizedReceiverDistance)));
-    // CPU admission already publishes finite nonnegative native colors.
+    float diffuse = saturate(normalDotLight / distance);
     float3 contribution = radial * diffuse * lightColorIntensity.rgb;
-    float3 cubeDirection = toLight * float3(-1.0f, -1.0f, 1.0f);
+    if (!any(contribution > 0.0f)) return empty;
+    float3 rasterRay;
+    float3 cubeDirection = PointCubeSampleDirection(toLight * float3(-1.0f, -1.0f, 1.0f), rasterRay);
     float normalizedCubeDistance = distance / lightPositionRadius.w;
+    float planeDenominator = dot(normal, rasterRay);
+    float planeNumerator = normalDotLight * length(rasterRay);
+    // Intersect the receiver's local plane with the ray which generated the
+    // sampled radial depth. Only a positive intersection inside the native
+    // cube volume replaces the original comparison; parallel, opposite, or
+    // out-of-volume intersections keep its bounded distance-scaled bias.
+    float planeScale = planeDenominator * lightPositionRadius.w;
+    if (planeDenominator > 0.0f && planeScale < 3.402823466e+38f && planeNumerator < planeScale)
+        normalizedCubeDistance = planeNumerator / planeScale;
     float casterDepth = texCUBElod(shadowCube, float4(cubeDirection, 0.0f)).r;
     float shadowVisibility = casterDepth
             + PointControl.z * normalizedCubeDistance >= normalizedCubeDistance
@@ -150,8 +166,7 @@ LightEnergy EvaluateLight(
     // self-shadowing, and final composition independently preserves HDR
     // emission. A radius-wide source guard also suppresses nearby opaque
     // fixtures, so it made lamp-cage shadows pulse as the flame moved.
-    float validReceiverRay = normalizedReceiverDistance > 0.000001f;
-    float shadowWeight = validReceiverRay * outerEnvelope * lightMetadata.y;
+    float shadowWeight = outerEnvelope * lightMetadata.y;
     float3 deficit = contribution * (1.0f - shadowVisibility) * shadowWeight;
     LightEnergy result;
     result.total = contribution;
@@ -162,31 +177,22 @@ LightEnergy EvaluateLight(
 PointOutput Main(PixelInput input) {
     float2 centerUv = SnapDepthUv(input.uv);
     float rawDepth = tex2Dlod(SceneDepth, float4(centerUv, 0.0f, 0.0f)).r;
-    if (rawDepth <= 1.0f / 65536.0f || rawDepth >= 1.0f - 1.0f / 65536.0f) {
+    if (!(rawDepth > 1.0f / 65536.0f && rawDepth < 1.0f - 1.0f / 65536.0f)) {
         PointOutput empty;
         empty.deficit = 0.0f;
         empty.total = 0.0f;
         return empty;
     }
 
-    // Reconstruct the identical edge-aware receiver normal that the deleted
-    // geometry prepass wrote, but consume it immediately. This removes one
-    // full-resolution FP16 write/read pair without approximating geometry.
     float depth = LinearDepth(rawDepth);
-    float3 center = ViewPosition(centerUv, depth);
-    float3 left = SampleViewPosition(centerUv - float2(ScreenData.z, 0.0f));
-    float3 right = SampleViewPosition(centerUv + float2(ScreenData.z, 0.0f));
-    float3 up = SampleViewPosition(centerUv - float2(0.0f, ScreenData.w));
-    float3 down = SampleViewPosition(centerUv + float2(0.0f, ScreenData.w));
-    float3 dx = dot(left - center, left - center) < dot(right - center, right - center)
-        ? center - left : right - center;
-    float3 dy = dot(up - center, up - center) < dot(down - center, down - center)
-        ? center - up : down - center;
-    float3 viewNormal = cross(dx, dy);
-    viewNormal *= rsqrt(max(dot(viewNormal, viewNormal), 0.0000001f));
-
+    if (!(depth > 0.0f && depth < DepthLinearizeData.w)) {
+        PointOutput empty;
+        empty.deficit = 0.0f;
+        empty.total = 0.0f;
+        return empty;
+    }
     float3 worldPosition = RelativeWorldPosition(centerUv, depth);
-    float3 normal = WorldNormal(viewNormal);
+    float3 normal = ShadowReceiverWorldNormal(centerUv, depth);
     float3 total = 0.0f;
     float3 deficit = 0.0f;
     if (PointControl.y > 0.0f) { LightEnergy light = EvaluateLight(ShadowCube0, worldPosition, normal, LightPositionRadius[0], LightColorIntensity[0], LightMetadata[0]); total += light.total; deficit += light.deficit; }

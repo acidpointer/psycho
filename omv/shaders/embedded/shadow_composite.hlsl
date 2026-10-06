@@ -65,46 +65,13 @@ bool HasGeometryDepth(float rawDepth) {
 }
 
 #if OMV_POINT_SUN_COMPETITION
-float3 PointViewPosition(float2 uv, float depth) {
-    return float3(
-        lerp(CameraFrustum.x, CameraFrustum.y, uv.x) * depth,
-        lerp(CameraFrustum.w, CameraFrustum.z, uv.y) * depth,
-        depth);
-}
-
-float3 SamplePointViewPosition(float2 uv) {
-    float rawDepth = tex2Dlod(SceneDepth, float4(uv, 0.0f, 0.0f)).r;
-    return PointViewPosition(uv, LinearDepth(rawDepth));
-}
-
-float3 PointWorldNormal(float3 viewNormal) {
-    float4 normalVector = float4(viewNormal, 0.0f);
-    float3 normal = float3(
-        dot(ViewToWorld0, normalVector),
-        dot(ViewToWorld1, normalVector),
-        dot(ViewToWorld2, normalVector));
-    return normal * rsqrt(max(dot(normal, normal), 0.0000001f));
-}
+float3 ShadowReceiverWorldNormal(float2 uv, float depth);
 
 float3 ReceiverSunEnergy(float2 uv, float viewDepth) {
     if (PointSunDirection.w <= 0.0f)
         return 0.0f;
 
-    // Match the point accumulator's edge-aware receiver reconstruction. A
-    // depth derivative is invalid after this compositor's receiver branches
-    // and can split the two-triangle fullscreen quad along its diagonal.
-    float3 center = PointViewPosition(uv, viewDepth);
-    float3 left = SamplePointViewPosition(uv - float2(ScreenData.z, 0.0f));
-    float3 right = SamplePointViewPosition(uv + float2(ScreenData.z, 0.0f));
-    float3 up = SamplePointViewPosition(uv - float2(0.0f, ScreenData.w));
-    float3 down = SamplePointViewPosition(uv + float2(0.0f, ScreenData.w));
-    float3 dx = dot(left - center, left - center) < dot(right - center, right - center)
-        ? center - left : right - center;
-    float3 dy = dot(up - center, up - center) < dot(down - center, down - center)
-        ? center - up : down - center;
-    float3 viewNormal = cross(dx, dy);
-    viewNormal *= rsqrt(max(dot(viewNormal, viewNormal), 0.0000001f));
-    float sunFacing = saturate(dot(PointWorldNormal(viewNormal), PointSunDirection.xyz));
+    float sunFacing = saturate(dot(ShadowReceiverWorldNormal(uv, viewDepth), PointSunDirection.xyz));
     return max(PointSunColor.rgb, 0.0f) * PointSunDirection.w * sunFacing;
 }
 #endif
@@ -164,13 +131,13 @@ float4 Main(PixelInput input) : COLOR0 {
 #if OMV_FUSED_DIRECTIONAL
     float2 receiverUv = SnapDepthUv(input.uv);
 #else
-    float2 receiverUv = input.uv;
+    float2 receiverUv = (clamp(floor(input.uv * ScreenData.xy), 0.0f, ScreenData.xy - 1.0f) + 0.5f) * ScreenData.zw;
 #endif
     float rawDepth = tex2Dlod(SceneDepth, float4(receiverUv, 0.0f, 0.0f)).r;
     if (!HasGeometryDepth(rawDepth)) return source;
 
     float viewDepth = LinearDepth(rawDepth);
-    if (viewDepth <= 0.0f || viewDepth >= DepthLinearizeData.w * 0.985f) return source;
+    if (!(viewDepth > 0.0f && viewDepth < DepthLinearizeData.w * 0.985f)) return source;
 
     float directional = 1.0f;
     if (ShadowControl.y > 0.5f) {
@@ -190,6 +157,11 @@ float4 Main(PixelInput input) : COLOR0 {
     PointEnergy pointEnergy = ExactPointValues(input.uv, viewDepth);
     float3 pointDeficit = max(pointEnergy.deficit, 0.0f);
     float3 pointTotal = max(pointEnergy.total, 0.0f);
+#if OMV_POINT_ONLY
+    // An accepted zero deficit is the exact identity, including source alpha
+    // and HDR color. Avoid a second receiver normal and gamma round trip.
+    if (!any(pointDeficit > 0.0f)) return source;
+#endif
     float3 linearSource = pow(max(source.rgb, 0.0f), 2.2f);
     float emitter = smoothstep(1.0f, 1.15f, max(linearSource.r, max(linearSource.g, linearSource.b)));
 #if OMV_POINT_ONLY

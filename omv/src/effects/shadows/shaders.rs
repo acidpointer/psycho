@@ -34,8 +34,12 @@ pub(super) const CUBE_PIXEL_SOURCE: &[u8] =
 pub(super) const FAR_CLEAR_PIXEL_SOURCE: &[u8] =
     include_bytes!("../../../shaders/embedded/shadow_far_clear.hlsl");
 /// Twelve-light scissored point-shadow accumulation and receiver pass.
-pub(super) const POINT_ACCUMULATION_SOURCE: &[u8] =
-    include_bytes!("../../../shaders/embedded/shadow_point_accumulate.hlsl");
+pub(super) const POINT_ACCUMULATION_SOURCE: &[u8] = concat!(
+    include_str!("../../../shaders/embedded/shadow_point_accumulate.hlsl"),
+    "\n",
+    include_str!("../../../shaders/embedded/shadow_receiver.hlsl"),
+)
+.as_bytes();
 /// Full-resolution screen-space contact visibility pass.
 pub(super) const CONTACT_SOURCE: &[u8] =
     include_bytes!("../../../shaders/embedded/shadow_contact.hlsl");
@@ -43,8 +47,13 @@ pub(super) const CONTACT_SOURCE: &[u8] =
 pub(super) const DIRECTIONAL_MASK_SOURCE: &[u8] =
     include_bytes!("../../../shaders/embedded/shadow_directional_mask.hlsl");
 /// Final directional/point shadow compositor.
-pub(super) const COMPOSITE_PIXEL_SOURCE: &[u8] =
-    include_bytes!("../../../shaders/embedded/shadow_composite.hlsl");
+pub(super) const COMPOSITE_PIXEL_SOURCE: &[u8] = concat!(
+    include_str!("../../../shaders/embedded/shadow_composite.hlsl"),
+    "\n#if OMV_POINT_SUN_COMPETITION\n",
+    include_str!("../../../shaders/embedded/shadow_receiver.hlsl"),
+    "\n#endif\n",
+)
+.as_bytes();
 const DIRECTIONAL_COMPOSITE_DEFINE: &[u8] = b"#define OMV_POINT_LIGHTS 0\n";
 const POINT_ONLY_COMPOSITE_DEFINE: &[u8] = b"#define OMV_POINT_ONLY 1\n";
 const POINT_SUN_COMPETITION_DEFINE: &[u8] = b"#define OMV_POINT_SUN_COMPETITION 1\n";

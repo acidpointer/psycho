@@ -130,9 +130,9 @@ fn every_shadow_shader_compiles_for_shader_model_three_with_static_budgets() {
             "shadow_point_accumulate_1.ps",
             point_one.as_slice(),
             "ps_3_0",
-            // Dynamic depth, source-owned energy, and transition weighting
-            // retain narrow compiler headroom.
-            384,
+            // Exact cube-raster ray intersection and validated normal support.
+            // Cost/alternatives are documented in the owning shadow contract.
+            544,
         ),
         (
             "shadow_point_accumulate_6.ps",
@@ -140,14 +140,14 @@ fn every_shadow_shader_compiles_for_shader_model_three_with_static_budgets() {
             "ps_3_0",
             // The shared receiver reconstruction remains bounded when six
             // complete point cubes overlap.
-            1_032,
+            1_536,
         ),
         (
             "shadow_point_accumulate_12.ps",
             point_twelve.as_slice(),
             "ps_3_0",
             // All configured local lights fit beside scene depth in one draw.
-            1_664,
+            2_752,
         ),
         (
             "shadow_contact.ps",
@@ -185,9 +185,9 @@ fn every_shadow_shader_compiles_for_shader_model_three_with_static_budgets() {
             "shadow_composite_exterior_point_only.ps",
             exterior_point_only_composite.as_slice(),
             "ps_3_0",
-            // Four exact neighbouring depth reads reconstruct sun-facing
-            // geometry without derivatives or another full-resolution target.
-            384,
+            // Shared validated normal support keeps sun competition consistent
+            // with point accumulation without another full-resolution target.
+            448,
         ),
         (
             "shadow_composite_directional.ps",
@@ -308,8 +308,8 @@ fn full_resolution_exterior_receiver_work_has_a_fixed_shader_budget() {
     let interior_point_instructions = instruction_count(&interior_point);
     let exterior_point_instructions = instruction_count(&exterior_point);
     assert!(
-        exterior_point_instructions <= interior_point_instructions + 200,
-        "sun-facing reconstruction added more than 200 compiled instructions ({exterior_point_instructions} versus {interior_point_instructions})"
+        exterior_point_instructions <= interior_point_instructions + 256,
+        "sun-facing reconstruction added more than 256 compiled instructions ({exterior_point_instructions} versus {interior_point_instructions})"
     );
 }
 
