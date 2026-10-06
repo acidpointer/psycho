@@ -6,18 +6,109 @@
 //! Captures never compile, block, or publish a partially rendered texture.
 
 use super::DepthResolveSlot;
-use crate::render_state::{RenderAttachments, RenderTargetSlots, finish_exact_render_transaction};
+use crate::render_state::{
+    DepthCompatibility, RenderAttachments, RenderTargetSlots, finish_exact_render_transaction,
+};
 use libpsycho::os::windows::directx9::*;
 use parking_lot::Mutex;
 
 pub(super) const SOURCE: &str = include_str!("../../../shaders/embedded/depth_snapshot.hlsl");
 static SERVICE: Mutex<Option<Box<Service>>> = Mutex::new(None);
 
+// Test-only counters observe real resource queries and sampler mutations;
+// release builds contain neither storage nor counting work.
+#[cfg(test)]
+static WORK: [std::sync::atomic::AtomicU32; 5] =
+    [const { std::sync::atomic::AtomicU32::new(0) }; 5];
+
+#[inline]
+fn count_work(_index: usize, _count: u32) {
+    #[cfg(test)]
+    WORK[_index].fetch_add(_count, std::sync::atomic::Ordering::Relaxed);
+}
+
+#[cfg(test)]
+pub(super) fn take_work() -> [u32; 5] {
+    std::array::from_fn(|i| WORK[i].swap(0, std::sync::atomic::Ordering::Relaxed))
+}
+
 struct Service {
     bytecode: Vec<u32>,
     pipeline: Option<Pipeline>,
     current: bool,
     captures: u32,
+    device: usize,
+    surfaces: [Option<CachedSurface>; 4],
+}
+
+/// Retaining the immutable D3D resource rules out identity reuse while cached.
+/// Texture ownership is populated only after the exact level-zero check.
+struct CachedSurface {
+    surface: Surface9,
+    desc: D3DSURFACE_DESC,
+    texture: Option<Texture9>,
+}
+
+impl Service {
+    fn select_device(&mut self, device: &Device9Ref<'_>) {
+        if self.device != device.as_raw() as usize {
+            self.pipeline = None;
+            self.surfaces = std::array::from_fn(|_| None);
+            self.current = false;
+            self.device = device.as_raw() as usize;
+        }
+    }
+
+    fn surface(&mut self, source: &Surface9, index: usize) -> Direct3DResult<&mut CachedSurface> {
+        if self.surfaces[index]
+            .as_ref()
+            .is_none_or(|cached| cached.surface.as_raw() != source.as_raw())
+        {
+            count_work(0, 1);
+            let desc = source.desc()?;
+            self.surfaces[index] = Some(CachedSurface {
+                surface: source.clone(),
+                desc,
+                texture: None,
+            });
+        }
+        self.surfaces[index].as_mut().ok_or_else(direct3d_failure)
+    }
+}
+
+fn slot_index(slot: DepthResolveSlot) -> usize {
+    match slot {
+        DepthResolveSlot::World => 0,
+        DepthResolveSlot::FirstPerson => 1,
+    }
+}
+
+/// Query or reuse an immutable descriptor without caching camera or freshness.
+/// Contention/preparation absence falls back to the original descriptor query.
+///
+/// # Safety
+/// `source` is a live native surface belonging to `device` on its render thread.
+pub(super) unsafe fn describe_surface(
+    device: &Device9Ref<'_>,
+    source: *mut core::ffi::c_void,
+    slot: DepthResolveSlot,
+    color: bool,
+) -> Direct3DResult<D3DSURFACE_DESC> {
+    let Some(mut guard) = SERVICE.try_lock() else {
+        return unsafe { Surface9::raw_desc(source) };
+    };
+    let Some(service) = guard.as_mut() else {
+        return unsafe { Surface9::raw_desc(source) };
+    };
+    service.select_device(device);
+    let index = slot_index(slot) + if color { 2 } else { 0 };
+    if let Some(cached) = service.surfaces[index].as_ref() {
+        if cached.surface.as_raw() == source {
+            return Ok(cached.desc);
+        }
+    }
+    let surface = unsafe { Surface9::retain_raw(source)? };
+    Ok(service.surface(&surface, index)?.desc)
 }
 
 struct Target {
@@ -33,6 +124,7 @@ struct Pipeline {
     slots: RenderTargetSlots,
     vertex_textures: bool,
     targets: [Option<Target>; 2],
+    depth_compatibility: [Option<DepthCompatibility>; 2],
 }
 
 /// Prepare the one shipped shader at the deferred handoff, never from capture.
@@ -49,6 +141,8 @@ pub(super) fn prepare() -> anyhow::Result<()> {
             pipeline: None,
             current: false,
             captures: 0,
+            device: 0,
+            surfaces: std::array::from_fn(|_| None),
         }));
     }
     Ok(())
@@ -60,9 +154,11 @@ pub(super) fn release() -> bool {
     let Some(mut guard) = SERVICE.try_lock() else {
         return false;
     };
-    let old = guard.as_mut().and_then(|service| {
+    let old = guard.as_mut().map(|service| {
         service.current = false;
-        service.pipeline.take()
+        service.device = 0;
+        let surfaces = std::mem::replace(&mut service.surfaces, std::array::from_fn(|_| None));
+        (service.pipeline.take(), surfaces)
     });
     drop(guard);
     drop(old);
@@ -120,7 +216,15 @@ pub(super) fn capture(
     slot: DepthResolveSlot,
     image_extent: [u32; 2],
 ) -> Direct3DResult<usize> {
-    let desc = source.desc()?;
+    let Some(mut guard) = SERVICE.try_lock() else {
+        return Err(direct3d_failure());
+    };
+    let service = guard.as_mut().ok_or_else(direct3d_failure)?;
+    service.current = false;
+    service.select_device(device);
+    let index = slot_index(slot);
+    let cached = service.surface(source, index)?;
+    let desc = cached.desc;
     if desc.Format != D3DFMT_INTZ
         || desc.MultiSampleType != D3DMULTISAMPLE_NONE
         || desc.Width == 0
@@ -132,17 +236,17 @@ pub(super) fn capture(
     {
         return Err(direct3d_failure());
     }
-    let texture = source.texture_container()?.ok_or_else(direct3d_failure)?;
-    // A texture container is authoritative ownership evidence; requiring the
-    // exact level-zero surface also excludes accidental mip/cube aliasing.
-    if texture.surface_level(0)?.as_raw() != source.as_raw() {
-        return Err(direct3d_failure());
+    if cached.texture.is_none() {
+        count_work(1, 1);
+        let texture = source.texture_container()?.ok_or_else(direct3d_failure)?;
+        // Container and exact level zero prove sampling ownership, once per
+        // retained immutable resource. No pixel/freshness proof is cached.
+        count_work(2, 1);
+        if texture.surface_level(0)?.as_raw() != source.as_raw() {
+            return Err(direct3d_failure());
+        }
+        cached.texture = Some(texture);
     }
-    let Some(mut guard) = SERVICE.try_lock() else {
-        return Err(direct3d_failure());
-    };
-    let service = guard.as_mut().ok_or_else(direct3d_failure)?;
-    service.current = false;
     if service
         .pipeline
         .as_ref()
@@ -154,13 +258,10 @@ pub(super) fn capture(
             slots: RenderTargetSlots::query(device)?,
             vertex_textures: device.device_caps()?.VertexTextureFilterCaps != 0,
             targets: [None, None],
+            depth_compatibility: [None, None],
         });
     }
     let pipeline = service.pipeline.as_mut().ok_or_else(direct3d_failure)?;
-    let index = match slot {
-        DepthResolveSlot::World => 0,
-        DepthResolveSlot::FirstPerson => 1,
-    };
     if pipeline.targets[index]
         .as_ref()
         .is_none_or(|t| t.width != image_extent[0] || t.height != image_extent[1])
@@ -183,7 +284,15 @@ pub(super) fn capture(
     // bound depth stays bound through the draw. Retention removes the
     // detach/rebind pair that would split the driver render pass around the
     // draw; the restored attachment set is unchanged either way.
-    attachments.retain_compatible_depth(device, target.width, target.height, D3DFMT_R32F);
+    if attachments.retain_compatible_depth_cached(
+        device,
+        target.width,
+        target.height,
+        D3DFMT_R32F,
+        &mut pipeline.depth_compatibility[index],
+    ) {
+        count_work(3, 1);
+    }
     // Only journal states this draw mutates. Broad state blocks also replay
     // unrelated native constants, transforms, lights and texture-stage state.
     let state = DepthSnapshotState9::capture(device, pipeline.vertex_textures)?;
@@ -193,16 +302,9 @@ pub(super) fn capture(
         } else {
             pipeline.slots.prepare_target_change(device)?;
         }
-        // A previous consumer may still have either snapshot bound. Remove all
-        // pixel sampler aliases before binding the snapshot as a target.
-        for sampler in 0..16 {
-            device.clear_texture(sampler)?;
-        }
-        if pipeline.vertex_textures {
-            for sampler in 257..261 {
-                device.clear_texture(sampler)?;
-            }
-        }
+        // The journal is the authoritative current binding set. Remove all
+        // occupied aliases before binding the snapshot as a target.
+        count_work(4, state.unbind_textures(device)?);
         device.set_render_target(0, &target.surface)?;
         device.set_viewport(&D3DVIEWPORT9 {
             X: 0,
@@ -250,7 +352,11 @@ pub(super) fn capture(
         ] {
             device.set_sampler_state(0, state, value)?;
         }
-        device.set_texture(0, &texture)?;
+        let texture = service.surfaces[index]
+            .as_ref()
+            .and_then(|s| s.texture.as_ref())
+            .ok_or_else(direct3d_failure)?;
+        device.set_texture(0, texture)?;
         let vertices = [
             ScreenVertex::new(-0.5, -0.5, 0.0, 0.0),
             ScreenVertex::new(

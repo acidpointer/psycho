@@ -985,7 +985,7 @@ fn dlaa_source(config: &DlaaConfig) -> ScreenShaderSource {
 fn smaa_source(config: &SmaaConfig) -> ScreenShaderSource {
     embedded_pipeline_source(
         EmbeddedEffectKind::Smaa,
-        "SMAA 1x (LUT-free)",
+        "SMAA 1x",
         config.enabled,
         EmbeddedEffectsConfig::phase_for_kind(EmbeddedEffectKind::Smaa),
         vec![

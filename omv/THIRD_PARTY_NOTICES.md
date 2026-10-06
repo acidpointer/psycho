@@ -57,11 +57,14 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
-GShade's copy is lightly optimized by Marot Satil.
-
-OMV's D3D9 integration retains the three-pass 1x structure but uses bounded
-analytic blend weights. It does not redistribute the reference area/search
-lookup textures.
+OMV includes the official HLSL3 implementation and the unmodified lookup bytes
+from `Textures/AreaTex.h` and `Textures/SearchTex.h` at
+<https://github.com/iryoku/smaa>. The source is in
+`shaders/embedded/smaa/SMAA.hlsl`; its non-ASCII comment bullet was normalized
+to ASCII, and trailing whitespace was removed. The extracted `area.bin` and
+`search.bin` retain the original table ordering and values. The same MIT license above covers these source and data
+files. OMV supplies its D3D9 entry points, existing settings, and center-alpha
+preservation around the reference three-pass 1x algorithm.
 
 ## AXAA / NVIDIA FXAA base
 

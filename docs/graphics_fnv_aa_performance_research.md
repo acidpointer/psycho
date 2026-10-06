@@ -2,7 +2,70 @@
 
 Date: 2026-07-17
 
-Scope: OMV temporal AA, Fast FXAA, NFAA, AXAA, DLAA, and LUT-free SMAA.
+Scope: OMV temporal AA, Fast FXAA, NFAA, AXAA, DLAA, and SMAA.
+
+## Current reference SMAA 1x contract
+
+The current SMAA path supersedes the historical LUT-free equations and SMAA
+cost tables below. OMV now embeds the MIT-licensed official HLSL3 source from
+<https://github.com/iryoku/smaa/blob/master/SMAA.hlsl> and extracts the original
+`Textures/AreaTex.h` and `Textures/SearchTex.h` bytes without altering them.
+The vendored source normalizes one non-ASCII comment bullet to ASCII and
+removes trailing whitespace.
+`omv/THIRD_PARTY_NOTICES.md` owns attribution and licensing.
+
+The existing AA worker concatenates the reference with OMV's three entry
+points before the existing cached compilation. Cache identity includes the
+complete concatenated source. There is no new worker, hook, configuration
+field, schema, preset, TLS owner, or publication phase. The two new managed
+lookup textures are created only on the first non-edge-debug SMAA draw and
+retained inside boxed second-target ownership. A compile-time size constraint
+preserves the former inline AA slot in the startup-visible runtime owner.
+The existing runtime release/reset path retires the entire effect.
+
+Edge detection uses the official luma/color and local-contrast equations.
+The weight pass uses the 160x560 area and packed 64x16 search tables, 16 bounded
+orthogonal search steps, eight diagonal steps, and actual corner patterns.
+The existing threshold, edge-mode, corner, and debug controls remain active.
+SMAA 1x passes zero subsample indices; it is not SMAA T2x. Neighborhood blending
+uses the reference weights while preserving the exact center-pixel alpha.
+All lookups are linear/clamped, mip selection and sRGB decode are disabled,
+and intermediate writes are non-sRGB. OMV preserves the existing phase color
+encoding; upstream explicitly permits gamma-space neighborhood blending when
+an independent sRGB input/output contract is unavailable.
+
+The graph retains its three full-resolution draws and two A8R8G8B8 scratch
+targets; edge debug executes two draws and does not create the weight target
+or lookup textures. Reference edge detection discards non-edges, so the edge
+target is cleared every frame. Both intermediate aliases are unbound before
+either target becomes writable. Lookups occupy s1/s2 during weight generation;
+the final pass restores their effect-specific color/edge meaning and clears
+those bindings before returning to the existing outer state transaction.
+
+The two ARGB8 lookup uploads preserve area `.ra` and search `.r` exactly and
+consume 362,496 GPU bytes plus driver overhead. Scratch storage remains eight
+bytes per image pixel. Compatible steady-state draws do not allocate, compile,
+read files, wait on the GPU, or add a blocking lock. Compiled SM3 ceilings are
+150/698/120 instruction tokens and 14/40/9 static texture sites for
+edge/weight/blend, with s0..s2, one interpolated UV, at most 32 temporaries,
+and 224 float constants. Orthogonal/diagonal loops stop at their explicit
+search limits or a closed edge. The larger weight budget deliberately pays
+for the requested reference diagonal/corner/area behavior; it is not a
+quality-neutral speed optimization. Shader creation still gates admission on
+the real device, so this does not claim universal support on minimum-capability
+SM3 hardware.
+
+Offline acceptance executes the actual production graph and independently
+renders the official reference graph. It covers both edge modes, corner
+values 0/25/100, flat/diagonal/long/corner/thin/border patterns, alpha, repeated
+frames, aliases, debug modes, resize and resource retirement. The former graph
+failed the diagonal comparison with a maximum RGB error of 36/255 and forced
+alpha to one. The new graph matches the reference within one ARGB8 code value
+and preserves center alpha. The existing runtime letterbox execution also
+passes. These are feature-design input images, not reconstructed gameplay
+captures. Moving/subpixel mesh quality, grass composition and gameplay FPS
+remain unexecuted; this change neither repairs grass coverage nor establishes
+equivalence to native MSAA.
 
 The optimization requirement is strict: preserve the current image quality or
 improve it. Reducing resolution, reducing the intended filter footprint,

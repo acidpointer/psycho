@@ -11,6 +11,197 @@ use libpsycho::os::windows::{directx9::*, winapi::get_desktop_window};
 // exercise its prepare/release lifetime, without changing production locking.
 static SNAPSHOT_TEST_OWNER: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
+/// Empty sampler zero must remain empty after the actual snapshot draw binds
+/// its depth input. Occupied high samplers must return to their exact owners.
+#[test]
+fn snapshot_restores_empty_and_occupied_texture_bindings() {
+    let _owner = SNAPSHOT_TEST_OWNER.lock().unwrap();
+    depth_snapshot::prepare().unwrap();
+    let owner = create_direct3d9()
+        .unwrap()
+        .create_windowed_device(get_desktop_window().unwrap(), 32, 24, D3DDEVTYPE_HAL)
+        .unwrap();
+    let device = owner.as_ref();
+    let depth = device
+        .create_depth_stencil_texture(32, 24, D3DFMT_INTZ)
+        .unwrap();
+    let surface = depth.surface_level(0).unwrap();
+    device.set_depth_stencil_surface(Some(&surface)).unwrap();
+    device
+        .clear_attachments(D3DCLEAR_ZBUFFER as u32, 0, 0.375, 0)
+        .unwrap();
+    let bound = device
+        .create_texture(1, 1, 1, 0, D3DFMT_A8R8G8B8, D3DPOOL_MANAGED)
+        .unwrap();
+    for sampler in 0..16 {
+        device.clear_texture(sampler).unwrap();
+    }
+    device.set_texture(15, &bound).unwrap();
+    let vertex_textures = device.device_caps().unwrap().VertexTextureFilterCaps != 0;
+    if vertex_textures {
+        device.set_texture(257, &bound).unwrap();
+    }
+    device.begin_scene().unwrap();
+    depth_snapshot::capture(&device, &surface, DepthResolveSlot::World, [32, 24]).unwrap();
+    device.end_scene().unwrap();
+    let empty_zero = device.texture_raw(0);
+    let restored_high = device.texture_raw(15);
+    let restored_vertex = vertex_textures.then(|| device.texture_raw(257));
+    assert!(depth_snapshot::release());
+    assert_eq!(
+        empty_zero, None,
+        "snapshot source leaked into empty sampler zero"
+    );
+    assert_eq!(restored_high, Some(bound.as_raw_base_texture()));
+    if let Some(binding) = restored_vertex {
+        assert_eq!(binding, Some(bound.as_raw_base_texture()));
+    }
+}
+
+/// Repeated production captures of retained resources must do no immutable
+/// descriptor/container/level-zero/compatibility queries or empty unbinds.
+#[test]
+fn snapshot_warm_capture_avoids_immutable_queries_and_empty_unbinds() {
+    let _owner = SNAPSHOT_TEST_OWNER.lock().unwrap();
+    assert!(depth_snapshot::release());
+    depth_snapshot::prepare().unwrap();
+    let owner = create_direct3d9()
+        .unwrap()
+        .create_windowed_device(get_desktop_window().unwrap(), 32, 24, D3DDEVTYPE_HAL)
+        .unwrap();
+    let device = owner.as_ref();
+    let depth = device
+        .create_depth_stencil_texture(32, 24, D3DFMT_INTZ)
+        .unwrap();
+    let surface = depth.surface_level(0).unwrap();
+    device.set_depth_stencil_surface(Some(&surface)).unwrap();
+    device
+        .clear_attachments(D3DCLEAR_ZBUFFER as u32, 0, 0.375, 0)
+        .unwrap();
+    for sampler in 0..16 {
+        device.clear_texture(sampler).unwrap();
+    }
+    if device.device_caps().unwrap().VertexTextureFilterCaps != 0 {
+        for sampler in 257..261 {
+            device.clear_texture(sampler).unwrap();
+        }
+    }
+    device.begin_scene().unwrap();
+    depth_snapshot::capture(&device, &surface, DepthResolveSlot::World, [32, 24]).unwrap();
+    depth_snapshot::take_work();
+    device
+        .clear_attachments(D3DCLEAR_ZBUFFER as u32, 0, 0.625, 0)
+        .unwrap();
+    let pointer =
+        depth_snapshot::capture(&device, &surface, DepthResolveSlot::World, [32, 24]).unwrap();
+    let work = depth_snapshot::take_work();
+    device.end_scene().unwrap();
+    let captured = unsafe { Texture9::retain_raw(pointer as *mut c_void) }.unwrap();
+    let readback = device
+        .create_system_memory_surface(32, 24, D3DFMT_R32F)
+        .unwrap();
+    device
+        .copy_render_target_data(&captured.surface_level(0).unwrap(), &readback)
+        .unwrap();
+    let pixels = readback.read_r32f().unwrap();
+    assert!(depth_snapshot::release());
+    assert!(pixels.iter().all(|v| (*v - 0.625).abs() < 2.0 / 16777215.0));
+    assert_eq!(
+        work, [0; 5],
+        "warm capture still repeats immutable queries/empty sampler clears"
+    );
+}
+
+/// Actual resource changes and release must invalidate immutable caches while
+/// each captured image still follows the new source and color extent exactly.
+#[test]
+fn snapshot_resource_caches_follow_resize_source_changes_and_release() {
+    let _owner = SNAPSHOT_TEST_OWNER.lock().unwrap();
+    assert!(depth_snapshot::release());
+    depth_snapshot::prepare().unwrap();
+    let owner = create_direct3d9()
+        .unwrap()
+        .create_windowed_device(get_desktop_window().unwrap(), 64, 48, D3DDEVTYPE_HAL)
+        .unwrap();
+    let device = owner.as_ref();
+    let depths = [
+        device
+            .create_depth_stencil_texture(32, 24, D3DFMT_INTZ)
+            .unwrap(),
+        device
+            .create_depth_stencil_texture(64, 48, D3DFMT_INTZ)
+            .unwrap(),
+    ];
+    for (index, width, height, value) in [(0, 22, 16, 0.25), (1, 40, 30, 0.75), (1, 22, 16, 0.5)] {
+        let surface = depths[index].surface_level(0).unwrap();
+        let color = device
+            .create_render_target_texture(width, height, D3DFMT_A8R8G8B8)
+            .unwrap();
+        let color_surface = color.surface_level(0).unwrap();
+        device.set_depth_stencil_surface(None).unwrap();
+        device.set_render_target(0, &color_surface).unwrap();
+        device.set_depth_stencil_surface(Some(&surface)).unwrap();
+        device
+            .clear_attachments(D3DCLEAR_ZBUFFER as u32, 0, value, 0)
+            .unwrap();
+        depth_snapshot::take_work();
+        let depth_desc = unsafe {
+            depth_snapshot::describe_surface(
+                &device,
+                surface.as_raw(),
+                DepthResolveSlot::World,
+                false,
+            )
+        }
+        .unwrap();
+        let color_desc = unsafe {
+            depth_snapshot::describe_surface(
+                &device,
+                color_surface.as_raw(),
+                DepthResolveSlot::World,
+                true,
+            )
+        }
+        .unwrap();
+        assert!(depth_desc.Width >= width && depth_desc.Height >= height);
+        assert_eq!([color_desc.Width, color_desc.Height], [width, height]);
+        let changed = depth_snapshot::take_work();
+        assert_eq!(changed[0], if index == 0 || width == 40 { 2 } else { 1 });
+        device.begin_scene().unwrap();
+        let pointer =
+            depth_snapshot::capture(&device, &surface, DepthResolveSlot::World, [width, height])
+                .unwrap();
+        device.end_scene().unwrap();
+        let captured = unsafe { Texture9::retain_raw(pointer as *mut c_void) }.unwrap();
+        let readback = device
+            .create_system_memory_surface(width, height, D3DFMT_R32F)
+            .unwrap();
+        device
+            .copy_render_target_data(&captured.surface_level(0).unwrap(), &readback)
+            .unwrap();
+        assert!(
+            readback
+                .read_r32f()
+                .unwrap()
+                .iter()
+                .all(|v| (*v - value).abs() < 2.0 / 16777215.0)
+        );
+    }
+    assert!(depth_snapshot::release());
+    depth_snapshot::take_work();
+    let surface = depths[1].surface_level(0).unwrap();
+    unsafe {
+        depth_snapshot::describe_surface(&device, surface.as_raw(), DepthResolveSlot::World, false)
+    }
+    .unwrap();
+    assert_eq!(
+        depth_snapshot::take_work()[0],
+        1,
+        "release kept an old descriptor proof"
+    );
+    assert!(depth_snapshot::release());
+}
+
 /// Exercise the actual snapshot service with intervening native Clear writes.
 /// This measures a resource transition contract, not a substitute game frame.
 #[test]

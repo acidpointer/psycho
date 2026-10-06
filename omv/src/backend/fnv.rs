@@ -2464,8 +2464,10 @@ impl FnvDepthResolve {
             ));
         }
 
-        let desc = unsafe { Surface9::raw_desc(source_surface)? };
-        let color_desc = unsafe { Surface9::raw_desc(color_surface)? };
+        let desc =
+            unsafe { depth_snapshot::describe_surface(device, source_surface, slot, false)? };
+        let color_desc =
+            unsafe { depth_snapshot::describe_surface(device, color_surface, slot, true)? };
         if desc.Width == 0 || desc.Height == 0 {
             return Err(FnvDepthResolveError::Static("empty depth surface"));
         }

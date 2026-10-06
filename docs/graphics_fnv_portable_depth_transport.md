@@ -1,5 +1,47 @@
 # OMV depth transport independent of DXVK vendor profiles
 
+## Immutable capture caches and exact sampler restoration
+
+The production snapshot service retains four immutable surface descriptions:
+world/first-person depth and their paired color surfaces. Each entry owns a
+COM surface reference, so a raw address cannot be recycled while its proof is
+cached. Native current-source discovery, camera, Z function, image domain,
+semantic stage and render epoch are still validated on every resolve. Only
+resource descriptions, texture-container ownership and the exact level-zero
+surface check are reused. Cached data never includes pixels or freshness.
+
+The render attachment journal still queries every actual bound attachment.
+Each destination slot caches one successful R32F/depth compatibility proof
+against its retained bound surface and exact target width/height/format.
+An attachment or target-domain change reruns the complete driver validation;
+failed admission retains the detach/rebind fallback and is not cached. Reset,
+provider release and device replacement drop descriptors, container ownership,
+compatibility proofs and targets. Descriptor-query contention falls back to
+the original query; capture contention publishes no texture. All new mutable
+storage lives inside the existing post-Deferred boxed service, preserving the
+loader-visible static slot and preparation timing.
+
+The bounded depth journal unbinds only samplers whose captured binding was
+occupied, including vertex samplers when supported. All occupied bindings are
+still inspected and restored. Sampler zero must restore its captured value
+even when empty because the snapshot draw binds the depth input there. The
+previous empty-binding shortcut leaked the sampled depth at s0; a real HAL
+capture regression failed on that exact boundary before the correction.
+Attachment restoration remains first and draw-state restoration last, also
+after a partially failed draw. COM retirement during release runs outside the
+service lock.
+
+The warm-capture regression measures real executed calls: one descriptor,
+container, level-zero and depth-compatibility validation, plus 20 empty
+sampler clears, became zero for the same warmed resources with empty samplers.
+An intervening native clear changes the captured pixels despite the cached
+metadata. Additional actual-resource executions cover source replacement,
+allocation/image-size changes and cache release; existing raw-depth, stencil,
+terrain, first-person and attachment regressions continue to own pixel and
+state acceptance. Snapshot shader work remains one point sample and one draw
+into full-precision R32F. No capture stage, depth precision, resolution or
+consumer was removed. This is an offline work reduction, not an FPS claim.
+
 ## Requirement and conclusion
 
 OMV must obtain current pre-alpha, coherent-world, and first-person depth

@@ -75,6 +75,15 @@ pub(crate) struct RenderAttachments {
     retain_depth: bool,
 }
 
+/// One successful immutable depth/target compatibility proof. The retained
+/// surface prevents pointer reuse; the device-owned caller drops it on reset.
+pub(crate) struct DepthCompatibility {
+    surface: Surface9,
+    width: u32,
+    height: u32,
+    format: D3DFORMAT,
+}
+
 impl RenderAttachments {
     /// Capture all render-target slots supported by the device and optional depth.
     pub(crate) fn capture(
@@ -130,6 +139,43 @@ impl RenderAttachments {
     /// Whether the depth attachment is retained for this transaction.
     pub(crate) fn depth_retained(&self) -> bool {
         self.retain_depth
+    }
+
+    /// Reuse a successful proof only for the same retained surface and exact
+    /// target domain. A live attachment capture still runs every transaction.
+    /// Returns whether a full driver validation was needed. Failed admission
+    /// preserves the detach/rebind fallback and is never cached.
+    pub(crate) fn retain_compatible_depth_cached(
+        &mut self,
+        device: &Device9Ref<'_>,
+        width: u32,
+        height: u32,
+        format: D3DFORMAT,
+        cache: &mut Option<DepthCompatibility>,
+    ) -> bool {
+        if cache.as_ref().is_some_and(|proof| {
+            self.depth
+                .as_ref()
+                .is_some_and(|depth| depth.as_raw() == proof.surface.as_raw())
+                && proof.width == width
+                && proof.height == height
+                && proof.format == format
+        }) {
+            self.retain_depth = true;
+            return false;
+        }
+        self.retain_compatible_depth(device, width, height, format);
+        *cache = if self.retain_depth {
+            self.depth.as_ref().map(|surface| DepthCompatibility {
+                surface: surface.clone(),
+                width,
+                height,
+                format,
+            })
+        } else {
+            None
+        };
+        true
     }
 
     /// Restore every captured attachment while preserving the first D3D failure.

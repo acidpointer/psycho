@@ -11670,9 +11670,7 @@ fn embedded_effect_description(kind: Option<EmbeddedEffectKind>) -> Option<&'sta
             Some("Adaptive single-pass edge smoothing with bounded directional taps.")
         }
         Some(EmbeddedEffectKind::Dlaa) => Some("Two-pass directionally localized anti-aliasing."),
-        Some(EmbeddedEffectKind::Smaa) => {
-            Some("Three-pass LUT-free morphological AA using private edge and weight buffers.")
-        }
+        Some(EmbeddedEffectKind::Smaa) => Some("Reference SMAA 1x"),
         Some(EmbeddedEffectKind::TemporalAa) => Some(
             "World-only temporal resolve with engine projection jitter; first-person and UI stay unjittered.",
         ),

@@ -3389,6 +3389,31 @@ impl DepthSnapshotState9 {
         })
     }
 
+    /// Unbind only captured occupied pixel/vertex samplers before a target
+    /// transition. Call on the same serialized device immediately after capture.
+    /// Returns the executed unbind count; errors leave restoration to the
+    /// caller's transaction, which must run even after partial failure.
+    pub fn unbind_textures(&self, device: &Device9Ref<'_>) -> Direct3DResult<u32> {
+        let mut count = 0;
+        for (index, texture) in self
+            .textures
+            .iter()
+            .enumerate()
+            .take(if self.vertex_textures { 20 } else { 16 })
+        {
+            if texture.is_some() {
+                let sampler = if index < 16 {
+                    index as u32
+                } else {
+                    257 + (index - 16) as u32
+                };
+                device.clear_texture(sampler)?;
+                count += 1;
+            }
+        }
+        Ok(count)
+    }
+
     /// Attempt all state restores, returning the first device error.
     /// The journal retains each COM binding until the caller drops it.
     pub fn restore(&self, device: &Device9Ref<'_>) -> Direct3DResult<()> {
@@ -3413,10 +3438,9 @@ impl DepthSnapshotState9 {
             } else {
                 257 + (index - 16) as u32
             };
-            // The snapshot transaction cleared every sampler. A sampler whose
-            // captured binding was already unbound therefore still holds the
-            // captured value; re-setting None is a redundant driver call.
-            if texture.is_none() {
+            // Only sampler zero is populated by the snapshot draw. It must
+            // restore None as well; other empty bindings remain untouched.
+            if index != 0 && texture.is_none() {
                 continue;
             }
             keep_first_error(&mut result, unsafe {

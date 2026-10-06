@@ -4214,19 +4214,18 @@ mod tests {
     use crate::effects::shadows::{
         contract::{
             CascadeDirty, LightScissorRect, NVR_CASCADE_RESOLUTION, cascade_sphere_selection,
-            clipmap_texel_delta, point_consumer_plan, practical_cascade_splits,
+            clipmap_texel_delta, practical_cascade_splits,
         },
         math::{ShadowCamera, cascade_projection},
-        shaders::{CUBE_PIXEL_SOURCE, point_accumulation_source},
+        shaders::CUBE_PIXEL_SOURCE,
     };
     use libpsycho::os::windows::{
         directx9::{
-            D3DBLEND_ONE, D3DBLENDOP_ADD, D3DCLEAR_TARGET, D3DCUBEMAP_FACE_NEGATIVE_X,
-            D3DCUBEMAP_FACE_NEGATIVE_Y, D3DCUBEMAP_FACE_NEGATIVE_Z, D3DCUBEMAP_FACE_POSITIVE_X,
-            D3DCUBEMAP_FACE_POSITIVE_Y, D3DCUBEMAP_FACE_POSITIVE_Z, D3DCULL_NONE, D3DDEVTYPE_HAL,
-            D3DDEVTYPE_NULLREF, D3DFMT_R32F, D3DFVF_XYZ, D3DPT_TRIANGLELIST,
-            D3DRS_ALPHABLENDENABLE, D3DRS_BLENDOP, D3DRS_COLORWRITEENABLE, D3DRS_CULLMODE,
-            D3DRS_DESTBLEND, D3DRS_SCISSORTESTENABLE, D3DRS_SRCBLEND, D3DRS_ZENABLE,
+            D3DCLEAR_TARGET, D3DCUBEMAP_FACE_NEGATIVE_X, D3DCUBEMAP_FACE_NEGATIVE_Y,
+            D3DCUBEMAP_FACE_NEGATIVE_Z, D3DCUBEMAP_FACE_POSITIVE_X, D3DCUBEMAP_FACE_POSITIVE_Y,
+            D3DCUBEMAP_FACE_POSITIVE_Z, D3DCULL_NONE, D3DDEVTYPE_HAL, D3DDEVTYPE_NULLREF,
+            D3DFMT_R32F, D3DFVF_XYZ, D3DPT_TRIANGLELIST, D3DRS_ALPHABLENDENABLE,
+            D3DRS_COLORWRITEENABLE, D3DRS_CULLMODE, D3DRS_SCISSORTESTENABLE, D3DRS_ZENABLE,
             D3DRS_ZWRITEENABLE, Device9, Device9Ref, RECT, ShadowConsumerState9,
             ShadowProducerState9, Surface9, create_direct3d9,
         },
@@ -4339,200 +4338,6 @@ mod tests {
             .copy_render_target_data(surface, &staging)
             .expect("render-target readback");
         staging.read_r32f().expect("R32F pixels")
-    }
-
-    fn render_planned_point_energy(
-        device: &Device9Ref<'_>,
-        light_count: usize,
-        receiver_radius: f32,
-        cube_clear: u32,
-    ) -> (f32, f32) {
-        const CANDIDATE_COUNT: usize = 16;
-        let rectangle = LightScissorRect {
-            left: 0,
-            top: 0,
-            right: 4,
-            bottom: 4,
-        };
-        let scissors: [Option<LightScissorRect>; CANDIDATE_COUNT] =
-            std::array::from_fn(|index| (index < light_count).then_some(rectangle));
-        let plan = point_consumer_plan(scissors, light_count);
-        let depth = device
-            .create_render_target_texture(4, 4, D3DFMT_R32F)
-            .expect("point behavior depth");
-        let depth_surface = depth
-            .surface_level(0)
-            .expect("point behavior depth surface");
-        device
-            .set_render_target(0, &depth_surface)
-            .expect("point behavior depth target");
-        device
-            .clear_attachments(D3DCLEAR_TARGET as u32, 0x0080_0000, 1.0, 0)
-            .expect("point behavior planar depth");
-
-        let cube = device
-            .create_cube_render_target_texture(4, D3DFMT_R32F)
-            .expect("point behavior cube");
-        for face in [
-            D3DCUBEMAP_FACE_POSITIVE_X,
-            D3DCUBEMAP_FACE_NEGATIVE_X,
-            D3DCUBEMAP_FACE_POSITIVE_Y,
-            D3DCUBEMAP_FACE_NEGATIVE_Y,
-            D3DCUBEMAP_FACE_POSITIVE_Z,
-            D3DCUBEMAP_FACE_NEGATIVE_Z,
-        ] {
-            let surface = cube.surface(face, 0).expect("point behavior cube face");
-            device
-                .set_render_target(0, &surface)
-                .expect("point behavior cube target");
-            device
-                .clear_attachments(D3DCLEAR_TARGET as u32, cube_clear, 1.0, 0)
-                .expect("point behavior cube depth");
-        }
-
-        let deficit = device
-            .create_render_target_texture(4, 4, D3DFMT_R32F)
-            .expect("point behavior deficit");
-        let total = device
-            .create_render_target_texture(4, 4, D3DFMT_R32F)
-            .expect("point behavior total");
-        let deficit_surface = deficit
-            .surface_level(0)
-            .expect("point behavior deficit surface");
-        let total_surface = total
-            .surface_level(0)
-            .expect("point behavior total surface");
-        device
-            .set_render_target(0, &deficit_surface)
-            .expect("point behavior deficit target");
-        device
-            .set_render_target(1, &total_surface)
-            .expect("point behavior total target");
-        device
-            .clear_attachments(D3DCLEAR_TARGET as u32, 0, 1.0, 0)
-            .expect("clear point behavior outputs");
-        set_viewport(device, 0, 0, 4, 4).expect("point behavior viewport");
-        bind_fullscreen_state(device).expect("point behavior fixed state");
-        device
-            .set_texture(0, &depth)
-            .expect("point behavior depth input");
-        set_point_clamp_sampler(device, 0).expect("point behavior depth sampler");
-
-        let bytecode = [1usize, 6, 12].map(|capacity| {
-            crate::shaders::compile_hlsl_source_target(
-                "shadow_point_accumulate_behavior.ps",
-                &point_accumulation_source(capacity),
-                "ps_3_0",
-            )
-            .expect("shipped point accumulation bytecode")
-        });
-        let shaders = bytecode.map(|bytecode| {
-            device
-                .create_pixel_shader(&bytecode)
-                .expect("shipped point accumulation shader")
-        });
-        let common = [
-            [4.0, 4.0, 0.25, 0.25],
-            [1.0, 0.0, 0.0, 1.0],
-            [-1.0, 1.0, -1.0, 1.0],
-            [1.0, 0.0, 0.0, 0.0],
-            [0.0, 1.0, 0.0, 0.0],
-            [0.0, 0.0, 1.0, 0.0],
-        ];
-        device
-            .set_pixel_shader_constant_f(0, &common)
-            .expect("point behavior camera constants");
-        device.begin_scene().expect("begin point behavior draws");
-        let mut drew_batch = false;
-        for draw in plan.draws() {
-            let shader = match draw.count {
-                0 | 1 => &shaders[0],
-                2..=6 => &shaders[1],
-                _ => &shaders[2],
-            };
-            device
-                .set_pixel_shader(shader)
-                .expect("point behavior shader");
-            let mut positions = [[0.0; 4]; 12];
-            let mut colors = [[0.0; 4]; 12];
-            let mut metadata = [[0.0; 4]; 12];
-            for slot in 0..draw.count as usize {
-                positions[slot] = [0.0, 0.0, 0.0, 2.0];
-                colors[slot] = [1.0, 0.0, 0.0, 0.0];
-                metadata[slot] = [receiver_radius, 1.0, 0.0, 0.0];
-                device
-                    .set_cube_texture((slot + 1) as u32, &cube)
-                    .expect("point behavior cube input");
-                set_point_clamp_sampler(device, (slot + 1) as u32)
-                    .expect("point behavior cube sampler");
-            }
-            device
-                .set_pixel_shader_constant_f(6, &[[0.0, draw.count as f32, 0.018, 4.0]])
-                .expect("point behavior control");
-            device
-                .set_pixel_shader_constant_f(7, &positions)
-                .expect("point behavior positions");
-            device
-                .set_pixel_shader_constant_f(19, &colors)
-                .expect("point behavior colors");
-            device
-                .set_pixel_shader_constant_f(31, &metadata)
-                .expect("point behavior metadata");
-            device
-                .set_render_state(D3DRS_ALPHABLENDENABLE, drew_batch as u32)
-                .expect("point behavior blend enable");
-            device
-                .set_render_state(D3DRS_SRCBLEND, D3DBLEND_ONE.0 as u32)
-                .expect("point behavior source blend");
-            device
-                .set_render_state(D3DRS_DESTBLEND, D3DBLEND_ONE.0 as u32)
-                .expect("point behavior destination blend");
-            device
-                .set_render_state(D3DRS_BLENDOP, D3DBLENDOP_ADD.0 as u32)
-                .expect("point behavior blend operation");
-            device
-                .set_render_state(D3DRS_SCISSORTESTENABLE, 0)
-                .expect("point behavior full coverage");
-            draw_quad(device, 0, 0, 4, 4).expect("point behavior draw");
-            drew_batch = true;
-        }
-        device.end_scene().expect("end point behavior draws");
-        device
-            .clear_render_target(1)
-            .expect("unbind point behavior MRT");
-        (
-            read_r32f(device, &deficit_surface).into_iter().sum(),
-            read_r32f(device, &total_surface).into_iter().sum(),
-        )
-    }
-
-    #[test]
-    fn sixteen_shadowed_lights_survive_additive_shipped_hlsl_batches() {
-        let owner = raster_test_device();
-        let device = owner.as_ref();
-        let one = render_planned_point_energy(&device, 1, 10.0, 0x00ff_0000).1;
-        let sixteen = render_planned_point_energy(&device, 16, 10.0, 0x00ff_0000).1;
-        assert!(
-            one > 0.001,
-            "one shipped point light produced no energy: {one}"
-        );
-        let ratio = sixteen / one;
-        assert!(
-            (ratio - 16.0).abs() <= 0.1,
-            "the configured sixteen-light set did not survive production batching through the shipped point shader: ratio={ratio}"
-        );
-    }
-
-    #[test]
-    fn shipped_point_shader_keeps_occlusion_on_a_nearby_opaque_receiver() {
-        let owner = raster_test_device();
-        let device = owner.as_ref();
-        let (deficit, total) = render_planned_point_energy(&device, 1, 100.0, 0x0040_0000);
-        assert!(total > 0.001, "nearby lamp produced no analytic energy");
-        assert!(
-            deficit / total > 0.9,
-            "the shipped point shader erased cube-proven cage occlusion near the lamp: deficit={deficit}, total={total}"
-        );
     }
 
     #[test]

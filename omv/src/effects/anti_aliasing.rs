@@ -13,13 +13,18 @@ use std::{
 
 use anyhow::Result;
 use libpsycho::os::windows::directx9::{
-    D3DFMT_A8R8G8B8, D3DSAMP_MAGFILTER, D3DSAMP_MINFILTER, D3DSURFACE_DESC, D3DTEXF_LINEAR,
-    D3DVIEWPORT9, Device9Ref, Direct3DResult, PixelShader9, ScreenVertex, Surface9, Texture9,
-    direct3d_failure,
+    D3DCLEAR_TARGET, D3DFMT_A8R8G8B8, D3DRS_SRGBWRITEENABLE, D3DSAMP_ADDRESSU, D3DSAMP_ADDRESSV,
+    D3DSAMP_MAGFILTER, D3DSAMP_MINFILTER, D3DSAMP_MIPFILTER, D3DSAMP_SRGBTEXTURE, D3DSURFACE_DESC,
+    D3DTADDRESS_CLAMP, D3DTEXF_LINEAR, D3DTEXF_NONE, D3DVIEWPORT9, Device9Ref, Direct3DResult,
+    PixelShader9, ScreenVertex, Surface9, Texture9, direct3d_failure,
 };
 
 use crate::shaders::{self, EmbeddedEffectKind, ScreenShaderSource};
 use parking_lot::Mutex;
+
+#[cfg(test)]
+mod image_tests;
+mod smaa;
 
 const FIRST_OPTION_REGISTER: u32 = 3;
 
@@ -63,12 +68,18 @@ impl AntiAliasingBytecode {
                 "aa_dlaa_resolve.hlsl",
                 DLAA_RESOLVE_SHADER,
             )?,
-            smaa_edges: shaders::compile_hlsl_source("aa_smaa_edges.hlsl", SMAA_EDGES_SHADER)?,
+            smaa_edges: shaders::compile_hlsl_source(
+                "aa_smaa_edges.hlsl",
+                &smaa::source(SMAA_EDGES_SHADER),
+            )?,
             smaa_weights: shaders::compile_hlsl_source(
                 "aa_smaa_weights.hlsl",
-                SMAA_WEIGHTS_SHADER,
+                &smaa::source(SMAA_WEIGHTS_SHADER),
             )?,
-            smaa_blend: shaders::compile_hlsl_source("aa_smaa_blend.hlsl", SMAA_BLEND_SHADER)?,
+            smaa_blend: shaders::compile_hlsl_source(
+                "aa_smaa_blend.hlsl",
+                &smaa::source(SMAA_BLEND_SHADER),
+            )?,
         })
     }
 }
@@ -119,7 +130,12 @@ mod shader_compile_tests {
             ("aa_smaa_weights.hlsl", SMAA_WEIGHTS_SHADER),
             ("aa_smaa_blend.hlsl", SMAA_BLEND_SHADER),
         ] {
-            crate::shaders::assert_hlsl_compiles(name, source, "ps_3_0");
+            let assembled = if name.starts_with("aa_smaa_") {
+                smaa::source(source)
+            } else {
+                source.to_vec()
+            };
+            crate::shaders::assert_hlsl_compiles(name, &assembled, "ps_3_0");
         }
     }
 
@@ -164,14 +180,21 @@ mod shader_compile_tests {
             ("aa_axaa.hlsl", AXAA_SHADER, 372, 12),
             ("aa_dlaa_prefilter.hlsl", DLAA_PREFILTER_SHADER, 31, 5),
             ("aa_dlaa_resolve.hlsl", DLAA_RESOLVE_SHADER, 265, 17),
-            ("aa_smaa_edges.hlsl", SMAA_EDGES_SHADER, 113, 5),
-            // The guarded search trades ~100 scalar branch tokens for up to six
-            // skipped point fetches per edge pixel; dynamic texture behavior
-            // is reduced, static texture sites are unchanged.
-            ("aa_smaa_weights.hlsl", SMAA_WEIGHTS_SHADER, 310, 17),
-            ("aa_smaa_blend.hlsl", SMAA_BLEND_SHADER, 142, 9),
+            ("aa_smaa_edges.hlsl", SMAA_EDGES_SHADER, 150, 14),
+            // Full reference lookups, diagonal searches and actual corner
+            // patterns replace the four-pixel analytic approximation.
+            // The official diagonal/corner graph adds real bounded work. The
+            // ceiling includes OMV's PS-side offsets and dynamic corner value;
+            // this is a quality change, not a quality-neutral optimization.
+            ("aa_smaa_weights.hlsl", SMAA_WEIGHTS_SHADER, 698, 40),
+            ("aa_smaa_blend.hlsl", SMAA_BLEND_SHADER, 120, 9),
         ] {
-            let bytecode = crate::shaders::compile_hlsl_source_target(name, source, "ps_3_0")
+            let assembled = if name.starts_with("aa_smaa_") {
+                smaa::source(source)
+            } else {
+                source.to_vec()
+            };
+            let bytecode = crate::shaders::compile_hlsl_source_target(name, &assembled, "ps_3_0")
                 .unwrap_or_else(|error| panic!("{name} failed to compile: {error:#}"));
             let opcodes = compiled_instruction_opcodes(&bytecode);
             let texture_count = opcodes
@@ -187,84 +210,45 @@ mod shader_compile_tests {
                 texture_count <= texture_limit,
                 "{name} grew to {texture_count} texture sites (limit {texture_limit})"
             );
-        }
-    }
-
-    /// Prove the closed-side short-circuit is output-identical to the
-    /// unguarded four-step search.
-    ///
-    /// The edge shader emits binary edge values, so `step(0.5, edge)` keeps
-    /// each side's running openness on the {0, 1} lattice. Exhaustive
-    /// enumeration over every reachable per-side pattern shows the guarded
-    /// search computes the same span with fewer executed samples: once a
-    /// side's openness reaches zero, every remaining `open *= step` and
-    /// `span += open` is the identity.
-    #[test]
-    fn smaa_weight_search_short_circuit_is_output_identical() {
-        // One side of one orientation: four bounded steps.
-        // Reference executes every sample; the guarded path skips a side's
-        // remaining samples once its openness is zero.
-        fn reference_span(edges: [f32; 4]) -> f32 {
-            let mut open = 1.0f32;
-            let mut span = 0.0f32;
-            for edge in edges {
-                open *= step(edge);
-                span += open;
-            }
-            span
-        }
-
-        fn guarded_span(edges: [f32; 4]) -> (f32, usize) {
-            let mut open = 1.0f32;
-            let mut span = 0.0f32;
-            let mut samples = 0usize;
-            for edge in edges {
-                if open > 0.0 {
-                    open *= step(edge);
-                    samples += 1;
+            // Inspect the actual compiled register operands, not source text.
+            // SMAA owns s0..s2 and one interpolated UV; all shaders must stay
+            // within SM3's 32 temporaries and 224 float constants.
+            let mut offset = 1;
+            while offset < bytecode.len() && bytecode[offset] as u16 != END {
+                let token = bytecode[offset];
+                if token as u16 == COMMENT {
+                    offset += 1 + ((token >> 16) & 0x7fff) as usize;
+                    continue;
                 }
-                span += open;
-            }
-            (span, samples)
-        }
-
-        fn step(edge: f32) -> f32 {
-            if edge >= 0.5 { 1.0 } else { 0.0 }
-        }
-
-        // Exhaustive over the binary lattice the edge pass emits.
-        for pattern in 0..16u32 {
-            let edges: [f32; 4] = std::array::from_fn(|index| {
-                if (pattern >> index) & 1 == 1 {
-                    1.0
+                let length = ((token >> 24) & 15) as usize;
+                // DEF/DEFI/DEFB carry immediate words after their destination,
+                // which must never be interpreted as register operands.
+                let operands = if matches!(token as u16, 47 | 48 | 81) {
+                    1
                 } else {
-                    0.0
+                    length
+                };
+                for &parameter in &bytecode[offset + 1..offset + 1 + operands] {
+                    if parameter & 0x8000_0000 == 0 {
+                        continue;
+                    }
+                    let register_type = ((parameter >> 28) & 7) | ((parameter >> 8) & 24);
+                    let register = parameter & 0x7ff;
+                    match register_type {
+                        0 => assert!(register < 32, "{name}: temporary r{register}"),
+                        2 => assert!(register < 224, "{name}: float constant c{register}"),
+                        10 if name.starts_with("aa_smaa_") => {
+                            assert!(register < 3, "{name}: sampler s{register}")
+                        }
+                        1 if name.starts_with("aa_smaa_") => {
+                            assert_eq!(register, 0, "{name}: extra interpolator")
+                        }
+                        _ => {}
+                    }
                 }
-            });
-            let (span, samples) = guarded_span(edges);
-            assert_eq!(
-                reference_span(edges),
-                span,
-                "guarded span diverged for pattern {pattern:04b}"
-            );
-            assert!(
-                samples <= 4,
-                "guarded search executed more samples than the reference"
-            );
-            if edges[0] == 0.0 {
-                // A side closed at the first pair must skip its three
-                // remaining samples.
-                assert_eq!(samples, 1, "closed-side samples not skipped");
+                offset += 1 + length;
             }
         }
-    }
-
-    #[test]
-    fn smaa_weight_search_uses_explicit_lod_samples_without_dynamic_loops() {
-        let source = std::str::from_utf8(SMAA_WEIGHTS_SHADER).expect("SMAA source is UTF-8");
-        assert!(!source.contains("tex2D("));
-        assert!(!source.contains("for ("));
-        assert!(!source.contains("while ("));
     }
 
     #[test]
@@ -287,8 +271,24 @@ pub(crate) struct AntiAliasingEffect {
     smaa_weights: PixelShader9,
     smaa_blend: PixelShader9,
     scratch_primary: Option<EffectTarget>,
-    scratch_secondary: Option<EffectTarget>,
+    scratch_secondary: Option<SmaaTargetOwner>,
 }
+
+/// Preserve the existing inline AA/runtime owner size: lookup ownership lives
+/// behind the former second-target slot, only allocated on the first SMAA draw.
+struct SmaaTargetOwner {
+    resources: Box<SmaaTargets>,
+    _reserved: [usize; 4],
+}
+
+struct SmaaTargets {
+    target: EffectTarget,
+    lookup: smaa::LookupTextures,
+}
+
+const _: () = assert!(
+    std::mem::size_of::<Option<SmaaTargetOwner>>() == std::mem::size_of::<Option<EffectTarget>>()
+);
 
 impl AntiAliasingEffect {
     /// Create device-owned AA shaders from prepared process bytecode.
@@ -330,12 +330,6 @@ impl AntiAliasingEffect {
         source: &ScreenShaderSource,
         scene_color: &Texture9,
     ) -> Direct3DResult<()> {
-        if source.embedded_effect_kind() == Some(EmbeddedEffectKind::Smaa) {
-            for sampler in 1..=2 {
-                device.set_sampler_state(sampler, D3DSAMP_MINFILTER, D3DTEXF_LINEAR.0 as u32)?;
-                device.set_sampler_state(sampler, D3DSAMP_MAGFILTER, D3DTEXF_LINEAR.0 as u32)?;
-            }
-        }
         match source.embedded_effect_kind() {
             Some(EmbeddedEffectKind::FastFxaa) => draw_single(
                 device,
@@ -402,6 +396,22 @@ impl AntiAliasingEffect {
         source: &ScreenShaderSource,
         scene_color: &Texture9,
     ) -> Direct3DResult<()> {
+        // Lookup data and edges/weights are never sRGB. Preserve the current
+        // phase's color encoding; upstream supports gamma-space blending when
+        // a separate sRGB color-input contract is unavailable.
+        device.set_render_state(D3DRS_SRGBWRITEENABLE, 0)?;
+        for sampler in 0..3 {
+            for (state, value) in [
+                (D3DSAMP_ADDRESSU, D3DTADDRESS_CLAMP.0 as u32),
+                (D3DSAMP_ADDRESSV, D3DTADDRESS_CLAMP.0 as u32),
+                (D3DSAMP_MINFILTER, D3DTEXF_LINEAR.0 as u32),
+                (D3DSAMP_MAGFILTER, D3DTEXF_LINEAR.0 as u32),
+                (D3DSAMP_MIPFILTER, D3DTEXF_NONE.0 as u32),
+                (D3DSAMP_SRGBTEXTURE, 0),
+            ] {
+                device.set_sampler_state(sampler, state, value)?;
+            }
+        }
         let edges_shader = self.smaa_edges.clone();
         let blend_shader = self.smaa_blend.clone();
         let edge_debug = smaa_edge_debug(source);
@@ -421,9 +431,20 @@ impl AntiAliasingEffect {
             let needs_secondary = self
                 .scratch_secondary
                 .as_ref()
-                .is_none_or(|target| !target.matches(desc));
+                .is_none_or(|owner| !owner.resources.target.matches(desc));
             if needs_secondary {
-                self.scratch_secondary = Some(EffectTarget::create(device, desc)?);
+                let target = EffectTarget::create(device, desc)?;
+                if let Some(owner) = self.scratch_secondary.as_mut() {
+                    owner.resources.target = target;
+                } else {
+                    self.scratch_secondary = Some(SmaaTargetOwner {
+                        resources: Box::new(SmaaTargets {
+                            target,
+                            lookup: smaa::LookupTextures::create(device)?,
+                        }),
+                        _reserved: [0; 4],
+                    });
+                }
             }
         }
         let Some(edges) = self.scratch_primary.as_ref() else {
@@ -431,7 +452,14 @@ impl AntiAliasingEffect {
         };
 
         bind_constants(device, desc, source)?;
+        // Previous passes can leave these targets bound at s1/s2. Remove
+        // every locally owned alias before either becomes writable again.
+        device.clear_texture(1)?;
+        device.clear_texture(2)?;
         bind_target(device, &edges.surface, desc)?;
+        // The reference edge detector discards non-edges. Clear every frame
+        // so those pixels never inherit stale edges from a previous image.
+        device.clear_attachments(D3DCLEAR_TARGET as u32, 0, 1.0, 0)?;
         device.set_texture(0, scene_color)?;
         device.set_pixel_shader(&edges_shader)?;
         draw_quad(device, desc)?;
@@ -439,8 +467,12 @@ impl AntiAliasingEffect {
         if let (Some(weights), Some(weights_shader)) =
             (self.scratch_secondary.as_ref(), weights_shader.as_ref())
         {
-            bind_target(device, &weights.surface, desc)?;
+            let weights_target = &weights.resources.target;
+            bind_target(device, &weights_target.surface, desc)?;
             device.set_texture(0, &edges.texture)?;
+            let lookup = &weights.resources.lookup;
+            device.set_texture(1, &lookup.area)?;
+            device.set_texture(2, &lookup.search)?;
             device.set_pixel_shader(weights_shader)?;
             draw_quad(device, desc)?;
         }
@@ -450,7 +482,7 @@ impl AntiAliasingEffect {
         if edge_debug {
             device.set_texture(1, &edges.texture)?;
         } else if let Some(weights) = self.scratch_secondary.as_ref() {
-            device.set_texture(1, &weights.texture)?;
+            device.set_texture(1, &weights.resources.target.texture)?;
         }
         device.set_texture(2, &edges.texture)?;
         device.set_pixel_shader(&blend_shader)?;
