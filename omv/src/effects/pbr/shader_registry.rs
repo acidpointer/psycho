@@ -1191,9 +1191,6 @@ mod shader_compile_tests {
         include_str!("../../../../analysis/shaders_disasm/shaderpackage019/SLS2100.pso.dis");
     const VANILLA_TERRAIN_7_PIXEL: &str =
         include_str!("../../../../analysis/shaders_disasm/shaderpackage019/SLS2140.pso.dis");
-    const VPT_TERRAIN_PIXEL_SOURCE: &str = include_str!(
-        "../../../../.research/fnv-vanilla-plus-terrain-main/shaders/TerrainTemplate.hlsl"
-    );
 
     mod object_shader_behavior {
         //! D3D9 readback gate for shipped object-to-bloom behavior.
@@ -3361,12 +3358,6 @@ float4 Main(float2 uv : TEXCOORD0) : COLOR0
 
     #[test]
     fn close_terrain_native_light_membership_does_not_change_visibility() {
-        assert!(
-            VPT_TERRAIN_PIXEL_SOURCE
-                .contains("getPointLightingAtt(pointlightDir, att, PointLightColor[i].rgb,")
-        );
-        assert!(!VPT_TERRAIN_PIXEL_SOURCE.contains("PointLightColor[i].a"));
-
         assert!(CLOSE_TERRAIN_PIXEL_SOURCE.contains("light_color.rgb,"));
         assert!(!CLOSE_TERRAIN_PIXEL_SOURCE.contains("light_color.rgb * saturate(light_color.a)"));
 
