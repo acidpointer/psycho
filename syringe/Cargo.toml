@@ -6,6 +6,9 @@ edition = "2024"
 [lib]
 name = "dinput8"
 crate-type = ["cdylib"]
+# This crate is no_std and defines its own #[panic_handler], which does not
+# work with the libtest harness.
+test = false
 
 [dependencies]
 syringe-api = { path = "../syringe-api" }
