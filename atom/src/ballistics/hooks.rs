@@ -103,7 +103,7 @@ static MISSILE_UPDATE_CALLS: AtomicU32 = AtomicU32::new(0);
 static COMMON_IMPACT_CALLS: AtomicU32 = AtomicU32::new(0);
 
 fn note_call(counter: &AtomicU32) {
-    let _ = counter.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |value| {
+    let _ = counter.try_update(Ordering::Relaxed, Ordering::Relaxed, |value| {
         Some(value.saturating_add(1))
     });
 }

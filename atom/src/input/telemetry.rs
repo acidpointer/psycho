@@ -232,13 +232,13 @@ fn mark_interval(last_frame: &AtomicU32, histogram: &[AtomicU32; BUCKET_COUNT]) 
 }
 
 fn saturating_increment(counter: &AtomicU32) {
-    let _ = counter.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |value| {
+    let _ = counter.try_update(Ordering::Relaxed, Ordering::Relaxed, |value| {
         Some(value.saturating_add(1))
     });
 }
 
 fn saturating_add(counter: &AtomicU32, amount: u32) {
-    let _ = counter.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |value| {
+    let _ = counter.try_update(Ordering::Relaxed, Ordering::Relaxed, |value| {
         Some(value.saturating_add(amount))
     });
 }

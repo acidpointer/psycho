@@ -329,7 +329,7 @@ fn record_rejection(source: usize, rejection: Rejection) {
 
 fn increment_saturating(counter: &AtomicU32) -> u32 {
     counter
-        .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |value| {
+        .try_update(Ordering::Relaxed, Ordering::Relaxed, |value| {
             value.checked_add(1)
         })
         .map_or(u32::MAX, |previous| previous + 1)

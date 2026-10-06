@@ -301,7 +301,7 @@ fn increment(counter: &AtomicU32) {
     if !ENABLED.load(Ordering::Acquire) {
         return;
     }
-    let _ = counter.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |value| {
+    let _ = counter.try_update(Ordering::Relaxed, Ordering::Relaxed, |value| {
         Some(value.saturating_add(1))
     });
 }
@@ -310,7 +310,7 @@ fn record_max(target: &AtomicU32, candidate: f32) {
     if !candidate.is_finite() || candidate <= 0.0 {
         return;
     }
-    let _ = target.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |bits| {
+    let _ = target.try_update(Ordering::Relaxed, Ordering::Relaxed, |bits| {
         (candidate > f32::from_bits(bits)).then_some(candidate.to_bits())
     });
 }
