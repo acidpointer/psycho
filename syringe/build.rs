@@ -10,6 +10,11 @@ fn main() {
     let def_file = manifest_dir.join("dinput8.def");
 
     println!("cargo:rustc-cdylib-link-arg={}", def_file.display());
+    // rustc's generated export list names the `extern "system"` exports
+    // undecorated, while i686 stdcall symbols carry `@N`. ld's stdcall fixup
+    // resolves them to the intended exports; enabling it explicitly keeps that
+    // result and silences the per-symbol notice.
+    println!("cargo:rustc-cdylib-link-arg=-Wl,--enable-stdcall-fixup");
     println!("cargo:rustc-cdylib-link-arg=-Wl,--exclude-all-symbols");
     println!("cargo:rustc-cdylib-link-arg=-Wl,--exclude-symbols=DllMain");
     println!("cargo:rustc-cdylib-link-arg=-Wl,--exclude-symbols=rust_eh_personality");
