@@ -162,8 +162,14 @@ fn fail(message: impl AsRef<str>) -> ! {
 
 /// Writes a bindgen-compatible copy of xNVSE's `PluginAPI.h` into `OUT_DIR`.
 ///
-/// Strips `[[nodiscard]]` attributes, which cause clang parsing errors. The
-/// attribute is only a compiler hint, so removing it is ABI-safe.
+/// The submodule header declares helpers as `static [[nodiscard]] bool ...`.
+/// MSVC accepts an attribute list after `static`, but clang rejects that
+/// position with "an attribute list cannot appear here". The copy moves each
+/// attribute to the start of its declaration (`[[nodiscard]] static bool ...`),
+/// where standard C++ places it, so the declarations keep their meaning.
+/// Neither a bindgen parse callback nor `-Dnodiscard=` can avoid this:
+/// callbacks run after clang parses, and an empty `[[]]` in the same position
+/// is still rejected.
 ///
 /// The copy is written to `<out_dir>/xnvse_patched/nvse/PluginAPI.h` and the
 /// submodule is never modified, so `git submodule` state stays clean and the
@@ -202,7 +208,7 @@ fn patch_xnvse_headers(nvse_dir: &Path, out_dir: &Path) -> PathBuf {
         fail(format!("Couldn't create {}: {err}", patched_dir.display()));
     }
 
-    let patched = content.replace("[[nodiscard]]", "");
+    let patched = content.replace("static [[nodiscard]]", "[[nodiscard]] static");
 
     if let Err(err) = fs::write(&patched_path, patched) {
         fail(format!("Couldn't write {}: {err}", patched_path.display()));
