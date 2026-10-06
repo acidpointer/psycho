@@ -14,9 +14,11 @@
 //! # Example
 //!
 //! ```no_run
+//! use libnvse::NVSEInterfaceFFI;
 //! use libnvse::api::interface::NVSEInterface;
 //!
-//! unsafe extern "C" fn plugin_load(nvse_ptr: *const NVSEInterfaceFFI) -> bool {
+//! #[unsafe(no_mangle)]
+//! pub unsafe extern "C" fn NVSEPlugin_Load(nvse_ptr: *const NVSEInterfaceFFI) -> bool {
 //!     let mut nvse = match NVSEInterface::from_raw(nvse_ptr) {
 //!         Ok(n) => n,
 //!         Err(e) => {

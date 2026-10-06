@@ -1,33 +1,37 @@
 //! Messaging NVSE API wrapper
 //!
 //! You can do something like this:
-//! ```
-//!    // See, you can use closures for registering listeners for NVSEMessagingInterface!
-//!    msg_interface.register_listener("NVSE", |msg| {
-//!        let msg_type = msg.get_type();
+//! ```no_run
+//! use libnvse::api::interface::NVSEInterface;
+//! use libnvse::api::message_box::MessageBox;
+//! use libnvse::api::messaging::NVSEMessageType;
 //!
-//!        if msg_type == NVSEMessageType::MainGameLoop
-//!            || msg_type == NVSEMessageType::OnFramePresent
-//!            || msg_type == NVSEMessageType::ScriptCompile
-//!            || msg_type == NVSEMessageType::EventListDestroyed
-//!            || msg_type == NVSEMessageType::ScriptPrecompile
-//!        {
-//!            return;
-//!        }
+//! # fn example(nvse: &mut NVSEInterface) -> Result<(), Box<dyn std::error::Error>> {
+//! let msg_interface = nvse.messaging_interface_mut();
 //!
-//!        log::debug!("Message received: {}", msg.get_type());
+//! // See, you can use closures for registering listeners for NVSEMessagingInterface!
+//! msg_interface.register_listener("NVSE", |msg| {
+//!     let msg_type = msg.get_type();
 //!
-//!        if msg.get_type() == NVSEMessageType::DeferredInit {
-//!            match show_message_box("NVSE plugin loaded", "OK", || {
-//!                log::info!("YES! BUTTON PRESSED!!!!")
-//!            }) {
-//!                Ok(_) => {}
-//!                Err(err) => {
-//!                    log::error!("show_message_box error: {:?}", err);
-//!                }
-//!            }
-//!        }
-//!    })?;
+//!     if msg_type == NVSEMessageType::MainGameLoop
+//!         || msg_type == NVSEMessageType::OnFramePresent
+//!         || msg_type == NVSEMessageType::ScriptCompile
+//!         || msg_type == NVSEMessageType::EventListDestroyed
+//!         || msg_type == NVSEMessageType::ScriptPrecompile
+//!     {
+//!         return;
+//!     }
+//!
+//!     log::debug!("Message received: {}", msg_type);
+//!
+//!     if msg_type == NVSEMessageType::DeferredInit {
+//!         if let Err(err) = MessageBox::show_simple("NVSE plugin loaded", "OK") {
+//!             log::error!("MessageBox::show_simple error: {:?}", err);
+//!         }
+//!     }
+//! })?;
+//! # Ok(())
+//! # }
 //! ```
 
 use crate::{

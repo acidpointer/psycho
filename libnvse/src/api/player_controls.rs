@@ -13,7 +13,12 @@
 //! # Usage
 //!
 //! ```no_run
+//! use libnvse::api::interface::NVSEInterface;
 //! use libnvse::api::player_controls::ControlFlags;
+//!
+//! # fn example(nvse: &NVSEInterface) -> Result<(), Box<dyn std::error::Error>> {
+//! // The mod name identifies this plugin's disable requests
+//! let controls = nvse.query_player_controls(c"MyPlugin")?;
 //!
 //! // Disable movement and jumping
 //! controls.disable(ControlFlags::MOVEMENT | ControlFlags::JUMPING)?;
@@ -25,6 +30,8 @@
 //! if controls.is_disabled(ControlFlags::MOVEMENT) {
 //!     log::info!("Movement is currently disabled");
 //! }
+//! # Ok(())
+//! # }
 //! ```
 
 use std::ffi::CStr;
