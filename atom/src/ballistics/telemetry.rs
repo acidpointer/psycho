@@ -1651,7 +1651,7 @@ fn increment(counter: &AtomicU32) {
 }
 
 fn add(counter: &AtomicU32, amount: u32) {
-    let _ = counter.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |value| {
+    let _ = counter.try_update(Ordering::Relaxed, Ordering::Relaxed, |value| {
         Some(value.saturating_add(amount))
     });
 }
