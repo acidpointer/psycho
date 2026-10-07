@@ -94,6 +94,7 @@ fn rejected_and_interrupted_entries_take_distinct_paths() {
     state.select(entry(2, 0x4000));
     state.media_attempted = true;
     assert_eq!(state.expiry(None, false, 0), ExpiryAction::Hold);
+    state.release_disabled_media(false);
     assert!(!state.start_is_duplicate(entry(2, 0x4000)));
 
     state.accepted_generation = 19;
@@ -102,7 +103,76 @@ fn rejected_and_interrupted_entries_take_distinct_paths() {
         state.expiry(Some(MediaOutcome::Interrupted), false, 500),
         ExpiryAction::Hold
     );
+    // The interrupted generation cannot describe the next queue attempt.
+    assert_eq!(state.accepted_generation, 0);
     assert!(!state.start_is_duplicate(entry(2, 0x4000)));
+    state.media_attempted = true;
+    state.admitted = true;
+    state.rejected = true;
+    assert_eq!(state.expiry(None, false, 500), ExpiryAction::Advance);
+}
+
+#[test]
+fn disabled_media_entry_stays_admitted_until_resume() {
+    let key = entry(3, 0x6000);
+    let mut state = EntryState::EMPTY;
+    state.select(key);
+    state.media_attempted = true;
+    assert_eq!(state.expiry(None, false, 0), ExpiryAction::Hold);
+    assert!(state.start_is_duplicate(key));
+    state.release_disabled_media(true);
+    assert!(state.start_is_duplicate(key));
+    state.release_disabled_media(false);
+    assert!(!state.start_is_duplicate(key));
+
+    state.sound_attempted = true;
+    state.admitted = true;
+    state.release_disabled_media(false);
+    assert!(state.start_is_duplicate(key));
+}
+
+#[test]
+fn graph_abort_waits_for_native_retirement_state() {
+    let mut entry_state = EntryState::EMPTY;
+    entry_state.select(entry(6, 0x8000));
+    entry_state.media_attempted = true;
+    entry_state.admitted = true;
+    entry_state.accepted_generation = 31;
+    assert_eq!(
+        entry_state.expiry(Some(MediaOutcome::UserAbort), false, 0),
+        ExpiryAction::Hold
+    );
+    assert_eq!(
+        MediaOutcome::graph_event(1, 0),
+        Some(MediaOutcome::Complete)
+    );
+    assert_eq!(MediaOutcome::graph_event(1, -1), Some(MediaOutcome::Failed));
+    assert_eq!(MediaOutcome::graph_event(3, -1), Some(MediaOutcome::Failed));
+    assert_eq!(
+        MediaOutcome::graph_event(2, 0),
+        Some(MediaOutcome::UserAbort)
+    );
+    assert_eq!(MediaOutcome::graph_event(4, 0), None);
+    assert_eq!(
+        MediaOutcome::UserAbort.retire(true, false),
+        MediaOutcome::Interrupted
+    );
+    assert_eq!(
+        MediaOutcome::UserAbort.retire(false, true),
+        MediaOutcome::Interrupted
+    );
+    assert_eq!(
+        MediaOutcome::UserAbort.retire(false, false),
+        MediaOutcome::Failed
+    );
+    assert_eq!(
+        MediaOutcome::Pending.retire(false, false),
+        MediaOutcome::Failed
+    );
+    assert_eq!(
+        MediaOutcome::Complete.retire(true, false),
+        MediaOutcome::Complete
+    );
 }
 
 #[test]

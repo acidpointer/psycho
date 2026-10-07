@@ -48,6 +48,7 @@ const FIRST_GENERATION_ADDR: usize = 0x011DD334;
 const SECOND_GENERATION_ADDR: usize = 0x011DD368;
 const NATIVE_STATION_START_ADDR: usize = 0x008331C0;
 const NATIVE_RADIO_QUEUE_ADDR: usize = 0x008300C0;
+const NATIVE_MEDIA_UNLOCK_ADDR: usize = 0x00830490;
 const NATIVE_SOUND_START_ADDR: usize = 0x00AD8830;
 const NATIVE_SOUND_ACTIVE_ADDR: usize = 0x00AD8CE0;
 const NATIVE_LIST_END_ADDR: usize = 0x008256D0;
@@ -72,6 +73,32 @@ enum MediaOutcome {
     Complete,
     Failed,
     Interrupted,
+    UserAbort,
+}
+
+impl MediaOutcome {
+    fn graph_event(code: u32, status: i32) -> Option<Self> {
+        match code {
+            1 if status == 0 => Some(Self::Complete),
+            1 | 3 => Some(Self::Failed),
+            // EC_USERABORT is resolved after the worker observes its final
+            // native pause flag and request generation at retirement.
+            2 => Some(Self::UserAbort),
+            _ => None,
+        }
+    }
+
+    fn retire(self, paused: bool, superseded: bool) -> Self {
+        if matches!(self, Self::Pending | Self::UserAbort) {
+            if paused || superseded {
+                Self::Interrupted
+            } else {
+                Self::Failed
+            }
+        } else {
+            self
+        }
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -108,6 +135,21 @@ impl EntryState {
         self.admitted
     }
 
+    fn release_disabled_media(&mut self, disabled: bool) {
+        // A disabled native queue exits before publishing a generation. Its
+        // closed entry may retry only after media resumes, and only if doing
+        // so cannot restart an already attempted BSound path.
+        if !disabled
+            && self.admitted
+            && self.media_attempted
+            && !self.sound_attempted
+            && self.accepted_generation == 0
+            && !self.rejected
+        {
+            self.admitted = false;
+        }
+    }
+
     fn expiry(
         &mut self,
         outcome: Option<MediaOutcome>,
@@ -116,7 +158,7 @@ impl EntryState {
     ) -> ExpiryAction {
         if self.accepted_generation != 0 {
             return match outcome {
-                Some(MediaOutcome::Pending) => ExpiryAction::Hold,
+                Some(MediaOutcome::Pending | MediaOutcome::UserAbort) => ExpiryAction::Hold,
                 Some(MediaOutcome::Complete | MediaOutcome::Failed) => {
                     if sound_active {
                         ExpiryAction::Native
@@ -134,6 +176,9 @@ impl EntryState {
                             ExpiryAction::Native
                         }
                     } else {
+                        // The next submission must be judged by its own
+                        // publication, never this retired generation.
+                        self.accepted_generation = 0;
                         self.admitted = false;
                         ExpiryAction::Hold
                     }
@@ -150,6 +195,7 @@ impl EntryState {
         if self.media_attempted && !self.sound_attempted {
             // Media was disabled before publication. Preserve the entry until
             // a later starter can retry after the native pause is lifted.
+            self.admitted = true;
             return ExpiryAction::Hold;
         }
         if self.sound_attempted && !sound_active && duration <= 0 {
@@ -177,6 +223,7 @@ static ENTRY_EPOCH: AtomicU64 = AtomicU64::new(1);
 static RADIO_QUEUE_THREAD: AtomicU32 = AtomicU32::new(0);
 static RADIO_QUEUE_FILENAME: AtomicU32 = AtomicU32::new(0);
 static RADIO_QUEUE_START: AtomicU32 = AtomicU32::new(0);
+static RADIO_QUEUE_DISABLED: AtomicU32 = AtomicU32::new(0);
 
 // A request identity is published under the native media lock before its
 // worker is signaled. Station wrappers are touched only on the game thread;
@@ -488,11 +535,7 @@ unsafe extern "C" fn queue_request(
         unsafe { (duration_address as *mut u32).write_volatile(0) };
         let generation = unsafe { request.read_unaligned() };
         let priority = unsafe { native_frame.add(8).cast::<u32>().read_unaligned() };
-        let radio_call = RADIO_QUEUE_THREAD.load(Ordering::Acquire) == get_current_thread_id()
-            && RADIO_QUEUE_FILENAME.load(Ordering::Acquire)
-                == unsafe { native_frame.add(0xC).cast::<u32>().read_unaligned() }
-            && RADIO_QUEUE_START.load(Ordering::Acquire)
-                == unsafe { native_frame.add(0x20).cast::<u32>().read_unaligned() };
+        let radio_call = unsafe { matches_radio_queue_call(native_frame) };
         let mut next = MusicRequest::EMPTY;
         if radio_call && priority == 7 {
             let station = unsafe { (CURRENT_STATION_ADDR as *const usize).read_volatile() };
@@ -539,6 +582,38 @@ unsafe extern "C" fn queue_request(
     unsafe { native_queue(worker, request) };
 }
 
+// The native frame belongs to 0x008300C0 at the two publication sites and
+// at its disabled-media exit. The radio wrapper is synchronous on this thread.
+unsafe fn matches_radio_queue_call(native_frame: *const u8) -> bool {
+    RADIO_QUEUE_THREAD.load(Ordering::Acquire) == get_current_thread_id()
+        && RADIO_QUEUE_FILENAME.load(Ordering::Acquire)
+            == unsafe { native_frame.add(0xC).cast::<u32>().read_unaligned() }
+        && RADIO_QUEUE_START.load(Ordering::Acquire)
+            == unsafe { native_frame.add(0x20).cast::<u32>().read_unaligned() }
+}
+
+// Only 0x00830116 reaches this call. Record the exact disabled early exit
+// before preserving the native media-lock release and its no-argument ABI.
+unsafe extern "C" fn disabled_media_unlock(native_frame: *const u8) {
+    if unsafe { matches_radio_queue_call(native_frame) } {
+        RADIO_QUEUE_DISABLED.store(get_current_thread_id(), Ordering::Release);
+    }
+    let native_unlock: unsafe extern "C" fn() =
+        unsafe { core::mem::transmute(NATIVE_MEDIA_UNLOCK_ADDR) };
+    unsafe { native_unlock() };
+}
+
+#[unsafe(naked)]
+unsafe extern "C" fn disabled_media_unlock_bridge() {
+    core::arch::naked_asm!(
+        "push ebp",
+        "call {dispatch}",
+        "add esp, 4",
+        "ret",
+        dispatch = sym disabled_media_unlock,
+    );
+}
+
 // The bridge is entered by two native calls with ECX=worker and one stack
 // argument. EBP is the caller's 0x008300C0 frame; the published request is
 // matched to the synchronous radio queue wrapper by thread and arguments.
@@ -582,18 +657,20 @@ unsafe extern "C" fn radio_queue(
         unsafe { core::mem::transmute(NATIVE_RADIO_QUEUE_ADDR) };
     RADIO_QUEUE_FILENAME.store(filename, Ordering::Release);
     RADIO_QUEUE_START.store(start, Ordering::Release);
-    RADIO_QUEUE_THREAD.store(get_current_thread_id(), Ordering::Release);
+    let thread = get_current_thread_id();
+    RADIO_QUEUE_DISABLED.store(0, Ordering::Release);
+    RADIO_QUEUE_THREAD.store(thread, Ordering::Release);
     unsafe { native(priority, filename, fade, offset, bypass, volume, start) };
     RADIO_QUEUE_THREAD.store(0, Ordering::Release);
     RADIO_QUEUE_FILENAME.store(0, Ordering::Release);
     RADIO_QUEUE_START.store(0, Ordering::Release);
+    let disabled = RADIO_QUEUE_DISABLED.swap(0, Ordering::AcqRel) == thread;
     if let Some(key) = before.filter(|key| unsafe { current_entry_key() } == Some(*key)) {
-        let disabled = unsafe { (MEDIA_DISABLED_ADDR as *const u8).read_volatile() != 0 };
         let mut entry = ENTRY.lock();
         if entry.key == Some(key) {
             if entry.accepted_generation == 0 {
                 entry.rejected = !disabled;
-                entry.admitted = !disabled || entry.sound_attempted;
+                entry.admitted = true;
             }
         }
     }
@@ -604,8 +681,13 @@ unsafe extern "C" fn radio_queue(
 // A duplicate forced (argument-1) start is sent through the argument-0
 // volume path, with the active query below supplying the matching entry bit.
 unsafe extern "C" fn station_start(argument: u32) {
-    let duplicate =
-        unsafe { current_entry_key() }.is_some_and(|key| ENTRY.lock().start_is_duplicate(key));
+    let duplicate = unsafe { current_entry_key() }.is_some_and(|key| {
+        let disabled = unsafe { (MEDIA_DISABLED_ADDR as *const u8).read_volatile() != 0 };
+        let mut entry = ENTRY.lock();
+        entry.select(key);
+        entry.release_disabled_media(disabled);
+        entry.start_is_duplicate(key)
+    });
     let native: unsafe extern "C" fn(u32) =
         unsafe { core::mem::transmute(NATIVE_STATION_START_ADDR) };
     unsafe { native(if duplicate { 0 } else { argument }) };
@@ -717,10 +799,8 @@ unsafe extern "system" fn checked_media_position(interface: *mut c_void, output:
 unsafe extern "C" fn record_terminal(native_frame: *const u8) {
     let event_code = unsafe { native_frame.sub(0x1EC).cast::<u32>().read_unaligned() };
     let event_status = unsafe { native_frame.sub(0x1E0).cast::<i32>().read_unaligned() };
-    let outcome = match event_code {
-        1 if event_status == 0 => MediaOutcome::Complete,
-        1..=3 => MediaOutcome::Failed,
-        _ => return,
+    let Some(outcome) = MediaOutcome::graph_event(event_code, event_status) else {
+        return;
     };
     // The native reset clears slot generations before an old worker's event
     // can be allowed to affect a station again.
@@ -734,7 +814,9 @@ unsafe extern "C" fn record_terminal(native_frame: *const u8) {
         && CURRENT_MUSIC_GENERATION.load(Ordering::Acquire) == generation
     {
         state.outcome = outcome;
-        *LAST_TERMINAL_REQUEST.lock() = *state;
+        if outcome != MediaOutcome::UserAbort {
+            *LAST_TERMINAL_REQUEST.lock() = *state;
+        }
     }
 }
 
@@ -751,14 +833,15 @@ unsafe extern "C" fn record_worker_retirement(native_frame: *const u8) {
     let request = &mut requests[slot];
     if request.generation == generation
         && request.station != 0
-        && request.outcome == MediaOutcome::Pending
+        && matches!(
+            request.outcome,
+            MediaOutcome::Pending | MediaOutcome::UserAbort
+        )
     {
-        request.outcome =
-            if paused || CURRENT_MUSIC_GENERATION.load(Ordering::Acquire) != generation {
-                MediaOutcome::Interrupted
-            } else {
-                MediaOutcome::Failed
-            };
+        request.outcome = request.outcome.retire(
+            paused,
+            CURRENT_MUSIC_GENERATION.load(Ordering::Acquire) != generation,
+        );
         if request.outcome == MediaOutcome::Failed {
             *LAST_TERMINAL_REQUEST.lock() = *request;
         }
@@ -1128,6 +1211,7 @@ const STATION_START_CALLS: [(usize, &[u8]); 2] = [
     (0x0083561D, &[0xE8, 0x9E, 0xDB, 0xFF, 0xFF]),
 ];
 const RADIO_QUEUE_CALL: (usize, &[u8]) = (0x0083398D, &[0xE8, 0x2E, 0xC7, 0xFF, 0xFF]);
+const DISABLED_MEDIA_UNLOCK_CALL: (usize, &[u8]) = (0x00830116, &[0xE8, 0x75, 0x03, 0x00, 0x00]);
 const RESTORE_START_CALL: (usize, &[u8]) = (0x00836EDD, &[0xE8, 0xDE, 0xC2, 0xFF, 0xFF]);
 const SOUND_START_CALL: (usize, &[u8]) = (0x00833861, &[0xE8, 0xCA, 0x4F, 0x2A, 0x00]);
 const LIST_REBUILD_CALLS: [(usize, &[u8]); 2] = [
@@ -1210,6 +1294,12 @@ pub(super) fn install() -> anyhow::Result<()> {
         "native media request frame",
         0x008300C0,
         &[0x55, 0x8B, 0xEC],
+    )
+    .verify()?;
+    CodeSignature::new(
+        "native media unlock ABI",
+        NATIVE_MEDIA_UNLOCK_ADDR,
+        &[0x55, 0x8B, 0xEC, 0xB9, 0xD8, 0xD3, 0x1D, 0x01],
     )
     .verify()?;
     CodeSignature::new(
@@ -1526,6 +1616,13 @@ pub(super) fn install() -> anyhow::Result<()> {
         RADIO_QUEUE_CALL.0,
         RADIO_QUEUE_CALL.1,
         radio_queue as *const () as usize,
+        &[],
+    )?)?;
+    transaction.apply_patch(call_patch(
+        "radio_music_disabled_queue_exit",
+        DISABLED_MEDIA_UNLOCK_CALL.0,
+        DISABLED_MEDIA_UNLOCK_CALL.1,
+        disabled_media_unlock_bridge as *const () as usize,
         &[],
     )?)?;
     transaction.apply_patch(call_patch(

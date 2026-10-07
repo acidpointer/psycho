@@ -2,8 +2,8 @@
 
 ## Status and evidence
 
-This is the static engine contract for the unreleased radio music transition
-candidate in `psycho-engine-fixes/src/mods/perf/radio/music.rs`. It concerns
+This is the static engine contract for the radio music transition in
+`psycho-engine-fixes/src/mods/perf/radio/music.rs`. It concerns
 the supported `fnv_reverse/FalloutNV.exe`, inspected with the radare2 MCP.
 Addresses below refer to that executable. The owner reported that the same
 song restarted immediately after nearly complete plays, later heard
@@ -16,6 +16,9 @@ the broader scan history is in [radio scan evidence](radio_scan_hitch_evidence.m
 Focused disassembly for the new start, queue, worker, sound, and playlist
 findings is preserved in the
 [radare2 instruction record](../analysis/radare2/output/fnv_radio_music_transition_contract_20261007.txt).
+The owner later reported a playtest with no audible song repeats for the
+preceding committed implementation. The retry and disabled-media changes
+below have not been run in the game.
 
 The native radio player has three separate state machines: the station
 playlist and timer, two asynchronous DirectShow slots, and the game sound
@@ -85,7 +88,10 @@ file at `0x00830E51..0x00830F33`, or fail COM setup at
 `0x00830FD5..0x008311B1`, without posting completion. `GetEvent` at
 `0x0083196F..0x008319E9` returns code 1 (complete), 2 (user abort), or 3
 (error abort). Code 1 with `S_OK` is the only graph-success result currently
-recorded. All terminal codes disable the worker run flag at `0x00831A6D`;
+recorded. [DirectShow's event contract](https://learn.microsoft.com/en-us/windows/win32/directshow/ec-userabort)
+defines code 2 as user termination, while
+[code 3](https://learn.microsoft.com/en-us/windows/win32/directshow/ec-errorabort)
+reports an operation error. All terminal codes disable the worker run flag at `0x00831A6D`;
 other failure exits reach `0x00831A9E`. Before generation cleanup at
 `0x00831B01..0x00831C6F`, the worker still holds its copied slot/generation.
 This is the outcome boundary for failure without an event, but the station
@@ -226,6 +232,46 @@ reset, and station switch are resumable/invalidation paths, not failed songs.
 The pre-publication missing-file outcome and post-worker failure outcome need
 explicit boundaries because neither reaches the current completion record.
 
+## Retry and disabled-media reconciliation
+
+The earlier policy retained `accepted_generation` when an interrupted entry
+became eligible for a fresh start. A subsequent rejected queue attempt never
+reached the publication hook, so the retained generation made its post-call
+`accepted_generation == 0` rejection check false. The station then held the
+entry as interrupted and could retry it indefinitely. The production policy
+now clears that retired generation at the same point it reopens the entry.
+The next synchronous queue attempt can therefore distinguish a new accepted
+publication from a rejection. An interrupted generation is never used as the
+identity of a later attempt.
+
+Native `0x0083010B..1B` checks the disabled-media byte and exits through
+the `0x00830116` call to `0x00830490` before any request publication. The
+radio-only callsite bridge records that exact branch and then invokes the
+original no-argument unlock. Its frame, thread, filename pointer, and start
+tick must match the synchronous radio queue call. The branch signature is
+`e8 75 03 00 00` in the supported executable. A return without publication
+and without this branch means a rejected request, including a missing modded
+file. Reading the disabled byte after return would misclassify an attempt if
+the byte changed during the call.
+
+Disabled work remains admitted while native media is disabled, preventing
+repeated queue and file work on successive station updates. When the byte
+clears, a same-entry station start may reopen media only if no BSound path
+was attempted; this avoids replaying an existing sound handle. The normal
+starter and sound-object starter retain their native volume/update work.
+An accepted request stays pending until its worker resolves. DirectShow code
+2 remains unresolved until native worker retirement under the media lock:
+bit-2 pause or generation supersession means interruption; otherwise it is
+a failed terminal attempt. Code 3 and non-successful code 1 are failures.
+This keeps a user abort from being mistaken for either completion or a
+recoverable pause before the worker has settled its native state.
+
+The new per-start work is one volatile disabled-byte read and constant-time
+entry checks under the existing `parking_lot::Mutex`. The disabled branch
+performs one atomic publication before the existing native unlock. No new
+file scan, allocation, or sound-list traversal was added. These static costs
+do not establish an FPS or station-switch latency result.
+
 ### Offline qualification for the rewrite
 
 The unchanged radio transition runs only in the game; no offline execution of
@@ -261,16 +307,17 @@ Its changed return address means the accepted-publication bridge identifies
 the synchronous queue call by its thread, filename pointer, and start argument,
 then verifies priority 7 and the current station selection. Accepted
 publication records the generation before the native lock is released. A
-return without an accepted generation is classified from the native
-disabled-media byte: disabled work remains resumable; other rejected work can
-advance when no sound is active. The worker records generation-bound event outcomes and a
-retirement result under the native media lock. A terminal record survives
+return without an accepted generation is classified from the exact native
+disabled exit: disabled work remains resumable; other rejected work can
+advance when no sound is active. The worker records generation-bound event
+outcomes and a retirement result under the native media lock. A terminal record survives
 later reuse of either native slot until the next reset. Pending media holds
 the station's native timer so a delayed worker is not cut short by elapsed
 queue time. A completed or failed media request can set the timer to one tick
 after sound activity and any active priority-7 graph have stopped; the
 original branch still chooses and advances the cursor. An interrupted request
-without a sound path becomes eligible for a fresh native start.
+without a sound path clears its retired generation and becomes eligible for a
+fresh native start.
 
 The station's embedded sound-object list starts at `station+0x1C`. At
 `0x00834AEB..0x00834B3D`, native iterates it with `0x008256D0`,
@@ -290,5 +337,6 @@ does not establish the exact reported interleaving, whether a particular mod
 has alternative tracks, startup compatibility under Proton, or audible
 runtime correctness. It does not establish behavior for a mod that replaces
 the native radio player. The owner has prohibited agent game runs and owns
-gameplay validation. The candidate remains unreleased pending real runtime
-acceptance.
+gameplay validation. The latest retry and disabled-media changes are
+offline-qualified only; startup, audible transitions, and performance under
+Proton are not established by the static contract or Rust tests.
