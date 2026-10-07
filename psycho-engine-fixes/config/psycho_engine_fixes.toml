@@ -447,18 +447,14 @@ zlib = true
 # into the loading transition so the first playable frame has less backlog.
 post_load_reconciliation_prepass = true
 
-# Unreleased light-score reuse candidate. Enabled by default.
-# Retains native score calculation and insertion order, reusing predecessor
-# scores within one admitted sort. Unsupported code, inputs, or x87 state
-# dispatch through the captured provider. Full restart required.
-# Shared-input stability and runtime equivalence remain unvalidated.
+# Reduces CPU work when sorting the lights that affect an object.
+# Reuses light calculations within each sort to avoid repeating the same work.
+# Enabled by default.
 light_property_score_reuse = true
 
-# Unreleased scene-light traversal candidate. Enabled by default.
-# Traverses admitted shadow and camera light scans sequentially while retaining
-# native filtering and arithmetic. Changed code retains indexed traversal.
-# Full restart required. Node/scene lifetime and runtime equivalence remain
-# unvalidated. Independent of light_property_score_reuse.
+# Reduces CPU work when selecting lights for shadows and the current view.
+# Searches each light list in order, avoiding repeated searches from the start.
+# Enabled by default.
 scene_light_sequential_scan = true
 
 # =============================================================================
