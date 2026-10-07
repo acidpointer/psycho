@@ -3,6 +3,8 @@
 sampler2D SceneDepth : register(s0);
 
 float4 CameraData : register(c0);
+float4 RasterJitter : register(c1);
+float4 ScreenData : register(c2);
 
 bool ReversedDepth() {
     return CameraData.z > 0.5;
@@ -28,7 +30,9 @@ float LinearDepth(float depth) {
 }
 
 float4 Main(float2 uv : TEXCOORD0) : COLOR0 {
-    float rawDepth = tex2Dlod(SceneDepth, float4(uv, 0.0, 0.0)).r;
+    float2 rasterUv = uv - RasterJitter.xy;
+    float2 depthUv = (clamp(floor(rasterUv * ScreenData.xy), 0.0, ScreenData.xy - 1.0) + 0.5) * ScreenData.zw;
+    float rawDepth = tex2Dlod(SceneDepth, float4(depthUv, 0.0, 0.0)).r;
     if (SkyDepth(rawDepth)) {
         return float4(-1.0, 0.0, 0.0, 1.0);
     }

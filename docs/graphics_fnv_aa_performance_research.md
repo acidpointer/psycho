@@ -4,6 +4,11 @@ Date: 2026-07-17
 
 Scope: OMV temporal AA, Fast FXAA, NFAA, AXAA, DLAA, and SMAA.
 
+The [2026-10-07 TAA audit and fix plan](#2026-10-07-taa-audit-and-fix-plan)
+below supersedes historical TAA diagnosis, test-quality claims, cost estimates,
+and implementation ordering where they conflict. Earlier entries remain
+historical evidence, not proof that the present jitter report is resolved.
+
 ## Current reference SMAA 1x contract
 
 The current SMAA path supersedes the historical LUT-free equations and SMAA
@@ -822,3 +827,416 @@ Recommended implementation order:
 9. Runtime telemetry for alpha, formats, timing, and call multiplicity.
 10. MRT with the proven D3D capability gates and an exact two-pass fallback;
     implementation is complete, while runtime acceptance remains pending.
+
+## 2026-10-07 TAA audit and fix plan
+
+Status: baseline audit and implementation plan. The implementation contract
+below supersedes the repaired findings; the table records the audited baseline.
+Requirement: remove the owner's annoying visible TAA jitter and provide high
+quality, performant AA after native MSAA removal. The MSAA decision is already
+recorded in `graphics_fnv_portable_depth_transport.md`; restoring MSAA,
+reducing jitter coverage, dropping effects, or lowering resolution is not the
+proposed repair. This audit examines the current working tree, including the
+owner's existing TAA device-state test change.
+
+### Evidence and limits
+
+The actual production path is in:
+
+- `omv/src/fnv_render.rs`: `render_world_scene_graph_body` brackets the entire
+  world renderer with camera jitter and restores the live frustum before
+  coherent-world effects; first-person and UI remain outside that scope.
+- `omv/src/backend/fnv.rs`: `WorldCameraJitter`, `jitter_world_camera`, depth
+  capture overrides and persistent depth readiness.
+- `omv/src/fnv_world_pipeline.rs`: `temporal_aa_jitter`,
+  `TemporalProjectionOverride`, coherent resolve, retry and deadline ownership.
+- `omv/src/effects/temporal_aa.rs`: admission, camera reprojection, constants,
+  resources, samplers, draw, copy-back and history publication.
+- `omv/shaders/embedded/aa_temporal.hlsl` and
+  `aa_temporal_depth_key.hlsl`: the shipped temporal resolve and depth key.
+- `omv/src/config.rs` and `omv/src/shaders.rs`: config values and menu ranges.
+
+At the audit baseline, the existing focused TAA suite passes on the explicit Windows target under
+Wine. That establishes its current assertions, compilation, bytecode ceilings,
+and the device attachment exercise. It does not establish temporal image
+quality: there is no multi-frame resolved-image readback in this suite.
+`history_uv`, `resolve_reference`, `temporal_layer` and
+`previous_position_visible` reproduce shader equations in Rust; several tests
+inspect shader strings. Neither category satisfies the repository's HLSL
+behavioral gate. The new attachment test executes the production draw but
+does not inspect its color or depth-key image. It exercises only the path
+selected by that device, not both MRT and fallback.
+
+Native addresses were reconfirmed read-only through radare2 against
+`fnv_reverse/FalloutNV.exe`: PE32 i386, image base `0x00400000`, PE timestamp
+`0x4e0d50ed`, checksum `0x00f64bd0`, PDB GUID
+`9196089162EE4D29BF48E8D767B32DB91`. Raw reconfirmation is
+[`fnv_omv_taa_contract_reconfirmation_20261007.txt`](../analysis/radare2/output/fnv_omv_taa_contract_reconfirmation_20261007.txt).
+The fuller retained contracts are
+[`graphics_fnv_taa_frustum_lod_culling_contract_audit.txt`](../analysis/ghidra/output/perf/graphics_fnv_taa_frustum_lod_culling_contract_audit.txt)
+and
+[`graphics_fnv_taa_projection_only_upload_contract_followup.txt`](../analysis/ghidra/output/perf/graphics_fnv_taa_projection_only_upload_contract_followup.txt).
+
+No affected gameplay sequence, multi-frame shader regression failure, or
+current GPU timing was obtained. The findings below distinguish source/binary
+proof from quality limitations and open implementation contracts. They are not
+a claim that one cause explains every pixel of the owner's report.
+
+### Findings and required remedies
+
+| ID | Finding and evidence | Remedy and acceptance |
+|---|---|---|
+| T1 | **Sample/projection mismatch.** `bind_constants` supplies `output_camera` as `CurrentFrustum`; `Main` samples scene depth at unchanged `uv` and reconstructs that depth with this unjittered lens. The depth producer instead records the rendered lens. For nonzero jitter these describe different rays. | Define raster-sample, output-pixel and history coordinates separately. Reconstruct point depth at its actual texel center with its rendered lens. Derive jitter-cancelled motion from corresponding unjittered projections and apply it in the declared history domain. Test translation, rotation, off-center lenses and depth gradients, not just stationary identity motion. |
+| T2 | **No jitter-aware current reconstruction.** Current color is sampled at a pixel center; the four-neighbor average is used only for sharpening. No jitter offset or rendered lens reaches the resolve shader. Thus the shader cannot explicitly filter current samples onto the fixed output grid. This is a quality limitation, not proof that every TAA must shift its center lookup. | Evaluate a normalized jitter-aware reconstruction filter, sharing its samples with clipping statistics. Preserve subpixel coverage and demonstrate convergence and edge position stability. Do not merely substitute jittered frusta into the old resolve: that restores the earlier history-domain error. |
+| T3 | **Jitter reaches native scene selection.** The outer guard changes `NiCamera` before `0x0087338F` copies seven frustum words through `0x00A694A0` and builds clip-plane state. Raster camera setup is later at `0x00874180 -> 0x00B6BA20 -> 0x00B6BA35`. Restoring the camera after rendering cannot undo selection already made. | Narrow jitter to a proven world projection-upload boundary while preserving an unjittered culling lens. Prove every world route and later camera consumer before selecting the hook. A conservative frustum expansion is an alternative only with its own proven native contract. Boundary-object visibility must be stable over the full jitter sequence. |
+| T4 | **TAA retains pre-world pose snapshots.** Jitter captures both complete cameras before `original`; `cameras_for` returns them unchanged. Depth overrides accept that whole snapshot, and TAA saves its output camera. The shadow helpers already explicitly refresh the native pose while retaining the owned lens. | Capture the actual camera pose and lens at the proven world projection producer. Use that coherent pair for depth/TAA; never transplant a later pose merely because it is newer. Cover native/modded pose and FOV updates. The exact updates in the owner's workload remain unknown. |
+| T5 | **Reactivity can prevent accumulation of legitimate coverage changes.** `HistoryAgreement` compares clamped history with the current center, using a maximum relative RGB difference. Geometry fully rejects at difference 1; sky at 0.5. A dark current center with bright neighboring coverage and history can therefore discard history even when the neighborhood admits it. | Separate visibility failure from radiometric/reactive change. Compare against reconstructed neighborhood-supported color and use bounded motion/confidence response. Preserve star appearance/disappearance without treating every stationary subpixel sample change as stale content. Thresholds require shader image evidence. |
+| T6 | **Clipping is a five-point RGB box.** It omits diagonals, independently clamps channels and rescales the min/max extent about its midpoint. At permitted `clamp_strength < 1`, even a valid current extremum can lie outside the resulting box. No variance or directional color clipping is present. | Compare full 3x3 statistics with the current cross, and directional clipping in an appropriate color space. Keep the current reconstruction admissible. Preserve colored thin edges, diagonals, small highlights and HDR range. Do not assume variance clipping alone cures flicker. |
+| T7 | **Depth rejection has an arbitrary far-dependent tolerance.** History stores R16F `log2(z+1)/log2(far+1)` and multiplies key difference by 52. Complete rejection occurs at key difference `1/52`, corresponding to a `(z+1)` ratio of `(far+1)^(1/52)`: about 1.142 at far=1000, 1.252 at far=120000. Neither local slope nor source/key quantization enters the tolerance. | Define rejection in view-depth or a mathematically equivalent relative domain, explicitly accounting for R16F/source precision, depth slope and sample footprint. Sweep identical geometry under different far planes. Do not increase tolerance globally to hide bad reprojection. Retain separate sky and invalid tags. |
+| T8 | **Color and depth history have different footprints.** History color is bilinear while its key is point sampled. One accepted key cannot validate all four contributing color texels at a silhouette. Only center current depth is sampled; there is no foreground/depth dilation. | Validate the actual history-filter footprint or use a proven conservative layer/depth neighborhood. Select a depth sample and reconstruct its real center consistently. Test foreground/background crossings, disocclusion, borders and thin occluders. Filter changes must include the depth-validation cost. |
+| T9 | **Camera-only reprojection cannot track independently moving content.** No object velocity enters this shader. Actors, skinned geometry, moving foliage and animated/translucent layers receive camera motion plus color heuristics. | First improve the conservative camera-only path. Separately prove OMV-owned velocity production for every intended rigid, skinned and procedural family, with previous transforms and deformation. Preserve unknown families through an explicit reactive fallback. Do not promise full motion-correct TAA from color/depth alone. |
+| T10 | **Sharpening is fed into recursive history.** `current + (current-average)*sharpness` is blended into the result stored as next history. Its influence rises as depth/color rejection lowers history weight; there is no neighborhood overshoot bound. | Accumulate an unsharpened reconstruction. Place bounded sharpening in an existing suitable output pass if its phase/color contract permits. If a separate pass is necessary, measure and justify it. Test ringing, energy, moving highlights and rejection transitions independently from AA. |
+| T11 | **History confidence is fixed and cuts are coarse.** The shader uses configured weight times depth/color agreement, with no age, motion or variance confidence. `TemporalReprojection::between` resets for an epoch gap, forward alignment below 0.5 or translation above a quarter of far distance; FOV/cell/content discontinuities have no explicit TAA reset identity here. | Define confidence and discontinuity policy from actual available events/metadata. Handle FOV changes, teleports, load/cell transitions and settings changes without unnecessary reset oscillation. Verify exact old/new frame ownership; far-plane-scaled distance is not a universal cut oracle. |
+| T12 | **A successful jitter decision does not guarantee resolve.** Resources/camera history permit jitter before rendering, but later depth/owner contention, rejected target, unavailable metadata or a D3D failure can skip resolve. `draw` returns `Ok(())` for several no-draw conditions and the caller nevertheless sets `drew = true`. Prior history is published only after copy-back, but errors do not centrally invalidate it. | Reserve readiness before jitter and record a transaction-local jitter decision. Return an explicit resolve outcome and publish completion only for real output. Establish a bounded fallback for an already-jittered frame at the proven pre-first-person deadline; never use a blocking lock. Invalidate history on failed commit or unknown projection. Prove cleanup/restoration after each partial failure. |
+| T13 | **History/jitter identity is incomplete.** Persistent histories match dimensions/format, while exact surface identity is checked only by the current projection transaction. Jitter uses a world `frame_index`, advances by epoch rather than successful temporal commit, and runs an unbounded Halton sequence. Settings refresh does not reset TAA except on disable/provider change. | Define a semantic world-image identity, device generation, output domain and camera identity. Do not reset merely for legitimate engine ping-pong surfaces. Tie phase advancement to the declared rendering/commit policy; compare bounded balanced sequences against existing Halton coverage before changing it. Reset only settings that invalidate the chosen estimator. |
+| T14 | **Configuration and radiance are not fully sanitized at TAA admission.** `TemporalAaConfig::from_config` copies all four floats; only `jitter_scale()` clamps, without finite fallback. Embedded `float_option` stores supplied values unchanged; its displayed range is not admission validation. `Main` does not reject nonfinite current/history RGB or prevent sharpened FP16 overflow. | Sanitize existing fields to documented ranges/defaults at publication and effect admission, preserving schema/layout. Define supported radiance range from the actual world color contract, reject bad history, and prevent invalid output from poisoning future frames. Exercise shipped draw with invalid parameters and radiance. |
+| T15 | **Full-scene MSAA coverage is not replaced.** TAA resolves before first-person rendering. Weapons and later effects are outside its history; world alpha is intentionally current-frame engine data rather than accumulated private metadata. | Preserve world/first-person/UI separation. Evaluate the existing spatial AA path for later first-person edges, with an appropriate established foreground mask if selective application is needed. Never jitter UI or repurpose world alpha as velocity, confidence or a reactive mask. State the remaining coverage explicitly. |
+| T16 | **Pass ordering leaves later depth effects outside this history.** TAA precedes some coherent-world atmosphere work, AO, first-person and image-space effects. Later consumers can see resolved color alongside raster-jittered depth; TAA cannot stabilize details introduced afterward. | Audit each color/depth consumer's declared domain. Retain rendered-lens geometry reconstruction for raster depth; explicitly map queries to resolved color. Preserve existing accepted effect order unless the exact alpha/composition contract proves a move. Validate TAA alone and each interacting shipped graph. |
+| T17 | **MRT fallback is only partially covered.** Capability selection checks target count/independent bit depths and shader creation. All three variants compile in one fallible batch, so an MRT compile failure marks all preparation failed rather than retaining the ordinary path. The draw path has no runtime MRT-to-two-pass downgrade if the selected attachment/draw fails; mixed-format render/filter support is ultimately discovered through operations. Tests do not compare the two images. | Keep optional MRT preparation failure separate from required fallback bytecode. Validate the actual format/filter/attachment combination at device resource preparation, cache the result, and preserve a bounded two-pass capability fallback. Exercise both paths on a real device and compare color, alpha, keys, failure cleanup and reset. Never probe by repeated failing steady-state draws. |
+| T18 | **Image and performance acceptance are incomplete.** Existing string/reference tests miss production sampling, recursive history and composition; bytecode support omits a depth-key budget and full sampler/register/flow ceilings. Historical instruction counts and driver-call totals are not measurements of this working tree. | Replace prohibited quality tests with actual compiled-HLSL multi-frame readbacks and production-effect execution, retaining compilation/budget checks as support. Cover all three variants and both draw graphs. Establish measured current baselines before choosing higher-cost filters. |
+
+T1 is a directly demonstrated coordinate inconsistency. T3 is direct native
+frustum contamination, not evidence of how often a specific object changes
+visibility. T4 is proven snapshot timing, not attribution to another mod.
+T5-T10 identify concrete estimator limitations and mechanisms; their relative
+contribution to the owner's scene has not been measured. T12 exposes a failure
+path, not evidence that that path occurred in the reported run.
+
+### Coherent resolve design
+
+Retain three explicit domains: current raster samples, fixed output pixels,
+and prior resolved history. A point depth sample belongs to its sampled texel
+center and rendered projection. A reconstructed output color belongs to the
+fixed output filter footprint. These are distinct quantities even when their
+texture dimensions match. The previous history camera describes the output
+domain, not last frame's jittered raster grid.
+
+Jitter-free motion means projecting the same 3D point through current and
+previous unjittered lenses and poses; it does not mean assigning unjittered
+rays to jittered depth. In a stationary scene the motion field is zero while
+the reconstruction filter still accounts for sample positions. The D3D9
+half-pixel triangle already establishes texel-center UVs at equal resolution;
+retain it and test borders/cross-resolution mappings explicitly.
+
+Keep FP16 RGB history and engine-owned alpha. Confidence can use private
+history alpha only after proving that exported/copy-back alpha still comes
+from the proper current output sample and no downstream consumer observes
+private metadata. This is an option to avoid another surface, not a decision
+to overwrite current alpha. Depth keys must follow the same output footprint
+contract in MRT and fallback; updating only color reconstruction would leave
+their images misregistered.
+
+Do not simply port FSR, DLSS or a modern compute TAA into D3D9. Their motion,
+reactivity and API requirements are not established OMV inputs. A camera-only
+quality implementation and full object-motion coverage are separate scopes;
+the latter needs its own native producer contract before production edits.
+
+### Performance contract and alternatives
+
+Preserve the current full-resolution MRT resolve where supported: one draw,
+two color copies, two FP16 color histories, two R16F key histories, and one
+source-format current-color texture. The fallback adds one key draw. Resource
+allocation remains creation/resize/reset work; no steady-state compilation,
+file access, new blocking lock or per-frame logging is allowed.
+
+For an FP16 world target, storage is 28 bytes/pixel, about 132.3 MiB at
+3440x1440. Fixed logical copy/write payload is 42 bytes/pixel: 16 for input
+copy, 8+2 history writes, 16 for copy-back. That is about 83.1 MiB at 1080p,
+198.4 MiB at 3440x1440 and 332.2 MiB at 4K per frame, before shader reads,
+depth transport, state transactions or driver overhead. These are source-derived
+payloads, not measured VRAM traffic or frame-time gains. Other world formats
+require their own storage and conversion calculation.
+
+Current resolve has eight static texture sites: five current colors, one
+scene depth, one history color and one history key. Its existing tested
+ceilings are 320 ordinary / 350 MRT instruction tokens and eight texture sites.
+Replacing five color taps with nine while keeping the other samples produces
+twelve sites before any additional depth/history filtering. More expensive
+history reconstruction and footprint validation add further work; do not call
+them free or silently loosen the old ceilings.
+
+Evaluate alternatives in this order:
+
+1. Correct coordinates, producer timing and completion semantics without
+   introducing another full-resolution graph.
+2. Reuse current reconstruction taps for neighborhood statistics, luminance
+   response and bounded clipping. Compare the five-tap and full-3x3 candidates
+   by actual image metrics and compiled work, not source size.
+3. Retain bilinear history as baseline; evaluate a compact higher-order filter
+   only if motion sharpness fails acceptance, with overshoot and validated
+   depth footprint. Prove FP16 linear-filter capability on the device.
+4. Keep mixed-format MRT and exact fallback. Cache invariant format/capability
+   results and avoid repeated resource/target descriptor work where ownership
+   already provides exact data.
+5. Inspect copy ownership against the existing world color graph. Remove a copy
+   only after proving simultaneous read/write avoidance, engine RT lifetime,
+   alpha and downstream consumers. Both current copies serve real ownership
+   needs today; deleting one by assumption is unsafe.
+6. Measure sampler/state transaction overhead. The local binder explicitly
+   issues seven sampler setters for each of four samplers; state reduction
+   requires preserving hostile inherited-state correctness. Do not infer
+   performance from redundant-looking calls or discard the outer transaction.
+
+The earlier dead world-color/first-person-depth recommendation is historical:
+the current requirement bits already distinguish TAA's world-depth input from
+atmosphere color requirements, and the runtime has a TAA-only requirement
+test. Re-audit actual dispatch if it regresses; do not count that old saving
+again. The shared fullscreen stream also differs from older DrawPrimitiveUP
+cost estimates.
+
+Use deterministic work budgets and real-device offline benchmarks at identical
+resolution, formats, variants and workloads. Report backend/device, isolated
+GPU/CPU cost, distributions and allocation/state/copy counts. Offline timing
+does not establish Proton gameplay FPS. A numerical frame-time target was not
+supplied; do not invent one and label it the owner's acceptance budget.
+
+### Current implementation scope
+
+The owner requests a plan for changes possible with current evidence. The
+following sequence is the immediate implementation scope. The broader roadmap
+below retains unresolved findings without making new native research a
+prerequisite for every repository-local fix. Each shader change still requires
+an applicable actual-production-path offline failure before production edits;
+candidate filters and thresholds remain decisions to qualify, not proven fixes.
+
+1. **Establish actual temporal image tests (T18).** Extend the existing real
+   D3D9 execution infrastructure to read back color and keys across repeated
+   `TemporalAaEffect::draw` calls. Exercise ordinary and MRT paths explicitly,
+   both depth conventions, camera motion, jitter phases and invalid history.
+   Use the shipped shaders, resources, filtering and constant uploads. Define
+   independent feature oracles, and prove input/producer equivalence for each
+   reported regression. Keep existing compilation/work checks as support;
+   replace source-string and mirrored-formula quality checks.
+2. **Correct sample coordinates and expose camera motion (T1-T2, T8).** Use
+   the existing rendered/output camera pair and depth-image metadata to
+   distinguish raster samples from output pixels. Reconstruct sampled depth
+   with the rendered lens at its actual texel center. Derive the corresponding
+   jitter-cancelled current-to-previous output displacement explicitly in the
+   resolve shader. Feed its pixel magnitude into validated motion-dependent
+   history confidence. This uses the camera motion already available; it
+   does not require a velocity texture or an additional geometry pass. Keep
+   sky translation-free. Test projection signs and history-domain placement
+   through actual image output before selecting the reconstruction mapping.
+3. **Improve current reconstruction and history acceptance (T2, T5-T8,
+   T11).** Compare shared jitter-aware five-tap and full-3x3 reconstruction/
+   statistics, directional clipping, and neighborhood-supported reactivity.
+   Preserve current samples in clipping bounds. Account for history color's
+   bilinear footprint when validating depth/layers, and replace the arbitrary
+   far-dependent rejection response with a precision/footprint-aware rule.
+   Select the least costly candidate that passes convergence, detail,
+   disocclusion and anti-ghost image checks; measure added taps explicitly.
+4. **Harden the existing resolve transaction (T12-T14, T17).** Sanitize the
+   existing four settings without adding configuration fields. Return explicit
+   no-draw/resolved/failure outcomes, publish history only after successful
+   copy-back, invalidate failed history, and retain unconditional outer state
+   restoration. Prepare matching targets before admitting jitter. Keep MRT
+   preparation failure optional when required fallback shaders succeed, and
+   validate both device paths. These changes improve failure containment;
+   they cannot guarantee recovery from arbitrary device loss or a later
+   missed deadline after native rasterization.
+5. **Bound current sharpening and qualify cost (T10, T18).** Test the actual
+   sharpening path for overshoot, nonfinite output, FP16 overflow and history
+   feedback. Establish a bounded response while preserving the existing
+   control. Evaluate removal of sharpening from recursive history only with
+   an explicit presentation/output path and measured pass cost; do not assume
+   it can be fused for free. Retain full resolution, history precision,
+   mixed-format MRT, current alpha and the accepted world/first-person/UI
+   boundary. Finish with variant budgets, affected/full OMV tests, one explicit
+   32-bit release build and diff review.
+
+**Motion-vector scope now:** make the existing camera-derived displacement an
+explicit, tested shader quantity and use it for reprojection/confidence.
+Stationary geometry has zero jitter-cancelled motion; camera translation and
+rotation have the appropriate displacement. Independently moving content
+continues to require conservative history rejection. Naming camera motion a
+motion vector does not create per-object movement information.
+
+**Research-dependent follow-ups:** projection-upload-only jitter and fresh
+producer pose capture (T3-T4); rigid/skinned/procedural object velocities and
+transparent-layer reactivity (T9); semantic native camera/cell identities and
+new reset events (T11-T13); a guaranteed already-jittered deadline fallback
+(T12); first-person selective AA and effect-order changes (T15-T16); copy
+elimination or sharpening fusion. Their producer, lifetime, ABI or composition
+contracts are not sufficiently closed to promise production edits now. Keep
+them visible as remaining findings, without inventing velocity buffers,
+previous bone poses, native masks, hook coverage or copy ownership.
+
+No new object-motion buffer, geometry replay, engine hook, config field,
+startup worker or TLS owner belongs to the immediate scope. It can materially
+improve the camera-only estimator but cannot establish full object-motion AA
+or equivalence to MSAA. Offline qualification remains the agent gate; the
+owner alone decides gameplay validation.
+
+### Implemented resolve contract
+
+The resolve now separates the rendered lens, fixed output lens and previous
+output lens. The existing native jitter transaction changes lens centers only.
+For output UV `u`, current RGB is sampled at `u - raster_jitter`; engine alpha
+is sampled at the original output pixel. Raw depth uses the corresponding
+point-sampled texel center. FNV's depth producer publishes the sampled extent
+equal to the world color extent, independently of depth allocation extent.
+The camera displacement is previous-output projection minus current-output
+projection of that reconstructed depth point, applied to `u`. Sky excludes
+camera translation. Both MRT and fallback depth keys use the same raster
+mapping. No object/deformation motion information is introduced.
+
+Five-tap statistics remain shared with sharpening. A tightened history box
+always contains current RGB. Sharpening cannot exceed the actual neighborhood
+maximum, even when the history clamp control expands its box. Bilinear history
+color is accepted only when every contributing point depth key agrees; zero
+weight footprint corners do not affect acceptance. This prevents sky or invalid
+layers from entering color through a neighbor that the previous single point
+key lookup never examined. The existing geometry key response and relative
+color agreement remain in place.
+
+Effect admission replaces nonfinite settings with existing defaults and bounds
+finite values to the existing menu ranges. Degenerate/nonfinite lenses are
+rejected before constant upload. Draw returns skipped/resolved explicitly,
+with errors separate; the world owner reports work only after a resolve.
+History becomes inadmissible before fallible GPU operations and is published
+only after copy-back. The existing outer attachment/state restoration runs for
+every outcome. Optional MRT compiler failure retains required two-pass
+bytecode; required shader failures still prevent admission. This preserves
+configuration schema, inline owners, workers and deferred handoff.
+
+The real D3D9 image suite executes production Rust draws and compiled HLSL,
+including source transfers, FP16 histories, R16F keys and readback. Independent
+affine world/view radiance exercises fixed-grid reconstruction, native camera
+basis translation and rotation; separate image checks cover sky changes,
+geometry/sky footprint rejection, alpha, both depth conventions, sharpening
+and invalid settings. A real cross-device copy failure exercises transaction
+invalidation. The unchanged paths failed fixed-grid radiance, peak bounds,
+nonfinite configuration, footprint rejection, failed-copy admission, optional
+MRT preparation and degenerate-lens admission before their respective fixes.
+These are feature-contract regressions, not a reconstruction of an unavailable
+gameplay capture. Source-text and mirrored shader-formula checks were replaced
+by these executable checks.
+
+The correction adds four texture instruction sites to the resolve: one for
+untouched engine alpha and three for the rest of the bilinear key footprint.
+Point-filtering history color would lose fractional motion reconstruction;
+manually gathering color as well would add more reads. The five-tap
+neighborhood avoids the four extra color sites of full 3x3 statistics.
+Compiled ceilings are 350 instructions/12 texture sites for ordinary resolve,
+390/12 for MRT, and 110/1 for fallback depth keys. Variant checks also enforce
+four resolve samplers/one key sampler, one interpolator, bounded registers and
+flow, and no derivatives, kills or dynamic loops. Full-resolution FP16/R16F
+storage, copies and draw counts are unchanged. These bounds qualify added
+work; they do not establish a speedup or an FPS result.
+
+**Remaining:** motion-dependent confidence, 3x3/directional clipping,
+neighborhood reactivity, precision-aware geometry rejection and general
+nonfinite source-radiance policy still need independent offline image oracles
+and evidence of improvement before selecting filters or thresholds. The
+affine and layer tests cannot establish thin-edge convergence, metallic-detail
+stability or the interactions of the complete game graph. Native hook/pose,
+object velocity, semantic reset, first-person, ordering and deadline follow-ups
+remain research-dependent as listed above. Game image quality, startup and
+performance are not exercised by this offline contract.
+
+### Broader roadmap and acceptance
+
+1. **Establish production image baselines (T18).** Build a real D3D9 harness
+   around `TemporalAaEffect::draw`, ping-pong resources and shipped shaders.
+   Render/read back sequences with both ordinary and MRT paths. Define each
+   feature oracle independently from the resolve formula. For a reported bug,
+   prove that its input assets, passes, state and composition match the
+   affected production path and preserve a failure before editing. Numerical
+   replicas and arbitrary lookalike images cannot reproduce the report.
+2. **Close coordinate/producer contracts (T1-T4, T13, T16).** Complete native
+   route/caller coverage and the ABI before narrowing projection jitter.
+   `0x00B6BA35` is a candidate boundary, not blanket patch authority: the
+   reconfirmed callee is `thiscall`, takes one camera argument and returns with
+   `ret 4`; its packet wrapper dispatches renderer slot `+0x18C` and returns
+   with `ret 0x18`. Preserve whatever valid provider is already installed.
+   Prove other camera uploads, shadow/sky/alpha/water draws, restoration and
+   target association. Capture the producer camera; integrate raster/output
+   mapping and a declared sequence/identity policy.
+3. **Make temporal commit reliable (T12-T14, T17).** Prepare required device
+   resources before jitter, carry applied-jitter state, distinguish no-draw,
+   resolved and failed outcomes, validate constants, invalidate failed history
+   and implement only a proven bounded already-jittered fallback. No draw
+   failure may publish valid history or successful effect completion. Keep
+   state cleanup unconditional across partial transactions.
+4. **Improve reconstruction and rejection (T2, T5-T8, T10-T11).** Evaluate
+   shared jitter-aware reconstruction/statistics, directional clipping,
+   precision/slope-aware depth validation, history-footprint checks and motion
+   confidence together. Keep sharpening out of recursive accumulation and
+   retain the dedicated sky rotation/tag contract. Choose coefficients and
+   filters using image evidence and cost, not analogy with another engine.
+5. **Complete supported coverage (T9, T15-T16).** Stabilize alpha-tested and
+   blended world families using verified producer semantics; keep unknown
+   motion conservative. Prove rigid/skinned/procedural velocity routes before
+   adding them. Audit first-person spatial AA and all later effect domains;
+   preserve UI, current alpha and accepted material response. The existing PBR
+   audit rejects unconditional screen-space roughness changes, so specular
+   blur is not an authorized substitute for fixing TAA.
+6. **Qualify quality and cost (all findings).** Run the identical fail-first
+   shader regressions, all production variants and instruction/sample/sampler/
+   register/flow budgets, real attachment/failure/reset tests, the affected
+   suite, then the complete explicit-target OMV suite and one supported
+   release build. Review formatting and final diff. This is offline
+   qualification under the OMV exception; game-only image/integration and
+   performance behavior are reported as not run. The owner alone decides
+   whether and when to perform gameplay validation.
+
+The image matrix must cover flat/disabled/invalid frames; stationary high
+contrast edges, diagonals, small highlights and thin foliage over all phases;
+slow translation, rotation and combined motion; near/far gradients and grazing
+geometry; disocclusion and sky silhouettes; moving rigid/skinned/procedural
+and blended content for proven supported routes; camera/FOV/epoch/provider
+changes; borders, odd sizes and resize; current alpha; first-person and UI;
+reset; TAA alone and each relevant AO/atmosphere/PBR/image-space composition.
+Measure convergence, phase-correlated displacement, temporal variance, edge
+width/detail retention, overshoot, disocclusion response and ghost persistence.
+Set tolerances from the independent raster/format oracle and explicit visual
+requirement; do not invent scene-independent thresholds or solve flicker by
+blurring away detail. Check both near and distant content with MSAA absent.
+
+Before any startup/config/hook/static-owner implementation, read
+`nvse_startup_phase_safety.md` and
+`graphics_fnv_atmosphere_startup_crash_errata.md` completely. Preserve schema
+one, released fields/order, existing preparation workers and deferred
+publication. Changing the size of an inline lazy world owner can change the
+pre-Deferred footprint even if first used later. Do not add TLS, early world
+first touch, another mod's hooks, a new startup worker, or a material rewrite
+as a TAA fix. This audit makes no new startup-baseline claim.
+
+### Primary research references
+
+These inform candidate techniques; they do not establish OMV engine contracts.
+
+- [AMD FSR temporal integration manual](https://gpuopen.com/manuals/fsr_sdk/techniques/super-resolution-temporal/):
+  distinguishes jittered render inputs from jitter-cancelled motion and
+  explicitly supplied jitter. It describes motion coverage and reactive
+  inputs for blended content. Those requirements explain why merely removing
+  jitter from camera matrices is insufficient input handling, and why a full
+  modern temporal upscaler is not a drop-in camera-only D3D9 replacement.
+- [Playdead production reference shader](https://github.com/playdeadgames/temporal/blob/master/Assets/Shaders/TemporalReprojection.shader):
+  makes current-color, neighborhood and reprojection unjittering explicit,
+  with alternative neighborhoods, directional box clipping, color-space and
+  adaptive feedback options. Its available inputs differ from OMV's; copy
+  neither its coordinate signs nor Unity API conventions blindly.
+- [NVIDIA: An Excursion in Temporal Supersampling](https://developer.download.nvidia.com/gameworks/events/GDC2016/msalvi_temporal_supersampling.pdf):
+  explains resolved-history reconstruction and variance clipping, including
+  thin-feature flicker when current neighborhoods lose coverage. Therefore
+  variance clipping is a candidate needing coverage/convergence evidence,
+  not a guaranteed fix for jitter by itself.
+- [Intel production TAA resolve sample](https://github.com/GameTechDev/TAA/blob/main/MiniEngine/Core/Shaders/TAAResolve.hlsl):
+  an additional implementation reference for evaluating filtering and clipping
+  alternatives. Its compute/shared-memory/API machinery is outside the
+  established SM3 pixel-shader contract; it is not a performance oracle for OMV.
+
+The immediate priority is T1-T5 plus production image evidence. Raising
+history weight, removing jitter or adding sharpening cannot repair the
+coordinate, scene-selection and rejection contracts identified here.

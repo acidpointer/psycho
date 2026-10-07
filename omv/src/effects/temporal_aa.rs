@@ -57,16 +57,28 @@ struct TemporalAaBytecode {
 
 impl TemporalAaBytecode {
     fn compile() -> Result<Self> {
+        Self::compile_with_mrt_source(&temporal_shader_source(true))
+    }
+
+    // Separate the optional compiler boundary so failure containment can be
+    // exercised with the real compiler, independently of device capabilities.
+    fn compile_with_mrt_source(mrt_source: &[u8]) -> Result<Self> {
+        let resolve = shaders::compile_hlsl_source("aa_temporal.hlsl", TAA_SHADER)?;
+        let depth_key =
+            shaders::compile_hlsl_source("aa_temporal_depth_key.hlsl", DEPTH_KEY_SHADER)?;
+        let resolve_mrt = match shaders::compile_hlsl_source("aa_temporal.hlsl:mrt", mrt_source) {
+            Ok(bytecode) => bytecode,
+            Err(error) => {
+                log::warn!(
+                    "[TAA] MRT preparation unavailable; retaining two-pass resolve: {error:#}"
+                );
+                Vec::new()
+            }
+        };
         Ok(Self {
-            resolve: shaders::compile_hlsl_source("aa_temporal.hlsl", TAA_SHADER)?,
-            resolve_mrt: shaders::compile_hlsl_source(
-                "aa_temporal.hlsl:mrt",
-                &temporal_shader_source(true),
-            )?,
-            depth_key: shaders::compile_hlsl_source(
-                "aa_temporal_depth_key.hlsl",
-                DEPTH_KEY_SHADER,
-            )?,
+            resolve,
+            resolve_mrt,
+            depth_key,
         })
     }
 }
@@ -105,12 +117,20 @@ pub(crate) struct TemporalAaConfig {
 impl TemporalAaConfig {
     /// Convert menu configuration into the fixed shader constant payload.
     pub(crate) fn from_config(config: config::TemporalAaConfig) -> Self {
+        let defaults = config::TemporalAaConfig::default();
+        let finite = |value: f32, fallback: f32, low: f32, high: f32| {
+            if value.is_finite() {
+                value.clamp(low, high)
+            } else {
+                fallback
+            }
+        };
         Self {
             options: [
-                config.history_weight,
-                config.clamp_strength,
-                config.sharpness,
-                config.jitter_scale,
+                finite(config.history_weight, defaults.history_weight, 0.0, 0.98),
+                finite(config.clamp_strength, defaults.clamp_strength, 0.25, 2.0),
+                finite(config.sharpness, defaults.sharpness, 0.0, 1.0),
+                finite(config.jitter_scale, defaults.jitter_scale, 0.0, 1.5),
             ],
         }
     }
@@ -122,12 +142,27 @@ impl TemporalAaConfig {
 }
 
 #[cfg(test)]
+mod behavior_tests;
+
+#[cfg(test)]
 mod shader_compile_tests {
     use super::{
-        DEPTH_KEY_SHADER, TAA_SHADER, TemporalCameraState, TemporalReprojection,
-        temporal_shader_source,
+        BYTECODE, COLOR_WRITE_ALL, COMPILE_READY, COMPILE_STARTED, DEPTH_KEY_SHADER, TAA_SHADER,
+        TemporalAaBytecode, TemporalAaConfig, TemporalAaEffect, TemporalCameraState,
+        TemporalReprojection, temporal_shader_source,
     };
-    use crate::backend::{CameraFrame, CameraTransformFrame};
+    use crate::backend::{
+        CameraFrame, CameraTransformFrame, DepthFrame, DepthProjectionFrame, DepthProvider,
+        DepthTexture,
+    };
+    use libpsycho::os::windows::{
+        directx9::{
+            D3DDEVTYPE_HAL, D3DDEVTYPE_NULLREF, D3DFMT_A16B16G16R16F, D3DFMT_D24S8, D3DFMT_R32F,
+            D3DMULTISAMPLE_NONE, D3DRS_COLORWRITEENABLE1, Device9, create_direct3d9,
+        },
+        winapi::{get_active_window, get_desktop_window, get_foreground_window},
+    };
+    use std::sync::atomic::Ordering;
 
     fn camera(rotation: [[f32; 3]; 3], translation: [f32; 3]) -> CameraFrame {
         CameraFrame {
@@ -146,102 +181,6 @@ mod shader_compile_tests {
             },
             available: true,
         }
-    }
-
-    fn history_uv(
-        current: CameraFrame,
-        reprojection: TemporalReprojection,
-        uv: [f32; 2],
-        depth: f32,
-        include_translation: bool,
-    ) -> [f32; 2] {
-        let position = [
-            (current.frustum_left + (current.frustum_right - current.frustum_left) * uv[0]) * depth,
-            (current.frustum_top + (current.frustum_bottom - current.frustum_top) * uv[1]) * depth,
-            depth,
-        ];
-        let translation_scale = if include_translation { 1.0 } else { 0.0 };
-        let previous = reprojection.rows.map(|row| {
-            row[0] * position[0]
-                + row[1] * position[1]
-                + row[2] * position[2]
-                + row[3] * translation_scale
-        });
-        let view_x = previous[0] / previous[2];
-        let view_y = previous[1] / previous[2];
-        [
-            (view_x - reprojection.previous_frustum[0])
-                / (reprojection.previous_frustum[1] - reprojection.previous_frustum[0]),
-            (reprojection.previous_frustum[3] - view_y)
-                / (reprojection.previous_frustum[3] - reprojection.previous_frustum[2]),
-        ]
-    }
-
-    fn smoothstep(low: f32, high: f32, value: f32) -> f32 {
-        let value = ((value - low) / (high - low)).clamp(0.0, 1.0);
-        value * value * (3.0 - 2.0 * value)
-    }
-
-    fn history_agreement(current: [f32; 3], history: [f32; 3], sky: bool) -> f32 {
-        let difference = current
-            .into_iter()
-            .zip(history)
-            .map(|(current, history)| {
-                (history - current).abs() / current.abs().max(history.abs()).max(0.02)
-            })
-            .fold(0.0, f32::max);
-        let (rejection_start, rejection_end) = if sky { (0.05, 0.50) } else { (0.20, 1.00) };
-        1.0 - smoothstep(rejection_start, rejection_end, difference)
-    }
-
-    fn resolve_reference(
-        current: [f32; 3],
-        history: [f32; 3],
-        history_weight: f32,
-        sky: bool,
-        reactive: bool,
-    ) -> [f32; 3] {
-        let agreement = if reactive {
-            history_agreement(current, history, sky)
-        } else {
-            1.0
-        };
-        let weight = (history_weight * agreement).clamp(0.0, 1.0);
-        std::array::from_fn(|channel| {
-            current[channel] + (history[channel] - current[channel]) * weight
-        })
-    }
-
-    #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-    enum TemporalLayer {
-        Geometry,
-        Sky,
-        Invalid,
-    }
-
-    fn temporal_layer(depth: f32, reversed: bool) -> TemporalLayer {
-        let sky = if reversed {
-            (0.0..=0.000001).contains(&depth)
-        } else {
-            (0.999999..=1.0).contains(&depth)
-        };
-        let geometry = if reversed {
-            depth > 0.000001 && depth <= 1.0
-        } else {
-            depth > 0.000001 && depth < 0.999999
-        };
-        if sky {
-            TemporalLayer::Sky
-        } else if geometry {
-            TemporalLayer::Geometry
-        } else {
-            TemporalLayer::Invalid
-        }
-    }
-
-    fn previous_position_visible(previous_z: f32, previous_near: f32, sky: bool) -> bool {
-        let minimum_z = if sky { 0.001 } else { previous_near.max(0.001) };
-        previous_z > minimum_z
     }
 
     fn compiled_instruction_opcodes(bytecode: &[u32]) -> Vec<u16> {
@@ -281,23 +220,114 @@ mod shader_compile_tests {
         );
     }
 
+    /// The world resolve owns its attachments: the engine depth-stencil and
+    /// auxiliary targets must be detached before history targets bind, the
+    /// selected resolve path must write through its declared color-write
+    /// mask, and the transaction must leave no sampler attached. This runs
+    /// the shipped resolve on a real device with an FP16 world target and
+    /// observes the device state after the draw.
     #[test]
     fn mrt_path_owns_auxiliary_attachments_and_color_write_mask() {
-        let source = include_str!("temporal_aa.rs");
-        let detach_depth = source
-            .find("device.set_depth_stencil_surface(None)?")
-            .expect("depth attachment detach");
-        let detach_auxiliary = source
-            .find("device.clear_render_target(index)?")
-            .expect("auxiliary target detach");
-        let attach_mrt = source
-            .find("device.set_render_target(1, &targets.depth_key_history")
-            .expect("MRT depth-key target");
-        assert!(detach_depth < detach_auxiliary);
-        assert!(detach_auxiliary < attach_mrt);
-        assert!(
-            source.contains("device.set_render_state(D3DRS_COLORWRITEENABLE1, COLOR_WRITE_ALL)?")
+        let owner = taa_state_test_device();
+        let device = owner.as_ref();
+
+        // Stage process-owned bytecode synchronously and suppress the
+        // background worker so this execution is deterministic.
+        COMPILE_STARTED.store(true, Ordering::Release);
+        let bytecode = TemporalAaBytecode::compile().expect("TAA bytecode");
+        *BYTECODE.lock() = Some(bytecode);
+        COMPILE_READY.store(true, Ordering::Release);
+
+        let world = device
+            .create_render_target_texture(64, 64, D3DFMT_A16B16G16R16F)
+            .unwrap();
+        let world_surface = world.surface_level(0).unwrap();
+        let world_desc = world_surface.desc().unwrap();
+
+        let mut effect = TemporalAaEffect::create(&device)
+            .unwrap()
+            .expect("TAA effect with prepared bytecode");
+        let mrt_selected = effect.mrt_shader.is_some();
+
+        let depth_input = device
+            .create_render_target_texture(64, 64, D3DFMT_R32F)
+            .unwrap();
+        let depth = DepthFrame::from_textures(
+            DepthProvider::FalloutNewVegas,
+            DepthTexture::new(depth_input.as_raw_base_texture()),
+            None,
+            DepthProjectionFrame {
+                camera: camera(
+                    [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]],
+                    [0.0; 3],
+                ),
+                reversed_depth: Some(true),
+                ..Default::default()
+            },
+            Default::default(),
+            7,
         );
+        let config = TemporalAaConfig::from_config(crate::config::TemporalAaConfig::default());
+
+        // Inherit hostile attachments to prove the draw detaches them.
+        let depth_surface = device
+            .create_depth_stencil_surface(64, 64, D3DFMT_D24S8, D3DMULTISAMPLE_NONE, 0, false)
+            .unwrap();
+        device
+            .set_depth_stencil_surface(Some(&depth_surface))
+            .unwrap();
+
+        effect
+            .draw(
+                &device,
+                &world_surface,
+                &world_desc,
+                depth,
+                camera(
+                    [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]],
+                    [0.0; 3],
+                ),
+                config,
+            )
+            .expect("TAA resolve");
+
+        assert!(device.depth_stencil_surface().unwrap().is_none());
+        assert!(device.render_target(1).is_err());
+        for sampler in 0..=3 {
+            assert!(
+                !device.texture_bound(sampler),
+                "TAA resolve left sampler {sampler} attached"
+            );
+        }
+        assert_eq!(
+            device.render_state(D3DRS_COLORWRITEENABLE1).unwrap(),
+            COLOR_WRITE_ALL
+        );
+        if mrt_selected {
+            assert!(
+                effect.history_valid,
+                "MRT resolve did not publish color history"
+            );
+        } else {
+            // The two-pass fallback must also resolve the depth key.
+            assert!(effect.history_valid);
+        }
+    }
+
+    fn taa_state_test_device() -> Device9 {
+        let window = [
+            get_active_window(),
+            get_foreground_window(),
+            get_desktop_window().unwrap_or(std::ptr::null_mut()),
+        ]
+        .into_iter()
+        .find(|window| !window.is_null())
+        .expect("Wine must expose a window for D3D9 state validation");
+        let direct3d = create_direct3d9().expect("D3D9 runtime");
+        direct3d
+            .create_windowed_device(window, 64, 64, D3DDEVTYPE_HAL)
+            .or_else(|_| direct3d.create_windowed_device(window, 64, 64, D3DDEVTYPE_NULLREF))
+            .expect("HAL or NULLREF D3D9 device")
     }
 
     #[test]
@@ -305,9 +335,23 @@ mod shader_compile_tests {
         const TEXLD: u16 = 66;
         const TEXLDD: u16 = 93;
         const TEXLDL: u16 = 95;
-        for (name, source, instruction_budget) in [
-            ("aa_temporal.hlsl", TAA_SHADER.to_vec(), 320),
-            ("aa_temporal.hlsl:mrt", temporal_shader_source(true), 350),
+        // Four extra reads are necessary for fixed-grid RGB with untouched
+        // alpha and full bilinear history-key validation. Five-tap color
+        // statistics, full resolution and all resource/pass counts stay fixed.
+        for (name, source, instruction_budget, texture_budget) in [
+            ("aa_temporal.hlsl", TAA_SHADER.to_vec(), 350, 12),
+            (
+                "aa_temporal.hlsl:mrt",
+                temporal_shader_source(true),
+                390,
+                12,
+            ),
+            (
+                "aa_temporal_depth_key.hlsl",
+                DEPTH_KEY_SHADER.to_vec(),
+                110,
+                1,
+            ),
         ] {
             let bytecode =
                 crate::shaders::compile_hlsl_source(name, &source).expect("temporal AA shader");
@@ -323,65 +367,69 @@ mod shader_compile_tests {
                 opcodes.len()
             );
             assert!(
-                texture_count <= 8,
+                texture_count <= texture_budget,
                 "{name} grew to {texture_count} texture operations"
             );
+            // Fixed explicit LOD, no derivatives, kills or dynamic loops.
+            assert!(
+                !opcodes
+                    .iter()
+                    .any(|op| matches!(*op, 27 | 38 | 65 | 91 | 92 | 93))
+            );
+            assert!(opcodes.iter().filter(|op| matches!(**op, 40 | 41)).count() <= 12);
+            let mut offset = 1;
+            while offset < bytecode.len() && bytecode[offset] as u16 != 0xffff {
+                let token = bytecode[offset];
+                if token as u16 == 0xfffe {
+                    offset += 1 + ((token >> 16) & 0x7fff) as usize;
+                    continue;
+                }
+                let length = ((token >> 24) & 15) as usize;
+                let operands = if matches!(token as u16, 47 | 48 | 81) {
+                    1
+                } else {
+                    length
+                };
+                for &parameter in &bytecode[offset + 1..offset + 1 + operands] {
+                    if parameter & 0x8000_0000 == 0 {
+                        continue;
+                    }
+                    let register_type = ((parameter >> 28) & 7) | ((parameter >> 8) & 24);
+                    let register = parameter & 0x7ff;
+                    match register_type {
+                        0 => assert!(register < 32, "{name}: temporary r{register}"),
+                        2 => assert!(register < 32, "{name}: constant c{register}"),
+                        10 => assert!(
+                            register < if texture_budget == 1 { 1 } else { 4 },
+                            "{name}: sampler s{register}"
+                        ),
+                        1 => assert_eq!(register, 0, "{name}: extra interpolator"),
+                        _ => {}
+                    }
+                }
+                offset += 1 + length;
+            }
         }
     }
 
     #[test]
-    fn temporal_neighborhood_reuses_current_color_sample() {
-        let source = std::str::from_utf8(TAA_SHADER).expect("TAA source is UTF-8");
-        assert!(source.contains("Neighborhood(uv, current.rgb, low, high, average)"));
+    fn optional_mrt_compilation_cannot_remove_the_two_pass_fallback() {
+        let result = TemporalAaBytecode::compile_with_mrt_source(b"invalid HLSL");
         assert!(
-            !source.contains("float3 center = tex2Dlod(CurrentColor, float4(uv, 0.0, 0.0)).rgb;")
+            result.is_ok(),
+            "optional MRT failure removed required shaders"
         );
-    }
-
-    #[test]
-    fn temporal_resolve_keeps_depth_keys_out_of_world_alpha() {
-        let source = std::str::from_utf8(TAA_SHADER).expect("TAA source is UTF-8");
-        assert!(source.contains("sampler2D HistoryDepthKey : register(s3)"));
-        assert!(source.contains("float4 outputColor = float4(resolved, current.a)"));
-        assert!(source.contains("return MakeOutput(outputColor, currentDepthKey)"));
-        assert!(!source.contains("history.a - expectedKey"));
-        assert!(!source.contains("return float4(current, currentKey)"));
-    }
-
-    #[test]
-    fn temporal_history_uses_distinct_sky_and_invalid_layer_keys() {
-        let resolve = std::str::from_utf8(TAA_SHADER).expect("TAA source is UTF-8");
-        let depth_key = std::str::from_utf8(DEPTH_KEY_SHADER).expect("depth-key source is UTF-8");
-        assert!(resolve.contains("float expectedKey = sky ? -1.0 : DepthKey"));
-        assert!(depth_key.contains("return float4(-1.0, 0.0, 0.0, 1.0)"));
-        assert!(depth_key.contains("return float4(2.0, 0.0, 0.0, 1.0)"));
-    }
-
-    #[test]
-    fn temporal_depth_classifies_standard_reversed_sky_and_invalid_values() {
-        assert_eq!(temporal_layer(0.5, false), TemporalLayer::Geometry);
-        assert_eq!(temporal_layer(1.0, false), TemporalLayer::Sky);
-        assert_eq!(temporal_layer(0.5, true), TemporalLayer::Geometry);
-        assert_eq!(temporal_layer(0.0, true), TemporalLayer::Sky);
-        for invalid in [-1.0, 2.0, f32::NAN, f32::INFINITY] {
-            assert_eq!(temporal_layer(invalid, false), TemporalLayer::Invalid);
-            assert_eq!(temporal_layer(invalid, true), TemporalLayer::Invalid);
-        }
-    }
-
-    #[test]
-    fn unit_sky_direction_does_not_use_the_geometry_near_plane() {
-        assert!(previous_position_visible(1.0, 5.0, true));
-        assert!(
-            !previous_position_visible(1.0, 5.0, false),
-            "negative control must reproduce the shared near-plane rejection"
-        );
-        assert!(previous_position_visible(10.0, 5.0, false));
-        assert!(!previous_position_visible(-1.0, 5.0, true));
-
-        let source = std::str::from_utf8(TAA_SHADER).expect("TAA source is UTF-8");
-        assert!(source.contains("float minimumPreviousZ = sky ? 0.001"));
-        assert!(source.contains("previousPosition.z <= minimumPreviousZ"));
+        let bytecode = result.unwrap();
+        assert!(bytecode.resolve_mrt.is_empty());
+        let owner = taa_state_test_device();
+        owner
+            .as_ref()
+            .create_pixel_shader(&bytecode.resolve)
+            .unwrap();
+        owner
+            .as_ref()
+            .create_pixel_shader(&bytecode.depth_key)
+            .unwrap();
     }
 
     #[test]
@@ -430,104 +478,6 @@ mod shader_compile_tests {
             .is_none()
         );
     }
-
-    #[test]
-    fn stationary_history_is_output_grid_locked_across_jitter_phases() {
-        let identity = [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]];
-        let output_camera = camera(identity, [0.0; 3]);
-        let target = [1920, 1080];
-        let previous_rendered = output_camera
-            .with_pixel_jitter([-0.25, 1.0 / 6.0], target[0], target[1])
-            .expect("previous rendered projection");
-        let current_rendered = output_camera
-            .with_pixel_jitter([0.25, -7.0 / 18.0], target[0], target[1])
-            .expect("current rendered projection");
-
-        let stable = TemporalReprojection::between(
-            TemporalCameraState {
-                camera: output_camera,
-                epoch: 4,
-            },
-            TemporalCameraState {
-                camera: output_camera,
-                epoch: 5,
-            },
-        )
-        .expect("stable output reprojection");
-        let uv = [0.5, 0.5];
-        let stable_history_uv = history_uv(output_camera, stable, uv, 100.0, true);
-        let stable_motion_pixels = [
-            (stable_history_uv[0] - uv[0]) * target[0] as f32,
-            (stable_history_uv[1] - uv[1]) * target[1] as f32,
-        ];
-        assert!(stable_motion_pixels[0].abs() < 0.0001);
-        assert!(stable_motion_pixels[1].abs() < 0.0001);
-
-        let jitter_following = TemporalReprojection::between(
-            TemporalCameraState {
-                camera: previous_rendered,
-                epoch: 4,
-            },
-            TemporalCameraState {
-                camera: current_rendered,
-                epoch: 5,
-            },
-        )
-        .expect("negative-control reprojection");
-        let jittered_history_uv = history_uv(current_rendered, jitter_following, uv, 100.0, true);
-        let jitter_motion_pixels = [
-            (jittered_history_uv[0] - uv[0]) * target[0] as f32,
-            (jittered_history_uv[1] - uv[1]) * target[1] as f32,
-        ];
-        assert!(jitter_motion_pixels[0].abs() > 0.25);
-        assert!(jitter_motion_pixels[1].abs() > 0.25);
-    }
-
-    #[test]
-    fn sky_reprojection_ignores_camera_translation() {
-        let identity = [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]];
-        let previous = camera(identity, [0.0; 3]);
-        let current = camera(identity, [0.0, 0.0, 10.0]);
-        let reprojection = TemporalReprojection::between(
-            TemporalCameraState {
-                camera: previous,
-                epoch: 2,
-            },
-            TemporalCameraState {
-                camera: current,
-                epoch: 3,
-            },
-        )
-        .expect("translated camera");
-        let uv = [0.4, 0.6];
-        let protected = history_uv(current, reprojection, uv, 1.0, false);
-        let negative_control = history_uv(current, reprojection, uv, 1.0, true);
-        assert!((protected[0] - uv[0]).abs() < 0.0001);
-        assert!((protected[1] - uv[1]).abs() < 0.0001);
-        assert!(
-            (negative_control[0] - uv[0]).abs() > 0.1,
-            "geometry reprojection must reproduce translated-sky ghosting"
-        );
-    }
-
-    #[test]
-    fn reactive_history_rejects_night_sky_trails_but_keeps_stable_color() {
-        let star = [1.0, 0.9, 0.8];
-        let night = [0.0, 0.0, 0.0];
-
-        let stale_dark_negative_control = resolve_reference(star, night, 0.9, true, false);
-        let appearing_star = resolve_reference(star, night, 0.9, true, true);
-        assert!(stale_dark_negative_control[0] < 0.11);
-        assert!(appearing_star[0] > 0.99);
-
-        let stale_star_negative_control = resolve_reference(night, star, 0.9, true, false);
-        let cleared_star = resolve_reference(night, star, 0.9, true, true);
-        assert!(stale_star_negative_control[0] > 0.89);
-        assert!(cleared_star[0] < 0.001);
-
-        let stable = [0.012, 0.018, 0.031];
-        assert_eq!(resolve_reference(stable, stable, 0.9, true, true), stable);
-    }
 }
 
 /// Device-owned TAA shaders, ping-pong histories, and camera history.
@@ -565,8 +515,9 @@ impl TemporalAaEffect {
         };
 
         let render_target_count = device.simultaneous_render_target_count()?.clamp(1, 4);
-        let mrt_supported =
-            render_target_count >= 2 && device.supports_independent_mrt_bit_depths()?;
+        let mrt_supported = !bytecode.resolve_mrt.is_empty()
+            && render_target_count >= 2
+            && device.supports_independent_mrt_bit_depths()?;
         let mrt_shader = if mrt_supported {
             match device.create_pixel_shader(&bytecode.resolve_mrt) {
                 Ok(shader) => Some(shader),
@@ -636,6 +587,9 @@ impl TemporalAaEffect {
     }
 
     /// Resolve one world frame into history and copy it back to the engine target.
+    /// Returns true only after successful copy-back; false skips unavailable
+    /// inputs. An error invalidates history. The caller restores attachments
+    /// and the captured state block for every result.
     pub(crate) fn draw(
         &mut self,
         device: &Device9Ref<'_>,
@@ -644,17 +598,17 @@ impl TemporalAaEffect {
         depth: DepthFrame,
         output_camera: CameraFrame,
         config: TemporalAaConfig,
-    ) -> Direct3DResult<()> {
+    ) -> Direct3DResult<bool> {
         let Some(depth_texture) = depth.texture else {
             self.invalidate_history();
-            return Ok(());
+            return Ok(false);
         };
         if depth.world_projection.reversed_depth.is_none()
             || !camera_supports_reprojection(depth.world_projection.camera)
             || !camera_supports_reprojection(output_camera)
         {
             self.invalidate_history();
-            return Ok(());
+            return Ok(false);
         }
 
         let target = TargetDescription::from(desc);
@@ -662,7 +616,7 @@ impl TemporalAaEffect {
             if self.target_retry_frames > 0 {
                 self.target_retry_frames -= 1;
                 self.invalidate_history();
-                return Ok(());
+                return Ok(false);
             }
             self.failed_target = None;
         }
@@ -693,8 +647,12 @@ impl TemporalAaEffect {
             .previous_camera
             .and_then(|previous| TemporalReprojection::between(previous, current_camera));
         let history_available = self.history_valid && reprojection.is_some();
+        // Every fallible GPU operation below belongs to one transaction.
+        // Previous textures remain readable for this draw, but may not be
+        // admitted again after any partial write or failed copy-back.
+        self.history_valid = false;
         let Some(targets) = self.targets.as_ref() else {
-            return Ok(());
+            return Ok(false);
         };
 
         device.stretch_rect(
@@ -763,7 +721,7 @@ impl TemporalAaEffect {
             }
             device.set_sampler_state(0, D3DSAMP_MINFILTER, D3DTEXF_POINT.0 as u32)?;
             device.set_sampler_state(0, D3DSAMP_MAGFILTER, D3DTEXF_POINT.0 as u32)?;
-            bind_depth_key_constants(device, depth)?;
+            bind_depth_key_constants(device, depth, output_camera, desc)?;
             device.set_pixel_shader(&self.depth_key_shader)?;
             draw_quad(device, desc)?;
             crate::render_state::clear_sampler(device, 0)?;
@@ -779,7 +737,7 @@ impl TemporalAaEffect {
         self.history_index = write_index;
         self.history_valid = true;
         self.previous_camera = Some(current_camera);
-        Ok(())
+        Ok(true)
     }
 
     fn ensure_targets(
@@ -907,6 +865,22 @@ impl TemporalReprojection {
 fn camera_supports_reprojection(camera: CameraFrame) -> bool {
     let transform = camera.world_transform;
     camera.available
+        && [
+            camera.near_z,
+            camera.far_z,
+            camera.frustum_left,
+            camera.frustum_right,
+            camera.frustum_bottom,
+            camera.frustum_top,
+        ]
+        .iter()
+        .all(|value| value.is_finite())
+        && camera.near_z > 0.0
+        && camera.far_z > camera.near_z
+        && (camera.frustum_right - camera.frustum_left).is_finite()
+        && camera.frustum_right > camera.frustum_left
+        && (camera.frustum_top - camera.frustum_bottom).is_finite()
+        && camera.frustum_top > camera.frustum_bottom
         && transform.available
         && transform.scale.is_finite()
         && transform.scale.abs() > f32::EPSILON
@@ -927,7 +901,7 @@ fn bind_constants(
     reprojection: Option<TemporalReprojection>,
     history_available: bool,
 ) -> Direct3DResult<()> {
-    let camera = output_camera;
+    let camera = depth.world_projection.camera;
     device.set_pixel_shader_constant_f(
         0,
         &[
@@ -952,6 +926,19 @@ fn bind_constants(
         ],
     )?;
     device.set_pixel_shader_constant_f(OPTION_REGISTER, &[config.options])?;
+    // Raster samples and fixed output pixels have different lens centers.
+    // Native jitter changes only these centers, not near/far or pose.
+    let jitter_uv = raster_jitter_uv(camera, output_camera);
+    device.set_pixel_shader_constant_f(4, &[jitter_uv])?;
+    device.set_pixel_shader_constant_f(
+        10,
+        &[[
+            output_camera.frustum_left,
+            output_camera.frustum_right,
+            output_camera.frustum_bottom,
+            output_camera.frustum_top,
+        ]],
+    )?;
     let reprojection_constants = reprojection.map_or_else(
         || {
             [
@@ -980,16 +967,41 @@ fn bind_constants(
     device.set_pixel_shader_constant_f(REPROJECTION_REGISTER, &reprojection_constants)
 }
 
-fn bind_depth_key_constants(device: &Device9Ref<'_>, depth: DepthFrame) -> Direct3DResult<()> {
+fn raster_jitter_uv(rendered: CameraFrame, output: CameraFrame) -> [f32; 4] {
+    [
+        (rendered.frustum_left - output.frustum_left)
+            / (rendered.frustum_right - rendered.frustum_left),
+        (output.frustum_top - rendered.frustum_top)
+            / (rendered.frustum_top - rendered.frustum_bottom),
+        0.0,
+        0.0,
+    ]
+}
+
+fn bind_depth_key_constants(
+    device: &Device9Ref<'_>,
+    depth: DepthFrame,
+    output_camera: CameraFrame,
+    desc: &D3DSURFACE_DESC,
+) -> Direct3DResult<()> {
     let camera = depth.world_projection.camera;
     device.set_pixel_shader_constant_f(
         0,
-        &[[
-            camera.near_z,
-            camera.far_z,
-            depth.world_projection.reversed_depth_f32(),
-            0.0,
-        ]],
+        &[
+            [
+                camera.near_z,
+                camera.far_z,
+                depth.world_projection.reversed_depth_f32(),
+                0.0,
+            ],
+            raster_jitter_uv(camera, output_camera),
+            [
+                desc.Width as f32,
+                desc.Height as f32,
+                1.0 / desc.Width as f32,
+                1.0 / desc.Height as f32,
+            ],
+        ],
     )
 }
 

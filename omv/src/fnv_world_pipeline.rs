@@ -1033,19 +1033,21 @@ impl FnvWorldPipelineRuntime {
                 .as_ref()
                 .ok_or_else(|| runtime_error("missing TAA state block"))?;
             crate::render_state::capture_state_block(state_block)?;
+            let mut taa_resolved = false;
             let mut result = self.temporal_aa.as_mut().map_or(Ok(()), |effect| {
                 let output_camera = temporal_projection
                     .map_or(depth.0.world_projection.camera, |projection| {
                         projection.output
                     });
-                effect.draw(
+                taa_resolved = effect.draw(
                     &device,
                     &world_target,
                     &desc,
                     depth.0,
                     output_camera,
                     TemporalAaConfig::from_config(self.config.temporal_aa),
-                )
+                )?;
+                Ok(())
             });
             keep_first_error(&mut result, attachments.restore(&device));
             keep_first_error(
@@ -1053,7 +1055,7 @@ impl FnvWorldPipelineRuntime {
                 crate::render_state::apply_state_block(state_block),
             );
             result?;
-            drew = true;
+            drew |= taa_resolved;
         }
 
         if atmosphere_remaining {

@@ -1,0 +1,264 @@
+OMV TAA CONTRACT RECONFIRMATION - 2026-10-07
+
+Read-only radare2 MCP inspection of fnv_reverse/FalloutNV.exe.
+Identity: PE32 i386, image base 0x00400000, timestamp 0x4e0d50ed,
+PE checksum 0x00f64bd0, PDB GUID 9196089162EE4D29BF48E8D767B32DB91.
+Existing full contract: analysis/ghidra/output/perf/graphics_fnv_taa_projection_only_upload_contract_followup.txt.
+This output reconfirms selected instructions; it is not a new complete hook contract.
+The earlier getter/frustum copy precedes the renderer upload; projection-only
+intervention must still prove all world draw routes, ABI, state restoration,
+and any installed provider. No production hook was changed.
+
+World render-target camera upload
+; [0x11f4748:4]=0
+0x00b6ba20      mov ecx, dword [0x11f4748]
+0x00b6ba26      test ecx, ecx
+   ; likely
+0x00b6ba28      je 0xb6ba69
+0x00b6ba2a      push edi
+0x00b6ba2b      mov edi, dword [esp + 8]
+0x00b6ba2f      test edi, edi
+   ; unlikely
+0x00b6ba31      je 0xb6ba68
+0x00b6ba33      push esi
+0x00b6ba34      push edi
+   ; 0x4e9bb0(0x0, 0x0, 0x0, 0x0)
+0x00b6ba35      call 0x4e9bb0
+0x00b6ba3a      mov esi, dword [esp + 0x10]
+0x00b6ba3e      push esi
+; [0x11f917c:4]=0
+0x00b6ba3f      mov dword [0x11f917c], edi
+   ; 0xb54b10(0x0, 0x0, 0x0, 0x0)
+0x00b6ba45      call 0xb54b10
+0x00b6ba4a      mov eax, dword [esi]
+0x00b6ba4c      mov edx, dword [eax + 0x8c]
+0x00b6ba52      add esp, 4
+0x00b6ba55      push edi
+0x00b6ba56      mov ecx, esi
+   ; 0xffffffff(-1, 0x0, -1, -1)
+0x00b6ba58      call edx
+0x00b6ba5a      mov eax, dword [esi]
+0x00b6ba5c      mov edx, dword [eax + 0xa8]
+
+
+NiRenderer::SetCameraData
+0x004e9bb0      push ebp
+0x004e9bb1      mov ebp, esp
+0x004e9bb3      sub esp, 0x28
+0x004e9bb6      mov dword [ebp - 0x28], ecx
+0x004e9bb9      mov ecx, dword [ebp + 8]
+   ; 0x4a0d10(0x0, 0x0, -1, 0x0)
+0x004e9bbc      call 0x4a0d10
+0x004e9bc1      push eax
+0x004e9bc2      mov ecx, dword [ebp + 8]
+   ; 0x45bbe0(0x0, 0x0, -1, 0x0)
+0x004e9bc5      call 0x45bbe0
+0x004e9bca      push eax
+0x004e9bcb      lea eax, [ebp - 0xc]
+0x004e9bce      push eax
+0x004e9bcf      mov ecx, dword [ebp + 8]
+   ; 0x4e9c50(0xfffffff0, 0x0, -1, 0x0)
+0x004e9bd2      call 0x4e9c50
+0x004e9bd7      push eax
+0x004e9bd8      lea ecx, [ebp - 0x18]
+0x004e9bdb      push ecx
+0x004e9bdc      mov ecx, dword [ebp + 8]
+   ; 0x4e9c10(0xfffffff0, 0x0, -1, 0x0)
+0x004e9bdf      call 0x4e9c10
+0x004e9be4      push eax
+0x004e9be5      lea edx, [ebp - 0x24]
+0x004e9be8      push edx
+0x004e9be9      mov ecx, dword [ebp + 8]
+   ; 0x45bba0(0xfffffff0, 0x0, -1, 0xffffffd8)
+0x004e9bec      call 0x45bba0
+0x004e9bf1      push eax
+0x004e9bf2      mov ecx, dword [ebp + 8]
+   ; 0x45bb80(0xfffffff0, 0x0, -1, 0xffffffd8)
+0x004e9bf5      call 0x45bb80
+0x004e9bfa      push eax
+0x004e9bfb      mov ecx, dword [ebp - 0x28]
+   ; 0x4e9c90(0xfffffff0, 0x0, -1, 0xffffffd8)
+0x004e9bfe      call 0x4e9c90
+0x004e9c03      mov esp, ebp
+0x004e9c05      pop ebp
+0x004e9c06      ret 4
+0x004e9c09      int3
+0x004e9c0a      int3
+0x004e9c0b      int3
+0x004e9c0c      int3
+0x004e9c0d      int3
+0x004e9c0e      int3
+0x004e9c0f      int3
+0x004e9c10      push ebp
+0x004e9c11      mov ebp, esp
+0x004e9c13      sub esp, 0x10
+0x004e9c16      mov dword [ebp - 0x10], ecx
+0x004e9c19      lea ecx, [ebp - 0xc]
+   ; 0x6815c0(0xfffffff0, 0x0, 0xfffffff8, 0xffffffd8)
+0x004e9c1c      call 0x6815c0
+0x004e9c21      lea eax, [ebp - 0xc]
+0x004e9c24      push eax
+; 1
+0x004e9c25      push 1
+0x004e9c27      mov ecx, dword [ebp - 0x10]
+; 104
+0x004e9c2a      add ecx, 0x68
+   ; 0x439f50(0xfffffff8, 0x0, 0x67, 0xffffffd8)
+0x004e9c2d      call 0x439f50
+0x004e9c32      mov ecx, dword [ebp + 8]
+0x004e9c35      mov edx, dword [ebp - 0xc]
+0x004e9c38      mov dword [ecx], edx
+0x004e9c3a      mov eax, dword [ebp - 8]
+0x004e9c3d      mov dword [ecx + 4], eax
+0x004e9c40      mov edx, dword [ebp - 4]
+0x004e9c43      mov dword [ecx + 8], edx
+0x004e9c46      mov eax, dword [ebp + 8]
+0x004e9c49      mov esp, ebp
+0x004e9c4b      pop ebp
+
+
+Early world frustum publication
+0x00873383      mov ecx, dword [ebp - 0x18]
+   ; 0x45bbe0(0x0, 0x0, -1, 0x0)
+0x00873386      call 0x45bbe0
+0x0087338b      push eax
+0x0087338c      mov ecx, dword [ebp - 0x10]
+   ; 0xa694a0(0x0, 0x0, -1, 0x0)
+0x0087338f      call 0xa694a0
+0x00873394      mov ecx, dword [ebp - 0x1a8]
+
+
+Culling-process copy
+0x00a694a0      push ebx
+0x00a694a1      mov ebx, ecx
+0x00a694a3      mov edx, dword [ebx + 0xc]
+0x00a694a6      test edx, edx
+   ; unlikely
+0x00a694a8      je 0xa694d5
+0x00a694aa      push esi
+0x00a694ab      mov esi, dword [esp + 0xc]
+0x00a694af      push edi
+0x00a694b0      lea eax, [ebx + 0x10]
+; 104
+0x00a694b3      add edx, 0x68
+0x00a694b6      mov edi, eax
+0x00a694b8      mov ecx, 7
+0x00a694bd      push edx
+0x00a694be      rep movsd dword es:[edi], dword [esi]
+0x00a694c0      push eax
+0x00a694c1      lea ecx, [ebx + 0x2c]
+   ; 0xa74e10(0x10, 0x0, 0x2c, 0x67)
+0x00a694c4      call 0xa74e10
+0x00a694c9      pop edi
+; '?'
+; [0x3f:4]=-1
+; 63
+0x00a694ca      mov dword [ebx + 0x8c], 0x3f
+0x00a694d4      pop esi
+0x00a694d5      pop ebx
+0x00a694d6      ret 4
+0x00a694d9      int3
+
+
+Virtual projection provider boundary
+0x004e9c90      push ebp
+0x004e9c91      mov ebp, esp
+0x004e9c93      push ecx
+0x004e9c94      mov dword [ebp - 4], ecx
+; 1
+0x004e9c97      push 1
+; "SetCameraData"
+0x004e9c99      push 0x10231b8
+0x004e9c9e      mov ecx, dword [ebp - 4]
+   ; 0x4a0e10(0x0, 0x0, -1, 0x0)
+0x004e9ca1      call 0x4a0e10
+0x004e9ca6      movzx eax, al
+0x004e9ca9      test eax, eax
+   ; unlikely
+0x004e9cab      jne 0x4e9caf
+0x004e9cad      jmp 0x4e9cd7
+0x004e9caf      mov ecx, dword [ebp + 0x1c]
+0x004e9cb2      push ecx
+0x004e9cb3      mov edx, dword [ebp + 0x18]
+0x004e9cb6      push edx
+0x004e9cb7      mov eax, dword [ebp + 0x14]
+0x004e9cba      push eax
+0x004e9cbb      mov ecx, dword [ebp + 0x10]
+0x004e9cbe      push ecx
+0x004e9cbf      mov edx, dword [ebp + 0xc]
+0x004e9cc2      push edx
+0x004e9cc3      mov eax, dword [ebp + 8]
+0x004e9cc6      push eax
+0x004e9cc7      mov ecx, dword [ebp - 4]
+0x004e9cca      mov edx, dword [ecx]
+0x004e9ccc      mov ecx, dword [ebp - 4]
+0x004e9ccf      mov eax, dword [edx + 0x18c]
+   ; 0xffffffff(-1, 0x0, -1, -1)
+0x004e9cd5      call eax
+0x004e9cd7      mov esp, ebp
+0x004e9cd9      pop ebp
+0x004e9cda      ret 0x18
+0x004e9cdd      int3
+0x004e9cde      int3
+0x004e9cdf      int3
+0x004e9ce0      push ebp
+0x004e9ce1      mov ebp, esp
+0x004e9ce3      sub esp, 8
+0x004e9ce6      mov eax, dword [ebp + 8]
+0x004e9ce9      xor edx, edx
+
+
+NiDX9Renderer frustum-derived projection storage
+0x00e6ca07      fld dword [edi + 0x10]
+; [0x684:4]=-1
+; 1668
+0x00e6ca0a      fstp dword [esi + 0x684]
+0x00e6ca10      mov ecx, dword [esi + 0x8b8]
+0x00e6ca16      fld dword [edi + 0x14]
+0x00e6ca19      fsub dword [edi + 0x10]
+0x00e6ca1c      fstp dword [esp + 0x28]
+0x00e6ca20      fld dword [esp + 0x28]
+; [0x688:4]=-1
+; 1672
+0x00e6ca24      fst dword [esi + 0x688]
+0x00e6ca2a      cmp byte [edi + 0x18], 0
+0x00e6ca2e      fld dword [edi + 4]
+0x00e6ca31      mov edx, dword [ecx]
+0x00e6ca33      fsub dword [edi]
+0x00e6ca35      mov eax, dword [edx + 0x4c]
+0x00e6ca38      fstp dword [esp + 0x18]
+0x00e6ca3c      fld dword [edi]
+0x00e6ca3e      fadd dword [edi + 4]
+0x00e6ca41      fstp dword [esp + 0x1c]
+0x00e6ca45      fld dword [edi + 8]
+0x00e6ca48      fsub dword [edi + 0xc]
+0x00e6ca4b      fstp dword [esp + 0x20]
+0x00e6ca4f      fld dword [edi + 0xc]
+0x00e6ca52      fadd dword [edi + 8]
+0x00e6ca55      fstp dword [esp + 0x24]
+0x00e6ca59      fld1
+0x00e6ca5b      fdivrp st(1)
+0x00e6ca5d      fstp dword [esp + 0x28]
+   ; unlikely
+0x00e6ca61      je 0xe6cb29
+   ; 0xffffffff(-1, 0x0, -1, -1)
+0x00e6ca67      call eax
+0x00e6ca69      fld qword [0x1011590]
+0x00e6ca6f      fld dword [esp + 0x18]
+0x00e6ca73      lea ebx, [esi + 0x9c0]
+0x00e6ca79      fld st(0)
+0x00e6ca7b      test al, al
+   ; unlikely
+0x00e6ca7d      je 0xe6ca9b
+0x00e6ca7f      fdivr qword [0x106d4c8]
+0x00e6ca85      fstp dword [ebx]
+0x00e6ca87      fldz
+; [0x9d0:4]=-1
+; 2512
+0x00e6ca89      fst dword [esi + 0x9d0]
+; [0x9e0:4]=-1
+; 2528
+0x00e6ca8f      fst dword [esi + 0x9e0]
+0x00e6ca95      fld dword [esp + 0x1c]
+0x00e6ca99      jmp 0xe6cab3
+0x00e6ca9b      fdivr st(2)
