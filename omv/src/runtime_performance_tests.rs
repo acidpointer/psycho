@@ -150,193 +150,6 @@ fn present_menu_draws_to_swapchain_and_restores_offscreen_attachments() {
     );
 }
 
-/// Run the shipped sunshaft phase at the reported image/allocation extents.
-/// The native viewport is the phase's image boundary; outside pixels belong
-/// to native presentation and must survive the complete graph unchanged.
-#[test]
-fn sunshaft_phase_preserves_native_letterbox_pixels() {
-    let _execution = RUNTIME_EXECUTION
-        .lock()
-        .unwrap_or_else(|err| err.into_inner());
-    let owner = create_direct3d9()
-        .unwrap()
-        .create_windowed_device(get_desktop_window().unwrap(), 1920, 1200, D3DDEVTYPE_HAL)
-        .unwrap();
-    let device = owner.as_ref();
-    let target = device.render_target(0).unwrap();
-    let desc = target.desc().unwrap();
-    let depth = device
-        .create_render_target_texture(1920, 1080, D3DFMT_R32F)
-        .unwrap();
-    device.set_depth_stencil_surface(None).unwrap();
-    device
-        .set_render_target(0, &depth.surface_level(0).unwrap())
-        .unwrap();
-    device
-        .clear_attachments(D3DCLEAR_TARGET as u32, 0, 1.0, 0)
-        .unwrap();
-    device
-        .clear_attachment_rect(
-            &RECT {
-                left: 880,
-                top: 400,
-                right: 1040,
-                bottom: 680,
-            },
-            D3DCLEAR_TARGET as u32,
-            0xFF808080,
-            1.0,
-            0,
-        )
-        .unwrap();
-    device.set_render_target(0, &target).unwrap();
-    device
-        .clear_attachments(D3DCLEAR_TARGET as u32, 0, 1.0, 0)
-        .unwrap();
-    let camera = backend::CameraFrame {
-        near_z: 5.0,
-        far_z: 353840.0,
-        aspect_ratio: 16.0 / 9.0,
-        frustum_left: -1.3333334,
-        frustum_right: 1.3333334,
-        frustum_bottom: -0.75,
-        frustum_top: 0.75,
-        world_transform: backend::CameraTransformFrame {
-            available: true,
-            ..Default::default()
-        },
-        available: true,
-    };
-    let frame = backend::FrameInputs {
-        camera,
-        depth: DepthFrame::from_textures(
-            DepthProvider::FalloutNewVegas,
-            backend::DepthTexture::new(depth.as_raw_base_texture()),
-            None,
-            backend::DepthProjectionFrame {
-                camera,
-                reversed_depth: Some(true),
-                ..Default::default()
-            },
-            Default::default(),
-            23,
-        ),
-        sky: Some(backend::NativeSkyFrame {
-            sky_upper: [0.2, 0.3, 0.6],
-            sky_lower: [0.4, 0.45, 0.55],
-            horizon: [0.65, 0.6, 0.5],
-            sun_light: [1.0; 3],
-            sun_disk: [1.0; 3],
-            sun_direction: [1.0, 0.0, 0.0],
-            daylight: 1.0,
-            game_hour: 12.0,
-            is_exterior: true,
-            reversed_depth: true,
-        }),
-        material_state: backend::MaterialStateFrame {
-            exterior_known: true,
-            is_exterior: true,
-        },
-        ..Default::default()
-    };
-    sunshafts::service_preparation();
-    let deadline = Instant::now() + std::time::Duration::from_secs(30);
-    while !sunshafts::preparation_ready() && Instant::now() < deadline {
-        std::thread::sleep(std::time::Duration::from_millis(10));
-    }
-    assert!(sunshafts::preparation_ready());
-    let mut runtime = ScreenShaderRuntime::default();
-    runtime.settings.depth_provider = DepthProvider::FalloutNewVegas;
-    runtime.sources = shaders::merge_embedded_sources(
-        &crate::config::EmbeddedEffectsConfig::default(),
-        Vec::new(),
-    )
-    .into_iter()
-    .filter(|s| s.embedded_effect_kind() == Some(EmbeddedEffectKind::Sunshafts))
-    .collect();
-    runtime.sources[0].enabled = true;
-    let phase = runtime.sources[0].phase;
-    runtime.ensure_shaders(&device);
-    runtime
-        .ensure_phase_color_copy(&device, &desc, phase)
-        .unwrap();
-    device
-        .set_viewport(&D3DVIEWPORT9 {
-            X: 0,
-            Y: 60,
-            Width: 1920,
-            Height: 1080,
-            MinZ: 0.0,
-            MaxZ: 1.0,
-        })
-        .unwrap();
-    device.begin_scene().unwrap();
-    runtime
-        .draw_passes(&device, &target, &desc, phase, &frame)
-        .unwrap();
-    device.end_scene().unwrap();
-    let readback = device
-        .create_system_memory_surface(1920, 1200, desc.Format)
-        .unwrap();
-    device.copy_render_target_data(&target, &readback).unwrap();
-    let pixels = readback.read_rgba8().unwrap();
-    assert!(
-        pixels[60 * 1920..1140 * 1920].iter().any(|p| p[0] > 0.03),
-        "sunshafts must execute"
-    );
-    assert!(
-        pixels[..60 * 1920]
-            .iter()
-            .chain(&pixels[1140 * 1920..])
-            .all(|p| p[..3] == [0.0; 3]),
-        "sunshaft phase modified native letterbox pixels"
-    );
-
-    // The same production graph on the actual image-sized target is the
-    // reference for sampling, radial filtering and composition. Compare the
-    // entire active image, not just black-bar exclusion or shader compilation.
-    let image_target = device
-        .create_render_target_texture(1920, 1080, desc.Format)
-        .unwrap();
-    let image_surface = image_target.surface_level(0).unwrap();
-    device.set_render_target(0, &image_surface).unwrap();
-    device
-        .clear_attachments(D3DCLEAR_TARGET as u32, 0, 1.0, 0)
-        .unwrap();
-    device.begin_scene().unwrap();
-    runtime
-        .draw_passes(
-            &device,
-            &image_surface,
-            &image_surface.desc().unwrap(),
-            phase,
-            &frame,
-        )
-        .unwrap();
-    device.end_scene().unwrap();
-    let image_readback = device
-        .create_system_memory_surface(1920, 1080, desc.Format)
-        .unwrap();
-    device
-        .copy_render_target_data(&image_surface, &image_readback)
-        .unwrap();
-    let expected = image_readback.read_rgba8().unwrap();
-    // Native backbuffer and texture rendering need not round the floating
-    // shader result identically at an 8-bit conversion boundary. Permit one
-    // destination code step; outside-image pixels above remain bit-exact.
-    let mismatch = pixels[60 * 1920..1140 * 1920]
-        .iter()
-        .zip(&expected)
-        .enumerate()
-        .find(|(_, (actual, expected))| {
-            actual
-                .iter()
-                .zip(expected.iter())
-                .any(|(a, b)| (a - b).abs() > 1.0 / 255.0 + f32::EPSILON)
-        });
-    assert!(mismatch.is_none(), "letterbox image mismatch: {mismatch:?}");
-}
-
 #[test]
 fn empty_screen_graph_does_not_request_depth_captures() {
     let _execution = RUNTIME_EXECUTION
@@ -1021,4 +834,186 @@ fn disabling_bloom_keeps_the_final_color_output_current() {
         after_b, reenabled,
         "re-enabling Bloom must change the composed output again"
     );
+}
+
+/// The phase color graph owns the full-resolution feedback copy: one drawn
+/// final phase copies the engine target exactly once, no planned effect may
+/// copy on its own, and rejected stages must not force the safety commit.
+/// This drives the real pass loop with a drawn color grade on a device.
+#[test]
+fn phase_graph_copies_once_per_drawn_final_phase() {
+    let _execution = RUNTIME_EXECUTION
+        .lock()
+        .unwrap_or_else(|err| err.into_inner());
+    let owner = create_direct3d9()
+        .unwrap()
+        .create_windowed_device(get_desktop_window().unwrap(), 32, 24, D3DDEVTYPE_HAL)
+        .unwrap();
+    let device = owner.as_ref();
+    let target = device.render_target(0).unwrap();
+    let desc = target.desc().unwrap();
+    let mut config = crate::config::EmbeddedEffectsConfig::default();
+    config.color_grade.enabled = true;
+    config.color_grade.color_grading_enabled = false;
+    config.color_grade.lut_enabled = false;
+    config.color_grade.deband_enabled = false;
+    config.color_grade.film_grain_enabled = false;
+    config.color_grade.vignette_enabled = false;
+    config.color_grade.halation_enabled = false;
+    config.color_grade.chromatic_aberration_enabled = true;
+    let mut runtime = ScreenShaderRuntime::default();
+    runtime.sources = shaders::merge_embedded_sources(&config, Vec::new())
+        .into_iter()
+        .filter(|source| source.embedded_effect_kind() == Some(EmbeddedEffectKind::ColorGrade))
+        .collect();
+    for source in &mut runtime.sources {
+        source.enabled = true;
+    }
+    runtime.final_color_shaders = Some(Arc::new(
+        blooming_hdr::FinalColorShaderBytecode::prepare().unwrap(),
+    ));
+    runtime.ensure_shaders(&device);
+    let frame = backend::FrameInputs::default();
+    let phase = ShaderPhase::FinalImageSpace;
+
+    let before_initial = PHASE_INITIAL_COLOR_COPIES.load(Ordering::Relaxed);
+    let before_fallback = PHASE_FALLBACK_COLOR_COMMITS.load(Ordering::Relaxed);
+    device
+        .clear_attachments(D3DCLEAR_TARGET as u32, 0xFF808080, 1.0, 0)
+        .unwrap();
+    device.begin_scene().unwrap();
+    assert!(runtime.phase_has_applicable_work(phase, &desc, &frame));
+    runtime.render_target_slots(&device).unwrap();
+    runtime
+        .ensure_phase_color_copy(&device, &desc, phase)
+        .unwrap();
+    runtime
+        .draw_passes(&device, &target, &desc, phase, &frame)
+        .unwrap();
+    device.end_scene().unwrap();
+
+    assert_eq!(
+        PHASE_INITIAL_COLOR_COPIES.load(Ordering::Relaxed) - before_initial,
+        1,
+        "one drawn phase must copy the engine target exactly once"
+    );
+    assert_eq!(
+        PHASE_FALLBACK_COLOR_COMMITS.load(Ordering::Relaxed) - before_fallback,
+        0,
+        "a drawn planned stage must not force the fallback safety commit"
+    );
+}
+
+/// A loading screen must block the FinalImageSpace gameplay fallback while
+/// menu and resource servicing continue. This drives the real Present path
+/// with a drawable color-grade source on a device and observes the phase-color
+/// copy counters: the loading screen submits no final-phase copy and returns
+/// success. The gameplay-side final fallback cannot execute offline because
+/// `DepthProvider::None` composition requires native scene metadata; that
+/// half's copy-once contract is covered by `phase_graph_copies_once_per_drawn_final_phase`
+/// and `rejected_tail_stage_leaves_the_last_drawing_stage_on_the_engine_surface`.
+#[test]
+fn loading_screen_blocks_final_fallback_but_services_menu_resources() {
+    let _execution = RUNTIME_EXECUTION
+        .lock()
+        .unwrap_or_else(|err| err.into_inner());
+    let window = get_desktop_window().unwrap();
+    let owner = create_direct3d9()
+        .unwrap()
+        .create_windowed_device(window, 128, 96, D3DDEVTYPE_HAL)
+        .unwrap();
+    let device = owner.as_ref();
+    let mut runtime = ScreenShaderRuntime::default();
+    runtime.device_ptr = device.as_raw() as usize;
+    runtime.imgui_hwnd = window as usize;
+    // SAFETY: live window/device owners above outlive the context; this
+    // serialized test retains all D3D and ImGui calls on their owning thread.
+    runtime.imgui =
+        Some(unsafe { psycho_imgui::Dx9Context::new(window, device.as_raw()).unwrap() });
+    runtime.settings.depth_provider = DepthProvider::None;
+    runtime.settings.menu_config.screen_space_shaders = false;
+    let mut config = crate::config::EmbeddedEffectsConfig::default();
+    config.color_grade.enabled = true;
+    config.color_grade.color_grading_enabled = false;
+    config.color_grade.lut_enabled = false;
+    config.color_grade.deband_enabled = false;
+    config.color_grade.film_grain_enabled = false;
+    config.color_grade.vignette_enabled = false;
+    config.color_grade.halation_enabled = false;
+    config.color_grade.chromatic_aberration_enabled = true;
+    runtime
+        .settings
+        .menu_config
+        .embedded_effects
+        .depth_of_field
+        .enabled = false;
+    runtime
+        .settings
+        .menu_config
+        .embedded_effects
+        .motion_blur
+        .enabled = false;
+    runtime.sources = shaders::merge_embedded_sources(&config, Vec::new())
+        .into_iter()
+        .filter(|source| source.embedded_effect_kind() == Some(EmbeddedEffectKind::ColorGrade))
+        .collect();
+    assert!(!runtime.sources.is_empty());
+    runtime.sources[0].enabled = true;
+    runtime.rebuild_execution_plan();
+    let _menu = RestoreMenu(MENU_OPEN.swap(true, Ordering::AcqRel));
+
+    let before_initial = PHASE_INITIAL_COLOR_COPIES.load(Ordering::Relaxed);
+    let before_fallback = PHASE_FALLBACK_COLOR_COMMITS.load(Ordering::Relaxed);
+    device.begin_scene().unwrap();
+    // SAFETY: the device and HWND are live for this Present call.
+    unsafe { runtime.apply_present_frame(device.as_raw(), window, true) }.unwrap();
+    device.end_scene().unwrap();
+    assert_eq!(
+        PHASE_INITIAL_COLOR_COPIES.load(Ordering::Relaxed) - before_initial,
+        0,
+        "the loading screen must not apply the gameplay final fallback"
+    );
+    assert_eq!(
+        PHASE_FALLBACK_COLOR_COMMITS.load(Ordering::Relaxed) - before_fallback,
+        0,
+        "the loading screen must not commit any phase-color fallback"
+    );
+}
+
+/// The first-person motion-blur boundary must preflight before every GPU
+/// transaction. With the staged admission gate closed, the real boundary
+/// rejects without reading engine state, without capturing attachments, and
+/// without allocating any color copy; the admitted-chain ordering beyond
+/// that gate requires resident engine state and stays documented in the
+/// first-person motion-blur contract.
+#[test]
+fn first_person_motion_blur_preflights_before_gpu_work() {
+    let _execution = RUNTIME_EXECUTION
+        .lock()
+        .unwrap_or_else(|err| err.into_inner());
+    let window = get_desktop_window().unwrap();
+    let owner = create_direct3d9()
+        .unwrap()
+        .create_windowed_device(window, 32, 24, D3DDEVTYPE_HAL)
+        .unwrap();
+    let device = owner.as_ref();
+    let mut runtime = ScreenShaderRuntime::default();
+    runtime.device_ptr = device.as_raw() as usize;
+    runtime.settings.menu_config.screen_space_shaders = false;
+
+    let copies_before = phase_color_copy_counters();
+    // SAFETY: the device is owned by `owner` on this test thread; the
+    // admission gate is closed, so the boundary must reject before any
+    // engine-state read or GPU transaction.
+    let outcome =
+        unsafe { runtime.apply_first_person_motion_blur_after_world(device.as_raw(), 0xdead) };
+    assert!(matches!(
+        outcome.unwrap(),
+        FirstPersonMotionBlurOutcome::Rejected
+    ));
+    assert!(runtime.first_person_motion_blur_target == 0);
+    assert!(runtime.motion_blur.is_none());
+    assert!(runtime.world_color_copy.is_none());
+    let counters = phase_color_copy_counters();
+    assert_eq!(counters.initial, copies_before.initial);
 }

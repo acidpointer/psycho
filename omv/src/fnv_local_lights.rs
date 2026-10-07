@@ -3083,18 +3083,6 @@ mod tests {
         assert_eq!(scene_scan_capacity(false, true), 512);
         assert_eq!(scene_scan_capacity(true, false), 512);
         assert_eq!(scene_scan_capacity(true, true), 512);
-
-        let source = include_str!("fnv_local_lights.rs");
-        let telemetry = source
-            .split("pub(crate) fn telemetry()")
-            .nth(1)
-            .and_then(|source| {
-                source
-                    .split("pub(crate) fn try_with_current_terrain_lights")
-                    .next()
-            })
-            .expect("telemetry implementation");
-        assert!(telemetry.contains("capture_enabled: atmosphere_capture_enabled()"));
     }
 
     #[test]

@@ -529,7 +529,13 @@ fn keep_first_error(result: &mut Direct3DResult<()>, next: Direct3DResult<()>) {
 
 #[cfg(test)]
 mod tests {
-    use super::{RenderTargetSlots, SCENE_COPY_SAMPLERS};
+    use super::{RenderTargetSlots, SCENE_COPY_SAMPLERS, copy_scene_color_for_sampling};
+    use libpsycho::os::windows::{
+        directx9::{
+            D3DCLEAR_TARGET, D3DDEVTYPE_HAL, D3DDEVTYPE_NULLREF, D3DFMT_A8R8G8B8, create_direct3d9,
+        },
+        winapi::get_desktop_window,
+    };
 
     #[test]
     fn render_target_slots_are_bounded_to_the_d3d9_contract() {
@@ -570,48 +576,120 @@ mod tests {
         assert!(!alias_remains_after(&SCENE_COPY_SAMPLERS));
     }
 
+    /// The phase copy is an exact copy between equal-description surfaces
+    /// with both shader-visible aliases (s0, s3) unbound while the destination
+    /// is writable, and the caller's world-color binding restored to s3
+    /// afterwards. This executes the real helper on a device with hostile
+    /// sampler bindings and verifies the copied pixels bit-exactly.
     #[test]
     fn phase_copy_uses_an_exact_unfiltered_stretch() {
-        let source = include_str!("render_state.rs");
-        let signature = ["pub(crate) fn copy_scene_color_", "for_sampling("].concat();
-        let body = source
-            .split_once(&signature)
-            .map(|(_, tail)| tail)
-            .and_then(|tail| tail.split_once("\n}\n"))
-            .map(|(body, _)| body)
-            .expect("phase-copy helper body");
-        assert!(body.contains("for sampler in SCENE_COPY_SAMPLERS"));
-        assert!(body.contains("copy_exact_color_surface"));
-        assert!(!body.contains("D3DTEXF_POINT"));
-        let unbind = body
-            .find("clear_sampler(device, sampler)")
-            .expect("sampler unbind");
-        let copy = body.find("copy_exact_color_surface").expect("surface copy");
-        let rebind = body.find("device.set_texture").expect("sampler rebind");
-        assert!(unbind < copy);
-        assert!(copy < rebind);
+        let window = get_desktop_window().unwrap();
+        let owner = create_direct3d9()
+            .unwrap()
+            .create_windowed_device(window, 8, 8, D3DDEVTYPE_HAL)
+            .or_else(|_| {
+                create_direct3d9()
+                    .unwrap()
+                    .create_windowed_device(window, 8, 8, D3DDEVTYPE_NULLREF)
+            })
+            .unwrap();
+        let device = owner.as_ref();
 
-        let exact = source
-            .split_once("pub(crate) fn copy_exact_color_surface")
-            .map(|(_, tail)| tail)
-            .and_then(|tail| tail.split_once("\n}\n"))
-            .map(|(body, _)| body)
-            .expect("exact-copy helper body");
-        assert!(exact.contains("D3DTEXF_NONE"));
-        assert!(!exact.contains("D3DTEXF_POINT"));
+        let source_texture = device
+            .create_render_target_texture(8, 8, D3DFMT_A8R8G8B8)
+            .unwrap();
+        let source = source_texture.surface_level(0).unwrap();
+        let destination_texture = device
+            .create_render_target_texture(8, 8, D3DFMT_A8R8G8B8)
+            .unwrap();
+        let destination = destination_texture.surface_level(0).unwrap();
+
+        device.begin_scene().unwrap();
+        // Distinct non-default color: a regression that clears or garbles the
+        // destination instead of copying becomes observable.
+        let source_color = 0xFF7F_3F1F;
+        device.set_render_target(0, &source).unwrap();
+        device
+            .clear_attachments(D3DCLEAR_TARGET as u32, source_color, 1.0, 0)
+            .unwrap();
+        device.set_render_target(0, &destination).unwrap();
+        device
+            .clear_attachments(D3DCLEAR_TARGET as u32, 0xFF000000, 1.0, 0)
+            .unwrap();
+
+        // Bind the destination at both shader-visible alias points so a
+        // regression reading the destination while writing it becomes real
+        // render-target feedback inside this transaction.
+        device.set_texture(0, &destination_texture).unwrap();
+        device.set_texture(3, &destination_texture).unwrap();
+        assert!(device.texture_bound(0));
+        assert!(device.texture_bound(3));
+
+        let fallback = device
+            .create_render_target_texture(8, 8, D3DFMT_A8R8G8B8)
+            .unwrap();
+        copy_scene_color_for_sampling(&device, &source, &destination, &fallback).unwrap();
+
+        let readback = device
+            .create_system_memory_surface(8, 8, D3DFMT_A8R8G8B8)
+            .unwrap();
+        device
+            .copy_render_target_data(&destination, &readback)
+            .unwrap();
+        let expected = vec![
+            [
+                0x7F as f32 / 255.0,
+                0x3F as f32 / 255.0,
+                0x1F as f32 / 255.0,
+                1.0
+            ];
+            64
+        ];
+        assert_eq!(
+            readback.read_rgba8().unwrap(),
+            expected,
+            "phase copy did not reproduce the source pixels exactly"
+        );
+        for sampler in SCENE_COPY_SAMPLERS {
+            if sampler == 3 {
+                assert!(
+                    device.texture_bound(sampler),
+                    "s3 world-color fallback binding was not restored"
+                );
+                assert_eq!(
+                    device.texture_raw(sampler),
+                    Some(fallback.as_raw()),
+                    "s3 must keep the caller's world-color binding"
+                );
+            } else {
+                assert!(
+                    !device.texture_bound(sampler),
+                    "phase copy left sampler {sampler} aliasing the destination"
+                );
+            }
+        }
+        device.end_scene().unwrap();
     }
 
     #[test]
     fn missing_depth_surface_uses_the_documented_hresult() {
-        let source = include_str!("../../libpsycho/src/os/windows/directx9.rs");
-        let signature = ["pub fn depth_stencil_", "surface(&self)"].concat();
-        let body = source
-            .split_once(&signature)
-            .map(|(_, tail)| tail)
-            .and_then(|tail| tail.split_once("\n    }\n"))
-            .map(|(body, _)| body)
-            .expect("depth-stencil query body");
-        assert!(body.contains("D3DERR_NOTFOUND"));
-        assert!(!body.contains("E_POINTER"));
+        let window = get_desktop_window().unwrap();
+        let owner = create_direct3d9()
+            .unwrap()
+            .create_windowed_device(window, 8, 8, D3DDEVTYPE_HAL)
+            .or_else(|_| {
+                create_direct3d9()
+                    .unwrap()
+                    .create_windowed_device(window, 8, 8, D3DDEVTYPE_NULLREF)
+            })
+            .unwrap();
+        let device = owner.as_ref();
+        device.set_depth_stencil_surface(None).unwrap();
+        // No bound depth-stencil surfaces as an observed Ok(None) on the
+        // wrapper boundary; D3DERR_NOTFOUND only reaches the raw COM result.
+        assert!(
+            device.depth_stencil_surface().unwrap().is_none(),
+            "an unbound depth-stencil surface must report absence"
+        );
     }
 }

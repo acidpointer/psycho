@@ -419,8 +419,10 @@ pub(crate) fn prepare_for_game_load() {
 #[cfg(test)]
 mod load_transition_tests {
     use super::{
-        MENU_KEY_CAPTURE_ACTIVE, MENU_OPEN, PENDING_MENU_TOGGLE_KEY, menu_diagnostics_active,
-        prepare_for_game_load, set_menu_diagnostics_active,
+        MASTER_EFFECTS_ENABLED, MENU_KEY_CAPTURE_ACTIVE, MENU_OPEN, NATIVE_DOF_QUERY_NEEDED,
+        PENDING_MENU_TOGGLE_KEY, PRESENT_FRAME_TIMING_NEEDED, RUNTIME, RuntimeSettings,
+        abandon_deferred_first_person_motion_blur_admission, apply_initial_depth_activation,
+        configure, menu_diagnostics_active, prepare_for_game_load, set_menu_diagnostics_active,
     };
     use std::sync::atomic::Ordering;
 
@@ -441,43 +443,96 @@ mod load_transition_tests {
         assert!(!crate::input::menu_input_blocked_for_test());
     }
 
+    /// The accepted plugin-load boundary executes for real: configuration
+    /// performs only its plugin-load bookkeeping, the staged adaptive Present
+    /// clock and first-person admission gate stay closed, the DeferredInit
+    /// activation opens both, and failure abandonment clears only the new
+    /// gate. Every embedded family is disabled in the staged settings so this
+    /// execution does not spawn compile workers; their worker-start behavior
+    /// is covered by the dedicated effect suites.
     #[test]
     fn nvse_configuration_preserves_preparation_and_stages_only_new_admission() {
-        let source = include_str!("runtime.rs");
-        let configure = source
-            .split_once("pub(crate) fn configure(settings: RuntimeSettings)")
-            .and_then(|(_, tail)| tail.split_once("pub(crate) fn apply_initial_depth_activation"))
-            .map(|(body, _)| body)
-            .expect("NVSE runtime configuration body");
-        assert!(configure.contains("service_enabled_effect_preparation"));
-        assert!(configure.contains("update_native_dof_query_needed"));
-        assert!(!configure.contains("update_temporal_present_services_needed"));
+        let master_before = MASTER_EFFECTS_ENABLED.load(Ordering::Acquire);
+        let timing_before = PRESENT_FRAME_TIMING_NEEDED.load(Ordering::Acquire);
+        let dof_before = NATIVE_DOF_QUERY_NEEDED.load(Ordering::Acquire);
+        let settings = staged_only_new_admission_settings();
 
-        let deferred_activation = source
-            .split_once("pub(crate) fn apply_initial_depth_activation")
-            .and_then(|(_, tail)| {
-                tail.split_once("pub(crate) fn abandon_deferred_first_person_motion_blur_admission")
-            })
-            .map(|(body, _)| body)
-            .expect("DeferredInit activation body");
-        assert!(deferred_activation.contains("update_temporal_present_services_needed"));
+        configure(settings.clone());
 
-        let runtime_configure_entry =
-            ["fn config", "ure(&mut self, settings: RuntimeSettings)"].concat();
-        let present_entry = ["unsafe fn apply_", "present_frame"].concat();
-        let runtime_configure = source
-            .split_once(&runtime_configure_entry)
-            .and_then(|(_, tail)| tail.split_once(&present_entry))
-            .map(|(body, _)| body)
-            .expect("screen runtime configuration body");
-        assert!(runtime_configure.contains("first_person_motion_blur_admission_ready = false"));
-        assert!(runtime_configure.contains("publish_fnv_scene_requirements"));
+        // The plugin-load configuration must keep the staged admission gate
+        // closed while preparation bookkeeping runs.
+        assert!(!RUNTIME.lock().first_person_motion_blur_admission_ready);
+        assert!(!PRESENT_FRAME_TIMING_NEEDED.load(Ordering::Acquire));
+
+        // DeferredInit activation opens both the staged admission gate and
+        // the adaptive Present clock.
+        apply_initial_depth_activation(crate::backend::InitialDepthActivation {
+            requested: crate::backend::DepthProvider::FalloutNewVegas,
+            active: crate::backend::DepthProvider::FalloutNewVegas,
+            fallback: None,
+        });
+        assert!(RUNTIME.lock().first_person_motion_blur_admission_ready);
+        assert!(PRESENT_FRAME_TIMING_NEEDED.load(Ordering::Acquire));
+
+        // A failed installer pass must clear only the new gate; the Present
+        // clock re-evaluates from the staged configuration, which keeps it
+        // open only for the configured DOF/adaptive consumers.
+        abandon_deferred_first_person_motion_blur_admission();
+        assert!(!RUNTIME.lock().first_person_motion_blur_admission_ready);
+        // With first-person DOF disabled in the staged settings, the
+        // re-evaluation closes the clock again; with DOF enabled it stays.
+        assert_eq!(
+            PRESENT_FRAME_TIMING_NEEDED.load(Ordering::Acquire),
+            settings.menu_config.embedded_effects.depth_of_field.enabled
+        );
+
+        MASTER_EFFECTS_ENABLED.store(master_before, Ordering::Release);
+        PRESENT_FRAME_TIMING_NEEDED.store(timing_before, Ordering::Release);
+        NATIVE_DOF_QUERY_NEEDED.store(dof_before, Ordering::Release);
+    }
+
+    /// Plugin-load settings with every embedded family disabled while
+    /// adaptive tone timing is still warranted: this isolates the staged
+    /// Present-clock admission from worker-start behavior.
+    fn staged_only_new_admission_settings() -> RuntimeSettings {
+        let mut settings = RuntimeSettings::default();
+        settings.menu_config.screen_space_shaders = true;
+        let effects = &mut settings.menu_config.embedded_effects;
+        effects.fast_ao.enabled = false;
+        effects.contact_ao.enabled = false;
+        effects.volumetric_fog.enabled = false;
+        effects.volumetric_lighting.enabled = false;
+        effects.volumetric_lighting.local_lights_enabled = false;
+        effects.temporal_aa.enabled = false;
+        effects.sunshafts.enabled = false;
+        effects.blooming_hdr.enabled = false;
+        effects.color_grade.enabled = true;
+        effects.fast_fxaa.enabled = false;
+        effects.nfaa.enabled = false;
+        effects.axaa.enabled = false;
+        effects.dlaa.enabled = false;
+        effects.smaa.enabled = false;
+        effects.depth_of_field.enabled = false;
+        effects.motion_blur.enabled = false;
+        settings.menu_config.adaptive_tone.auto_exposure_enabled = true;
+        settings.menu_config.adaptive_tone.exposure_range_ev = 1.0;
+        settings
     }
 }
 
 #[cfg(test)]
 mod render_callback_io_tests {
-    use super::{PhaseColorLocation, next_phase_color_location, present_services_required_for};
+    use super::{
+        PhaseColorLocation, ScreenShaderRuntime, next_phase_color_location,
+        present_services_required_for,
+    };
+    use crate::{backend, shaders};
+    use libpsycho::os::windows::{
+        directx9::{
+            D3DDEVTYPE_HAL, D3DDEVTYPE_NULLREF, D3DFMT_A8R8G8B8, Device9, create_direct3d9,
+        },
+        winapi::{get_active_window, get_desktop_window, get_foreground_window},
+    };
 
     #[test]
     fn phase_color_graph_alternates_intermediates_and_finishes_on_engine() {
@@ -610,157 +665,95 @@ mod render_callback_io_tests {
     }
 
     #[test]
-    fn loading_screen_blocks_gameplay_final_fallback_only() {
-        let source = include_str!("runtime.rs");
-        let apply = source
-            .rsplit_once("    unsafe fn apply_present_frame(")
-            .and_then(|(_, tail)| {
-                tail.split_once("    unsafe fn apply_first_person_motion_blur_after_world")
-            })
-            .map(|(body, _)| body)
-            .expect("presentation implementation");
-        let fallback = apply
-            .find("let can_apply_at_present")
-            .expect("final fallback admission");
-        let menu = apply.find("let menu_open").expect("menu servicing");
-        assert!(menu < fallback);
-        assert!(apply[fallback..].contains("!loading_screen"));
-        assert!(apply.contains("self.ensure_imgui"));
-    }
-
-    #[test]
     fn rejected_depth_effects_exit_before_device_creation() {
-        let source = include_str!("runtime.rs");
-        for (suffix, predicate) in [
-            (
-                "ambient_occlusion_pipeline(",
-                "ambient_occlusion::should_draw",
-            ),
-            ("sunshafts_pipeline(", "sunshafts::should_draw"),
-            ("depth_of_field_pipeline(", "depth_of_field::should_draw"),
-        ] {
-            let function = ["\n    fn draw_", suffix].concat();
-            let body = source
-                .split_once(&function)
-                .map(|(_, tail)| tail)
-                .and_then(|tail| tail.split_once("\n    fn "))
-                .map(|(body, _)| body)
-                .expect("effect pipeline body");
-            let preflight = body
-                .find(predicate)
-                .expect("effect applicability preflight");
-            let creation = body
-                .find("::create(device)")
-                .expect("effect resource creation");
-            assert!(preflight < creation);
-            assert!(!body.contains("copy_phase_color_for_sampling"));
-        }
+        let owner = pipeline_test_device();
+        let device = owner.as_ref();
+        let mut runtime = ScreenShaderRuntime::default();
+        runtime.device_ptr = device.as_raw() as usize;
 
-        let motion_pipeline = ["\n    fn draw_motion_", "blur_pipeline("].concat();
-        let pipeline_body = source
-            .split_once(&motion_pipeline)
-            .map(|(_, tail)| tail)
-            .and_then(|tail| tail.split_once("\n    fn "))
-            .map(|(body, _)| body)
-            .expect("motion-blur pipeline body");
-        assert!(pipeline_body.contains("draw_motion_blur_frame"));
-        let prepared = pipeline_body
-            .find("prepared_motion_blur_frame.take()")
-            .expect("motion preflight packet");
-        let delegate = pipeline_body
-            .find("draw_motion_blur_frame")
-            .expect("motion draw delegation");
-        let helper_function = ["\n    fn draw_motion_", "blur_frame("].concat();
-        let helper_body = source
-            .split_once(&helper_function)
-            .map(|(_, tail)| tail)
-            .and_then(|tail| tail.split_once("\n    fn "))
-            .map(|(body, _)| body)
-            .expect("motion-blur draw helper body");
-        let creation = helper_body
-            .find("MotionBlurEffect::create(device)")
-            .expect("motion shader creation");
-        assert!(prepared < delegate);
-        assert!(creation < helper_body.len());
-        assert!(!pipeline_body.contains("copy_phase_color_for_sampling"));
-        assert!(!helper_body.contains("copy_phase_color_for_sampling"));
+        let output = device
+            .create_render_target_texture(8, 8, D3DFMT_A8R8G8B8)
+            .unwrap();
+        let output_surface = output.surface_level(0).unwrap();
+        let desc = output_surface.desc().unwrap();
+        let scene_color = device
+            .create_render_target_texture(8, 8, D3DFMT_A8R8G8B8)
+            .unwrap();
+        // Default frame inputs carry no depth texture and no sun, so every
+        // depth-consuming pipeline must reject before any device work.
+        let frame_inputs = backend::FrameInputs::default();
+
+        let applied = runtime
+            .draw_ambient_occlusion_pipeline(
+                &device,
+                &output_surface,
+                &desc,
+                &frame_inputs,
+                &scene_color,
+                None,
+                None,
+            )
+            .unwrap();
+        assert!(!applied);
+        assert!(runtime.ambient_occlusion.is_none());
+
+        let sun_source = shaders::merge_embedded_sources(
+            &crate::config::EmbeddedEffectsConfig::default(),
+            Vec::new(),
+        )
+        .into_iter()
+        .find(|source| {
+            source.embedded_effect_kind() == Some(crate::shaders::EmbeddedEffectKind::Sunshafts)
+        })
+        .expect("embedded sunshafts source for the rejection preflight");
+        let applied = runtime
+            .draw_sunshafts_pipeline(
+                &device,
+                &output_surface,
+                &desc,
+                &frame_inputs,
+                &scene_color,
+                &sun_source,
+            )
+            .unwrap();
+        assert!(!applied);
+        assert!(runtime.sunshafts.is_none());
+
+        let applied = runtime
+            .draw_depth_of_field_pipeline(
+                &device,
+                &output_surface,
+                &desc,
+                &frame_inputs,
+                &scene_color,
+            )
+            .unwrap();
+        assert!(!applied);
+        assert!(runtime.depth_of_field.is_none());
+        assert!(!runtime.depth_of_field_creation_failed);
+
+        let applied = runtime
+            .draw_motion_blur_pipeline(&device, &output_surface, &desc, &frame_inputs, &scene_color)
+            .unwrap();
+        assert!(!applied);
+        assert!(runtime.motion_blur.is_none());
+        assert!(runtime.prepared_motion_blur_frame.is_none());
     }
 
-    #[test]
-    fn background_shader_readiness_precedes_phase_color_work() {
-        let source = include_str!("runtime.rs");
-        let applicability = source
-            .split_once("\n    fn phase_has_applicable_work(")
-            .map(|(_, tail)| tail)
-            .and_then(|tail| tail.split_once("\n    fn "))
-            .map(|(body, _)| body)
-            .expect("phase applicability body");
-        for readiness in [
-            "ambient_occlusion::preparation_ready()",
-            "anti_aliasing::preparation_ready()",
-            "sunshafts::preparation_ready()",
-            "blooming_hdr::prepared_bytecode()",
-            "depth_of_field::preparation_ready()",
-            "motion_blur::preparation_ready()",
-        ] {
-            assert!(
-                applicability.contains(readiness),
-                "missing pre-copy readiness gate: {readiness}"
-            );
-        }
-
-        let early_ao = source
-            .split_once("\n    unsafe fn apply_ambient_occlusion_after_world(")
-            .map(|(_, tail)| tail)
-            .and_then(|tail| tail.split_once("\n    unsafe fn "))
-            .map(|(body, _)| body)
-            .expect("early AO body");
-        let readiness = early_ao
-            .find("ambient_occlusion::preparation_ready()")
-            .expect("early AO readiness gate");
-        let allocation = early_ao
-            .find("ensure_phase_color_copy")
-            .expect("early AO color allocation");
-        assert!(readiness < allocation);
-        assert!(early_ao.contains("ScenePhaseTarget::CurrentRenderTarget"));
-        assert!(
-            !early_ao.contains("ScenePhaseTarget::RenderedTextureSource"),
-            "post-world AO must not pre-bind RenderFirstPerson's inactive texture argument"
-        );
-    }
-
-    #[test]
-    fn first_person_motion_blur_preflights_before_every_gpu_transaction() {
-        let source = include_str!("runtime.rs");
-        let body = source
-            .split_once("\n    unsafe fn apply_first_person_motion_blur_after_world(")
-            .map(|(_, tail)| tail)
-            .and_then(|tail| tail.split_once("\n    fn first_person_motion_blur_admitted"))
-            .map(|(body, _)| body)
-            .expect("first-person motion-blur transaction");
-        let temporal = body.find("prepare_frame(").expect("temporal preflight");
-        let readiness = body
-            .find("motion_blur::preparation_ready()")
-            .expect("bytecode readiness gate");
-        let color_target = body
-            .find("ensure_first_person_motion_blur_color_copy")
-            .expect("color target allocation");
-        let attachments = body
-            .find("RenderAttachments::capture")
-            .expect("attachment capture");
-        let color_copy = body
-            .find("copy_phase_color_for_sampling")
-            .expect("fresh color copy");
-        let draw = body
-            .find("draw_motion_blur_frame")
-            .expect("world-only draw");
-        assert!(temporal < readiness);
-        assert!(readiness < color_target);
-        assert!(color_target < attachments);
-        assert!(attachments < color_copy);
-        assert!(color_copy < draw);
-        assert!(!body.contains("ScenePhaseTarget::RenderedTextureSource"));
-        assert!(!body.contains("mark_applied"));
+    fn pipeline_test_device() -> Device9 {
+        let window = [
+            get_active_window(),
+            get_foreground_window(),
+            get_desktop_window().unwrap_or(std::ptr::null_mut()),
+        ]
+        .into_iter()
+        .find(|window| !window.is_null())
+        .expect("Wine must expose a window for D3D9 state validation");
+        let direct3d = create_direct3d9().expect("D3D9 runtime");
+        direct3d
+            .create_windowed_device(window, 8, 8, D3DDEVTYPE_HAL)
+            .or_else(|_| direct3d.create_windowed_device(window, 8, 8, D3DDEVTYPE_NULLREF))
+            .expect("HAL or NULLREF D3D9 device")
     }
 
     #[test]
@@ -6672,10 +6665,16 @@ mod frame_pacing_tests {
         FRAME_BUDGET_30_MS, FRAME_BUDGET_60_MS, FRAME_PACING_AGGREGATE_UPDATE_INTERVAL_MS,
         FRAME_PACING_CHART_POINTS, FRAME_PACING_HISTORY, FRAME_PACING_SPIKE_MEMORY,
         FRAME_PACING_SPIKE_WARMUP_SAMPLES, FramePacing, MENU_DIAGNOSTICS_ACTIVE_BIT,
-        MENU_DIAGNOSTICS_SESSION_INCREMENT, MenuTab, PresentFrameTiming, SpikeDirection,
-        adaptive_tone_timing_needed, copy_latest_frame_times, diagnostics_should_be_active,
-        diagnostics_state_transition, frame_pacing_chart_scale, gpu_diagnostics_card,
-        persistence_menu_config, present_interval_ms,
+        MENU_DIAGNOSTICS_SESSION_INCREMENT, MenuTab, PresentFrameTiming, ScreenShaderRuntime,
+        SpikeDirection, adaptive_tone_timing_needed, copy_latest_frame_times,
+        diagnostics_should_be_active, diagnostics_state_transition, frame_pacing_chart_scale,
+        gpu_diagnostics_card, persistence_menu_config, present_interval_ms,
+    };
+    use libpsycho::os::windows::{
+        directx9::{
+            D3DDEVTYPE_HAL, D3DDEVTYPE_NULLREF, D3DFMT_A16B16G16R16F, Device9, create_direct3d9,
+        },
+        winapi::{get_active_window, get_desktop_window, get_foreground_window},
     };
     use std::time::{Duration, Instant};
 
@@ -7763,20 +7762,64 @@ mod frame_pacing_tests {
         assert!(!apply.contains("native_shadows"));
     }
 
+    /// The first-person motion-blur color copy reuses the established FP16
+    /// world-color owner instead of the LDR scene-post graph slot. This
+    /// executes the real target-creation path on a device with an FP16 world
+    /// description and verifies the allocated slot, format, and identity: the
+    /// old shared-slot defect recreated a 3440x1440 texture every frame.
     #[test]
     fn first_person_motion_blur_cannot_ping_pong_the_scene_post_target_format() {
-        let source = include_str!("runtime.rs");
-        let ensure = source
-            .split_once("fn ensure_first_person_motion_blur_color_copy(")
-            .map(|(_, tail)| tail)
-            .and_then(|tail| tail.split_once("\n    fn phase_color_copy("))
-            .map(|(body, _)| body)
-            .expect("first-person motion-blur target owner");
-        assert!(ensure.contains("world_color_copy"));
+        let owner = motion_blur_target_test_device();
+        let device = owner.as_ref();
+        let mut runtime = ScreenShaderRuntime::default();
+        runtime.device_ptr = device.as_raw() as usize;
+
+        let world = device
+            .create_render_target_texture(8, 8, D3DFMT_A16B16G16R16F)
+            .unwrap();
+        let world_surface = world.surface_level(0).unwrap();
+        let world_desc = world_surface.desc().unwrap();
+
+        runtime
+            .ensure_first_person_motion_blur_color_copy(&device, &world_desc)
+            .unwrap();
+        let copy = runtime.world_color_copy.as_ref().expect("world color copy");
         assert!(
-            !ensure.contains("scene_post_color_copy"),
-            "the FP16 world target and LDR scene-post graph must never recreate one shared texture every frame"
+            copy.matches(&world_desc),
+            "first-person motion blur must reuse the FP16 world-color owner"
         );
+        let allocated = copy.texture.as_raw();
+        // The LDR scene-post slot and every other phase slot must stay empty.
+        assert!(runtime.scene_post_color_copy.is_none());
+        assert!(runtime.scene_pre_color_copy.is_none());
+        assert!(runtime.final_color_copy.is_none());
+
+        // A second call with the same description must not recreate the
+        // texture: the ping-pong defect allocated a fresh copy every frame.
+        runtime
+            .ensure_first_person_motion_blur_color_copy(&device, &world_desc)
+            .unwrap();
+        assert_eq!(
+            runtime.world_color_copy.as_ref().unwrap().texture.as_raw(),
+            allocated,
+            "first-person motion blur recreated the color copy for a matching frame"
+        );
+    }
+
+    fn motion_blur_target_test_device() -> Device9 {
+        let window = [
+            get_active_window(),
+            get_foreground_window(),
+            get_desktop_window().unwrap_or(std::ptr::null_mut()),
+        ]
+        .into_iter()
+        .find(|window| !window.is_null())
+        .expect("Wine must expose a window for D3D9 state validation");
+        let direct3d = create_direct3d9().expect("D3D9 runtime");
+        direct3d
+            .create_windowed_device(window, 8, 8, D3DDEVTYPE_HAL)
+            .or_else(|_| direct3d.create_windowed_device(window, 8, 8, D3DDEVTYPE_NULLREF))
+            .expect("HAL or NULLREF D3D9 device")
     }
 
     #[test]

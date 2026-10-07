@@ -162,13 +162,21 @@ pub(crate) fn preparation_ready() -> bool {
 
 #[cfg(test)]
 mod shader_compile_tests {
-    use libpsycho::os::windows::directx9::{D3DFMT_A8R8G8B8, D3DFMT_G16R16F};
+    use libpsycho::os::windows::{
+        directx9::{
+            D3DBLEND_ONE, D3DDEVTYPE_HAL, D3DDEVTYPE_NULLREF, D3DFMT_A8R8G8B8, D3DFMT_D24S8,
+            D3DFMT_G16R16F, D3DMULTISAMPLE_NONE, D3DRS_ALPHABLENDENABLE, D3DRS_SCISSORTESTENABLE,
+            D3DRS_SRGBWRITEENABLE, D3DRS_STENCILENABLE, D3DSAMP_SRGBTEXTURE, Device9,
+            create_direct3d9,
+        },
+        winapi::{get_active_window, get_desktop_window, get_foreground_window},
+    };
 
     use super::{
         AmbientOcclusionFamily, BLUR_SHADER, COMPOSE_SHADER, DEPTH_PRECISION_STEPS, EXTRACT_SHADER,
         TEMPORAL_SHADER, TemporalCameraState, TemporalReprojection, ao_depth_linearize_constants,
-        ao_depth_precision_constants, extract_shader_source, fallback_format_matches,
-        family_for_strengths,
+        ao_depth_precision_constants, bind_pipeline_state, bind_target, extract_shader_source,
+        fallback_format_matches, family_for_strengths,
     };
     use crate::backend::{CameraFrame, CameraTransformFrame};
 
@@ -897,22 +905,72 @@ mod shader_compile_tests {
         }
     }
 
+    /// The AO pipeline owns every state it depends on. This executes the real
+    /// bind functions on a real device that first inherits hostile values, so
+    /// a regression re-inheriting stencil, scissor, sRGB, depth, auxiliary
+    /// targets, or sampler sRGB decode fails on observed device state instead
+    /// of on source text.
     #[test]
     fn ao_pipeline_neutralizes_inherited_mask_and_color_space_state() {
-        let source = include_str!("ambient_occlusion.rs");
-        for required in [
-            "device.set_render_state(D3DRS_STENCILENABLE, 0)?",
-            "device.set_render_state(D3DRS_SCISSORTESTENABLE, 0)?",
-            "device.set_render_state(D3DRS_SRGBWRITEENABLE, 0)?",
-            "device.set_depth_stencil_surface(None)?",
-            "device.clear_render_target(index)?",
-            "device.set_sampler_state(sampler, D3DSAMP_SRGBTEXTURE, 0)?",
-        ] {
-            assert!(
-                source.contains(required),
-                "missing AO state contract: {required}"
+        let owner = ao_state_test_device();
+        let device = owner.as_ref();
+        let dirty_stencil = D3DRS_STENCILENABLE;
+        device.set_render_state(dirty_stencil, 1).unwrap();
+        device.set_render_state(D3DRS_SCISSORTESTENABLE, 1).unwrap();
+        device.set_render_state(D3DRS_SRGBWRITEENABLE, 1).unwrap();
+        device
+            .set_render_state(D3DRS_ALPHABLENDENABLE, D3DBLEND_ONE.0 as u32)
+            .unwrap();
+        let depth = device
+            .create_depth_stencil_surface(64, 64, D3DFMT_D24S8, D3DMULTISAMPLE_NONE, 0, false)
+            .unwrap();
+        device.set_depth_stencil_surface(Some(&depth)).unwrap();
+        for sampler in 0..=4 {
+            device
+                .set_sampler_state(sampler, D3DSAMP_SRGBTEXTURE, 1)
+                .unwrap();
+        }
+        // The readback must observe the inherited dirt, otherwise the
+        // assertions below prove nothing about the device.
+        assert_eq!(device.render_state(dirty_stencil).unwrap(), 1);
+        assert_eq!(device.sampler_state(0, D3DSAMP_SRGBTEXTURE).unwrap(), 1);
+
+        let target = device
+            .create_render_target_texture(64, 64, D3DFMT_A8R8G8B8)
+            .unwrap();
+        let surface = target.surface_level(0).unwrap();
+        bind_pipeline_state(&device).unwrap();
+        bind_target(&device, &surface, 64, 64).unwrap();
+
+        assert_eq!(device.render_state(dirty_stencil).unwrap(), 0);
+        assert_eq!(device.render_state(D3DRS_SCISSORTESTENABLE).unwrap(), 0);
+        assert_eq!(device.render_state(D3DRS_SRGBWRITEENABLE).unwrap(), 0);
+        assert_eq!(device.render_state(D3DRS_ALPHABLENDENABLE).unwrap(), 0);
+        assert!(device.depth_stencil_surface().unwrap().is_none());
+        assert!(device.render_target(1).is_err());
+        assert!(device.render_target(3).is_err());
+        for sampler in 0..=4 {
+            assert_eq!(
+                device.sampler_state(sampler, D3DSAMP_SRGBTEXTURE).unwrap(),
+                0
             );
         }
+    }
+
+    fn ao_state_test_device() -> Device9 {
+        let window = [
+            get_active_window(),
+            get_foreground_window(),
+            get_desktop_window().unwrap_or(std::ptr::null_mut()),
+        ]
+        .into_iter()
+        .find(|window| !window.is_null())
+        .expect("Wine must expose a window for D3D9 state validation");
+        let direct3d = create_direct3d9().expect("D3D9 runtime");
+        direct3d
+            .create_windowed_device(window, 64, 64, D3DDEVTYPE_HAL)
+            .or_else(|_| direct3d.create_windowed_device(window, 64, 64, D3DDEVTYPE_NULLREF))
+            .expect("HAL or NULLREF D3D9 device")
     }
 
     #[test]

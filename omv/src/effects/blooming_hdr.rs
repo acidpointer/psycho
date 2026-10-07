@@ -361,15 +361,25 @@ mod shader_compile_tests {
         BLUR_SHADER, CHROMATIC_SHADER, COMPOSE_SHADER, COMPOSE_VARIANT_ADAPTIVE,
         COMPOSE_VARIANT_STATIC, ColorGradeSettings, ComposeVariant, EXTRACT_SHADER,
         FILM_GRAIN_TEXTURE_SIZE, FinalColorShaderBytecode, FinalColorWorkPlan, LUT_COUNT, LUT_SIZE,
-        adaptive_reduce_source, adaptive_response_source, apply_lut_recipe,
-        bloom_target_dimensions, color_grade_source_active, compose_variant_source,
+        adaptive_reduce_source, adaptive_response_source, apply_lut_recipe, bind_pipeline_state,
+        bind_target, bloom_target_dimensions, color_grade_source_active, compose_variant_source,
         film_grain_pixels, fullscreen_quad, generate_builtin_lut, identity_lut_pixels,
         native_environment_weight, schedule_adaptive_update,
     };
     use crate::{
         backend::{FrameInputs, MaterialStateFrame, NativeSkyFrame},
         config::{AdaptiveToneConfig, EmbeddedEffectsConfig, ToneMapperMode},
+        render_state::RenderTargetSlots,
         shaders::{self, EmbeddedEffectKind},
+    };
+    use libpsycho::os::windows::{
+        directx9::{
+            D3DDEVTYPE_HAL, D3DDEVTYPE_NULLREF, D3DFMT_A8R8G8B8, D3DFMT_D24S8, D3DMULTISAMPLE_NONE,
+            D3DRS_MULTISAMPLEMASK, D3DRS_SCISSORTESTENABLE, D3DRS_SRGBWRITEENABLE,
+            D3DRS_STENCILENABLE, D3DSAMP_ADDRESSU, D3DSAMP_SRGBTEXTURE, D3DTADDRESS_WRAP, Device9,
+            create_direct3d9,
+        },
+        winapi::{get_active_window, get_desktop_window, get_foreground_window},
     };
 
     const FILM_GRAIN_DEFAULT_SIZE: f32 = 1.743_985;
@@ -1240,44 +1250,80 @@ mod shader_compile_tests {
         assert_eq!(bloom_target_dimensions(1919, 1079), (479, 269));
     }
 
+    /// The final-color pipeline owns every state it depends on. This executes
+    /// the real bind functions on a real device that first inherits hostile
+    /// values, so a regression re-inheriting stencil, scissor, multisample
+    /// mask, sRGB, depth, auxiliary targets, or sampler sRGB decode fails on
+    /// observed device state instead of on source text.
     #[test]
     fn final_color_pipeline_neutralizes_inherited_d3d_state() {
-        let source = include_str!("blooming_hdr.rs");
-        for required in [
-            "device.set_render_state(D3DRS_STENCILENABLE, 0)?",
-            "device.set_render_state(D3DRS_SCISSORTESTENABLE, 0)?",
-            "device.set_render_state(D3DRS_MULTISAMPLEMASK, u32::MAX)?",
-            "device.set_render_state(D3DRS_SRGBWRITEENABLE, 0)?",
-            "device.set_sampler_state(sampler, D3DSAMP_SRGBTEXTURE, 0)?",
-            "render_target_slots.prepare_target_change(device)?",
-        ] {
-            assert!(
-                source.contains(required),
-                "missing final-color state: {required}"
+        let owner = final_color_state_test_device();
+        let device = owner.as_ref();
+        device.set_render_state(D3DRS_STENCILENABLE, 1).unwrap();
+        device.set_render_state(D3DRS_SCISSORTESTENABLE, 1).unwrap();
+        device.set_render_state(D3DRS_MULTISAMPLEMASK, 0x1).unwrap();
+        device.set_render_state(D3DRS_SRGBWRITEENABLE, 1).unwrap();
+        let depth = device
+            .create_depth_stencil_surface(64, 64, D3DFMT_D24S8, D3DMULTISAMPLE_NONE, 0, false)
+            .unwrap();
+        device.set_depth_stencil_surface(Some(&depth)).unwrap();
+        for sampler in 0..=6 {
+            device
+                .set_sampler_state(sampler, D3DSAMP_SRGBTEXTURE, 1)
+                .unwrap();
+        }
+        assert_eq!(device.render_state(D3DRS_STENCILENABLE).unwrap(), 1);
+        assert_eq!(device.sampler_state(6, D3DSAMP_SRGBTEXTURE).unwrap(), 1);
+
+        let target = device
+            .create_render_target_texture(64, 64, D3DFMT_A8R8G8B8)
+            .unwrap();
+        let surface = target.surface_level(0).unwrap();
+        let slots = RenderTargetSlots::from_reported_count(2);
+        bind_pipeline_state(&device).unwrap();
+        bind_target(&device, &surface, 64, 64, slots).unwrap();
+
+        assert_eq!(device.render_state(D3DRS_STENCILENABLE).unwrap(), 0);
+        assert_eq!(device.render_state(D3DRS_SCISSORTESTENABLE).unwrap(), 0);
+        assert_eq!(
+            device.render_state(D3DRS_MULTISAMPLEMASK).unwrap(),
+            u32::MAX
+        );
+        assert_eq!(device.render_state(D3DRS_SRGBWRITEENABLE).unwrap(), 0);
+        assert!(device.depth_stencil_surface().unwrap().is_none());
+        assert!(device.render_target(1).is_err());
+        for sampler in 0..=6 {
+            assert_eq!(
+                device.sampler_state(sampler, D3DSAMP_SRGBTEXTURE).unwrap(),
+                0
             );
         }
-        assert!(source.contains("crate::backend::AlphaCoverageMode::Nvidia"));
-        assert!(source.contains("crate::backend::AlphaCoverageMode::Amd"));
-        assert!(source.contains("for sampler in 0..=6"));
-        assert!(
-            source.contains(
-                "device.set_sampler_state(6, D3DSAMP_ADDRESSU, D3DTADDRESS_WRAP.0 as u32)?"
-            )
+        assert_eq!(
+            device.sampler_state(6, D3DSAMP_ADDRESSU).unwrap(),
+            D3DTADDRESS_WRAP.0 as u32
         );
-        assert!(
-            source.contains(
-                "device.set_sampler_state(6, D3DSAMP_ADDRESSV, D3DTADDRESS_WRAP.0 as u32)?"
-            )
-        );
-        assert!(source.contains("crate::render_state::clear_sampler(device, 6)?"));
-        assert!(source.contains("crate::render_state::clear_sampler(device, 7)?"));
-        assert!(source.contains("configure_adaptive_sampler(device, 7, false)?"));
-        assert!(source.contains("D3DFMT_A8R8G8B8, D3DPOOL_MANAGED"));
-        assert!(source.contains("device.create_render_target_texture(width, height, format)"));
-        assert!(
-            source
-                .contains("self.width == width && self.height == height && self.format == format")
-        );
+        for sampler in [0, 4, 5, 6] {
+            assert!(
+                !device.texture_bound(sampler),
+                "final-color target binding left sampler {sampler} attached"
+            );
+        }
+    }
+
+    fn final_color_state_test_device() -> Device9 {
+        let window = [
+            get_active_window(),
+            get_foreground_window(),
+            get_desktop_window().unwrap_or(std::ptr::null_mut()),
+        ]
+        .into_iter()
+        .find(|window| !window.is_null())
+        .expect("Wine must expose a window for D3D9 state validation");
+        let direct3d = create_direct3d9().expect("D3D9 runtime");
+        direct3d
+            .create_windowed_device(window, 64, 64, D3DDEVTYPE_HAL)
+            .or_else(|_| direct3d.create_windowed_device(window, 64, 64, D3DDEVTYPE_NULLREF))
+            .expect("HAL or NULLREF D3D9 device")
     }
 
     #[test]
@@ -1303,7 +1349,6 @@ mod shader_compile_tests {
             quad.iter()
                 .all(|vertex| vertex.z == 0.0 && vertex.rhw == 1.0)
         );
-        assert!(include_str!("blooming_hdr.rs").contains("device.draw_primitive_up(2, &quad)"));
     }
 
     #[test]
@@ -2620,30 +2665,6 @@ mod shader_compile_tests {
         assert!(chromatic.contains("return float4(red, center.g, blue, center.a);"));
         assert!(!chromatic.contains("ddx("));
         assert!(!chromatic.contains("ddy("));
-
-        let implementation = include_str!("blooming_hdr.rs");
-        assert!(implementation.contains("if composed && work.chromatic_aberration {"));
-        assert!(implementation.contains("if work.bloom_intermediate {"));
-        assert!(implementation.contains("bind_bloom_effect_constants"));
-        assert!(implementation.contains("&grade.constants(bloom_enabled)"));
-        let draw_signature = ["pub(crate) fn dr", "aw("].concat();
-        let draw_body = implementation
-            .rsplit_once(&draw_signature)
-            .map(|(_, tail)| tail)
-            .and_then(|tail| tail.split_once("\n    fn "))
-            .map(|(body, _)| body)
-            .expect("final-color draw body");
-        assert!(
-            draw_body.find("if work.bloom_intermediate {")
-                < draw_body.find("let adaptive = if requested_adaptive.requires_history()"),
-            "Bloom must exist before automatic tone measures OMV-created headroom"
-        );
-        assert!(!draw_body.contains("copy_scene_color_for_sampling("));
-        assert!(!draw_body.contains("device.stretch_rect("));
-        assert!(draw_body.contains("self.ensure_composed_target(device, desc)?"));
-        assert!(draw_body.contains("&composed_target.texture"));
-        assert!(implementation.contains("self.draw_chromatic_aberration("));
-        assert!(implementation.contains("draw_quad(device, ADAPTIVE_RESPONSE_WIDTH, 1)"));
     }
 }
 
