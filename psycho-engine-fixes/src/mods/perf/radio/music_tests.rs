@@ -11,7 +11,135 @@ use libpsycho::os::windows::winapi::{
     FreeType, flush_instructions_cache, virtual_alloc_rwx, virtual_free,
 };
 
-use super::{ORIGINAL, REPLACEMENT};
+use super::{
+    EntryKey, EntryState, ExpiryAction, MediaOutcome, MusicRequest, ORIGINAL, REPLACEMENT,
+    entry_media_outcome,
+};
+
+fn entry(epoch: u64, node: usize) -> EntryKey {
+    EntryKey {
+        station: 0x1000,
+        station_list: 0x2000,
+        selected_node: 0x3000,
+        selected_music_node: node,
+        start: 1000,
+        epoch,
+    }
+}
+
+#[test]
+fn admitted_entry_stays_closed_across_retirement_and_forced_starts() {
+    let key = entry(1, 0x4000);
+    let mut state = EntryState::EMPTY;
+    assert!(!state.start_is_duplicate(key));
+    // The real queue-attempt bridge closes the selection, independent of a
+    // worker generation or a positive native duration.
+    state.media_attempted = true;
+    state.admitted = true;
+    state.accepted_generation = 17;
+    assert!(state.start_is_duplicate(key));
+    assert_eq!(
+        state.expiry(Some(MediaOutcome::Pending), false, 0),
+        ExpiryAction::Hold
+    );
+    assert_eq!(
+        state.expiry(Some(MediaOutcome::Pending), false, 190_000),
+        ExpiryAction::Hold
+    );
+    assert_eq!(
+        state.expiry(Some(MediaOutcome::Complete), false, 190_000),
+        ExpiryAction::Advance
+    );
+    assert!(state.start_is_duplicate(key));
+    assert!(!state.start_is_duplicate(entry(2, 0x4000)));
+    assert!(!state.start_is_duplicate(entry(2, 0x5000)));
+}
+
+#[test]
+fn media_failure_and_dual_sound_reconcile_before_native_advance() {
+    let mut state = EntryState::EMPTY;
+    state.select(entry(1, 0x4000));
+    state.media_attempted = true;
+    state.sound_attempted = true;
+    state.admitted = true;
+    state.accepted_generation = 18;
+    assert_eq!(
+        state.expiry(Some(MediaOutcome::Failed), true, 0),
+        ExpiryAction::Native
+    );
+    assert_eq!(
+        state.expiry(Some(MediaOutcome::Failed), false, 0),
+        ExpiryAction::Advance
+    );
+    assert_eq!(
+        state.expiry(Some(MediaOutcome::Complete), true, 1),
+        ExpiryAction::Native
+    );
+    assert_eq!(
+        state.expiry(Some(MediaOutcome::Complete), false, 1),
+        ExpiryAction::Advance
+    );
+    assert!(state.start_is_duplicate(entry(1, 0x4000)));
+}
+
+#[test]
+fn rejected_and_interrupted_entries_take_distinct_paths() {
+    let mut state = EntryState::EMPTY;
+    state.select(entry(1, 0x4000));
+    state.media_attempted = true;
+    state.admitted = true;
+    state.rejected = true;
+    assert_eq!(state.expiry(None, false, 0), ExpiryAction::Advance);
+
+    state.select(entry(2, 0x4000));
+    state.media_attempted = true;
+    assert_eq!(state.expiry(None, false, 0), ExpiryAction::Hold);
+    assert!(!state.start_is_duplicate(entry(2, 0x4000)));
+
+    state.accepted_generation = 19;
+    state.admitted = true;
+    assert_eq!(
+        state.expiry(Some(MediaOutcome::Interrupted), false, 500),
+        ExpiryAction::Hold
+    );
+    assert!(!state.start_is_duplicate(entry(2, 0x4000)));
+}
+
+#[test]
+fn sound_only_entry_preserves_timer_and_recovers_missing_duration() {
+    let mut state = EntryState::EMPTY;
+    state.select(entry(1, 0x4000));
+    state.sound_attempted = true;
+    state.admitted = true;
+    assert_eq!(state.expiry(None, true, 0), ExpiryAction::Native);
+    assert_eq!(state.expiry(None, false, 2000), ExpiryAction::Native);
+    assert_eq!(state.expiry(None, false, 0), ExpiryAction::Advance);
+}
+
+#[test]
+fn completed_generation_survives_native_slot_reuse() {
+    let key = entry(4, 0x7000);
+    let finished = MusicRequest {
+        generation: 27,
+        epoch: key.epoch,
+        station: key.station,
+        station_list: key.station_list,
+        selected_node: key.selected_node,
+        selected_music_node: key.selected_music_node,
+        start: key.start,
+        outcome: MediaOutcome::Complete,
+    };
+    let slots = [MusicRequest::EMPTY; 2];
+    assert_eq!(
+        entry_media_outcome(key, 27, 29, &slots, finished),
+        Some(MediaOutcome::Complete)
+    );
+    assert_eq!(
+        entry_media_outcome(entry(5, 0x7000), 27, 29, &slots, finished),
+        None
+    );
+    assert_eq!(entry_media_outcome(key, 28, 29, &slots, finished), None);
+}
 
 const FUTURE: u32 = 1;
 const SEEK: u32 = 2;
