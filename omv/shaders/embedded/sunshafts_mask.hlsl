@@ -1,6 +1,5 @@
 sampler2D SceneDepth : register(s1);
 sampler2D FirstPersonDepth : register(s2);
-
 float4 ScreenData : register(c0);
 float4 FrameData : register(c1);
 float4 CameraData : register(c2);
@@ -118,23 +117,12 @@ float SunScreenFade(float2 sunUv) {
     return Smooth01(screenEdge / 0.035f) * saturate(SunData.w);
 }
 
-float VisibleSunSource(float2 uv, float pathOpen) {
-	float visibility = SunScreenFade(SunData.xy);
-	if (visibility <= 0.0f || pathOpen <= 0.0f) {
-		return 0.0f;
-	}
-
-	float distanceToSun = ScreenDistance(uv, SunData.xy);
-	float sourceRadius = max(OptionData3.y * 3.0f, 0.10f);
-	float sourceWindow = 1.0f - Smooth01(distanceToSun / sourceRadius);
-	return visibility * pathOpen * sourceWindow * NativeSunStrength();
-}
-
 float4 Main(PixelInput input) : COLOR0 {
 	float sky = SkyMask(input.uv);
 	float firstPerson = FirstPersonBlock(input.uv);
 	float pathOpen = sky * (1.0f - firstPerson);
-	float source = VisibleSunSource(input.uv, pathOpen);
+	// Debug shows the open scattering path, not an enlarged emitter sprite.
+	float source = pathOpen * NativeSunStrength() * SunScreenFade(SunData.xy);
 
     return float4(source, pathOpen, firstPerson, 1.0f);
 }

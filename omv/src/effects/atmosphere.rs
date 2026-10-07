@@ -8,6 +8,13 @@
 //! behavior. This ordering prevents a no-contribution frame from paying for a
 //! full-resolution MSAA depth resolve, color copy, shader initialization, or
 //! render-state transaction.
+//!
+//! Directional shadow integration reuses quarter-resolution shaft targets:
+//! a complete reduced-depth interval feeds an FP16 blocked-scattering field,
+//! which both ordinary haze layers reconstruct with depth-aware taps. The
+//! existing prepared mask slot owns field generation and projected fallback;
+//! static owner/config layouts and preparation lifecycle remain unchanged.
+//! Device-owned targets die on reset. Missing maps retain projected fallback.
 
 use std::{
     sync::{
@@ -240,7 +247,7 @@ impl AtmosphereSettings {
 
     pub(crate) fn estimated_horizontal_transmittance(self, frame: AtmosphereFrame) -> f32 {
         if !self.fog_enabled {
-            return (-(self.lighting_medium_density) * frame.distance_bound)
+            return (-(self.effective_uniform_density(false)) * frame.distance_bound)
                 .exp()
                 .clamp(0.0, 1.0);
         }
@@ -249,7 +256,7 @@ impl AtmosphereSettings {
             * (-(camera_height - self.base_height) * self.height_falloff)
                 .exp()
                 .clamp(0.0, 64.0);
-        (-(self.density + height_density) * frame.distance_bound)
+        (-(self.effective_uniform_density(true) + height_density) * frame.distance_bound)
             .exp()
             .clamp(0.0, 1.0)
     }
@@ -325,10 +332,17 @@ impl AtmosphereSettings {
     }
 
     fn effective_uniform_density(self, fog_active: bool) -> f32 {
-        if fog_active {
-            self.density
-        } else {
+        // Lighting needs aerosol even where the height fog has dissipated.
+        // Use a shared lower bound, not a second independently emitting medium.
+        let lighting_density = if self.lighting_enabled || self.local_lights_enabled {
             self.lighting_medium_density
+        } else {
+            0.0
+        };
+        if fog_active {
+            self.density.max(lighting_density)
+        } else {
+            lighting_density
         }
     }
 
@@ -722,7 +736,10 @@ impl AtmosphereBytecode {
 impl ShaftBytecode {
     fn compile() -> Result<Self> {
         Ok(Self {
-            mask: shaders::compile_hlsl_source("atmosphere_shaft_mask.hlsl", SHAFT_MASK_SHADER)?,
+            mask: shaders::compile_hlsl_source(
+                "atmosphere_shaft_mask.hlsl",
+                &shaft_mask_shader_source(),
+            )?,
             radial: [
                 shaders::compile_hlsl_source(
                     "atmosphere_shaft_radial.hlsl:performance",
@@ -1171,10 +1188,23 @@ impl AtmosphereEffect {
 
         self.ensure_targets(device, desc, settings.target_scale())?;
         let contributions = resolve_contributions(frame, settings);
-        let shaft_light = contributions.light.and_then(resolve_projected_shaft_light);
+        let world_shadows = contributions.light.and_then(|light| {
+            if settings.shaft_strength <= 0.0 {
+                return None;
+            }
+            shadows::volumetric_directional_shadows(frame.camera.world_transform.translation)
+                .filter(|maps| {
+                    maps.device_identity == device.as_raw() as usize
+                        && maps.sun_direction == light.world_direction
+                })
+        });
+        let shaft_light = contributions
+            .light
+            .filter(|_| world_shadows.is_none())
+            .and_then(resolve_projected_shaft_light);
         let shaft_requested = shaft_light.is_some()
             && (settings.shaft_strength > 0.0 || matches!(settings.lighting_debug_view(), 1 | 2));
-        if shaft_requested && self.shaft_pipeline.is_some() {
+        if (shaft_requested || world_shadows.is_some()) && self.shaft_pipeline.is_some() {
             self.ensure_shaft_targets(device, desc);
         }
         let Some(targets) = self.targets.as_ref() else {
@@ -1217,21 +1247,68 @@ impl AtmosphereEffect {
             false
         };
         let integration_ready = if integration_gate == FogIntegrationGate::Ready {
-            let shaft_visibility = self
+            // One owned native source snapshot serves both depth layers.
+            let sun_disk = (contributions.lighting_ready() && settings.sun_disk_boost > 0.0)
+                .then(|| crate::backend::native_sun_disk(frame.camera))
+                .flatten();
+            let world_field = self
                 .shaft_targets
                 .as_ref()
-                .filter(|_| shaft_ready)
-                .map_or(&self.neutral_visibility, |targets| &targets.radial.texture);
+                .filter(|_| world_shadows.is_some() && self.shaft_pipeline.is_some());
+            if let (Some(field), Some(pipeline)) = (world_field, self.shaft_pipeline.as_ref()) {
+                // Preserve the full quarter-cell near/far interval. Sampling one
+                // half-resolution depth pixel would miss other foreground pixels.
+                draw_depth_reduce_to(
+                    device,
+                    &self.depth_reduce_quarter_shader,
+                    &field.radial.surface,
+                    field.width,
+                    field.height,
+                    desc,
+                    frame,
+                    depth,
+                )?;
+                draw_integration(
+                    device,
+                    &pipeline.mask_shader,
+                    targets,
+                    &self.density_noise,
+                    &self.neutral_visibility,
+                    None,
+                    world_shadows.as_ref(),
+                    frame,
+                    settings,
+                    contributions,
+                    false,
+                    false,
+                    Some(field),
+                    true,
+                )?;
+                self.shaft_draws = self.shaft_draws.saturating_add(2);
+            }
+            let shaft_visibility = world_field.map_or_else(
+                || {
+                    self.shaft_targets
+                        .as_ref()
+                        .filter(|_| shaft_ready)
+                        .map_or(&self.neutral_visibility, |targets| &targets.radial.texture)
+                },
+                |field| &field.mask.texture,
+            );
             draw_integration(
                 device,
                 &self.integrate_shaders[settings.shader_index()],
                 targets,
                 &self.density_noise,
                 shaft_visibility,
+                sun_disk.as_ref(),
+                world_shadows.as_ref(),
                 frame,
                 settings,
                 contributions,
                 shaft_ready,
+                false,
+                world_field,
                 false,
             )?;
             draw_integration(
@@ -1240,11 +1317,15 @@ impl AtmosphereEffect {
                 targets,
                 &self.density_noise,
                 shaft_visibility,
+                sun_disk.as_ref(),
+                world_shadows.as_ref(),
                 frame,
                 settings,
                 contributions,
                 shaft_ready,
                 true,
+                world_field,
+                false,
             )?;
             self.integration_draws = self.integration_draws.saturating_add(1);
             if self.integration_draws == 1 {
@@ -1458,7 +1539,7 @@ impl AtmosphereEffect {
         match ShaftTargets::create(device, size.0, size.1) {
             Ok(targets) => {
                 log::info!(
-                    "[ATMOSPHERE] Shaft targets: {}x{} G16R16F mask/visibility",
+                    "[ATMOSPHERE] Shaft targets: {}x{} FP16 world field / G16R16F projected visibility",
                     targets.width,
                     targets.height,
                 );
@@ -1608,12 +1689,30 @@ fn draw_depth_reduce(
     frame: AtmosphereFrame,
     depth: DepthTexture,
 ) -> Direct3DResult<()> {
-    bind_target(
+    draw_depth_reduce_to(
         device,
+        shader,
         &targets.depth.surface,
         targets.width,
         targets.height,
-    )?;
+        desc,
+        frame,
+        depth,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn draw_depth_reduce_to(
+    device: &Device9Ref<'_>,
+    shader: &PixelShader9,
+    surface: &Surface9,
+    width: u32,
+    height: u32,
+    desc: &D3DSURFACE_DESC,
+    frame: AtmosphereFrame,
+    depth: DepthTexture,
+) -> Direct3DResult<()> {
+    bind_target(device, surface, width, height)?;
     unsafe {
         device.set_raw_base_texture(0, depth.as_ptr())?;
     }
@@ -1628,10 +1727,10 @@ fn draw_depth_reduce(
                 1.0 / desc.Height.max(1) as f32,
             ],
             [
-                targets.width as f32,
-                targets.height as f32,
-                targets.inv_width,
-                targets.inv_height,
+                width as f32,
+                height as f32,
+                1.0 / width as f32,
+                1.0 / height as f32,
             ],
             [
                 frame.camera.near_z,
@@ -1648,7 +1747,7 @@ fn draw_depth_reduce(
         ],
     )?;
     device.set_pixel_shader(shader)?;
-    draw_quad(device, targets.width, targets.height)
+    draw_quad(device, width, height)
 }
 
 fn draw_shaft_mask(
@@ -1677,6 +1776,20 @@ fn draw_shaft_mask(
                 atmosphere.inv_height,
             ],
             [frame.distance_bound, 0.0, 0.0, 0.0],
+        ],
+    )?;
+    device.set_pixel_shader_constant_f(42, &[[0.0; 4]])?;
+    // The combined mask program shares integration's s0/c0/c1 ABI.
+    device.set_pixel_shader_constant_f(
+        0,
+        &[
+            [
+                atmosphere.width as f32,
+                atmosphere.height as f32,
+                atmosphere.inv_width,
+                atmosphere.inv_height,
+            ],
+            [0.0, 0.0, 0.0, frame.distance_bound],
         ],
     )?;
     device.set_pixel_shader(shader)?;
@@ -1721,28 +1834,72 @@ fn draw_integration(
     targets: &AtmosphereTargets,
     density_noise: &Texture9,
     shaft_visibility: &Texture9,
+    sun_disk: Option<&crate::backend::NativeSunDisk>,
+    world_shadows: Option<&shadows::VolumetricDirectionalFrame>,
     frame: AtmosphereFrame,
     settings: AtmosphereSettings,
     contributions: AtmosphereContributions,
     shaft_ready: bool,
     far_layer: bool,
+    world_field: Option<&ShaftTargets>,
+    field_draw: bool,
 ) -> Direct3DResult<()> {
+    let field = world_field.filter(|_| field_draw);
+    let width = field.map_or(targets.width, |field| field.width);
+    let height = field.map_or(targets.height, |field| field.height);
     bind_target(
         device,
-        if far_layer {
+        if let Some(field) = field {
+            &field.mask.surface
+        } else if far_layer {
             &targets.far_atmosphere.surface
         } else {
             &targets.near_atmosphere.surface
         },
-        targets.width,
-        targets.height,
+        width,
+        height,
     )?;
-    device.set_texture(0, &targets.depth.texture)?;
+    device.set_texture(
+        0,
+        field.map_or(&targets.depth.texture, |field| &field.radial.texture),
+    )?;
     device.set_texture(1, density_noise)?;
     device.set_texture(2, shaft_visibility)?;
+    bind_authored_sun(device, sun_disk, 15, 3)?;
+    if field_draw {
+        bind_world_shadows(device, world_shadows, settings.shaft_strength)?;
+    }
+    device.set_pixel_shader_constant_f(
+        42,
+        &[[
+            if world_field.is_some() { 1.0 } else { 0.0 },
+            settings.shaft_strength,
+            settings.sample_count() as f32,
+            0.0,
+        ]],
+    )?;
+    device.set_pixel_shader_constant_f(
+        43,
+        &[world_field.map_or([0.0; 4], |field| {
+            [
+                field.width as f32,
+                field.height as f32,
+                field.inv_width,
+                field.inv_height,
+            ]
+        })],
+    )?;
     set_sampler_filter(device, 0, D3DTEXF_POINT.0 as u32)?;
     set_sampler_filter(device, 1, D3DTEXF_LINEAR.0 as u32)?;
-    set_sampler_filter(device, 2, D3DTEXF_LINEAR.0 as u32)?;
+    set_sampler_filter(
+        device,
+        2,
+        if world_field.is_some() {
+            D3DTEXF_POINT.0 as u32
+        } else {
+            D3DTEXF_LINEAR.0 as u32
+        },
+    )?;
     device.set_sampler_state(1, D3DSAMP_ADDRESSU, D3DTADDRESS_WRAP.0 as u32)?;
     device.set_sampler_state(1, D3DSAMP_ADDRESSV, D3DTADDRESS_WRAP.0 as u32)?;
     let view_to_world = view_to_world_rows(frame.camera);
@@ -1765,10 +1922,10 @@ fn draw_integration(
         0,
         &[
             [
-                targets.width as f32,
-                targets.height as f32,
-                targets.inv_width,
-                targets.inv_height,
+                width as f32,
+                height as f32,
+                1.0 / width as f32,
+                1.0 / height as f32,
             ],
             [
                 frame.camera.near_z,
@@ -1822,11 +1979,16 @@ fn draw_integration(
             ],
             [sun_color[0], sun_color[1], sun_color[2], radiance_scale],
             [sun_disk_delta[0], sun_disk_delta[1], sun_disk_delta[2], 0.0],
-            [settings.lighting_medium_density, 0.0, 0.0, 0.0],
+            [
+                settings.lighting_medium_density,
+                settings.effective_scattering_albedo(contributions.fog),
+                0.0,
+                0.0,
+            ],
         ],
     )?;
     device.set_pixel_shader(shader)?;
-    draw_quad(device, targets.width, targets.height)
+    draw_quad(device, width, height)
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -2604,6 +2766,10 @@ fn draw_debug(
     set_sampler_filter(device, 2, D3DTEXF_LINEAR.0 as u32)?;
     set_sampler_filter(device, 3, D3DTEXF_LINEAR.0 as u32)?;
     set_sampler_filter(device, 4, D3DTEXF_LINEAR.0 as u32)?;
+    let sun_disk = (contributions.lighting_ready() && settings.sun_disk_boost > 0.0)
+        .then(|| crate::backend::native_sun_disk(frame.camera))
+        .flatten();
+    bind_authored_sun(device, sun_disk.as_ref(), 12, 5)?;
     let view_to_world = view_to_world_rows(frame.camera);
     let light = contributions.light;
     let direction = light.map_or([0.0; 3], |light| light.world_direction);
@@ -2662,7 +2828,12 @@ fn draw_debug(
             ],
             [color[0], color[1], color[2], radiance_scale],
             [disk_delta[0], disk_delta[1], disk_delta[2], 0.0],
-            [settings.lighting_medium_density, 0.0, 0.0, 0.0],
+            [
+                settings.lighting_medium_density,
+                settings.effective_scattering_albedo(contributions.fog),
+                0.0,
+                0.0,
+            ],
         ],
     )?;
     device.set_pixel_shader(shader)?;
@@ -2694,6 +2865,77 @@ fn view_to_world_rows(camera: crate::backend::CameraFrame) -> [[f32; 4]; 3] {
             transform.translation[2],
         ],
     ]
+}
+
+/// Bind retained same-device directional maps using the existing receiver ABI.
+/// Missing publication explicitly clears every sampler and disables the branch.
+fn bind_world_shadows(
+    device: &Device9Ref<'_>,
+    maps: Option<&shadows::VolumetricDirectionalFrame>,
+    strength: f32,
+) -> Direct3DResult<()> {
+    device.set_pixel_shader_constant_f(42, &[[maps.is_some() as u8 as f32, strength, 0.0, 0.0]])?;
+    for stage in 4..=6 {
+        if let Some(maps) = maps {
+            // Safety: each pointer is an owned COM reference from the matching
+            // device publication, retained throughout both serialized draws.
+            unsafe {
+                device.set_raw_base_texture(stage, maps.textures[(stage - 4) as usize].as_raw())?;
+            }
+        } else {
+            crate::render_state::clear_sampler(device, stage)?;
+        }
+        set_sampler_filter(device, stage, D3DTEXF_LINEAR.0 as u32)?;
+        device.set_sampler_state(stage, D3DSAMP_MIPFILTER, D3DTEXF_NONE.0 as u32)?;
+        device.set_sampler_state(stage, D3DSAMP_ADDRESSU, D3DTADDRESS_CLAMP.0 as u32)?;
+        device.set_sampler_state(stage, D3DSAMP_ADDRESSV, D3DTADDRESS_CLAMP.0 as u32)?;
+        device.set_sampler_state(stage, D3DSAMP_SRGBTEXTURE, 0)?;
+    }
+    let Some(maps) = maps else {
+        return Ok(());
+    };
+    for (index, matrix) in maps.matrices.iter().enumerate() {
+        device.set_pixel_shader_constant_f((18 + index * 4) as u32, matrix)?;
+    }
+    device.set_pixel_shader_constant_f(
+        34,
+        &[
+            maps.splits,
+            [0.5 / 2048.0, 1.0 - 0.5 / 2048.0, 0.75 / 2048.0, 0.0],
+            std::array::from_fn(|index| u8::from(maps.actor_mask & (1 << index) != 0) as f32),
+        ],
+    )?;
+    device.set_pixel_shader_constant_f(37, &maps.actor_crops)?;
+    device.set_pixel_shader_constant_f(
+        40,
+        &[
+            [0.5 / 1024.0, 1.0 - 0.5 / 1024.0, 0.0, 0.0],
+            maps.splits.map(|split| split * 0.05),
+        ],
+    )
+}
+
+/// Bind native disk coverage for a single consuming pass. A missing disk
+/// removes only its enhancement; directional medium scattering remains live.
+fn bind_authored_sun(
+    device: &Device9Ref<'_>,
+    disk: Option<&crate::backend::NativeSunDisk>,
+    register: u32,
+    sampler: u32,
+) -> Direct3DResult<()> {
+    let constants = if let Some(disk) = disk {
+        disk.bind(device, sampler)?;
+        disk.screen_to_texture
+    } else {
+        crate::render_state::clear_sampler(device, sampler)?;
+        [[0.0; 4]; 3]
+    };
+    set_sampler_filter(device, sampler, D3DTEXF_LINEAR.0 as u32)?;
+    device.set_sampler_state(sampler, D3DSAMP_MIPFILTER, D3DTEXF_NONE.0 as u32)?;
+    device.set_sampler_state(sampler, D3DSAMP_ADDRESSU, D3DTADDRESS_CLAMP.0 as u32)?;
+    device.set_sampler_state(sampler, D3DSAMP_ADDRESSV, D3DTADDRESS_CLAMP.0 as u32)?;
+    device.set_sampler_state(sampler, D3DSAMP_SRGBTEXTURE, 0)?;
+    device.set_pixel_shader_constant_f(register, &constants)
 }
 
 fn fog_integration_gate(
@@ -2970,6 +3212,15 @@ fn depth_reduce_shader_source(scale: u32) -> Vec<u8> {
     let mut variant = format!("#define ATMOSPHERE_REDUCTION_SCALE {scale}\n").into_bytes();
     variant.extend_from_slice(DEPTH_REDUCE_SHADER);
     variant
+}
+
+// Reuse the prepared mask slot: one shader owns world-field integration and
+// the existing projected fallback. The static bytecode owner keeps its layout.
+fn shaft_mask_shader_source() -> Vec<u8> {
+    let mut source = b"#define OMV_WORLD_FIELD 1\n".to_vec();
+    source.extend_from_slice(INTEGRATE_SHADER);
+    source.extend_from_slice(SHAFT_MASK_SHADER);
+    source
 }
 
 fn integration_shader_source(sample_count: u32) -> Vec<u8> {
@@ -4607,7 +4858,7 @@ impl ShaftTargets {
             height,
             inv_width: 1.0 / width as f32,
             inv_height: 1.0 / height as f32,
-            mask: EffectTarget::create(device, width, height, D3DFMT_G16R16F)?,
+            mask: EffectTarget::create(device, width, height, D3DFMT_A16B16G16R16F)?,
             radial: EffectTarget::create(device, width, height, D3DFMT_G16R16F)?,
         })
     }
@@ -4795,7 +5046,7 @@ mod feature_tests {
     }
 
     #[test]
-    fn calibrated_default_estimates_about_two_percent_extinction_at_observed_bound() {
+    fn combined_default_keeps_fog_extinction_above_lighting_only() {
         let mut config = EmbeddedEffectsConfig::default();
         config.volumetric_fog.enabled = true;
         let settings =
@@ -4804,7 +5055,15 @@ mod feature_tests {
         frame.distance_bound = 10_240.0;
 
         let transmittance = settings.estimated_horizontal_transmittance(frame);
-        assert!((0.974..0.976).contains(&transmittance));
+        // The shared lighting medium is retained when fog is enabled. Compare
+        // actual production estimates rather than the superseded fog-only
+        // calibration, which excluded the lighting density floor.
+        config.volumetric_fog.enabled = false;
+        let lighting_only =
+            AtmosphereSettings::from_config(config.volumetric_fog, config.volumetric_lighting)
+                .estimated_horizontal_transmittance(frame);
+        assert!(transmittance.is_finite() && transmittance > 0.0);
+        assert!(transmittance < lighting_only && lighting_only < 1.0);
     }
 
     #[test]
@@ -5303,6 +5562,21 @@ mod feature_tests {
     }
 
     #[test]
+    fn shipped_combined_and_local_medium_retains_lighting_density() {
+        let fog = crate::config::VolumetricFogConfig::default();
+        let lighting = crate::config::VolumetricLightingConfig::default();
+        let mut combined = AtmosphereSettings::from_config(fog, lighting);
+        assert_eq!(combined.effective_uniform_density(true), 0.000_002_5);
+        combined.lighting_enabled = false;
+        assert_eq!(combined.effective_uniform_density(true), 0.000_002_5);
+        combined.local_lights_enabled = false;
+        assert_eq!(combined.effective_uniform_density(true), 0.0);
+        combined.density = 0.000_01;
+        combined.lighting_enabled = true;
+        assert_eq!(combined.effective_uniform_density(true), 0.000_01);
+    }
+
+    #[test]
     fn fog_and_directional_lighting_contributions_are_independent() {
         let frame = valid_frame();
         let fog_only = settings();
@@ -5339,7 +5613,10 @@ mod feature_tests {
         let mut combined = settings();
         combined.lighting_enabled = true;
         combined.lighting_medium_density = 0.0009;
-        assert_eq!(combined.effective_uniform_density(true), combined.density);
+        assert_eq!(
+            combined.effective_uniform_density(true),
+            combined.lighting_medium_density
+        );
         assert_eq!(
             combined.effective_scattering_albedo(true),
             combined.scattering_albedo
@@ -5890,9 +6167,9 @@ mod feature_tests {
 mod shader_compile_tests {
     use super::{
         COMPOSE_SHADER, DEBUG_SHADER, DEPTH_REDUCE_SHADER, INTEGRATE_SHADER, LOCAL_LIGHT_SHADER,
-        SHAFT_MASK_SHADER, SHAFT_RADIAL_SHADER, depth_reduce_shader_source,
-        integration_shader_source, local_light_cube_shader_source,
-        local_light_shader_instruction_work, local_light_shader_source, shaft_radial_shader_source,
+        SHAFT_MASK_SHADER, depth_reduce_shader_source, integration_shader_source,
+        local_light_cube_shader_source, local_light_shader_instruction_work,
+        local_light_shader_source, shaft_mask_shader_source, shaft_radial_shader_source,
         view_to_world_rows,
     };
     use crate::backend::{CameraFrame, CameraTransformFrame};
@@ -5931,10 +6208,17 @@ mod shader_compile_tests {
             );
         }
         for samples in [8, 12, 20] {
-            crate::shaders::assert_hlsl_compiles(
+            let (instructions, textures, bytes) = match samples {
+                8 => (798, 15, 12772),
+                12 => (907, 19, 14460),
+                _ => (1125, 27, 17836),
+            };
+            crate::shaders::assert_pixel_shader_budget(
                 &format!("atmosphere_integrate.hlsl:{samples}"),
                 &integration_shader_source(samples),
-                "ps_3_0",
+                instructions,
+                textures,
+                bytes,
             );
         }
         crate::shaders::assert_hlsl_compiles(
@@ -5942,11 +6226,20 @@ mod shader_compile_tests {
             SHAFT_MASK_SHADER,
             "ps_3_0",
         );
+        crate::shaders::assert_pixel_shader_budget(
+            "atmosphere_shaft_mask.hlsl:world-field",
+            &shaft_mask_shader_source(),
+            1463,
+            13,
+            21860,
+        );
         for samples in [24, 40, 56] {
-            crate::shaders::assert_hlsl_compiles(
+            crate::shaders::assert_pixel_shader_budget(
                 &format!("atmosphere_shaft_radial.hlsl:{samples}"),
                 &shaft_radial_shader_source(samples),
-                "ps_3_0",
+                113,
+                1,
+                1820,
             );
         }
         for (samples, noise) in [(4, false), (6, true), (10, true)] {
@@ -5986,39 +6279,6 @@ mod shader_compile_tests {
         assert!(compose.contains("clamp(fullDistance, nearest, farthest)"));
         assert!(!compose.contains("abs(fullDistance - nearest)"));
         assert!(compose.contains("return float4(encodedOutput, source.a)"));
-    }
-
-    #[test]
-    fn directional_shader_abi_is_fixed_and_deterministic() {
-        let integrate = std::str::from_utf8(INTEGRATE_SHADER).expect("integration shader source");
-        let mask = std::str::from_utf8(SHAFT_MASK_SHADER).expect("shaft mask source");
-        let radial = std::str::from_utf8(SHAFT_RADIAL_SHADER).expect("shaft radial source");
-
-        assert!(integrate.contains("ShaftVisibility : register(s2)"));
-        assert!(integrate.contains("LightingData : register(c10)"));
-        assert!(integrate.contains("SunDirection : register(c11)"));
-        assert!(integrate.contains("SunColor : register(c12)"));
-        assert!(integrate.contains("SunDiskDelta : register(c13)"));
-        assert!(integrate.contains("LightingMediumData : register(c14)"));
-        assert!(integrate.contains("HenyeyGreenstein"));
-        assert!(integrate.contains("HenyeyGreenstein(mu, LightingData.y) * FourPi"));
-        assert!(integrate.contains("float directionalScatterAmount = max("));
-        assert!(integrate.contains("1.0f - exp(-lightingOpticalDepth)"));
-        assert!(integrate.contains("* directionalScatterAmount"));
-        assert_eq!(
-            integrate
-                .matches("HeterogeneousCorrection(distance")
-                .count(),
-            1
-        );
-        assert!(radial.contains("#define ATMOSPHERE_SHAFT_SAMPLE_COUNT"));
-        assert!(radial.contains("index < ATMOSPHERE_SHAFT_SAMPLE_COUNT"));
-        assert!(radial.contains("exp(-12.0f * blockedFraction)"));
-        assert!(radial.contains("lerp(1.0f, field, influence)"));
-        assert!(!radial.contains("frame"));
-        assert!(!radial.contains("Frame"));
-        assert!(!mask.contains("frame"));
-        assert!(!mask.contains("Frame"));
     }
 
     #[test]

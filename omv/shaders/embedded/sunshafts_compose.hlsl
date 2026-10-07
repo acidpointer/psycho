@@ -18,8 +18,6 @@ float4 DepthData : register(c11);
 float4 AtmosphereData : register(c15);
 
 static const float DepthEndpointEpsilon = 0.000001f;
-static const float3 WarmTint = float3(1.0f, 0.80f, 0.46f);
-static const float3 DayTint = float3(1.0f, 0.94f, 0.80f);
 
 struct PixelInput {
     float2 uv : TEXCOORD0;
@@ -102,12 +100,9 @@ float FirstPersonBlock(float2 uv) {
     if (DepthData.w < 0.5f) {
         return 1.0f;
     }
-    float2 texel = ScreenData.zw;
+    // Protect only rasterized first-person pixels. Expanding this mask creates
+    // an unshadowed background ring around the weapon and hands.
     float mask = FirstPersonMask(uv);
-    mask = max(mask, FirstPersonMask(uv + float2( texel.x * 1.5f, 0.0f)));
-    mask = max(mask, FirstPersonMask(uv + float2(-texel.x * 1.5f, 0.0f)));
-    mask = max(mask, FirstPersonMask(uv + float2(0.0f,  texel.y * 1.5f)));
-    mask = max(mask, FirstPersonMask(uv + float2(0.0f, -texel.y * 1.5f)));
     return mask * requested;
 }
 
@@ -181,12 +176,12 @@ float4 Main(PixelInput input) : COLOR0 {
 	rawAmount *= max(OptionData0.x, 0.0f) * max(OptionData0.y, 0.0f) * force * 2.35f;
 	float shaftAmount = min(ExposureCurve(rawAmount), 0.46f);
 
-	float warmth = saturate(OptionData1.w);
-	float3 nativeColor = max(NativeSunData.rgb, 0.0f);
-	float nativePeak = max(nativeColor.r, max(nativeColor.g, nativeColor.b));
-	float3 nativeTint = nativePeak > 0.0001f ? nativeColor / nativePeak : DayTint;
-	float3 tint = lerp(nativeTint, nativeTint * WarmTint, warmth);
-	float3 composed = color.rgb + tint * shaftAmount * (1.0f - color.rgb * 0.55f);
+	// UE3-style screen-space occlusion modulates the already-composited sky
+	// and fog receivers. This is not isolated physical in-scattering: the
+	// volumetric integrator owns that separate path. ReceiverMask admits sky
+	// and a bounded fog fraction on surfaces, excluding first-person geometry.
+	// Occlusion preserves hue and alpha without adding light or clamping HDR.
+	float3 composed = color.rgb * (1.0f - shaftAmount);
 
-	return float4(saturate(composed), color.a);
+	return float4(composed, color.a);
 }

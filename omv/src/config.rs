@@ -341,19 +341,19 @@ impl Default for NativeSkyConfig {
         Self {
             enabled: true,
             atmosphere_thickness: 0.7068965,
-            sun_influence: 1.291271,
-            sun_strength: 1.517241,
+            sun_influence: 1.0,
+            sun_strength: 1.0,
             glare_strength: 0.8965517,
             star_strength: 1.0,
             star_twinkle: 1.0,
             cloud_transparency: 0.3610992,
-            cloud_brightness: 1.305171,
+            cloud_brightness: 1.0,
             cloud_normals: false,
             use_sun_disk_color: false,
             sunset_red: 0.5,
             sunset_green: 0.0,
             sunset_blue: 0.03,
-            sky_multiplier: 2.043103,
+            sky_multiplier: 1.0,
         }
     }
 }
@@ -1183,6 +1183,7 @@ pub(crate) struct SunshaftsConfig {
     pub(crate) depth_reversed: bool,
     pub(crate) debug_mask: bool,
     pub(crate) sun_sample_px: i32,
+    /// Serialized compatibility value; directional rays have no sprite radius.
     pub(crate) glare_radius: f32,
     pub(crate) medium_response: f32,
     pub(crate) occlusion_softness: f32,
@@ -1192,11 +1193,11 @@ impl Default for SunshaftsConfig {
     fn default() -> Self {
         Self {
             enabled: true,
-            intensity: 0.3076724,
-            exposure: 0.2062068,
-            decay: 1.017446,
+            intensity: 0.34,
+            exposure: 0.52,
+            decay: 1.0,
             density: 0.9709481,
-            force: 1.015518,
+            force: 2.05,
             bright_threshold: 0.7188362,
             warmth: 0.9675861,
             first_person_occlusion: 1.0,
@@ -1216,6 +1217,8 @@ impl SunshaftsConfig {
         let defaults = Self::default();
         self.intensity = finite_clamp(self.intensity, defaults.intensity, 0.0, 2.5);
         self.exposure = finite_clamp(self.exposure, defaults.exposure, 0.0, 2.8);
+        // Preserve schema-one presets; the shader bounds decay to unity so
+        // legacy values above one cannot amplify the radial integral.
         self.decay = finite_clamp(self.decay, defaults.decay, 0.65, 1.035);
         self.density = finite_clamp(self.density, defaults.density, 0.2, 1.35);
         self.force = finite_clamp(self.force, defaults.force, 0.0, 4.0);

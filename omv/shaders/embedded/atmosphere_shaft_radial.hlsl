@@ -23,7 +23,9 @@ float4 Main(PixelInput input) : COLOR0 {
 	}
 
 	float2 stepUv = (SunProjection.xy - input.uv) / ATMOSPHERE_SHAFT_SAMPLE_COUNT;
-	float2 sampleUv = input.uv + stepUv * StableOffset(input.uv);
+	// Sample within each segment, including the final segment before the sun.
+	// Adding a full step before a positive jitter overshoots the endpoint.
+	float2 sampleUv = input.uv + stepUv * (StableOffset(input.uv) - 1.0f);
 	float blockage = 0.0f;
 	float confidence = 0.0f;
 	float weight = 1.0f;
@@ -43,8 +45,10 @@ float4 Main(PixelInput input) : COLOR0 {
 	}
 	float inverseWeight = 1.0f / max(weightSum, 0.0001f);
 	float blockedFraction = saturate(blockage * inverseWeight);
-	float field = exp(-12.0f * blockedFraction);
+	// Retain the accepted thin-occluder contrast curve. Strength blends this
+	// screen-space estimate with neutral visibility; moving strength inside
+	// the exponential removed that neutral component and crushed world rays.
+	float field = lerp(1.0f, exp(-12.0f * blockedFraction), influence);
 	float fieldConfidence = saturate(confidence * inverseWeight);
-	field = lerp(1.0f, field, influence);
 	return float4(field, fieldConfidence, 0.0f, 1.0f);
 }

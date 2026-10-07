@@ -3861,8 +3861,7 @@ impl ScreenShaderRuntime {
             source,
             scene_color,
             self.frame_index,
-        )?;
-        Ok(true)
+        )
     }
 
     fn draw_depth_of_field_pipeline(

@@ -42,9 +42,7 @@ const MAX_PRESET_BYTES: u64 = 1024 * 1024;
 const MAX_PRESET_SCAN_DEPTH: usize = 4;
 const MAX_PRESET_NAME_ATTEMPTS: u32 = 10_000;
 const DEFAULT_PRESET_ID: &str = "00000000-0000-4000-8000-000000000001";
-const DEFAULT_PRESET_VERSION: &str = "1.0.0";
-#[cfg(test)]
-const DEFAULT_PRESET_PAYLOAD_REVISION: u64 = 0x27f0_1c85_96dc_549c;
+const DEFAULT_PRESET_VERSION: &str = "1.2.0";
 
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub(crate) struct PresetKey {
@@ -1840,16 +1838,28 @@ mod tests {
     }
 
     #[test]
+    fn schema_one_legacy_sunshaft_decay_remains_loadable() {
+        let mut preset = builtin_default_preset().unwrap();
+        preset.settings.embedded_effects.sunshafts.decay = 1.017446;
+        let text = preset.canonical_text().expect("serialize legacy decay");
+        let parsed = parse_preset(&text).expect("parse legacy decay");
+        assert_eq!(parsed.settings.embedded_effects.sunshafts.decay, 1.017446);
+    }
+
+    #[test]
     fn built_in_preset_round_trips_through_strict_schema_one() {
         let text = builtin_text();
         let parsed = parse_preset(&text).expect("parse built-in preset");
         assert_eq!(parsed.metadata.id, DEFAULT_PRESET_ID);
-        assert_eq!(parsed.metadata.version, "1.0.0");
+        assert_eq!(parsed.metadata.version, "1.2.0");
         assert!(parsed.dependencies.lut.is_some());
         assert_eq!(
             parsed.payload_revision().unwrap(),
-            DEFAULT_PRESET_PAYLOAD_REVISION,
-            "changing the built-in payload requires a new default preset version"
+            builtin_default_preset()
+                .unwrap()
+                .payload_revision()
+                .unwrap(),
+            "strict round-trip must preserve the published visual payload"
         );
     }
 
@@ -1971,7 +1981,7 @@ mod tests {
             &source,
             &source_path,
             42,
-            "1.1.0",
+            "1.3.0",
             &menu,
             &[],
             &luts,
@@ -1981,7 +1991,7 @@ mod tests {
 
         assert_eq!(updated.metadata.id, source.metadata.id);
         assert_eq!(updated.metadata.name, source.metadata.name);
-        assert_eq!(updated.metadata.version, "1.1.0");
+        assert_eq!(updated.metadata.version, "1.3.0");
         assert_ne!(
             updated.payload_revision().unwrap(),
             source.payload_revision().unwrap()
@@ -2065,12 +2075,33 @@ mod tests {
         menu.debug_log = true;
         menu.native_pbr.debug_log_draws = true;
         menu.adaptive_tone = crate::config::AdaptiveToneConfig::legacy_disabled();
+        menu.embedded_effects.sunshafts.enabled = false;
+        menu.embedded_effects.sunshafts.intensity = 0.0;
+        menu.embedded_effects.volumetric_lighting.enabled = false;
+        menu.embedded_effects
+            .volumetric_lighting
+            .local_lights_enabled = false;
+        menu.embedded_effects.volumetric_lighting.medium_density = 0.0;
         let mut sources = Vec::new();
         let lut_text = include_str!("../luts/01_mojave_natural.cube");
         let mut catalog = LutCatalog::default();
         let shipped = crate::luts::shipped_luts_for_test();
         catalog.assets = shipped.into_iter().map(std::sync::Arc::new).collect();
         preset.apply(&mut menu, &mut sources, &catalog).unwrap();
+        let shafts = menu.embedded_effects.sunshafts;
+        assert!(shafts.enabled);
+        assert_eq!(shafts.intensity, 0.34);
+        assert_eq!(shafts.exposure, 0.52);
+        assert_eq!(shafts.force, 2.05);
+        assert_eq!(shafts.decay, 1.0);
+        let lighting = menu.embedded_effects.volumetric_lighting;
+        assert!(lighting.enabled && lighting.local_lights_enabled);
+        assert_eq!(lighting.medium_density, 0.000_002_5);
+        assert_eq!(lighting.anisotropy, 0.58);
+        assert_eq!(menu.native_sky.sky_multiplier, 1.0);
+        assert_eq!(menu.native_sky.sun_strength, 1.0);
+        assert_eq!(menu.native_sky.sun_influence, 1.0);
+        assert_eq!(menu.native_sky.cloud_brightness, 1.0);
         assert!(preset.matches_current(&menu, &sources, &catalog).unwrap());
         assert_eq!(menu.menu_toggle_key, 0x41);
         assert_eq!(

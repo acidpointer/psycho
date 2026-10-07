@@ -42,6 +42,7 @@ mod depth_adoption;
 mod depth_resolve_provider;
 mod depth_snapshot;
 pub(crate) mod owned_depth;
+pub(super) mod sun_disk;
 
 #[cfg(test)]
 mod owned_depth_tests;

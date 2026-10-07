@@ -54,9 +54,9 @@ frame state is concurrently busy.
 The original celestial pixel shader evaluated both sun and non-sun equations
 and selected the result from uniform `ObjectData.x`. OMV now compiles exact sun,
 moon, and other-celestial variants and selects the variant from the already
-proven object type. The equations and exact extended-sRGB transfer are unchanged:
-sun keeps its daylight alpha and sunset color, moon keeps unit celestial
-brightness, and other objects keep `SunData.y` brightness. The common celestial
+proven object type. The exact extended-sRGB transfer is retained. The solar
+coverage correction below intentionally changes the sun branch; moon keeps
+unit celestial brightness and other objects keep `SunData.y` brightness. The common celestial
 shader measured 104 compiled instruction tokens; the specialized variants are
 65-66 with the same one texture sample.
 
@@ -68,24 +68,24 @@ remains spatially and temporally smooth. The compiled star shader falls from 282
 to 188 instruction tokens with the same texture sample, horizon fade, tint,
 strength, alpha, and exact sRGB transfer.
 
-Atmosphere and both cloud variants deliberately retain their equations and
-sample counts. In particular, OMV does not replace exact sRGB conversion with a
+Atmosphere and both cloud variants retain texture sample counts. The solar
+haze correction below replaces their broad angular glow and sky addition. In particular, OMV does not replace exact sRGB conversion with a
 visible approximation, remove dither, lower sky coverage, drop either weather
 texture, or force cloud normals off. Current static ceilings are:
 
 | Pixel variant | Instructions | Texture samples | Bytecode bytes |
 |---|---:|---:|---:|
-| Atmosphere | 81 | 0 | 1,660 |
-| Celestial sun | 65 | 1 | 1,276 |
+| Atmosphere | 101 | 0 | 1,964 |
+| Celestial sun | 60 | 1 | 1,196 |
 | Celestial moon | 65 | 1 | 1,228 |
 | Other celestial | 66 | 1 | 1,288 |
-| Clouds | 193 | 2 | 3,484 |
-| Cloud normals | 254 | 2 | 4,524 |
+| Clouds | 207 | 2 | 3,692 |
+| Cloud normals | 269 | 2 | 4,748 |
 | Stars | 188 | 1 | 3,204 |
 
 Every vertex and pixel variant has a named bytecode, instruction, and exact
 texture-sample budget. The suite also compiles every variant, proves the
-celestial specialization against the former uniform equation, verifies the star
+celestial variant selection, verifies the star
 mean/peak contract, and proves that common frame constants differ only in the
 per-draw object-kind scalar.
 
@@ -366,3 +366,94 @@ reports residual sky motion `[2, -2, 0]` under a rotated two-unit head-bob pose;
 the corrected transaction keeps the relative sky matrix at zero. Installed
 pixel quality remains an ordinary playtest concern, but the reported native
 matrix jump is covered directly rather than inferred from restoration tests.
+
+## Authored solar coverage contract
+
+The owner's requirement is to retain the game disk while removing the oversized
+OMV glow and recovering occluder-shaped rays. Geometry size alone is not proven
+wrong. The sun branch previously added the same directional RGB to every texel
+admitted by texture alpha and omitted native vertex visibility. Its added RGB
+now follows texture RGB, preserving the former unit-texel peak and sunset tint;
+alpha includes native vertex visibility, without OMV's additional daylight
+cutoff. This is
+an intentional OMV shading correction, not a claim of native pixel-shader parity.
+Black weather-color candidates must not erase the texture itself.
+
+`backend/fnv/sun_disk.rs` owns a draw-local retained texture and projective maps.
+It adds no hook, static owner, startup preparation or configuration field. The
+supported executable identity is the one recorded above. Focused raw evidence
+is [solar disk coverage](../analysis/radare2/output/fnv_solar_disk_coverage_contract_20261006.txt).
+
+- `Sun::Create @ 0x00640810` creates separate disk/glare shapes at `Sun +0x10`
+  and `+0x14`, from distinct setting objects `0x011CCE7C` and `0x011CCE50`.
+  The disk is a four-vertex parallelogram with complete square UVs and constant
+  vertex alpha. Both shapes, their textures and native draw order remain owned
+  by the engine.
+- `Sun::Update @ 0x00641830` writes separate disk/glare RGBA through property
+  `+0x60`; disk visibility is `+0x6C`. The retained texture setter
+  `0x006348E0` writes property `+0x70`.
+- `NiGeometry @ 0x00A804E0` stores geometry data at `+0xB8`, not the stale
+  header's `+0xB4`. `NiGeometryData @ 0x00A67B20` stores count at `+0x08`,
+  vertices at `+0x20`, colors at `+0x28`, and UVs at `+0x2C`. The geometry's
+  property-state shade slot is `+0xA8`.
+- `SkyShader::UpdateConstants @ 0x00B89D80` uses the geometry world transform
+  at `+0x68`. When renderer `+0x164` is set, it subtracts the published camera
+  `0x011F95D8` translation, then adds the renderer camera translation before
+  view projection. `NiRenderer::GetRenderer @ 0x00B4F5D0` reads `0x011F95F0`.
+  The source snapshot honors both branches and uses the captured depth camera's
+  right/up/forward axes and frustum.
+- The existing NiTexture renderer-data `+0x24`, D3D texture `+0x64` contract is
+  also documented in `graphics_fnv_depth_resolve.md`. Native ownership remains
+  live across serialized render-thread reads; a COM reference retains the 2D
+  texture until the consuming draws finish. Range validation precedes reads.
+
+Unavailable, nonfinite, singular, non-parallelogram, varying vertex-opacity or
+non-square-UV data yields no source packet. Atmosphere then omits only disk
+boost. Legacy shafts use native directional illumination and do not require
+the disk packet, texture, or sprite opacity.
+Base-level texture coverage uses the sun replacement's exact sRGB decode and
+the product of texture, constant vertex and property alpha. It does not infer
+radiance from a tone-mapped framebuffer or claim native mip-filter parity.
+Textures are sampled only inside the projected authored quad. No fixed screen
+radius or physical angular disk replaces the game's authored size.
+
+Texture-shaped emission and native opacity add three instruction tokens, while
+removing the duplicate daylight cutoff removes eight. The final sun variant
+therefore uses 60 tokens and one texture fetch, below the former 65-token budget,
+with no new draw. Retaining the uniform pedestal or discarding native alpha
+would remove required behavior. Other native-sky shader budgets remain unchanged. Compilation and bytecode budgets
+are static support evidence; final pixels, engine integration and startup were
+not run. Gameplay validation remains solely the owner's decision.
+
+## Solar haze and weather brightness ownership
+
+The owner tested OMV Default 1.1.0 and reported a giant bright halo and weak
+rays. The native sky's procedural solar term had a separate broad source:
+`pow((1 + cos(theta))/2, 1/sun_influence)` multiplied additive solar RGB,
+followed by a 2.043103 sky multiplier. This source was not the authored disk
+texture and survived the disk coverage correction. Cloud scattering also used
+an independent power lobe and positive solar addition.
+
+Sky and cloud haze now use a peak-normalized Cornette-Shanks profile with
+`g=0.8`, retaining the influence exponent as an artistic width control. The
+profile follows [Bruneton's Mie phase function](https://ebruneton.github.io/precomputed_atmospheric_scattering/atmosphere/functions.glsl.html)
+and the terrestrial asymmetry default in
+[Hillaire's atmosphere model](https://diglib.eg.org/bitstream/handle/10.1111/cgf14050/v39i4pp013-022.pdf).
+This is an angular shape for authored weather colors, not a new physical
+transport solver or a replacement for the game's sun geometry.
+
+The sky's solar haze blends its existing weather color toward the source color
+with a bounded weight instead of adding a broad RGB pedestal. Cloud solar
+scattering uses the same angular shape; cloud textures, opacity, normal mode,
+weather tint and native state/order remain. Neutral defaults are one for sky
+multiplier, solar strength, influence and cloud brightness. These are identity
+settings, not perceptually playtested exposure values. Native sun/glare texture
+coverage and geometry remain engine-owned. Directional/local atmosphere owns
+the existing volumetric transport; legacy Sunshafts adds only ray contrast.
+
+The solar haze shape and bounded blend cost 20 extra instruction tokens for sky,
+14 for flat clouds and 15 for normal clouds, with no extra texture fetch or
+pass. A larger power exponent would only narrow the old halo; it would retain
+unbounded additive weather lighting and a less faithful angular shape. The
+reference phase profile and source-color blend jointly address those contracts.
+Celestial, moon, star and vertex budgets remain unchanged.

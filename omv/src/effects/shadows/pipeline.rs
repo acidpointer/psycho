@@ -202,6 +202,19 @@ pub(crate) struct VolumetricPointLightFrame {
     pub(crate) lights: [Option<VolumetricPointLight>; POINT_LIGHT_CAPACITY],
 }
 
+/// Retained directional maps from one complete publication, consumed only in
+/// the current pre-alpha transaction. Matrices use the consumer camera origin;
+/// COM references bound texture lifetime without retaining native objects.
+pub(crate) struct VolumetricDirectionalFrame {
+    pub(crate) device_identity: usize,
+    pub(crate) sun_direction: [f32; 3],
+    pub(crate) textures: [BaseTexture9; 3],
+    pub(crate) matrices: [[[f32; 4]; 4]; CASCADE_COUNT],
+    pub(crate) splits: [f32; 4],
+    pub(crate) actor_crops: [[f32; 4]; 3],
+    pub(crate) actor_mask: u8,
+}
+
 impl PublishedPointLight {
     /// Evaluate the occlusion-only weight for the current consumer frame.
     ///
@@ -258,10 +271,12 @@ struct PublishedFrame {
 /// nighttime/interior equation.
 fn capture_sun_competition(
     scene: SceneKind,
-    directional: bool,
+    _directional: bool,
     point_lights: bool,
 ) -> SunCompetition {
-    if scene == SceneKind::Interior || directional || !point_lights {
+    // A directional atlas can belong only to atmosphere while the surface
+    // consumer remains point-only; retain sunlight competition for that case.
+    if scene == SceneKind::Interior || !point_lights {
         return SunCompetition::default();
     }
     let Some(sky) = backend::native_sky_frame().filter(|sky| sky.is_exterior) else {
@@ -482,6 +497,46 @@ impl ShadowPipeline {
             device_identity: resources.device_identity,
             device_generation: publication.identity.device_generation,
             lights,
+        })
+    }
+
+    /// Borrow exact static/actor map resources after a complete producer epoch.
+    /// Reject reset generations and nonfinite origins before retaining any COM owner.
+    pub(crate) fn volumetric_directional_shadows(
+        &self,
+        origin: [f32; 3],
+    ) -> Option<VolumetricDirectionalFrame> {
+        let publication = self.published?;
+        if !publication.directional
+            || !origin.into_iter().all(f32::is_finite)
+            || !publication_epoch_is_usable(
+                publication.identity.render_epoch,
+                crate::hooks::render_epoch(),
+            )
+            || publication.identity.device_generation != backend::d3d_device_generation()
+        {
+            return None;
+        }
+        let resources = self.resources.as_ref()?;
+        let directional = resources.directional.as_ref()?;
+        Some(VolumetricDirectionalFrame {
+            device_identity: resources.device_identity,
+            sun_direction: publication.sun_direction,
+            textures: [
+                directional.atlas.retain_base_texture(),
+                directional.actor_near_middle_moments.retain_base_texture(),
+                directional.actor_far_moments.retain_base_texture(),
+            ],
+            matrices: std::array::from_fn(|index| {
+                translate_shadow_matrix(
+                    publication.matrices[index],
+                    origin,
+                    publication.matrix_origins[index],
+                )
+            }),
+            splits: publication.cascade_splits(),
+            actor_crops: publication.actor_crops,
+            actor_mask: publication.actor_overlay_mask,
         })
     }
 
@@ -3178,10 +3233,13 @@ impl ShadowResources {
         &mut self,
         device: Device9Ref<'_>,
         context: ActiveWorldContext,
-        publication: PublishedFrame,
+        mut publication: PublishedFrame,
         now_millis: u64,
         settings: NativeShadowsSettings,
     ) -> Direct3DResult<bool> {
+        // Atmosphere may request maps while surface sun shadows stay disabled.
+        // Mask only this copied consumer publication; the atlas remains available.
+        publication.directional &= settings.sun_shadows;
         if !consumer_has_shadow_work(publication.directional, publication.point_count) {
             return Ok(false);
         }

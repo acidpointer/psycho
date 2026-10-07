@@ -21,6 +21,7 @@ use libpsycho::os::windows::directx9::D3DSURFACE_DESC;
 use crate::config::DepthProviderConfig;
 
 mod fnv;
+pub(crate) use fnv::sun_disk::{NativeSunDisk, native_sun_disk};
 
 pub(crate) use fnv::{
     DepthCopyCounters, DepthResolveRouteStatus, DepthResolveStatus, ProviderMarkerCounters,

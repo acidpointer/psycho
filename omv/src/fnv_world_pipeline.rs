@@ -40,6 +40,7 @@ use crate::{
 const REQUIRE_WORLD_DEPTH: u32 = 1 << 0;
 const REQUIRE_WORLD_COLOR: u32 = 1 << 1;
 const REQUIRE_TEMPORAL_AA: u32 = 1 << 2;
+const REQUIRE_DIRECTIONAL_SHADOWS: u32 = 1 << 3;
 const MAX_RUNTIME_LOGS: u32 = 32;
 
 static CONFIG_MAILBOX: LazyLock<Mutex<PublishedConfig>> =
@@ -134,6 +135,13 @@ impl WorldEffectsConfig {
         if self.temporal_aa.enabled {
             requirements |= REQUIRE_TEMPORAL_AA;
         }
+        if self.lighting.enabled
+            && settings.requires_integration()
+            && self.lighting.intensity > 0.0
+            && self.lighting.shaft_strength > 0.0
+        {
+            requirements |= REQUIRE_DIRECTIONAL_SHADOWS;
+        }
         requirements
     }
 
@@ -219,6 +227,12 @@ pub(crate) fn needs_temporal_aa() -> bool {
 
 pub(crate) fn needs_atmosphere() -> bool {
     REQUIREMENTS.load(Ordering::Acquire) & REQUIRE_WORLD_COLOR != 0
+}
+
+/// Request post-Deferred directional maps for world-space haze shadowing.
+/// Uses the existing requirements word; no static owner or startup touch is added.
+pub(crate) fn needs_directional_shadows() -> bool {
+    REQUIREMENTS.load(Ordering::Acquire) & REQUIRE_DIRECTIONAL_SHADOWS != 0
 }
 
 /// Return whether an enabled world-owned effect needs native scene boundaries.
@@ -1471,6 +1485,26 @@ fn halton(mut index: u64, base: u64) -> f32 {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn directional_lighting_requests_world_shadow_maps() {
+        let mut menu = crate::config::GraphicsMenuConfig::default();
+        assert_ne!(
+            super::WorldEffectsConfig::from_menu(menu).requirements() & (1 << 3),
+            0
+        );
+        menu.embedded_effects.volumetric_lighting.medium_density = 0.0;
+        menu.embedded_effects.volumetric_fog.density = 0.00001;
+        assert_ne!(
+            super::WorldEffectsConfig::from_menu(menu).requirements() & (1 << 3),
+            0
+        );
+        menu.embedded_effects.volumetric_lighting.enabled = false;
+        assert_eq!(
+            super::WorldEffectsConfig::from_menu(menu).requirements() & (1 << 3),
+            0
+        );
+    }
+
     use super::{
         CONFIG_GENERATION, CONFIG_MAILBOX, EpochState, FnvWorldPipelineRuntime,
         TemporalProjectionOverride, WorldEffectsConfig, halton, publish_config,

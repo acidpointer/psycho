@@ -8,6 +8,39 @@ target is a graphics layer that can run early enough in the FNV render pipeline
 to cooperate with vanilla fog/image-space effects, while remaining compatible
 with other graphics mods.
 
+## Current directional sunshaft contract
+
+Legacy shafts use the existing native sun direction/color resolver and projected
+position. The solar sprite texture, mesh availability and opacity do not admit
+or suppress their draw. The native-sky shader continues to preserve authored
+sun disk coverage; its snapshot contract is owned by `graphics_fnv_native_sky.md`.
+
+The depth mask supplies world/first-person openness. Radial integration takes
+32--256 stable stratified segments toward the native sun, accumulating each open
+sample with bounded distance decay and the accepted thin-blocker response. Camera-depth occlusion removes that sample's
+contribution rather than extinguishing all later open samples. Accumulation is
+normalized by the same decayed weights. The sampling control sets within-segment jitter;
+occlusion softness affects fractional coverage and leaves opaque taps black.
+Serialized `glare_radius` retains its schema-1 position but has no active use.
+The count follows projected ray length at two half-resolution pixels per segment,
+up to the 256-segment cap. The two nine-tap filters run along the ray and across
+it. Longitudinal support spans two segments on either side, including at the cap,
+to cover gaps between projected blockers. Half-resolution targets and
+full-resolution composition remain; no new pass is introduced.
+
+Composition preserves alpha and modulates existing sky/fog color with radial
+occlusion. An open path is identity; shadow bands reduce color by at most 46%
+at maximum response. Opaque receivers retain the established bounded fog
+admission; first-person receivers are excluded using their exact point-sampled
+depth footprint. Composition does not dilate that footprint: dilation left
+unshadowed background pixels around weapon and hand silhouettes. The radial
+mask retains its separate conservative blocker sampling. This scene-post approximation
+cannot isolate physical scattering from the already-composited native scene.
+The atmosphere integrator separately shadows actual directional in-scattering.
+Unavailable native directional/depth input retains the current color image.
+The current visibility/default correction is documented at the end of this file.
+Compilation and bytecode budgets are static evidence, not image acceptance.
+
 ## Primary Goal
 
 `omv` must support deeper graphics features than the current
@@ -2844,3 +2877,104 @@ The correct order is:
 
 This keeps the useful features available to broad mod setups while reserving
 the risky material-layer work for explicit compatibility-gated modes.
+
+## Godray visibility correction
+
+The reported disappearance follows two source-proven suppression paths in the
+solar correction: legacy shafts required a readable, nonzero-opacity solar
+sprite, and combined atmosphere discarded the uniform lighting medium while
+removing the older independent directional scattering floor. Default uniform
+fog density is zero; height fog alone cannot guarantee scattering at elevation.
+No captured frame establishes which native packet rejection occurred.
+
+Legacy radial integration now samples depth openness toward the existing native
+sun projection. It integrates open taps with distance decay, rather than letting
+one camera-depth blocker extinguish every subsequent tap. Sprite opacity and
+texture luminance no longer gate sunlight. No enlarged emitter mask is added;
+the engine-authored visible sun disk and the coverage correction remain.
+This follows the separation of source illumination, scattering and occlusion in
+[NVIDIA GPU Gems 3 chapter 13](https://developer.nvidia.com/gpugems/gpugems3/part-ii-light-and-shadows/chapter-13-volumetric-light-scattering-post-process).
+
+Atmosphere and local lights retain one shared aerosol minimum:
+`uniform_density = max(active_fog_density, enabled_lighting_medium_density)`.
+The same density contributes to extinction and in-scattering, so there is no
+independent emission in an empty medium or additive double extinction. Existing
+height/noise density, HDR composition and native light color remain. The
+directional shaft field retains its accepted exponential thin-occluder curve
+and blends that estimate by strength outside the exponent.
+
+The schema-1 built-in preset is now version 1.2.0. Legacy intensity/exposure/force
+use the previously owner-tuned 0.34/0.52/2.05 baseline; decay stays bounded at 1.
+Directional anisotropy retains its accepted 0.58 forward phase.
+Lighting density 0.0000025 and local intensity 1.5 remain the documented haze
+and light calibration, now effective together with fog. Shipped TOML, Rust
+fallbacks and the built-in payload agree. Existing user configurations and
+saved presets retain their values until the owner selects the new default.
+
+These are static implementation contracts and calibration choices, not visual
+acceptance or a claim of state-of-the-art image quality. Game composition,
+startup, appearance and frame rate have not been run.
+
+The corrected legacy mask/radial budgets are 355/134 instruction tokens and
+6/1 static texture instructions, below the prior solar correction's 428/212
+and 7/3. Directional shaft quality variants retain their accepted thin-occluder
+contrast curve and one texture instruction. March counts and target resolutions remain unchanged.
+These bound shader work; they are not frame-rate measurements. CPU regressions
+execute production medium selection and preset serialization/application. The
+medium test rejects the former zero density in combined mode. Image and game
+runtime behavior remain unverified.
+
+The restored volumetric visibility-strength blend preserves the prior
+thin-occluder calibration while the uniform-medium fix restores scattering at
+height. Shipped anisotropy remains 0.58. The native-sky document owns bounded
+solar haze and neutral brightness gains in Default 1.2.0. Existing saved looks
+remain unchanged until that preset is selected.
+
+## Radial shadow-band ownership
+
+The owner defines the visual requirement as Borderlands 2-style dark bands
+through sunlit haze. A positive-only transverse contrast filter discarded the
+negative bands and retained bright edge accents; additive composition could
+never darken the receiver. That filter and additive composition are removed.
+
+Legacy Sunshafts integrates depth openness over 32 stratified segments, with
+bounded distance decay and fractional edge softness. Open samples contribute
+independently rather than extinguishing later samples. The denominator uses
+exactly the same decayed weights as the numerator, so open paths remain neutral
+for every supported decay. The accepted exponential thin-blocker response is
+converted to missing illumination and scaled by native sun strength.
+
+Two nine-tap separable blurs retain the full radial occlusion field. Composition
+uses the existing sun projection fade, receiver mask, radial falloff, medium
+response and strength/exposure controls. Its bounded exposure curve produces
+an occlusion amount at most 0.46; output is `scene_color * (1 - amount)` with
+unchanged alpha. It preserves hue and does not add energy or clamp HDR values.
+Native sun color controls source strength; the retained serialized warmth field
+no longer colors an additive bloom term. Schema and option packing are unchanged.
+The sky/fog receiver approximation operates on composed image-space color,
+including lighting already present there. It is not isolated physical haze
+shadowing and is not claimed to match Borderlands 2's private shader equations.
+Physical atmospheric transport remains owned by the volumetric integrator.
+
+UE3 documents separate additive bloom and occlusion-darkness controls in
+`LightComponent.uc`; the contemporary Unreal documentation describes radial
+occlusion of fog/atmosphere separately from bloom:
+
+- https://www.nvidia.com/en-gb/geforce/news/borderlands-2-borderlands-the-pre-sequel-tweak-guide/
+- https://www.bad-day.se/uncodex/udk2011-03beta2/Source_engine/lightcomponent.html
+- https://dev.epicgames.com/documentation/en-us/unreal-engine/using-light-shafts-in-unreal-engine
+
+The shipped-pipeline image fixture now uses a nonblack receiver and requires
+identity on open sky, darker radial bands beyond the blocker, no channel
+brightening, and movement with the sun. It executes production passes when run;
+it is not a captured reproduction or a substitute for the owner's report.
+Image tests and game integration have not been run under the static constraint.
+
+Current legacy budgets are 355/167/97/368 instruction tokens for mask, radial,
+blur and composition, with 6/1/9/5 static texture instructions. Compared with
+the prior dilated composition, exact first-person receiver coverage removes
+156 instruction tokens and four texture instructions. Radial integration normalizes actual illumination
+weights and preserves distance decay when the sample count changes. These changes retain five
+passes, half-resolution intermediates and 32--256 radial taps; no new allocation or
+render callback work is introduced. Counts establish bounded work, not FPS or
+an observed image-quality improvement.

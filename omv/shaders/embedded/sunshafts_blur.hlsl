@@ -16,7 +16,16 @@ struct PixelInput {
 };
 
 float4 Main(PixelInput input) : COLOR0 {
-    float2 d = EffectData.xy;
+    // Reconstruct along and across the ray, rather than a small fixed X/Y
+    // blur that leaves widely spaced blocker projections untouched. The
+    // longitudinal kernel covers two radial segments on either side even
+    // when the sample-count cap is reached at high resolution.
+    float2 radialPixels = (SunData.xy - input.uv) * ScreenData.xy;
+    float rayLength = length(radialPixels);
+    float sampleCount = clamp(ceil(rayLength * 0.5f), 32.0f, 256.0f);
+    float2 d = EffectData.x != 0.0f
+        ? (SunData.xy - input.uv) / sampleCount * 0.5f
+        : float2(-radialPixels.y, radialPixels.x) / max(rayLength, 1.0f) * ScreenData.zw;
     float value = 0.0f;
     value += tex2Dlod(ShaftLight, float4(input.uv - d * 4.0f, 0.0f, 0.0f)).r * 0.035f;
     value += tex2Dlod(ShaftLight, float4(input.uv - d * 3.0f, 0.0f, 0.0f)).r * 0.070f;

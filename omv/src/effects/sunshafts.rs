@@ -2,6 +2,13 @@
 //!
 //! Immutable HLSL bytecode is prepared by a background worker. Render
 //! callbacks create only D3D objects and never invoke the compiler or cache.
+//! The native directional sun snapshot admits rays independently of its sprite.
+//! World/first-person depth supplies per-tap openness; unavailable required
+//! inputs skip output. Device-owned intermediates reset with the device. Five
+//! bounded passes retain half-resolution marching and filtering. The radial
+//! field carries missing illumination; composition modulates sky/fog receivers
+//! in scene-post color. This stylized occlusion is separate from physical
+//! volumetric in-scattering and never adds an open-sky halo.
 
 use std::{
     sync::{
@@ -14,12 +21,13 @@ use std::{
 use anyhow::Result;
 use libpsycho::os::windows::directx9::{
     D3DCULL_NONE, D3DFORMAT, D3DRS_ADAPTIVETESS_Y, D3DRS_ALPHABLENDENABLE, D3DRS_ALPHATESTENABLE,
-    D3DRS_COLORWRITEENABLE, D3DRS_CULLMODE, D3DRS_POINTSIZE, D3DRS_ZENABLE, D3DRS_ZWRITEENABLE,
-    D3DSAMP_ADDRESSU, D3DSAMP_ADDRESSV, D3DSAMP_MAGFILTER, D3DSAMP_MINFILTER, D3DSAMP_MIPFILTER,
-    D3DSURFACE_DESC, D3DTA_TEXTURE, D3DTADDRESS_CLAMP, D3DTEXF_LINEAR, D3DTEXF_NONE, D3DTEXF_POINT,
-    D3DTOP_SELECTARG1, D3DTSS_ALPHAARG1, D3DTSS_ALPHAOP, D3DTSS_COLORARG1, D3DTSS_COLOROP,
-    D3DVIEWPORT9, Device9Ref, Direct3DResult, PixelShader9, ScreenVertex, Surface9, Texture9,
-    direct3d_failure,
+    D3DRS_COLORWRITEENABLE, D3DRS_CULLMODE, D3DRS_MULTISAMPLEMASK, D3DRS_POINTSIZE,
+    D3DRS_SCISSORTESTENABLE, D3DRS_SRGBWRITEENABLE, D3DRS_STENCILENABLE, D3DRS_ZENABLE,
+    D3DRS_ZWRITEENABLE, D3DSAMP_ADDRESSU, D3DSAMP_ADDRESSV, D3DSAMP_MAGFILTER, D3DSAMP_MINFILTER,
+    D3DSAMP_MIPFILTER, D3DSAMP_SRGBTEXTURE, D3DSURFACE_DESC, D3DTA_TEXTURE, D3DTADDRESS_CLAMP,
+    D3DTEXF_LINEAR, D3DTEXF_NONE, D3DTEXF_POINT, D3DTOP_SELECTARG1, D3DTSS_ALPHAARG1,
+    D3DTSS_ALPHAOP, D3DTSS_COLORARG1, D3DTSS_COLOROP, D3DVIEWPORT9, Device9Ref, Direct3DResult,
+    PixelShader9, ScreenVertex, Surface9, Texture9, direct3d_failure,
 };
 
 use crate::{
@@ -145,132 +153,14 @@ mod shader_compile_tests {
 
     #[test]
     fn embedded_sunshaft_shaders_compile() {
-        for (name, source) in [
-            ("sunshafts_mask.hlsl", MASK_SHADER),
-            ("sunshafts_radial.hlsl", RADIAL_SHADER),
-            ("sunshafts_blur.hlsl", BLUR_SHADER),
-            ("sunshafts_compose.hlsl", COMPOSE_SHADER),
+        for (name, source, instructions, textures, bytes) in [
+            ("sunshafts_mask.hlsl", MASK_SHADER, 355, 6, 5800),
+            ("sunshafts_radial.hlsl", RADIAL_SHADER, 167, 1, 2800),
+            ("sunshafts_blur.hlsl", BLUR_SHADER, 97, 9, 1688),
+            ("sunshafts_compose.hlsl", COMPOSE_SHADER, 368, 5, 6100),
         ] {
-            crate::shaders::assert_hlsl_compiles(name, source, "ps_3_0");
+            crate::shaders::assert_pixel_shader_budget(name, source, instructions, textures, bytes);
         }
-    }
-
-    /// Deterministic reference model of the radial march equation.
-    ///
-    /// `reference_count` is the audited 48-step cadence; `sample_count` is
-    /// the shipped march. The reduced march integrates the same underlying
-    /// shaft: per-step decay goes to the (reference/sample) power and the
-    /// weight ramp grows by `weight_step^(reference/sample)`, so the only
-    /// difference against the 48-step model is sampling granularity. The
-    /// fixtures bound that discretization difference on the mask classes the
-    /// game produces: constant openness, a hard occluder edge, a smooth
-    /// occlusion gradient, and the fully blocked shaft.
-    fn reference_radial(
-        reference_count: usize,
-        sample_count: usize,
-        mask: &dyn Fn(f32, f32) -> (f32, f32),
-        sun: [f32; 2],
-        occlusion_softness: f32,
-    ) -> f32 {
-        let decay = 1.017_446_f32.clamp(0.55, 1.04);
-        let density = 0.970_948_1_f32.max(0.10);
-        let blocked_decay = 0.10 + (0.34 - 0.10) * occlusion_softness;
-        let step_scale = reference_count as f32 / sample_count as f32;
-        let weight_step = 1.014f32.powf(step_scale);
-        let sample_delta = [
-            (sun[0] - 0.375) * density / sample_count as f32,
-            (sun[1] - 0.375) * density / sample_count as f32,
-        ];
-        let jitter = 0.431_710_7_f32; // InterleavedNoise at the fixture pixel
-        let mut sample_uv = [
-            0.375 + sample_delta[0] * jitter,
-            0.375 + sample_delta[1] * jitter,
-        ];
-        let mut illumination = 1.0f32;
-        let mut light = 0.0f32;
-        let mut weight = 0.024f32;
-        for _ in 0..sample_count {
-            sample_uv[0] += sample_delta[0];
-            sample_uv[1] += sample_delta[1];
-            let inside = (0.0..=1.0).contains(&sample_uv[0]) && (0.0..=1.0).contains(&sample_uv[1]);
-            let (source_mask, open_mask) = mask(sample_uv[0], sample_uv[1]);
-            let source = source_mask * if inside { 1.0 } else { 0.0 };
-            let path_open = open_mask * if inside { 1.0 } else { 0.0 };
-            let factor = blocked_decay + (decay - blocked_decay) * path_open;
-            illumination *= factor.powf(step_scale);
-            let softened = (path_open + occlusion_softness * 0.10).clamp(0.0, 1.0);
-            light += source * softened * illumination * weight;
-            weight *= weight_step;
-        }
-        // The shipped reduced march renormalizes its sum by the step-count
-        // ratio (see StepScale in sunshafts_radial.hlsl); the 48-step
-        // reference model needs no correction because it defines the
-        // cadence.
-        let normalization = if reference_count == sample_count {
-            1.0
-        } else {
-            step_scale
-        };
-        (light * 2.70 * normalization).clamp(0.0, 1.0)
-    }
-
-    #[test]
-    fn reduced_radial_march_stays_within_the_48_step_reference() {
-        let fixtures: [(&str, &dyn Fn(f32, f32) -> (f32, f32)); 4] = [
-            ("open shaft", &|_, _| (1.0, 1.0)),
-            ("hard occluder", &|x, _| {
-                if x < 0.5 { (1.0, 1.0) } else { (0.0, 0.0) }
-            }),
-            ("smooth occlusion", &|x, _| (1.0, (x * 2.0).clamp(0.0, 1.0))),
-            ("blocked shaft", &|_, _| (0.0, 0.0)),
-        ];
-        for (label, mask) in fixtures {
-            for softness in [0.0f32, 0.5, 1.0] {
-                let reference = reference_radial(48, 48, mask, [1.4, -0.9], softness);
-                let reduced = reference_radial(48, 32, mask, [1.4, -0.9], softness);
-                let difference = (reference - reduced).abs();
-                assert!(
-                    difference <= 0.05,
-                    "{label} softness {softness}: 48-step {reference} vs 32-step {reduced}"
-                );
-            }
-        }
-        // The march weight ramp still reaches the same endpoint, so a fully
-        // open shaft keeps its audited brightness exactly.
-        let open_reference = reference_radial(48, 48, &|_, _| (1.0, 1.0), [1.4, -0.9], 0.0);
-        let open_reduced = reference_radial(48, 32, &|_, _| (1.0, 1.0), [1.4, -0.9], 0.0);
-        assert!(
-            (open_reference - open_reduced).abs() <= 0.02,
-            "open shaft drifted: {open_reference} vs {open_reduced}"
-        );
-    }
-
-    #[test]
-    fn native_sun_is_the_only_shaft_source_and_all_rays_share_its_projection() {
-        let mask = std::str::from_utf8(MASK_SHADER).expect("sunshaft mask source");
-        let radial = std::str::from_utf8(RADIAL_SHADER).expect("sunshaft radial source");
-        let compose = std::str::from_utf8(COMPOSE_SHADER).expect("sunshaft compose source");
-
-        assert!(mask.contains("NativeSunData : register(c10)"));
-        assert!(mask.contains("NativeSunStrength()"));
-        assert!(mask.contains("brightness / max(brightness + response"));
-        assert!(!mask.contains("brightness - threshold"));
-        assert!(!mask.contains("SceneColor"));
-        assert!(!mask.contains("SceneSample"));
-        assert!(mask.contains("ScreenDistance(uv, SunData.xy)"));
-        assert!(radial.contains("SunData.xy - input.uv"));
-        assert!(compose.contains("ScreenDistance(input.uv, SunData.xy)"));
-        assert!(compose.contains("NativeSunData : register(c10)"));
-    }
-
-    #[test]
-    fn fog_strengthens_legacy_shafts_without_changing_source_alpha() {
-        let compose = std::str::from_utf8(COMPOSE_SHADER).expect("sunshaft compose source");
-
-        assert!(compose.contains("AtmosphereData : register(c15)"));
-        assert!(compose.contains("float mediumGain = 1.0f"));
-        assert!(compose.contains("* mediumGain"));
-        assert!(compose.contains("return float4(saturate(composed), color.a)"));
     }
 
     #[test]
@@ -353,6 +243,11 @@ impl SunshaftsEffect {
         })
     }
 
+    /// Execute the production passes with a retained, validated source packet.
+    /// The runtime resolves native input before resource creation. Returns true
+    /// only after writing output; unavailable frame input returns false. D3D
+    /// failures propagate to the caller's state-restoration/color-graph boundary.
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn draw(
         &mut self,
         device: &Device9Ref<'_>,
@@ -362,14 +257,14 @@ impl SunshaftsEffect {
         source: &ScreenShaderSource,
         scene_color: &Texture9,
         frame_index: u32,
-    ) -> Direct3DResult<()> {
+    ) -> Direct3DResult<bool> {
         if !should_draw(frame_inputs, source) {
-            return Ok(());
+            return Ok(false);
         }
 
         self.ensure_targets(device, desc)?;
         let Some(targets) = self.targets.as_ref() else {
-            return Ok(());
+            return Ok(false);
         };
 
         bind_pipeline_state(device)?;
@@ -389,6 +284,7 @@ impl SunshaftsEffect {
             frame_index,
         )?;
         self.draw_radial(device, targets, frame_inputs, source, frame_index)?;
+        device.clear_texture(3)?;
         self.draw_blur(
             device,
             targets,
@@ -414,7 +310,8 @@ impl SunshaftsEffect {
             source,
             scene_color,
             frame_index,
-        )
+        )?;
+        Ok(true)
     }
 
     fn ensure_targets(
@@ -541,8 +438,8 @@ mod shader_behavior {
     //!
     //! The test compiles and executes every shipped sunshaft pass and accepts
     //! only final production-format pixels. This catches an empty source mask,
-    //! a broken radial path, lost occluders, or composition that merely changes
-    //! the sun disk without producing rays.
+    //! a broken radial path, lost occluders, or bright edge accents replacing
+    //! shadow bands. A nonblack receiver is required to observe attenuation.
 
     use super::{SunshaftsBytecode, SunshaftsEffect};
     use crate::{
@@ -684,11 +581,11 @@ mod shader_behavior {
         }
     }
 
-    fn clear_target(device: &Device9Ref<'_>, texture: &Texture9) {
+    fn clear_target(device: &Device9Ref<'_>, texture: &Texture9, color: u32) {
         let surface = texture.surface_level(0).expect("HDR surface");
         device.set_render_target(0, &surface).expect("HDR target");
         device
-            .clear_attachments(D3DCLEAR_TARGET as u32, 0, 1.0, 0)
+            .clear_attachments(D3DCLEAR_TARGET as u32, color, 1.0, 0)
             .expect("clear HDR target");
     }
 
@@ -704,7 +601,7 @@ mod shader_behavior {
         let output = device
             .create_render_target_texture(TEST_SIZE, TEST_SIZE, D3DFMT_X8R8G8B8)
             .expect("production-format sunshaft output");
-        clear_target(device, &output);
+        clear_target(device, &output, 0);
         let output_surface = output
             .surface_level(0)
             .expect("production-format output surface");
@@ -739,11 +636,11 @@ mod shader_behavior {
         pixel[0] * 0.2126 + pixel[1] * 0.7152 + pixel[2] * 0.0722
     }
 
-    fn luminance_centroid_x(pixels: &[[f32; 4]]) -> f32 {
+    fn shadow_centroid_x(reference: &[[f32; 4]], pixels: &[[f32; 4]]) -> f32 {
         let mut weighted_x = 0.0;
         let mut weight = 0.0;
         for (index, pixel) in pixels.iter().copied().enumerate() {
-            let value = luminance(pixel).max(0.0);
+            let value = (luminance(reference[index]) - luminance(pixel)).max(0.0);
             weighted_x += (index % TEST_SIZE as usize) as f32 * value;
             weight += value;
         }
@@ -766,7 +663,7 @@ mod shader_behavior {
         let scene_color = device
             .create_render_target_texture(TEST_SIZE, TEST_SIZE, D3DFMT_X8R8G8B8)
             .expect("production-format scene color");
-        clear_target(&device, &scene_color);
+        clear_target(&device, &scene_color, 0xFF80_8080);
 
         let open = render(
             &mut effect,
@@ -776,11 +673,31 @@ mod shader_behavior {
             [1.0, 0.0, 0.0],
             false,
         );
-        let open_peak = open.iter().copied().map(luminance).fold(0.0f32, f32::max);
+        let open_error = open
+            .iter()
+            .copied()
+            .map(|pixel| (luminance(pixel) - 128.0 / 255.0).abs())
+            .fold(0.0f32, f32::max);
         assert!(
-            open_peak > 0.03,
-            "legacy godray pipeline produced no visible production-format pixels: {open_peak}"
+            open_error <= 1.0 / 255.0,
+            "uniform open sky changed without occlusion: {open_error}"
         );
+
+        let mut decayed_source = source.clone();
+        decayed_source.option_constants[0][2] = 0.65;
+        let decayed_open = render(
+            &mut effect,
+            &device,
+            &scene_color,
+            &decayed_source,
+            [1.0, 0.0, 0.0],
+            false,
+        );
+        for (reference, decayed) in open.iter().zip(&decayed_open) {
+            for channel in 0..3 {
+                assert!((reference[channel] - decayed[channel]).abs() <= 1.0 / 255.0);
+            }
+        }
 
         let blocked = render(
             &mut effect,
@@ -790,6 +707,11 @@ mod shader_behavior {
             [1.0, 0.0, 0.0],
             true,
         );
+        for (reference, shadowed) in open.iter().zip(&blocked) {
+            for channel in 0..3 {
+                assert!(shadowed[channel] <= reference[channel] + 1.0 / 255.0);
+            }
+        }
         let strongest_sky_occlusion = open
             .iter()
             .zip(&blocked)
@@ -803,7 +725,7 @@ mod shader_behavior {
             .fold(0.0f32, f32::max);
         assert!(
             strongest_sky_occlusion > 0.02,
-            "world geometry created no ray-shaped godray occlusion: {strongest_sky_occlusion}"
+            "world geometry created no visible radial shadow bands: {strongest_sky_occlusion}"
         );
 
         let shifted = render(
@@ -812,10 +734,10 @@ mod shader_behavior {
             &scene_color,
             &source,
             [0.894_427_2, 0.0, 0.447_213_6],
-            false,
+            true,
         );
-        let centered_x = luminance_centroid_x(&open);
-        let shifted_x = luminance_centroid_x(&shifted);
+        let centered_x = shadow_centroid_x(&open, &blocked);
+        let shifted_x = shadow_centroid_x(&open, &shifted);
         assert!(
             shifted_x > centered_x + 3.0,
             "moving the native sun did not move legacy godrays: center={centered_x}, shifted={shifted_x}"
@@ -824,6 +746,11 @@ mod shader_behavior {
 }
 
 fn bind_pipeline_state(device: &Device9Ref<'_>) -> Direct3DResult<()> {
+    // Scene-post input/output already use the established image-space encoding.
+    device.set_render_state(D3DRS_SRGBWRITEENABLE, 0)?;
+    device.set_render_state(D3DRS_SCISSORTESTENABLE, 0)?;
+    device.set_render_state(D3DRS_STENCILENABLE, 0)?;
+    device.set_render_state(D3DRS_MULTISAMPLEMASK, u32::MAX)?;
     device.clear_vertex_shader()?;
     device.set_fvf(ScreenVertex::FVF)?;
     device.set_render_state(D3DRS_CULLMODE, D3DCULL_NONE.0 as u32)?;
@@ -842,6 +769,7 @@ fn bind_pipeline_state(device: &Device9Ref<'_>) -> Direct3DResult<()> {
         }
     }
     for sampler in [0, 1, 2, 3, 4] {
+        device.set_sampler_state(sampler, D3DSAMP_SRGBTEXTURE, 0)?;
         device.set_sampler_state(sampler, D3DSAMP_ADDRESSU, D3DTADDRESS_CLAMP.0 as u32)?;
         device.set_sampler_state(sampler, D3DSAMP_ADDRESSV, D3DTADDRESS_CLAMP.0 as u32)?;
         device.set_sampler_state(sampler, D3DSAMP_MINFILTER, D3DTEXF_LINEAR.0 as u32)?;
@@ -1001,7 +929,8 @@ fn bind_effect_constants(
             sun.projection.uv[0],
             sun.projection.uv[1],
             1.0,
-            sun.sky.daylight.clamp(0.0, 1.0),
+            // Shared sun color already owns daylight; visibility owns only projection.
+            sun.projection.edge_fade,
         ]],
     )?;
     device.set_pixel_shader_constant_f(

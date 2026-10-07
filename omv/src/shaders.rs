@@ -1499,7 +1499,15 @@ fn sunshafts_source(config: &SunshaftsConfig) -> ScreenShaderSource {
             float_option("intensity", "Intensity", config.intensity, 0.0, 2.5, 3, 0),
             float_option("exposure", "Exposure", config.exposure, 0.0, 2.8, 3, 1),
             float_option("decay", "Decay", config.decay, 0.65, 1.035, 3, 2),
-            float_option("density", "Density", config.density, 0.20, 1.35, 3, 3),
+            float_option(
+                "density",
+                "Ray extinction",
+                config.density,
+                0.20,
+                1.35,
+                3,
+                3,
+            ),
             float_option("force", "Force", config.force, 0.0, 4.0, 4, 0),
             float_option(
                 "bright_threshold",
@@ -1539,21 +1547,12 @@ fn sunshafts_source(config: &SunshaftsConfig) -> ScreenShaderSource {
             bool_option("debug_mask", "Debug mask", config.debug_mask, 5, 3),
             integer_option(
                 "sun_sample_px",
-                "Sun sample px",
+                "Ray jitter",
                 config.sun_sample_px,
                 2,
                 48,
                 7,
                 0,
-            ),
-            float_option(
-                "glare_radius",
-                "Sun source radius",
-                config.glare_radius,
-                0.010,
-                0.080,
-                7,
-                1,
             ),
             float_option(
                 "medium_response",
@@ -2761,6 +2760,42 @@ pub(crate) fn assert_hlsl_compiles(source_name: &str, source: &[u8], target: &st
 
 fn compile_hlsl_bytes(source_name: &str, source: &[u8], target: &str) -> Result<Vec<u32>> {
     compile_hlsl(source_name, source, target).map_err(Into::into)
+}
+
+/// Compile a production pixel variant and enforce its measured static budget.
+/// Instruction tokens and texture instructions bound bytecode, not image quality
+/// or dynamic GPU execution time. Used only by shader qualification tests.
+#[cfg(test)]
+pub(crate) fn assert_pixel_shader_budget(
+    name: &str,
+    source: &[u8],
+    instructions: usize,
+    textures: usize,
+    bytes: usize,
+) {
+    let code = compile_hlsl_source_target(name, source, "ps_3_0").expect("production pixel shader");
+    assert_eq!(code[0], 0xFFFF_0300, "{name}: shader model");
+    let mut offset = 1;
+    let mut count = 0;
+    let mut fetches = 0;
+    while offset < code.len() && code[offset] as u16 != 0xffff {
+        let token = code[offset];
+        let opcode = token as u16;
+        if opcode == 0xfffe {
+            offset += 1 + ((token >> 16) & 0x7fff) as usize;
+        } else {
+            count += 1;
+            fetches += usize::from(matches!(opcode, 66 | 93 | 95));
+            offset += 1 + ((token >> 24) & 0x0f) as usize;
+        }
+    }
+    assert!(offset < code.len(), "{name}: missing END");
+    assert!(
+        count <= instructions,
+        "{name}: {count} instruction tokens, limit {instructions}"
+    );
+    assert_eq!(fetches, textures, "{name}: static texture instructions");
+    assert!(code.len() * 4 <= bytes, "{name}: bytecode budget");
 }
 
 /// Restore verified HLSL bytecode or compile and best-effort cache it locally.

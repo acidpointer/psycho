@@ -2,6 +2,34 @@
 
 ## Status and purpose
 
+### Directional publication consumed by atmosphere
+
+The existing post-Deferred world requirements word can request directional
+production for sunlight haze independently of the surface Sun Shadows toggle.
+Only copied producer settings change. Disabled point branches remain disabled;
+surface consumption masks its copied directional admission with the actual
+receiver setting. Exterior point-only composition still captures native sunlight
+competition when the atlas belongs to atmosphere.
+
+Atmosphere borrows the complete published static atlas and actor maps through
+three retained COM references. Published matrix origins are rebased by the same
+translation helper as surface receivers. The consumer rejects unusable render
+epochs, reset generations, wrong devices and mismatched sun directions. No native
+object pointer crosses the producer/consumer boundary, and no new native hook,
+static owner or resource family is introduced. Atmosphere owns `s4..s6` and
+`c18..c43` only during its existing restored world transaction. The quarter
+field owns atlas lookup; ordinary haze layers reconstruct its depth-keyed output.
+Map admission follows actual projected coverage and an outer-atlas ray-box
+intersection, independently of camera-depth split selection. Missing publication
+falls back to the established projected-shaft path. The atmosphere document owns
+integration equations, finite cascade coverage and repeated lookup costs.
+
+Default volumetric sunlight therefore activates the existing directional family
+even with surface Sun Shadows off. This has additional memory and caster costs;
+it does not establish an FPS result or image-quality acceptance. The owner's
+reported outdoor-haze angle dependence is the requirement; game-only composition
+has not been executed under the static-only restriction.
+
 This document is the durable, implementation-grade shadow contract derived from
 the two NVR source snapshots under `.research/`, current OMV source, the current
 repository `FalloutNV.exe`, and the authoritative static-analysis artifacts under

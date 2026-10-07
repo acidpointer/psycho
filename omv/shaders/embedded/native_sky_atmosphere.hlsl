@@ -29,6 +29,16 @@ float Pow8(float value) {
     return value4 * value4;
 }
 
+// Peak-normalized Cornette-Shanks Mie profile, using the reference Earth
+// aerosol asymmetry g=0.8. This shapes an artistic weather-color blend, not
+// physical atmospheric transport. Unit influence retains the reference shape.
+float SolarScatteringWeight(float cosine) {
+    float mu = clamp(cosine, -1.0f, 1.0f);
+    float ratio = 0.04f / max(1.64f - 1.6f * mu, 0.04f);
+    float shape = 0.5f * (1.0f + mu * mu) * ratio * sqrt(ratio);
+    return pow(saturate(shape), SunDirection.w);
+}
+
 float InterleavedGradientNoise(float2 screen) {
     return frac(52.9829189 * frac(dot(screen, float2(0.06711056, 0.00583715))));
 }
@@ -45,7 +55,11 @@ float4 Main(PixelInput input) : COLOR0 {
 
     float3 color = lerp(SkyLower.rgb, SkyUpper.rgb, verticality);
     color = lerp(color, HorizonColor.rgb, saturate(atmosphere * (0.5 + 0.5 * sunInfluence)));
-    color += sunColor * sunInfluence * (1.0 - sunHeight) * atmosphere * SkyData.z * smoothstep(0.0, 0.5, SunData.x);
+    // Weather color already owns the broad sky. Localized solar haze blends
+    // toward its source color instead of adding a hemispheric RGB pedestal.
+    float solarWeight = SolarScatteringWeight(dot(eyeDirection, SunDirection.xyz));
+    float haze = solarWeight * (1.0 - sunHeight) * atmosphere * SkyData.z * smoothstep(0.0, 0.5, SunData.x);
+    color = lerp(color, sunColor, saturate(haze));
     color *= SkyMultiplier.w;
 
     float dither = InterleavedGradientNoise(input.screen);

@@ -138,7 +138,7 @@ fog_fade = 1.0
 # space. Fog and native-sun directional lighting share one extinction and
 # composition path; the lighting shaft field is deterministic and quarter-res.
 # Production wasteland preset: restrained ground haze with exact-zero uniform
-# density, dusty scattering, and stronger lighting instead of blanket gray fog.
+# fog density. Lighting retains a shared aerosol lower bound at every height.
 [graphics.embedded_effects.volumetric_fog]
 enabled = true
 quality = "high"
@@ -161,6 +161,7 @@ debug_view = 0
 [graphics.embedded_effects.volumetric_lighting]
 enabled = true
 intensity = 0.95
+# Shared uniform aerosol minimum, also used by local volumetric lights.
 medium_density = 0.0000025
 max_distance = 120000.0
 anisotropy = 0.58
@@ -231,11 +232,11 @@ debug_split = false
 [graphics.embedded_effects.sunshafts]
 # Engine-owned sunshafts pass. Fixed phase: scene_post_image_space.
 enabled = true
-intensity = 0.3076724
-exposure = 0.2062068
-decay = 1.017446
+intensity = 0.34
+exposure = 0.52
+decay = 1.0
 density = 0.9709481
-force = 1.015518
+force = 2.05
 bright_threshold = 0.7188362
 warmth = 0.9675861
 first_person_occlusion = 1.0
@@ -243,6 +244,7 @@ sun_falloff = 1.088103
 depth_reversed = true
 debug_mask = false
 sun_sample_px = 32
+# Compatibility value; rays use the native directional light.
 glare_radius = 0.07175863
 medium_response = 1.0
 occlusion_softness = 0.42
@@ -421,22 +423,23 @@ terrain_lod_noise_tile = 3.19576
 debug_log_draws = false
 
 [graphics.native_sky]
-# Draw-scoped NVR-style native sky replacement. Unsupported sky passes remain vanilla.
+# Draw-scoped weather sky. Neutral gains preserve native weather brightness.
+# Localized solar haze uses bounded color blending; the native disk is unchanged.
 enabled = true
 atmosphere_thickness = 0.7068965
-sun_influence = 1.291271
-sun_strength = 1.517241
+sun_influence = 1.0
+sun_strength = 1.0
 glare_strength = 0.8965517
 star_strength = 1.0
 star_twinkle = 1.0
 cloud_transparency = 0.3610992
-cloud_brightness = 1.305171
+cloud_brightness = 1.0
 cloud_normals = false
 use_sun_disk_color = false
 sunset_red = 0.5
 sunset_green = 0.0
 sunset_blue = 0.03
-sky_multiplier = 2.043103
+sky_multiplier = 1.0
 
 [diagnostics]
 # Deprecated compatibility key. OMV accepts and preserves it so older working

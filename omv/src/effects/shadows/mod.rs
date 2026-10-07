@@ -3,8 +3,9 @@
 //! The crate boundary deliberately exposes one Shadows feature with independent
 //! exterior/interior point-light admission and a separate experimental
 //! directional sun branch. Dynamic point shadows are the default; sun shadows
-//! are opt-in because their four-cascade producer has a much larger memory and
-//! draw footprint. One quality tier controls the point-cube resolution in both
+//! surface receivers are opt-in. Directional volumetric lighting independently
+//! requests the four-cascade producer, with its larger memory and draw footprint.
+//! One quality tier controls the point-cube resolution in both
 //! locations; changing it retains the last-good family until a complete
 //! replacement can be published. One shared reveal duration smooths newly
 //! admitted point shadows in both locations. The producer records each
@@ -77,7 +78,9 @@ use contract::{HookAction, ShadowSettings};
 #[cfg(test)]
 pub(crate) use pipeline::VolumetricPointLight;
 use pipeline::{ReplacementResult, ShadowPipeline};
-pub(crate) use pipeline::{VolumetricPointLightFrame, WorldContextGuard};
+pub(crate) use pipeline::{
+    VolumetricDirectionalFrame, VolumetricPointLightFrame, WorldContextGuard,
+};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[repr(u8)]
@@ -220,6 +223,21 @@ impl NativeShadowsSettings {
     /// Apply the graphics-wide master switch without altering persisted bits.
     pub(crate) fn with_master_enabled(mut self, master_enabled: bool) -> Self {
         self.enabled &= master_enabled;
+        self
+    }
+
+    /// Admit directional map production for atmosphere without enabling point
+    /// shadows that the user disabled. Only the copied producer settings change;
+    /// persisted settings and the surface consumer retain their own toggles.
+    fn with_atmosphere_request(mut self, requested: bool) -> Self {
+        if requested {
+            if !self.enabled {
+                self.exterior_enabled = false;
+                self.interior_enabled = false;
+            }
+            self.enabled = true;
+            self.sun_shadows = true;
+        }
         self
     }
 
@@ -405,6 +423,11 @@ pub(crate) unsafe fn handle_common_entry(
         return (CommonEntryOutcome::NativePrefix, None);
     };
     let settings = current_settings().with_master_enabled(crate::runtime::effects_enabled());
+    // Atmosphere owns an independent need for the directional producer. Keep
+    // disabled point branches disabled and leave persisted receiver settings alone.
+    let settings = settings.with_atmosphere_request(
+        crate::runtime::effects_enabled() && crate::fnv_world_pipeline::needs_directional_shadows(),
+    );
     let bytecode = shaders::prepared_bytecode();
     match settings
         .contract()
@@ -545,6 +568,14 @@ pub(crate) fn volumetric_point_lights() -> Option<VolumetricPointLightFrame> {
         .and_then(|pipeline| pipeline.volumetric_point_lights())
 }
 
+/// Retain the current directional maps and camera-relative transforms for haze.
+/// Busy, stale, reset or missing publications return None without blocking.
+pub(crate) fn volumetric_directional_shadows(
+    origin: [f32; 3],
+) -> Option<VolumetricDirectionalFrame> {
+    PIPELINE.try_lock()?.volumetric_directional_shadows(origin)
+}
+
 /// Composite the newest compatible shadow publication after opaque geometry.
 ///
 /// # Safety
@@ -656,6 +687,23 @@ mod startup_safety_tests {
         NativeShadowsSettings, PIPELINE, configure_runtime_options, current_settings,
         runtime_config,
     };
+
+    #[test]
+    fn atmosphere_map_request_preserves_independent_receiver_switches() {
+        let receiver = NativeShadowsSettings::from(crate::config::NativeShadowsConfig::default());
+        assert!(!receiver.sun_shadows);
+        let producer = receiver.with_atmosphere_request(true);
+        assert!(producer.sun_shadows && producer.enabled);
+        assert_eq!(producer.exterior_enabled, receiver.exterior_enabled);
+        assert_eq!(producer.interior_enabled, receiver.interior_enabled);
+        assert!(!receiver.sun_shadows);
+
+        let disabled = receiver.with_master_enabled(false);
+        let atmosphere_only = disabled.with_atmosphere_request(true);
+        assert!(atmosphere_only.enabled && atmosphere_only.sun_shadows);
+        assert!(!atmosphere_only.exterior_enabled && !atmosphere_only.interior_enabled);
+        assert_eq!(disabled.with_atmosphere_request(false), disabled);
+    }
 
     #[test]
     fn pipeline_owner_preserves_last_playtested_pre_deferred_footprint() {

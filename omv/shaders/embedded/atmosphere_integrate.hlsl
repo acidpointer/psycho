@@ -1,6 +1,40 @@
 sampler2D ReducedDepth : register(s0);
 sampler2D DensityNoise : register(s1);
 sampler2D ShaftVisibility : register(s2);
+sampler2D NativeSunTexture : register(s3);
+// Exact static EVSM/actor atlas publication, independent of sun screen position.
+sampler2D ShadowAtlas : register(s4);
+sampler2D ActorNearMiddleMoments : register(s5);
+sampler2D ActorFarMoments : register(s6);
+row_major float4x4 CascadeMatrices[4] : register(c18);
+float4 CascadeSplits : register(c34);
+float4 CascadeTexel : register(c35);
+float4 ActorControl : register(c36);
+float4 ActorCrops[3] : register(c37);
+float4 ActorTexel : register(c40);
+float4 CascadeBlendWidth : register(c41);
+float4 WorldShadowControl : register(c42); // active, shaft strength, world samples
+float4 WorldFieldTarget : register(c43);
+float4 SunTextureU : register(c15);
+float4 SunTextureV : register(c16);
+float4 SunTextureDenominator : register(c17);
+
+// Match the native-sky replacement's exact texture transfer. The transfer is
+// monotone, so decoding the peak channel equals the peak of decoded RGB.
+float SolarTextureResponse(float3 color) {
+    float peak = max(color.r, max(color.g, color.b));
+    return peak <= 0.04045f ? peak / 12.92f : pow((peak + 0.055f) / 1.055f, 2.4f);
+}
+
+float AuthoredSunCoverage(float2 uv) {
+	float3 screen = float3(uv, 1.0f);
+	float denominator = dot(SunTextureDenominator.xyz, screen);
+	if (denominator <= 0.0f || SunTextureDenominator.w <= 0.0f) { return 0.0f; }
+	float2 solarUv = float2(dot(SunTextureU.xyz, screen), dot(SunTextureV.xyz, screen)) / denominator;
+	if (any(solarUv < 0.0f) || any(solarUv > 1.0f)) { return 0.0f; }
+	float4 authored = tex2Dlod(NativeSunTexture, float4(solarUv, 0.0f, 0.0f));
+	return SolarTextureResponse(authored.rgb) * authored.a * SunTextureDenominator.w;
+}
 
 #ifndef ATMOSPHERE_SAMPLE_COUNT
 #define ATMOSPHERE_SAMPLE_COUNT 12
@@ -95,7 +129,181 @@ float HenyeyGreenstein(float mu, float anisotropy) {
 	return (1.0f - g * g) * InverseFourPi / pow(denominator, 1.5f);
 }
 
-float4 Main(PixelInput input) : COLOR0 {
+#ifdef OMV_WORLD_FIELD
+// Same EVSM4 and actor coverage contract as shadow_directional_mask.
+float ReduceLightBleeding(float probability, float amount) {
+    return saturate((probability - amount) / max(1.0f - amount, 0.001f));
+}
+
+float Chebyshev(float2 moments, float receiver, float minimumVariance, float bleedReduction) {
+    if (receiver <= moments.x) return 1.0f;
+    float variance = max(moments.y - moments.x * moments.x, minimumVariance);
+    float difference = receiver - moments.x;
+    return ReduceLightBleeding(variance / (variance + difference * difference), bleedReduction);
+}
+
+float Evsm4(float4 moments, float depth, float bleedReduction) {
+    float normalized = depth * 2.0f - 1.0f;
+    // Evaluate positive/negative moments sequentially inside the volume loop.
+    float receiver = exp(5.54f * normalized);
+    float scale = 0.01f * 5.54f * receiver;
+    float visibility = Chebyshev(moments.xz, receiver, scale * scale, bleedReduction);
+    receiver = -exp(-5.0f * normalized);
+    scale = 0.01f * 5.0f * receiver;
+    return min(visibility, Chebyshev(moments.yw, receiver, scale * scale, bleedReduction));
+}
+
+float2 AtlasUv(float2 localUv, int cascadeIndex) {
+    float2 quadrant = cascadeIndex == 0 ? float2(0.0f, 0.0f)
+        : (cascadeIndex == 1 ? float2(0.5f, 0.0f)
+        : (cascadeIndex == 2 ? float2(0.0f, 0.5f) : float2(0.5f, 0.5f)));
+    localUv = clamp(localUv, CascadeTexel.xx, CascadeTexel.yy);
+    return localUv * 0.5f + quadrant;
+}
+
+float2 SampleActorDepthCoverage(float2 uv, int cascadeIndex) {
+    if (cascadeIndex < 2) {
+        float2 packedUv = float2(uv.x * 0.5f + 0.5f * cascadeIndex, uv.y);
+        return tex2Dlod(ActorNearMiddleMoments, float4(packedUv, 0.0f, 0.0f)).rg;
+    }
+    return tex2Dlod(ActorFarMoments, float4(uv, 0.0f, 0.0f)).rg;
+}
+
+float ActorVisibility(float2 depthCoverage, float receiverDepth) {
+    float coverage = saturate(depthCoverage.y);
+    if (coverage <= 0.0001f) return 1.0f;
+    float actorDepth = depthCoverage.x / max(coverage, 0.0001f);
+    return receiverDepth <= actorDepth + 0.0005f ? 1.0f : 1.0f - coverage;
+}
+
+float2 CascadeVisibility(int cascadeIndex, float3 worldPosition) {
+    // Constant-index matrix access avoids copying four matrices into temporary
+    // registers when the visibility function is called from the volume loop.
+    float4 position = float4(worldPosition, 1.0f);
+    float4 projected;
+    if (cascadeIndex == 0) projected = mul(position, CascadeMatrices[0]);
+    else if (cascadeIndex == 1) projected = mul(position, CascadeMatrices[1]);
+    else if (cascadeIndex == 2) projected = mul(position, CascadeMatrices[2]);
+    else projected = mul(position, CascadeMatrices[3]);
+    if (projected.w <= 0.0f) return float2(1.0f, 0.0f);
+    float3 ndc = projected.xyz / max(projected.w, 0.000001f);
+    float2 localUv = float2(ndc.x * 0.5f + 0.5f, 0.5f - ndc.y * 0.5f);
+    if (min(localUv.x, localUv.y) < 0.0f || max(localUv.x, localUv.y) > 1.0f ||
+        ndc.z < 0.0f || ndc.z > 1.0f) return float2(1.0f, 0.0f);
+
+    float bleed = cascadeIndex == 0 ? 0.1f
+        : (cascadeIndex == 1 ? 0.2f : (cascadeIndex == 2 ? 0.6f : 0.8f));
+    float4 staticCenter = tex2Dlod(ShadowAtlas, float4(AtlasUv(localUv, cascadeIndex), 0.0f, 0.0f));
+    float actorVisibility = 1.0f;
+    if (cascadeIndex < 3 && ActorControl[cascadeIndex] > 0.5f) {
+        float4 crop = cascadeIndex == 0 ? ActorCrops[0] : (cascadeIndex == 1 ? ActorCrops[1] : ActorCrops[2]);
+        float2 actorUv = localUv * crop.xy + crop.zw;
+        if (min(actorUv.x, actorUv.y) >= 0.0f && max(actorUv.x, actorUv.y) <= 1.0f) {
+            actorVisibility = ActorVisibility(
+                SampleActorDepthCoverage(clamp(actorUv, ActorTexel.xx, ActorTexel.yy), cascadeIndex),
+                saturate(ndc.z));
+        }
+    }
+    float visibility = min(Evsm4(staticCenter, saturate(ndc.z), bleed), actorVisibility);
+    // The multisample-resolved atlas is bilinearly filtered at each volume
+    // sample. Keep the surface receiver's extra three-tap edge refinement out
+    // of this repeated volume lookup to bound register pressure and GPU work.
+
+    float border = min(min(localUv.x, 1.0f - localUv.x), min(localUv.y, 1.0f - localUv.y));
+    border = min(border, min(ndc.z, 1.0f - ndc.z));
+    // Blend by the actual projected map boundary, not a camera-depth split.
+    return float2(visibility, smoothstep(0.0f, 0.05f, border));
+}
+
+float DirectionalVisibility(float3 worldPosition) {
+    float blocked = 0.0f;
+    float remaining = 1.0f;
+    [loop]
+    for (int cascade = 0; cascade < 4; ++cascade) {
+        float2 sample = CascadeVisibility(cascade, worldPosition);
+        float weight = remaining * sample.y;
+        blocked += weight * (1.0f - sample.x);
+        remaining -= weight;
+        if (remaining <= 0.0001f) break;
+    }
+    return 1.0f - blocked;
+}
+
+// Orthographic atlas transforms preserve w=1. Clip the world ray against the
+// actual outer-map box, including depth, rather than view-depth/cosine range.
+float WorldShadowExit(float3 direction) {
+    float3 origin = mul(float4(0.0f, 0.0f, 0.0f, 1.0f), CascadeMatrices[3]).xyz;
+    float3 ray = mul(float4(direction, 0.0f), CascadeMatrices[3]).xyz;
+    float exitDistance = MediumData1.x;
+    [unroll]
+    for (int axis = 0; axis < 3; ++axis) {
+        float minimum = axis == 2 ? 0.0f : -1.0f;
+        if (abs(ray[axis]) > 0.0000001f) {
+            float endpoint = ray[axis] > 0.0f ? 1.0f : minimum;
+            exitDistance = min(exitDistance, (endpoint - origin[axis]) / ray[axis]);
+        } else if (origin[axis] < minimum || origin[axis] > 1.0f) {
+            return 0.0f;
+        }
+    }
+    return max(exitDistance, 0.0f);
+}
+
+float IntegratedWorldBlockage(float3 origin, float3 direction, float distance, float shadowExit) {
+    float shadowDistance = min(distance, shadowExit);
+    float stepLength = shadowDistance / WorldShadowControl.z;
+    float blockedAmount = 0.0f;
+    float transmittance = 1.0f;
+    [loop]
+    for (int index = 0; index < (int)WorldShadowControl.z; ++index) {
+        float sampleDistance = (index + 0.5f) * stepLength;
+        float3 position = origin + direction * sampleDistance;
+        float density = max(MediumData0.x + SafeHeightDensity(position.z), 0.0f);
+        if (MediumData1.z > 0.0f) {
+            density *= max(1.0f + DensityVariation(position) * MediumData1.z, 0.0f);
+        }
+        float segmentT = exp(-clamp(density * stepLength, 0.0f, MaximumOpticalDepth));
+        float visibility = DirectionalVisibility(direction * sampleDistance);
+        blockedAmount += transmittance * (1.0f - segmentT) * (1.0f - visibility);
+        transmittance *= segmentT;
+    }
+    return saturate(blockedAmount);
+}
+#endif
+
+#ifndef OMV_WORLD_FIELD
+float WorldBlockage(float2 uv, float encodedDistance) {
+    float2 pixel = uv * WorldFieldTarget.xy - 0.5f;
+    float2 base = floor(pixel);
+    float2 fraction = frac(pixel);
+    float blocked = 0.0f;
+    float totalWeight = 0.0f;
+    [unroll]
+    for (int tap = 0; tap < 4; ++tap) {
+        float2 offset = float2(tap == 1 || tap == 3 ? 1.0f : 0.0f, tap >= 2 ? 1.0f : 0.0f);
+        float2 sampleUv = (base + offset + 0.5f) * WorldFieldTarget.zw;
+        float4 field = tex2Dlod(ShaftVisibility, float4(sampleUv, 0.0f, 0.0f));
+        float span = max(field.w - field.z, 0.0f);
+        float blend = span > 0.0001f ? saturate((encodedDistance - field.z) / span) : 0.0f;
+        float matched = clamp(encodedDistance, field.z, field.w);
+        // Keys use the same log-depth encoding as production reduced depth.
+        float distance = DecodeDistance(encodedDistance);
+        float tolerance = max(256.0f, distance * 0.02f);
+        float depthWeight = saturate(1.0f - abs(distance - DecodeDistance(matched)) / tolerance);
+        float2 spatial = lerp(1.0f - fraction, fraction, offset);
+        float weight = spatial.x * spatial.y * depthWeight * depthWeight;
+        blocked += lerp(field.x, field.y, blend) * weight;
+        totalWeight += weight;
+    }
+    return totalWeight > 0.0001f ? blocked / totalWeight : 0.0f;
+}
+#endif
+
+#ifdef OMV_WORLD_FIELD
+float4 WorldFieldMain(PixelInput input)
+#else
+float4 Main(PixelInput input)
+#endif
+: COLOR0 {
 	if (GateData.x < 0.5f || GateData.y < 0.5f || GateData.z > 0.5f) {
 		return IdentityMedium();
 	}
@@ -120,6 +328,18 @@ float4 Main(PixelInput input) : COLOR0 {
 	float3 worldDirection = worldRay / worldRayLength;
 	float3 worldOrigin = float3(ViewToWorld0.w, ViewToWorld1.w, ViewToWorld2.w);
 
+#ifdef OMV_WORLD_FIELD
+    float shadowExit = WorldShadowExit(worldDirection);
+    float nearDistance = max(min(DecodeDistance(encodedDepth.x), min(MediumData1.x, DepthData.w)), 0.0f);
+    float farDistance = max(min(DecodeDistance(encodedDepth.y), min(MediumData1.x, DepthData.w)), 0.0f);
+    float nearBlocked = IntegratedWorldBlockage(worldOrigin, worldDirection, nearDistance, shadowExit);
+    float farBlocked = nearBlocked;
+    if (min(farDistance, shadowExit) > min(nearDistance, shadowExit)) {
+        farBlocked = IntegratedWorldBlockage(worldOrigin, worldDirection, farDistance, shadowExit);
+    }
+    return float4(nearBlocked, farBlocked, encodedDepth);
+#else
+
 	float opticalDepth = MediumData0.x * distance;
 	opticalDepth += max(AnalyticHeightOpticalDepth(distance, worldOrigin.z, worldDirection.z), 0.0f);
 	opticalDepth += HeterogeneousCorrection(distance, worldOrigin, worldDirection);
@@ -132,25 +352,24 @@ float4 Main(PixelInput input) : COLOR0 {
 	float scatterAmount = (1.0f - transmittance) * saturate(MediumData1.y);
 	float3 scattering = max(MediumColor.rgb, 0.0f) * scatterAmount * saturate(MediumColor.w);
 	if (LightingData.w > 0.5f) {
-		float lightingOpticalDepth = clamp(
-			max(LightingMediumData.x, 0.0f) * distance,
-			0.0f,
-			MaximumOpticalDepth
-		);
-		float directionalScatterAmount = max(
-			scatterAmount,
-			1.0f - exp(-lightingOpticalDepth)
-		);
+		// The same particles must scatter and extinguish light. Lighting-only
+		// operation already supplies its density through MediumData0.x; an
+		// independent lower bound here emits sunlight in otherwise empty air.
+		float directionalScatterAmount = scatterAmount;
+		float shaft = 1.0f;
+		if (WorldShadowControl.x > 0.5f) {
+            float blockedAmount = WorldBlockage(input.uv, encodedDistance);
+            shaft = 1.0f - saturate(WorldShadowControl.y) * saturate(blockedAmount / max(1.0f - transmittance, 0.000001f));
+		} else if (SunDirection.w > 0.5f) {
+			shaft = saturate(tex2Dlod(ShaftVisibility, float4(input.uv, 0.0f, 0.0f)).r);
+		}
 		float mu = dot(worldDirection, SunDirection.xyz);
 		// FNV supplies irradiance-scale direct light, not radiance per steradian.
 		float phase = HenyeyGreenstein(mu, LightingData.y) * FourPi;
-		float diskLobe = smoothstep(0.995f, 0.9999f, mu);
+		float diskLobe = AuthoredSunCoverage(input.uv);
 		float3 radiance = max(SunColor.rgb, 0.0f)
 			+ max(SunDiskDelta.rgb, 0.0f) * max(LightingData.z, 0.0f) * diskLobe;
-		float shaft = 1.0f;
-		if (SunDirection.w > 0.5f) {
-			shaft = saturate(tex2Dlod(ShaftVisibility, float4(input.uv, 0.0f, 0.0f)).r);
-		}
+
 		scattering += radiance
 			* max(LightingData.x, 0.0f)
 			* saturate(SunColor.w)
@@ -162,4 +381,5 @@ float4 Main(PixelInput input) : COLOR0 {
 		return IdentityMedium();
 	}
 	return float4(scattering, saturate(transmittance));
+#endif
 }

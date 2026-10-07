@@ -3,6 +3,27 @@ sampler2D ReducedDepth : register(s1);
 sampler2D IntegratedAtmosphere : register(s2);
 sampler2D ShaftMask : register(s3);
 sampler2D ShaftVisibility : register(s4);
+sampler2D NativeSunTexture : register(s5);
+float4 SunTextureU : register(c12);
+float4 SunTextureV : register(c13);
+float4 SunTextureDenominator : register(c14);
+
+// Match the native-sky replacement's exact texture transfer. The transfer is
+// monotone, so decoding the peak channel equals the peak of decoded RGB.
+float SolarTextureResponse(float3 color) {
+    float peak = max(color.r, max(color.g, color.b));
+    return peak <= 0.04045f ? peak / 12.92f : pow((peak + 0.055f) / 1.055f, 2.4f);
+}
+
+float AuthoredSunCoverage(float2 uv) {
+	float3 screen = float3(uv, 1.0f);
+	float denominator = dot(SunTextureDenominator.xyz, screen);
+	if (denominator <= 0.0f || SunTextureDenominator.w <= 0.0f) { return 0.0f; }
+	float2 solarUv = float2(dot(SunTextureU.xyz, screen), dot(SunTextureV.xyz, screen)) / denominator;
+	if (any(solarUv < 0.0f) || any(solarUv > 1.0f)) { return 0.0f; }
+	float4 authored = tex2Dlod(NativeSunTexture, float4(solarUv, 0.0f, 0.0f));
+	return SolarTextureResponse(authored.rgb) * authored.a * SunTextureDenominator.w;
+}
 
 float4 FullTarget : register(c0);
 float4 ReducedTarget : register(c1);
@@ -77,13 +98,11 @@ float4 Main(PixelInput input) : COLOR0 {
 		float2 reducedUv = (reducedPixel + 0.5f) * ReducedTarget.zw;
 		float4 integrated = tex2Dlod(IntegratedAtmosphere, float4(reducedUv, 0.0f, 0.0f));
 		if (lightingView < 4.5f) {
-			float diskLobe = smoothstep(0.995f, 0.9999f, mu);
+			float diskLobe = AuthoredSunCoverage(input.uv);
 			float3 radiance = max(SunColor.rgb, 0.0f)
 				+ max(SunDiskDelta.rgb, 0.0f) * max(LightingDebugData.z, 0.0f) * diskLobe;
 			float visibility = lerp(1.0f, shaft.x, saturate(SunDirection.w));
-			float distance = DecodeDistance(tex2Dlod(ReducedDepth, float4(reducedUv, 0.0f, 0.0f)).y);
-			float lightingAmount = 1.0f - exp(-max(LightingMediumData.x, 0.0f) * distance);
-			float directionalAmount = max(1.0f - saturate(integrated.a), lightingAmount);
+			float directionalAmount = (1.0f - saturate(integrated.a)) * LightingMediumData.y;
 			float3 preview = radiance * SunColor.w * LightingDebugData.y * phase
 				* directionalAmount * visibility;
 			preview = preview / (1.0f + preview);

@@ -7,6 +7,115 @@ the real D3D compiler in the i686 Wine test run. Behavioral regressions own the
 native-radiance and projection contracts; the feature-first playtest remains
 the final pixel-quality gate.
 
+## Shared medium and authored emitter correction
+
+### World-space sunlight shadowing
+
+Directional haze now borrows the existing four-cascade static EVSM4 atlas and
+three actor overlays from the common shadow producer. The existing world
+requirements word requests this producer whenever enabled directional lighting
+has a nonempty shared medium, positive intensity and positive shaft strength.
+This also covers medium supplied by fog. Surface Sun Shadows remains independent:
+the surface consumer masks its copied publication with that receiver setting.
+No configuration field, static owner, hook or startup initialization is added.
+
+The stack packet retains three COM textures, rebases the published matrices to
+the consumer camera origin, and carries cascade splits and actor crops. Busy,
+missing, stale, reset-generation, wrong-device or mismatched-sun publications
+are rejected. One retained packet serves both near/far integrations. Existing
+world state restoration covers the additional samplers and constants.
+
+The prepared shaft-mask slot now owns a combined world-field/projected-mask
+program, preserving the bytecode static's layout and preparation lifecycle.
+The existing quarter-resolution targets are reused: radial stores the full
+4x4-cell near/far reduced depth, and mask stores FP16 blocked-scattering amounts
+in RG plus log-depth interval keys in BA. This promotes mask from RG16 to RGBA16
+without adding a target. The ordinary near/far haze targets retain their quality
+resolution. One quarter-resolution reduction and one field draw precede haze.
+Equal near/far ray intervals inside the atlas share one march.
+
+World-field generation binds static/actor maps at `s4..s6`, matrices at
+`c18..c33`, texels/actor admission/crops at `c35..c40`, and admission/strength/
+8,12,20 sample count at `c42`. The haze consumers read only the retained field at
+`s2`, with its dimensions at `c43`; four point-sampled, spatially weighted taps
+match the production near/far depth intervals. Depth tolerance follows the
+existing composition policy (256 world units or 2 percent at quarter scale).
+The consumer subtracts blocked scattering from its existing total energy.
+Extinction, HG phase, native source color and sky response remain unchanged.
+
+World lookup selects the finest actual projected map containing each sample
+and blends to coarser maps at their boundaries. It no longer rejects a sample
+by a camera-depth split. Ray extent is clipped against the outer orthographic
+atlas's real XYZ box, replacing the split-distance/view-cosine cutoff. EVSM4 and
+actor coverage follow the surface receiver contract; bilinear resolved moments
+omit that receiver's extra three-tap edge refinement. Samples outside published
+coverage remain lit. Natural phase brightness remains angular. Missing maps
+retain the projected fallback and its viewport limitations; legacy scene-post
+shafts also remain screen-space. Debug shaft-mask views describe that fallback,
+not the world field. Game-only image behavior has not been executed.
+
+The existing directional producer and caster work remain required even with
+surface Sun Shadows off. Its static atlas alone is 128 MiB; its additional work,
+resolve, depth, actor and strip resources remain. The field mask promotion adds
+four bytes per quarter-resolution pixel (about 0.49 MiB at 1920x1080).
+At default High quality and 1920x1080, the old two half-resolution marches used
+12,441,600 shadow steps. The quarter field uses at most 3,110,400 steps, or
+1,555,200 when both intervals have the same atlas extent. A sample tests up to
+four static maps and three actor maps plus density noise, with early exit once
+covered; the older blend tested up to two static/actor maps plus noise.
+Haze now uses four field reads instead of a repeated atlas march. Field
+reconstruction uses the documented low-resolution/depth-aware approach:
+[NVIDIA, Fast Flexible Physically-Based Volumetric Light Scattering](https://developer.download.nvidia.com/assets/gameworks/papers/Fast_Flexible_Physically-Based_Volumetric_Light_Scattering.pdf).
+These bounds describe deterministic work, not measured GPU time or FPS. The
+owner's 30+ FPS loss is a runtime observation; attribution between producer,
+field integration and driver cost remains unresolved without runtime timings.
+
+Screen-space radial sampling has documented view limitations:
+[NVIDIA GPU Gems 3, chapter 13](https://developer.nvidia.com/gpugems/gpugems3/part-ii-light-and-shadows/chapter-13-volumetric-light-scattering-post-process).
+Directional shadow maps are also the sunlight-occlusion source described by
+[Epic's Sky Atmosphere documentation](https://dev.epicgames.com/documentation/en-us/unreal-engine/sky-atmosphere?application_version=4.27).
+
+This correction replaces the July independent lighting optical-depth floor
+with a minimum in the shared extinction field. Scattering and extinction now describe one medium:
+`directional_amount = (1 - transmittance) * scattering_albedo`, using the same
+uniform, height and noise optical depth that produced transmittance. When
+lighting or local lights are enabled, uniform extinction is the maximum of
+active fog density and lighting medium density. This aerosol lower bound also
+feeds the local-light integrator; enabling height fog cannot remove it. With
+fog inactive, lighting density supplies uniform extinction and unit albedo. The normalized HG phase and established
+`4 pi` engine-light conversion remain, as does off-screen base scattering.
+This follows the extinction/scattering distinction in
+[PBRT's volume processes](https://www.pbr-book.org/4ed/Volume_Scattering/Volume_Scattering_Processes).
+
+The projected fallback's shaft visibility retains the accepted
+`lerp(1, exp(-12 * blocked_fraction), edge_fade * strength)` curve. This is
+an artistic screen-space occlusion estimate, not physical optical depth.
+Moving strength inside the exponential removed its neutral component and
+crushed world rays; replacing the curve with linear coverage weakened the
+thin-occluder response established by the July runtime correction. Zero
+strength remains identity. Stable stratified taps stay inside their path
+segments instead of stepping beyond the sun endpoint.
+The 24/40/56-tap quarter-resolution variants and two shaft passes remain.
+
+Disk boost reads the authored disk texture through the native geometry UV map,
+replacing the fixed angular lobe. Integration uses sampler `s3`, maps `c15..c17`;
+debug uses `s5`, maps `c12..c14`. The last map component carries native visibility.
+One owned packet serves both near/far integrations; debug obtains its own only
+when needed. A missing packet zeroes disk enhancement, never base scattering.
+The existing pre-alpha phase, layered FP16 targets, medium composition, native
+sun-color compatibility resolver, config schema/layout and static owners remain.
+
+Compared with the former default integration, compiled work adds one native
+texture instruction, projective coverage arithmetic and exact source decoding. There is no new pass,
+target, texture allocation or render-time compilation. Lookup uses existing
+range validation, and the native texture is retained only across its consumers.
+The earlier source-string ABI checks and mirrored legacy radial reference do
+not qualify these changed equations. Production variant compilation/budgets
+provide static support; the existing GPU pipeline fixtures remain independent
+support fixtures and are not matching game captures. The owner's glow/ray
+report is the game-only requirement. Image tests and gameplay were not run
+under the owner's static-only restriction; compilation is not visual proof.
+
 Native-radiance compatibility correction on 2026-08-18: the earlier claim that
 `Sky +0x6C` was an executable-proven final directional color was incorrect.
 The authoritative follow-up audit proves a different interpolation write at
@@ -237,9 +346,9 @@ There is one extinction field and one atmosphere composition:
   density and current ambient medium color;
 - lighting only: use `medium_density` as a bounded uniform lighting medium,
   with no hidden fog noise or ambient fog scattering;
-- both enabled: use the fog medium for both ambient and directional
-  scattering. `medium_density` is the fallback for lighting-only operation and
-  is not added on top of enabled fog density.
+- both enabled: use `max(fog.density, lighting.medium_density)` as the shared
+  uniform density, plus fog height/noise terms, for ambient, directional and
+  local scattering. The lighting medium is a lower bound, not additive density.
 
 This rule prevents double extinction and makes the two toggles independent.
 The lighting-only medium still attenuates the scene because visible light in
@@ -517,7 +626,7 @@ Add deterministic tests for:
 - disk boost locality, nonnegativity, and finite overbright behavior;
 - lighting-only, fog-only, combined, missing-sun, and missing-shaft truth-table
   outcomes;
-- combined mode not adding `medium_density` to enabled fog extinction;
+- combined mode retaining the lighting aerosol minimum without additive density;
 - lighting failure preserving a ready fog contribution;
 - explicit fog-versus-lighting debug mapping;
 - config/menu round-trip and sanitized non-finite inputs;

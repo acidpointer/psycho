@@ -49,18 +49,21 @@ float Pow8(float value) {
     return value4 * value4;
 }
 
-float Pow20(float value) {
-    float value2 = value * value;
-    float value4 = value2 * value2;
-    float value16 = value4 * value4;
-    value16 *= value16;
-    return value16 * value4;
+// Peak-normalized Cornette-Shanks Mie profile, using the reference Earth
+// aerosol asymmetry g=0.8. This shapes an artistic weather-color blend, not
+// physical atmospheric transport. Unit influence retains the reference shape.
+float SolarScatteringWeight(float cosine) {
+    float mu = clamp(cosine, -1.0f, 1.0f);
+    float ratio = 0.04f / max(1.64f - 1.6f * mu, 0.04f);
+    float shape = 0.5f * (1.0f + mu * mu) * ratio * sqrt(ratio);
+    return pow(saturate(shape), SunDirection.w);
 }
 
-float3 EvaluateSky(float verticality, float atmosphere, float sunHeight, float sunInfluence, float3 sunColor) {
+float3 EvaluateSky(float verticality, float atmosphere, float sunHeight, float sunInfluence, float solarWeight, float3 sunColor) {
     float3 color = lerp(SkyLower.rgb, SkyUpper.rgb, verticality);
     color = lerp(color, HorizonColor.rgb, saturate(atmosphere * (0.5 + 0.5 * sunInfluence)));
-    color += sunColor * sunInfluence * (1.0 - sunHeight) * atmosphere * SkyData.z * smoothstep(0.0, 0.5, SunData.x);
+    float haze = solarWeight * (1.0 - sunHeight) * atmosphere * SkyData.z * smoothstep(0.0, 0.5, SunData.x);
+    color = lerp(color, sunColor, saturate(haze));
     return color;
 }
 
@@ -78,16 +81,19 @@ float4 SampleWeatherTextures(float2 uv, float2 blendUv) {
 #if OMV_CELESTIAL
 float4 Main(PixelInput input) : COLOR0 {
     float4 textureColor = Linearize4(tex2D(SkyTexture, input.uv));
-#if !defined(OMV_CELESTIAL_SUN)
     float4 vertexColor = Linearize4(input.color);
-#endif
     float sunHeight = SunData.w;
     float3 sunColor = SunLightColor.rgb;
 #if defined(OMV_CELESTIAL_SUN)
-    float daylightGate = smoothstep(0.498, 0.502, SunData.x);
+    // Preserve the existing unit-texel peak and sunset response, but make
+    // added solar brightness follow authored RGB coverage. A black texel
+    // must not become an emitter just because its alpha admits the draw.
+    // Sun::Update supplies native disk visibility through blend-color alpha.
     float sunsetWeight = smoothstep(0.3, 0.0, sunHeight);
-    float3 sunResult = textureColor.rgb + sunColor * (sunsetWeight + SunData.y);
-    float sunAlpha = textureColor.a * daylightGate;
+    float3 sunResult = textureColor.rgb * (1.0 + sunColor * (sunsetWeight + SunData.y));
+    // Native visibility owns twilight and weather fading. A second climate
+    // cutoff would override the authored disk even on an admitted native draw.
+    float sunAlpha = textureColor.a * vertexColor.a;
     return float4(Delinearize3(sunResult), sunAlpha);
 #else
 #if defined(OMV_CELESTIAL_MOON)
@@ -125,9 +131,10 @@ float4 Main(PixelInput input) : COLOR0 {
     float sunInfluence = pow(sunFacing, SunDirection.w);
     float sunHeight = SunData.w;
     float3 sunColor = SunLightColor.rgb;
-    float3 skyColor = EvaluateSky(verticality, atmosphere, sunHeight, sunInfluence, sunColor);
+    float solarWeight = SolarScatteringWeight(dot(eyeDirection, SunDirection.xyz));
+    float3 skyColor = EvaluateSky(verticality, atmosphere, sunHeight, sunInfluence, solarWeight, sunColor);
     float alpha = cloud.a * CloudData.z;
-    float3 scattering = Pow20(sunInfluence) * smoothstep(0.5, 1.0, 1.0 - alpha) * sunColor;
+    float3 scattering = solarWeight * smoothstep(0.5, 1.0, 1.0 - alpha) * sunColor;
 
 #if OMV_CLOUD_NORMALS
     float3 normal = DecodeCloudNormal(cloud.xy, -eyeDirection);

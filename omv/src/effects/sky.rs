@@ -99,13 +99,13 @@ impl From<crate::config::NativeSkyConfig> for NativeSkySettings {
         Self {
             enabled: value.enabled,
             atmosphere_thickness: sanitize(value.atmosphere_thickness, 0.7068965, 0.0, 8.0),
-            sun_influence: sanitize(value.sun_influence, 1.291271, 0.05, 8.0),
-            sun_strength: sanitize(value.sun_strength, 1.517241, 0.0, 8.0),
+            sun_influence: sanitize(value.sun_influence, 1.0, 0.05, 8.0),
+            sun_strength: sanitize(value.sun_strength, 1.0, 0.0, 8.0),
             glare_strength: sanitize(value.glare_strength, 0.8965517, 0.0, 8.0),
             star_strength: sanitize(value.star_strength, 1.0, 0.0, 8.0),
             star_twinkle: sanitize(value.star_twinkle, 1.0, 0.0, 8.0),
             cloud_transparency: sanitize(value.cloud_transparency, 0.3610992, 0.05, 1.0),
-            cloud_brightness: sanitize(value.cloud_brightness, 1.305171, 0.0, 4.0),
+            cloud_brightness: sanitize(value.cloud_brightness, 1.0, 0.0, 4.0),
             cloud_normals: value.cloud_normals,
             use_sun_disk_color: value.use_sun_disk_color,
             sunset: [
@@ -113,7 +113,7 @@ impl From<crate::config::NativeSkyConfig> for NativeSkySettings {
                 sanitize(value.sunset_green, 0.0, 0.0, 4.0),
                 sanitize(value.sunset_blue, 0.03, 0.0, 4.0),
             ],
-            sky_multiplier: sanitize(value.sky_multiplier, 2.043103, 0.0, 4.0),
+            sky_multiplier: sanitize(value.sky_multiplier, 1.0, 0.0, 4.0),
         }
     }
 }
@@ -598,8 +598,8 @@ fn template_profile(template: &ShaderTemplate) -> &'static str {
 mod shader_compile_tests {
     use super::{
         NativeSkySettings, PS_CELESTIAL_MOON, PS_CELESTIAL_OTHER, PS_CELESTIAL_SUN, STARS_PS,
-        TEMPLATES, TEXTURED_PS, VS_CELESTIAL, draw_constants, prepare_sky_frame,
-        replacement_templates, template_profile, template_source,
+        TEMPLATES, VS_CELESTIAL, draw_constants, prepare_sky_frame, replacement_templates,
+        template_profile, template_source,
     };
 
     fn compiled_instruction_opcodes(bytecode: &[u32]) -> Vec<u16> {
@@ -658,12 +658,13 @@ mod shader_compile_tests {
                 "sky_stars_vs" => (58, 0, 1_128),
                 "sky_stars_forward_vs" => (56, 0, 1_104),
                 "sky_clouds_vs" | "sky_clouds_forward_vs" => (64, 0, 1_172),
-                "sky_atmosphere_ps" => (81, 0, 1_660),
+                "sky_atmosphere_ps" => (101, 0, 1_964),
                 "sky_celestial_other_ps" => (66, 1, 1_288),
-                "sky_celestial_sun_ps" => (65, 1, 1_276),
+                // Native visibility replaces the duplicate OMV daylight cutoff.
+                "sky_celestial_sun_ps" => (60, 1, 1_196),
                 "sky_celestial_moon_ps" => (65, 1, 1_228),
-                "sky_clouds_ps" => (193, 2, 3_484),
-                "sky_cloud_normals_ps" => (254, 2, 4_524),
+                "sky_clouds_ps" => (207, 2, 3_692),
+                "sky_cloud_normals_ps" => (269, 2, 4_748),
                 "sky_stars_ps" => (188, 1, 3_204),
                 label => panic!("missing native-sky GPU budget for {label}"),
             };
@@ -719,54 +720,6 @@ mod shader_compile_tests {
         assert!(labels.contains(&"sky_celestial_moon_ps"));
         assert!(labels.contains(&"sky_celestial_other_ps"));
 
-        let source = std::str::from_utf8(TEXTURED_PS).unwrap();
-        assert!(source.contains("OMV_CELESTIAL_SUN"));
-        assert!(source.contains("OMV_CELESTIAL_MOON"));
-        assert!(!source.contains("float isSun"));
-        assert!(!source.contains("float isMoon"));
-
-        let texture = [0.7f32, 0.5, 0.25, 0.8];
-        let vertex = [0.6f32, 0.8, 1.0, 0.75];
-        let sun_color = [1.0f32, 0.7, 0.4];
-        let params_y = 1.2f32;
-        let sun_data_y = 0.35f32;
-        let sunset_weight = 0.4f32;
-        let daylight_gate = 0.9f32;
-        for object_type in [0u32, 6, 4] {
-            let is_sun = if object_type == 0 { 1.0 } else { 0.0 };
-            let is_moon = if object_type == 6 { 1.0 } else { 0.0 };
-            let non_sun = std::array::from_fn::<_, 3, _>(|index| {
-                texture[index]
-                    * vertex[index]
-                    * params_y
-                    * (sun_data_y + (1.0 - sun_data_y) * is_moon)
-            });
-            let sun = std::array::from_fn::<_, 3, _>(|index| {
-                texture[index] + sun_color[index] * (sunset_weight + sun_data_y)
-            });
-            let old_rgb = std::array::from_fn::<_, 3, _>(|index| {
-                non_sun[index] + (sun[index] - non_sun[index]) * is_sun
-            });
-            let old_alpha = texture[3] * vertex[3]
-                + (texture[3] * daylight_gate - texture[3] * vertex[3]) * is_sun;
-
-            let (specialized_rgb, specialized_alpha) = match object_type {
-                0 => (sun, texture[3] * daylight_gate),
-                6 => (
-                    std::array::from_fn(|index| texture[index] * vertex[index] * params_y),
-                    texture[3] * vertex[3],
-                ),
-                _ => (
-                    std::array::from_fn(|index| {
-                        texture[index] * vertex[index] * params_y * sun_data_y
-                    }),
-                    texture[3] * vertex[3],
-                ),
-            };
-            assert_eq!(specialized_rgb, old_rgb);
-            assert_eq!(specialized_alpha, old_alpha);
-        }
-
         assert_eq!(
             replacement_templates(1, 1, 0, false, true),
             Some((VS_CELESTIAL, PS_CELESTIAL_SUN))
@@ -800,6 +753,11 @@ mod shader_compile_tests {
         let atmosphere = draw_constants(prepared.constants, 2);
         let clouds = draw_constants(prepared.constants, 3);
 
+        // Neutral weather gains must reach the production shader constants.
+        assert_eq!(prepared.constants[4][3], 1.0);
+        assert_eq!(prepared.constants[5][2], 1.0);
+        assert_eq!(prepared.constants[6][3], 1.0);
+        assert_eq!(prepared.constants[8][3], 1.0);
         assert!(prepared.reversed_depth);
         assert_eq!(atmosphere[..10], clouds[..10]);
         assert_eq!(atmosphere[10][1..], clouds[10][1..]);
