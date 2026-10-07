@@ -1,0 +1,1402 @@
+FalloutNV lighting candidates - implementation evidence
+Date: 2026-10-07
+Executable: fnv_reverse/FalloutNV.exe, PE32 x86, image base 0x00400000
+SHA-256: 42fee7d6cd74e801372aa89c8f71c974cebd3c20ec9ad43d1465b8fa9646b49c
+Primary native analysis: radare2 MCP. Bounded PE/objdump supplements are labeled.
+The compiled bridge output proves emitted instructions, not executed engine behavior.
+Runtime ownership, concurrency, startup, equivalence, and FPS remain unvalidated.
+
+
+======================================================================
+ENTRY 1: Vector sqrt wrapper 0x004579E0 (primary MCP)
+======================================================================
+{
+  "content": [
+    {
+      "type": "text",
+      "text": "; XREFS: CALL 0x004579c9  CALL 0x0050ecc8  CALL 0x0058987b\n; XREFS: CALL 0x0064798b  CALL 0x00656fb5  CALL 0x006acfc3\n; XREFS: CALL 0x006f7cbd  CALL 0x0079fef6  CALL 0x00965c33\n; XREFS: CALL 0x009894f1  CALL 0x00989c25  CALL 0x0098b385\n; XREFS: CALL 0x0098b790  CALL 0x009a00d2  CALL 0x009a7caf\n; XREFS: CALL 0x009a8a5e\n20: fcn.004579e0 ();\n0x004579e0      push ebp\n0x004579e1      mov ebp, esp\n0x004579e3      push ecx\n0x004579e4      fld dword [ebp + 8]\n0x004579e7      fstp dword [esp]\n; fcn.004019b0\n0x004579ea      call fcn.004019b0\n0x004579ef      add esp, 4\n0x004579f2      pop ebp\n; ebp\n0x004579f3      ret\n"
+    }
+  ]
+}
+
+======================================================================
+ENTRY 2: Scalar sqrt wrapper 0x004019B0 (primary MCP)
+======================================================================
+{
+  "content": [
+    {
+      "type": "text",
+      "text": "; XREFS(1085)\n20: fcn.004019b0 ();\n0x004019b0      push ebp\n0x004019b1      mov ebp, esp\n0x004019b3      push ecx\n0x004019b4      fld dword [ebp + 8]\n0x004019b7      fstp dword [esp]\n; fcn.004019d0\n0x004019ba      call fcn.004019d0\n0x004019bf      add esp, 4\n0x004019c2      pop ebp\n; ebp\n0x004019c3      ret\n"
+    }
+  ]
+}
+
+======================================================================
+ENTRY 3: Reverified sorter caller slices (bounded objdump supplement)
+======================================================================
+
+fnv_reverse/FalloutNV.exe:     file format pei-i386
+
+
+Disassembly of section .text:
+
+00b681cf <.text+0x7671cf>:
+  b681cf:	8b 44 24 14          	mov    eax,DWORD PTR [esp+0x14]
+  b681d3:	8b 5c 24 5c          	mov    ebx,DWORD PTR [esp+0x5c]
+  b681d7:	39 46 38             	cmp    DWORD PTR [esi+0x38],eax
+  b681da:	75 0e                	jne    0xb681ea
+  b681dc:	84 db                	test   bl,bl
+  b681de:	74 0a                	je     0xb681ea
+  b681e0:	80 7e 74 00          	cmp    BYTE PTR [esi+0x74],0x0
+  b681e4:	0f 84 e7 01 00 00    	je     0xb683d1
+  b681ea:	c6 46 74 00          	mov    BYTE PTR [esi+0x74],0x0
+  b681ee:	f7 46 20 00 00 00 04 	test   DWORD PTR [esi+0x20],0x4000000
+  b681f5:	77 0d                	ja     0xb68204
+  b681f7:	6a 05                	push   0x5
+  b681f9:	8b ce                	mov    ecx,esi
+  b681fb:	e8 20 9e 93 ff       	call   0x4a2020
+  b68200:	84 c0                	test   al,al
+  b68202:	74 1a                	je     0xb6821e
+  b68204:	6a 0b                	push   0xb
+  b68206:	8b ce                	mov    ecx,esi
+  b68208:	e8 13 9e 93 ff       	call   0x4a2020
+  b6820d:	84 c0                	test   al,al
+  b6820f:	75 26                	jne    0xb68237
+  b68211:	6a 1c                	push   0x1c
+  b68213:	8b ce                	mov    ecx,esi
+  b68215:	e8 06 9e 93 ff       	call   0x4a2020
+  b6821a:	84 c0                	test   al,al
+  b6821c:	75 19                	jne    0xb68237
+  b6821e:	6a 05                	push   0x5
+  b68220:	8b ce                	mov    ecx,esi
+  b68222:	e8 f9 9d 93 ff       	call   0x4a2020
+  b68227:	84 c0                	test   al,al
+  b68229:	75 0c                	jne    0xb68237
+  b6822b:	8b 8d 9c 00 00 00    	mov    ecx,DWORD PTR [ebp+0x9c]
+  b68231:	f6 41 18 01          	test   BYTE PTR [ecx+0x18],0x1
+  b68235:	74 0c                	je     0xb68243
+  b68237:	8d 54 24 34          	lea    edx,[esp+0x34]
+  b6823b:	52                   	push   edx
+  b6823c:	8b ce                	mov    ecx,esi
+  b6823e:	e8 4d 81 00 00       	call   0xb70390
+
+fnv_reverse/FalloutNV.exe:     file format pei-i386
+
+
+Disassembly of section .text:
+
+00bb4eda <.text+0x7b3eda>:
+  bb4eda:	80 7e 74 00          	cmp    BYTE PTR [esi+0x74],0x0
+  bb4ede:	74 33                	je     0xbb4f13
+  bb4ee0:	8b 45 20             	mov    eax,DWORD PTR [ebp+0x20]
+  bb4ee3:	85 c0                	test   eax,eax
+  bb4ee5:	75 05                	jne    0xbb4eec
+  bb4ee7:	b8 88 42 1f 01       	mov    eax,0x11f4288
+  bb4eec:	8b 08                	mov    ecx,DWORD PTR [eax]
+  bb4eee:	89 4c 24 4c          	mov    DWORD PTR [esp+0x4c],ecx
+  bb4ef2:	8b 50 04             	mov    edx,DWORD PTR [eax+0x4]
+  bb4ef5:	89 54 24 50          	mov    DWORD PTR [esp+0x50],edx
+  bb4ef9:	8b 48 08             	mov    ecx,DWORD PTR [eax+0x8]
+  bb4efc:	89 4c 24 54          	mov    DWORD PTR [esp+0x54],ecx
+  bb4f00:	8b 50 0c             	mov    edx,DWORD PTR [eax+0xc]
+  bb4f03:	8d 44 24 4c          	lea    eax,[esp+0x4c]
+  bb4f07:	50                   	push   eax
+  bb4f08:	8b ce                	mov    ecx,esi
+  bb4f0a:	89 54 24 5c          	mov    DWORD PTR [esp+0x5c],edx
+  bb4f0e:	e8 7d b4 fb ff       	call   0xb70390
+
+fnv_reverse/FalloutNV.exe:     file format pei-i386
+
+
+Disassembly of section .text:
+
+00c0603d <.text+0x80503d>:
+  c0603d:	80 7e 74 00          	cmp    BYTE PTR [esi+0x74],0x0
+  c06041:	74 37                	je     0xc0607a
+  c06043:	8b 54 24 60          	mov    edx,DWORD PTR [esp+0x60]
+  c06047:	8b 42 20             	mov    eax,DWORD PTR [edx+0x20]
+  c0604a:	85 c0                	test   eax,eax
+  c0604c:	75 05                	jne    0xc06053
+  c0604e:	b8 88 42 1f 01       	mov    eax,0x11f4288
+  c06053:	8b 08                	mov    ecx,DWORD PTR [eax]
+  c06055:	89 4c 24 4c          	mov    DWORD PTR [esp+0x4c],ecx
+  c06059:	8b 50 04             	mov    edx,DWORD PTR [eax+0x4]
+  c0605c:	89 54 24 50          	mov    DWORD PTR [esp+0x50],edx
+  c06060:	8b 48 08             	mov    ecx,DWORD PTR [eax+0x8]
+  c06063:	89 4c 24 54          	mov    DWORD PTR [esp+0x54],ecx
+  c06067:	8b 50 0c             	mov    edx,DWORD PTR [eax+0xc]
+  c0606a:	8d 44 24 4c          	lea    eax,[esp+0x4c]
+  c0606e:	50                   	push   eax
+  c0606f:	8b ce                	mov    ecx,esi
+  c06071:	89 54 24 5c          	mov    DWORD PTR [esp+0x5c],edx
+  c06075:	e8 16 a3 f6 ff       	call   0xb70390
+
+
+======================================================================
+ENTRY 4: Compiled production bridge ABI (bounded release disassembly; static qualification only)
+======================================================================
+
+target/i686-pc-windows-gnu/release/psycho_engine_fixes.dll:     file format pei-i386
+
+
+Disassembly of section .text:
+
+10082010 <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf16scene_light_scan11camera_next>:
+10082010:	9c                   	pushf
+10082011:	60                   	pusha
+10082012:	83 3d 5c a6 50 10 00 	cmp    DWORD PTR ds:0x1050a65c,0x0
+10082019:	75 32                	jne    1008204d <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf16scene_light_scan11camera_next+0x3d>
+1008201b:	e8 60 00 00 00       	call   10082080 <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf16scene_light_scan12getter_owned>
+10082020:	85 c0                	test   eax,eax
+10082022:	74 29                	je     1008204d <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf16scene_light_scan11camera_next+0x3d>
+10082024:	61                   	popa
+10082025:	9d                   	popf
+10082026:	8b 44 24 64          	mov    eax,DWORD PTR [esp+0x64]
+1008202a:	85 c0                	test   eax,eax
+1008202c:	74 21                	je     1008204f <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf16scene_light_scan11camera_next+0x3f>
+1008202e:	85 d2                	test   edx,edx
+10082030:	74 04                	je     10082036 <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf16scene_light_scan11camera_next+0x26>
+10082032:	8b 00                	mov    eax,DWORD PTR [eax]
+10082034:	eb 06                	jmp    1008203c <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf16scene_light_scan11camera_next+0x2c>
+10082036:	8b 83 b4 00 00 00    	mov    eax,DWORD PTR [ebx+0xb4]
+1008203c:	89 44 24 64          	mov    DWORD PTR [esp+0x64],eax
+10082040:	8b 48 08             	mov    ecx,DWORD PTR [eax+0x8]
+10082043:	8b 00                	mov    eax,DWORD PTR [eax]
+10082045:	31 d2                	xor    edx,edx
+10082047:	68 67 c0 b5 00       	push   0xb5c067
+1008204c:	c3                   	ret
+1008204d:	61                   	popa
+1008204e:	9d                   	popf
+1008204f:	8b 83 b4 00 00 00    	mov    eax,DWORD PTR [ebx+0xb4]
+10082055:	8d 48 08             	lea    ecx,[eax+0x8]
+10082058:	8b 00                	mov    eax,DWORD PTR [eax]
+1008205a:	8b 09                	mov    ecx,DWORD PTR [ecx]
+1008205c:	85 d2                	test   edx,edx
+1008205e:	76 0c                	jbe    1008206c <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf16scene_light_scan11camera_next+0x5c>
+10082060:	83 ea 01             	sub    edx,0x1
+10082063:	8d 48 08             	lea    ecx,[eax+0x8]
+10082066:	8b 00                	mov    eax,DWORD PTR [eax]
+10082068:	8b 09                	mov    ecx,DWORD PTR [ecx]
+1008206a:	75 f4                	jne    10082060 <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf16scene_light_scan11camera_next+0x50>
+1008206c:	68 67 c0 b5 00       	push   0xb5c067
+10082071:	c3                   	ret
+10082072:	66 2e 0f 1f 84 00 00 	nop    WORD PTR cs:[eax+eax*1+0x0]
+10082079:	00 00 00
+1008207c:	0f 1f 40 00          	nop    DWORD PTR [eax+0x0]
+
+10082080 <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf16scene_light_scan12getter_owned>:
+10082080:	81 3d 20 ac b5 00 56 	cmp    DWORD PTR ds:0xb5ac20,0x24748b56
+10082087:	8b 74 24
+1008208a:	0f 85 a8 00 00 00    	jne    10082138 <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf16scene_light_scan12getter_owned+0xb8>
+10082090:	81 3d 24 ac b5 00 08 	cmp    DWORD PTR ds:0xb5ac24,0xbcb13b08
+10082097:	3b b1 bc
+1008209a:	0f 85 98 00 00 00    	jne    10082138 <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf16scene_light_scan12getter_owned+0xb8>
+100820a0:	81 3d 28 ac b5 00 00 	cmp    DWORD PTR ds:0xb5ac28,0x72000000
+100820a7:	00 00 72
+100820aa:	0f 85 88 00 00 00    	jne    10082138 <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf16scene_light_scan12getter_owned+0xb8>
+100820b0:	81 3d 2c ac b5 00 06 	cmp    DWORD PTR ds:0xb5ac2c,0x5ec03306
+100820b7:	33 c0 5e
+100820ba:	75 7c                	jne    10082138 <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf16scene_light_scan12getter_owned+0xb8>
+100820bc:	81 3d 30 ac b5 00 c2 	cmp    DWORD PTR ds:0xb5ac30,0x8b0004c2
+100820c3:	04 00 8b
+100820c6:	75 70                	jne    10082138 <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf16scene_light_scan12getter_owned+0xb8>
+100820c8:	81 3d 34 ac b5 00 81 	cmp    DWORD PTR ds:0xb5ac34,0xb481
+100820cf:	b4 00 00
+100820d2:	75 64                	jne    10082138 <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf16scene_light_scan12getter_owned+0xb8>
+100820d4:	81 3d 38 ac b5 00 00 	cmp    DWORD PTR ds:0xb5ac38,0x8d088b00
+100820db:	8b 08 8d
+100820de:	75 58                	jne    10082138 <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf16scene_light_scan12getter_owned+0xb8>
+100820e0:	81 3d 3c ac b5 00 50 	cmp    DWORD PTR ds:0xb5ac3c,0x28b0850
+100820e7:	08 8b 02
+100820ea:	75 4c                	jne    10082138 <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf16scene_light_scan12getter_owned+0xb8>
+100820ec:	81 3d 40 ac b5 00 85 	cmp    DWORD PTR ds:0xb5ac40,0xe76f685
+100820f3:	f6 76 0e
+100820f6:	75 40                	jne    10082138 <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf16scene_light_scan12getter_owned+0xb8>
+100820f8:	81 3d 44 ac b5 00 8b 	cmp    DWORD PTR ds:0xb5ac44,0xea83d68b
+100820ff:	d6 83 ea
+10082102:	75 34                	jne    10082138 <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf16scene_light_scan12getter_owned+0xb8>
+10082104:	81 3d 48 ac b5 00 01 	cmp    DWORD PTR ds:0xb5ac48,0x8418d01
+1008210b:	8d 41 08
+1008210e:	75 28                	jne    10082138 <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf16scene_light_scan12getter_owned+0xb8>
+10082110:	81 3d 4c ac b5 00 8b 	cmp    DWORD PTR ds:0xb5ac4c,0x8b098b
+10082117:	09 8b 00
+1008211a:	75 1c                	jne    10082138 <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf16scene_light_scan12getter_owned+0xb8>
+1008211c:	81 3d 50 ac b5 00 75 	cmp    DWORD PTR ds:0xb5ac50,0xc25ef475
+10082123:	f4 5e c2
+10082126:	75 10                	jne    10082138 <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf16scene_light_scan12getter_owned+0xb8>
+10082128:	66 83 3d 54 ac b5 00 	cmp    WORD PTR ds:0xb5ac54,0x4
+1008212f:	04
+10082130:	75 06                	jne    10082138 <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf16scene_light_scan12getter_owned+0xb8>
+10082132:	b8 01 00 00 00       	mov    eax,0x1
+10082137:	c3                   	ret
+10082138:	c7 05 5c a6 50 10 01 	mov    DWORD PTR ds:0x1050a65c,0x1
+1008213f:	00 00 00
+10082142:	31 c0                	xor    eax,eax
+10082144:	c3                   	ret
+10082145:	66 2e 0f 1f 84 00 00 	nop    WORD PTR cs:[eax+eax*1+0x0]
+1008214c:	00 00 00
+1008214f:	90                   	nop
+
+10082150 <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf16scene_light_scan12shadow_first>:
+10082150:	6a 00                	push   0x0
+10082152:	9c                   	pushf
+10082153:	60                   	pusha
+10082154:	89 e5                	mov    ebp,esp
+10082156:	83 e4 f0             	and    esp,0xfffffff0
+10082159:	81 ec 10 02 00 00    	sub    esp,0x210
+1008215f:	0f ae 44 24 10       	fxsave [esp+0x10]
+10082164:	8d 85 98 00 00 00    	lea    eax,[ebp+0x98]
+1008216a:	6a 00                	push   0x0
+1008216c:	6a 00                	push   0x0
+1008216e:	50                   	push   eax
+1008216f:	ff 75 18             	push   DWORD PTR [ebp+0x18]
+10082172:	e8 b9 8e 00 00       	call   1008b030 <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf16scene_light_scan17initialize_shadow>
+10082177:	83 c4 10             	add    esp,0x10
+1008217a:	0f ae 4c 24 10       	fxrstor [esp+0x10]
+1008217f:	a1 64 a6 50 10       	mov    eax,ds:0x1050a664
+10082184:	89 45 24             	mov    DWORD PTR [ebp+0x24],eax
+10082187:	89 ec                	mov    esp,ebp
+10082189:	61                   	popa
+1008218a:	9d                   	popf
+1008218b:	c3                   	ret
+1008218c:	0f 1f 40 00          	nop    DWORD PTR [eax+0x0]
+
+10082190 <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf16scene_light_scan14camera_initial>:
+10082190:	9c                   	pushf
+10082191:	60                   	pusha
+10082192:	89 e5                	mov    ebp,esp
+10082194:	83 e4 f0             	and    esp,0xfffffff0
+10082197:	81 ec 10 02 00 00    	sub    esp,0x210
+1008219d:	0f ae 44 24 10       	fxsave [esp+0x10]
+100821a2:	8d 45 24             	lea    eax,[ebp+0x24]
+100821a5:	6a 00                	push   0x0
+100821a7:	6a 00                	push   0x0
+100821a9:	ff 75 10             	push   DWORD PTR [ebp+0x10]
+100821ac:	50                   	push   eax
+100821ad:	e8 1e 8e 00 00       	call   1008afd0 <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf16scene_light_scan17initialize_camera>
+100821b2:	83 c4 10             	add    esp,0x10
+100821b5:	0f ae 4c 24 10       	fxrstor [esp+0x10]
+100821ba:	89 ec                	mov    esp,ebp
+100821bc:	61                   	popa
+100821bd:	9d                   	popf
+100821be:	89 44 24 1c          	mov    DWORD PTR [esp+0x1c],eax
+100821c2:	39 f0                	cmp    eax,esi
+100821c4:	68 36 be b5 00       	push   0xb5be36
+100821c9:	c3                   	ret
+100821ca:	66 0f 1f 44 00 00    	nop    WORD PTR [eax+eax*1+0x0]
+
+100821d0 <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf16scene_light_scan16camera_to_vector>:
+100821d0:	9c                   	pushf
+100821d1:	50                   	push   eax
+100821d2:	83 3d 5c a6 50 10 00 	cmp    DWORD PTR ds:0x1050a65c,0x0
+100821d9:	75 08                	jne    100821e3 <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf16scene_light_scan16camera_to_vector+0x13>
+100821db:	8b 44 24 38          	mov    eax,DWORD PTR [esp+0x38]
+100821df:	89 44 24 6c          	mov    DWORD PTR [esp+0x6c],eax
+100821e3:	58                   	pop    eax
+100821e4:	9d                   	popf
+100821e5:	d9 5c 24 14          	fstp   DWORD PTR [esp+0x14]
+100821e9:	d9 ee                	fldz
+100821eb:	68 d8 be b5 00       	push   0xb5bed8
+100821f0:	c3                   	ret
+100821f1:	66 2e 0f 1f 84 00 00 	nop    WORD PTR cs:[eax+eax*1+0x0]
+100821f8:	00 00 00
+100821fb:	0f 1f 44 00 00       	nop    DWORD PTR [eax+eax*1+0x0]
+
+10082200 <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf16scene_light_scan17shadow_accumulate>:
+10082200:	6a 00                	push   0x0
+10082202:	9c                   	pushf
+10082203:	60                   	pusha
+10082204:	89 e5                	mov    ebp,esp
+10082206:	83 e4 f0             	and    esp,0xfffffff0
+10082209:	81 ec 10 02 00 00    	sub    esp,0x210
+1008220f:	0f ae 44 24 10       	fxsave [esp+0x10]
+10082214:	8d 85 98 00 00 00    	lea    eax,[ebp+0x98]
+1008221a:	6a 00                	push   0x0
+1008221c:	6a 00                	push   0x0
+1008221e:	50                   	push   eax
+1008221f:	ff 75 18             	push   DWORD PTR [ebp+0x18]
+10082222:	e8 09 8e 00 00       	call   1008b030 <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf16scene_light_scan17initialize_shadow>
+10082227:	83 c4 10             	add    esp,0x10
+1008222a:	0f ae 4c 24 10       	fxrstor [esp+0x10]
+1008222f:	a1 6c a6 50 10       	mov    eax,ds:0x1050a66c
+10082234:	89 45 24             	mov    DWORD PTR [ebp+0x24],eax
+10082237:	89 ec                	mov    esp,ebp
+10082239:	61                   	popa
+1008223a:	9d                   	popf
+1008223b:	c3                   	ret
+1008223c:	0f 1f 40 00          	nop    DWORD PTR [eax+0x0]
+
+10082240 <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf16scene_light_scan17shadow_next_first>:
+10082240:	9c                   	pushf
+10082241:	60                   	pusha
+10082242:	83 3d 5c a6 50 10 00 	cmp    DWORD PTR ds:0x1050a65c,0x0
+10082249:	75 49                	jne    10082294 <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf16scene_light_scan17shadow_next_first+0x54>
+1008224b:	e8 30 fe ff ff       	call   10082080 <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf16scene_light_scan12getter_owned>
+10082250:	85 c0                	test   eax,eax
+10082252:	74 40                	je     10082294 <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf16scene_light_scan17shadow_next_first+0x54>
+10082254:	8b 84 24 94 00 00 00 	mov    eax,DWORD PTR [esp+0x94]
+1008225b:	85 c0                	test   eax,eax
+1008225d:	74 35                	je     10082294 <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf16scene_light_scan17shadow_next_first+0x54>
+1008225f:	8b 4c 24 18          	mov    ecx,DWORD PTR [esp+0x18]
+10082263:	8b 54 24 28          	mov    edx,DWORD PTR [esp+0x28]
+10082267:	3b 91 bc 00 00 00    	cmp    edx,DWORD PTR [ecx+0xbc]
+1008226d:	73 1a                	jae    10082289 <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf16scene_light_scan17shadow_next_first+0x49>
+1008226f:	85 d2                	test   edx,edx
+10082271:	74 04                	je     10082277 <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf16scene_light_scan17shadow_next_first+0x37>
+10082273:	8b 00                	mov    eax,DWORD PTR [eax]
+10082275:	eb 06                	jmp    1008227d <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf16scene_light_scan17shadow_next_first+0x3d>
+10082277:	8b 81 b4 00 00 00    	mov    eax,DWORD PTR [ecx+0xb4]
+1008227d:	89 84 24 94 00 00 00 	mov    DWORD PTR [esp+0x94],eax
+10082284:	8b 40 08             	mov    eax,DWORD PTR [eax+0x8]
+10082287:	eb 02                	jmp    1008228b <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf16scene_light_scan17shadow_next_first+0x4b>
+10082289:	31 c0                	xor    eax,eax
+1008228b:	89 44 24 1c          	mov    DWORD PTR [esp+0x1c],eax
+1008228f:	61                   	popa
+10082290:	9d                   	popf
+10082291:	c2 04 00             	ret    0x4
+10082294:	61                   	popa
+10082295:	9d                   	popf
+10082296:	ff 25 68 a6 50 10    	jmp    DWORD PTR ds:0x1050a668
+1008229c:	0f 1f 40 00          	nop    DWORD PTR [eax+0x0]
+
+100822a0 <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf16scene_light_scan20camera_to_brightness>:
+100822a0:	9c                   	pushf
+100822a1:	50                   	push   eax
+100822a2:	83 3d 5c a6 50 10 00 	cmp    DWORD PTR ds:0x1050a65c,0x0
+100822a9:	75 08                	jne    100822b3 <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf16scene_light_scan20camera_to_brightness+0x13>
+100822ab:	8b 44 24 6c          	mov    eax,DWORD PTR [esp+0x6c]
+100822af:	89 44 24 38          	mov    DWORD PTR [esp+0x38],eax
+100822b3:	58                   	pop    eax
+100822b4:	9d                   	popf
+100822b5:	8b 44 24 6c          	mov    eax,DWORD PTR [esp+0x6c]
+100822b9:	dd d8                	fstp   st(0)
+100822bb:	68 6f be b5 00       	push   0xb5be6f
+100822c0:	c3                   	ret
+100822c1:	66 2e 0f 1f 84 00 00 	nop    WORD PTR cs:[eax+eax*1+0x0]
+100822c8:	00 00 00
+100822cb:	0f 1f 44 00 00       	nop    DWORD PTR [eax+eax*1+0x0]
+
+100822d0 <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf16scene_light_scan22shadow_next_accumulate>:
+100822d0:	9c                   	pushf
+100822d1:	60                   	pusha
+100822d2:	83 3d 5c a6 50 10 00 	cmp    DWORD PTR ds:0x1050a65c,0x0
+100822d9:	75 49                	jne    10082324 <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf16scene_light_scan22shadow_next_accumulate+0x54>
+100822db:	e8 a0 fd ff ff       	call   10082080 <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf16scene_light_scan12getter_owned>
+100822e0:	85 c0                	test   eax,eax
+100822e2:	74 40                	je     10082324 <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf16scene_light_scan22shadow_next_accumulate+0x54>
+100822e4:	8b 84 24 94 00 00 00 	mov    eax,DWORD PTR [esp+0x94]
+100822eb:	85 c0                	test   eax,eax
+100822ed:	74 35                	je     10082324 <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf16scene_light_scan22shadow_next_accumulate+0x54>
+100822ef:	8b 4c 24 18          	mov    ecx,DWORD PTR [esp+0x18]
+100822f3:	8b 54 24 28          	mov    edx,DWORD PTR [esp+0x28]
+100822f7:	3b 91 bc 00 00 00    	cmp    edx,DWORD PTR [ecx+0xbc]
+100822fd:	73 1a                	jae    10082319 <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf16scene_light_scan22shadow_next_accumulate+0x49>
+100822ff:	85 d2                	test   edx,edx
+10082301:	74 04                	je     10082307 <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf16scene_light_scan22shadow_next_accumulate+0x37>
+10082303:	8b 00                	mov    eax,DWORD PTR [eax]
+10082305:	eb 06                	jmp    1008230d <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf16scene_light_scan22shadow_next_accumulate+0x3d>
+10082307:	8b 81 b4 00 00 00    	mov    eax,DWORD PTR [ecx+0xb4]
+1008230d:	89 84 24 94 00 00 00 	mov    DWORD PTR [esp+0x94],eax
+10082314:	8b 40 08             	mov    eax,DWORD PTR [eax+0x8]
+10082317:	eb 02                	jmp    1008231b <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf16scene_light_scan22shadow_next_accumulate+0x4b>
+10082319:	31 c0                	xor    eax,eax
+1008231b:	89 44 24 1c          	mov    DWORD PTR [esp+0x1c],eax
+1008231f:	61                   	popa
+10082320:	9d                   	popf
+10082321:	c2 04 00             	ret    0x4
+10082324:	61                   	popa
+10082325:	9d                   	popf
+10082326:	ff 25 70 a6 50 10    	jmp    DWORD PTR ds:0x1050a670
+1008232c:	0f 1f 40 00          	nop    DWORD PTR [eax+0x0]
+
+10082330 <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf21light_property_scores12cached_score>:
+10082330:	d9 41 0c             	fld    DWORD PTR [ecx+0xc]
+10082333:	c2 04 00             	ret    0x4
+10082336:	66 2e 0f 1f 84 00 00 	nop    WORD PTR cs:[eax+eax*1+0x0]
+1008233d:	00 00 00
+
+10082340 <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf21light_property_scores14optimized_sort>:
+10082340:	55                   	push   ebp
+10082341:	89 e5                	mov    ebp,esp
+10082343:	83 e4 f8             	and    esp,0xfffffff8
+10082346:	83 ec 1c             	sub    esp,0x1c
+10082349:	53                   	push   ebx
+1008234a:	56                   	push   esi
+1008234b:	8b 71 60             	mov    esi,DWORD PTR [ecx+0x60]
+1008234e:	57                   	push   edi
+1008234f:	89 4c 24 14          	mov    DWORD PTR [esp+0x14],ecx
+10082353:	c6 44 24 13 00       	mov    BYTE PTR [esp+0x13],0x0
+10082358:	85 f6                	test   esi,esi
+1008235a:	0f 84 d8 00 00 00    	je     10082438 <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf21light_property_scores14optimized_sort+0xf8>
+10082360:	eb 08                	jmp    1008236a <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf21light_property_scores14optimized_sort+0x2a>
+10082362:	8b 74 24 18          	mov    esi,DWORD PTR [esp+0x18]
+10082366:	8b 4c 24 14          	mov    ecx,DWORD PTR [esp+0x14]
+1008236a:	8b 79 60             	mov    edi,DWORD PTR [ecx+0x60]
+1008236d:	8b 4d 08             	mov    ecx,DWORD PTR [ebp+0x8]
+10082370:	8b 16                	mov    edx,DWORD PTR [esi]
+10082372:	8d 46 08             	lea    eax,[esi+0x8]
+10082375:	8b 00                	mov    eax,DWORD PTR [eax]
+10082377:	51                   	push   ecx
+10082378:	89 c1                	mov    ecx,eax
+1008237a:	89 54 24 1c          	mov    DWORD PTR [esp+0x1c],edx
+1008237e:	ff 15 d8 d1 3c 10    	call   DWORD PTR ds:0x103cd1d8
+10082384:	d9 5c 24 1c          	fstp   DWORD PTR [esp+0x1c]
+10082388:	39 f7                	cmp    edi,esi
+1008238a:	0f 84 8b 00 00 00    	je     1008241b <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf21light_property_scores14optimized_sort+0xdb>
+10082390:	85 ff                	test   edi,edi
+10082392:	0f 84 83 00 00 00    	je     1008241b <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf21light_property_scores14optimized_sort+0xdb>
+10082398:	8b 55 08             	mov    edx,DWORD PTR [ebp+0x8]
+1008239b:	d9 44 24 1c          	fld    DWORD PTR [esp+0x1c]
+1008239f:	8d 47 08             	lea    eax,[edi+0x8]
+100823a2:	dd 5c 24 20          	fstp   QWORD PTR [esp+0x20]
+100823a6:	8b 00                	mov    eax,DWORD PTR [eax]
+100823a8:	89 fb                	mov    ebx,edi
+100823aa:	8b 3f                	mov    edi,DWORD PTR [edi]
+100823ac:	52                   	push   edx
+100823ad:	89 c1                	mov    ecx,eax
+100823af:	e8 7c ff ff ff       	call   10082330 <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf21light_property_scores12cached_score>
+100823b4:	dc 5c 24 20          	fcomp  QWORD PTR [esp+0x20]
+100823b8:	df e0                	fnstsw ax
+100823ba:	f6 c4 41             	test   ah,0x41
+100823bd:	75 54                	jne    10082413 <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf21light_property_scores14optimized_sort+0xd3>
+100823bf:	39 de                	cmp    esi,ebx
+100823c1:	74 49                	je     1008240c <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf21light_property_scores14optimized_sort+0xcc>
+100823c3:	8b 44 24 14          	mov    eax,DWORD PTR [esp+0x14]
+100823c7:	39 70 60             	cmp    DWORD PTR [eax+0x60],esi
+100823ca:	75 05                	jne    100823d1 <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf21light_property_scores14optimized_sort+0x91>
+100823cc:	8b 0e                	mov    ecx,DWORD PTR [esi]
+100823ce:	89 48 60             	mov    DWORD PTR [eax+0x60],ecx
+100823d1:	39 58 60             	cmp    DWORD PTR [eax+0x60],ebx
+100823d4:	75 03                	jne    100823d9 <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf21light_property_scores14optimized_sort+0x99>
+100823d6:	89 70 60             	mov    DWORD PTR [eax+0x60],esi
+100823d9:	39 70 64             	cmp    DWORD PTR [eax+0x64],esi
+100823dc:	75 06                	jne    100823e4 <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf21light_property_scores14optimized_sort+0xa4>
+100823de:	8b 56 04             	mov    edx,DWORD PTR [esi+0x4]
+100823e1:	89 50 64             	mov    DWORD PTR [eax+0x64],edx
+100823e4:	8b 06                	mov    eax,DWORD PTR [esi]
+100823e6:	85 c0                	test   eax,eax
+100823e8:	74 06                	je     100823f0 <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf21light_property_scores14optimized_sort+0xb0>
+100823ea:	8b 4e 04             	mov    ecx,DWORD PTR [esi+0x4]
+100823ed:	89 48 04             	mov    DWORD PTR [eax+0x4],ecx
+100823f0:	8b 46 04             	mov    eax,DWORD PTR [esi+0x4]
+100823f3:	85 c0                	test   eax,eax
+100823f5:	74 04                	je     100823fb <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf21light_property_scores14optimized_sort+0xbb>
+100823f7:	8b 16                	mov    edx,DWORD PTR [esi]
+100823f9:	89 10                	mov    DWORD PTR [eax],edx
+100823fb:	8b 43 04             	mov    eax,DWORD PTR [ebx+0x4]
+100823fe:	89 46 04             	mov    DWORD PTR [esi+0x4],eax
+10082401:	89 1e                	mov    DWORD PTR [esi],ebx
+10082403:	85 c0                	test   eax,eax
+10082405:	74 02                	je     10082409 <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf21light_property_scores14optimized_sort+0xc9>
+10082407:	89 30                	mov    DWORD PTR [eax],esi
+10082409:	89 73 04             	mov    DWORD PTR [ebx+0x4],esi
+1008240c:	31 ff                	xor    edi,edi
+1008240e:	c6 44 24 13 01       	mov    BYTE PTR [esp+0x13],0x1
+10082413:	39 f7                	cmp    edi,esi
+10082415:	0f 85 75 ff ff ff    	jne    10082390 <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf21light_property_scores14optimized_sort+0x50>
+1008241b:	83 7c 24 18 00       	cmp    DWORD PTR [esp+0x18],0x0
+10082420:	0f 85 3c ff ff ff    	jne    10082362 <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf21light_property_scores14optimized_sort+0x22>
+10082426:	80 7c 24 13 00       	cmp    BYTE PTR [esp+0x13],0x0
+1008242b:	74 0b                	je     10082438 <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf21light_property_scores14optimized_sort+0xf8>
+1008242d:	8b 4c 24 14          	mov    ecx,DWORD PTR [esp+0x14]
+10082431:	c7 41 38 00 00 00 00 	mov    DWORD PTR [ecx+0x38],0x0
+10082438:	5f                   	pop    edi
+10082439:	5e                   	pop    esi
+1008243a:	5b                   	pop    ebx
+1008243b:	89 ec                	mov    esp,ebp
+1008243d:	5d                   	pop    ebp
+1008243e:	c2 04 00             	ret    0x4
+10082441:	66 2e 0f 1f 84 00 00 	nop    WORD PTR cs:[eax+eax*1+0x0]
+10082448:	00 00 00
+1008244b:	0f 1f 44 00 00       	nop    DWORD PTR [eax+eax*1+0x0]
+
+10082450 <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf21light_property_scores8bridge_0>:
+10082450:	6a 00                	push   0x0
+10082452:	9c                   	pushf
+10082453:	60                   	pusha
+10082454:	89 e5                	mov    ebp,esp
+10082456:	83 e4 f0             	and    esp,0xfffffff0
+10082459:	81 ec 10 02 00 00    	sub    esp,0x210
+1008245f:	0f ae 44 24 10       	fxsave [esp+0x10]
+10082464:	8d 44 24 10          	lea    eax,[esp+0x10]
+10082468:	6a 00                	push   0x0
+1008246a:	50                   	push   eax
+1008246b:	ff 75 2c             	push   DWORD PTR [ebp+0x2c]
+1008246e:	ff 75 18             	push   DWORD PTR [ebp+0x18]
+10082471:	e8 7a a0 00 00       	call   1008c4f0 <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf21light_property_scores8select_0>
+10082476:	83 c4 10             	add    esp,0x10
+10082479:	89 45 24             	mov    DWORD PTR [ebp+0x24],eax
+1008247c:	0f ae 4c 24 10       	fxrstor [esp+0x10]
+10082481:	89 ec                	mov    esp,ebp
+10082483:	61                   	popa
+10082484:	9d                   	popf
+10082485:	c3                   	ret
+10082486:	66 2e 0f 1f 84 00 00 	nop    WORD PTR cs:[eax+eax*1+0x0]
+1008248d:	00 00 00
+
+10082490 <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf21light_property_scores8bridge_1>:
+10082490:	6a 00                	push   0x0
+10082492:	9c                   	pushf
+10082493:	60                   	pusha
+10082494:	89 e5                	mov    ebp,esp
+10082496:	83 e4 f0             	and    esp,0xfffffff0
+10082499:	81 ec 10 02 00 00    	sub    esp,0x210
+1008249f:	0f ae 44 24 10       	fxsave [esp+0x10]
+100824a4:	8d 44 24 10          	lea    eax,[esp+0x10]
+100824a8:	6a 00                	push   0x0
+100824aa:	50                   	push   eax
+100824ab:	ff 75 2c             	push   DWORD PTR [ebp+0x2c]
+100824ae:	ff 75 18             	push   DWORD PTR [ebp+0x18]
+100824b1:	e8 5a a0 00 00       	call   1008c510 <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf21light_property_scores8select_1>
+100824b6:	83 c4 10             	add    esp,0x10
+100824b9:	89 45 24             	mov    DWORD PTR [ebp+0x24],eax
+100824bc:	0f ae 4c 24 10       	fxrstor [esp+0x10]
+100824c1:	89 ec                	mov    esp,ebp
+100824c3:	61                   	popa
+100824c4:	9d                   	popf
+100824c5:	c3                   	ret
+100824c6:	66 2e 0f 1f 84 00 00 	nop    WORD PTR cs:[eax+eax*1+0x0]
+100824cd:	00 00 00
+
+100824d0 <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf21light_property_scores8bridge_2>:
+100824d0:	6a 00                	push   0x0
+100824d2:	9c                   	pushf
+100824d3:	60                   	pusha
+100824d4:	89 e5                	mov    ebp,esp
+100824d6:	83 e4 f0             	and    esp,0xfffffff0
+100824d9:	81 ec 10 02 00 00    	sub    esp,0x210
+100824df:	0f ae 44 24 10       	fxsave [esp+0x10]
+100824e4:	8d 44 24 10          	lea    eax,[esp+0x10]
+100824e8:	6a 00                	push   0x0
+100824ea:	50                   	push   eax
+100824eb:	ff 75 2c             	push   DWORD PTR [ebp+0x2c]
+100824ee:	ff 75 18             	push   DWORD PTR [ebp+0x18]
+100824f1:	e8 3a a0 00 00       	call   1008c530 <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf21light_property_scores8select_2>
+100824f6:	83 c4 10             	add    esp,0x10
+100824f9:	89 45 24             	mov    DWORD PTR [ebp+0x24],eax
+100824fc:	0f ae 4c 24 10       	fxrstor [esp+0x10]
+10082501:	89 ec                	mov    esp,ebp
+10082503:	61                   	popa
+10082504:	9d                   	popf
+10082505:	c3                   	ret
+10082506:	66 2e 0f 1f 84 00 00 	nop    WORD PTR cs:[eax+eax*1+0x0]
+1008250d:	00 00 00
+
+
+======================================================================
+ENTRY 5: Bounded PE signature extraction and byte verification supplement
+======================================================================
+
+property_sort.bin VA 0x00B70390..0x00B70490 (end exclusive); exact verified native bytes
+0x00B70390: 55 8b ec 83 e4 f8 83 ec 1c 53 56 8b 71 60 57 89 4c 24 14 c6 44 24 13 00 85 f6 0f 84 d7 00 00 00
+0x00B703B0: eb 08 8b 74 24 18 8b 4c 24 14 8b 79 60 8b 4d 08 8b 16 8d 46 08 8b 00 51 8b c8 89 54 24 1c e8 0d
+0x00B703D0: d8 02 00 d9 5c 24 1c 3b fe 0f 84 8b 00 00 00 85 ff 0f 84 83 00 00 00 8b 55 08 d9 44 24 1c 8d 47
+0x00B703F0: 08 dd 5c 24 20 8b 00 8b df 8b 3f 52 8b c8 e8 dd d7 02 00 dc 5c 24 20 df e0 f6 c4 41 75 54 3b f3
+0x00B70410: 74 49 8b 44 24 14 39 70 60 75 05 8b 0e 89 48 60 39 58 60 75 03 89 70 60 39 70 64 75 06 8b 56 04
+0x00B70430: 89 50 64 8b 06 85 c0 74 06 8b 4e 04 89 48 04 8b 46 04 85 c0 74 04 8b 16 89 10 8b 43 04 89 46 04
+0x00B70450: 89 1e 85 c0 74 02 89 30 89 73 04 33 ff c6 44 24 13 01 3b fe 0f 85 75 ff ff ff 83 7c 24 18 00 0f
+0x00B70470: 85 3d ff ff ff 80 7c 24 13 00 74 0b 8b 4c 24 14 c7 41 38 00 00 00 00 5f 5e 5b 8b e5 5d c2 04 00
+
+property_score.bin VA 0x00B9DBE0..0x00B9DCAD (end exclusive); exact verified native bytes
+0x00B9DBE0: 83 ec 18 a1 c8 91 1f 01 8b 90 e8 01 00 00 53 8b d9 8b 88 e4 01 00 00 8b 80 ec 01 00 00 56 8b b3
+0x00B9DC00: f8 00 00 00 89 4c 24 08 d9 44 24 08 d8 86 8c 00 00 00 89 54 24 0c 89 44 24 10 57 d9 5c 24 18 8b
+0x00B9DC20: 7c 24 28 d9 86 90 00 00 00 d8 44 24 10 d9 5c 24 1c d9 86 94 00 00 00 d8 44 24 14 d9 5c 24 20 d9
+0x00B9DC40: 44 24 18 d8 27 d9 5c 24 0c d9 44 24 1c d8 67 04 d9 5c 24 10 d9 44 24 20 d8 67 08 d9 5c 24 14 d9
+0x00B9DC60: 44 24 10 d9 44 24 0c d9 44 24 14 d9 c1 de ca d9 c2 de cb d9 c9 de c2 dc c8 de c1 d9 5c 24 28 d9
+0x00B9DC80: 44 24 28 e8 b8 83 32 00 d9 5c 24 28 d9 44 24 28 d8 67 0c 5f d8 b6 e0 00 00 00 5e d9 5c 24 20 d9
+0x00B9DCA0: 44 24 20 d9 53 0c 5b 83 c4 18 c2 04 00
+
+sqrt_entry.bin VA 0x00EC6040..0x00EC6054 (end exclusive); exact verified native bytes
+0x00EC6040: 83 ec 0c dd 14 24 e8 bd c7 00 00 e8 0d 00 00 00 83 c4 0c c3
+
+sqrt_body.bin VA 0x00EC605D..0x00EC60FA (end exclusive); exact verified native bytes
+0x00EC605D: 52 9b d9 3c 24 8b 44 24 0c 74 51 66 81 3c 24 7f 02 74 05 e8 20 c7 00 00 a9 00 00 00 80 75 1f d9
+0x00EC607D: fa 83 3d 90 fd 26 01 00 0f 85 93 c7 00 00 ba 05 00 00 00 8d 0d 40 17 1c 01 e9 90 c7 00 00 a9 00
+0x00EC609D: 00 f0 7f 75 2c a9 ff ff 0f 00 75 25 83 7c 24 08 00 75 1e eb cc e8 f5 c6 00 00 eb 22 a9 ff ff 0f
+0x00EC60BD: 00 75 f2 83 7c 24 08 00 75 eb 25 00 00 00 80 74 b0 dd d8 db 2d 00 1d 1c 01 b8 01 00 00 00 83 3d
+0x00EC60DD: 90 fd 26 01 00 0f 85 36 c7 00 00 ba 05 00 00 00 8d 0d 40 17 1c 01 e8 3f c6 00 00 5a c3
+
+sqrt_classify.bin VA 0x00ED2808..0x00ED281E (end exclusive); exact verified native bytes
+0x00ED2808: 8b 44 24 08 25 00 00 f0 7f 3d 00 00 f0 7f 74 01 c3 8b 44 24 08 c3
+
+sqrt_return.bin VA 0x00ED281E..0x00ED2855 (end exclusive); exact verified native bytes
+0x00ED281E: 66 81 3c 24 7f 02 74 03 d9 2c 24 5a c3 66 8b 04 24 66 3d 7f 02 74 1e 66 83 e0 20 74 15 9b df e0
+0x00ED283E: 66 83 e0 20 74 0c b8 08 00 00 00 e8 e9 fe ff ff 5a c3 d9 2c 24 5a c3
+
+sort_caller_0.bin VA 0x00B681CF..0x00B68243 (end exclusive); exact verified native bytes
+0x00B681CF: 8b 44 24 14 8b 5c 24 5c 39 46 38 75 0e 84 db 74 0a 80 7e 74 00 0f 84 e7 01 00 00 c6 46 74 00 f7
+0x00B681EF: 46 20 00 00 00 04 77 0d 6a 05 8b ce e8 20 9e 93 ff 84 c0 74 1a 6a 0b 8b ce e8 13 9e 93 ff 84 c0
+0x00B6820F: 75 26 6a 1c 8b ce e8 06 9e 93 ff 84 c0 75 19 6a 05 8b ce e8 f9 9d 93 ff 84 c0 75 0c 8b 8d 9c 00
+0x00B6822F: 00 00 f6 41 18 01 74 0c 8d 54 24 34 52 8b ce e8 4d 81 00 00
+
+sort_caller_1.bin VA 0x00BB4EDA..0x00BB4F13 (end exclusive); exact verified native bytes
+0x00BB4EDA: 80 7e 74 00 74 33 8b 45 20 85 c0 75 05 b8 88 42 1f 01 8b 08 89 4c 24 4c 8b 50 04 89 54 24 50 8b
+0x00BB4EFA: 48 08 89 4c 24 54 8b 50 0c 8d 44 24 4c 50 8b ce 89 54 24 5c e8 7d b4 fb ff
+
+sort_caller_2.bin VA 0x00C0603D..0x00C0607A (end exclusive); exact verified native bytes
+0x00C0603D: 80 7e 74 00 74 37 8b 54 24 60 8b 42 20 85 c0 75 05 b8 88 42 1f 01 8b 08 89 4c 24 4c 8b 50 04 89
+0x00C0605D: 54 24 50 8b 48 08 89 4c 24 54 8b 50 0c 8d 44 24 4c 50 8b ce 89 54 24 5c e8 16 a3 f6 ff
+
+shadow_scan.bin VA 0x00B9D150..0x00B9DADF (end exclusive); exact verified native bytes
+0x00B9D150: 81 ec c0 00 00 00 a1 e4 31 20 01 56 8b f1 8b 8e 28 01 00 00 50 89 b4 24 88 00 00 00 e8 5f ec eb
+0x00B9D170: ff 8b 8e 28 01 00 00 8b 91 8c 00 00 00 89 94 24 cc 00 00 00 8b 91 90 00 00 00 89 94 24 d0 00 00
+0x00B9D190: 00 8b 91 94 00 00 00 89 94 24 d4 00 00 00 85 c0 0f 84 92 00 00 00 d9 81 98 00 00 00 d9 5c 24 04
+0x00B9D1B0: d9 40 0c d9 44 24 04 d9 c0 de ca d9 c9 d9 5c 24 18 d9 40 10 d8 c9 d9 5c 24 1c d8 48 14 d9 5c 24
+0x00B9D1D0: 20 d9 44 24 18 d8 84 24 cc 00 00 00 d9 9c 24 cc 00 00 00 d9 84 24 d0 00 00 00 d8 44 24 1c d9 9c
+0x00B9D1F0: 24 d0 00 00 00 d9 84 24 d4 00 00 00 d8 44 24 20 d9 9c 24 d4 00 00 00 d9 81 98 00 00 00 d9 5c 24
+0x00B9D210: 04 d9 40 18 d9 44 24 04 d9 c0 de ca d9 c9 d9 5c 24 0c d9 40 1c d8 c9 d9 5c 24 10 d8 48 20 8d 44
+0x00B9D230: 24 0c d9 5c 24 14 eb 05 b8 6c 42 1f 01 8b 08 8b 50 04 8b 40 08 89 4c 24 18 d9 44 24 18 89 54 24
+0x00B9D250: 1c d9 44 24 1c d8 d1 89 44 24 20 df e0 f6 c4 05 7a 04 dd d8 eb 02 dd d9 d9 5c 24 08 d9 44 24 08
+0x00B9D270: d9 44 24 20 d8 d1 df e0 f6 c4 05 7a 04 dd d8 eb 02 dd d9 53 d9 5c 24 3c d9 ee 55 8b ac 24 d0 00
+0x00B9D290: 00 00 d9 5c 24 54 57 33 db 33 ff 89 5c 24 54 85 ed 74 0e 8d 4c 24 68 51 8b cd e8 51 33 fd ff eb
+0x00B9D2B0: 0d 8b 0d c8 91 1f 01 6a 00 e8 62 d9 fb ff 85 c0 0f 84 2c 01 00 00 83 fb 28 0f 83 1f 01 00 00 80
+0x00B9D2D0: b8 ec 00 00 00 00 0f 85 e8 00 00 00 8b b0 f8 00 00 00 f6 46 30 01 0f 85 d8 00 00 00 d9 ee d8 9e
+0x00B9D2F0: c4 00 00 00 df e0 f6 c4 05 0f 8a c5 00 00 00 d9 86 8c 00 00 00 d8 a4 24 d8 00 00 00 d9 5c 24 24
+0x00B9D310: d9 86 90 00 00 00 d8 a4 24 dc 00 00 00 d9 5c 24 28 d9 86 94 00 00 00 d8 a4 24 e0 00 00 00 d9 5c
+0x00B9D330: 24 2c d9 44 24 24 d9 44 24 28 d9 44 24 2c d9 c1 de ca d9 c2 de cb d9 c9 de c2 dc c8 de c1 d9 5c
+0x00B9D350: 24 10 d9 44 24 10 e8 e5 8c 32 00 d9 5c 24 10 d9 44 24 10 d8 64 24 44 d8 b6 e0 00 00 00 d9 e8 d9
+0x00B9D370: c0 de e2 d9 c9 d9 5c 24 10 d9 44 24 10 dc 15 60 20 01 01 df e0 f6 c4 05 7a 04 dd d8 d9 ee d9 5c
+0x00B9D390: 24 14 d9 44 24 14 d8 d1 df e0 dd d9 f6 c4 41 75 04 dd d8 d9 e8 d9 5c 24 14 43 d9 44 24 14 d9 14
+0x00B9D3B0: 9d 3c ff 1f 01 d9 14 9d 9c fe 1f 01 d8 44 24 58 d9 5c 24 58 47 85 ed 74 0e 8d 54 24 68 52 8b cd
+0x00B9D3D0: e8 2b 33 fd ff eb 0f 8b 0d c8 91 1f 01 0f b7 c7 50 e8 3a d8 fb ff 85 c0 0f 85 d8 fe ff ff 89 5c
+0x00B9D3F0: 24 54 8b 0d 6c 42 1f 01 d9 ee 8b 35 c8 91 1f 01 d9 5c 24 14 8b 15 70 42 1f 01 a1 74 42 1f 01 89
+0x00B9D410: 4c 24 30 8b 0d 98 49 1f 01 89 4c 24 48 8b 8e e0 00 00 00 8b a9 f8 00 00 00 d9 85 f0 00 00 00 89
+0x00B9D430: 54 24 34 8b 15 9c 49 1f 01 d9 e0 d9 9c 24 ac 00 00 00 89 44 24 38 d9 85 f4 00 00 00 a1 a0 49 1f
+0x00B9D450: 01 d9 e0 8d 8c 24 ac 00 00 00 d9 9c 24 b0 00 00 00 89 54 24 4c d9 85 f8 00 00 00 89 44 24 50 d9
+0x00B9D470: e0 d9 44 24 44 dc 0d 98 7e 0b 01 de c9 d9 9c 24 b4 00 00 00 e8 87 37 90 ff d9 ee d8 5c 24 58 df
+0x00B9D490: e0 f6 c4 44 7a 74 8b 8c 24 b4 00 00 00 8b 94 24 ac 00 00 00 8b 84 24 b0 00 00 00 89 4c 24 38 8b
+0x00B9D4B0: 8d dc 00 00 00 89 54 24 30 8b 95 d4 00 00 00 89 44 24 34 8b 85 d8 00 00 00 89 4c 24 50 8d 4c 24
+0x00B9D4D0: 30 89 54 24 48 89 44 24 4c e8 32 37 90 ff d9 44 24 44 dc 35 a8 31 07 01 d9 5c 24 10 d9 44 24 10
+0x00B9D4F0: d9 44 24 38 d8 d9 df e0 f6 c4 05 0f 8a eb 03 00 00 d9 5c 24 38 e9 e4 03 00 00 8b bc 24 d4 00 00
+0x00B9D510: 00 33 db 85 ff 74 0e 8d 54 24 68 52 8b cf e8 dd 30 fd ff eb 09 6a 00 8b ce e8 f2 d6 fb ff 33 f6
+0x00B9D530: 8b c8 39 74 24 54 0f 86 8a 03 00 00 8d 64 24 00 85 c9 0f 84 52 03 00 00 80 b9 ec 00 00 00 00 0f
+0x00B9D550: 85 45 03 00 00 8b b9 f8 00 00 00 f6 47 30 01 0f 85 2e 03 00 00 d9 04 b5 a0 fe 1f 01 d8 74 24 58
+0x00B9D570: d9 5c 24 10 d9 ee d9 44 24 10 d8 d1 df e0 dd d9 f6 c4 41 0f 85 08 03 00 00 d9 04 b5 a0 fe 1f 01
+0x00B9D590: 8b c7 d9 e8 8d 8c 24 a0 00 00 00 de e1 dd 54 24 3c d9 80 e0 00 00 00 d8 0c b5 a0 fe 1f 01 d9 c9
+0x00B9D5B0: dc 0d 70 7b 01 01 de c1 de c9 d8 44 24 14 d9 5c 24 14 d9 80 8c 00 00 00 d8 a4 24 d8 00 00 00 d9
+0x00B9D5D0: 9c 24 a0 00 00 00 d9 80 90 00 00 00 d8 a4 24 dc 00 00 00 d9 9c 24 a4 00 00 00 d9 80 94 00 00 00
+0x00B9D5F0: d8 a4 24 e0 00 00 00 d9 9c 24 a8 00 00 00 e8 0d 36 90 ff dd 44 24 3c d9 5c 24 3c d9 44 24 3c d9
+0x00B9D610: 54 24 3c d9 44 24 3c d9 c0 d8 8c 24 ac 00 00 00 d9 5c 24 6c d9 84 24 b0 00 00 00 d8 c9 d9 5c 24
+0x00B9D630: 70 d8 8c 24 b4 00 00 00 d9 5c 24 74 d9 04 b5 a0 fe 1f 01 d9 5c 24 3c d9 84 24 a0 00 00 00 d9 44
+0x00B9D650: 24 3c d9 c0 de ca d9 c9 d9 9c 24 c4 00 00 00 d9 84 24 a4 00 00 00 d8 c9 d9 9c 24 c8 00 00 00 d8
+0x00B9D670: 8c 24 a8 00 00 00 d9 9c 24 cc 00 00 00 d9 84 24 c4 00 00 00 d8 44 24 6c d9 5c 24 24 8b 44 24 24
+0x00B9D690: d9 84 24 c8 00 00 00 89 84 24 a0 00 00 00 d8 44 24 70 d9 5c 24 28 8b 4c 24 28 d9 84 24 cc 00 00
+0x00B9D6B0: 00 89 8c 24 a4 00 00 00 d8 44 24 74 d9 5c 24 2c 8b 54 24 2c d9 44 24 24 89 94 24 a8 00 00 00 d9
+0x00B9D6D0: 44 24 10 d9 c0 de ca d9 c9 d9 5c 24 18 d9 44 24 28 d8 c9 d9 5c 24 1c d9 44 24 2c d8 c9 d9 5c 24
+0x00B9D6F0: 20 d9 44 24 18 d8 44 24 30 d9 5c 24 30 d9 44 24 34 d8 44 24 1c 8b 85 d4 00 00 00 8b 8d d8 00 00
+0x00B9D710: 00 8b 95 dc 00 00 00 d9 5c 24 34 89 44 24 78 d9 44 24 20 8b 87 d4 00 00 00 d8 44 24 38 89 4c 24
+0x00B9D730: 7c 8b 8f d8 00 00 00 89 94 24 80 00 00 00 d9 5c 24 38 8b 97 dc 00 00 00 d9 c9 89 44 24 5c d9 5c
+0x00B9D750: 24 3c 89 4c 24 60 d9 44 24 78 89 54 24 64 d9 44 24 3c d9 c0 de ca d9 c9 d9 5c 24 78 d9 44 24 7c
+0x00B9D770: d8 c9 d9 5c 24 7c d8 8c 24 80 00 00 00 d9 9c 24 80 00 00 00 d9 04 b5 a0 fe 1f 01 d9 5c 24 3c d9
+0x00B9D790: 44 24 5c d9 44 24 3c d9 c0 de ca d9 c9 d9 5c 24 5c 8b 44 24 5c d9 44 24 60 89 84 24 84 00 00 00
+0x00B9D7B0: d8 c9 d9 5c 24 60 8b 4c 24 60 89 8c 24 88 00 00 00 d8 4c 24 64 d9 5c 24 64 8b 54 24 64 d9 44 24
+0x00B9D7D0: 5c 89 94 24 8c 00 00 00 d8 44 24 78 d9 9c 24 84 00 00 00 8b 84 24 84 00 00 00 d9 84 24 88 00 00
+0x00B9D7F0: 00 89 84 24 94 00 00 00 d8 44 24 7c d9 9c 24 88 00 00 00 8b 8c 24 88 00 00 00 d9 84 24 8c 00 00
+0x00B9D810: 00 89 8c 24 98 00 00 00 d8 84 24 80 00 00 00 d9 9c 24 8c 00 00 00 8b 94 24 8c 00 00 00 d9 84 24
+0x00B9D830: 84 00 00 00 89 94 24 9c 00 00 00 d8 c9 d9 9c 24 94 00 00 00 d9 84 24 98 00 00 00 d8 c9 d9 9c 24
+0x00B9D850: 98 00 00 00 d8 8c 24 9c 00 00 00 d9 9c 24 9c 00 00 00 d9 84 24 94 00 00 00 d8 44 24 48 d9 5c 24
+0x00B9D870: 48 d9 84 24 98 00 00 00 d8 44 24 4c d9 5c 24 4c d9 84 24 9c 00 00 00 d8 44 24 50 d9 5c 24 50 eb
+0x00B9D890: 02 dd d8 8b bc 24 d4 00 00 00 85 ff 74 0e 8d 44 24 68 50 8b cf e8 56 2e fd ff eb 0d 8b 0d c8 91
+0x00B9D8B0: 1f 01 43 53 e8 67 d3 fb ff 46 8b c8 3b 74 24 54 0f 82 7a fc ff ff 8d 4c 24 30 e8 41 33 90 ff d9
+0x00B9D8D0: 44 24 38 dc 1d 30 de 01 01 df e0 f6 c4 05 7a 0e d9 05 64 62 01 01 d9 5c 24 38 eb 02 dd d8 8d 4c
+0x00B9D8F0: 24 30 e8 19 33 90 ff d9 44 24 44 dc 15 d8 31 02 01 5f 5d 5b df e0 f6 c4 41 75 08 dd d8 d9 05 dc
+0x00B9D910: 2a 03 01 d9 5c 24 04 8b b4 24 84 00 00 00 d9 44 24 24 8b 86 f8 00 00 00 d9 44 24 04 83 c0 58 d9
+0x00B9D930: c0 de ca d9 c9 d9 5c 24 0c d9 44 24 28 d8 c9 d9 5c 24 10 d9 c0 d8 4c 24 2c d9 5c 24 14 d9 44 24
+0x00B9D950: 0c dd 05 90 7e 0b 01 dc c9 d9 c9 d9 5c 24 60 d9 44 24 10 d8 c9 d9 5c 24 64 d8 4c 24 14 d9 5c 24
+0x00B9D970: 68 d9 44 24 60 d8 84 24 cc 00 00 00 d9 5c 24 0c 8b 4c 24 0c d9 44 24 64 d8 84 24 d0 00 00 00 d9
+0x00B9D990: 5c 24 10 8b 54 24 10 d9 44 24 68 d8 84 24 d4 00 00 00 89 08 89 50 04 8d 94 24 ac 00 00 00 d9 5c
+0x00B9D9B0: 24 14 8b 4c 24 14 89 48 08 dc 0d b0 40 02 01 8b 8e f8 00 00 00 52 c6 84 24 b4 00 00 00 00 d9 5c
+0x00B9D9D0: 24 0c c6 84 24 b5 00 00 00 00 d9 ee c6 84 24 b6 00 00 00 00 d9 9c 24 b0 00 00 00 c6 84 24 b7 00
+0x00B9D9F0: 00 00 00 c6 84 24 b8 00 00 00 00 e8 60 c2 eb ff d9 44 24 40 dd 05 c0 90 02 01 dc c9 d9 44 24 3c
+0x00B9DA10: d8 c9 de c2 d8 4c 24 44 de c1 d9 9c 24 84 00 00 00 d9 84 24 84 00 00 00 dc 15 d8 17 02 01 df e0
+0x00B9DA30: f6 c4 05 7a 08 dd d8 d9 05 f0 0f 03 01 d9 5c 24 04 d9 44 24 04 dc 15 70 20 01 01 df e0 f6 c4 41
+0x00B9DA50: 75 04 dd d8 d9 e8 8b 86 f8 00 00 00 d9 5c 24 04 d9 44 24 04 d9 54 24 0c 8b 4c 24 0c 89 88 d4 00
+0x00B9DA70: 00 00 d9 54 24 10 8b 54 24 10 d9 5c 24 14 8b 4c 24 14 d9 44 24 08 89 90 d8 00 00 00 d9 5c 24 0c
+0x00B9DA90: d9 ee 8b 54 24 0c 89 88 dc 00 00 00 d9 54 24 10 b9 01 00 00 00 d9 5c 24 14 01 88 a8 00 00 00 8b
+0x00B9DAB0: 86 f8 00 00 00 01 88 a8 00 00 00 89 90 e0 00 00 00 8b 54 24 10 89 90 e4 00 00 00 8b 54 24 14 89
+0x00B9DAD0: 90 e8 00 00 00 5e 81 c4 c0 00 00 00 c2 10 00
+
+camera_scan.bin VA 0x00B5BCA0..0x00B5C357 (end exclusive); exact verified native bytes
+0x00B5BCA0: 83 ec 58 53 8b d9 8b 83 e0 00 00 00 8b 88 f8 00 00 00 d9 81 c4 00 00 00 8b 81 d4 00 00 00 d9 5c
+0x00B5BCC0: 24 20 89 44 24 38 d9 44 24 20 8b 81 d8 00 00 00 d9 c0 89 44 24 3c d8 4c 24 38 8b 81 dc 00 00 00
+0x00B5BCE0: 89 44 24 40 8b 15 6c 42 1f 01 d9 5c 24 38 55 56 d9 c0 8b 35 70 42 1f 01 d8 4c 24 44 57 8b 3d 74
+0x00B5BD00: 42 1f 01 33 ed d9 5c 24 48 89 5c 24 34 89 6c 24 10 d8 4c 24 4c 89 54 24 38 89 74 24 3c 89 7c 24
+0x00B5BD20: 40 d9 5c 24 4c d9 44 24 48 d8 44 24 44 d8 44 24 4c dc 35 28 19 02 01 d9 5c 24 2c d9 44 24 2c dc
+0x00B5BD40: 1d a0 28 02 01 df e0 f6 c4 41 75 7a d9 81 f0 00 00 00 d9 e0 d9 5c 24 50 d9 81 f4 00 00 00 d9 e0
+0x00B5BD60: d9 5c 24 54 d9 81 f8 00 00 00 8d 4c 24 50 d9 e0 d9 5c 24 58 e8 97 4e 94 ff d9 44 24 50 c7 44 24
+0x00B5BD80: 10 01 00 00 00 dd 05 70 7b 01 01 8b 6c 24 10 dc c9 d9 c9 d9 5c 24 5c 8b 4c 24 5c d9 44 24 54 89
+0x00B5BDA0: 4c 24 38 d8 c9 d9 5c 24 60 8b 54 24 60 89 54 24 3c d8 4c 24 58 d9 5c 24 64 8b 44 24 64 89 44 24
+0x00B5BDC0: 40 e9 bc 04 00 00 f6 05 78 9e 1f 01 01 75 07 83 0d 78 9e 1f 01 01 89 54 24 5c d9 44 24 5c 89 74
+0x00B5BDE0: 24 60 d9 44 24 60 d8 d1 89 7c 24 64 df e0 f6 c4 05 7a 04 dd d8 eb 02 dd d9 d9 5c 24 24 d9 44 24
+0x00B5BE00: 24 d9 44 24 64 d8 d1 df e0 f6 c4 05 7a 04 dd d8 eb 02 dd d9 33 f6 d9 5c 24 28 d9 ee 56 8b cb d9
+0x00B5BE20: 54 24 28 89 74 24 24 89 74 24 30 e8 f0 ed ff ff 89 44 24 1c 3b c6 0f 84 94 04 00 00 bf c8 99 1f
+0x00B5BE40: 01 89 74 24 18 eb 04 8b 44 24 1c 81 7c 24 18 b0 04 00 00 0f 83 1a 02 00 00 8b b0 f8 00 00 00 f6
+0x00B5BE60: 46 30 01 0f 85 cd 01 00 00 8b 44 24 6c dd d8 d9 86 8c 00 00 00 d8 20 d9 5c 24 50 8b 6c 24 50 d9
+0x00B5BE80: 86 90 00 00 00 89 6c 24 5c d8 60 04 d9 5c 24 54 8b 5c 24 54 d9 86 94 00 00 00 89 5c 24 60 d8 60
+0x00B5BEA0: 08 d9 5c 24 58 8b 4c 24 58 89 4c 24 64 8d 4c 24 5c e8 5a 4d 94 ff 8b 44 24 70 d9 40 04 d8 4c 24
+0x00B5BEC0: 60 d9 00 d8 4c 24 5c de c1 d9 40 08 d8 4c 24 64 de c1 d9 5c 24 14 d9 ee d8 54 24 14 df e0 f6 c4
+0x00B5BEE0: 41 75 06 d9 5c 24 14 eb 02 dd d8 8b 54 24 1c 8b 82 f8 00 00 00 d9 80 c4 00 00 00 8b 88 d4 00 00
+0x00B5BF00: 00 d9 5c 24 1c 8b 90 d8 00 00 00 d9 44 24 1c 8b 80 dc 00 00 00 d9 c0 89 4c 24 44 d8 4c 24 44 89
+0x00B5BF20: 54 24 48 89 44 24 4c d9 5c 24 44 d9 c0 d8 4c 24 48 d9 5c 24 48 d8 4c 24 4c d9 5c 24 4c d9 44 24
+0x00B5BF40: 48 d8 44 24 44 d8 44 24 4c dc 35 28 19 02 01 d9 5c 24 30 d9 44 24 54 d9 44 24 50 d9 44 24 58 d9
+0x00B5BF60: c1 de ca d9 c2 de cb d9 c9 de c2 dc c8 de c1 d9 5c 24 1c d9 44 24 1c e8 c4 a0 36 00 d9 5c 24 1c
+0x00B5BF80: d9 44 24 1c d8 64 24 28 d8 b6 e0 00 00 00 d9 e8 d9 c0 de e2 d9 c9 d9 5c 24 1c d9 44 24 1c dc 15
+0x00B5BFA0: 60 20 01 01 df e0 f6 c4 05 7a 0a dd d8 d9 ee d9 54 24 1c eb 06 d9 5c 24 1c d9 ee d9 44 24 1c d8
+0x00B5BFC0: d2 df e0 dd da f6 c4 41 75 06 dd d9 d9 e8 eb 02 d9 c9 8b 4c 24 10 d9 5c 24 1c d9 44 24 1c d8 4c
+0x00B5BFE0: 24 14 d8 4c 24 30 d9 5c 24 30 d9 44 24 30 d9 14 8d 38 98 1f 01 d9 14 8d a8 96 1f 01 d9 05 a4 3e
+0x00B5C000: 01 01 d8 d9 df e0 f6 c4 05 7a 04 ff 44 24 20 d8 44 24 24 8b 54 24 58 83 44 24 18 0c 89 2f 89 5f
+0x00B5C020: 04 d9 5c 24 24 8b 5c 24 34 41 89 57 08 89 4c 24 10 83 c7 0c 8b e9 8b 44 24 2c 40 0f b7 d0 89 44
+0x00B5C040: 24 2c 3b 93 bc 00 00 00 73 29 8b 83 b4 00 00 00 8d 48 08 8b 00 8b 09 85 d2 76 0c 83 ea 01 8d 48
+0x00B5C060: 08 8b 00 8b 09 75 f4 89 4c 24 1c 85 c9 0f 85 d4 fd ff ff 83 7c 24 20 00 0f 8e 52 02 00 00 d9 44
+0x00B5C080: 24 24 33 c9 83 fd 04 0f 8c 81 01 00 00 8d 75 fd ba d0 99 1f 01 d9 04 8d a8 96 1f 01 d8 f1 d9 5c
+0x00B5C0A0: 24 70 d9 44 24 70 d8 d2 df e0 f6 c4 41 75 3e d9 42 f8 d8 c9 d9 5c 24 44 d9 42 fc d8 c9 d9 5c 24
+0x00B5C0C0: 48 d8 0a d9 5c 24 4c d9 44 24 44 d8 44 24 38 d9 5c 24 38 d9 44 24 3c d8 44 24 48 d9 5c 24 3c d9
+0x00B5C0E0: 44 24 40 d8 44 24 4c d9 5c 24 40 eb 02 dd d8 d9 04 8d ac 96 1f 01 d8 f1 d9 5c 24 70 d9 44 24 70
+0x00B5C100: d8 d2 df e0 f6 c4 41 75 3f d9 42 04 d8 c9 d9 5c 24 44 d9 42 08 d8 c9 d9 5c 24 48 d8 4a 0c d9 5c
+0x00B5C120: 24 4c d9 44 24 44 d8 44 24 38 d9 5c 24 38 d9 44 24 3c d8 44 24 48 d9 5c 24 3c d9 44 24 40 d8 44
+0x00B5C140: 24 4c d9 5c 24 40 eb 02 dd d8 d9 04 8d b0 96 1f 01 d8 f1 d9 5c 24 70 d9 44 24 70 d8 d2 df e0 f6
+0x00B5C160: c4 41 75 3f d9 42 10 d8 c9 d9 5c 24 44 d9 42 14 d8 c9 d9 5c 24 48 d8 4a 18 d9 5c 24 4c d9 44 24
+0x00B5C180: 44 d8 44 24 38 d9 5c 24 38 d9 44 24 3c d8 44 24 48 d9 5c 24 3c d9 44 24 40 d8 44 24 4c d9 5c 24
+0x00B5C1A0: 40 eb 02 dd d8 d9 04 8d b4 96 1f 01 d8 f1 d9 5c 24 70 d9 44 24 70 d8 d2 df e0 f6 c4 41 75 3f d9
+0x00B5C1C0: 42 1c d8 c9 d9 5c 24 44 d9 42 20 d8 c9 d9 5c 24 48 d8 4a 24 d9 5c 24 4c d9 44 24 44 d8 44 24 38
+0x00B5C1E0: d9 5c 24 38 d9 44 24 3c d8 44 24 48 d9 5c 24 3c d9 44 24 40 d8 44 24 4c d9 5c 24 40 eb 02 dd d8
+0x00B5C200: 83 c1 04 83 c2 30 3b ce 0f 82 87 fe ff ff 3b cd 73 6c 8d 14 49 8d 14 95 d0 99 1f 01 d9 04 8d a8
+0x00B5C220: 96 1f 01 d8 f1 d9 5c 24 70 d9 44 24 70 d8 d2 df e0 f6 c4 41 75 3e d9 42 f8 d8 c9 d9 5c 24 44 d9
+0x00B5C240: 42 fc d8 c9 d9 5c 24 48 d8 0a d9 5c 24 4c d9 44 24 44 d8 44 24 38 d9 5c 24 38 d9 44 24 3c d8 44
+0x00B5C260: 24 48 d9 5c 24 3c d9 44 24 40 d8 44 24 4c d9 5c 24 40 eb 02 dd d8 41 83 c2 0c 3b cd 72 9e dd d8
+0x00B5C280: dd d8 8b 44 24 6c d9 00 5f d8 44 24 34 5e d9 5c 24 54 8b 4c 24 54 d9 40 04 d8 44 24 34 d9 5c 24
+0x00B5C2A0: 58 8b 54 24 58 d9 40 08 8b 44 24 6c d8 44 24 38 89 08 89 50 04 33 d2 d9 5c 24 5c 8b 4c 24 5c 3b
+0x00B5C2C0: d5 89 48 08 1b c0 5d f7 d8 5b 83 c4 58 c2 0c 00 8b 83 e0 00 00 00 dd d8 8b 80 f8 00 00 00 d9 80
+0x00B5C2E0: f0 00 00 00 05 f0 00 00 00 d9 e0 8d 4c 24 5c d9 5c 24 5c d9 40 04 d9 e0 d9 5c 24 60 d9 40 08 d9
+0x00B5C300: e0 d9 5c 24 64 e8 06 49 94 ff d9 44 24 5c c7 44 24 10 01 00 00 00 dd 05 70 7b 01 01 8b 6c 24 10
+0x00B5C320: dc c9 d9 c9 d9 5c 24 50 8b 4c 24 50 d9 44 24 60 89 4c 24 38 d8 c9 d9 5c 24 54 8b 54 24 54 89 54
+0x00B5C340: 24 3c d8 4c 24 64 d9 5c 24 58 8b 44 24 58 89 44 24 40 e9 2b ff ff ff
+
+scene_getter.bin VA 0x00B5AC20..0x00B5AC56 (end exclusive); exact verified native bytes
+0x00B5AC20: 56 8b 74 24 08 3b b1 bc 00 00 00 72 06 33 c0 5e c2 04 00 8b 81 b4 00 00 00 8b 08 8d 50 08 8b 02
+0x00B5AC40: 85 f6 76 0e 8b d6 83 ea 01 8d 41 08 8b 09 8b 00 75 f4 5e c2 04 00
+
+property_first.bin VA 0x00B70600..0x00B7067D (end exclusive); exact verified native bytes
+0x00B70600: 8b 41 60 8b 4c 24 04 89 01 85 c0 75 03 c2 04 00 8b 10 53 89 11 8b 40 08 b3 01 85 d2 74 34 8b ff
+0x00B70620: 85 c0 74 55 ba ff 00 00 00 66 39 90 10 01 00 00 74 13 8b 90 f8 00 00 00 84 5a 30 75 08 38 98 ec
+0x00B70640: 00 00 00 75 0d 8b 01 8b 10 89 11 8b 40 08 85 d2 75 ce 85 c0 74 23 b9 ff 00 00 00 66 39 88 10 01
+0x00B70660: 00 00 74 13 8b 90 f8 00 00 00 84 5a 30 75 08 38 98 ec 00 00 00 75 02 33 c0 5b c2 04 00
+
+property_next.bin VA 0x00B70700..0x00B70783 (end exclusive); exact verified native bytes
+0x00B70700: 56 8b 74 24 08 8b 16 33 c0 57 85 d2 74 70 8b 0a 89 0e 8b 42 08 85 c0 74 65 b2 01 eb 03 8d 49 00
+0x00B70720: 85 c9 74 33 bf ff 00 00 00 66 39 b8 10 01 00 00 74 13 8b b8 f8 00 00 00 84 57 30 75 08 38 90 ec
+0x00B70740: 00 00 00 75 12 8d 41 08 8b 09 89 0e 8b 00 85 c0 75 ce 5f 5e c2 04 00 85 c0 74 23 b9 ff 00 00 00
+0x00B70760: 66 39 88 10 01 00 00 74 13 8b 88 f8 00 00 00 84 51 30 75 08 38 90 ec 00 00 00 75 02 33 c0 5f 5e
+0x00B70780: c2 04 00
+
+normalize.bin VA 0x004A0C10..0x004A0C86 (end exclusive); exact verified native bytes
+0x004A0C10: 55 8b ec 83 ec 0c 89 4d f4 8b 4d f4 e8 6f 6d fb ff d9 5d fc d9 45 fc dc 1d f8 7c 01 01 df e0 f6
+0x004A0C30: c4 41 75 37 d9 45 fc d9 e8 de f1 d9 5d f8 8b 45 f4 d9 00 d8 4d f8 8b 4d f4 d9 19 8b 55 f4 d9 42
+0x004A0C50: 04 d8 4d f8 8b 45 f4 d9 58 04 8b 4d f4 d9 41 08 d8 4d f8 8b 55 f4 d9 5a 08 eb 17 8b 45 f4 d9 ee
+0x004A0C70: d9 18 8b 4d f4 d9 ee d9 59 04 8b 55 f4 d9 ee d9 5a 08 8b e5 5d c3
+
+vector_length.bin VA 0x00457990..0x004579D5 (end exclusive); exact verified native bytes
+0x00457990: 55 8b ec 83 ec 08 89 4d fc 8b 45 fc d9 00 8b 4d fc d8 09 8b 55 fc d9 42 04 8b 45 fc d8 48 04 de
+0x004579B0: c1 8b 4d fc d9 41 08 8b 55 fc d8 4a 08 de c1 d9 5d f8 d9 45 f8 51 d9 1c 24 e8 12 00 00 00 83 c4
+0x004579D0: 04 8b e5 5d c3
+
+vector_sqrt.bin VA 0x004579E0..0x004579F4 (end exclusive); exact verified native bytes
+0x004579E0: 55 8b ec 51 d9 45 08 d9 1c 24 e8 c1 9f fa ff 83 c4 04 5d c3
+
+scalar_sqrt.bin VA 0x004019B0..0x004019C4 (end exclusive); exact verified native bytes
+0x004019B0: 55 8b ec 51 d9 45 08 d9 1c 24 e8 11 00 00 00 83 c4 04 5d c3
+
+All 18 embedded native signature extracts match the supported executable. No current foreign provider bytes were learned as a native contract.
+
+======================================================================
+ENTRY 6: Static compiled sorter instruction/ABI comparison
+======================================================================
+Static instruction qualification: native and compiled sorter have 90 instructions with identical non-call operations and branch destinations by instruction ordinal.
+CALL ordinal 23 native: 0xb9dbe0 compiled: DWORD PTR ds:0x103cd1d8
+CALL ordinal 38 native: 0xb9dbe0 compiled: 10082330
+First compiled CALL pointer resolves to actual native scorer 0x00B9DBE0. Second CALL resolves to compiled FLD [ECX+0x0C]; RET 4 adapter.
+This comparison is static ABI/control-flow evidence, not an executed engine test.
+
+
+======================================================================
+ENTRY 7: Bounded compiled cdecl admission wrappers
+======================================================================
+
+target/i686-pc-windows-gnu/release/psycho_engine_fixes.dll:     file format pei-i386
+
+
+Disassembly of section .text:
+
+1008afd0 <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf16scene_light_scan17initialize_camera>:
+1008afd0:	a1 5c a6 50 10       	mov    eax,ds:0x1050a65c
+1008afd5:	85 c0                	test   eax,eax
+1008afd7:	74 01                	je     1008afda <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf16scene_light_scan17initialize_camera+0xa>
+1008afd9:	c3                   	ret
+1008afda:	55                   	push   ebp
+1008afdb:	89 e5                	mov    ebp,esp
+1008afdd:	53                   	push   ebx
+1008afde:	b9 80 d5 38 10       	mov    ecx,0x1038d580
+1008afe3:	e8 a8 0c 00 00       	call   1008bc90 <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf16scene_light_scan9qualified>
+1008afe8:	84 c0                	test   al,al
+1008afea:	74 2c                	je     1008b018 <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf16scene_light_scan17initialize_camera+0x48>
+1008afec:	8b 55 0c             	mov    edx,DWORD PTR [ebp+0xc]
+1008afef:	8b 45 08             	mov    eax,DWORD PTR [ebp+0x8]
+1008aff2:	0f b6 1d 5a a6 50 10 	movzx  ebx,BYTE PTR ds:0x1050a65a
+1008aff9:	31 c9                	xor    ecx,ecx
+1008affb:	85 d2                	test   edx,edx
+1008affd:	74 13                	je     1008b012 <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf16scene_light_scan17initialize_camera+0x42>
+1008afff:	84 db                	test   bl,bl
+1008b001:	74 0f                	je     1008b012 <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf16scene_light_scan17initialize_camera+0x42>
+1008b003:	83 ba bc 00 00 00 00 	cmp    DWORD PTR [edx+0xbc],0x0
+1008b00a:	74 06                	je     1008b012 <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf16scene_light_scan17initialize_camera+0x42>
+1008b00c:	8b 8a b4 00 00 00    	mov    ecx,DWORD PTR [edx+0xb4]
+1008b012:	89 48 64             	mov    DWORD PTR [eax+0x64],ecx
+1008b015:	5b                   	pop    ebx
+1008b016:	5d                   	pop    ebp
+1008b017:	c3                   	ret
+1008b018:	c7 05 5c a6 50 10 01 	mov    DWORD PTR ds:0x1050a65c,0x1
+1008b01f:	00 00 00
+1008b022:	5b                   	pop    ebx
+1008b023:	5d                   	pop    ebp
+1008b024:	c3                   	ret
+1008b025:	66 2e 0f 1f 84 00 00 	nop    WORD PTR cs:[eax+eax*1+0x0]
+1008b02c:	00 00 00
+1008b02f:	90                   	nop
+
+1008b030 <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf16scene_light_scan17initialize_shadow>:
+1008b030:	a1 5c a6 50 10       	mov    eax,ds:0x1050a65c
+1008b035:	85 c0                	test   eax,eax
+1008b037:	74 01                	je     1008b03a <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf16scene_light_scan17initialize_shadow+0xa>
+1008b039:	c3                   	ret
+1008b03a:	55                   	push   ebp
+1008b03b:	89 e5                	mov    ebp,esp
+1008b03d:	53                   	push   ebx
+1008b03e:	b9 c0 d5 38 10       	mov    ecx,0x1038d5c0
+1008b043:	e8 48 0c 00 00       	call   1008bc90 <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf16scene_light_scan9qualified>
+1008b048:	84 c0                	test   al,al
+1008b04a:	74 2b                	je     1008b077 <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf16scene_light_scan17initialize_shadow+0x47>
+1008b04c:	8b 55 08             	mov    edx,DWORD PTR [ebp+0x8]
+1008b04f:	8b 45 0c             	mov    eax,DWORD PTR [ebp+0xc]
+1008b052:	0f b6 1d 5a a6 50 10 	movzx  ebx,BYTE PTR ds:0x1050a65a
+1008b059:	31 c9                	xor    ecx,ecx
+1008b05b:	85 d2                	test   edx,edx
+1008b05d:	74 13                	je     1008b072 <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf16scene_light_scan17initialize_shadow+0x42>
+1008b05f:	84 db                	test   bl,bl
+1008b061:	74 0f                	je     1008b072 <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf16scene_light_scan17initialize_shadow+0x42>
+1008b063:	83 ba bc 00 00 00 00 	cmp    DWORD PTR [edx+0xbc],0x0
+1008b06a:	74 06                	je     1008b072 <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf16scene_light_scan17initialize_shadow+0x42>
+1008b06c:	8b 8a b4 00 00 00    	mov    ecx,DWORD PTR [edx+0xb4]
+1008b072:	89 08                	mov    DWORD PTR [eax],ecx
+1008b074:	5b                   	pop    ebx
+1008b075:	5d                   	pop    ebp
+1008b076:	c3                   	ret
+1008b077:	c7 05 5c a6 50 10 01 	mov    DWORD PTR ds:0x1050a65c,0x1
+1008b07e:	00 00 00
+1008b081:	5b                   	pop    ebx
+1008b082:	5d                   	pop    ebp
+1008b083:	c3                   	ret
+1008b084:	66 2e 0f 1f 84 00 00 	nop    WORD PTR cs:[eax+eax*1+0x0]
+1008b08b:	00 00 00
+1008b08e:	66 90                	xchg   ax,ax
+
+target/i686-pc-windows-gnu/release/psycho_engine_fixes.dll:     file format pei-i386
+
+
+Disassembly of section .text:
+
+1008c4f0 <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf21light_property_scores8select_0>:
+1008c4f0:	55                   	push   ebp
+1008c4f1:	89 e5                	mov    ebp,esp
+1008c4f3:	8b 4d 08             	mov    ecx,DWORD PTR [ebp+0x8]
+1008c4f6:	8b 55 0c             	mov    edx,DWORD PTR [ebp+0xc]
+1008c4f9:	6a 00                	push   0x0
+1008c4fb:	ff 75 10             	push   DWORD PTR [ebp+0x10]
+1008c4fe:	e8 0d fa ff ff       	call   1008bf10 <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf21light_property_scores6select>
+1008c503:	83 c4 08             	add    esp,0x8
+1008c506:	5d                   	pop    ebp
+1008c507:	c3                   	ret
+1008c508:	0f 1f 84 00 00 00 00 	nop    DWORD PTR [eax+eax*1+0x0]
+1008c50f:	00
+
+1008c510 <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf21light_property_scores8select_1>:
+1008c510:	55                   	push   ebp
+1008c511:	89 e5                	mov    ebp,esp
+1008c513:	8b 4d 08             	mov    ecx,DWORD PTR [ebp+0x8]
+1008c516:	8b 55 0c             	mov    edx,DWORD PTR [ebp+0xc]
+1008c519:	6a 01                	push   0x1
+1008c51b:	ff 75 10             	push   DWORD PTR [ebp+0x10]
+1008c51e:	e8 ed f9 ff ff       	call   1008bf10 <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf21light_property_scores6select>
+1008c523:	83 c4 08             	add    esp,0x8
+1008c526:	5d                   	pop    ebp
+1008c527:	c3                   	ret
+1008c528:	0f 1f 84 00 00 00 00 	nop    DWORD PTR [eax+eax*1+0x0]
+1008c52f:	00
+
+1008c530 <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf21light_property_scores8select_2>:
+1008c530:	55                   	push   ebp
+1008c531:	89 e5                	mov    ebp,esp
+1008c533:	8b 4d 08             	mov    ecx,DWORD PTR [ebp+0x8]
+1008c536:	8b 55 0c             	mov    edx,DWORD PTR [ebp+0xc]
+1008c539:	6a 02                	push   0x2
+1008c53b:	ff 75 10             	push   DWORD PTR [ebp+0x10]
+1008c53e:	e8 cd f9 ff ff       	call   1008bf10 <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf21light_property_scores6select>
+1008c543:	83 c4 08             	add    esp,0x8
+1008c546:	5d                   	pop    ebp
+1008c547:	c3                   	ret
+1008c548:	0f 1f 84 00 00 00 00 	nop    DWORD PTR [eax+eax*1+0x0]
+1008c54f:	00
+
+======================================================================
+ENTRY 8: Final supported release bridge ABI and sorter qualification
+======================================================================
+Final candidate includes permanent native-mode latching on scan installation failure. This capture supersedes the earlier compiled captures.
+Native and final compiled sorter: 90 instructions; all non-CALL operations and branch destinations by instruction ordinal match.
+Current CALL resolves to native scorer 0x00B9DBE0; predecessor CALL resolves to compiled FLD [ECX+0x0C]; RET 4.
+Static instructions only; no engine behavior or performance was executed.
+
+
+target/i686-pc-windows-gnu/release/psycho_engine_fixes.dll:     file format pei-i386
+
+
+Disassembly of section .text:
+
+100a24d0 <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf16scene_light_scan11camera_next>:
+100a24d0:	9c                   	pushf
+100a24d1:	60                   	pusha
+100a24d2:	83 3d 9c a8 50 10 00 	cmp    DWORD PTR ds:0x1050a89c,0x0
+100a24d9:	75 32                	jne    100a250d <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf16scene_light_scan11camera_next+0x3d>
+100a24db:	e8 60 00 00 00       	call   100a2540 <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf16scene_light_scan12getter_owned>
+100a24e0:	85 c0                	test   eax,eax
+100a24e2:	74 29                	je     100a250d <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf16scene_light_scan11camera_next+0x3d>
+100a24e4:	61                   	popa
+100a24e5:	9d                   	popf
+100a24e6:	8b 44 24 64          	mov    eax,DWORD PTR [esp+0x64]
+100a24ea:	85 c0                	test   eax,eax
+100a24ec:	74 21                	je     100a250f <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf16scene_light_scan11camera_next+0x3f>
+100a24ee:	85 d2                	test   edx,edx
+100a24f0:	74 04                	je     100a24f6 <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf16scene_light_scan11camera_next+0x26>
+100a24f2:	8b 00                	mov    eax,DWORD PTR [eax]
+100a24f4:	eb 06                	jmp    100a24fc <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf16scene_light_scan11camera_next+0x2c>
+100a24f6:	8b 83 b4 00 00 00    	mov    eax,DWORD PTR [ebx+0xb4]
+100a24fc:	89 44 24 64          	mov    DWORD PTR [esp+0x64],eax
+100a2500:	8b 48 08             	mov    ecx,DWORD PTR [eax+0x8]
+100a2503:	8b 00                	mov    eax,DWORD PTR [eax]
+100a2505:	31 d2                	xor    edx,edx
+100a2507:	68 67 c0 b5 00       	push   0xb5c067
+100a250c:	c3                   	ret
+100a250d:	61                   	popa
+100a250e:	9d                   	popf
+100a250f:	8b 83 b4 00 00 00    	mov    eax,DWORD PTR [ebx+0xb4]
+100a2515:	8d 48 08             	lea    ecx,[eax+0x8]
+100a2518:	8b 00                	mov    eax,DWORD PTR [eax]
+100a251a:	8b 09                	mov    ecx,DWORD PTR [ecx]
+100a251c:	85 d2                	test   edx,edx
+100a251e:	76 0c                	jbe    100a252c <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf16scene_light_scan11camera_next+0x5c>
+100a2520:	83 ea 01             	sub    edx,0x1
+100a2523:	8d 48 08             	lea    ecx,[eax+0x8]
+100a2526:	8b 00                	mov    eax,DWORD PTR [eax]
+100a2528:	8b 09                	mov    ecx,DWORD PTR [ecx]
+100a252a:	75 f4                	jne    100a2520 <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf16scene_light_scan11camera_next+0x50>
+100a252c:	68 67 c0 b5 00       	push   0xb5c067
+100a2531:	c3                   	ret
+100a2532:	66 2e 0f 1f 84 00 00 	nop    WORD PTR cs:[eax+eax*1+0x0]
+100a2539:	00 00 00
+100a253c:	0f 1f 40 00          	nop    DWORD PTR [eax+0x0]
+
+100a2540 <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf16scene_light_scan12getter_owned>:
+100a2540:	81 3d 20 ac b5 00 56 	cmp    DWORD PTR ds:0xb5ac20,0x24748b56
+100a2547:	8b 74 24
+100a254a:	0f 85 a8 00 00 00    	jne    100a25f8 <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf16scene_light_scan12getter_owned+0xb8>
+100a2550:	81 3d 24 ac b5 00 08 	cmp    DWORD PTR ds:0xb5ac24,0xbcb13b08
+100a2557:	3b b1 bc
+100a255a:	0f 85 98 00 00 00    	jne    100a25f8 <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf16scene_light_scan12getter_owned+0xb8>
+100a2560:	81 3d 28 ac b5 00 00 	cmp    DWORD PTR ds:0xb5ac28,0x72000000
+100a2567:	00 00 72
+100a256a:	0f 85 88 00 00 00    	jne    100a25f8 <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf16scene_light_scan12getter_owned+0xb8>
+100a2570:	81 3d 2c ac b5 00 06 	cmp    DWORD PTR ds:0xb5ac2c,0x5ec03306
+100a2577:	33 c0 5e
+100a257a:	75 7c                	jne    100a25f8 <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf16scene_light_scan12getter_owned+0xb8>
+100a257c:	81 3d 30 ac b5 00 c2 	cmp    DWORD PTR ds:0xb5ac30,0x8b0004c2
+100a2583:	04 00 8b
+100a2586:	75 70                	jne    100a25f8 <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf16scene_light_scan12getter_owned+0xb8>
+100a2588:	81 3d 34 ac b5 00 81 	cmp    DWORD PTR ds:0xb5ac34,0xb481
+100a258f:	b4 00 00
+100a2592:	75 64                	jne    100a25f8 <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf16scene_light_scan12getter_owned+0xb8>
+100a2594:	81 3d 38 ac b5 00 00 	cmp    DWORD PTR ds:0xb5ac38,0x8d088b00
+100a259b:	8b 08 8d
+100a259e:	75 58                	jne    100a25f8 <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf16scene_light_scan12getter_owned+0xb8>
+100a25a0:	81 3d 3c ac b5 00 50 	cmp    DWORD PTR ds:0xb5ac3c,0x28b0850
+100a25a7:	08 8b 02
+100a25aa:	75 4c                	jne    100a25f8 <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf16scene_light_scan12getter_owned+0xb8>
+100a25ac:	81 3d 40 ac b5 00 85 	cmp    DWORD PTR ds:0xb5ac40,0xe76f685
+100a25b3:	f6 76 0e
+100a25b6:	75 40                	jne    100a25f8 <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf16scene_light_scan12getter_owned+0xb8>
+100a25b8:	81 3d 44 ac b5 00 8b 	cmp    DWORD PTR ds:0xb5ac44,0xea83d68b
+100a25bf:	d6 83 ea
+100a25c2:	75 34                	jne    100a25f8 <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf16scene_light_scan12getter_owned+0xb8>
+100a25c4:	81 3d 48 ac b5 00 01 	cmp    DWORD PTR ds:0xb5ac48,0x8418d01
+100a25cb:	8d 41 08
+100a25ce:	75 28                	jne    100a25f8 <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf16scene_light_scan12getter_owned+0xb8>
+100a25d0:	81 3d 4c ac b5 00 8b 	cmp    DWORD PTR ds:0xb5ac4c,0x8b098b
+100a25d7:	09 8b 00
+100a25da:	75 1c                	jne    100a25f8 <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf16scene_light_scan12getter_owned+0xb8>
+100a25dc:	81 3d 50 ac b5 00 75 	cmp    DWORD PTR ds:0xb5ac50,0xc25ef475
+100a25e3:	f4 5e c2
+100a25e6:	75 10                	jne    100a25f8 <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf16scene_light_scan12getter_owned+0xb8>
+100a25e8:	66 83 3d 54 ac b5 00 	cmp    WORD PTR ds:0xb5ac54,0x4
+100a25ef:	04
+100a25f0:	75 06                	jne    100a25f8 <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf16scene_light_scan12getter_owned+0xb8>
+100a25f2:	b8 01 00 00 00       	mov    eax,0x1
+100a25f7:	c3                   	ret
+100a25f8:	c7 05 9c a8 50 10 01 	mov    DWORD PTR ds:0x1050a89c,0x1
+100a25ff:	00 00 00
+100a2602:	31 c0                	xor    eax,eax
+100a2604:	c3                   	ret
+100a2605:	66 2e 0f 1f 84 00 00 	nop    WORD PTR cs:[eax+eax*1+0x0]
+100a260c:	00 00 00
+100a260f:	90                   	nop
+
+100a2610 <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf16scene_light_scan12shadow_first>:
+100a2610:	6a 00                	push   0x0
+100a2612:	9c                   	pushf
+100a2613:	60                   	pusha
+100a2614:	89 e5                	mov    ebp,esp
+100a2616:	83 e4 f0             	and    esp,0xfffffff0
+100a2619:	81 ec 10 02 00 00    	sub    esp,0x210
+100a261f:	0f ae 44 24 10       	fxsave [esp+0x10]
+100a2624:	8d 85 98 00 00 00    	lea    eax,[ebp+0x98]
+100a262a:	6a 00                	push   0x0
+100a262c:	6a 00                	push   0x0
+100a262e:	50                   	push   eax
+100a262f:	ff 75 18             	push   DWORD PTR [ebp+0x18]
+100a2632:	e8 29 8f 00 00       	call   100ab560 <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf16scene_light_scan17initialize_shadow>
+100a2637:	83 c4 10             	add    esp,0x10
+100a263a:	0f ae 4c 24 10       	fxrstor [esp+0x10]
+100a263f:	a1 a4 a8 50 10       	mov    eax,ds:0x1050a8a4
+100a2644:	89 45 24             	mov    DWORD PTR [ebp+0x24],eax
+100a2647:	89 ec                	mov    esp,ebp
+100a2649:	61                   	popa
+100a264a:	9d                   	popf
+100a264b:	c3                   	ret
+100a264c:	0f 1f 40 00          	nop    DWORD PTR [eax+0x0]
+
+100a2650 <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf16scene_light_scan14camera_initial>:
+100a2650:	9c                   	pushf
+100a2651:	60                   	pusha
+100a2652:	89 e5                	mov    ebp,esp
+100a2654:	83 e4 f0             	and    esp,0xfffffff0
+100a2657:	81 ec 10 02 00 00    	sub    esp,0x210
+100a265d:	0f ae 44 24 10       	fxsave [esp+0x10]
+100a2662:	8d 45 24             	lea    eax,[ebp+0x24]
+100a2665:	6a 00                	push   0x0
+100a2667:	6a 00                	push   0x0
+100a2669:	ff 75 10             	push   DWORD PTR [ebp+0x10]
+100a266c:	50                   	push   eax
+100a266d:	e8 8e 8e 00 00       	call   100ab500 <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf16scene_light_scan17initialize_camera>
+100a2672:	83 c4 10             	add    esp,0x10
+100a2675:	0f ae 4c 24 10       	fxrstor [esp+0x10]
+100a267a:	89 ec                	mov    esp,ebp
+100a267c:	61                   	popa
+100a267d:	9d                   	popf
+100a267e:	89 44 24 1c          	mov    DWORD PTR [esp+0x1c],eax
+100a2682:	39 f0                	cmp    eax,esi
+100a2684:	68 36 be b5 00       	push   0xb5be36
+100a2689:	c3                   	ret
+100a268a:	66 0f 1f 44 00 00    	nop    WORD PTR [eax+eax*1+0x0]
+
+100a2690 <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf16scene_light_scan16camera_to_vector>:
+100a2690:	9c                   	pushf
+100a2691:	50                   	push   eax
+100a2692:	83 3d 9c a8 50 10 00 	cmp    DWORD PTR ds:0x1050a89c,0x0
+100a2699:	75 08                	jne    100a26a3 <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf16scene_light_scan16camera_to_vector+0x13>
+100a269b:	8b 44 24 38          	mov    eax,DWORD PTR [esp+0x38]
+100a269f:	89 44 24 6c          	mov    DWORD PTR [esp+0x6c],eax
+100a26a3:	58                   	pop    eax
+100a26a4:	9d                   	popf
+100a26a5:	d9 5c 24 14          	fstp   DWORD PTR [esp+0x14]
+100a26a9:	d9 ee                	fldz
+100a26ab:	68 d8 be b5 00       	push   0xb5bed8
+100a26b0:	c3                   	ret
+100a26b1:	66 2e 0f 1f 84 00 00 	nop    WORD PTR cs:[eax+eax*1+0x0]
+100a26b8:	00 00 00
+100a26bb:	0f 1f 44 00 00       	nop    DWORD PTR [eax+eax*1+0x0]
+
+100a26c0 <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf16scene_light_scan17shadow_accumulate>:
+100a26c0:	6a 00                	push   0x0
+100a26c2:	9c                   	pushf
+100a26c3:	60                   	pusha
+100a26c4:	89 e5                	mov    ebp,esp
+100a26c6:	83 e4 f0             	and    esp,0xfffffff0
+100a26c9:	81 ec 10 02 00 00    	sub    esp,0x210
+100a26cf:	0f ae 44 24 10       	fxsave [esp+0x10]
+100a26d4:	8d 85 98 00 00 00    	lea    eax,[ebp+0x98]
+100a26da:	6a 00                	push   0x0
+100a26dc:	6a 00                	push   0x0
+100a26de:	50                   	push   eax
+100a26df:	ff 75 18             	push   DWORD PTR [ebp+0x18]
+100a26e2:	e8 79 8e 00 00       	call   100ab560 <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf16scene_light_scan17initialize_shadow>
+100a26e7:	83 c4 10             	add    esp,0x10
+100a26ea:	0f ae 4c 24 10       	fxrstor [esp+0x10]
+100a26ef:	a1 ac a8 50 10       	mov    eax,ds:0x1050a8ac
+100a26f4:	89 45 24             	mov    DWORD PTR [ebp+0x24],eax
+100a26f7:	89 ec                	mov    esp,ebp
+100a26f9:	61                   	popa
+100a26fa:	9d                   	popf
+100a26fb:	c3                   	ret
+100a26fc:	0f 1f 40 00          	nop    DWORD PTR [eax+0x0]
+
+100a2700 <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf16scene_light_scan17shadow_next_first>:
+100a2700:	9c                   	pushf
+100a2701:	60                   	pusha
+100a2702:	83 3d 9c a8 50 10 00 	cmp    DWORD PTR ds:0x1050a89c,0x0
+100a2709:	75 49                	jne    100a2754 <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf16scene_light_scan17shadow_next_first+0x54>
+100a270b:	e8 30 fe ff ff       	call   100a2540 <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf16scene_light_scan12getter_owned>
+100a2710:	85 c0                	test   eax,eax
+100a2712:	74 40                	je     100a2754 <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf16scene_light_scan17shadow_next_first+0x54>
+100a2714:	8b 84 24 94 00 00 00 	mov    eax,DWORD PTR [esp+0x94]
+100a271b:	85 c0                	test   eax,eax
+100a271d:	74 35                	je     100a2754 <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf16scene_light_scan17shadow_next_first+0x54>
+100a271f:	8b 4c 24 18          	mov    ecx,DWORD PTR [esp+0x18]
+100a2723:	8b 54 24 28          	mov    edx,DWORD PTR [esp+0x28]
+100a2727:	3b 91 bc 00 00 00    	cmp    edx,DWORD PTR [ecx+0xbc]
+100a272d:	73 1a                	jae    100a2749 <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf16scene_light_scan17shadow_next_first+0x49>
+100a272f:	85 d2                	test   edx,edx
+100a2731:	74 04                	je     100a2737 <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf16scene_light_scan17shadow_next_first+0x37>
+100a2733:	8b 00                	mov    eax,DWORD PTR [eax]
+100a2735:	eb 06                	jmp    100a273d <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf16scene_light_scan17shadow_next_first+0x3d>
+100a2737:	8b 81 b4 00 00 00    	mov    eax,DWORD PTR [ecx+0xb4]
+100a273d:	89 84 24 94 00 00 00 	mov    DWORD PTR [esp+0x94],eax
+100a2744:	8b 40 08             	mov    eax,DWORD PTR [eax+0x8]
+100a2747:	eb 02                	jmp    100a274b <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf16scene_light_scan17shadow_next_first+0x4b>
+100a2749:	31 c0                	xor    eax,eax
+100a274b:	89 44 24 1c          	mov    DWORD PTR [esp+0x1c],eax
+100a274f:	61                   	popa
+100a2750:	9d                   	popf
+100a2751:	c2 04 00             	ret    0x4
+100a2754:	61                   	popa
+100a2755:	9d                   	popf
+100a2756:	ff 25 a8 a8 50 10    	jmp    DWORD PTR ds:0x1050a8a8
+100a275c:	0f 1f 40 00          	nop    DWORD PTR [eax+0x0]
+
+100a2760 <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf16scene_light_scan20camera_to_brightness>:
+100a2760:	9c                   	pushf
+100a2761:	50                   	push   eax
+100a2762:	83 3d 9c a8 50 10 00 	cmp    DWORD PTR ds:0x1050a89c,0x0
+100a2769:	75 08                	jne    100a2773 <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf16scene_light_scan20camera_to_brightness+0x13>
+100a276b:	8b 44 24 6c          	mov    eax,DWORD PTR [esp+0x6c]
+100a276f:	89 44 24 38          	mov    DWORD PTR [esp+0x38],eax
+100a2773:	58                   	pop    eax
+100a2774:	9d                   	popf
+100a2775:	8b 44 24 6c          	mov    eax,DWORD PTR [esp+0x6c]
+100a2779:	dd d8                	fstp   st(0)
+100a277b:	68 6f be b5 00       	push   0xb5be6f
+100a2780:	c3                   	ret
+100a2781:	66 2e 0f 1f 84 00 00 	nop    WORD PTR cs:[eax+eax*1+0x0]
+100a2788:	00 00 00
+100a278b:	0f 1f 44 00 00       	nop    DWORD PTR [eax+eax*1+0x0]
+
+100a2790 <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf16scene_light_scan22shadow_next_accumulate>:
+100a2790:	9c                   	pushf
+100a2791:	60                   	pusha
+100a2792:	83 3d 9c a8 50 10 00 	cmp    DWORD PTR ds:0x1050a89c,0x0
+100a2799:	75 49                	jne    100a27e4 <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf16scene_light_scan22shadow_next_accumulate+0x54>
+100a279b:	e8 a0 fd ff ff       	call   100a2540 <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf16scene_light_scan12getter_owned>
+100a27a0:	85 c0                	test   eax,eax
+100a27a2:	74 40                	je     100a27e4 <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf16scene_light_scan22shadow_next_accumulate+0x54>
+100a27a4:	8b 84 24 94 00 00 00 	mov    eax,DWORD PTR [esp+0x94]
+100a27ab:	85 c0                	test   eax,eax
+100a27ad:	74 35                	je     100a27e4 <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf16scene_light_scan22shadow_next_accumulate+0x54>
+100a27af:	8b 4c 24 18          	mov    ecx,DWORD PTR [esp+0x18]
+100a27b3:	8b 54 24 28          	mov    edx,DWORD PTR [esp+0x28]
+100a27b7:	3b 91 bc 00 00 00    	cmp    edx,DWORD PTR [ecx+0xbc]
+100a27bd:	73 1a                	jae    100a27d9 <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf16scene_light_scan22shadow_next_accumulate+0x49>
+100a27bf:	85 d2                	test   edx,edx
+100a27c1:	74 04                	je     100a27c7 <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf16scene_light_scan22shadow_next_accumulate+0x37>
+100a27c3:	8b 00                	mov    eax,DWORD PTR [eax]
+100a27c5:	eb 06                	jmp    100a27cd <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf16scene_light_scan22shadow_next_accumulate+0x3d>
+100a27c7:	8b 81 b4 00 00 00    	mov    eax,DWORD PTR [ecx+0xb4]
+100a27cd:	89 84 24 94 00 00 00 	mov    DWORD PTR [esp+0x94],eax
+100a27d4:	8b 40 08             	mov    eax,DWORD PTR [eax+0x8]
+100a27d7:	eb 02                	jmp    100a27db <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf16scene_light_scan22shadow_next_accumulate+0x4b>
+100a27d9:	31 c0                	xor    eax,eax
+100a27db:	89 44 24 1c          	mov    DWORD PTR [esp+0x1c],eax
+100a27df:	61                   	popa
+100a27e0:	9d                   	popf
+100a27e1:	c2 04 00             	ret    0x4
+100a27e4:	61                   	popa
+100a27e5:	9d                   	popf
+100a27e6:	ff 25 b0 a8 50 10    	jmp    DWORD PTR ds:0x1050a8b0
+100a27ec:	0f 1f 40 00          	nop    DWORD PTR [eax+0x0]
+
+100a27f0 <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf21light_property_scores12cached_score>:
+100a27f0:	d9 41 0c             	fld    DWORD PTR [ecx+0xc]
+100a27f3:	c2 04 00             	ret    0x4
+100a27f6:	66 2e 0f 1f 84 00 00 	nop    WORD PTR cs:[eax+eax*1+0x0]
+100a27fd:	00 00 00
+
+100a2800 <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf21light_property_scores14optimized_sort>:
+100a2800:	55                   	push   ebp
+100a2801:	89 e5                	mov    ebp,esp
+100a2803:	83 e4 f8             	and    esp,0xfffffff8
+100a2806:	83 ec 1c             	sub    esp,0x1c
+100a2809:	53                   	push   ebx
+100a280a:	56                   	push   esi
+100a280b:	8b 71 60             	mov    esi,DWORD PTR [ecx+0x60]
+100a280e:	57                   	push   edi
+100a280f:	89 4c 24 14          	mov    DWORD PTR [esp+0x14],ecx
+100a2813:	c6 44 24 13 00       	mov    BYTE PTR [esp+0x13],0x0
+100a2818:	85 f6                	test   esi,esi
+100a281a:	0f 84 d8 00 00 00    	je     100a28f8 <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf21light_property_scores14optimized_sort+0xf8>
+100a2820:	eb 08                	jmp    100a282a <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf21light_property_scores14optimized_sort+0x2a>
+100a2822:	8b 74 24 18          	mov    esi,DWORD PTR [esp+0x18]
+100a2826:	8b 4c 24 14          	mov    ecx,DWORD PTR [esp+0x14]
+100a282a:	8b 79 60             	mov    edi,DWORD PTR [ecx+0x60]
+100a282d:	8b 4d 08             	mov    ecx,DWORD PTR [ebp+0x8]
+100a2830:	8b 16                	mov    edx,DWORD PTR [esi]
+100a2832:	8d 46 08             	lea    eax,[esi+0x8]
+100a2835:	8b 00                	mov    eax,DWORD PTR [eax]
+100a2837:	51                   	push   ecx
+100a2838:	89 c1                	mov    ecx,eax
+100a283a:	89 54 24 1c          	mov    DWORD PTR [esp+0x1c],edx
+100a283e:	ff 15 9c 33 3d 10    	call   DWORD PTR ds:0x103d339c
+100a2844:	d9 5c 24 1c          	fstp   DWORD PTR [esp+0x1c]
+100a2848:	39 f7                	cmp    edi,esi
+100a284a:	0f 84 8b 00 00 00    	je     100a28db <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf21light_property_scores14optimized_sort+0xdb>
+100a2850:	85 ff                	test   edi,edi
+100a2852:	0f 84 83 00 00 00    	je     100a28db <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf21light_property_scores14optimized_sort+0xdb>
+100a2858:	8b 55 08             	mov    edx,DWORD PTR [ebp+0x8]
+100a285b:	d9 44 24 1c          	fld    DWORD PTR [esp+0x1c]
+100a285f:	8d 47 08             	lea    eax,[edi+0x8]
+100a2862:	dd 5c 24 20          	fstp   QWORD PTR [esp+0x20]
+100a2866:	8b 00                	mov    eax,DWORD PTR [eax]
+100a2868:	89 fb                	mov    ebx,edi
+100a286a:	8b 3f                	mov    edi,DWORD PTR [edi]
+100a286c:	52                   	push   edx
+100a286d:	89 c1                	mov    ecx,eax
+100a286f:	e8 7c ff ff ff       	call   100a27f0 <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf21light_property_scores12cached_score>
+100a2874:	dc 5c 24 20          	fcomp  QWORD PTR [esp+0x20]
+100a2878:	df e0                	fnstsw ax
+100a287a:	f6 c4 41             	test   ah,0x41
+100a287d:	75 54                	jne    100a28d3 <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf21light_property_scores14optimized_sort+0xd3>
+100a287f:	39 de                	cmp    esi,ebx
+100a2881:	74 49                	je     100a28cc <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf21light_property_scores14optimized_sort+0xcc>
+100a2883:	8b 44 24 14          	mov    eax,DWORD PTR [esp+0x14]
+100a2887:	39 70 60             	cmp    DWORD PTR [eax+0x60],esi
+100a288a:	75 05                	jne    100a2891 <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf21light_property_scores14optimized_sort+0x91>
+100a288c:	8b 0e                	mov    ecx,DWORD PTR [esi]
+100a288e:	89 48 60             	mov    DWORD PTR [eax+0x60],ecx
+100a2891:	39 58 60             	cmp    DWORD PTR [eax+0x60],ebx
+100a2894:	75 03                	jne    100a2899 <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf21light_property_scores14optimized_sort+0x99>
+100a2896:	89 70 60             	mov    DWORD PTR [eax+0x60],esi
+100a2899:	39 70 64             	cmp    DWORD PTR [eax+0x64],esi
+100a289c:	75 06                	jne    100a28a4 <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf21light_property_scores14optimized_sort+0xa4>
+100a289e:	8b 56 04             	mov    edx,DWORD PTR [esi+0x4]
+100a28a1:	89 50 64             	mov    DWORD PTR [eax+0x64],edx
+100a28a4:	8b 06                	mov    eax,DWORD PTR [esi]
+100a28a6:	85 c0                	test   eax,eax
+100a28a8:	74 06                	je     100a28b0 <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf21light_property_scores14optimized_sort+0xb0>
+100a28aa:	8b 4e 04             	mov    ecx,DWORD PTR [esi+0x4]
+100a28ad:	89 48 04             	mov    DWORD PTR [eax+0x4],ecx
+100a28b0:	8b 46 04             	mov    eax,DWORD PTR [esi+0x4]
+100a28b3:	85 c0                	test   eax,eax
+100a28b5:	74 04                	je     100a28bb <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf21light_property_scores14optimized_sort+0xbb>
+100a28b7:	8b 16                	mov    edx,DWORD PTR [esi]
+100a28b9:	89 10                	mov    DWORD PTR [eax],edx
+100a28bb:	8b 43 04             	mov    eax,DWORD PTR [ebx+0x4]
+100a28be:	89 46 04             	mov    DWORD PTR [esi+0x4],eax
+100a28c1:	89 1e                	mov    DWORD PTR [esi],ebx
+100a28c3:	85 c0                	test   eax,eax
+100a28c5:	74 02                	je     100a28c9 <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf21light_property_scores14optimized_sort+0xc9>
+100a28c7:	89 30                	mov    DWORD PTR [eax],esi
+100a28c9:	89 73 04             	mov    DWORD PTR [ebx+0x4],esi
+100a28cc:	31 ff                	xor    edi,edi
+100a28ce:	c6 44 24 13 01       	mov    BYTE PTR [esp+0x13],0x1
+100a28d3:	39 f7                	cmp    edi,esi
+100a28d5:	0f 85 75 ff ff ff    	jne    100a2850 <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf21light_property_scores14optimized_sort+0x50>
+100a28db:	83 7c 24 18 00       	cmp    DWORD PTR [esp+0x18],0x0
+100a28e0:	0f 85 3c ff ff ff    	jne    100a2822 <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf21light_property_scores14optimized_sort+0x22>
+100a28e6:	80 7c 24 13 00       	cmp    BYTE PTR [esp+0x13],0x0
+100a28eb:	74 0b                	je     100a28f8 <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf21light_property_scores14optimized_sort+0xf8>
+100a28ed:	8b 4c 24 14          	mov    ecx,DWORD PTR [esp+0x14]
+100a28f1:	c7 41 38 00 00 00 00 	mov    DWORD PTR [ecx+0x38],0x0
+100a28f8:	5f                   	pop    edi
+100a28f9:	5e                   	pop    esi
+100a28fa:	5b                   	pop    ebx
+100a28fb:	89 ec                	mov    esp,ebp
+100a28fd:	5d                   	pop    ebp
+100a28fe:	c2 04 00             	ret    0x4
+100a2901:	66 2e 0f 1f 84 00 00 	nop    WORD PTR cs:[eax+eax*1+0x0]
+100a2908:	00 00 00
+100a290b:	0f 1f 44 00 00       	nop    DWORD PTR [eax+eax*1+0x0]
+
+100a2910 <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf21light_property_scores8bridge_0>:
+100a2910:	6a 00                	push   0x0
+100a2912:	9c                   	pushf
+100a2913:	60                   	pusha
+100a2914:	89 e5                	mov    ebp,esp
+100a2916:	83 e4 f0             	and    esp,0xfffffff0
+100a2919:	81 ec 10 02 00 00    	sub    esp,0x210
+100a291f:	0f ae 44 24 10       	fxsave [esp+0x10]
+100a2924:	8d 44 24 10          	lea    eax,[esp+0x10]
+100a2928:	6a 00                	push   0x0
+100a292a:	50                   	push   eax
+100a292b:	ff 75 2c             	push   DWORD PTR [ebp+0x2c]
+100a292e:	ff 75 18             	push   DWORD PTR [ebp+0x18]
+100a2931:	e8 ea a0 00 00       	call   100aca20 <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf21light_property_scores8select_0>
+100a2936:	83 c4 10             	add    esp,0x10
+100a2939:	89 45 24             	mov    DWORD PTR [ebp+0x24],eax
+100a293c:	0f ae 4c 24 10       	fxrstor [esp+0x10]
+100a2941:	89 ec                	mov    esp,ebp
+100a2943:	61                   	popa
+100a2944:	9d                   	popf
+100a2945:	c3                   	ret
+100a2946:	66 2e 0f 1f 84 00 00 	nop    WORD PTR cs:[eax+eax*1+0x0]
+100a294d:	00 00 00
+
+100a2950 <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf21light_property_scores8bridge_1>:
+100a2950:	6a 00                	push   0x0
+100a2952:	9c                   	pushf
+100a2953:	60                   	pusha
+100a2954:	89 e5                	mov    ebp,esp
+100a2956:	83 e4 f0             	and    esp,0xfffffff0
+100a2959:	81 ec 10 02 00 00    	sub    esp,0x210
+100a295f:	0f ae 44 24 10       	fxsave [esp+0x10]
+100a2964:	8d 44 24 10          	lea    eax,[esp+0x10]
+100a2968:	6a 00                	push   0x0
+100a296a:	50                   	push   eax
+100a296b:	ff 75 2c             	push   DWORD PTR [ebp+0x2c]
+100a296e:	ff 75 18             	push   DWORD PTR [ebp+0x18]
+100a2971:	e8 ca a0 00 00       	call   100aca40 <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf21light_property_scores8select_1>
+100a2976:	83 c4 10             	add    esp,0x10
+100a2979:	89 45 24             	mov    DWORD PTR [ebp+0x24],eax
+100a297c:	0f ae 4c 24 10       	fxrstor [esp+0x10]
+100a2981:	89 ec                	mov    esp,ebp
+100a2983:	61                   	popa
+100a2984:	9d                   	popf
+100a2985:	c3                   	ret
+100a2986:	66 2e 0f 1f 84 00 00 	nop    WORD PTR cs:[eax+eax*1+0x0]
+100a298d:	00 00 00
+
+100a2990 <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf21light_property_scores8bridge_2>:
+100a2990:	6a 00                	push   0x0
+100a2992:	9c                   	pushf
+100a2993:	60                   	pusha
+100a2994:	89 e5                	mov    ebp,esp
+100a2996:	83 e4 f0             	and    esp,0xfffffff0
+100a2999:	81 ec 10 02 00 00    	sub    esp,0x210
+100a299f:	0f ae 44 24 10       	fxsave [esp+0x10]
+100a29a4:	8d 44 24 10          	lea    eax,[esp+0x10]
+100a29a8:	6a 00                	push   0x0
+100a29aa:	50                   	push   eax
+100a29ab:	ff 75 2c             	push   DWORD PTR [ebp+0x2c]
+100a29ae:	ff 75 18             	push   DWORD PTR [ebp+0x18]
+100a29b1:	e8 aa a0 00 00       	call   100aca60 <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf21light_property_scores8select_2>
+100a29b6:	83 c4 10             	add    esp,0x10
+100a29b9:	89 45 24             	mov    DWORD PTR [ebp+0x24],eax
+100a29bc:	0f ae 4c 24 10       	fxrstor [esp+0x10]
+100a29c1:	89 ec                	mov    esp,ebp
+100a29c3:	61                   	popa
+100a29c4:	9d                   	popf
+100a29c5:	c3                   	ret
+100a29c6:	66 2e 0f 1f 84 00 00 	nop    WORD PTR cs:[eax+eax*1+0x0]
+100a29cd:	00 00 00

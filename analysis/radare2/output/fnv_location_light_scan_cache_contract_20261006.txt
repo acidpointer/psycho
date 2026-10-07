@@ -1,0 +1,5494 @@
+FALLOUT NEW VEGAS LOCATION LIGHT SCANS, SHARED SCORE, AND PASS CACHE
+Date: 2026-10-06
+Interface: radare2 MCP, existing session against fnv_reverse/FalloutNV.exe
+Executable SHA-256: 42fee7d6cd74e801372aa89c8f71c974cebd3c20ec9ad43d1465b8fa9646b49c
+Addresses: virtual addresses, PE32 x86, image base 0x00400000
+Scope: static tool output only; no native execution or performance measurements.
+Formatting: trailing horizontal whitespace removed; terminal blank lines normalized.
+Interpretation: assembly controls argument/layout conclusions. Decompiled names,
+prototypes, overlapping stack variables, and automatic function boundaries can be wrong.
+Several exploratory instruction windows began inside instructions; their labels
+identify this and later aligned windows supersede their misaligned prefixes.
+Some function listings are tool-truncated; focused windows supplement the paths
+used by the document. The capture does not claim complete class-field access coverage.
+The B5AA70 xref attributed to a B5AA40 call is an analysis artifact: the raw
+B5AA40 window proves separate function boundaries.
+Capture order is shown below. The last entry is supplementary executable hashing.
+
+======================================================================
+ENTRY 1: Current radare2 binary identity
+======================================================================
+fd       3
+file     /data/storage1/Workspace/psycho/fnv_reverse/FalloutNV.exe
+size     0xf56f48
+humansz  15.3M
+mode     r-x
+format   pe
+iorw     true
+block    0x100
+type     EXEC (Executable file)
+arch     x86
+baddr    0x400000
+binsz    16084808
+bintype  pe
+bits     32
+canary   true
+injprot  false
+retguard false
+class    PE32
+cmp.csum 0x00f64bd0
+compiled Fri Jul  1 07:45:33 2011
+crypto   false
+dbg_file D:\_Fallout3\Platforms\Common\build\win32\FalloutNV.pdb
+endian   little
+havecode true
+hdr.csum 0x00f64bd0
+guid     9196089162EE4D29BF48E8D767B32DB91
+laddr    0x0
+lang     c
+linenum  false
+lsyms    false
+machine  i386
+nx       false
+os       windows
+overlay  true
+cc       cdecl
+pic      false
+relocs   false
+signed   false
+sanitize false
+static   false
+stripped false
+uncaps   false
+subsys   Windows GUI
+va       true
+PE file header:
+IMAGE_NT_HEADERS
+  Signature : 0x4550
+IMAGE_FILE_HEADERS
+  Machine : 0x14c
+  NumberOfSections : 0x7
+  TimeDateStamp : 0x4e0d50ed
+  PointerToSymbolTable : 0x0
+  NumberOfSymbols : 0x0
+  SizeOfOptionalHeader : 0xe0
+  Characteristics : 0x122
+IMAGE_OPTIONAL_HEADERS
+  Magic : 0x10b
+  MajorLinkerVersion : 0x9
+  MinorLinkerVersion : 0x0
+  SizeOfCode : 0xbdd600
+  SizeOfInitializedData : 0x378000
+  SizeOfUninitializedData : 0x0
+  AddressOfEntryPoint : 0xbde590
+  BaseOfCode : 0x1000
+  BaseOfData : 0xbdf000
+  ImageBase : 0x400000
+  SectionAlignment : 0x1000
+  FileAlignment : 0x200
+  MajorOperatingSystemVersion : 0x5
+  MinorOperatingSystemVersion : 0x0
+  MajorImageVersion : 0x0
+  MinorImageVersion : 0x0
+  MajorSubsystemVersion : 0x5
+  MinorSubsystemVersion : 0x0
+  Win32VersionValue : 0x0
+  SizeOfImage : 0x10089e4
+  SizeOfHeaders : 0x400
+  CheckSum : 0xf64bd0
+  Subsystem : 0x2
+  DllCharacteristics : 0x8000
+  SizeOfStackReserve : 0x100000
+  SizeOfStackCommit : 0x1000
+  SizeOfHeapReserve : 0x100000
+  SizeOfHeapCommit : 0x1000
+  LoaderFlags : 0x0
+  NumberOfRvaAndSizes : 0x10
+RICH_FIELDS
+IMAGE_DIRECTORY_ENTRY_IMPORT
+  VirtualAddress : 0xd8062c
+  Size : 0x168
+IMAGE_DIRECTORY_ENTRY_RESOURCE
+  VirtualAddress : 0xe74000
+  Size : 0xcba88
+IMAGE_DIRECTORY_ENTRY_SECURITY
+  VirtualAddress : 0xfc7200
+  Size : 0x1548
+IMAGE_DIRECTORY_ENTRY_BASERELOC
+  VirtualAddress : 0xf40000
+  Size : 0xb36a8
+IMAGE_DIRECTORY_ENTRY_DEBUG
+  VirtualAddress : 0xc11410
+  Size : 0x1c
+IMAGE_DIRECTORY_ENTRY_TLS
+  VirtualAddress : 0xd0147c
+  Size : 0x18
+IMAGE_DIRECTORY_ENTRY_IAT
+  VirtualAddress : 0xbdf000
+  Size : 0x4a4
+
+======================================================================
+ENTRY 2: Analyzed functions in lighting region
+======================================================================
+0x00b9fcc0 fcn.00b9fcc0
+0x00b9fda0 fcn.00b9fda0
+0x00b9ef30 fcn.00b9ef30
+0x00b9e7c0 fcn.00b9e7c0
+0x00b9e850 fcn.00b9e850
+0x00b9e8f0 fcn.00b9e8f0
+0x00b9e920 fcn.00b9e920
+0x00b9e970 fcn.00b9e970
+0x00b9ef2f fcn.00b9ef2f
+0x00b9d150 fcn.00b9d150
+0x00b9dae0 fcn.00b9dae0
+0x00b9dbe0 fcn.00b9dbe0
+0x00b9dcb0 fcn.00b9dcb0
+0x00b9dda0 fcn.00b9dda0
+0x00b9de90 fcn.00b9de90
+0x00b9dfc0 fcn.00b9dfc0
+0x00b9e770 fcn.00b9e770
+0x00b9e7bf fcn.00b9e7bf
+0x00b9fba0 fcn.00b9fba0
+0x00b9fcbf fcn.00b9fcbf
+0x00b9f480 fcn.00b9f480
+0x00b9f5b0 fcn.00b9f5b0
+0x00b9f6a0 fcn.00b9f6a0
+0x00b9f780 fcn.00b9f780
+0x00b9efa0 fcn.00b9efa0
+0x00b9f0c0 fcn.00b9f0c0
+0x00b9f47f fcn.00b9f47f
+0x00b9d020 fcn.00b9d020
+0x00e00b9f fcn.00e00b9f
+
+======================================================================
+ENTRY 3: Light shadow-render preparation 0x00b9dfc0 (not constructor)
+======================================================================
+void __cdecl fcn.00b9dfc0(uint noname_0,int32_t arg_ch)
+
+{
+uint32_t *puVar1;
+float fVar2;
+float fVar3;
+float fVar4;
+float fVar5;
+code *pcVar6;
+char cVar7;
+uint32_t uVar8;
+int iVar9;
+int *piVar10;
+float *pfVar11;
+int in_ECX;
+int iVar12;
+uint *puVar13;
+uint *puVar14;
+int *unaff_FS_OFFSET;
+float10 fVar15;
+float10 fVar16;
+uint in_stack_00000028;
+uint in_stack_0000002c;
+uint in_stack_00000030;
+uint uStack_dc;
+char cStack_d9;
+float fStack_c8;
+int iStack_c4;
+uchar *puStack_c0;
+uchar *puStack_b8;
+uchar *puStack_b4;
+uchar *puStack_b0;
+uchar *arg_8h;
+float fVar17;
+float fStack_9c;
+float fStack_98;
+uchar *puStack_94;
+float fStack_7c;
+float fStack_78;
+float fStack_74;
+uint uStack_70;
+uint uStack_6c;
+float fStack_68;
+float fStack_64;
+float fStack_60;
+uchar *apuStack_5c [3];
+uchar *puStack_50;
+float fStack_4c;
+float fStack_48;
+float fStack_40;
+float fStack_3c;
+float fStack_38;
+uchar auStack_34 [12];
+int iStack_28;
+int aiStack_1c [6];
+
+aiStack_1c[2] = 0xffffffff;
+aiStack_1c[1] = 0xf2a0e5;
+aiStack_1c[0] = *unaff_FS_OFFSET;
+uVar8 = *0x11c16bc ^ &stack0xffffff10;
+*unaff_FS_OFFSET = &stack0xffffffe4;
+if (*(in_ECX + 0x10c) == 0) {
+iVar9 = fcn.00b6d3f0(uVar8);
+if (iVar9 == 0) {
+puVar1 = *(in_ECX + 0xf8) + 0x30;
+*puVar1 = *puVar1 | 1;
+}
+fcn.00b5aee0(iVar9);
+}
+if ((((cStack_d9 == '\0') || (*(in_ECX + 0x110) == 0xff)) || (*(in_ECX + 0xd4) <= *0x1082cb0)) ||
+(*(in_ECX + 0x10c) == 0)) {
+if (*(in_ECX + 0x10c) != 0) {
+fcn.00b6d4c0(*(in_ECX + 0x10c));
+pcVar6 = _sym.imp.KERNEL32.dll_InterlockedDecrement;
+piVar10 = *(in_ECX + 0x10c);
+if (piVar10 != NULL) {
+iVar9 = (*_sym.imp.KERNEL32.dll_InterlockedDecrement)(piVar10 + 1);
+if (iVar9 == 0) {
+(**(*piVar10 + 4))();
+}
+*(in_ECX + 0x10c) = 0;
+}
+piVar10 = *(in_ECX + 0x20c);
+if (piVar10 != NULL) {
+iVar9 = (*pcVar6)(piVar10 + 1);
+if (iVar9 == 0) {
+(**(*piVar10 + 4))();
+}
+*(in_ECX + 0x20c) = 0;
+}
+}
+}
+else {
+iVar9 = *(in_ECX + 0x128);
+fVar2 = *(iVar9 + 0x8c);
+puVar13 = *(in_ECX + 0xf8) + 0x68;
+puVar14 = &stack0xffffff9c;
+for (iVar12 = 0xd; iVar12 != 0; iVar12 = iVar12 + -1) {
+*puVar14 = *puVar13;
+puVar13 = puVar13 + 1;
+puVar14 = puVar14 + 1;
+}
+puStack_b8 = fVar2 - fStack_40;
+fVar2 = *(iVar9 + 0x90) - fStack_3c;
+fVar3 = *(iVar9 + 0x94) - fStack_38;
+fcn.004a0c10();
+fStack_9c = -*0x11a9484;
+fStack_98 = -*0x11a9488;
+puStack_b8 = -*0x11a948c;
+puStack_94 = puStack_b8;
+fcn.0053d1a0(&stack0xffffff38,&stack0xffffff64);
+fVar4 = *0x1031148;
+if ((((fVar2 < fVar4) && (fVar5 = *0x10b7ea0, fVar5 < fVar2)) &&
+((fVar3 < fVar4 && ((fVar5 < fVar3 && (fStack_c8 < fVar4)))))) && (fVar5 < fStack_c8)) {
+fStack_9c = *0x11a9474;
+fcn.0053d1a0(&stack0xffffff44,&stack0xffffff5c);
+}
+piVar10 = fcn.0053d1a0(&stack0xffffff5c,&stack0xffffff48);
+puStack_94 = *piVar10;
+fcn.00a71b70(0);
+fStack_74 = CONCAT31(fStack_74._1_3_,1);
+iVar12 = fcn.00a5bdd0(*0x12031e4);
+iVar9 = *(in_ECX + 0x128);
+fVar2 = *(iVar9 + 0x8c);
+fVar3 = *(iVar9 + 0x90);
+fVar4 = *(iVar9 + 0x94);
+if (iVar12 == 0) {
+pfVar11 = 0x11f426c;
+}
+else {
+pfVar11 = fcn.0045bb20(&stack0xffffff4c);
+}
+fVar5 = *pfVar11;
+fVar17 = pfVar11[1];
+iVar9 = *(iVar9 + 0x20);
+if (iVar9 == 0) {
+iVar9 = 0x11f4288;
+}
+fVar15 = fcn.00404010(pfVar11[2] * *0x1016ff0,*(iVar9 + 0xc));
+fVar15 = fcn.00404010(fVar17 * *0x1016ff0,fVar15);
+fVar15 = fcn.00404010(fVar5 * *0x1016ff0,fVar15);
+fVar15 = fcn.0040ebd0(*0x1032adc,fVar15);
+iVar9 = *(in_ECX + 0xf8);
+puStack_b4 = *(iVar9 + 0x8c) - fVar2;
+puStack_b0 = *(iVar9 + 0x90) - fVar3;
+puStack_b8 = *(iVar9 + 0x94) - fVar4;
+fVar16 = fcn.00457990();
+*(in_ECX + 0x11c) = (fVar15 / fVar16) * *0x106c948;
+fStack_7c = *(iVar9 + 0xe0);
+fStack_74 = 0.0;
+fStack_68 = 0.0;
+uStack_70 = 0x3f800000;
+uStack_6c = 0x3f800000;
+if ((*(in_ECX + 0xec) != '\0') && (cVar7 = fcn.005bf7b0(), cVar7 != '\0')) {
+uVar8 = fcn.00b540f0();
+fcn.0066b0d0(uVar8);
+*(*(in_ECX + 0x20c) + 0x19c) = 7;
+if (*(in_ECX + 0x140) == 0) {
+iVar9 = fcn.00aa13e0(0x114);
+aiStack_1c[0] = 0;
+if (iVar9 == 0) {
+uVar8 = 0;
+}
+else {
+uVar8 = fcn.00a712f0();
+}
+aiStack_1c[0] = -1;
+fcn.0066b0d0(uVar8);
+}
+iVar9 = *(in_ECX + 0x140);
+*(iVar9 + 0x58) = in_stack_00000028;
+*(iVar9 + 0x5c) = in_stack_0000002c;
+*(iVar9 + 0x60) = in_stack_00000030;
+uStack_6c = 0;
+puStack_94 = &stack0xffffff94;
+fStack_68 = 0.0;
+fStack_64 = fStack_64 & 0xffffff00;
+fStack_98 = 1.7071628e-38;
+fcn.00a59c60();
+iVar9 = *(in_ECX + 0x128);
+fStack_64 = *(iVar9 + 0x8c);
+fStack_60 = *(iVar9 + 0x90);
+apuStack_5c[0] = *(iVar9 + 0x94);
+fStack_98 = *0x12031e4;
+fStack_9c = 1.7071695e-38;
+fcn.00a5bdd0();
+fStack_9c = *(*(in_ECX + 0x128) + 0x98);
+fStack_78 = fStack_9c;
+iVar9 = fcn.0045bb20(&stack0x00000030);
+fcn.0063c8a0(iVar9);
+arg_8h = &stack0xffffffa0;
+puStack_b0 = 0xb9e542;
+fcn.0045bb20(arg_8h);
+if (fStack_64 + fStack_68 < fStack_60) {
+fStack_60 = *0x1020758;
+fStack_68 = *0x11a9484 * fStack_60;
+fStack_64 = *0x11a9488 * fStack_60;
+fStack_60 = fStack_60 * *0x11a948c;
+fStack_7c = fStack_68 + fStack_7c;
+fStack_78 = fStack_78 + fStack_64;
+fStack_74 = fStack_74 + fStack_60;
+}
+puStack_b0 = &stack0xffffffb0;
+puStack_b4 = &stack0xffffff84;
+puStack_b8 = 0xb9e5b6;
+fcn.00a701b0();
+puStack_b8 = &stack0xffffffb4;
+fcn.00a6faf0();
+puStack_c0 = 0xb9e5d1;
+fcn.00712e60(&stack0xffffffcc);
+uStack_6c = 0;
+puStack_c0 = &stack0xffffff94;
+fStack_68 = 0.0;
+fStack_64 = fStack_64 & 0xffffff00;
+iStack_c4 = 0xb9e5fc;
+fcn.00a59c60();
+iStack_c4 = *(*(in_ECX + 0x128) + 0x20);
+if (iStack_c4 == 0) {
+iStack_c4 = 0x11f4288;
+}
+fStack_c8 = 1.7072128e-38;
+fcn.00a70080();
+iVar9 = *(in_ECX + 0x140);
+puVar13 = iVar9 + 0xdc;
+puVar14 = &stack0xffffffa4;
+for (iVar12 = 7; iVar12 != 0; iVar12 = iVar12 + -1) {
+*puVar14 = *puVar13;
+puVar13 = puVar13 + 1;
+puVar14 = puVar14 + 1;
+}
+fStack_48 = fStack_48 + *0x106b178;
+if (*0x11f91b0 == 0) {
+fStack_4c = fStack_48 * *0x1018a90;
+}
+fStack_c8 = iVar9 + 0x68;
+fcn.00a74e10();
+puStack_50 = puStack_b4;
+apuStack_5c[2] = arg_8h;
+fcn.00a6faf0();
+fcn.00b9cfd0();
+fcn.00ba3390(*(in_ECX + 0x140),0);
+}
+}
+fcn.00ba30f0(0,arg_ch + 0x11);
+*unaff_FS_OFFSET = iStack_28;
+return;
+}
+
+======================================================================
+ENTRY 4: Adjacent light method 0x00b9dcb0
+======================================================================
+void __thiscall fcn.00b9dcb0(int param_1,char param_2)
+
+{
+int iVar1;
+int iVar2;
+int *piVar3;
+uint32_t uVar4;
+int iVar5;
+int *unaff_FS_OFFSET;
+int aiStack_c [3];
+
+aiStack_c[1] = 0xf30788;
+aiStack_c[0] = *unaff_FS_OFFSET;
+uVar4 = *0x11c16bc ^ &stack0xffffffe0;
+*unaff_FS_OFFSET = aiStack_c;
+iVar1 = *(unaff_FS_OFFSET[0xb] + *0x126fd98 * 4);
+iVar2 = *(iVar1 + 0x2b4);
+*(iVar1 + 0x2b4) = 0x20;
+aiStack_c[2] = 0;
+if (((((*(param_1 + 0xec) != '\0') && (param_2 == '\0')) || (*0x11f91c0 < 3)) || ((*0x11f91d8 & 0x10) == 0)) &&
+(*(param_1 + 0x10c) != 0)) {
+fcn.00b6d4c0(*(param_1 + 0x10c),uVar4);
+piVar3 = *(param_1 + 0x10c);
+if (piVar3 != NULL) {
+iVar5 = (*_sym.imp.KERNEL32.dll_InterlockedDecrement)(piVar3 + 1);
+if (iVar5 == 0) {
+(**(*piVar3 + 4))();
+}
+*(param_1 + 0x10c) = 0;
+}
+}
+*(param_1 + 0xec) = param_2;
+*(iVar1 + 0x2b4) = iVar2;
+*unaff_FS_OFFSET = iVar2;
+return;
+}
+
+======================================================================
+ENTRY 5: Adjacent light method 0x00b9dda0
+======================================================================
+void __thiscall fcn.00b9dda0(int param_1,int *param_2)
+
+{
+int *piVar1;
+char cVar2;
+int iVar3;
+
+piVar1 = *(param_1 + 0xf8);
+if (piVar1 != param_2) {
+if ((piVar1 != NULL) && (iVar3 = (*_sym.imp.KERNEL32.dll_InterlockedDecrement)(piVar1 + 1), iVar3 == 0)) {
+(**(*piVar1 + 4))();
+}
+*(param_1 + 0xf8) = param_2;
+if (param_2 == NULL) goto code_r0x00b9de01;
+(*_sym.imp.KERNEL32.dll_InterlockedIncrement)(param_2 + 1);
+}
+if (param_2 != NULL) {
+for (iVar3 = (**(*param_2 + 8))(); iVar3 != 0; iVar3 = *(iVar3 + 4)) {
+if (iVar3 == 0x11f4a98) {
+cVar2 = '\x01';
+goto code_r0x00b9de03;
+}
+}
+}
+code_r0x00b9de01:
+cVar2 = '\0';
+code_r0x00b9de03:
+*(param_1 + 0xf4) = cVar2;
+if (cVar2 == '\0') {
+*(param_1 + 0xd0) = 0x3f800000;
+}
+else if (*(param_1 + 0xfc) != '\0') {
+*(param_1 + 0x100) = param_2[0x23];
+*(param_1 + 0x104) = param_2[0x24];
+*(param_1 + 0x108) = param_2[0x25];
+}
+if (param_2 != NULL) {
+for (iVar3 = (**(*param_2 + 8))(); iVar3 != 0; iVar3 = *(iVar3 + 4)) {
+if (iVar3 == 0x11f5f6c) {
+*(param_1 + 0xf5) = 1;
+return;
+}
+}
+}
+*(param_1 + 0xf5) = 0;
+return;
+}
+
+======================================================================
+ENTRY 6: Adjacent light method 0x00b9de90
+======================================================================
+uchar fcn.00b9de90(uint param_1,uint param_2,uint param_3,uint param_4,uint32_t param_5)
+
+{
+int iVar1;
+int32_t arg_8h;
+uchar uVar2;
+int *unaff_FS_OFFSET;
+uchar auStack_158 [8];
+uint uStack_150;
+uint uStack_f4;
+uint uStack_f0;
+int iStack_20;
+uchar uStack_18;
+int iStack_c;
+uint uStack_8;
+uint uStack_4;
+
+uStack_8 = 0xf2a0a6;
+iStack_c = *unaff_FS_OFFSET;
+*unaff_FS_OFFSET = &iStack_c;
+iVar1 = *(unaff_FS_OFFSET[0xb] + *0x126fd98 * 4);
+arg_8h = *(param_5 + 0xc);
+uStack_150 = *(iVar1 + 0x2b4);
+*(iVar1 + 0x2b4) = 0x20;
+uStack_4 = 0;
+fcn.00bd8290(0);
+uStack_8 = CONCAT31(uStack_8._1_3_,1);
+uStack_f4 = param_1;
+uStack_f0 = param_2;
+fcn.00bd7200(param_5 & 0xffff);
+fcn.00a59c60(&stack0xfffffe9c);
+uVar2 = fcn.00b9c020(arg_8h,auStack_158);
+uStack_18 = 0;
+fcn.00bd74a0();
+*(iVar1 + 0x2b4) = 0;
+*unaff_FS_OFFSET = iStack_20;
+return uVar2;
+}
+
+======================================================================
+ENTRY 7: Native fade category cache invalidator
+======================================================================
+; XREFS: CALL 0x007fa4ef  CALL 0x007fa73a  CALL 0x008bd681
+; XREFS: CALL 0x00b68195  CALL 0x00b681af  CALL 0x00b681c6
+; XREFS: CALL 0x00b6f616  CALL 0x00bb43d0  CALL 0x00bb43f5
+; XREFS: CALL 0x00bb4ebd  CALL 0x00bb743d  CALL 0x00c0601e
+82: fcn.00ba8ab0 ();
+0x00ba8ab0      fld1
+0x00ba8ab2      fcom dword [ecx + 0x28]
+0x00ba8ab5      fnstsw ax
+0x00ba8ab7      fld dword [esp + 4]
+; 65
+0x00ba8abb      test ah, 0x41
+; likely
+0x00ba8abe      jp 0xba8ac9
+0x00ba8ac0      fcom st(1)
+0x00ba8ac2      fnstsw ax
+; 5
+0x00ba8ac4      test ah, 5
+; unlikely
+0x00ba8ac7      jnp 0xba8aeb
+; CODE XREF from fcn.00ba8ab0 @ 0xba8abe(x)
+0x00ba8ac9      fxch st(1)
+0x00ba8acb      fcom dword [ecx + 0x28]
+0x00ba8ace      fnstsw ax
+; 65
+0x00ba8ad0      test ah, 0x41
+; unlikely
+0x00ba8ad3      jne 0xba8afa
+0x00ba8ad5      fcomp st(1)
+0x00ba8ad7      fnstsw ax
+; 65
+0x00ba8ad9      test ah, 0x41
+; likely
+0x00ba8adc      jp 0xba8afc
+0x00ba8ade      mov dword [ecx + 0x38], 0
+0x00ba8ae5      fstp dword [ecx + 0x28]
+0x00ba8ae8      ret 4
+; CODE XREF from fcn.00ba8ab0 @ 0xba8ac7(x)
+0x00ba8aeb      fstp st(1)
+0x00ba8aed      mov dword [ecx + 0x38], 0
+0x00ba8af4      fstp dword [ecx + 0x28]
+0x00ba8af7      ret 4
+; CODE XREF from fcn.00ba8ab0 @ 0xba8ad3(x)
+0x00ba8afa      fstp st(0)
+; CODE XREF from fcn.00ba8ab0 @ 0xba8adc(x)
+0x00ba8afc      fstp dword [ecx + 0x28]
+0x00ba8aff      ret 4
+
+======================================================================
+ENTRY 8: Native specular cache invalidator
+======================================================================
+240: fcn.00b68b10 ();
+0x00b68b10      push ecx
+0x00b68b11      mov eax, dword [ecx + 0x20]
+0x00b68b14      test eax, 0x20000
+   ; likely
+0x00b68b19      ja 0xb68bea
+; 128
+0x00b68b1f      test eax, 0x80
+0x00b68b24      mov eax, dword [ecx + 0xb0]
+0x00b68b2a      mov eax, dword [eax]
+0x00b68b2c      seta dl
+0x00b68b2f      test eax, eax
+   ; unlikely
+0x00b68b31      je 0xb68b5c
+0x00b68b33      mov eax, dword [eax + 0x24]
+0x00b68b36      test eax, eax
+   ; unlikely
+0x00b68b38      je 0xb68b5c
+; 20
+0x00b68b3a      add eax, 0x14
+   ; unlikely
+0x00b68b3d      je 0xb68b5c
+0x00b68b3f      mov eax, dword [eax + 4]
+; 5
+0x00b68b42      cmp eax, 5
+   ; unlikely
+0x00b68b45      je 0xb68b55
+; 6
+0x00b68b47      cmp eax, 6
+   ; unlikely
+0x00b68b4a      je 0xb68b55
+; 1
+0x00b68b4c      cmp eax, 1
+   ; unlikely
+0x00b68b4f      je 0xb68b55
+0x00b68b51      xor eax, eax
+0x00b68b53      jmp 0xb68b5a
+; CODE XREFS from fcn.00b68b10 @ 0xb68b45(x), 0xb68b4a(x), 0xb68b4f(x)
+0x00b68b55      mov eax, 1
+
+======================================================================
+ENTRY 9: Specular flag invalidation complete
+======================================================================
+void __fastcall fcn.00b68b10(int param_1)
+
+{
+int iVar1;
+uint8_t uVar2;
+uchar uVar3;
+int iVar4;
+bool bVar5;
+
+if ((*(param_1 + 0x20) & 0x20000) == 0) {
+bVar5 = (*(param_1 + 0x20) & 0x80) != 0;
+if (((**(param_1 + 0xb0) != 0) && (iVar4 = *(**(param_1 + 0xb0) + 0x24), iVar4 != 0)) && (iVar4 != -0x14)) {
+iVar4 = *(iVar4 + 0x18);
+if (((iVar4 == 5) || (iVar4 == 6)) || (iVar4 == 1)) {
+uVar2 = 1;
+}
+else {
+uVar2 = 0;
+}
+bVar5 = bVar5 | uVar2;
+}
+if (bVar5) {
+if ((*(param_1 + 0x20) & 1) == 0) {
+*(param_1 + 0x38) = 0;
+}
+*(param_1 + 0x20) = *(param_1 + 0x20) | 1;
+}
+else {
+if ((*(param_1 + 0x20) & 1) != 0) {
+*(param_1 + 0x38) = 0;
+}
+*(param_1 + 0x20) = *(param_1 + 0x20) & 0xfffffffe;
+}
+iVar4 = 0;
+if (*(param_1 + 0xa8) != 0) {
+do {
+iVar1 = *(*(param_1 + 0xb0) + iVar4 * 4);
+if (((iVar1 != 0) && (iVar1 = *(iVar1 + 0x24), iVar1 != 0)) && (iVar1 != -0x14)) {
+iVar1 = *(iVar1 + 0x18);
+if (((iVar1 == 5) || (iVar1 == 6)) || (iVar1 == 1)) {
+uVar3 = 1;
+}
+else {
+uVar3 = 0;
+}
+*(iVar4 + *(param_1 + 0xcc)) = uVar3;
+}
+iVar4 = iVar4 + 1;
+} while (iVar4 < *(param_1 + 0xa8));
+}
+}
+if ((*(param_1 + 0x20) & 0x100) != 0) {
+*(param_1 + 0x38) = 0;
+}
+*(param_1 + 0x20) = *(param_1 + 0x20) & 0xfffffeff;
+return;
+}
+
+======================================================================
+ENTRY 10: Linked-list removal helper B9EFA0
+======================================================================
+int * __thiscall fcn.00b9efa0(int *param_1,int *param_2,int *param_3)
+
+{
+int *piVar1;
+int *piVar2;
+uint32_t uVar3;
+int iVar4;
+int *unaff_FS_OFFSET;
+int *unaff_retaddr;
+int iStack_c;
+uint32_t uStack_8;
+uint uStack_4;
+
+uStack_4 = 0xffffffff;
+uStack_8 = 0xf2a1b1;
+iStack_c = *unaff_FS_OFFSET;
+uVar3 = *0x11c16bc ^ &stack0xffffffe4;
+*unaff_FS_OFFSET = &iStack_c;
+piVar1 = *param_3;
+if (piVar1 == *param_1) {
+*param_3 = *piVar1;
+fcn.00b9e7c0(param_2);
+*unaff_FS_OFFSET = 0;
+return param_2;
+}
+if (piVar1 == param_1[1]) {
+*param_3 = 0;
+fcn.00b9e850(param_2);
+*unaff_FS_OFFSET = 0;
+return param_2;
+}
+piVar2 = piVar1[1];
+iVar4 = *piVar1;
+*param_3 = iVar4;
+if (piVar2 != NULL) {
+*piVar2 = iVar4;
+}
+if (iVar4 != 0) {
+*(iVar4 + 4) = piVar2;
+}
+piVar2 = piVar1[2];
+if (piVar2 != NULL) {
+(*_sym.imp.KERNEL32.dll_InterlockedIncrement)(piVar2 + 1,uVar3);
+}
+uStack_4 = 1;
+fcn.00e6e830(piVar1);
+param_1[2] = param_1[2] + -1;
+*unaff_retaddr = piVar2;
+if (piVar2 != NULL) {
+(*_sym.imp.KERNEL32.dll_InterlockedIncrement)(piVar2 + 1);
+}
+uStack_8 = uStack_8 & 0xffffff00;
+if (piVar2 != NULL) {
+iVar4 = (*_sym.imp.KERNEL32.dll_InterlockedDecrement)(piVar2 + 1);
+if (iVar4 == 0) {
+(**(*piVar2 + 4))();
+}
+}
+*unaff_FS_OFFSET = 0;
+return unaff_retaddr;
+}
+
+======================================================================
+ENTRY 11: ShadowSceneLight destructor B9F0C0
+======================================================================
+void __fastcall fcn.00b9f0c0(uint *param_1)
+
+{
+int *piVar1;
+code *pcVar2;
+uint32_t uVar3;
+int iVar4;
+int *unaff_FS_OFFSET;
+int aiStack_c [2];
+int iStack_4;
+
+aiStack_c[1] = 0xf2a34e;
+aiStack_c[0] = *unaff_FS_OFFSET;
+uVar3 = *0x11c16bc ^ &stack0xffffffe0;
+*unaff_FS_OFFSET = aiStack_c;
+*param_1 = 0x10b7eb8;
+iStack_4 = 0xd;
+fcn.00b9ef30(uVar3);
+pcVar2 = _sym.imp.KERNEL32.dll_InterlockedDecrement;
+piVar1 = param_1[0x3c];
+if (piVar1 != NULL) {
+iVar4 = (*_sym.imp.KERNEL32.dll_InterlockedDecrement)(piVar1 + 1);
+if (iVar4 == 0) {
+(**(*piVar1 + 4))();
+}
+param_1[0x3c] = 0;
+}
+piVar1 = param_1[0x3e];
+if (piVar1 != NULL) {
+iVar4 = (*pcVar2)(piVar1 + 1);
+if (iVar4 == 0) {
+(**(*piVar1 + 4))();
+}
+param_1[0x3e] = 0;
+}
+if (param_1[0x43] != 0) {
+fcn.00b6d4c0(param_1[0x43]);
+}
+piVar1 = param_1[0x43];
+if (piVar1 != NULL) {
+iVar4 = (*pcVar2)(piVar1 + 1);
+if (iVar4 == 0) {
+(**(*piVar1 + 4))();
+}
+param_1[0x43] = 0;
+}
+*(param_1 + 0x44) = 0;
+piVar1 = param_1[0x45];
+if (piVar1 != NULL) {
+iVar4 = (*pcVar2)(piVar1 + 1);
+if (iVar4 == 0) {
+(**(*piVar1 + 4))();
+}
+param_1[0x45] = 0;
+}
+piVar1 = param_1[0x50];
+if (piVar1 != NULL) {
+iVar4 = (*pcVar2)(piVar1 + 1);
+if (iVar4 == 0) {
+(**(*piVar1 + 4))();
+}
+param_1[0x50] = 0;
+}
+piVar1 = param_1[0x4a];
+if (piVar1 != NULL) {
+iVar4 = (*pcVar2)(piVar1 + 1);
+if (iVar4 == 0) {
+(**(*piVar1 + 4))();
+}
+param_1[0x4a] = 0;
+}
+piVar1 = param_1[0x83];
+if (piVar1 != NULL) {
+iVar4 = (*pcVar2)(piVar1 + 1);
+if (iVar4 == 0) {
+(**(*piVar1 + 4))();
+}
+param_1[0x83] = 0;
+}
+param_1[0x4e] = 0;
+piVar1 = param_1[0x4f];
+if (piVar1 != NULL) {
+iVar4 = (*pcVar2)(piVar1 + 1);
+if (iVar4 == 0) {
+(**(*piVar1 + 4))();
+}
+param_1[0x4f] = 0;
+}
+if (param_1[0x85] != 0) {
+(**(param_1[0x84] + 8))(param_1[0x85]);
+param_1[0x85] = 0;
+param_1[0x87] = 0;
+param_1[0x86] = 0;
+}
+if (param_1[0x89] != 0) {
+(**(param_1[0x88] + 8))(param_1[0x89]);
+param_1[0x89] = 0;
+param_1[0x8b] = 0;
+param_1[0x8a] = 0;
+}
+if (param_1[0x8d] != 0) {
+(**(param_1[0x8c] + 8))(param_1[0x8d]);
+param_1[0x8d] = 0;
+param_1[0x8f] = 0;
+param_1[0x8e] = 0;
+}
+iStack_4._0_1_ = 0xc;
+param_1[0x8c] = vtable.BSSimpleArray_class_NiNode___1024_.0;
+if (param_1[0x8d] != 0) {
+(**0x101a8f0)(param_1[0x8d]);
+param_1[0x8d] = 0;
+param_1[0x8f] = 0;
+param_1[0x8e] = 0;
+}
+iStack_4._0_1_ = 0xb;
+param_1[0x88] = 0x10b7ea8;
+if (param_1[0x89] != 0) {
+(**0x10b7eb0)(param_1[0x89]);
+param_1[0x89] = 0;
+param_1[0x8b] = 0;
+param_1[0x8a] = 0;
+}
+iStack_4._0_1_ = 10;
+param_1[0x84] = 0x10b7ea8;
+if (param_1[0x85] != 0) {
+(**0x10b7eb0)(param_1[0x85]);
+param_1[0x85] = 0;
+param_1[0x87] = 0;
+param_1[0x86] = 0;
+}
+pcVar2 = _sym.imp.KERNEL32.dll_InterlockedDecrement;
+piVar1 = param_1[0x83];
+iStack_4._0_1_ = 9;
+if (piVar1 != NULL) {
+iVar4 = (*_sym.imp.KERNEL32.dll_InterlockedDecrement)(piVar1 + 1);
+if (iVar4 == 0) {
+(**(*piVar1 + 4))();
+}
+}
+piVar1 = param_1[0x50];
+iStack_4._0_1_ = 8;
+if (piVar1 != NULL) {
+iVar4 = (*pcVar2)(piVar1 + 1);
+if (iVar4 == 0) {
+(**(*piVar1 + 4))();
+}
+}
+piVar1 = param_1[0x4f];
+iStack_4._0_1_ = 7;
+if (piVar1 != NULL) {
+iVar4 = (*pcVar2)(piVar1 + 1);
+if (iVar4 == 0) {
+(**(*piVar1 + 4))();
+}
+}
+iStack_4._0_1_ = 6;
+fcn.00e74d40();
+piVar1 = param_1[0x4a];
+iStack_4._0_1_ = 5;
+if (piVar1 != NULL) {
+iVar4 = (*pcVar2)(piVar1 + 1);
+if (iVar4 == 0) {
+(**(*piVar1 + 4))();
+}
+}
+piVar1 = param_1[0x45];
+iStack_4._0_1_ = 4;
+if (piVar1 != NULL) {
+iVar4 = (*pcVar2)(piVar1 + 1);
+if (iVar4 == 0) {
+(**(*piVar1 + 4))();
+}
+}
+piVar1 = param_1[0x43];
+iStack_4._0_1_ = 3;
+if (piVar1 != NULL) {
+iVar4 = (*pcVar2)(piVar1 + 1);
+if (iVar4 == 0) {
+(**(*piVar1 + 4))();
+}
+}
+piVar1 = param_1[0x3e];
+iStack_4._0_1_ = 2;
+if (piVar1 != NULL) {
+iVar4 = (*pcVar2)(piVar1 + 1);
+if (iVar4 == 0) {
+(**(*piVar1 + 4))();
+}
+}
+piVar1 = param_1[0x3c];
+iStack_4._0_1_ = 1;
+if (piVar1 != NULL) {
+iVar4 = (*pcVar2)(piVar1 + 1);
+if (iVar4 == 0) {
+(**(*piVar1 + 4))();
+}
+}
+iStack_4 = iStack_4._1_3_ << 8;
+fcn.00e74d40();
+*param_1 = vtable.NiRefObject.0;
+(*pcVar2)(0x11f4400);
+*unaff_FS_OFFSET = param_1;
+return;
+}
+
+======================================================================
+ENTRY 12: First ordinary light iterator native body
+======================================================================
+; XREFS(30)
+125: fcn.00b70600 (int32_t arg_4h);
+`- args(sp[0x4..0x4])
+0x00b70600      mov eax, dword [ecx + 0x60]
+0x00b70603      mov ecx, dword [arg_4h]
+0x00b70607      mov dword [ecx], eax
+0x00b70609      test eax, eax
+; likely
+0x00b7060b      jne 0xb70610
+0x00b7060d      ret 4
+; CODE XREF from fcn.00b70600 @ 0xb7060b(x)
+0x00b70610      mov edx, dword [eax]
+0x00b70612      push ebx
+0x00b70613      mov dword [ecx], edx
+0x00b70615      mov eax, dword [eax + 8]
+0x00b70618      mov bl, 1
+0x00b7061a      test edx, edx
+; unlikely
+0x00b7061c      je 0xb70652
+0x00b7061e      mov edi, edi
+; CODE XREF from fcn.00b70600 @ 0xb70650(x)
+0x00b70620      test eax, eax
+; unlikely
+0x00b70622      je 0xb70679
+; 255
+0x00b70624      mov edx, 0xff
+0x00b70629      cmp word [eax + 0x110], dx
+; unlikely
+0x00b70630      je 0xb70645
+0x00b70632      mov edx, dword [eax + 0xf8]
+0x00b70638      test byte [edx + 0x30], bl
+; likely
+0x00b7063b      jne 0xb70645
+0x00b7063d      cmp byte [eax + 0xec], bl
+; likely
+0x00b70643      jne 0xb70652
+; CODE XREFS from fcn.00b70600 @ 0xb70630(x), 0xb7063b(x)
+0x00b70645      mov eax, dword [ecx]
+0x00b70647      mov edx, dword [eax]
+0x00b70649      mov dword [ecx], edx
+0x00b7064b      mov eax, dword [eax + 8]
+0x00b7064e      test edx, edx
+; likely
+0x00b70650      jne 0xb70620
+; CODE XREFS from fcn.00b70600 @ 0xb7061c(x), 0xb70643(x)
+0x00b70652      test eax, eax
+; unlikely
+0x00b70654      je 0xb70679
+; 255
+0x00b70656      mov ecx, 0xff
+0x00b7065b      cmp word [eax + 0x110], cx
+; unlikely
+0x00b70662      je 0xb70677
+0x00b70664      mov edx, dword [eax + 0xf8]
+0x00b7066a      test byte [edx + 0x30], bl
+; likely
+0x00b7066d      jne 0xb70677
+0x00b7066f      cmp byte [eax + 0xec], bl
+; likely
+0x00b70675      jne 0xb70679
+; CODE XREFS from fcn.00b70600 @ 0xb70662(x), 0xb7066d(x)
+0x00b70677      xor eax, eax
+; CODE XREFS from fcn.00b70600 @ 0xb70622(x), 0xb70654(x), 0xb70675(x)
+; ebp
+0x00b70679      pop ebx
+0x00b7067a      ret 4
+
+======================================================================
+ENTRY 13: General next-light iterator B70680 (requested at terminal B706F0)
+======================================================================
+; XREFS: CALL 0x004a8883  CALL 0x00b60a05  CALL 0x00bb53d8
+; XREFS: CALL 0x00bb543c  CALL 0x00bb5a6e  CALL 0x00bdfd7e
+; XREFS: CALL 0x00c06503  CALL 0x00c0656b  CALL 0x00c06b9e
+112: fcn.00b70680 (int32_t arg_8h);
+`- args(sp[0x4..0x4])
+0x00b70680      push esi
+0x00b70681      mov esi, dword [arg_8h]
+0x00b70685      mov edx, dword [esi]
+0x00b70687      xor eax, eax
+0x00b70689      push edi
+0x00b7068a      test edx, edx
+; unlikely
+0x00b7068c      je 0xb706ee
+0x00b7068e      mov ecx, dword [edx]
+0x00b70690      mov dword [esi], ecx
+0x00b70692      mov eax, dword [edx + 8]
+0x00b70695      test eax, eax
+; unlikely
+0x00b70697      je 0xb706ee
+0x00b70699      mov dl, 1
+0x00b7069b      jmp 0xb706a0
+..
+; CODE XREFS from fcn.00b70680 @ 0xb7069b(x), 0xb706c8(x)
+0x00b706a0      test ecx, ecx
+; unlikely
+0x00b706a2      je 0xb706cf
+; 255
+0x00b706a4      mov edi, 0xff
+0x00b706a9      cmp word [eax + 0x110], di
+; unlikely
+0x00b706b0      je 0xb706bd
+0x00b706b2      mov edi, dword [eax + 0xf8]
+0x00b706b8      test byte [edi + 0x30], dl
+; unlikely
+0x00b706bb      je 0xb706cf
+; CODE XREF from fcn.00b70680 @ 0xb706b0(x)
+0x00b706bd      lea eax, [ecx + 8]
+0x00b706c0      mov ecx, dword [ecx]
+0x00b706c2      mov dword [esi], ecx
+0x00b706c4      mov eax, dword [eax]
+0x00b706c6      test eax, eax
+; likely
+0x00b706c8      jne 0xb706a0
+0x00b706ca      pop edi
+; ebp
+0x00b706cb      pop esi
+0x00b706cc      ret 4
+; CODE XREFS from fcn.00b70680 @ 0xb706a2(x), 0xb706bb(x)
+0x00b706cf      test eax, eax
+; unlikely
+0x00b706d1      je 0xb706ee
+; 255
+0x00b706d3      mov ecx, 0xff
+0x00b706d8      cmp word [eax + 0x110], cx
+; unlikely
+0x00b706df      je 0xb706ec
+0x00b706e1      mov ecx, dword [eax + 0xf8]
+0x00b706e7      test byte [ecx + 0x30], dl
+; unlikely
+0x00b706ea      je 0xb706ee
+; CODE XREF from fcn.00b70680 @ 0xb706df(x)
+0x00b706ec      xor eax, eax
+; CODE XREFS from fcn.00b70680 @ 0xb7068c(x), 0xb70697(x), 0xb706d1(x), 0xb706ea(x)
+0x00b706ee      pop edi
+0x00b706ef      pop esi
+0x00b706f0      ret 4
+
+======================================================================
+ENTRY 14: Score comparator cross references
+======================================================================
+fcn.00b5c490 0xb5c505 [NULL:--x] call fcn.00b5aa40
+fcn.00b5dac0 0xb5dd1a [DATA:-w-] push fcn.00b5aa70
+
+======================================================================
+ENTRY 15: ShadowSceneLight vtable constructor references
+======================================================================
+fcn.00b9f0c0 0xb9f0eb [DATA:r--] mov dword [esi], 0x10b7eb8
+fcn.00b9fda0 0xb9fde1 [DATA:r--] mov dword [esi], 0x10b7eb8
+
+======================================================================
+ENTRY 16: Adjacent comparator B5AA40 native body
+======================================================================
+  ; CALL XREF from fcn.00b5c490 @ 0xb5c505(x)
+  ; CALL XREF from fcn.00b5c5c0 @ 0xb5c630(x)
+34: fcn.00b5aa40 ();
+0x00b5aa40      mov eax, dword [ecx + 0xb0]
+0x00b5aa46      test eax, eax
+   ; likely
+0x00b5aa48      jl 0xb5aa5f
+0x00b5aa4a      movzx edx, word [ecx + 0xa6]
+0x00b5aa51      cmp eax, edx
+   ; unlikely
+0x00b5aa53      jge 0xb5aa5f
+0x00b5aa55      mov ecx, dword [ecx + 0xa0]
+0x00b5aa5b      mov eax, dword [ecx + eax*4]
+0x00b5aa5e      ret
+; CODE XREFS from fcn.00b5aa40 @ 0xb5aa48(x), 0xb5aa53(x)
+0x00b5aa5f      xor eax, eax
+0x00b5aa61      ret
+0x00b5aa62      int3
+0x00b5aa63      int3
+0x00b5aa64      int3
+0x00b5aa65      int3
+0x00b5aa66      int3
+0x00b5aa67      int3
+0x00b5aa68      int3
+0x00b5aa69      int3
+0x00b5aa6a      int3
+0x00b5aa6b      int3
+0x00b5aa6c      int3
+0x00b5aa6d      int3
+0x00b5aa6e      int3
+0x00b5aa6f      int3
+  ; NULL XREF from fcn.00b5c490 @ 0xb5c505(x)
+  ; DATA XREF from fcn.00b5dac0 @ 0xb5dd1a(x)
+71: fcn.00b5aa70 (int32_t arg_4h, int32_t arg_8h);
+`- args(sp[0x4..0x8])
+0x00b5aa70      mov eax, dword [arg_4h]
+0x00b5aa74      mov ecx, dword [eax]
+0x00b5aa76      mov edx, dword [arg_8h]
+0x00b5aa7a      fld dword [ecx + 0xc]
+0x00b5aa7d      mov eax, dword [edx]
+0x00b5aa7f      fstp dword [esp + 4]
+0x00b5aa83      fld dword [eax + 0xc]
+0x00b5aa86      fstp dword [esp + 8]
+0x00b5aa8a      fld dword [esp + 4]
+0x00b5aa8e      fld dword [esp + 8]
+0x00b5aa92      fcom st(1)
+0x00b5aa94      fnstsw ax
+; 5
+0x00b5aa96      test ah, 5
+   ; likely
+0x00b5aa99      jp 0xb5aaa5
+0x00b5aa9b      fstp st(1)
+; -1
+0x00b5aa9d      mov eax, 0xffffffff
+0x00b5aaa2      fstp st(0)
+0x00b5aaa4      ret
+; CODE XREF from fcn.00b5aa70 @ 0xb5aa99(x)
+0x00b5aaa5      fcompp
+0x00b5aaa7      fnstsw ax
+; 65
+0x00b5aaa9      test ah, 0x41
+   ; likely
+0x00b5aaac      jne 0xb5aab4
+0x00b5aaae      mov eax, 1
+
+======================================================================
+ENTRY 17: ShadowSceneLight constructor B9FDA0
+======================================================================
+uint * __fastcall fcn.00b9fda0(uint *param_1)
+
+{
+int *piVar1;
+code *pcVar2;
+uint uVar3;
+uint32_t uVar4;
+int iVar5;
+int *unaff_FS_OFFSET;
+int iStack_c;
+uint uStack_8;
+uint uStack_4;
+
+uStack_4 = 0xffffffff;
+uStack_8 = 0xf2a34e;
+iStack_c = *unaff_FS_OFFSET;
+uVar4 = *0x11c16bc ^ &stack0xffffffe0;
+*unaff_FS_OFFSET = &iStack_c;
+*param_1 = vtable.NiRefObject.0;
+param_1[1] = 0;
+(*_sym.imp.KERNEL32.dll_InterlockedIncrement)(0x11f4400,uVar4);
+*param_1 = 0x10b7eb8;
+param_1[0x3a] = 0;
+param_1[0x38] = 0;
+param_1[0x39] = 0;
+param_1[0x3c] = 0;
+param_1[0x3e] = 0;
+param_1[0x43] = 0;
+param_1[0x45] = 0;
+param_1[0x4a] = 0;
+param_1[0x4d] = 0;
+param_1[0x4b] = 0;
+param_1[0x4c] = 0;
+param_1[0x4f] = 0;
+param_1[0x50] = 0;
+uStack_8._0_1_ = 9;
+uStack_8._1_3_ = 0;
+iVar5 = 5;
+do {
+fcn.00a69940();
+iVar5 = iVar5 + -1;
+} while (-1 < iVar5);
+param_1[0x69] = 0x3f;
+param_1[0x83] = 0;
+param_1[0x84] = 0x10b7ea8;
+param_1[0x85] = 0;
+param_1[0x86] = 0;
+param_1[0x87] = 0;
+param_1[0x88] = 0x10b7ea8;
+param_1[0x89] = 0;
+param_1[0x8a] = 0;
+param_1[0x8b] = 0;
+param_1[0x8c] = vtable.BSSimpleArray_class_NiNode___1024_.0;
+param_1[0x8d] = 0;
+param_1[0x8e] = 0;
+param_1[0x8f] = 0;
+pcVar2 = _sym.imp.KERNEL32.dll_InterlockedDecrement;
+param_1[3] = 0;
+param_1[0x34] = 0;
+*(param_1 + 0xed) = 1;
+param_1[0x35] = 0;
+*(param_1 + 0x3b) = 0;
+*(param_1 + 0x3d) = 0;
+*(param_1 + 0xf5) = 0;
+*(param_1 + 0x3f) = 0;
+param_1[0x40] = *0x11f426c;
+param_1[0x41] = *0x11f4270;
+param_1[0x42] = *0x11f4274;
+*(param_1 + 0x44) = 0;
+piVar1 = param_1[0x3c];
+uStack_8 = CONCAT31(uStack_8._1_3_,0xd);
+if (piVar1 != NULL) {
+iVar5 = (*pcVar2)(piVar1 + 1);
+if (iVar5 == 0) {
+(**(*piVar1 + 4))();
+}
+param_1[0x3c] = 0;
+}
+piVar1 = param_1[0x3e];
+if (piVar1 != NULL) {
+iVar5 = (*pcVar2)(piVar1 + 1);
+if (iVar5 == 0) {
+(**(*piVar1 + 4))();
+}
+param_1[0x3e] = 0;
+}
+piVar1 = param_1[0x45];
+if (piVar1 != NULL) {
+iVar5 = (*pcVar2)(piVar1 + 1);
+if (iVar5 == 0) {
+(**(*piVar1 + 4))();
+}
+param_1[0x45] = 0;
+}
+piVar1 = param_1[0x43];
+if (piVar1 != NULL) {
+iVar5 = (*pcVar2)(piVar1 + 1);
+if (iVar5 == 0) {
+(**(*piVar1 + 4))();
+}
+param_1[0x43] = 0;
+}
+param_1[0x12] = 0;
+param_1[0x11] = 0;
+param_1[0x10] = 0;
+param_1[0xf] = 0;
+param_1[0xd] = 0;
+param_1[0xc] = 0;
+param_1[0xb] = 0;
+param_1[10] = 0;
+param_1[8] = 0;
+param_1[7] = 0;
+param_1[6] = 0;
+param_1[5] = 0;
+param_1[0x13] = 0x3f800000;
+param_1[0xe] = 0x3f800000;
+param_1[9] = 0x3f800000;
+param_1[4] = 0x3f800000;
+uVar3 = *0x10249d8;
+*(param_1 + 0xed) = 0;
+param_1[0x47] = uVar3;
+*(param_1 + 0x46) = 0;
+*(param_1 + 0x49) = 0;
+param_1[0x48] = 0x3f800000;
+piVar1 = param_1[0x4a];
+if (piVar1 != NULL) {
+iVar5 = (*pcVar2)(piVar1 + 1);
+if (iVar5 == 0) {
+(**(*piVar1 + 4))();
+}
+param_1[0x4a] = 0;
+}
+param_1[0x4e] = 0;
+piVar1 = param_1[0x4f];
+if (piVar1 != NULL) {
+iVar5 = (*pcVar2)(piVar1 + 1);
+if (iVar5 == 0) {
+(**(*piVar1 + 4))();
+}
+param_1[0x4f] = 0;
+}
+piVar1 = param_1[0x50];
+if (piVar1 != NULL) {
+iVar5 = (*pcVar2)(piVar1 + 1);
+if (iVar5 == 0) {
+(**(*piVar1 + 4))();
+}
+param_1[0x50] = 0;
+}
+param_1[0x37] = 0;
+param_1[0x36] = 0x3f800000;
+*(param_1 + 0x82) = 0;
+fcn.00ec61c0(param_1 + 0x6a,0,0x60);
+*unaff_FS_OFFSET = param_1;
+return param_1;
+}
+
+======================================================================
+ENTRY 18: Ordinary next-light iterator B70700
+======================================================================
+; XREFS(35)
+128: fcn.00b70700 (int32_t arg_8h);
+`- args(sp[0x4..0x4])
+0x00b70700      push esi
+0x00b70701      mov esi, dword [arg_8h]
+0x00b70705      mov edx, dword [esi]
+0x00b70707      xor eax, eax
+0x00b70709      push edi
+0x00b7070a      test edx, edx
+; unlikely
+0x00b7070c      je 0xb7077e
+0x00b7070e      mov ecx, dword [edx]
+0x00b70710      mov dword [esi], ecx
+0x00b70712      mov eax, dword [edx + 8]
+0x00b70715      test eax, eax
+; unlikely
+0x00b70717      je 0xb7077e
+0x00b70719      mov dl, 1
+0x00b7071b      jmp 0xb70720
+..
+; CODE XREFS from fcn.00b70700 @ 0xb7071b(x), 0xb70750(x)
+0x00b70720      test ecx, ecx
+; unlikely
+0x00b70722      je 0xb70757
+; 255
+0x00b70724      mov edi, 0xff
+0x00b70729      cmp word [eax + 0x110], di
+; unlikely
+0x00b70730      je 0xb70745
+0x00b70732      mov edi, dword [eax + 0xf8]
+0x00b70738      test byte [edi + 0x30], dl
+; likely
+0x00b7073b      jne 0xb70745
+0x00b7073d      cmp byte [eax + 0xec], dl
+; likely
+0x00b70743      jne 0xb70757
+; CODE XREFS from fcn.00b70700 @ 0xb70730(x), 0xb7073b(x)
+0x00b70745      lea eax, [ecx + 8]
+0x00b70748      mov ecx, dword [ecx]
+0x00b7074a      mov dword [esi], ecx
+0x00b7074c      mov eax, dword [eax]
+0x00b7074e      test eax, eax
+; likely
+0x00b70750      jne 0xb70720
+0x00b70752      pop edi
+; ebp
+0x00b70753      pop esi
+0x00b70754      ret 4
+; CODE XREFS from fcn.00b70700 @ 0xb70722(x), 0xb70743(x)
+0x00b70757      test eax, eax
+; unlikely
+0x00b70759      je 0xb7077e
+; 255
+0x00b7075b      mov ecx, 0xff
+0x00b70760      cmp word [eax + 0x110], cx
+; unlikely
+0x00b70767      je 0xb7077c
+0x00b70769      mov ecx, dword [eax + 0xf8]
+0x00b7076f      test byte [ecx + 0x30], dl
+; likely
+0x00b70772      jne 0xb7077c
+0x00b70774      cmp byte [eax + 0xec], dl
+; likely
+0x00b7077a      jne 0xb7077e
+; CODE XREFS from fcn.00b70700 @ 0xb70767(x), 0xb70772(x)
+0x00b7077c      xor eax, eax
+; CODE XREFS from fcn.00b70700 @ 0xb7070c(x), 0xb70717(x), 0xb70759(x), 0xb7077a(x)
+0x00b7077e      pop edi
+0x00b7077f      pop esi
+0x00b70780      ret 4
+
+======================================================================
+ENTRY 19: Material specular cache invalidator raw complete
+======================================================================
+240: fcn.00b68b10 ();
+0x00b68b10      push ecx
+0x00b68b11      mov eax, dword [ecx + 0x20]
+0x00b68b14      test eax, 0x20000
+; likely
+0x00b68b19      ja 0xb68bea
+; 128
+0x00b68b1f      test eax, 0x80
+0x00b68b24      mov eax, dword [ecx + 0xb0]
+0x00b68b2a      mov eax, dword [eax]
+0x00b68b2c      seta dl
+0x00b68b2f      test eax, eax
+; unlikely
+0x00b68b31      je 0xb68b5c
+0x00b68b33      mov eax, dword [eax + 0x24]
+0x00b68b36      test eax, eax
+; unlikely
+0x00b68b38      je 0xb68b5c
+; 20
+0x00b68b3a      add eax, 0x14
+; unlikely
+0x00b68b3d      je 0xb68b5c
+0x00b68b3f      mov eax, dword [eax + 4]
+; 5
+0x00b68b42      cmp eax, 5
+; unlikely
+0x00b68b45      je 0xb68b55
+; 6
+0x00b68b47      cmp eax, 6
+; unlikely
+0x00b68b4a      je 0xb68b55
+; 1
+0x00b68b4c      cmp eax, 1
+; unlikely
+0x00b68b4f      je 0xb68b55
+0x00b68b51      xor eax, eax
+0x00b68b53      jmp 0xb68b5a
+; CODE XREFS from fcn.00b68b10 @ 0xb68b45(x), 0xb68b4a(x), 0xb68b4f(x)
+0x00b68b55      mov eax, 1
+; CODE XREF from fcn.00b68b10 @ 0xb68b53(x)
+0x00b68b5a      or dl, al
+; CODE XREFS from fcn.00b68b10 @ 0xb68b31(x), 0xb68b38(x), 0xb68b3d(x)
+0x00b68b5c      test dl, dl
+; unlikely
+0x00b68b5e      je 0xb68b73
+0x00b68b60      test byte [ecx + 0x20], 1
+; likely
+0x00b68b64      jne 0xb68b6d
+0x00b68b66      mov dword [ecx + 0x38], 0
+; CODE XREF from fcn.00b68b10 @ 0xb68b64(x)
+0x00b68b6d      or dword [ecx + 0x20], 1
+0x00b68b71      jmp 0xb68b84
+; CODE XREF from fcn.00b68b10 @ 0xb68b5e(x)
+0x00b68b73      test byte [ecx + 0x20], 1
+; unlikely
+0x00b68b77      je 0xb68b80
+0x00b68b79      mov dword [ecx + 0x38], 0
+; CODE XREF from fcn.00b68b10 @ 0xb68b77(x)
+; [0xfffffffe:4]=-1
+; 4294967294
+0x00b68b80      and dword [ecx + 0x20], 0xfffffffe
+; CODE XREF from fcn.00b68b10 @ 0xb68b71(x)
+0x00b68b84      mov edx, dword [ecx + 0xb0]
+0x00b68b8a      mov eax, dword [edx + 4]
+0x00b68b8d      xor eax, eax
+0x00b68b8f      xor edx, edx
+0x00b68b91      cmp ax, word [ecx + 0xa8]
+; unlikely
+0x00b68b98      jae 0xb68bea
+0x00b68b9a      push esi
+0x00b68b9b      jmp 0xb68ba0
+..
+; CODE XREFS from fcn.00b68b10 @ 0xb68b9b(x), 0xb68be7(x)
+0x00b68ba0      mov eax, dword [ecx + 0xb0]
+0x00b68ba6      mov eax, dword [eax + edx*4]
+0x00b68ba9      test eax, eax
+; unlikely
+0x00b68bab      je 0xb68bdd
+0x00b68bad      mov eax, dword [eax + 0x24]
+0x00b68bb0      test eax, eax
+; unlikely
+0x00b68bb2      je 0xb68bdd
+; 20
+0x00b68bb4      add eax, 0x14
+; unlikely
+0x00b68bb7      je 0xb68bdd
+0x00b68bb9      mov eax, dword [eax + 4]
+; 5
+0x00b68bbc      cmp eax, 5
+; unlikely
+0x00b68bbf      je 0xb68bcf
+; 6
+0x00b68bc1      cmp eax, 6
+; unlikely
+0x00b68bc4      je 0xb68bcf
+; 1
+0x00b68bc6      cmp eax, 1
+; unlikely
+0x00b68bc9      je 0xb68bcf
+0x00b68bcb      xor eax, eax
+0x00b68bcd      jmp 0xb68bd4
+; CODE XREFS from fcn.00b68b10 @ 0xb68bbf(x), 0xb68bc4(x), 0xb68bc9(x)
+0x00b68bcf      mov eax, 1
+; CODE XREF from fcn.00b68b10 @ 0xb68bcd(x)
+0x00b68bd4      mov esi, dword [ecx + 0xcc]
+0x00b68bda      mov byte [edx + esi], al
+; CODE XREFS from fcn.00b68b10 @ 0xb68bab(x), 0xb68bb2(x), 0xb68bb7(x)
+0x00b68bdd      movzx eax, word [ecx + 0xa8]
+0x00b68be4      inc edx
+0x00b68be5      cmp edx, eax
+; likely
+0x00b68be7      jl 0xb68ba0
+0x00b68be9      pop esi
+; CODE XREFS from fcn.00b68b10 @ 0xb68b19(x), 0xb68b98(x)
+0x00b68bea      test dword [ecx + 0x20], 0x100
+; unlikely
+0x00b68bf1      je 0xb68bfa
+0x00b68bf3      mov dword [ecx + 0x38], 0
+; CODE XREF from fcn.00b68b10 @ 0xb68bf1(x)
+; [0xfffffeff:4]=-1
+; 4294967039
+0x00b68bfa      and dword [ecx + 0x20], 0xfffffeff
+; ebp
+0x00b68c01      pop ecx
+0x00b68c02      ret
+
+======================================================================
+ENTRY 20: Native shadow-light influence calculation B9D150 assembly
+======================================================================
+; CALL XREF from fcn.00871290 @ 0x87183e(x)
+2447: fcn.00b9d150 (int32_t arg_d0h_2, int32_t arg_cch, int32_t arg_d0h, int32_t arg_d4h);
+`- args(sp[0x0..0xc]) vars(47:sp[0x4..0xc8])
+0x00b9d150      sub esp, 0xc0
+; [0x12031e4:4]=0
+0x00b9d156      mov eax, dword [0x12031e4]
+0x00b9d15b      push esi
+0x00b9d15c      mov esi, ecx
+0x00b9d15e      mov ecx, dword [esi + 0x128]
+0x00b9d164      push eax
+0x00b9d165      mov dword [var_88h], esi
+; fcn.00a5bdd0
+; fcn.00a5bdd0(0x0)
+0x00b9d16c      call fcn.00a5bdd0
+0x00b9d171      mov ecx, dword [esi + 0x128]
+0x00b9d177      mov edx, dword [ecx + 0x8c]
+0x00b9d17d      mov dword [arg_cch], edx
+0x00b9d184      mov edx, dword [ecx + 0x90]
+0x00b9d18a      mov dword [arg_d0h], edx
+0x00b9d191      mov edx, dword [ecx + 0x94]
+0x00b9d197      mov dword [arg_d4h], edx
+0x00b9d19e      test eax, eax
+; likely
+0x00b9d1a0      je 0xb9d238
+0x00b9d1a6      fld dword [ecx + 0x98]
+0x00b9d1ac      fstp dword [esp + 4]
+0x00b9d1b0      fld dword [eax + 0xc]
+0x00b9d1b3      fld dword [esp + 4]
+0x00b9d1b7      fld st(0)
+0x00b9d1b9      fmulp st(2)
+0x00b9d1bb      fxch st(1)
+0x00b9d1bd      fstp dword [esp + 0x18]
+0x00b9d1c1      fld dword [eax + 0x10]
+0x00b9d1c4      fmul st(1)
+0x00b9d1c6      fstp dword [esp + 0x1c]
+0x00b9d1ca      fmul dword [eax + 0x14]
+0x00b9d1cd      fstp dword [esp + 0x20]
+0x00b9d1d1      fld dword [esp + 0x18]
+0x00b9d1d5      fadd dword [arg_cch]
+0x00b9d1dc      fstp dword [esp + 0xcc]
+0x00b9d1e3      fld dword [esp + 0xd0]
+0x00b9d1ea      fadd dword [var_1ch]
+0x00b9d1ee      fstp dword [esp + 0xd0]
+0x00b9d1f5      fld dword [esp + 0xd4]
+0x00b9d1fc      fadd dword [var_20h]
+0x00b9d200      fstp dword [esp + 0xd4]
+0x00b9d207      fld dword [ecx + 0x98]
+0x00b9d20d      fstp dword [esp + 4]
+0x00b9d211      fld dword [eax + 0x18]
+0x00b9d214      fld dword [esp + 4]
+0x00b9d218      fld st(0)
+0x00b9d21a      fmulp st(2)
+0x00b9d21c      fxch st(1)
+0x00b9d21e      fstp dword [esp + 0xc]
+0x00b9d222      fld dword [eax + 0x1c]
+0x00b9d225      fmul st(1)
+0x00b9d227      fstp dword [esp + 0x10]
+0x00b9d22b      fmul dword [eax + 0x20]
+0x00b9d22e      lea eax, [var_14h]
+0x00b9d232      fstp dword [esp + 0x14]
+0x00b9d236      jmp 0xb9d23d
+; CODE XREF from fcn.00b9d150 @ 0xb9d1a0(x)
+0x00b9d238      mov eax, 0x11f426c
+; CODE XREF from fcn.00b9d150 @ 0xb9d236(x)
+0x00b9d23d      mov ecx, dword [eax]
+0x00b9d23f      mov edx, dword [eax + 4]
+0x00b9d242      mov eax, dword [eax + 8]
+0x00b9d245      mov dword [var_18h], ecx
+0x00b9d249      fld dword [esp + 0x18]
+0x00b9d24d      mov dword [var_1ch], edx
+0x00b9d251      fld dword [esp + 0x1c]
+0x00b9d255      fcom st(1)
+0x00b9d257      mov dword [var_20h], eax
+0x00b9d25b      fnstsw ax
+; 5
+0x00b9d25d      test ah, 5
+; likely
+0x00b9d260      jp 0xb9d266
+0x00b9d262      fstp st(0)
+0x00b9d264      jmp 0xb9d268
+; CODE XREF from fcn.00b9d150 @ 0xb9d260(x)
+0x00b9d266      fstp st(1)
+; CODE XREF from fcn.00b9d150 @ 0xb9d264(x)
+0x00b9d268      fstp dword [esp + 8]
+0x00b9d26c      fld dword [esp + 8]
+0x00b9d270      fld dword [esp + 0x20]
+0x00b9d274      fcom st(1)
+0x00b9d276      fnstsw ax
+; 5
+0x00b9d278      test ah, 5
+; likely
+0x00b9d27b      jp 0xb9d281
+0x00b9d27d      fstp st(0)
+0x00b9d27f      jmp 0xb9d283
+; CODE XREF from fcn.00b9d150 @ 0xb9d27b(x)
+0x00b9d281      fstp st(1)
+; CODE XREF from fcn.00b9d150 @ 0xb9d27f(x)
+0x00b9d283      push ebx
+0x00b9d284      fstp dword [esp + 0x3c]
+0x00b9d288      fldz
+0x00b9d28a      push ebp
+0x00b9d28b      mov ebp, dword [arg_d0h_2]
+0x00b9d292      fstp dword [esp + 0x54]
+0x00b9d296      push edi
+0x00b9d297      xor ebx, ebx
+0x00b9d299      xor edi, edi
+0x00b9d29b      mov dword [var_54h], ebx
+0x00b9d29f      test ebp, ebp
+; unlikely
+0x00b9d2a1      je 0xb9d2b1
+0x00b9d2a3      lea ecx, [var_70h]
+0x00b9d2a7      push ecx
+0x00b9d2a8      mov ecx, ebp
+; fcn.00b70600
+; fcn.00b70600(0x0)
+0x00b9d2aa      call fcn.00b70600
+0x00b9d2af      jmp 0xb9d2be
+; CODE XREF from fcn.00b9d150 @ 0xb9d2a1(x)
+; [0x11f91c8:4]=0
+0x00b9d2b1      mov ecx, dword [0x11f91c8]
+0x00b9d2b7      push 0
+; fcn.00b5ac20
+; fcn.00b5ac20(0x0)
+0x00b9d2b9      call fcn.00b5ac20
+; CODE XREF from fcn.00b9d150 @ 0xb9d2af(x)
+0x00b9d2be      test eax, eax
+; likely
+0x00b9d2c0      je 0xb9d3f2
+; CODE XREF from fcn.00b9d150 @ 0xb9d3e8(x)
+; '('
+; 40
+0x00b9d2c6      cmp ebx, 0x28
+; unlikely
+0x00b9d2c9      jae 0xb9d3ee
+0x00b9d2cf      cmp byte [eax + 0xec], 0
+; likely
+0x00b9d2d6      jne 0xb9d3c4
+0x00b9d2dc      mov esi, dword [eax + 0xf8]
+0x00b9d2e2      test byte [esi + 0x30], 1
+; likely
+0x00b9d2e6      jne 0xb9d3c4
+0x00b9d2ec      fldz
+0x00b9d2ee      fcomp dword [esi + 0xc4]
+0x00b9d2f4      fnstsw ax
+; 5
+0x00b9d2f6      test ah, 5
+; likely
+0x00b9d2f9      jp 0xb9d3c4
+0x00b9d2ff      fld dword [esi + 0x8c]
+0x00b9d305      fsub dword [arg_d0h_2]
+0x00b9d30c      fstp dword [esp + 0x24]
+0x00b9d310      fld dword [esi + 0x90]
+0x00b9d316      fsub dword [arg_cch]
+0x00b9d31d      fstp dword [esp + 0x28]
+0x00b9d321      fld dword [esi + 0x94]
+0x00b9d327      fsub dword [arg_d0h]
+0x00b9d32e      fstp dword [esp + 0x2c]
+0x00b9d332      fld dword [esp + 0x24]
+0x00b9d336      fld dword [esp + 0x28]
+0x00b9d33a      fld dword [esp + 0x2c]
+0x00b9d33e      fld st(1)
+0x00b9d340      fmulp st(2)
+0x00b9d342      fld st(2)
+0x00b9d344      fmulp st(3)
+0x00b9d346      fxch st(1)
+0x00b9d348      faddp st(2)
+0x00b9d34a      fmul st(0), st(0)
+0x00b9d34c      faddp st(1)
+0x00b9d34e      fstp dword [esp + 0x10]
+0x00b9d352      fld dword [esp + 0x10]
+; fcn.00ec6040
+0x00b9d356      call fcn.00ec6040
+0x00b9d35b      fstp dword [esp + 0x10]
+0x00b9d35f      fld dword [esp + 0x10]
+0x00b9d363      fsub dword [var_48h_2]
+0x00b9d367      fdiv dword [esi + 0xe0]
+0x00b9d36d      fld1
+0x00b9d36f      fld st(0)
+0x00b9d371      fsubrp st(2)
+0x00b9d373      fxch st(1)
+0x00b9d375      fstp dword [esp + 0x10]
+0x00b9d379      fld dword [esp + 0x10]
+0x00b9d37d      fcom qword [0x1012060]
+0x00b9d383      fnstsw ax
+; 5
+0x00b9d385      test ah, 5
+; likely
+0x00b9d388      jp 0xb9d38e
+0x00b9d38a      fstp st(0)
+0x00b9d38c      fldz
+; CODE XREF from fcn.00b9d150 @ 0xb9d388(x)
+0x00b9d38e      fstp dword [esp + 0x14]
+0x00b9d392      fld dword [esp + 0x14]
+0x00b9d396      fcom st(1)
+0x00b9d398      fnstsw ax
+0x00b9d39a      fstp st(1)
+; 65
+0x00b9d39c      test ah, 0x41
+; unlikely
+0x00b9d39f      jne 0xb9d3a5
+0x00b9d3a1      fstp st(0)
+0x00b9d3a3      fld1
+; CODE XREF from fcn.00b9d150 @ 0xb9d39f(x)
+0x00b9d3a5      fstp dword [esp + 0x14]
+0x00b9d3a9      inc ebx
+0x00b9d3aa      fld dword [esp + 0x14]
+; [0x11fff3c:4]=0
+0x00b9d3ae      fst dword [ebx*4 + 0x11fff3c]
+; [0x11ffe9c:4]=0
+0x00b9d3b5      fst dword [ebx*4 + 0x11ffe9c]
+0x00b9d3bc      fadd dword [var_54h]
+0x00b9d3c0      fstp dword [esp + 0x58]
+; CODE XREFS from fcn.00b9d150 @ 0xb9d2d6(x), 0xb9d2e6(x), 0xb9d2f9(x)
+0x00b9d3c4      inc edi
+0x00b9d3c5      test ebp, ebp
+; unlikely
+0x00b9d3c7      je 0xb9d3d7
+0x00b9d3c9      lea edx, [var_6ch]
+0x00b9d3cd      push edx
+0x00b9d3ce      mov ecx, ebp
+; fcn.00b70700
+; fcn.00b70700(0x0)
+0x00b9d3d0      call fcn.00b70700
+0x00b9d3d5      jmp 0xb9d3e6
+; CODE XREF from fcn.00b9d150 @ 0xb9d3c7(x)
+; [0x11f91c8:4]=0
+0x00b9d3d7      mov ecx, dword [0x11f91c8]
+0x00b9d3dd      movzx eax, di
+0x00b9d3e0      push eax
+; fcn.00b5ac20
+; fcn.00b5ac20(0x1)
+0x00b9d3e1      call fcn.00b5ac20
+; CODE XREF from fcn.00b9d150 @ 0xb9d3d5(x)
+0x00b9d3e6      test eax, eax
+; likely
+0x00b9d3e8      jne 0xb9d2c6
+; CODE XREF from fcn.00b9d150 @ 0xb9d2c9(x)
+0x00b9d3ee      mov dword [var_58h], ebx
+; CODE XREF from fcn.00b9d150 @ 0xb9d2c0(x)
+; [0x11f426c:4]=0
+0x00b9d3f2      mov ecx, dword [0x11f426c]
+0x00b9d3f8      fldz
+; [0x11f91c8:4]=0
+0x00b9d3fa      mov esi, dword [0x11f91c8]
+0x00b9d400      fstp dword [esp + 0x14]
+; [0x11f4270:4]=0
+0x00b9d404      mov edx, dword [0x11f4270]
+; [0x11f4274:4]=0
+0x00b9d40a      mov eax, dword [0x11f4274]
+0x00b9d40f      mov dword [var_20h], ecx
+; [0x11f4998:4]=0
+0x00b9d413      mov ecx, dword [0x11f4998]
+0x00b9d419      mov dword [var_48h], ecx
+0x00b9d41d      mov ecx, dword [esi + 0xe0]
+0x00b9d423      mov ebp, dword [ecx + 0xf8]
+0x00b9d429      fld dword [ebp + 0xf0]
+0x00b9d42f      mov dword [var_34h], edx
+; [0x11f499c:4]=0
+0x00b9d433      mov edx, dword [0x11f499c]
+0x00b9d439      fchs
+0x00b9d43b      fstp dword [esp + 0xac]
+0x00b9d442      mov dword [var_38h], eax
+0x00b9d446      fld dword [ebp + 0xf4]
+; [0x11f49a0:4]=0
+0x00b9d44c      mov eax, dword [0x11f49a0]
+0x00b9d451      fchs
+0x00b9d453      lea ecx, [var_ach]
+0x00b9d45a      fstp dword [esp + 0xb0]
+0x00b9d461      mov dword [var_4ch], edx
+0x00b9d465      fld dword [ebp + 0xf8]
+0x00b9d46b      mov dword [var_50h], eax
+0x00b9d46f      fchs
+0x00b9d471      fld dword [esp + 0x44]
+; [0x10b7e98:8]=0x3fb0000000000000
+0x00b9d475      fmul qword [0x10b7e98]
+0x00b9d47b      fmulp st(1)
+0x00b9d47d      fstp dword [esp + 0xb4]
+; fcn.004a0c10
+0x00b9d484      call fcn.004a0c10
+0x00b9d489      fldz
+0x00b9d48b      fcomp dword [esp + 0x58]
+0x00b9d48f      fnstsw ax
+; 68
+0x00b9d491      test ah, 0x44
+; likely
+0x00b9d494      jp 0xb9d50a
+0x00b9d496      mov ecx, dword [var_ach_2]
+0x00b9d49d      mov edx, dword [var_ach]
+0x00b9d4a4      mov eax, dword [var_b4h_2]
+0x00b9d4ab      mov dword [var_38h], ecx
+0x00b9d4af      mov ecx, dword [arg_d4h]
+0x00b9d4b5      mov dword [var_20h], edx
+0x00b9d4b9      mov edx, dword [arg_cch]
+0x00b9d4bf      mov dword [var_34h], eax
+0x00b9d4c3      mov eax, dword [arg_d0h]
+0x00b9d4c9      mov dword [var_50h], ecx
+0x00b9d4cd      lea ecx, [var_20h]
+0x00b9d4d1      mov dword [var_48h], edx
+0x00b9d4d5      mov dword [var_4ch], eax
+; fcn.004a0c10
+0x00b9d4d9      call fcn.004a0c10
+0x00b9d4de      fld dword [esp + 0x44]
+; [0x10731a8:8]=0x4052c00000000000
+0x00b9d4e2      fdiv qword [0x10731a8]
+0x00b9d4e8      fstp dword [esp + 0x10]
+0x00b9d4ec      fld dword [esp + 0x10]
+0x00b9d4f0      fld dword [esp + 0x38]
+0x00b9d4f4      fcomp st(1)
+0x00b9d4f6      fnstsw ax
+; 5
+0x00b9d4f8      test ah, 5
+; likely
+0x00b9d4fb      jp 0xb9d8ec
+0x00b9d501      fstp dword [esp + 0x38]
+0x00b9d505      jmp 0xb9d8ee
+; CODE XREF from fcn.00b9d150 @ 0xb9d494(x)
+0x00b9d50a      mov edi, dword [var_d4h]
+0x00b9d511      xor ebx, ebx
+0x00b9d513      test edi, edi
+; likely
+0x00b9d515      je 0xb9d525
+0x00b9d517      lea edx, [var_6ch]
+0x00b9d51b      push edx
+0x00b9d51c      mov ecx, edi
+; fcn.00b70600
+; fcn.00b70600(-1)
+0x00b9d51e      call fcn.00b70600
+0x00b9d523      jmp 0xb9d52e
+; CODE XREF from fcn.00b9d150 @ 0xb9d515(x)
+0x00b9d525      push 0
+0x00b9d527      mov ecx, esi
+; fcn.00b5ac20
+; fcn.00b5ac20(-1)
+0x00b9d529      call fcn.00b5ac20
+; CODE XREF from fcn.00b9d150 @ 0xb9d523(x)
+0x00b9d52e      xor esi, esi
+0x00b9d530      mov ecx, eax
+0x00b9d532      cmp dword [var_50h], esi
+; likely
+0x00b9d536      jbe 0xb9d8c6
+0x00b9d53c      lea esp, [esp]
+; CODE XREF from fcn.00b9d150 @ 0xb9d8c0(x)
+0x00b9d540      test ecx, ecx
+; unlikely
+0x00b9d542      je 0xb9d89a
+0x00b9d548      cmp byte [ecx + 0xec], 0
+; likely
+0x00b9d54f      jne 0xb9d89a
+0x00b9d555      mov edi, dword [ecx + 0xf8]
+0x00b9d55b      test byte [edi + 0x30], 1
+; likely
+0x00b9d55f      jne 0xb9d893
+0x00b9d565      fld dword [esi*4 + 0x11ffea0]
+0x00b9d56c      fdiv dword [var_58h]
+0x00b9d570      fstp dword [esp + 0x10]
+0x00b9d574      fldz
+0x00b9d576      fld dword [esp + 0x10]
+0x00b9d57a      fcom st(1)
+0x00b9d57c      fnstsw ax
+0x00b9d57e      fstp st(1)
+; 65
+0x00b9d580      test ah, 0x41
+; likely
+0x00b9d583      jne 0xb9d891
+0x00b9d589      fld dword [esi*4 + 0x11ffea0]
+0x00b9d590      mov eax, edi
+0x00b9d592      fld1
+0x00b9d594      lea ecx, [var_a0h]
+0x00b9d59b      fsubrp st(1)
+0x00b9d59d      fst qword [esp + 0x3c]
+0x00b9d5a1      fld dword [eax + 0xe0]
+; [0x11ffea0:4]=0
+0x00b9d5a7      fmul dword [esi*4 + 0x11ffea0]
+0x00b9d5ae      fxch st(1)
+; [0x1017b70:8]=0x408f400000000000
+0x00b9d5b0      fmul qword [0x1017b70]
+0x00b9d5b6      faddp st(1)
+0x00b9d5b8      fmulp st(1)
+0x00b9d5ba      fadd dword [var_ch_2]
+0x00b9d5be      fstp dword [esp + 0x14]
+0x00b9d5c2      fld dword [eax + 0x8c]
+0x00b9d5c8      fsub dword [var_d4h]
+0x00b9d5cf      fstp dword [esp + 0xa0]
+0x00b9d5d6      fld dword [eax + 0x90]
+0x00b9d5dc      fsub dword [arg_d0h_2]
+0x00b9d5e3      fstp dword [esp + 0xa4]
+0x00b9d5ea      fld dword [eax + 0x94]
+0x00b9d5f0      fsub dword [arg_cch]
+0x00b9d5f7      fstp dword [esp + 0xa8]
+; fcn.004a0c10
+0x00b9d5fe      call fcn.004a0c10
+0x00b9d603      fld qword [esp + 0x3c]
+0x00b9d607      fstp dword [esp + 0x3c]
+0x00b9d60b      fld dword [esp + 0x3c]
+0x00b9d60f      fst dword [esp + 0x3c]
+0x00b9d613      fld dword [esp + 0x3c]
+0x00b9d617      fld st(0)
+0x00b9d619      fmul dword [var_ach_3]
+0x00b9d620      fstp dword [esp + 0x6c]
+0x00b9d624      fld dword [esp + 0xb0]
+0x00b9d62b      fmul st(1)
+0x00b9d62d      fstp dword [esp + 0x70]
+0x00b9d631      fmul dword [var_b4h_2]
+0x00b9d638      fstp dword [esp + 0x74]
+0x00b9d63c      fld dword [esi*4 + 0x11ffea0]
+0x00b9d643      fstp dword [esp + 0x3c]
+0x00b9d647      fld dword [esp + 0xa0]
+0x00b9d64e      fld dword [esp + 0x3c]
+0x00b9d652      fld st(0)
+0x00b9d654      fmulp st(2)
+0x00b9d656      fxch st(1)
+0x00b9d658      fstp dword [esp + 0xc4]
+0x00b9d65f      fld dword [esp + 0xa4]
+0x00b9d666      fmul st(1)
+0x00b9d668      fstp dword [esp + 0xc8]
+0x00b9d66f      fmul dword [var_a8h]
+0x00b9d676      fstp dword [esp + 0xcc]
+0x00b9d67d      fld dword [esp + 0xc4]
+0x00b9d684      fadd dword [var_6ch]
+0x00b9d688      fstp dword [esp + 0x24]
+0x00b9d68c      mov eax, dword [var_24h]
+0x00b9d690      fld dword [esp + 0xc8]
+0x00b9d697      mov dword [var_a0h], eax
+0x00b9d69e      fadd dword [var_70h]
+0x00b9d6a2      fstp dword [esp + 0x28]
+0x00b9d6a6      mov ecx, dword [var_28h]
+0x00b9d6aa      fld dword [esp + 0xcc]
+0x00b9d6b1      mov dword [var_a4h], ecx
+0x00b9d6b8      fadd dword [var_74h]
+0x00b9d6bc      fstp dword [esp + 0x2c]
+0x00b9d6c0      mov edx, dword [var_18h]
+0x00b9d6c4      fld dword [esp + 0x24]
+0x00b9d6c8      mov dword [var_a8h], edx
+0x00b9d6cf      fld dword [esp + 0x10]
+0x00b9d6d3      fld st(0)
+0x00b9d6d5      fmulp st(2)
+0x00b9d6d7      fxch st(1)
+0x00b9d6d9      fstp dword [esp + 0x18]
+0x00b9d6dd      fld dword [esp + 0x28]
+0x00b9d6e1      fmul st(1)
+0x00b9d6e3      fstp dword [esp + 0x1c]
+0x00b9d6e7      fld dword [esp + 0x2c]
+0x00b9d6eb      fmul st(1)
+0x00b9d6ed      fstp dword [esp + 0x20]
+0x00b9d6f1      fld dword [esp + 0x18]
+0x00b9d6f5      fadd dword [var_1ch]
+0x00b9d6f9      fstp dword [esp + 0x30]
+0x00b9d6fd      fld dword [esp + 0x34]
+0x00b9d701      fadd dword [var_10h]
+0x00b9d705      mov eax, dword [arg_cch]
+0x00b9d70b      mov ecx, dword [arg_d0h]
+0x00b9d711      mov edx, dword [arg_d4h]
+0x00b9d717      fstp dword [esp + 0x34]
+0x00b9d71b      mov dword [var_78h], eax
+0x00b9d71f      fld dword [esp + 0x20]
+0x00b9d723      mov eax, dword [edi + 0xd4]
+0x00b9d729      fadd dword [var_34h]
+0x00b9d72d      mov dword [var_7ch], ecx
+0x00b9d731      mov ecx, dword [edi + 0xd8]
+0x00b9d737      mov dword [var_80h], edx
+0x00b9d73e      fstp dword [esp + 0x38]
+0x00b9d742      mov edx, dword [edi + 0xdc]
+0x00b9d748      fxch st(1)
+0x00b9d74a      mov dword [var_54h], eax
+0x00b9d74e      fstp dword [esp + 0x3c]
+0x00b9d752      mov dword [var_60h], ecx
+0x00b9d756      fld dword [esp + 0x78]
+0x00b9d75a      mov dword [var_64h], edx
+0x00b9d75e      fld dword [esp + 0x3c]
+0x00b9d762      fld st(0)
+0x00b9d764      fmulp st(2)
+0x00b9d766      fxch st(1)
+0x00b9d768      fstp dword [esp + 0x78]
+0x00b9d76c      fld dword [esp + 0x7c]
+0x00b9d770      fmul st(1)
+0x00b9d772      fstp dword [esp + 0x7c]
+0x00b9d776      fmul dword [var_80h]
+0x00b9d77d      fstp dword [esp + 0x80]
+0x00b9d784      fld dword [esi*4 + 0x11ffea0]
+0x00b9d78b      fstp dword [esp + 0x3c]
+0x00b9d78f      fld dword [esp + 0x5c]
+0x00b9d793      fld dword [esp + 0x3c]
+0x00b9d797      fld st(0)
+0x00b9d799      fmulp st(2)
+0x00b9d79b      fxch st(1)
+0x00b9d79d      fstp dword [esp + 0x5c]
+0x00b9d7a1      mov eax, dword [var_54h]
+0x00b9d7a5      fld dword [esp + 0x60]
+0x00b9d7a9      mov dword [var_84h_2], eax
+0x00b9d7b0      fmul st(1)
+0x00b9d7b2      fstp dword [esp + 0x60]
+0x00b9d7b6      mov ecx, dword [var_60h]
+0x00b9d7ba      mov dword [var_88h_2], ecx
+0x00b9d7c1      fmul dword [var_64h]
+0x00b9d7c5      fstp dword [esp + 0x64]
+0x00b9d7c9      mov edx, dword [var_64h]
+0x00b9d7cd      fld dword [esp + 0x5c]
+0x00b9d7d1      mov dword [var_8ch], edx
+0x00b9d7d8      fadd dword [var_78h]
+0x00b9d7dc      fstp dword [esp + 0x84]
+0x00b9d7e3      mov eax, dword [var_84h_2]
+0x00b9d7ea      fld dword [esp + 0x88]
+0x00b9d7f1      mov dword [var_94h], eax
+0x00b9d7f8      fadd dword [var_7ch]
+0x00b9d7fc
+
+======================================================================
+ENTRY 21: Constructor stored-score initialization raw
+======================================================================
+; XREFS: CALL 0x00b5ab2b  CALL 0x00b5abe0  CALL 0x00b5c9d6
+; XREFS: CALL 0x00b5cc46  CALL 0x00b5e2a3  CALL 0x00b5e308
+; XREFS: CALL 0x00b5e3ff  CALL 0x00fb9a25
+822: fcn.00b9fda0 ();
+afv: vars(4:sp[0x8..0x14])
+0x00b9fda0      push 0xffffffffffffffff
+0x00b9fda2      push 0xf2a34e
+0x00b9fda7      mov eax, dword fs:[0]
+0x00b9fdad      push eax
+0x00b9fdae      push ecx
+0x00b9fdaf      push ebx
+0x00b9fdb0      push ebp
+0x00b9fdb1      push esi
+0x00b9fdb2      push edi
+; [0x11c16bc:4]=0xbb40e64e
+0x00b9fdb3      mov eax, dword [0x11c16bc]
+0x00b9fdb8      xor eax, esp
+0x00b9fdba      push eax
+0x00b9fdbb      lea eax, [var_18h]
+0x00b9fdbf      mov dword fs:[0], eax
+0x00b9fdc5      mov esi, ecx
+0x00b9fdc7      mov dword [var_14h], esi
+0x00b9fdcb      xor ebx, ebx
+0x00b9fdcd      push 0x11f4400
+; [0x101dce4:4]=0x4968e0 method.NiRefObject.virtual_0
+0x00b9fdd2      mov dword [esi], vtable.NiRefObject.0
+0x00b9fdd8      mov dword [esi + 4], ebx
+; 0xfdf1c0
+; reloc.KERNEL32.dll_InterlockedIncrement
+; sym.imp.KERNEL32.dll_InterlockedIncrement(0x177ff4, 0x0, 0x0, 0x0)
+0x00b9fddb      call dword [sym.imp.KERNEL32.dll_InterlockedIncrement]
+; [0x10b7eb8:4]=0xba00e0 fcn.00ba00e0
+0x00b9fde1      mov dword [esi], 0x10b7eb8
+0x00b9fde7      mov dword [var_20h], ebx
+0x00b9fdeb      mov dword [esi + 0xe8], ebx
+0x00b9fdf1      mov dword [esi + 0xe0], ebx
+0x00b9fdf7      mov dword [esi + 0xe4], ebx
+0x00b9fdfd      mov dword [esi + 0xf0], ebx
+0x00b9fe03      mov dword [esi + 0xf8], ebx
+0x00b9fe09      mov dword [esi + 0x10c], ebx
+0x00b9fe0f      mov dword [esi + 0x114], ebx
+0x00b9fe15      mov dword [esi + 0x128], ebx
+0x00b9fe1b      mov dword [esi + 0x134], ebx
+0x00b9fe21      mov dword [esi + 0x12c], ebx
+0x00b9fe27      mov dword [esi + 0x130], ebx
+0x00b9fe2d      mov dword [esi + 0x13c], ebx
+0x00b9fe33      mov dword [esi + 0x140], ebx
+0x00b9fe39      mov byte [var_20h], 9
+0x00b9fe3e      lea edi, [esi + 0x144]
+0x00b9fe44      lea ebp, [ebx + 5]
+; CODE XREF from fcn.00b9fda0 @ 0xb9fe54(x)
+0x00b9fe47      mov ecx, edi
+; fcn.00a69940
+0x00b9fe49      call fcn.00a69940
+; 16
+0x00b9fe4e      add edi, 0x10
+0x00b9fe51      sub ebp, 1
+; likely
+0x00b9fe54      jns 0xb9fe47
+; '?'
+; [0x3f:4]=-1
+; 63
+0x00b9fe56      mov dword [esi + 0x1a4], 0x3f
+0x00b9fe60      mov dword [esi + 0x20c], ebx
+; [0x10b7ea8:4]=0xb9e920 fcn.00b9e920
+0x00b9fe66      mov dword [esi + 0x210], 0x10b7ea8
+0x00b9fe70      mov dword [esi + 0x214], ebx
+0x00b9fe76      mov dword [esi + 0x218], ebx
+0x00b9fe7c      mov dword [esi + 0x21c], ebx
+; [0x10b7ea8:4]=0xb9e920 fcn.00b9e920
+0x00b9fe82      mov dword [esi + 0x220], 0x10b7ea8
+0x00b9fe8c      mov dword [esi + 0x224], ebx
+0x00b9fe92      mov dword [esi + 0x228], ebx
+0x00b9fe98      mov dword [esi + 0x22c], ebx
+; [0x101a8e8:4]=0x479160 method.BSSimpleArray_class_NiNode___1024_.virtual_0
+; "`\x91G"
+0x00b9fe9e      mov dword [esi + vtable.BSSimpleArray_class_NiNode___1024_.0], vtable.BSSimpleArray_class_NiNode___1024_.0
+0x00b9fea8      mov dword [esi + 0x234], ebx
+0x00b9feae      mov dword [esi + 0x238], ebx
+0x00b9feb4      mov dword [esi + 0x23c], ebx
+0x00b9feba      fldz
+; [0xfdf1c4:4]=0xd80cb8 reloc.KERNEL32.dll_InterlockedDecrement
+; reloc.KERNEL32.dll_InterlockedDecrement
+0x00b9febc      mov ebp, dword [sym.imp.KERNEL32.dll_InterlockedDecrement]
+0x00b9fec2      fst dword [esi + 0xc]
+0x00b9fec5      fst dword [esi + 0xd0]
+0x00b9fecb      mov byte [esi + 0xed], 1
+0x00b9fed2      fst dword [esi + 0xd4]
+0x00b9fed8      mov byte [esi + 0xec], bl
+0x00b9fede      mov byte [esi + 0xf4], bl
+0x00b9fee4      mov byte [esi + 0xf5], bl
+0x00b9feea      mov byte [esi + 0xfc], bl
+; [0x11f426c:4]=0
+0x00b9fef0      mov eax, dword [0x11f426c]
+0x00b9fef5      mov dword [esi + 0x100], eax
+; [0x11f4270:4]=0
+0x00b9fefb      mov ecx, dword [0x11f4270]
+0x00b9ff01      mov dword [esi + 0x104], ecx
+; [0x11f4274:4]=0
+0x00b9ff07      mov edx, dword [0x11f4274]
+0x00b9ff0d      xor eax, eax
+0x00b9ff0f      mov dword [esi + 0x108], edx
+0x00b9ff15      mov word [esi + 0x110], ax
+0x00b9ff1c      mov edi, dword [esi + 0xf0]
+; [0xd:1]=255
+; 13
+0x00b9ff22      mov byte [var_20h], 0xd
+0x00b9ff27      cmp edi, ebx
+; unlikely
+0x00b9ff29      je 0xb9ff48
+0x00b9ff2b      lea ecx, [edi + 4]
+0x00b9ff2e      fstp st(0)
+0x00b9ff30      push ecx
+; reloc.KERNEL32.dll_InterlockedDecrement
+; reloc.KERNEL32.dll_InterlockedDecrement(0x0, 0x0, 0x3, 0x0)
+0x00b9ff31      call ebp
+0x00b9ff33      test eax, eax
+; unlikely
+0x00b9ff35      jne 0xb9ff40
+0x00b9ff37      mov edx, dword [edi]
+0x00b9ff39      mov eax, dword [edx + 4]
+0x00b9ff3c      mov ecx, edi
+; 0xffffffff(-1, 0x0, -1, -1)
+0x00b9ff3e      call eax
+; CODE XREF from fcn.00b9fda0 @ 0xb9ff35(x)
+0x00b9ff40      fldz
+0x00b9ff42      mov dword [esi + 0xf0], ebx
+; CODE XREF from fcn.00b9fda0 @ 0xb9ff29(x)
+0x00b9ff48      mov edi, dword [esi + 0xf8]
+0x00b9ff4e      cmp edi, ebx
+; unlikely
+0x00b9ff50      je 0xb9ff6f
+0x00b9ff52      lea ecx, [edi + 4]
+0x00b9ff55      fstp st(0)
+0x00b9ff57      push ecx
+; reloc.KERNEL32.dll_InterlockedDecrement
+; reloc.KERNEL32.dll_InterlockedDecrement(-1, 0x0, 0x3, -1)
+0x00b9ff58      call ebp
+0x00b9ff5a      test eax, eax
+; likely
+0x00b9ff5c      jne 0xb9ff67
+0x00b9ff5e      mov edx, dword [edi]
+0x00b9ff60      mov eax, dword [edx + 4]
+0x00b9ff63      mov ecx, edi
+; 0xffffffff(-1, 0x0, -1, -1)
+0x00b9ff65      call eax
+; CODE XREF from fcn.00b9fda0 @ 0xb9ff5c(x)
+0x00b9ff67      fldz
+0x00b9ff69      mov dword [esi + 0xf8], ebx
+; CODE XREF from fcn.00b9fda0 @ 0xb9ff50(x)
+0x00b9ff6f      mov edi, dword [esi + 0x114]
+0x00b9ff75      cmp edi, ebx
+; unlikely
+0x00b9ff77      je 0xb9ff96
+0x00b9ff79      lea ecx, [edi + 4]
+0x00b9ff7c      fstp st(0)
+0x00b9ff7e      push ecx
+; reloc.KERNEL32.dll_InterlockedDecrement
+; reloc.KERNEL32.dll_InterlockedDecrement(-1, 0x0, 0x3, -1)
+0x00b9ff7f      call ebp
+0x00b9ff81      test eax, eax
+; likely
+0x00b9ff83      jne 0xb9ff8e
+0x00b9ff85      mov edx, dword [edi]
+0x00b9ff87      mov eax, dword [edx + 4]
+0x00b9ff8a      mov ecx, edi
+; 0xffffffff(-1, 0x0, -1, -1)
+0x00b9ff8c      call eax
+; CODE XREF from fcn.00b9fda0 @ 0xb9ff83(x)
+0x00b9ff8e      fldz
+0x00b9ff90      mov dword [esi + 0x114], ebx
+; CODE XREF from fcn.00b9fda0 @ 0xb9ff77(x)
+0x00b9ff96      mov edi, dword [esi + 0x10c]
+0x00b9ff9c      cmp edi, ebx
+; unlikely
+0x00b9ff9e      je 0xb9ffbd
+0x00b9ffa0      lea ecx, [edi + 4]
+0x00b9ffa3      fstp st(0)
+0x00b9ffa5      push ecx
+; reloc.KERNEL32.dll_InterlockedDecrement
+; reloc.KERNEL32.dll_InterlockedDecrement(-1, 0x0, 0x3, -1)
+0x00b9ffa6      call ebp
+0x00b9ffa8      test eax, eax
+; likely
+0x00b9ffaa      jne 0xb9ffb5
+0x00b9ffac      mov edx, dword [edi]
+0x00b9ffae      mov eax, dword [edx + 4]
+0x00b9ffb1      mov ecx, edi
+; 0xffffffff(-1, 0x0, -1, -1)
+0x00b9ffb3      call eax
+; CODE XREF from fcn.00b9fda0 @ 0xb9ffaa(x)
+0x00b9ffb5      fldz
+0x00b9ffb7      mov dword [esi + 0x10c], ebx
+; CODE XREF from fcn.00b9fda0 @ 0xb9ff9e(x)
+0x00b9ffbd      fst dword [esi + 0x48]
+0x00b9ffc0      fst dword [esi + 0x44]
+0x00b9ffc3      fst dword [esi + 0x40]
+0x00b9ffc6      fst dword [esi + 0x3c]
+0x00b9ffc9      fst dword [esi + 0x34]
+0x00b9ffcc      fst dword [esi + 0x30]
+0x00b9ffcf      fst dword [esi + 0x2c]
+0x00b9ffd2      fst dword [esi + 0x28]
+0x00b9ffd5      fst dword [esi + 0x20]
+0x00b9ffd8      fst dword [esi + 0x1c]
+0x00b9ffdb      fst dword [esi + 0x18]
+0x00b9ffde      fst dword [esi + 0x14]
+0x00b9ffe1      fld1
+0x00b9ffe3      fst dword [esi + 0x4c]
+0x00b9ffe6      fst dword [esi + 0x38]
+0x00b9ffe9      fst dword [esi + 0x24]
+0x00b9ffec      fst dword [esi + 0x10]
+0x00b9ffef      fld dword [0x10249d8]
+0x00b9fff5      mov byte [esi + 0xed], bl
+0x00b9fffb      fstp dword [esi + 0x11c]
+0x00ba0001      mov byte [esi + 0x118], bl
+0x00ba0007      mov byte [esi + 0x124], bl
+0x00ba000d      fst dword [esi + 0x120]
+0x00ba0013      mov edi, dword [esi + 0x128]
+0x00ba0019      cmp edi, ebx
+; unlikely
+0x00ba001b      je 0xba003e
+0x00ba001d      lea ecx, [edi + 4]
+0x00ba0020      fstp st(1)
+0x00ba0022      push ecx
+0x00ba0023      fstp st(0)
+; reloc.KERNEL32.dll_InterlockedDecrement
+; reloc.KERNEL32.dll_InterlockedDecrement(-1, 0x0, 0x3, -1)
+0x00ba0025      call ebp
+0x00ba0027      test eax, eax
+; likely
+0x00ba0029      jne 0xba0034
+0x00ba002b      mov edx, dword [edi]
+0x00ba002d      mov eax, dword [edx + 4]
+0x00ba0030      mov ecx, edi
+; 0xffffffff(-1, 0x0, -1, -1)
+0x00ba0032      call eax
+; CODE XREF from fcn.00b9fda0 @ 0xba0029(x)
+0x00ba0034      fldz
+0x00ba0036      mov dword [esi + 0x128], ebx
+0x00ba003c      fld1
+; CODE XREF from fcn.00b9fda0 @ 0xba001b(x)
+0x00ba003e      mov dword [esi + 0x138], ebx
+0x00ba0044      mov edi, dword [esi + 0x13c]
+0x00ba004a      cmp edi, ebx
+; unlikely
+0x00ba004c      je 0xba006f
+0x00ba004e      lea ecx, [edi + 4]
+0x00ba0051      fstp st(1)
+0x00ba0053      push ecx
+0x00ba0054      fstp st(0)
+; reloc.KERNEL32.dll_InterlockedDecrement
+; reloc.KERNEL32.dll_InterlockedDecrement(-1, 0x0, 0x3, -1)
+0x00ba0056      call ebp
+0x00ba0058      test eax, eax
+; likely
+0x00ba005a      jne 0xba0065
+0x00ba005c      mov edx, dword [edi]
+0x00ba005e      mov eax, dword [edx + 4]
+0x00ba0061      mov ecx, edi
+; 0xffffffff(-1, 0x0, -1, -1)
+0x00ba0063      call eax
+; CODE XREF from fcn.00b9fda0 @ 0xba005a(x)
+0x00ba0065      fldz
+0x00ba0067      mov dword [esi + 0x13c], ebx
+0x00ba006d      fld1
+; CODE XREF from fcn.00b9fda0 @ 0xba004c(x)
+0x00ba006f      mov edi, dword [esi + 0x140]
+0x00ba0075      cmp edi, ebx
+; unlikely
+0x00ba0077      je 0xba009a
+0x00ba0079      lea ecx, [edi + 4]
+0x00ba007c      fstp st(1)
+0x00ba007e      push ecx
+0x00ba007f      fstp st(0)
+; reloc.KERNEL32.dll_InterlockedDecrement
+; reloc.KERNEL32.dll_InterlockedDecrement(-1, 0x0, 0x3, -1)
+0x00ba0081      call ebp
+0x00ba0083      test eax, eax
+; likely
+0x00ba0085      jne 0xba0090
+0x00ba0087      mov edx, dword [edi]
+0x00ba0089      mov eax, dword [edx + 4]
+0x00ba008c      mov ecx, edi
+; 0xffffffff(-1, 0x0, -1, -1)
+0x00ba008e      call eax
+; CODE XREF from fcn.00b9fda0 @ 0xba0085(x)
+0x00ba0090      fldz
+0x00ba0092      mov dword [esi + 0x140], ebx
+0x00ba0098      fld1
+; CODE XREF from fcn.00b9fda0 @ 0xba0077(x)
+; '`'
+; 96
+0x00ba009a      push 0x60
+0x00ba009c      fxch st(1)
+0x00ba009e      fstp dword [esi + 0xdc]
+0x00ba00a4      lea ecx, [esi + 0x1a8]
+0x00ba00aa      push ebx
+0x00ba00ab      push ecx
+0x00ba00ac      fstp dword [esi + 0xd8]
+0x00ba00b2      mov byte [esi + 0x208], bl
+; fcn.00ec61c0
+; fcn.00ec61c0(-1, 0x0, 0x1a8)
+0x00ba00b8      call fcn.00ec61c0
+0x00ba00bd      add esp, 0xc
+0x00ba00c0      mov eax, esi
+0x00ba00c2      mov ecx, dword [var_14h]
+0x00ba00c6      mov dword fs:[0], ecx
+0x00ba00cd      pop ecx
+0x00ba00ce      pop edi
+0x00ba00cf      pop esi
+0x00ba00d0      pop ebp
+0x00ba00d1      pop ebx
+0x00ba00d2      add esp, 0x10
+0x00ba00d5      ret
+
+======================================================================
+ENTRY 22: BB dirty cache refresh native window
+======================================================================
+; CODE XREF from fcn.00bb4740 @ 0xbb4ede(x)
+0x00bb4f13      mov ecx, dword [esi + 0x38]
+0x00bb4f16      cmp ecx, dword [var_1ch]
+   ; likely
+0x00bb4f1a      jne 0xbb50b5
+0x00bb4f20      cmp byte [esi + 0x74], 0
+   ; unlikely
+0x00bb4f24      je 0xbb50b5
+   ; fcn.00b4f5c0
+0x00bb4f2a      call fcn.00b4f5c0
+0x00bb4f2f      mov edx, dword [eax + 0x194]
+0x00bb4f35      mov ecx, dword [esi + 0x3c]
+0x00bb4f38      mov eax, dword [edx + 0xe0]
+0x00bb4f3e      xor ebp, ebp
+0x00bb4f40      mov dword [var_24h], eax
+0x00bb4f44      mov dword [var_28h_2], ebp
+0x00bb4f48      cmp dword [ecx + 0x10], ebp
+   ; unlikely
+0x00bb4f4b      jbe 0xbb50ad
+; CODE XREF from fcn.00bb4740 @ 0xbb509e(x)
+0x00bb4f51      mov edx, dword [esi + 0x3c]
+0x00bb4f54      mov eax, dword [edx + 4]
+0x00bb4f57      mov edi, dword [eax + ebp*4]
+0x00bb4f5a      movzx eax, word [edi + 4]
+; 383
+0x00bb4f5e      mov ecx, 0x17f
+0x00bb4f63      cmp ax, cx
+   ; unlikely
+0x00bb4f66      jb 0xbb5018
+; 442
+0x00bb4f6c      mov edx, 0x1ba
+0x00bb4f71      cmp ax, dx
+   ; likely
+0x00bb4f74      ja 0xbb5018
+0x00bb4f7a      lea eax, [var_1ch_10]
+0x00bb4f7e      mov bl, 1
+0x00bb4f80      push eax
+0x00bb4f81      mov ecx, esi
+0x00bb4f83      mov byte [arg_5ch_2], bl
+   ; fcn.00b70600
+   ; fcn.00b70600(0x178018)
+0x00bb4f87      call fcn.00b70600
+0x00bb4f8c      test eax, eax
+   ; unlikely
+0x00bb4f8e      je 0xbb4faa
+; CODE XREF from fcn.00bb4740 @ 0xbb4fa0(x)
+0x00bb4f90      lea ecx, [var_1ch_11]
+0x00bb4f94      push ecx
+0x00bb4f95      mov ecx, esi
+0x00bb4f97      inc bl
+   ; fcn.00b70700
+   ; fcn.00b70700(0x178018)
+0x00bb4f99      call fcn.00b70700
+0x00bb4f9e      test eax, eax
+   ; likely
+0x00bb4fa0      jne 0xbb4f90
+0x00bb4fa2      mov byte [arg_64h], bl
+0x00bb4fa6      test bl, bl
+   ; unlikely
+0x00bb4fa8      jbe 0xbb500f
+; CODE XREF from fcn.00bb4740 @ 0xbb4f8e(x)
+0x00bb4faa      cmp byte [edi + 0xa], bl
+   ; likely
+0x00bb4fad      jae 0xbb4fc5
+0x00bb4faf      mov ecx, edi
+   ; fcn.00ba8c30
+0x00bb4fb1      call fcn.00ba8c30
+0x00bb4fb6      mov edx, dword [arg_54h]
+0x00bb4fba      push edx
+0x00bb4fbb      mov ecx, edi
+   ; fcn.00ba8c00
+   ; fcn.00ba8c00(0x178018)
+0x00bb4fbd      call fcn.00ba8c00
+0x00bb4fc2      mov byte [edi + 0xa], bl
+; CODE XREF from fcn.00bb4740 @ 0xbb4fad(x)
+0x00bb4fc5      lea eax, [var_10h]
+0x00bb4fc9      push eax
+0x00bb4fca      mov ecx, esi
+   ; fcn.00b70600
+   ; fcn.00b70600(0x177ffc)
+0x00bb4fcc      call fcn.00b70600
+0x00bb4fd1      mov ecx, dword [edi + 0xc]
+0x00bb4fd4      mov edx, dword [var_1ch_10]
+0x00bb4fd8      mov dword [ecx], edx
+0x00bb4fda      mov ebx, 1
+0x00bb4fdf      test eax, eax
+   ; unlikely
+0x00bb4fe1      je 0xbb5007
+0x00bb4fe3      movzx ebp, byte [arg_64h]
+; CODE XREF from fcn.00bb4740 @ 0xbb5001(x)
+0x00bb4fe8      cmp ebx, ebp
+   ; unlikely
+0x00bb4fea      jge 0xbb5003
+0x00bb4fec      mov ecx, dword [edi + 0xc]
+0x00bb4fef      mov dword [ecx + ebx*4], eax
+0x00bb4ff2      lea edx, [var_10h]
+0x00bb4ff6      push edx
+0x00bb4ff7      mov ecx, esi
+0x00bb4ff9      inc ebx
+   ; fcn.00b70700
+   ; fcn.00b70700(0x177ffc)
+0x00bb4ffa      call fcn.00b70700
+0x00bb4fff      test eax, eax
+   ; likely
+0x00bb5001      jne 0xbb4fe8
+; CODE XREF from fcn.00bb4740 @ 0xbb4fea(x)
+0x00bb5003      mov ebp, dword [var_1ch]
+; CODE XREF from fcn.00bb4740 @ 0xbb4fe1(x)
+0x00bb5007      mov byte [edi + 9], bl
+0x00bb500a      jmp 0xbb5093
+; CODE XREF from fcn.00bb4740 @ 0xbb4fa8(x)
+0x00bb500f      mov byte [edi + 9], 0
+0x00bb5013      jmp 0xbb5093
+; CODE XREFS from fcn.00bb4740 @ 0xbb4f66(x), 0xbb4f74(x)
+; 445
+0x00bb5018      mov ecx, 0x1bd
+0x00bb501d      cmp ax, cx
+   ; unlikely
+0x00bb5020      jb 0xbb504f
+; 451
+0x00bb5022      mov edx, 0x1c3
+0x00bb5027      cmp ax, dx
+   ; likely
+0x00bb502a      ja 0xbb504f
+0x00bb502c      cmp byte [edi + 9], 1
+   ; likely
+0x00bb5030      jne 0xbb5093
+0x00bb5032      lea eax, [esp + 0x2c]
+0x00bb5036      push eax
+0x00bb5037      mov ecx, esi
+   ; fcn.00b70600
+   ; fcn.00b70600(0x177ffc)
+0x00bb5039      call fcn.00b70600
+0x00bb503e      test eax, eax
+   ; unlikely
+0x00bb5040      je 0xbb5049
+0x00bb5042      mov ecx, dword [edi + 0xc]
+0x00bb5045      mov dword [ecx], eax
+0x00bb5047      jmp 0xbb5093
+; CODE XREF from fcn.00bb4740 @ 0xbb5040(x)
+0x00bb5049      mov eax, dword [var_1ch]
+0x00bb504d      jmp 0xbb508e
+; CODE XREFS from fcn.00bb4740 @ 0xbb5020(x), 0xbb502a(x)
+; 452
+0x00bb504f      mov ecx, 0x1c4
+0x00bb5054      cmp ax, cx
+   ; unlikely
+0x00bb5057      jb 0xbb5093
+; 455
+0x00bb5059      mov edx, 0x1c7
+0x00bb505e      cmp ax, dx
+   ; likely
+0x00bb5061      ja 0xbb5093
+0x00bb5063      cmp byte [edi + 9], 1
+   ; likely
+0x00bb5067      jne 0xbb5093
+0x00bb5069      lea eax, [var_30h]
+0x00bb506d      push eax
+0x00bb506e      mov ecx, esi
+   ; fcn.00b70590
+   ; fcn.00b70590(0x177ff8)
+0x00bb5070      call fcn.00b70590
+0x00bb5075      test eax, eax
+   ; unlikely
+0x00bb5077      je 0xbb50a6
+0x00bb5079      cmp byte [eax + 0xec], 0
+   ; likely
+0x00bb5080      je 0xbb50a6
+0x00bb5082      mov ecx, dword [eax + 0xf8]
+0x00bb5088      test byte [ecx + 0x30], 1
+   ; likely
+0x00bb508c      jne 0xbb50a6
+; CODE XREF from fcn.00bb4740 @ 0xbb504d(x)
+0x00bb508e      mov edx, dword [edi + 0xc]
+0x00bb5091      mov dword [edx], eax
+; XREFS: CODE 0x00bb500a  CODE 0x00bb5013  CODE 0x00bb5030
+; XREFS: CODE 0x00bb5047  CODE 0x00bb5057  CODE 0x00bb5061
+; XREFS: CODE 0x00bb5067
+0x00bb5093      mov eax, dword [esi + 0x3c]
+0x00bb5096      inc ebp
+0x00bb5097      mov dword [var_24h], ebp
+0x00bb509b      cmp ebp, dword [eax + 0x10]
+   ; likely
+0x00bb509e      jb 0xbb4f51
+0x00bb50a4      jmp 0xbb50ad
+; CODE XREFS from fcn.00bb4740 @ 0xbb5077(x), 0xbb5080(x), 0xbb508c(x)
+0x00bb50a6      mov dword [esi + 0x38], 0
+
+======================================================================
+ENTRY 23: Native shadow-light influence calculation B9D150 pseudocode (stack recovery unreliable)
+======================================================================
+void __fastcall fcn.00b9d150(float param_1)
+
+{
+float fVar1;
+ulong uVar2;
+int iVar3;
+float *pfVar4;
+int iVar5;
+int iVar6;
+float fVar7;
+int16_t iVar8;
+float fVar9;
+float10 fVar10;
+float unaff_retaddr;
+float fStack00000004;
+float fStack00000008;
+float fStack0000000c;
+float fStack_bc;
+float fStack_b8;
+float fStack_b4;
+float fStack_b0;
+float fStack_ac;
+float fStack_a8;
+float fStack_a4;
+float fStack_a0;
+float fStack_9c;
+ulong uStack_98;
+float fStack_90;
+float fStack_8c;
+float fStack_88;
+float fStack_84;
+float fStack_80;
+float fStack_7c;
+float fStack_78;
+float fStack_74;
+float fStack_70;
+float fStack_6c;
+float fStack_68;
+float fStack_64;
+float fStack_60;
+float fStack_5c;
+float fStack_58;
+float fStack_54;
+float fStack_50;
+float fStack_4c;
+float fStack_48;
+float fStack_40;
+float fStack_3c;
+float fStack_38;
+float fStack_34;
+float fStack_30;
+float fStack_2c;
+float fStack_28;
+float fStack_24;
+float fStack_20;
+uchar uStack_1c;
+uchar uStack_1b;
+uchar uStack_1a;
+uchar uStack_19;
+uchar uStack_18;
+float fStack_10;
+float fStack_c;
+float fStack_8;
+float fStack_4;
+
+fStack_40 = param_1;
+iVar3 = fcn.00a5bdd0(*0x12031e4);
+iVar5 = *(param_1 + 0x128);
+fStack00000004 = *(iVar5 + 0x8c);
+fStack00000008 = *(iVar5 + 0x90);
+fStack0000000c = *(iVar5 + 0x94);
+if (iVar3 == 0) {
+pfVar4 = 0x11f426c;
+}
+else {
+fStack_a8 = *(iVar5 + 0x98);
+fStack_b0 = fStack_a8 * *(iVar3 + 0xc);
+fStack_ac = *(iVar3 + 0x10) * fStack_a8;
+fStack_a8 = fStack_a8 * *(iVar3 + 0x14);
+fStack00000004 = fStack_b0 + fStack00000004;
+fStack00000008 = fStack00000008 + fStack_ac;
+fStack0000000c = fStack0000000c + fStack_a8;
+fVar7 = *(iVar5 + 0x98);
+fStack_bc = fVar7 * *(iVar3 + 0x18);
+fStack_b8 = *(iVar3 + 0x1c) * fVar7;
+pfVar4 = &fStack_bc;
+fStack_b4 = fVar7 * *(iVar3 + 0x20);
+}
+fStack_b0 = *pfVar4;
+fStack_ac = pfVar4[1];
+fStack_a8 = pfVar4[2];
+fVar7 = fStack_ac;
+if (fStack_ac < fStack_b0) {
+fVar7 = fStack_b0;
+}
+fStack_90 = fStack_a8;
+if (fStack_a8 < fVar7) {
+fStack_90 = fVar7;
+}
+fStack_7c = 0.0;
+fVar7 = 0.0;
+iVar8 = 0;
+fStack_80 = 0.0;
+if (unaff_retaddr == 0.0) {
+iVar5 = fcn.00b5ac20(0);
+uVar2 = uStack_98;
+}
+else {
+iVar5 = fcn.00b70600(&fStack_6c);
+uVar2 = uStack_98;
+}
+while ((uStack_98 = uVar2, iVar5 != 0 && (fStack_84 = fVar7, fVar7 < 0x28))) {
+if ((*(iVar5 + 0xec) == '\0') &&
+((iVar5 = *(iVar5 + 0xf8), (*(iVar5 + 0x30) & 1) == 0 && (0.0 < *(iVar5 + 0xc4))))) {
+fStack_b4 = *(iVar5 + 0x8c) - unaff_retaddr;
+fStack_b0 = *(iVar5 + 0x90) - fStack00000004;
+fStack_ac = *(iVar5 + 0x94) - fStack00000008;
+fVar10 = fcn.00ec6040();
+fVar9 = 1.0 - (fVar10 - uStack_98._4_4_) / *(iVar5 + 0xe0);
+if (fVar9 < *0x1012060) {
+fVar9 = 0.0;
+}
+if (1.0 < fVar9) {
+fVar9 = 1.0;
+}
+fVar7 = fVar7 + 1;
+*(fVar7 * 4 + 0x11fff3c) = fVar9;
+*(fVar7 * 4 + 0x11ffe9c) = fVar9;
+fStack_80 = fVar9 + fStack_80;
+}
+iVar8 = iVar8 + 1;
+fStack_84 = fVar7;
+if (unaff_retaddr == 0.0) {
+iVar5 = fcn.00b5ac20(iVar8);
+uVar2 = uStack_98;
+}
+else {
+iVar5 = fcn.00b70700(&fStack_70);
+uVar2 = uStack_98;
+}
+}
+iVar5 = *(*(*0x11f91c8 + 0xe0) + 0xf8);
+fStack_2c = -*(iVar5 + 0xf0);
+fStack_28 = -*(iVar5 + 0xf4);
+uStack_98._4_4_ = uVar2 >> 0x20;
+fStack_24 = uStack_98._4_4_ * *0x10b7e98 * -*(iVar5 + 0xf8);
+fStack_a8 = *0x11f426c;
+fStack_a4 = *0x11f4270;
+fStack_a0 = *0x11f4274;
+fStack_90 = *0x11f4998;
+fStack_8c = *0x11f499c;
+fStack_88 = *0x11f49a0;
+fcn.004a0c10();
+if (fStack_80 == 0.0) {
+fStack_a0 = fStack_24;
+fStack_88 = *(iVar5 + 0xdc);
+fStack_a8 = fStack_2c;
+fStack_90 = *(iVar5 + 0xd4);
+fStack_a4 = fStack_28;
+fStack_8c = *(iVar5 + 0xd8);
+fcn.004a0c10();
+if (fStack_a0 < uStack_98._4_4_ / *0x10731a8) {
+fStack_a0 = uStack_98._4_4_ / *0x10731a8;
+}
+}
+else {
+iVar3 = 0;
+if (fStack_4 == 0.0) {
+iVar6 = fcn.00b5ac20(0);
+}
+else {
+iVar6 = fcn.00b70600(&fStack_70);
+}
+fVar7 = 0.0;
+if (fStack_88 != 0.0) {
+do {
+fVar9 = fStack_4;
+if ((((iVar6 != 0) && (*(iVar6 + 0xec) == '\0')) &&
+(iVar6 = *(iVar6 + 0xf8), fVar9 = unaff_retaddr, (*(iVar6 + 0x30) & 1) == 0)) &&
+(fVar1 = *(fVar7 * 4 + 0x11ffea0) / fStack_7c, 0.0 < fVar1)) {
+uStack_98 = 1.0 - *(fVar7 * 4 + 0x11ffea0);
+fStack_34 = *(iVar6 + 0x8c) - fStack00000004;
+fStack_30 = *(iVar6 + 0x90) - fStack00000008;
+fStack_2c = *(iVar6 + 0x94) - fStack0000000c;
+fcn.004a0c10();
+fStack_54 = uStack_98;
+fStack_68 = fStack_54 * fStack_28;
+fStack_64 = fStack_24 * fStack_54;
+fStack_60 = fStack_54 * fStack_20;
+fStack_8 = *(fVar7 * 4 + 0x11ffea0);
+fStack_10 = fStack_8 * fStack_34;
+fStack_c = fStack_30 * fStack_8;
+fStack_8 = fStack_8 * fStack_2c;
+fStack_b0 = fStack_10 + fStack_68;
+fStack_ac = fStack_c + fStack_64;
+fStack_a8 = fStack_8 + fStack_60;
+fStack_bc = fVar1 * fStack_b0;
+fStack_b8 = fStack_ac * fVar1;
+fStack_b4 = fStack_a8 * fVar1;
+fStack_a4 = fStack_bc + fStack_a4;
+fStack_a0 = fStack_a0 + fStack_b8;
+fStack_9c = fStack_b4 + fStack_9c;
+fStack_5c = fStack_54 * *(iVar5 + 0xd4);
+fStack_58 = *(iVar5 + 0xd8) * fStack_54;
+fStack_54 = fStack_54 * *(iVar5 + 0xdc);
+fStack_70 = *(fVar7 * 4 + 0x11ffea0);
+uStack_98 = CONCAT44(uStack_98._4_4_,fStack_70);
+fStack_78 = fStack_70 * *(iVar6 + 0xd4);
+fStack_74 = *(iVar6 + 0xd8) * fStack_70;
+fStack_70 = fStack_70 * *(iVar6 + 0xdc);
+fStack_50 = fStack_78 + fStack_5c;
+fStack_4c = fStack_74 + fStack_58;
+fStack_48 = fStack_70 + fStack_54;
+fStack_40 = fStack_50 * fVar1;
+fStack_3c = fStack_4c * fVar1;
+fStack_38 = fVar1 * fStack_48;
+fStack_8c = fStack_40 + fStack_8c;
+fStack_88 = fStack_3c + fStack_88;
+fStack_84 = fStack_38 + fStack_84;
+fStack_34 = fStack_b0;
+fStack_30 = fStack_ac;
+fStack_2c = fStack_a8;
+}
+if (fVar9 == 0.0) {
+iVar3 = iVar3 + 1;
+iVar6 = fcn.00b5ac20(iVar3);
+}
+else {
+iVar6 = fcn.00b70700(&fStack_6c);
+}
+fVar7 = fVar7 + 1;
+fStack_4 = fVar9;
+} while (fVar7 < fStack_84);
+}
+fcn.004a0c10();
+if (fStack_a0 < *0x101de30) {
+fStack_a0 = *0x1016264;
+}
+}
+fcn.004a0c10();
+fVar9 = fStack_48;
+fVar7 = uStack_98._4_4_;
+if (*0x10231d8 < uStack_98._4_4_) {
+fVar7 = *0x1032adc;
+}
+iVar5 = *(fStack_48 + 0xf8);
+fStack_64 = *0x10b7e90;
+fStack_6c = fVar7 * fStack_a8 * fStack_64;
+fStack_68 = fStack_a4 * fVar7 * fStack_64;
+fStack_64 = fStack_64 * fVar7 * fStack_a0;
+fStack_bc = fStack_68 + fStack00000004;
+fStack_b8 = fStack_64 + fStack00000008;
+*(iVar5 + 0x58) = fStack_6c + unaff_retaddr;
+*(iVar5 + 0x5c) = fStack_bc;
+*(iVar5 + 0x60) = fStack_b8;
+uStack_1c = 0;
+uStack_1b = 0;
+uStack_1a = 0;
+fStack_20 = 0.0;
+uStack_19 = 0;
+uStack_18 = 0;
+fcn.00a59c60(&fStack_20);
+fVar1 = *0x10290c0;
+fVar1 = fVar1 * fStack_8c + uStack_98._4_4_ * fVar1 + fStack_90 * fVar1;
+if (fVar1 < *0x10217d8) {
+fVar1 = *0x1030ff0;
+}
+if (*0x1012070 < fVar1) {
+fVar1 = 1.0;
+}
+iVar5 = *(fVar9 + 0xf8);
+*(iVar5 + 0xd4) = fVar1;
+*(iVar5 + 0xd8) = fVar1;
+*(iVar5 + 0xdc) = fVar1;
+*(iVar5 + 0xa8) = *(iVar5 + 0xa8) + 1;
+iVar5 = *(fVar9 + 0xf8);
+*(iVar5 + 0xa8) = *(iVar5 + 0xa8) + 1;
+*(iVar5 + 0xe0) = fVar7;
+*(iVar5 + 0xe4) = 0;
+*(iVar5 + 0xe8) = 0;
+return;
+}
+
+======================================================================
+ENTRY 24: Lighting node enumeration helper B5AC20
+======================================================================
+uint __thiscall fcn.00b5ac20(int param_1,uint32_t param_2)
+
+{
+uint *puVar1;
+uint uVar2;
+uint *puVar3;
+
+if (param_2 < *(param_1 + 0xbc)) {
+puVar3 = **(param_1 + 0xb4);
+uVar2 = (*(param_1 + 0xb4))[2];
+if (param_2 != 0) {
+do {
+param_2 = param_2 - 1;
+puVar1 = puVar3 + 2;
+puVar3 = *puVar3;
+uVar2 = *puVar1;
+} while (param_2 != 0);
+}
+return uVar2;
+}
+return 0;
+}
+
+======================================================================
+ENTRY 25: Cache refresh dirty clear and return gate
+======================================================================
+; CODE XREFS from fcn.00bb4740 @ 0xbb4f4b(x), 0xbb50a4(x)
+0x00bb50ad      mov ebp, dword [arg_54h]
+0x00bb50b1      mov byte [esi + 0x74], 0
+; CODE XREFS from fcn.00bb4740 @ 0xbb4f1a(x), 0xbb4f24(x)
+0x00bb50b5      mov ecx, dword [var_1ch]
+0x00bb50b9      cmp dword [esi + 0x38], ecx
+   ; unlikely
+0x00bb50bc      je 0xbb5bfc
+0x00bb50c2      push 0xffffffffffffffff
+0x00bb50c4      mov ecx, esi
+   ; fcn.00ba95e0
+   ; fcn.00ba95e0(0x0, 0x0)
+0x00bb50c6      call fcn.00ba95e0
+0x00bb50cb      mov edx, dword [esi + 0x3c]
+0x00bb50ce      mov dword [edx + 0x10], 0
+0x00bb50d5      mov byte [esi + 0x74], 0
+0x00bb50d9      test dword [esi + 0x20], 0x100000
+   ; unlikely
+0x00bb50e0      jbe 0xbb50ef
+; [0x11f91a7:1]=0
+0x00bb50e2      cmp byte [0x11f91a7], 0
+   ; unlikely
+0x00bb50e9      jne 0xbb50ef
+0x00bb50eb      xor bl, bl
+0x00bb50ed      jmp 0xbb50f1
+; CODE XREFS from fcn.00bb4740 @ 0xbb50e0(x), 0xbb50e9(x)
+0x00bb50ef      mov bl, 1
+
+======================================================================
+ENTRY 26: Indexed scene-light accessor B5AC20 raw
+======================================================================
+; XREFS: 0x00b5ac13  CALL 0x00b5be2b  CALL 0x00b9d2b9
+; XREFS: CALL 0x00b9d3e1  CALL 0x00b9d529  CALL 0x00b9d8b4
+54: fcn.00b5ac20 (int32_t arg_8h);
+`- args(sp[0x4..0x4])
+0x00b5ac20      push esi
+0x00b5ac21      mov esi, dword [arg_8h]
+0x00b5ac25      cmp esi, dword [ecx + 0xbc]
+; likely
+0x00b5ac2b      jb 0xb5ac33
+0x00b5ac2d      xor eax, eax
+; ebp
+0x00b5ac2f      pop esi
+0x00b5ac30      ret 4
+; CODE XREF from fcn.00b5ac20 @ 0xb5ac2b(x)
+0x00b5ac33      mov eax, dword [ecx + 0xb4]
+0x00b5ac39      mov ecx, dword [eax]
+0x00b5ac3b      lea edx, [eax + 8]
+0x00b5ac3e      mov eax, dword [edx]
+0x00b5ac40      test esi, esi
+; unlikely
+0x00b5ac42      jbe 0xb5ac52
+0x00b5ac44      mov edx, esi
+; CODE XREF from fcn.00b5ac20 @ 0xb5ac50(x)
+0x00b5ac46      sub edx, 1
+0x00b5ac49      lea eax, [ecx + 8]
+0x00b5ac4c      mov ecx, dword [ecx]
+0x00b5ac4e      mov eax, dword [eax]
+; unlikely
+0x00b5ac50      jne 0xb5ac46
+; CODE XREF from fcn.00b5ac20 @ 0xb5ac42(x)
+0x00b5ac52      pop esi
+0x00b5ac53      ret 4
+
+======================================================================
+ENTRY 27: B9D150 input and first loop aligned native window
+======================================================================
+  ; CALL XREF from fcn.00871290 @ 0x87183e(x)
+2447: fcn.00b9d150 (int32_t arg_d0h_2, int32_t arg_cch, int32_t arg_d0h, int32_t arg_d4h);
+`- args(sp[0x0..0xc]) vars(47:sp[0x4..0xc8])
+0x00b9d150      sub esp, 0xc0
+; [0x12031e4:4]=0
+0x00b9d156      mov eax, dword [0x12031e4]
+0x00b9d15b      push esi
+0x00b9d15c      mov esi, ecx
+0x00b9d15e      mov ecx, dword [esi + 0x128]
+0x00b9d164      push eax
+0x00b9d165      mov dword [var_88h], esi
+   ; fcn.00a5bdd0
+   ; fcn.00a5bdd0(0x0)
+0x00b9d16c      call fcn.00a5bdd0
+0x00b9d171      mov ecx, dword [esi + 0x128]
+0x00b9d177      mov edx, dword [ecx + 0x8c]
+0x00b9d17d      mov dword [arg_cch], edx
+0x00b9d184      mov edx, dword [ecx + 0x90]
+0x00b9d18a      mov dword [arg_d0h], edx
+0x00b9d191      mov edx, dword [ecx + 0x94]
+0x00b9d197      mov dword [arg_d4h], edx
+0x00b9d19e      test eax, eax
+   ; likely
+0x00b9d1a0      je 0xb9d238
+0x00b9d1a6      fld dword [ecx + 0x98]
+0x00b9d1ac      fstp dword [esp + 4]
+0x00b9d1b0      fld dword [eax + 0xc]
+0x00b9d1b3      fld dword [esp + 4]
+0x00b9d1b7      fld st(0)
+0x00b9d1b9      fmulp st(2)
+0x00b9d1bb      fxch st(1)
+0x00b9d1bd      fstp dword [esp + 0x18]
+0x00b9d1c1      fld dword [eax + 0x10]
+0x00b9d1c4      fmul st(1)
+0x00b9d1c6      fstp dword [esp + 0x1c]
+0x00b9d1ca      fmul dword [eax + 0x14]
+0x00b9d1cd      fstp dword [esp + 0x20]
+0x00b9d1d1      fld dword [esp + 0x18]
+0x00b9d1d5      fadd dword [arg_cch]
+0x00b9d1dc      fstp dword [esp + 0xcc]
+0x00b9d1e3      fld dword [esp + 0xd0]
+0x00b9d1ea      fadd dword [var_1ch]
+0x00b9d1ee      fstp dword [esp + 0xd0]
+0x00b9d1f5      fld dword [esp + 0xd4]
+0x00b9d1fc      fadd dword [var_20h]
+0x00b9d200      fstp dword [esp + 0xd4]
+0x00b9d207      fld dword [ecx + 0x98]
+0x00b9d20d      fstp dword [esp + 4]
+0x00b9d211      fld dword [eax + 0x18]
+0x00b9d214      fld dword [esp + 4]
+0x00b9d218      fld st(0)
+0x00b9d21a      fmulp st(2)
+0x00b9d21c      fxch st(1)
+0x00b9d21e      fstp dword [esp + 0xc]
+0x00b9d222      fld dword [eax + 0x1c]
+0x00b9d225      fmul st(1)
+0x00b9d227      fstp dword [esp + 0x10]
+0x00b9d22b      fmul dword [eax + 0x20]
+0x00b9d22e      lea eax, [var_14h]
+0x00b9d232      fstp dword [esp + 0x14]
+0x00b9d236      jmp 0xb9d23d
+; CODE XREF from fcn.00b9d150 @ 0xb9d1a0(x)
+0x00b9d238      mov eax, 0x11f426c
+; CODE XREF from fcn.00b9d150 @ 0xb9d236(x)
+0x00b9d23d      mov ecx, dword [eax]
+0x00b9d23f      mov edx, dword [eax + 4]
+0x00b9d242      mov eax, dword [eax + 8]
+0x00b9d245      mov dword [var_18h], ecx
+0x00b9d249      fld dword [esp + 0x18]
+0x00b9d24d      mov dword [var_1ch], edx
+0x00b9d251      fld dword [esp + 0x1c]
+0x00b9d255      fcom st(1)
+0x00b9d257      mov dword [var_20h], eax
+0x00b9d25b      fnstsw ax
+; 5
+0x00b9d25d      test ah, 5
+   ; likely
+0x00b9d260      jp 0xb9d266
+0x00b9d262      fstp st(0)
+0x00b9d264      jmp 0xb9d268
+; CODE XREF from fcn.00b9d150 @ 0xb9d260(x)
+0x00b9d266      fstp st(1)
+; CODE XREF from fcn.00b9d150 @ 0xb9d264(x)
+0x00b9d268      fstp dword [esp + 8]
+0x00b9d26c      fld dword [esp + 8]
+0x00b9d270      fld dword [esp + 0x20]
+0x00b9d274      fcom st(1)
+0x00b9d276      fnstsw ax
+; 5
+0x00b9d278      test ah, 5
+   ; likely
+0x00b9d27b      jp 0xb9d281
+0x00b9d27d      fstp st(0)
+0x00b9d27f      jmp 0xb9d283
+; CODE XREF from fcn.00b9d150 @ 0xb9d27b(x)
+0x00b9d281      fstp st(1)
+; CODE XREF from fcn.00b9d150 @ 0xb9d27f(x)
+0x00b9d283      push ebx
+0x00b9d284      fstp dword [esp + 0x3c]
+0x00b9d288      fldz
+0x00b9d28a      push ebp
+0x00b9d28b      mov ebp, dword [arg_d0h_2]
+0x00b9d292      fstp dword [esp + 0x54]
+0x00b9d296      push edi
+0x00b9d297      xor ebx, ebx
+0x00b9d299      xor edi, edi
+0x00b9d29b      mov dword [var_54h], ebx
+0x00b9d29f      test ebp, ebp
+   ; unlikely
+0x00b9d2a1      je 0xb9d2b1
+0x00b9d2a3      lea ecx, [var_70h]
+0x00b9d2a7      push ecx
+0x00b9d2a8      mov ecx, ebp
+   ; fcn.00b70600
+   ; fcn.00b70600(0x0)
+0x00b9d2aa      call fcn.00b70600
+0x00b9d2af      jmp 0xb9d2be
+; CODE XREF from fcn.00b9d150 @ 0xb9d2a1(x)
+; [0x11f91c8:4]=0
+0x00b9d2b1      mov ecx, dword [0x11f91c8]
+0x00b9d2b7      push 0
+   ; fcn.00b5ac20
+   ; fcn.00b5ac20(0x0)
+0x00b9d2b9      call fcn.00b5ac20
+; CODE XREF from fcn.00b9d150 @ 0xb9d2af(x)
+0x00b9d2be      test eax, eax
+   ; likely
+0x00b9d2c0      je 0xb9d3f2
+; CODE XREF from fcn.00b9d150 @ 0xb9d3e8(x)
+; '('
+; 40
+0x00b9d2c6      cmp ebx, 0x28
+   ; unlikely
+0x00b9d2c9      jae 0xb9d3ee
+0x00b9d2cf      cmp byte [eax + 0xec], 0
+   ; likely
+0x00b9d2d6      jne 0xb9d3c4
+0x00b9d2dc      mov esi, dword [eax + 0xf8]
+0x00b9d2e2      test byte [esi + 0x30], 1
+   ; likely
+0x00b9d2e6      jne 0xb9d3c4
+0x00b9d2ec      fldz
+0x00b9d2ee      fcomp dword [esi + 0xc4]
+0x00b9d2f4      fnstsw ax
+; 5
+0x00b9d2f6      test ah, 5
+   ; likely
+0x00b9d2f9      jp 0xb9d3c4
+0x00b9d2ff      fld dword [esi + 0x8c]
+0x00b9d305      fsub dword [arg_d0h_2]
+0x00b9d30c      fstp dword [esp + 0x24]
+0x00b9d310      fld dword [esi + 0x90]
+0x00b9d316      fsub dword [arg_cch]
+0x00b9d31d      fstp dword [esp + 0x28]
+0x00b9d321      fld dword [esi + 0x94]
+0x00b9d327      fsub dword [arg_d0h]
+0x00b9d32e      fstp dword [esp + 0x2c]
+0x00b9d332      fld dword [esp + 0x24]
+0x00b9d336      fld dword [esp + 0x28]
+0x00b9d33a      fld dword [esp + 0x2c]
+0x00b9d33e      fld st(1)
+0x00b9d340      fmulp st(2)
+0x00b9d342      fld st(2)
+0x00b9d344      fmulp st(3)
+0x00b9d346      fxch st(1)
+0x00b9d348      faddp st(2)
+0x00b9d34a      fmul st(0), st(0)
+0x00b9d34c      faddp st(1)
+0x00b9d34e      fstp dword [esp + 0x10]
+0x00b9d352      fld dword [esp + 0x10]
+   ; fcn.00ec6040
+0x00b9d356      call fcn.00ec6040
+0x00b9d35b      fstp dword [esp + 0x10]
+0x00b9d35f      fld dword [esp + 0x10]
+0x00b9d363      fsub dword [var_48h_2]
+0x00b9d367      fdiv dword [esi + 0xe0]
+0x00b9d36d      fld1
+0x00b9d36f      fld st(0)
+0x00b9d371      fsubrp st(2)
+0x00b9d373      fxch st(1)
+0x00b9d375      fstp dword [esp + 0x10]
+0x00b9d379      fld dword [esp + 0x10]
+0x00b9d37d      fcom qword [0x1012060]
+0x00b9d383      fnstsw ax
+; 5
+0x00b9d385      test ah, 5
+   ; likely
+0x00b9d388      jp 0xb9d38e
+0x00b9d38a      fstp st(0)
+0x00b9d38c      fldz
+; CODE XREF from fcn.00b9d150 @ 0xb9d388(x)
+0x00b9d38e      fstp dword [esp + 0x14]
+0x00b9d392      fld dword [esp + 0x14]
+0x00b9d396      fcom st(1)
+0x00b9d398      fnstsw ax
+0x00b9d39a      fstp st(1)
+; 65
+0x00b9d39c      test ah, 0x41
+   ; unlikely
+0x00b9d39f      jne 0xb9d3a5
+0x00b9d3a1      fstp st(0)
+0x00b9d3a3      fld1
+; CODE XREF from fcn.00b9d150 @ 0xb9d39f(x)
+0x00b9d3a5      fstp dword [esp + 0x14]
+0x00b9d3a9      inc ebx
+0x00b9d3aa      fld dword [esp + 0x14]
+; [0x11fff3c:4]=0
+0x00b9d3ae      fst dword [ebx*4 + 0x11fff3c]
+; [0x11ffe9c:4]=0
+0x00b9d3b5      fst dword [ebx*4 + 0x11ffe9c]
+0x00b9d3bc      fadd dword [var_54h]
+0x00b9d3c0      fstp dword [esp + 0x58]
+; CODE XREFS from fcn.00b9d150 @ 0xb9d2d6(x), 0xb9d2e6(x), 0xb9d2f9(x)
+0x00b9d3c4      inc edi
+0x00b9d3c5      test ebp, ebp
+   ; unlikely
+0x00b9d3c7      je 0xb9d3d7
+0x00b9d3c9      lea edx, [var_6ch]
+0x00b9d3cd      push edx
+0x00b9d3ce      mov ecx, ebp
+   ; fcn.00b70700
+   ; fcn.00b70700(0x0)
+0x00b9d3d0      call fcn.00b70700
+0x00b9d3d5      jmp 0xb9d3e6
+; CODE XREF from fcn.00b9d150 @ 0xb9d3c7(x)
+; [0x11f91c8:4]=0
+0x00b9d3d7      mov ecx, dword [0x11f91c8]
+0x00b9d3dd      movzx eax, di
+0x00b9d3e0      push eax
+   ; fcn.00b5ac20
+   ; fcn.00b5ac20(0x1)
+0x00b9d3e1      call fcn.00b5ac20
+; CODE XREF from fcn.00b9d150 @ 0xb9d3d5(x)
+0x00b9d3e6      test eax, eax
+   ; likely
+0x00b9d3e8      jne 0xb9d2c6
+; CODE XREF from fcn.00b9d150 @ 0xb9d2c9(x)
+0x00b9d3ee      mov dword [var_58h], ebx
+; CODE XREF from fcn.00b9d150 @ 0xb9d2c0(x)
+; [0x11f426c:4]=0
+0x00b9d3f2      mov ecx, dword [0x11f426c]
+0x00b9d3f8      fldz
+; [0x11f91c8:4]=0
+0x00b9d3fa      mov esi, dword [0x11f91c8]
+0x00b9d400      fstp dword [esp + 0x14]
+; [0x11f4270:4]=0
+0x00b9d404      mov edx, dword [0x11f4270]
+; [0x11f4274:4]=0
+0x00b9d40a      mov eax, dword [0x11f4274]
+
+======================================================================
+ENTRY 28: B9D150 second loop and tail aligned
+======================================================================
+0x00b9d73e      fstp dword [esp + 0x38]
+0x00b9d742      mov edx, dword [edi + 0xdc]
+0x00b9d748      fxch st(1)
+0x00b9d74a      mov dword [var_54h], eax
+0x00b9d74e      fstp dword [esp + 0x3c]
+0x00b9d752      mov dword [var_60h], ecx
+0x00b9d756      fld dword [esp + 0x78]
+0x00b9d75a      mov dword [var_64h], edx
+0x00b9d75e      fld dword [esp + 0x3c]
+0x00b9d762      fld st(0)
+0x00b9d764      fmulp st(2)
+0x00b9d766      fxch st(1)
+0x00b9d768      fstp dword [esp + 0x78]
+0x00b9d76c      fld dword [esp + 0x7c]
+0x00b9d770      fmul st(1)
+0x00b9d772      fstp dword [esp + 0x7c]
+0x00b9d776      fmul dword [var_80h]
+0x00b9d77d      fstp dword [esp + 0x80]
+0x00b9d784      fld dword [esi*4 + 0x11ffea0]
+0x00b9d78b      fstp dword [esp + 0x3c]
+0x00b9d78f      fld dword [esp + 0x5c]
+0x00b9d793      fld dword [esp + 0x3c]
+0x00b9d797      fld st(0)
+0x00b9d799      fmulp st(2)
+0x00b9d79b      fxch st(1)
+0x00b9d79d      fstp dword [esp + 0x5c]
+0x00b9d7a1      mov eax, dword [var_54h]
+0x00b9d7a5      fld dword [esp + 0x60]
+0x00b9d7a9      mov dword [var_84h_2], eax
+0x00b9d7b0      fmul st(1)
+0x00b9d7b2      fstp dword [esp + 0x60]
+0x00b9d7b6      mov ecx, dword [var_60h]
+0x00b9d7ba      mov dword [var_88h_2], ecx
+0x00b9d7c1      fmul dword [var_64h]
+0x00b9d7c5      fstp dword [esp + 0x64]
+0x00b9d7c9      mov edx, dword [var_64h]
+0x00b9d7cd      fld dword [esp + 0x5c]
+0x00b9d7d1      mov dword [var_8ch], edx
+0x00b9d7d8      fadd dword [var_78h]
+0x00b9d7dc      fstp dword [esp + 0x84]
+0x00b9d7e3      mov eax, dword [var_84h_2]
+0x00b9d7ea      fld dword [esp + 0x88]
+0x00b9d7f1      mov dword [var_94h], eax
+0x00b9d7f8      fadd dword [var_7ch]
+0x00b9d7fc      fstp dword [esp + 0x88]
+0x00b9d803      mov ecx, dword [var_88h_2]
+0x00b9d80a      fld dword [esp + 0x8c]
+0x00b9d811      mov dword [var_98h], ecx
+0x00b9d818      fadd dword [var_80h]
+0x00b9d81f      fstp dword [esp + 0x8c]
+0x00b9d826      mov edx, dword [var_8ch]
+0x00b9d82d      fld dword [esp + 0x84]
+0x00b9d834      mov dword [var_88h], edx
+0x00b9d83b      fmul st(1)
+0x00b9d83d      fstp dword [esp + 0x94]
+0x00b9d844      fld dword [esp + 0x98]
+0x00b9d84b      fmul st(1)
+0x00b9d84d      fstp dword [esp + 0x98]
+0x00b9d854      fmul dword [var_88h]
+0x00b9d85b      fstp dword [esp + 0x9c]
+0x00b9d862      fld dword [esp + 0x94]
+0x00b9d869      fadd dword [var_48h_2]
+0x00b9d86d      fstp dword [esp + 0x48]
+0x00b9d871      fld dword [esp + 0x98]
+0x00b9d878      fadd dword [var_48h]
+0x00b9d87c      fstp dword [esp + 0x4c]
+0x00b9d880      fld dword [esp + 0x9c]
+0x00b9d887      fadd dword [var_4ch]
+0x00b9d88b      fstp dword [esp + 0x50]
+0x00b9d88f      jmp 0xb9d893
+; CODE XREF from fcn.00b9d150 @ 0xb9d583(x)
+0x00b9d891      fstp st(0)
+; CODE XREFS from fcn.00b9d150 @ 0xb9d55f(x), 0xb9d88f(x)
+0x00b9d893      mov edi, dword [var_d4h_2]
+; CODE XREFS from fcn.00b9d150 @ 0xb9d542(x), 0xb9d54f(x)
+0x00b9d89a      test edi, edi
+   ; likely
+0x00b9d89c      je 0xb9d8ac
+0x00b9d89e      lea eax, [var_68h]
+0x00b9d8a2      push eax
+0x00b9d8a3      mov ecx, edi
+   ; fcn.00b70700
+   ; fcn.00b70700(0x178068)
+0x00b9d8a5      call fcn.00b70700
+0x00b9d8aa      jmp 0xb9d8b9
+; CODE XREF from fcn.00b9d150 @ 0xb9d89c(x)
+; [0x11f91c8:4]=0
+0x00b9d8ac      mov ecx, dword [0x11f91c8]
+0x00b9d8b2      inc ebx
+0x00b9d8b3      push ebx
+   ; fcn.00b5ac20
+   ; fcn.00b5ac20(0x178068)
+0x00b9d8b4      call fcn.00b5ac20
+; CODE XREF from fcn.00b9d150 @ 0xb9d8aa(x)
+0x00b9d8b9      inc esi
+0x00b9d8ba      mov ecx, eax
+0x00b9d8bc      cmp esi, dword [var_4ch]
+   ; unlikely
+0x00b9d8c0      jb 0xb9d540
+; CODE XREF from fcn.00b9d150 @ 0xb9d536(x)
+0x00b9d8c6      lea ecx, [var_1ch]
+   ; fcn.004a0c10
+0x00b9d8ca      call fcn.004a0c10
+0x00b9d8cf      fld dword [esp + 0x38]
+0x00b9d8d3      fcomp qword [0x101de30]
+0x00b9d8d9      fnstsw ax
+; 5
+0x00b9d8db      test ah, 5
+   ; likely
+0x00b9d8de      jp 0xb9d8ee
+0x00b9d8e0      fld dword [0x1016264]
+0x00b9d8e6      fstp dword [esp + 0x38]
+0x00b9d8ea      jmp 0xb9d8ee
+; CODE XREF from fcn.00b9d150 @ 0xb9d4fb(x)
+0x00b9d8ec      fstp st(0)
+; CODE XREFS from fcn.00b9d150 @ 0xb9d505(x), 0xb9d8de(x), 0xb9d8ea(x)
+0x00b9d8ee      lea ecx, [var_1ch]
+   ; fcn.004a0c10
+0x00b9d8f2      call fcn.004a0c10
+0x00b9d8f7      fld dword [esp + 0x44]
+0x00b9d8fb      fcom qword [0x10231d8]
+0x00b9d901      pop edi
+0x00b9d902      pop ebp
+0x00b9d903      pop ebx
+0x00b9d904      fnstsw ax
+; 65
+0x00b9d906      test ah, 0x41
+   ; unlikely
+0x00b9d909      jne 0xb9d913
+0x00b9d90b      fstp st(0)
+0x00b9d90d      fld dword [0x1032adc]
+; CODE XREF from fcn.00b9d150 @ 0xb9d909(x)
+0x00b9d913      fstp dword [esp + 4]
+0x00b9d917      mov esi, dword [var_84h]
+0x00b9d91e      fld dword [esp + 0x24]
+0x00b9d922      mov eax, dword [esi + 0xf8]
+0x00b9d928      fld dword [esp + 4]
+; 88
+0x00b9d92c      add eax, 0x58
+0x00b9d92f      fld st(0)
+0x00b9d931      fmulp st(2)
+0x00b9d933      fxch st(1)
+0x00b9d935      fstp dword [esp + 0xc]
+0x00b9d939      fld dword [esp + 0x28]
+0x00b9d93d      fmul st(1)
+0x00b9d93f      fstp dword [esp + 0x10]
+0x00b9d943      fld st(0)
+0x00b9d945      fmul dword [var_34h]
+0x00b9d949      fstp dword [esp + 0x14]
+0x00b9d94d      fld dword [esp + 0xc]
+0x00b9d951      fld qword [0x10b7e90]
+0x00b9d957      fmul st(1), st(0)
+0x00b9d959      fxch st(1)
+0x00b9d95b      fstp dword [esp + 0x60]
+0x00b9d95f      fld dword [esp + 0x10]
+0x00b9d963      fmul st(1)
+0x00b9d965      fstp dword [esp + 0x64]
+0x00b9d969      fmul dword [var_14h]
+0x00b9d96d      fstp dword [esp + 0x68]
+0x00b9d971      fld dword [esp + 0x60]
+0x00b9d975      fadd dword [var_d4h]
+0x00b9d97c      fstp dword [esp + 0xc]
+0x00b9d980      mov ecx, dword [var_ch]
+
+======================================================================
+ENTRY 29: Shadow preparation caller 871290
+======================================================================
+//WARNING: Variable defined which should be unmapped: var_84h
+//WARNING: Variable defined which should be unmapped: var_88h
+//WARNING: Variable defined which should be unmapped: var_94h
+//WARNING: Variable defined which should be unmapped: var_90h
+//WARNING: Variable defined which should be unmapped: var_8ch
+
+void fcn.00871290(void)
+
+{
+char cVar1;
+int16_t iVar2;
+uint uVar3;
+int iVar4;
+int32_t *piVar5;
+uint32_t uVar6;
+char *pcVar7;
+uint *puVar8;
+float10 fVar9;
+int8_t iVar10;
+float8 fVar11;
+ulong uVar12;
+int32_t var_94h;
+int32_t var_90h;
+int32_t var_8ch;
+int32_t var_88h;
+int32_t var_84h;
+int var_80h;
+int32_t var_7ch;
+int32_t var_70h;
+int32_t var_6ch;
+int32_t var_68h;
+int32_t var_64h;
+int32_t var_60h;
+int32_t var_5ch;
+int8_t var_55h;
+int32_t var_54h;
+uint32_t var_50h;
+int8_t var_49h;
+int32_t var_48h;
+uint32_t var_44h;
+uint32_t var_40h;
+int32_t var_3ch;
+int32_t var_38h;
+int32_t var_34h;
+float fStack_34;
+int32_t var_2ch;
+int32_t var_28h;
+int32_t var_24h;
+int var_20h;
+int32_t var_1ch;
+uint32_t var_18h;
+int32_t var_14h;
+int var_10h;
+int32_t var_ch;
+int32_t var_8h;
+int32_t var_4h;
+
+cVar1 = fcn.005bf7b0();
+if ((cVar1 == '\0') || (cVar1 = fcn.00525420(), cVar1 == '\0')) {
+if ((*0x11def08 != '\0') && (cVar1 = fcn.00525420(), cVar1 == '\0')) {
+*0x11def08 = '\0';
+fcn.005bf770(1);
+iVar4 = fcn.005f36f0();
+if (iVar4 == 0) {
+piVar5 = fcn.0043d4d0();
+var_8ch = *piVar5;
+}
+else {
+piVar5 = fcn.0043d4d0();
+var_8ch = *piVar5;
+}
+var_8h = var_8ch;
+uVar3 = fcn.0043c4b0(var_8ch);
+fcn.004a0ea0(uVar3);
+fcn.00b6ee70();
+}
+}
+else {
+*0x11def08 = fcn.005bf7b0();
+fcn.005bf770(0);
+var_4h = fcn.00450b80(0);
+fcn.00b5b1f0();
+uVar3 = fcn.0043c4b0(0);
+fcn.004a0ea0(uVar3);
+fcn.00b6ee70();
+}
+cVar1 = fcn.005bf7b0();
+if ((cVar1 == '\0') || (cVar1 = fcn.00871a10(), cVar1 == '\0')) {
+for (var_80h = 0x11; var_80h < 0x15; var_80h = var_80h + 1) {
+fcn.004ea970(0,var_80h);
+fcn.00ba30f0();
+fcn.004ea970();
+fcn.00ba3130();
+}
+}
+else {
+fcn.00b4f570();
+var_ch = fcn.00450b80(0);
+fcn.00b5b060();
+iVar4 = fcn.005f36f0();
+if (iVar4 == 0) {
+piVar5 = fcn.0043d4d0();
+var_90h = *piVar5;
+}
+else {
+piVar5 = fcn.0043d4d0();
+var_90h = *piVar5;
+}
+var_10h = var_90h;
+uVar3 = fcn.0043c4b0(var_90h);
+fcn.004a0ea0(uVar3);
+fcn.00b6ee70();
+if (var_10h == 0) {
+fcn.00b5c3c0();
+}
+else {
+var_14h = 0;
+var_24h = 0;
+cVar1 = fcn.004eaf60();
+if (((cVar1 != '\0') || (cVar1 = fcn.00950090(), cVar1 != '\0')) &&
+(cVar1 = fcn.008c51c0(), cVar1 == '\0')) {
+uVar3 = fcn.00950bb0(0);
+var_14h = fcn.00b5cbd0(uVar3);
+var_24h = var_24h + 1;
+}
+fcn.0040fbf0(0);
+var_1ch = fcn.00871a30();
+var_20h = fcn.00472380();
+var_28h = 0;
+while ((var_28h < var_20h && (var_24h < var_10h))) {
+var_2ch = *(var_1ch + var_28h * 4);
+iVar4 = (**(*var_2ch + 0x1d0))();
+if (iVar4 != 0) {
+(**(*var_2ch + 0x1d0))();
+iVar4 = fcn.009611e0();
+if (((iVar4 != 0) && (cVar1 = fcn.0087f200(), cVar1 != '\0')) &&
+((iVar4 = (**(*var_2ch + 0x214))(), iVar4 != 4 && (cVar1 = fcn.008c51c0(), cVar1 == '\0')))) {
+uVar3 = fcn.0050ea90();
+(**(*var_2ch + 0x1d0))(uVar3);
+var_40h = fcn.00a5bdd0();
+if (var_40h == 0) {
+var_94h = 0x11f426c;
+}
+else {
+var_94h = fcn.00500940();
+}
+var_3ch = *var_94h;
+var_38h = *(var_94h + 4);
+var_34h = *(var_94h + 8);
+fVar9 = fcn.00404010(var_3ch,var_38h,var_34h);
+fVar9 = fcn.00404010(fVar9);
+fStack_34 = fVar9;
+fVar11 = fStack_34 * *0x1021928;
+(**(*var_2ch + 0x1d0))();
+fcn.0043d450();
+fVar9 = fcn.0084d030();
+if (fVar9 < fVar11) {
+uVar3 = (**(*var_2ch + 0x1d0))();
+fcn.00b5cbd0(uVar3);
+var_24h = var_24h + 1;
+}
+}
+}
+var_28h = var_28h + 1;
+}
+fcn.0040fba0();
+fcn.00b5cde0(var_14h);
+var_18h = fcn.00950bb0(1);
+if (var_18h != 0) {
+var_54h = fcn.0045c670();
+var_48h = fcn.008d80e0();
+uVar6 = fcn.006629f0();
+fcn.0041fd00(uVar6);
+fcn.006629f0();
+uVar3 = fcn.0045bbe0();
+fcn.00a694a0(uVar3);
+var_55h = fcn.00456610();
+fcn.00450f90(-0x45);
+var_44h = fcn.0054f4c0();
+uVar12 = 0;
+fcn.004e20b0(0);
+var_49h = 0;
+if (var_44h != 0) {
+var_49h = fcn.00456610();
+uVar12 = 0x8716ec;
+pcVar7 = fcn.00408d60();
+if (*pcVar7 == '\0') {
+uVar12 = 1;
+fcn.00450f90(1);
+}
+}
+var_50h = fcn.00b5afc0(uVar12);
+var_5ch = 0;
+while (var_50h != 0) {
+iVar4 = fcn.004e6540();
+if ((iVar4 != 0) && (iVar4 = fcn.005bf820(), iVar4 != 0)) {
+cVar1 = fcn.004e6580();
+if (cVar1 == '\0') {
+fcn.004e6540();
+cVar1 = fcn.00456610();
+if (cVar1 != '\0') {
+fcn.005bf820();
+cVar1 = fcn.00456610();
+if (cVar1 == '\0') {
+if (var_5ch < var_10h) {
+iVar10 = 0;
+fcn.004e6540();
+fcn.00450f90(iVar10);
+}
+uVar12 = 0;
+fcn.00b9bb10();
+}
+else {
+fcn.00b9bb10(0,1);
+}
+}
+}
+if (var_5ch < var_10h) {
+fcn.004e6540(uVar12);
+cVar1 = fcn.00456610();
+if (cVar1 == '\0') {
+fcn.005bf820();
+cVar1 = fcn.00456610();
+if (cVar1 == '\0') {
+fcn.005bf820();
+piVar5 = fcn.0043d450();
+var_6ch = *piVar5;
+var_68h = piVar5[1];
+var_64h = piVar5[2];
+var_60h = piVar5[3];
+fcn.005bf820();
+puVar8 = fcn.0045bb80();
+fcn.00b9d150(0,*puVar8,puVar8[1],puVar8[2]);
+fcn.00b9e970(var_48h);
+iVar2 = fcn.004e6560();
+if ((iVar2 == 0xff) || (fVar9 = fcn.00979260(), fVar9 < *0x1082cb0)) {
+iVar10 = 1;
+fcn.004e6540();
+fcn.00450f90(iVar10);
+}
+else {
+var_5ch = var_5ch + 1;
+fcn.0043d410(0,0,0);
+fcn.004e6540(&fcn.00871290::var_7ch);
+fcn.00a59c60();
+fcn.00b9dfc0(var_48h,var_5ch + -1);
+fcn.00b9fba0();
+fcn.00450b80(0);
+var_70h = fcn.00454b30();
+uVar6 = var_50h;
+fcn.00450b80(0);
+fcn.00b5d300(uVar6);
+pcVar7 = fcn.00408d60();
+if (*pcVar7 != '\0') {
+uVar3 = fcn.005bf820();
+fcn.00ba0110(uVar3);
+}
+fcn.00ba02b0();
+}
+goto code_r0x00871941;
+}
+}
+}
+iVar10 = 1;
+fcn.004e6540();
+fcn.00450f90(iVar10);
+}
+code_r0x00871941:
+var_50h = fcn.00b5b010();
+}
+for (; var_5ch + 0x11 < 0x15; var_5ch = var_5ch + 1) {
+fcn.004ea970();
+fcn.00ba30f0();
+}
+if (var_44h != 0) {
+fcn.00450f90(var_49h);
+}
+fcn.004e20b0(1);
+fcn.00b5b880(var_48h);
+fcn.00450f90(var_55h);
+}
+}
+}
+fcn.00871a50();
+return;
+}
+
+======================================================================
+ENTRY 30: Shadow influence call argument native window (first two instructions misaligned; corrected in later entry)
+======================================================================
+0x008717b0      push ebp
+0x008717b1      movsb byte es:[edi], byte [esi]
+0x008717b2      cmp edx, dword [var_10h]
+   ; unlikely
+0x008717b5      jge 0x871930
+0x008717bb      mov ecx, dword [var_50h]
+   ; fcn.004e6540
+0x008717be      call fcn.004e6540
+0x008717c3      mov ecx, eax
+   ; fcn.00456610
+0x008717c5      call fcn.00456610
+0x008717ca      movzx eax, al
+0x008717cd      test eax, eax
+   ; unlikely
+0x008717cf      jne 0x871930
+0x008717d5      mov ecx, dword [var_50h]
+   ; fcn.005bf820
+0x008717d8      call fcn.005bf820
+0x008717dd      mov ecx, eax
+   ; fcn.00456610
+0x008717df      call fcn.00456610
+0x008717e4      movzx ecx, al
+0x008717e7      test ecx, ecx
+   ; unlikely
+0x008717e9      jne 0x871930
+0x008717ef      mov ecx, dword [var_50h]
+   ; fcn.005bf820
+0x008717f2      call fcn.005bf820
+0x008717f7      mov ecx, eax
+   ; fcn.0043d450
+0x008717f9      call fcn.0043d450
+0x008717fe      mov edx, dword [eax]
+0x00871800      mov dword [var_6ch], edx
+0x00871803      mov ecx, dword [eax + 4]
+0x00871806      mov dword [var_68h], ecx
+0x00871809      mov edx, dword [eax + 8]
+0x0087180c      mov dword [var_64h], edx
+0x0087180f      mov eax, dword [eax + 0xc]
+0x00871812      mov dword [var_60h], eax
+0x00871815      mov ecx, dword [var_50h]
+   ; fcn.005bf820
+0x00871818      call fcn.005bf820
+0x0087181d      mov ecx, eax
+   ; fcn.0045bb80
+0x0087181f      call fcn.0045bb80
+0x00871824      sub esp, 0xc
+0x00871827      mov ecx, esp
+0x00871829      mov edx, dword [eax]
+; int32_t arg_cch
+0x0087182b      mov dword [ecx], edx
+0x0087182d      mov edx, dword [eax + 4]
+; int32_t arg_d0h
+0x00871830      mov dword [ecx + 4], edx
+0x00871833      mov eax, dword [eax + 8]
+; int32_t arg_d4h
+0x00871836      mov dword [ecx + 8], eax
+; int32_t arg_d0h_2
+0x00871839      push 0
+0x0087183b      mov ecx, dword [var_50h]
+   ; fcn.00b9d150
+   ; fcn.00b9d150(-1, 0x0, 0x0, -1)
+0x0087183e      call fcn.00b9d150
+0x00871843      mov ecx, dword [var_48h]
+0x00871846      push ecx
+0x00871847      mov ecx, dword [var_50h]
+   ; fcn.00b9e970
+   ; fcn.00b9e970(-1)
+0x0087184a      call fcn.00b9e970
+0x0087184f      mov ecx, dword [var_50h]
+   ; fcn.004e6560
+0x00871852      call fcn.004e6560
+0x00871857      movzx edx, ax
+; 255
+0x0087185a      cmp edx, 0xff
+   ; unlikely
+0x00871860      je 0x87191d
+0x00871866      mov ecx, dword [var_50h]
+   ; fcn.00979260
+0x00871869      call fcn.00979260
+0x0087186e      fcomp qword [0x1082cb0]
+0x00871874      fnstsw ax
+; 1
+0x00871876      test ah, 1
+   ; likely
+0x00871879      jne 0x87191d
+0x0087187f      mov eax, dword [var_5ch]
+0x00871882      add eax, 1
+0x00871885      mov dword [var_5ch], eax
+0x00871888      push 0
+0x0087188a      push 0
+0x0087188c      push ecx
+0x0087188d      fldz
+0x0087188f      fstp dword [esp]
+0x00871892      lea ecx, [var_7ch]
+   ; fcn.0043d410
+   ; fcn.0043d410(0x1, 0x0)
+0x00871895      call fcn.0043d410
+
+======================================================================
+ENTRY 31: B9D150 second loop selection and bound (prefix misaligned; corrected in later entry)
+======================================================================
+0x00b9d50b      mov esp, 0xd424
+0x00b9d510      add byte [ebx], dh
+0x00b9d512  ~   fild dword [ebp - 0x72f18b01]
+0x00b9d517      lea edx, [var_6ch]
+0x00b9d51b      push edx
+0x00b9d51c      mov ecx, edi
+   ; fcn.00b70600
+   ; fcn.00b70600(0x0)
+0x00b9d51e      call fcn.00b70600
+0x00b9d523      jmp 0xb9d52e
+; CODE XREF from fcn.00b9d150 @ 0xb9d515(x)
+0x00b9d525      push 0
+0x00b9d527      mov ecx, esi
+   ; fcn.00b5ac20
+   ; fcn.00b5ac20(0x0)
+0x00b9d529      call fcn.00b5ac20
+; CODE XREF from fcn.00b9d150 @ 0xb9d523(x)
+0x00b9d52e      xor esi, esi
+0x00b9d530      mov ecx, eax
+0x00b9d532      cmp dword [var_50h], esi
+   ; unlikely
+0x00b9d536      jbe 0xb9d8c6
+0x00b9d53c      lea esp, [esp]
+; CODE XREF from fcn.00b9d150 @ 0xb9d8c0(x)
+0x00b9d540      test ecx, ecx
+   ; likely
+0x00b9d542      je 0xb9d89a
+0x00b9d548      cmp byte [ecx + 0xec], 0
+   ; likely
+0x00b9d54f      jne 0xb9d89a
+0x00b9d555      mov edi, dword [ecx + 0xf8]
+0x00b9d55b      test byte [edi + 0x30], 1
+   ; likely
+0x00b9d55f      jne 0xb9d893
+0x00b9d565      fld dword [esi*4 + 0x11ffea0]
+0x00b9d56c      fdiv dword [var_58h]
+0x00b9d570      fstp dword [esp + 0x10]
+0x00b9d574      fldz
+0x00b9d576      fld dword [esp + 0x10]
+0x00b9d57a      fcom st(1)
+0x00b9d57c      fnstsw ax
+0x00b9d57e      fstp st(1)
+; 65
+0x00b9d580      test ah, 0x41
+   ; unlikely
+0x00b9d583      jne 0xb9d891
+0x00b9d589      fld dword [esi*4 + 0x11ffea0]
+
+======================================================================
+ENTRY 32: Shadow preparation caller references
+======================================================================
+fcn.008707c0 0x870851 [CALL:--x] call fcn.00871290
+fcn.00870a00 0x870a74 [CALL:--x] call fcn.00871290
+fcn.00870bd0 0x870c3c [CALL:--x] call fcn.00871290
+
+======================================================================
+ENTRY 33: Indexed light accessor references
+======================================================================
+(nofunc) 0xb5ac13 [NULL:--x] int3
+fcn.00b5bca0 0xb5be2b [CALL:--x] call fcn.00b5ac20
+fcn.00b9d150 0xb9d2b9 [CALL:--x] call fcn.00b5ac20
+fcn.00b9d150 0xb9d3e1 [CALL:--x] call fcn.00b5ac20
+fcn.00b9d150 0xb9d529 [CALL:--x] call fcn.00b5ac20
+fcn.00b9d150 0xb9d8b4 [CALL:--x] call fcn.00b5ac20
+
+======================================================================
+ENTRY 34: Corrected aligned shadow influence caller window
+======================================================================
+0x008717b2      cmp edx, dword [var_10h]
+   ; unlikely
+0x008717b5      jge 0x871930
+0x008717bb      mov ecx, dword [var_50h]
+   ; fcn.004e6540
+0x008717be      call fcn.004e6540
+0x008717c3      mov ecx, eax
+   ; fcn.00456610
+0x008717c5      call fcn.00456610
+0x008717ca      movzx eax, al
+0x008717cd      test eax, eax
+   ; unlikely
+0x008717cf      jne 0x871930
+0x008717d5      mov ecx, dword [var_50h]
+   ; fcn.005bf820
+0x008717d8      call fcn.005bf820
+0x008717dd      mov ecx, eax
+   ; fcn.00456610
+0x008717df      call fcn.00456610
+0x008717e4      movzx ecx, al
+0x008717e7      test ecx, ecx
+   ; unlikely
+0x008717e9      jne 0x871930
+0x008717ef      mov ecx, dword [var_50h]
+   ; fcn.005bf820
+0x008717f2      call fcn.005bf820
+0x008717f7      mov ecx, eax
+   ; fcn.0043d450
+0x008717f9      call fcn.0043d450
+0x008717fe      mov edx, dword [eax]
+0x00871800      mov dword [var_6ch], edx
+0x00871803      mov ecx, dword [eax + 4]
+0x00871806      mov dword [var_68h], ecx
+0x00871809      mov edx, dword [eax + 8]
+0x0087180c      mov dword [var_64h], edx
+0x0087180f      mov eax, dword [eax + 0xc]
+0x00871812      mov dword [var_60h], eax
+0x00871815      mov ecx, dword [var_50h]
+   ; fcn.005bf820
+0x00871818      call fcn.005bf820
+0x0087181d      mov ecx, eax
+   ; fcn.0045bb80
+0x0087181f      call fcn.0045bb80
+0x00871824      sub esp, 0xc
+0x00871827      mov ecx, esp
+0x00871829      mov edx, dword [eax]
+; int32_t arg_cch
+0x0087182b      mov dword [ecx], edx
+0x0087182d      mov edx, dword [eax + 4]
+; int32_t arg_d0h
+0x00871830      mov dword [ecx + 4], edx
+0x00871833      mov eax, dword [eax + 8]
+; int32_t arg_d4h
+0x00871836      mov dword [ecx + 8], eax
+; int32_t arg_d0h_2
+0x00871839      push 0
+
+======================================================================
+ENTRY 35: Corrected second influence loop start
+======================================================================
+; CODE XREF from fcn.00b9d150 @ 0xb9d494(x)
+0x00b9d50a      mov edi, dword [var_d4h]
+0x00b9d511      xor ebx, ebx
+0x00b9d513      test edi, edi
+   ; likely
+0x00b9d515      je 0xb9d525
+0x00b9d517      lea edx, [var_6ch]
+0x00b9d51b      push edx
+0x00b9d51c      mov ecx, edi
+   ; fcn.00b70600
+   ; fcn.00b70600(0x0)
+0x00b9d51e      call fcn.00b70600
+0x00b9d523      jmp 0xb9d52e
+; CODE XREF from fcn.00b9d150 @ 0xb9d515(x)
+0x00b9d525      push 0
+0x00b9d527      mov ecx, esi
+   ; fcn.00b5ac20
+   ; fcn.00b5ac20(0x0)
+0x00b9d529      call fcn.00b5ac20
+; CODE XREF from fcn.00b9d150 @ 0xb9d523(x)
+0x00b9d52e      xor esi, esi
+0x00b9d530      mov ecx, eax
+0x00b9d532      cmp dword [var_50h], esi
+   ; likely
+0x00b9d536      jbe 0xb9d8c6
+0x00b9d53c      lea esp, [esp]
+; CODE XREF from fcn.00b9d150 @ 0xb9d8c0(x)
+0x00b9d540      test ecx, ecx
+   ; likely
+0x00b9d542      je 0xb9d89a
+0x00b9d548      cmp byte [ecx + 0xec], 0
+   ; likely
+0x00b9d54f      jne 0xb9d89a
+0x00b9d555      mov edi, dword [ecx + 0xf8]
+0x00b9d55b      test byte [edi + 0x30], 1
+   ; likely
+0x00b9d55f      jne 0xb9d893
+0x00b9d565      fld dword [esi*4 + 0x11ffea0]
+
+======================================================================
+ENTRY 36: Shadow rendering admission helper 871A10
+======================================================================
+; CALL XREF from fcn.00871290 @ 0x871382(x)
+; NULL XREF from fcn.00871290 @ +0x771(x)
+17: fcn.00871a10 ();
+0x00871a10      push ebp
+0x00871a11      mov ebp, esp
+0x00871a13      mov ecx, 0x11c74d4
+; fcn.00408d60
+0x00871a18      call fcn.00408d60
+0x00871a1d      mov al, byte [eax]
+0x00871a1f      pop ebp
+; ebp
+0x00871a20      ret
+
+======================================================================
+ENTRY 37: Prior shadow resources reset B5B060 (not count accessor)
+======================================================================
+; CALL XREF from fcn.00871290 @ 0x8713a7(x)
+123: fcn.00b5b060 ();
+0x00b5b060      push ebx
+0x00b5b061      mov ebx, dword [ecx + 0xc0]
+0x00b5b067      test ebx, ebx
+; unlikely
+0x00b5b069      je 0xb5b0d9
+0x00b5b06b      push esi
+0x00b5b06c      push edi
+0x00b5b06d      lea ecx, [ecx]
+; CODE XREF from fcn.00b5b060 @ 0xb5b0d5(x)
+0x00b5b070      mov esi, dword [ebx + 8]
+0x00b5b073      lea eax, [ebx + 8]
+0x00b5b076      mov ebx, dword [ebx]
+0x00b5b078      test esi, esi
+; unlikely
+0x00b5b07a      je 0xb5b0d3
+0x00b5b07c      cmp dword [esi + 0xf8], 0
+; unlikely
+0x00b5b083      je 0xb5b0d3
+0x00b5b085      mov eax, dword [esi + 0x10c]
+; [0x11f91a8:4]=0
+0x00b5b08b      mov ecx, dword [0x11f91a8]
+0x00b5b091      push eax
+; fcn.00b6d4c0
+; fcn.00b6d4c0(-1, -1)
+0x00b5b092      call fcn.00b6d4c0
+0x00b5b097      mov edi, dword [esi + 0x10c]
+0x00b5b09d      test edi, edi
+; unlikely
+0x00b5b09f      je 0xb5b0c2
+0x00b5b0a1      lea ecx, [edi + 4]
+0x00b5b0a4      push ecx
+; 0xfdf1c4
+; reloc.KERNEL32.dll_InterlockedDecrement
+; sym.imp.KERNEL32.dll_InterlockedDecrement(-1, -1, 0x3, 0x0)
+0x00b5b0a5      call dword [sym.imp.KERNEL32.dll_InterlockedDecrement]
+0x00b5b0ab      test eax, eax
+; likely
+0x00b5b0ad      jne 0xb5b0b8
+0x00b5b0af      mov edx, dword [edi]
+0x00b5b0b1      mov eax, dword [edx + 4]
+0x00b5b0b4      mov ecx, edi
+; 0xffffffff(-1, -1, -1, -1)
+0x00b5b0b6      call eax
+; CODE XREF from fcn.00b5b060 @ 0xb5b0ad(x)
+0x00b5b0b8      mov dword [esi + 0x10c], 0
+; CODE XREF from fcn.00b5b060 @ 0xb5b09f(x)
+0x00b5b0c2      mov eax, dword [esi + 0xf8]
+0x00b5b0c8      or dword [eax + 0x30], 1
+0x00b5b0cc      mov ecx, esi
+; fcn.00b9e770
+0x00b5b0ce      call fcn.00b9e770
+; CODE XREFS from fcn.00b5b060 @ 0xb5b07a(x), 0xb5b083(x)
+0x00b5b0d3      test ebx, ebx
+; likely
+0x00b5b0d5      jne 0xb5b070
+0x00b5b0d7      pop edi
+0x00b5b0d8      pop esi
+; CODE XREF from fcn.00b5b060 @ 0xb5b069(x)
+0x00b5b0d9      pop ebx
+0x00b5b0da      ret
+
+======================================================================
+ENTRY 38: Shadow linked-list first iterator B5AFC0
+======================================================================
+void __fastcall fcn.00b5afc0(int param_1)
+
+{
+int *piVar1;
+int iVar2;
+int iVar3;
+
+piVar1 = *(param_1 + 0xc0);
+*(param_1 + 0xcc) = piVar1;
+if (piVar1 != NULL) {
+iVar2 = *piVar1;
+*(param_1 + 0xcc) = iVar2;
+iVar3 = piVar1[2];
+while ((iVar2 != 0 && ((iVar3 == 0 || (*(iVar3 + 0xf8) == 0))))) {
+piVar1 = *(param_1 + 0xcc);
+iVar2 = *piVar1;
+*(param_1 + 0xcc) = iVar2;
+iVar3 = piVar1[2];
+}
+return;
+}
+return;
+}
+
+======================================================================
+ENTRY 39: B9D150 final output and stack cleanup
+======================================================================
+0x00b9d917      mov esi, dword [var_84h]
+0x00b9d91e      fld dword [esp + 0x24]
+0x00b9d922      mov eax, dword [esi + 0xf8]
+0x00b9d928      fld dword [esp + 4]
+; 88
+0x00b9d92c      add eax, 0x58
+0x00b9d92f      fld st(0)
+0x00b9d931      fmulp st(2)
+0x00b9d933      fxch st(1)
+0x00b9d935      fstp dword [esp + 0xc]
+0x00b9d939      fld dword [esp + 0x28]
+0x00b9d93d      fmul st(1)
+0x00b9d93f      fstp dword [esp + 0x10]
+0x00b9d943      fld st(0)
+0x00b9d945      fmul dword [var_34h]
+0x00b9d949      fstp dword [esp + 0x14]
+0x00b9d94d      fld dword [esp + 0xc]
+0x00b9d951      fld qword [0x10b7e90]
+0x00b9d957      fmul st(1), st(0)
+0x00b9d959      fxch st(1)
+0x00b9d95b      fstp dword [esp + 0x60]
+0x00b9d95f      fld dword [esp + 0x10]
+0x00b9d963      fmul st(1)
+0x00b9d965      fstp dword [esp + 0x64]
+0x00b9d969      fmul dword [var_14h]
+0x00b9d96d      fstp dword [esp + 0x68]
+0x00b9d971      fld dword [esp + 0x60]
+0x00b9d975      fadd dword [var_d4h]
+0x00b9d97c      fstp dword [esp + 0xc]
+0x00b9d980      mov ecx, dword [var_ch]
+0x00b9d984      fld dword [esp + 0x64]
+0x00b9d988      fadd dword [arg_d0h_2]
+0x00b9d98f      fstp dword [esp + 0x10]
+0x00b9d993      mov edx, dword [var_10h]
+0x00b9d997      fld dword [esp + 0x68]
+0x00b9d99b      fadd dword [arg_cch]
+0x00b9d9a2      mov dword [eax], ecx
+0x00b9d9a4      mov dword [eax + 4], edx
+0x00b9d9a7      lea edx, [var_ach_2]
+0x00b9d9ae      fstp dword [esp + 0x14]
+0x00b9d9b2      mov ecx, dword [var_14h]
+0x00b9d9b6      mov dword [eax + 8], ecx
+; [0x10240b0:8]=0x4020000000000000
+0x00b9d9b9      fmul qword [0x10240b0]
+0x00b9d9bf      mov ecx, dword [esi + 0xf8]
+0x00b9d9c5      push edx
+0x00b9d9c6      mov byte [var_b4h], 0
+0x00b9d9ce      fstp dword [esp + 0xc]
+0x00b9d9d2      mov byte [var_b5h], 0
+0x00b9d9da      fldz
+0x00b9d9dc      mov byte [var_b6h], 0
+0x00b9d9e4      fstp dword [esp + 0xb0]
+0x00b9d9eb      mov byte [var_b7h], 0
+0x00b9d9f3      mov byte [var_b8h], 0
+   ; fcn.00a59c60
+   ; fcn.00a59c60(0x57)
+0x00b9d9fb      call fcn.00a59c60
+0x00b9da00      fld dword [esp + 0x40]
+0x00b9da04      fld qword [0x10290c0]
+0x00b9da0a      fmul st(1), st(0)
+0x00b9da0c      fld dword [esp + 0x3c]
+0x00b9da10      fmul st(1)
+0x00b9da12      faddp st(2)
+0x00b9da14      fmul dword [var_48h]
+0x00b9da18      faddp st(1)
+0x00b9da1a      fstp dword [esp + 0x84]
+0x00b9da21      fld dword [esp + 0x84]
+0x00b9da28      fcom qword [0x10217d8]
+0x00b9da2e      fnstsw ax
+; 5
+0x00b9da30      test ah, 5
+   ; likely
+0x00b9da33      jp 0xb9da3d
+0x00b9da35      fstp st(0)
+0x00b9da37      fld dword [0x1030ff0]
+; CODE XREF from fcn.00b9d150 @ 0xb9da33(x)
+0x00b9da3d      fstp dword [esp + 4]
+0x00b9da41      fld dword [esp + 4]
+0x00b9da45      fcom qword [0x1012070]
+0x00b9da4b      fnstsw ax
+; 65
+0x00b9da4d      test ah, 0x41
+   ; unlikely
+0x00b9da50      jne 0xb9da56
+0x00b9da52      fstp st(0)
+0x00b9da54      fld1
+; CODE XREF from fcn.00b9d150 @ 0xb9da50(x)
+0x00b9da56      mov eax, dword [esi + 0xf8]
+0x00b9da5c      fstp dword [esp + 4]
+0x00b9da60      fld dword [esp + 4]
+0x00b9da64      fst dword [esp + 0xc]
+0x00b9da68      mov ecx, dword [var_ch_2]
+0x00b9da6c      mov dword [eax + 0xd4], ecx
+0x00b9da72      fst dword [esp + 0x10]
+
+======================================================================
+ENTRY 40: Setting bool value accessor 408D60
+======================================================================
+; XREFS(529)
+53: fcn.00408d60 ();
+afv: vars(3:sp[0x8..0x10])
+0x00408d60      push ebp
+0x00408d61      mov ebp, esp
+0x00408d63      sub esp, 0xc
+0x00408d66      mov dword [var_8h], ecx
+0x00408d69      cmp dword [var_8h], 0
+; unlikely
+0x00408d6d      je 0x408d7a
+0x00408d6f      mov eax, dword [var_8h]
+0x00408d72      add eax, 4
+0x00408d75      mov dword [var_ch], eax
+0x00408d78      jmp 0x408d88
+; CODE XREF from fcn.00408d60 @ 0x408d6d(x)
+; [0x1202800:1]=0
+0x00408d7a      mov byte [0x1202800], 0
+0x00408d81      mov dword [var_ch], 0x1202800
+; CODE XREF from fcn.00408d60 @ 0x408d78(x)
+0x00408d88      mov ecx, dword [var_ch]
+0x00408d8b      mov dword [var_4h], ecx
+0x00408d8e      mov eax, dword [var_4h]
+0x00408d91      mov esp, ebp
+; ebp
+0x00408d93      pop ebp
+0x00408d94      ret
+
+======================================================================
+ENTRY 41: Shadow admission setting reference xrefs
+======================================================================
+fcn.00871a10 0x871a13 [DATA:r--] mov ecx, 0x11c74d4
+
+======================================================================
+ENTRY 42: B9D150 output tail RET16
+======================================================================
+0x00b9da68      mov ecx, dword [var_ch_2]
+0x00b9da6c      mov dword [eax + 0xd4], ecx
+0x00b9da72      fst dword [esp + 0x10]
+0x00b9da76      mov edx, dword [var_ch]
+0x00b9da7a      fstp dword [esp + 0x14]
+0x00b9da7e      mov ecx, dword [var_10h]
+0x00b9da82      fld dword [esp + 8]
+0x00b9da86      mov dword [eax + 0xd8], edx
+0x00b9da8c      fstp dword [esp + 0xc]
+0x00b9da90      fldz
+0x00b9da92      mov edx, dword [var_ch_2]
+0x00b9da96      mov dword [eax + 0xdc], ecx
+0x00b9da9c      fst dword [esp + 0x10]
+0x00b9daa0      mov ecx, 1
+0x00b9daa5      fstp dword [esp + 0x14]
+0x00b9daa9      add dword [eax + 0xa8], ecx
+0x00b9daaf      mov eax, dword [esi + 0xf8]
+0x00b9dab5      add dword [eax + 0xa8], ecx
+0x00b9dabb      mov dword [eax + 0xe0], edx
+0x00b9dac1      mov edx, dword [var_ch]
+0x00b9dac5      mov dword [eax + 0xe4], edx
+0x00b9dacb      mov edx, dword [var_10h]
+0x00b9dacf      mov dword [eax + 0xe8], edx
+0x00b9dad5      pop esi
+0x00b9dad6      add esp, 0xc0
+0x00b9dadc      ret 0x10
+0x00b9dadf      int3
+
+======================================================================
+ENTRY 43: World render shadow call immediate window (prefix misaligned; aligned call checked separately)
+======================================================================
+; [0x42e8e04d:1]=255
+0x00870a65      add byte [ebx + 0x42e8e04d], cl
+0x00870a6b      aas
+0x00870a6c      add byte [eax], al
+0x00870a6e      mov byte [var_9h], al
+0x00870a71      mov ecx, dword [var_20h]
+   ; fcn.00871290
+0x00870a74      call fcn.00871290
+0x00870a79      movzx eax, byte [var_12h]
+0x00870a7d      push eax
+0x00870a7e      push 0
+0x00870a80      mov ecx, dword [arg_8h]
+0x00870a83      push ecx
+0x00870a84      mov edx, dword [var_18h]
+0x00870a87      push edx
+0x00870a88      mov ecx, dword [var_20h]
+   ; fcn.00872f50
+   ; fcn.00872f50(0x86, 0x0, 0x86f7cc, 0x86f7b5)
+0x00870a8b      call fcn.00872f50
+0x00870a90      mov dword [var_1ch], eax
+0x00870a93      movzx eax, byte [var_1h]
+0x00870a97      test eax, eax
+
+======================================================================
+ENTRY 44: Other indexed-light accessor caller B5BCA0
+======================================================================
+bool __thiscall fcn.00b5bca0(float param_1,float *param_2,float *param_3)
+
+{
+int *piVar1;
+float fVar2;
+float fVar3;
+float fVar4;
+float fVar5;
+int iVar6;
+float fVar7;
+float fVar8;
+float fVar9;
+uint *puVar10;
+float fVar11;
+int iVar12;
+uint32_t uVar13;
+uint32_t unaff_EBX;
+uint32_t uVar14;
+float *pfVar15;
+float10 extraout_ST0;
+float10 fVar16;
+float10 fVar17;
+float *unaff_retaddr;
+float fStack_58;
+uint32_t uStack_54;
+float fStack_50;
+int iStack_4c;
+float fStack_48;
+float fStack_40;
+float fStack_38;
+float fStack_34;
+float fStack_30;
+float fStack_2c;
+
+iVar12 = *(*(param_1 + 0xe0) + 0xf8);
+fVar2 = *(iVar12 + 0xc4);
+uVar14 = 0;
+fStack_30 = *0x11f426c;
+fStack_2c = *0x11f4270;
+fStack_34 = param_1;
+if ((fVar2 * *(iVar12 + 0xd8) + fVar2 * *(iVar12 + 0xd4) + fVar2 * *(iVar12 + 0xdc)) / *0x1021928 <= *0x10228a0) {
+if ((*0x11f9e78 & 1) == 0) {
+*0x11f9e78 = *0x11f9e78 | 1;
+}
+fVar2 = *0x11f4270;
+if (*0x11f4270 < *0x11f426c) {
+fVar2 = *0x11f426c;
+}
+fStack_40 = *0x11f4274;
+if (*0x11f4274 < fVar2) {
+fStack_40 = fVar2;
+}
+fStack_48 = 0.0;
+iVar12 = fcn.00b5ac20(0);
+if (iVar12 != 0) {
+pfVar15 = 0x11f99c8;
+uStack_54 = 0;
+fVar16 = extraout_ST0;
+do {
+if (0x4af < uStack_54) break;
+iVar6 = *(iVar12 + 0xf8);
+if ((*(iVar6 + 0x30) & 1) == 0) {
+fVar2 = *(iVar6 + 0x8c) - *unaff_retaddr;
+fVar3 = *(iVar6 + 0x90) - unaff_retaddr[1];
+fVar5 = *(iVar6 + 0x94) - unaff_retaddr[2];
+fcn.004a0c10();
+fStack_58 = param_2[2] * fVar5 + *param_2 * fVar2 + param_2[1] * fVar3;
+if (fStack_58 < 0.0) {
+fStack_58 = 0.0;
+}
+iVar12 = *(iVar12 + 0xf8);
+fVar4 = *(iVar12 + 0xc4);
+fVar7 = *(iVar12 + 0xd4);
+fVar8 = *(iVar12 + 0xd8);
+fVar9 = *(iVar12 + 0xdc);
+fVar11 = *0x1021928;
+fVar16 = fcn.00ec6040();
+fStack_50 = 1.0 - (fVar16 - 0.0) / *(iVar6 + 0xe0);
+if (fStack_50 < *0x1012060) {
+fStack_50 = 0.0;
+}
+fVar16 = 0;
+if (1.0 < fStack_50) {
+fStack_50 = 1.0;
+}
+fVar4 = fStack_50 * fStack_58 * ((fVar4 * fVar8 + fVar4 * fVar7 + fVar4 * fVar9) / fVar11);
+*(unaff_EBX * 4 + 0x11f9838) = fVar4;
+*(unaff_EBX * 4 + 0x11f96a8) = fVar4;
+if (*0x1013ea4 < fVar4) {
+iStack_4c = iStack_4c + 1;
+}
+fStack_48 = fVar4 + fStack_48;
+uStack_54 = uStack_54 + 0xc;
+*pfVar15 = fVar2;
+pfVar15[1] = fVar3;
+uVar14 = unaff_EBX + 1;
+pfVar15[2] = fVar5;
+pfVar15 = pfVar15 + 3;
+param_1 = fStack_38;
+unaff_EBX = uVar14;
+}
+fStack_40 = fStack_40 + 1;
+uVar13 = fStack_40 & 0xffff;
+if (*(param_1 + 0xbc) <= uVar13) break;
+puVar10 = **(param_1 + 0xb4);
+iVar12 = (*(param_1 + 0xb4))[2];
+for (; uVar13 != 0; uVar13 = uVar13 - 1) {
+piVar1 = puVar10 + 2;
+puVar10 = *puVar10;
+iVar12 = *piVar1;
+}
+} while (iVar12 != 0);
+if (0 < iStack_4c) {
+uVar13 = 0;
+if (3 < uVar14) {
+pfVar15 = 0x11f99d0;
+do {
+fVar17 = *(uVar13 * 4 + 0x11f96a8) / fStack_48;
+if (fVar16 < fVar17) {
+fStack_34 = pfVar15[-2] * fVar17 + fStack_34;
+fStack_30 = fStack_30 + pfVar15[-1] * fVar17;
+fStack_2c = fStack_2c + fVar17 * *pfVar15;
+}
+fVar17 = *(uVar13 * 4 + 0x11f96ac) / fStack_48;
+if (fVar16 < fVar17) {
+fStack_34 = pfVar15[1] * fVar17 + fStack_34;
+fStack_30 = fStack_30 + pfVar15[2] * fVar17;
+fStack_2c = fStack_2c + fVar17 * pfVar15[3];
+}
+fVar17 = *(uVar13 * 4 + 0x11f96b0) / fStack_48;
+if (fVar16 < fVar17) {
+fStack_34 = pfVar15[4] * fVar17 + fStack_34;
+fStack_30 = fStack_30 + pfVar15[5] * fVar17;
+fStack_2c = fStack_2c + fVar17 * pfVar15[6];
+}
+fVar17 = *(uVar13 * 4 + 0x11f96b4) / fStack_48;
+if (fVar16 < fVar17) {
+fStack_34 = pfVar15[7] * fVar17 + fStack_34;
+fStack_30 = fStack_30 + pfVar15[8] * fVar17;
+fStack_2c = fStack_2c + fVar17 * pfVar15[9];
+}
+uVar13 = uVar13 + 4;
+pfVar15 = pfVar15 + 0xc;
+} while (uVar13 < uVar14 - 3);
+}
+if (uVar13 < uVar14) {
+pfVar15 = uVar13 * 0xc + 0x11f99d0;
+do {
+fVar17 = *(uVar13 * 4 + 0x11f96a8) / fStack_48;
+if (fVar16 < fVar17) {
+fStack_34 = pfVar15[-2] * fVar17 + fStack_34;
+fStack_30 = fStack_30 + pfVar15[-1] * fVar17;
+fStack_2c = fStack_2c + fVar17 * *pfVar15;
+}
+uVar13 = uVar13 + 1;
+pfVar15 = pfVar15 + 3;
+} while (uVar13 < uVar14);
+}
+goto code_r0x00b5c282;
+}
+}
+iVar12 = *(*(param_1 + 0xe0) + 0xf8);
+fVar2 = *(iVar12 + 0xf0);
+fVar3 = *(iVar12 + 0xf4);
+fVar5 = *(iVar12 + 0xf8);
+fcn.004a0c10();
+uVar14 = 1;
+fStack_2c = *0x1017b70;
+fStack_34 = -fVar2 * fStack_2c;
+fStack_30 = -fVar3 * fStack_2c;
+fStack_2c = fStack_2c * -fVar5;
+}
+else {
+fVar2 = *(iVar12 + 0xf0);
+fVar3 = *(iVar12 + 0xf4);
+fcn.004a0c10();
+uVar14 = 1;
+fStack_30 = -fVar2 * *0x1017b70;
+fStack_2c = -fVar3 * *0x1017b70;
+}
+code_r0x00b5c282:
+fVar2 = unaff_retaddr[1];
+fVar3 = unaff_retaddr[2];
+*param_3 = *unaff_retaddr + fStack_34;
+param_3[1] = fVar2 + fStack_30;
+param_3[2] = fVar3 + fStack_2c;
+return uVar14 != 0;
+}
+
+======================================================================
+ENTRY 45: B9D150 second-pass gate and iterator initialization
+======================================================================
+   ; fcn.004a0c10
+0x00b9d484      call fcn.004a0c10
+0x00b9d489      fldz
+0x00b9d48b      fcomp dword [esp + 0x58]
+0x00b9d48f      fnstsw ax
+; 68
+0x00b9d491      test ah, 0x44
+   ; likely
+0x00b9d494      jp 0xb9d50a
+0x00b9d496      mov ecx, dword [var_ach_2]
+0x00b9d49d      mov edx, dword [var_ach]
+0x00b9d4a4      mov eax, dword [var_b4h_2]
+0x00b9d4ab      mov dword [var_38h], ecx
+0x00b9d4af      mov ecx, dword [arg_d4h]
+0x00b9d4b5      mov dword [var_20h], edx
+0x00b9d4b9      mov edx, dword [arg_cch]
+0x00b9d4bf      mov dword [var_34h], eax
+0x00b9d4c3      mov eax, dword [arg_d0h]
+0x00b9d4c9      mov dword [var_50h], ecx
+0x00b9d4cd      lea ecx, [var_20h]
+0x00b9d4d1      mov dword [var_48h], edx
+0x00b9d4d5      mov dword [var_4ch], eax
+   ; fcn.004a0c10
+0x00b9d4d9      call fcn.004a0c10
+0x00b9d4de      fld dword [esp + 0x44]
+; [0x10731a8:8]=0x4052c00000000000
+0x00b9d4e2      fdiv qword [0x10731a8]
+0x00b9d4e8      fstp dword [esp + 0x10]
+0x00b9d4ec      fld dword [esp + 0x10]
+0x00b9d4f0      fld dword [esp + 0x38]
+0x00b9d4f4      fcomp st(1)
+0x00b9d4f6      fnstsw ax
+; 5
+0x00b9d4f8      test ah, 5
+   ; likely
+0x00b9d4fb      jp 0xb9d8ec
+0x00b9d501      fstp dword [esp + 0x38]
+0x00b9d505      jmp 0xb9d8ee
+; CODE XREF from fcn.00b9d150 @ 0xb9d494(x)
+0x00b9d50a      mov edi, dword [var_d4h]
+0x00b9d511      xor ebx, ebx
+0x00b9d513      test edi, edi
+   ; likely
+0x00b9d515      je 0xb9d525
+0x00b9d517      lea edx, [var_6ch]
+0x00b9d51b      push edx
+0x00b9d51c      mov ecx, edi
+   ; fcn.00b70600
+   ; fcn.00b70600(0x0)
+0x00b9d51e      call fcn.00b70600
+0x00b9d523      jmp 0xb9d52e
+; CODE XREF from fcn.00b9d150 @ 0xb9d515(x)
+0x00b9d525      push 0
+0x00b9d527      mov ecx, esi
+   ; fcn.00b5ac20
+   ; fcn.00b5ac20(0x0)
+0x00b9d529      call fcn.00b5ac20
+; CODE XREF from fcn.00b9d150 @ 0xb9d523(x)
+0x00b9d52e      xor esi, esi
+0x00b9d530      mov ecx, eax
+0x00b9d532      cmp dword [var_50h], esi
+
+======================================================================
+ENTRY 46: Confirmed world-render shadow call aligned
+======================================================================
+0x00870a71      mov ecx, dword [var_20h]
+   ; fcn.00871290
+0x00870a74      call fcn.00871290
+0x00870a79      movzx eax, byte [var_12h]
+0x00870a7d      push eax
+0x00870a7e      push 0
+0x00870a80      mov ecx, dword [arg_8h]
+0x00870a83      push ecx
+
+======================================================================
+ENTRY 47: Scene illumination helper B5BCA0 assembly
+======================================================================
+; CALL XREF from fcn.00b803b0 @ 0xb803f0(x)
+1719: fcn.00b5bca0 (int32_t arg_6ch, int32_t arg_70h, int32_t arg_6ch_2);
+`- args(sp[0x0..0x8]) vars(23:sp[0x4..0x5c])
+0x00b5bca0      sub esp, 0x58
+0x00b5bca3      push ebx
+0x00b5bca4      mov ebx, ecx
+0x00b5bca6      mov eax, dword [ebx + 0xe0]
+0x00b5bcac      mov ecx, dword [eax + 0xf8]
+0x00b5bcb2      fld dword [ecx + 0xc4]
+0x00b5bcb8      mov eax, dword [ecx + 0xd4]
+0x00b5bcbe      fstp dword [esp + 0x20]
+0x00b5bcc2      mov dword [var_38h], eax
+0x00b5bcc6      fld dword [esp + 0x20]
+0x00b5bcca      mov eax, dword [ecx + 0xd8]
+0x00b5bcd0      fld st(0)
+0x00b5bcd2      mov dword [var_3ch], eax
+0x00b5bcd6      fmul dword [var_38h]
+0x00b5bcda      mov eax, dword [ecx + 0xdc]
+0x00b5bce0      mov dword [var_40h], eax
+; [0x11f426c:4]=0
+0x00b5bce4      mov edx, dword [0x11f426c]
+0x00b5bcea      fstp dword [esp + 0x38]
+0x00b5bcee      push ebp
+0x00b5bcef      push esi
+0x00b5bcf0      fld st(0)
+; [0x11f4270:4]=0
+0x00b5bcf2      mov esi, dword [0x11f4270]
+0x00b5bcf8      fmul dword [var_3ch]
+0x00b5bcfc      push edi
+; [0x11f4274:4]=0
+0x00b5bcfd      mov edi, dword [0x11f4274]
+0x00b5bd03      xor ebp, ebp
+0x00b5bd05      fstp dword [esp + 0x48]
+0x00b5bd09      mov dword [var_34h], ebx
+0x00b5bd0d      mov dword [var_10h], ebp
+0x00b5bd11      fmul dword [var_40h]
+0x00b5bd15      mov dword [var_38h_2], edx
+0x00b5bd19      mov dword [var_3ch_2], esi
+0x00b5bd1d      mov dword [var_40h_2], edi
+0x00b5bd21      fstp dword [esp + 0x4c]
+0x00b5bd25      fld dword [esp + 0x48]
+0x00b5bd29      fadd dword [var_38h]
+0x00b5bd2d      fadd dword [var_40h]
+; [0x1021928:8]=0x4008000000000000
+0x00b5bd31      fdiv qword [0x1021928]
+0x00b5bd37      fstp dword [esp + 0x2c]
+0x00b5bd3b      fld dword [esp + 0x2c]
+0x00b5bd3f      fcomp qword [0x10228a0]
+0x00b5bd45      fnstsw ax
+; 65
+0x00b5bd47      test ah, 0x41
+; likely
+0x00b5bd4a      jne 0xb5bdc6
+0x00b5bd4c      fld dword [ecx + 0xf0]
+0x00b5bd52      fchs
+0x00b5bd54      fstp dword [esp + 0x50]
+0x00b5bd58      fld dword [ecx + 0xf4]
+0x00b5bd5e      fchs
+0x00b5bd60      fstp dword [esp + 0x54]
+0x00b5bd64      fld dword [ecx + 0xf8]
+0x00b5bd6a      lea ecx, [var_54h]
+0x00b5bd6e      fchs
+0x00b5bd70      fstp dword [esp + 0x58]
+; fcn.004a0c10
+0x00b5bd74      call fcn.004a0c10
+0x00b5bd79      fld dword [esp + 0x50]
+0x00b5bd7d      mov dword [var_10h], 1
+0x00b5bd85      fld qword [0x1017b70]
+0x00b5bd8b      mov ebp, dword [var_10h]
+0x00b5bd8f      fmul st(1), st(0)
+0x00b5bd91      fxch st(1)
+0x00b5bd93      fstp dword [esp + 0x5c]
+0x00b5bd97      mov ecx, dword [var_5ch]
+0x00b5bd9b      fld dword [esp + 0x54]
+0x00b5bd9f      mov dword [var_38h_2], ecx
+0x00b5bda3      fmul st(1)
+0x00b5bda5      fstp dword [esp + 0x60]
+0x00b5bda9      mov edx, dword [var_60h]
+0x00b5bdad      mov dword [var_3ch_2], edx
+0x00b5bdb1      fmul dword [var_5ch_2]
+0x00b5bdb5      fstp dword [esp + 0x64]
+0x00b5bdb9      mov eax, dword [var_64h]
+0x00b5bdbd      mov dword [var_40h_2], eax
+0x00b5bdc1      jmp 0xb5c282
+; CODE XREF from fcn.00b5bca0 @ 0xb5bd4a(x)
+; [0x11f9e78:1]=0
+0x00b5bdc6      test byte [0x11f9e78], 1
+; unlikely
+0x00b5bdcd      jne 0xb5bdd6
+; [0x11f9e78:4]=0
+0x00b5bdcf      or dword [0x11f9e78], 1
+; CODE XREF from fcn.00b5bca0 @ 0xb5bdcd(x)
+0x00b5bdd6      mov dword [var_5ch], edx
+0x00b5bdda      fld dword [esp + 0x5c]
+0x00b5bdde      mov dword [var_60h], esi
+0x00b5bde2      fld dword [esp + 0x60]
+0x00b5bde6      fcom st(1)
+0x00b5bde8      mov dword [var_64h], edi
+0x00b5bdec      fnstsw ax
+; 5
+0x00b5bdee      test ah, 5
+; likely
+0x00b5bdf1      jp 0xb5bdf7
+0x00b5bdf3      fstp st(0)
+0x00b5bdf5      jmp 0xb5bdf9
+; CODE XREF from fcn.00b5bca0 @ 0xb5bdf1(x)
+0x00b5bdf7      fstp st(1)
+; CODE XREF from fcn.00b5bca0 @ 0xb5bdf5(x)
+0x00b5bdf9      fstp dword [esp + 0x24]
+0x00b5bdfd      fld dword [esp + 0x24]
+0x00b5be01      fld dword [esp + 0x64]
+0x00b5be05      fcom st(1)
+0x00b5be07      fnstsw ax
+; 5
+0x00b5be09      test ah, 5
+; likely
+0x00b5be0c      jp 0xb5be12
+0x00b5be0e      fstp st(0)
+0x00b5be10      jmp 0xb5be14
+; CODE XREF from fcn.00b5bca0 @ 0xb5be0c(x)
+0x00b5be12      fstp st(1)
+; CODE XREF from fcn.00b5bca0 @ 0xb5be10(x)
+0x00b5be14      xor esi, esi
+0x00b5be16      fstp dword [esp + 0x28]
+0x00b5be1a      fldz
+; int32_t arg_8h
+0x00b5be1c      push esi
+0x00b5be1d      mov ecx, ebx
+0x00b5be1f      fst dword [esp + 0x28]
+0x00b5be23      mov dword [var_24h], esi
+0x00b5be27      mov dword [var_30h], esi
+; fcn.00b5ac20
+; fcn.00b5ac20(0x86f828)
+0x00b5be2b      call fcn.00b5ac20
+0x00b5be30      mov dword [var_1ch], eax
+0x00b5be34      cmp eax, esi
+; unlikely
+0x00b5be36      je 0xb5c2d0
+0x00b5be3c      mov edi, 0x11f99c8
+0x00b5be41      mov dword [var_18h], esi
+0x00b5be45      jmp 0xb5be4b
+; CODE XREF from fcn.00b5bca0 @ 0xb5c06d(x)
+0x00b5be47      mov eax, dword [var_1ch]
+; CODE XREF from fcn.00b5bca0 @ 0xb5be45(x)
+0x00b5be4b      cmp dword [var_18h], 0x4b0
+; unlikely
+0x00b5be53      jae 0xb5c073
+0x00b5be59      mov esi, dword [eax + 0xf8]
+0x00b5be5f      test byte [esi + 0x30], 1
+; likely
+0x00b5be63      jne 0xb5c036
+0x00b5be69      mov eax, dword [arg_6ch]
+0x00b5be6d      fstp st(0)
+0x00b5be6f      fld dword [esi + 0x8c]
+0x00b5be75      fsub dword [eax]
+0x00b5be77      fstp dword [esp + 0x50]
+0x00b5be7b      mov ebp, dword [var_40h]
+0x00b5be7f      fld dword [esi + 0x90]
+0x00b5be85      mov dword [var_5ch_2], ebp
+0x00b5be89      fsub dword [eax + 4]
+0x00b5be8c      fstp dword [esp + 0x54]
+0x00b5be90      mov ebx, dword [var_54h]
+0x00b5be94      fld dword [esi + 0x94]
+0x00b5be9a      mov dword [var_5ch], ebx
+0x00b5be9e      fsub dword [eax + 8]
+0x00b5bea1      fstp dword [esp + 0x58]
+0x00b5bea5      mov ecx, dword [var_58h]
+0x00b5bea9      mov dword [var_60h], ecx
+0x00b5bead      lea ecx, [var_5ch_2]
+; fcn.004a0c10
+0x00b5beb1      call fcn.004a0c10
+0x00b5beb6      mov eax, dword [arg_70h]
+0x00b5beba      fld dword [eax + 4]
+0x00b5bebd      fmul dword [var_5ch]
+0x00b5bec1      fld dword [eax]
+0x00b5bec3      fmul dword [var_5ch_2]
+0x00b5bec7      faddp st(1)
+0x00b5bec9      fld dword [eax + 8]
+0x00b5becc      fmul dword [var_60h]
+0x00b5bed0      faddp st(1)
+0x00b5bed2      fstp dword [esp + 0x14]
+0x00b5bed6      fldz
+0x00b5bed8      fcom dword [esp + 0x14]
+0x00b5bedc      fnstsw ax
+; 65
+0x00b5bede      test ah, 0x41
+; likely
+0x00b5bee1      jne 0xb5bee9
+0x00b5bee3      fstp dword [esp + 0x14]
+0x00b5bee7      jmp 0xb5beeb
+; CODE XREF from fcn.00b5bca0 @ 0xb5bee1(x)
+0x00b5bee9      fstp st(0)
+; CODE XREF from fcn.00b5bca0 @ 0xb5bee7(x)
+0x00b5beeb      mov edx, dword [var_1ch]
+0x00b5beef      mov eax, dword [edx + 0xf8]
+0x00b5bef5      fld dword [eax + 0xc4]
+0x00b5befb      mov ecx, dword [eax + 0xd4]
+0x00b5bf01      fstp dword [esp + 0x1c]
+0x00b5bf05      mov edx, dword [eax + 0xd8]
+0x00b5bf0b      fld dword [esp + 0x1c]
+0x00b5bf0f      mov eax, dword [eax + 0xdc]
+0x00b5bf15      fld st(0)
+0x00b5bf17      mov dword [var_40h_2], ecx
+0x00b5bf1b      fmul dword [var_40h_2]
+0x00b5bf1f      mov dword [var_38h], edx
+0x00b5bf23      mov dword [var_3ch], eax
+0x00b5bf27      fstp dword [esp + 0x44]
+0x00b5bf2b      fld st(0)
+0x00b5bf2d      fmul dword [var_38h]
+0x00b5bf31      fstp dword [esp + 0x48]
+0x00b5bf35      fmul dword [var_3ch]
+0x00b5bf39      fstp dword [esp + 0x4c]
+0x00b5bf3d      fld dword [esp + 0x48]
+0x00b5bf41      fadd dword [var_40h_2]
+0x00b5bf45      fadd dword [var_3ch]
+; [0x1021928:8]=0x4008000000000000
+0x00b5bf49      fdiv qword [0x1021928]
+0x00b5bf4f      fstp dword [esp + 0x30]
+0x00b5bf53      fld dword [esp + 0x54]
+0x00b5bf57      fld dword [esp + 0x50]
+0x00b5bf5b      fld dword [esp + 0x58]
+0x00b5bf5f      fld st(1)
+0x00b5bf61      fmulp st(2)
+0x00b5bf63      fld st(2)
+0x00b5bf65      fmulp st(3)
+0x00b5bf67      fxch st(1)
+0x00b5bf69      faddp st(2)
+0x00b5bf6b      fmul st(0), st(0)
+0x00b5bf6d      faddp st(1)
+0x00b5bf6f      fstp dword [esp + 0x1c]
+0x00b5bf73      fld dword [esp + 0x1c]
+; fcn.00ec6040
+0x00b5bf77      call fcn.00ec6040
+0x00b5bf7c      fstp dword [esp + 0x1c]
+0x00b5bf80      fld dword [esp + 0x1c]
+0x00b5bf84      fsub dword [var_28h]
+0x00b5bf88      fdiv dword [esi + 0xe0]
+0x00b5bf8e      fld1
+0x00b5bf90      fld st(0)
+0x00b5bf92      fsubrp st(2)
+0x00b5bf94      fxch st(1)
+0x00b5bf96      fstp dword [esp + 0x1c]
+0x00b5bf9a      fld dword [esp + 0x1c]
+0x00b5bf9e      fcom qword [0x1012060]
+0x00b5bfa4      fnstsw ax
+; 5
+0x00b5bfa6      test ah, 5
+; likely
+0x00b5bfa9      jp 0xb5bfb5
+0x00b5bfab      fstp st(0)
+0x00b5bfad      fldz
+0x00b5bfaf      fst dword [esp + 0x1c]
+0x00b5bfb3      jmp 0xb5bfbb
+; CODE XREF from fcn.00b5bca0 @ 0xb5bfa9(x)
+0x00b5bfb5      fstp dword [esp + 0x1c]
+0x00b5bfb9      fldz
+; CODE XREF from fcn.00b5bca0 @ 0xb5bfb3(x)
+0x00b5bfbb      fld dword [esp + 0x1c]
+0x00b5bfbf      fcom st(2)
+0x00b5bfc1      fnstsw ax
+0x00b5bfc3      fstp st(2)
+; 65
+0x00b5bfc5      test ah, 0x41
+; likely
+0x00b5bfc8      jne 0xb5bfd0
+0x00b5bfca      fstp st(1)
+0x00b5bfcc      fld1
+0x00b5bfce      jmp 0xb5bfd2
+; CODE XREF from fcn.00b5bca0 @ 0xb5bfc8(x)
+0x00b5bfd0      fxch st(1)
+; CODE XREF from fcn.00b5bca0 @ 0xb5bfce(x)
+0x00b5bfd2      mov ecx, dword [var_10h_2]
+0x00b5bfd6      fstp dword [esp + 0x1c]
+0x00b5bfda      fld dword [esp + 0x1c]
+0x00b5bfde      fmul dword [var_10h]
+0x00b5bfe2      fmul dword [var_30h]
+0x00b5bfe6      fstp dword [esp + 0x30]
+0x00b5bfea      fld dword [esp + 0x30]
+; [0x11f9838:4]=0
+0x00b5bfee      fst dword [ecx*4 + 0x11f9838]
+; [0x11f96a8:4]=0
+0x00b5bff5      fst dword [ecx*4 + 0x11f96a8]
+0x00b5bffc      fld dword [0x1013ea4]
+0x00b5c002      fcomp st(1)
+0x00b5c004      fnstsw ax
+; 5
+0x00b5c006      test ah, 5
+; likely
+0x00b5c009      jp 0xb5c00f
+0x00b5c00b      inc dword [var_20h]
+; CODE XREF from fcn.00b5bca0 @ 0xb5c009(x)
+0x00b5c00f      fadd dword [var_24h]
+0x00b5c013      mov edx, dword [var_58h]
+; [0xc:4]=-1
+; 12
+0x00b5c017      add dword [var_18h], 0xc
+0x00b5c01c      mov dword [edi], ebp
+0x00b5c01e      mov dword [edi + 4], ebx
+0x00b5c021      fstp dword [esp + 0x24]
+0x00b5c025      mov ebx, dword [var_34h_2]
+0x00b5c029      inc ecx
+0x00b5c02a      mov dword [edi + 8], edx
+0x00b5c02d      mov dword [var_10h_2], ecx
+; 12
+0x00b5c031      add edi, 0xc
+0x00b5c034      mov ebp, ecx
+; CODE XREF from fcn.00b5bca0 @ 0xb5be63(x)
+0x00b5c036      mov eax, dword [var_2ch]
+0x00b5c03a      inc eax
+0x00b5c03b      movzx edx, ax
+0x00b5c03e      mov dword [var_2ch], eax
+0x00b5c042      cmp edx, dword [ebx + 0xbc]
+; unlikely
+0x00b5c048      jae 0xb5c073
+0x00b5c04a      mov eax, dword [ebx + 0xb4]
+0x00b5c050      lea ecx, [eax + 8]
+0x00b5c053      mov eax, dword [eax]
+0x00b5c055      mov ecx, dword [ecx]
+0x00b5c057      test edx, edx
+; unlikely
+0x00b5c059      jbe 0xb5c067
+; CODE XREF from fcn.00b5bca0 @ 0xb5c065(x)
+0x00b5c05b      sub edx, 1
+0x00b5c05e      lea ecx, [eax + 8]
+0x00b5c061      mov eax, dword [eax]
+0x00b5c063      mov ecx, dword [ecx]
+; unlikely
+0x00b5c065      jne 0xb5c05b
+; CODE XREF from fcn.00b5bca0 @ 0xb5c059(x)
+0x00b5c067      mov dword [var_1ch], ecx
+0x00b5c06b      test ecx, ecx
+; likely
+0x00b5c06d      jne 0xb5be47
+; CODE XREFS from fcn.00b5bca0 @ 0xb5be53(x), 0xb5c048(x)
+0x00b5c073      cmp dword [var_20h], 0
+; likely
+0x00b5c078      jle 0xb5c2d0
+0x00b5c07e      fld dword [esp + 0x24]
+0x00b5c082      xor ecx, ecx
+; 4
+0x00b5c084      cmp ebp, 4
+; likely
+0x00b5c087      jl 0xb5c20e
+0x00b5c08d      lea esi, [ebp - 3]
+0x00b5c090      mov edx, 0x11f99d0
+; CODE XREF from fcn.00b5bca0 @ 0xb5c208(x)
+0x00b5c095      fld dword [ecx*4 + 0x11f96a8]
+0x00b5c09c      fdiv st(1)
+0x00b5c09e      fstp dword [esp + 0x70]
+0x00b5c0a2      fld dword [esp + 0x70]
+0x00b5c0a6      fcom st(2)
+0x00b5c0a8      fnstsw ax
+; 65
+0x00b5c0aa      test ah, 0x41
+; likely
+0x00b5c0ad      jne 0xb5c0ed
+0x00b5c0af      fld dword [edx - 8]
+0x00b5c0b2      fmul st(1)
+0x00b5c0b4      fstp dword [esp + 0x44]
+0x00b5c0b8      fld dword [edx - 4]
+0x00b5c0bb      fmul st(1)
+0x00b5c0bd      fstp dword [esp + 0x48]
+0x00b5c0c1      fmul dword [edx]
+0x00b5c0c3      fstp dword [esp + 0x4c]
+0x00b5c0c7      fld dword [esp + 0x44]
+0x00b5c0cb      fadd dword [var_34h]
+0x00b5c0cf      fstp dword [esp + 0x38]
+0x00b5c0d3      fld dword [esp + 0x3c]
+0x00b5c0d7      fadd dword [var_38h]
+0x00b5c0db      fstp dword [esp + 0x3c]
+0x00b5c0df      fld dword [esp + 0x40]
+0x00b5c0e3      fadd dword [var_3ch]
+0x00b5c0e7      fstp dword [esp + 0x40]
+0x00b5c0eb      jmp 0xb5c0ef
+; CODE XREF from fcn.00b5bca0 @ 0xb5c0ad(x)
+0x00b5c0ed      fstp st(0)
+; CODE XREF from fcn.00b5bca0 @ 0xb5c0eb(x)
+0x00b5c0ef      fld dword [ecx*4 + 0x11f96ac]
+0x00b5c0f6      fdiv st(1)
+0x00b5c0f8      fstp dword [esp + 0x70]
+0x00b5c0fc      fld dword [esp + 0x70]
+0x00b5c100      fcom st(2)
+0x00b5c102      fnstsw ax
+; 65
+0x00b5c104      test ah, 0x41
+; likely
+0x00b5c107      jne 0xb5c148
+0x00b5c109      fld dword [edx + 4]
+0x00b5c10c      fmul st(1)
+0x00b5c10e      fstp dword [esp + 0x44]
+0x00b5c112      fld dword [edx + 8]
+0x00b5c115      fmul st(1)
+0x00b5c117      fstp dword [esp + 0x48]
+0x00b5c11b      fmul dword [edx + 0xc]
+0x00b5c11e      fstp dword [esp + 0x4c]
+0x00b5c122      fld dword [esp + 0x44]
+0x00b5c126      fadd dword [var_34h]
+0x00b5c12a      fstp dword [esp + 0x38]
+0x00b5c12e      fld dword [esp + 0x3c]
+0x00b5c132      fadd dword [var_38h]
+0x00b5c136      fstp dword [esp + 0x3c]
+0x00b5c13a      fld dword [esp + 0x40]
+0x00b5c13e      fadd dword [var_3ch]
+0x00b5c142      fstp dword [esp + 0x40]
+0x00b5c146      jmp 0xb5c14a
+; CODE XREF from fcn.00b5bca0 @ 0xb5c107(x)
+0x00b5c148      fstp st(0)
+; CODE XREF from fcn.00b5bca0 @ 0xb5c146(x)
+0x00b5c14a      fld dword [ecx*4 + 0x11f96b0]
+0x00b5c151      fdiv st(1)
+0x00b5c153      fstp dword [esp + 0x70]
+0x00b5c157      fld dword [esp + 0x70]
+0x00b5c15b      fcom st(2)
+0x00b5c15d      fnstsw ax
+; 65
+0x00b5c15f      test ah, 0x41
+; likely
+0x00b5c162      jne 0xb5c1a3
+0x00b5c164      fld dword [edx + 0x10]
+0x00b5c167      fmul st(1)
+0x00b5c169      fstp dword [esp + 0x44]
+0x00b5c16d      fld dword [edx + 0x14]
+0x00b5c170      fmul st(1)
+0x00b5c172      fstp dword [esp + 0x48]
+0x00b5c176      fmul dword [edx + 0x18]
+0x00b5c179      fstp dword [esp + 0x4c]
+0x00b5c17d      fld dword [esp + 0x44]
+0x00b5c181      fadd dword [var_34h]
+0x00b5c185      fstp dword [esp + 0x38]
+0x00b5c189      fld dword [esp + 0x3c]
+0x00b5c18d      fadd dword [var_38h]
+0x00b5c191      fstp dword [esp + 0x3c]
+0x00b5c195      fld dword [esp + 0x40]
+0x00b5c199      fadd dword [var_3ch]
+0x00b5c19d      fstp dword [esp + 0x40]
+0x00b5c1a1      jmp 0xb5c1a5
+; CODE XREF from fcn.00b5bca0 @ 0xb5c162(x)
+0x00b5c1a3      fstp st(0)
+; CODE XREF from fcn.00b5bca0 @ 0xb5c1a1(x)
+0x00b5c1a5      fld dword [ecx*4 + 0x11f96b4]
+0x00b5c1ac      fdiv st(1)
+0x00b5c1ae      fstp dword [esp + 0x70]
+0x00b5c1b2      fld dword [esp + 0x70]
+0x00b5c1b6      fcom st(2)
+0x00b5c1b8      fnstsw ax
+; 65
+0x00b5c1ba      test ah, 0x41
+; likely
+0x00b5c1bd      jne 0xb5c1fe
+0x00b5c1bf      fld dword [edx + 0x1c]
+0x00b5c1c2      fmul st(1)
+0x00b5c1c4      fstp dword [esp + 0x44]
+0x00b5c1c8      fld dword [edx + 0x20]
+0x00b5c1cb      fmul st(1)
+0x00b5c1cd      fstp dword [esp + 0x48]
+0x00b5c1d1      fmul dword [edx + 0x24]
+0x00b5c1d4      fstp dword [esp + 0x4c]
+0x00b5c1d8      fld dword [esp + 0x44]
+0x00b5c1dc      fadd dword [var_34h]
+0x00b5c1e0      fstp dword [esp + 0x38]
+0x00b5c1e4      fld dword [esp + 0x3c]
+0x00b5c1e8      fadd dword [var_38h]
+0x00b5c1ec      fstp dword [esp + 0x3c]
+0x00b5c1f0      fld dword [esp + 0x40]
+0x00b5c1f4      fadd dword [var_3ch]
+0x00b5c1f8      fstp dword [esp + 0x40]
+0x00b5c1fc      jmp 0xb5c200
+; CODE XREF from fcn.00b5bca0 @ 0xb5c1bd(x)
+0x00b5c1fe      fstp st(0)
+; CODE XREF from fcn.00b5bca0 @ 0xb5c1fc(x)
+0x00b5c200      add ecx, 4
+; 48
+0x00b5c203      add edx, 0x30
+0x00b5c206      cmp ecx, esi
+; likely
+0x00b5c208      jb 0xb5c095
+; CODE XREF from fcn.00b5bca0 @ 0xb5c087(x)
+0x00b5c20e      cmp ecx, ebp
+; likely
+0x00b5c210      jae 0xb5c27e
+0x00b5c212      lea edx, [ecx + ecx*2]
+0x00b5c215      lea edx, [edx*4 + 0x11f99d0]
+; CODE XREF from fcn.00b5bca0 @ 0xb5c27c(x)
+0x00b5c21c      fld dword [ecx*4 + 0x11f96a8]
+0x00b5c223      fdiv st(1)
+0x00b5c225      fstp dword [esp + 0x70]
+0x00b5c229      fld dword [esp + 0x70]
+0x00b5c22d      fcom st(2)
+0x00b5c22f      fnstsw ax
+; 65
+0x00b5c231      test ah, 0x41
+; likely
+0x00b5c234      jne 0xb5c274
+0x00b5c236      fld dword [edx - 8]
+0x00b5c239      fmul st(1)
+0x00b5c23b      fstp dword [esp + 0x44]
+0x00b5c23f      fld dword [edx - 4]
+0x00b5c242      fmul st(1)
+0x00b5c244      fstp dword [esp + 0x48]
+0x00b5c248      fmul dword [edx]
+0x00b5c24a      fstp dword [esp + 0x4c]
+0x00b5c24e      fld dword [esp + 0x44]
+0x00b5c252      fadd dword [var_34h]
+0x00b5c256      fstp dword [es
+
+======================================================================
+ENTRY 48: Scene illumination helper caller references
+======================================================================
+fcn.00b803b0 0xb803f0 [CALL:--x] call fcn.00b5bca0
+
+======================================================================
+ENTRY 49: Shadow-light iteration caller tail
+======================================================================
+; CODE XREFS from fcn.00871290 @ 0x8717b5(x), 0x8717cf(x), 0x8717e9(x)
+; 1
+0x00871930      push 1
+0x00871932      mov ecx, dword [var_50h]
+   ; fcn.004e6540
+0x00871935      call fcn.004e6540
+0x0087193a      mov ecx, eax
+   ; fcn.00450f90
+   ; fcn.00450f90(0x0)
+0x0087193c      call fcn.00450f90
+; CODE XREFS from fcn.00871290 @ 0x871723(x), 0x871733(x), 0x87192e(x)
+0x00871941      mov ecx, dword [var_ch]
+   ; fcn.00b5b010
+0x00871944      call fcn.00b5b010
+0x00871949      mov dword [var_50h], eax
+0x0087194c      jmp 0x87170f
+; CODE XREFS from fcn.00871290 @ 0x871713(x), 0x87197a(x)
+0x00871951      mov eax, dword [var_5ch]
+; 17
+0x00871954      add eax, 0x11
+; 21
+0x00871957      cmp eax, 0x15
+   ; unlikely
+0x0087195a      jge 0x87197c
+0x0087195c      mov ecx, dword [var_5ch]
+; 17
+0x0087195f      add ecx, 0x11
+0x00871962      push ecx
+0x00871963      push 0
+   ; fcn.004ea970
+0x00871965      call fcn.004ea970
+0x0087196a      mov ecx, eax
+   ; fcn.00ba30f0
+   ; fcn.00ba30f0(0x11)
+0x0087196c      call fcn.00ba30f0
+0x00871971      mov edx, dword [var_5ch]
+0x00871974      add edx, 1
+0x00871977      mov dword [var_5ch], edx
+0x0087197a      jmp 0x871951
+; CODE XREF from fcn.00871290 @ 0x87195a(x)
+0x0087197c      cmp dword [var_44h], 0
+   ; likely
+0x00871980      je 0x87198f
+0x00871982      movzx eax, byte [var_49h]
+0x00871986      push eax
+0x00871987      mov ecx, dword [var_44h]
+   ; fcn.00450f90
+   ; fcn.00450f90(0x0)
+0x0087198a      call fcn.00450f90
+; CODE XREF from fcn.00871290 @ 0x871980(x)
+; 1
+0x0087198f      push 1
+   ; fcn.004e20b0
+   ; fcn.004e20b0(0x0)
+0x00871991      call fcn.004e20b0
+0x00871996      add esp, 4
+0x00871999      mov ecx, dword [var_48h]
+0x0087199c      push ecx
+
+======================================================================
+ENTRY 50: Inline indexed-light scan head and admission (prefix starts inside instruction; complete function and B5BE14 window authoritative)
+======================================================================
+; 40
+0x00b5be21      and al, 0x28
+0x00b5be23      mov dword [var_24h], esi
+0x00b5be27      mov dword [var_30h], esi
+   ; fcn.00b5ac20
+   ; fcn.00b5ac20(0x0)
+0x00b5be2b      call fcn.00b5ac20
+0x00b5be30      mov dword [var_1ch], eax
+0x00b5be34      cmp eax, esi
+   ; likely
+0x00b5be36      je 0xb5c2d0
+0x00b5be3c      mov edi, 0x11f99c8
+0x00b5be41      mov dword [var_18h], esi
+0x00b5be45      jmp 0xb5be4b
+; CODE XREF from fcn.00b5bca0 @ 0xb5c06d(x)
+0x00b5be47      mov eax, dword [var_1ch]
+; CODE XREF from fcn.00b5bca0 @ 0xb5be45(x)
+0x00b5be4b      cmp dword [var_18h], 0x4b0
+   ; unlikely
+0x00b5be53      jae 0xb5c073
+0x00b5be59      mov esi, dword [eax + 0xf8]
+0x00b5be5f      test byte [esi + 0x30], 1
+   ; likely
+0x00b5be63      jne 0xb5c036
+0x00b5be69      mov eax, dword [arg_6ch]
+0x00b5be6d      fstp st(0)
+0x00b5be6f      fld dword [esi + 0x8c]
+0x00b5be75      fsub dword [eax]
+0x00b5be77      fstp dword [esp + 0x50]
+0x00b5be7b      mov ebp, dword [var_40h]
+0x00b5be7f      fld dword [esi + 0x90]
+0x00b5be85      mov dword [var_5ch_2], ebp
+0x00b5be89      fsub dword [eax + 4]
+0x00b5be8c      fstp dword [esp + 0x54]
+0x00b5be90      mov ebx, dword [var_54h]
+0x00b5be94      fld dword [esi + 0x94]
+0x00b5be9a      mov dword [var_5ch], ebx
+
+======================================================================
+ENTRY 51: Inline indexed-light scan restart
+======================================================================
+; [0xc:4]=-1
+; 12
+0x00b5c017      add dword [var_18h], 0xc
+0x00b5c01c      mov dword [edi], ebp
+0x00b5c01e      mov dword [edi + 4], ebx
+0x00b5c021      fstp dword [esp + 0x24]
+0x00b5c025      mov ebx, dword [var_34h_2]
+0x00b5c029      inc ecx
+0x00b5c02a      mov dword [edi + 8], edx
+0x00b5c02d      mov dword [var_10h_2], ecx
+; 12
+0x00b5c031      add edi, 0xc
+0x00b5c034      mov ebp, ecx
+; CODE XREF from fcn.00b5bca0 @ 0xb5be63(x)
+0x00b5c036      mov eax, dword [var_2ch]
+0x00b5c03a      inc eax
+0x00b5c03b      movzx edx, ax
+0x00b5c03e      mov dword [var_2ch], eax
+0x00b5c042      cmp edx, dword [ebx + 0xbc]
+   ; unlikely
+0x00b5c048      jae 0xb5c073
+0x00b5c04a      mov eax, dword [ebx + 0xb4]
+0x00b5c050      lea ecx, [eax + 8]
+0x00b5c053      mov eax, dword [eax]
+0x00b5c055      mov ecx, dword [ecx]
+0x00b5c057      test edx, edx
+   ; unlikely
+0x00b5c059      jbe 0xb5c067
+; CODE XREF from fcn.00b5bca0 @ 0xb5c065(x)
+0x00b5c05b      sub edx, 1
+0x00b5c05e      lea ecx, [eax + 8]
+0x00b5c061      mov eax, dword [eax]
+0x00b5c063      mov ecx, dword [ecx]
+   ; unlikely
+0x00b5c065      jne 0xb5c05b
+; CODE XREF from fcn.00b5bca0 @ 0xb5c059(x)
+0x00b5c067      mov dword [var_1ch], ecx
+0x00b5c06b      test ecx, ecx
+   ; likely
+0x00b5c06d      jne 0xb5be47
+; CODE XREFS from fcn.00b5bca0 @ 0xb5be53(x), 0xb5c048(x)
+0x00b5c073      cmp dword [var_20h], 0
+   ; likely
+0x00b5c078      jle 0xb5c2d0
+
+======================================================================
+ENTRY 52: B803B0 direct illumination-helper caller
+======================================================================
+void fcn.00b803b0(int param_1)
+
+{
+float fVar1;
+float fVar2;
+float fVar3;
+float fVar4;
+float fVar5;
+float fVar6;
+uchar **ppuVar7;
+char cVar8;
+uchar **ppuVar9;
+uchar *puVar10;
+uchar *puStack_3c;
+float fStack_1c;
+float fStack_18;
+float fStack_14;
+uchar auStack_10 [8];
+uchar auStack_8 [8];
+
+*0x11fed90 = 0.0;
+fStack_1c = *(param_1 + 0x68);
+puStack_3c = auStack_10;
+fStack_18 = *(param_1 + 0x74);
+fStack_14 = *(param_1 + 0x80);
+cVar8 = fcn.00b5bca0(param_1 + 0x8c,&fStack_1c);
+if (cVar8 == '\0') {
+*0x11fed94 = 0.0;
+*0x11fed98 = 0.0;
+*0x11fed9c = NULL;
+*0x11feda0 = *0x101e2bc;
+return;
+}
+fVar1 = *(param_1 + 0x68);
+fVar2 = *(param_1 + 0x74);
+fVar3 = *(param_1 + 0x80);
+fVar4 = fStack_1c - *(param_1 + 0x8c);
+fVar5 = fStack_18 - *(param_1 + 0x90);
+fVar6 = fStack_14 - *(param_1 + 0x94);
+fcn.004a0c10();
+fcn.004a0c10();
+puVar10 = &stack0xffffffc8;
+ppuVar9 = &puStack_3c;
+*0x11fed90 = fVar6 * fVar3 + fVar4 * fVar1 + fVar5 * fVar2;
+cVar8 = fcn.00a6fdb0(&fStack_1c,auStack_8,ppuVar9,puVar10,*0x10718c0);
+if (cVar8 == '\0') {
+*0x11fed94 = 0.0;
+*0x11fed98 = 0.0;
+*0x11fed9c = NULL;
+*0x11feda0 = *0x101e2bc;
+return;
+}
+if (0.0 <= fStack_1c) {
+if (1.0 < fStack_1c) {
+fStack_1c = 1.0;
+}
+}
+else {
+fStack_1c = 0.0;
+}
+ppuVar7 = 0x3f800000;
+if (0.0 <= ppuVar9) {
+if (ppuVar9 <= 1.0) goto code_r0x00b804e6;
+}
+else {
+ppuVar7 = NULL;
+}
+ppuVar9 = ppuVar7;
+code_r0x00b804e6:
+*0x11fed94 = fStack_1c * *0x1011590 - 1.0;
+*0x11fed98 = *0x1011590 * ppuVar9 - 1.0;
+*0x11fed9c = puVar10;
+*0x11feda0 = *0x101e2bc;
+return;
+}
+
+======================================================================
+ENTRY 53: B803B0 upstream caller references
+======================================================================
+fcn.00873200 0x874277 [CALL:--x] call fcn.00b803b0
+fcn.00873200 0x87432d [CALL:--x] call fcn.00b803b0
+
+======================================================================
+ENTRY 54: Aligned first inline enumeration initialization (first instruction misaligned; corrected below)
+======================================================================
+0x00b5be13  ~   fnstenv [ebx]
+; CODE XREF from fcn.00b5bca0 @ 0xb5be10(x)
+0x00b5be14      xor esi, esi
+0x00b5be16      fstp dword [esp + 0x28]
+0x00b5be1a      fldz
+; int32_t arg_8h
+0x00b5be1c      push esi
+0x00b5be1d      mov ecx, ebx
+0x00b5be1f      fst dword [esp + 0x28]
+0x00b5be23      mov dword [var_24h], esi
+0x00b5be27      mov dword [var_30h], esi
+   ; fcn.00b5ac20
+   ; fcn.00b5ac20(0x0)
+0x00b5be2b      call fcn.00b5ac20
+0x00b5be30      mov dword [var_1ch], eax
+0x00b5be34      cmp eax, esi
+   ; likely
+0x00b5be36      je 0xb5c2d0
+0x00b5be3c      mov edi, 0x11f99c8
+0x00b5be41      mov dword [var_18h], esi
+0x00b5be45      jmp 0xb5be4b
+; CODE XREF from fcn.00b5bca0 @ 0xb5c06d(x)
+0x00b5be47      mov eax, dword [var_1ch]
+; CODE XREF from fcn.00b5bca0 @ 0xb5be45(x)
+0x00b5be4b      cmp dword [var_18h], 0x4b0
+   ; unlikely
+0x00b5be53      jae 0xb5c073
+
+======================================================================
+ENTRY 55: Camera lighting helper B803B0 native input provenance
+======================================================================
+  ; CALL XREFS from fcn.00873200 @ 0x874277(x), 0x87432d(x)
+539: fcn.00b803b0 (int32_t arg_38h);
+`- args(sp[0x4..0x4]) vars(13:sp[0x8..0x3c])
+0x00b803b0      sub esp, 0x30
+0x00b803b3      fldz
+0x00b803b5      push esi
+0x00b803b6      mov esi, dword [arg_38h]
+; [0x11fed90:4]=0
+0x00b803ba      fstp dword [0x11fed90]
+0x00b803c0      fld dword [esi + 0x68]
+0x00b803c3      push edi
+0x00b803c4      fstp dword [esp + 0x1c]
+0x00b803c8      lea eax, [var_28h]
+0x00b803cc      fld dword [esi + 0x74]
+; int32_t arg_6ch_2
+0x00b803cf      push eax
+0x00b803d0      lea ecx, [var_20h]
+0x00b803d4      fstp dword [esp + 0x24]
+0x00b803d8      fld dword [esi + 0x80]
+; int32_t arg_70h
+0x00b803de      push ecx
+; [0x11f91c8:4]=0
+0x00b803df      mov ecx, dword [0x11f91c8]
+0x00b803e5      fstp dword [esp + 0x2c]
+0x00b803e9      lea edi, [esi + 0x8c]
+; int32_t arg_6ch
+0x00b803ef      push edi
+   ; fcn.00b5bca0
+   ; fcn.00b5bca0(0x177ff0, 0x0, 0x0)
+0x00b803f0      call fcn.00b5bca0
+0x00b803f5      test al, al
+   ; unlikely
+0x00b803f7      je 0xb80586
+0x00b803fd      fld dword [esi + 0x68]
+0x00b80400      lea ecx, [var_1ch]
+0x00b80404      fstp dword [esp + 0x1c]
+
+======================================================================
+ENTRY 56: First world-render camera lighting call aligned
+======================================================================
+0x00874265      mov ecx, 0x11deb7c
+   ; fcn.00559450
+0x0087426a      call fcn.00559450
+0x0087426f      mov ecx, eax
+   ; method.BSFaceGenNiNode.virtual_256
+0x00874271      call fcn.006629f0
+0x00874276      push eax
+   ; fcn.00b803b0
+   ; fcn.00b803b0(0x0)
+0x00874277      call fcn.00b803b0
+0x0087427c      add esp, 4
+   ; fcn.00874690
+0x0087427f      call fcn.00874690
+; int32_t arg_8h
+0x00874284      push eax
+
+======================================================================
+ENTRY 57: Second world-render camera lighting call aligned
+======================================================================
+0x0087431b      mov ecx, 0x11deb7c
+   ; fcn.00559450
+0x00874320      call fcn.00559450
+0x00874325      mov ecx, eax
+   ; method.BSFaceGenNiNode.virtual_256
+0x00874327      call fcn.006629f0
+0x0087432c      push eax
+   ; fcn.00b803b0
+   ; fcn.00b803b0(0x0)
+0x0087432d      call fcn.00b803b0
+0x00874332      add esp, 4
+   ; fcn.008746b0
+0x00874335      call fcn.008746b0
+; int32_t arg_8h
+0x0087433a      push eax
+
+======================================================================
+ENTRY 58: Correct aligned inline enumeration initialization B5BE14
+======================================================================
+; CODE XREF from fcn.00b5bca0 @ 0xb5be10(x)
+0x00b5be14      xor esi, esi
+0x00b5be16      fstp dword [esp + 0x28]
+0x00b5be1a      fldz
+; int32_t arg_8h
+0x00b5be1c      push esi
+0x00b5be1d      mov ecx, ebx
+0x00b5be1f      fst dword [esp + 0x28]
+0x00b5be23      mov dword [var_24h], esi
+0x00b5be27      mov dword [var_30h], esi
+   ; fcn.00b5ac20
+   ; fcn.00b5ac20(0x0)
+0x00b5be2b      call fcn.00b5ac20
+0x00b5be30      mov dword [var_1ch], eax
+0x00b5be34      cmp eax, esi
+   ; likely
+0x00b5be36      je 0xb5c2d0
+0x00b5be3c      mov edi, 0x11f99c8
+
+======================================================================
+ENTRY 59: Shared sort-order cache invalidator B70480
+======================================================================
+0x00b70480      mov dword [ecx + 0x38], 0
+; CODE XREFS from fcn.00b70390 @ 0xb703aa(x), 0xb7047a(x)
+0x00b70487      pop edi
+0x00b70488      pop esi
+0x00b70489      pop ebx
+   ; ebp
+0x00b7048a      mov esp, ebp
+0x00b7048c      pop ebp
+0x00b7048d      ret 4
+  ; CALL XREFS from fcn.00922b80 @ 0x922c32(x), 0x922ca3(x)
+  ; CALL XREFS from fcn.00b5b0e0 @ 0xb5b128(x), 0xb5b142(x)
+26: fcn.00b70490 (int32_t arg_4h);
+`- args(sp[0x4..0x4])
+0x00b70490      mov eax, dword [ecx + 0x60]
+0x00b70493      mov ecx, dword [arg_4h]
+0x00b70497      mov dword [ecx], eax
+0x00b70499      test eax, eax
+   ; likely
+0x00b7049b      jne 0xb704a0
+0x00b7049d      ret 4
+; CODE XREF from fcn.00b70490 @ 0xb7049b(x)
+0x00b704a0      mov edx, dword [eax]
+0x00b704a2      mov dword [ecx], edx
+0x00b704a4      mov eax, dword [eax + 8]
+0x00b704a7      ret 4
+0x00b704aa      int3
+
+======================================================================
+ENTRY 60: Scene illumination helper tail and RET12
+======================================================================
+; CODE XREF from fcn.00b5bca0 @ 0xb5c234(x)
+0x00b5c274      fstp st(0)
+; CODE XREF from fcn.00b5bca0 @ 0xb5c272(x)
+0x00b5c276      inc ecx
+; 12
+0x00b5c277      add edx, 0xc
+0x00b5c27a      cmp ecx, ebp
+   ; likely
+0x00b5c27c      jb 0xb5c21c
+; CODE XREF from fcn.00b5bca0 @ 0xb5c210(x)
+0x00b5c27e      fstp st(0)
+0x00b5c280      fstp st(0)
+; CODE XREFS from fcn.00b5bca0 @ 0xb5bdc1(x), 0xb5c352(x)
+0x00b5c282      mov eax, dword [arg_6ch]
+0x00b5c286      fld dword [eax]
+0x00b5c288      pop edi
+0x00b5c289      fadd dword [var_34h]
+0x00b5c28d      pop esi
+0x00b5c28e      fstp dword [esp + 0x54]
+0x00b5c292      mov ecx, dword [var_5ch_2]
+0x00b5c296      fld dword [eax + 4]
+0x00b5c299      fadd dword [var_38h_2]
+0x00b5c29d      fstp dword [esp + 0x58]
+0x00b5c2a1      mov edx, dword [var_5ch]
+0x00b5c2a5      fld dword [eax + 8]
+0x00b5c2a8      mov eax, dword [arg_6ch_2]
+0x00b5c2ac      fadd dword [var_3ch_2]
+0x00b5c2b0      mov dword [eax], ecx
+0x00b5c2b2      mov dword [eax + 4], edx
+0x00b5c2b5      xor edx, edx
+0x00b5c2b7      fstp dword [esp + 0x5c]
+0x00b5c2bb      mov ecx, dword [var_60h]
+0x00b5c2bf      cmp edx, ebp
+0x00b5c2c1      mov dword [eax + 8], ecx
+0x00b5c2c4      sbb eax, eax
+0x00b5c2c6      pop ebp
+0x00b5c2c7      neg eax
+0x00b5c2c9      pop ebx
+0x00b5c2ca      add esp, 0x58
+0x00b5c2cd      ret 0xc
+; CODE XREFS from fcn.00b5bca0 @ 0xb5be36(x), 0xb5c078(x)
+0x00b5c2d0      mov eax, dword [ebx + 0xe0]
+0x00b5c2d6      fstp st(0)
+0x00b5c2d8      mov eax, dword [eax + 0xf8]
+0x00b5c2de      fld dword [eax + 0xf0]
+; 240
+0x00b5c2e4      add eax, 0xf0
+0x00b5c2e9      fchs
+0x00b5c2eb      lea ecx, [var_5ch_2]
+0x00b5c2ef      fstp dword [esp + 0x5c]
+0x00b5c2f3      fld dword [eax + 4]
+0x00b5c2f6      fchs
+0x00b5c2f8      fstp dword [esp + 0x60]
+0x00b5c2fc      fld dword [eax + 8]
+0x00b5c2ff      fchs
+0x00b5c301      fstp dword [esp + 0x64]
+   ; fcn.004a0c10
+0x00b5c305      call fcn.004a0c10
+0x00b5c30a      fld dword [esp + 0x5c]
+0x00b5c30e      mov dword [var_10h_2], 1
+0x00b5c316      fld qword [0x1017b70]
+0x00b5c31c      mov ebp, dword [var_10h_2]
+0x00b5c320      fmul st(1), st(0)
+0x00b5c322      fxch st(1)
+0x00b5c324      fstp dword [esp + 0x50]
+0x00b5c328      mov ecx, dword [var_40h]
+0x00b5c32c      fld dword [esp + 0x60]
+0x00b5c330      mov dword [var_34h], ecx
+0x00b5c334      fmul st(1)
+0x00b5c336      fstp dword [esp + 0x54]
+0x00b5c33a      mov edx, dword [var_54h]
+0x00b5c33e      mov dword [var_38h_2], edx
+0x00b5c342      fmul dword [var_60h]
+0x00b5c346      fstp dword [esp + 0x58]
+
+======================================================================
+ENTRY 61: Executable identity rechecked with sha256sum
+======================================================================
+42fee7d6cd74e801372aa89c8f71c974cebd3c20ec9ad43d1465b8fa9646b49c  fnv_reverse/FalloutNV.exe

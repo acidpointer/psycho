@@ -1,0 +1,766 @@
+Sequential scan math compatibility contract, 2026-10-07
+
+Scope: static explanation of the observed sequential-scan admission rejection.
+No live process memory was read and no production code was changed in this audit.
+Primary interface: radare2 MCP. Bounded PE extraction supplements instruction
+evidence; it does not simulate or execute the engine.
+
+Supported native executable: fnv_reverse/FalloutNV.exe
+SHA-256: 42fee7d6cd74e801372aa89c8f71c974cebd3c20ec9ad43d1465b8fa9646b49c
+
+Installed DLL inspected:
+/data/storage0/Games/FalloutNV_TTW/mods/Stewie Tweaks/NVSE/plugins/nvse_stewie_tweaks.dll
+DLL listings below use preferred image base 0x10000000, not live addresses.
+For ASLR, subtract that base to obtain an RVA.
+Source comparison: .research/Stewie Tweaks 10.00 Source (read-only).
+
+1. Observation and configuration
+
+The earlier retained playtest reported:
+[SCENE_LIGHTS] Native contract changed; indexed providers retained
+See .reports/fnv_lighting_candidate_enabled_playtest_20261007.txt and
+fnv_scene_light_scan_rejection_audit_20261007.txt.
+It did not report a mismatch address/byte or the time of first rejection.
+
+Actual game nvse.log, /data/storage0/Games/FalloutNV_TTW/FalloutNV/nvse.log:
+2506: EngineOptimizations.dll (Engine Optimizations; version 100) loaded correctly
+2535: nvse_stewie_tweaks.dll (lStewieAl's Tweaks; version 1000) loaded correctly
+2536: NVTF.dll (NVTF; version 1061) loaded correctly
+These are shortened excerpts retaining the module, version and load outcome.
+
+Actual INI:
+/data/storage0/Games/FalloutNV_TTW/mods/Stewie Tweaks INI/nvse/plugins/nvse_stewie_tweaks.ini
+4280: [Inlines]
+4284: bMisc = 1
+4287: bRendering = 1
+A bMisc setting in another section is not this option.
+
+2. Psycho's shared qualification contract
+
+psycho-engine-fixes/src/mods/perf/scene_light_scan.rs:
+qualified requires the selected consumer to match, ALL seven CALLEES to match,
+and all four captured getter providers to remain 0x00B5AC20.
+The math ranges include NORMALIZE 0x004A0C10, VECTOR_LENGTH 0x00457990 and
+VECTOR_SQRT 0x004579E0, each with its complete vanilla byte expectation.
+Any one failed callee therefore rejects both scan consumers. POISON is shared
+and monotonic. The previous audit retains the corresponding deployed code.
+
+3. Lifecycle and actual installed writer
+
+Source:
+code/main.h:149-151: PostPostLoad invokes Inlines::InitHooks when the inline flag
+is true.
+code/settings.h:3605-3607: when g_bStewiesControls is false, the inline flag is
+set from GetModuleHandleA("EngineOptimizations.dll") != nullptr.
+code/settings.h:579: g_bStewiesControls initializes to zero. No overriding
+bStewiesControls entry was found in the inspected INI. This is configuration
+evidence, not a live read of the flag.
+code/Features/inlines.cpp:2773: installation requires byte[0x006FA89E] == 0xE8.
+code/Features/inlines.cpp:2785: bMisc selects WriteHooks.
+code/Features/inlines.cpp:2793: bRendering selects Rendering::InitHooks.
+code/Features/inlines.cpp:2432: WriteHooks invokes Jazz::InitHooks.
+code/Features/inlines.cpp:1046: writes 100 normalizer bytes at 0x004A0C10.
+code/Features/inlines.cpp:2450: writes 7 sqrt bytes at 0x004579E0.
+code/Features/Inlines/Rendering.cpp:1497: writes 49 magnitude bytes at 0x00457990.
+libnvse/xnvse/nvse/nvse/PluginManager.cpp:698,700: PostLoad, then PostPostLoad
+after InstallPlugins. PluginAPI.h defines PostPostLoad as message 9.
+Syringe's established barrier precedes normal plugin load; existing lighting
+closure evidence documents that phase. Thus these later writes can invalidate
+the math ranges after Psycho's initial vanilla preparation and before
+DeferredInit. No loader reordering is needed to reproduce the incompatibility.
+
+Installed binary:
+0x1007F6C9 passes callback 0x10073AC0 to RegisterListener("NVSE", ...).
+The callback reads the message type at [message + 4], subtracts one, then uses
+the case-byte table at 0x100742E8 and target table at 0x100742D0.
+Bounded PE decoding, type 9:
+  case byte [0x100742E8 + 8] = 3
+  DWORD targets = 0x10074293, 0x10073F1A, 0x10073B06, 0x10073F44,
+                  0x10073C71, 0x100742BA
+  target for PostPostLoad = 0x10073F44
+Its optional preceding log branch converges at 0x10073F87.
+0x10073F87 gates on [0x100FBD20].
+0x10073F94 gates on byte[0x006FA89E] == 0xE8.
+0x10073FCC gates misc [0x100FC328], then 0x10073FD5 calls 0x1003B270.
+0x10074269 gates rendering [0x100FC2C4], then 0x10074272 calls 0x10030160.
+0x100739BF supplies "EngineOptimizations.dll"; 0x100739C4 calls GetModuleHandleA,
+and 0x100739D1 stores its normalized presence in 0x100FBD20.
+Option reads store [Inlines] bMisc and bRendering into those same flags.
+
+No live value of 0x006FA89E or first-rejection snapshot was retained. Its
+supported vanilla instruction starts with E8, but other runtime writers can
+affect it. Consequently the actual historical execution of this install gate
+and the first rejected range remain unproven.
+
+4. Literal payload proof and first mismatch
+
+PE RVA-to-file extraction of the installed buffers matched each source byte
+literal exactly, including the entire copied length:
+  normalizer: buffer 0x100CDC28, 100 bytes
+  magnitude: buffer 0x100CCD24, 49 bytes
+  vector sqrt: buffer 0x100CE4C0, 7 bytes
+
+Literal installed normalizer bytes:
+66 0F 6E 01 F3 0F 59 C0 66 0F 6E 49 04 F3 0F 59 C9 F3 0F 58 C1 66 0F 6E 49 08 F3 0F 59 C9 F3 0F 58 C1 F3 0F 51 C0 66 0F 57 C9 0F 2F C1 74 29 66 0F 6E 09 F3 0F 5E C8 66 0F 7E 09 66 0F 6E 49 04 F3 0F 5E C8 66 0F 7E 49 04 66 0F 6E 49 08 F3 0F 5E C8 66 0F 7E 49 08 C3 66 0F D6 09 C7 41 08 00 00 00 00 C3
+Literal installed magnitude bytes:
+51 F3 0F 10 51 04 F3 0F 10 01 F3 0F 10 49 08 F3 0F 59 C0 F3 0F 59 D2 F3 0F 59 C9 F3 0F 58 C2 F3 0F 58 C1 F3 0F 51 C0 F3 0F 11 04 24 D9 04 24 59 C3
+Literal installed vector sqrt bytes:
+D9 44 24 04 D9 FA C3
+
+Entry          Vanilla byte    Installed leaf byte    Copied length
+0x004A0C10     55              66                     100
+0x00457990     55              51                     49
+0x004579E0     55              D9                     7
+Therefore every one of these writes necessarily rejects the current exact
+vanilla signature, independently of traversal input, load or scene size.
+
+Normalizer copy: ESI=0x100CDC28, EDI=0x004A0C10, ECX=25, REP MOVSD;
+the full intervening instruction block below does not change ESI/EDI.
+Magnitude copy: 3 x 16-byte stores plus 1 byte = 49.
+Sqrt copy: DWORD + WORD + BYTE = 7.
+
+5. Executable leaf contracts
+
+The actual bytes were extracted to /tmp as headerless inputs, mapped at the
+native destination and fully disassembled with radare2 MCP:
+psycho-scan-normalize-installed-leaf.bin
+psycho-scan-vector_length-installed-leaf.bin
+psycho-scan-vector_sqrt-installed-leaf.bin
+These are copied DLL payloads, not reconstructed functions. Cached native
+XREF annotations in raw leaf output are ignored; they are not references in
+these headerless files.
+
+Normalizer: reads/writes only the three float components [ECX + 0/4/8].
+SSE XMM0/1 arithmetic; no calls, stack writes, node/scene reads or x87 traffic;
+both branches return with plain RET.
+Magnitude: reads only the three vector components. PUSH ECX reserves one
+word below entry ESP; MOVSS writes that private word; FLD returns ST0;
+POP ECX and RET restore the stack. No caller-frame or heap writes.
+Vector sqrt: reads the scalar at [ESP+4]; FLD, FSQRT, RET; no memory writes.
+All three have no external call or hidden cursor-memory access.
+
+These instruction contracts establish that these exact leaves do not overwrite
+the scan's carried cursor slots. They do NOT prove numeric identity with the
+vanilla routines. A compatible scan must retain calls to the installed math
+bodies and their existing results, rounding and exception behavior.
+
+6. Scope and rejected leads
+
+A bounded source search of directly spelled addresses inside the nine guarded
+ranges found these three executable math writers in the available optimization
+sources. This is not exhaustive coverage of computed writes or other mods.
+The reference NVAC.cpp calls InlineFldz(0xB9D489), but InlineFldz itself has an
+empty body at line 44 in this partial source. It is not evidence of a live
+shadow-consumer patch and was rejected as a cause.
+The earlier deployed getter/range/overlay investigation found no proven
+Psycho-internal bad signature. Absence of such proof is not proof that every
+other rejection condition is absent.
+
+7. Bounded correction contract, not implementation or runtime acceptance
+
+The implementation defect is vanilla-only admission of these math bodies.
+A capability-based correction may accept vanilla or these exact verified
+math implementations while preserving consumer windows, getter, property
+iteration, captured providers, monotonic rejection, cursor ownership and
+installed arithmetic. Unknown code still rejects. Do not identify a module,
+depend on a version, learn arbitrary bytes, wildcard signatures, rewrite math,
+patch another mod, reorder loaders or clear an existing rejection.
+Alternate signatures must apply to initial preparation AND later qualification.
+The native bytes beyond each copied leaf have not been replaced by this writer;
+a full-range alternative must verify that tail rather than ignore it.
+The existing score-reuse qualification does not guard these three scan-only
+entries, so this specific conflict does not imply score-reuse rejection.
+
+This research establishes a deterministic static incompatibility with a
+configuration-selected installed writer. It does not establish the first
+mismatch in the historical session, measure FPS, demonstrate live cursor
+lifetime/thread exclusion or execute a corrected scan. No production edit,
+release, packaging, deployment or commit is authorized by this evidence file.
+
+8. Primary radare2 MCP instruction captures
+
+Installed DLL at 0x1003b746
+; '\x10\fJ'
+0x1003b746      mov edi, 0x4a0c10
+; [0x100cdb70:8]=0xc0940f010b04418b
+0x1003b74b      movq xmm0, qword [0x100cdb70]
+; '`DJ'
+0x1003b753      mov ecx, 0x4a4460
+0x1003b758      movq qword [ecx], xmm0
+; [0x100cdb78:4]=0xccccccc3
+0x1003b75c      mov eax, dword [0x100cdb78]
+0x1003b761      mov dword [ecx + 8], eax
+0x1003b764      mov ecx, 0x4a3e00
+; [0x100cdb80:16]=-1
+0x1003b769      movups xmm0, xmmword [0x100cdb80]
+0x1003b770      movups xmmword [ecx], xmm0
+; [0x100cdb90:16]=-1
+0x1003b773      movups xmm0, xmmword [0x100cdb90]
+
+
+Installed DLL at 0x10030e6e
+0x10030e6e      mov ecx, 0x457990
+; [0x626870:4]=-1
+0x10030e73      mov dword [0x626870], 0x441c7
+; [0x626874:4]=-1
+0x10030e7d      mov dword [0x626874], 0xc3000000
+; [0x100ccd24:16]=-1
+0x10030e87      movups xmm0, xmmword [0x100ccd24]
+0x10030e8e      movups xmmword [ecx], xmm0
+; [0x100ccd34:16]=-1
+0x10030e91      movups xmm0, xmmword [0x100ccd34]
+0x10030e98      movups xmmword [ecx + 0x10], xmm0
+; [0x100ccd44:16]=-1
+0x10030e9c      movups xmm0, xmmword [0x100ccd44]
+0x10030ea3      movups xmmword [ecx + 0x20], xmm0
+; [0x100ccd54:1]=195
+0x10030ea7      movzx eax, byte [0x100ccd54]
+0x10030eae      mov byte [ecx + 0x30], al
+0x10030eb1      mov ecx, 0x65b390
+; [0x100ccfc0:16]=-1
+0x10030eb6      movups xmm0, xmmword [0x100ccfc0]
+0x10030ebd      movups xmmword [ecx], xmm0
+; [0x100ccfd0:16]=-1
+0x10030ec0      movups xmm0, xmmword [0x100ccfd0]
+0x10030ec7      movups xmmword [ecx + 0x10], xmm0
+; [0x100ccfe0:1]=0
+0x10030ecb      movzx eax, byte [0x100ccfe0]
+0x10030ed2      mov byte [ecx + 0x20], al
+
+
+Installed DLL at 0x1003bb1a
+0x1003bb1a      mov ecx, 0x4579e0
+0x1003bb1f      movups xmmword [eax], xmm0
+; [0x100ce4c0:4]=0x42444d9
+0x1003bb22      mov eax, dword [0x100ce4c0]
+0x1003bb27      mov dword [ecx], eax
+; [0x100ce4c4:2]=0xfad9
+0x1003bb29      movzx eax, word [0x100ce4c4]
+0x1003bb30      mov word [ecx + 4], ax
+; [0x100ce4c6:1]=195
+0x1003bb34      movzx eax, byte [0x100ce4c6]
+0x1003bb3b      mov byte [ecx + 6], al
+0x1003bb3e      mov ecx, 0x408860
+; [0x100ce4c8:4]=0x42444d9
+0x1003bb43      mov eax, dword [0x100ce4c8]
+
+
+Installed DLL at 0x10073f87
+; [0x100fbd20:4]=0
+0x10073f87      cmp dword [0x100fbd20], 0
+   ; likely
+0x10073f8e      je 0x100742ba
+; [0x6fa89e:1]=255
+0x10073f94      cmp byte [0x6fa89e], 0xe8
+   ; unlikely
+0x10073f9b      je 0x10073fb3
+; 'L'
+; 76
+0x10073f9d      mov edx, 0x4c
+; 0x100ce698
+; "[Tweaks] Inlines Conflict: Please disable bInlineCommonFunctions in NVTF.ini"
+   ; str._Tweaks__Inlines_Conflict:_Please_disable_bInlineCommonFunctions_in_NVTF.ini
+0x10073fa2      mov ecx, str._Tweaks__Inlines_Conflict:_Please_disable_bInlineCommonFunctions_in_NVTF.ini
+   ; 0x10003b60(0x0, 0x0, 0x100ce698, 0x4c)
+0x10073fa7      call 0x10003b60
+0x10073fac      pop edi
+0x10073fad      pop esi
+0x10073fae      pop ebx
+0x10073faf      mov esp, ebp
+0x10073fb1      pop ebp
+0x10073fb2      ret
+; [0x100ba110:4]=0xf71b8 reloc.KERNEL32.dll_VirtualProtect
+   ; reloc.KERNEL32.dll_VirtualProtect
+0x10073fb3      mov ebx, dword [sym.imp.KERNEL32.dll_VirtualProtect]
+0x10073fb9      lea eax, [esp + 0x10]
+0x10073fbd      push eax
+; '@'
+; 64
+0x10073fbe      push 0x40
+0x10073fc0      push 0xd8104c
+0x10073fc5      push 0x401000
+   ; reloc.KERNEL32.dll_VirtualProtect
+   ; reloc.KERNEL32.dll_VirtualProtect(0x178018, 0xf71b8, 0x100ce698, 0x4c)
+0x10073fca      call ebx
+; [0x100fc328:4]=0
+0x10073fcc      cmp dword [0x100fc328], 0
+   ; likely
+0x10073fd3      je 0x10073fda
+   ; 0x1003b270(0x178018, 0xf71b8, 0x100ce698, 0x4c)
+0x10073fd5      call 0x1003b270
+; [0x100fc30c:4]=0
+0x10073fda      cmp dword [0x100fc30c], 0
+   ; likely
+0x10073fe1      je 0x10073fe8
+   ; 0x1002dce0(0x178018, 0xf71b8, 0x100ce698, 0x4c)
+0x10073fe3      call 0x1002dce0
+; [0x100fc318:4]=0
+0x10073fe8      cmp dword [0x100fc318], 0
+   ; likely
+0x10073fef      je 0x10073ff6
+   ; 0x10032620(0x178018, 0xf71b8, 0x100ce698, 0x4c)
+0x10073ff1      call 0x10032620
+; [0x100fc2d8:4]=0
+0x10073ff6      cmp dword [0x100fc2d8], 0
+   ; likely
+0x10073ffd      je 0x10074004
+   ; 0x10033d30(0x178018, 0xf71b8, 0x100ce698, 0x4c)
+0x10073fff      call 0x10033d30
+; [0x100fc354:4]=0
+0x10074004      cmp dword [0x100fc354], 0
+   ; likely
+0x1007400b      je 0x10074012
+   ; 0x1002bee0(0x178018, 0xf71b8, 0x100ce698, 0x4c)
+0x1007400d      call 0x1002bee0
+; [0x100fc330:4]=0
+0x10074012      cmp dword [0x100fc330], 0
+   ; likely
+0x10074019      je 0x10074020
+   ; 0x1002ee80(0x178018, 0xf71b8, 0x100ce698, 0x4c)
+0x1007401b      call 0x1002ee80
+; [0x100fc360:4]=0
+0x10074020      cmp dword [0x100fc360], 0
+   ; likely
+0x10074027      je 0x10074187
+; [0x10a3c18:4]=-1
+0x1007402d      mov dword [0x10a3c18], 0x1002a130
+0x10074037      mov ecx, 0x100334d0
+
+
+Installed DLL at 0x10072462
+0x10072462      lea ecx, [ebp - 0x144]
+0x10072468      mov edx, 0x100fc328
+0x1007246d      push esi
+0x1007246e      push 0
+; 1
+0x10072470      push 1
+; 0x100e5e84
+; "bMisc"
+0x10072472      push str.bMisc
+; 0x100eabc8
+; "Inlines"
+0x10072477      push str.Inlines
+   ; 0x10062730(0x0, 0x0, 0x177ebc, 0x100fc328)
+0x1007247c      call 0x10062730
+0x10072481      add esp, 0x14
+0x10072484      lea ecx, [ebp - 0x144]
+0x1007248a      mov edx, 0x100fc30c
+0x1007248f      push esi
+0x10072490      push 0
+; 1
+0x10072492      push 1
+
+
+Installed DLL at 0x10072572
+0x10072572      lea ecx, [ebp - 0x144]
+0x10072578      mov edx, 0x100fc2c4
+0x1007257d      push esi
+0x1007257e      push 0
+; 1
+0x10072580      push 1
+; 0x100eac24
+; "bRendering"
+0x10072582      push str.bRendering
+; 0x100eabc8
+; "Inlines"
+0x10072587      push str.Inlines
+   ; 0x10062730(0x0, 0x0, 0x177ebc, 0x100fc2c4)
+0x1007258c      call 0x10062730
+0x10072591      add esp, 0x14
+0x10072594      lea ecx, [ebp - 0x144]
+0x1007259a      mov edx, 0x100fc9f8
+0x1007259f      push 0
+0x100725a1      push 0
+0x100725a3      push 0
+
+
+Installed DLL at 0x10074269
+; [0x100fc2c4:4]=0
+0x10074269      cmp dword [0x100fc2c4], 0
+   ; likely
+0x10074270      je 0x10074277
+   ; 0x10030160(0x0, 0x0, 0x0, 0x0)
+0x10074272      call 0x10030160
+0x10074277      lea eax, [esp + 0x10]
+0x1007427b      push eax
+0x1007427c      push dword [esp + 0x14]
+0x10074280      push 0xd8104c
+
+
+Installed DLL at 0x1003b8c2
+; 25
+0x1003b8c2      mov ecx, 0x19
+0x1003b8c7      rep movsd dword es:[edi], dword [esi]
+; [0x100cdc90:16]=-1
+0x1003b8c9      movups xmm0, xmmword [0x100cdc90]
+
+
+Installed DLL at 0x100739b8
+0x100739b8      push esi
+; [0x100ba00c:4]=0xf72b2 reloc.KERNEL32.dll_GetModuleHandleA
+   ; reloc.KERNEL32.dll_GetModuleHandleA
+0x100739b9      mov esi, dword [sym.imp.KERNEL32.dll_GetModuleHandleA]
+; 0x100ec240
+; "EngineOptimizations.dll"
+0x100739bf      push str.EngineOptimizations.dll
+   ; reloc.KERNEL32.dll_GetModuleHandleA
+   ; reloc.KERNEL32.dll_GetModuleHandleA(0x0, 0x0, 0x0, 0x0)
+0x100739c4      call esi
+0x100739c6      neg eax
+; 0x100ec27c
+; "ViewModelShakeFix.dll"
+0x100739c8      push str.ViewModelShakeFix.dll
+0x100739cd      sbb eax, eax
+0x100739cf      neg eax
+; [0x100fbd20:4]=0
+0x100739d1      mov dword [0x100fbd20], eax
+   ; reloc.KERNEL32.dll_GetModuleHandleA
+   ; reloc.KERNEL32.dll_GetModuleHandleA(0x0, 0x0, 0x0, 0x0)
+0x100739d6      call esi
+0x100739d8      neg eax
+; 0x100ec260
+; "PreventReloadCancelling.dll"
+0x100739da      push str.PreventReloadCancelling.dll
+
+
+Installed DLL at 0x1003b73e
+0x1003b73e      mov esi, 0x100cdc28
+0x1003b743      mov dword [ecx + 8], eax
+; '\x10\fJ'
+0x1003b746      mov edi, 0x4a0c10
+
+
+Installed DLL at 0x10074187
+; [0x100fc338:4]=0
+0x10074187      cmp dword [0x100fc338], 0
+   ; likely
+0x1007418e      je 0x10074269
+
+
+Installed DLL at 0x1007f6bd
+; [0x100fc6f4:4]=0
+0x1007f6bd      mov dword [0x100fc6f4], eax
+0x1007f6c2      mov eax, dword [ebx + 0x18]
+; 2
+0x1007f6c5      push 2
+   ; 0xffffffff(-1, 0x0, 0x0, 0x0)
+0x1007f6c7      call eax
+0x1007f6c9      push 0x10073ac0
+; 0x100ed5c4
+; "NVSE"
+0x1007f6ce      push str.NVSE
+0x1007f6d3      push edi
+0x1007f6d4      mov eax, dword [eax + 4]
+   ; 0xffffffff(-1, 0x0, 0x0, 0x0)
+0x1007f6d7      call eax
+0x1007f6d9      mov eax, dword [ebx + 0x2c]
+0x1007f6dc      push 0x100fb670
+   ; 0xffffffff(-1, 0x0, 0x0, 0x0)
+0x1007f6e1      call eax
+0x1007f6e3      mov eax, dword [ebx + 0x18]
+0x1007f6e6      push 0
+   ; 0xffffffff(-1, 0x0, 0x0, 0x0)
+0x1007f6e8      call eax
+0x1007f6ea      mov esi, eax
+
+
+Installed DLL at 0x10073ac0
+; DATA XREF from sym.nvse_stewie_tweaks.dll_NVSEPlugin_Load @ 0x1007f6c9(w)
+0x10073ac0      push ebp
+0x10073ac1      mov ebp, esp
+0x10073ac3      and esp, 0xfffffff8
+0x10073ac6      mov eax, dword [arg_8h]
+0x10073ac9      sub esp, 0xc
+0x10073acc      mov eax, dword [eax + 4]
+0x10073acf      push ebx
+0x10073ad0      push esi
+0x10073ad1      push edi
+; 20
+0x10073ad2      cmp eax, 0x14
+   ; likely
+0x10073ad5      jne 0x10073ae9
+; [0x100fae58:1]=0
+0x10073ad7      cmp byte [0x100fae58], 0
+   ; unlikely
+0x10073ade      jne 0x100742c1
+   ; case.default.0x10073aff
+   ; case.default.0x10073aff(-1, 0x0, 0x0, 0x0)
+0x10073ae4      jmp case.0x10073aff.6
+0x10073ae9      dec eax
+; 13
+0x10073aea      cmp eax, 0xd
+   ; case.default.0x10073aff
+   ; likely
+0x10073aed      ja case.0x10073aff.6
+
+
+Installed DLL at 0x10073f44
+;-- case 4:; from 0x10073aff
+; CODE XREF from fcn.10073a98 @ 0x10073aff(x)
+; [0x100f8d30:4]=1
+0x10073f44      cmp dword [0x100f8d30], 0
+   ; unlikely
+0x10073f4b      je 0x10073f87
+; 0x100ecc7c
+; "nvac.dll"
+0x10073f4d      push str.nvac.dll
+; 0x100ba00c
+   ; reloc.KERNEL32.dll_GetModuleHandleA
+   ; sym.imp.KERNEL32.dll_GetModuleHandleA(0x0, 0x0, 0x0, 0x0)
+0x10073f52      call dword [sym.imp.KERNEL32.dll_GetModuleHandleA]
+0x10073f58      test eax, eax
+   ; likely
+0x10073f5a      je 0x10073f87
+0x10073f5c      cmp dword [eax + 0x13b6], 0xa01c15ff
+0x10073f66      lea esi, [eax + 0x13b6]
+   ; likely
+0x10073f6c      jne 0x10073f87
+0x10073f6e      mov edx, 0x10077220
+0x10073f73      mov ecx, esi
+   ; fcn.10006b50
+0x10073f75      call fcn.10006b50
+0x10073f7a      lea ecx, [esi + 5]
+; 144
+0x10073f7d      mov edx, 0x90
+   ; 0x10006a40(0x0, 0x0, 0x13bb, 0x90)
+0x10073f82      call 0x10006a40
+; [0x100fbd20:4]=0
+0x10073f87      cmp dword [0x100fbd20], 0
+   ; case.default.0x10073aff
+   ; likely
+0x10073f8e      je case.0x10073aff.6
+; [0x6fa89e:1]=255
+0x10073f94      cmp byte [0x6fa89e], 0xe8
+   ; unlikely
+0x10073f9b      je 0x10073fb3
+
+
+Installed DLL normalizer complete copy setup through REP MOVSD
+0x1003b73e      mov esi, 0x100cdc28
+0x1003b743      mov dword [ecx + 8], eax
+; '\x10\fJ'
+0x1003b746      mov edi, 0x4a0c10
+; [0x100cdb70:8]=0xc0940f010b04418b
+0x1003b74b      movq xmm0, qword [0x100cdb70]
+; '`DJ'
+0x1003b753      mov ecx, 0x4a4460
+0x1003b758      movq qword [ecx], xmm0
+; [0x100cdb78:4]=0xccccccc3
+0x1003b75c      mov eax, dword [0x100cdb78]
+0x1003b761      mov dword [ecx + 8], eax
+0x1003b764      mov ecx, 0x4a3e00
+; [0x100cdb80:16]=-1
+0x1003b769      movups xmm0, xmmword [0x100cdb80]
+0x1003b770      movups xmmword [ecx], xmm0
+; [0x100cdb90:16]=-1
+0x1003b773      movups xmm0, xmmword [0x100cdb90]
+0x1003b77a      movups xmmword [ecx + 0x10], xmm0
+; [0x100cdba0:8]=0xc40c7007f0f
+0x1003b77e      movq xmm0, qword [0x100cdba0]
+0x1003b786      movq qword [ecx + 0x20], xmm0
+; [0x100cdba8:2]=0
+0x1003b78b      movzx eax, word [0x100cdba8]
+0x1003b792      mov word [ecx + 0x28], ax
+; [0x100cdbaa:1]=195
+0x1003b796      movzx eax, byte [0x100cdbaa]
+0x1003b79d      mov byte [ecx + 0x2a], al
+0x1003b7a0      mov ecx, 0x43b540
+; [0x4ede70:1]=255
+0x1003b7a5      mov byte [0x4ede70], 0xe9
+; '{2['
+; [0x4ede71:4]=-1
+0x1003b7ac      mov dword [0x4ede71], 0x5b327b
+; [0x44ddc0:4]=-1
+0x1003b7b6      mov dword [0x44ddc0], 0xc308418b
+; [0x620b80:4]=-1
+0x1003b7c0      mov dword [0x620b80], 0xc308418b
+; [0x100ce488:4]=0x8b14c183
+0x1003b7ca      mov eax, dword [0x100ce488]
+0x1003b7cf      mov dword [ecx], eax
+; [0x100ce48c:2]=0x841
+0x1003b7d1      movzx eax, word [0x100ce48c]
+0x1003b7d8      mov word [ecx + 4], ax
+; [0x100ce48e:1]=195
+0x1003b7dc      movzx eax, byte [0x100ce48e]
+0x1003b7e3      mov byte [ecx + 6], al
+0x1003b7e6      mov ecx, 0x40fffa
+; [0x4f1540:4]=-1
+0x1003b7eb      mov dword [0x4f1540], 0xc304418a
+; [0x100cd348:4]=0x6604418a
+0x1003b7f5      mov eax, dword [0x100cd348]
+0x1003b7fa      mov dword [ecx], eax
+; [0x100cd34c:1]=144
+0x1003b7fc      movzx eax, byte [0x100cd34c]
+0x1003b803      mov byte [ecx + 4], al
+0x1003b806      mov ecx, 0x410173
+; [0x100cd348:4]=0x6604418a
+0x1003b80b      mov eax, dword [0x100cd348]
+0x1003b810      mov dword [ecx], eax
+; [0x100cd34c:1]=144
+0x1003b812      movzx eax, byte [0x100cd34c]
+0x1003b819      mov byte [ecx + 4], al
+0x1003b81c      mov eax, 0x410286
+; [0x100ce490:16]=-1
+0x1003b821      movups xmm0, xmmword [0x100ce490]
+0x1003b828      mov ecx, 0x4102b1
+0x1003b82d      movups xmmword [eax], xmm0
+; [0x100ce4a4:8]=0xc085f8458908418b
+0x1003b830      movq xmm0, qword [0x100ce4a4]
+0x1003b838      movq qword [ecx], xmm0
+; [0x100ce4ac:2]=0xc875
+0x1003b83c      movzx eax, word [0x100ce4ac]
+0x1003b843      mov word [ecx + 8], ax
+0x1003b847      mov eax, 0x1003a480
+0x1003b84c      sub eax, 0x468d77
+; 'phA'
+0x1003b851      mov ecx, 0x416870
+; [0x468d73:4]=-1
+0x1003b856      mov dword [0x468d73], eax
+0x1003b85b      mov eax, 0x1003a520
+; [0x7af430:4]=-1
+0x1003b860      mov dword [0x7af430], 0xc320418b
+0x1003b86a      sub eax, 0xa59545
+; [0x4181e0:4]=-1
+0x1003b86f      mov dword [0x4181e0], 0xc320418b
+; [0xa59540:1]=255
+0x1003b879      mov byte [0xa59540], 0xe9
+; [0xa59541:4]=-1
+0x1003b880      mov dword [0xa59541], eax
+; [0x100cdc0c:16]=-1
+0x1003b885      movups xmm0, xmmword [0x100cdc0c]
+0x1003b88c      movups xmmword [ecx], xmm0
+; [0x100cdc1c:4]=0xc18b0841
+0x1003b88f      mov eax, dword [0x100cdc1c]
+0x1003b894      mov dword [ecx + 0x10], eax
+; [0x100cdc20:2]=0xcc2
+0x1003b897      movzx eax, word [0x100cdc20]
+0x1003b89e      mov word [ecx + 0x14], ax
+; [0x100cdc22:1]=0
+0x1003b8a2      movzx eax, byte [0x100cdc22]
+0x1003b8a9      mov byte [ecx + 0x16], al
+0x1003b8ac      mov eax, 0x1003a620
+; [0x4b4500:1]=255
+0x1003b8b1      mov byte [0x4b4500], 0xe9
+0x1003b8b8      sub eax, 0x4b4505
+; [0x4b4501:4]=-1
+0x1003b8bd      mov dword [0x4b4501], eax
+; 25
+0x1003b8c2      mov ecx, 0x19
+0x1003b8c7      rep movsd dword es:[edi], dword [esi]
+
+Installed DLL callback dispatch
+0x10073ae9      dec eax
+; 13
+0x10073aea      cmp eax, 0xd
+   ; likely
+0x10073aed      ja 0x100742ba
+0x10073af3      movzx eax, byte [eax + 0x100742e8]
+0x10073afa      mov ebx, 0xa012d0
+0x10073aff      jmp dword [eax*4 + 0x100742d0]
+; CODE XREF from section..text @ +0x72aff(x)
+; [0x100fc0fc:4]=0
+0x10073b06      cmp dword [0x100fc0fc], 0
+   ; likely
+0x10073b0d      je 0x10073b1e
+0x10073b0f      mov edx, 0x10075110
+
+
+Extracted installed leaf normalize, mapped at 0x4A0C10
+; XREFS(238)
+0x004a0c10      movd xmm0, dword [ecx]
+0x004a0c14      mulss xmm0, xmm0
+0x004a0c18      movd xmm1, dword [ecx + 4]
+0x004a0c1d      mulss xmm1, xmm1
+0x004a0c21      addss xmm0, xmm1
+0x004a0c25      movd xmm1, dword [ecx + 8]
+0x004a0c2a      mulss xmm1, xmm1
+0x004a0c2e      addss xmm0, xmm1
+0x004a0c32      sqrtss xmm0, xmm0
+0x004a0c36      xorpd xmm1, xmm1
+0x004a0c3a      comiss xmm0, xmm1
+   ; unlikely
+0x004a0c3d      je 0x4a0c68
+0x004a0c3f      movd xmm1, dword [ecx]
+0x004a0c43      divss xmm1, xmm0
+0x004a0c47      movd dword [ecx], xmm1
+0x004a0c4b      movd xmm1, dword [ecx + 4]
+0x004a0c50      divss xmm1, xmm0
+0x004a0c54      movd dword [ecx + 4], xmm1
+0x004a0c59      movd xmm1, dword [ecx + 8]
+0x004a0c5e      divss xmm1, xmm0
+0x004a0c62      movd dword [ecx + 8], xmm1
+0x004a0c67      ret
+0x004a0c68      movq qword [ecx], xmm1
+0x004a0c6c      mov dword [ecx + 8], 0
+0x004a0c73      ret
+
+
+Extracted installed leaf vector_length, mapped at 0x457990
+; XREFS(275)
+0x00457990      push ecx
+0x00457991      movss xmm2, dword [ecx + 4]
+0x00457996      movss xmm0, dword [ecx]
+0x0045799a      movss xmm1, dword [ecx + 8]
+0x0045799f      mulss xmm0, xmm0
+0x004579a3      mulss xmm2, xmm2
+0x004579a7      mulss xmm1, xmm1
+0x004579ab      addss xmm0, xmm2
+0x004579af      addss xmm0, xmm1
+0x004579b3      sqrtss xmm0, xmm0
+0x004579b7      movss dword [esp], xmm0
+0x004579bc      fld dword [esp]
+0x004579bf      pop ecx
+0x004579c0      ret
+
+
+Extracted installed leaf vector_sqrt, mapped at 0x4579E0
+; XREFS: CALL 0x004579c9  CALL 0x0050ecc8  CALL 0x0058987b
+; XREFS: CALL 0x0064798b  CALL 0x00656fb5  CALL 0x006acfc3
+; XREFS: CALL 0x006f7cbd  CALL 0x0079fef6  CALL 0x00965c33
+; XREFS: CALL 0x009894f1  CALL 0x00989c25  CALL 0x0098b385
+; XREFS: CALL 0x0098b790  CALL 0x009a00d2  CALL 0x009a7caf
+; XREFS: CALL 0x009a8a5e
+0x004579e0      fld dword [esp + 4]
+0x004579e4      fsqrt
+0x004579e6      ret
+
+
+Supported FalloutNV.exe at 0x4A0C10
+; XREFS(238)
+0x004a0c10      push ebp
+0x004a0c11      mov ebp, esp
+0x004a0c13      sub esp, 0xc
+0x004a0c16      mov dword [ebp - 0xc], ecx
+0x004a0c19      mov ecx, dword [ebp - 0xc]
+
+
+Supported FalloutNV.exe at 0x457990
+; XREFS(275)
+0x00457990      push ebp
+0x00457991      mov ebp, esp
+0x00457993      sub esp, 8
+0x00457996      mov dword [ebp - 4], ecx
+0x00457999      mov eax, dword [ebp - 4]
+
+
+Supported FalloutNV.exe at 0x4579E0
+; XREFS: CALL 0x004579c9  CALL 0x0050ecc8  CALL 0x0058987b
+; XREFS: CALL 0x0064798b  CALL 0x00656fb5  CALL 0x006acfc3
+; XREFS: CALL 0x006f7cbd  CALL 0x0079fef6  CALL 0x00965c33
+; XREFS: CALL 0x009894f1  CALL 0x00989c25  CALL 0x0098b385
+; XREFS: CALL 0x0098b790  CALL 0x009a00d2  CALL 0x009a7caf
+; XREFS: CALL 0x009a8a5e
+0x004579e0      push ebp
+0x004579e1      mov ebp, esp
+0x004579e3      push ecx
+0x004579e4      fld dword [ebp + 8]
+0x004579e7      fstp dword [esp]
+   ; 0x4019b0(0x0, 0x0, 0x0, 0x0)
+0x004579ea      call 0x4019b0
+0x004579ef      add esp, 4
+0x004579f2      pop ebp
+
+
+Supported FalloutNV.exe at 0x6FA89E
+   ; 0x6629f0(0x0, 0x0, 0x0, 0x0)
+0x006fa89e      call 0x6629f0

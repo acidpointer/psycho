@@ -262,6 +262,10 @@ pub struct PerformanceConfig {
     pub zlib: bool,
     /// Drain post-load process reconciliation before returning from a successful load.
     pub post_load_reconciliation_prepass: bool,
+    /// Unreleased invocation-local native light-score reuse candidate.
+    pub light_property_score_reuse: bool,
+    /// Unreleased sequential scene-light enumeration candidate.
+    pub scene_light_sequential_scan: bool,
     /// Existing configs may still contain removed radio optimization settings.
     #[serde(skip)]
     pub obsolete_radio_configured: bool,
@@ -273,6 +277,8 @@ impl Default for PerformanceConfig {
             rng: true,
             zlib: true,
             post_load_reconciliation_prepass: true,
+            light_property_score_reuse: true,
+            scene_light_sequential_scan: true,
             obsolete_radio_configured: false,
         }
     }
@@ -295,6 +301,12 @@ impl PerformanceConfig {
             post_load_reconciliation_prepass: raw
                 .post_load_reconciliation_prepass
                 .unwrap_or(default.post_load_reconciliation_prepass),
+            light_property_score_reuse: raw
+                .light_property_score_reuse
+                .unwrap_or(default.light_property_score_reuse),
+            scene_light_sequential_scan: raw
+                .scene_light_sequential_scan
+                .unwrap_or(default.scene_light_sequential_scan),
             obsolete_radio_configured: raw.radio_pathfinder_yield_fix.is_some()
                 || raw.radio_signal_scan_cache.is_some()
                 || raw.radio_signal_scan_cache_ttl_ms.is_some(),
@@ -595,6 +607,8 @@ struct RawPerformanceConfig {
     zlib: Option<bool>,
     radio_pathfinder_yield_fix: Option<bool>,
     post_load_reconciliation_prepass: Option<bool>,
+    light_property_score_reuse: Option<bool>,
+    scene_light_sequential_scan: Option<bool>,
     /// Removed keys retained only so startup can explain that they are ignored.
     radio_signal_scan_cache: Option<bool>,
     radio_signal_scan_cache_ttl_ms: Option<u32>,

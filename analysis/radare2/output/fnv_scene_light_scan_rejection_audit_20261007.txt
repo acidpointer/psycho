@@ -1,0 +1,469 @@
+Sequential scan rejection audit, 2026-10-07
+
+Observed runtime: .reports/fnv_lighting_candidate_enabled_playtest_20261007.txt.
+Both switches were true. Bridges prepared. At DeferredInit the scan reported
+'Native contract changed; indexed providers retained'. No failed address or
+observed bytes were present. The exact rejected contract remains unknown.
+
+Primary interface: radare2 MCP. Native target: fnv_reverse/FalloutNV.exe.
+Deployed Psycho DLL inspected only for the reported admission/ABI question:
+/data/storage0/Games/FalloutNV_TTW/FalloutNV/syringe/psycho_engine_fixes.dll.
+Addresses in its listings are preferred-image addresses, not live-process reads.
+
+Native getter:
+; XREFS: 0x00b5ac13  CALL 0x00b5be2b  CALL 0x00b9d2b9
+; XREFS: CALL 0x00b9d3e1  CALL 0x00b9d529  CALL 0x00b9d8b4
+0x00b5ac20      push esi
+0x00b5ac21      mov esi, dword [esp + 8]
+0x00b5ac25      cmp esi, dword [ecx + 0xbc]
+   ; unlikely
+0x00b5ac2b      jb 0xb5ac33
+0x00b5ac2d      xor eax, eax
+0x00b5ac2f      pop esi
+0x00b5ac30      ret 4
+; CODE XREF from section..text @ +0x759c2b(x)
+0x00b5ac33      mov eax, dword [ecx + 0xb4]
+0x00b5ac39      mov ecx, dword [eax]
+0x00b5ac3b      lea edx, [eax + 8]
+0x00b5ac3e      mov eax, dword [edx]
+0x00b5ac40      test esi, esi
+   ; unlikely
+0x00b5ac42      jbe 0xb5ac52
+0x00b5ac44      mov edx, esi
+; CODE XREF from section..text @ +0x759c50(x)
+0x00b5ac46      sub edx, 1
+0x00b5ac49      lea eax, [ecx + 8]
+0x00b5ac4c      mov ecx, dword [ecx]
+0x00b5ac4e      mov eax, dword [eax]
+   ; likely
+0x00b5ac50      jne 0xb5ac46
+; CODE XREF from section..text @ +0x759c42(x)
+0x00b5ac52      pop esi
+0x00b5ac53      ret 4
+
+
+Deployed Psycho DLL: 0x100ab3d0
+; psycho_engine_fixes::mods::perf::scene_light_scan::observe_event
+;-- psycho_engine_fixes::mods::perf::scene_light_scan::observe_event:
+0x100ab3d0      push ebp
+0x100ab3d1      mov ebp, esp
+0x100ab3d3      sub esp, 0x38
+0x100ab3d6      cmp dword [ebp + 8], 1
+   ; likely
+0x100ab3da      jne 0x100ab4f6
+; [0x105088a0:1]=0
+0x100ab3e0      movzx eax, byte [0x105088a0]
+0x100ab3e7      test al, al
+   ; likely
+0x100ab3e9      je 0x100ab4f6
+; [0x1050889c:4]=0
+0x100ab3ef      mov eax, dword [0x1050889c]
+0x100ab3f4      test eax, eax
+   ; unlikely
+0x100ab3f6      jne 0x100ab46e
+0x100ab3f8      mov ecx, 0x1038dbdc
+   ; sym.psycho_engine_fixes::mods::perf::scene_light_scan::qualified
+   ; sym.psycho_engine_fixes::mods::perf::scene_light_scan::qualified(0x0, 0x0, 0x1038dbdc, 0x0)
+0x100ab3fd      call sym.psycho_engine_fixes::mods::perf::scene_light_scan::qualified
+0x100ab402      test al, al
+   ; likely
+0x100ab404      je 0x100ab46e
+0x100ab406      mov ecx, 0x1038db9c
+   ; sym.psycho_engine_fixes::mods::perf::scene_light_scan::qualified
+   ; sym.psycho_engine_fixes::mods::perf::scene_light_scan::qualified(0x0, 0x0, 0x1038db9c, 0x0)
+0x100ab40b      call sym.psycho_engine_fixes::mods::perf::scene_light_scan::qualified
+0x100ab410      test al, al
+; [0x1050889a:1]=0
+0x100ab412      mov byte [0x1050889a], al
+   ; likely
+0x100ab417      je 0x100ab475
+; [0x103b3080:4]=0x10511898
+0x100ab419      mov eax, dword [0x103b3080]
+0x100ab41e      mov eax, dword [eax]
+; 3
+0x100ab420      cmp eax, 3
+   ; likely
+0x100ab423      jb 0x100ab4f6
+; "psycho_engine_fixes::mods::perf::scene_light_scan[SCENE_LIGHTS] Native contract changed; indexed providers retainedPROPERTY_FIRST\x8bA`\x8bL$\x04\x89\x01\x85\xc0u\x03\xc2\x04"
+0x100ab429      mov dword [ebp - 0x38], 0x103cfe88
+; '1'
+; 49
+0x100ab430      mov dword [ebp - 0x34], 0x31
+; "psycho_engine_fixes::mods::perf::scene_light_scan[SCENE_LIGHTS] Native contract changed; indexed providers retainedPROPERTY_FIRST\x8bA`\x8bL$\x04\x89\x01\x85\xc0u\x03\xc2\x04"
+0x100ab437      mov dword [ebp - 0x30], 0x103cfe88
+; '1'
+; 49
+0x100ab43e      mov dword [ebp - 0x2c], 0x31
+0x100ab445      mov dword [ebp - 0x28], 0x103cfe78
+0x100ab44c      sub esp, 4
+0x100ab44f      lea eax, [ebp - 0x38]
+0x100ab452      push 0
+0x100ab454      push eax
+; 3
+0x100ab455      push 3
+; 155
+0x100ab457      push 0x9b
+; 0x103cfdf5
+; "[SCENE_LIGHTS] Default-off candidate enabled; runtime equivalence unvalidatedpsycho-engine-fixes/src/mods/perf/scene_light_scan.rs"
+0x100ab45c      push str._SCENE_LIGHTS__Default_off_candidate_enabled__runtime_equivalence_unvalidatedpsycho_engine_fixes_src_mods_perf_scene_light_scan.rs
+; log::__private_api::log_impl::<log::__private_api::GlobalLogger>
+   ; sym.log::__private_api::log_impl::_log::__private_api::GlobalLogger_
+   ; sym.log::__private_api::log_impl::_log::__private_api::GlobalLogger_(0x177fc4, 0x0, 0x1038db9c, 0x0)
+0x100ab461      call sym.log::__private_api::log_impl::_log::__private_api::GlobalLogger_
+0x100ab466      add esp, 0x18
+0x100ab469      add esp, 0x38
+0x100ab46c      pop ebp
+0x100ab46d      ret
+; [0x1050889a:1]=0
+0x100ab46e      mov byte [0x1050889a], 0
+; [0x103b3080:4]=0x10511898
+0x100ab475      mov eax, dword [0x103b3080]
+; [0x1050889c:4]=0
+0x100ab47a      mov dword [0x1050889c], 1
+0x100ab484      mov eax, dword [eax]
+; 1
+0x100ab486      cmp eax, 1
+   ; likely
+0x100ab489      jbe 0x100ab4f6
+0x100ab48b      lea eax, [ebp - 0x38]
+0x100ab48e      mov dword [ebp - 0x38], 1
+; 182
+0x100ab495      mov dword [ebp - 0x34], 0xb6
+0x100ab49c      mov dword [ebp - 0x30], 0
+; "psycho_engine_fixes::mods::perf::scene_light_scan[SCENE_LIGHTS] Native contract changed; indexed providers retainedPROPERTY_FIRST\x8bA`\x8bL$\x04\x89\x01\x85\xc0u\x03\xc2\x04"
+0x100ab4a3      mov dword [ebp - 0x2c], 0x103cfe88
+; '1'
+; 49
+0x100ab4aa      mov dword [ebp - 0x28], 0x31
+0x100ab4b1      mov dword [ebp - 0x24], 0
+; "psycho-engine-fixes/src/mods/perf/scene_light_scan.rs"
+0x100ab4b8      mov dword [ebp - 0x20], 0x103cfe42
+; '5'
+; 53
+0x100ab4bf      mov dword [ebp - 0x1c], 0x35
+0x100ab4c6      mov dword [ebp - 0x18], 2
+; "psycho_engine_fixes::mods::perf::scene_light_scan[SCENE_LIGHTS] Native contract changed; indexed providers retainedPROPERTY_FIRST\x8bA`\x8bL$\x04\x89\x01\x85\xc0u\x03\xc2\x04"
+0x100ab4cd      mov dword [ebp - 0x14], 0x103cfe88
+; '1'
+; 49
+0x100ab4d4      mov dword [ebp - 0x10], 0x31
+; "[SCENE_LIGHTS] Native contract changed; indexed providers retainedPROPERTY_FIRST\x8bA`\x8bL$\x04\x89\x01\x85\xc0u\x03\xc2\x04"
+0x100ab4db      mov dword [ebp - 0xc], 0x103cfeb9
+; 133
+0x100ab4e2      mov dword [ebp - 8], 0x85
+0x100ab4e9      lea ecx, [ebp - 1]
+0x100ab4ec      push eax
+
+Deployed Psycho DLL: 0x100ac1c0
+; psycho_engine_fixes::mods::perf::scene_light_scan::qualified
+;-- psycho_engine_fixes::mods::perf::scene_light_scan::qualified:
+0x100ac1c0      push ebp
+0x100ac1c1      mov ebp, esp
+; <psycho_engine_fixes::mods::perf::lighting_contract::NativeRange>::matches
+   ; sym._psycho_engine_fixes::mods::perf::lighting_contract::NativeRange_::matches
+   ; sym._psycho_engine_fixes::mods::perf::lighting_contract::NativeRange_::matches(0x0, 0x0, 0x0, 0x0)
+0x100ac1c3      call sym._psycho_engine_fixes::mods::perf::lighting_contract::NativeRange_::matches
+0x100ac1c8      test al, al
+   ; likely
+0x100ac1ca      je 0x100ac269
+0x100ac1d0      mov ecx, 0x1038dbbc
+; <psycho_engine_fixes::mods::perf::lighting_contract::NativeRange>::matches
+   ; sym._psycho_engine_fixes::mods::perf::lighting_contract::NativeRange_::matches
+   ; sym._psycho_engine_fixes::mods::perf::lighting_contract::NativeRange_::matches(0x0, 0x0, 0x1038dbbc, 0x0)
+0x100ac1d5      call sym._psycho_engine_fixes::mods::perf::lighting_contract::NativeRange_::matches
+0x100ac1da      test al, al
+   ; likely
+0x100ac1dc      je 0x100ac269
+0x100ac1e2      mov ecx, 0x1038daac
+; <psycho_engine_fixes::mods::perf::lighting_contract::NativeRange>::matches
+   ; sym._psycho_engine_fixes::mods::perf::lighting_contract::NativeRange_::matches
+   ; sym._psycho_engine_fixes::mods::perf::lighting_contract::NativeRange_::matches(0x0, 0x0, 0x1038daac, 0x0)
+0x100ac1e7      call sym._psycho_engine_fixes::mods::perf::lighting_contract::NativeRange_::matches
+0x100ac1ec      test al, al
+   ; likely
+0x100ac1ee      je 0x100ac269
+0x100ac1f0      mov ecx, 0x1038da6c
+; <psycho_engine_fixes::mods::perf::lighting_contract::NativeRange>::matches
+   ; sym._psycho_engine_fixes::mods::perf::lighting_contract::NativeRange_::matches
+   ; sym._psycho_engine_fixes::mods::perf::lighting_contract::NativeRange_::matches(0x0, 0x0, 0x1038da6c, 0x0)
+0x100ac1f5      call sym._psycho_engine_fixes::mods::perf::lighting_contract::NativeRange_::matches
+0x100ac1fa      test al, al
+   ; likely
+0x100ac1fc      je 0x100ac269
+0x100ac1fe      mov ecx, 0x1038dc90
+; <psycho_engine_fixes::mods::perf::lighting_contract::NativeRange>::matches
+   ; sym._psycho_engine_fixes::mods::perf::lighting_contract::NativeRange_::matches
+   ; sym._psycho_engine_fixes::mods::perf::lighting_contract::NativeRange_::matches(0x0, 0x0, 0x1038dc90, 0x0)
+0x100ac203      call sym._psycho_engine_fixes::mods::perf::lighting_contract::NativeRange_::matches
+0x100ac208      test al, al
+   ; likely
+0x100ac20a      je 0x100ac269
+0x100ac20c      mov ecx, 0x1038da8c
+; <psycho_engine_fixes::mods::perf::lighting_contract::NativeRange>::matches
+   ; sym._psycho_engine_fixes::mods::perf::lighting_contract::NativeRange_::matches
+   ; sym._psycho_engine_fixes::mods::perf::lighting_contract::NativeRange_::matches(0x0, 0x0, 0x1038da8c, 0x0)
+0x100ac211      call sym._psycho_engine_fixes::mods::perf::lighting_contract::NativeRange_::matches
+0x100ac216      test al, al
+   ; likely
+0x100ac218      je 0x100ac269
+0x100ac21a      mov ecx, 0x1038da4c
+; <psycho_engine_fixes::mods::perf::lighting_contract::NativeRange>::matches
+   ; sym._psycho_engine_fixes::mods::perf::lighting_contract::NativeRange_::matches
+   ; sym._psycho_engine_fixes::mods::perf::lighting_contract::NativeRange_::matches(0x0, 0x0, 0x1038da4c, 0x0)
+0x100ac21f      call sym._psycho_engine_fixes::mods::perf::lighting_contract::NativeRange_::matches
+0x100ac224      test al, al
+   ; likely
+0x100ac226      je 0x100ac269
+0x100ac228      mov ecx, 0x1038da2c
+; <psycho_engine_fixes::mods::perf::lighting_contract::NativeRange>::matches
+   ; sym._psycho_engine_fixes::mods::perf::lighting_contract::NativeRange_::matches
+   ; sym._psycho_engine_fixes::mods::perf::lighting_contract::NativeRange_::matches(0x0, 0x0, 0x1038da2c, 0x0)
+0x100ac22d      call sym._psycho_engine_fixes::mods::perf::lighting_contract::NativeRange_::matches
+0x100ac232      test al, al
+   ; likely
+0x100ac234      je 0x100ac269
+; [0x105088a4:4]=0
+0x100ac236      mov eax, dword [0x105088a4]
+0x100ac23b      cmp eax, 0xb5ac20
+   ; likely
+0x100ac240      jne 0x100ac269
+; [0x105088a8:4]=0
+0x100ac242      mov eax, dword [0x105088a8]
+0x100ac247      cmp eax, 0xb5ac20
+   ; likely
+0x100ac24c      jne 0x100ac269
+; [0x105088ac:4]=0
+0x100ac24e      mov eax, dword [0x105088ac]
+0x100ac253      cmp eax, 0xb5ac20
+   ; likely
+0x100ac258      jne 0x100ac269
+; [0x105088b0:4]=0
+0x100ac25a      mov eax, dword [0x105088b0]
+0x100ac25f      cmp eax, 0xb5ac20
+0x100ac264      sete al
+0x100ac267      pop ebp
+0x100ac268      ret
+0x100ac269      xor eax, eax
+0x100ac26b      pop ebp
+0x100ac26c      ret
+0x100ac26d      nop dword [eax]
+; psycho_engine_fixes::mods::perf::light_property_scores::observe_event
+;-- psycho_engine_fixes::mods::perf::light_property_scores::observe_event:
+0x100ac270      push ebp
+0x100ac271      mov ebp, esp
+0x100ac273      sub esp, 0x38
+0x100ac276      cmp dword [ebp + 8], 1
+   ; likely
+0x100ac27a      jne 0x100ac42f
+; [0x105088b5:1]=0
+0x100ac280      movzx eax, byte [0x105088b5]
+0x100ac287      test al, al
+   ; likely
+0x100ac289      je 0x100ac42f
+0x100ac28f      mov ecx, 0x1038ddcc
+   ; sym.__RNCINvNvNtNtNtNtCs32tIC4fDiEl_4core4iter6traits8iterator8Iterator3all5checkRNtNtNtNtCsfST0Ks2FPct_19psycho_engine_fixes4mods4
+   ; sym.__RNCINvNvNtNtNtNtCs32tIC4fDiEl_4core4iter6traits8iterator8Iterator3all5checkRNtNtNtNtCsfST0Ks2FPct_19psycho_engine_fixes4mods4(0x0, 0x0, 0x1038ddcc, 0x0)
+0x100ac294      call sym.__RNCINvNvNtNtNtNtCs32tIC4fDiEl_4core4iter6traits8iterator8Iterator3all5checkRNtNtNtNtCsfST0Ks2FPct_19psycho_engine_fixes4mods4
+
+Deployed Psycho DLL: 0x100a2540
+; psycho_engine_fixes::mods::perf::scene_light_scan::getter_owned
+;-- psycho_engine_fixes::mods::perf::scene_light_scan::getter_owned:
+; [0xb5ac20:4]=-1
+0x100a2540      cmp dword [0xb5ac20], 0x24748b56
+   ; likely
+0x100a254a      jne 0x100a25f8
+; [0xb5ac24:4]=-1
+0x100a2550      cmp dword [0xb5ac24], 0xbcb13b08
+   ; likely
+0x100a255a      jne 0x100a25f8
+; [0xb5ac28:4]=-1
+0x100a2560      cmp dword [0xb5ac28], 0x72000000
+   ; likely
+0x100a256a      jne 0x100a25f8
+; [0xb5ac2c:4]=-1
+0x100a2570      cmp dword [0xb5ac2c], 0x5ec03306
+   ; likely
+0x100a257a      jne 0x100a25f8
+; [0xb5ac30:4]=-1
+0x100a257c      cmp dword [0xb5ac30], 0x8b0004c2
+   ; likely
+0x100a2586      jne 0x100a25f8
+; [0xb5ac34:4]=-1
+0x100a2588      cmp dword [0xb5ac34], 0xb481
+   ; likely
+0x100a2592      jne 0x100a25f8
+; [0xb5ac38:4]=-1
+0x100a2594      cmp dword [0xb5ac38], 0x8d088b00
+   ; likely
+0x100a259e      jne 0x100a25f8
+; [0xb5ac3c:4]=-1
+0x100a25a0      cmp dword [0xb5ac3c], 0x28b0850
+   ; likely
+0x100a25aa      jne 0x100a25f8
+; [0xb5ac40:4]=-1
+0x100a25ac      cmp dword [0xb5ac40], 0xe76f685
+   ; likely
+0x100a25b6      jne 0x100a25f8
+; [0xb5ac44:4]=-1
+0x100a25b8      cmp dword [0xb5ac44], 0xea83d68b
+   ; likely
+0x100a25c2      jne 0x100a25f8
+; [0xb5ac48:4]=-1
+0x100a25c4      cmp dword [0xb5ac48], 0x8418d01
+   ; likely
+0x100a25ce      jne 0x100a25f8
+; [0xb5ac4c:4]=-1
+0x100a25d0      cmp dword [0xb5ac4c], 0x8b098b
+   ; likely
+0x100a25da      jne 0x100a25f8
+; [0xb5ac50:4]=-1
+0x100a25dc      cmp dword [0xb5ac50], 0xc25ef475
+   ; likely
+0x100a25e6      jne 0x100a25f8
+; [0xb5ac54:2]=0xffff
+0x100a25e8      cmp word [0xb5ac54], 4
+   ; likely
+0x100a25f0      jne 0x100a25f8
+0x100a25f2      mov eax, 1
+0x100a25f7      ret
+; [0x1050889c:4]=0
+0x100a25f8      mov dword [0x1050889c], 1
+0x100a2602      xor eax, eax
+
+Deployed Psycho DLL: 0x100a52c0
+; <psycho_engine_fixes::mods::perf::lighting_contract::NativeRange>::matches
+;-- <psycho_engine_fixes::mods::perf::lighting_contract::NativeRange>::matches:
+0x100a52c0      push ebp
+0x100a52c1      mov ebp, esp
+0x100a52c3      push ebx
+0x100a52c4      push edi
+0x100a52c5      push esi
+0x100a52c6      sub esp, 0xc
+0x100a52c9      mov eax, dword [ecx + 0x1c]
+0x100a52cc      lea edi, [ecx + 0xc]
+0x100a52cf      lea edx, [ecx + 8]
+0x100a52d2      lea esi, [ecx + 0x14]
+0x100a52d5      test eax, eax
+0x100a52d7      lea eax, [ecx + 0x18]
+0x100a52da      mov ecx, dword [ecx + 0x10]
+0x100a52dd      cmovne eax, edi
+0x100a52e0      cmove edx, esi
+0x100a52e3      xor esi, esi
+0x100a52e5      mov eax, dword [eax]
+0x100a52e7      mov edx, dword [edx]
+0x100a52e9      mov edi, eax
+0x100a52eb      sub edi, 1
+   ; unlikely
+0x100a52ee      jb 0x100a5320
+0x100a52f0      mov esi, ecx
+0x100a52f2      xor ebx, ebx
+0x100a52f4      mov dword [ebp - 0x10], edi
+0x100a52f7      neg esi
+0x100a52f9      and esi, 3
+0x100a52fc      nop dword [eax]
+0x100a5300      cmp esi, ebx
+   ; unlikely
+0x100a5302      je 0x100a531d
+0x100a5304      mov edi, ecx
+0x100a5306      movzx ecx, byte [ecx + ebx]
+0x100a530a      cmp cl, byte [edx + ebx]
+   ; unlikely
+0x100a530d      jne 0x100a538a
+0x100a530f      inc ebx
+0x100a5310      mov ecx, edi
+0x100a5312      cmp eax, ebx
+   ; likely
+0x100a5314      jne 0x100a5300
+0x100a5316      mov edi, dword [ebp - 0x10]
+0x100a5319      mov esi, eax
+0x100a531b      jmp 0x100a5320
+0x100a531d      mov edi, dword [ebp - 0x10]
+0x100a5320      lea ebx, [edi + 1]
+0x100a5323      lea edi, [eax - 1]
+0x100a5326      mov dword [ebp - 0x14], ecx
+0x100a5329      mov dword [ebp - 0x18], ebx
+0x100a532c      mov dword [ebp - 0x10], edi
+0x100a532f      nop
+0x100a5330      lea ebx, [esi + 4]
+0x100a5333      cmp ebx, eax
+   ; unlikely
+0x100a5335      ja 0x100a538e
+0x100a5337      cmp esi, eax
+   ; likely
+0x100a5339      jae 0x100a53ca
+0x100a533f      lea edi, [esi + 1]
+0x100a5342      cmp edi, eax
+   ; unlikely
+0x100a5344      jae 0x100a53ee
+0x100a534a      lea edi, [esi + 2]
+0x100a534d      cmp edi, eax
+   ; unlikely
+0x100a534f      jae 0x100a53c3
+0x100a5351      lea edi, [esi + 3]
+0x100a5354      cmp edi, eax
+   ; unlikely
+0x100a5356      jae 0x100a53db
+0x100a535c      movzx edi, byte [edx + esi + 1]
+0x100a5361      movzx ecx, byte [edx + esi]
+0x100a5365      shl edi, 8
+0x100a5368      or edi, ecx
+0x100a536a      movzx ecx, byte [edx + esi + 2]
+0x100a536f      shl ecx, 0x10
+0x100a5372      or edi, ecx
+0x100a5374      movzx ecx, byte [edx + esi + 3]
+0x100a5379      shl ecx, 0x18
+0x100a537c      or edi, ecx
+0x100a537e      mov ecx, dword [ebp - 0x14]
+0x100a5381      mov ecx, dword [ecx + esi]
+0x100a5384      mov esi, ebx
+0x100a5386      cmp ecx, edi
+   ; likely
+0x100a5388      je 0x100a5330
+0x100a538a      xor eax, eax
+0x100a538c      jmp 0x100a53bb
+0x100a538e      mov ecx, dword [ebp - 0x14]
+0x100a5391      cmp esi, eax
+0x100a5393      mov al, 1
+   ; likely
+0x100a5395      jae 0x100a53bb
+0x100a5397      sub dword [ebp - 0x10], esi
+0x100a539a      add ecx, esi
+0x100a539c      add edx, esi
+
+
+Static data check (PE section VA-to-file translation, symbols restricted to
+the nine scene_light_scan NativeRange objects): the deployed native address,
+length, and byte arrays equal the repository's verified extracts for:
+SCALAR_SQRT 0x004019B0 20 bytes
+VECTOR_SQRT 0x004579E0 20 bytes
+PROPERTY_NEXT 0x00B70700 131 bytes
+VECTOR_LENGTH 0x00457990 69 bytes
+PROPERTY_FIRST 0x00B70600 125 bytes
+CAMERA 0x00B5BCA0 1719 bytes
+GETTER 0x00B5AC20 54 bytes
+SHADOW 0x00B9D150 2447 bytes
+NORMALIZE 0x004A0C10 118 bytes
+
+Data locations were decoded using the compiled matches() accesses, not an
+assumed stable Rust layout. The on-disk uninitialized OnceLock state selects
+the immutable native signature; installed overlays are process-owned data
+and were not reconstructed or read from a live game.
+
+All fourteen getter_owned comparison immediates equal all 54 bytes of
+scene_getter.bin. The two compiled functions select native mode on nonzero
+POISON; initialize may latch rejection before DeferredInit. This makes the
+generic warning insufficient to identify a current byte mismatch.
+
+No evidence here attributes a third-party patch, proves an internal overlay
+error, or establishes accepted engine traversal behavior.
+
+The supported FalloutNV.exe SHA-256 recorded in the owning audit was
+reconfirmed. All nine embedded scan extracts match its mapped-section bytes.
+MCP output below is retained with trailing whitespace normalized.
+
+Instrumentation: on DeferredInit rejection only, read the current nine exact
+ranges against their existing owned expectations; log range name, first
+mismatched address, expected/observed byte, captured provider mismatches, and
+whether rejection was already latched. No native hook, guard expectation,
+hot assembly, config, provider chaining, or scan behavior is changed.
+A later matching snapshot cannot reconstruct an earlier transient failure.

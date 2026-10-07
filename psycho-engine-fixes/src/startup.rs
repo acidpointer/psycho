@@ -19,7 +19,8 @@ use crate::{
             set_active_mode,
         },
         perf::{
-            install_post_load_reconciliation_prepass, install_radio_scan_fix, install_rng_hook,
+            install_light_property_score_reuse, install_post_load_reconciliation_prepass,
+            install_radio_scan_fix, install_rng_hook, install_scene_light_sequential_scan,
         },
         zlib::install_zlib_hooks,
     },
@@ -189,6 +190,21 @@ fn install_runtime_hooks(performance: &PerformanceConfig) -> anyhow::Result<()> 
         }
     } else {
         log::info!("[POST_LOAD] Reconciliation prepass disabled by config");
+    }
+
+    if performance.light_property_score_reuse {
+        if let Err(error) = install_light_property_score_reuse() {
+            log::warn!(
+                "[LIGHT_SCORES] Candidate unavailable; captured providers retained: {error:#}"
+            );
+        }
+    }
+    if performance.scene_light_sequential_scan {
+        if let Err(error) = install_scene_light_sequential_scan() {
+            log::warn!(
+                "[SCENE_LIGHTS] Candidate unavailable; indexed providers retained: {error:#}"
+            );
+        }
     }
 
     if performance.rng {

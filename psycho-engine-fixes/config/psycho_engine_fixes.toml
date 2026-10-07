@@ -6,7 +6,7 @@
 #
 # 1. Mode 2 is the performance-first complete allocator. Validate it on very
 #    large modlists; mode 1 is the broad-compatibility choice.
-# 2. Keep all engine fixes and performance options enabled.
+# 2. Keep released engine fixes and performance options at their defaults.
 # 3. Keep the console and focused profiling tools disabled during normal play.
 #
 # Most users do not need to change anything. Every shipped setting is already
@@ -446,6 +446,20 @@ zlib = true
 # while the load transition is still active. It may move a small amount of work
 # into the loading transition so the first playable frame has less backlog.
 post_load_reconciliation_prepass = true
+
+# Unreleased light-score reuse candidate. Enabled by default.
+# Retains native score calculation and insertion order, reusing predecessor
+# scores within one admitted sort. Unsupported code, inputs, or x87 state
+# dispatch through the captured provider. Full restart required.
+# Shared-input stability and runtime equivalence remain unvalidated.
+light_property_score_reuse = true
+
+# Unreleased scene-light traversal candidate. Enabled by default.
+# Traverses admitted shadow and camera light scans sequentially while retaining
+# native filtering and arithmetic. Changed code retains indexed traversal.
+# Full restart required. Node/scene lifetime and runtime equivalence remain
+# unvalidated. Independent of light_property_score_reuse.
+scene_light_sequential_scan = true
 
 # =============================================================================
 # DIAGNOSTICS

@@ -1,0 +1,1115 @@
+Sequential scan math admission implementation contract, 2026-10-07
+
+Scope: correction of exact code admission only, not traversal, arithmetic or
+another mod. The supported native identity, installed leaf bytes, copy extents
+and leaf ABI are preserved in fnv_scene_light_scan_math_compatibility_contract_20261007.txt.
+Those native bytes and deployed leaf buffers were rechecked before embedding.
+The three alternative files contain the exact copied leaves plus native tails:
+normalize_inlined.bin 118 bytes = 100 leaf + 18 tail;
+vector_length_inlined.bin 69 bytes = 49 leaf + 20 tail;
+vector_sqrt_inlined.bin 20 bytes = 7 leaf + 13 tail.
+
+Production contract:
+NativeRange retains its native expectation/owned-overlay behavior. It may also
+hold one immutable full-range alternative. Only the three scan math statics use
+that option. Preparation checks equal extents, prohibits combining an alternative
+with owned overlays, and validates either complete supported body. Runtime
+matches first compares the native/owned expectation, then the optional complete
+alternative. A later PostPostLoad replacement can be admitted even if initial
+preparation saw vanilla. No observed bytes are copied into an expectation.
+Cold diagnosis reports unsupported ranges only and chooses an alternative with
+the observed entry byte for its detailed mismatch when appropriate.
+Both the hot and cold boundary continue rejecting every unknown byte, including
+untouched native tails. They do not rewrite installed arithmetic or callbacks.
+
+Behavioral evidence:
+.reports/fnv_scene_light_scan_math_admission_regression_20261007.txt retains the
+fail-first and passing Wine output. The actual production checker ran against
+owned mappings containing verified native and installed code. The test-only
+relocation changes only the address; production range configuration is retained.
+Before correction, already-inlined preparation and post-preparation replacement
+admission failed. After correction, both pass for all three ranges, as does
+restoration to vanilla. Mutating every byte of each complete accepted input
+rejects in preparation, hot comparison and diagnosis. Native math and traversal
+are not executed by this memory-admission test; there is no modeled scene.
+The complete affected core suite passed and the supported release target built.
+
+Source-level work budget:
+The three math extents are aligned and contain 29+17+5 DWORD reads plus 2+1
+trailing byte reads on a matching vanilla input. The exact installed alternatives
+have different first DWORDs, so their successful checks add one failed native
+DWORD read per installed math variant, at most three additional engine DWORD
+reads per pass. There is no per-advance change, lock, allocation, logging,
+provider rewrite or FP arithmetic in qualification. This is a bounded memory
+comparison cost, not an FPS result.
+
+Startup scope:
+The optional immutable alternative field changes private core NativeRange
+static layout, and three small read-only byte ranges are embedded. No new owner,
+TLS, worker, dependency, import, config field or callback is introduced. Existing
+pre-CRT preparation order and owned bridge installation are retained. Bounded
+comparison with the deployed core found its imported DLL/symbol sequence, TLS
+data extent/section and callback identities unchanged. The callback identities
+are Rust's Windows TLS guard, __dyn_tls_init, __dyn_tls_dtor and __dyn_tls_pthread.
+Layout/code addresses still move; this is not a load-to-gameplay safety result.
+The old deployed core has not been replaced and no release/package/commit was
+created. Full Proton startup and native scan behavior remain untested.
+
+Compiled hot path proof:
+Primary radare2 MCP target:
+target/i686-pc-windows-gnu/release/psycho_engine_fixes.dll.
+Preferred-image addresses below, not live-process addresses.
+Qualified boundary starts 0x100F3D30 and returns at 0x100F454E. All instruction
+captures below are bounded and overlap at their last instruction to advance
+without guessing an instruction length. Only one CALL appears in the complete
+qualified body, to its integer-only range comparator. Bounded PE extraction of
+CALL bytes E8 CC 85 FF FF at 0x100F44EF resolves it to 0x100ECAC0; that complete
+comparator returns at 0x100ECB49 and has no calls. Both bodies use integer
+instructions, with no x87, XMM/YMM/ZMM use or allocation/logging/library call.
+All four captured-provider comparisons remain against 0x00B5AC20 before success.
+The exact consumer range, getter/property ranges, shared POISON/readiness policy,
+bridge ABI and cursor instructions have not changed in the source delta.
+Signature admission does not establish node lifetime, code-writer exclusion,
+scene retirement or native traversal equivalence. Those prior candidate limits
+remain unresolved. This artifact is not an accepted startup baseline.
+
+Primary radare2 MCP captures follow.
+
+Qualified at 0x100f3d30
+; psycho_engine_fixes::mods::perf::scene_light_scan::qualified
+;-- psycho_engine_fixes::mods::perf::scene_light_scan::qualified:
+0x100f3d30      push ebp
+0x100f3d31      mov ebp, esp
+0x100f3d33      push ebx
+0x100f3d34      push edi
+0x100f3d35      push esi
+0x100f3d36      sub esp, 8
+0x100f3d39      mov eax, dword [ecx + 0x1c]
+0x100f3d3c      lea edx, [ecx + 8]
+0x100f3d3f      lea esi, [ecx + 0x14]
+0x100f3d42      mov dword [ebp - 0x10], ecx
+0x100f3d45      test eax, eax
+0x100f3d47      lea eax, [ecx + 0xc]
+0x100f3d4a      cmove edx, esi
+0x100f3d4d      lea esi, [ecx + 0x18]
+0x100f3d50      mov ecx, dword [ecx + 0x10]
+0x100f3d53      cmovne esi, eax
+0x100f3d56      mov eax, dword [esi]
+0x100f3d58      mov esi, dword [edx]
+0x100f3d5a      test eax, eax
+   ; unlikely
+0x100f3d5c      je 0x100f3d86
+0x100f3d5e      mov edi, ecx
+0x100f3d60      xor ebx, ebx
+0x100f3d62      neg edi
+0x100f3d64      and edi, 3
+0x100f3d67      nop word [eax + eax]
+0x100f3d70      cmp edi, ebx
+   ; unlikely
+0x100f3d72      je 0x100f3d90
+0x100f3d74      movzx edx, byte [ecx + ebx]
+0x100f3d78      cmp dl, byte [esi + ebx]
+   ; unlikely
+0x100f3d7b      jne 0x100f3da1
+0x100f3d7d      inc ebx
+0x100f3d7e      cmp eax, ebx
+   ; likely
+0x100f3d80      jne 0x100f3d70
+0x100f3d82      mov edi, eax
+0x100f3d84      jmp 0x100f3d90
+0x100f3d86      xor edi, edi
+0x100f3d88      nop dword [eax + eax]
+0x100f3d90      lea ebx, [edi + 4]
+0x100f3d93      cmp ebx, eax
+   ; unlikely
+0x100f3d95      ja 0x100f3e06
+0x100f3d97      mov edx, dword [ecx + edi]
+0x100f3d9a      cmp edx, dword [esi + edi]
+0x100f3d9d      mov edi, ebx
+   ; likely
+0x100f3d9f      je 0x100f3d90
+0x100f3da1      mov edx, dword [ebp - 0x10]
+0x100f3da4      xor eax, eax
+0x100f3da6      mov esi, dword [edx + 0x20]
+0x100f3da9      test esi, esi
+   ; unlikely
+0x100f3dab      je 0x100f4547
+0x100f3db1      mov edx, dword [edx + 0x24]
+; DATA XREFS from psycho_engine_fixes::mods::engine_fixes::append_diagnostic_report @ +0x27ec(r), +0x27f1(r)
+  ; sym.psycho_engine_fixes::mods::engine_fixes::append_diagnostic_report
+0x100f3db4      test edx, edx
+   ; unlikely
+0x100f3db6      je 0x100f3df0
+0x100f3db8      mov eax, ecx
+0x100f3dba      xor edi, edi
+0x100f3dbc      neg eax
+0x100f3dbe      and eax, 3
+0x100f3dc1      nop word cs:[eax + eax]
+0x100f3dcb      nop dword [eax + eax]
+0x100f3dd0      cmp eax, edi
+   ; unlikely
+0x100f3dd2      je 0x100f3df0
+0x100f3dd4      movzx ebx, byte [ecx + edi]
+0x100f3dd8      cmp bl, byte [esi + edi]
+   ; unlikely
+0x100f3ddb      jne 0x100f4545
+0x100f3de1      inc edi
+0x100f3de2      cmp edx, edi
+   ; likely
+0x100f3de4      jne 0x100f3dd0
+0x100f3de6      mov eax, edx
+0x100f3de8      nop dword [eax + eax]
+0x100f3df0      lea edi, [eax + 4]
+0x100f3df3      cmp edi, edx
+   ; unlikely
+0x100f3df5      ja 0x100f3e1e
+0x100f3df7      mov ebx, dword [ecx + eax]
+0x100f3dfa      cmp ebx, dword [esi + eax]
+0x100f3dfd      mov eax, edi
+   ; likely
+0x100f3dff      je 0x100f3df0
+0x100f3e01      jmp 0x100f4545
+0x100f3e06      sub eax, edi
+   ; likely
+0x100f3e08      jbe 0x100f3e40
+0x100f3e0a      lea ebx, [ecx + edi]
+0x100f3e0d      add esi, edi
+0x100f3e0f      nop
+0x100f3e10      movzx edx, byte [ebx]
+0x100f3e13      cmp dl, byte [esi]
+   ; unlikely
+0x100f3e15      jne 0x100f3da1
+0x100f3e17      inc esi
+0x100f3e18      inc ebx
+0x100f3e19      dec eax
+   ; likely
+0x100f3e1a      jne 0x100f3e10
+0x100f3e1c      jmp 0x100f3e40
+0x100f3e1e      sub edx, eax
+   ; likely
+0x100f3e20      jbe 0x100f3e40
+0x100f3e22      add ecx, eax
+0x100f3e24      add esi, eax
+0x100f3e26      nop word cs:[eax + eax]
+0x100f3e30      movzx eax, byte [ecx]
+0x100f3e33      cmp al, byte [esi]
+   ; unlikely
+0x100f3e35      jne 0x100f4545
+0x100f3e3b      inc esi
+0x100f3e3c      inc ecx
+0x100f3e3d      dec edx
+   ; likely
+0x100f3e3e      jne 0x100f3e30
+; [0x103b3ce8:4]=3
+0x100f3e40      mov eax, dword [0x103b3ce8]
+0x100f3e45      lea ecx, [0x103b3cd4]
+   ; "6"
+0x100f3e4b      lea edx, [0x103b3cd8]
+0x100f3e51      test eax, eax
+0x100f3e53      lea eax, [0x103b3ce0]
+0x100f3e59      cmove ecx, eax
+0x100f3e5c      lea eax, [0x103b3ce4]
+0x100f3e62      cmove edx, eax
+0x100f3e65      mov eax, dword [edx]
+0x100f3e67      mov edx, dword [ecx]
+; [0x103b3cdc:4]=0xb5ac20
+0x100f3e69      mov ecx, dword [0x103b3cdc]
+0x100f3e6f      test eax, eax
+   ; unlikely
+0x100f3e71      je 0x100f3e96
+0x100f3e73      mov esi, ecx
+0x100f3e75      xor edi, edi
+0x100f3e77      neg esi
+0x100f3e79      and esi, 3
+0x100f3e7c      nop dword [eax]
+0x100f3e80      cmp esi, edi
+
+
+Qualified at 0x100f3e80
+0x100f3e80      cmp esi, edi
+   ; likely
+0x100f3e82      je 0x100f3ea0
+0x100f3e84      movzx ebx, byte [ecx + edi]
+0x100f3e88      cmp bl, byte [edx + edi]
+   ; likely
+0x100f3e8b      jne 0x100f3eb1
+0x100f3e8d      inc edi
+0x100f3e8e      cmp eax, edi
+   ; likely
+0x100f3e90      jne 0x100f3e80
+0x100f3e92      mov esi, eax
+0x100f3e94      jmp 0x100f3ea0
+0x100f3e96      xor esi, esi
+0x100f3e98      nop dword [eax + eax]
+0x100f3ea0      lea edi, [esi + 4]
+0x100f3ea3      cmp edi, eax
+   ; unlikely
+0x100f3ea5      ja 0x100f3f16
+0x100f3ea7      mov ebx, dword [ecx + esi]
+0x100f3eaa      cmp ebx, dword [edx + esi]
+0x100f3ead      mov esi, edi
+   ; unlikely
+0x100f3eaf      je 0x100f3ea0
+; [0x103b3cec:4]=0
+0x100f3eb1      mov edx, dword [0x103b3cec]
+0x100f3eb7      xor eax, eax
+0x100f3eb9      test edx, edx
+   ; likely
+0x100f3ebb      je 0x100f4547
+; [0x103b3cf0:4]=0
+0x100f3ec1      mov esi, dword [0x103b3cf0]
+0x100f3ec7      test esi, esi
+   ; likely
+0x100f3ec9      je 0x100f3f00
+0x100f3ecb      mov eax, ecx
+0x100f3ecd      xor edi, edi
+0x100f3ecf      neg eax
+0x100f3ed1      and eax, 3
+0x100f3ed4      nop word cs:[eax + eax]
+0x100f3ede      nop
+0x100f3ee0      cmp eax, edi
+   ; likely
+0x100f3ee2      je 0x100f3f00
+0x100f3ee4      movzx ebx, byte [ecx + edi]
+0x100f3ee8      cmp bl, byte [edx + edi]
+   ; unlikely
+0x100f3eeb      jne 0x100f4545
+0x100f3ef1      inc edi
+0x100f3ef2      cmp esi, edi
+   ; likely
+0x100f3ef4      jne 0x100f3ee0
+0x100f3ef6      mov eax, esi
+0x100f3ef8      nop dword [eax + eax]
+0x100f3f00      lea edi, [eax + 4]
+0x100f3f03      cmp edi, esi
+   ; likely
+0x100f3f05      ja 0x100f3f2e
+0x100f3f07      mov ebx, dword [ecx + eax]
+0x100f3f0a      cmp ebx, dword [edx + eax]
+0x100f3f0d      mov eax, edi
+   ; likely
+0x100f3f0f      je 0x100f3f00
+0x100f3f11      jmp 0x100f4545
+0x100f3f16      sub eax, esi
+   ; unlikely
+0x100f3f18      jbe 0x100f3f50
+0x100f3f1a      lea edi, [ecx + esi]
+0x100f3f1d      add edx, esi
+0x100f3f1f      nop
+0x100f3f20      movzx ebx, byte [edi]
+0x100f3f23      cmp bl, byte [edx]
+   ; unlikely
+0x100f3f25      jne 0x100f3eb1
+0x100f3f27      inc edx
+0x100f3f28      inc edi
+0x100f3f29      dec eax
+   ; likely
+0x100f3f2a      jne 0x100f3f20
+0x100f3f2c      jmp 0x100f3f50
+0x100f3f2e      sub esi, eax
+   ; likely
+0x100f3f30      jbe 0x100f3f50
+0x100f3f32      add ecx, eax
+0x100f3f34      add edx, eax
+0x100f3f36      nop word cs:[eax + eax]
+0x100f3f40      movzx eax, byte [ecx]
+0x100f3f43      cmp al, byte [edx]
+   ; unlikely
+0x100f3f45      jne 0x100f4545
+0x100f3f4b      inc edx
+0x100f3f4c      inc ecx
+0x100f3f4d      dec esi
+   ; likely
+0x100f3f4e      jne 0x100f3f40
+; [0x103b3bc8:4]=3
+0x100f3f50      mov eax, dword [0x103b3bc8]
+0x100f3f55      lea ecx, [0x103b3bb4]
+   ; "}"
+0x100f3f5b      lea edx, [0x103b3bb8]
+0x100f3f61      test eax, eax
+0x100f3f63      lea eax, [0x103b3bc0]
+0x100f3f69      cmove ecx, eax
+0x100f3f6c      lea eax, [0x103b3bc4]
+0x100f3f72      cmove edx, eax
+0x100f3f75      mov eax, dword [edx]
+0x100f3f77      mov edx, dword [ecx]
+; [0x103b3bbc:4]=0xb70600
+0x100f3f79      mov ecx, dword [0x103b3bbc]
+0x100f3f7f      test eax, eax
+   ; unlikely
+0x100f3f81      je 0x100f3fa6
+0x100f3f83      mov esi, ecx
+0x100f3f85      xor edi, edi
+0x100f3f87      neg esi
+0x100f3f89      and esi, 3
+0x100f3f8c      nop dword [eax]
+0x100f3f90      cmp esi, edi
+   ; likely
+0x100f3f92      je 0x100f3fb0
+0x100f3f94      movzx ebx, byte [ecx + edi]
+0x100f3f98      cmp bl, byte [edx + edi]
+   ; likely
+0x100f3f9b      jne 0x100f3fc1
+0x100f3f9d      inc edi
+0x100f3f9e      cmp eax, edi
+   ; likely
+0x100f3fa0      jne 0x100f3f90
+0x100f3fa2      mov esi, eax
+0x100f3fa4      jmp 0x100f3fb0
+0x100f3fa6      xor esi, esi
+0x100f3fa8      nop dword [eax + eax]
+0x100f3fb0      lea edi, [esi + 4]
+0x100f3fb3      cmp edi, eax
+   ; unlikely
+0x100f3fb5      ja 0x100f4026
+0x100f3fb7      mov ebx, dword [ecx + esi]
+0x100f3fba      cmp ebx, dword [edx + esi]
+0x100f3fbd      mov esi, edi
+   ; unlikely
+0x100f3fbf      je 0x100f3fb0
+; [0x103b3bcc:4]=0
+0x100f3fc1      mov edx, dword [0x103b3bcc]
+0x100f3fc7      xor eax, eax
+0x100f3fc9      test edx, edx
+   ; likely
+0x100f3fcb      je 0x100f4547
+; [0x103b3bd0:4]=0
+0x100f3fd1      mov esi, dword [0x103b3bd0]
+0x100f3fd7      test esi, esi
+   ; likely
+0x100f3fd9      je 0x100f4010
+0x100f3fdb      mov eax, ecx
+
+
+Qualified at 0x100f3fdb
+0x100f3fdb      mov eax, ecx
+0x100f3fdd      xor edi, edi
+0x100f3fdf      neg eax
+0x100f3fe1      and eax, 3
+0x100f3fe4      nop word cs:[eax + eax]
+0x100f3fee      nop
+0x100f3ff0      cmp eax, edi
+   ; likely
+0x100f3ff2      je 0x100f4010
+0x100f3ff4      movzx ebx, byte [ecx + edi]
+0x100f3ff8      cmp bl, byte [edx + edi]
+   ; likely
+0x100f3ffb      jne 0x100f4545
+0x100f4001      inc edi
+0x100f4002      cmp esi, edi
+   ; likely
+0x100f4004      jne 0x100f3ff0
+0x100f4006      mov eax, esi
+0x100f4008      nop dword [eax + eax]
+0x100f4010      lea edi, [eax + 4]
+0x100f4013      cmp edi, esi
+   ; likely
+0x100f4015      ja 0x100f403e
+0x100f4017      mov ebx, dword [ecx + eax]
+0x100f401a      cmp ebx, dword [edx + eax]
+0x100f401d      mov eax, edi
+   ; unlikely
+0x100f401f      je 0x100f4010
+0x100f4021      jmp 0x100f4545
+0x100f4026      sub eax, esi
+   ; unlikely
+0x100f4028      jbe 0x100f4060
+0x100f402a      lea edi, [ecx + esi]
+0x100f402d      add edx, esi
+0x100f402f      nop
+0x100f4030      movzx ebx, byte [edi]
+0x100f4033      cmp bl, byte [edx]
+   ; likely
+0x100f4035      jne 0x100f3fc1
+0x100f4037      inc edx
+0x100f4038      inc edi
+0x100f4039      dec eax
+   ; likely
+0x100f403a      jne 0x100f4030
+0x100f403c      jmp 0x100f4060
+0x100f403e      sub esi, eax
+   ; unlikely
+0x100f4040      jbe 0x100f4060
+0x100f4042      add ecx, eax
+0x100f4044      add edx, eax
+0x100f4046      nop word cs:[eax + eax]
+0x100f4050      movzx eax, byte [ecx]
+0x100f4053      cmp al, byte [edx]
+   ; likely
+0x100f4055      jne 0x100f4545
+0x100f405b      inc edx
+0x100f405c      inc ecx
+0x100f405d      dec esi
+   ; unlikely
+0x100f405e      jne 0x100f4050
+; [0x103b3b78:4]=3
+0x100f4060      mov eax, dword [0x103b3b78]
+0x100f4065      lea ecx, [0x103b3b64]
+0x100f406b      lea edx, [0x103b3b68]
+0x100f4071      test eax, eax
+0x100f4073      lea eax, [0x103b3b70]
+0x100f4079      cmove ecx, eax
+0x100f407c      lea eax, [0x103b3b74]
+0x100f4082      cmove edx, eax
+0x100f4085      mov eax, dword [edx]
+0x100f4087      mov edx, dword [ecx]
+; [0x103b3b6c:4]=0xb70700
+0x100f4089      mov ecx, dword [0x103b3b6c]
+0x100f408f      test eax, eax
+   ; unlikely
+0x100f4091      je 0x100f40b6
+0x100f4093      mov esi, ecx
+0x100f4095      xor edi, edi
+0x100f4097      neg esi
+0x100f4099      and esi, 3
+0x100f409c      nop dword [eax]
+0x100f40a0      cmp esi, edi
+   ; likely
+0x100f40a2      je 0x100f40c0
+0x100f40a4      movzx ebx, byte [ecx + edi]
+0x100f40a8      cmp bl, byte [edx + edi]
+   ; likely
+0x100f40ab      jne 0x100f40d1
+0x100f40ad      inc edi
+0x100f40ae      cmp eax, edi
+   ; likely
+0x100f40b0      jne 0x100f40a0
+0x100f40b2      mov esi, eax
+0x100f40b4      jmp 0x100f40c0
+0x100f40b6      xor esi, esi
+0x100f40b8      nop dword [eax + eax]
+0x100f40c0      lea edi, [esi + 4]
+0x100f40c3      cmp edi, eax
+   ; unlikely
+0x100f40c5      ja 0x100f4142
+0x100f40c7      mov ebx, dword [ecx + esi]
+0x100f40ca      cmp ebx, dword [edx + esi]
+0x100f40cd      mov esi, edi
+   ; unlikely
+0x100f40cf      je 0x100f40c0
+; [0x103b3b7c:4]=0
+0x100f40d1      mov edx, dword [0x103b3b7c]
+0x100f40d7      xor edi, edi
+0x100f40d9      test edx, edx
+   ; likely
+0x100f40db      je 0x100f4545
+; [0x103b3b80:4]=0
+0x100f40e1      mov esi, dword [0x103b3b80]
+0x100f40e7      test esi, esi
+   ; likely
+0x100f40e9      je 0x100f4118
+0x100f40eb      mov edi, ecx
+0x100f40ed      xor eax, eax
+0x100f40ef      neg edi
+0x100f40f1      and edi, 3
+0x100f40f4      nop word cs:[eax + eax]
+0x100f40fe      nop
+0x100f4100      cmp edi, eax
+   ; likely
+0x100f4102      je 0x100f4118
+0x100f4104      movzx ebx, byte [ecx + eax]
+0x100f4108      cmp bl, byte [edx + eax]
+   ; unlikely
+0x100f410b      jne 0x100f4545
+0x100f4111      inc eax
+0x100f4112      cmp esi, eax
+   ; likely
+0x100f4114      jne 0x100f4100
+0x100f4116      mov edi, esi
+0x100f4118      mov dword [ebp - 0x10], edx
+0x100f411b      mov dword [ebp - 0x14], esi
+0x100f411e      nop
+0x100f4120      lea ebx, [edi + 4]
+0x100f4123      cmp ebx, esi
+   ; likely
+0x100f4125      ja 0x100f4162
+0x100f4127      mov esi, dword [ecx + edi]
+0x100f412a      mov edx, ecx
+0x100f412c      mov ecx, dword [ebp - 0x10]
+0x100f412f      xor eax, eax
+0x100f4131      cmp esi, dword [ecx + edi]
+0x100f4134      mov esi, dword [ebp - 0x14]
+
+
+Qualified at 0x100f4134
+0x100f4134      mov esi, dword [ebp - 0x14]
+0x100f4137      mov ecx, edx
+0x100f4139      mov edi, ebx
+   ; unlikely
+0x100f413b      je 0x100f4120
+0x100f413d      jmp 0x100f4547
+0x100f4142      sub eax, esi
+   ; likely
+0x100f4144      jbe 0x100f417d
+0x100f4146      lea edi, [ecx + esi]
+0x100f4149      add edx, esi
+0x100f414b      nop dword [eax + eax]
+0x100f4150      movzx ebx, byte [edi]
+0x100f4153      cmp bl, byte [edx]
+   ; unlikely
+0x100f4155      jne 0x100f40d1
+0x100f415b      inc edx
+0x100f415c      inc edi
+0x100f415d      dec eax
+   ; likely
+0x100f415e      jne 0x100f4150
+0x100f4160      jmp 0x100f417d
+0x100f4162      mov edx, dword [ebp - 0x10]
+0x100f4165      sub esi, edi
+   ; unlikely
+0x100f4167      jbe 0x100f417d
+0x100f4169      add ecx, edi
+0x100f416b      add edx, edi
+0x100f416d      movzx eax, byte [ecx]
+0x100f4170      cmp al, byte [edx]
+   ; likely
+0x100f4172      jne 0x100f4545
+0x100f4178      inc edx
+0x100f4179      inc ecx
+0x100f417a      dec esi
+   ; likely
+0x100f417b      jne 0x100f416d
+; [0x103b3dcc:4]=3
+0x100f417d      mov eax, dword [0x103b3dcc]
+0x100f4182      lea ecx, [0x103b3db8]
+   ; "v"
+0x100f4188      lea edx, [0x103b3dbc]
+0x100f418e      test eax, eax
+0x100f4190      lea eax, [0x103b3dc4]
+0x100f4196      cmove ecx, eax
+0x100f4199      lea eax, [0x103b3dc8]
+0x100f419f      cmove edx, eax
+0x100f41a2      mov eax, dword [edx]
+0x100f41a4      mov edx, dword [ecx]
+; [0x103b3dc0:4]=0x4a0c10
+0x100f41a6      mov ecx, dword [0x103b3dc0]
+0x100f41ac      test eax, eax
+   ; unlikely
+0x100f41ae      je 0x100f41d6
+0x100f41b0      mov esi, ecx
+0x100f41b2      xor edi, edi
+0x100f41b4      neg esi
+0x100f41b6      and esi, 3
+0x100f41b9      nop dword [eax]
+0x100f41c0      cmp esi, edi
+   ; likely
+0x100f41c2      je 0x100f41e0
+0x100f41c4      movzx ebx, byte [ecx + edi]
+0x100f41c8      cmp bl, byte [edx + edi]
+   ; likely
+0x100f41cb      jne 0x100f41f1
+0x100f41cd      inc edi
+0x100f41ce      cmp eax, edi
+   ; likely
+0x100f41d0      jne 0x100f41c0
+0x100f41d2      mov esi, eax
+0x100f41d4      jmp 0x100f41e0
+0x100f41d6      xor esi, esi
+0x100f41d8      nop dword [eax + eax]
+0x100f41e0      lea edi, [esi + 4]
+0x100f41e3      cmp edi, eax
+   ; unlikely
+0x100f41e5      ja 0x100f4254
+0x100f41e7      mov ebx, dword [ecx + esi]
+0x100f41ea      cmp ebx, dword [edx + esi]
+0x100f41ed      mov esi, edi
+   ; unlikely
+0x100f41ef      je 0x100f41e0
+; [0x103b3dd0:4]=0x103dd9ed
+0x100f41f1      mov edx, dword [0x103b3dd0]
+0x100f41f7      xor edi, edi
+0x100f41f9      test edx, edx
+   ; unlikely
+0x100f41fb      je 0x100f4545
+; [0x103b3dd4:4]=118
+0x100f4201      mov esi, dword [0x103b3dd4]
+0x100f4207      test esi, esi
+   ; unlikely
+0x100f4209      je 0x100f422c
+0x100f420b      mov edi, ecx
+0x100f420d      xor eax, eax
+0x100f420f      neg edi
+0x100f4211      and edi, 3
+0x100f4214      cmp edi, eax
+   ; likely
+0x100f4216      je 0x100f422c
+0x100f4218      movzx ebx, byte [ecx + eax]
+0x100f421c      cmp bl, byte [edx + eax]
+   ; likely
+0x100f421f      jne 0x100f4545
+0x100f4225      inc eax
+0x100f4226      cmp esi, eax
+   ; likely
+0x100f4228      jne 0x100f4214
+0x100f422a      mov edi, esi
+0x100f422c      mov dword [ebp - 0x10], edx
+0x100f422f      mov dword [ebp - 0x14], esi
+0x100f4232      lea ebx, [edi + 4]
+0x100f4235      cmp ebx, esi
+   ; likely
+0x100f4237      ja 0x100f426b
+0x100f4239      mov esi, dword [ecx + edi]
+0x100f423c      mov edx, ecx
+0x100f423e      mov ecx, dword [ebp - 0x10]
+0x100f4241      xor eax, eax
+0x100f4243      cmp esi, dword [ecx + edi]
+0x100f4246      mov esi, dword [ebp - 0x14]
+0x100f4249      mov ecx, edx
+0x100f424b      mov edi, ebx
+   ; likely
+0x100f424d      je 0x100f4232
+0x100f424f      jmp 0x100f4547
+0x100f4254      sub eax, esi
+   ; likely
+0x100f4256      jbe 0x100f4286
+0x100f4258      lea edi, [ecx + esi]
+0x100f425b      add edx, esi
+0x100f425d      movzx ebx, byte [edi]
+0x100f4260      cmp bl, byte [edx]
+   ; unlikely
+0x100f4262      jne 0x100f41f1
+0x100f4264      inc edx
+0x100f4265      inc edi
+0x100f4266      dec eax
+   ; unlikely
+0x100f4267      jne 0x100f425d
+0x100f4269      jmp 0x100f4286
+0x100f426b      mov edx, dword [ebp - 0x10]
+0x100f426e      sub esi, edi
+   ; unlikely
+0x100f4270      jbe 0x100f4286
+0x100f4272      add ecx, edi
+0x100f4274      add edx, edi
+0x100f4276      movzx eax, byte [ecx]
+
+
+Qualified at 0x100f4276
+0x100f4276      movzx eax, byte [ecx]
+0x100f4279      cmp al, byte [edx]
+   ; likely
+0x100f427b      jne 0x100f4545
+0x100f4281      inc edx
+0x100f4282      inc ecx
+0x100f4283      dec esi
+   ; likely
+0x100f4284      jne 0x100f4276
+; [0x103b3ba0:4]=3
+0x100f4286      mov eax, dword [0x103b3ba0]
+0x100f428b      lea ecx, [0x103b3b8c]
+   ; "E"
+0x100f4291      lea edx, [0x103b3b90]
+0x100f4297      test eax, eax
+0x100f4299      lea eax, [0x103b3b98]
+0x100f429f      cmove ecx, eax
+0x100f42a2      lea eax, [0x103b3b9c]
+0x100f42a8      cmove edx, eax
+0x100f42ab      mov eax, dword [edx]
+0x100f42ad      mov edx, dword [ecx]
+; [0x103b3b94:4]=0x457990
+0x100f42af      mov ecx, dword [0x103b3b94]
+0x100f42b5      test eax, eax
+   ; unlikely
+0x100f42b7      je 0x100f42d8
+0x100f42b9      mov esi, ecx
+0x100f42bb      xor edi, edi
+0x100f42bd      neg esi
+0x100f42bf      and esi, 3
+0x100f42c2      cmp esi, edi
+   ; likely
+0x100f42c4      je 0x100f42da
+0x100f42c6      movzx ebx, byte [ecx + edi]
+0x100f42ca      cmp bl, byte [edx + edi]
+   ; likely
+0x100f42cd      jne 0x100f42eb
+0x100f42cf      inc edi
+0x100f42d0      cmp eax, edi
+   ; likely
+0x100f42d2      jne 0x100f42c2
+0x100f42d4      mov esi, eax
+0x100f42d6      jmp 0x100f42da
+0x100f42d8      xor esi, esi
+0x100f42da      lea edi, [esi + 4]
+0x100f42dd      cmp edi, eax
+   ; unlikely
+0x100f42df      ja 0x100f434e
+0x100f42e1      mov ebx, dword [ecx + esi]
+0x100f42e4      cmp ebx, dword [edx + esi]
+0x100f42e7      mov esi, edi
+   ; unlikely
+0x100f42e9      je 0x100f42da
+; [0x103b3ba4:4]=0x103dc4a6
+0x100f42eb      mov edx, dword [0x103b3ba4]
+0x100f42f1      xor edi, edi
+0x100f42f3      test edx, edx
+   ; unlikely
+0x100f42f5      je 0x100f4545
+; [0x103b3ba8:4]=69
+0x100f42fb      mov esi, dword [0x103b3ba8]
+0x100f4301      test esi, esi
+   ; unlikely
+0x100f4303      je 0x100f4326
+0x100f4305      mov edi, ecx
+0x100f4307      xor eax, eax
+0x100f4309      neg edi
+0x100f430b      and edi, 3
+0x100f430e      cmp edi, eax
+   ; likely
+0x100f4310      je 0x100f4326
+0x100f4312      movzx ebx, byte [ecx + eax]
+0x100f4316      cmp bl, byte [edx + eax]
+   ; likely
+0x100f4319      jne 0x100f4545
+0x100f431f      inc eax
+0x100f4320      cmp esi, eax
+   ; likely
+0x100f4322      jne 0x100f430e
+0x100f4324      mov edi, esi
+0x100f4326      mov dword [ebp - 0x10], edx
+0x100f4329      mov dword [ebp - 0x14], esi
+0x100f432c      lea ebx, [edi + 4]
+0x100f432f      cmp ebx, esi
+   ; likely
+0x100f4331      ja 0x100f4365
+0x100f4333      mov esi, dword [ecx + edi]
+0x100f4336      mov edx, ecx
+0x100f4338      mov ecx, dword [ebp - 0x10]
+0x100f433b      xor eax, eax
+0x100f433d      cmp esi, dword [ecx + edi]
+0x100f4340      mov esi, dword [ebp - 0x14]
+0x100f4343      mov ecx, edx
+0x100f4345      mov edi, ebx
+   ; likely
+0x100f4347      je 0x100f432c
+0x100f4349      jmp 0x100f4547
+0x100f434e      sub eax, esi
+   ; likely
+0x100f4350      jbe 0x100f4380
+0x100f4352      lea edi, [ecx + esi]
+0x100f4355      add edx, esi
+0x100f4357      movzx ebx, byte [edi]
+0x100f435a      cmp bl, byte [edx]
+   ; unlikely
+0x100f435c      jne 0x100f42eb
+0x100f435e      inc edx
+0x100f435f      inc edi
+0x100f4360      dec eax
+   ; unlikely
+0x100f4361      jne 0x100f4357
+0x100f4363      jmp 0x100f4380
+0x100f4365      mov edx, dword [ebp - 0x10]
+0x100f4368      sub esi, edi
+   ; unlikely
+0x100f436a      jbe 0x100f4380
+0x100f436c      add ecx, edi
+0x100f436e      add edx, edi
+0x100f4370      movzx eax, byte [ecx]
+0x100f4373      cmp al, byte [edx]
+   ; unlikely
+0x100f4375      jne 0x100f4545
+0x100f437b      inc edx
+0x100f437c      inc ecx
+0x100f437d      dec esi
+   ; likely
+0x100f437e      jne 0x100f4370
+; [0x103b3b50:4]=3
+0x100f4380      mov eax, dword [0x103b3b50]
+0x100f4385      lea ecx, [0x103b3b3c]
+0x100f438b      lea edx, [0x103b3b40]
+0x100f4391      test eax, eax
+0x100f4393      lea eax, [0x103b3b48]
+0x100f4399      cmove ecx, eax
+0x100f439c      lea eax, [0x103b3b4c]
+0x100f43a2      cmove edx, eax
+0x100f43a5      mov eax, dword [edx]
+0x100f43a7      mov edx, dword [ecx]
+; [0x103b3b44:4]=0x4579e0
+0x100f43a9      mov ecx, dword [0x103b3b44]
+0x100f43af      test eax, eax
+   ; unlikely
+0x100f43b1      je 0x100f43d2
+0x100f43b3      mov esi, ecx
+0x100f43b5      xor edi, edi
+0x100f43b7      neg esi
+0x100f43b9      and esi, 3
+0x100f43bc      cmp esi, edi
+   ; likely
+0x100f43be      je 0x100f43d4
+
+
+Qualified at 0x100f43be
+   ; unlikely
+0x100f43be      je 0x100f43d4
+0x100f43c0      movzx ebx, byte [ecx + edi]
+0x100f43c4      cmp bl, byte [edx + edi]
+   ; likely
+0x100f43c7      jne 0x100f43e5
+0x100f43c9      inc edi
+0x100f43ca      cmp eax, edi
+   ; likely
+0x100f43cc      jne 0x100f43bc
+0x100f43ce      mov esi, eax
+0x100f43d0      jmp 0x100f43d4
+0x100f43d2      xor esi, esi
+0x100f43d4      lea edi, [esi + 4]
+0x100f43d7      cmp edi, eax
+   ; unlikely
+0x100f43d9      ja 0x100f4448
+0x100f43db      mov ebx, dword [ecx + esi]
+0x100f43de      cmp ebx, dword [edx + esi]
+0x100f43e1      mov esi, edi
+   ; unlikely
+0x100f43e3      je 0x100f43d4
+; [0x103b3b54:4]=0x103dc3b0
+0x100f43e5      mov edx, dword [0x103b3b54]
+0x100f43eb      xor edi, edi
+0x100f43ed      test edx, edx
+   ; unlikely
+0x100f43ef      je 0x100f4545
+; [0x103b3b58:4]=20
+0x100f43f5      mov esi, dword [0x103b3b58]
+0x100f43fb      test esi, esi
+   ; unlikely
+0x100f43fd      je 0x100f4420
+0x100f43ff      mov edi, ecx
+0x100f4401      xor eax, eax
+0x100f4403      neg edi
+0x100f4405      and edi, 3
+0x100f4408      cmp edi, eax
+   ; likely
+0x100f440a      je 0x100f4420
+0x100f440c      movzx ebx, byte [ecx + eax]
+0x100f4410      cmp bl, byte [edx + eax]
+   ; likely
+0x100f4413      jne 0x100f4545
+0x100f4419      inc eax
+0x100f441a      cmp esi, eax
+   ; likely
+0x100f441c      jne 0x100f4408
+0x100f441e      mov edi, esi
+0x100f4420      mov dword [ebp - 0x10], edx
+0x100f4423      mov dword [ebp - 0x14], esi
+0x100f4426      lea ebx, [edi + 4]
+0x100f4429      cmp ebx, esi
+   ; likely
+0x100f442b      ja 0x100f445f
+0x100f442d      mov esi, dword [ecx + edi]
+0x100f4430      mov edx, ecx
+0x100f4432      mov ecx, dword [ebp - 0x10]
+0x100f4435      xor eax, eax
+0x100f4437      cmp esi, dword [ecx + edi]
+0x100f443a      mov esi, dword [ebp - 0x14]
+0x100f443d      mov ecx, edx
+0x100f443f      mov edi, ebx
+   ; likely
+0x100f4441      je 0x100f4426
+0x100f4443      jmp 0x100f4547
+0x100f4448      sub eax, esi
+   ; likely
+0x100f444a      jbe 0x100f447a
+0x100f444c      lea edi, [ecx + esi]
+0x100f444f      add edx, esi
+0x100f4451      movzx ebx, byte [edi]
+0x100f4454      cmp bl, byte [edx]
+   ; unlikely
+0x100f4456      jne 0x100f43e5
+0x100f4458      inc edx
+0x100f4459      inc edi
+0x100f445a      dec eax
+   ; unlikely
+0x100f445b      jne 0x100f4451
+0x100f445d      jmp 0x100f447a
+0x100f445f      mov edx, dword [ebp - 0x10]
+0x100f4462      sub esi, edi
+   ; unlikely
+0x100f4464      jbe 0x100f447a
+0x100f4466      add ecx, edi
+0x100f4468      add edx, edi
+0x100f446a      movzx eax, byte [ecx]
+0x100f446d      cmp al, byte [edx]
+   ; unlikely
+0x100f446f      jne 0x100f4545
+0x100f4475      inc edx
+0x100f4476      inc ecx
+0x100f4477      dec esi
+   ; likely
+0x100f4478      jne 0x100f446a
+; [0x103b3b28:4]=3
+0x100f447a      mov eax, dword [0x103b3b28]
+0x100f447f      lea ecx, [0x103b3b14]
+0x100f4485      lea edx, [0x103b3b18]
+0x100f448b      test eax, eax
+0x100f448d      lea eax, [0x103b3b20]
+0x100f4493      cmove ecx, eax
+0x100f4496      lea eax, [0x103b3b24]
+0x100f449c      cmove edx, eax
+0x100f449f      mov eax, dword [edx]
+0x100f44a1      mov edx, dword [ecx]
+; [0x103b3b1c:4]=0x4019b0
+0x100f44a3      mov ecx, dword [0x103b3b1c]
+0x100f44a9      test eax, eax
+   ; unlikely
+0x100f44ab      je 0x100f44cc
+0x100f44ad      mov esi, ecx
+0x100f44af      xor edi, edi
+0x100f44b1      neg esi
+0x100f44b3      and esi, 3
+0x100f44b6      cmp esi, edi
+   ; likely
+0x100f44b8      je 0x100f44ce
+0x100f44ba      movzx ebx, byte [ecx + edi]
+0x100f44be      cmp bl, byte [edx + edi]
+   ; likely
+0x100f44c1      jne 0x100f44df
+0x100f44c3      inc edi
+0x100f44c4      cmp eax, edi
+   ; likely
+0x100f44c6      jne 0x100f44b6
+0x100f44c8      mov esi, eax
+0x100f44ca      jmp 0x100f44ce
+0x100f44cc      xor esi, esi
+0x100f44ce      lea edi, [esi + 4]
+0x100f44d1      cmp edi, eax
+   ; unlikely
+0x100f44d3      ja 0x100f44fd
+0x100f44d5      mov ebx, dword [ecx + esi]
+0x100f44d8      cmp ebx, dword [edx + esi]
+0x100f44db      mov esi, edi
+   ; unlikely
+0x100f44dd      je 0x100f44ce
+; [0x103b3b2c:4]=0
+0x100f44df      mov edx, dword [0x103b3b2c]
+0x100f44e5      test edx, edx
+   ; likely
+0x100f44e7      je 0x100f4545
+; '0;;\x10'
+0x100f44e9      push dword [0x103b3b30]
+; <psycho_engine_fixes::mods::perf::lighting_contract::NativeRange>::matches_expected
+   ; sym._psycho_engine_fixes::mods::perf::lighting_contract::NativeRange_::matches_expected__2
+   ; sym._psycho_engine_fixes::mods::perf::lighting_contract::NativeRange_::matches_expected__2(0x14, -1, 0x4019b0, 0x0)
+0x100f44ef      call sym._psycho_engine_fixes::mods::perf::lighting_contract::NativeRange_::matches_expected__2
+0x100f44f4      add esp, 4
+0x100f44f7      test al, al
+   ; unlikely
+0x100f44f9      je 0x100f4545
+0x100f44fb      jmp 0x100f4512
+
+
+Qualified at 0x100f44fb
+0x100f44fb      jmp 0x100f4512
+0x100f44fd      sub eax, esi
+   ; unlikely
+0x100f44ff      jbe 0x100f4512
+0x100f4501      lea edi, [ecx + esi]
+0x100f4504      add edx, esi
+0x100f4506      movzx ebx, byte [edi]
+0x100f4509      cmp bl, byte [edx]
+   ; likely
+0x100f450b      jne 0x100f44df
+0x100f450d      inc edx
+0x100f450e      inc edi
+0x100f450f      dec eax
+   ; likely
+0x100f4510      jne 0x100f4506
+; [0x10513d14:4]=0
+0x100f4512      mov eax, dword [0x10513d14]
+0x100f4517      cmp eax, 0xb5ac20
+   ; likely
+0x100f451c      jne 0x100f4545
+; [0x10513d18:4]=0
+0x100f451e      mov eax, dword [0x10513d18]
+0x100f4523      cmp eax, 0xb5ac20
+   ; likely
+0x100f4528      jne 0x100f4545
+; [0x10513d1c:4]=0
+0x100f452a      mov eax, dword [0x10513d1c]
+0x100f452f      cmp eax, 0xb5ac20
+   ; likely
+0x100f4534      jne 0x100f4545
+; [0x10513d20:4]=0
+0x100f4536      mov eax, dword [0x10513d20]
+0x100f453b      cmp eax, 0xb5ac20
+0x100f4540      sete al
+0x100f4543      jmp 0x100f4547
+0x100f4545      xor eax, eax
+0x100f4547      add esp, 8
+0x100f454a      pop esi
+0x100f454b      pop edi
+0x100f454c      pop ebx
+0x100f454d      pop ebp
+0x100f454e      ret
+
+Integer range comparator at 0x100ECAC0
+; <psycho_engine_fixes::mods::perf::lighting_contract::NativeRange>::matches_expected
+;-- <psycho_engine_fixes::mods::perf::lighting_contract::NativeRange>::matches_expected:
+0x100ecac0      push ebp
+0x100ecac1      mov ebp, esp
+0x100ecac3      push ebx
+0x100ecac4      push edi
+0x100ecac5      push esi
+0x100ecac6      cmp dword [ebp + 8], 0
+   ; unlikely
+0x100ecaca      je 0x100ecaf8
+0x100ecacc      mov edi, ecx
+0x100ecace      xor esi, esi
+; DATA XREF from sym.__RINvXse_NtNtCsjux0WHjgKyf_10serde_core2de5implsINtNtCs32tIC4fDiEl_4core6option6OptionNtNtCs92LXG9HUj0y_19psycho_engine_fixes6_6 @ +0x2c(r)
+0x100ecad0      neg edi
+0x100ecad2      and edi, 3
+0x100ecad5      nop word cs:[eax + eax]
+0x100ecadf      nop
+; DATA XREFS from sym.__RINvXse_NtNtCsjux0WHjgKyf_10serde_core2de5implsINtNtCs32tIC4fDiEl_4core6option6OptionNtNtCs92LXG9HUj0y_19psycho_engine_fixes6_15 @ +0x10(r), +0x21(r)
+; DATA XREF from sym.__RINvXse_NtNtCsjux0WHjgKyf_10serde_core2de5implsINtNtCs32tIC4fDiEl_4core6option6OptionNtNtCs92LXG9HUj0y_19psycho_engine_fixes6_18 @ +0x2a(r)
+0x100ecae0      cmp edi, esi
+   ; likely
+0x100ecae2      je 0x100ecafa
+0x100ecae4      movzx ebx, byte [ecx + esi]
+; DATA XREF from sym.__RINvXse_NtNtCsjux0WHjgKyf_10serde_core2de5implsINtNtCs32tIC4fDiEl_4core6option6OptionNtNtCs92LXG9HUj0y_19psycho_engine_fixes6_8 @ +0x32(r)
+0x100ecae8      cmp bl, byte [edx + esi]
+   ; likely
+0x100ecaeb      jne 0x100ecb12
+0x100ecaed      inc esi
+0x100ecaee      cmp dword [ebp + 8], esi
+   ; likely
+0x100ecaf1      jne 0x100ecae0
+0x100ecaf3      mov edi, dword [ebp + 8]
+0x100ecaf6      jmp 0x100ecafa
+0x100ecaf8      xor edi, edi
+0x100ecafa      mov eax, dword [ebp + 8]
+0x100ecafd      lea esi, [eax - 1]
+0x100ecb00      lea ebx, [edi + 4]
+0x100ecb03      cmp ebx, dword [ebp + 8]
+   ; unlikely
+0x100ecb06      ja 0x100ecb16
+0x100ecb08      mov eax, dword [ecx + edi]
+0x100ecb0b      cmp eax, dword [edx + edi]
+0x100ecb0e      mov edi, ebx
+   ; unlikely
+0x100ecb10      je 0x100ecb00
+0x100ecb12      xor eax, eax
+0x100ecb14      jmp 0x100ecb45
+0x100ecb16      cmp edi, dword [ebp + 8]
+0x100ecb19      mov al, 1
+   ; unlikely
+0x100ecb1b      jae 0x100ecb45
+0x100ecb1d      add ecx, edi
+0x100ecb1f      add edx, edi
+0x100ecb21      sub esi, edi
+0x100ecb23      nop word cs:[eax + eax]
+0x100ecb2d      nop dword [eax]
+; DATA XREF from sym.__RINvXse_NtNtCsjux0WHjgKyf_10serde_core2de5implsINtNtCs32tIC4fDiEl_4core6option6OptionNtNtCs92LXG9HUj0y_19psycho_engine_fixes6_21 @ +0x40(r)
+0x100ecb30      movzx ebx, byte [ecx]
+0x100ecb33      mov bh, byte [edx]
+0x100ecb35      cmp bl, bh
+0x100ecb37      sete al
+0x100ecb3a      add esi, 0xffffffff
+   ; unlikely
+0x100ecb3d      jae 0x100ecb45
+0x100ecb3f      inc edx
+0x100ecb40      inc ecx
+0x100ecb41      cmp bl, bh
+   ; unlikely
+0x100ecb43      je 0x100ecb30
+0x100ecb45      pop esi
+0x100ecb46      pop edi
+0x100ecb47      pop ebx
+0x100ecb48      pop ebp
+0x100ecb49      ret
