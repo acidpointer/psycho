@@ -43,6 +43,52 @@ existing composition policy (256 world units or 2 percent at quarter scale).
 The consumer subtracts blocked scattering from its existing total energy.
 Extinction, HG phase, native source color and sky response remain unchanged.
 
+Atmospheric actor admission uses the actual light frustums rather than the
+surface receiver's camera-forward depth intervals. An actor behind the view
+camera can still cast a shadow through visible haze. All intersecting
+actor-capable maps are admitted; the LOD profile still excludes actors.
+Surface-only admission retains its view-depth and blend-neighbor policy.
+Requested and retained projections both participate in planning, and overlay
+selection is recomputed against the actual completed static map family. Each
+retained projection is paired with its own generation origin.
+
+Directional planning, crop bounds and overlay root submission reuse the
+existing active-actor snapshot also used by point lights. Root collection
+already copies validated absolute bounds; the directional path no longer
+rereads native bounds or scans the complete static-root list for every actor
+crop and overlay. Borrowed identities remain confined to the common-shadow
+invocation and the reusable vectors are cleared on restoration. Invalid or
+incomplete snapshots retain conservative full-projection overlays and the
+complete root traversal. Child visibility, presented equipment and hidden-head
+rules remain unchanged. This producer correction changes no resource format,
+resolution, preset, configuration layout, static owner or startup boundary.
+
+The volume lookup consumes only published orthographic cascade matrices.
+Cascade fitting, actor cropping and camera-origin rebasing preserve the W
+column `[0, 0, 0, 1]`. World-field sampling therefore uses projected XYZ
+without the unreachable positive-W rejection. Reciprocal evaluation remains:
+removing it changed noisy mixed-depth fixture pixels beyond the existing FP16
+acceptance tolerance, despite the mathematical W invariant. Sample positions,
+coverage blending, EVSM comparisons, density and composition remain unchanged.
+The retained arithmetic costs more than the rejected division-free candidate
+but preserves fixture quality. Compiled world-field instructions decrease
+from 1463 to 1419; texture operations remain 13. This does not reduce atlas
+allocation or marches.
+
+The owner explicitly authorized production-fixture A/B qualification for this
+behavior-preserving shader optimization despite unavailable game captures.
+The frozen original production HLSL is retained under `omv/shaders/tests/`.
+The fixture executes production depth reduction, field binding and integration
+with production-fit orthographic matrices, FP16 EVSM/actor textures and pixel
+readback. It covers quality tiers, changed camera orientation/origin, sky and
+mixed depth, actor coverage, height density and noise. This establishes fixture
+pixel equivalence, not matching game-image reproduction or gameplay speed.
+
+Correct world admission can activate more actor overlays than the old
+camera-depth policy. This fixes missing caster coverage; the scalar snapshot
+optimization does not prove a reduction in total GPU time. The owner's FPS
+loss and remaining static-scenery ray disappearance remain unresolved.
+
 World lookup selects the finest actual projected map containing each sample
 and blends to coarser maps at their boundaries. It no longer rejects a sample
 by a camera-depth split. Ray extent is clipped against the outer orthographic

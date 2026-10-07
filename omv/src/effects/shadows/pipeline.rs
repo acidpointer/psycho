@@ -905,12 +905,25 @@ impl ShadowPipeline {
         let roots_complete = prepared.roots_complete;
         let actor_bounds_complete = prepared.actor_bounds_complete;
         let directional_signatures = prepared.directional_signatures;
-        let dynamic_mask = directional_inputs.map(|(_, splits)| unsafe {
+        let dynamic_mask = directional_inputs.map(|(_, splits)| {
+            if !prepared.actor_bounds_complete {
+                return 0b0111;
+            }
+            let world_maps = crate::fnv_world_pipeline::needs_directional_shadows()
+                .then(|| {
+                    actor_world_maps(
+                        cascade_projections,
+                        cascade_origins,
+                        camera.world_transform.translation,
+                    )
+                })
+                .flatten();
             native::directional_dynamic_cascade_mask(
-                prepared.roots.as_slice(),
+                prepared.actor_roots.as_slice(),
                 splits,
                 shadow_camera.forward,
                 camera.world_transform.translation,
+                world_maps.as_ref(),
             )
         });
         let directional_changed = directional_no_work_state_changed(
@@ -1287,6 +1300,25 @@ fn point_consumer_plan_for_frame(
         );
     }
     Some(point_consumer_plan(scissors, publication.point_count))
+}
+
+/// Pair retained actor-capable projections with offsets from the current camera.
+/// All maps must exist before world-space admission can be precise. A missing
+/// map delegates to the caller's conservative bootstrap mask.
+fn actor_world_maps(
+    projections: [Option<CascadeProjection>; CASCADE_COUNT],
+    origins: [[f32; 3]; CASCADE_COUNT],
+    camera_origin: [f32; 3],
+) -> Option<[(CascadeProjection, [f32; 3]); CASCADE_COUNT]> {
+    let [Some(a), Some(b), Some(c), Some(d)] = projections else {
+        return None;
+    };
+    Some(std::array::from_fn(|index| {
+        (
+            [a, b, c, d][index],
+            std::array::from_fn(|axis| origins[index][axis] - camera_origin[axis]),
+        )
+    }))
 }
 
 /// Reject retained directional publication only when the current branch owns
@@ -1978,7 +2010,7 @@ impl ShadowResources {
             || unsafe { native::collect_directional_roots(scene, &mut prepared.roots) };
         prepared.directional_signatures = (directional && prepared.roots_complete)
             .then(|| native::directional_root_set_signatures(prepared.roots.as_slice()));
-        prepared.actor_bounds_complete = !has_points
+        prepared.actor_bounds_complete = !(directional || has_points)
             || (prepared.roots_complete
                 && unsafe {
                     native::collect_point_actor_bounds(
@@ -2158,15 +2190,36 @@ impl ShadowResources {
             // The same cache is then reused by every submitted map; it never
             // survives the engine-owned common-shadow transaction.
             let current_root_signature = prepared.directional_signatures;
-            let dynamic_cascade_mask = if roots_complete {
-                unsafe {
-                    native::directional_dynamic_cascade_mask(
-                        directional_roots.as_slice(),
+            let world_admission = crate::fnv_world_pipeline::needs_directional_shadows();
+            let dynamic_cascade_mask = if roots_complete && prepared.actor_bounds_complete {
+                let requested_maps =
+                    world_admission.then(|| projections.map(|projection| (projection, [0.0; 3])));
+                let mut mask = native::directional_dynamic_cascade_mask(
+                    prepared.actor_roots.as_slice(),
+                    splits,
+                    shadow_camera.forward,
+                    camera.world_transform.translation,
+                    requested_maps.as_ref(),
+                );
+                // Skipped or scrolled maps may retain a different generation
+                // origin. Keep their actor work until the actual rendered map
+                // family is known, then select overlays against that family.
+                if world_admission
+                    && let Some(retained) = actor_world_maps(
+                        self.cascade_projections,
+                        self.cascade_origins,
+                        camera.world_transform.translation,
+                    )
+                {
+                    mask |= native::directional_dynamic_cascade_mask(
+                        prepared.actor_roots.as_slice(),
                         splits,
                         shadow_camera.forward,
                         camera.world_transform.translation,
-                    )
+                        Some(&retained),
+                    );
                 }
+                mask
             } else {
                 // The complete overflow visitor cannot cheaply precompute
                 // actor bounds. Conservatively refresh all actor-capable maps.
@@ -2367,20 +2420,39 @@ impl ShadowResources {
                 // The far actor texture doubles as the mandatory same-size
                 // MSAA resolve. Publish near/middle first and far last so a
                 // live far result is never overwritten by the scratch role.
+                let overlay_work = if world_admission && prepared.actor_bounds_complete {
+                    let maps = actor_world_maps(
+                        self.cascade_projections,
+                        self.cascade_origins,
+                        camera.world_transform.translation,
+                    )
+                    .ok_or_else(direct3d_failure)?;
+                    native::directional_dynamic_cascade_mask(
+                        prepared.actor_roots.as_slice(),
+                        splits,
+                        shadow_camera.forward,
+                        camera.world_transform.translation,
+                        Some(&maps),
+                    )
+                } else {
+                    caster_work.actor_overlay_mask
+                };
                 for index in [1_usize, 0, 2] {
-                    if caster_work.actor_overlay_mask & (1 << index) == 0 {
+                    if overlay_work & (1 << index) == 0 {
                         continue;
                     }
                     let static_projection =
                         self.cascade_projections[index].ok_or_else(direct3d_failure)?;
                     self.production_stage = ShadowProductionStage::ActorBounds(index as u8);
-                    let actor_bounds = unsafe {
+                    let actor_bounds = if prepared.actor_bounds_complete {
                         native::directional_actor_bounds(
-                            directional_roots.as_slice(),
+                            prepared.actor_roots.as_slice(),
                             index,
                             static_projection,
                             self.cascade_origins[index],
                         )
+                    } else {
+                        native::DirectionalActorBounds::FullProjection
                     };
                     let (actor_projection, actor_crop) = match actor_bounds {
                         native::DirectionalActorBounds::NoWork => continue,
@@ -2405,7 +2477,11 @@ impl ShadowResources {
                             index,
                             actor_projection,
                             self.cascade_origins[index],
-                            directional_roots.as_slice(),
+                            if prepared.actor_bounds_complete {
+                                prepared.actor_roots.as_slice()
+                            } else {
+                                directional_roots.as_slice()
+                            },
                         )?
                     };
                     self.actor_crops[index] = actor_crop;

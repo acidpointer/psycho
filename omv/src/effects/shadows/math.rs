@@ -347,21 +347,43 @@ impl CascadeProjection {
 
 /// Return the receiver-owned gameplay maps for one animated caster bound.
 ///
-/// Ownership follows the same view-depth intervals as the consumer. Clipmap
-/// guard spheres are deliberately larger than those intervals and therefore
-/// cannot select an actor map. Include the adjacent map only when the bound
-/// overlaps the five-percent outward blend shell. LOD is deliberately
-/// excluded because NVR's LOD profile excludes actors.
+/// Surface-only ownership follows receiver view-depth intervals, including
+/// the adjacent five-percent blend shell. When world-space atmosphere consumes
+/// the maps, admit every intersecting light frustum instead: view depth cannot
+/// reject an offscreen caster whose shadow crosses the volume. `world_maps`
+/// pairs each retained projection with its origin relative to the bound's
+/// camera origin. Invalid bounds/origins conservatively admit all three actor
+/// maps. The fourth map's LOD profile deliberately excludes actors.
 pub(super) fn dynamic_caster_cascade_mask(
     splits: [CascadeSplit; 4],
     camera_forward: [f32; 3],
     bound: Sphere,
+    world_maps: Option<&[(CascadeProjection, [f32; 3]); 4]>,
 ) -> u8 {
     if !bound.center.into_iter().all(f32::is_finite)
         || !bound.radius.is_finite()
         || bound.radius < 0.0
     {
         return 0b0111;
+    }
+    if let Some(maps) = world_maps {
+        let mut mask = 0;
+        for (index, (projection, origin)) in maps[..3].iter().enumerate() {
+            if !origin.iter().copied().all(f32::is_finite) {
+                return 0b0111;
+            }
+            let relative = Sphere {
+                center: std::array::from_fn(|axis| bound.center[axis] - origin[axis]),
+                radius: bound.radius,
+            };
+            if !relative.center.into_iter().all(f32::is_finite) {
+                return 0b0111;
+            }
+            if projection.contains(relative) {
+                mask |= 1 << index;
+            }
+        }
+        return mask;
     }
     let Some(forward) = normalized(camera_forward) else {
         return 0b0111;

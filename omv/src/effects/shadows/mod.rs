@@ -82,6 +82,52 @@ pub(crate) use pipeline::{
     VolumetricDirectionalFrame, VolumetricPointLightFrame, WorldContextGuard,
 };
 
+/// Build offline shader inputs with the shipped cascade fitting equations.
+/// The fixture fixes zoom compensation to one and never enters the engine.
+#[cfg(test)]
+pub(crate) fn directional_shader_fixture(
+    camera: crate::backend::CameraFrame,
+    sun: [f32; 3],
+) -> Option<([[[f32; 4]; 4]; 4], [f32; 4])> {
+    let split = contract::practical_cascade_splits(camera.near_z, camera.far_z, 6_000.0, 0.9)?;
+    let shadow_camera = math::ShadowCamera {
+        near: camera.near_z,
+        far: camera.far_z,
+        frustum_left: camera.frustum_left,
+        frustum_right: camera.frustum_right,
+        frustum_bottom: camera.frustum_bottom,
+        frustum_top: camera.frustum_top,
+        forward: [1.0, 0.0, 0.0],
+        up: [0.0, 0.0, 1.0],
+        right: [0.0, 1.0, 0.0],
+        translation: camera.world_transform.translation,
+        fov_compensation: 1.0,
+    };
+    let first = math::cascade_projection(
+        shadow_camera,
+        split[0],
+        sun,
+        contract::NVR_CASCADE_RESOLUTION,
+    )?;
+    let mut matrices = [first.world_to_shadow; 4];
+    for index in 1..4 {
+        matrices[index] = math::cascade_projection(
+            shadow_camera,
+            split[index],
+            sun,
+            contract::NVR_CASCADE_RESOLUTION,
+        )?
+        .world_to_shadow;
+    }
+    Some((matrices, split.map(|entry| entry.far)))
+}
+
+/// Exact EVSM moments used to populate offline directional atlas fixtures.
+#[cfg(test)]
+pub(crate) fn directional_fixture_moments(depth: f32) -> Option<[f32; 4]> {
+    contract::evsm4_moments(depth, true)
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[repr(u8)]
 pub(crate) enum ShadowInvocationContext {

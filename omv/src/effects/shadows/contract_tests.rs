@@ -2832,7 +2832,7 @@ fn grazing_directional_receivers_use_nvrs_world_space_normal_offset() {
 }
 
 #[test]
-fn animated_actor_bounds_invalidate_only_their_receiver_cascade_and_blend_neighbor() {
+fn animated_actor_admission_matches_surface_and_world_consumers() {
     let camera = ShadowCamera {
         near: 5.0,
         far: 28_000.0,
@@ -2856,12 +2856,87 @@ fn animated_actor_bounds_invalidate_only_their_receiver_cascade_and_blend_neighb
         projections[index] = cascade_projection(camera, splits[index], sun, NVR_CASCADE_RESOLUTION)
             .expect("cascade projection");
     }
+    let offscreen_actor = Sphere {
+        center: [-100.0, 0.0, 0.0],
+        radius: 32.0,
+    };
+    assert!(projections[0].contains(offscreen_actor));
+    assert_ne!(
+        dynamic_caster_cascade_mask(
+            splits,
+            camera.forward,
+            offscreen_actor,
+            Some(&projections.map(|projection| (projection, [0.0; 3]))),
+        ) & 1,
+        0,
+        "a light-frustum caster must remain eligible behind the view camera"
+    );
+    let maps = projections.map(|projection| (projection, [0.0; 3]));
+    for forward in [
+        [1.0, 0.0, 0.0],
+        [-1.0, 0.0, 0.0],
+        [0.0, 1.0, 0.0],
+        [0.0, 0.0, 1.0],
+    ] {
+        assert_eq!(
+            dynamic_caster_cascade_mask(splits, forward, offscreen_actor, Some(&maps)),
+            0b0111,
+            "world-space rays require overlapping actor maps regardless of camera rotation"
+        );
+    }
+    // Cached projections and bounds must meet in the generation origin even
+    // after the consuming camera translates without refreshing the atlas.
+    let translated_origin = [1024.0, -512.0, 256.0];
+    let translated_bound = Sphere {
+        center: std::array::from_fn(|axis| offscreen_actor.center[axis] + translated_origin[axis]),
+        radius: offscreen_actor.radius,
+    };
+    assert_eq!(
+        dynamic_caster_cascade_mask(
+            splits,
+            camera.forward,
+            translated_bound,
+            Some(&projections.map(|projection| (projection, translated_origin)))
+        ),
+        0b0111,
+    );
+    assert_eq!(
+        dynamic_caster_cascade_mask(
+            splits,
+            camera.forward,
+            Sphere {
+                center: [1_000_000.0, 0.0, 0.0],
+                radius: 1.0
+            },
+            Some(&maps)
+        ),
+        0,
+        "world admission must not schedule actor overlays outside every light frustum"
+    );
+    assert_eq!(
+        dynamic_caster_cascade_mask(
+            splits,
+            camera.forward,
+            Sphere {
+                center: [f32::NAN, 0.0, 0.0],
+                radius: 1.0
+            },
+            Some(&maps)
+        ),
+        0b0111,
+    );
+    let mut invalid_maps = maps;
+    invalid_maps[0].1[0] = f32::NAN;
+    assert_eq!(
+        dynamic_caster_cascade_mask(splits, camera.forward, offscreen_actor, Some(&invalid_maps)),
+        0b0111
+    );
     let near_actor = Sphere {
         center: projections[0].center,
         radius: 32.0,
     };
     assert_eq!(
-        dynamic_caster_cascade_mask(splits, camera.forward, near_actor),
+        dynamic_caster_cascade_mask(splits, camera.forward, near_actor, None),
         0b0001,
         "a near actor must use its private overlay instead of rebuilding two nested outer static maps every frame"
     );
@@ -2870,7 +2945,7 @@ fn animated_actor_bounds_invalidate_only_their_receiver_cascade_and_blend_neighb
         radius: 1.0,
     };
     assert_eq!(
-        dynamic_caster_cascade_mask(splits, camera.forward, beyond_near_split) & 0b0001,
+        dynamic_caster_cascade_mask(splits, camera.forward, beyond_near_split, None) & 0b0001,
         0,
         "clipmap guard coverage was mistaken for view-depth cascade ownership"
     );
@@ -2878,7 +2953,7 @@ fn animated_actor_bounds_invalidate_only_their_receiver_cascade_and_blend_neighb
         center: [splits[1].far * 0.9, 0.0, 0.0],
         radius: 32.0,
     };
-    let mask = dynamic_caster_cascade_mask(splits, camera.forward, middle_actor);
+    let mask = dynamic_caster_cascade_mask(splits, camera.forward, middle_actor, None);
     assert_ne!(
         mask & (1 << 1),
         0,

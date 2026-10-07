@@ -185,8 +185,7 @@ float2 CascadeVisibility(int cascadeIndex, float3 worldPosition) {
     else if (cascadeIndex == 1) projected = mul(position, CascadeMatrices[1]);
     else if (cascadeIndex == 2) projected = mul(position, CascadeMatrices[2]);
     else projected = mul(position, CascadeMatrices[3]);
-    // Published cascades preserve W=1, so the positive-W rejection is
-    // unreachable. Retain reciprocal evaluation to preserve GPU rounding.
+    if (projected.w <= 0.0f) return float2(1.0f, 0.0f);
     float3 ndc = projected.xyz / max(projected.w, 0.000001f);
     float2 localUv = float2(ndc.x * 0.5f + 0.5f, 0.5f - ndc.y * 0.5f);
     if (min(localUv.x, localUv.y) < 0.0f || max(localUv.x, localUv.y) > 1.0f ||

@@ -3932,6 +3932,246 @@ mod directional_shader_behavior {
         weighted_x / weight.max(0.000_001)
     }
 
+    /// Compare the optimized world field against frozen shipped bytecode,
+    /// using production binding/reduction/integration and FP16 readback.
+    #[test]
+    fn orthographic_world_field_preserves_shipped_gpu_pixels() {
+        use super::{
+            AtmosphereTargets, SHAFT_MASK_SHADER, ShaftTargets, bind_pipeline_state, bind_target,
+            draw_depth_reduce_to, draw_integration, draw_quad, resolve_contributions,
+            shaft_mask_shader_source,
+        };
+        use crate::effects::shadows::{self, VolumetricDirectionalFrame};
+        use libpsycho::os::windows::directx9::{D3DFMT_G16R16F, D3DRS_SCISSORTESTENABLE};
+
+        let owner = raster_device();
+        let device = owner.as_ref();
+        let optimized = crate::shaders::compile_hlsl_source(
+            "world-field:production",
+            &shaft_mask_shader_source(),
+        )
+        .expect("production field bytecode");
+        let mut baseline_source = b"#define OMV_WORLD_FIELD 1\n".to_vec();
+        baseline_source.extend_from_slice(include_bytes!(
+            "../../shaders/tests/atmosphere_integrate_orthographic_baseline.hlsl"
+        ));
+        baseline_source.extend_from_slice(SHAFT_MASK_SHADER);
+        let baseline =
+            crate::shaders::compile_hlsl_source("world-field:frozen-baseline", &baseline_source)
+                .expect("frozen shipped field bytecode");
+        for code in [&baseline, &optimized] {
+            assert_eq!(code[0], 0xFFFF_0300);
+            let mut offset = 1;
+            let mut loops = 0;
+            let mut branches = 0;
+            while code[offset] as u16 != 0xFFFF {
+                let token = code[offset];
+                let opcode = token as u16;
+                if opcode == 0xFFFE {
+                    offset += 1 + ((token >> 16) & 0x7FFF) as usize;
+                    continue;
+                }
+                let length = ((token >> 24) & 0xF) as usize;
+                assert!(
+                    !matches!(opcode, 25 | 26 | 30 | 91 | 92),
+                    "volume shaders must not contain calls, labels or quad derivatives"
+                );
+                match opcode {
+                    27 => loops += 1,
+                    29 => loops -= 1,
+                    40 | 41 => branches += 1,
+                    43 => branches -= 1,
+                    _ => {}
+                }
+                assert!(loops >= 0 && branches >= 0);
+                for (index, operand) in code[offset + 1..offset + 1 + length]
+                    .iter()
+                    .copied()
+                    .enumerate()
+                {
+                    // DEF immediates and DCL semantic tokens are not registers.
+                    if (matches!(opcode, 48 | 81 | 82) && index > 0)
+                        || (opcode == 31 && index == 0)
+                        || operand & 0x8000_0000 == 0
+                    {
+                        continue;
+                    }
+                    let kind = ((operand >> 28) & 7) | ((operand >> 8) & 0x18);
+                    let register = operand & 0x7FF;
+                    match kind {
+                        0 => assert!(register < 32, "ps_3_0 temporary overflow"),
+                        2 => assert!(register < 224, "ps_3_0 constant overflow"),
+                        10 => assert!(register <= 6, "world field sampler budget"),
+                        _ => {}
+                    }
+                }
+                offset += 1 + length;
+                assert!(offset < code.len(), "world shader END token");
+            }
+            assert_eq!((loops, branches), (0, 0));
+        }
+        let programs = [
+            device.create_pixel_shader(&baseline).unwrap(),
+            device.create_pixel_shader(&optimized).unwrap(),
+        ];
+        let clear_code = crate::shaders::compile_hlsl_source(
+            "shadow_far_clear:fixture",
+            include_bytes!("../../shaders/embedded/shadow_far_clear.hlsl"),
+        )
+        .unwrap();
+        let clear = device.create_pixel_shader(&clear_code).unwrap();
+        let atlas = device
+            .create_render_target_texture(4096, 4096, D3DFMT_A16B16G16R16F)
+            .unwrap();
+        let actors = device
+            .create_render_target_texture(2048, 1024, D3DFMT_G16R16F)
+            .unwrap();
+        let far_actor = device
+            .create_render_target_texture(1024, 1024, D3DFMT_G16R16F)
+            .unwrap();
+        device.begin_scene().unwrap();
+        bind_pipeline_state(&device).unwrap();
+        for (texture, width, height, value) in [
+            (
+                &atlas,
+                4096,
+                4096,
+                shadows::directional_fixture_moments(0.2).unwrap(),
+            ),
+            (&actors, 2048, 1024, [0.15, 1.0, 0.0, 0.0]),
+            (&far_actor, 1024, 1024, [0.15, 1.0, 0.0, 0.0]),
+        ] {
+            bind_target(&device, &texture.surface_level(0).unwrap(), width, height).unwrap();
+            device.set_pixel_shader(&clear).unwrap();
+            device.set_pixel_shader_constant_f(0, &[value]).unwrap();
+            draw_quad(&device, width, height).unwrap();
+        }
+        // Thin unoccluded strips and quadrant boundaries exercise filtered
+        // EVSM input without introducing a substitute shadow equation.
+        bind_target(&device, &atlas.surface_level(0).unwrap(), 4096, 4096).unwrap();
+        device
+            .set_pixel_shader_constant_f(0, &[shadows::directional_fixture_moments(1.0).unwrap()])
+            .unwrap();
+        device.set_render_state(D3DRS_SCISSORTESTENABLE, 1).unwrap();
+        for x in [512, 1024, 2047, 3072] {
+            device.set_scissor_rect(x, 0, x + 4, 4096).unwrap();
+            draw_quad(&device, 4096, 4096).unwrap();
+        }
+        device.set_render_state(D3DRS_SCISSORTESTENABLE, 0).unwrap();
+        device.end_scene().unwrap();
+
+        let bytecode = AtmosphereBytecode::compile().unwrap();
+        let effect = AtmosphereEffect::create_from_bytecode(&device, &bytecode).unwrap();
+        let targets = AtmosphereTargets::create(&device, TEST_SIZE, TEST_SIZE, 2).unwrap();
+        let field = ShaftTargets::create(&device, TEST_SIZE / 4, TEST_SIZE / 4).unwrap();
+        let readback = device
+            .create_system_memory_surface(field.width, field.height, D3DFMT_A16B16G16R16F)
+            .unwrap();
+        let mut strongest_blockage = 0.0f32;
+        for quality in [
+            AtmosphereQuality::Performance,
+            AtmosphereQuality::High,
+            AtmosphereQuality::Ultra,
+        ] {
+            for (case, sun) in [[0.4, 0.3, 0.866_025_4], [0.0, 0.0, 1.0], [1.0, 0.0, 0.0]]
+                .into_iter()
+                .enumerate()
+            {
+                for blocker in [false, true] {
+                    let depth = raw_depth(&device, blocker);
+                    let mut frame = frame(&depth, sun);
+                    if case == 1 {
+                        frame.camera.world_transform.translation = [4096.0, -2048.0, 512.0];
+                        frame.camera.world_transform.rotation =
+                            [[0.0, -1.0, 0.0], [1.0, 0.0, 0.0], [0.0, 0.0, 1.0]];
+                    }
+                    let (matrices, splits) =
+                        shadows::directional_shader_fixture(frame.camera, sun).unwrap();
+                    for matrix in matrices {
+                        assert_eq!(
+                            [matrix[0][3], matrix[1][3], matrix[2][3], matrix[3][3]],
+                            [0.0, 0.0, 0.0, 1.0]
+                        );
+                    }
+                    let maps = VolumetricDirectionalFrame {
+                        device_identity: device.as_raw() as usize,
+                        sun_direction: sun,
+                        textures: [
+                            atlas.retain_base_texture(),
+                            actors.retain_base_texture(),
+                            far_actor.retain_base_texture(),
+                        ],
+                        matrices,
+                        splits,
+                        actor_crops: [[1.0, 1.0, 0.0, 0.0]; 3],
+                        actor_mask: if blocker { 0b0111 } else { 0 },
+                    };
+                    let mut settings = settings(true);
+                    settings.quality = quality;
+                    if case == 2 {
+                        settings.fog_enabled = true;
+                        settings.height_density = 0.000_01;
+                        settings.noise_amount = 0.15;
+                    }
+                    let contributions = resolve_contributions(frame, settings);
+                    let desc = depth.surface_level(0).unwrap().desc().unwrap();
+                    let mut outputs = Vec::new();
+                    for shader in &programs {
+                        device.begin_scene().unwrap();
+                        bind_pipeline_state(&device).unwrap();
+                        draw_depth_reduce_to(
+                            &device,
+                            &effect.depth_reduce_quarter_shader,
+                            &field.radial.surface,
+                            field.width,
+                            field.height,
+                            &desc,
+                            frame,
+                            frame.depth.texture.unwrap(),
+                        )
+                        .unwrap();
+                        draw_integration(
+                            &device,
+                            shader,
+                            &targets,
+                            &effect.density_noise,
+                            &effect.neutral_visibility,
+                            None,
+                            Some(&maps),
+                            frame,
+                            settings,
+                            contributions,
+                            false,
+                            false,
+                            Some(&field),
+                            true,
+                        )
+                        .unwrap();
+                        device.end_scene().unwrap();
+                        device
+                            .copy_render_target_data(&field.mask.surface, &readback)
+                            .unwrap();
+                        outputs.push(readback.read_rgba16f().unwrap());
+                    }
+                    for (reference, actual) in outputs[0].iter().zip(&outputs[1]) {
+                        for channel in 0..4 {
+                            assert!(reference[channel].is_finite() && actual[channel].is_finite());
+                            assert!(
+                                (reference[channel] - actual[channel]).abs() <= 0.000_061_035_156,
+                                "orthographic optimization changed field pixels: quality={quality:?}, case={case}, blocker={blocker}, reference={reference:?}, actual={actual:?}"
+                            );
+                        }
+                        strongest_blockage = strongest_blockage.max(actual[0]).max(actual[1]);
+                    }
+                }
+            }
+        }
+        assert!(
+            strongest_blockage > 0.0001,
+            "A/B fixture never exercised world shadow blockage"
+        );
+    }
+
     #[test]
     fn exterior_directional_medium_and_godrays_survive_the_complete_shipped_gpu_path() {
         let owner = raster_device();
@@ -6229,9 +6469,9 @@ mod shader_compile_tests {
         crate::shaders::assert_pixel_shader_budget(
             "atmosphere_shaft_mask.hlsl:world-field",
             &shaft_mask_shader_source(),
-            1463,
+            1419,
             13,
-            21860,
+            21236,
         );
         for samples in [24, 40, 56] {
             crate::shaders::assert_pixel_shader_budget(

@@ -83,7 +83,7 @@ pub(super) struct DirectionalRoot {
     pub(super) is_lod: bool,
     /// Stable hash of the root's absolute transform and world bound.
     world_state: u32,
-    /// Valid absolute bound copied with `world_state` for regional point work.
+    /// Valid absolute bound copied once for directional and regional point work.
     world_bound: Option<[f32; 4]>,
 }
 
@@ -590,55 +590,49 @@ pub(super) fn directional_root_set_signatures(
 
 /// Return gameplay maps containing actor bounds whose pose can change now.
 ///
-/// Root bounds are engine-owned and read only during the serialized common
-/// shadow call. Invalid actor bounds conservatively invalidate all three NVR
+/// Roots must be the active-actor snapshot from `collect_point_actor_bounds`.
+/// Bounds were copied during root collection and are reused without native
+/// reads. Invalid actor bounds conservatively invalidate all three NVR
 /// actor-capable maps; retaining an unknown animated silhouette is worse than
 /// the exceptional extra work.
 ///
-/// # Safety
-///
-/// Every root must come from [`collect_directional_roots`] in the current
-/// common-shadow invocation.
-pub(super) unsafe fn directional_dynamic_cascade_mask(
+/// The supplied roots must be the complete active-actor snapshot from
+/// [`collect_point_actor_bounds`] in the current common-shadow invocation.
+/// This function reads scalar metadata only, never the borrowed node.
+pub(super) fn directional_dynamic_cascade_mask(
     roots: &[DirectionalRoot],
     splits: [super::contract::CascadeSplit; CASCADE_COUNT],
     camera_forward: [f32; 3],
     camera_translation: [f32; 3],
+    world_maps: Option<&[(CascadeProjection, [f32; 3]); CASCADE_COUNT]>,
 ) -> u8 {
     let mut mask = 0_u8;
-    for root in roots
-        .iter()
-        .copied()
-        .filter(|root| unsafe { root.is_active_dynamic_actor() })
-    {
-        let Some(bound) = (unsafe { directional_actor_sphere(root, camera_translation) }) else {
+    for root in roots.iter().copied().filter(|root| root.is_dynamic_actor()) {
+        let Some(bound) = directional_actor_sphere(root, camera_translation) else {
             return 0b0111;
         };
-        mask |= dynamic_caster_cascade_mask(splits, camera_forward, bound);
+        mask |= dynamic_caster_cascade_mask(splits, camera_forward, bound, world_maps);
     }
     mask
 }
 
-/// Bound active animated casters submitted to one directional overlay.
-///
-/// The result is relative to the retained static map's generation origin, not
-/// necessarily the current camera. That keeps the cropped actor projection in
-/// the same coordinate domain as the matrix with which it is paired.
-/// `None` means either no active actor belongs to the profile or an engine
-/// bound was invalid; callers which expected work fail the replacement
-/// transaction instead of silently publishing a clipped actor.
-///
-/// # Safety
-///
-/// Every root and its world bound must remain live for the current serialized
-/// common-shadow invocation.
+/// Conservative crop outcome for a directional actor overlay.
 pub(super) enum DirectionalActorBounds {
+    /// No copied active actor intersects this map.
     NoWork,
+    /// Finite caster bounds relative to the map's generation origin.
     Croppable(ActorBounds),
+    /// Invalid bounds require the uncropped map and complete traversal.
     FullProjection,
 }
 
-pub(super) unsafe fn directional_actor_bounds(
+/// Bound active animated casters using their copied scalar world bounds.
+///
+/// `roots` must be the complete active-actor snapshot collected in this common
+/// invocation. Output is relative to the retained map's generation origin,
+/// which can differ from the current camera. No native object is dereferenced.
+/// Invalid rebasing conservatively returns `FullProjection`.
+pub(super) fn directional_actor_bounds(
     roots: &[DirectionalRoot],
     cascade: usize,
     projection: CascadeProjection,
@@ -650,9 +644,9 @@ pub(super) unsafe fn directional_actor_bounds(
     for root in roots
         .iter()
         .copied()
-        .filter(|root| root.enabled_for(cascade) && unsafe { root.is_active_dynamic_actor() })
+        .filter(|root| root.enabled_for(cascade) && root.is_dynamic_actor())
     {
-        let Some(sphere) = (unsafe { directional_actor_sphere(root, generation_origin) }) else {
+        let Some(sphere) = directional_actor_sphere(root, generation_origin) else {
             return DirectionalActorBounds::FullProjection;
         };
         if !projection.contains(sphere) {
@@ -674,23 +668,19 @@ pub(super) unsafe fn directional_actor_bounds(
     }
 }
 
-/// Read one live actor's conservative world bound in a requested origin.
-///
-/// # Safety
-///
-/// `root` must remain a live engine object for this common-shadow invocation.
-unsafe fn directional_actor_sphere(root: DirectionalRoot, origin: [f32; 3]) -> Option<Sphere> {
-    let bound = unsafe { read_world_bound(root.node()) }?;
-    if !bound.center.into_iter().all(f32::is_finite)
-        || !bound.radius.is_finite()
-        || bound.radius < 0.0
-    {
-        return None;
-    }
-    Some(Sphere {
-        center: std::array::from_fn(|axis| bound.center[axis] - origin[axis]),
-        radius: bound.radius,
-    })
+/// Rebase the validated scalar bound copied during root collection.
+/// No native read is performed. Invalid rebasing retains conservative work.
+fn directional_actor_sphere(root: DirectionalRoot, origin: [f32; 3]) -> Option<Sphere> {
+    let bound = root.world_bound?;
+    let sphere = Sphere {
+        center: std::array::from_fn(|axis| bound[axis] - origin[axis]),
+        radius: bound[3],
+    };
+    sphere
+        .center
+        .into_iter()
+        .all(f32::is_finite)
+        .then_some(sphere)
 }
 
 /// Scalar and borrowed geometry ownership for one selected point light.
