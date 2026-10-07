@@ -7,12 +7,14 @@
 
 mod light_property_scores;
 mod lighting_contract;
+mod multibound_frustum;
 mod post_load;
 mod radio;
 mod rng;
 mod scene_light_scan;
 
 pub(crate) use light_property_scores::install as install_light_property_score_reuse;
+pub(crate) use multibound_frustum::install as install_multibound_frustum_tests;
 pub(crate) use scene_light_scan::install as install_scene_light_sequential_scan;
 
 pub use post_load::install_post_load_reconciliation_prepass;

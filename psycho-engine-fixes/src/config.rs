@@ -266,6 +266,8 @@ pub struct PerformanceConfig {
     pub light_property_score_reuse: bool,
     /// Unreleased sequential scene-light enumeration candidate.
     pub scene_light_sequential_scan: bool,
+    /// Remove redundant integer setup in the native AABB/frustum predicates.
+    pub multibound_frustum_tests: bool,
     /// Existing configs may still contain removed radio optimization settings.
     #[serde(skip)]
     pub obsolete_radio_configured: bool,
@@ -279,6 +281,7 @@ impl Default for PerformanceConfig {
             post_load_reconciliation_prepass: true,
             light_property_score_reuse: true,
             scene_light_sequential_scan: true,
+            multibound_frustum_tests: true,
             obsolete_radio_configured: false,
         }
     }
@@ -307,6 +310,9 @@ impl PerformanceConfig {
             scene_light_sequential_scan: raw
                 .scene_light_sequential_scan
                 .unwrap_or(default.scene_light_sequential_scan),
+            multibound_frustum_tests: raw
+                .multibound_frustum_tests
+                .unwrap_or(default.multibound_frustum_tests),
             obsolete_radio_configured: raw.radio_pathfinder_yield_fix.is_some()
                 || raw.radio_signal_scan_cache.is_some()
                 || raw.radio_signal_scan_cache_ttl_ms.is_some(),
@@ -609,6 +615,7 @@ struct RawPerformanceConfig {
     post_load_reconciliation_prepass: Option<bool>,
     light_property_score_reuse: Option<bool>,
     scene_light_sequential_scan: Option<bool>,
+    multibound_frustum_tests: Option<bool>,
     /// Removed keys retained only so startup can explain that they are ignored.
     radio_signal_scan_cache: Option<bool>,
     radio_signal_scan_cache_ttl_ms: Option<u32>,

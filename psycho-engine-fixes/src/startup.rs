@@ -19,8 +19,9 @@ use crate::{
             set_active_mode,
         },
         perf::{
-            install_light_property_score_reuse, install_post_load_reconciliation_prepass,
-            install_radio_scan_fix, install_rng_hook, install_scene_light_sequential_scan,
+            install_light_property_score_reuse, install_multibound_frustum_tests,
+            install_post_load_reconciliation_prepass, install_radio_scan_fix, install_rng_hook,
+            install_scene_light_sequential_scan,
         },
         zlib::install_zlib_hooks,
     },
@@ -205,6 +206,15 @@ fn install_runtime_hooks(performance: &PerformanceConfig) -> anyhow::Result<()> 
                 "[SCENE_LIGHTS] Candidate unavailable; indexed providers retained: {error:#}"
             );
         }
+    }
+
+    // AABB setup has its own startup-only transaction and no event work.
+    if performance.multibound_frustum_tests {
+        if let Err(error) = install_multibound_frustum_tests() {
+            log::warn!("[MULTIBOUND] Bounds setup optimization unavailable: {error:#}");
+        }
+    } else {
+        log::info!("[MULTIBOUND] Bounds setup optimization disabled by config");
     }
 
     if performance.rng {

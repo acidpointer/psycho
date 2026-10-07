@@ -457,6 +457,9 @@ light_property_score_reuse = true
 # Enabled by default.
 scene_light_sequential_scan = true
 
+# Removes redundant setup work when checking object bounds against the view.
+multibound_frustum_tests = true
+
 # =============================================================================
 # DIAGNOSTICS
 # =============================================================================

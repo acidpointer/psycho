@@ -1,6 +1,7 @@
 # Fallout New Vegas location performance static audit
 
-Research date: 2026-10-06. Candidate implementation: 2026-10-07.
+Research date: 2026-10-06. Candidate implementation and Fairfax follow-up:
+2026-10-07.
 
 Fallout New Vegas contains native CPU work whose size depends on scene objects,
 candidate lights, render-pass entries, and actively processed actors. Low
@@ -28,9 +29,14 @@ does not close the engine ownership gaps or establish runtime acceptance.
 ## Reported behavior and research boundary
 
 The owner reports substantial FPS differences between locations, including
-both vanilla and modded locations, without intense combat. No specific location
-pair or reproducible workload was supplied. The research covers native work
-that scales with location content even when the visuals appear simple. The
+both vanilla and modded locations, without intense combat. The later Fairfax
+Ruins report identifies a drop from approximately 80-100 FPS to 30 FPS. A
+specific comparison position, camera direction, and loaded scene inventory
+were not supplied. Turning the camera away restores some FPS; facing the
+opposite direction and moving the actor slightly forward restores FPS,
+according to the owner's follow-up. Stationary duration remains unspecified.
+The research covers native work that scales with location content even when
+the visuals appear simple. The
 owner's clarified objective is broad removal of verified inefficiencies,
 without requiring attribution to a particular location or dominant consumer.
 
@@ -46,7 +52,10 @@ script, physics operation, shader, plugin, or Proton/Wine interaction.
 
 Three evidence classes must remain distinct:
 
-- **Owner observation:** FPS varies across locations and does not require combat.
+- **Owner observation:** FPS varies across locations and does not require
+  combat; Fairfax Ruins can drop from approximately 80-100 FPS to 30 FPS.
+  Turning away partially recovers FPS, and facing the opposite direction plus
+  a small forward movement restores it.
 - **Static proof:** verified instructions, call sites, virtual-table entries,
   field accesses, update gates, and loop structure in the supported executable.
 - **Unresolved attribution:** actual invocation frequencies, scene population,
@@ -2525,6 +2534,1918 @@ its cause and any relation to these changes remain unknown. This single run
 does not establish unrestricted traversal correctness, repeated startup safety
 or an FPS improvement. No production change accompanied the log inspection.
 
+## Fairfax Ruins: remaining CPU candidates
+
+This follow-up responds to the owner's report of approximately 80-100 FPS
+falling to 30 FPS at Fairfax Ruins. Those rates correspond to approximately
+10-12.5 ms and 33.3 ms per frame: the reported difference is approximately
+20.8-23.3 ms. This conversion describes the observation; it does not assign
+that time to CPU work, GPU work, a particular native function, or Psycho.
+
+The executable identity was reverified before reusing addresses. New native
+instructions and the limited PE pointer checks are preserved in
+[Fairfax candidate evidence](../analysis/radare2/output/fnv_fairfax_performance_candidates_contract_20261007.txt).
+No production source, configuration, hook, or installed binary changed in
+this research pass. The current core log records both existing lighting
+candidates enabled. Those lifecycle messages do not count optimized operations
+or identify which path consumed a Fairfax frame.
+
+### Candidate ranking and what the report does not establish
+
+The following ranking is by intervention scope and proven redundant work,
+not measured contribution to Fairfax's frame time.
+
+| Candidate | Verified avoidable work | Proposed scope | Status |
+|---|---|---|---|
+| Property-sort ordered-prefix shortcut | The existing score-reuse candidate still walks every predecessor on ascending or equal-key input | Add one maximum-prefix comparison inside the existing private sorter; retain its ordinary insertion path | Most direct extension of the existing candidate; exact arithmetic and engine ownership qualifications still apply |
+| Cached-pass refresh without a separate count walk | An admitted dirty lighting pass counts eligible lights, then enumerates them again to write the array | Optimize only passes whose existing capacity is sufficient for every list node plus the directional slot; retain native growth/overflow paths | Count widths, allocation boundary, predicates, and continuation are closed below; concurrent ownership and final bridge qualification remain open |
+| Transparent-pass depth reuse | The native merge-sort comparator recalculates both camera-depth keys at every comparison | Reuse the unchanged merge head's key inside one merge run, with private local state | New mechanism independent of property-light scoring; math-state, bound lifetime, and hook admission need further closure |
+| Compound-frustum snapshot allocation removal | Each object reaching the compound branch allocates and frees a plane-mask snapshot, including objects rejected by its test | Keep the exact mask snapshot/restore around native testing and child callbacks, using bounded private invocation storage for admitted capacities | Separate integer-state opportunity; native bracket and allocator boundary verified, structural lifetime and recursion budget remain open |
+
+None of these needs a cross-frame cache, a reduced draw distance, fewer lights,
+removed actors, different visibility, or changed shadow quality. None is
+established as the source of the full reported loss.
+
+Scene population remains unknown. The place name is not evidence of a large
+light list, many alpha passes, a particular actor population, or missing
+occlusion data. The partial recovery from turning and recovery after turning
+plus moving are owner observations. Whether the loss persists after remaining
+stationary is unresolved. No native path or scene object was observed during
+either transition. Consequently, this research does not classify the symptom
+as a stationary steady-state CPU bottleneck or exclude shader/overdraw cost,
+streaming, scripts, physics, or plugin work.
+
+The clarified symptom routes further static investigation to view-dependent
+visibility and the work it admits. It does not prove that translation alone
+changes FPS: the reported recovery combines translation and rotation. The
+compound-frustum path below has a separate per-object allocation cost, while
+transparent sorting has camera-dependent arithmetic. Lighting refresh remains
+a candidate only under its actual invalidation gates. None is attributed to
+Fairfax by this observation.
+
+### Property sorting: remove the ordered-input search
+
+The complete `0x00B70390..0x00B7048D` body was rechecked. It scores the
+current node, starts comparison at the head, advances until that node, and
+inserts before the first predecessor with a strictly greater score. Ordered
+equal scores do not trigger insertion. The current score-reuse implementation
+changes predecessor scoring into a load; it retains that entire search.
+
+For stable ordinary finite keys, already ascending input of `n` nodes still
+requires `n * (n - 1) / 2` predecessor comparisons. Equal-key input has the
+same comparison count. These are exact loop budgets, not timings or a claim
+that large property lists occur at Fairfax.
+
+There is a smaller opportunity than replacing the whole sort. The processed
+prefix is contiguous and sorted after each iteration. The current node's
+previous link therefore identifies the last, maximum-key node of that prefix.
+This follows from the native insertion/remove operations preserving the
+unvisited suffix and from the saved original-next pointer controlling the
+outer loop. It is conditional on the intact, stable-key list invariant already
+described in [processed-prefix proof](#fix-1-processed-prefix-proof-and-its-boundary).
+
+After the native current-score call, compare that maximum-prefix key with the
+current key using the existing x87 comparison convention. If both keys belong
+to the qualified ordinary domain and the maximum is less than or equal to the
+current key, the native predecessor search cannot find an insertion point.
+The node stays where it is; advance through the same saved original-next
+pointer. Otherwise execute the existing private insertion search unchanged.
+The first node has no predecessor and keeps its original path.
+
+The shortcut must not use the property's overall tail: that tail can still
+belong to the unvisited suffix. It must not compare a newly scored light
+against an unrelated bound's value. Wrapper `+0x0C` remains shared engine
+scratch; this design inherits the current candidate's unresolved exclusion
+of external score/input mutation.
+
+For admitted ascending or equal-key input, the new comparison budget is
+`n - 1`, plus the existing one score calculation per node and admission walk.
+For input requiring insertions, it adds at most one shortcut comparison per
+non-first node before the retained insertion work. Worst-case insertion
+complexity remains quadratic. This is not a universal `O(n log n)` sort fix.
+
+Implementation must preserve node identity, head/tail, count, fence, dirty
+state, the saved traversal successor, stable equal-key order, and conditional
+cache-key clearing at `0x00B70480`. A skipped search must not clear the key.
+Use a private change to the current sorter rather than modifying the shared
+native sorter or capturing a new engine-wide sorting boundary.
+
+An additional comparison is not automatically invisible. Qualify the actual
+x87 stack/control/status behavior, including subnormal operands and computed
+nonfinite keys; finite source coordinates alone do not prove finite scores.
+Unsupported keys must keep the existing operation. The proposed shortcut is
+not permission to replace x87 ordering with Rust/SSE total ordering or to
+silently widen the existing candidate's arithmetic admission.
+
+### Cached-pass refresh: exact native array contract
+
+The existing dirty refresh in `0x00BB4740` is conditional:
+
+1. Property `+0x38` must match the prepared key and dirty byte `+0x74` must
+   be nonzero at `0x00BB4F13..0x00BB4F24`.
+2. It visits the cached pass pointer array through property `+0x3C`, array
+   storage `+0x04`, and array extent `+0x10`.
+3. Pass IDs `0x17F..0x1BA` take the two-walk branch. Other IDs retain their
+   separate handling. The reference enum names this range as 3.0 lighting
+   variants; its later extension alias also assigns 383 to an unrelated name.
+   The binary range is the contract, not that alias.
+4. The loop eventually clears dirty at `0x00BB50B1`, checks the key again,
+   and either returns the cached array or rebuilds it. Shadow-related branches
+   can invalidate the key during refresh; they must remain intact.
+
+The native pass record has these verified fields:
+
+| Offset | Width | Native use |
+|---|---|---|
+| `+0x00` | Pointer | Geometry identity |
+| `+0x04` | `u16` | Pass ID |
+| `+0x09` | `u8` | Active staged light count |
+| `+0x0A` | `u8` | Allocated pointer capacity |
+| `+0x0C` | Pointer | Engine-owned light-pointer array |
+
+Slot zero receives the pointer loaded through the active scene at
+`0x00BB4F2A..0x00BB4F40`; ordinary eligible property lights occupy subsequent
+slots in iterator order. Do not replace the slot-zero identity with a guessed
+sun, another scene root, or a native-light pointer: the array stores the native
+wrapper identities selected here.
+
+`0x00B70600` starts and `0x00B70700` advances the property iterator. Both use
+thiscall with a stack cursor-pointer argument and `RET 4`. Their complete
+native bodies contain integer reads, cursor stores, and branches. They do not
+allocate, acquire/release references, dispatch callbacks, or perform floating
+point arithmetic. They inspect list nodes, wrapper visibility word `+0x110`,
+wrapper native-light pointer `+0xF8`, APP_CULLED at native light `+0x30`, and
+wrapper shadow byte `+0xEC`. A null payload terminates according to the native
+iterator; it is not permission to skip ahead to a later node.
+
+For `k` eligible ordinary lights, the count walk normally records `k + 1`,
+including slot zero. No eligible lights still produces count one. The counter
+is BL, so `k = 255` wraps it to zero and takes the native zero-count branch.
+Larger populations have the native modulo behavior. An optimization must
+neither clamp nor reinterpret those cases.
+
+The stored property node count at `+0x68` is **32 bits**. Its small accessor
+`0x00B704B0` returns only AX; that narrowed accessor is unsuitable for a
+capacity proof. The full-width read at `0x00B71498`, DWORD insertion increments
+in `0x00B58570` and `0x00B713C0`, DWORD marker insertion increments in
+`0x00B718B0`, DWORD retirement decrements in `0x00B71600`, and DWORD reset in
+`0x00B71300` verify the actual storage width and the inspected maintenance
+invariant. Sorting itself does not change this count.
+
+If capacity is insufficient, `0x00BA8C30` frees the old array through the
+engine allocator and clears its pointer. `0x00BA8C00` reads a byte argument,
+allocates four bytes per entry through `0x00AA3E40`, and publishes `+0x0C`.
+The caller updates capacity. Neither the growth path's allocation failure nor
+its allocator/provider behavior is redesigned by this candidate.
+
+### Cached-pass refresh: preferred bounded fast path
+
+The narrowest design removes the count walk only when allocation is already
+provably unnecessary. At the two-walk branch, let `N` be the full DWORD node
+count and `C` the byte capacity. Admit only an intact stable property list
+with no active fence, `N <= 254`, a valid existing array, and `C >= N + 1`.
+Evaluate `N + 1` after the limit check, without truncating `N` to a byte.
+
+Every eligible light comes from one of those `N` nodes, so `k <= N` and
+`1 <= k + 1 <= N + 1 <= C <= 255`; no native growth call can be required.
+Start and advance the **actual native iterators** once, write slot zero and eligible identities
+in their original order, and publish the resulting byte count. Leave capacity
+unchanged and resume the ordinary pass-loop continuation at `0x00BB5093`.
+Do not add a selection cap: the admitted population is fully enumerated, and
+all other states execute the complete native branch.
+
+The bridge needs to retain property ESI, pass EDI, the outer pass index EBP,
+its stack-local copy, the slot-zero local, and any downstream-live caller
+locals. The native branch uses a temporary cursor and count local at
+`S + 0x1C` and `S + 0x64` after its full prologue. Establish those positions
+from the caller's actual stack/register instructions, not radare2's inferred
+argument labels. Resume without changing x87 state. The existing three sort
+CALL overlays fall before this proposed refresh window; their published
+ownership must be respected by any code admission.
+
+This version needs no heap allocation, persistent cache, per-thread table,
+additional references, or temporary pointer array. It halves eligible-list
+enumerations for an admitted pass, while retaining its output writes and
+native iterator calls. Its benefit depends on actual dirty-pass frequency,
+list size, and retained capacity. The upper-bound capacity gate can reject
+passes that have many filtered nodes; no current evidence establishes its hit
+rate at Fairfax.
+
+A broader gather-once design could preserve the count walk while recording
+eligible pointers into bounded local storage, then reuse them when actual
+capacity is sufficient. That would need up to 254 pointer slots and additional
+stack stores. Retain native allocation followed by fresh enumeration when
+growth occurs: reuse across allocator calls would introduce an unproved input
+stability contract. Cross-pass or cross-frame snapshots extend lifetime still
+further. These broader variants are not the preferred first implementation.
+
+The narrowed design closes count width, eligibility predicates, overflow
+exclusion, array ownership, no-growth admission, and the native continuation.
+It does not prove every list/count writer, property sharing route, concurrent
+mutation exclusion, foreign replacement, or the final compiled bridge. The
+array-capacity check cannot pin list nodes or prove metadata consistency.
+
+### Transparent-pass sorting: independent repeated arithmetic
+
+New native caller and comparator evidence establishes this chain:
+
+`0x00B65AE0` or `0x00B65DC0` -> `0x00B63A50` -> `0x00B99A10`
+-> two `0x00B99630` sorts using comparator `0x00B98B20`.
+
+The verified calls into `0x00B63A50` are `0x00B65C32` and `0x00B65E1F`.
+That routine visits the accumulator's batch renderers at `+0x174`, bounded
+by `+0x18C`, passing camera `+0x08` and byte mode `+0x31` to
+`0x00B99A10`. The latter publishes camera global `0x011FFE38` and mode byte
+`0x011FFE35`, then sorts the two group lists through renderer `+0x70` and
+`+0x74`. It uses thiscall, two stack arguments, and `RET 8`.
+
+`0x00B99630` is already a stable bottom-up merge sort. Its run width starts
+at one and doubles. At `0x00B996B7` it calls the supplied cdecl comparator
+with pointers to the two nodes' payload fields. A positive comparison takes
+the right node; a nonpositive comparison takes the left. Equal keys therefore
+keep their native order. It preserves node identities and rebuilds links,
+head, and tail. Replacing this with merge sort again is not an optimization.
+
+The payload is a render-pass record: its first pointer leads to geometry,
+whose `+0x20` leads to the world bound. This is verified by comparator reads,
+the pass record layout, list insertion through `0x00B9ABC0`/`0x00B99840`, and
+subsequent draw dispatch through `0x00B99990`. Treating the payload itself as
+geometry would read the wrong fields.
+
+The comparator has no calls or non-stack stores. On every comparison it
+reloads camera matrix components `+0x68`, `+0x74`, and `+0x80`, resolves both
+geometry bounds (or native fallback `0x011F4288`), and computes both depths.
+The mode branch additionally subtracts each bound radius. Native intermediate
+stores round to single precision before comparison; the radius branch has
+an additional rounded intermediate. The final x87 `FUCOMP`/`FCOMPP` branches
+return zero, positive one, or negative one. Unordered behavior is not a
+generic total ordering and must be retained through native fallback.
+
+If a merge run makes `c` comparisons, native arithmetic computes `2c` depth
+keys. Between successive comparisons within that run, exactly one selected
+head advances. A local key for the unchanged head avoids recomputing that
+operand: at most `c + 1` keys are needed for `c >= 1`, provided camera, mode,
+bound identity/value, and qualified arithmetic remain unchanged. Reset both
+keys at every new merge pair/run and invocation. This offers bounded local
+state and avoids a heap-backed map or storing scores in engine objects.
+It leaves merge comparisons and `O(n log n)` list work intact.
+
+Computing each record's key once for an entire sort could reduce arithmetic
+further to `n` keys, but requires per-node private storage and more lifetime,
+allocation, and failure handling. It is a different design, not a property of
+the two-head proposal. Small merges with one comparison save no keys, so the
+additional branches/copy cost also needs an executable work-budget comparison.
+
+Preserve the native `0x00B63E90` cleanup before each sort. It returns spare
+nodes to the global pool and cuts the active tail's next link; skipping that
+work changes ownership. Preserve the final draw ordering and cleanup as well.
+`0x00B650C0` merges/drains alpha work using `0x00B98C80` and `0x00B9AF60`;
+the inspected head-depth selector does not restart a full object-list scan.
+It is not a proven additional quadratic loop.
+
+Ordinary pass registration was separately rechecked. `0x00B99A90` prepends
+and `0x00B99B00` appends in constant time, with native node acquisition only
+when their spare list is empty. The new opportunity is comparator arithmetic,
+not changing their insertion order or imposing a new batching scheme.
+
+### Visibility: actual admission and existing optimization overlap
+
+The new native visibility capture verifies this entry chain:
+
+`0x00A59E00` -> culler slot `+0x44` -> native BSCullingProcess
+`0x00C4EE90` -> object slot `+0xD4` when admitted.
+
+`0x00A59E00` rejects APP_CULLED first and tail-dispatches the culler. PE
+vtable `0x0101E2EC + 0x44` resolves to `0x00C4EE90`. This proves the shipped
+dispatch, not the currently installed culler provider. Mode at culler `+0x90`
+and object flags `+0x30` select materially different admission routes:
+
+| Native condition | Work performed |
+|---|---|
+| Mode 1 | Dispatch object `+0xD4` without the ordinary sphere/compound test |
+| Mode 2 | Return without that dispatch |
+| Object flag `0x1000`, with `0x100000` clear | Dispatch object `+0xD4` directly |
+| Ordinary route, no active compound program or mode 3 | Dispatch directly when object flag `0x800` is set or the remaining plane mask is zero; otherwise call `0x00A694E0` |
+| Active compound program, without the direct-admission condition | Snapshot masks, run `0x00C491A0`, conditionally dispatch `+0xD4`, restore masks and free the snapshot |
+
+The base sphere test at `0x00A694E0` already saves its active mask, tests only
+active planes, removes fully containing planes before child traversal, and
+restores the parent's mask afterward. It stops at rejection. A proposal to
+invent hierarchical plane-mask reuse would duplicate this existing mechanism.
+An admitted large node can expose a child traversal, but the binary does not
+establish which nodes or flags Fairfax actually supplies.
+
+Native BSMultiBoundNode visibility is `0x00C46F60`, verified at vtable
+`0x010C1D14 + 0xD4`. It checks child population, reads the multibound through
+node `+0xAC`, and can use cached shape result at shape `+0x08`. A zero result
+calls shape slot `+0x9C` and records visible/rejected result 1/2. Mode 4 forces
+the test rather than relying on that stored result. On admission it temporarily
+sets the culler's mode from node `+0xB0`, visits non-null children through
+`0x00A59E00`, and restores the prior mode. This is not an unconditional
+expensive multibound retest for every child or every frame.
+
+The native AABB predicate at `0x00C387F0`, verified at vtable entry
+`0x0101E980`, does contain avoidable work. It generates eight corners through
+`0x00C39270` and, for each active plane, calls `0x0049DA80` on all selected
+corners. Finding a corner whose side is not 2 clears the rejection flag but
+does not break that plane's inner loop. For each visited plane it makes eight
+side calls, or four in the zero-Z-half-extent branch. With six active planes
+and no earlier plane rejection this is 48 or 24 calls, respectively.
+
+Boolean admission could stop that inner loop at its first non-2 result while
+preserving corner order and the native side predicate. However, the retained
+[Stewie rendering source](<../.research/Stewie Tweaks 10.00 Source/code/Features/Inlines/Rendering.cpp>)
+already implements that shortcut and installs a replacement at `0x0101E980`.
+It also replaces NiNode and BSMultiBoundNode visibility paths. Therefore this
+is an existing optimization overlap, not evidence of a new saving available
+in the owner's installed workload. Current replacement bytes/admission and
+the omitted x87 status/exception effects would have to be qualified before
+adding a Psycho-side equivalent. Do not overwrite that provider or patch the
+other mod. Algebraic support-vertex tests also require a separate floating
+point proof; geometric equivalence alone does not establish native decisions
+near a rounding boundary.
+
+### Compound-frustum culling: remove per-object snapshot allocation
+
+This is a separate candidate from AABB corner testing. The complete native
+`0x00C4EE90..0x00C4F06C` body verifies the bracket:
+
+1. `0x00C4F000` calls `0x00C49050` to save compound state.
+2. `0x00C4F015` calls `0x00C491A0` on the object.
+3. A true result dispatches object slot `+0xD4` at `0x00C4F033`.
+4. Both true and false results call `0x00C49100` at `0x00C4F042` before
+   returning. Children can recurse inside step 3 before the parent restores.
+
+The save helper uses thiscall with no stack argument and plain `RET`; the
+restore helper uses thiscall with one saved-pointer argument and `RET 4`.
+The relevant compound-state fields are proven by actual reads/writes:
+
+| Compound offset | Native role in this bracket |
+|---|---|
+| `+0x08` | Array of frustum records, each `0x64` bytes |
+| `+0x10` | DWORD frustum-array capacity used as snapshot allocation slot count |
+| `+0x18` | Array of 12-byte compound-program records |
+| `+0x24` | DWORD limit used by the save/restore frustum-mask loops |
+| `+0x28` | DWORD program-presence/count gate |
+| `+0x2C` | Initial compound-program record index |
+| `+0x30` | Base frustum record |
+| `+0x90` | Base record's active plane mask (`+0x30 + 0x60`) |
+| `+0xA0` | Byte controlling the preliminary base-frustum test |
+
+`0x00C49050` obtains the thread's ScrapHeap through `0x00AA42E0`, then
+allocates `4 * compound[+0x10]` bytes with alignment argument loaded from
+`0x010A2720` (value 4) through `0x00AA54A0`. Snapshot word zero receives
+compound `+0x90`. Starting at snapshot index 1, it copies frustum
+`(index - 1) * 0x64 + 0x60` while the signed index is less than both
+`compound[+0x24] + 1` and `compound[+0x10]`. Preserve the signed comparisons
+and arithmetic exclusions; these fields must not be silently narrowed.
+
+The capacity provenance is also verified. Constructor `0x00C47660` passes
+`(4, 1)` to `0x00C4A070` with receiver `compound + 0x04` at
+`0x00C47727`. That helper stores the requested capacity at array `+0x0C`,
+which is compound `+0x10`, and uses the real array allocator slot `+0x04`.
+The latter resolves to `0x00C4A860` and allocates `0x64` bytes per frustum.
+Thus the native initial capacity is **four**, not 1024. A type label containing
+1024 is not a capacity bound. The resize helper supports later larger
+capacities; neither the constructor nor that label proves Fairfax's capacity.
+
+`0x00C49100` reverses those writes and then obtains the ScrapHeap again,
+freeing the saved allocation through `0x00AA5610`. The snapshot pointer is
+only a local in the inspected caller; it is not passed to the predicate or
+child visibility callback. The masks, rather than snapshot identity, are the
+state those consumers inspect.
+
+The predicate is not a read-only visibility query. It copies the object's
+16-byte bound into local storage, optionally tests the base frustum, and
+walks the compound program through its true/false successor indices. Opcodes
+7 and 8 call `0x00C4A6E0` and `0x00C4A790` on selected frustum records;
+terminal opcodes 2/3 return their native result. The two plane helpers clear
+active-mask bits at frustum `+0x60` when a sphere is fully contained. This
+state is inherited by child callbacks and must be restored even on rejection.
+
+For `G` calls reaching this branch, the caller invokes `G` snapshot allocations
+and `G` snapshot frees, plus `2G` ScrapHeap accessors. It performs the
+save/restore mask walks as well as the actual program and sphere tests. This
+is an exact conditional operation count, not a measured `G` or a claim that
+Fairfax uses compound-frustum culling. Culler `+0xC0` presence alone is not
+enough: the active program and mode/flag gates above must also admit the branch.
+
+The current core log records allocator mode 2 and the committed scrap-heap
+replacement. Its source at
+[thread identity accessor](../psycho-engine-fixes/src/mods/heap_replacer/scrap_heap/mod.rs)
+returns a thread-local inert identity. The native getter's GetCurrentThreadId
+and map lookup therefore must not be presented as current Psycho overhead.
+The native caller still requests a temporary allocation and free through those
+hooked boundaries; no evidence measures their actual cost here. This candidate
+does not require changing the allocator or classifying allocator ownership.
+
+There is also directly verified Psycho-side work behind these calls.
+[Runtime::alloc/free](../psycho-engine-fixes/src/mods/heap_replacer/scrap_heap/runtime.rs)
+can use their thread-local identity/generation cache, but a successful ordinary
+allocation still enters `Heap::try_alloc_slow_with_provider`, and a valid free
+enters `Heap::free`. Both take the per-identity heap-state mutex in
+[heap.rs](../psycho-engine-fixes/src/mods/heap_replacer/scrap_heap/heap.rs).
+Thus `G` successful snapshot/free pairs entail `2G` acquisitions of that
+mutex, allocation-header/count updates, and free validation/rewind work.
+The cold identity-map path is not mandatory on each call. Contention, backing
+acquisition, and collector work are conditional and unmeasured; the presence
+of a mutex does not prove cross-thread blocking here. Removing the snapshot
+allocation removes these paired operations for admitted objects without
+weakening allocator locking or lifetime checks.
+
+The proposed intervention is a private implementation of this caller's
+snapshot/test/callback/restore bracket. For admitted capacities, snapshot
+exactly the same DWORD masks into private invocation-local storage, invoke the
+actual native predicate and visibility callback in their existing order, and
+restore the masks identically. Retain the ordinary native allocation path
+outside a validated local-storage budget. No persistent cache, TLS scratch
+slot shared by recursive calls, global buffer, visibility-policy change, or
+cross-frame lifetime is required. Each recursive invocation needs its own
+snapshot; a single reused buffer would overwrite the parent's saved masks.
+
+The narrow first design can admit exactly the verified native initial capacity
+of four slots and reserve 16 mask bytes per invocation. Larger capacities keep
+their complete native path. This is a bound derived from the constructor,
+not a guessed typical scene size or a proposed limit on visibility coverage.
+It avoids a large stack array and unbounded alloca, but does not establish the
+admission hit rate or prove the stack budget of the final compiled bridge.
+
+Structural writers that can run during traversal, supported stack headroom,
+and admitted recursion cost still require closure. Do not size storage from
+only the number of currently copied masks. The native restore rereads the
+current limits; an implementation must prove they remain compatible with its
+entry snapshot and preserve every native route. Additional capacities should
+not be admitted until their own storage/recursion budget is justified.
+
+The direct xrefs currently identify this save/restore pair only at the named
+caller, and the culler has the verified vtable dispatch above. That does not
+exclude computed helper calls or replacement callbacks. A whole-caller private
+implementation must qualify its complete byte/ABI contract and forward unknown
+providers. An isolated save-hook returning a stack pointer whose frame has
+already returned is invalid; passing private storage to native restore would
+incorrectly free it. Both ends must belong to the same admitted bracket.
+
+The current result closes the native allocation reason, exact snapshot fields,
+mutation/restoration requirement, immediate recursion boundary, ABI, and
+allocator distinction. It does not close structural lifetime, complete provider
+coverage, stack-budget admission, exceptional callback exits, or runtime
+equivalence. Candidate acceptance would require actual native mask and child
+admission equality on both predicate outcomes and nested traversal, with native
+fallback for unsupported capacity/providers. Neither lowering mask coverage
+nor removing the compound program is an optimization of this contract.
+
+### Bound lifetime, provider compatibility, and implementation readiness
+
+The limited PE scan found the two literal comparator addresses pushed in
+`0x00B99A10`, with no additional raw pointer match for the selected sorter
+or wrapper. This corroborates the inspected native routes; it does not prove
+all computed callers or installed plugin providers. Property `0x00BB4740`
+has a real vtable entry at `0x010B9934 + 0x7C`. Automatic xrefs alone omit
+that dispatch and cannot establish complete coverage.
+
+World bounds are mutable engine objects. The verified NiTriShape/NiTriStrips
+slot `+0xBC` targets `0x00A80710`, which can create a missing bound and
+updates it through native helpers using geometry data and world transform.
+The setter `0x00A59DC0` can free an old bound and replace geometry `+0x20`.
+Those facts rule out treating pointer identity as proof of an immutable depth
+key. The existing actor deferral evidence closes only its named branches;
+it is not a global render-time bound/lifetime barrier.
+
+For each proposed optimization, remaining requirements are concrete:
+
+| Requirement | Property shortcut | Single-walk pass refresh | Alpha depth reuse | Compound snapshot |
+|---|---|---|---|---|
+| Native consumer, immediate ABI, fields, and output boundary | Rechecked; existing candidate supplies the private operation | Verified native dirty branch, integer iterators, capacities, and continuation | Verified wrapper, two stable sorts, comparator, payload identity, and draw consumer | Verified save/test/callback/restore bracket, capacity provenance, mask mutation and allocator calls |
+| Lifetime/concurrency | Existing wrapper-score and input ownership exclusions remain unresolved | Exclude mutation/recycling and count inconsistency for the admitted operation; array ownership alone is insufficient | Exclude camera/mode overwrites and bound replacement/value changes during a merge run; spare cleanup must finish first | Exclude structural changes/recycling during nested callbacks; each invocation owns its snapshot; qualify stack and callback exits |
+| Arithmetic | Qualify the extra comparison and exceptional/subnormal fallback without widening admission | No new floating point operation is needed | Retain each exact x87 rounding site, comparison/tie behavior, stack/control/status contract, and native exceptional route | Preserve native predicate calls and signed mask-loop conditions; snapshot adds no floating point operation |
+| Compatibility | Preserve current provider forwarding and owned sorter bridges | Validate complete native refresh/iterator windows and respect existing caller overlays; forward unsupported states | Admit only the proven comparator/merge provider, preserve wrapper globals and cleanup, and forward unknown providers | Qualify the complete caller and paired private save/restore; forward unsupported capacities/providers without passing private storage to native free |
+| Behavioral qualification | Native list/order/cache-key equality on the actual path | Actual pointer-array/count/capacity equality, filtered/null cases, and native growth/overflow fallback | Actual node/order/cleanup equality in both groups and both depth modes, including ties and fallback | Actual child admission and parent/child mask restoration equality, including rejection and recursion |
+
+The scoped algorithms can now be described without guessing selection policy
+or storage widths. Complete accepted-fix readiness is **not established**.
+No new candidate inherits the earlier implementation waiver automatically.
+The repository's Psycho behavioral gate still applies to a later production
+edit; compilation, a mirrored sorter, source assertions, or a fabricated
+engine fixture cannot establish native runtime equivalence. This research
+does not request profiling or a debug build.
+
+Continue contract research at the named writer/ownership and arithmetic
+boundaries before selecting an implementation. Of the new candidates, the
+single-walk no-growth refresh has the smallest new arithmetic and ownership
+footprint among the lighting extensions. The property shortcut has the largest
+proved asymptotic saving on ordered input but inherits shared-score
+restrictions. Alpha depth reuse opens a separate location-scaled path, with a
+modest allocation-free design and a larger still-unqualified once-per-record
+alternative. Compound snapshot removal is the next focused visibility
+candidate: it avoids one allocation/free pair for each admitted four-slot
+invocation without changing the predicate, but first needs the named callback
+structure-lifetime contract. Actual invocation frequency, Fairfax attribution,
+and an FPS improvement remain unknown.
+
+## Durable Psycho optimization implementation plan
+
+The owner requests a Psycho implementation design for every identified
+candidate, including the AABB inefficiency that overlaps an existing provider.
+The target is reduced work at the actual native boundary with unchanged
+lighting, visibility, pass order, ownership, and failure behavior. This is a
+research and implementation plan; it makes no production changes and does not
+claim that the unclosed contracts below have become proven.
+
+The [first implementation batch](#first-implementation-batch-and-deferred-research)
+below is the current delivery scope. It supersedes the earlier delivery order:
+implement the two state-preserving AABB setup replacements first. The deeper
+designs in this section remain research targets until their named contracts
+close; they are not prerequisites for those local replacements.
+
+Additional focused disassembly is retained in
+[durable design evidence](../analysis/radare2/output/fnv_location_durable_optimization_plan_contract_20261007.txt).
+The executable SHA-256 was reverified against the identity above. Current
+production integration was checked in `perf/mod.rs`, `startup.rs`,
+`config.rs`, `light_property_scores.rs`, and `lighting_contract.rs`.
+
+The [additional static closure](#implementation-contracts-additional-static-closure)
+below amends this design with pre-write finite-result admission, exact pass
+stack locations, terminal native comparisons and concrete compound callback
+mutations. Its revised work budgets and remaining gates govern implementation.
+The later [ownership continuation](#ownership-contracts-and-revised-reuse-boundaries)
+further revises transparent-key admission and examines a compound alternative
+that does not retain private storage through child callbacks. Neither the
+original whole-interval cache nor delayed allocation is qualified by default.
+The [implementation-entry contracts](#implementation-entry-separate-closed-local-work-from-retained-input-designs)
+separate two proven dead AABB initialization loops from the stronger plane
+optimization and select the original native frame for its terminal side tests.
+
+### Coverage, cadence, and target budgets
+
+All five candidates remain in scope. Their cadence is conditional: property
+sorting and pass refresh require native update/dirty gates, transparent sorts
+require their render route, and compound/AABB tests require their visibility
+route. No evidence establishes that every candidate executes in every frame.
+The optimization must retain those gates rather than introduce a periodic
+scan, assume a stationary scene, or infer cadence from the location name.
+
+| Candidate | Planned durable operation | Conditional work target |
+|---|---|---|
+| Lighting-property sorting | Adaptive allocation-free stable linked-list merge sort, retaining native current-score generation and ordered-input detection | One score per node plus at most one terminal replay; O(n) ordered input and O(n log n) worst-case comparison/link work for qualified stable ordinary keys |
+| Dirty cached-pass refresh | One eligible-light snapshot per interval without invalidating calls, reused across the relevant cached passes | One eligibility enumeration per such interval, plus the unavoidable pointer writes for each output pass; native growth/overflow routes retained |
+| Transparent-pass sorting | Preserve the stable merge and revalidate the current numeric inputs before reusing each merge-head key | At most c+1 depth calculations for c comparisons with unchanged inputs; changed inputs require recalculation, up to the native 2c arithmetic budget plus guard cost |
+| Compound-frustum snapshots | Qualify the four-slot local design, or a packed rejected-object path with accepted objects retaining native heap snapshots | The full local target removes an allocation/free pair; the alternative removes the pair only for qualified rejected objects. Provider recovery order and callback ownership remain material gates |
+| AABB/frustum tests | First batch: replace both dead initialization loops while preserving their complete final state. Further research: stronger native-frame extreme-corner loop | Each admitted setup replacement removes 64 executed integer instructions per call with no per-call guard. The stronger path targets at most two native side calls per active plane rather than eight/four |
+
+These are design budgets, conditional on their stated contracts. Small-input
+admission cost, extra branches, guard reads, stack footprint, and native
+fallback work must be counted as well. The plan provides no FPS estimate.
+The compound four-slot path is deliberately bounded; larger native capacities
+remain supported through their original operation. Broader allocation-free
+coverage needs a separate proven storage design, not a guessed stack limit.
+
+### 1. Lighting properties: remove quadratic comparison work
+
+Extend the operation owned by
+[light_property_scores.rs](../psycho-engine-fixes/src/mods/perf/light_property_scores.rs),
+keeping its three existing caller bridges and captured providers. Do not add
+another hook on the same calls or replace the engine-wide scorer.
+
+The full design replaces insertion search with stable linked-list merging for
+the qualified ordinary-key domain. It uses existing nodes and constant local
+merge state, not a Vec, an engine-field extension, a global table, or allocation
+per property. The ascending/equal-input path leaves links untouched.
+
+The proposed operation has three parts:
+
+1. Validate the entire native operation before relinking. Retain caller-local
+   bound ownership, complete native/scorer/math capabilities, native list
+   count/link checks, and the existing x87 admission. Close the shared wrapper
+   score and light/scene-input exclusion rather than treating those checks as
+   a lock. An active fence or another unsupported list state keeps the original
+   operation until its precise sorting contract is qualified.
+2. Generate each current key through actual `0x00B9DBE0` in original node
+   order, with its exact single-precision stores and wrapper `+0x0C` output.
+   Determine whether the original list contains a strict inversion. Admit the
+   sufficient finite-result domain below before any score write; unsupported
+   inputs retain the captured provider. Finite inputs alone are insufficient:
+   radius division or overflow can otherwise produce nonfinite results.
+3. For ordinary admitted keys, return without relinking if there is no strict
+   inversion; otherwise perform a stable bottom-up merge, rebuilding previous
+   links, head, and tail using the original nodes. Keep count, fence and dirty
+   state unchanged. Clear property `+0x38` exactly when the finite native
+   insertion operation would have changed order.
+
+The proposed equivalence condition for cache-key clearing follows from the
+verified strict insertion comparison: a stable ordinary-key list needs an
+insertion iff its original order contains a strict inversion. It still needs
+qualification against the actual native operation. Preserve signed-zero ties
+and original equal-key identities; Rust `total_cmp` is unsuitable.
+
+Pre-scoring is not a safe fallback boundary: it writes engine scratch and
+changes floating point state before links change. The bounded input domain
+below avoids discovering an unsupported computed key after mutation. It still
+requires stable inputs and the complete scorer/math contract; a later finite
+check cannot replace those prerequisites. Keep the earlier ordered-prefix
+shortcut until full-sort admission and ownership are qualified. Never restart
+a sort after partially relinking its nodes.
+
+The merge must also qualify native x87 condition/status effects and caller
+observability, not merely produce the same pointer order. Checked run-width
+growth and exact termination are required for the full DWORD node count.
+There is no small-list threshold selected from a guessed workload; select any
+hybrid threshold only from executable production-path work costs.
+
+### 2. Cached passes: share enumeration inside the dirty refresh
+
+The stronger target extends the earlier per-pass no-growth shortcut to the
+whole cached-pass refresh interval. It belongs in a new core module,
+`psycho-engine-fixes/src/mods/perf/lighting_pass_refresh.rs`.
+
+The inspected loop is `0x00BB4F40..0x00BB50AD`, after the existing sort and
+after the native slot-zero pointer was obtained. `0x00BB4F40` and
+`0x00BB4F44` are two four-byte instructions publishing caller locals; they
+are a proposed eight-byte owned detour window, not yet a qualified patch.
+The private operation would replay those publications, own the complete pass
+loop, and return at `0x00BB50AD`, leaving native dirty clearing and the final
+cache-key/rebuild decision in place. Full stack/register liveness and incoming
+edge coverage must be proved before selecting that detour.
+
+Use one invocation-local array with space for 254 ordinary wrapper pointers
+(1016 bytes). Gather with the actual `0x00B70600`/`0x00B70700` iterators,
+preserving filters, order and null termination. Do not use the narrowed AX
+count accessor. Encountering a 255th eligible light selects the complete native
+modulo-count operation before publication for the current pass; this is a fallback,
+not a selection cap. A large total node count with few eligible lights is not
+itself a reason to truncate or reject the gather.
+
+For each pass in `0x17F..0x1BA` with a valid existing array and capacity at
+least `k+1`, publish slot zero, the gathered `k` pointers in native order and
+the exact active count. This removes a separate count walk and avoids repeating
+eligibility tests for each already-sized output pass. Output copies remain
+necessary; the operation budget is a gather plus the sum of required output
+writes, not O(1) refresh.
+
+An insufficient-capacity pass is an explicit snapshot boundary. Discard the
+snapshot before its original free/allocation calls, preserve the original
+growth behavior and fresh post-allocation enumeration, then gather again for
+later passes if a qualified interval resumes. Never carry pointers across an
+allocator/provider call on the strength of an earlier metadata check. Forward
+unqualified iterators or growth providers through the original operation.
+
+If qualification fails after earlier passes were published, resume the native
+operation for the current pass and the remaining loop with the exact caller
+state. Do not restart the whole refresh, replay completed passes, or roll back
+valid engine arrays. An admission failure before entering the private loop
+keeps the complete original loop.
+
+Preserve the `0x1BD..0x1C3` and `0x1C4..0x1C7` branches, their native
+iterator/cursor rules, shadow checks and key invalidation. Reuse across another
+branch is allowed only after its calls and writes are proven unable to change
+snapshot inputs or lifetime. Otherwise end the interval. No snapshot survives
+this refresh, an allocation boundary, a different property or a different
+frame.
+
+The 1016-byte buffer is derived from the native byte count, not arbitrary
+scene capacity. It still needs a supported stack/recursion proof. Until that
+larger private loop is qualified, the earlier one-walk no-growth operation is
+the narrow implementation path with no pointer buffer. The full design must
+close pass-array/list aliasing, writer exclusion and provider admission in
+addition to the already-proven iterator predicates.
+
+### 3. Transparent passes: reuse arithmetic within the existing stable merge
+
+Add `psycho-engine-fixes/src/mods/perf/transparent_pass_sort.rs`. The proposed
+interventions are the two direct sorter calls at `0x00B99A31` and
+`0x00B99A41`, inside the verified two-group wrapper. Capture each predecessor
+through the existing callsite-hook abstraction. Retain the wrapper's native
+camera/mode publication and original group order. The list receiver and cdecl
+comparator argument must reach the captured thiscall/RET-4 provider unchanged
+whenever admission fails.
+
+The private operation preserves the native merge run schedule, stable tie
+selection, previous/next links, list head/tail and cleanup. Its two local key
+slots belong to the current merge pair. Score an operand when its head first
+participates; the selected head must obtain a new key when it advances.
+Revalidate both operands' current numeric inputs before every reuse, including
+the unchanged head. Retain numeric copies rather than a bound pointer to
+dereference later. Reset both at the next merge pair and at return. Native `0x00B63E90` spare
+cleanup happens at its original boundary before active-node keys are retained.
+
+Implement a small x87 key adapter from the verified comparator, preserving
+camera components, bound fallback, addition order, every intermediate f32
+rounding site, and both radius modes. The merge still uses the native decision
+convention. A pair with unqualified arithmetic must take the exact native
+comparator for that pair and discard its local reuse state. Do not restart an
+already-mutating sort or impose a total order on NaN/Inf. Prove this mixed
+comparison path's state equivalence before accepting it.
+
+The head-key design is the allocation-free implementation target. Computing
+each record once for the whole invocation is a possible stronger arithmetic
+target, but is not selected now: it requires per-node private storage without
+routine allocation, proven storage lifetime and a worthwhile total budget.
+Do not overwrite render-pass bytes, geometry fields or pooled-node fields to
+obtain that storage. The current proposal never claims n total key evaluations.
+
+The revised [current-input design](#transparent-keys-revalidate-values-at-the-current-comparison)
+removes the additional requirement that cached bound pointers remain live
+between comparisons. It still requires valid current native operands,
+qualified input reads and exact math state at each comparison. A no-callback
+comparator and read-only prewalk do not prove those conditions. Whole-invocation
+pre-scoring remains dependent on the larger ownership interval.
+
+### 4. Compound frusta: local snapshots with recursive ownership
+
+Add `psycho-engine-fixes/src/mods/perf/compound_frustum_culling.rs`. Target
+the culler operation `0x00C4EE90`, whose exact ABI is thiscall, one object
+argument, RET 4 and void return. Preserve all ordinary/direct/mode routes.
+The existing mask-save/test/virtual-child/restore bracket is the only part
+that changes its storage mechanism.
+
+For the verified capacity of four DWORD snapshot slots, give each invocation
+its own 16-byte local snapshot. Save exactly the base mask and the masks the
+native signed loops visit, call the native predicate, dispatch the same object
+callback only on the same result, and restore the same masks. Neither branch
+calls a ScrapHeap accessor, allocation or free for this local snapshot. Keep
+the original complete operation for larger capacities or unsupported providers.
+
+Reentry creates another stack frame and snapshot; it must not overwrite the
+parent's storage. A local pointer must never escape the bracket or reach native
+`0x00C49100`, which would free it. This design requires no new TLS, arena,
+allocator hook, global mutex or thread-registration mechanism.
+
+The [packed alternative](#compound-storage-separate-the-predicate-from-child-callbacks)
+below avoids keeping a larger private frame alive during child dispatch. Its
+rejected-object savings are a separate bounded target; provider qualification
+must settle allocation ordering before either storage design is selected.
+
+The current constructor proof does not settle all traversal writers. Inventory
+the structural writers reached by native virtual visibility callbacks, including
+compound replacement and frustum resize/free, and prove stable capacity, limits,
+record storage and ownership for the whole bracket. The newly checked outer
+entry `0x00C4F070` establishes camera/frustum state and root dispatch but is
+not a recursion or worker-lifetime barrier. Review exceptional callback exits
+and native unwind behavior before introducing a private restoration guard;
+Rust RAII alone does not promise native SEH cleanup.
+
+Qualify the total compiled frame and worst supported recursive use rather than
+calling a 16-byte payload proof a complete stack proof. If later evidence
+supports larger bounded local snapshots, extend capacity admission with an
+explicit budget and native fallback. A persistent growable arena is not the
+current plan: its ownership, allocation and startup costs are not closed.
+
+### 5. AABB frusta: own the redundant native tests and qualify stronger selection
+
+Add `psycho-engine-fixes/src/mods/perf/multibound_frustum.rs`. The known
+native predicate is thiscall, one plane-buffer argument, byte result in AL,
+RET 4, with dispatch entry `0x0101E980`. The companion +0xA0 method is
+`0x00C38920`. The initial native-route target is the pair of dead initialization
+loops qualified in the implementation-entry contracts below. Use existing
+transactional instruction-byte ownership and restoration. The selected
+state-preserving baseline checks its frame and patch blocks at startup,
+leaves installed dispatch and downstream providers untouched, and has no
+per-call admission check.
+
+For the stronger native loop, select the post-generation `0x00C38866`
+intervention and retain the original frame and `0x00C388E8` side-call setup.
+The earlier whole-predicate pointer-wrapper proposal is not the selected
+native-frame mechanism: an enlarged wrapper frame does not retain terminal
+FP data addresses. See the existing
+[transaction](../libpsycho/src/os/windows/hook/transaction.rs) infrastructure;
+the exact new bridge still needs compiled qualification.
+
+The additional Boolean early-exit target evaluates existing generated corners
+in native order and stops each plane's inner loop at the first side result other than 2.
+It retains the active mask, outer-plane rejection order and zero-Z branch's
+selected subset. This is an exact redundant Boolean-work target, subject to
+the floating point side-effect contract. A provider that already implements
+this behavior keeps its own path; Psycho must not create a slower double layer
+and call that an additional optimization.
+
+The stronger target evaluates one extreme existing corner per active plane,
+then corner 7 when necessary to retain the native terminal comparison. The
+additional closure below supplies a sufficient arithmetic domain and revises
+the target to at most two side calls per plane. It must use the actual
+generated buffer and call the native `0x0049DA80` side predicate, not
+substitute a center/radius formula. New disassembly establishes
+that `0x00C39270` scales three basis globals and uses sequential vector
+addition/subtraction helpers. `0x0045BB20`, `0x00439E90` and `0x00439EF0`
+round their component outputs to f32. A direct `center +/- extent` expression
+does not have the proven native arithmetic contract.
+
+For the stronger path, establish which actual eligible corner maximizes each
+normal-weighted coordinate and whether one eligible corner contains all three
+extrema. Validate that property from the produced buffer or close the native
+basis/provider writer contract; do not infer it from a class name. Preserve the
+zero-Z subset. If no dominating eligible corner exists, retain the ordinary
+corner loop. The mathematical target is that rejection by the maximal corner
+is equivalent to rejection by every eligible corner under the exact native
+rounded evaluation, not just under real-number geometry.
+
+Before admitting that selection, prove the arithmetic domain, including
+cancellation, signed zero, subnormals, nonfinite intermediates, masked/unmasked
+exceptions, status flags and comparison condition codes. Finite plane/corner
+inputs do not exclude overflow followed by NaN cancellation. Native predicate
+purity does not make omitted exception effects irrelevant. Intel specifies
+these state and rounding controls in Volume 1, sections 4.8.4 and
+8.1.3-8.1.5 of the
+[architecture manual](https://www.intel.com/content/dam/www/public/us/en/documents/manuals/64-ia-32-architectures-software-developer-vol-1-manual.pdf).
+That is a reference for the required proof, not proof that this optimization
+already has the necessary domain or provider coverage.
+
+### Core ownership, compatibility, configuration, and acceptance
+
+All production mechanisms belong in `psycho-engine-fixes/src/mods/perf/`.
+The helper, Syringe, OMV rendering pipeline, shared allocator and third-party
+mods remain outside this change's ownership. No new dependency, cross-DLL ABI,
+worker, global scene cache or engine reference-count mutation is needed by the
+selected bounded designs.
+
+`perf/mod.rs` exposes focused installation/event routing. `startup.rs` uses
+the existing supported core preparation boundary and independent transactions;
+DeferredInit publishes readiness through established routing. Every subsystem
+retains its captured provider and rolls back only code/vtable bytes it owns.
+Prepare complete immutable contract expectations rather than learning current
+bytes as the oracle. Validation occurs once per owned operation, not once per
+light, corner, comparison or output pass. Include those guard reads in work
+budgets, and do not weaken provider validation merely to reduce their cost.
+
+The AABB initialization-loop baseline is the explicit exception to that
+bridge/admission schedule: its full-state-preserving inline replacement needs
+only cold signature ownership, with no runtime bridge or readiness publication.
+
+Extend the existing `light_property_score_reuse` operation instead of replacing
+its user setting. Retain `scene_light_sequential_scan` and its qualified math
+alternatives. New proposed independent settings are
+`performance.lighting_pass_refresh`, `performance.transparent_pass_sort`,
+`performance.compound_frustum_culling` and
+`performance.multibound_frustum_tests`. Plan them enabled by default, consistent
+with the owner's requested optimization coverage, while preserving user-set
+values and missing-value parsing. Final schema integration must follow
+[startup safety](nvse_startup_phase_safety.md); a few boolean fields still
+change pre-Deferred configuration layout. No new TLS or lazy hot-path owner is
+planned. Do not move established startup work to accommodate these features.
+
+Config comments should describe the avoided work and user-visible behavior in
+plain language. They must not contain research chronology, test instructions,
+restart advice or fixed-value assertions. No test freezes shipped toggle values.
+
+Each implementation has a concrete native behavioral boundary:
+
+| Operation | Required equality and work observation |
+|---|---|
+| Property sort | Actual native node identities/order, head/tail/count/fence/dirty/cache key, score side effects and qualified math environment; ordered/reverse/equal/exceptional inputs |
+| Pass refresh | Actual pass arrays/count/capacity and invalidation/rebuild behavior; empty/filtered/null/overflow/growth cases and interval invalidation; no repeated eligibility walk within a qualified interval |
+| Transparent sort | Actual two-group stable order, node links, pass identities, cleanup and both depth modes; native fallback pairs and caller math state; key calculations bounded by merge-head changes |
+| Compound culling | Actual child admission and parent/child masks on rejection, acceptance and recursion; original larger-capacity/provider paths; no local-snapshot allocation/free |
+| AABB test | Actual native Boolean result and required math state for active masks, boundary/cancellation/degenerate/exceptional inputs; original provider chaining; reduced side-call count in admitted domains |
+
+Use the actual supported native operation as the oracle at these boundaries.
+Pure production Rust behavior can have offline tests where it actually executes,
+but a mirrored native sort, synthetic engine fixture, source assertion, config
+default test or compilation is not native acceptance. No debug build or profiler
+is assumed. The present request authorizes research/planning; it does not erase
+the current Psycho behavioral gate or extend the earlier two-candidate waiver.
+Do not describe an unresolved candidate as an accepted fix.
+
+Before production editing, close each named ownership/math/provider/stack
+contract and establish the applicable acceptance authority. Begin with the
+state-preserving AABB initialization replacements specified in the first batch
+below. Continue the pass, sort and compound contracts independently; their
+integer-only components do not by themselves establish ownership or callback
+safety. This order does not remove any candidate from scope. Run affected
+production-path checks and crate tests, the explicit
+`i686-pc-windows-gnu` core/helper release build when code changes, formatting,
+diff review and the applicable startup qualification. No commit, installation,
+packaging or release is authorized by this plan.
+
+## Implementation contracts: additional static closure
+
+This continuation resolves specific mechanism and arithmetic gaps from the
+implementation plan. It does not turn unproved engine exclusivity into a
+contract. The supporting [gap-closure capture](../analysis/radare2/output/fnv_location_optimization_gap_closure_20261007.txt)
+preserves new radare2 instructions and xrefs, bounded executable-data checks,
+and the limitations of incomplete or misaligned discovery windows. The
+executable identity above was reverified.
+
+### Cached-pass refresh: exact caller frame and continuations
+
+Let S be ESP at `0x00BB4F40`, before any private bridge frame. The native
+prologue reserves 0x4C local bytes, saves EBP/ESI/EDI, and saves EBX at
+`0x00BB48A2` on the route reaching this refresh. Consequently
+S = entry ESP - 0x5C. Instruction bytes, checked with bounded objdump output
+after radare2 inspection, establish these locations:
+
+| Location | Actual role |
+|---|---|
+| S+0x1C | Count/fill iterator cursor |
+| S+0x20 | Earlier computed cache key |
+| S+0x24 | Native slot-zero wrapper pointer |
+| S+0x28 | Outer pass index saved across fill |
+| S+0x2C | Cursor for the 0x1BD..0x1C3 branch |
+| S+0x30 | Cursor for the 0x1C4..0x1C7 branch |
+| S+0x60 | Original geometry argument, restored into EBP at 0x00BB50AD |
+| S+0x64, low byte | Temporary count supplied to growth and fill |
+
+The count initialization at `0x00BB4F83` writes ESP+0x68 after PUSH,
+therefore S+0x64. The later count publication at `0x00BB4FA2` and growth
+read at `0x00BB4FB6` use S+0x64 directly. This closes the apparent
+uninitialized growth argument on the empty-iterator route: it was initialized
+to one before the first call. The slot-zero read at `0x00BB4FD4` is S+0x24,
+and both outer-index restoration and increment publication use S+0x28.
+Radare2's overlapping inferred variable names are not the frame contract.
+
+The proposed eight-byte window at `0x00BB4F40` is exactly
+`89 44 24 24 89 6C 24 28`. It publishes the slot-zero pointer and index.
+The inspected native loop returns to `0x00BB4F51`, not into that window.
+A bounded raw relative-branch search found one false candidate at BB4F88:
+it lies inside the displacement of the CALL at BB4F87. It is not an incoming
+instruction. MCP xrefs found no incoming references to the window's entry,
+second instruction or continuation. This closes the inspected direct edges;
+it does not prove arbitrary computed or foreign-provider entry coverage.
+
+At `0x00BB50AD`, the native code reloads EBP from S+0x60, clears dirty,
+loads the key from S+0x20 and makes the existing cached-return/rebuild choice.
+The rebuild path resets BL before its first later BL test. EAX/ECX/EDX are
+overwritten by native loads/calls, and the later geometry use derives from the
+reloaded EBP. A conservative bridge can preserve the incoming registers,
+flags and complete math state, publish the exact affected stack locals, and
+leave those native continuation instructions in place. A private ordinary
+pass must also publish the count at S+0x64 and preserve the native cursor
+outcome; output arrays alone are not the complete write contract.
+
+The iterator bodies have no allocator, callback, reference operation or
+floating point instruction. Array allocation is a separate four-bytes-per-
+byte-count allocation at `0x00BA8C00`; freeing at `0x00BA8C30` clears
+the array pointer. The no-growth interval therefore has no synchronous
+allocator/callback invalidation in the inspected ordinary branch. This closes
+that local call-chain question. It does not prove concurrent list/eligibility
+writer exclusion or allocation/list non-aliasing for every valid owner.
+
+### Property sorting: qualify finite results before the prepass
+
+The earlier proposal discovered nonfinite keys after scoring had already
+written wrapper scratch. A usable finite-result domain can instead be checked
+before scoring. The following sufficient bounds are derived from the exact
+`0x00B9DBE0` arithmetic, not Fairfax populations:
+
+- Every scene offset, light-position component, bound-center component and
+  bound radius is finite with absolute value at most 2^30.
+- The native light radius is finite, with absolute value between 2^-30 and
+  2^30 inclusive. Both signs remain possible; zero takes the native provider.
+- The existing control-word/stack admission and complete scorer/CRT provider
+  contracts hold, and these inputs remain stable for the operation.
+
+The native stored position is light position plus scene offset. After bound
+subtraction, each displacement has magnitude at most 3 * 2^30. Its sum of
+squares is below 2^65, its square root is below 2^33, subtraction of the bound
+radius stays below 2^34, and radius division stays below 2^64. The margins
+remain inside finite f32 range at every actual store. Squared inputs to the
+native square-root route are nonnegative; underflow to zero does not create
+a negative argument. Thus this domain excludes computed NaN/Inf without a
+post-write fallback or a reconstructed scorer. Inputs outside it retain the
+captured provider before scratch or links change.
+
+The rechecked `0x00EC6040` wrapper and finite `0x00EC605D` route confirm
+that control word 0x027F reaches FSQRT and either common return without the
+CRT error dispatcher or exception-flag clearing. Repeated identical score
+calculations cannot add a different sticky exception bit under stable inputs
+and control. Native comparisons of ordinary finite keys do not justify
+replacing the final comparison condition codes with those of a different
+merge comparison.
+
+For that final-state problem, the native sorter frame is now explicit. Let T
+be ESP after native alignment, 0x1C local bytes and the EBX/ESI/EDI saves:
+
+| Location | Native sorter use |
+|---|---|
+| T+0x13 | Changed-order byte |
+| T+0x14 | Property pointer |
+| T+0x18 | Original next-node pointer |
+| T+0x1C | Current f32 key |
+| T+0x20 | Exact f64 copy of that f32 key for comparison |
+| EBP+0x08 | Bound argument |
+
+For stable ordinary keys, the last original node is the last outer iteration.
+Its last predecessor comparison is the first sorted-prefix key strictly
+greater than its key, if one exists, otherwise the last prefix key. This
+identity can be found in the final stable order while excluding that original
+last node. A terminal replay can call the actual scorer for that predecessor,
+put the current-key f64 temporary in the native frame, and enter the original
+`0x00B70403` comparison/tail with ESI equal to EBX and EDI equal to ESI.
+A greater result takes the existing equal-node branch instead of relinking;
+a non-greater result exits the predecessor loop. T+0x18 is zero, and the
+changed byte reflects the earlier inversion result. The native cache clearing
+and epilogue then remain responsible for completion.
+
+This is a concrete terminal-state design, not a compiled bridge proof. Empty
+and singleton lists need their own native no-comparison tails; the singleton
+can return through the original current-key store at `0x00B703D3`.
+The work target is N scorer calls plus at most one terminal replay, not exactly
+N in every case. Before adopting this continuation, verify the complete
+assembled frame, branch targets and admission against the actual operation.
+Do not claim equality of all saved diagnostic pointers or stale empty-register
+contents merely from equality of keys and scalar status.
+
+Shared wrapper +0x0C ownership remains a separate blocker. This domain proves
+a result bound only while its inputs are stable; it does not pin them or stop
+another property from using the same wrapper scratch.
+
+### Transparent sorting: close the synchronous interval
+
+The complete `0x00B98B20` comparator has no callback, allocator, control-word
+change or exception clearing. Its only discovered direct camera/mode publisher
+is `0x00B99A10`, at globals 0x011FFE38 and 0x011FFE35. The native merge
+performs spare cleanup once at `0x00B9963A`, then invokes only its cdecl
+comparator until return. These facts close the synchronous reentry and
+flag-clearing question for admitted, unchanged comparator code.
+
+The complete `0x00B63E90` cleanup returns spare nodes to its locked global
+pool, clears the spare-chain field and terminates the current tail link.
+It neither frees active pass payloads nor traverses their geometry bounds.
+Keep the original cleanup before retaining either local key.
+
+Retain the comparator's complete final FUCOMP/FCOMPP/pop sequence for each
+decision, including its equality and unordered branches. The native stable
+merge consumes the left head when the comparator result is <= 0. A key-cache
+adapter must preserve that convention and every f32 rounding site. Equality
+of independently evaluated keys still needs the exact assembled adapter; the
+synchronous interval above does not authorize a guessed Rust dot product.
+
+The upstream dispatch is now explicit: accumulator finalizer
+`0x00B66520` selects `0x00B65AE0` directly for stage zero or uses the
+published 0x011F9F40 callback table. The inspected registered
+`0x00B665A0` callback calls `0x00B65AE0` followed by its later drain;
+another published route is `0x00B65DC0`. The preceding
+`0x00B4F450` only writes stage/scene/callback globals. It contains no wait
+or lock and is not a render/worker completion barrier.
+
+Consequently the known camera publisher and callback-free comparator are not
+a complete concurrency proof. The later current-input design replaces
+cross-comparison bound retention with numeric revalidation. Current operand
+ownership and input reads still need qualification; whole-sort pre-scoring
+would additionally require the original longer stability interval.
+
+### Compound snapshots: structural mutation is a concrete contract question
+
+The supported executable's actual +0xD4 callback entries include NiNode
+`0x00A5DBE0`, geometry `0x00A7FD90`, scene `0x00B5F9B0`, and
+multibound node `0x00C46F60`. The native geometry method is a tail dispatch
+to culler +0x4C, whose native `0x00C4F1D0` body dispatches accumulator
++0x98. Geometry is therefore not established as a callback-free leaf merely
+because it has no children.
+
+The complete scene visibility body proves more than a hypothetical writer:
+it calls scene maintenance, constructs compound state, calls
+`0x00B5BA80` before child dispatch, clears culler +0xC0 at
+`0x00B5FB8F` and `0x00B5FC88`, and destroys a local compound before
+return. `0x00B5BA80` reaches the growing/combining `0x00C48800`
+operation and compound finalizers. The direct construction/copy/append/filter
+routes also reach frustum resize `0x00C4A070`. Compound destruction at
+`0x00C47770` resets/frees both native arrays.
+
+This does not establish that the scene callback runs inside a particular
+Fairfax snapshot bracket, or that it mutates the parent's compound instance.
+It does establish that callback classification needs receiver and active-state
+provenance. Neither a native module address nor the entry capacity of four is
+the missing guarantee.
+
+The original culler rereads +0xC0 after its visibility callback and restores
+through that current pointer. A replacement must retain this behavior, rather
+than restore through an entry pointer assumed to be immutable. Restore also
+rereads the current signed limits and capacity. Once testing or child dispatch
+has mutated masks, an unchanged-metadata check cannot safely choose a fresh
+native call or reconstruct the entry snapshot. Close active-pointer
+restoration, compatible restore indices and structural lifetime before
+selecting the local bracket.
+
+The original `0x00C4EE90` body has a 12-byte local frame plus saved EBP and
+no local SEH registration. Do not add a Rust unwind guard and claim native
+exception cleanup equivalence. Preserve normal-return semantics; qualify
+exception propagation and the assembled persistent frame separately.
+Recursive storage safety is not proven by the 16-byte payload alone.
+
+### AABB tests: arithmetic domain and terminal comparison
+
+The file contains canonical X/Y/Z basis values, but direct xrefs do not prove
+their runtime immutability. Use the actual generated corner buffer. A
+sufficient integer admission checks its Cartesian pattern: X values repeat
+across indices 0..3 and 4..7; Y across 0,1,4,5 and 2,3,6,7; Z across even
+and odd indices. Verify the produced values themselves, including both
+opposite-axis values. This handles negative extents without an assumed sign.
+The zero-Z native branch keeps only odd indices.
+
+For a sufficient arithmetic domain, require every used corner coordinate and
+active plane coefficient, including distance, to be zero or a finite normal
+f32 with absolute value in [2^-30, 2^30]. Also require control word 0x027F,
+a valid empty x87 stack without stack fault, and precision exception PE
+already set after native corner generation. Unsupported state takes the
+original plane loop with its already-generated corners; do not repeat corner
+generation to obtain fallback.
+
+Here is the conditional derivation from `0x0049DA80`, rather than a
+real-number-only geometry argument. Each admitted nonzero f32 lies on a
+2^-53 grid, so each product lies on a 2^-106 grid. Products have at most 48
+significant bits and fit the admitted 53-bit multiplication precision.
+Rounded addition/subtraction preserves that grid or rounds to a coarser one.
+All intermediate magnitudes remain below 2^62, and any nonzero final value
+is at least 2^-106. Therefore the native f32 store cannot overflow or
+underflow. No admitted operand is denormal or nonfinite; the side helper has
+no division. Its only potentially new exception is precision, already sticky
+at admission. The extrema selection uses integer ordering, not additional
+floating point work.
+
+For fixed normal signs, native multiplication, addition, subtraction and
+rounding are monotone on that domain. A generated corner containing the
+coordinate extrema therefore maximizes the exact native rounded expression.
+Native side 2 means that expression is negative. The Boolean rejection
+decision can use that maximum corner, preserving active-plane order and the
+eligible subset.
+
+However, the original inner loop always ends on corner 7, including the
+odd-only branch. Native `0x0049DA80` performs one or two comparisons with
+zero according to that corner's value. An optimized path must finish each
+visited plane with that same corner-7 predicate call when the selected corner
+differs. The native comparison sequence then supplies the terminal condition
+codes as well as balanced stack state. The revised budget is at most two
+side calls per active plane, or one when the maximum is already corner 7.
+It is not an unconditional one-call replacement.
+
+The instruction at `0x00C38866` is a seven-byte initialization of
+[EBP-0x6C]. It is a possible post-generation intervention with fallback to
+the original loop; complete native caller/provider admission and the final
+assembly still need qualification. Preserve the captured vtable provider as
+specified above if a provider replacement is selected instead. Neither
+mechanism may overwrite an unqualified installed implementation.
+
+These arithmetic and state bounds are conditional static derivations, not
+native behavioral acceptance or a measured admission rate. Keep the generated
+buffer, actual side helper and full native fallback. Plane/shape ownership,
+guard cost, live diagnostic-environment observations and compiled bridge
+qualification remain separate from the Boolean/exception bound.
+
+Intel's [Volume 1](https://www.intel.com/content/dam/www/public/us/en/documents/manuals/64-ia-32-architectures-software-developer-vol-1-manual.pdf)
+sections 8.1.3 and 8.1.5 specify sticky exceptions and precision/rounding
+controls. [Volume 2A](https://www.intel.com/content/dam/www/public/us/en/documents/manuals/64-ia-32-architectures-software-developer-vol-2a-manual.pdf)
+specifies comparison condition codes and stack pops. FNSTENV additionally
+masks exceptions and leaves condition codes undefined; it is not a harmless
+smaller substitute for complete admission-state preservation.
+
+### Worker pre-phase calls: receiver and scope setup
+
+The three `0x0086FD70` pre-phase callees, `0x007027E0`,
+`0x00702810` and `0x00702840`, have now been followed through their
+complete wrapper bodies. Each gets global 0x011D8A80 through
+`0x004B7210`, rejects null, tests the receiver's first byte through
+`0x009373F0`, then conditionally invokes its respective operation at
+`0x0070B8F0`, `0x0070C4A0` or `0x00711EA0`.
+The retained prefixes of those operations identify InterfaceManager.cpp in
+their embedded native source-path arguments. The second prefix includes an
+XInput call. These are concrete receiver/subsystem facts; the larger bodies
+have not been treated as completely analyzed or callback-free.
+
+Their shared setup at `0x00404EB0` is not a locking operation. Its complete
+callee `0x00404F00` captures TLS+0x2B4 through `0x00404F50`, stores
+that previous value in the caller's local object, then publishes its first
+argument to the same TLS slot through `0x00404F30`. The inspected helpers
+perform no lock, wait or cross-thread publication. Do not promote that scope
+setup to the render-time ownership barrier needed by the optimizations.
+This closes the helper's synchronization question; it does not exclude waits
+inside the untraversed downstream InterfaceManager operations or prove that
+every light/bound/list writer completed before rendering.
+
+### What still prevents production implementation
+
+| Area | Closed by this continuation | Remaining material gate |
+|---|---|---|
+| Property sort | Sufficient pre-write finite-result domain, callback-free admitted CRT route, exact sorter frame and a terminal-replay design | Shared wrapper/input exclusion; assembled terminal replay and diagnostic-state contract |
+| Pass refresh | Exact stack locals, empty-count initialization, direct loop edges, native continuation and synchronous no-growth interval | List/eligibility writers and aliasing; complete provider/entry coverage and bounded compiled storage |
+| Transparent sort | Exact synchronous comparator/cleanup interval, stable branch convention and upstream callback dispatch; later numeric revalidation removes retained-bound dereferences | Current-comparison input ownership/read equivalence; exact key-adapter and math-state qualification |
+| Compound snapshots | Concrete resize/destruction/active-pointer callback routes and native reread/unwind behavior; later complete predicate separates mask writes from child callbacks | Full local design: receiver-specific restoration through recursion. Packed alternative: allocation-provider order, predicate input ownership and exact bridge |
+| AABB tests | Actual-buffer extrema admission, bounded rounded arithmetic/exception argument, corner-7 terminal-state requirement; later native-frame entry closes shape retention and specifies terminal addresses | Stronger loop: plane ownership and complete bridge/provider qualification. Separate dead-loop baseline has a complete local native liveness proof |
+| Acceptance | Exact native boundaries and required behavior are recorded | The current Psycho behavioral gate has no general static-only exception for these five new designs |
+
+Compilation-dependent frame/ABI checks belong to implementation qualification;
+they cannot be completed for code that does not exist yet. They are distinct
+from the ownership questions that must be closed before production editing.
+Do not mark an ownership gate complete because its synchronous helper has no
+calls, because metadata did not change, or because a math-domain guard passed.
+
+The retained evidence does not identify a complete worker/retirement barrier
+for these exact intervals. Unknown computed/replacement callbacks are also not
+made pure by the supported executable. Any further closure must supply that
+specific ownership/provider evidence or change the design so it no longer
+retains those inputs. An acceptance-policy exception would not itself prove
+lifetime, exclusion or arithmetic correctness.
+
+## Ownership contracts and revised reuse boundaries
+
+This continuation follows the remaining native writers, visibility callbacks
+and allocation paths. The executable identity above was reverified. Its
+65 focused MCP captures and bounded executable-data supplements are retained in
+[ownership evidence](../analysis/radare2/output/fnv_location_ownership_contract_20261007.txt).
+This is static contract evidence. It does not attribute Fairfax's frame time
+to one consumer or establish that any candidate executes there.
+
+The important changes are a shorter transparent-key reuse contract and a
+compound predicate that can be analyzed separately from child dispatch.
+The same evidence rejects two tempting shortcuts: a pool mutex is not a
+property-list lock, and an allocation call is not always callback-free.
+
+### Transform writers: the actor guards do not cover every route
+
+The previously established `0x008C7AA0` deferral checks protect particular
+actor-update branches. Additional supported-executable routes reach the
+actual transform writer `0x00A68BF0` without those checks in their inspected
+local bodies:
+
+| Native route | Directly established behavior | Ownership consequence |
+|---|---|---|
+| Collision object `0x00C65A80` | Its target at +0x08 reaches the transform writer at 0x00C65AAB; the alternate branch dispatches another collision operation | Actor-branch admission does not cover this local route |
+| Collision object `0x00C65B00` | The inspected prefix writes the target transform at 0x00C65B33 before its later lock at 0x00C65BD3 | The later lock cannot establish exclusion for the earlier write |
+| Blend collision `0x00C817D0` / `0x00C81890` | TLS+0x2C0 gates select direct writes, 0x00C65B00 or virtual collision updates | This TLS value is not established as a render-completion barrier |
+| Special collision `0x00CB7790` | The target transform is written at 0x00CB77A1 before lock acquisition at 0x00CB77C6 | The lock around the subsequent transform copy does not protect the initial write |
+| Recursive operation `0x00C8F210` | Writes the current object first, then obtains its node and visits its children recursively | Proving one actor branch insufficiently covers descendant transform writers |
+| Paralysis-effect method `0x00826570` | Obtains the actor's 3D node and calls 0x00C8F210 at 0x0082659E | A concrete effect route also reaches recursive object updates |
+
+The recursive operation has additional direct callers in the native
+`0x00560530`, `0x00561860`, `0x0089D900`, `0x00920150`
+and `0x00920B80` bodies. The capture records their exact call sites.
+Neither the numeric addresses nor collision/effect class membership establishes
+which worker or phase executes a call. The evidence therefore proves
+additional writer reachability, not simultaneous execution with a Fairfax sort
+and not that every receiver is a light.
+
+The next required exclusion proof must connect these concrete routes to their
+actual scheduling and receiver ownership. Reusing the two actor guards as a
+universal light/bound barrier would leave uncovered paths. An unchanged bound
+pointer or coordinate check is not a lifetime pin during a later dereference.
+
+### Property lists and accumulator locks: establish the protected object
+
+Native property removal at `0x00B71600` sets dirty +0x74 and changes list
+links before acquiring the global node-pool mutex at `0x00B71658` or
+`0x00B716AC`. The later locked work returns a node to the pool. Native
+`0x00B718B0` inserts the marker and publishes property fence +0x78.
+Insertion `0x00B713C0` likewise changes links and count. The pool mutex is
+not a lock enclosing all mutations of property head/tail/count/fence.
+
+Consequently neither taking that mutex nor comparing the list header before
+and after a walk proves that cached wrapper pointers stayed live. Property
+sorting still needs exclusion for shared wrapper +0x0C and light/scene inputs.
+Whole-refresh pass reuse additionally needs the list, eligibility values and
+output arrays to remain valid across the complete admitted interval. The
+narrow no-growth per-pass operation removes a longer reuse interval, but it
+still must prove its current list/input contract and output aliasing.
+
+The accumulator's actual dispatch is now anchored in native construction,
+rather than inferred from a class header. Constructor `0x00B660D0`
+publishes vtable `0x010ADFF8` at `0x00B66104`; its RTTI getter
+`0x00B65A80` returns `0x011FA000`. The executable pointer words prove:
+
+- Slot +0x98 is `0x00B63F10`, the geometry registration dispatch.
+- Slot +0x9C is `0x00B63B10`, a different registration operation.
+- The constructor initializes the critical section at accumulator +0x200.
+
+The complete +0x9C method locks +0x200 around list +0x1B4. The complete
++0x98 method does not take that lock: it selects the published stage callback
+from `0x011F9F80`. The inspected `0x00B63F90` stage callback invokes
+shader-property slot +0xA0, selects a batch through TLS+0x2BC and invokes the
+batch method. This closes the concrete geometry-to-shader dispatch chain;
+the existence of an accumulator critical section does not serialize all
+registration, property sorting or dirty-pass refresh.
+
+### Transparent keys: revalidate values at the current comparison
+
+Revise the two-head design to cache numeric inputs and a numeric key. It must
+never dereference an old bound, geometry or pass pointer retained solely for
+key reuse. Any stored identity is only an integer lookup tag; the current
+native head supplies all pointers used for the current comparison.
+
+The complete `0x00B98B20` comparator establishes the read contract more
+precisely:
+
+1. It tests the mode once, obtains the camera once and copies camera
+   components +0x68, +0x74 and +0x80 once for both operands.
+2. It obtains each current payload's geometry and resolves its current +0x20
+   bound, substituting `0x011F4288` for null.
+3. The nonzero mode resolves geometry +0x20 separately for the center and
+   radius. Two reads are intentional native behavior; merging them into one
+   cached pointer requires a separate stability proof.
+4. The arithmetic uses center Y, X and Z in the captured x87 order. Its f32
+   stores and nonzero-mode radius subtraction precede the native comparison
+   tail at `0x00B98C3B`.
+
+For each current operand, the proposed reuse check compares the current
+mode, all three camera component bits, the three center component bits and,
+in the nonzero mode, the radius bits against the saved numeric tuple.
+Recalculate when any input differs. Preserve the shared camera acquisition
+for the pair and the two current bound reads where native code makes them.
+Do not compute a cached key from one tuple and validate another tuple later.
+
+This design removes the additional ownership interval between comparisons:
+changing the camera/mode, replacing a bound or recycling an address does not
+make an old pointer a future dereference target. Address equality alone
+never admits reuse. An equal current numeric tuple can admit the saved
+numeric key only under the qualified arithmetic/control-state contract.
+
+It does not establish coherent current reads in the presence of arbitrary
+concurrent writes. Current native operands still need their actual lifetime
+contract. Reading every field once into private storage also changes the
+native interleaving and must be qualified; a before/after metadata check is
+not that proof. This is a bounded design change, not permission to ignore
+the newly found transform writers.
+
+Keep the native merge schedule, cleanup before key retention, stable tie
+selection, links and comparator decision/pop sequence. Reset both cache
+entries at each merge pair. If a comparison's math admission fails, use its
+exact captured native comparator and invalidate reuse; do not restart a
+partially relinked sort. Unknown comparator/provider code cannot borrow the
+native purity proof.
+
+With unchanged admitted inputs, a pair making c comparisons needs at most
+c+1 key calculations instead of 2c. Changed inputs require recalculation,
+up to two keys per comparison. The revised design adds input loads and
+integer comparisons even on cache hits; one-comparison merges save no keys.
+There is no measured net-time or FPS claim.
+
+Within the proven unchanged native comparator interval, no callback clears
+x87 sticky exceptions or changes its control word. Repeating identical
+arithmetic under identical admitted state cannot introduce a previously
+absent sticky exception after that arithmetic has already run. This narrows
+the exception question, but does not qualify the exact key adapter, diagnostic
+instruction/data-pointer observations or mixed cached/native comparisons.
+Those require the actual assembly and the documented arithmetic admission;
+a Rust dot-product substitute is still unsupported.
+
+### Compound storage: separate the predicate from child callbacks
+
+The complete native `0x00C491A0` predicate copies the object's sphere
+into its own frame, tests the optional base frustum, then interprets the
+compound program. Its only callees are `0x00C4A6E0` and
+`0x00C4A790`; their complete bodies use the native sphere/plane helper
+`0x004B6100`. The inspected admitted chain allocates nothing, invokes no
+object +0xD4 callback and does not resize, free or replace compound storage.
+It changes active-mask words, including record +0x60, as part of testing.
+Its structural purity is proven for this native chain, not for replacements
+or concurrent writers.
+
+Child dispatch remains a separate boundary. Geometry reaches the accumulator
+and shader callbacks described above. The complete multibound-node
+`0x00C46F60` changes culler mode +0x90, visits children and restores the
+mode on normal return. It does not directly settle the transitive lifetime
+of every child callback.
+
+Scene construction `0x00B5E0F0` sets flag 0x800 at object +0x30
+(`0x00B5E41B`). That flag sends the scene's own `0x00C4EE90`
+visibility entry through direct child dispatch, bypassing its own snapshot
+bracket. This closes that direct receiver case. It does not prove that a
+scene callback cannot occur under another object's snapshot-owning traversal,
+nor that all callbacks preserve the parent's compound pointer.
+
+An alternative bounded design is now explicit: pack the entry masks for
+predicate testing, eliminate heap snapshots for qualified rejected objects,
+and retain the original heap snapshot across accepted child callbacks.
+It avoids private snapshot storage remaining live across arbitrary recursive
+child dispatch.
+
+For capacity four, the native save loop initializes at most four DWORDs:
+the base word at compound +0x90 and the record masks admitted by its signed
+limit/capacity tests. The native constructors initialize masks to 0x3F,
+but constructor values do not prove all later values. Before modifying any
+mask, require the upper 26 bits of every saved word to be zero. Four six-bit
+masks occupy 24 bits; a two-bit saved-count-minus-one records the one-to-four
+initialized words. Unsupported masks/capacity retain the original operation.
+
+The existing `0x00C4EE90` frame offers two local words: [EBP-0x04]
+contains an early object copy that is dead after `0x00C4EF0A`, and
+[EBP-0x08] is the snapshot slot. A prospective bridge can use those words
+for packed state and its admitted mode without adding a persistent frame
+through child dispatch. Temporary helpers must return before the native
+predicate call at `0x00C4F015`; this also retains its caller stack location.
+
+The proposed rejected path restores the entry masks without child dispatch
+or an allocation/free pair. The proposed accepted path reconstructs a real
+native snapshot before child +0xD4, then retains the original callback and
+`0x00C49100` restore/free. Both preserve the native signed loop limits
+and initialized-word contract. Restore must use the current culler +0xC0,
+as native code does, rather than a saved entry pointer. Unsupported input
+must fall back before mask mutation; it cannot restart the predicate later.
+
+The aligned snapshot and restore instruction windows are
+`0x00C4EFF7..0x00C4F005` and `0x00C4F035..0x00C4F047`;
+accepted dispatch begins at `0x00C4F021`. These establish native locations,
+not fully qualified patch ownership, incoming edges or compiled bridges.
+The current-input lifetime, packing ABI, fallback and native normal-return
+semantics still need qualification. No new SEH or Rust-unwind claim is made.
+
+### Allocation order: why naive compound deferral is not qualified
+
+The original `0x00C49050` obtains a thread heap through
+`0x00AA42E0`, allocates four times the capacity through
+`0x00AA54A0`, and only then saves masks. The getter performs a
+thread-ID map lookup and can create/publish a heap on its cold path.
+
+For the native four-slot, alignment-four allocation, `0x00AA54A0`
+has an integer-only fast route when the aligned payload end is strictly
+less than heap +0x08. It updates allocation headers, the heap chain and the
+cursor. Its growth route instead calls `0x00AA5E30`. On a failed
+VirtualAlloc commit, that function calls engine recovery dispatcher
+`0x00866A90` at `0x00AA5E78` and retries.
+
+The retained recovery prefix contains calls to multiple engine owners,
+including `0x00868D70`, `0x00C459D0` and `0x00AA7030`.
+This does not prove a particular compound mutation or retirement. It does
+prove that the allocation operation cannot be treated as universally
+callback-free. Moving that call from before predicate testing to after it
+changes when those owner calls occur relative to mask changes and the test
+result. The packed alternative is therefore not ready merely because its
+predicate is structurally pure.
+
+A possible admission boundary is the actual native warm heap and proven
+fast allocation route, established before changing masks. Since the admitted
+native predicate allocates nothing, a same-thread native heap cursor could
+remain eligible through testing. The getter's cold path, heap ownership,
+checked end calculation, non-null result and installed providers must be
+qualified before relying on this argument. Cold/recovery-capable and unknown
+routes retain their original ordering. A post-predicate allocation failure
+cannot be repaired by inventing visibility, replaying the predicate or
+pretending the entry mask state is unchanged.
+
+The current Psycho ScrapHeap provider makes native-layout admission especially
+important. Its [getter and hooks](../psycho-engine-fixes/src/mods/heap_replacer/scrap_heap/mod.rs)
+return an inert dummy identity, while its
+[runtime](../psycho-engine-fixes/src/mods/heap_replacer/scrap_heap/runtime.rs)
+explicitly treats that identity as opaque. Native cursor/base/committed-end
+fields do not describe Psycho allocator capacity. Its visible OOM wrapper
+reclaims queued regions and retries; that is a distinct provider contract
+whose transitive behavior and compiled math state have not been qualified
+here. An allocator configuration value or a non-null pointer is not a
+capability proof. Do not classify another mod or inspect opaque heap fields.
+
+The packed alternative removes allocation/free only on its admitted rejected
+path. Accepted objects retain the pair and add bounded packing/reconstruction
+work. The stronger allocation-free accepted-object target remains open; this
+alternative neither removes it from scope nor claims its savings.
+
+### Remaining contracts: narrower questions, no blanket readiness claim
+
+| Candidate | New evidence or design closure | Exact remaining research boundary |
+|---|---|---|
+| Property sorting | Concrete pool-lock scope and additional transform routes rule out previously tempting exclusion shortcuts | Prove scheduling/receiver exclusion for list links, shared wrapper +0x0C and scorer inputs at the three existing sorter callers; retain the earlier prefix shortcut until then |
+| Dirty-pass refresh | Accumulator +0x200 protects a different list; stage dispatch reaches shader/property work without that lock | Prove list/eligibility ownership and pass-array aliasing in 0x00BB4740; larger interval reuse also needs pointer validity through all no-growth passes |
+| Transparent sorting | Numeric revalidation eliminates dereferences of cached old bounds across comparisons | Qualify current operand reads and per-comparison lifetime; derive the exact native x87 adapter/admission and retain the current merge/provider contracts |
+| Compound snapshots | Complete native predicate is structurally pure; direct scene receiver bypasses its own bracket; packed rejection avoids private child-callback storage | Qualify provider allocation order and predicate input ownership for the packed variant. Full local snapshots still need receiver-specific current-pointer restoration and recursive storage qualification |
+| AABB predicates | Actual shape-program dispatch at 0x00C493A0 reaches shape slots +0x9C/+0xA0; native AABB +0x9C is verified at 0x0101E980; later dead-loop baseline needs no retained scene input | Stronger loop: plane-input ownership, complete admission state and bridge/provider qualification. Use the later native-frame intervention instead of extending shape lifetime |
+
+The compiled bridge/frame checks are implementation work after the material
+native contracts close. They are not an excuse to claim that unimplemented
+code already passed. The existing Psycho acceptance gate is unchanged;
+this research does not create a static-only implementation exception.
+
+The absence of a complete ownership proof is not evidence of an actual race
+or an explanation of Fairfax's FPS drop. The direct findings establish where
+reuse can be made shorter, which native call chains still require inspection,
+and which fallback boundaries must precede mutation.
+
+## Implementation entry: separate closed local work from retained-input designs
+
+The [remaining-boundary capture](../analysis/radare2/output/fnv_location_remaining_boundary_contract_20261007.txt)
+retains the native method bodies, caller queries, register-input follow-up and
+bounded executable bytes used here. The supported executable identity was
+reverified. The following conclusions amend the preceding remaining-contract
+tables; they do not turn an incomplete thread graph into an ownership proof.
+
+### AABB baseline: remove two proven dead initialization loops
+
+Both native AABB/frustum methods execute an integer loop before generating
+their corners. The loop initializes a counter to eight, initializes a pointer
+to the local corner buffer, decrements the counter, and advances that pointer
+eight times. It never dereferences the pointer, writes a corner, calls a
+constructor, or performs floating point work. Its two private stack locals
+are not consumed after the loop.
+
+| Native method | Verified ABI/dispatch | Removed block | Native continuation | Dead locals |
+|---|---|---|---|---|
+| `0x00C387F0` | thiscall, one pointer argument, AL result, RET 4; AABB slot +0x9C at 0x0101E980 | 0x00C387FF..0x00C38822 | 0x00C38822, original shape/Z test | [EBP-0x7C], [EBP-0x78] |
+| `0x00C38920` | thiscall, one pointer argument, AL result, RET 4; same AABB table slot +0xA0 | 0x00C3892F..0x00C38952 | 0x00C38952, original generated-buffer argument setup | [EBP-0x70], [EBP-0x6C] |
+
+Each block executes three setup instructions, eight iterations of eight
+instructions, then four exit instructions: 71 integer instructions. The
+selected replacement executes seven instructions, removing 64 executed
+instructions, 17 private-stack writes and all 17 private-stack reads per
+admitted native call. These are decoded instruction budgets, not timing or
+FPS measurements. They apply independently to each method invocation; the
+evidence does not supply Fairfax invocation counts.
+
+The exact first instructions are seven bytes:
+
+- 0x00C387FF: `C7 45 84 08 00 00 00`.
+- 0x00C3892F: `C7 45 90 08 00 00 00`.
+
+At either location, `E9 1E 00 00 00 90 90` could bypass the block with one
+instruction. The captured native liveness proof below supports that smaller
+patch, but it requires qualifying downstream provider register use. Select
+the following stricter replacement instead: reconstruct the original loop's
+complete final state before jumping to the same continuation. This avoids
+that dependency and costs six additional integer instructions.
+
+| Method | Final EAX | Final EDX and pointer local | Final ECX and counter local |
+|---|---|---|---|
+| 0x00C387F0 | EBP-0x68 | EBP-0x08 | 0xFFFFFFFF |
+| 0x00C38920 | EBP-0x60 | EBP | 0xFFFFFFFF |
+
+The selected sequence is LEA EAX, LEA EDX, XOR ECX,ECX, SUB ECX,1, MOV
+the counter local, MOV the pointer local, then JMP to the continuation.
+SUB starts with zero, exactly as the original final iteration does. It sets
+the same CF/PF/AF/ZF/SF/OF values; the following MOVs and JMP preserve them.
+All other general registers, stack contents and flags are unchanged at that
+boundary. Neither LEA dereferences its operand. The two original locals keep
+their exact final values even though the captured native bodies never read
+them again.
+
+Replace the whole 35-byte block, using these exact 22-byte prefixes followed
+by thirteen unreachable `90` bytes:
+
+- 0x00C387FF: `8D 45 98 8D 55 F8 31 C9 83 E9 01 89 4D 84 89 55 88 E9 0D 00 00 00`.
+- 0x00C3892F: `8D 45 A0 8D 55 00 31 C9 83 E9 01 89 4D 90 89 55 94 E9 0D 00 00 00`.
+
+The proposed x86 encodings, lengths and relative branches were assembled and
+decoded separately; that check is retained with the native evidence. It is
+not execution or behavioral qualification. Neither patch has been installed.
+
+The liveness proof is local and complete for the captured native bodies:
+
+- ESP, EBP, the saved receiver and callee-saved registers are unchanged.
+  Keep the existing 0x1F0 and 0x1E0 frames; shrinking either frame is outside
+  this change.
+- The first method overwrites EAX at 0x00C38822, replaces EFLAGS through
+  its original TEST at 0x00C38833 before consuming a branch condition, and
+  supplies ECX/EDX afresh before corner generation. The surviving CL use
+  reads the original shape-test result; it does not consume the skipped
+  counter's upper ECX bits.
+- The second method supplies its original generated-buffer address and
+  receiver before its original 0x00C39270 call. That generator does not
+  consume incoming EDX before its captured native scale helper overwrites
+  EDX at 0x0045BB52. The complete 0x0045BB20 body closes this register-input
+  question; a thiscall label alone would not have done so.
+- No x87 or SSE instruction is removed or introduced. Corner generation,
+  every side test, active-mask read, zero-Z branch, early return and native
+  floating point observation remain at their original locations and stack
+  addresses. There is no new arithmetic domain, cached plane, object read,
+  bound retention, allocator operation or child callback.
+
+This baseline therefore has no new scene-input, worker-exclusion or
+cross-callback lifetime requirement. Its static intervention contract is
+closed for the intact admitted native route. It must not remain classified
+as blocked on the stronger extreme-corner path's plane-stability contract.
+
+Keep implementation in the planned Psycho `multibound_frustum.rs` feature.
+Use two exact 35-byte `OwnedCodePatch::new` definitions and one
+`ModificationTransaction`, with signature preflight for the native prologues,
+saved-receiver/frame setup and original patch blocks. Install both at the
+existing core startup preparation boundary; reject a changed frame or block.
+Rollback only owned bytes if either installation fails. The transaction is
+not thread suspension: never install or restore these blocks during gameplay.
+Follow the owning startup-safety contract for the new feature/config footprint.
+
+Do not change either vtable slot, intercept a provider, add a wrapper, publish
+an admission cache, or scan code per native call. A replacement virtual method
+keeps its dispatch; any downstream generation/scaling provider receives the
+original state when the admitted native method reaches it. This closes the
+provider-register question without identifying a mod or qualifying its body.
+The saving is the seven-instruction sequence against the original 71, with no
+added per-call guard. Empty xref results do not prove the absence of arbitrary
+computed or foreign middle-of-block entries; the admitted entry contract is
+the ordinary captured native method route.
+
+The baseline does not replace the stronger AABB target. That target still
+removes repeated plane arithmetic when its separate contract is qualified.
+
+### Stronger AABB path: close shape retention and terminal addresses by design
+
+Select the post-generation native window at `0x00C38866` for the
+stronger loop design, rather than replacing the entire virtual predicate.
+The native receiver/Z reads and `0x00C39270` generation are already
+complete there. The selected corner indices refer only to the existing local
+buffer at [EBP-0x68]. No further shape field or global basis dereference is
+needed; the optimization does not extend the shape's read lifetime.
+
+Keep side tests at the original call instruction `0x00C388E8`, with
+the original ESP/EBP, plane ECX and local-corner argument setup at
+`0x00C388D4`. Temporary admission helpers must return before that
+setup; they cannot leave a larger persistent frame below the native frame.
+
+For the previously qualified maximum-corner design, select the actual maximum
+corner and then corner 7 when they differ. Reusing the original call/setup for
+the terminal corner-7 test makes the native helper's last x87 instruction and
+stack-data addresses identical to the original path. Combined with the
+earlier admitted arithmetic/exception argument, this resolves the proposed
+terminal-address mechanism without assuming that diagnostic FP pointers are
+unobservable. A larger virtual-wrapper frame does not provide this property.
+
+This is a specified bridge invariant, not a compiled bridge result. Guard
+instructions must preserve admission state, including exception/control/tag
+state, and the selected index/Boolean accumulator must survive the original
+call. The helper/provider and arithmetic-domain requirements still apply.
+Current plane coefficients must remain valid for the admitted plane interval;
+that exclusion has not been established by corner-buffer ownership.
+
+### Pass output storage: concrete allocation and retirement provenance
+
+The actual 16-byte RenderPass initialization route is cdecl
+`0x00BA8EC0`, reached by creation `0x00BA9EE0`.
+It zeroes pass +0x0C, allocates four bytes per requested light identity through
+`0x00AA3E40`, publishes that returned pointer at +0x0C and records
+byte capacity +0x0A. It copies supplied wrapper identities into the allocated
+array; it does not make a list node or a wrapper the output array.
+
+The reuse path `0x00BA8C50` keeps that allocation when capacity is
+sufficient, and otherwise frees/clears it and publishes a new allocation.
+Refresh growth `0x00BA8C30`/`0x00BA8C00` follows the same separate
+allocation contract. Complete array destruction `0x00BA9520` frees
+each pass's +0x0C allocation before freeing its 16-byte record, then frees
+the outer array storage. Container initialization `0x00BA8B80` and
+`0x00BA94B0` describe that outer array, not RenderPass construction.
+
+This establishes native allocation provenance and which owner retires the
+output storage. A valid live allocation is separate from the input objects
+under its allocator's nonoverlap contract. It does not prove that a pointer
+was not overwritten/recycled, qualify an unknown allocation provider, or
+exclude concurrent list/eligibility changes. Keep these facts separate.
+The per-pass fast branch can use the already established full-DWORD N <= 254
+and byte C >= N+1 bound; it needs no cross-pass pointer cache. Whole-refresh
+reuse still requires the larger input interval.
+
+The current-source provider and these native birth/death routes provide a
+concrete alias/lifetime investigation boundary. They replace the earlier
+unspecified request to find the pass array's owner; they do not establish a
+new ownership lock.
+
+### Property membership: remove a false writer lead
+
+The full `0x00B71450` body builds diagnostic data containing number
+of lights, active lights and Reference ID. It is not the membership-add
+writer. Its DWORD read at property +0x68 remains authoritative count-width
+evidence.
+
+The actual membership writer `0x00B71560` has two direct calls from
+`0x00B9F480`. It reaches append `0x00B58570` without a fence, or
+`0x00B713C0` / `0x00B702E0` on the fenced route. Marker and
+retirement callers lead through `0x00B5B260` and
+`0x00B5B410`. Their recursive traversal roots are
+`0x00B5C490`/`0x00B5C5C0` and `0x00B5DAC0`.
+
+The other inspected reassignment routes pass through `0x00BA0110`,
+whose concrete direct callers include `0x00871290` and
+`0x00B5D300`. It reaches the two recursive wrapper operations
+`0x00B9F5B0`/`0x00B9F6A0` or directly reaches
+`0x00B9F480`. Its virtual node/geometry dispatches and complete
+thread/receiver provenance are still material; the direct-call list does not
+supply them. These are the specific next ownership roots, not the unrelated
+diagnostic function.
+
+### Psycho allocation: separate owned reclaim from native game recovery
+
+The source dependency path is now followed beyond the OOM wrapper:
+
+`hook_alloc -> Runtime::alloc -> Heap::try_alloc_slow_with_provider`
+uses the explicitly supplied `Runtime::acquire_region` closure. Region
+backing is a protected-reserve lease or an exact dynamic mapping. On total
+failure, `alloc_oom_recovery -> reclaim_queued_regions -> checked_purge`
+revalidates zero live allocations under the heap-state lock and releases
+only owned backing. Region destruction and reserve return use the shared
+WinAPI wrappers and accounting. Failure sampling observes the process map;
+it is not native engine garbage collection.
+
+See [runtime](../psycho-engine-fixes/src/mods/heap_replacer/scrap_heap/runtime.rs),
+[heap](../psycho-engine-fixes/src/mods/heap_replacer/scrap_heap/heap.rs),
+[region](../psycho-engine-fixes/src/mods/heap_replacer/scrap_heap/region.rs)
+and [reserve](../psycho-engine-fixes/src/mods/heap_replacer/scrap_heap/reserve.rs).
+These source paths contain no dispatch to the native game-recovery operation
+0x00866A90 or a supplied scene/actor cleanup callback. This closes that
+specific source-level recovery distinction for the owned Psycho provider.
+It does not qualify a native or foreign provider, guarantee allocation success,
+prove its compiled FP state, or resolve compound restoration through callbacks.
+
+For compound optimization, qualifying the actual installed provider remains
+mandatory. A native-layout capacity read cannot be applied to Psycho's opaque
+identity. Moving a fallible allocation after mask mutation still needs its
+explicit failure and state contract, even when the provider does not invoke
+game cleanup.
+
+### Current implementation disposition
+
+| Operation | Native contract now available | Implementation status and remaining qualification |
+|---|---|---|
+| Both AABB dead initialization loops | Exact byte windows and continuations; seven-instruction reconstruction preserves registers, flags, locals and native FP work; startup-only owned admission adds no per-call guard | Implemented as an owner-approved unreleased static-qualified candidate, enabled by default. Native installation/visibility, startup acceptance and performance remain untested. |
+| Stronger AABB extreme-corner loop | Shape reads end before intervention; original native call/frame can preserve terminal FP addresses; earlier numeric domain remains applicable | Plane-input exclusion and complete admission-state contract |
+| One-walk dirty-pass refresh | Exact capacity bound, iterator ABI and concrete pass-output allocation/retirement owner | Current input ownership and qualified live output/provider; shared refresh additionally needs its longer interval |
+| Transparent numeric reuse | No retained bound dereference; current-input comparison design and native arithmetic order are recorded | Exact adapter/domain and current read/lifetime contract |
+| Full property merge | Finite pre-write score domain, native scorer/terminal replay and exact mutation roots | Shared score/input and list exclusion over its changed comparison schedule |
+| Compound private/packed storage | Native predicate separation, original-frame packing opportunity, native/Psycho recovery distinction | Initialized restore-index/current-pointer contract and provider-specific ordering/failure qualification |
+
+The repository's [behavioral gate](../AGENTS.md#no-guessing-and-behavioral-test-gate)
+has no general static-only Psycho exception. After reviewing the first batch,
+the owner explicitly approved the two named AABB setup patches as unreleased,
+statically qualified candidates without a game-runtime baseline, enabled by
+default. That scoped approval permits this implementation; it does not extend
+to the stronger plane loop or any unresolved pass/sort/compound design.
+It does not establish runtime or startup acceptance, close another ownership
+contract, authorize a commit/deployment/release, or establish an FPS gain.
+
+## First implementation batch and deferred research
+
+### Selected implementation: two AABB setup replacements
+
+The current binary evidence closes the local transformation at both native
+methods, `0x00C387F0` and `0x00C38920`. Treat them as two patch sites in
+one cohesive feature. Replace their initialization loops with the seven
+instructions specified in the
+[AABB baseline contract](#aabb-baseline-remove-two-proven-dead-initialization-loops).
+Retain the complete original method frames, continuations, virtual dispatch,
+corner generation and plane tests.
+
+This batch removes 64 executed integer instructions, 17 stack writes and
+17 stack reads per invocation reaching either admitted block. It introduces
+no runtime bridge, guard, allocation, lock, FP-state operation or scene cache.
+That budget does not establish invocation frequency, elapsed time or FPS.
+The stronger arithmetic optimization is a separate unqualified operation.
+
+| Planned file | Concrete change |
+|---|---|
+| `psycho-engine-fixes/src/mods/perf/multibound_frustum.rs` | Add the module, two exact 35-byte original/replacement definitions, native frame signatures and startup-only installer. Document the continuation state, supported entry contract, ownership, failure and zero added per-call cost. |
+| `psycho-engine-fixes/src/mods/perf/mod.rs` | Declare the module and export its installer to core startup. Its static patches need no event forwarding. |
+| `psycho-engine-fixes/src/startup.rs` | Route the new setting through the existing `install_runtime_hooks` preparation boundary after logger initialization. Use a separate installation transaction; preserve existing subsystem order and failure containment. |
+| `psycho-engine-fixes/src/config.rs` | Add `PerformanceConfig.multibound_frustum_tests`, its default and the matching optional raw field. Follow the current `from_raw` precedence so explicit user values are honored and missing values take the selected default. |
+| `psycho-engine-fixes/config/psycho_engine_fixes.toml` | Add only `performance.multibound_frustum_tests = true`, with a short description of the redundant setup work removed. |
+| This document | Record the implemented ownership/lifecycle contract and distinguish code qualification from native acceptance; retain the deferred-research table. |
+
+The default follows the existing plan's requested optimization coverage.
+Use this user-facing comment: "Removes redundant setup work when checking
+object bounds against the view." Do not add runtime-test directions, restart
+advice, research status or a test asserting the shipped setting value.
+
+Do not add settings, dormant bridges or placeholder modules for the other
+unresolved designs in this batch. The existing light-score reuse and
+sequential scene-light features retain their current behavior and settings.
+The helper, Syringe, shared patch infrastructure and allocators need no source
+changes for the selected operation.
+
+### Installation and failure contract
+
+1. Prepare literal expectations from the retained supported-executable bytes.
+   Verify both original prologues, frame allocation and receiver-save setup
+   before writing either loop. Each patch window is exactly 35 bytes; use
+   exact signatures without wildcard bytes or a runtime-learned oracle.
+2. Preflight both `OwnedCodePatch` sites and install them using one
+   `ModificationTransaction`. Reject a changed frame or conflicting block.
+   The helper accepts an identical pre-existing replacement without claiming
+   its rollback ownership; retain that distinction.
+3. Commit the installation transaction only when both sites are available.
+   If the second operation fails, restore only writes made by this attempt.
+   Preserve a pre-existing matching replacement and any later foreign write.
+   Report a failed restoration explicitly; do not claim full rollback when
+   ownership was lost.
+4. Use the existing core startup preparation boundary while affected code is
+   quiescent. Neither helper makes code writes atomic or suspends execution.
+   Add no DeferredInit code write, gameplay-time reconfiguration or teardown
+   unpatching. Successful patches remain for the process lifetime.
+5. Emit a single human-readable `[MULTIBOUND]` installation/configuration
+   summary through the existing logger. Use debug for patch addresses, warn
+   for a safely rejected signature and error for an installation/restoration
+   failure that cannot preserve the qualified state. Add no hot-path counters
+   or per-frame diagnostics.
+
+The complete final-register/flag/local reconstruction removes the need to
+qualify a downstream generation provider's scratch-register assumptions.
+It does not overwrite that provider or either virtual slot. Compatibility
+admission concerns the actual owned blocks and their frame, not a module name,
+version or vtable allowlist. Keep the native entry scope explicit; arbitrary
+foreign jumps into the interior of a rewritten block are not qualified.
+
+### Implementation and qualification sequence
+
+Implement the module and paired installation first, then add the one setting
+and startup routing in the same coherent change. Review the compiled 32-bit
+replacement against the documented seven instructions, 35-byte footprints,
+branch destinations and exact final register/flag/local values. Inspect only
+the affected native/code boundary; no new whole-engine analysis is needed for
+this local transformation.
+
+The native behavioral expectation is unchanged AL result, visibility and
+corner/plane work for each method, with identical continuation state and
+the reduced integer instruction budget. Signature conflicts must preserve
+existing code; unsuccessful paired installation must restore owned writes.
+These expectations define qualification, not additional claims that an
+unexecuted implementation passed them.
+
+Run available affected production tests, then the explicit supported release
+build after code changes:
+
+```bash
+cargo test --target i686-pc-windows-gnu -p psycho-engine-fixes
+cargo build --release --target i686-pc-windows-gnu -p psycho-engine-fixes -p psycho-engine-fixes-helper
+cargo fmt --all -- --check
+git diff --check
+```
+
+Do not create mirrored native fixtures, source/byte-presence assertions,
+configuration-default tests or a synthetic sort/culling reference to claim
+native behavior. An assembler/disassembler check establishes encoding and
+the static work budget; tests/builds do not establish native acceptance.
+The new configuration field and startup installer require the existing
+[startup-safety contract](nvse_startup_phase_safety.md), including its accepted
+baseline and actual startup acceptance. Preserve startup phases, dependencies,
+imports and TLS ownership rather than redesigning them for this feature.
+
+The owner subsequently approved implementation of this named static-qualified
+candidate without the runtime baseline. No plane/list/child ownership gap
+remains for its selected setup replacements. Native acceptance and startup
+acceptance are still unclaimed; no commit, deployment, packaging or release
+is part of that authorization.
+
+### Implemented unreleased AABB setup candidate
+
+[multibound_frustum.rs](../psycho-engine-fixes/src/mods/perf/multibound_frustum.rs)
+now owns the two literal native frame signatures and the paired 35-byte
+patches. Core startup calls its installer when
+`performance.multibound_frustum_tests` is enabled. The runtime default and
+shipped TOML both enable it; explicit user values override the default.
+There is no new lifecycle event, exported ABI, dependency or runtime owner.
+
+The installer checks the existing pre-CRT activation flag and rejects use
+after successful core initialization. Both frame signatures and both patch
+blocks are preflighted before writes. One `ModificationTransaction` applies
+the two sites and commits only after both succeed. An identical existing
+replacement is accepted without claiming rollback ownership. Application
+failure emits an error and drops the transaction; restoration remains
+best-effort and never overwrites foreign bytes. A signature rejection leaves
+the feature unavailable and is reported by core startup. No success message
+is emitted on that path.
+
+Successful installation logs `[MULTIBOUND] Redundant bounds setup optimized
+at both native sites`. Debug logging identifies the two qualified sites;
+the disabled configuration and unavailable feature paths report their status
+once. Native invocations have no new diagnostics, counters, guards, allocation
+or synchronization.
+
+The [implementation evidence](../analysis/radare2/output/fnv_aabb_setup_implementation_contract_20261007.txt)
+retains native entry reconfirmation, the actual compiled descriptors/payloads,
+their native-destination disassembly and the compiled installer. The embedded
+15-byte frame expectations and 35-byte original expectations agree with the
+supported executable. Each compiled replacement performs exactly the selected
+seven instructions and jumps to 0x00C38822 or 0x00C38952. This is static
+qualification of the production bytes, not native execution or a timing test.
+
+The existing affected production suite and supported 32-bit core/helper
+release build passed. Changed Rust files passed formatting and the diff check
+passed. Workspace-wide formatting reported unrelated OMV differences; those
+files were not corrected by this feature. No config-value tests, mirrored
+native fixtures or source assertions were added.
+
+The complete new pre-Deferred footprint is confined to one parsed/serialized
+performance boolean, immutable patch/signature descriptors and byte arrays,
+the installer in the existing startup route, its temporary transaction and
+one-time logging. Core/helper ownership, existing startup phase/order,
+dependencies, helper callbacks and TLS ownership are unchanged. Import and
+TLS comparisons against preserved pre-build and deployed artifacts found no
+changes. The current historical-playtest-to-file identity was not independently
+re-established; these comparisons are not an accepted startup baseline or
+load-to-gameplay acceptance. The deployed core was left untouched.
+
+Actual native installation/rollback, visibility, startup and performance were
+not run. The result remains an unreleased statically qualified candidate;
+the existing startup-safety gate still governs release. The deeper designs
+below remain explicitly unresolved and have no production hooks or settings
+added by this batch.
+
+The owner separately requested committing this candidate and its supporting
+research. That request does not establish native/startup acceptance or
+authorize deployment, packaging or release.
+
+### Deferred optimizations: exact research needed
+
+These operations remain in the performance scope, but their implementation
+must not be bundled into the first batch. Research may continue independently
+while the proven local changes are implemented. A closed result for one row
+does not qualify the others.
+
+| Deferred operation | Evidence already usable | Research required before its production implementation |
+|---|---|---|
+| Stronger AABB extreme-corner plane loop | Native corner generation completes before `0x00C38866`; using the produced buffer ends shape retention. The bounded numeric domain and terminal corner-7 replay are recorded. | Trace ownership, publication and all writers of the actual plane-buffer argument over the changed plane-read interval. Qualify the exact admission-state adapter and original-frame side-call bridge at `0x00C388E8`, including x87 control/tag/exception and terminal instruction/data addresses. Validate the Cartesian pattern from actual generated corners; do not require assumed immutable basis globals. Account for guard cost. |
+| One-walk dirty-pass refresh | The no-growth branch at `0x00BB4F7A..0x00BB500A`, full-DWORD property count bound N <= 254, byte capacity C >= N+1, iterator ABI and output allocation/retirement routes are known. | Establish current membership/eligibility lifetime and exclusion for the admitted pass interval, and qualify its live nonaliasing output allocation/provider. Follow membership roots `0x00871290` and `0x00B5D300` and their actual receivers/callbacks, rather than the diagnostic `0x00B71450`. Prove slot-0 and output/count publication with the exact adapter. Sharing enumeration across multiple passes additionally requires the longer interval and 1016-byte scratch/stack contract; the narrow branch does not prove it. |
+| Full lighting-property merge-sort upgrade | Actual sorter/scorer ABI, finite pre-write score admission, list/fence rules, native terminal comparison and mutation roots are recorded. | Close exclusion for shared wrapper score +0x0C, current score inputs and list membership over the altered comparison/relink schedule. Trace insertion/removal/marker paths and their scheduler ownership. The node-pool mutex and accumulator +0x200 lock do not supply that exclusion. Then qualify stable ordering, exceptional-domain fallback before mutation, terminal native math state and small-input guard cost. Preserve the existing score-reuse implementation until this is closed. |
+| Transparent merge-head numeric reuse | `0x00B98B20` supplies the exact input reads and x87 order; cached numeric tuples avoid future dereferences through stale bound identities. | Prove current geometry/bound lifetimes and coherent read intervals for both depth modes. Preserve the shared camera acquisition and separate nonzero-mode bound reads. Qualify the exact key adapter, mixed cached/native comparisons, control/exception and diagnostic FP-address state, and stable merge/cleanup boundaries. Inspect guard loads versus saved arithmetic; equal numeric input bits alone do not prove the complete native state contract. |
+| Compound snapshot storage and rejected-object packing | Native `0x00C491A0` predicate structural purity, mask layout, packing windows, native current-pointer restoration and native/Psycho recovery distinction are recorded. | Prove exactly which saved words are initialized and which indices the current culler +0xC0 restoration may consume. For private storage across accepted callbacks, close structural lifetime/replacement and recursion/stack bounds through the actual child/accumulator/shader routes. For rejected-object packing with allocation deferred on acceptance, qualify the actual installed allocator's ordering, cold/recovery/failure and compiled FP contract before mask mutation. Psycho heap identities are opaque; native capacity fields cannot be used for them. Accepted callbacks keep native snapshots until independently qualified. |
+
+For these rows, preserve complete raw native bodies/caller evidence and update
+the owning contracts when a named gap closes. Do not infer exclusion from an
+empty xref list, a class name, a header check or an unrelated critical section.
+If the proposed optimization itself causes a longer ownership interval or
+changes recovery order, redesign that interval before adding a global cache
+or a blocking lock.
+
+The first batch's completion does not mean the Fairfax bottleneck is identified
+or that all five deeper designs are ready. Its concrete deliverable is a
+bounded local reduction whose native intervention contract is already proven;
+the table defines the next research for further reductions.
+
 ## Evidence ledger
 
 | Evidence | Retained content used here | Additional direct binary checks |
@@ -2548,6 +4469,12 @@ or an FPS improvement. No production change accompanied the log inspection.
 | [Scan rejection audit](../analysis/radare2/output/fnv_scene_light_scan_rejection_audit_20261007.txt) | Native getter, deployed admission/initialization contract, compiled range comparison, and the nine deployed immutable native ranges | Getter comparison immediates and deployed native extracts agree; exact runtime rejection remains unknown |
 | [Scan math compatibility contract](../analysis/radare2/output/fnv_scene_light_scan_math_compatibility_contract_20261007.txt) | Actual installed callback dispatch, configuration and writer gates, three complete math payloads, copy instructions, native first bytes, and leaf memory/stack contracts | Exact replacements necessarily reject vanilla-only shared admission; historical gate execution and first mismatch remain unobserved |
 | [Scan math admission implementation](../analysis/radare2/output/fnv_scene_light_scan_math_admission_implementation_20261007.txt) | Complete compiled qualification/comparator instructions, full-range alternative derivation, fail-first/passing production admission regressions, bounded memory-read costs and startup scope | Known math alternatives admit at preparation and after replacement; unknown bytes reject; full native traversal/startup remain untested |
+| [Fairfax candidate evidence](../analysis/radare2/output/fnv_fairfax_performance_candidates_contract_20261007.txt) | Property-sort prefix, dirty-pass double walks/count width/array allocation, transparent merge-sort comparator and payload/draw lifetime, culler admission, AABB corner loop, compound mask allocation/restore and initial capacity | Same executable identity; radare2 is primary, bounded PE pointer reads establish native vtables, source/provider evidence separates current scrap replacement from native getter cost; actual scene populations and timings remain unknown |
+| [Durable optimization design evidence](../analysis/radare2/output/fnv_location_durable_optimization_plan_contract_20261007.txt) | Native corner generation and component-rounding helpers, frustum-array layout, outer culler root dispatch, actual scorer arithmetic and ABI | Same executable identity reverified; corner basis/rounding and callback lifetime prohibit guessed algebraic, arena or full-sort readiness claims |
+| [Implementation gap-closure evidence](../analysis/radare2/output/fnv_location_optimization_gap_closure_20261007.txt) | Exact pass frame and continuations, complete iterator/allocator bodies, scorer and CRT finite route, terminal sorter comparisons, transparent cleanup/publication, actual visibility vtables, compound resize/destruction and active-pointer mutation, AABB final comparison and generated buffer | Same executable identity reverified; bounded PE/objdump supplements resolve inferred stack-label ambiguity; incomplete and misaligned captures are explicitly excluded from complete-function proof |
+| [Ownership continuation evidence](../analysis/radare2/output/fnv_location_ownership_contract_20261007.txt) | Additional transform routes and recursive writers, property mutation/pool-lock scope, actual accumulator construction and registration slots, complete compound predicate and mask helpers, scene admission flag, native ScrapHeap growth/recovery calls, current comparator input reads and native snapshot frame | Same executable identity reverified; 65 focused MCP captures and bounded PE table reads distinguish complete bodies from prefixes and reject misaligned or adjacent-data discoveries; no worker exclusion or runtime-cost claim is inferred |
+| [Remaining-boundary evidence](../analysis/radare2/output/fnv_location_remaining_boundary_contract_20261007.txt) | Complete AABB method/dead-loop and scale-input bodies, original side-call frame, actual RenderPass allocation/retirement, membership caller roots and the diagnostic-function correction; owned allocator source paths are indexed | Same executable identity reverified; 67 native captures plus bounded bytes and separately decoded full-state replacement specify a 64-instruction reduction per admitted AABB call; partial/misaligned discoveries are excluded, and policy qualification remains separate |
+| [AABB setup implementation evidence](../analysis/radare2/output/fnv_aabb_setup_implementation_contract_20261007.txt) | Native entry reconfirmation, compiled frame/block descriptors and replacement payloads, native-destination decoding and complete startup installer | Embedded expectations agree with the supported executable and both seven-instruction payloads reach the documented continuations; static qualification does not establish native installation, startup, visibility or timing |
 
 The original ledger's direct checks are summaries of the initial radare2
 session. The native lighting captures preserve the continued audit's raw
