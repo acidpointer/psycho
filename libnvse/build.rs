@@ -79,6 +79,7 @@ fn main() {
     let bindings = match builder
         // Bindgen configuration
         .parse_callbacks(Box::new(bindgen::CargoCallbacks::new()))
+        .parse_callbacks(Box::new(CppDocComments))
         // Block C++ stdlib types (we don't cross the FFI boundary with them)
         .blocklist_type("std::vector.*")
         .blocklist_type("std::map.*")
@@ -142,6 +143,47 @@ fn main() {
     println!("cargo:rerun-if-changed=xnvse/nvse/nvse/PluginAPI.h");
     println!("cargo:rerun-if-changed=xnvse/nvse/nvse/GameAPI.h");
     println!("cargo:rerun-if-changed=build.rs");
+}
+
+/// Keeps xNVSE's C++ header comments out of rustdoc's doctest collection.
+///
+/// Header comments carry C++ examples in untagged fences and tab-indented
+/// lines, which rustdoc would attempt to compile as Rust.
+///
+/// Untagged fences are tagged `text` and indentation outside fences is removed
+/// so no indented code block remains. Only generated `#[doc]` text changes.
+#[derive(Debug)]
+struct CppDocComments;
+
+impl bindgen::callbacks::ParseCallbacks for CppDocComments {
+    fn process_comment(&self, comment: &str) -> Option<String> {
+        let mut lines = Vec::new();
+        let mut in_fence = false;
+
+        for line in comment.lines() {
+            let trimmed = line.trim_start();
+
+            if let Some(info) = trimmed.strip_prefix("```") {
+                if !in_fence && info.trim().is_empty() {
+                    lines.push("```text".to_owned());
+                } else {
+                    lines.push(trimmed.to_owned());
+                }
+
+                in_fence = !in_fence;
+            } else if in_fence {
+                lines.push(line.to_owned());
+            } else {
+                lines.push(trimmed.to_owned());
+            }
+        }
+
+        if in_fence {
+            lines.push("```".to_owned());
+        }
+
+        Some(lines.join("\n"))
+    }
 }
 
 fn fail(message: impl AsRef<str>) -> ! {
