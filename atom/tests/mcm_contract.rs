@@ -199,10 +199,12 @@ fn shipped_mcm_menu_exposes_every_runtime_setting_with_matching_defaults() {
         ("Input:bEnabled", f64::from(input.enabled())),
         ("Mouse:bInvertX", f64::from(mouse.invert_x())),
         ("Mouse:bInvertY", f64::from(mouse.invert_y())),
+        ("Mouse:fAimScale", f64::from(mouse.aim_scale())),
         (
             "Mouse:fHorizontalScale",
             f64::from(mouse.horizontal_scale()),
         ),
+        ("Mouse:fScopeScale", f64::from(mouse.scope_scale())),
         ("Mouse:fSensitivity", f64::from(mouse.sensitivity())),
         ("Mouse:fVerticalScale", f64::from(mouse.vertical_scale())),
         ("Mouse:iProfile", f64::from(mouse.profile() as u8)),
@@ -261,7 +263,7 @@ fn shipped_mcm_uses_feature_categories_without_filler_rows() {
         (
             "1",
             "Input",
-            &["General", "Mouse", "Controller", "Triggers"][..],
+            &["General", "Mouse", "Controller", "Triggers", "Mouse Aiming"][..],
             &["Input:", "Mouse:", "Controller:"][..],
         ),
         (
