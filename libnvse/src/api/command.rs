@@ -3,18 +3,25 @@
 //! # Usage
 //!
 //! ```no_run
+//! use libnvse::api::interface::NVSEInterface;
 //! use libnvse::nvse_command;
 //!
 //! // Define a command with the macro -- generates the extern "C" handler
+//! // and the `PSYCHOMEM_EXECUTE` constant.
 //! nvse_command!(PsychoMem, cmd, {
 //!     cmd.print("Hello from Rust!");
 //!     cmd.set_result(42.0);
 //!     true
 //! });
 //!
-//! // Register it
+//! # fn example(nvse: &NVSEInterface) -> Result<(), Box<dyn std::error::Error>> {
+//! // Register it under the opcode base assigned to the plugin
+//! let mut cmds = nvse.command_builder()?;
+//! cmds.set_opcode_base(0x3000)?;
 //! cmds.register("PsychoMem", "pmem", "Show memory info",
-//!     false, &[], PSYCHO_MEM_EXECUTE)?;
+//!     false, &[], PSYCHOMEM_EXECUTE)?;
+//! # Ok(())
+//! # }
 //! ```
 
 use std::ffi::CStr;
@@ -87,18 +94,22 @@ impl CommandContext {
 /// # Syntax
 ///
 /// ```no_run
+/// # use libnvse::nvse_command;
 /// nvse_command!(CommandName, ctx_ident, {
 ///     // safe Rust code here
-///     // ctx_ident is a &CommandContext
+///     // ctx_ident is a CommandContext
 ///     ctx_ident.print("hello");
 ///     ctx_ident.set_result(1.0);
 ///     true // return bool
 /// });
+/// // Generated: COMMANDNAME_EXECUTE
+/// # let _ = COMMANDNAME_EXECUTE;
 /// ```
 ///
 /// # Example
 ///
 /// ```no_run
+/// use libnvse::api::command::{CommandBuilder, CommandResult};
 /// use libnvse::nvse_command;
 ///
 /// nvse_command!(PsychoMem, cmd, {
@@ -107,9 +118,10 @@ impl CommandContext {
 ///     true
 /// });
 ///
-/// // Register:
-/// builder.register("PsychoMem", "pmem", "Memory report",
-///     false, &[], PSYCHO_MEM_EXECUTE)?;
+/// fn register(builder: &mut CommandBuilder) -> CommandResult<()> {
+///     builder.register("PsychoMem", "pmem", "Memory report",
+///         false, &[], PSYCHOMEM_EXECUTE)
+/// }
 /// ```
 #[macro_export]
 macro_rules! nvse_command {
@@ -118,7 +130,7 @@ macro_rules! nvse_command {
             #[allow(non_snake_case)]
             unsafe extern "C" fn [<__nvse_cmd_ $name>](
                 _param_info: *mut $crate::ParamInfo,
-                _script_data: *mut ::libc::c_void,
+                _script_data: *mut ::core::ffi::c_void,
                 this_obj: *mut $crate::TESObjectREFR,
                 _containing_obj: *mut $crate::TESObjectREFR,
                 _script_obj: *mut $crate::Script,
