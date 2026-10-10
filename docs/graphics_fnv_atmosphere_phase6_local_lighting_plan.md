@@ -111,7 +111,7 @@ shader-output hole, but cannot execute the native game callback lifecycle;
 exact exterior/interior game pixels remain the release gate.
 
 The visibility fixture must use the shipped lighting-only medium density of
-`0.0000025`, not the sanitized maximum of `0.001`. The latter is 400 times
+`0.000002`, not the sanitized maximum of `0.001`. The latter is 500 times
 denser and can make an under-calibrated local shader pass while the real menu
 result remains effectively black. FNV's copied diffuse/dimmer scalar is not a
 photometric radiance value, so the shipped shader applies a fixed native-light

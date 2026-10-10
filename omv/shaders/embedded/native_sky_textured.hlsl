@@ -138,23 +138,27 @@ float4 Main(PixelInput input) : COLOR0 {
 
 #if OMV_CLOUD_NORMALS
     float3 normal = DecodeCloudNormal(cloud.xy, -eyeDirection);
-    float grey = lerp(saturate(CloudData.w), 1.0, cloud.z);
-    float3 ambient = skyColor * grey * lerp(0.5, 0.7, sunFacing);
-    float3 diffuse = saturate(dot(normal, SunDirection.xyz)) * sunColor * (1.0 - dot(ambient, float3(0.2126, 0.7152, 0.0722))) * lerp(0.8, 1.0, sunFacing);
+    // Keep the released brightness-one lighting shape. Brightness is applied
+    // once below, so the control cannot change normal shading or cloud detail.
+    float3 ambient = skyColor * lerp(0.5, 0.7, sunFacing);
+    // Ambient may be over-white. Bound the weight, not the source radiance:
+    // stronger sunlight must never subtract illumination from bright clouds.
+    float3 diffuse = saturate(dot(normal, SunDirection.xyz)) * sunColor * (1.0 - saturate(dot(ambient, float3(0.2126, 0.7152, 0.0722)))) * lerp(0.8, 1.0, sunFacing);
     float fresnelWeight = Pow4(1.0 - max(dot(-eyeDirection, normal), 0.0));
     float3 fresnel = fresnelWeight * saturate(sunFacing * 2.0 - 1.0) * max(dot(normal, up), 0.0) * (sunColor + skyColor) * 0.2;
     float3 bounce = max(dot(normal, -up), 0.0) * ObjectData.yzw * 0.1 * sunHeight;
     cloud = float4(ambient + diffuse + fresnel + scattering + bounce, alpha);
 #else
-    float grey = lerp(dot(cloud.rgb, float3(0.2126, 0.7152, 0.0722)), 1.0, saturate(CloudData.w));
-    grey = (grey - 0.5) * 1.5 + 0.5;
-    float3 baseSky = SkyUpper.rgb;
-    float3 darkSky = baseSky * 0.5;
-    darkSky = darkSky * darkSky;
-    darkSky = darkSky * darkSky * (baseSky * 0.5);
-    float3 cloudTint = lerp(darkSky, lerp(baseSky, sunColor * 5.0, 0.7 * sunFacing + 0.3), (1.0 - sunInfluence) * grey);
-    cloudTint = lerp(1.0, cloudTint * CloudData.w * 1.333, (1.0 - sunHeight) * smoothstep(0.0, 0.5, SunData.x));
-    cloud.rgb = cloud.rgb * cloudTint + scattering * 4.0 * (1.0 - sunHeight) * smoothstep(0.0, 0.5, SunData.x);
+    // Authored RGB owns flat-cloud detail. A bounded sky/sun tint replaces the
+    // fifth-power dark tint, extrapolating weights and amplified solar pedestal.
+    // Retain the overhead-sun identity and existing localized angular profile.
+    float lowSunWeight = (1.0 - sunHeight) * smoothstep(0.0, 0.5, SunData.x);
+    // A missing optional sunlight candidate must not tint ambient clouds
+    // toward black. Keep populated sunlight unchanged; this fallback adds no
+    // solar emission and therefore cannot manufacture a replacement sun.
+    float3 tintSun = (dot(abs(sunColor), 1.0) <= 0.00001) ? SkyUpper.rgb : sunColor;
+    float3 cloudTint = lerp(SkyUpper.rgb, tintSun, sunFacing);
+    cloud.rgb = cloud.rgb * lerp(1.0, cloudTint, lowSunWeight) + scattering * lowSunWeight;
 #endif
 
     cloud.rgb *= vertexColor.rgb * Params.y * SunsetColor.w * CloudData.w;

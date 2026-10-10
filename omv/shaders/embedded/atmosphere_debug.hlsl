@@ -89,7 +89,7 @@ float4 Main(PixelInput input) : COLOR0 {
 		}
 		float mu = dot(WorldRay(input.uv), SunDirection.xyz);
 		// Match the production conversion from FNV direct light to phase response.
-		float phase = HenyeyGreenstein(mu, LightingDebugData.x) * FourPi;
+		float phase = lerp(1.0f, HenyeyGreenstein(mu, LightingDebugData.x) * FourPi, LightingMediumData.z);
 		if (lightingView < 3.5f) {
 			float preview = phase / (1.0f + phase);
 			return float4(preview, saturate(mu * 0.5f + 0.5f), 1.0f - preview, source.a);

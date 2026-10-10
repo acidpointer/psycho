@@ -138,13 +138,14 @@ fog_fade = 1.0
 # space. Fog and native-sun directional lighting share one extinction and
 # composition path; the lighting shaft field is deterministic and quarter-res.
 # Production wasteland preset: restrained ground haze with exact-zero uniform
-# fog density. Lighting retains a shared aerosol lower bound at every height.
+# fog density. Redistribute density toward the height layer while retaining
+# the shared aerosol floor and base-height total of 0.000005.
 [graphics.embedded_effects.volumetric_fog]
 enabled = true
 quality = "high"
 density = 0.0
-height_density = 0.0000025
-height_falloff = 0.00008
+height_density = 0.000003
+height_falloff = 0.00006
 base_height = 0.0
 max_distance = 120000.0
 scattering_albedo = 0.88
@@ -162,11 +163,13 @@ debug_view = 0
 enabled = true
 intensity = 0.95
 # Shared uniform aerosol minimum, also used by local volumetric lights.
-medium_density = 0.0000025
+medium_density = 0.000002
 max_distance = 120000.0
+# Directional phase uses a bounded normalized mixture; local lights retain HG.
 anisotropy = 0.58
-shaft_strength = 0.72
-sun_disk_boost = 1.0
+shaft_strength = 1.0
+# The game/native sky owns the solar disk; no additional atmospheric disk boost.
+sun_disk_boost = 0.0
 shaft_quality = "high"
 local_lights_enabled = true
 local_lights_intensity = 1.5

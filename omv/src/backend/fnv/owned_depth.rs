@@ -373,11 +373,11 @@ impl Hooks {
     fn mark_untracked_bind(&self) {
         // Saturation preserves the rollback prohibition instead of permitting
         // an old serial to compare equal after wraparound.
-        let _ = self.untracked_bind_serial.try_update(
-            Ordering::AcqRel,
-            Ordering::Acquire,
-            |serial| Some(serial.saturating_add(1)),
-        );
+        let _ =
+            self.untracked_bind_serial
+                .try_update(Ordering::AcqRel, Ordering::Acquire, |serial| {
+                    Some(serial.saturating_add(1))
+                });
     }
     fn admitted(&self) -> bool {
         // Resident hooks may outlive a failed later DeferredInit step. The

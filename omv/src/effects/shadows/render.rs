@@ -3,7 +3,11 @@
 //! The engine remains the owner of vertex/index buffers and skin matrices.
 //! OMV binds those already-prepared buffers to dedicated shadow shaders, calls
 //! the original renderer submissions, and restores the geometry dirty flags
-//! that the native helpers clear. All object pointers are borrowed only for
+//! that the native helpers clear. Actor overlays memoize invariant native
+//! type/material/partition preparation and copied bone blocks only within the
+//! skin journal. Full caches use the original path without dropping casters.
+//! Bone constants retain their register ABI but upload once per partition.
+//! All object pointers are borrowed only for
 //! the common shadow transaction. Unfamiliar per-caster layouts are omitted
 //! without invalidating compatible casters; actual D3D, resource, hook-route,
 //! and transaction failures still abort publication.
@@ -236,6 +240,59 @@ pub(super) struct TraversalScratch {
     skin_lookup_generation: u32,
     declarations: Vec<VertexDeclarationEncoding>,
     render_state: Option<RenderStateSnapshot>,
+    // Native submissions mutate buffer/skin caches, not hierarchy or material
+    // ownership. These borrowed identities are admitted only by this journal.
+    actor_preparation: Vec<ActorPreparationSlot>,
+    actor_preparation_count: usize,
+    bone_uploads: Vec<BoneUploadSlot>,
+    bone_upload_count: usize,
+}
+
+/// A copied bone block is valid only for one native matrix revision and both
+/// exact camera origins. No native matrix pointer is dereferenced on a hit.
+#[derive(Clone, Copy, Eq, PartialEq)]
+struct BoneUploadKey {
+    partition_entry: usize,
+    skin: usize,
+    matrix_revision: u32,
+    matrix_storage: usize,
+    native_origin: [u32; 3],
+    shadow_origin: [u32; 3],
+    row_count: usize,
+}
+
+#[derive(Clone)]
+struct BoneUploadSlot {
+    generation: u32,
+    key: Option<BoneUploadKey>,
+    ready: bool,
+    rows: [[f32; 4]; MAX_BONES_PER_PARTITION * 3],
+}
+
+impl Default for BoneUploadSlot {
+    fn default() -> Self {
+        Self {
+            generation: 0,
+            key: None,
+            ready: false,
+            rows: [[0.0; 4]; MAX_BONES_PER_PARTITION * 3],
+        }
+    }
+}
+
+/// Optional transaction-local memoization. Full storage takes the original
+/// uncached path; it never omits geometry or allocates during submission.
+#[derive(Clone, Copy, Default)]
+struct ActorPreparationSlot {
+    generation: u32,
+    object: usize,
+    geometry: Option<usize>,
+    node: Option<usize>,
+    fade: Option<usize>,
+    multibound: Option<usize>,
+    switch: Option<bool>,
+    classification: Option<Option<GeometryClassification>>,
+    validated_partition: usize,
 }
 
 #[derive(Clone, Copy)]
@@ -245,6 +302,7 @@ struct SkinStateSnapshot {
     bone_registers: u32,
     world_transform: [u32; 13],
     calculation_initialized: bool,
+    matrix_revision: u32,
 }
 
 #[derive(Clone, Copy, Default)]
@@ -267,7 +325,9 @@ struct RenderStateSnapshot {
 }
 
 impl TraversalScratch {
-    /// Preallocate the only traversal container used by routine render calls.
+    /// Preallocate bounded traversal, skin journals and optional actor caches.
+    /// Device resources call this after DeferredInit; routine submissions do
+    /// not allocate. Full optional caches take the uncached production path.
     pub(super) fn with_capacity() -> Self {
         Self {
             nodes: Vec::with_capacity(MAX_NODE_VISITS),
@@ -279,6 +339,10 @@ impl TraversalScratch {
             skin_lookup_generation: 0,
             declarations: Vec::with_capacity(64),
             render_state: None,
+            actor_preparation: vec![ActorPreparationSlot::default(); SKIN_LOOKUP_CAPACITY],
+            actor_preparation_count: 0,
+            bone_uploads: vec![BoneUploadSlot::default(); SKIN_LOOKUP_CAPACITY],
+            bone_upload_count: 0,
         }
     }
 
@@ -321,6 +385,8 @@ impl TraversalScratch {
         // destruction/reuse cannot alias an old encoding entry.
         self.declarations.clear();
         self.begin_skin_lookup_generation();
+        self.actor_preparation_count = 0;
+        self.bone_upload_count = 0;
         Ok(())
     }
 
@@ -374,6 +440,8 @@ impl TraversalScratch {
             // transactions. Pay one bounded reset instead of allowing stale
             // slots to alias the new generation.
             self.skin_lookup.fill(SkinLookupSlot::default());
+            self.actor_preparation.fill(ActorPreparationSlot::default());
+            self.bone_uploads.fill(BoneUploadSlot::default());
             self.skin_lookup_generation = 1;
         }
     }
@@ -385,6 +453,121 @@ impl TraversalScratch {
         hash = hash.wrapping_mul(0x7FEB_352D);
         hash ^= hash >> 15;
         hash & (SKIN_LOOKUP_CAPACITY - 1)
+    }
+
+    /// Resolve a borrowed actor object only while its native journal is live.
+    /// Generation invalidation makes retained scalar keys inaccessible after
+    /// restore. A half-full fixed table bounds routine probing; overflow uses
+    /// native preparation directly with unchanged caster coverage.
+    fn actor_preparation_index(&mut self, object: usize) -> Option<usize> {
+        if self.render_state.is_none() || object == 0 {
+            return None;
+        }
+        let start = Self::skin_lookup_start(object);
+        for probe in 0..SKIN_LOOKUP_CAPACITY {
+            let index = (start + probe) & (SKIN_LOOKUP_CAPACITY - 1);
+            let slot = &mut self.actor_preparation[index];
+            if slot.generation != self.skin_lookup_generation {
+                if self.actor_preparation_count >= MAX_SKIN_STATE_SNAPSHOTS {
+                    return None;
+                }
+                *slot = ActorPreparationSlot {
+                    generation: self.skin_lookup_generation,
+                    object,
+                    ..Default::default()
+                };
+                self.actor_preparation_count += 1;
+                return Some(index);
+            }
+            if slot.object == object {
+                return Some(index);
+            }
+        }
+        None
+    }
+
+    /// Reuse native type queries across actor overlays. The caller holds the
+    /// serialized scene owner and supplies a live object for this transaction.
+    unsafe fn actor_virtual_cast(&mut self, object: *mut u8, slot: usize) -> *mut u8 {
+        let Some(index) = self.actor_preparation_index(object as usize) else {
+            return unsafe { virtual_cast(object, slot) };
+        };
+        let entry = &mut self.actor_preparation[index];
+        let value = match slot {
+            NI_OBJECT_IS_GEOMETRY_SLOT => &mut entry.geometry,
+            NI_OBJECT_IS_NODE_SLOT => &mut entry.node,
+            NI_OBJECT_IS_FADE_NODE_SLOT => &mut entry.fade,
+            NI_OBJECT_IS_MULTIBOUND_NODE_SLOT => &mut entry.multibound,
+            _ => return unsafe { virtual_cast(object, slot) },
+        };
+        if let Some(identity) = *value {
+            return identity as *mut u8;
+        }
+        let result = unsafe { virtual_cast(object, slot) };
+        *value = Some(result as usize);
+        result
+    }
+
+    /// Classification depends on material/hierarchy ownership, which the
+    /// native buffer submissions do not mutate. Shadow-frustum admission is
+    /// deliberately repeated before memoization for every cascade/origin.
+    unsafe fn actor_classification(
+        &mut self,
+        context: DrawContext<'_>,
+        geometry: *mut u8,
+    ) -> Direct3DResult<Option<GeometryClassification>> {
+        if !unsafe { object_bound_within(context, geometry) } {
+            return Ok(None);
+        }
+        // Only the actor-overlay context has identical material policy on
+        // every cascade. Other traversal families keep their original path.
+        if !context.actor_overlay
+            || context.is_land
+            || context.is_lod
+            || context.minimum_radius != 0.0
+        {
+            return unsafe { classify_geometry(context, geometry) };
+        }
+        let index = self.actor_preparation_index(geometry as usize);
+        if let Some(index) = index {
+            if let Some(value) = self.actor_preparation[index].classification {
+                return Ok(value);
+            }
+        }
+        let value = unsafe { classify_geometry(context, geometry) }?;
+        if let Some(index) = index {
+            self.actor_preparation[index].classification = Some(value);
+        }
+        Ok(value)
+    }
+
+    /// Cache copied partition constants without extending native ownership.
+    /// Keys are valid only in the active journal and include the matrix
+    /// revision established by prepare_skin_calculation. Capacity exhaustion
+    /// falls back to gathering the same rows on this submission.
+    fn bone_upload_index(&mut self, key: BoneUploadKey) -> Option<usize> {
+        if self.render_state.is_none() {
+            return None;
+        }
+        let start = Self::skin_lookup_start(key.partition_entry ^ key.skin);
+        for probe in 0..SKIN_LOOKUP_CAPACITY {
+            let index = (start + probe) & (SKIN_LOOKUP_CAPACITY - 1);
+            let slot = &mut self.bone_uploads[index];
+            if slot.generation != self.skin_lookup_generation {
+                if self.bone_upload_count >= MAX_SKIN_STATE_SNAPSHOTS {
+                    return None;
+                }
+                slot.generation = self.skin_lookup_generation;
+                slot.key = Some(key);
+                slot.ready = false;
+                self.bone_upload_count += 1;
+                return Some(index);
+            }
+            if slot.key == Some(key) {
+                return Some(index);
+            }
+        }
+        None
     }
 
     /// Find one journaled skin through the current fixed-capacity hash epoch.
@@ -452,6 +635,7 @@ impl TraversalScratch {
             bone_registers: unsafe { read::<u32>(skin, NativeLayout::NI_SKIN_BONE_REGISTERS) },
             world_transform: [0; 13],
             calculation_initialized: false,
+            matrix_revision: 0,
         });
         if !self.insert_skin_state(skin as usize, index) {
             self.skin_states.pop();
@@ -491,6 +675,9 @@ impl TraversalScratch {
                     );
                 }
                 snapshot.world_transform = world_transform;
+                // This is a transaction-local matrix ownership revision,
+                // not an animation generation or a cross-frame reuse signal.
+                snapshot.matrix_revision = snapshot.matrix_revision.wrapping_add(1);
             }
             return Ok(true);
         }
@@ -508,6 +695,7 @@ impl TraversalScratch {
         }
         snapshot.world_transform = world_transform;
         snapshot.calculation_initialized = true;
+        snapshot.matrix_revision = snapshot.matrix_revision.wrapping_add(1);
         Ok(true)
     }
 
@@ -762,23 +950,39 @@ unsafe fn traverse_root(
         // behind the camera at generation time. Shadow-frustum, light-volume,
         // form, fade, and multibound tests below remain the authoritative
         // bounded admission policy.
-        let geometry = unsafe { virtual_cast(object, NI_OBJECT_IS_GEOMETRY_SLOT) };
+        let geometry = if context.actor_overlay {
+            unsafe { scratch.actor_virtual_cast(object, NI_OBJECT_IS_GEOMETRY_SLOT) }
+        } else {
+            unsafe { virtual_cast(object, NI_OBJECT_IS_GEOMETRY_SLOT) }
+        };
         if !geometry.is_null() {
             unsafe { draw_geometry(context, geometry, scratch)? };
             continue;
         }
-        let node = unsafe { virtual_cast(object, NI_OBJECT_IS_NODE_SLOT) };
+        let node = if context.actor_overlay {
+            unsafe { scratch.actor_virtual_cast(object, NI_OBJECT_IS_NODE_SLOT) }
+        } else {
+            unsafe { virtual_cast(object, NI_OBJECT_IS_NODE_SLOT) }
+        };
         if node.is_null() || !unsafe { object_bound_within(context, node) } {
             continue;
         }
-        let fade = unsafe { virtual_cast(node, NI_OBJECT_IS_FADE_NODE_SLOT) };
+        let fade = if context.actor_overlay {
+            unsafe { scratch.actor_virtual_cast(node, NI_OBJECT_IS_FADE_NODE_SLOT) }
+        } else {
+            unsafe { virtual_cast(node, NI_OBJECT_IS_FADE_NODE_SLOT) }
+        };
         if !fade.is_null()
             && unsafe { read::<f32>(fade, BS_FADE_ALPHA) }.is_finite()
             && unsafe { read::<f32>(fade, BS_FADE_ALPHA) } < 0.75
         {
             continue;
         }
-        let multibound = unsafe { virtual_cast(node, NI_OBJECT_IS_MULTIBOUND_NODE_SLOT) };
+        let multibound = if context.actor_overlay {
+            unsafe { scratch.actor_virtual_cast(node, NI_OBJECT_IS_MULTIBOUND_NODE_SLOT) }
+        } else {
+            unsafe { virtual_cast(node, NI_OBJECT_IS_MULTIBOUND_NODE_SLOT) }
+        };
         if !multibound.is_null() && !unsafe { multibound_within(context, multibound) } {
             continue;
         }
@@ -794,7 +998,19 @@ unsafe fn traverse_root(
         if data.is_null() {
             continue;
         }
-        if unsafe { rtti_is_kind_of(node, NI_SWITCH_NODE_RTTI) } {
+        let switch = if context.actor_overlay {
+            let index = scratch.actor_preparation_index(node as usize);
+            let cached = index.and_then(|i| scratch.actor_preparation[i].switch);
+            let value =
+                cached.unwrap_or_else(|| unsafe { rtti_is_kind_of(node, NI_SWITCH_NODE_RTTI) });
+            if let Some(index) = index {
+                scratch.actor_preparation[index].switch = Some(value);
+            }
+            value
+        } else {
+            unsafe { rtti_is_kind_of(node, NI_SWITCH_NODE_RTTI) }
+        };
+        if switch {
             let active = unsafe { read::<i32>(node, NI_SWITCH_ACTIVE_INDEX) };
             if let Some(active) = switch_active_child_index(active, end) {
                 let child = unsafe { read_unaligned(data.add(active)) };
@@ -839,7 +1055,7 @@ unsafe fn draw_geometry(
     if !context.subset.admits(skinned) {
         return Ok(());
     }
-    let Some(classification) = (unsafe { classify_geometry(context, geometry) })? else {
+    let Some(classification) = (unsafe { scratch.actor_classification(context, geometry) })? else {
         return Ok(());
     };
     debug_assert_eq!(classification.skinned, skinned);
@@ -879,7 +1095,11 @@ unsafe fn draw_geometry(
         configure_alpha_sampler(context.device)?;
     }
 
-    context.device.set_vertex_shader_constant_f(0, &world)?;
+    // The native bone helper consumes CPU transforms, not c0. Skinned
+    // submission publishes its actual skin/world c0 after that helper below.
+    if !classification.skinned {
+        context.device.set_vertex_shader_constant_f(0, &world)?;
+    }
     context
         .device
         .set_vertex_shader_constant_f(8, &[geometry_data])?;
@@ -937,7 +1157,6 @@ unsafe fn classify_geometry(
 ) -> Direct3DResult<Option<GeometryClassification>> {
     if geometry.is_null()
         || unsafe { read::<*mut u8>(geometry, NativeLayout::NI_GEOMETRY_SHADER) }.is_null()
-        || !unsafe { object_bound_within(context, geometry) }
         || unsafe { faded_by_parent(geometry) }
     {
         return Ok(None);
@@ -1131,30 +1350,47 @@ unsafe fn draw_skinned(
         0
     };
 
-    // Validate the complete caster before the first partition draw. A modded
-    // skin may use a wider bone window or a nonstandard native buffer. Drawing
-    // the supported prefix and discovering the incompatibility later would
-    // publish a body with holes; reject this geometry locally as one unit.
-    for index in 0..count {
-        let partition_enabled = (!dismember_entries.is_null() && index < dismember_count)
-            .then(|| unsafe { read::<u8>(dismember_entries, index * 4) } != 0);
-        if !dismember_partition_is_renderable(dismember_renderable, partition_enabled) {
-            continue;
+    let preparation = context
+        .actor_overlay
+        .then(|| scratch.actor_preparation_index(geometry as usize))
+        .flatten();
+    let partition_is_validated = preparation.is_some_and(|index| {
+        scratch.actor_preparation[index].validated_partition == partition as usize
+    });
+    // Native drawing owns buffers and skin calculation state; it does not
+    // mutate partition topology inside this serialized journal. Revalidate
+    // on uncached/overflow paths, and publish only after the complete caster.
+    if !partition_is_validated {
+        // Validate the complete caster before the first partition draw. A modded
+        // skin may use a wider bone window or a nonstandard native buffer. Drawing
+        // the supported prefix and discovering the incompatibility later would
+        // publish a body with holes; reject this geometry locally as one unit.
+        for index in 0..count {
+            let partition_enabled = (!dismember_entries.is_null() && index < dismember_count)
+                .then(|| unsafe { read::<u8>(dismember_entries, index * 4) } != 0);
+            if !dismember_partition_is_renderable(dismember_renderable, partition_enabled) {
+                continue;
+            }
+            let entry =
+                unsafe { partitions.add(index * NativeLayout::NI_SKIN_PARTITION_ENTRY_SIZE) };
+            let bones = unsafe { read::<u16>(entry, PARTITION_BONES) } as usize;
+            if !skinned_partition_bones_are_supported(bones) {
+                return Ok(());
+            }
+            if bones == 0 {
+                continue;
+            }
+            let buffer = unsafe { read::<*mut u8>(entry, PARTITION_BUFFER) };
+            if !skinned_submission_is_available(false, !buffer.is_null()) {
+                continue;
+            }
+            if !unsafe { geometry_buffer_layout_is_supported(buffer) } {
+                return Ok(());
+            }
         }
-        let entry = unsafe { partitions.add(index * NativeLayout::NI_SKIN_PARTITION_ENTRY_SIZE) };
-        let bones = unsafe { read::<u16>(entry, PARTITION_BONES) } as usize;
-        if !skinned_partition_bones_are_supported(bones) {
-            return Ok(());
-        }
-        if bones == 0 {
-            continue;
-        }
-        let buffer = unsafe { read::<*mut u8>(entry, PARTITION_BUFFER) };
-        if !skinned_submission_is_available(false, !buffer.is_null()) {
-            continue;
-        }
-        if !unsafe { geometry_buffer_layout_is_supported(buffer) } {
-            return Ok(());
+
+        if let Some(index) = preparation {
+            scratch.actor_preparation[index].validated_partition = partition as usize;
         }
     }
 
@@ -1180,6 +1416,12 @@ unsafe fn draw_skinned(
             1,
         )
     };
+    // CalculateBoneMatrices may grow the native allocation. Borrow its
+    // current storage after the helper, never the prior allocation pointer.
+    let bone_rows = unsafe { read::<*const [f32; 4]>(skin, NativeLayout::NI_SKIN_BONE_MATRICES) };
+    if bone_rows.is_null() {
+        return Ok(());
+    }
     let native_camera_translation =
         unsafe { read_unaligned(CAMERA_WORLD_TRANSLATION as *const [f32; 3]) };
     if !native_camera_translation.into_iter().all(f32::is_finite) {
@@ -1211,28 +1453,54 @@ unsafe fn draw_skinned(
         if !skinned_submission_is_available(false, !buffer.is_null()) {
             continue;
         }
-        for bone in 0..bones {
-            let source = if indices.is_null() {
-                bone
-            } else {
-                (unsafe { read_unaligned(indices.add(bone)) }) as usize
-            };
-            let mut rows: [[f32; 4]; 3] =
-                unsafe { read_unaligned(bone_rows.add(source * 3).cast::<[[f32; 4]; 3]>()) };
-            // Static casters are explicitly camera-relative before upload.
-            // Apply the exact equivalent correction to native skin matrices;
-            // otherwise only actors are displaced whenever the engine global
-            // camera belongs to an earlier or alternate render view.
-            let Some(rebased) =
-                rebase_bone_rows(rows, native_camera_translation, context.camera_translation)
-            else {
-                return Ok(());
-            };
-            rows = rebased;
-            context
-                .device
-                .set_vertex_shader_constant_f((9 + bone * 3) as u32, &rows)?;
+        let Some(state_index) = scratch.skin_state_index(skin as usize) else {
+            // prepare_skin_calculation admitted this journaled skin above.
+            return Err(direct3d_failure());
+        };
+        let upload_key = BoneUploadKey {
+            partition_entry: entry as usize,
+            skin: skin as usize,
+            matrix_revision: scratch.skin_states[state_index].matrix_revision,
+            matrix_storage: bone_rows as usize,
+            native_origin: native_camera_translation.map(f32::to_bits),
+            shadow_origin: context.camera_translation.map(f32::to_bits),
+            row_count: bones * 3,
+        };
+        let upload = context
+            .actor_overlay
+            .then(|| scratch.bone_upload_index(upload_key))
+            .flatten();
+        let mut upload_rows = [[0.0f32; 4]; MAX_BONES_PER_PARTITION * 3];
+        if let Some(index) = upload.filter(|i| scratch.bone_uploads[*i].ready) {
+            upload_rows.copy_from_slice(&scratch.bone_uploads[index].rows);
+        } else {
+            for bone in 0..bones {
+                let source = if indices.is_null() {
+                    bone
+                } else {
+                    (unsafe { read_unaligned(indices.add(bone)) }) as usize
+                };
+                let mut rows: [[f32; 4]; 3] =
+                    unsafe { read_unaligned(bone_rows.add(source * 3).cast::<[[f32; 4]; 3]>()) };
+                // Static casters are explicitly camera-relative before upload.
+                // Apply the exact equivalent correction to native skin matrices;
+                // otherwise only actors are displaced whenever the engine global
+                // camera belongs to an earlier or alternate render view.
+                let Some(rebased) =
+                    rebase_bone_rows(rows, native_camera_translation, context.camera_translation)
+                else {
+                    return Ok(());
+                };
+                rows = rebased;
+                upload_rows[bone * 3..bone * 3 + 3].copy_from_slice(&rows);
+            }
+
+            if let Some(index) = upload {
+                scratch.bone_uploads[index].rows = upload_rows;
+                scratch.bone_uploads[index].ready = true;
+            }
         }
+        upload_skin_bone_rows(context.device, &upload_rows[..bones * 3])?;
         if !unsafe { bind_geometry_buffer(context.device, buffer)? } {
             return Ok(());
         }
@@ -1250,6 +1518,14 @@ unsafe fn draw_skinned(
         unsafe { draw(context.renderer, buffer, entry, core::ptr::null_mut()) };
     }
     Ok(())
+}
+
+/// Upload one validated skin partition's contiguous c9 bone window.
+/// Rows retain native partition order and camera rebasing. Caller supplies a
+/// nonempty multiple of three rows within the supported 18-bone ABI. D3D
+/// failures abort the existing transaction; no allocation or native mutation.
+fn upload_skin_bone_rows(device: &Device9Ref<'_>, rows: &[[f32; 4]]) -> Direct3DResult<()> {
+    device.set_vertex_shader_constant_f(9, rows)
 }
 
 /// Rebase one native 3x4 skin matrix into OMV's captured-camera domain.
@@ -1872,6 +2148,7 @@ mod tests {
                 bone_registers: 0,
                 world_transform: [0; 13],
                 calculation_initialized: false,
+                matrix_revision: 0,
             },
         );
         scratch.begin_skin_lookup_generation();
@@ -1992,5 +2269,90 @@ mod tests {
                 1
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod bone_upload_behavior {
+    use super::upload_skin_bone_rows;
+    use libpsycho::os::windows::{
+        directx9::{D3DDEVTYPE_HAL, D3DDEVTYPE_NULLREF, Device9, create_direct3d9},
+        winapi::{get_active_window, get_desktop_window, get_foreground_window},
+    };
+    fn device() -> Device9 {
+        let window = [
+            get_active_window(),
+            get_foreground_window(),
+            get_desktop_window().unwrap_or(core::ptr::null_mut()),
+        ]
+        .into_iter()
+        .find(|p| !p.is_null())
+        .unwrap();
+        let d3d = create_direct3d9().unwrap();
+        d3d.create_windowed_device(window, 64, 64, D3DDEVTYPE_HAL)
+            .or_else(|_| d3d.create_windowed_device(window, 64, 64, D3DDEVTYPE_NULLREF))
+            .unwrap()
+    }
+    #[test]
+    fn partition_upload_preserves_actual_device_registers() {
+        let owner = device();
+        let device = owner.as_ref();
+        let sentinel = [[-1.0; 4]; 64];
+        for bones in 1..=super::MAX_BONES_PER_PARTITION {
+            let mut rows = [[0.0; 4]; super::MAX_BONES_PER_PARTITION * 3];
+            for (index, row) in rows.iter_mut().enumerate() {
+                *row = [index as f32, 1.0, -2.0, 4.0];
+            }
+            device.set_vertex_shader_constant_f(0, &sentinel).unwrap();
+            upload_skin_bone_rows(&device, &rows[..bones * 3]).unwrap();
+            let mut actual = sentinel;
+            device.vertex_shader_constant_f(0, &mut actual).unwrap();
+            assert_eq!(&actual[9..9 + bones * 3], &rows[..bones * 3]);
+            assert_eq!(&actual[..9], &sentinel[..9]);
+            assert_eq!(&actual[9 + bones * 3..], &sentinel[9 + bones * 3..]);
+        }
+    }
+    #[test]
+    #[ignore = "explicit actual D3D9 skin-upload CPU benchmark"]
+    fn partition_upload_removes_per_bone_submission_cost() {
+        use libpsycho::logger::Logger;
+        Logger::new()
+            .with_level(log::LevelFilter::Info)
+            .init()
+            .unwrap();
+        let owner = device();
+        let device = owner.as_ref();
+        let rows = [[1.0; 4]; super::MAX_BONES_PER_PARTITION * 3];
+        let mut times = [Vec::new(), Vec::new()];
+        for round in 0..6 {
+            for path in 0..2 {
+                let started = std::time::Instant::now();
+                for _ in 0..10_000 {
+                    if path == 0 {
+                        // Frozen released upload sequence, on the real device.
+                        for (bone, matrix) in rows.chunks_exact(3).enumerate() {
+                            device
+                                .set_vertex_shader_constant_f((9 + bone * 3) as u32, matrix)
+                                .unwrap();
+                        }
+                    } else {
+                        upload_skin_bone_rows(&device, &rows).unwrap();
+                    }
+                }
+                if round != 0 {
+                    times[path].push(started.elapsed().as_secs_f64());
+                }
+            }
+        }
+        for values in &mut times {
+            values.sort_by(f64::total_cmp);
+        }
+        let ratio = times[1][2] / times[0][2];
+        log::info!("[SHADOWS BENCH] Actual 18-bone partition upload CPU ratio={ratio:.6}");
+        Logger::shutdown();
+        assert!(
+            ratio < 0.75,
+            "skin upload did not reduce submission time: {ratio}"
+        );
     }
 }

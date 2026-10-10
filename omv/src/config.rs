@@ -509,8 +509,8 @@ impl Default for VolumetricFogConfig {
             enabled: true,
             quality: AtmosphereQuality::High,
             density: 0.0,
-            height_density: 0.0000025,
-            height_falloff: 0.00008,
+            height_density: 0.000003,
+            height_falloff: 0.00006,
             base_height: 0.0,
             max_distance: 120_000.0,
             scattering_albedo: 0.88,
@@ -526,8 +526,8 @@ impl Default for VolumetricFogConfig {
 impl VolumetricFogConfig {
     fn sanitized(mut self) -> Self {
         self.density = finite_clamp(self.density, 0.0, 0.0, 0.001);
-        self.height_density = finite_clamp(self.height_density, 0.0000025, 0.0, 0.001);
-        self.height_falloff = finite_clamp(self.height_falloff, 0.00008, 0.000001, 0.01);
+        self.height_density = finite_clamp(self.height_density, 0.000003, 0.0, 0.001);
+        self.height_falloff = finite_clamp(self.height_falloff, 0.00006, 0.000001, 0.01);
         self.base_height = finite_clamp(self.base_height, 0.0, -100_000.0, 100_000.0);
         self.max_distance = finite_clamp(self.max_distance, 120_000.0, 1_000.0, 250_000.0);
         self.scattering_albedo = finite_clamp(self.scattering_albedo, 0.88, 0.0, 1.0);
@@ -570,11 +570,11 @@ impl Default for VolumetricLightingConfig {
         Self {
             enabled: true,
             intensity: 0.95,
-            medium_density: 0.0000025,
+            medium_density: 0.000002,
             max_distance: 120_000.0,
             anisotropy: 0.58,
-            shaft_strength: 0.72,
-            sun_disk_boost: 1.0,
+            shaft_strength: 1.0,
+            sun_disk_boost: 0.0,
             shaft_quality: AtmosphereQuality::High,
             local_lights_enabled: true,
             local_lights_intensity: 1.5,
@@ -589,11 +589,11 @@ impl Default for VolumetricLightingConfig {
 impl VolumetricLightingConfig {
     fn sanitized(mut self) -> Self {
         self.intensity = finite_clamp(self.intensity, 0.95, 0.0, 8.0);
-        self.medium_density = finite_clamp(self.medium_density, 0.0000025, 0.0, 0.001);
+        self.medium_density = finite_clamp(self.medium_density, 0.000002, 0.0, 0.001);
         self.max_distance = finite_clamp(self.max_distance, 120_000.0, 1_000.0, 250_000.0);
         self.anisotropy = finite_clamp(self.anisotropy, 0.58, -0.8, 0.9);
-        self.shaft_strength = finite_clamp(self.shaft_strength, 0.72, 0.0, 1.0);
-        self.sun_disk_boost = finite_clamp(self.sun_disk_boost, 1.0, 0.0, 8.0);
+        self.shaft_strength = finite_clamp(self.shaft_strength, 1.0, 0.0, 1.0);
+        self.sun_disk_boost = finite_clamp(self.sun_disk_boost, 0.0, 0.0, 8.0);
         self.local_lights_intensity = finite_clamp(self.local_lights_intensity, 1.5, 0.0, 4.0);
         self.temporal_stability = finite_clamp(self.temporal_stability, 0.9, 0.0, 0.98);
         self.debug_view = self.debug_view.clamp(0, 8);
@@ -2753,14 +2753,14 @@ albedo_saturation = 1.02
     fn calibrated_fog_default_is_subtle_and_explicit_values_are_preserved() {
         let defaults = VolumetricFogConfig::default();
         assert_eq!(defaults.density, 0.0);
-        assert_eq!(defaults.height_density, 0.0000025);
+        assert_eq!(defaults.height_density, 0.000003);
 
         let mut explicit = defaults;
         explicit.height_density = 0.00002;
         assert_eq!(explicit.sanitized().height_density, 0.00002);
 
         explicit.height_density = f32::NAN;
-        assert_eq!(explicit.sanitized().height_density, 0.0000025);
+        assert_eq!(explicit.sanitized().height_density, 0.000003);
     }
 
     #[test]

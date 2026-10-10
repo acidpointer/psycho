@@ -464,7 +464,7 @@ radial comparison, fades before the source attenuation boundary, and retains a
 bounded multiple-scattering floor. This does not execute the native callback
 lifecycle; final exterior and interior game pixels remain required.
 
-That gate uses the shipped `0.0000025` lighting medium, not a maximum-density
+That gate uses the shipped `0.000002` lighting medium, not a maximum-density
 test fixture. Native point diffuse/dimmer values are engine-space scalars, so
 local emission receives a fixed `8.0` radiance calibration without changing
 shared medium extinction. At shipped defaults the final-pixel gate requires a
@@ -479,6 +479,46 @@ not flow into the per-light `+0x10C` pool in the proven chain; its exact purpose
 remains unclassified but it is not evidence for local-shadow ownership.
 
 ## Target architecture
+
+### Default height-medium calibration
+
+OMV Default 1.4.0 redistributes the shared exterior medium: the uniform lighting
+floor is `0.000002` and the height component is `0.000003`, replacing
+`0.0000025` for each. Their sum at the existing base height remains
+`0.000005`. Height falloff is `0.00006`, replacing `0.00008`: the first density
+redistribution over-thickened low-altitude rays under the previous falloff.
+The slower falloff passes the broader low-air transmission comparison while
+retaining improved elevated transmission. The existing world-height exponential,
+base height, heterogeneity, scattering colors, directional intensity, phase function, local
+emission calibration, and quality tiers remain unchanged. Elevated rays see
+less uniform haze; the height layer retains depth in low air. This remains a
+world-height layer, not a terrain-following fog system or a weather classifier.
+
+Lighting-only and interior local-light paths use the smaller uniform floor as
+well. Their existing production final-pixel visibility, intensity, occlusion,
+and stale-input regressions still pass. A production interior comparison also
+bounds final local-light energy to 79-82 percent of the previous result while
+retaining the existing visibility threshold. No compensating intensity boost
+is applied: it would also boost exterior lighting in the combined height layer.
+Fog-only operation has no uniform lighting floor and therefore has a different
+profile from the combined calibration. Explicit saved settings are retained;
+new configuration or selection of the new built-in preset applies the paired
+calibration. Fog reset updates fog settings only; it preserves the lighting
+floor, so resetting fog with the old floor does not reproduce the paired
+base-height total. Preset identity and schema 1 remain unchanged.
+
+An offline D3D9 comparison executes production depth reduction and all three
+integration tiers at their production resolutions against the previous settings.
+Clear and mixed geometry/sky depth are covered. At controlled world heights
+250 and 40000, it requires elevated transmission to improve by more than
+0.025, low-air transmission to change by less than 0.015, and low-air scattering
+to remain within five percent. The wider low-air ray band must not lose more
+than 0.015 transmission. Combined, fog-only and directional-only configurations
+also execute the complete production composition with retained source alpha.
+These are intentional design criteria rather than gameplay measurements.
+No shader, sample budget, pass, target, history,
+allocation, callback, or startup owner is added by this calibration. Game-only
+image, integration, startup, and performance behavior remain not run.
 
 Create one `AtmosphereEffect` engine pipeline with two independently configurable
 components:

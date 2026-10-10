@@ -3,7 +3,12 @@ sampler2D DensityNoise : register(s1);
 sampler2D ShaftVisibility : register(s2);
 sampler2D NativeSunTexture : register(s3);
 // Exact static EVSM/actor atlas publication, independent of sun screen position.
+#ifdef OMV_WORLD_FIELD
 sampler2D ShadowAtlas : register(s4);
+#endif
+#ifndef OMV_WORLD_FIELD
+sampler2D CompletedNearAtmosphere : register(s4);
+#endif
 sampler2D ActorNearMiddleMoments : register(s5);
 sampler2D ActorFarMoments : register(s6);
 row_major float4x4 CascadeMatrices[4] : register(c18);
@@ -129,10 +134,23 @@ float HenyeyGreenstein(float mu, float anisotropy) {
 	return (1.0f - g * g) * InverseFourPi / pow(denominator, 1.5f);
 }
 
+// A normalized isotropic/HG mixture preserves total angular energy while
+// limiting peak directional response to two isotropic units. The native sky
+// owns compact solar haze; a second unbounded forward lobe over it washed out
+// sky and hid shadow contrast at other angles. Local lights retain their
+// independent HG response in atmosphere_local_light.hlsl.
+float DirectionalPhase(float mu, float anisotropy) {
+    float g = clamp(anisotropy, -0.8f, 0.9f);
+    float hg = HenyeyGreenstein(mu, g) * FourPi;
+    return lerp(1.0f, hg, LightingMediumData.z);
+}
+
 #ifdef OMV_WORLD_FIELD
 // Same EVSM4 and actor coverage contract as shadow_directional_mask.
 float ReduceLightBleeding(float probability, float amount) {
-    return saturate((probability - amount) / max(1.0f - amount, 0.001f));
+    // All four production bleed values are in [0.1, 0.8], so the
+    // denominator is already at least 0.2. Preserve division/rounding.
+    return saturate((probability - amount) / (1.0f - amount));
 }
 
 float Chebyshev(float2 moments, float receiver, float minimumVariance, float bleedReduction) {
@@ -176,21 +194,14 @@ float ActorVisibility(float2 depthCoverage, float receiverDepth) {
     return receiverDepth <= actorDepth + 0.0005f ? 1.0f : 1.0f - coverage;
 }
 
-float2 CascadeVisibility(int cascadeIndex, float3 worldPosition) {
-    // Constant-index matrix access avoids copying four matrices into temporary
-    // registers when the visibility function is called from the volume loop.
-    float4 position = float4(worldPosition, 1.0f);
-    float4 projected;
-    if (cascadeIndex == 0) projected = mul(position, CascadeMatrices[0]);
-    else if (cascadeIndex == 1) projected = mul(position, CascadeMatrices[1]);
-    else if (cascadeIndex == 2) projected = mul(position, CascadeMatrices[2]);
-    else projected = mul(position, CascadeMatrices[3]);
-    // Published cascades preserve W=1, so the positive-W rejection is
-    // unreachable. Retain reciprocal evaluation to preserve GPU rounding.
-    float3 ndc = projected.xyz / max(projected.w, 0.000001f);
+float2 CascadeVisibility(int cascadeIndex, float3 ndc) {
     float2 localUv = float2(ndc.x * 0.5f + 0.5f, 0.5f - ndc.y * 0.5f);
-    if (min(localUv.x, localUv.y) < 0.0f || max(localUv.x, localUv.y) > 1.0f ||
-        ndc.z < 0.0f || ndc.z > 1.0f) return float2(1.0f, 0.0f);
+    float border = min(min(localUv.x, 1.0f - localUv.x), min(localUv.y, 1.0f - localUv.y));
+    border = min(border, min(ndc.z, 1.0f - ndc.z));
+    // The same border rejects outside and zero-weight boundary samples
+    // before fetching moments; no separate UV/depth admission is needed.
+    float contribution = smoothstep(0.0f, 0.05f, border);
+    if (contribution == 0.0f) return float2(1.0f, 0.0f);
 
     float bleed = cascadeIndex == 0 ? 0.1f
         : (cascadeIndex == 1 ? 0.2f : (cascadeIndex == 2 ? 0.6f : 0.8f));
@@ -210,18 +221,20 @@ float2 CascadeVisibility(int cascadeIndex, float3 worldPosition) {
     // sample. Keep the surface receiver's extra three-tap edge refinement out
     // of this repeated volume lookup to bound register pressure and GPU work.
 
-    float border = min(min(localUv.x, 1.0f - localUv.x), min(localUv.y, 1.0f - localUv.y));
-    border = min(border, min(ndc.z, 1.0f - ndc.z));
-    // Blend by the actual projected map boundary, not a camera-depth split.
-    return float2(visibility, smoothstep(0.0f, 0.05f, border));
+    return float2(visibility, contribution);
 }
 
-float DirectionalVisibility(float3 worldPosition) {
+float DirectionalVisibility(float distance, float3 ray0, float3 ray1, float3 ray2, float3 ray3) {
     float blocked = 0.0f;
     float remaining = 1.0f;
     [loop]
     for (int cascade = 0; cascade < 4; ++cascade) {
-        float2 sample = CascadeVisibility(cascade, worldPosition);
+        float3 projected;
+        if (cascade == 0) projected = CascadeMatrices[0][3].xyz + ray0 * distance;
+        else if (cascade == 1) projected = CascadeMatrices[1][3].xyz + ray1 * distance;
+        else if (cascade == 2) projected = CascadeMatrices[2][3].xyz + ray2 * distance;
+        else projected = CascadeMatrices[3][3].xyz + ray3 * distance;
+        float2 sample = CascadeVisibility(cascade, projected);
         float weight = remaining * sample.y;
         blocked += weight * (1.0f - sample.x);
         remaining -= weight;
@@ -251,19 +264,34 @@ float WorldShadowExit(float3 direction) {
 
 float IntegratedWorldBlockage(float3 origin, float3 direction, float distance, float shadowExit) {
     float shadowDistance = min(distance, shadowExit);
+    // Empty covered intervals have exactly zero extinction and blockage.
+    if (shadowDistance <= 0.0f) return 0.0f;
     float stepLength = shadowDistance / WorldShadowControl.z;
     float blockedAmount = 0.0f;
     float transmittance = 1.0f;
+    // The height exponent is affine along this fixed world ray.
+    // Clamp each sample's exponent exactly as the original density path did.
+    float heightOrigin = -MediumData0.z * (origin.z - MediumData0.w);
+    float heightSlope = -MediumData0.z * direction.z;
+    // Orthographic projection is affine along the ray. Each constant-index
+    // direction transform is shared by every midpoint in this march.
+    float3 ray0 = mul(float4(direction, 0.0f), CascadeMatrices[0]).xyz;
+    float3 ray1 = mul(float4(direction, 0.0f), CascadeMatrices[1]).xyz;
+    float3 ray2 = mul(float4(direction, 0.0f), CascadeMatrices[2]).xyz;
+    float3 ray3 = mul(float4(direction, 0.0f), CascadeMatrices[3]).xyz;
     [loop]
     for (int index = 0; index < (int)WorldShadowControl.z; ++index) {
         float sampleDistance = (index + 0.5f) * stepLength;
         float3 position = origin + direction * sampleDistance;
-        float density = max(MediumData0.x + SafeHeightDensity(position.z), 0.0f);
+        // Both density coefficients are nonnegative production constants.
+        float density = MediumData0.x + MediumData0.y * exp(clamp(
+            heightOrigin + heightSlope * sampleDistance, -MaximumExponent, MaximumExponent));
         if (MediumData1.z > 0.0f) {
             density *= max(1.0f + DensityVariation(position) * MediumData1.z, 0.0f);
         }
-        float segmentT = exp(-clamp(density * stepLength, 0.0f, MaximumOpticalDepth));
-        float visibility = DirectionalVisibility(direction * sampleDistance);
+        // Nonnegative density and step make the lower clamp redundant.
+        float segmentT = exp(-min(density * stepLength, MaximumOpticalDepth));
+        float visibility = DirectionalVisibility(sampleDistance, ray0, ray1, ray2, ray3);
         blockedAmount += transmittance * (1.0f - segmentT) * (1.0f - visibility);
         transmittance *= segmentT;
     }
@@ -310,6 +338,14 @@ float4 Main(PixelInput input)
 	}
 
 	float2 encodedDepth = tex2Dlod(ReducedDepth, float4(input.uv, 0.0f, 0.0f)).rg;
+#ifndef OMV_WORLD_FIELD
+    // Both layers use this exact depth packet and ray. Equal endpoints must
+    // produce identical scattering/transmittance, including density noise.
+    // Reuse the completed near layer before any ray, phase or noise work.
+    if (GateData.w > 0.5f && encodedDepth.x == encodedDepth.y) {
+        return tex2Dlod(CompletedNearAtmosphere, float4(input.uv, 0.0f, 0.0f));
+    }
+#endif
 	float encodedDistance = lerp(encodedDepth.x, encodedDepth.y, saturate(GateData.w));
 	float distance = min(DecodeDistance(encodedDistance), min(MediumData1.x, DepthData.w));
 	distance = max(distance, 0.0f);
@@ -366,7 +402,7 @@ float4 Main(PixelInput input)
 		}
 		float mu = dot(worldDirection, SunDirection.xyz);
 		// FNV supplies irradiance-scale direct light, not radiance per steradian.
-		float phase = HenyeyGreenstein(mu, LightingData.y) * FourPi;
+		float phase = DirectionalPhase(mu, LightingData.y);
 		float diskLobe = AuthoredSunCoverage(input.uv);
 		float3 radiance = max(SunColor.rgb, 0.0f)
 			+ max(SunDiskDelta.rgb, 0.0f) * max(LightingData.z, 0.0f) * diskLobe;

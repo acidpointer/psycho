@@ -1422,3 +1422,7 @@ fn sanitize(value: f32, fallback: f32, minimum: f32, maximum: f32) -> f32 {
         fallback
     }
 }
+
+#[cfg(test)]
+#[path = "sky_cloud_tests.rs"]
+mod cloud_behavior;

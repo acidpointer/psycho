@@ -113,8 +113,8 @@ impl AtmosphereSettings {
             fog_enabled: fog.enabled,
             lighting_enabled: lighting.enabled,
             density: finite(fog.density, 0.0).clamp(0.0, 0.001),
-            height_density: finite(fog.height_density, 0.0000025).clamp(0.0, 0.001),
-            height_falloff: finite(fog.height_falloff, 0.00008).clamp(0.000001, 0.01),
+            height_density: finite(fog.height_density, 0.000003).clamp(0.0, 0.001),
+            height_falloff: finite(fog.height_falloff, 0.00006).clamp(0.000001, 0.01),
             base_height: finite(fog.base_height, 0.0).clamp(-100_000.0, 100_000.0),
             max_distance: if fog.enabled {
                 finite(fog.max_distance, 120_000.0).clamp(1_000.0, 250_000.0)
@@ -133,10 +133,10 @@ impl AtmosphereSettings {
                 lighting.shaft_quality
             },
             lighting_intensity: finite(lighting.intensity, 0.95).clamp(0.0, 8.0),
-            lighting_medium_density: finite(lighting.medium_density, 0.0000025).clamp(0.0, 0.001),
+            lighting_medium_density: finite(lighting.medium_density, 0.000002).clamp(0.0, 0.001),
             anisotropy: finite(lighting.anisotropy, 0.58).clamp(-0.8, 0.9),
-            shaft_strength: finite(lighting.shaft_strength, 0.72).clamp(0.0, 1.0),
-            sun_disk_boost: finite(lighting.sun_disk_boost, 1.0).clamp(0.0, 8.0),
+            shaft_strength: finite(lighting.shaft_strength, 1.0).clamp(0.0, 1.0),
+            sun_disk_boost: finite(lighting.sun_disk_boost, 0.0).clamp(0.0, 8.0),
             shaft_quality: lighting.shaft_quality,
             local_lights_enabled: lighting.local_lights_enabled,
             local_lights_intensity: finite(lighting.local_lights_intensity, 1.5).clamp(0.0, 4.0),
@@ -155,8 +155,8 @@ impl AtmosphereSettings {
         let fog_enabled = fog.is_some();
         let lighting_enabled = lighting.is_some();
         let density = option_component(fog_constants, 0, 0, 0.0);
-        let height_density = option_component(fog_constants, 0, 1, 0.0000025);
-        let height_falloff = option_component(fog_constants, 0, 2, 0.00008);
+        let height_density = option_component(fog_constants, 0, 1, 0.000003);
+        let height_falloff = option_component(fog_constants, 0, 2, 0.00006);
         let base_height = option_component(fog_constants, 0, 3, 0.0);
         let max_distance = option_component(fog_constants, 1, 0, 120_000.0);
         let scattering_albedo = option_component(fog_constants, 1, 1, 0.88);
@@ -168,11 +168,11 @@ impl AtmosphereSettings {
             .and_then(|constants| constants.get(2))
             .map_or(0, |value| finite_i32(value[3]));
         let lighting_intensity = option_component(lighting_constants, 0, 0, 0.95);
-        let lighting_medium_density = option_component(lighting_constants, 0, 1, 0.0000025);
+        let lighting_medium_density = option_component(lighting_constants, 0, 1, 0.000002);
         let lighting_max_distance = option_component(lighting_constants, 0, 2, 120_000.0);
         let anisotropy = option_component(lighting_constants, 0, 3, 0.58);
-        let shaft_strength = option_component(lighting_constants, 1, 0, 0.72);
-        let sun_disk_boost = option_component(lighting_constants, 1, 1, 1.0);
+        let shaft_strength = option_component(lighting_constants, 1, 0, 1.0);
+        let sun_disk_boost = option_component(lighting_constants, 1, 1, 0.0);
         let lighting_debug = lighting_constants
             .and_then(|constants| constants.get(2))
             .map_or(0, |value| finite_i32(value[3]));
@@ -198,8 +198,8 @@ impl AtmosphereSettings {
             fog_enabled,
             lighting_enabled,
             density: finite(density, 0.0).clamp(0.0, 0.001),
-            height_density: finite(height_density, 0.0000025).clamp(0.0, 0.001),
-            height_falloff: finite(height_falloff, 0.00008).clamp(0.000001, 0.01),
+            height_density: finite(height_density, 0.000003).clamp(0.0, 0.001),
+            height_falloff: finite(height_falloff, 0.00006).clamp(0.000001, 0.01),
             base_height: finite(base_height, 0.0).clamp(-100_000.0, 100_000.0),
             max_distance: if fog_enabled {
                 finite(max_distance, 120_000.0).clamp(1_000.0, 250_000.0)
@@ -214,10 +214,10 @@ impl AtmosphereSettings {
             debug_view: selected_debug_view(fog_debug, lighting_debug),
             quality,
             lighting_intensity: finite(lighting_intensity, 0.95).clamp(0.0, 8.0),
-            lighting_medium_density: finite(lighting_medium_density, 0.0000025).clamp(0.0, 0.001),
+            lighting_medium_density: finite(lighting_medium_density, 0.000002).clamp(0.0, 0.001),
             anisotropy: finite(anisotropy, 0.58).clamp(-0.8, 0.9),
-            shaft_strength: finite(shaft_strength, 0.72).clamp(0.0, 1.0),
-            sun_disk_boost: finite(sun_disk_boost, 1.0).clamp(0.0, 8.0),
+            shaft_strength: finite(shaft_strength, 1.0).clamp(0.0, 1.0),
+            sun_disk_boost: finite(sun_disk_boost, 0.0).clamp(0.0, 8.0),
             shaft_quality: lighting_quality.unwrap_or_default(),
             local_lights_enabled,
             local_lights_intensity: finite(local_lights_intensity, 1.5).clamp(0.0, 4.0),
@@ -1827,6 +1827,15 @@ fn draw_shaft_radial(
     draw_quad(device, shafts.width, shafts.height)
 }
 
+/// Isotropic/HG mixture weight for the directional source. Both lobes are
+/// normalized; selecting the reciprocal HG peak bounds the mixed peak below
+/// two while preserving a nonzero off-axis carrier. Computed once per pass.
+fn directional_phase_mix_weight(anisotropy: f32) -> f32 {
+    let magnitude = finite(anisotropy, 0.58).clamp(-0.8, 0.9).abs();
+    let remainder = 1.0 - magnitude;
+    remainder * remainder / (1.0 + magnitude)
+}
+
 #[allow(clippy::too_many_arguments)]
 fn draw_integration(
     device: &Device9Ref<'_>,
@@ -1865,6 +1874,15 @@ fn draw_integration(
     )?;
     device.set_texture(1, density_noise)?;
     device.set_texture(2, shaft_visibility)?;
+    if !field_draw {
+        if far_layer {
+            device.set_texture(4, &targets.near_atmosphere.texture)?;
+            set_sampler_filter(device, 4, D3DTEXF_POINT.0 as u32)?;
+        } else {
+            // The near texture is RT0 for this pass; never leave it bound.
+            device.clear_texture(4)?;
+        }
+    }
     bind_authored_sun(device, sun_disk, 15, 3)?;
     if field_draw {
         bind_world_shadows(device, world_shadows, settings.shaft_strength)?;
@@ -1982,7 +2000,7 @@ fn draw_integration(
             [
                 settings.lighting_medium_density,
                 settings.effective_scattering_albedo(contributions.fog),
-                0.0,
+                directional_phase_mix_weight(settings.anisotropy),
                 0.0,
             ],
         ],
@@ -2831,7 +2849,7 @@ fn draw_debug(
             [
                 settings.lighting_medium_density,
                 settings.effective_scattering_albedo(contributions.fog),
-                0.0,
+                directional_phase_mix_weight(settings.anisotropy),
                 0.0,
             ],
         ],
@@ -3759,9 +3777,9 @@ mod directional_shader_behavior {
             quality: AtmosphereQuality::High,
             lighting_intensity: 0.95,
             lighting_medium_density: 0.000_002_5,
-            anisotropy: 0.58,
-            shaft_strength: 0.72,
-            sun_disk_boost: 1.0,
+            anisotropy: VolumetricLightingConfig::default().anisotropy,
+            shaft_strength: VolumetricLightingConfig::default().shaft_strength,
+            sun_disk_boost: VolumetricLightingConfig::default().sun_disk_boost,
             shaft_quality: AtmosphereQuality::High,
             local_lights_enabled: false,
             local_lights_intensity: 0.0,
@@ -3922,10 +3940,15 @@ mod directional_shader_behavior {
     }
 
     fn luminance_centroid_x(pixels: &[[f32; 4]]) -> f32 {
+        let baseline = pixels
+            .iter()
+            .copied()
+            .map(luminance)
+            .fold(f32::INFINITY, f32::min);
         let mut weighted_x = 0.0;
         let mut weight = 0.0;
         for (index, pixel) in pixels.iter().copied().enumerate() {
-            let value = luminance(pixel).max(0.0);
+            let value = (luminance(pixel) - baseline).max(0.0);
             weighted_x += (index % TEST_SIZE as usize) as f32 * value;
             weight += value;
         }
@@ -3936,6 +3959,16 @@ mod directional_shader_behavior {
     /// using production binding/reduction/integration and FP16 readback.
     #[test]
     fn orthographic_world_field_preserves_shipped_gpu_pixels() {
+        qualify_world_field(false);
+    }
+
+    #[test]
+    #[ignore = "explicit production world-field GPU benchmark"]
+    fn benchmark_world_field_ray_reuse() {
+        qualify_world_field(true);
+    }
+
+    fn qualify_world_field(benchmark: bool) {
         use super::{
             AtmosphereTargets, SHAFT_MASK_SHADER, ShaftTargets, bind_pipeline_state, bind_target,
             draw_depth_reduce_to, draw_integration, draw_quad, resolve_contributions,
@@ -3944,6 +3977,14 @@ mod directional_shader_behavior {
         use crate::effects::shadows::{self, VolumetricDirectionalFrame};
         use libpsycho::os::windows::directx9::{D3DFMT_G16R16F, D3DRS_SCISSORTESTENABLE};
 
+        if benchmark {
+            libpsycho::logger::Logger::new()
+                .with_level(log::LevelFilter::Info)
+                .init()
+                .unwrap();
+        }
+        let mut totals = [0.0f64; 2];
+        let size = if benchmark { 1024 } else { TEST_SIZE };
         let owner = raster_device();
         let device = owner.as_ref();
         let optimized = crate::shaders::compile_hlsl_source(
@@ -4062,8 +4103,8 @@ mod directional_shader_behavior {
 
         let bytecode = AtmosphereBytecode::compile().unwrap();
         let effect = AtmosphereEffect::create_from_bytecode(&device, &bytecode).unwrap();
-        let targets = AtmosphereTargets::create(&device, TEST_SIZE, TEST_SIZE, 2).unwrap();
-        let field = ShaftTargets::create(&device, TEST_SIZE / 4, TEST_SIZE / 4).unwrap();
+        let targets = AtmosphereTargets::create(&device, size, size, 2).unwrap();
+        let field = ShaftTargets::create(&device, size / 4, size / 4).unwrap();
         let readback = device
             .create_system_memory_surface(field.width, field.height, D3DFMT_A16B16G16R16F)
             .unwrap();
@@ -4078,7 +4119,24 @@ mod directional_shader_behavior {
                 .enumerate()
             {
                 for blocker in [false, true] {
-                    let depth = raw_depth(&device, blocker);
+                    let depth = if benchmark {
+                        let texture = device
+                            .create_texture(size, size, 1, 0, D3DFMT_A8R8G8B8, D3DPOOL_MANAGED)
+                            .unwrap();
+                        let mut pixels = vec![0xFF00_0000; (size * size) as usize];
+                        if blocker {
+                            // Mixed near/far endpoints in every 4x4 field cell.
+                            for y in 0..size {
+                                for x in (0..size).step_by(4) {
+                                    pixels[(y * size + x) as usize] = 0xFF40_0000;
+                                }
+                            }
+                        }
+                        texture.write_level0_argb(size, size, &pixels).unwrap();
+                        texture
+                    } else {
+                        raw_depth(&device, blocker)
+                    };
                     let mut frame = frame(&depth, sun);
                     if case == 1 {
                         frame.camera.world_transform.translation = [4096.0, -2048.0, 512.0];
@@ -4116,7 +4174,7 @@ mod directional_shader_behavior {
                     let contributions = resolve_contributions(frame, settings);
                     let desc = depth.surface_level(0).unwrap().desc().unwrap();
                     let mut outputs = Vec::new();
-                    for shader in &programs {
+                    for (program_index, shader) in programs.iter().enumerate() {
                         device.begin_scene().unwrap();
                         bind_pipeline_state(&device).unwrap();
                         draw_depth_reduce_to(
@@ -4152,6 +4210,54 @@ mod directional_shader_behavior {
                             .copy_render_target_data(&field.mask.surface, &readback)
                             .unwrap();
                         outputs.push(readback.read_rgba16f().unwrap());
+                        if benchmark {
+                            let mut times = Vec::new();
+                            for round in 0..4 {
+                                let mut timer =
+                                    libpsycho::os::windows::directx9::GpuTimer9::new(&device)
+                                        .unwrap();
+                                device.begin_scene().unwrap();
+                                timer.begin().unwrap();
+                                for _ in 0..8 {
+                                    draw_integration(
+                                        &device,
+                                        shader,
+                                        &targets,
+                                        &effect.density_noise,
+                                        &effect.neutral_visibility,
+                                        None,
+                                        Some(&maps),
+                                        frame,
+                                        settings,
+                                        contributions,
+                                        false,
+                                        false,
+                                        Some(&field),
+                                        true,
+                                    )
+                                    .unwrap();
+                                }
+                                timer.end().unwrap();
+                                device.end_scene().unwrap();
+                                let deadline =
+                                    std::time::Instant::now() + std::time::Duration::from_secs(10);
+                                let seconds = loop {
+                                    if let Some(seconds) = timer.poll_seconds(true).unwrap() {
+                                        break seconds;
+                                    }
+                                    assert!(
+                                        std::time::Instant::now() < deadline,
+                                        "field benchmark timeout"
+                                    );
+                                    std::thread::yield_now();
+                                };
+                                if round != 0 {
+                                    times.push(seconds / 8.0);
+                                }
+                            }
+                            times.sort_by(f64::total_cmp);
+                            totals[program_index] += times[1];
+                        }
                     }
                     for (reference, actual) in outputs[0].iter().zip(&outputs[1]) {
                         for channel in 0..4 {
@@ -4166,9 +4272,506 @@ mod directional_shader_behavior {
                 }
             }
         }
+        if benchmark {
+            let ratio = totals[1] / totals[0];
+            log::info!(
+                "[ATMOSPHERE BENCH] Actual 256-square world field, all tiers/angles/actors/noise: GPU ratio={ratio:.6}"
+            );
+            libpsycho::logger::Logger::shutdown();
+            assert!(
+                ratio < 0.95,
+                "world field GPU work did not improve: {ratio}"
+            );
+        }
         assert!(
             strongest_blockage > 0.0001,
             "A/B fixture never exercised world shadow blockage"
+        );
+    }
+
+    /// Same shipped integration workload and settings, measured by D3D9 GPU
+    /// queries. Kept explicit because device timing is not a portable CI gate.
+    #[test]
+    #[ignore = "explicit production GPU integration benchmark"]
+    fn benchmark_shared_sky_depth_layer() {
+        use super::{
+            AtmosphereTargets, bind_pipeline_state, draw_depth_reduce_to, draw_integration,
+            resolve_contributions,
+        };
+        use libpsycho::{logger::Logger, os::windows::directx9::GpuTimer9};
+        Logger::new()
+            .with_level(log::LevelFilter::Info)
+            .init()
+            .unwrap();
+        let owner = raster_device();
+        let device = owner.as_ref();
+        let bytecode = AtmosphereBytecode::compile().unwrap();
+        let effect = AtmosphereEffect::create_from_bytecode(&device, &bytecode).unwrap();
+        let targets = AtmosphereTargets::create(&device, 1024, 1024, 2).unwrap();
+        let mut source = b"#define ATMOSPHERE_SAMPLE_COUNT 12\n".to_vec();
+        source.extend_from_slice(include_bytes!(
+            "../../shaders/tests/atmosphere_integrate_orthographic_baseline.hlsl"
+        ));
+        let code =
+            crate::shaders::compile_hlsl_source("integration:released-benchmark", &source).unwrap();
+        let reference = device.create_pixel_shader(&code).unwrap();
+        let depth = raw_depth(&device, false);
+        let frame = frame(&depth, [1.0, 0.0, 0.0]);
+        let mut settings = settings(true);
+        settings.fog_enabled = true;
+        settings.height_density = 0.000_002_5;
+        settings.noise_amount = 0.18;
+        settings.anisotropy = 0.0;
+        let contributions = resolve_contributions(frame, settings);
+        let desc = depth.surface_level(0).unwrap().desc().unwrap();
+        device.begin_scene().unwrap();
+        bind_pipeline_state(&device).unwrap();
+        draw_depth_reduce_to(
+            &device,
+            &effect.depth_reduce_half_shader,
+            &targets.depth.surface,
+            targets.width,
+            targets.height,
+            &desc,
+            frame,
+            frame.depth.texture.unwrap(),
+        )
+        .unwrap();
+        draw_integration(
+            &device,
+            &effect.integrate_shaders[1],
+            &targets,
+            &effect.density_noise,
+            &effect.neutral_visibility,
+            None,
+            None,
+            frame,
+            settings,
+            contributions,
+            false,
+            false,
+            None,
+            false,
+        )
+        .unwrap();
+        device.end_scene().unwrap();
+        let mut samples = [Vec::new(), Vec::new()];
+        for round in 0..4 {
+            for (index, program) in [&reference, &effect.integrate_shaders[1]]
+                .into_iter()
+                .enumerate()
+            {
+                let mut timer = GpuTimer9::new(&device).unwrap();
+                device.begin_scene().unwrap();
+                timer.begin().unwrap();
+                for _ in 0..16 {
+                    draw_integration(
+                        &device,
+                        program,
+                        &targets,
+                        &effect.density_noise,
+                        &effect.neutral_visibility,
+                        None,
+                        None,
+                        frame,
+                        settings,
+                        contributions,
+                        false,
+                        true,
+                        None,
+                        false,
+                    )
+                    .unwrap();
+                }
+                timer.end().unwrap();
+                device.end_scene().unwrap();
+                let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+                let seconds = loop {
+                    if let Some(seconds) = timer.poll_seconds(true).unwrap() {
+                        break seconds;
+                    }
+                    assert!(
+                        std::time::Instant::now() < deadline,
+                        "GPU benchmark timed out"
+                    );
+                    std::thread::yield_now();
+                };
+                if round != 0 {
+                    samples[index].push(seconds / 16.0);
+                }
+            }
+        }
+        for values in &mut samples {
+            values.sort_by(f64::total_cmp);
+        }
+        let before = samples[0][1];
+        let after = samples[1][1];
+        log::info!(
+            "[ATMOSPHERE BENCH] Shared sky far layer: released={:.6} ms, corrected={:.6} ms, ratio={:.6}; 512x512 high tier",
+            before * 1000.0,
+            after * 1000.0,
+            after / before
+        );
+        Logger::shutdown();
+        assert!(
+            after < before * 0.75,
+            "shared-layer reuse did not meet the benchmark reduction: before={before}, after={after}"
+        );
+    }
+
+    #[test]
+    fn shared_depth_layer_reuse_preserves_production_gpu_pixels() {
+        use super::{
+            AtmosphereTargets, bind_pipeline_state, draw_depth_reduce_to, draw_integration,
+            resolve_contributions,
+        };
+        let owner = raster_device();
+        let device = owner.as_ref();
+        let bytecode = AtmosphereBytecode::compile().unwrap();
+        let effect = AtmosphereEffect::create_from_bytecode(&device, &bytecode).unwrap();
+        let targets = AtmosphereTargets::create(&device, TEST_SIZE, TEST_SIZE, 2).unwrap();
+        let staging = device
+            .create_system_memory_surface(targets.width, targets.height, D3DFMT_A16B16G16R16F)
+            .unwrap();
+        for (index, quality, samples) in [
+            (0, AtmosphereQuality::Performance, 8),
+            (1, AtmosphereQuality::High, 12),
+            (2, AtmosphereQuality::Ultra, 20),
+        ] {
+            let mut source = format!("#define ATMOSPHERE_SAMPLE_COUNT {samples}\n").into_bytes();
+            source.extend_from_slice(include_bytes!(
+                "../../shaders/tests/atmosphere_integrate_orthographic_baseline.hlsl"
+            ));
+            let code =
+                crate::shaders::compile_hlsl_source("integration:released-reference", &source)
+                    .unwrap();
+            let reference = device.create_pixel_shader(&code).unwrap();
+            for mixed in [false, true] {
+                let depth = raw_depth(&device, mixed);
+                let frame = frame(&depth, [1.0, 0.0, 0.0]);
+                let mut settings = settings(true);
+                settings.quality = quality;
+                settings.fog_enabled = true;
+                settings.height_density = 0.000_002_5;
+                settings.noise_amount = 0.18;
+                // At g=0 the released and corrected normalized phase are both
+                // exactly isotropic. Compare only the layer-reuse change.
+                settings.anisotropy = 0.0;
+                let contributions = resolve_contributions(frame, settings);
+                let desc = depth.surface_level(0).unwrap().desc().unwrap();
+                device.begin_scene().unwrap();
+                bind_pipeline_state(&device).unwrap();
+                draw_depth_reduce_to(
+                    &device,
+                    &effect.depth_reduce_half_shader,
+                    &targets.depth.surface,
+                    targets.width,
+                    targets.height,
+                    &desc,
+                    frame,
+                    frame.depth.texture.unwrap(),
+                )
+                .unwrap();
+                draw_integration(
+                    &device,
+                    &effect.integrate_shaders[index],
+                    &targets,
+                    &effect.density_noise,
+                    &effect.neutral_visibility,
+                    None,
+                    None,
+                    frame,
+                    settings,
+                    contributions,
+                    false,
+                    false,
+                    None,
+                    false,
+                )
+                .unwrap();
+                device.end_scene().unwrap();
+                let mut outputs = Vec::new();
+                for program in [&reference, &effect.integrate_shaders[index]] {
+                    device.begin_scene().unwrap();
+                    bind_pipeline_state(&device).unwrap();
+                    draw_integration(
+                        &device,
+                        program,
+                        &targets,
+                        &effect.density_noise,
+                        &effect.neutral_visibility,
+                        None,
+                        None,
+                        frame,
+                        settings,
+                        contributions,
+                        false,
+                        true,
+                        None,
+                        false,
+                    )
+                    .unwrap();
+                    device.end_scene().unwrap();
+                    device
+                        .copy_render_target_data(&targets.far_atmosphere.surface, &staging)
+                        .unwrap();
+                    outputs.push(staging.read_rgba16f().unwrap());
+                }
+                for (before, after) in outputs[0].iter().zip(&outputs[1]) {
+                    for channel in 0..4 {
+                        assert!(after[channel].is_finite());
+                        assert!(
+                            (before[channel] - after[channel]).abs() <= 0.000_061_035_156,
+                            "layer reuse changed medium: quality={quality:?}, mixed={mixed}, before={before:?}, after={after:?}"
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    /// Compare the new calibration with the retained production calibration.
+    /// Both execute identical depth reduction and shipped integration bytecode;
+    /// only settings differ. These are intentional design inputs, not captures.
+    #[test]
+    fn calibrated_medium_preserves_low_air_and_clears_elevated_views() {
+        use super::{
+            AtmosphereTargets, bind_pipeline_state, draw_depth_reduce_to, draw_integration,
+            resolve_contributions,
+        };
+        let owner = raster_device();
+        let device = owner.as_ref();
+        let bytecode = AtmosphereBytecode::compile().unwrap();
+        let effect = AtmosphereEffect::create_from_bytecode(&device, &bytecode).unwrap();
+        for (index, quality) in [
+            AtmosphereQuality::Performance,
+            AtmosphereQuality::High,
+            AtmosphereQuality::Ultra,
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            for mixed in [false, true] {
+                let depth = raw_depth(&device, mixed);
+                let desc = depth.surface_level(0).unwrap().desc().unwrap();
+                for height in [250.0, 40_000.0] {
+                    let mut frame = frame(&depth, [1.0, 0.0, 0.0]);
+                    frame.camera.world_transform.translation[2] = height;
+                    frame.depth.world_projection.camera = frame.camera;
+                    let mut current = AtmosphereSettings::from_config(
+                        VolumetricFogConfig::default(),
+                        VolumetricLightingConfig::default(),
+                    );
+                    current.quality = quality;
+                    // Isolate calibration from heterogeneity and screen visibility.
+                    // The separate production regressions exercise those paths.
+                    current.noise_amount = 0.0;
+                    current.local_lights_enabled = false;
+                    let scale = current.target_scale();
+                    let targets =
+                        AtmosphereTargets::create(&device, TEST_SIZE, TEST_SIZE, scale).unwrap();
+                    let staging = device
+                        .create_system_memory_surface(
+                            targets.width,
+                            targets.height,
+                            D3DFMT_A16B16G16R16F,
+                        )
+                        .unwrap();
+                    let reducer = if scale == 4 {
+                        &effect.depth_reduce_quarter_shader
+                    } else {
+                        &effect.depth_reduce_half_shader
+                    };
+                    let mut previous = current;
+                    previous.lighting_medium_density = 0.000_002_5;
+                    previous.height_density = 0.000_002_5;
+                    previous.height_falloff = 0.00008;
+                    previous.lighting_intensity = 0.95;
+                    let mut outputs = Vec::new();
+                    for settings in [previous, current] {
+                        let contributions = resolve_contributions(frame, settings);
+                        device.begin_scene().unwrap();
+                        bind_pipeline_state(&device).unwrap();
+                        draw_depth_reduce_to(
+                            &device,
+                            reducer,
+                            &targets.depth.surface,
+                            targets.width,
+                            targets.height,
+                            &desc,
+                            frame,
+                            frame.depth.texture.unwrap(),
+                        )
+                        .unwrap();
+                        draw_integration(
+                            &device,
+                            &effect.integrate_shaders[index],
+                            &targets,
+                            &effect.density_noise,
+                            &effect.neutral_visibility,
+                            None,
+                            None,
+                            frame,
+                            settings,
+                            contributions,
+                            false,
+                            false,
+                            None,
+                            false,
+                        )
+                        .unwrap();
+                        device.end_scene().unwrap();
+                        device
+                            .copy_render_target_data(&targets.near_atmosphere.surface, &staging)
+                            .unwrap();
+                        outputs.push(staging.read_rgba16f().unwrap());
+                    }
+                    let center = (targets.height / 2 * targets.width + targets.width / 2) as usize;
+                    let old = outputs[0][center];
+                    let new = outputs[1][center];
+                    assert!(
+                        outputs[1]
+                            .iter()
+                            .all(|pixel| pixel.iter().all(|value| value.is_finite())
+                                && (0.0..=1.0).contains(&pixel[3]))
+                    );
+                    for x in 0..targets.width {
+                        let i = (targets.height / 2 * targets.width + x) as usize;
+                        assert!(
+                            outputs[1][i][3] >= outputs[0][i][3] - 0.015,
+                            "calibration over-thickened a low-air ray: quality={quality:?}, mixed={mixed}, height={height}, old={:?}, new={:?}",
+                            outputs[0][i],
+                            outputs[1][i]
+                        );
+                    }
+                    if height > 30_000.0 && !mixed {
+                        assert!(
+                            new[3] > old[3] + 0.025,
+                            "elevated transmission did not improve: quality={quality:?}, old={old:?}, new={new:?}"
+                        );
+                    } else if height < 30_000.0 {
+                        assert!(
+                            (new[3] - old[3]).abs() < 0.015,
+                            "low-air depth changed: quality={quality:?}, old={old:?}, new={new:?}"
+                        );
+                        assert!(
+                            (luminance(new) / luminance(old) - 1.0).abs() < 0.05,
+                            "low-air lighting changed: quality={quality:?}, old={old:?}, new={new:?}"
+                        );
+                    }
+                }
+            }
+        }
+    }
+    /// Qualify calibration modes through the complete production atmosphere
+    /// draw, including mixed-depth upsampling, composition, and source alpha.
+    #[test]
+    fn calibration_modes_preserve_final_composition_and_source_alpha() {
+        let owner = raster_device();
+        let device = owner.as_ref();
+        let bytecode = AtmosphereBytecode::compile().unwrap();
+        let mut effect = AtmosphereEffect::create_from_bytecode(&device, &bytecode).unwrap();
+        let source = device
+            .create_render_target_texture(TEST_SIZE, TEST_SIZE, D3DFMT_A16B16G16R16F)
+            .unwrap();
+        device
+            .set_render_target(0, &source.surface_level(0).unwrap())
+            .unwrap();
+        device
+            .clear_attachments(D3DCLEAR_TARGET as u32, 0x7F203040, 1.0, 0)
+            .unwrap();
+        let output = device
+            .create_render_target_texture(TEST_SIZE, TEST_SIZE, D3DFMT_A16B16G16R16F)
+            .unwrap();
+        let surface = output.surface_level(0).unwrap();
+        let memory = device
+            .create_system_memory_surface(TEST_SIZE, TEST_SIZE, D3DFMT_A16B16G16R16F)
+            .unwrap();
+        for quality in [
+            AtmosphereQuality::Performance,
+            AtmosphereQuality::High,
+            AtmosphereQuality::Ultra,
+        ] {
+            for (fog, lighting) in [(true, true), (true, false), (false, true)] {
+                for mixed in [false, true] {
+                    let depth = raw_depth(&device, mixed);
+                    for height in [250.0, 40_000.0] {
+                        let mut frame = frame(&depth, [1.0, 0.0, 0.0]);
+                        frame.camera.world_transform.translation[2] = height;
+                        frame.depth.world_projection.camera = frame.camera;
+                        let mut current = AtmosphereSettings::from_config(
+                            VolumetricFogConfig::default(),
+                            VolumetricLightingConfig::default(),
+                        );
+                        current.fog_enabled = fog;
+                        current.lighting_enabled = lighting;
+                        current.local_lights_enabled = false;
+                        current.quality = quality;
+                        current.shaft_quality = quality;
+                        let mut previous = current;
+                        previous.lighting_medium_density = 0.0000025;
+                        previous.height_density = 0.0000025;
+                        previous.height_falloff = 0.00008;
+                        for settings in [previous, current] {
+                            device.begin_scene().unwrap();
+                            let outcome = effect
+                                .draw(
+                                    &device,
+                                    &surface,
+                                    &surface.desc().unwrap(),
+                                    frame,
+                                    Some(&source),
+                                    settings,
+                                    false,
+                                    false,
+                                    None,
+                                )
+                                .unwrap();
+                            device.end_scene().unwrap();
+                            assert!(matches!(
+                                outcome,
+                                AtmosphereDrawOutcome::ComposedWithLighting
+                                    | AtmosphereDrawOutcome::Composed
+                            ));
+                            device.copy_render_target_data(&surface, &memory).unwrap();
+                            let pixels = memory.read_rgba16f().unwrap();
+                            assert!(
+                                pixels
+                                    .iter()
+                                    .all(|p| p.iter().all(|v| v.is_finite() && *v >= 0.0)
+                                        && (p[3] - 127.0 / 255.0).abs() < 0.001),
+                                "composition damaged source alpha: quality={quality:?}, fog={fog}, lighting={lighting}, mixed={mixed}, height={height}"
+                            );
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn default_directional_scattering_is_bounded_and_visible_away_from_sun() {
+        let owner = raster_device();
+        let device = owner.as_ref();
+        let bytecode = AtmosphereBytecode::compile().unwrap();
+        let mut effect = AtmosphereEffect::create_from_bytecode(&device, &bytecode).unwrap();
+        let scene = device
+            .create_render_target_texture(TEST_SIZE, TEST_SIZE, D3DFMT_A16B16G16R16F)
+            .unwrap();
+        clear_target(&device, &scene);
+        let mut means = Vec::new();
+        for direction in [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [-1.0, 0.0, 0.0]] {
+            let (_, pixels) = render(&mut effect, &device, &scene, direction, false, true);
+            let peak = pixels.iter().copied().map(luminance).fold(0.0f32, f32::max);
+            means.push(mean_luminance(&pixels));
+            assert!(
+                peak <= 0.30,
+                "default haze exceeded the uniform-medium single-scattering energy budget: {peak}"
+            );
+        }
+        assert!(
+            means.iter().all(|mean| *mean > 0.05),
+            "default rays lost their off-axis scattering carrier: {means:?}"
         );
     }
 
@@ -4491,6 +5094,24 @@ mod directional_shader_behavior {
         );
         assert_eq!(open_outcome, AtmosphereDrawOutcome::ComposedWithLighting);
         let open_energy = total_luminance(&open_pixels);
+        let mut previous = interior_local_settings();
+        previous.lighting_medium_density = 0.0000025;
+        let (_, previous_pixels) = render_local_light(
+            &mut effect,
+            &device,
+            &world_color,
+            Some(&open_epoch),
+            previous,
+            false,
+        );
+        let relative_energy = open_energy / total_luminance(&previous_pixels);
+        // The smaller shared floor intentionally reduces optically thin local
+        // emission. Preserve visibility rather than silently boosting intensity
+        // in interiors and consequently overdriving the exterior height layer.
+        assert!(
+            (0.79..0.82).contains(&relative_energy),
+            "interior calibration changed beyond its density ratio: {relative_energy}"
+        );
         let open_peak = open_pixels
             .iter()
             .copied()
@@ -5315,8 +5936,8 @@ mod feature_tests {
             AtmosphereSettings::from_config(config.volumetric_fog, config.volumetric_lighting);
         let frame = valid_frame();
 
-        assert_eq!(settings.lighting_medium_density, 0.0000025);
-        assert!((0.740..0.742).contains(&settings.estimated_horizontal_transmittance(frame)));
+        assert_eq!(settings.lighting_medium_density, 0.000002);
+        assert!((0.786..0.788).contains(&settings.estimated_horizontal_transmittance(frame)));
     }
 
     #[test]
@@ -5806,9 +6427,9 @@ mod feature_tests {
         let fog = crate::config::VolumetricFogConfig::default();
         let lighting = crate::config::VolumetricLightingConfig::default();
         let mut combined = AtmosphereSettings::from_config(fog, lighting);
-        assert_eq!(combined.effective_uniform_density(true), 0.000_002_5);
+        assert_eq!(combined.effective_uniform_density(true), 0.000_002);
         combined.lighting_enabled = false;
-        assert_eq!(combined.effective_uniform_density(true), 0.000_002_5);
+        assert_eq!(combined.effective_uniform_density(true), 0.000_002);
         combined.local_lights_enabled = false;
         assert_eq!(combined.effective_uniform_density(true), 0.0);
         combined.density = 0.000_01;
@@ -6414,6 +7035,18 @@ mod shader_compile_tests {
     };
     use crate::backend::{CameraFrame, CameraTransformFrame};
 
+    #[test]
+    fn world_field_reduces_the_released_instruction_budget() {
+        let code =
+            crate::shaders::compile_hlsl_source("world-field:work", &shaft_mask_shader_source())
+                .unwrap();
+        let count = instruction_count(&code);
+        assert!(
+            count < 1415,
+            "world field did not reduce released work: {count}"
+        );
+    }
+
     fn instruction_count(bytecode: &[u32]) -> usize {
         const COMMENT: u16 = 0xfffe;
         const END: u16 = 0xffff;
@@ -6449,9 +7082,9 @@ mod shader_compile_tests {
         }
         for samples in [8, 12, 20] {
             let (instructions, textures, bytes) = match samples {
-                8 => (798, 15, 12772),
-                12 => (907, 19, 14460),
-                _ => (1125, 27, 17836),
+                8 => (825, 16, 13228),
+                12 => (934, 20, 14916),
+                _ => (1152, 28, 18292),
             };
             crate::shaders::assert_pixel_shader_budget(
                 &format!("atmosphere_integrate.hlsl:{samples}"),
@@ -6469,9 +7102,9 @@ mod shader_compile_tests {
         crate::shaders::assert_pixel_shader_budget(
             "atmosphere_shaft_mask.hlsl:world-field",
             &shaft_mask_shader_source(),
-            1419,
+            1414,
             13,
-            21236,
+            21172,
         );
         for samples in [24, 40, 56] {
             crate::shaders::assert_pixel_shader_budget(

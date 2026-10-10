@@ -2,7 +2,29 @@
 
 Date: 2026-07-18
 
-## Sunshaft reference appearance
+Implementation status: implemented and qualified offline using production Rust
+and compiled HLSL paths. Game-only images, native integration, startup and FPS
+are not established by this qualification; gameplay validation belongs to the
+repository owner.
+
+## Opacity contract and per-frame work
+
+The owner accepted the bounded solar halo but reported weak godrays and severe
+remaining directional-light cost. The directional request activates the common
+native shadow producer even with surface sun shadows disabled. Its workload
+includes actor overlays, resolves and a world-field march; optimizing only the
+far atmosphere layer cannot remove those costs.
+
+The scene-post opacity contract is explicit: the world publisher estimates
+horizontal transmittance, and `atmosphere_visibility()` returns `1 - T` for the
+current render epoch. `FrameInputs` and shader c15 carry that opacity unchanged.
+Composition uses opacity directly. Subtracting it from one again inverted haze
+response. The production GPU regression derives the estimate through
+`AtmosphereSettings`, requires stronger bands for doubled medium density,
+substantive default contrast, bounded affected area, neutral open sky and exact
+first-person receiver exclusion. The accepted halo phase and native disk policy
+remain unchanged. Exposure 0.85 passes this corrected production estimate;
+raising exposure to conceal the inverted contract is unnecessary.
 
 The owner's live Borderlands 2 references (`.reports/godrays_ref1.png` through
 `godrays_ref6.png`) establish continuous soft shadow wedges through bright haze,
@@ -22,10 +44,137 @@ attenuation cap. Output remains multiplicative, hue-preserving occlusion with
 unchanged alpha. Exposure and preset values remain unchanged. No draw, target,
 depth read, diagnostic or directional-light producer work is added.
 
-Implementation status: implemented with fixed `ps_3_0` variants compiled by
-the real D3D compiler in the i686 Wine test run. Behavioral regressions own the
-native-radiance and projection contracts; the feature-first playtest remains
-the final pixel-quality gate.
+Native skin constants retain c9..c62 and the existing three-row bone ABI.
+Each partition gathers a complete finite block and submits it in one D3D call,
+rather than one call per bone. Supported 18-bone partitions therefore use one
+constant upload per submission instead of eighteen, with identical register
+contents. `CalculateBoneMatrices` may grow native storage, so the matrix pointer
+is read again after that helper before copying rows. Existing native cache-stamp
+and renderer-state restoration remain mandatory.
+
+Actor preparation and copied bone blocks are memoized only inside the existing
+serialized native journal. Type/material classification and complete partition
+validation are invariant across its actor overlays; each cascade still repeats
+its own bounds, visibility, projection, rebasing and rendering. Copied bone keys
+include the partition entry, skin, native matrix revision/storage, both exact
+camera origins and row count. A shared skin's transform change advances the
+revision. Cache capacity exhaustion takes the original preparation/gather path
+without allocating or removing a caster. Cache ownership is device-resource
+scratch allocated after DeferredInit. Two 4096-slot tables retain actor metadata
+and copied bone windows, with at most 2048 admitted keys each; this adds roughly
+four MiB of bounded CPU storage, not a GPU target. No static, hook, configuration layout,
+TLS, preparation worker or admission lifetime is added. Journal closure makes
+all retained scalar keys inaccessible before the native tail resumes.
+
+The world-field shader exits empty covered intervals before marching. Cascade
+border contribution rejects outside and zero-weight samples before reading
+moments. Production orthographic W is exactly one. Each march transforms its
+ray direction into all four cascades once, then evaluates affine projected
+positions at the unchanged midpoints. The height exponent is similarly hoisted
+with its original per-sample clamp. Nonnegative density/step contracts remove
+redundant lower clamps. Static/actor coverage, samples, noise, blend equations,
+resource dimensions, MSAA and producer update cadence are preserved.
+
+Released-versus-current production GPU field comparisons retain the existing
+FP16 tolerance across quality tiers, directions, camera origins, actor maps,
+height density and noise. The explicit GPU benchmark uses actual 1024-square
+depth inputs and 256-square field targets, covering open and mixed intervals;
+it adds no runtime diagnostics. The skin benchmark executes actual D3D9 uploads
+and the register check reads the real device window. Neither benchmark measures
+native caster gameplay or establishes a total game FPS improvement.
+
+## Bounded rays and directional scattering
+
+The owner reported broad weapon/building occlusion, lost openings, vertical
+viewport gating, excessive directional solar glow and directional-light cost.
+Affected game image inputs are unavailable. The owner explicitly authorized
+actual production GPU fixtures and behavioral checks for these intentional
+shader changes; fixture results are not matching game-image reproduction.
+
+The independent scene-post sunshaft pass retains five draws and half-resolution
+intermediates. Its mask averages openness over four point-sampled source depth
+texels, including first-person coverage. It never averages hardware depth or
+dilates the weapon. Vector arithmetic keeps this reduction cheaper in compiled
+instructions than the former dilated single-pixel mask. The radial integral
+carries fractional missing visibility directly; the former exponential gain
+turned a small source-center blocker into nearly full-screen darkening.
+
+Longitudinal reconstruction remains nine taps. Transverse reconstruction uses
+three taps, with openness guidance to prevent opaque walls from filling an
+opening. Its support is two full-resolution pixels on either side instead of
+eight. The mask sampler is rebound after target changes and cleared before the
+next mask draw to avoid render-target feedback. Both filters and marching use
+the same viewport-clipped endpoint while preserving the projected sun direction.
+
+Forward offscreen sun projections remain admitted. Viewport-edge fades are
+removed; the remaining fade protects the forward-projection singularity.
+Clipped radial sampling never interprets unknown offscreen pixels as opaque.
+The existing aspect-correct receiver radius still bounds output. CPU admission
+rejects zero strength/exposure/force and offscreen positions whose receiver
+radius cannot reach the viewport before resource creation or draws. Debug-mask
+output retains its separate radius admission.
+
+Sunshafts remain artistic modulation of scene-post sky/fog receivers, with
+exact first-person receiver exclusion. This stage has no isolated solar RGB
+buffer. The correction weights occlusion by shared haze opacity rather than
+amplifying it by one plus transmittance; it does not claim physically isolated
+attenuation of sunlight. Finite-depth window illumination belongs to the
+existing world-shadowed directional medium, because a screen-space sky mask
+cannot reconstruct the sunlight path behind an opening.
+
+Directional scattering uses a normalized isotropic/HG mixture. For HG peak
+`p=(1+abs(g))/(1-abs(g))^2`, its HG weight is `1/p`. Both component phases
+integrate to one, so the mixture preserves angular energy and bounds the
+FourPi-scaled peak below two. The resulting isotropic carrier remains visible
+away from the sun. The native sky retains ownership of solar haze and the disk;
+local volumetric lights retain their released HG response. Mixture weight is
+computed once per integration/debug pass in existing constant padding, with no
+configuration-layout, owner or shader-preparation lifecycle change.
+
+A completed near-layer atmosphere pixel is reused by the far integration when
+the production reduced-depth endpoints are exactly equal. The point-sampled
+near texture uses `s4` only in the ordinary integration program; the world-field
+program retains its static atlas at that slot. Equal endpoints have identical
+ray, noise, sunlight and visibility inputs. Mixed-depth cells keep the full far
+integration. No tolerance, depth collapse, lower resolution, smaller sample
+count, extra target or pass is introduced. Far reuse precedes local-light
+addition, so local lights are not counted twice.
+
+The world-only EVSM bleeding denominator is already at least 0.2 for all four
+published bleed values. Removing its redundant epsilon maximum preserves the
+released GPU field pixels. The fixed producer atlas, four-sample actor targets,
+actor admission, static cache, and world sample counts remain unchanged. Their
+cost is not measured by the sky-layer benchmark, and total game FPS remains
+unresolved.
+
+OMV Default 1.4.0 and shipped working defaults retain medium density, intensity,
+anisotropy, quality and local-light calibration. Sunshaft exposure is 0.85,
+directional shaft strength is 1, and the additional solar-disk boost is 0. The
+preset remains schema one with identical field names, types and positions;
+Current Look is not automatically overwritten. Select the new preset to apply
+its numerical calibration.
+
+Offline behavioral coverage includes narrow world/weapon blockers, unchanged
+weapon receivers, opening coverage in both depth modes, open-sky neutrality,
+top-edge continuity, directional brightness/off-axis visibility, local-light
+visibility and released near/far GPU pixel comparisons at every quality tier.
+The released shader fails the same explicit GPU-query sky-layer work benchmark.
+The benchmark isolates the 512-square High far-layer integration, not native
+caster traversal, atlas generation, total frame time or gameplay FPS.
+
+Compiled budgets are intentionally changed only where new coverage, clipping,
+mixture or reuse behavior requires work. Mask budgets tighten to 191 instructions,
+8 texture instructions and 3292 bytes, versus the former 355/6/5800. The two extra
+reads preserve four world and four weapon texels. Radial budgets are 196/1/3228
+for viewport clipping. Blur is 174/15/2812 statically; its uniform per-pass branch
+executes nine longitudinal or six guided transverse texture reads, versus nine
+in each released pass. Compose tightens to 358/5/5944. Integration budgets are
+825/16/13228, 934/20/14916 and 1152/28/18292 for 8/12/20 samples. The 27 extra static
+instructions and one texture instruction admit bounded phase and exact reuse;
+shared-depth far pixels execute the short copy path instead of integration.
+World-field budgets tighten to 1414/13/21172. Shader-model/register limits remain
+mandatory; the rejected cascade-unroll candidate exceeded SM3 temporaries and
+is not shipped.
 
 ## Shared medium and authored emitter correction
 
@@ -61,7 +210,8 @@ World-field generation binds static/actor maps at `s4..s6`, matrices at
 match the production near/far depth intervals. Depth tolerance follows the
 existing composition policy (256 world units or 2 percent at quarter scale).
 The consumer subtracts blocked scattering from its existing total energy.
-Extinction, HG phase, native source color and sky response remain unchanged.
+Extinction, native source color and native sky response remain unchanged.
+The directional phase is the bounded mixture described above.
 
 Atmospheric actor admission uses the actual light frustums rather than the
 surface receiver's camera-forward depth intervals. An actor behind the view
@@ -92,7 +242,7 @@ acceptance tolerance, despite the mathematical W invariant. Sample positions,
 coverage blending, EVSM comparisons, density and composition remain unchanged.
 The retained arithmetic costs more than the rejected division-free candidate
 but preserves fixture quality. Compiled world-field instructions decrease
-from 1463 to 1419; texture operations remain 13. This does not reduce atlas
+from 1463 to 1415; texture operations remain 13. This does not reduce atlas
 allocation or marches.
 
 The owner explicitly authorized production-fixture A/B qualification for this

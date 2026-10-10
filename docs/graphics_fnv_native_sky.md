@@ -457,3 +457,35 @@ pass. A larger power exponent would only narrow the old halo; it would retain
 unbounded additive weather lighting and a less faithful angular shape. The
 reference phase profile and source-color blend jointly address those contracts.
 Celestial, moon, star and vertex budgets remain unchanged.
+
+## Cloud lighting and brightness
+
+Cloud brightness is a single linear RGB gain after lighting. It does not
+change normal decoding, the ambient/direct-light balance, authored texture
+detail, or opacity. Both cloud variants retain native texture blending,
+black-texture fallback, vertex tint, sunset tint, and alpha shaping.
+
+Flat clouds retain authored RGB as their detail source. At low sun angles,
+a bounded blend between the existing upper-sky and sunlight colors supplies
+the tint; the overhead-sun result retains its identity response. The previous
+fifth-power dark tint, extrapolating blend weights, and amplified solar
+addition are removed. The existing angular solar profile and coverage-dependent
+scattering remain. If the evaluated optional sunlight color is black, the
+flat-cloud tint retains the existing upper-sky color rather than blending
+ambient detail toward black. This fallback does not add solar scattering or
+manufacture sunlight; populated sunlight and sunset colors remain unchanged.
+Normal clouds retain their brightness-one lighting shape,
+but ambient luminance is bounded when computing the direct-light weight.
+Over-white ambient light therefore cannot turn direct sunlight negative.
+Source radiance retains headroom for the final display response.
+
+This policy consumes the existing copied frame colors and sun direction. It
+does not identify weather, inspect mods, change native artwork or coverage,
+or introduce resources, texture fetches, passes, histories, or engine hooks.
+Both variants fit their existing static ceilings. Offline D3D9 regressions
+execute the production native vertex/pixel pairs, frame constants, authored
+coverage blending, and the final tone mapper into UNORM output. These controlled
+design inputs cover low/intermediate/overhead sun, shipped transparency,
+colored populated texture blends, black sunlight, and final-tone bright detail.
+They qualify the gain, coverage, and bright-detail contracts; native
+game composition, image quality, startup, and delivered frame time are not run.

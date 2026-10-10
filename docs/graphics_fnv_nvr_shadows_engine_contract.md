@@ -7378,3 +7378,41 @@ Light counts, quality resolutions, spatial coverage, and batching are preserved.
 - Microsoft [Lost Devices](https://learn.microsoft.com/en-us/windows/win32/direct3d9/lost-devices)
   documents that all `D3DPOOL_DEFAULT` resources must be released before
   `Reset` can succeed.
+
+### Transaction-local actor preparation and partition uploads
+
+The directional-atmosphere performance correction preserves the common-shadow
+transaction and its native skin journal described above. Actor overlays reuse
+native type queries, material classification and complete skin-partition
+validation only while that journal owns the scene. Per-cascade bounds and
+presentation admission remain live checks. The proven native submissions own
+buffer setup/drawing and skin calculation state; they do not update the actor
+hierarchy or material/partition topology in that interval.
+
+A copied partition bone block is keyed by its entry, skin, native matrix
+revision and allocation identity, both exact camera origins and row count.
+Changing the skin's world-transform key advances the matrix revision before
+native calculation. Native matrix storage is reread after CalculateBoneMatrices
+because the helper may replace its allocation. The copied rows never retain a
+reference to that allocation. Capacity exhaustion falls back to the existing
+preparation and gathering sequence with identical coverage. Restore closes
+cache admission before the native tail, and a new journal generation rejects
+all former scalar keys.
+
+The c9..c62 window and three-row-per-bone ABI are unchanged. One contiguous
+upload per partition replaces up to eighteen per-bone calls, while each
+projection still submits the native geometry independently. Cache storage is
+bounded heap-owned TraversalScratch behind the existing DeferredInit resource
+owner; it adds no process static, TLS, hook, config field or worker. Exact
+register readback and the actual D3D9 upload benchmark qualify this boundary
+offline. Native gameplay integration remains outside that qualification.
+
+The focused primary binary recheck is preserved in
+`analysis/radare2/output/graphics_fnv_actor_partition_upload_contract_20261010.txt`.
+At `0x00E6D310` the complete skinned submission reads partition metadata and
+calls only the device draw slot, with no engine-owned stores. At
+`0x00E6FEA8..0x00E6FEC0` the matrix helper replaces skin `+0x28` storage when
+capacity is insufficient. Its mode-three path consumes CPU transforms, allowing
+the duplicate pre-helper c0 upload to be removed; the actual skin/world c0
+upload before the partition draws remains. Ordinary/strip native validation
+and state calls remain live, so setter caching across those calls is excluded.
