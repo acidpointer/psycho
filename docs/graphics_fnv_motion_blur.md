@@ -1,5 +1,60 @@
 # FNV motion blur
 
+## Shader corrections and remaining overhaul requirements
+
+The current shaders correct three independently reproduced projection defects:
+
+- Current-image gathering uses current-minus-previous displacement. An
+  isolated moving feature trails toward its earlier position; gathering with
+  the opposite sign placed its trail ahead of the motion.
+- Rotation-only sky rays use a positive-facing check. Their arbitrary unit
+  length is never compared with the metric geometry near plane.
+- Previous projection remains unclamped when forming velocity. The gather
+  interval is clipped with one scalar, preserving direction near image borders.
+  Third-person geometry with an offscreen previous position rejects history
+  rather than inventing a match from a clamped border texel.
+
+`omv/src/effects/motion_blur_shader_tests.rs` executes the shipped pixel
+shaders with production reprojection, constant binding, sampler state and
+fullscreen geometry on a rendering D3D9 device. Third-person cases execute the
+shipped packed-depth writer as well. The direction, sky and border regressions
+failed before production changes. Coverage includes both routes, all quality
+tiers, standard/reversed depth, FP16/LDR output, alpha preservation, stationary
+geometry and translation-only sky. These qualify the filter corrections;
+they are not a gameplay image or native player-coverage test.
+
+These corrections retain existing resource ownership, shader preparation,
+configuration, native hooks, pass counts and maximum tap counts. A moving
+first-person pixel still has at most `2*N` logical texture reads. Third person
+has at most `2*N+1`, plus its existing one-read depth-history record. Compiled
+variant budgets remain independently checked. No FPS improvement is claimed.
+
+The comprehensive overhaul is not implemented. Its outstanding requirements
+are exact visible player coverage, material/translucency composition, depth
+and output-grid alignment under TAA, bilinear-footprint protection at depth
+boundaries, dense exposure reconstruction without sparse-tap bands, and
+removal of unnecessary third-person history/color-copy work. The existing
+depth-history match remains a disocclusion heuristic and must not be described
+as semantic player exclusion.
+
+The native audit now closes one carrier question: enabled stencil materials
+publish `STENCILWRITEMASK = 0xFF`, a material reference and material comparison
+mask through `NiDX9RenderState::ApplyStencil @ 0x00E87EF0`. The contract reserves
+no universal bit for OMV. A collision was not observed in a game run, but a
+fixed spare-bit assumption cannot justify an exact coverage implementation.
+The shown `RenderTriShape` path includes native skin partitions; shadow replay
+is not an exact coverage substitute because its material policy is different.
+See the [raw stencil carrier audit](../analysis/radare2/output/perf/graphics_fnv_motion_blur_stencil_carrier_audit.txt)
+and the [player identity contract](../analysis/radare2/output/perf/graphics_fnv_motion_blur_player_coverage_contract.txt).
+
+An independent carrier must prove fragment coverage, later occlusion,
+alpha/blend behavior, attachment compatibility, cache coherence and bounded
+work before the third-person protection path changes. Gameplay image,
+integration, startup and performance behavior for these shader corrections
+have not been run by the agent; they remain exclusively the owner's choice.
+
+## Accepted first-person baseline
+
 The first-person world-only correction is implemented. Static validation and
 the initial load-to-gameplay playtest pass. The playtest confirmed that the
 motion-blur change works in ordinary first-person use; the extended visual
@@ -131,8 +186,9 @@ The first-person-route shader uses only `SceneColor : s0`, point-sampled
 sampler 2 is explicitly cleared because D3D9 texture state persists. The
 third-person history flags remain at `c17`, avoiding an unrelated ABI change.
 
-The first-person transaction reuses the scene-post primary color texture but
-does not allocate its scratch texture unless the later graph needs it. It
+The first-person transaction uses the dedicated world-color copy. Keeping
+that owner separate from scene-post color prevents FP16 world targets and LDR
+post targets from recreating one shared texture on every frame. It
 captures all native attachments and a complete state block, detaches MRT/depth
 attachments before changing RT0, uses the existing half-pixel-correct
 fullscreen quad, explicitly owns viewport/samplers/blend/depth/stencil/scissor/

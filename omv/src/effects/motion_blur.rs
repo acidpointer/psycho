@@ -932,6 +932,10 @@ fn draw_quad(device: &Device9Ref<'_>, desc: &D3DSURFACE_DESC) -> Direct3DResult<
 }
 
 #[cfg(test)]
+#[path = "motion_blur_shader_tests.rs"]
+mod shader_tests;
+
+#[cfg(test)]
 mod tests {
     use super::{
         DEPTH_HISTORY_SHADER, MotionBlurTemporalState, MotionBlurView, MotionReprojection,

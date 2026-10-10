@@ -1,0 +1,203 @@
+FNV MOTION-BLUR STENCIL CARRIER AUDIT
+
+Research date: 2026-10-11
+Primary tool: radare2 MCP
+Binary: fnv_reverse/FalloutNV.exe
+SHA-256: 42fee7d6cd74e801372aa89c8f71c974cebd3c20ec9ad43d1465b8fa9646b49c
+PE32 x86 image base: 0x00400000
+
+Question
+========
+Does the native stencil contract reserve a bit that OMV may universally claim
+for an exact visible-player mask?
+
+Direct proof
+============
+NiDX9RenderState::ApplyStencil @ 0x00E87EF0 receives the live property as its
+single stack argument and uses the cache-aware virtual SetRenderState +0x68.
+For an enabled property (flags +0x18 bit 0), it publishes:
+
+  STENCILENABLE (52): 1
+  STENCILFUNC (56): flags bits 12..15 through native comparison mapping
+  STENCILREF (57): complete property +0x1C value
+  STENCILMASK (58): complete property +0x20 value
+  STENCILFAIL (53): flags bits 1..3 through native operation mapping
+  STENCILZFAIL (54): flags bits 4..6 through native operation mapping
+  STENCILPASS (55): flags bits 7..9 through native operation mapping
+  STENCILWRITEMASK (59): 0xFF
+
+There is no bit excluded from the native write mask. Native properties can
+select reference/test/operations affecting the full stencil byte. This proves
+that the contract offers no universally reserved bit; it does not prove a
+collision was observed in the owner's scene.
+
+An OMV stencil carrier would need a separately proven exclusivity policy over
+all consuming material paths, full-clear lifetime and later occluding draws.
+Using bit 0x80 merely because it is often unused is not authorized by this
+contract. Restoring only raw D3D state also requires cache coherence: the native
+SetRenderState @ 0x00E88780 caches values at this+0x120+state*8 and calls the
+actual device only when the cached value changes.
+
+The existing RenderTriShape entry @ 0x00E745A0 was rechecked. It reads the
+geometry's skin instance at +0xBC and submits the skinned partition branch
+through actual DrawIndexedPrimitive at 0x00E746AB. Consequently the separate
+shadow draw_skinned helper is not evidence that normal player skin bypasses
+this existing color hook. This proves the shown branch, not completeness of
+all material/color paths.
+
+Unresolved
+==========
+- Exact fragment coverage and later occlusion across every player material.
+- Translucent-player sharpness/composition semantics.
+- An independent mask carrier preserving native shader, alpha, blend, depth,
+  stencil and cache behavior without per-draw readbacks or routine allocation.
+- Actual game-only image and performance behavior (not run).
+
+Related evidence
+================
+analysis/radare2/output/perf/graphics_fnv_motion_blur_player_coverage_contract.txt
+.research/fnv-depth-resolve-main/DepthResolve/internal/Game/Gamebryo/NiStencilProperty.hpp
+omv/src/hooks.rs (existing native color renderer scopes)
+
+Raw radare2 disassembly
+=======================
+
+0x00e87ef0      push esi
+0x00e87ef1      push edi
+0x00e87ef2      mov edi, dword [esp + 0xc]
+0x00e87ef6      test byte [edi + 0x18], 1
+0x00e87efa      mov esi, ecx
+   ; unlikely
+0x00e87efc      je 0xe87fcb
+0x00e87f02      mov eax, dword [esi]
+0x00e87f04      mov edx, dword [eax + 0x68]
+0x00e87f07      push 0
+0x00e87f09      push 0
+; 1
+0x00e87f0b      push 1
+; '4'
+; 52
+0x00e87f0d      push 0x34
+   ; 0xffffffff(-1, 0x0, 0x0, -1)
+0x00e87f0f      call edx
+0x00e87f11      movzx ecx, word [edi + 0x18]
+0x00e87f15      mov eax, dword [esi]
+0x00e87f17      mov eax, dword [eax + 0x68]
+0x00e87f1a      push 0
+0x00e87f1c      shr ecx, 0xc
+0x00e87f1f      mov edx, dword [esi + ecx*4 + 0x9c]
+0x00e87f26      push 0
+0x00e87f28      push edx
+; '8'
+; 56
+0x00e87f29      push 0x38
+0x00e87f2b      mov ecx, esi
+   ; 0xffffffff(-1, 0x0, 0x0, -1)
+0x00e87f2d      call eax
+0x00e87f2f      mov eax, dword [edi + 0x1c]
+0x00e87f32      mov edx, dword [esi]
+0x00e87f34      mov edx, dword [edx + 0x68]
+0x00e87f37      push 0
+0x00e87f39      push 0
+0x00e87f3b      push eax
+; '9'
+; 57
+0x00e87f3c      push 0x39
+0x00e87f3e      mov ecx, esi
+   ; 0xffffffff(-1, 0x0, 0x0, -1)
+0x00e87f40      call edx
+0x00e87f42      mov ecx, dword [edi + 0x20]
+0x00e87f45      mov eax, dword [esi]
+0x00e87f47      mov edx, dword [eax + 0x68]
+0x00e87f4a      push 0
+0x00e87f4c      push 0
+0x00e87f4e      push ecx
+; ':'
+; 58
+0x00e87f4f      push 0x3a
+0x00e87f51      mov ecx, esi
+   ; 0xffffffff(-1, 0x0, 0x0, -1)
+0x00e87f53      call edx
+0x00e87f55      movzx ecx, word [edi + 0x18]
+0x00e87f59      mov eax, dword [esi]
+0x00e87f5b      mov eax, dword [eax + 0x68]
+0x00e87f5e      shr ecx, 1
+0x00e87f60      push 0
+0x00e87f62      and ecx, 7
+0x00e87f65      mov edx, dword [esi + ecx*4 + 0xbc]
+0x00e87f6c      push 0
+0x00e87f6e      push edx
+; '5'
+; 53
+0x00e87f6f      push 0x35
+0x00e87f71      mov ecx, esi
+   ; 0xffffffff(-1, 0x0, 0x0, -1)
+0x00e87f73      call eax
+0x00e87f75      movzx eax, word [edi + 0x18]
+0x00e87f79      mov edx, dword [esi]
+0x00e87f7b      mov edx, dword [edx + 0x68]
+0x00e87f7e      push 0
+0x00e87f80      shr eax, 4
+0x00e87f83      and eax, 7
+0x00e87f86      mov ecx, dword [esi + eax*4 + 0xbc]
+0x00e87f8d      push 0
+0x00e87f8f      push ecx
+; '6'
+; 54
+0x00e87f90      push 0x36
+0x00e87f92      mov ecx, esi
+   ; 0xffffffff(0x7, 0x0, 0x0, -1)
+0x00e87f94      call edx
+0x00e87f96      movzx ecx, word [edi + 0x18]
+0x00e87f9a      mov eax, dword [esi]
+0x00e87f9c      mov eax, dword [eax + 0x68]
+0x00e87f9f      shr ecx, 7
+0x00e87fa2      push 0
+0x00e87fa4      and ecx, 7
+0x00e87fa7      mov edx, dword [esi + ecx*4 + 0xbc]
+0x00e87fae      push 0
+0x00e87fb0      push edx
+; '7'
+; 55
+0x00e87fb1      push 0x37
+0x00e87fb3      mov ecx, esi
+   ; 0xffffffff(-1, 0x0, 0x0, -1)
+0x00e87fb5      call eax
+0x00e87fb7      mov edx, dword [esi]
+0x00e87fb9      mov eax, dword [edx + 0x68]
+0x00e87fbc      push 0
+0x00e87fbe      push 0
+; 255
+0x00e87fc0      push 0xff
+; ';'
+; 59
+0x00e87fc5      push 0x3b
+0x00e87fc7      mov ecx, esi
+   ; 0xffffffff(-1, 0x0, 0x0, -1)
+0x00e87fc9      call eax
+0x00e87fcb      movzx eax, word [edi + 0x18]
+0x00e87fcf      mov ecx, dword [esi + 0xf4]
+0x00e87fd5      mov edx, dword [esi]
+0x00e87fd7      mov edx, dword [edx + 0x68]
+0x00e87fda      shr eax, 0xa
+0x00e87fdd      push 0
+0x00e87fdf      and eax, 3
+0x00e87fe2      lea eax, [ecx + eax*2]
+0x00e87fe5      mov ecx, dword [esi + eax*4 + 0xd4]
+0x00e87fec      push 0
+0x00e87fee      push ecx
+; 22
+0x00e87fef      push 0x16
+0x00e87ff1      mov ecx, esi
+   ; 0xffffffff(0x5, 0x0, 0x0, -1)
+0x00e87ff3      call edx
+0x00e87ff5      pop edi
+0x00e87ff6      pop esi
+0x00e87ff7      ret 4
+0x00e87ffa      int3
+0x00e87ffb      int3
+0x00e87ffc      int3
+0x00e87ffd      int3
+0x00e87ffe      int3
+0x00e87fff      int3
+0x00e88000      push edi

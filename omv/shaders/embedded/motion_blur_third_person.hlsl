@@ -107,7 +107,8 @@ float2 ClipMotionToViewport(float2 uv, float2 motion) {
 }
 
 float2 BoundedMotion(float2 uv, float2 previousUv) {
-    float2 motion = (previousUv - uv) * MotionOptions.x;
+    // A backward shutter is a forward gather in the current color image.
+    float2 motion = (uv - previousUv) * MotionOptions.x;
     float speedPixels = length(motion * ScreenData.xy);
     float maxPixels = max(MotionOptions.y, 0.0f);
     if (speedPixels > maxPixels && speedPixels > 0.0001f) {
@@ -130,7 +131,9 @@ bool PreviousWorldSurfaceMatches(
     float predictedPreviousDepth,
     float motionPixels
 ) {
-    if (HistoryFlags.x < 0.5f) {
+    // An offscreen previous position has no history sample. Edge-clamping its
+    // coordinate would invent a matching surface from the border texel.
+    if (HistoryFlags.x < 0.5f || any(previousUv < 0.0f) || any(previousUv >= 1.0f)) {
         return false;
     }
     float previousRaw = UnpackDepth24(
@@ -206,15 +209,13 @@ float4 Main(float2 requestedUv : TEXCOORD0) : COLOR0 {
             ViewRay(uv, CurrentWorldFrustum) * centerDepth
         );
     }
-    if (previousPosition.z <= max(PreviousWorldDepth.x, 0.001f)) {
+    // Rotation-only sky directions are unit rays, not metric positions.
+    float minimumPreviousZ = centerSky ? 0.001f : max(PreviousWorldDepth.x, 0.001f);
+    if (previousPosition.z <= minimumPreviousZ) {
         return current;
     }
 
-    float2 previousUv = clamp(
-        ProjectPrevious(previousPosition, PreviousWorldFrustum),
-        0.5f * ScreenData.zw,
-        1.0f - 0.5f * ScreenData.zw
-    );
+    float2 previousUv = ProjectPrevious(previousPosition, PreviousWorldFrustum);
     float2 motion = BoundedMotion(uv, previousUv);
     float motionPixels = length(motion * ScreenData.xy);
     if (motionPixels <= 0.0001f) {

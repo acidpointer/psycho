@@ -4,8 +4,9 @@
 // first-person rendering. It must never classify or sample view-model data:
 // the engine's later RenderFirstPerson call is the exact coverage operation
 // that keeps hands, weapons, and their material variants outside the shutter.
-// Samples run from the current pixel toward its previous-frame position, which
-// is a trailing exposure rather than a symmetric leading smear.
+// Gathering current-frame color uses current-minus-previous displacement. A
+// feature then contributes to pixels toward its previous position, integrating
+// the shutter behind its motion rather than placing the trail ahead of it.
 
 #ifndef MOTION_BLUR_SAMPLES
 #define MOTION_BLUR_SAMPLES 7
@@ -108,7 +109,7 @@ float2 ClipMotionToViewport(float2 uv, float2 motion) {
 }
 
 float2 BoundedMotion(float2 uv, float2 previousUv) {
-    float2 motion = (previousUv - uv) * MotionOptions.x;
+    float2 motion = (uv - previousUv) * MotionOptions.x;
     float speedPixels = length(motion * ScreenData.xy);
     float maxPixels = max(MotionOptions.y, 0.0f);
     if (speedPixels > maxPixels && speedPixels > 0.0001f) {
@@ -181,15 +182,17 @@ float4 Main(float2 requestedUv : TEXCOORD0) : COLOR0 {
             ViewRay(uv, CurrentWorldFrustum) * centerDepth
         );
     }
-    if (previousPosition.z <= max(PreviousWorldDepth.x, 0.001f)) {
+    // A sky ray has arbitrary unit scale; only its facing sign is meaningful.
+    // Comparing it with a near plane in world units rejects ordinary sky rays.
+    float minimumPreviousZ = centerSky ? 0.001f : max(PreviousWorldDepth.x, 0.001f);
+    if (previousPosition.z <= minimumPreviousZ) {
         return current;
     }
 
-    float2 previousUv = clamp(
-        ProjectPrevious(previousPosition, PreviousWorldFrustum),
-        0.5f * ScreenData.zw,
-        1.0f - 0.5f * ScreenData.zw
-    );
+    // Keep the full projection for the motion direction. Clip the gather's
+    // length as one scalar in BoundedMotion instead of bending its two axes
+    // independently when the previous feature position was outside the image.
+    float2 previousUv = ProjectPrevious(previousPosition, PreviousWorldFrustum);
     float2 motion = BoundedMotion(uv, previousUv);
     float motionPixels = length(motion * ScreenData.xy);
     if (motionPixels <= 0.0001f) {
