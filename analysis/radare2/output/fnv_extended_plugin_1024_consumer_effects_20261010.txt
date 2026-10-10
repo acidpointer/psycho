@@ -1,0 +1,145 @@
+FNV 1,024 selected-file scenario: ESP/ESM and xNVSE DLL consumer effects
+Research date: 2026-10-10. Static/source evidence only; no expanded gameplay run.
+
+Scenario: 1,024 selected ESP/ESM files, including base masters. This is a
+user-requested example, not a replacement for the maximum-capacity objective.
+Core independence from xNVSE remains mandatory.
+
+Engine: fnv_reverse/FalloutNV.exe; preferred addresses in previously qualified
+PE32 image, SHA-256 42fee7d6cd74e801372aa89c8f71c974cebd3c20ec9ad43d1465b8fa9646b49c.
+Existing native admission, identity, and durability outputs remain authoritative.
+
+Reverified native call boundaries via radare2 MCP:
+
+0x847f08
+   ; fcn.00847660
+   ; fcn.00847660(-1)
+0x00847f08      call fcn.00847660
+0x00847f0d      mov byte [var_231h], al
+0x00847f13      movzx edx, byte [var_231h]
+0x00847f1a      test edx, edx
+   ; likely
+0x00847f1c      jne 0x847f93
+0x00847f1e      movzx eax, byte [var_ch_2]
+
+
+0x8480c2
+   ; fcn.00846e70
+   ; fcn.00846e70(-1)
+0x008480c2      call fcn.00846e70
+0x008480c7      mov ecx, dword [arg_8h]
+0x008480ca      push ecx
+0x008480cb      mov edx, dword [var_48ch]
+0x008480d1      mov ecx, dword [edx + 0xc]
+   ; fcn.00846e70
+   ; fcn.00846e70(-1)
+0x008480d4      call fcn.00846e70
+
+
+Official source: https://github.com/xNVSE/NVSE/tree/6.4.9
+Inspected extracted official archive at /tmp/psycho-xnvse-6.4.9.
+No comparison source was modified or built.
+
+Distinct DLL identity:
+- nvse/nvse/PluginAPI.h:24 defines PluginHandle as UInt32.
+- PluginManager.h:86-89 uses std::vector<LoadedPlugin>.
+- PluginManager.cpp:227-234 returns UInt32 number of DLL plugins.
+- PluginManager.cpp:654-664 assigns DLL handles independently and pushes DLLs.
+- Serialization.cpp:31-54 uses UInt32 DLL block count and opcode base.
+- libnvse/src/api/interface.rs:143-157 separately wraps a u32 NVSEPluginHandle.
+These domains do not consume ESP/ESM byte-owner slots. This is not evidence
+for an unlimited DLL count or qualification of all DLL loading behavior.
+
+Official source boundaries:
+- GameData.cpp:37-54 has 256 cached active-file pointers. A cold cache uses the
+  complete native list Count() as loop bound; loaded entries write by list
+  ordinal, not by a bounded compact output index.
+- GameData.cpp:55-58 returns list index as UInt8.
+- GameData.cpp:81-85 counts loaded files then returns UInt8.
+  If that count is exactly 1024, conversion returns 0; this is arithmetic
+  on the source contract, not a measured result from an expanded game.
+- Commands_Game.cpp:143-163 IsModLoaded searches by name and loaded state.
+  Its discovery path does not itself need a wide numerical owner.
+- Commands_Game.cpp:166-225 uses byte count/index, high-byte source owner,
+  and masked 24-bit local extraction.
+- Commands_Game.cpp:227-240 BuildRef masks modIdx with 0xFF.
+  Indices 0, 256, 512, 768 with the same local argument construct equal IDs.
+  This is direct algebra on executed command source, not a substitute test.
+- Core_Serialization.cpp:32-48 writes byte MODS count then only that many names.
+- Core_Serialization.cpp:165-200 uses byte saved count and byte owner fixup.
+- Serialization.cpp:640-669 remaps only the high-byte owner; FF passes through.
+- ArrayVar.h:319-322 has byte creator and vector of byte reference owners.
+- StringVar.h:23 and 63 has byte creator and byte setter.
+- Commands_Scripting.cpp:623-755 takes a byte owner before mod-local lookup;
+  commands pass script GetModIndex. Equal projected owner and equal key access
+  the same namespace; array IDs themselves are not thereby equal.
+- GameAPI.cpp:2944-2955 native no-argument allocator and independent overload:
+  the overload increments a full UInt32 until LookupFormByID returns null.
+- LambdaManager.cpp:161-176 and Commands_Inventory.cpp:2858-2866 use the
+  overload and accept candidates by high-byte equality. A reserved handle
+  lacking a materialized native form is invisible to that collision check.
+- libnvse/src/plugin/types.rs:76-92 similarly splits and constructs legacy
+  FormIds. Its ESL comment is not authority for Fallout New Vegas domains.
+
+Third-party source examples; no claim these are exact installed DLL bodies:
+1. .research/BaseObjectSwapperNV-master/src/Util.cpp:17-40
+   Plugin-qualified configuration values are converted by byte mod lookup
+   and shift/or with masked local ID. Editor-ID and complete runtime-ID paths
+   also exist and are separate, not proven globally compatible.
+   SwapData.cpp:24 and :81 admit returned nonzero IDs into swap/property data.
+   Effect for extended targets: byte projection cannot identify arbitrary
+   canonical owners; returned zero rejects, another valid value can select
+   the wrong record. No observed runtime mis-swap is asserted.
+2. .research/Stewie Tweaks 10.00 Source/code/Features/PrintNewModsOnLoad.cpp:3-23
+   Iterates DWORD selected count, reads saveLoadGame loadedMods[i] and native
+   loadedMods[i], then native list name. GameAPI.h:825-826 declares each byte
+   owner map with 255 entries. GameData.h declares 255 native file pointers.
+   main.cpp:850 enables this hook only under g_bPrintNewModsOnLoad.
+   If that feature runs with a full 1024 selected count and unchanged storage,
+   i=255 is already outside its declared maps/tables. It is not merely a
+   presentation error. Actual installed setting and runtime hook unqualified.
+3. Same source, code/serialization.cpp:184,231,254,275,281,324
+   Restores ammo, remembered weapons, cell/map/home state using the public
+   xNVSE ResolveRefID. Full DWORD payloads do not avoid byte-only remapping.
+4. Same source, code/Features/RaceMenu/AppearanceChange.h:81-110
+   Saved filename and ID are reconstructed via byte index and local mask.
+5. Same source, code/Features/ExtraConsoleDetails.cpp:52-56
+   Uses byte source owner directly to index the native fixed file table.
+   Wrong source reporting and boundary reads require qualification per value.
+6. Same source, code/Features/Inlines/SaveLoad.cpp:93-138,1103
+   Replacement dictionary reader calls its own byte owner remapper, then
+   inserts into both maps. It replaces call 0x8480C2.
+   code/Features/inlines.cpp:2787 gates installation on g_bInlineSaveLoad.
+   code/main.h:151 additionally gates Inlines::InitHooks on
+   g_bInlineVanillaFunctions. settings.h:3374 supplies bSaveLoad default 1;
+   settings.h:3607 contains a companion-module condition for the outer flag.
+   This describes external source behavior, never authorizes Psycho module
+   detection or private patching. Installed configuration remains unverified.
+   The replacement does not call vanilla 0x846E70 or its remapper 0x846D80.
+7. .research/ROOGNVSE/ttw_nvse/ttw_nvse.h:788-807
+   TTW_GetPlugins uses active-file cache and byte active count to build arrays.
+   This is the available comparison source, not installed TTW 3.3.3 proof.
+8. .research/itr-nvse-master/itr-nvse/features/NoWeaponSearch.cpp:44-58,106-140
+   The selected feature stores and compares complete UInt32 actor refIDs.
+   It does not derive an ESP owner in this path. This supports representation
+   compatibility for this in-session comparison only, not whole-DLL approval.
+
+Installed log evidence:
+- /data/storage0/Games/FalloutNV_TTW/FalloutNV/nvse.log:2490-2553 reports
+  BaseObjectSwapper version 2, Stewie Tweaks version 1000, EngineOptimizations
+  version 100, itr-nvse version 20203, TTW version 333, JIP version 5730,
+  JohnnyGuitar version 528, and ShowOff version 184 loaded correctly.
+- These observations establish deployment relevance in that logged session.
+  They establish neither expanded-file compatibility nor binary/source parity.
+- Current source coverage is not sufficient for installed JIP, JohnnyGuitar,
+  ShowOff, or every remaining DLL. Unknown stays unknown.
+
+Scenario payload arithmetic:
+- 1024 * 4-byte selected pointers = 4096 bytes, outside native inline storage.
+- 1024 * 256 * 4-byte selector tokens = 1048576 bytes excluding clones.
+- 1024 owners times 2^24 possible locals = 2^34 canonical combinations.
+  This is the full possible domain, not a record count in any actual workload.
+- Four-byte dense handles per 24-bit local domain = 64 MiB per owner;
+  1024 domains = 64 GiB. Sparse admitted handles avoid this dense allocation.
+Native 23-bit save ordinals and separate 16-bit dictionary domain are unchanged
+by choosing a 1024-file scenario; they remain record-domain admission gates.
