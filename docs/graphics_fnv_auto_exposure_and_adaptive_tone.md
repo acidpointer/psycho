@@ -113,12 +113,47 @@ that transient symmetrically. Display gain is `2^(EV/2.2)`, rather than applying
 `2^EV` directly to encoded RGB. With tone off, sampled highlight headroom also
 bounds positive target exposure.
 
+Negative transient exposure now acts fully through the display midpoint 0.5,
+then smoothly returns to neutral gain over input channel peaks 0.5..0.7.
+Bright response entries at or above 0.7 therefore retain their authored tone
+when the camera includes more dark ground. The unchanged global metering and
+history still drive shadow/midtone adaptation. This is a display-curve policy,
+not a sky classifier or an estimate of weather. It preserves scalar RGB ratios
+and source alpha, adds no full-resolution work, and leaves positive exposure,
+user tone strength, resource layout, and update cadence unchanged.
+
+The owner reported possible sky dimming when ground occupies more than half
+the frame. The unchanged production path reproduced that valid case with fixed
+sky/ground inputs: moving from 48 to 26 sky rows lowered unchanged sky output
+from approximately 0.8745 to 0.8657 as negative exposure began. The prior settled
+mixed-view tests disabled exposure and could not catch this transient. New
+production-path regressions retain bright values during continuous 48/26/16/8
+row transitions with default, saved, and maximum exposure ranges; they cover
+FP16 and UNORM output, gradients, color, alpha, and retained dark adaptation.
+This establishes an OMV mechanism, not the exact contribution of weather or
+native adaptation to the owner's gameplay view.
+
+The wider bright range is an intentional display calibration: the previous
+0.8 endpoint still allowed an unchanged 179/255 input to fall from 0.7017 to
+0.5654 in the executed maximum-range negative-adaptation regression. The
+0.7 endpoint now keeps the 179..255 gradient within two output codes of its
+neutral response across all tone modes, zero/default/maximum strength, and
+FP16/UNORM output. Continuous coverage tests use the lower 179/255 sky value;
+colored fixtures include that same channel peak. The whole gradient remains
+nondecreasing, alpha and color ratios are retained, and the 77/255 dark input
+still responds to negative adaptation. The smooth join and unchanged positive
+gain preserve the monotone response; no pass, sample, or resource is added.
+
 These are display-adaptation stops, not scene radiance or EV100. A settled
 view returns to neutral exposure. The correction retains the requested brief
 bright/dark transition behavior instead of introducing a second absolute
 exposure controller behind Fallout's own controller.
 
-Automatic tone observes only over-range peak energy after transient exposure.
+Automatic tone observes over-range peak energy including positive transient
+exposure. Negative exposure does not lower that highlight signal, because the
+bright entries themselves are protected from negative gain. The over-range
+regression verifies retained shoulder activity and unchanged bright output
+while camera coverage drives negative history.
 Its target is smoothstep over peaks 1..2; it rises with a 0.22 s half-life and
 releases with a 0.72 s half-life. Ordinary 0..1 sky occupancy does not change
 contrast. The speed control scales all temporal rates.

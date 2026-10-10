@@ -513,6 +513,200 @@ fn horizon_crossing_old_sample_row_does_not_jump_meter() {
 }
 
 #[test]
+fn looking_toward_ground_does_not_dim_existing_bright_surfaces() {
+    for quantized in [false, true] {
+        for (range, speed) in [(0.75, 1.0), (0.4189329, 0.4819511), (3.0, 1.0)] {
+            let mut h = Harness::new(
+                64,
+                64,
+                AdaptiveToneConfig {
+                    exposure_range_ev: range,
+                    adaptation_speed: speed,
+                    tone_mapper_strength: 0.6761261,
+                    ..AdaptiveToneConfig::default()
+                },
+            );
+            if quantized {
+                h.unorm_output();
+            }
+            let image = |sky_rows| {
+                (0..64 * 64)
+                    .map(|i| {
+                        if i / 64 < sky_rows {
+                            0xFFB3B3B3
+                        } else {
+                            0xFF4D4D4D
+                        }
+                    })
+                    .collect::<Vec<_>>()
+            };
+            h.image(&image(48));
+            h.frame(false, 1.0 / 60.0);
+            let anchor = h.pixels()[0];
+            for sky_rows in [26, 16, 8] {
+                h.image(&image(sky_rows));
+                let mut strongest_response = 0.0f32;
+                for _ in 0..90 {
+                    h.frame(true, 1.0 / 60.0);
+                    let pixels = h.pixels();
+                    strongest_response = strongest_response.min(h.history()[2]);
+                    assert!(pixels.iter().flatten().all(|value| value.is_finite()));
+                    assert!(
+                        (luma(pixels[0]) - luma(anchor)).abs() < 2.0 / 255.0,
+                        "ground coverage dimmed unchanged sky: rows={sky_rows}, range={range}, speed={speed}, quantized={quantized}, anchor={anchor:?}, sky={:?}, history={:?}",
+                        pixels[0],
+                        h.history()
+                    );
+                }
+                assert!(
+                    strongest_response < -0.035,
+                    "fixture did not exercise negative adaptation: {strongest_response}"
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn negative_adaptation_retains_bright_gradients_hue_and_dark_response() {
+    for quantized in [false, true] {
+        for mode in [
+            ToneMapperMode::Off,
+            ToneMapperMode::Neutral,
+            ToneMapperMode::Automatic,
+        ] {
+            for strength in [0.0, 0.65, 3.0] {
+                let mut h = Harness::new(
+                    256,
+                    32,
+                    AdaptiveToneConfig {
+                        exposure_range_ev: 3.0,
+                        tone_mapper_mode: mode,
+                        tone_mapper_strength: strength,
+                        ..AdaptiveToneConfig::default()
+                    },
+                );
+                if quantized {
+                    h.unorm_output();
+                }
+                // The top strip contains an unchanged display gradient. Dark
+                // ground below it drives strong negative temporal adaptation.
+                let image: Vec<_> = (0..256 * 32)
+                    .map(|i| {
+                        let v = if i / 256 < 4 { i % 256 } else { 26 };
+                        0x7F000000 | (v << 16) | (v << 8) | v
+                    })
+                    .collect();
+                h.image(&image);
+                h.frame(false, 1.0 / 60.0);
+                let neutral = h.pixels();
+                h.image(&vec![0x7FCCCCCC; 256 * 32]);
+                h.frame(false, 1.0 / 60.0);
+                h.image(&image);
+                for _ in 0..30 {
+                    h.frame(true, 1.0 / 60.0);
+                }
+                assert!(
+                    h.history()[2] < -0.5,
+                    "fixture did not exercise strong adaptation"
+                );
+                let active = h.pixels();
+                for pair in active[..256].windows(2) {
+                    assert!(
+                        pair[1][0] >= pair[0][0],
+                        "bright relief folded the response: {pair:?}"
+                    );
+                }
+                // Protect the wider bright range, including less intense sky
+                // and colored surfaces, without flattening its gradient.
+                for index in 179..256 {
+                    assert!(
+                        (active[index][0] - neutral[index][0]).abs() < 2.0 / 255.0,
+                        "bright gradient changed during negative adaptation: index={index}, active={:?}, neutral={:?}",
+                        active[index],
+                        neutral[index]
+                    );
+                }
+                assert!(
+                    active[77][0] < neutral[77][0] - 0.005,
+                    "protection removed the dark adaptation response"
+                );
+                assert!(active.iter().all(|p| {
+                    p.iter().all(|v| v.is_finite() && (0.0..=1.0).contains(v))
+                        && (p[3] - 127.0 / 255.0).abs() < 0.001
+                }));
+            }
+        }
+    }
+    // A channel peak, rather than luminance, owns the scalar display response.
+    // Thus saturated bright artwork retains its color ratios as well as value.
+    for color in [
+        0x7FB3B3B3, 0x7FBFBFBF, 0x7FCC8050, 0x7F809ACC, 0x7FB38050, 0x7F809AB3,
+    ] {
+        let mut h = Harness::new(64, 64, AdaptiveToneConfig::default());
+        h.image(&vec![color; 64 * 64]);
+        h.frame(false, 1.0 / 60.0);
+        let anchor = h.pixels()[0];
+        let image: Vec<_> = (0..64 * 64)
+            .map(|i| if i / 64 < 16 { color } else { 0x7F333333 })
+            .collect();
+        h.image(&image);
+        for _ in 0..30 {
+            h.frame(true, 1.0 / 60.0);
+        }
+        assert!(h.history()[2] < -0.1);
+        let current = h.pixels()[0];
+        for channel in 0..3 {
+            assert!((current[channel] - anchor[channel]).abs() < 2.0 / 255.0);
+        }
+    }
+}
+
+#[test]
+fn negative_adaptation_keeps_over_range_shoulder_and_sky_stable() {
+    let mut h = Harness::new(64, 64, AdaptiveToneConfig::default());
+    let fill = |h: &Harness, rows: f32| {
+        hlsl_input(
+            &h.owner.as_ref(),
+            64,
+            64,
+            b"float4 Coverage:register(c0);float4 Main(float2 uv:TEXCOORD0):COLOR0{\
+          float value=uv.y<0.0625?2.0:(uv.y<Coverage.x?0.8:0.3);\
+          return float4(value.xxx,0.5);}",
+            &[[rows / 64.0, 0.0, 0.0, 0.0]],
+        )
+    };
+    h.input = fill(&h, 48.0);
+    for frame in 0..180 {
+        h.frame(frame != 0, 1.0 / 60.0);
+    }
+    let anchor = h.pixels();
+    assert!(h.history()[3] > 0.99);
+    for rows in [26.0, 16.0, 8.0] {
+        h.input = fill(&h, rows);
+        let mut most_negative = 0.0f32;
+        for _ in 0..60 {
+            h.frame(true, 1.0 / 60.0);
+            most_negative = most_negative.min(h.history()[2]);
+            assert!(
+                h.history()[3] > 0.99,
+                "negative gain released highlight headroom"
+            );
+            let pixels = h.pixels();
+            for index in [0, 64 * 6] {
+                assert!(
+                    (pixels[index][0] - anchor[index][0]).abs() < 2.0 / 255.0,
+                    "unchanged highlight changed with framing: rows={rows}, anchor={:?}, current={:?}",
+                    anchor[index],
+                    pixels[index]
+                );
+            }
+        }
+        assert!(most_negative < -0.035);
+    }
+}
+
+#[test]
 fn every_strength_is_monotonic_hue_safe_and_matches_fixed_fallback() {
     let mut h = Harness::new(256, 8, AdaptiveToneConfig::default());
     let gradient: Vec<_> = (0..256 * 8)

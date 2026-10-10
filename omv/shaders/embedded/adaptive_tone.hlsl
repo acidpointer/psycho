@@ -111,7 +111,9 @@ float4 Main(PixelInput input) : COLOR0 {
         // Ordinary sky occupancy must not change contrast. Only actual
         // over-range light asks for extra shoulder headroom; tone contrast is
         // always controlled by the user's strength, independently of coverage.
-        float exposedPeak = meter.b * exp2(exposureEv / DisplayGamma);
+        // Negative adaptation is relieved in bright response entries below.
+        // It must not also release their shoulder when framing gets darker.
+        float exposedPeak = meter.b * exp2(max(exposureEv, 0.0f) / DisplayGamma);
         float targetTone = AdaptData1.y > 1.5f
             ? Smooth01(exposedPeak - 1.0f)
             : 0.0f;
@@ -128,11 +130,20 @@ float4 Main(PixelInput input) : COLOR0 {
 
     // Exposure is an approximate display-linear stop, not a gain applied to
     // already encoded RGB. Both fixed and automatic modes use the same curve.
-    float exposureScale = exp2(exposureEv / DisplayGamma);
     // Include both exact endpoints. Compose maps to texel centers so filtered
     // mapped peaks remain monotonic after FP16 storage and UNORM conversion.
     float curvePosition = (input.uv.x - 0.5f * AdaptData1.w) / (1.0f - AdaptData1.w);
     float curveLuma = curvePosition / max(1.0f - curvePosition, 1.0f / 65504.0f);
+    // Camera framing changes the metered mean even when a bright surface is
+    // unchanged. Keep negative adaptation in shadows/midtones, then smoothly
+    // relieve it between the display midpoint and a 0.7 bright channel peak.
+    // This also protects less intense sky and colored bright surfaces.
+    // Positive adaptation and the user's contrast remain unchanged.
+    // Relief is monotone for negative EV and has zero slope at both joins,
+    // preserving highlight gradients without a sky mask or full-screen work.
+    float brightRelief = Smooth01((curveLuma - 0.5f) / 0.2f);
+    float curveExposureEv = lerp(exposureEv, max(exposureEv, 0.0f), brightRelief);
+    float exposureScale = exp2(curveExposureEv / DisplayGamma);
     float toneStrength = AdaptData1.y > 0.5f ? AdaptData1.z : 0.0f;
     float amount = toneStrength / (1.0f + toneStrength);
     // Reserve more codes for highlight gradients independently of the toe.
