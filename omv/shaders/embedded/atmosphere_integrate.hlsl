@@ -284,8 +284,13 @@ float IntegratedWorldBlockage(float3 origin, float3 direction, float distance, f
         float sampleDistance = (index + 0.5f) * stepLength;
         float3 position = origin + direction * sampleDistance;
         // Both density coefficients are nonnegative production constants.
-        float density = MediumData0.x + MediumData0.y * exp(clamp(
-            heightOrigin + heightSlope * sampleDistance, -MaximumExponent, MaximumExponent));
+        float density = MediumData0.x;
+        // Lighting-only air has no height component. Avoid evaluating an
+        // exponential whose result is multiplied by zero at every shadow step.
+        if (MediumData0.y > 0.0f) {
+            density += MediumData0.y * exp(clamp(
+                heightOrigin + heightSlope * sampleDistance, -MaximumExponent, MaximumExponent));
+        }
         if (MediumData1.z > 0.0f) {
             density *= max(1.0f + DensityVariation(position) * MediumData1.z, 0.0f);
         }

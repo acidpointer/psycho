@@ -4,11 +4,74 @@ Date: 2026-07-19
 
 Status: scene-wide zero-shadow ownership correction accepted in game; scalable
 shadowless batching and its zero-output texture-binding regression corrected.
-The replacement-shadow path now shares the shadow pipeline's canonical point
-publication and radial-depth cubes with atmosphere. Current acceptance remains
-pending.
+The replacement-shadow path shares the shadow pipeline's canonical point
+publication and radial-depth cubes with atmosphere. The corrections below are
+qualified through controlled production GPU cases; exact game images and FPS
+remain unverified and gameplay validation belongs to the repository owner.
 
 ## Implementation record
+
+### Segment visibility and camera transitions
+
+The owner reported conspicuous circular streetlight volumes and camera-driven
+changes in `.reports/broken_lights.png`. That image has no accompanying raw
+lamp, depth or cube capture. The owner authorized controlled production-shader
+tests; these establish the following shader and admission defects, without
+claiming an exact reproduction of the screenshot:
+
+- One closest-approach shadow comparison classified an entire sphere interval.
+  Every 4/6/10-step variant now compares visibility at each integrated world
+  point, for both native projected maps and OMV cubes.
+- Cube visibility had an artificial 45-percent brightness floor and released
+  occlusion between 72 and 100 percent of the cube radius. Both mechanisms
+  invented illuminated shells. Visibility now uses the actual radial-depth
+  compare, its existing soft bias, and the current occlusion weight. Clear or
+  invalid texels retain the unshadowed fallback.
+- Native radiance calibration also inherited the full HG angular peak.
+  Local scattering now uses the normalized isotropic/HG mixture already used
+  by the directional source. Its FourPi-scaled peak stays below two while
+  retaining anisotropy and angular energy. Native gain, menu intensity,
+  attenuation radius and supported light coverage remain unchanged.
+- A brief ranking crossover could lease a different volume for two seconds.
+  Admission now follows the current ranking each frame and reverses the
+  existing scalar fade immediately. The fixed 32-track history and 4/8/16
+  desired-light budgets remain.
+- Optional cubes now carry the surface consumer's current admission/distance
+  presentation weight. This fades occlusion independently of emitter radiance.
+  Missing, stale or invalid cubes still select the scalar fallback; this does
+  not retain a stale cube to simulate a fade.
+
+The CPU uploads cube weights at c18 and precomputed phase coefficients at c21.
+The copied shadow payload keeps its existing fixed matrix storage, so the
+published scalar owner does not grow. Geometry, map identities, producer epoch,
+device/reset validation and native hook ownership are unchanged.
+
+The local pass skips its far layer when both reduced-depth endpoints are equal:
+the compositor selects the near layer for that exact cell. Mixed-depth cells
+retain both integrations. Constant-density air computes segment transmittance
+once per light; varying height/noise retains every sample. Neutral cube texels
+skip comparison arithmetic, and fully blocked samples skip radiance arithmetic
+while still advancing medium transmittance. All sample and light budgets remain.
+
+The automated GPU gates cover native half-interval occlusion, cube occlusion
+without a radius floor, normalized phase peaks, occlusion-only fade, scalar
+admission/retirement and brief rank crossovers. Full depth-reduction/integration/
+HDR-composition comparisons cover standard and reversed depth, all qualities,
+uniform and mixed depth, and active height/noise. The explicit benchmark compares
+the frozen original local shader with actual production two-layer batch draws
+for open/occluded cubes, one/four lights and lighting-only/fog media. It reports
+D3D9 query time for those controlled workloads, not gameplay FPS.
+
+All 27 compiled variants have instruction/byte, texture-op, sampler, temporary/
+constant register, balanced flow and prohibited-opcode gates. Their instruction
+decomposition also supplies the existing scissor/batch scheduling costs.
+Shader-model bounds follow Microsoft's
+[ps_3_0 contract](https://learn.microsoft.com/en-us/windows/win32/direct3dhlsl/dx9-graphics-reference-asm-ps-3-0).
+
+These contracts supersede the historical whole-ray visibility, brightness floor,
+full-HG peak and leased-admission decisions recorded below. The former absolute
+default brightness threshold is replaced by the actual isotropic reference and
+bounded normalized phase, with nonzero default output still required.
 
 The manager-epoch follow-up supersedes the original shadow-selected ownership
 model recorded later in this document:
@@ -61,8 +124,9 @@ model recorded later in this document:
   one near/far draw pair only when the union scissor cannot increase the exact
   compiled fragment-instruction model. Every light retains its full sample
   count and independent sphere interval. The render path uses fixed storage,
-  leased admission and fade history, no temporal jitter, and no additional
-  render target or scene-color copy.
+  current ranked admission and fade history, no temporal jitter, and no
+  additional per-frame pass or scene-color copy. Resolution-profile ownership
+  follows the common atmosphere target contract in the Phase 3 document.
 - Configuration, wrapped ImGui controls, local debug views, rejection and lock
   telemetry, reset ownership, and device validation keep local capture
   independent from the directional-sun toggle.
@@ -103,12 +167,12 @@ shadow-owned point frame through the production device/generation/epoch
 admission and renders it through the complete shipped depth reduction, local
 integration, and HDR composition on a real D3D9 device in an interior. A clear
 radial-depth cube must produce nonzero final HDR pixels; a nearer occluder in
-all six faces must reduce that energy below 45 percent; and a frame older than
+all six faces must reduce that energy below 30 percent; and a frame older than
 the one-epoch producer/consumer allowance must produce no pixels. The compare
 uses the same direction, radius normalization, invalid-depth rule, and receiver
 bias as the point-shadow compositor. This closes the automated handoff and
 shader-output hole, but cannot execute the native game callback lifecycle;
-exact exterior/interior game pixels remain the release gate.
+exact exterior/interior game pixels are not established offline.
 
 The visibility fixture must use the shipped lighting-only medium density of
 `0.000002`, not the sanitized maximum of `0.001`. The latter is 500 times
@@ -118,8 +182,9 @@ photometric radiance value, so the shipped shader applies a fixed native-light
 radiance calibration of `8.0` to local emission only. It does not increase
 medium extinction or directional lighting. The menu intensity remains a
 linear multiplier with exact zero output. The full D3D9 gate requires a final
-HDR luminance peak above `0.04` in both an interior and an exterior at shipped
-defaults, retains cube occlusion and stale-frame rejection, and separately
+HDR luminance peak above 80 percent of the actual isotropic reference and at
+most twice that reference in both an interior and an exterior at shipped
+defaults. It retains cube occlusion and stale-frame rejection, and separately
 proves half-intensity reduction, zero-intensity output, enable/disable output,
 debug selection, and debug disable behavior.
 

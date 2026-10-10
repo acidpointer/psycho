@@ -537,8 +537,8 @@ impl TerrainRenderSnapshot {
 #[derive(Clone, Copy, Debug)]
 /// Copied sampling contract for one retained local-light shadow.
 pub(crate) struct LocalShadowValues {
-    /// Native combined projection matrix. For an OMV cube, `[0][0..2]` stores
-    /// cube radius and receiver bias so the released fixed-size owner does not
+    /// Native combined projection matrix. For an OMV cube, `[0][0..3]` stores
+    /// cube radius, receiver bias and occlusion weight so the fixed-size owner does not
     /// grow a second tagged payload.
     pub(crate) shadow_matrix: [[f32; 4]; 4],
     #[allow(dead_code)]
@@ -552,9 +552,9 @@ pub(crate) struct LocalShadowValues {
 }
 
 impl LocalShadowValues {
-    fn omv_cube(cube_radius: f32, receiver_bias: f32) -> Self {
+    fn omv_cube(cube_radius: f32, receiver_bias: f32, shadow_weight: f32) -> Self {
         let mut shadow_matrix = [[0.0; 4]; 4];
-        shadow_matrix[0] = [cube_radius, receiver_bias, 0.0, 0.0];
+        shadow_matrix[0] = [cube_radius, receiver_bias, shadow_weight, 0.0];
         Self {
             shadow_matrix,
             shadow_view_matrix: [[0.0; 4]; 4],
@@ -563,10 +563,13 @@ impl LocalShadowValues {
         }
     }
 
-    /// Return the radial-depth cube radius and comparison bias.
-    pub(crate) fn omv_cube_contract(self) -> Option<(f32, f32)> {
-        (self.format == ShadowTextureFormat::OmvCube)
-            .then_some((self.shadow_matrix[0][0], self.shadow_matrix[0][1]))
+    /// Return cube radius, comparison bias and current occlusion-only weight.
+    pub(crate) fn omv_cube_contract(self) -> Option<(f32, f32, f32)> {
+        (self.format == ShadowTextureFormat::OmvCube).then_some((
+            self.shadow_matrix[0][0],
+            self.shadow_matrix[0][1],
+            self.shadow_matrix[0][2],
+        ))
     }
 }
 
@@ -1202,7 +1205,7 @@ fn try_build_atmosphere_epoch_for_scene(
         .and_then(|mut published| published.take())
         .filter(|epoch| epoch.is_current(device_identity, device_generation, render_epoch));
     let shadows = resource_shadows(resource_epoch);
-    let point_frame = crate::effects::shadows::volumetric_point_lights().filter(|frame| {
+    let point_frame = crate::effects::shadows::volumetric_point_lights(camera).filter(|frame| {
         let epoch_usable = render_epoch == frame.render_epoch
             || render_epoch == frame.render_epoch.wrapping_add(1);
         frame.device_identity == device_identity
@@ -2318,11 +2321,17 @@ fn build_scene_epoch(
                 || point.cube_radius < light.values.radius
                 || !point.receiver_bias.is_finite()
                 || point.receiver_bias < 0.0
+                || !point.shadow_weight.is_finite()
+                || !(0.0..=1.0).contains(&point.shadow_weight)
             {
                 return None;
             }
             Some(LocalShadow {
-                values: LocalShadowValues::omv_cube(point.cube_radius, point.receiver_bias),
+                values: LocalShadowValues::omv_cube(
+                    point.cube_radius,
+                    point.receiver_bias,
+                    point.shadow_weight,
+                ),
                 texture: LocalShadowTexture::from_base(point.texture),
                 device_identity: frame.device_identity,
             })
@@ -2408,7 +2417,11 @@ fn build_shadow_point_epoch(
                 radius: point.receiver_radius,
             },
             shadow: Some(LocalShadow {
-                values: LocalShadowValues::omv_cube(point.cube_radius, point.receiver_bias),
+                values: LocalShadowValues::omv_cube(
+                    point.cube_radius,
+                    point.receiver_bias,
+                    point.shadow_weight,
+                ),
                 texture: LocalShadowTexture::from_base(point.texture),
                 device_identity: frame.device_identity,
             }),
@@ -2461,6 +2474,26 @@ pub(crate) fn source_epoch_for_shader_behavior(
     device_identity: usize,
     device_generation: u32,
 ) -> LocalLightEpoch {
+    source_lights_epoch_for_shader_behavior(
+        &[values],
+        consumer_camera,
+        render_epoch,
+        device_identity,
+        device_generation,
+    )
+}
+
+/// Run controlled scalar inventories through production ranking and joining.
+/// Identities follow slice order, permitting camera/rank transitions in the
+/// actual atmosphere consumer without a replacement selection algorithm.
+#[cfg(test)]
+pub(crate) fn source_lights_epoch_for_shader_behavior(
+    values: &[LocalLightValues],
+    consumer_camera: crate::backend::CameraFrame,
+    render_epoch: u32,
+    device_identity: usize,
+    device_generation: u32,
+) -> LocalLightEpoch {
     let mut source = SceneLightFrame {
         render_epoch,
         device_identity,
@@ -2468,16 +2501,19 @@ pub(crate) fn source_epoch_for_shader_behavior(
         complete: true,
         ..SceneLightFrame::default()
     };
-    source.lights[0] = SceneLight {
-        native_light_identity: 1,
-        effect_type: NATIVE_POINT_LIGHT_TYPE,
-        position: values.position,
-        diffuse: values.color,
-        dimmer: 1.0,
-        radius: values.radius,
-        ..SceneLight::default()
-    };
-    source.count = 1;
+    assert!(values.len() <= source.lights.len());
+    for (index, values) in values.iter().enumerate() {
+        source.lights[index] = SceneLight {
+            native_light_identity: index + 1,
+            effect_type: NATIVE_POINT_LIGHT_TYPE,
+            position: values.position,
+            diffuse: values.color,
+            dimmer: 1.0,
+            radius: values.radius,
+            ..SceneLight::default()
+        };
+    }
+    source.count = values.len();
     let ranked = select_atmosphere_lights(&source, consumer_camera, false);
     build_scene_epoch(
         render_epoch,

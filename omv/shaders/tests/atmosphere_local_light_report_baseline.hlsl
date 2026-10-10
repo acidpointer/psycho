@@ -31,14 +31,6 @@ samplerCUBE OmvShadowCube3 : register(s5);
 #define LOCAL_LIGHT_SHADOW_MODE 0
 #endif
 
-#ifndef LOCAL_LIGHT_SKIP_SHARED_FAR
-#define LOCAL_LIGHT_SKIP_SHARED_FAR 1
-#endif
-
-#ifndef LOCAL_LIGHT_UNIFORM_MEDIUM
-#define LOCAL_LIGHT_UNIFORM_MEDIUM 1
-#endif
-
 float4 ReducedTarget : register(c0);
 float4 DepthData : register(c1);
 float4 CameraFrustum : register(c2);
@@ -56,7 +48,6 @@ float4 LocalColorIntensity1 : register(c13);
 float4 LocalColorIntensity2 : register(c14);
 float4 LocalColorIntensity3 : register(c15);
 float4 LocalControl : register(c16);
-float4 LocalPhaseControl : register(c21); // mixture, 1-g*g, 1+g*g, -2*g
 #if LOCAL_LIGHT_SHADOW_MODE == 1
 float4 ShadowMatrix0 : register(c17);
 float4 ShadowMatrix1 : register(c18);
@@ -64,7 +55,6 @@ float4 ShadowMatrix2 : register(c19);
 float4 ShadowMatrix3 : register(c20);
 #elif LOCAL_LIGHT_SHADOW_MODE == 2
 float4 ShadowCubeData : register(c17); // xyzw cube radii
-float4 ShadowCubeWeight : register(c18); // xyzw occlusion-only fades
 #endif
 
 static const float MaximumOpticalDepth = 40.0f;
@@ -126,26 +116,18 @@ float DensityVariation(float3 worldPosition) {
 #endif
 }
 
-// Use the same energy-normalized isotropic/HG mixture as sunlight. Native
-// diffuse/dimmer calibration must not acquire a second, unbounded angular
-// gain as the camera crosses a lamp. The mixture retains anisotropy and has a
-// peak of at most two isotropic units for every supported g.
-float LocalPhase(float mu) {
-	// Batch-invariant HG coefficients are uploaded once, rather than rebuilt
-	// for every ray segment in every light.
-	float denominator = max(LocalPhaseControl.z + LocalPhaseControl.w * clamp(mu, -1.0f, 1.0f), 0.000001f);
-	float inverse = rsqrt(denominator);
-	float hg = LocalPhaseControl.y * inverse * inverse * inverse;
-	return lerp(1.0f, hg, LocalPhaseControl.x);
+float HenyeyGreenstein(float mu, float anisotropy) {
+	float g = clamp(anisotropy, -0.8f, 0.9f);
+	float denominator = max(1.0f + g * g - 2.0f * g * clamp(mu, -1.0f, 1.0f), 0.000001f);
+	return (1.0f - g * g) / (denominator * sqrt(denominator));
 }
 
 float ShadowVisibility(
 	float3 worldPosition,
 	float4 positionRadius
 #if LOCAL_LIGHT_SHADOW_MODE == 2
-	, float casterDepth,
-	float cubeRadius,
-	float shadowWeight
+	, samplerCUBE shadowCube,
+	float cubeRadius
 #endif
 ) {
 #if LOCAL_LIGHT_SHADOW_MODE == 1
@@ -172,14 +154,12 @@ float ShadowVisibility(
 	float shadowDepth = tex2Dlod(NativeShadow, float4(shadowUv, 0.0f, 0.0f)).r;
 	return shadowPosition.z < shadowDepth + LocalControl.x ? 1.0f : 0.0f;
 #elif LOCAL_LIGHT_SHADOW_MODE == 2
-	if (shadowWeight <= 0.0f) return 1.0f;
 	float3 toLight = positionRadius.xyz - worldPosition;
-	// Neutral/invalid texels have no occluder. Reject them before distance and
-	// soft comparison work; per-segment visibility otherwise repeats that work
-	// even for an entirely clear cube.
-	if (!(casterDepth > 0.0f && casterDepth < 1.0f)) return 1.0f;
 	float distance = length(toLight);
 	float normalizedDistance = distance / max(cubeRadius, ProjectionEpsilon);
+	float3 cubeDirection = toLight * float3(-1.0f, -1.0f, 1.0f);
+	float casterDepth = texCUBElod(shadowCube, float4(cubeDirection, 0.0f)).r;
+	float validDepth = casterDepth > 0.0f && casterDepth < 1.0f;
 	float comparisonBias = LocalControl.x * max(normalizedDistance, 0.25f);
 	float comparisonWidth = max(comparisonBias, 0.02f);
 	float visibility = 1.0f - smoothstep(
@@ -187,10 +167,13 @@ float ShadowVisibility(
 		casterDepth + comparisonBias + comparisonWidth,
 		normalizedDistance
 	);
-	// Single scattering is blocked at the sampled world point. A radius-based
-	// release or brightness floor invents illuminated shells behind occluders.
-	// Neutral/invalid cube texels remain the existing unshadowed fallback.
-	return lerp(1.0f, visibility, shadowWeight);
+	// Point cubes are a derived shadow-consumer resource, not ownership of the
+	// source volume. Preserve its outer attenuation envelope and retain a
+	// multiple-scattering floor so a cube edge can form a bounded ray without
+	// cutting the light into detached sphere fragments.
+	float innerShadowWeight = 1.0f - smoothstep(0.72f, 1.0f, normalizedDistance);
+	float boundedVisibility = lerp(1.0f, visibility, 0.55f * innerShadowWeight);
+	return lerp(1.0f, boundedVisibility, validDepth);
 #else
 	return 1.0f;
 #endif
@@ -204,8 +187,7 @@ float3 IntegrateLocalLight(
 	float4 colorIntensity
 #if LOCAL_LIGHT_SHADOW_MODE == 2
 	, samplerCUBE shadowCube,
-	float cubeRadius,
-	float shadowWeight
+	float cubeRadius
 #endif
 ) {
 	float3 toCenter = positionRadius.xyz - worldOrigin;
@@ -223,83 +205,57 @@ float3 IntegrateLocalLight(
 	}
 
 	float stepLength = (exitDistance - entry) / LOCAL_LIGHT_SAMPLE_COUNT;
-	float entryOpticalDepth = MediumData0.x * entry;
-	if (MediumData0.y > 0.0f) {
-		entryOpticalDepth += max(AnalyticHeightOpticalDepth(entry, worldOrigin.z, worldDirection.z), 0.0f);
-	}
+	float entryOpticalDepth = MediumData0.x * entry
+		+ max(AnalyticHeightOpticalDepth(entry, worldOrigin.z, worldDirection.z), 0.0f);
 	float cameraTransmittance = exp(-clamp(entryOpticalDepth, 0.0f, MaximumOpticalDepth));
-	float3 nativeRadiance = colorIntensity.rgb * max(colorIntensity.w, 0.0f) * NativeLightRadianceScale;
 	float3 scattering = 0.0f;
 	float visibilitySum = 0.0f;
-#if LOCAL_LIGHT_UNIFORM_MEDIUM
-	bool variableDensity = MediumData0.y > 0.0f;
-#if LOCAL_LIGHT_USE_NOISE
-	variableDensity = variableDensity || MediumData1.z > 0.0f;
+	// One shadow probe per light instead of one per ray step.
+	//
+	// Owner-approved approximation (2026-09 interior performance contract):
+	// volumetric rays near a point light are short and the cube comparison
+	// field is evaluated at the ray's closest approach to the light center -
+	// the strongest-attenuation point and the most representative occlusion
+	// sample. Every other per-step term (density, optical depth,
+	// transmittance, attenuation, phase) keeps its exact ray-positioned
+	// evaluation. This removes the per-step cube taps (six to ten per pixel
+	// per light at the shipped qualities).
+	float probeDistance = clamp(projectedCenter, entry, exitDistance);
+	float3 probePosition = worldOrigin + worldDirection * probeDistance;
+	float rayVisibility = ShadowVisibility(
+		probePosition,
+		positionRadius
+#if LOCAL_LIGHT_SHADOW_MODE == 2
+		, shadowCube,
+		cubeRadius
 #endif
-	float uniformStepTransmittance = 1.0f;
-	if (!variableDensity) {
-		uniformStepTransmittance = exp(-clamp(MediumData0.x * stepLength, 0.0f, MaximumOpticalDepth));
-	}
-#endif
-	// Visibility belongs inside the integral: one closest-approach comparison
-	// cannot classify the entire ray as its occluders and camera direction vary.
+	);
 	[loop]
 	for (int sampleIndex = 0; sampleIndex < LOCAL_LIGHT_SAMPLE_COUNT; ++sampleIndex) {
 		float sampleDistance = entry + (sampleIndex + 0.5f) * stepLength;
 		float3 worldPosition = worldOrigin + worldDirection * sampleDistance;
-#if LOCAL_LIGHT_SHADOW_MODE == 2
-		// Start the cube read before independent medium/noise arithmetic. The
-		// compare still uses this exact segment, and zero fade performs no read.
-		float casterDepth = 1.0f;
-		if (shadowWeight > 0.0f) {
-			float3 cubeDirection = (positionRadius.xyz - worldPosition) * float3(-1.0f, -1.0f, 1.0f);
-			casterDepth = texCUBElod(shadowCube, float4(cubeDirection, 0.0f)).r;
-		}
-#endif
-#if LOCAL_LIGHT_UNIFORM_MEDIUM
-		float stepTransmittance = uniformStepTransmittance;
-		if (variableDensity) {
-#endif
-			float density = MediumData0.x;
-			if (MediumData0.y > 0.0f) density += SafeHeightDensity(worldPosition.z);
-			density *= DensityVariation(worldPosition);
-			float stepOpticalDepth = clamp(density * stepLength, 0.0f, MaximumOpticalDepth);
-			float varyingTransmittance = exp(-stepOpticalDepth);
-#if LOCAL_LIGHT_UNIFORM_MEDIUM
-			stepTransmittance = varyingTransmittance;
-		}
-#else
-		float stepTransmittance = varyingTransmittance;
-#endif
-		float visibility = ShadowVisibility(
-			worldPosition,
-			positionRadius
-#if LOCAL_LIGHT_SHADOW_MODE == 2
-			, casterDepth,
-			cubeRadius,
-			shadowWeight
-#endif
-		);
+		float density = max(MediumData0.x + SafeHeightDensity(worldPosition.z), 0.0f);
+		density *= DensityVariation(worldPosition);
+		float stepOpticalDepth = clamp(density * stepLength, 0.0f, MaximumOpticalDepth);
+		float stepTransmittance = exp(-stepOpticalDepth);
+		float midpointTransmittance = cameraTransmittance * sqrt(stepTransmittance);
+		float3 lightVector = positionRadius.xyz - worldPosition;
+		float distanceSquared = dot(lightVector, lightVector);
+		float attenuation = saturate(1.0f - distanceSquared / max(radius * radius, ProjectionEpsilon));
+		float inverseLightDistance = rsqrt(max(distanceSquared, ProjectionEpsilon));
+		float3 directionToLight = lightVector * inverseLightDistance;
+		float phase = HenyeyGreenstein(dot(worldDirection, directionToLight), LocalControl.z);
+		float visibility = rayVisibility;
 		visibilitySum += visibility;
-		// A fully occluded sample has exactly zero single-scattering radiance.
-		// Avoid its phase/attenuation work, but always advance transmittance:
-		// later visible samples still look through this segment's medium.
-		if (visibility > 0.0f) {
-			float midpointTransmittance = cameraTransmittance * sqrt(stepTransmittance);
-			float3 lightVector = positionRadius.xyz - worldPosition;
-			float distanceSquared = dot(lightVector, lightVector);
-			float attenuation = saturate(1.0f - distanceSquared / max(radius * radius, ProjectionEpsilon));
-			float inverseLightDistance = rsqrt(max(distanceSquared, ProjectionEpsilon));
-			float3 directionToLight = lightVector * inverseLightDistance;
-			float phase = LocalPhase(dot(worldDirection, directionToLight));
-			float scatterAmount = (1.0f - stepTransmittance) * saturate(MediumData1.y);
-			scattering += nativeRadiance
-				* attenuation
-				* phase
-				* visibility
-				* midpointTransmittance
-				* scatterAmount;
-		}
+		float scatterAmount = (1.0f - stepTransmittance) * saturate(MediumData1.y);
+		scattering += colorIntensity.rgb
+			* max(colorIntensity.w, 0.0f)
+			* NativeLightRadianceScale
+			* attenuation
+			* phase
+			* visibility
+			* midpointTransmittance
+			* scatterAmount;
 		cameraTransmittance *= stepTransmittance;
 	}
 
@@ -323,15 +279,6 @@ float3 IntegrateLocalLight(
 
 float4 Main(PixelInput input) : COLOR0 {
 	float2 encodedDepth = tex2Dlod(ReducedDepth, float4(input.uv, 0.0f, 0.0f)).rg;
-#if LOCAL_LIGHT_SKIP_SHARED_FAR
-	// Composition chooses the near layer independently at every gather tap
-	// when its encoded endpoints match (span=0, layerBlend=0). The far local
-	// contribution is then unused: skip its complete march and cube samples.
-	// Mixed cells retain both integrations and their original composition.
-	if (LocalControl.y > 0.5f && encodedDepth.x == encodedDepth.y) {
-		return 0.0f;
-	}
-#endif
 	float encodedDistance = lerp(encodedDepth.x, encodedDepth.y, saturate(LocalControl.y));
 	float depthDistance = min(DecodeDistance(encodedDistance), min(MediumData1.x, DepthData.w));
 	if (depthDistance <= IntervalEpsilon) {
@@ -360,8 +307,7 @@ float4 Main(PixelInput input) : COLOR0 {
 		LocalColorIntensity0
 #if LOCAL_LIGHT_SHADOW_MODE == 2
 		, OmvShadowCube0,
-		ShadowCubeData.x,
-		ShadowCubeWeight.x
+		ShadowCubeData.x
 #endif
 	);
 #if LOCAL_LIGHT_BATCH_SIZE >= 2
@@ -373,8 +319,7 @@ float4 Main(PixelInput input) : COLOR0 {
 		LocalColorIntensity1
 #if LOCAL_LIGHT_SHADOW_MODE == 2
 		, OmvShadowCube1,
-		ShadowCubeData.y,
-		ShadowCubeWeight.y
+		ShadowCubeData.y
 #endif
 	);
 #endif
@@ -387,8 +332,7 @@ float4 Main(PixelInput input) : COLOR0 {
 		LocalColorIntensity2
 #if LOCAL_LIGHT_SHADOW_MODE == 2
 		, OmvShadowCube2,
-		ShadowCubeData.z,
-		ShadowCubeWeight.z
+		ShadowCubeData.z
 #endif
 	);
 #endif
@@ -401,8 +345,7 @@ float4 Main(PixelInput input) : COLOR0 {
 		LocalColorIntensity3
 #if LOCAL_LIGHT_SHADOW_MODE == 2
 		, OmvShadowCube3,
-		ShadowCubeData.w,
-		ShadowCubeWeight.w
+		ShadowCubeData.w
 #endif
 	);
 #endif

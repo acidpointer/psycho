@@ -186,6 +186,8 @@ pub(crate) struct VolumetricPointLight {
     pub(crate) cube_radius: f32,
     /// Receiver comparison bias used by the point-shadow compositor.
     pub(crate) receiver_bias: f32,
+    /// Current consumer's occlusion-only admission and distance fade.
+    pub(crate) shadow_weight: f32,
     /// Type-erased sampler reference to the exact published point cube.
     pub(crate) texture: BaseTexture9,
 }
@@ -457,10 +459,15 @@ impl ShadowPipeline {
     /// Clone the exact point-light/cube pairs owned by the current publication.
     ///
     /// The returned COM references keep the cubes alive until atmosphere has
-    /// consumed this render epoch. An empty but current publication remains
-    /// meaningful: it prevents a second, later manager walk from inventing a
-    /// different light set after the native tail has changed its caches.
-    pub(crate) fn volumetric_point_lights(&self) -> Option<VolumetricPointLightFrame> {
+    /// consumed this render epoch. The consumer camera determines the surface
+    /// compositor's current presentation weight; it fades only cube occlusion.
+    /// Scalar-light enumeration remains independently owned by the manager
+    /// epoch. Stale publications, invalid cameras and missing resources return
+    /// `None`; unavailable point slots remain optional joins.
+    pub(crate) fn volumetric_point_lights(
+        &self,
+        camera: CameraFrame,
+    ) -> Option<VolumetricPointLightFrame> {
         let publication = self.published?;
         if !publication_epoch_is_usable(
             publication.identity.render_epoch,
@@ -470,11 +477,31 @@ impl ShadowPipeline {
         }
         let resources = self.resources.as_ref()?;
         let point_resources = resources.points.as_ref();
+        let view = shadow_camera(camera)?;
+        let settings = super::current_settings();
+        let now_millis = self
+            .clock_origin
+            .elapsed()
+            .as_millis()
+            .min(u64::MAX as u128) as u64;
         let lights = std::array::from_fn(|index| {
             if index >= publication.point_count {
                 return None;
             }
             let point = publication.points[index];
+            let relative = std::array::from_fn(|axis| {
+                point.position[axis] - camera.world_transform.translation[axis]
+            });
+            // Match the surface consumer at the same pre-alpha boundary. The
+            // emitter remains owned by the scalar inventory; this fade applies
+            // only to the optional cube's visibility, never its radiance.
+            let shadow_weight = point.presentation_weight(
+                relative,
+                view.forward,
+                settings.interior_light_draw_distance,
+                now_millis,
+                settings.dynamic_shadow_fade_millis(),
+            )?;
             let texture = point_resources?
                 .point_cubes
                 .get(index)?
@@ -489,6 +516,7 @@ impl ShadowPipeline {
                 receiver_radius: point.receiver_radius,
                 cube_radius: point.cube_radius,
                 receiver_bias: point.receiver_bias,
+                shadow_weight,
                 texture,
             })
         });

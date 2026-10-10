@@ -607,11 +607,15 @@ pub(crate) fn directional_sun_direction(native: [f32; 3]) -> [f32; 3] {
 ///
 /// Atmosphere calls this at the established pre-alpha boundary immediately
 /// after shadow composition. A busy or absent shadow owner returns `None`;
-/// the caller then uses its nonblocking native-light fallback.
-pub(crate) fn volumetric_point_lights() -> Option<VolumetricPointLightFrame> {
+/// the caller preserves its independent scalar inventory. `camera` selects the
+/// same occlusion-only admission/distance fade as the surface consumer. Invalid
+/// camera state or unavailable resources returns `None`; no caller blocks.
+pub(crate) fn volumetric_point_lights(
+    camera: crate::backend::CameraFrame,
+) -> Option<VolumetricPointLightFrame> {
     PIPELINE
         .try_lock()
-        .and_then(|pipeline| pipeline.volumetric_point_lights())
+        .and_then(|pipeline| pipeline.volumetric_point_lights(camera))
 }
 
 /// Retain the current directional maps and camera-relative transforms for haze.

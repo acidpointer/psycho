@@ -9,6 +9,36 @@ repository owner.
 
 ## Opacity contract and per-frame work
 
+The world-shadow field's 8/12/20-step budget now follows Shaft Quality
+independently of Fog Quality. The previous c42.z upload used the fog sample
+count and could charge a different directional tier than the selected one.
+The projected fallback retains its separate 24/40/56-tap budget. The production
+GPU gate deliberately uses different fog and directional tiers, then compares
+the field with the requested directional-tier binding.
+
+Common atmosphere resolution includes the active directional tier and promotes
+for local quality only when usable local volumes actually contribute. An empty
+local inventory no longer forces a Performance fog/directional draw from
+quarter to half resolution. A real D3D9 target-dimension gate covers this case
+and higher directional tiers. Both resolution profiles are retained after first
+use so camera admission changes reuse their exact resources. A viewport change
+invalidates both; device reset drops their owner. Format payload is 20 bytes
+per reduced pixel: at 3440x1440, half resolution is about 23.62 MiB and quarter
+resolution about 5.91 MiB. Both resident profiles cost about 29.53 MiB; only
+profiles actually used are allocated, excluding driver allocation overhead.
+The spare profile occupies the released
+local-selection array slot with identical size/alignment, preserving the lazy
+world owner's inline footprint.
+
+Lighting-only field samples skip the height exponential when height density is
+zero. The unchanged varying-height/noise path remains covered by production
+GPU field parity and the existing instruction/texture budgets. Controlled
+GPU field timing does not measure the complete native shadow transaction.
+Directional demand still activates the four-cascade EVSM/actor producer even
+when surface sun shadows are disabled. The owner's reported 100-120 to
+75-95 FPS drop has no per-pass capture proving its individual cost split, so
+offline results do not establish recovery of that reported game FPS loss.
+
 The owner accepted the bounded solar halo but reported weak godrays and severe
 remaining directional-light cost. The directional request activates the common
 native shadow producer even with surface sun shadows disabled. Its workload
@@ -127,8 +157,8 @@ Directional scattering uses a normalized isotropic/HG mixture. For HG peak
 integrate to one, so the mixture preserves angular energy and bounds the
 FourPi-scaled peak below two. The resulting isotropic carrier remains visible
 away from the sun. The native sky retains ownership of solar haze and the disk;
-local volumetric lights retain their released HG response. Mixture weight is
-computed once per integration/debug pass in existing constant padding, with no
+local volumetric lights now share this normalized phase policy. Directional
+mixture weight is computed once per integration/debug pass in existing constant padding, with no
 configuration-layout, owner or shader-preparation lifecycle change.
 
 A completed near-layer atmosphere pixel is reused by the far integration when
