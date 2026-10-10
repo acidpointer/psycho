@@ -1499,15 +1499,7 @@ fn sunshafts_source(config: &SunshaftsConfig) -> ScreenShaderSource {
             float_option("intensity", "Intensity", config.intensity, 0.0, 2.5, 3, 0),
             float_option("exposure", "Exposure", config.exposure, 0.0, 2.8, 3, 1),
             float_option("decay", "Decay", config.decay, 0.65, 1.035, 3, 2),
-            float_option(
-                "density",
-                "Ray extinction",
-                config.density,
-                0.20,
-                1.35,
-                3,
-                3,
-            ),
+            float_option("density", "Ray contrast", config.density, 0.20, 1.35, 3, 3),
             float_option("force", "Force", config.force, 0.0, 4.0, 4, 0),
             float_option(
                 "bright_threshold",

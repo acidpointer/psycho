@@ -259,6 +259,8 @@ pub(crate) fn set_diagnostics_active(active: bool) {
     }
 }
 
+/// Return estimated haze opacity (1 - transmittance) only for the current epoch.
+/// This is a frame-wide estimate, not sampled per-pixel atmosphere extinction.
 pub(crate) fn atmosphere_visibility() -> Option<f32> {
     (LAST_ESTIMATE_EPOCH.load(Ordering::Acquire) == crate::hooks::render_epoch())
         .then(|| 1.0 - f32::from_bits(LAST_TRANSMITTANCE.load(Ordering::Acquire)).clamp(0.0, 1.0))

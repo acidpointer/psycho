@@ -12,8 +12,18 @@ float4 SunData : register(c8);
 float4 NativeSunData : register(c10);
 // Keep sample spacing within the reconstruction footprint, with a hard GPU
 // bound for high resolutions. Blur uses the same count to cover capped gaps.
+// Depth is known only inside the viewport. Preserve the sun's projected
+// direction while clipping the ray endpoint, rather than clamping the sun
+// itself or treating unknown offscreen taps as opaque geometry.
+float2 CoveredEndpoint(float2 uv) {
+    float2 delta = SunData.xy - uv;
+    float2 boundary = float2(delta.x >= 0.0f ? 1.0f : 0.0f, delta.y >= 0.0f ? 1.0f : 0.0f);
+    float2 extent = abs(boundary - uv) / max(abs(delta), 0.000001f);
+    return uv + delta * min(1.0f, min(extent.x, extent.y));
+}
+
 int RadialSampleCount(float2 uv) {
-    return (int)clamp(ceil(length((SunData.xy - uv) * ScreenData.xy) * 0.5f), 32.0f, 256.0f);
+    return (int)clamp(ceil(length((CoveredEndpoint(uv) - uv) * ScreenData.xy) * 0.5f), 32.0f, 256.0f);
 }
 
 struct PixelInput {
@@ -33,7 +43,7 @@ float4 Main(PixelInput input) : COLOR0 {
     // Directional illumination is independent of the rendered solar sprite.
     // The mask samples participating paths; it does not enlarge the sun disk.
     float noise = InterleavedNoise(input.uv);
-    float2 endpoint = SunData.xy;
+    float2 endpoint = CoveredEndpoint(input.uv);
     float brightness = max(dot(max(NativeSunData.rgb, 0.0f), float3(0.2126f, 0.7152f, 0.0722f)),
         max(NativeSunData.r, max(NativeSunData.g, NativeSunData.b)) * 0.72f);
     float response = lerp(0.02f, 0.75f, saturate(OptionData1.z));
@@ -42,7 +52,7 @@ float4 Main(PixelInput input) : COLOR0 {
 
     float decay = clamp(OptionData0.z, 0.55f, 1.0f);
     int sampleCount = RadialSampleCount(input.uv);
-    float weightStep = pow(1.021193f, 32.0f / sampleCount);
+    float weightStep = 1.0f / sampleCount;
     float distanceDecay = pow(decay, (48.0f / sampleCount) * max(OptionData0.w, 0.10f));
     float2 delta = (endpoint - input.uv) / sampleCount;
     // The serialized sampling control sets within-segment jitter amplitude.
@@ -50,7 +60,7 @@ float4 Main(PixelInput input) : COLOR0 {
 
     float illumination = 1.0f;
     float light = 0.0f;
-    float weight = 0.024f;
+    float weight = 1.0f;
     float weightSum = 0.0f;
 
     [loop]
@@ -66,18 +76,21 @@ float4 Main(PixelInput input) : COLOR0 {
         illumination *= distanceDecay;
         // Soften fractional edge coverage without leaking through opaque taps.
         float softenedOpen = lerp(pathOpen, sqrt(pathOpen), saturate(OptionData3.w));
-        light += softenedOpen * illumination * weight;
+        // Fade the screen-space kernel toward its point endpoint. Giving
+        // the final taps increasing weight spread a source-center weapon
+        // across the entire sky when strengthening the projected wedge.
+        // This is a normalized artistic blur, not light-path extinction.
+        float sampleWeight = illumination * weight * weight;
+        light += softenedOpen * sampleWeight;
         // Decay weights the integral, not obstruction. Normalize by the same
         // decayed weights so an open path remains neutral at every setting.
-        weightSum += illumination * weight;
-        weight *= weightStep;
+        weightSum += sampleWeight;
+        weight -= weightStep;
     }
 
-    // Match the established thin-occluder contrast curve. Mean openness alone
-    // dilutes thin blockers across the path and leaves almost no ray contrast.
+    // The integral already measures missing path coverage. Exponentiating it
+    // amplified a tiny source-center blocker into almost full-screen shadow.
+    // Preserve fractional openings and blocker coverage without that gain.
     float blockage = saturate(1.0f - light / max(weightSum, 0.000001f));
-    float visibility = exp(-12.0f * blockage * max(OptionData0.w, 0.10f));
-    // Carry missing illumination, rather than positive light or a high-pass
-    // edge accent. The compose pass applies these broad radial shadow bands.
-    return float4(saturate(sourceStrength * (1.0f - visibility)), 0.0f, 0.0f, 1.0f);
+    return float4(saturate(sourceStrength * blockage * max(OptionData0.w, 0.0f)), 0.0f, 0.0f, 1.0f);
 }

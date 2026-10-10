@@ -137,15 +137,18 @@ float ReceiverMask(float2 uv) {
 }
 
 float SunScreenFade(float2 sunUv) {
-    float xEdge = min(sunUv.x, 1.0f - sunUv.x);
-    float yEdge = min(sunUv.y, 1.0f - sunUv.y);
-    float screenEdge = min(xEdge, yEdge);
-    return Smooth01(screenEdge / 0.035f) * saturate(SunData.w);
+    return saturate(SunData.w);
 }
 
 float DistanceShape(float screenDistance) {
     float range = max(OptionData2.y, 0.08f);
-    return 1.0f - Smooth01(screenDistance / range);
+    // The radial integral already dilutes a silhouette over its path length.
+    // Keep its projected wedge visible across the receiver footprint, then
+    // fade smoothly at the same exact radius used by CPU draw admission.
+    // Starting that fade near the emitter erased the long reference rays.
+    // Smooth01 clamps the nonnegative cubed coordinate at the outer radius.
+    float distance = screenDistance / range;
+    return 1.0f - Smooth01(distance * distance * distance);
 }
 
 float ExposureCurve(float amount) {
@@ -170,10 +173,12 @@ float4 Main(PixelInput input) : COLOR0 {
     }
 
     float force = clamp(OptionData1.x, 0.0f, 4.0f);
-	float mediumGain = 1.0f
-		+ saturate(AtmosphereData.x) * max(OptionData3.z, 0.0f) * saturate(AtmosphereData.y);
+    // The world publisher supplies opacity (1 - T), not transmittance.
+	float mediumGain = lerp(1.0f, saturate(AtmosphereData.x) * max(OptionData3.z, 0.0f),
+        saturate(AtmosphereData.y));
 	float rawAmount = shaft * visibility * receiver * distanceShape * mediumGain;
-	rawAmount *= max(OptionData0.x, 0.0f) * max(OptionData0.y, 0.0f) * force * 2.35f;
+    // The early admission above already rejects nonpositive intensity.
+	rawAmount *= OptionData0.x * max(OptionData0.y, 0.0f) * force * 4.7f;
 	float shaftAmount = min(ExposureCurve(rawAmount), 0.46f);
 
 	// UE3-style screen-space occlusion modulates the already-composited sky

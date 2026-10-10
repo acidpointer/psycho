@@ -6,7 +6,9 @@
 //! World/first-person depth supplies per-tap openness; unavailable required
 //! inputs skip output. Device-owned intermediates reset with the device. Five
 //! bounded passes retain half-resolution marching and filtering. The radial
-//! field carries missing illumination; composition modulates sky/fog receivers
+//! field carries fractional missing illumination; coverage-guided reconstruction
+//! preserves narrow silhouettes/openings. Offscreen forward rays sample only
+//! the known viewport. Composition weights sky/fog occlusion by haze opacity
 //! in scene-post color. This stylized occlusion is separate from physical
 //! volumetric in-scattering and never adds an open-sky halo.
 
@@ -110,10 +112,13 @@ fn resolve_native_sun(frame_inputs: &FrameInputs) -> Option<NativeSunshaftFrame>
     if !sky.is_exterior || !sky.daylight.is_finite() || sky.daylight <= 0.001 {
         return None;
     }
-    let projection =
+    let mut projection =
         crate::backend::project_world_direction(frame_inputs.camera, sky.sun_direction);
+    // Viewport admission hides overhead rays. Fade only at the projection
+    // singularity; HLSL clips the radial path to available depth coverage.
+    let facing = (projection.facing / 0.12).clamp(0.0, 1.0);
+    projection.edge_fade = facing * facing * (3.0 - 2.0 * facing);
     (projection.facing > 0.001
-        && projection.on_screen
         && projection.edge_fade > 0.0
         && sky.resolved_exterior_sun_color().is_some())
     .then_some(NativeSunshaftFrame { projection, sky })
@@ -126,9 +131,45 @@ fn first_person_occlusion_requested(source: &ScreenShaderSource) -> bool {
         .is_some_and(|value| value[0].is_finite() && value[0] > 0.001)
 }
 
+/// Admit only frames with required depth, viable sunlight and a nonzero
+/// compose footprint. Pure packet inspection; no D3D allocation or engine read.
 pub(crate) fn should_draw(frame_inputs: &FrameInputs, source: &ScreenShaderSource) -> bool {
-    resolve_native_sun(frame_inputs).is_some()
-        && frame_inputs.depth.texture.is_some()
+    let Some(sun) = resolve_native_sun(frame_inputs) else {
+        return false;
+    };
+    let (Some(amount), Some(force), Some(receiver)) = (
+        source.option_constants.first(),
+        source.option_constants.get(1),
+        source.option_constants.get(2),
+    ) else {
+        return false;
+    };
+    // These are the compose pass's exact neutral-output conditions. Reject
+    // them before targets, source copies or any of the five passes.
+    if ![amount[0], amount[1], force[0], receiver[1]]
+        .into_iter()
+        .all(f32::is_finite)
+        || amount[0] <= 0.0
+        || amount[1] <= 0.0
+        || force[0] <= 0.0
+    {
+        return false;
+    }
+    if receiver[3] <= 0.5 {
+        // Offscreen suns are admitted only where the existing receiver radius
+        // reaches the viewport. Unknown depth never becomes an opaque blocker.
+        let aspect = frame_inputs.camera.aspect_ratio;
+        if !aspect.is_finite() {
+            return false;
+        }
+        let uv = sun.projection.uv;
+        let x = (uv[0] - uv[0].clamp(0.0, 1.0)) * aspect.max(0.1);
+        let y = uv[1] - uv[1].clamp(0.0, 1.0);
+        if (x * x + y * y).sqrt() >= receiver[1].max(0.08) {
+            return false;
+        }
+    }
+    frame_inputs.depth.texture.is_some()
         && (!frame_inputs.material_state.exterior_known || frame_inputs.material_state.is_exterior)
         && (!first_person_occlusion_requested(source) || first_person_occlusion_safe(frame_inputs))
 }
@@ -154,23 +195,12 @@ mod shader_compile_tests {
     #[test]
     fn embedded_sunshaft_shaders_compile() {
         for (name, source, instructions, textures, bytes) in [
-            ("sunshafts_mask.hlsl", MASK_SHADER, 355, 6, 5800),
-            ("sunshafts_radial.hlsl", RADIAL_SHADER, 167, 1, 2800),
-            ("sunshafts_blur.hlsl", BLUR_SHADER, 97, 9, 1688),
-            ("sunshafts_compose.hlsl", COMPOSE_SHADER, 368, 5, 6100),
+            ("sunshafts_mask.hlsl", MASK_SHADER, 191, 8, 3292),
+            ("sunshafts_radial.hlsl", RADIAL_SHADER, 196, 1, 3228),
+            ("sunshafts_blur.hlsl", BLUR_SHADER, 174, 15, 2812),
+            ("sunshafts_compose.hlsl", COMPOSE_SHADER, 358, 5, 5944),
         ] {
             crate::shaders::assert_pixel_shader_budget(name, source, instructions, textures, bytes);
-        }
-    }
-
-    #[test]
-    fn first_person_occlusion_is_exact_and_fails_closed() {
-        for source in [MASK_SHADER, COMPOSE_SHADER] {
-            let source = std::str::from_utf8(source).expect("sunshaft shader source");
-            assert!(source.contains("DepthData.w < 0.5f"));
-            assert!(source.contains("requested <= 0.0f || DepthData.z < 0.5f"));
-            assert!(source.contains("if (DepthData.w < 0.5f) {\n        return 1.0f;"));
-            assert!(source.contains("FirstPersonHardwareDepth"));
         }
     }
 
@@ -284,7 +314,6 @@ impl SunshaftsEffect {
             frame_index,
         )?;
         self.draw_radial(device, targets, frame_inputs, source, frame_index)?;
-        device.clear_texture(3)?;
         self.draw_blur(
             device,
             targets,
@@ -389,6 +418,7 @@ impl SunshaftsEffect {
 
         bind_target(device, output, targets.width, targets.height)?;
         device.set_texture(0, input)?;
+        device.set_texture(3, &targets.mask.texture)?;
         bind_lowres_constants(device, targets, frame_inputs, source, frame_index, 2.0)?;
         device.set_pixel_shader_constant_f(
             EFFECT_CONSTANT_REGISTER,
@@ -490,6 +520,7 @@ fn bind_target(
     };
 
     crate::render_state::clear_sampler(device, 0)?;
+    crate::render_state::clear_sampler(device, 3)?;
     crate::render_state::clear_sampler(device, 4)?;
     device.set_render_target(0, surface)?;
     device.set_viewport(&viewport)
@@ -632,6 +663,7 @@ fn bind_effect_constants(
     device.set_pixel_shader_constant_f(
         15,
         &[[
+            // The publisher already converted transmittance to opacity.
             frame_inputs.atmosphere_visibility.clamp(0.0, 1.0),
             frame_inputs.atmosphere_available as u8 as f32,
             0.0,
@@ -745,5 +777,549 @@ impl EffectTarget {
         let texture = device.create_render_target_texture(width, height, format)?;
         let surface = texture.surface_level(0)?;
         Ok(Self { texture, surface })
+    }
+}
+
+#[cfg(test)]
+mod shader_behavior {
+    //! End-to-end D3D9 behavior gate for the independent legacy godray pass.
+    //!
+    //! The test compiles and executes every shipped sunshaft pass and accepts
+    //! only final production-format pixels. This catches an empty source mask,
+    //! a broken radial path, lost occluders, or bright edge accents replacing
+    //! shadow bands. A nonblack receiver is required to observe attenuation.
+
+    use super::{SunshaftsBytecode, SunshaftsEffect};
+    use crate::{
+        backend::{
+            CameraFrame, CameraTransformFrame, DepthFrame, DepthProjectionFrame, DepthProvider,
+            DepthTexture, EnvironmentFrame, FrameInputs, MaterialStateFrame, NativeSkyFrame,
+            SunFrame,
+        },
+        config::EmbeddedEffectsConfig,
+        shaders::{EmbeddedEffectKind, merge_embedded_sources},
+    };
+    use libpsycho::os::windows::{
+        directx9::{
+            D3DCLEAR_TARGET, D3DDEVTYPE_HAL, D3DDEVTYPE_NULLREF, D3DFMT_A8R8G8B8, D3DFMT_X8R8G8B8,
+            D3DPOOL_MANAGED, Device9, Device9Ref, Texture9, create_direct3d9,
+        },
+        winapi::{get_active_window, get_desktop_window, get_foreground_window},
+    };
+
+    const TEST_SIZE: u32 = 64;
+    const FRAME_EPOCH: u64 = 23;
+
+    fn raster_device() -> Device9 {
+        let window = [
+            get_active_window(),
+            get_foreground_window(),
+            get_desktop_window().unwrap_or(std::ptr::null_mut()),
+        ]
+        .into_iter()
+        .find(|window| !window.is_null())
+        .expect("Wine must expose a window for sunshaft shader validation");
+        let direct3d = create_direct3d9().expect("D3D9 runtime");
+        direct3d
+            .create_windowed_device(window, TEST_SIZE, TEST_SIZE, D3DDEVTYPE_HAL)
+            .or_else(|_| {
+                direct3d.create_windowed_device(window, TEST_SIZE, TEST_SIZE, D3DDEVTYPE_NULLREF)
+            })
+            .expect("HAL or NULLREF D3D9 device")
+    }
+
+    fn source() -> crate::shaders::ScreenShaderSource {
+        merge_embedded_sources(&EmbeddedEffectsConfig::default(), Vec::new())
+            .into_iter()
+            .find(|source| source.embedded_effect_kind() == Some(EmbeddedEffectKind::Sunshafts))
+            .expect("default sunshaft source")
+    }
+
+    fn camera() -> CameraFrame {
+        CameraFrame {
+            near_z: 5.0,
+            far_z: 200_000.0,
+            aspect_ratio: 1.0,
+            frustum_left: -1.0,
+            frustum_right: 1.0,
+            frustum_bottom: -1.0,
+            frustum_top: 1.0,
+            world_transform: CameraTransformFrame {
+                available: true,
+                ..CameraTransformFrame::default()
+            },
+            available: true,
+        }
+    }
+
+    fn raw_depth(device: &Device9Ref<'_>, blocker: bool) -> Texture9 {
+        let depth = device
+            .create_texture(TEST_SIZE, TEST_SIZE, 1, 0, D3DFMT_A8R8G8B8, D3DPOOL_MANAGED)
+            .expect("lockable raw-depth texture");
+        let mut pixels = vec![0xFF00_0000u32; (TEST_SIZE * TEST_SIZE) as usize];
+        if blocker {
+            for y in 25..39usize {
+                for x in 29..35usize {
+                    pixels[y * TEST_SIZE as usize + x] = 0xFF40_0000;
+                }
+            }
+        }
+        depth
+            .write_level0_argb(TEST_SIZE, TEST_SIZE, &pixels)
+            .expect("raw-depth pixels");
+        depth
+    }
+
+    fn frame(depth: &Texture9, sun_direction: [f32; 3]) -> FrameInputs {
+        let camera = camera();
+        let projection = DepthProjectionFrame {
+            camera,
+            reversed_depth: Some(true),
+            depth_function: Some(7),
+            source_surface: depth.as_raw_base_texture() as usize,
+            sampled_depth_bits: 24,
+            image: Default::default(),
+        };
+        FrameInputs {
+            camera,
+            depth: DepthFrame::from_textures(
+                DepthProvider::FalloutNewVegas,
+                DepthTexture::new(depth.as_raw_base_texture()),
+                None,
+                projection,
+                DepthProjectionFrame::default(),
+                FRAME_EPOCH,
+            ),
+            environment: EnvironmentFrame {
+                fog_start: 1_000.0,
+                fog_end: 120_000.0,
+                fog_power: 0.5,
+                fog_available: true,
+                ..EnvironmentFrame::default()
+            },
+            sun: SunFrame {
+                screen_x: 0.5,
+                screen_y: 0.5,
+                available: true,
+                daylight: 0.4252,
+            },
+            sky: Some(NativeSkyFrame {
+                sky_upper: [0.2, 0.3, 0.6],
+                sky_lower: [0.4, 0.45, 0.55],
+                horizon: [0.65, 0.6, 0.5],
+                // FNV can leave the Reloaded-derived sky color candidates
+                // black even though the native exterior/daylight contract is
+                // valid. The shipped effect must not disappear in that frame.
+                sun_light: [0.0; 3],
+                sun_disk: [0.0; 3],
+                sun_direction,
+                daylight: 0.4252,
+                game_hour: 18.0,
+                is_exterior: true,
+                reversed_depth: true,
+            }),
+            atmosphere_visibility: 0.6,
+            atmosphere_available: true,
+            first_person_rendered: false,
+            third_person_view: Some(true),
+            material_state: MaterialStateFrame {
+                exterior_known: true,
+                is_exterior: true,
+            },
+        }
+    }
+
+    fn clear_target(device: &Device9Ref<'_>, texture: &Texture9, color: u32) {
+        let surface = texture.surface_level(0).expect("HDR surface");
+        device.set_render_target(0, &surface).expect("HDR target");
+        device
+            .clear_attachments(D3DCLEAR_TARGET as u32, color, 1.0, 0)
+            .expect("clear HDR target");
+    }
+
+    fn render(
+        effect: &mut SunshaftsEffect,
+        device: &Device9Ref<'_>,
+        scene_color: &Texture9,
+        source: &crate::shaders::ScreenShaderSource,
+        sun_direction: [f32; 3],
+        blocker: bool,
+    ) -> Vec<[f32; 4]> {
+        let depth = raw_depth(device, blocker);
+        render_inputs(
+            effect,
+            device,
+            scene_color,
+            source,
+            &frame(&depth, sun_direction),
+        )
+    }
+
+    fn render_inputs(
+        effect: &mut SunshaftsEffect,
+        device: &Device9Ref<'_>,
+        scene_color: &Texture9,
+        source: &crate::shaders::ScreenShaderSource,
+        inputs: &FrameInputs,
+    ) -> Vec<[f32; 4]> {
+        let output = device
+            .create_render_target_texture(TEST_SIZE, TEST_SIZE, D3DFMT_X8R8G8B8)
+            .expect("production-format sunshaft output");
+        clear_target(device, &output, 0);
+        let output_surface = output
+            .surface_level(0)
+            .expect("production-format output surface");
+        let desc = output_surface
+            .desc()
+            .expect("production-format output description");
+        device.begin_scene().expect("begin sunshaft behavior draw");
+        effect
+            .draw(
+                device,
+                &output_surface,
+                &desc,
+                inputs,
+                source,
+                scene_color,
+                31,
+            )
+            .expect("complete sunshaft behavior draw");
+        device.end_scene().expect("end sunshaft behavior draw");
+        let staging = device
+            .create_system_memory_surface(TEST_SIZE, TEST_SIZE, D3DFMT_X8R8G8B8)
+            .expect("production-format readback surface");
+        device
+            .copy_render_target_data(&output_surface, &staging)
+            .expect("production-format sunshaft readback");
+        staging
+            .read_rgba8()
+            .expect("production-format sunshaft pixels")
+    }
+
+    fn luminance(pixel: [f32; 4]) -> f32 {
+        pixel[0] * 0.2126 + pixel[1] * 0.7152 + pixel[2] * 0.0722
+    }
+
+    #[test]
+    fn shadow_wedge_remains_visible_away_from_the_emitter() {
+        // The supplied Borderlands references establish a continuous shadow
+        // wedge through haze. This existing production depth fixture tests
+        // that requirement; it is not a reconstruction of their engine data.
+        let owner = raster_device();
+        let device = owner.as_ref();
+        let code = SunshaftsBytecode::compile().unwrap();
+        let mut effect = SunshaftsEffect::create_from_bytecode(&device, &code).unwrap();
+        let source = source();
+        let scene = device
+            .create_render_target_texture(TEST_SIZE, TEST_SIZE, D3DFMT_X8R8G8B8)
+            .unwrap();
+        clear_target(&device, &scene, 0xFF80_8080);
+        let world = raw_depth(&device, false);
+        let weapon = raw_depth(&device, true);
+        let mut inputs = frame(&world, [1.0, 0.75, 0.0]);
+        let projection = crate::backend::project_world_direction(inputs.camera, [1.0, 0.75, 0.0]);
+        assert_eq!(projection.uv, [0.5, 0.125]);
+        let open = render_inputs(&mut effect, &device, &scene, &source, &inputs);
+        inputs.first_person_rendered = true;
+        inputs.depth.first_person_texture = DepthTexture::new(weapon.as_raw_base_texture());
+        let shadow = render_inputs(&mut effect, &device, &scene, &source, &inputs);
+        for (index, (a, b)) in open.iter().zip(&shadow).enumerate() {
+            let contrast = luminance(*a) - luminance(*b);
+            assert!(b.iter().all(|v| v.is_finite()));
+            assert!(contrast >= -1.0 / 255.0, "shadow wedge added highlights");
+            assert!(
+                (luminance(*a) - 128.0 / 255.0).abs() <= 1.0 / 255.0,
+                "unoccluded sky changed"
+            );
+            let x = index % TEST_SIZE as usize;
+            let y = index / TEST_SIZE as usize;
+            if (29..35).contains(&x) && (25..39).contains(&y) {
+                assert!(contrast.abs() <= 1.0 / 255.0, "weapon receiver changed");
+            }
+            if (31..33).contains(&x) && (43..55).contains(&y) {
+                assert!(
+                    contrast >= 0.10 * (128.0 / 255.0),
+                    "projected shadow faded into invisibility: ({x}, {y}), contrast={contrast}"
+                );
+            }
+            if x == 4 || x == 59 {
+                assert!(
+                    contrast.abs() <= 1.0 / 255.0,
+                    "shadow escaped its silhouette wedge: ({x}, {y})"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn production_haze_opacity_strengthens_visible_bands() {
+        use crate::backend::AtmosphereFrame;
+        use crate::effects::atmosphere::AtmosphereSettings;
+        let owner = raster_device();
+        let device = owner.as_ref();
+        let code = SunshaftsBytecode::compile().unwrap();
+        let mut effect = SunshaftsEffect::create_from_bytecode(&device, &code).unwrap();
+        let source = source();
+        let scene = device
+            .create_render_target_texture(TEST_SIZE, TEST_SIZE, D3DFMT_X8R8G8B8)
+            .unwrap();
+        clear_target(&device, &scene, 0xFF80_8080);
+        let world = raw_depth(&device, false);
+        let weapon = raw_depth(&device, true);
+        let mut inputs = frame(&world, [1.0, 0.0, 0.0]);
+        let defaults = EmbeddedEffectsConfig::default();
+        let mut peaks = Vec::new();
+        for density in [
+            defaults.volumetric_lighting.medium_density,
+            defaults.volumetric_lighting.medium_density * 2.0,
+        ] {
+            let mut lighting = defaults.volumetric_lighting;
+            lighting.medium_density = density;
+            let settings = AtmosphereSettings::from_config(defaults.volumetric_fog, lighting);
+            let atmosphere = AtmosphereFrame {
+                camera: inputs.camera,
+                depth: inputs.depth,
+                environment: inputs.environment,
+                underwater: Default::default(),
+                sun: inputs.sun,
+                sky: inputs.sky,
+                material_state: inputs.material_state,
+                frame_epoch: FRAME_EPOCH,
+                distance_bound: settings.max_distance,
+            };
+            // Use the same production estimate and opacity conversion as the
+            // world publisher, rather than a fixed fixture transmittance.
+            inputs.atmosphere_visibility =
+                1.0 - settings.estimated_horizontal_transmittance(atmosphere);
+            inputs.first_person_rendered = false;
+            inputs.depth.first_person_texture = None;
+            let open = render_inputs(&mut effect, &device, &scene, &source, &inputs);
+            inputs.first_person_rendered = true;
+            inputs.depth.first_person_texture = DepthTexture::new(weapon.as_raw_base_texture());
+            let shadow = render_inputs(&mut effect, &device, &scene, &source, &inputs);
+            let mut peak = 0.0f32;
+            let mut broad = 0usize;
+            for (index, (a, b)) in open.iter().zip(&shadow).enumerate() {
+                let contrast = luminance(*a) - luminance(*b);
+                let x = index % TEST_SIZE as usize;
+                let y = index / TEST_SIZE as usize;
+                assert!(b.iter().all(|v| v.is_finite()));
+                assert!(contrast >= -1.0 / 255.0, "rays added light");
+                if (29..35).contains(&x) && (25..39).contains(&y) {
+                    assert!(contrast.abs() <= 1.0 / 255.0, "weapon receiver changed");
+                } else {
+                    peak = peak.max(contrast);
+                }
+                // Existing broad-darkening criterion also defines a band
+                // with substantive contrast, instead of only two LDR codes.
+                broad += usize::from(contrast >= 0.10 * (128.0 / 255.0));
+            }
+            assert!(broad < open.len() / 4, "bands became full-screen darkening");
+            peaks.push(peak);
+        }
+        assert!(
+            peaks[1] > peaks[0],
+            "denser production haze weakened bands: {peaks:?}"
+        );
+        assert!(
+            peaks[0] >= 0.10 * (128.0 / 255.0),
+            "default bands lack substantive contrast: {peaks:?}"
+        );
+    }
+
+    #[test]
+    fn first_person_blocker_casts_bounded_rays_without_shading_the_weapon() {
+        let owner = raster_device();
+        let device = owner.as_ref();
+        let bytecode = SunshaftsBytecode::compile().unwrap();
+        let mut effect = SunshaftsEffect::create_from_bytecode(&device, &bytecode).unwrap();
+        let source = source();
+        let scene = device
+            .create_render_target_texture(TEST_SIZE, TEST_SIZE, D3DFMT_X8R8G8B8)
+            .unwrap();
+        clear_target(&device, &scene, 0xFF80_8080);
+        let world = raw_depth(&device, false);
+        let weapon = raw_depth(&device, true);
+        let mut inputs = frame(&world, [1.0, 0.0, 0.0]);
+        let open = render_inputs(&mut effect, &device, &scene, &source, &inputs);
+        inputs.first_person_rendered = true;
+        inputs.depth.first_person_texture = DepthTexture::new(weapon.as_raw_base_texture());
+        let blocked = render_inputs(&mut effect, &device, &scene, &source, &inputs);
+        let mut peak = 0.0f32;
+        let mut broad = 0usize;
+        for (index, (a, b)) in open.iter().zip(&blocked).enumerate() {
+            let x = index % TEST_SIZE as usize;
+            let y = index / TEST_SIZE as usize;
+            let contrast = luminance(*a) - luminance(*b);
+            if (29..35).contains(&x) && (25..39).contains(&y) {
+                assert!(contrast.abs() <= 1.0 / 255.0, "weapon receiver changed");
+            } else {
+                peak = peak.max(contrast);
+            }
+            broad += usize::from(contrast > 0.10 * 128.0 / 255.0);
+        }
+        assert!(peak >= 2.0 / 255.0, "weapon cast no visible shadow bands");
+        assert!(
+            broad < open.len() / 4,
+            "weapon darkened a broad region: {broad}"
+        );
+        inputs.depth.first_person_texture = None;
+        assert!(
+            !super::should_draw(&inputs, &source),
+            "missing weapon depth must fail closed"
+        );
+    }
+
+    #[test]
+    fn one_pixel_opening_preserves_fractional_mask_coverage() {
+        let owner = raster_device();
+        let device = owner.as_ref();
+        let code = SunshaftsBytecode::compile().unwrap();
+        let mut effect = SunshaftsEffect::create_from_bytecode(&device, &code).unwrap();
+        let depth = device
+            .create_texture(TEST_SIZE, TEST_SIZE, 1, 0, D3DFMT_A8R8G8B8, D3DPOOL_MANAGED)
+            .unwrap();
+        for reversed in [true, false] {
+            let mut pixels = vec![0xFF40_0000; (TEST_SIZE * TEST_SIZE) as usize];
+            for y in 0..TEST_SIZE as usize {
+                pixels[y * TEST_SIZE as usize + 32] =
+                    if reversed { 0xFF00_0000 } else { 0xFFFF_0000 };
+            }
+            depth
+                .write_level0_argb(TEST_SIZE, TEST_SIZE, &pixels)
+                .unwrap();
+            let scene = device
+                .create_render_target_texture(TEST_SIZE, TEST_SIZE, D3DFMT_X8R8G8B8)
+                .unwrap();
+            clear_target(&device, &scene, 0xFF80_8080);
+            let desc = scene.surface_level(0).unwrap().desc().unwrap();
+            effect.ensure_targets(&device, &desc).unwrap();
+            let targets = effect.targets.as_ref().unwrap();
+            device.begin_scene().unwrap();
+            super::bind_pipeline_state(&device).unwrap();
+            let mut frame = frame(&depth, [1.0, 0.0, 0.0]);
+            frame.depth.world_projection.reversed_depth = Some(reversed);
+            super::bind_depth_inputs(
+                &device,
+                &frame.depth.texture,
+                &frame.depth.first_person_texture,
+            )
+            .unwrap();
+            effect
+                .draw_mask(&device, targets, &desc, &frame, &source(), &scene, 0)
+                .unwrap();
+            device.end_scene().unwrap();
+            let staging = device
+                .create_system_memory_surface(targets.width, targets.height, D3DFMT_X8R8G8B8)
+                .unwrap();
+            device
+                .copy_render_target_data(&targets.mask.surface, &staging)
+                .unwrap();
+            let values = staging.read_rgba8().unwrap();
+            let coverage = values[(targets.height / 2 * targets.width + 16) as usize][1];
+            assert!(
+                (coverage - 0.5).abs() <= 1.0 / 255.0,
+                "one of two full-resolution columns must yield half coverage: {coverage}"
+            );
+        }
+    }
+
+    #[test]
+    fn offscreen_forward_sun_retains_admission() {
+        let owner = raster_device();
+        let device = owner.as_ref();
+        let depth = raw_depth(&device, false);
+        let source = source();
+        assert!(super::should_draw(
+            &frame(&depth, [1.0, 1.02, 0.0]),
+            &source
+        ));
+        assert!(!super::should_draw(
+            &frame(&depth, [1.0, 5.0, 0.0]),
+            &source
+        ));
+        for (group, component) in [(0, 0), (0, 1), (1, 0)] {
+            let mut neutral = source.clone();
+            neutral.option_constants[group][component] = 0.0;
+            assert!(!super::should_draw(
+                &frame(&depth, [1.0, 0.0, 0.0]),
+                &neutral
+            ));
+        }
+    }
+
+    #[test]
+    fn rays_remain_continuous_across_the_top_viewport_edge() {
+        let owner = raster_device();
+        let device = owner.as_ref();
+        let code = SunshaftsBytecode::compile().unwrap();
+        let mut effect = SunshaftsEffect::create_from_bytecode(&device, &code).unwrap();
+        let source = source();
+        let scene = device
+            .create_render_target_texture(TEST_SIZE, TEST_SIZE, D3DFMT_X8R8G8B8)
+            .unwrap();
+        clear_target(&device, &scene, 0xFF80_8080);
+        let mut energies = Vec::new();
+        for y in [0.98, 1.0, 1.02] {
+            let open = render(&mut effect, &device, &scene, &source, [1.0, y, 0.0], false);
+            assert!(
+                open.iter()
+                    .all(|p| (luminance(*p) - 128.0 / 255.0).abs() <= 1.0 / 255.0),
+                "unknown offscreen depth must not create shadows"
+            );
+            let shadow = render(&mut effect, &device, &scene, &source, [1.0, y, 0.0], true);
+            energies.push(
+                open.iter()
+                    .zip(&shadow)
+                    .map(|(a, b)| (luminance(*a) - luminance(*b)).max(0.0))
+                    .sum::<f32>(),
+            );
+        }
+        let minimum = energies.iter().copied().fold(f32::INFINITY, f32::min);
+        let maximum = energies.iter().copied().fold(0.0f32, f32::max);
+        assert!(
+            minimum > 0.0 && minimum >= maximum * 0.5,
+            "ray energy collapsed at the viewport edge: {energies:?}"
+        );
+    }
+
+    #[test]
+    fn narrow_blocker_does_not_blacken_the_sky_and_offscreen_sun_keeps_rays() {
+        let owner = raster_device();
+        let device = owner.as_ref();
+        let bytecode = SunshaftsBytecode::compile().unwrap();
+        let mut effect = SunshaftsEffect::create_from_bytecode(&device, &bytecode).unwrap();
+        let source = source();
+        let scene = device
+            .create_render_target_texture(TEST_SIZE, TEST_SIZE, D3DFMT_X8R8G8B8)
+            .unwrap();
+        clear_target(&device, &scene, 0xFF80_8080);
+        for sun in [[1.0, 0.0, 0.0], [1.0, 1.02, 0.0]] {
+            let depth = raw_depth(&device, false);
+            assert!(
+                super::should_draw(&frame(&depth, sun), &source),
+                "forward sun outside the viewport must retain ray admission: {sun:?}"
+            );
+            let open = render(&mut effect, &device, &scene, &source, sun, false);
+            let blocked = render(&mut effect, &device, &scene, &source, sun, true);
+            let mut strongest = 0.0f32;
+            let mut darkened = 0usize;
+            for (a, b) in open.iter().zip(&blocked) {
+                let contrast = luminance(*a) - luminance(*b);
+                strongest = strongest.max(contrast);
+                darkened += usize::from(contrast > 0.10 * (128.0 / 255.0));
+                assert!(b.iter().all(|v| v.is_finite()));
+                assert!(contrast >= -1.0 / 255.0, "shadow rays must not add a halo");
+            }
+            assert!(
+                strongest >= 2.0 / 255.0,
+                "rays disappeared: {sun:?}, contrast={strongest}"
+            );
+            assert!(
+                darkened < open.len() / 4,
+                "narrow blocker darkened most receivers: {darkened}/{}",
+                open.len()
+            );
+        }
     }
 }

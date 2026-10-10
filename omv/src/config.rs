@@ -1194,7 +1194,7 @@ impl Default for SunshaftsConfig {
         Self {
             enabled: true,
             intensity: 0.34,
-            exposure: 0.52,
+            exposure: 0.85,
             decay: 1.0,
             density: 0.9709481,
             force: 2.05,

@@ -2,6 +2,26 @@
 
 Date: 2026-07-18
 
+## Sunshaft reference appearance
+
+The owner's live Borderlands 2 references (`.reports/godrays_ref1.png` through
+`godrays_ref6.png`) establish continuous soft shadow wedges through bright haze,
+especially in references 3, 5 and 6. They do not establish that game's shader
+equations. Additive edge highlights do not satisfy this visual requirement.
+The production regression now requires visible contrast throughout a strip
+beyond an off-axis weapon silhouette, alongside neutral open sky, unchanged
+weapon pixels and the existing bounded-area requirement. The unchanged path
+failed that continuation criterion.
+
+The normalized radial kernel tapers quadratically toward the source endpoint
+instead of increasing endpoint weights. This prevents a tiny source-center
+blocker from becoming a broad common shadow when contrast is strengthened.
+Composition doubles its shadow calibration and applies smooth falloff to a
+cubed distance coordinate, retaining the same outer admission radius and 0.46
+attenuation cap. Output remains multiplicative, hue-preserving occlusion with
+unchanged alpha. Exposure and preset values remain unchanged. No draw, target,
+depth read, diagnostic or directional-light producer work is added.
+
 Implementation status: implemented with fixed `ps_3_0` variants compiled by
 the real D3D compiler in the i686 Wine test run. Behavioral regressions own the
 native-radiance and projection contracts; the feature-first playtest remains

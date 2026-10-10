@@ -2091,7 +2091,7 @@ mod tests {
         let shafts = menu.embedded_effects.sunshafts;
         assert!(shafts.enabled);
         assert_eq!(shafts.intensity, 0.34);
-        assert_eq!(shafts.exposure, 0.52);
+        assert_eq!(shafts.exposure, 0.85);
         assert_eq!(shafts.force, 2.05);
         assert_eq!(shafts.decay, 1.0);
         let lighting = menu.embedded_effects.volumetric_lighting;

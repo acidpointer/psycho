@@ -855,6 +855,7 @@ pub(crate) struct FrameInputs {
     pub(crate) environment: EnvironmentFrame,
     pub(crate) sun: SunFrame,
     pub(crate) sky: Option<NativeSkyFrame>,
+    /// Current-epoch estimated haze opacity, 1 - transmittance.
     pub(crate) atmosphere_visibility: f32,
     pub(crate) atmosphere_available: bool,
     pub(crate) first_person_rendered: bool,

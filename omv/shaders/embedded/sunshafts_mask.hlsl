@@ -28,77 +28,12 @@ bool UseReversedDepth() {
 	return DepthData.x >= 0.0f ? DepthData.x > 0.5f : OptionData2.z > 0.5f;
 }
 
-bool IsInsideScreen(float2 uv) {
-    return uv.x >= 0.0f && uv.y >= 0.0f && uv.x <= 1.0f && uv.y <= 1.0f;
-}
-
 float HardwareDepth(float2 uv) {
     return tex2Dlod(SceneDepth, float4(uv, 0.0f, 0.0f)).r;
 }
 
 float FirstPersonHardwareDepth(float2 uv) {
     return tex2Dlod(FirstPersonDepth, float4(uv, 0.0f, 0.0f)).r;
-}
-
-float ScreenDistance(float2 a, float2 b) {
-    float aspect = max(CameraData.z, 0.1f);
-    return length((a - b) * float2(aspect, 1.0f));
-}
-
-float LinearDepth(float depth) {
-    float nearZ = max(CameraData.x, 0.01f);
-    float farZ = max(CameraData.y, nearZ + 1.0f);
-    if (UseReversedDepth()) {
-        return (nearZ * farZ) / max(depth * (farZ - nearZ) + nearZ, 0.001f);
-    }
-
-    return (nearZ * farZ) / max(farZ - depth * (farZ - nearZ), 0.001f);
-}
-
-float SkyMask(float2 uv) {
-    if (!IsInsideScreen(uv) || FrameData.w < 0.5f) {
-        return 0.0f;
-    }
-
-    float rawDepth = HardwareDepth(uv);
-    float linearDepth = LinearDepth(rawDepth);
-    float farZ = max(CameraData.y, 2.0f);
-
-    if (UseReversedDepth()) {
-        float endpointSky = 1.0f - Smooth01(rawDepth / 0.000080f);
-        float farSky = Smooth01((linearDepth - farZ * 0.985f) / max(farZ * 0.015f, 1.0f));
-        return saturate(max(endpointSky, farSky));
-    }
-
-    float endpointSky = Smooth01((rawDepth - 0.999920f) / 0.000080f);
-    float farSky = Smooth01((linearDepth - farZ * 0.985f) / max(farZ * 0.015f, 1.0f));
-    return saturate(max(endpointSky, farSky));
-}
-
-float FirstPersonMask(float2 uv) {
-    if (!IsInsideScreen(uv) || DepthData.w < 0.5f) {
-        return 0.0f;
-    }
-
-    float depth = FirstPersonHardwareDepth(uv);
-    return depth > DepthEndpointEpsilon && depth < (1.0f - DepthEndpointEpsilon) ? 1.0f : 0.0f;
-}
-
-float FirstPersonBlock(float2 uv) {
-    float requested = saturate(OptionData2.x);
-    if (requested <= 0.0f || DepthData.z < 0.5f) {
-        return 0.0f;
-    }
-    if (DepthData.w < 0.5f) {
-        return 1.0f;
-    }
-    float2 texel = ScreenData.zw;
-    float mask = FirstPersonMask(uv);
-    mask = max(mask, FirstPersonMask(uv + float2( texel.x * 1.5f, 0.0f)));
-    mask = max(mask, FirstPersonMask(uv + float2(-texel.x * 1.5f, 0.0f)));
-    mask = max(mask, FirstPersonMask(uv + float2(0.0f,  texel.y * 1.5f)));
-    mask = max(mask, FirstPersonMask(uv + float2(0.0f, -texel.y * 1.5f)));
-    return mask * requested;
 }
 
 float NativeSunStrength() {
@@ -110,19 +45,44 @@ float NativeSunStrength() {
     return Smooth01(brightness / max(brightness + response, 0.001f));
 }
 
-float SunScreenFade(float2 sunUv) {
-    float xEdge = min(sunUv.x, 1.0f - sunUv.x);
-    float yEdge = min(sunUv.y, 1.0f - sunUv.y);
-    float screenEdge = min(xEdge, yEdge);
-    return Smooth01(screenEdge / 0.035f) * saturate(SunData.w);
+// Vector arithmetic reduces four coverage texels together without four
+// copies of depth reconstruction or uniform first-person admission branches.
+float4 SkyCoverage(float4 rawDepth) {
+    float nearZ = max(CameraData.x, 0.01f);
+    float farZ = max(CameraData.y, nearZ + 1.0f);
+    float4 linearDepth;
+    float4 endpoint;
+    if (UseReversedDepth()) {
+        linearDepth = (nearZ * farZ) / max(rawDepth * (farZ - nearZ) + nearZ, 0.001f);
+        float4 t = saturate(rawDepth / 0.000080f);
+        endpoint = 1.0f - t * t * (3.0f - 2.0f * t);
+    } else {
+        linearDepth = (nearZ * farZ) / max(farZ - rawDepth * (farZ - nearZ), 0.001f);
+        float4 t = saturate((rawDepth - 0.999920f) / 0.000080f);
+        endpoint = t * t * (3.0f - 2.0f * t);
+    }
+    float4 t = saturate((linearDepth - farZ * 0.985f) / max(farZ * 0.015f, 1.0f));
+    return saturate(max(endpoint, t * t * (3.0f - 2.0f * t))) * step(0.5f, FrameData.w);
 }
 
 float4 Main(PixelInput input) : COLOR0 {
-	float sky = SkyMask(input.uv);
-	float firstPerson = FirstPersonBlock(input.uv);
-	float pathOpen = sky * (1.0f - firstPerson);
-	// Debug shows the open scattering path, not an enlarged emitter sprite.
-	float source = pathOpen * NativeSunStrength() * SunScreenFade(SunData.xy);
-
-    return float4(source, pathOpen, firstPerson, 1.0f);
+    // Point-sampled 2x2 source texels preserve fractional opening coverage.
+    float2 offset = ScreenData.zw * 0.5f;
+    float2 a = input.uv + float2(-offset.x, -offset.y);
+    float2 b = input.uv + float2( offset.x, -offset.y);
+    float2 c = input.uv + float2(-offset.x,  offset.y);
+    float2 d = input.uv + float2( offset.x,  offset.y);
+    float4 first = 0.0f;
+    float requested = saturate(OptionData2.x);
+    if (requested > 0.0f && DepthData.z > 0.5f) {
+        first = 1.0f;
+        if (DepthData.w > 0.5f) {
+            float4 depth = float4(FirstPersonHardwareDepth(a), FirstPersonHardwareDepth(b), FirstPersonHardwareDepth(c), FirstPersonHardwareDepth(d));
+            first = float4(depth > DepthEndpointEpsilon) * float4(depth < 1.0f - DepthEndpointEpsilon) * requested;
+        }
+    }
+    float4 sky = SkyCoverage(float4(HardwareDepth(a), HardwareDepth(b), HardwareDepth(c), HardwareDepth(d)));
+    float pathOpen = dot(sky * (1.0f - first), 0.25f);
+    float source = pathOpen * NativeSunStrength() * saturate(SunData.w);
+    return float4(source, pathOpen, dot(first, 0.25f), 1.0f);
 }
