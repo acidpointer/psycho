@@ -28,6 +28,7 @@ mod model_postprocess;
 mod navmesh;
 mod patching;
 mod patrol_ref_in_use;
+mod pixel_texture_failure;
 mod queued_tasks;
 mod ragdoll;
 mod save_integrity;
@@ -484,7 +485,7 @@ pub(crate) fn append_diagnostic_report(out: &mut String) {
         out,
         "Allocation OOM",
         allocation.installed,
-        "Pixel converter",
+        "Texture consumers",
         allocation.callsite_owned,
     );
     push_report_value(
@@ -779,8 +780,14 @@ pub(crate) fn append_diagnostic_report(out: &mut String) {
         out,
         "Allocation OOM",
         format!(
-            "{} NULL / {} conversion rejects",
-            allocation.null_returns, allocation.conversion_rejections,
+            "{} NULL / {} backing / {} conversion / {} outer / {} factory / {} resolver / {} refresh",
+            allocation.null_returns,
+            allocation.backing_failures,
+            allocation.conversion_rejections,
+            allocation.object_failures,
+            allocation.factory_aborts,
+            allocation.resolver_failures,
+            allocation.refresh_rejections,
         ),
     );
     push_report_value(
@@ -1442,9 +1449,12 @@ fn install_memset_null_dst(config: &EngineFixesConfig) -> anyhow::Result<()> {
         return Ok(());
     }
 
-    memset::install_allocation_failure_guards()?;
+    if let Err(error) = memset::install_allocation_failure_guards() {
+        log::error!("[OOM] Allocation-failure protection unavailable: {error:#}");
+        return Err(error);
+    }
     log::info!(
-        "[OOM] Allocation-failure guards active at zero-allocation providers and NiPixelData conversion"
+        "[OOM] Allocation-failure guards active at zero-allocation providers, NiPixelData construction, texture factories, resolvers and refresh consumers"
     );
     Ok(())
 }

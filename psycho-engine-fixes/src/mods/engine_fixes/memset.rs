@@ -5,7 +5,10 @@
 //! allocation through object fields before the affected caller invokes the
 //! image converter. The replacement providers preserve successful allocation
 //! behavior, while the converter boundary maps that incomplete object to the
-//! caller's native false-result cleanup path.
+//! caller's native false-result cleanup path. The scoped constructor disposes
+//! its known unpublished failure through native teardown before returning NULL.
+//! Texture factories, resolvers and refresh consumers propagate that failure
+//! through the owned bridges in `pixel_texture_failure`.
 //!
 //! Installation is one transaction. Exact executable fingerprints establish
 //! the native contract, pointer-slot hooks refuse foreign predecessors, and an
@@ -29,7 +32,7 @@ use libpsycho::{
     },
 };
 
-use super::patching::verify_bytes;
+use super::{patching::verify_bytes, pixel_texture_failure};
 
 const GAME_HEAP_ADDR: usize = 0x011F6238;
 const GAME_HEAP_ALLOC_ADDR: usize = 0x00AA3E40;
@@ -140,6 +143,7 @@ static INSTALLED: AtomicBool = AtomicBool::new(false);
 static CONSTRUCTION_SCOPE_HEALTHY: AtomicBool = AtomicBool::new(false);
 static CONSTRUCTION_SCOPE_SLOT: OnceLock<ThreadLocalSlot> = OnceLock::new();
 static NULL_RETURNS: AtomicU64 = AtomicU64::new(0);
+static BACKING_FAILURES: AtomicU64 = AtomicU64::new(0);
 static CONVERSION_REJECTIONS: AtomicU64 = AtomicU64::new(0);
 static LAST_REJECTION: AtomicU64 = AtomicU64::new(0);
 
@@ -209,12 +213,22 @@ pub(super) struct DiagnosticSnapshot {
     pub installed: bool,
     pub callsite_owned: bool,
     pub null_returns: u64,
+    pub backing_failures: u64,
     pub conversion_rejections: u64,
+    pub object_failures: u64,
+    pub factory_aborts: u64,
+    pub resolver_failures: u64,
+    pub refresh_rejections: u64,
     pub last_destination: u32,
     pub last_reason: &'static str,
 }
 
-/// Install the allocation providers and their proven downstream containment.
+/// Install allocation, scoped construction and all proven texture consumers.
+///
+/// Runs at the existing quiescent core activation boundary. Contract/preparation
+/// failure leaves protection unavailable; transactional writes roll back only
+/// owned modifications. Successful installation is process-lifetime and keeps
+/// the existing configuration key, one Win32 TLS scope and dynamic converter.
 pub fn install_allocation_failure_guards() -> anyhow::Result<()> {
     if INSTALLED.load(Ordering::Acquire) {
         return Ok(());
@@ -236,12 +250,16 @@ pub fn install_allocation_failure_guards() -> anyhow::Result<()> {
         ZERO_ALLOC_ORIGINAL_2,
         hook_zero_alloc_2,
     )?;
-    let scope_slot = ThreadLocalSlot::allocate().context("allocate NiPixelData scope slot")?;
-    CONSTRUCTION_SCOPE_SLOT
-        .set(scope_slot)
-        .map_err(|_| anyhow::anyhow!("NiPixelData scope slot is already initialized"))?;
+    if CONSTRUCTION_SCOPE_SLOT.get().is_none() {
+        let scope_slot = ThreadLocalSlot::allocate().context("allocate NiPixelData scope slot")?;
+        CONSTRUCTION_SCOPE_SLOT
+            .set(scope_slot)
+            .map_err(|_| anyhow::anyhow!("NiPixelData scope slot is already initialized"))?;
+    }
 
     let mut transaction = ModificationTransaction::new();
+    // Callers must admit failure before construction can start emitting it.
+    pixel_texture_failure::apply(&mut transaction)?;
     transaction.apply_patch(&PIXEL_CONVERT_PATCH)?;
     transaction.apply_patch(&PIXEL_DATA_ALLOC_PATCH)?;
     transaction.apply_patch(&PIXEL_DATA_CTOR_PATCH)?;
@@ -265,6 +283,7 @@ fn verify_native_contract() -> anyhow::Result<()> {
     PIXEL_DATA_CTOR_PATCH.verify()?;
     PIXEL_DATA_ALLOC_PATCH.verify()?;
     PIXEL_CONVERT_PATCH.verify()?;
+    pixel_texture_failure::verify_contract()?;
     Ok(())
 }
 
@@ -319,7 +338,42 @@ unsafe extern "thiscall" fn hook_pixel_data_ctor(
             constructor.as_fn()(destination, width, height, pixel_format, mip_count, faces)
         };
     };
-    unsafe { constructor.as_fn()(destination, width, height, pixel_format, mip_count, faces) }
+    let result =
+        unsafe { constructor.as_fn()(destination, width, height, pixel_format, mip_count, faces) };
+    // Teardown may reenter native providers. The admission capability must end
+    // before disposing of its destination, so a recycled address cannot inherit
+    // the failed construction's scope.
+    drop(_scope);
+    // SAFETY: this exact callsite supplies its freshly allocated 116-byte
+    // destination to the verified native constructor. On the scoped early
+    // return it is still exclusively owned, base accounting and palette are
+    // initialized, and backing+0x50 is NULL. Native teardown reads no completion
+    // flag or derived metadata; it balances accounting and frees the owner.
+    // An arbitrary pointer rejection in the converter conveys no such authority.
+    let backing = unsafe {
+        destination
+            .cast::<u8>()
+            .add(PIXEL_DATA_BACKING_OFFSET)
+            .cast::<*mut c_void>()
+            .read_unaligned()
+    };
+    if backing.is_null() {
+        let count = BACKING_FAILURES
+            .fetch_add(1, Ordering::Relaxed)
+            .wrapping_add(1);
+        if count == 1 || count.is_power_of_two() {
+            log::warn!(
+                "[OOM] NiPixelData backing allocation failed total={} destination=0x{:08X}; unpublished object disposed, constructor returns NULL",
+                count,
+                destination as usize,
+            );
+        }
+        unsafe {
+            pixel_texture_failure::discard_failed_pixel(destination);
+        }
+        return std::ptr::null_mut();
+    }
+    result
 }
 
 extern "C" fn guarded_pixel_construction_destination() -> *mut c_void {
@@ -525,14 +579,25 @@ pub(super) fn diagnostic_snapshot() -> DiagnosticSnapshot {
     ) && patch_is_owned(
         PIXEL_CONVERT_BLOCK_ADDR,
         PIXEL_CONVERT_PATCH_REPLACEMENT.as_slice(),
-    );
+    ) && pixel_texture_failure::patches_owned();
     let last = LAST_REJECTION.load(Ordering::Acquire);
     let reason = RejectionReason::from_raw(last as u32);
+    let [
+        object_failures,
+        factory_aborts,
+        resolver_failures,
+        refresh_rejections,
+    ] = pixel_texture_failure::failure_counts();
     DiagnosticSnapshot {
         installed: INSTALLED.load(Ordering::Acquire),
         callsite_owned,
         null_returns: NULL_RETURNS.load(Ordering::Relaxed),
+        backing_failures: BACKING_FAILURES.load(Ordering::Relaxed),
         conversion_rejections: CONVERSION_REJECTIONS.load(Ordering::Relaxed),
+        object_failures,
+        factory_aborts,
+        resolver_failures,
+        refresh_rejections,
         last_destination: (last >> 32) as u32,
         last_reason: reason.name(),
     }

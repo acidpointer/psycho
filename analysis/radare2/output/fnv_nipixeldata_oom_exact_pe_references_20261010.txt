@@ -1,0 +1,188 @@
+{
+  "executable": "fnv_reverse/FalloutNV.exe",
+  "sha256": "42fee7d6cd74e801372aa89c8f71c974cebd3c20ec9ad43d1465b8fa9646b49c",
+  "image_base": "0x400000",
+  "method": "Supplemental exact PE-byte reference scan; MCP disassembly remains primary. Byte matches require instruction/context verification.",
+  "references": {
+    "0xe68ef0": {
+      "absolute_byte_matches": [],
+      "relative_branch_byte_matches": [
+        {
+          "address": "0xe6dc5f",
+          "opcode": "0xe8",
+          "bytes": "e88cb2ffff"
+        },
+        {
+          "address": "0xe90b68",
+          "opcode": "0xe8",
+          "bytes": "e88383fdff"
+        },
+        {
+          "address": "0xe90cb3",
+          "opcode": "0xe8",
+          "bytes": "e83882fdff"
+        }
+      ]
+    },
+    "0xa7a280": {
+      "absolute_byte_matches": [
+        {
+          "address": "0x109d9d8",
+          "section": ".rdata",
+          "aligned": true
+        }
+      ],
+      "relative_branch_byte_matches": []
+    },
+    "0xe90b10": {
+      "absolute_byte_matches": [
+        {
+          "address": "0x10f0878",
+          "section": ".rdata",
+          "aligned": true
+        }
+      ],
+      "relative_branch_byte_matches": []
+    },
+    "0xe90c70": {
+      "absolute_byte_matches": [
+        {
+          "address": "0x10f087c",
+          "section": ".rdata",
+          "aligned": true
+        }
+      ],
+      "relative_branch_byte_matches": []
+    },
+    "0x10f086c": {
+      "absolute_byte_matches": [
+        {
+          "address": "0xe90aa1",
+          "section": ".text",
+          "aligned": false
+        },
+        {
+          "address": "0xe90ac8",
+          "section": ".text",
+          "aligned": true
+        }
+      ],
+      "relative_branch_byte_matches": []
+    },
+    "0xa76640": {
+      "absolute_byte_matches": [],
+      "relative_branch_byte_matches": [
+        {
+          "address": "0xa5ffff",
+          "opcode": "0xe8",
+          "bytes": "e83c660100"
+        },
+        {
+          "address": "0xa608d9",
+          "opcode": "0xe8",
+          "bytes": "e8625d0100"
+        },
+        {
+          "address": "0xa60d47",
+          "opcode": "0xe8",
+          "bytes": "e8f4580100"
+        },
+        {
+          "address": "0xe68a25",
+          "opcode": "0xe8",
+          "bytes": "e816dcc0ff"
+        },
+        {
+          "address": "0xe68fd0",
+          "opcode": "0xe8",
+          "bytes": "e86bd6c0ff"
+        },
+        {
+          "address": "0xe69332",
+          "opcode": "0xe8",
+          "bytes": "e809d3c0ff"
+        },
+        {
+          "address": "0xe8a30d",
+          "opcode": "0xe8",
+          "bytes": "e82ec3beff"
+        },
+        {
+          "address": "0xe8ac93",
+          "opcode": "0xe8",
+          "bytes": "e8a8b9beff"
+        },
+        {
+          "address": "0xe8af3f",
+          "opcode": "0xe8",
+          "bytes": "e8fcb6beff"
+        },
+        {
+          "address": "0xe8b0fe",
+          "opcode": "0xe8",
+          "bytes": "e83db5beff"
+        }
+      ]
+    },
+    "0x11f4a7c": {
+      "absolute_byte_matches": [
+        {
+          "address": "0xa76641",
+          "section": ".text",
+          "aligned": false
+        },
+        {
+          "address": "0xa76af5",
+          "section": ".text",
+          "aligned": false
+        },
+        {
+          "address": "0xa76b1e",
+          "section": ".text",
+          "aligned": false
+        },
+        {
+          "address": "0xa76b31",
+          "section": ".text",
+          "aligned": false
+        },
+        {
+          "address": "0xa76b55",
+          "section": ".text",
+          "aligned": false
+        },
+        {
+          "address": "0xa76b61",
+          "section": ".text",
+          "aligned": false
+        },
+        {
+          "address": "0xa76b8f",
+          "section": ".text",
+          "aligned": false
+        },
+        {
+          "address": "0xfdb061",
+          "section": ".text",
+          "aligned": false
+        }
+      ],
+      "relative_branch_byte_matches": []
+    },
+    "0xe8abf0": {
+      "absolute_byte_matches": [],
+      "relative_branch_byte_matches": [
+        {
+          "address": "0xe68f71",
+          "opcode": "0xe8",
+          "bytes": "e87a1c0200"
+        },
+        {
+          "address": "0xe6dce4",
+          "opcode": "0xe8",
+          "bytes": "e807cf0100"
+        }
+      ]
+    }
+  }
+}
