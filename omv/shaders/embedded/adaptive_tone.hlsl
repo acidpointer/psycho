@@ -25,7 +25,6 @@ static const float ExposureResponseHalfLifeSeconds = 0.14f;
 static const float ToneRiseHalfLifeSeconds = 0.22f;
 static const float ToneFallHalfLifeSeconds = 0.72f;
 static const float DisplayGamma = 2.2f;
-static const float ResponseCurveMaxLuma = 4.0f;
 
 struct PixelInput {
     float2 uv : TEXCOORD0;
@@ -130,19 +129,28 @@ float4 Main(PixelInput input) : COLOR0 {
     // Exposure is an approximate display-linear stop, not a gain applied to
     // already encoded RGB. Both fixed and automatic modes use the same curve.
     float exposureScale = exp2(exposureEv / DisplayGamma);
-    float curveLuma = input.uv.x * ResponseCurveMaxLuma;
+    // Include both exact endpoints. Compose maps to texel centers so filtered
+    // mapped peaks remain monotonic after FP16 storage and UNORM conversion.
+    float curvePosition = (input.uv.x - 0.5f * AdaptData1.w) / (1.0f - AdaptData1.w);
+    float curveLuma = curvePosition / max(1.0f - curvePosition, 1.0f / 65504.0f);
     float toneStrength = AdaptData1.y > 0.5f ? AdaptData1.z : 0.0f;
     float amount = toneStrength / (1.0f + toneStrength);
-    float slope = 1.0f + amount;
-    float reserve = amount * 0.25f * (1.0f + saturate(toneActivity) * 0.5f);
+    // Reserve more codes for highlight gradients independently of the toe.
+    // The cap retains the accepted >=0.8 sky output even at maximum contrast
+    // and fully active shoulder; ordinary sky coverage never drives activity.
+    float reserve = min(amount * 0.5f * (1.0f + saturate(toneActivity) * 0.5f), 0.4f);
     float toneScale = toneStrength > 0.0f
-        ? DisplayToneScale(curveLuma * exposureScale, slope, reserve)
+        ? DisplayToneScale(curveLuma * exposureScale, amount, reserve, amount * amount * 0.5f)
         : 1.0f;
-    float responseScale = exposureScale * toneScale;
+    // FP16 white headroom preserves small highlight increments more precisely
+    // than values near one, avoiding one-code reversals after interpolation.
+    float headroom = curvePosition >= 1.0f ? 0.0f : 1.0f - curveLuma * exposureScale * toneScale;
     // Multiples of 1/64 are exact FP16 throughout the metered [-10, 0] range.
     // The residual is below 1/64 and retains the small increments separately.
     float coarseLog = floor(adaptedLog * 64.0f) / 64.0f;
     bool fineTexel = input.uv.x > AdaptData1.w && input.uv.x < 2.0f * AdaptData1.w;
     float storedLog = fineTexel ? adaptedLog - coarseLog : coarseLog;
-    return float4(responseScale, storedLog, exposureEv, toneActivity);
+    // Clamp over-white exposure in this low-resolution pass. Filtering a
+    // nonnegative headroom keeps every mapped peak <=1 without a compose cap.
+    return float4(max(headroom, 0.0f), storedLog, exposureEv, toneActivity);
 }

@@ -88,6 +88,23 @@ impl Harness {
             .unwrap();
     }
 
+    // Only the input generator is test-owned. All subsequent metering, history,
+    // grading, LUT, response filtering, and output conversion remain shipped.
+    fn highlight_ramp(&mut self, color: [f32; 3], start: f32, end: f32) {
+        let device = self.owner.as_ref();
+        self.input = hlsl_fill_ramp(&device, self.width, self.height, color, start, end);
+    }
+
+    fn unorm_output(&mut self) {
+        let device = self.owner.as_ref();
+        self.output = device
+            .create_render_target_texture(self.width, self.height, D3DFMT_A8R8G8B8)
+            .unwrap();
+        self.readback = device
+            .create_system_memory_surface(self.width, self.height, D3DFMT_A8R8G8B8)
+            .unwrap();
+    }
+
     fn option(&mut self, key: &str, value: ShaderOptionValue) {
         let index = self
             .source
@@ -131,7 +148,11 @@ impl Harness {
             .as_ref()
             .copy_render_target_data(&self.output.surface_level(0).unwrap(), &self.readback)
             .unwrap();
-        self.readback.read_rgba16f().unwrap()
+        if self.readback.desc().unwrap().Format == D3DFMT_A8R8G8B8 {
+            self.readback.read_rgba8().unwrap()
+        } else {
+            self.readback.read_rgba16f().unwrap()
+        }
     }
 
     fn history(&self) -> [f32; 4] {
@@ -152,6 +173,259 @@ impl Harness {
         let mut state = pixels[0];
         state[1] += pixels[1][1];
         state
+    }
+}
+
+fn hlsl_fill_ramp(
+    device: &Device9Ref<'_>,
+    width: u32,
+    height: u32,
+    color: [f32; 3],
+    start: f32,
+    end: f32,
+) -> Texture9 {
+    hlsl_input(
+        device,
+        width,
+        height,
+        b"float4 Color:register(c0);float4 Range:register(c1);\
+          float4 Main(float2 uv:TEXCOORD0):COLOR0{\
+          return float4(Color.rgb*(Range.x+Range.y*uv.x),Color.a);}",
+        &[
+            [color[0], color[1], color[2], 0.5],
+            [start, end - start, 0.0, 0.0],
+        ],
+    )
+}
+
+fn hlsl_input(
+    device: &Device9Ref<'_>,
+    width: u32,
+    height: u32,
+    source: &[u8],
+    constants: &[[f32; 4]],
+) -> Texture9 {
+    let input = device
+        .create_render_target_texture(width, height, D3DFMT_A16B16G16R16F)
+        .unwrap();
+    let fill = device
+        .create_pixel_shader(
+            &shaders::compile_hlsl_source_target("adaptive_highlight_input.hlsl", source, "ps_3_0")
+                .unwrap(),
+        )
+        .unwrap();
+    bind_pipeline_state(device).unwrap();
+    device.clear_texture(7).unwrap();
+    bind_target(
+        device,
+        &input.surface_level(0).unwrap(),
+        width,
+        height,
+        RenderTargetSlots::query(device).unwrap(),
+    )
+    .unwrap();
+    device.set_pixel_shader(&fill).unwrap();
+    device.set_pixel_shader_constant_f(0, constants).unwrap();
+    device.begin_scene().unwrap();
+    draw_quad(device, width, height).unwrap();
+    device.end_scene().unwrap();
+    input
+}
+
+fn assert_highlight_detail(pixels: &[[f32; 4]], width: usize, context: &str) {
+    let row = &pixels[..width];
+    assert!(
+        luma(row[width - 1]) > luma(row[width / 2]) && luma(row[width / 2]) > luma(row[0]),
+        "highlight levels collapsed ({context}): {:?}, {:?}, {:?}",
+        row[0],
+        row[width / 2],
+        row[width - 1]
+    );
+    for pair in row.windows(2) {
+        assert!(
+            luma(pair[1]) + 0.001 >= luma(pair[0]),
+            "ramp folded ({context}): {pair:?}"
+        );
+    }
+    for p in pixels {
+        assert!(p.iter().all(|v| v.is_finite() && (0.0..=1.0).contains(v)));
+        assert!(
+            (p[3] - 0.5).abs() <= 1.0 / 255.0,
+            "alpha changed ({context})"
+        );
+    }
+}
+
+#[test]
+fn colored_highlights_retain_detail_in_fixed_automatic_and_quantized_output() {
+    let mut h = Harness::new(
+        512,
+        8,
+        AdaptiveToneConfig {
+            auto_exposure_enabled: false,
+            ..AdaptiveToneConfig::default()
+        },
+    );
+    for quantized in [false, true] {
+        if quantized {
+            h.unorm_output();
+        }
+        for mode in [ToneMapperMode::Neutral, ToneMapperMode::Automatic] {
+            h.option("tone_mapper_mode", ShaderOptionValue::Integer(mode.index()));
+            for color in [
+                [0.25, 0.5, 1.0],
+                [0.25, 1.0, 1.0],
+                [1.0, 0.5, 0.25],
+                [1.0; 3],
+            ] {
+                h.highlight_ramp(color, 1.0, 4.0);
+                h.frame(false, 1.0 / 60.0);
+                assert_highlight_detail(
+                    &h.pixels(),
+                    512,
+                    &format!("initial {mode:?}, UNORM={quantized}, color={color:?}"),
+                );
+                for _ in 0..180 {
+                    h.frame(true, 1.0 / 60.0);
+                }
+                let pixels = h.pixels();
+                assert_highlight_detail(&pixels, 512, "settled response");
+                if !quantized {
+                    for p in &pixels {
+                        assert!((p[1] / p[0] - color[1] / color[0]).abs() < 0.01);
+                        assert!((p[2] / p[0] - color[2] / color[0]).abs() < 0.01);
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn analytic_grading_preserves_over_white_detail_at_saved_and_full_strength() {
+    let mut h = Harness::new(
+        512,
+        8,
+        AdaptiveToneConfig {
+            auto_exposure_enabled: false,
+            ..AdaptiveToneConfig::default()
+        },
+    );
+    h.highlight_ramp([1.0; 3], 1.0, 4.0);
+    h.option("color_grading_enabled", ShaderOptionValue::Bool(true));
+    for strength in [0.68, 1.0] {
+        h.option("strength", ShaderOptionValue::Float(strength));
+        h.frame(false, 1.0 / 60.0);
+        assert_highlight_detail(&h.pixels(), 512, "analytic grading FP16");
+    }
+    h.unorm_output();
+    h.frame(false, 1.0 / 60.0);
+    assert_highlight_detail(&h.pixels(), 512, "analytic grading UNORM");
+}
+
+#[test]
+fn display_luts_preserve_over_white_detail_at_full_lut_strength() {
+    let mut h = Harness::new(
+        512,
+        8,
+        AdaptiveToneConfig {
+            auto_exposure_enabled: false,
+            ..AdaptiveToneConfig::default()
+        },
+    );
+    h.option("strength", ShaderOptionValue::Float(1.0));
+    h.option("lut_enabled", ShaderOptionValue::Bool(true));
+    h.option("lut_strength", ShaderOptionValue::Float(1.0));
+    for name in ["00_neutral.cube", "01_mojave_natural.cube"] {
+        h.lut = crate::luts::shipped_luts_for_test()
+            .into_iter()
+            .find(|lut| lut.file_name == name);
+        assert!(h.lut.is_some());
+        h.highlight_ramp([1.0; 3], 1.0, 4.0);
+        h.frame(false, 1.0 / 60.0);
+        assert_highlight_detail(&h.pixels(), 512, name);
+    }
+    h.unorm_output();
+    h.frame(false, 1.0 / 60.0);
+    assert_highlight_detail(&h.pixels(), 512, "Mojave Natural UNORM");
+}
+
+#[test]
+fn highlights_beyond_old_table_domain_remain_ordered_and_match_fixed_mapping() {
+    let mut h = Harness::new(
+        512,
+        8,
+        AdaptiveToneConfig {
+            tone_mapper_strength: 3.0,
+            tone_mapper_mode: ToneMapperMode::Neutral,
+            ..AdaptiveToneConfig::default()
+        },
+    );
+    h.highlight_ramp([0.25, 0.5, 1.0], 4.0, 16.0);
+    h.frame(false, 1.0 / 60.0);
+    let filtered = h.pixels();
+    assert_highlight_detail(&filtered, 512, "4..16 filtered FP16");
+    h.option("auto_exposure_enabled", ShaderOptionValue::Bool(false));
+    h.frame(false, 1.0 / 60.0);
+    let fixed = h.pixels();
+    assert_highlight_detail(&fixed, 512, "4..16 fixed FP16");
+    for (a, b) in filtered.iter().zip(&fixed) {
+        for c in 0..3 {
+            assert!((a[c] - b[c]).abs() < 0.002);
+        }
+    }
+    h.unorm_output();
+    for mode in [ToneMapperMode::Neutral, ToneMapperMode::Automatic] {
+        h.option("tone_mapper_mode", ShaderOptionValue::Integer(mode.index()));
+        for frame in 0..180 {
+            h.frame(frame != 0, 1.0 / 60.0);
+        }
+        assert_highlight_detail(&h.pixels(), 512, "4..16 UNORM");
+    }
+}
+
+#[test]
+fn active_highlights_preserve_sky_brightness_at_every_strength_and_coverage() {
+    let mut h = Harness::new(
+        64,
+        64,
+        AdaptiveToneConfig {
+            auto_exposure_enabled: false,
+            ..AdaptiveToneConfig::default()
+        },
+    );
+    for strength in [0.1, 0.6761261, 1.0, 3.0] {
+        h.option("tone_mapper_strength", ShaderOptionValue::Float(strength));
+        let mut previous: Option<[f32; 4]> = None;
+        for bright_rows in [1, 8, 16] {
+            h.input = hlsl_input(
+                &h.owner.as_ref(),
+                64,
+                64,
+                b"float4 Coverage:register(c0);\
+                  float4 Main(float2 uv:TEXCOORD0):COLOR0{\
+                  float value=uv.y<Coverage.x?2.0:(uv.y<0.5?0.8:0.3);\
+                  return float4(value.xxx,0.5);}",
+                &[[bright_rows as f32 / 64.0, 0.0, 0.0, 0.0]],
+            );
+            for frame in 0..180 {
+                h.frame(frame != 0, 1.0 / 60.0);
+            }
+            let output = h.pixels();
+            let sky = output[64 * 24];
+            let ground = output[64 * 48];
+            assert!(h.history()[3] > 0.99);
+            assert!(
+                luma(sky) >= 0.8 - 1.0 / 255.0,
+                "active shoulder dulled sky: {sky:?}"
+            );
+            assert!(luma(ground) < 0.3);
+            assert!(luma(sky) / luma(ground) > 0.8 / 0.3);
+            if let Some(old) = previous {
+                assert!((old[0] - sky[0]).abs() < 0.001);
+            }
+            previous = Some(sky);
+        }
     }
 }
 

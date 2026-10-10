@@ -7,8 +7,8 @@
 //! HDR mapping before this phase, and OMV shapes only the remaining display
 //! range. At no more than 60 Hz, a spatial meter and reduction feed a 512-entry
 //! ping-pong FP16 response curve and replicated temporal state; the fused
-//! compose uses one filtered lookup and a hue-preserving bounded RGB scale.
-//! Fixed neutral mode uses a scalar luminance curve in the compose
+//! compose uses one filtered peak lookup and a hue-preserving bounded RGB scale.
+//! Fixed neutral mode uses the same peak curve in the compose
 //! pass and avoids temporal resources. There is no CPU readback or extra
 //! full-resolution pass.
 
@@ -2642,30 +2642,6 @@ mod shader_compile_tests {
         assert!(!source.contains("clusterPixel"));
         assert!(!source.contains("FilmGrainNoiseScaleCodes"));
     }
-
-    #[test]
-    fn final_color_contract_preserves_alpha_and_keeps_adaptation_low_resolution() {
-        let source = std::str::from_utf8(COMPOSE_SHADER).expect("compose UTF-8");
-        assert!(source.contains("baseSample.a"));
-        assert!(source.contains("SampleColorLut"));
-        assert_eq!(source.matches("tex2Dlod(ColorLut").count(), 2);
-        assert!(!source.contains("averageLuma"));
-        assert!(!source.contains("for (int y"));
-        assert!(!source.contains("ddx("));
-        assert!(!source.contains("ddy("));
-        assert!(source.contains("color = input.uv.x < 0.5f ? ungraded : color"));
-        assert!(source.contains("sampler2D AdaptiveToneResponse : register(s7);"));
-        assert!(source.contains("float responseUv = saturate(displayLuma * 0.25f);"));
-        assert!(!source.contains("AdaptiveToneData.z * GradeData0.x"));
-
-        let chromatic = std::str::from_utf8(CHROMATIC_SHADER).expect("chromatic UTF-8");
-        assert_eq!(chromatic.matches("SampleScene(").count(), 4);
-        assert!(chromatic.contains("radialDirection * ScreenData.zw * ChromaticData.x"));
-        assert!(chromatic.contains("length((input.uv - 0.5f) * 2.0f)"));
-        assert!(chromatic.contains("return float4(red, center.g, blue, center.a);"));
-        assert!(!chromatic.contains("ddx("));
-        assert!(!chromatic.contains("ddy("));
-    }
 }
 
 pub(crate) struct BloomingHdrEffect {
@@ -3251,18 +3227,18 @@ impl BloomingHdrEffect {
             bloom_enabled,
             frame_index,
         )?;
-        let target_data = self
-            .targets
-            .as_ref()
-            .map_or([1.0, 1.0, 1.0, 1.0], |targets| {
-                [
-                    targets.inv_width,
-                    targets.inv_height,
-                    targets.width as f32,
-                    targets.height as f32,
-                ]
-            });
-        device.set_pixel_shader_constant_f(EFFECT_CONSTANT_REGISTER, &[target_data])?;
+        // Compose does not consume the extraction/blur dimensions in c9. Reuse
+        // that per-pass slot for the already-validated LUT domain rather than
+        // adding an owner, persistent field, sampler, or shader constant slot.
+        device.set_pixel_shader_constant_f(
+            EFFECT_CONSTANT_REGISTER,
+            &[[
+                grade.lut_domain_max[0],
+                grade.lut_domain_max[1],
+                grade.lut_domain_max[2],
+                0.0,
+            ]],
+        )?;
         match adaptive.compose_variant() {
             ComposeVariant::Legacy => device.set_pixel_shader(&self.compose_legacy_shader)?,
             ComposeVariant::Static => device.set_pixel_shader(&self.compose_static_shader)?,
@@ -3712,7 +3688,16 @@ impl AdaptiveToneSettings {
         // Fixed mode has no temporal activity. Prepare its curve coefficients
         // once per draw; automatic mode prepares the same policy on the GPU.
         let amount = self.tone_mapper_strength / (1.0 + self.tone_mapper_strength);
-        [1.0 + amount, amount * 0.25, self.tone_mapper_strength, 0.0]
+        let inverse_width = 1.0 / ADAPTIVE_RESPONSE_WIDTH as f32;
+        if self.compose_variant() == ComposeVariant::Adaptive {
+            return [
+                inverse_width - 1.0,
+                1.0 - 0.5 * inverse_width,
+                inverse_width,
+                0.0,
+            ];
+        }
+        [amount, amount * 0.5, inverse_width, amount * amount * 0.5]
     }
 }
 
@@ -4220,7 +4205,7 @@ struct AdaptiveMeterTargets {
     reduced: EffectTarget,
 }
 
-/// Two FP16 response curves carrying scale plus replicated temporal state.
+/// Two FP16 response curves carrying white headroom and temporal state.
 ///
 /// Ping-pong storage is required because D3D9 forbids a texture from being an
 /// input and render target simultaneously. `current_is_first` identifies the
