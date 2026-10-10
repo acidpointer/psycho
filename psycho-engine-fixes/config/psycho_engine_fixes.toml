@@ -460,6 +460,12 @@ scene_light_sequential_scan = true
 # Removes redundant setup work when checking object bounds against the view.
 multibound_frustum_tests = true
 
+# Removes redundant setup work when building visibility bounds through portals.
+multibound_vertex_setup = true
+
+# Reduces repeated bookkeeping when testing visibility through portals.
+multibound_loop_bookkeeping = true
+
 # =============================================================================
 # DIAGNOSTICS
 # =============================================================================

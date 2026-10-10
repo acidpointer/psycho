@@ -271,6 +271,10 @@ pub struct PerformanceConfig {
     /// Existing configs may still contain removed radio optimization settings.
     #[serde(skip)]
     pub obsolete_radio_configured: bool,
+    /// Remove redundant vertex setup in native compound/portal construction.
+    pub multibound_vertex_setup: bool,
+    /// Reduce repeated bookkeeping in native compound visibility loops.
+    pub multibound_loop_bookkeeping: bool,
 }
 
 impl Default for PerformanceConfig {
@@ -283,6 +287,8 @@ impl Default for PerformanceConfig {
             scene_light_sequential_scan: true,
             multibound_frustum_tests: true,
             obsolete_radio_configured: false,
+            multibound_vertex_setup: true,
+            multibound_loop_bookkeeping: true,
         }
     }
 }
@@ -316,6 +322,12 @@ impl PerformanceConfig {
             obsolete_radio_configured: raw.radio_pathfinder_yield_fix.is_some()
                 || raw.radio_signal_scan_cache.is_some()
                 || raw.radio_signal_scan_cache_ttl_ms.is_some(),
+            multibound_vertex_setup: raw
+                .multibound_vertex_setup
+                .unwrap_or(default.multibound_vertex_setup),
+            multibound_loop_bookkeeping: raw
+                .multibound_loop_bookkeeping
+                .unwrap_or(default.multibound_loop_bookkeeping),
         }
     }
 }
@@ -621,6 +633,8 @@ struct RawPerformanceConfig {
     radio_signal_scan_cache_ttl_ms: Option<u32>,
     /// Legacy key. New configs use engine_fixes.display_alt_tab.
     display_tweaks: Option<bool>,
+    multibound_vertex_setup: Option<bool>,
+    multibound_loop_bookkeeping: Option<bool>,
 }
 
 #[derive(Default, Deserialize)]

@@ -20,6 +20,7 @@ use crate::{
         },
         perf::{
             install_light_property_score_reuse, install_multibound_frustum_tests,
+            install_multibound_loop_bookkeeping, install_multibound_vertex_setup,
             install_post_load_reconciliation_prepass, install_radio_scan_fix, install_rng_hook,
             install_scene_light_sequential_scan,
         },
@@ -215,6 +216,24 @@ fn install_runtime_hooks(performance: &PerformanceConfig) -> anyhow::Result<()> 
         }
     } else {
         log::info!("[MULTIBOUND] Bounds setup optimization disabled by config");
+    }
+
+    // Compound/portal setup owns a separate three-site startup transaction.
+    if performance.multibound_vertex_setup {
+        if let Err(error) = install_multibound_vertex_setup() {
+            log::warn!("[MULTIBOUND_VERTICES] Setup optimization unavailable: {error:#}");
+        }
+    } else {
+        log::info!("[MULTIBOUND_VERTICES] Setup optimization disabled by config");
+    }
+
+    // Loop bookkeeping owns six disjoint sites and needs no event admission.
+    if performance.multibound_loop_bookkeeping {
+        if let Err(error) = install_multibound_loop_bookkeeping() {
+            log::warn!("[MULTIBOUND_LOOPS] Loop optimization installation stopped: {error:#}");
+        }
+    } else {
+        log::info!("[MULTIBOUND_LOOPS] Loop optimization disabled by config");
     }
 
     if performance.rng {

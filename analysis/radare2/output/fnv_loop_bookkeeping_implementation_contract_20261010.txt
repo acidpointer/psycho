@@ -1,0 +1,1237 @@
+Six-site native loop bookkeeping: implementation qualification, 2026-10-10
+
+Scope: approved unreleased Psycho Engine Fixes candidate; static native/compiled
+qualification only. No gameplay, profiling, deployment or commit.
+Native executable: fnv_reverse/FalloutNV.exe, PE32 x86 base 00400000.
+SHA-256 reverified: 42fee7d6cd74e801372aa89c8f71c974cebd3c20ec9ad43d1465b8fa9646b49c
+Prior prospective contracts: fnv_loop_optimization_continuation_20261010.txt
+Owning document: docs/fnv_location_performance_static_audit.md
+
+Native owner revalidation (radare2 MCP primary)
+
+Capture 1: open_file {"file_path":"/data/storage1/Workspace/psycho/fnv_reverse/FalloutNV.exe"}
+File already opened and analyzed: /data/storage1/Workspace/psycho/fnv_reverse/FalloutNV.exe (level 1, 52719 functions). Skip calling analyze again unless you want a deeper level.
+
+Capture 2: hexdump {"address":"0xC49050","size":"173"}
+- offset -  5051 5253 5455 5657 5859 5A5B 5C5D 5E5F  0123456789ABCDEF
+0x00c49050  558b ec83 ec24 894d dcb9 3862 1f01 e87d  U....$.M..8b...}
+0x00c49060  b2e5 ff89 45f8 8b45 dc8b 4810 894d f08b  ....E..E..H..M..
+0x00c49070  1520 270a 0152 8b45 f0c1 e002 508b 4df8  . '..R.E....P.M.
+0x00c49080  e81b c4e5 ff89 45fc 8b4d dc8b 9190 0000  ......E..M......
+0x00c49090  0089 55ec 8b45 fc8b 4dec 8908 c745 f401  ..U..E..M....E..
+0x00c490a0  0000 00eb 098b 55f4 83c2 0189 55f4 8b45  ......U.....U..E
+0x00c490b0  dc8b 4824 83c1 0139 4df4 7d3a 8b55 dc8b  ..H$...9M.}:.U..
+0x00c490c0  4210 8945 e88b 4df4 3b4d e87d 298b 55f4  B..E..M.;M.}).U.
+0x00c490d0  83ea 016b d264 8b45 dc03 5008 8955 e48b  ...k.d.E..P..U..
+0x00c490e0  4de4 8b51 6089 55e0 8b45 f48b 4dfc 8b55  M..Q`.U..E..M..U
+0x00c490f0  e089 1481 ebaf 8b45 fc8b e55d c3         .......E...].
+
+
+Capture 3: hexdump {"address":"0xC49100","size":"150"}
+- offset -   0 1  2 3  4 5  6 7  8 9  A B  C D  E F  0123456789ABCDEF
+0x00c49100  558b ec83 ec1c 894d e48b 4508 8b08 894d  U......M..E....M
+0x00c49110  f48b 55e4 8b45 f489 8290 0000 00c7 45f8  ..U..E........E.
+0x00c49120  0100 0000 eb09 8b4d f883 c101 894d f88b  .......M.....M..
+0x00c49130  55e4 8b42 2483 c001 3945 f87d 3a8b 4de4  U..B$...9E.}:.M.
+0x00c49140  8b51 1089 55f0 8b45 f83b 45f0 7d29 8b4d  .Q..U..E.;E.}).M
+0x00c49150  f88b 5508 8b04 8a89 45e8 8b4d f883 e901  ..U.....E..M....
+0x00c49160  6bc9 648b 55e4 034a 0889 4dec 8b45 ec8b  k.d.U..J..M..E..
+0x00c49170  4de8 8948 60eb afb9 3862 1f01 e85f b1e5  M..H`...8b..._..
+0x00c49180  ff89 45fc 8b55 0852 8b4d fce8 80c4 e5ff  ..E..U.R.M......
+0x00c49190  8be5 5dc2 0400                           ..]...
+
+
+Capture 4: hexdump {"address":"0xC4A790","size":"163"}
+- offset -  9091 9293 9495 9697 9899 9A9B 9C9D 9E9F  0123456789ABCDEF
+0x00c4a790  558b ec83 ec10 894d f08b 450c 8378 6000  U......M..E..x`.
+0x00c4a7a0  0f95 c10f b6d1 85d2 7506 32c0 eb7f eb7b  ........u.2....{
+0x00c4a7b0  c745 fc00 0000 00eb 098b 45fc 83c0 0189  .E........E.....
+0x00c4a7c0  45fc 837d fc06 7d59 ba01 0000 008b 4dfc  E..}..}Y......M.
+0x00c4a7d0  d3e2 8b45 0c23 5060 0f95 c10f b6d1 85d2  ...E.#P`........
+0x00c4a7e0  743d 8b45 fcc1 e004 0345 0c50 8b4d 08e8  t=.E.....E.P.M..
+0x00c4a7f0  0cb9 86ff 8945 f883 7df8 0174 04eb 22eb  .....E..}..t..".
+0x00c4a800  1e83 7df8 0175 18ba 0100 0000 8b4d fcd3  ..}..u.......M..
+0x00c4a810  e2f7 d28b 450c 2350 608b 4d0c 8951 60eb  ....E.#P`.M..Q`.
+0x00c4a820  9883 7dfc 0675 0432 c0eb 02b0 018b e55d  ..}..u.2.......]
+0x00c4a830  c208 00                                  ...
+
+
+Capture 5: hexdump {"address":"0xC491A0","size":"497"}
+- offset -  A0A1 A2A3 A4A5 A6A7 A8A9 AAAB ACAD AEAF  0123456789ABCDEF
+0x00c491a0  558b ec83 ec64 894d ac8b 4508 8378 2000  U....d.M..E..x .
+0x00c491b0  7425 8b4d 088b 5120 d942 0cd9 5ddc d945  t%.M..Q .B..]..E
+0x00c491c0  dcdc 1d60 2001 01df e0f6 c444 7b09 c745  ...` ......D{..E
+0x00c491d0  a801 0000 00eb 07c7 45a8 0000 0000 837d  ........E......}
+0x00c491e0  a800 7507 32c0 e9a0 0100 00c7 45e8 0000  ..u.2.......E...
+0x00c491f0  0000 8b45 0883 7820 0074 0b8b 4d08 8b51  ...E..x .t..M..Q
+0x00c49200  2089 55a4 eb07 c745 a488 421f 018b 45a4   .U....E..B...E.
+0x00c49210  8945 d88b 4dd8 8b11 8955 ec8b 4104 8945  .E..M....U..A..E
+0x00c49220  f08b 5108 8955 f48b 410c 8945 f8c6 45ff  ..Q..U..A..E..E.
+0x00c49230  018b 4dac 0fb6 91a0 0000 0085 d275 168b  ..M..........u..
+0x00c49240  45ac 83c0 3050 8d4d ec51 8b4d ace8 8e14  E...0P.M.Q.M....
+0x00c49250  0000 8845 ff0f b655 ff85 d20f 8427 0100  ...E...U.....'..
+0x00c49260  008b 45ac 8378 2800 0f8e 1a01 0000 8b4d  ..E..x(........M
+0x00c49270  ac8b 512c 8955 e48b 45e4 6bc0 0c8b 4dac  ..Q,.U..E.k...M.
+0x00c49280  8b51 1883 3c10 020f 84e3 0000 008b 45e4  .Q..<.........E.
+0x00c49290  6bc0 0c8b 4dac 8b51 1883 3c10 030f 84cd  k...M..Q..<.....
+0x00c492a0  0000 00c6 45e3 008b 45e4 6bc0 0c8b 4dac  ....E...E.k...M.
+0x00c492b0  8b51 188b 0410 8945 a083 7da0 0774 0883  .Q.....E..}..t..
+0x00c492c0  7da0 0874 3aeb 6e8b 4de4 83c1 016b c90c  }..t:.n.M....k..
+0x00c492d0  8b55 ac03 4a18 894d cc8b 45cc 8b08 6bc9  .U..J..M..E...k.
+0x00c492e0  648b 55ac 034a 0889 4de8 8b45 e850 8d4d  d.U..J..M..E.P.M
+0x00c492f0  ec51 8b4d ace8 e613 0000 8845 e3eb 368b  .Q.M.......E..6.
+0x00c49300  55e4 83c2 016b d20c 8b45 ac03 5018 8955  U....k...E..P..U
+0x00c49310  bc8b 4dbc 8b11 6bd2 648b 45ac 0350 0889  ..M...k.d.E..P..
+0x00c49320  55e8 8b4d e851 8d55 ec52 8b4d ace8 5e14  U..M.Q.U.R.M..^.
+0x00c49330  0000 8845 e30f b645 e385 c074 158b 4de4  ...E...E...t..M.
+0x00c49340  6bc9 0c8b 55ac 8b42 188b 4c08 0489 4d9c  k...U..B..L...M.
+0x00c49350  eb13 8b55 e46b d20c 8b45 ac8b 4818 8b54  ...U.k...E..H..T
+0x00c49360  1108 8955 9c8b 459c 8945 e4e9 07ff ffff  ...U..E..E......
+0x00c49370  8b4d e46b c90c 8b55 ac8b 4218 33d2 833c  .M.k...U..B.3..<
+0x00c49380  0102 0f94 c288 55ff 8a45 ff8b e55d c204  ......U..E...]..
+0x00c49390  00                                       .
+
+
+Capture 6: hexdump {"address":"0xC493A0","size":"442"}
+- offset -  A0A1 A2A3 A4A5 A6A7 A8A9 AAAB ACAD AEAF  0123456789ABCDEF
+0x00c493a0  558b ec83 ec3c 894d d8c7 45f8 0000 0000  U....<.M..E.....
+0x00c493b0  c645 ff01 8b45 d80f b688 a000 0000 85c9  .E...E..........
+0x00c493c0  7529 8b55 088b 420c 8945 ec8b 4dec 894d  u).U..B..E..M..M
+0x00c493d0  d48b 55d8 83c2 3052 8b45 d48b 108b 4dd4  ..U...0R.E....M.
+0x00c493e0  8b82 9c00 0000 ffd0 8845 ff0f b64d ff85  .........E...M..
+0x00c493f0  c90f 845a 0100 008b 55d8 837a 2800 0f8e  ...Z....U..z(...
+0x00c49400  4d01 0000 8b45 d88b 482c 894d f48b 55f4  M....E..H,.M..U.
+0x00c49410  6bd2 0c8b 45d8 8b48 1883 3c0a 020f 8416  k...E..H..<.....
+0x00c49420  0100 008b 55f4 6bd2 0c8b 45d8 8b48 1883  ....U.k...E..H..
+0x00c49430  3c0a 030f 8400 0100 00c6 45f3 008b 55f4  <.........E...U.
+0x00c49440  6bd2 0c8b 45d8 8b48 188b 140a 8955 d083  k...E..H.....U..
+0x00c49450  7dd0 0774 0b83 7dd0 0874 50e9 9e00 0000  }..t..}..tP.....
+0x00c49460  8b45 f483 c001 6bc0 0c8b 4dd8 0341 1889  .E....k...M..A..
+0x00c49470  45e8 8b55 e88b 026b c064 8b4d d803 4108  E..U...k.d.M..A.
+0x00c49480  8945 f88b 5508 8b42 0c89 45e4 8b4d e489  .E..U..B..E..M..
+0x00c49490  4dcc 8b55 f852 8b45 cc8b 108b 4dcc 8b82  M..U.R.E....M...
+0x00c494a0  9c00 0000 ffd0 8845 f3eb 538b 4df4 83c1  .......E..S.M...
+0x00c494b0  016b c90c 8b55 d803 4a18 894d e08b 45e0  .k...U..J..M..E.
+0x00c494c0  8b08 6bc9 648b 55d8 034a 0889 4df8 8b45  ..k.d.U..J..M..E
+0x00c494d0  088b 480c 894d dc8b 55dc 8955 c88b 45f8  ..H..M..U..U..E.
+0x00c494e0  508b 4dc8 8b11 8b4d c88b 82a0 0000 00ff  P.M....M........
+0x00c494f0  d00f b6c8 f7d9 1bc9 83c1 0188 4df3 0fb6  ............M...
+0x00c49500  55f3 85d2 7415 8b45 f46b c00c 8b4d d88b  U...t..E.k...M..
+0x00c49510  5118 8b44 0204 8945 c4eb 138b 4df4 6bc9  Q..D...E....M.k.
+0x00c49520  0c8b 55d8 8b42 188b 4c08 0889 4dc4 8b55  ..U..B..L...M..U
+0x00c49530  c489 55f4 e9d4 feff ff8b 45f4 6bc0 0c8b  ..U.......E.k...
+0x00c49540  4dd8 8b51 1833 c983 3c10 020f 94c1 884d  M..Q.3..<......M
+0x00c49550  ff8a 45ff 8be5 5dc2 0400                 ..E...]...
+
+
+Capture 7: hexdump {"address":"0xC49560","size":"414"}
+- offset -  6061 6263 6465 6667 6869 6A6B 6C6D 6E6F  0123456789ABCDEF
+0x00c49560  558b ec83 ec24 894d e4c7 45f8 0000 0000  U....$.M..E.....
+0x00c49570  c645 ff01 8b45 e40f b688 a000 0000 85c9  .E...E..........
+0x00c49580  751c 8b55 e481 c294 0000 0052 8b45 e483  u..U.......R.E..
+0x00c49590  c030 508b 4d08 e825 affe ff88 45ff 0fb6  .0P.M..%....E...
+0x00c495a0  4dff 85c9 0f84 4b01 0000 8b55 e483 7a28  M.....K....U..z(
+0x00c495b0  000f 8e3e 0100 008b 45e4 8b48 2c89 4df4  ...>....E..H,.M.
+0x00c495c0  8b55 f46b d20c 8b45 e48b 4818 833c 0a02  .U.k...E..H..<..
+0x00c495d0  0f84 0701 0000 8b55 f46b d20c 8b45 e48b  .......U.k...E..
+0x00c495e0  4818 833c 0a03 0f84 f100 0000 c645 f300  H..<.........E..
+0x00c495f0  8b55 f46b d20c 8b45 e48b 4818 8b14 0a89  .U.k...E..H.....
+0x00c49600  55e0 837d e007 740b 837d e008 7458 e98f  U..}..t..}..tX..
+0x00c49610  0000 008b 45f4 83c0 016b c00c 8b4d e403  ....E....k...M..
+0x00c49620  4118 8945 ec8b 55ec 8b02 6bc0 648b 4de4  A..E..U...k.d.M.
+0x00c49630  0341 0889 45f8 83ec 0c8b d4a1 6c42 1f01  .A..E.......lB..
+0x00c49640  8902 8b0d 7042 1f01 894a 04a1 7442 1f01  ....pB...J..tB..
+0x00c49650  8942 086a 008b 4df8 518b 4d08 e88f a6fe  .B.j..M.Q.M.....
+0x00c49660  ff88 45f3 eb3c 8b55 f483 c201 6bd2 0c8b  ..E..<.U....k...
+0x00c49670  45e4 0350 1889 55e8 8b4d e88b 116b d264  E..P..U..M...k.d
+0x00c49680  8b45 e403 5008 8955 f88b 4df8 518b 4d08  .E..P..U..M.Q.M.
+0x00c49690  e83b b1fe ff0f b6d0 f7da 1bd2 83c2 0188  .;..............
+0x00c496a0  55f3 0fb6 45f3 85c0 7415 8b4d f46b c90c  U...E...t..M.k..
+0x00c496b0  8b55 e48b 4218 8b4c 0804 894d dceb 138b  .U..B..L...M....
+0x00c496c0  55f4 6bd2 0c8b 45e4 8b48 188b 5411 0889  U.k...E..H..T...
+0x00c496d0  55dc 8b45 dc89 45f4 e9e3 feff ff8b 4df4  U..E..E.......M.
+0x00c496e0  6bc9 0c8b 55e4 8b42 1833 d283 3c01 020f  k...U..B.3..<...
+0x00c496f0  94c2 8855 ff8a 45ff 8be5 5dc2 0400       ...U..E...]...
+
+
+
+Compiled descriptor and native-destination payload qualification
+
+Actual descriptor slices read from a stable copy of the supported-target core
+DLL. This is binary qualification, not native game execution. The compiled
+CodeSignature/OwnedCodePatch checks and complete installer are included below.
+
+SAVE_PREFIX: descriptor 0x103C815C; native 0x00C49050; length 125; supported owner bytes match.
+SAVE_SUFFIX: descriptor 0x103C8190; native 0x00C490F6; length 7; supported owner bytes match.
+SAVE_PATCH: descriptor 0x103C7FCC; native 0x00C490CD; original/replacement 41 bytes; no mask.
+Compiled replacement: 8b 45 f4 8d 50 ff 6b d2 64 8b 4d dc 03 51 08 89 55 e4 8b 52 60 89 55 e0 8b 4d fc 89 14 81 eb b8 90 90 90 90 90 90 90 90 90
+
+/tmp/fnv-loop-save-compiled.bin:     file format binary
+
+
+Disassembly of section .data:
+
+00c490cd <.data>:
+  c490cd:	8b 45 f4             	mov    eax,DWORD PTR [ebp-0xc]
+  c490d0:	8d 50 ff             	lea    edx,[eax-0x1]
+  c490d3:	6b d2 64             	imul   edx,edx,0x64
+  c490d6:	8b 4d dc             	mov    ecx,DWORD PTR [ebp-0x24]
+  c490d9:	03 51 08             	add    edx,DWORD PTR [ecx+0x8]
+  c490dc:	89 55 e4             	mov    DWORD PTR [ebp-0x1c],edx
+  c490df:	8b 52 60             	mov    edx,DWORD PTR [edx+0x60]
+  c490e2:	89 55 e0             	mov    DWORD PTR [ebp-0x20],edx
+  c490e5:	8b 4d fc             	mov    ecx,DWORD PTR [ebp-0x4]
+  c490e8:	89 14 81             	mov    DWORD PTR [ecx+eax*4],edx
+  c490eb:	eb b8                	jmp    0xc490a5
+  c490ed:	90                   	nop
+  c490ee:	90                   	nop
+  c490ef:	90                   	nop
+  c490f0:	90                   	nop
+  c490f1:	90                   	nop
+  c490f2:	90                   	nop
+  c490f3:	90                   	nop
+  c490f4:	90                   	nop
+  c490f5:	90                   	nop
+
+Useful instructions: 11; exits 0x00C490A5. Trailing padding unreachable.
+
+RESTORE_PREFIX: descriptor 0x103C8B40; native 0x00C49100; length 78; supported owner bytes match.
+RESTORE_SUFFIX: descriptor 0x103C8B8C; native 0x00C49177; length 31; supported owner bytes match.
+RESTORE_PATCH: descriptor 0x103C89A4; native 0x00C4914E; original/replacement 41 bytes; no mask.
+Compiled replacement: 8b 45 f8 8b 55 08 8b 0c 82 89 4d e8 83 e8 01 6b c0 64 8b 55 e4 03 42 08 89 45 ec 89 48 60 eb b8 90 90 90 90 90 90 90 90 90
+
+/tmp/fnv-loop-restore-compiled.bin:     file format binary
+
+
+Disassembly of section .data:
+
+00c4914e <.data>:
+  c4914e:	8b 45 f8             	mov    eax,DWORD PTR [ebp-0x8]
+  c49151:	8b 55 08             	mov    edx,DWORD PTR [ebp+0x8]
+  c49154:	8b 0c 82             	mov    ecx,DWORD PTR [edx+eax*4]
+  c49157:	89 4d e8             	mov    DWORD PTR [ebp-0x18],ecx
+  c4915a:	83 e8 01             	sub    eax,0x1
+  c4915d:	6b c0 64             	imul   eax,eax,0x64
+  c49160:	8b 55 e4             	mov    edx,DWORD PTR [ebp-0x1c]
+  c49163:	03 42 08             	add    eax,DWORD PTR [edx+0x8]
+  c49166:	89 45 ec             	mov    DWORD PTR [ebp-0x14],eax
+  c49169:	89 48 60             	mov    DWORD PTR [eax+0x60],ecx
+  c4916c:	eb b8                	jmp    0xc49126
+  c4916e:	90                   	nop
+  c4916f:	90                   	nop
+  c49170:	90                   	nop
+  c49171:	90                   	nop
+  c49172:	90                   	nop
+  c49173:	90                   	nop
+  c49174:	90                   	nop
+  c49175:	90                   	nop
+  c49176:	90                   	nop
+
+Useful instructions: 11; exits 0x00C49126. Trailing padding unreachable.
+
+SPHERE_PREFIX: descriptor 0x103C8A60; native 0x00C4A790; length 113; supported owner bytes match.
+SPHERE_SUFFIX: descriptor 0x103C8AC4; native 0x00C4A807; length 44; supported owner bytes match.
+SPHERE_PATCH: descriptor 0x103C8768; native 0x00C4A801; original/replacement 6 bytes; no mask.
+Compiled replacement: eb 04 90 90 90 90
+
+/tmp/fnv-loop-sphere-compiled.bin:     file format binary
+
+
+Disassembly of section .data:
+
+00c4a801 <.data>:
+  c4a801:	eb 04                	jmp    0xc4a807
+  c4a803:	90                   	nop
+  c4a804:	90                   	nop
+  c4a805:	90                   	nop
+  c4a806:	90                   	nop
+
+Useful instructions: 1; exits 0x00C4A807. Trailing padding unreachable.
+
+BOUND_PREFIX: descriptor 0x103C837C; native 0x00C491A0; length 215; supported owner bytes match.
+BOUND_SUFFIX: descriptor 0x103C847C; native 0x00C492C7; length 202; supported owner bytes match.
+BOUND_PATCH: descriptor 0x103C80A4; native 0x00C49277; original/replacement 80 bytes; no mask.
+Compiled replacement: 8b 45 e4 6b c0 0c 8b 4d ac 8b 51 18 83 3c 10 02 0f 84 e3 00 00 00 8b 4d ac 8b 51 18 83 3c 10 03 0f 84 d3 00 00 00 c6 45 e3 00 8b 4d ac 8b 51 18 8b 04 10 89 45 a0 83 7d a0 07 74 14 83 7d a0 08 74 46 eb 7a 90 90 90 90 90 90 90 90 90 90 90 90
+
+/tmp/fnv-loop-bound-compiled.bin:     file format binary
+
+
+Disassembly of section .data:
+
+00c49277 <.data>:
+  c49277:	8b 45 e4             	mov    eax,DWORD PTR [ebp-0x1c]
+  c4927a:	6b c0 0c             	imul   eax,eax,0xc
+  c4927d:	8b 4d ac             	mov    ecx,DWORD PTR [ebp-0x54]
+  c49280:	8b 51 18             	mov    edx,DWORD PTR [ecx+0x18]
+  c49283:	83 3c 10 02          	cmp    DWORD PTR [eax+edx*1],0x2
+  c49287:	0f 84 e3 00 00 00    	je     0xc49370
+  c4928d:	8b 4d ac             	mov    ecx,DWORD PTR [ebp-0x54]
+  c49290:	8b 51 18             	mov    edx,DWORD PTR [ecx+0x18]
+  c49293:	83 3c 10 03          	cmp    DWORD PTR [eax+edx*1],0x3
+  c49297:	0f 84 d3 00 00 00    	je     0xc49370
+  c4929d:	c6 45 e3 00          	mov    BYTE PTR [ebp-0x1d],0x0
+  c492a1:	8b 4d ac             	mov    ecx,DWORD PTR [ebp-0x54]
+  c492a4:	8b 51 18             	mov    edx,DWORD PTR [ecx+0x18]
+  c492a7:	8b 04 10             	mov    eax,DWORD PTR [eax+edx*1]
+  c492aa:	89 45 a0             	mov    DWORD PTR [ebp-0x60],eax
+  c492ad:	83 7d a0 07          	cmp    DWORD PTR [ebp-0x60],0x7
+  c492b1:	74 14                	je     0xc492c7
+  c492b3:	83 7d a0 08          	cmp    DWORD PTR [ebp-0x60],0x8
+  c492b7:	74 46                	je     0xc492ff
+  c492b9:	eb 7a                	jmp    0xc49335
+  c492bb:	90                   	nop
+  c492bc:	90                   	nop
+  c492bd:	90                   	nop
+  c492be:	90                   	nop
+  c492bf:	90                   	nop
+  c492c0:	90                   	nop
+  c492c1:	90                   	nop
+  c492c2:	90                   	nop
+  c492c3:	90                   	nop
+  c492c4:	90                   	nop
+  c492c5:	90                   	nop
+  c492c6:	90                   	nop
+
+Useful instructions: 20; exits 0x00C49370, 0x00C49370, 0x00C492C7, 0x00C492FF, 0x00C49335. Trailing padding unreachable.
+
+SHAPE_PREFIX: descriptor 0x103C8600; native 0x00C493A0; length 109; supported owner bytes match.
+SHAPE_SUFFIX: descriptor 0x103C8730; native 0x00C49460; length 250; supported owner bytes match.
+SHAPE_PATCH: descriptor 0x103C8260; native 0x00C4940D; original/replacement 83 bytes; no mask.
+Compiled replacement: 8b 55 f4 6b d2 0c 8b 45 d8 8b 48 18 83 3c 0a 02 0f 84 16 01 00 00 8b 45 d8 8b 48 18 83 3c 0a 03 0f 84 06 01 00 00 c6 45 f3 00 8b 45 d8 8b 48 18 8b 14 0a 89 55 d0 83 7d d0 07 74 17 83 7d d0 08 74 5c e9 aa 00 00 00 90 90 90 90 90 90 90 90 90 90 90 90
+
+/tmp/fnv-loop-shape-compiled.bin:     file format binary
+
+
+Disassembly of section .data:
+
+00c4940d <.data>:
+  c4940d:	8b 55 f4             	mov    edx,DWORD PTR [ebp-0xc]
+  c49410:	6b d2 0c             	imul   edx,edx,0xc
+  c49413:	8b 45 d8             	mov    eax,DWORD PTR [ebp-0x28]
+  c49416:	8b 48 18             	mov    ecx,DWORD PTR [eax+0x18]
+  c49419:	83 3c 0a 02          	cmp    DWORD PTR [edx+ecx*1],0x2
+  c4941d:	0f 84 16 01 00 00    	je     0xc49539
+  c49423:	8b 45 d8             	mov    eax,DWORD PTR [ebp-0x28]
+  c49426:	8b 48 18             	mov    ecx,DWORD PTR [eax+0x18]
+  c49429:	83 3c 0a 03          	cmp    DWORD PTR [edx+ecx*1],0x3
+  c4942d:	0f 84 06 01 00 00    	je     0xc49539
+  c49433:	c6 45 f3 00          	mov    BYTE PTR [ebp-0xd],0x0
+  c49437:	8b 45 d8             	mov    eax,DWORD PTR [ebp-0x28]
+  c4943a:	8b 48 18             	mov    ecx,DWORD PTR [eax+0x18]
+  c4943d:	8b 14 0a             	mov    edx,DWORD PTR [edx+ecx*1]
+  c49440:	89 55 d0             	mov    DWORD PTR [ebp-0x30],edx
+  c49443:	83 7d d0 07          	cmp    DWORD PTR [ebp-0x30],0x7
+  c49447:	74 17                	je     0xc49460
+  c49449:	83 7d d0 08          	cmp    DWORD PTR [ebp-0x30],0x8
+  c4944d:	74 5c                	je     0xc494ab
+  c4944f:	e9 aa 00 00 00       	jmp    0xc494fe
+  c49454:	90                   	nop
+  c49455:	90                   	nop
+  c49456:	90                   	nop
+  c49457:	90                   	nop
+  c49458:	90                   	nop
+  c49459:	90                   	nop
+  c4945a:	90                   	nop
+  c4945b:	90                   	nop
+  c4945c:	90                   	nop
+  c4945d:	90                   	nop
+  c4945e:	90                   	nop
+  c4945f:	90                   	nop
+
+Useful instructions: 20; exits 0x00C49539, 0x00C49539, 0x00C49460, 0x00C494AB, 0x00C494FE. Trailing padding unreachable.
+
+PORTAL_PREFIX: descriptor 0x103C8810; native 0x00C49560; length 96; supported owner bytes match.
+PORTAL_SUFFIX: descriptor 0x103C8930; native 0x00C49613; length 235; supported owner bytes match.
+PORTAL_PATCH: descriptor 0x103C854C; native 0x00C495C0; original/replacement 83 bytes; no mask.
+Compiled replacement: 8b 55 f4 6b d2 0c 8b 45 e4 8b 48 18 83 3c 0a 02 0f 84 07 01 00 00 8b 45 e4 8b 48 18 83 3c 0a 03 0f 84 f7 00 00 00 c6 45 f3 00 8b 45 e4 8b 48 18 8b 14 0a 89 55 e0 83 7d e0 07 74 17 83 7d e0 08 74 64 e9 9b 00 00 00 90 90 90 90 90 90 90 90 90 90 90 90
+
+/tmp/fnv-loop-portal-compiled.bin:     file format binary
+
+
+Disassembly of section .data:
+
+00c495c0 <.data>:
+  c495c0:	8b 55 f4             	mov    edx,DWORD PTR [ebp-0xc]
+  c495c3:	6b d2 0c             	imul   edx,edx,0xc
+  c495c6:	8b 45 e4             	mov    eax,DWORD PTR [ebp-0x1c]
+  c495c9:	8b 48 18             	mov    ecx,DWORD PTR [eax+0x18]
+  c495cc:	83 3c 0a 02          	cmp    DWORD PTR [edx+ecx*1],0x2
+  c495d0:	0f 84 07 01 00 00    	je     0xc496dd
+  c495d6:	8b 45 e4             	mov    eax,DWORD PTR [ebp-0x1c]
+  c495d9:	8b 48 18             	mov    ecx,DWORD PTR [eax+0x18]
+  c495dc:	83 3c 0a 03          	cmp    DWORD PTR [edx+ecx*1],0x3
+  c495e0:	0f 84 f7 00 00 00    	je     0xc496dd
+  c495e6:	c6 45 f3 00          	mov    BYTE PTR [ebp-0xd],0x0
+  c495ea:	8b 45 e4             	mov    eax,DWORD PTR [ebp-0x1c]
+  c495ed:	8b 48 18             	mov    ecx,DWORD PTR [eax+0x18]
+  c495f0:	8b 14 0a             	mov    edx,DWORD PTR [edx+ecx*1]
+  c495f3:	89 55 e0             	mov    DWORD PTR [ebp-0x20],edx
+  c495f6:	83 7d e0 07          	cmp    DWORD PTR [ebp-0x20],0x7
+  c495fa:	74 17                	je     0xc49613
+  c495fc:	83 7d e0 08          	cmp    DWORD PTR [ebp-0x20],0x8
+  c49600:	74 64                	je     0xc49666
+  c49602:	e9 9b 00 00 00       	jmp    0xc496a2
+  c49607:	90                   	nop
+  c49608:	90                   	nop
+  c49609:	90                   	nop
+  c4960a:	90                   	nop
+  c4960b:	90                   	nop
+  c4960c:	90                   	nop
+  c4960d:	90                   	nop
+  c4960e:	90                   	nop
+  c4960f:	90                   	nop
+  c49610:	90                   	nop
+  c49611:	90                   	nop
+  c49612:	90                   	nop
+
+Useful instructions: 20; exits 0x00C496DD, 0x00C496DD, 0x00C49613, 0x00C49666, 0x00C496A2. Trailing padding unreachable.
+
+
+Compiled CodeSignature admission
+
+/tmp/fnv_loop_bookkeeping_qualification/psycho_engine_fixes.dll:     file format pei-i386
+
+
+Disassembly of section .text:
+
+10158c90 <__RNvMNtNtNtCs7BD0r6Zgfg0_9libpsycho2os7windows5patchNtB2_13CodeSignature6verify>:
+10158c90:	55                   	push   ebp
+10158c91:	89 e5                	mov    ebp,esp
+10158c93:	53                   	push   ebx
+10158c94:	57                   	push   edi
+10158c95:	56                   	push   esi
+10158c96:	83 e4 f8             	and    esp,0xfffffff8
+10158c99:	83 ec 30             	sub    esp,0x30
+10158c9c:	8b 45 0c             	mov    eax,DWORD PTR [ebp+0xc]
+10158c9f:	8b 5d 08             	mov    ebx,DWORD PTR [ebp+0x8]
+10158ca2:	8b 78 0c             	mov    edi,DWORD PTR [eax+0xc]
+10158ca5:	8b 70 10             	mov    esi,DWORD PTR [eax+0x10]
+10158ca8:	8d 44 24 08          	lea    eax,[esp+0x8]
+10158cac:	57                   	push   edi
+10158cad:	56                   	push   esi
+10158cae:	50                   	push   eax
+10158caf:	e8 0c 0f 00 00       	call   10159bc0 <__RNvNtNtNtCs7BD0r6Zgfg0_9libpsycho2os7windows6memory10read_bytes>
+10158cb4:	83 c4 0c             	add    esp,0xc
+10158cb7:	8b 44 24 08          	mov    eax,DWORD PTR [esp+0x8]
+10158cbb:	83 f8 ff             	cmp    eax,0xffffffff
+10158cbe:	74 28                	je     10158ce8 <__RNvMNtNtNtCs7BD0r6Zgfg0_9libpsycho2os7windows5patchNtB2_13CodeSignature6verify+0x58>
+10158cc0:	8b 54 24 10          	mov    edx,DWORD PTR [esp+0x10]
+10158cc4:	8b 7c 24 14          	mov    edi,DWORD PTR [esp+0x14]
+10158cc8:	8b 4c 24 0c          	mov    ecx,DWORD PTR [esp+0xc]
+10158ccc:	89 7b 14             	mov    DWORD PTR [ebx+0x14],edi
+10158ccf:	89 53 10             	mov    DWORD PTR [ebx+0x10],edx
+10158cd2:	89 43 08             	mov    DWORD PTR [ebx+0x8],eax
+10158cd5:	89 4b 0c             	mov    DWORD PTR [ebx+0xc],ecx
+10158cd8:	c7 03 06 00 00 80    	mov    DWORD PTR [ebx],0x80000006
+10158cde:	89 d8                	mov    eax,ebx
+10158ce0:	8d 65 f4             	lea    esp,[ebp-0xc]
+10158ce3:	5e                   	pop    esi
+10158ce4:	5f                   	pop    edi
+10158ce5:	5b                   	pop    ebx
+10158ce6:	5d                   	pop    ebp
+10158ce7:	c3                   	ret
+10158ce8:	8b 55 0c             	mov    edx,DWORD PTR [ebp+0xc]
+10158ceb:	8b 44 24 14          	mov    eax,DWORD PTR [esp+0x14]
+10158cef:	89 74 24 28          	mov    DWORD PTR [esp+0x28],esi
+10158cf3:	8b 74 24 0c          	mov    esi,DWORD PTR [esp+0xc]
+10158cf7:	8b 5c 24 10          	mov    ebx,DWORD PTR [esp+0x10]
+10158cfb:	8b 4a 08             	mov    ecx,DWORD PTR [edx+0x8]
+10158cfe:	39 f8                	cmp    eax,edi
+10158d00:	89 44 24 24          	mov    DWORD PTR [esp+0x24],eax
+10158d04:	89 74 24 04          	mov    DWORD PTR [esp+0x4],esi
+10158d08:	75 1e                	jne    10158d28 <__RNvMNtNtNtCs7BD0r6Zgfg0_9libpsycho2os7windows5patchNtB2_13CodeSignature6verify+0x98>
+10158d0a:	57                   	push   edi
+10158d0b:	51                   	push   ecx
+10158d0c:	53                   	push   ebx
+10158d0d:	89 de                	mov    esi,ebx
+10158d0f:	89 cb                	mov    ebx,ecx
+10158d11:	e8 f2 89 20 00       	call   10361708 <_memcmp>
+10158d16:	89 d9                	mov    ecx,ebx
+10158d18:	89 f3                	mov    ebx,esi
+10158d1a:	8b 55 0c             	mov    edx,DWORD PTR [ebp+0xc]
+10158d1d:	8b 74 24 10          	mov    esi,DWORD PTR [esp+0x10]
+10158d21:	83 c4 0c             	add    esp,0xc
+10158d24:	85 c0                	test   eax,eax
+10158d26:	74 4f                	je     10158d77 <__RNvMNtNtNtCs7BD0r6Zgfg0_9libpsycho2os7windows5patchNtB2_13CodeSignature6verify+0xe7>
+10158d28:	31 c0                	xor    eax,eax
+10158d2a:	85 ff                	test   edi,edi
+10158d2c:	79 0c                	jns    10158d3a <__RNvMNtNtNtCs7BD0r6Zgfg0_9libpsycho2os7windows5patchNtB2_13CodeSignature6verify+0xaa>
+10158d2e:	57                   	push   edi
+10158d2f:	50                   	push   eax
+10158d30:	e8 22 aa 1d 00       	call   10333757 <__RNvNtCsiQYfQzk4lu_5alloc7raw_vec12handle_error>
+10158d35:	83 c4 08             	add    esp,0x8
+10158d38:	0f 0b                	ud2
+10158d3a:	8b 02                	mov    eax,DWORD PTR [edx]
+10158d3c:	8b 52 04             	mov    edx,DWORD PTR [edx+0x4]
+10158d3f:	89 44 24 20          	mov    DWORD PTR [esp+0x20],eax
+10158d43:	74 58                	je     10158d9d <__RNvMNtNtNtCs7BD0r6Zgfg0_9libpsycho2os7windows5patchNtB2_13CodeSignature6verify+0x10d>
+10158d45:	89 54 24 18          	mov    DWORD PTR [esp+0x18],edx
+10158d49:	89 4c 24 1c          	mov    DWORD PTR [esp+0x1c],ecx
+10158d4d:	e8 ce 36 fc ff       	call   1011c420 <__RNvCs9hJ03s5DiqP_7___rustc35___rust_no_alloc_shim_is_unstable_v2>
+10158d52:	6a 01                	push   0x1
+10158d54:	57                   	push   edi
+10158d55:	e8 66 36 fc ff       	call   1011c3c0 <__RNvCs9hJ03s5DiqP_7___rustc12___rust_alloc>
+10158d5a:	83 c4 08             	add    esp,0x8
+10158d5d:	85 c0                	test   eax,eax
+10158d5f:	74 7e                	je     10158ddf <__RNvMNtNtNtCs7BD0r6Zgfg0_9libpsycho2os7windows5patchNtB2_13CodeSignature6verify+0x14f>
+10158d61:	57                   	push   edi
+10158d62:	ff 74 24 20          	push   DWORD PTR [esp+0x20]
+10158d66:	89 c6                	mov    esi,eax
+10158d68:	50                   	push   eax
+10158d69:	e8 a2 89 20 00       	call   10361710 <_memcpy>
+10158d6e:	83 c4 0c             	add    esp,0xc
+10158d71:	8b 54 24 18          	mov    edx,DWORD PTR [esp+0x18]
+10158d75:	eb 2b                	jmp    10158da2 <__RNvMNtNtNtCs7BD0r6Zgfg0_9libpsycho2os7windows5patchNtB2_13CodeSignature6verify+0x112>
+10158d77:	8b 45 08             	mov    eax,DWORD PTR [ebp+0x8]
+10158d7a:	85 f6                	test   esi,esi
+10158d7c:	c7 00 ff ff ff ff    	mov    DWORD PTR [eax],0xffffffff
+10158d82:	0f 84 58 ff ff ff    	je     10158ce0 <__RNvMNtNtNtCs7BD0r6Zgfg0_9libpsycho2os7windows5patchNtB2_13CodeSignature6verify+0x50>
+10158d88:	6a 01                	push   0x1
+10158d8a:	56                   	push   esi
+10158d8b:	53                   	push   ebx
+10158d8c:	89 c6                	mov    esi,eax
+10158d8e:	e8 3d 36 fc ff       	call   1011c3d0 <__RNvCs9hJ03s5DiqP_7___rustc14___rust_dealloc>
+10158d93:	83 c4 0c             	add    esp,0xc
+10158d96:	89 f0                	mov    eax,esi
+10158d98:	e9 43 ff ff ff       	jmp    10158ce0 <__RNvMNtNtNtCs7BD0r6Zgfg0_9libpsycho2os7windows5patchNtB2_13CodeSignature6verify+0x50>
+10158d9d:	be 01 00 00 00       	mov    esi,0x1
+10158da2:	8b 45 08             	mov    eax,DWORD PTR [ebp+0x8]
+10158da5:	8b 4c 24 04          	mov    ecx,DWORD PTR [esp+0x4]
+10158da9:	89 48 10             	mov    DWORD PTR [eax+0x10],ecx
+10158dac:	8b 4c 24 24          	mov    ecx,DWORD PTR [esp+0x24]
+10158db0:	89 58 14             	mov    DWORD PTR [eax+0x14],ebx
+10158db3:	89 48 18             	mov    DWORD PTR [eax+0x18],ecx
+10158db6:	8b 4c 24 20          	mov    ecx,DWORD PTR [esp+0x20]
+10158dba:	c7 00 02 00 00 80    	mov    DWORD PTR [eax],0x80000002
+10158dc0:	89 78 04             	mov    DWORD PTR [eax+0x4],edi
+10158dc3:	89 70 08             	mov    DWORD PTR [eax+0x8],esi
+10158dc6:	89 78 0c             	mov    DWORD PTR [eax+0xc],edi
+10158dc9:	89 48 1c             	mov    DWORD PTR [eax+0x1c],ecx
+10158dcc:	89 50 20             	mov    DWORD PTR [eax+0x20],edx
+10158dcf:	89 c1                	mov    ecx,eax
+10158dd1:	8b 44 24 28          	mov    eax,DWORD PTR [esp+0x28]
+10158dd5:	89 41 24             	mov    DWORD PTR [ecx+0x24],eax
+10158dd8:	89 c8                	mov    eax,ecx
+10158dda:	e9 01 ff ff ff       	jmp    10158ce0 <__RNvMNtNtNtCs7BD0r6Zgfg0_9libpsycho2os7windows5patchNtB2_13CodeSignature6verify+0x50>
+10158ddf:	b8 01 00 00 00       	mov    eax,0x1
+10158de4:	e9 45 ff ff ff       	jmp    10158d2e <__RNvMNtNtNtCs7BD0r6Zgfg0_9libpsycho2os7windows5patchNtB2_13CodeSignature6verify+0x9e>
+10158de9:	0f 1f 80 00 00 00 00 	nop    DWORD PTR [eax+0x0]
+
+Compiled OwnedCodePatch admission
+
+/tmp/fnv_loop_bookkeeping_qualification/psycho_engine_fixes.dll:     file format pei-i386
+
+
+Disassembly of section .text:
+
+101596a0 <__RNvMs_NtNtNtCs7BD0r6Zgfg0_9libpsycho2os7windows5patchNtB4_14OwnedCodePatch6verify>:
+101596a0:	55                   	push   ebp
+101596a1:	89 e5                	mov    ebp,esp
+101596a3:	53                   	push   ebx
+101596a4:	57                   	push   edi
+101596a5:	56                   	push   esi
+101596a6:	83 e4 f8             	and    esp,0xfffffff8
+101596a9:	83 ec 20             	sub    esp,0x20
+101596ac:	8b 7d 0c             	mov    edi,DWORD PTR [ebp+0xc]
+101596af:	be 00 00 00 80       	mov    esi,0x80000000
+101596b4:	8b 5f 0c             	mov    ebx,DWORD PTR [edi+0xc]
+101596b7:	8b 4f 20             	mov    ecx,DWORD PTR [edi+0x20]
+101596ba:	8b 07                	mov    eax,DWORD PTR [edi]
+101596bc:	8b 57 04             	mov    edx,DWORD PTR [edi+0x4]
+101596bf:	39 cb                	cmp    ebx,ecx
+101596c1:	75 10                	jne    101596d3 <__RNvMs_NtNtNtCs7BD0r6Zgfg0_9libpsycho2os7windows5patchNtB4_14OwnedCodePatch6verify+0x33>
+101596c3:	8b 4f 18             	mov    ecx,DWORD PTR [edi+0x18]
+101596c6:	85 c9                	test   ecx,ecx
+101596c8:	74 26                	je     101596f0 <__RNvMs_NtNtNtCs7BD0r6Zgfg0_9libpsycho2os7windows5patchNtB4_14OwnedCodePatch6verify+0x50>
+101596ca:	be 01 00 00 80       	mov    esi,0x80000001
+101596cf:	39 d9                	cmp    ecx,ebx
+101596d1:	74 1d                	je     101596f0 <__RNvMs_NtNtNtCs7BD0r6Zgfg0_9libpsycho2os7windows5patchNtB4_14OwnedCodePatch6verify+0x50>
+101596d3:	8b 7d 08             	mov    edi,DWORD PTR [ebp+0x8]
+101596d6:	89 37                	mov    DWORD PTR [edi],esi
+101596d8:	89 fe                	mov    esi,edi
+101596da:	89 47 04             	mov    DWORD PTR [edi+0x4],eax
+101596dd:	89 57 08             	mov    DWORD PTR [edi+0x8],edx
+101596e0:	89 5f 0c             	mov    DWORD PTR [edi+0xc],ebx
+101596e3:	89 4f 10             	mov    DWORD PTR [edi+0x10],ecx
+101596e6:	89 f0                	mov    eax,esi
+101596e8:	8d 65 f4             	lea    esp,[ebp-0xc]
+101596eb:	5e                   	pop    esi
+101596ec:	5f                   	pop    edi
+101596ed:	5b                   	pop    ebx
+101596ee:	5d                   	pop    ebp
+101596ef:	c3                   	ret
+101596f0:	8d 44 24 08          	lea    eax,[esp+0x8]
+101596f4:	53                   	push   ebx
+101596f5:	ff 77 10             	push   DWORD PTR [edi+0x10]
+101596f8:	50                   	push   eax
+101596f9:	e8 c2 04 00 00       	call   10159bc0 <__RNvNtNtNtCs7BD0r6Zgfg0_9libpsycho2os7windows6memory10read_bytes>
+101596fe:	83 c4 0c             	add    esp,0xc
+10159701:	8b 44 24 08          	mov    eax,DWORD PTR [esp+0x8]
+10159705:	83 f8 ff             	cmp    eax,0xffffffff
+10159708:	74 25                	je     1015972f <__RNvMs_NtNtNtCs7BD0r6Zgfg0_9libpsycho2os7windows5patchNtB4_14OwnedCodePatch6verify+0x8f>
+1015970a:	8b 4c 24 0c          	mov    ecx,DWORD PTR [esp+0xc]
+1015970e:	8b 54 24 10          	mov    edx,DWORD PTR [esp+0x10]
+10159712:	8b 7d 08             	mov    edi,DWORD PTR [ebp+0x8]
+10159715:	8b 74 24 14          	mov    esi,DWORD PTR [esp+0x14]
+10159719:	89 77 14             	mov    DWORD PTR [edi+0x14],esi
+1015971c:	89 57 10             	mov    DWORD PTR [edi+0x10],edx
+1015971f:	89 47 08             	mov    DWORD PTR [edi+0x8],eax
+10159722:	89 4f 0c             	mov    DWORD PTR [edi+0xc],ecx
+10159725:	89 fe                	mov    esi,edi
+10159727:	c7 07 06 00 00 80    	mov    DWORD PTR [edi],0x80000006
+1015972d:	eb b7                	jmp    101596e6 <__RNvMs_NtNtNtCs7BD0r6Zgfg0_9libpsycho2os7windows5patchNtB4_14OwnedCodePatch6verify+0x46>
+1015972f:	8b 44 24 0c          	mov    eax,DWORD PTR [esp+0xc]
+10159733:	8b 74 24 14          	mov    esi,DWORD PTR [esp+0x14]
+10159737:	89 44 24 18          	mov    DWORD PTR [esp+0x18],eax
+1015973b:	8b 44 24 10          	mov    eax,DWORD PTR [esp+0x10]
+1015973f:	39 de                	cmp    esi,ebx
+10159741:	89 44 24 04          	mov    DWORD PTR [esp+0x4],eax
+10159745:	75 15                	jne    1015975c <__RNvMs_NtNtNtCs7BD0r6Zgfg0_9libpsycho2os7windows5patchNtB4_14OwnedCodePatch6verify+0xbc>
+10159747:	53                   	push   ebx
+10159748:	ff 77 1c             	push   DWORD PTR [edi+0x1c]
+1015974b:	50                   	push   eax
+1015974c:	e8 b7 7f 20 00       	call   10361708 <_memcmp>
+10159751:	83 c4 0c             	add    esp,0xc
+10159754:	85 c0                	test   eax,eax
+10159756:	8b 44 24 04          	mov    eax,DWORD PTR [esp+0x4]
+1015975a:	74 33                	je     1015978f <__RNvMs_NtNtNtCs7BD0r6Zgfg0_9libpsycho2os7windows5patchNtB4_14OwnedCodePatch6verify+0xef>
+1015975c:	89 f3                	mov    ebx,esi
+1015975e:	8b 75 08             	mov    esi,DWORD PTR [ebp+0x8]
+10159761:	89 fa                	mov    edx,edi
+10159763:	89 f1                	mov    ecx,esi
+10159765:	53                   	push   ebx
+10159766:	50                   	push   eax
+10159767:	e8 84 f8 ff ff       	call   10158ff0 <__RNvMs_NtNtNtCs7BD0r6Zgfg0_9libpsycho2os7windows5patchNtB4_14OwnedCodePatch15accept_original>
+1015976c:	83 c4 08             	add    esp,0x8
+1015976f:	8b 44 24 18          	mov    eax,DWORD PTR [esp+0x18]
+10159773:	85 c0                	test   eax,eax
+10159775:	0f 84 6b ff ff ff    	je     101596e6 <__RNvMs_NtNtNtCs7BD0r6Zgfg0_9libpsycho2os7windows5patchNtB4_14OwnedCodePatch6verify+0x46>
+1015977b:	6a 01                	push   0x1
+1015977d:	50                   	push   eax
+1015977e:	ff 74 24 0c          	push   DWORD PTR [esp+0xc]
+10159782:	e8 49 2c fc ff       	call   1011c3d0 <__RNvCs9hJ03s5DiqP_7___rustc14___rust_dealloc>
+10159787:	83 c4 0c             	add    esp,0xc
+1015978a:	e9 57 ff ff ff       	jmp    101596e6 <__RNvMs_NtNtNtCs7BD0r6Zgfg0_9libpsycho2os7windows5patchNtB4_14OwnedCodePatch6verify+0x46>
+1015978f:	8b 75 08             	mov    esi,DWORD PTR [ebp+0x8]
+10159792:	c7 06 ff ff ff ff    	mov    DWORD PTR [esi],0xffffffff
+10159798:	8b 44 24 18          	mov    eax,DWORD PTR [esp+0x18]
+1015979c:	85 c0                	test   eax,eax
+1015979e:	75 db                	jne    1015977b <__RNvMs_NtNtNtCs7BD0r6Zgfg0_9libpsycho2os7windows5patchNtB4_14OwnedCodePatch6verify+0xdb>
+101597a0:	e9 41 ff ff ff       	jmp    101596e6 <__RNvMs_NtNtNtCs7BD0r6Zgfg0_9libpsycho2os7windows5patchNtB4_14OwnedCodePatch6verify+0x46>
+101597a5:	66 2e 0f 1f 84 00 00 	nop    WORD PTR cs:[eax+eax*1+0x0]
+101597ac:	00 00 00
+101597af:	90                   	nop
+
+Complete compiled production installer
+
+/tmp/fnv_loop_bookkeeping_qualification/psycho_engine_fixes.dll:     file format pei-i386
+
+
+Disassembly of section .text:
+
+10058500 <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf27multibound_loop_bookkeeping7install>:
+10058500:	55                   	push   ebp
+10058501:	89 e5                	mov    ebp,esp
+10058503:	53                   	push   ebx
+10058504:	57                   	push   edi
+10058505:	56                   	push   esi
+10058506:	83 e4 f8             	and    esp,0xfffffff8
+10058509:	81 ec 38 01 00 00    	sub    esp,0x138
+1005850f:	a1 88 88 51 10       	mov    eax,ds:0x10518888
+10058514:	a8 01                	test   al,0x1
+10058516:	0f 84 ac 08 00 00    	je     10058dc8 <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf27multibound_loop_bookkeeping7install+0x8c8>
+1005851c:	0f b6 05 80 88 51 10 	movzx  eax,BYTE PTR ds:0x10518880
+10058523:	3c 02                	cmp    al,0x2
+10058525:	0f 84 9d 08 00 00    	je     10058dc8 <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf27multibound_loop_bookkeeping7install+0x8c8>
+1005852b:	8d b4 24 a0 00 00 00 	lea    esi,[esp+0xa0]
+10058532:	68 5c 81 3c 10       	push   0x103c815c
+10058537:	56                   	push   esi
+10058538:	e8 53 07 10 00       	call   10158c90 <__RNvMNtNtNtCs7BD0r6Zgfg0_9libpsycho2os7windows5patchNtB2_13CodeSignature6verify>
+1005853d:	83 c4 08             	add    esp,0x8
+10058540:	83 bc 24 a0 00 00 00 	cmp    DWORD PTR [esp+0xa0],0xffffffff
+10058547:	ff
+10058548:	bf 16 00 00 00       	mov    edi,0x16
+1005854d:	0f 85 18 06 00 00    	jne    10058b6b <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf27multibound_loop_bookkeeping7install+0x66b>
+10058553:	68 90 81 3c 10       	push   0x103c8190
+10058558:	56                   	push   esi
+10058559:	e8 32 07 10 00       	call   10158c90 <__RNvMNtNtNtCs7BD0r6Zgfg0_9libpsycho2os7windows5patchNtB2_13CodeSignature6verify>
+1005855e:	83 c4 08             	add    esp,0x8
+10058561:	83 bc 24 a0 00 00 00 	cmp    DWORD PTR [esp+0xa0],0xffffffff
+10058568:	ff
+10058569:	0f 85 03 06 00 00    	jne    10058b72 <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf27multibound_loop_bookkeeping7install+0x672>
+1005856f:	68 40 8b 3c 10       	push   0x103c8b40
+10058574:	56                   	push   esi
+10058575:	e8 16 07 10 00       	call   10158c90 <__RNvMNtNtNtCs7BD0r6Zgfg0_9libpsycho2os7windows5patchNtB2_13CodeSignature6verify>
+1005857a:	83 c4 08             	add    esp,0x8
+1005857d:	83 bc 24 a0 00 00 00 	cmp    DWORD PTR [esp+0xa0],0xffffffff
+10058584:	ff
+10058585:	bf 19 00 00 00       	mov    edi,0x19
+1005858a:	0f 85 e9 05 00 00    	jne    10058b79 <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf27multibound_loop_bookkeeping7install+0x679>
+10058590:	68 8c 8b 3c 10       	push   0x103c8b8c
+10058595:	56                   	push   esi
+10058596:	e8 f5 06 10 00       	call   10158c90 <__RNvMNtNtNtCs7BD0r6Zgfg0_9libpsycho2os7windows5patchNtB2_13CodeSignature6verify>
+1005859b:	83 c4 08             	add    esp,0x8
+1005859e:	83 bc 24 a0 00 00 00 	cmp    DWORD PTR [esp+0xa0],0xffffffff
+100585a5:	ff
+100585a6:	0f 85 d4 05 00 00    	jne    10058b80 <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf27multibound_loop_bookkeeping7install+0x680>
+100585ac:	68 60 8a 3c 10       	push   0x103c8a60
+100585b1:	56                   	push   esi
+100585b2:	e8 d9 06 10 00       	call   10158c90 <__RNvMNtNtNtCs7BD0r6Zgfg0_9libpsycho2os7windows5patchNtB2_13CodeSignature6verify>
+100585b7:	83 c4 08             	add    esp,0x8
+100585ba:	83 bc 24 a0 00 00 00 	cmp    DWORD PTR [esp+0xa0],0xffffffff
+100585c1:	ff
+100585c2:	bf 24 00 00 00       	mov    edi,0x24
+100585c7:	0f 85 ba 05 00 00    	jne    10058b87 <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf27multibound_loop_bookkeeping7install+0x687>
+100585cd:	68 c4 8a 3c 10       	push   0x103c8ac4
+100585d2:	56                   	push   esi
+100585d3:	e8 b8 06 10 00       	call   10158c90 <__RNvMNtNtNtCs7BD0r6Zgfg0_9libpsycho2os7windows5patchNtB2_13CodeSignature6verify>
+100585d8:	83 c4 08             	add    esp,0x8
+100585db:	83 bc 24 a0 00 00 00 	cmp    DWORD PTR [esp+0xa0],0xffffffff
+100585e2:	ff
+100585e3:	0f 85 a5 05 00 00    	jne    10058b8e <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf27multibound_loop_bookkeeping7install+0x68e>
+100585e9:	68 7c 83 3c 10       	push   0x103c837c
+100585ee:	56                   	push   esi
+100585ef:	e8 9c 06 10 00       	call   10158c90 <__RNvMNtNtNtCs7BD0r6Zgfg0_9libpsycho2os7windows5patchNtB2_13CodeSignature6verify>
+100585f4:	83 c4 08             	add    esp,0x8
+100585f7:	83 bc 24 a0 00 00 00 	cmp    DWORD PTR [esp+0xa0],0xffffffff
+100585fe:	ff
+100585ff:	bf 20 00 00 00       	mov    edi,0x20
+10058604:	0f 85 8b 05 00 00    	jne    10058b95 <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf27multibound_loop_bookkeeping7install+0x695>
+1005860a:	68 7c 84 3c 10       	push   0x103c847c
+1005860f:	56                   	push   esi
+10058610:	e8 7b 06 10 00       	call   10158c90 <__RNvMNtNtNtCs7BD0r6Zgfg0_9libpsycho2os7windows5patchNtB2_13CodeSignature6verify>
+10058615:	83 c4 08             	add    esp,0x8
+10058618:	83 bc 24 a0 00 00 00 	cmp    DWORD PTR [esp+0xa0],0xffffffff
+1005861f:	ff
+10058620:	0f 85 76 05 00 00    	jne    10058b9c <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf27multibound_loop_bookkeeping7install+0x69c>
+10058626:	68 00 86 3c 10       	push   0x103c8600
+1005862b:	56                   	push   esi
+1005862c:	e8 5f 06 10 00       	call   10158c90 <__RNvMNtNtNtCs7BD0r6Zgfg0_9libpsycho2os7windows5patchNtB2_13CodeSignature6verify>
+10058631:	83 c4 08             	add    esp,0x8
+10058634:	83 bc 24 a0 00 00 00 	cmp    DWORD PTR [esp+0xa0],0xffffffff
+1005863b:	ff
+1005863c:	0f 85 61 05 00 00    	jne    10058ba3 <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf27multibound_loop_bookkeeping7install+0x6a3>
+10058642:	68 30 87 3c 10       	push   0x103c8730
+10058647:	56                   	push   esi
+10058648:	e8 43 06 10 00       	call   10158c90 <__RNvMNtNtNtCs7BD0r6Zgfg0_9libpsycho2os7windows5patchNtB2_13CodeSignature6verify>
+1005864d:	83 c4 08             	add    esp,0x8
+10058650:	83 bc 24 a0 00 00 00 	cmp    DWORD PTR [esp+0xa0],0xffffffff
+10058657:	ff
+10058658:	0f 85 4c 05 00 00    	jne    10058baa <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf27multibound_loop_bookkeeping7install+0x6aa>
+1005865e:	68 10 88 3c 10       	push   0x103c8810
+10058663:	56                   	push   esi
+10058664:	e8 27 06 10 00       	call   10158c90 <__RNvMNtNtNtCs7BD0r6Zgfg0_9libpsycho2os7windows5patchNtB2_13CodeSignature6verify>
+10058669:	83 c4 08             	add    esp,0x8
+1005866c:	83 bc 24 a0 00 00 00 	cmp    DWORD PTR [esp+0xa0],0xffffffff
+10058673:	ff
+10058674:	bf 21 00 00 00       	mov    edi,0x21
+10058679:	0f 85 32 05 00 00    	jne    10058bb1 <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf27multibound_loop_bookkeeping7install+0x6b1>
+1005867f:	68 30 89 3c 10       	push   0x103c8930
+10058684:	56                   	push   esi
+10058685:	e8 06 06 10 00       	call   10158c90 <__RNvMNtNtNtCs7BD0r6Zgfg0_9libpsycho2os7windows5patchNtB2_13CodeSignature6verify>
+1005868a:	83 c4 08             	add    esp,0x8
+1005868d:	83 bc 24 a0 00 00 00 	cmp    DWORD PTR [esp+0xa0],0xffffffff
+10058694:	ff
+10058695:	0f 85 1d 05 00 00    	jne    10058bb8 <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf27multibound_loop_bookkeeping7install+0x6b8>
+1005869b:	f2 0f 10 0d dc 7f 3c 	movsd  xmm1,QWORD PTR ds:0x103c7fdc
+100586a2:	10
+100586a3:	a1 ec 7f 3c 10       	mov    eax,ds:0x103c7fec
+100586a8:	f2 0f 10 05 e4 7f 3c 	movsd  xmm0,QWORD PTR ds:0x103c7fe4
+100586af:	10
+100586b0:	f2 0f 10 15 d4 7f 3c 	movsd  xmm2,QWORD PTR ds:0x103c7fd4
+100586b7:	10
+100586b8:	8d 74 24 08          	lea    esi,[esp+0x8]
+100586bc:	8d bc 24 00 01 00 00 	lea    edi,[esp+0x100]
+100586c3:	f2 0f 11 4c 24 18    	movsd  QWORD PTR [esp+0x18],xmm1
+100586c9:	f2 0f 10 0d cc 7f 3c 	movsd  xmm1,QWORD PTR ds:0x103c7fcc
+100586d0:	10
+100586d1:	89 44 24 28          	mov    DWORD PTR [esp+0x28],eax
+100586d5:	f2 0f 11 44 24 20    	movsd  QWORD PTR [esp+0x20],xmm0
+100586db:	f2 0f 11 54 24 10    	movsd  QWORD PTR [esp+0x10],xmm2
+100586e1:	f2 0f 11 4c 24 08    	movsd  QWORD PTR [esp+0x8],xmm1
+100586e7:	56                   	push   esi
+100586e8:	57                   	push   edi
+100586e9:	e8 b2 0f 10 00       	call   101596a0 <__RNvMs_NtNtNtCs7BD0r6Zgfg0_9libpsycho2os7windows5patchNtB4_14OwnedCodePatch6verify>
+100586ee:	83 c4 08             	add    esp,0x8
+100586f1:	83 bc 24 00 01 00 00 	cmp    DWORD PTR [esp+0x100],0xffffffff
+100586f8:	ff
+100586f9:	0f 85 c3 04 00 00    	jne    10058bc2 <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf27multibound_loop_bookkeeping7install+0x6c2>
+100586ff:	f2 0f 10 0d b4 89 3c 	movsd  xmm1,QWORD PTR ds:0x103c89b4
+10058706:	10
+10058707:	a1 c4 89 3c 10       	mov    eax,ds:0x103c89c4
+1005870c:	f2 0f 10 05 bc 89 3c 	movsd  xmm0,QWORD PTR ds:0x103c89bc
+10058713:	10
+10058714:	f2 0f 10 15 ac 89 3c 	movsd  xmm2,QWORD PTR ds:0x103c89ac
+1005871b:	10
+1005871c:	f2 0f 11 4c 24 18    	movsd  QWORD PTR [esp+0x18],xmm1
+10058722:	f2 0f 10 0d a4 89 3c 	movsd  xmm1,QWORD PTR ds:0x103c89a4
+10058729:	10
+1005872a:	89 44 24 28          	mov    DWORD PTR [esp+0x28],eax
+1005872e:	f2 0f 11 44 24 20    	movsd  QWORD PTR [esp+0x20],xmm0
+10058734:	f2 0f 11 54 24 10    	movsd  QWORD PTR [esp+0x10],xmm2
+1005873a:	f2 0f 11 4c 24 08    	movsd  QWORD PTR [esp+0x8],xmm1
+10058740:	56                   	push   esi
+10058741:	57                   	push   edi
+10058742:	e8 59 0f 10 00       	call   101596a0 <__RNvMs_NtNtNtCs7BD0r6Zgfg0_9libpsycho2os7windows5patchNtB4_14OwnedCodePatch6verify>
+10058747:	83 c4 08             	add    esp,0x8
+1005874a:	83 bc 24 00 01 00 00 	cmp    DWORD PTR [esp+0x100],0xffffffff
+10058751:	ff
+10058752:	0f 85 76 04 00 00    	jne    10058bce <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf27multibound_loop_bookkeeping7install+0x6ce>
+10058758:	f2 0f 10 0d 78 87 3c 	movsd  xmm1,QWORD PTR ds:0x103c8778
+1005875f:	10
+10058760:	a1 88 87 3c 10       	mov    eax,ds:0x103c8788
+10058765:	f2 0f 10 05 80 87 3c 	movsd  xmm0,QWORD PTR ds:0x103c8780
+1005876c:	10
+1005876d:	f2 0f 10 15 70 87 3c 	movsd  xmm2,QWORD PTR ds:0x103c8770
+10058774:	10
+10058775:	f2 0f 11 4c 24 18    	movsd  QWORD PTR [esp+0x18],xmm1
+1005877b:	f2 0f 10 0d 68 87 3c 	movsd  xmm1,QWORD PTR ds:0x103c8768
+10058782:	10
+10058783:	89 44 24 28          	mov    DWORD PTR [esp+0x28],eax
+10058787:	f2 0f 11 44 24 20    	movsd  QWORD PTR [esp+0x20],xmm0
+1005878d:	f2 0f 11 54 24 10    	movsd  QWORD PTR [esp+0x10],xmm2
+10058793:	f2 0f 11 4c 24 08    	movsd  QWORD PTR [esp+0x8],xmm1
+10058799:	56                   	push   esi
+1005879a:	57                   	push   edi
+1005879b:	e8 00 0f 10 00       	call   101596a0 <__RNvMs_NtNtNtCs7BD0r6Zgfg0_9libpsycho2os7windows5patchNtB4_14OwnedCodePatch6verify>
+100587a0:	83 c4 08             	add    esp,0x8
+100587a3:	83 bc 24 00 01 00 00 	cmp    DWORD PTR [esp+0x100],0xffffffff
+100587aa:	ff
+100587ab:	0f 85 29 04 00 00    	jne    10058bda <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf27multibound_loop_bookkeeping7install+0x6da>
+100587b1:	f2 0f 10 0d b4 80 3c 	movsd  xmm1,QWORD PTR ds:0x103c80b4
+100587b8:	10
+100587b9:	a1 c4 80 3c 10       	mov    eax,ds:0x103c80c4
+100587be:	f2 0f 10 05 bc 80 3c 	movsd  xmm0,QWORD PTR ds:0x103c80bc
+100587c5:	10
+100587c6:	f2 0f 10 15 ac 80 3c 	movsd  xmm2,QWORD PTR ds:0x103c80ac
+100587cd:	10
+100587ce:	f2 0f 11 4c 24 18    	movsd  QWORD PTR [esp+0x18],xmm1
+100587d4:	f2 0f 10 0d a4 80 3c 	movsd  xmm1,QWORD PTR ds:0x103c80a4
+100587db:	10
+100587dc:	89 44 24 28          	mov    DWORD PTR [esp+0x28],eax
+100587e0:	f2 0f 11 44 24 20    	movsd  QWORD PTR [esp+0x20],xmm0
+100587e6:	f2 0f 11 54 24 10    	movsd  QWORD PTR [esp+0x10],xmm2
+100587ec:	f2 0f 11 4c 24 08    	movsd  QWORD PTR [esp+0x8],xmm1
+100587f2:	56                   	push   esi
+100587f3:	57                   	push   edi
+100587f4:	e8 a7 0e 10 00       	call   101596a0 <__RNvMs_NtNtNtCs7BD0r6Zgfg0_9libpsycho2os7windows5patchNtB4_14OwnedCodePatch6verify>
+100587f9:	83 c4 08             	add    esp,0x8
+100587fc:	83 bc 24 00 01 00 00 	cmp    DWORD PTR [esp+0x100],0xffffffff
+10058803:	ff
+10058804:	bb 13 00 00 00       	mov    ebx,0x13
+10058809:	0f 85 d7 03 00 00    	jne    10058be6 <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf27multibound_loop_bookkeeping7install+0x6e6>
+1005880f:	f2 0f 10 0d 70 82 3c 	movsd  xmm1,QWORD PTR ds:0x103c8270
+10058816:	10
+10058817:	a1 80 82 3c 10       	mov    eax,ds:0x103c8280
+1005881c:	f2 0f 10 05 78 82 3c 	movsd  xmm0,QWORD PTR ds:0x103c8278
+10058823:	10
+10058824:	f2 0f 10 15 68 82 3c 	movsd  xmm2,QWORD PTR ds:0x103c8268
+1005882b:	10
+1005882c:	f2 0f 11 4c 24 18    	movsd  QWORD PTR [esp+0x18],xmm1
+10058832:	f2 0f 10 0d 60 82 3c 	movsd  xmm1,QWORD PTR ds:0x103c8260
+10058839:	10
+1005883a:	89 44 24 28          	mov    DWORD PTR [esp+0x28],eax
+1005883e:	f2 0f 11 44 24 20    	movsd  QWORD PTR [esp+0x20],xmm0
+10058844:	f2 0f 11 54 24 10    	movsd  QWORD PTR [esp+0x10],xmm2
+1005884a:	f2 0f 11 4c 24 08    	movsd  QWORD PTR [esp+0x8],xmm1
+10058850:	56                   	push   esi
+10058851:	57                   	push   edi
+10058852:	e8 49 0e 10 00       	call   101596a0 <__RNvMs_NtNtNtCs7BD0r6Zgfg0_9libpsycho2os7windows5patchNtB4_14OwnedCodePatch6verify>
+10058857:	83 c4 08             	add    esp,0x8
+1005885a:	83 bc 24 00 01 00 00 	cmp    DWORD PTR [esp+0x100],0xffffffff
+10058861:	ff
+10058862:	0f 85 85 03 00 00    	jne    10058bed <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf27multibound_loop_bookkeeping7install+0x6ed>
+10058868:	f2 0f 10 0d 5c 85 3c 	movsd  xmm1,QWORD PTR ds:0x103c855c
+1005886f:	10
+10058870:	a1 6c 85 3c 10       	mov    eax,ds:0x103c856c
+10058875:	f2 0f 10 05 64 85 3c 	movsd  xmm0,QWORD PTR ds:0x103c8564
+1005887c:	10
+1005887d:	f2 0f 10 15 54 85 3c 	movsd  xmm2,QWORD PTR ds:0x103c8554
+10058884:	10
+10058885:	f2 0f 11 4c 24 18    	movsd  QWORD PTR [esp+0x18],xmm1
+1005888b:	f2 0f 10 0d 4c 85 3c 	movsd  xmm1,QWORD PTR ds:0x103c854c
+10058892:	10
+10058893:	89 44 24 28          	mov    DWORD PTR [esp+0x28],eax
+10058897:	f2 0f 11 44 24 20    	movsd  QWORD PTR [esp+0x20],xmm0
+1005889d:	f2 0f 11 54 24 10    	movsd  QWORD PTR [esp+0x10],xmm2
+100588a3:	f2 0f 11 4c 24 08    	movsd  QWORD PTR [esp+0x8],xmm1
+100588a9:	56                   	push   esi
+100588aa:	57                   	push   edi
+100588ab:	e8 f0 0d 10 00       	call   101596a0 <__RNvMs_NtNtNtCs7BD0r6Zgfg0_9libpsycho2os7windows5patchNtB4_14OwnedCodePatch6verify>
+100588b0:	83 c4 08             	add    esp,0x8
+100588b3:	83 bc 24 00 01 00 00 	cmp    DWORD PTR [esp+0x100],0xffffffff
+100588ba:	ff
+100588bb:	0f 85 33 03 00 00    	jne    10058bf4 <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf27multibound_loop_bookkeeping7install+0x6f4>
+100588c1:	8d 7c 24 3c          	lea    edi,[esp+0x3c]
+100588c5:	8d 9c 24 d0 00 00 00 	lea    ebx,[esp+0xd0]
+100588cc:	c7 44 24 3c 00 00 00 	mov    DWORD PTR [esp+0x3c],0x0
+100588d3:	00
+100588d4:	c7 44 24 40 04 00 00 	mov    DWORD PTR [esp+0x40],0x4
+100588db:	00
+100588dc:	c7 44 24 44 00 00 00 	mov    DWORD PTR [esp+0x44],0x0
+100588e3:	00
+100588e4:	c6 44 24 48 00       	mov    BYTE PTR [esp+0x48],0x0
+100588e9:	68 cc 7f 3c 10       	push   0x103c7fcc
+100588ee:	57                   	push   edi
+100588ef:	53                   	push   ebx
+100588f0:	e8 1b 66 10 00       	call   1015ef10 <__RNvMNtNtNtNtCs7BD0r6Zgfg0_9libpsycho2os7windows4hook11transactionNtB2_23ModificationTransaction11apply_patch>
+100588f5:	83 c4 0c             	add    esp,0xc
+100588f8:	83 bc 24 d0 00 00 00 	cmp    DWORD PTR [esp+0xd0],0xffffffff
+100588ff:	ff
+10058900:	0f 85 0b 03 00 00    	jne    10058c11 <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf27multibound_loop_bookkeeping7install+0x711>
+10058906:	68 a4 89 3c 10       	push   0x103c89a4
+1005890b:	57                   	push   edi
+1005890c:	53                   	push   ebx
+1005890d:	e8 fe 65 10 00       	call   1015ef10 <__RNvMNtNtNtNtCs7BD0r6Zgfg0_9libpsycho2os7windows4hook11transactionNtB2_23ModificationTransaction11apply_patch>
+10058912:	83 c4 0c             	add    esp,0xc
+10058915:	83 bc 24 d0 00 00 00 	cmp    DWORD PTR [esp+0xd0],0xffffffff
+1005891c:	ff
+1005891d:	0f 85 f5 02 00 00    	jne    10058c18 <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf27multibound_loop_bookkeeping7install+0x718>
+10058923:	68 68 87 3c 10       	push   0x103c8768
+10058928:	57                   	push   edi
+10058929:	53                   	push   ebx
+1005892a:	e8 e1 65 10 00       	call   1015ef10 <__RNvMNtNtNtNtCs7BD0r6Zgfg0_9libpsycho2os7windows4hook11transactionNtB2_23ModificationTransaction11apply_patch>
+1005892f:	83 c4 0c             	add    esp,0xc
+10058932:	83 bc 24 d0 00 00 00 	cmp    DWORD PTR [esp+0xd0],0xffffffff
+10058939:	ff
+1005893a:	0f 85 df 02 00 00    	jne    10058c1f <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf27multibound_loop_bookkeeping7install+0x71f>
+10058940:	68 a4 80 3c 10       	push   0x103c80a4
+10058945:	57                   	push   edi
+10058946:	53                   	push   ebx
+10058947:	e8 c4 65 10 00       	call   1015ef10 <__RNvMNtNtNtNtCs7BD0r6Zgfg0_9libpsycho2os7windows4hook11transactionNtB2_23ModificationTransaction11apply_patch>
+1005894c:	83 c4 0c             	add    esp,0xc
+1005894f:	83 bc 24 d0 00 00 00 	cmp    DWORD PTR [esp+0xd0],0xffffffff
+10058956:	ff
+10058957:	0f 85 c9 02 00 00    	jne    10058c26 <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf27multibound_loop_bookkeeping7install+0x726>
+1005895d:	68 60 82 3c 10       	push   0x103c8260
+10058962:	57                   	push   edi
+10058963:	53                   	push   ebx
+10058964:	e8 a7 65 10 00       	call   1015ef10 <__RNvMNtNtNtNtCs7BD0r6Zgfg0_9libpsycho2os7windows4hook11transactionNtB2_23ModificationTransaction11apply_patch>
+10058969:	83 c4 0c             	add    esp,0xc
+1005896c:	83 bc 24 d0 00 00 00 	cmp    DWORD PTR [esp+0xd0],0xffffffff
+10058973:	ff
+10058974:	0f 85 b3 02 00 00    	jne    10058c2d <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf27multibound_loop_bookkeeping7install+0x72d>
+1005897a:	68 4c 85 3c 10       	push   0x103c854c
+1005897f:	57                   	push   edi
+10058980:	53                   	push   ebx
+10058981:	e8 8a 65 10 00       	call   1015ef10 <__RNvMNtNtNtNtCs7BD0r6Zgfg0_9libpsycho2os7windows4hook11transactionNtB2_23ModificationTransaction11apply_patch>
+10058986:	83 c4 0c             	add    esp,0xc
+10058989:	83 bc 24 d0 00 00 00 	cmp    DWORD PTR [esp+0xd0],0xffffffff
+10058990:	ff
+10058991:	0f 85 9d 02 00 00    	jne    10058c34 <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf27multibound_loop_bookkeeping7install+0x734>
+10058997:	f2 0f 10 44 24 3c    	movsd  xmm0,QWORD PTR [esp+0x3c]
+1005899d:	f2 0f 10 4c 24 44    	movsd  xmm1,QWORD PTR [esp+0x44]
+100589a3:	f2 0f 11 4c 24 10    	movsd  QWORD PTR [esp+0x10],xmm1
+100589a9:	f2 0f 11 44 24 08    	movsd  QWORD PTR [esp+0x8],xmm0
+100589af:	56                   	push   esi
+100589b0:	e8 bb 66 10 00       	call   1015f070 <__RNvMNtNtNtNtCs7BD0r6Zgfg0_9libpsycho2os7windows4hook11transactionNtB2_23ModificationTransaction6commit>
+100589b5:	83 c4 04             	add    esp,0x4
+100589b8:	8b 3d 48 cc 3b 10    	mov    edi,DWORD PTR ds:0x103bcc48
+100589be:	8b 07                	mov    eax,DWORD PTR [edi]
+100589c0:	83 f8 03             	cmp    eax,0x3
+100589c3:	0f 86 1e 01 00 00    	jbe    10058ae7 <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf27multibound_loop_bookkeeping7install+0x5e7>
+100589c9:	8d 44 24 5c          	lea    eax,[esp+0x5c]
+100589cd:	c7 44 24 08 01 00 00 	mov    DWORD PTR [esp+0x8],0x1
+100589d4:	00
+100589d5:	c7 44 24 0c 88 01 00 	mov    DWORD PTR [esp+0xc],0x188
+100589dc:	00
+100589dd:	c7 44 24 10 00 00 00 	mov    DWORD PTR [esp+0x10],0x0
+100589e4:	00
+100589e5:	c7 44 24 14 73 8c 3c 	mov    DWORD PTR [esp+0x14],0x103c8c73
+100589ec:	10
+100589ed:	c7 44 24 18 3c 00 00 	mov    DWORD PTR [esp+0x18],0x3c
+100589f4:	00
+100589f5:	c7 44 24 1c 00 00 00 	mov    DWORD PTR [esp+0x1c],0x0
+100589fc:	00
+100589fd:	c7 44 24 20 32 8c 3c 	mov    DWORD PTR [esp+0x20],0x103c8c32
+10058a04:	10
+10058a05:	c7 44 24 24 40 00 00 	mov    DWORD PTR [esp+0x24],0x40
+10058a0c:	00
+10058a0d:	c7 44 24 28 04 00 00 	mov    DWORD PTR [esp+0x28],0x4
+10058a14:	00
+10058a15:	c7 44 24 2c 73 8c 3c 	mov    DWORD PTR [esp+0x2c],0x103c8c73
+10058a1c:	10
+10058a1d:	c7 44 24 30 3c 00 00 	mov    DWORD PTR [esp+0x30],0x3c
+10058a24:	00
+10058a25:	c7 44 24 5c cd 90 c4 	mov    DWORD PTR [esp+0x5c],0xc490cd
+10058a2c:	00
+10058a2d:	c7 44 24 60 4e 91 c4 	mov    DWORD PTR [esp+0x60],0xc4914e
+10058a34:	00
+10058a35:	c7 44 24 64 01 a8 c4 	mov    DWORD PTR [esp+0x64],0xc4a801
+10058a3c:	00
+10058a3d:	c7 44 24 68 77 92 c4 	mov    DWORD PTR [esp+0x68],0xc49277
+10058a44:	00
+10058a45:	c7 44 24 6c 0d 94 c4 	mov    DWORD PTR [esp+0x6c],0xc4940d
+10058a4c:	00
+10058a4d:	c7 44 24 4c c0 95 c4 	mov    DWORD PTR [esp+0x4c],0xc495c0
+10058a54:	00
+10058a55:	c7 44 24 34 a0 8b 3c 	mov    DWORD PTR [esp+0x34],0x103c8ba0
+10058a5c:	10
+10058a5d:	89 44 24 70          	mov    DWORD PTR [esp+0x70],eax
+10058a61:	8d 44 24 60          	lea    eax,[esp+0x60]
+10058a65:	c7 44 24 74 f0 06 35 	mov    DWORD PTR [esp+0x74],0x103506f0
+10058a6c:	10
+10058a6d:	89 44 24 78          	mov    DWORD PTR [esp+0x78],eax
+10058a71:	8d 44 24 64          	lea    eax,[esp+0x64]
+10058a75:	c7 44 24 7c f0 06 35 	mov    DWORD PTR [esp+0x7c],0x103506f0
+10058a7c:	10
+10058a7d:	89 84 24 80 00 00 00 	mov    DWORD PTR [esp+0x80],eax
+10058a84:	8d 44 24 68          	lea    eax,[esp+0x68]
+10058a88:	c7 84 24 84 00 00 00 	mov    DWORD PTR [esp+0x84],0x103506f0
+10058a8f:	f0 06 35 10
+10058a93:	89 84 24 88 00 00 00 	mov    DWORD PTR [esp+0x88],eax
+10058a9a:	8d 44 24 6c          	lea    eax,[esp+0x6c]
+10058a9e:	c7 84 24 8c 00 00 00 	mov    DWORD PTR [esp+0x8c],0x103506f0
+10058aa5:	f0 06 35 10
+10058aa9:	89 84 24 90 00 00 00 	mov    DWORD PTR [esp+0x90],eax
+10058ab0:	8d 44 24 4c          	lea    eax,[esp+0x4c]
+10058ab4:	c7 84 24 94 00 00 00 	mov    DWORD PTR [esp+0x94],0x103506f0
+10058abb:	f0 06 35 10
+10058abf:	89 84 24 98 00 00 00 	mov    DWORD PTR [esp+0x98],eax
+10058ac6:	8d 44 24 70          	lea    eax,[esp+0x70]
+10058aca:	c7 84 24 9c 00 00 00 	mov    DWORD PTR [esp+0x9c],0x103506f0
+10058ad1:	f0 06 35 10
+10058ad5:	89 44 24 38          	mov    DWORD PTR [esp+0x38],eax
+10058ad9:	8d 44 24 07          	lea    eax,[esp+0x7]
+10058add:	56                   	push   esi
+10058ade:	50                   	push   eax
+10058adf:	e8 ec b3 23 00       	call   10293ed0 <__RNvXs0_NtCs87J5EysO6pL_3log13___private_apiNtB5_12GlobalLoggerNtB7_3Log3log>
+10058ae4:	83 c4 08             	add    esp,0x8
+10058ae7:	8b 07                	mov    eax,DWORD PTR [edi]
+10058ae9:	83 f8 03             	cmp    eax,0x3
+10058aec:	72 76                	jb     10058b64 <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf27multibound_loop_bookkeeping7install+0x664>
+10058aee:	c7 44 24 08 01 00 00 	mov    DWORD PTR [esp+0x8],0x1
+10058af5:	00
+10058af6:	c7 44 24 0c 91 01 00 	mov    DWORD PTR [esp+0xc],0x191
+10058afd:	00
+10058afe:	c7 44 24 10 00 00 00 	mov    DWORD PTR [esp+0x10],0x0
+10058b05:	00
+10058b06:	c7 44 24 14 73 8c 3c 	mov    DWORD PTR [esp+0x14],0x103c8c73
+10058b0d:	10
+10058b0e:	c7 44 24 18 3c 00 00 	mov    DWORD PTR [esp+0x18],0x3c
+10058b15:	00
+10058b16:	c7 44 24 1c 00 00 00 	mov    DWORD PTR [esp+0x1c],0x0
+10058b1d:	00
+10058b1e:	c7 44 24 20 32 8c 3c 	mov    DWORD PTR [esp+0x20],0x103c8c32
+10058b25:	10
+10058b26:	c7 44 24 24 40 00 00 	mov    DWORD PTR [esp+0x24],0x40
+10058b2d:	00
+10058b2e:	c7 44 24 28 03 00 00 	mov    DWORD PTR [esp+0x28],0x3
+10058b35:	00
+10058b36:	c7 44 24 2c 73 8c 3c 	mov    DWORD PTR [esp+0x2c],0x103c8c73
+10058b3d:	10
+10058b3e:	c7 44 24 30 3c 00 00 	mov    DWORD PTR [esp+0x30],0x3c
+10058b45:	00
+10058b46:	c7 44 24 34 af 8c 3c 	mov    DWORD PTR [esp+0x34],0x103c8caf
+10058b4d:	10
+10058b4e:	c7 44 24 38 a1 00 00 	mov    DWORD PTR [esp+0x38],0xa1
+10058b55:	00
+10058b56:	8d 44 24 07          	lea    eax,[esp+0x7]
+10058b5a:	56                   	push   esi
+10058b5b:	50                   	push   eax
+10058b5c:	e8 6f b3 23 00       	call   10293ed0 <__RNvXs0_NtCs87J5EysO6pL_3log13___private_apiNtB5_12GlobalLoggerNtB7_3Log3log>
+10058b61:	83 c4 08             	add    esp,0x8
+10058b64:	31 c0                	xor    eax,eax
+10058b66:	e9 9e 00 00 00       	jmp    10058c09 <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf27multibound_loop_bookkeeping7install+0x709>
+10058b6b:	b8 c8 80 3c 10       	mov    eax,0x103c80c8
+10058b70:	eb 4b                	jmp    10058bbd <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf27multibound_loop_bookkeeping7install+0x6bd>
+10058b72:	b8 70 81 3c 10       	mov    eax,0x103c8170
+10058b77:	eb 44                	jmp    10058bbd <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf27multibound_loop_bookkeeping7install+0x6bd>
+10058b79:	b8 d8 8a 3c 10       	mov    eax,0x103c8ad8
+10058b7e:	eb 3d                	jmp    10058bbd <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf27multibound_loop_bookkeeping7install+0x6bd>
+10058b80:	b8 54 8b 3c 10       	mov    eax,0x103c8b54
+10058b85:	eb 36                	jmp    10058bbd <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf27multibound_loop_bookkeeping7install+0x6bd>
+10058b87:	b8 c8 89 3c 10       	mov    eax,0x103c89c8
+10058b8c:	eb 2f                	jmp    10058bbd <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf27multibound_loop_bookkeeping7install+0x6bd>
+10058b8e:	b8 74 8a 3c 10       	mov    eax,0x103c8a74
+10058b93:	eb 28                	jmp    10058bbd <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf27multibound_loop_bookkeeping7install+0x6bd>
+10058b95:	b8 84 82 3c 10       	mov    eax,0x103c8284
+10058b9a:	eb 21                	jmp    10058bbd <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf27multibound_loop_bookkeeping7install+0x6bd>
+10058b9c:	b8 90 83 3c 10       	mov    eax,0x103c8390
+10058ba1:	eb 1a                	jmp    10058bbd <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf27multibound_loop_bookkeeping7install+0x6bd>
+10058ba3:	b8 70 85 3c 10       	mov    eax,0x103c8570
+10058ba8:	eb 13                	jmp    10058bbd <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf27multibound_loop_bookkeeping7install+0x6bd>
+10058baa:	b8 14 86 3c 10       	mov    eax,0x103c8614
+10058baf:	eb 0c                	jmp    10058bbd <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf27multibound_loop_bookkeeping7install+0x6bd>
+10058bb1:	b8 8c 87 3c 10       	mov    eax,0x103c878c
+10058bb6:	eb 05                	jmp    10058bbd <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf27multibound_loop_bookkeeping7install+0x6bd>
+10058bb8:	b8 24 88 3c 10       	mov    eax,0x103c8824
+10058bbd:	57                   	push   edi
+10058bbe:	50                   	push   eax
+10058bbf:	56                   	push   esi
+10058bc0:	eb 3f                	jmp    10058c01 <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf27multibound_loop_bookkeeping7install+0x701>
+10058bc2:	bb 09 00 00 00       	mov    ebx,0x9
+10058bc7:	b8 70 7f 3c 10       	mov    eax,0x103c7f70
+10058bcc:	eb 30                	jmp    10058bfe <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf27multibound_loop_bookkeeping7install+0x6fe>
+10058bce:	bb 0c 00 00 00       	mov    ebx,0xc
+10058bd3:	b8 44 89 3c 10       	mov    eax,0x103c8944
+10058bd8:	eb 24                	jmp    10058bfe <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf27multibound_loop_bookkeeping7install+0x6fe>
+10058bda:	bb 17 00 00 00       	mov    ebx,0x17
+10058bdf:	b8 44 87 3c 10       	mov    eax,0x103c8744
+10058be4:	eb 18                	jmp    10058bfe <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf27multibound_loop_bookkeeping7install+0x6fe>
+10058be6:	b8 f0 7f 3c 10       	mov    eax,0x103c7ff0
+10058beb:	eb 11                	jmp    10058bfe <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf27multibound_loop_bookkeeping7install+0x6fe>
+10058bed:	b8 a4 81 3c 10       	mov    eax,0x103c81a4
+10058bf2:	eb 0a                	jmp    10058bfe <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf27multibound_loop_bookkeeping7install+0x6fe>
+10058bf4:	bb 14 00 00 00       	mov    ebx,0x14
+10058bf9:	b8 90 84 3c 10       	mov    eax,0x103c8490
+10058bfe:	53                   	push   ebx
+10058bff:	50                   	push   eax
+10058c00:	57                   	push   edi
+10058c01:	e8 6a 91 0a 00       	call   10101d70 <__RINvXNtNtCsiRG1joDtfFD_6anyhow7context3extNtNtNtNtCs7BD0r6Zgfg0_9libpsycho2os7windows5patch14CodePatchErrorNtB3_8StdError11ext_contextReECs92LXG9HUj0y_19psycho_engine_fixes>
+10058c06:	83 c4 0c             	add    esp,0xc
+10058c09:	8d 65 f4             	lea    esp,[ebp-0xc]
+10058c0c:	5e                   	pop    esi
+10058c0d:	5f                   	pop    edi
+10058c0e:	5b                   	pop    ebx
+10058c0f:	5d                   	pop    ebp
+10058c10:	c3                   	ret
+10058c11:	b9 cc 7f 3c 10       	mov    ecx,0x103c7fcc
+10058c16:	eb 21                	jmp    10058c39 <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf27multibound_loop_bookkeeping7install+0x739>
+10058c18:	b9 a4 89 3c 10       	mov    ecx,0x103c89a4
+10058c1d:	eb 1a                	jmp    10058c39 <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf27multibound_loop_bookkeeping7install+0x739>
+10058c1f:	b9 68 87 3c 10       	mov    ecx,0x103c8768
+10058c24:	eb 13                	jmp    10058c39 <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf27multibound_loop_bookkeeping7install+0x739>
+10058c26:	b9 a4 80 3c 10       	mov    ecx,0x103c80a4
+10058c2b:	eb 0c                	jmp    10058c39 <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf27multibound_loop_bookkeeping7install+0x739>
+10058c2d:	b9 60 82 3c 10       	mov    ecx,0x103c8260
+10058c32:	eb 05                	jmp    10058c39 <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf27multibound_loop_bookkeeping7install+0x739>
+10058c34:	b9 4c 85 3c 10       	mov    ecx,0x103c854c
+10058c39:	f2 0f 10 8c 24 f0 00 	movsd  xmm1,QWORD PTR [esp+0xf0]
+10058c40:	00 00
+10058c42:	f2 0f 10 94 24 e8 00 	movsd  xmm2,QWORD PTR [esp+0xe8]
+10058c49:	00 00
+10058c4b:	f2 0f 10 84 24 f8 00 	movsd  xmm0,QWORD PTR [esp+0xf8]
+10058c52:	00 00
+10058c54:	a1 48 cc 3b 10       	mov    eax,ds:0x103bcc48
+10058c59:	f2 0f 11 8c 24 90 00 	movsd  QWORD PTR [esp+0x90],xmm1
+10058c60:	00 00
+10058c62:	f2 0f 10 8c 24 e0 00 	movsd  xmm1,QWORD PTR [esp+0xe0]
+10058c69:	00 00
+10058c6b:	f2 0f 11 94 24 88 00 	movsd  QWORD PTR [esp+0x88],xmm2
+10058c72:	00 00
+10058c74:	f2 0f 10 94 24 d0 00 	movsd  xmm2,QWORD PTR [esp+0xd0]
+10058c7b:	00 00
+10058c7d:	f2 0f 11 84 24 98 00 	movsd  QWORD PTR [esp+0x98],xmm0
+10058c84:	00 00
+10058c86:	f2 0f 11 8c 24 80 00 	movsd  QWORD PTR [esp+0x80],xmm1
+10058c8d:	00 00
+10058c8f:	f2 0f 10 8c 24 d8 00 	movsd  xmm1,QWORD PTR [esp+0xd8]
+10058c96:	00 00
+10058c98:	f2 0f 11 54 24 70    	movsd  QWORD PTR [esp+0x70],xmm2
+10058c9e:	f2 0f 11 4c 24 78    	movsd  QWORD PTR [esp+0x78],xmm1
+10058ca4:	8b 00                	mov    eax,DWORD PTR [eax]
+10058ca6:	85 c0                	test   eax,eax
+10058ca8:	0f 84 8a 00 00 00    	je     10058d38 <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf27multibound_loop_bookkeeping7install+0x838>
+10058cae:	8d 44 24 70          	lea    eax,[esp+0x70]
+10058cb2:	c7 44 24 08 01 00 00 	mov    DWORD PTR [esp+0x8],0x1
+10058cb9:	00
+10058cba:	c7 44 24 0c 81 01 00 	mov    DWORD PTR [esp+0xc],0x181
+10058cc1:	00
+10058cc2:	c7 44 24 10 00 00 00 	mov    DWORD PTR [esp+0x10],0x0
+10058cc9:	00
+10058cca:	c7 44 24 14 73 8c 3c 	mov    DWORD PTR [esp+0x14],0x103c8c73
+10058cd1:	10
+10058cd2:	c7 44 24 18 3c 00 00 	mov    DWORD PTR [esp+0x18],0x3c
+10058cd9:	00
+10058cda:	c7 44 24 1c 00 00 00 	mov    DWORD PTR [esp+0x1c],0x0
+10058ce1:	00
+10058ce2:	c7 44 24 20 32 8c 3c 	mov    DWORD PTR [esp+0x20],0x103c8c32
+10058ce9:	10
+10058cea:	c7 44 24 24 40 00 00 	mov    DWORD PTR [esp+0x24],0x40
+10058cf1:	00
+10058cf2:	c7 44 24 28 01 00 00 	mov    DWORD PTR [esp+0x28],0x1
+10058cf9:	00
+10058cfa:	c7 44 24 2c 73 8c 3c 	mov    DWORD PTR [esp+0x2c],0x103c8c73
+10058d01:	10
+10058d02:	c7 44 24 30 3c 00 00 	mov    DWORD PTR [esp+0x30],0x3c
+10058d09:	00
+10058d0a:	c7 44 24 34 ff 8c 3c 	mov    DWORD PTR [esp+0x34],0x103c8cff
+10058d11:	10
+10058d12:	89 44 24 4c          	mov    DWORD PTR [esp+0x4c],eax
+10058d16:	8d 44 24 4c          	lea    eax,[esp+0x4c]
+10058d1a:	c7 44 24 50 b0 a9 15 	mov    DWORD PTR [esp+0x50],0x1015a9b0
+10058d21:	10
+10058d22:	89 44 24 38          	mov    DWORD PTR [esp+0x38],eax
+10058d26:	8d 44 24 07          	lea    eax,[esp+0x7]
+10058d2a:	56                   	push   esi
+10058d2b:	50                   	push   eax
+10058d2c:	89 ce                	mov    esi,ecx
+10058d2e:	e8 9d b1 23 00       	call   10293ed0 <__RNvXs0_NtCs87J5EysO6pL_3log13___private_apiNtB5_12GlobalLoggerNtB7_3Log3log>
+10058d33:	89 f1                	mov    ecx,esi
+10058d35:	83 c4 08             	add    esp,0x8
+10058d38:	ff 71 04             	push   DWORD PTR [ecx+0x4]
+10058d3b:	ff 31                	push   DWORD PTR [ecx]
+10058d3d:	53                   	push   ebx
+10058d3e:	e8 2d 90 0a 00       	call   10101d70 <__RINvXNtNtCsiRG1joDtfFD_6anyhow7context3extNtNtNtNtCs7BD0r6Zgfg0_9libpsycho2os7windows5patch14CodePatchErrorNtB3_8StdError11ext_contextReECs92LXG9HUj0y_19psycho_engine_fixes>
+10058d43:	83 c4 0c             	add    esp,0xc
+10058d46:	89 44 24 54          	mov    DWORD PTR [esp+0x54],eax
+10058d4a:	57                   	push   edi
+10058d4b:	e8 90 70 10 00       	call   1015fde0 <__RNvXs0_NtNtNtNtCs7BD0r6Zgfg0_9libpsycho2os7windows4hook11transactionNtB5_23ModificationTransactionNtNtNtCs32tIC4fDiEl_4core3ops4drop4Drop4drop>
+10058d50:	83 c4 04             	add    esp,0x4
+10058d53:	8b 7c 24 44          	mov    edi,DWORD PTR [esp+0x44]
+10058d57:	85 ff                	test   edi,edi
+10058d59:	74 4a                	je     10058da5 <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf27multibound_loop_bookkeeping7install+0x8a5>
+10058d5b:	8b 5c 24 40          	mov    ebx,DWORD PTR [esp+0x40]
+10058d5f:	83 c3 04             	add    ebx,0x4
+10058d62:	eb 12                	jmp    10058d76 <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf27multibound_loop_bookkeeping7install+0x876>
+10058d64:	66 2e 0f 1f 84 00 00 	nop    WORD PTR cs:[eax+eax*1+0x0]
+10058d6b:	00 00 00
+10058d6e:	66 90                	xchg   ax,ax
+10058d70:	83 c3 08             	add    ebx,0x8
+10058d73:	4f                   	dec    edi
+10058d74:	74 2f                	je     10058da5 <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf27multibound_loop_bookkeeping7install+0x8a5>
+10058d76:	8b 33                	mov    esi,DWORD PTR [ebx]
+10058d78:	8b 4b fc             	mov    ecx,DWORD PTR [ebx-0x4]
+10058d7b:	8b 06                	mov    eax,DWORD PTR [esi]
+10058d7d:	85 c0                	test   eax,eax
+10058d7f:	74 0e                	je     10058d8f <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf27multibound_loop_bookkeeping7install+0x88f>
+10058d81:	51                   	push   ecx
+10058d82:	89 4c 24 5c          	mov    DWORD PTR [esp+0x5c],ecx
+10058d86:	ff d0                	call   eax
+10058d88:	8b 4c 24 5c          	mov    ecx,DWORD PTR [esp+0x5c]
+10058d8c:	83 c4 04             	add    esp,0x4
+10058d8f:	8b 46 04             	mov    eax,DWORD PTR [esi+0x4]
+10058d92:	85 c0                	test   eax,eax
+10058d94:	74 da                	je     10058d70 <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf27multibound_loop_bookkeeping7install+0x870>
+10058d96:	ff 76 08             	push   DWORD PTR [esi+0x8]
+10058d99:	50                   	push   eax
+10058d9a:	51                   	push   ecx
+10058d9b:	e8 30 36 0c 00       	call   1011c3d0 <__RNvCs9hJ03s5DiqP_7___rustc14___rust_dealloc>
+10058da0:	83 c4 0c             	add    esp,0xc
+10058da3:	eb cb                	jmp    10058d70 <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf27multibound_loop_bookkeeping7install+0x870>
+10058da5:	8b 44 24 3c          	mov    eax,DWORD PTR [esp+0x3c]
+10058da9:	85 c0                	test   eax,eax
+10058dab:	74 12                	je     10058dbf <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf27multibound_loop_bookkeeping7install+0x8bf>
+10058dad:	c1 e0 03             	shl    eax,0x3
+10058db0:	6a 04                	push   0x4
+10058db2:	50                   	push   eax
+10058db3:	ff 74 24 48          	push   DWORD PTR [esp+0x48]
+10058db7:	e8 14 36 0c 00       	call   1011c3d0 <__RNvCs9hJ03s5DiqP_7___rustc14___rust_dealloc>
+10058dbc:	83 c4 0c             	add    esp,0xc
+10058dbf:	8b 44 24 54          	mov    eax,DWORD PTR [esp+0x54]
+10058dc3:	e9 41 fe ff ff       	jmp    10058c09 <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf27multibound_loop_bookkeeping7install+0x709>
+10058dc8:	6a 4a                	push   0x4a
+10058dca:	68 4f 8d 3c 10       	push   0x103c8d4f
+10058dcf:	e8 ec 67 05 00       	call   100af5c0 <__RINvMNtCsiRG1joDtfFD_6anyhow5errorNtB5_5Error3msgReECs92LXG9HUj0y_19psycho_engine_fixes>
+10058dd4:	83 c4 08             	add    esp,0x8
+10058dd7:	e9 2d fe ff ff       	jmp    10058c09 <__RNvNtNtNtCs92LXG9HUj0y_19psycho_engine_fixes4mods4perf27multibound_loop_bookkeeping7install+0x709>
+10058ddc:	0f 1f 40 00          	nop    DWORD PTR [eax+0x0]
+
+
+======================================================================
+Owner game session: installation evidence, not equivalence or timing
+======================================================================
+Source: psycho-engine-fixes/psycho-engine-fixes-latest.log (owner playtest).
+2026-10-10T20:47:42.697Z INFO  [psycho_engine_fixes::mods::perf::light_property_scores] [LIGHT_SCORES] Candidate bridges prepared; native dispatch until DeferredInit
+2026-10-10T20:47:42.697Z INFO  [psycho_engine_fixes::mods::perf::scene_light_scan] [SCENE_LIGHTS] Candidate bridges prepared; native dispatch until DeferredInit
+2026-10-10T20:47:42.698Z DEBUG [psycho_engine_fixes::mods::perf::multibound_vertex_setup] [MULTIBOUND_VERTICES] Qualified setup sites: append=0x00C47BC1, portal=0x00C47DD6, planes=0x00C3391F
+2026-10-10T20:47:42.698Z INFO  [psycho_engine_fixes::mods::perf::multibound_vertex_setup] [MULTIBOUND_VERTICES] Redundant compound/portal setup optimized at three native sites
+2026-10-10T20:47:42.698Z DEBUG [psycho_engine_fixes::mods::perf::multibound_loop_bookkeeping] [MULTIBOUND_LOOPS] Qualified sites: save=0x00C490CD, restore=0x00C4914E, sphere=0x00C4A801, bound=0x00C49277, shape=0x00C4940D, portal=0x00C495C0
+2026-10-10T20:47:42.698Z INFO  [psycho_engine_fixes::mods::perf::multibound_loop_bookkeeping] [MULTIBOUND_LOOPS] Compound visibility bookkeeping optimized at six native sites
+2026-10-10T20:48:07.700Z INFO  [psycho_engine_fixes::mods::perf::light_property_scores] [LIGHT_SCORES] Candidate enabled; runtime equivalence unvalidated
+2026-10-10T20:48:07.700Z INFO  [psycho_engine_fixes::mods::perf::scene_light_scan] [SCENE_LIGHTS] Candidate enabled; runtime equivalence unvalidated
+Last observed subsequent engine activity in this log snapshot:
+2026-10-10T20:52:03.703Z DEBUG [psycho_engine_fixes::mods::heap_replacer::gheap::pool] [POOL] class #2 16B initialized: subpool 10/21 (#54) user=1MB at 0xd2300000..0xd2400000 metadata=256KB source=virtualalloc overflow=false
+These excerpts prove installation/admission and continued logging only.
+No execution counts, visibility oracle, recovery result or FPS measurement.

@@ -1,7 +1,8 @@
 # Fallout New Vegas location performance static audit
 
 Research date: 2026-10-06. Candidate implementation and Fairfax follow-up:
-2026-10-07.
+2026-10-07. Further loop-contract research and six-site implementation:
+2026-10-10.
 
 Fallout New Vegas contains native CPU work whose size depends on scene objects,
 candidate lights, render-pass entries, and actively processed actors. Low
@@ -35,6 +36,11 @@ specific comparison position, camera direction, and loaded scene inventory
 were not supplied. Turning the camera away restores some FPS; facing the
 opposite direction and moving the actor slightly forward restores FPS,
 according to the owner's follow-up. Stationary duration remains unspecified.
+After the existing optimization work, the owner reported approximately
+10 FPS gained in some places and 3-4 FPS in others with OMV absent. The
+comparison baseline, exact deployed feature set, positions and settings were
+not specified. This is a gameplay observation of an improvement, not a
+controlled per-feature measurement or identification of the Fairfax consumer.
 The research covers native work that scales with location content even when
 the visuals appear simple. The
 owner's clarified objective is broad removal of verified inefficiencies,
@@ -55,7 +61,9 @@ Three evidence classes must remain distinct:
 - **Owner observation:** FPS varies across locations and does not require
   combat; Fairfax Ruins can drop from approximately 80-100 FPS to 30 FPS.
   Turning away partially recovers FPS, and facing the opposite direction plus
-  a small forward movement restores it.
+  a small forward movement restores it. The later OMV-absent observation
+  reports gains of approximately 10 FPS in some places and 3-4 FPS elsewhere,
+  without enough comparison detail to attribute those gains to one feature.
 - **Static proof:** verified instructions, call sites, virtual-table entries,
   field accesses, update gates, and loop structure in the supported executable.
 - **Unresolved attribution:** actual invocation frequencies, scene population,
@@ -3051,11 +3059,13 @@ lighting, visibility, pass order, ownership, and failure behavior. This is a
 research and implementation plan; it makes no production changes and does not
 claim that the unclosed contracts below have become proven.
 
-The [first implementation batch](#first-implementation-batch-and-deferred-research)
-below is the current delivery scope. It supersedes the earlier delivery order:
-implement the two state-preserving AABB setup replacements first. The deeper
-designs in this section remain research targets until their named contracts
-close; they are not prerequisites for those local replacements.
+The [complete remaining implementation plan](#implementation-plan-complete-remaining-optimization-set)
+below governs the next changes. The two AABB setup replacements and three
+compound/portal vertex-setup replacements now have production implementations.
+The six additional integer-reduction sites are also implemented as a separate
+unreleased candidate. The five deeper designs retain explicit prerequisite
+contracts; their earlier algorithm descriptions below remain applicable where
+the later plan does not amend them.
 
 Additional focused disassembly is retained in
 [durable design evidence](../analysis/radare2/output/fnv_location_durable_optimization_plan_contract_20261007.txt).
@@ -3361,9 +3371,11 @@ the existing supported core preparation boundary and independent transactions;
 DeferredInit publishes readiness through established routing. Every subsystem
 retains its captured provider and rolls back only code/vtable bytes it owns.
 Prepare complete immutable contract expectations rather than learning current
-bytes as the oracle. Validation occurs once per owned operation, not once per
-light, corner, comparison or output pass. Include those guard reads in work
-budgets, and do not weaken provider validation merely to reduce their cost.
+bytes as the oracle. Check complete code capability at the qualified operation
+boundary. Input/state admission follows each design's actual reuse interval;
+transparent head keys, for example, require current input checks at each
+comparison. Include all guard reads in work budgets, and do not weaken provider
+validation merely to reduce their cost.
 
 The AABB initialization-loop baseline is the explicit exception to that
 bridge/admission schedule: its full-state-preserving inline replacement needs
@@ -3374,7 +3386,10 @@ its user setting. Retain `scene_light_sequential_scan` and its qualified math
 alternatives. New proposed independent settings are
 `performance.lighting_pass_refresh`, `performance.transparent_pass_sort`,
 `performance.compound_frustum_culling` and
-`performance.multibound_frustum_tests`. Plan them enabled by default, consistent
+`performance.multibound_plane_tests`. The existing
+`performance.multibound_frustum_tests` continues to own the implemented AABB
+setup replacements; the stronger plane operation has independent ownership.
+Plan new features enabled by default, consistent
 with the owner's requested optimization coverage, while preserving user-set
 values and missing-value parsing. Final schema integration must follow
 [startup safety](nvse_startup_phase_safety.md); a few boolean fields still
@@ -3404,9 +3419,10 @@ the current Psycho behavioral gate or extend the earlier two-candidate waiver.
 Do not describe an unresolved candidate as an accepted fix.
 
 Before production editing, close each named ownership/math/provider/stack
-contract and establish the applicable acceptance authority. Begin with the
-state-preserving AABB initialization replacements specified in the first batch
-below. Continue the pass, sort and compound contracts independently; their
+contract and establish the applicable acceptance authority. The AABB
+initialization replacements specified in the first batch below are implemented;
+use the later complete plan for the next delivery order. Continue the pass,
+sort and compound contracts independently; their
 integer-only components do not by themselves establish ownership or callback
 safety. This order does not remove any candidate from scope. Run affected
 production-path checks and crate tests, the explicit
@@ -4419,6 +4435,392 @@ The owner separately requested committing this candidate and its supporting
 research. That request does not establish native/startup acceptance or
 authorize deployment, packaging or release.
 
+### Further reductions: compound and portal vertex setup
+
+The continued plane-owner audit found three additional local reductions in
+native compound/portal construction. Their instruction contracts are closed
+for the original supported bodies. They are proposals; no production patch,
+configuration change or deployment was made by this research.
+
+All new native evidence is retained in the
+[deferred ownership follow-up](../analysis/radare2/output/fnv_location_deferred_ownership_followup_20261007.txt).
+Radare2 supplied the primary instructions and call references. Bounded reads
+of the same verified PE supplied exact bytes and full native function decodes;
+prospective payloads were decoded at their actual intervention addresses.
+Misaligned discoveries, clipped function output and incorrect exploratory
+constructor labels are explicitly excluded in the raw evidence.
+
+The new targets are four-vertex setup loops. Each assigns a counter and local
+pointer, decrements the counter five times, and advances that pointer four
+times by 12 bytes. The body never dereferences the vertex buffer and calls
+nothing. The subsequent native vertex operation remains outside the patch.
+The reduction follows the actual instructions; it does not depend on assuming
+that a vertex constructor is cheap or that an input object is immutable.
+
+| Native owner and admission | Intervention, exclusive end | Original frame qualification | Native continuation |
+|---|---|---|---|
+| `0x00C47B50`, compound append after its existing capacity branches | `0x00C47BC1..0x00C47BE4`, 35 bytes | First 9 bytes establish EBP, reserve 0x6C bytes and save ECX at EBP-0x68 | `0x00C47BE4`; native vertex call remains at `0x00C47BEB` |
+| `0x00C47D20`, admitted portal-construction branch | `0x00C47DD6..0x00C47E0B`, 53 bytes | First 15 bytes establish EBP, reserve 0x174 bytes and save ECX at EBP-0x16C | `0x00C47E0B`; native vertex call remains at `0x00C47E4D` |
+| `0x00C33870`, plane-producer recomputation branch | `0x00C3391F..0x00C33954`, 53 bytes | First 17 bytes establish EBP, reserve 0x1BC bytes, save ESI/EDI and save ECX at EBP-0x1B8 | `0x00C33954`; native vertex call remains at `0x00C3395E` |
+
+The respective native methods return with RET 8, RET 4 and RET 0x10.
+These are instruction-window replacements within their existing frames;
+they introduce no wrapper ABI and retain the original caller and return
+discipline. The prospective replacement must reproduce all of the following
+states before resuming, including the two local words even if later original
+code does not read them:
+
+| Intervention | EAX | ECX | EDX | Counter local | Pointer local |
+|---|---|---|---|---|---|
+| `0x00C47BC1` | 0xFFFFFFFF | EBP-0x10 | EBP-0x40 | [EBP-0x58] = 0xFFFFFFFF | [EBP-0x54] = EBP-0x10 |
+| `0x00C47DD6` | EBP-0x10 | EBP-0x40 | 0xFFFFFFFF | [EBP-0xEC] = 0xFFFFFFFF | [EBP-0xE8] = EBP-0x10 |
+| `0x00C3391F` | EBP | EBP-0x30 | 0xFFFFFFFF | [EBP-0xF0] = 0xFFFFFFFF | [EBP-0xEC] = EBP |
+
+For each block, two LEAs construct the final addresses; XOR followed by
+SUB 0,1 reconstructs the terminal counter and the original arithmetic flags;
+two MOVs publish the same local words; JMP resumes the original continuation.
+The final SUB matches the original terminal iteration. Subsequent MOV/JMP
+instructions preserve its CF/PF/AF/ZF/SF/OF. All other registers, ESP, EBP,
+non-arithmetic flags, vertex-buffer contents and x87/SSE state are unchanged
+by the proposed block. The one-past pointer is never dereferenced by it.
+
+The original executed budget is three setup instructions, four iterations of
+eight instructions, and four instructions in the terminal iteration: 39.
+The proposed budget is seven instructions, so each reached block saves
+32 integer instructions, nine local reads and nine local writes. Padding is
+jumped over. This is a deterministic instruction reduction, not an FPS or
+elapsed-time estimate. `0x00C33870` already copies a cached 100-byte record
+on its admitted reuse branch; the new reduction affects recomputation only
+and must preserve that cache gate.
+
+Full bounded native decodes cover `0x00C47B50..0x00C47D11`,
+`0x00C47D20..0x00C487F4` and `0x00C33870..0x00C33CED`, exclusive ends.
+Their internal edges enter each window only at its start or at the original
+loop backedge; no indirect JMP appears in those bodies. In particular,
+`0x00C47BA2` reaches the first window's start, while `0x00C33890` and
+`0x00C33905` reach the third window's start. Radare2 xrefs corroborate the
+identified edges but are not treated as complete arbitrary indirect-call or
+foreign-provider coverage.
+
+Native caller evidence places the first two methods below compound builder
+`0x00B5F170`: four direct append calls and six direct portal-construction calls.
+That builder has three discovered direct calls from `0x0045B070`, at
+`0x0045B92A`, `0x0045BA08` and `0x0045BA6E`. The plane producer is also
+called at `0x00C47C81` and from portal-building branches. These are concrete
+construction paths, not proof of their population or frequency at Fairfax.
+Do not conflate this builder with `0x00B5BA80`, the separate combination
+operation reached by scene visibility callbacks.
+
+Implementation can reuse the existing core-owned immutable instruction-patch
+and transaction machinery. Prepare exact frame and complete-block signatures
+for all selected sites, preflight every site before writing, apply one owned
+transaction and preserve foreign code on rejection or rollback. Keep native
+allocation, generation, cached publication and visibility calls at their
+original addresses and stack locations. Installation remains restricted to
+the core's quiescent pre-CRT activation boundary; patches would live until
+process exit. No per-call guard, bridge, retained input, lock, allocation,
+counter or diagnostic is required for these local reductions.
+
+The new blocks' binary state contract does not qualify their installer or
+actual native behavior. The implementation section below records the later
+explicit authorization and static qualification. Qualification must
+inspect the actual compiled descriptors/payloads, transactional failure and
+compatibility behavior, affected tests, supported release build and startup
+scope. Existing authorization for the earlier two AABB sites is not a general
+waiver for these three new sites. No runtime outcome is claimed here.
+
+### Implementation plan: three compound/portal setup reductions
+
+This approved plan defines the implemented batch recorded below. It is limited
+to the three four-vertex setup
+blocks above. The native instruction-state contracts are sufficient to design
+these local reductions. The broader ownership and numeric designs remain
+outside this batch, with their unresolved research listed below.
+
+**Configuration and ownership.** Add a separate core performance setting,
+`performance.multibound_vertex_setup`, proposed default true. An explicit
+user value must take precedence over the default. Keep the existing
+`multibound_frustum_tests` setting and its two-site installer independent.
+The new three-site transaction must neither own nor roll back those existing
+patches. This provides independent control and prevents a conflicting portal
+site from blocking the already available AABB reduction.
+
+Append the new boolean/optional boolean to `PerformanceConfig` and
+`RawPerformanceConfig`, preserving the existing fields' order and types.
+Wire the established `Default` and `from_raw` paths without a migration,
+legacy-key alias or additional parser. The shipped TOML description should
+describe the user benefit in one sentence:
+
+```toml
+# Removes redundant setup work when building visibility bounds through portals.
+multibound_vertex_setup = true
+```
+
+Do not add restart advice, testing commentary or tests that freeze this
+editable value. Technical qualification belongs in this owning document.
+
+| File | Planned change |
+|---|---|
+| `psycho-engine-fixes/src/mods/perf/multibound_vertex_setup.rs` | New cohesive module with three immutable frame signatures, three complete original/replacement block descriptors, state-contract comments and one startup installer |
+| `psycho-engine-fixes/src/mods/perf/mod.rs` | Declare the module and expose its installer within the crate |
+| `psycho-engine-fixes/src/startup.rs` | Call its installer immediately after the existing AABB setup configuration branch, at the established pre-CRT activation boundary |
+| `psycho-engine-fixes/src/config.rs` | Append the setting, default and optional raw value; honor explicit false |
+| `psycho-engine-fixes/config/psycho_engine_fixes.toml` | Add the setting with the concise user description above |
+| This owning document and native evidence | Record the implemented scope, compiled qualification and outstanding acceptance without duplicating native dumps |
+
+**Patch contents.** Reconfirm executable identity and address-sensitive
+evidence before coding. Use the complete 35-, 53- and 53-byte original
+windows at `0x00C47BC1`, `0x00C47DD6` and `0x00C3391F`.
+Use the prospective seven-instruction replacements already decoded in the
+raw evidence: their rel32 jumps reach `0x00C47BE4`, `0x00C47E0B`
+and `0x00C33954`, respectively. Preserve the exact final-state table above.
+Fill the remainder of each original window with unreachable padding; do not
+execute that padding or move the native continuations.
+
+The module documentation must identify the three owners, per-reached-block
+32-instruction saving, full register/flags/local preservation, startup-only
+installation, failure ownership and process lifetime. Every descriptor should
+explain its distinct frame offsets and why its final SUB is necessary. No
+generic assembly generator, runtime bridge, pointer cache or new shared hook
+abstraction is needed. Native vertex and plane providers remain at their
+original call boundaries with the same inputs.
+
+**Admission and failure.** Reuse `CodeSignature`, `OwnedCodePatch` and
+`ModificationTransaction`. Require the pre-CRT boundary and unfinished core
+initialization. Preflight all three original frame signatures and all three
+blocks before any write. An original block or the exact same replacement is
+accepted by the established patch API; an existing replacement acquires no new
+ownership. Any conflicting frame/block leaves the new group unapplied.
+
+Apply the three patches in a single transaction and commit only after all
+succeed. On a write failure, the transaction attempts to restore only this
+group's acquired writes and reports restoration failure through the existing
+logger. Never overwrite a changed foreign owner during rollback, promise
+infallible rollback, or continue into a broader optimization as fallback.
+Keep startup's established recoverable-error handling so an unavailable new
+group does not prevent other independently installed performance features.
+
+Use one stable `[MULTIBOUND_VERTICES]` tag: info for installed/disabled
+configuration milestones, debug for the three qualified native addresses,
+warn for a rejected group retaining existing code, and error for an application
+or rollback failure. No gameplay-time logging, counters, configuration polling,
+unpatching or event work belongs in this implementation.
+
+**Qualification and acceptance.** Before production edits, establish the
+new candidate's behavioral gate under root `AGENTS.md`: actual native startup,
+visibility and portal traversal with the relevant workload, and the unchanged
+baseline where required. Expected behavior includes normal load-to-gameplay,
+the same object/portal visibility, and the existing native cached-record and
+recomputation branches. The owner's general FPS observation does not establish
+these new sites' baseline or acceptance. If the real boundary cannot be
+exercised, implementation remains pending a separate explicit instruction
+authorizing this named unreleased candidate without that baseline. Approving
+this design alone must not be silently interpreted as that exception.
+
+After authorized implementation, statically qualify the actual compiled
+descriptor originals against the supported executable and decode the actual
+embedded payloads at their native destinations. Confirm original frames,
+complete lengths, final states, native call locations and continuations;
+static decoding is not a behavioral test. Run available affected-core tests
+through Wine with `--target i686-pc-windows-gnu`, then one release build for
+`psycho-engine-fixes` and `psycho-engine-fixes-helper` using that explicit
+target. Check formatting of changed Rust and `git diff --check`.
+Do not add mirrored native fixtures, source assertions, synthetic engine
+models or configuration-value tests.
+
+The new setting, immutable descriptors and activation call are a concrete
+pre-DeferredInit change. Apply the completely read
+[startup-safety contract](nvse_startup_phase_safety.md): establish the
+accepted artifact/source boundary and review only this batch's complete
+footprint, including config layout and any import/TLS change caused by the
+actual build. Keep the helper thin and dependencies, worker order and shared
+library ownership intact. Static agreement does not supply its required
+representative Proton load-to-gameplay acceptance.
+
+Completion reporting must distinguish implemented/compiled qualification
+from actual native startup, visibility and timing results. The operation
+budget is 32 fewer integer instructions and nine fewer local reads/writes per
+reached new block; do not convert it to an FPS prediction. No deployment,
+packaging, release or commit is part of this planning request.
+
+**Deferred work.** Keep the five rows in the deferred-optimization table
+explicitly unresolved. Plane-loop reduction still needs receiver-specific
+input exclusion and its FP adapter; pass refresh still needs list/eligibility
+and output ownership; full light sorting still needs shared score/input/list
+exclusion; transparent reuse still needs current bound lifetime/coherence and
+numeric state equivalence; compound packing still needs initialized-prefix
+compatibility, current-object lifetime and allocator-order qualification.
+None is a fallback or an additional hook in this batch.
+
+### Implemented candidate: compound/portal vertex setup
+
+The owner approved proceeding with this named plan and explicitly requested
+enabled-by-default configuration after the unreleased, static-only
+implementation boundary was stated. This authorizes the three setup reductions
+without a game-runtime baseline. It does not establish runtime acceptance or
+authorize deployment, packaging, release or a commit.
+
+The core now owns
+[`multibound_vertex_setup.rs`](../psycho-engine-fixes/src/mods/perf/multibound_vertex_setup.rs).
+`performance.multibound_vertex_setup` defaults to true in both the Rust
+configuration and shipped TOML; an explicit value takes precedence. Missing
+keys use the established default path. The existing two AABB setup sites and
+their setting remain independently owned.
+
+| Native owner | Complete patch window | Original continuation |
+|---|---|---|
+| Compound append `0x00C47B50` | `0x00C47BC1`, 35 bytes | `0x00C47BE4` |
+| Portal compound builder `0x00C47D20` | `0x00C47DD6`, 53 bytes | `0x00C47E0B` |
+| Portal plane producer `0x00C33870` | `0x00C3391F`, 53 bytes | `0x00C33954` |
+
+Each embedded replacement implements the full final-state table above with
+seven integer instructions, including a direct jump over unreachable padding.
+It removes 32 executed instructions, nine local reads and nine local writes
+per reached block. This is a deterministic instruction/memory-operation
+budget, not an executable benchmark or FPS prediction. The third site's
+existing cached-record branch still bypasses recomputation. Vertex generation,
+plane generation and subsequent provider calls remain outside the patches.
+No gameplay-time bridge, allocation, lock, telemetry or event work was added.
+
+Installation runs after the existing AABB branch at core activation. It requires
+the pre-CRT boundary and unfinished core initialization. All three exact entry
+frame signatures and all three complete windows are admitted before any write.
+The existing patch API accepts exact replacements without acquiring ownership;
+conflicting bytes reject installation. One independent transaction owns newly
+applied writes, commits only after all three succeed, and attempts reverse
+ownership-aware restoration on failure. Rollback cannot promise recovery from
+memory/protection failure and never overwrites a changed foreign owner. The
+startup caller reports an unavailable group and continues its established
+independent feature installation. Successful patches live until process exit.
+
+**Static qualification.** Executable identity and aligned native entry/loop
+instructions were reconfirmed through the radare2 MCP. The release DLL's actual
+compiled frame and original-block slices match the supported executable; all
+three payload lengths and decoded rel32 destinations match the table. The
+complete compiled installer checks all six descriptors before its first apply
+call, reaches commit only after three successful apply calls, and routes apply
+errors through transaction drop. The unchanged shared patch/transaction source
+supplies exact-byte admission, write revalidation and restoration ownership.
+These are source/binary proofs, not exercised native failure scenarios.
+
+The affected core suite passes through Wine, and the core/helper release build
+passes for `i686-pc-windows-gnu`. Changed Rust formatting and document/diff
+checks pass. No configuration-default tests, mirrored native fixtures or
+synthetic engine behavior tests were added. Native reconfirmation, compiled
+descriptors, payload decoding and complete installer evidence are preserved in
+[implementation evidence](../analysis/radare2/output/fnv_compound_vertex_setup_implementation_contract_20261007.txt).
+
+The new setting, immutable descriptors and activation call change the
+pre-DeferredInit footprint. The helper and shared libraries were not edited.
+The new core/helper artifacts retain the pre-change local artifacts' imports,
+TLS callback identities/template extent, CRT initializer identities and export
+names. Existing configuration fields retain their source order and types; the
+new optional field uses the current parser. This comparison does not map those
+local artifacts to the last accepted gameplay artifact and does not prove
+startup compatibility. At implementation qualification, actual Proton
+load-to-gameplay, visibility, portal traversal, native cached/recomputation
+behavior and timing had not been exercised by the agent. The later
+[owner session evidence](#owner-session-evidence-after-implementation) confirms
+installation and continued activity, not full native equivalence or timing.
+Runtime and release acceptance remain outstanding. The five broader designs
+below remain deferred with their explicit ownership/numeric gaps.
+
+### Deferred ownership: contracts narrowed by the follow-up
+
+The broader designs below still have material gaps. This follow-up closes
+specific provenance and index questions rather than classifying a whole
+subsystem as immutable.
+
+**Plane arguments and publication.** Multibound-node visibility
+`0x00C46F60` passes culler +0x2C to shape slot +0x9C at
+`0x00C4702A` and `0x00C47081`. Compound shape-program dispatch
+`0x00C493A0` instead passes compound +0x30 for its base test, or
+`compound[+0x08] + 100 * record_index` for program tests. Those records
+reach +0x9C or +0xA0 depending on the program operation. The plane input is
+therefore not one universal heap allocation or an assumed camera global.
+
+`0x00C4F070` publishes camera +0x0C before calling `0x00A694A0`
+at `0x00C4F0C1`, then reaches root visibility. `0x00A694A0` copies
+seven camera-frustum DWORDs to culler +0x10, calls `0x00A74E10`
+with output culler +0x2C, and sets its active mask at culler +0x8C to 0x3F.
+The complete `0x00A74E10..0x00A755C6` body writes six plane records
+through separate DWORD stores. This publisher is not an atomic snapshot or
+an ownership barrier.
+
+For compound base planes, `0x00C47980` supplies camera +0xDC and
+camera +0x68 to the same publisher with output compound +0x30, then resets
+compound program/count state and copies camera position to +0x94.
+The admitted native `0x00C33870` paths either copy a cached 100-byte
+record or write plane data and its mask into the supplied output. Compound
+append/construction passes array-backed records to it. Array growth through
+`0x00C4A070` can replace that backing storage. Initial allocation and
+record construction do not exclude later resize or publication.
+
+The remaining AABB ownership question is now receiver-specific: establish
+exclusion from camera/culler reassignment for inline inputs, and from compound
+base publication, portal-record publication and array replacement for the
+compound inputs. The native call sites and producer bodies do not establish
+those objects' complete scheduler ownership or all installed providers.
+Do not retain plane values across the altered loop until that interval is
+proven. The independent full-state setup reductions above retain none.
+
+**Membership roots and eligibility.** `0x00B5D300` takes the scene in
+ECX and a light wrapper as its one stack argument. Its inspected reassignment
+paths invoke geometry/shape virtual methods and call `0x00BA0110` for
+selected objects. It has five discovered direct call instructions across
+four callers: shadow preparation `0x00871290`, movement-gated
+`0x00B5D930`, light addition `0x00B5ECA0` twice, and drain
+`0x00B5FD60`. This replaces an unspecified writer root with actual native
+owners; it does not prove those callbacks or scene receivers are exclusive.
+
+The drain enters synchronization at `0x00B5FD90` with global
+0x011F9EA0 before consuming additions and updates. Its non-shadow addition
+route calls `0x00B5ECA0` at `0x00B5FDBE`; its non-dynamic update route
+calls `0x00B5D300` at `0x00B5FDEF`. By contrast, shadow preparation
+obtains scene zero through `0x00450B80`, whose actual implementation reads
+`0x011F91C8 + 4 * scene_index`, and calls reassignment at
+`0x008718EC`. It can then call `0x00BA0110` at `0x0087190E`
+and finalize at `0x00871916`. One synchronized caller cannot supply a lock
+contract for the separate shadow-preparation caller or the pass iterator.
+
+The actual pass iterator `0x00B70600` checks a WORD at wrapper +0x110,
+the native-light pointer at +0xF8 and its APP_CULLED flag at +0x30, and
+wrapper BYTE +0xEC. The constructor initializes +0x110 with a WORD store
+at `0x00B9FF15`; existing visibility-update evidence supplies a later
+writer. Stable list membership alone is consequently insufficient for
+one-walk equivalence. Close the wrapper/native-light lifetimes and eligibility
+writers as well as the list and output-array intervals. The movement helper's
+different status access must not replace the iterator's actual WORD check.
+
+**Snapshot initialized and consumed indices.** The complete save
+`0x00C49050` and restore `0x00C49100` bodies now define the exact
+index rule. Save allocates four times compound +0x10, writes snapshot word
+zero from compound +0x90, and starts index i at one. It writes word i from
+record `(i-1)` +0x60 only while both signed comparisons admit
+`i < compound[+0x24] + 1` and `i < compound[+0x10]`. Both fields are
+reread inside the loop. Restore writes the base word, applies the same
+current signed bounds to its reads, and then frees the snapshot.
+
+For an admitted stable domain `1 <= Q <= 4` and `0 <= L <= Q-1`,
+where Q is capacity +0x10 and L is record count +0x24, exactly L+1
+snapshot words are initialized. More generally, with stable positive signed
+capacity and nonnegative count whose +1 does not overflow, the initialized
+count is `1 + min(L, Q-1)`. Capacity alone is not initialized-word count.
+For example, Q=4 and L=0 initializes only the base word; Q=4 and L=2
+initializes three words. A packer must never inspect the unused allocation
+tail or turn its unspecified contents into initialized mask values.
+
+The native `0x00C47B50` append guard grows when `L+1 >= Q` before
+adding its record, leaving a spare snapshot slot on its admitted arithmetic
+path. This proves that writer's local bound, not every other writer's invariant.
+An accepted callback may change the current compound or its bounds. A private
+restore can use only indices that were saved and whose native consumption is
+qualified; entry capacity four is not enough. On the isolated original rejected
+predicate route, the previously proven structural purity closes synchronous
+limit/pointer mutation inside that predicate, while external ownership and
+installed-provider contracts remain open. Allocation deferral still needs its
+separate ordering, recovery and FP qualification before any mask mutation.
+
 ### Deferred optimizations: exact research needed
 
 These operations remain in the performance scope, but their implementation
@@ -4428,11 +4830,11 @@ does not qualify the others.
 
 | Deferred operation | Evidence already usable | Research required before its production implementation |
 |---|---|---|
-| Stronger AABB extreme-corner plane loop | Native corner generation completes before `0x00C38866`; using the produced buffer ends shape retention. The bounded numeric domain and terminal corner-7 replay are recorded. | Trace ownership, publication and all writers of the actual plane-buffer argument over the changed plane-read interval. Qualify the exact admission-state adapter and original-frame side-call bridge at `0x00C388E8`, including x87 control/tag/exception and terminal instruction/data addresses. Validate the Cartesian pattern from actual generated corners; do not require assumed immutable basis globals. Account for guard cost. |
-| One-walk dirty-pass refresh | The no-growth branch at `0x00BB4F7A..0x00BB500A`, full-DWORD property count bound N <= 254, byte capacity C >= N+1, iterator ABI and output allocation/retirement routes are known. | Establish current membership/eligibility lifetime and exclusion for the admitted pass interval, and qualify its live nonaliasing output allocation/provider. Follow membership roots `0x00871290` and `0x00B5D300` and their actual receivers/callbacks, rather than the diagnostic `0x00B71450`. Prove slot-0 and output/count publication with the exact adapter. Sharing enumeration across multiple passes additionally requires the longer interval and 1016-byte scratch/stack contract; the narrow branch does not prove it. |
+| Stronger AABB extreme-corner plane loop | Native corner generation completes before `0x00C38866`; using the produced buffer ends shape retention. The bounded numeric domain and terminal corner-7 replay are recorded. Inline culler, compound base and array-backed plane arguments now have concrete publishers. | Close exclusion for the specific inline camera/culler inputs and compound base/portal-record/array inputs over the changed read interval, including installed providers. Qualify the exact admission-state adapter and original-frame side-call bridge at `0x00C388E8`, including x87 control/tag/exception and terminal instruction/data addresses. Validate the Cartesian pattern from actual generated corners; do not require assumed immutable basis globals. Account for guard cost. |
+| One-walk dirty-pass refresh | The no-growth branch at `0x00BB4F7A..0x00BB500A`, full-DWORD property count bound N <= 254, byte capacity C >= N+1, iterator ABI and output allocation/retirement routes are known. Reassignment now has concrete shadow, movement, addition and drain callers; eligibility reads are explicit. | Establish current list/wrapper/native-light lifetime and exclusion for the admitted pass interval, including WORD status, APP_CULLED and shadow-byte writers; qualify live nonaliasing output allocation/provider. Complete receiver/scheduler provenance for the distinct writer routes. Prove slot-0 and output/count publication with the exact adapter. Sharing enumeration across multiple passes additionally requires the longer interval and 1016-byte scratch/stack contract; the narrow branch does not prove it. |
 | Full lighting-property merge-sort upgrade | Actual sorter/scorer ABI, finite pre-write score admission, list/fence rules, native terminal comparison and mutation roots are recorded. | Close exclusion for shared wrapper score +0x0C, current score inputs and list membership over the altered comparison/relink schedule. Trace insertion/removal/marker paths and their scheduler ownership. The node-pool mutex and accumulator +0x200 lock do not supply that exclusion. Then qualify stable ordering, exceptional-domain fallback before mutation, terminal native math state and small-input guard cost. Preserve the existing score-reuse implementation until this is closed. |
 | Transparent merge-head numeric reuse | `0x00B98B20` supplies the exact input reads and x87 order; cached numeric tuples avoid future dereferences through stale bound identities. | Prove current geometry/bound lifetimes and coherent read intervals for both depth modes. Preserve the shared camera acquisition and separate nonzero-mode bound reads. Qualify the exact key adapter, mixed cached/native comparisons, control/exception and diagnostic FP-address state, and stable merge/cleanup boundaries. Inspect guard loads versus saved arithmetic; equal numeric input bits alone do not prove the complete native state contract. |
-| Compound snapshot storage and rejected-object packing | Native `0x00C491A0` predicate structural purity, mask layout, packing windows, native current-pointer restoration and native/Psycho recovery distinction are recorded. | Prove exactly which saved words are initialized and which indices the current culler +0xC0 restoration may consume. For private storage across accepted callbacks, close structural lifetime/replacement and recursion/stack bounds through the actual child/accumulator/shader routes. For rejected-object packing with allocation deferred on acceptance, qualify the actual installed allocator's ordering, cold/recovery/failure and compiled FP contract before mask mutation. Psycho heap identities are opaque; native capacity fields cannot be used for them. Accepted callbacks keep native snapshots until independently qualified. |
+| Compound snapshot storage and rejected-object packing | Native `0x00C491A0` predicate structural purity, mask layout, packing windows, native current-pointer restoration and native/Psycho recovery distinction are recorded. Save/restore index rules and the initialized-prefix formula are now explicit. | Close stable entry metadata and actual current culler +0xC0 restoration/lifetime, including compatibility of consumed indices with the initialized prefix across callbacks. For private storage across accepted callbacks, close structural replacement and recursion/stack bounds through the actual child/accumulator/shader routes. For rejected-object packing with allocation deferred on acceptance, qualify the actual installed allocator's ordering, cold/recovery/failure and compiled FP contract before mask mutation. Psycho heap identities are opaque; native capacity fields cannot be used for them. Accepted callbacks keep native snapshots until independently qualified. |
 
 For these rows, preserve complete raw native bodies/caller evidence and update
 the owning contracts when a named gap closes. Do not infer exclusion from an
@@ -4441,15 +4843,976 @@ If the proposed optimization itself causes a longer ownership interval or
 changes recovery order, redesign that interval before adding a global cache
 or a blocking lock.
 
+### Loop reductions that preserve native read schedules
+
+The [loop continuation evidence](../analysis/radare2/output/fnv_loop_optimization_continuation_20261010.txt)
+closes four additional local reductions across six intervention sites. These
+are new proposals, separate from the implemented vertex-setup feature. They
+optimize compound-mask handling and traversal without retaining scene inputs,
+replacing floating point arithmetic, moving allocator calls or changing child
+dispatch.
+The larger five reuse designs in the table above remain separate.
+
+**Selection rule.** Preserve the native engine-memory read/write sequence and
+the existing call boundaries. Forward values only inside an uninterrupted
+integer block, through registers whose complete outgoing values are proved.
+The removed loads read private locals in the current native frame; no engine
+field is assumed immutable. This avoids adding the worker-exclusion and
+cross-callback lifetime requirements of the broader snapshot proposals.
+Native valid-object, allocation and frame contracts still apply; this is not
+a guard for already-invalid engine pointers or arbitrary middle-block entry.
+These are replacements inside native functions, with no new FFI bridge or
+stack reservation. Save retains its no-argument RET, restore its RET 4,
+sphere/plane its RET 8, and all three program dispatchers their RET 4. Their
+ECX receiver, existing arguments, saved nonvolatile registers and native
+cleanup discipline remain unchanged.
+
+| Owner and intervention | Native work | Qualified prospective work | Saving per reached block |
+|---|---|---|---|
+| Mask save `0x00C49050`, body `0x00C490CD..0x00C490F6` | 14 integer instructions, including six stack reads | 11 instructions, three stack reads; original backedge `0x00C490A5` | Three instructions and three private-local reads |
+| Mask restore `0x00C49100`, body `0x00C4914E..0x00C49177` | 14 integer instructions, including six stack reads | 11 instructions, three stack reads; original backedge `0x00C49126` | Three instructions and three private-local reads |
+| Sphere/plane mask helper `0x00C4A790`, repeated comparison `0x00C4A801..0x00C4A807` | Repeats an equality comparison against private local -0x08 and executes its conditional branch | One direct jump to `0x00C4A807` using the already-established equality | One instruction and one private-local read |
+| Compound program dispatchers `0x00C491A0`, `0x00C493A0` and `0x00C49560`; windows below | Recompute `12 * index` for the second and third live tag reads | Retain the invocation-local offset in EAX or EDX; preserve all three current array/tag reads | Two instructions and one private-local read when reaching the second check; four instructions and two private-local reads when reaching the third |
+
+Range ends are exclusive. The first two windows are exactly 41 bytes; their
+32-byte useful payloads end in a short backward jump, leaving nine unreachable
+NOP bytes. The third window is six bytes: `EB 04 90 90 90 90`; its four NOPs
+are also unreachable. Savings describe these blocks, not their complete loops
+or elapsed time. If save and restore respectively visit Ks and Kr record
+masks, their combined saving is `3 * (Ks + Kr)` instructions and the same
+number of private-local reads. No fixed capacity, unchanged callback count,
+four-slot assumption or FPS prediction is needed for that budget. The restore
+stack-read totals include its unchanged snapshot-pointer argument load.
+The bound dispatch window is 80 bytes, with 68 useful bytes followed by 12
+unreachable NOPs. The shape and portal windows are each 83 bytes, with 71
+useful bytes and the same 12-byte unreachable tail. Their combined saving is
+`2 * (D2 + D3)` instructions and `D2 + D3` private-local reads, where D2 and
+D3 count visits to the second and third tag checks across the three owners.
+These visits need not observe the same live array/tag value.
+
+**Mask-save state proof.** Let i be [EBP-0x0C], T be [EBP-0x24], B be
+[EBP-0x04], R be `T[+0x08] + 100 * (i-1)` with native 32-bit arithmetic,
+and M be `R[+0x60]`. The original body loads i twice, reloads R from
+[EBP-0x1C] and reloads M from [EBP-0x20]. No call or intervening write changes
+those locals. The prospective block loads i once into EAX, calculates R in
+EDX, preserves the store of R to [EBP-0x1C], loads M into EDX, preserves the
+store of M to [EBP-0x20], loads B into ECX and writes M to `B[i]`.
+
+At the backedge both sequences have EAX=i, ECX=B and EDX=M. Both local stores
+and the snapshot store have identical values. The nonprivate accesses remain,
+in order: read T+0x08, read R+0x60, write B[i]. The final flag-writing
+instruction is the same pointer ADD with the same operands; later MOVs and
+JMP do not change flags. Using LEA for i-1 instead of SUB therefore changes
+no outgoing flag. All other registers, ESP/EBP and floating point state are
+untouched. The original increment and both signed limit/capacity comparisons
+remain outside the window and continue to reread native metadata.
+
+**Mask-restore state proof.** Let i be [EBP-0x08], B be the stack argument
+[EBP+0x08], T be [EBP-0x1C], M be B[i], and R be the corresponding current
+record address using the same native arithmetic. The prospective block keeps
+i in EAX, obtains M in ECX and stores it to [EBP-0x18]. It then computes R
+in EAX, stores R to [EBP-0x14] and writes ECX to R+0x60.
+The original and proposed outgoing states are EAX=R, ECX=M, EDX=T, with both
+private locals and the engine mask store preserved. The nonprivate accesses
+remain, in order: read B[i], read T+0x08, write R+0x60. Their pointer ADDs
+have identical operands and flags despite different destination registers.
+ESP/EBP, the other registers and all floating point state remain unchanged.
+The current-pointer selection in the native caller, base-mask restoration,
+increment/bounds loop and final getter/free calls are unchanged.
+
+**Repeated-comparison proof.** The first gate at `0x00C4A7F4` stores the
+side helper's EAX result into [EBP-0x08], compares that local with one, and
+branches from `0x00C4A7FB` to `0x00C4A801` only on equality. There is no
+intervening call or local write. The second identical comparison must therefore
+produce the same flags and cannot take its JNE. A direct jump skips only that
+redundant comparison/branch. On this admitted edge, CF=0, PF=1, AF=0, ZF=1,
+SF=0 and OF=0 before and after; all other state is untouched. The original
+mask load/write and subsequent loop remain in place. The original side call
+at `0x00C4A7EF`, its frame and every FP instruction/address remain unchanged,
+including when a downstream provider returns the equality result.
+No scalar arithmetic admission or side-provider purity claim is needed for
+this integer-only reduction: the original call and its returned state remain
+in place.
+
+**Compound-program state proof.** At `0x00C49277`, the native block loads
+the current index from [EBP-0x1C] and computes its native 32-bit product with
+12 into EAX. The first tag check reads the current array pointer at receiver
++0x18 and compares its record tag with two. If it does not exit, the native
+block reloads that same private index and recomputes the same product before
+reading the current array pointer again and comparing the tag with three.
+After another nonterminal result it stores zero to [EBP-0x1D], repeats the
+same private-index calculation a third time, rereads the current array pointer
+and tag, stores that tag at [EBP-0x60], and dispatches seven/eight/other.
+
+There is no write to [EBP-0x1C], call or EAX modification between the first
+product and the point where the third tag read replaces EAX. Both later
+MOV/IMUL pairs can therefore be removed. The intervening receiver-local loads,
+three live array-pointer reads, three tag reads, and both private stores remain
+in their native order. This does not collapse live tags into one cached switch
+value: a different tag at the second or third read still follows the original
+branch. At either terminal exit, EAX is the original product, ECX is the
+receiver, EDX is the most recently read array pointer, and flags are from the
+same tag comparison. At seven/eight/other exits, EAX is the third live tag,
+ECX/EDX and private stores are identical, and flags come from the same final
+comparison. Removed IMUL flags are overwritten by CMP before any exit.
+All other registers, ESP/EBP and FP state remain unchanged.
+
+The complete native owner supplies one ordinary entry at `0x00C49277`,
+including its backedge from `0x00C4936B`. The replacement's two terminal
+branches still reach `0x00C49370`; its remaining exits are `0x00C492C7`,
+`0x00C492FF` and `0x00C49335`. No side call is moved: predicate calls at
+`0x00C492F5` and `0x00C4932D` retain their addresses, arguments and states.
+The arithmetic proof uses native 32-bit multiplication, including overflow,
+and does not assume a program size, tag range or immutable engine array.
+
+The other two program dispatchers were independently decoded in full and
+qualified against their actual frame/window bytes. Their private index is
+[EBP-0x0C], and the live offset is EDX until the third tag read overwrites
+it. EAX remains the receiver and ECX the most recently read array pointer.
+Each retains both zero/tag stores, all engine reads, all comparison flags,
+the loop backedge and every downstream call at its original address. This
+conclusion comes from those bodies and payloads, not from substituting one
+function's layout for another.
+
+| Dispatcher | Complete window; useful/padded lengths | Receiver local; zero/tag locals | Terminal destination; seven/eight/other destinations | Original backedge; unchanged calls after dispatch |
+|---|---|---|---|---|
+| Bound `0x00C491A0` | `0x00C49277..0x00C492C7`; 68/12 bytes | -0x54; -0x1D/-0x60 | `0x00C49370`; `0x00C492C7` / `0x00C492FF` / `0x00C49335` | `0x00C4936B`; `0x00C492F5`, `0x00C4932D` |
+| Shape `0x00C493A0` | `0x00C4940D..0x00C49460`; 71/12 bytes | -0x28; -0x0D/-0x30 | `0x00C49539`; `0x00C49460` / `0x00C494AB` / `0x00C494FE` | `0x00C49534`; `0x00C494A4`, `0x00C494EF` |
+| Portal `0x00C49560` | `0x00C495C0..0x00C49613`; 71/12 bytes | -0x1C; -0x0D/-0x20 | `0x00C496DD`; `0x00C49613` / `0x00C49666` / `0x00C496A2` | `0x00C496D8`; `0x00C4965C`, `0x00C49690` |
+
+All three compiled prospective windows have five verified outgoing branch
+destinations: two terminal branches plus seven/eight/other. Their call-free
+windows contain no lock, ownership transfer, exception frame change, floating
+point instruction or scene mutation. Predicate callbacks remain entirely
+outside the changed windows, including the shape's virtual providers.
+
+The actual instructions at `0x00C4A7FF` and `0x00C4A7AE` are unreachable
+jumps on the inspected ordinary native routes, not padding. Neither supplies
+an additional native entry into the repeated comparison. Complete bounded
+owner decoding supplies the branch proof; empty MCP xrefs are only supporting
+discovery evidence and do not exclude arbitrary foreign/computed entries.
+
+**Installation contract for later implementation.** Use six exact owned
+patch windows and one independent startup transaction in Psycho. Require the
+established quiescent pre-CRT activation boundary. The nine-byte entry/frame
+signatures below identify `0x00C49050`, `0x00C49100`, `0x00C4A790`,
+`0x00C491A0`, `0x00C493A0` and `0x00C49560`; they are not sufficient
+admission by themselves:
+
+```text
+save:    55 8B EC 83 EC 24 89 4D DC
+restore: 55 8B EC 83 EC 1C 89 4D E4
+helper:  55 8B EC 83 EC 10 89 4D F0
+program: 55 8B EC 83 EC 64 89 4D AC
+shape:   55 8B EC 83 EC 3C 89 4D D8
+portal:  55 8B EC 83 EC 24 89 4D E4
+```
+
+Require the 13-byte predecessor gate at `0x00C4A7F4`:
+`89 45 F8 83 7D F8 01 74 04 EB 22 EB 1E`. The third patch depends on that
+specific incoming equality proof, so checking its six-byte window alone is
+insufficient. Close that admission gap by covering every complete owner body:
+
+| Owner | Complete body, exclusive end | Original body length |
+|---|---|---|
+| Save | `0x00C49050..0x00C490FD` | 173 bytes |
+| Restore | `0x00C49100..0x00C49196` | 150 bytes |
+| Sphere/plane | `0x00C4A790..0x00C4A833` | 163 bytes |
+| Bound program | `0x00C491A0..0x00C49391` | 497 bytes |
+| Shape program | `0x00C493A0..0x00C4955A` | 442 bytes |
+| Portal program | `0x00C49560..0x00C496FE` | 414 bytes |
+
+For each owner, preflight its complete entry-to-window prefix and
+window-end-to-return suffix using two immutable `CodeSignature` descriptors,
+then its window using `OwnedCodePatch::verify()`. The raw evidence retains
+every exact prefix/window/suffix byte partition. This covers the frame,
+predecessor, native local setup, incoming branches, remaining bounds and calls,
+and return without a duplicate full-body array or a new admission framework.
+Only the exact native window or the exact researched replacement is admitted;
+all other owner bytes must remain native. The helper prefix includes its entire
+13-byte predecessor gate. This rejects a changed native owner branch or frame
+even when the patch window alone still matches.
+
+Verify all 12 signatures and six windows before any write, then apply the six
+patches through one independent transaction. Preflight covers 1839 native
+bytes; application retains the existing window revalidation. These fallible
+reads and allocations remain cold startup work; there is no per-call
+capability scan or scene read. Reject conflicting owner bytes and retain the
+existing code. Keep equivalent existing patches unowned and restore only
+acquired writes on failure. Do not hook a vtable,
+replace an allocator, infer a heap layout, change reference counts or add
+per-iteration guards. A provider detouring an entry keeps its own path; foreign
+middle-block contracts are not admitted by the intact native-entry proof.
+
+**Qualification boundary.** The supported executable identity, complete
+native bodies, frames, incoming native edges, all outgoing registers/flags,
+private writes, nonprivate access order, calls and loop bounds are now closed
+for all six sites in these four proposals. The actual separately assembled
+payloads have been decoded at their native destinations, with verified window
+lengths, padding and branch targets. This is prospective binary qualification,
+not a production installer test or a behavioral result. Implementing still
+requires authorization
+for this separate batch and the applicable Psycho acceptance boundary, followed
+by actual compiled-descriptor/installer qualification and affected checks.
+No production file was changed by this research.
+
+There is no remaining native-data, arithmetic, allocator-order or callback
+ownership research prerequisite for this local six-site batch. The complete
+owner-byte admission above is part of that conclusion, not an optional future
+hardening step. Compiling and qualifying the actual production descriptors,
+startup installer and accepted artifact remains implementation work. This
+conclusion does not qualify any of the five broader reuse designs below, and
+it does not identify the consumer responsible for the owner's FPS drop.
+
+### Broader reuse designs: ownership remains a prerequisite
+
+The continuation also follows the concrete writers behind the five open rows.
+It does not establish their mutual exclusion, and it does not treat an
+unobserved race as a reported gameplay defect.
+
+- Property membership reaches marker insertion at `0x00B718C8`/`0x00B718D2`,
+  ordinary insertion at `0x00B715A8`/`0x00B715D6`, and retirement at
+  `0x00B71600`. Complete `0x00B5B260` and `0x00B5B410` brackets call marker
+  insertion, traverse current light candidates and call membership retirement;
+  their direct roots remain `0x00B5C490`, `0x00B5DAC0` and `0x00B5C5C0`.
+  Neither bracket encloses that interval in the node-pool lock. This settles
+  their local locking question, not scheduling of every receiver.
+- Iterator eligibility has independent writers. `0x00B9E970` publishes the
+  WORD at wrapper +0x110 at `0x00B9EF09`, and dirties affected properties at
+  `0x00B9EEA9`. Its callers are shadow preparation `0x0087184A` and scene
+  traversal `0x00B5E915`. `0x00B9DCB0` publishes the shadow BYTE at +0xEC
+  at `0x00B9DD76`; its discovered direct callers are `0x00B5C450`,
+  `0x00B5CBD0` and `0x00B5CD00`. Scene visibility also sets/clears native
+  APP_CULLED at `0x00B5FAB9`/`0x00B5FCDA`; `0x00B5CBD0` clears it at
+  `0x00B5CC57` on its existing-wrapper route. Lock acquisition at
+  `0x00B5CC22` belongs to its new-wrapper route and does not enclose that
+  existing-wrapper write. The pass iterator takes none of those locks.
+- Shared score +0x0C remains written at `0x00B9DCA3`. The sort's copied
+  bound is invocation-local, but wrapper/native-light position, radius, primary
+  scene offsets and membership are not thereby pinned. Neither a finite-key
+  prepass nor a terminal comparator replay excludes a competing writer.
+- Transparent sorting's complete comparator still copies the camera vector
+  once per pair and separately resolves center/radius bounds in nonzero mode.
+  A numeric tuple avoids later use of a stale cached pointer, but reading an
+  equal tuple is not a lifetime/coherence guarantee for the current dereferences.
+  Any key adapter additionally needs its exact x87 store/pop/control/exception
+  and diagnostic-address proof. No such production adapter is represented by
+  the prospective integer patches above.
+- Compound child dispatch still reaches concrete culler-state mutation:
+  `0x00B5F9B0` clears +0xC0 at `0x00B5FB8F`/`0x00B5FC88` and destroys its
+  local compound at `0x00B5FCA0`. `0x00C46F60` restores mode +0x90 at
+  `0x00C47135`; that is not restoration of +0xC0 or backing arrays.
+  These are reachable native behaviors, not proof that they execute inside
+  the owner's particular snapshot bracket. Packed rejection must additionally
+  handle allocation order: native recovery can call engine owners, while
+  Psycho's failed allocation can reclaim owned storage, retry, sleep and finally
+  return null. Moving a fallible allocation after mask mutation cannot obtain
+  success from a header check. The local loop reductions leave that order intact.
+
+For the five broader rows, the exact missing evidence remains the relevant
+receiver's lifetime and scheduler exclusion over its altered read/relink
+interval, or a redesigned intervention that preserves those original intervals.
+The AABB row also needs its plane-input interval; the numeric/control and
+provider/adapter requirements in the earlier table remain explicit. Known
+writers plus a caller list do not prove that interval. Arbitrary installed
+providers cannot inherit the supported executable's purity by resemblance.
+Those designs cannot honestly be marked implementation-ready on this evidence.
+The existing
+[`NativeRange` admission](../psycho-engine-fixes/src/mods/perf/lighting_contract.rs)
+explicitly separates matching code bytes from object lifetime and concurrent
+writer exclusion. Adding more byte ranges does not close these data-ownership
+gaps. The available xNVSE `NiCullingProcess` declaration supplies layout and
+dispatch names, not a scheduler/lifetime contract for the additional compound
+state; it cannot supply the missing proof either.
+
+Receiver-specific provenance also remains necessary for plane publishers.
+The current direct-call map has 17 calls to `0x00A694A0` and six to
+`0x00C47980`; those counts do not identify a common receiver or exclusive
+scheduler. The complete `0x00C4F070` entry assigns camera +0x0C, invokes
+`0x00A694A0` at `0x00C4F0C1`, and may call the accumulator's virtual +0x8C
+with that camera at `0x00C4F168` before root dispatch at `0x00C4F171`.
+It has no enclosing ownership lock. That callback prevents treating the whole
+entry as pure; its position before the root does not itself prove a mutation
+during an AABB predicate. The raw capture preserves both distinctions.
+
+Two publisher receivers now have a more specific contract. In
+`0x00B9C020`, the calls at `0x00B9CAF7` and `0x00B9CB26` both target one
+invocation-local stack culler, rather than fetching a persistent global culler.
+Taking S as ESP after constructor `0x00B9CAD2` returns, the object is S+0x144;
+the camera stores at S+0x150 update its +0x0C before each call. Each argument
+push precedes `LEA ECX,[ESP+0x148]`, resolving to that same object. The
+resulting plane/mask block at S+0x170 is copied as 25 DWORDs into S+0x1D4 and
+S+0x23C at `0x00B9CB0F` and `0x00B9CB3E`. This closes the receiver
+provenance for those two writer sites and separates their private output
+buffers from the unresolved render culler inputs. It does not establish
+ownership or scheduler exclusion for the other 15 publisher contexts.
+
+The four local reductions above have closed native intervention contracts
+without assuming that the five ownership questions have been answered.
+
 The first batch's completion does not mean the Fairfax bottleneck is identified
 or that all five deeper designs are ready. Its concrete deliverable is a
 bounded local reduction whose native intervention contract is already proven;
 the table defines the next research for further reductions.
 
+## Implementation plan: complete remaining optimization set
+
+This plan covers the four newly closed local reductions across six native
+sites and all five broader optimization families. It preserves the existing
+score-reuse, sequential-scan, AABB setup and vertex-setup implementations.
+The owner subsequently approved implementation of the named six-site local
+batch and explicitly requested default-on configuration; its implemented
+contract is recorded below. The five broader packages retain their individual
+research gates. Explicit user values continue to take precedence. Packaging,
+installation and commits are outside this implementation authorization.
+
+The supported executable identity is recorded in
+[Executable identity and evidence interpretation](#executable-identity-and-evidence-interpretation).
+The [six-site contracts](#loop-reductions-that-preserve-native-read-schedules),
+[deferred-contract table](#deferred-optimizations-exact-research-needed) and
+[raw continuation evidence](../analysis/radare2/output/fnv_loop_optimization_continuation_20261010.txt)
+are the implementation inputs. Matching instruction bytes is code admission,
+not proof of object lifetime, exclusion, runtime acceptance or FPS attribution.
+
+### Scope, files and delivery order
+
+Each row is independently owned. A blocked broader design does not block the
+closed local batch, and a successful local batch does not qualify the others.
+The first batch introduces no retained-input interval. The remaining numbered
+packages define independent research and implementation sequences, without
+evidence of their relative frame-time impact. Rows 2 through 6 can proceed
+only after their individual contracts close.
+
+| Order | Work package | Core production owner | Configuration | Current entry condition |
+|---|---|---|---|---|
+| 1 | Mask-save/restore forwarding, redundant sphere/plane comparison and three program-index reductions | Implemented `perf/multibound_loop_bookkeeping.rs` | `performance.multibound_loop_bookkeeping`, default true | Native and compiled code contracts qualified; owner log confirms installation and subsequent session activity; native visibility, failure recovery and timing remain unverified |
+| 2 | One-walk dirty-pass refresh, then shared enumeration across qualified passes | New `perf/lighting_pass_refresh.rs` | New `performance.lighting_pass_refresh`, default true when implemented | List, eligibility, output ownership and exact adapter still unresolved; sharing also needs a longer interval and stack proof |
+| 3 | Full stable lighting-property merge sort | Extend existing `perf/light_property_scores.rs` | Existing `performance.light_property_score_reuse` | Shared score/input/list exclusion and terminal native math state still unresolved |
+| 4 | Stronger AABB plane testing using generated extrema and terminal corner replay | New `perf/multibound_plane_tests.rs` | New `performance.multibound_plane_tests`, default true when implemented | Plane lifetime/exclusion, provider capability and original-frame state adapter still unresolved |
+| 5 | Transparent merge-head numeric reuse | New `perf/transparent_pass_sort.rs` | New `performance.transparent_pass_sort`, default true when implemented | Current operand lifetime/coherence and exact mixed-path x87 adapter still unresolved |
+| 6 | Compound snapshot allocation removal: rejected-object packing and separately qualified accepted-object local storage | New `perf/compound_frustum_culling.rs` | New `performance.compound_frustum_culling`, default true when implemented | Allocation ordering, current restoration target, callback ownership and recursion/storage contracts still unresolved |
+
+These are proposed module and setting names, except the existing score owner
+and setting. Add each new field/module only with its implemented operation;
+do not publish empty settings for gated designs. No helper, Syringe, OMV,
+allocator, third-party mod or shared-library redesign is part of this plan.
+
+### 1. Six-site native loop bookkeeping
+
+**Production changes.** Add one focused module with six immutable
+`OwnedCodePatch` descriptors, 12 immutable `CodeSignature` descriptors and one
+installation entry point. Use the exact supported prefix/window/suffix
+partitions retained in the raw evidence. Do not derive expected bytes from the
+running process or substitute nine-byte frame checks for complete ownership.
+
+| Patch owner | Owned window, exclusive end | Replacement layout | Required native continuation |
+|---|---|---|---|
+| Save `0x00C49050` | `0x00C490CD..0x00C490F6` | 32 useful bytes and nine unreachable NOPs | Backedge `0x00C490A5` |
+| Restore `0x00C49100` | `0x00C4914E..0x00C49177` | 32 useful bytes and nine unreachable NOPs | Backedge `0x00C49126` |
+| Sphere/plane `0x00C4A790` | `0x00C4A801..0x00C4A807` | Two-byte jump and four unreachable NOPs | `0x00C4A807`; predecessor equality gate remains intact |
+| Bound program `0x00C491A0` | `0x00C49277..0x00C492C7` | 68 useful bytes and 12 unreachable NOPs | All five researched exits |
+| Shape program `0x00C493A0` | `0x00C4940D..0x00C49460` | 71 useful bytes and 12 unreachable NOPs | All five researched exits |
+| Portal program `0x00C49560` | `0x00C495C0..0x00C49613` | 71 useful bytes and 12 unreachable NOPs | All five researched exits |
+
+Preflight every complete native entry-to-window prefix, every
+window-end-to-return suffix, and every patch window before the first write.
+The 18 checks cover 1839 distinct native bytes. `OwnedCodePatch::verify()`
+admits its exact original or exact researched replacement; other owner bytes
+must remain native. Application still performs its existing window checks.
+
+Apply all six windows through one independent `ModificationTransaction` at
+the established quiescent pre-CRT boundary. Equivalent existing replacements
+remain unowned. On failure, restore only writes acquired by this transaction
+through the existing best-effort rollback; report any restoration failure
+honestly. Never restore another feature's bytes or overwrite foreign code.
+Reject a changed owner before installation, leaving its installed path intact.
+
+**Native invariants.** Forward only uninterrupted private-frame values. Keep
+every native engine-memory read/write in its original order, all outgoing
+registers and flags, private stores, signed loop bounds, calls, arguments,
+stack positions and return cleanup. The program patches must still make all
+three separate array/tag reads; they do not cache engine tags. The sphere
+patch depends on the complete native predecessor gate, including its single
+incoming equality branch. Allocator calls, child dispatch, x87 work and engine
+data lifetime are unchanged.
+
+**Integration.** Reexport `install_multibound_loop_bookkeeping` from
+`perf/mod.rs`. Call it in `startup.rs` after the existing vertex-setup installer,
+without moving earlier preparation. Add the boolean at the end of the
+existing performance configuration fields and corresponding raw optional
+fields; parse absent values through the established default path. Preserve
+the inert legacy radio field. Add the shipped TOML entry with this comment:
+
+> Reduces repeated bookkeeping when testing visibility through portals.
+
+No DeferredInit event handler, readiness atomic, new bridge, allocation,
+locking, guard scan or logging is needed in the optimized native operation.
+Use the established logger for cold installation/configuration status with
+the stable tag `[MULTIBOUND_LOOPS]`; a recoverable rejection must say that the
+existing code remains active. Document native ABI, admission, ownership and
+rollback limitations in the module.
+
+**Qualification.** Decode the actual compiled descriptor payloads at their
+native addresses and compare every branch/state/access schedule with the
+retained evidence. Check complete signature partitions and transaction
+ownership through the actual production mechanisms where executable offline.
+These checks qualify code and installation contracts, not gameplay behavior.
+No mirrored native loop or config-value assertion is an acceptance test.
+
+The deterministic saving remains three instructions and three private-local
+reads per reached save/restore record block; one instruction and one read per
+reached repeated-comparison gate; and two instructions/one read for each
+reached second or third program tag check. No per-call guard cost is added.
+The acceptance authority and supported build checks in the common section
+below remain necessary before this separate batch is implemented or accepted.
+
+### 2. Dirty-pass refresh: narrow operation before shared enumeration
+
+**First implementation target.** Own only the no-growth branch
+`0x00BB4F7A..0x00BB500A` within `0x00BB4740`. Admit the full DWORD property
+count N only when N <= 254 and the byte capacity C >= N+1. Retain native
+`0x00B70600`/`0x00B70700` filtering, order and null handling. Preserve
+slot zero, current pass mask, output pointers and active count, including count
+one for an empty eligible list. The slot-zero and count publications remain
+at their qualified native boundaries (`0x00BB4FD8` and `0x00BB5007`).
+
+Replace count-then-fill with one actual eligibility walk writing the already
+sufficient output array. Do not retain a scene pointer list across passes in
+this stage. Growth, overflow and the separate shadow/pass branches keep their
+native operation. Qualification must occur before an output write; a later
+failure cannot restart an already-published pass without an exact continuation
+contract. The exact detour/adapter is not yet selected by this branch interval.
+
+**Research deliverable before editing.** Prove receiver-specific scheduler
+exclusion and lifetime for property nodes, wrappers, native lights and the
+output allocation over this one-walk interval. Trace membership roots
+`0x00B5B260`/`0x00B5B410`, insertion `0x00B71560`, marker `0x00B718B0`
+and unlink `0x00B71600`; close the separate eligibility writers of wrapper
+WORD +0x110, wrapper BYTE +0xEC and native APP_CULLED. Their known writer
+routes are listed in [Broader reuse designs](#broader-reuse-designs-ownership-remains-a-prerequisite).
+Qualify the nonaliasing live pass array through the actual allocation/birth/
+retirement routes at `0x00BA8C00`, `0x00BA8EC0` and `0x00BA9520`, including
+installed providers. Produce complete incoming-edge, caller-frame, live-state
+and fallback contracts for the proposed adapter. Pool locks and header checks
+are not substitutes for these results.
+
+**Second implementation target.** After separate longer-interval qualification,
+extend this module to the `0x00BB4F40..0x00BB50AD` refresh loop. Its proposed
+eight-byte entry window is a research input, not an approved detour. Use one
+private 254-pointer/1016-byte array gathered by the native iterators, and reuse
+it only across qualified already-sized passes `0x17F..0x1BA`. Preserve every
+output copy and count publication. A 255th eligible light selects the native
+modulo-count route; there is no truncation. The total property count and
+eligible count are distinct.
+
+End the gathered interval before any growth/free/allocation or unqualified
+provider call. Keep fresh native enumeration after allocation; gather again
+only at a proven resumption point. When earlier passes have already been
+published, resume the current and remaining native passes without replaying
+completed work. Keep branches `0x1BD..0x1C3` and `0x1C4..0x1C7` native until
+their own invalidation contracts close. Prove the complete compiled scratch
+frame, recursion bound, output aliasing and pointer lifetime before sharing.
+
+**Qualification target.** Actual arrays, slot zero, count/capacity, filter order,
+dirty/key behavior and growth/fallback results must match native output. The
+first stage removes one of two eligibility walks for an admitted pass. The
+second gathers once per qualified interval while retaining required output
+writes. Include admission and gather/copy costs; neither stage is O(1) refresh.
+
+### 3. Full lighting-property sort without a second hook layer
+
+**Production design.** Extend `light_property_scores.rs` using its three
+existing caller hooks at `0x00B6823E`, `0x00BB4F0E` and `0x00C06075` and
+their captured providers. Retain the current score-reuse/ordered-prefix
+operation until the replacement's complete admission closes. No new setting,
+engine-wide scorer hook or allocation per property is required.
+
+For the qualified ordinary-key domain, invoke actual scorer `0x00B9DBE0`
+once per node in original node order, using wrapper +0x0C as the native scratch
+output. Admit the sufficient finite-result domain before the first score write,
+not merely finite input bits. Preserve an already ordered list without changing
+links. Otherwise use an allocation-free stable bottom-up merge of existing
+nodes, with checked run-width arithmetic and constant private working state.
+Maintain previous/next links, head/tail/count/fence/dirty state; clear property
++0x38 exactly on the native order-changing condition. Equal keys, including
+signed zero, retain original node identities and order.
+
+**Research deliverable before editing.** Close lifetime and writer exclusion
+for every participating node, wrapper +0x0C, native-light position/radius and
+scene score inputs in all three caller contexts. The concrete marker/insert/
+unlink and transform routes already found require scheduler and receiver
+provenance, not another list-header prewalk. The node-pool and accumulator
++0x200 locks protect different intervals/objects. Qualify finite-domain
+admission, fence semantics, native score stores and the exact terminal native
+comparison replay, including x87 control/tag/sticky/condition state and
+instruction/data addresses. No separately assembled production terminal
+adapter has yet passed this contract.
+
+Fallback to the captured provider must precede score writes and relinking.
+Never discover an unsupported computed key after mutation and restart the
+native sort. Preserve native exceptional-domain behavior through fallback;
+do not impose `total_cmp` ordering or substitute Rust score arithmetic.
+
+**Qualification target.** Actual native node order/identity and every list/cache
+field, score side effect and qualified FP environment must agree for ordered,
+reverse, equal-key and exceptional-domain cases. The conditional worst-case
+comparison/link budget becomes O(n log n), with O(n) ordered-input work and
+one score per node plus at most one qualified terminal replay. Count admission
+cost. Select no small-list threshold without actual executable operation costs.
+
+### 4. Stronger AABB plane operation with independent ownership
+
+**Production design.** Add `multibound_plane_tests.rs`; keep the two existing
+`multibound_frustum.rs` setup patches and their setting independent. The new
+target is the native AABB +0x9C operation `0x00C387F0`, after corner generation
+at `0x00C38866`. Use the generated buffer at [EBP-0x68], preserving the native
+frame and original side-call instruction `0x00C388E8` to `0x0049DA80`.
+An admission helper must return before the call with the original argument
+locations. Do not regenerate corners on fallback.
+
+Validate the actual Cartesian pattern and the native odd-index-only zero-Z
+subset. Apply the recorded sufficient zero/finite-normal coordinate and plane
+domain, absolute values [2^-30, 2^30], control word 0x027F, empty valid x87
+stack without stack fault, and precision exception already sticky after corner
+generation. Select the eligible generated corner maximizing the exact native
+rounded expression by integer ordering. Finish each visited plane with the
+native corner-7 call whenever it differs from the selected corner. Preserve
+plane order, active masks, Boolean result and complete observable FP state.
+Unsupported geometry, arithmetic, state or provider uses the original loop
+on the already-generated buffer.
+
+**Research deliverable before editing.** Close the actual plane-input interval
+for inline culler +0x2C, compound base +0x30 and record/array-backed inputs,
+including their publishers and installed providers. The two private stack
+cullers in `0x00B9C020` settle only those receiver instances. They do not
+settle the other publisher contexts or the render culler. Qualify complete
+incoming edges, live registers/locals, admission-state capture/restore and
+original-frame bridge, including terminal x87 instruction/data addresses.
+Establish actual helper capability and account for per-call admission cost.
+
+The earlier Boolean early-exit proposal remains a separate conditional branch
+of this family. It must satisfy the same omitted-FP-effects and terminal
+corner contract; Boolean equivalence alone does not qualify it. If admitted,
+implement it through this owner rather than adding another layer on the same
+loop. It is not an automatic fallback for unqualified arithmetic or ownership.
+The +0xA0 companion keeps its existing setup optimization; broader plane-loop
+coverage there needs its own complete contract before extension.
+
+**Qualification target.** Actual native visibility and FP results agree for
+all admitted masks, boundary/degenerate/cancellation cases and unsupported
+fallbacks. The extrema design targets one or two native side calls per active
+plane rather than eight, or four in the odd-only branch. Guard cost and domain
+coverage remain unmeasured; the work reduction is not an FPS estimate.
+
+### 5. Transparent sorting with current numeric inputs
+
+**Production design.** Add `transparent_pass_sort.rs` and capture the providers
+of sorter calls `0x00B99A31` and `0x00B99A41` through the established callsite
+abstraction. Preserve the native two-group wrapper, camera/mode publication,
+group order and thiscall/RET-4 sorter ABI, including its cdecl comparator
+argument. Unknown providers retain their complete operation.
+
+Keep the actual native stable merge schedule, links, head/tail and spare
+cleanup `0x00B63E90` before key retention. Hold two numeric key/input tuples
+only for the current merge pair. Replace a tuple when its head advances;
+discard both at the next pair or return. At every comparison, read mode once
+and camera components once for both current operands. Resolve current geometry
+and +0x20 bounds with the native null substitute `0x011F4288`. Nonzero mode
+must retain separate center and radius bound reads.
+
+Compare current mode/camera/center/radius bits with the retained numeric tuple;
+recalculate on any change. Never dereference a previous bound identity to
+validate reuse. Implement exact comparator `0x00B98B20` x87 arithmetic,
+Y/X/Z order, f32 rounding, radius subtraction and the compare/pop tail at
+`0x00B98C3B`. If a pair cannot qualify, discard its reuse state and execute
+the exact native comparator for that pair without restarting the sort.
+
+**Research deliverable before editing.** Prove current node/geometry/bound
+lifetime and coherent current reads for both modes, following the concrete
+transform writer routes. Qualify the actual key adapter and mixed cached/native
+comparisons, x87 control/tag/sticky/condition state and diagnostic FP addresses.
+Retain native cleanup and comparison decisions for exceptional inputs.
+Equal input bits alone do not prove these state or lifetime conditions.
+Inspect actual guard-load/branch costs before accepting the adapter design.
+
+**Qualification target.** Actual stable pass identities, node links, cleanup,
+two-group results and caller FP state agree in both modes, including changed
+inputs and fallback pairs. With unchanged admitted inputs, c comparisons in
+one merge pair need at most c+1 key evaluations rather than 2c. A one-comparison
+pair saves none; changed inputs can require 2c evaluations plus guards. This
+design does not promise one key evaluation per node for the entire sort.
+
+### 6. Compound snapshots: separate rejection from accepted callbacks
+
+**Production design.** Add `compound_frustum_culling.rs` around the native
+save/predicate/child/restore bracket in `0x00C4EE90`, preserving its thiscall,
+one-object-argument, RET-4 void ABI and ordinary/direct/mode routes. Two storage
+designs remain conditional alternatives with separate admission. Neither may
+replay the predicate after mask mutation or replace an allocator's recovery
+semantics by a guessed capacity check.
+
+For packed rejection, initially admit the recorded stable domain
+`1 <= Q <= 4` and `0 <= L <= Q-1`, where Q is signed capacity and L is record
+count. Exactly L+1 snapshot words are initialized. The general stable positive
+nonoverflowing formula is `1 + min(L, Q-1)`; broader count admission needs its
+own qualified bounds. Capacity is not initialized length. Read no unused tail.
+Require the upper 26 bits of each saved mask to be zero before mutation. Four
+six-bit masks plus a two-bit initialized-count-minus-one fit in one DWORD.
+Use the recorded dead native locals [EBP-0x04]/[EBP-0x08]; a temporary helper
+must return before the unchanged predicate call `0x00C4F015`.
+
+A qualified rejected object restores its saved masks without heap allocation
+or child dispatch. An accepted object reconstructs a real native snapshot
+before child +0xD4 dispatch at `0x00C4F021` and retains native restore/free.
+Restoration must resolve the actual current culler +0xC0, rather than restore
+an entry pointer. The recorded windows `0x00C4EFF7..0x00C4F005` and
+`0x00C4F035..0x00C4F047` still need complete incoming-edge and compiled bridge
+qualification; their addresses alone are not installation authority.
+
+**Allocation research gate.** Before moving a fallible allocation past mask
+mutation, prove pre-mutation admission of an infallible route through the actual
+installed getter/allocator for the whole predicate interval, with its cold,
+recovery, failure and FP behavior. Native growth can reach engine recovery
+`0x00866A90`. Psycho's opaque dummy heap identity does not expose native heap
+capacity; reclaim/retry/sleep can still return null. A config enum or non-null
+heap identity proves neither layout nor success. If the installed provider
+cannot supply the required ordering contract, redesign the intervention or
+retain original ordering; do not ship the deferred-allocation path for it.
+
+**Accepted-object local target.** Independently qualify a per-invocation
+16-byte/four-DWORD snapshot through the actual child, accumulator and shader
+callback chain. Save only native initialized words and restore exactly the
+qualified consumed indices of the current culler. Use a separate private
+restore that cannot pass a stack pointer to `0x00C49100`, because that native
+operation frees its argument. Reentrant children must own distinct frames;
+larger or unsupported cases keep complete native snapshots.
+
+This stronger target needs stable capacity/count/backing storage and current
++0xC0 ownership through child callbacks, structural replacement/retirement
+coverage, the complete compiled recursive frame budget and native normal/
+exceptional exit behavior. Mode +0x90 restoration is not restoration of
++0xC0. Rust RAII does not establish native SEH cleanup. Accepted callbacks
+keep original heap snapshots until this separate contract closes.
+
+**Qualification target.** Native child admission and parent/child mask results
+agree for rejection, acceptance, recursive callbacks, partial initialized
+prefixes and original-provider/larger-capacity paths. Packed rejection removes
+one allocation/free pair for admitted rejected objects; accepted reconstruction
+still allocates and adds packing cost. Fully qualified local storage removes
+the pair on its admitted accepted route as well. Count every metadata/mask
+guard and reconstruction operation; neither design is implementation-ready yet.
+
+### Common integration, composition and qualification
+
+**Feature composition.** Use an independent transaction and setting for each
+new owner. Extending the score sorter reuses its existing hooks and setting.
+Never double-hook a call, change a provider already installed at another
+boundary, or rollback a previously installed feature after a new one fails.
+No module-name/version detection or wildcard native-byte admission is planned.
+
+The local batch changes the bound-program `0x00C491A0` and sphere helper
+`0x00C4A790` bodies used by the later compound predicate proof. That later
+admission must explicitly qualify both native bodies and these exact known
+state-preserving replacements; rejecting them silently would lose combined
+coverage. Prepare immutable expectations for the selected qualified variants,
+not a copy of whatever bytes happen to be installed. A later feature that
+actually changes a local batch's owner requires a new composed body contract
+and defined installation order before both can be enabled.
+
+The planned dirty-refresh interval starts after the score hook. The existing
+score caller-1 contract spans `0x00BB4EDA..0x00BB4F13` (57 bytes), ending before
+either proposed refresh interval. Their current code admission therefore has
+no byte overlap; future wider adapters must recheck this boundary. Dirty refresh
+must still preserve the preceding sort and its resulting native order.
+The stronger AABB loop is separate from the existing setup windows at
+`0x00C387FF` and `0x00C3892F`. Qualify the new operation with the exact
+existing setup replacement where its complete-body admission includes it.
+Keep native and combined supported variants explicit; do not relax unknown
+provider admission to make settings appear active.
+
+**Configuration and lifecycle.** Append implemented boolean/raw optional fields
+without reordering established fields or removing compatibility-only storage.
+Use existing absent-value parsing and preserve explicit false values. Default
+new implemented features on. Keep user comments to their purpose, for example
+one eligibility walk, fewer light-order searches, fewer visibility calculations,
+reused transparent-depth calculations or fewer temporary visibility snapshots.
+No runtime-testing, restart or research-status instructions belong in TOML.
+Do not add tests that freeze config values.
+
+`perf/mod.rs` owns module exports and only event forwarding genuinely needed
+by an implemented bridge. `startup.rs` prepares new ownership at the existing
+pre-CRT barrier; bridge readiness may publish through existing DeferredInit
+routing where its proved contract requires it. No executable writes move to
+gameplay/DeferredInit and no dynamic unpatching is planned. Retain established
+startup order, logger ownership and core/helper boundary. Hot paths add no
+routine allocation, blocking lock, file I/O or diagnostics.
+Retain each native update/dirty/visibility gate. Do not add periodic scans or
+assume every candidate executes on every frame in the reported location.
+
+**Acceptance before production edits.** Define the actual shipped behavioral
+boundary for each package and the applicable repository gate. The closed
+six-site contract removes its native research prerequisite; it does not create
+a blanket static-only exception for Psycho. Earlier approval of named
+candidates does not automatically authorize a new batch or waive its behavior
+or startup gate. Where behavior can execute offline, test the actual production
+operation with evidence-backed inputs. A native code mapping can exercise patch
+admission/ownership but is not an engine gameplay or performance oracle.
+Do not substitute a reconstructed loop, mirrored sort, guessed engine fixture,
+source assertion, logs or successful compilation for native acceptance.
+
+If the owner explicitly authorizes a scoped unreleased static candidate, record
+that authority and its scope separately from proof and acceptance. Such an
+authorization does not close any ownership, arithmetic, ABI, provider or
+failure-order gap. Preserve the exact last startup-accepted baseline and review
+only this package's concrete pre-Deferred delta under
+[startup safety](nvse_startup_phase_safety.md). Config layout, new static
+descriptors and hook preparation are part of that delta even without TLS or
+new dependencies. Required Proton startup acceptance remains a separate gate;
+this plan requests no profiling or debug build and reports no new runtime result.
+
+**Implementation checks.** For each independently reviewable package, qualify
+actual compiled patch/bridge bytes, incoming and outgoing control flow, ABI,
+state, fallback and transaction ownership against its closed contracts. Run
+applicable production-path checks and the affected core/helper suites using
+`--target i686-pc-windows-gnu`, then one affected core/helper release build with
+that explicit target. Run formatting and `git diff --check`, and inspect the
+final scoped diff. Do not rebuild unrelated OMV or generate source-presence,
+symbol, mirrored-formula or config-default tests for this work.
+
+Keep the owning sections and raw evidence current as each material contract
+closes. Record deterministic saved work and total added admission/fallback
+cost; use executable benchmarks only where the real production operation can
+run. Static instruction counts do not establish elapsed time or an FPS gain.
+Mark native behavior, startup and performance as unverified until their actual
+boundaries have evidence. No commit, deployment, packaging or release follows
+automatically from planning, compilation or prospective binary qualification.
+
+## Implemented candidate: six-site native loop bookkeeping
+
+The owner approved proceeding with this named implementation plan in the
+static-only research session and explicitly requested enabled-by-default
+configuration for Psycho Engine Fixes. This authorizes the local unreleased
+candidate; it does not supply the five broader designs' missing contracts or
+establish native behavior, startup safety or a performance result.
+
+The core implementation is
+[multibound_loop_bookkeeping.rs](../psycho-engine-fixes/src/mods/perf/multibound_loop_bookkeeping.rs).
+It installs exactly the six windows recorded in the
+[local loop contracts](#loop-reductions-that-preserve-native-read-schedules).
+The new `performance.multibound_loop_bookkeeping` switch defaults to true in
+the core and shipped configuration. Existing files without the key use the
+default; an explicit false is preserved. No config-value test was added.
+
+### Ownership, native behavior and failure containment
+
+Twelve immutable full-owner prefix/suffix signatures plus six exact unmasked
+window descriptors cover all 1839 native owner bytes before installation.
+Frame setup, predecessor gates, branch sources, local setup, remaining calls
+and returns must match the supported executable. Each owned window accepts
+only its original bytes or this exact replacement. The sphere prefix includes
+the full equality gate on which the redundant-comparison removal depends.
+The running process is never used to learn an expected provider body.
+
+All 18 preflights precede application. One independent
+`ModificationTransaction` then applies save, restore, sphere, bound, shape and
+portal windows in that order. Exact existing replacements are unowned. An
+application error drops the uncommitted transaction and attempts restoration
+of acquired writes; failed restoration is reported by the shared logger.
+Rollback remains best-effort and never overwrites a foreign replacement.
+Successful patches have process lifetime and no dynamic unpatching.
+
+Installation requires the existing pre-CRT barrier and unfinished core
+initialization. `startup.rs` calls this group after the existing vertex-setup
+group, without moving earlier work. No DeferredInit admission/event work,
+native data prewalk, reference mutation, TLS owner, new import/API, dependency,
+worker or third-party intervention is introduced. The new config boolean,
+read-only descriptors, cold verification/transaction work and log messages
+are nevertheless a pre-Deferred startup delta. An unaccepted parent artifact
+does not become an accepted startup baseline through compilation.
+
+Installed windows retain the native frames, arguments, return cleanup,
+outgoing registers/flags, private stores, engine-memory access sequence and
+all call sites. Save/restore still reread their signed loop metadata and use
+the same allocator/free order. Each program dispatcher still reads its current
+array and tag separately at all three stages. No input is retained across a
+callback, and no floating point instruction is changed. There is no new
+gameplay-time bridge, capability scan, lock, allocation or diagnostic cost.
+
+Cold status uses `[MULTIBOUND_LOOPS]` through the established logger. Success
+reports six optimized sites; disabled configuration reports that state;
+preflight/application failure reports the stopped installation and its reason.
+These messages describe installation, not a measurement of executed savings.
+
+### Static qualification and limits
+
+The [implementation evidence](../analysis/radare2/output/fnv_loop_bookkeeping_implementation_contract_20261010.txt)
+retains complete radare2 MCP owner-byte reconfirmation, exact compiled
+descriptor slices, native-destination payload decoding and the complete
+compiled installer. The supported executable identity was reverified; all
+prefix/window/suffix partitions match the retained native bodies.
+
+The actual compiled descriptors contain the qualified original and replacement
+bytes, correct native addresses/lengths and no masks. Decoding the compiled
+payloads confirms both backedges, the equality-gate continuation and all five
+exits of each program block: 18 outgoing branches in total. Every NOP tail is
+unreachable. The compiled installer checks all 12 owner signatures and six
+windows before its first application, applies all six before committing and
+drops the transaction on application failure.
+
+The deterministic instruction/read reductions remain those recorded in the
+local contract: three of each per reached save/restore record block, one of
+each per reached repeated-comparison gate, and two instructions/one read per
+reached second or third program tag check. These counts describe redundant
+native work removed, not execution frequency, elapsed time or FPS gain.
+
+The existing supported-target core/helper suites and their 32-bit release build
+passed. Formatting of the affected files and scoped diff checks passed. The
+workspace-wide formatting check reported an unrelated OMV change; that file
+was preserved. No mirrored-loop, synthetic engine, source-presence or
+config-default regression was added.
+
+At implementation qualification this was an unreleased static-qualified
+candidate. Native startup, installation, visibility/mask behavior, failure
+recovery and timing had not been exercised by the agent. Existing
+crate tests and compiled-contract checks do not substitute for those boundaries.
+The five broader packages remain gated by their specific lifetime, exclusion,
+arithmetic, provider, recovery-order and stack contracts. No deployment,
+packaging or release is implied by this qualification.
+
+### Owner session evidence after implementation
+
+The owner's later game log confirms the three vertex-setup sites and all six
+bookkeeping sites installed at `2026-10-10T20:47:42.698Z`. Both existing lighting
+candidates were admitted at DeferredInit at `20:48:07.700Z`. Subsequent engine
+activity is logged through `20:52:03.703Z`. Exact bounded log excerpts are
+preserved with the
+[bookkeeping implementation evidence](../analysis/radare2/output/fnv_loop_bookkeeping_implementation_contract_20261010.txt).
+
+This supplies actual installation and continued-session evidence. No feature
+installation failure or rejection was logged. It does not establish execution
+frequency, full visibility/mask equivalence, fallback recovery, performance or
+the absence of a silent per-operation lighting fallback. No FPS result is
+derived from these messages. The separate streetlight report below remains
+unresolved. The owner subsequently requested a source commit of these
+optimizations and their evidence; that request does not supply missing native
+behavior or authorize packaging or release.
+
+## Streetlight on/off regression audit
+
+The owner reports that streetlights appear on across locations, including both
+the glowing fixture and the illumination cast on the ground. This observation
+does not yet include an affected reference ID, a daytime hour, winning plugin
+records, controller state, or a same-scene comparison with the two lighting
+optimizations disabled. It establishes a symptom to investigate, not attribution
+to Psycho or proof that every observed fixture has a day/night controller.
+
+**Current result:** no regression in the inspected lighting-patch instructions
+has been established. The native on/off consumers, light culling gates, dimmer
+reads and visibility-transition dirtying remain outside the replaced work.
+This is a bounded static finding; it does not establish correct streetlight
+behavior in the owner's running game. No production fix or configuration
+change is justified by the evidence collected so far.
+
+The executable identity above was rechecked before the address-sensitive audit.
+New primary captures and a targeted installed-data extraction are retained in
+[streetlight state evidence](../analysis/radare2/output/fnv_streetlight_state_regression_audit_20261010.txt).
+Existing complete updater and scan captures remain authoritative for the larger
+functions. Tool variable names are not used as stack offsets.
+
+### Actual boundaries inspected
+
+| Boundary | Direct evidence | Result and limit |
+|---|---|---|
+| Property score reuse | Native sorter `0x00B70390`, scorer `0x00B9DBE0`, and the production private sorter | The scorer writes wrapper score `+0x0C`; sorter mutations are list links/head/tail and conditional property key `+0x38`. The optimization does not write a light dimmer, reference enable state, fixture material emission, or time-of-day value. Shared score/input exclusion remains an existing unresolved condition. |
+| Camera sequential scan | Native `0x00B5BE59..0x00B5BE77`, complete camera bytes, four production bridges | Native APP_CULLED testing remains at `0x00B5BE5F`. Native light dimmer `+0xC4` is still read at `0x00B5BEF5`. Neither is replaced with a remembered enabled state. |
+| Shadow sequential scan | Native `0x00B9D2CF..0x00B9D2F9` and production getter bridges | Native shadow classification, APP_CULLED and positive-dimmer gates remain after lookup. The patch changes enumeration, not the branch deciding whether the returned light participates. |
+| Ordinary property-pass eligibility | Complete native iterator `0x00B70600` | Native wrapper visibility WORD `+0x110`, light APP_CULLED and wrapper shadow BYTE `+0xEC` are still inspected. These iterators are admitted but not replaced by the two candidates. |
+| Visibility/fade update | `0x00B5E915` and `0x0087184A` still call `0x00B9E970` | The two lighting candidates do not patch this updater or its callers. Native transition dirtying at `0x00B9EEA9` and publication at `0x00B9EF09..0x00B9EF1C` remain intact. These fields are renderer visibility/fade state, not a universal daytime light switch. |
+| Script time and enable/disable commands | Supported command-table entries and native consumers | `GetCurrentTime` executes at `0x005C0DB0` through `0x0059C8E0` and `0x00867DA0`. `Disable` executes at `0x005C45E0` and hands off through `0x005AA500`; `Enable` executes at `0x005C43D0` through `0x005AA5D0`. No reviewed lighting hook owns these boundaries. Complete descendant propagation and the owner's active controller execution were not established by this audit. |
+
+The adjacent AABB and compound/portal setup reductions replace only dead
+integer pointer initialization. Their retained plane arithmetic and native
+callbacks do not introduce a light-enabled cache. The six-site bookkeeping
+candidate likewise preserves engine accesses and callbacks; the current owner
+log inspected during this streetlight audit, beginning at `20:18:36Z`, contains
+no `[MULTIBOUND_LOOPS]` installation result. Its presence in the worktree was
+not proof of activity in that earlier session. The later session above confirms
+installation, without resolving the streetlight observation.
+
+### Camera temporary storage recheck
+
+A retained cursor must not overwrite a float that remains live. Exact camera
+bytes confirm the existing two-slot design:
+
+- `C+0x64` initially holds an input whose last read precedes the initial bridge.
+  Accepted candidates later overwrite it with normalized vector Z, whose last
+  read is the direction-dot multiplication at `0x00B5BECC`.
+- The first transfer at `0x00B5BE69` saves the cursor into `C+0x30` before
+  vector construction. The second at `0x00B5BED2` restores it only after that
+  vector-Z read. Brightness first overwrites `C+0x30` at `0x00B5BF4F`.
+- APP_CULLED skips both transfers and preserves the cursor in `C+0x64`.
+- The candidate output Z load at `0x00B5C013` is exactly
+  `MOV EDX,[ESP+0x58]`, not a read of the cursor slot `C+0x64`. The raw
+  instruction bytes settle the apparent ambiguity of tool variable labels.
+- Native accumulation does not consume the old cursor; the native fallback
+  overwrites its vector Z before reading it.
+
+This recheck found no live-float overwrite at these bridges. It does not close
+the separately documented scene/node lifetime and concurrent mutation gaps.
+
+### Installed base-data time-of-day policy
+
+The installed physical `Data/FalloutNV.esm` contains the packaged source
+`VStreetLightingScript`. Its validated SCTX field is at file offset
+`0x0038D41D`; the full source is preserved in the evidence file. It disables
+three named Strip starter references when `6 < GetCurrentTime < 20` and
+`LightsOn == 1`. At night, outside the Strip, it enables the three groups
+and updates its local state; inside the Strip it runs a timed flicker sequence.
+The associated trigger starts the quest when it is not already running.
+
+This demonstrates a concrete base-data policy that controls street lighting
+through reference groups and script state. It does not prove that all lamps,
+including Fallout 3/TTW or mod-added fixtures, use this quest. Nor does packaged
+source establish the active compiled script, winning overrides, loaded quest
+state or whether this controller ran in the affected save. The source uses
+strict hour comparisons, so exactly 06:00 and 20:00 are not suitable points for
+an on/off comparison. Its quest delays and flicker sequence also prevent an
+instantaneous screenshot from proving persistent failure.
+
+### Evidence needed to distinguish causes
+
+The existing log reports both candidates admitted at
+`2026-10-10T20:19:00.880Z`. That timestamp is wall-clock time, not the game
+hour. It proves lifecycle admission only: no affected reference, per-invocation
+use, dimmer value, controller execution or visual transition is logged.
+
+The narrow causal comparison is the same save, fixture, daytime hour and
+rendering settings with only `light_property_score_reuse` and
+`scene_light_sequential_scan` changed to `false`. This is an isolation
+experiment, not an optimization removal or a proposed fix. If behavior differs,
+test the two settings separately to identify the implicated candidate. If it
+does not differ, neither candidate is established as the cause; an affected
+reference and its active controller/material records become the next required
+evidence.
+
+For a controller-backed fixture, the behavioral acceptance boundary is that
+its real daytime disable removes both the controlled glow and cast lighting,
+and its nighttime enable restores them in the same workload. Distinguish a
+reference that remains enabled from one that is disabled while stale rendered
+lighting remains visible. The former routes to controller state or reference
+propagation; the latter routes to light retirement, dirtying and current-pass
+refresh. Neither route may be selected from appearance alone.
+
+The repository's behavioral gate still applies to a Psycho regression fix.
+There is no unchanged-game reproduction, controlled candidate comparison or
+proven failing native consumer in the current evidence. Production code,
+defaults and deployed files remain unchanged by this audit.
+
 ## Evidence ledger
 
 | Evidence | Retained content used here | Additional direct binary checks |
 |---|---|---|
+| [Streetlight state audit](../analysis/radare2/output/fnv_streetlight_state_regression_audit_20261010.txt) | Native score/sort, camera cursor liveness, culling/dimmer gates, visibility publication, command-table consumers and installed base street-light source | Same executable identity rechecked; no patch regression or actual daytime transition established; active records, reference/controller state and controlled comparison remain unknown |
 | [Main frame analysis](../analysis/ghidra/output/perf/combat_perf_analysis.txt) | `0x0086E650` and its lighting/rendering call list | `0x0086ED90`, `0x0086EDE8`, and `0x0086EE4E` ordering |
 | [AI thread deep analysis](../analysis/ghidra/output/memory/ai_thread_deep.txt) | `0x0086FF70`, worker body, actor loops | Rendering branch call chain and worker waits |
 | [Combat performance deep analysis](../analysis/ghidra/output/perf/combat_perf_deep_dive.txt) | Worker creation references, stages, and `0x008C7990` | Setup branch, join target, and infinite waits |
@@ -4475,6 +5838,10 @@ the table defines the next research for further reductions.
 | [Ownership continuation evidence](../analysis/radare2/output/fnv_location_ownership_contract_20261007.txt) | Additional transform routes and recursive writers, property mutation/pool-lock scope, actual accumulator construction and registration slots, complete compound predicate and mask helpers, scene admission flag, native ScrapHeap growth/recovery calls, current comparator input reads and native snapshot frame | Same executable identity reverified; 65 focused MCP captures and bounded PE table reads distinguish complete bodies from prefixes and reject misaligned or adjacent-data discoveries; no worker exclusion or runtime-cost claim is inferred |
 | [Remaining-boundary evidence](../analysis/radare2/output/fnv_location_remaining_boundary_contract_20261007.txt) | Complete AABB method/dead-loop and scale-input bodies, original side-call frame, actual RenderPass allocation/retirement, membership caller roots and the diagnostic-function correction; owned allocator source paths are indexed | Same executable identity reverified; 67 native captures plus bounded bytes and separately decoded full-state replacement specify a 64-instruction reduction per admitted AABB call; partial/misaligned discoveries are excluded, and policy qualification remains separate |
 | [AABB setup implementation evidence](../analysis/radare2/output/fnv_aabb_setup_implementation_contract_20261007.txt) | Native entry reconfirmation, compiled frame/block descriptors and replacement payloads, native-destination decoding and complete startup installer | Embedded expectations agree with the supported executable and both seven-instruction payloads reach the documented continuations; static qualification does not establish native installation, startup, visibility or timing |
+| [Compound/portal setup implementation evidence](../analysis/radare2/output/fnv_compound_vertex_setup_implementation_contract_20261007.txt) | Aligned native reconfirmation, actual compiled frame/block descriptors, three payloads decoded at their native destinations and complete installer | Same supported executable; all six checks precede application and all three continuations agree; actual native startup, visibility, failure recovery and timing remain untested |
+| [Deferred ownership follow-up](../analysis/radare2/output/fnv_location_deferred_ownership_followup_20261007.txt) | Actual reassignment roots and scene receiver, distinct synchronized drain and shadow-preparation routes, inline/compound plane publishers, exact snapshot initialized/consumed indices, three redundant four-vertex loops and prospective full-state payloads | Same executable identity reverified after MCP reopening; complete bounded native bodies and corrected terminal extents qualify 32 fewer integer instructions per reached setup block. Misaligned/interior discoveries and clipped output are excluded; proposals have no production installation or runtime attribution |
+| [Loop continuation evidence](../analysis/radare2/output/fnv_loop_optimization_continuation_20261010.txt) | Complete mask save/restore, sphere/plane helper and three compound-program bodies; private-local forwarding, repeated-comparison and repeated-index proposals; exact frames/predecessor gate/windows, prospective payload decoding, eligibility writers and callback-state boundaries | Same supported executable; four local reductions across six native sites qualified without moving engine reads/calls or adding retained inputs; five broader reuse ownership designs remain unproved; no production or native behavioral result |
+| [Loop-bookkeeping implementation evidence](../analysis/radare2/output/fnv_loop_bookkeeping_implementation_contract_20261010.txt) | Full MCP owner-byte reconfirmation, actual compiled signature/patch slices, six native-destination replacement decodes, shared admission methods and complete production installer | Same supported executable; all 1839 owner bytes covered, six compiled unmasked payloads and 18 outgoing branches agree; all 18 preflights precede application and commit follows the six sites; no native behavioral or performance acceptance |
 
 The original ledger's direct checks are summaries of the initial radare2
 session. The native lighting captures preserve the continued audit's raw
