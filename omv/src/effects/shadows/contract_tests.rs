@@ -1929,6 +1929,94 @@ fn point_static_face_cache_follows_physical_light_identity_across_reordering() {
 }
 
 #[test]
+fn point_cube_deferral_retains_physical_epochs_and_rebuilds_before_reveal() {
+    let mut sources = [PointMapSignature::EMPTY; NVR_POINT_LIGHT_COUNT];
+    sources[0] = PointMapSignature {
+        identity: 1,
+        position: [0.0; 3],
+        radius: 128.0,
+        caster_signature: 10,
+    };
+    let mut faces = [[0; 6]; NVR_POINT_LIGHT_COUNT];
+    faces[0] = [1, 2, 3, 4, 5, 6];
+    let mut initial = PointMapCache::default().plan_with_static_faces(
+        PointStaticFaceCache::default(),
+        sources,
+        faces,
+        [0; NVR_POINT_LIGHT_COUNT],
+        1,
+    );
+    initial.tag_static_roots(Some(100));
+    assert!(initial.map_is_valid(0));
+    faces[0][2] += 1;
+    sources[0].caster_signature = 11;
+    let mut deferred = initial.next.plan_with_static_faces(
+        initial.next_static_faces,
+        sources,
+        faces,
+        [8; NVR_POINT_LIGHT_COUNT],
+        1,
+    );
+    deferred.tag_static_roots(Some(101));
+    deferred.defer_unobserved(
+        [false; NVR_POINT_LIGHT_COUNT],
+        initial.next,
+        initial.next_static_faces,
+    );
+    assert_eq!(deferred.render_faces[0], 0);
+    assert!(!deferred.map_is_valid(0));
+    assert!(
+        deferred
+            .next
+            .static_roots_match(deferred.next_static_faces, sources[0], Some(100))
+    );
+    assert!(
+        !deferred
+            .next
+            .static_roots_match(deferred.next_static_faces, sources[0], Some(101))
+    );
+    let visible = deferred.next.plan_with_static_faces(
+        deferred.next_static_faces,
+        sources,
+        faces,
+        [8; NVR_POINT_LIGHT_COUNT],
+        1,
+    );
+    assert_eq!(visible.static_faces[0], 4);
+    assert_eq!(visible.render_faces[0], 12);
+    assert!(visible.map_is_valid(0));
+    sources[0].position[0] += 1.0;
+    let mut moved = visible.next.plan_with_static_faces(
+        visible.next_static_faces,
+        sources,
+        faces,
+        [0; NVR_POINT_LIGHT_COUNT],
+        1,
+    );
+    moved.defer_unobserved(
+        [false; NVR_POINT_LIGHT_COUNT],
+        visible.next,
+        visible.next_static_faces,
+    );
+    assert!(!moved.map_is_valid(0));
+    assert!(
+        !moved
+            .next
+            .static_roots_match(moved.next_static_faces, sources[0], Some(100))
+    );
+    let revealed = moved.next.plan_with_static_faces(
+        moved.next_static_faces,
+        sources,
+        faces,
+        [0; NVR_POINT_LIGHT_COUNT],
+        1,
+    );
+    assert_eq!(revealed.render_faces[0], 0x3f);
+    assert_eq!(revealed.static_faces[0], 0x3f);
+    assert!(revealed.map_is_valid(0));
+}
+
+#[test]
 fn shadow_receivers_reject_native_sky_and_out_of_range_geometry() {
     assert!(shadow_receiver_is_valid(
         0.5,

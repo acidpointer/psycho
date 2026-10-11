@@ -80,6 +80,29 @@ fn compiled_opcodes(bytecode: &[u32]) -> Vec<u16> {
 }
 
 #[test]
+fn shared_actor_conversion_has_one_sample_and_no_derivatives() {
+    let code = crate::shaders::compile_hlsl_source_target(
+        "shared-actor-conversion",
+        super::shaders::ACTOR_REPROJECT_SOURCE,
+        "ps_3_0",
+    )
+    .unwrap();
+    assert_eq!(texture_instruction_count(&code), 1);
+    // Thirteen tokens including declarations: one sample and an affine
+    // depth-moment conversion, paid at publication rather than every sun tap.
+    assert!(
+        instruction_count(&code) <= 13,
+        "actor conversion instructions={}",
+        instruction_count(&code)
+    );
+    assert!(
+        !compiled_opcodes(&code)
+            .iter()
+            .any(|op| matches!(op, 91 | 92))
+    );
+}
+
+#[test]
 fn compositor_has_no_quad_derivatives_or_triangle_diagonal_dependency() {
     // D3DSIO_DSX/D3DSIO_DSY. Derivatives in a two-triangle fullscreen pass
     // can disagree at the shared diagonal and are invalid after receiver

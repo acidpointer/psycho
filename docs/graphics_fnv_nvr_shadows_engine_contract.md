@@ -7416,3 +7416,163 @@ capacity is insufficient. Its mode-three path consumes CPU transforms, allowing
 the duplicate pre-helper c0 upload to be removed; the actual skin/world c0
 upload before the partition draws remains. Ordinary/strip native validation
 and state calls remain live, so setter caching across those calls is excluded.
+
+### Regional shadow work and shared actor generation
+
+The common-prefix owner and native journal remain the boundaries above. The
+performance correction changes which proven work is repeated inside them,
+without changing cascade/cube resolutions, MSAA generation, receiver filters,
+light capacity, presentation cadence, engine depth resolution or source energy.
+The owner's recurring sunlight and crowded-interior slowdown is the game-only
+requirement; its precise CPU/GPU contribution and resulting FPS are unmeasured.
+
+The production source exposes three independent multiplicative costs:
+
+- Static directional root identities previously included every enabled loaded
+  root, even outside the retained map volume. Churn in those roots forced maps
+  to rebuild despite an unchanged admitted caster set.
+- Animated directional casters submitted up to three independent generation
+  and MSAA resolve transactions. The existing preparation cache applied only
+  to actor overlays, leaving equivalent point-map preparation repeated.
+- Each animated point face copied the complete retained static face and cleared
+  the complete reusable depth surface before merging a smaller actor footprint.
+  Selected cubes also updated when no captured consumer could observe them.
+
+Regional directional identities now use the actual retained projection, its
+absolute origin, form profile, sphere planes and minimum caster radius. Missing
+bounds or projections retain full admission. A new identity is paired with the
+projection actually published after a successful rebuild or scroll. Requested
+camera projections cannot describe an atlas quadrant which was retained.
+Entering, leaving or changing an admitted root still invalidates that quadrant.
+
+The fixed transaction preparation table now covers all generation families.
+Native type queries and immutable skin-partition validation reuse one journal
+generation. Material classification additionally requires exact agreement of
+cube/terrain/LOD policy, minimum radius, first-person root and shadow origin.
+Frustum and multibound admission remain live checks. Copied bone blocks retain
+the existing revision, allocation, partition and origin key. Table exhaustion
+uses complete native preparation; native drawing and state validation are not
+memoized. No pose is retained across presentation transactions.
+
+Actor maps share generation only when their complete copied caster membership
+matches, each admitted enclosing bound survives all hardware clip planes, their
+published sun directions match exactly, and the supplier has at least the
+original XY sample density and normalized-depth precision. The affine mapping
+must preserve each projection axis within its construction precision. Unknown
+bounds, clipped casters, mixed retained sun directions or incompatible mappings
+keep independent maps. The bounded supplier chain resolves before submission.
+
+A shared group resolves the original MSAA actor distribution once into a
+separate texture. A one-sample, thirteen-token publication shader converts
+`(depth * coverage, coverage)` into each parent's original depth domain:
+`parent_depth_moment = scale * shared_depth_moment + offset * coverage`.
+Its linearity preserves MSAA coverage and subsequent bilinear filtering. Each
+consumer keeps its original logical texture slot, comparison and depth bias;
+only its UV crop points at the common projection. Conversion is paid once at
+publication, without extra per-ray/per-receiver instructions or samplers.
+Independent near/middle resolves also use separate scratch when available, so
+they cannot overwrite a far slot already published by a shared group. Optional
+shader or scratch allocation failure keeps complete independent generation.
+
+The optional scratch costs 4 MiB with RG16F, or 8 MiB with the established
+RGBA16F fallback. A three-map compatible group reduces geometry submissions,
+generation/depth clears and full MSAA resolves from three to one; it adds three
+single-sample conversion publications. The executable actor GPU graph benchmark
+includes four-sample generation, depth/stencil clears, resolves and publication
+at the production 1024-square RG16F size. Controlled workloads with 1, 32 and
+128 production-shader triangle submissions per map measured approximately
+0.192/0.623/1.937 ms independently versus 0.139/0.342/0.807 ms shared. Those
+fixtures establish this GPU path's benefit on the offline device, not native
+actor workload timing, compatibility frequency or an in-game FPS saving.
+
+Point resources retain the last successfully written actor rectangle per face.
+Current rectangles project enclosing copied actor bounds through the exact
+cube generation matrix, with outward raster guards. The old/current union is
+restored from immutable color depth; only the current rectangle clears reusable
+depth/stencil and admits the original actor/static minimum merge. Departed
+silhouettes therefore restore to world depth. Unknown bounds, eye-plane
+crossings, changed static faces and changed source projections keep complete
+face work. Metadata commits with the existing successful D3D transaction;
+interrupted writes invalidate publication and force complete regeneration.
+At 512 square R32F, a complete face copy writes 1 MiB; a bounded 64 square
+rectangle writes 16 KiB. This is a work budget, not a measured frame-time gain.
+
+The world wrapper captures generation and depth cameras before its native
+call (`fnv_render::begin_shadow_world_context`). Only the exact active render
+epoch and device generation admit conservative sphere/frustum demand pruning.
+Both captured cameras must exclude the entire receiver/medium volume before a
+cube update is deferred. Unknown contexts retain complete work. Logical cube
+ownership remains stable; physical validity and the static root epoch remain
+paired with actual pixels. Deferred invalid maps cannot reach surface or medium
+consumers. Their next visible plan regenerates pending faces before publication,
+including a complete rebuild after a projection change. The atmosphere-only
+directional request also shares the consumer's exterior/daylight/native-color
+source predicate. Explicit surface sunlight settings remain independent.
+
+All new storage is inside the existing post-Deferred boxed pipeline/resource
+owners. Device reset releases it with its owning map family. No configuration
+value, process static, TLS owner, hook, worker or loader-visible wrapper changes.
+The executable and native preparation contracts are the same supported FNV
+1.4.0.525 identity and evidence cited in the preceding journal section.
+
+Offline acceptance executes the production Rust map planner and regional root
+identity functions, GPU rectangle publication, and compiled production actor
+vertex/pixel generation with four-sample coverage plus depth conversion. The
+original full-face copy fails the untouched-texel requirement; regional restore
+passes it. The retained full-inventory identity demonstrates the unrelated-root
+invalidation; regional identity ignores it while admitting arriving/unknown
+roots. GPU conversion preserves partial silhouette coverage and neighboring
+packed-map contents. Sun field, depth-layer and final-composition regressions
+also include the preset's height density/noise and an exponent-clamped range.
+Native gameplay composition, image quality and end-to-end performance remain
+outside this offline qualification.
+
+Two investigated receiver optimizations were rejected by those gates. An 8x8
+FP32 depth-bound/light-mask graph preserved controlled receiver pixels but cost
+about 1.6-2.1 times the existing flat receiver at 1027x515 with twelve lights,
+including reduction, mask generation, transitions and final accumulation.
+Additional squared-distance/backface rejection showed no reliable gain there.
+Neither extra passes nor their resources ship. A height-density recurrence and
+a dedicated varying-medium sun shader changed FP16 pixels beyond the existing
+sun gate at larger render sizes. The original varying/clamped density shader
+and receiver equations remain; no acceptance tolerance or shader ceiling was
+relaxed to ship those candidates. These offline timings do not establish a
+hardware-independent ranking or an FPS prediction for the owner's workload.
+
+### Directional map validity during travel
+
+Directional rebuild reasons are independent requirements, not alternative
+branches. The mandatory work mask includes every changed regional root identity,
+changed split, incomplete-inventory actor footprint, and expired receiver
+coverage sphere. Scene/projection discontinuities still invalidate all four
+maps. Camera translation includes world Z; player height itself is not an
+effect-admission setting.
+
+The previous producer gave root changes precedence over split, actor and
+coverage checks, then gave profile changes precedence over actor and coverage
+checks. With regional root identities, a changed outer root could therefore
+suppress the required near-map rebuild during a simultaneous drop. Even a
+profile change producing an empty split mask skipped coverage validation.
+The scheduler received no mandatory work for those expired maps and could
+publish retained matrices outside the current receiver's coverage. The world
+sun shader rejects out-of-map samples, so a published resource alone does not
+guarantee a usable shadow pattern.
+
+The production CPU classifier now accumulates those reasons before scheduling.
+Mandatory maps take the existing complete-rebuild path, including a light-axis
+translation which exposes no XY scroll strip but has left the retained depth
+volume. Still-valid quality work retains the rotating single-map allowance;
+stationary regional changes do not dirty unrelated maps. No new resource,
+history, allocation, shader instruction, native hook, configuration value or
+startup ownership is needed.
+
+The offline travel regression executes this same classifier, the production
+projection constructor and the production scheduler. The original decision
+fails a vertical drop concurrent with an outer-root change and a coverage
+crossing concurrent with an empty profile mask. The corrected path covers
+positive/negative travel on all axes, near/outer guard crossings, movement
+outside the complete retained volume, regional/profile mask combinations and
+stationary zero/unrelated-work budgets. These boundary cases prove the scheduling
+defect and correction; they are not captured inputs from the owner's reported
+gameplay incident. Its exact frame composition and end-to-end performance
+remain unexecuted under the OMV no-game-runtime exception.

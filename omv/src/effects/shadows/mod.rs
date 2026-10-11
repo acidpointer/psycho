@@ -493,7 +493,11 @@ pub(crate) unsafe fn handle_common_entry(
     // Atmosphere owns an independent need for the directional producer. Keep
     // disabled point branches disabled and leave persisted receiver settings alone.
     let settings = settings.with_atmosphere_request(
-        crate::runtime::effects_enabled() && crate::fnv_world_pipeline::needs_directional_shadows(),
+        crate::runtime::effects_enabled()
+            && crate::fnv_world_pipeline::needs_directional_shadows()
+            && scene.kind == contract::SceneKind::Exterior
+            && crate::backend::native_sky_frame()
+                .is_some_and(super::atmosphere::directional_medium_source_ready),
     );
     let bytecode = shaders::prepared_bytecode();
     match settings

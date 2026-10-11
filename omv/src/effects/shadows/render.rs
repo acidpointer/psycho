@@ -242,8 +242,8 @@ pub(super) struct TraversalScratch {
     render_state: Option<RenderStateSnapshot>,
     // Native submissions mutate buffer/skin caches, not hierarchy or material
     // ownership. These borrowed identities are admitted only by this journal.
-    actor_preparation: Vec<ActorPreparationSlot>,
-    actor_preparation_count: usize,
+    caster_preparation: Vec<CasterPreparationSlot>,
+    caster_preparation_count: usize,
     bone_uploads: Vec<BoneUploadSlot>,
     bone_upload_count: usize,
 }
@@ -283,7 +283,7 @@ impl Default for BoneUploadSlot {
 /// Optional transaction-local memoization. Full storage takes the original
 /// uncached path; it never omits geometry or allocates during submission.
 #[derive(Clone, Copy, Default)]
-struct ActorPreparationSlot {
+struct CasterPreparationSlot {
     generation: u32,
     object: usize,
     geometry: Option<usize>,
@@ -292,7 +292,20 @@ struct ActorPreparationSlot {
     multibound: Option<usize>,
     switch: Option<bool>,
     classification: Option<Option<GeometryClassification>>,
+    classification_policy: Option<ClassificationPolicy>,
     validated_partition: usize,
+}
+
+/// Material admission inputs which differ between retained maps and cubes.
+/// Frustum, face and presentation visibility are evaluated before cache lookup.
+#[derive(Clone, Copy, PartialEq, Eq)]
+struct ClassificationPolicy {
+    cube: bool,
+    land: bool,
+    lod: bool,
+    minimum_radius: u32,
+    first_person_root: usize,
+    origin: [u32; 3],
 }
 
 #[derive(Clone, Copy)]
@@ -339,8 +352,8 @@ impl TraversalScratch {
             skin_lookup_generation: 0,
             declarations: Vec::with_capacity(64),
             render_state: None,
-            actor_preparation: vec![ActorPreparationSlot::default(); SKIN_LOOKUP_CAPACITY],
-            actor_preparation_count: 0,
+            caster_preparation: vec![CasterPreparationSlot::default(); SKIN_LOOKUP_CAPACITY],
+            caster_preparation_count: 0,
             bone_uploads: vec![BoneUploadSlot::default(); SKIN_LOOKUP_CAPACITY],
             bone_upload_count: 0,
         }
@@ -385,7 +398,7 @@ impl TraversalScratch {
         // destruction/reuse cannot alias an old encoding entry.
         self.declarations.clear();
         self.begin_skin_lookup_generation();
-        self.actor_preparation_count = 0;
+        self.caster_preparation_count = 0;
         self.bone_upload_count = 0;
         Ok(())
     }
@@ -440,7 +453,8 @@ impl TraversalScratch {
             // transactions. Pay one bounded reset instead of allowing stale
             // slots to alias the new generation.
             self.skin_lookup.fill(SkinLookupSlot::default());
-            self.actor_preparation.fill(ActorPreparationSlot::default());
+            self.caster_preparation
+                .fill(CasterPreparationSlot::default());
             self.bone_uploads.fill(BoneUploadSlot::default());
             self.skin_lookup_generation = 1;
         }
@@ -455,28 +469,28 @@ impl TraversalScratch {
         hash & (SKIN_LOOKUP_CAPACITY - 1)
     }
 
-    /// Resolve a borrowed actor object only while its native journal is live.
+    /// Resolve a borrowed caster object only while its native journal is live.
     /// Generation invalidation makes retained scalar keys inaccessible after
     /// restore. A half-full fixed table bounds routine probing; overflow uses
     /// native preparation directly with unchanged caster coverage.
-    fn actor_preparation_index(&mut self, object: usize) -> Option<usize> {
+    fn caster_preparation_index(&mut self, object: usize) -> Option<usize> {
         if self.render_state.is_none() || object == 0 {
             return None;
         }
         let start = Self::skin_lookup_start(object);
         for probe in 0..SKIN_LOOKUP_CAPACITY {
             let index = (start + probe) & (SKIN_LOOKUP_CAPACITY - 1);
-            let slot = &mut self.actor_preparation[index];
+            let slot = &mut self.caster_preparation[index];
             if slot.generation != self.skin_lookup_generation {
-                if self.actor_preparation_count >= MAX_SKIN_STATE_SNAPSHOTS {
+                if self.caster_preparation_count >= MAX_SKIN_STATE_SNAPSHOTS {
                     return None;
                 }
-                *slot = ActorPreparationSlot {
+                *slot = CasterPreparationSlot {
                     generation: self.skin_lookup_generation,
                     object,
                     ..Default::default()
                 };
-                self.actor_preparation_count += 1;
+                self.caster_preparation_count += 1;
                 return Some(index);
             }
             if slot.object == object {
@@ -486,13 +500,13 @@ impl TraversalScratch {
         None
     }
 
-    /// Reuse native type queries across actor overlays. The caller holds the
+    /// Reuse native type queries across all needed shadow maps. The caller holds the
     /// serialized scene owner and supplies a live object for this transaction.
-    unsafe fn actor_virtual_cast(&mut self, object: *mut u8, slot: usize) -> *mut u8 {
-        let Some(index) = self.actor_preparation_index(object as usize) else {
+    unsafe fn caster_virtual_cast(&mut self, object: *mut u8, slot: usize) -> *mut u8 {
+        let Some(index) = self.caster_preparation_index(object as usize) else {
             return unsafe { virtual_cast(object, slot) };
         };
-        let entry = &mut self.actor_preparation[index];
+        let entry = &mut self.caster_preparation[index];
         let value = match slot {
             NI_OBJECT_IS_GEOMETRY_SLOT => &mut entry.geometry,
             NI_OBJECT_IS_NODE_SLOT => &mut entry.node,
@@ -511,7 +525,7 @@ impl TraversalScratch {
     /// Classification depends on material/hierarchy ownership, which the
     /// native buffer submissions do not mutate. Shadow-frustum admission is
     /// deliberately repeated before memoization for every cascade/origin.
-    unsafe fn actor_classification(
+    unsafe fn caster_classification(
         &mut self,
         context: DrawContext<'_>,
         geometry: *mut u8,
@@ -519,24 +533,26 @@ impl TraversalScratch {
         if !unsafe { object_bound_within(context, geometry) } {
             return Ok(None);
         }
-        // Only the actor-overlay context has identical material policy on
-        // every cascade. Other traversal families keep their original path.
-        if !context.actor_overlay
-            || context.is_land
-            || context.is_lod
-            || context.minimum_radius != 0.0
-        {
-            return unsafe { classify_geometry(context, geometry) };
-        }
-        let index = self.actor_preparation_index(geometry as usize);
+        let policy = ClassificationPolicy {
+            cube: context.cube_radius.is_some(),
+            land: context.is_land,
+            lod: context.is_lod,
+            minimum_radius: context.minimum_radius.to_bits(),
+            first_person_root: context.first_person_root as usize,
+            origin: context.camera_translation.map(f32::to_bits),
+        };
+        let index = self.caster_preparation_index(geometry as usize);
         if let Some(index) = index {
-            if let Some(value) = self.actor_preparation[index].classification {
+            if self.caster_preparation[index].classification_policy == Some(policy)
+                && let Some(value) = self.caster_preparation[index].classification
+            {
                 return Ok(value);
             }
         }
         let value = unsafe { classify_geometry(context, geometry) }?;
         if let Some(index) = index {
-            self.actor_preparation[index].classification = Some(value);
+            self.caster_preparation[index].classification = Some(value);
+            self.caster_preparation[index].classification_policy = Some(policy);
         }
         Ok(value)
     }
@@ -950,39 +966,24 @@ unsafe fn traverse_root(
         // behind the camera at generation time. Shadow-frustum, light-volume,
         // form, fade, and multibound tests below remain the authoritative
         // bounded admission policy.
-        let geometry = if context.actor_overlay {
-            unsafe { scratch.actor_virtual_cast(object, NI_OBJECT_IS_GEOMETRY_SLOT) }
-        } else {
-            unsafe { virtual_cast(object, NI_OBJECT_IS_GEOMETRY_SLOT) }
-        };
+        let geometry = unsafe { scratch.caster_virtual_cast(object, NI_OBJECT_IS_GEOMETRY_SLOT) };
         if !geometry.is_null() {
             unsafe { draw_geometry(context, geometry, scratch)? };
             continue;
         }
-        let node = if context.actor_overlay {
-            unsafe { scratch.actor_virtual_cast(object, NI_OBJECT_IS_NODE_SLOT) }
-        } else {
-            unsafe { virtual_cast(object, NI_OBJECT_IS_NODE_SLOT) }
-        };
+        let node = unsafe { scratch.caster_virtual_cast(object, NI_OBJECT_IS_NODE_SLOT) };
         if node.is_null() || !unsafe { object_bound_within(context, node) } {
             continue;
         }
-        let fade = if context.actor_overlay {
-            unsafe { scratch.actor_virtual_cast(node, NI_OBJECT_IS_FADE_NODE_SLOT) }
-        } else {
-            unsafe { virtual_cast(node, NI_OBJECT_IS_FADE_NODE_SLOT) }
-        };
+        let fade = unsafe { scratch.caster_virtual_cast(node, NI_OBJECT_IS_FADE_NODE_SLOT) };
         if !fade.is_null()
             && unsafe { read::<f32>(fade, BS_FADE_ALPHA) }.is_finite()
             && unsafe { read::<f32>(fade, BS_FADE_ALPHA) } < 0.75
         {
             continue;
         }
-        let multibound = if context.actor_overlay {
-            unsafe { scratch.actor_virtual_cast(node, NI_OBJECT_IS_MULTIBOUND_NODE_SLOT) }
-        } else {
-            unsafe { virtual_cast(node, NI_OBJECT_IS_MULTIBOUND_NODE_SLOT) }
-        };
+        let multibound =
+            unsafe { scratch.caster_virtual_cast(node, NI_OBJECT_IS_MULTIBOUND_NODE_SLOT) };
         if !multibound.is_null() && !unsafe { multibound_within(context, multibound) } {
             continue;
         }
@@ -998,17 +999,15 @@ unsafe fn traverse_root(
         if data.is_null() {
             continue;
         }
-        let switch = if context.actor_overlay {
-            let index = scratch.actor_preparation_index(node as usize);
-            let cached = index.and_then(|i| scratch.actor_preparation[i].switch);
+        let switch = {
+            let index = scratch.caster_preparation_index(node as usize);
+            let cached = index.and_then(|i| scratch.caster_preparation[i].switch);
             let value =
                 cached.unwrap_or_else(|| unsafe { rtti_is_kind_of(node, NI_SWITCH_NODE_RTTI) });
             if let Some(index) = index {
-                scratch.actor_preparation[index].switch = Some(value);
+                scratch.caster_preparation[index].switch = Some(value);
             }
             value
-        } else {
-            unsafe { rtti_is_kind_of(node, NI_SWITCH_NODE_RTTI) }
         };
         if switch {
             let active = unsafe { read::<i32>(node, NI_SWITCH_ACTIVE_INDEX) };
@@ -1055,7 +1054,8 @@ unsafe fn draw_geometry(
     if !context.subset.admits(skinned) {
         return Ok(());
     }
-    let Some(classification) = (unsafe { scratch.actor_classification(context, geometry) })? else {
+    let Some(classification) = (unsafe { scratch.caster_classification(context, geometry) })?
+    else {
         return Ok(());
     };
     debug_assert_eq!(classification.skinned, skinned);
@@ -1350,12 +1350,9 @@ unsafe fn draw_skinned(
         0
     };
 
-    let preparation = context
-        .actor_overlay
-        .then(|| scratch.actor_preparation_index(geometry as usize))
-        .flatten();
+    let preparation = scratch.caster_preparation_index(geometry as usize);
     let partition_is_validated = preparation.is_some_and(|index| {
-        scratch.actor_preparation[index].validated_partition == partition as usize
+        scratch.caster_preparation[index].validated_partition == partition as usize
     });
     // Native drawing owns buffers and skin calculation state; it does not
     // mutate partition topology inside this serialized journal. Revalidate
@@ -1390,7 +1387,7 @@ unsafe fn draw_skinned(
         }
 
         if let Some(index) = preparation {
-            scratch.actor_preparation[index].validated_partition = partition as usize;
+            scratch.caster_preparation[index].validated_partition = partition as usize;
         }
     }
 
@@ -1466,10 +1463,7 @@ unsafe fn draw_skinned(
             shadow_origin: context.camera_translation.map(f32::to_bits),
             row_count: bones * 3,
         };
-        let upload = context
-            .actor_overlay
-            .then(|| scratch.bone_upload_index(upload_key))
-            .flatten();
+        let upload = scratch.bone_upload_index(upload_key);
         let mut upload_rows = [[0.0f32; 4]; MAX_BONES_PER_PARTITION * 3];
         if let Some(index) = upload.filter(|i| scratch.bone_uploads[*i].ready) {
             upload_rows.copy_from_slice(&scratch.bone_uploads[index].rows);

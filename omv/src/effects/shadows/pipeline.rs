@@ -5,11 +5,17 @@
 //! scene boundary, and state restoration succeeds. The pre-alpha consumer is
 //! nonblocking and accepts the current or immediately preceding presentation.
 //! An exact world context binds the later color/depth receiver, but map
-//! production precedes that context in the native engine transaction.
+//! production can precede that context in the native engine transaction.
 //! Point publications retain transition origins and the last completed sample;
 //! stationary cube maps therefore advance presentation fades at consumer
 //! cadence without allowing that consumer to restart below producer-proven
 //! progress or manufacture producer/D3D work.
+//! Captured consumer cameras may defer invisible cubes without changing slot
+//! ownership; invalid pixels cannot reach either consumer. Animated point
+//! updates restore old/current enclosing regions. Compatible actor cascades
+//! share generation only with equal complete caster sets and adequate density.
+//! Directional validity accumulates independent map invalidations before
+//! cadence selection; streamed roots cannot suppress receiver coverage work.
 
 use core::{cell::Cell, ffi::c_void};
 use std::time::Instant;
@@ -157,6 +163,7 @@ pub(crate) struct WorldContextGuard {
 /// Scalar publication for one sampled point shadow.
 #[derive(Clone, Copy, Debug, Default)]
 struct PublishedPointLight {
+    map_valid: bool,
     identity: usize,
     position: [f32; 3],
     color: [f32; 3],
@@ -489,6 +496,9 @@ impl ShadowPipeline {
                 return None;
             }
             let point = publication.points[index];
+            if !point.map_valid {
+                return None;
+            }
             let relative = std::array::from_fn(|axis| {
                 point.position[axis] - camera.world_transform.translation[axis]
             });
@@ -706,6 +716,13 @@ impl ShadowPipeline {
             self.point_transition_starts = [0; POINT_LIGHT_CAPACITY];
         }
         let same_point_cell = self.point_cell_identity == scene.cell as usize;
+        let demand_cameras = self
+            .active_world_context
+            .filter(|context| {
+                context.render_epoch == identity.render_epoch
+                    && context.device_generation == generation
+            })
+            .map(|context| [context.generation_camera, context.depth_camera]);
         // Branch provisioning above returned only with a live resource owner.
         let resources = self
             .resources
@@ -718,6 +735,7 @@ impl ShadowPipeline {
                 scene,
                 points,
                 directional,
+                demand_cameras,
                 if same_point_cell {
                     self.point_cache
                 } else {
@@ -738,7 +756,6 @@ impl ShadowPipeline {
         // immutable maps for a new epoch is a CPU metadata operation; making
         // it enter D3D was a measurable fixed cost even in an empty room.
         if self.last_dynamic_cascade_mask == 0
-            && !self.point_cache.has_dynamic_casters()
             && let Some(publication) = unsafe {
                 self.try_republish_without_d3d(
                     identity,
@@ -993,6 +1010,7 @@ impl ShadowPipeline {
             self.point_transition_identities[slot] = transition_identity;
             self.point_transition_starts[slot] = transition_start;
             *published = PublishedPointLight {
+                map_valid: point_plan.map_is_valid(slot),
                 identity: point.identity,
                 position: map.position,
                 color: point.color,
@@ -1288,6 +1306,122 @@ fn scene_branch_label(scene: SceneKind) -> &'static str {
     }
 }
 
+/// Density domination includes depth precision as well as both raster axes.
+fn actor_map_is_at_least_as_dense(first: CascadeProjection, second: CascadeProjection) -> bool {
+    (0..3).all(|column| {
+        let norm = |projection: CascadeProjection| {
+            (0..3)
+                .map(|row| {
+                    let value = f64::from(projection.world_to_shadow[row][column]);
+                    value * value
+                })
+                .sum::<f64>()
+        };
+        norm(first) >= norm(second)
+    })
+}
+
+/// Convert parent UV/depth into one compatible shared actor map.
+/// Only identical published sun directions and unclipped equal caster sets
+/// reach this helper. Matrix coefficients include normal float rounding from
+/// cascade construction; reject residuals beyond that construction precision.
+fn actor_map_binding(
+    parent: CascadeProjection,
+    parent_origin: [f32; 3],
+    shared: CascadeProjection,
+    shared_origin: [f32; 3],
+) -> Option<([f32; 4], [f32; 2])> {
+    let source = translate_shadow_matrix(shared.world_to_shadow, parent_origin, shared_origin);
+    let mut scale = [0.0; 3];
+    let mut offset = [0.0; 3];
+    for column in 0..3 {
+        let denominator = (0..3)
+            .map(|row| f64::from(parent.world_to_shadow[row][column]).powi(2))
+            .sum::<f64>();
+        let numerator = (0..3)
+            .map(|row| {
+                f64::from(parent.world_to_shadow[row][column]) * f64::from(source[row][column])
+            })
+            .sum::<f64>();
+        let ratio = numerator / denominator;
+        if !ratio.is_finite() || ratio <= 0.0 {
+            return None;
+        }
+        let maximum = (0..3)
+            .map(|row| f64::from(source[row][column]).abs())
+            .fold(0.0, f64::max);
+        if (0..3).any(|row| {
+            (f64::from(source[row][column])
+                - f64::from(parent.world_to_shadow[row][column]) * ratio)
+                .abs()
+                > maximum * f64::from(f32::EPSILON) * 8.0
+        }) {
+            return None;
+        }
+        scale[column] = ratio as f32;
+        offset[column] = source[3][column] - parent.world_to_shadow[3][column] * scale[column];
+    }
+    let crop = [
+        scale[0],
+        scale[1],
+        (offset[0] + 1.0 - scale[0]) * 0.5,
+        (1.0 - scale[1] - offset[1]) * 0.5,
+    ];
+    let depth = [1.0 / scale[2], -offset[2] / scale[2]];
+    scale.into_iter().all(|value| value > 0.0).then_some(())?;
+    crop.into_iter()
+        .chain(depth)
+        .all(f32::is_finite)
+        .then_some((crop, depth))
+}
+
+/// Conservative demand for both surface and volumetric consumers.
+/// Only captured consumer cameras reach this function. Unknown or overflowing
+/// camera/projection arithmetic retains complete work. Cube radius encloses
+/// the native receiver radius and the medium's complete light volume.
+fn point_volume_is_observable(camera: CameraFrame, point: &native::PointLight) -> bool {
+    let Some(view) = shadow_camera(camera) else {
+        return true;
+    };
+    let relative: [f64; 3] = std::array::from_fn(|axis| {
+        f64::from(point.position[axis]) - f64::from(camera.world_transform.translation[axis])
+    });
+    let radius = f64::from(point.cube_radius.max(point.receiver_radius));
+    if !relative.into_iter().all(f64::is_finite) || !radius.is_finite() || radius <= 0.0 {
+        return true;
+    }
+    let right = view.right.map(f64::from);
+    let up = view.up.map(f64::from);
+    let forward = view.forward.map(f64::from);
+    let planes: [[f64; 3]; 5] = [
+        forward,
+        std::array::from_fn(|axis| right[axis] - f64::from(camera.frustum_left) * forward[axis]),
+        std::array::from_fn(|axis| f64::from(camera.frustum_right) * forward[axis] - right[axis]),
+        std::array::from_fn(|axis| up[axis] - f64::from(camera.frustum_bottom) * forward[axis]),
+        std::array::from_fn(|axis| f64::from(camera.frustum_top) * forward[axis] - up[axis]),
+    ];
+    // Evaluate world-space sphere/plane separation without a perspective
+    // division. A 32-epsilon outward allowance covers the float products,
+    // sums and normalization in either captured consumer reconstruction.
+    let error =
+        (relative.into_iter().map(f64::abs).sum::<f64>() + radius) * f64::from(f32::EPSILON) * 32.0;
+    for plane in planes {
+        let length = plane
+            .into_iter()
+            .map(|value| value * value)
+            .sum::<f64>()
+            .sqrt();
+        let distance = (0..3).map(|axis| relative[axis] * plane[axis]).sum::<f64>();
+        if !length.is_finite() || length <= 0.0 || !distance.is_finite() {
+            return true;
+        }
+        if distance < -(radius + error) * length {
+            return false;
+        }
+    }
+    true
+}
+
 /// Project selected point-light spheres into the current receiver target.
 ///
 /// Selection remains view-invariant for stable cube ownership. This separate
@@ -1311,6 +1445,9 @@ fn point_consumer_plan_for_frame(
         .take(publication.point_count.min(POINT_LIGHT_CAPACITY))
     {
         let light = publication.points[index];
+        if !light.map_valid {
+            continue;
+        }
         let relative: [f32; 3] = std::array::from_fn(|axis| {
             light.position[axis] - camera.world_transform.translation[axis]
         });
@@ -1370,11 +1507,70 @@ fn directional_no_work_state_changed(
             || current_dynamic_mask.is_none_or(|mask| mask != 0))
 }
 
+/// Accumulate independent mandatory invalidations before cadence selection.
+/// `spheres`, `origins` and `suns` describe pixels retained in the atlas;
+/// `requested` and `camera_origin` describe current receiver coverage. Return
+/// mandatory rebuilds and disjoint still-valid quality refreshes. A scene or
+/// frustum discontinuity invalidates the complete family.
+#[allow(clippy::too_many_arguments)]
+fn directional_refresh_work(
+    invalidating_change: bool,
+    root_dirty: CascadeDirty,
+    profile_dirty: Option<CascadeDirty>,
+    static_actor_mask: u8,
+    spheres: [[f32; 4]; CASCADE_COUNT],
+    origins: [[f32; 3]; CASCADE_COUNT],
+    suns: [[f32; 3]; CASCADE_COUNT],
+    requested: [CascadeProjection; CASCADE_COUNT],
+    camera_origin: [f32; 3],
+    sun: [f32; 3],
+) -> (CascadeDirty, CascadeDirty) {
+    if invalidating_change {
+        return (CascadeDirty::all(), CascadeDirty::none());
+    }
+    // Streaming, changed settings, animation cleanup, and camera coverage
+    // invalidate maps independently. Giving any one reason priority hides
+    // expired maps from the scheduler during travel, especially a vertical
+    // drop concurrent with root changes confined to an outer cascade.
+    let mut mandatory_mask = static_actor_mask;
+    for index in 0..CASCADE_COUNT {
+        if root_dirty.contains(index) || profile_dirty.is_some_and(|dirty| dirty.contains(index)) {
+            mandatory_mask |= 1 << index;
+        }
+    }
+    let mut quality_mask = 0_u8;
+    for index in 0..CASCADE_COUNT {
+        let stored = spheres[index];
+        let stored_absolute = std::array::from_fn(|axis| origins[index][axis] + stored[axis]);
+        let current_absolute =
+            std::array::from_fn(|axis| camera_origin[axis] + requested[index].center[axis]);
+        let refresh = retained_cascade_refresh(
+            stored_absolute,
+            stored[3],
+            current_absolute,
+            requested[index].receiver_radius,
+            suns[index],
+            sun,
+            NVR_CASCADE_RESOLUTION,
+        );
+        if refresh.mandatory {
+            mandatory_mask |= 1 << index;
+        } else if refresh.quality {
+            quality_mask |= 1 << index;
+        }
+    }
+    (
+        CascadeDirty::from_mask(mandatory_mask),
+        CascadeDirty::from_mask(quality_mask & !mandatory_mask),
+    )
+}
+
 struct ShadowResources {
     device_identity: usize,
     render_target_count: u32,
     programs: GenerationPrograms,
     far_clear_pixel: PixelShader9,
+    actor_reproject_pixel: Option<PixelShader9>,
     point_pixel_one: PixelShader9,
     point_pixel_six: PixelShader9,
     point_pixel_twelve: PixelShader9,
@@ -1483,6 +1679,9 @@ struct BranchTransition {
 /// Exterior-only map family. It is created on first exterior production so
 /// an interior session never pays for the 4096 atlas or FP16 work surfaces.
 struct DirectionalResources {
+    /// Optional independent resolve for a group of shared actor maps. Never
+    /// aliases a persistent destination sampled by the conversion pass.
+    actor_shared_resolve: Option<(Texture9, Surface9)>,
     atlas: Texture9,
     atlas_surface: Surface9,
     /// Four-sample generation target matching NVR custom-quality coverage.
@@ -1664,7 +1863,23 @@ impl DirectionalResources {
             0,
             true,
         )?;
+        let actor_shared_resolve = (|| {
+            let format = actor_far_surface.desc()?.Format;
+            let texture = device.create_render_target_texture(
+                ACTOR_MAP_RESOLUTION,
+                ACTOR_MAP_RESOLUTION,
+                format,
+            )?;
+            let surface = texture.surface_level(0)?;
+            Ok::<_, libpsycho::os::windows::directx9::Direct3DError>((texture, surface))
+        })()
+        .map_err(|error| {
+            log::warn!("[SHADOWS] Shared actor resolve unavailable; retaining independent actor maps: {error}");
+            error
+        })
+        .ok();
         Ok(Self {
+            actor_shared_resolve,
             atlas,
             atlas_surface,
             directional_generation_surface,
@@ -1684,8 +1899,113 @@ impl DirectionalResources {
     }
 }
 
+/// Conservative raster footprint of current or previously published actors.
+/// Unknown bounds and eye-plane crossings require a complete face restore.
+#[derive(Clone, Copy)]
+enum PointActorRegion {
+    Empty,
+    Rect(ClipmapRect),
+    Full,
+}
+
+impl PointActorRegion {
+    fn union(self, other: Self) -> Self {
+        match (self, other) {
+            (Self::Full, _) | (_, Self::Full) => Self::Full,
+            (Self::Empty, other) | (other, Self::Empty) => other,
+            (Self::Rect(a), Self::Rect(b)) => Self::Rect(ClipmapRect {
+                left: a.left.min(b.left),
+                top: a.top.min(b.top),
+                right: a.right.max(b.right),
+                bottom: a.bottom.max(b.bottom),
+            }),
+        }
+    }
+
+    fn rect(self, resolution: u32) -> Option<RECT> {
+        match self {
+            Self::Empty => None,
+            Self::Rect(rect) => Some(d3d_rect(rect)),
+            Self::Full => Some(RECT {
+                left: 0,
+                top: 0,
+                right: resolution as i32,
+                bottom: resolution as i32,
+            }),
+        }
+    }
+}
+
+/// Project copied enclosing spheres through the exact generation matrix.
+/// A sphere's AABB encloses every descendant; perspective extrema of that
+/// box occur at its corners only while all corners have positive w. Two
+/// texels cover rounding, D3D9 raster-center offset and cube sample selection.
+fn point_actor_region(
+    roots: &[DirectionalRoot],
+    point: &native::PointLight,
+    matrix: [[f32; 4]; 4],
+    origin: [f32; 3],
+    face: usize,
+    resolution: u32,
+) -> PointActorRegion {
+    let mut region = PointActorRegion::Empty;
+    for root in roots
+        .iter()
+        .copied()
+        .filter(|root| root.intersects_point_face(point.position, point.cube_radius, face))
+    {
+        let Some(bound) = root.world_sphere() else {
+            return PointActorRegion::Full;
+        };
+        let mut minimum = [f32::INFINITY; 2];
+        let mut maximum = [f32::NEG_INFINITY; 2];
+        for corner in 0..8 {
+            let position: [f32; 4] = [
+                bound[0] - origin[0] + if corner & 1 == 0 { -bound[3] } else { bound[3] },
+                bound[1] - origin[1] + if corner & 2 == 0 { -bound[3] } else { bound[3] },
+                bound[2] - origin[2] + if corner & 4 == 0 { -bound[3] } else { bound[3] },
+                1.0,
+            ];
+            let projected: [f32; 4] = std::array::from_fn(|column| {
+                (0..4).map(|row| position[row] * matrix[row][column]).sum()
+            });
+            if !projected.into_iter().all(f32::is_finite) || projected[3] <= 0.0 {
+                return PointActorRegion::Full;
+            }
+            let uv = [
+                projected[0] / projected[3] * 0.5 + 0.5,
+                0.5 - projected[1] / projected[3] * 0.5,
+            ];
+            for axis in 0..2 {
+                minimum[axis] = minimum[axis].min(uv[axis]);
+                maximum[axis] = maximum[axis].max(uv[axis]);
+            }
+        }
+        let rect = ClipmapRect {
+            left: (minimum[0] * resolution as f32 - 2.0)
+                .floor()
+                .clamp(0.0, resolution as f32) as u32,
+            top: (minimum[1] * resolution as f32 - 2.0)
+                .floor()
+                .clamp(0.0, resolution as f32) as u32,
+            right: (maximum[0] * resolution as f32 + 2.0)
+                .ceil()
+                .clamp(0.0, resolution as f32) as u32,
+            bottom: (maximum[1] * resolution as f32 + 2.0)
+                .ceil()
+                .clamp(0.0, resolution as f32) as u32,
+        };
+        if rect.left < rect.right && rect.top < rect.bottom {
+            region = region.union(PointActorRegion::Rect(rect));
+        }
+    }
+    region
+}
+
 /// Bounded local-light map family shared by interior and exterior locations.
 struct PointResources {
+    /// Last successfully written animated footprint per physical cube face.
+    actor_regions: [[PointActorRegion; 6]; POINT_LIGHT_CAPACITY],
     /// Published nearest static-or-animated depth sampled by the receiver.
     point_cubes: Vec<CubeTexture9>,
     /// Cached face interfaces for the published cubes in light-major order.
@@ -1734,6 +2054,7 @@ impl PointResources {
             true,
         )?;
         Ok(Self {
+            actor_regions: [[PointActorRegion::Full; 6]; POINT_LIGHT_CAPACITY],
             point_cubes,
             point_surfaces,
             static_cubes,
@@ -1852,6 +2173,13 @@ impl ShadowResources {
                 cube_pixel: device.create_pixel_shader(&bytecode.cube_pixel)?,
             },
             far_clear_pixel: device.create_pixel_shader(&bytecode.far_clear_pixel)?,
+            actor_reproject_pixel: device
+                .create_pixel_shader(&bytecode.actor_reproject_pixel)
+                .map_err(|error| {
+                    log::warn!("[SHADOWS] Actor depth conversion unavailable; retaining independent actor maps: {error}");
+                    error
+                })
+                .ok(),
             point_pixel_one: device.create_pixel_shader(&bytecode.point_accumulation_one)?,
             point_pixel_six: device.create_pixel_shader(&bytecode.point_accumulation_six)?,
             point_pixel_twelve: device.create_pixel_shader(&bytecode.point_accumulation_twelve)?,
@@ -2008,6 +2336,22 @@ impl ShadowResources {
         Ok(transition)
     }
 
+    /// Match invalidation to the exact maps which own the retained pixels.
+    /// Publish a fresh signature only after a rebuild/scroll succeeds, because
+    /// camera-requested projections do not describe skipped atlas quadrants.
+    fn regional_directional_signatures(
+        &self,
+        roots: &[DirectionalRoot],
+    ) -> [DirectionalRootSetSignature; CASCADE_COUNT] {
+        let maps = std::array::from_fn(|index| {
+            let projection = self.cascade_projections[index]?;
+            let minimum =
+                cascade_minimum_caster_radius(index, projection.radius, NVR_CASCADE_RESOLUTION)?;
+            Some((projection, self.cascade_origins[index], minimum))
+        });
+        native::regional_directional_root_set_signatures(roots, maps)
+    }
+
     /// Prepare one borrowed caster snapshot and point-map plan before D3D work.
     ///
     /// Native owners remain live only for this serialized common-shadow call.
@@ -2018,6 +2362,7 @@ impl ShadowResources {
         scene: NativeScene,
         points: native::PointLightSelection,
         directional: bool,
+        demand_cameras: Option<[CameraFrame; 2]>,
         active_cache: PointMapCache,
         active_static_faces: PointStaticFaceCache,
         retained_root_signature: Option<u64>,
@@ -2038,11 +2383,20 @@ impl ShadowResources {
             points: PointMapPlan::empty(),
             static_root_signature: None,
         };
+        let demanded = std::array::from_fn(|source| {
+            points.shadowed().get(source).is_none_or(|point| {
+                demand_cameras.is_none_or(|cameras| {
+                    cameras
+                        .into_iter()
+                        .any(|camera| point_volume_is_observable(camera, point))
+                })
+            })
+        });
         let has_points = points.shadowed().len() != 0;
         prepared.roots_complete = !(directional || has_points)
             || unsafe { native::collect_directional_roots(scene, &mut prepared.roots) };
         prepared.directional_signatures = (directional && prepared.roots_complete)
-            .then(|| native::directional_root_set_signatures(prepared.roots.as_slice()));
+            .then(|| self.regional_directional_signatures(prepared.roots.as_slice()));
         prepared.actor_bounds_complete = !(directional || has_points)
             || (prepared.roots_complete
                 && unsafe {
@@ -2064,6 +2418,7 @@ impl ShadowResources {
                 native::collect_point_actor_face_masks(
                     prepared.actor_bounds.as_slice(),
                     points.shadowed(),
+                    demanded,
                     &mut prepared.actor_face_masks,
                 )
             })
@@ -2085,8 +2440,19 @@ impl ShadowResources {
                 radius: point.cube_radius,
                 caster_signature: 0,
             };
-            let retained = can_reuse_static_signatures
-                .then(|| active_cache.retained_static_signatures(active_static_faces, signature));
+            if !demanded[index] {
+                signature.caster_signature = u64::MAX;
+                current[index] = signature;
+                current_static_faces[index] = [u64::MAX; 6];
+                continue;
+            }
+            let retained = (can_reuse_static_signatures
+                && active_cache.static_roots_match(
+                    active_static_faces,
+                    signature,
+                    current_static_root_signature,
+                ))
+            .then(|| active_cache.retained_static_signatures(active_static_faces, signature));
             let (cube_signature, face_signatures) = retained.flatten().unwrap_or_else(|| {
                 let current = if static_masks_complete {
                     if prepared.static_face_masks.is_empty() && !prepared.roots.is_empty() {
@@ -2152,6 +2518,12 @@ impl ShadowResources {
             dynamic_faces,
             points.shadowed().len(),
         );
+        prepared
+            .points
+            .tag_static_roots(current_static_root_signature);
+        prepared
+            .points
+            .defer_unobserved(demanded, active_cache, active_static_faces);
         prepared.static_masks_complete = static_masks_complete;
         prepared.spatial_complete = spatial_complete;
         prepared.static_root_signature = current_static_root_signature;
@@ -2273,50 +2645,22 @@ impl ShadowResources {
             let root_dirty =
                 directional_root_set_dirty(*last_directional_roots, current_root_signature);
             let invalidating_change = *last_scene != Some(scene.kind) || frustum_changed;
-            let (mandatory_dirty, quality_dirty) = if invalidating_change {
-                (CascadeDirty::all(), CascadeDirty::none())
-            } else if root_dirty != CascadeDirty::none() {
-                (root_dirty, CascadeDirty::none())
-            } else if *last_directional_profile != Some(directional_profile) {
-                (
-                    CascadeDirty::from_mask(cascade_split_change_mask(self.cascade_splits, splits)),
-                    CascadeDirty::none(),
-                )
-            } else {
-                // Near actors follow presentation cadence in their private
-                // overlay. Static maps remain immutable while their guarded
-                // spheres contain the current receiver slices; outer actor
-                // maps and each expired projection rebuild independently.
-                let mut mandatory_mask = caster_work.static_map_mask;
-                let mut quality_mask = 0_u8;
-                for index in 0..CASCADE_COUNT {
-                    let stored = self.cascade_spheres[index];
-                    let stored_absolute: [f32; 3] = std::array::from_fn(|axis| {
-                        self.cascade_origins[index][axis] + stored[axis]
-                    });
-                    let current_absolute: [f32; 3] = std::array::from_fn(|axis| {
-                        camera.world_transform.translation[axis] + projections[index].center[axis]
-                    });
-                    let refresh = retained_cascade_refresh(
-                        stored_absolute,
-                        stored[3],
-                        current_absolute,
-                        projections[index].receiver_radius,
-                        self.cascade_suns[index],
-                        sun,
-                        NVR_CASCADE_RESOLUTION,
-                    );
-                    if refresh.mandatory {
-                        mandatory_mask |= 1 << index;
-                    } else if refresh.quality {
-                        quality_mask |= 1 << index;
-                    }
-                }
-                (
-                    CascadeDirty::from_mask(mandatory_mask),
-                    CascadeDirty::from_mask(quality_mask),
-                )
-            };
+            let profile_dirty =
+                (*last_directional_profile != Some(directional_profile)).then(|| {
+                    CascadeDirty::from_mask(cascade_split_change_mask(self.cascade_splits, splits))
+                });
+            let (mandatory_dirty, quality_dirty) = directional_refresh_work(
+                invalidating_change,
+                root_dirty,
+                profile_dirty,
+                caster_work.static_map_mask,
+                self.cascade_spheres,
+                self.cascade_origins,
+                self.cascade_suns,
+                projections,
+                camera.world_transform.translation,
+                sun,
+            );
             let mut plan =
                 scheduler.plan_refreshes_at_millis(mandatory_dirty, quality_dirty, now_millis);
             // Cell and reference lists are identical for every due cascade.
@@ -2455,9 +2799,9 @@ impl ShadowResources {
                 // near-last ordering deterministic. Every result now leaves
                 // the reusable resolve immediately for its packed persistent
                 // slot, so no later overlay can overwrite a published map.
-                // The far actor texture doubles as the mandatory same-size
-                // MSAA resolve. Publish near/middle first and far last so a
-                // live far result is never overwritten by the scratch role.
+                // Without optional shared scratch, the far texture doubles
+                // as the same-size MSAA resolve. Near/middle first and far
+                // last keep that complete fallback's publication intact.
                 let overlay_work = if world_admission && prepared.actor_bounds_complete {
                     let maps = actor_world_maps(
                         self.cascade_projections,
@@ -2475,7 +2819,9 @@ impl ShadowResources {
                 } else {
                     caster_work.actor_overlay_mask
                 };
-                for index in [1_usize, 0, 2] {
+                let mut actor_projections = [None; 3];
+                let mut actor_crops = [[1.0, 1.0, 0.0, 0.0]; 3];
+                for index in 0..3 {
                     if overlay_work & (1 << index) == 0 {
                         continue;
                     }
@@ -2507,22 +2853,123 @@ impl ShadowResources {
                             (static_projection, [1.0, 1.0, 0.0, 0.0])
                         }
                     };
-                    self.production_stage = ShadowProductionStage::ActorOverlay(index as u8);
-                    unsafe {
-                        self.draw_directional_actor_overlay(
-                            device,
-                            scene,
-                            index,
-                            actor_projection,
-                            self.cascade_origins[index],
-                            if prepared.actor_bounds_complete {
-                                prepared.actor_roots.as_slice()
+                    actor_projections[index] = Some(actor_projection);
+                    actor_crops[index] = actor_crop;
+                }
+                let mut suppliers = [0_usize, 1, 2];
+                let mut map_data = [[1.0, 0.0]; 3];
+                let original_crops = actor_crops;
+                if prepared.actor_bounds_complete
+                    && self.actor_reproject_pixel.is_some()
+                    && self
+                        .directional
+                        .as_ref()
+                        .is_some_and(|directional| directional.actor_shared_resolve.is_some())
+                {
+                    for target in 0..3 {
+                        let Some(target_projection) = actor_projections[target] else {
+                            continue;
+                        };
+                        for supplier in 0..3 {
+                            if supplier == target {
+                                continue;
+                            }
+                            let Some(shared_projection) = actor_projections[supplier] else {
+                                continue;
+                            };
+                            if self.cascade_suns[target].map(f32::to_bits)
+                                != self.cascade_suns[supplier].map(f32::to_bits)
+                                || !actor_map_is_at_least_as_dense(
+                                    shared_projection,
+                                    target_projection,
+                                )
+                                || (actor_map_is_at_least_as_dense(
+                                    target_projection,
+                                    shared_projection,
+                                ) && supplier > target)
+                                || !native::actor_maps_have_same_complete_casters(
+                                    prepared.actor_roots.as_slice(),
+                                    (
+                                        target,
+                                        self.cascade_projections[target]
+                                            .ok_or_else(direct3d_failure)?,
+                                        self.cascade_origins[target],
+                                    ),
+                                    (
+                                        supplier,
+                                        self.cascade_projections[supplier]
+                                            .ok_or_else(direct3d_failure)?,
+                                        self.cascade_origins[supplier],
+                                    ),
+                                )
+                            {
+                                continue;
+                            }
+                            if let Some((crop, depth)) = actor_map_binding(
+                                self.cascade_projections[target].ok_or_else(direct3d_failure)?,
+                                self.cascade_origins[target],
+                                shared_projection,
+                                self.cascade_origins[supplier],
+                            ) {
+                                suppliers[target] = supplier;
+                                actor_crops[target] = crop;
+                                map_data[target] = depth;
+                                break;
+                            }
+                        }
+                    }
+                    // A supplier may itself share a denser map. Resolve the
+                    // bounded three-entry chain before publishing texture IDs.
+                    for target in 0..3 {
+                        let mut supplier = suppliers[target];
+                        for _ in 0..3 {
+                            supplier = suppliers[supplier];
+                        }
+                        if supplier != target && supplier != suppliers[target] {
+                            if let Some((crop, depth)) = actor_map_binding(
+                                self.cascade_projections[target].ok_or_else(direct3d_failure)?,
+                                self.cascade_origins[target],
+                                actor_projections[supplier].ok_or_else(direct3d_failure)?,
+                                self.cascade_origins[supplier],
+                            ) {
+                                suppliers[target] = supplier;
+                                actor_crops[target] = crop;
+                                map_data[target] = depth;
                             } else {
-                                directional_roots.as_slice()
-                            },
-                        )?
+                                suppliers[target] = target;
+                                actor_crops[target] = original_crops[target];
+                                map_data[target] = [1.0, 0.0];
+                            }
+                        }
+                    }
+                }
+                for index in [1_usize, 0, 2] {
+                    let Some(actor_projection) = actor_projections[index] else {
+                        continue;
                     };
-                    self.actor_crops[index] = actor_crop;
+                    if suppliers[index] == index {
+                        self.production_stage = ShadowProductionStage::ActorOverlay(index as u8);
+                        unsafe {
+                            let bindings: [Option<[f32; 2]>; 3] = std::array::from_fn(|target| {
+                                (actor_projections[target].is_some() && suppliers[target] == index)
+                                    .then_some(map_data[target])
+                            });
+                            self.draw_directional_actor_overlay(
+                                device,
+                                scene,
+                                index,
+                                actor_projection,
+                                self.cascade_origins[index],
+                                if prepared.actor_bounds_complete {
+                                    prepared.actor_roots.as_slice()
+                                } else {
+                                    directional_roots.as_slice()
+                                },
+                                (bindings.iter().flatten().count() > 1).then_some(&bindings),
+                            )?
+                        };
+                    }
+                    self.actor_crops[index] = actor_crops[index];
                     actor_overlay_mask |= 1 << index;
                 }
                 Ok(())
@@ -2535,7 +2982,8 @@ impl ShadowResources {
             *last_sun = Some(sun);
             *last_directional_profile = Some(directional_profile);
             *last_dynamic_cascade_mask = dynamic_cascade_mask;
-            *last_directional_roots = current_root_signature;
+            *last_directional_roots = roots_complete
+                .then(|| self.regional_directional_signatures(directional_roots.as_slice()));
             if frustum_changed {
                 // Keep the last materially distinct projection as the
                 // comparison anchor. Updating this on every sub-pixel jitter
@@ -2603,6 +3051,7 @@ impl ShadowResources {
             point_transition_identities[slot] = transition_identity;
             point_transition_starts[slot] = transition_start;
             published_points[slot] = PublishedPointLight {
+                map_valid: plan.map_is_valid(slot),
                 identity: point.identity,
                 position: map.position,
                 color: point.color,
@@ -2840,6 +3289,7 @@ impl ShadowResources {
         projection: CascadeProjection,
         camera_translation: [f32; 3],
         roots: &[DirectionalRoot],
+        shared_bindings: Option<&[Option<[f32; 2]>; 3]>,
     ) -> Direct3DResult<()> {
         let directional = self.directional.as_ref().ok_or_else(direct3d_failure)?;
         device.set_render_target(0, &directional.directional_actor_generation_surface)?;
@@ -2881,15 +3331,67 @@ impl ShadowResources {
                 )?
             };
         }
+        if let Some(bindings) = shared_bindings {
+            let (texture, surface) = directional
+                .actor_shared_resolve
+                .as_ref()
+                .ok_or_else(direct3d_failure)?;
+            crate::render_state::clear_sampler(device, 0)?;
+            device.stretch_rect(
+                &directional.directional_actor_generation_surface,
+                None,
+                surface,
+                None,
+                D3DTEXF_NONE,
+            )?;
+            for (target, conversion) in bindings.iter().copied().enumerate() {
+                let Some([scale, offset]) = conversion else {
+                    continue;
+                };
+                let (destination, x) = if target < 2 {
+                    (
+                        &directional.actor_near_middle_surface,
+                        target as u32 * ACTOR_MAP_RESOLUTION,
+                    )
+                } else {
+                    (&directional.actor_far_surface, 0)
+                };
+                publish_shared_actor_distribution(
+                    device,
+                    self.actor_reproject_pixel
+                        .as_ref()
+                        .ok_or_else(direct3d_failure)?,
+                    texture,
+                    destination,
+                    x,
+                    ACTOR_MAP_RESOLUTION,
+                    [scale, offset],
+                )?;
+            }
+            crate::render_state::clear_sampler(device, 0)?;
+            return Ok(());
+        }
         // Resolve once and copy the complete actor distribution into its
         // persistent packed slot. A full 2048x2048 static/actor merge every
         // frame was substantially more work than selecting the nearer moments
         // only at visible receivers.
         crate::render_state::clear_sampler(device, 0)?;
+        // A shared group can publish the far slot before a later independent
+        // near/middle draw. Keep that far publication out of resolve scratch.
+        // Without the optional scratch, sharing is disabled and the original
+        // near/middle/far order still makes the far surface safe to reuse.
+        let resolve_surface = if cascade < 2 {
+            directional
+                .actor_shared_resolve
+                .as_ref()
+                .map_or(&directional.actor_far_surface, |(_, surface)| surface)
+        } else {
+            &directional.actor_far_surface
+        };
         device.stretch_rect(
             &directional.directional_actor_generation_surface,
             None,
-            &directional.actor_far_surface,
+            resolve_surface,
             None,
             D3DTEXF_NONE,
         )?;
@@ -2913,7 +3415,7 @@ impl ShadowResources {
             _ => return Err(direct3d_failure()),
         };
         device.stretch_rect(
-            &directional.actor_far_surface,
+            resolve_surface,
             None,
             destination,
             destination_rect.as_ref(),
@@ -2996,6 +3498,34 @@ impl ShadowResources {
             let views = point_cube_views(point.relative_position, point.cube_radius)
                 .ok_or_else(direct3d_failure)?;
             for face in 0..6 {
+                if plan.render_faces[index] & (1 << face) == 0 {
+                    continue;
+                }
+                device.set_render_state(D3DRS_SCISSORTESTENABLE, 0)?;
+                let current_region = if plan.dynamic_draw_faces[index] & (1 << face) == 0 {
+                    PointActorRegion::Empty
+                } else if casters.actor_bounds_complete {
+                    point_actor_region(
+                        casters.actor_roots,
+                        point,
+                        views[face].world_to_shadow,
+                        camera.world_transform.translation,
+                        face,
+                        point_resolution,
+                    )
+                } else {
+                    PointActorRegion::Full
+                };
+                let previous_region = self
+                    .points
+                    .as_ref()
+                    .ok_or_else(direct3d_failure)?
+                    .actor_regions[index][face];
+                let restore_region = if plan.static_faces[index] & (1 << face) != 0 {
+                    PointActorRegion::Full
+                } else {
+                    previous_region.union(current_region)
+                };
                 for operation in plan.face_operations(index, face).into_iter().flatten() {
                     match operation {
                         PointFaceOperation::RebuildPublished => {
@@ -3115,7 +3645,14 @@ impl ShadowResources {
                             // clear produces an animated-only map: static
                             // shadows disappear while every producer and
                             // receiver cost remains.
-                            publish_static_point_face(device, &static_surface, &published_surface)?;
+                            if let Some(rect) = restore_region.rect(point_resolution) {
+                                restore_static_point_region(
+                                    device,
+                                    &static_surface,
+                                    &published_surface,
+                                    rect,
+                                )?;
+                            }
                         }
                         PointFaceOperation::MergeAnimated => {
                             crate::graphics_diagnostics::add(
@@ -3134,12 +3671,23 @@ impl ShadowResources {
                             // The reusable D3D depth surface contains only
                             // this actor pass. The pixel shader therefore
                             // merges actor and retained static radial depths.
-                            device.clear_attachments(
+                            let Some(rect) = current_region.rect(point_resolution) else {
+                                continue;
+                            };
+                            device.clear_attachment_rect(
+                                &rect,
                                 D3DCLEAR_ZBUFFER as u32 | D3DCLEAR_STENCIL as u32,
                                 0,
                                 1.0,
                                 0,
                             )?;
+                            device.set_scissor_rect(
+                                rect.left,
+                                rect.top,
+                                rect.right,
+                                rect.bottom,
+                            )?;
+                            device.set_render_state(D3DRS_SCISSORTESTENABLE, 1)?;
                             device.set_cube_texture(1, &point_resources.static_cubes[index])?;
                             set_point_clamp_sampler(device, 1)?;
                             let actor_roots = if casters.actor_bounds_complete {
@@ -3171,6 +3719,11 @@ impl ShadowResources {
                         }
                     }
                 }
+                device.set_render_state(D3DRS_SCISSORTESTENABLE, 0)?;
+                self.points
+                    .as_mut()
+                    .ok_or_else(direct3d_failure)?
+                    .actor_regions[index][face] = current_region;
             }
         }
         Ok(())
@@ -4329,11 +4882,34 @@ fn set_point_clamp_sampler(device: &Device9Ref<'_>, sampler: u32) -> Direct3DRes
     device.set_sampler_state(sampler, D3DSAMP_SRGBTEXTURE, 0)
 }
 
+/// Publish shared coverage in one parent's original normalized depth domain.
+/// Source and destination must be distinct resources. Production owns this
+/// call inside its captured producer state and cleared auxiliary targets.
+fn publish_shared_actor_distribution(
+    device: &Device9Ref<'_>,
+    shader: &PixelShader9,
+    source: &Texture9,
+    destination: &Surface9,
+    x: u32,
+    resolution: u32,
+    conversion: [f32; 2],
+) -> Direct3DResult<()> {
+    bind_fullscreen_state(device)?;
+    device.set_render_target(0, destination)?;
+    set_viewport(device, x, 0, resolution, resolution)?;
+    device.set_texture(0, source)?;
+    set_point_clamp_sampler(device, 0)?;
+    device.set_pixel_shader(shader)?;
+    device.set_pixel_shader_constant_f(0, &[[conversion[0], conversion[1], 0.0, 0.0]])?;
+    draw_quad(device, x, 0, resolution, resolution)
+}
+
 /// Seed one sampled point-cube face from its retained world depth.
 ///
 /// This copy is an observable publication operation, not an optimization
 /// detail: an animated-only clear leaves the expensive producer and consumer
 /// active while removing every static-object shadow from the final image.
+#[cfg(test)]
 fn publish_static_point_face(
     device: &Device9Ref<'_>,
     static_surface: &Surface9,
@@ -4341,6 +4917,22 @@ fn publish_static_point_face(
 ) -> Direct3DResult<()> {
     crate::render_state::clear_sampler(device, 1)?;
     device.stretch_rect(static_surface, None, published_surface, None, D3DTEXF_NONE)
+}
+
+fn restore_static_point_region(
+    device: &Device9Ref<'_>,
+    static_surface: &Surface9,
+    published_surface: &Surface9,
+    region: RECT,
+) -> Direct3DResult<()> {
+    crate::render_state::clear_sampler(device, 1)?;
+    device.stretch_rect(
+        static_surface,
+        Some(&region),
+        published_surface,
+        Some(&region),
+        D3DTEXF_NONE,
+    )
 }
 
 fn cascade_origin(cascade: usize) -> (u32, u32) {
@@ -4378,7 +4970,7 @@ mod tests {
         CUBE_FACES, LocalLightConsumerTargets, PointResources, PublishedPointLight,
         ShadowProductionStage, bind_fullscreen_state, cascade_split_change_mask,
         consumer_selection_spheres, copy_consumer_source, directional_no_work_state_changed,
-        draw_quad, prepare_local_light_accumulation, projection_materially_changed,
+        directional_refresh_work, prepare_local_light_accumulation, projection_materially_changed,
         publish_static_point_face, remember_first_production_failure,
         requested_point_resource_capacity, set_point_clamp_sampler, set_viewport,
         translate_shadow_matrix,
@@ -4386,21 +4978,18 @@ mod tests {
 
     use crate::effects::shadows::{
         contract::{
-            CascadeDirty, LightScissorRect, NVR_CASCADE_RESOLUTION, cascade_sphere_selection,
-            clipmap_texel_delta, practical_cascade_splits,
+            CascadeDirty, CascadeScheduler, LightScissorRect, NVR_CASCADE_RESOLUTION,
+            cascade_sphere_selection, clipmap_texel_delta, practical_cascade_splits,
         },
         math::{ShadowCamera, cascade_projection},
         shaders::CUBE_PIXEL_SOURCE,
     };
     use libpsycho::os::windows::{
         directx9::{
-            D3DCLEAR_TARGET, D3DCUBEMAP_FACE_NEGATIVE_X, D3DCUBEMAP_FACE_NEGATIVE_Y,
-            D3DCUBEMAP_FACE_NEGATIVE_Z, D3DCUBEMAP_FACE_POSITIVE_X, D3DCUBEMAP_FACE_POSITIVE_Y,
-            D3DCUBEMAP_FACE_POSITIVE_Z, D3DCULL_NONE, D3DDEVTYPE_HAL, D3DDEVTYPE_NULLREF,
-            D3DFMT_R32F, D3DFVF_XYZ, D3DPT_TRIANGLELIST, D3DRS_ALPHABLENDENABLE,
-            D3DRS_COLORWRITEENABLE, D3DRS_CULLMODE, D3DRS_SCISSORTESTENABLE, D3DRS_ZENABLE,
-            D3DRS_ZWRITEENABLE, Device9, Device9Ref, RECT, ShadowConsumerState9,
-            ShadowProducerState9, Surface9, create_direct3d9,
+            D3DCLEAR_TARGET, D3DCULL_NONE, D3DDEVTYPE_HAL, D3DDEVTYPE_NULLREF, D3DFMT_R32F,
+            D3DFVF_XYZ, D3DPT_TRIANGLELIST, D3DRS_ALPHABLENDENABLE, D3DRS_COLORWRITEENABLE,
+            D3DRS_CULLMODE, D3DRS_ZENABLE, D3DRS_ZWRITEENABLE, Device9, Device9Ref, RECT,
+            ShadowConsumerState9, ShadowProducerState9, Surface9, create_direct3d9,
         },
         winapi::{get_active_window, get_desktop_window, get_foreground_window},
     };
@@ -4511,6 +5100,416 @@ mod tests {
             .copy_render_target_data(surface, &staging)
             .expect("render-target readback");
         staging.read_r32f().expect("R32F pixels")
+    }
+
+    #[test]
+    fn shared_actor_conversion_preserves_actual_multisample_generation() {
+        use super::super::shaders::{
+            ACTOR_REPROJECT_SOURCE, DIRECTIONAL_PIXEL_SOURCE, DIRECTIONAL_VERTEX_SOURCE,
+        };
+        use libpsycho::os::windows::directx9::{D3DFMT_A16B16G16R16F, D3DMULTISAMPLE_4_SAMPLES};
+        let owner = raster_test_device();
+        let device = owner.as_ref();
+        let vertex_code = crate::shaders::compile_hlsl_source_target(
+            "actor-reference.vs",
+            DIRECTIONAL_VERTEX_SOURCE,
+            "vs_3_0",
+        )
+        .unwrap();
+        let pixel_code = crate::shaders::compile_hlsl_source_target(
+            "actor-reference.ps",
+            DIRECTIONAL_PIXEL_SOURCE,
+            "ps_3_0",
+        )
+        .unwrap();
+        let convert_code = crate::shaders::compile_hlsl_source_target(
+            "actor-convert.ps",
+            ACTOR_REPROJECT_SOURCE,
+            "ps_3_0",
+        )
+        .unwrap();
+        let vertex = device.create_vertex_shader(&vertex_code).unwrap();
+        let pixel = device.create_pixel_shader(&pixel_code).unwrap();
+        let convert = device.create_pixel_shader(&convert_code).unwrap();
+        let generation = device
+            .create_render_target_surface(
+                32,
+                32,
+                D3DFMT_A16B16G16R16F,
+                D3DMULTISAMPLE_4_SAMPLES,
+                0,
+                false,
+            )
+            .unwrap();
+        let baseline = device
+            .create_render_target_texture(32, 32, D3DFMT_A16B16G16R16F)
+            .unwrap();
+        let shared = device
+            .create_render_target_texture(32, 32, D3DFMT_A16B16G16R16F)
+            .unwrap();
+        let published = device
+            .create_render_target_texture(64, 32, D3DFMT_A16B16G16R16F)
+            .unwrap();
+        let read = |surface: &Surface9| {
+            let desc = surface.desc().unwrap();
+            let staging = device
+                .create_system_memory_surface(desc.Width, desc.Height, desc.Format)
+                .unwrap();
+            device.copy_render_target_data(surface, &staging).unwrap();
+            staging.read_rgba16f().unwrap()
+        };
+        for depth in [0.02, 0.2, 0.7, 0.95] {
+            device.begin_scene().unwrap();
+            for (path, target) in [&baseline, &shared].into_iter().enumerate() {
+                bind_fullscreen_state(&device).unwrap();
+                device.set_render_target(0, &generation).unwrap();
+                set_viewport(&device, 0, 0, 32, 32).unwrap();
+                device
+                    .clear_attachments(D3DCLEAR_TARGET as u32, 0, 1.0, 0)
+                    .unwrap();
+                device.set_fvf(D3DFVF_XYZ).unwrap();
+                device.set_vertex_shader(&vertex).unwrap();
+                device.set_pixel_shader(&pixel).unwrap();
+                let identity = [
+                    [1.0, 0.0, 0.0, 0.0],
+                    [0.0, 1.0, 0.0, 0.0],
+                    [0.0, 0.0, 1.0, 0.0],
+                    [0.0, 0.0, 0.0, 1.0],
+                ];
+                let mut projection = identity;
+                if path == 1 {
+                    projection[2][2] = 0.5;
+                    projection[3][2] = 0.1;
+                }
+                device.set_vertex_shader_constant_f(0, &identity).unwrap();
+                device.set_vertex_shader_constant_f(4, &projection).unwrap();
+                device.set_vertex_shader_constant_f(8, &[[0.0; 4]]).unwrap();
+                device
+                    .set_pixel_shader_constant_f(0, &[[0.0, 0.0, 0.0, 2.0]])
+                    .unwrap();
+                let triangle = [
+                    PositionVertex {
+                        position: [-0.73, -0.71, depth],
+                    },
+                    PositionVertex {
+                        position: [0.77, -0.62, depth],
+                    },
+                    PositionVertex {
+                        position: [-0.21, 0.83, depth],
+                    },
+                ];
+                unsafe { device.draw_primitive_up(D3DPT_TRIANGLELIST, 1, &triangle) }.unwrap();
+                device
+                    .stretch_rect(
+                        &generation,
+                        None,
+                        &target.surface_level(0).unwrap(),
+                        None,
+                        super::D3DTEXF_NONE,
+                    )
+                    .unwrap();
+            }
+            bind_fullscreen_state(&device).unwrap();
+            device
+                .set_render_target(0, &published.surface_level(0).unwrap())
+                .unwrap();
+            set_viewport(&device, 0, 0, 64, 32).unwrap();
+            device
+                .clear_attachments(D3DCLEAR_TARGET as u32, 0, 1.0, 0)
+                .unwrap();
+            super::publish_shared_actor_distribution(
+                &device,
+                &convert,
+                &shared,
+                &published.surface_level(0).unwrap(),
+                32,
+                32,
+                [2.0, -0.2],
+            )
+            .unwrap();
+            crate::render_state::clear_sampler(&device, 0).unwrap();
+            device.end_scene().unwrap();
+            let reference = read(&baseline.surface_level(0).unwrap());
+            let actual = read(&published.surface_level(0).unwrap());
+            assert!(
+                reference
+                    .iter()
+                    .any(|pixel| pixel[1] > 0.0 && pixel[1] < 1.0),
+                "MSAA coverage was not exercised"
+            );
+            for y in 0..32 {
+                for x in 0..32 {
+                    let a = actual[y * 64 + x + 32];
+                    let r = reference[y * 32 + x];
+                    assert!(
+                        (a[0] - r[0]).abs() <= 0.001 && a[1] == r[1],
+                        "shared depth/coverage mismatch at {x},{y}: {r:?}, {a:?}"
+                    );
+                    assert_eq!(
+                        actual[y * 64 + x],
+                        [0.0; 4],
+                        "packed neighboring map changed"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    #[ignore = "explicit shared actor generation GPU benchmark"]
+    fn benchmark_shared_actor_generation_graph() {
+        use super::super::shaders::{
+            ACTOR_REPROJECT_SOURCE, DIRECTIONAL_PIXEL_SOURCE, DIRECTIONAL_VERTEX_SOURCE,
+        };
+        use libpsycho::os::windows::directx9::{
+            D3DFMT_D24S8, D3DFMT_G16R16F, D3DMULTISAMPLE_4_SAMPLES, GpuTimer9,
+        };
+        libpsycho::logger::Logger::new()
+            .with_level(log::LevelFilter::Info)
+            .init()
+            .unwrap();
+        let owner = raster_test_device();
+        let device = owner.as_ref();
+        let size = 1024;
+        let vertex = device
+            .create_vertex_shader(
+                &crate::shaders::compile_hlsl_source_target(
+                    "actor-graph.vs",
+                    DIRECTIONAL_VERTEX_SOURCE,
+                    "vs_3_0",
+                )
+                .unwrap(),
+            )
+            .unwrap();
+        let pixel = device
+            .create_pixel_shader(
+                &crate::shaders::compile_hlsl_source_target(
+                    "actor-graph.ps",
+                    DIRECTIONAL_PIXEL_SOURCE,
+                    "ps_3_0",
+                )
+                .unwrap(),
+            )
+            .unwrap();
+        let conversion = device
+            .create_pixel_shader(
+                &crate::shaders::compile_hlsl_source_target(
+                    "actor-graph-convert.ps",
+                    ACTOR_REPROJECT_SOURCE,
+                    "ps_3_0",
+                )
+                .unwrap(),
+            )
+            .unwrap();
+        let generation = device
+            .create_render_target_surface(
+                size,
+                size,
+                D3DFMT_G16R16F,
+                D3DMULTISAMPLE_4_SAMPLES,
+                0,
+                false,
+            )
+            .unwrap();
+        let depth = device
+            .create_depth_stencil_surface(
+                size,
+                size,
+                D3DFMT_D24S8,
+                D3DMULTISAMPLE_4_SAMPLES,
+                0,
+                true,
+            )
+            .unwrap();
+        let scratch = device
+            .create_render_target_texture(size, size, D3DFMT_G16R16F)
+            .unwrap();
+        let scratch_surface = scratch.surface_level(0).unwrap();
+        let packed = device
+            .create_render_target_texture(size * 2, size, D3DFMT_G16R16F)
+            .unwrap();
+        let packed_surface = packed.surface_level(0).unwrap();
+        let far = device
+            .create_render_target_texture(size, size, D3DFMT_G16R16F)
+            .unwrap();
+        let far_surface = far.surface_level(0).unwrap();
+        let identity = [
+            [1.0, 0.0, 0.0, 0.0],
+            [0.0, 1.0, 0.0, 0.0],
+            [0.0, 0.0, 1.0, 0.0],
+            [0.0, 0.0, 0.0, 1.0],
+        ];
+        let triangle = [
+            PositionVertex {
+                position: [-0.73, -0.71, 0.5],
+            },
+            PositionVertex {
+                position: [0.77, -0.62, 0.5],
+            },
+            PositionVertex {
+                position: [-0.21, 0.83, 0.5],
+            },
+        ];
+        for submissions in [1, 32, 128] {
+            let generate = || {
+                bind_fullscreen_state(&device).unwrap();
+                device.set_render_target(0, &generation).unwrap();
+                device.set_depth_stencil_surface(Some(&depth)).unwrap();
+                set_viewport(&device, 0, 0, size, size).unwrap();
+                device
+                    .clear_attachments(
+                        (super::D3DCLEAR_TARGET | super::D3DCLEAR_ZBUFFER | super::D3DCLEAR_STENCIL)
+                            as u32,
+                        0,
+                        1.0,
+                        0,
+                    )
+                    .unwrap();
+                super::render::configure_generation_state(&device).unwrap();
+                device.set_fvf(D3DFVF_XYZ).unwrap();
+                device.set_vertex_shader(&vertex).unwrap();
+                device.set_pixel_shader(&pixel).unwrap();
+                device.set_vertex_shader_constant_f(0, &identity).unwrap();
+                device.set_vertex_shader_constant_f(4, &identity).unwrap();
+                device.set_vertex_shader_constant_f(8, &[[0.0; 4]]).unwrap();
+                device
+                    .set_pixel_shader_constant_f(0, &[[0.0, 0.0, 0.0, 2.0]])
+                    .unwrap();
+                for _ in 0..submissions {
+                    unsafe { device.draw_primitive_up(D3DPT_TRIANGLELIST, 1, &triangle) }.unwrap();
+                }
+            };
+            let draw = |shared: bool| {
+                for target in 0..if shared { 1 } else { 3 } {
+                    generate();
+                    device
+                        .stretch_rect(
+                            &generation,
+                            None,
+                            if !shared && target == 2 {
+                                &far_surface
+                            } else {
+                                &scratch_surface
+                            },
+                            None,
+                            super::D3DTEXF_NONE,
+                        )
+                        .unwrap();
+                    if !shared {
+                        let rect = RECT {
+                            left: (target * size) as i32,
+                            top: 0,
+                            right: ((target + 1) * size) as i32,
+                            bottom: size as i32,
+                        };
+                        if target < 2 {
+                            device
+                                .stretch_rect(
+                                    &scratch_surface,
+                                    None,
+                                    &packed_surface,
+                                    Some(&rect),
+                                    super::D3DTEXF_NONE,
+                                )
+                                .unwrap();
+                        }
+                    }
+                }
+                if shared {
+                    for target in 0..3 {
+                        super::publish_shared_actor_distribution(
+                            &device,
+                            &conversion,
+                            &scratch,
+                            if target < 2 {
+                                &packed_surface
+                            } else {
+                                &far_surface
+                            },
+                            if target < 2 { target * size } else { 0 },
+                            size,
+                            [1.0, 0.0],
+                        )
+                        .unwrap();
+                    }
+                    crate::render_state::clear_sampler(&device, 0).unwrap();
+                }
+            };
+            let mut medians = [0.0; 2];
+            for (variant, shared) in [false, true].into_iter().enumerate() {
+                let mut samples = Vec::new();
+                for round in 0..4 {
+                    let mut timer = GpuTimer9::new(&device).unwrap();
+                    device.begin_scene().unwrap();
+                    timer.begin().unwrap();
+                    for _ in 0..8 {
+                        draw(shared);
+                    }
+                    timer.end().unwrap();
+                    device.end_scene().unwrap();
+                    let started = std::time::Instant::now();
+                    let seconds = loop {
+                        if let Some(value) = timer.poll_seconds(true).unwrap() {
+                            break value;
+                        }
+                        assert!(started.elapsed().as_secs() < 10, "actor GPU timer timeout");
+                        std::thread::yield_now();
+                    };
+                    if round != 0 {
+                        samples.push(seconds / 8.0);
+                    }
+                }
+                samples.sort_by(f64::total_cmp);
+                medians[variant] = samples[1];
+            }
+            log::info!(
+                "[SHADOWS] Actor graph submissions={submissions} independent_ms={:.4} shared_ms={:.4}",
+                medians[0] * 1000.0,
+                medians[1] * 1000.0
+            );
+        }
+        libpsycho::logger::Logger::shutdown();
+    }
+
+    #[test]
+    fn animated_region_restore_preserves_untouched_point_texels() {
+        let owner = raster_test_device();
+        let device = owner.as_ref();
+        let resources = PointResources::create(&device, 1, 8).unwrap();
+        let retained = resources.static_surface(0, 0).unwrap();
+        let published = resources.point_surface(0, 0).unwrap();
+        set_viewport(&device, 0, 0, 8, 8).unwrap();
+        device.set_depth_stencil_surface(None).unwrap();
+        device.set_render_target(0, retained).unwrap();
+        device
+            .clear_attachments(D3DCLEAR_TARGET as u32, 0x0040_0000, 1.0, 0)
+            .unwrap();
+        device.set_render_target(0, published).unwrap();
+        device
+            .clear_attachments(D3DCLEAR_TARGET as u32, 0x00c0_0000, 1.0, 0)
+            .unwrap();
+        let region = RECT {
+            left: 2,
+            top: 1,
+            right: 6,
+            bottom: 5,
+        };
+        super::restore_static_point_region(&device, retained, published, region).unwrap();
+        let pixels = read_r32f(&device, published);
+        for y in 0..8 {
+            for x in 0..8 {
+                let expected = if (2..6).contains(&x) && (1..5).contains(&y) {
+                    64.0 / 255.0
+                } else {
+                    192.0 / 255.0
+                };
+                assert!(
+                    (pixels[y * 8 + x] - expected).abs() < 0.001,
+                    "regional restore changed ({x},{y}): {}",
+                    pixels[y * 8 + x]
+                );
+            }
+        }
     }
 
     #[test]
@@ -4989,6 +5988,180 @@ Output Main(Input input) {
         let extended =
             practical_cascade_splits(5.0, 28_000.0, 20_000.0, 0.9).expect("extended splits");
         assert_eq!(cascade_split_change_mask(base, extended), 0b1111);
+    }
+
+    #[test]
+    fn travel_refresh_keeps_receiver_coverage_during_streamed_root_changes() {
+        // The existing camera fixture and shipped default split policy feed
+        // the actual map constructor, work classifier, and scheduler. No
+        // native pointers or reconstructed projection formula participate.
+        let camera = ShadowCamera {
+            near: 5.0,
+            far: 28_000.0,
+            frustum_left: -1.0,
+            frustum_right: 1.0,
+            frustum_bottom: -0.5625,
+            frustum_top: 0.5625,
+            forward: [1.0, 0.0, 0.0],
+            up: [0.0, 0.0, 1.0],
+            right: [0.0, 1.0, 0.0],
+            translation: [10_000.0, -4_000.0, 800.0],
+            fov_compensation: 1.0,
+        };
+        let sun = [0.4, 0.3, 0.866_025_4];
+        let splits = practical_cascade_splits(camera.near, camera.far, 6_000.0, 0.9).unwrap();
+        let cached = splits
+            .map(|split| cascade_projection(camera, split, sun, NVR_CASCADE_RESOLUTION).unwrap());
+        let spheres = cached.map(|projection| {
+            [
+                projection.center[0],
+                projection.center[1],
+                projection.center[2],
+                projection.radius,
+            ]
+        });
+        let mut scheduler = CascadeScheduler::default();
+        scheduler.commit(scheduler.plan_at_millis(CascadeDirty::all(), 0));
+
+        let dropped = ShadowCamera {
+            translation: [
+                camera.translation[0],
+                camera.translation[1],
+                camera.translation[2] - cached[0].radius * 0.25,
+            ],
+            ..camera
+        };
+        let requested = splits
+            .map(|split| cascade_projection(dropped, split, sun, NVR_CASCADE_RESOLUTION).unwrap());
+        let (mandatory, quality) = directional_refresh_work(
+            false,
+            CascadeDirty::from_mask(0b0100),
+            None,
+            0,
+            spheres,
+            [camera.translation; 4],
+            [sun; 4],
+            requested,
+            dropped.translation,
+            sun,
+        );
+        assert!(
+            scheduler
+                .plan_refreshes_at_millis(mandatory, quality, 1)
+                .render[0],
+            "a streamed outer-root change suppressed the mandatory near-map rebuild after a vertical drop"
+        );
+
+        // Cover a near-map guard crossing, an outer-map guard crossing, and
+        // a discontinuity outside the complete retained volume. Both signs
+        // exercise climbing and falling; all axes exercise ordinary travel.
+        for distance in [
+            cached[0].radius * 0.25,
+            cached[3].radius * 0.25,
+            cached[3].radius * 2.0,
+        ] {
+            for axis in 0..3 {
+                for sign in [-1.0, 1.0] {
+                    let mut moved = camera;
+                    moved.translation[axis] += distance * sign;
+                    let requested = splits.map(|split| {
+                        cascade_projection(moved, split, sun, NVR_CASCADE_RESOLUTION).unwrap()
+                    });
+                    let (coverage_dirty, _) = directional_refresh_work(
+                        false,
+                        CascadeDirty::none(),
+                        None,
+                        0,
+                        spheres,
+                        [camera.translation; 4],
+                        [sun; 4],
+                        requested,
+                        moved.translation,
+                        sun,
+                    );
+                    assert!(coverage_dirty.contains(0));
+                    for root_mask in 0..16 {
+                        for profile_dirty in [
+                            None,
+                            Some(CascadeDirty::none()),
+                            Some(CascadeDirty::from_mask(
+                                (root_mask << 1 | root_mask >> 3) & 0b1111,
+                            )),
+                        ] {
+                            let (mandatory, quality) = directional_refresh_work(
+                                false,
+                                CascadeDirty::from_mask(root_mask),
+                                profile_dirty,
+                                0,
+                                spheres,
+                                [camera.translation; 4],
+                                [sun; 4],
+                                requested,
+                                moved.translation,
+                                sun,
+                            );
+                            let plan = scheduler.plan_refreshes_at_millis(mandatory, quality, 1);
+                            for index in 0..4 {
+                                assert_eq!(
+                                    mandatory.contains(index),
+                                    coverage_dirty.contains(index)
+                                        || root_mask & (1 << index) != 0
+                                        || profile_dirty.is_some_and(|dirty| dirty.contains(index)),
+                                    "validity work expanded beyond the changed or expired maps"
+                                );
+                                if coverage_dirty.contains(index) {
+                                    assert!(
+                                        plan.render[index],
+                                        "travel retained an expired cascade: axis={axis}, sign={sign}, distance={distance}, roots={root_mask:04b}, profile={profile_dirty:?}, cascade={index}"
+                                    );
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        // Idle maps still require zero work; the validity fix must not turn
+        // every presentation into four full atlas redraws.
+        let (mandatory, quality) = directional_refresh_work(
+            false,
+            CascadeDirty::none(),
+            None,
+            0,
+            spheres,
+            [camera.translation; 4],
+            [sun; 4],
+            cached,
+            camera.translation,
+            sun,
+        );
+        assert_eq!(
+            scheduler
+                .plan_refreshes_at_millis(mandatory, quality, 1)
+                .render,
+            [false; 4]
+        );
+        for root_mask in 0..16 {
+            let (mandatory, quality) = directional_refresh_work(
+                false,
+                CascadeDirty::from_mask(root_mask),
+                None,
+                0,
+                spheres,
+                [camera.translation; 4],
+                [sun; 4],
+                cached,
+                camera.translation,
+                sun,
+            );
+            assert_eq!(
+                scheduler
+                    .plan_refreshes_at_millis(mandatory, quality, 1)
+                    .render,
+                std::array::from_fn(|index| root_mask & (1 << index) != 0),
+                "regional streaming dirtied stationary unrelated maps"
+            );
+        }
     }
 
     #[test]

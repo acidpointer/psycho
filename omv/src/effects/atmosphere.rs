@@ -3428,21 +3428,12 @@ fn resolve_directional_scattering(frame: AtmosphereFrame) -> Option<DirectionalL
         return None;
     }
     let sky = frame.sky?;
-    if !sky.is_exterior || !sky.daylight.is_finite() || sky.daylight <= 0.001 {
-        return None;
-    }
+    let (linear_color, linear_disk_delta) = resolve_directional_sky_source(sky)?;
     let sun_direction = shadows::directional_sun_direction(sky.sun_direction);
     let length = dot3(sun_direction, sun_direction).sqrt();
     if !length.is_finite() || !(0.99..=1.01).contains(&length) {
         return None;
     }
-    let linear_color = linearize_native_color(sky.resolved_exterior_sun_color()?)?;
-    let linear_disk = linearize_native_color(sky.sun_disk)?;
-    let linear_disk_delta = [
-        (linear_disk[0] - linear_color[0]).max(0.0),
-        (linear_disk[1] - linear_color[1]).max(0.0),
-        (linear_disk[2] - linear_color[2]).max(0.0),
-    ];
     let projection = project_sun_from_captured_camera(frame.camera, sun_direction);
     Some(DirectionalLight {
         world_direction: sun_direction,
@@ -3454,6 +3445,25 @@ fn resolve_directional_scattering(frame: AtmosphereFrame) -> Option<DirectionalL
         radiance_scale: 1.0,
         projection,
     })
+}
+
+/// Source admission shared by atmosphere and its optional shadow producer.
+/// It excludes exactly the native sky inputs which cannot contribute sunlight;
+/// screen projection and camera facing do not gate world-space scattering.
+pub(crate) fn directional_medium_source_ready(sky: crate::backend::NativeSkyFrame) -> bool {
+    resolve_directional_sky_source(sky).is_some()
+}
+
+fn resolve_directional_sky_source(
+    sky: crate::backend::NativeSkyFrame,
+) -> Option<([f32; 3], [f32; 3])> {
+    if !sky.is_exterior || !sky.daylight.is_finite() || sky.daylight <= 0.001 {
+        return None;
+    }
+    let linear_color = linearize_native_color(sky.resolved_exterior_sun_color()?)?;
+    let linear_disk = linearize_native_color(sky.sun_disk)?;
+    let delta = std::array::from_fn(|index| (linear_disk[index] - linear_color[index]).max(0.0));
+    Some((linear_color, delta))
 }
 
 /// Apply the screen-projection contract owned by the optional radial shafts.
@@ -4879,8 +4889,13 @@ mod directional_shader_behavior {
                 [1.0, 0.0, 0.0],
                 [0.4, 0.3, 0.866_025_4],
                 [0.0, 0.0, 1.0],
+                [0.4, 0.3, 0.866_025_4],
+                [0.4, 0.3, 0.866_025_4],
             ]
             .into_iter()
+            // The additional preset/clamped cases compare against the current
+            // released shader, not the earlier orthographic research oracle.
+            .take(if current_oracle { 7 } else { 5 })
             .enumerate()
             {
                 for blocker in [false, true] {
@@ -4961,6 +4976,12 @@ mod directional_shader_behavior {
                         settings.fog_enabled = true;
                         settings.height_density = 0.000_01;
                         settings.noise_amount = 0.15;
+                    }
+                    if case >= 5 {
+                        settings.fog_enabled = true;
+                        settings.height_density = 0.000_003;
+                        settings.height_falloff = if case == 6 { 0.01 } else { 0.000_06 };
+                        settings.noise_amount = 0.18;
                     }
                     let contributions = resolve_contributions(frame, settings);
                     let desc = depth.surface_level(0).unwrap().desc().unwrap();

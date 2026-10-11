@@ -93,6 +93,11 @@ impl DirectionalRoot {
         self.root as *mut u8
     }
 
+    /// Copied absolute sphere, valid only as metadata for this transaction.
+    pub(super) fn world_sphere(self) -> Option<[f32; 4]> {
+        self.world_bound
+    }
+
     /// Apply the same supplied NVR form profile previously used while walking
     /// each cell list independently for every cascade.
     pub(super) fn enabled_for(self, cascade: usize) -> bool {
@@ -567,8 +572,19 @@ fn sphere_intersects_spatial_node(position: [f32; 3], radius: f32, node: PointSp
 /// maps never submit them. Keeping four independent identities prevents
 /// streaming/transform churn in distant LOD roots from invalidating two
 /// expensive maps whose actual producer inputs did not change.
+#[cfg(test)]
 pub(super) fn directional_root_set_signatures(
     roots: &[DirectionalRoot],
+) -> [DirectionalRootSetSignature; CASCADE_COUNT] {
+    regional_directional_root_set_signatures(roots, [None; CASCADE_COUNT])
+}
+
+/// Hash only static roots admitted by each map's retained generation volume.
+/// Missing bounds or projections retain full admission. The same form profile,
+/// origin, sphere planes and minimum radius also govern root submission.
+pub(super) fn regional_directional_root_set_signatures(
+    roots: &[DirectionalRoot],
+    maps: [Option<(CascadeProjection, [f32; 3], f32)>; CASCADE_COUNT],
 ) -> [DirectionalRootSetSignature; CASCADE_COUNT] {
     let mut signatures = [DirectionalRootSetSignature::EMPTY; CASCADE_COUNT];
     for root in roots
@@ -577,7 +593,21 @@ pub(super) fn directional_root_set_signatures(
         .filter(|root| !root.is_dynamic_actor())
     {
         for (cascade, signature) in signatures.iter_mut().enumerate() {
-            if root.enabled_for(cascade) {
+            if !root.enabled_for(cascade) {
+                continue;
+            }
+            let intersects = maps[cascade].is_none_or(|(projection, origin, minimum_radius)| {
+                root.world_bound.is_none_or(|bound| {
+                    let sphere = Sphere {
+                        center: std::array::from_fn(|axis| bound[axis] - origin[axis]),
+                        radius: bound[3],
+                    };
+                    !sphere.center.into_iter().all(f32::is_finite)
+                        || ((root.is_land || sphere.radius >= minimum_radius)
+                            && projection.contains(sphere))
+                })
+            });
+            if intersects {
                 signature.include(
                     root.root,
                     root.signature_profile() ^ root.world_state.rotate_left(11),
@@ -624,6 +654,39 @@ pub(super) enum DirectionalActorBounds {
     Croppable(ActorBounds),
     /// Invalid bounds require the uncropped map and complete traversal.
     FullProjection,
+}
+
+/// Compare exact copied caster membership and full unclipped bounds.
+/// Unknown bounds, partial clipping and unequal form/frustum admission forbid
+/// sharing; no borrowed engine object is read by this comparison.
+pub(super) fn actor_maps_have_same_complete_casters(
+    roots: &[DirectionalRoot],
+    first: (usize, CascadeProjection, [f32; 3]),
+    second: (usize, CascadeProjection, [f32; 3]),
+) -> bool {
+    for root in roots.iter().copied() {
+        let Some(bound) = root.world_bound else {
+            return false;
+        };
+        let first_sphere = Sphere {
+            center: std::array::from_fn(|axis| bound[axis] - first.2[axis]),
+            radius: bound[3],
+        };
+        let second_sphere = Sphere {
+            center: std::array::from_fn(|axis| bound[axis] - second.2[axis]),
+            radius: bound[3],
+        };
+        let first_admitted = root.enabled_for(first.0) && first.1.contains(first_sphere);
+        let second_admitted = root.enabled_for(second.0) && second.1.contains(second_sphere);
+        if first_admitted != second_admitted
+            || (first_admitted
+                && (!first.1.fully_contains_actor_sphere(first_sphere)
+                    || !second.1.fully_contains_actor_sphere(second_sphere)))
+        {
+            return false;
+        }
+    }
+    true
 }
 
 /// Bound active animated casters using their copied scalar world bounds.
@@ -1178,6 +1241,7 @@ fn point_actor_bound_faces(bound: [f32; 4], light_position: [f32; 3], light_radi
 pub(super) fn collect_point_actor_face_masks(
     bounds: &[[f32; 4]],
     points: &PointLightSet,
+    demanded: [bool; POINT_LIGHT_CAPACITY],
     masks: &mut Vec<[u8; POINT_LIGHT_CAPACITY]>,
 ) -> Option<[u8; POINT_LIGHT_CAPACITY]> {
     masks.clear();
@@ -1188,6 +1252,9 @@ pub(super) fn collect_point_actor_face_masks(
     for bound in bounds.iter().copied() {
         let mut actor_faces = [0_u8; POINT_LIGHT_CAPACITY];
         for (index, point) in points.iter().enumerate() {
+            if !demanded[index] {
+                continue;
+            }
             let faces = point_actor_bound_faces(bound, point.position, point.cube_radius);
             actor_faces[index] = faces;
             dynamic_faces[index] |= faces;
@@ -1745,8 +1812,13 @@ mod tests {
         ];
         let mut masks = Vec::with_capacity(bounds.len());
         let capacity = masks.capacity();
-        let unions = collect_point_actor_face_masks(&bounds, selection.shadowed(), &mut masks)
-            .expect("fixed actor-mask capacity");
+        let unions = collect_point_actor_face_masks(
+            &bounds,
+            selection.shadowed(),
+            [true; super::POINT_LIGHT_CAPACITY],
+            &mut masks,
+        )
+        .expect("fixed actor-mask capacity");
         assert_eq!(masks.len(), bounds.len());
         assert_eq!(masks.capacity(), capacity);
         for (source, light) in selection.shadowed().iter().enumerate() {
@@ -1890,6 +1962,108 @@ mod tests {
             retained_object_state_signature(Some(bound), identity),
             retained_object_state_signature(Some(bound), rotated),
             "a rotating door or movable caster reused moments from its previous orientation"
+        );
+    }
+
+    #[test]
+    fn directional_regional_identity_ignores_changes_outside_retained_maps() {
+        use crate::effects::shadows::math::{ShadowCamera, cascade_projection};
+        let camera = ShadowCamera {
+            near: 1.0,
+            far: 100_000.0,
+            frustum_left: -1.0,
+            frustum_right: 1.0,
+            frustum_bottom: -1.0,
+            frustum_top: 1.0,
+            translation: [0.0; 3],
+            fov_compensation: 1.0,
+            forward: [0.0, 1.0, 0.0],
+            right: [1.0, 0.0, 0.0],
+            up: [0.0, 0.0, 1.0],
+        };
+        let projection = cascade_projection(
+            camera,
+            super::super::contract::CascadeSplit {
+                near: 1.0,
+                far: 1000.0,
+            },
+            [0.4, 0.3, 0.866_025_4],
+            2048,
+        )
+        .unwrap();
+        let near = DirectionalRoot {
+            root: 0x1000,
+            form_type: None,
+            is_land: false,
+            is_lod: false,
+            world_state: 11,
+            world_bound: Some([
+                projection.center[0],
+                projection.center[1],
+                projection.center[2],
+                64.0,
+            ]),
+        };
+        let far = DirectionalRoot {
+            root: 0x2000,
+            world_bound: Some([100_000.0, 0.0, 0.0, 64.0]),
+            ..near
+        };
+        let changed = DirectionalRoot {
+            world_state: 12,
+            ..far
+        };
+        // The retained full-inventory production function demonstrates the
+        // original defect: a root outside every map changes all identities.
+        assert_ne!(
+            directional_root_set_signatures(&[near, far]),
+            directional_root_set_signatures(&[near, changed])
+        );
+        let maps = [Some((projection, [0.0; 3], 0.0)); 4];
+        let retained = super::regional_directional_root_set_signatures(&[near, far], maps);
+        assert_eq!(
+            retained,
+            super::regional_directional_root_set_signatures(&[near, changed], maps)
+        );
+        assert_ne!(
+            retained,
+            super::regional_directional_root_set_signatures(
+                &[
+                    DirectionalRoot {
+                        world_state: 12,
+                        ..near
+                    },
+                    changed
+                ],
+                maps
+            )
+        );
+        // Crossing into the retained volume must invalidate it immediately.
+        assert_ne!(
+            retained,
+            super::regional_directional_root_set_signatures(
+                &[
+                    near,
+                    DirectionalRoot {
+                        world_bound: near.world_bound,
+                        ..changed
+                    }
+                ],
+                maps
+            )
+        );
+        assert_ne!(
+            retained,
+            super::regional_directional_root_set_signatures(
+                &[
+                    near,
+                    DirectionalRoot {
+                        world_bound: None,
+                        ..changed
+                    }
+                ],
+                maps
+            )
         );
     }
 

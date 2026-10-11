@@ -180,6 +180,52 @@ pub(super) struct ActorProjection {
 }
 
 impl CascadeProjection {
+    /// Prove an enclosing actor sphere's entire AABB survives this map's
+    /// hardware clipping, including the normally pancaked near depth plane.
+    /// Shared actor maps require this stronger contract than root admission.
+    pub(super) fn fully_contains_actor_sphere(self, sphere: Sphere) -> bool {
+        if !sphere.center.into_iter().all(f32::is_finite)
+            || !sphere.radius.is_finite()
+            || sphere.radius < 0.0
+        {
+            return false;
+        }
+        for corner in 0..8 {
+            let position = [
+                sphere.center[0]
+                    + if corner & 1 == 0 {
+                        -sphere.radius
+                    } else {
+                        sphere.radius
+                    },
+                sphere.center[1]
+                    + if corner & 2 == 0 {
+                        -sphere.radius
+                    } else {
+                        sphere.radius
+                    },
+                sphere.center[2]
+                    + if corner & 4 == 0 {
+                        -sphere.radius
+                    } else {
+                        sphere.radius
+                    },
+                1.0,
+            ];
+            let clip = transform4(position, self.world_to_shadow);
+            if !clip.into_iter().all(f32::is_finite)
+                || clip[3] != 1.0
+                || clip[0].abs() >= 1.0
+                || clip[1].abs() >= 1.0
+                || clip[2] <= 0.0
+                || clip[2] >= 1.0
+            {
+                return false;
+            }
+        }
+        true
+    }
+
     /// Retain light-space depth while adopting a newer quantized XY origin.
     ///
     /// Scrolling may preserve old EVSM moments only when their encoded depth

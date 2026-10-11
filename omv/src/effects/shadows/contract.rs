@@ -2324,13 +2324,13 @@ impl PointMapSignature {
 
 /// Face-local immutable caster identities retained beside post-Deferred maps.
 ///
-/// This cache deliberately does not live inside [`PointMapCache`]. That cache
-/// is part of the frozen loader-visible `ShadowPipeline` owner, while these
-/// additional signatures are needed only after device resources exist. Keeping
-/// them in `ShadowResources` preserves the accepted pre-Deferred owner layout.
+/// These signatures describe device-owned immutable pixels and are allocated
+/// only with `ShadowResources`. Both resource and logical caches remain behind
+/// the released pipeline's boxed owner; its loader-visible wrapper is unchanged.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub(super) struct PointStaticFaceCache {
     signatures: [[u64; 6]; POINT_LIGHT_CAPACITY],
+    root_signatures: [Option<u64>; POINT_LIGHT_CAPACITY],
     valid_faces: [u8; POINT_LIGHT_CAPACITY],
 }
 
@@ -2354,6 +2354,8 @@ impl PointStaticFaceCache {
 #[derive(Clone, Copy, Debug)]
 pub(super) struct PointMapCache {
     signatures: [PointMapSignature; POINT_LIGHT_CAPACITY],
+    /// Faces whose pixels match the retained projection and caster metadata.
+    valid_faces: [u8; POINT_LIGHT_CAPACITY],
     // The previous dynamic footprint is retained for one transaction. When a
     // moving actor crosses a cube edge, both its old and new faces must be
     // cleared and regenerated or the abandoned face keeps a ghost silhouette.
@@ -2364,6 +2366,7 @@ impl Default for PointMapCache {
     fn default() -> Self {
         Self {
             signatures: [PointMapSignature::EMPTY; POINT_LIGHT_CAPACITY],
+            valid_faces: [0; POINT_LIGHT_CAPACITY],
             dynamic_faces: [0; POINT_LIGHT_CAPACITY],
         }
     }
@@ -2432,6 +2435,63 @@ impl<const N: usize> PointMapPlan<N> {
         (index != u8::MAX).then_some(index as usize)
     }
 
+    /// Defer only sources proven invisible to every consumer camera.
+    /// Logical slot ownership advances independently of physical validity.
+    /// Retained backup signatures and old actor faces stay paired with their
+    /// actual pixels; the next visible plan must publish every pending face.
+    pub(super) fn defer_unobserved(
+        &mut self,
+        demanded: [bool; N],
+        previous: PointMapCache,
+        previous_static: PointStaticFaceCache,
+    ) {
+        for slot in 0..N.min(POINT_LIGHT_CAPACITY) {
+            let Some(source) = self.source_index(slot) else {
+                continue;
+            };
+            if demanded[source] {
+                continue;
+            }
+            let same_projection =
+                previous.signatures[slot].projection_matches(self.published[slot]);
+            self.next.valid_faces[slot] = if same_projection {
+                previous.valid_faces[slot] & !self.render_faces[slot]
+            } else {
+                0
+            };
+            self.next.dynamic_faces[slot] = if same_projection {
+                previous.dynamic_faces[slot]
+            } else {
+                0
+            };
+            self.next_static_faces.signatures[slot] = previous_static.signatures[slot];
+            self.next_static_faces.root_signatures[slot] = previous_static.root_signatures[slot];
+            self.next_static_faces.valid_faces[slot] = if same_projection {
+                previous_static.valid_faces[slot]
+            } else {
+                0
+            };
+            self.render_faces[slot] = 0;
+            self.static_faces[slot] = 0;
+            self.direct_faces[slot] = 0;
+            self.dynamic_draw_faces[slot] = 0;
+        }
+    }
+
+    /// Pair actually generated immutable faces with the scanned root epoch.
+    pub(super) fn tag_static_roots(&mut self, roots: Option<u64>) {
+        for slot in 0..N.min(POINT_LIGHT_CAPACITY) {
+            if self.next_static_faces.valid_faces[slot] == ALL_CUBE_FACES {
+                self.next_static_faces.root_signatures[slot] = roots;
+            }
+        }
+    }
+
+    /// Whether a logical source owns six current sampled faces.
+    pub(super) fn map_is_valid(self, slot: usize) -> bool {
+        self.next.valid_faces.get(slot) == Some(&ALL_CUBE_FACES)
+    }
+
     /// Return the complete ordered update transcript for one physical face.
     ///
     /// Invalid slots/faces and retained faces return an empty transcript. A
@@ -2494,9 +2554,23 @@ impl PointMapCache {
             })
     }
 
-    /// Whether the previous cube publication contained animated coverage.
-    pub(super) fn has_dynamic_casters(self) -> bool {
-        self.dynamic_faces.into_iter().any(|faces| faces != 0)
+    /// Require the exact root epoch which generated this slot's static faces.
+    /// Deferred slots cannot borrow a newer scene-wide root signature.
+    pub(super) fn static_roots_match(
+        self,
+        faces: PointStaticFaceCache,
+        current: PointMapSignature,
+        roots: Option<u64>,
+    ) -> bool {
+        roots.is_some()
+            && self
+                .signatures
+                .iter()
+                .copied()
+                .enumerate()
+                .any(|(slot, retained)| {
+                    retained.projection_matches(current) && faces.root_signatures[slot] == roots
+                })
     }
 
     /// Bound cube work while retaining complete spatial quality per map.
@@ -2626,9 +2700,11 @@ impl PointMapCache {
                 let changed_static_faces = static_face_signatures.map_or(0, |(previous, faces)| {
                     previous.dirty_faces(slot, faces[source])
                 });
-                render_faces[slot] =
-                    (changed_static_faces | self.dynamic_faces[slot] | dynamic_faces[source])
-                        & ALL_CUBE_FACES;
+                render_faces[slot] = (changed_static_faces
+                    | self.dynamic_faces[slot]
+                    | dynamic_faces[source]
+                    | !self.valid_faces[slot])
+                    & ALL_CUBE_FACES;
                 static_faces[slot] = changed_static_faces;
                 // Retain exact map-defining metadata until a projection
                 // change causes this physical cube to be regenerated.
@@ -2645,6 +2721,7 @@ impl PointMapCache {
             }
             next.dynamic_faces[slot] = dynamic_faces[source] & ALL_CUBE_FACES;
             dynamic_draw_faces[slot] = next.dynamic_faces[slot];
+            next.valid_faces[slot] = ALL_CUBE_FACES;
             published[slot] = next.signatures[slot];
         }
         PointMapPlan {

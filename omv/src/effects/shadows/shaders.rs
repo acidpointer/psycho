@@ -33,6 +33,9 @@ pub(super) const CUBE_PIXEL_SOURCE: &[u8] =
 /// Exact far-depth EVSM4 clear shader used before caster submission.
 pub(super) const FAR_CLEAR_PIXEL_SOURCE: &[u8] =
     include_bytes!("../../../shaders/embedded/shadow_far_clear.hlsl");
+/// Coverage-preserving affine depth conversion for a shared actor resolve.
+pub(super) const ACTOR_REPROJECT_SOURCE: &[u8] =
+    include_bytes!("../../../shaders/embedded/shadow_actor_reproject.hlsl");
 /// Twelve-light scissored point-shadow accumulation and receiver pass.
 pub(super) const POINT_ACCUMULATION_SOURCE: &[u8] = concat!(
     include_str!("../../../shaders/embedded/shadow_point_accumulate.hlsl"),
@@ -172,6 +175,8 @@ pub(super) struct ShadowBytecode {
     pub(super) cube_pixel: Vec<u32>,
     /// Exact EVSM4 far-moment clear program.
     pub(super) far_clear_pixel: Vec<u32>,
+    /// Affine depth/coverage conversion for compatible shared actor maps.
+    pub(super) actor_reproject_pixel: Vec<u32>,
     /// Scene-depth receiver specialized for one point light.
     pub(super) point_accumulation_one: Vec<u32>,
     /// Scene-depth receiver specialized for up to six point lights.
@@ -233,6 +238,11 @@ impl ShadowBytecode {
                 )?,
             ],
             cube_pixel: compile("shadow_cube.hlsl", CUBE_PIXEL_SOURCE, "ps_3_0")?,
+            actor_reproject_pixel: compile(
+                "shadow_actor_reproject.hlsl",
+                ACTOR_REPROJECT_SOURCE,
+                "ps_3_0",
+            )?,
             far_clear_pixel: compile("shadow_far_clear.hlsl", FAR_CLEAR_PIXEL_SOURCE, "ps_3_0")?,
             point_accumulation_one: compile(
                 "shadow_point_accumulate_1.hlsl",
