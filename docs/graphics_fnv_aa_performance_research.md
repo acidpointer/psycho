@@ -11,6 +11,32 @@ historical evidence, not proof that the present jitter report is resolved.
 
 ## Current reference SMAA 1x contract
 
+Built-in final spatial AA now precedes Bloom/grade, optical displacement and
+display noise. Loose final shader ordering is unchanged. World TAA still runs
+before first-person rendering. With TAA enabled, no explicit spatial AA, and
+the Final Output master active, the existing final compose draw supplies a
+first-person FXAA companion using current captured coverage and its immediate
+four axial neighbours. This one-pixel footprint filters both silhouette sides;
+world pixels outside it remain unchanged. It adds no
+AA owner, history, scratch target or draw. Without first-person coverage it
+does nothing; the world-only Depth Resolve provider remains world-only.
+First-person capture is requested only when the existing provider supplies it
+and the companion is admitted. The shared FXAA helper keeps standalone
+implicit-LOD sampling and its existing nine-site/instruction budget; compose
+uses explicit LOD inside its conditional coverage branch. Color-grading docs
+own the fused budgets and noise-order contract.
+
+The footprint reuses compose's existing bloom-attenuation coverage reads.
+The centre-only predecessor left the world side of the weapon outline
+unfiltered; a production UNORM regression fails that boundary before the
+change and now reduces pixel-area error for three authored edge slopes.
+Source alpha and missing-mask identity remain exact. This is a controlled
+design test, not a reconstruction of the updated gameplay screenshots.
+World TAA is retained: its unchanged production graph reduces sampling error
+for a jittered one-pixel slanted wire while retaining contrast, with both
+depth conventions and both history attachment paths. This does not establish
+the temporal behavior of screenshot-only wires or moving foliage.
+
 The current SMAA path supersedes the historical LUT-free equations and SMAA
 cost tables below. OMV now embeds the MIT-licensed official HLSL3 source from
 <https://github.com/iryoku/smaa/blob/master/SMAA.hlsl> and extracts the original
@@ -46,6 +72,25 @@ target is cleared every frame. Both intermediate aliases are unbound before
 either target becomes writable. Lookups occupy s1/s2 during weight generation;
 the final pass restores their effect-specific color/edge meaning and clears
 those bindings before returning to the existing outer state transaction.
+
+AA owns its fullscreen raster state before the first draw: transformed vertex
+format, no vertex shader, stream-zero frequency one, disabled depth/stencil,
+blend, alpha test, scissor, fog and clip planes, no culling, all color channels
+writable, all multisample bits enabled, and the detected vendor coverage mode
+disabled. Each target switch establishes an image-sized viewport. All used
+samplers explicitly select linear/clamped, non-sRGB, unmipped input. Attachment
+detachment and exact native-state restoration belong to the outer transaction.
+This applies to every spatial AA variant, independently of later Bloom/grade.
+
+The earlier binder owned geometry and viewport but inherited raster state.
+With AA preceding finishing, a zero incoming color-write mask let all SMAA
+draws succeed without updating the graph scratch; finishing then consumed its
+previous-frame contents. Offline execution of the production graph reproduces
+that failure and requires every flat scene frame to reach the SMAA output,
+including disable/re-enable transitions. The complete finishing image must
+match the identical current-frame graph with native color writes enabled.
+The reported game session did not capture incoming raster state, so the exact
+native state owner responsible for that session remains unresolved.
 
 The two ARGB8 lookup uploads preserve area `.ra` and search `.r` exactly and
 consume 362,496 GPU bytes plus driver overhead. Scratch storage remains eight

@@ -65,8 +65,8 @@ chromatic work, but it does not silently disable the independently configured
 Auto Exposure or Tone Mapping families. Each family disabled or at zero
 strength skips its applicable contribution. LUT-only work also skips when no
 valid selected file exists. Chromatic aberration is a separate finishing pass.
-The accepted playtest settings enable it by default, adding a full-resolution
-draw and backbuffer copy when combined with Bloom or grading. Source alpha is
+The default enables it, adding one full-resolution draw after the existing
+renderable compose intermediate. It adds no backbuffer copy. Source alpha is
 preserved by every production path.
 
 ## Calibrated default look
@@ -76,16 +76,30 @@ ReShade preset. Analytic grading uses `strength 0.68`, `contrast 0.045`,
 `saturation 0.98`, `vibrance 0.075`, `temperature 0.015`, `tint 0.006`,
 `black_fade 0.012`, and `highlight_rolloff 0.16`. `Mojave Natural` is selected
 at `lut_strength 0.42`; environment response is `0.45`. Debanding is `0.55`,
-grain strength `0.3544631` at particle size `1.743985`, vignette `0.035`, and
-halation `0.2092626`. Chromatic aberration defaults enabled at `3.038874`
-pixels. These four values are the user's accepted 2026-07-23 playtest settings,
-promoted without rounding beyond their stored `f32` values. Quantized acceptance
-requires the default grain to change at least half of exact eight-bit midtone
-samples, remain within `1.75..2.50` code-value RMS, and hold absolute mean bias
-below `0.15` code values. Flat-region deband dither changes about 33% with
-effectively zero mean, halation adds at least two code values to a representative
-bright-halo probe, and the default chromatic edge displacement is about `2.07`
-pixels after master strength.
+grain strength `0.12` at particle size `1.743985`, vignette `0.035`, and
+halation `0.2092626`. Preset `1.5.0` reduces CA to `0.4` pixels with a clear
+central radius; master strength limits peripheral channel displacement to
+`0.272` pixels. These are the approved image-quality design settings, not a
+new gameplay acceptance baseline. Production UNORM8 tests require midtone
+grain RMS within `0.5..1.1` code values and absolute mean bias below `0.15`.
+Flat-region deband dither and halation retain their existing strengths.
+
+Built-in spatial AA runs before final finishing. When world TAA is enabled
+and no explicit spatial AA is enabled, the existing compose draw resolves
+first-person pixels and their immediate axial neighbours with the shared Fast
+FXAA equation before grading. It consumes current-frame first-person depth,
+preserves world pixels beyond that one-pixel footprint, and retains center
+alpha. Missing coverage, an absent first-person draw, or a
+disabled/zero-strength Final Output master suppresses this companion; there is
+no global fallback. It works independently of the creative family toggles.
+World TAA and the native HUD boundary retain their owners and phases. External
+final shaders retain their ordering and may apply further processing.
+
+Grain and dither run after channel displacement, in whichever existing writer
+is last. CA cannot displace previously generated monochrome noise into colored
+speckle. With CA enabled, sampler `s8` retains the pre-grade scene input for
+the original deband flatness classifier; no mask is packed into source alpha.
+Bloom's debug bypass suppresses noise in both writers and skips the companion.
 
 Bloom was recalibrated with the grade rather than treated as an independent
 orange glow: intensity `0.34`, threshold `0.62`, radius `2.8`, knee `0.28`,
@@ -133,9 +147,9 @@ grain multiplicative rather than a dark overlay. The generated distribution is
 balanced around zero, the same multiplier preserves RGB ratios before final
 clamping, exact black remains black, and exact white is protected by the
 luminance response. Particle size is independent of strength, defaults to
-`1.743985`, and spans `0.3..3.0`; the strength remains `0..2`. The shipped
-`0.3544631` amount with `0.68` master strength is required to survive UNORM8
-while retaining low mean bias.
+`1.743985`, and spans `0.3..3.0`; the strength remains `0..2`. The revised
+default amount `0.12` with `0.68` master strength remains visible in UNORM8
+while reducing midtone noise and retaining low mean bias.
 
 The local read-only GShade `FilmGrain.fx` was also audited for its Gaussian and
 multiplicative response choices. No GShade texture, shader source, or preset is
@@ -373,6 +387,7 @@ Fused compose bindings:
 | `c15..c16` | Independent family enable flags and grain particle size. |
 | `c17..c18` | LUT input-domain scale/bias and LUT size. |
 | `c19` | Fixed-tone slope, shoulder reserve, and tone strength. |
+| `c20` | Defer noise to the optical writer; enable masked first-person FXAA. |
 
 Metering binds display color at `s0`, previous point-sampled history at `s1`,
 and completed Bloom at `s4`. Reduction and response generation consume the
@@ -382,10 +397,11 @@ texel 1, which stores its precision remainder; B/A replicate exposure EV and
 shoulder activity. The complete contract is in
 `docs/graphics_fnv_auto_exposure_and_adaptive_tone.md`.
 
-Chromatic bindings are `s0` scene color, `c0` dimensions/inverse dimensions,
-and `c3.x` master-scaled displacement in pixels. It samples center plus
-oppositely displaced red and blue. Displacement is zero at screen center and
-rises smoothly toward edges; green and alpha come from center.
+Chromatic bindings are `s0` composed color, `s6` grain, and optional `s8`
+pre-grade color, with the shared noise/frame/grade constants and `c3.x`
+master-scaled displacement. Center green and alpha remain intact. Normalized
+radius is `length((uv - 0.5) * 2)`; displacement is zero through radius `0.55`,
+then uses a smooth onset through radius one. Grain/dither follow displacement.
 
 Both shaders use the four-vertex `D3DPT_TRIANGLESTRIP` and exact D3D9
 half-pixel positions. No derivative is used. Viewport, FVF, shaders, RT0,
@@ -425,6 +441,18 @@ begins, success, draw failures, and restore failures all run through the same
 restoration path; the first failure is returned after every restore has been
 attempted.
 
+The screen path uses the bounded call-local `ScreenTransactionState9` journal
+for non-attachment state. Its sampler coverage is `s0..s8`, including the
+pre-grade deband input consumed by the CA writer. It restores both occupied
+and empty native texture slots exactly; skipping an empty captured slot would
+leave an OMV resource bound. This adds one sampler's six state queries/restores
+and one texture query/restore to the former `s0..s7` journal, with no persistent
+owner or heap storage. The CA writer also clears its `s8` input after drawing,
+including a draw error, before a subsequent loose pass can make that graph
+texture writable. The outer journal then restores the native `s8` binding and
+sampler state. Offline production-graph execution checks all nine samplers
+across changing frames and SMAA disable/re-enable transitions.
+
 The supported MRT count comes from `D3DCAPS9::NumSimultaneousRTs`, is bounded to
 the D3D9 range of one through four, and is cached once per device. Low-end
 devices running the final-color path are never asked to access unsupported MRT
@@ -458,10 +486,9 @@ aspect corrected.
 Halation schedules highlight extraction and blur independently of visible
 Bloom, then adds only a warm red-biased halo. Each family has an independent
 dynamic shader gate; its disabled path performs no texture sampling specific to
-that family. Chromatic aberration is a separate shader because adding its two
-extra samples to the fused shader exceeded the accepted compose instruction
-ceiling. Its radial weight reaches full strength at every screen edge rather
-than only at diagonal corners.
+that family. Chromatic aberration remains a separate shader so channel
+displacement samples deterministic finished color before the final noise.
+Its radial weight reaches full strength at every screen edge.
 
 ## Lifetime, failure, and work budgets
 
@@ -486,13 +513,39 @@ Static upper bounds enforced from compiled bytecode are:
 |---|---:|---:|
 | Bloom extract | 220 instructions | 10 |
 | Bloom blur | 80 instructions | 9 |
-| Fused compose | 500 instructions | 14 |
-| Fixed tone compose | 530 instructions | 14 |
-| Adaptive compose | 515 instructions | 15 |
+| Fused compose | 650 instructions | 23 |
+| Fixed tone compose | 685 instructions | 23 |
+| Adaptive compose | 670 instructions | 24 |
 | 16x16 spatial meter | 260 instructions | 4 |
 | 1x1 statistics reduction | 60 instructions | 1 |
 | 512x1 response generator | 420 instructions | 3 |
-| Chromatic aberration | 70 instructions | 3 |
+| Chromatic aberration plus final noise | 185 instructions | 9 |
+
+The revised compose budgets include eight FXAA neighbor sites. The one-pixel
+mask footprint reuses the existing five bloom-attenuation depth sites, removing
+the companion's duplicate centre-depth read. World pixels beyond the footprint
+skip the FXAA branch; covered flat
+pixels use four neighbors, while an edge uses all eight. Compared with a
+standalone companion, fusion avoids another full-resolution write/copy and
+new resource ownership. Deferring noise adds six CA texture sites: one grain
+sample and five original flatness samples. The latter are skipped with deband
+disabled; grain is skipped with grain disabled. Reusing intermediate alpha
+would violate source-alpha preservation, and adding another mask target/pass
+would cost more storage and bandwidth. No pass, target, copy or retained
+allocation is added for these changes. Adaptive composition retains one
+response lookup and an instruction delta bounded by 18 over legacy compose.
+Shader creation on the real device still gates admission; these ceilings do
+not promise support on every minimum-capability SM3 device or an FPS gain.
+
+Positive analytic contrast scales its affine displacement down to zero at
+black. The former negative intercept clipped several distinct dark input
+levels before tone mapping; the production regression observes that failure
+at the shipped contrast value. The revised shadow-half response remains
+ordered through maximum contrast, without a black lift. Midpoint/highlight
+response, negative contrast, explicit black fade, LUT, and display toe retain
+their equations. No ambient, AO, exposure, or shadow-visibility gain is used to
+compensate for this final-color defect. This corrects a proven finishing-stage
+loss; it does not assign every dark screenshot region to that stage.
 
 Grade only is one phase copy plus one full-resolution draw. Bloom is one copy,
 three quarter-resolution draws, and one full-resolution compose. Halation alone

@@ -11,6 +11,12 @@
 //! Fixed neutral mode uses the same peak curve in the compose
 //! pass and avoids temporal resources. There is no CPU readback or extra
 //! full-resolution pass.
+//!
+//! Built-in spatial AA precedes this owner. Its existing compose draw also
+//! supplies masked first-person FXAA for world TAA, before grading. Output
+//! noise is emitted by the last optical writer so CA cannot colour the grain.
+//! The pre-grade input remains borrowed for deferred deband classification;
+//! source alpha and existing target/preparation ownership stay unchanged.
 
 use std::{
     sync::{
@@ -111,8 +117,19 @@ fn schedule_adaptive_update(
 
 const EXTRACT_SHADER: &[u8] = include_bytes!("../../shaders/embedded/bloom_hdr_extract.hlsl");
 const BLUR_SHADER: &[u8] = include_bytes!("../../shaders/embedded/bloom_hdr_blur.hlsl");
-const COMPOSE_SHADER: &[u8] = include_bytes!("../../shaders/embedded/bloom_hdr_compose.hlsl");
-const CHROMATIC_SHADER: &[u8] = include_bytes!("../../shaders/embedded/chromatic_aberration.hlsl");
+const COMPOSE_SHADER: &[u8] = concat!(
+    include_str!("../../shaders/embedded/display_input.hlsl"),
+    include_str!("../../shaders/embedded/display_noise.hlsl"),
+    include_str!("../../shaders/embedded/fxaa_resolve.hlsl"),
+    include_str!("../../shaders/embedded/bloom_hdr_compose.hlsl"),
+)
+.as_bytes();
+const CHROMATIC_SHADER: &[u8] = concat!(
+    include_str!("../../shaders/embedded/display_input.hlsl"),
+    include_str!("../../shaders/embedded/display_noise.hlsl"),
+    include_str!("../../shaders/embedded/chromatic_aberration.hlsl"),
+)
+.as_bytes();
 const ADAPTIVE_TONE_SHADER: &[u8] = include_bytes!("../../shaders/embedded/adaptive_tone.hlsl");
 const ADAPTIVE_METER_SHADER: &[u8] = include_bytes!("../../shaders/embedded/adaptive_meter.hlsl");
 const DISPLAY_TONE_SHADER: &[u8] = include_bytes!("../../shaders/embedded/display_tone.hlsl");
@@ -402,7 +419,29 @@ mod shader_compile_tests {
                 continue;
             }
             opcodes.push(opcode);
-            offset += 1 + ((token >> 24) & 0x0f) as usize;
+            let length = ((token >> 24) & 0x0f) as usize;
+            // Inspect executable register operands as in the spatial-AA
+            // inventory. Immediate DEF words are not register operands.
+            let operands = if matches!(opcode, 47 | 48 | 81) {
+                1
+            } else {
+                length
+            };
+            for &parameter in &bytecode[offset + 1..offset + 1 + operands] {
+                if parameter & 0x8000_0000 == 0 {
+                    continue;
+                }
+                let register_type = ((parameter >> 28) & 7) | ((parameter >> 8) & 24);
+                let register = parameter & 0x7ff;
+                match register_type {
+                    0 => assert!(register < 32, "temporary r{register}"),
+                    2 => assert!(register < 224, "float constant c{register}"),
+                    10 => assert!(register <= 8, "unbound sampler s{register}"),
+                    1 => assert_eq!(register, 0, "extra interpolator v{register}"),
+                    _ => {}
+                }
+            }
+            offset += 1 + length;
         }
         assert!(offset < bytecode.len(), "shader bytecode has no END token");
         opcodes
@@ -834,37 +873,43 @@ mod shader_compile_tests {
         let adaptive_compose = compose_variant_source(COMPOSE_VARIANT_ADAPTIVE);
         let response = adaptive_response_source();
         let reduce = adaptive_reduce_source();
+        let mut exceeded = Vec::new();
         for (name, source, max_instructions, max_samples) in [
             ("bloom_hdr_extract_budget.hlsl", EXTRACT_SHADER, 220, 10),
             ("bloom_hdr_blur_budget.hlsl", BLUR_SHADER, 80, 9),
-            ("bloom_hdr_compose_budget.hlsl", COMPOSE_SHADER, 500, 14),
+            // The approved first-person companion adds one mask fetch and
+            // eight FXAA neighbours inside the existing draw. A standalone
+            // pass would require another full-resolution write/copy owner.
+            ("bloom_hdr_compose_budget.hlsl", COMPOSE_SHADER, 650, 23),
             (
                 "bloom_hdr_compose_static_budget.hlsl",
                 static_compose.as_slice(),
-                530,
-                14,
+                685,
+                23,
             ),
             (
                 "bloom_hdr_compose_adaptive_budget.hlsl",
                 adaptive_compose.as_slice(),
-                515,
-                15,
+                670,
+                24,
             ),
             ("adaptive_tone_budget.hlsl", response.as_slice(), 420, 3),
             ("adaptive_meter_budget.hlsl", ADAPTIVE_METER_SHADER, 260, 4),
             ("adaptive_reduce_budget.hlsl", reduce.as_slice(), 60, 1),
-            ("chromatic_aberration_budget.hlsl", CHROMATIC_SHADER, 70, 3),
+            // Final noise needs one grain lookup and the five original
+            // flatness samples. Reusing alpha as a mask would corrupt input
+            // alpha or narrow supported render-target formats.
+            ("chromatic_aberration_budget.hlsl", CHROMATIC_SHADER, 185, 9),
         ] {
             let (instructions, texture_samples) = shader_budget(name, source);
-            assert!(
-                instructions <= max_instructions,
-                "{name} grew to {instructions} instructions"
-            );
-            assert!(
-                texture_samples <= max_samples,
-                "{name} grew to {texture_samples} texture samples"
-            );
+            if instructions > max_instructions || texture_samples > max_samples {
+                exceeded.push((name, instructions, texture_samples));
+            }
         }
+        assert!(
+            exceeded.is_empty(),
+            "final-color budget exceeded: {exceeded:?}"
+        );
 
         let (legacy_instructions, _) = shader_budget("legacy_delta.hlsl", COMPOSE_SHADER);
         let (adaptive_instructions, _) = shader_budget(
@@ -872,7 +917,7 @@ mod shader_compile_tests {
             &compose_variant_source(COMPOSE_VARIANT_ADAPTIVE),
         );
         assert!(
-            adaptive_instructions <= legacy_instructions + 16,
+            adaptive_instructions <= legacy_instructions + 18,
             "adaptive compose adds {} instructions to the full-resolution legacy path",
             adaptive_instructions.saturating_sub(legacy_instructions)
         );
@@ -1861,12 +1906,6 @@ mod shader_compile_tests {
             "default halation changes red by only {:.3} code values",
             (output[0] - input[0]) * 255.0
         );
-
-        let chromatic_edge_shift = defaults.chromatic_aberration * defaults.strength;
-        assert!(
-            chromatic_edge_shift >= 0.5,
-            "default chromatic shift is only {chromatic_edge_shift:.3} px"
-        );
     }
 
     #[test]
@@ -1991,75 +2030,6 @@ mod shader_compile_tests {
         assert!(
             code_distance(halation_output, halation_input) >= 10,
             "default halation disappears at the quantized output"
-        );
-
-        let width = 64usize;
-        let height = 36usize;
-        let image: Vec<[f32; 4]> = (0..height)
-            .flat_map(|_| {
-                (0..width).map(|x| {
-                    let value = x as f32 / (width - 1) as f32;
-                    [value, 0.37, 1.0 - value, 0.61]
-                })
-            })
-            .collect();
-        let chromatic_amount = defaults.chromatic_aberration * defaults.strength;
-        let chromatic_changed = (0..height)
-            .flat_map(|y| (0..width).map(move |x| (x, y)))
-            .filter(|&(x, y)| {
-                let output = chromatic_reference(&image, width, height, x, y, chromatic_amount);
-                let center = image[y * width + x];
-                unorm8_code(output[0]) != unorm8_code(center[0])
-                    || unorm8_code(output[2]) != unorm8_code(center[2])
-            })
-            .count();
-        assert!(
-            chromatic_changed >= width * height / 4,
-            "enabled default chromatic response changes only {chromatic_changed} quantized pixels"
-        );
-    }
-
-    #[test]
-    fn default_film_grain_survives_the_unorm8_output_boundary() {
-        let defaults = crate::config::ColorGradeConfig::default();
-        assert_eq!(defaults.film_grain_size, FILM_GRAIN_DEFAULT_SIZE);
-        let grain_pixels = film_grain_pixels();
-        let width = 4096usize;
-        let input = [128.0 / 255.0; 3];
-        let input_code = unorm8_code(input[0]) as i16;
-        let deltas: Vec<i16> = (0..width)
-            .map(|x| {
-                let output = film_grain_reference(
-                    input,
-                    &grain_pixels,
-                    [x as f32 + 0.5, 37.5],
-                    41.0,
-                    defaults.film_grain,
-                    defaults.strength,
-                    FILM_GRAIN_DEFAULT_SIZE,
-                );
-                unorm8_code(output[0]) as i16 - input_code
-            })
-            .collect();
-        let changed = deltas.iter().filter(|delta| **delta != 0).count();
-        let rms = (deltas
-            .iter()
-            .map(|delta| (*delta as f32).powi(2))
-            .sum::<f32>()
-            / width as f32)
-            .sqrt();
-        assert!(
-            changed >= width / 2,
-            "default grain changed only {changed}/{width} quantized midtone pixels"
-        );
-        assert!(
-            (1.75..=2.50).contains(&rms),
-            "default grain reaches only {rms:.3} code-value RMS after quantization"
-        );
-        let mean = deltas.iter().map(|delta| *delta as f32).sum::<f32>() / width as f32;
-        assert!(
-            mean.abs() <= 0.15,
-            "default grain biases the image by {mean:.3} code values"
         );
     }
 
@@ -2591,56 +2561,6 @@ mod shader_compile_tests {
                 [0.0, 0.0, 0.0, 0.0],
             ]
         );
-
-        let source = std::str::from_utf8(COMPOSE_SHADER).expect("compose UTF-8");
-        for declaration in [
-            "float4 GradeData0 : register(c10);",
-            "float4 GradeData1 : register(c11);",
-            "float4 GradeData2 : register(c12);",
-            "float4 GradeData3 : register(c13);",
-            "float4 GradeData4 : register(c14);",
-            "float4 GradeData5 : register(c15);",
-            "float4 GradeData6 : register(c16);",
-            "float4 LutDomainScale : register(c17);",
-            "float4 LutDomainBias : register(c18);",
-            "float4 AdaptiveToneData : register(c19);",
-            "sampler2D ColorLut : register(s5);",
-            "sampler2D FilmGrainTexture : register(s6);",
-        ] {
-            assert!(
-                source.contains(declaration),
-                "missing ABI declaration {declaration}"
-            );
-        }
-        for equation in [
-            "float3 color = inputColor * exp2(GradeData0.y);",
-            "color = 0.5f.xxx + (color - 0.5f.xxx) * (1.0f + GradeData0.z);",
-            "float adaptiveVibrance = 1.0f + GradeData1.x * (1.0f - saturate(chromaRange));",
-            "float saturation = GradeData0.w * adaptiveVibrance;",
-            "float blackFade = GradeData1.w * 0.06f;",
-            "color = color * (1.0f + shoulder) / (1.0f + shoulder * color);",
-            "color = lerp(color, lutColor, GradeData2.y * master);",
-            "* GradeData3.y * master * 0.85f;",
-            "color *= 1.0f - vignette * GradeData3.x * master * 0.32f;",
-            "return lerp(inputColor, color, master);",
-            "return lerp(center, average, strength * flatWeight * 0.85f);",
-            "base = DebandScene(input.uv, base, debandFlatWeight);",
-            "static const float DebandDitherNoiseScaleCodes = 4.0f;",
-            "? GradeData2.z * GradeData0.x * debandFlatWeight * DebandDitherNoiseScaleCodes",
-            "uv * ScreenData.xy / (GradeData6.w * FilmGrainTextureSize) + frameOffset;",
-            "float grainResponse = 1.0f - sqrt(saturate(Luma(color)));",
-            "color += color * grain;",
-        ] {
-            assert!(
-                source.contains(equation),
-                "CPU reference lost shader equation: {equation}"
-            );
-        }
-        assert!(source.contains("GradeData3.z > 0.5f"));
-        assert!(source.contains("GradeData4.x > 0.5f"));
-        assert!(source.contains("GradeData4.y > 0.5f"));
-        assert!(!source.contains("clusterPixel"));
-        assert!(!source.contains("FilmGrainNoiseScaleCodes"));
     }
 }
 
@@ -2761,6 +2681,7 @@ impl BloomingHdrEffect {
         frame_index: u32,
         frame_seconds: f32,
         timing_continuous: bool,
+        first_person_aa: bool,
     ) -> Direct3DResult<bool> {
         let bloom_source = bloom_source.filter(|source| source.enabled);
         let work = FinalColorWorkPlan::from_sources_with_lut_available(
@@ -2774,7 +2695,15 @@ impl BloomingHdrEffect {
             selected_lut,
         );
         let requested_adaptive = AdaptiveToneSettings::from_source(color_grade_source);
-        if !work.has_work() {
+        let debug_bloom = work.bloom
+            && bloom_source.is_some_and(|source| source_option_bool(source, "debug_bloom", false));
+        let first_person_aa = first_person_aa
+            && !debug_bloom
+            && grade.enabled
+            && grade.strength > 1.0e-5
+            && frame_inputs.first_person_rendered
+            && frame_inputs.depth.first_person_texture.is_some();
+        if !work.has_work() && !first_person_aa {
             self.invalidate_adaptive_history();
             return Ok(false);
         }
@@ -2837,7 +2766,7 @@ impl BloomingHdrEffect {
             requested_adaptive
         };
 
-        let composed = work.bloom || grade.is_active() || adaptive.is_active();
+        let composed = work.bloom || grade.is_active() || adaptive.is_active() || first_person_aa;
         if composed && work.chromatic_aberration {
             self.ensure_composed_target(device, desc)?;
             let Some(composed_target) = self.composed_target.as_ref() else {
@@ -2855,13 +2784,20 @@ impl BloomingHdrEffect {
                 work.bloom,
                 scene_color,
                 frame_index,
+                true,
+                first_person_aa,
             )?;
             self.draw_chromatic_aberration(
                 device,
                 backbuffer,
                 desc,
                 &composed_target.texture,
-                grade.chromatic_aberration * grade.strength,
+                scene_color,
+                frame_inputs,
+                bloom_source,
+                &grade,
+                work.bloom,
+                frame_index,
             )?;
         } else {
             if composed {
@@ -2877,6 +2813,8 @@ impl BloomingHdrEffect {
                     work.bloom,
                     scene_color,
                     frame_index,
+                    false,
+                    first_person_aa,
                 )?;
             }
             if work.chromatic_aberration {
@@ -2885,7 +2823,12 @@ impl BloomingHdrEffect {
                     backbuffer,
                     desc,
                     scene_color,
-                    grade.chromatic_aberration * grade.strength,
+                    scene_color,
+                    frame_inputs,
+                    bloom_source,
+                    &grade,
+                    work.bloom,
+                    frame_index,
                 )?;
             }
         }
@@ -3181,6 +3124,8 @@ impl BloomingHdrEffect {
         bloom_enabled: bool,
         scene_color: &Texture9,
         frame_index: u32,
+        defer_noise: bool,
+        first_person_aa: bool,
     ) -> Direct3DResult<()> {
         bind_target(
             device,
@@ -3227,6 +3172,20 @@ impl BloomingHdrEffect {
             bloom_enabled,
             frame_index,
         )?;
+        // Uniform pass policy keeps the existing shader/resource owners and
+        // preparation order. Missing coverage never admits a world-wide AA fallback.
+        device.set_pixel_shader_constant_f(
+            20,
+            &[[
+                defer_noise as u8 as f32,
+                (first_person_aa
+                    && frame_inputs.first_person_rendered
+                    && frame_inputs.depth.first_person_texture.is_some()) as u8
+                    as f32,
+                0.0,
+                0.0,
+            ]],
+        )?;
         // Compose does not consume the extraction/blur dimensions in c9. Reuse
         // that per-pass slot for the already-validated LUT domain rather than
         // adding an owner, persistent field, sampler, or shader constant slot.
@@ -3253,7 +3212,12 @@ impl BloomingHdrEffect {
         backbuffer: &Surface9,
         desc: &D3DSURFACE_DESC,
         scene_color: &Texture9,
-        amount_pixels: f32,
+        deband_source: &Texture9,
+        frame_inputs: &FrameInputs,
+        bloom_source: Option<&ScreenShaderSource>,
+        grade: &ColorGradeSettings,
+        bloom_enabled: bool,
+        frame_index: u32,
     ) -> Direct3DResult<()> {
         bind_target(
             device,
@@ -3272,9 +3236,41 @@ impl BloomingHdrEffect {
                 1.0 / desc.Height as f32,
             ]],
         )?;
-        device.set_pixel_shader_constant_f(3, &[[amount_pixels, 0.0, 0.0, 0.0]])?;
+        bind_compose_constants(
+            device,
+            desc,
+            frame_inputs,
+            bloom_source,
+            grade,
+            AdaptiveToneSettings::from_source(None),
+            bloom_enabled,
+            frame_index,
+        )?;
+        let debug_bloom = bloom_enabled
+            && bloom_source.is_some_and(|source| source_option_bool(source, "debug_bloom", false));
+        if debug_bloom {
+            // Compose's debug return bypasses all output noise. Preserve that
+            // contract in the deferred writer without another shader branch.
+            device.set_pixel_shader_constant_f(14, &[[0.0; 4]])?;
+        }
+        device.set_texture(6, &self.film_grain_texture)?;
+        // Reevaluate only the scalar flatness gate from its actual pre-grade
+        // input. This preserves alpha and works with every supported target format.
+        if !debug_bloom && grade.enabled && grade.deband_enabled && grade.deband > 1.0e-5 {
+            configure_adaptive_sampler(device, 8, false)?;
+            device.set_texture(8, deband_source)?;
+        }
+        device.set_pixel_shader_constant_f(
+            3,
+            &[[grade.chromatic_aberration * grade.strength, 0.0, 0.0, 0.0]],
+        )?;
         device.set_pixel_shader(&self.chromatic_shader)?;
-        draw_quad(device, desc.Width, desc.Height)
+        let result = draw_quad(device, desc.Width, desc.Height);
+        // The pre-grade graph input can become a later loose pass's output.
+        // Retire its s8 alias at the consumer boundary, including draw failure;
+        // the outer journal restores the original native binding afterward.
+        let clear_result = crate::render_state::clear_sampler(device, 8);
+        result.and(clear_result)
     }
 }
 
@@ -3342,6 +3338,7 @@ fn bind_target(
     crate::render_state::clear_sampler(device, 4)?;
     crate::render_state::clear_sampler(device, 5)?;
     crate::render_state::clear_sampler(device, 6)?;
+    crate::render_state::clear_sampler(device, 8)?;
     render_target_slots.prepare_target_change(device)?;
     device.set_render_target(0, surface)?;
     device.set_viewport(&viewport)

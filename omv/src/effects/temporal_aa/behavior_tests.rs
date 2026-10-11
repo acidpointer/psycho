@@ -335,6 +335,90 @@ fn mrt_and_two_pass_images_match_for_geometry_sky_invalid_and_alpha() {
 }
 
 #[test]
+fn shipped_world_settings_reduce_thin_geometry_sampling_error() {
+    // An authored one-pixel slanted wire on a constant-depth plane isolates
+    // coverage sampling from camera reprojection. Pixel-area coverage is the
+    // independent design oracle; neither input nor oracle implements TAA.
+    let output = camera();
+    let covered = |x: f64, y: f64| (x - 0.33 * y - 26.25).abs() < 0.5;
+    let reference: Vec<f64> = (0..WIDTH * HEIGHT)
+        .map(|i| {
+            let x = (i % WIDTH) as f64;
+            let y = (i / WIDTH) as f64;
+            let hits = (0..256)
+                .filter(|s| {
+                    covered(
+                        x + (s % 16) as f64 / 16.0 + 0.03125,
+                        y + (s / 16) as f64 / 16.0 + 0.03125,
+                    )
+                })
+                .count();
+            0.8 - 0.6 * hits as f64 / 256.0
+        })
+        .collect();
+    for mrt in [false, true] {
+        for reversed in [false, true] {
+            let mut h = Harness::new(mrt);
+            let mut raw_error = 0.0;
+            let mut resolved_error = 0.0;
+            let mut minimum = 1.0f32;
+            for iteration in 0..64 {
+                let jitter = [[0.45, -0.35], [-0.4, 0.3], [0.2, 0.4], [-0.35, -0.4]][iteration % 4];
+                let rendered = output.with_pixel_jitter(jitter, WIDTH, HEIGHT).unwrap();
+                let pixels: Vec<_> = (0..WIDTH * HEIGHT)
+                    .map(|i| {
+                        let u = (i % WIDTH) as f32 / WIDTH as f32 + 0.5 / WIDTH as f32;
+                        let v = (i / WIDTH) as f32 / HEIGHT as f32 + 0.5 / HEIGHT as f32;
+                        let ray_x = rendered.frustum_left
+                            + (rendered.frustum_right - rendered.frustum_left) * u;
+                        let ray_y = rendered.frustum_top
+                            + (rendered.frustum_bottom - rendered.frustum_top) * v;
+                        let x = (ray_x - output.frustum_left)
+                            / (output.frustum_right - output.frustum_left)
+                            * WIDTH as f32;
+                        let y = (output.frustum_top - ray_y)
+                            / (output.frustum_top - output.frustum_bottom)
+                            * HEIGHT as f32;
+                        let value = if covered(f64::from(x), f64::from(y)) {
+                            0.2
+                        } else {
+                            0.8
+                        };
+                        [value, value, value, 0.5]
+                    })
+                    .collect();
+                let image = h.frame(
+                    &pixels,
+                    &vec![0.5; pixels.len()],
+                    rendered,
+                    output,
+                    reversed,
+                    config::TemporalAaConfig::default(),
+                );
+                if iteration < 32 {
+                    continue;
+                }
+                for y in 4..HEIGHT - 4 {
+                    for x in 4..WIDTH - 4 {
+                        let i = (y * WIDTH + x) as usize;
+                        raw_error += (f64::from(pixels[i][0]) - reference[i]).abs();
+                        resolved_error += (f64::from(image[i][0]) - reference[i]).abs();
+                        minimum = minimum.min(image[i][0]);
+                        assert!(image[i].iter().all(|v| v.is_finite()));
+                        assert_eq!(image[i][3], 0.5);
+                    }
+                }
+            }
+            assert!(
+                resolved_error < raw_error,
+                "TAA increased thin-wire area error: MRT={mrt}, reversed={reversed}, raw={raw_error}, resolved={resolved_error}"
+            );
+            assert!(minimum < 0.5, "TAA erased the wire instead of resolving it");
+        }
+    }
+}
+
+#[test]
 fn sharpening_never_creates_a_peak_outside_current_radiance_bounds() {
     for mrt in [false, true] {
         let mut h = Harness::new(mrt);

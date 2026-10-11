@@ -338,14 +338,20 @@ float4 Main(PixelInput input) : COLOR0 {
 		centerPosition, normal, input.uv,
 		fastRadius, fastRange, fastBias, reversedDepth, false
 	);
-	amount += saturate(fastOcclusion) * fastStrength;
+	// Each estimator owns its ambient floor. Their kernels observe the same
+	// depth field, so overlapping estimates must not count the occluder twice.
+	float fastAmount = min(saturate(fastOcclusion) * fastStrength,
+		1.0f - clamp(FastOption1.z, 0.05f, 0.95f));
+	amount = max(amount, fastAmount);
 #endif
 #if AO_FAMILY_MODE != 1
 	float contactOcclusion = KernelOcclusion(
 		centerPosition, normal, input.uv,
 		contactRadius, contactRange, contactBias, reversedDepth, true
 	);
-	amount += saturate(contactOcclusion) * contactStrength;
+	float contactAmount = min(saturate(contactOcclusion) * contactStrength,
+		1.0f - clamp(ContactOption1.z, 0.05f, 0.95f));
+	amount = max(amount, contactAmount);
 #endif
 
     return float4(saturate(amount), DepthKey(centerDepth), 0.0f, 1.0f);

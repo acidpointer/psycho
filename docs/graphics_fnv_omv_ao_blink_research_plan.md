@@ -91,6 +91,18 @@ The pipeline uses:
 - scene color on sampler 0 and the blurred AO result on sampler 4;
 - a reconstructed view position based on the captured near/far planes and frustum slopes.
 
+The current extraction caps each kernel's strength-scaled occlusion by its own
+`1 - min_ambient` (ambient floors bounded to `0.05..0.95`), then selects the
+maximum capped estimate. Fast and Contact observe the same depth field;
+adding both estimates counted overlapping occluders twice and permitted
+Contact to exceed its own ambient floor. The red channel remains scalar
+occlusion and green remains the unchanged depth key. Existing six-tap kernels,
+blur, history, formats, phases and draw counts remain. Preset `1.5.0` uses
+Fast strength/floor `0.9`/`0.4` and retains Contact `0.4291376`/`0.67`.
+The production G16R16F extraction regression covers both depth directions,
+overlap, ambient caps and depth-key preservation with authored depth steps;
+it does not reconstruct gameplay captures. Existing bytecode ceilings remain.
+
 The relevant implementation is in:
 
 - `omv/src/fnv_render.rs`

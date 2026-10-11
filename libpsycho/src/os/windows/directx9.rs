@@ -2928,14 +2928,14 @@ impl<
 ///
 /// Covers the exact state OMV's screen passes mutate: shader bindings, FVF or
 /// declaration mode, stream zero and its frequency, viewport/scissor, the 15
-/// render states of the snapshot list, sampler states zero through seven, all
-/// eight pixel texture bindings, and the four texture-stage states stage zero.
+/// render states of the snapshot list, sampler states zero through eight, all
+/// nine pixel texture bindings, and the four texture-stage states stage zero.
 /// Constants are not journaled: every screen pass publishes its own constants
 /// per draw and the engine rebinds its own before the next native draw. This
 /// replaces the driver `D3DSBT_ALL` capture (which additionally walks
 /// unrelated lights, transforms and constants; measured ~104 us per
 /// capture+apply under DXVK versus ~4 us for the bounded families) with
-/// roughly 75 device calls. Capture allocates no storage; query errors abort
+/// a fixed set of device calls. Capture uses only call-local storage; query errors abort
 /// capture and release partial COM ownership. Use on the serialized device
 /// owner thread; restore after attachments because SetRenderTarget resets
 /// viewport/scissor.
@@ -2949,8 +2949,8 @@ pub struct ScreenTransactionState9 {
     viewport: D3DVIEWPORT9,
     scissor: RECT,
     render_states: [u32; DEPTH_SNAPSHOT_RENDER_STATES.len()],
-    sampler_states: [[u32; SHADOW_SAMPLER_STATES.len()]; 8],
-    textures: [Option<IDirect3DBaseTexture9>; 8],
+    sampler_states: [[u32; SHADOW_SAMPLER_STATES.len()]; 9],
+    textures: [Option<IDirect3DBaseTexture9>; 9],
     texture_stage_states: [u32; 4],
 }
 
@@ -2992,7 +2992,7 @@ impl ScreenTransactionState9 {
         {
             *value = device.render_state(state)?;
         }
-        let mut sampler_states = [[0; SHADOW_SAMPLER_STATES.len()]; 8];
+        let mut sampler_states = [[0; SHADOW_SAMPLER_STATES.len()]; 9];
         for (stage, states) in sampler_states.iter_mut().enumerate() {
             for (state, value) in SHADOW_SAMPLER_STATES.into_iter().zip(states) {
                 *value = device.sampler_state(stage as u32, state)?;
@@ -3047,11 +3047,8 @@ impl ScreenTransactionState9 {
             }
         }
         for (stage, texture) in self.textures.iter().enumerate() {
-            // A binding the transaction never touched still holds the captured
-            // value; re-setting None is a redundant driver call.
-            if texture.is_none() {
-                continue;
-            }
+            // An empty native slot can have been populated by any screen
+            // pass. Restore null exactly as well as retained COM bindings.
             keep_first_error(&mut result, unsafe {
                 device.inner.SetTexture(stage as u32, texture.as_ref())
             });

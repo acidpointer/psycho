@@ -1,8 +1,6 @@
-sampler2D SceneColor : register(s0);
 sampler2D FirstPersonDepth : register(s2);
 sampler2D BloomTexture : register(s4);
 sampler2D ColorLut : register(s5);
-sampler2D FilmGrainTexture : register(s6);
 #ifndef OMV_TONE_VARIANT
 #define OMV_TONE_VARIANT 0
 #endif
@@ -10,21 +8,15 @@ sampler2D FilmGrainTexture : register(s6);
 sampler2D AdaptiveToneResponse : register(s7);
 #endif
 
-float4 ScreenData : register(c0);
-float4 FrameData : register(c1);
 // Compose's existing c9 slot carries the declared LUT upper domain. Extraction
 // and blur retain their own c9 payloads; constants are bound per pass.
 float4 LutDomainMax : register(c9);
+// x defers display noise to optics; y admits masked first-person spatial AA.
+float4 ComposePassData : register(c20);
 float4 OptionData0 : register(c3);
 float4 OptionData1 : register(c4);
-float4 OptionData2 : register(c5);
-float4 GradeData0 : register(c10);
 float4 GradeData1 : register(c11);
-float4 GradeData2 : register(c12);
 float4 GradeData3 : register(c13);
-float4 GradeData4 : register(c14);
-float4 GradeData5 : register(c15);
-float4 GradeData6 : register(c16);
 float4 LutDomainScale : register(c17);
 float4 LutDomainBias : register(c18);
 // Fixed: x = contrast amount, y = shoulder reserve, w = toe curvature.
@@ -32,28 +24,12 @@ float4 LutDomainBias : register(c18);
 float4 AdaptiveToneData : register(c19);
 
 static const float DepthEndpointEpsilon = 0.000001f;
-static const float3 LumaFactors = float3(0.2126f, 0.7152f, 0.0722f);
 static const float3 WarmTint = float3(1.08f, 1.02f, 0.90f);
 static const float3 CoolTint = float3(0.94f, 0.99f, 1.08f);
-static const float DebandDitherNoiseScaleCodes = 4.0f;
-static const float FilmGrainTextureSize = 512.0f;
 
 struct PixelInput {
     float2 uv : TEXCOORD0;
 };
-
-float Luma(float3 color) {
-    return dot(color, LumaFactors);
-}
-
-float Smooth01(float value) {
-    value = saturate(value);
-    return value * value * (3.0f - 2.0f * value);
-}
-
-float4 SampleScene(float2 uv) {
-    return tex2Dlod(SceneColor, float4(uv, 0.0f, 0.0f));
-}
 
 float3 SampleBloom(float2 uv) {
     return tex2Dlod(BloomTexture, float4(uv, 0.0f, 0.0f)).rgb;
@@ -91,23 +67,7 @@ float3 ApplyWarmth(float3 color) {
     return color * tint;
 }
 
-float GoldenNoisePixel(float2 pixel, float frameIndex) {
-    float seed = dot(pixel, float2(0.06711056f, 0.00583715f)) + frameIndex * 0.000731f;
-    return frac(52.9829189f * frac(seed));
-}
-
-float GoldenNoise(float2 uv, float frameIndex) {
-    return GoldenNoisePixel(uv * ScreenData.xy, frameIndex);
-}
-
-float FilmGrainNoise(float2 uv, float frameIndex) {
-    float2 frameOffset = frac(frameIndex * float2(0.7548777f, 0.5698403f));
-    float2 grainUv =
-        uv * ScreenData.xy / (GradeData6.w * FilmGrainTextureSize) + frameOffset;
-    return tex2Dlod(FilmGrainTexture, float4(grainUv, 0.0f, 0.0f)).r * 2.0f - 1.0f;
-}
-
-float3 DebandScene(float2 uv, float3 center, out float flatWeight) {
+float3 DebandScene(float2 uv, float3 center, float3 originalCenter, out float flatWeight) {
     float2 texel = ScreenData.zw;
     float strength = GradeData2.z * GradeData0.x;
     float2 offset = texel * 6.0f;
@@ -115,8 +75,11 @@ float3 DebandScene(float2 uv, float3 center, out float flatWeight) {
     float3 right = SampleScene(uv + float2(offset.x, 0.0f)).rgb;
     float3 up = SampleScene(uv - float2(0.0f, offset.y)).rgb;
     float3 down = SampleScene(uv + float2(0.0f, offset.y)).rgb;
-    float3 average = (center + left + right + up + down) * 0.2f;
-    float3 delta = max(max(abs(left - right), abs(up - down)), abs(center - average));
+    // Classify the original input so deferred dither uses the same flatness
+    // gate after channel displacement. First-person AA changes only the value
+    // being filtered, not the classifier or the source alpha.
+    float3 average = (originalCenter + left + right + up + down) * 0.2f;
+    float3 delta = max(max(abs(left - right), abs(up - down)), abs(originalCenter - average));
     float edge = max(delta.r, max(delta.g, delta.b));
     flatWeight = 1.0f - Smooth01(edge * 42.5f);
     return lerp(center, average, strength * flatWeight * 0.85f);
@@ -156,7 +119,12 @@ float3 ApplyAnalyticGrade(float3 inputColor) {
     );
     color *= whiteBalance;
 
-    color = 0.5f.xxx + (color - 0.5f.xxx) * (1.0f + GradeData0.z);
+    // Positive contrast must not create a negative intercept which later
+    // clamps multiple shadow texels to black. Fade its affine displacement
+    // toward zero at black; midpoint/highlight response and saved negative
+    // contrast keep their existing equations. Black fade remains explicit.
+    float3 contrastWeight = GradeData0.z > 0.0f ? saturate(color * 2.0f) : 1.0f;
+    color += (color - 0.5f.xxx) * GradeData0.z * contrastWeight;
     float luma = Luma(color);
     float chromaRange = max(color.r, max(color.g, color.b)) - min(color.r, min(color.g, color.b));
     float adaptiveVibrance = 1.0f + GradeData1.x * (1.0f - saturate(chromaRange));
@@ -234,9 +202,19 @@ float3 ComposeBloom(float3 base, float3 bloomContribution, float shoulder) {
 float4 Main(PixelInput input) : COLOR0 {
     float4 baseSample = SampleScene(input.uv);
     float3 base = baseSample.rgb;
+    // Both silhouette sides need filtering. Reuse bloom's existing one-pixel
+    // coverage footprint instead of adding a mask pass or more depth samples.
+    // Pixels beyond that footprint retain world TAA; missing coverage is inert.
+    bool touchesFirstPerson = false;
+    if (ComposePassData.y > 0.5f || max(GradeData4.y, GradeData6.y) > 0.5f) {
+        touchesFirstPerson = TouchesFirstPerson(input.uv);
+    }
+    if (ComposePassData.y > 0.5f && touchesFirstPerson) {
+        base = ResolveFxaa(input.uv, base, float4(0.08f, 0.25f, 3.0f, 0.75f));
+    }
     float debandFlatWeight = 0.0f;
     if (GradeData4.x > 0.5f && GradeData5.z > 0.5f && GradeData2.z > 0.00001f) {
-        base = DebandScene(input.uv, base, debandFlatWeight);
+        base = DebandScene(input.uv, base, baseSample.rgb, debandFlatWeight);
     }
 
     float3 highlightBlur = 0.0f;
@@ -244,7 +222,7 @@ float4 Main(PixelInput input) : COLOR0 {
         float exposure = exp2(clamp(OptionData1.x, -0.5f, 0.5f));
         highlightBlur = ApplySaturation(SampleBloom(input.uv), OptionData1.z);
         highlightBlur = ApplyWarmth(highlightBlur) * exposure;
-        if (TouchesFirstPerson(input.uv)) {
+        if (touchesFirstPerson) {
             highlightBlur *= 0.28f;
         }
     }
@@ -278,19 +256,9 @@ float4 Main(PixelInput input) : COLOR0 {
     color = ApplyAdaptiveDisplayMapping(color);
 #endif
 
-    if (GradeData4.x > 0.5f && GradeData5.w > 0.5f) {
-        float grainResponse = 1.0f - sqrt(saturate(Luma(color)));
-        float grain = FilmGrainNoise(input.uv, FrameData.x)
-            * GradeData2.w * GradeData0.x * grainResponse;
-        color += color * grain;
+    // The optical writer emits noise when compose feeds channel displacement.
+    if (ComposePassData.x < 0.5f) {
+        color = ApplyOutputNoise(color, input.uv, debandFlatWeight);
     }
-
-    float ditherStrength = max(
-        GradeData4.y > 0.5f ? OptionData2.y : 0.0f,
-        GradeData4.x > 0.5f && GradeData5.z > 0.5f
-            ? GradeData2.z * GradeData0.x * debandFlatWeight * DebandDitherNoiseScaleCodes
-            : 0.0f
-    );
-    float noise = (GoldenNoise(input.uv, FrameData.x) - 0.5f) * ditherStrength / 255.0f;
-    return float4(saturate(color + noise), baseSample.a);
+    return float4(saturate(color), baseSample.a);
 }

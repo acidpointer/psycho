@@ -3,6 +3,7 @@ float4 SkyUpper : register(c21);
 float4 SkyLower : register(c22);
 float4 HorizonColor : register(c23);
 float4 SunLightColor : register(c24);
+float4 SunDiskColor : register(c30);
 float4 SunDirection : register(c25);
 float4 SkyData : register(c26);
 float4 CloudData : register(c27);
@@ -59,11 +60,11 @@ float SolarScatteringWeight(float cosine) {
     return pow(saturate(shape), SunDirection.w);
 }
 
-float3 EvaluateSky(float verticality, float atmosphere, float sunHeight, float sunInfluence, float solarWeight, float3 sunColor) {
+float3 EvaluateSky(float verticality, float atmosphere, float sunHeight, float horizonWeight, float solarWeight, float3 sunColor) {
     float3 color = lerp(SkyLower.rgb, SkyUpper.rgb, verticality);
-    color = lerp(color, HorizonColor.rgb, saturate(atmosphere * (0.5 + 0.5 * sunInfluence)));
     float haze = solarWeight * (1.0 - sunHeight) * atmosphere * SkyData.z * smoothstep(0.0, 0.5, SunData.x);
     color = lerp(color, sunColor, saturate(haze));
+    color = lerp(color, HorizonColor.rgb, horizonWeight);
     return color;
 }
 
@@ -82,15 +83,16 @@ float4 SampleWeatherTextures(float2 uv, float2 blendUv) {
 float4 Main(PixelInput input) : COLOR0 {
     float4 textureColor = Linearize4(tex2D(SkyTexture, input.uv));
     float4 vertexColor = Linearize4(input.color);
-    float sunHeight = SunData.w;
-    float3 sunColor = SunLightColor.rgb;
+    float3 sunColor = SunDiskColor.rgb;
 #if defined(OMV_CELESTIAL_SUN)
-    // Preserve the existing unit-texel peak and sunset response, but make
-    // added solar brightness follow authored RGB coverage. A black texel
-    // must not become an emitter just because its alpha admits the draw.
-    // Sun::Update supplies native disk visibility through blend-color alpha.
-    float sunsetWeight = smoothstep(0.3, 0.0, sunHeight);
-    float3 sunResult = textureColor.rgb * (1.0 + sunColor * (sunsetWeight + SunData.y));
+    // Disk and atmosphere use the same selected, once-evaluated solar color.
+    // Normalize tint independently of glare gain: an achromatic source retains
+    // its old peak, while a chromatic source no longer competes with a white
+    // pedestal or receives a second sunset gain. Missing weather RGB preserves
+    // the authored texture. RGB coverage and native alpha remain authoritative.
+    float solarPeak = max(sunColor.r, max(sunColor.g, sunColor.b));
+    float3 solarTint = solarPeak > 0.00001 ? sunColor / solarPeak : 1.0;
+    float3 sunResult = textureColor.rgb * solarTint * (1.0 + solarPeak * SunData.y);
     // Native visibility owns twilight and weather fading. A second climate
     // cutoff would override the authored disk even on an admitted native draw.
     float sunAlpha = textureColor.a * vertexColor.a;
@@ -127,12 +129,15 @@ float4 Main(PixelInput input) : COLOR0 {
     float verticalBase = dot(eyeDirection, up) * 0.5 + 0.5;
     float verticality = verticalBase * verticalBase * verticalBase;
     float atmosphere = Pow8(1.0 - verticality) * SkyData.x;
+    float horizonElevation = saturate(eyeDirection.z * HorizonColor.w);
+    float horizonVerticality = horizonElevation * 0.5 + 0.5;
+    horizonVerticality = horizonVerticality * horizonVerticality * horizonVerticality;
+    float horizonWeight = saturate(Pow8(1.0 - horizonVerticality) * SkyLower.w);
     float sunFacing = saturate(dot(eyeDirection, SunDirection.xyz) * 0.5 + 0.5);
-    float sunInfluence = pow(sunFacing, SunDirection.w);
     float sunHeight = SunData.w;
     float3 sunColor = SunLightColor.rgb;
     float solarWeight = SolarScatteringWeight(dot(eyeDirection, SunDirection.xyz));
-    float3 skyColor = EvaluateSky(verticality, atmosphere, sunHeight, sunInfluence, solarWeight, sunColor);
+    float3 skyColor = EvaluateSky(verticality, atmosphere, sunHeight, horizonWeight, solarWeight, SunDiskColor.rgb);
     float alpha = cloud.a * CloudData.z;
     float3 scattering = solarWeight * smoothstep(0.5, 1.0, 1.0 - alpha) * sunColor;
 

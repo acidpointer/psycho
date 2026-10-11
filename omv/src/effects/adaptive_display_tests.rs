@@ -120,6 +120,16 @@ impl Harness {
     }
 
     fn frame(&mut self, continuous: bool, seconds: f32) {
+        self.frame_with_inputs(continuous, seconds, &FrameInputs::default(), false);
+    }
+
+    fn frame_with_inputs(
+        &mut self,
+        continuous: bool,
+        seconds: f32,
+        inputs: &FrameInputs,
+        first_person_aa: bool,
+    ) {
         let device = self.owner.as_ref();
         let surface = self.output.surface_level(0).unwrap();
         device.begin_scene().unwrap();
@@ -129,7 +139,7 @@ impl Harness {
                     &device,
                     &surface,
                     &surface.desc().unwrap(),
-                    &FrameInputs::default(),
+                    inputs,
                     self.bloom.as_ref(),
                     Some(&self.source),
                     self.lut.as_ref(),
@@ -137,6 +147,7 @@ impl Harness {
                     0,
                     seconds,
                     continuous,
+                    first_person_aa,
                 )
                 .unwrap()
         );
@@ -257,6 +268,346 @@ fn assert_highlight_detail(pixels: &[[f32; 4]], width: usize, context: &str) {
 }
 
 #[test]
+fn bloom_debug_bypasses_final_noise_with_and_without_optics() {
+    let mut h = Harness::new(65, 35, AdaptiveToneConfig::legacy_disabled());
+    h.image(&vec![0x7FCACACA; 65 * 35]);
+    let mut config = EmbeddedEffectsConfig::default();
+    config.blooming_hdr.debug_bloom = true;
+    h.bloom = shaders::merge_embedded_sources(&config, Vec::new())
+        .into_iter()
+        .find(|s| s.embedded_effect_kind() == Some(EmbeddedEffectKind::BloomingHdr));
+    h.option("film_grain_enabled", ShaderOptionValue::Bool(true));
+    h.frame(true, 1.0 / 60.0);
+    let debug = h.pixels();
+    h.option(
+        "chromatic_aberration_enabled",
+        ShaderOptionValue::Bool(true),
+    );
+    h.frame(true, 1.0 / 60.0);
+    assert!(
+        h.pixels() == debug,
+        "the optical writer added noise to the Bloom debug bypass"
+    );
+}
+
+#[test]
+fn default_film_grain_is_subtle_and_unbiased_in_unorm8_output() {
+    let mut h = Harness::new(257, 109, AdaptiveToneConfig::legacy_disabled());
+    h.unorm_output();
+    h.image(&vec![0x7F808080; 257 * 109]);
+    h.option("film_grain_enabled", ShaderOptionValue::Bool(true));
+    h.frame(true, 1.0 / 60.0);
+    let plain = h.pixels();
+    let delta: Vec<f32> = plain.iter().map(|p| p[0] * 255.0 - 128.0).collect();
+    let rms = (delta.iter().map(|v| v * v).sum::<f32>() / delta.len() as f32).sqrt();
+    let mean = delta.iter().sum::<f32>() / delta.len() as f32;
+    assert!(
+        (0.5..=1.1).contains(&rms),
+        "default grain RMS = {rms} code values"
+    );
+    assert!(mean.abs() < 0.15, "default grain bias = {mean} code values");
+    assert!(
+        plain
+            .iter()
+            .all(|p| p[0] == p[1] && p[1] == p[2] && p[3] == 127.0 / 255.0)
+    );
+    h.option(
+        "chromatic_aberration_enabled",
+        ShaderOptionValue::Bool(true),
+    );
+    h.frame(true, 1.0 / 60.0);
+    assert_eq!(
+        h.pixels(),
+        plain,
+        "optical displacement altered output noise on flat input"
+    );
+}
+
+#[test]
+fn deferred_dither_retains_the_original_flatness_gate_and_alpha() {
+    let mut h = Harness::new(257, 109, AdaptiveToneConfig::legacy_disabled());
+    h.unorm_output();
+    h.image(
+        &(0..257 * 109)
+            .map(|i| {
+                if i % 257 < 128 {
+                    0x7F333333
+                } else {
+                    0x7FCCCCCC
+                }
+            })
+            .collect::<Vec<_>>(),
+    );
+    h.option("deband_enabled", ShaderOptionValue::Bool(true));
+    h.frame(true, 1.0 / 60.0);
+    let plain = h.pixels();
+    h.option(
+        "chromatic_aberration_enabled",
+        ShaderOptionValue::Bool(true),
+    );
+    h.frame(true, 1.0 / 60.0);
+    let optical = h.pixels();
+    // Entire central onset region has zero optical offset, so both final
+    // writers must emit the same edge-gated dither and preserve source alpha.
+    for y in 40..70 {
+        for x in 100..157 {
+            assert_eq!(
+                optical[y * 257 + x],
+                plain[y * 257 + x],
+                "dither gate changed at {x},{y}"
+            );
+        }
+    }
+    assert!(optical.iter().all(|p| p[3] == 127.0 / 255.0));
+}
+
+#[test]
+fn finishing_keeps_monochrome_grain_monochrome_with_chromatic_aberration() {
+    // The approved finishing contract adds display noise after channel
+    // displacement. A neutral input isolates that contract without claiming
+    // to reconstruct the owner's Capital Wasteland screenshots.
+    let mut h = Harness::new(257, 109, AdaptiveToneConfig::legacy_disabled());
+    h.unorm_output();
+    h.image(&vec![0x7F606060; 257 * 109]);
+    h.option("film_grain_enabled", ShaderOptionValue::Bool(true));
+    h.option("film_grain", ShaderOptionValue::Float(0.3544631));
+    h.option(
+        "chromatic_aberration_enabled",
+        ShaderOptionValue::Bool(true),
+    );
+    h.option("chromatic_aberration", ShaderOptionValue::Float(3.038874));
+    h.frame(true, 1.0 / 60.0);
+    let pixels = h.pixels();
+    let coloured = pixels
+        .iter()
+        .filter(|p| p[0] != p[1] || p[1] != p[2])
+        .count();
+    assert_eq!(
+        coloured, 0,
+        "channel displacement coloured {coloured} grain pixels"
+    );
+    assert!(
+        pixels
+            .iter()
+            .any(|p| (p[0] - 96.0 / 255.0).abs() > 1.0 / 255.0)
+    );
+    assert!(
+        pixels
+            .iter()
+            .all(|p| (p[3] - 127.0 / 255.0).abs() < 1.0 / 255.0)
+    );
+}
+
+#[test]
+fn chromatic_aberration_preserves_the_central_subject() {
+    let mut h = Harness::new(257, 109, AdaptiveToneConfig::legacy_disabled());
+    h.unorm_output();
+    let pixels: Vec<u32> = (0..257 * 109)
+        .map(|i| {
+            if i % 257 > 128 {
+                0x7FCCCCCC
+            } else {
+                0x7F333333
+            }
+        })
+        .collect();
+    h.image(&pixels);
+    h.option(
+        "chromatic_aberration_enabled",
+        ShaderOptionValue::Bool(true),
+    );
+    h.option("chromatic_aberration", ShaderOptionValue::Float(8.0));
+    h.frame(true, 1.0 / 60.0);
+    let output = h.pixels();
+    for y in 40..70 {
+        for x in 120..138 {
+            let p = output[y * 257 + x];
+            assert_eq!(p[0], p[1], "central red fringe at {x},{y}");
+            assert_eq!(p[1], p[2], "central blue fringe at {x},{y}");
+        }
+    }
+    assert!(
+        output.iter().any(|p| p[0] != p[1] || p[1] != p[2]),
+        "peripheral lens effect vanished"
+    );
+}
+
+#[test]
+fn first_person_companion_preserves_world_beyond_its_edge_footprint_and_alpha() {
+    use crate::backend::DepthTexture;
+    let mut h = Harness::new(73, 57, AdaptiveToneConfig::legacy_disabled());
+    h.unorm_output();
+    h.option("color_grading_enabled", ShaderOptionValue::Bool(true));
+    for key in [
+        "exposure",
+        "contrast",
+        "vibrance",
+        "temperature",
+        "tint",
+        "black_fade",
+        "highlight_rolloff",
+    ] {
+        h.option(key, ShaderOptionValue::Float(0.0));
+    }
+    h.option("saturation", ShaderOptionValue::Float(1.0));
+    let input: Vec<u32> = (0..73 * 57)
+        .map(|i| {
+            let x = i % 73;
+            let y = i / 73;
+            let rgb = if x > y + 6 { 0x00CCCCCC } else { 0x00333333 };
+            (((32 + (x + y) % 160) as u32) << 24) | rgb
+        })
+        .collect();
+    h.image(&input);
+    let depth = create_argb_texture(
+        &h.owner.as_ref(),
+        73,
+        57,
+        &(0..73 * 57)
+            .map(|i| if i % 73 >= 36 { 0xFF808080 } else { 0xFF000000 })
+            .collect::<Vec<_>>(),
+    )
+    .unwrap();
+    let mut frame = FrameInputs::default();
+    frame.first_person_rendered = true;
+    // This owned texture remains live through the production draw/readback.
+    frame.depth.first_person_texture = DepthTexture::new(depth.as_raw_base_texture());
+    h.frame_with_inputs(true, 1.0 / 60.0, &frame, false);
+    let baseline = h.pixels();
+    h.frame_with_inputs(true, 1.0 / 60.0, &frame, true);
+    let resolved = h.pixels();
+    let changed = resolved
+        .iter()
+        .zip(&baseline)
+        .enumerate()
+        .filter(|(i, (a, b))| i % 73 >= 36 && a[..3] != b[..3])
+        .count();
+    assert!(changed > 0, "first-person diagonal received no spatial AA");
+    for (i, (actual, original)) in resolved.iter().zip(&baseline).enumerate() {
+        assert_eq!(actual[3], original[3], "source alpha changed at {i}");
+        if i % 73 < 35 {
+            assert_eq!(actual, original, "world pixel changed at {i}");
+        }
+        assert!(
+            actual
+                .iter()
+                .all(|v| v.is_finite() && (0.0..=1.0).contains(v))
+        );
+    }
+    frame.depth.first_person_texture = None;
+    h.frame_with_inputs(true, 1.0 / 60.0, &frame, true);
+    assert_eq!(
+        h.pixels(),
+        baseline,
+        "missing coverage changed display color"
+    );
+    frame.depth.first_person_texture = DepthTexture::new(depth.as_raw_base_texture());
+    h.option("color_grading_enabled", ShaderOptionValue::Bool(false));
+    h.frame_with_inputs(true, 1.0 / 60.0, &frame, true);
+    assert_eq!(
+        h.pixels(),
+        resolved,
+        "AA depends on a creative grading family"
+    );
+}
+
+#[test]
+fn first_person_silhouette_filters_both_sides_with_a_bounded_footprint() {
+    use crate::backend::DepthTexture;
+    let mut h = Harness::new(73, 57, AdaptiveToneConfig::legacy_disabled());
+    h.unorm_output();
+    h.option("color_grading_enabled", ShaderOptionValue::Bool(true));
+    for key in [
+        "exposure",
+        "contrast",
+        "vibrance",
+        "temperature",
+        "tint",
+        "black_fade",
+        "highlight_rolloff",
+    ] {
+        h.option(key, ShaderOptionValue::Float(0.0));
+    }
+    h.option("saturation", ShaderOptionValue::Float(1.0));
+    let width = 73usize;
+    for (slope, offset) in [(0.2, 28.15), (0.45, 20.35), (0.8, 9.65)] {
+        let inside = |x: f64, y: f64| x > offset + slope * y;
+        let input: Vec<_> = (0..73 * 57)
+            .map(|i| {
+                if inside((i % width) as f64 + 0.5, (i / width) as f64 + 0.5) {
+                    0x7F333333
+                } else {
+                    0x7FCCCCCC
+                }
+            })
+            .collect();
+        let mask: Vec<_> = (0..73 * 57)
+            .map(|i| {
+                if inside((i % width) as f64 + 0.5, (i / width) as f64 + 0.5) {
+                    0xFF808080
+                } else {
+                    0xFF000000
+                }
+            })
+            .collect();
+        h.image(&input);
+        let depth = create_argb_texture(&h.owner.as_ref(), 73, 57, &mask).unwrap();
+        let mut frame = FrameInputs::default();
+        frame.first_person_rendered = true;
+        frame.depth.first_person_texture = DepthTexture::new(depth.as_raw_base_texture());
+        h.frame_with_inputs(true, 1.0 / 60.0, &frame, false);
+        let baseline = h.pixels();
+        h.frame_with_inputs(true, 1.0 / 60.0, &frame, true);
+        let resolved = h.pixels();
+        let mut outside_changed = 0;
+        let mut original_error = 0.0;
+        let mut resolved_error = 0.0;
+        for y in 4..53 {
+            for x in 4..69 {
+                let i = y * width + x;
+                // Pixel area is an independent geometry oracle. It neither
+                // calls nor duplicates FXAA; 16x16 coverage integrates the
+                // explicitly authored silhouette inside the display pixel.
+                let coverage = (0..256)
+                    .filter(|s| {
+                        inside(
+                            x as f64 + (s % 16) as f64 / 16.0 + 0.03125,
+                            y as f64 + (s / 16) as f64 / 16.0 + 0.03125,
+                        )
+                    })
+                    .count() as f64
+                    / 256.0;
+                let reference = 0.8 - coverage * 0.6;
+                original_error += (f64::from(baseline[i][0]) - reference).abs();
+                resolved_error += (f64::from(resolved[i][0]) - reference).abs();
+                assert_eq!(resolved[i][3], baseline[i][3]);
+                if mask[i] == 0xFF000000 {
+                    let touching = [i - 1, i + 1, i - width, i + width]
+                        .into_iter()
+                        .any(|n| mask[n] != 0xFF000000);
+                    if touching {
+                        outside_changed += usize::from(resolved[i] != baseline[i]);
+                    } else {
+                        assert_eq!(
+                            resolved[i], baseline[i],
+                            "AA escaped its one-pixel footprint"
+                        );
+                    }
+                }
+            }
+        }
+        assert!(
+            outside_changed > 0,
+            "only the covered side of the silhouette received AA"
+        );
+        assert!(
+            resolved_error < original_error,
+            "silhouette error grew: slope={slope}, original={original_error}, resolved={resolved_error}"
+        );
+    }
+}
+
+#[test]
 fn colored_highlights_retain_detail_in_fixed_automatic_and_quantized_output() {
     let mut h = Harness::new(
         512,
@@ -297,6 +648,46 @@ fn colored_highlights_retain_detail_in_fixed_automatic_and_quantized_output() {
                     }
                 }
             }
+        }
+    }
+}
+
+#[test]
+fn positive_analytic_contrast_retains_dark_texture_and_exact_black() {
+    let mut h = Harness::new(256, 8, AdaptiveToneConfig::legacy_disabled());
+    h.option("color_grading_enabled", ShaderOptionValue::Bool(true));
+    h.option("strength", ShaderOptionValue::Float(1.0));
+    for key in [
+        "exposure",
+        "vibrance",
+        "temperature",
+        "tint",
+        "black_fade",
+        "highlight_rolloff",
+    ] {
+        h.option(key, ShaderOptionValue::Float(0.0));
+    }
+    h.option("saturation", ShaderOptionValue::Float(1.0));
+    h.image(
+        &(0..256 * 8)
+            .map(|i| 0xFF000000 | ((i % 256) as u32 * 0x010101))
+            .collect::<Vec<_>>(),
+    );
+    for contrast in [0.045, 0.5] {
+        h.option("contrast", ShaderOptionValue::Float(contrast));
+        h.frame(false, 1.0 / 60.0);
+        let image = h.pixels();
+        assert_eq!(image[0], [0.0, 0.0, 0.0, 1.0], "contrast lifted black");
+        // The disabled tone mapper intentionally clamps over-white contrast.
+        // This boundary checks the shadow half; highlight shoulder behavior
+        // has its own FP16/UNORM regressions below.
+        for x in 1..128 {
+            assert!(
+                image[x][0] > image[x - 1][0],
+                "contrast erased texture step {x}: {:?} -> {:?}",
+                image[x - 1],
+                image[x]
+            );
         }
     }
 }
@@ -1002,6 +1393,7 @@ fn disabled_path_allocates_no_meter_and_resize_restarts_neutrally() {
                 &h.input,
                 0,
                 1.0 / 60.0,
+                false,
                 false
             )
             .unwrap()

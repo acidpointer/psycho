@@ -138,7 +138,7 @@ The active controls are:
 |---|---:|---|
 | `enabled` | `true` | Disabled performs no effect preparation, allocation, copy, or draw. |
 | `quality` | `performance`, `high`, `ultra`; `high` | Fixed 5, 7, or 9-tap variants. |
-| `shutter_angle` | `0..360`; `360` | Exposure fraction; zero is a no-work configuration. |
+| `shutter_angle` | `0..360`; `180` | Half-frame exposure by default; zero is a no-work configuration. |
 | `max_blur_pixels` | `0..48`; `36` | Hard output-pixel path bound; zero is no-work. |
 | `minimum_velocity_pixels` | `0..2`; `0.15` | CPU no-draw threshold with smooth shader activation above it. |
 

@@ -1,4 +1,4 @@
-//! Controlled cloud design regressions through the production D3D9 sky pair.
+//! Controlled sky design regressions through the production D3D9 native pairs.
 //!
 //! The native vertex/pixel templates and frame-constant preparation execute
 //! unchanged. Test-owned geometry and authored RGBA inputs specify the intended
@@ -28,6 +28,9 @@ struct Harness {
     output: Texture9,
     staging: Surface9,
     normals: bool,
+    pixel_kind: usize,
+    elevation: f32,
+    visibility: f32,
 }
 
 fn frame() -> crate::backend::NativeSkyFrame {
@@ -47,6 +50,14 @@ fn frame() -> crate::backend::NativeSkyFrame {
 
 impl Harness {
     fn new(normals: bool, quantized: bool) -> Self {
+        Self::pair(
+            VS_CLOUDS,
+            if normals { PS_CLOUD_NORMALS } else { PS_CLOUDS },
+            quantized,
+        )
+    }
+
+    fn pair(vertex_index: usize, pixel_kind: usize, quantized: bool) -> Self {
         let owner = create_direct3d9()
             .unwrap()
             .create_windowed_device(get_desktop_window().unwrap(), SIZE, SIZE, D3DDEVTYPE_HAL)
@@ -61,10 +72,8 @@ impl Harness {
             )
             .unwrap()
         };
-        let vertex = device.create_vertex_shader(&code(VS_CLOUDS)).unwrap();
-        let pixel = device
-            .create_pixel_shader(&code(if normals { PS_CLOUD_NORMALS } else { PS_CLOUDS }))
-            .unwrap();
+        let vertex = device.create_vertex_shader(&code(vertex_index)).unwrap();
+        let pixel = device.create_pixel_shader(&code(pixel_kind)).unwrap();
         let element = |offset, kind, usage| D3DVERTEXELEMENT9 {
             Stream: 0,
             Offset: offset,
@@ -116,7 +125,10 @@ impl Harness {
             second,
             output,
             staging,
-            normals,
+            normals: pixel_kind == PS_CLOUD_NORMALS,
+            pixel_kind,
+            elevation: 0.0,
+            visibility: 1.0,
         }
     }
 
@@ -140,6 +152,39 @@ impl Harness {
         brightness: f32,
         blend: f32,
         transparency: f32,
+    ) -> Vec<[f32; 4]> {
+        let settings = NativeSkySettings::from(crate::config::NativeSkyConfig {
+            cloud_brightness: brightness,
+            cloud_transparency: transparency,
+            cloud_normals: self.normals,
+            sunset_red: 0.0,
+            sunset_green: 0.0,
+            sunset_blue: 0.0,
+            ..Default::default()
+        });
+        self.draw_settings(frame, settings, blend)
+    }
+
+    fn draw_settings(
+        &self,
+        frame: crate::backend::NativeSkyFrame,
+        settings: NativeSkySettings,
+        blend: f32,
+    ) -> Vec<[f32; 4]> {
+        self.draw_environment(
+            frame,
+            settings,
+            blend,
+            crate::backend::EnvironmentFrame::default(),
+        )
+    }
+
+    fn draw_environment(
+        &self,
+        frame: crate::backend::NativeSkyFrame,
+        settings: NativeSkySettings,
+        blend: f32,
+        environment: crate::backend::EnvironmentFrame,
     ) -> Vec<[f32; 4]> {
         let device = self.owner.as_ref();
         device.set_depth_stencil_surface(None).unwrap();
@@ -197,10 +242,19 @@ impl Harness {
                 0,
                 &[
                     [1.0, 0.0, 0.0, 0.0],
-                    [0.0, 1.0, 0.0, 0.0],
+                    [
+                        0.0,
+                        1.0,
+                        0.0,
+                        if self.pixel_kind == PS_ATMOSPHERE {
+                            -4.0
+                        } else {
+                            0.0
+                        },
+                    ],
                     [0.0, 0.0, 1.0, 0.0],
                     [0.0, 0.0, 0.0, 1.0],
-                    [1.0, 1.0, 1.0, 1.0],
+                    [1.0, 1.0, 1.0, self.visibility],
                     [0.0; 4],
                     [0.0; 4],
                 ],
@@ -212,18 +266,21 @@ impl Harness {
         device
             .set_pixel_shader_constant_f(4, &[[blend, 1.0, 0.0, 0.0]])
             .unwrap();
-        let settings = NativeSkySettings::from(crate::config::NativeSkyConfig {
-            cloud_brightness: brightness,
-            cloud_transparency: transparency,
-            cloud_normals: self.normals,
-            sunset_red: 0.0,
-            sunset_green: 0.0,
-            sunset_blue: 0.0,
-            ..Default::default()
-        });
-        upload_constants(&device, prepare_sky_frame(frame, settings).constants, 3).unwrap();
+        upload_constants(
+            &device,
+            prepare_sky_frame(frame, settings, environment).constants,
+            3,
+        )
+        .unwrap();
         let vertex = |x, y, u, v| CloudVertex {
-            position: [x, y, 1.0, 1.0],
+            // The atmosphere's real vertex shader publishes mesh position as
+            // the eye ray. This translated plane has nonzero horizontal rays
+            // at every pixel while its MVP still covers the whole target.
+            position: if self.pixel_kind == PS_ATMOSPHERE {
+                [x, y + 4.0, self.elevation, 1.0]
+            } else {
+                [x, y, 1.0, 1.0]
+            },
             uv: [u, v, 0.0, 0.0],
             color: [1.0, 0.0, 0.0, 1.0],
         };
@@ -249,6 +306,176 @@ impl Harness {
             self.staging.read_rgba8().unwrap()
         } else {
             self.staging.read_rgba16f().unwrap()
+        }
+    }
+}
+
+#[test]
+fn geometric_horizon_reaches_weather_target_in_both_depth_modes() {
+    // The approved design boundary is the native horizon RGB, which is also
+    // the terrain endpoint once the frame owner selects the active fog color.
+    // These are explicit color-control fixtures, not captured scene constants.
+    for reversed in [false, true] {
+        let h = Harness::pair(
+            VS_ATMOSPHERE + if reversed { 0 } else { VS_FORWARD_OFFSET },
+            PS_ATMOSPHERE,
+            false,
+        );
+        let mut scene = frame();
+        scene.reversed_depth = reversed;
+        let settings = NativeSkySettings::from(crate::config::NativeSkyConfig {
+            sun_strength: 0.0,
+            ..Default::default()
+        });
+        for pixel in h.draw_settings(scene, settings, 0.0) {
+            for (actual, target) in pixel[..3].iter().zip(scene.horizon) {
+                assert!(
+                    (*actual - target).abs() <= 1.2 / 255.0,
+                    "horizon does not reach weather target: {pixel:?}, target={:?}",
+                    scene.horizon
+                );
+            }
+            assert_eq!(pixel[3], 1.0);
+        }
+    }
+}
+
+#[test]
+fn selected_solar_color_controls_disk_without_changing_authored_coverage() {
+    let h = Harness::pair(VS_CELESTIAL, PS_CELESTIAL_SUN, false);
+    let image: Vec<_> = (0..SIZE * SIZE)
+        .map(|i| match i % SIZE / 8 {
+            0 => 0x40000000,
+            1 => 0x80606060,
+            2 => 0xC0A0A0A0,
+            _ => 0xFFFFFFFF,
+        })
+        .collect();
+    h.image(&image, &image);
+    let mut scene = frame();
+    scene.sun_light = [0.3, 0.8, 0.5];
+    scene.sun_disk = [0.9, 0.6, 0.3];
+    let draw = |disk| {
+        h.draw_settings(
+            scene,
+            NativeSkySettings::from(crate::config::NativeSkyConfig {
+                use_sun_disk_color: disk,
+                sunset_red: 0.0,
+                sunset_green: 0.0,
+                sunset_blue: 0.0,
+                ..Default::default()
+            }),
+            0.0,
+        )
+    };
+    let light = draw(false);
+    let disk = draw(true);
+    assert!(
+        light.iter().zip(&disk).any(|(a, b)| a[..3] != b[..3]),
+        "the selected solar source did not affect the sun disk"
+    );
+    for (index, (a, b)) in light.iter().zip(&disk).enumerate() {
+        assert_eq!(a[3], b[3], "solar tint changed native coverage");
+        if index % (SIZE as usize) < 8 {
+            assert_eq!(b[..3], [0.0; 3], "black authored texel became an emitter");
+        }
+        assert!(b.iter().all(|v| v.is_finite()));
+    }
+}
+
+#[test]
+fn exterior_fog_owns_the_horizon_with_native_and_zero_thickness_fallbacks() {
+    let mut h = Harness::pair(VS_ATMOSPHERE, PS_ATMOSPHERE, false);
+    let mut scene = frame();
+    scene.sun_direction = [0.0, 1.0, 0.0];
+    let environment = crate::backend::EnvironmentFrame {
+        fog_available: true,
+        fog_color: [0.7, 0.65, 0.55],
+        ..Default::default()
+    };
+    for exterior in [false, true] {
+        scene.is_exterior = exterior;
+        for thickness in [f32::from_bits(1), 0.7068965, 8.0] {
+            let settings = NativeSkySettings::from(crate::config::NativeSkyConfig {
+                atmosphere_thickness: thickness,
+                sun_strength: 8.0,
+                ..Default::default()
+            });
+            let target = if exterior {
+                environment.fog_color
+            } else {
+                scene.horizon
+            };
+            for pixel in h.draw_environment(scene, settings, 0.0, environment) {
+                assert!(pixel.iter().all(|v| v.is_finite()));
+                for (actual, expected) in pixel[..3].iter().zip(target) {
+                    assert!(
+                        (*actual - expected).abs() < 1.2 / 255.0,
+                        "fog boundary was repainted: {pixel:?}, target={target:?}"
+                    );
+                }
+            }
+        }
+    }
+    scene.sky_upper = [0.2; 3];
+    scene.sky_lower = [0.2; 3];
+    let settings = NativeSkySettings::from(crate::config::NativeSkyConfig {
+        atmosphere_thickness: 0.0,
+        ..Default::default()
+    });
+    for pixel in h.draw_environment(scene, settings, 0.0, environment) {
+        assert!(pixel[..3].iter().all(|v| (*v - 0.2).abs() < 1.2 / 255.0));
+    }
+    scene = frame();
+    let settings = NativeSkySettings::from(crate::config::NativeSkyConfig {
+        sun_strength: 0.0,
+        ..Default::default()
+    });
+    let mut previous_red = 1.0;
+    for elevation in [0.0, 0.05, 0.1, 0.2, 0.5, 1.0, 4.0, 64.0] {
+        h.elevation = elevation;
+        let image = h.draw_settings(scene, settings, 0.0);
+        let red = image[(SIZE * SIZE / 2 + SIZE / 2) as usize][0];
+        assert!(
+            red <= previous_red,
+            "horizon gradient folded at {elevation}"
+        );
+        assert!(image.iter().flatten().all(|v| v.is_finite()));
+        previous_red = red;
+    }
+    assert!((previous_red - scene.sky_upper[0]).abs() < 1.2 / 255.0);
+}
+
+#[test]
+fn authored_solar_samples_retain_native_visibility_and_missing_color_fallback() {
+    let mut h = Harness::pair(VS_CELESTIAL, PS_CELESTIAL_SUN, false);
+    // Decoded samples from DNWeathers.bsa textures/sky/sun.dds: center
+    // (512,512), inner halo (550,512), outer halo (600,512), and transparent
+    // border (100,100). Black is an additional authored boundary input.
+    // No texture asset is redistributed.
+    let samples = [0xFFE6DBBD, 0x9A6D6554, 0x753C372C, 0x40000000, 0x00FF0000];
+    let input: Vec<_> = (0..SIZE * SIZE)
+        .map(|i| samples[(i % SIZE / 7) as usize])
+        .collect();
+    h.image(&input, &input);
+    let mut scene = frame();
+    scene.sun_light = [0.0; 3];
+    scene.sun_disk = [0.0; 3];
+    let settings = NativeSkySettings::from(crate::config::NativeSkyConfig::default());
+    for visibility in [0.0, 0.4, 1.0] {
+        h.visibility = visibility;
+        let image = h.draw_settings(scene, settings, 0.0);
+        for (actual, encoded) in image.iter().zip(&input) {
+            let channels = [
+                ((encoded >> 16) & 255) as f32,
+                ((encoded >> 8) & 255) as f32,
+                (encoded & 255) as f32,
+            ];
+            for (value, authored) in actual[..3].iter().zip(channels) {
+                assert!((*value - authored / 255.0).abs() < 0.002);
+            }
+            let alpha = ((encoded >> 24) & 255) as f32 / 255.0;
+            assert!((actual[3] - alpha * visibility).abs() < 0.001);
         }
     }
 }
@@ -447,6 +674,7 @@ fn bright_cloud_detail_survives_production_final_tone_in_unorm() {
                         &h.output,
                         0,
                         1.0 / 60.0,
+                        false,
                         false
                     )
                     .unwrap()

@@ -355,7 +355,7 @@ pub(crate) fn copy_exact_color_surface_region(
 ///
 /// This replaces the driver `D3DSBT_ALL` capture with the
 /// [`libpsycho::os::windows::directx9::ScreenTransactionState9`] journal:
-/// same restoration contract, roughly 75 device calls instead of the broad
+/// same restoration contract, bounded device calls instead of the broad
 /// driver-defined capture measured at ~104 us per capture+apply under DXVK.
 /// Use on the serialized render thread only.
 pub(crate) fn capture_screen_transaction(

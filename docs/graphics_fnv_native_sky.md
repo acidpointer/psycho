@@ -51,6 +51,57 @@ frame state is concurrently busy.
 
 ## GPU Performance Contract
 
+### Shared horizon and solar color
+
+The active exterior `BSFogProperty` is the endpoint already consumed by native
+terrain and OMV's atmospheric medium. Sky frame preparation now copies that
+validated fog color once per epoch. An unavailable fog property retains native
+sky horizon RGB; interiors never substitute exterior fog. This uses the
+existing backend reader, read-validation cache and sky frame owner, with no
+new hook, allocation, startup owner or configuration field.
+
+The former atmosphere equation used a hemisphere-remapped height of `0.125`
+at the geometric horizon. Its thickness-scaled eighth-power blend therefore
+never reached the requested horizon color at the default thickness. The new
+blend normalizes that profile at elevation zero, treats positive thickness as
+angular extent, and applies the weather endpoint after the localized solar
+haze. Normal-lit clouds use the same gradient. Zenith colors, authored disk
+geometry and opacity, and the Cornette-Shanks angular haze remain owned by
+their existing paths. Zero thickness retains the explicit horizon/haze bypass.
+Custom sky multiplier still scales the whole sky; endpoint agreement is the
+neutral multiplier-one contract.
+
+The existing `c22.w` slot carries profile normalization (zero for bypass), and
+`c23.w` carries reciprocal thickness. Preparation bounds the positive reciprocal
+at the smallest normal float so accepted subnormal widths cannot publish Inf.
+The eleven-vector payload and all serialized layouts stay unchanged.
+
+The sun shader previously used directional color regardless of the solar-color
+selector and applied another sunset gain after CPU sunset evaluation. It now
+shares `c30` with the atmosphere. Solar hue is normalized by its channel peak
+and glare controls gain separately; achromatic sources retain their overhead
+peak. Missing source RGB retains authored texture RGB. Texture RGB still owns
+emission coverage, and texture/vertex/property alpha still owns visibility.
+There is no new disk size, climate cutoff, opacity or screen-space source.
+Default 1.6.0 selects native disk color and keeps optional additive sunset RGB
+neutral; stored user settings remain explicit controls.
+
+The corrected boundary and solar selector each fail on the prior production
+pair in controlled D3D9 tests. Qualification also covers both depth modes,
+exterior/interior/missing-fog behavior, zero/subnormal/maximum thickness,
+ordered elevation gradients, zenith retention, missing solar RGB and native
+visibility. Solar sample inputs include decoded center/halo/border values from
+the installed `DNWeathers.bsa` sun texture; the texture itself is not shipped
+as a test fixture. These tests execute production constant preparation and the
+native vertex/pixel templates, but do not replay the screenshots' full frames.
+
+CPU preparation avoids the per-pixel reciprocal and bypass branches of the
+first boundary implementation. The final atmosphere, sun and normal-cloud
+variants each add two instruction tokens to their previous ceilings; sample
+counts, draws, targets and storage remain unchanged. Simpler amplitude-only
+normalization would leave thickness without its gradient-width control;
+retaining the old boundary would retain the demonstrated discontinuity.
+
 The original celestial pixel shader evaluated both sun and non-sun equations
 and selected the result from uniform `ObjectData.x`. OMV now compiles exact sun,
 moon, and other-celestial variants and selects the variant from the already
@@ -75,12 +126,12 @@ texture, or force cloud normals off. Current static ceilings are:
 
 | Pixel variant | Instructions | Texture samples | Bytecode bytes |
 |---|---:|---:|---:|
-| Atmosphere | 101 | 0 | 1,964 |
-| Celestial sun | 60 | 1 | 1,196 |
+| Atmosphere | 103 | 0 | 2,004 |
+| Celestial sun | 62 | 1 | 1,228 |
 | Celestial moon | 65 | 1 | 1,228 |
 | Other celestial | 66 | 1 | 1,288 |
 | Clouds | 207 | 2 | 3,692 |
-| Cloud normals | 269 | 2 | 4,748 |
+| Cloud normals | 271 | 2 | 4,816 |
 | Stars | 188 | 1 | 3,204 |
 
 Every vertex and pixel variant has a named bytecode, instruction, and exact
@@ -417,11 +468,11 @@ radiance from a tone-mapped framebuffer or claim native mip-filter parity.
 Textures are sampled only inside the projected authored quad. No fixed screen
 radius or physical angular disk replaces the game's authored size.
 
-Texture-shaped emission and native opacity add three instruction tokens, while
-removing the duplicate daylight cutoff removes eight. The final sun variant
-therefore uses 60 tokens and one texture fetch, below the former 65-token budget,
-with no new draw. Retaining the uniform pedestal or discarding native alpha
-would remove required behavior. Other native-sky shader budgets remain unchanged. Compilation and bytecode budgets
+Texture-shaped emission and native opacity added three instruction tokens, while
+removing the duplicate daylight cutoff removed eight. That coverage revision
+used 60 tokens and one texture fetch; the shared-color correction above uses
+62 tokens with the same fetch and no new draw. Retaining the uniform pedestal
+or discarding native alpha would remove required behavior. Compilation and bytecode budgets
 are static support evidence; final pixels, engine integration and startup were
 not run. Gameplay validation remains solely the owner's decision.
 
@@ -459,6 +510,13 @@ reference phase profile and source-color blend jointly address those contracts.
 Celestial, moon, star and vertex budgets remain unchanged.
 
 ## Cloud lighting and brightness
+
+Preset `1.5.0` sets the existing cloud transparency control to one, preserving
+the authored texture-times-vertex alpha through its power-one response.
+The previous default `0.3610992` used exponent approximately `2.77`, making
+half-coverage cloud texels about `0.147` opaque. Saved values retain their
+existing exponent semantics; no setting migration, normal-mode toggle or
+weather change is introduced. Cloud normals remain disabled by default.
 
 Cloud brightness is a single linear RGB gain after lighting. It does not
 change normal decoding, the ambient/direct-light balance, authored texture

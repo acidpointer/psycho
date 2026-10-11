@@ -48,18 +48,24 @@ float4 Main(PixelInput input) : COLOR0 {
     float3 eyeDirection = normalize(input.eye);
     float verticality = Pow3(dot(eyeDirection, up) * 0.5 + 0.5);
     float atmosphere = Pow8(1.0 - verticality) * SkyData.x;
-    float sunFacing = saturate(dot(eyeDirection, SunDirection.xyz) * 0.5 + 0.5);
-    float sunInfluence = pow(sunFacing, SunDirection.w);
+    // Thickness controls the angular extent, not the boundary color. Normalize
+    // the released eighth-power profile at elevation zero; a fully fogged
+    // terrain pixel and its adjacent horizon must share the weather endpoint.
+    float horizonElevation = saturate(eyeDirection.z * HorizonColor.w);
+    float horizonVerticality = Pow3(horizonElevation * 0.5 + 0.5);
+    float horizonWeight = saturate(Pow8(1.0 - horizonVerticality) * SkyLower.w);
     float sunHeight = SunData.w;
     float3 sunColor = SunDiskColor.rgb;
 
     float3 color = lerp(SkyLower.rgb, SkyUpper.rgb, verticality);
-    color = lerp(color, HorizonColor.rgb, saturate(atmosphere * (0.5 + 0.5 * sunInfluence)));
     // Weather color already owns the broad sky. Localized solar haze blends
     // toward its source color instead of adding a hemispheric RGB pedestal.
     float solarWeight = SolarScatteringWeight(dot(eyeDirection, SunDirection.xyz));
     float haze = solarWeight * (1.0 - sunHeight) * atmosphere * SkyData.z * smoothstep(0.0, 0.5, SunData.x);
     color = lerp(color, sunColor, saturate(haze));
+    // Solar haze fades into the same endpoint instead of repainting the fog
+    // boundary with a second color. The authored disk remains a separate draw.
+    color = lerp(color, HorizonColor.rgb, horizonWeight);
     color *= SkyMultiplier.w;
 
     float dither = InterleavedGradientNoise(input.screen);

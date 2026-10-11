@@ -13,6 +13,12 @@ Configuration belongs to
 It is visual configuration and may participate in presets. The selected depth
 provider is a separate machine-local option and is never captured by a preset.
 
+Preset `1.5.0` keeps the existing high-quality soft style and focus policy,
+with far strength `0.25`, far radius `24` output pixels, distant blur `0.25`
+and sky blur `0.05`. The restrained optical response preserves more distant
+scene detail; gather sample counts, near blur, native arbitration and
+resource/phase ownership remain unchanged.
+
 The RTX 5060 tester measured approximately 4-5 FPS of incremental DOF cost at
 3440x1440. That is a runtime observation on one machine, not a universal
 performance result. Static source proves the work described below but cannot

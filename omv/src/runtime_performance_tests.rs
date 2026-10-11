@@ -8,6 +8,192 @@ use libpsycho::os::windows::{directx9::*, winapi::get_desktop_window};
 // These executions share production phase-work counters/publication.
 static RUNTIME_EXECUTION: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
+/// Execute the shipped SMAA -> Bloom/grade -> CA/deband graph while changing
+/// scene color and toggling SMAA. The native binary supports a zero RT0 color
+/// mask; that state must neither suppress AA nor become OMV's output contract.
+#[test]
+fn smaa_finishing_refreshes_frames_with_native_color_writes_disabled() {
+    execute_smaa_finishing_transaction(0, false);
+}
+
+/// Finishing owns s8 for pre-grade deband input. Its transaction must restore
+/// all touched samplers, including originally empty slots and native s8 data.
+#[test]
+fn smaa_finishing_restores_native_sampler_bindings_and_states() {
+    execute_smaa_finishing_transaction(15, true);
+}
+
+fn execute_smaa_finishing_transaction(native_mask: u32, check_samplers: bool) {
+    let _execution = RUNTIME_EXECUTION
+        .lock()
+        .unwrap_or_else(|err| err.into_inner());
+    let owner = create_direct3d9()
+        .unwrap()
+        .create_windowed_device(get_desktop_window().unwrap(), 32, 24, D3DDEVTYPE_HAL)
+        .unwrap();
+    let device = owner.as_ref();
+    crate::render_state::release_fullscreen_stream();
+    let target = device.render_target(0).unwrap();
+    let desc = target.desc().unwrap();
+    let readback = device
+        .create_system_memory_surface(desc.Width, desc.Height, desc.Format)
+        .unwrap();
+    let native_texture = device
+        .create_render_target_texture(4, 4, D3DFMT_A8R8G8B8)
+        .unwrap();
+
+    anti_aliasing::service_preparation();
+    let deadline = Instant::now() + std::time::Duration::from_secs(30);
+    while !anti_aliasing::preparation_ready() && Instant::now() < deadline {
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    assert!(anti_aliasing::preparation_ready());
+    let mut config = crate::config::EmbeddedEffectsConfig::default();
+    config.smaa.enabled = true;
+    config.blooming_hdr.enabled = true;
+    config.color_grade.enabled = true;
+    config.color_grade.chromatic_aberration_enabled = true;
+    config.color_grade.deband_enabled = true;
+    assert!(config.color_grade.deband > 0.0);
+    assert!(config.color_grade.chromatic_aberration > 0.0);
+    let bytecode = Arc::new(blooming_hdr::FinalColorShaderBytecode::prepare().unwrap());
+    let mut runtimes = [
+        ScreenShaderRuntime::default(),
+        ScreenShaderRuntime::default(),
+    ];
+    for runtime in &mut runtimes {
+        runtime.sources = shaders::merge_embedded_sources(&config, Vec::new())
+            .into_iter()
+            .filter(|source| {
+                matches!(
+                    source.embedded_effect_kind(),
+                    Some(EmbeddedEffectKind::Smaa)
+                        | Some(EmbeddedEffectKind::BloomingHdr)
+                        | Some(EmbeddedEffectKind::ColorGrade)
+                )
+            })
+            .collect();
+        runtime.final_color_shaders = Some(bytecode.clone());
+        runtime.ensure_shaders(&device);
+    }
+    let phase = ShaderPhase::FinalImageSpace;
+    let sampler_states = [
+        (D3DSAMP_ADDRESSU, D3DTADDRESS_WRAP.0 as u32),
+        (D3DSAMP_ADDRESSV, D3DTADDRESS_WRAP.0 as u32),
+        (D3DSAMP_MINFILTER, D3DTEXF_POINT.0 as u32),
+        (D3DSAMP_MAGFILTER, D3DTEXF_POINT.0 as u32),
+        (D3DSAMP_MIPFILTER, D3DTEXF_NONE.0 as u32),
+        (D3DSAMP_SRGBTEXTURE, 0),
+    ];
+    for (epoch, color, smaa_enabled) in [
+        (1, 0xFF30_4050, true),
+        (2, 0xFF80_A0C0, true),
+        (3, 0xFF30_4050, false),
+        (4, 0xFF80_A0C0, true),
+    ] {
+        let mut images = Vec::new();
+        for (index, runtime) in runtimes.iter_mut().enumerate() {
+            for source in &mut runtime.sources {
+                if source.embedded_effect_kind() == Some(EmbeddedEffectKind::Smaa) {
+                    source.enabled = smaa_enabled;
+                }
+            }
+            runtime.rebuild_execution_plan();
+            runtime.begin_render_epoch(epoch);
+            // These engine-side inputs never alias an OMV target. Alternate
+            // empty/occupied native slots, including s8, across frames.
+            for sampler in 0..=8 {
+                if (sampler + epoch) % 2 == 0 {
+                    device.set_texture(sampler, &native_texture).unwrap();
+                } else {
+                    device.clear_texture(sampler).unwrap();
+                }
+                for (state, value) in sampler_states {
+                    device.set_sampler_state(sampler, state, value).unwrap();
+                }
+            }
+            let native_bindings: Vec<_> =
+                (0..=8).map(|sampler| device.texture_raw(sampler)).collect();
+            device.set_render_target(0, &target).unwrap();
+            device
+                .clear_attachments(D3DCLEAR_TARGET as u32, color, 1.0, 0)
+                .unwrap();
+            // The control executes the identical graph/history/settings with
+            // writable native color, providing a same-frame finishing oracle.
+            let mask = if index == 0 && epoch > 1 {
+                native_mask
+            } else {
+                15
+            };
+            device
+                .set_render_state(D3DRS_COLORWRITEENABLE, mask)
+                .unwrap();
+            let slots = runtime.render_target_slots(&device).unwrap();
+            let attachments = RenderAttachments::capture(&device, slots).unwrap();
+            let journal = crate::render_state::capture_screen_transaction(&device).unwrap();
+            device.begin_scene().unwrap();
+            slots.prepare_target_change(&device).unwrap();
+            let result = runtime.draw_passes(
+                &device,
+                &target,
+                &desc,
+                phase,
+                &backend::FrameInputs::default(),
+            );
+            crate::render_state::finish_screen_transaction(&device, &attachments, result, &journal)
+                .unwrap();
+            device.end_scene().unwrap();
+            assert_eq!(device.render_state(D3DRS_COLORWRITEENABLE).unwrap(), mask);
+            device.copy_render_target_data(&target, &readback).unwrap();
+            images.push(readback.read_rgba8().unwrap().to_vec());
+            if index == 0 && smaa_enabled {
+                // SMAA precedes finishing and preserves a flat input exactly.
+                // Observe its actual graph output, before Bloom/grade noise.
+                let scratch = runtime.phase_color_scratch(phase).unwrap();
+                device
+                    .copy_render_target_data(&scratch.surface, &readback)
+                    .unwrap();
+                let expected = [
+                    ((color >> 16) & 255) as f32 / 255.0,
+                    ((color >> 8) & 255) as f32 / 255.0,
+                    (color & 255) as f32 / 255.0,
+                ];
+                for pixel in readback.read_rgba8().unwrap() {
+                    assert!(
+                        (0..3).all(|c| (pixel[c] - expected[c]).abs() <= 1.0 / 255.0),
+                        "epoch {epoch}: SMAA retained stale color {pixel:?}; current scene {expected:?}"
+                    );
+                }
+            }
+            if index == 0 && check_samplers {
+                for sampler in (0..=8).rev() {
+                    assert_eq!(
+                        device.texture_raw(sampler),
+                        native_bindings[sampler as usize],
+                        "epoch {epoch}: leaked texture at s{sampler}"
+                    );
+                    for (state, value) in sampler_states {
+                        assert_eq!(
+                            device.sampler_state(sampler, state).unwrap(),
+                            value,
+                            "epoch {epoch}: leaked sampler state at s{sampler}"
+                        );
+                    }
+                }
+            }
+        }
+        for (actual, reference) in images[0].iter().zip(&images[1]) {
+            assert!(
+                actual
+                    .iter()
+                    .zip(reference)
+                    .all(|(a, b)| (a - b).abs() <= 1.0 / 255.0 + f32::EPSILON),
+                "epoch {epoch}: final image differs from current-frame finishing reference"
+            );
+        }
+    }
+}
+
 struct RestoreMenu(bool);
 
 impl Drop for RestoreMenu {

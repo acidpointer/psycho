@@ -42,7 +42,7 @@ const MAX_PRESET_BYTES: u64 = 1024 * 1024;
 const MAX_PRESET_SCAN_DEPTH: usize = 4;
 const MAX_PRESET_NAME_ATTEMPTS: u32 = 10_000;
 const DEFAULT_PRESET_ID: &str = "00000000-0000-4000-8000-000000000001";
-const DEFAULT_PRESET_VERSION: &str = "1.4.0";
+const DEFAULT_PRESET_VERSION: &str = "1.6.0";
 
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub(crate) struct PresetKey {
@@ -1851,7 +1851,7 @@ mod tests {
         let text = builtin_text();
         let parsed = parse_preset(&text).expect("parse built-in preset");
         assert_eq!(parsed.metadata.id, DEFAULT_PRESET_ID);
-        assert_eq!(parsed.metadata.version, "1.4.0");
+        assert_eq!(parsed.metadata.version, "1.6.0");
         assert!(parsed.dependencies.lut.is_some());
         assert_eq!(
             parsed.payload_revision().unwrap(),
@@ -1981,7 +1981,7 @@ mod tests {
             &source,
             &source_path,
             42,
-            "1.4.1",
+            "1.6.1",
             &menu,
             &[],
             &luts,
@@ -1991,7 +1991,7 @@ mod tests {
 
         assert_eq!(updated.metadata.id, source.metadata.id);
         assert_eq!(updated.metadata.name, source.metadata.name);
-        assert_eq!(updated.metadata.version, "1.4.1");
+        assert_eq!(updated.metadata.version, "1.6.1");
         assert_ne!(
             updated.payload_revision().unwrap(),
             source.payload_revision().unwrap()

@@ -2,6 +2,9 @@
 //!
 //! Every production variant is compiled by a process worker. The render path
 //! creates D3D objects from immutable bytecode and never performs cache I/O.
+//! AA owns fullscreen raster/sampler state even when it is the first effect.
+//! The outer screen transaction owns attachments and restores native state;
+//! a failed binding aborts the draw without publishing its target as current.
 
 use std::{
     sync::{
@@ -13,10 +16,14 @@ use std::{
 
 use anyhow::Result;
 use libpsycho::os::windows::directx9::{
-    D3DCLEAR_TARGET, D3DFMT_A8R8G8B8, D3DRS_SRGBWRITEENABLE, D3DSAMP_ADDRESSU, D3DSAMP_ADDRESSV,
-    D3DSAMP_MAGFILTER, D3DSAMP_MINFILTER, D3DSAMP_MIPFILTER, D3DSAMP_SRGBTEXTURE, D3DSURFACE_DESC,
-    D3DTADDRESS_CLAMP, D3DTEXF_LINEAR, D3DTEXF_NONE, D3DVIEWPORT9, Device9Ref, Direct3DResult,
-    PixelShader9, ScreenVertex, Surface9, Texture9, direct3d_failure,
+    D3DCLEAR_TARGET, D3DCULL_NONE, D3DFMT_A8R8G8B8, D3DRS_ADAPTIVETESS_Y, D3DRS_ALPHABLENDENABLE,
+    D3DRS_ALPHATESTENABLE, D3DRS_CLIPPLANEENABLE, D3DRS_COLORWRITEENABLE, D3DRS_CULLMODE,
+    D3DRS_FOGENABLE, D3DRS_MULTISAMPLEANTIALIAS, D3DRS_MULTISAMPLEMASK, D3DRS_POINTSIZE,
+    D3DRS_SCISSORTESTENABLE, D3DRS_SRGBWRITEENABLE, D3DRS_STENCILENABLE, D3DRS_ZENABLE,
+    D3DRS_ZWRITEENABLE, D3DSAMP_ADDRESSU, D3DSAMP_ADDRESSV, D3DSAMP_MAGFILTER, D3DSAMP_MINFILTER,
+    D3DSAMP_MIPFILTER, D3DSAMP_SRGBTEXTURE, D3DSURFACE_DESC, D3DTADDRESS_CLAMP, D3DTEXF_LINEAR,
+    D3DTEXF_NONE, D3DVIEWPORT9, Device9Ref, Direct3DResult, PixelShader9, ScreenVertex, Surface9,
+    Texture9, direct3d_failure,
 };
 
 use crate::shaders::{self, EmbeddedEffectKind, ScreenShaderSource};
@@ -28,7 +35,13 @@ mod smaa;
 
 const FIRST_OPTION_REGISTER: u32 = 3;
 
-const FAST_FXAA_SHADER: &[u8] = include_bytes!("../../shaders/embedded/aa_fast_fxaa.hlsl");
+const FAST_FXAA_SHADER: &[u8] = concat!(
+    "#define OMV_SCENE_IMPLICIT_LOD 1\n",
+    include_str!("../../shaders/embedded/display_input.hlsl"),
+    include_str!("../../shaders/embedded/fxaa_resolve.hlsl"),
+    include_str!("../../shaders/embedded/aa_fast_fxaa.hlsl"),
+)
+.as_bytes();
 const NFAA_SHADER: &[u8] = include_bytes!("../../shaders/embedded/aa_nfaa.hlsl");
 const AXAA_SHADER: &[u8] = include_bytes!("../../shaders/embedded/aa_axaa.hlsl");
 const DLAA_PREFILTER_SHADER: &[u8] =
@@ -322,6 +335,10 @@ impl AntiAliasingEffect {
         }))
     }
 
+    /// Draw the selected spatial AA variant on the serialized device thread.
+    /// The caller owns the outer state journal, normalized attachments, and
+    /// distinct readable scene color/writable output. Binding or draw errors
+    /// abort publication; unsupported source kinds perform no device work.
     pub(crate) fn draw(
         &mut self,
         device: &Device9Ref<'_>,
@@ -330,7 +347,22 @@ impl AntiAliasingEffect {
         source: &ScreenShaderSource,
         scene_color: &Texture9,
     ) -> Direct3DResult<()> {
-        match source.embedded_effect_kind() {
+        let kind = source.embedded_effect_kind();
+        let sampler_count = match kind {
+            Some(EmbeddedEffectKind::Smaa) => 3,
+            Some(
+                EmbeddedEffectKind::FastFxaa
+                | EmbeddedEffectKind::Nfaa
+                | EmbeddedEffectKind::Axaa
+                | EmbeddedEffectKind::Dlaa,
+            ) => 1,
+            _ => return Ok(()),
+        };
+        // AA now precedes finishing, so Bloom can no longer establish these
+        // states on its behalf. A successful draw with native color writes
+        // disabled would otherwise publish last frame's scratch as current.
+        bind_pipeline_state(device, sampler_count)?;
+        match kind {
             Some(EmbeddedEffectKind::FastFxaa) => draw_single(
                 device,
                 backbuffer,
@@ -396,22 +428,6 @@ impl AntiAliasingEffect {
         source: &ScreenShaderSource,
         scene_color: &Texture9,
     ) -> Direct3DResult<()> {
-        // Lookup data and edges/weights are never sRGB. Preserve the current
-        // phase's color encoding; upstream supports gamma-space blending when
-        // a separate sRGB color-input contract is unavailable.
-        device.set_render_state(D3DRS_SRGBWRITEENABLE, 0)?;
-        for sampler in 0..3 {
-            for (state, value) in [
-                (D3DSAMP_ADDRESSU, D3DTADDRESS_CLAMP.0 as u32),
-                (D3DSAMP_ADDRESSV, D3DTADDRESS_CLAMP.0 as u32),
-                (D3DSAMP_MINFILTER, D3DTEXF_LINEAR.0 as u32),
-                (D3DSAMP_MAGFILTER, D3DTEXF_LINEAR.0 as u32),
-                (D3DSAMP_MIPFILTER, D3DTEXF_NONE.0 as u32),
-                (D3DSAMP_SRGBTEXTURE, 0),
-            ] {
-                device.set_sampler_state(sampler, state, value)?;
-            }
-        }
         let edges_shader = self.smaa_edges.clone();
         let blend_shader = self.smaa_blend.clone();
         let edge_debug = smaa_edge_debug(source);
@@ -540,15 +556,7 @@ fn bind_target(
     desc: &D3DSURFACE_DESC,
 ) -> Direct3DResult<()> {
     crate::render_state::clear_sampler(device, 0)?;
-    // Spatial AA is the only screen pipeline whose passes previously
-    // inherited FVF, vertex-shader, and viewport state from whatever ran
-    // before them. After a native draw left its own vertex format, or on a
-    // letterboxed frame whose viewport carries the native Y offset, the
-    // quad rendered with the wrong vertex interpretation: garbage geometry
-    // over a rectangle of the target while the rest kept the previous
-    // frame. Every pass now binds its full drawing state explicitly.
-    device.clear_vertex_shader()?;
-    device.set_fvf(ScreenVertex::FVF)?;
+    device.set_render_target(0, surface)?;
     // Viewport ownership hygiene: RHW quads ignore the viewport offset under
     // DXVK, but the pass must not depend on that driver behavior.
     device.set_viewport(&D3DVIEWPORT9 {
@@ -558,8 +566,56 @@ fn bind_target(
         Height: desc.Height,
         MinZ: 0.0,
         MaxZ: 1.0,
-    })?;
-    device.set_render_target(0, surface)
+    })
+}
+
+fn bind_pipeline_state(device: &Device9Ref<'_>, sampler_count: u32) -> Direct3DResult<()> {
+    device.clear_vertex_shader()?;
+    device.set_fvf(ScreenVertex::FVF)?;
+    device.set_stream_source_frequency(0, 1)?;
+    for (state, value) in [
+        (D3DRS_CULLMODE, D3DCULL_NONE.0 as u32),
+        (D3DRS_ALPHABLENDENABLE, 0),
+        (D3DRS_ALPHATESTENABLE, 0),
+        (D3DRS_ZENABLE, 0),
+        (D3DRS_ZWRITEENABLE, 0),
+        (D3DRS_STENCILENABLE, 0),
+        (D3DRS_SCISSORTESTENABLE, 0),
+        (D3DRS_FOGENABLE, 0),
+        (D3DRS_CLIPPLANEENABLE, 0),
+        (D3DRS_MULTISAMPLEANTIALIAS, 1),
+        (D3DRS_MULTISAMPLEMASK, u32::MAX),
+        (D3DRS_SRGBWRITEENABLE, 0),
+        (D3DRS_COLORWRITEENABLE, 15),
+    ] {
+        device.set_render_state(state, value)?;
+    }
+    // Use the established device-specific native coverage contract. These
+    // extension states must not be sent to devices which do not own them.
+    match crate::backend::fnv_alpha_coverage_mode() {
+        crate::backend::AlphaCoverageMode::None => {}
+        crate::backend::AlphaCoverageMode::Nvidia => {
+            device.set_render_state(D3DRS_ADAPTIVETESS_Y, 0)?;
+        }
+        crate::backend::AlphaCoverageMode::Amd => {
+            device.set_render_state(D3DRS_POINTSIZE, u32::from_le_bytes(*b"A2M0"))?;
+        }
+    }
+    // Lookup data and edges/weights are never sRGB. Preserve the phase color
+    // encoding; reference SMAA permits gamma-space neighborhood blending.
+    for sampler in 0..sampler_count {
+        for (state, value) in [
+            (D3DSAMP_ADDRESSU, D3DTADDRESS_CLAMP.0 as u32),
+            (D3DSAMP_ADDRESSV, D3DTADDRESS_CLAMP.0 as u32),
+            (D3DSAMP_MINFILTER, D3DTEXF_LINEAR.0 as u32),
+            (D3DSAMP_MAGFILTER, D3DTEXF_LINEAR.0 as u32),
+            (D3DSAMP_MIPFILTER, D3DTEXF_NONE.0 as u32),
+            (D3DSAMP_SRGBTEXTURE, 0),
+        ] {
+            device.set_sampler_state(sampler, state, value)?;
+        }
+    }
+    Ok(())
 }
 
 fn draw_quad(device: &Device9Ref<'_>, desc: &D3DSURFACE_DESC) -> Direct3DResult<()> {

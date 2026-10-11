@@ -772,6 +772,35 @@ Correct fix path:
 
 Current material-faithful implementation (2026-07-16):
 
+Preset `1.5.0` restores object roughness, direct-light and ambient scales to
+one. The earlier preset's roughness `0.7516814` multiplied the material's
+gloss exponent by approximately `1.77`, while direct scale `1.315789` and
+ambient `0.8654971` increased highlight contrast. Neutral scales preserve
+authored gloss and normal alpha; they do not replace the bounded material
+model. Terrain metalness is zero, with ambient and albedo-saturation scales
+one. Existing terrain roughness/direct-light values and LandLOD detail remain.
+This changes preset/default policy only, without altering native shader rows,
+coverage, hooks or material assets.
+
+Default 1.6.0 retains those material scales. The owner identifies the weapon
+in `vis_upd*.png` as the Chinese assault rifle. The installed TTW archive's
+`textures/weapons/2handautomatic/1stpersonassaultrifle01.dds` and `02.dds`
+contain the pale chipped paint and dark panels seen in that review; both
+diffuse textures have opaque alpha. The native `assaultrifle.nif` family
+references the corresponding diffuse, normal/specular-alpha, and environment
+textures separately. Active loose weapon-texture mods do not replace those
+two base diffuse paths; the installed 2K TTW upscale is disabled in the profile.
+Read-only archive inspection follows the
+[NifSkope v104 reader](https://raw.githubusercontent.com/niftools/nifskope/develop/lib/fsengine/bsa.cpp).
+
+This proves authored paint contrast, not the exact fraction of the screenshot
+brightness contributed by diffuse, specular or environment lighting. There
+is no demonstrated material-contract violation warranting a global roughness,
+specular-amplitude or reflection rewrite. Positive final-grade contrast is
+corrected at its own proven clipping boundary, and weapon silhouette AA is
+corrected at its own coverage boundary. Those changes preserve the native
+material inputs and do not redistribute or edit another mod's texture assets.
+
 - Normal-map alpha remains specular amplitude.
 - Engine `glossPower` remains lobe width; the object roughness scale adjusts that exponent rather than replacing it with normal alpha.
 - Direct object specular uses a normalized, dielectric Blinn distribution with Schlick Fresnel and a bounded per-light result. This preserves the engine material controls without exposing the previous unbounded GGX peak.

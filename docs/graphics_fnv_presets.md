@@ -82,7 +82,25 @@ creates `omv.toml` only when it is missing. Release archives contain
 `omv.default.toml`, not an update-overwritable working configuration.
 The built-in preset version and payload revision are test-locked; changing its
 values requires publishing a new default-preset version deliberately.
-The current built-in version remains `1.0.0`.
+The current built-in version is `1.6.0`, with format and config schema 1.
+It retains the built-in family identity and publishes a revised visual payload:
+CA `0.4`, grain `0.12` with particle size `1.743985`, Fast AO strength/floor
+`0.9`/`0.4`, neutral object roughness/direct/ambient scales, dielectric terrain
+with ambient and saturation scales one, and cloud transparency one. Far DOF
+uses strength `0.25` and radius `24` pixels, distant blur `0.25`, sky blur
+`0.05`, and motion blur uses a `180`-degree shutter. Other creative values,
+including weather response, LUT, Bloom, halation, fog and vignette, remain.
+Solar color now uses the native disk candidate, shared by the disk and haze;
+the optional additive sunset tint is neutral on all three channels. Existing
+saved presets retain their explicit solar settings. The sky horizon follows
+the active exterior fog endpoint, positive analytic contrast retains deep
+texture levels, and the fused first-person AA footprint includes the adjacent
+pixel on each silhouette side. World TAA retains its existing settings and
+phase; controlled production tests reduce thin-wire sampling error without
+erasing its contrast, in both depth modes and MRT/fallback paths.
+Adaptive display preferences remain machine-local Current Look settings.
+The existing working configuration is never overwritten by this revision;
+applying OMV Default uses the normal preset switch transaction.
 
 `omv/src/presets.rs` owns the preset envelope, schema validation, migrations,
 catalog, dependency checks, filename selection, and background worker.

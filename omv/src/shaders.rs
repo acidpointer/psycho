@@ -586,17 +586,19 @@ fn embedded_effect_sources_with_luts(
         contact_ao_source(&config.contact_ao),
         volumetric_fog_source(&config.volumetric_fog),
         volumetric_lighting_source(&config.volumetric_lighting),
+        // Resolve geometry before finishing adds lens displacement and noise.
+        // External sources still append in their existing relative order.
+        fast_fxaa_source(&config.fast_fxaa),
+        nfaa_source(&config.nfaa),
+        axaa_source(&config.axaa),
+        dlaa_source(&config.dlaa),
+        smaa_source(&config.smaa),
         blooming_hdr_source(&config.blooming_hdr),
         color_grade_source(&config.color_grade, adaptive_tone, lut_names, lut_ids),
         temporal_aa_source(&config.temporal_aa),
         sunshafts_source(&config.sunshafts),
         depth_of_field_source(&config.depth_of_field),
         motion_blur_source(&config.motion_blur),
-        fast_fxaa_source(&config.fast_fxaa),
-        nfaa_source(&config.nfaa),
-        axaa_source(&config.axaa),
-        dlaa_source(&config.dlaa),
-        smaa_source(&config.smaa),
     ]
 }
 
@@ -3532,7 +3534,7 @@ mod embedded_color_grade_tests {
     }
 
     #[test]
-    fn final_color_phase_and_order_put_grade_after_bloom_before_spatial_aa() {
+    fn final_color_phase_and_order_put_spatial_aa_before_bloom_and_grade() {
         let sources = embedded_effect_sources(&EmbeddedEffectsConfig::default());
         let final_kinds: Vec<EmbeddedEffectKind> = sources
             .iter()
@@ -3542,13 +3544,13 @@ mod embedded_color_grade_tests {
         assert_eq!(
             final_kinds,
             [
-                EmbeddedEffectKind::BloomingHdr,
-                EmbeddedEffectKind::ColorGrade,
                 EmbeddedEffectKind::FastFxaa,
                 EmbeddedEffectKind::Nfaa,
                 EmbeddedEffectKind::Axaa,
                 EmbeddedEffectKind::Dlaa,
                 EmbeddedEffectKind::Smaa,
+                EmbeddedEffectKind::BloomingHdr,
+                EmbeddedEffectKind::ColorGrade,
             ]
         );
         assert!(EmbeddedEffectKind::BloomingHdr.is_final_color());

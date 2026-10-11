@@ -346,13 +346,13 @@ impl Default for NativeSkyConfig {
             glare_strength: 0.8965517,
             star_strength: 1.0,
             star_twinkle: 1.0,
-            cloud_transparency: 0.3610992,
+            cloud_transparency: 1.0,
             cloud_brightness: 1.0,
             cloud_normals: false,
-            use_sun_disk_color: false,
-            sunset_red: 0.5,
+            use_sun_disk_color: true,
+            sunset_red: 0.0,
             sunset_green: 0.0,
-            sunset_blue: 0.03,
+            sunset_blue: 0.0,
             sky_multiplier: 1.0,
         }
     }
@@ -393,8 +393,8 @@ impl Default for NativePbrConfig {
             terrain_metallicness: 0.0,
             terrain_roughness_scale: 0.82,
             terrain_light_scale: 1.15,
-            terrain_ambient_scale: 1.10,
-            terrain_albedo_saturation: 1.02,
+            terrain_ambient_scale: 1.0,
+            terrain_albedo_saturation: 1.0,
             terrain_lod_noise_scale: 1.0,
             terrain_lod_noise_tile: 1.75,
         }
@@ -717,12 +717,11 @@ pub(crate) struct MotionBlurConfig {
 impl Default for MotionBlurConfig {
     fn default() -> Self {
         Self {
-            // The full shutter interval makes ordinary camera movement
-            // readable without increasing sample count. The bounded path
-            // keeps fast turns controlled.
+            // Half-frame exposure retains camera-motion cues while keeping
+            // world detail readable. Tap count and the fast-turn cap stay fixed.
             enabled: true,
             quality: MotionBlurQuality::High,
-            shutter_angle: 360.0,
+            shutter_angle: 180.0,
             max_blur_pixels: 36.0,
             minimum_velocity_pixels: 0.15,
             first_person_strength: 0.2,
@@ -850,13 +849,13 @@ impl Default for FastAoConfig {
     fn default() -> Self {
         Self {
             enabled: true,
-            strength: 1.36793,
+            strength: 0.9,
             radius_scale: 71.698_27,
             max_radius_pixels: 7.6,
             range_scale: 0.07976293,
             debug_depth: false,
             depth_reversed: true,
-            min_ambient: 0.1543535,
+            min_ambient: 0.4,
             luminance_protection: 0.45,
             stability: 0.5875,
             first_person_mask: 1.0,
@@ -1005,14 +1004,14 @@ impl Default for ColorGradeConfig {
             deband_enabled: true,
             deband: 0.55,
             film_grain_enabled: true,
-            film_grain: 0.354_463_1,
+            film_grain: 0.12,
             film_grain_size: 1.743_985,
             vignette_enabled: true,
             vignette: 0.035,
             halation_enabled: true,
             halation: 0.209_262_6,
             chromatic_aberration_enabled: true,
-            chromatic_aberration: 3.038_874,
+            chromatic_aberration: 0.4,
             debug_split: false,
         }
     }
@@ -1382,14 +1381,14 @@ impl Default for DepthOfFieldConfig {
             focus_range: 0.55,
             far_focus_range: 0.70,
             near_strength: 0.35,
-            far_strength: 0.35,
+            far_strength: 0.25,
             near_radius_pixels: 10.0,
-            far_radius_pixels: 48.0,
+            far_radius_pixels: 24.0,
             first_person_strength: 0.2,
-            distant_blur_strength: 0.6413795,
+            distant_blur_strength: 0.25,
             distant_blur_start: 21_551.82,
             distant_blur_end: 55_172.29,
-            sky_blur_strength: 0.125,
+            sky_blur_strength: 0.05,
             softness: 0.9517241,
         }
     }
@@ -2678,11 +2677,11 @@ albedo_saturation = 1.02
                 .expect("serialize shipped grade"),
             toml::to_string(&expected).expect("serialize default grade")
         );
-        assert_eq!(expected.film_grain, 0.354_463_1);
+        assert_eq!(expected.film_grain, 0.12);
         assert_eq!(expected.film_grain_size, 1.743_985);
         assert_eq!(expected.halation, 0.209_262_6);
         assert!(expected.chromatic_aberration_enabled);
-        assert_eq!(expected.chromatic_aberration, 3.038_874);
+        assert_eq!(expected.chromatic_aberration, 0.4);
     }
 
     #[test]
@@ -2790,7 +2789,7 @@ albedo_saturation = 1.02
         let tuned_default = MotionBlurConfig::default();
         assert!(tuned_default.enabled);
         assert_eq!(tuned_default.quality, MotionBlurQuality::High);
-        assert_eq!(tuned_default.shutter_angle, 360.0);
+        assert_eq!(tuned_default.shutter_angle, 180.0);
         assert_eq!(tuned_default.max_blur_pixels, 36.0);
         assert_eq!(tuned_default.minimum_velocity_pixels, 0.15);
         assert_eq!(tuned_default.first_person_strength, 0.2);
@@ -2809,7 +2808,7 @@ albedo_saturation = 1.02
         .sanitized();
         assert!(sanitized.enabled);
         assert_eq!(sanitized.quality, MotionBlurQuality::Ultra);
-        assert_eq!(sanitized.shutter_angle, 360.0);
+        assert_eq!(sanitized.shutter_angle, 180.0);
         assert_eq!(sanitized.max_blur_pixels, 48.0);
         assert_eq!(sanitized.minimum_velocity_pixels, 0.0);
         assert_eq!(sanitized.first_person_strength, 0.2);

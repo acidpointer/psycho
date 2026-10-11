@@ -3111,7 +3111,7 @@ impl ScreenShaderRuntime {
                     if !final_color_checked {
                         final_color_checked = true;
                         if (self.blooming_hdr.is_some() || self.final_color_shaders.is_some())
-                            && blooming_hdr::FinalColorWorkPlan::from_sources_with_lut_available(
+                            && (blooming_hdr::FinalColorWorkPlan::from_sources_with_lut_available(
                                 phase_plan.bloom_source.as_deref(),
                                 phase_plan.color_grade_source.as_deref(),
                                 Self::selected_final_color_lut(
@@ -3121,6 +3121,7 @@ impl ScreenShaderRuntime {
                                 .is_some(),
                             )
                             .has_work()
+                                || self.first_person_aa_active(frame_inputs))
                         {
                             predicted_stages += 1;
                         }
@@ -3783,7 +3784,8 @@ impl ScreenShaderRuntime {
             color_grade_source,
             selected_lut.is_some(),
         );
-        if !work.has_work() {
+        let first_person_aa = self.first_person_aa_active(frame_inputs);
+        if !work.has_work() && !first_person_aa {
             if let Some(effect) = self.blooming_hdr.as_mut() {
                 effect.note_skipped();
             }
@@ -3820,7 +3822,29 @@ impl ScreenShaderRuntime {
             self.frame_index,
             timing.seconds,
             timing.continuous,
+            first_person_aa,
         )
+    }
+
+    // The existing final-color owner supplies the world-TAA companion. Keep
+    // its master bypass authoritative and avoid a second resolve when any
+    // explicit spatial AA is enabled. No additional render owner is needed.
+    fn first_person_aa_requested(&self) -> bool {
+        let effects = &self.settings.menu_config.embedded_effects;
+        effects.temporal_aa.enabled
+            && effects.color_grade.enabled
+            && effects.color_grade.strength > 1.0e-5
+            && !effects.fast_fxaa.enabled
+            && !effects.nfaa.enabled
+            && !effects.axaa.enabled
+            && !effects.dlaa.enabled
+            && !effects.smaa.enabled
+    }
+
+    fn first_person_aa_active(&self, frame_inputs: &backend::FrameInputs) -> bool {
+        self.first_person_aa_requested()
+            && frame_inputs.first_person_rendered
+            && frame_inputs.depth.first_person_texture.is_some()
     }
 
     fn draw_sunshafts_pipeline(
@@ -4604,6 +4628,7 @@ impl ScreenShaderRuntime {
                 let source_requirements = SceneInputRequirements::for_source(source);
                 requirements.union(source_requirements)
             });
+        requirements.first_person_depth |= self.first_person_aa_requested();
         if !self.settings.depth_provider.supplies_first_person_depth() {
             // External Depth Resolve 1.31 is world-only. A hidden OMV
             // first-person capture would violate exclusive producer

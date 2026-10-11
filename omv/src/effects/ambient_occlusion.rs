@@ -70,6 +70,10 @@ const TEMPORAL_SHADER: &[u8] =
 const COMPOSE_SHADER: &[u8] =
     include_bytes!("../../shaders/embedded/ambient_occlusion_compose.hlsl");
 
+#[cfg(test)]
+#[path = "ambient_occlusion_image_tests.rs"]
+mod image_tests;
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum AmbientOcclusionFamily {
     Fast,

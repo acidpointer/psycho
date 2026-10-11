@@ -109,13 +109,13 @@ tone_mapper_strength = 0.65
 [graphics.embedded_effects.fast_ao]
 # Engine-owned ambient occlusion pass. Fixed phase: scene_pre_image_space.
 enabled = true
-strength = 1.36793
+strength = 0.9
 radius_scale = 71.698273
 max_radius_pixels = 7.6
 range_scale = 0.07976293
 debug_depth = false
 depth_reversed = true
-min_ambient = 0.1543535
+min_ambient = 0.4
 luminance_protection = 0.45
 stability = 0.5875
 first_person_mask = 1.0
@@ -222,14 +222,14 @@ environment_response = 0.45
 deband_enabled = true
 deband = 0.55
 film_grain_enabled = true
-film_grain = 0.3544631
+film_grain = 0.12
 film_grain_size = 1.743985
 vignette_enabled = true
 vignette = 0.035
 halation_enabled = true
 halation = 0.2092626
 chromatic_aberration_enabled = true
-chromatic_aberration = 3.038874
+chromatic_aberration = 0.4
 debug_split = false
 
 [graphics.embedded_effects.sunshafts]
@@ -272,14 +272,14 @@ focus_far_seconds = 0.28
 focus_range = 0.55
 far_focus_range = 0.70
 near_strength = 0.35
-far_strength = 0.35
+far_strength = 0.25
 near_radius_pixels = 10.0
-far_radius_pixels = 48.0
+far_radius_pixels = 24.0
 first_person_strength = 0.2
-distant_blur_strength = 0.6413795
+distant_blur_strength = 0.25
 distant_blur_start = 21551.82
 distant_blur_end = 55172.29
-sky_blur_strength = 0.125
+sky_blur_strength = 0.05
 softness = 0.9517241
 
 [graphics.embedded_effects.motion_blur]
@@ -295,9 +295,9 @@ enabled = true
 # performance = 5 taps, high = 7 taps, ultra = 9 taps. All tiers retain depth
 # edge rejection, camera-cut handling, and sky rotation.
 quality = "high"
-# Physical exposure fraction. The default integrates the complete motion
-# between consecutive frames so normal pans remain visible.
-shutter_angle = 360.0
+# Physical exposure fraction. Half-frame exposure keeps normal motion visible
+# while retaining detail during pans; it does not change the sample count.
+shutter_angle = 180.0
 # Hard safety/performance cap on the complete exposure path, in output pixels.
 # This affects only fast motion and does not change the fixed sample count.
 max_blur_pixels = 36.0
@@ -318,7 +318,7 @@ clamp_strength = 1.0
 sharpness = 0.10
 jitter_scale = 1.0
 
-# Embedded spatial AA runs after bloom and before loose final-image shaders.
+# Embedded spatial AA runs before final finishing and loose final-image shaders.
 # Keep these disabled until chosen in the in-game menu. Enabling more than one
 # is useful for comparison but compounds blur and GPU cost.
 [graphics.embedded_effects.fast_fxaa]
@@ -410,15 +410,15 @@ enabled = true
 #   c89.z light scale, c89.w ambient scale,
 #   c90.x use PBR, c90.y saturation, c90.z LOD noise scale,
 #   c90.w LOD noise tile.
-object_roughness_scale = 0.7516814
-object_light_scale = 1.315789
-object_ambient_scale = 0.8654971
+object_roughness_scale = 1.0
+object_light_scale = 1.0
+object_ambient_scale = 1.0
 object_albedo_saturation = 1.0
-terrain_metallicness = 0.3143275
+terrain_metallicness = 0.0
 terrain_roughness_scale = 1.276213
 terrain_light_scale = 1.202632
-terrain_ambient_scale = 0.6906431
-terrain_albedo_saturation = 0.7071348
+terrain_ambient_scale = 1.0
+terrain_albedo_saturation = 1.0
 terrain_lod_noise_scale = 1.0
 terrain_lod_noise_tile = 3.19576
 
@@ -435,13 +435,15 @@ sun_strength = 1.0
 glare_strength = 0.8965517
 star_strength = 1.0
 star_twinkle = 1.0
-cloud_transparency = 0.3610992
+cloud_transparency = 1.0
 cloud_brightness = 1.0
 cloud_normals = false
-use_sun_disk_color = false
-sunset_red = 0.5
+# Native weather owns solar color; keep OMV's optional additive sunset tint
+# neutral so the disk and haze do not receive a second red/blue cast.
+use_sun_disk_color = true
+sunset_red = 0.0
 sunset_green = 0.0
-sunset_blue = 0.03
+sunset_blue = 0.0
 sky_multiplier = 1.0
 
 [diagnostics]

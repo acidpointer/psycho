@@ -104,14 +104,14 @@ impl From<crate::config::NativeSkyConfig> for NativeSkySettings {
             glare_strength: sanitize(value.glare_strength, 0.8965517, 0.0, 8.0),
             star_strength: sanitize(value.star_strength, 1.0, 0.0, 8.0),
             star_twinkle: sanitize(value.star_twinkle, 1.0, 0.0, 8.0),
-            cloud_transparency: sanitize(value.cloud_transparency, 0.3610992, 0.05, 1.0),
+            cloud_transparency: sanitize(value.cloud_transparency, 1.0, 0.05, 1.0),
             cloud_brightness: sanitize(value.cloud_brightness, 1.0, 0.0, 4.0),
             cloud_normals: value.cloud_normals,
             use_sun_disk_color: value.use_sun_disk_color,
             sunset: [
-                sanitize(value.sunset_red, 0.5, 0.0, 4.0),
+                sanitize(value.sunset_red, 0.0, 0.0, 4.0),
                 sanitize(value.sunset_green, 0.0, 0.0, 4.0),
-                sanitize(value.sunset_blue, 0.03, 0.0, 4.0),
+                sanitize(value.sunset_blue, 0.0, 0.0, 4.0),
             ],
             sky_multiplier: sanitize(value.sky_multiplier, 1.0, 0.0, 4.0),
         }
@@ -325,8 +325,19 @@ impl FrameState {
             self.prepared = None;
         }
         if !self.resolved {
-            self.prepared =
-                crate::backend::native_sky_frame().map(|frame| prepare_sky_frame(frame, settings));
+            self.prepared = crate::backend::native_sky_frame().map(|frame| {
+                // The exterior scene's validated BSFogProperty owns the same
+                // endpoint staged by native terrain. Read it once with the
+                // cached sky payload; unavailable fog keeps native horizon RGB.
+                let environment = if frame.is_exterior {
+                    crate::backend::environment_frame(
+                        crate::backend::DepthProvider::FalloutNewVegas,
+                    )
+                } else {
+                    crate::backend::EnvironmentFrame::default()
+                };
+                prepare_sky_frame(frame, settings, environment)
+            });
             self.resolved = true;
         }
         self.prepared
@@ -639,6 +650,7 @@ mod shader_compile_tests {
 
     #[test]
     fn native_sky_shaders_stay_within_static_gpu_budget() {
+        let mut exceeded = Vec::new();
         for template in &TEMPLATES {
             let source = template_source(template);
             let bytecode = crate::shaders::compile_hlsl_source_target(
@@ -658,36 +670,31 @@ mod shader_compile_tests {
                 "sky_stars_vs" => (58, 0, 1_128),
                 "sky_stars_forward_vs" => (56, 0, 1_104),
                 "sky_clouds_vs" | "sky_clouds_forward_vs" => (64, 0, 1_172),
-                "sky_atmosphere_ps" => (101, 0, 1_964),
+                // Exact weather endpoints and shared solar tint each add two
+                // tokens; reciprocal/normalization work stays in frame prep.
+                "sky_atmosphere_ps" => (103, 0, 2_004),
                 "sky_celestial_other_ps" => (66, 1, 1_288),
                 // Native visibility replaces the duplicate OMV daylight cutoff.
-                "sky_celestial_sun_ps" => (60, 1, 1_196),
+                "sky_celestial_sun_ps" => (62, 1, 1_228),
                 "sky_celestial_moon_ps" => (65, 1, 1_228),
                 "sky_clouds_ps" => (207, 2, 3_692),
-                "sky_cloud_normals_ps" => (269, 2, 4_748),
+                "sky_cloud_normals_ps" => (271, 2, 4_816),
                 "sky_stars_ps" => (188, 1, 3_204),
                 label => panic!("missing native-sky GPU budget for {label}"),
             };
-            assert!(
-                opcodes.len() <= instruction_limit,
-                "{} grew to {} instructions (limit {})",
-                template.label,
-                opcodes.len(),
-                instruction_limit
-            );
             assert_eq!(
                 texture_count, texture_limit,
                 "{} texture sample count",
                 template.label
             );
-            assert!(
-                bytecode.len() * 4 <= byte_limit,
-                "{} grew to {} bytes (limit {})",
-                template.label,
-                bytecode.len() * 4,
-                byte_limit
-            );
+            if opcodes.len() > instruction_limit || bytecode.len() * 4 > byte_limit {
+                exceeded.push((template.label, opcodes.len(), bytecode.len() * 4));
+            }
         }
+        assert!(
+            exceeded.is_empty(),
+            "native sky budgets exceeded: {exceeded:?}"
+        );
     }
 
     #[test]
@@ -749,7 +756,8 @@ mod shader_compile_tests {
             is_exterior: true,
             reversed_depth: true,
         };
-        let prepared = prepare_sky_frame(frame, settings);
+        let prepared =
+            prepare_sky_frame(frame, settings, crate::backend::EnvironmentFrame::default());
         let atmosphere = draw_constants(prepared.constants, 2);
         let clouds = draw_constants(prepared.constants, 3);
 
@@ -1145,9 +1153,13 @@ fn pair_supported_for_object(object_type: u32, vertex_index: usize, pixel_index:
 }
 
 fn prepare_sky_frame(
-    frame: crate::backend::NativeSkyFrame,
+    mut frame: crate::backend::NativeSkyFrame,
     settings: NativeSkySettings,
+    environment: crate::backend::EnvironmentFrame,
 ) -> PreparedSkyFrame {
+    if frame.is_exterior && environment.fog_available {
+        frame.horizon = environment.fog_color;
+    }
     let sun_disk_source = if settings.use_sun_disk_color {
         frame.sun_disk
     } else {
@@ -1182,8 +1194,37 @@ fn prepare_sky_frame(
         reversed_depth: frame.reversed_depth,
         constants: [
             color4(linearize_color(frame.sky_upper)),
-            color4(linearize_color(frame.sky_lower)),
-            color4(linearize_color(frame.horizon)),
+            {
+                let rgb = linearize_color(frame.sky_lower);
+                // 1 / (1 - 0.5^3)^8 normalizes the retained profile at the
+                // horizon. Zero thickness retains the explicit no-haze mode.
+                [
+                    rgb[0],
+                    rgb[1],
+                    rgb[2],
+                    if settings.atmosphere_thickness > 0.0 {
+                        2.910_285_5
+                    } else {
+                        0.0
+                    },
+                ]
+            },
+            {
+                let rgb = linearize_color(frame.horizon);
+                // A positive subnormal width still has a finite reciprocal.
+                // Below the normal float range only the exact horizon can
+                // carry the layer; zero remains the explicit bypass.
+                [
+                    rgb[0],
+                    rgb[1],
+                    rgb[2],
+                    if settings.atmosphere_thickness > 0.0 {
+                        settings.atmosphere_thickness.max(f32::MIN_POSITIVE).recip()
+                    } else {
+                        0.0
+                    },
+                ]
+            },
             color4(linear_sun_light),
             [
                 sky_sun_direction[0],
