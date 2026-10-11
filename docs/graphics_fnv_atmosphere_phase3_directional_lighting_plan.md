@@ -39,6 +39,77 @@ when surface sun shadows are disabled. The owner's reported 100-120 to
 75-95 FPS drop has no per-pass capture proving its individual cost split, so
 offline results do not establish recovery of that reported game FPS loss.
 
+The directional path now reuses the complete common reduced-depth interval.
+With quarter-resolution atmosphere, field generation reads that existing
+packet and submits no second depth reduction. With half-resolution atmosphere,
+four encoded RG packets are reduced to the quarter-cell minimum and maximum.
+Monotone encoding and FP16 rounding preserve the original interval, including
+partial cells at odd viewport edges. At 3440x1440, field-depth reads fall from
+4,953,600 full-depth samples to 1,238,400 reduced samples for the half profile;
+the quarter profile removes all 4,953,600 duplicate reads.
+
+Capable devices write the existing near and far atmosphere targets together
+with MRT. The paired program shares ray setup, source response and four field
+fetches, while retaining separate endpoint depth weights, density/noise
+integration, scattering and extinction. Equal endpoints reuse the near result.
+RT1 is detached before local additions or composition, and sampler aliases are
+cleared before attachment. The two outputs retain their dimensions, FP16
+format and later local-light/composition order. Devices with fewer than two
+targets or an unavailable paired program retain the complete sequential path.
+The sunlight chain requires five draws with half atmosphere and four with
+quarter atmosphere, compared with six previously; these counts include common
+depth, field depth, field generation, atmosphere integration and composition.
+Local-light additions and native map production are separate, unchanged costs.
+
+Uniform field admission follows the actual zero height/noise coefficient
+uploads. Its segment extinction is invariant along each ray, so the uniform
+program evaluates it once before each endpoint march rather than at every
+midpoint. The general program retains varying height and noise. Both programs
+use the original 8/12/20 midpoint distributions, EVSM/actor coverage, cascade
+blending and transmittance recurrence. Cascade cursor variants were rejected
+because they exceeded the SM3 register or instruction budget; the existing
+four-map evaluator remains the accepted path.
+
+Compiled instruction/texture/byte budgets are 56/4/1064 for encoded interval
+reduction and 1114/7/16740 for uniform field generation. Paired atmosphere
+budgets are 1229/23/19072, 1446/31/22424 and 1880/47/29128 for Performance,
+High and Ultra. The general field and ordinary atmosphere retain their previous
+budgets. Qualification covers compiled SM3 registers, samplers, prohibited
+operations and balanced flow control alongside actual GPU pixels.
+
+Native sun motion previously blended ten percent toward each quantized target
+on every frame, while map refresh compared against each map's rendered sun.
+Those intermediate directions repeatedly invalidated projections and prevented
+same-direction strip scrolling. World-volume demand now admits one quantized
+target for the whole retained family and holds it until every map's angular
+error is below the existing half-texel refresh threshold. Small subsequent
+native changes wait for completion; discontinuities above five degrees still
+bypass the hold. Surface-only shadows retain their previous smoothing. This
+intentionally changes the world-volume rotation cadence to completed quantized
+generations. Mandatory coverage refreshes, the one-quality-map scheduler,
+per-map matrices/origins/sun pairing, atlas resolution and MSAA remain intact.
+
+Additional programs occupy existing bytecode-vector slots. Device-only boxed
+program pairs retain the released handle size/alignment and die on reset;
+the cached MRT limit replaces an unused scalar slot. No configuration field,
+static owner shape, TLS, worker, hook or preparation/handoff order is added.
+Shader preparation still runs through the established worker and cache.
+
+The retained production shader oracle covers the complete changed pass chain,
+all quality tiers, both atmosphere profiles, odd viewport edges, depth modes,
+sky/thin-depth intervals, filtered EVSM/actor maps, camera rotations and
+independently retained map origins/directions. Existing field and small-layer
+absolute tolerances remain enforced. The larger colored layer/composition
+comparison permits at most one FP16 storage step, accounting for quantization
+at larger color exponents. These are controlled production-shader fixtures,
+not a reproduction of a supplied gameplay frame. Complete-chain GPU timings
+exclude native caster traversal, map rendering/resolves and engine integration;
+neither those timings nor deterministic work budgets establish game FPS.
+An isolated complete-chain comparison at a 1024-square viewport, covering all
+tiers and the same open/mixed-depth, actor, fog/noise and retained-map cases,
+measured a candidate/reference GPU-time ratio of 0.805. This measures the shader
+chain's cost reduction and does not attribute the owner's remaining FPS loss.
+
 The owner accepted the bounded solar halo but reported weak godrays and severe
 remaining directional-light cost. The directional request activates the common
 native shadow producer even with surface sun shadows disabled. Its workload
@@ -103,7 +174,8 @@ ray direction into all four cascades once, then evaluates affine projected
 positions at the unchanged midpoints. The height exponent is similarly hoisted
 with its original per-sample clamp. Nonnegative density/step contracts remove
 redundant lower clamps. Static/actor coverage, samples, noise, blend equations,
-resource dimensions, MSAA and producer update cadence are preserved.
+resource dimensions and MSAA are preserved. The world-volume sun generation
+cadence now follows the completed-target policy described above.
 
 Released-versus-current production GPU field comparisons retain the existing
 FP16 tolerance across quality tiers, directions, camera origins, actor maps,

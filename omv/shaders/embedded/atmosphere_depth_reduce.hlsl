@@ -52,6 +52,29 @@ float EncodeDistance(float distance) {
 		/ max(log2(1.0f + DepthData.w), 0.001f);
 }
 
+#ifdef OMV_REDUCED_INTERVALS
+// Input RG already contains the encoded min/max of each 2x2 source cell.
+// Log encoding and FP16 rounding are monotone, so min/max commute with the
+// first reduction. Four packets retain the exact 4x4 interval, including
+// clamped partial cells at an odd viewport edge.
+float4 Main(PixelInput input) : COLOR0 {
+    float2 basePixel = floor(input.uv * ReducedTarget.xy) * 2.0f;
+    float nearest = 1.0f;
+    float farthest = 0.0f;
+    [unroll]
+    for (int y = 0; y < 2; ++y) {
+        [unroll]
+        for (int x = 0; x < 2; ++x) {
+            float2 pixel = min(basePixel + float2(x, y), FullTarget.xy - 1.0f);
+            float2 uv = (pixel + 0.5f) * FullTarget.zw;
+            float2 interval = tex2Dlod(SceneDepth, float4(uv, 0.0f, 0.0f)).rg;
+            nearest = min(nearest, interval.x);
+            farthest = max(farthest, interval.y);
+        }
+    }
+    return float4(nearest, farthest, 0.0f, 1.0f);
+}
+#else
 float4 Main(PixelInput input) : COLOR0 {
 	float2 reducedPixel = floor(input.uv * ReducedTarget.xy);
 	float2 basePixel = reducedPixel * ATMOSPHERE_REDUCTION_SCALE;
@@ -68,3 +91,4 @@ float4 Main(PixelInput input) : COLOR0 {
 	}
 	return float4(EncodeDistance(nearest), EncodeDistance(farthest), 0.0f, 1.0f);
 }
+#endif

@@ -15,6 +15,10 @@
 //! existing prepared mask slot owns field generation and projected fallback;
 //! static owner/config layouts and preparation lifecycle remain unchanged.
 //! Device-owned targets die on reset. Missing maps retain projected fallback.
+//! Uniform air evaluates segment extinction once per endpoint; varying fog
+//! retains the general evaluator. Existing reduced depth supplies field input,
+//! and capable devices write both haze layers in one MRT draw. Secondary
+//! program admission is device-owned; complete primary programs remain usable.
 //!
 //! Local lights sample optional visibility at every ray segment and use a
 //! normalized phase mixture. Ranked admission reverses scalar fades immediately;
@@ -35,15 +39,15 @@ use anyhow::Result;
 use libpsycho::os::windows::directx9::{
     D3DBLEND_ONE, D3DBLENDOP_ADD, D3DCULL_NONE, D3DFMT_A8R8G8B8, D3DFMT_A16B16G16R16F,
     D3DFMT_G16R16F, D3DFORMAT, D3DPOOL_MANAGED, D3DRS_ADAPTIVETESS_Y, D3DRS_ALPHABLENDENABLE,
-    D3DRS_ALPHATESTENABLE, D3DRS_BLENDOP, D3DRS_COLORWRITEENABLE, D3DRS_CULLMODE, D3DRS_DESTBLEND,
-    D3DRS_MULTISAMPLEANTIALIAS, D3DRS_MULTISAMPLEMASK, D3DRS_POINTSIZE, D3DRS_SCISSORTESTENABLE,
-    D3DRS_SRCBLEND, D3DRS_SRGBWRITEENABLE, D3DRS_STENCILENABLE, D3DRS_ZENABLE, D3DRS_ZWRITEENABLE,
-    D3DSAMP_ADDRESSU, D3DSAMP_ADDRESSV, D3DSAMP_ADDRESSW, D3DSAMP_MAGFILTER, D3DSAMP_MINFILTER,
-    D3DSAMP_MIPFILTER, D3DSAMP_SRGBTEXTURE, D3DSURFACE_DESC, D3DTA_TEXTURE, D3DTADDRESS_CLAMP,
-    D3DTADDRESS_WRAP, D3DTEXF_LINEAR, D3DTEXF_NONE, D3DTEXF_POINT, D3DTOP_SELECTARG1,
-    D3DTSS_ALPHAARG1, D3DTSS_ALPHAOP, D3DTSS_COLORARG1, D3DTSS_COLOROP, D3DVIEWPORT9, Device9Ref,
-    Direct3DResult, PixelShader9, ScreenVertex, Surface9, Texture9, USAGE_RENDER_TARGET,
-    direct3d_failure,
+    D3DRS_ALPHATESTENABLE, D3DRS_BLENDOP, D3DRS_COLORWRITEENABLE, D3DRS_COLORWRITEENABLE1,
+    D3DRS_CULLMODE, D3DRS_DESTBLEND, D3DRS_MULTISAMPLEANTIALIAS, D3DRS_MULTISAMPLEMASK,
+    D3DRS_POINTSIZE, D3DRS_SCISSORTESTENABLE, D3DRS_SRCBLEND, D3DRS_SRGBWRITEENABLE,
+    D3DRS_STENCILENABLE, D3DRS_ZENABLE, D3DRS_ZWRITEENABLE, D3DSAMP_ADDRESSU, D3DSAMP_ADDRESSV,
+    D3DSAMP_ADDRESSW, D3DSAMP_MAGFILTER, D3DSAMP_MINFILTER, D3DSAMP_MIPFILTER, D3DSAMP_SRGBTEXTURE,
+    D3DSURFACE_DESC, D3DTA_TEXTURE, D3DTADDRESS_CLAMP, D3DTADDRESS_WRAP, D3DTEXF_LINEAR,
+    D3DTEXF_NONE, D3DTEXF_POINT, D3DTOP_SELECTARG1, D3DTSS_ALPHAARG1, D3DTSS_ALPHAOP,
+    D3DTSS_COLORARG1, D3DTSS_COLOROP, D3DVIEWPORT9, Device9Ref, Direct3DResult, PixelShader9,
+    ScreenVertex, Surface9, Texture9, USAGE_RENDER_TARGET, direct3d_failure,
 };
 
 use crate::{
@@ -644,10 +648,10 @@ fn integrated_uniform_scatter(density: f32, distance: f32, samples: u32) -> f32 
 
 pub(crate) struct AtmosphereEffect {
     depth_reduce_half_shader: PixelShader9,
-    depth_reduce_quarter_shader: PixelShader9,
+    depth_reduce_quarter_shader: PixelPrograms,
     shaft_pipeline: Option<ShaftPipeline>,
     local_light_pipeline: Option<LocalLightPipeline>,
-    integrate_shaders: [PixelShader9; 3],
+    integrate_shaders: [PixelPrograms; 3],
     compose_shader: PixelShader9,
     debug_shader: PixelShader9,
     density_noise: Texture9,
@@ -671,7 +675,7 @@ pub(crate) struct AtmosphereEffect {
     // profile. This effect is inline in the lazy world owner even before it is
     // created, so changing its size would change the startup footprint.
     local_light_profiles: LocalLightProfiles,
-    _local_light_selection_count: usize,
+    render_target_count: usize,
     local_light_cell_identity: usize,
     _local_light_selection_started_millis: u64,
     local_light_last_update_millis: u64,
@@ -733,6 +737,103 @@ struct AtmosphereBytecode {
     local_light: LocalLightBytecode,
 }
 
+/// Device-only program pair in one released shader-handle slot.
+///
+/// The heap owner is created after DeferredInit and dropped with the device.
+/// Its pointer has the original PixelShader9 size/alignment, so the lazy world
+/// owner keeps its inline startup footprint. Primary-program failures fail
+/// effect creation; optional secondary failures retain the complete primary
+/// path. Selection never allocates or compiles in a draw callback.
+#[repr(transparent)]
+struct PixelPrograms(Box<PixelProgramSet>);
+
+struct PixelProgramSet {
+    primary: PixelShader9,
+    secondary: Option<PixelShader9>,
+}
+
+const _: () = {
+    assert!(std::mem::size_of::<PixelPrograms>() == std::mem::size_of::<PixelShader9>());
+    assert!(std::mem::align_of::<PixelPrograms>() == std::mem::align_of::<PixelShader9>());
+};
+
+impl std::ops::Deref for PixelPrograms {
+    type Target = PixelShader9;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0.primary
+    }
+}
+
+impl PixelPrograms {
+    fn create(
+        device: &Device9Ref<'_>,
+        bytecode: &[u32],
+        allow_secondary: bool,
+        label: &str,
+    ) -> Direct3DResult<Self> {
+        // Frozen qualification oracles contain a single ordinary SM3 program.
+        // Prepared production pairs store the primary word count first; both
+        // complete programs still live in the released Vec<u32> owner slot.
+        let (primary, secondary) = if bytecode.first() == Some(&0xffff_0300) {
+            (bytecode, &[][..])
+        } else {
+            let length = bytecode.first().copied().ok_or_else(direct3d_failure)? as usize;
+            let programs = bytecode.get(1..).ok_or_else(direct3d_failure)?;
+            if length == 0 || length >= programs.len() {
+                return Err(direct3d_failure());
+            }
+            programs.split_at(length)
+        };
+        let primary = device.create_pixel_shader(primary)?;
+        let secondary = if allow_secondary && !secondary.is_empty() {
+            match device.create_pixel_shader(secondary) {
+                Ok(shader) => Some(shader),
+                Err(error) => {
+                    log::warn!(
+                        "[ATMOSPHERE] {label} shader unavailable; retaining the complete primary path: {error}"
+                    );
+                    None
+                }
+            }
+        } else {
+            None
+        };
+        Ok(Self(Box::new(PixelProgramSet { primary, secondary })))
+    }
+
+    fn secondary(&self) -> Option<&PixelShader9> {
+        self.0.secondary.as_ref()
+    }
+}
+
+/// Compile two program variants into an existing bytecode-vector slot.
+/// Only the established process-owned preparation worker calls this function.
+fn compile_pixel_programs(
+    primary_label: &str,
+    primary_source: &[u8],
+    secondary_label: &str,
+    secondary_source: &[u8],
+) -> Result<Vec<u32>> {
+    let primary = shaders::compile_hlsl_source(primary_label, primary_source)?;
+    let secondary = shaders::compile_hlsl_source(secondary_label, secondary_source)?;
+    let length = u32::try_from(primary.len())?;
+    let mut programs = Vec::with_capacity(1 + primary.len() + secondary.len());
+    programs.push(length);
+    programs.extend(primary);
+    programs.extend(secondary);
+    Ok(programs)
+}
+
+fn compile_integration_programs(label: &str, samples: u32) -> Result<Vec<u32>> {
+    compile_pixel_programs(
+        label,
+        &integration_shader_source(samples),
+        &format!("{label}:paired"),
+        &paired_integration_shader_source(samples),
+    )
+}
+
 struct ShaftBytecode {
     mask: Vec<u32>,
     radial: [Vec<u32>; 3],
@@ -751,23 +852,16 @@ impl AtmosphereBytecode {
                 "atmosphere_depth_reduce.hlsl:half",
                 DEPTH_REDUCE_SHADER,
             )?,
-            depth_reduce_quarter: shaders::compile_hlsl_source(
+            depth_reduce_quarter: compile_pixel_programs(
                 "atmosphere_depth_reduce.hlsl:quarter",
                 &depth_reduce_shader_source(4),
+                "atmosphere_depth_reduce.hlsl:intervals",
+                &interval_reduction_shader_source(),
             )?,
             integrate: [
-                shaders::compile_hlsl_source(
-                    "atmosphere_integrate.hlsl:performance",
-                    &integration_shader_source(8),
-                )?,
-                shaders::compile_hlsl_source(
-                    "atmosphere_integrate.hlsl:high",
-                    &integration_shader_source(12),
-                )?,
-                shaders::compile_hlsl_source(
-                    "atmosphere_integrate.hlsl:ultra",
-                    &integration_shader_source(20),
-                )?,
+                compile_integration_programs("atmosphere_integrate.hlsl:performance", 8)?,
+                compile_integration_programs("atmosphere_integrate.hlsl:high", 12)?,
+                compile_integration_programs("atmosphere_integrate.hlsl:ultra", 20)?,
             ],
             compose: shaders::compile_hlsl_source("atmosphere_compose.hlsl", COMPOSE_SHADER)?,
             debug: shaders::compile_hlsl_source("atmosphere_debug.hlsl", DEBUG_SHADER)?,
@@ -780,9 +874,11 @@ impl AtmosphereBytecode {
 impl ShaftBytecode {
     fn compile() -> Result<Self> {
         Ok(Self {
-            mask: shaders::compile_hlsl_source(
+            mask: compile_pixel_programs(
                 "atmosphere_shaft_mask.hlsl",
                 &shaft_mask_shader_source(),
+                "atmosphere_world_field.hlsl",
+                &world_field_shader_source(),
             )?,
             radial: [
                 shaders::compile_hlsl_source(
@@ -918,6 +1014,7 @@ impl AtmosphereEffect {
         device: &Device9Ref<'_>,
         bytecode: &AtmosphereBytecode,
     ) -> Direct3DResult<Self> {
+        let render_target_count = device.simultaneous_render_target_count()?.clamp(1, 4) as usize;
         let shaft_pipeline = match ShaftPipeline::create(device, &bytecode.shaft) {
             Ok(pipeline) => Some(pipeline),
             Err(err) => {
@@ -938,14 +1035,33 @@ impl AtmosphereEffect {
         };
         Ok(Self {
             depth_reduce_half_shader: device.create_pixel_shader(&bytecode.depth_reduce_half)?,
-            depth_reduce_quarter_shader: device
-                .create_pixel_shader(&bytecode.depth_reduce_quarter)?,
+            depth_reduce_quarter_shader: PixelPrograms::create(
+                device,
+                &bytecode.depth_reduce_quarter,
+                true,
+                "Interval reduction",
+            )?,
             shaft_pipeline,
             local_light_pipeline,
             integrate_shaders: [
-                device.create_pixel_shader(&bytecode.integrate[0])?,
-                device.create_pixel_shader(&bytecode.integrate[1])?,
-                device.create_pixel_shader(&bytecode.integrate[2])?,
+                PixelPrograms::create(
+                    device,
+                    &bytecode.integrate[0],
+                    render_target_count >= 2,
+                    "Paired integration",
+                )?,
+                PixelPrograms::create(
+                    device,
+                    &bytecode.integrate[1],
+                    render_target_count >= 2,
+                    "Paired integration",
+                )?,
+                PixelPrograms::create(
+                    device,
+                    &bytecode.integrate[2],
+                    render_target_count >= 2,
+                    "Paired integration",
+                )?,
             ],
             compose_shader: device.create_pixel_shader(&bytecode.compose)?,
             debug_shader: device.create_pixel_shader(&bytecode.debug)?,
@@ -971,7 +1087,7 @@ impl AtmosphereEffect {
                 compatibility: [0; std::mem::size_of::<[usize; LOCAL_LIGHT_ACTIVE_CAPACITY]>()
                     - std::mem::size_of::<Option<AtmosphereTargets>>()],
             },
-            _local_light_selection_count: 0,
+            render_target_count,
             local_light_cell_identity: 0,
             _local_light_selection_started_millis: 0,
             local_light_last_update_millis: 0,
@@ -1281,21 +1397,22 @@ impl AtmosphereEffect {
                 .as_ref()
                 .filter(|_| world_shadows.is_some() && self.shaft_pipeline.is_some());
             if let (Some(field), Some(pipeline)) = (world_field, self.shaft_pipeline.as_ref()) {
-                // Preserve the full quarter-cell near/far interval. Sampling one
-                // half-resolution depth pixel would miss other foreground pixels.
-                draw_depth_reduce_to(
+                let reduced = draw_world_field_depth(
                     device,
                     &self.depth_reduce_quarter_shader,
-                    &field.radial.surface,
-                    field.width,
-                    field.height,
+                    targets,
+                    field,
                     desc,
                     frame,
                     depth,
                 )?;
                 draw_integration(
                     device,
-                    &pipeline.mask_shader,
+                    pipeline
+                        .mask_shader
+                        .secondary()
+                        .filter(|_| world_field_uses_uniform_medium(settings, contributions))
+                        .unwrap_or(&pipeline.mask_shader),
                     targets,
                     &self.density_noise,
                     &self.neutral_visibility,
@@ -1305,11 +1422,10 @@ impl AtmosphereEffect {
                     settings,
                     contributions,
                     false,
-                    false,
                     Some(field),
-                    true,
+                    IntegrationPass::WorldField,
                 )?;
-                self.shaft_draws = self.shaft_draws.saturating_add(2);
+                self.shaft_draws = self.shaft_draws.saturating_add(1 + u64::from(reduced));
             }
             let shaft_visibility = world_field.map_or_else(
                 || {
@@ -1320,9 +1436,18 @@ impl AtmosphereEffect {
                 },
                 |field| &field.mask.texture,
             );
+            let programs = &self.integrate_shaders[settings.shader_index()];
+            let paired = world_field.is_some()
+                && self.render_target_count >= 2
+                && programs.secondary().is_some();
             draw_integration(
                 device,
-                &self.integrate_shaders[settings.shader_index()],
+                if paired {
+                    // The paired branch above proved this program exists.
+                    programs.secondary().ok_or_else(direct3d_failure)?
+                } else {
+                    programs
+                },
                 targets,
                 &self.density_noise,
                 shaft_visibility,
@@ -1332,26 +1457,30 @@ impl AtmosphereEffect {
                 settings,
                 contributions,
                 shaft_ready,
-                false,
                 world_field,
-                false,
+                if paired {
+                    IntegrationPass::Paired
+                } else {
+                    IntegrationPass::Near
+                },
             )?;
-            draw_integration(
-                device,
-                &self.integrate_shaders[settings.shader_index()],
-                targets,
-                &self.density_noise,
-                shaft_visibility,
-                sun_disk.as_ref(),
-                world_shadows.as_ref(),
-                frame,
-                settings,
-                contributions,
-                shaft_ready,
-                true,
-                world_field,
-                false,
-            )?;
+            if !paired {
+                draw_integration(
+                    device,
+                    programs,
+                    targets,
+                    &self.density_noise,
+                    shaft_visibility,
+                    sun_disk.as_ref(),
+                    world_shadows.as_ref(),
+                    frame,
+                    settings,
+                    contributions,
+                    shaft_ready,
+                    world_field,
+                    IntegrationPass::Far,
+                )?;
+            }
             self.integration_draws = self.integration_draws.saturating_add(1);
             if self.integration_draws == 1 {
                 log::info!(
@@ -1807,6 +1936,80 @@ fn draw_depth_reduce_to(
     draw_quad(device, width, height)
 }
 
+/// Preserve the complete quarter-cell interval with the least depth work.
+/// Returns whether a draw was submitted. Quarter atmosphere depth is already
+/// the exact required input; half depth combines all four neighboring packets.
+/// A missing optional program retains the released full-depth reduction.
+#[allow(clippy::too_many_arguments)]
+fn draw_world_field_depth(
+    device: &Device9Ref<'_>,
+    programs: &PixelPrograms,
+    targets: &AtmosphereTargets,
+    field: &ShaftTargets,
+    desc: &D3DSURFACE_DESC,
+    frame: AtmosphereFrame,
+    depth: DepthTexture,
+) -> Direct3DResult<bool> {
+    if targets.scale == SHAFT_TARGET_SCALE {
+        return Ok(false);
+    }
+    if let Some(shader) = programs.secondary() {
+        draw_interval_reduce_to(
+            device,
+            shader,
+            targets,
+            &field.radial.surface,
+            field.width,
+            field.height,
+        )?;
+    } else {
+        draw_depth_reduce_to(
+            device,
+            programs,
+            &field.radial.surface,
+            field.width,
+            field.height,
+            desc,
+            frame,
+            depth,
+        )?;
+    }
+    Ok(true)
+}
+
+/// Reduce the GPU-authored half-resolution FP16 interval without decoding it.
+fn draw_interval_reduce_to(
+    device: &Device9Ref<'_>,
+    shader: &PixelShader9,
+    targets: &AtmosphereTargets,
+    output: &Surface9,
+    width: u32,
+    height: u32,
+) -> Direct3DResult<()> {
+    bind_target(device, output, width, height)?;
+    device.set_texture(0, &targets.depth.texture)?;
+    set_sampler_filter(device, 0, D3DTEXF_POINT.0 as u32)?;
+    device.set_pixel_shader_constant_f(
+        0,
+        &[
+            [
+                targets.width as f32,
+                targets.height as f32,
+                targets.inv_width,
+                targets.inv_height,
+            ],
+            [
+                width as f32,
+                height as f32,
+                1.0 / width as f32,
+                1.0 / height as f32,
+            ],
+        ],
+    )?;
+    device.set_pixel_shader(shader)?;
+    draw_quad(device, width, height)
+}
+
 fn draw_shaft_mask(
     device: &Device9Ref<'_>,
     shader: &PixelShader9,
@@ -1905,6 +2108,14 @@ fn local_phase_control(anisotropy: f32) -> [f32; 4] {
     ]
 }
 
+#[derive(Clone, Copy, Eq, PartialEq)]
+enum IntegrationPass {
+    Near,
+    Far,
+    WorldField,
+    Paired,
+}
+
 #[allow(clippy::too_many_arguments)]
 fn draw_integration(
     device: &Device9Ref<'_>,
@@ -1918,10 +2129,11 @@ fn draw_integration(
     settings: AtmosphereSettings,
     contributions: AtmosphereContributions,
     shaft_ready: bool,
-    far_layer: bool,
     world_field: Option<&ShaftTargets>,
-    field_draw: bool,
+    pass: IntegrationPass,
 ) -> Direct3DResult<()> {
+    let field_draw = pass == IntegrationPass::WorldField;
+    let far_layer = pass == IntegrationPass::Far;
     let field = world_field.filter(|_| field_draw);
     let width = field.map_or(targets.width, |field| field.width);
     let height = field.map_or(targets.height, |field| field.height);
@@ -1937,9 +2149,21 @@ fn draw_integration(
         width,
         height,
     )?;
+    if pass == IntegrationPass::Paired {
+        // Both existing outputs have identical dimensions, format and sample
+        // mode. Clear all sampler aliases before either becomes an attachment.
+        device.set_render_target(1, &targets.far_atmosphere.surface)?;
+        device.set_render_state(D3DRS_COLORWRITEENABLE1, COLOR_WRITE_ALL)?;
+    }
     device.set_texture(
         0,
-        field.map_or(&targets.depth.texture, |field| &field.radial.texture),
+        field.map_or(&targets.depth.texture, |field| {
+            if targets.scale == SHAFT_TARGET_SCALE {
+                &targets.depth.texture
+            } else {
+                &field.radial.texture
+            }
+        }),
     )?;
     device.set_texture(1, density_noise)?;
     device.set_texture(2, shaft_visibility)?;
@@ -2075,7 +2299,17 @@ fn draw_integration(
         ],
     )?;
     device.set_pixel_shader(shader)?;
-    draw_quad(device, width, height)
+    let result = draw_quad(device, width, height);
+    if pass == IntegrationPass::Paired {
+        // Local additions and composition write one target at a time. Detach
+        // RT1 before any later pass samples either completed atmosphere layer.
+        let detached = device.clear_render_target(1);
+        result?;
+        detached?;
+        Ok(())
+    } else {
+        result
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -3303,13 +3537,45 @@ fn depth_reduce_shader_source(scale: u32) -> Vec<u8> {
     variant
 }
 
-// Reuse the prepared mask slot: one shader owns world-field integration and
-// the existing projected fallback. The static bytecode owner keeps its layout.
+fn interval_reduction_shader_source() -> Vec<u8> {
+    let mut source = b"#define OMV_REDUCED_INTERVALS 1\n".to_vec();
+    source.extend_from_slice(DEPTH_REDUCE_SHADER);
+    source
+}
+
+fn paired_integration_shader_source(sample_count: u32) -> Vec<u8> {
+    let mut source = b"#define OMV_PAIR_LAYERS 1\n".to_vec();
+    source.extend(integration_shader_source(sample_count));
+    source
+}
+
+// The primary mask program retains general world integration and projected
+// fallback. Its optional uniform program shares the same bytecode-owner slot.
 fn shaft_mask_shader_source() -> Vec<u8> {
     let mut source = b"#define OMV_WORLD_FIELD 1\n".to_vec();
     source.extend_from_slice(INTEGRATE_SHADER);
     source.extend_from_slice(SHAFT_MASK_SHADER);
     source
+}
+
+fn world_field_shader_source() -> Vec<u8> {
+    let mut source = b"#define OMV_WORLD_FIELD 1\n#define OMV_UNIFORM_WORLD_MEDIUM 1\n".to_vec();
+    source.extend_from_slice(INTEGRATE_SHADER);
+    source.extend_from_slice(
+        b"\nfloat4 Main(PixelInput input) : COLOR0 { return WorldFieldMain(input); }\n",
+    );
+    source
+}
+
+/// Match the actual c6.y/c7.z upload, keeping varying density on the general
+/// field program. Zero coefficients permit one extinction evaluation per ray.
+fn world_field_uses_uniform_medium(
+    settings: AtmosphereSettings,
+    contributions: AtmosphereContributions,
+) -> bool {
+    !settings.fog_enabled
+        || !contributions.fog
+        || (settings.height_density == 0.0 && settings.noise_amount == 0.0)
 }
 
 fn integration_shader_source(sample_count: u32) -> Vec<u8> {
@@ -4157,7 +4423,7 @@ mod directional_shader_behavior {
 
     use super::{
         AtmosphereBytecode, AtmosphereDrawOutcome, AtmosphereEffect, AtmosphereSettings,
-        LIGHTING_DEBUG_BASE,
+        IntegrationPass, LIGHTING_DEBUG_BASE,
     };
     use crate::{
         backend::{
@@ -4178,14 +4444,16 @@ mod directional_shader_behavior {
             CubeTexture9, D3DCLEAR_TARGET, D3DCUBEMAP_FACE_NEGATIVE_X, D3DCUBEMAP_FACE_NEGATIVE_Y,
             D3DCUBEMAP_FACE_NEGATIVE_Z, D3DCUBEMAP_FACE_POSITIVE_X, D3DCUBEMAP_FACE_POSITIVE_Y,
             D3DCUBEMAP_FACE_POSITIVE_Z, D3DDEVTYPE_HAL, D3DDEVTYPE_NULLREF, D3DFMT_A8R8G8B8,
-            D3DFMT_A16B16G16R16F, D3DFMT_R32F, D3DPOOL_MANAGED, Device9, Device9Ref, RECT,
-            Texture9, create_direct3d9,
+            D3DFMT_A16B16G16R16F, D3DFMT_R32F, D3DPOOL_MANAGED, Device9, Device9Ref, PixelShader9,
+            RECT, Texture9, create_direct3d9,
         },
         winapi::{get_active_window, get_desktop_window, get_foreground_window},
     };
 
     const TEST_SIZE: u32 = 64;
     const FRAME_EPOCH: u64 = 19;
+
+    include!("atmosphere_sun_tests.rs");
 
     fn raster_device() -> Device9 {
         let window = [
@@ -4405,25 +4673,47 @@ mod directional_shader_behavior {
     /// using production binding/reduction/integration and FP16 readback.
     #[test]
     fn orthographic_world_field_preserves_shipped_gpu_pixels() {
-        qualify_world_field(false, false);
+        qualify_world_field(false, false, false, false);
     }
 
     #[test]
     fn directional_quality_owns_world_field_sampling_independently_of_fog() {
-        qualify_world_field(false, true);
+        qualify_world_field(false, true, false, false);
     }
 
     #[test]
     #[ignore = "explicit production world-field GPU benchmark"]
     fn benchmark_world_field_ray_reuse() {
-        qualify_world_field(true, false);
+        qualify_world_field(true, false, false, false);
     }
 
-    fn qualify_world_field(benchmark: bool, quality_gate: bool) {
+    #[test]
+    fn sun_work_specialized_field_preserves_current_gpu_pixels() {
+        qualify_world_field(false, false, true, false);
+    }
+
+    #[test]
+    fn sun_work_pass_graph_preserves_composed_gpu_pixels() {
+        qualify_world_field(false, false, true, true);
+    }
+
+    #[test]
+    #[ignore = "explicit complete sunlight GPU pass benchmark"]
+    fn benchmark_sun_pass_graph() {
+        qualify_world_field(true, false, true, true);
+    }
+
+    fn qualify_world_field(
+        benchmark: bool,
+        quality_gate: bool,
+        current_oracle: bool,
+        pass_graph: bool,
+    ) {
         use super::{
             AtmosphereTargets, SHAFT_MASK_SHADER, ShaftTargets, bind_pipeline_state, bind_target,
-            draw_depth_reduce_to, draw_integration, draw_quad, resolve_contributions,
-            shaft_mask_shader_source,
+            draw_composition, draw_depth_reduce_to, draw_integration, draw_quad,
+            draw_world_field_depth, resolve_contributions, world_field_shader_source,
+            world_field_uses_uniform_medium,
         };
         use crate::effects::shadows::{self, VolumetricDirectionalFrame};
         use libpsycho::os::windows::directx9::{D3DFMT_G16R16F, D3DRS_SCISSORTESTENABLE};
@@ -4440,13 +4730,17 @@ mod directional_shader_behavior {
         let device = owner.as_ref();
         let optimized = crate::shaders::compile_hlsl_source(
             "world-field:production",
-            &shaft_mask_shader_source(),
+            &world_field_shader_source(),
         )
         .expect("production field bytecode");
         let mut baseline_source = b"#define OMV_WORLD_FIELD 1\n".to_vec();
-        baseline_source.extend_from_slice(include_bytes!(
-            "../../shaders/tests/atmosphere_integrate_orthographic_baseline.hlsl"
-        ));
+        baseline_source.extend_from_slice(if current_oracle {
+            include_bytes!("../../shaders/tests/atmosphere_integrate_sun_work_baseline.hlsl")
+                as &[u8]
+        } else {
+            include_bytes!("../../shaders/tests/atmosphere_integrate_orthographic_baseline.hlsl")
+                as &[u8]
+        });
         baseline_source.extend_from_slice(SHAFT_MASK_SHADER);
         let baseline =
             crate::shaders::compile_hlsl_source("world-field:frozen-baseline", &baseline_source)
@@ -4554,8 +4848,16 @@ mod directional_shader_behavior {
 
         let bytecode = AtmosphereBytecode::compile().unwrap();
         let effect = AtmosphereEffect::create_from_bytecode(&device, &bytecode).unwrap();
-        let targets = AtmosphereTargets::create(&device, size, size, 2).unwrap();
         let field = ShaftTargets::create(&device, size / 4, size / 4).unwrap();
+        let color = device
+            .create_texture(size, size, 1, 0, D3DFMT_A8R8G8B8, D3DPOOL_MANAGED)
+            .unwrap();
+        color
+            .write_level0_argb(size, size, &vec![0xff80_90a0; (size * size) as usize])
+            .unwrap();
+        let composed = device
+            .create_render_target_texture(size, size, D3DFMT_A16B16G16R16F)
+            .unwrap();
         let readback = device
             .create_system_memory_surface(field.width, field.height, D3DFMT_A16B16G16R16F)
             .unwrap();
@@ -4565,9 +4867,21 @@ mod directional_shader_behavior {
             AtmosphereQuality::High,
             AtmosphereQuality::Ultra,
         ] {
-            for (case, sun) in [[0.4, 0.3, 0.866_025_4], [0.0, 0.0, 1.0], [1.0, 0.0, 0.0]]
-                .into_iter()
-                .enumerate()
+            let scale = if pass_graph && quality == AtmosphereQuality::Performance {
+                4
+            } else {
+                2
+            };
+            let targets = AtmosphereTargets::create(&device, size, size, scale).unwrap();
+            for (case, sun) in [
+                [0.4, 0.3, 0.866_025_4],
+                [0.0, 0.0, 1.0],
+                [1.0, 0.0, 0.0],
+                [0.4, 0.3, 0.866_025_4],
+                [0.0, 0.0, 1.0],
+            ]
+            .into_iter()
+            .enumerate()
             {
                 for blocker in [false, true] {
                     let depth = if benchmark {
@@ -4589,13 +4903,30 @@ mod directional_shader_behavior {
                         raw_depth(&device, blocker)
                     };
                     let mut frame = frame(&depth, sun);
+                    frame.sky.as_mut().unwrap().sun_light = [1.0, 0.9, 0.8];
                     if case == 1 {
                         frame.camera.world_transform.translation = [4096.0, -2048.0, 512.0];
                         frame.camera.world_transform.rotation =
                             [[0.0, -1.0, 0.0], [1.0, 0.0, 0.0], [0.0, 0.0, 1.0]];
                     }
-                    let (matrices, splits) =
-                        shadows::directional_shader_fixture(frame.camera, sun).unwrap();
+                    let (matrices, splits) = if case >= 3 {
+                        let camera_origin = frame.camera.world_transform.translation;
+                        let origins = std::array::from_fn(|index| {
+                            [
+                                camera_origin[0]
+                                    + if case == 3 { -1200.0 } else { 1200.0 } * (index + 1) as f32,
+                                camera_origin[1] + 128.0 * index as f32,
+                                camera_origin[2],
+                            ]
+                        });
+                        let mut suns = [sun; 4];
+                        suns[1] = [0.405, 0.295, 0.866];
+                        suns[2] = [0.395, 0.305, 0.866];
+                        shadows::directional_retained_shader_fixture(frame.camera, suns, origins)
+                            .unwrap()
+                    } else {
+                        shadows::directional_shader_fixture(frame.camera, sun).unwrap()
+                    };
                     for matrix in matrices {
                         assert_eq!(
                             [matrix[0][3], matrix[1][3], matrix[2][3], matrix[3][3]],
@@ -4635,6 +4966,15 @@ mod directional_shader_behavior {
                     let desc = depth.surface_level(0).unwrap().desc().unwrap();
                     let mut outputs = Vec::new();
                     for (program_index, shader) in programs.iter().enumerate() {
+                        let shader = if program_index == 1
+                            && !world_field_uses_uniform_medium(settings, contributions)
+                        {
+                            // This case must execute the real general production
+                            // program, just as the device pipeline selects it.
+                            &effect.shaft_pipeline.as_ref().unwrap().mask_shader as &PixelShader9
+                        } else {
+                            shader
+                        };
                         // The reference requests the selected directional tier
                         // through both controls. Changing only Fog Quality must
                         // leave the directional field's actual GPU pixels alone.
@@ -4642,41 +4982,135 @@ mod directional_shader_behavior {
                         if quality_gate && program_index == 0 {
                             draw_settings.quality = draw_settings.shaft_quality;
                         }
+                        let draw_field = || {
+                            draw_integration(
+                                &device,
+                                shader,
+                                &targets,
+                                &effect.density_noise,
+                                &effect.neutral_visibility,
+                                None,
+                                Some(&maps),
+                                frame,
+                                draw_settings,
+                                contributions,
+                                false,
+                                Some(&field),
+                                IntegrationPass::WorldField,
+                            )
+                            .unwrap();
+                        };
+                        let draw_graph = || {
+                            if pass_graph {
+                                let depth_shader: &PixelShader9 = if scale == 4 {
+                                    &effect.depth_reduce_quarter_shader
+                                } else {
+                                    &effect.depth_reduce_half_shader
+                                };
+                                draw_depth_reduce_to(
+                                    &device,
+                                    depth_shader,
+                                    &targets.depth.surface,
+                                    targets.width,
+                                    targets.height,
+                                    &desc,
+                                    frame,
+                                    frame.depth.texture.unwrap(),
+                                )
+                                .unwrap();
+                            }
+                            if pass_graph && program_index == 1 {
+                                draw_world_field_depth(
+                                    &device,
+                                    &effect.depth_reduce_quarter_shader,
+                                    &targets,
+                                    &field,
+                                    &desc,
+                                    frame,
+                                    frame.depth.texture.unwrap(),
+                                )
+                                .unwrap();
+                            } else {
+                                draw_depth_reduce_to(
+                                    &device,
+                                    &effect.depth_reduce_quarter_shader,
+                                    &field.radial.surface,
+                                    field.width,
+                                    field.height,
+                                    &desc,
+                                    frame,
+                                    frame.depth.texture.unwrap(),
+                                )
+                                .unwrap();
+                            }
+                            draw_field();
+                            if pass_graph {
+                                let programs =
+                                    &effect.integrate_shaders[draw_settings.shader_index()];
+                                let draw_layer = |shader: &PixelShader9, pass| {
+                                    draw_integration(
+                                        &device,
+                                        shader,
+                                        &targets,
+                                        &effect.density_noise,
+                                        &field.mask.texture,
+                                        None,
+                                        Some(&maps),
+                                        frame,
+                                        draw_settings,
+                                        contributions,
+                                        false,
+                                        Some(&field),
+                                        pass,
+                                    )
+                                    .unwrap();
+                                };
+                                if program_index == 0 {
+                                    draw_layer(programs, IntegrationPass::Near);
+                                    draw_layer(programs, IntegrationPass::Far);
+                                } else {
+                                    draw_layer(
+                                        programs.secondary().unwrap(),
+                                        IntegrationPass::Paired,
+                                    );
+                                }
+                                draw_composition(
+                                    &device,
+                                    &effect.compose_shader,
+                                    &composed.surface_level(0).unwrap(),
+                                    &desc,
+                                    &targets,
+                                    &color,
+                                    frame.depth.texture.unwrap(),
+                                    frame,
+                                    false,
+                                )
+                                .unwrap();
+                            }
+                        };
                         device.begin_scene().unwrap();
                         bind_pipeline_state(&device).unwrap();
-                        draw_depth_reduce_to(
-                            &device,
-                            &effect.depth_reduce_quarter_shader,
-                            &field.radial.surface,
-                            field.width,
-                            field.height,
-                            &desc,
-                            frame,
-                            frame.depth.texture.unwrap(),
-                        )
-                        .unwrap();
-                        draw_integration(
-                            &device,
-                            shader,
-                            &targets,
-                            &effect.density_noise,
-                            &effect.neutral_visibility,
-                            None,
-                            Some(&maps),
-                            frame,
-                            draw_settings,
-                            contributions,
-                            false,
-                            false,
-                            Some(&field),
-                            true,
-                        )
-                        .unwrap();
+                        draw_graph();
                         device.end_scene().unwrap();
                         device
                             .copy_render_target_data(&field.mask.surface, &readback)
                             .unwrap();
-                        outputs.push(readback.read_rgba16f().unwrap());
+                        let mut pixels = readback.read_rgba16f().unwrap();
+                        for pixel in &pixels {
+                            strongest_blockage = strongest_blockage.max(pixel[0]).max(pixel[1]);
+                        }
+                        if pass_graph {
+                            pixels.extend(sun_work_readback(
+                                &device,
+                                &targets.near_atmosphere.texture,
+                            ));
+                            pixels.extend(sun_work_readback(
+                                &device,
+                                &targets.far_atmosphere.texture,
+                            ));
+                            pixels.extend(sun_work_readback(&device, &composed));
+                        }
+                        outputs.push(pixels);
                         if benchmark {
                             let mut times = Vec::new();
                             for round in 0..4 {
@@ -4686,23 +5120,11 @@ mod directional_shader_behavior {
                                 device.begin_scene().unwrap();
                                 timer.begin().unwrap();
                                 for _ in 0..8 {
-                                    draw_integration(
-                                        &device,
-                                        shader,
-                                        &targets,
-                                        &effect.density_noise,
-                                        &effect.neutral_visibility,
-                                        None,
-                                        Some(&maps),
-                                        frame,
-                                        settings,
-                                        contributions,
-                                        false,
-                                        false,
-                                        Some(&field),
-                                        true,
-                                    )
-                                    .unwrap();
+                                    if pass_graph {
+                                        draw_graph();
+                                    } else {
+                                        draw_field();
+                                    }
                                 }
                                 timer.end().unwrap();
                                 device.end_scene().unwrap();
@@ -4726,15 +5148,25 @@ mod directional_shader_behavior {
                             totals[program_index] += times[1];
                         }
                     }
-                    for (reference, actual) in outputs[0].iter().zip(&outputs[1]) {
+                    let field_end = (field.width * field.height) as usize;
+                    for (pixel_index, (reference, actual)) in
+                        outputs[0].iter().zip(&outputs[1]).enumerate()
+                    {
                         for channel in 0..4 {
                             assert!(reference[channel].is_finite() && actual[channel].is_finite());
+                            let matches = if pass_graph && pixel_index >= field_end {
+                                // Colored layers/composition span larger exponents than
+                                // field blockage. Bound their quantized output by one
+                                // FP16 storage step; the field keeps its original gate.
+                                sun_work_adjacent_fp16(reference[channel], actual[channel])
+                            } else {
+                                (reference[channel] - actual[channel]).abs() <= 0.000_061_035_156
+                            };
                             assert!(
-                                (reference[channel] - actual[channel]).abs() <= 0.000_061_035_156,
+                                matches,
                                 "orthographic optimization changed field pixels: quality={quality:?}, case={case}, blocker={blocker}, reference={reference:?}, actual={actual:?}"
                             );
                         }
-                        strongest_blockage = strongest_blockage.max(actual[0]).max(actual[1]);
                     }
                 }
             }
@@ -4742,7 +5174,9 @@ mod directional_shader_behavior {
         if benchmark {
             let ratio = totals[1] / totals[0];
             log::info!(
-                "[ATMOSPHERE BENCH] Actual 256-square world field, all tiers/angles/actors/noise: GPU ratio={ratio:.6}"
+                "[ATMOSPHERE BENCH] Sun path: complete_graph={pass_graph}, all tiers/angles/actors/noise, retained maps: baseline_seconds={:.6}, candidate_seconds={:.6}, GPU ratio={ratio:.6}",
+                totals[0],
+                totals[1]
             );
             libpsycho::logger::Logger::shutdown();
             assert!(
@@ -4816,9 +5250,8 @@ mod directional_shader_behavior {
             settings,
             contributions,
             false,
-            false,
             None,
-            false,
+            IntegrationPass::Near,
         )
         .unwrap();
         device.end_scene().unwrap();
@@ -4844,9 +5277,8 @@ mod directional_shader_behavior {
                         settings,
                         contributions,
                         false,
-                        true,
                         None,
-                        false,
+                        IntegrationPass::Far,
                     )
                     .unwrap();
                 }
@@ -4951,9 +5383,8 @@ mod directional_shader_behavior {
                     settings,
                     contributions,
                     false,
-                    false,
                     None,
-                    false,
+                    IntegrationPass::Near,
                 )
                 .unwrap();
                 device.end_scene().unwrap();
@@ -4973,9 +5404,8 @@ mod directional_shader_behavior {
                         settings,
                         contributions,
                         false,
-                        true,
                         None,
-                        false,
+                        IntegrationPass::Far,
                     )
                     .unwrap();
                     device.end_scene().unwrap();
@@ -5082,9 +5512,8 @@ mod directional_shader_behavior {
                             settings,
                             contributions,
                             false,
-                            false,
                             None,
-                            false,
+                            IntegrationPass::Near,
                         )
                         .unwrap();
                         device.end_scene().unwrap();
@@ -6677,14 +7106,14 @@ fn compile_local_light_cube_batch_bytecode(
 }
 
 struct ShaftPipeline {
-    mask_shader: PixelShader9,
+    mask_shader: PixelPrograms,
     radial_shaders: [PixelShader9; 3],
 }
 
 impl ShaftPipeline {
     fn create(device: &Device9Ref<'_>, bytecode: &ShaftBytecode) -> Direct3DResult<Self> {
         Ok(Self {
-            mask_shader: device.create_pixel_shader(&bytecode.mask)?,
+            mask_shader: PixelPrograms::create(device, &bytecode.mask, true, "world field")?,
             radial_shaders: [
                 device.create_pixel_shader(&bytecode.radial[0])?,
                 device.create_pixel_shader(&bytecode.radial[1])?,

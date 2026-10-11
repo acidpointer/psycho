@@ -58,8 +58,8 @@ use super::{
         retained_cascade_refresh,
     },
     math::{
-        CascadeProjection, ShadowCamera, cascade_projection, point_cube_views,
-        stabilize_sun_direction,
+        CascadeProjection, ShadowCamera, cascade_projection, directional_generation_sun,
+        point_cube_views,
     },
     native::{
         self, DIRECTIONAL_ROOT_CACHE_CAPACITY, DirectionalRoot, NativeScene,
@@ -886,7 +886,12 @@ impl ShadowPipeline {
 
         let directional_inputs = if directional {
             let sky = backend::native_sky_frame()?;
-            let sun = stabilize_sun_direction(self.last_sun, sky.sun_direction)?;
+            let sun = directional_generation_sun(
+                self.last_sun,
+                cascade_suns,
+                sky.sun_direction,
+                crate::fnv_world_pipeline::needs_directional_shadows(),
+            )?;
             let frustum = camera_signature(camera);
             if self
                 .last_frustum
@@ -2193,8 +2198,13 @@ impl ShadowResources {
         if directional {
             self.production_stage = ShadowProductionStage::DirectionalInputs;
             let sky = backend::native_sky_frame().ok_or_else(direct3d_failure)?;
-            let sun = stabilize_sun_direction(*last_sun, sky.sun_direction)
-                .ok_or_else(direct3d_failure)?;
+            let sun = directional_generation_sun(
+                *last_sun,
+                self.cascade_suns,
+                sky.sun_direction,
+                crate::fnv_world_pipeline::needs_directional_shadows(),
+            )
+            .ok_or_else(direct3d_failure)?;
             let frustum = camera_signature(camera);
             let directional_profile = [settings.exterior_distance, settings.cascade_split_lambda];
             let splits = practical_cascade_splits(
@@ -4164,7 +4174,8 @@ fn consumer_camera_constants(
     ]
 }
 
-fn translate_shadow_matrix(
+/// Rebase a retained map's camera-relative matrix without changing its image.
+pub(super) fn translate_shadow_matrix(
     matrix: [[f32; 4]; 4],
     current_origin: [f32; 3],
     map_origin: [f32; 3],

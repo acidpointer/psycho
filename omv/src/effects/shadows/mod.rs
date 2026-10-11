@@ -122,6 +122,27 @@ pub(crate) fn directional_shader_fixture(
     Some((matrices, split.map(|entry| entry.far)))
 }
 
+/// Fit and rebase independent retained maps through the production equations.
+#[cfg(test)]
+pub(crate) fn directional_retained_shader_fixture(
+    camera: crate::backend::CameraFrame,
+    suns: [[f32; 3]; 4],
+    origins: [[f32; 3]; 4],
+) -> Option<([[[f32; 4]; 4]; 4], [f32; 4])> {
+    let (mut matrices, splits) = directional_shader_fixture(camera, suns[0])?;
+    for index in 0..4 {
+        let mut retained = camera;
+        retained.world_transform.translation = origins[index];
+        let (generation, _) = directional_shader_fixture(retained, suns[index])?;
+        matrices[index] = pipeline::translate_shadow_matrix(
+            generation[index],
+            camera.world_transform.translation,
+            origins[index],
+        );
+    }
+    Some((matrices, splits))
+}
+
 /// Exact EVSM moments used to populate offline directional atlas fixtures.
 #[cfg(test)]
 pub(crate) fn directional_fixture_moments(depth: f32) -> Option<[f32; 4]> {

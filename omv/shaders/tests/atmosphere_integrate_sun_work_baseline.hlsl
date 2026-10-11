@@ -269,16 +269,10 @@ float IntegratedWorldBlockage(float3 origin, float3 direction, float distance, f
     float stepLength = shadowDistance / WorldShadowControl.z;
     float blockedAmount = 0.0f;
     float transmittance = 1.0f;
-#ifdef OMV_UNIFORM_WORLD_MEDIUM
-    // Admitted only with zero height and noise coefficients. Every midpoint
-    // has the exact same segment extinction, including its original clamp.
-    float uniformSegmentT = exp(-min(MediumData0.x * stepLength, MaximumOpticalDepth));
-#else
     // The height exponent is affine along this fixed world ray.
     // Clamp each sample's exponent exactly as the original density path did.
     float heightOrigin = -MediumData0.z * (origin.z - MediumData0.w);
     float heightSlope = -MediumData0.z * direction.z;
-#endif
     // Orthographic projection is affine along the ray. Each constant-index
     // direction transform is shared by every midpoint in this march.
     float3 ray0 = mul(float4(direction, 0.0f), CascadeMatrices[0]).xyz;
@@ -288,9 +282,6 @@ float IntegratedWorldBlockage(float3 origin, float3 direction, float distance, f
     [loop]
     for (int index = 0; index < (int)WorldShadowControl.z; ++index) {
         float sampleDistance = (index + 0.5f) * stepLength;
-#ifdef OMV_UNIFORM_WORLD_MEDIUM
-        float segmentT = uniformSegmentT;
-#else
         float3 position = origin + direction * sampleDistance;
         // Both density coefficients are nonnegative production constants.
         float density = MediumData0.x;
@@ -305,7 +296,6 @@ float IntegratedWorldBlockage(float3 origin, float3 direction, float distance, f
         }
         // Nonnegative density and step make the lower clamp redundant.
         float segmentT = exp(-min(density * stepLength, MaximumOpticalDepth));
-#endif
         float visibility = DirectionalVisibility(sampleDistance, ray0, ray1, ray2, ray3);
         blockedAmount += transmittance * (1.0f - segmentT) * (1.0f - visibility);
         transmittance *= segmentT;
@@ -342,100 +332,6 @@ float WorldBlockage(float2 uv, float encodedDistance) {
 }
 #endif
 
-#if defined(OMV_PAIR_LAYERS) && !defined(OMV_WORLD_FIELD)
-// Both atmosphere layers reconstruct the same four field texels. Keep their
-// depth matches and weights independent while sharing each texture fetch.
-float2 WorldBlockagePair(float2 uv, float2 encodedDistance) {
-    float2 pixel = uv * WorldFieldTarget.xy - 0.5f;
-    float2 base = floor(pixel);
-    float2 fraction = frac(pixel);
-    float2 blocked = 0.0f;
-    float2 totalWeight = 0.0f;
-    float2 distance = float2(DecodeDistance(encodedDistance.x), DecodeDistance(encodedDistance.y));
-    float2 tolerance = max(256.0f, distance * 0.02f);
-    [unroll]
-    for (int tap = 0; tap < 4; ++tap) {
-        float2 offset = float2(tap == 1 || tap == 3 ? 1.0f : 0.0f, tap >= 2 ? 1.0f : 0.0f);
-        float2 sampleUv = (base + offset + 0.5f) * WorldFieldTarget.zw;
-        float4 field = tex2Dlod(ShaftVisibility, float4(sampleUv, 0.0f, 0.0f));
-        float span = max(field.w - field.z, 0.0f);
-        float2 blend = span > 0.0001f ? saturate((encodedDistance - field.z) / span) : 0.0f;
-        float2 matched = clamp(encodedDistance, field.z, field.w);
-        float2 matchedDistance = float2(DecodeDistance(matched.x), DecodeDistance(matched.y));
-        float2 depthWeight = saturate(1.0f - abs(distance - matchedDistance) / tolerance);
-        float2 spatial = lerp(1.0f - fraction, fraction, offset);
-        float2 weight = spatial.x * spatial.y * depthWeight * depthWeight;
-        blocked += lerp(field.x, field.y, blend) * weight;
-        totalWeight += weight;
-    }
-    return float2(totalWeight.x > 0.0001f ? blocked.x / totalWeight.x : 0.0f,
-        totalWeight.y > 0.0001f ? blocked.y / totalWeight.y : 0.0f);
-}
-
-float4 IntegrateEndpoint(float distance, float3 origin, float3 direction,
-    float blocked, float projectedShaft, float3 sunlight) {
-    float opticalDepth = MediumData0.x * distance;
-    opticalDepth += max(AnalyticHeightOpticalDepth(distance, origin.z, direction.z), 0.0f);
-    opticalDepth += HeterogeneousCorrection(distance, origin, direction);
-    if (!IsFiniteScalar(opticalDepth)) return IdentityMedium();
-    opticalDepth = clamp(opticalDepth, 0.0f, MaximumOpticalDepth);
-    float transmittance = exp(-opticalDepth);
-    float scatterAmount = (1.0f - transmittance) * saturate(MediumData1.y);
-    float3 scattering = max(MediumColor.rgb, 0.0f) * scatterAmount * saturate(MediumColor.w);
-    if (LightingData.w > 0.5f) {
-        float shaft = projectedShaft;
-        if (WorldShadowControl.x > 0.5f) {
-            shaft = 1.0f - saturate(WorldShadowControl.y)
-                * saturate(blocked / max(1.0f - transmittance, 0.000001f));
-        }
-        scattering += sunlight * scatterAmount * shaft;
-    }
-    if (!IsFiniteScalar(transmittance) || !IsFiniteVector(scattering)) return IdentityMedium();
-    return float4(scattering, saturate(transmittance));
-}
-
-struct AtmosphereLayers {
-    float4 nearLayer : COLOR0;
-    float4 farLayer : COLOR1;
-};
-
-AtmosphereLayers Main(PixelInput input) {
-    AtmosphereLayers output;
-    output.nearLayer = IdentityMedium();
-    output.farLayer = output.nearLayer;
-    if (GateData.x < 0.5f || GateData.y < 0.5f || GateData.z > 0.5f) return output;
-    float2 encodedDepth = tex2Dlod(ReducedDepth, float4(input.uv, 0.0f, 0.0f)).rg;
-    float2 distance = float2(DecodeDistance(encodedDepth.x), DecodeDistance(encodedDepth.y));
-    distance = max(min(distance, min(MediumData1.x, DepthData.w)), 0.0f);
-    float viewX = lerp(CameraFrustum.x, CameraFrustum.y, input.uv.x);
-    float viewY = lerp(CameraFrustum.w, CameraFrustum.z, input.uv.y);
-    float3 viewDirection = normalize(float3(viewX, viewY, 1.0f));
-    float3 worldRay = float3(dot(ViewToWorld0.xyz, viewDirection),
-        dot(ViewToWorld1.xyz, viewDirection), dot(ViewToWorld2.xyz, viewDirection));
-    float worldRayLength = length(worldRay);
-    if (!IsFiniteVector(worldRay) || !IsFiniteScalar(worldRayLength) || worldRayLength <= 0.000001f) return output;
-    float3 direction = worldRay / worldRayLength;
-    float3 origin = float3(ViewToWorld0.w, ViewToWorld1.w, ViewToWorld2.w);
-    float2 blocked = 0.0f;
-    float projectedShaft = 1.0f;
-    float3 sunlight = 0.0f;
-    if (LightingData.w > 0.5f) {
-        if (WorldShadowControl.x > 0.5f) blocked = WorldBlockagePair(input.uv, encodedDepth);
-        else if (SunDirection.w > 0.5f) projectedShaft = saturate(tex2Dlod(ShaftVisibility, float4(input.uv, 0.0f, 0.0f)).r);
-        float phase = DirectionalPhase(dot(direction, SunDirection.xyz), LightingData.y);
-        float diskLobe = AuthoredSunCoverage(input.uv);
-        float3 radiance = max(SunColor.rgb, 0.0f)
-            + max(SunDiskDelta.rgb, 0.0f) * max(LightingData.z, 0.0f) * diskLobe;
-        sunlight = radiance * max(LightingData.x, 0.0f) * saturate(SunColor.w) * phase;
-    }
-    output.nearLayer = IntegrateEndpoint(distance.x, origin, direction, blocked.x, projectedShaft, sunlight);
-    output.farLayer = output.nearLayer;
-    if (encodedDepth.x != encodedDepth.y) {
-        output.farLayer = IntegrateEndpoint(distance.y, origin, direction, blocked.y, projectedShaft, sunlight);
-    }
-    return output;
-}
-#else
 #ifdef OMV_WORLD_FIELD
 float4 WorldFieldMain(PixelInput input)
 #else
@@ -529,4 +425,3 @@ float4 Main(PixelInput input)
 	return float4(scattering, saturate(transmittance));
 #endif
 }
-#endif

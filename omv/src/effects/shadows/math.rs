@@ -51,6 +51,37 @@ pub(super) fn stabilize_sun_direction(
     ))
 }
 
+/// Select one complete directional-map generation target for world volumes.
+///
+/// A retained family must finish a quantized native target before admitting
+/// the next small change. The existing per-map sun vectors track completion;
+/// no new history or allocation is needed. Large native discontinuities keep
+/// the existing immediate-update policy. Surface-only shadows retain their
+/// established smoothing, and invalid native directions fail admission.
+pub(super) fn directional_generation_sun(
+    previous: Option<[f32; 3]>,
+    cascade_suns: [[f32; 3]; 4],
+    current: [f32; 3],
+    world_volumes: bool,
+) -> Option<[f32; 3]> {
+    if !world_volumes {
+        return stabilize_sun_direction(previous, current);
+    }
+    let target = stabilize_sun_direction(None, current)?;
+    let Some(previous) = previous.filter(|value| normalized(*value).is_some()) else {
+        return Some(target);
+    };
+    let angle = dot3(normalized(previous)?, target).clamp(-1.0, 1.0).acos();
+    if angle <= SUN_SMOOTHING_MAX_ANGLE_RADIANS
+        && cascade_suns.into_iter().any(|cached| {
+            super::contract::sun_projection_needs_refresh(cached, previous, NVR_CASCADE_RESOLUTION)
+        })
+    {
+        return Some(previous);
+    }
+    Some(target)
+}
+
 /// Pure camera data required to construct directional shadow cascades.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(super) struct ShadowCamera {

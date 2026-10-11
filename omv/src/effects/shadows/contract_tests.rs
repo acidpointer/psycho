@@ -1014,6 +1014,49 @@ fn sun_stabilization_quantizes_and_smooths_only_small_motion() {
 }
 
 #[test]
+fn sun_work_generation_latches_one_quantized_target_until_all_maps_complete() {
+    use super::math::directional_generation_sun;
+    let previous = [1.0, 0.0, 0.0];
+    let direction = |angle: f32| {
+        let angle = angle.to_radians();
+        [angle.cos(), angle.sin(), 0.0]
+    };
+    let first = direction(1.0);
+    let first_target = stabilize_sun_direction(None, first).unwrap();
+    let target = directional_generation_sun(Some(previous), [previous; 4], first, true).unwrap();
+    assert_eq!(
+        target, first_target,
+        "interpolated sun targets repeatedly redraw the same map family"
+    );
+    let partial = [first_target, previous, previous, previous];
+    let next = direction(2.0);
+    assert_eq!(
+        directional_generation_sun(Some(target), partial, next, true),
+        Some(target),
+        "an incomplete family chased another generation target"
+    );
+    assert_eq!(
+        directional_generation_sun(Some(target), [target; 4], next, true),
+        stabilize_sun_direction(None, next),
+        "a completed family ignored the new native sun target"
+    );
+    let jump = direction(10.0);
+    assert_eq!(
+        directional_generation_sun(Some(target), partial, jump, true),
+        stabilize_sun_direction(None, jump),
+        "a weather/time jump retained the stale target"
+    );
+    assert_eq!(
+        directional_generation_sun(Some(previous), partial, next, false),
+        stabilize_sun_direction(Some(previous), next),
+        "surface-only smoothing changed"
+    );
+    assert!(
+        directional_generation_sun(Some(target), partial, [f32::NAN, 0.0, 0.0], true).is_none()
+    );
+}
+
+#[test]
 fn practical_splits_are_contiguous_monotonic_and_match_nvr_quality_defaults() {
     let splits =
         practical_cascade_splits(5.0, 28_000.0, 6_000.0, 0.9).expect("valid Fallout camera");
