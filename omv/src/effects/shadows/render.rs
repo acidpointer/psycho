@@ -90,6 +90,7 @@ const SHADER_FLAGS_2: usize = 0x24;
 const SHADER_DEFINITION_INDEX: usize = 0x58;
 const SHADOW_LIGHT_SHADER: u32 = 0x01;
 const PARALLAX_SHADER: u32 = 0x0F;
+const GEOMETRY_DECAL_SHADER: u32 = 0x10;
 const LIGHTING_30_SHADER: u32 = 0x1D;
 const ALPHA_FLAGS: usize = 0x18;
 const STENCIL_FLAGS: usize = 0x18;
@@ -1170,10 +1171,8 @@ unsafe fn classify_geometry(
         return Ok(None);
     }
     let shader_type = unsafe { read::<u32>(shade, SHADE_TYPE) };
+    let shader_definition = unsafe { read::<u32>(shade, SHADER_DEFINITION_INDEX) };
     let shader_flags = unsafe { read::<u32>(shade, SHADER_FLAGS_1) };
-    let incompatible = shader_flags
-        & (SHADER_REFRACTION | SHADER_FIRE_REFRACTION | SHADER_DECAL | SHADER_DYNAMIC_DECAL)
-        != 0;
     let first_person = unsafe { read::<u16>(shade, SHADE_FLAGS) } & SHADE_FIRST_PERSON != 0;
     let material = unsafe { read::<*mut u8>(geometry, NativeLayout::NI_PROPERTY_MATERIAL) };
     let material_alpha = if material.is_null() {
@@ -1190,10 +1189,13 @@ unsafe fn classify_geometry(
     let admission = CasterAdmission {
         form_casts_shadows: true,
         app_culled: false,
-        refraction: incompatible,
-        fire_refraction: false,
-        decal: false,
-        dynamic_decal: false,
+        refraction: shader_flags & SHADER_REFRACTION != 0,
+        fire_refraction: shader_flags & SHADER_FIRE_REFRACTION != 0,
+        // BB4080 sets definition 0x10 without setting either decal flag.
+        // Dedicated GDECALS uses skinning, so exclude it before skinned
+        // priority can bypass the ordinary lighting-property filter.
+        decal: shader_flags & SHADER_DECAL != 0 || shader_definition == GEOMETRY_DECAL_SHADER,
+        dynamic_decal: shader_flags & SHADER_DYNAMIC_DECAL != 0,
         // Parent fade nodes own the 0.75 admission threshold. Material alpha
         // instead follows NVR's much smaller 0.05 rejection threshold so a
         // translucent alpha-tested leaf still contributes its cutout shape.
@@ -1230,8 +1232,7 @@ unsafe fn classify_geometry(
         return Ok(None);
     }
     let speedtree = !skinned && shader_type == 6;
-    let lighting =
-        is_lighting_shader_definition(unsafe { read::<u32>(shade, SHADER_DEFINITION_INDEX) });
+    let lighting = is_lighting_shader_definition(shader_definition);
     let terrain_lod = !skinned
         && !speedtree
         && lighting

@@ -2057,6 +2057,87 @@ silently disable object classification for up to 239 renders. Both proven
 cadence remains the fallback. The decision helper honors the request ahead of
 interval boundaries and not-ready states.
 
+### Decal isolation and texture lifecycle
+
+The 2026-10-11 static decal audit found two ownership gaps in OMV. The owner
+reported transparency and wrong-texture symptoms without logs or affected
+assets. The gaps are source/binary findings; attribution of either reported
+image to them remains unresolved.
+
+Native shader reload at `0x00B557D0` invokes selector reinitialization.
+PPLighting's vertex loader at `0x00B71BF0` releases an old group-C wrapper and
+stores its replacement at `0x00B741CC`. Pixel wrapper destruction at
+`0x00BE0AF0` likewise frees the wrapper and releases its D3D handle through
+`0x00E89970`. A wrapper address therefore cannot establish a shader family or
+lifetime across reload. OMV's side-table hit previously bypassed live table
+validation, and adoption refused to replace already-known metadata. A reused
+address could retain an unrelated PBR template identity.
+
+Object admission now verifies that each record still occupies its exact live
+PPLighting slot: vertex group C at `0x011FDE5C` (0x67 entries), pixel group B
+at `0x011FDB08` (0xA0 entries). A stale hit is classified again from current
+membership, and adoption replaces changed stage/template/table metadata. No
+stale-record fallback is admitted. Known package transitions retire pending
+draw ownership before their predecessor can release wrappers, then clear the
+side table and index maps. Live membership checks also cover selector reloads
+which bypass those package callsites. Checks use bounded CPU reads at selector
+admission, without D3D readback, allocation, or new shader-creation hooks.
+
+The verified NiDX9RenderState texture contract is:
+
+| Live vtable offset | Native method | Effect |
+|---:|---|---|
+| `+0xD8` | ClearTextureList, `0x00E889B0` | Zero all sixteen CPU cache entries; no D3D unbind. |
+| `+0xDC` | SetTexture, `0x00E88A20` | Update cache and bind when the requested identity changes. |
+| `+0xE4` | RemoveTexture, `0x00E88A60` | Clear and physically unbind every cache entry matching a nonnull texture. |
+
+The pointer cache occupies `+0x10A0..+0x10DC`; the device is at `+0x10F8`.
+NiDX9TextureData destruction at `0x00E8A2B0` calls RemoveTexture before releasing
+its COM texture. Both removal and cache clearing bypass the existing
+SetTexture observer, leaving its known-bound identities stale. OMV now chains
+all three live slots, preserving their captured providers and exact thiscall
+ABIs. Tracking readiness requires the complete observer group. The new hook
+owner is allocated only during deferred installation behind a zero-initialized
+pointer mailbox; it remains resident with the provider chain. Configuration,
+presets, TLS, and plugin-load preparation are unchanged. This preserves source
+phase ownership; startup behavior has not been run.
+
+Removal snapshots the matching native cache stages before forwarding, then
+publishes known-null for exactly those stages before the destroying caller can
+release the texture. Comparing only mirror identities would be incorrect:
+cache clearing can leave a device-bound resource absent from the native cache.
+Cache clearing instead marks observations unknown and rearms Present priming.
+It first restores any borrowed terrain s14 state. A failed restore retains its
+rollback identity and active marker until restoration or a device-generation
+transition, so priming cannot mistake OMV's borrowed texture for engine state.
+Removal also retires a matching active s14 rollback identity even if a prior
+cache clear removed its CPU entry: D3D retains OMV's borrowed resource there,
+so it cannot keep the old engine texture alive. The resulting rollback is null
+before the native owner releases that texture, and restoration clears the
+borrowed binding or retains a safe null retry if the device is unavailable.
+Required object sampler masks now participate in the same removal/recovery
+admission notifications as terrain; removed resources cannot leave a batch's
+earlier successful admission cached.
+
+Dedicated native GDECAL uses sampler s1, atlas PS c15, and VS c31 fade; it is
+outside the live PPLighting table contract. Its native shaders remain unchanged
+(`analysis/shaders_disasm/shaderpackage007/GDECAL.pso.dis`, `GDECAL.vso.dis`,
+and `GDECALS.vso.dis`). Pixel output multiplies sampled alpha by squared fade;
+native pass construction at `0x00BCB4D0` selects DESTCOLOR/INVSRCALPHA blending,
+alpha test GREATER with reference zero, and no depth write. Constant setup at
+`0x00BCBCE0` selects one of four atlas quadrants from property byte `+0xC0`;
+values above three skip updating c15. No OMV writer to that property byte was
+found. Invalid native atlas input, mod attribution, affected decal subtype,
+and game-only image correctness remain unresolved; none authorizes changing
+the native atlas or fade equations.
+
+The existing real-D3D9 tracker test exercises removal-mask publication, unknown
+cache invalidation, unchanged device bindings, reprime, and retained rollback
+identity through production Rust. Native vtable forwarding, wrapper reuse,
+decal composition, and startup remain game-only and were not run. The prior
+priming behavior passed unchanged; it does not reproduce the owner's decal
+report or substitute for the native lifecycle evidence above.
+
 ### Close-terrain draw matrix sample
 
 Admitted close-terrain geometries increment one of twenty-eight zero-init

@@ -13,8 +13,10 @@
 //! engine `SetShaders` boundary. Close terrain is re-evaluated at every renderer
 //! geometry entry because one engine pass setup can serve several geometries.
 //!
-//! The mandatory engine `SetTexture` hook maintains the complete texture-stage
-//! mirror used by draw admission. Required texture admission never reads D3D
+//! The mandatory engine SetTexture/RemoveTexture/ClearTextureList observers
+//! maintain the texture-stage mirror used by draw admission. Their lifecycle
+//! owner is allocated only during deferred installation and remains resident
+//! with the captured provider chain. Required texture admission never reads D3D
 //! state back from the driver: an unknown stage fails closed until the engine
 //! binds it, while a known-null stage fails closed until the corresponding
 //! engine transition. Supplemental close-terrain lights temporarily borrow
@@ -28,7 +30,7 @@ use std::{
     mem::size_of,
     sync::{
         LazyLock,
-        atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering},
+        atomic::{AtomicBool, AtomicPtr, AtomicU32, AtomicUsize, Ordering},
     },
 };
 
@@ -53,7 +55,10 @@ use object_contracts::{ObjectContractDecision, ObjectContractState};
 const SELECTOR_SETUP_CALL_ADDR: usize = 0x00B9_9539;
 const RENDER_STATE_SET_PIXEL_SHADER_VTABLE_OFFSET: usize = 0x7C;
 const RENDER_STATE_SET_VERTEX_SHADER_VTABLE_OFFSET: usize = 0x8C;
+const RENDER_STATE_CLEAR_TEXTURE_LIST_VTABLE_OFFSET: usize = 0xD8;
 const RENDER_STATE_SET_TEXTURE_VTABLE_OFFSET: usize = 0xDC;
+const RENDER_STATE_REMOVE_TEXTURE_VTABLE_OFFSET: usize = 0xE4;
+const RENDER_STATE_TEXTURE_CACHE_OFFSET: usize = 0x10A0;
 const PPLIGHTING_VERTEX_GROUP_A_ADDR: usize = 0x011FDD88;
 const PPLIGHTING_VERTEX_GROUP_B_ADDR: usize = 0x011FDE04;
 const PPLIGHTING_VERTEX_GROUP_C_ADDR: usize = 0x011FDE5C;
@@ -188,11 +193,23 @@ type SetShadersFn = unsafe extern "thiscall" fn(*mut c_void, u32) -> bool;
 type SetRenderStateShaderFn = unsafe extern "thiscall" fn(*mut c_void, *mut c_void, u32);
 type SelectorSetupFn = unsafe extern "cdecl" fn(u32, *mut c_void);
 type SetTextureFn = unsafe extern "thiscall" fn(*mut c_void, u32, *mut c_void);
+type ClearTextureListFn = unsafe extern "thiscall" fn(*mut c_void);
+type RemoveTextureFn = unsafe extern "thiscall" fn(*mut c_void, *mut c_void);
+
+struct TextureLifecycleHooks {
+    clear: PointerSlotHookContainer<ClearTextureListFn>,
+    remove: PointerSlotHookContainer<RemoveTextureFn>,
+}
 
 static SET_SHADERS_HOOK: LazyLock<Rel32CallHookContainer<SelectorSetupFn>> =
     LazyLock::new(Rel32CallHookContainer::new);
 static SET_TEXTURE_HOOK: LazyLock<PointerSlotHookContainer<SetTextureFn>> =
     LazyLock::new(PointerSlotHookContainer::new);
+// A zero-initialized mailbox keeps the new hook owners, locks, and predecessor
+// storage out of plugin-load initialization. Published allocations are never
+// freed: resident callbacks and later providers may retain their detours.
+static TEXTURE_LIFECYCLE_HOOKS: AtomicPtr<TextureLifecycleHooks> =
+    AtomicPtr::new(std::ptr::null_mut());
 static HOOKS_READY: AtomicBool = AtomicBool::new(false);
 static ENGINE_SHADER_BINDERS_READY: AtomicBool = AtomicBool::new(false);
 static NATIVE_FALLBACK_ACTIVE: AtomicBool = AtomicBool::new(false);
@@ -297,12 +314,13 @@ pub(super) fn invalidate_shader_table_maps() {
     for entry in maps.iter() {
         entry.shader.store(0, Ordering::Release);
     }
+    shader_record::reset();
 }
 
 pub(super) fn install() -> Result<()> {
     if HOOKS_READY.load(Ordering::Acquire) {
         engine_contracts::install_core_contracts();
-        super::samplers::set_texture_tracking_ready(true);
+        super::samplers::set_texture_tracking_ready(texture_hook_ready());
         adopt_existing_object_shaders();
         return Ok(());
     }
@@ -314,9 +332,9 @@ pub(super) fn install() -> Result<()> {
     // The texture observer is shared with native sky and may remain resident
     // when PBR itself fails closed; SetShaders is never left active without it.
     let set_shaders_prepared = prepare_set_shaders_hook() && prepare_engine_shader_binders();
-    let texture_tracking_prepared = prepare_set_texture_hook();
-    let texture_tracking_ready =
-        texture_tracking_prepared && enable_prepared_pointer(&SET_TEXTURE_HOOK, "SetTexture");
+    samplers::prepare_object_sampler_layouts();
+    let texture_tracking_prepared = prepare_set_texture_hook() && prepare_texture_lifecycle_hooks();
+    let texture_tracking_ready = texture_tracking_prepared && enable_texture_hooks();
     let set_shaders_ready = texture_tracking_ready
         && set_shaders_prepared
         && enable_prepared_callsite(&SET_SHADERS_HOOK, "selector setup");
@@ -332,7 +350,7 @@ pub(super) fn install() -> Result<()> {
         }
         release_device_resources();
         log::warn!(
-            "[PBR] Native PBR blocked: mandatory SetShaders/SetTexture hook group unavailable"
+            "[PBR] Native PBR blocked: mandatory shader/texture lifecycle hook group unavailable"
         );
         return Ok(());
     }
@@ -348,7 +366,7 @@ pub(super) fn install() -> Result<()> {
     log::info!(
         "[PBR] Shader wrappers use startup and first-use adoption; shared shader-creation entries are not hooked"
     );
-    log::info!("[PBR] Object PBR texture-stage vtable slot chained");
+    log::info!("[PBR] Texture bind, removal, and cache-clear vtable slots chained");
 
     Ok(())
 }
@@ -385,6 +403,98 @@ fn prepare_set_texture_hook() -> bool {
     true
 }
 
+fn texture_lifecycle_hooks() -> Option<&'static TextureLifecycleHooks> {
+    let owner = TEXTURE_LIFECYCLE_HOOKS.load(Ordering::Acquire);
+    // Safety: only fully constructed Box allocations are published, before
+    // enabling either callback. A published owner has process lifetime.
+    unsafe { owner.as_ref() }
+}
+
+fn prepare_texture_lifecycle_hooks() -> bool {
+    if texture_lifecycle_hooks().is_none() {
+        let owner = Box::into_raw(Box::new(TextureLifecycleHooks {
+            clear: PointerSlotHookContainer::new(),
+            remove: PointerSlotHookContainer::new(),
+        }));
+        if TEXTURE_LIFECYCLE_HOOKS
+            .compare_exchange(
+                std::ptr::null_mut(),
+                owner,
+                Ordering::AcqRel,
+                Ordering::Acquire,
+            )
+            .is_err()
+        {
+            // Safety: this allocation was never published or initialized.
+            unsafe { drop(Box::from_raw(owner)) };
+        }
+    }
+    let Some(hooks) = texture_lifecycle_hooks() else {
+        return false;
+    };
+    let Ok(render_state) = crate::backend::render_state_ptr() else {
+        return false;
+    };
+    if !hooks.clear.is_initialized() {
+        let Some(slot) = resolve_vtable_slot(
+            render_state,
+            RENDER_STATE_CLEAR_TEXTURE_LIST_VTABLE_OFFSET,
+            "NiDX9RenderState::ClearTextureList",
+        ) else {
+            return false;
+        };
+        // Safety: the live render-state vtable and native E889B0 prove this
+        // no-argument thiscall slot. The container captures its live provider.
+        if let Err(reason) = unsafe {
+            hooks.clear.init(
+                "FNV NiDX9RenderState::ClearTextureList",
+                slot,
+                hook_clear_texture_list,
+            )
+        } {
+            log::warn!(
+                "[PBR] Texture tracking unavailable: ClearTextureList hook preparation failed: {reason}"
+            );
+            return false;
+        }
+    }
+    if !hooks.remove.is_initialized() {
+        let Some(slot) = resolve_vtable_slot(
+            render_state,
+            RENDER_STATE_REMOVE_TEXTURE_VTABLE_OFFSET,
+            "NiDX9RenderState::RemoveTexture",
+        ) else {
+            return false;
+        };
+        // Safety: native E88A60 proves thiscall with one texture pointer and
+        // ret 4. The slot remains owned by the live engine vtable.
+        if let Err(reason) = unsafe {
+            hooks.remove.init(
+                "FNV NiDX9RenderState::RemoveTexture",
+                slot,
+                hook_remove_texture,
+            )
+        } {
+            log::warn!(
+                "[PBR] Texture tracking unavailable: RemoveTexture hook preparation failed: {reason}"
+            );
+            return false;
+        }
+    }
+    true
+}
+
+fn enable_texture_hooks() -> bool {
+    let Some(hooks) = texture_lifecycle_hooks() else {
+        return false;
+    };
+    // Partial observers remain passive and resident, as does SetTexture when
+    // shader installation fails. No consumer admits against a partial group.
+    enable_prepared_pointer(&hooks.clear, "ClearTextureList")
+        && enable_prepared_pointer(&hooks.remove, "RemoveTexture")
+        && enable_prepared_pointer(&SET_TEXTURE_HOOK, "SetTexture")
+}
+
 pub(super) fn hooks_ready() -> bool {
     HOOKS_READY.load(Ordering::Acquire)
 }
@@ -395,6 +505,8 @@ pub(super) fn selection_hook_ready() -> bool {
 
 pub(super) fn texture_hook_ready() -> bool {
     SET_TEXTURE_HOOK.is_enabled()
+        && texture_lifecycle_hooks()
+            .is_some_and(|hooks| hooks.clear.is_enabled() && hooks.remove.is_enabled())
 }
 
 pub(super) fn selection_predecessor() -> Option<usize> {
@@ -857,8 +969,12 @@ fn set_pending_object_draw(pass_index: u32, pixel_template_id: u16, pair: Shader
     publish_pending_shader_pair(pair);
     PENDING_DRAW_PASS_INDEX.store(pass_and_template, Ordering::Release);
     PENDING_DRAW_AUXILIARY.store(crate::backend::d3d_device_generation(), Ordering::Release);
-    PENDING_REQUIRED_SAMPLER_MASK.store(0, Ordering::Release);
-    PENDING_MISSING_SAMPLER_MASK.store(0, Ordering::Release);
+    let required = samplers::object_required_sampler_mask(pixel_template_id);
+    PENDING_REQUIRED_SAMPLER_MASK.store(u32::from(required), Ordering::Release);
+    PENDING_MISSING_SAMPLER_MASK.store(
+        u32::from(samplers::missing_required_mask(required)),
+        Ordering::Release,
+    );
     PENDING_CLOSE_TERRAIN_PREPARED_GEOMETRY.store(0, Ordering::Release);
     PENDING_DRAW_EVALUATED.store(false, Ordering::Release);
     PENDING_DRAW_KIND.store(PENDING_DRAW_OBJECT, Ordering::Release);
@@ -2093,6 +2209,92 @@ unsafe extern "thiscall" fn hook_set_texture(
         original(render_state, stage, texture);
     }
 
+    texture_binding_changed(stage, !texture.is_null());
+}
+
+unsafe extern "thiscall" fn hook_remove_texture(render_state: *mut c_void, texture: *mut c_void) {
+    let Some(hooks) = texture_lifecycle_hooks() else {
+        return;
+    };
+    let Ok(original) = hooks.remove.original() else {
+        return;
+    };
+    let mut removed_stages = 0u16;
+    if !texture.is_null() {
+        // Safety: E88A60 accesses these same sixteen pointer-aligned fields
+        // on its live thiscall receiver. NiDX9TextureData destruction calls
+        // this boundary before releasing the COM texture. The render path is
+        // serialized; snapshot before the provider zeros matching entries.
+        let cache = unsafe {
+            render_state
+                .cast::<u8>()
+                .add(RENDER_STATE_TEXTURE_CACHE_OFFSET)
+                .cast::<*mut c_void>()
+        };
+        for stage in 0..16 {
+            if unsafe { cache.add(stage).read() } == texture {
+                removed_stages |= 1u16 << stage;
+            }
+        }
+        // A failed restore followed by cache clearing can leave the borrowed
+        // s14 transaction with a rollback identity absent from the CPU cache.
+        // That identity must retire before its owning texture data releases
+        // the resource; the device currently retains OMV's texture instead.
+        let stage = device_resources::SUPPLEMENTAL_LIGHT_SAMPLER;
+        if PENDING_CLOSE_TERRAIN_LIGHT_TEXTURE_BOUND.load(Ordering::Acquire)
+            && samplers::tracked_texture_binding(stage)
+                == TrackedTextureBinding::Bound(texture as usize)
+        {
+            removed_stages |= 1u16 << stage;
+        }
+    }
+    unsafe { original(render_state, texture) };
+    // Use the native cache's exact removal mask. After ClearTextureList the
+    // driver may still own a texture which is absent from that cache; matching
+    // only the mirror identity would falsely report an unbind in that case.
+    samplers::record_removed_texture_stages(removed_stages);
+    if removed_stages & (1u16 << device_resources::SUPPLEMENTAL_LIGHT_SAMPLER) != 0
+        && let Some(device_ptr) = crate::backend::d3d_device_ptr()
+        && let Some(device) = unsafe { Device9Ref::from_raw_void(device_ptr) }
+    {
+        restore_supplemental_light_texture(&device);
+    }
+    for stage in 0..16 {
+        if removed_stages & (1u16 << stage) != 0 {
+            texture_binding_changed(stage, false);
+        }
+    }
+}
+
+unsafe extern "thiscall" fn hook_clear_texture_list(render_state: *mut c_void) {
+    let Some(hooks) = texture_lifecycle_hooks() else {
+        return;
+    };
+    let Ok(original) = hooks.clear.original() else {
+        return;
+    };
+    if let Some(device_ptr) = crate::backend::d3d_device_ptr()
+        && let Some(device) = unsafe { Device9Ref::from_raw_void(device_ptr) }
+    {
+        restore_supplemental_sampler_state(&device);
+        restore_supplemental_light_texture(&device);
+    }
+    unsafe { original(render_state) };
+    // E889B0 only clears CPU cache entries, so null is not authoritative.
+    // Preserve s14's rollback identity if device loss prevented restoration;
+    // its active marker continues to block admission until restore or reset.
+    let preserved = if PENDING_CLOSE_TERRAIN_LIGHT_TEXTURE_BOUND.load(Ordering::Acquire) {
+        1u16 << device_resources::SUPPLEMENTAL_LIGHT_SAMPLER
+    } else {
+        0
+    };
+    samplers::invalidate_texture_bindings(preserved);
+    let required = PENDING_REQUIRED_SAMPLER_MASK.load(Ordering::Relaxed);
+    PENDING_MISSING_SAMPLER_MASK.store(required, Ordering::Relaxed);
+    PENDING_DRAW_EVALUATED.store(false, Ordering::Release);
+}
+
+fn texture_binding_changed(stage: u32, texture_bound: bool) {
     if !super::replacement_configured() {
         return;
     }
@@ -2106,7 +2308,7 @@ unsafe extern "thiscall" fn hook_set_texture(
         required_sampler_mask,
         missing_sampler_mask,
         stage,
-        !texture.is_null(),
+        texture_bound,
     ) {
         DirectSamplerChange::Ignore | DirectSamplerChange::Keep => {}
         DirectSamplerChange::Missing(mask) => {
@@ -2186,8 +2388,6 @@ fn try_prepare_object_replacement_for_selector(
         log_object_admission_failure_once(ObjectDrawRejectReason::TableIdentityMismatch);
         return None;
     }
-    let vertex_record = ensure_table_identity(vertex_record);
-    let pixel_record = ensure_table_identity(pixel_record);
     let mut draw_snapshot = if diagnostics_enabled {
         engine_contracts::current_draw_snapshot(selector, pass_index)
     } else {
@@ -2560,8 +2760,11 @@ fn resolve_current_shader_record(
     shader: *mut c_void,
     stage: ShaderStage,
 ) -> std::result::Result<shader_record::ShaderRecordSnapshot, ObjectDrawRejectReason> {
-    if let Some(record) = shader_record::find(shader) {
-        return Ok(ensure_table_identity(record));
+    if let Some(record) = shader_record::find(shader)
+        && record.stage == stage
+        && record_matches_expected_table_slot(record)
+    {
+        return Ok(record);
     }
 
     let Some((table_id, table_index)) = identify_object_table_slot(shader, stage) else {
@@ -2583,27 +2786,12 @@ fn resolve_current_shader_record(
     };
 
     shader_record::adopt_existing(shader, stage, template_ref.id, table_id, table_index)
-        .or_else(|| shader_record::find(shader))
+        .or_else(|| {
+            shader_record::find(shader).filter(|record| {
+                record.stage == stage && record_matches_expected_table_slot(*record)
+            })
+        })
         .ok_or(ObjectDrawRejectReason::MissingShaderRecord)
-}
-
-fn ensure_table_identity(
-    record: shader_record::ShaderRecordSnapshot,
-) -> shader_record::ShaderRecordSnapshot {
-    if record.table_id != shader_record::TABLE_UNKNOWN {
-        return record;
-    }
-    let Some((table_id, table_index)) = identify_object_table_slot(record.shader, record.stage)
-    else {
-        return record;
-    };
-
-    shader_record::set_table_slot(record.shader, table_id, table_index);
-    shader_record::ShaderRecordSnapshot {
-        table_id,
-        table_index,
-        ..record
-    }
 }
 
 fn template_sls(record: shader_record::ShaderRecordSnapshot) -> u16 {
@@ -2650,6 +2838,18 @@ fn record_matches_expected_table_slot(record: shader_record::ShaderRecordSnapsho
     record.stage == template.stage
         && record.table_id == expected_table
         && record.table_index == expected_index
+        && match record.stage {
+            ShaderStage::Vertex => read_shader_array_slot(
+                PPLIGHTING_VERTEX_GROUP_C_ADDR,
+                PPLIGHTING_VERTEX_GROUP_C_COUNT,
+                record.table_index as usize,
+            ),
+            ShaderStage::Pixel => read_shader_array_slot(
+                PPLIGHTING_PIXEL_GROUP_B_ADDR,
+                PPLIGHTING_PIXEL_GROUP_B_COUNT,
+                record.table_index as usize,
+            ),
+        } == Some(record.shader)
 }
 
 fn object_contract_rejection(state: ObjectContractState) -> Option<ObjectDrawRejectReason> {

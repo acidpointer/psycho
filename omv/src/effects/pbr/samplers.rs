@@ -2,9 +2,11 @@
 //!
 //! This module validates the samplers declared by each NVR template without
 //! reading state back from the D3D device on draw paths. The resident
-//! `NiDX9RenderState::SetTexture` hook sees the requested pointer even when the
-//! native cache suppresses the driver call, so it is the authoritative and
-//! cheapest observation boundary.
+//! SetTexture sees requests even when the native cache suppresses a driver
+//! call. RemoveTexture publishes the exact native-cache removal mask before
+//! resource destruction; ClearTextureList invalidates cached identities without
+//! claiming a physical unbind. Together these resident engine observers own
+//! the mirror without retaining COM resources.
 //!
 //! Every slot distinguishes unknown from a known null binding. Reset makes all
 //! slots unknown; either unknown or null rejects replacement until the engine
@@ -255,6 +257,57 @@ pub(super) fn record_texture_binding(stage: u32, texture: *mut std::ffi::c_void,
         slot.selector.store(selector, Ordering::Release);
         TEXTURE_BINDS_THIS_FRAME.fetch_add(1, Ordering::Relaxed);
     }
+}
+
+/// Publish known-null for engine stage identities owned by a removed texture.
+///
+/// `removed_stages` covers matching live engine cache entries and any borrowed
+/// stage whose pending rollback identity belongs to the removed resource.
+/// Call after its provider returns, before the destroying caller releases the
+/// resource. A borrowed stage is restored separately. Unaffected stages retain
+/// their identities; no driver query occurs.
+pub(super) fn record_removed_texture_stages(removed_stages: u16) {
+    for stage in 0..TEXTURE_STAGE_COUNT {
+        if removed_stages & (1u16 << stage) != 0 {
+            record_texture_binding(stage as u32, std::ptr::null_mut(), 0);
+        }
+    }
+}
+
+/// Invalidate cache observations and rearm deferred device priming.
+///
+/// ClearTextureList does not unbind D3D textures. Stages become unknown until
+/// an engine bind or the next Present observes their identity. `preserved`
+/// retains only identities needed to retry a failed temporary override restore;
+/// these must remain known while that override's active marker blocks admission.
+/// Call on the serialized render path, after attempting override restoration.
+pub(super) fn invalidate_texture_bindings(preserved: u16) {
+    for (stage, slot) in TEXTURE_SLOTS.iter().enumerate() {
+        if preserved & (1u16 << stage) == 0 {
+            slot.known.store(false, Ordering::Release);
+            slot.texture.store(0, Ordering::Release);
+            slot.selector.store(0, Ordering::Release);
+        }
+    }
+    arm_texture_priming();
+}
+
+/// Return the native sampler mask required by an admitted object template.
+///
+/// Unknown templates return zero; template admission rejects them separately.
+/// Uses the prepared layout cache without allocation after its initial touch.
+pub(super) fn object_required_sampler_mask(template_id: u16) -> u16 {
+    OBJECT_SAMPLER_LAYOUTS
+        .get(template_id as usize)
+        .map_or(0, |layout| layout.expected_mask() as u16)
+}
+
+/// Prepare object sampler layouts during deferred installation.
+///
+/// Initializes the fixed template catalog once so subsequent admission and
+/// texture observers never allocate while processing a draw batch.
+pub(super) fn prepare_object_sampler_layouts() {
+    LazyLock::force(&OBJECT_SAMPLER_LAYOUTS);
 }
 
 pub(super) fn validate_object_layout(
@@ -510,15 +563,10 @@ pub(super) fn reset() {
     TEXTURE_BINDS_THIS_FRAME.store(0, Ordering::Release);
     TEXTURE_BINDS_LAST_FRAME.store(0, Ordering::Release);
     TEXTURE_TRACKING_READY.store(false, Ordering::Release);
-    for slot in TEXTURE_SLOTS.iter() {
-        slot.known.store(false, Ordering::Release);
-        slot.texture.store(0, Ordering::Release);
-        slot.selector.store(0, Ordering::Release);
-    }
     // Cleared slots are unknown again. Arm one priming cycle so the next
     // Present repopulates them from device state instead of leaving object
     // admission fail-closed until each stage happens to be rebound.
-    arm_texture_priming();
+    invalidate_texture_bindings(0);
     OBJECT_SAMPLER_CHECKS_LAST_FRAME.store(0, Ordering::Release);
     OBJECT_SAMPLER_FALLBACKS_LAST_FRAME.store(0, Ordering::Release);
     OBJECT_SAMPLER_SELECTOR_MISMATCHES_LAST_FRAME.store(0, Ordering::Release);
@@ -756,8 +804,9 @@ fn sampler_fallback_label(reason: u32) -> &'static str {
 mod tests {
     use super::{
         OBJECT_SAMPLER_LAYOUT_NONE, PRIMING_PENDING, TEXTURE_SLOTS, TrackedTextureBinding,
-        classify_tracked_texture, missing_required_mask, object_sampler_layout, prime_from_device,
-        reset, set_texture_tracking_ready, tracked_texture_binding,
+        classify_tracked_texture, invalidate_texture_bindings, missing_required_mask,
+        object_sampler_layout, prime_from_device, record_removed_texture_stages,
+        record_texture_binding, reset, set_texture_tracking_ready, tracked_texture_binding,
     };
     use crate::effects::pbr::shader_registry::{self, ShaderStage};
     use libpsycho::os::windows::{
@@ -915,6 +964,70 @@ mod tests {
             0,
             "primed state must admit the required stage"
         );
+
+        // Exercise the production mirror boundary with real resource identities
+        // and device bindings. These notifications qualify the Rust tracker;
+        // native vtable forwarding and cache-mask capture remain game-only.
+        for stage in [5, 7] {
+            unsafe {
+                device
+                    .as_ref()
+                    .set_raw_base_texture(stage, texture.as_raw_base_texture())
+                    .expect("additional resource binding");
+            }
+            record_texture_binding(stage, texture.as_raw_base_texture(), 0);
+        }
+        for stage in [3, 5] {
+            device
+                .as_ref()
+                .clear_texture(stage)
+                .expect("removed texture binding");
+        }
+        record_removed_texture_stages((1 << 3) | (1 << 5));
+        assert_eq!(tracked_texture_binding(3), TrackedTextureBinding::Null);
+        assert_eq!(tracked_texture_binding(5), TrackedTextureBinding::Null);
+        assert_eq!(
+            tracked_texture_binding(7),
+            TrackedTextureBinding::Bound(texture_identity)
+        );
+        assert_eq!(
+            missing_required_mask((1 << 3) | (1 << 5) | (1 << 7)),
+            (1 << 3) | (1 << 5)
+        );
+        record_removed_texture_stages(0);
+        assert_eq!(
+            tracked_texture_binding(7),
+            TrackedTextureBinding::Bound(texture_identity)
+        );
+
+        // CPU cache invalidation leaves the driver binding intact, then the
+        // existing priming path observes it again instead of inventing null.
+        invalidate_texture_bindings(0);
+        assert_eq!(tracked_texture_binding(7), TrackedTextureBinding::Unknown);
+        assert_ne!(missing_required_mask(1 << 7), 0);
+        assert!(PRIMING_PENDING.load(Ordering::Acquire));
+        prime_from_device(&device.as_ref());
+        assert_eq!(
+            tracked_texture_binding(7),
+            TrackedTextureBinding::Bound(texture_identity)
+        );
+        assert_eq!(tracked_texture_binding(3), TrackedTextureBinding::Null);
+
+        // Failed temporary restoration retains exactly its rollback identity;
+        // unrelated stages still become unknown and are eligible for priming.
+        invalidate_texture_bindings(1 << 7);
+        assert_eq!(
+            tracked_texture_binding(7),
+            TrackedTextureBinding::Bound(texture_identity)
+        );
+        assert_eq!(tracked_texture_binding(3), TrackedTextureBinding::Unknown);
+        prime_from_device(&device.as_ref());
+        for stage in [3, 5, 7] {
+            device
+                .as_ref()
+                .clear_texture(stage)
+                .expect("test resource cleanup");
+        }
 
         for (slot, (known, identity)) in TEXTURE_SLOTS.iter().zip(snapshot) {
             slot.known.store(known, Ordering::Release);

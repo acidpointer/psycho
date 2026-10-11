@@ -2065,6 +2065,16 @@ compilation, or per-object allocation.
 Pass classification is ordered, not merely a set of predicates. Skinned
 partitions are claimed before ordinary lighting-definition filtering so actor
 hair and body partitions cannot be discarded by their shade subtype.
+Dedicated geometry decals are excluded before that priority rule. In the
+supported executable, BSGeometryDecalShaderProperty construction at
+`0x00BB4080` publishes definition `0x10` at `+0x58` and shade type 3 at `+0x1C`
+without setting either decal flag at `+0x20`. Its skinned GDECALS variant would
+otherwise bypass the ordinary lighting-definition filter and become an opaque
+caster. Classification now passes definition `0x10` to the existing decal
+rejection policy independently of those flags. Hair and other admitted skinned
+families retain their existing priority and coverage. This is a binary/source
+contract correction; arrival of such a decal in the reported workload and its
+game-only image contribution were not observed.
 SpeedTree retains its leaf-alpha path. Terrain requires an admitted lighting
 definition but bypasses the ordinary alpha pass. Remaining geometry is
 admitted only when `BSShaderProperty::uiShaderIndex` at `+0x58` is NVR's

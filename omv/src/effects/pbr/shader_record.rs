@@ -2,7 +2,11 @@
 //!
 //! NVR stores extra shader records inside extended native shader objects. OMV
 //! keeps wrapper metadata in a fixed side table keyed by the native wrapper
-//! pointer, avoiding native allocation-size patches.
+//! pointer, avoiding native allocation-size patches. Addresses are lookup keys,
+//! not lifetime proofs: callers validate live native table membership before
+//! admission, and adoption replaces stale metadata when an address is reused.
+//! Access occurs on the serialized render path; reset retires package/device
+//! identities without retaining native wrappers or allocating per draw.
 
 use std::{
     array,
@@ -112,23 +116,6 @@ impl ShaderRecordTable {
         record.snapshot()
     }
 
-    fn set_table_slot(&self, shader: *mut c_void, table_id: u32, table_index: u32) {
-        let key = shader as usize;
-        if key == 0 || table_id == TABLE_UNKNOWN {
-            return;
-        }
-        let Some(index) = self.find_index(key) else {
-            return;
-        };
-
-        self.records[index]
-            .table_id
-            .store(table_id, Ordering::Release);
-        self.records[index]
-            .table_index
-            .store(table_index, Ordering::Release);
-    }
-
     fn active_record_count(&self) -> usize {
         self.records
             .iter()
@@ -210,6 +197,11 @@ impl ShaderRecord {
     }
 }
 
+/// Adopt a wrapper proven to occupy the supplied live native table slot.
+///
+/// Identical metadata returns `None`; new or changed identity returns its
+/// snapshot after validating the native stage handle. Call only from the
+/// serialized engine render path while the table retains the wrapper.
 pub(super) fn adopt_existing(
     shader: *mut c_void,
     stage: ShaderStage,
@@ -217,11 +209,12 @@ pub(super) fn adopt_existing(
     table_id: u32,
     table_index: u32,
 ) -> Option<ShaderRecordSnapshot> {
-    if let Some(snapshot) = TABLE.find(shader) {
-        if snapshot.table_id == TABLE_UNKNOWN {
-            TABLE.set_table_slot(shader, table_id, table_index);
-            return TABLE.find(shader);
-        }
+    if let Some(snapshot) = TABLE.find(shader)
+        && snapshot.stage == stage
+        && snapshot.template_id == template_id
+        && snapshot.table_id == table_id
+        && snapshot.table_index == table_index
+    {
         return None;
     }
     engine_contracts::shader_handle(shader, stage)?;
@@ -230,10 +223,6 @@ pub(super) fn adopt_existing(
 
 pub(super) fn find(shader: *mut c_void) -> Option<ShaderRecordSnapshot> {
     TABLE.find(shader)
-}
-
-pub(super) fn set_table_slot(shader: *mut c_void, table_id: u32, table_index: u32) {
-    TABLE.set_table_slot(shader, table_id, table_index);
 }
 
 pub(super) fn identity_ready() -> bool {

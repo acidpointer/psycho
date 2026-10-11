@@ -973,6 +973,10 @@ unsafe fn forward_shader_package(
     // plugin owns only one transition. Keeping a container per callsite and
     // passing that exact predecessor here avoids a global "original" that
     // would silently skip or double-invoke one owner's chain.
+    // Retire draw ownership while its wrappers are still retained. Native
+    // package loading can release them; restoring a pending pair afterward
+    // would dereference identities whose lifetime has already ended.
+    super::hooks::release_device_resources();
     unsafe { original(arg1, arg2, force_1x_shaders, arg4, graphics_name, arg6) };
     crate::graphics_diagnostics::add(
         crate::graphics_diagnostics::Counter::ShaderPackageTransition,
