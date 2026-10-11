@@ -27,15 +27,16 @@ use windows::Win32::Foundation::{E_FAIL, E_NOINTERFACE, E_POINTER, HANDLE, HWND}
 use windows::Win32::Graphics::Direct3D::ID3DBlob;
 pub use windows::Win32::Graphics::Direct3D9::D3DSAMPLERSTATETYPE;
 pub use windows::Win32::Graphics::Direct3D9::{
-    D3D_SDK_VERSION, D3DBLEND_DESTCOLOR, D3DBLEND_ONE, D3DBLEND_ZERO, D3DBLENDOP_ADD,
-    D3DBLENDOP_REVSUBTRACT, D3DCAPS9, D3DCLEAR_STENCIL, D3DCLEAR_TARGET, D3DCLEAR_ZBUFFER,
-    D3DCMP_ALWAYS, D3DCMP_EQUAL, D3DCMP_GREATER, D3DCMP_LESSEQUAL, D3DCUBEMAP_FACE_NEGATIVE_X,
-    D3DCUBEMAP_FACE_NEGATIVE_Y, D3DCUBEMAP_FACE_NEGATIVE_Z, D3DCUBEMAP_FACE_POSITIVE_X,
-    D3DCUBEMAP_FACE_POSITIVE_Y, D3DCUBEMAP_FACE_POSITIVE_Z, D3DCUBEMAP_FACES, D3DCULL, D3DCULL_CCW,
-    D3DCULL_CW, D3DCULL_NONE, D3DDEVTYPE, D3DDEVTYPE_HAL, D3DDEVTYPE_NULLREF, D3DDEVTYPE_REF,
-    D3DDEVTYPE_SW, D3DFMT_A8R8G8B8, D3DFMT_R32F, D3DFORMAT, D3DFVF_DIFFUSE, D3DFVF_TEX1,
-    D3DFVF_XYZ, D3DFVF_XYZRHW, D3DMULTISAMPLE_4_SAMPLES, D3DMULTISAMPLE_NONE, D3DMULTISAMPLE_TYPE,
-    D3DPOOL_DEFAULT, D3DPOOL_MANAGED, D3DPT_POINTLIST, D3DPT_TRIANGLELIST, D3DPT_TRIANGLESTRIP,
+    D3D_SDK_VERSION, D3DBLEND_DESTCOLOR, D3DBLEND_INVSRCALPHA, D3DBLEND_ONE, D3DBLEND_SRCALPHA,
+    D3DBLEND_ZERO, D3DBLENDOP_ADD, D3DBLENDOP_REVSUBTRACT, D3DCAPS9, D3DCLEAR_STENCIL,
+    D3DCLEAR_TARGET, D3DCLEAR_ZBUFFER, D3DCMP_ALWAYS, D3DCMP_EQUAL, D3DCMP_GREATER,
+    D3DCMP_LESSEQUAL, D3DCUBEMAP_FACE_NEGATIVE_X, D3DCUBEMAP_FACE_NEGATIVE_Y,
+    D3DCUBEMAP_FACE_NEGATIVE_Z, D3DCUBEMAP_FACE_POSITIVE_X, D3DCUBEMAP_FACE_POSITIVE_Y,
+    D3DCUBEMAP_FACE_POSITIVE_Z, D3DCUBEMAP_FACES, D3DCULL, D3DCULL_CCW, D3DCULL_CW, D3DCULL_NONE,
+    D3DDEVTYPE, D3DDEVTYPE_HAL, D3DDEVTYPE_NULLREF, D3DDEVTYPE_REF, D3DDEVTYPE_SW, D3DFMT_A8R8G8B8,
+    D3DFMT_R32F, D3DFORMAT, D3DFVF_DIFFUSE, D3DFVF_TEX1, D3DFVF_XYZ, D3DFVF_XYZRHW,
+    D3DMULTISAMPLE_4_SAMPLES, D3DMULTISAMPLE_NONE, D3DMULTISAMPLE_TYPE, D3DPOOL_DEFAULT,
+    D3DPOOL_MANAGED, D3DPT_POINTLIST, D3DPT_TRIANGLELIST, D3DPT_TRIANGLESTRIP, D3DRENDERSTATETYPE,
     D3DRS_ADAPTIVETESS_Y, D3DRS_ALPHABLENDENABLE, D3DRS_ALPHAFUNC, D3DRS_ALPHAREF,
     D3DRS_ALPHATESTENABLE, D3DRS_BLENDOP, D3DRS_CLIPPLANEENABLE, D3DRS_COLORWRITEENABLE,
     D3DRS_COLORWRITEENABLE1, D3DRS_CULLMODE, D3DRS_DEPTHBIAS, D3DRS_DESTBLEND, D3DRS_FOGENABLE,
@@ -54,13 +55,12 @@ use windows::Win32::Graphics::Direct3D9::{
     D3DCREATE_SOFTWARE_VERTEXPROCESSING, D3DDEVICE_CREATION_PARAMETERS, D3DDISPLAYMODE,
     D3DLOCK_DISCARD, D3DLOCK_READONLY, D3DLOCKED_RECT, D3DPMISCCAPS_MRTINDEPENDENTBITDEPTHS,
     D3DPOOL, D3DPOOL_SYSTEMMEM, D3DPRESENT_INTERVAL_IMMEDIATE, D3DPRESENT_PARAMETERS, D3DRECT,
-    D3DRENDERSTATETYPE, D3DRESOURCETYPE, D3DSTATEBLOCKTYPE, D3DSWAPEFFECT_DISCARD,
-    D3DTEXTUREFILTERTYPE, D3DTEXTURESTAGESTATETYPE, D3DUSAGE_DEPTHSTENCIL, D3DUSAGE_DYNAMIC,
-    D3DUSAGE_QUERY_FILTER, D3DUSAGE_QUERY_POSTPIXELSHADER_BLENDING, D3DUSAGE_RENDERTARGET,
-    D3DUSAGE_WRITEONLY, Direct3DCreate9, IDirect3D9, IDirect3DBaseTexture9, IDirect3DCubeTexture9,
-    IDirect3DDevice9, IDirect3DIndexBuffer9, IDirect3DPixelShader9, IDirect3DStateBlock9,
-    IDirect3DSurface9, IDirect3DTexture9, IDirect3DVertexBuffer9, IDirect3DVertexDeclaration9,
-    IDirect3DVertexShader9,
+    D3DRESOURCETYPE, D3DSTATEBLOCKTYPE, D3DSWAPEFFECT_DISCARD, D3DTEXTUREFILTERTYPE,
+    D3DTEXTURESTAGESTATETYPE, D3DUSAGE_DEPTHSTENCIL, D3DUSAGE_DYNAMIC, D3DUSAGE_QUERY_FILTER,
+    D3DUSAGE_QUERY_POSTPIXELSHADER_BLENDING, D3DUSAGE_RENDERTARGET, D3DUSAGE_WRITEONLY,
+    Direct3DCreate9, IDirect3D9, IDirect3DBaseTexture9, IDirect3DCubeTexture9, IDirect3DDevice9,
+    IDirect3DIndexBuffer9, IDirect3DPixelShader9, IDirect3DStateBlock9, IDirect3DSurface9,
+    IDirect3DTexture9, IDirect3DVertexBuffer9, IDirect3DVertexDeclaration9, IDirect3DVertexShader9,
 };
 pub use windows::Win32::Graphics::Direct3D9::{
     D3DDECLTYPE_FLOAT3, D3DDECLTYPE_FLOAT4, D3DDECLTYPE_UNUSED, D3DDECLUSAGE_BINORMAL,
@@ -1547,6 +1547,14 @@ impl<'a> Device9Ref<'a> {
     pub fn current_pixel_shader_raw(&self) -> Direct3DResult<*mut c_void> {
         let shader = unsafe { self.inner.GetPixelShader()? };
         Ok(shader.as_raw())
+    }
+
+    /// Retain the currently bound pixel shader for an exact binding journal.
+    ///
+    /// Returns a D3D error if no programmable pixel shader is bound. The owned
+    /// reference keeps the prior shader live while a temporary shader is bound.
+    pub fn current_pixel_shader(&self) -> Direct3DResult<PixelShader9> {
+        unsafe { self.inner.GetPixelShader().map(PixelShader9::new) }
     }
 
     /// Set pixel shader float constants.
@@ -3531,6 +3539,40 @@ unsafe impl Send for PixelShader9 {}
 impl PixelShader9 {
     fn new(inner: IDirect3DPixelShader9) -> Self {
         Self { inner }
+    }
+
+    /// Retain a live host pixel shader through QueryInterface/AddRef.
+    ///
+    /// # Safety
+    /// `shader` must be a live IDirect3DPixelShader9 on its device's permitted
+    /// thread. The returned owner releases only the added reference.
+    pub unsafe fn retain_raw(shader: *mut c_void) -> Direct3DResult<Self> {
+        let ptr = NonNull::new(shader).ok_or_else(|| WindowsError::from_hresult(E_POINTER))?;
+        let borrowed = unsafe { InterfaceRef::<IDirect3DPixelShader9>::from_raw(ptr) };
+        borrowed.cast::<IDirect3DPixelShader9>().map(Self::new)
+    }
+
+    /// Read this shader's original DWORD bytecode during resource preparation.
+    ///
+    /// Allocates once; never call from a draw callback. Rejects empty,
+    /// unaligned, oversized or inconsistently sized driver responses.
+    pub fn function(&self) -> Direct3DResult<Vec<u32>> {
+        let mut bytes = 0;
+        unsafe { self.inner.GetFunction(null_mut(), &mut bytes)? };
+        // Shader model 2/3 programs fit well below this defensive read bound.
+        if bytes == 0 || bytes % 4 != 0 || bytes > 1024 * 1024 {
+            return Err(direct3d_failure());
+        }
+        let mut code = vec![0; bytes as usize / 4];
+        let mut actual = bytes;
+        unsafe {
+            self.inner
+                .GetFunction(code.as_mut_ptr().cast(), &mut actual)?
+        };
+        if actual != bytes {
+            return Err(direct3d_failure());
+        }
+        Ok(code)
     }
 
     /// Return the wrapped Windows binding interface.

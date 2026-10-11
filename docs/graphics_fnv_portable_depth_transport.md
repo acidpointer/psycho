@@ -733,9 +733,9 @@ instead thresholds texture alpha using pixel c3 before that fade. Native
 `0x00BAC9C0` publishes c3 from the current alpha property's byte `+0x1A`
 divided by 255, through selector `+0x1D0` and the `0x00BAD100` constant map.
 These are different shader equations: flipping only a vendor coverage state
-or inventing a global cutoff is not a proven repair. Shader/state selection,
-actual material inputs and restoration still need an integrated implementation
-and offline color/depth acceptance. Raw evidence is in
+or inventing a global cutoff is not a proven repair. The grass-only correction
+below pairs native shader/state selection without changing depth transport.
+Raw evidence is in
 `analysis/ghidra/output/perf/graphics_fnv_grass_single_sample_radare2_audit.txt`.
 `0x00B97D90` is a cache-aware setter with a state-lock counter, not an
 old-value journal. `0x00B98610` dispatches restoration to native state-family
@@ -743,6 +743,139 @@ functions, and `0x00B988E0` ends the cached selector pass. A TMS grass pass need
 not contain the source/destination blend entries added by the non-TMS path.
 Adding those states after setup therefore requires its own proven restoration
 coverage; relying on the unchanged pass's entry list would leave a state leak.
+
+### Implemented grass single-sample coverage
+
+`omv/src/effects/grass.rs` owns the correction independently of effect toggles:
+the allocation policy can remain single-sample after effects are switched off.
+It changes only a native grass draw whose actual RT0 descriptor reports no
+MSAA and whose bound pixel program has an exact verified native counterpart.
+Actual multisample attachments retain their original shader and states. No
+depth resolver, depth attachment, material threshold, native sample global,
+shader wrapper or cached pass entry changes.
+
+The executable contract extends the
+[original grass audit](../analysis/ghidra/output/perf/graphics_fnv_grass_single_sample_radare2_audit.txt)
+with the
+[draw and state-lock audit](../analysis/ghidra/output/perf/graphics_fnv_grass_draw_scope_radare2_audit.txt).
+Both identify the supported executable. Shader factory `0x00B55560` publishes
+the reference-owned grass selector at cache index 2, `0x011F9550`; its vtable is
+`0x010B8980`. The selector owns seven pixel wrappers at `+0x188` and 44 cached
+passes at `+0x6C`. Dispatch `0x00BAA3F0` maps IDs 22--61 and 604--647 into
+those rows and publishes the current pass at `0x0126F74C`. A pass's pixel
+wrapper is at `+0x44`; a `0x010EF7D4` wrapper holds its COM shader at `+0x2C`
+or the native backup at `+0x1C`. Draw admission checks the active pass against
+the selector's row and the actual device binding against the pinned shader.
+
+OMV chains three existing grass vtable providers with transactional pointer
+hooks: bank construction `+0x13C` (`0x00BAAFC0`, thiscall with no stack
+arguments), SetupGeometry `+0x6C` (`0x00E812F0`, four stack arguments, `ret
+0x10`, returns the native buffer value), and PostRender `+0x8C` (`0x00A89AF0`,
+one stack argument, `ret 4`). Ordinary draw `0x00B98E80` calls SetupGeometry,
+the geometry draw, then PostRender. Partitioned draw `0x00B99110` calls
+SetupGeometry for each partition and submits through `0x00E6D310` directly
+to D3D9 DrawIndexedPrimitive, then calls PostRender once. Renderer triangle
+hooks alone miss those submissions. The grass scope therefore closes before
+each next SetupGeometry provider and before PostRender; presentation also
+closes a remaining scope before screen effects.
+
+The immutable catalog in `omv/shaders/native_grass/native_pairs.bin` contains
+the complete native pixel bytecode, not reconstructed HLSL or edited shader
+tokens. Its
+[source records](../omv/shaders/native_grass/sources.tsv) identify the installed
+SDP records: packages 002, 003, 004, 006, 007, 009--019, including `GRASS2`
+ps_2_a and `GRASS23x` ps_3_0. Duplicate executable pairs collapse to 30 entries;
+shadow slots 004--006 share programs. Both TMS and non-TMS programs match by
+exact bytes. An already non-TMS shader reuses its original COM object;
+an unsupported provider program remains unchanged and reports the missing
+capability once per prepared handle. Package IDs, GPU names and mod identities
+do not control admission. Resource preparation reads a pinned shader with the
+documented [GetFunction size/data calls](https://learn.microsoft.com/en-us/windows/win32/api/d3d9/nf-d3d9-idirect3dpixelshader9-getfunction)
+and uses [CreatePixelShader](https://learn.microsoft.com/en-us/windows/win32/api/d3d9/nf-d3d9-idirect3ddevice9-createpixelshader)
+for its verified counterpart. Complete counterparts preserve shadow RGB math
+as well as alpha rejection; the TMS shadow programs also differ in their local
+c3 definitions, so replacing only their alpha output would be incomplete.
+
+The native material alpha byte continues to supply c3 unchanged. The first
+40 passes use ordinary depth-writing grass coverage; HDR single-sample passes
+add native SRCALPHA/INVSRCALPHA blending. The last four passes retain their
+native DESTCOLOR/ZERO multiplicative shadow blending and disabled depth write.
+Native alpha test enable, GREATER/reference 10, constants, samplers and depth
+states remain active. OMV journals only the shader and at most four states:
+the three ordinary HDR blend states plus the native vendor coverage state.
+It captures all values before mutation and restores the exact old binding
+and values before the native cached-state teardown. Native state caches remain
+consistent because OMV never changes their values and no cached-state setter
+runs between this scope's setup and restoration in the audited call paths.
+
+The state-family map at `0x011FFA30` and 21 lock counters at `0x011FF9D8` are
+initialized by `0x00B97C10`. Native `0x00B97D90` suppresses writes to a locked
+family: alpha blend enable maps to family 6 and source/destination blend to
+family 7. OMV reads the live map and counters and changes only unlocked
+states. `0x00B98540` uses counter 20 (`0x011FFA28`) for vendor coverage;
+an unlocked NVIDIA state 181 is temporarily zero and an unlocked AMD state
+154 is temporarily A2M0. A locked family retains its provider state. This
+preserves native lock semantics without changing counter ownership or relying
+on native teardown to restore states absent from the original TMS pass.
+Cached ordinary pass application `0x00BE0EB0` passes zero as the lock delta;
+the grass pass's own ordinary entries do not take these locks. An existing
+outer override therefore remains distinguishable from ordinary pass setup.
+
+The process owner is a zero-initialized atomic pointer, first allocated and
+published at DeferredInit. All three hook admissions open only after successful
+installation; a failed transaction restores its providers. No configuration
+layout, pre-deferred worker, TLS owner or startup preparation changes. COM
+resources belong to the deferred render thread. Preparation runs at native
+bank construction and presentation, outside the geometry callback; unchanged
+bank handles reuse their resources. Seven pinned sources prevent address reuse.
+Before Reset, the journal must close and all cached resources must release;
+a busy owner or failed restoration rejects that attempt. Failed draw setup
+attempts full rollback. An unsuccessful restoration retains the journal for
+retry and prevents another correction from taking ownership of that state.
+
+The draw path has no OMV heap allocation, shader compilation, file I/O,
+blocking lock or logging. It uses a seven-entry cache lookup, bounded native
+field/lock reads, actual RT0 sample inspection, at most four render-state
+captures, and the matching writes/restores. It adds no draw, render target,
+screen pass or texture fetch. Presentation checks seven bank slots and reads
+bytecode/creates resources only when a handle changes. The native bytecode
+support check enforces these measured upper bounds (instruction tokens include
+declarations and definitions):
+
+| Native bank variant | Single-sample instruction tokens | Texture instructions | Bytecode bytes |
+|---|---:|---:|---:|
+| 000 | 18 | 1 | 484 |
+| 001 | 29 | 3 | 708 |
+| 002 | 27 | 3 | 684 |
+| 003 | 38 | 5 | 908 |
+| 004--006 | 124 | 10 | 2396 |
+
+Every paired counterpart uses the same number of texture instructions as TMS
+and adds at most one instruction token. These are deterministic work bounds,
+not a gameplay FPS measurement.
+
+The offline regression executes the full native pixel programs and production
+preparation/scope on D3D9 HAL under Wine. A vertex adapter publishes the audited
+native interpolator ABI; it does not replace the grass pixel equation. The
+unchanged TMS program failed the native non-TMS color/depth oracle before
+production edits: below-cutoff alpha painted color and rejected a later draw
+behind the grass. The corrected path matches that oracle across all 30 pairs,
+six material cutoff bytes, eight texture alpha values, four native fade values,
+HDR on/off and ordinary/multiplicative shadow states. The unchanged TMS path
+remains a failing negative control. Tests also execute COM retention after
+releasing the original reference, exact state/shader restoration, both vendor
+coverage transitions, partial blend masks, changed provider bindings, unsupported
+pixel programs, already non-TMS reuse and actual 4x-MSAA preservation. Shader
+model, instruction, texture, sampler and prohibited-opcode budgets pass.
+The complete OMV and affected shared-library suites, supported 32-bit OMV
+release build, formatting and final diff checks also pass. Qualification is
+offline; no gameplay or startup result is implied by those checks.
+
+The screenshot's complete game composition, native hook execution, engine
+Reset integration, startup and gameplay performance have not run. Controlled
+native-program cases establish the shader/state correction; they do not claim
+an exact offline reproduction of `grass_transp.png` or qualify arbitrary custom
+grass programs without a verified counterpart.
 
 ### 6. Integrated ownership and offline qualification
 

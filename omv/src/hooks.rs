@@ -33,7 +33,7 @@ use std::sync::{
 
 use crate::{
     backend,
-    effects::{pbr, sky},
+    effects::{grass, pbr, sky},
     runtime,
 };
 use anyhow::{Context, Result};
@@ -109,6 +109,9 @@ pub(crate) fn install_engine_hooks() -> Result<()> {
     ENGINE_HOOKS_READY.store(geometry_ready, Ordering::Release);
     pbr::set_draw_boundary_ready(geometry_ready);
     sky::set_draw_boundary_ready(geometry_ready);
+    if let Err(error) = grass::install() {
+        log::error!("[GRASS] Single-sample coverage correction unavailable: {error:#}");
+    }
 
     if let Some(device_ptr) = backend::d3d_device_ptr()
         && let Some(device) = unsafe { Device9Ref::from_raw_void(device_ptr) }
@@ -301,6 +304,7 @@ pub(crate) fn on_frame_present(loading_screen: bool) {
     // from carrying replacement ownership into the engine's final display.
     pbr::finish_draw_batches();
     sky::finish_direct_draw();
+    grass::service_frame();
     if let Some(device_ptr) = backend::d3d_device_ptr()
         && runtime::present_services_required()
     {
@@ -359,6 +363,7 @@ pub(crate) unsafe fn release_for_native_reset(device_ptr: *mut c_void) -> bool {
     if !crate::effects::shadows::reset_runtime_state()
         || !pbr::reset_runtime_state()
         || !sky::reset_runtime_state()
+        || !grass::reset_device_resources()
     {
         return false;
     }
