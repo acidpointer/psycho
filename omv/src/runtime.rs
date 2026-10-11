@@ -48,8 +48,8 @@
 //!
 //! The same Diagnostics view reads libpsycho's process-cached compatibility
 //! profile only after its scrollable child is visible. GPU and environment
-//! identities are summarized in responsive cards, while the exact physical,
-//! compatibility, driver, and capability evidence remains available below.
+//! identities are summarized in responsive cards. The dashboard keeps frame
+//! pacing and actionable failures; technical inventories are not UI content.
 //! This presentation is diagnostic only and never changes graphics policy or
 //! serializes machine-local identity into presets.
 //!
@@ -284,8 +284,11 @@ fn set_menu_diagnostics_active(active: bool) {
         }
     }
     pbr::set_menu_diagnostics_active(active);
-    crate::fnv_local_lights::set_diagnostics_active(active);
-    crate::fnv_world_pipeline::set_diagnostics_active(active);
+    // The user dashboard no longer consumes local-light counters or fog
+    // calibration. Preserve their production owners and error accounting,
+    // but do not request successful-work telemetry that has no visible reader.
+    crate::fnv_local_lights::set_diagnostics_active(false);
+    crate::fnv_world_pipeline::set_diagnostics_active(false);
 }
 
 /// Configure only the runtime work established in the accepted load baseline.
@@ -7331,71 +7334,6 @@ mod frame_pacing_tests {
     }
 
     #[test]
-    fn diagnostics_uses_one_profile_of_the_active_d3d9_device() {
-        let source = include_str!("runtime.rs");
-        let collector = source
-            .split_once("\n    fn ensure_gpu_diagnostics_profile(")
-            .map(|(_, tail)| tail)
-            .and_then(|tail| tail.split_once("\n    fn "))
-            .map(|(body, _)| body)
-            .expect("GPU diagnostics collector");
-        assert!(collector.contains("self.gpu_diagnostics.is_some()"));
-        assert!(collector.contains("Device9Ref::from_raw_void(self.device_ptr"));
-        assert!(collector.contains("libpsycho::hardware::d3d9_device_profile_report"));
-        assert!(!collector.contains("d3d9_adapter_profiles"));
-
-        let draw_menu = source
-            .split_once("\n    fn draw_menu(")
-            .map(|(_, tail)| tail)
-            .and_then(|tail| tail.split_once("\n    fn "))
-            .map(|(body, _)| body)
-            .expect("menu render callback");
-        let active_gate = draw_menu
-            .find("if diagnostics_active")
-            .expect("diagnostics activity gate");
-        let collection = draw_menu
-            .find("ensure_gpu_diagnostics_profile")
-            .expect("GPU profile collection");
-        assert!(active_gate < collection);
-
-        let release = source
-            .split_once("\n    fn release_for_new_device(")
-            .map(|(_, tail)| tail)
-            .and_then(|tail| tail.split_once("\n    fn "))
-            .map(|(body, _)| body)
-            .expect("new-device release");
-        assert!(release.contains("self.gpu_diagnostics = None"));
-
-        let panel = source
-            .split_once("\nfn draw_system_diagnostics_details(")
-            .map(|(_, tail)| tail)
-            .and_then(|tail| tail.split_once("\nfn gpu_device_kind_label("))
-            .map(|(body, _)| body)
-            .expect("GPU diagnostics panel");
-        assert!(panel.contains("report.gpu_identity()"));
-        assert!(panel.contains("D3d9ProfileGpuIdentity::DxvkPhysicalDevice"));
-        assert!(panel.contains("D3d9ProfileGpuIdentity::Direct3D9Adapter"));
-        assert!(panel.contains("D3d9ProfileGpuIdentity::UnverifiedDirect3D9Adapter"));
-        assert!(panel.contains("Physical GPU identity unavailable"));
-        assert!(panel.contains("D3D9 COMPATIBILITY IDENTITY"));
-        for field in [
-            "identity.description",
-            "identity.vendor_id",
-            "identity.device_id",
-            "identity.driver",
-            "identity.device_identifier",
-            "adapter_ordinal",
-            "pixel_shader_model",
-            "capabilities.features",
-            "format_features",
-            "approximate_available_texture_memory_bytes",
-        ] {
-            assert!(panel.contains(field), "missing active-GPU field: {field}");
-        }
-        assert!(panel.contains("not physical VRAM"));
-    }
-
-    #[test]
     fn failed_optional_dxvk_identity_never_labels_d3d9_compatibility_as_physical() {
         use libpsycho::hardware::{
             D3d9Capabilities, D3d9DeviceKind, D3d9DeviceProfile, D3d9DeviceProfileReport,
@@ -7444,7 +7382,6 @@ mod frame_pacing_tests {
         let (title, detail, accent) = gpu_diagnostics_card(Some(&diagnostics));
         assert_eq!(title, "Physical GPU unavailable");
         assert!(detail.contains("D3D9 compatibility fallback"));
-        assert!(detail.contains("Spoofable D3D9 adapter"));
         assert_eq!(accent, super::MENU_WARN_TEXT);
     }
 
@@ -7460,67 +7397,6 @@ mod frame_pacing_tests {
             DepthProviderConfig::FalloutNewVegas
         );
         assert_eq!(live.depth_provider, DepthProviderConfig::DepthResolve);
-    }
-
-    #[test]
-    fn diagnostics_presents_hardware_and_environment_as_a_lazy_summary() {
-        let source = include_str!("runtime.rs");
-        let tab = source
-            .split_once("\nfn draw_diagnostics_tab(")
-            .map(|(_, tail)| tail)
-            .and_then(|tail| tail.split_once("\nfn draw_system_at_a_glance("))
-            .map(|(body, _)| body)
-            .expect("Diagnostics tab");
-        let visible_gate = tab
-            .find("if !diagnostics.is_visible()")
-            .expect("visible Diagnostics gate");
-        let environment_query = tab
-            .find("libpsycho::hardware::system_profile()")
-            .expect("cached compatibility-runtime profile");
-        assert!(visible_gate < environment_query);
-        assert!(tab.contains("system_profile.runtime"));
-        let summary = tab.find("draw_system_at_a_glance").expect("system summary");
-        let frame_pacing = tab
-            .find("draw_frame_pacing_panel")
-            .expect("frame-pacing dashboard");
-        let details = tab
-            .find("draw_system_diagnostics_details")
-            .expect("system technical details");
-        assert!(summary < frame_pacing);
-        assert!(frame_pacing < details);
-
-        let panel = source
-            .split_once("\nfn draw_system_at_a_glance(")
-            .map(|(_, tail)| tail)
-            .and_then(|tail| tail.split_once("\nfn gpu_diagnostics_card("))
-            .map(|(body, _)| body)
-            .expect("system summary panel");
-        assert!(panel.contains("SYSTEM AT A GLANCE"));
-        assert!(panel.contains("ACTIVE GPU"));
-        assert!(panel.contains("ENVIRONMENT"));
-        assert!(panel.contains("draw_diagnostics_summary_card"));
-        assert!(panel.contains("environment_diagnostics_card"));
-        assert!(panel.contains("content_region_available_width"));
-        assert!(panel.contains("summary_cards_stacked"));
-        assert!(source.contains("fn environment_runtime_label"));
-        assert!(source.contains("fn environment_runtime_card_detail"));
-
-        let frame_panel = source
-            .split_once("\nfn draw_frame_pacing_panel(")
-            .map(|(_, tail)| tail)
-            .and_then(|tail| tail.split_once("\nfn draw_diagnostics_metric_card("))
-            .map(|(body, _)| body)
-            .expect("frame-pacing panel");
-        assert!(frame_panel.contains("TARGET DELIVERY"));
-
-        let details_panel = source
-            .split_once("\nfn draw_system_diagnostics_details(")
-            .map(|(_, tail)| tail)
-            .and_then(|tail| tail.split_once("\nfn draw_gpu_details("))
-            .map(|(body, _)| body)
-            .expect("system technical details");
-        assert!(details_panel.contains("draw_environment_details"));
-        assert!(details_panel.contains("draw_gpu_details"));
     }
 
     #[test]
@@ -7541,7 +7417,7 @@ mod frame_pacing_tests {
         assert_eq!(super::environment_runtime_label(&proton), "Proton");
         assert_eq!(
             super::environment_runtime_card_detail(&proton),
-            "Wine 10.0 // Linux 6.14 // Steam app 22380"
+            "Wine 10.0 // Linux 6.14"
         );
 
         let wine = RuntimeInfo {
@@ -7570,7 +7446,7 @@ mod frame_pacing_tests {
         assert_eq!(super::environment_runtime_label(&windows), "Native Windows");
         assert_eq!(
             super::environment_runtime_card_detail(&windows),
-            "No Wine compatibility layer detected"
+            "Native runtime"
         );
     }
 
@@ -7648,24 +7524,6 @@ mod frame_pacing_tests {
         let runtime = include_str!("runtime.rs");
         assert!(runtime.contains("MenuSelection::Finishing(panel)"));
         assert!(runtime.contains("draw_shader_details(ui, source, Some(panel))"));
-    }
-
-    #[test]
-    fn frame_pacing_ui_has_fixed_cadence_and_no_frequency_selector() {
-        let source = include_str!("runtime.rs");
-        let panel = source
-            .split_once("\nfn draw_frame_pacing_panel(")
-            .map(|(_, tail)| tail)
-            .and_then(|tail| tail.split_once("\nfn draw_diagnostics_metric_card("))
-            .map(|(body, _)| body)
-            .expect("frame-pacing panel body");
-
-        assert!(panel.contains("automatically four times per second"));
-        assert!(panel.contains("AT A GLANCE"));
-        assert!(panel.contains("FRAME-TIME SHAPE"));
-        assert!(panel.contains("TARGET DELIVERY"));
-        assert!(!panel.contains("begin_combo"));
-        assert!(!panel.contains("frame_pacing_update_interval"));
     }
 
     #[test]
@@ -7835,37 +7693,6 @@ mod frame_pacing_tests {
         assert!(!events.contains("note_change"));
         assert!(events.contains("self.record_active_preset_state();"));
         assert!(events.contains("New preset created and enabled."));
-    }
-
-    #[test]
-    fn effect_configuration_contains_no_live_diagnostics() {
-        let source = include_str!("runtime.rs");
-        for (function, boundary, forbidden) in [
-            (
-                "fn draw_native_pbr_config(",
-                "\nfn draw_pbr_diagnostics(",
-                &["LIVE PIPELINES", "TRANSITION DIAGNOSTICS"][..],
-            ),
-            (
-                "fn draw_shader_details(",
-                "\nfn depth_of_field_option_visible(",
-                &["fnv_local_lights::telemetry"][..],
-            ),
-        ] {
-            let signature = format!("\n{function}");
-            let body = source
-                .split_once(signature.as_str())
-                .map(|(_, tail)| tail)
-                .and_then(|tail| tail.split_once(boundary))
-                .map(|(body, _)| body)
-                .expect("configuration panel body");
-            for marker in forbidden {
-                assert!(
-                    !body.contains(marker),
-                    "{function} still exposes live diagnostic marker {marker}"
-                );
-            }
-        }
     }
 
     #[test]
@@ -8939,7 +8766,7 @@ fn draw_labeled_input_text_multiline(
 
 fn draw_diagnostics_tab(
     ui: &mut psycho_imgui::Ui<'_>,
-    menu_config: &mut GraphicsMenuConfig,
+    menu_config: &GraphicsMenuConfig,
     sources: &[ScreenShaderSource],
     frame_pacing: &FramePacingSnapshot,
     feature_status: EngineFeatureStatus,
@@ -8949,14 +8776,6 @@ fn draw_diagnostics_tab(
     if !diagnostics.is_visible() {
         return false;
     }
-
-    ui.text_colored(MENU_ACCENT_TEXT, &cstring("LIVE DIAGNOSTICS"));
-    ui.text_colored(
-        MENU_MUTED_TEXT,
-        &cstring(
-            "Frame intervals are captured continuously. Detailed effect counters run only while this tab is visible.",
-        ),
-    );
 
     // system_profile() performs its bounded process query once and then returns
     // a lock-free static reference. Keep even that first query behind the
@@ -8970,62 +8789,65 @@ fn draw_diagnostics_tab(
         .find(|issue| issue.component == libpsycho::hardware::HardwareComponent::Runtime)
         .map(|issue| issue.message.as_str());
     draw_system_at_a_glance(ui, gpu_diagnostics, environment, environment_issue);
-    draw_interoperability_diagnostics(ui, menu_config);
     draw_frame_pacing_panel(ui, frame_pacing);
-    draw_system_diagnostics_details(ui, gpu_diagnostics, environment, environment_issue);
-    let mut changed = false;
-    draw_render_stack_diagnostics(ui, sources);
-    draw_depth_diagnostics(ui, menu_config.depth_provider, feature_status.depth);
-    draw_native_sky_diagnostics(ui, feature_status.sky);
-    changed |= draw_pbr_diagnostics(ui, &mut menu_config.native_pbr, feature_status.pbr);
-    draw_local_lights_diagnostics(ui, sources);
-    draw_world_pipeline_diagnostics(ui);
-    changed
+    draw_diagnostics_issues(ui, menu_config, sources, feature_status);
+    false
 }
 
-/// Present engine ownership without turning observed module identity into a
-/// compatibility policy. Snapshot construction and `VirtualQuery`-based owner
-/// formatting occur only while this Diagnostics child is visible; ordinary
-/// frames read neither code addresses nor module metadata.
-fn draw_interoperability_diagnostics(
+/// Show failures that affect the requested look, with a route to recovery.
+/// Disabled features, ordinary preparation and per-draw fallbacks are not
+/// failures. This read-only view consumes existing production status and never
+/// probes hook owners, prepares resources or changes settings.
+fn draw_diagnostics_issues(
     ui: &mut psycho_imgui::Ui<'_>,
-    menu_config: &GraphicsMenuConfig,
+    config: &GraphicsMenuConfig,
+    sources: &[ScreenShaderSource],
+    status: EngineFeatureStatus,
 ) {
-    ui.separator_text(&cstring("INTEROPERABILITY"));
-    ui.text_colored(
-        MENU_MUTED_TEXT,
-        &cstring(
-            "OMV chains current engine predecessors and fails each capability independently. Module names below are evidence only and never control rendering.",
-        ),
-    );
+    if !config.screen_space_shaders {
+        return;
+    }
+    let shader_failed = sources
+        .iter()
+        .any(|source| source.enabled && shader_has_error(source));
+    let depth_failed = config.depth_provider != DepthProviderConfig::None
+        && status.depth.route == backend::DepthResolveRouteStatus::Unavailable;
+    let pbr_failed = config.native_pbr.enabled
+        && (status.pbr.preparation.phase == pbr::PbrPreparationPhase::Failed
+            || status.pbr.block_reason.is_some()
+            || status.pbr.active_contracts_failed
+            || status.pbr.land_lod_contract_failed
+            || status.pbr.terrain_fade_contract_failed
+            || status.pbr.close_terrain_contract_failed);
+    let sky_failed = config.native_sky.enabled && (status.sky.failed || !status.sky.installed);
+    if !(shader_failed || depth_failed || pbr_failed || sky_failed) {
+        return;
+    }
 
-    let master_enabled = menu_config.screen_space_shaders;
-    let feature_rows = [
-        crate::interop::pbr_feature_status(master_enabled && menu_config.native_pbr.enabled),
-        crate::interop::sky_feature_status(master_enabled && menu_config.native_sky.enabled),
-    ];
-    for capability in feature_rows
-        .into_iter()
-        .chain(crate::interop::capability_snapshot())
+    ui.separator_text(&cstring("ISSUES"));
+    for source in sources
+        .iter()
+        .filter(|source| source.enabled && shader_has_error(source))
     {
-        let color = match capability.state {
-            crate::interop::InteropState::Active => MENU_GOOD_TEXT,
-            crate::interop::InteropState::Unavailable => MENU_ERROR_TEXT,
-            crate::interop::InteropState::DependencyBlocked => MENU_WARN_TEXT,
-            crate::interop::InteropState::Disabled => MENU_MUTED_TEXT,
-        };
-        ui.label_value(
-            &cstring(capability.name),
-            &cstring(capability.state.label()),
-            color,
-        );
-        ui.text_colored(MENU_MUTED_TEXT, &cstring(capability.reason));
-        if let Some(predecessors) = crate::interop::predecessor_label(&capability) {
-            ui.text_colored(
-                MENU_MUTED_TEXT,
-                &cstring(format!("Captured predecessor: {predecessors}")),
-            );
-        }
+        ui.text_colored(MENU_ERROR_TEXT, &cstring(shader_display_name(source)));
+        ui.text_wrapped(&cstring(
+            "Shader or settings error. Open this effect in Customize for details.",
+        ));
+    }
+    if depth_failed {
+        ui.text_colored(MENU_ERROR_TEXT, &cstring("Depth unavailable"));
+        ui.text_wrapped(&cstring(status.depth.reason));
+        ui.text_wrapped(&cstring("Review Depth Source in Customize > General."));
+    }
+    if pbr_failed {
+        ui.text_colored(MENU_ERROR_TEXT, &cstring("PBR materials incomplete"));
+        ui.text_wrapped(&cstring(
+            "Open Customize > PBR Materials for details and retry.",
+        ));
+    }
+    if sky_failed {
+        ui.text_colored(MENU_ERROR_TEXT, &cstring("Native Sky unavailable"));
+        ui.text_wrapped(&cstring("Open Customize > Native Sky for details."));
     }
 }
 
@@ -9051,7 +8873,7 @@ fn draw_system_at_a_glance(
     draw_diagnostics_summary_card(
         ui,
         "system_gpu",
-        "ACTIVE GPU",
+        "GPU",
         &gpu_name,
         &gpu_detail,
         gpu_accent,
@@ -9077,355 +8899,38 @@ fn gpu_diagnostics_card(diagnostics: Option<&GpuDiagnosticsProfile>) -> (String,
     let Some(diagnostics) = diagnostics else {
         return (
             "Detecting...".to_owned(),
-            "Waiting for the active D3D9 device profile".to_owned(),
+            "GPU information".to_owned(),
             MENU_MUTED_TEXT,
         );
     };
     let report = match diagnostics {
         Ok(report) => report,
-        Err(error) => {
+        Err(_) => {
             return (
                 "Unavailable".to_owned(),
-                format!("Active GPU detection failed: {error}"),
-                MENU_ERROR_TEXT,
+                "GPU information unavailable".to_owned(),
+                MENU_MUTED_TEXT,
             );
         }
     };
 
-    let profile = &report.profile;
     match report.gpu_identity() {
         libpsycho::hardware::D3d9ProfileGpuIdentity::DxvkPhysicalDevice(identity) => (
             identity.description.clone(),
-            format!(
-                "DXVK Vulkan // {} // VEN_{:04X} DEV_{:04X}",
-                gpu_vulkan_device_kind_label(identity.device_type),
-                identity.vendor_id,
-                identity.device_id,
-            ),
+            "DXVK / Vulkan".to_owned(),
             MENU_GOOD_TEXT,
         ),
         libpsycho::hardware::D3d9ProfileGpuIdentity::Direct3D9Adapter(identity) => (
             identity.description.clone(),
-            format!(
-                "Direct3D 9 // VEN_{:04X} DEV_{:04X} // {}",
-                identity.vendor_id,
-                identity.device_id,
-                gpu_device_kind_label(profile.device_kind),
-            ),
+            "Direct3D 9".to_owned(),
             MENU_GOOD_TEXT,
         ),
-        libpsycho::hardware::D3d9ProfileGpuIdentity::UnverifiedDirect3D9Adapter {
-            identity,
-            ..
-        } => (
+        libpsycho::hardware::D3d9ProfileGpuIdentity::UnverifiedDirect3D9Adapter { .. } => (
             "Physical GPU unavailable".to_owned(),
-            format!(
-                "D3D9 compatibility fallback // {} // VEN_{:04X} DEV_{:04X}",
-                identity.description, identity.vendor_id, identity.device_id,
-            ),
+            "D3D9 compatibility fallback".to_owned(),
             MENU_WARN_TEXT,
         ),
     }
-}
-
-fn draw_system_diagnostics_details(
-    ui: &mut psycho_imgui::Ui<'_>,
-    diagnostics: Option<&GpuDiagnosticsProfile>,
-    environment: &libpsycho::hardware::RuntimeInfo,
-    environment_issue: Option<&str>,
-) {
-    draw_environment_details(ui, environment, environment_issue);
-    draw_gpu_details(ui, diagnostics);
-}
-
-fn draw_gpu_details(ui: &mut psycho_imgui::Ui<'_>, diagnostics: Option<&GpuDiagnosticsProfile>) {
-    ui.separator_text(&cstring("GRAPHICS DEVICE"));
-    let Some(diagnostics) = diagnostics else {
-        ui.text_colored(
-            MENU_MUTED_TEXT,
-            &cstring("Waiting for the active D3D9 device profile..."),
-        );
-        return;
-    };
-    let report = match diagnostics {
-        Ok(report) => report,
-        Err(error) => {
-            ui.text_colored(
-                MENU_ERROR_TEXT,
-                &cstring(format!("Active GPU detection unavailable: {error}")),
-            );
-            return;
-        }
-    };
-
-    let profile = &report.profile;
-    match report.gpu_identity() {
-        libpsycho::hardware::D3d9ProfileGpuIdentity::DxvkPhysicalDevice(identity) => {
-            ui.label_value(
-                &cstring("Active renderer"),
-                &cstring("DXVK Vulkan physical device"),
-                MENU_GOOD_TEXT,
-            );
-            ui.label_value(
-                &cstring("Physical PCI ID"),
-                &cstring(format!(
-                    "VEN_{:04X} DEV_{:04X}",
-                    identity.vendor_id, identity.device_id
-                )),
-                MENU_GOOD_TEXT,
-            );
-            ui.label_value(
-                &cstring("Device class"),
-                &cstring(gpu_vulkan_device_kind_label(identity.device_type)),
-                MENU_MUTED_TEXT,
-            );
-            ui.label_value(
-                &cstring("Vulkan API"),
-                &cstring(format_vulkan_api_version(identity.api_version)),
-                MENU_MUTED_TEXT,
-            );
-            ui.label_value(
-                &cstring("Vulkan driver version"),
-                &cstring(format!("0x{:08X}", identity.driver_version)),
-                MENU_MUTED_TEXT,
-            );
-            ui.label_value(
-                &cstring("Device UUID"),
-                &cstring(format!("{:032X}", identity.device_uuid)),
-                MENU_MUTED_TEXT,
-            );
-            if !identity.driver_name.is_empty() || !identity.driver_info.is_empty() {
-                ui.text_colored(MENU_MUTED_TEXT, &cstring("VULKAN DRIVER"));
-                ui.text_wrapped(&cstring(format!(
-                    "{}{}{}",
-                    identity.driver_name,
-                    if identity.driver_name.is_empty() || identity.driver_info.is_empty() {
-                        ""
-                    } else {
-                        " // "
-                    },
-                    identity.driver_info,
-                )));
-            }
-
-            // DXVK keeps D3D9's feature contract coherent by presenting its
-            // compatibility identity to the game. Fallout New Vegas explicitly
-            // requests the AMD fallback on NVIDIA, so retain that second identity
-            // as an explanation rather than mislabeling it as the active GPU.
-            draw_wrapped_diagnostic_value(
-                ui,
-                "D3D9 COMPATIBILITY IDENTITY",
-                MENU_WARN_TEXT,
-                &format!(
-                    "{} // VEN_{:04X} DEV_{:04X}",
-                    profile.identity.description,
-                    profile.identity.vendor_id,
-                    profile.identity.device_id,
-                ),
-            );
-        }
-        libpsycho::hardware::D3d9ProfileGpuIdentity::Direct3D9Adapter(identity) => {
-            ui.label_value(
-                &cstring("Active renderer"),
-                &cstring("Native D3D9 adapter"),
-                MENU_GOOD_TEXT,
-            );
-            draw_wrapped_diagnostic_value(
-                ui,
-                "D3D9 ADAPTER IDENTITY",
-                MENU_MUTED_TEXT,
-                &format!(
-                    "{} // VEN_{:04X} DEV_{:04X} SUBSYS_{:08X} REV_{:02X}",
-                    identity.description,
-                    identity.vendor_id,
-                    identity.device_id,
-                    identity.subsystem_id,
-                    identity.revision,
-                ),
-            );
-        }
-        libpsycho::hardware::D3d9ProfileGpuIdentity::UnverifiedDirect3D9Adapter {
-            identity,
-            issue,
-        } => {
-            ui.label_value(
-                &cstring("Active renderer"),
-                &cstring("Physical GPU identity unavailable"),
-                MENU_WARN_TEXT,
-            );
-            draw_wrapped_diagnostic_value(
-                ui,
-                "D3D9 COMPATIBILITY IDENTITY",
-                MENU_WARN_TEXT,
-                &format!(
-                    "{} // VEN_{:04X} DEV_{:04X} SUBSYS_{:08X} REV_{:02X}",
-                    identity.description,
-                    identity.vendor_id,
-                    identity.device_id,
-                    identity.subsystem_id,
-                    identity.revision,
-                ),
-            );
-            draw_wrapped_diagnostic_value(
-                ui,
-                "OPTIONAL DXVK IDENTITY UNAVAILABLE",
-                MENU_WARN_TEXT,
-                issue,
-            );
-        }
-    }
-    ui.label_value(
-        &cstring("D3D9 device"),
-        &cstring(format!(
-            "adapter {} // {}",
-            profile.adapter_ordinal,
-            gpu_device_kind_label(profile.device_kind),
-        )),
-        MENU_MUTED_TEXT,
-    );
-    ui.label_value(
-        &cstring("Behavior flags"),
-        &cstring(format!("0x{:08X}", profile.behavior_flags)),
-        MENU_MUTED_TEXT,
-    );
-    draw_wrapped_diagnostic_value(
-        ui,
-        "D3D9 DRIVER",
-        MENU_MUTED_TEXT,
-        &format!(
-            "{} // {} // version 0x{:016X}",
-            profile.identity.driver,
-            profile.identity.device_name,
-            profile.identity.driver_version as u64,
-        ),
-    );
-    draw_wrapped_diagnostic_value(
-        ui,
-        "D3D9 DEVICE IDENTIFIER",
-        MENU_MUTED_TEXT,
-        &format!(
-            "{:032X} // WHQL level {}",
-            profile.identity.device_identifier, profile.identity.whql_level,
-        ),
-    );
-
-    let caps = &profile.capabilities;
-    ui.separator_text(&cstring("D3D9 CAPABILITIES"));
-    ui.label_value(
-        &cstring("Shader model"),
-        &cstring(format!(
-            "VS {}.{} // PS {}.{}",
-            caps.vertex_shader_model.major,
-            caps.vertex_shader_model.minor,
-            caps.pixel_shader_model.major,
-            caps.pixel_shader_model.minor,
-        )),
-        MENU_GOOD_TEXT,
-    );
-    ui.label_value(
-        &cstring("Texture limits"),
-        &cstring(format!(
-            "{}x{} // volume {} // anisotropy {}",
-            caps.max_texture_width,
-            caps.max_texture_height,
-            caps.max_volume_extent,
-            caps.max_anisotropy,
-        )),
-        MENU_MUTED_TEXT,
-    );
-    ui.label_value(
-        &cstring("Render pipeline"),
-        &cstring(format!(
-            "MRT {} // samplers {} // blend stages {}",
-            caps.max_simultaneous_render_targets,
-            caps.max_simultaneous_textures,
-            caps.max_texture_blend_stages,
-        )),
-        MENU_MUTED_TEXT,
-    );
-    ui.label_value(
-        &cstring("Vertex pipeline"),
-        &cstring(format!(
-            "streams {} // stride {} // constants {}",
-            caps.max_vertex_streams,
-            caps.max_vertex_stream_stride,
-            caps.max_vertex_shader_constants,
-        )),
-        MENU_MUTED_TEXT,
-    );
-
-    let features = profile.capabilities.features;
-    draw_wrapped_diagnostic_value(
-        ui,
-        "FEATURE SUPPORT",
-        MENU_MUTED_TEXT,
-        &format!(
-            "HW T&L={} // pure={} // cube={} // volume={} // POW2 required={} // conditional NPOT={} // anisotropic min/mag={}/{} // independent MRT={} // VTF={}",
-            gpu_support_label(
-                features
-                    .contains(libpsycho::hardware::D3d9FeatureFlags::HARDWARE_TRANSFORM_AND_LIGHT)
-            ),
-            gpu_support_label(
-                features.contains(libpsycho::hardware::D3d9FeatureFlags::PURE_DEVICE)
-            ),
-            gpu_support_label(
-                features.contains(libpsycho::hardware::D3d9FeatureFlags::CUBE_TEXTURES)
-            ),
-            gpu_support_label(
-                features.contains(libpsycho::hardware::D3d9FeatureFlags::VOLUME_TEXTURES)
-            ),
-            gpu_support_label(
-                features.contains(libpsycho::hardware::D3d9FeatureFlags::POW2_TEXTURES_REQUIRED)
-            ),
-            gpu_support_label(
-                features.contains(libpsycho::hardware::D3d9FeatureFlags::CONDITIONAL_NPOT_TEXTURES)
-            ),
-            gpu_support_label(
-                features.contains(libpsycho::hardware::D3d9FeatureFlags::ANISOTROPIC_MIN_FILTER)
-            ),
-            gpu_support_label(
-                features.contains(libpsycho::hardware::D3d9FeatureFlags::ANISOTROPIC_MAG_FILTER)
-            ),
-            gpu_support_label(
-                features
-                    .contains(libpsycho::hardware::D3d9FeatureFlags::INDEPENDENT_MRT_BIT_DEPTHS)
-            ),
-            gpu_support_label(
-                features.contains(libpsycho::hardware::D3d9FeatureFlags::VERTEX_TEXTURE_FETCH)
-            ),
-        ),
-    );
-
-    let formats = profile.format_features;
-    draw_wrapped_diagnostic_value(
-        ui,
-        "FORMAT SUPPORT",
-        MENU_MUTED_TEXT,
-        &format!(
-            "RESZ={} // INTZ={} // FP16 RT={} // FP16 blend={} // FP32 RT={} // sRGB read/write={}/{}",
-            gpu_support_label(formats.contains(libpsycho::hardware::D3d9FormatFeatures::RESZ)),
-            gpu_support_label(formats.contains(libpsycho::hardware::D3d9FormatFeatures::INTZ)),
-            gpu_support_label(
-                formats.contains(libpsycho::hardware::D3d9FormatFeatures::FP16_RENDER_TARGET)
-            ),
-            gpu_support_label(
-                formats.contains(libpsycho::hardware::D3d9FormatFeatures::FP16_BLENDABLE)
-            ),
-            gpu_support_label(
-                formats.contains(libpsycho::hardware::D3d9FormatFeatures::FP32_RENDER_TARGET)
-            ),
-            gpu_support_label(
-                formats.contains(libpsycho::hardware::D3d9FormatFeatures::SRGB_TEXTURE_READ)
-            ),
-            gpu_support_label(
-                formats.contains(libpsycho::hardware::D3d9FormatFeatures::SRGB_RENDER_TARGET_WRITE)
-            ),
-        ),
-    );
-    ui.text_wrapped(&cstring(format!(
-        "Available texture memory: {}. This is the driver's profile-time estimate, not physical VRAM.",
-        format_gpu_texture_memory(profile.approximate_available_texture_memory_bytes),
-    )));
 }
 
 fn environment_runtime_label(runtime: &libpsycho::hardware::RuntimeInfo) -> &'static str {
@@ -9440,11 +8945,11 @@ fn environment_diagnostics_card(
     runtime: &libpsycho::hardware::RuntimeInfo,
     issue: Option<&str>,
 ) -> (String, String, [f32; 4]) {
-    if let Some(issue) = issue {
+    if issue.is_some() {
         return (
             "Detection incomplete".to_owned(),
-            issue.to_owned(),
-            MENU_ERROR_TEXT,
+            "Environment information unavailable".to_owned(),
+            MENU_MUTED_TEXT,
         );
     }
     (
@@ -9456,10 +8961,10 @@ fn environment_diagnostics_card(
 
 fn environment_runtime_card_detail(runtime: &libpsycho::hardware::RuntimeInfo) -> String {
     if runtime.compatibility == libpsycho::hardware::CompatibilityRuntime::NativeWindows {
-        return "No Wine compatibility layer detected".to_owned();
+        return "Native runtime".to_owned();
     }
 
-    let mut parts = Vec::with_capacity(3);
+    let mut parts = Vec::with_capacity(2);
     parts.push(
         runtime
             .wine
@@ -9472,9 +8977,6 @@ fn environment_runtime_card_detail(runtime: &libpsycho::hardware::RuntimeInfo) -
     );
     if let Some(host) = environment_host_label(runtime) {
         parts.push(host);
-    }
-    if let Some(app_id) = runtime.steam_app_id.as_deref() {
-        parts.push(format!("Steam app {app_id}"));
     }
     parts.join(" // ")
 }
@@ -9489,246 +8991,8 @@ fn environment_host_label(runtime: &libpsycho::hardware::RuntimeInfo) -> Option<
     }
 }
 
-fn draw_environment_details(
-    ui: &mut psycho_imgui::Ui<'_>,
-    runtime: &libpsycho::hardware::RuntimeInfo,
-    issue: Option<&str>,
-) {
-    ui.separator_text(&cstring("ENVIRONMENT DETAILS"));
-    if let Some(issue) = issue {
-        draw_wrapped_diagnostic_value(ui, "DETECTION INCOMPLETE", MENU_ERROR_TEXT, issue);
-    }
-    ui.label_value(
-        &cstring(if issue.is_some() {
-            "Fallback classification"
-        } else {
-            "Compatibility runtime"
-        }),
-        &cstring(environment_runtime_label(runtime)),
-        MENU_ACCENT_TEXT,
-    );
-    if let Some(wine) = runtime.wine.as_ref() {
-        ui.label_value(
-            &cstring("Wine version"),
-            &cstring(wine.version.as_deref().unwrap_or("Unavailable")),
-            MENU_MUTED_TEXT,
-        );
-        if let Some(build_id) = wine.build_id.as_deref() {
-            draw_wrapped_diagnostic_value(ui, "WINE BUILD", MENU_MUTED_TEXT, build_id);
-        }
-        if let Some(host) = environment_host_label(runtime) {
-            ui.label_value(&cstring("Host system"), &cstring(host), MENU_MUTED_TEXT);
-        }
-    } else {
-        ui.text_colored(
-            MENU_MUTED_TEXT,
-            &cstring("Wine runtime exports were not detected in this process."),
-        );
-    }
-    ui.label_value(
-        &cstring("Steam compatibility prefix"),
-        &cstring(if runtime.steam_compat_data_path_present {
-            "Detected"
-        } else {
-            "Not detected"
-        }),
-        MENU_MUTED_TEXT,
-    );
-    if let Some(app_id) = runtime.steam_app_id.as_deref() {
-        ui.label_value(
-            &cstring("Steam application"),
-            &cstring(app_id),
-            MENU_MUTED_TEXT,
-        );
-    }
-}
-
-fn draw_wrapped_diagnostic_value(
-    ui: &mut psycho_imgui::Ui<'_>,
-    label: &str,
-    label_color: [f32; 4],
-    value: &str,
-) {
-    ui.text_colored(label_color, &cstring(label));
-    ui.text_wrapped(&cstring(value));
-}
-
-fn gpu_device_kind_label(kind: libpsycho::hardware::D3d9DeviceKind) -> String {
-    match kind {
-        libpsycho::hardware::D3d9DeviceKind::Hardware => "hardware (HAL)".to_owned(),
-        libpsycho::hardware::D3d9DeviceKind::Reference => "reference rasterizer".to_owned(),
-        libpsycho::hardware::D3d9DeviceKind::Software => "software rasterizer".to_owned(),
-        libpsycho::hardware::D3d9DeviceKind::NullReference => {
-            "null reference rasterizer".to_owned()
-        }
-        libpsycho::hardware::D3d9DeviceKind::Unknown(raw) => {
-            format!("unknown device type {raw}")
-        }
-    }
-}
-
-fn gpu_vulkan_device_kind_label(kind: libpsycho::hardware::VulkanDeviceKind) -> String {
-    match kind {
-        libpsycho::hardware::VulkanDeviceKind::Other => "other Vulkan device".to_owned(),
-        libpsycho::hardware::VulkanDeviceKind::Integrated => "integrated GPU".to_owned(),
-        libpsycho::hardware::VulkanDeviceKind::Discrete => "discrete GPU".to_owned(),
-        libpsycho::hardware::VulkanDeviceKind::Virtual => "virtual GPU".to_owned(),
-        libpsycho::hardware::VulkanDeviceKind::Cpu => "CPU renderer".to_owned(),
-        libpsycho::hardware::VulkanDeviceKind::Unknown(raw) => {
-            format!("unknown Vulkan device type {raw}")
-        }
-    }
-}
-
-fn format_vulkan_api_version(version: u32) -> String {
-    let variant = version >> 29;
-    let major = (version >> 22) & 0x7f;
-    let minor = (version >> 12) & 0x3ff;
-    let patch = version & 0xfff;
-    if variant == 0 {
-        format!("{major}.{minor}.{patch}")
-    } else {
-        format!("{major}.{minor}.{patch} (variant {variant})")
-    }
-}
-
-const fn gpu_support_label(supported: bool) -> &'static str {
-    if supported { "yes" } else { "no" }
-}
-
-fn format_gpu_texture_memory(bytes: u32) -> String {
-    if bytes == 0 {
-        return "unavailable".to_owned();
-    }
-    format!("{:.0} MiB", f64::from(bytes) / (1024.0 * 1024.0))
-}
-
-fn draw_render_stack_diagnostics(ui: &mut psycho_imgui::Ui<'_>, sources: &[ScreenShaderSource]) {
-    let (enabled_count, error_count, scene_count, final_count) = shader_counts(sources);
-    ui.separator_text(&cstring("RENDER STACK"));
-    ui.text_colored(
-        if error_count == 0 {
-            MENU_GOOD_TEXT
-        } else {
-            MENU_WARN_TEXT
-        },
-        &cstring(format!(
-            "{} enabled of {} // {} scene // {} final // {} issue{}",
-            enabled_count,
-            sources.len(),
-            scene_count,
-            final_count,
-            error_count,
-            if error_count == 1 { "" } else { "s" },
-        )),
-    );
-    for source in sources.iter().filter(|source| shader_has_error(source)) {
-        ui.text_colored(
-            MENU_ERROR_TEXT,
-            &cstring(format!(
-                "{}: shader or configuration error",
-                shader_display_name(source)
-            )),
-        );
-    }
-}
-
-fn draw_depth_diagnostics(
-    ui: &mut psycho_imgui::Ui<'_>,
-    configured_provider: DepthProviderConfig,
-    status: backend::DepthResolveStatus,
-) {
-    ui.separator_text(&cstring("DEPTH"));
-    let configured = match configured_provider {
-        DepthProviderConfig::None => "Disabled",
-        DepthProviderConfig::FalloutNewVegas => "OMV world + first-person depth",
-        DepthProviderConfig::DepthResolve => "Depth Resolve shared world depth",
-    };
-    ui.text_colored(
-        MENU_MUTED_TEXT,
-        &cstring(format!("Configured source: {configured}")),
-    );
-    let (color, route) = match status.route {
-        backend::DepthResolveRouteStatus::Unprobed => (MENU_WARN_TEXT, "Waiting for D3D device"),
-        backend::DepthResolveRouteStatus::Resz => (MENU_GOOD_TEXT, "RESZ"),
-        backend::DepthResolveRouteStatus::Nvapi => (MENU_GOOD_TEXT, "NVIDIA NvAPI"),
-        backend::DepthResolveRouteStatus::Owned => (MENU_GOOD_TEXT, "Owned depth"),
-        backend::DepthResolveRouteStatus::Preparing => (MENU_WARN_TEXT, "Preparing"),
-        backend::DepthResolveRouteStatus::Unavailable => (MENU_ERROR_TEXT, "Unavailable"),
-    };
-    ui.text_colored(color, &cstring(format!("Resolve route: {route}")));
-    if status.route == backend::DepthResolveRouteStatus::Unavailable {
-        ui.text_wrapped(&cstring(status.reason));
-    }
-    let markers = backend::provider_marker_counters();
-    ui.text_colored(
-        MENU_MUTED_TEXT,
-        &cstring(format!(
-            "Depth hooks: stages={}, D3D device vtable={}",
-            crate::fnv_render::depth_stage_hooks_status_label(),
-            "not-installed",
-        )),
-    );
-    ui.text_colored(
-        MENU_MUTED_TEXT,
-        &cstring(format!(
-            "Depth counters: legacy OMV markers={}, legacy external markers={}, legacy suppressed={}, external snapshots={}",
-            markers.omv_allowed,
-            markers.external_allowed,
-            markers.external_suppressed,
-            markers.external_publications,
-        )),
-    );
-    ui.text_colored(
-        MENU_MUTED_TEXT,
-        &cstring(format!(
-            "Native depth: {}",
-            backend::owned_depth_status_label()
-        )),
-    );
-    let copies = backend::depth_copy_counters();
-    ui.text_colored(
-        MENU_MUTED_TEXT,
-        &cstring(format!("Depth snapshot draws: {}", copies.snapshot_draws)),
-    );
-    ui.text_colored(
-        MENU_MUTED_TEXT,
-        &cstring(format!(
-            "NvAPI calls: register={}, alias creations={}, alias fallbacks={}, StretchRectEx={}, retries={}",
-            copies.nvapi_register_calls,
-            copies.nvapi_alias_creations,
-            copies.nvapi_alias_fallbacks,
-            copies.nvapi_stretch_calls,
-            copies.nvapi_stretch_retries,
-        )),
-    );
-}
-
-fn draw_native_sky_diagnostics(ui: &mut psycho_imgui::Ui<'_>, status: sky::NativeSkyStatus) {
-    ui.separator_text(&cstring("NATIVE SKY"));
-    let (color, text) = native_sky_status_summary(status);
-    ui.text_colored(color, &cstring(text));
-    if status.enabled {
-        ui.text_colored(
-            MENU_MUTED_TEXT,
-            &cstring(format!(
-                "Shader resources: {}/{} ready",
-                status.created.max(status.compiled),
-                status.total
-            )),
-        );
-    }
-}
-
 fn draw_frame_pacing_panel(ui: &mut psycho_imgui::Ui<'_>, frame_pacing: &FramePacingSnapshot) {
     ui.separator_text(&cstring("FRAME PACING"));
-    ui.text_colored(
-        MENU_MUTED_TEXT,
-        &cstring(
-            "Every consecutive OnFramePresent callback advances the raw graph. Readable summary metrics refresh automatically four times per second.",
-        ),
-    );
-
     if frame_pacing.samples().len() > 1 {
         let label = cstring("##frame_pacing");
         let warning_label = cstring("60 FPS");
@@ -9754,7 +9018,7 @@ fn draw_frame_pacing_panel(ui: &mut psycho_imgui::Ui<'_>, frame_pacing: &FramePa
         };
         ui.telemetry_chart(&label, &chart);
     } else {
-        let collecting = cstring("Waiting for two consecutive presentation intervals...");
+        let collecting = cstring("Collecting frame times...");
         ui.text_colored(MENU_MUTED_TEXT, &collecting);
     }
     if frame_pacing.sample_count < 2 {
@@ -9762,17 +9026,29 @@ fn draw_frame_pacing_panel(ui: &mut psycho_imgui::Ui<'_>, frame_pacing: &FramePa
     }
 
     ui.separator_text(&cstring("AT A GLANCE"));
-    let card_width = ((ui.content_region_available_width() - 16.0) / 3.0).max(150.0);
+    let available_width = ui.content_region_available_width().max(1.0);
+    // Reflow the existing cards rather than forcing narrow windows to scroll
+    // horizontally. The dashboard remains the only scrolling surface.
+    let columns = if available_width >= 600.0 {
+        3
+    } else if available_width >= 400.0 {
+        2
+    } else {
+        1
+    };
+    let card_width = (available_width - 8.0 * (columns - 1) as f32) / columns as f32;
     draw_diagnostics_metric_card(
         ui,
         "frame_live",
         "CURRENT",
         &format!("{:.1} FPS", frame_pacing.fps),
-        &format!("{:.2} ms right now", frame_pacing.live_ms),
+        &format!("{:.2} ms", frame_pacing.live_ms),
         frame_time_color(frame_pacing.live_ms),
         card_width,
     );
-    ui.same_line();
+    if columns >= 2 {
+        ui.same_line();
+    }
     draw_diagnostics_metric_card(
         ui,
         "frame_average",
@@ -9785,13 +9061,15 @@ fn draw_frame_pacing_panel(ui: &mut psycho_imgui::Ui<'_>, frame_pacing: &FramePa
         frame_time_color(frame_pacing.average_ms),
         card_width,
     );
-    ui.same_line();
+    if columns == 3 {
+        ui.same_line();
+    }
     draw_diagnostics_metric_card(
         ui,
         "frame_low",
         "1% LOW",
         &format!("{:.1} FPS", frame_pacing.one_percent_low_fps),
-        "Slowest one percent of recent frames",
+        "Slow-frame threshold",
         frame_time_color(frame_pacing.p99_ms),
         card_width,
     );
@@ -9800,50 +9078,61 @@ fn draw_frame_pacing_panel(ui: &mut psycho_imgui::Ui<'_>, frame_pacing: &FramePa
     draw_diagnostics_metric_card(
         ui,
         "frame_typical",
-        "TYPICAL FRAME",
+        "TYPICAL",
         &format!("{:.2} ms", frame_pacing.p50_ms),
-        "Half of recent frames were faster",
+        "Median frame time",
         frame_time_color(frame_pacing.p50_ms),
         card_width,
     );
-    ui.same_line();
+    if columns >= 2 {
+        ui.same_line();
+    }
     draw_diagnostics_metric_card(
         ui,
         "frame_slow_edge",
-        "SLOW EDGE",
+        "SLOW FRAMES",
         &format!("P95  {:.2} ms", frame_pacing.p95_ms),
         &format!("P99  {:.2} ms", frame_pacing.p99_ms),
         frame_time_color(frame_pacing.p99_ms),
         card_width,
     );
-    ui.same_line();
+    if columns == 3 {
+        ui.same_line();
+    }
     draw_diagnostics_metric_card(
         ui,
         "frame_worst",
-        "WORST RECENT FRAME",
+        "WORST FRAME",
         &format!("{:.2} ms", frame_pacing.worst_ms),
-        &format!("Across {} captured frames", frame_pacing.sample_count),
+        &format!("{} recent frames", frame_pacing.sample_count),
         frame_time_color(frame_pacing.worst_ms),
         card_width,
     );
 
-    let half_width = ((ui.content_region_available_width() - 8.0) / 2.0).max(180.0);
+    let paired_cards = available_width >= 400.0;
+    let half_width = if paired_cards {
+        (available_width - 8.0) / 2.0
+    } else {
+        available_width
+    };
     draw_diagnostics_metric_card(
         ui,
         "frame_jitter",
-        "FRAME-TO-FRAME JITTER",
+        "JITTER",
         &format!("{:.2} ms", frame_pacing.jitter_ms),
-        "95th percentile change between neighbors",
+        "Frame-to-frame change",
         frame_time_color(frame_pacing.jitter_ms),
         half_width,
     );
-    ui.same_line();
+    if paired_cards {
+        ui.same_line();
+    }
     draw_diagnostics_metric_card(
         ui,
         "frame_mad",
-        "STABLE VARIATION",
+        "VARIATION",
         &format!("{:.2} ms", frame_pacing.median_absolute_deviation_ms),
-        "Normal spread around the typical frame",
+        "Typical spread",
         frame_time_color(frame_pacing.median_absolute_deviation_ms),
         half_width,
     );
@@ -9854,17 +9143,19 @@ fn draw_frame_pacing_panel(ui: &mut psycho_imgui::Ui<'_>, frame_pacing: &FramePa
         "budget_60",
         "60 FPS TARGET",
         &format!("{:.1}% ON TIME", frame_pacing.budget_60_hit_percent),
-        "Frames delivered within 16.67 ms",
+        "Within 16.67 ms",
         budget_hit_color(frame_pacing.budget_60_hit_percent),
         half_width,
     );
-    ui.same_line();
+    if paired_cards {
+        ui.same_line();
+    }
     draw_diagnostics_metric_card(
         ui,
         "budget_30",
         "30 FPS TARGET",
         &format!("{:.1}% ON TIME", frame_pacing.budget_30_hit_percent),
-        "Frames delivered within 33.33 ms",
+        "Within 33.33 ms",
         budget_hit_color(frame_pacing.budget_30_hit_percent),
         half_width,
     );
@@ -9873,7 +9164,7 @@ fn draw_frame_pacing_panel(ui: &mut psycho_imgui::Ui<'_>, frame_pacing: &FramePa
         ui.text_colored(
             MENU_ERROR_TEXT,
             &cstring(format!(
-                "{} recent frame{} exceeded the {:.0} ms chart scale; metrics retain the exact values.",
+                "{} frame{} above the {:.0} ms chart scale.",
                 frame_pacing.off_scale_samples,
                 if frame_pacing.off_scale_samples == 1 {
                     ""
@@ -9885,34 +9176,6 @@ fn draw_frame_pacing_panel(ui: &mut psycho_imgui::Ui<'_>, frame_pacing: &FramePa
         );
     }
     draw_spike_summary(ui, frame_pacing);
-
-    let contention = runtime_lock_telemetry();
-    if frame_pacing.rejected_intervals > 0 || contention.has_rejections() {
-        let optional_samples_skipped = contention.present_apply
-            + contention.present_finish
-            + contention.scene_phase
-            + contention.world_color
-            + contention.reset;
-        ui.separator_text(&cstring("MEASUREMENT HEALTH"));
-        ui.text_colored(
-            MENU_WARN_TEXT,
-            &cstring(format!(
-                "{} presentation interval{} could not be measured cleanly.",
-                frame_pacing.rejected_intervals,
-                if frame_pacing.rejected_intervals == 1 {
-                    ""
-                } else {
-                    "s"
-                },
-            )),
-        );
-        if optional_samples_skipped > 0 {
-            ui.text_wrapped(&cstring(format!(
-                "OMV skipped {optional_samples_skipped} optional diagnostic sample{} because the render state was busy. Skipping avoids stalling the game.",
-                if optional_samples_skipped == 1 { "" } else { "s" },
-            )));
-        }
-    }
 }
 
 fn draw_diagnostics_metric_card(
@@ -9924,7 +9187,18 @@ fn draw_diagnostics_metric_card(
     accent: [f32; 4],
     width: f32,
 ) {
-    draw_diagnostics_card(ui, id, title, value, detail, accent, width, 94.0);
+    draw_diagnostics_card(ui, id, title, value, detail, accent, width, 94.0, false);
+    // Keep statistical definitions available without turning every card into
+    // a paragraph. The displayed values still use the original pacing data.
+    let help = match id {
+        "frame_low" => Some("FPS calculated from the 99th-percentile frame time."),
+        "frame_jitter" => Some("95th-percentile change between consecutive frame times."),
+        "frame_mad" => Some("Median absolute deviation from the median frame time."),
+        _ => None,
+    };
+    if let Some(help) = help {
+        ui.hover_help(&cstring(help));
+    }
 }
 
 fn draw_diagnostics_summary_card(
@@ -9936,7 +9210,7 @@ fn draw_diagnostics_summary_card(
     accent: [f32; 4],
     width: f32,
 ) {
-    draw_diagnostics_card(ui, id, title, value, detail, accent, width, 112.0);
+    draw_diagnostics_card(ui, id, title, value, detail, accent, width, 112.0, true);
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -9949,8 +9223,9 @@ fn draw_diagnostics_card(
     accent: [f32; 4],
     width: f32,
     height: f32,
+    wrap_value: bool,
 ) {
-    let card = ui.child(
+    let card = ui.child_static(
         &cstring(format!("diagnostics_card_{id}")),
         width,
         height,
@@ -9959,7 +9234,11 @@ fn draw_diagnostics_card(
     if card.is_visible() {
         ui.panel_background(accent);
         ui.text_colored(MENU_MUTED_TEXT, &cstring(title));
-        ui.text_colored(accent, &cstring(value));
+        if wrap_value {
+            ui.text_wrapped(&cstring(value));
+        } else {
+            ui.text_colored(accent, &cstring(value));
+        }
         ui.text_wrapped(&cstring(detail));
     }
 }
@@ -9968,28 +9247,17 @@ fn draw_spike_summary(ui: &mut psycho_imgui::Ui<'_>, frame_pacing: &FramePacingS
     let spikes = frame_pacing.spikes;
     ui.separator_text(&cstring("PACING EVENTS"));
     if spikes.total_slow == 0 && spikes.total_fast == 0 {
-        ui.text_colored(
-            MENU_GOOD_TEXT,
-            &cstring(format!(
-                "Pacing looks stable around the {:.2} ms adaptive baseline.",
-                frame_pacing.baseline_ms
-            )),
-        );
-        ui.text_colored(
-            MENU_MUTED_TEXT,
-            &cstring("No significant slow or unusually fast frame-time excursions detected."),
-        );
+        ui.text_colored(MENU_GOOD_TEXT, &cstring("No significant pacing events."));
         return;
     }
 
     let latest = spikes.latest.map_or_else(
-        || "latest unavailable".to_owned(),
+        || "Unavailable".to_owned(),
         |event| {
             format!(
-                "latest {} {:.2} ms ({:+.2}) {:.1} s ago",
+                "{} / {:.2} ms / {:.1} s ago",
                 event.direction.label(),
                 event.frame_ms,
-                event.delta_ms,
                 event.age_ms * 0.001,
             )
         },
@@ -10005,7 +9273,7 @@ fn draw_spike_summary(ui: &mut psycho_imgui::Ui<'_>, frame_pacing: &FramePacingS
     ui.text_colored(
         MENU_WARN_TEXT,
         &cstring(format!(
-            "Detected {} slow pacing event{} and {} unusually fast event{}.",
+            "{} slow event{} / {} fast event{}",
             spikes.total_slow,
             if spikes.total_slow == 1 { "" } else { "s" },
             spikes.total_fast,
@@ -10014,12 +9282,12 @@ fn draw_spike_summary(ui: &mut psycho_imgui::Ui<'_>, frame_pacing: &FramePacingS
     );
     ui.label_value(&cstring("Latest"), &cstring(latest), MENU_MUTED_TEXT);
     ui.label_value(
-        &cstring("Largest slow excursion"),
+        &cstring("Largest slowdown"),
         &cstring(largest_slow),
         MENU_WARN_TEXT,
     );
     ui.label_value(
-        &cstring("Largest fast excursion"),
+        &cstring("Largest speedup"),
         &cstring(largest_fast),
         MENU_MUTED_TEXT,
     );
@@ -10027,12 +9295,10 @@ fn draw_spike_summary(ui: &mut psycho_imgui::Ui<'_>, frame_pacing: &FramePacingS
         ui.text_colored(
             MENU_ERROR_TEXT,
             &cstring(format!(
-                "Repeating {} event every {:.2} s (+/- {:.1} ms): {} repeats, {:.0}% confidence.",
+                "Repeating {} event every {:.2} s / {} repeats",
                 periodic.direction.label(),
                 periodic.interval_ms * 0.001,
-                periodic.spread_ms,
                 periodic.repeats,
-                periodic.confidence_percent,
             )),
         );
     }
@@ -10196,7 +9462,7 @@ fn draw_depth_provider_config(
     {
         ui.text_colored(
             MENU_ERROR_TEXT,
-            &cstring("Depth is unavailable. See Diagnostics for the resolver reason."),
+            &cstring("Depth effects are unavailable. See Issues in Diagnostics."),
         );
     }
 
@@ -10363,136 +9629,6 @@ fn draw_native_pbr_config(
     changed
 }
 
-fn draw_pbr_diagnostics(
-    ui: &mut psycho_imgui::Ui<'_>,
-    config: &mut crate::config::NativePbrConfig,
-    status: pbr::NativePbrRuntimeStatus,
-) -> bool {
-    ui.separator_text(&cstring("PBR PIPELINES"));
-    let (status_color, status_text) = native_pbr_status_summary(status);
-    ui.text_colored(status_color, &cstring(status_text));
-    ui.text_colored(
-        MENU_MUTED_TEXT,
-        &cstring(format!(
-            "Local preparation: {} cache hits, {} compiled, {}/{} resources ready, {} failed",
-            status.preparation.cache_hits,
-            status.preparation.compiled,
-            status.preparation.resources_ready,
-            status.preparation.total,
-            status.preparation.failed,
-        )),
-    );
-    draw_pbr_family_status(
-        ui,
-        "Objects",
-        status.shader_enabled,
-        status.object_contract_ready,
-        status.object_resources_ready,
-        status.object_bytecode_ready,
-        status.object_shader_total,
-        status.object_resources_failed + status.object_bytecode_failed,
-        status.object_replacements_last_frame,
-        status.object_fallbacks_last_frame,
-    );
-    draw_pbr_family_status(
-        ui,
-        "Close terrain",
-        status.close_terrain_enabled,
-        status.terrain_engine_contract_ready,
-        status.close_terrain_resources_ready,
-        status.close_terrain_bytecode_ready,
-        status.close_terrain_shader_total,
-        status.close_terrain_resources_failed + status.close_terrain_bytecode_failed,
-        status.close_terrain_replacements_last_frame,
-        status.close_terrain_fallbacks_last_frame,
-    );
-    draw_pbr_family_status(
-        ui,
-        "Terrain fade",
-        status.terrain_fade_enabled,
-        status.terrain_engine_contract_ready,
-        status.terrain_fade_resources_ready,
-        status.terrain_fade_bytecode_ready,
-        status.terrain_fade_shader_total,
-        status.terrain_fade_resources_failed + status.terrain_fade_bytecode_failed,
-        status.terrain_fade_replacements_last_frame,
-        status.terrain_fade_fallbacks_last_frame,
-    );
-    draw_pbr_family_status(
-        ui,
-        "LandLOD",
-        status.terrain_lod_enabled,
-        status.terrain_engine_contract_ready,
-        status.land_lod_resources_ready,
-        status.land_lod_bytecode_ready,
-        status.land_lod_shader_total,
-        status.land_lod_resources_failed + status.land_lod_bytecode_failed,
-        status.land_lod_replacements_last_frame,
-        status.land_lod_fallbacks_last_frame,
-    );
-
-    ui.separator_text(&cstring("OBJECT TRANSITIONS"));
-    let changed = draw_config_checkbox(
-        ui,
-        "Track object lighting transitions",
-        "native_pbr.debug_log_draws",
-        &mut config.debug_log_draws,
-    );
-    ui.text_colored(
-        MENU_MUTED_TEXT,
-        &cstring("Development telemetry is sampled only while Diagnostics is visible."),
-    );
-    if config.debug_log_draws {
-        ui.text(&cstring(format!(
-            "Last contract change: {} -> {} // {} changes last frame",
-            status.object_last_contract_transition_from,
-            status.object_last_contract_transition_to,
-            status.object_contract_transitions_last_frame,
-        )));
-        ui.text(&cstring(format!(
-            "Last fallback: {} // row {} // selector 0x{:08X}",
-            status.object_last_reject_reason,
-            status.object_last_reject_row,
-            status.object_last_reject_selector,
-        )));
-        if status.object_last_fade_geometry != 0 {
-            ui.text(&cstring(format!(
-                "Specular fade: distance {:.2} // range {:.2}..{:.2} // expected {:.4} // staged {:.4} // c25.w {:.4}",
-                status.object_last_fade_distance,
-                status.object_last_fade_start,
-                status.object_last_fade_end,
-                status.object_last_fade_expected,
-                status.object_last_fade_staged,
-                status.object_last_fade_c25,
-            )));
-            ui.text_colored(
-                MENU_MUTED_TEXT,
-                &cstring(format!(
-                    "Geometry 0x{:08X} // property 0x{:08X} // light capacity {} / 0x{:08X}",
-                    status.object_last_fade_geometry,
-                    status.object_last_fade_property,
-                    status.object_last_light_capacity,
-                    status.object_last_light_signature,
-                )),
-            );
-            ui.text_colored(
-                MENU_MUTED_TEXT,
-                &cstring(format!(
-                    "Material resources: base 0x{:08X} // normal 0x{:08X}",
-                    status.object_last_base_texture, status.object_last_normal_texture,
-                )),
-            );
-        } else {
-            ui.text_colored(
-                MENU_MUTED_TEXT,
-                &cstring("Waiting for a combined-specular object draw."),
-            );
-        }
-    }
-
-    changed
-}
-
 fn native_pbr_status_summary(status: pbr::NativePbrRuntimeStatus) -> ([f32; 4], String) {
     let any_shader_failure = status.active_contracts_failed
         || status.land_lod_contract_failed
@@ -10532,52 +9668,6 @@ fn native_pbr_status_summary(status: pbr::NativePbrRuntimeStatus) -> ([f32; 4], 
         }
         _ if status.installed && status.shader_enabled => (MENU_GOOD_TEXT, "Active".to_owned()),
         _ => (MENU_MUTED_TEXT, "Disabled".to_owned()),
-    }
-}
-
-#[allow(clippy::too_many_arguments)]
-fn draw_pbr_family_status(
-    ui: &mut psycho_imgui::Ui<'_>,
-    label: &str,
-    enabled: bool,
-    contract_ready: bool,
-    resources_ready: usize,
-    bytecode_ready: usize,
-    total: usize,
-    failed: usize,
-    replacements: u32,
-    fallbacks: u32,
-) {
-    let (color, state) = if !enabled {
-        (MENU_MUTED_TEXT, "disabled".to_owned())
-    } else if !contract_ready {
-        (MENU_WARN_TEXT, "engine contract unavailable".to_owned())
-    } else if failed != 0 {
-        (
-            MENU_WARN_TEXT,
-            format!("degraded - {resources_ready}/{total} ready, {failed} failed"),
-        )
-    } else if resources_ready == total {
-        (MENU_GOOD_TEXT, format!("ready {resources_ready}/{total}"))
-    } else if resources_ready != 0 {
-        (
-            MENU_GOOD_TEXT,
-            format!("live {resources_ready}/{total}; remaining variants warming"),
-        )
-    } else {
-        (
-            MENU_WARN_TEXT,
-            format!("warming {}/{total}", bytecode_ready.max(resources_ready)),
-        )
-    };
-    ui.text_colored(color, &cstring(format!("{label}: {state}")));
-    if replacements != 0 || fallbacks != 0 {
-        ui.text_colored(
-            MENU_MUTED_TEXT,
-            &cstring(format!(
-                "  Last frame: {replacements} PBR draws, {fallbacks} vanilla fallbacks"
-            )),
-        );
     }
 }
 
@@ -10733,105 +9823,6 @@ fn native_sky_status_summary(status: sky::NativeSkyStatus) -> ([f32; 4], String)
         (MENU_MUTED_TEXT, "Disabled".to_owned())
     } else {
         (MENU_WARN_TEXT, "Hook unavailable".to_owned())
-    }
-}
-
-fn draw_local_lights_diagnostics(ui: &mut psycho_imgui::Ui<'_>, sources: &[ScreenShaderSource]) {
-    ui.separator_text(&cstring("LOCAL VOLUMETRIC LIGHTS"));
-    let telemetry = crate::fnv_local_lights::telemetry();
-    let hook_status = if !telemetry.hooks_ready {
-        "Capture hooks unavailable"
-    } else if telemetry.capture_enabled {
-        if telemetry.shadow_hook_ready {
-            "Scene capture active; native shadows available"
-        } else {
-            "Scene capture active; using shadowless fallback"
-        }
-    } else {
-        "Capture disabled by configuration"
-    };
-    ui.text_colored(
-        if telemetry.hooks_ready && telemetry.capture_enabled {
-            MENU_GOOD_TEXT
-        } else {
-            MENU_WARN_TEXT
-        },
-        &cstring(hook_status),
-    );
-    ui.text_colored(
-        MENU_MUTED_TEXT,
-        &cstring(format!(
-            "Traversal {} // scene {} // rendered {} // shadowed {}",
-            telemetry.traversals,
-            telemetry.scene_lights,
-            telemetry.rendered,
-            telemetry.shadowed_lights,
-        )),
-    );
-    ui.text_colored(
-        MENU_MUTED_TEXT,
-        &cstring(format!(
-            "Shadow slots {} // accepted {} // rejected {} // overflow {} // R32F {} // A8 {} // bad format {}",
-            telemetry.captured,
-            telemetry.accepted,
-            telemetry.rejected,
-            telemetry.overflow,
-            telemetry.r32f,
-            telemetry.a8r8g8b8,
-            telemetry.rejected_formats,
-        )),
-    );
-    ui.text_colored(
-        MENU_MUTED_TEXT,
-        &cstring(format!(
-            "Nonblocking misses: capture {} // publish {} // consume {} // reset {}",
-            telemetry.staging_busy,
-            telemetry.publish_busy,
-            telemetry.consume_busy,
-            telemetry.reset_busy,
-        )),
-    );
-
-    let quality = sources
-        .iter()
-        .find(|source| {
-            source.embedded_effect_kind() == Some(EmbeddedEffectKind::VolumetricLighting)
-        })
-        .and_then(|source| {
-            source
-                .options
-                .iter()
-                .find(|option| option.key == "local_lights_quality")
-        })
-        .and_then(|option| match option.value {
-            ShaderOptionValue::Integer(value) => Some(value),
-            _ => None,
-        })
-        .unwrap_or(1);
-    let budget = match quality {
-        0 => "Performance: quarter resolution, 4 lights, 4 samples, 2 shadowless draws",
-        2 => "Ultra: half resolution, 16 lights, 10 samples, 8 shadowless draws",
-        _ => "High: half resolution, 8 lights, 6 samples, 4 shadowless draws",
-    };
-    ui.text_colored(MENU_MUTED_TEXT, &cstring(budget));
-}
-
-fn draw_world_pipeline_diagnostics(ui: &mut psycho_imgui::Ui<'_>) {
-    ui.separator_text(&cstring("WORLD FOG"));
-    if let Some((distance_bound, transmittance)) = crate::fnv_world_pipeline::fog_estimate() {
-        ui.text_colored(
-            MENU_GOOD_TEXT,
-            &cstring(format!(
-                "Current bound: {:.0} units // estimated horizontal transmission: {:.1}%",
-                distance_bound,
-                transmittance * 100.0,
-            )),
-        );
-    } else {
-        ui.text_colored(
-            MENU_MUTED_TEXT,
-            &cstring("Waiting for an eligible world frame."),
-        );
     }
 }
 

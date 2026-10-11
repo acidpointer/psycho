@@ -2,21 +2,23 @@
 
 ## Purpose and user-visible behavior
 
-OMV's graphics workbench exposes the active physical renderer, compatibility
-environment, frame pacing, native-PBR draw details, local volumetric-light
-counters, and a fog calibration estimate. These are displayed in a dedicated
-`Diagnostics` tab. Frame intervals are the deliberate continuously collected
-exception: a minimal nonblocking QPC ring runs so opening the tab immediately
-shows recent pacing. Aggregate frame analysis and every detailed subsystem
-producer run only while Diagnostics is visible and the workbench's ImGui
-context is ready. Opening Customize or Presets does not start that detailed
-work.
+OMV's `Diagnostics` tab is a read-only performance dashboard. Its normal
+content is the GPU/environment summary, frame-pacing chart, ten gradient
+metric cards, and a compact pacing-event summary. An Issues section appears
+only for failures affecting enabled features; it directs users to the affected
+Customize panel and existing recovery controls.
 
-Entering `Diagnostics` starts a new detailed-diagnostics session. Successful
-local-light counters describe that visit, while frame pacing drains the newest
-retained continuous history. Detailed PBR transition collection additionally requires
-`graphics.native_pbr.debug_log_draws = true`. That setting no longer keeps its
-draw telemetry active after the tab is left.
+Technical capability inventories, hook predecessor identities, feature
+active/disabled reports, depth-copy counters, PBR draw/resource details,
+local-light telemetry, fog calibration, and measurement-lock reports are not
+end-user content. The page contains no configuration controls.
+
+A minimal nonblocking QPC ring captures frame intervals continuously so
+opening the tab immediately shows recent pacing. Aggregate analysis runs only
+while Diagnostics is visible and ImGui is ready. Explicit PBR debug logging
+still requires `graphics.native_pbr.debug_log_draws = true` and a visible
+Diagnostics session; its configuration remains loadable and saveable, but the
+checkbox and draw details are absent from the dashboard.
 
 ## Ownership and gate
 
@@ -25,8 +27,8 @@ bit and a session generation. The gate becomes active only when menu
 visibility, ImGui readiness, and the selected Diagnostics tab are all
 established. Selecting Customize or Presets, closing the menu, or
 releasing D3D9 device resources deactivates it. Reactivation advances the
-generation for detailed session counters. The independent continuous Present
-ring is not cleared by this transition.
+generation for explicit PBR debug collection. The independent continuous
+Present ring is not cleared by this transition.
 
 The continuously retained frame-pacing owner is:
 
@@ -35,13 +37,13 @@ The continuously retained frame-pacing owner is:
   metric window, fixed 4 Hz aggregate publication, 64-episode spike memory,
   session extremes, and periodicity analysis.
 
-The detailed optional producers are:
-
-- `effects/pbr/diagnostics.rs` and `effects/pbr/samplers.rs`: detailed draw,
-  transition, rejection, and sampler telemetry;
-- `fnv_local_lights.rs`: traversal, successful capture/format, rendered-light,
-  scene-light, and shadowed-light counters;
-- `fnv_world_pipeline.rs`: the Diagnostics-only fog distance estimate.
+Detailed PBR draw, transition, rejection, and sampler collection remains owned
+by `effects/pbr/diagnostics.rs` and `effects/pbr/samplers.rs` and is activated
+only by the explicit debug setting. The dashboard keeps
+`fnv_local_lights.rs` and `fnv_world_pipeline.rs` diagnostic gates inactive
+because it no longer displays successful-light counters or fog calibration.
+Their rendering, capture/publication, and failure accounting remain independent
+of those optional gates.
 
 `runtime.rs` also owns two lazy, machine-local identity views. The active GPU
 profile is bound to Fallout's live D3D9 device and cached for that device. The
@@ -55,16 +57,17 @@ DXVK is never required by this diagnostics owner. Native D3D9 uses the live
 device's owning adapter identity directly. DXVK physical-device lookup is an
 optional refinement; if its interop or Vulkan-property query fails, the card
 keeps the D3D9 device profile but displays `Physical GPU unavailable`; the
-potentially spoofed adapter appears only as a warning-colored `D3D9
-compatibility fallback`, with the enrichment error in technical details. That
-failure cannot escape into plugin load, DeferredInit, effect admission, or
+card labels its source as `D3D9 compatibility fallback`. It does not present
+the potentially spoofed adapter name as the physical GPU. That failure
+cannot escape into plugin load, DeferredInit, effect admission, or
 rendering policy.
 
 `ScreenShaderRuntime::draw_menu` drains and analyzes frame pacing only when
 Diagnostics was already active for the frame. The first frame after selecting
-the tab establishes detailed collection; the following frame displays the
-retained graph and live summary. No optional producer allocates, logs,
-performs file I/O, or blocks a render callback.
+the tab establishes the analysis gate; the following frame displays the
+retained graph and live summary. Normal dashboard collection adds no file I/O,
+logging, or blocking work to a render callback. Explicit PBR debug logging
+retains its existing bounded logging behavior.
 
 ## Workbench layout and shader-preparation visibility
 
@@ -79,9 +82,7 @@ The workbench has three top-level tabs with deliberately separate jobs:
   switch, menu key, depth choice, hot-reload interval, and bulk effect
   controls.
 - `Diagnostics` is one full-height scrollable dashboard. It owns frame pacing,
-  active-renderer and environment identity, render-stack failures, depth-route
-  details, native-sky and PBR resource state, PBR transition details,
-  local-light counters, and the live fog estimate.
+  renderer/environment summary cards, pacing events, and actionable failures.
 
 No graph is created in Customize and there is no vertical overview region
 above the effect editor. Graph history can therefore grow only inside the
@@ -96,9 +97,9 @@ built-in effects, finishing families, and mod shaders all use the same
 active-state, source-type, render-stage, and embedded config-path lines were
 removed from effect editing; errors, preparation warnings, compatibility
 warnings, and explicit retry actions remain beside the affected control.
-Technical counters and live estimates appear only in Diagnostics. Every
-focused, hovered, selected, and dimmed tab state uses the same green palette as
-the workbench controls; no default blue ImGui tab color remains. The compact
+Technical counters and calibration estimates are absent from the workbench.
+Every focused, hovered, selected, and dimmed tab state uses the same green
+palette as the workbench controls; no default blue ImGui tab color remains. The compact
 header always shows ImGui's rolling real-time FPS estimate, including while
 Customize is selected, without activating the optional diagnostics gate.
 
@@ -120,33 +121,34 @@ and one established final-color pass, so the navigation adds no texture
 copies, GPU passes, shader compilation, config fields, or preset-schema
 changes.
 
-Frame diagnostics below the custom graph use gradient metric cards for
-Current, Average, 1% Low, frame-time distribution, jitter, stable variation,
-and 60/30 FPS target delivery. Dense abbreviated status strings were replaced
-with labeled values and short explanations. The user-selectable publication
-cadence was removed; summaries refresh at a fixed 4 Hz and the raw graph still
-advances every visible frame.
+The dashboard begins with two **System at a Glance** gradient cards. GPU shows
+the verified physical renderer and API, or an honest unavailable state.
+Environment shows Proton, Wine, or native Windows, with the runtime version and
+host system when available. PCI IDs, UUIDs, capability flags, Steam IDs, and
+raw identity-query errors are not displayed. System cards stack below 640
+pixels of available width and wrap their main values.
 
-The dashboard begins with a **System at a Glance** pair that uses the same
-gradient-card visual language. The left card names the physical GPU selected
-by Fallout and summarizes its active API, device class, and PCI identity. The
-right card classifies Proton, Wine, or native Windows and summarizes the Wine
-version, host system, and Steam application when those fields exist. The cards
-share a row at normal workbench widths and stack below 640 pixels of available
-content width so long GPU and runtime names remain legible.
+**Frame Pacing** follows immediately, retaining the raw graph, adaptive scale,
+60/30 FPS budget lines, hover behavior, and threshold colors. Its ten metric
+cards cover Current, Average, 1% Low, Typical, Slow Frames, Worst Frame,
+Jitter, Variation, and 60/30 FPS Target Delivery. Three-card groups reflow to
+two columns below 600 pixels and one below 400 pixels; two-card groups stack
+below 400 pixels. All cards disable their own scrollbars and wheel scrolling.
+Only the containing dashboard scrolls.
 
-The complete **Frame Pacing** dashboard follows those two cards immediately,
-including its live graph, current/average/1%-low cards, frame-time shape,
-jitter, stable variation, and **Target Delivery** cards. Technical machine
-details begin only after that performance overview. **Environment Details**
-then distinguishes the compatibility classification, Wine version/build, host
-system, Steam compatibility-prefix marker, and Steam application ID.
-**Graphics Device** and **D3D9 Capabilities** distinguish DXVK's physical
-Vulkan device from the D3D9 compatibility identity, then show driver, device,
-shader-model, limit, feature, format, and memory-estimate evidence. Long driver
-and identity values wrap under short labels instead of becoming dense
-single-line status strings. Runtime detection failures receive an explicit red
-incomplete state and retain the fallback classification as such.
+The 1% Low display remains the reciprocal of the 99th-percentile frame time;
+it is not an average of the slowest one percent. Hover help supplies this
+statistical definition and the definitions of jitter and variation. Summaries
+still publish at a fixed 4 Hz while raw graph samples advance every visible
+frame. Pacing Events retains counts, event magnitude/age, and repeating-event
+intervals, without calibration or classifier-confidence prose.
+
+**Issues** consumes existing production error states. It is absent when no
+enabled feature has an error and when the master switch is off. Shader/settings
+errors, selected-depth failure, PBR preparation/blocking/contract failures, and
+native-sky failure point to their Customize controls. Normal warming, configured
+disablement, and per-draw fallbacks do not become warning inventories. Identity
+query failures stay within their summary cards and do not imply rendering failed.
 
 Native PBR preparation is production state rather than optional diagnostic
 collection. While the workbench is closed, `runtime.rs` may render a small
@@ -156,8 +158,8 @@ failure. The window does not request DirectInput capture and does not alter
 the `PreLoadGame` input-release contract. Native PBR replacements remain
 passive until the complete prepared-bytecode and device-resource catalogs are
 ready. The PBR configuration panel keeps only actionable preparation state and
-an explicit retry action after a failure. Cache/resource counts and transition
-telemetry are in Diagnostics.
+an explicit retry action after a failure. The dashboard does not duplicate
+resource inventories or expose the transition-debug switch.
 
 ## Production and error boundaries
 
@@ -172,18 +174,17 @@ existing bounded error logs are unchanged. Local-light rejected/overflowed
 captures and nonblocking lock/reset misses also remain cumulative because they
 represent failed work rather than successful diagnostic sampling. Closing the
 menu cannot hide or reset those errors. Runtime-owner rejections and failed
-Presents are relaxed process-lifetime atomics displayed under frame pacing.
-They are not periodically logged from the render callback.
+Presents remain relaxed process-lifetime atomics. They are not displayed in
+the user dashboard or periodically logged from the render callback.
 
 ## Performance and memory
 
-With Diagnostics inactive, detailed producers reduce to their subsystem gate
-check. This includes ordinary Customize and Presets use, not only a closed
-menu. They perform no success-counter increments, per-frame counter swaps,
-snapshot preparation, or ImGui work. PBR's configured-off fast path retains
-its existing single relaxed diagnostic-enable read. Local-light hooks load
-their gate once per capture stage and reuse the result for all optional
-counters in that stage.
+With PBR debug collection unrequested, its detailed producer reduces to its
+subsystem gate check. Its configured-off fast path retains the existing single
+relaxed diagnostic-enable read. Local-light diagnostic gates remain off even
+while the dashboard is visible; hooks load their gate once per capture stage
+and reuse the result for all optional counters. Successful-work increments and
+fog-calibration publication are not requested by the cleaned dashboard.
 
 Continuous pacing capture still performs one QPC read before Present and one
 bounded atomic publication after a valid Present. It never acquires the OMV
@@ -211,8 +212,8 @@ consume the same unmodified interval sequence.
 The visible ImGui menu cannot be literally free because it submits UI geometry.
 The diagnostic performance contract is narrower and testable: continuous
 capture is fixed, nonblocking, allocation-free, and runtime-owner independent;
-detailed collection is tab-gated; and every history, histogram, event, chart,
-card, and draw-list bound is static.
+explicit PBR debug collection is tab-gated; and every history, histogram,
+event, chart, card, and draw-list bound is static.
 
 The first visible Diagnostics frame may perform libpsycho's bounded CPUID,
 Win32 memory, and Wine-export queries while initializing its process-wide
@@ -220,75 +221,21 @@ Win32 memory, and Wine-export queries while initializing its process-wide
 are cached. Ordinary gameplay, Presets, Customize, and later Diagnostics
 frames perform no repeated environment or driver capability acquisition.
 
-## Validation and runtime acceptance
+## Validation
 
-Unit tests prove continuous raw capture without a menu-active gate, the fixed
-4 Hz aggregate cadence, slow/fast spike retention, periodic-event
-classification, sustained-rate-shift coalescing, the ten-second metric window,
-exact histogram overflow, and rejection of failed/skipped Presents without a
-synthetic long interval. Source-contract tests reject allocation, sorting,
-logging, runtime locking, D3D work, and `Instant` use in the continuous hot
-path. Detailed PBR and local-light diagnostics remain gated by an active
-Diagnostics session. UI regressions prove the three-tab workbench split,
-absence of live graphs in Customize, independent effect-editor ownership, and
-the persistent header FPS readout. Additional regressions require the lazy
-post-visibility environment query, responsive system-summary cards, retained
-physical-versus-compatibility GPU evidence, and distinct Proton, Wine, and
-native-Windows summaries. The GPU regression also requires native D3D9 and an
-injected optional DXVK-probe failure to retain the D3D9 profile path, while a
-behavioral card test proves the failed-enrichment path never labels the D3D9
-compatibility name as the physical GPU.
+Existing behavioral tests cover continuous capture, aggregate publication,
+distribution and budget metrics, raw graph ordering, spike retention and
+periodicity, and continuity rejection. Existing identity-formatting checks
+retain the physical-versus-compatibility distinction and the Proton, Wine, and
+native-Windows summaries. Obsolete source-text checks requiring the removed
+technical panels and explanatory paragraphs are not acceptance gates.
 
-The supported validation commands are:
+UI text and layout cleanup uses the normal affected tests, supported release
+build, formatting, and diff review. Pixel or screenshot comparisons are not a
+required gate. Game-only appearance, integration, and startup behavior are not
+established by these offline checks and are not agent gates.
 
 ```bash
 cargo test --target i686-pc-windows-gnu -p omv
 cargo build --release --target i686-pc-windows-gnu -p omv
 ```
-
-Validation on 2026-07-23 passed all 296 OMV tests and the complete supported
-release build. The local release `omv.dll` SHA-256 is
-`bf12fc28bf98a0716c22585025502bb08b83752fc1566157b675bca173c950c9`.
-
-The 2026-07-27 layout/preparation update passed all 309 OMV tests and the
-optimized `i686-pc-windows-gnu` OMV release build. The later tabbed-workbench
-update, including the persistent header FPS readout, passed all 312 OMV tests
-and the same supported optimized release build.
-
-The 2026-07-28 finishing-navigation, command-deck, and metric-card update
-passed all 5 `psycho-imgui` tests, all 368 OMV tests, and the supported
-optimized OMV release build.
-
-The later contextual-header and separated preset-management UX update passed
-all 6 `psycho-imgui` tests, all 386 OMV tests, and the supported optimized
-`i686-pc-windows-gnu` OMV release build.
-
-The 2026-07-29 system-summary update passed all 431 OMV tests and the supported
-optimized `i686-pc-windows-gnu` OMV release build. This includes the lazy
-environment-query, responsive-card, runtime-formatting, and
-physical-versus-compatibility identity regressions.
-
-The 2026-08-03 optional-DXVK correction and review follow-up pass all 442 OMV
-tests, all 27 affected libpsycho library tests, and the supported optimized OMV
-release build. The API regression preserves the original `D3d9DeviceProfile`
-layout while the additive diagnostics report
-distinguishes native D3D9 from failed enrichment. `ash` supplies Vulkan ABI
-types and the optional DXVK path resolves property entry points dynamically;
-the DLL therefore has no load-time `vulkan-1.dll` import, which is narrower
-than claiming the optional identity path has no Vulkan runtime dependency. A
-normal native-D3D9 or WineD3D gameplay launch remains the runtime acceptance
-step; automated tests cannot prove a particular host driver stack starts and
-renders correctly.
-
-A normal Proton/DXVK playtest should compare a stable scene with the workbench
-closed, Customize open, and Diagnostics open; confirm the graph immediately
-shows retained history while detailed counters begin only after selecting
-Diagnostics; confirm the system cards name the selected physical GPU and
-Proton/Wine environment; inspect card wrapping at widths above and below the
-640-pixel stacking threshold; inspect the command-deck actions at minimum and
-maximum window sizes; confirm all eight finishing editors stay reachable; and
-confirm compile/resource failures still reach the OMV log while cumulative
-Present/owner rejections appear in the panel after selecting Diagnostics.
-Static tests cannot establish the final runtime frame-time difference, exact
-driver-string fit, or visual polish under the shipped font and Proton/DXVK
-input stack.

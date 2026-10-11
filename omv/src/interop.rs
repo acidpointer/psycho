@@ -339,33 +339,4 @@ mod tests {
             .expect("diagnostic predecessor formatter");
         assert!(formatter.contains("module_address(address)"));
     }
-
-    #[test]
-    fn ownership_reporting_stays_after_deferred_and_behind_visible_diagnostics() {
-        let startup = include_str!("startup.rs");
-        let complete = startup
-            .find("install_attempt.complete()")
-            .expect("DeferredInit completion publication");
-        let matrix = startup
-            .find("interop::log_startup_matrix()")
-            .expect("one startup capability matrix");
-        assert!(complete < matrix);
-
-        let runtime = include_str!("runtime.rs");
-        let diagnostics_marker = ["\nfn draw_diagnostics_", "tab("].concat();
-        let system_marker = ["\nfn draw_system_at_a_", "glance("].concat();
-        let diagnostics = runtime
-            .split_once(&diagnostics_marker)
-            .map(|(_, tail)| tail)
-            .and_then(|tail| tail.split_once(&system_marker))
-            .map(|(body, _)| body)
-            .expect("diagnostics tab body");
-        let visibility_gate = diagnostics
-            .find("if !diagnostics.is_visible()")
-            .expect("visible child gate");
-        let ownership_ui = diagnostics
-            .find("draw_interoperability_diagnostics")
-            .expect("interoperability panel");
-        assert!(visibility_gate < ownership_ui);
-    }
 }
