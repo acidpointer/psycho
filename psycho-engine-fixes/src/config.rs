@@ -275,6 +275,10 @@ pub struct PerformanceConfig {
     pub multibound_vertex_setup: bool,
     /// Reduce repeated bookkeeping in native compound visibility loops.
     pub multibound_loop_bookkeeping: bool,
+    /// Combine room/shared-root lookup and absent-key insertion.
+    pub scene_root_admission: bool,
+    /// Fold constant row indices in native unskinned inverse-world expansion.
+    pub inverse_world_index_setup: bool,
 }
 
 impl Default for PerformanceConfig {
@@ -289,6 +293,8 @@ impl Default for PerformanceConfig {
             obsolete_radio_configured: false,
             multibound_vertex_setup: true,
             multibound_loop_bookkeeping: true,
+            scene_root_admission: true,
+            inverse_world_index_setup: true,
         }
     }
 }
@@ -328,6 +334,12 @@ impl PerformanceConfig {
             multibound_loop_bookkeeping: raw
                 .multibound_loop_bookkeeping
                 .unwrap_or(default.multibound_loop_bookkeeping),
+            scene_root_admission: raw
+                .scene_root_admission
+                .unwrap_or(default.scene_root_admission),
+            inverse_world_index_setup: raw
+                .inverse_world_index_setup
+                .unwrap_or(default.inverse_world_index_setup),
         }
     }
 }
@@ -635,6 +647,8 @@ struct RawPerformanceConfig {
     display_tweaks: Option<bool>,
     multibound_vertex_setup: Option<bool>,
     multibound_loop_bookkeeping: Option<bool>,
+    scene_root_admission: Option<bool>,
+    inverse_world_index_setup: Option<bool>,
 }
 
 #[derive(Default, Deserialize)]

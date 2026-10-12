@@ -5,6 +5,7 @@
 //! DeferredInit without code writes and retain process-lifetime bridge storage.
 //! Per-operation ownership and work budgets are documented in their modules.
 
+mod inverse_world_index_setup;
 mod light_property_scores;
 mod lighting_contract;
 mod multibound_frustum;
@@ -14,12 +15,15 @@ mod post_load;
 mod radio;
 mod rng;
 mod scene_light_scan;
+mod scene_root_admission;
 
+pub(crate) use inverse_world_index_setup::install as install_inverse_world_index_setup;
 pub(crate) use light_property_scores::install as install_light_property_score_reuse;
 pub(crate) use multibound_frustum::install as install_multibound_frustum_tests;
 pub(crate) use multibound_loop_bookkeeping::install as install_multibound_loop_bookkeeping;
 pub(crate) use multibound_vertex_setup::install as install_multibound_vertex_setup;
 pub(crate) use scene_light_scan::install as install_scene_light_sequential_scan;
+pub(crate) use scene_root_admission::install as install_scene_root_admission;
 
 pub use post_load::install_post_load_reconciliation_prepass;
 pub use radio::install_radio_scan_fix;

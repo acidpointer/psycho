@@ -1,0 +1,589 @@
+Actual installed shader record verification, 2026-10-12. Static data only.
+Existing SDP manifests were checked against each installed package record name,
+bytecode extent, stage/version DWORD and final END token. No shader was executed
+or re-disassembled. The known format/extractor is analysis/disassemble_sdp_shader.c.
+Versions in all 16 packages: 148 SLS vertex records per package, all vs_2_0.
+Existing package019 disassembly shows c0..c3 transform and c25/c26 object-space light inputs.
+Actual NVR overwrite cache: 51 SLS vertex files, all version token FFFE0300.
+Three actual cache constant tables decoded by D3DXSHADER_CONSTANTTABLE/CONSTANTINFO
+layouts from the installed d3dx9shader.h. They do not prove runtime shader selection.
+Indexed instancing requires device VS3 capability; native vs2 alone does not forbid
+indexed instancing. The missing per-instance transform/lighting input is the issue.
+Microsoft primary contract:
+https://learn.microsoft.com/en-us/windows/win32/direct3d9/efficiently-drawing-multiple-instances-of-geometry
+
+[
+  {
+    "examples": [
+      [
+        "SLS2000.vso",
+        "2_0",
+        780,
+        57696
+      ],
+      [
+        "SLS2028.vso",
+        "2_0",
+        588,
+        115080
+      ],
+      [
+        "SLS2092.vso",
+        "2_0",
+        304,
+        198228
+      ]
+    ],
+    "package": "/data/storage0/Games/FalloutNV_TTW/FalloutNV/Data/Shaders/shaderpackage002.sdp",
+    "sls_vertex": 148,
+    "versions": {
+      "2_0": 148
+    }
+  },
+  {
+    "examples": [
+      [
+        "SLS2000.vso",
+        "2_0",
+        780,
+        57696
+      ],
+      [
+        "SLS2028.vso",
+        "2_0",
+        588,
+        115080
+      ],
+      [
+        "SLS2092.vso",
+        "2_0",
+        304,
+        198228
+      ]
+    ],
+    "package": "/data/storage0/Games/FalloutNV_TTW/FalloutNV/Data/Shaders/shaderpackage003.sdp",
+    "sls_vertex": 148,
+    "versions": {
+      "2_0": 148
+    }
+  },
+  {
+    "examples": [
+      [
+        "SLS2000.vso",
+        "2_0",
+        780,
+        57696
+      ],
+      [
+        "SLS2028.vso",
+        "2_0",
+        588,
+        115080
+      ],
+      [
+        "SLS2092.vso",
+        "2_0",
+        304,
+        198228
+      ]
+    ],
+    "package": "/data/storage0/Games/FalloutNV_TTW/FalloutNV/Data/Shaders/shaderpackage004.sdp",
+    "sls_vertex": 148,
+    "versions": {
+      "2_0": 148
+    }
+  },
+  {
+    "examples": [
+      [
+        "SLS2000.vso",
+        "2_0",
+        780,
+        57696
+      ],
+      [
+        "SLS2028.vso",
+        "2_0",
+        588,
+        115080
+      ],
+      [
+        "SLS2092.vso",
+        "2_0",
+        304,
+        198228
+      ]
+    ],
+    "package": "/data/storage0/Games/FalloutNV_TTW/FalloutNV/Data/Shaders/shaderpackage006.sdp",
+    "sls_vertex": 148,
+    "versions": {
+      "2_0": 148
+    }
+  },
+  {
+    "examples": [
+      [
+        "SLS2000.vso",
+        "2_0",
+        780,
+        57696
+      ],
+      [
+        "SLS2028.vso",
+        "2_0",
+        588,
+        115080
+      ],
+      [
+        "SLS2092.vso",
+        "2_0",
+        304,
+        198228
+      ]
+    ],
+    "package": "/data/storage0/Games/FalloutNV_TTW/FalloutNV/Data/Shaders/shaderpackage007.sdp",
+    "sls_vertex": 148,
+    "versions": {
+      "2_0": 148
+    }
+  },
+  {
+    "examples": [
+      [
+        "SLS2000.vso",
+        "2_0",
+        780,
+        57696
+      ],
+      [
+        "SLS2028.vso",
+        "2_0",
+        588,
+        115080
+      ],
+      [
+        "SLS2092.vso",
+        "2_0",
+        304,
+        198228
+      ]
+    ],
+    "package": "/data/storage0/Games/FalloutNV_TTW/FalloutNV/Data/Shaders/shaderpackage009.sdp",
+    "sls_vertex": 148,
+    "versions": {
+      "2_0": 148
+    }
+  },
+  {
+    "examples": [
+      [
+        "SLS2000.vso",
+        "2_0",
+        780,
+        57696
+      ],
+      [
+        "SLS2028.vso",
+        "2_0",
+        588,
+        115080
+      ],
+      [
+        "SLS2092.vso",
+        "2_0",
+        304,
+        198228
+      ]
+    ],
+    "package": "/data/storage0/Games/FalloutNV_TTW/FalloutNV/Data/Shaders/shaderpackage010.sdp",
+    "sls_vertex": 148,
+    "versions": {
+      "2_0": 148
+    }
+  },
+  {
+    "examples": [
+      [
+        "SLS2000.vso",
+        "2_0",
+        780,
+        57696
+      ],
+      [
+        "SLS2028.vso",
+        "2_0",
+        588,
+        115080
+      ],
+      [
+        "SLS2092.vso",
+        "2_0",
+        304,
+        198228
+      ]
+    ],
+    "package": "/data/storage0/Games/FalloutNV_TTW/FalloutNV/Data/Shaders/shaderpackage011.sdp",
+    "sls_vertex": 148,
+    "versions": {
+      "2_0": 148
+    }
+  },
+  {
+    "examples": [
+      [
+        "SLS2000.vso",
+        "2_0",
+        780,
+        57696
+      ],
+      [
+        "SLS2028.vso",
+        "2_0",
+        588,
+        115080
+      ],
+      [
+        "SLS2092.vso",
+        "2_0",
+        304,
+        198228
+      ]
+    ],
+    "package": "/data/storage0/Games/FalloutNV_TTW/FalloutNV/Data/Shaders/shaderpackage012.sdp",
+    "sls_vertex": 148,
+    "versions": {
+      "2_0": 148
+    }
+  },
+  {
+    "examples": [
+      [
+        "SLS2000.vso",
+        "2_0",
+        780,
+        57696
+      ],
+      [
+        "SLS2028.vso",
+        "2_0",
+        588,
+        115080
+      ],
+      [
+        "SLS2092.vso",
+        "2_0",
+        304,
+        198228
+      ]
+    ],
+    "package": "/data/storage0/Games/FalloutNV_TTW/FalloutNV/Data/Shaders/shaderpackage013.sdp",
+    "sls_vertex": 148,
+    "versions": {
+      "2_0": 148
+    }
+  },
+  {
+    "examples": [
+      [
+        "SLS2000.vso",
+        "2_0",
+        780,
+        57696
+      ],
+      [
+        "SLS2028.vso",
+        "2_0",
+        588,
+        115080
+      ],
+      [
+        "SLS2092.vso",
+        "2_0",
+        304,
+        198228
+      ]
+    ],
+    "package": "/data/storage0/Games/FalloutNV_TTW/FalloutNV/Data/Shaders/shaderpackage014.sdp",
+    "sls_vertex": 148,
+    "versions": {
+      "2_0": 148
+    }
+  },
+  {
+    "examples": [
+      [
+        "SLS2000.vso",
+        "2_0",
+        780,
+        57696
+      ],
+      [
+        "SLS2028.vso",
+        "2_0",
+        588,
+        115080
+      ],
+      [
+        "SLS2092.vso",
+        "2_0",
+        304,
+        198228
+      ]
+    ],
+    "package": "/data/storage0/Games/FalloutNV_TTW/FalloutNV/Data/Shaders/shaderpackage015.sdp",
+    "sls_vertex": 148,
+    "versions": {
+      "2_0": 148
+    }
+  },
+  {
+    "examples": [
+      [
+        "SLS2000.vso",
+        "2_0",
+        780,
+        57696
+      ],
+      [
+        "SLS2028.vso",
+        "2_0",
+        588,
+        115080
+      ],
+      [
+        "SLS2092.vso",
+        "2_0",
+        304,
+        198228
+      ]
+    ],
+    "package": "/data/storage0/Games/FalloutNV_TTW/FalloutNV/Data/Shaders/shaderpackage016.sdp",
+    "sls_vertex": 148,
+    "versions": {
+      "2_0": 148
+    }
+  },
+  {
+    "examples": [
+      [
+        "SLS2000.vso",
+        "2_0",
+        780,
+        57696
+      ],
+      [
+        "SLS2028.vso",
+        "2_0",
+        588,
+        115080
+      ],
+      [
+        "SLS2092.vso",
+        "2_0",
+        304,
+        198228
+      ]
+    ],
+    "package": "/data/storage0/Games/FalloutNV_TTW/FalloutNV/Data/Shaders/shaderpackage017.sdp",
+    "sls_vertex": 148,
+    "versions": {
+      "2_0": 148
+    }
+  },
+  {
+    "examples": [
+      [
+        "SLS2000.vso",
+        "2_0",
+        780,
+        57696
+      ],
+      [
+        "SLS2028.vso",
+        "2_0",
+        588,
+        115080
+      ],
+      [
+        "SLS2092.vso",
+        "2_0",
+        304,
+        198228
+      ]
+    ],
+    "package": "/data/storage0/Games/FalloutNV_TTW/FalloutNV/Data/Shaders/shaderpackage018.sdp",
+    "sls_vertex": 148,
+    "versions": {
+      "2_0": 148
+    }
+  },
+  {
+    "examples": [
+      [
+        "SLS2000.vso",
+        "2_0",
+        780,
+        57696
+      ],
+      [
+        "SLS2028.vso",
+        "2_0",
+        588,
+        115080
+      ],
+      [
+        "SLS2092.vso",
+        "2_0",
+        304,
+        198228
+      ]
+    ],
+    "package": "/data/storage0/Games/FalloutNV_TTW/FalloutNV/Data/Shaders/shaderpackage019.sdp",
+    "sls_vertex": 148,
+    "versions": {
+      "2_0": 148
+    }
+  }
+]
+
+[
+  {
+    "constants": [
+      {
+        "columns": 4,
+        "count": 1,
+        "elements": 1,
+        "name": "EyePosition",
+        "register": 16,
+        "register_set": 2,
+        "rows": 1
+      },
+      {
+        "columns": 3,
+        "count": 1,
+        "elements": 1,
+        "name": "FogColor",
+        "register": 15,
+        "register_set": 2,
+        "rows": 1
+      },
+      {
+        "columns": 4,
+        "count": 1,
+        "elements": 1,
+        "name": "FogParam",
+        "register": 14,
+        "register_set": 2,
+        "rows": 1
+      },
+      {
+        "columns": 4,
+        "count": 1,
+        "elements": 10,
+        "name": "LightData",
+        "register": 25,
+        "register_set": 2,
+        "rows": 1
+      },
+      {
+        "columns": 4,
+        "count": 4,
+        "elements": 1,
+        "name": "ModelViewProj",
+        "register": 0,
+        "register_set": 2,
+        "rows": 4
+      }
+    ],
+    "file": "/data/storage0/Games/FalloutNV_TTW/overwrite/Shaders/NewVegasReloaded/Shaders/Cache/SLS2000.vso",
+    "target": "vs_3_0",
+    "version": "0xfffe0300"
+  },
+  {
+    "constants": [
+      {
+        "columns": 4,
+        "count": 1,
+        "elements": 1,
+        "name": "EyePosition",
+        "register": 16,
+        "register_set": 2,
+        "rows": 1
+      },
+      {
+        "columns": 4,
+        "count": 2,
+        "elements": 10,
+        "name": "LightData",
+        "register": 25,
+        "register_set": 2,
+        "rows": 1
+      },
+      {
+        "columns": 4,
+        "count": 4,
+        "elements": 1,
+        "name": "ModelViewProj",
+        "register": 0,
+        "register_set": 2,
+        "rows": 4
+      }
+    ],
+    "file": "/data/storage0/Games/FalloutNV_TTW/overwrite/Shaders/NewVegasReloaded/Shaders/Cache/SLS2028.vso",
+    "target": "vs_3_0",
+    "version": "0xfffe0300"
+  },
+  {
+    "constants": [
+      {
+        "columns": 4,
+        "count": 1,
+        "elements": 1,
+        "name": "AmbientColor",
+        "register": 1,
+        "register_set": 2,
+        "rows": 1
+      },
+      {
+        "columns": 1,
+        "count": 1,
+        "elements": 1,
+        "name": "BaseMap",
+        "register": 0,
+        "register_set": 3,
+        "rows": 1
+      },
+      {
+        "columns": 1,
+        "count": 1,
+        "elements": 1,
+        "name": "NormalMap",
+        "register": 1,
+        "register_set": 3,
+        "rows": 1
+      },
+      {
+        "columns": 4,
+        "count": 2,
+        "elements": 10,
+        "name": "PSLightColor",
+        "register": 3,
+        "register_set": 2,
+        "rows": 1
+      },
+      {
+        "columns": 4,
+        "count": 1,
+        "elements": 1,
+        "name": "TESR_PBRData",
+        "register": 32,
+        "register_set": 2,
+        "rows": 1
+      }
+    ],
+    "file": "/data/storage0/Games/FalloutNV_TTW/overwrite/Shaders/NewVegasReloaded/Shaders/Cache/SLS2037.pso",
+    "target": "ps_3_0",
+    "version": "0xffff0300"
+  }
+]

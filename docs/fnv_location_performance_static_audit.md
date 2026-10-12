@@ -2,14 +2,41 @@
 
 Research date: 2026-10-06. Candidate implementation and Fairfax follow-up:
 2026-10-07. Further loop-contract research and six-site implementation:
-2026-10-10.
+2026-10-10. Scaling reassessment and on-disk Fairfax record inspection:
+2026-10-12.
 
 Fallout New Vegas contains native CPU work whose size depends on scene objects,
 candidate lights, render-pass entries, and actively processed actors. Low
 triangle counts, small textures, and an absence of combat do not bound those
-costs. The clearest algorithmic inefficiencies identified here are a quadratic
-lighting-property sorter that repeatedly calculates light-distance scores and
-scene-light scans that repeatedly restart from a linked-list head.
+costs. The initial audit identified a quadratic lighting-property sorter and
+scene-light scans that repeatedly restart from a linked-list head. The owner's
+latest comparisons do not demonstrate a visible benefit from those changes.
+The current research priority is the amount of work admitted by location
+visibility and repeated geometry/pass processing, followed by the multiplicative
+room, compound-frustum and occluder mechanisms described in the
+[2026-10-12 scaling reassessment](#scaling-reassessment-2026-10-12).
+The continuation provides a
+[scene preparation and submission plan](#scene-preparation-and-submission-optimization-plan-2026-10-12)
+with exact calculation/submission boundaries and explicit implementation gaps.
+The subsequent [submission gap-closure audit](#scene-submission-gap-closure-2026-10-12)
+checks actual physical meshes and shader inputs, proves a narrower repeated
+matrix operation, and rejects array consolidation for the inspected models.
+It supersedes the earlier submission priorities where those proposals lacked
+actual asset or math-provider evidence.
+The [ownership and fixed-index continuation](#ownership-and-fixed-index-continuation-2026-10-12)
+also identifies a smaller in-place optimization that preserves the native
+inverse calculation and removes nine constant-index multiplications.
+The [admission and compound-threading continuation](#admission-and-compound-threading-continuation-2026-10-12)
+closes a larger, narrowly scoped single-search admission design and identifies
+repeated structural jump resolution in the compound compiler. The former can
+be taken into implementation planning; the latter still needs its own input
+ownership and replacement proof.
+The [current implementation plan](#implementation-plan-for-closed-candidates-2026-10-12)
+specifies the two closed candidates, their independent integration, cost and
+acceptance gates, and the remaining research required for larger changes.
+The [scoped implementation](#scoped-scene-performance-implementation-2026-10-12)
+records the owner's explicit static-qualification exception and the resulting
+default-on core changes without claiming gameplay or FPS acceptance.
 
 These are verified mechanisms, not measured attribution of the reported FPS
 loss. The audit does not establish one universal bottleneck, the relative cost
@@ -39,8 +66,12 @@ according to the owner's follow-up. Stationary duration remains unspecified.
 After the existing optimization work, the owner reported approximately
 10 FPS gained in some places and 3-4 FPS in others with OMV absent. The
 comparison baseline, exact deployed feature set, positions and settings were
-not specified. This is a gameplay observation of an improvement, not a
-controlled per-feature measurement or identification of the Fairfax consumer.
+not specified. On 2026-10-12 the owner superseded that interpretation: testing
+interiors and exteriors found no visible performance win, and small differences
+could be statistical error. The earlier figures are retained as history and
+must not be used as evidence that the current candidates improved performance.
+Neither report is a controlled per-feature measurement or identification of
+the Fairfax consumer.
 The research covers native work that scales with location content even when
 the visuals appear simple. The
 owner's clarified objective is broad removal of verified inefficiencies,
@@ -61,9 +92,9 @@ Three evidence classes must remain distinct:
 - **Owner observation:** FPS varies across locations and does not require
   combat; Fairfax Ruins can drop from approximately 80-100 FPS to 30 FPS.
   Turning away partially recovers FPS, and facing the opposite direction plus
-  a small forward movement restores it. The later OMV-absent observation
-  reports gains of approximately 10 FPS in some places and 3-4 FPS elsewhere,
-  without enough comparison detail to attribute those gains to one feature.
+  a small forward movement restores it. The latest comparison reports no
+  visible benefit from the existing optimizations across tested interiors and
+  exteriors. It supersedes the earlier interpretation of small FPS gains.
 - **Static proof:** verified instructions, call sites, virtual-table entries,
   field accesses, update gates, and loop structure in the supported executable.
 - **Unresolved attribution:** actual invocation frequencies, scene population,
@@ -741,8 +772,10 @@ enters `0x00B98E80`, which prepares geometry buffers through `0x00E88DC0` and
 executes the relevant shader callbacks.
 
 The inspected callback path includes shader setup slots `+0x78` and `+0x7C`,
-conditional additional setup, draw at shader slot `+0x6C`, a geometry callback
-at `+0xE0`, and shader teardown at `+0x8C`. Pass-specific branches differ.
+conditional additional setup, geometry resource preparation at shader slot
+`+0x6C`, a geometry callback at `+0xE0`, and shader teardown at `+0x8C`.
+The later boundary correction traces the ordinary shape's `+0xE0` to
+primitive submission. Pass-specific branches differ.
 
 The engine caches shader/state information; it does not blindly repeat every
 possible state change. Ordinary pass registration at `0x00B99B00` also appends
@@ -770,6 +803,12 @@ already contains bucket-size tuning. Its keys are pass categories, not an
 unbounded object-identity set. Current installed overrides and collision cost
 were not established. It is not identified as a newly discovered major root
 cause or a justified compatibility intervention.
+
+This conclusion applies only to the pass-category map. The later reassessment
+identifies a separate accumulator map keyed by object identity, initialized
+with 37 buckets and used for root admission. Its collision chains and duplicate
+lookup are covered under
+[Identity-map admission](#identity-map-admission-37-buckets-and-two-scans).
 
 ## Scene updates and visibility traversal
 
@@ -3818,8 +3857,9 @@ publishes vtable `0x010ADFF8` at `0x00B66104`; its RTTI getter
 - Slot +0x9C is `0x00B63B10`, a different registration operation.
 - The constructor initializes the critical section at accumulator +0x200.
 
-The complete +0x9C method locks +0x200 around list +0x1B4. The complete
-+0x98 method does not take that lock: it selects the published stage callback
+The complete +0x9C method locks +0x200 around the identity hash map at +0x1B4,
+as established by the 2026-10-12 constructor, hash and entry inspection.
+The complete +0x98 method does not take that lock: it selects the published stage callback
 from `0x011F9F80`. The inspected `0x00B63F90` stage callback invokes
 shader-property slot +0xA0, selects a batch through TLS+0x2BC and invokes the
 batch method. This closes the concrete geometry-to-shader dispatch chain;
@@ -5808,10 +5848,2035 @@ There is no unchanged-game reproduction, controlled candidate comparison or
 proven failing native consumer in the current evidence. Production code,
 defaults and deployed files remain unchanged by this audit.
 
+## Scaling reassessment: 2026-10-12
+
+### Finding and revised priority
+
+The owner reports no visible performance benefit from the existing candidates
+across tested interiors and exteriors. This replaces the earlier interpretation
+of small FPS gains. It does not show that the removed instructions execute
+incorrectly; it shows that those changes have not demonstrated a useful
+performance result in the reported comparisons.
+
+The larger unresolved question is **how much work enters each frame**.
+The recent patches remove repeated scoring, linked-list head restarts, dead
+setup and integer bookkeeping at specific sites. They do not reduce the number
+of scene objects visited, compound programs constructed, bound/occluder pairs
+tested, shader-property callbacks dispatched or render-pass entries submitted.
+An equivalent optimization of an outer workload can therefore address a
+different operation budget from another reduction inside the same leaf test.
+
+This reassessment found the following mechanisms. The order is a research
+priority based on demonstrated scope, not a measured ranking of frame time.
+
+| Candidate | What grows | Native evidence | Applicability limit |
+|---|---|---|---|
+| Ordinary scene admission and geometry/pass dispatch | Visited nodes and the sum of admitted geometry pass entries | `0x00C4EE90`, `0x00A694E0`, `0x00A5DBE0`, `0x00B63F10`, `0x00B63F90`; earlier draw-dispatch evidence | Common route worth investigating for Fairfax; actual scene hierarchy, pass counts and winning meshes remain unknown |
+| Compound visibility construction, copying and evaluation | Source-program lengths, shared-node combinations, tested object count and mask extent | `0x00B5F170`, `0x00B5BA80`, `0x00C48800`, `0x00C49850`, `0x00C49050`, `0x00C491A0` | Requires active room/compound programs; not established for the reported exterior position |
+| Multibound versus occluder scanning | Admitted bounds multiplied by admitted occlusion records, subject to early rejection | `0x00B5BBE0` -> `0x00C47150` -> `0x00C33870` | Both interior and exterior callers exist; relevant occluder population is not established at Fairfax |
+| Object-identity admission map | Collision-chain lengths as distinct admitted identities grow in a 37-bucket table | `0x00B660D0`, `0x00B63B10`, `0x00B63170`, `0x00A5D320` | Counts admitted roots/shared nodes on this path, not all ordinary meshes |
+| Visible-room membership | Linear list searches while distinct visible rooms are added | `0x00B5C6E0`, called from `0x00B5F170` | Room-specific and potentially small; authoring evidence alone does not establish an expensive population |
+
+The first candidate addresses the common outer workload. The next three expose
+specific multiplicative work that was incompletely characterized in the earlier
+audit. None establishes one universal root cause. In particular, a slow
+exterior and a slow underground interior need not use the same visibility
+mechanism.
+
+The direct captures are preserved in
+[Native scaling evidence](../analysis/radare2/output/fnv_location_scaling_reassessment_20261012.txt).
+Actual location records and the read-only readers are preserved in
+[Fairfax record evidence](../analysis/radare2/output/fnv_fairfax_record_population_20261012.txt).
+The executable identity above was reverified. These captures qualify structural
+mechanisms, not a hook, a replacement ABI or runtime performance.
+
+### Actual Fairfax records constrain the explanation
+
+Inspection used the physical TTW 3.4 masters and selected installed plugins.
+Record and group headers follow the local xNVSE `ModInfo::FormInfo` and
+`GroupInfo` declarations, both 24 bytes. Group extents, record extents and
+subrecord extents were checked against the actual files. The native
+`0x00472D30` reader establishes the `XXXX` extended-length handling used in
+the completed spatial inspection. Compressed records are decoded with zlib and
+checked against their declared decompressed length.
+
+The following are records in `mods/TTW_v3.4/Fallout3.esm`. Form IDs in this
+table are **file-local**, with `Fallout3.esm` at index 6 in that file's printed
+master sequence. They are not guaranteed console/runtime IDs.
+
+| Cell editor ID | File-local cell ID | Grid | References in its groups | References with STAT bases |
+|---|---|---|---|---|
+| FairfaxRuinsExterior05 | `06001163` | `(-3,-12)` | 59 | 53 |
+| FairfaxRuinsExterior02 | `06001164` | `(-4,-12)` | 272 | 222 |
+| FairfaxRuinsExterior01 | `06001165` | `(-5,-12)` | 235 | 217 |
+| FairfaxRuinsExterior07 | `06001172` | `(-2,-13)` | 202 | 197 |
+| FairfaxRuinsExterior06 | `06001173` | `(-3,-13)` | 181 | 167 |
+| FairfaxRuinsExterior04 | `06001174` | `(-4,-13)` | 175 | 147 |
+| FairfaxRuinsExterior03 | `06001175` | `(-5,-13)` | 107 | 92 |
+| zFairfaxMaintenance | `0603C944` | Interior | 505 | 293 |
+| zFairfaxMetro | `0603D443` | Interior | 364 | 225 |
+
+The seven named exterior groups contain 1,231 references, including 1,095
+references with STAT bases. This is a content count, not 1,095 loaded meshes
+or draw calls. STAT includes markers; meshes can contain multiple scene nodes
+and geometries, and references can be disabled, replaced or excluded.
+
+Repeated modular content is directly visible in the records. Examples include
+26 `RoadChunkCluster01` and 22 `RoadChunk03` placements in Exterior07, and
+30 `CSBrickSingle01` placements in Exterior06. Maintenance contains 18
+`ShackPaperDebris03`, 17 `ShackPaperDebris05` and 17 `MetLight01b`
+placements; Metro contains 14 `ShackPaperDebris02` and 12
+`ShackPaperDebris03` placements. Their actual MODL paths are in the raw
+evidence. Reuse of a base/model does not establish identical materials,
+lighting, transforms or render-pass state between instances.
+
+The inspected base exterior groups have no `XMBO`, `XPRM`, `XMBR`,
+`XRMR`, `XPOD`, `XPTL` or `XOCP` fields. This is a reason to avoid
+attributing the Fairfax exterior drop to a large authored portal program from
+these cell groups. It is not proof that the running scene has no occlusion,
+room structures or multibounds.
+
+The two base interiors contain respectively six and four `XMBO/XPRM`
+references. Resolving their bases prevents a misleading room-count claim:
+these belong to acoustic spaces, a sound, a trigger and CollisionMarker
+references. A primitive/bound subrecord alone is not proof of a room.
+
+The selected `FO3_Optimization.esm` supplies a different structure:
+
+- Maintenance has five references to base `0000001F` and four references
+  carrying `XPOD` two-room payloads.
+- Metro has three references to that base and three `XPOD` references.
+- The base `0000001F` record resolves directly to STAT `RoomMarker`
+  in the inspected `FalloutNV.esm`.
+- All seven `XPOD` payloads name pairs of those RoomMarker references.
+  The native reference loader forwards `XPOD` to `0x004144A0`;
+  its branch at `0x00416453` reads eight bytes and publishes them through
+  `0x00420210` as extra-data type `0x77`. The local xNVSE declaration
+  identifies that type as `ExtraPortalRefData`.
+- Base `00000020` on those seven references has no matching record in
+  the two inspected masters. No invented editor ID or base-record definition
+  is needed to establish the actual portal-reference payload.
+
+The on-disk Default profile lists this optimization plugin. The physical file
+and profile listing do not establish that the reported playtest used that
+profile, which overrides won, or which native rooms/portals were instantiated.
+
+The completed selected-plugin inspection also includes TTW, both physical
+YUPTTW copies, the AWOP FO3 room project, TGDCIO, PerformanceOfTheTitans and
+Capital Wasteland Settlements Redesign. It found no additional target-cell
+spatial fields in those files. This is a bounded comparison, not a merged
+analysis of every active plugin.
+
+A separate scan inspected Wasteland references outside the named groups inside
+the explicit coordinate window recorded in the evidence. It found 313 base
+REFR records and five TTW records, with none of the selected spatial fields.
+That rectangle includes an additional cell, omits nearby content beyond its
+edges, and does not establish which cells were loaded. Initial attempts used an
+incorrect world label or refused extended fields; those failures are explicitly
+rejected in the raw evidence and replaced by the completed reader.
+
+Other important limits remain: some base IDs belong to masters outside the
+two-master type lookup; persistent lights can be outside the inspected cell
+groups; NIF structures and overrides were not resolved; save/runtime additions
+and enabled state were not inspected. There is no claim that Fairfax has no
+lights, that every listed reference renders, or that the two underground cells
+are the owner's unspecified slow interiors.
+
+### Ordinary admission: the shared object/pass workload
+
+The native common visibility path already uses hierarchy and early rejection.
+It is not an unconditional full-scene draw.
+
+At `0x00C4EE90`, culling mode, object flags, the active compound program and
+camera-plane mask choose the route. If there is no applicable compound program,
+the ordinary sphere/frustum path reaches `0x00A694E0`. That method:
+
+1. Requires a nonnull bound and the admitted radius condition.
+2. Saves the culler's active camera-plane mask at `+0x8C`.
+3. Tests only active planes in the six-plane camera frustum.
+4. Stops on a rejecting plane. A fully containing plane clears its mask bit,
+   allowing descendants to avoid that plane test.
+5. Invokes object slot `+0xD4` only when admitted, then restores the parent's
+   mask.
+
+These tests operate on bounds and frustum planes. This particular method does
+not test whether a wall lies between the camera and the bound. That does not
+exclude occlusion in another native stage or a specialized node.
+
+NiNode's `+0xD4` target `0x00A5DBE0` walks the child extent at `+0xA6`,
+reads the array at `+0xA0`, and calls `0x00A59E00` for each nonnull child,
+subject to its bound/radius admission. The consequence is concrete: a subtree
+that remains admitted sends its children through visibility work. Counting
+triangles or texture bytes does not bound these visits.
+
+Ordinary geometry registration uses accumulator slot `+0x98`, whose native
+target is `0x00B63F10`. It checks geometry/property/data prerequisites, selects
+a callback using accumulator stage `+0x19C` and the table at `0x011F9F80`,
+and dispatches the callback. The inspected stage `0x00B63F90` invokes shader
+property slot `+0xA0`, then iterates the returned pass array using its extent
+at `+0x10`. Each admitted nonzero pass category reaches the appropriate
+TLS-selected batch callback. Earlier evidence traces the batch drain through
+`0x00B9A120`, `0x00B994F0` and `0x00B98E80` into geometry/shader draw work.
+
+For this path the useful budget is the number of visited scene nodes plus the
+sum of pass entries over admitted geometry and stage invocations. The ordinary
+registration callback does **not** use the 37-bucket identity map described
+below. Nor does calling the property callback prove that every pass is newly
+allocated: the earlier audit establishes dirty/cache gates, which remain
+material.
+
+This is the most broadly applicable research direction for the reported sites:
+determine which parts of this repeated preparation/submission are equivalent
+between admitted instances or invocations. It is not yet proof of redundant
+whole draws. Missing authored visibility can admit more downstream work;
+extra authored visibility can add CPU work of its own. A location being
+"unoptimized" does not select one of those mechanisms without its scene data.
+
+A durable intervention would need the winning mesh's actual geometry tree,
+bounds, material/pass families, instance transforms, property ownership and
+buffer/resource contract. Any retained preparation needs all invalidators.
+Any draw combination needs exact ordering, lighting and material equivalence,
+including transparent and special passes. Substituting an invented distance
+limit, discarding off-camera simulation or assuming that repeated model paths
+are interchangeable would not meet those contracts.
+
+### Multibounds can scan every admitted occluder
+
+The main-frame sequence supplies a broader route than the previously optimized
+AABB/plane leaves:
+
+```text
+0x0086E650 main frame
+  0x0086EBCC -> 0x0045BC80(1,1): reset selected visibility state
+  0x0086EBF5 -> 0x00B5AC90(camera): update occlusion records
+  0x0086EC18 -> 0x0045B070(camera): classify bounds and build compounds
+```
+
+The interior branch of `0x0045B070` reads the current cell at receiver
+`+0x34` and its type-7 reference container. The exterior branch iterates
+the loaded grid through `0x004BA490` and reads type-7 and type-2 containers.
+Both have calls to `0x00B5BBE0`, including `0x0045B1D4`,
+`0x0045B37F` and `0x0045B41B`. Additional container/actor branches exist.
+These are native container categories; the audit does not equate their numbers
+with an invented record type.
+
+`0x00B5BBE0` skips culler modes 1/3, nonzero cached shape results and nodes
+without the required child population. It tests the shape against the camera
+through slot `+0x9C` and publishes result 1 or 2 at shape `+0x08`.
+Only a camera-admitted bound with scene graph `+0x1E0` reaches the outer
+occlusion list.
+
+That list starts at graph `+0x08`. The loop visits its links and calls
+`0x00C47150` for each nonnull record whose `+0x40` is 1, until a rejection
+stops it. `0x00B5AC90` sets that admission result after calls to
+`0x00C33CF0` and `0x00C358A0`. Admission, null entries and early rejection
+must all be included in a workload estimate.
+
+For B camera-admitted bounds and O admitted occluders, the no-early-rejection
+case makes B*O pair calls, in addition to linked-list visits. Bounds that are
+not hidden can still traverse all admitted occluders. This multiplication is
+outside the recent local plane-test/setup patches.
+
+For each pair, `0x00C47150` initializes a local 100-byte frustum, obtains
+camera-dependent planes through `0x00C33870`, and calls shape slot `+0xA0`
+for the complete containment predicate. A successful containment publishes
+shape result 2 and returns the native rejection result. Both methods use the
+actual thiscall register and stack contracts; `0x00C47150` ends in
+`RET 0x14`.
+
+A critical qualification is the **existing plane cache**. `0x00C33870`
+checks dirty byte `+0xE5` and exact camera XYZ equality against
+`+0xD8/+0xDC/+0xE0`. If clean and equal, it copies 25 DWORDs from
+record `+0x44` to the caller and returns. Otherwise it reconstructs planes
+and publishes the camera, plane cache and cleared dirty byte.
+
+Consequently, the proof is repeated list traversal, local setup, a 100-byte
+copy on the cache-hit path and shape testing. It is **not** repeated expensive
+plane reconstruction for every pair. Merely adding another camera cache would
+duplicate an existing mechanism. Frame preparation resets selected shape
+results and occlusion admission state; it does not establish that every cache
+or every node is unconditionally invalidated.
+
+Potential durable directions are reducing eligible pair enumeration with an
+exact conservative broad phase, or eliminating proven copy/setup redundancy.
+Before implementation, close graph/record lifetime and mutation, every shape
+provider's read/write contract, callback effects, iteration order and every
+caller, including the separate `0x008D6D40` route. The native plane record
+includes a mutable mask; borrowing it as a shared immutable object is not
+authorized by the observed cache. These contracts remain unresolved.
+
+### Compound programs: construction cost multiplied by object count
+
+The camera-to-room preparation reaches `0x00B5F170` from
+`0x0045B070`, including the camera-in-room route at `0x0045B92A`,
+nearby-room calls at `0x0045BA08` and a null-root route at
+`0x0045BA6E`. The builder resets scene compound `+0x138`, selects room
+compounds at `+0xCC`, and processes room/portal work.
+
+The portal gate is important: a nonzero portal `+0x40` skips another
+traversal, and an admitted portal is marked at `0x00B5F930`.
+The evidence therefore does **not** establish unrestricted exponential
+portal-cycle traversal. The candidate is the work performed for admitted
+visits and the resulting programs.
+
+Three distinct costs remain:
+
+- **Program concatenation.** `0x00C48800` walks source operators up to
+  source `+0x28`, copies their opcode words, copies each 100-byte source
+  frustum up to `+0x24`, and relocates plane references for operators 7/8.
+  These source walks/copies remain even when destination capacity is sufficient.
+- **Program threading.** `0x00C49850` converts the expression into jump
+  fields at operator `+4/+8`. A nonempty unthreaded program acquires three
+  scratch arrays, each sized from `floor(operator_count/2)*4`, then frees
+  them after processing and marks the program threaded. An already-threaded
+  program returns early. Reset `0x00C47980` and append `0x00C48800`
+  clear that admission flag.
+- **Per-object state and evaluation.** `0x00C4EE90` calls
+  `0x00C49050`, then `0x00C491A0`, invokes admitted object traversal,
+  and restores through `0x00C49100`. Each admitted snapshot allocates
+  `4*compound[+0x10]` bytes, saves the base mask at `+0x90` and
+  bounded additional frustum masks, then restores/frees them. The evaluator
+  follows reached program branches; operators 7/8 invoke bound/frustum helpers.
+  Parent containment and rejection already suppress some downstream tests.
+
+The reset retains array pointers and capacities. The resize helpers
+`0x00C4A070/0x00C4A1E0` allocate/copy/free only when their native conditions
+require it. There is no proof that retained programs reallocate quadratically
+on every stationary frame. Nor has the complete worst-case complexity of the
+threading algorithm been closed.
+
+There is another important multiplication at `0x00B5BA80`. It builds a
+shared node's destination compound from the room pointers at
+`+0xFC/+0x100`, or the scene compound when a room is absent. Depending on
+native visibility/empty-program gates, it resets the destination, concatenates
+one or two source programs, closes the expression and threads it. Renderer
+`0x00873200` calls it at `0x00873C40`; scene route
+`0x00B5F9B0` calls it at `0x00B5FB75`.
+
+Thus S admitted shared-node combinations can perform source-program copying
+and threading S times. The inspected body has no source-version memoization.
+This proves the repeated construction mechanism, not that all S combinations
+have identical inputs or that reuse is valid.
+
+For object tests, the useful budget is the sum of snapshot/restore mask visits,
+reached expression operators and active plane tests across admitted objects,
+plus the associated scratch operations. In a large compound scene both
+program size and object count can increase. The six-site integer patch changes
+bookkeeping within this work; it retains the copies, scratch lifecycle and
+number of objects/program evaluations.
+
+A durable redesign must close recursive and alternate culler entry, nested
+mask ownership, callback mutation, every reset/append/resize writer and
+threaded-program validity. Sharing one scratch area across recursion or
+retaining a program merely because the camera did not move is unsafe without
+those contracts. Room state, portals, enabled references and provider behavior
+also participate. Per-invocation scratch management, exact shared-program reuse
+and a different equivalent expression representation are research directions,
+not approved implementations.
+
+### Identity-map admission: 37 buckets and two scans
+
+This is a separate map from the earlier BSBatchRenderer pass-category map.
+Accumulator constructor `0x00B660D0` initializes:
+
+| Accumulator offset | Native value/purpose |
+|---|---|
+| `+0x1B4` | Map object; final native vtable `0x010ADFD8` |
+| `+0x1B8` | 37 buckets |
+| `+0x1BC` | Bucket pointer array |
+| `+0x1C0` | Entry count, initialized to zero |
+| `+0x200` | Critical section |
+
+The allocation at `0x00B66209` is 148 bytes, exactly 37 four-byte pointers.
+Concrete hash slot `+4` is `0x00A63840`, which divides the unsigned
+identity by the bucket count and returns the remainder. Equality slot `+8`
+is `0x00E92590`, direct identity equality. Entry next/key/value are at
+`+0/+4/+8`.
+
+Culler `0x00C4F320` forwards to accumulator slot `+0x9C`,
+`0x00B63B10`. Under the critical section:
+
+1. `0x00B63170` hashes and scans a bucket for the identity.
+2. If absent, `0x00A5D320` hashes and scans the same bucket again,
+   then inserts the new entry at its head.
+3. The outer method returns true for the newly admitted identity and false
+   for an existing one.
+
+The inspected insertion method has no load-factor growth/rehash branch.
+For distinct insertions into an empty map, let n_j be the final occupancy of
+bucket j. The two absent scans perform exactly
+`sum_j n_j*(n_j-1)` identity comparisons. With N = 37*q+r and 0 <= r < 37,
+even the most balanced distribution requires
+`37*q*(q-1)+2*r*q` comparisons. A single occupied bucket requires
+`N*(N-1)`. These are instruction-derived budgets, not simulated timings or
+assumed pointer distributions. Duplicate admissions add their own search cost.
+
+Clear `0x00B63B60` locks and invokes `0x00B601A0`, which walks buckets,
+retires their entries and zeroes the count. `0x00C4F360` reaches that clear
+through accumulator slot `+0xA0`; `0x00B5E870` calls it at
+`0x00B5E89F`. Its lifetime is a native admission interval, not an eternal
+"already visible" set. Entry acquisition uses the existing shared node pool
+through `0x00E72E50` -> `0x0043A010`; this does not establish an OS
+allocation for every object.
+
+**The coverage limit changes its priority.** Inspected callers in
+`0x00873200` and `0x00B5F9B0` use `0x00C4F320` when admitting
+room/shared traversal roots, including nodes obtained through `+0x104`.
+Ordinary geometry registration takes the separate `+0x98` path. Therefore
+N is the identity population admitted through this callback between clears.
+It cannot be replaced with the 1,095 exterior STAT placements or an imagined
+all-mesh count. A scene with few such roots can have negligible collision cost.
+
+The prior pass-map rejection does not eliminate this candidate: that other
+map uses pass categories and has reference-source bucket tuning. Read-only
+reference source also contains a NOP for the redundant constructor zeroing at
+`0x00B66221`; this does not remove the identity map's collision-chain scans.
+Reference source does not prove the active provider in the running game.
+
+The closest algorithmic direction is a single find-or-insert traversal.
+The later [admission continuation](#single-search-identity-admission-closed-native-design)
+closes its narrow native design; use that specification for current readiness.
+Capacity growth remains a separate direction. The original gaps were:
+reverify every map use/provider, node allocation/retirement, failure behavior,
+locking and admission semantics. Bucket count and allocation bytes must change
+together; changing one immediate is incorrect. Skipping native clears or
+suppressing ordinary geometry registrations is not an equivalent fix.
+
+### Visible-room membership and retained secondary paths
+
+For each admitted work item, `0x00B5F170` calls `0x00B5C6E0` at
+`0x00B5F401`. That method linearly searches graph list `+0x30` by identity
+before appending an absent room through `0x00A5A310`. It also performs
+native NiRefObject retain/release operations.
+
+If R distinct rooms are admitted from an empty list, absent searches require
+R*(R-1)/2 identity comparisons. Duplicate visits add searches but no duplicate
+list entries. This is a real quadratic membership structure under that
+population condition. It does not prove a large R, unlimited portal visits,
+or a dominant cost. The small authored room counts above are no evidence of
+a large room-membership bottleneck.
+
+Replacing only membership search could be useful if its interval, publication
+order, list ownership and auxiliary-index invalidation are closed. Replacing
+the visible list or its reference-count behavior without complete downstream
+consumer coverage would change more than membership cost.
+
+Light-to-subtree assignment remains another multiplicative mechanism:
+`0x00B5D300` -> `0x00BA0110` -> `0x00B9F6A0` visits admitted children
+and checks leaf membership. Existing movement, queue, radius and flag gates
+remain in force. It is not newly proven that every static light reassigns every
+frame. Full/selective scene updates and actor stages retain their already
+documented gates and dependencies. Their existence neither attributes the
+Fairfax drop nor excludes simulation, scripts, GPU work or driver waits.
+
+### Next static research and implementation boundary
+
+The following work closes different material gaps; it is not a request for a
+profiling/debug build.
+
+| Direction | Evidence still needed before selecting an intervention |
+|---|---|
+| Fairfax common scene/geometry workload | Winning reference/model records and actual NIF hierarchy/materials; native construction/attachment and culling contexts; pass-family and terminal submission ownership; repeated preparation that is truly equivalent |
+| Compound construction and snapshots | Complete recursive/alternate caller coverage; program writers and validity interval; scratch allocator failure contract; mask mutation through every admitted callback; threading ownership and provider compatibility |
+| Bound/occluder pair reduction | Exact record/shape populations and association; all writers/lifetimes; conservative pair eligibility and ordering; every shape containment provider's side effects and alternate callers |
+| Identity map single traversal/growth | All concrete-map consumers, providers, node-pool lifetime, lock scope, allocation failure behavior, bucket publication/destruction and clear intervals |
+| Visible-room membership | List reset/publication interval, refcount ownership, every consumer and an auxiliary index's exact invalidation contract |
+| Shared preparation or draw combination | Proven material/light/transform/resource equivalence, dirty invalidators, transparency/order, special-pass coverage and current native callback ownership |
+
+The immediate corrective research decision is to stop treating smaller leaf
+instruction counts as evidence that the large location workload was addressed.
+For Fairfax, common node/geometry/pass work has direct content support; large
+portal or occluder populations do not. For room-authored interiors, the compound
+builder, shared-program copying, snapshots and admission maps deserve separate
+closure. The paths can coexist and amplify different populations.
+
+No production code, configuration, feature default or deployed file was changed
+by this reassessment. No candidate here is reported as the measured root cause
+or as implementation-ready. The preserved evidence supports targeted static
+continuation without inventing a universal consumer, an FPS estimate or a
+safe cache/batching contract.
+
+## Scene preparation and submission: optimization plan, 2026-10-12
+
+Status: static research and proposed implementation sequence. No production
+changes are made by this plan. Common scene/pass workload is a supported
+candidate; neither its dominance nor a particular FPS recovery is established.
+
+The latest request is interpreted as continuing the ordinary scene-traversal
+and geometry/pass direction from the scaling reassessment. It has actual
+Fairfax placement evidence and applies without requiring an authored room
+graph. This continuation traces repeated preparation and terminal submission.
+Room-specific optimizations retain their separate coverage limits.
+
+The objective is to reduce repeated calculation or actual submission count.
+Smaller integer bookkeeping changes do not, by themselves, remove downstream
+matrix calculations, constant uploads or device draws.
+
+### Additional native findings and exclusions
+
+The new [scene submission contract](../analysis/radare2/output/fnv_scene_submission_optimization_plan_contract_20261012.txt)
+preserves raw instructions, constructor-published tables and explicit
+corrections to exploratory labels. The executable identity above was
+reconfirmed. Existing authoritative Ghidra output was retained unchanged.
+
+| Boundary | Verified behavior | Optimization consequence |
+|---|---|---|
+| 0x00B99C90, batch slot +0x8C in table 0x010B7DC8 | Classifies a pass, looks up its category and records it | Category lookup repeats per registration; it is not the root-identity map |
+| 0x00B99A90 / 0x00B99B00 | Prepend / append through linked-list head or tail, reusing spare nodes | Neither searches a growing geometry list |
+| 0x00B99770 | Comparator insertion in the active-category list when its group is empty | Search population is activated categories, not all geometry |
+| 0x00B994F0 | Reuses selector/category setup when the published pair matches, except category 758 | Global selector setup is already cached |
+| 0x00E88DC0 | Ordinary geometry data +0x34 already present returns without packing | Unconditional per-pass vertex repacking is not supported |
+| 0x00BD4BA0 | Prepares current geometry and invokes pass and additional constant maps | Selector reuse does not eliminate admitted per-record constant work |
+| 0x00E826D0 | Visits two constant-entry array extents and dispatches admitted entries by type | An unchanged shader does not itself suppress these scans |
+| 0x00E83DB0 | Calculates predefined values, including matrix products, inverses and transposes in inspected cases | Repeated identical numeric inputs offer a conditional calculation-reuse direction |
+| 0x00E745A0 / 0x00E74840 | Submit ordinary shapes / strips, including separate indexed array iterations | One low-poly geometry record can require several device submissions |
+
+The special insertion at 0x00B99A90 is a prepend, not sorted insertion.
+Both insertion bodies reach pool helper 0x0043A010 only when their spare list
+is empty. This does not establish an OS allocation per pass or a quadratic
+geometry-registration loop.
+
+The batch drain at 0x00B9A120 reloads batch/group storage after calling the
+draw dispatcher. A retained pointer across that callback requires its own
+mutation/reentrancy proof. Removing those reads is not the strong reduction
+proposed here.
+
+### Correct resource, constant and primitive boundaries
+
+An older selector/apply audit contains tentative table bases inferred from a
+function pointer and an assumed slot. Its candidate PPLighting base
+0x010BC074 is four bytes beyond the constructor-published base.
+Constructor 0x00BD44C0 writes **0x010BC070** at 0x00BD4515.
+
+| Actual shader slot | Target | Used contract |
+|---|---|---|
+| +0x6C | 0x00E812F0 | Geometry resource preparation and stream/index binding |
+| +0x78 | 0x00BD4890 | Pass-dependent preparation |
+| +0x7C | 0x00BD4BA0 | Geometry and constant preparation |
+| +0x8C | 0x00A89AF0 | Post-render callback |
+
+The [separate resource-boundary research](graphics_fnv_omv_nvr_hook_d3d9_nvidia_research.md#source-and-executable-identity)
+already distinguishes 0x00E812F0 from a primitive draw. Its return cannot be
+used to declare a draw finished or restore state needed by the next callback.
+
+The constant-map table is a different object. Constructor 0x00B7E330 writes
+**0x010EF544** at 0x00B7E366. Initialization 0x00E81D00 stores its
+renderer at +0x3C and device at +0x38. Map slot +0x78 is 0x00E826D0:
+thiscall, eleven stack arguments, RET 0x2C. It is not the selector's
+one-argument preparation callback.
+
+The type dispatch is preserved in the
+[existing constant-record audit](../analysis/ghidra/output/perf/graphics_fnv_pbr_pplighting_interface_record_table_audit.txt)
+and reverified here:
+
+| Entry class, entry +0x14 & 0xF0000000 | Map callback | Target |
+|---|---|---|
+| 0x20000000, predefined | +0x8C | 0x00E83DB0 |
+| 0x10000000, constant | +0x90 for its indirect branch | 0x00E84B60 |
+| 0x30000000, attribute | +0x94 | 0x00E84BA0 |
+| 0x40000000, global | +0x98 | 0x00E84D00 |
+| 0x50000000, operator | +0x9C | 0x00E87220 |
+| 0x60000000, object | +0xA4 | 0x00E85C40 |
+
+The constant class also has direct device branches. Enabled state at entry
++8, register validity at +0x1C, alternate data at +0x24, class and native
+error aggregation participate. The map stores the supplied program at +0x30
+before scanning. The inspected complete dispatch body has no unchanged-program
+early return. Array extents are read from map +0x26 and +0x16; arrays are at
++0x20 and +0x10. Extents include entries subsequently skipped by the gates.
+
+For ordinary NiTriShape, factory 0x00A744D0 publishes table 0x0109D454.
+Geometry slot +0xE0 is 0x00A74600, which prepares native state and
+conditionally calls renderer slot +0x1B4. The renderer's constructor-published
+table is 0x010EE4BC; +0x1B4/+0x1B8 contain 0x00E745A0/0x00E74840.
+The ordinary shape chain is:
+
+    batch record -> B994F0 -> B98E80
+      shader +78/+7C and conditional preparation
+      shader +6C -> E812F0: resources and bindings
+      geometry +E0 -> A74600 -> renderer +1B4 -> E745A0: primitives
+      shader +8C: post-render
+
+Admission gates remain part of this chain. Partitioned geometry has separate
+submission through 0x00E6D310. Specialized geometry/shader paths are not
+covered merely by the ordinary shape chain.
+
+### Priority 1: reuse identical derived matrix calculations
+
+Updated disposition: the later [gap-closure audit](#matrix-reuse-exact-operation-and-call-chain)
+proves a repeated WorldViewProjTranspose request and its SSE math contract.
+Generic inverse/constant-map caching remains outside the proposed scope.
+The original unresolved list below records the earlier plan; use the later
+readiness table for the current result.
+
+This is the first CPU preparation direction to close. It targets arithmetic
+repetition while preserving uploads and draw ordering. It does not require
+discarding visible objects or assuming equal model paths have equal materials.
+
+Two inspected entry families expose the calculation:
+
+- Unskinned preparation in 0x00B7DAB0 calls 0x00B7C750 at
+  0x00B7DB5B. That helper first calls transform preparation 0x00E6FBB0,
+  then computes a product/transpose from renderer matrices +0x940 and +0xA00
+  through D3DX at 0x00B7C780. It uploads four vertex float4 registers from
+  register zero through the current pass's vertex wrapper. The helper is
+  thiscall with two stack arguments and RET 8.
+- Predefined evaluation 0x00E83DB0 copies renderer matrices to local storage.
+  Internal IDs 1/2/13/14 use +0x9C0, IDs 3/4/15/16 use +0x980, and
+  IDs 5/6/17/18 use +0x940. Selected IDs invert and/or transpose.
+  IDs 7/8/19/20 and 9/10/21/22 include a two-matrix product at
+  0x00E83EFE, with selected inverse/transpose operations. These offsets
+  do not, alone, prove semantic names for every matrix.
+
+The proposed mechanism is **content-validated memoization of a qualified math
+operation**. A geometry pointer or frame number is not a valid result key.
+
+1. Intervene at a selected audited math call. Keep native transform
+   publication, properties, callbacks, uploads and errors in their current order.
+2. Capture complete input matrix bytes, operation/operand order and the
+   qualified FP environment in Psycho-owned value storage. A product needs
+   both matrices; pointer equality never admits a hit.
+3. On a miss, call the admitted math provider and preserve its result,
+   failure behavior and observable FP effects. Retain only a result whose
+   complete reuse contract is proven.
+4. On an exact hit, copy equivalent bytes to the current native destination.
+   Preserve the original return contract; never substitute a pointer to cache
+   storage for a pointer to the caller's current destination.
+5. Use bounded storage and lookup. Collision, capacity pressure, reentrancy,
+   unsupported input/provider or missing qualification takes the original
+   call. No routine allocation, blocking lock or logging enters the operation.
+
+Value keys avoid retaining geometry/property pointers. Reading current inputs
+avoids a guessed camera/transform invalidation schedule. It does not prove
+that extra reads are legal under every caller, that an installed provider has
+no other effects, or that floating-point status may be ignored.
+
+Do not cache the whole 0x00E6FBB0 method: its prefix calls a renderer-side
+callback and publishes matrices, and later arithmetic reads other renderer
+state. Do not skip 0x00BD4BA0, a whole constant map or register uploads
+merely because geometry/shader identity matches.
+
+Microsoft's [matrix multiplication contract](https://learn.microsoft.com/en-us/windows/win32/direct3d9/d3dxmatrixmultiply)
+defines operand order and output. Its
+[inverse contract](https://learn.microsoft.com/en-us/windows/win32/direct3d9/d3dxmatrixinverse)
+allows null failure. These are constraints, not proof of installed provider
+purity, FP effects or singular output contents. Replacing D3DX arithmetic with
+a newly written formula is not proposed.
+
+**Work budget:** M admitted operations and H qualified exact hits become M-H
+native calculations. Key reads/comparisons are added; hits still copy the
+result and execute native uploads. The evidence does not establish H or which
+predefined IDs are used in the reported view. A single last-result cache can
+miss when other geometry is processed between equivalent passes. Storage size,
+indexing and a useful miss-cost bound must follow actual submission order.
+
+Implementation gaps to close:
+
+- Recover actual constant-map construction for the pass families used by the
+  relevant winning meshes. Establish the expensive operations and repeated
+  inputs; not every geometry evaluates every predefined ID.
+- Prove selected call-site stack/register liveness, thunk ABI, aliasing and
+  supported provider behavior. Specialize by capability without inspecting
+  or patching another mod.
+- Prove numeric, return, failure-output and FP control/status equivalence.
+  Finite input alone does not imply a successful finite inverse.
+- Establish thread/recursive ownership and legal current-input snapshots.
+  Do not introduce a shared mutable cache behind a render lock.
+- Derive bounded value storage and acceptable miss cost. If static data cannot
+  establish repeated expensive calculation, do not install the cache merely
+  because a helper is frequently reachable.
+
+The calculation boundaries and a design avoiding guessed invalidation are
+established. The listed contracts remain open; this is not implementation-ready.
+
+### Priority 2: consolidate primitive arrays within one geometry
+
+Updated disposition: [actual mesh inspection](#fairfax-mesh-population-and-the-array-candidate)
+found one array in every one of 238 inspected geometry-data blocks. This
+proposal saves zero draws in that population and is removed from the current
+Fairfax implementation sequence. Native multi-array support exists, but its
+existence alone is no longer treated as a reason to build this optimization.
+
+This reduces terminal draw count without combining different scene objects.
+It has a narrower equivalence problem than cross-object instancing.
+
+The ordinary indexed strip branch in 0x00E74840 uses buffer +0x34 as
+the index-buffer presence gate and iterates array count +0x48. If lengths at
++0x4C are present, each length minus two supplies primitive count; otherwise
+it reads +0x40. Device slot +0x148, DrawIndexedPrimitive, is called at
+0x00E749E6 for each array. Start index advances by primitive count plus two.
+
+The ordinary shape branch also iterates arrays at 0x00E746F0..0x00E747F9;
+its ordinary non-segmented device call is 0x00E747E3. Segmented shapes have
+an additional enabled-range branch. Non-indexed submission and skin partitions
+are distinct. None is a plain strip concatenation by default.
+
+For the qualified indexed strip branch, S reached arrays require S device
+draws per submission. Low polygon count does not bound S. This is an
+instruction-derived budget, not proof of high S in the Fairfax winning NIFs.
+
+The proposed first coverage is a proven immutable ordinary indexed strip with
+multiple compatible arrays. Prepare an equivalent single index sequence
+outside the draw hot path and submit it once at the same native geometry
+boundary. Preserve vertex data, exact nondegenerate triangle order, winding,
+constants, material, base vertex, pass and surrounding callbacks.
+
+Representation choices remain open: parity-correct strip stitching with
+degenerate indices, or triangle-list conversion preserving strip winding.
+Microsoft documents alternating winding and
+[degenerate strip connections](https://learn.microsoft.com/en-us/windows/win32/direct3d9/triangle-strips).
+That does not establish FNV's actual indices, compatible ranges or provider
+behavior. Choose after inspecting the actual data and all consumers, including
+index-memory growth, primitive limits and additional vertex work.
+
+Implementation gaps to close:
+
+- Find exact index packing, publication, replacement and retirement boundaries.
+  Prove source lengths/indices, index width, topology, base vertex, primitive
+  type and checked size conversions.
+- Prove sharing before changing native buffer metadata. An alternate buffer
+  needs explicit ownership; allocation failure retains a valid native path.
+- Close device loss/reset, unload and worker concurrency. Preserve existing
+  stream validation and the
+  [static-buffer safety contract](parallel_io_engine_contract.md#static-vertex-buffer-lifetime).
+- Prove the qualified per-array sequence has no material/state/callback
+  transition omitted by consolidation. Preserve final native dirty flags.
+  Chain supported renderer providers at the actual submission boundary.
+- Skinning, segmented/enabled ranges, dynamic data and unqualified providers
+  retain full native rendering. This is eligibility for an additional
+  optimization; it does not remove those features or objects.
+
+**Work budget:** a qualified S-array geometry changes from S calls to one,
+saving S-1 for each admitted pass using the prepared representation. A
+one-array geometry saves zero and should receive no conversion. Required
+visible triangles remain unchanged; extra indices, any degenerate work,
+preparation cost and resource lifetime must be counted.
+
+The array multiplier and terminal device boundaries are proven. Actual high-S
+coverage, equivalent index construction and resource ownership are unresolved.
+
+### Priority 3: combine equivalent opaque instances
+
+Updated disposition: [actual shader inputs](#cross-object-batching-actual-input-contract)
+confirm that shared transforms and object-specific lighting prevent a simple
+draw merger. Shader version alone is not the decisive exclusion; indexed
+instancing requires device VS3 capability and suitable per-instance inputs.
+This remains a renderer extension with unclosed contracts.
+
+If ordinary geometry already uses one array, separate compatible instances
+may be the remaining submission multiplier. Fairfax base placements show
+repeated model paths, not equivalent loaded geometry, material or lighting.
+
+The inspected ordinary drain dispatches each recorded pass. Grouping by pass
+category does not combine those objects. Reordering a linked list would still
+leave individual preparation and submission.
+
+The conditional design preserves visibility/admission and collects only
+equivalent admitted opaque instances inside a proven batch interval. Bounded
+instance data would supply equivalent per-instance transforms and other
+necessary values. Unsupported records retain complete native rendering.
+
+Equivalence includes shaders, textures/samplers, constants, lighting, transform
+math, render/depth/stencil state, vertex/index resources, base vertex, pass
+identity and order. Native geometry callbacks cannot simply be omitted.
+
+Microsoft's [D3D9 instancing contract](https://learn.microsoft.com/en-us/windows/win32/direct3d9/efficiently-drawing-multiple-instances-of-geometry)
+requires suitable vertex-shader support and instance stream configuration,
+including restoration of stream frequencies. It supplies no instanced
+counterpart for FNV's shaders. Existing native-family research includes
+shader-model-2 variants; shader-model-3 indexed instancing cannot be assumed
+for every family.
+
+Required closure: actual compatible instance groups; complete shader bytecode
+and declarations; light/constant ownership; every batch callback and safe
+interval; device capability; state restoration; unload/reset/resource
+ownership; transparent, decal, reflection, shadow and other special passes.
+This is a renderer-level change, not an append-function patch.
+
+**Work budget:** K qualified compatible instances can become one terminal
+submission for that group, but still need K correct instance records.
+GPU work and upload cost remain. No compatible group means no such saving.
+The possible count reduction is larger, and so is the unclosed contract.
+
+### Pass lookup: smaller work with existing overlap
+
+The native pass map is an integer map. Constructor 0x00B9A5B0 publishes
+0x0106CF68 for the map at batch +0x0C. Hash 0x006C6A60 divides the
+unsigned key by the current bucket count; equality 0x006B81D0 compares
+integers. Lookup 0x00853130 uses virtual callbacks and a chain and leaves
+its output unchanged on a miss.
+
+A guarded specialization at 0x00B99D87 could remove those virtual calls
+while retaining current buckets and full-width keys. It would leave insertion,
+clear and destruction native and require no persistent side index.
+Ordinary categories are read as 16 bits, but a nonzero supplied override
+replaces them with a full 32-bit value at 0x00B99D76. A presumed bounded
+direct array therefore lacks complete key coverage.
+
+Read-only Stewie 10.00 source already specializes this exact call and jointly
+increases constructor allocation and bucket count to 1009. Current active
+provider overlap is unknown. Duplicating it is not evidence of a new benefit
+in the owner's deployed setup. This is not the lead implementation.
+
+Do not replace generic 0x00853130 globally; it has unrelated consumers.
+Do not introduce direct category storage before closing key coverage and every
+publication, mutation and destruction path.
+
+### Psycho ownership and delivery sequence
+
+These mechanisms belong in the core's existing mods/perf ownership. The
+helper remains a service forwarder; no work moves to OMV or the allocator.
+
+| Conditional implementation scope | Proposed owning module | Required closure |
+|---|---|---|
+| Qualified matrix-operation reuse | psycho-engine-fixes/src/mods/perf/geometry_matrices.rs | Actual repeats, exact call/FP/provider contract, bounded value storage |
+| Equivalent per-geometry array submission | psycho-engine-fixes/src/mods/perf/geometry_arrays.rs | Actual multi-array data, complete resource lifetime and topology equivalence |
+| Equivalent opaque instance submission | psycho-engine-fixes/src/mods/perf/geometry_instances.rs | Family-complete shader/resource/state/order contracts and compatible instance data |
+
+No module or setting is created now. Each mechanism needs independent
+admission/failure status. Use existing hook/transaction abstractions and
+supported provider chaining. Do not detect another mod by name or force
+ownership of a boundary whose behavior is unknown.
+
+1. Resolve relevant winning meshes and native pass/constant data from
+   available static sources. Count nodes, geometry, constant families,
+   primitive arrays and compatible instance groups separately. Base
+   reference counts must not substitute for draw counts.
+2. Close matrix reuse where data establish repeated expensive calculations.
+   Keep native uploads and rendering callbacks intact.
+3. Close within-geometry array consolidation where S exceeds one. This can
+   reduce API calls without cross-object shader changes.
+4. Pursue instance batching for remaining compatible separate submissions.
+   Unknown lighting/material equivalence cannot admit a group.
+5. Continue compound/occluder/root-identity work separately under the earlier
+   reassessment. Their coverage limits remain unresolved.
+
+Before any implementation, establish behavior at its actual boundary.
+Numeric qualification must execute the admitted math and production reuse
+path, including failures and FP effects. Topology qualification must exercise
+actual indices and production conversion, not a mirrored formula or source
+assertion. Complete rendering/startup behavior remains subject to the
+applicable Psycho engine-fix gate. Static budgets, compilation and fewer
+counted calls do not establish image or FPS equivalence.
+
+| Readiness question | Result |
+|---|---|
+| Is there location-scaled ordinary scene/geometry/pass work? | Proven for admitted work |
+| Does selector reuse remove all constant preparation? | No; admitted constant dispatch remains |
+| Can one low-poly geometry cause several device draws? | Yes, on the verified indexed array paths |
+| Are repeated expensive calculations / high array counts proven for the reported view? | No; winning geometry/pass data remain missing |
+| Is a strong production optimization ready from these facts alone? | No; the explicit contracts above must be closed |
+| Is this the measured cause of the 80-100 to 30 FPS drop? | Unknown |
+
+This plan specifies larger operation-count reductions, exact native
+interventions and the evidence needed to implement each. Confidence in the
+candidate does not substitute for purity, topology, lifetime or cost proof.
+
+
+## Scene submission gap closure, 2026-10-12
+
+This continuation tests the proposed mechanisms against actual installed
+assets and the supported native executable. It closes several earlier unknowns,
+but does **not** establish a strong, accepted implementation for all three
+proposals. Array consolidation is rejected for the inspected Fairfax model
+population. Cross-object batching requires a different shader/input contract.
+Matrix reuse has a specific arithmetic target and a bounded conditional design;
+provider admission, its net cost and native behavioral qualification are still
+material gates. None is established as the cause of the reported FPS drop.
+
+The retained sources are:
+
+- [Native scene/math gap closure](../analysis/radare2/output/fnv_scene_submission_gap_closure_20261012.txt):
+  97 focused MCP captures, including constant construction, both math call
+  sites, provider dispatch/leaf instructions, light preparation and renderer
+  synchronization. Exploratory alignments and corrected labels are explicit.
+- [Physical Fairfax mesh population](../analysis/radare2/output/fnv_fairfax_mesh_array_population_20261012.txt):
+  model variants, complete admitted geometry-data blocks, parsed property
+  flags and the archive index census.
+- [Actual shader inputs](../analysis/radare2/output/fnv_scene_submission_shader_inputs_20261012.txt):
+  installed SDP record checks and actual compiled NVR constant tables.
+- [Read-only asset reader](../analysis/radare2/fnv_mesh_array_reader.py):
+  supported BSA/NIF layouts and explicit unsupported-input reporting.
+
+The FalloutNV identity remains the executable recorded earlier in this audit
+and is rechecked in the raw capture. The separately inspected math DLL is
+PE32 i386 with preferred base 0x00400000. Its addresses below are **provider
+preferred VAs**, not executable hook addresses or runtime module addresses.
+Production admission must relocate verified capabilities to the current
+mapping; it must not hard-code those preferred addresses into the game.
+
+### Fairfax mesh population and the array candidate
+
+The earlier record audit supplies 45 distinct top-STAT model paths across
+seven Fairfax exterior cells and the maintenance/metro interiors. These are
+the top entries retained by that audit, not every placed model in those cells.
+
+The new reader searches physical sources from the configured Default profile:
+539 enabled mod directories, overwrite and the game's physical Data directory.
+It indexes 92 BSA paths. Ninety-one indexes are admitted; the malformed
+83-byte Invalidation archive is explicitly rejected. Its single declared file
+and physical dummy.dds bytes provide no mesh payload. The BSA-103 JIP asset
+archive has no target-path matches. The voice archive's 105 zero padding bytes
+are retained as a format finding, not silently interpreted as more files.
+
+| Inspected population | Result |
+|---|---|
+| Target model paths found in physical sources | 45 of 45 |
+| Physical model variants parsed | 117 |
+| Geometry-data blocks parsed | 238 |
+| NiTriStripsData / NiTriShapeData | 235 / 3 |
+| Geometry with more than one array | 0 |
+| Parsed geometry-data consistency | All 0x4000 |
+| Parsed geometry skin links / geometry controller links | All -1 / -1 |
+
+Counts include competing archive/loose variants. They are **not** counts of
+simultaneously loaded geometry, winning assets, visible objects or device calls.
+The profile setting does not prove the identity of the owner's reported run.
+Parent-node controllers, runtime material changes and every possible model in
+the location are outside this reader's conclusions.
+
+The conclusion is nevertheless concrete: within this inspected population,
+S=1, so the proposed saving S-1 is zero. Do not create alternate index buffers,
+change packing or add a draw wrapper for these models. Further lifetime work on
+an alternate representation would not turn this zero-saving case into a fix.
+
+Multiple blocks in one NIF are a different multiplier. MetroTunnelTrans01 has
+eight geometry blocks and eight PPLighting properties in the inspected base
+asset, each with one array. Building pieces also contain multiple geometry and
+property blocks. Joining arrays cannot merge those independent scene/material
+boundaries. Likewise, StreetLitter02 and road-rubble pieces have alpha-tested
+properties; inspected lamp/blood variants include alpha blend or different
+shader property types. A repeated path is not sufficient opaque eligibility.
+
+The native packing audit adds a safety correction for any future actual
+multi-array workload. 0x00E8F200 checks/reuses an INDEX16 resource, locks it
+and copies into the lock destination. On its inspected Lock-failure branch it
+releases the resource but retains the pointer in ESI before returning.
+A replacement may not infer an all-failures-return-null contract from this
+helper or its earlier clipped pseudocode. Preserve the existing
+[buffer publication/retirement contract](parallel_io_engine_contract.md#static-vertex-buffer-lifetime).
+
+**Disposition:** remove within-geometry array consolidation from the current
+Fairfax implementation plan. Reopen it only with actual admitted S>1 data.
+This closes its present selection question by rejecting the unsupported benefit,
+rather than inventing a high-array workload.
+
+### Matrix reuse: exact operation and call chain
+
+The useful new finding is a repeated **request for product/transpose**, not a
+claim that every predefined constant performs an inverse every draw.
+
+The native PPLighting constants callback is 0x00BD4BA0:
+
+1. It calls 0x00B7DAB0 at 0x00BD4BE0.
+2. In the unskinned branch, 0x00B7DAB0 calls 0x00B7C750 at
+   0x00B7DB5B.
+3. 0x00B7C750 keeps transform preparation 0x00E6FBB0, then calls
+   D3DXMatrixMultiplyTranspose at **0x00B7C780** with renderer +0x940
+   as the first operand and +0xA00 as the second. It uploads four float4
+   vertex constants at c0.
+4. The callback subsequently executes its effects callback at 0x00BD4C10,
+   applies the global ShadowLight pixel map at 0x00BD4C46 and its vertex
+   map at 0x00BD4C72.
+5. The global vertex map defines WorldViewProjTranspose at c0. Its predefined
+   evaluator computes the same operation from those renderer offsets at
+   **0x00E83F98**, then calls the program's upload method at 0x00E83FB3.
+
+The definition is established through actual construction, not a name guessed
+from a matrix offset. Selector 1 in 0x00B55560 creates the global ShadowLight
+through 0x00B7A380; its constructor publishes 0x010AF2F8, whose +0x11C
+initializer is 0x00B7E430. That initializer registers WorldViewProjTranspose
+with flags 0x20000009 and register zero through map +0x68 at
+0x00B7E4E5. Name publication at 0x00A9D234..0x00A9D254 assigns ID
+0x17 (23); 0x00E829B0 writes the ID to entry +0x10. The actual map
+table 0x010EF544 dispatches +0x78 to 0x00E826D0 and predefined +0x8C
+to 0x00E83DB0.
+
+The PPLighting object's **own** constants initializer is 0x00BD4D30.
+It builds its own maps and registers TreeData/WindMatrices through
+0x00BB2F50 at c42/c43. It does not call the inherited 0x00B7E430
+initializer. Do not count the two later own-map applications as two additional
+WVP calculations.
+
+The map evaluator retains its live admission gates: nonnull entry, enabled
+entry +0x08, and a usable register/name binding. Construction proves that the
+calculation is requested by this family; it does not prove that every current
+pass keeps that entry enabled. Likewise, callbacks/helpers between the two
+operations can change inputs. Only exact current operand equality can admit
+reuse. No unconditional deletion of either operation is authorized.
+
+0x00B7C750 itself has five native callers. Hooking its inner math call reaches
+all of them; restrict eligibility by the actual math/input contract, rather
+than pretending the helper is exclusively the one PPLighting parent.
+
+#### Math provider, ABI and FP effects
+
+Both audited executable call sites call thunk 0x00EE6DFE, which resolves
+through import slot 0x00FDF410. The inspected installed 32-bit
+d3dx9_38.dll is the Lutris d3d_extras math provider referenced by the prefix
+symlinks. This proves available physical code, not the running process's
+bound import or selected CPU implementation.
+
+The provider's export at 0x005827E4 jumps through slot 0x0077B058.
+Initially that slot points to trampoline 0x005827CC. Its initializer
+0x00596F54 uses synchronization, registry policy and CPU dispatch and rewrites
+function slots. **The first invocation has observable initialization effects
+and must execute normally.** A cache must not suppress it.
+
+The SSE product/transpose leaf is 0x007633E7..0x0076352E:
+
+- It reads both complete 64-byte operands and writes exactly 64 output bytes.
+  All source reads precede output stores. The audited callers use stack output
+  and separate renderer operand ranges.
+- It contains 91 instructions, including 16 MULPS and 12 ADDPS: 64 lane
+  multiplies and 48 lane additions. Summation order differs between rows;
+  an algebraically equivalent replacement formula is not byte-equivalence.
+- It has no internal calls, global memory access, x87 operations or MXCSR
+  control changes. Its floating-point side effect is SIMD exception status.
+- It returns the current output pointer in EAX with RET 0x0C. A wrapper
+  must therefore have the verified 32-bit stdcall three-pointer ABI.
+  Both native callers overwrite volatile values before their next use.
+  Preserve EBX/ESI/EDI/EBP, stack discipline and direction flag; cache
+  storage must never become the returned output pointer.
+
+The x87 implementation at 0x005827EF and the 3DNow implementation at
+0x0075FCDE have different FP state effects. The latter starts with FEMMS.
+They are not admitted by the SSE-only proof. Unknown providers and dispatch
+choices must keep the original call, including their own errors/effects.
+
+Intel's [IA-32 SDM, volume 1](https://www.intel.com/content/dam/support/us/en/documents/processors/pentium4/sb/25366521.pdf),
+sections 10.2.3.1-10.2.3.4 and 11.6.6, establishes the relevant MXCSR
+status, mask and control semantics. Admit reuse only with all exception masks
+set: MXCSR & 0x1F80 = 0x1F80. Key all non-status MXCSR bits, including
+rounding, FTZ and DAZ. Integer comparisons/copies must not perform FP arithmetic.
+
+A safe replay rule avoids clearing status or guessing which already-set flags
+the saved operation would have raised. Let B be the six status bits before
+a recorded native operation, A those after it, and C the current six bits.
+
+- Require identical operand bytes and control bits.
+- Admit a hit only if C contains every bit in B: (C & B) = B.
+- Restore status C | A while retaining current control/reserved bits.
+- Otherwise execute the original operation and record a new eligible result.
+
+Proof: for this all-masked, non-clearing leaf, A = B | E, where E is the
+operation's raised status. Under B being a subset of C, C | A = C | E.
+This reproduces the native post-status even when E included flags already set
+in B. If a caller has cleared a bit from B, the hit is rejected because E
+cannot be recovered from that record. Never replay A unconditionally or erase
+the caller's current flags. Unmasked exceptions retain native execution.
+
+This establishes a conditional numeric contract. It is not an executed
+comparison of a production wrapper with the native provider.
+
+#### Bounded mechanism and remaining safety conditions
+
+The smallest proposed mechanism is one owned record containing two input
+matrices, one result, provider/dispatch identity, FP control and before/after
+status. No geometry, shader, buffer, constant-map or stack pointer is retained.
+
+The design must resolve input capture **before** implementation. Taking a key
+snapshot and then invoking the provider on the original live pointers can
+associate a result with different input bytes if a writer intervenes. Checking
+again afterward does not rule out an ABA change. Exact byte equality alone
+does not prove a legal, stable input interval.
+
+For a completely admitted pure leaf, a narrower alternative is to capture the
+native input values once, using its proved read widths/order, and calculate
+from those owned operands on a miss. The leaf loads the second operand as
+eight qwords, then the first as sixteen dwords before output stores. This
+avoids an additional read of live engine operands on the miss and does not
+retain engine lifetime. It still needs a verified bridge and native
+read/ownership contract; do not silently change arbitrary provider arguments.
+Unknown or lazy providers receive the original arguments unchanged.
+
+A shared record needs a nonblocking ownership claim, not an assumed single
+render thread. A failed claim immediately retains native work. Do not hold
+the claim over an opaque provider/callback. Lookup copies an eligible result
+into local owned storage; publication replaces the complete record under the
+claim. Reentrancy never waits, and no partly published record is visible.
+A value record does not require guessed frame/camera/cell/reset invalidation.
+
+There is real renderer synchronization to investigate, rather than an invented
+thread guarantee. 0x004A0370 enters the critical section at renderer +0x80;
+0x004A03C0 leaves it through 0x0082F1F0. The lock/unlock wrappers at
+0x008672B0/0x008672D0 use the published renderer. Those helpers do **not**
+write NiCriticalSection's auxiliary +0x18/+0x1C fields, so those fields cannot
+serve as proven ownership tokens.
+
+Other transform writers exist: 0x00E6FDA0 publishes renderer +0x940 before
+skin drawing, and the shader path at 0x00E8D260 calls transform publication
+at 0x00E8D2A0. The
+[IO contract](parallel_io_engine_contract.md#static-vertex-buffer-lifetime)
+already records worker reachability of renderer prepacking. Renderer lock
+existence alone does not prove complete writer exclusion at both new hook
+sites. Additional current input ownership/admission remains necessary.
+
+Provider admission is equally concrete. Verify the complete supported thunk,
+export/dispatch route and pure leaf in a mapped live range; retain native work
+for anything else. Recheck current import/dispatch and relevant bytes before
+skipping a call. Do not learn arbitrary observed code as a pure provider, rely
+on a DLL name/hash, or patch any provider. Byte comparisons cannot synchronize
+a concurrent code writer or prove mapping lifetime. A cold-only code check
+therefore cannot silently become a lifetime/quiescence guarantee.
+
+#### Implementation scope and work budget
+
+If the remaining conditions are closed, the first implementation belongs in
+psycho-engine-fixes/src/mods/perf/geometry_matrices.rs and redirects only the
+two math CALL sites 0x00B7C780 and 0x00E83F98. Use existing direct-call
+provider chaining and transactional rollback. Neither the D3DX export nor a
+generic constant-map/device function is replaced.
+
+Keep all transform publication, effects callbacks, constant-map iteration,
+register uploads, state transitions, visible geometry and device submissions
+in their current order. Preparation is inert before admission. Native lazy
+math initialization stays native. Core ownership remains independent of the
+helper, OMV, IO allocator and D3D resource management.
+
+No TLS, hot allocation, blocking cache lock or per-operation log is part of
+the design. Any new static state, configuration field or pre-Deferred hook is
+still a startup footprint change governed by
+[nvse_startup_phase_safety.md](nvse_startup_phase_safety.md).
+
+For M operations and H qualified hits, arithmetic changes from M native
+calculations to M-H. Each admitted hit removes the leaf's 16 MULPS and 12
+ADDPS, but still requires input capture/comparison, provider checks, ownership
+and output/status replay. A miss adds that work and performs the full native
+calculation. Full 328-byte provider checking is a substantial additional
+budget; do not hide it behind a constant-time label.
+
+For a local two-operation pair with unchanged inputs, eliminating one
+calculation removes half of **that pair's matrix arithmetic**. It removes
+zero uploads, zero draw calls and zero required geometry work. The actual hit
+rate and net CPU-time benefit are unknown. Nothing here supports a 50 percent
+frame improvement or restoration of the reported 80-100 FPS.
+
+The unconditional native inverse-world helper 0x00C4C2D0 is a separate path.
+Its unskinned branch calls 0x004B4880 and preserves a specific x87
+rounding/store sequence. Read-only comparison source even leaves a transform
+inverse replacement disabled with a flickering comment; that is not proof of
+a cause, but it prevents treating the replacement as established equivalence.
+Do not add inverse caching or a new inverse formula to this narrow patch.
+
+### Cross-object batching: actual input contract
+
+All 16 installed shader packages are checked against the existing SDP
+manifests: record name, extent, stage/version and final END token. Each package
+has 148 SLS vertex records, all vs_2_0. Actual package-019 disassembly,
+including SLS2028, reads a shared c0..c3 matrix for position and c25/c26
+for light direction/position and radius. Different placements cannot share
+those registers merely because their model path is equal.
+
+The actual NVR overwrite cache is a different physical input: 51 SLS vertex
+files have vs_3_0 tokens. The two inspected vertex constant tables still include
+a single ModelViewProj matrix at c0 and LightData at c25. Actual cached SLS2037 pixel
+code declares PSLightColor at c3 and other shared constants. These files do
+not establish which shader the reported view binds.
+
+Microsoft's [indexed instancing contract](https://learn.microsoft.com/en-us/windows/win32/direct3d9/efficiently-drawing-multiple-instances-of-geometry)
+requires VS3-capable hardware and per-instance stream setup/restoration. It
+allows programmable shaders; a vs_2_0 token alone is **not** proof that
+indexed instancing is forbidden. The actual blocker is that the inspected
+program/input contract does not consume separate transforms and lighting per
+instance. A vs_3_0 replacement using the same uniform contract does not solve it.
+
+Native lighting confirms why the distinction matters. 0x00B78A90 iterates
+current pass lights and stages each through 0x00B70820. The point-light branch
+at 0x00B78C42 transforms position by the current inverse-world input; other
+branches scale radius or transform/normalize direction. It publishes these
+object-space values to 0x011FD9A8 and following slots. Identical light
+pointers do not imply equal prepared values for different world transforms.
+
+An equivalent instanced renderer must therefore establish all of the following:
+
+| Required contract | Concrete evidence needed |
+|---|---|
+| Per-instance vertex inputs | Exact instantiated program/declaration pair carrying current transforms and object-space eye/light inputs, with unchanged numerical/visible output |
+| Pixel lighting/material equivalence | All pixel constants, samplers, textures, light membership/order, blend/depth/stencil/fog and material flags identical, or an equivalent per-instance pixel-light representation |
+| Safe batching interval | Complete native preparation/effects callback coverage and ordering; no callback observes a deferred draw or changes shared state between group members |
+| Qualified membership | Actual current buffers/ranges and immutable geometry eligibility, not model-name or base-form equality |
+| Resource lifetime | Owned instance storage, device loss/reset/unload handling, failure rollback and existing worker/buffer contracts |
+| Full native coverage | Correct handling of skin, alpha, decals, reflections/shadows and every unsupported family through native rendering |
+
+**Disposition:** no drop-in draw merger is ready. The reader does not establish
+a compatible current group or a complete shader counterpart. Those are real
+missing inputs/design contracts, not bookkeeping tasks that another instruction
+dump can manufacture. Creating the new renderer/shaders would be implementation
+work requiring its own behavioral qualification. It is not authorized in this
+research-only continuation.
+
+### Current readiness of the original submission proposals
+
+| Question | Current evidence and disposition |
+|---|---|
+| Do the inspected Fairfax models contain a large within-geometry array multiplier? | No: all 238 blocks have one array. Reject that optimization for this population. |
+| Is there an actual repeated expensive calculation request? | Yes: the two native WVP product/transpose paths and global constant registration are proven. |
+| Can an exact SSE operation preserve numeric and sticky-status behavior? | Conditional mathematical/ABI contract specified; no production bridge comparison executed. |
+| Does exact content checking alone close live operand/provider ownership? | No. Snapshot association, complete writer exclusion, mapped-provider lifetime and code-writer quiescence remain material. |
+| Are installed shader assets ready for equivalent cross-object instancing? | No per-instance transform/light input counterpart or current compatible group is established. |
+| Is the matrix cache a proven net performance win? | No: removed arithmetic and added work are explicit, but their net cost is unqualified. |
+| Can all three planned optimizations be called implementation-ready? | No. One is rejected here, one is a narrow conditional candidate, and one requires a renderer extension. |
+| Has the Fairfax root cause or a numerical FPS recovery been proven? | No runtime attribution or timing is supplied by static data. |
+
+Further cache research must address the remaining **material** matrix
+conditions: complete admitted native input-owner/writer scope, the exact live
+provider route and stable mapped range, a bounded bridge preserving input
+association/FP/ABI, and a cost comparison that includes admission. Do not spend
+more time on zero-saving arrays or generic pass-map specialization already
+covered by existing comparison source.
+
+The repository's behavioral and startup gates apply to production changes and
+acceptance. They do not prevent further static research. This audit continues
+below rather than treating a future implementation gate as a research blocker.
+No game run, profiling, debug build, production edit, package or commit was
+performed.
+
+## Ownership and fixed-index continuation, 2026-10-12
+
+Evidence is retained in the [matrix ownership continuation](../analysis/radare2/output/fnv_scene_matrix_ownership_continuation_20261012.txt).
+Addresses remain specific to the supported FalloutNV.exe identity recorded
+above. The raw capture explicitly corrects exploratory labels, misaligned
+windows and radare2 NULL references. Those probes are not caller proof.
+
+### Renderer synchronization and borrowed ownership
+
+The following native scopes are now established directly:
+
+| Scope | Acquisition | Release | Consequence |
+|---|---|---|---|
+| Main rendering stage, 0x0086FF70 | 0x0086FF94 -> 0x004A0370 | 0x00870594 -> 0x004A03C0 | World-render branches at 0x00870244/0x008702A9 execute between these sites. This is a rendering stage, not an actor worker. |
+| LoadingMenu draw, 0x0078D080 | 0x0078D08D -> 0x004A0370 | Normal 0x0078D1B0; early exits release separately | Its draw interval participates in the same renderer exclusion. |
+| Geometry prepacking, 0x00E74120 | 0x00E7413E enters renderer +0x80; 0x00E7414B enters +0x100 | 0x00E744A0/0x00E744A3 release both | This prepacking path is not evidence of an unlocked matrix writer. |
+
+0x0043C4B0 obtains the published renderer from 0x011F4748.
+0x004A0370/0x004A03C0 enter/leave its critical section at +0x80.
+However, 0x004A03A0 delegates its apparent lock predicate to 0x00ACBB70,
+which returns zero. It is not an owner-thread or recursion-depth query and
+cannot admit a matrix cache. NiCriticalSection's auxiliary fields likewise
+remain unsuitable as ownership tokens.
+
+The alternate publication at 0x00E8D2A0 belongs to
+NiDX9FragmentShader's virtual +0x60 path: constructor 0x00E8DB90 publishes
+table 0x010EFF44, whose +0x60 entry is 0x00E8D260. The same table's +0x6C
+stream-preparation route forwards to 0x00E812F0. These are distinct stages;
+generic worker reachability of resource preparation does not establish
+worker execution of the matrix publisher.
+
+Shader setup 0x00E818D0 stores the renderer at shader +0x18 without retaining
+its reference count. It separately AddRefs the Direct3D device stored at
++0x14 and obtains render state from renderer +0x8B8. The renderer pointer is
+borrowed. Neither the device reference nor the shader's existence proves a
+retained renderer lifetime for a cache. Original synchronous native calls
+remain different from storing that pointer beyond their interval.
+
+Camera setup 0x00E6C780 publishes the combined view/projection matrix at
+renderer +0xA00 through 0x00E6CF04 -> D3DXMatrixMultiply. The three confirmed
+renderer +0x940 destinations in the low-level renderer are 0x00E6FBCF,
+0x00E6FDCA and 0x00E70424. These writer facts and the scopes above narrow the
+ownership problem. They do not establish complete exclusion for arbitrary
+virtual callers or foreign renderer callbacks.
+
+### Provider lifetime and cache cost remain separate questions
+
+Microsoft's [GetModuleHandleEx contract](https://learn.microsoft.com/en-us/windows/win32/api/libloaderapi/nf-libloaderapi-getmodulehandleexa)
+provides a concrete module-lifetime mechanism: FROM_ADDRESS selects the
+module by an address; retaining its acquired reference protects the mapping,
+and PIN extends that protection to process termination. Neither mechanism
+freezes executable bytes or the D3DX dispatch slot. A module-name lookup
+without retaining a reference is insufficient.
+
+[VirtualQuery](https://learn.microsoft.com/en-us/windows/win32/api/memoryapi/nf-memoryapi-virtualquery)
+reports page state and access. It does not acquire a lifetime lease or exclude
+code writes. Existing radio capability admission explicitly relies on a
+separate provider-lifetime contract; its page probe cannot be reused as that
+missing proof for D3DX.
+
+The owned-input alternative remains the appropriate cache design to investigate:
+read the qualified pure leaf's inputs once, calculate from the owned values,
+and key the result by those exact values. A pre-snapshot followed by a call on
+live engine inputs remains invalid. Complete read/bridge/provider admission is
+still needed; neither the lock predicate nor a page probe closes it.
+
+The cost issue is concrete. The eligible native SSE leaf has 16 MULPS and
+12 ADDPS. An aligned-DWORD checker of its complete 328-byte body needs
+81 DWORD comparisons plus four edge-byte comparisons at its observed alignment.
+That is in addition to two matrices' capture/comparison, status handling,
+result copying and nonblocking record ownership. These counts establish added
+work, not CPU time. The current cache proposal has no proved net saving and
+must not be described as a strong optimization merely because it can skip a
+matrix calculation.
+
+### New candidate: fold the inverse expansion's fixed indices
+
+The unskinned branch of 0x00C4C2D0 contains a different kind of avoidable work.
+After the original inverse-transform call at 0x00C4C2EA -> 0x004B4880, it
+expands the stack-local inverse into a 4x4 matrix. It is straight-line code,
+not a runtime loop. Nine groups each form a 3x3 source address as:
+
+```text
+index = 0, 1, or 2
+index *= 12
+source = EBP - 0x34 + index + column * 4
+```
+
+Every index is explicitly initialized immediately before its IMUL. Every
+column is also a fixed immediate. No engine field, callback result, matrix
+content or cached state determines those integers.
+
+The narrow candidate changes each nonzero index initializer from 1/2 to
+12/24 and replaces its three-byte IMUL with 8D 49 00, LEA ECX,[ECX+0].
+Zero initializers retain their XOR. This neutral instruction performs no memory
+access, leaves ECX unchanged and fits every displaced multiply exactly.
+Its encoding is independently decoded from native padding at 0x00409699;
+that is encoding evidence, not an executed behavioral test.
+
+Each initializer/multiply pair is one size-preserving owned patch. The complete
+proposed windows are:
+
+| Start | Source (row,column) | Exact original bytes | Proposed replacement bytes |
+|---|---|---|---|
+| 0x00C4C2EF | (0,0) | 33 C9 6B C9 0C | 33 C9 8D 49 00 |
+| 0x00C4C314 | (1,0) | BA 01 00 00 00 6B D2 0C | BA 0C 00 00 00 8D 49 00 |
+| 0x00C4C33D | (2,0) | B8 02 00 00 00 6B C0 0C | B8 18 00 00 00 8D 49 00 |
+| 0x00C4C36E | (0,1) | 33 D2 6B D2 0C | 33 D2 8D 49 00 |
+| 0x00C4C397 | (1,1) | B8 01 00 00 00 6B C0 0C | B8 0C 00 00 00 8D 49 00 |
+| 0x00C4C3C3 | (2,1) | B9 02 00 00 00 6B C9 0C | B9 18 00 00 00 8D 49 00 |
+| 0x00C4C3F7 | (0,2) | 33 C0 6B C0 0C | 33 C0 8D 49 00 |
+| 0x00C4C420 | (1,2) | B9 01 00 00 00 6B C9 0C | B9 0C 00 00 00 8D 49 00 |
+| 0x00C4C44C | (2,2) | BA 02 00 00 00 6B D2 0C | BA 18 00 00 00 8D 49 00 |
+
+#### Preserved numerical, ABI and lifetime contract
+
+After each patched group, the original index register still contains 0, 12 or
+24. Its original LEA therefore obtains exactly the same stack address.
+The original column initialization and SHL remain. The neutral ECX operation
+does not disturb a base, index or temporary, even when another register held
+the multiply's result.
+
+Every x87 instruction remains at its original address and in its original
+order. This includes all nine source FLDs, intermediate single-precision
+spills/reloads at EBP-0xD4 through EBP-0xF4, scale multiplications, output
+stores, translation stores, and zero/one construction. No source/output
+read is removed or added. NaNs, infinities, signed zero, x87 precision/rounding,
+masked/unmasked exceptions and sticky status continue through those same
+floating-point instructions. No alternative inverse formula is introduced.
+
+The original integer SHLs overwrite the architecturally defined arithmetic
+flags before the floating-point work. Undefined AF/OF from a multi-bit shift
+are not promoted to a new contract. Native return flags are also dead: all
+six inspected callers execute ADD ESP,0x0C before using a condition. At
+0x00BBF029 one MOV precedes that ADD; it does not consume flags.
+
+The complete native callers are 0x00B7DB48, 0x00B7DE7D, 0x00B7DF70,
+0x00B7E084, 0x00B7E23D and 0x00BBF029. Function entry, stack frame,
+helper CALL, register convention and caller-owned argument cleanup remain.
+The mapped file-backed sections contain no literal absolute pointer to
+0x00C4C2D0; no native virtual-table registration is established for this helper.
+The skin test at 0x00C4C2D9/0x00C4C2DD retains its branch to 0x00C4C4A8;
+the skinned D3DXMatrixInverse call at 0x00C4C523 is untouched. Return remains
+0x00C4C528 -> MOV ESP,EBP; POP EBP; RET.
+
+All changed windows are inside the unskinned straight-line expansion. The
+decoded body has no internal branch entering an initializer/multiply pair,
+and focused native xrefs found no incoming reference to the six changed MOVs
+or nine IMUL instructions. This proof covers native control flow, not arbitrary
+foreign branches into instruction interiors.
+
+Ownership, lifetime and threading are inherited without extension: all input
+reads, local/output writes and helper calls remain native. The patch stores no
+engine pointer or result, takes no lock, and adds no routine allocation,
+provider discovery, logging, cache invalidation or dispatch. The original
+inverse helper's current provider still executes with its original arguments.
+It does not require the unresolved matrix-cache writer or D3DX-purity contracts.
+
+#### Implementation boundary, failure and work budget
+
+The implementation can use the existing OwnedCodePatch and
+ModificationTransaction pattern in
+[multibound_vertex_setup.rs](../psycho-engine-fixes/src/mods/perf/multibound_vertex_setup.rs).
+Place this responsibility in a focused perf module. Before activation, verify
+the supported function's skin gate, frame, inverse helper CALL, address-forming
+instructions, floating-point expansion and epilogue, plus all nine exact
+original-or-equivalent replacement windows. Do not learn arbitrary bytes,
+modify helper/provider DLLs or infer a contract from a partial prefix.
+
+Apply all nine patches only at the existing quiescent pre-CRT barrier. A MOV
+must never be published without its paired neutral multiply. Each five/eight-
+byte owned window keeps that pair together; installation still needs quiescence
+because ModificationTransaction supplies rollback, not thread suspension or
+atomic multi-window publication. Preflight every range first. On failure,
+restore only writes still owned by this transaction and retain native behavior;
+report lost ownership rather than overwrite foreign changes. A conflicting
+function body declines this candidate.
+
+The deterministic work change is nine fewer integer multiplications for each
+unskinned expansion, replaced by nine neutral LEAs. Dynamic instruction count
+is unchanged. Matrix arithmetic, spills, helper calls, draw calls and memory
+traffic are unchanged. There is no cache-hit requirement or new per-call
+admission cost. Architecture-dependent elapsed-time benefit and location-wide
+frequency remain unknown; this small saving is not an explanation of the
+80-100 to 30 FPS drop.
+
+The native static contract and patch specification for this candidate are
+closed: exact windows, math preservation, ABI, native entry coverage,
+ownership, threading, installation, rollback and bounded work are specified.
+It is an implementation candidate, not an implemented or accepted fix.
+The repository's separate behavioral/startup qualification gates remain
+applicable to a later production change. No game validation is requested or
+scheduled by this static-only audit.
+
+### Remaining submission work
+
+Array consolidation is rejected for the inspected physical population.
+Cross-object instancing needs new per-instance shader/input/resource contracts;
+the installed shaders do not supply them. The WVP cache remains conditional on
+the explicitly listed input/provider/bridge/cost proofs. The fixed-index
+candidate above can be planned independently of those gaps. Continuing static
+research does not depend on production implementation or acceptance.
+
+## Admission and compound-threading continuation, 2026-10-12
+
+This continuation returns to scalable outer work. It closes the native contract
+for one algorithmic candidate: replace the admission map's lookup followed by
+insertion with one find-or-insert search. It also separates a newly traced
+compound-compiler cost from the earlier scratch-allocation discussion.
+Neither result establishes the consumer responsible for the Fairfax drop.
+
+All new native captures are retained in the
+[admission and compound-threading evidence](../analysis/radare2/output/fnv_admission_and_compound_threading_closure_20261012.txt).
+The supported executable identity was reverified. This is research and a
+replacement specification; no proposed bridge was compiled or executed.
+
+### Single-search identity admission: closed native design
+
+The intervention is the lookup call inside `0x00B63B10`, not either generic
+map function's entry. The outer method already holds accumulator `+0x200`
+through lookup, optional insertion and return preparation. Preserve that exact
+critical-section bracket. Native admission returns one for a previously absent
+identity and zero for an existing identity, irrespective of its stored byte.
+
+The concrete table published by `0x00B660D0` is `0x010ADFD8`:
+
+| Offset from map at accumulator +0x1B4 | Proven contract |
+|---|---|
+| +0x00 | Virtual table |
+| +0x04 | Unsigned bucket count; native constructor publishes 37 |
+| +0x08 | Bucket pointer array; native constructor allocates 148 bytes |
+| +0x0C | Entry count |
+| Node +0x00 | Next link |
+| Node +0x04 | Four-byte identity, compared without dereferencing the identity |
+| Node +0x08 | **One-byte value**, not a four-byte value |
+
+The map's virtual slots are:
+
+| Slot | Native target | Behavior that matters |
+|---|---|---|
+| +0x04 | `0x00A63840` | Unsigned identity modulo current bucket count; RET 4 |
+| +0x08 | `0x00E92590` | Direct four-byte identity equality; AL result, RET 8 |
+| +0x0C | `0x00B63BD0` | Writes key at node +4 and only the value byte at +8; RET 0x0C |
+| +0x10 | `0x00A89AF0` | Empty payload retirement, RET 4 |
+| +0x14 | `0x00E72E50` | Native node acquisition through `0x0043A010` |
+| +0x18 | `0x00B63DF0` | Clears payload and returns the node to the shared free list |
+
+The complete native hash and equality bodies contain no callback, allocation,
+floating point operation or memory write. Their purity is direct instruction
+evidence, not a property inferred from their names. Unknown replacements of
+these providers must retain the original two-operation path.
+
+The specified live capability check compares their actual map-slot addresses
+and the complete required native code: lookup `0x00B63170..0x00B631C1`
+(81 bytes including its alignment gap), insertion
+`0x00A5D320..0x00A5D399` (121 bytes), hash
+`0x00A63840..0x00A6384E` (14 bytes), and equality
+`0x00E92590..0x00E925A0` (16 bytes). These fixed image ranges lie in
+readable/executable .text. Check them with integer byte/word comparisons,
+without hashes, allocation, module discovery or a retained provider pointer.
+This is **232 bytes of code comparison per admitted lookup**, before any
+collision search. It avoids silently bypassing an installed inline provider,
+but makes fixed overhead a material part of implementation qualification.
+Do not describe this design as a free shortcut for small room populations.
+
+`0x00B63170` is thiscall with key and output-byte pointer on the stack,
+RET 8, and membership in AL. On a hit it copies the node's value byte to the
+output. On absence it does not write that output. At the selected call site,
+the output points to the outer method's own argument slot. The original key
+has already been saved in EBP. Preserve this byte write even though admission
+does not subsequently use the output value.
+
+`0x00A5D320` is thiscall with key and value on the stack, RET 8.
+It hashes and searches again. On an existing key it overwrites the value byte.
+On absence it calls the native acquisition and payload callbacks, reloads the
+bucket head after those calls, prepends the acquired node and increments count.
+Calling insertion unconditionally and detecting count growth is therefore an
+incorrect replacement: it would also overwrite existing payloads.
+
+The proposed replacement lookup has exactly the original lookup ABI:
+
+1. Admit only the proven native hash/equality capabilities. Verify the complete
+   generic-function and insertion-tail contracts at installation. Changed
+   provider entries, slots or required code take the original lookup and, on
+   absence, original insertion before returning the original membership result.
+   Capability checks use the inspected code/slots, not another mod's name or
+   allocator configuration. A changed shared intervention cannot be overwritten.
+2. Compute the native unsigned bucket index once and traverse its links once.
+   Use direct integer identity equality only under the native-provider proof.
+   Preserve the native valid-map and live-node preconditions; this feature is
+   not a new recovery path for a corrupted map. Arithmetic must not introduce
+   a Rust division/index panic; unsupported arithmetic takes native behavior.
+3. On an existing identity, copy exactly its value byte to the original output
+   and return one. Do not write the node, count or links.
+4. On absence, enter the original insertion tail with the known bucket, key
+   and value one. Return zero to the outer method. Keep allocation, payload
+   publication, head reload and count increment in native code.
+
+This is an operation-local reduction. It introduces no identity cache,
+auxiliary index, retained node pointer, changed clear interval or new lock.
+Node references remain within the existing locked operation. The two original
+searches have no intervening opaque callback on the admitted native path;
+their repeated hash/equality work has no state effect to preserve. Allocation
+remains after the absent search, with its existing callbacks and failure path.
+This design does not claim that other scene lists are protected by this lock.
+
+#### Keep the original insertion tail and failure behavior
+
+The insertion continuation is `0x00A5D358..0x00A5D38B`, exclusive end.
+It uses ESI=map, EBP=bucket, EBX=key and EDI=zero at entry. The stack contains
+the insertion return address and two arguments above saved EBX/EBP/ESI/EDI.
+Its epilogue restores those four registers and executes RET 8.
+
+A private naked fastcall adapter can receive map in ECX, bucket in EDX, and
+key/value as its two stack arguments. Its specified prefix is:
+
+```asm
+push ebx
+mov ebx, [esp+8]     ; key after the first save
+push ebp
+mov ebp, edx         ; already computed native bucket
+push esi
+mov esi, ecx         ; native map receiver
+push edi
+xor edi, edi        ; native absent-chain state
+jmp 0x00A5D358
+```
+
+The original tail then receives the exact stack positions it already reads,
+including value at ESP+0x18. No native function entry or shared pool is patched.
+The assembled adapter and actual Rust call convention still require inspection
+when implemented; this listing is an ABI specification, not an executed test.
+
+`0x0043A010` acquires the existing shared pool lock, grows through
+`0x0043A080` if needed, removes a twelve-byte node and clears its three words.
+The growth helper reaches native allocation and constructs that pool's links.
+The prospective tail retains these calls and their exact ordering. It does not
+replace allocation, add a null-result convention, classify heap ownership,
+change refcounts, or catch and reinterpret a native allocation failure.
+
+`0x00B63DF0` clears the byte and key and returns the node to the same pool.
+`0x00B601A0` walks the current bucket count, unlinks and retires entries, and
+resets count. `0x00B63B60` keeps its original critical section around that clear.
+Both concrete and base-map destruction keep their original clear/free routes.
+Because the new operation publishes identical nodes and head order, these
+consumers need no changed representation or lifecycle adapter.
+
+Other native uses of the generic methods are concrete, but outside this patch:
+`0x00A5D430` calls insertion from another scene-traversal map context;
+`0x00A59E70` calls lookup while walking a node's separate collection.
+Leave both generic entries and these consumers unchanged. Their existence
+does not prove an unlocked writer to accumulator +0x1B4.
+
+#### Exact intervention and implementation work
+
+Two owned windows inside `0x00B63B10` form one installation group:
+
+| Window, exclusive end | Original bytes | Intended replacement |
+|---|---|---|
+| `0x00B63B35..0x00B63B3A` | `E8 36 F6 FF FF` | CALL the replacement lookup with its unchanged thiscall ABI |
+| `0x00B63B3C..0x00B63B4A` | `84 DB 75 0A 6A 01 55 8B CE E8 D6 97 EF FF` | `E9 09 00 00 00` and nine unreachable NOPs; resume native unlock at 0x00B63B4A |
+
+Keep `MOV BL,AL` at `0x00B63B3A`. The replacement lookup now completes
+optional insertion itself; the second window prevents inserting twice.
+The original unlock, nonvolatile restoration and final TEST/SETE remain intact.
+Volatile registers and flags from the lookup are not additional method outputs:
+the outer body consumes AL through BL and establishes its final result itself.
+
+Install only at the existing quiescent pre-CRT boundary, after preflighting
+the outer frame, both windows, generic methods, pure providers and insertion
+tail. Apply the two windows transactionally and roll back only still-owned
+writes on failure. The transaction does not make concurrent publication safe.
+An incompatible native entry/body declines this independent candidate.
+
+A focused future module in `psycho-engine-fixes/src/mods/perf/` owns the
+integer search, exact capability fallback, native tail adapter and installer.
+Reuse existing owned-patch/transaction and logger infrastructure. No TLS,
+global scratch, per-entry diagnostic, routine allocation or configuration
+parsing belongs in the lookup. A feature switch/default is a later explicit
+implementation decision; this research does not edit either.
+
+The behavioral expectations are exact: first admission succeeds, duplicate
+admission fails without changing payload, collisions remain distinct, stored
+bytes retain their original meaning, clear permits new admission, and node
+acquisition/retirement/provider fallback keep their native behavior. Actual
+compiled ABI, fallback, release-build and startup/engine qualification belong
+to implementation; a source assertion or reconstructed map model cannot
+stand in for those results. No such result is claimed here.
+
+For distinct absent insertions with bucket occupancies n_j, native comparisons
+`sum n_j*(n_j-1)` become `sum n_j*(n_j-1)/2`: **half the collision comparisons**.
+Each absent operation also loses its second modulo calculation. Qualified
+direct comparison removes the virtual equality dispatch from the remaining
+search. Duplicate admission still needs one search. Capability checks and the
+private adapter add fixed work; compiled cost must be inspected rather than
+treated as free. No elapsed-time, cache-hit-rate or FPS result follows.
+
+This is ready for scoped implementation planning on native evidence. It does
+not remove the map's worst-case quadratic collision structure. Rehashing is a
+separate design, with extra allocation, publication and iteration-order costs.
+It also does not expand the map's population to ordinary geometry: native
+`0x00C4F320` callers admit room/shared roots, while ordinary geometry uses
+accumulator +0x98. This coverage limit remains central to prioritization.
+
+### Compound compiler: repeated structural-link resolution
+
+The complete continuation of `0x00C49850` exposes another repeated-work
+mechanism. Here "threading" means preparing expression jump destinations.
+It is unrelated to creating an operating-system thread.
+
+After building provisional jump fields, the final phase
+`0x00C49D32..0x00C49E94` visits predicate records with tags 7/8.
+For each predicate it follows the +4 chain, then the +8 chain, until reaching
+a tag in **{2,3,7,8}**. Each structural step replaces that predicate's target
+with the intermediate record's target and repeats. Shared intermediate
+records keep their own provisional links; there is no table of resolved
+structural destinations. The first construction passes can give sibling
+predicates the same parent closing-record destination.
+
+For the true branch, target/tag reads are at `0x00C49D94..0x00C49DA6`
+and link forwarding/write at `0x00C49DD4..0x00C49DF8`.
+The false branch uses `0x00C49E19..0x00C49E2B` and
+`0x00C49E59..0x00C49E7D`. Thus reached shared structural chains are
+followed separately for each predicate and branch. If their reached lengths
+are d_1 through d_k, this phase performs their sum of link-forwarding steps.
+Multiple predicates entering one chain can multiply that work; actual chain
+lengths and occurrence in the reported scenes remain unknown.
+
+Important constraints are now concrete:
+
+- +0x18 is the twelve-byte operator-record array, +0x20 its capacity,
+  +0x28 its program extent and +0x2C the evaluation start index.
+- The builder appends tag 1 at the original extent and terminal tags 2/3 at
+  extent+1/extent+2. Predicate 7/8 records have a following operand record;
+  the native final loop advances twice for these predicates. Parsing every
+  twelve-byte slot as an independent operator is incorrect.
+- The native three scratch arrays each have floor(extent/2) DWORDs.
+  They are not three extent-sized destination tables. Reusing them for two
+  full jump-resolution tables without proving bounds would overwrite memory.
+- All scratch allocations and operator-capacity growth precede this phase.
+  Its inspected body contains no allocator, virtual callback or FP operation.
+  The three frees and threaded-byte publication occur afterward, in native
+  order. A replacement limited to this phase can preserve allocator/recovery
+  order and avoid the earlier allocation-deferral problem.
+- Existing early/diagnostic exits bypass this phase. An intervention here
+  must leave them and already-threaded/empty-program admission unchanged.
+
+The stronger proposed direction is private, bounded resolution storage for
+structural links, followed by writing only the predicate fields native code
+would write. It must leave structural records and operand records unchanged.
+Rejecting unsupported programs before any changed write preserves the original
+phase. A forward-order dynamic program additionally needs actual branch-index
+and termination proof; it cannot assume every target is a later operator.
+
+The additional owner inspection rules out a convenient but false shortcut:
+the receiver at `0x00873F8C` comes from accessor `0x00874670`, which
+returns **scene +0x138**, not a private stack object.
+`0x00B5BA80` threads the shared node's +0xAC destination;
+`0x00C39890` threads a room's +0xCC program and publishes it to culler
++0xC0 between two calls; `0x00C4F6D0` publishes and threads another
+node-backed program. These are real shared/native owners. A native render lock
+on one parent route does not close all of their writer routes.
+
+Before implementation, close exactly: publication/exclusion for the selected
+array throughout final-phase resolution; real operator/operand boundaries and
+initialized jump fields; admitted index/termination bounds; bounded private
+storage and unsupported-program fallback before mutation; unchanged native
+cleanup, frame/ABI and FP state; and added setup work versus saved chain visits.
+These questions support continued static analysis. They are not a demand for
+profiling, and the larger compiler optimization is not yet declared ready.
+
+### Occluder-pair exclusion and current selection
+
+The local-frustum constructor in `0x00C47150` is more than integer setup.
+`0x0045C620` calls six plane constructors through `0x00401050` and
+writes the active mask. Each `0x00A69940` constructor executes FLDZ/FSTP
+as well as coefficient stores. On a cache hit, `0x00C33870` copies the
+complete record. On reconstruction it writes plane 0 and planes 2 through 5,
+clears the plane-1 mask bit, and leaves **plane 1's coefficients supplied by
+the constructor**. The final 100-byte cache publication includes those bytes.
+Thus the constructor is not even proven to contain only overwritten stores.
+Neither its surviving data initialization nor its FP effects may be dropped
+by an unqualified NOP, and borrowing a shared plane record remains unqualified.
+The separate caller `0x008D6D40` also reaches the pair method; bound/occluder
+broad-phase reduction still needs its previously listed provider and ownership
+proofs.
+
+| Candidate | Current static disposition |
+|---|---|
+| Single-search identity admission | Native design, ABI, payload, pool, lock, fallback and intervention are specified; ready for scoped implementation planning |
+| Fixed-index inverse expansion | Previously closed independent native patch; small integer saving |
+| Compound structural-link resolution | New exact repeated-work boundary; owner/index/storage proof still required |
+| WVP calculation reuse | Earlier provider/input/bridge and net-cost requirements remain open |
+| Multi-array consolidation | Rejected for the inspected physical meshes |
+| Cross-object instancing / occluder broad phase | Separate shader/resource or visibility/provider contracts remain open |
+
+No production change, configuration/default change, build, game run or commit
+was performed for this continuation. Static readiness of a scoped design is
+separate from implemented behavior, release qualification and a demonstrated
+performance improvement.
+
+## Implementation plan for closed candidates, 2026-10-12
+
+Requested outcome: implement all currently specified, behavior-preserving
+optimizations in Psycho's core, while retaining explicit research boundaries
+for the other mechanisms. The new scope contains **two independent features**:
+single-search room/shared-root admission and constant-index inverse expansion.
+The earlier lighting and visibility-loop patches already exist; this plan
+does not reinstall them or treat their presence as evidence of an FPS gain.
+
+This section records the change specification before implementation. The later
+[scoped implementation](#scoped-scene-performance-implementation-2026-10-12)
+supersedes its pending authorization and implementation status. Native
+contracts are closed for these two candidates; net performance and gameplay
+acceptance are not established by those contracts.
+
+### Planned files and feature ownership
+
+| File | Planned responsibility |
+|---|---|
+| `psycho-engine-fixes/src/mods/perf/scene_root_admission.rs` (new) | Operation-local integer search, native capability check, original-provider fallback, native insertion-tail adapter, and two-window installation group |
+| `psycho-engine-fixes/src/mods/perf/inverse_world_index_setup.rs` (new) | Nine size-preserving patches, complete function-contract preflight, and independent installation group |
+| `psycho-engine-fixes/src/mods/perf/mod.rs` | Declare the modules and export their installers; no new event routing |
+| `psycho-engine-fixes/src/startup.rs` | Call both installers independently through existing pre-CRT performance installation; report configuration and installation outcomes |
+| `psycho-engine-fixes/src/config.rs` | Append two bool fields and matching optional raw fields; resolve absent keys through defaults and preserve explicit user values |
+| `psycho-engine-fixes/config/psycho_engine_fixes.toml` | Add two user-facing options with short behavioral descriptions |
+| This audit | Record implemented contracts, compiled qualification, actual acceptance evidence and any unresolved limits |
+
+Proposed option names are `performance.scene_root_admission` and
+`performance.inverse_world_index_setup`. Proposed defaults are true, consistent
+with the owner's established preference for enabled performance patches. This
+is a plan choice, not an assertion that these new defaults were implemented or
+accepted. Append fields without removing, renaming or reordering existing
+settings. A false value skips that feature's installation. A true value
+requests installation only on the proven native contract; incompatible code
+retains its existing behavior.
+
+The shipped comments should describe the effect directly:
+
+```toml
+# Avoids searching the same room visibility entry twice when adding it.
+scene_root_admission = true
+
+# Removes redundant index calculations when preparing object transforms.
+inverse_world_index_setup = true
+```
+
+Keep qualification details in this document. Do not add restart advice,
+testing instructions, FPS promises or a test that freezes user-selected config
+values. No helper service, new dependency, shared API redesign, TLS owner,
+worker, lifecycle message or gameplay-time configuration read is needed.
+
+### Change 1: constant-index inverse expansion
+
+Implement this smaller independent group first. Its production change has no
+per-call guard or bridge, so it isolates installation and integration from the
+larger admission change.
+
+1. Define the nine paired initializer/multiply patches listed in the
+   [fixed-index contract](#ownership-and-fixed-index-continuation-2026-10-12).
+   Fold row indices 1/2 to byte offsets 12/24 and replace each three-byte IMUL
+   with `8D 49 00`. Keep every original zero initializer. Each initializer and
+   its replacement instruction belong to the same five/eight-byte window.
+2. Preflight the complete supported `0x00C4C2D0` contract, including its
+   frame, skin branch, helper call, address formation, FP instructions and
+   epilogue. Account explicitly for the nine exact original or equivalent
+   replacement windows. A changed surrounding contract declines installation;
+   never accept arbitrary learned bytes or a matching entry prefix alone.
+3. Use existing `OwnedCodePatch` and `ModificationTransaction` facilities.
+   Preflight all nine windows before writing at the quiescent pre-CRT barrier.
+   Roll back only still-owned changes if application fails. Keep this
+   transaction separate from room admission and from existing visibility
+   patches. An exact existing replacement acquires no new ownership.
+4. Preserve all native floating-point instructions, spills, helpers, input
+   reads and output writes. Keep the skinned branch untouched. Add only
+   startup/configuration diagnostics through the established logger, with a
+   stable `[INVERSE_WORLD_INDEX]` tag.
+
+Acceptance requires identical native output and FP effects for the actual
+affected unskinned path, and unchanged execution of the skinned path. All six
+native callers retain their ABI and cleanup. Compiled instruction inspection
+must confirm the intended bytes and unchanged floating-point sequence; that
+inspection supports the contract but is not an executed behavioral test.
+
+The exact work saving is nine IMULs replaced by nine neutral LEAs per reached
+unskinned expansion. Dynamic instruction count and memory traffic remain the
+same. This is a small local reduction, independent of cache hit rate. Do not
+present it as a solution to the Fairfax drop or a large transform rewrite.
+
+### Change 2: single-search room/shared-root admission
+
+Implement the specified lookup replacement at the selected call inside
+`0x00B63B10`. Leave the generic lookup and insertion entries unchanged.
+
+1. Encode only the directly proven map/node layout and operation-local
+   unsafe access boundary. The four-byte identity is compared as an integer;
+   do not dereference it. Nodes and map state are borrowed solely within the
+   original accumulator critical-section bracket. Store no engine pointer
+   beyond the call and add no lock or auxiliary collection.
+2. Implement the complete native capability admission described above.
+   Check actual hash/equality slots and all 232 required code bytes on each
+   operation before bypassing native providers. Keep integer comparisons,
+   short-circuit failure and deterministic native fallback. Do not replace
+   this with a one-time assumption that installed providers stay unchanged.
+3. Under that admission, compute the unsigned bucket once and walk its chain
+   once. On a hit, copy exactly the stored value byte to the original output
+   pointer and return native membership one. Do not change the existing
+   payload. On absence, keep the output untouched and insert value one through
+   the original native tail, then return membership zero.
+4. Implement the private adapter with the exact saved-register/argument
+   layout specified for `0x00A5D358`. Verify its assembled prefix, stack
+   offsets, native continuation, register restoration and RET 8 against the
+   actual compiled Rust call site. Retain native allocation, callbacks,
+   post-callback head reload, count publication and failure behavior.
+5. On an unsupported provider/code/arithmetic contract, execute the original
+   lookup and, only when absent, the original insertion. Return the original
+   lookup membership. Do not fall back after publishing a partially changed
+   map and do not call insertion for an existing key.
+6. Preflight the entire outer contract and both intervention windows. Patch
+   the CALL at `0x00B63B35` and skip the displaced insertion at
+   `0x00B63B3C..0x00B63B4A` as one installation group. Preserve `MOV BL,AL`,
+   native unlock and final TEST/SETE. Install only at the existing quiescent
+   pre-CRT boundary, with ownership-aware rollback. Add startup diagnostics
+   under `[SCENE_ROOT_ADMISSION]`; no per-lookup logs or counters are planned.
+
+Behavioral expectations cover the actual native admission boundary: absent
+identity returns admission true; duplicates return false without modifying any
+stored byte; distinct colliding identities remain distinct; lookup output
+writes match native hit/absence behavior; clear permits readmission; original
+node acquisition, retirement and native/changed-provider fallbacks remain
+intact. The adapter must preserve the complete native nonvolatile-register and
+stack contract. A reconstructed map or mocked provider cannot establish these
+results.
+
+For absent keys, one modulo and the second collision-chain walk disappear.
+For distinct insertions with final bucket occupancies n_j, collision comparisons
+fall from `sum n_j*(n_j-1)` to half that number. The remaining qualified
+equality checks avoid virtual dispatch. Duplicates retain one walk. The same
+37 buckets, publication order and native allocation remain; this does not
+eliminate worst-case quadratic collision behavior.
+
+**Performance qualification is an independent gate.** Include the 232-byte
+live code check, slot loads, branch cost and adapter in the compiled work
+budget for hits and misses, both short and long chains. Reduced collision
+comparisons alone do not prove reduced total time. No executable benchmark of
+the actual replacement has yet been established, so a net win for small
+populations remains unknown. Do not silently remove capability checks, choose
+an invented chain threshold, or broaden native map ownership to obtain a more
+favorable budget. If the compiled design cannot justify its added fixed work,
+retain it as an unqualified candidate and research a proven cheaper boundary.
+
+Coverage remains room/shared roots reached through `0x00C4F320`. Ordinary
+geometry registered through accumulator +0x98 does not pass through this map.
+The Fairfax static-reference population is not an admission-map workload count.
+
+### Integration, qualification and delivery boundaries
+
+Both modules remain core-owned, with process-lifetime code patches and no new
+engine state. Verify failure of one installation does not undo or disable the
+other feature. Config and installer additions alter the pre-Deferred footprint;
+before production edits, establish its accepted baseline and apply the
+[startup compatibility contract](nvse_startup_phase_safety.md). Keep existing
+callback, worker, helper and event order intact. Configuration fields and
+static patch storage must be included in the review even if their gameplay
+code has not executed.
+
+The native evidence supplies precise behavioral expectations, but this audit
+has not established an executable acceptance test for either actual shipped
+engine path. Root `AGENTS.md` states: "No reproduction or authorized environment
+means stop, with no production edit." Its ordinary Psycho behavioral gate
+still applies; the OMV exception and reporter-only crash exception do not
+cover these performance candidates. Consequently, this plan closes the
+change specification, not permission to substitute static checks for required
+behavioral acceptance. Continuing static research and this documentation are
+independent of that production gate.
+
+When that gate is satisfied, execute the actual affected behavior before and
+after the change, run applicable affected-crate tests, inspect the compiled
+bridges and patches, and perform the supported 32-bit release build. Use
+`i686-pc-windows-gnu` explicitly. Because the planned integration changes the
+pre-Deferred footprint, apply the startup document's complete release and
+representative Proton acceptance requirements. Finish with formatting,
+`git diff --check`, final diff review and a record distinguishing static proof,
+executed behavior and unmeasured performance. Do not add source assertions,
+config-value checks or mirrored algorithms as replacement acceptance tests.
+
+No packaging, deployment, release or commit is included in this planning
+request. Production implementation must preserve the concurrent LOD, graphics
+and configuration changes already in the worktree.
+
+### Further optimizations: explicit research prerequisites
+
+| Mechanism | Next optimization direction | Evidence needed before a production design is closed |
+|---|---|---|
+| Compound compiler `0x00C49850` final phase | Resolve shared structural destinations once, then write only native predicate jump fields | All selected-array publishers/writers and exclusion; actual operator/operand boundaries; initialized fields and admitted index/termination bounds; bounded private storage; fallback before mutation; exact ABI/cleanup and setup-versus-chain budget |
+| WVP multiply-transpose at `0x00B7C780` / `0x00E83F98` | Reuse a result only for identical proven inputs/provider/FP state | Full writer exclusion and input capture association; current math-provider lifetime/capability; compiled bridge and floating-point status preservation; net cost including provider and input checks |
+| Admission collision growth | Reduce the 37-bucket collision structure beyond eliminating a duplicate walk | Native capacity/allocation/publication contract, iteration/order observability, complete clear/destructor compatibility, concurrency, and bounded memory/failure cost of a changed representation |
+| Occluder pairs / broad phase | Avoid proven unnecessary pair evaluations while retaining visibility results | Actual provider behavior and side effects, bounds and masks, input lifetime/exclusion, all pair callers, and a conservative rejection rule; constructor plane-1 data and FP effects must remain |
+| Cross-object instancing | Reduce equivalent object submissions using genuine per-instance data | Equivalent per-instance vertex/pixel shader inputs, stream/declaration/buffer ownership, all relevant passes/material ordering, device lifetime/reset and an actual instanced shader/resource contract |
+| Multi-array consolidation | None for the inspected Fairfax physical meshes | Existing inspected meshes have one array each; a different actual population with redundant compatible arrays would be new evidence, not permission to merge these models |
+
+These are separate research tasks, not hidden additions to the two-feature
+implementation. No candidate in this table is evidence that the extreme FPS
+drop has been attributed, and no static work budget is an FPS forecast.
+
+## Scoped scene performance implementation, 2026-10-12
+
+The owner explicitly authorized an exception to the real-runtime behavioral
+gate for these two performance candidates: "This is exception - proceed."
+This follows the scoped question naming `scene_root_admission` and
+`inverse_world_index_setup`, default-on implementation, static qualification,
+and unverified gameplay/startup/performance acceptance. The exception permits
+the production edits described here; it does not establish runtime acceptance,
+change repository-wide policy, permit guessed contracts or authorize a commit.
+
+Native intervention, function bytes and executable identity were reverified
+before editing. New authoritative captures are retained in
+[implementation evidence](../analysis/radare2/output/fnv_scene_perf_implementation_contract_20261012.txt).
+The six production signature extracts are exact supported-image ranges in
+`psycho-engine-fixes/src/mods/perf/scene_signatures/`: complete outer admission,
+lookup, insertion, hash, equality and inverse-world functions. They are byte
+contracts, not reconstructions of native behavior.
+
+### Implemented ownership and integration
+
+The two focused core modules are
+[scene_root_admission.rs](../psycho-engine-fixes/src/mods/perf/scene_root_admission.rs)
+and [inverse_world_index_setup.rs](../psycho-engine-fixes/src/mods/perf/inverse_world_index_setup.rs).
+Each installer requires the existing pre-CRT boundary before core
+initialization completes. Each owns its own transaction; failure of one does
+not prevent the other from being attempted. There are no new lifecycle events,
+helper services, engine owners, teardown hooks, TLS caches or workers.
+
+Both options are true in Rust defaults and shipped TOML. Raw options remain
+optional: omitted keys select the default, explicit values select the user's
+choice. Fields are appended to the existing performance configuration without
+reordering or replacing older fields. The short shipped comments describe the
+work removed, without restart advice or qualification instructions. No new
+config-value test is added.
+
+The inverse-world installer verifies every byte of the complete 604-byte
+function, allowing only the nine exact original-or-equivalent patch windows.
+It preflights all ranges before applying the independent nine-window group.
+Index initializers and their neutral LEAs remain paired in each owned write.
+All native floating-point operations, address-forming consumers, spills,
+inverse providers, skin branch and epilogue remain unchanged.
+
+Room admission reuses the established rel32 encoder and uses a local fixed-size
+integer checker without the lighting checker's overlay or alternative-body
+policy. Each operation admits only the exact native hash/equality slots
+and the complete 232-byte lookup/insertion/hash/equality code contract.
+Unknown or changed contracts call the live original generic entries with
+their original thiscall arguments; absence then calls native insertion with
+value one. These generic entries and virtual allocation/payload providers are
+not patched by this feature.
+
+On the admitted path, the Rust thiscall bridge computes a checked unsigned
+remainder and traverses the existing chain once under the original lock. A hit
+writes precisely the stored byte to the original output slot and returns one
+without changing any node. Absence leaves that output untouched, calls the
+private fastcall adapter and returns zero. The adapter supplies the original
+four saved registers and argument positions before entering `0x00A5D358`.
+The native tail retains allocation, payload callbacks, bucket-head reload,
+link publication, count increment and RET 8. Zero/unsupported arithmetic takes
+the native fallback rather than introducing a Rust division/index panic.
+
+### One owned admission window
+
+The two logical interventions are contiguous except for the unchanged
+`MOV BL,AL`. Implementation therefore installs them as **one 21-byte owned
+window**, `0x00B63B35..0x00B63B4A`, instead of two separately written patches.
+Its contents are the replacement CALL, unchanged MOV, JMP to native unlock,
+and nine unreachable NOPs. Both surrounding ranges of the complete outer
+function are verified, and the combined window accepts only exact original or
+exact replacement bytes.
+
+This refinement avoids independently acquiring/restoring a CALL and its
+insertion skip: a mixed combination could otherwise skip insertion or execute
+it twice after a failed installation. The window has one original/replacement
+ownership record and one application/rollback operation. Quiescent installation
+is still mandatory; neither a 21-byte write nor the transaction is atomic.
+OS write/restoration failures retain the shared infrastructure's explicit
+error reporting; an ownership loss is not permission to overwrite foreign code.
+
+The replacement byte array and owned-patch descriptor use small, bounded
+process-lifetime `OnceLock` storage prepared only during installation. No hot
+lookup reads those installer owners. The live checker accepts only the exact
+native bodies. Its compiled successful path checks 57 DWORDs and four bytes:
+61 comparisons and conditional branches covering all 232 bytes. This fixed
+admission work applies to hits as well as misses and can offset the removed
+search work for short chains.
+
+### Qualification and unresolved behavior
+
+The affected crate suite and supported 32-bit release build passed, as did
+formatting and diff checks. The retained
+[compiled qualification](../analysis/radare2/output/fnv_scene_perf_compiled_qualification_20261012.txt)
+proves the bridge and insertion-adapter ABI, complete live-check coverage,
+compiled inverse patch payloads and relocation handling. The bridge contains
+no floating-point operation or panic call. Core/helper import sequences, raw
+TLS extents, TLS callback identities and export names matched the preserved
+pre-change release artifacts; appended configuration fields and patch storage
+still change the pre-Deferred footprint. These checks do not execute the
+game-only admission, inverse-world output or visibility composition.
+
+The owner's subsequent playtest log records successful installation of all
+nine inverse-index windows and the single-search admission hook, followed by
+`[EVENT] Game engine ready`. Both options were enabled in the deployed config,
+and the deployed core matched the qualified release build when checked.
+Neither feature reported an installation error. These observations establish
+installation and the recorded startup transition; the admission feature has
+no per-operation counters, so fast-path frequency and fallback frequency
+remain unknown. The owner reported no visible performance improvement.
+No controlled startup comparison or exhaustive native behavioral acceptance
+was established by that report.
+
+The deterministic reductions remain nine IMUL-to-LEA replacements per reached
+unskinned expansion and elimination of the second modulo/chain search for an
+absent room/shared-root identity. Room admission retains 37 buckets and adds
+live capability work to hits as well as misses. A net benefit for short chains,
+the frequency/population of affected roots, full engine behavior and any
+measurable FPS improvement remain unqualified. A benefit on lower-end CPUs
+has not been demonstrated. This feature does not
+cover ordinary geometry registered through accumulator +0x98.
+
+The larger compound-compiler, WVP reuse, collision-growth, occluder and
+instancing research prerequisites remain as listed in the plan. They are not
+implemented by either new option. The agent did not package, deploy or run
+the game. The owner subsequently requested a scoped commit of the patches and
+their supporting research.
+
 ## Evidence ledger
 
 | Evidence | Retained content used here | Additional direct binary checks |
 |---|---|---|
+| [2026-10-12 scene performance implementation](../analysis/radare2/output/fnv_scene_perf_implementation_contract_20261012.txt) | Supported-image reverification, complete production signature extracts, native admission/insert-tail and inverse-index contracts | Owner-authorized scoped static candidate; full native behavior and net performance remain unqualified |
+| [2026-10-12 compiled scene performance qualification](../analysis/radare2/output/fnv_scene_perf_compiled_qualification_20261012.txt) | Compiled bridge/adapter ABI, exact 232-byte guard coverage, owned inverse payload decodes, relocation handling and bounded pre-Deferred comparison | Static qualification; subsequent owner log confirms installation and game-ready transition, without fast-path counts or measurable FPS benefit |
+| [2026-10-12 admission and compound-threading closure](../analysis/radare2/output/fnv_admission_and_compound_threading_closure_20261012.txt) | Concrete admission map byte payload, complete lookup/insertion/pool/retirement/clear/destruction bodies, pure hash/equality, exact two intervention windows, alternate generic consumers; complete compound final-link resolution, scratch extents, compiler caller/owner corrections and occluder constructor FP effects | Same executable identity reverified; raw misaligned/empty/clipped probes explicitly corrected; closes the single-search native design while leaving compound ownership/index/storage and runtime cost unqualified |
+| [2026-10-12 ownership and fixed-index continuation](../analysis/radare2/output/fnv_scene_matrix_ownership_continuation_20261012.txt) | Main/loading/prepacking renderer lock scopes; zero-returning lock predicate; fragment-shader table and borrowed renderer setup; camera publication; complete unskinned inverse expansion, exact nine patch windows, six native callers, flags/ABI and incoming-reference probes | Same supported executable; exploratory names and misaligned/data probes corrected; closes the smaller in-place fixed-index candidate's native contract without claiming cache readiness, executed behavior or an FPS gain |
+| [2026-10-12 scene/math gap closure](../analysis/radare2/output/fnv_scene_submission_gap_closure_20261012.txt) | Global ShadowLight versus own PPLight constant construction, WorldViewProjTranspose ID/binding, two exact math CALLs, installed math provider initialization/dispatch and pure SSE body, object-space light staging, native renderer lock wrappers and alternate transform publishers | Same executable reverified; separate PE32 provider identity and preferred-VA namespace retained; 97 MCP captures with corrections; active provider, full writer exclusion, production bridge behavior and net cost remain unqualified |
+| [2026-10-12 Fairfax physical meshes](../analysis/radare2/output/fnv_fairfax_mesh_array_population_20261012.txt) | Read-only physical asset census: 45 retained top-model paths, 117 competing variants, 238 single-array geometry blocks, parsed static/skin/controller/property data, supported BSA indexes and explicit malformed archive exclusion | Actual data through fully consumed admitted NIF blocks and authoritative NifTools schemas; rejects array-consolidation benefit in this population; no winning-runtime or visible-pass count inferred |
+| [2026-10-12 installed shader inputs](../analysis/radare2/output/fnv_scene_submission_shader_inputs_20261012.txt) | All installed SDP SLS vertex version records checked against retained manifests; actual NVR cache tokens and three constant tables | Shared c0 transform and object-specific vertex/pixel lighting prevent assumed instance equivalence; shader version alone is not the indexed-instancing exclusion; active binding and an equivalent instanced counterpart remain unknown |
+| [2026-10-12 scene submission plan evidence](../analysis/radare2/output/fnv_scene_submission_optimization_plan_contract_20261012.txt) | Constant-time pass prepend/append, active-category insertion, integer pass-map callbacks and existing overlap, selector reuse, lazy packing, corrected constructor-published shader/constant/renderer tables, matrix calculations, ordinary geometry forwarding and indexed array device calls | Same executable identity; 77 focused captures with exploratory labels corrected; actual winning NIF/pass population, provider purity, resource lifetime and runtime cost attribution remain unresolved |
+| [2026-10-12 scaling evidence](../analysis/radare2/output/fnv_location_scaling_reassessment_20261012.txt) | Main-frame visibility preparation, ordinary/compound culler routes, bound/occluder enumeration and existing plane cache, compound construction/copy/threading, identity-map construction/hash/lookup/insertion/clear, visible-room membership and native record readers | Same executable identity reverified; raw labels, clipped pseudocode and misaligned discoveries explicitly corrected; caller/provider/lifetime coverage remains incomplete for implementation; no runtime cost attribution |
+| [2026-10-12 Fairfax records](../analysis/radare2/output/fnv_fairfax_record_population_20261012.txt) | Actual base-cell/reference counts, resolved STAT model paths, selected plugin spatial records, RoomMarker base and XPOD payloads, validated read-only readers including native-proven extended field handling | Physical plugin data only; no winning override resolution, reported-profile identity, loaded scene/geometry/pass counts or active native visibility graph established |
 | [Streetlight state audit](../analysis/radare2/output/fnv_streetlight_state_regression_audit_20261010.txt) | Native score/sort, camera cursor liveness, culling/dimmer gates, visibility publication, command-table consumers and installed base street-light source | Same executable identity rechecked; no patch regression or actual daytime transition established; active records, reference/controller state and controlled comparison remain unknown |
 | [Main frame analysis](../analysis/ghidra/output/perf/combat_perf_analysis.txt) | `0x0086E650` and its lighting/rendering call list | `0x0086ED90`, `0x0086EDE8`, and `0x0086EE4E` ordering |
 | [AI thread deep analysis](../analysis/ghidra/output/memory/ai_thread_deep.txt) | `0x0086FF70`, worker body, actor loops | Rendering branch call chain and worker waits |

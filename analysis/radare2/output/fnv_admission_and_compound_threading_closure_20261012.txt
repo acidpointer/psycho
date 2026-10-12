@@ -1,0 +1,915 @@
+FNV scalable admission and compound-threading continuation, 2026-10-12
+Research only. No production patch, configuration change, game run, benchmark, or build.
+Primary interface: radare2 MCP against fnv_reverse/FalloutNV.exe.
+Identity: PE32 i386, preferred image base 0x00400000, FNV 1.4.0.525.
+SHA-256: 42fee7d6cd74e801372aa89c8f71c974cebd3c20ec9ad43d1465b8fa9646b49c
+Owning document: docs/fnv_location_performance_static_audit.md.
+
+Interpretation corrections:
+- Tool-generated argument names and prototypes are not ABI authority.
+- Empty xrefs and NULL/INT3 xrefs do not prove absence of indirect callers.
+- identity_generic_remove_provider (B63C60) is NOT an identity-map remove method.
+  Its complete captured body concerns accumulator resources. Excluded from map writer proof.
+- compound_stack_owner_thread_call is NOT evidence of a stack-owned compound:
+  accessor 874670 returns scene+138. Leading decode at 873F61 is misaligned.
+  Trust aligned instructions from 873F66 and the captured accessor only.
+- compound_two_prethread_calls leading decode at C399B0 is misaligned.
+  Full compound_culler_target_owner supersedes it.
+- compound_culler_prethread_call leading bytes at C4F700 are misaligned.
+  Trust C4F702 and later aligned instructions only.
+- compound_shared_node_thread_call leading decode at B5BBA0 is misaligned.
+  compound_shared_owner_tail_aligned supersedes it.
+- occluder_actual_caller_alternate leading decode at 8D6EB2 is misaligned.
+  occluder_alternate_caller_aligned supersedes it.
+- compound_thread_builder_fourth is clipped; the tail is completed by
+  compound_thread_builder_final_aligned and compound_thread_final_cleanup.
+- compound_thread_builder_final returned no content. It is not body coverage.
+- Map value +8 is ONE BYTE, while node storage is 12 bytes.
+- A5D430 / A59E70 operate other generic scene-traversal map contexts;
+  their existence does not identify an unlocked writer to accumulator+1B4.
+- New map design is call-site-specific; generic lookup/insertion, pool,
+  constructor, clear, and destructor remain native.
+- New assembly bridge in the document is a specification, not executed code.
+- Program threading means computing expression jump links, not OS threads.
+- End-stage caching / linear resolution remains unqualified until its named
+  input-ownership, operand, ABI, and work-budget contracts close.
+
+=== Capture 1: occluder_pair ===
+{
+  "content": [
+    {
+      "type": "text",
+      "text": "; CALL XREF from fcn.008d6d40 @ 0x8d6eeb(x)\n; CALL XREF from fcn.00b5bbe0 @ 0xb5bc83(x)\n252: fcn.00c47150 (int32_t arg_8h, int32_t arg_ch, int32_t arg_10h, int32_t arg_14h, int32_t arg_18h);\n`- args(sp[0x4..0x14]) vars(10:sp[0x8..0x9c])\n0x00c47150      push ebp\n0x00c47151      mov ebp, esp\n0x00c47153      sub esp, 0x98\n0x00c47159      mov dword [var_94h], ecx\n0x00c4715f      mov eax, dword [arg_14h]\n0x00c47162      mov dword [var_4h], eax\n0x00c47165      mov ecx, dword [var_4h]\n0x00c47168      mov edx, dword [ecx + 0x90]\n0x00c4716e      mov dword [var_74h], edx\n0x00c47171      cmp dword [var_74h], 3\n; unlikely\n0x00c47175      je 0xc47189\n0x00c47177      mov eax, dword [var_4h]\n0x00c4717a      mov ecx, dword [eax + 0x90]\n0x00c47180      mov dword [var_78h], ecx\n0x00c47183      cmp dword [var_78h], 1\n; likely\n0x00c47187      jne 0xc47190\n0x00c47189      mov al, 1\n0x00c4718b      jmp 0xc47246\n0x00c47190      cmp dword [arg_18h], 0\n; unlikely\n0x00c47194      je 0xc47244\n0x00c4719a      lea ecx, [var_70h]\n; fcn.0045c620\n0x00c4719d      call fcn.0045c620\n0x00c471a2      lea edx, [var_70h]\n0x00c471a5      push edx\n0x00c471a6      sub esp, 0xc\n0x00c471a9      mov eax, esp\n0x00c471ab      mov ecx, dword [arg_8h]\n0x00c471ae      mov dword [eax], ecx\n0x00c471b0      mov edx, dword [arg_ch]\n0x00c471b3      mov dword [eax + 4], edx\n0x00c471b6      mov ecx, dword [arg_10h]\n0x00c471b9      mov dword [eax + 8], ecx\n0x00c471bc      mov ecx, dword [arg_18h]\n; fcn.00c33870\n; fcn.00c33870(0xffffff50, 0x0, -1, -1)\n0x00c471bf      call fcn.00c33870\n0x00c471c4      mov edx, dword [var_94h]\n0x00c471ca      mov eax, dword [edx + 0xac]\n0x00c471d0      mov dword [var_84h], eax\n0x00c471d6      mov ecx, dword [var_84h]\n0x00c471dc      mov edx, dword [ecx + 0xc]\n0x00c471df      mov dword [var_88h], edx\n0x00c471e5      mov eax, dword [var_88h]\n0x00c471eb      mov dword [var_98h], eax\n0x00c471f1      lea ecx, [var_70h]\n0x00c471f4      push ecx\n0x00c471f5      mov edx, dword [var_98h]\n0x00c471fb      mov eax, dword [edx]\n0x00c471fd      mov ecx, dword [var_98h]\n0x00c47203      mov edx, dword [eax + 0xa0]\n; 0xffffffff(-1, 0x0, -1, -1)\n0x00c47209      call edx\n0x00c4720b      movzx eax, al\n0x00c4720e      test eax, eax\n; unlikely\n0x00c47210      je 0xc47244\n0x00c47212      mov ecx, dword [var_94h]\n0x00c47218      mov edx, dword [ecx + 0xac]\n0x00c4721e      mov dword [var_8ch], edx\n0x00c47224      mov eax, dword [var_8ch]\n0x00c4722a      mov ecx, dword [eax + 0xc]\n0x00c4722d      mov dword [var_90h], ecx\n0x00c47233      mov edx, dword [var_90h]\n0x00c47239      mov dword [edx + 8], 2\n0x00c47240      xor al, al\n0x00c47242      jmp 0xc47246\n0x00c47244      mov al, 1\n; CODE XREFS from fcn.00c47150 @ 0xc4718b(x), 0xc47242(x)\n0x00c47246      mov esp, ebp\n0x00c47248      pop ebp\n0x00c47249      ret 0x14\n"
+    }
+  ]
+}
+
+=== Capture 2: plane_cache ===
+{
+  "content": [
+    {
+      "type": "text",
+      "text": "; XREFS: CALL 0x00c3592a  CALL 0x00c471bf  CALL 0x00c47c81\n; XREFS: CALL 0x00c47e41  CALL 0x00c47eae  CALL 0x00c4807b\n; XREFS: CALL 0x00c481f7  CALL 0x00c485e6  CALL 0x00c48628\n; XREFS: CALL 0x00c4871c  CALL 0x00c48760\n1149: fcn.00c33870 (int32_t arg_8h, int32_t arg_ch, int32_t arg_10h, int32_t arg_14h);\n`- args(sp[0x4..0x10]) vars(31:sp[0x10..0x1c0])\n0x00c33870      push ebp\n0x00c33871      mov ebp, esp\n0x00c33873      sub esp, 0x1bc\n0x00c33879      push esi\n0x00c3387a      push edi\n0x00c3387b      mov dword [var_1b8h], ecx\n0x00c33881      mov eax, dword [var_1b8h]\n0x00c33887      movzx ecx, byte [eax + 0xe5]\n0x00c3388e      test ecx, ecx\n; likely\n0x00c33890      jne 0xc3391f\n0x00c33896      mov edx, dword [var_1b8h]\n; 216\n0x00c3389c      add edx, 0xd8\n0x00c338a2      mov dword [var_e8h], edx\n0x00c338a8      fld dword [ebp + 8]\n0x00c338ab      mov eax, dword [var_e8h]\n0x00c338b1      fld dword [eax]\n0x00c338b3      fucompp\n0x00c338b5      fnstsw ax\n; 68\n0x00c338b7      test ah, 0x44\n; likely\n0x00c338ba      jp 0xc338f2\n0x00c338bc      fld dword [ebp + 0xc]\n0x00c338bf      mov ecx, dword [var_e8h]\n0x00c338c5      fld dword [ecx + 4]\n0x00c338c8      fucompp\n0x00c338ca      fnstsw ax\n; 68\n0x00c338cc      test ah, 0x44\n; likely\n0x00c338cf      jp 0xc338f2\n0x00c338d1      fld dword [ebp + 0x10]\n0x00c338d4      mov edx, dword [var_e8h]\n0x00c338da      fld dword [edx + 8]\n0x00c338dd      fucompp\n0x00c338df      fnstsw ax\n; 68\n0x00c338e1      test ah, 0x44\n; likely\n0x00c338e4      jp 0xc338f2\n0x00c338e6      mov dword [var_1bch], 1\n0x00c338f0      jmp 0xc338fc\n0x00c338f2      mov dword [var_1bch], 0\n; CODE XREF from fcn.00c33870 @ 0xc338f0(x)\n0x00c338fc      movzx eax, byte [var_1bch]\n0x00c33903      test eax, eax\n; unlikely\n0x00c33905      je 0xc3391f\n0x00c33907      mov esi, dword [var_1b8h]\n; 68\n0x00c3390d      add esi, 0x44\n; 25\n0x00c33910      mov ecx, 0x19\n0x00c33915      mov edi, dword [arg_14h]\n0x00c33918      rep movsd dword es:[edi], dword [esi]\n0x00c3391a      jmp 0xc33ce5\n0x00c3391f      mov dword [var_f0h], 4\n0x00c33929      lea ecx, [var_30h]\n0x00c3392c      mov dword [var_ech], ecx\n; CODE XREF from fcn.00c33870 @ 0xc33952(x)\n0x00c33932      mov edx, dword [var_f0h]\n0x00c33938      sub edx, 1\n0x00c3393b      mov dword [var_f0h], edx\n; likely\n0x00c33941      js 0xc33954\n0x00c33943      mov eax, dword [var_ech]\n; 12\n0x00c33949      add eax, 0xc\n0x00c3394c      mov dword [var_ech], eax\n0x00c33952      jmp 0xc33932\n0x00c33954      lea ecx, [var_30h]\n0x00c33957      push ecx\n0x00c33958      mov ecx, dword [var_1b8h]\n; fcn.00c35c10\n; fcn.00c35c10(0xb)\n0x00c3395e      call fcn.00c35c10\n0x00c33963      mov edx, dword [arg_14h]\n; '?'\n; [0x3f:4]=-1\n; 63\n0x00c33966      mov dword [edx + 0x60], 0x3f\n0x00c3396d      lea eax, [var_18h]\n0x00c33970      push eax\n0x00c33971      lea ecx, [var_24h]\n0x00c33974      push ecx\n0x00c33975      lea edx, [var_30h]\n0x00c33978      push edx\n0x00c33979      lea ecx, [var_40h]\n; fcn.00a699d0\n; fcn.00a699d0(0xffffffe4, 0x0, 0xffffffbc)\n0x00c3397c      call fcn.00a699d0\n0x00c33981      lea eax, [arg_8h]\n0x00c33984      push eax\n0x00c33985      lea ecx, [var_40h]\n; fcn.0049da80\n; fcn.0049da80(0x4)\n0x00c33988      call fcn.0049da80\n; 1\n0x00c3398d      cmp eax, 1\n; unlikely\n0x00c33990      je 0xc33af8\n0x00c33996      lea ecx, [var_18h]"
+    }
+  ]
+}
+
+=== Capture 3: pair_callers ===
+{
+  "content": [
+    {
+      "type": "text",
+      "text": "fcn.008d6d40 0x8d6eeb [CALL:--x] call fcn.00c47150\nfcn.00b5bbe0 0xb5bc83 [CALL:--x] call fcn.00c47150\n"
+    }
+  ]
+}
+
+=== Capture 4: local_frustum_constructor ===
+{
+  "content": [
+    {
+      "type": "text",
+      "text": "; XREFS: 0x0045c5e7  CALL 0x004a6070  CALL 0x004b6047\n; XREFS: CALL 0x00549c2b  CALL 0x0057d785  CALL 0x00c35902\n; XREFS: CALL 0x00c4719d  CALL 0x00c47e11\n42: fcn.0045c620 ();\nafv: vars(1:sp[0x8..0x8])\n0x0045c620      push ebp\n0x0045c621      mov ebp, esp\n0x0045c623      push ecx\n0x0045c624      mov dword [var_4h], ecx\n; 0xa69940\n0x0045c627      push fcn.00a69940\n; 6\n0x0045c62c      push 6\n; 16\n0x0045c62e      push 0x10\n0x0045c630      mov eax, dword [var_4h]\n0x0045c633      push eax\n; fcn.00401050\n; fcn.00401050(-1, 0x0, 0x0)\n0x0045c634      call fcn.00401050\n0x0045c639      mov ecx, dword [var_4h]\n; '?'\n; [0x3f:4]=-1\n; 63\n0x0045c63c      mov dword [ecx + 0x60], 0x3f\n0x0045c643      mov eax, dword [var_4h]\n0x0045c646      mov esp, ebp\n0x0045c648      pop ebp\n0x0045c649      ret\n"
+    }
+  ]
+}
+
+=== Capture 5: producer_mid ===
+{
+  "content": [
+    {
+      "type": "text",
+      "text": "0x00c33999      push ecx\n0x00c3399a      lea edx, [var_24h]\n0x00c3399d      push edx\n0x00c3399e      lea eax, [var_30h]\n0x00c339a1      push eax\n0x00c339a2      lea ecx, [var_54h]\n; fcn.00a699d0\n; fcn.00a699d0(0xffffffcc, 0x0, 0xffffffa8)\n0x00c339a5      call fcn.00a699d0\n0x00c339aa      mov dword [var_190h], eax\n0x00c339b0      mov ecx, dword [var_190h]\n0x00c339b6      xor edx, edx\n0x00c339b8      shl edx, 4\n0x00c339bb      add edx, dword [arg_14h]\n0x00c339be      mov eax, dword [ecx]\n0x00c339c0      mov dword [edx], eax\n0x00c339c2      mov eax, dword [ecx + 4]\n0x00c339c5      mov dword [edx + 4], eax\n0x00c339c8      mov eax, dword [ecx + 8]\n0x00c339cb      mov dword [edx + 8], eax\n0x00c339ce      mov ecx, dword [ecx + 0xc]\n0x00c339d1      mov dword [edx + 0xc], ecx\n0x00c339d4      mov edx, 1\n0x00c339d9      shl edx, 1\n0x00c339db      not edx\n0x00c339dd      mov eax, dword [arg_14h]\n0x00c339e0      and edx, dword [eax + 0x60]\n0x00c339e3      mov ecx, dword [arg_14h]\n0x00c339e6      mov dword [ecx + 0x60], edx\n0x00c339e9      lea edx, [arg_8h]\n0x00c339ec      push edx\n0x00c339ed      lea eax, [var_24h]\n0x00c339f0      push eax\n0x00c339f1      lea ecx, [var_30h]\n0x00c339f4      push ecx\n0x00c339f5      lea ecx, [var_64h]\n; fcn.00a699d0\n; fcn.00a699d0(0xffffffd8, 0x0, 0xffffff98)\n0x00c339f8      call fcn.00a699d0\n0x00c339fd      mov dword [var_194h], eax\n0x00c33a03      mov edx, dword [var_194h]\n0x00c33a09      mov eax, 2\n0x00c33a0e      shl eax, 4\n0x00c33a11      add eax, dword [arg_14h]\n0x00c33a14      mov ecx, dword [edx]\n0x00c33a16      mov dword [eax], ecx\n0x00c33a18      mov ecx, dword [edx + 4]\n0x00c33a1b      mov dword [eax + 4], ecx\n0x00c33a1e      mov ecx, dword [edx + 8]\n0x00c33a21      mov dword [eax + 8], ecx\n0x00c33a24      mov edx, dword [edx + 0xc]\n0x00c33a27      mov dword [eax + 0xc], edx\n0x00c33a2a      lea eax, [arg_8h]\n0x00c33a2d      push eax\n0x00c33a2e      lea ecx, [var_ch]\n0x00c33a31      push ecx\n0x00c33a32      lea edx, [var_18h]\n0x00c33a35      push edx\n0x00c33a36      lea ecx, [var_74h]\n; fcn.00a699d0\n; fcn.00a699d0(0x4, 0x0, 0xffffff88)\n0x00c33a39      call fcn.00a699d0\n0x00c33a3e      mov dword [var_198h], eax\n0x00c33a44      mov eax, dword [var_198h]\n0x00c33a4a      mov ecx, 3\n0x00c33a4f      shl ecx, 4\n0x00c33a52      add ecx, dword [arg_14h]\n0x00c33a55      mov edx, dword [eax]\n0x00c33a57      mov dword [ecx], edx\n0x00c33a59      mov edx, dword [eax + 4]\n0x00c33a5c      mov dword [ecx + 4], edx\n0x00c33a5f      mov edx, dword [eax + 8]\n0x00c33a62      mov dword [ecx + 8], edx\n0x00c33a65      mov eax, dword [eax + 0xc]\n0x00c33a68      mov dword [ecx + 0xc], eax\n0x00c33a6b      lea ecx, [arg_8h]\n0x00c33a6e      push ecx\n0x00c33a6f      lea edx, [var_30h]\n0x00c33a72      push edx\n0x00c33a73      lea eax, [var_ch]\n0x00c33a76      push eax\n0x00c33a77      lea ecx, [var_84h]\n; fcn.00a699d0\n; fcn.00a699d0(0xfffffff0, 0x0, 0xffffff78)\n0x00c33a7d      call fcn.00a699d0\n0x00c33a82      mov dword [var_19ch], eax\n0x00c33a88      mov ecx, dword [var_19ch]\n0x00c33a8e      mov edx, 4\n0x00c33a93      shl edx, 4\n0x00c33a96      add edx, dword [arg_14h]\n0x00c33a99      mov eax, dword [ecx]\n0x00c33a9b      mov dword [edx], eax\n0x00c33a9d      mov eax, dword [ecx + 4]\n0x00c33aa0      mov dword [edx + 4], eax\n0x00c33aa3      mov eax, dword [ecx + 8]\n0x00c33aa6      mov dword [edx + 8], eax\n0x00c33aa9      mov ecx, dword [ecx + 0xc]\n0x00c33aac      mov dword [edx + 0xc], ecx\n0x00c33aaf      lea edx, [arg_8h]\n0x00c33ab2      push edx\n0x00c33ab3      lea eax, [var_18h]\n0x00c33ab6      push eax\n0x00c33ab7      lea ecx, [var_24h]\n0x00c33aba      push ecx\n0x00c33abb      lea ecx, [var_94h]\n; fcn.00a699d0\n; fcn.00a699d0(0xffffffe4, 0x0, 0xffffff68)\n0x00c33ac1      call fcn.00a699d0\n0x00c33ac6      mov dword [var_1a0h], eax\n0x00c33acc      mov edx, dword [var_1a0h]"
+    }
+  ]
+}
+
+=== Capture 6: producer_tail ===
+{
+  "content": [
+    {
+      "type": "text",
+      "text": "0x00c33ad2      mov eax, 5\n0x00c33ad7      shl eax, 4\n0x00c33ada      add eax, dword [arg_14h]\n0x00c33add      mov ecx, dword [edx]\n0x00c33adf      mov dword [eax], ecx\n0x00c33ae1      mov ecx, dword [edx + 4]\n0x00c33ae4      mov dword [eax + 4], ecx\n0x00c33ae7      mov ecx, dword [edx + 8]\n0x00c33aea      mov dword [eax + 8], ecx\n0x00c33aed      mov edx, dword [edx + 0xc]\n0x00c33af0      mov dword [eax + 0xc], edx\n0x00c33af3      jmp 0xc33c5e\n0x00c33af8      lea eax, [var_18h]\n0x00c33afb      push eax\n0x00c33afc      lea ecx, [var_30h]\n0x00c33aff      push ecx\n0x00c33b00      lea edx, [var_24h]\n0x00c33b03      push edx\n0x00c33b04      lea ecx, [var_a4h]\n; fcn.00a699d0\n; fcn.00a699d0(0xffffffe4, 0x0, 0xffffff58)\n0x00c33b0a      call fcn.00a699d0\n0x00c33b0f      mov dword [var_1a4h], eax\n0x00c33b15      mov eax, dword [var_1a4h]\n0x00c33b1b      xor ecx, ecx\n0x00c33b1d      shl ecx, 4\n0x00c33b20      add ecx, dword [arg_14h]\n0x00c33b23      mov edx, dword [eax]\n0x00c33b25      mov dword [ecx], edx\n0x00c33b27      mov edx, dword [eax + 4]\n0x00c33b2a      mov dword [ecx + 4], edx\n0x00c33b2d      mov edx, dword [eax + 8]\n0x00c33b30      mov dword [ecx + 8], edx\n0x00c33b33      mov eax, dword [eax + 0xc]\n0x00c33b36      mov dword [ecx + 0xc], eax\n0x00c33b39      mov ecx, 1\n0x00c33b3e      shl ecx, 1\n0x00c33b40      not ecx\n0x00c33b42      mov edx, dword [arg_14h]\n0x00c33b45      and ecx, dword [edx + 0x60]\n0x00c33b48      mov eax, dword [arg_14h]\n0x00c33b4b      mov dword [eax + 0x60], ecx\n0x00c33b4e      lea ecx, [arg_8h]\n0x00c33b51      push ecx\n0x00c33b52      lea edx, [var_30h]\n0x00c33b55      push edx\n0x00c33b56      lea eax, [var_24h]\n0x00c33b59      push eax\n0x00c33b5a      lea ecx, [var_b4h]\n; fcn.00a699d0\n; fcn.00a699d0(0xffffffd8, 0x0, 0xffffff48)\n0x00c33b60      call fcn.00a699d0\n0x00c33b65      mov dword [var_1a8h], eax\n0x00c33b6b      mov ecx, dword [var_1a8h]\n0x00c33b71      mov edx, 2\n0x00c33b76      shl edx, 4\n0x00c33b79      add edx, dword [arg_14h]\n0x00c33b7c      mov eax, dword [ecx]\n0x00c33b7e      mov dword [edx], eax\n0x00c33b80      mov eax, dword [ecx + 4]\n0x00c33b83      mov dword [edx + 4], eax\n0x00c33b86      mov eax, dword [ecx + 8]\n0x00c33b89      mov dword [edx + 8], eax\n0x00c33b8c      mov ecx, dword [ecx + 0xc]\n0x00c33b8f      mov dword [edx + 0xc], ecx\n0x00c33b92      lea edx, [arg_8h]\n0x00c33b95      push edx\n0x00c33b96      lea eax, [var_18h]\n0x00c33b99      push eax\n0x00c33b9a      lea ecx, [var_ch]\n0x00c33b9d      push ecx\n0x00c33b9e      lea ecx, [var_c4h]\n; fcn.00a699d0\n; fcn.00a699d0(0xffffffe4, 0x0, 0xffffff38)\n0x00c33ba4      call fcn.00a699d0\n0x00c33ba9      mov dword [var_1ach], eax\n0x00c33baf      mov edx, dword [var_1ach]\n0x00c33bb5      mov eax, 3\n0x00c33bba      shl eax, 4\n0x00c33bbd      add eax, dword [arg_14h]\n0x00c33bc0      mov ecx, dword [edx]\n0x00c33bc2      mov dword [eax], ecx\n0x00c33bc4      mov ecx, dword [edx + 4]\n0x00c33bc7      mov dword [eax + 4], ecx\n0x00c33bca      mov ecx, dword [edx + 8]\n0x00c33bcd      mov dword [eax + 8], ecx\n0x00c33bd0      mov edx, dword [edx + 0xc]\n0x00c33bd3      mov dword [eax + 0xc], edx\n0x00c33bd6      lea eax, [arg_8h]\n0x00c33bd9      push eax\n0x00c33bda      lea ecx, [var_ch]\n0x00c33bdd      push ecx\n0x00c33bde      lea edx, [var_30h]\n0x00c33be1      push edx\n0x00c33be2      lea ecx, [var_d4h]\n; fcn.00a699d0\n; fcn.00a699d0(0x4, 0x0, 0xffffff28)\n0x00c33be8      call fcn.00a699d0\n0x00c33bed      mov dword [var_1b0h], eax\n0x00c33bf3      mov eax, dword [var_1b0h]\n0x00c33bf9      mov ecx, 4\n0x00c33bfe      shl ecx, 4\n0x00c33c01      add ecx, dword [arg_14h]\n0x00c33c04      mov edx, dword [eax]\n0x00c33c06      mov dword [ecx], edx\n0x00c33c08      mov edx, dword [eax + 4]\n0x00c33c0b      mov dword [ecx + 4], edx\n0x00c33c0e      mov edx, dword [eax + 8]\n0x00c33c11      mov dword [ecx + 8], edx\n0x00c33c14      mov eax, dword [eax + 0xc]"
+    }
+  ]
+}
+
+=== Capture 7: bound_pair_outer ===
+{
+  "content": [
+    {
+      "type": "text",
+      "text": "; XREFS: CALL 0x0045b1d4  CALL 0x0045b37f  CALL 0x0045b41b\n; XREFS: CALL 0x0045b4ed  CALL 0x0045b69b  CALL 0x0045b7e0\n; XREFS: CALL 0x006fa772  CALL 0x006fa7b5  CALL 0x006fa7f8\n182: fcn.00b5bbe0 (int32_t arg_10h, int32_t arg_18h_2, int32_t arg_30h, int32_t arg_18h);\n`- args(sp[0x4..0x14])\n0x00b5bbe0      push ebx\n0x00b5bbe1      mov ebx, dword [arg_18h]\n0x00b5bbe5      push esi\n0x00b5bbe6      push edi\n0x00b5bbe7      mov edi, dword [arg_10h]\n0x00b5bbeb      mov eax, dword [edi + 0xac]\n0x00b5bbf1      mov esi, ecx\n0x00b5bbf3      mov ecx, dword [eax + 0xc]\n0x00b5bbf6      mov eax, dword [ebx + 0x90]\n0x00b5bbfc      mov edx, dword [ecx + 8]\n; 1\n0x00b5bbff      cmp eax, 1\n; unlikely\n0x00b5bc02      je 0xb5bc90\n; 3\n0x00b5bc08      cmp eax, 3\n; unlikely\n0x00b5bc0b      je 0xb5bc90\n0x00b5bc11      test edx, edx\n; likely\n0x00b5bc13      jne 0xb5bc90\n0x00b5bc15      cmp word [edi + 0xa8], dx\n; likely\n0x00b5bc1c      jbe 0xb5bc90\n0x00b5bc1e      mov edx, dword [ecx]\n0x00b5bc20      mov edx, dword [edx + 0x9c]\n0x00b5bc26      lea eax, [ebx + 0x2c]\n0x00b5bc29      push eax\n; 0xffffffff(0x2b, -1, -1, -1)\n0x00b5bc2a      call edx\n0x00b5bc2c      mov edx, dword [edi + 0xac]\n0x00b5bc32      mov edx, dword [edx + 0xc]\n0x00b5bc35      xor ecx, ecx\n0x00b5bc37      test al, al\n0x00b5bc39      sete cl\n0x00b5bc3c      inc ecx\n0x00b5bc3d      mov dword [edx + 8], ecx\n0x00b5bc40      test al, al\n; unlikely\n0x00b5bc42      je 0xb5bc90\n0x00b5bc44      mov eax, dword [esi + 0x1e0]\n0x00b5bc4a      test eax, eax\n; unlikely\n0x00b5bc4c      je 0xb5bc90\n0x00b5bc4e      mov esi, dword [eax + 8]\n0x00b5bc51      test esi, esi\n; unlikely\n0x00b5bc53      je 0xb5bc90\n0x00b5bc55      lea eax, [esi + 8]\n0x00b5bc58      mov eax, dword [eax]\n0x00b5bc5a      mov esi, dword [esi]\n0x00b5bc5c      test eax, eax\n; unlikely\n0x00b5bc5e      je 0xb5bc8c\n0x00b5bc60      cmp dword [eax + 0x40], 1\n; likely\n0x00b5bc64      jne 0xb5bc8c\n0x00b5bc66      mov ecx, dword [arg_10h]\n0x00b5bc6a      mov edx, dword [arg_18h_2]\n0x00b5bc6e      push eax\n0x00b5bc6f      push ebx\n0x00b5bc70      sub esp, 0xc\n0x00b5bc73      mov eax, esp\n0x00b5bc75      mov dword [eax], ecx\n0x00b5bc77      mov ecx, dword [arg_30h]\n0x00b5bc7b      mov dword [eax + 4], edx\n0x00b5bc7e      mov dword [eax + 8], ecx\n0x00b5bc81      mov ecx, edi\n; fcn.00c47150\n; fcn.00c47150(0xffffffd8, -1, -1, -1, -1)\n0x00b5bc83      call fcn.00c47150\n0x00b5bc88      test al, al\n; unlikely\n0x00b5bc8a      je 0xb5bc90\n0x00b5bc8c      test esi, esi\n; likely\n0x00b5bc8e      jne 0xb5bc55\n0x00b5bc90      pop edi\n0x00b5bc91      pop esi\n0x00b5bc92      pop ebx\n0x00b5bc93      ret 0x14\n"
+    }
+  ]
+}
+
+=== Capture 8: plane_default_constructor ===
+{
+  "content": [
+    {
+      "type": "text",
+      "text": "; XREFS(25)\n34: fcn.00a69940 ();\n0x00a69940      fldz\n0x00a69942      mov eax, ecx\n; [0x11f426c:4]=0\n0x00a69944      mov ecx, dword [0x11f426c]\n0x00a6994a      mov dword [eax], ecx\n; [0x11f4270:4]=0\n0x00a6994c      mov edx, dword [0x11f4270]\n0x00a69952      mov dword [eax + 4], edx\n; [0x11f4274:4]=0\n0x00a69955      mov ecx, dword [0x11f4274]\n0x00a6995b      fstp dword [eax + 0xc]\n0x00a6995e      mov dword [eax + 8], ecx\n0x00a69961      ret\n"
+    }
+  ]
+}
+
+=== Capture 9: array_constructor_loop ===
+{
+  "content": [
+    {
+      "type": "text",
+      "text": "; XREFS(288)\n35: fcn.00401050 (int32_t arg_8h, int32_t arg_ch, int32_t arg_10h);\n`- args(sp[0x4..0xc])\n0x00401050      push ebp\n0x00401051      mov ebp, esp\n; CODE XREF from fcn.00401050 @ 0x40106d(x)\n0x00401053      mov eax, dword [arg_10h]\n0x00401056      sub eax, 1\n0x00401059      mov dword [arg_10h], eax\n; likely\n0x0040105c      js 0x40106f\n0x0040105e      mov ecx, dword [arg_8h]\n; 20\n; 0x14(0xfffffffe, 0x0, -1, 0x0)\n0x00401061      call dword [ebp + 0x14]\n0x00401064      mov ecx, dword [arg_8h]\n0x00401067      add ecx, dword [arg_ch]\n0x0040106a      mov dword [arg_8h], ecx\n0x0040106d      jmp 0x401053\n0x0040106f      pop ebp\n0x00401070      ret 0x10\n"
+    }
+  ]
+}
+
+=== Capture 10: plane_producer_exit ===
+{
+  "content": [
+    {
+      "type": "text",
+      "text": "0x00c33c17      mov dword [ecx + 0xc], eax\n0x00c33c1a      lea ecx, [arg_8h]\n0x00c33c1d      push ecx\n0x00c33c1e      lea edx, [var_24h]\n0x00c33c21      push edx\n0x00c33c22      lea eax, [var_18h]\n0x00c33c25      push eax\n0x00c33c26      lea ecx, [var_e4h]\n; fcn.00a699d0\n; fcn.00a699d0(0xffffffe4, 0x0, 0xffffff18)\n0x00c33c2c      call fcn.00a699d0\n0x00c33c31      mov dword [var_1b4h], eax\n0x00c33c37      mov ecx, dword [var_1b4h]\n0x00c33c3d      mov edx, 5\n0x00c33c42      shl edx, 4\n0x00c33c45      add edx, dword [arg_14h]\n0x00c33c48      mov eax, dword [ecx]\n0x00c33c4a      mov dword [edx], eax\n0x00c33c4c      mov eax, dword [ecx + 4]\n0x00c33c4f      mov dword [edx + 4], eax\n0x00c33c52      mov eax, dword [ecx + 8]\n0x00c33c55      mov dword [edx + 8], eax\n0x00c33c58      mov ecx, dword [ecx + 0xc]\n0x00c33c5b      mov dword [edx + 0xc], ecx\n; CODE XREF from fcn.00c33870 @ 0xc33af3(x)\n0x00c33c5e      mov dword [var_44h], 0\n0x00c33c65      jmp 0xc33c70\n; CODE XREF from fcn.00c33870 @ 0xc33ca6(x)\n0x00c33c67      mov edx, dword [var_44h]\n0x00c33c6a      add edx, 1\n0x00c33c6d      mov dword [var_44h], edx\n; CODE XREF from fcn.00c33870 @ 0xc33c65(x)\n0x00c33c70      cmp dword [var_44h], 4\n; unlikely\n0x00c33c74      jge 0xc33ca8\n0x00c33c76      mov eax, dword [var_1b8h]\n0x00c33c7c      add eax, dword [var_44h]\n0x00c33c7f      movzx ecx, byte [eax + 0xe6]\n; 1\n0x00c33c86      cmp ecx, 1\n; likely\n0x00c33c89      jne 0xc33ca6\n0x00c33c8b      mov ecx, dword [var_44h]\n0x00c33c8e      add ecx, 2\n0x00c33c91      mov edx, 1\n0x00c33c96      shl edx, cl\n0x00c33c98      not edx\n0x00c33c9a      mov eax, dword [arg_14h]\n0x00c33c9d      and edx, dword [eax + 0x60]\n0x00c33ca0      mov ecx, dword [arg_14h]\n0x00c33ca3      mov dword [ecx + 0x60], edx\n0x00c33ca6      jmp 0xc33c67\n0x00c33ca8      mov edx, dword [var_1b8h]\n; 216\n0x00c33cae      add edx, 0xd8\n0x00c33cb4      mov eax, dword [arg_8h]\n0x00c33cb7      mov dword [edx], eax\n0x00c33cb9      mov ecx, dword [arg_ch]\n0x00c33cbc      mov dword [edx + 4], ecx\n0x00c33cbf      mov eax, dword [arg_10h]\n0x00c33cc2      mov dword [edx + 8], eax\n0x00c33cc5      mov esi, dword [arg_14h]\n0x00c33cc8      mov edi, dword [var_1b8h]\n; 68\n0x00c33cce      add edi, 0x44\n; 25\n0x00c33cd1      mov ecx, 0x19\n0x00c33cd6      rep movsd dword es:[edi], dword [esi]\n0x00c33cd8      mov ecx, dword [var_1b8h]\n0x00c33cde      mov byte [ecx + 0xe5], 0\n; CODE XREF from fcn.00c33870 @ 0xc3391a(x)\n0x00c33ce5      pop edi\n0x00c33ce6      pop esi\n0x00c33ce7      mov esp, ebp\n0x00c33ce9      pop ebp\n0x00c33cea      ret 0x10\n"
+    }
+  ]
+}
+
+=== Capture 11: alternate_pair_owner ===
+{
+  "content": [
+    {
+      "type": "text",
+      "text": "460: fcn.008d6d40 (int32_t arg_8h);\n`- args(sp[0x4..0x4]) vars(12:sp[0x8..0x34])\n0x008d6d40      push ebp\n0x008d6d41      mov ebp, esp\n0x008d6d43      sub esp, 0x30\n0x008d6d46      mov dword [var_2ch], ecx\n0x008d6d49      mov ecx, dword [arg_8h]\n; fcn.0043fcd0\n0x008d6d4c      call fcn.0043fcd0\n0x008d6d51      mov dword [var_4h], eax\n0x008d6d54      cmp dword [var_4h], 0\n; unlikely\n0x008d6d58      je 0x8d6f06\n0x008d6d5e      mov eax, dword [var_4h]\n0x008d6d61      push eax\n0x008d6d62      mov ecx, dword [var_2ch]\n0x008d6d65      add ecx, 8\n0x008d6d68      mov edx, dword [var_2ch]\n0x008d6d6b      mov eax, dword [edx + 8]\n0x008d6d6e      mov edx, dword [eax + 0x44]\n; 0xffffffff(-1, 0x0, 0x7, -1)\n0x008d6d71      call edx\n0x008d6d73      mov eax, dword [var_4h]\n0x008d6d76      mov edx, dword [eax]\n0x008d6d78      mov ecx, dword [var_4h]\n0x008d6d7b      mov eax, dword [edx + 0x10]\n; 0xffffffff(-1, 0x0, -1, -1)\n0x008d6d7e      call eax\n0x008d6d80      mov dword [var_8h], eax\n0x008d6d83      cmp dword [var_8h], 0\n; unlikely\n0x008d6d87      je 0x8d6f06\n0x008d6d8d      mov ecx, dword [var_8h]\n; fcn.00552470\n0x008d6d90      call fcn.00552470\n0x008d6d95      movzx ecx, al\n0x008d6d98      test ecx, ecx\n; likely\n0x008d6d9a      jne 0x8d6f06\n0x008d6da0      mov ecx, dword [var_8h]\n; fcn.0043d450\n0x008d6da3      call fcn.0043d450\n0x008d6da8      mov edx, dword [eax]\n0x008d6daa      mov dword [var_18h], edx\n0x008d6dad      mov ecx, dword [eax + 4]\n0x008d6db0      mov dword [var_14h], ecx\n0x008d6db3      mov edx, dword [eax + 8]\n0x008d6db6      mov dword [var_10h], edx\n0x008d6db9      mov eax, dword [eax + 0xc]\n0x008d6dbc      mov dword [var_ch], eax\n0x008d6dbf      mov ecx, dword [var_2ch]\n; 160\n0x008d6dc2      add ecx, 0xa0\n; fcn.00559450\n0x008d6dc8      call fcn.00559450\n0x008d6dcd      mov dword [var_30h], eax\n0x008d6dd0      lea ecx, [var_18h]\n; fcn.006815c0\n0x008d6dd3      call fcn.006815c0\n0x008d6dd8      push eax\n0x008d6dd9      mov ecx, dword [var_30h]\n0x008d6ddc      mov edx, dword [ecx]\n0x008d6dde      mov ecx, dword [var_30h]\n0x008d6de1      mov eax, dword [edx + 0xb8]\n; 0xffffffff(-1, 0x0, -1, -1)\n0x008d6de7      call eax\n0x008d6de9      lea ecx, [var_18h]\n; fcn.0084d030\n0x008d6dec      call fcn.0084d030\n0x008d6df1      push ecx\n0x008d6df2      fstp dword [esp]\n0x008d6df5      mov ecx, dword [var_2ch]\n; 160\n0x008d6df8      add ecx, 0xa0\n; fcn.00559450\n0x008d6dfe      call fcn.00559450\n0x008d6e03      mov ecx, eax\n; fcn.00819a50\n0x008d6e05      call fcn.00819a50\n0x008d6e0a      mov dword [var_1ch], 0\n; [0x11dea10:4]=0\n0x008d6e11      mov ecx, dword [0x11dea10]\n; fcn.005f36f0\n0x008d6e17      call fcn.005f36f0\n0x008d6e1c      test eax, eax\n; unlikely\n0x008d6e1e      je 0x8d6e37\n; [0x11dea10:4]=0\n0x008d6e20      mov ecx, dword [0x11dea10]\n; fcn.005f36f0\n0x008d6e26      call fcn.005f36f0\n0x008d6e2b      mov ecx, eax\n; fcn.009d9f20\n0x008d6e2d      call fcn.009d9f20\n0x008d6e32      mov dword [var_1ch], eax\n0x008d6e35      jmp 0x8d6e5b\n; [0x11dea10:4]=0\n0x008d6e37      mov ecx, dword [0x11dea10]\n; fcn.004fd3e0\n0x008d6e3d      call fcn.004fd3e0\n0x008d6e42      test eax, eax\n; unlikely\n0x008d6e44      je 0x8d6e5b\n; [0x11dea10:4]=0\n0x008d6e46      mov ecx, dword [0x11dea10]\n; fcn.004fd3e0\n0x008d6e4c      call fcn.004fd3e0\n0x008d6e51      mov ecx, eax\n; fcn.006698d0\n0x008d6e53      call fcn.006698d0\n0x008d6e58      mov dword [var_1ch], eax\n; CODE XREF from fcn.008d6d40 @ 0x8d6e35(x)\n0x008d6e5b      cmp dword [var_1ch], 0\n; unlikely\n0x008d6e5f      je 0x8d6f06\n0x008d6e65      mov ecx, dword [var_1ch]\n; fcn.00413f40\n0x008d6e68      call fcn.00413f40\n0x008d6e6d      mov dword [var_20h], eax\n0x008d6e70      mov ecx, dword [var_20h]\n; fcn.00559450\n0x008d6e73      call fcn.00559450\n0x008d6e78      mov dword [var_24h], eax\n; CODE XREF from fcn.008d6d40 @ 0x8d6f01(x)\n0x008d6e7b      cmp dword [var_24h], 0\n; unlikely\n0x008d6e7f      je 0x8d6f06\n0x008d6e85      lea ecx, [var_24h]\n0x008d6e88      push ecx\n0x008d6e89      mov ecx, dword [var_20h]"
+    }
+  ]
+}
+
+=== Capture 12: identity_admission ===
+{
+  "content": [
+    {
+      "type": "text",
+      "text": "; NULL XREF from fcn.00b63a90 @ +0x77(x)\n79: fcn.00b63b10 (int32_t arg_14h);\n`- args()\n0x00b63b10      push ebx\n0x00b63b11      push ebp\n0x00b63b12      push esi\n0x00b63b13      push edi\n0x00b63b14      mov esi, ecx\n0x00b63b16      lea edi, [esi + 0x200]\n0x00b63b1c      push edi\n; 0xfdf05c\n; reloc.KERNEL32.dll_EnterCriticalSection\n; sym.imp.KERNEL32.dll_EnterCriticalSection(0x0, 0x0, 0x0, 0x0)\n0x00b63b1d      call dword [sym.imp.KERNEL32.dll_EnterCriticalSection]\n0x00b63b23      mov ebp, dword [arg_14h]\n0x00b63b27      lea eax, [arg_14h]\n0x00b63b2b      push eax\n; 436\n0x00b63b2c      add esi, 0x1b4\n0x00b63b32      push ebp\n0x00b63b33      mov ecx, esi\n; fcn.00b63170\n; fcn.00b63170(0xfffffffc)\n0x00b63b35      call fcn.00b63170\n0x00b63b3a      mov bl, al\n0x00b63b3c      test bl, bl\n; likely\n0x00b63b3e      jne 0xb63b4a\n; 1\n0x00b63b40      push 1\n0x00b63b42      push ebp\n0x00b63b43      mov ecx, esi\n; fcn.00a5d320\n; fcn.00a5d320(0xfffffffc)\n0x00b63b45      call fcn.00a5d320\n0x00b63b4a      push edi\n; 0xfdf100\n; \"h\\r\\xd8\"\n; reloc.KERNEL32.dll_LeaveCriticalSection\n; sym.imp.KERNEL32.dll_LeaveCriticalSection(0xfffffffc, 0xfc, 0x1b4, 0x0)\n0x00b63b4b      call dword [sym.imp.KERNEL32.dll_LeaveCriticalSection]\n0x00b63b51      pop edi\n0x00b63b52      pop esi\n0x00b63b53      xor eax, eax\n0x00b63b55      test bl, bl\n0x00b63b57      pop ebp\n0x00b63b58      sete al\n0x00b63b5b      pop ebx\n0x00b63b5c      ret 4\n"
+    }
+  ]
+}
+
+=== Capture 13: identity_lookup ===
+{
+  "content": [
+    {
+      "type": "text",
+      "text": "; CALL XREF from fcn.00a59e70 @ 0xa59e94(x)\n; CALL XREF from fcn.00b63b10 @ 0xb63b35(x)\n78: fcn.00b63170 (int32_t arg_8h);\n`- args(sp[0x4..0x4]) vars(1:sp[0x4..0x4])\n0x00b63170      push ebx\n0x00b63171      mov ebx, dword [arg_8h]\n0x00b63175      push esi\n0x00b63176      mov esi, ecx\n0x00b63178      mov eax, dword [esi]\n0x00b6317a      mov edx, dword [eax + 4]\n0x00b6317d      push edi\n0x00b6317e      push ebx\n; 0xffffffff(-1, -1, 0x0, -1)\n0x00b6317f      call edx\n0x00b63181      mov ecx, dword [esi + 8]\n0x00b63184      mov edi, dword [ecx + eax*4]\n0x00b63187      test edi, edi\n; unlikely\n0x00b63189      je 0xb631a8\n0x00b6318b      jmp 0xb63190\n..\n; CODE XREF from fcn.00b63170 @ 0xb6318b(x)\n0x00b63190      mov eax, dword [edi + 4]\n0x00b63193      mov edx, dword [esi]\n0x00b63195      mov edx, dword [edx + 8]\n0x00b63198      push eax\n0x00b63199      push ebx\n0x00b6319a      mov ecx, esi\n; 0xffffffff(-1, -1, 0x0, -1)\n0x00b6319c      call edx\n0x00b6319e      test al, al\n; likely\n0x00b631a0      jne 0xb631b0\n0x00b631a2      mov edi, dword [edi]\n0x00b631a4      test edi, edi\n; likely\n0x00b631a6      jne 0xb63190\n0x00b631a8      pop edi\n0x00b631a9      pop esi\n0x00b631aa      xor al, al\n0x00b631ac      pop ebx\n0x00b631ad      ret 8\n0x00b631b0      mov al, byte [edi + 8]\n0x00b631b3      mov ecx, dword [var_14h]\n0x00b631b7      pop edi\n0x00b631b8      pop esi\n0x00b631b9      mov byte [ecx], al\n0x00b631bb      mov al, 1\n0x00b631bd      pop ebx\n0x00b631be      ret 8\n"
+    }
+  ]
+}
+
+=== Capture 14: identity_insert ===
+{
+  "content": [
+    {
+      "type": "text",
+      "text": "; CALL XREF from fcn.00a5d430 @ 0xa5d43a(x)\n; CALL XREF from fcn.00b63b10 @ 0xb63b45(x)\n121: fcn.00a5d320 (int32_t arg_8h);\n`- args(sp[0x4..0x4]) vars(1:sp[0x4..0x4])\n0x00a5d320      push ebx\n0x00a5d321      mov ebx, dword [arg_8h]\n0x00a5d325      push ebp\n0x00a5d326      push esi\n0x00a5d327      mov esi, ecx\n0x00a5d329      mov eax, dword [esi]\n0x00a5d32b      mov edx, dword [eax + 4]\n0x00a5d32e      push edi\n0x00a5d32f      push ebx\n; 0xffffffff(-1, -1, 0x0, -1)\n0x00a5d330      call edx\n0x00a5d332      mov ebp, eax\n0x00a5d334      mov eax, dword [esi + 8]\n0x00a5d337      mov edi, dword [eax + ebp*4]\n0x00a5d33a      test edi, edi\n; unlikely\n0x00a5d33c      je 0xa5d358\n0x00a5d33e      mov edi, edi\n0x00a5d340      mov eax, dword [edi + 4]\n0x00a5d343      mov edx, dword [esi]\n0x00a5d345      mov edx, dword [edx + 8]\n0x00a5d348      push eax\n0x00a5d349      push ebx\n0x00a5d34a      mov ecx, esi\n; 0xffffffff(-1, -1, 0x0, -1)\n0x00a5d34c      call edx\n0x00a5d34e      test al, al\n; likely\n0x00a5d350      jne 0xa5d38b\n0x00a5d352      mov edi, dword [edi]\n0x00a5d354      test edi, edi\n; likely\n0x00a5d356      jne 0xa5d340\n0x00a5d358      mov edx, dword [esi]\n0x00a5d35a      mov eax, dword [edx + 0x14]\n0x00a5d35d      mov ecx, esi\n; 0xffffffff(-1, -1, 0x0, -1)\n0x00a5d35f      call eax\n0x00a5d361      mov edx, dword [esi]\n0x00a5d363      mov edx, dword [edx + 0xc]\n0x00a5d366      mov edi, eax\n0x00a5d368      mov eax, dword [arg_8h]\n0x00a5d36c      push eax\n0x00a5d36d      push ebx\n0x00a5d36e      push edi\n0x00a5d36f      mov ecx, esi\n; 0xffffffff(-1, -1, 0x0, -1)\n0x00a5d371      call edx\n0x00a5d373      mov eax, dword [esi + 8]\n0x00a5d376      mov ecx, dword [eax + ebp*4]\n0x00a5d379      mov dword [edi], ecx\n0x00a5d37b      mov edx, dword [esi + 8]\n0x00a5d37e      mov dword [edx + ebp*4], edi\n0x00a5d381      inc dword [esi + 0xc]\n0x00a5d384      pop edi\n0x00a5d385      pop esi\n0x00a5d386      pop ebp\n0x00a5d387      pop ebx\n0x00a5d388      ret 8\n0x00a5d38b      mov al, byte [var_18h]\n0x00a5d38f      mov byte [edi + 8], al\n0x00a5d392      pop edi\n0x00a5d393      pop esi\n0x00a5d394      pop ebp\n0x00a5d395      pop ebx\n0x00a5d396      ret 8\n"
+    }
+  ]
+}
+
+=== Capture 15: identity_clear ===
+{
+  "content": [
+    {
+      "type": "text",
+      "text": "; XREFS(202)\n97: fcn.00b601a0 ();\n0x00b601a0      push ebx\n0x00b601a1      push esi\n0x00b601a2      mov esi, ecx\n0x00b601a4      xor ebx, ebx\n0x00b601a6      cmp dword [esi + 4], ebx\n; unlikely\n0x00b601a9      jbe 0xb601fb\n0x00b601ab      push edi\n0x00b601ac      lea esp, [esp]\n0x00b601b0      mov eax, dword [esi + 8]\n0x00b601b3      cmp dword [eax + ebx*4], 0\n; unlikely\n0x00b601b7      je 0xb601ea\n0x00b601b9      lea esp, [esp]\n0x00b601c0      mov ecx, dword [esi + 8]\n0x00b601c3      mov edi, dword [ecx + ebx*4]\n0x00b601c6      mov edx, dword [edi]\n0x00b601c8      lea eax, [ecx + ebx*4]\n0x00b601cb      mov dword [eax], edx\n0x00b601cd      mov eax, dword [esi]\n0x00b601cf      mov edx, dword [eax + 0x10]\n0x00b601d2      push edi\n0x00b601d3      mov ecx, esi\n; 0xffffffff(-1, 0x0, 0x0, -1)\n0x00b601d5      call edx\n0x00b601d7      mov eax, dword [esi]\n0x00b601d9      mov edx, dword [eax + 0x18]\n0x00b601dc      push edi\n0x00b601dd      mov ecx, esi\n; 0xffffffff(-1, 0x0, 0x0, -1)\n0x00b601df      call edx\n0x00b601e1      mov eax, dword [esi + 8]\n0x00b601e4      cmp dword [eax + ebx*4], 0\n; likely\n0x00b601e8      jne 0xb601c0\n0x00b601ea      inc ebx\n0x00b601eb      cmp ebx, dword [esi + 4]\n; likely\n0x00b601ee      jb 0xb601b0\n0x00b601f0      pop edi\n0x00b601f1      mov dword [esi + 0xc], 0\n0x00b601f8      pop esi\n0x00b601f9      pop ebx\n0x00b601fa      ret\n0x00b601fb      mov dword [esi + 0xc], ebx\n0x00b601fe      pop esi\n0x00b601ff      pop ebx\n0x00b60200      ret\n"
+    }
+  ]
+}
+
+=== Capture 16: identity_map_vtable ===
+{
+  "content": [
+    {
+      "type": "text",
+      "text": "- offset -  D8D9 DADB DCDD DEDF E0E1 E2E3 E4E5 E6E7  89ABCDEF01234567\n0x010adfd8  703e b600 4038 a600 9025 e900 d03b b600  p>..@8...%...;..\n0x010adfe8  f09a a800 502e e700 f03d b600 0000 0000  ....P....=......\n0x010adff8  f064 b600 20cc cf00 805a b600 70bb ac00  .d.. ....Z..p...\n0x010ae008  70bb ac00 70bb ac00 70bb ac00 70bb ac00  p...p...p...p...\n0x010ae018  70bb ac00 70bb ac00 70bb ac00 70bb ac00  p...p...p...p...\n"
+    }
+  ]
+}
+
+=== Capture 17: identity_set_payload ===
+{
+  "content": [
+    {
+      "type": "text",
+      "text": "; NULL XREF from fcn.00b63a90 @ +0x77(x)\n21: fcn.00b63bd0 (int32_t arg_4h, int32_t arg_8h, int8_t arg_ch);\n`- args(sp[0x4..0xc])\n0x00b63bd0      mov eax, dword [arg_4h]\n0x00b63bd4      mov ecx, dword [arg_8h]\n0x00b63bd8      mov dl, byte [arg_ch]\n0x00b63bdc      mov dword [eax + 4], ecx\n0x00b63bdf      mov byte [eax + 8], dl\n0x00b63be2      ret 0xc\n"
+    }
+  ]
+}
+
+=== Capture 18: identity_node_retire_payload ===
+{
+  "content": [
+    {
+      "type": "text",
+      "text": "; XREFS(77)\n3: fcn.00a89af0 ();\n0x00a89af0      ret 4\n"
+    }
+  ]
+}
+
+=== Capture 19: identity_node_allocate ===
+{
+  "content": [
+    {
+      "type": "text",
+      "text": "; NULL XREF from fcn.00e72cf0 @ +0xf5(x)\n8: fcn.00e72e50 ();\n; 12\n0x00e72e50      add ecx, 0xc\n; fcn.0043a010\n0x00e72e53      jmp fcn.0043a010\n"
+    }
+  ]
+}
+
+=== Capture 20: identity_node_release ===
+{
+  "content": [
+    {
+      "type": "text",
+      "text": "; NULL XREF from fcn.00b63c60 @ +0xa2(x)\n64: fcn.00b63df0 (int32_t arg_8h);\n`- args(sp[0x4..0x4])\n0x00b63df0      push esi\n0x00b63df1      mov esi, dword [arg_8h]\n0x00b63df5      push 0\n0x00b63df7      mov ecx, 0x11c5f80\n0x00b63dfc      mov byte [esi + 8], 0\n; fcn.0040fbf0\n0x00b63e00      call fcn.0040fbf0\n0x00b63e05      mov dword [esi + 4], 0\n; [0x11c5f58:4]=0\n0x00b63e0c      mov eax, dword [0x11c5f58]\n0x00b63e11      mov dword [esi], eax\n; [0x11c5f84:4]=0\n0x00b63e13      sub dword [0x11c5f84], 1\n; [0x11c5f58:4]=0\n0x00b63e1a      mov dword [0x11c5f58], esi\n0x00b63e20      pop esi\n; likely\n0x00b63e21      jne 0xb63e2d\n; [0x11c5f80:4]=0\n0x00b63e23      mov dword [0x11c5f80], 0\n0x00b63e2d      ret 4\n"
+    }
+  ]
+}
+
+=== Capture 21: identity_copy_insert ===
+{
+  "content": [
+    {
+      "type": "text",
+      "text": "; XREFS: CALL 0x00a3247e  CALL 0x00a36e8b  CALL 0x00a3dc89\n; XREFS: CALL 0x00a4bb8a  CALL 0x00a5b8fa  0x00a5c203\n; XREFS: CALL 0x00a6d0c9  CALL 0x00a6e5bd  CALL 0x00c30929\n; XREFS: CALL 0x00c317ea  CALL 0x00c3258a\n18: fcn.00a5d430 (int32_t arg_4h);\n`- args(sp[0x4..0x4])\n0x00a5d430      mov eax, dword [arg_4h]\n; 1\n0x00a5d434      push 1\n0x00a5d436      push ecx\n0x00a5d437      mov ecx, dword [eax + 4]\n; fcn.00a5d320\n; fcn.00a5d320(-1)\n0x00a5d43a      call fcn.00a5d320\n0x00a5d43f      ret 4\n"
+    }
+  ]
+}
+
+=== Capture 22: identity_other_lookup ===
+{
+  "content": [
+    {
+      "type": "text",
+      "text": "; CALL XREF from fcn.00a59ec0 @ 0xa59edb(x)\n65: fcn.00a59e70 (int32_t arg_4h, int32_t arg_10h);\n`- args(sp[0x4..0x8])\n0x00a59e70      mov eax, dword [arg_4h]\n0x00a59e74      push esi\n0x00a59e75      mov esi, dword [eax + 4]\n0x00a59e78      test esi, esi\n; unlikely\n0x00a59e7a      je 0xa59ead\n0x00a59e7c      push ebx\n0x00a59e7d      mov ebx, dword [arg_10h]\n0x00a59e81      push edi\n0x00a59e82      mov edi, dword [esi + 8]\n0x00a59e85      lea eax, [esi + 8]\n0x00a59e88      mov esi, dword [esi + 4]\n0x00a59e8b      lea ecx, [arg_4h]\n0x00a59e8f      push ecx\n0x00a59e90      mov ecx, dword [ebx + 4]\n0x00a59e93      push edi\n; fcn.00b63170\n; fcn.00b63170(0x7)\n0x00a59e94      call fcn.00b63170\n0x00a59e99      test al, al\n; likely\n0x00a59e9b      jne 0xa59ea7\n0x00a59e9d      mov edx, dword [edi]\n0x00a59e9f      mov eax, dword [edx + 0x68]\n0x00a59ea2      push ebx\n0x00a59ea3      mov ecx, edi\n; 0xffffffff(-1, -1, -1, -1)\n0x00a59ea5      call eax\n0x00a59ea7      test esi, esi\n; likely\n0x00a59ea9      jne 0xa59e82\n0x00a59eab      pop edi\n0x00a59eac      pop ebx\n0x00a59ead      pop esi\n0x00a59eae      ret 8\n"
+    }
+  ]
+}
+
+=== Capture 23: identity_hash ===
+{
+  "content": [
+    {
+      "type": "text",
+      "text": "14: fcn.00a63840 (int32_t arg_4h);\n`- args(sp[0x4..0x4])\n0x00a63840      mov eax, dword [arg_4h]\n0x00a63844      xor edx, edx\n0x00a63846      div dword [ecx + 4]\n0x00a63849      mov eax, edx\n0x00a6384b      ret 4\n"
+    }
+  ]
+}
+
+=== Capture 24: identity_equal ===
+{
+  "content": [
+    {
+      "type": "text",
+      "text": "; NULL XREF from fcn.00e92520 @ +0x66(x)\n16: fcn.00e92590 (int32_t arg_4h, int32_t arg_8h);\n`- args(sp[0x4..0x8])\n0x00e92590      mov ecx, dword [arg_4h]\n0x00e92594      xor eax, eax\n0x00e92596      cmp ecx, dword [arg_8h]\n0x00e9259a      sete al\n0x00e9259d      ret 8\n"
+    }
+  ]
+}
+
+=== Capture 25: identity_pool_acquire ===
+{
+  "content": [
+    {
+      "type": "text",
+      "text": "; XREFS(49)\n103: fcn.0043a010 ();\nafv: vars(2:sp[0x8..0xc])\n0x0043a010      push ebp\n0x0043a011      mov ebp, esp\n0x0043a013      sub esp, 8\n0x0043a016      mov dword [var_8h], ecx\n0x0043a019      push 0\n0x0043a01b      mov ecx, 0x11c5f80\n; fcn.0040fbf0\n0x0043a020      call fcn.0040fbf0\n; [0x11c5f58:4]=0\n0x0043a025      cmp dword [0x11c5f58], 0\n; unlikely\n0x0043a02c      jne 0x43a033\n; fcn.0043a080\n0x0043a02e      call fcn.0043a080\n; [0x11c5f58:4]=0\n0x0043a033      mov eax, dword [0x11c5f58]\n0x0043a038      mov dword [var_4h], eax\n; [0x11c5f58:4]=0\n0x0043a03b      mov ecx, dword [0x11c5f58]\n0x0043a041      mov edx, dword [ecx]\n; [0x11c5f58:4]=0\n0x0043a043      mov dword [0x11c5f58], edx\n0x0043a049      mov eax, dword [var_4h]\n0x0043a04c      mov dword [eax + 8], 0\n0x0043a053      mov ecx, dword [var_4h]\n0x0043a056      mov dword [ecx], 0\n0x0043a05c      mov edx, dword [var_4h]\n0x0043a05f      mov dword [edx + 4], 0\n0x0043a066      mov ecx, 0x11c5f80\n; fcn.0040fba0\n0x0043a06b      call fcn.0040fba0\n0x0043a070      mov eax, dword [var_4h]\n0x0043a073      mov esp, ebp\n0x0043a075      pop ebp\n0x0043a076      ret\n"
+    }
+  ]
+}
+
+=== Capture 26: identity_accumulator_constructor_start ===
+{
+  "content": [
+    {
+      "type": "text",
+      "text": "; XREFS: CALL 0x0049fd6f  CALL 0x004bc008  CALL 0x004e9e76\n; XREFS: CALL 0x004eab63  CALL 0x004eb0d4  CALL 0x004ec0bc\n; XREFS: CALL 0x0054eac5  CALL 0x00640620  CALL 0x0070a793\n; XREFS: CALL 0x0070a814  CALL 0x007fc1a1  CALL 0x008000a0\n; XREFS: CALL 0x0086c2ba  CALL 0x0086c30d  CALL 0x0086c38e\n; XREFS: CALL 0x0086c40c  CALL 0x0086c476  CALL 0x0087538b\n; XREFS: CALL 0x00b577fc  CALL 0x00bd8415\n1055: fcn.00b660d0 ();\nafv: vars(15:sp[0x4..0x64])\n0x00b660d0      push 0xffffffffffffffff\n0x00b660d2      push 0xf28227\n0x00b660d7      mov eax, dword fs:[0]\n0x00b660dd      push eax\n0x00b660de      sub esp, 0x18\n0x00b660e1      push ebx\n0x00b660e2      push ebp\n0x00b660e3      push esi\n0x00b660e4      push edi\n; [0x11c16bc:4]=0xbb40e64e\n0x00b660e5      mov eax, dword [0x11c16bc]\n0x00b660ea      xor eax, esp\n0x00b660ec      push eax\n0x00b660ed      lea eax, [var_2ch]\n0x00b660f1      mov dword fs:[0], eax\n0x00b660f7      mov esi, ecx\n0x00b660f9      mov dword [var_14h], esi\n; fcn.00a9b480\n0x00b660fd      call fcn.00a9b480\n0x00b66102      fldz\n; [0x10adff8:4]=0xb664f0 fcn.00b664f0\n0x00b66104      mov dword [esi], 0x10adff8\n0x00b6610a      fst dword [esi + 0x50]\n0x00b6610d      xor ebx, ebx\n0x00b6610f      fst dword [esi + 0x64]\n0x00b66112      lea edi, [esi + 0x90]\n0x00b66118      fstp dword [esi + 0x78]\n0x00b6611b      mov dword [esi + 0x48], ebx\n0x00b6611e      mov byte [esi + 0x4c], bl\n0x00b66121      mov dword [esi + 0x54], ebx\n0x00b66124      mov dword [esi + 0x58], ebx\n0x00b66127      mov dword [esi + 0x5c], ebx\n0x00b6612a      mov byte [esi + 0x60], bl\n0x00b6612d      mov dword [esi + 0x68], ebx\n0x00b66130      mov dword [esi + 0x6c], ebx\n0x00b66133      mov dword [esi + 0x70], ebx\n0x00b66136      mov byte [esi + 0x74], bl\n0x00b66139      mov dword [esi + 0x7c], ebx\n0x00b6613c      mov dword [esi + 0x80], ebx\n0x00b66142      mov dword [var_34h], ebx\n0x00b66146      mov dword [edi + 8], ebx\n0x00b66149      mov dword [edi], ebx\n0x00b6614b      mov dword [edi + 4], ebx\n0x00b6614e      push 0xb656b0\n; 0xb988c0\n0x00b66153      push fcn.00b988c0\n; 4\n0x00b66158      push 4\n; 20\n0x00b6615a      push 0x14\n0x00b6615c      lea eax, [esi + 0x9c]\n0x00b66162      push eax\n0x00b66163      mov byte [var_34h], 1\n; fcn.00ec782f\n; fcn.00ec782f(0x9c, 0x0, 0x0)\n0x00b66168      call fcn.00ec782f\n0x00b6616d      push 0xb656b0\n; 0xb988c0\n0x00b66172      push fcn.00b988c0\n; 4\n0x00b66177      push 4\n; 20\n0x00b66179      push 0x14\n0x00b6617b      lea ecx, [esi + 0xec]\n0x00b66181      push ecx\n0x00b66182      mov byte [var_48h], 2\n; fcn.00ec782f\n; fcn.00ec782f(0x9c, 0x0, 0xec)\n0x00b66187      call fcn.00ec782f\n0x00b6618c      mov dword [esi + 0x13c], ebx\n0x00b66192      mov dword [esi + 0x148], ebx\n0x00b66198      mov dword [esi + 0x140], ebx\n0x00b6619e      mov dword [esi + 0x144], ebx\n0x00b661a4      fldz\n0x00b661a6      fst dword [esi + 0x154]\n0x00b661ac      fst dword [esi + 0x158]\n0x00b661b2      fst dword [esi + 0x15c]\n0x00b661b8      fstp dword [esi + 0x160]\n0x00b661be      mov dword [esi + 0x198], ebx\n0x00b661c4      mov dword [esi + 0x1a0], ebx\n0x00b661ca      push ebx\n0x00b661cb      push ebx\n; 1\n0x00b661cc      push 1\n; 757\n0x00b661ce      push 0x2f5\n0x00b661d3      lea edx, [esi + 0x1a4]\n0x00b661d9      push ebx\n0x00b661da      push edx\n0x00b661db      mov byte [var_4ch], 7\n; fcn.00ba8ec0\n; fcn.00ba8ec0(0x9c, 0x0, 0xec, 0x1a4, 0x0)\n0x00b661e0      call fcn.00ba8ec0\n; 148\n0x00b661e5      push 0x94\n0x00b661ea      mov byte [var_4ch], 8\n; [0x10adfbc:4]=0xb63e30 fcn.00b63e30\n0x00b661ef      mov dword [esi + 0x1b4], 0x10adfbc\n; '%'\n; [0x25:4]=-1\n; 37\n0x00b661f9      mov dword [esi + 0x1b8], 0x25\n0x00b66203      mov dword [esi + 0x1c0], ebx\n; fcn.00aa1070\n; fcn.00aa1070(0x9c)\n0x00b66209      call fcn.00aa1070\n0x00b6620e      mov ecx, dword [esi + 0x1b8]\n0x00b66214      add ecx, ecx\n0x00b66216      add ecx, ecx\n0x00b66218      push ecx\n0x00b66219      mov dword [esi + 0x1bc], eax"
+    }
+  ]
+}
+
+=== Capture 27: identity_accumulator_constructor_mid ===
+{
+  "content": [
+    {
+      "type": "text",
+      "text": "0x00b6621f      push ebx\n0x00b66220      push eax\n; fcn.00ec61c0\n; fcn.00ec61c0(0x9c, 0x0, 0xfffffffc)\n0x00b66221      call fcn.00ec61c0\n0x00b66226      add esp, 0x28\n; [0x10adfd8:4]=0xb63e70 fcn.00b63e70\n0x00b66229      mov dword [esi + 0x1b4], 0x10adfd8\n0x00b66233      lea eax, [esi + 0x200]\n0x00b66239      push eax\n; 0xfdf054\n; reloc.KERNEL32.dll_InitializeCriticalSection\n; sym.imp.KERNEL32.dll_InitializeCriticalSection(0x200, 0x0, 0xfffffffc, 0x1a4)\n0x00b6623a      call dword [sym.imp.KERNEL32.dll_InitializeCriticalSection]\n; 200\n0x00b66240      push 0xc8\n0x00b66245      mov ecx, 0x11f6238\n0x00b6624a      mov byte [var_38h], 0xa\n0x00b6624f      mov byte [esi + 0x84], 1\n0x00b66256      mov byte [esi + 0x85], bl\n0x00b6625c      mov byte [esi + 0x86], 1\n; fcn.00aa3e40\n; fcn.00aa3e40(0x200)\n0x00b66263      call fcn.00aa3e40\n0x00b66268      mov dword [esi + 0x8c], eax\n0x00b6626e      xor eax, eax\n; '2'\n; 50\n0x00b66270      mov ecx, 0x32\n0x00b66275      mov word [esi + 0x88], ax\n0x00b6627c      mov word [esi + 0x8a], cx\n0x00b66283      mov edx, dword [esi + 0x8c]\n0x00b66289      mov dword [eax + edx], ebx\n0x00b6628c      add eax, 4\n; 200\n0x00b6628f      cmp eax, 0xc8\n; likely\n0x00b66294      jl 0xb66283\n0x00b66296      mov ecx, edi\n; fcn.00b71300\n0x00b66298      call fcn.00b71300\n0x00b6629d      fld1\n0x00b6629f      fstp dword [esi + 0x44]\n0x00b662a2      mov byte [esi + 0x40], bl\n0x00b662a5      fldz\n0x00b662a7      mov dword [esi + 0x3c], ebx\n0x00b662aa      lea eax, [esi + 0x4c]\n0x00b662ad      mov ecx, 3\n0x00b662b2      fst dword [eax + 4]\n0x00b662b5      mov dword [eax - 4], ebx\n0x00b662b8      mov byte [eax], bl\n0x00b662ba      mov dword [eax + 8], ebx\n0x00b662bd      mov dword [eax + 0xc], ebx\n; 20\n0x00b662c0      add eax, 0x14\n0x00b662c3      sub ecx, 1\n; likely\n0x00b662c6      jne 0xb662b2\n; 4\n0x00b662c8      push 4\n0x00b662ca      fstp st(0)\n0x00b662cc      mov ecx, 0x11f6238\n0x00b662d1      mov dword [esi + 0x14c], ebx\n0x00b662d7      mov byte [esi + 0x150], bl\n; fcn.00aa3e40\n; fcn.00aa3e40(0x60)\n0x00b662dd      call fcn.00aa3e40\n0x00b662e2      mov dword [var_18h], eax\n; [0xb:1]=255\n; 11\n0x00b662e6      mov byte [var_34h_2], 0xb\n0x00b662eb      cmp eax, ebx\n; unlikely\n0x00b662ed      je 0xb662f8\n0x00b662ef      mov ecx, eax\n; fcn.00bd9120\n0x00b662f1      call fcn.00bd9120\n0x00b662f6      jmp 0xb662fa\n0x00b662f8      xor eax, eax\n; CODE XREF from fcn.00b660d0 @ 0xb662f6(x)\n0x00b662fa      mov ecx, dword [var_44h]\n0x00b662fe      mov dword [esi + 0x170], eax\n0x00b66304      mov eax, dword [var_4ch]\n; 152\n0x00b66308      push 0x98\n0x00b6630d      mov byte [var_34h_2], 0xa\n0x00b66312      mov dword [esi + 0x18c], eax\n0x00b66318      mov dword [esi + 0x190], ecx\n; fcn.00aa13e0\n; fcn.00aa13e0(-1)\n0x00b6631e      call fcn.00aa13e0\n0x00b66323      add esp, 4\n0x00b66326      mov dword [var_4ch], eax\n0x00b6632a      mov edi, dword [var_38h]\n; [0xc:1]=255\n; 12\n0x00b6632e      mov byte [var_34h_2], 0xc\n0x00b66333      cmp eax, ebx\n; unlikely\n0x00b66335      je 0xb66348\n0x00b66337      mov edx, dword [esi + 0x190]\n0x00b6633d      push edi\n0x00b6633e      push edx\n0x00b6633f      mov ecx, eax\n; fcn.00b9a5b0\n0x00b66341      call fcn.00b9a5b0\n0x00b66346      jmp 0xb6634a\n0x00b66348      xor eax, eax\n; CODE XREF from fcn.00b660d0 @ 0xb66346(x)\n0x00b6634a      cmp dword [esi + 0x18c], 2\n0x00b66351      mov byte [var_34h_2], 0xa\n0x00b66356      mov dword [esi + 0x174], eax\n; likely\n0x00b6635c      jne 0xb663a3\n; 152\n0x00b6635e      push 0x98\n; fcn.00aa13e0\n; fcn.00aa13e0(0x0)\n0x00b66363      call fcn.00aa13e0\n0x00b66368      add esp, 4"
+    }
+  ]
+}
+
+=== Capture 28: identity_map_destroy ===
+{
+  "content": [
+    {
+      "type": "text",
+      "text": "; NULL XREF from fcn.00b63c60 @ +0xa2(x)\n32: fcn.00b63e70 (int8_t arg_8h);\n`- args(sp[0x4..0x4])\n0x00b63e70      push esi\n0x00b63e71      mov esi, ecx\n; fcn.00b63d80\n0x00b63e73      call fcn.00b63d80\n0x00b63e78      test byte [arg_8h], 1\n; unlikely\n0x00b63e7d      je 0xb63e8a\n0x00b63e7f      push esi\n0x00b63e80      mov ecx, 0x11f6238\n; fcn.00aa4060\n; fcn.00aa4060(0x0)\n0x00b63e85      call fcn.00aa4060\n0x00b63e8a      mov eax, esi\n0x00b63e8c      pop esi\n0x00b63e8d      ret 4\n"
+    }
+  ]
+}
+
+=== Capture 29: identity_admission_clear ===
+{
+  "content": [
+    {
+      "type": "text",
+      "text": "; NULL XREF from fcn.00b63a90 @ +0x77(x)\n38: fcn.00b63b60 ();\n0x00b63b60      push esi\n0x00b63b61      push edi\n0x00b63b62      mov esi, ecx\n0x00b63b64      lea edi, [esi + 0x200]\n0x00b63b6a      push edi\n; 0xfdf05c\n; reloc.KERNEL32.dll_EnterCriticalSection\n; sym.imp.KERNEL32.dll_EnterCriticalSection(0x0, 0x0, 0x0, 0x0)\n0x00b63b6b      call dword [sym.imp.KERNEL32.dll_EnterCriticalSection]\n0x00b63b71      lea ecx, [esi + 0x1b4]\n; fcn.00b601a0\n0x00b63b77      call fcn.00b601a0\n0x00b63b7c      push edi\n; 0xfdf100\n; \"h\\r\\xd8\"\n; reloc.KERNEL32.dll_LeaveCriticalSection\n; sym.imp.KERNEL32.dll_LeaveCriticalSection(0x0, 0x0, 0x1b4, 0x0)\n0x00b63b7d      call dword [sym.imp.KERNEL32.dll_LeaveCriticalSection]\n0x00b63b83      pop edi\n0x00b63b84      pop esi\n0x00b63b85      ret\n"
+    }
+  ]
+}
+
+=== Capture 30: identity_culler_forward ===
+{
+  "content": [
+    {
+      "type": "text",
+      "text": "; CALL XREFS from fcn.00873200 @ 0x873bd8(x), 0x873d2a(x)\n; CALL XREFS from fcn.00b5f9b0 @ 0xb5fb65(x), 0xb5fc65(x)\n; NULL XREF from fcn.00c4f1d0 @ +0x96(x)\n53: fcn.00c4f320 (int32_t arg_8h);\n`- args(sp[0x4..0x4]) vars(3:sp[0x8..0x10])\n0x00c4f320      push ebp\n0x00c4f321      mov ebp, esp\n0x00c4f323      sub esp, 0xc\n0x00c4f326      mov dword [var_8h], ecx\n0x00c4f329      mov eax, dword [var_4h]\n0x00c4f32c      mov dword [var_ch], eax\n0x00c4f32f      mov ecx, dword [var_8h]\n0x00c4f332      mov edx, dword [ecx + 0xc4]\n0x00c4f338      mov dword [var_ch], edx\n0x00c4f33b      mov eax, dword [arg_8h]\n0x00c4f33e      push eax\n0x00c4f33f      mov ecx, dword [var_ch]\n0x00c4f342      mov edx, dword [ecx]\n0x00c4f344      mov ecx, dword [var_ch]\n0x00c4f347      mov eax, dword [edx + 0x9c]\n; 0xffffffff(-1, 0x0, -1, -1)\n0x00c4f34d      call eax\n0x00c4f34f      mov esp, ebp\n0x00c4f351      pop ebp\n0x00c4f352      ret 4\n"
+    }
+  ]
+}
+
+=== Capture 31: identity_node_virtual_reader ===
+{
+  "content": [
+    {
+      "type": "text",
+      "text": "; CALL XREF from fcn.00a95290 @ 0xa5dcea(x)\n; CALL XREF from fcn.00a80a10 @ 0xa80a1b(x)\n; CALL XREF from fcn.00a90100 @ 0xa9010a(x)\n52: fcn.00a59ec0 (int32_t arg_ch);\n`- args(sp[0x4..0x4])\n0x00a59ec0      push esi\n0x00a59ec1      push edi\n0x00a59ec2      mov edi, dword [arg_ch]\n0x00a59ec6      push edi\n0x00a59ec7      mov esi, ecx\n; fcn.00a5b8f0\n; fcn.00a5b8f0(0x0)\n0x00a59ec9      call fcn.00a5b8f0\n0x00a59ece      cmp dword [esi + 0x2c], 0\n; unlikely\n0x00a59ed2      je 0xa59ee0\n0x00a59ed4      push edi\n0x00a59ed5      lea eax, [esi + 0x24]\n0x00a59ed8      push eax\n0x00a59ed9      mov ecx, esi\n; fcn.00a59e70\n; fcn.00a59e70(0x24, 0x0)\n0x00a59edb      call fcn.00a59e70\n0x00a59ee0      mov ecx, dword [esi + 0x1c]\n0x00a59ee3      test ecx, ecx\n; unlikely\n0x00a59ee5      je 0xa59eef\n0x00a59ee7      mov edx, dword [ecx]\n0x00a59ee9      mov eax, dword [edx + 0x68]\n0x00a59eec      push edi\n; 0xffffffff(-1, 0x0, -1, -1)\n0x00a59eed      call eax\n0x00a59eef      pop edi\n0x00a59ef0      pop esi\n0x00a59ef1      ret 4\n"
+    }
+  ]
+}
+
+=== Capture 32: identity_map_destructor ===
+{
+  "content": [
+    {
+      "type": "text",
+      "text": "; NULL XREF from fcn.00b63c60 @ +0xa2(x)\n; CALL XREF from fcn.00b63e70 @ 0xb63e73(x)\n109: fcn.00b63d80 ();\nafv: vars(3:sp[0x4..0x10])\n0x00b63d80      push 0xffffffffffffffff\n0x00b63d82      push 0xf27ff8\n0x00b63d87      mov eax, dword fs:[0]\n0x00b63d8d      push eax\n0x00b63d8e      push ecx\n0x00b63d8f      push esi\n; [0x11c16bc:4]=0xbb40e64e\n0x00b63d90      mov eax, dword [0x11c16bc]\n0x00b63d95      xor eax, esp\n0x00b63d97      push eax\n0x00b63d98      lea eax, [var_ch]\n0x00b63d9c      mov dword fs:[0], eax\n0x00b63da2      mov esi, ecx\n0x00b63da4      mov dword [var_8h], esi\n; [0x10adfd8:4]=0xb63e70 fcn.00b63e70\n0x00b63da8      mov dword [esi], 0x10adfd8\n0x00b63dae      mov dword [var_14h], 0\n; fcn.00b601a0\n0x00b63db6      call fcn.00b601a0\n0x00b63dbb      mov ecx, esi\n; [0xffffffff:4]=-1\n; -1\n0x00b63dbd      mov dword [var_14h], 0xffffffff\n; [0x10adfbc:4]=0xb63e30 fcn.00b63e30\n0x00b63dc5      mov dword [esi], 0x10adfbc\n; fcn.00b601a0\n0x00b63dcb      call fcn.00b601a0\n0x00b63dd0      mov eax, dword [esi + 8]\n0x00b63dd3      push eax\n; fcn.00aa10f0\n; fcn.00aa10f0(-1)\n0x00b63dd4      call fcn.00aa10f0\n0x00b63dd9      add esp, 4\n0x00b63ddc      mov ecx, dword [var_ch]\n0x00b63de0      mov dword fs:[0], ecx\n0x00b63de7      pop ecx\n0x00b63de8      pop esi\n0x00b63de9      add esp, 0x10\n0x00b63dec      ret\n"
+    }
+  ]
+}
+
+=== Capture 33: identity_native_pool_grow ===
+{
+  "content": [
+    {
+      "type": "text",
+      "text": "; XREFS: CALL 0x0043a02e  CALL 0x00a690cb  CALL 0x00aa0e9d\n; XREFS: CALL 0x00b5f4e5  CALL 0x00b6aac3  CALL 0x00b9adfa\n; XREFS: CALL 0x00e7b6fb  CALL 0x00e7b905  CALL 0x00e7b9b8\n214: fcn.0043a080 ();\nafv: vars(3:sp[0x8..0x10])\n0x0043a080      push ebp\n0x0043a081      mov ebp, esp\n0x0043a083      sub esp, 0xc\n0x0043a086      xor ecx, ecx\n; [0x1188f7c:4]=0x800\n0x0043a088      mov eax, dword [0x1188f7c]\n; 12\n0x0043a08d      mov edx, 0xc\n0x0043a092      mul edx\n0x0043a094      seto cl\n0x0043a097      neg ecx\n0x0043a099      or ecx, eax\n0x0043a09b      push ecx\n; fcn.00401000\n; fcn.00401000(0x6000)\n0x0043a09c      call fcn.00401000\n0x0043a0a1      add esp, 4\n0x0043a0a4      mov dword [var_ch], eax\n0x0043a0a7      mov eax, dword [var_ch]\n; [0x11c5f58:4]=0\n0x0043a0aa      mov dword [0x11c5f58], eax\n; [0x1188f7c:4]=0x800\n0x0043a0af      mov ecx, dword [0x1188f7c]\n; 12\n0x0043a0b5      imul ecx, ecx, 0xc\n; [0x11c5f58:4]=0\n0x0043a0b8      mov edx, dword [0x11c5f58]\n0x0043a0be      lea eax, [edx + ecx - 0xc]\n0x0043a0c2      mov dword [var_8h], eax\n0x0043a0c5      mov ecx, dword [var_8h]\n0x0043a0c8      mov dword [ecx], 0\n0x0043a0ce      mov dword [var_4h], 1\n0x0043a0d5      mov edx, dword [var_4h]\n; 12\n0x0043a0d8      imul edx, edx, 0xc\n; [0x11c5f58:4]=0\n0x0043a0db      add edx, dword [0x11c5f58]\n0x0043a0e1      mov dword [var_8h], edx\n0x0043a0e4      mov eax, dword [var_8h]\n; 12\n0x0043a0e7      add eax, 0xc\n0x0043a0ea      mov ecx, dword [var_8h]\n0x0043a0ed      mov dword [ecx], eax\n; [0x1188f7c:4]=0x800\n0x0043a0ef      mov edx, dword [0x1188f7c]\n0x0043a0f5      sub edx, 2\n0x0043a0f8      mov eax, dword [var_4h]\n0x0043a0fb      mov ecx, dword [var_4h]\n0x0043a0fe      add ecx, 1\n0x0043a101      mov dword [var_4h], ecx\n0x0043a104      cmp eax, edx\n; unlikely\n0x0043a106      jb 0x43a0d5\n; [0x11c5f54:4]=0\n0x0043a108      cmp dword [0x11c5f54], 0\n; likely\n0x0043a10f      je 0x43a12c\n; [0x11c5f58:4]=0\n0x0043a111      mov edx, dword [0x11c5f58]\n; [0x11c5f54:4]=0\n0x0043a117      mov eax, dword [0x11c5f54]\n0x0043a11c      mov dword [edx], eax\n; [0x11c5f58:4]=0\n0x0043a11e      mov ecx, dword [0x11c5f58]\n; [0x11c5f54:4]=0\n0x0043a124      mov dword [0x11c5f54], ecx\n0x0043a12a      jmp 0x43a143\n; [0x11c5f58:4]=0\n0x0043a12c      mov edx, dword [0x11c5f58]\n; [0x11c5f54:4]=0\n0x0043a132      mov dword [0x11c5f54], edx\n; [0x11c5f54:4]=0\n0x0043a138      mov eax, dword [0x11c5f54]\n0x0043a13d      mov dword [eax], 0\n; CODE XREF from fcn.0043a080 @ 0x43a12a(x)\n; [0x11c5f58:4]=0\n0x0043a143      mov ecx, dword [0x11c5f58]\n; 12\n0x0043a149      add ecx, 0xc\n; [0x11c5f58:4]=0\n0x0043a14c      mov dword [0x11c5f58], ecx\n0x0043a152      mov esp, ebp\n0x0043a154      pop ebp\n0x0043a155      ret\n"
+    }
+  ]
+}
+
+=== Capture 34: identity_admission_patch_bytes ===
+{
+  "content": [
+    {
+      "type": "text",
+      "text": "- offset -  1011 1213 1415 1617 1819 1A1B 1C1D 1E1F  0123456789ABCDEF\n0x00b63b10  5355 5657 8bf1 8dbe 0002 0000 57ff 155c  SUVW........W..\\\n0x00b63b20  f0fd 008b 6c24 148d 4424 1450 81c6 b401  ....l$..D$.P....\n0x00b63b30  0000 558b cee8 36f6 ffff 8ad8 84db 750a  ..U...6.......u.\n0x00b63b40  6a01 558b cee8 d697 efff 57ff 1500 f1fd  j.U.......W.....\n0x00b63b50  005f 5e33 c084 db5d 0f94 c05b c204 00cc  ._^3...]...[....\n"
+    }
+  ]
+}
+
+=== Capture 35: identity_insert_frame_bytes ===
+{
+  "content": [
+    {
+      "type": "text",
+      "text": "- offset -  2021 2223 2425 2627 2829 2A2B 2C2D 2E2F  0123456789ABCDEF\n0x00a5d320  538b 5c24 0855 568b f18b 068b 5004 5753  S.\\$.UV.....P.WS\n0x00a5d330  ffd2 8be8 8b46 088b 3ca8 85ff 741a 8bff  .....F..<...t...\n0x00a5d340  8b47 048b 168b 5208 5053 8bce ffd2 84c0  .G....R.PS......\n0x00a5d350  7539 8b3f 85ff 75e8 8b16 8b42 148b ceff  u9.?..u....B....\n0x00a5d360  d08b 168b 520c 8bf8 8b44 2418 5053 578b  ....R....D$.PSW.\n0x00a5d370  ceff d28b 4608 8b0c a889 0f8b 5608 893c  ....F.......V..<\n0x00a5d380  aaff 460c 5f5e 5d5b c208 008a 4424 1888  ..F._^][....D$..\n0x00a5d390  4708 5f5e 5d5b c208 00cc cccc cccc cccc  G._^][..........\n"
+    }
+  ]
+}
+
+=== Capture 36: identity_native_hash_equality_bytes ===
+{
+  "content": [
+    {
+      "type": "text",
+      "text": "- offset -  4041 4243 4445 4647 4849 4A4B 4C4D 4E4F  0123456789ABCDEF\n0x00a63840  8b44 2404 33d2 f771 048b c2c2 0400 cccc  .D$.3..q........\n"
+    }
+  ]
+}
+
+=== Capture 37: identity_native_equality_bytes ===
+{
+  "content": [
+    {
+      "type": "text",
+      "text": "- offset -  9091 9293 9495 9697 9899 9A9B 9C9D 9E9F  0123456789ABCDEF\n0x00e92590  8b4c 2404 33c0 3b4c 2408 0f94 c0c2 0800  .L$.3.;L$.......\n"
+    }
+  ]
+}
+
+=== Capture 38: compound_cull_frame ===
+{
+  "content": [
+    {
+      "type": "text",
+      "text": "479: fcn.00c4ee90 (int32_t arg_8h);\n`- args(sp[0x4..0x4]) vars(3:sp[0x8..0x10])\n0x00c4ee90      push ebp\n0x00c4ee91      mov ebp, esp\n0x00c4ee93      sub esp, 0xc\n0x00c4ee96      mov dword [var_ch], ecx\n0x00c4ee99      mov eax, dword [var_ch]\n0x00c4ee9c      cmp dword [eax + 0x90], 2\n; unlikely\n0x00c4eea3      je 0xc4f049\n0x00c4eea9      mov ecx, dword [var_ch]\n0x00c4eeac      cmp dword [ecx + 0x90], 1\n; unlikely\n0x00c4eeb3      je 0xc4f049\n0x00c4eeb9      mov edx, dword [arg_8h]\n0x00c4eebc      mov dword [var_4h], edx\n0x00c4eebf      mov eax, dword [var_4h]\n0x00c4eec2      mov ecx, dword [eax + 0x30]\n0x00c4eec5      and ecx, 0x1000\n0x00c4eecb      neg ecx\n0x00c4eecd      sbb ecx, ecx\n0x00c4eecf      neg ecx\n0x00c4eed1      movzx edx, cl\n0x00c4eed4      test edx, edx\n; unlikely\n0x00c4eed6      je 0xc4ef0a\n0x00c4eed8      mov eax, dword [var_4h]\n0x00c4eedb      mov ecx, dword [eax + 0x30]\n0x00c4eede      and ecx, 0x100000\n0x00c4eee4      neg ecx\n0x00c4eee6      sbb ecx, ecx\n0x00c4eee8      neg ecx\n0x00c4eeea      movzx edx, cl\n0x00c4eeed      test edx, edx\n; likely\n0x00c4eeef      jne 0xc4ef05\n0x00c4eef1      mov eax, dword [var_ch]\n0x00c4eef4      push eax\n0x00c4eef5      mov ecx, dword [arg_8h]\n0x00c4eef8      mov edx, dword [ecx]\n0x00c4eefa      mov ecx, dword [arg_8h]\n0x00c4eefd      mov eax, dword [edx + 0xd4]\n; 0xffffffff(-1, 0x0, -1, -1)\n0x00c4ef03      call eax\n0x00c4ef05      jmp 0xc4f047\n0x00c4ef0a      mov ecx, dword [var_ch]\n0x00c4ef0d      cmp dword [ecx + 0xc0], 0\n; unlikely\n0x00c4ef14      je 0xc4ef3b\n0x00c4ef16      mov edx, dword [var_ch]\n0x00c4ef19      mov eax, dword [edx + 0xc0]\n0x00c4ef1f      xor ecx, ecx\n0x00c4ef21      cmp dword [eax + 0x28], 0\n0x00c4ef25      sete cl\n0x00c4ef28      movzx edx, cl\n0x00c4ef2b      test edx, edx\n; unlikely\n0x00c4ef2d      jne 0xc4ef3b\n0x00c4ef2f      mov eax, dword [var_ch]\n0x00c4ef32      cmp dword [eax + 0x90], 3\n; likely\n0x00c4ef39      jne 0xc4ef8f\n0x00c4ef3b      mov ecx, dword [arg_8h]\n0x00c4ef3e      mov edx, dword [ecx + 0x30]\n; 2048\n0x00c4ef41      and edx, 0x800\n0x00c4ef47      neg edx\n0x00c4ef49      sbb edx, edx\n0x00c4ef4b      neg edx\n0x00c4ef4d      movzx eax, dl\n0x00c4ef50      test eax, eax\n; likely\n0x00c4ef52      jne 0xc4ef68\n0x00c4ef54      mov ecx, dword [var_ch]\n0x00c4ef57      cmp dword [ecx + 0x8c], 0\n0x00c4ef5e      setne dl\n0x00c4ef61      movzx eax, dl\n0x00c4ef64      test eax, eax\n; likely\n0x00c4ef66      jne 0xc4ef7e\n0x00c4ef68      mov ecx, dword [var_ch]\n0x00c4ef6b      push ecx\n0x00c4ef6c      mov edx, dword [arg_8h]\n0x00c4ef6f      mov eax, dword [edx]\n0x00c4ef71      mov ecx, dword [arg_8h]\n0x00c4ef74      mov edx, dword [eax + 0xd4]\n; 0xffffffff(-1, 0x0, -1, -1)\n0x00c4ef7a      call edx\n0x00c4ef7c      jmp 0xc4ef8a\n0x00c4ef7e      mov eax, dword [arg_8h]\n0x00c4ef81      push eax\n0x00c4ef82      mov ecx, dword [var_ch]\n; fcn.00a694e0\n; fcn.00a694e0(-1)\n0x00c4ef85      call fcn.00a694e0\n; CODE XREF from fcn.00c4ee90 @ 0xc4ef7c(x)\n0x00c4ef8a      jmp 0xc4f047\n0x00c4ef8f      mov ecx, dword [arg_8h]\n0x00c4ef92      mov edx, dword [ecx + 0x30]\n; 2048\n0x00c4ef95      and edx, 0x800\n0x00c4ef9b      neg edx\n0x00c4ef9d      sbb edx, edx\n0x00c4ef9f      neg edx\n0x00c4efa1      movzx eax, dl\n0x00c4efa4      test eax, eax\n; likely\n0x00c4efa6      jne 0xc4efe1\n0x00c4efa8      mov ecx, dword [var_ch]\n0x00c4efab      cmp dword [ecx + 0xc0], 0\n; unlikely\n0x00c4efb2      je 0xc4efcd\n0x00c4efb4      mov edx, dword [var_ch]\n0x00c4efb7      mov eax, dword [edx + 0xc0]\n0x00c4efbd      xor ecx, ecx\n0x00c4efbf      cmp dword [eax + 0x28], 0\n0x00c4efc3      sete cl\n0x00c4efc6      movzx edx, cl\n0x00c4efc9      test edx, edx\n; likely\n0x00c4efcb      je 0xc4eff7\n0x00c4efcd      mov eax, dword [var_ch]\n0x00c4efd0      cmp dword [eax + 0x8c], 0\n0x00c4efd7      setne cl\n0x00c4efda      movzx edx, cl\n0x00c4efdd      test edx, edx\n; likely\n0x00c4efdf      jne 0xc4eff7\n0x00c4efe1      mov eax, dword [var_ch]\n0x00c4efe4      push eax"
+    }
+  ]
+}
+
+=== Capture 39: compound_snapshot ===
+{
+  "content": [
+    {
+      "type": "text",
+      "text": "; CALL XREF from fcn.00c4ee90 @ 0xc4f000(x)\n173: fcn.00c49050 ();\nafv: vars(9:sp[0x8..0x28])\n0x00c49050      push ebp\n0x00c49051      mov ebp, esp\n0x00c49053      sub esp, 0x24\n0x00c49056      mov dword [var_24h], ecx\n0x00c49059      mov ecx, 0x11f6238\n; fcn.00aa42e0\n0x00c4905e      call fcn.00aa42e0\n0x00c49063      mov dword [var_8h], eax\n0x00c49066      mov eax, dword [var_24h]\n0x00c49069      mov ecx, dword [eax + 0x10]\n0x00c4906c      mov dword [var_10h], ecx\n; [0x10a2720:4]=4\n0x00c4906f      mov edx, dword [0x10a2720]\n0x00c49075      push edx\n0x00c49076      mov eax, dword [var_10h]\n0x00c49079      shl eax, 2\n0x00c4907c      push eax\n0x00c4907d      mov ecx, dword [var_8h]\n; fcn.00aa54a0\n; fcn.00aa54a0(0xfffffffc, 0x0)\n0x00c49080      call fcn.00aa54a0\n0x00c49085      mov dword [var_4h], eax\n0x00c49088      mov ecx, dword [var_24h]\n0x00c4908b      mov edx, dword [ecx + 0x90]\n0x00c49091      mov dword [var_14h], edx\n0x00c49094      mov eax, dword [var_4h]\n0x00c49097      mov ecx, dword [var_14h]\n0x00c4909a      mov dword [eax], ecx\n0x00c4909c      mov dword [var_ch], 1\n0x00c490a3      jmp 0xc490ae\n; CODE XREF from fcn.00c49050 @ 0xc490f4(x)\n0x00c490a5      mov edx, dword [var_ch]\n0x00c490a8      add edx, 1\n0x00c490ab      mov dword [var_ch], edx\n; CODE XREF from fcn.00c49050 @ 0xc490a3(x)\n0x00c490ae      mov eax, dword [var_24h]\n0x00c490b1      mov ecx, dword [eax + 0x24]\n0x00c490b4      add ecx, 1\n0x00c490b7      cmp dword [var_ch], ecx\n; unlikely\n0x00c490ba      jge 0xc490f6\n0x00c490bc      mov edx, dword [var_24h]\n0x00c490bf      mov eax, dword [edx + 0x10]\n0x00c490c2      mov dword [var_18h], eax\n0x00c490c5      mov ecx, dword [var_ch]\n0x00c490c8      cmp ecx, dword [var_18h]\n; likely\n0x00c490cb      jge 0xc490f6\n0x00c490cd      mov edx, dword [var_ch]\n0x00c490d0      sub edx, 1\n; 100\n0x00c490d3      imul edx, edx, 0x64\n0x00c490d6      mov eax, dword [var_24h]\n0x00c490d9      add edx, dword [eax + 8]\n0x00c490dc      mov dword [var_1ch], edx\n0x00c490df      mov ecx, dword [var_1ch]\n0x00c490e2      mov edx, dword [ecx + 0x60]\n0x00c490e5      mov dword [var_20h], edx\n0x00c490e8      mov eax, dword [var_ch]\n0x00c490eb      mov ecx, dword [var_4h]\n0x00c490ee      mov edx, dword [var_20h]\n0x00c490f1      mov dword [ecx + eax*4], edx\n0x00c490f4      jmp 0xc490a5\n0x00c490f6      mov eax, dword [var_4h]\n0x00c490f9      mov esp, ebp\n0x00c490fb      pop ebp\n0x00c490fc      ret\n"
+    }
+  ]
+}
+
+=== Capture 40: compound_restore ===
+{
+  "content": [
+    {
+      "type": "text",
+      "text": "; CALL XREF from fcn.00c4ee90 @ 0xc4f042(x)\n150: fcn.00c49100 (int32_t arg_8h);\n`- args(sp[0x4..0x4]) vars(7:sp[0x8..0x20])\n0x00c49100      push ebp\n0x00c49101      mov ebp, esp\n0x00c49103      sub esp, 0x1c\n0x00c49106      mov dword [var_1ch], ecx\n0x00c49109      mov eax, dword [arg_8h]\n0x00c4910c      mov ecx, dword [eax]\n0x00c4910e      mov dword [var_ch], ecx\n0x00c49111      mov edx, dword [var_1ch]\n0x00c49114      mov eax, dword [var_ch]\n0x00c49117      mov dword [edx + 0x90], eax\n0x00c4911d      mov dword [var_8h], 1\n0x00c49124      jmp 0xc4912f\n; CODE XREF from fcn.00c49100 @ 0xc49175(x)\n0x00c49126      mov ecx, dword [var_8h]\n0x00c49129      add ecx, 1\n0x00c4912c      mov dword [var_8h], ecx\n; CODE XREF from fcn.00c49100 @ 0xc49124(x)\n0x00c4912f      mov edx, dword [var_1ch]\n0x00c49132      mov eax, dword [edx + 0x24]\n0x00c49135      add eax, 1\n0x00c49138      cmp dword [var_8h], eax\n; unlikely\n0x00c4913b      jge 0xc49177\n0x00c4913d      mov ecx, dword [var_1ch]\n0x00c49140      mov edx, dword [ecx + 0x10]\n0x00c49143      mov dword [var_10h], edx\n0x00c49146      mov eax, dword [var_8h]\n0x00c49149      cmp eax, dword [var_10h]\n; likely\n0x00c4914c      jge 0xc49177\n0x00c4914e      mov ecx, dword [var_8h]\n0x00c49151      mov edx, dword [arg_8h]\n0x00c49154      mov eax, dword [edx + ecx*4]\n0x00c49157      mov dword [var_18h], eax\n0x00c4915a      mov ecx, dword [var_8h]\n0x00c4915d      sub ecx, 1\n; 100\n0x00c49160      imul ecx, ecx, 0x64\n0x00c49163      mov edx, dword [var_1ch]\n0x00c49166      add ecx, dword [edx + 8]\n0x00c49169      mov dword [var_14h], ecx\n0x00c4916c      mov eax, dword [var_14h]\n0x00c4916f      mov ecx, dword [var_18h]\n0x00c49172      mov dword [eax + 0x60], ecx\n0x00c49175      jmp 0xc49126\n0x00c49177      mov ecx, 0x11f6238\n; fcn.00aa42e0\n0x00c4917c      call fcn.00aa42e0\n0x00c49181      mov dword [var_4h], eax\n0x00c49184      mov edx, dword [arg_8h]\n0x00c49187      push edx\n0x00c49188      mov ecx, dword [var_4h]\n; fcn.00aa5610\n; fcn.00aa5610(-1)\n0x00c4918b      call fcn.00aa5610\n0x00c49190      mov esp, ebp\n0x00c49192      pop ebp\n0x00c49193      ret 4\n"
+    }
+  ]
+}
+
+=== Capture 41: compound_snapshot_callers ===
+{
+  "content": [
+    {
+      "type": "text",
+      "text": "fcn.00c4ee90 0xc4f000 [CALL:--x] call fcn.00c49050\n"
+    }
+  ]
+}
+
+=== Capture 42: compound_restore_callers ===
+{
+  "content": [
+    {
+      "type": "text",
+      "text": "fcn.00c4ee90 0xc4f042 [CALL:--x] call fcn.00c49100\n"
+    }
+  ]
+}
+
+=== Capture 43: compound_cull_exit ===
+{
+  "content": [
+    {
+      "type": "text",
+      "text": "0x00c4efe5      mov ecx, dword [arg_8h]\n0x00c4efe8      mov edx, dword [ecx]\n0x00c4efea      mov ecx, dword [arg_8h]\n0x00c4efed      mov eax, dword [edx + 0xd4]\n; 0xffffffff(-1, 0x0, -1, -1)\n0x00c4eff3      call eax\n0x00c4eff5      jmp 0xc4f047\n0x00c4eff7      mov ecx, dword [var_ch]\n0x00c4effa      mov ecx, dword [ecx + 0xc0]\n; fcn.00c49050\n0x00c4f000      call fcn.00c49050\n0x00c4f005      mov dword [var_8h], eax\n0x00c4f008      mov edx, dword [arg_8h]\n0x00c4f00b      push edx\n0x00c4f00c      mov eax, dword [var_ch]\n0x00c4f00f      mov ecx, dword [eax + 0xc0]\n; fcn.00c491a0\n; fcn.00c491a0(-1)\n0x00c4f015      call fcn.00c491a0\n0x00c4f01a      movzx ecx, al\n0x00c4f01d      test ecx, ecx\n; unlikely\n0x00c4f01f      je 0xc4f035\n0x00c4f021      mov edx, dword [var_ch]\n0x00c4f024      push edx\n0x00c4f025      mov eax, dword [arg_8h]\n0x00c4f028      mov edx, dword [eax]\n0x00c4f02a      mov ecx, dword [arg_8h]\n0x00c4f02d      mov eax, dword [edx + 0xd4]\n; 0xffffffff(-1, 0x0, -1, -1)\n0x00c4f033      call eax\n0x00c4f035      mov ecx, dword [var_8h]\n0x00c4f038      push ecx\n0x00c4f039      mov edx, dword [var_ch]\n0x00c4f03c      mov ecx, dword [edx + 0xc0]\n; fcn.00c49100\n; fcn.00c49100(-1)\n0x00c4f042      call fcn.00c49100\n; CODE XREFS from fcn.00c4ee90 @ 0xc4ef05(x), 0xc4ef8a(x), 0xc4eff5(x)\n0x00c4f047      jmp 0xc4f069\n0x00c4f049      mov eax, dword [var_ch]\n0x00c4f04c      cmp dword [eax + 0x90], 1\n; likely\n0x00c4f053      jne 0xc4f069\n0x00c4f055      mov ecx, dword [var_ch]\n0x00c4f058      push ecx\n0x00c4f059      mov edx, dword [arg_8h]\n0x00c4f05c      mov eax, dword [edx]\n0x00c4f05e      mov ecx, dword [arg_8h]\n0x00c4f061      mov edx, dword [eax + 0xd4]\n; 0xffffffff(-1, 0x0, -1, -1)\n0x00c4f067      call edx\n; CODE XREF from fcn.00c4ee90 @ 0xc4f047(x)\n0x00c4f069      mov esp, ebp\n0x00c4f06b      pop ebp\n0x00c4f06c      ret 4\n"
+    }
+  ]
+}
+
+=== Capture 44: identity_copy_callback_owner ===
+{
+  "content": [
+    {
+      "type": "text",
+      "text": "; CALL XREF from fcn.00a59ec0 @ 0xa59ec9(x)\n81: fcn.00a5b8f0 (int32_t arg_8h);\n`- args(sp[0x4..0x4])\n0x00a5b8f0      push ebx\n0x00a5b8f1      mov ebx, dword [arg_8h]\n0x00a5b8f5      push esi\n0x00a5b8f6      push edi\n0x00a5b8f7      push ebx\n0x00a5b8f8      mov esi, ecx\n; fcn.00a5d430\n; fcn.00a5d430(0x0)\n0x00a5b8fa      call fcn.00a5d430\n0x00a5b8ff      xor eax, eax\n0x00a5b901      xor edi, edi\n0x00a5b903      cmp ax, word [esi + 0x14]\n; unlikely\n0x00a5b907      jae 0xa5b92c\n0x00a5b909      lea esp, [esp]\n0x00a5b910      mov edx, dword [esi + 0x10]\n0x00a5b913      movzx ecx, di\n0x00a5b916      mov ecx, dword [edx + ecx*4]\n0x00a5b919      test ecx, ecx\n; unlikely\n0x00a5b91b      je 0xa5b925\n0x00a5b91d      mov eax, dword [ecx]\n0x00a5b91f      mov edx, dword [eax + 0x68]\n0x00a5b922      push ebx\n; 0xffffffff(-1, -1, -1, -1)\n0x00a5b923      call edx\n0x00a5b925      inc edi\n0x00a5b926      cmp di, word [esi + 0x14]\n; likely\n0x00a5b92a      jb 0xa5b910\n0x00a5b92c      mov ecx, dword [esi + 0xc]\n0x00a5b92f      test ecx, ecx\n; unlikely\n0x00a5b931      je 0xa5b93b\n0x00a5b933      mov eax, dword [ecx]\n0x00a5b935      mov edx, dword [eax + 0x68]\n0x00a5b938      push ebx\n; 0xffffffff(-1, -1, -1, -1)\n0x00a5b939      call edx\n0x00a5b93b      pop edi\n0x00a5b93c      pop esi\n0x00a5b93d      pop ebx\n0x00a5b93e      ret 4\n"
+    }
+  ]
+}
+
+=== Capture 45: identity_map_reference_table ===
+{
+  "content": [
+    {
+      "type": "text",
+      "text": "- offset -  F8F9 FAFB FCFD FEFF  0 1  2 3  4 5  6 7  89ABCDEF01234567\n0x010adff8  f064 b600 20cc cf00 805a b600 70bb ac00  .d.. ....Z..p...\n0x010ae008  70bb ac00 70bb ac00 70bb ac00 70bb ac00  p...p...p...p...\n0x010ae018  70bb ac00 70bb ac00 70bb ac00 70bb ac00  p...p...p...p...\n0x010ae028  70bb ac00 70bb ac00 70bb ac00 70bb ac00  p...p...p...p...\n0x010ae038  70bb ac00 70bb ac00 30b7 a900 f0b4 a900  p...p...0.......\n0x010ae048  3033 a400 00b5 a900 3033 a400 10b5 a900  03......03......\n0x010ae058  e0d6 a500 f034 4500 30d4 a500 f09a a800  .....4E.0.......\n0x010ae068  9089 ee00 10d3 a500 f034 4500 40cd e700  .........4E.@...\n0x010ae078  40cd e700 f09a a800 70bb ac00 407a d400  @.......p...@z..\n0x010ae088  7030 b600 90b7 a900 103f b600 103b b600  p0.......?...;..\n0x010ae098  603b b600 70b5 a900 2065 b600 7065 b600  `;..p... e..pe..\n0x010ae0a8  a070 d000 4253 5368                      .p..BSSh\n"
+    }
+  ]
+}
+
+=== Capture 46: identity_accumulator_destructor ===
+{
+  "content": [
+    {
+      "type": "text",
+      "text": "; NULL XREF from fcn.00b660d0 @ +0x41f(x)\n35: fcn.00b664f0 (int8_t arg_8h);\n`- args(sp[0x4..0x4])\n0x00b664f0      push esi\n0x00b664f1      mov esi, ecx\n; fcn.00b656e0\n0x00b664f3      call fcn.00b656e0\n0x00b664f8      test byte [arg_8h], 1\n; unlikely\n0x00b664fd      je 0xb6650d\n; 640\n0x00b664ff      push 0x280\n0x00b66504      push esi\n; fcn.00aa1460\n; fcn.00aa1460(0x0, 0x0)\n0x00b66505      call fcn.00aa1460\n0x00b6650a      add esp, 8\n0x00b6650d      mov eax, esi\n0x00b6650f      pop esi\n0x00b66510      ret 4\n"
+    }
+  ]
+}
+
+=== Capture 47: identity_ctor_pointer_map_refs ===
+{
+  "content": [
+    {
+      "type": "text",
+      "text": "fcn.00b63d80 0xb63da8 [DATA:-w-] mov dword [esi], 0x10adfd8\nfcn.00b656e0 0xb65960 [DATA:-w-] mov dword [edi], 0x10adfd8\nfcn.00b660d0 0xb66229 [DATA:-w-] mov dword [esi + 0x1b4], 0x10adfd8\n"
+    }
+  ]
+}
+
+=== Capture 48: identity_insert_tail_incoming ===
+{
+  "content": [
+    {
+      "type": "text",
+      "text": ""
+    }
+  ]
+}
+
+=== Capture 49: identity_lookup_site_incoming ===
+{
+  "content": [
+    {
+      "type": "text",
+      "text": ""
+    }
+  ]
+}
+
+=== Capture 50: identity_removed_block_incoming ===
+{
+  "content": [
+    {
+      "type": "text",
+      "text": ""
+    }
+  ]
+}
+
+=== Capture 51: identity_accumulator_destruction_map ===
+{
+  "content": [
+    {
+      "type": "text",
+      "text": "0x00b65930      lea ecx, [edi + 4]\n0x00b65933      push ecx\n; 0xfdf1c4\n   ; reloc.KERNEL32.dll_InterlockedDecrement\n   ; sym.imp.KERNEL32.dll_InterlockedDecrement(0x0, 0x0, 0x4, 0x0)\n0x00b65934      call dword [sym.imp.KERNEL32.dll_InterlockedDecrement]\n0x00b6593a      test eax, eax\n   ; unlikely\n0x00b6593c      jne 0xb65947\n0x00b6593e      mov edx, dword [edi]\n0x00b65940      mov eax, dword [edx + 4]\n0x00b65943      mov ecx, edi\n   ; 0xffffffff(-1, 0x0, 0x0, -1)\n0x00b65945      call eax\n0x00b65947      mov dword [esi + 0x198], ebx\n0x00b6594d      lea ecx, [esi + 0x200]\n0x00b65953      push ecx\n; 0xfdf058\n   ; reloc.KERNEL32.dll_DeleteCriticalSection\n   ; sym.imp.KERNEL32.dll_DeleteCriticalSection(-1, 0x0, 0x200, -1)\n0x00b65954      call dword [sym.imp.KERNEL32.dll_DeleteCriticalSection]\n0x00b6595a      mov edi, ebp\n0x00b6595c      mov dword [var_14h_2], edi\n; [0x10adfd8:4]=0xb63e70 fcn.00b63e70\n0x00b65960      mov dword [edi], 0x10adfd8\n0x00b65966      mov ecx, edi\n; [0xb:1]=255\n; 11\n0x00b65968      mov byte [var_24h_2], 0xb\n   ; fcn.00b601a0\n0x00b6596d      call fcn.00b601a0\n0x00b65972      mov ecx, edi\n0x00b65974      mov byte [var_24h_2], 8\n; [0x10adfbc:4]=0xb63e30 fcn.00b63e30\n0x00b65979      mov dword [edi], 0x10adfbc\n   ; fcn.00b601a0\n0x00b6597f      call fcn.00b601a0\n0x00b65984      mov edx, dword [edi + 8]\n0x00b65987      push edx\n   ; fcn.00aa10f0\n   ; fcn.00aa10f0(-1)\n0x00b65988      call fcn.00aa10f0\n0x00b6598d      add esp, 4\n0x00b65990      lea ecx, [esi + 0x1a4]\n0x00b65996      mov byte [var_24h_2], 7\n   ; fcn.00ba8cd0\n0x00b6599b      call fcn.00ba8cd0\n0x00b659a0      mov edi, dword [esi + 0x1a0]\n; [0xfdf1c4:4]=0xd80cb8 reloc.KERNEL32.dll_InterlockedDecrement\n   ; reloc.KERNEL32.dll_InterlockedDecrement\n0x00b659a6      mov ebp, dword [sym.imp.KERNEL32.dll_InterlockedDecrement]\n0x00b659ac      mov byte [var_24h_2], 6\n0x00b659b1      cmp edi, ebx\n   ; unlikely\n0x00b659b3      je 0xb659c8\n0x00b659b5      lea eax, [edi + 4]\n0x00b659b8      push eax\n   ; reloc.KERNEL32.dll_InterlockedDecrement\n   ; reloc.KERNEL32.dll_InterlockedDecrement(0x3, 0x0, 0x1a4, -1)\n0x00b659b9      call ebp\n0x00b659bb      test eax, eax\n   ; likely\n0x00b659bd      jne 0xb659c8\n0x00b659bf      mov edx, dword [edi]\n0x00b659c1      mov eax, dword [edx + 4]\n0x00b659c4      mov ecx, edi\n   ; 0xffffffff(-1, 0x0, -1, -1)\n0x00b659c6      call eax\n0x00b659c8      mov edi, dword [esi + 0x198]\n0x00b659ce      mov byte [var_24h_2], 5\n0x00b659d3      cmp edi, ebx\n   ; unlikely\n0x00b659d5      je 0xb659ea\n0x00b659d7      lea ecx, [edi + 4]\n0x00b659da      push ecx\n   ; reloc.KERNEL32.dll_InterlockedDecrement\n   ; reloc.KERNEL32.dll_InterlockedDecrement(-1, 0x0, 0x3, -1)\n0x00b659db      call ebp\n0x00b659dd      test eax, eax\n   ; likely\n0x00b659df      jne 0xb659ea\n0x00b659e1      mov edx, dword [edi]\n0x00b659e3      mov eax, dword [edx + 4]\n0x00b659e6      mov ecx, edi\n   ; 0xffffffff(-1, 0x0, -1, -1)\n0x00b659e8      call eax\n0x00b659ea      lea ecx, [esi + 0x140]\n   ; fcn.00b71300\n0x00b659f0      call fcn.00b71300\n0x00b659f5      mov edi, dword [esi + 0x13c]\n0x00b659fb      mov byte [var_24h_2], 3\n0x00b65a00      cmp edi, ebx\n   ; unlikely\n0x00b65a02      je 0xb65a17\n0x00b65a04      lea ecx, [edi + 4]\n0x00b65a07      push ecx\n"
+    }
+  ]
+}
+
+=== Capture 52: identity_clear_forward ===
+{
+  "content": [
+    {
+      "type": "text",
+      "text": "; CALL XREF from fcn.00b5e870 @ 0xb5e89f(x)\n; NULL XREF from fcn.00c4f1d0 @ +0x96(x)\n47: fcn.00c4f360 ();\nafv: vars(3:sp[0x8..0x10])\n0x00c4f360      push ebp\n0x00c4f361      mov ebp, esp\n0x00c4f363      sub esp, 0xc\n0x00c4f366      mov dword [var_8h], ecx\n0x00c4f369      mov eax, dword [var_4h]\n0x00c4f36c      mov dword [var_ch], eax\n0x00c4f36f      mov ecx, dword [var_8h]\n0x00c4f372      mov edx, dword [ecx + 0xc4]\n0x00c4f378      mov dword [var_ch], edx\n0x00c4f37b      mov eax, dword [var_ch]\n0x00c4f37e      mov edx, dword [eax]\n0x00c4f380      mov ecx, dword [var_ch]\n0x00c4f383      mov eax, dword [edx + 0xa0]\n; 0xffffffff(-1, 0x0, -1, -1)\n0x00c4f389      call eax\n0x00c4f38b      mov esp, ebp\n0x00c4f38d      pop ebp\n0x00c4f38e      ret\n"
+    }
+  ]
+}
+
+=== Capture 53: identity_clear_interval ===
+{
+  "content": [
+    {
+      "type": "text",
+      "text": "; CALL XREF from fcn.008707c0 @ 0x87091f(x)\n; CALL XREF from fcn.00873200 @ 0x873f5f(x)\n; CALL XREF from fcn.00b5f9b0 @ 0xb5f9e7(x)\n1069: fcn.00b5e870 (int32_t arg_50h);\n`- args(sp[0x4..0x4]) vars(16:sp[0x8..0x48])\n0x00b5e870      push 0xffffffffffffffff\n0x00b5e872      push 0xf27940\n0x00b5e877      mov eax, dword fs:[0]\n0x00b5e87d      push eax\n0x00b5e87e      sub esp, 0x2c\n0x00b5e881      push ebx\n0x00b5e882      push ebp\n0x00b5e883      push esi\n0x00b5e884      push edi\n; [0x11c16bc:4]=0xbb40e64e\n0x00b5e885      mov eax, dword [0x11c16bc]\n0x00b5e88a      xor eax, esp\n0x00b5e88c      push eax\n0x00b5e88d      lea eax, [var_40h]\n0x00b5e891      mov dword fs:[0], eax\n0x00b5e897      mov edi, ecx\n0x00b5e899      mov esi, dword [arg_50h]\n0x00b5e89d      mov ecx, esi\n; fcn.00c4f360\n0x00b5e89f      call fcn.00c4f360\n0x00b5e8a4      cmp byte [edi + 0x130], 0\n0x00b5e8ab      mov ebx, dword [esi + 0xc]\n; likely\n0x00b5e8ae      jne 0xb5ea33\n0x00b5e8b4      mov ebp, dword [edi + 0xb4]\n0x00b5e8ba      test ebp, ebp\n; unlikely\n0x00b5e8bc      je 0xb5ea33\n0x00b5e8c2      mov esi, dword [ebp + 8]\n0x00b5e8c5      lea eax, [ebp + 8]\n0x00b5e8c8      mov dword [var_14h], ebp\n0x00b5e8cc      mov ebp, dword [ebp]\n0x00b5e8cf      test esi, esi\n; unlikely\n0x00b5e8d1      je 0xb5ea27\n0x00b5e8d7      mov eax, dword [esi + 0xf8]\n0x00b5e8dd      test eax, eax\n; unlikely\n0x00b5e8df      je 0xb5e91f\n0x00b5e8e1      cmp dword [eax + 4], 1\n; unlikely\n0x00b5e8e5      je 0xb5e91f\n0x00b5e8e7      cmp byte [esi + 0xfc], 0\n; unlikely\n0x00b5e8ee      je 0xb5e8f8\n0x00b5e8f0      push esi\n0x00b5e8f1      mov ecx, edi\n; fcn.00b5d270\n; fcn.00b5d270(-1, -1)\n0x00b5e8f3      call fcn.00b5d270\n0x00b5e8f8      cmp byte [esi + 0xec], 0\n; unlikely\n0x00b5e8ff      je 0xb5e90e\n; fcn.005bf7b0\n0x00b5e901      call fcn.005bf7b0\n0x00b5e906      test al, al\n; likely\n0x00b5e908      jne 0xb5ea27\n0x00b5e90e      mov eax, dword [arg_50h]\n0x00b5e912      push eax\n0x00b5e913      mov ecx, esi\n; fcn.00b9e970\n; fcn.00b9e970(-1)\n0x00b5e915      call fcn.00b9e970\n0x00b5e91a      jmp 0xb5ea27\n0x00b5e91f      mov eax, dword [esi + 0x240]\n0x00b5e925      cmp eax, dword [edi + 0x1e0]\n; likely\n0x00b5e92b      je 0xb5e9d7\n0x00b5e931      cmp byte [esi + 0xec], 0\n; unlikely\n0x00b5e938      je 0xb5e99f\n0x00b5e93a      mov dword [var_14h], esi\n0x00b5e93e      add esi, 4\n0x00b5e941      push esi\n; 0xfdf1c0\n; reloc.KERNEL32.dll_InterlockedIncrement\n; sym.imp.KERNEL32.dll_InterlockedIncrement(-1, -1, -1, 0x0)\n0x00b5e942      call dword [sym.imp.KERNEL32.dll_InterlockedIncrement]\n0x00b5e948      lea ecx, [var_14h_2]\n0x00b5e94c      push ecx\n0x00b5e94d      lea edx, [var_18h]\n0x00b5e951      push edx\n0x00b5e952      lea ecx, [edi + 0xc0]\n0x00b5e958      mov dword [var_50h], 0\n; fcn.00b9fcc0\n; fcn.00b9fcc0(-1, -1)\n0x00b5e960      call fcn.00b9fcc0\n0x00b5e965      mov eax, dword [var_14h_2]\n0x00b5e969      test eax, eax\n; unlikely\n0x00b5e96b      je 0xb5e986\n0x00b5e96d      mov esi, eax\n0x00b5e96f      add eax, 4\n0x00b5e972      push eax\n; 0xfdf1c4\n; reloc.KERNEL32.dll_InterlockedDecrement\n; sym.imp.KERNEL32.dll_InterlockedDecrement(0x3, -1, 0xc0, 0xffffffb0)\n0x00b5e973      call dword [sym.imp.KERNEL32.dll_InterlockedDecrement]\n0x00b5e979      test eax, eax\n; likely\n0x00b5e97b      jne 0xb5e986\n0x00b5e97d      mov eax, dword [esi]\n0x00b5e97f      mov edx, dword [eax + 4]\n0x00b5e982      mov ecx, esi"
+    }
+  ]
+}
+
+=== Capture 54: identity_scene_owner ===
+{
+  "content": [
+    {
+      "type": "text",
+      "text": "; unlikely\n0x00b5faf4      je 0xb5fbe4\n; 3\n0x00b5fafa      cmp eax, 3\n; unlikely\n0x00b5fafd      je 0xb5fbe4\n0x00b5fb03      mov ecx, dword [ebp + 0x1e0]\n0x00b5fb09      mov eax, dword [ecx + 0x30]\n0x00b5fb0c      test eax, eax\n; unlikely\n0x00b5fb0e      je 0xb5fba4\n0x00b5fb14      jmp 0xb5fb1a\n0x00b5fb16      mov eax, dword [var_18h_2]\n; CODE XREF from fcn.00b5f9b0 @ 0xb5fb14(x)\n0x00b5fb1a      mov esi, dword [eax + 8]\n0x00b5fb1d      mov edx, dword [eax]\n0x00b5fb1f      lea ecx, [eax + 8]\n0x00b5fb22      mov dword [var_18h_2], edx\n0x00b5fb26      test esi, esi\n; unlikely\n0x00b5fb28      je 0xb5fb99\n0x00b5fb2a      mov eax, dword [esi]\n0x00b5fb2c      mov edx, dword [eax + 0xd4]\n0x00b5fb32      push ebx\n0x00b5fb33      mov ecx, esi\n; 0xffffffff(-1, -1, -1, -1)\n0x00b5fb35      call edx\n0x00b5fb37      cmp dword [esi + 0xbc], 0\n; unlikely\n0x00b5fb3e      je 0xb5fb8f\n0x00b5fb40      mov edi, dword [esi + 0xb4]\n0x00b5fb46      test edi, edi\n; unlikely\n0x00b5fb48      je 0xb5fb8f\n0x00b5fb4a      lea ebx, [ebx]\n0x00b5fb50      mov esi, dword [edi + 8]\n0x00b5fb53      lea eax, [edi + 8]\n0x00b5fb56      mov edi, dword [edi]\n0x00b5fb58      test esi, esi\n; unlikely\n0x00b5fb5a      je 0xb5fb8b\n0x00b5fb5c      mov eax, dword [esi + 0x104]\n0x00b5fb62      push eax\n0x00b5fb63      mov ecx, ebx\n; fcn.00c4f320\n; fcn.00c4f320(-1)\n0x00b5fb65      call fcn.00c4f320\n0x00b5fb6a      test al, al\n; unlikely\n0x00b5fb6c      je 0xb5fb8b\n0x00b5fb6e      mov eax, dword [ebx + 0xc]\n0x00b5fb71      push esi\n0x00b5fb72      push eax\n0x00b5fb73      mov ecx, ebp\n; fcn.00b5ba80\n; fcn.00b5ba80(-1, -1)\n0x00b5fb75      call fcn.00b5ba80\n0x00b5fb7a      mov ecx, dword [esi + 0x104]\n0x00b5fb80      mov eax, dword [ecx]\n0x00b5fb82      mov edx, dword [eax + 0xd4]\n0x00b5fb88      push ebx\n; 0xffffffff(-1, -1, -1, -1)\n0x00b5fb89      call edx\n0x00b5fb8b      test edi, edi\n; likely\n0x00b5fb8d      jne 0xb5fb50\n0x00b5fb8f      mov dword [ebx + 0xc0], 0\n0x00b5fb99      cmp dword [var_18h_2], 0\n; likely\n0x00b5fb9e      jne 0xb5fb16\n0x00b5fba4      mov esi, 4\n0x00b5fba9      mov eax, esi\n0x00b5fbab      cmp ax, word [ebp + 0xa6]\n; unlikely\n0x00b5fbb2      jae 0xb5fca5\n0x00b5fbb8      jmp 0xb5fbc0\n..\n; CODE XREF from fcn.00b5f9b0 @ 0xb5fbb8(x)\n0x00b5fbc0      mov ecx, dword [ebp + 0xa0]\n0x00b5fbc6      mov ecx, dword [ecx + esi*4]\n0x00b5fbc9      test ecx, ecx\n; unlikely\n0x00b5fbcb      je 0xb5fbd3\n0x00b5fbcd      push ebx\n; fcn.00a59e00\n; fcn.00a59e00(0x4)\n0x00b5fbce      call fcn.00a59e00\n0x00b5fbd3      movzx edx, word [ebp + 0xa6]\n0x00b5fbda      inc esi\n0x00b5fbdb      cmp esi, edx\n; likely\n0x00b5fbdd      jb 0xb5fbc0\n0x00b5fbdf      jmp 0xb5fca5\n0x00b5fbe4      push ebx\n0x00b5fbe5      mov ecx, ebp\n; fcn.00a5dbe0\n; fcn.00a5dbe0(0x4)\n0x00b5fbe7      call fcn.00a5dbe0\n0x00b5fbec      mov eax, dword [ebx + 0x90]\n0x00b5fbf2      mov ecx, dword [ebp + 0x1e0]\n0x00b5fbf8      lea edx, [ecx + 0x30]\n; 1\n0x00b5fbfb      cmp eax, 1\n; unlikely\n0x00b5fbfe      je 0xb5fc05\n; 3\n0x00b5fc00      cmp eax, 3\n; likely\n0x00b5fc03      jne 0xb5fc08\n0x00b5fc05      lea edx, [ecx + 0x20]"
+    }
+  ]
+}
+
+=== Capture 55: identity_generic_remove_provider ===
+{
+  "content": [
+    {
+      "type": "text",
+      "text": "; CALL XREF from fcn.00b651e0 @ 0xb65260(x)\n162: fcn.00b63c60 ();\nafv: vars(1:sp[0x8..0x8])\n0x00b63c60      push ecx\n0x00b63c61      push ebx\n0x00b63c62      push edi\n0x00b63c63      mov edi, ecx\n0x00b63c65      mov eax, dword [edi + 0x98]\n0x00b63c6b      xor ebx, ebx\n0x00b63c6d      cmp dword [eax + 8], ebx\n; likely\n0x00b63c70      jne 0xb63cad\n; 16\n0x00b63c72      push 0x10\n0x00b63c74      mov ecx, 0x11f6238\n; fcn.00aa3e40\n; fcn.00aa3e40(-1)\n0x00b63c79      call fcn.00aa3e40\n0x00b63c7e      cmp eax, ebx\n; unlikely\n0x00b63c80      je 0xb63c95\n0x00b63c82      mov byte [eax], bl\n0x00b63c84      mov byte [eax + 1], bl\n0x00b63c87      mov byte [eax + 2], bl\n0x00b63c8a      mov dword [eax + 4], ebx\n0x00b63c8d      mov dword [eax + 8], ebx\n0x00b63c90      mov dword [eax + 0xc], ebx\n0x00b63c93      jmp 0xb63c97\n0x00b63c95      xor eax, eax\n; CODE XREF from fcn.00b63c60 @ 0xb63c93(x)\n0x00b63c97      lea ecx, [var_8h]\n0x00b63c9b      push ecx\n; 2\n0x00b63c9c      push 2\n0x00b63c9e      lea ecx, [edi + 0x94]\n0x00b63ca4      mov dword [var_8h], eax\n; fcn.00ba3aa0\n; fcn.00ba3aa0(0x0, 0x0)\n0x00b63ca8      call fcn.00ba3aa0\n0x00b63cad      mov eax, dword [edi + 0x98]\n0x00b63cb3      mov ecx, dword [eax + 8]\n0x00b63cb6      add eax, 8\n; fcn.00ba3770\n0x00b63cb9      call fcn.00ba3770\n0x00b63cbe      test eax, eax\n; likely\n0x00b63cc0      jne 0xb63cec\n; [0x11f4748:4]=0\n0x00b63cc2      mov edx, dword [0x11f4748]\n; [0x11f91a8:4]=0\n0x00b63cc8      mov ecx, dword [0x11f91a8]\n0x00b63cce      push esi\n0x00b63ccf      mov esi, dword [edi + 0x98]\n0x00b63cd5      push ebx\n0x00b63cd6      push ebx\n0x00b63cd7      push ebx\n; 32\n0x00b63cd8      push 0x20\n0x00b63cda      push edx\n0x00b63cdb      add esi, 8\n; fcn.00b6e110\n; fcn.00b6e110(0x7, 0x0, 0x0)\n0x00b63cde      call fcn.00b6e110\n0x00b63ce3      mov ecx, dword [esi]\n0x00b63ce5      push eax\n; fcn.00ba37a0\n; fcn.00ba37a0(0x7)\n0x00b63ce6      call fcn.00ba37a0\n0x00b63ceb      pop esi\n0x00b63cec      mov edi, dword [edi + 0x98]\n0x00b63cf2      mov ecx, dword [edi + 8]\n0x00b63cf5      add edi, 8\n0x00b63cf8      pop edi\n0x00b63cf9      pop ebx\n0x00b63cfa      add esp, 4\n; fcn.00ba3770\n0x00b63cfd      jmp fcn.00ba3770\n"
+    }
+  ]
+}
+
+=== Capture 56: identity_base_map_destroy ===
+{
+  "content": [
+    {
+      "type": "text",
+      "text": "; NULL XREF from fcn.00b63c60 @ +0xa2(x)\n50: fcn.00b63e30 (int8_t arg_8h);\n`- args(sp[0x4..0x4])\n0x00b63e30      push esi\n0x00b63e31      mov esi, ecx\n; [0x10adfbc:4]=0xb63e30 fcn.00b63e30\n0x00b63e33      mov dword [esi], 0x10adfbc\n; fcn.00b601a0\n0x00b63e39      call fcn.00b601a0\n0x00b63e3e      mov eax, dword [esi + 8]\n0x00b63e41      push eax\n; fcn.00aa10f0\n; fcn.00aa10f0(-1)\n0x00b63e42      call fcn.00aa10f0\n0x00b63e47      add esp, 4\n0x00b63e4a      test byte [arg_8h], 1\n; unlikely\n0x00b63e4f      je 0xb63e5c\n0x00b63e51      push esi\n0x00b63e52      mov ecx, 0x11f6238\n; fcn.00aa4060\n; fcn.00aa4060(-1)\n0x00b63e57      call fcn.00aa4060\n0x00b63e5c      mov eax, esi\n0x00b63e5e      pop esi\n0x00b63e5f      ret 4\n"
+    }
+  ]
+}
+
+=== Capture 57: identity_insert_complete_xrefs ===
+{
+  "content": [
+    {
+      "type": "text",
+      "text": "fcn.00a5d430 0xa5d43a [CALL:--x] call fcn.00a5d320\nfcn.00b63b10 0xb63b45 [CALL:--x] call fcn.00a5d320\n"
+    }
+  ]
+}
+
+=== Capture 58: identity_lookup_complete_xrefs ===
+{
+  "content": [
+    {
+      "type": "text",
+      "text": "fcn.00a59e70 0xa59e94 [CALL:--x] call fcn.00b63170\nfcn.00b63b10 0xb63b35 [CALL:--x] call fcn.00b63170\n"
+    }
+  ]
+}
+
+=== Capture 59: identity_hash_code_xrefs ===
+{
+  "content": [
+    {
+      "type": "text",
+      "text": ""
+    }
+  ]
+}
+
+=== Capture 60: identity_equal_code_xrefs ===
+{
+  "content": [
+    {
+      "type": "text",
+      "text": "(nofunc) 0xe92586 [NULL:--x] int3\n"
+    }
+  ]
+}
+
+=== Capture 61: identity_set_payload_xrefs ===
+{
+  "content": [
+    {
+      "type": "text",
+      "text": "(nofunc) 0xb63b07 [NULL:--x] int3\n"
+    }
+  ]
+}
+
+=== Capture 62: compound_thread_builder ===
+{
+  "content": [
+    {
+      "type": "text",
+      "text": "; XREFS: CALL 0x00873f8c  CALL 0x00b5bbc9  CALL 0x00b5f45b\n; XREFS: CALL 0x00c399d0  CALL 0x00c399ea  CALL 0x00c4f732\n1647: fcn.00c49850 ();\nafv: vars(29:sp[0x8..0x78])\n0x00c49850      push ebp\n0x00c49851      mov ebp, esp\n0x00c49853      sub esp, 0x74\n0x00c49856      push esi\n0x00c49857      mov dword [var_60h], ecx\n0x00c4985a      mov eax, dword [var_60h]\n0x00c4985d      movzx ecx, byte [eax]\n0x00c49860      test ecx, ecx\n; likely\n0x00c49862      jne 0xc49eb8\n0x00c49868      mov edx, dword [var_60h]\n0x00c4986b      cmp dword [edx + 0x28], 0\n; likely\n0x00c4986f      jle 0xc49eb8\n0x00c49875      mov eax, dword [var_60h]\n0x00c49878      mov ecx, dword [eax + 0x28]\n0x00c4987b      add ecx, 1\n0x00c4987e      mov dword [var_10h], ecx\n0x00c49881      mov edx, dword [var_60h]\n0x00c49884      mov eax, dword [edx + 0x28]\n0x00c49887      add eax, 2\n0x00c4988a      mov dword [var_8h], eax\n0x00c4988d      mov ecx, dword [var_60h]\n0x00c49890      mov edx, dword [ecx + 0x20]\n0x00c49893      mov dword [var_40h], edx\n0x00c49896      mov eax, dword [var_60h]\n0x00c49899      mov ecx, dword [eax + 0x28]\n0x00c4989c      add ecx, 3\n0x00c4989f      cmp ecx, dword [var_40h]\n; unlikely\n0x00c498a2      jl 0xc498c1\n0x00c498a4      mov edx, dword [var_60h]\n0x00c498a7      mov eax, dword [edx + 0x20]\n0x00c498aa      mov dword [var_44h], eax\n; 1\n0x00c498ad      push 1\n0x00c498af      mov ecx, dword [var_44h]\n0x00c498b2      add ecx, 0xa\n0x00c498b5      push ecx\n0x00c498b6      mov ecx, dword [var_60h]\n; 20\n0x00c498b9      add ecx, 0x14\n; fcn.00c4a1e0\n; fcn.00c4a1e0(-1, 0x0)\n0x00c498bc      call fcn.00c4a1e0\n0x00c498c1      mov edx, dword [var_60h]\n0x00c498c4      mov eax, dword [edx + 0x28]\n; 12\n0x00c498c7      imul eax, eax, 0xc\n0x00c498ca      mov ecx, dword [var_60h]\n0x00c498cd      mov edx, dword [ecx + 0x18]\n0x00c498d0      mov dword [eax + edx], 1\n0x00c498d7      mov eax, dword [var_60h]\n0x00c498da      mov ecx, dword [eax + 0x28]\n0x00c498dd      add ecx, 1\n; 12\n0x00c498e0      imul ecx, ecx, 0xc\n0x00c498e3      mov edx, dword [var_60h]\n0x00c498e6      mov eax, dword [edx + 0x18]\n0x00c498e9      mov dword [ecx + eax], 2\n0x00c498f0      mov ecx, dword [var_60h]\n0x00c498f3      mov edx, dword [ecx + 0x28]\n0x00c498f6      add edx, 2\n; 12\n0x00c498f9      imul edx, edx, 0xc\n0x00c498fc      mov eax, dword [var_60h]\n0x00c498ff      mov ecx, dword [eax + 0x18]\n0x00c49902      mov dword [edx + ecx], 3\n0x00c49909      mov edx, dword [var_60h]\n0x00c4990c      mov eax, dword [edx + 0x28]\n0x00c4990f      cdq\n0x00c49910      sub eax, edx\n0x00c49912      sar eax, 1\n0x00c49914      mov dword [var_ch], eax\n0x00c49917      mov ecx, 0x11f6238\n; fcn.00aa42e0\n0x00c4991c      call fcn.00aa42e0\n0x00c49921      mov dword [var_24h], eax\n; [0x10a2720:4]=4\n0x00c49924      mov eax, dword [0x10a2720]\n0x00c49929      push eax\n0x00c4992a      mov ecx, dword [var_ch]\n0x00c4992d      shl ecx, 2\n0x00c49930      push ecx\n0x00c49931      mov ecx, dword [var_24h]\n; fcn.00aa54a0\n; fcn.00aa54a0(0x4, 0x0)\n0x00c49934      call fcn.00aa54a0\n0x00c49939      mov dword [var_20h], eax\n0x00c4993c      mov edx, dword [var_20h]\n0x00c4993f      mov dword [edx], 0\n0x00c49945      mov dword [var_1ch], 0\n0x00c4994c      mov dword [var_4h], 1\n; [0x10a2720:4]=4\n0x00c49953      mov eax, dword [0x10a2720]\n0x00c49958      push eax\n0x00c49959      mov ecx, dword [var_ch]\n0x00c4995c      shl ecx, 2\n0x00c4995f      push ecx\n0x00c49960      mov ecx, dword [var_24h]\n; fcn.00aa54a0\n; fcn.00aa54a0(0x4, 0x0)\n0x00c49963      call fcn.00aa54a0\n0x00c49968      mov dword [var_18h], eax\n; [0x10a2720:4]=4\n0x00c4996b      mov edx, dword [0x10a2720]\n0x00c49971      push edx\n0x00c49972      mov eax, dword [var_ch]\n0x00c49975      shl eax, 2\n0x00c49978      push eax\n0x00c49979      mov ecx, dword [var_24h]\n; fcn.00aa54a0\n; fcn.00aa54a0(0xfffffffc, 0x0)\n0x00c4997c      call fcn.00aa54a0\n0x00c49981      mov dword [var_14h], eax\n0x00c49984      mov dword [var_2ch], 0\n0x00c4998b      jmp 0xc49996\n; CODE XREF from fcn.00c49850 @ 0xc49a38(x)\n0x00c4998d      mov ecx, dword [var_2ch]\n0x00c49990      add ecx, 1\n0x00c49993      mov dword [var_2ch], ecx\n; CODE XREF from fcn.00c49850 @ 0xc4998b(x)\n0x00c49996      mov edx, dword [var_60h]\n0x00c49999      mov eax, dword [edx + 0x28]\n0x00c4999c      add eax, 1\n0x00c4999f      cmp dword [var_2ch], eax"
+    }
+  ]
+}
+
+=== Capture 63: compound_thread_builder_middle ===
+{
+  "content": [
+    {
+      "type": "text",
+      "text": "; unlikely\n0x00c499a2      jge 0xc49a3d\n0x00c499a8      mov ecx, dword [var_2ch]\n; 12\n0x00c499ab      imul ecx, ecx, 0xc\n0x00c499ae      mov edx, dword [var_60h]\n0x00c499b1      mov eax, dword [edx + 0x18]\n0x00c499b4      mov ecx, dword [ecx + eax]\n0x00c499b7      mov dword [var_64h], ecx\n0x00c499ba      mov edx, dword [var_64h]\n0x00c499bd      sub edx, 1\n0x00c499c0      mov dword [var_64h], edx\n0x00c499c3      cmp dword [var_64h], 7\n; case.default.0xc499cc\n; likely\n0x00c499c7      ja case.0xc499cc.1\n0x00c499c9      mov eax, dword [var_64h]\n; switch table (8 cases) at 0xc49ec4\n;-- switch:\n; 0xc49ec4\n0x00c499cc      jmp dword [eax*4 + fcn.00c49ec4]\n;-- case 0:; from 0x00c499cc\n; CODE XREF from fcn.00c49850 @ 0xc499cc(x)\n0x00c499d3      mov ecx, dword [var_18h]\n0x00c499d6      mov edx, dword [var_2ch]\n0x00c499d9      mov dword [ecx], edx\n0x00c499db      cmp dword [var_1ch], 0\n; unlikely\n0x00c499df      je 0xc499f0\n0x00c499e1      mov eax, dword [var_60h]\n0x00c499e4      mov dword [eax + 0x28], 0\n0x00c499eb      jmp 0xc49ebe\n; case.default.0xc499cc\n; case.default.0xc499cc(-1, 0x0, -1, -1)\n0x00c499f0      jmp case.0xc499cc.1\n;-- case 3...4:; from 0x00c499cc\n; CODE XREF from fcn.00c49850 @ 0xc499cc(x)\n0x00c499f2      mov ecx, dword [var_1ch]\n0x00c499f5      add ecx, 1\n0x00c499f8      mov dword [var_1ch], ecx\n0x00c499fb      mov edx, dword [var_1ch]\n0x00c499fe      mov eax, dword [var_20h]\n0x00c49a01      mov ecx, dword [var_4h]\n0x00c49a04      mov dword [eax + edx*4], ecx\n0x00c49a07      mov edx, dword [var_4h]\n0x00c49a0a      add edx, 1\n0x00c49a0d      mov dword [var_4h], edx\n; case.default.0xc499cc\n; case.default.0xc499cc(-1, 0x0, -1, 0x0)\n0x00c49a10      jmp case.0xc499cc.1\n;-- case 5:; from 0x00c499cc\n; CODE XREF from fcn.00c49850 @ 0xc499cc(x)\n0x00c49a12      mov eax, dword [var_1ch]\n0x00c49a15      mov ecx, dword [var_20h]\n0x00c49a18      mov edx, dword [ecx + eax*4]\n0x00c49a1b      mov eax, dword [var_18h]\n0x00c49a1e      mov ecx, dword [var_2ch]\n0x00c49a21      mov dword [eax + edx*4], ecx\n0x00c49a24      mov edx, dword [var_1ch]\n0x00c49a27      sub edx, 1\n0x00c49a2a      mov dword [var_1ch], edx\n; case.default.0xc499cc\n; case.default.0xc499cc(-1, 0x0, -1, 0xfffffffe)\n0x00c49a2d      jmp case.0xc499cc.1\n;-- case 6...7:; from 0x00c499cc\n; CODE XREF from fcn.00c49850 @ 0xc499cc(x)\n0x00c49a2f      mov eax, dword [var_2ch]\n0x00c49a32      add eax, 1\n0x00c49a35      mov dword [var_2ch], eax\n;-- default:; from 0xc499cc\n; CODE XREFS from fcn.00c49850 @ 0xc499cc(x), 0xc499f0(x), 0xc49a10(x), 0xc49a2d(x)\n0x00c49a38      jmp 0xc4998d\n0x00c49a3d      mov ecx, dword [var_ch]\n0x00c49a40      shl ecx, 2\n0x00c49a43      push ecx\n0x00c49a44      push 0\n0x00c49a46      mov edx, dword [var_20h]\n0x00c49a49      push edx\n; fcn.00ec61c0\n; fcn.00ec61c0(0x0, 0x0, 0xfffffffc)\n0x00c49a4a      call fcn.00ec61c0\n0x00c49a4f      add esp, 0xc\n0x00c49a52      mov eax, dword [var_20h]\n0x00c49a55      mov dword [eax], 0\n0x00c49a5b      mov ecx, dword [var_14h]\n0x00c49a5e      mov dword [ecx], 0\n0x00c49a64      mov dword [var_1ch], 1\n0x00c49a6b      mov dword [var_4h], 1\n0x00c49a72      mov byte [var_25h], 0\n0x00c49a76      mov dword [var_30h], 0\n0x00c49a7d      jmp 0xc49a88\n; CODE XREF from fcn.00c49850 @ 0xc49d04(x)\n0x00c49a7f      mov edx, dword [var_30h]\n0x00c49a82      add edx, 1\n0x00c49a85      mov dword [var_30h], edx\n; CODE XREF from fcn.00c49850 @ 0xc49a7d(x)\n0x00c49a88      mov eax, dword [var_60h]\n0x00c49a8b      mov ecx, dword [eax + 0x28]\n0x00c49a8e      add ecx, 1\n0x00c49a91      cmp dword [var_30h], ecx\n; unlikely\n0x00c49a94      jge 0xc49d09\n0x00c49a9a      mov edx, dword [var_30h]\n; 12\n0x00c49a9d      imul edx, edx, 0xc\n0x00c49aa0      mov eax, dword [var_60h]\n0x00c49aa3      mov ecx, dword [eax + 0x18]\n0x00c49aa6      mov edx, dword [edx + ecx]\n0x00c49aa9      mov dword [var_68h], edx\n0x00c49aac      mov eax, dword [var_68h]\n0x00c49aaf      sub eax, 1\n0x00c49ab2      mov dword [var_68h], eax\n0x00c49ab5      cmp dword [var_68h], 7\n; case.default.0xc49ac2\n; likely\n0x00c49ab9      ja case.0xc49ac2.1\n0x00c49abf      mov ecx, dword [var_68h]\n; switch table (8 cases) at 0xc49ee4\n;-- switch:\n0x00c49ac2      jmp dword [ecx*4 + 0xc49ee4]\n;-- case 0:; from 0x00c49ac2\n; CODE XREF from fcn.00c49850 @ 0xc49ac2(x)\n0x00c49ac9      mov edx, dword [var_30h]\n; 12\n0x00c49acc      imul edx, edx, 0xc\n0x00c49acf      mov eax, dword [var_60h]\n0x00c49ad2      mov ecx, dword [eax + 0x18]\n0x00c49ad5      mov eax, dword [var_10h]\n0x00c49ad8      mov dword [ecx + edx + 4], eax\n0x00c49adc      mov ecx, dword [var_30h]"
+    }
+  ]
+}
+
+=== Capture 64: compound_thread_builder_tail ===
+{
+  "content": [
+    {
+      "type": "text",
+      "text": "; 12\n0x00c49adf      imul ecx, ecx, 0xc\n0x00c49ae2      mov edx, dword [var_60h]\n0x00c49ae5      mov eax, dword [edx + 0x18]\n0x00c49ae8      mov edx, dword [var_8h]\n0x00c49aeb      mov dword [eax + ecx + 8], edx\n; case.default.0xc49ac2\n; case.default.0xc49ac2(-1, 0x0, 0xfffffff4, -1)\n0x00c49aef      jmp case.0xc49ac2.1\n;-- case 5:; from 0x00c49ac2\n; CODE XREF from fcn.00c49850 @ 0xc49ac2(x)\n0x00c49af4      mov eax, dword [var_1ch]\n0x00c49af7      sub eax, 1\n0x00c49afa      mov dword [var_1ch], eax\n0x00c49afd      mov ecx, dword [var_1ch]\n0x00c49b00      mov edx, dword [var_20h]\n0x00c49b03      mov eax, dword [edx + ecx*4 - 4]\n0x00c49b07      mov dword [var_6ch], eax\n0x00c49b0a      cmp dword [var_6ch], 0\n; unlikely\n0x00c49b0e      je 0xc49b21\n0x00c49b10      cmp dword [var_6ch], 4\n; unlikely\n0x00c49b14      je 0xc49b87\n0x00c49b16      cmp dword [var_6ch], 5\n; unlikely\n0x00c49b1a      je 0xc49b4f\n0x00c49b1c      jmp 0xc49bbd\n0x00c49b21      mov ecx, dword [var_30h]\n0x00c49b24      add ecx, 1\n0x00c49b27      mov edx, dword [var_30h]\n; 12\n0x00c49b2a      imul edx, edx, 0xc\n0x00c49b2d      mov eax, dword [var_60h]\n0x00c49b30      mov eax, dword [eax + 0x18]\n0x00c49b33      mov dword [eax + edx + 4], ecx\n0x00c49b37      mov ecx, dword [var_30h]\n0x00c49b3a      add ecx, 1\n0x00c49b3d      mov edx, dword [var_30h]\n; 12\n0x00c49b40      imul edx, edx, 0xc\n0x00c49b43      mov eax, dword [var_60h]\n0x00c49b46      mov eax, dword [eax + 0x18]\n0x00c49b49      mov dword [eax + edx + 8], ecx\n0x00c49b4d      jmp 0xc49bbd\n0x00c49b4f      mov ecx, dword [var_1ch]\n0x00c49b52      mov edx, dword [var_14h]\n0x00c49b55      mov eax, dword [edx + ecx*4 - 4]\n0x00c49b59      mov ecx, dword [var_30h]\n; 12\n0x00c49b5c      imul ecx, ecx, 0xc\n0x00c49b5f      mov edx, dword [var_60h]\n0x00c49b62      mov edx, dword [edx + 0x18]\n0x00c49b65      mov esi, dword [var_18h]\n0x00c49b68      mov eax, dword [esi + eax*4]\n0x00c49b6b      mov dword [edx + ecx + 4], eax\n0x00c49b6f      mov ecx, dword [var_30h]\n0x00c49b72      add ecx, 1\n0x00c49b75      mov edx, dword [var_30h]\n; 12\n0x00c49b78      imul edx, edx, 0xc\n0x00c49b7b      mov eax, dword [var_60h]\n0x00c49b7e      mov eax, dword [eax + 0x18]\n0x00c49b81      mov dword [eax + edx + 8], ecx\n0x00c49b85      jmp 0xc49bbd\n0x00c49b87      mov ecx, dword [var_30h]\n0x00c49b8a      add ecx, 1\n0x00c49b8d      mov edx, dword [var_30h]\n; 12\n0x00c49b90      imul edx, edx, 0xc\n0x00c49b93      mov eax, dword [var_60h]\n0x00c49b96      mov eax, dword [eax + 0x18]\n0x00c49b99      mov dword [eax + edx + 4], ecx\n0x00c49b9d      mov ecx, dword [var_1ch]\n0x00c49ba0      mov edx, dword [var_14h]\n0x00c49ba3      mov eax, dword [edx + ecx*4 - 4]\n0x00c49ba7      mov ecx, dword [var_30h]\n; 12\n0x00c49baa      imul ecx, ecx, 0xc\n0x00c49bad      mov edx, dword [var_60h]\n0x00c49bb0      mov edx, dword [edx + 0x18]\n0x00c49bb3      mov esi, dword [var_18h]\n0x00c49bb6      mov eax, dword [esi + eax*4]\n0x00c49bb9      mov dword [edx + ecx + 8], eax\n; CODE XREFS from fcn.00c49850 @ 0xc49b1c(x), 0xc49b4d(x), 0xc49b85(x)\n; case.default.0xc49ac2\n; case.default.0xc49ac2(-1, 0x0, 0xfffffff4, -1)\n0x00c49bbd      jmp case.0xc49ac2.1\n;-- case 6...7:; from 0x00c49ac2\n; CODE XREF from fcn.00c49850 @ 0xc49ac2(x)\n0x00c49bc2      movzx ecx, byte [var_25h]\n0x00c49bc6      test ecx, ecx\n; likely\n0x00c49bc8      jne 0xc49bd7\n0x00c49bca      mov edx, dword [var_60h]\n0x00c49bcd      mov eax, dword [var_30h]\n0x00c49bd0      mov dword [edx + 0x2c], eax\n0x00c49bd3      mov byte [var_25h], 1\n0x00c49bd7      mov ecx, dword [var_1ch]\n0x00c49bda      mov edx, dword [var_20h]\n0x00c49bdd      mov eax, dword [edx + ecx*4 - 4]\n0x00c49be1      mov dword [var_70h], eax\n0x00c49be4      cmp dword [var_70h], 0\n; unlikely\n0x00c49be8      je 0xc49bfb\n0x00c49bea      cmp dword [var_70h], 4\n; unlikely\n0x00c49bee      je 0xc49c61\n0x00c49bf0      cmp dword [var_70h], 5\n; unlikely\n0x00c49bf4      je 0xc49c29\n0x00c49bf6      jmp 0xc49c97\n0x00c49bfb      mov ecx, dword [var_30h]\n; 12\n0x00c49bfe      imul ecx, ecx, 0xc\n0x00c49c01      mov edx, dword [var_60h]\n0x00c49c04      mov eax, dword [edx + 0x18]\n0x00c49c07      mov edx, dword [var_60h]\n0x00c49c0a      mov edx, dword [edx + 0x28]\n0x00c49c0d      mov dword [eax + ecx + 4], edx\n0x00c49c11      mov eax, dword [var_30h]\n; 12\n0x00c49c14      imul eax, eax, 0xc\n0x00c49c17      mov ecx, dword [var_60h]\n0x00c49c1a      mov edx, dword [ecx + 0x18]\n0x00c49c1d      mov ecx, dword [var_60h]\n0x00c49c20      mov ecx, dword [ecx + 0x28]\n0x00c49c23      mov dword [edx + eax + 8], ecx\n0x00c49c27      jmp 0xc49c97\n0x00c49c29      mov edx, dword [var_1ch]"
+    }
+  ]
+}
+
+=== Capture 65: compound_thread_builder_fourth ===
+{
+  "content": [
+    {
+      "type": "text",
+      "text": "0x00c49c2c      mov eax, dword [var_14h]\n0x00c49c2f      mov ecx, dword [eax + edx*4 - 4]\n0x00c49c33      mov edx, dword [var_30h]\n; 12\n0x00c49c36      imul edx, edx, 0xc\n0x00c49c39      mov eax, dword [var_60h]\n0x00c49c3c      mov eax, dword [eax + 0x18]\n0x00c49c3f      mov esi, dword [var_18h]\n0x00c49c42      mov ecx, dword [esi + ecx*4]\n0x00c49c45      mov dword [eax + edx + 4], ecx\n0x00c49c49      mov edx, dword [var_30h]\n0x00c49c4c      add edx, 2\n0x00c49c4f      mov eax, dword [var_30h]\n; 12\n0x00c49c52      imul eax, eax, 0xc\n0x00c49c55      mov ecx, dword [var_60h]\n0x00c49c58      mov ecx, dword [ecx + 0x18]\n0x00c49c5b      mov dword [ecx + eax + 8], edx\n0x00c49c5f      jmp 0xc49c97\n0x00c49c61      mov edx, dword [var_30h]\n0x00c49c64      add edx, 2\n0x00c49c67      mov eax, dword [var_30h]\n; 12\n0x00c49c6a      imul eax, eax, 0xc\n0x00c49c6d      mov ecx, dword [var_60h]\n0x00c49c70      mov ecx, dword [ecx + 0x18]\n0x00c49c73      mov dword [ecx + eax + 4], edx\n0x00c49c77      mov edx, dword [var_1ch]\n0x00c49c7a      mov eax, dword [var_14h]\n0x00c49c7d      mov ecx, dword [eax + edx*4 - 4]\n0x00c49c81      mov edx, dword [var_30h]\n; 12\n0x00c49c84      imul edx, edx, 0xc\n0x00c49c87      mov eax, dword [var_60h]\n0x00c49c8a      mov eax, dword [eax + 0x18]\n0x00c49c8d      mov esi, dword [var_18h]\n0x00c49c90      mov ecx, dword [esi + ecx*4]\n0x00c49c93      mov dword [eax + edx + 8], ecx\n; CODE XREFS from fcn.00c49850 @ 0xc49bf6(x), 0xc49c27(x), 0xc49c5f(x)\n0x00c49c97      mov edx, dword [var_30h]\n0x00c49c9a      add edx, 1\n0x00c49c9d      mov dword [var_30h], edx\n; case.default.0xc49ac2\n; case.default.0xc49ac2(-1, 0x0, -1, 0x0)\n0x00c49ca0      jmp case.0xc49ac2.1\n;-- case 3...4:; from 0x00c49ac2\n; CODE XREF from fcn.00c49850 @ 0xc49ac2(x)\n0x00c49ca2      mov eax, dword [var_30h]\n; 12\n0x00c49ca5      imul eax, eax, 0xc\n0x00c49ca8      mov ecx, dword [var_60h]\n0x00c49cab      mov edx, dword [ecx + 0x18]\n0x00c49cae      mov ecx, dword [var_1ch]\n0x00c49cb1      mov esi, dword [var_20h]\n0x00c49cb4      mov edx, dword [eax + edx]\n0x00c49cb7      mov dword [esi + ecx*4], edx\n0x00c49cba      mov eax, dword [var_1ch]\n0x00c49cbd      mov ecx, dword [var_14h]\n0x00c49cc0      mov edx, dword [var_4h]\n0x00c49cc3      mov dword [ecx + eax*4], edx\n0x00c49cc6      mov eax, dword [var_4h]\n0x00c49cc9      add eax, 1\n0x00c49ccc      mov dword [var_4h], eax\n0x00c49ccf      mov ecx, dword [var_1ch]\n0x00c49cd2      add ecx, 1\n0x00c49cd5      mov dword [var_1ch], ecx\n0x00c49cd8      mov edx, dword [var_30h]\n0x00c49cdb      add edx, 1\n0x00c49cde      mov eax, dword [var_30h]\n; 12\n0x00c49ce1      imul eax, eax, 0xc\n0x00c49ce4      mov ecx, dword [var_60h]\n0x00c49ce7      mov ecx, dword [ecx + 0x18]\n0x00c49cea      mov dword [ecx + eax + 4], edx\n0x00c49cee      mov edx, dword [var_30h]\n0x00c49cf1      add edx, 1\n0x00c49cf4      mov eax, dword [var_30h]\n; 12\n0x00c49cf7      imul eax, eax, 0xc\n0x00c49cfa      mov ecx, dword [var_60h]\n0x00c49cfd      mov ecx, dword [ecx + 0x18]\n0x00c49d00      mov dword [ecx + eax + 8], edx\n;-- default:; from 0xc49ac2\n; CODE XREFS from fcn.00c49850 @ 0xc49ac2(x), 0xc49aef(x), 0xc49bbd0x00c49d04"
+    }
+  ]
+}
+
+=== Capture 66: compound_thread_builder_final ===
+{
+  "content": [
+    {
+      "type": "text",
+      "text": ""
+    }
+  ]
+}
+
+=== Capture 67: compound_thread_builder_final_aligned ===
+{
+  "content": [
+    {
+      "type": "text",
+      "text": ";-- default:; from 0xc49ac2\n; CODE XREFS from fcn.00c49850 @ 0xc49ac2(x), 0xc49aef(x), 0xc49bbd(x), 0xc49ca0(x)\n0x00c49d04      jmp 0xc49a7f\n0x00c49d09      movzx edx, byte [var_25h]\n0x00c49d0d      test edx, edx\n   ; likely\n0x00c49d0f      jne 0xc49d32\n; 0x10c1e44\n; \"BSCompoundFrustum : prethreading an effectively empty op list\"\n0x00c49d11      push str.BSCompoundFrustum_:_prethreading_an_effectively_empty_op_list\n   ; fcn.005b5e40\n0x00c49d16      call fcn.005b5e40\n0x00c49d1b      add esp, 4\n0x00c49d1e      mov eax, dword [var_60h]\n0x00c49d21      mov ecx, dword [var_10h]\n0x00c49d24      mov dword [eax + 0x2c], ecx\n0x00c49d27      mov edx, dword [var_60h]\n0x00c49d2a      mov byte [edx], 1\n0x00c49d2d      jmp 0xc49ebe\n0x00c49d32      mov eax, dword [var_60h]\n0x00c49d35      mov ecx, dword [eax + 0x2c]\n0x00c49d38      mov dword [var_34h], ecx\n0x00c49d3b      jmp 0xc49d46\n; CODE XREF from fcn.00c49850 @ 0xc49e8f(x)\n0x00c49d3d      mov edx, dword [var_34h]\n0x00c49d40      add edx, 1\n0x00c49d43      mov dword [var_34h], edx\n; CODE XREF from fcn.00c49850 @ 0xc49d3b(x)\n0x00c49d46      mov eax, dword [var_60h]\n0x00c49d49      mov ecx, dword [var_34h]\n0x00c49d4c      cmp ecx, dword [eax + 0x28]\n   ; likely\n0x00c49d4f      jge 0xc49e94\n0x00c49d55      mov edx, dword [var_34h]\n; 12\n0x00c49d58      imul edx, edx, 0xc\n0x00c49d5b      mov eax, dword [var_60h]\n0x00c49d5e      mov ecx, dword [eax + 0x18]\n0x00c49d61      mov edx, dword [edx + ecx]\n0x00c49d64      mov dword [var_74h], edx\n0x00c49d67      cmp dword [var_74h], 7\n   ; likely\n0x00c49d6b      jl 0xc49e8f\n0x00c49d71      cmp dword [var_74h], 8\n   ; likely\n0x00c49d75      jle 0xc49d7c\n0x00c49d77      jmp 0xc49e8f\n; CODE XREF from fcn.00c49850 @ 0xc49dfc(x)\n0x00c49d7c      mov eax, 1\n0x00c49d81      test eax, eax\n   ; unlikely\n0x00c49d83      je 0xc49e01\n0x00c49d85      mov ecx, dword [var_34h]\n; 12\n0x00c49d88      imul ecx, ecx, 0xc\n0x00c49d8b      mov edx, dword [var_60h]\n0x00c49d8e      add ecx, dword [edx + 0x18]\n0x00c49d91      mov dword [var_48h], ecx\n0x00c49d94      mov eax, dword [var_48h]\n0x00c49d97      mov ecx, dword [eax + 4]\n; 12\n0x00c49d9a      imul ecx, ecx, 0xc\n0x00c49d9d      mov edx, dword [var_60h]\n0x00c49da0      mov eax, dword [edx + 0x18]\n0x00c49da3      mov ecx, dword [ecx + eax]\n0x00c49da6      mov dword [var_38h], ecx\n0x00c49da9      cmp dword [var_38h], 7\n   ; unlikely\n0x00c49dad      je 0xc49dc1\n0x00c49daf      cmp dword [var_38h], 8\n   ; unlikely\n0x00c49db3      je 0xc49dc1\n0x00c49db5      cmp dword [var_38h], 2\n   ; unlikely\n0x00c49db9      je 0xc49dc1\n0x00c49dbb      cmp dword [var_38h], 3\n   ; likely\n0x00c49dbf      jne 0xc49dc5\n0x00c49dc1      jmp 0xc49e01\n; fcn.00c49850+0x5ac\n0x00c49dc3      jmp 0xc49dfc\n0x00c49dc5      mov edx, dword [var_34h]\n; 12\n0x00c49dc8      imul edx, edx, 0xc\n0x00c49dcb      mov eax, dword [var_60h]\n0x00c49dce      add edx, dword [eax + 0x18]\n0x00c49dd1      mov dword [var_4ch], edx\n0x00c49dd4      mov ecx, dword [var_4ch]\n0x00c49dd7      mov edx, dword [ecx + 4]\n; 12\n0x00c49dda      imul edx, edx, 0xc\n0x00c49ddd      mov eax, dword [var_60h]\n0x00c49de0      add edx, dword [eax + 0x18]\n0x00c49de3      mov dword [var_50h], edx\n0x00c49de6      mov ecx, dword [var_34h]\n; 12\n0x00c49de9      imul ecx, ecx, 0xc\n0x00c49dec      mov edx, dword [var_60h]\n0x00c49def      mov eax, dword [edx + 0x18]\n0x00c49df2      mov edx, dword [var_50h]\n0x00c49df5      mov edx, dword [edx + 4]\n0x00c49df8      mov dword [eax + ecx + 4], edx\n0x00c49dfc      jmp 0xc49d7c\n; CODE XREFS from fcn.00c49850 @ 0xc49dc1(x), 0xc49e81(x)\n0x00c49e01      mov eax, 1\n0x00c49e06      test eax, eax\n   ; unlikely\n0x00c49e08      je 0xc49e86\n0x00c49e0a      mov ecx, dword [var_34h]\n; 12\n0x00c49e0d      imul ecx, ecx, 0xc\n0x00c49e10      mov edx, dword [var_60h]\n0x00c49e13      add ecx, dword [edx + 0x18]\n0x00c49e16      mov dword [var_54h], ecx\n0x00c49e19      mov eax, dword [var_54h]\n0x00c49e1c      mov ecx, dword [eax + 8]\n; 12\n0x00c49e1f      imul ecx, ecx, 0xc\n0x00c49e22      mov edx, dword [var_60h]\n0x00c49e25      mov eax, dword [edx + 0x18]\n0x00c49e28      mov ecx, dword [ecx + eax]\n0x00c49e2b      mov dword [var_3ch], ecx\n0x00c49e2e      cmp dword [var_3ch], 7\n   ; unlikely\n0x00c49e32      je 0xc49e46\n0x00c49e34      cmp dword [var_3ch], 8\n   ; unlikely\n0x00c49e38      je 0xc49e46\n0x00c49e3a      cmp dword [var_3ch], 2\n   ; unlikely\n0x00c49e3e      je 0xc49e46\n0x00c49e40      cmp dword [var_3ch], 3\n   ; likely\n0x00c49e44      jne 0xc49e4a\n0x00c49e46      jmp 0xc49e86\n; fcn.00c49850+0x631\n0x00c49e48      jmp 0xc49e81\n0x00c49e4a      mov edx, dword [var_34h]\n; 12\n0x00c49e4d      imul edx, edx, 0xc\n0x00c49e50      mov eax, dword [var_60h]\n0x00c49e53      add edx, dword [eax + 0x18]\n0x00c49e56      mov dword [var_58h], edx\n0x00c49e59      mov ecx, dword [var_58h]\n0x00c49e5c      mov edx, dword [ecx + 8]\n; 12\n0x00c49e5f      imul edx, edx, 0xc\n0x00c49e62      mov eax, dword [var_60h]\n0x00c49e65      add edx, dword [eax + 0x18]\n0x00c49e68      mov dword [var_5ch], edx\n"
+    }
+  ]
+}
+
+=== Capture 68: compound_thread_builder_tables ===
+{
+  "content": [
+    {
+      "type": "text",
+      "text": "- offset -  B0B1 B2B3 B4B5 B6B7 B8B9 BABB BCBD BEBF  0123456789ABCDEF\n0x00c49eb0  8b4d dce8 58b7 e5ff 8b4d a0c6 0101 5e8b  .M..X....M....^.\n0x00c49ec0  e55d c390 d399 c400 389a c400 389a c400  .]......8...8...\n0x00c49ed0  f299 c400 f299 c400 129a c400 2f9a c400  ............/...\n0x00c49ee0  2f9a c400 c99a c400 049d c400 049d c400  /...............\n0x00c49ef0  a29c c400 a29c c400 f49a c400 c29b c400  ................\n0x00c49f00  c29b c400 cccc cccc                      ........\n"
+    }
+  ]
+}
+
+=== Capture 69: compound_thread_final_cleanup ===
+{
+  "content": [
+    {
+      "type": "text",
+      "text": "0x00c49e68      mov dword [var_5ch], edx\n0x00c49e6b      mov ecx, dword [var_34h]\n; 12\n0x00c49e6e      imul ecx, ecx, 0xc\n0x00c49e71      mov edx, dword [var_60h]\n0x00c49e74      mov eax, dword [edx + 0x18]\n0x00c49e77      mov edx, dword [var_5ch]\n0x00c49e7a      mov edx, dword [edx + 8]\n0x00c49e7d      mov dword [eax + ecx + 8], edx\n0x00c49e81      jmp 0xc49e01\n; CODE XREF from fcn.00c49850 @ 0xc49e46(x)\n0x00c49e86      mov eax, dword [var_34h]\n0x00c49e89      add eax, 1\n0x00c49e8c      mov dword [var_34h], eax\n; CODE XREF from fcn.00c49850 @ 0xc49d77(x)\n0x00c49e8f      jmp 0xc49d3d\n0x00c49e94      mov ecx, dword [var_20h]\n0x00c49e97      push ecx\n0x00c49e98      mov ecx, dword [var_24h]\n   ; fcn.00aa5610\n   ; fcn.00aa5610(0x0)\n0x00c49e9b      call fcn.00aa5610\n0x00c49ea0      mov edx, dword [var_18h]\n0x00c49ea3      push edx\n0x00c49ea4      mov ecx, dword [var_24h]\n   ; fcn.00aa5610\n   ; fcn.00aa5610(0x0)\n0x00c49ea7      call fcn.00aa5610\n0x00c49eac      mov eax, dword [var_14h]\n0x00c49eaf      push eax\n0x00c49eb0      mov ecx, dword [var_24h]\n   ; fcn.00aa5610\n   ; fcn.00aa5610(-1)\n0x00c49eb3      call fcn.00aa5610\n0x00c49eb8      mov ecx, dword [var_60h]\n0x00c49ebb      mov byte [ecx], 1\n; CODE XREFS from fcn.00c49850 @ 0xc499eb(x), 0xc49d2d(x)\n0x00c49ebe      pop esi\n"
+    }
+  ]
+}
+
+=== Capture 70: compound_stack_owner_thread_call ===
+{
+  "content": [
+    {
+      "type": "text",
+      "text": "0x00873f61      test eax, 0x6a002e\n   ; fcn.00450b80\n   ; fcn.00450b80(0x0)\n0x00873f66      call fcn.00450b80\n0x00873f6b      add esp, 4\n0x00873f6e      mov ecx, eax\n   ; fcn.00874670\n0x00873f70      call fcn.00874670\n0x00873f75      test eax, eax\n   ; likely\n0x00873f77      je 0x873f91\n0x00873f79      push 0\n   ; fcn.00450b80\n   ; fcn.00450b80(0x0)\n0x00873f7b      call fcn.00450b80\n0x00873f80      add esp, 4\n0x00873f83      mov ecx, eax\n   ; fcn.00874670\n0x00873f85      call fcn.00874670\n0x00873f8a      mov ecx, eax\n   ; fcn.00c49850\n0x00873f8c      call fcn.00c49850\n0x00873f91      mov ecx, dword [var_1a8h]\n; 136\n0x00873f97      add ecx, 0x88\n   ; fcn.00559450\n0x00873f9d      call fcn.00559450\n0x00873fa2      mov dword [var_1bch], eax\n0x00873fa8      mov eax, dword [var_18h]\n0x00873fab      push eax\n0x00873fac      mov ecx, dword [var_1bch]\n0x00873fb2      mov edx, dword [ecx]\n0x00873fb4      mov ecx, dword [var_1bch]\n0x00873fba      mov eax, dword [edx + 0x8c]\n   ; 0xffffffff(-1, 0x0, -1, -1)\n0x00873fc0      call eax\n0x00873fc2      mov ecx, dword [var_1a8h]\n; 136\n0x00873fc8      add ecx, 0x88\n   ; fcn.00559450\n0x00873fce      call fcn.00559450\n0x00873fd3      push eax\n   ; fcn.00b54ac0\n   ; fcn.00b54ac0(-1)\n0x00873fd4      call fcn.00b54ac0\n0x00873fd9      add esp, 4\n0x00873fdc      mov ecx, dword [var_1a8h]\n; 136\n0x00873fe2      add ecx, 0x88\n   ; fcn.00559450\n0x00873fe8      call fcn.00559450\n0x00873fed      push eax\n   ; fcn.0043c4b0\n0x00873fee      call fcn.0043c4b0\n0x00873ff3      mov ecx, eax\n   ; fcn.004dc540\n   ; fcn.004dc540(-1)\n0x00873ff5      call fcn.004dc540\n; 1\n0x00873ffa      push 1\n; 21\n0x00873ffc      push 0x15\n0x00873ffe      push 0\n0x00874000      mov ecx, dword [var_1a8h]\n; 136\n0x00874006      add ecx, 0x88\n   ; fcn.00559450\n0x0087400c      call fcn.00559450\n0x00874011      push eax\n0x00874012      push 0\n0x00874014      lea ecx, [var_58h]\n0x00874017      push ecx\n"
+    }
+  ]
+}
+
+=== Capture 71: compound_two_prethread_calls ===
+{
+  "content": [
+    {
+      "type": "text",
+      "text": "   ; likely\n0x00c399b0      jge 0xc39972\n0x00c399b2  ~   add esi, dword [edx + edi - 0x75]\n0x00c399b5      mov ecx, dword [var_4h]\n0x00c399b8      mov edx, dword [ecx + 0x90]\n0x00c399be      mov dword [var_44h], edx\n0x00c399c1      cmp dword [var_44h], 1\n   ; unlikely\n0x00c399c5      je 0xc399ef\n0x00c399c7      cmp dword [var_10h], 0\n   ; unlikely\n0x00c399cb      je 0xc399d5\n0x00c399cd      mov ecx, dword [var_10h]\n   ; fcn.00c49850\n0x00c399d0      call fcn.00c49850\n0x00c399d5      mov eax, dword [var_4h]\n0x00c399d8      mov ecx, dword [var_10h]\n0x00c399db      mov dword [eax + 0xc0], ecx\n0x00c399e1      cmp dword [var_10h], 0\n   ; unlikely\n0x00c399e5      je 0xc399ef\n0x00c399e7      mov ecx, dword [var_10h]\n   ; fcn.00c49850\n0x00c399ea      call fcn.00c49850\n0x00c399ef      mov dword [var_18h], 0\n0x00c399f6      jmp 0xc39a01\n; CODE XREF from fcn.00c39890 @ 0xc39a3c(x)\n0x00c399f8      mov edx, dword [var_18h]\n0x00c399fb      add edx, 1\n0x00c399fe      mov dword [var_18h], edx\n; CODE XREF from fcn.00c39890 @ 0xc399f6(x)\n0x00c39a01      mov eax, dword [var_54h]\n0x00c39a04      movzx ecx, word [eax + 0xa6]\n0x00c39a0b      cmp dword [var_18h], ecx\n   ; likely\n0x00c39a0e      jae 0xc39a3e\n0x00c39a10      mov edx, dword [var_54h]\n0x00c39a13      mov eax, dword [edx + 0xa0]\n0x00c39a19      mov ecx, dword [var_18h]\n0x00c39a1c      lea edx, [eax + ecx*4]\n0x00c39a1f      mov dword [var_48h], edx\n0x00c39a22      mov eax, dword [var_48h]\n0x00c39a25      mov ecx, dword [eax]\n0x00c39a27      mov dword [var_1ch], ecx\n0x00c39a2a      cmp dword [var_1ch], 0\n   ; unlikely\n0x00c39a2e      je 0xc39a3c\n0x00c39a30      mov edx, dword [arg_8h]\n"
+    }
+  ]
+}
+
+=== Capture 72: compound_culler_prethread_call ===
+{
+  "content": [
+    {
+      "type": "text",
+      "text": "0x00c4f700      add byte [eax], al\n0x00c4f702      mov dword [var_10h], ecx\n0x00c4f705      mov edx, dword [var_24h]\n0x00c4f708      mov eax, dword [edx + 0xac]\n0x00c4f70e      mov dword [var_1ch], eax\n0x00c4f711      mov ecx, dword [var_8h]\n0x00c4f714      mov edx, dword [var_1ch]\n0x00c4f717      mov dword [ecx + 0xc0], edx\n0x00c4f71d      mov eax, dword [var_24h]\n0x00c4f720      cmp dword [eax + 0xac], 0\n   ; unlikely\n0x00c4f727      je 0xc4f737\n0x00c4f729      mov ecx, dword [var_24h]\n0x00c4f72c      mov ecx, dword [ecx + 0xac]\n   ; fcn.00c49850\n0x00c4f732      call fcn.00c49850\n0x00c4f737      mov edx, dword [var_24h]\n; 156\n0x00c4f73a      add edx, 0x9c\n0x00c4f740      mov dword [var_4h], edx\n0x00c4f743      mov eax, dword [var_4h]\n0x00c4f746      movzx ecx, word [eax + 0xa]\n0x00c4f74a      mov dword [var_ch], ecx\n0x00c4f74d      mov dword [var_14h], 0\n0x00c4f754      jmp 0xc4f75f\n; CODE XREF from fcn.00c4f6d0 @ 0xc4f790(x)\n0x00c4f756      mov edx, dword [var_14h]\n0x00c4f759      add edx, 1\n0x00c4f75c      mov dword [var_14h], edx\n; CODE XREF from fcn.00c4f6d0 @ 0xc4f754(x)\n0x00c4f75f      mov eax, dword [var_14h]\n0x00c4f762      cmp eax, dword [var_ch]\n   ; likely\n0x00c4f765      jae 0xc4f792\n0x00c4f767      mov ecx, dword [var_4h]\n0x00c4f76a      mov edx, dword [ecx + 4]\n0x00c4f76d      mov eax, dword [var_14h]\n0x00c4f770      lea ecx, [edx + eax*4]\n0x00c4f773      mov dword [var_20h], ecx\n0x00c4f776      mov edx, dword [var_20h]\n0x00c4f779      mov eax, dword [edx]\n0x00c4f77b      mov dword [var_18h], eax\n0x00c4f77e      cmp dword [var_18h], 0\n   ; unlikely\n0x00c4f782      je 0xc4f790\n0x00c4f784      mov ecx, dword [arg_8h]\n0x00c4f787      push ecx\n"
+    }
+  ]
+}
+
+=== Capture 73: compound_shared_node_thread_call ===
+{
+  "content": [
+    {
+      "type": "text",
+      "text": "0x00b5bba0      push cs\n0x00b5bba1      add bl, ch\n0x00b5bba3  ~   sbb al, 0xe8\n   ; fcn.00c47a70\n0x00b5bba4      call fcn.00c47a70\n0x00b5bba9      push edi\n0x00b5bbaa      mov ecx, ebp\n   ; fcn.00c48800\n   ; fcn.00c48800(0x18)\n0x00b5bbac      call fcn.00c48800\n0x00b5bbb1      push esi\n0x00b5bbb2      mov ecx, ebp\n   ; fcn.00c48800\n   ; fcn.00c48800(0x18)\n0x00b5bbb4      call fcn.00c48800\n0x00b5bbb9      mov ecx, ebp\n   ; fcn.00c47ae0\n0x00b5bbbb      call fcn.00c47ae0\n; CODE XREFS from fcn.00b5ba80 @ 0xb5bb94(x), 0xb5bba2(x)\n0x00b5bbc0      mov ecx, ebp\n   ; fcn.00c49700\n0x00b5bbc2      call fcn.00c49700\n0x00b5bbc7      mov ecx, ebp\n   ; fcn.00c49850\n0x00b5bbc9      call fcn.00c49850\n0x00b5bbce      pop edi\n0x00b5bbcf      pop esi\n0x00b5bbd0      pop ebp\n0x00b5bbd1      pop ebx\n0x00b5bbd2      pop ecx\n0x00b5bbd3      ret 8\n0x00b5bbd6      int3\n0x00b5bbd7      int3\n"
+    }
+  ]
+}
+
+=== Capture 74: compound_eval_opcode_family ===
+{
+  "content": [
+    {
+      "type": "text",
+      "text": "; CALL XREF from fcn.00c4ee90 @ 0xc4f015(x)\n497: fcn.00c491a0 (int32_t arg_8h);\n`- args(sp[0x4..0x4]) vars(16:sp[0x5..0x68])\n0x00c491a0      push ebp\n0x00c491a1      mov ebp, esp\n0x00c491a3      sub esp, 0x64\n0x00c491a6      mov dword [var_54h], ecx\n0x00c491a9      mov eax, dword [arg_8h]\n0x00c491ac      cmp dword [eax + 0x20], 0\n; unlikely\n0x00c491b0      je 0xc491d7\n0x00c491b2      mov ecx, dword [arg_8h]\n0x00c491b5      mov edx, dword [ecx + 0x20]\n0x00c491b8      fld dword [edx + 0xc]\n0x00c491bb      fstp dword [ebp - 0x24]\n0x00c491be      fld dword [ebp - 0x24]\n0x00c491c1      fcomp qword [0x1012060]\n0x00c491c7      fnstsw ax\n; 68\n0x00c491c9      test ah, 0x44\n; unlikely\n0x00c491cc      jnp 0xc491d7\n0x00c491ce      mov dword [var_58h], 1\n0x00c491d5      jmp 0xc491de\n0x00c491d7      mov dword [var_58h], 0\n; CODE XREF from fcn.00c491a0 @ 0xc491d5(x)\n0x00c491de      cmp dword [var_58h], 0\n; likely\n0x00c491e2      jne 0xc491eb\n0x00c491e4      xor al, al\n0x00c491e6      jmp 0xc4938b\n0x00c491eb      mov dword [var_18h], 0\n0x00c491f2      mov eax, dword [arg_8h]\n0x00c491f5      cmp dword [eax + 0x20], 0\n; unlikely\n0x00c491f9      je 0xc49206\n0x00c491fb      mov ecx, dword [arg_8h]\n0x00c491fe      mov edx, dword [ecx + 0x20]\n0x00c49201      mov dword [var_5ch], edx\n0x00c49204      jmp 0xc4920d\n0x00c49206      mov dword [var_5ch], 0x11f4288\n; CODE XREF from fcn.00c491a0 @ 0xc49204(x)\n0x00c4920d      mov eax, dword [var_5ch]\n0x00c49210      mov dword [var_28h], eax\n0x00c49213      mov ecx, dword [var_28h]\n0x00c49216      mov edx, dword [ecx]\n0x00c49218      mov dword [var_14h], edx\n0x00c4921b      mov eax, dword [ecx + 4]\n0x00c4921e      mov dword [var_10h], eax\n0x00c49221      mov edx, dword [ecx + 8]\n0x00c49224      mov dword [var_ch], edx\n0x00c49227      mov eax, dword [ecx + 0xc]\n0x00c4922a      mov dword [var_8h], eax\n0x00c4922d      mov byte [var_1h], 1\n0x00c49231      mov ecx, dword [var_54h]\n0x00c49234      movzx edx, byte [ecx + 0xa0]\n0x00c4923b      test edx, edx\n; likely\n0x00c4923d      jne 0xc49255\n0x00c4923f      mov eax, dword [var_54h]\n; 48\n0x00c49242      add eax, 0x30\n0x00c49245      push eax\n0x00c49246      lea ecx, [var_14h]\n0x00c49249      push ecx\n0x00c4924a      mov ecx, dword [var_54h]\n; fcn.00c4a6e0\n; fcn.00c4a6e0(0x2f, 0x0)\n0x00c4924d      call fcn.00c4a6e0\n0x00c49252      mov byte [var_1h], al\n0x00c49255      movzx edx, byte [var_1h]\n0x00c49259      test edx, edx\n; unlikely\n0x00c4925b      je 0xc49388\n0x00c49261      mov eax, dword [var_54h]\n0x00c49264      cmp dword [eax + 0x28], 0\n; likely\n0x00c49268      jle 0xc49388\n0x00c4926e      mov ecx, dword [var_54h]\n0x00c49271      mov edx, dword [ecx + 0x2c]\n0x00c49274      mov dword [var_1ch], edx\n; CODE XREF from fcn.00c491a0 @ 0xc4936b(x)\n0x00c49277      mov eax, dword [var_1ch]\n; 12\n0x00c4927a      imul eax, eax, 0xc\n0x00c4927d      mov ecx, dword [var_54h]\n0x00c49280      mov edx, dword [ecx + 0x18]\n0x00c49283      cmp dword [eax + edx], 2\n; unlikely\n0x00c49287      je 0xc49370\n0x00c4928d      mov eax, dword [var_1ch]\n; 12\n0x00c49290      imul eax, eax, 0xc\n0x00c49293      mov ecx, dword [var_54h]\n0x00c49296      mov edx, dword [ecx + 0x18]\n0x00c49299      cmp dword [eax + edx], 3\n; unlikely\n0x00c4929d      je 0xc49370\n0x00c492a3      mov byte [var_1dh], 0\n0x00c492a7      mov eax, dword [var_1ch]"
+    }
+  ]
+}
+
+=== Capture 75: compound_culler_target_owner ===
+{
+  "content": [
+    {
+      "type": "text",
+      "text": "496: fcn.00c39890 (int32_t arg_8h);\n`- args(sp[0x4..0x4]) vars(21:sp[0x8..0x58])\n0x00c39890      push ebp\n0x00c39891      mov ebp, esp\n0x00c39893      sub esp, 0x54\n0x00c39896      mov dword [var_54h], ecx\n0x00c39899      mov dword [var_4h], 0\n0x00c398a0      mov dword [var_ch], 0\n0x00c398a7      mov eax, dword [var_54h]\n0x00c398aa      movzx ecx, word [eax + 0xa8]\n0x00c398b1      test ecx, ecx\n; likely\n0x00c398b3      jne 0xc398d0\n0x00c398b5      mov edx, dword [var_54h]\n0x00c398b8      xor eax, eax\n0x00c398ba      cmp dword [edx + 0xbc], 0\n0x00c398c1      sete al\n0x00c398c4      movzx ecx, al\n0x00c398c7      test ecx, ecx\n; likely\n0x00c398c9      je 0xc398d0\n0x00c398cb      jmp 0xc39a7a\n0x00c398d0      mov edx, dword [arg_8h]\n0x00c398d3      mov dword [var_4h], edx\n0x00c398d6      mov eax, dword [var_54h]\n0x00c398d9      mov ecx, dword [eax + 0xac]\n0x00c398df      mov dword [var_20h], ecx\n0x00c398e2      mov edx, dword [var_20h]\n0x00c398e5      mov eax, dword [edx + 0xc]\n0x00c398e8      mov dword [var_24h], eax\n0x00c398eb      mov ecx, dword [var_24h]\n0x00c398ee      mov edx, dword [ecx + 8]\n0x00c398f1      mov dword [var_8h], edx\n0x00c398f4      mov eax, dword [var_4h]\n0x00c398f7      mov ecx, dword [eax + 0x90]\n0x00c398fd      mov dword [var_28h], ecx\n0x00c39900      cmp dword [var_28h], 3\n; unlikely\n0x00c39904      je 0xc39918\n0x00c39906      mov edx, dword [var_4h]\n0x00c39909      mov eax, dword [edx + 0x90]\n0x00c3990f      mov dword [var_2ch], eax\n0x00c39912      cmp dword [var_2ch], 1\n; likely\n0x00c39916      jne 0xc3991f\n0x00c39918      mov dword [var_8h], 1\n0x00c3991f      cmp dword [var_8h], 1\n; unlikely\n0x00c39923      je 0xc3994e\n0x00c39925      mov ecx, dword [var_4h]\n0x00c39928      mov edx, dword [ecx + 0x90]\n0x00c3992e      mov dword [var_30h], edx\n0x00c39931      cmp dword [var_30h], 3\n; unlikely\n0x00c39935      je 0xc3994e\n0x00c39937      mov eax, dword [var_4h]\n0x00c3993a      mov ecx, dword [eax + 0x90]\n0x00c39940      mov dword [var_34h], ecx\n0x00c39943      cmp dword [var_34h], 1\n; unlikely\n0x00c39947      je 0xc3994e\n0x00c39949      jmp 0xc39a7a\n0x00c3994e      mov edx, dword [var_4h]\n0x00c39951      mov eax, dword [edx + 0xc0]\n0x00c39957      mov dword [var_14h], eax\n0x00c3995a      mov dword [var_10h], 0\n0x00c39961      mov ecx, dword [var_54h]\n0x00c39964      mov edx, dword [ecx + 0xcc]\n0x00c3996a      mov dword [var_10h], edx\n0x00c3996d      mov eax, dword [var_4h]\n0x00c39970      mov ecx, dword [eax + 0x90]\n0x00c39976      mov dword [var_ch], ecx\n0x00c39979      mov edx, dword [var_4h]\n0x00c3997c      mov eax, dword [edx + 0x90]\n0x00c39982      mov dword [var_38h], eax\n0x00c39985      cmp dword [var_38h], 3\n; unlikely\n0x00c39989      je 0xc399a3\n0x00c3998b      mov ecx, dword [var_54h]\n0x00c3998e      mov edx, dword [ecx + 0xb0]\n0x00c39994      mov dword [var_3ch], edx\n0x00c39997      mov eax, dword [var_4h]\n0x00c3999a      mov ecx, dword [var_3ch]\n0x00c3999d      mov dword [eax + 0x90], ecx\n0x00c399a3      mov edx, dword [var_4h]\n0x00c399a6      mov eax, dword [edx + 0x90]\n0x00c399ac      mov dword [var_40h], eax\n0x00c399af      cmp dword [var_40h], 3\n; unlikely\n0x00c399b3      je 0xc399ef\n0x00c399b5      mov ecx, dword [var_4h]\n0x00c399b8      mov edx, dword [ecx + 0x90]\n0x00c399be      mov dword [var_44h], edx\n0x00c399c1      cmp dword [var_44h], 1\n; unlikely\n0x00c399c5      je 0xc399ef\n0x00c399c7      cmp dword [var_10h], 0\n; unlikely\n0x00c399cb      je 0xc399d5\n0x00c399cd      mov ecx, dword [var_10h]\n; fcn.00c49850\n0x00c399d0      call fcn.00c49850\n0x00c399d5      mov eax, dword [var_4h]\n0x00c399d8      mov ecx, dword [var_10h]\n0x00c399db      mov dword [eax + 0xc0], ecx\n0x00c399e1      cmp dword [var_10h], 0\n; unlikely\n0x00c399e5      je 0xc399ef\n0x00c399e7      mov ecx, dword [var_10h]\n; fcn.00c49850\n0x00c399ea      call fcn.00c49850\n0x00c399ef      mov dword [var_18h], 0\n0x00c399f6      jmp 0xc39a01\n; CODE XREF from fcn.00c39890 @ 0xc39a3c(x)\n0x00c399f8      mov edx, dword [var_18h]\n0x00c399fb      add edx, 1\n0x00c399fe      mov dword [var_18h], edx\n; CODE XREF from fcn.00c39890 @ 0xc399f6(x)\n0x00c39a01      mov eax, dword [var_54h]\n0x00c39a04      movzx ecx, word [eax + 0xa6]"
+    }
+  ]
+}
+
+=== Capture 76: compound_scene_entry_locals ===
+{
+  "content": [
+    {
+      "type": "text",
+      "text": "934: fcn.00b5f9b0 (int32_t arg_d8h);\n`- args(sp[0x4..0x4]) vars(8:sp[0x8..0xc8])\n0x00b5f9b0      push 0xffffffffffffffff\n0x00b5f9b2      push 0xf27a16\n0x00b5f9b7      mov eax, dword fs:[0]\n0x00b5f9bd      push eax\n0x00b5f9be      sub esp, 0xb4\n0x00b5f9c4      push ebx\n0x00b5f9c5      push ebp\n0x00b5f9c6      push esi\n0x00b5f9c7      push edi\n; [0x11c16bc:4]=0xbb40e64e\n0x00b5f9c8      mov eax, dword [0x11c16bc]\n0x00b5f9cd      xor eax, esp\n0x00b5f9cf      push eax\n0x00b5f9d0      lea eax, [var_c8h]\n0x00b5f9d7      mov dword fs:[0], eax\n0x00b5f9dd      mov ebp, ecx\n0x00b5f9df      mov ebx, dword [arg_d8h]\n0x00b5f9e6      push ebx\n; fcn.00b5e870\n; fcn.00b5e870(0xfffffff4)\n0x00b5f9e7      call fcn.00b5e870\n; fcn.00b4f5c0\n0x00b5f9ec      call fcn.00b4f5c0\n; [0xfdf1c0:4]=0xd80cd0 reloc.KERNEL32.dll_InterlockedIncrement\n; reloc.KERNEL32.dll_InterlockedIncrement\n0x00b5f9f1      mov esi, dword [sym.imp.KERNEL32.dll_InterlockedIncrement]\n0x00b5f9f7      mov edi, eax\n0x00b5f9f9      mov dword [var_20h], edi\n0x00b5f9fd      test edi, edi\n; unlikely\n0x00b5f9ff      je 0xb5fa07\n0x00b5fa01      lea eax, [edi + 4]\n0x00b5fa04      push eax\n; reloc.KERNEL32.dll_InterlockedIncrement\n; reloc.KERNEL32.dll_InterlockedIncrement(0xfffffff8, -1, 0x0, 0x0)\n0x00b5fa05      call esi\n0x00b5fa07      mov ecx, dword [edi + 4]\n0x00b5fa0a      lea eax, [edi + 4]\n0x00b5fa0d      mov dword [var_c8h], 0\n; 1\n0x00b5fa18      cmp ecx, 1\n; likely\n0x00b5fa1b      jne 0xb5fa20\n0x00b5fa1d      push eax\n; reloc.KERNEL32.dll_InterlockedIncrement\n; reloc.KERNEL32.dll_InterlockedIncrement(0xfffffff8, -1, -1, 0x0)\n0x00b5fa1e      call esi\n0x00b5fa20      cmp dword [ebp + 0x1e0], 0\n; unlikely\n0x00b5fa27      je 0xb5fd19\n0x00b5fa2d      mov ecx, 0x11f6238\n; fcn.00aa42e0\n0x00b5fa32      call fcn.00aa42e0\n0x00b5fa37      mov ecx, dword [ebp + 0x1e0]\n0x00b5fa3d      mov esi, eax\n0x00b5fa3f      xor edi, edi\n0x00b5fa41      mov dword [var_1ch], esi\n0x00b5fa45      mov dword [var_18h], edi\n; fcn.00c5b5d0\n0x00b5fa49      call fcn.00c5b5d0\n0x00b5fa4e      test eax, eax\n; unlikely\n0x00b5fa50      jbe 0xb5fa8a\n; [0x10a2720:4]=4\n0x00b5fa52      mov ecx, dword [0x10a2720]\n0x00b5fa58      push ecx\n0x00b5fa59      mov ecx, dword [ebp + 0x1e0]\n; fcn.00c5b5d0\n0x00b5fa5f      call fcn.00c5b5d0\n0x00b5fa64      push eax\n0x00b5fa65      mov ecx, esi\n; fcn.00aa54a0\n; fcn.00aa54a0(0xfffffff8, -1)\n0x00b5fa67      call fcn.00aa54a0\n0x00b5fa6c      mov ecx, dword [ebp + 0x1e0]\n0x00b5fa72      mov esi, eax\n0x00b5fa74      mov dword [var_18h_3], esi\n; fcn.00c5b5d0\n0x00b5fa78      call fcn.00c5b5d0\n0x00b5fa7d      push eax\n0x00b5fa7e      push edi\n0x00b5fa7f      push esi\n; fcn.00ec61c0\n; fcn.00ec61c0(0xfffffff8, -1, -1)\n0x00b5fa80      call fcn.00ec61c0\n0x00b5fa85      add esp, 0xc\n0x00b5fa88      mov edi, esi\n0x00b5fa8a      mov ecx, dword [ebp + 0x1e0]\n0x00b5fa90      xor esi, esi\n; fcn.00c5b5d0\n0x00b5fa92      call fcn.00c5b5d0\n0x00b5fa97      test eax, eax\n; unlikely\n0x00b5fa99      jbe 0xb5facd\n0x00b5fa9b      jmp 0xb5faa0\n..\n; CODE XREF from fcn.00b5f9b0 @ 0xb5fa9b(x)\n0x00b5faa0      mov ecx, dword [ebp + 0x1e0]\n0x00b5faa6      push esi\n; fcn.00c5b5a0\n; fcn.00c5b5a0(0xfffffff8)\n0x00b5faa7      call fcn.00c5b5a0\n0x00b5faac      test eax, eax\n; unlikely\n0x00b5faae      je 0xb5fabd\n0x00b5fab0      mov dl, byte [eax + 0x30]\n0x00b5fab3      and dl, 1\n0x00b5fab6      mov byte [esi + edi], dl\n0x00b5fab9      or dword [eax + 0x30], 1\n0x00b5fabd      mov ecx, dword [ebp + 0x1e0]\n0x00b5fac3      inc esi\n; fcn.00c5b5d0\n0x00b5fac4      call fcn.00c5b5d0\n0x00b5fac9      cmp esi, eax\n; likely\n0x00b5facb      jb 0xb5faa0\n0x00b5facd      mov eax, dword [ebp + 0x1e0]\n0x00b5fad3      mov eax, dword [eax + 0x4c]\n0x00b5fad6      test eax, eax\n; unlikely\n0x00b5fad8      je 0xb5fade\n0x00b5fada      or dword [eax + 0x30], 1\n0x00b5fade      cmp byte [ebp + 0x1dc], 0\n; likely\n0x00b5fae5      jne 0xb5fbe4\n0x00b5faeb      mov eax, dword [ebx + 0x90]\n; 1\n0x00b5faf1      cmp eax, 1"
+    }
+  ]
+}
+
+=== Capture 77: compound_shared_destination_owner ===
+{
+  "content": [
+    {
+      "type": "text",
+      "text": "; CALL XREF from fcn.00873200 @ 0x873c40(x)\n; CALL XREF from fcn.00b5f9b0 @ 0xb5fb75(x)\n342: fcn.00b5ba80 (int32_t arg_18h, int32_t arg_ch);\n`- args(sp[0x4..0x8]) vars(4:sp[0x1..0x6])\n0x00b5ba80      push ecx\n0x00b5ba81      mov eax, dword [arg_ch]\n0x00b5ba85      mov edx, dword [eax + 0x104]\n0x00b5ba8b      push ebx\n0x00b5ba8c      push ebp\n0x00b5ba8d      mov ebp, dword [edx + 0xac]\n0x00b5ba93      mov edx, dword [eax + 0xfc]\n0x00b5ba99      push esi\n0x00b5ba9a      mov esi, dword [eax + 0x100]\n0x00b5baa0      push edi\n0x00b5baa1      mov ebx, 1\n0x00b5baa6      test edx, edx\n; unlikely\n0x00b5baa8      je 0xb5babd\n0x00b5baaa      mov eax, dword [edx + 0xac]\n0x00b5bab0      mov eax, dword [eax + 0xc]\n0x00b5bab3      cmp dword [eax + 8], ebx\n0x00b5bab6      sete byte [arg_ch]\n0x00b5babb      jmp 0xb5bac7\n0x00b5babd      mov al, byte [ecx + 0x1dc]\n0x00b5bac3      mov byte [arg_ch], al\n; CODE XREF from fcn.00b5ba80 @ 0xb5babb(x)\n0x00b5bac7      test esi, esi\n; unlikely\n0x00b5bac9      je 0xb5bade\n0x00b5bacb      mov eax, dword [esi + 0xac]\n0x00b5bad1      mov eax, dword [eax + 0xc]\n0x00b5bad4      cmp dword [eax + 8], ebx\n0x00b5bad7      sete byte [var_12h]\n0x00b5badc      jmp 0xb5bae8\n0x00b5bade      mov al, byte [ecx + 0x1dc]\n0x00b5bae4      mov byte [var_12h], al\n; CODE XREF from fcn.00b5ba80 @ 0xb5badc(x)\n0x00b5bae8      test edx, edx\n; unlikely\n0x00b5baea      je 0xb5bb09\n0x00b5baec      cmp byte [arg_ch], 0\n; unlikely\n0x00b5baf1      je 0xb5bb02\n0x00b5baf3      cmp dword [edx + 0xcc], 0\n; unlikely\n0x00b5bafa      je 0xb5bb02\n0x00b5bafc      mov byte [var_13h], bl\n0x00b5bb00      jmp 0xb5bb15\n0x00b5bb02      mov byte [var_13h], 0\n0x00b5bb07      jmp 0xb5bb15\n0x00b5bb09      cmp dword [ecx + 0x160], 0\n0x00b5bb10      sete byte [var_13h]\n; CODE XREFS from fcn.00b5ba80 @ 0xb5bb00(x), 0xb5bb07(x)\n0x00b5bb15      test esi, esi\n; unlikely\n0x00b5bb17      je 0xb5bb2d\n0x00b5bb19      cmp byte [var_12h], 0\n; unlikely\n0x00b5bb1e      je 0xb5bb29\n0x00b5bb20      cmp dword [esi + 0xcc], 0\n; likely\n0x00b5bb27      jne 0xb5bb37\n0x00b5bb29      xor bl, bl\n0x00b5bb2b      jmp 0xb5bb37\n0x00b5bb2d      cmp dword [ecx + 0x160], 0\n0x00b5bb34      sete bl\n; CODE XREF from fcn.00b5ba80 @ 0xb5bb2b(x)\n0x00b5bb37      test edx, edx\n; unlikely\n0x00b5bb39      je 0xb5bb43\n0x00b5bb3b      mov edi, dword [edx + 0xcc]\n0x00b5bb41      jmp 0xb5bb49\n0x00b5bb43      lea edi, [ecx + 0x138]\n; CODE XREF from fcn.00b5ba80 @ 0xb5bb41(x)\n0x00b5bb49      test esi, esi\n; unlikely\n0x00b5bb4b      je 0xb5bb55\n0x00b5bb4d      mov esi, dword [esi + 0xcc]\n0x00b5bb53      jmp 0xb5bb5b\n0x00b5bb55      lea esi, [ecx + 0x138]\n; CODE XREF from fcn.00b5ba80 @ 0xb5bb53(x)\n0x00b5bb5b      mov ecx, dword [arg_18h]\n0x00b5bb5f      push ecx\n0x00b5bb60      mov ecx, ebp\n; fcn.00c47980\n; fcn.00c47980(-1)\n0x00b5bb62      call fcn.00c47980\n0x00b5bb67      cmp byte [arg_18h], 0\n; unlikely\n0x00b5bb6c      je 0xb5bb74\n0x00b5bb6e      cmp dword [edi + 0x28], 0\n; unlikely\n0x00b5bb72      je 0xb5bbce\n0x00b5bb74      cmp byte [var_12h_2], 0\n; unlikely\n0x00b5bb79      je 0xb5bb81\n0x00b5bb7b      cmp dword [esi + 0x28], 0\n; unlikely\n0x00b5bb7f      je 0xb5bbce\n0x00b5bb81      cmp byte [var_13h_2], 0\n; unlikely\n0x00b5bb86      je 0xb5bb96\n0x00b5bb88      mov ecx, ebp\n0x00b5bb8a      test bl, bl\n; unlikely\n0x00b5bb8c      jne 0xb5bba4\n0x00b5bb8e      push edi\n; fcn.00c48800\n; fcn.00c48800(-1)\n0x00b5bb8f      call fcn.00c48800"
+    }
+  ]
+}
+
+=== Capture 78: compound_direct_accessor ===
+{
+  "content": [
+    {
+      "type": "text",
+      "text": "; XREFS: CALL 0x0040dbb9  CALL 0x0040dcb7  CALL 0x0040ddb5\n; XREFS: CALL 0x004609da  CALL 0x00463ea9  CALL 0x00873f70\n; XREFS: CALL 0x00873f85  CALL 0x00874026  CALL 0x008740ae\n; XREFS: 0x0087464b\n19: fcn.00874670 ();\nafv: vars(1:sp[0x8..0x8])\n0x00874670      push ebp\n0x00874671      mov ebp, esp\n0x00874673      push ecx\n0x00874674      mov dword [var_4h], ecx\n0x00874677      mov eax, dword [var_4h]\n; 312\n0x0087467a      add eax, 0x138\n0x0087467f      mov esp, ebp\n0x00874681      pop ebp\n0x00874682      ret\n"
+    }
+  ]
+}
+
+=== Capture 79: identity_removed_interval_bytes ===
+{
+  "content": [
+    {
+      "type": "text",
+      "text": "- offset -  3536 3738 393A 3B3C 3D3E 3F40 4142 4344  56789ABCDEF01234\n0x00b63b35  e836 f6ff ff8a d884 db75 0a6a 0155 8bce  .6.......u.j.U..\n0x00b63b45  e8d6 97ef ff                             .....\n"
+    }
+  ]
+}
+
+=== Capture 80: compound_thread_final_loop_entry_bytes ===
+{
+  "content": [
+    {
+      "type": "text",
+      "text": "- offset -  3233 3435 3637 3839 3A3B 3C3D 3E3F 4041  23456789ABCDEF01\n0x00c49d32  8b45 a08b 482c 894d cceb 098b 55cc 83c2  .E..H,.M....U...\n0x00c49d42  0189 55cc 8b45 a08b 4dcc 3b48 280f 8d3f  ..U..E..M.;H(..?\n0x00c49d52  0100 008b 55cc 6bd2                      ....U.k.\n"
+    }
+  ]
+}
+
+=== Capture 81: compound_thread_final_return ===
+{
+  "content": [
+    {
+      "type": "text",
+      "text": "0x00c49eb8      mov ecx, dword [var_60h]\n0x00c49ebb      mov byte [ecx], 1\n; CODE XREFS from fcn.00c49850 @ 0xc499eb(x), 0xc49d2d(x)\n0x00c49ebe      pop esi\n0x00c49ebf      mov esp, ebp\n0x00c49ec1      pop ebp\n0x00c49ec2      ret\n"
+    }
+  ]
+}
+
+=== Capture 82: occluder_actual_caller_alternate ===
+{
+  "content": [
+    {
+      "type": "text",
+      "text": "0x008d6eb2      or byte [ecx - 0x75], dl\n0x008d6eb5      dec ebp\n0x008d6eb6      aam 0x83\n0x008d6eb8      ror dword [eax], 0xe8\n; fcn.008d6f30+0x1\n   ; likely\n0x008d6ebb      loope 0x8d6f31\n0x008d6ebd      idiv edi\n0x008d6ebf      mov ecx, eax\n   ; fcn.0045bb80\n0x008d6ec1      call fcn.0045bb80\n0x008d6ec6      sub esp, 0xc\n0x008d6ec9      mov edx, esp\n0x008d6ecb      mov ecx, dword [eax]\n0x008d6ecd      mov dword [edx], ecx\n0x008d6ecf      mov ecx, dword [eax + 4]\n0x008d6ed2      mov dword [edx + 4], ecx\n0x008d6ed5      mov eax, dword [eax + 8]\n0x008d6ed8      mov dword [edx + 8], eax\n0x008d6edb      mov ecx, dword [var_2ch]\n; 152\n0x008d6ede      add ecx, 0x98\n   ; fcn.00559450\n0x008d6ee4      call fcn.00559450\n0x008d6ee9      mov ecx, eax\n   ; fcn.00c47150\n   ; fcn.00c47150(-1, 0x0, -1, 0xfffffff0, 0x0)\n0x008d6eeb      call fcn.00c47150\n0x008d6ef0      movzx ecx, al\n0x008d6ef3      test ecx, ecx\n   ; likely\n0x008d6ef5      jne 0x8d6f01\n; 1\n0x008d6ef7      push 1\n0x008d6ef9      mov ecx, dword [var_8h]\n   ; fcn.008d6f10\n   ; fcn.008d6f10(-1)\n0x008d6efc      call fcn.008d6f10\n"
+    }
+  ]
+}
+
+=== Capture 83: occluder_alternate_caller_aligned ===
+{
+  "content": [
+    {
+      "type": "text",
+      "text": "; fcn.0057cbe0\n; fcn.0057cbe0(-1)\n0x008d6e8c      call fcn.0057cbe0\n0x008d6e91      mov edx, dword [eax]\n0x008d6e93      mov dword [var_28h], edx\n0x008d6e96      cmp dword [var_28h], 0\n; unlikely\n0x008d6e9a      je 0x8d6f01\n0x008d6e9c      mov ecx, dword [var_28h]\n; fcn.008d6f30\n0x008d6e9f      call fcn.008d6f30\n; 1\n0x008d6ea4      cmp eax, 1\n; likely\n0x008d6ea7      jne 0x8d6f01\n0x008d6ea9      mov eax, dword [var_28h]\n0x008d6eac      push eax\n0x008d6ead      mov ecx, dword [var_2ch]\n0x008d6eb0      add ecx, 8\n0x008d6eb3      push ecx\n0x008d6eb4      mov ecx, dword [var_2ch]\n0x008d6eb7      add ecx, 8\n; fcn.0084e3a0\n0x008d6eba      call fcn.0084e3a0\n0x008d6ebf      mov ecx, eax\n; fcn.0045bb80\n0x008d6ec1      call fcn.0045bb80\n0x008d6ec6      sub esp, 0xc\n0x008d6ec9      mov edx, esp\n0x008d6ecb      mov ecx, dword [eax]\n0x008d6ecd      mov dword [edx], ecx\n0x008d6ecf      mov ecx, dword [eax + 4]\n0x008d6ed2      mov dword [edx + 4], ecx\n0x008d6ed5      mov eax, dword [eax + 8]\n0x008d6ed8      mov dword [edx + 8], eax\n0x008d6edb      mov ecx, dword [var_2ch]\n; 152\n0x008d6ede      add ecx, 0x98\n; fcn.00559450\n0x008d6ee4      call fcn.00559450\n0x008d6ee9      mov ecx, eax\n; fcn.00c47150\n; fcn.00c47150(-1, 0x0, -1, 0xffffff4c, 0x0)\n0x008d6eeb      call fcn.00c47150\n0x008d6ef0      movzx ecx, al\n0x008d6ef3      test ecx, ecx\n; likely\n0x008d6ef5      jne 0x8d6f01\n; 1\n0x008d6ef7      push 1\n0x008d6ef9      mov ecx, dword [var_8h]\n; fcn.008d6f10\n; fcn.008d6f10(-1)\n0x008d6efc      call fcn.008d6f10\n0x008d6f01      jmp 0x8d6e7b\n0x008d6f06      mov esp, ebp\n0x008d6f08      pop ebp\n0x008d6f09      ret 4\n"
+    }
+  ]
+}
+
+=== Capture 84: compound_shared_owner_tail_aligned ===
+{
+  "content": [
+    {
+      "type": "text",
+      "text": "0x00b5bb94      jmp 0xb5bbc0\n0x00b5bb96      test bl, bl\n; likely\n0x00b5bb98      je 0xb5bbc0\n0x00b5bb9a      push esi\n0x00b5bb9b      mov ecx, ebp\n; fcn.00c48800\n; fcn.00c48800(-1)\n0x00b5bb9d      call fcn.00c48800\n0x00b5bba2      jmp 0xb5bbc0\n; fcn.00c47a70\n0x00b5bba4      call fcn.00c47a70\n0x00b5bba9      push edi\n0x00b5bbaa      mov ecx, ebp\n; fcn.00c48800\n; fcn.00c48800(-1)\n0x00b5bbac      call fcn.00c48800\n0x00b5bbb1      push esi\n0x00b5bbb2      mov ecx, ebp\n; fcn.00c48800\n; fcn.00c48800(-1)\n0x00b5bbb4      call fcn.00c48800\n0x00b5bbb9      mov ecx, ebp\n; fcn.00c47ae0\n0x00b5bbbb      call fcn.00c47ae0\n; CODE XREFS from fcn.00b5ba80 @ 0xb5bb94(x), 0xb5bba2(x)\n0x00b5bbc0      mov ecx, ebp\n; fcn.00c49700\n0x00b5bbc2      call fcn.00c49700\n0x00b5bbc7      mov ecx, ebp\n; fcn.00c49850\n0x00b5bbc9      call fcn.00c49850\n0x00b5bbce      pop edi\n0x00b5bbcf      pop esi\n0x00b5bbd0      pop ebp\n0x00b5bbd1      pop ebx\n0x00b5bbd2      pop ecx\n0x00b5bbd3      ret 8\n"
+    }
+  ]
+}
+
+=== Capture 85: compound_room_owner_tail_aligned ===
+{
+  "content": [
+    {
+      "type": "text",
+      "text": "0x00c39a0b      cmp dword [var_18h], ecx\n; likely\n0x00c39a0e      jae 0xc39a3e\n0x00c39a10      mov edx, dword [var_54h]\n0x00c39a13      mov eax, dword [edx + 0xa0]\n0x00c39a19      mov ecx, dword [var_18h]\n0x00c39a1c      lea edx, [eax + ecx*4]\n0x00c39a1f      mov dword [var_48h], edx\n0x00c39a22      mov eax, dword [var_48h]\n0x00c39a25      mov ecx, dword [eax]\n0x00c39a27      mov dword [var_1ch], ecx\n0x00c39a2a      cmp dword [var_1ch], 0\n; unlikely\n0x00c39a2e      je 0xc39a3c\n0x00c39a30      mov edx, dword [arg_8h]\n0x00c39a33      push edx\n0x00c39a34      mov ecx, dword [var_1ch]\n; fcn.00a59e00\n; fcn.00a59e00(-1)\n0x00c39a37      call fcn.00a59e00\n0x00c39a3c      jmp 0xc399f8\n0x00c39a3e      mov eax, dword [var_4h]\n0x00c39a41      mov ecx, dword [var_ch]\n0x00c39a44      mov dword [eax + 0x90], ecx\n0x00c39a4a      mov edx, dword [var_4h]\n0x00c39a4d      mov eax, dword [edx + 0x90]\n0x00c39a53      mov dword [var_4ch], eax\n0x00c39a56      cmp dword [var_4ch], 3\n; unlikely\n0x00c39a5a      je 0xc39a7a\n0x00c39a5c      mov ecx, dword [var_4h]\n0x00c39a5f      mov edx, dword [ecx + 0x90]\n0x00c39a65      mov dword [var_50h], edx\n0x00c39a68      cmp dword [var_50h], 1\n; unlikely\n0x00c39a6c      je 0xc39a7a\n0x00c39a6e      mov eax, dword [var_4h]\n0x00c39a71      mov ecx, dword [var_14h]\n0x00c39a74      mov dword [eax + 0xc0], ecx\n; CODE XREFS from fcn.00c39890 @ 0xc398cb(x), 0xc39949(x)\n0x00c39a7a      mov esp, ebp\n0x00c39a7c      pop ebp\n0x00c39a7d      ret 4\n"
+    }
+  ]
+}
+
+Supplement: exact full native provider byte ranges for bounded capability admission.
+Lookup includes its alignment gap: B63170..B631C1, 81 bytes (not the 78-byte aggregate instruction size).
+Insertion: A5D320..A5D399, 121 bytes. Hash: A63840..A6384E, 14 bytes. Equality: E92590..E925A0, 16 bytes.
+Total complete provider-code admission extent: 232 bytes, plus map slot reads; this cost is not free.
+PE .text characteristics 0x60000020 prove fixed native code ranges are readable and executable.
+{
+  "label": "identity_lookup_full_bytes",
+  "result": {
+    "content": [
+      {
+        "type": "text",
+        "text": "- offset -  7071 7273 7475 7677 7879 7A7B 7C7D 7E7F  0123456789ABCDEF\n0x00b63170  538b 5c24 0856 8bf1 8b06 8b50 0457 53ff  S.\\$.V.....P.WS.\n0x00b63180  d28b 4e08 8b3c 8185 ff74 1deb 038d 4900  ..N..<...t....I.\n0x00b63190  8b47 048b 168b 5208 5053 8bce ffd2 84c0  .G....R.PS......\n0x00b631a0  750e 8b3f 85ff 75e8 5f5e 32c0 5bc2 0800  u..?..u._^2.[...\n0x00b631b0  8a47 088b 4c24 145f 5e88 01b0 015b c208  .G..L$._^....[..\n0x00b631c0  00                                       .\n"
+      }
+    ]
+  }
+}
+{
+  "label": "identity_insert_full_bytes",
+  "result": {
+    "content": [
+      {
+        "type": "text",
+        "text": "- offset -  2021 2223 2425 2627 2829 2A2B 2C2D 2E2F  0123456789ABCDEF\n0x00a5d320  538b 5c24 0855 568b f18b 068b 5004 5753  S.\\$.UV.....P.WS\n0x00a5d330  ffd2 8be8 8b46 088b 3ca8 85ff 741a 8bff  .....F..<...t...\n0x00a5d340  8b47 048b 168b 5208 5053 8bce ffd2 84c0  .G....R.PS......\n0x00a5d350  7539 8b3f 85ff 75e8 8b16 8b42 148b ceff  u9.?..u....B....\n0x00a5d360  d08b 168b 520c 8bf8 8b44 2418 5053 578b  ....R....D$.PSW.\n0x00a5d370  ceff d28b 4608 8b0c a889 0f8b 5608 893c  ....F.......V..<\n0x00a5d380  aaff 460c 5f5e 5d5b c208 008a 4424 1888  ..F._^][....D$..\n0x00a5d390  4708 5f5e 5d5b c208 00                   G._^][...\n"
+      }
+    ]
+  }
+}
+
+Final interpretation correction: C33870 reconstruction writes planes 0 and 2..5, clears mask bit 1, and preserves constructor-supplied plane-1 coefficients. The final 100-byte cache publication includes them. No full-output-overwrite or dead-constructor proof exists. The owning document rejects the constructor NOP for both surviving initialization and FP effects.

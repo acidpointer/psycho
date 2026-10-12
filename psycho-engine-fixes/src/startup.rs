@@ -19,10 +19,11 @@ use crate::{
             set_active_mode,
         },
         perf::{
-            install_light_property_score_reuse, install_multibound_frustum_tests,
-            install_multibound_loop_bookkeeping, install_multibound_vertex_setup,
-            install_post_load_reconciliation_prepass, install_radio_scan_fix, install_rng_hook,
-            install_scene_light_sequential_scan,
+            install_inverse_world_index_setup, install_light_property_score_reuse,
+            install_multibound_frustum_tests, install_multibound_loop_bookkeeping,
+            install_multibound_vertex_setup, install_post_load_reconciliation_prepass,
+            install_radio_scan_fix, install_rng_hook, install_scene_light_sequential_scan,
+            install_scene_root_admission,
         },
         zlib::install_zlib_hooks,
     },
@@ -234,6 +235,26 @@ fn install_runtime_hooks(performance: &PerformanceConfig) -> anyhow::Result<()> 
         }
     } else {
         log::info!("[MULTIBOUND_LOOPS] Loop optimization disabled by config");
+    }
+
+    if performance.inverse_world_index_setup {
+        if let Err(error) = install_inverse_world_index_setup() {
+            log::warn!(
+                "[INVERSE_WORLD_INDEX] Index optimization unavailable; existing engine code retained: {error:#}"
+            );
+        }
+    } else {
+        log::info!("[INVERSE_WORLD_INDEX] Index optimization disabled by config");
+    }
+
+    if performance.scene_root_admission {
+        if let Err(error) = install_scene_root_admission() {
+            log::warn!(
+                "[SCENE_ROOT_ADMISSION] Single-search admission unavailable; existing engine code retained: {error:#}"
+            );
+        }
+    } else {
+        log::info!("[SCENE_ROOT_ADMISSION] Single-search admission disabled by config");
     }
 
     if performance.rng {

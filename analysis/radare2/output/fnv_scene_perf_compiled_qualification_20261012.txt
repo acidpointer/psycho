@@ -1,0 +1,658 @@
+Compiled scene-performance qualification, 2026-10-12
+
+This is instruction/ABI/signature/PE qualification, not a game behavior test.
+
+Supported engine identity: see fnv_scene_perf_implementation_contract_20261012.txt.
+
+Compiled core VAs below use preferred base 0x10000000; engine VAs use 0x00400000.
+
+Captures prefixed compiled_lookup/compiled_capability/compiled_inverse_installer are
+
+from the first draft with the general lighting NativeRange checker. They are
+
+superseded by final_* captures after replacing unused overlay/alternative machinery.
+
+The final core guard consists of 57 DWORD checks and four byte checks. Every
+
+immediate and exact 232-byte coverage was compared against the supported FNV
+
+image; admitted comparisons do not learn arbitrary provider bytes.
+
+The native-adapter prefix preserves the insertion frame and argument positions.
+
+The final bridge has native entry calls only on fallback and its private native
+
+tail adapter on absence; its decoded body has no FP operation or panic call.
+
+Compiled inverse payload decodes are a view of actual owned-patch table bytes
+
+overlaid on the original native function for static instruction inspection only.
+
+That temporary image was not executed and is not a behavioral test or oracle.
+
+The replacement CALL builder's target immediate has a PE HIGHLOW relocation;
+
+the native insertion-tail immediate remains fixed to FNV and has no relocation.
+
+PE comparison of core/helper against preserved pre-change release artifacts
+
+found equal import sequences, raw TLS extents, TLS callback identities and
+
+export names. Config fields and patch storage still change startup footprint.
+
+Existing supplied logs do not establish acceptance of the new core.
+
+
+
+{
+  "label": "compiled_core_open",
+  "result": {
+    "content": [
+      {
+        "type": "text",
+        "text": "Closed previously opened file: /data/storage1/Workspace/psycho/fnv_reverse/FalloutNV.exe\nFile opened successfully."
+      }
+    ]
+  }
+}
+
+{
+  "label": "compiled_tail_adapter",
+  "result": {
+    "content": [
+      {
+        "type": "text",
+        "text": "  ;-- @_RNvNtNtNtCsfST0Ks2FPct_19psycho_engine_fixes4mods4perf20scene_root_admission13insert_absent@16:\n  ; CALL XREF from psycho_engine_fixes::mods::perf::scene_root_admission::find_or_insert @ 0x10080541(x)\n    ; sym.psycho_engine_fixes::mods::perf::scene_root_admission::find_or_insert\n21: fcn.100776d0 (int32_t arg_8h);\n`- args(sp[0x4..0x4])\n0x100776d0      push ebx\n0x100776d1      mov ebx, dword [arg_8h]\n0x100776d5      push ebp\n0x100776d6      mov ebp, edx\n0x100776d8      push esi\n0x100776d9      mov esi, ecx\n0x100776db      push edi\n0x100776dc      xor edi, edi\n0x100776de      mov eax, 0xa5d358\n0x100776e3      jmp eax\n0x100776e5      nop word cs:[eax + eax]\n0x100776ef      nop\n"
+      }
+    ]
+  }
+}
+
+{
+  "label": "compiled_lookup_first",
+  "result": {
+    "content": [
+      {
+        "type": "text",
+        "text": "; psycho_engine_fixes::mods::perf::scene_root_admission::find_or_insert\n1242: sym.psycho_engine_fixes::mods::perf::scene_root_admission::find_or_insert (int32_t arg_8h, int32_t arg_ch);\n`- args(sp[0x4..0x8]) vars(1:sp[0x14..0x14])\n0x100800a0      push ebp\n0x100800a1      mov ebp, esp\n0x100800a3      push ebx\n0x100800a4      push edi\n0x100800a5      push esi\n0x100800a6      push eax\n0x100800a7      mov dword [var_10h], ecx\n0x100800aa      mov eax, dword [ecx]\n0x100800ac      mov ecx, dword [eax + 4]\n0x100800af      cmp ecx, 0xa63840\n   ; likely\n0x100800b5      jne 0x100804be\n0x100800bb      mov eax, dword [eax + 8]\n0x100800be      cmp eax, 0xe92590\n   ; likely\n0x100800c3      jne 0x100804be\n; [0x103945e4:4]=3\n0x100800c9      mov eax, dword [0x103945e4]\n0x100800ce      lea ecx, [0x103945dc]\n0x100800d4      lea edx, [0x103945d0]\n0x100800da      lea esi, [0x103945e0]\n; [0x103945d8:4]=0xb63170\n0x100800e0      mov edi, dword [0x103945d8]\n0x100800e6      test eax, eax\n0x100800e8      cmove edx, ecx\n   ; \"Q\"\n0x100800eb      lea ecx, [0x103945d4]\n0x100800f1      cmove ecx, esi\n0x100800f4      mov edx, dword [edx]\n0x100800f6      mov ecx, dword [ecx]\n0x100800f8      test ecx, ecx\n   ; unlikely\n0x100800fa      je 0x10080126\n0x100800fc      mov eax, edi\n0x100800fe      xor esi, esi\n0x10080100      neg eax\n0x10080102      and eax, 3\n0x10080105      nop word cs:[eax + eax]\n0x1008010f      nop\n0x10080110      cmp eax, esi\n   ; likely\n0x10080112      je 0x10080130\n0x10080114      movzx ebx, byte [edi + esi]\n0x10080118      cmp bl, byte [edx + esi]\n   ; likely\n0x1008011b      jne 0x10080141\n0x1008011d      inc esi\n0x1008011e      cmp ecx, esi\n   ; likely\n0x10080120      jne 0x10080110\n0x10080122      mov eax, ecx\n0x10080124      jmp 0x10080130\n0x10080126      xor eax, eax\n0x10080128      nop dword [eax + eax]\n; CODE XREF from psycho_engine_fixes::mods::perf::scene_root_admission::find_or_insert @ 0x10080124(x)\n0x10080130      lea esi, [eax + 4]\n0x10080133      cmp esi, ecx\n   ; unlikely\n0x10080135      ja 0x1008018a\n0x10080137      mov ebx, dword [edi + eax]\n0x1008013a      cmp ebx, dword [edx + eax]\n0x1008013d      mov eax, esi\n   ; unlikely\n0x1008013f      je 0x10080130\n; [0x103945e8:4]=0\n0x10080141      mov ecx, dword [0x103945e8]\n0x10080147      test ecx, ecx\n   ; likely\n0x10080149      je 0x100804be\n; [0x103945ec:4]=0\n0x1008014f      mov edx, dword [0x103945ec]\n0x10080155      test edx, edx\n   ; likely\n0x10080157      je 0x100801ae\n0x10080159      mov eax, edi\n0x1008015b      xor esi, esi\n0x1008015d      neg eax\n0x1008015f      and eax, 3\n0x10080162      nop word cs:[eax + eax]\n0x1008016c      nop dword [eax]\n0x10080170      cmp eax, esi\n   ; likely\n0x10080172      je 0x100801b0\n0x10080174      movzx ebx, byte [edi + esi]\n0x10080178      cmp bl, byte [ecx + esi]\n   ; unlikely\n0x1008017b      jne 0x100804be\n0x10080181      inc esi\n0x10080182      cmp edx, esi\n   ; likely\n0x10080184      jne 0x10080170\n0x10080186      mov eax, edx\n0x10080188      jmp 0x100801b0\n0x1008018a      sub ecx, eax\n   ; likely\n0x1008018c      jbe 0x100801e0\n0x1008018e      lea esi, [edi + eax]\n0x10080191      add edx, eax\n0x10080193      nop word cs:[eax + eax]\n0x1008019d      nop dword [eax]\n0x100801a0      movzx eax, byte [esi]\n0x100801a3      cmp al, byte [edx]\n   ; unlikely\n0x100801a5      jne 0x10080141\n0x100801a7      inc edx\n0x100801a8      inc esi\n0x100801a9      dec ecx\n   ; likely\n0x100801aa      jne 0x100801a0\n0x100801ac      jmp 0x100801e0\n0x100801ae      xor eax, eax\n; CODE XREF from psycho_engine_fixes::mods::perf::scene_root_admission::find_or_insert @ 0x10080188(x)\n0x100801b0      lea esi, [eax + 4]\n0x100801b3      cmp esi, edx\n   ; likely\n0x100801b5      ja 0x100801c6\n0x100801b7      mov ebx, dword [edi + eax]\n0x100801ba      cmp ebx, dword [ecx + eax]\n0x100801bd      mov eax, esi\n   ; likely\n0x100801bf      je 0x100801b0\n0x100801c1      jmp 0x100804be\n0x100801c6      sub edx, eax\n   ; likely\n0x100801c8      jbe 0x100801e0\n0x100801ca      add edi, eax\n0x100801cc      add ecx, eax\n0x100801ce      nop\n0x100801d0      movzx eax, byte [edi]\n0x100801d3      cmp al, byte [ecx]\n   ; unlikely\n0x100801d5      jne 0x100804be\n0x100801db      inc ecx\n0x100801dc      inc edi\n0x100801dd      dec edx\n   ; likely\n0x100801de      jne 0x100801d0\n; CODE XREF from psycho_engine_fixes::mods::perf::scene_root_admission::find_or_insert @ 0x100801ac(x)\n; [0x103945bc:4]=3\n0x100801e0      mov eax, dword [0x103945bc]\n0x100801e5      lea ecx, [0x103945b4]\n0x100801eb      lea edx, [0x103945a8]\n0x100801f1      lea esi, [0x103945b8]\n; [0x103945b0:4]=0xa5d320\n0x100801f7      mov edi, dword [0x103945b0]\n0x100801fd      test eax, eax\n0x100801ff      cmove edx, ecx\n   ; \"y\"\n0x10080202      lea ecx, [0x103945ac]\n0x10080208      cmove ecx, esi\n0x1008020b      mov edx, dword [edx]\n0x1008020d      mov ecx, dword [ecx]\n0x1008020f      test ecx, ecx\n   ; unlikely\n0x10080211      je 0x10080236\n0x10080213      mov ebx, edi\n0x10080215      xor esi, esi\n0x10080217      neg ebx\n0x10080219      and ebx, 3\n0x1008021c      nop dword [eax]\n0x10080220      cmp ebx, esi\n   ; likely\n0x10080222      je 0x10080240\n0x10080224      movzx eax, byte [edi + esi]\n"
+      }
+    ]
+  }
+}
+
+{
+  "label": "compiled_capability_checker",
+  "result": {
+    "content": [
+      {
+        "type": "text",
+        "text": "; <psycho_engine_fixes::mods::perf::lighting_contract::NativeRange>::matches_expected\n  ; XREFS: CALL 0x1008003f  CALL 0x100810cc  CALL 0x1008116b  \n  ; XREFS: CALL 0x1008120a  CALL 0x1008125f  CALL 0x10081285  \n  ; XREFS: CALL 0x100812c4  CALL 0x100812ea  CALL 0x100819c6  \n  ; XREFS: CALL 0x10081a74  \n138: sym._psycho_engine_fixes::mods::perf::lighting_contract::NativeRange_::matches_expected (int32_t arg_8h);\n`- args(sp[0x4..0x4])\n0x10078260      push ebp\n0x10078261      mov ebp, esp\n0x10078263      push ebx\n0x10078264      push edi\n0x10078265      push esi\n0x10078266      cmp dword [arg_8h], 0\n   ; unlikely\n0x1007826a      je 0x10078298\n0x1007826c      mov edi, ecx\n0x1007826e      xor esi, esi\n0x10078270      neg edi\n0x10078272      and edi, 3\n0x10078275      nop word cs:[eax + eax]\n0x1007827f      nop\n0x10078280      cmp edi, esi\n   ; likely\n0x10078282      je 0x1007829a\n0x10078284      movzx ebx, byte [ecx + esi]\n0x10078288      cmp bl, byte [edx + esi]\n   ; unlikely\n0x1007828b      jne 0x100782b2\n0x1007828d      inc esi\n0x1007828e      cmp dword [arg_8h], esi\n   ; likely\n0x10078291      jne 0x10078280\n0x10078293      mov edi, dword [arg_8h]\n0x10078296      jmp 0x1007829a\n0x10078298      xor edi, edi\n; CODE XREF from <psycho_engine_fixes::mods::perf::lighting_contract::NativeRange>::matches_expected @ 0x10078296(x)\n0x1007829a      mov eax, dword [arg_8h]\n0x1007829d      lea esi, [eax - 1]\n0x100782a0      lea ebx, [edi + 4]\n0x100782a3      cmp ebx, dword [arg_8h]\n   ; unlikely\n0x100782a6      ja 0x100782b6\n0x100782a8      mov eax, dword [ecx + edi]\n0x100782ab      cmp eax, dword [edx + edi]\n0x100782ae      mov edi, ebx\n   ; likely\n0x100782b0      je 0x100782a0\n0x100782b2      xor eax, eax\n0x100782b4      jmp 0x100782e5\n0x100782b6      cmp edi, dword [arg_8h]\n0x100782b9      mov al, 1\n   ; unlikely\n0x100782bb      jae 0x100782e5\n0x100782bd      add ecx, edi\n0x100782bf      add edx, edi\n0x100782c1      sub esi, edi\n0x100782c3      nop word cs:[eax + eax]\n0x100782cd      nop dword [eax]\n0x100782d0      movzx ebx, byte [ecx]\n0x100782d3      mov bh, byte [edx]\n0x100782d5      cmp bl, bh\n0x100782d7      sete al\n0x100782da      add esi, 0xffffffff\n   ; unlikely\n0x100782dd      jae 0x100782e5\n0x100782df      inc edx\n0x100782e0      inc ecx\n0x100782e1      cmp bl, bh\n   ; likely\n0x100782e3      je 0x100782d0\n; CODE XREF from <psycho_engine_fixes::mods::perf::lighting_contract::NativeRange>::matches_expected @ 0x100782b4(x)\n0x100782e5      pop esi\n0x100782e6      pop edi\n0x100782e7      pop ebx\n0x100782e8      pop ebp\n0x100782e9      ret\n0x100782ea      nop word [eax + eax]\n; <psycho_engine_fixes::mods::perf::lighting_contract::NativeRange>::prepare\n  ; CALL XREFS from psycho_engine_fixes::mods::perf::scene_light_scan::install @ 0x1007f130(x), 0x1007f39d(x)\n    ; sym.psycho_engine_fixes::mods::perf::scene_light_scan::install\n  ; CALL XREFS from psycho_engine_fixes::mods::perf::light_property_scores::install @ 0x10081db4(x), 0x10081e37(x), 0x10081eb8(x)\n    ; sym.psycho_engine_fixes::mods::perf::light_property_scores::install\n578: sym._psycho_engine_fixes::mods::perf::lighting_contract::NativeRange_::prepare (int32_t arg_8h);\n`- args(sp[0x4..0x4]) vars(16:sp[0x10..0x80])\n0x100782f0      push ebp\n0x100782f1      mov ebp, esp\n0x100782f3      push ebx\n0x100782f4      push edi\n0x100782f5      push esi\n0x100782f6      and esp, 0xfffffff8\n0x100782f9      sub esp, 0x70\n0x100782fc      cmp dword [ecx + 0x20], 0\n0x10078300      mov esi, ecx\n   ; unlikely\n0x10078302      je 0x10078326\n0x10078304      mov eax, dword [esi + 0x24]\n0x10078307      cmp eax, dword [esi + 0xc]\n   ; unlikely\n0x1007830a      jne 0x100784d1\n0x10078310      cmp dword [arg_8h], 0\n   ; likely\n0x10078314      jne 0x100784da\n0x1007831a      mov ecx, esi\n; <psycho_engine_fixes::mods::perf::lighting_contract::NativeRange>::diagnose\n   ; sym._psycho_engine_fixes::mods::perf::lighting_contract::NativeRange_::diagnose\n0x1007831c      call sym._psycho_engine_fixes::mods::perf::lighting_contract::NativeRange_::diagnose\n0x10078321      jmp 0x10078431\n0x10078326      mov eax, dword [esi + 0x10]\n0x10078329      mov edi, edx\n0x1007832b      lea ebx, [var_8h]\n0x1007832f      mov dword [var_18h], eax\n0x10078333      lea eax, [var_38h]\n0x10078337      movsd xmm0, qword [esi]\n0x1007833b      movsd xmm1, qword [esi + 8]\n0x10078340      movsd qword [var_10h], xmm1\n0x10078346      movsd qword [var_8h], xmm0\n0x1007834c      push ebx\n0x1007834d      push eax\n; <libpsycho::os::windows::patch::CodeSignature>::verify\n   ; sym._libpsycho::os::windows::patch::CodeSignature_::verify\n   ; sym._libpsycho::os::windows::patch::CodeSignature_::verify(0xffffffb4, 0xffffff84)\n0x1007834e      call sym._libpsycho::os::windows::patch::CodeSignature_::verify\n0x10078353      add esp, 8\n0x10078356      cmp dword [var_38h], 0xffffffff\n   ; likely\n0x1007835b      jne 0x10078439\n0x10078361      mov ecx, dword [arg_8h]\n0x10078364      test ecx, ecx\n   ; unlikely\n0x10078366      je 0x1007842f\n0x1007836c      mov ebx, dword [esi + 0xc]\n0x1007836f      xor eax, eax\n0x10078371      test ebx, ebx\n   ; unlikely\n0x10078373      jns 0x10078381\n; CODE XREF from <psycho_engine_fixes::mods::perf::lighting_contract::NativeRange>::prepare @ 0x1007852d(x)\n0x10078375      push ebx\n0x10078376      push eax\n   ; sym.alloc::raw_vec::handle_error\n   ; sym.alloc::raw_vec::handle_error(0x0, -1)\n0x10078377      call sym.alloc::raw_vec::handle_error\n0x1007837c      add esp, 8\n0x1007837f      ud2\n0x10078381      mov dword [var_4h], ebx\n"
+      }
+    ]
+  }
+}
+
+{
+  "label": "compiled_lookup_integer_tail",
+  "result": {
+    "content": [
+      {
+        "type": "text",
+        "text": "0x100804b0      cmp esi, edx\n   ; unlikely\n0x100804b2      ja 0x100804ed\n0x100804b4      mov eax, dword [edi + ebx]\n0x100804b7      cmp eax, dword [ecx + ebx]\n0x100804ba      mov ebx, esi\n   ; likely\n0x100804bc      je 0x100804ad\n; CODE XREFS from psycho_engine_fixes::mods::perf::scene_root_admission::find_or_insert @ 0x100801c1(x), 0x100802d1(x), 0x100803d1(x)\n0x100804be      mov edi, dword [var_10h]\n0x100804c1      mov eax, 0xb63170\n0x100804c6      mov ecx, edi\n0x100804c8      push dword [arg_ch]\n0x100804cb      mov esi, dword [arg_8h]\n0x100804ce      push esi\n   ; 0xb63170(0xb63170, 0x0, -1, 0x0)\n0x100804cf      call eax\n0x100804d1      test al, al\n   ; likely\n0x100804d3      jne 0x100804e3\n0x100804d5      mov eax, 0xa5d320\n0x100804da      mov ecx, edi\n; 1\n0x100804dc      push 1\n0x100804de      push esi\n; CODE XREF from psycho_engine_fixes::mods::perf::scene_root_admission::find_or_insert @ 0x10080575(x)\n   ; 0xa5d320(0xa5d320, 0x0, -1, 0x0)\n0x100804df      call eax\n; CODE XREF from psycho_engine_fixes::mods::perf::scene_root_admission::find_or_insert @ 0x10080546(x)\n0x100804e1      xor eax, eax\n; CODE XREF from psycho_engine_fixes::mods::perf::scene_root_admission::find_or_insert @ 0x1008053c(x)\n0x100804e3      add esp, 4\n0x100804e6      pop esi\n0x100804e7      pop edi\n0x100804e8      pop ebx\n0x100804e9      pop ebp\n0x100804ea      ret 8\n0x100804ed      sub edx, ebx\n   ; likely\n0x100804ef      jbe 0x10080501\n0x100804f1      add edi, ebx\n0x100804f3      add ecx, ebx\n0x100804f5      movzx eax, byte [edi]\n0x100804f8      cmp al, byte [ecx]\n   ; unlikely\n0x100804fa      jne 0x100804be\n0x100804fc      inc ecx\n0x100804fd      inc edi\n0x100804fe      dec edx\n   ; unlikely\n0x100804ff      jne 0x100804f5\n; CODE XREF from psycho_engine_fixes::mods::perf::scene_root_admission::find_or_insert @ 0x100804a9(x)\n0x10080501      mov ecx, dword [var_10h]\n0x10080504      mov edi, dword [ecx + 4]\n0x10080507      test edi, edi\n   ; unlikely\n0x10080509      je 0x10080548\n0x1008050b      mov esi, dword [arg_8h]\n0x1008050e      xor edx, edx\n0x10080510      mov eax, esi\n0x10080512      div edi\n0x10080514      cmp edx, 0x3fffffff\n   ; unlikely\n0x1008051a      ja 0x10080555\n0x1008051c      mov eax, edx\n0x1008051e      shl eax, 2\n0x10080521      add eax, dword [ecx + 8]\n0x10080524      mov eax, dword [eax]\n0x10080526      test eax, eax\n   ; unlikely\n0x10080528      je 0x1008053e\n0x1008052a      mov edi, dword [eax + 4]\n0x1008052d      cmp edi, esi\n   ; unlikely\n0x1008052f      jne 0x10080524\n0x10080531      movzx eax, byte [eax + 8]\n0x10080535      mov ecx, dword [arg_ch]\n0x10080538      mov byte [ecx], al\n0x1008053a      mov al, 1\n0x1008053c      jmp 0x100804e3\n; 1\n0x1008053e      push 1\n0x10080540      push esi\n   ; fcn.100776d0\n   ; fcn.100776d0(0x1)\n0x10080541      call fcn.100776d0\n0x10080546      jmp 0x100804e1\n0x10080548      mov eax, 0xb63170\n0x1008054d      push dword [arg_ch]\n0x10080550      push dword [arg_8h]\n0x10080553      jmp 0x1008055e\n0x10080555      mov eax, 0xb63170\n0x1008055a      push dword [arg_ch]\n"
+      }
+    ]
+  }
+}
+
+{
+  "label": "compiled_inverse_installer",
+  "result": {
+    "content": [
+      {
+        "type": "text",
+        "text": "; psycho_engine_fixes::mods::perf::inverse_world_index_setup::install\n  ; CALL XREF from psycho_engine_fixes::startup::initialize @ 0x100dc9f3(x)\n    ; sym.psycho_engine_fixes::startup::initialize\n1595: sym.psycho_engine_fixes::mods::perf::inverse_world_index_setup::install ();\nafv: vars(36:sp[0x10..0xd8])\n0x1008f540      push ebp\n0x1008f541      mov ebp, esp\n0x1008f543      push ebx\n0x1008f544      push edi\n0x1008f545      push esi\n0x1008f546      and esp, 0xfffffff8\n0x1008f549      sub esp, 0xc8\n; [0x10514750:4]=0\n0x1008f54f      mov eax, dword [0x10514750]\n; 1\n0x1008f554      test al, 1\n   ; likely\n0x1008f556      je 0x1008fb5c\n; [0x10514748:1]=0\n0x1008f55c      movzx eax, byte [0x10514748]\n; 2\n0x1008f563      cmp al, 2\n   ; unlikely\n0x1008f565      je 0x1008fb5c\n0x1008f56b      xor eax, eax\n; 4294966936\n0x1008f56d      mov ebx, 0xfffffe98\n0x1008f572      nop word cs:[eax + eax]\n0x1008f57c      nop dword [eax]\n0x1008f580      mov edx, dword [ebx + 0x103d3bcc]\n0x1008f586      cmp edx, 0xc4c2cf\n   ; unlikely\n0x1008f58c      jbe 0x1008fb0e\n0x1008f592      lea edi, [edx - 0xc4c2d0]\n; 604\n0x1008f598      cmp edi, 0x25c\n   ; likely\n0x1008f59e      ja 0x1008fb25\n0x1008f5a4      mov ecx, edi\n0x1008f5a6      sub ecx, eax\n   ; unlikely\n0x1008f5a8      jb 0x1008fb25\n0x1008f5ae      mov dword [var_38h], edx\n0x1008f5b2      lea edx, [eax + 0x103d3be1]\n0x1008f5b8      add eax, 0xc4c2d0\n; 'v>=\\x10'\n; [0x103d3e76:4]=0x65766e49\n; \"Inverse-world expansion bodyInverse-world index extent overflowInverse-world index exceeds functionInverse-world expansion tailL[INVERSE_WORLD_INDEX] Index installation failed; rolling back owned writes: \\xc0\"\n0x1008f5bd      mov dword [esp], 0x103d3e76\n; [0x1c:4]=-1\n; 28\n0x1008f5c4      mov dword [var_4h], 0x1c\n0x1008f5cc      mov dword [var_10h], eax\n0x1008f5d0      mov eax, esp\n0x1008f5d2      mov dword [var_8h], edx\n0x1008f5d6      mov dword [var_sp_ch], ecx\n0x1008f5da      push eax\n0x1008f5db      lea esi, [var_54h]\n0x1008f5df      push esi\n; <libpsycho::os::windows::patch::CodeSignature>::verify\n   ; sym._libpsycho::os::windows::patch::CodeSignature_::verify\n   ; sym._libpsycho::os::windows::patch::CodeSignature_::verify(0xffffff28, 0xfffffe98)\n0x1008f5e0      call sym._libpsycho::os::windows::patch::CodeSignature_::verify\n0x1008f5e5      add esp, 8\n0x1008f5e8      cmp dword [var_54h], 0xffffffff\n   ; likely\n0x1008f5ed      jne 0x1008f8bb\n0x1008f5f3      lea eax, [ebx + str.Inverse_world_index_precedes_functionU]\n0x1008f5f9      movsd xmm1, qword [eax + 0x10]\n0x1008f5fe      mov ecx, dword [eax + 0x20]\n0x1008f601      movsd xmm0, qword [eax + 0x18]\n0x1008f606      movsd xmm2, qword [eax]\n0x1008f60a      movsd qword [var_60h], xmm1\n0x1008f610      movsd xmm1, qword [eax + 8]\n0x1008f615      mov dword [var_70h], ecx\n0x1008f619      movsd qword [var_68h], xmm0\n0x1008f61f      movsd qword [var_54h], xmm2\n0x1008f625      movsd qword [var_58h], xmm1\n0x1008f62b      push esi\n0x1008f62c      lea eax, [var_4h_2]\n0x1008f630      push eax\n; <libpsycho::os::windows::patch::OwnedCodePatch>::verify\n   ; sym._libpsycho::os::windows::patch::OwnedCodePatch_::verify\n   ; sym._libpsycho::os::windows::patch::OwnedCodePatch_::verify(0xffffff24, 0xfffffe98)\n0x1008f631      call sym._libpsycho::os::windows::patch::OwnedCodePatch_::verify\n0x1008f636      add esp, 8\n0x1008f639      cmp dword [esp], 0xffffffff\n   ; likely\n0x1008f63d      jne 0x1008f907\n0x1008f643      mov ecx, dword [ebx + 0x103d3be0]\n0x1008f649      add edi, ecx\n   ; likely\n0x1008f64b      jb 0x1008fb3c\n; 40\n0x1008f651      add ebx, 0x28\n0x1008f654      mov eax, edi\n   ; likely\n0x1008f656      jne 0x1008f580\n; 604\n0x1008f65c      cmp edi, 0x25c\n   ; likely\n0x1008f662      ja 0x1008fb6d\n0x1008f668      add ecx, dword [var_38h]\n; 604\n0x1008f66c      mov edx, 0x25c\n0x1008f671      lea eax, [edi + 0x103d3be1]\n; [0x103d3ed9:4]=0x65766e49\n; \"Inverse-world expansion tailL[INVERSE_WORLD_INDEX] Index installation failed; rolling back owned writes: \\xc0\"\n0x1008f677      mov dword [esp], 0x103d3ed9\n; [0x1c:4]=-1\n; 28\n0x1008f67e      mov dword [var_4h], 0x1c\n0x1008f686      sub edx, edi\n0x1008f688      mov edi, esp\n"
+      }
+    ]
+  }
+}
+
+{
+  "label": "final_tail_adapter",
+  "result": {
+    "content": [
+      {
+        "type": "text",
+        "text": "  ;-- @_RNvNtNtNtCsfST0Ks2FPct_19psycho_engine_fixes4mods4perf20scene_root_admission13insert_absent@16:\n  ; CALL XREF from psycho_engine_fixes::mods::perf::scene_root_admission::find_or_insert @ 0x100e8624(x)\n    ; sym.psycho_engine_fixes::mods::perf::scene_root_admission::find_or_insert\n21: fcn.100e0bd0 (int32_t arg_8h);\n`- args(sp[0x4..0x4])\n0x100e0bd0      push ebx\n0x100e0bd1      mov ebx, dword [arg_8h]\n0x100e0bd5      push ebp\n0x100e0bd6      mov ebp, edx\n0x100e0bd8      push esi\n0x100e0bd9      mov esi, ecx\n0x100e0bdb      push edi\n0x100e0bdc      xor edi, edi\n0x100e0bde      mov eax, 0xa5d358\n0x100e0be3      jmp eax\n"
+      }
+    ]
+  }
+}
+
+{
+  "label": "final_lookup_0",
+  "result": {
+    "content": [
+      {
+        "type": "text",
+        "text": "; psycho_engine_fixes::mods::perf::scene_root_admission::find_or_insert\n1083: sym.psycho_engine_fixes::mods::perf::scene_root_admission::find_or_insert (int32_t arg_8h, int32_t arg_ch);\n`- args(sp[0x4..0x8])\n0x100e81f0      push ebp\n0x100e81f1      mov ebp, esp\n0x100e81f3      push ebx\n0x100e81f4      push edi\n0x100e81f5      push esi\n0x100e81f6      mov eax, dword [ecx]\n0x100e81f8      mov edi, ecx\n0x100e81fa      mov ebx, dword [arg_ch]\n0x100e81fd      mov esi, dword [arg_8h]\n0x100e8200      mov ecx, dword [eax + 4]\n0x100e8203      cmp ecx, 0xa63840\n   ; likely\n0x100e8209      jne 0x100e85fb\n0x100e820f      mov eax, dword [eax + 8]\n0x100e8212      cmp eax, 0xe92590\n   ; likely\n0x100e8217      jne 0x100e85fb\n; [0xb63170:4]=-1\n0x100e821d      mov eax, dword [0xb63170]\n0x100e8222      cmp eax, 0x245c8b53\n   ; likely\n0x100e8227      jne 0x100e85fb\n; [0xb63174:4]=-1\n0x100e822d      mov eax, dword [0xb63174]\n0x100e8232      cmp eax, 0xf18b5608\n   ; likely\n0x100e8237      jne 0x100e85fb\n; [0xb63178:4]=-1\n0x100e823d      mov eax, dword [0xb63178]\n0x100e8242      cmp eax, 0x508b068b\n   ; likely\n0x100e8247      jne 0x100e85fb\n; [0xb6317c:4]=-1\n0x100e824d      mov eax, dword [0xb6317c]\n0x100e8252      cmp eax, 0xff535704\n   ; likely\n0x100e8257      jne 0x100e85fb\n; [0xb63180:4]=-1\n0x100e825d      mov eax, dword [0xb63180]\n0x100e8262      cmp eax, 0x84e8bd2\n   ; likely\n0x100e8267      jne 0x100e85fb\n; [0xb63184:4]=-1\n0x100e826d      mov eax, dword [0xb63184]\n0x100e8272      cmp eax, 0x85813c8b\n   ; likely\n0x100e8277      jne 0x100e85fb\n; [0xb63188:4]=-1\n0x100e827d      mov eax, dword [0xb63188]\n0x100e8282      cmp eax, 0xeb1d74ff\n   ; likely\n0x100e8287      jne 0x100e85fb\n; [0xb6318c:4]=-1\n0x100e828d      mov eax, dword [0xb6318c]\n0x100e8292      cmp eax, 0x498d03\n; 0x10355dc0\n; fcn.10355dc0\n   ; likely\n0x100e8297      jne 0x100e85fb\n; [0xb63190:4]=-1\n0x100e829d      mov eax, dword [0xb63190]\n0x100e82a2      cmp eax, 0x8b04478b\n   ; likely\n0x100e82a7      jne 0x100e85fb\n; [0xb63194:4]=-1\n0x100e82ad      mov eax, dword [0xb63194]\n0x100e82b2      cmp eax, 0x8528b16\n   ; likely\n0x100e82b7      jne 0x100e85fb\n; [0xb63198:4]=-1\n0x100e82bd      mov eax, dword [0xb63198]\n0x100e82c2      cmp eax, 0xce8b5350\n   ; likely\n0x100e82c7      jne 0x100e85fb\n; [0xb6319c:4]=-1\n0x100e82cd      mov eax, dword [0xb6319c]\n0x100e82d2      cmp eax, 0xc084d2ff\n   ; likely\n0x100e82d7      jne 0x100e85fb\n; [0xb631a0:4]=-1\n0x100e82dd      mov eax, dword [0xb631a0]\n0x100e82e2      cmp eax, 0x3f8b0e75\n   ; likely\n0x100e82e7      jne 0x100e85fb\n; [0xb631a4:4]=-1\n0x100e82ed      mov eax, dword [0xb631a4]\n0x100e82f2      cmp eax, 0xe875ff85\n   ; likely\n0x100e82f7      jne 0x100e85fb\n; [0xb631a8:4]=-1\n0x100e82fd      mov eax, dword [0xb631a8]\n0x100e8302      cmp eax, 0xc0325e5f\n   ; likely\n0x100e8307      jne 0x100e85fb\n; [0xb631ac:4]=-1\n0x100e830d      mov eax, dword [0xb631ac]\n0x100e8312      cmp eax, 0x8c25b\n   ; likely\n0x100e8317      jne 0x100e85fb\n; [0xb631b0:4]=-1\n0x100e831d      mov eax, dword [0xb631b0]\n0x100e8322      cmp eax, 0x8b08478a\n   ; likely\n0x100e8327      jne 0x100e85fb\n; [0xb631b4:4]=-1\n0x100e832d      mov eax, dword [0xb631b4]\n; 'L$\\x14_'\n0x100e8332      cmp eax, 0x5f14244c\n   ; likely\n0x100e8337      jne 0x100e85fb\n; [0xb631b8:4]=-1\n0x100e833d      mov eax, dword [0xb631b8]\n0x100e8342      cmp eax, 0xb001885e\n   ; likely\n0x100e8347      jne 0x100e85fb\n; [0xb631bc:4]=-1\n0x100e834d      mov eax, dword [0xb631bc]\n0x100e8352      cmp eax, 0x8c25b01\n   ; likely\n0x100e8357      jne 0x100e85fb\n; [0xb631c0:1]=255\n0x100e835d      cmp byte [0xb631c0], 0\n   ; likely\n0x100e8364      jne 0x100e85fb\n; [0xa5d320:4]=-1\n0x100e836a      mov eax, dword [0xa5d320]\n0x100e836f      cmp eax, 0x245c8b53\n   ; likely\n0x100e8374      jne 0x100e85fb\n; [0xa5d324:4]=-1\n0x100e837a      mov eax, dword [0xa5d324]\n0x100e837f      cmp eax, 0x8b565508\n   ; likely\n0x100e8384      jne 0x100e85fb\n; [0xa5d328:4]=-1\n0x100e838a      mov eax, dword [0xa5d328]\n0x100e838f      cmp eax, 0x8b068bf1\n   ; likely\n0x100e8394      jne 0x100e85fb\n; [0xa5d32c:4]=-1\n0x100e839a      mov eax, dword [0xa5d32c]\n0x100e839f      cmp eax, 0x53570450\n   ; likely\n0x100e83a4      jne 0x100e85fb\n; [0xa5d330:4]=-1\n0x100e83aa      mov eax, dword [0xa5d330]\n0x100e83af      cmp eax, 0xe88bd2ff\n   ; likely\n0x100e83b4      jne 0x100e85fb\n; [0xa5d334:4]=-1\n0x100e83ba      mov eax, dword [0xa5d334]\n0x100e83bf      cmp eax, 0x8b08468b\n   ; likely\n0x100e83c4      jne 0x100e85fb\n; [0xa5d338:4]=-1\n0x100e83ca      mov eax, dword [0xa5d338]\n0x100e83cf      cmp eax, 0xff85a83c\n   ; likely\n0x100e83d4      jne 0x100e85fb\n; [0xa5d33c:4]=-1\n0x100e83da      mov eax, dword [0xa5d33c]\n0x100e83df      cmp eax, 0xff8b1a74\n   ; likely\n0x100e83e4      jne 0x100e85fb\n; [0xa5d340:4]=-1\n0x100e83ea      mov eax, dword [0xa5d340]\n0x100e83ef      cmp eax, 0x8b04478b\n   ; likely\n0x100e83f4      jne 0x100e85fb\n; [0xa5d344:4]=-1\n0x100e83fa      mov eax, dword [0xa5d344]\n0x100e83ff      cmp eax, 0x8528b16\n   ; likely\n0x100e8404      jne 0x100e85fb\n; [0xa5d348:4]=-1\n0x100e840a      mov eax, dword [0xa5d348]\n0x100e840f      cmp eax, 0xce8b5350\n   ; likely\n0x100e8414      jne 0x100e85fb\n"
+      }
+    ]
+  }
+}
+
+{
+  "label": "final_lookup_110",
+  "result": {
+    "content": [
+      {
+        "type": "text",
+        "text": "0x100e8332      cmp eax, 0x5f14244c\n; likely\n0x100e8337      jne 0x100e85fb\n; [0xb631b8:4]=-1\n0x100e833d      mov eax, dword [0xb631b8]\n0x100e8342      cmp eax, 0xb001885e\n; likely\n0x100e8347      jne 0x100e85fb\n; [0xb631bc:4]=-1\n0x100e834d      mov eax, dword [0xb631bc]\n0x100e8352      cmp eax, 0x8c25b01\n; likely\n0x100e8357      jne 0x100e85fb\n; [0xb631c0:1]=255\n0x100e835d      cmp byte [0xb631c0], 0\n; likely\n0x100e8364      jne 0x100e85fb\n; [0xa5d320:4]=-1\n0x100e836a      mov eax, dword [0xa5d320]\n0x100e836f      cmp eax, 0x245c8b53\n; likely\n0x100e8374      jne 0x100e85fb\n; [0xa5d324:4]=-1\n0x100e837a      mov eax, dword [0xa5d324]\n0x100e837f      cmp eax, 0x8b565508\n; likely\n0x100e8384      jne 0x100e85fb\n; [0xa5d328:4]=-1\n0x100e838a      mov eax, dword [0xa5d328]\n0x100e838f      cmp eax, 0x8b068bf1\n; likely\n0x100e8394      jne 0x100e85fb\n; [0xa5d32c:4]=-1\n0x100e839a      mov eax, dword [0xa5d32c]\n0x100e839f      cmp eax, 0x53570450\n; likely\n0x100e83a4      jne 0x100e85fb\n; [0xa5d330:4]=-1\n0x100e83aa      mov eax, dword [0xa5d330]\n0x100e83af      cmp eax, 0xe88bd2ff\n; likely\n0x100e83b4      jne 0x100e85fb\n; [0xa5d334:4]=-1\n0x100e83ba      mov eax, dword [0xa5d334]\n0x100e83bf      cmp eax, 0x8b08468b\n; likely\n0x100e83c4      jne 0x100e85fb\n; [0xa5d338:4]=-1\n0x100e83ca      mov eax, dword [0xa5d338]\n0x100e83cf      cmp eax, 0xff85a83c\n; likely\n0x100e83d4      jne 0x100e85fb\n; [0xa5d33c:4]=-1\n0x100e83da      mov eax, dword [0xa5d33c]\n0x100e83df      cmp eax, 0xff8b1a74\n; likely\n0x100e83e4      jne 0x100e85fb\n; [0xa5d340:4]=-1\n0x100e83ea      mov eax, dword [0xa5d340]\n0x100e83ef      cmp eax, 0x8b04478b\n; likely\n0x100e83f4      jne 0x100e85fb\n; [0xa5d344:4]=-1\n0x100e83fa      mov eax, dword [0xa5d344]\n0x100e83ff      cmp eax, 0x8528b16\n; likely\n0x100e8404      jne 0x100e85fb\n; [0xa5d348:4]=-1\n0x100e840a      mov eax, dword [0xa5d348]\n0x100e840f      cmp eax, 0xce8b5350\n; likely\n0x100e8414      jne 0x100e85fb\n; [0xa5d34c:4]=-1\n0x100e841a      mov eax, dword [0xa5d34c]\n0x100e841f      cmp eax, 0xc084d2ff\n; likely\n0x100e8424      jne 0x100e85fb\n; [0xa5d350:4]=-1\n0x100e842a      mov eax, dword [0xa5d350]\n0x100e842f      cmp eax, 0x3f8b3975\n; likely\n0x100e8434      jne 0x100e85fb\n; [0xa5d354:4]=-1\n0x100e843a      mov eax, dword [0xa5d354]\n0x100e843f      cmp eax, 0xe875ff85\n; likely\n0x100e8444      jne 0x100e85fb\n; [0xa5d358:4]=-1\n0x100e844a      mov eax, dword [0xa5d358]\n0x100e844f      cmp eax, 0x428b168b\n; likely\n0x100e8454      jne 0x100e85fb\n; [0xa5d35c:4]=-1\n0x100e845a      mov eax, dword [0xa5d35c]\n0x100e845f      cmp eax, 0xffce8b14\n; likely\n0x100e8464      jne 0x100e85fb\n; [0xa5d360:4]=-1\n0x100e846a      mov eax, dword [0xa5d360]\n0x100e846f      cmp eax, 0x8b168bd0\n; likely\n0x100e8474      jne 0x100e85fb\n; [0xa5d364:4]=-1\n0x100e847a      mov eax, dword [0xa5d364]\n0x100e847f      cmp eax, 0xf88b0c52\n; 0x10355dc0\n; fcn.10355dc0\n; likely\n0x100e8484      jne 0x100e85fb\n; [0xa5d368:4]=-1\n0x100e848a      mov eax, dword [0xa5d368]\n0x100e848f      cmp eax, 0x1824448b\n; likely\n0x100e8494      jne 0x100e85fb\n; [0xa5d36c:4]=-1\n0x100e849a      mov eax, dword [0xa5d36c]\n0x100e849f      cmp eax, 0x8b575350\n; likely\n0x100e84a4      jne 0x100e85fb\n; [0xa5d370:4]=-1\n0x100e84aa      mov eax, dword [0xa5d370]\n0x100e84af      cmp eax, 0x8bd2ffce\n; likely\n0x100e84b4      jne 0x100e85fb\n; [0xa5d374:4]=-1\n0x100e84ba      mov eax, dword [0xa5d374]\n0x100e84bf      cmp eax, 0xc8b0846\n; likely\n0x100e84c4      jne 0x100e85fb\n; [0xa5d378:4]=-1\n0x100e84ca      mov eax, dword [0xa5d378]\n0x100e84cf      cmp eax, 0x8b0f89a8\n; likely\n0x100e84d4      jne 0x100e85fb\n; [0xa5d37c:4]=-1\n0x100e84da      mov eax, dword [0xa5d37c]\n0x100e84df      cmp eax, 0x3c890856\n; likely\n0x100e84e4      jne 0x100e85fb\n; [0xa5d380:4]=-1"
+      }
+    ]
+  }
+}
+
+{
+  "label": "final_admission_installer_0",
+  "result": {
+    "content": [
+      {
+        "type": "text",
+        "text": "; psycho_engine_fixes::mods::perf::scene_root_admission::install\n; CALL XREF from psycho_engine_fixes::startup::initialize @ 0x10077318(x)\n; sym.psycho_engine_fixes::startup::initialize\n1587: sym.psycho_engine_fixes::mods::perf::scene_root_admission::install ();\nafv: vars(38:sp[0x10..0xd1])\n0x100e8630      push ebp\n0x100e8631      mov ebp, esp\n0x100e8633      push ebx\n0x100e8634      push edi\n0x100e8635      push esi\n0x100e8636      and esp, 0xfffffff8\n0x100e8639      sub esp, 0xc8\n; [0x10518e08:4]=0\n0x100e863f      mov eax, dword [0x10518e08]\n; 1\n0x100e8644      test al, 1\n; likely\n0x100e8646      je 0x100e8c41\n; [0x10518e00:1]=0\n0x100e864c      movzx eax, byte [0x10518e00]\n; 2\n0x100e8653      cmp al, 2\n; unlikely\n0x100e8655      je 0x100e8c41\n; [0x103e3128:8]=0x103e2fe200000015\n0x100e865b      movsd xmm0, qword [0x103e3128]\n; [0x103e3130:8]=0xb6317000000051\n0x100e8663      movsd xmm1, qword [0x103e3130]\n0x100e866b      lea ebx, [var_90h]\n0x100e8672      lea edi, [var_40h]\n; [0x103e30ca:4]=0x6d6f6f52\n; \"Room admission lookupRoom admission insertionRoom admission hashRoom admission equality\"\n0x100e8676      mov dword [var_90h], str.Room_admission_lookupRoom_admission_insertionRoom_admission_hashRoom_admission_equality\n0x100e8681      movsd qword [var_94h], xmm0\n0x100e868a      movsd qword [var_9ch], xmm1\n0x100e8693      push ebx\n0x100e8694      push edi\n; <libpsycho::os::windows::patch::CodeSignature>::verify\n; sym._libpsycho::os::windows::patch::CodeSignature_::verify\n; sym._libpsycho::os::windows::patch::CodeSignature_::verify(0x0, 0xffffffb8)\n0x100e8695      call sym._libpsycho::os::windows::patch::CodeSignature_::verify\n0x100e869a      add esp, 8\n0x100e869d      cmp dword [var_40h], 0xffffffff\n; likely\n0x100e86a2      jne 0x100e89c4\n; [0x103e3144:8]=0xa5d32000000079\n0x100e86a8      movsd xmm0, qword [0x103e3144]\n; [0x103e313c:8]=0x103e303300000018\n0x100e86b0      movsd xmm1, qword [0x103e313c]\n0x100e86b8      lea esi, [var_94h]\n; [0x103e30df:4]=0x6d6f6f52\n; \"Room admission insertionRoom admission hashRoom admission equality\"\n0x100e86bf      mov dword [var_90h], 0x103e30df\n0x100e86ca      movsd qword [esi + 8], xmm0\n0x100e86cf      movsd qword [esi], xmm1\n0x100e86d3      push ebx\n0x100e86d4      push edi\n; <libpsycho::os::windows::patch::CodeSignature>::verify\n; sym._libpsycho::os::windows::patch::CodeSignature_::verify\n; sym._libpsycho::os::windows::patch::CodeSignature_::verify(0x0, 0xffffffb8)\n0x100e86d5      call sym._libpsycho::os::windows::patch::CodeSignature_::verify\n0x100e86da      add esp, 8\n0x100e86dd      cmp dword [var_40h], 0xffffffff\n; likely\n0x100e86e2      jne 0x100e89c4\n; [0x103e3158:8]=0xa638400000000e\n0x100e86e8      movsd xmm0, qword [0x103e3158]\n; [0x103e3150:8]=0x103e30ac00000013\n0x100e86f0      movsd xmm1, qword [0x103e3150]\n; [0x103e30f7:4]=0x6d6f6f52\n; \"Room admission hashRoom admission equality\"\n0x100e86f8      mov dword [var_90h], 0x103e30f7\n0x100e8703      movsd qword [esi + 8], xmm0\n0x100e8708      movsd qword [esi], xmm1\n0x100e870c      push ebx\n0x100e870d      push edi\n; <libpsycho::os::windows::patch::CodeSignature>::verify\n; sym._libpsycho::os::windows::patch::CodeSignature_::verify\n; sym._libpsycho::os::windows::patch::CodeSignature_::verify(0x0, 0xffffffb8)\n0x100e870e      call sym._libpsycho::os::windows::patch::CodeSignature_::verify\n0x100e8713      add esp, 8\n0x100e8716      cmp dword [var_40h], 0xffffffff\n; likely\n0x100e871b      jne 0x100e89c4\n; [0x103e316c:8]=0xe9259000000010\n0x100e8721      movsd xmm0, qword [0x103e316c]\n; [0x103e3164:8]=0x103e30ba00000017\n0x100e8729      movsd xmm1, qword [0x103e3164]\n; '\\n1>\\x10'\n; [0x103e310a:4]=0x6d6f6f52\n0x100e8731      mov dword [var_90h], 0x103e310a\n0x100e873c      movsd qword [esi + 8], xmm0\n0x100e8741      movsd qword [esi], xmm1\n0x100e8745      push ebx\n0x100e8746      push edi"
+      }
+    ]
+  }
+}
+
+{
+  "label": "final_inverse_installer_0",
+  "result": {
+    "content": [
+      {
+        "type": "text",
+        "text": "; psycho_engine_fixes::mods::perf::inverse_world_index_setup::install\n; CALL XREF from psycho_engine_fixes::startup::initialize @ 0x10077254(x)\n; sym.psycho_engine_fixes::startup::initialize\n1522: sym.psycho_engine_fixes::mods::perf::inverse_world_index_setup::install ();\nafv: vars(32:sp[0x20..0xd1])\n0x100e8c80      push ebp\n0x100e8c81      mov ebp, esp\n0x100e8c83      push ebx\n0x100e8c84      push edi\n0x100e8c85      push esi\n0x100e8c86      and esp, 0xfffffff8\n0x100e8c89      sub esp, 0xc8\n; [0x10518e08:4]=0\n0x100e8c8f      mov eax, dword [0x10518e08]\n; 1\n0x100e8c94      test al, 1\n; likely\n0x100e8c96      je 0x100e9322\n; [0x10518e00:1]=0\n0x100e8c9c      movzx eax, byte [0x10518e00]\n; 2\n0x100e8ca3      cmp al, 2\n; unlikely\n0x100e8ca5      je 0x100e9322\n0x100e8cab      xor eax, eax\n; 4294966936\n0x100e8cad      mov ebx, 0xfffffe98\n0x100e8cb2      nop word cs:[eax + eax]\n0x100e8cbc      nop dword [eax]\n0x100e8cc0      mov edx, dword [ebx + 0x103e3520]\n0x100e8cc6      cmp edx, 0xc4c2cf\n; unlikely\n0x100e8ccc      jbe 0x100e92ce\n0x100e8cd2      lea edi, [edx - 0xc4c2d0]\n; 604\n0x100e8cd8      cmp edi, 0x25c\n; likely\n0x100e8cde      ja 0x100e92e7\n0x100e8ce4      mov ecx, edi\n0x100e8ce6      sub ecx, eax\n; unlikely\n0x100e8ce8      jb 0x100e92e7\n0x100e8cee      mov dword [var_3ch], edx\n0x100e8cf2      lea edx, [eax + 0x103e3535]\n0x100e8cf8      add eax, 0xc4c2d0\n; [0x103e37ca:4]=0x65766e49\n; \"Inverse-world expansion bodyInverse-world index extent overflowInverse-world index exceeds functionInverse-world expansion tailL[INVERSE_WORLD_INDEX] Index installation failed; rolling back owned writes: \\xc0\"\n0x100e8cfd      mov dword [var_8h], 0x103e37ca\n; [0x1c:4]=-1\n; 28\n0x100e8d05      mov dword [var_sp_ch], 0x1c\n0x100e8d0d      mov dword [var_18h], eax\n0x100e8d11      lea eax, [var_8h]\n0x100e8d15      mov dword [var_10h], edx\n0x100e8d19      mov dword [var_14h], ecx\n0x100e8d1d      push eax\n0x100e8d1e      lea esi, [var_54h]\n0x100e8d22      push esi\n; <libpsycho::os::windows::patch::CodeSignature>::verify\n; sym._libpsycho::os::windows::patch::CodeSignature_::verify\n; sym._libpsycho::os::windows::patch::CodeSignature_::verify(0xffffff30, 0xfffffe98)\n0x100e8d23      call sym._libpsycho::os::windows::patch::CodeSignature_::verify\n0x100e8d28      add esp, 8\n0x100e8d2b      cmp dword [var_54h], 0xffffffff\n; likely\n0x100e8d30      jne 0x100e9073\n0x100e8d36      lea eax, [ebx + str.Inverse_world_index_precedes_functionU]\n0x100e8d3c      movsd xmm1, qword [eax + 0x10]\n0x100e8d41      mov ecx, dword [eax + 0x20]\n0x100e8d44      movsd xmm0, qword [eax + 0x18]\n0x100e8d49      movsd xmm2, qword [eax]\n0x100e8d4d      movsd qword [var_60h], xmm1\n0x100e8d53      movsd xmm1, qword [eax + 8]\n0x100e8d58      mov dword [var_70h], ecx\n0x100e8d5c      movsd qword [var_68h], xmm0\n0x100e8d62      movsd qword [var_54h], xmm2\n0x100e8d68      movsd qword [var_58h], xmm1\n0x100e8d6e      push esi\n0x100e8d6f      lea eax, [var_8h]\n0x100e8d73      push eax\n; <libpsycho::os::windows::patch::OwnedCodePatch>::verify\n; sym._libpsycho::os::windows::patch::OwnedCodePatch_::verify\n; sym._libpsycho::os::windows::patch::OwnedCodePatch_::verify(0xffffff2c, 0xfffffe98)\n0x100e8d74      call sym._libpsycho::os::windows::patch::OwnedCodePatch_::verify\n0x100e8d79      add esp, 8\n0x100e8d7c      cmp dword [var_8h], 0xffffffff\n; likely\n0x100e8d81      jne 0x100e90c2\n0x100e8d87      mov ecx, dword [ebx + 0x103e3534]\n0x100e8d8d      add edi, ecx\n; likely\n0x100e8d8f      jb 0x100e9300\n; 40\n0x100e8d95      add ebx, 0x28\n0x100e8d98      mov eax, edi"
+      }
+    ]
+  }
+}
+
+{
+  "label": "final_admission_replacement_builder",
+  "result": {
+    "content": [
+      {
+        "type": "text",
+        "text": "  ; NULL XREF from sym.__RINvYNtNvXsY_NtNtCscQWujPBBYb0_10serde_core2de5implshNtBd_11Deserialize11deserialize16PrimitiveVisitorNtBd_7Visitor9visit_seq @ +0x7f(x)\n101: sym.__RNCINvMs0_NtNtCs3U2idwLkfcg_3std4sync4onceNtB8_4Once15call_once_forceNCINvMNtBa_9once_lockINtB1b_8OnceLockAhj15_E10initialize (int32_t arg_8h);\n`- args(sp[0x4..0x4])\n0x100e4330      push ebp\n0x100e4331      mov ebp, esp\n0x100e4333      mov eax, dword [arg_8h]\n0x100e4336      mov ecx, dword [eax]\n0x100e4338      mov eax, dword [ecx]\n0x100e433a      mov dword [ecx], 0\n0x100e4340      test eax, eax\n   ; unlikely\n0x100e4342      je 0x100e4386\n0x100e4344      lea ecx, [0xf5846b6]\n; [0xe8:1]=255\n; 232\n0x100e434a      mov byte [eax], 0xe8\n0x100e434d      mov edx, ecx\n0x100e434f      mov byte [eax + 1], cl\n0x100e4352      mov byte [eax + 2], ch\n0x100e4355      shr ecx, 0x10\n0x100e4358      shr edx, 0x18\n0x100e435b      mov byte [eax + 3], cl\n0x100e435e      mov byte [eax + 4], dl\n; [0xd88a:2]=0xffff\n0x100e4361      mov word [eax + 5], 0xd88a\n; [0x9e9:4]=-1\n; 2537\n0x100e4367      mov dword [eax + 7], 0x9e9\n0x100e436e      mov byte [eax + 0xb], 0\n; [0x90909090:4]=-1\n0x100e4372      mov dword [eax + 0xc], 0x90909090\n; [0x90909090:4]=-1\n0x100e4379      mov dword [eax + 0x10], 0x90909090\n; [0x90:1]=255\n; 144\n0x100e4380      mov byte [eax + 0x14], 0x90\n0x100e4384      pop ebp\n0x100e4385      ret\n; 'x#>\\x10'\n0x100e4386      push 0x103e2378\n   ; sym.core::option::unwrap_failed\n   ; sym.core::option::unwrap_failed(-1)\n0x100e438b      call sym.core::option::unwrap_failed\n0x100e4390      add esp, 4\n0x100e4393      ud2\n0x100e4395      nop word cs:[eax + eax]\n0x100e439f      nop\n  ; NULL XREF from sym.__RINvYNtNvXsY_NtNtCscQWujPBBYb0_10serde_core2de5implshNtBd_11Deserialize11deserialize16PrimitiveVisitorNtBd_7Visitor9visit_seq @ +0x7f(x)\n49: sym.__RNCINvMs0_NtNtCs3U2idwLkfcg_3std4sync4onceNtB8_4Once15call_once_forceNCINvMNtBa_9once_lockINtB1b_8OnceLockAhj5_E10initializeN (int32_t arg_8h);\n`- args(sp[0x4..0x4])\n0x100e43a0      push ebp\n0x100e43a1      mov ebp, esp\n0x100e43a3      mov eax, dword [arg_8h]\n"
+      }
+    ]
+  }
+}
+
+{
+  "label": "final_inverse_patch_table",
+  "result": {
+    "content": [
+      {
+        "type": "text",
+        "text": "- offset -  A8A9 AAAB ACAD AEAF B0B1 B2B3 B4B5 B6B7  89ABCDEF01234567\n0x103e33a8  0d33 3e10 1c00 0000 2933 3e10 0500 0000  .3>.....)3>.....\n0x103e33b8  efc2 c400 0100 0000 0000 0000 2e33 3e10  .............3>.\n0x103e33c8  0500 0000 0500 0000 0d33 3e10 1c00 0000  .........3>.....\n0x103e33d8  3333 3e10 0800 0000 14c3 c400 0100 0000  33>.............\n0x103e33e8  0000 0000 3b33 3e10 0800 0000 0800 0000  ....;3>.........\n0x103e33f8  0d33 3e10 1c00 0000 4333 3e10 0800 0000  .3>.....C3>.....\n0x103e3408  3dc3 c400 0100 0000 0000 0000 4b33 3e10  =...........K3>.\n0x103e3418  0800 0000 0800 0000 0d33 3e10 1c00 0000  .........3>.....\n0x103e3428  5333 3e10 0500 0000 6ec3 c400 0100 0000  S3>.....n.......\n0x103e3438  0000 0000 5833 3e10 0500 0000 0500 0000  ....X3>.........\n0x103e3448  0d33 3e10 1c00 0000 5d33 3e10 0800 0000  .3>.....]3>.....\n0x103e3458  97c3 c400 0100 0000 0000 0000 6533 3e10  ............e3>.\n0x103e3468  0800 0000 0800 0000 0d33 3e10 1c00 0000  .........3>.....\n0x103e3478  6d33 3e10 0800 0000 c3c3 c400 0100 0000  m3>.............\n0x103e3488  0000 0000 7533 3e10 0800 0000 0800 0000  ....u3>.........\n0x103e3498  0d33 3e10 1c00 0000 7d33 3e10 0500 0000  .3>.....}3>.....\n0x103e34a8  f7c3 c400 0100 0000 0000 0000 8233 3e10  .............3>.\n0x103e34b8  0500 0000 0500 0000 0d33 3e10 1c00 0000  .........3>.....\n0x103e34c8  8733 3e10 0800 0000 20c4 c400 0100 0000  .3>..... .......\n0x103e34d8  0000 0000 8f33 3e10 0800 0000 0800 0000  .....3>.........\n0x103e34e8  0d33 3e10 1c00 0000 9733 3e10 0800 0000  .3>......3>.....\n0x103e34f8  4cc4 c400 0100 0000 0000 0000 9f33 3e10  L............3>.\n0x103e3508  0800 0000 0800 0000                      ........\n"
+      }
+    ]
+  }
+}
+
+{
+  "label": "final_lookup_250",
+  "result": {
+    "content": [
+      {
+        "type": "text",
+        "text": "0x100e84ea      mov eax, dword [0xa5d380]\n0x100e84ef      cmp eax, 0xc46ffaa\n; likely\n0x100e84f4      jne 0x100e85fb\n; [0xa5d384:4]=-1\n0x100e84fa      mov eax, dword [0xa5d384]\n; '_^]['\n0x100e84ff      cmp eax, 0x5b5d5e5f\n; likely\n0x100e8504      jne 0x100e85fb\n; [0xa5d388:4]=-1\n0x100e850a      mov eax, dword [0xa5d388]\n0x100e850f      cmp eax, 0x8a0008c2\n; 0x10352460\n; fcn.10352460\n; likely\n0x100e8514      jne 0x100e85fb\n; [0xa5d38c:4]=-1\n0x100e851a      mov eax, dword [0xa5d38c]\n0x100e851f      cmp eax, 0x88182444\n; likely\n0x100e8524      jne 0x100e85fb\n; [0xa5d390:4]=-1\n0x100e852a      mov eax, dword [0xa5d390]\n0x100e852f      cmp eax, 0x5e5f0847\n; likely\n0x100e8534      jne 0x100e85fb\n; [0xa5d394:4]=-1\n0x100e853a      mov eax, dword [0xa5d394]\n0x100e853f      cmp eax, 0x8c25b5d\n; likely\n0x100e8544      jne 0x100e85fb\n; [0xa5d398:1]=255\n0x100e854a      cmp byte [0xa5d398], 0\n; likely\n0x100e8551      jne 0x100e85fb\n; [0xa63840:4]=-1\n0x100e8557      mov eax, dword [0xa63840]\n0x100e855c      cmp eax, 0x424448b\n; likely\n0x100e8561      jne 0x100e85fb\n; [0xa63844:4]=-1\n0x100e8567      mov eax, dword [0xa63844]\n0x100e856c      cmp eax, 0x71f7d233\n; likely\n0x100e8571      jne 0x100e85fb\n; [0xa63848:4]=-1\n0x100e8577      mov eax, dword [0xa63848]\n0x100e857c      cmp eax, 0xc2c28b04\n; likely\n0x100e8581      jne 0x100e85fb\n; [0xa6384c:1]=255\n0x100e8583      movzx eax, byte [0xa6384c]\n; 4\n0x100e858a      cmp al, 4\n; likely\n0x100e858c      jne 0x100e85fb\n; [0xa6384d:1]=255\n0x100e858e      cmp byte [0xa6384d], 0\n; likely\n0x100e8595      jne 0x100e85fb\n; [0xe92590:4]=-1\n0x100e8597      mov eax, dword [0xe92590]\n0x100e859c      cmp eax, 0x4244c8b\n; likely\n0x100e85a1      jne 0x100e85fb\n; [0xe92594:4]=-1\n0x100e85a3      mov eax, dword [0xe92594]\n0x100e85a8      cmp eax, 0x4c3bc033\n; likely\n0x100e85ad      jne 0x100e85fb\n; [0xe92598:4]=-1\n0x100e85af      mov eax, dword [0xe92598]\n0x100e85b4      cmp eax, 0x940f0824\n; likely\n0x100e85b9      jne 0x100e85fb\n; [0xe9259c:4]=-1\n0x100e85bb      mov eax, dword [0xe9259c]\n0x100e85c0      cmp eax, 0x8c2c0\n; likely\n0x100e85c5      jne 0x100e85fb\n0x100e85c7      mov ecx, dword [edi + 4]\n0x100e85ca      test ecx, ecx\n; unlikely\n0x100e85cc      je 0x100e85fb\n0x100e85ce      mov eax, esi\n0x100e85d0      xor edx, edx\n0x100e85d2      div ecx\n0x100e85d4      cmp edx, 0x3fffffff\n; unlikely\n0x100e85da      ja 0x100e85fb\n0x100e85dc      mov eax, edx\n0x100e85de      shl eax, 2\n0x100e85e1      add eax, dword [edi + 8]\n0x100e85e4      mov eax, dword [eax]\n0x100e85e6      test eax, eax\n; unlikely\n0x100e85e8      je 0x100e861f\n0x100e85ea      mov ecx, dword [eax + 4]\n0x100e85ed      cmp ecx, esi\n; unlikely\n0x100e85ef      jne 0x100e85e4\n0x100e85f1      movzx eax, byte [eax + 8]\n0x100e85f5      mov byte [ebx], al\n0x100e85f7      mov al, 1\n0x100e85f9      jmp 0x100e8618\n0x100e85fb      mov eax, 0xb63170\n0x100e8600      mov ecx, edi\n0x100e8602      push ebx\n0x100e8603      push esi\n; 0xb63170(0xb63170, -1, 0x0, 0x0)\n0x100e8604      call eax\n0x100e8606      test al, al\n; likely\n0x100e8608      jne 0x100e8618\n0x100e860a      mov eax, 0xa5d320\n0x100e860f      mov ecx, edi\n; 1\n0x100e8611      push 1\n0x100e8613      push esi\n; 0xa5d320(0xa5d320, -1, 0x0, 0x0)\n0x100e8614      call eax\n; CODE XREF from psycho_engine_fixes::mods::perf::scene_root_admission::find_or_insert @ 0x100e8629(x)\n0x100e8616      xor eax, eax\n; CODE XREF from psycho_engine_fixes::mods::perf::scene_root_admission::find_or_insert @ 0x100e85f9(x)\n0x100e8618      pop esi\n0x100e8619      pop edi\n0x100e861a      pop ebx\n0x100e861b      pop ebp\n0x100e861c      ret 8\n0x100e861f      mov ecx, edi\n; 1\n0x100e8621      push 1\n0x100e8623      push esi\n; fcn.100e0bd0\n; fcn.100e0bd0(0x0)\n0x100e8624      call fcn.100e0bd0\n0x100e8629      jmp 0x100e8616\n"
+      }
+    ]
+  }
+}
+
+{
+  "label": "final_inverse_installer_95",
+  "result": {
+    "content": [
+      {
+        "type": "text",
+        "text": "; likely\n0x100e8d9a      jne 0x100e8cc0\n; 604\n0x100e8da0      cmp edi, 0x25c\n; likely\n0x100e8da6      ja 0x100e9333\n0x100e8dac      add ecx, dword [var_3ch]\n; 604\n0x100e8db0      mov edx, 0x25c\n0x100e8db5      lea eax, [edi + 0x103e3535]\n; '-8>\\x10'\n; [0x103e382d:4]=0x65766e49\n; \"Inverse-world expansion tailL[INVERSE_WORLD_INDEX] Index installation failed; rolling back owned writes: \\xc0\"\n0x100e8dbb      mov dword [var_8h], 0x103e382d\n; [0x1c:4]=-1\n; 28\n0x100e8dc3      mov dword [var_sp_ch], 0x1c\n0x100e8dcb      sub edx, edi\n0x100e8dcd      lea edi, [var_8h]\n0x100e8dd1      mov dword [var_18h], ecx\n0x100e8dd5      mov dword [var_10h], eax\n0x100e8dd9      mov dword [var_14h], edx\n0x100e8ddd      push edi\n0x100e8dde      lea esi, [var_54h]\n0x100e8de2      push esi\n; <libpsycho::os::windows::patch::CodeSignature>::verify\n; sym._libpsycho::os::windows::patch::CodeSignature_::verify\n; sym._libpsycho::os::windows::patch::CodeSignature_::verify(0xf797263, 0xfffffec0)\n0x100e8de3      call sym._libpsycho::os::windows::patch::CodeSignature_::verify\n0x100e8de8      add esp, 8\n0x100e8deb      cmp dword [var_54h], 0xffffffff\n; likely\n0x100e8df0      jne 0x100e90e0\n0x100e8df6      lea edi, [var_40h]\n0x100e8dfa      lea esi, [var_90h]\n0x100e8e01      mov dword [var_40h], 0\n0x100e8e09      mov dword [var_44h], 4\n0x100e8e11      mov dword [var_48h], 0\n0x100e8e19      mov byte [var_4ch], 0\n0x100e8e1e      push 0x103e33a8\n0x100e8e23      push edi\n0x100e8e24      push esi\n; <libpsycho::os::windows::hook::transaction::ModificationTransaction>::apply_patch\n; sym._libpsycho::os::windows::hook::transaction::ModificationTransaction_::apply_patch\n; sym._libpsycho::os::windows::hook::transaction::ModificationTransaction_::apply_patch(0xf797263, 0xfffffec0, 0xfffffffe)\n0x100e8e25      call sym._libpsycho::os::windows::hook::transaction::ModificationTransaction_::apply_patch\n0x100e8e2a      add esp, 0xc\n0x100e8e2d      cmp dword [var_90h], 0xffffffff\n; likely\n0x100e8e35      jne 0x100e9136\n0x100e8e3b      lea ebx, [0x103e33d0]\n0x100e8e41      push ebx\n0x100e8e42      push edi\n0x100e8e43      push esi\n; <libpsycho::os::windows::hook::transaction::ModificationTransaction>::apply_patch\n; sym._libpsycho::os::windows::hook::transaction::ModificationTransaction_::apply_patch\n; sym._libpsycho::os::windows::hook::transaction::ModificationTransaction_::apply_patch(0xf797263, 0x103e33d0, 0xfffffffe)\n0x100e8e44      call sym._libpsycho::os::windows::hook::transaction::ModificationTransaction_::apply_patch\n0x100e8e49      add esp, 0xc\n0x100e8e4c      cmp dword [var_90h], 0xffffffff\n; likely\n0x100e8e54      jne 0x100e913b\n0x100e8e5a      lea ebx, [0x103e33f8]\n0x100e8e60      push ebx\n0x100e8e61      push edi\n0x100e8e62      push esi\n; <libpsycho::os::windows::hook::transaction::ModificationTransaction>::apply_patch\n; sym._libpsycho::os::windows::hook::transaction::ModificationTransaction_::apply_patch\n; sym._libpsycho::os::windows::hook::transaction::ModificationTransaction_::apply_patch(0xf797263, 0x103e33f8, 0xfffffffe)\n0x100e8e63      call sym._libpsycho::os::windows::hook::transaction::ModificationTransaction_::apply_patch\n0x100e8e68      add esp, 0xc\n0x100e8e6b      cmp dword [var_90h], 0xffffffff\n; likely\n0x100e8e73      jne 0x100e913b\n0x100e8e79      lea ebx, [0x103e3420]\n0x100e8e7f      push ebx\n0x100e8e80      push edi\n0x100e8e81      push esi\n; <libpsycho::os::windows::hook::transaction::ModificationTransaction>::apply_patch\n; sym._libpsycho::os::windows::hook::transaction::ModificationTransaction_::apply_patch\n; sym._libpsycho::os::windows::hook::transaction::ModificationTransaction_::apply_patch(0xf797263, 0x103e3420, 0xfffffffe)\n0x100e8e82      call sym._libpsycho::os::windows::hook::transaction::ModificationTransaction_::apply_patch\n0x100e8e87      add esp, 0xc\n0x100e8e8a      cmp dword [var_90h], 0xffffffff\n; likely\n0x100e8e92      jne 0x100e913b\n0x100e8e98      lea ebx, [0x103e3448]\n0x100e8e9e      push ebx\n0x100e8e9f      push edi\n0x100e8ea0      push esi\n; <libpsycho::os::windows::hook::transaction::ModificationTransaction>::apply_patch\n; sym._libpsycho::os::windows::hook::transaction::ModificationTransaction_::apply_patch\n; sym._libpsycho::os::windows::hook::transaction::ModificationTransaction_::apply_patch(0xf797263, 0x103e3448, 0xfffffffe)\n0x100e8ea1      call sym._libpsycho::os::windows::hook::transaction::ModificationTransaction_::apply_patch\n0x100e8ea6      add esp, 0xc\n0x100e8ea9      cmp dword [var_90h], 0xffffffff\n; likely\n0x100e8eb1      jne 0x100e913b\n0x100e8eb7      lea ebx, [0x103e3470]\n0x100e8ebd      push ebx\n0x100e8ebe      push edi\n0x100e8ebf      push esi\n; <libpsycho::os::windows::hook::transaction::ModificationTransaction>::apply_patch\n; sym._libpsycho::os::windows::hook::transaction::ModificationTransaction_::apply_patch\n; sym._libpsycho::os::windows::hook::transaction::ModificationTransaction_::apply_patch(0xf797263, 0x103e3470, 0xfffffffe)\n0x100e8ec0      call sym._libpsycho::os::windows::hook::transaction::ModificationTransaction_::apply_patch\n0x100e8ec5      add esp, 0xc\n0x100e8ec8      cmp dword [var_90h], 0xffffffff\n; likely\n0x100e8ed0      jne 0x100e913b\n0x100e8ed6      lea ebx, [0x103e3498]\n0x100e8edc      push ebx\n0x100e8edd      push edi\n0x100e8ede      push esi\n; <libpsycho::os::windows::hook::transaction::ModificationTransaction>::apply_patch\n; sym._libpsycho::os::windows::hook::transaction::ModificationTransaction_::apply_patch\n; sym._libpsycho::os::windows::hook::transaction::ModificationTransaction_::apply_patch(0xf797263, 0x103e3498, 0xfffffffe)\n0x100e8edf      call sym._libpsycho::os::windows::hook::transaction::ModificationTransaction_::apply_patch\n0x100e8ee4      add esp, 0xc\n0x100e8ee7      cmp dword [var_90h], 0xffffffff\n; likely\n0x100e8eef      jne 0x100e913b\n0x100e8ef5      lea ebx, [0x103e34c0]\n0x100e8efb      push ebx\n0x100e8efc      push edi\n0x100e8efd      push esi\n; <libpsycho::os::windows::hook::transaction::ModificationTransaction>::apply_patch\n; sym._libpsycho::os::windows::hook::transaction::ModificationTransaction_::apply_patch\n; sym._libpsycho::os::windows::hook::transaction::ModificationTransaction_::apply_patch(0xf797263, 0x103e34c0, 0xfffffffe)\n0x100e8efe      call sym._libpsycho::os::windows::hook::transaction::ModificationTransaction_::apply_patch\n0x100e8f03      add esp, 0xc\n0x100e8f06      cmp dword [var_90h], 0xffffffff\n; likely\n0x100e8f0e      jne 0x100e913b\n0x100e8f14      lea ebx, [0x103e34e8]\n0x100e8f1a      push ebx\n0x100e8f1b      push edi\n0x100e8f1c      push esi\n; <libpsycho::os::windows::hook::transaction::ModificationTransaction>::apply_patch\n; sym._libpsycho::os::windows::hook::transaction::ModificationTransaction_::apply_patch"
+      }
+    ]
+  }
+}
+
+{
+  "label": "final_admission_installer_95",
+  "result": {
+    "content": [
+      {
+        "type": "text",
+        "text": "; <libpsycho::os::windows::patch::CodeSignature>::verify\n; sym._libpsycho::os::windows::patch::CodeSignature_::verify\n; sym._libpsycho::os::windows::patch::CodeSignature_::verify(0x0, 0xffffffb8)\n0x100e8747      call sym._libpsycho::os::windows::patch::CodeSignature_::verify\n0x100e874c      add esp, 8\n0x100e874f      cmp dword [var_40h], 0xffffffff\n; likely\n0x100e8754      jne 0x100e89c4\n0x100e875a      lea esi, [var_8h]\n; [0x103e3174:4]=0x6d6f6f52\n; \"Room admission frameRoom admission unlock/returnP[SCENE_ROOT_ADMISSION] Admission installation failed; rolling back owned write:\"\n0x100e875e      mov dword [var_8h], str.Room_admission_frameRoom_admission_unlock_returnP_SCENE_ROOT_ADMISSION__Admission_installation_failed__rolling_back_owned_write:\n; [0x14:4]=-1\n; 20\n0x100e8766      mov dword [var_sp_ch], 0x14\n; [0xb63b10:4]=-1\n0x100e876e      mov dword [var_18h], 0xb63b10\n; 'v&>\\x10'\n; [0x103e2676:4]=0x57565553\n0x100e8776      mov dword [var_10h], 0x103e2676\n; '%'\n; [0x25:4]=-1\n; 37\n0x100e877e      mov dword [var_14h], 0x25\n0x100e8786      push esi\n0x100e8787      push edi\n; <libpsycho::os::windows::patch::CodeSignature>::verify\n; sym._libpsycho::os::windows::patch::CodeSignature_::verify\n; sym._libpsycho::os::windows::patch::CodeSignature_::verify(0x0, 0xffffffb8)\n0x100e8788      call sym._libpsycho::os::windows::patch::CodeSignature_::verify\n0x100e878d      add esp, 8\n0x100e8790      cmp dword [var_40h], 0xffffffff\n; likely\n0x100e8795      jne 0x100e8a13\n0x100e879b      lea eax, [0x103e26b0]\n; [0x103e3188:4]=0x6d6f6f52\n; \"Room admission unlock/returnP[SCENE_ROOT_ADMISSION] Admission installation failed; rolling back owned write: \\xc0\"\n0x100e87a1      mov dword [var_8h], 0x103e3188\n; [0x1c:4]=-1\n; 28\n0x100e87a9      mov dword [var_sp_ch], 0x1c\n; [0xb63b4a:4]=-1\n0x100e87b1      mov dword [var_18h], 0xb63b4a\n0x100e87b9      mov dword [var_10h], eax\n; [0x15:4]=-1\n; 21\n0x100e87bd      mov dword [var_14h], 0x15\n0x100e87c5      push esi\n0x100e87c6      push edi\n; <libpsycho::os::windows::patch::CodeSignature>::verify\n; sym._libpsycho::os::windows::patch::CodeSignature_::verify\n; sym._libpsycho::os::windows::patch::CodeSignature_::verify(0x103e26b0, 0xffffffb8)\n0x100e87c7      call sym._libpsycho::os::windows::patch::CodeSignature_::verify\n0x100e87cc      add esp, 8\n0x100e87cf      cmp dword [var_40h], 0xffffffff\n; likely\n0x100e87d4      jne 0x100e8a13\n; [0x10397400:4]=3\n0x100e87da      mov eax, dword [0x10397400]\n0x100e87df      test eax, eax\n; likely\n0x100e87e1      jne 0x100e8c55\n; [0x1039741c:4]=3\n0x100e87e7      mov eax, dword [0x1039741c]\n0x100e87ec      test eax, eax\n; likely\n0x100e87ee      jne 0x100e8c67\n; CODE XREF from psycho_engine_fixes::mods::perf::scene_root_admission::install @ 0x100e8c6c(x)\n; [0x10397430:8]=0\n0x100e87f4      movsd xmm1, qword [0x10397430]\n; [0x10397440:4]=0\n0x100e87fc      mov eax, dword [0x10397440]\n; [0x10397438:8]=0\n0x100e8801      movsd xmm0, qword [0x10397438]\n; [0x10397428:8]=0\n0x100e8809      movsd xmm2, qword [0x10397428]\n0x100e8811      movsd qword [var_18h], xmm1\n; [0x10397420:8]=0\n0x100e8817      movsd xmm1, qword [0x10397420]\n0x100e881f      mov dword [var_28h], eax\n0x100e8823      movsd qword [var_20h], xmm0\n0x100e8829      movsd qword [var_10h], xmm2\n0x100e882f      movsd qword [var_8h], xmm1\n0x100e8835      push esi\n0x100e8836      push edi\n; <libpsycho::os::windows::patch::OwnedCodePatch>::verify\n; sym._libpsycho::os::windows::patch::OwnedCodePatch_::verify\n; sym._libpsycho::os::windows::patch::OwnedCodePatch_::verify(0x0, 0xffffffb8)\n0x100e8837      call sym._libpsycho::os::windows::patch::OwnedCodePatch_::verify\n0x100e883c      add esp, 8\n0x100e883f      cmp dword [var_40h], 0xffffffff\n; likely\n0x100e8844      jne 0x100e8a13\n0x100e884a      mov ecx, ebx\n0x100e884c      lea eax, [0x10397420]\n0x100e8852      lea ebx, [var_70h]\n0x100e8856      mov dword [var_70h], 0\n0x100e885e      mov dword [var_74h], 4\n0x100e8866      mov dword [var_78h], 0\n0x100e886e      mov byte [var_7ch], 0\n0x100e8873      push eax\n0x100e8874      push ebx\n0x100e8875      push ecx\n; <libpsycho::os::windows::hook::transaction::ModificationTransaction>::apply_patch\n; sym._libpsycho::os::windows::hook::transaction::ModificationTransaction_::apply_patch\n; sym._libpsycho::os::windows::hook::transaction::ModificationTransaction_::apply_patch(0x10397420, 0xffffff7c, 0xffffffb8)\n0x100e8876      call sym._libpsycho::os::windows::hook::transaction::ModificationTransaction_::apply_patch\n0x100e887b      add esp, 0xc\n0x100e887e      cmp dword [var_90h], 0xffffffff\n; likely\n0x100e8886      jne 0x100e8a6c\n0x100e888c      movsd xmm0, qword [var_70h]\n0x100e8892      movsd xmm1, qword [var_78h]\n0x100e8898      movsd qword [var_10h], xmm1\n0x100e889e      movsd qword [var_8h], xmm0\n0x100e88a4      push esi\n; <libpsycho::os::windows::hook::transaction::ModificationTransaction>::commit\n; sym._libpsycho::os::windows::hook::transaction::ModificationTransaction_::commit\n; sym._libpsycho::os::windows::hook::transaction::ModificationTransaction_::commit(0x10397420)\n0x100e88a5      call sym._libpsycho::os::windows::hook::transaction::ModificationTransaction_::commit\n0x100e88aa      add esp, 4\n; [0x103bc41c:4]=0x1051d9d4\n0x100e88ad      mov ebx, dword [0x103bc41c]\n0x100e88b3      mov eax, dword [ebx]\n; 3\n0x100e88b5      cmp eax, 3\n; likely\n0x100e88b8      jbe 0x100e8940\n; ',2>\\x10'\n; [0x103e322c:4]=0xb63b35\n; \"5;\\xb6\"\n0x100e88be      mov dword [var_40h], 0x103e322c\n0x100e88c6      mov dword [var_8h], 1\n; '{'\n; [0x7b:4]=-1\n; 123\n0x100e88ce      mov dword [var_sp_ch], 0x7b\n0x100e88d6      mov dword [var_10h], 0\n; [0x103e31f7:4]=0x63797370\n; \"psycho_engine_fixes::mods::perf::scene_root_admission5;\""
+      }
+    ]
+  }
+}
+
+{
+  "label": "compiled_inverse_payload_decode_0",
+  "result": {
+    "content": [
+      {
+        "type": "text",
+        "text": "; XREFS: CALL 0x00b7db48  CALL 0x00b7de7d  CALL 0x00b7df70  \n; XREFS: CALL 0x00b7e084  CALL 0x00b7e23d  CALL 0x00bbf029  \n0x00c4c2d0      push ebp\n0x00c4c2d1      mov ebp, esp\n0x00c4c2d3      sub esp, 0xf4\n0x00c4c2d9      cmp dword [ebp + 0xc], 0\n   ; likely\n0x00c4c2dd      jne 0xc4c4a8\n0x00c4c2e3      lea eax, [ebp - 0x34]\n0x00c4c2e6      push eax\n0x00c4c2e7      mov ecx, dword [ebp + 8]\n   ; 0x4b4880(0xffffffc8, 0x0, -1, 0x0)\n0x00c4c2ea      call 0x4b4880\n0x00c4c2ef      xor ecx, ecx\n0x00c4c2f1      lea ecx, [ecx]\n0x00c4c2f4      lea edx, [ebp + ecx - 0x34]\n0x00c4c2f8      xor eax, eax\n0x00c4c2fa      shl eax, 2\n0x00c4c2fd      fld dword [edx + eax]\n0x00c4c300      fstp dword [ebp - 0xd4]\n0x00c4c306      fld dword [ebp - 0xd4]\n0x00c4c30c      fmul dword [ebp - 4]\n0x00c4c30f      mov ecx, dword [ebp + 0x10]\n0x00c4c312      fstp dword [ecx]\n0x00c4c314      mov edx, 0xc\n0x00c4c319      lea ecx, [ecx]\n0x00c4c31c      lea eax, [ebp + edx - 0x34]\n0x00c4c320      xor ecx, ecx\n0x00c4c322      shl ecx, 2\n0x00c4c325      fld dword [eax + ecx]\n0x00c4c328      fstp dword [ebp - 0xd8]\n0x00c4c32e      fld dword [ebp - 0xd8]\n0x00c4c334      fmul dword [ebp - 4]\n0x00c4c337      mov edx, dword [ebp + 0x10]\n0x00c4c33a      fstp dword [edx + 4]\n0x00c4c33d      mov eax, 0x18\n0x00c4c342      lea ecx, [ecx]\n0x00c4c345      lea ecx, [ebp + eax - 0x34]\n0x00c4c349      xor edx, edx\n0x00c4c34b      shl edx, 2\n0x00c4c34e      fld dword [ecx + edx]\n0x00c4c351      fstp dword [ebp - 0xdc]\n0x00c4c357      fld dword [ebp - 0xdc]\n0x00c4c35d      fmul dword [ebp - 4]\n0x00c4c360      mov eax, dword [ebp + 0x10]\n0x00c4c363      fstp dword [eax + 8]\n0x00c4c366      mov ecx, dword [ebp + 0x10]\n0x00c4c369      fldz\n0x00c4c36b      fstp dword [ecx + 0xc]\n0x00c4c36e      xor edx, edx\n0x00c4c370      lea ecx, [ecx]\n0x00c4c373      lea eax, [ebp + edx - 0x34]\n0x00c4c377      mov ecx, 1\n0x00c4c37c      shl ecx, 2\n0x00c4c37f      fld dword [eax + ecx]\n0x00c4c382      fstp dword [ebp - 0xe0]\n0x00c4c388      fld dword [ebp - 0xe0]\n0x00c4c38e      fmul dword [ebp - 4]\n0x00c4c391      mov edx, dword [ebp + 0x10]\n0x00c4c394      fstp dword [edx + 0x10]\n0x00c4c397      mov eax, 0xc\n0x00c4c39c      lea ecx, [ecx]\n0x00c4c39f      lea ecx, [ebp + eax - 0x34]\n0x00c4c3a3      mov edx, 1\n0x00c4c3a8      shl edx, 2\n0x00c4c3ab      fld dword [ecx + edx]\n0x00c4c3ae      fstp dword [ebp - 0xe4]\n0x00c4c3b4      fld dword [ebp - 0xe4]\n0x00c4c3ba      fmul dword [ebp - 4]\n0x00c4c3bd      mov eax, dword [ebp + 0x10]\n0x00c4c3c0      fstp dword [eax + 0x14]\n0x00c4c3c3      mov ecx, 0x18\n0x00c4c3c8      lea ecx, [ecx]\n0x00c4c3cb      lea edx, [ebp + ecx - 0x34]\n0x00c4c3cf      mov eax, 1\n0x00c4c3d4      shl eax, 2\n0x00c4c3d7      fld dword [edx + eax]\n0x00c4c3da      fstp dword [ebp - 0xe8]\n0x00c4c3e0      fld dword [ebp - 0xe8]\n0x00c4c3e6      fmul dword [ebp - 4]\n0x00c4c3e9      mov ecx, dword [ebp + 0x10]\n0x00c4c3ec      fstp dword [ecx + 0x18]\n0x00c4c3ef      mov edx, dword [ebp + 0x10]\n0x00c4c3f2      fldz\n0x00c4c3f4      fstp dword [edx + 0x1c]\n0x00c4c3f7      xor eax, eax\n0x00c4c3f9      lea ecx, [ecx]\n0x00c4c3fc      lea ecx, [ebp + eax - 0x34]\n0x00c4c400      mov edx, 2\n0x00c4c405      shl edx, 2\n0x00c4c408      fld dword [ecx + edx]\n0x00c4c40b      fstp dword [ebp - 0xec]\n0x00c4c411      fld dword [ebp - 0xec]\n0x00c4c417      fmul dword [ebp - 4]\n0x00c4c41a      mov eax, dword [ebp + 0x10]\n0x00c4c41d      fstp dword [eax + 0x20]\n0x00c4c420      mov ecx, 0xc\n0x00c4c425      lea ecx, [ecx]\n0x00c4c428      lea edx, [ebp + ecx - 0x34]\n0x00c4c42c      mov eax, 2\n0x00c4c431      shl eax, 2\n0x00c4c434      fld dword [edx + eax]\n0x00c4c437      fstp dword [ebp - 0xf0]\n0x00c4c43d      fld dword [ebp - 0xf0]\n0x00c4c443      fmul dword [ebp - 4]\n0x00c4c446      mov ecx, dword [ebp + 0x10]\n0x00c4c449      fstp dword [ecx + 0x24]\n0x00c4c44c      mov edx, 0x18\n0x00c4c451      lea ecx, [ecx]\n0x00c4c454      lea eax, [ebp + edx - 0x34]\n0x00c4c458      mov ecx, 2\n0x00c4c45d      shl ecx, 2\n0x00c4c460      fld dword [eax + ecx]\n0x00c4c463      fstp dword [ebp - 0xf4]\n0x00c4c469      fld dword [ebp - 0xf4]\n0x00c4c46f      fmul dword [ebp - 4]\n0x00c4c472      mov edx, dword [ebp + 0x10]\n0x00c4c475      fstp dword [edx + 0x28]\n0x00c4c478      mov eax, dword [ebp + 0x10]\n0x00c4c47b      fldz\n0x00c4c47d      fstp dword [eax + 0x2c]\n0x00c4c480      mov ecx, dword [ebp + 0x10]\n0x00c4c483      fld dword [ebp - 0x10]\n0x00c4c486      fstp dword [ecx + 0x30]\n0x00c4c489      mov edx, dword [ebp + 0x10]\n0x00c4c48c      fld dword [ebp - 0xc]\n0x00c4c48f      fstp dword [edx + 0x34]\n0x00c4c492      mov eax, dword [ebp + 0x10]\n0x00c4c495      fld dword [ebp - 8]\n0x00c4c498      fstp dword [eax + 0x38]\n0x00c4c49b      mov ecx, dword [ebp + 0x10]\n0x00c4c49e      fld1\n0x00c4c4a0      fstp dword [ecx + 0x3c]\n0x00c4c4a3      jmp 0xc4c528\n"
+      }
+    ]
+  }
+}
+
+{
+  "label": "compiled_inverse_payload_decode_tail",
+  "result": {
+    "content": [
+      {
+        "type": "text",
+        "text": "0x00c4c478      mov eax, dword [ebp + 0x10]\n0x00c4c47b      fldz\n0x00c4c47d      fstp dword [eax + 0x2c]\n0x00c4c480      mov ecx, dword [ebp + 0x10]\n0x00c4c483      fld dword [ebp - 0x10]\n0x00c4c486      fstp dword [ecx + 0x30]\n0x00c4c489      mov edx, dword [ebp + 0x10]\n0x00c4c48c      fld dword [ebp - 0xc]\n0x00c4c48f      fstp dword [edx + 0x34]\n0x00c4c492      mov eax, dword [ebp + 0x10]\n0x00c4c495      fld dword [ebp - 8]\n0x00c4c498      fstp dword [eax + 0x38]\n0x00c4c49b      mov ecx, dword [ebp + 0x10]\n0x00c4c49e      fld1\n0x00c4c4a0      fstp dword [ecx + 0x3c]\n0x00c4c4a3      jmp 0xc4c528\n0x00c4c4a8      fldz\n0x00c4c4aa      fstp dword [ebp - 0x40]\n0x00c4c4ad      fldz\n0x00c4c4af      fstp dword [ebp - 0x44]\n0x00c4c4b2      fldz\n0x00c4c4b4      fstp dword [ebp - 0x48]\n0x00c4c4b7      fldz\n0x00c4c4b9      fstp dword [ebp - 0x4c]\n0x00c4c4bc      fldz\n0x00c4c4be      fstp dword [ebp - 0x54]\n0x00c4c4c1      fldz\n0x00c4c4c3      fstp dword [ebp - 0x58]\n0x00c4c4c6      fldz\n0x00c4c4c8      fstp dword [ebp - 0x5c]\n0x00c4c4cb      fldz\n0x00c4c4cd      fstp dword [ebp - 0x60]\n0x00c4c4d0      fldz\n0x00c4c4d2      fstp dword [ebp - 0x68]\n0x00c4c4d5      fldz\n0x00c4c4d7      fstp dword [ebp - 0x6c]\n0x00c4c4da      fldz\n0x00c4c4dc      fstp dword [ebp - 0x70]\n0x00c4c4df      fldz\n0x00c4c4e1      fstp dword [ebp - 0x74]\n0x00c4c4e4      fld1\n0x00c4c4e6      fstp dword [ebp - 0x3c]\n0x00c4c4e9      fld1\n0x00c4c4eb      fstp dword [ebp - 0x50]\n0x00c4c4ee      fld1\n0x00c4c4f0      fstp dword [ebp - 0x64]\n0x00c4c4f3      fld1\n0x00c4c4f5      fstp dword [ebp - 0x78]\n0x00c4c4f8      mov dword [ebp - 0x38], 0x11f474c\n0x00c4c4ff      mov edx, dword [ebp - 0x38]\n0x00c4c502      fld dword [edx]\n0x00c4c504      fstp dword [ebp - 0x48]\n0x00c4c507      mov eax, dword [ebp - 0x38]\n0x00c4c50a      fld dword [eax + 4]\n"
+      }
+    ]
+  }
+}
+
+{
+  "label": "compiled_inverse_payload_final_ret",
+  "result": {
+    "content": [
+      {
+        "type": "text",
+        "text": "0x00c4c50d      fstp dword [ebp - 0x44]\n0x00c4c510      mov ecx, dword [ebp - 0x38]\n0x00c4c513      fld dword [ecx + 8]\n0x00c4c516      fstp dword [ebp - 0x40]\n0x00c4c519      lea edx, [ebp - 0x78]\n0x00c4c51c      push edx\n0x00c4c51d      push 0\n0x00c4c51f      mov eax, dword [ebp + 0x10]\n0x00c4c522      push eax\n   ; 0xee6dda(0x8d000001, 0x0, -1, 0xffffff88)\n0x00c4c523      call 0xee6dda\n; CODE XREF from unk @ \n0x00c4c528      mov esp, ebp\n"
+      }
+    ]
+  }
+}
+
+{
+  "label": "compiled_inverse_payload_epilogue",
+  "result": {
+    "content": [
+      {
+        "type": "text",
+        "text": "; CODE XREF from unk @ \n0x00c4c528      mov esp, ebp\n0x00c4c52a      pop ebp\n0x00c4c52b      ret\n"
+      }
+    ]
+  }
+}
+
+
+
+Decoded final guard checks:
+
+[
+  {
+    "pc": 269386269,
+    "address": 11940208,
+    "size": 4,
+    "value": 610044755
+  },
+  {
+    "pc": 269386285,
+    "address": 11940212,
+    "size": 4,
+    "value": 4052440584
+  },
+  {
+    "pc": 269386301,
+    "address": 11940216,
+    "size": 4,
+    "value": 1351288459
+  },
+  {
+    "pc": 269386317,
+    "address": 11940220,
+    "size": 4,
+    "value": 4283651844
+  },
+  {
+    "pc": 269386333,
+    "address": 11940224,
+    "size": 4,
+    "value": 139365330
+  },
+  {
+    "pc": 269386349,
+    "address": 11940228,
+    "size": 4,
+    "value": 2239839371
+  },
+  {
+    "pc": 269386365,
+    "address": 11940232,
+    "size": 4,
+    "value": 3944576255
+  },
+  {
+    "pc": 269386381,
+    "address": 11940236,
+    "size": 4,
+    "value": 4820227
+  },
+  {
+    "pc": 269386397,
+    "address": 11940240,
+    "size": 4,
+    "value": 2332313483
+  },
+  {
+    "pc": 269386413,
+    "address": 11940244,
+    "size": 4,
+    "value": 139627286
+  },
+  {
+    "pc": 269386429,
+    "address": 11940248,
+    "size": 4,
+    "value": 3465237328
+  },
+  {
+    "pc": 269386445,
+    "address": 11940252,
+    "size": 4,
+    "value": 3229930239
+  },
+  {
+    "pc": 269386461,
+    "address": 11940256,
+    "size": 4,
+    "value": 1066077813
+  },
+  {
+    "pc": 269386477,
+    "address": 11940260,
+    "size": 4,
+    "value": 3900047237
+  },
+  {
+    "pc": 269386493,
+    "address": 11940264,
+    "size": 4,
+    "value": 3224526431
+  },
+  {
+    "pc": 269386509,
+    "address": 11940268,
+    "size": 4,
+    "value": 574043
+  },
+  {
+    "pc": 269386525,
+    "address": 11940272,
+    "size": 4,
+    "value": 2332575626
+  },
+  {
+    "pc": 269386541,
+    "address": 11940276,
+    "size": 4,
+    "value": 1595155532
+  },
+  {
+    "pc": 269386557,
+    "address": 11940280,
+    "size": 4,
+    "value": 2952890462
+  },
+  {
+    "pc": 269386573,
+    "address": 11940284,
+    "size": 4,
+    "value": 146955009
+  },
+  {
+    "pc": 269386589,
+    "address": 11940288,
+    "size": 1,
+    "value": 0
+  },
+  {
+    "pc": 269386602,
+    "address": 10867488,
+    "size": 4,
+    "value": 610044755
+  },
+  {
+    "pc": 269386618,
+    "address": 10867492,
+    "size": 4,
+    "value": 2337690888
+  },
+  {
+    "pc": 269386634,
+    "address": 10867496,
+    "size": 4,
+    "value": 2332462065
+  },
+  {
+    "pc": 269386650,
+    "address": 10867500,
+    "size": 4,
+    "value": 1398211664
+  },
+  {
+    "pc": 269386666,
+    "address": 10867504,
+    "size": 4,
+    "value": 3901477631
+  },
+  {
+    "pc": 269386682,
+    "address": 10867508,
+    "size": 4,
+    "value": 2332575371
+  },
+  {
+    "pc": 269386698,
+    "address": 10867512,
+    "size": 4,
+    "value": 4286949436
+  },
+  {
+    "pc": 269386714,
+    "address": 10867516,
+    "size": 4,
+    "value": 4287306356
+  },
+  {
+    "pc": 269386730,
+    "address": 10867520,
+    "size": 4,
+    "value": 2332313483
+  },
+  {
+    "pc": 269386746,
+    "address": 10867524,
+    "size": 4,
+    "value": 139627286
+  },
+  {
+    "pc": 269386762,
+    "address": 10867528,
+    "size": 4,
+    "value": 3465237328
+  },
+  {
+    "pc": 269386778,
+    "address": 10867532,
+    "size": 4,
+    "value": 3229930239
+  },
+  {
+    "pc": 269386794,
+    "address": 10867536,
+    "size": 4,
+    "value": 1066088821
+  },
+  {
+    "pc": 269386810,
+    "address": 10867540,
+    "size": 4,
+    "value": 3900047237
+  },
+  {
+    "pc": 269386826,
+    "address": 10867544,
+    "size": 4,
+    "value": 1116411531
+  },
+  {
+    "pc": 269386842,
+    "address": 10867548,
+    "size": 4,
+    "value": 4291726100
+  },
+  {
+    "pc": 269386858,
+    "address": 10867552,
+    "size": 4,
+    "value": 2333510608
+  },
+  {
+    "pc": 269386874,
+    "address": 10867556,
+    "size": 4,
+    "value": 4169862226
+  },
+  {
+    "pc": 269386890,
+    "address": 10867560,
+    "size": 4,
+    "value": 405030027
+  },
+  {
+    "pc": 269386906,
+    "address": 10867564,
+    "size": 4,
+    "value": 2337755984
+  },
+  {
+    "pc": 269386922,
+    "address": 10867568,
+    "size": 4,
+    "value": 2345861070
+  },
+  {
+    "pc": 269386938,
+    "address": 10867572,
+    "size": 4,
+    "value": 210438214
+  },
+  {
+    "pc": 269386954,
+    "address": 10867576,
+    "size": 4,
+    "value": 2333051304
+  },
+  {
+    "pc": 269386970,
+    "address": 10867580,
+    "size": 4,
+    "value": 1015613526
+  },
+  {
+    "pc": 269386986,
+    "address": 10867584,
+    "size": 4,
+    "value": 205979562
+  },
+  {
+    "pc": 269387002,
+    "address": 10867588,
+    "size": 4,
+    "value": 1532845663
+  },
+  {
+    "pc": 269387018,
+    "address": 10867592,
+    "size": 4,
+    "value": 2315258050
+  },
+  {
+    "pc": 269387034,
+    "address": 10867596,
+    "size": 4,
+    "value": 2283283524
+  },
+  {
+    "pc": 269387050,
+    "address": 10867600,
+    "size": 4,
+    "value": 1583286343
+  },
+  {
+    "pc": 269387066,
+    "address": 10867604,
+    "size": 4,
+    "value": 146955101
+  },
+  {
+    "pc": 269387082,
+    "address": 10867608,
+    "size": 1,
+    "value": 0
+  },
+  {
+    "pc": 269387095,
+    "address": 10893376,
+    "size": 4,
+    "value": 69485707
+  },
+  {
+    "pc": 269387111,
+    "address": 10893380,
+    "size": 4,
+    "value": 1912066611
+  },
+  {
+    "pc": 269387127,
+    "address": 10893384,
+    "size": 4,
+    "value": 3267529476
+  },
+  {
+    "pc": 269387139,
+    "address": 10893388,
+    "size": 1,
+    "value": 4
+  },
+  {
+    "pc": 269387150,
+    "address": 10893389,
+    "size": 1,
+    "value": 0
+  },
+  {
+    "pc": 269387159,
+    "address": 15279504,
+    "size": 4,
+    "value": 69487755
+  },
+  {
+    "pc": 269387171,
+    "address": 15279508,
+    "size": 4,
+    "value": 1278984243
+  },
+  {
+    "pc": 269387183,
+    "address": 15279512,
+    "size": 4,
+    "value": 2484013092
+  },
+  {
+    "pc": 269387195,
+    "address": 15279516,
+    "size": 4,
+    "value": 574144
+  }
+]

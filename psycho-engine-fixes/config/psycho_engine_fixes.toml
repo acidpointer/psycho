@@ -466,6 +466,12 @@ multibound_vertex_setup = true
 # Reduces repeated bookkeeping when testing visibility through portals.
 multibound_loop_bookkeeping = true
 
+# Avoids searching the same room visibility entry twice when adding it.
+scene_root_admission = true
+
+# Removes redundant index calculations when preparing object transforms.
+inverse_world_index_setup = true
+
 # =============================================================================
 # DIAGNOSTICS
 # =============================================================================

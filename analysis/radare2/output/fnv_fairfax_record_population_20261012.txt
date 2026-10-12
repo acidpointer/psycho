@@ -1,0 +1,779 @@
+Fallout New Vegas / TTW Fairfax on-disk record inspection - 2026-10-12
+
+Read-only actual record population inspection; no gameplay or synthetic test.
+These are physical plugin files, not the winning MO2 virtual filesystem,
+runtime FormIDs, save state, loaded cells, NiNode/geometry counts or draw counts.
+Header layout source: libnvse/xnvse/nvse/nvse/GameData.h (FormInfo and GroupInfo).
+Compressed flag source: GameForms.h, kFormFlags_Compressed = 0x00040000.
+Readers validate record/group boundaries and subrecord extents. The successful
+qualified spatial reader additionally handles XXXX using the native 472D30
+contract in fnv_location_scaling_reassessment_20261012.txt, and verifies zlib
+output against each record's declared decompressed length.
+File-local master indexes are interpreted in the printed MAST sequence. They
+must not be used directly as runtime IDs or as an override-resolution result.
+
+The world rectangle is an exploratory explicit coordinate window
+X in [-20480,-4096), Y in [-57344,-49152), restricted to the Wasteland world
+record whose file-local ID is 0607EA1F. It contains one cell outside the seven
+named Fairfax groups. Counts are not an exact Fairfax loaded population.
+Initial spatial attempts used the incorrect world low ID 0DAA1F; their empty
+rectangle result is rejected. The qualified reader corrects it to 07EA1F.
+Initial readers refused XXXX, including the TTW TES4 header. Their failures
+and skipped-file empty summaries are not evidence of absent records.
+The qualified reader resolves that limitation without skipping files.
+Base XMBO/XPRM fields alone do not identify RoomMarker or occlusion planes:
+the base Fairfax interiors use them on acoustic, sound, trigger and collision
+references. FalloutNV base 1F resolves to RoomMarker; 21 to CollisionMarker.
+Base 20 has no matching record in the two inspected masters. The optimization
+plugin's seven references with base 20 have XPOD room-pair payloads; the native
+parser publishes XPOD as ExtraPortalRefData (type 0x77). This proves portal
+reference data, without assuming a base-record editor ID or a loaded portal.
+The 0x04 master-relative bases absent from the two-master lookup remain
+unresolved. No lights-in-the-exterior or active-game absence claim follows.
+
+
+===== Base population =====
+Command:
+python3 - <<'PY'
+from pathlib import Path
+import mmap,struct,collections,json
+root=Path('/data/storage0/Games/FalloutNV_TTW/mods/TTW_v3.4')
+def records(b,start,end,groups=()):
+ q=start
+ while q<end:
+  assert q+24<=end
+  sig=b[q:q+4];size=struct.unpack_from('<I',b,q+4)[0]
+  if sig==b'GRUP':
+   assert size>=24 and q+size<=end
+   label,kind=struct.unpack_from('<Ii',b,q+8)
+   yield from records(b,q+24,q+size,groups+((kind,label),))
+   q+=size
+  else:
+   assert q+24+size<=end
+   flags,fid=struct.unpack_from('<II',b,q+8)
+   yield q,sig,flags,fid,groups,b[q+24:q+24+size]
+   q+=24+size
+ assert q==end
+
+def fields(payload):
+ q=0;result=[]
+ while q<len(payload):
+  assert q+6<=len(payload)
+  tag=payload[q:q+4];n=struct.unpack_from('<H',payload,q+4)[0]
+  assert tag!=b'XXXX','extended field requires separate verification'
+  q+=6;assert q+n<=len(payload)
+  result.append((tag,payload[q:q+n]));q+=n
+ assert q==len(payload)
+ return result
+
+bases={};cells={};refs=collections.defaultdict(list);totals={}
+for filename in ['FalloutNV.esm','Fallout3.esm']:
+ with (root/filename).open('rb') as f,mmap.mmap(f.fileno(),0,access=mmap.ACCESS_READ) as b:
+  count=0
+  for q,sig,flags,fid,groups,payload in records(b,0,len(b)):
+   count+=1
+   if sig not in [b'TES4',b'GRUP',b'CELL',b'REFR',b'ACHR',b'ACRE',b'LAND',b'NAVM',b'INFO'] and flags&0x40000==0:
+    fs=dict(fields(payload));ed=fs.get(b'EDID',b'').rstrip(b'\0').decode('ascii',errors='backslashreplace')
+    bases[fid]=(sig.decode(),ed)
+   if filename=='Fallout3.esm' and sig==b'CELL' and b'fairfax' in payload.lower():
+    assert flags&0x40000==0
+    fs=dict(fields(payload));cells[fid]={'cell':fs.get(b'EDID',b'').rstrip(b'\0').decode('ascii'),'offset':hex(q),'groups':groups,'cell_flags':fs[b'DATA'].hex(),'grid':struct.unpack('<ii',fs[b'XCLC'][:8]) if b'XCLC' in fs else None}
+   if filename=='Fallout3.esm' and sig in [b'REFR',b'ACHR',b'ACRE']:
+    refs[tuple(groups)].append((q,sig,flags,fid,payload))
+  totals[filename]=count
+print('validated_header_counts',json.dumps(totals,sort_keys=True))
+for cellid,info in cells.items():
+ chosen=[]
+ for gs,rs in refs.items():
+  if any(label==cellid for kind,label in gs):chosen+=rs
+ types=collections.Counter();tags=collections.Counter();markers=collections.Counter();unknown=collections.Counter();examples=[]
+ for q,sig,flags,fid,payload in chosen:
+  assert flags&0x40000==0,('compressed target reference',hex(q))
+  fs=dict(fields(payload));tags.update(t.decode() for t in fs if t.startswith(b'XM') or t.startswith(b'XR') or t.startswith(b'XP') or t.startswith(b'XO'))
+  baseid=struct.unpack('<I',fs[b'NAME'])[0]
+  typ,ed=bases.get(baseid,('UNRESOLVED',hex(baseid)))
+  types[typ]+=1
+  if typ=='UNRESOLVED':unknown[hex(baseid)]+=1
+  if any(s in ed.lower() for s in ['occlusion','portal','roommarker','multibound']):
+   markers[ed]+=1
+   if len(examples)<8:examples.append({'ref':hex(fid),'base':hex(baseid),'editor_id':ed,'tags':[t.decode() for t in fs]})
+ print(json.dumps({'form_id':hex(cellid),**info,'references_in_matching_cell_groups':len(chosen),'base_types':dict(types),'marker_bases':dict(markers),'spatial_subrecord_tags':dict(tags),'unknown_base_ids':dict(unknown),'marker_examples':examples},sort_keys=True))
+PY
+Exit code: 0
+Output:
+validated_header_counts {"Fallout3.esm": 704184, "FalloutNV.esm": 465055}
+{"base_types": {"ACTI": 14, "ASPC": 4, "CONT": 25, "DOOR": 9, "FURN": 1, "LIGH": 56, "MISC": 39, "MSTT": 41, "NPC_": 4, "PWAT": 1, "SOUN": 11, "STAT": 293, "WEAP": 7}, "cell": "zFairfaxMaintenance", "cell_flags": "03", "form_id": "0x603c944", "grid": null, "groups": [[0, 1280066883], [2, 2], [3, 3]], "marker_bases": {}, "marker_examples": [], "offset": "0x167672d", "references_in_matching_cell_groups": 505, "spatial_subrecord_tags": {"XMBO": 6, "XPPA": 2, "XPRD": 2, "XPRM": 6, "XPWR": 23, "XRDS": 55}, "unknown_base_ids": {}}
+{"base_types": {"ACTI": 6, "ALCH": 6, "ASPC": 1, "BOOK": 1, "CONT": 8, "DOOR": 1, "FURN": 3, "IDLM": 3, "LIGH": 20, "MISC": 35, "MSTT": 50, "NPC_": 2, "SOUN": 3, "STAT": 225}, "cell": "zFairfaxMetro", "cell_flags": "01", "form_id": "0x603d443", "grid": null, "groups": [[0, 1280066883], [2, 7], [3, 4]], "marker_bases": {}, "marker_examples": [], "offset": "0x210346e", "references_in_matching_cell_groups": 364, "spatial_subrecord_tags": {"XMBO": 4, "XPPA": 2, "XPRD": 2, "XPRM": 4, "XRDS": 19}, "unknown_base_ids": {}}
+{"base_types": {"ACTI": 2, "CONT": 1, "STAT": 53, "UNRESOLVED": 3}, "cell": "FairfaxRuinsExterior05", "cell_flags": "42", "form_id": "0x6001163", "grid": [-3, -12], "groups": [[0, 1145852503], [1, 101181983], [4, 4294967295], [5, 4294967294]], "marker_bases": {}, "marker_examples": [], "offset": "0x141e25a8", "references_in_matching_cell_groups": 59, "spatial_subrecord_tags": {}, "unknown_base_ids": {"0x4003662": 2, "0x4003667": 1}}
+{"base_types": {"ACTI": 20, "ALCH": 1, "CONT": 9, "FURN": 4, "MSTT": 6, "STAT": 222, "TERM": 1, "TREE": 8, "UNRESOLVED": 1}, "cell": "FairfaxRuinsExterior02", "cell_flags": "42", "form_id": "0x6001164", "grid": [-4, -12], "groups": [[0, 1145852503], [1, 101181983], [4, 4294967295], [5, 4294967294]], "marker_bases": {}, "marker_examples": [], "offset": "0x141e8b9d", "references_in_matching_cell_groups": 272, "spatial_subrecord_tags": {}, "unknown_base_ids": {"0x4003769": 1}}
+{"base_types": {"ACTI": 9, "CONT": 1, "DOOR": 2, "MSTT": 4, "STAT": 217, "TREE": 2}, "cell": "FairfaxRuinsExterior01", "cell_flags": "42", "form_id": "0x6001165", "grid": [-5, -12], "groups": [[0, 1145852503], [1, 101181983], [4, 4294967295], [5, 4294967294]], "marker_bases": {}, "marker_examples": [], "offset": "0x141f3d20", "references_in_matching_cell_groups": 235, "spatial_subrecord_tags": {"XRAD": 1, "XRDS": 1, "XRGD": 1}, "unknown_base_ids": {}}
+{"base_types": {"ACTI": 1, "CONT": 2, "MSTT": 2, "STAT": 197}, "cell": "FairfaxRuinsExterior07", "cell_flags": "02", "form_id": "0x6001172", "grid": [-2, -13], "groups": [[0, 1145852503], [1, 101181983], [4, 4294967295], [5, 4294967294]], "marker_bases": {}, "marker_examples": [], "offset": "0x14227c0e", "references_in_matching_cell_groups": 202, "spatial_subrecord_tags": {}, "unknown_base_ids": {}}
+{"base_types": {"ACTI": 1, "CONT": 2, "FURN": 8, "MSTT": 1, "STAT": 167, "UNRESOLVED": 2}, "cell": "FairfaxRuinsExterior06", "cell_flags": "42", "form_id": "0x6001173", "grid": [-3, -13], "groups": [[0, 1145852503], [1, 101181983], [4, 4294967295], [5, 4294967294]], "marker_bases": {}, "marker_examples": [], "offset": "0x142329bf", "references_in_matching_cell_groups": 181, "spatial_subrecord_tags": {"XRGD": 1}, "unknown_base_ids": {"0x4003640": 1, "0x4003641": 1}}
+{"base_types": {"CONT": 8, "FURN": 4, "MSTT": 1, "STAT": 147, "TREE": 5, "UNRESOLVED": 10}, "cell": "FairfaxRuinsExterior04", "cell_flags": "42", "form_id": "0x6001174", "grid": [-4, -13], "groups": [[0, 1145852503], [1, 101181983], [4, 4294967295], [5, 4294967294]], "marker_bases": {}, "marker_examples": [], "offset": "0x1423c260", "references_in_matching_cell_groups": 175, "spatial_subrecord_tags": {}, "unknown_base_ids": {"0x400364d": 2, "0x4003650": 1, "0x4003652": 1, "0x4003656": 2, "0x4003658": 2, "0x4003659": 2}}
+{"base_types": {"CONT": 1, "DOOR": 2, "MSTT": 1, "STAT": 92, "TREE": 10, "UNRESOLVED": 1}, "cell": "FairfaxRuinsExterior03", "cell_flags": "42", "form_id": "0x6001175", "grid": [-5, -13], "groups": [[0, 1145852503], [1, 101181983], [4, 4294967295], [5, 4294967294]], "marker_bases": {}, "marker_examples": [], "offset": "0x1424426e", "references_in_matching_cell_groups": 107, "spatial_subrecord_tags": {"XRAD": 1, "XRDS": 1}, "unknown_base_ids": {"0x4003641": 1}}
+
+
+===== Initial spatial attempt (rejected world window and unsupported XXXX) =====
+Command:
+python3 - <<'PY'
+from pathlib import Path
+import mmap,struct,collections,json,zlib
+root=Path('/data/storage0/Games/FalloutNV_TTW/mods')
+files=[root/'TTW_v3.4/Fallout3.esm',root/'TTW_v3.4/TaleOfTwoWastelands.esm',root/'TTW_v3.4/YUPTTW.esm',root/'YUPTTW 13.9.1/YUPTTW.esm',root/'Fallout 3 Interior Optimization Project/FO3_Optimization.esm',root/'A World of Pain (AWOP) - FO3 - Roombound Project/A World of Pain FO3 Roombound Project.esm',root/'The Great DC Interior Overhaul/TGDCIO.esm',root/'Performance Of The Titans/PerformanceOfTheTitans.esm',root/'Capital Wasteland Settlements Redesign TTW/Capital Wasteland Settlements Redesign.esm']
+def records(b,start,end,groups=()):
+ q=start
+ while q<end:
+  assert q+24<=end
+  sig=b[q:q+4];size=struct.unpack_from('<I',b,q+4)[0]
+  if sig==b'GRUP':
+   assert size>=24 and q+size<=end
+   label,kind=struct.unpack_from('<Ii',b,q+8)
+   yield from records(b,q+24,q+size,groups+((kind,label),));q+=size
+  else:
+   assert q+24+size<=end
+   flags,fid=struct.unpack_from('<II',b,q+8)
+   yield q,sig,flags,fid,groups,b[q+24:q+24+size];q+=24+size
+ assert q==end
+def fields(p):
+ q=0;out=[]
+ while q<len(p):
+  assert q+6<=len(p)
+  tag=p[q:q+4];n=struct.unpack_from('<H',p,q+4)[0];q+=6
+  assert tag!=b'XXXX',('unsupported extended field',q)
+  assert q+n<=len(p);out.append((tag,p[q:q+n]));q+=n
+ return out
+def payload(flags,p):
+ if flags&0x40000:
+  expected=struct.unpack_from('<I',p)[0];p=zlib.decompress(p[4:]);assert len(p)==expected
+ return p
+cells={0x3c944,0x3d443,0x1163,0x1164,0x1165,0x1172,0x1173,0x1174,0x1175}
+spatial={b'XMBO',b'XPRM',b'XMBR',b'XRMR',b'XPOR',b'XOCP'}
+for path in files:
+ with path.open('rb') as f,mmap.mmap(f.fileno(),0,access=mmap.ACCESS_READ) as b:
+  masters=[];local=[];persistent=[];tot=collections.Counter();cell_records=[];spatial_total=collections.Counter()
+  for q,sig,flags,fid,gs,p in records(b,0,len(b)):
+   if sig==b'TES4':masters=[v.rstrip(b'\0').decode('ascii') for t,v in fields(payload(flags,p)) if t==b'MAST'];continue
+   if sig not in [b'CELL',b'REFR',b'ACHR',b'ACRE']:continue
+   fs=dict(fields(payload(flags,p)))
+   owner=(masters+[path.name])[fid>>24] if fid>>24<=len(masters) else 'UNKNOWN'
+   if sig==b'CELL' and owner.lower()=='fallout3.esm' and fid&0xffffff in cells:
+    cell_records.append({'id':hex(fid),'edid':fs.get(b'EDID',b'').rstrip(b'\0').decode('ascii'),'offset':hex(q),'flags':hex(flags)})
+   if sig!=b'REFR':continue
+   hits=sorted(t.decode() for t in spatial&fs.keys());spatial_total.update(hits)
+   target=False
+   for kind,label in gs:
+    groupowner=(masters+[path.name])[label>>24] if label>>24<=len(masters) else 'UNKNOWN'
+    if kind in [6,8,9,10] and groupowner.lower()=='fallout3.esm' and label&0xffffff in cells:target=True
+   data=fs.get(b'DATA')
+   pos=struct.unpack('<fff',data[:12]) if data and len(data)>=12 else None
+   in_rect=pos is not None and -20480<=pos[0]<-4096 and -57344<=pos[1]<-49152
+   # Coordinates delimit the rectangle of seven exterior cells; world ancestry must also match.
+   world=False
+   for kind,label in gs:
+    groupowner=(masters+[path.name])[label>>24] if label>>24<=len(masters) else 'UNKNOWN'
+    if kind==1 and groupowner.lower()=='fallout3.esm' and label&0xffffff==0x0daa1f:world=True
+   info={'id':hex(fid),'offset':hex(q),'flags':hex(flags),'base':hex(struct.unpack('<I',fs[b'NAME'])[0]) if b'NAME'in fs else None,'spatial':hits,'position':pos,'groups':gs}
+   if target:
+    tot['cell_owned_refs']+=1;tot.update(hits)
+    if hits:local.append(info)
+   if world and in_rect and not target:
+    tot['other_world_refs_in_rect']+=1
+    if hits:persistent.append(info)
+  print(json.dumps({'file':str(path),'masters':masters,'all_spatial_reference_tags':dict(spatial_total),'target_cell_records':cell_records,'target_counts':dict(tot),'target_spatial_refs':local,'other_world_spatial_refs_in_rect':persistent},sort_keys=True))
+PY
+Exit code: 1
+Output:
+{"all_spatial_reference_tags": {"XMBO": 3397, "XMBR": 3, "XOCP": 194, "XPRM": 4134, "XRMR": 265}, "file": "/data/storage0/Games/FalloutNV_TTW/mods/TTW_v3.4/Fallout3.esm", "masters": ["FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm", "GunRunnersArsenal.esm"], "other_world_spatial_refs_in_rect": [], "target_cell_records": [{"edid": "zFairfaxMaintenance", "flags": "0x0", "id": "0x603c944", "offset": "0x167672d"}, {"edid": "zFairfaxMetro", "flags": "0x0", "id": "0x603d443", "offset": "0x210346e"}, {"edid": "FairfaxRuinsExterior05", "flags": "0x0", "id": "0x6001163", "offset": "0x141e25a8"}, {"edid": "FairfaxRuinsExterior02", "flags": "0x0", "id": "0x6001164", "offset": "0x141e8b9d"}, {"edid": "FairfaxRuinsExterior01", "flags": "0x0", "id": "0x6001165", "offset": "0x141f3d20"}, {"edid": "FairfaxRuinsExterior07", "flags": "0x0", "id": "0x6001172", "offset": "0x14227c0e"}, {"edid": "FairfaxRuinsExterior06", "flags": "0x0", "id": "0x6001173", "offset": "0x142329bf"}, {"edid": "FairfaxRuinsExterior04", "flags": "0x0", "id": "0x6001174", "offset": "0x1423c260"}, {"edid": "FairfaxRuinsExterior03", "flags": "0x0", "id": "0x6001175", "offset": "0x1424426e"}], "target_counts": {"XMBO": 10, "XPRM": 10, "cell_owned_refs": 2094}, "target_spatial_refs": [{"base": "0x609cfbd", "flags": "0x0", "groups": [[0, 1280066883], [2, 2], [3, 3], [6, 100911428], [9, 100911428]], "id": "0x607e55a", "offset": "0x167e674", "position": [-2448.0, 3224.0, 3968.0], "spatial": ["XMBO", "XPRM"]}, {"base": "0x60a7c03", "flags": "0x0", "groups": [[0, 1280066883], [2, 2], [3, 3], [6, 100911428], [9, 100911428]], "id": "0x607e562", "offset": "0x167e82c", "position": [1800.0, 1312.0, 5072.0], "spatial": ["XMBO", "XPRM"]}, {"base": "0xae202", "flags": "0x0", "groups": [[0, 1280066883], [2, 2], [3, 3], [6, 100911428], [9, 100911428]], "id": "0x607e565", "offset": "0x167e924", "position": [880.38427734375, 2791.661865234375, 4103.0], "spatial": ["XMBO", "XPRM"]}, {"base": "0x60a7c03", "flags": "0x0", "groups": [[0, 1280066883], [2, 2], [3, 3], [6, 100911428], [9, 100911428]], "id": "0x607e566", "offset": "0x167e99c", "position": [2176.0, 4616.0, 5232.0], "spatial": ["XMBO", "XPRM"]}, {"base": "0x609cfbd", "flags": "0x0", "groups": [[0, 1280066883], [2, 2], [3, 3], [6, 100911428], [9, 100911428]], "id": "0x607e567", "offset": "0x167ea14", "position": [2304.0, 5664.0, 5152.0], "spatial": ["XMBO", "XPRM"]}, {"base": "0x609d9ca", "flags": "0x0", "groups": [[0, 1280066883], [2, 2], [3, 3], [6, 100911428], [9, 100911428]], "id": "0x609d9cb", "offset": "0x167f104", "position": [1951.999755859375, 1471.999755859375, 4969.0], "spatial": ["XMBO", "XPRM"]}, {"base": "0x60a675c", "flags": "0x0", "groups": [[0, 1280066883], [2, 7], [3, 4], [6, 100914243], [9, 100914243]], "id": "0x607e56e", "offset": "0x2108945", "position": [1960.0, 3256.0, 5016.0], "spatial": ["XMBO", "XPRM"]}, {"base": "0x21", "flags": "0x0", "groups": [[0, 1280066883], [2, 7], [3, 4], [6, 100914243], [9, 100914243]], "id": "0x607e608", "offset": "0x21089bd", "position": [2156.054443359375, 3539.4091796875, 4504.5693359375], "spatial": ["XMBO", "XPRM"]}, {"base": "0x21", "flags": "0x0", "groups": [[0, 1280066883], [2, 7], [3, 4], [6, 100914243], [9, 100914243]], "id": "0x607e609", "offset": "0x2108a35", "position": [2778.68603515625, 2081.949951171875, 4641.76904296875], "spatial": ["XMBO", "XPRM"]}, {"base": "0x21", "flags": "0x0", "groups": [[0, 1280066883], [2, 7], [3, 4], [6, 100914243], [9, 100914243]], "id": "0x607e738", "offset": "0x2108aad", "position": [2694.519287109375, 2067.1533203125, 4654.314453125], "spatial": ["XMBO", "XPRM"]}]}
+Traceback (most recent call last):
+  File "<stdin>", line 37, in <module>
+  File "<stdin>", line 24, in fields
+AssertionError: ('unsupported extended field', 491)
+
+
+===== Initial retry (failed on TES4 XXXX) =====
+Command:
+python3 - <<'PY'
+from pathlib import Path
+import mmap,struct,collections,json,zlib
+root=Path('/data/storage0/Games/FalloutNV_TTW/mods')
+files=[root/'TTW_v3.4/Fallout3.esm',root/'TTW_v3.4/TaleOfTwoWastelands.esm',root/'TTW_v3.4/YUPTTW.esm',root/'YUPTTW 13.9.1/YUPTTW.esm',root/'Fallout 3 Interior Optimization Project/FO3_Optimization.esm',root/'A World of Pain (AWOP) - FO3 - Roombound Project/A World of Pain FO3 Roombound Project.esm',root/'The Great DC Interior Overhaul/TGDCIO.esm',root/'Performance Of The Titans/PerformanceOfTheTitans.esm',root/'Capital Wasteland Settlements Redesign TTW/Capital Wasteland Settlements Redesign.esm']
+def records(b,start,end,groups=()):
+ q=start
+ while q<end:
+  assert q+24<=end
+  sig=b[q:q+4];size=struct.unpack_from('<I',b,q+4)[0]
+  if sig==b'GRUP':
+   assert size>=24 and q+size<=end
+   label,kind=struct.unpack_from('<Ii',b,q+8)
+   yield from records(b,q+24,q+size,groups+((kind,label),));q+=size
+  else:
+   assert q+24+size<=end
+   flags,fid=struct.unpack_from('<II',b,q+8)
+   yield q,sig,flags,fid,groups,b[q+24:q+24+size];q+=24+size
+ assert q==end
+def fields(p):
+ q=0;out=[]
+ while q<len(p):
+  assert q+6<=len(p)
+  tag=p[q:q+4];n=struct.unpack_from('<H',p,q+4)[0];q+=6
+  if tag==b'XXXX':return None
+  assert q+n<=len(p);out.append((tag,p[q:q+n]));q+=n
+ return out
+def payload(flags,p):
+ if flags&0x40000:
+  expected=struct.unpack_from('<I',p)[0];p=zlib.decompress(p[4:]);assert len(p)==expected
+ return p
+cells={0x3c944,0x3d443,0x1163,0x1164,0x1165,0x1172,0x1173,0x1174,0x1175}
+spatial={b'XMBO',b'XPRM',b'XMBR',b'XRMR',b'XPOR',b'XOCP'}
+for path in files:
+ with path.open('rb') as f,mmap.mmap(f.fileno(),0,access=mmap.ACCESS_READ) as b:
+  masters=[];local=[];persistent=[];tot=collections.Counter();cell_records=[];spatial_total=collections.Counter()
+  for q,sig,flags,fid,gs,p in records(b,0,len(b)):
+   if sig==b'TES4':masters=[v.rstrip(b'\0').decode('ascii') for t,v in fields(payload(flags,p)) if t==b'MAST'];continue
+   if sig not in [b'CELL',b'REFR',b'ACHR',b'ACRE']:continue
+   parsed=fields(payload(flags,p))
+   if parsed is None:
+    tot['unsupported_extended_records']+=1;continue
+   fs=dict(parsed)
+   owner=(masters+[path.name])[fid>>24] if fid>>24<=len(masters) else 'UNKNOWN'
+   if sig==b'CELL' and owner.lower()=='fallout3.esm' and fid&0xffffff in cells:
+    cell_records.append({'id':hex(fid),'edid':fs.get(b'EDID',b'').rstrip(b'\0').decode('ascii'),'offset':hex(q),'flags':hex(flags)})
+   if sig!=b'REFR':continue
+   hits=sorted(t.decode() for t in spatial&fs.keys());spatial_total.update(hits)
+   target=False
+   for kind,label in gs:
+    groupowner=(masters+[path.name])[label>>24] if label>>24<=len(masters) else 'UNKNOWN'
+    if kind in [6,8,9,10] and groupowner.lower()=='fallout3.esm' and label&0xffffff in cells:target=True
+   data=fs.get(b'DATA')
+   pos=struct.unpack('<fff',data[:12]) if data and len(data)>=12 else None
+   in_rect=pos is not None and -20480<=pos[0]<-4096 and -57344<=pos[1]<-49152
+   # Coordinates delimit the rectangle of seven exterior cells; world ancestry must also match.
+   world=False
+   for kind,label in gs:
+    groupowner=(masters+[path.name])[label>>24] if label>>24<=len(masters) else 'UNKNOWN'
+    if kind==1 and groupowner.lower()=='fallout3.esm' and label&0xffffff==0x0daa1f:world=True
+   info={'id':hex(fid),'offset':hex(q),'flags':hex(flags),'base':hex(struct.unpack('<I',fs[b'NAME'])[0]) if b'NAME'in fs else None,'spatial':hits,'position':pos,'groups':gs}
+   if target:
+    tot['cell_owned_refs']+=1;tot.update(hits)
+    if hits:local.append(info)
+   if world and in_rect and not target:
+    tot['other_world_refs_in_rect']+=1
+    if hits:persistent.append(info)
+  print(json.dumps({'file':str(path),'masters':masters,'all_spatial_reference_tags':dict(spatial_total),'target_cell_records':cell_records,'target_counts':dict(tot),'target_spatial_refs':local,'other_world_spatial_refs_in_rect':persistent},sort_keys=True))
+PY
+Exit code: 1
+Output:
+{"all_spatial_reference_tags": {"XMBO": 3397, "XMBR": 3, "XOCP": 194, "XPRM": 4134, "XRMR": 265}, "file": "/data/storage0/Games/FalloutNV_TTW/mods/TTW_v3.4/Fallout3.esm", "masters": ["FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm", "GunRunnersArsenal.esm"], "other_world_spatial_refs_in_rect": [], "target_cell_records": [{"edid": "zFairfaxMaintenance", "flags": "0x0", "id": "0x603c944", "offset": "0x167672d"}, {"edid": "zFairfaxMetro", "flags": "0x0", "id": "0x603d443", "offset": "0x210346e"}, {"edid": "FairfaxRuinsExterior05", "flags": "0x0", "id": "0x6001163", "offset": "0x141e25a8"}, {"edid": "FairfaxRuinsExterior02", "flags": "0x0", "id": "0x6001164", "offset": "0x141e8b9d"}, {"edid": "FairfaxRuinsExterior01", "flags": "0x0", "id": "0x6001165", "offset": "0x141f3d20"}, {"edid": "FairfaxRuinsExterior07", "flags": "0x0", "id": "0x6001172", "offset": "0x14227c0e"}, {"edid": "FairfaxRuinsExterior06", "flags": "0x0", "id": "0x6001173", "offset": "0x142329bf"}, {"edid": "FairfaxRuinsExterior04", "flags": "0x0", "id": "0x6001174", "offset": "0x1423c260"}, {"edid": "FairfaxRuinsExterior03", "flags": "0x0", "id": "0x6001175", "offset": "0x1424426e"}], "target_counts": {"XMBO": 10, "XPRM": 10, "cell_owned_refs": 2094}, "target_spatial_refs": [{"base": "0x609cfbd", "flags": "0x0", "groups": [[0, 1280066883], [2, 2], [3, 3], [6, 100911428], [9, 100911428]], "id": "0x607e55a", "offset": "0x167e674", "position": [-2448.0, 3224.0, 3968.0], "spatial": ["XMBO", "XPRM"]}, {"base": "0x60a7c03", "flags": "0x0", "groups": [[0, 1280066883], [2, 2], [3, 3], [6, 100911428], [9, 100911428]], "id": "0x607e562", "offset": "0x167e82c", "position": [1800.0, 1312.0, 5072.0], "spatial": ["XMBO", "XPRM"]}, {"base": "0xae202", "flags": "0x0", "groups": [[0, 1280066883], [2, 2], [3, 3], [6, 100911428], [9, 100911428]], "id": "0x607e565", "offset": "0x167e924", "position": [880.38427734375, 2791.661865234375, 4103.0], "spatial": ["XMBO", "XPRM"]}, {"base": "0x60a7c03", "flags": "0x0", "groups": [[0, 1280066883], [2, 2], [3, 3], [6, 100911428], [9, 100911428]], "id": "0x607e566", "offset": "0x167e99c", "position": [2176.0, 4616.0, 5232.0], "spatial": ["XMBO", "XPRM"]}, {"base": "0x609cfbd", "flags": "0x0", "groups": [[0, 1280066883], [2, 2], [3, 3], [6, 100911428], [9, 100911428]], "id": "0x607e567", "offset": "0x167ea14", "position": [2304.0, 5664.0, 5152.0], "spatial": ["XMBO", "XPRM"]}, {"base": "0x609d9ca", "flags": "0x0", "groups": [[0, 1280066883], [2, 2], [3, 3], [6, 100911428], [9, 100911428]], "id": "0x609d9cb", "offset": "0x167f104", "position": [1951.999755859375, 1471.999755859375, 4969.0], "spatial": ["XMBO", "XPRM"]}, {"base": "0x60a675c", "flags": "0x0", "groups": [[0, 1280066883], [2, 7], [3, 4], [6, 100914243], [9, 100914243]], "id": "0x607e56e", "offset": "0x2108945", "position": [1960.0, 3256.0, 5016.0], "spatial": ["XMBO", "XPRM"]}, {"base": "0x21", "flags": "0x0", "groups": [[0, 1280066883], [2, 7], [3, 4], [6, 100914243], [9, 100914243]], "id": "0x607e608", "offset": "0x21089bd", "position": [2156.054443359375, 3539.4091796875, 4504.5693359375], "spatial": ["XMBO", "XPRM"]}, {"base": "0x21", "flags": "0x0", "groups": [[0, 1280066883], [2, 7], [3, 4], [6, 100914243], [9, 100914243]], "id": "0x607e609", "offset": "0x2108a35", "position": [2778.68603515625, 2081.949951171875, 4641.76904296875], "spatial": ["XMBO", "XPRM"]}, {"base": "0x21", "flags": "0x0", "groups": [[0, 1280066883], [2, 7], [3, 4], [6, 100914243], [9, 100914243]], "id": "0x607e738", "offset": "0x2108aad", "position": [2694.519287109375, 2067.1533203125, 4654.314453125], "spatial": ["XMBO", "XPRM"]}]}
+Traceback (most recent call last):
+  File "<stdin>", line 37, in <module>
+TypeError: 'NoneType' object is not iterable
+
+
+===== Intermediate retry (TTW skipped; incomplete) =====
+Command:
+python3 - <<'PY'
+from pathlib import Path
+import mmap,struct,collections,json,zlib
+root=Path('/data/storage0/Games/FalloutNV_TTW/mods')
+files=[root/'TTW_v3.4/Fallout3.esm',root/'TTW_v3.4/TaleOfTwoWastelands.esm',root/'TTW_v3.4/YUPTTW.esm',root/'YUPTTW 13.9.1/YUPTTW.esm',root/'Fallout 3 Interior Optimization Project/FO3_Optimization.esm',root/'A World of Pain (AWOP) - FO3 - Roombound Project/A World of Pain FO3 Roombound Project.esm',root/'The Great DC Interior Overhaul/TGDCIO.esm',root/'Performance Of The Titans/PerformanceOfTheTitans.esm',root/'Capital Wasteland Settlements Redesign TTW/Capital Wasteland Settlements Redesign.esm']
+def records(b,start,end,groups=()):
+ q=start
+ while q<end:
+  assert q+24<=end
+  sig=b[q:q+4];size=struct.unpack_from('<I',b,q+4)[0]
+  if sig==b'GRUP':
+   assert size>=24 and q+size<=end
+   label,kind=struct.unpack_from('<Ii',b,q+8)
+   yield from records(b,q+24,q+size,groups+((kind,label),));q+=size
+  else:
+   assert q+24+size<=end
+   flags,fid=struct.unpack_from('<II',b,q+8)
+   yield q,sig,flags,fid,groups,b[q+24:q+24+size];q+=24+size
+ assert q==end
+def fields(p):
+ q=0;out=[]
+ while q<len(p):
+  assert q+6<=len(p)
+  tag=p[q:q+4];n=struct.unpack_from('<H',p,q+4)[0];q+=6
+  if tag==b'XXXX':return None
+  assert q+n<=len(p);out.append((tag,p[q:q+n]));q+=n
+ return out
+def payload(flags,p):
+ if flags&0x40000:
+  expected=struct.unpack_from('<I',p)[0];p=zlib.decompress(p[4:]);assert len(p)==expected
+ return p
+cells={0x3c944,0x3d443,0x1163,0x1164,0x1165,0x1172,0x1173,0x1174,0x1175}
+spatial={b'XMBO',b'XPRM',b'XMBR',b'XRMR',b'XPOR',b'XOCP'}
+for path in files:
+ with path.open('rb') as f,mmap.mmap(f.fileno(),0,access=mmap.ACCESS_READ) as b:
+  masters=[];local=[];persistent=[];tot=collections.Counter();cell_records=[];spatial_total=collections.Counter()
+  for q,sig,flags,fid,gs,p in records(b,0,len(b)):
+   if sig==b'TES4':
+    header=fields(payload(flags,p))
+    if header is None:
+     print(json.dumps({'file':str(path),'incomplete':'TES4 contains unsupported extended field; file skipped'}));break
+    masters=[v.rstrip(b'\0').decode('ascii') for t,v in header if t==b'MAST'];continue
+   if sig not in [b'CELL',b'REFR',b'ACHR',b'ACRE']:continue
+   parsed=fields(payload(flags,p))
+   if parsed is None:
+    tot['unsupported_extended_records']+=1;continue
+   fs=dict(parsed)
+   owner=(masters+[path.name])[fid>>24] if fid>>24<=len(masters) else 'UNKNOWN'
+   if sig==b'CELL' and owner.lower()=='fallout3.esm' and fid&0xffffff in cells:
+    cell_records.append({'id':hex(fid),'edid':fs.get(b'EDID',b'').rstrip(b'\0').decode('ascii'),'offset':hex(q),'flags':hex(flags)})
+   if sig!=b'REFR':continue
+   hits=sorted(t.decode() for t in spatial&fs.keys());spatial_total.update(hits)
+   target=False
+   for kind,label in gs:
+    groupowner=(masters+[path.name])[label>>24] if label>>24<=len(masters) else 'UNKNOWN'
+    if kind in [6,8,9,10] and groupowner.lower()=='fallout3.esm' and label&0xffffff in cells:target=True
+   data=fs.get(b'DATA')
+   pos=struct.unpack('<fff',data[:12]) if data and len(data)>=12 else None
+   in_rect=pos is not None and -20480<=pos[0]<-4096 and -57344<=pos[1]<-49152
+   # Coordinates delimit the rectangle of seven exterior cells; world ancestry must also match.
+   world=False
+   for kind,label in gs:
+    groupowner=(masters+[path.name])[label>>24] if label>>24<=len(masters) else 'UNKNOWN'
+    if kind==1 and groupowner.lower()=='fallout3.esm' and label&0xffffff==0x07ea1f:world=True
+   info={'id':hex(fid),'offset':hex(q),'flags':hex(flags),'base':hex(struct.unpack('<I',fs[b'NAME'])[0]) if b'NAME'in fs else None,'spatial':hits,'position':pos,'groups':gs}
+   if target:
+    tot['cell_owned_refs']+=1;tot.update(hits)
+    if hits:local.append(info)
+   if world and in_rect and not target:
+    tot['other_world_refs_in_rect']+=1
+    if hits:persistent.append(info)
+  print(json.dumps({'file':str(path),'masters':masters,'all_spatial_reference_tags':dict(spatial_total),'target_cell_records':cell_records,'target_counts':dict(tot),'target_spatial_refs':local,'other_world_spatial_refs_in_rect':persistent},sort_keys=True))
+PY
+Exit code: 0
+Output:
+{"all_spatial_reference_tags": {"XMBO": 3397, "XMBR": 3, "XOCP": 194, "XPRM": 4134, "XRMR": 265}, "file": "/data/storage0/Games/FalloutNV_TTW/mods/TTW_v3.4/Fallout3.esm", "masters": ["FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm", "GunRunnersArsenal.esm"], "other_world_spatial_refs_in_rect": [], "target_cell_records": [{"edid": "zFairfaxMaintenance", "flags": "0x0", "id": "0x603c944", "offset": "0x167672d"}, {"edid": "zFairfaxMetro", "flags": "0x0", "id": "0x603d443", "offset": "0x210346e"}, {"edid": "FairfaxRuinsExterior05", "flags": "0x0", "id": "0x6001163", "offset": "0x141e25a8"}, {"edid": "FairfaxRuinsExterior02", "flags": "0x0", "id": "0x6001164", "offset": "0x141e8b9d"}, {"edid": "FairfaxRuinsExterior01", "flags": "0x0", "id": "0x6001165", "offset": "0x141f3d20"}, {"edid": "FairfaxRuinsExterior07", "flags": "0x0", "id": "0x6001172", "offset": "0x14227c0e"}, {"edid": "FairfaxRuinsExterior06", "flags": "0x0", "id": "0x6001173", "offset": "0x142329bf"}, {"edid": "FairfaxRuinsExterior04", "flags": "0x0", "id": "0x6001174", "offset": "0x1423c260"}, {"edid": "FairfaxRuinsExterior03", "flags": "0x0", "id": "0x6001175", "offset": "0x1424426e"}], "target_counts": {"XMBO": 10, "XPRM": 10, "cell_owned_refs": 2094, "other_world_refs_in_rect": 313}, "target_spatial_refs": [{"base": "0x609cfbd", "flags": "0x0", "groups": [[0, 1280066883], [2, 2], [3, 3], [6, 100911428], [9, 100911428]], "id": "0x607e55a", "offset": "0x167e674", "position": [-2448.0, 3224.0, 3968.0], "spatial": ["XMBO", "XPRM"]}, {"base": "0x60a7c03", "flags": "0x0", "groups": [[0, 1280066883], [2, 2], [3, 3], [6, 100911428], [9, 100911428]], "id": "0x607e562", "offset": "0x167e82c", "position": [1800.0, 1312.0, 5072.0], "spatial": ["XMBO", "XPRM"]}, {"base": "0xae202", "flags": "0x0", "groups": [[0, 1280066883], [2, 2], [3, 3], [6, 100911428], [9, 100911428]], "id": "0x607e565", "offset": "0x167e924", "position": [880.38427734375, 2791.661865234375, 4103.0], "spatial": ["XMBO", "XPRM"]}, {"base": "0x60a7c03", "flags": "0x0", "groups": [[0, 1280066883], [2, 2], [3, 3], [6, 100911428], [9, 100911428]], "id": "0x607e566", "offset": "0x167e99c", "position": [2176.0, 4616.0, 5232.0], "spatial": ["XMBO", "XPRM"]}, {"base": "0x609cfbd", "flags": "0x0", "groups": [[0, 1280066883], [2, 2], [3, 3], [6, 100911428], [9, 100911428]], "id": "0x607e567", "offset": "0x167ea14", "position": [2304.0, 5664.0, 5152.0], "spatial": ["XMBO", "XPRM"]}, {"base": "0x609d9ca", "flags": "0x0", "groups": [[0, 1280066883], [2, 2], [3, 3], [6, 100911428], [9, 100911428]], "id": "0x609d9cb", "offset": "0x167f104", "position": [1951.999755859375, 1471.999755859375, 4969.0], "spatial": ["XMBO", "XPRM"]}, {"base": "0x60a675c", "flags": "0x0", "groups": [[0, 1280066883], [2, 7], [3, 4], [6, 100914243], [9, 100914243]], "id": "0x607e56e", "offset": "0x2108945", "position": [1960.0, 3256.0, 5016.0], "spatial": ["XMBO", "XPRM"]}, {"base": "0x21", "flags": "0x0", "groups": [[0, 1280066883], [2, 7], [3, 4], [6, 100914243], [9, 100914243]], "id": "0x607e608", "offset": "0x21089bd", "position": [2156.054443359375, 3539.4091796875, 4504.5693359375], "spatial": ["XMBO", "XPRM"]}, {"base": "0x21", "flags": "0x0", "groups": [[0, 1280066883], [2, 7], [3, 4], [6, 100914243], [9, 100914243]], "id": "0x607e609", "offset": "0x2108a35", "position": [2778.68603515625, 2081.949951171875, 4641.76904296875], "spatial": ["XMBO", "XPRM"]}, {"base": "0x21", "flags": "0x0", "groups": [[0, 1280066883], [2, 7], [3, 4], [6, 100914243], [9, 100914243]], "id": "0x607e738", "offset": "0x2108aad", "position": [2694.519287109375, 2067.1533203125, 4654.314453125], "spatial": ["XMBO", "XPRM"]}]}
+{"file": "/data/storage0/Games/FalloutNV_TTW/mods/TTW_v3.4/TaleOfTwoWastelands.esm", "incomplete": "TES4 contains unsupported extended field; file skipped"}
+{"all_spatial_reference_tags": {}, "file": "/data/storage0/Games/FalloutNV_TTW/mods/TTW_v3.4/TaleOfTwoWastelands.esm", "masters": [], "other_world_spatial_refs_in_rect": [], "target_cell_records": [], "target_counts": {}, "target_spatial_refs": []}
+{"all_spatial_reference_tags": {"XMBO": 424, "XMBR": 74, "XOCP": 12, "XPRM": 524}, "file": "/data/storage0/Games/FalloutNV_TTW/mods/TTW_v3.4/YUPTTW.esm", "masters": ["FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm", "GunRunnersArsenal.esm", "Fallout3.esm", "Anchorage.esm", "ThePitt.esm", "BrokenSteel.esm", "PointLookout.esm", "Zeta.esm", "TaleofTwoWastelands.esm"], "other_world_spatial_refs_in_rect": [], "target_cell_records": [], "target_counts": {}, "target_spatial_refs": []}
+{"all_spatial_reference_tags": {"XMBO": 466, "XMBR": 74, "XOCP": 12, "XPRM": 684}, "file": "/data/storage0/Games/FalloutNV_TTW/mods/YUPTTW 13.9.1/YUPTTW.esm", "masters": ["FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm", "GunRunnersArsenal.esm", "Fallout3.esm", "Anchorage.esm", "ThePitt.esm", "BrokenSteel.esm", "PointLookout.esm", "Zeta.esm", "TaleofTwoWastelands.esm"], "other_world_spatial_refs_in_rect": [], "target_cell_records": [], "target_counts": {}, "target_spatial_refs": []}
+{"all_spatial_reference_tags": {"XMBO": 3227, "XOCP": 239, "XPRM": 3270, "XRMR": 217}, "file": "/data/storage0/Games/FalloutNV_TTW/mods/Fallout 3 Interior Optimization Project/FO3_Optimization.esm", "masters": ["FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm", "GunRunnersArsenal.esm", "Fallout3.esm", "Anchorage.esm", "ThePitt.esm", "BrokenSteel.esm", "PointLookout.esm", "Zeta.esm", "CaravanPack.esm", "ClassicPack.esm", "MercenaryPack.esm", "TribalPack.esm", "TaleOfTwoWastelands.esm"], "other_world_spatial_refs_in_rect": [], "target_cell_records": [{"edid": "zFairfaxMaintenance", "flags": "0x0", "id": "0x603c944", "offset": "0x13f6d"}, {"edid": "zFairfaxMetro", "flags": "0x0", "id": "0x603d443", "offset": "0x5dcaa"}], "target_counts": {"XMBO": 15, "XPRM": 15, "cell_owned_refs": 15}, "target_spatial_refs": [{"base": "0x1f", "flags": "0x400", "groups": [[0, 1280066883], [2, 2], [3, 3], [6, 100911428], [8, 100911428]], "id": "0x11001933", "offset": "0x14089", "position": [2054.0517578125, 4799.8173828125, 5025.37890625], "spatial": ["XMBO", "XPRM"]}, {"base": "0x1f", "flags": "0x400", "groups": [[0, 1280066883], [2, 2], [3, 3], [6, 100911428], [8, 100911428]], "id": "0x11001934", "offset": "0x14101", "position": [1734.05224609375, 1226.545166015625, 5003.3134765625], "spatial": ["XMBO", "XPRM"]}, {"base": "0x1f", "flags": "0x400", "groups": [[0, 1280066883], [2, 2], [3, 3], [6, 100911428], [8, 100911428]], "id": "0x11001935", "offset": "0x14179", "position": [1458.109130859375, 2687.81787109375, 4544.0], "spatial": ["XMBO", "XPRM"]}, {"base": "0x1f", "flags": "0x400", "groups": [[0, 1280066883], [2, 2], [3, 3], [6, 100911428], [8, 100911428]], "id": "0x11001936", "offset": "0x141f1", "position": [-1344.0, 1712.0458984375, 4096.0], "spatial": ["XMBO", "XPRM"]}, {"base": "0x1f", "flags": "0x400", "groups": [[0, 1280066883], [2, 2], [3, 3], [6, 100911428], [8, 100911428]], "id": "0x11001937", "offset": "0x14269", "position": [-1344.0, 2938.681884765625, 4096.0], "spatial": ["XMBO", "XPRM"]}, {"base": "0x20", "flags": "0x0", "groups": [[0, 1280066883], [2, 2], [3, 3], [6, 100911428], [9, 100911428]], "id": "0x11001938", "offset": "0x142f9", "position": [-1536.0, 2229.3642578125, 3936.0], "spatial": ["XMBO", "XPRM"]}, {"base": "0x20", "flags": "0x0", "groups": [[0, 1280066883], [2, 2], [3, 3], [6, 100911428], [9, 100911428]], "id": "0x11001939", "offset": "0x1437f", "position": [199.24363708496094, 1984.0, 4288.0], "spatial": ["XMBO", "XPRM"]}, {"base": "0x20", "flags": "0x0", "groups": [[0, 1280066883], [2, 2], [3, 3], [6, 100911428], [9, 100911428]], "id": "0x1100193a", "offset": "0x14405", "position": [1536.0, 1813.0906982421875, 4544.0], "spatial": ["XMBO", "XPRM"]}, {"base": "0x20", "flags": "0x0", "groups": [[0, 1280066883], [2, 2], [3, 3], [6, 100911428], [9, 100911428]], "id": "0x1100193b", "offset": "0x1448b", "position": [1536.0, 3562.544677734375, 4608.0], "spatial": ["XMBO", "XPRM"]}, {"base": "0x1f", "flags": "0x400", "groups": [[0, 1280066883], [2, 7], [3, 4], [6, 100914243], [8, 100914243]], "id": "0x11005ecc", "offset": "0x5dd9a", "position": [-1117.956787109375, 2969.31201171875, 5291.89697265625], "spatial": ["XMBO", "XPRM"]}, {"base": "0x1f", "flags": "0x400", "groups": [[0, 1280066883], [2, 7], [3, 4], [6, 100914243], [8, 100914243]], "id": "0x11005ecd", "offset": "0x5de12", "position": [1979.5662841796875, 2567.469970703125, 5089.64404296875], "spatial": ["XMBO", "XPRM"]}, {"base": "0x1f", "flags": "0x400", "groups": [[0, 1280066883], [2, 7], [3, 4], [6, 100914243], [8, 100914243]], "id": "0x11005ece", "offset": "0x5de8a", "position": [1979.5662841796875, 5868.3046875, 5096.33740234375], "spatial": ["XMBO", "XPRM"]}, {"base": "0x20", "flags": "0x0", "groups": [[0, 1280066883], [2, 7], [3, 4], [6, 100914243], [9, 100914243]], "id": "0x11005ecf", "offset": "0x5df1a", "position": [1245.8074951171875, 4299.2548828125, 4617.8291015625], "spatial": ["XMBO", "XPRM"]}, {"base": "0x20", "flags": "0x0", "groups": [[0, 1280066883], [2, 7], [3, 4], [6, 100914243], [9, 100914243]], "id": "0x11005ed0", "offset": "0x5dfa0", "position": [2789.88525390625, 4299.2548828125, 4617.8291015625], "spatial": ["XMBO", "XPRM"]}, {"base": "0x20", "flags": "0x0", "groups": [[0, 1280066883], [2, 7], [3, 4], [6, 100914243], [9, 100914243]], "id": "0x11005ed1", "offset": "0x5e026", "position": [228.24313354492188, 2848.75634765625, 5141.9453125], "spatial": ["XMBO", "XPRM"]}]}
+{"all_spatial_reference_tags": {"XMBO": 686, "XPRM": 688}, "file": "/data/storage0/Games/FalloutNV_TTW/mods/A World of Pain (AWOP) - FO3 - Roombound Project/A World of Pain FO3 Roombound Project.esm", "masters": ["FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm", "GunRunnersArsenal.esm", "Fallout3.esm", "Anchorage.esm", "ThePitt.esm", "BrokenSteel.esm", "PointLookout.esm", "Zeta.esm", "TaleOfTwoWastelands.esm", "AWorldOfPainFO3.esm"], "other_world_spatial_refs_in_rect": [], "target_cell_records": [], "target_counts": {}, "target_spatial_refs": []}
+{"all_spatial_reference_tags": {"XMBO": 1}, "file": "/data/storage0/Games/FalloutNV_TTW/mods/The Great DC Interior Overhaul/TGDCIO.esm", "masters": ["FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm", "GunRunnersArsenal.esm", "Fallout3.esm", "Anchorage.esm", "ThePitt.esm", "BrokenSteel.esm", "PointLookout.esm", "Zeta.esm", "TaleOfTwoWastelands.esm"], "other_world_spatial_refs_in_rect": [], "target_cell_records": [], "target_counts": {}, "target_spatial_refs": []}
+{"all_spatial_reference_tags": {}, "file": "/data/storage0/Games/FalloutNV_TTW/mods/Performance Of The Titans/PerformanceOfTheTitans.esm", "masters": ["FalloutNV.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm"], "other_world_spatial_refs_in_rect": [], "target_cell_records": [], "target_counts": {}, "target_spatial_refs": []}
+{"all_spatial_reference_tags": {"XMBO": 10, "XMBR": 10, "XPRM": 10}, "file": "/data/storage0/Games/FalloutNV_TTW/mods/Capital Wasteland Settlements Redesign TTW/Capital Wasteland Settlements Redesign.esm", "masters": ["FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm", "GunRunnersArsenal.esm", "Fallout3.esm", "Anchorage.esm", "ThePitt.esm", "BrokenSteel.esm", "PointLookout.esm", "Zeta.esm", "TaleOfTwoWastelands.esm", "YUPTTW.esm"], "other_world_spatial_refs_in_rect": [], "target_cell_records": [], "target_counts": {}, "target_spatial_refs": []}
+
+
+===== Qualified spatial records =====
+Command:
+python3 - <<'PY'
+from pathlib import Path
+import mmap,struct,collections,json,zlib
+root=Path('/data/storage0/Games/FalloutNV_TTW/mods')
+files=[root/'TTW_v3.4/Fallout3.esm',root/'TTW_v3.4/TaleOfTwoWastelands.esm',root/'TTW_v3.4/YUPTTW.esm',root/'YUPTTW 13.9.1/YUPTTW.esm',root/'Fallout 3 Interior Optimization Project/FO3_Optimization.esm',root/'A World of Pain (AWOP) - FO3 - Roombound Project/A World of Pain FO3 Roombound Project.esm',root/'The Great DC Interior Overhaul/TGDCIO.esm',root/'Performance Of The Titans/PerformanceOfTheTitans.esm',root/'Capital Wasteland Settlements Redesign TTW/Capital Wasteland Settlements Redesign.esm']
+def records(b,start,end,groups=()):
+ q=start
+ while q<end:
+  assert q+24<=end
+  sig=b[q:q+4];size=struct.unpack_from('<I',b,q+4)[0]
+  if sig==b'GRUP':
+   assert size>=24 and q+size<=end
+   label,kind=struct.unpack_from('<Ii',b,q+8)
+   yield from records(b,q+24,q+size,groups+((kind,label),));q+=size
+  else:
+   assert q+24+size<=end
+   flags,fid=struct.unpack_from('<II',b,q+8)
+   yield q,sig,flags,fid,groups,b[q+24:q+24+size];q+=24+size
+ assert q==end
+def fields(p):
+ q=0;out=[]
+ while q<len(p):
+  assert q+6<=len(p)
+  tag=p[q:q+4];n=struct.unpack_from('<H',p,q+4)[0];q+=6
+  if tag==b'XXXX':
+   assert n==4 and q+4+6<=len(p)
+   extended=struct.unpack_from('<I',p,q)[0];q+=4
+   tag=p[q:q+4];q+=6;assert tag!=b'XXXX';n=extended
+  assert q+n<=len(p);out.append((tag,p[q:q+n]));q+=n
+ return out
+def payload(flags,p):
+ if flags&0x40000:
+  expected=struct.unpack_from('<I',p)[0];p=zlib.decompress(p[4:]);assert len(p)==expected
+ return p
+cells={0x3c944,0x3d443,0x1163,0x1164,0x1165,0x1172,0x1173,0x1174,0x1175}
+spatial={b'XMBO',b'XPRM',b'XMBR',b'XRMR',b'XPOR',b'XOCP'}
+for path in files:
+ with path.open('rb') as f,mmap.mmap(f.fileno(),0,access=mmap.ACCESS_READ) as b:
+  masters=[];local=[];persistent=[];tot=collections.Counter();cell_records=[];spatial_total=collections.Counter()
+  for q,sig,flags,fid,gs,p in records(b,0,len(b)):
+   if sig==b'TES4':
+    header=fields(payload(flags,p))
+    if header is None:
+     print(json.dumps({'file':str(path),'incomplete':'TES4 contains unsupported extended field; file skipped'}));break
+    masters=[v.rstrip(b'\0').decode('ascii') for t,v in header if t==b'MAST'];continue
+   if sig not in [b'CELL',b'REFR',b'ACHR',b'ACRE']:continue
+   parsed=fields(payload(flags,p))
+   if parsed is None:
+    tot['unsupported_extended_records']+=1;continue
+   fs=dict(parsed)
+   owner=(masters+[path.name])[fid>>24] if fid>>24<=len(masters) else 'UNKNOWN'
+   if sig==b'CELL' and owner.lower()=='fallout3.esm' and fid&0xffffff in cells:
+    cell_records.append({'id':hex(fid),'edid':fs.get(b'EDID',b'').rstrip(b'\0').decode('ascii'),'offset':hex(q),'flags':hex(flags)})
+   if sig!=b'REFR':continue
+   hits=sorted(t.decode() for t in spatial&fs.keys());spatial_total.update(hits)
+   target=False
+   for kind,label in gs:
+    groupowner=(masters+[path.name])[label>>24] if label>>24<=len(masters) else 'UNKNOWN'
+    if kind in [6,8,9,10] and groupowner.lower()=='fallout3.esm' and label&0xffffff in cells:target=True
+   data=fs.get(b'DATA')
+   pos=struct.unpack('<fff',data[:12]) if data and len(data)>=12 else None
+   in_rect=pos is not None and -20480<=pos[0]<-4096 and -57344<=pos[1]<-49152
+   # Coordinates delimit the rectangle of seven exterior cells; world ancestry must also match.
+   world=False
+   for kind,label in gs:
+    groupowner=(masters+[path.name])[label>>24] if label>>24<=len(masters) else 'UNKNOWN'
+    if kind==1 and groupowner.lower()=='fallout3.esm' and label&0xffffff==0x07ea1f:world=True
+   info={'id':hex(fid),'offset':hex(q),'flags':hex(flags),'base':hex(struct.unpack('<I',fs[b'NAME'])[0]) if b'NAME'in fs else None,'spatial':hits,'position':pos,'groups':gs}
+   if target:
+    tot['cell_owned_refs']+=1;tot.update(hits)
+    if hits:local.append(info)
+   if world and in_rect and not target:
+    tot['other_world_refs_in_rect']+=1
+    if hits:persistent.append(info)
+  print(json.dumps({'file':str(path),'masters':masters,'all_spatial_reference_tags':dict(spatial_total),'target_cell_records':cell_records,'target_counts':dict(tot),'target_spatial_refs':local,'other_world_spatial_refs_in_rect':persistent},sort_keys=True))
+PY
+Exit code: 0
+Output:
+{"all_spatial_reference_tags": {"XMBO": 3397, "XMBR": 3, "XOCP": 194, "XPRM": 4134, "XRMR": 265}, "file": "/data/storage0/Games/FalloutNV_TTW/mods/TTW_v3.4/Fallout3.esm", "masters": ["FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm", "GunRunnersArsenal.esm"], "other_world_spatial_refs_in_rect": [], "target_cell_records": [{"edid": "zFairfaxMaintenance", "flags": "0x0", "id": "0x603c944", "offset": "0x167672d"}, {"edid": "zFairfaxMetro", "flags": "0x0", "id": "0x603d443", "offset": "0x210346e"}, {"edid": "FairfaxRuinsExterior05", "flags": "0x0", "id": "0x6001163", "offset": "0x141e25a8"}, {"edid": "FairfaxRuinsExterior02", "flags": "0x0", "id": "0x6001164", "offset": "0x141e8b9d"}, {"edid": "FairfaxRuinsExterior01", "flags": "0x0", "id": "0x6001165", "offset": "0x141f3d20"}, {"edid": "FairfaxRuinsExterior07", "flags": "0x0", "id": "0x6001172", "offset": "0x14227c0e"}, {"edid": "FairfaxRuinsExterior06", "flags": "0x0", "id": "0x6001173", "offset": "0x142329bf"}, {"edid": "FairfaxRuinsExterior04", "flags": "0x0", "id": "0x6001174", "offset": "0x1423c260"}, {"edid": "FairfaxRuinsExterior03", "flags": "0x0", "id": "0x6001175", "offset": "0x1424426e"}], "target_counts": {"XMBO": 10, "XPRM": 10, "cell_owned_refs": 2094, "other_world_refs_in_rect": 313}, "target_spatial_refs": [{"base": "0x609cfbd", "flags": "0x0", "groups": [[0, 1280066883], [2, 2], [3, 3], [6, 100911428], [9, 100911428]], "id": "0x607e55a", "offset": "0x167e674", "position": [-2448.0, 3224.0, 3968.0], "spatial": ["XMBO", "XPRM"]}, {"base": "0x60a7c03", "flags": "0x0", "groups": [[0, 1280066883], [2, 2], [3, 3], [6, 100911428], [9, 100911428]], "id": "0x607e562", "offset": "0x167e82c", "position": [1800.0, 1312.0, 5072.0], "spatial": ["XMBO", "XPRM"]}, {"base": "0xae202", "flags": "0x0", "groups": [[0, 1280066883], [2, 2], [3, 3], [6, 100911428], [9, 100911428]], "id": "0x607e565", "offset": "0x167e924", "position": [880.38427734375, 2791.661865234375, 4103.0], "spatial": ["XMBO", "XPRM"]}, {"base": "0x60a7c03", "flags": "0x0", "groups": [[0, 1280066883], [2, 2], [3, 3], [6, 100911428], [9, 100911428]], "id": "0x607e566", "offset": "0x167e99c", "position": [2176.0, 4616.0, 5232.0], "spatial": ["XMBO", "XPRM"]}, {"base": "0x609cfbd", "flags": "0x0", "groups": [[0, 1280066883], [2, 2], [3, 3], [6, 100911428], [9, 100911428]], "id": "0x607e567", "offset": "0x167ea14", "position": [2304.0, 5664.0, 5152.0], "spatial": ["XMBO", "XPRM"]}, {"base": "0x609d9ca", "flags": "0x0", "groups": [[0, 1280066883], [2, 2], [3, 3], [6, 100911428], [9, 100911428]], "id": "0x609d9cb", "offset": "0x167f104", "position": [1951.999755859375, 1471.999755859375, 4969.0], "spatial": ["XMBO", "XPRM"]}, {"base": "0x60a675c", "flags": "0x0", "groups": [[0, 1280066883], [2, 7], [3, 4], [6, 100914243], [9, 100914243]], "id": "0x607e56e", "offset": "0x2108945", "position": [1960.0, 3256.0, 5016.0], "spatial": ["XMBO", "XPRM"]}, {"base": "0x21", "flags": "0x0", "groups": [[0, 1280066883], [2, 7], [3, 4], [6, 100914243], [9, 100914243]], "id": "0x607e608", "offset": "0x21089bd", "position": [2156.054443359375, 3539.4091796875, 4504.5693359375], "spatial": ["XMBO", "XPRM"]}, {"base": "0x21", "flags": "0x0", "groups": [[0, 1280066883], [2, 7], [3, 4], [6, 100914243], [9, 100914243]], "id": "0x607e609", "offset": "0x2108a35", "position": [2778.68603515625, 2081.949951171875, 4641.76904296875], "spatial": ["XMBO", "XPRM"]}, {"base": "0x21", "flags": "0x0", "groups": [[0, 1280066883], [2, 7], [3, 4], [6, 100914243], [9, 100914243]], "id": "0x607e738", "offset": "0x2108aad", "position": [2694.519287109375, 2067.1533203125, 4654.314453125], "spatial": ["XMBO", "XPRM"]}]}
+{"all_spatial_reference_tags": {"XMBO": 337, "XMBR": 26, "XOCP": 4, "XPRM": 452, "XRMR": 43}, "file": "/data/storage0/Games/FalloutNV_TTW/mods/TTW_v3.4/TaleOfTwoWastelands.esm", "masters": ["FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm", "GunRunnersArsenal.esm", "Fallout3.esm", "Anchorage.esm", "ThePitt.esm", "BrokenSteel.esm", "PointLookout.esm", "Zeta.esm"], "other_world_spatial_refs_in_rect": [], "target_cell_records": [{"edid": "zFairfaxMaintenance", "flags": "0x0", "id": "0x603c944", "offset": "0x145994c"}, {"edid": "zFairfaxMetro", "flags": "0x0", "id": "0x603d443", "offset": "0x15e95ac"}, {"edid": "FairfaxRuinsExterior05", "flags": "0x0", "id": "0x6001163", "offset": "0x18fddd1"}, {"edid": "FairfaxRuinsExterior02", "flags": "0x0", "id": "0x6001164", "offset": "0x18fdeca"}, {"edid": "FairfaxRuinsExterior01", "flags": "0x0", "id": "0x6001165", "offset": "0x18fe083"}, {"edid": "FairfaxRuinsExterior07", "flags": "0x0", "id": "0x6001172", "offset": "0x18fe90b"}, {"edid": "FairfaxRuinsExterior06", "flags": "0x0", "id": "0x6001173", "offset": "0x18fea88"}, {"edid": "FairfaxRuinsExterior04", "flags": "0x0", "id": "0x6001174", "offset": "0x18ff465"}, {"edid": "FairfaxRuinsExterior03", "flags": "0x0", "id": "0x6001175", "offset": "0x18ffa46"}], "target_counts": {"cell_owned_refs": 101, "other_world_refs_in_rect": 5}, "target_spatial_refs": []}
+{"all_spatial_reference_tags": {"XMBO": 424, "XMBR": 74, "XOCP": 12, "XPRM": 524}, "file": "/data/storage0/Games/FalloutNV_TTW/mods/TTW_v3.4/YUPTTW.esm", "masters": ["FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm", "GunRunnersArsenal.esm", "Fallout3.esm", "Anchorage.esm", "ThePitt.esm", "BrokenSteel.esm", "PointLookout.esm", "Zeta.esm", "TaleofTwoWastelands.esm"], "other_world_spatial_refs_in_rect": [], "target_cell_records": [], "target_counts": {}, "target_spatial_refs": []}
+{"all_spatial_reference_tags": {"XMBO": 466, "XMBR": 74, "XOCP": 12, "XPRM": 684}, "file": "/data/storage0/Games/FalloutNV_TTW/mods/YUPTTW 13.9.1/YUPTTW.esm", "masters": ["FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm", "GunRunnersArsenal.esm", "Fallout3.esm", "Anchorage.esm", "ThePitt.esm", "BrokenSteel.esm", "PointLookout.esm", "Zeta.esm", "TaleofTwoWastelands.esm"], "other_world_spatial_refs_in_rect": [], "target_cell_records": [], "target_counts": {}, "target_spatial_refs": []}
+{"all_spatial_reference_tags": {"XMBO": 3227, "XOCP": 239, "XPRM": 3270, "XRMR": 217}, "file": "/data/storage0/Games/FalloutNV_TTW/mods/Fallout 3 Interior Optimization Project/FO3_Optimization.esm", "masters": ["FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm", "GunRunnersArsenal.esm", "Fallout3.esm", "Anchorage.esm", "ThePitt.esm", "BrokenSteel.esm", "PointLookout.esm", "Zeta.esm", "CaravanPack.esm", "ClassicPack.esm", "MercenaryPack.esm", "TribalPack.esm", "TaleOfTwoWastelands.esm"], "other_world_spatial_refs_in_rect": [], "target_cell_records": [{"edid": "zFairfaxMaintenance", "flags": "0x0", "id": "0x603c944", "offset": "0x13f6d"}, {"edid": "zFairfaxMetro", "flags": "0x0", "id": "0x603d443", "offset": "0x5dcaa"}], "target_counts": {"XMBO": 15, "XPRM": 15, "cell_owned_refs": 15}, "target_spatial_refs": [{"base": "0x1f", "flags": "0x400", "groups": [[0, 1280066883], [2, 2], [3, 3], [6, 100911428], [8, 100911428]], "id": "0x11001933", "offset": "0x14089", "position": [2054.0517578125, 4799.8173828125, 5025.37890625], "spatial": ["XMBO", "XPRM"]}, {"base": "0x1f", "flags": "0x400", "groups": [[0, 1280066883], [2, 2], [3, 3], [6, 100911428], [8, 100911428]], "id": "0x11001934", "offset": "0x14101", "position": [1734.05224609375, 1226.545166015625, 5003.3134765625], "spatial": ["XMBO", "XPRM"]}, {"base": "0x1f", "flags": "0x400", "groups": [[0, 1280066883], [2, 2], [3, 3], [6, 100911428], [8, 100911428]], "id": "0x11001935", "offset": "0x14179", "position": [1458.109130859375, 2687.81787109375, 4544.0], "spatial": ["XMBO", "XPRM"]}, {"base": "0x1f", "flags": "0x400", "groups": [[0, 1280066883], [2, 2], [3, 3], [6, 100911428], [8, 100911428]], "id": "0x11001936", "offset": "0x141f1", "position": [-1344.0, 1712.0458984375, 4096.0], "spatial": ["XMBO", "XPRM"]}, {"base": "0x1f", "flags": "0x400", "groups": [[0, 1280066883], [2, 2], [3, 3], [6, 100911428], [8, 100911428]], "id": "0x11001937", "offset": "0x14269", "position": [-1344.0, 2938.681884765625, 4096.0], "spatial": ["XMBO", "XPRM"]}, {"base": "0x20", "flags": "0x0", "groups": [[0, 1280066883], [2, 2], [3, 3], [6, 100911428], [9, 100911428]], "id": "0x11001938", "offset": "0x142f9", "position": [-1536.0, 2229.3642578125, 3936.0], "spatial": ["XMBO", "XPRM"]}, {"base": "0x20", "flags": "0x0", "groups": [[0, 1280066883], [2, 2], [3, 3], [6, 100911428], [9, 100911428]], "id": "0x11001939", "offset": "0x1437f", "position": [199.24363708496094, 1984.0, 4288.0], "spatial": ["XMBO", "XPRM"]}, {"base": "0x20", "flags": "0x0", "groups": [[0, 1280066883], [2, 2], [3, 3], [6, 100911428], [9, 100911428]], "id": "0x1100193a", "offset": "0x14405", "position": [1536.0, 1813.0906982421875, 4544.0], "spatial": ["XMBO", "XPRM"]}, {"base": "0x20", "flags": "0x0", "groups": [[0, 1280066883], [2, 2], [3, 3], [6, 100911428], [9, 100911428]], "id": "0x1100193b", "offset": "0x1448b", "position": [1536.0, 3562.544677734375, 4608.0], "spatial": ["XMBO", "XPRM"]}, {"base": "0x1f", "flags": "0x400", "groups": [[0, 1280066883], [2, 7], [3, 4], [6, 100914243], [8, 100914243]], "id": "0x11005ecc", "offset": "0x5dd9a", "position": [-1117.956787109375, 2969.31201171875, 5291.89697265625], "spatial": ["XMBO", "XPRM"]}, {"base": "0x1f", "flags": "0x400", "groups": [[0, 1280066883], [2, 7], [3, 4], [6, 100914243], [8, 100914243]], "id": "0x11005ecd", "offset": "0x5de12", "position": [1979.5662841796875, 2567.469970703125, 5089.64404296875], "spatial": ["XMBO", "XPRM"]}, {"base": "0x1f", "flags": "0x400", "groups": [[0, 1280066883], [2, 7], [3, 4], [6, 100914243], [8, 100914243]], "id": "0x11005ece", "offset": "0x5de8a", "position": [1979.5662841796875, 5868.3046875, 5096.33740234375], "spatial": ["XMBO", "XPRM"]}, {"base": "0x20", "flags": "0x0", "groups": [[0, 1280066883], [2, 7], [3, 4], [6, 100914243], [9, 100914243]], "id": "0x11005ecf", "offset": "0x5df1a", "position": [1245.8074951171875, 4299.2548828125, 4617.8291015625], "spatial": ["XMBO", "XPRM"]}, {"base": "0x20", "flags": "0x0", "groups": [[0, 1280066883], [2, 7], [3, 4], [6, 100914243], [9, 100914243]], "id": "0x11005ed0", "offset": "0x5dfa0", "position": [2789.88525390625, 4299.2548828125, 4617.8291015625], "spatial": ["XMBO", "XPRM"]}, {"base": "0x20", "flags": "0x0", "groups": [[0, 1280066883], [2, 7], [3, 4], [6, 100914243], [9, 100914243]], "id": "0x11005ed1", "offset": "0x5e026", "position": [228.24313354492188, 2848.75634765625, 5141.9453125], "spatial": ["XMBO", "XPRM"]}]}
+{"all_spatial_reference_tags": {"XMBO": 686, "XPRM": 688}, "file": "/data/storage0/Games/FalloutNV_TTW/mods/A World of Pain (AWOP) - FO3 - Roombound Project/A World of Pain FO3 Roombound Project.esm", "masters": ["FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm", "GunRunnersArsenal.esm", "Fallout3.esm", "Anchorage.esm", "ThePitt.esm", "BrokenSteel.esm", "PointLookout.esm", "Zeta.esm", "TaleOfTwoWastelands.esm", "AWorldOfPainFO3.esm"], "other_world_spatial_refs_in_rect": [], "target_cell_records": [], "target_counts": {}, "target_spatial_refs": []}
+{"all_spatial_reference_tags": {"XMBO": 1}, "file": "/data/storage0/Games/FalloutNV_TTW/mods/The Great DC Interior Overhaul/TGDCIO.esm", "masters": ["FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm", "GunRunnersArsenal.esm", "Fallout3.esm", "Anchorage.esm", "ThePitt.esm", "BrokenSteel.esm", "PointLookout.esm", "Zeta.esm", "TaleOfTwoWastelands.esm"], "other_world_spatial_refs_in_rect": [], "target_cell_records": [], "target_counts": {}, "target_spatial_refs": []}
+{"all_spatial_reference_tags": {}, "file": "/data/storage0/Games/FalloutNV_TTW/mods/Performance Of The Titans/PerformanceOfTheTitans.esm", "masters": ["FalloutNV.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm"], "other_world_spatial_refs_in_rect": [], "target_cell_records": [], "target_counts": {}, "target_spatial_refs": []}
+{"all_spatial_reference_tags": {"XMBO": 10, "XMBR": 10, "XPRM": 10}, "file": "/data/storage0/Games/FalloutNV_TTW/mods/Capital Wasteland Settlements Redesign TTW/Capital Wasteland Settlements Redesign.esm", "masters": ["FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm", "GunRunnersArsenal.esm", "Fallout3.esm", "Anchorage.esm", "ThePitt.esm", "BrokenSteel.esm", "PointLookout.esm", "Zeta.esm", "TaleOfTwoWastelands.esm", "YUPTTW.esm"], "other_world_spatial_refs_in_rect": [], "target_cell_records": [], "target_counts": {}, "target_spatial_refs": []}
+
+
+===== Actual static base models =====
+Command:
+python3 - <<'PY'
+from pathlib import Path
+import mmap,struct,collections,json
+root=Path('/data/storage0/Games/FalloutNV_TTW/mods/TTW_v3.4')
+def records(b,start,end,groups=()):
+ q=start
+ while q<end:
+  assert q+24<=end
+  sig=b[q:q+4];size=struct.unpack_from('<I',b,q+4)[0]
+  if sig==b'GRUP':
+   assert size>=24 and q+size<=end
+   label,kind=struct.unpack_from('<Ii',b,q+8)
+   yield from records(b,q+24,q+size,groups+((kind,label),))
+   q+=size
+  else:
+   assert q+24+size<=end
+   flags,fid=struct.unpack_from('<II',b,q+8)
+   yield q,sig,flags,fid,groups,b[q+24:q+24+size]
+   q+=24+size
+ assert q==end
+
+def fields(payload):
+ q=0;result=[]
+ while q<len(payload):
+  assert q+6<=len(payload)
+  tag=payload[q:q+4];n=struct.unpack_from('<H',payload,q+4)[0]
+  assert tag!=b'XXXX','extended field requires separate verification'
+  q+=6;assert q+n<=len(payload)
+  result.append((tag,payload[q:q+n]));q+=n
+ assert q==len(payload)
+ return result
+
+bases={};cells={};refs=collections.defaultdict(list);totals={}
+for filename in ['FalloutNV.esm','Fallout3.esm']:
+ with (root/filename).open('rb') as f,mmap.mmap(f.fileno(),0,access=mmap.ACCESS_READ) as b:
+  count=0
+  for q,sig,flags,fid,groups,payload in records(b,0,len(b)):
+   count+=1
+   if sig not in [b'TES4',b'GRUP',b'CELL',b'REFR',b'ACHR',b'ACRE',b'LAND',b'NAVM',b'INFO'] and flags&0x40000==0:
+    fs=dict(fields(payload));ed=fs.get(b'EDID',b'').rstrip(b'\0').decode('ascii',errors='backslashreplace')
+    bases[fid]=(sig.decode(),ed,fs.get(b'MODL',b'').rstrip(b'\0').decode('ascii',errors='backslashreplace'))
+   if filename=='Fallout3.esm' and sig==b'CELL' and b'fairfax' in payload.lower():
+    assert flags&0x40000==0
+    fs=dict(fields(payload));cells[fid]={'cell':fs.get(b'EDID',b'').rstrip(b'\0').decode('ascii'),'offset':hex(q),'groups':groups,'cell_flags':fs[b'DATA'].hex(),'grid':struct.unpack('<ii',fs[b'XCLC'][:8]) if b'XCLC' in fs else None}
+   if filename=='Fallout3.esm' and sig in [b'REFR',b'ACHR',b'ACRE']:
+    refs[tuple(groups)].append((q,sig,flags,fid,payload))
+  totals[filename]=count
+for fid in [0x1f,0x20,0x21,0x609cfbd,0x60a7c03,0xae202,0x609d9ca,0x60a675c]:print('selected_base',hex(fid),bases.get(fid))
+print('validated_header_counts',json.dumps(totals,sort_keys=True))
+for cellid,info in cells.items():
+ chosen=[]
+ for gs,rs in refs.items():
+  if any(label==cellid for kind,label in gs):chosen+=rs
+ mesh_counts=collections.Counter();types=collections.Counter();tags=collections.Counter();markers=collections.Counter();unknown=collections.Counter();examples=[]
+ for q,sig,flags,fid,payload in chosen:
+  assert flags&0x40000==0,('compressed target reference',hex(q))
+  fs=dict(fields(payload));tags.update(t.decode() for t in fs if t.startswith(b'XM') or t.startswith(b'XR') or t.startswith(b'XP') or t.startswith(b'XO'))
+  baseid=struct.unpack('<I',fs[b'NAME'])[0]
+  typ,ed,model=bases.get(baseid,('UNRESOLVED',hex(baseid),''))
+  types[typ]+=1
+  if typ=='STAT':mesh_counts[(hex(baseid),ed,model)]+=1
+  if typ=='UNRESOLVED':unknown[hex(baseid)]+=1
+  if any(s in ed.lower() for s in ['occlusion','portal','roommarker','multibound']):
+   markers[ed]+=1
+   if len(examples)<8:examples.append({'ref':hex(fid),'base':hex(baseid),'editor_id':ed,'tags':[t.decode() for t in fs]})
+ print(json.dumps({'form_id':hex(cellid),**info,'references_in_matching_cell_groups':len(chosen),'base_types':dict(types),'marker_bases':dict(markers),'spatial_subrecord_tags':dict(tags),'unknown_base_ids':dict(unknown),'marker_examples':examples,'unique_stat_bases':len(mesh_counts),'top_static_models':[{'base':k[0],'editor_id':k[1],'model':k[2],'placements':n} for k,n in mesh_counts.most_common(8)]},sort_keys=True))
+PY
+
+Exit code: 0
+Output:
+selected_base 0x1f ('STAT', 'RoomMarker', '')
+selected_base 0x20 None
+selected_base 0x21 ('STAT', 'CollisionMarker', '')
+selected_base 0x609cfbd ('ASPC', 'IntMetroDefault01', '')
+selected_base 0x60a7c03 ('ASPC', 'IntMetroUtility02', '')
+selected_base 0xae202 ('SOUN', 'AMBWaterLittleLamplightLP', '')
+selected_base 0x609d9ca ('ACTI', 'zFairfaxSewerAshTrayTrig', '')
+selected_base 0x60a675c ('ASPC', 'IntMetroLarge01', '')
+validated_header_counts {"Fallout3.esm": 704184, "FalloutNV.esm": 465055}
+{"base_types": {"ACTI": 14, "ASPC": 4, "CONT": 25, "DOOR": 9, "FURN": 1, "LIGH": 56, "MISC": 39, "MSTT": 41, "NPC_": 4, "PWAT": 1, "SOUN": 11, "STAT": 293, "WEAP": 7}, "cell": "zFairfaxMaintenance", "cell_flags": "03", "form_id": "0x603c944", "grid": null, "groups": [[0, 1280066883], [2, 2], [3, 3]], "marker_bases": {}, "marker_examples": [], "offset": "0x167672d", "references_in_matching_cell_groups": 505, "spatial_subrecord_tags": {"XMBO": 6, "XPPA": 2, "XPRD": 2, "XPRM": 6, "XPWR": 23, "XRDS": 55}, "top_static_models": [{"base": "0x2013a", "editor_id": "ShackPaperDebris03", "model": "Architecture\\Megaton\\interior\\ShackInteriors\\ShackPaperDebris03.NIF", "placements": 18}, {"base": "0x25b45", "editor_id": "MetLight01b", "model": "Dungeons\\Metro\\Clutter\\MetLight01b.NIF", "placements": 17}, {"base": "0x20138", "editor_id": "ShackPaperDebris05", "model": "Architecture\\Megaton\\interior\\ShackInteriors\\ShackPaperDebris05.NIF", "placements": 17}, {"base": "0x4bcac", "editor_id": "Pipe1WayLng01", "model": "Clutter\\Pipes\\Pipe1WayLng01.NIF", "placements": 15}, {"base": "0x4bcaa", "editor_id": "PipeEnd01", "model": "Clutter\\Pipes\\PipeEnd01.NIF", "placements": 14}, {"base": "0x4bca8", "editor_id": "Pipe2WaySht01", "model": "Clutter\\Pipes\\Pipe2WaySht01.NIF", "placements": 11}, {"base": "0x2509c", "editor_id": "AssortedPapers03", "model": "Clutter\\Office\\AssortedPapers03.NIF", "placements": 10}, {"base": "0x20139", "editor_id": "ShackPaperDebris04", "model": "Architecture\\Megaton\\interior\\ShackInteriors\\ShackPaperDebris04.NIF", "placements": 9}], "unique_stat_bases": 80, "unknown_base_ids": {}}
+{"base_types": {"ACTI": 6, "ALCH": 6, "ASPC": 1, "BOOK": 1, "CONT": 8, "DOOR": 1, "FURN": 3, "IDLM": 3, "LIGH": 20, "MISC": 35, "MSTT": 50, "NPC_": 2, "SOUN": 3, "STAT": 225}, "cell": "zFairfaxMetro", "cell_flags": "01", "form_id": "0x603d443", "grid": null, "groups": [[0, 1280066883], [2, 7], [3, 4]], "marker_bases": {}, "marker_examples": [], "offset": "0x210346e", "references_in_matching_cell_groups": 364, "spatial_subrecord_tags": {"XMBO": 4, "XPPA": 2, "XPRD": 2, "XPRM": 4, "XRDS": 19}, "top_static_models": [{"base": "0x2013b", "editor_id": "ShackPaperDebris02", "model": "Architecture\\Megaton\\interior\\ShackInteriors\\ShackPaperDebris02.NIF", "placements": 14}, {"base": "0x2013a", "editor_id": "ShackPaperDebris03", "model": "Architecture\\Megaton\\interior\\ShackInteriors\\ShackPaperDebris03.NIF", "placements": 12}, {"base": "0x2509a", "editor_id": "AssortedPapers05", "model": "Clutter\\Office\\AssortedPapers05.NIF", "placements": 9}, {"base": "0xa31", "editor_id": "RubblePile02", "model": "Architecture\\Urban\\RubblePiles\\RubblePile02.NIF", "placements": 8}, {"base": "0x20138", "editor_id": "ShackPaperDebris05", "model": "Architecture\\Megaton\\interior\\ShackInteriors\\ShackPaperDebris05.NIF", "placements": 7}, {"base": "0x15845", "editor_id": "Chair02", "model": "Furniture\\Chair02.NIF", "placements": 6}, {"base": "0x1f4e2", "editor_id": "StreetLitter02", "model": "Architecture\\Urban\\Decals\\StreetLitter02.NIF", "placements": 5}, {"base": "0x601c48f", "editor_id": "MetTun1WayTrans01", "model": "Dungeons\\Metro\\Tunnel\\MetTun1WayTrans01.NIF", "placements": 4}], "unique_stat_bases": 100, "unknown_base_ids": {}}
+{"base_types": {"ACTI": 2, "CONT": 1, "STAT": 53, "UNRESOLVED": 3}, "cell": "FairfaxRuinsExterior05", "cell_flags": "42", "form_id": "0x6001163", "grid": [-3, -12], "groups": [[0, 1145852503], [1, 101181983], [4, 4294967295], [5, 4294967294]], "marker_bases": {}, "marker_examples": [], "offset": "0x141e25a8", "references_in_matching_cell_groups": 59, "spatial_subrecord_tags": {}, "top_static_models": [{"base": "0x9f3", "editor_id": "BLD06Mid01", "model": "Architecture\\Urban\\BuildingKits\\BLD06Mid01.NIF", "placements": 13}, {"base": "0xa31", "editor_id": "RubblePile02", "model": "Architecture\\Urban\\RubblePiles\\RubblePile02.NIF", "placements": 6}, {"base": "0x229bc", "editor_id": "SWSecEdge1x8", "model": "Architecture\\Urban\\Sidewalk\\SWSecEdge1x8.NIF", "placements": 4}, {"base": "0x1dd45", "editor_id": "WastelandRoadStraightLong", "model": "Landscape\\Roads\\WastelandRoadStraightLong.NIF", "placements": 3}, {"base": "0xa51", "editor_id": "SWSingleCorner01", "model": "Architecture\\Urban\\Sidewalk\\SWSingleCorner01.NIF", "placements": 3}, {"base": "0x1ee8f", "editor_id": "WastelandRoadStraightLongB", "model": "Landscape\\Roads\\WastelandRoadStraightLongB.NIF", "placements": 2}, {"base": "0xa32", "editor_id": "RubblePile03", "model": "Architecture\\Urban\\RubblePiles\\RubblePile03.NIF", "placements": 2}, {"base": "0x9f1", "editor_id": "BLD06Corner01", "model": "Architecture\\Urban\\BuildingKits\\BLD06Corner01.NIF", "placements": 2}], "unique_stat_bases": 22, "unknown_base_ids": {"0x4003662": 2, "0x4003667": 1}}
+{"base_types": {"ACTI": 20, "ALCH": 1, "CONT": 9, "FURN": 4, "MSTT": 6, "STAT": 222, "TERM": 1, "TREE": 8, "UNRESOLVED": 1}, "cell": "FairfaxRuinsExterior02", "cell_flags": "42", "form_id": "0x6001164", "grid": [-4, -12], "groups": [[0, 1145852503], [1, 101181983], [4, 4294967295], [5, 4294967294]], "marker_bases": {}, "marker_examples": [], "offset": "0x141e8b9d", "references_in_matching_cell_groups": 272, "spatial_subrecord_tags": {}, "top_static_models": [{"base": "0x9565f", "editor_id": "RubblePile02Brick", "model": "Architecture\\Urban\\RubblePiles\\RubblePile02Brick.NIF", "placements": 13}, {"base": "0x78578", "editor_id": "DoorBarricade", "model": "Architecture\\DoorNoEnter\\DoorBarricade.NIF", "placements": 13}, {"base": "0xa40", "editor_id": "SWDouble01", "model": "Architecture\\Urban\\Sidewalk\\SWDouble01.NIF", "placements": 10}, {"base": "0x60464c7", "editor_id": "RockCanyon12rad68", "model": "Landscape\\Rocks\\RockCanyon12.NIF", "placements": 10}, {"base": "0x317ae", "editor_id": "RoadChunkCluster01", "model": "Landscape\\Roads\\RoadChunkCluster01.NIF", "placements": 8}, {"base": "0x60464c3", "editor_id": "RockCanyon06rad70", "model": "Landscape\\Rocks\\RockCanyon06.NIF", "placements": 8}, {"base": "0x99786", "editor_id": "Vault87Blood04", "model": "Clutter\\QuestItems\\Vault87Blood04.NIF", "placements": 7}, {"base": "0x95660", "editor_id": "RubblePileEdging01Brick", "model": "Architecture\\Urban\\RubblePiles\\RubblePileEdging01Brick.NIF", "placements": 5}], "unique_stat_bases": 91, "unknown_base_ids": {"0x4003769": 1}}
+{"base_types": {"ACTI": 9, "CONT": 1, "DOOR": 2, "MSTT": 4, "STAT": 217, "TREE": 2}, "cell": "FairfaxRuinsExterior01", "cell_flags": "42", "form_id": "0x6001165", "grid": [-5, -12], "groups": [[0, 1145852503], [1, 101181983], [4, 4294967295], [5, 4294967294]], "marker_bases": {}, "marker_examples": [], "offset": "0x141f3d20", "references_in_matching_cell_groups": 235, "spatial_subrecord_tags": {"XRAD": 1, "XRDS": 1, "XRGD": 1}, "top_static_models": [{"base": "0x317ae", "editor_id": "RoadChunkCluster01", "model": "Landscape\\Roads\\RoadChunkCluster01.NIF", "placements": 20}, {"base": "0xa40", "editor_id": "SWDouble01", "model": "Architecture\\Urban\\Sidewalk\\SWDouble01.NIF", "placements": 15}, {"base": "0x317b0", "editor_id": "RoadChunkCluster03", "model": "Landscape\\Roads\\RoadChunkCluster03.NIF", "placements": 14}, {"base": "0x78578", "editor_id": "DoorBarricade", "model": "Architecture\\DoorNoEnter\\DoorBarricade.NIF", "placements": 13}, {"base": "0x317af", "editor_id": "RoadChunkCluster02", "model": "Landscape\\Roads\\RoadChunkCluster02.NIF", "placements": 12}, {"base": "0x317a7", "editor_id": "RoadChunk02", "model": "Landscape\\Roads\\RoadChunk02.NIF", "placements": 7}, {"base": "0x317a8", "editor_id": "RoadChunk03", "model": "Landscape\\Roads\\RoadChunk03.NIF", "placements": 5}, {"base": "0x1dd4c", "editor_id": "WastelandRoadEndCapL", "model": "Landscape\\Roads\\WastelandRoadEndCapL.NIF", "placements": 4}], "unique_stat_bases": 86, "unknown_base_ids": {}}
+{"base_types": {"ACTI": 1, "CONT": 2, "MSTT": 2, "STAT": 197}, "cell": "FairfaxRuinsExterior07", "cell_flags": "02", "form_id": "0x6001172", "grid": [-2, -13], "groups": [[0, 1145852503], [1, 101181983], [4, 4294967295], [5, 4294967294]], "marker_bases": {}, "marker_examples": [], "offset": "0x14227c0e", "references_in_matching_cell_groups": 202, "spatial_subrecord_tags": {}, "top_static_models": [{"base": "0x317ae", "editor_id": "RoadChunkCluster01", "model": "Landscape\\Roads\\RoadChunkCluster01.NIF", "placements": 26}, {"base": "0x317a8", "editor_id": "RoadChunk03", "model": "Landscape\\Roads\\RoadChunk03.NIF", "placements": 22}, {"base": "0x317b0", "editor_id": "RoadChunkCluster03", "model": "Landscape\\Roads\\RoadChunkCluster03.NIF", "placements": 14}, {"base": "0xa51", "editor_id": "SWSingleCorner01", "model": "Architecture\\Urban\\Sidewalk\\SWSingleCorner01.NIF", "placements": 12}, {"base": "0x317af", "editor_id": "RoadChunkCluster02", "model": "Landscape\\Roads\\RoadChunkCluster02.NIF", "placements": 12}, {"base": "0x317a7", "editor_id": "RoadChunk02", "model": "Landscape\\Roads\\RoadChunk02.NIF", "placements": 11}, {"base": "0x317a6", "editor_id": "RoadChunk01", "model": "Landscape\\Roads\\RoadChunk01.NIF", "placements": 10}, {"base": "0x317b7", "editor_id": "RoadChunk04", "model": "Landscape\\Roads\\RoadChunk04.NIF", "placements": 8}], "unique_stat_bases": 38, "unknown_base_ids": {}}
+{"base_types": {"ACTI": 1, "CONT": 2, "FURN": 8, "MSTT": 1, "STAT": 167, "UNRESOLVED": 2}, "cell": "FairfaxRuinsExterior06", "cell_flags": "42", "form_id": "0x6001173", "grid": [-3, -13], "groups": [[0, 1145852503], [1, 101181983], [4, 4294967295], [5, 4294967294]], "marker_bases": {}, "marker_examples": [], "offset": "0x142329bf", "references_in_matching_cell_groups": 181, "spatial_subrecord_tags": {"XRGD": 1}, "top_static_models": [{"base": "0x6017095", "editor_id": "CSBrickSingle01", "model": "Architecture\\Urban\\CivicSpace\\CSBrickSingle01.NIF", "placements": 30}, {"base": "0x1f4e2", "editor_id": "StreetLitter02", "model": "Architecture\\Urban\\Decals\\StreetLitter02.NIF", "placements": 15}, {"base": "0x20137", "editor_id": "ShackPaperDebris01", "model": "Architecture\\Megaton\\interior\\ShackInteriors\\ShackPaperDebris01.NIF", "placements": 11}, {"base": "0x20138", "editor_id": "ShackPaperDebris05", "model": "Architecture\\Megaton\\interior\\ShackInteriors\\ShackPaperDebris05.NIF", "placements": 11}, {"base": "0x6017092", "editor_id": "CSStepDownCorPlanter01", "model": "Architecture\\Urban\\CivicSpace\\CSStepDownCorPlanter01.NIF", "placements": 8}, {"base": "0x20139", "editor_id": "ShackPaperDebris04", "model": "Architecture\\Megaton\\interior\\ShackInteriors\\ShackPaperDebris04.NIF", "placements": 8}, {"base": "0x60170c1", "editor_id": "CSBrickSingleQuarterCir01", "model": "Architecture\\Urban\\CivicSpace\\CSBrickSingleQuarterCir01.NIF", "placements": 8}, {"base": "0xa31", "editor_id": "RubblePile02", "model": "Architecture\\Urban\\RubblePiles\\RubblePile02.NIF", "placements": 5}], "unique_stat_bases": 42, "unknown_base_ids": {"0x4003640": 1, "0x4003641": 1}}
+{"base_types": {"CONT": 8, "FURN": 4, "MSTT": 1, "STAT": 147, "TREE": 5, "UNRESOLVED": 10}, "cell": "FairfaxRuinsExterior04", "cell_flags": "42", "form_id": "0x6001174", "grid": [-4, -13], "groups": [[0, 1145852503], [1, 101181983], [4, 4294967295], [5, 4294967294]], "marker_bases": {}, "marker_examples": [], "offset": "0x1423c260", "references_in_matching_cell_groups": 175, "spatial_subrecord_tags": {}, "top_static_models": [{"base": "0x20138", "editor_id": "ShackPaperDebris05", "model": "Architecture\\Megaton\\interior\\ShackInteriors\\ShackPaperDebris05.NIF", "placements": 11}, {"base": "0x1f4e2", "editor_id": "StreetLitter02", "model": "Architecture\\Urban\\Decals\\StreetLitter02.NIF", "placements": 9}, {"base": "0x20137", "editor_id": "ShackPaperDebris01", "model": "Architecture\\Megaton\\interior\\ShackInteriors\\ShackPaperDebris01.NIF", "placements": 9}, {"base": "0xa4f", "editor_id": "SWSingle", "model": "Architecture\\Urban\\Sidewalk\\SWSingle.NIF", "placements": 7}, {"base": "0x7795b", "editor_id": "SWSec1x3", "model": "Architecture\\Urban\\Sidewalk\\SWSec1x3.NIF", "placements": 6}, {"base": "0x20139", "editor_id": "ShackPaperDebris04", "model": "Architecture\\Megaton\\interior\\ShackInteriors\\ShackPaperDebris04.NIF", "placements": 5}, {"base": "0x60464c7", "editor_id": "RockCanyon12rad68", "model": "Landscape\\Rocks\\RockCanyon12.NIF", "placements": 5}, {"base": "0x229bc", "editor_id": "SWSecEdge1x8", "model": "Architecture\\Urban\\Sidewalk\\SWSecEdge1x8.NIF", "placements": 4}], "unique_stat_bases": 63, "unknown_base_ids": {"0x400364d": 2, "0x4003650": 1, "0x4003652": 1, "0x4003656": 2, "0x4003658": 2, "0x4003659": 2}}
+{"base_types": {"CONT": 1, "DOOR": 2, "MSTT": 1, "STAT": 92, "TREE": 10, "UNRESOLVED": 1}, "cell": "FairfaxRuinsExterior03", "cell_flags": "42", "form_id": "0x6001175", "grid": [-5, -13], "groups": [[0, 1145852503], [1, 101181983], [4, 4294967295], [5, 4294967294]], "marker_bases": {}, "marker_examples": [], "offset": "0x1424426e", "references_in_matching_cell_groups": 107, "spatial_subrecord_tags": {"XRAD": 1, "XRDS": 1}, "top_static_models": [{"base": "0x1f4e2", "editor_id": "StreetLitter02", "model": "Architecture\\Urban\\Decals\\StreetLitter02.NIF", "placements": 15}, {"base": "0xa51", "editor_id": "SWSingleCorner01", "model": "Architecture\\Urban\\Sidewalk\\SWSingleCorner01.NIF", "placements": 7}, {"base": "0x60464c7", "editor_id": "RockCanyon12rad68", "model": "Landscape\\Rocks\\RockCanyon12.NIF", "placements": 7}, {"base": "0x5f34e", "editor_id": "ParkingLotCarblocker01", "model": "Architecture\\ParadiseFalls\\ParkingLot\\ParkingLotCarblocker01.NIF", "placements": 5}, {"base": "0x229bc", "editor_id": "SWSecEdge1x8", "model": "Architecture\\Urban\\Sidewalk\\SWSecEdge1x8.NIF", "placements": 4}, {"base": "0x39601", "editor_id": "RWStraight01", "model": "Architecture\\Retaining Wall\\RWStraight01.NIF", "placements": 4}, {"base": "0x1dd4d", "editor_id": "WastelandRoadEndCapR", "model": "Landscape\\Roads\\WastelandRoadEndCapR.NIF", "placements": 3}, {"base": "0x60464c3", "editor_id": "RockCanyon06rad70", "model": "Landscape\\Rocks\\RockCanyon06.NIF", "placements": 3}], "unique_stat_bases": 43, "unknown_base_ids": {"0x4003641": 1}}
+
+
+===== Marker base and Wasteland identities =====
+Command:
+python3 - <<'PY'
+from pathlib import Path
+import mmap,struct,collections,json,zlib
+root=Path('/data/storage0/Games/FalloutNV_TTW/mods/TTW_v3.4')
+def records(b,start,end,groups=()):
+ q=start
+ while q<end:
+  assert q+24<=end
+  sig=b[q:q+4];size=struct.unpack_from('<I',b,q+4)[0]
+  if sig==b'GRUP':
+   assert size>=24 and q+size<=end
+   label,kind=struct.unpack_from('<Ii',b,q+8)
+   yield from records(b,q+24,q+size,groups+((kind,label),))
+   q+=size
+  else:
+   assert q+24+size<=end
+   flags,fid=struct.unpack_from('<II',b,q+8)
+   yield q,sig,flags,fid,groups,b[q+24:q+24+size]
+   q+=24+size
+ assert q==end
+
+def fields(payload):
+ q=0;result=[]
+ while q<len(payload):
+  assert q+6<=len(payload)
+  tag=payload[q:q+4];n=struct.unpack_from('<H',payload,q+4)[0]
+  if tag==b'XXXX':
+   assert n==4 and q+6+4+6<=len(payload)
+   n=struct.unpack_from('<I',payload,q+6)[0];q+=10
+   tag=payload[q:q+4];assert tag!=b'XXXX'
+  q+=6;assert q+n<=len(payload)
+  result.append((tag,payload[q:q+n]));q+=n
+ assert q==len(payload)
+ return result
+
+
+for filename in ['FalloutNV.esm','Fallout3.esm']:
+ with (root/filename).open('rb') as f,mmap.mmap(f.fileno(),0,access=mmap.ACCESS_READ) as b:
+  for q,sig,flags,fid,groups,payload in records(b,0,len(b)):
+   if fid not in [0x1f,0x20,0x21,0x607ea1f]:continue
+   if flags&0x40000:
+    expected=struct.unpack_from('<I',payload)[0];payload=zlib.decompress(payload[4:]);assert len(payload)==expected
+   print(filename,hex(q),sig.decode(),hex(fid),hex(flags),[(t.decode(),v.hex() if t not in [b'EDID',b'MODL',b'FULL'] else v.rstrip(b'\0').decode('ascii',errors='backslashreplace')) for t,v in fields(payload)])
+PY
+Exit code: 0
+Output:
+FalloutNV.esm 0x6c274d STAT 0x1f 0x0 [('EDID', 'RoomMarker'), ('OBND', 'cefd81ff24ff32027f00dc00')]
+FalloutNV.esm 0x6c2788 STAT 0x21 0x0 [('EDID', 'CollisionMarker'), ('OBND', '50ffe0ff00ffb00020000001'), ('BRUS', 'ff')]
+Fallout3.esm 0x345f740 WRLD 0x607ea1f 0x0 [('EDID', 'Wasteland'), ('FULL', 'Wasteland'), ('CNAM', '07790100'), ('NAM2', '09000300'), ('NAM3', '09000300'), ('NAM4', '00102446'), ('DNAM', '000000c500102446'), ('ICON', '496e746572666163655c576f726c646d61705c57617374656c616e645f313032345f6e6f5f6d61702e64647300'), ('MNAM', '0008000000080000e2ff1e001400ecff'), ('ONAM', '0000803f0000000000000000'), ('INAM', '08460600'), ('DATA', '00'), ('NAM0', '0000c6c80000c6c8'), ('NAM9', '0000c6480000ca48'), ('NNAM', '00'), ('XNAM', '446174615c54657874757265735c57617465725c57617374656c616e645761746572506f746f6d61632e64647300')]
+
+
+===== Optimization plugin primitive/portal payloads =====
+Command:
+python3 - <<'PY'
+from pathlib import Path
+import mmap,struct,collections,json,zlib
+root=Path('/data/storage0/Games/FalloutNV_TTW/mods')
+files=[root/'TTW_v3.4/Fallout3.esm',root/'TTW_v3.4/TaleOfTwoWastelands.esm',root/'TTW_v3.4/YUPTTW.esm',root/'YUPTTW 13.9.1/YUPTTW.esm',root/'Fallout 3 Interior Optimization Project/FO3_Optimization.esm',root/'A World of Pain (AWOP) - FO3 - Roombound Project/A World of Pain FO3 Roombound Project.esm',root/'The Great DC Interior Overhaul/TGDCIO.esm',root/'Performance Of The Titans/PerformanceOfTheTitans.esm',root/'Capital Wasteland Settlements Redesign TTW/Capital Wasteland Settlements Redesign.esm']
+def records(b,start,end,groups=()):
+ q=start
+ while q<end:
+  assert q+24<=end
+  sig=b[q:q+4];size=struct.unpack_from('<I',b,q+4)[0]
+  if sig==b'GRUP':
+   assert size>=24 and q+size<=end
+   label,kind=struct.unpack_from('<Ii',b,q+8)
+   yield from records(b,q+24,q+size,groups+((kind,label),));q+=size
+  else:
+   assert q+24+size<=end
+   flags,fid=struct.unpack_from('<II',b,q+8)
+   yield q,sig,flags,fid,groups,b[q+24:q+24+size];q+=24+size
+ assert q==end
+def fields(p):
+ q=0;out=[]
+ while q<len(p):
+  assert q+6<=len(p)
+  tag=p[q:q+4];n=struct.unpack_from('<H',p,q+4)[0];q+=6
+  if tag==b'XXXX':
+   assert n==4 and q+4+6<=len(p)
+   extended=struct.unpack_from('<I',p,q)[0];q+=4
+   tag=p[q:q+4];q+=6;assert tag!=b'XXXX';n=extended
+  assert q+n<=len(p);out.append((tag,p[q:q+n]));q+=n
+ return out
+def payload(flags,p):
+ if flags&0x40000:
+  expected=struct.unpack_from('<I',p)[0];p=zlib.decompress(p[4:]);assert len(p)==expected
+ return p
+cells={0x3c944,0x3d443,0x1163,0x1164,0x1165,0x1172,0x1173,0x1174,0x1175}
+spatial={b'XMBO',b'XPRM',b'XMBR',b'XRMR',b'XPOR',b'XOCP'}
+for path in [files[4]]:
+ with path.open('rb') as f,mmap.mmap(f.fileno(),0,access=mmap.ACCESS_READ) as b:
+  masters=[];local=[];persistent=[];tot=collections.Counter();cell_records=[];spatial_total=collections.Counter()
+  for q,sig,flags,fid,gs,p in records(b,0,len(b)):
+   if sig==b'TES4':
+    header=fields(payload(flags,p))
+    if header is None:
+     print(json.dumps({'file':str(path),'incomplete':'TES4 contains unsupported extended field; file skipped'}));break
+    masters=[v.rstrip(b'\0').decode('ascii') for t,v in header if t==b'MAST'];continue
+   if sig not in [b'CELL',b'REFR',b'ACHR',b'ACRE']:continue
+   parsed=fields(payload(flags,p))
+   if parsed is None:
+    tot['unsupported_extended_records']+=1;continue
+   fs=dict(parsed)
+   owner=(masters+[path.name])[fid>>24] if fid>>24<=len(masters) else 'UNKNOWN'
+   if sig==b'CELL' and owner.lower()=='fallout3.esm' and fid&0xffffff in cells:
+    cell_records.append({'id':hex(fid),'edid':fs.get(b'EDID',b'').rstrip(b'\0').decode('ascii'),'offset':hex(q),'flags':hex(flags)})
+   if sig!=b'REFR':continue
+   hits=sorted(t.decode() for t in spatial&fs.keys());spatial_total.update(hits)
+   target=False
+   for kind,label in gs:
+    groupowner=(masters+[path.name])[label>>24] if label>>24<=len(masters) else 'UNKNOWN'
+    if kind in [6,8,9,10] and groupowner.lower()=='fallout3.esm' and label&0xffffff in cells:target=True
+   data=fs.get(b'DATA')
+   pos=struct.unpack('<fff',data[:12]) if data and len(data)>=12 else None
+   in_rect=pos is not None and -20480<=pos[0]<-4096 and -57344<=pos[1]<-49152
+   # Coordinates delimit the rectangle of seven exterior cells; world ancestry must also match.
+   world=False
+   for kind,label in gs:
+    groupowner=(masters+[path.name])[label>>24] if label>>24<=len(masters) else 'UNKNOWN'
+    if kind==1 and groupowner.lower()=='fallout3.esm' and label&0xffffff==0x07ea1f:world=True
+   info={'id':hex(fid),'offset':hex(q),'flags':hex(flags),'base':hex(struct.unpack('<I',fs[b'NAME'])[0]) if b'NAME'in fs else None,'spatial':hits,'fields':[t.decode() for t in fs],'spatial_payloads':{t.decode():v.hex() for t,v in fs.items() if t in spatial or t==b'XPOD'},'position':pos,'groups':gs}
+   if target:
+    tot['cell_owned_refs']+=1;tot.update(hits)
+    if hits:local.append(info)
+   if world and in_rect and not target:
+    tot['other_world_refs_in_rect']+=1
+    if hits:persistent.append(info)
+  print(json.dumps({'file':str(path),'masters':masters,'target_counts':dict(tot),'target_spatial_refs':local},sort_keys=True))
+PY
+Exit code: 0
+Output:
+{"file": "/data/storage0/Games/FalloutNV_TTW/mods/Fallout 3 Interior Optimization Project/FO3_Optimization.esm", "masters": ["FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm", "GunRunnersArsenal.esm", "Fallout3.esm", "Anchorage.esm", "ThePitt.esm", "BrokenSteel.esm", "PointLookout.esm", "Zeta.esm", "CaravanPack.esm", "ClassicPack.esm", "MercenaryPack.esm", "TribalPack.esm", "TaleOfTwoWastelands.esm"], "target_counts": {"XMBO": 15, "XPRM": 15, "cell_owned_refs": 15}, "target_spatial_refs": [{"base": "0x1f", "fields": ["NAME", "XMBO", "XPRM", "DATA"], "flags": "0x400", "groups": [[0, 1280066883], [2, 2], [3, 3], [6, 100911428], [8, 100911428]], "id": "0x11001933", "offset": "0x14089", "position": [2054.0517578125, 4799.8173828125, 5025.37890625], "spatial": ["XMBO", "XPRM"], "spatial_payloads": {"XMBO": "b27c2e44bba89a443d584844", "XPRM": "b27c2e44bba89a443d584844000000000000003f0000803fcdcccc3d01000000"}}, {"base": "0x1f", "fields": ["NAME", "XMBO", "XPRM", "DATA"], "flags": "0x400", "groups": [[0, 1280066883], [2, 2], [3, 3], [6, 100911428], [8, 100911428]], "id": "0x11001934", "offset": "0x14101", "position": [1734.05224609375, 1226.545166015625, 5003.3134765625], "spatial": ["XMBO", "XPRM"], "spatial_payloads": {"XMBO": "51f9fc43e4a2124455dc4d44", "XPRM": "51f9fc43e4a2124455dc4d44000000000000003f0000803fcdcccc3d01000000"}}, {"base": "0x1f", "fields": ["NAME", "XMBO", "XPRM", "DATA"], "flags": "0x400", "groups": [[0, 1280066883], [2, 2], [3, 3], [6, 100911428], [8, 100911428]], "id": "0x11001935", "offset": "0x14179", "position": [1458.109130859375, 2687.81787109375, 4544.0], "spatial": ["XMBO", "XPRM"], "spatial_payloads": {"XMBO": "b25b9d4488ae5a443d584844", "XPRM": "b25b9d4488ae5a443d584844000000000000003f0000803fcdcccc3d01000000"}}, {"base": "0x1f", "fields": ["NAME", "XMBO", "XPRM", "DATA"], "flags": "0x400", "groups": [[0, 1280066883], [2, 2], [3, 3], [6, 100911428], [8, 100911428]], "id": "0x11001936", "offset": "0x141f1", "position": [-1344.0, 1712.0458984375, 4096.0], "spatial": ["XMBO", "XPRM"], "spatial_payloads": {"XMBO": "cce7c04461540144ec151244", "XPRM": "cce7c04461540144ec151244000000000000003f0000803fcdcccc3d01000000"}}, {"base": "0x1f", "fields": ["NAME", "XMBO", "XPRM", "DATA"], "flags": "0x400", "groups": [[0, 1280066883], [2, 2], [3, 3], [6, 100911428], [8, 100911428]], "id": "0x11001937", "offset": "0x14269", "position": [-1344.0, 2938.681884765625, 4096.0], "spatial": ["XMBO", "XPRM"], "spatial_payloads": {"XMBO": "cce7c0445a543144ec151244", "XPRM": "cce7c0445a543144ec151244000000000000003f0000803fcdcccc3d01000000"}}, {"base": "0x20", "fields": ["NAME", "XPRM", "XMBO", "XPOD", "DATA"], "flags": "0x0", "groups": [[0, 1280066883], [2, 2], [3, 3], [6, 100911428], [9, 100911428]], "id": "0x11001938", "offset": "0x142f9", "position": [-1536.0, 2229.3642578125, 3936.0], "spatial": ["XMBO", "XPRM"], "spatial_payloads": {"XMBO": "000000430000000000002043", "XPOD": "3719001136190011", "XPRM": "000000430000803f000020430000000000000000000000000000803e03000000"}}, {"base": "0x20", "fields": ["NAME", "XPRM", "XMBO", "XPOD", "DATA"], "flags": "0x0", "groups": [[0, 1280066883], [2, 2], [3, 3], [6, 100911428], [9, 100911428]], "id": "0x11001939", "offset": "0x1437f", "position": [199.24363708496094, 1984.0, 4288.0], "spatial": ["XMBO", "XPRM"], "spatial_payloads": {"XMBO": "000020430000000000002043", "XPOD": "3619001135190011", "XPRM": "000020430000803f000020430000000000000000000000000000803e03000000"}}, {"base": "0x20", "fields": ["NAME", "XPRM", "XMBO", "XPOD", "DATA"], "flags": "0x0", "groups": [[0, 1280066883], [2, 2], [3, 3], [6, 100911428], [9, 100911428]], "id": "0x1100193a", "offset": "0x14405", "position": [1536.0, 1813.0906982421875, 4544.0], "spatial": ["XMBO", "XPRM"], "spatial_payloads": {"XMBO": "000020430000000000002043", "XPOD": "3419001135190011", "XPRM": "000020430000803f000020430000000000000000000000000000803e03000000"}}, {"base": "0x20", "fields": ["NAME", "XPRM", "XMBO", "XPOD", "DATA"], "flags": "0x0", "groups": [[0, 1280066883], [2, 2], [3, 3], [6, 100911428], [9, 100911428]], "id": "0x1100193b", "offset": "0x1448b", "position": [1536.0, 3562.544677734375, 4608.0], "spatial": ["XMBO", "XPRM"], "spatial_payloads": {"XMBO": "000000430000000000006043", "XPOD": "3519001133190011", "XPRM": "000000430000803f000060430000000000000000000000000000803e03000000"}}, {"base": "0x1f", "fields": ["NAME", "XMBO", "XPRM", "DATA"], "flags": "0x400", "groups": [[0, 1280066883], [2, 7], [3, 4], [6, 100914243], [8, 100914243]], "id": "0x11005ecc", "offset": "0x5dd9a", "position": [-1117.956787109375, 2969.31201171875, 5291.89697265625], "spatial": ["XMBO", "XPRM"], "spatial_payloads": {"XMBO": "6646a84458002e4478c44144", "XPRM": "6646a84458002e4478c44144000000000000003f0000803fcdcccc3d01000000"}}, {"base": "0x1f", "fields": ["NAME", "XMBO", "XPRM", "DATA"], "flags": "0x400", "groups": [[0, 1280066883], [2, 7], [3, 4], [6, 100914243], [8, 100914243]], "id": "0x11005ecd", "offset": "0x5de12", "position": [1979.5662841796875, 2567.469970703125, 5089.64404296875], "spatial": ["XMBO", "XPRM"], "spatial_payloads": {"XMBO": "58eada441e79d8449d547444", "XPRM": "58eada441e79d8449d547444000000000000003f0000803fcdcccc3d01000000"}}, {"base": "0x1f", "fields": ["NAME", "XMBO", "XPRM", "DATA"], "flags": "0x400", "groups": [[0, 1280066883], [2, 7], [3, 4], [6, 100914243], [8, 100914243]], "id": "0x11005ece", "offset": "0x5de8a", "position": [1979.5662841796875, 5868.3046875, 5096.33740234375], "spatial": ["XMBO", "XPRM"], "spatial_payloads": {"XMBO": "58eada449621c44443a87244", "XPRM": "58eada449621c44443a87244000000000000003f0000803fcdcccc3d01000000"}}, {"base": "0x20", "fields": ["NAME", "XPRM", "XMBO", "XPOD", "DATA"], "flags": "0x0", "groups": [[0, 1280066883], [2, 7], [3, 4], [6, 100914243], [9, 100914243]], "id": "0x11005ecf", "offset": "0x5df1a", "position": [1245.8074951171875, 4299.2548828125, 4617.8291015625], "spatial": ["XMBO", "XPRM"], "spatial_payloads": {"XMBO": "d6538b430000000013da6043", "XPOD": "ce5e0011cd5e0011", "XPRM": "d6538b430000803f13da60430000000000000000000000000000803e03000000"}}, {"base": "0x20", "fields": ["NAME", "XPRM", "XMBO", "XPOD", "DATA"], "flags": "0x0", "groups": [[0, 1280066883], [2, 7], [3, 4], [6, 100914243], [9, 100914243]], "id": "0x11005ed0", "offset": "0x5dfa0", "position": [2789.88525390625, 4299.2548828125, 4617.8291015625], "spatial": ["XMBO", "XPRM"], "spatial_payloads": {"XMBO": "d74995430000000013da6043", "XPOD": "ce5e0011cd5e0011", "XPRM": "d74995430000803f13da60430000000000000000000000000000803e03000000"}}, {"base": "0x20", "fields": ["NAME", "XPRM", "XMBO", "XPOD", "DATA"], "flags": "0x0", "groups": [[0, 1280066883], [2, 7], [3, 4], [6, 100914243], [9, 100914243]], "id": "0x11005ed1", "offset": "0x5e026", "position": [228.24313354492188, 2848.75634765625, 5141.9453125], "spatial": ["XMBO", "XPRM"], "spatial_payloads": {"XMBO": "91a53b43000000003c38f442", "XPOD": "cd5e0011cc5e0011", "XPRM": "91a53b430000803f3c38f4420000000000000000000000000000803e03000000"}}]}
+
+===== Qualified complete spatial tag set including XPOD and XPTL =====
+Command:
+python3 - <<'PY'
+from pathlib import Path
+import mmap,struct,collections,json,zlib
+root=Path('/data/storage0/Games/FalloutNV_TTW/mods')
+files=[root/'TTW_v3.4/Fallout3.esm',root/'TTW_v3.4/TaleOfTwoWastelands.esm',root/'TTW_v3.4/YUPTTW.esm',root/'YUPTTW 13.9.1/YUPTTW.esm',root/'Fallout 3 Interior Optimization Project/FO3_Optimization.esm',root/'A World of Pain (AWOP) - FO3 - Roombound Project/A World of Pain FO3 Roombound Project.esm',root/'The Great DC Interior Overhaul/TGDCIO.esm',root/'Performance Of The Titans/PerformanceOfTheTitans.esm',root/'Capital Wasteland Settlements Redesign TTW/Capital Wasteland Settlements Redesign.esm']
+def records(b,start,end,groups=()):
+ q=start
+ while q<end:
+  assert q+24<=end
+  sig=b[q:q+4];size=struct.unpack_from('<I',b,q+4)[0]
+  if sig==b'GRUP':
+   assert size>=24 and q+size<=end
+   label,kind=struct.unpack_from('<Ii',b,q+8)
+   yield from records(b,q+24,q+size,groups+((kind,label),));q+=size
+  else:
+   assert q+24+size<=end
+   flags,fid=struct.unpack_from('<II',b,q+8)
+   yield q,sig,flags,fid,groups,b[q+24:q+24+size];q+=24+size
+ assert q==end
+def fields(p):
+ q=0;out=[]
+ while q<len(p):
+  assert q+6<=len(p)
+  tag=p[q:q+4];n=struct.unpack_from('<H',p,q+4)[0];q+=6
+  if tag==b'XXXX':
+   assert n==4 and q+4+6<=len(p)
+   extended=struct.unpack_from('<I',p,q)[0];q+=4
+   tag=p[q:q+4];q+=6;assert tag!=b'XXXX';n=extended
+  assert q+n<=len(p);out.append((tag,p[q:q+n]));q+=n
+ return out
+def payload(flags,p):
+ if flags&0x40000:
+  expected=struct.unpack_from('<I',p)[0];p=zlib.decompress(p[4:]);assert len(p)==expected
+ return p
+cells={0x3c944,0x3d443,0x1163,0x1164,0x1165,0x1172,0x1173,0x1174,0x1175}
+spatial={b'XMBO',b'XPRM',b'XMBR',b'XRMR',b'XPOR',b'XOCP',b'XPOD',b'XPTL'}
+for path in files:
+ with path.open('rb') as f,mmap.mmap(f.fileno(),0,access=mmap.ACCESS_READ) as b:
+  masters=[];local=[];persistent=[];tot=collections.Counter();cell_records=[];spatial_total=collections.Counter()
+  for q,sig,flags,fid,gs,p in records(b,0,len(b)):
+   if sig==b'TES4':
+    header=fields(payload(flags,p))
+    if header is None:
+     print(json.dumps({'file':str(path),'incomplete':'TES4 contains unsupported extended field; file skipped'}));break
+    masters=[v.rstrip(b'\0').decode('ascii') for t,v in header if t==b'MAST'];continue
+   if sig not in [b'CELL',b'REFR',b'ACHR',b'ACRE']:continue
+   parsed=fields(payload(flags,p))
+   if parsed is None:
+    tot['unsupported_extended_records']+=1;continue
+   fs=dict(parsed)
+   owner=(masters+[path.name])[fid>>24] if fid>>24<=len(masters) else 'UNKNOWN'
+   if sig==b'CELL' and owner.lower()=='fallout3.esm' and fid&0xffffff in cells:
+    cell_records.append({'id':hex(fid),'edid':fs.get(b'EDID',b'').rstrip(b'\0').decode('ascii'),'offset':hex(q),'flags':hex(flags)})
+   if sig!=b'REFR':continue
+   hits=sorted(t.decode() for t in spatial&fs.keys());spatial_total.update(hits)
+   target=False
+   for kind,label in gs:
+    groupowner=(masters+[path.name])[label>>24] if label>>24<=len(masters) else 'UNKNOWN'
+    if kind in [6,8,9,10] and groupowner.lower()=='fallout3.esm' and label&0xffffff in cells:target=True
+   data=fs.get(b'DATA')
+   pos=struct.unpack('<fff',data[:12]) if data and len(data)>=12 else None
+   in_rect=pos is not None and -20480<=pos[0]<-4096 and -57344<=pos[1]<-49152
+   # Coordinates delimit the rectangle of seven exterior cells; world ancestry must also match.
+   world=False
+   for kind,label in gs:
+    groupowner=(masters+[path.name])[label>>24] if label>>24<=len(masters) else 'UNKNOWN'
+    if kind==1 and groupowner.lower()=='fallout3.esm' and label&0xffffff==0x07ea1f:world=True
+   info={'id':hex(fid),'offset':hex(q),'flags':hex(flags),'base':hex(struct.unpack('<I',fs[b'NAME'])[0]) if b'NAME'in fs else None,'spatial':hits,'position':pos,'groups':gs}
+   if target:
+    tot['cell_owned_refs']+=1;tot.update(hits)
+    if hits:local.append(info)
+   if world and in_rect and not target:
+    tot['other_world_refs_in_rect']+=1
+    if hits:persistent.append(info)
+  print(json.dumps({'file':str(path),'masters':masters,'all_spatial_reference_tags':dict(spatial_total),'target_cell_records':cell_records,'target_counts':dict(tot),'target_spatial_refs':local,'other_world_spatial_refs_in_rect':persistent},sort_keys=True))
+PY
+Exit code: 0
+Output:
+{"all_spatial_reference_tags": {"XMBO": 3397, "XMBR": 3, "XOCP": 194, "XPOD": 577, "XPRM": 4134, "XRMR": 265}, "file": "/data/storage0/Games/FalloutNV_TTW/mods/TTW_v3.4/Fallout3.esm", "masters": ["FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm", "GunRunnersArsenal.esm"], "other_world_spatial_refs_in_rect": [], "target_cell_records": [{"edid": "zFairfaxMaintenance", "flags": "0x0", "id": "0x603c944", "offset": "0x167672d"}, {"edid": "zFairfaxMetro", "flags": "0x0", "id": "0x603d443", "offset": "0x210346e"}, {"edid": "FairfaxRuinsExterior05", "flags": "0x0", "id": "0x6001163", "offset": "0x141e25a8"}, {"edid": "FairfaxRuinsExterior02", "flags": "0x0", "id": "0x6001164", "offset": "0x141e8b9d"}, {"edid": "FairfaxRuinsExterior01", "flags": "0x0", "id": "0x6001165", "offset": "0x141f3d20"}, {"edid": "FairfaxRuinsExterior07", "flags": "0x0", "id": "0x6001172", "offset": "0x14227c0e"}, {"edid": "FairfaxRuinsExterior06", "flags": "0x0", "id": "0x6001173", "offset": "0x142329bf"}, {"edid": "FairfaxRuinsExterior04", "flags": "0x0", "id": "0x6001174", "offset": "0x1423c260"}, {"edid": "FairfaxRuinsExterior03", "flags": "0x0", "id": "0x6001175", "offset": "0x1424426e"}], "target_counts": {"XMBO": 10, "XPRM": 10, "cell_owned_refs": 2094, "other_world_refs_in_rect": 313}, "target_spatial_refs": [{"base": "0x609cfbd", "flags": "0x0", "groups": [[0, 1280066883], [2, 2], [3, 3], [6, 100911428], [9, 100911428]], "id": "0x607e55a", "offset": "0x167e674", "position": [-2448.0, 3224.0, 3968.0], "spatial": ["XMBO", "XPRM"]}, {"base": "0x60a7c03", "flags": "0x0", "groups": [[0, 1280066883], [2, 2], [3, 3], [6, 100911428], [9, 100911428]], "id": "0x607e562", "offset": "0x167e82c", "position": [1800.0, 1312.0, 5072.0], "spatial": ["XMBO", "XPRM"]}, {"base": "0xae202", "flags": "0x0", "groups": [[0, 1280066883], [2, 2], [3, 3], [6, 100911428], [9, 100911428]], "id": "0x607e565", "offset": "0x167e924", "position": [880.38427734375, 2791.661865234375, 4103.0], "spatial": ["XMBO", "XPRM"]}, {"base": "0x60a7c03", "flags": "0x0", "groups": [[0, 1280066883], [2, 2], [3, 3], [6, 100911428], [9, 100911428]], "id": "0x607e566", "offset": "0x167e99c", "position": [2176.0, 4616.0, 5232.0], "spatial": ["XMBO", "XPRM"]}, {"base": "0x609cfbd", "flags": "0x0", "groups": [[0, 1280066883], [2, 2], [3, 3], [6, 100911428], [9, 100911428]], "id": "0x607e567", "offset": "0x167ea14", "position": [2304.0, 5664.0, 5152.0], "spatial": ["XMBO", "XPRM"]}, {"base": "0x609d9ca", "flags": "0x0", "groups": [[0, 1280066883], [2, 2], [3, 3], [6, 100911428], [9, 100911428]], "id": "0x609d9cb", "offset": "0x167f104", "position": [1951.999755859375, 1471.999755859375, 4969.0], "spatial": ["XMBO", "XPRM"]}, {"base": "0x60a675c", "flags": "0x0", "groups": [[0, 1280066883], [2, 7], [3, 4], [6, 100914243], [9, 100914243]], "id": "0x607e56e", "offset": "0x2108945", "position": [1960.0, 3256.0, 5016.0], "spatial": ["XMBO", "XPRM"]}, {"base": "0x21", "flags": "0x0", "groups": [[0, 1280066883], [2, 7], [3, 4], [6, 100914243], [9, 100914243]], "id": "0x607e608", "offset": "0x21089bd", "position": [2156.054443359375, 3539.4091796875, 4504.5693359375], "spatial": ["XMBO", "XPRM"]}, {"base": "0x21", "flags": "0x0", "groups": [[0, 1280066883], [2, 7], [3, 4], [6, 100914243], [9, 100914243]], "id": "0x607e609", "offset": "0x2108a35", "position": [2778.68603515625, 2081.949951171875, 4641.76904296875], "spatial": ["XMBO", "XPRM"]}, {"base": "0x21", "flags": "0x0", "groups": [[0, 1280066883], [2, 7], [3, 4], [6, 100914243], [9, 100914243]], "id": "0x607e738", "offset": "0x2108aad", "position": [2694.519287109375, 2067.1533203125, 4654.314453125], "spatial": ["XMBO", "XPRM"]}]}
+{"all_spatial_reference_tags": {"XMBO": 337, "XMBR": 26, "XOCP": 4, "XPOD": 24, "XPRM": 452, "XPTL": 8, "XRMR": 43}, "file": "/data/storage0/Games/FalloutNV_TTW/mods/TTW_v3.4/TaleOfTwoWastelands.esm", "masters": ["FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm", "GunRunnersArsenal.esm", "Fallout3.esm", "Anchorage.esm", "ThePitt.esm", "BrokenSteel.esm", "PointLookout.esm", "Zeta.esm"], "other_world_spatial_refs_in_rect": [], "target_cell_records": [{"edid": "zFairfaxMaintenance", "flags": "0x0", "id": "0x603c944", "offset": "0x145994c"}, {"edid": "zFairfaxMetro", "flags": "0x0", "id": "0x603d443", "offset": "0x15e95ac"}, {"edid": "FairfaxRuinsExterior05", "flags": "0x0", "id": "0x6001163", "offset": "0x18fddd1"}, {"edid": "FairfaxRuinsExterior02", "flags": "0x0", "id": "0x6001164", "offset": "0x18fdeca"}, {"edid": "FairfaxRuinsExterior01", "flags": "0x0", "id": "0x6001165", "offset": "0x18fe083"}, {"edid": "FairfaxRuinsExterior07", "flags": "0x0", "id": "0x6001172", "offset": "0x18fe90b"}, {"edid": "FairfaxRuinsExterior06", "flags": "0x0", "id": "0x6001173", "offset": "0x18fea88"}, {"edid": "FairfaxRuinsExterior04", "flags": "0x0", "id": "0x6001174", "offset": "0x18ff465"}, {"edid": "FairfaxRuinsExterior03", "flags": "0x0", "id": "0x6001175", "offset": "0x18ffa46"}], "target_counts": {"cell_owned_refs": 101, "other_world_refs_in_rect": 5}, "target_spatial_refs": []}
+{"all_spatial_reference_tags": {"XMBO": 424, "XMBR": 74, "XOCP": 12, "XPOD": 103, "XPRM": 524}, "file": "/data/storage0/Games/FalloutNV_TTW/mods/TTW_v3.4/YUPTTW.esm", "masters": ["FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm", "GunRunnersArsenal.esm", "Fallout3.esm", "Anchorage.esm", "ThePitt.esm", "BrokenSteel.esm", "PointLookout.esm", "Zeta.esm", "TaleofTwoWastelands.esm"], "other_world_spatial_refs_in_rect": [], "target_cell_records": [], "target_counts": {}, "target_spatial_refs": []}
+{"all_spatial_reference_tags": {"XMBO": 466, "XMBR": 74, "XOCP": 12, "XPOD": 103, "XPRM": 684}, "file": "/data/storage0/Games/FalloutNV_TTW/mods/YUPTTW 13.9.1/YUPTTW.esm", "masters": ["FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm", "GunRunnersArsenal.esm", "Fallout3.esm", "Anchorage.esm", "ThePitt.esm", "BrokenSteel.esm", "PointLookout.esm", "Zeta.esm", "TaleofTwoWastelands.esm"], "other_world_spatial_refs_in_rect": [], "target_cell_records": [], "target_counts": {}, "target_spatial_refs": []}
+{"all_spatial_reference_tags": {"XMBO": 3227, "XOCP": 239, "XPOD": 1541, "XPRM": 3270, "XPTL": 37, "XRMR": 217}, "file": "/data/storage0/Games/FalloutNV_TTW/mods/Fallout 3 Interior Optimization Project/FO3_Optimization.esm", "masters": ["FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm", "GunRunnersArsenal.esm", "Fallout3.esm", "Anchorage.esm", "ThePitt.esm", "BrokenSteel.esm", "PointLookout.esm", "Zeta.esm", "CaravanPack.esm", "ClassicPack.esm", "MercenaryPack.esm", "TribalPack.esm", "TaleOfTwoWastelands.esm"], "other_world_spatial_refs_in_rect": [], "target_cell_records": [{"edid": "zFairfaxMaintenance", "flags": "0x0", "id": "0x603c944", "offset": "0x13f6d"}, {"edid": "zFairfaxMetro", "flags": "0x0", "id": "0x603d443", "offset": "0x5dcaa"}], "target_counts": {"XMBO": 15, "XPOD": 7, "XPRM": 15, "cell_owned_refs": 15}, "target_spatial_refs": [{"base": "0x1f", "flags": "0x400", "groups": [[0, 1280066883], [2, 2], [3, 3], [6, 100911428], [8, 100911428]], "id": "0x11001933", "offset": "0x14089", "position": [2054.0517578125, 4799.8173828125, 5025.37890625], "spatial": ["XMBO", "XPRM"]}, {"base": "0x1f", "flags": "0x400", "groups": [[0, 1280066883], [2, 2], [3, 3], [6, 100911428], [8, 100911428]], "id": "0x11001934", "offset": "0x14101", "position": [1734.05224609375, 1226.545166015625, 5003.3134765625], "spatial": ["XMBO", "XPRM"]}, {"base": "0x1f", "flags": "0x400", "groups": [[0, 1280066883], [2, 2], [3, 3], [6, 100911428], [8, 100911428]], "id": "0x11001935", "offset": "0x14179", "position": [1458.109130859375, 2687.81787109375, 4544.0], "spatial": ["XMBO", "XPRM"]}, {"base": "0x1f", "flags": "0x400", "groups": [[0, 1280066883], [2, 2], [3, 3], [6, 100911428], [8, 100911428]], "id": "0x11001936", "offset": "0x141f1", "position": [-1344.0, 1712.0458984375, 4096.0], "spatial": ["XMBO", "XPRM"]}, {"base": "0x1f", "flags": "0x400", "groups": [[0, 1280066883], [2, 2], [3, 3], [6, 100911428], [8, 100911428]], "id": "0x11001937", "offset": "0x14269", "position": [-1344.0, 2938.681884765625, 4096.0], "spatial": ["XMBO", "XPRM"]}, {"base": "0x20", "flags": "0x0", "groups": [[0, 1280066883], [2, 2], [3, 3], [6, 100911428], [9, 100911428]], "id": "0x11001938", "offset": "0x142f9", "position": [-1536.0, 2229.3642578125, 3936.0], "spatial": ["XMBO", "XPOD", "XPRM"]}, {"base": "0x20", "flags": "0x0", "groups": [[0, 1280066883], [2, 2], [3, 3], [6, 100911428], [9, 100911428]], "id": "0x11001939", "offset": "0x1437f", "position": [199.24363708496094, 1984.0, 4288.0], "spatial": ["XMBO", "XPOD", "XPRM"]}, {"base": "0x20", "flags": "0x0", "groups": [[0, 1280066883], [2, 2], [3, 3], [6, 100911428], [9, 100911428]], "id": "0x1100193a", "offset": "0x14405", "position": [1536.0, 1813.0906982421875, 4544.0], "spatial": ["XMBO", "XPOD", "XPRM"]}, {"base": "0x20", "flags": "0x0", "groups": [[0, 1280066883], [2, 2], [3, 3], [6, 100911428], [9, 100911428]], "id": "0x1100193b", "offset": "0x1448b", "position": [1536.0, 3562.544677734375, 4608.0], "spatial": ["XMBO", "XPOD", "XPRM"]}, {"base": "0x1f", "flags": "0x400", "groups": [[0, 1280066883], [2, 7], [3, 4], [6, 100914243], [8, 100914243]], "id": "0x11005ecc", "offset": "0x5dd9a", "position": [-1117.956787109375, 2969.31201171875, 5291.89697265625], "spatial": ["XMBO", "XPRM"]}, {"base": "0x1f", "flags": "0x400", "groups": [[0, 1280066883], [2, 7], [3, 4], [6, 100914243], [8, 100914243]], "id": "0x11005ecd", "offset": "0x5de12", "position": [1979.5662841796875, 2567.469970703125, 5089.64404296875], "spatial": ["XMBO", "XPRM"]}, {"base": "0x1f", "flags": "0x400", "groups": [[0, 1280066883], [2, 7], [3, 4], [6, 100914243], [8, 100914243]], "id": "0x11005ece", "offset": "0x5de8a", "position": [1979.5662841796875, 5868.3046875, 5096.33740234375], "spatial": ["XMBO", "XPRM"]}, {"base": "0x20", "flags": "0x0", "groups": [[0, 1280066883], [2, 7], [3, 4], [6, 100914243], [9, 100914243]], "id": "0x11005ecf", "offset": "0x5df1a", "position": [1245.8074951171875, 4299.2548828125, 4617.8291015625], "spatial": ["XMBO", "XPOD", "XPRM"]}, {"base": "0x20", "flags": "0x0", "groups": [[0, 1280066883], [2, 7], [3, 4], [6, 100914243], [9, 100914243]], "id": "0x11005ed0", "offset": "0x5dfa0", "position": [2789.88525390625, 4299.2548828125, 4617.8291015625], "spatial": ["XMBO", "XPOD", "XPRM"]}, {"base": "0x20", "flags": "0x0", "groups": [[0, 1280066883], [2, 7], [3, 4], [6, 100914243], [9, 100914243]], "id": "0x11005ed1", "offset": "0x5e026", "position": [228.24313354492188, 2848.75634765625, 5141.9453125], "spatial": ["XMBO", "XPOD", "XPRM"]}]}
+{"all_spatial_reference_tags": {"XMBO": 686, "XPOD": 379, "XPRM": 688, "XPTL": 20}, "file": "/data/storage0/Games/FalloutNV_TTW/mods/A World of Pain (AWOP) - FO3 - Roombound Project/A World of Pain FO3 Roombound Project.esm", "masters": ["FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm", "GunRunnersArsenal.esm", "Fallout3.esm", "Anchorage.esm", "ThePitt.esm", "BrokenSteel.esm", "PointLookout.esm", "Zeta.esm", "TaleOfTwoWastelands.esm", "AWorldOfPainFO3.esm"], "other_world_spatial_refs_in_rect": [], "target_cell_records": [], "target_counts": {}, "target_spatial_refs": []}
+{"all_spatial_reference_tags": {"XMBO": 1}, "file": "/data/storage0/Games/FalloutNV_TTW/mods/The Great DC Interior Overhaul/TGDCIO.esm", "masters": ["FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm", "GunRunnersArsenal.esm", "Fallout3.esm", "Anchorage.esm", "ThePitt.esm", "BrokenSteel.esm", "PointLookout.esm", "Zeta.esm", "TaleOfTwoWastelands.esm"], "other_world_spatial_refs_in_rect": [], "target_cell_records": [], "target_counts": {}, "target_spatial_refs": []}
+{"all_spatial_reference_tags": {}, "file": "/data/storage0/Games/FalloutNV_TTW/mods/Performance Of The Titans/PerformanceOfTheTitans.esm", "masters": ["FalloutNV.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm"], "other_world_spatial_refs_in_rect": [], "target_cell_records": [], "target_counts": {}, "target_spatial_refs": []}
+{"all_spatial_reference_tags": {"XMBO": 10, "XMBR": 10, "XPOD": 4, "XPRM": 10}, "file": "/data/storage0/Games/FalloutNV_TTW/mods/Capital Wasteland Settlements Redesign TTW/Capital Wasteland Settlements Redesign.esm", "masters": ["FalloutNV.esm", "DeadMoney.esm", "HonestHearts.esm", "OldWorldBlues.esm", "LonesomeRoad.esm", "GunRunnersArsenal.esm", "Fallout3.esm", "Anchorage.esm", "ThePitt.esm", "BrokenSteel.esm", "PointLookout.esm", "Zeta.esm", "TaleOfTwoWastelands.esm", "YUPTTW.esm"], "other_world_spatial_refs_in_rect": [], "target_cell_records": [], "target_counts": {}, "target_spatial_refs": []}
+
+===== Physical Default profile listing (scope evidence only) =====
+Read-only rg pattern: FO3_Optimization|Roombound|TaleOfTwoWastelands|EngineOptimizations|Stewie
+Files: profiles/Default/plugins.txt and profiles/Default/modlist.txt
+/data/storage0/Games/FalloutNV_TTW/profiles/Default/modlist.txt:100:+lStewieAl - Cookable Grenades
+/data/storage0/Games/FalloutNV_TTW/profiles/Default/modlist.txt:331:+A World of Pain (AWOP) - FO3 - Roombound Project
+/data/storage0/Games/FalloutNV_TTW/profiles/Default/modlist.txt:405:+lStewieAl - WASD Menu Controls
+/data/storage0/Games/FalloutNV_TTW/profiles/Default/modlist.txt:567:+Stewie Tweaks INI
+/data/storage0/Games/FalloutNV_TTW/profiles/Default/modlist.txt:568:+Stewie Tweaks
+/data/storage0/Games/FalloutNV_TTW/profiles/Default/plugins.txt:18:TaleOfTwoWastelands.esm
+/data/storage0/Games/FalloutNV_TTW/profiles/Default/plugins.txt:48:FO3_Optimization.esm
+/data/storage0/Games/FalloutNV_TTW/profiles/Default/plugins.txt:67:A World of Pain FO3 Roombound Project.esm
