@@ -185,6 +185,66 @@ it adds no runtime diagnostics. The skin benchmark executes actual D3D9 uploads
 and the register check reads the real device window. Neither benchmark measures
 native caster gameplay or establishes a total game FPS improvement.
 
+### Copied skin results inside the producer
+
+The mutable native skin cache is not a per-geometry cache. For a shared skin,
+an A/B/A sequence with different geometry transforms advances OMV's native
+matrix revision on each switch and invalidates copied partition lookup keys.
+Repeating that sequence in another actor overlay can therefore repeat the
+complete native bone calculation and row gathering. The renderer frame stamp
+is still not an animation generation.
+
+Each existing transaction-local geometry entry now retains the input identity
+and output provenance of its own native calculation. Admission requires the
+same skin, partition, exact 13-word world transform and both camera origins,
+plus a complete copied block for every currently enabled partition. It restores
+the original c0/c9 register payload and native normalize byte while continuing
+to submit every geometry for each admitted map. Missing/incomplete packets or
+full tables retain native calculation and gathering. Nothing is reused across
+journals or presentation frames, and native matrix storage is never dereferenced
+on a copied hit.
+
+Copied GPU output does not replace native matrix ownership. A following
+uncached geometry must establish its own native calculation. If the final
+copied draw names a different transform from the native allocation's last
+writer, journal closure recalculates that one final transform before restoring
+the original stamps. This preserves the sequential path's final native matrix
+contents, including an original current-frame mode-three stamp. The supported
+helper's mode-three path consumes the copied NiTransform and existing skin
+inputs without GPU constant setup; its normalize setter writes only the
+journaled byte. Direct binary evidence is preserved in
+`analysis/radare2/output/graphics_fnv_shadow_skin_copy_reuse_contract_20261012.txt`.
+
+For shared skins with complete copied blocks, displaced native preparation and
+gathering follows unique geometry input identities within the journal instead
+of every map submission. An unchanged native owner retains its existing cheap
+helper/cache path and avoids the additional partition-readiness walk.
+Closure may add one final-owner calculation per skin whose final copied draw
+differs from its last native writer. Projection checks, partition draws,
+constant uploads, map dimensions, MSAA, resolves and actor coverage remain.
+The fixed device-created tables add at most 776 KiB of CPU payload; their
+capacities and all inline pipeline owners remain unchanged. No render-time
+allocation, new worker, hook, configuration field or GPU target is introduced.
+
+The offline boundary test restores actual D3D9 bone registers after intervening
+geometry for every supported partition size and rejects unfinished, stale and
+origin-mismatched blocks. It does not execute native actor calculation or
+measure gameplay. Native integration, startup, image behavior and the owner's
+remaining FPS loss are unmeasured.
+
+The default High varying-density field was also evaluated independently of
+the uniform fast path. Exact sample packets retained pixel parity but increased
+complete field cost in the controlled GPU workload; their additional FP32
+traffic and draws were rejected. Exact zero-bound shortcuts saved work chiefly
+under fully covered actor shadows, gained little with empty/partial actor maps,
+and failed the larger-resolution performance gate. Actor-free specialization
+failed the existing pixel tolerance at 1920x1080. None of these candidates is
+shipped, and the accepted world-field sampling/equations remain unchanged.
+Receiver-demand pruning must still use the actual retained map and consumer
+camera, with full fallback when that context is unavailable. A producer camera
+captured before the later world context is insufficient authority to remove
+casters or reuse depth-ended ray integrals.
+
 ## Bounded rays and directional scattering
 
 The owner reported broad weapon/building occlusion, lost openings, vertical

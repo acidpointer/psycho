@@ -6,6 +6,8 @@
 //! that the native helpers clear. Actor overlays memoize invariant native
 //! type/material/partition preparation and copied bone blocks only within the
 //! skin journal. Full caches use the original path without dropping casters.
+//! A complete copied skin result also avoids recalculating a shared skin after
+//! another geometry has overwritten its native matrix cache in that journal.
 //! Bone constants retain their register ABI but upload once per partition.
 //! All object pointers are borrowed only for
 //! the common shadow transaction. Unfamiliar per-caster layouts are omitted
@@ -281,6 +283,16 @@ impl Default for BoneUploadSlot {
     }
 }
 
+impl BoneUploadSlot {
+    /// Read owned constants only for the exact completed journal/key pair.
+    /// Native storage in the key is an identity and is never dereferenced.
+    fn copied_rows(&self, key: BoneUploadKey, generation: u32) -> Option<&[[f32; 4]]> {
+        (self.generation == generation && self.key == Some(key) && self.ready)
+            .then(|| self.rows.get(..key.row_count))
+            .flatten()
+    }
+}
+
 /// Optional transaction-local memoization. Full storage takes the original
 /// uncached path; it never omits geometry or allocates during submission.
 #[derive(Clone, Copy, Default)]
@@ -295,6 +307,50 @@ struct CasterPreparationSlot {
     classification: Option<Option<GeometryClassification>>,
     classification_policy: Option<ClassificationPolicy>,
     validated_partition: usize,
+    copied_skin: Option<CopiedSkinCalculation>,
+}
+
+/// Input identity for a geometry's copied result, confined to one journal.
+/// Bone/partition inputs are stable during native shadow submission. The live
+/// geometry transform and both origins still have to match exactly on a hit.
+#[derive(Clone, Copy, Eq, PartialEq)]
+struct SkinCalculationKey {
+    skin: usize,
+    partition: usize,
+    world_transform: [u32; 13],
+    native_origin: [u32; 3],
+    shadow_origin: [u32; 3],
+}
+
+/// Owned output of one native calculation. Matrix storage is a scalar key;
+/// reuse reads only copied partition rows, never that possibly replaced cache.
+#[derive(Clone, Copy)]
+struct CopiedSkinCalculation {
+    key: SkinCalculationKey,
+    world: [[f32; 4]; 4],
+    matrix_revision: u32,
+    matrix_storage: usize,
+    normalize_normals: u8,
+}
+
+// The supported 32-bit target adds at most 656 KiB to the existing device-only
+// 4096-entry table. Inline journal/pipeline owners and table capacities stay fixed.
+const _: () = assert!(std::mem::size_of::<Option<CopiedSkinCalculation>>() <= 164);
+
+impl CopiedSkinCalculation {
+    /// Preserve the original partition cache's exact calculation provenance.
+    /// No current native stamp or storage contents replace this owned result.
+    fn partition_key(self, entry: usize, row_count: usize) -> BoneUploadKey {
+        BoneUploadKey {
+            partition_entry: entry,
+            skin: self.key.skin,
+            matrix_revision: self.matrix_revision,
+            matrix_storage: self.matrix_storage,
+            native_origin: self.key.native_origin,
+            shadow_origin: self.key.shadow_origin,
+            row_count,
+        }
+    }
 }
 
 /// Material admission inputs which differ between retained maps and cubes.
@@ -317,7 +373,19 @@ struct SkinStateSnapshot {
     world_transform: [u32; 13],
     calculation_initialized: bool,
     matrix_revision: u32,
+    calculation_replay: Option<SkinCalculationReplay>,
 }
+
+/// Final copied draw's input when the native allocation still contains another
+/// geometry's matrices. Journal closure recalculates this one owner so restoring
+/// the original stamps leaves the same native output as sequential submission.
+#[derive(Clone, Copy)]
+struct SkinCalculationReplay {
+    renderer: usize,
+    world_transform: [u32; 13],
+}
+
+const _: () = assert!(std::mem::size_of::<Option<SkinCalculationReplay>>() <= 60);
 
 #[derive(Clone, Copy, Default)]
 struct SkinLookupSlot {
@@ -425,6 +493,33 @@ impl TraversalScratch {
         };
         for snapshot in self.skin_states.drain(..) {
             let skin = snapshot.skin as *mut u8;
+            if let Some(mut replay) = snapshot.calculation_replay {
+                // A copied GPU block did not rewrite the native matrix cache.
+                // Match the last submitted geometry before restoring stamps;
+                // an original current-frame mode-three stamp must never name
+                // another geometry's output. The copied 13-word transform is
+                // the exact NiTransform input consumed at 0x00E6FF4B. Mode
+                // three needs no GPU constants and the already-sized native
+                // allocation retains its engine ownership.
+                let calculate: CalculateBoneMatrices =
+                    unsafe { transmute(ShadowGenerationAbi::CALCULATE_BONE_MATRICES) };
+                unsafe {
+                    write(skin, NativeLayout::NI_SKIN_FRAME_ID, u32::MAX);
+                    write(
+                        skin,
+                        NativeLayout::NI_SKIN_BONE_REGISTERS,
+                        INVALID_BONE_REGISTERS,
+                    );
+                    calculate(
+                        replay.renderer as *mut c_void,
+                        skin,
+                        replay.world_transform.as_mut_ptr().cast(),
+                        0,
+                        SHADOW_BONE_REGISTERS as i32,
+                        1,
+                    );
+                }
+            }
             unsafe {
                 write(skin, NativeLayout::NI_SKIN_FRAME_ID, snapshot.frame_id);
                 let restored_mode = if snapshot.bone_registers == SHADOW_BONE_REGISTERS {
@@ -587,6 +682,26 @@ impl TraversalScratch {
         None
     }
 
+    /// Find a complete copied block without reserving a slot or changing it.
+    /// An ended/new journal, missing key or unfinished block forces calculation.
+    fn ready_bone_upload_index(&self, key: BoneUploadKey) -> Option<usize> {
+        self.render_state?;
+        let start = Self::skin_lookup_start(key.partition_entry ^ key.skin);
+        for probe in 0..SKIN_LOOKUP_CAPACITY {
+            let index = (start + probe) & (SKIN_LOOKUP_CAPACITY - 1);
+            let slot = &self.bone_uploads[index];
+            if slot.generation != self.skin_lookup_generation {
+                return None;
+            }
+            if slot.key == Some(key) {
+                return slot
+                    .copied_rows(key, self.skin_lookup_generation)
+                    .map(|_| index);
+            }
+        }
+        None
+    }
+
     /// Find one journaled skin through the current fixed-capacity hash epoch.
     fn skin_state_index(&self, skin: usize) -> Option<usize> {
         let start = Self::skin_lookup_start(skin);
@@ -653,6 +768,7 @@ impl TraversalScratch {
             world_transform: [0; 13],
             calculation_initialized: false,
             matrix_revision: 0,
+            calculation_replay: None,
         });
         if !self.insert_skin_state(skin as usize, index) {
             self.skin_states.pop();
@@ -681,6 +797,9 @@ impl TraversalScratch {
             .skin_states
             .get_mut(index)
             .ok_or_else(direct3d_failure)?;
+        // The caller immediately performs the original native calculation,
+        // making it the latest submitted allocation owner again.
+        snapshot.calculation_replay = None;
         if snapshot.calculation_initialized {
             if snapshot.world_transform != world_transform {
                 unsafe {
@@ -1399,39 +1518,146 @@ unsafe fn draw_skinned(
                 .cast::<[u32; 13]>(),
         )
     };
-    if !unsafe { scratch.prepare_skin_calculation(skin, world_transform)? } {
-        return Ok(());
-    }
-    let calculate: CalculateBoneMatrices =
-        unsafe { transmute(ShadowGenerationAbi::CALCULATE_BONE_MATRICES) };
-    unsafe {
-        calculate(
-            context.renderer,
-            skin,
-            geometry.add(NativeLayout::NI_AV_OBJECT_WORLD_TRANSFORM),
-            0,
-            SHADOW_BONE_REGISTERS as i32,
-            1,
-        )
-    };
-    // CalculateBoneMatrices may grow the native allocation. Borrow its
-    // current storage after the helper, never the prior allocation pointer.
-    let bone_rows = unsafe { read::<*const [f32; 4]>(skin, NativeLayout::NI_SKIN_BONE_MATRICES) };
-    if bone_rows.is_null() {
-        return Ok(());
-    }
     let native_camera_translation =
         unsafe { read_unaligned(CAMERA_WORLD_TRANSLATION as *const [f32; 3]) };
     if !native_camera_translation.into_iter().all(f32::is_finite) {
         return Err(direct3d_failure());
     }
-    let skin_world = unsafe { read::<*mut [[f32; 4]; 4]>(skin, NativeLayout::NI_SKIN_TO_WORLD) };
-    let world = if skin_world.is_null() {
-        fallback_world
-    } else {
-        unsafe { read_unaligned(skin_world) }
+    let key = SkinCalculationKey {
+        skin: skin as usize,
+        partition: partition as usize,
+        world_transform,
+        native_origin: native_camera_translation.map(f32::to_bits),
+        shadow_origin: context.camera_translation.map(f32::to_bits),
     };
-    context.device.set_vertex_shader_constant_f(0, &world)?;
+    // An unchanged native owner already takes the helper's cheap cache hit.
+    // Keep that path, avoiding a second full partition-readiness walk unless
+    // another geometry displaced the skin or a previous copied hit withdrew
+    // OMV's native-owner bookkeeping.
+    let requires_calculation = scratch
+        .skin_state_index(skin as usize)
+        .is_some_and(|index| {
+            let snapshot = &scratch.skin_states[index];
+            !snapshot.calculation_initialized || snapshot.world_transform != world_transform
+        });
+    let copied = preparation
+        .filter(|_| requires_calculation)
+        .and_then(|index| scratch.caster_preparation[index].copied_skin)
+        .filter(|copied| copied.key == key)
+        .filter(|copied| unsafe {
+            // Native draw helpers do not mutate partition topology or bone
+            // inputs inside this journal. Still require every currently
+            // enabled partition's complete copied block before bypassing the
+            // mutable native cache. An unfinished/full table takes the exact
+            // original calculation/gather path.
+            copied_skin_partitions_ready(
+                scratch,
+                *copied,
+                partitions,
+                count,
+                dismember_entries,
+                dismember_count,
+                dismember_renderable,
+            )
+        });
+    let reused = copied.is_some();
+    let calculation = if let Some(copied) = copied {
+        // CalculateBoneMatrices ends with exactly this renderer-owned byte
+        // write (0x00E70118 -> 0x00E88AD0). Replay the captured result without
+        // publishing a fake native matrix stamp or touching its allocation.
+        let state = scratch.render_state.ok_or_else(direct3d_failure)?;
+        unsafe {
+            write(
+                state.state as *mut u8,
+                NativeLayout::NIDX9_RENDER_STATE_INTERNAL_NORMALIZE_NORMALS,
+                copied.normalize_normals,
+            );
+        }
+        // Copied output does not become the native matrix allocation's owner.
+        // Any later uncached submission must establish its own calculation,
+        // including its normalize result, instead of trusting the prior owner.
+        let state_index = scratch
+            .skin_state_index(skin as usize)
+            .ok_or_else(direct3d_failure)?;
+        let snapshot = &mut scratch.skin_states[state_index];
+        snapshot.calculation_initialized = false;
+        snapshot.calculation_replay =
+            (snapshot.world_transform != world_transform).then_some(SkinCalculationReplay {
+                renderer: context.renderer as usize,
+                world_transform,
+            });
+        copied
+    } else {
+        if !unsafe { scratch.prepare_skin_calculation(skin, world_transform)? } {
+            return Ok(());
+        }
+        let calculate: CalculateBoneMatrices =
+            unsafe { transmute(ShadowGenerationAbi::CALCULATE_BONE_MATRICES) };
+        unsafe {
+            calculate(
+                context.renderer,
+                skin,
+                geometry.add(NativeLayout::NI_AV_OBJECT_WORLD_TRANSFORM),
+                0,
+                SHADOW_BONE_REGISTERS as i32,
+                1,
+            )
+        };
+        // The helper can free/grow matrix storage. Capture its new identity;
+        // copied hits never dereference that allocation on a later geometry.
+        let bone_rows =
+            unsafe { read::<*const [f32; 4]>(skin, NativeLayout::NI_SKIN_BONE_MATRICES) };
+        if bone_rows.is_null() {
+            return Ok(());
+        }
+        let native_camera_translation =
+            unsafe { read_unaligned(CAMERA_WORLD_TRANSLATION as *const [f32; 3]) };
+        if !native_camera_translation.into_iter().all(f32::is_finite) {
+            return Err(direct3d_failure());
+        }
+        let skin_world =
+            unsafe { read::<*mut [[f32; 4]; 4]>(skin, NativeLayout::NI_SKIN_TO_WORLD) };
+        let world = if skin_world.is_null() {
+            fallback_world
+        } else {
+            unsafe { read_unaligned(skin_world) }
+        };
+        let state_index = scratch
+            .skin_state_index(skin as usize)
+            .ok_or_else(direct3d_failure)?;
+        let state = scratch.render_state.ok_or_else(direct3d_failure)?;
+        let calculation = CopiedSkinCalculation {
+            key: SkinCalculationKey {
+                native_origin: native_camera_translation.map(f32::to_bits),
+                ..key
+            },
+            world,
+            matrix_revision: scratch.skin_states[state_index].matrix_revision,
+            matrix_storage: bone_rows as usize,
+            normalize_normals: unsafe {
+                read::<u8>(
+                    state.state as *mut u8,
+                    NativeLayout::NIDX9_RENDER_STATE_INTERNAL_NORMALIZE_NORMALS,
+                )
+            },
+        };
+        if let Some(index) = preparation {
+            // Publication here is provisional: reuse admission above checks
+            // every enabled copied block, including ones not yet gathered.
+            let previous = scratch.caster_preparation[index].copied_skin;
+            if previous.is_none_or(|previous| {
+                previous.key != calculation.key
+                    || previous.matrix_revision != calculation.matrix_revision
+                    || previous.matrix_storage != calculation.matrix_storage
+            }) {
+                scratch.caster_preparation[index].copied_skin = Some(calculation);
+            }
+        }
+        calculation
+    };
+    context
+        .device
+        .set_vertex_shader_constant_f(0, &calculation.world)?;
 
     let draw: DrawSkinnedGeometry = unsafe { transmute(GeometryKind::Skinned.render_address()) };
     for index in 0..count {
@@ -1451,24 +1677,25 @@ unsafe fn draw_skinned(
         if !skinned_submission_is_available(false, !buffer.is_null()) {
             continue;
         }
-        let Some(state_index) = scratch.skin_state_index(skin as usize) else {
-            // prepare_skin_calculation admitted this journaled skin above.
-            return Err(direct3d_failure());
-        };
-        let upload_key = BoneUploadKey {
-            partition_entry: entry as usize,
-            skin: skin as usize,
-            matrix_revision: scratch.skin_states[state_index].matrix_revision,
-            matrix_storage: bone_rows as usize,
-            native_origin: native_camera_translation.map(f32::to_bits),
-            shadow_origin: context.camera_translation.map(f32::to_bits),
-            row_count: bones * 3,
-        };
-        let upload = scratch.bone_upload_index(upload_key);
-        let mut upload_rows = [[0.0f32; 4]; MAX_BONES_PER_PARTITION * 3];
-        if let Some(index) = upload.filter(|i| scratch.bone_uploads[*i].ready) {
-            upload_rows.copy_from_slice(&scratch.bone_uploads[index].rows);
+        let upload_key = calculation.partition_key(entry as usize, bones * 3);
+        let upload = if reused {
+            scratch.ready_bone_upload_index(upload_key)
         } else {
+            scratch.bone_upload_index(upload_key)
+        };
+        let mut upload_rows = [[0.0f32; 4]; MAX_BONES_PER_PARTITION * 3];
+        if let Some(rows) = upload.and_then(|index| {
+            scratch.bone_uploads[index].copied_rows(upload_key, scratch.skin_lookup_generation)
+        }) {
+            upload_rows[..bones * 3].copy_from_slice(rows);
+        } else {
+            // A reused result owns copied rows only. Never fall through to
+            // its scalar native-storage key after another skin calculation.
+            if reused {
+                return Err(direct3d_failure());
+            }
+            let bone_rows = calculation.matrix_storage as *const [f32; 4];
+            let native_camera_translation = calculation.key.native_origin.map(f32::from_bits);
             for bone in 0..bones {
                 let source = if indices.is_null() {
                     bone
@@ -1513,6 +1740,45 @@ unsafe fn draw_skinned(
         unsafe { draw(context.renderer, buffer, entry, core::ptr::null_mut()) };
     }
     Ok(())
+}
+
+/// Require copied constants for every admitted partition before native reuse.
+///
+/// # Safety
+///
+/// The arrays/counts must be the validated live skin partition and dismember
+/// inputs of draw_skinned, borrowed inside the same native journal. This
+/// reads topology only; it never reads a cached native matrix allocation.
+unsafe fn copied_skin_partitions_ready(
+    scratch: &TraversalScratch,
+    calculation: CopiedSkinCalculation,
+    partitions: *mut u8,
+    count: usize,
+    dismember_entries: *mut u8,
+    dismember_count: usize,
+    dismember_renderable: bool,
+) -> bool {
+    for index in 0..count {
+        let enabled = (!dismember_entries.is_null() && index < dismember_count)
+            .then(|| unsafe { read::<u8>(dismember_entries, index * 4) } != 0);
+        if !dismember_partition_is_renderable(dismember_renderable, enabled) {
+            continue;
+        }
+        let entry = unsafe { partitions.add(index * NativeLayout::NI_SKIN_PARTITION_ENTRY_SIZE) };
+        let bones = unsafe { read::<u16>(entry, PARTITION_BONES) } as usize;
+        let buffer = unsafe { read::<*mut u8>(entry, PARTITION_BUFFER) };
+        if bones == 0 || !skinned_submission_is_available(false, !buffer.is_null()) {
+            continue;
+        }
+        if !skinned_partition_bones_are_supported(bones)
+            || scratch
+                .ready_bone_upload_index(calculation.partition_key(entry as usize, bones * 3))
+                .is_none()
+        {
+            return false;
+        }
+    }
+    true
 }
 
 /// Upload one validated skin partition's contiguous c9 bone window.
@@ -2144,6 +2410,7 @@ mod tests {
                 world_transform: [0; 13],
                 calculation_initialized: false,
                 matrix_revision: 0,
+                calculation_replay: None,
             },
         );
         scratch.begin_skin_lookup_generation();
@@ -2269,7 +2536,7 @@ mod tests {
 
 #[cfg(test)]
 mod bone_upload_behavior {
-    use super::upload_skin_bone_rows;
+    use super::{BoneUploadKey, BoneUploadSlot, upload_skin_bone_rows};
     use libpsycho::os::windows::{
         directx9::{D3DDEVTYPE_HAL, D3DDEVTYPE_NULLREF, Device9, create_direct3d9},
         winapi::{get_active_window, get_desktop_window, get_foreground_window},
@@ -2305,6 +2572,83 @@ mod bone_upload_behavior {
             assert_eq!(&actual[9..9 + bones * 3], &rows[..bones * 3]);
             assert_eq!(&actual[..9], &sentinel[..9]);
             assert_eq!(&actual[9 + bones * 3..], &sentinel[9 + bones * 3..]);
+        }
+    }
+
+    /// Exercise owned copied rows at their real D3D9 register boundary.
+    /// Native calculation and the actor workload remain game-only; this
+    /// checks that intervening geometry cannot replace a retained bone block
+    /// and that incomplete/stale/origin-mismatched packets are rejected.
+    #[test]
+    fn copied_partition_restores_gpu_registers_after_other_geometry() {
+        let owner = device();
+        let device = owner.as_ref();
+        for bones in 1..=super::MAX_BONES_PER_PARTITION {
+            let key = BoneUploadKey {
+                partition_entry: 0x1000,
+                skin: 0x2000,
+                matrix_revision: 1,
+                // Scalar provenance only: deliberately not a live pointer.
+                matrix_storage: 1,
+                native_origin: [0.0_f32.to_bits(); 3],
+                shadow_origin: [250.0_f32.to_bits(); 3],
+                row_count: bones * 3,
+            };
+            let mut block = BoneUploadSlot {
+                generation: 7,
+                key: Some(key),
+                ..Default::default()
+            };
+            assert!(block.copied_rows(key, 7).is_none());
+            for (index, row) in block.rows.iter_mut().enumerate() {
+                *row = [index as f32, 1.0, -2.0, 4.0];
+            }
+            block.ready = true;
+            let expected = block.copied_rows(key, 7).unwrap().to_vec();
+            upload_skin_bone_rows(&device, &expected).unwrap();
+            // Another geometry overwrites the real GPU window. The original
+            // native allocation need not exist when restoring the owned copy.
+            device
+                .set_vertex_shader_constant_f(9, &vec![[99.0; 4]; bones * 3])
+                .unwrap();
+            upload_skin_bone_rows(&device, block.copied_rows(key, 7).unwrap()).unwrap();
+            let mut actual = vec![[0.0; 4]; bones * 3];
+            device.vertex_shader_constant_f(9, &mut actual).unwrap();
+            assert_eq!(actual, expected);
+            assert!(block.copied_rows(key, 8).is_none());
+            assert!(
+                block
+                    .copied_rows(
+                        BoneUploadKey {
+                            matrix_revision: 2,
+                            ..key
+                        },
+                        7
+                    )
+                    .is_none()
+            );
+            assert!(
+                block
+                    .copied_rows(
+                        BoneUploadKey {
+                            native_origin: [1; 3],
+                            ..key
+                        },
+                        7
+                    )
+                    .is_none()
+            );
+            assert!(
+                block
+                    .copied_rows(
+                        BoneUploadKey {
+                            shadow_origin: [1; 3],
+                            ..key
+                        },
+                        7
+                    )
+                    .is_none()
+            );
         }
     }
     #[test]
