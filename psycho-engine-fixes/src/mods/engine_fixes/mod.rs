@@ -24,6 +24,7 @@ mod linkedrefs;
 mod lod;
 mod lowprocess;
 mod memset;
+mod model_cache_keys;
 mod model_postprocess;
 mod navmesh;
 mod patching;
@@ -284,6 +285,11 @@ pub fn install(
     install_memset_null_dst(config)?;
     install_tile_value_integrity(config)?;
     install_lowprocess_fix(config)?;
+    if let Err(error) = model_cache_keys::install() {
+        log::error!(
+            "[MODEL_CACHE] NULL stored-key rejection unavailable: {error:#}; other engine fixes continue"
+        );
+    }
     let model_postprocess_ready = install_model_postprocess_fix(config);
     install_queued_task_guard(config, diagnostics)?;
     install_source_texture_cache_guard(config);
