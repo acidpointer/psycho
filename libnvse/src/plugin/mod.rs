@@ -35,7 +35,7 @@
 //!
 //! // All your plugin logic lives here -- fully safe Rust.
 //! fn plugin_main(nvse: *const libnvse::NVSEInterfaceFFI) -> Result<(), PluginError> {
-//!     let mut ctx = PluginContext::new(nvse)?;
+//!     let mut ctx = PluginContext::new(nvse, c"my-rust-plugin")?;
 //!
 //!     ctx.on_message(|msg| {
 //!         if msg.get_type() == MessageType::DeferredInit {
@@ -55,6 +55,7 @@
 //! Every vanilla and NVSE script command is available.
 //!
 //! ```no_run
+//! # use libnvse::plugin::prelude::*;
 //! fn do_stuff(ctx: &PluginContext) -> Result<(), PluginError> {
 //!     let con = ctx.console()?;
 //!
@@ -129,6 +130,7 @@
 //! ## React to game events via messages
 //!
 //! ```no_run
+//! # use libnvse::plugin::prelude::*;
 //! fn setup_messages(ctx: &mut PluginContext) -> Result<(), PluginError> {
 //!     ctx.on_message(|msg| {
 //!         match msg.get_type() {
@@ -161,6 +163,7 @@
 //! ## Toggle player controls
 //!
 //! ```no_run
+//! # use libnvse::plugin::prelude::*;
 //! fn freeze_player(ctx: &PluginContext) -> Result<(), PluginError> {
 //!     let ctrl = ctx.player_controls()?;
 //!     ctrl.disable(Controls::MOVEMENT | Controls::JUMPING)?;
@@ -173,6 +176,7 @@
 //! ## Show in-game message box
 //!
 //! ```no_run
+//! # use libnvse::plugin::prelude::*;
 //! fn greet(ctx: &PluginContext) -> Result<(), PluginError> {
 //!     ctx.message_box("Hello from Rust!", "Cool")?;
 //!     Ok(())
@@ -182,6 +186,7 @@
 //! ## Work with NVSE string variables
 //!
 //! ```no_run
+//! # use libnvse::plugin::prelude::*;
 //! fn string_demo(ctx: &PluginContext) -> Result<(), PluginError> {
 //!     let strings = ctx.string_vars()?;
 //!
@@ -202,6 +207,7 @@
 //! ## Dispatch messages to other plugins
 //!
 //! ```no_run
+//! # use libnvse::plugin::prelude::*;
 //! fn notify_other_plugins(ctx: &PluginContext) -> Result<(), PluginError> {
 //!     // Broadcast to all plugins
 //!     ctx.dispatch_message(1000, b"hello", None)?;
@@ -348,11 +354,15 @@ impl ConsoleApi {
     /// # Common commands
     ///
     /// ```no_run
+    /// # use libnvse::plugin::{ConsoleApi, PluginError};
+    /// # fn example(con: &ConsoleApi) -> Result<(), PluginError> {
     /// con.run("player.additem F 100")?;          // give 100 caps
     /// con.run("player.setav health 200")?;        // set health to 200
     /// con.run("set MyGlobal to 1")?;              // set a global variable
     /// con.run("player.placeatme A1B2C 1")?;       // spawn an NPC
     /// con.run("player.moveto 123ABC")?;            // teleport
+    /// # Ok(())
+    /// # }
     /// ```
     pub fn run(&self, command: &str) -> Result<(), PluginError> {
         self.inner.run(command)?;
@@ -372,11 +382,16 @@ impl ConsoleApi {
     /// # Example
     ///
     /// ```no_run
+    /// # use libnvse::plugin::{ConsoleApi, PluginError};
+    /// # use libnvse::plugin::types::FormId;
+    /// # fn example(con: &ConsoleApi, some_npc_id: FormId) -> Result<(), PluginError> {
     /// // Disable a specific object (hex form ID)
     /// con.run_on(FormId::new(0x123ABC), "disable")?;
     ///
     /// // Kill a specific NPC
     /// con.run_on(some_npc_id, "kill")?;
+    /// # Ok(())
+    /// # }
     /// ```
     pub fn run_on(&self, target: FormId, command: &str) -> Result<(), PluginError> {
         // Use prid (pick ref by ID) then execute on it
@@ -582,6 +597,7 @@ impl PluginContext {
     ///
     /// ```no_run
     /// use libnvse::nvse_command;
+    /// # use libnvse::plugin::prelude::*;
     ///
     /// nvse_command!(MyCmd, cmd, {
     ///     cmd.print("Hello!");
@@ -589,9 +605,12 @@ impl PluginContext {
     ///     true
     /// });
     ///
+    /// # fn example(ctx: &mut PluginContext) -> Result<(), PluginError> {
     /// ctx.set_opcode_base(0x3000)?;
     /// ctx.register_command("MyCmd", "mc", "Does something",
-    ///     false, &[], MY_CMD_EXECUTE)?;
+    ///     false, &[], MYCMD_EXECUTE)?;
+    /// # Ok(())
+    /// # }
     /// ```
     pub fn register_command(
         &mut self,
@@ -639,10 +658,14 @@ impl PluginContext {
     /// the returned value alive until the player clicks the button.
     ///
     /// ```no_run
+    /// # use libnvse::plugin::prelude::*;
+    /// # fn example(ctx: &PluginContext) -> Result<(), PluginError> {
     /// let _dialog = ctx.message_box_with_callback("Save?", "Yes", || {
     ///     log::info!("Player said yes");
     /// })?;
     /// // _dialog must stay alive until the player clicks
+    /// # Ok(())
+    /// # }
     /// ```
     pub fn message_box_with_callback<F: Fn() + 'static>(
         &self,
