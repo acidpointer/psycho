@@ -63,7 +63,7 @@ use windows::Win32::System::Threading::{
     Sleep as WinSleep, THREAD_CREATION_FLAGS, THREAD_PRIORITY, THREAD_PRIORITY_ABOVE_NORMAL,
     THREAD_PRIORITY_BELOW_NORMAL, THREAD_PRIORITY_HIGHEST, THREAD_PRIORITY_IDLE,
     THREAD_PRIORITY_LOWEST, THREAD_PRIORITY_MIN, THREAD_PRIORITY_NORMAL,
-    THREAD_PRIORITY_TIME_CRITICAL, THREAD_QUERY_LIMITED_INFORMATION,
+    THREAD_PRIORITY_TIME_CRITICAL, THREAD_QUERY_LIMITED_INFORMATION, TlsGetValue,
     WaitForSingleObject as WinWaitForSingleObject,
 };
 use windows::Win32::System::{
@@ -1401,6 +1401,19 @@ pub fn get_current_thread_id() -> u32 {
     unsafe { WinGetCurrentThreadId() }
 }
 
+/// Read an already-published Windows TLS slot for the current thread.
+///
+/// Returns the raw slot value; null means unavailable. Does not allocate a slot, register
+/// a thread or take ownership of the returned address. Preserves LastError,
+/// since this is a preflight observation rather than the caller's TLS request.
+/// The caller must prove the slot's owner and lifetime before using a value.
+pub fn tls_get_value(index: u32) -> *mut c_void {
+    let error = get_last_error_code();
+    let value = unsafe { TlsGetValue(index) };
+    set_last_error(error);
+    value
+}
+
 /// Check if thread alive by `thread_id`
 /// # Returns
 /// `true`  - if thread is alive
@@ -2454,6 +2467,32 @@ mod tests {
     };
 
     use super::*;
+
+    #[test]
+    fn tls_preflight_reads_the_actual_slot_without_changing_last_error() {
+        use windows::Win32::System::Threading::{
+            TLS_OUT_OF_INDEXES, TlsAlloc, TlsFree, TlsSetValue,
+        };
+        struct Slot(u32);
+        impl Drop for Slot {
+            fn drop(&mut self) {
+                let _ = unsafe { TlsFree(self.0) };
+            }
+        }
+        let index = unsafe { TlsAlloc() };
+        assert_ne!(index, TLS_OUT_OF_INDEXES);
+        let slot = Slot(index);
+        set_last_error(5);
+        assert!(tls_get_value(slot.0).is_null());
+        assert_eq!(get_last_error_code(), 5);
+        let mut payload = 42u32;
+        let pointer = (&mut payload as *mut u32).cast::<c_void>();
+        unsafe { TlsSetValue(slot.0, Some(pointer.cast_const())) }.expect("store real TLS payload");
+        set_last_error(5);
+        assert_eq!(tls_get_value(slot.0), pointer);
+        assert_eq!(get_last_error_code(), 5);
+        unsafe { TlsSetValue(slot.0, None) }.expect("clear real TLS payload");
+    }
 
     struct TestDirectory(PathBuf);
 

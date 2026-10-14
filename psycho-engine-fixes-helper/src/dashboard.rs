@@ -2036,6 +2036,12 @@ fn draw_configuration(ui: &mut Ui<'_>, editor: &mut ConfigEditor) {
         &mut config.lod_priority_boost_enabled,
         "Raises native distant-world loading tasks within the game's own queue so visible scenery is prepared sooner.",
     );
+    checkbox_help(
+        ui,
+        "Attach budget",
+        &mut config.lod_attachment_budget_enabled,
+        "Native deadline. Restart required.",
+    );
     precise_multiplier(
         ui,
         "Object prefetch",

@@ -1,3 +1,16 @@
+//! Cell-local identity ledger, distinct from native list and task ownership.
+//!
+//! List observers acquire this lock inside CellRefLock; counter enrollment
+//! and lifecycle splices also publish before their actual native stores.
+//! Readers never call native code while holding the ledger lock. Enrollment is
+//! reserved before its native counter store and bound at list publication.
+//! Physical-only members and retained reload members cannot manufacture ready
+//! credits. Reset overlap and incomplete identity coverage block retirement.
+//! A failed survivor snapshot ends native reset execution but retains recovery
+//! debt. Later locked reconciliation may exempt only observed pre-reset members;
+//! unknown or ambiguous new members cannot be reclassified as old survivors.
+//! Geometry uses the separate atomic coverage publication instead of this lock.
+
 use std::{
     collections::HashMap,
     fmt::Write as _,
@@ -33,6 +46,11 @@ const EVENT_WORLDSPACE_RESET: u32 = 10;
 struct ReferenceState {
     ready: bool,
     pending_since: u32,
+    physical: usize,
+    enrolled: bool,
+    exempt: bool,
+    instance: u64,
+    reload_candidate: bool,
 }
 
 #[derive(Clone, Copy)]
@@ -46,9 +64,17 @@ struct TransitionCounts {
 struct CellState {
     generation: u64,
     certain: bool,
-    uncertain_since: u32,
+    uncertain_since: Option<u32>,
     ready_count: usize,
     references: FxHashMap<usize, ReferenceState>,
+    reservations: FxHashMap<usize, usize>,
+    resetting: bool,
+    reload_recovery: bool,
+    next_instance: u64,
+    mode: u32,
+    publications: usize,
+    #[cfg(test)]
+    retirement_visits: std::cell::Cell<usize>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -62,37 +88,29 @@ impl CellState {
     fn new(generation: u64) -> Self {
         Self {
             generation,
-            certain: true,
-            uncertain_since: 0,
+            // A sidecar created from a counter/mode event has not observed the
+            // whole physical list. Even zero totals need a locked empty-list
+            // reconciliation before they can authorize retirement.
+            certain: false,
+            uncertain_since: None,
             ready_count: 0,
             references: FxHashMap::default(),
+            reservations: FxHashMap::default(),
+            resetting: false,
+            reload_recovery: false,
+            next_instance: 0,
+            mode: 0,
+            publications: 0,
+            #[cfg(test)]
+            retirement_visits: std::cell::Cell::new(0),
         }
     }
 
     fn mark_uncertain(&mut self, now: u32) {
-        if self.certain {
-            self.uncertain_since = now;
+        if self.certain || self.uncertain_since.is_none() {
+            self.uncertain_since = Some(now);
         }
         self.certain = false;
-    }
-
-    fn insert_reference(&mut self, reference: usize, now: u32) -> bool {
-        let previous = self.references.insert(
-            reference,
-            ReferenceState {
-                ready: false,
-                pending_since: now,
-            },
-        );
-        if let Some(previous) = previous {
-            self.mark_uncertain(now);
-            if previous.ready {
-                self.ready_count = self.ready_count.saturating_sub(1);
-            }
-            false
-        } else {
-            true
-        }
     }
 
     fn remove_reference(&mut self, reference: usize, now: u32) -> bool {
@@ -111,12 +129,15 @@ impl CellState {
     }
 
     fn publish_ready(&mut self, reference: usize) -> ReadyResult {
-        if !self.certain {
+        if self.resetting {
             return ReadyResult::Stale;
         }
         let Some(reference) = self.references.get_mut(&reference) else {
             return ReadyResult::Stale;
         };
+        if !reference.enrolled || reference.physical != 1 || reference.instance == 0 {
+            return ReadyResult::Stale;
+        }
         if reference.ready {
             return ReadyResult::Duplicate;
         }
@@ -125,10 +146,247 @@ impl CellState {
         ReadyResult::Published
     }
 
+    fn ready_identity(&self, reference: usize) -> Option<(u64, u64)> {
+        let entry = self.references.get(&reference)?;
+        (!self.resetting && entry.enrolled && entry.physical == 1 && entry.instance != 0)
+            .then_some((self.generation, entry.instance))
+    }
+
+    fn current_ready(&mut self, reference: usize, identity: Option<(u64, u64)>) -> ReadyResult {
+        if self.ready_identity(reference) != identity || identity.is_none() {
+            return ReadyResult::Stale;
+        }
+        self.publish_ready(reference)
+    }
+
     fn allows_retirement(&self, native_total: i16) -> bool {
-        let tracked = self.references.len();
-        let native_matches = native_total >= 0 && usize::from(native_total as u16) == tracked;
-        self.certain && native_matches && tracked != 0 && tracked == self.ready_count
+        // These states already forbid retirement. Insertion calls this policy
+        // repeatedly, so counting all members first creates quadratic work in
+        // precisely the incomplete epochs that cannot use its result.
+        if !self.certain
+            || self.resetting
+            || self.reload_recovery
+            || !self.reservations.is_empty()
+            || self.publications != 0
+            || native_total < 0
+            || self.ready_count != native_total as usize
+        {
+            return false;
+        }
+        let enrolled = self
+            .references
+            .values()
+            .filter(|r| {
+                #[cfg(test)]
+                self.retirement_visits.set(self.retirement_visits.get() + 1);
+                r.enrolled
+            })
+            .count();
+        enrolled == native_total as usize
+            && self
+                .references
+                .values()
+                .all(|r| r.physical == 1 && (r.enrolled || r.exempt))
+    }
+
+    fn reserve(&mut self, invocation: usize, reference: usize, now: u32) {
+        if self.reservations.insert(invocation, reference).is_some() {
+            self.mark_uncertain(now);
+        }
+    }
+
+    fn publish(&mut self, invocation: usize, reference: usize, enrolled_path: bool, now: u32) {
+        let reserved = if enrolled_path {
+            self.reservations.remove(&invocation)
+        } else {
+            None
+        };
+        let enrolled = reserved == Some(reference);
+        if reserved.is_some() && !enrolled {
+            self.mark_uncertain(now);
+        }
+        if let Some(existing) = self.references.get_mut(&reference) {
+            existing.physical = existing.physical.saturating_add(1);
+            // A first-match list removal cannot identify which duplicate owns
+            // the old enrollment/credit. Revoke this identity alone; preserve
+            // independent known credits until complete recovery or reload.
+            if existing.ready {
+                self.ready_count = self.ready_count.saturating_sub(1);
+            }
+            existing.ready = false;
+            existing.enrolled = false;
+            existing.exempt = false;
+            existing.instance = 0;
+            // A new occurrence cannot inherit the old reload exemption.
+            existing.reload_candidate = false;
+            self.mark_uncertain(now);
+            return;
+        }
+        self.next_instance = self.next_instance.wrapping_add(1).max(1);
+        self.references.insert(
+            reference,
+            ReferenceState {
+                ready: false,
+                pending_since: now,
+                physical: 1,
+                enrolled,
+                // A proven alternate publication adds no counter enrollment.
+                exempt: reserved.is_none(),
+                instance: self.next_instance,
+                reload_candidate: false,
+            },
+        );
+    }
+
+    fn retire_enrollment(&mut self, reference: usize, now: u32) {
+        let Some(entry) = self.references.get_mut(&reference) else {
+            self.mark_uncertain(now);
+            return;
+        };
+        if !entry.enrolled {
+            self.mark_uncertain(now);
+            return;
+        }
+        if entry.ready {
+            self.ready_count = self.ready_count.saturating_sub(1);
+        }
+        entry.ready = false;
+        entry.enrolled = false;
+        entry.exempt = true;
+    }
+
+    fn physical_remove(&mut self, reference: usize, before: usize, after: usize, now: u32) {
+        if before != after.saturating_add(1) || before == 0 {
+            self.mark_uncertain(now);
+            return;
+        }
+        let Some(entry) = self.references.get_mut(&reference) else {
+            self.mark_uncertain(now);
+            return;
+        };
+        if entry.physical != before {
+            self.mark_uncertain(now);
+            return;
+        }
+        if after == 0 {
+            self.remove_reference(reference, now);
+        } else {
+            entry.physical = after;
+            self.mark_uncertain(now);
+        }
+    }
+
+    fn begin_reload(&mut self, generation: u64) {
+        self.generation = generation;
+        self.resetting = true;
+        self.reload_recovery = false;
+        self.ready_count = 0;
+        self.reservations.clear();
+        self.publications = 0;
+        for entry in self.references.values_mut() {
+            entry.ready = false;
+            entry.enrolled = false;
+            entry.exempt = false;
+            entry.reload_candidate = true;
+        }
+    }
+
+    fn reconcile(&mut self, members: &[usize], total: i16) {
+        if self.resetting || !self.reservations.is_empty() || self.publications != 0 || total < 0 {
+            return;
+        }
+        if self.reload_recovery {
+            // A delayed snapshot no longer owns the native reload transaction.
+            // Only members seen before that reset can acquire its exemption.
+            // New observed enrollment/exemption and ready credits stay intact;
+            // an unknown member or unexplained new removal remains uncertain.
+            if members
+                .iter()
+                .any(|address| !self.references.contains_key(address))
+                || self.references.iter().any(|(address, entry)| {
+                    !entry.reload_candidate
+                        && (entry.physical != 1
+                            || !(entry.enrolled || entry.exempt)
+                            || members.binary_search(address).is_err())
+                })
+            {
+                return;
+            }
+            self.references.retain(|address, entry| {
+                !entry.reload_candidate || members.binary_search(address).is_ok()
+            });
+            for entry in self
+                .references
+                .values_mut()
+                .filter(|entry| entry.reload_candidate)
+            {
+                entry.physical = 0;
+                entry.ready = false;
+                entry.exempt = true;
+                entry.instance = 0;
+            }
+            for &address in members {
+                // Membership was checked above without releasing the ledger.
+                if let Some(entry) = self.references.get_mut(&address)
+                    && entry.reload_candidate
+                {
+                    entry.physical += 1;
+                }
+            }
+            for entry in self.references.values_mut() {
+                entry.reload_candidate = false;
+            }
+            self.ready_count = self.references.values().filter(|entry| entry.ready).count();
+            self.reload_recovery = false;
+        }
+        if self.references.len() == members.len()
+            && self.references.iter().all(|(address, r)| {
+                r.physical == 1
+                    && (r.enrolled || r.exempt)
+                    && members.binary_search(address).is_ok()
+            })
+            && self.references.values().filter(|r| r.enrolled).count() == total as usize
+        {
+            self.certain = true;
+        }
+    }
+
+    // Members are sorted actual list identities, collected under CellRefLock.
+    fn finish_reload(&mut self, members: &[usize], now: u32) {
+        self.references
+            .retain(|address, _| members.binary_search(address).is_ok());
+        for entry in self.references.values_mut() {
+            entry.physical = 0;
+        }
+        for &address in members {
+            let entry = self.references.entry(address).or_insert(ReferenceState {
+                ready: false,
+                pending_since: now,
+                physical: 0,
+                enrolled: false,
+                exempt: true,
+                instance: 0,
+                reload_candidate: false,
+            });
+            entry.physical += 1;
+            entry.exempt = !entry.enrolled;
+            entry.reload_candidate = false;
+        }
+        self.resetting = false;
+        self.reload_recovery = false;
+        // Every surviving member has just been observed inside the native
+        // reset transaction. Native reload leaves these physically enrolled
+        // in the list but exempt from the new counter epoch.
+        self.certain = self.references.values().all(|r| r.physical == 1);
+    }
+
+    fn reload_snapshot_failed(&mut self, now: u32) {
+        // The failure is observed immediately before native unlock, after the
+        // loop has finished. Keeping resetting=true would prohibit all future
+        // reconciliation. Recovery debt still denies retirement and old credits.
+        self.resetting = false;
+        self.reload_recovery = true;
+        self.mark_uncertain(now);
     }
 }
 
@@ -143,6 +401,13 @@ impl Ledger {
     fn generation(&mut self) -> u64 {
         self.next_generation = self.next_generation.wrapping_add(1).max(1);
         self.next_generation
+    }
+
+    fn teardown(&mut self, cell: usize) -> u64 {
+        self.cells.remove(&cell).map_or(0, |state| {
+            self.reference_count = self.reference_count.saturating_sub(state.references.len());
+            state.generation
+        })
     }
 
     fn cell_mut(&mut self, cell: usize) -> &mut CellState {
@@ -176,6 +441,175 @@ static CURRENT_REFERENCES: AtomicUsize = AtomicUsize::new(0);
 static PEAK_CELLS: AtomicUsize = AtomicUsize::new(0);
 static PEAK_REFERENCES: AtomicUsize = AtomicUsize::new(0);
 static MAX_LOCK_US: AtomicU64 = AtomicU64::new(0);
+static LOCK_SAMPLES: AtomicU64 = AtomicU64::new(0);
+
+/// Capture the current enrolled instance before the native ready increment.
+pub(super) fn ready_identity(cell: usize, reference: usize) -> Option<(u64, u64)> {
+    let ledger = LEDGER.lock();
+    let state = ledger.cells.get(&cell)?;
+    state.ready_identity(reference)
+}
+
+/// Report whether physical reconciliation is needed, without calling the engine.
+pub(super) fn needs_reconciliation(cell: usize) -> bool {
+    LEDGER
+        .lock()
+        .cells
+        .get(&cell)
+        .is_some_and(|s| !s.certain && !s.resetting)
+}
+
+fn mutate(cell: usize, event: u32, reference: usize, action: impl FnOnce(&mut CellState, u32)) {
+    if cell == 0 {
+        return;
+    }
+    let now = if TRACE_ENABLED.load(Ordering::Acquire) {
+        libpsycho::os::windows::winapi::get_tick_count()
+    } else {
+        0
+    };
+    let timer = lock_timer();
+    let mut ledger = LEDGER.lock();
+    let state = ledger.cell_mut(cell);
+    if !state.certain && TRACE_ENABLED.load(Ordering::Acquire) {
+        state.uncertain_since.get_or_insert(now);
+    }
+    let previous = state.references.len();
+    let was_certain = state.certain;
+    action(state, now);
+    let current = state.references.len();
+    publish_permission(cell, state);
+    let generation = state.generation;
+    let counts = TransitionCounts {
+        native_total: super::read_cell_counter(
+            cell as *mut libc::c_void,
+            super::CELL_VWD_TOTAL_OFFSET,
+        )
+        .unwrap_or(i16::MIN),
+        native_ready: super::read_cell_counter(
+            cell as *mut libc::c_void,
+            super::CELL_VWD_READY_OFFSET,
+        )
+        .unwrap_or(i16::MIN),
+        tracked: current,
+        ready: state.ready_count,
+    };
+    let uncertain = was_certain && !state.certain;
+    ledger.reference_count = ledger
+        .reference_count
+        .saturating_sub(previous)
+        .saturating_add(current);
+    publish_sizes(ledger.cells.len(), ledger.reference_count);
+    drop(ledger);
+    finish_lock_timer(timer);
+    if uncertain {
+        MEMBERSHIP_MISMATCHES.fetch_add(1, Ordering::Relaxed);
+        UNCERTAIN_CELLS.fetch_add(1, Ordering::Relaxed);
+        trace_record(EVENT_UNCERTAIN, cell, reference, generation, counts);
+    }
+    if event != 0 {
+        trace_record(event, cell, reference, generation, counts);
+    }
+}
+
+fn publish_permission(cell: usize, state: &CellState) {
+    // Every publisher is invoked with a live native cell. Reading its two
+    // counters does not enter the engine or reverse the cell/ledger lock order.
+    let total = super::read_cell_counter(cell as *mut libc::c_void, super::CELL_VWD_TOTAL_OFFSET)
+        .unwrap_or(i16::MIN);
+    let ready = super::read_cell_counter(cell as *mut libc::c_void, super::CELL_VWD_READY_OFFSET)
+        .unwrap_or(i16::MIN);
+    super::coverage::publish(
+        cell,
+        state.mode,
+        ready >= 0 && total >= 0 && total <= ready && state.allows_retirement(total),
+    );
+}
+
+/// Publish ordinary, forced or reverse lifecycle mode before native flag writes.
+pub(super) fn set_mode(cell: usize, mode: u32) {
+    mutate(cell, 0, 0, |state, _| state.mode = mode);
+}
+
+/// Block coverage before a physical append whose provider may reenter the engine.
+pub(super) fn publication_begin(cell: usize) {
+    mutate(cell, 0, 0, |state, _| {
+        state.publications = state.publications.saturating_add(1)
+    });
+}
+
+/// End an unproven append without granting retirement permission.
+pub(super) fn publication_failed(cell: usize) {
+    mutate(cell, 0, 0, |state, now| {
+        state.publications = state.publications.saturating_sub(1);
+        state.mark_uncertain(now);
+    });
+}
+
+/// Reserve an insertion invocation before its native enrollment store.
+pub(super) fn reserve(cell: usize, reference: usize, invocation: usize) {
+    mutate(cell, 0, reference, |state, now| {
+        state.reserve(invocation, reference, now)
+    });
+}
+
+/// Bind a native publication to its reservation, or record a physical-only member.
+pub(super) fn publish(cell: usize, reference: usize, invocation: usize, canonical: bool) {
+    mutate(cell, EVENT_INSERT, reference, |state, now| {
+        state.publish(invocation, reference, canonical, now);
+        state.publications = state.publications.saturating_sub(1);
+    });
+    MEMBERSHIP_INSERTS.fetch_add(1, Ordering::Relaxed);
+}
+
+/// Retire disabled enrollment while preserving the physical list member.
+pub(super) fn retire_enrollment(cell: usize, reference: usize) {
+    mutate(cell, EVENT_REMOVE, reference, |state, now| {
+        state.retire_enrollment(reference, now)
+    });
+}
+
+/// Observe the locked native first-match physical mutation.
+pub(super) fn physical_remove(cell: usize, reference: usize, before: usize, after: usize) {
+    mutate(cell, EVENT_REMOVE, reference, |state, now| {
+        state.physical_remove(reference, before, after, now)
+    });
+    MEMBERSHIP_REMOVALS.fetch_add(1, Ordering::Relaxed);
+}
+
+/// Invalidate ready tokens before the actual locked native reload stores.
+pub(super) fn begin_reload(cell: usize) {
+    if cell == 0 {
+        return;
+    }
+    super::metrics::invalidate_cell(cell, false);
+    let mut ledger = LEDGER.lock();
+    let generation = ledger.generation();
+    ledger.cell_mut(cell).begin_reload(generation);
+    let state = ledger.cell_mut(cell);
+    publish_permission(cell, state);
+    CELL_RELOADS.fetch_add(1, Ordering::Relaxed);
+}
+
+/// Complete a native reload using its actual locked surviving list.
+pub(super) fn finish_reload(cell: usize, members: &[usize]) {
+    mutate(cell, EVENT_RELOAD, 0, |state, now| {
+        state.finish_reload(members, now)
+    });
+}
+
+/// End the native reload execution phase after an incomplete survivor snapshot.
+/// Ordinary retirement remains blocked until locked identity recovery succeeds.
+pub(super) fn reload_snapshot_failed(cell: usize) {
+    mutate(cell, EVENT_UNCERTAIN, 0, |state, now| {
+        state.reload_snapshot_failed(now)
+    });
+}
+
+/// Restore certainty only from complete physical identity and enrollment evidence.
+pub(super) fn reconcile(cell: usize, members: &[usize], total: i16) {
+    mutate(cell, 0, 0, |state, _| state.reconcile(members, total));
+}
 
 pub(crate) struct Snapshot {
     pub trace_enabled: bool,
@@ -191,7 +625,7 @@ pub(crate) struct Snapshot {
     pub stale_retirements_prevented: u64,
     pub uncertain_cells: u64,
     pub current_uncertain_cells: usize,
-    pub oldest_uncertain_ms: u32,
+    pub oldest_uncertain_ms: Option<u32>,
     pub cell_reloads: u64,
     pub cell_teardowns: u64,
     pub worldspace_resets: u64,
@@ -199,8 +633,8 @@ pub(crate) struct Snapshot {
     pub current_references: usize,
     pub peak_cells: usize,
     pub peak_references: usize,
-    pub oldest_pending_ms: u32,
-    pub max_lock_us: u64,
+    pub oldest_pending_ms: Option<u32>,
+    pub max_lock_us: Option<u64>,
 }
 
 #[derive(Clone, Copy, Default)]
@@ -214,129 +648,15 @@ pub(super) fn configure_trace(enabled: bool) {
     TRACE_ENABLED.store(enabled, Ordering::Release);
 }
 
-pub(super) fn observe_insert(
-    cell: *mut libc::c_void,
-    reference: *mut libc::c_void,
-    native_total: i16,
-    native_ready: i16,
-) {
-    if cell.is_null() || reference.is_null() {
-        return;
-    }
-
-    let timer = lock_timer();
-    let now = libpsycho::os::windows::winapi::get_tick_count();
-    let cell_address = cell as usize;
-    let reference_address = reference as usize;
-    let (generation, tracked, ready, cells, references) = {
-        let mut ledger = LEDGER.lock();
-        let (generation, tracked, ready, inserted) = {
-            let state = ledger.cell_mut(cell_address);
-            let inserted = state.insert_reference(reference_address, now);
-            if !inserted {
-                MEMBERSHIP_MISMATCHES.fetch_add(1, Ordering::Relaxed);
-            }
-            let ready = state.ready_count;
-            (state.generation, state.references.len(), ready, inserted)
-        };
-        if inserted {
-            ledger.reference_count = ledger.reference_count.saturating_add(1);
-        }
-        (
-            generation,
-            tracked,
-            ready,
-            ledger.cells.len(),
-            ledger.reference_count,
-        )
-    };
-    finish_lock_timer(timer);
-
-    MEMBERSHIP_INSERTS.fetch_add(1, Ordering::Relaxed);
-    publish_sizes(cells, references);
-    trace_record(
-        EVENT_INSERT,
-        cell_address,
-        reference_address,
-        generation,
-        TransitionCounts {
-            native_total,
-            native_ready,
-            tracked,
-            ready,
-        },
-    );
-}
-
-pub(super) fn observe_remove(
-    cell: *mut libc::c_void,
-    reference: *mut libc::c_void,
-    native_total: i16,
-    native_ready: i16,
-) {
-    if cell.is_null() || reference.is_null() {
-        return;
-    }
-
-    let timer = lock_timer();
-    let now = libpsycho::os::windows::winapi::get_tick_count();
-    let cell_address = cell as usize;
-    let reference_address = reference as usize;
-    let (generation, tracked, ready, removed, cells, references) = {
-        let mut ledger = LEDGER.lock();
-        let (generation, tracked, ready, removed) = {
-            let state = ledger.cell_mut(cell_address);
-            let removed = state.remove_reference(reference_address, now);
-            let ready = state.ready_count;
-            (state.generation, state.references.len(), ready, removed)
-        };
-        if removed {
-            ledger.reference_count = ledger.reference_count.saturating_sub(1);
-        }
-        (
-            generation,
-            tracked,
-            ready,
-            removed,
-            ledger.cells.len(),
-            ledger.reference_count,
-        )
-    };
-    finish_lock_timer(timer);
-
-    MEMBERSHIP_REMOVALS.fetch_add(1, Ordering::Relaxed);
-    if !removed {
-        let count = MEMBERSHIP_MISMATCHES.fetch_add(1, Ordering::Relaxed) + 1;
-        log_sampled(
-            count,
-            format_args!(
-                "[LOD] Membership removal mismatch cell=0x{cell_address:08X} ref=0x{reference_address:08X} count={count}"
-            ),
-        );
-    }
-    publish_sizes(cells, references);
-    trace_record(
-        EVENT_REMOVE,
-        cell_address,
-        reference_address,
-        generation,
-        TransitionCounts {
-            native_total,
-            native_ready,
-            tracked,
-            ready,
-        },
-    );
-}
-
 pub(super) fn observe_ready(
     cell: *mut libc::c_void,
     reference: *mut libc::c_void,
     native_total: i16,
     native_ready: i16,
-) {
+    identity: Option<(u64, u64)>,
+) -> bool {
     if cell.is_null() || reference.is_null() {
-        return;
+        return false;
     }
 
     let timer = lock_timer();
@@ -360,13 +680,15 @@ pub(super) fn observe_ready(
                     ready: 0,
                 },
             );
-            return;
+            return false;
         };
-        match state.publish_ready(reference_address) {
+        let result = state.current_ready(reference_address, identity);
+        match result {
             ReadyResult::Published => {}
             ReadyResult::Duplicate => duplicate = true,
             ReadyResult::Stale => stale = true,
         }
+        publish_permission(cell_address, state);
         let ready = state.ready_count;
         (state.generation, state.references.len(), ready)
     };
@@ -413,6 +735,7 @@ pub(super) fn observe_ready(
             },
         );
     }
+    !stale && !duplicate
 }
 
 fn record_stale_ready(cell: usize, reference: usize, generation: u64, counts: TransitionCounts) {
@@ -461,7 +784,7 @@ pub(super) fn ready_gate(
         };
         let tracked = state.references.len();
         let ready = state.ready_count;
-        let allowed = state.allows_retirement(native_total);
+        let allowed = vanilla && native_ready >= 0 && state.allows_retirement(native_total);
         (allowed, state.generation, tracked, ready)
     };
     finish_lock_timer(timer);
@@ -518,25 +841,27 @@ pub(super) fn mark_uncertain(cell: *mut libc::c_void, native_total: i16, native_
     }
 
     let timer = lock_timer();
-    let now = libpsycho::os::windows::winapi::get_tick_count();
+    let now = if TRACE_ENABLED.load(Ordering::Acquire) {
+        libpsycho::os::windows::winapi::get_tick_count()
+    } else {
+        0
+    };
     let cell_address = cell as usize;
     let (generation, tracked, ready, cells, references) = {
         let mut ledger = LEDGER.lock();
-        let generation = ledger.generation();
-        let removed = {
-            let state = ledger
-                .cells
-                .entry(cell_address)
-                .or_insert_with(|| CellState::new(generation));
-            let removed = state.references.len();
-            state.generation = generation;
+        let (generation, tracked, ready) = {
+            let state = ledger.cell_mut(cell_address);
             state.mark_uncertain(now);
-            state.ready_count = 0;
-            state.references.clear();
-            removed
+            publish_permission(cell_address, state);
+            (state.generation, state.references.len(), state.ready_count)
         };
-        ledger.reference_count = ledger.reference_count.saturating_sub(removed);
-        (generation, 0, 0, ledger.cells.len(), ledger.reference_count)
+        (
+            generation,
+            tracked,
+            ready,
+            ledger.cells.len(),
+            ledger.reference_count,
+        )
     };
     finish_lock_timer(timer);
 
@@ -562,44 +887,6 @@ pub(super) fn mark_uncertain(cell: *mut libc::c_void, native_total: i16, native_
     );
 }
 
-pub(super) fn reset_cell(cell: *mut libc::c_void, native_total: i16, native_ready: i16) {
-    if cell.is_null() {
-        return;
-    }
-
-    let timer = lock_timer();
-    let cell_address = cell as usize;
-    let (generation, cells, references) = {
-        let mut ledger = LEDGER.lock();
-        let generation = ledger.generation();
-        if let Some(previous) = ledger.cells.remove(&cell_address) {
-            ledger.reference_count = ledger
-                .reference_count
-                .saturating_sub(previous.references.len());
-        }
-        ledger
-            .cells
-            .insert(cell_address, CellState::new(generation));
-        (generation, ledger.cells.len(), ledger.reference_count)
-    };
-    finish_lock_timer(timer);
-
-    CELL_RELOADS.fetch_add(1, Ordering::Relaxed);
-    publish_sizes(cells, references);
-    trace_record(
-        EVENT_RELOAD,
-        cell_address,
-        0,
-        generation,
-        TransitionCounts {
-            native_total,
-            native_ready,
-            tracked: 0,
-            ready: 0,
-        },
-    );
-}
-
 pub(super) fn teardown_cell(cell: *mut libc::c_void, native_total: i16, native_ready: i16) {
     if cell.is_null() {
         return;
@@ -607,18 +894,11 @@ pub(super) fn teardown_cell(cell: *mut libc::c_void, native_total: i16, native_r
 
     let timer = lock_timer();
     let cell_address = cell as usize;
+    super::metrics::invalidate_cell(cell_address, true);
     let (generation, cells, references) = {
         let mut ledger = LEDGER.lock();
-        let generation = ledger
-            .cells
-            .remove(&cell_address)
-            .map(|state| {
-                ledger.reference_count = ledger
-                    .reference_count
-                    .saturating_sub(state.references.len());
-                state.generation
-            })
-            .unwrap_or(0);
+        super::coverage::invalidate(cell_address);
+        let generation = ledger.teardown(cell_address);
         (generation, ledger.cells.len(), ledger.reference_count)
     };
     finish_lock_timer(timer);
@@ -643,6 +923,7 @@ pub(super) fn reset_worldspace() {
     let timer = lock_timer();
     let (generation, cells, references) = {
         let mut ledger = LEDGER.lock();
+        super::coverage::reset();
         let generation = ledger.generation();
         ledger.cells.clear();
         ledger.reference_count = 0;
@@ -667,28 +948,37 @@ pub(super) fn reset_worldspace() {
 }
 
 pub(super) fn snapshot() -> Snapshot {
-    let now = libpsycho::os::windows::winapi::get_tick_count();
+    let trace = TRACE_ENABLED.load(Ordering::Acquire);
+    let now = if trace {
+        libpsycho::os::windows::winapi::get_tick_count()
+    } else {
+        0
+    };
     let (oldest_pending_ms, current_uncertain_cells, oldest_uncertain_ms) = {
         let ledger = LEDGER.lock();
-        let oldest_pending_ms = ledger
-            .cells
-            .values()
-            .flat_map(|cell| cell.references.values())
-            .filter(|reference| !reference.ready)
-            .map(|reference| now.wrapping_sub(reference.pending_since))
-            .max()
-            .unwrap_or(0);
-        let mut current_uncertain_cells = 0usize;
-        let mut oldest_uncertain_ms = 0u32;
-        for cell in ledger.cells.values().filter(|cell| !cell.certain) {
-            current_uncertain_cells += 1;
-            oldest_uncertain_ms = oldest_uncertain_ms.max(now.wrapping_sub(cell.uncertain_since));
-        }
-        (
-            oldest_pending_ms,
-            current_uncertain_cells,
-            oldest_uncertain_ms,
-        )
+        let pending = trace
+            .then(|| {
+                ledger
+                    .cells
+                    .values()
+                    .flat_map(|cell| cell.references.values())
+                    .filter(|reference| reference.enrolled && !reference.ready)
+                    .map(|reference| now.wrapping_sub(reference.pending_since))
+                    .max()
+            })
+            .flatten();
+        let uncertain = ledger.cells.values().filter(|cell| !cell.certain).count();
+        let age = trace
+            .then(|| {
+                ledger
+                    .cells
+                    .values()
+                    .filter(|cell| !cell.certain)
+                    .filter_map(|cell| cell.uncertain_since.map(|time| now.wrapping_sub(time)))
+                    .max()
+            })
+            .flatten();
+        (pending, uncertain, age)
     };
 
     Snapshot {
@@ -714,7 +1004,8 @@ pub(super) fn snapshot() -> Snapshot {
         peak_cells: PEAK_CELLS.load(Ordering::Relaxed),
         peak_references: PEAK_REFERENCES.load(Ordering::Relaxed),
         oldest_pending_ms,
-        max_lock_us: MAX_LOCK_US.load(Ordering::Relaxed),
+        max_lock_us: (LOCK_SAMPLES.load(Ordering::Relaxed) != 0)
+            .then(|| MAX_LOCK_US.load(Ordering::Relaxed)),
     }
 }
 
@@ -750,6 +1041,7 @@ fn lock_timer() -> Option<Stopwatch> {
 fn finish_lock_timer(timer: Option<Stopwatch>) {
     if let Some(elapsed) = timer.and_then(Stopwatch::elapsed_us) {
         update_max_u64(&MAX_LOCK_US, elapsed);
+        LOCK_SAMPLES.fetch_add(1, Ordering::Relaxed);
     }
 }
 
@@ -896,56 +1188,250 @@ fn event_name(event: u32) -> &'static str {
 
 #[cfg(test)]
 mod tests {
-    use super::{CellState, ReadyResult};
+    use super::{CellState, Ledger, ReadyResult};
+
+    fn observed_empty(generation: u64) -> CellState {
+        let mut cell = CellState::new(generation);
+        cell.reconcile(&[], 0);
+        cell
+    }
+
+    // These inputs follow the observed canonical reserve/store/publication
+    // boundary. The assertions execute the same ledger methods as the hooks.
+    fn enrolled(cell: &mut CellState, frame: usize, reference: usize, now: u32) {
+        cell.reserve(frame, reference, now);
+        cell.publish(frame, reference, true, now);
+    }
 
     #[test]
-    fn exact_removal_preserves_certainty_and_ready_count() {
-        let mut cell = CellState::new(7);
-        assert!(cell.insert_reference(0x1000, 10));
-        assert!(cell.insert_reference(0x2000, 11));
+    fn known_credit_survives_membership_uncertainty() {
+        let mut cell = observed_empty(17);
+        enrolled(&mut cell, 0x8000, 0x1000, 10);
+        cell.mark_uncertain(20);
+        assert_eq!(cell.publish_ready(0x1000), ReadyResult::Published);
+        assert_eq!(cell.ready_count, 1);
+        assert!(!cell.allows_retirement(1));
+        cell.reconcile(&[0x1000], 1);
+        assert!(cell.allows_retirement(1));
+    }
+
+    #[test]
+    fn observed_empty_epoch_preserves_native_zero_total_readiness() {
+        assert!(observed_empty(19).allows_retirement(0));
+    }
+
+    #[test]
+    fn exact_physical_removal_preserves_other_ready_credit() {
+        let mut cell = observed_empty(7);
+        enrolled(&mut cell, 0x8000, 0x1000, 10);
+        enrolled(&mut cell, 0x8000, 0x2000, 11);
         assert_eq!(cell.publish_ready(0x1000), ReadyResult::Published);
         assert_eq!(cell.publish_ready(0x2000), ReadyResult::Published);
         assert!(cell.allows_retirement(2));
-
-        assert!(cell.remove_reference(0x1000, 20));
+        cell.physical_remove(0x1000, 1, 0, 20);
         assert!(cell.certain);
-        assert_eq!(cell.references.len(), 1);
-        assert_eq!(cell.ready_count, 1);
+        assert_eq!((cell.references.len(), cell.ready_count), (1, 1));
         assert!(cell.allows_retirement(1));
     }
 
     #[test]
-    fn missing_removal_fails_closed_and_records_uncertainty_age() {
-        let mut cell = CellState::new(9);
-        assert!(cell.insert_reference(0x1000, 10));
-        assert!(!cell.remove_reference(0x2000, 25));
+    fn missing_removal_blocks_retirement_without_revoking_known_identity() {
+        let mut cell = observed_empty(9);
+        enrolled(&mut cell, 0x8000, 0x1000, 10);
+        cell.physical_remove(0x2000, 0, 0, 25);
         assert!(!cell.certain);
-        assert_eq!(cell.uncertain_since, 25);
+        assert_eq!(cell.uncertain_since, Some(25));
         assert!(!cell.allows_retirement(1));
-        assert_eq!(cell.publish_ready(0x1000), ReadyResult::Stale);
+        assert_eq!(cell.publish_ready(0x1000), ReadyResult::Published);
+        cell.reconcile(&[0x1000, 0x2000], 1);
+        assert!(!cell.allows_retirement(1));
+        cell.reconcile(&[0x1000], 1);
+        assert!(cell.allows_retirement(1));
     }
 
     #[test]
-    fn duplicate_insert_and_ready_publication_fail_closed() {
-        let mut cell = CellState::new(11);
-        assert!(cell.insert_reference(0x1000, 10));
+    fn duplicate_occurrences_cannot_transfer_old_credit_after_first_match_removal() {
+        let mut cell = observed_empty(11);
+        enrolled(&mut cell, 0x8000, 0x1000, 10);
         assert_eq!(cell.publish_ready(0x1000), ReadyResult::Published);
         assert_eq!(cell.publish_ready(0x1000), ReadyResult::Duplicate);
-        assert!(!cell.insert_reference(0x1000, 30));
-        assert!(!cell.certain);
+        enrolled(&mut cell, 0x9000, 0x1000, 30);
         assert_eq!(cell.ready_count, 0);
+        assert!(cell.ready_identity(0x1000).is_none());
+        cell.physical_remove(0x1000, 2, 1, 31);
+        cell.reconcile(&[0x1000], 1);
         assert!(!cell.allows_retirement(1));
+        assert_eq!(cell.publish_ready(0x1000), ReadyResult::Stale);
+        cell.physical_remove(0x1000, 1, 0, 32);
+        enrolled(&mut cell, 0x8000, 0x1000, 33);
+        cell.publish_ready(0x1000);
+        cell.reconcile(&[0x1000], 1);
+        assert!(cell.allows_retirement(1));
     }
 
     #[test]
-    fn retirement_requires_exact_native_total_and_nonempty_ready_membership() {
-        let mut cell = CellState::new(13);
-        assert!(!cell.allows_retirement(0));
-        assert!(cell.insert_reference(0x1000, 10));
+    fn retirement_requires_exact_native_enrollment_and_all_ready_credits() {
+        let mut cell = observed_empty(13);
+        enrolled(&mut cell, 0x8000, 0x1000, 10);
         assert!(!cell.allows_retirement(1));
         assert_eq!(cell.publish_ready(0x1000), ReadyResult::Published);
+        assert!(!cell.allows_retirement(-1));
         assert!(!cell.allows_retirement(0));
         assert!(!cell.allows_retirement(2));
         assert!(cell.allows_retirement(1));
+    }
+
+    #[test]
+    fn reservation_blocks_same_cell_reenrollment_and_old_token() {
+        let mut cell = observed_empty(21);
+        enrolled(&mut cell, 0x8000, 0x1000, 10);
+        let old = cell.ready_identity(0x1000);
+        cell.publish_ready(0x1000);
+        cell.reserve(0x9000, 0x1000, 20);
+        assert!(!cell.allows_retirement(1));
+        cell.physical_remove(0x1000, 1, 0, 21);
+        assert!(!cell.allows_retirement(0));
+        cell.publish(0x9000, 0x1000, true, 22);
+        assert_ne!(cell.ready_identity(0x1000), old);
+        assert_eq!(cell.current_ready(0x1000, old), ReadyResult::Stale);
+        let current = cell.ready_identity(0x1000);
+        assert_eq!(cell.current_ready(0x1000, current), ReadyResult::Published);
+        assert!(cell.allows_retirement(1));
+    }
+
+    #[test]
+    fn physical_only_and_disabled_members_do_not_manufacture_ready_credits() {
+        let mut cell = observed_empty(23);
+        cell.publish(0x8000, 0x1000, false, 10);
+        assert!(cell.allows_retirement(0));
+        assert_eq!(cell.publish_ready(0x1000), ReadyResult::Stale);
+        enrolled(&mut cell, 0x8000, 0x2000, 11);
+        cell.publish_ready(0x2000);
+        cell.retire_enrollment(0x2000, 12);
+        assert_eq!((cell.references.len(), cell.ready_count), (2, 0));
+        assert!(cell.allows_retirement(0));
+        assert!(cell.ready_identity(0x2000).is_none());
+    }
+
+    #[test]
+    fn reload_retains_actual_survivors_and_rejects_overlapping_old_ready() {
+        let mut cell = observed_empty(25);
+        enrolled(&mut cell, 0x8000, 0x1000, 10);
+        enrolled(&mut cell, 0x8000, 0x2000, 11);
+        let old = cell.ready_identity(0x1000);
+        cell.begin_reload(26);
+        assert!(!cell.allows_retirement(0));
+        assert_eq!(cell.current_ready(0x1000, old), ReadyResult::Stale);
+        cell.finish_reload(&[0x1000], 12);
+        assert_eq!(cell.references.len(), 1);
+        assert_eq!(cell.ready_count, 0);
+        assert!(cell.allows_retirement(0));
+        assert_eq!(cell.current_ready(0x1000, old), ReadyResult::Stale);
+        assert!(cell.ready_identity(0x1000).is_none());
+    }
+
+    #[test]
+    fn in_flight_publication_and_counter_mismatch_prevent_recovery() {
+        let mut cell = observed_empty(27);
+        enrolled(&mut cell, 0x8000, 0x1000, 10);
+        cell.mark_uncertain(11);
+        cell.publications = 1;
+        cell.reconcile(&[0x1000], 1);
+        assert!(!cell.certain);
+        cell.publications = 0;
+        cell.reconcile(&[0x1000], 2);
+        assert!(!cell.certain);
+        cell.reconcile(&[0x1000], 1);
+        assert!(cell.certain);
+    }
+    #[test]
+    fn teardown_and_address_reuse_reject_old_epoch_tokens() {
+        let mut ledger = Ledger::default();
+        enrolled(ledger.cell_mut(0x4000), 0x8000, 0x1000, 10);
+        let old = ledger.cell_mut(0x4000).ready_identity(0x1000);
+        let previous = ledger.teardown(0x4000);
+        enrolled(ledger.cell_mut(0x4000), 0x8000, 0x1000, 11);
+        let cell = ledger.cell_mut(0x4000);
+        assert_ne!(cell.generation, previous);
+        assert_eq!(cell.current_ready(0x1000, old), ReadyResult::Stale);
+        assert!(!cell.allows_retirement(1));
+    }
+
+    #[test]
+    fn unobserved_zero_counter_cannot_authorize_retirement() {
+        let mut cell = CellState::new(31);
+        assert!(!cell.allows_retirement(0));
+        cell.reconcile(&[], 0);
+        assert!(cell.allows_retirement(0));
+    }
+
+    #[test]
+    fn failed_reload_snapshot_finishes_execution_and_permits_recovery() {
+        let mut cell = observed_empty(25);
+        enrolled(&mut cell, 0x8000, 0x1000, 10);
+        let old = cell.ready_identity(0x1000);
+        cell.begin_reload(26);
+        cell.reload_snapshot_failed(12);
+        assert!(!cell.resetting, "native reset has returned from its loop");
+        assert!(!cell.allows_retirement(0));
+        assert_eq!(cell.current_ready(0x1000, old), ReadyResult::Stale);
+        cell.reconcile(&[0x1000], 0);
+        assert!(cell.allows_retirement(0));
+        assert!(cell.ready_identity(0x1000).is_none());
+    }
+
+    #[test]
+    fn delayed_reload_recovery_preserves_new_current_epoch_credit() {
+        let mut cell = observed_empty(25);
+        enrolled(&mut cell, 0x8000, 0x1000, 10);
+        cell.begin_reload(26);
+        cell.reload_snapshot_failed(12);
+        enrolled(&mut cell, 0x9000, 0x2000, 13);
+        let current = cell.ready_identity(0x2000);
+        assert_eq!(cell.current_ready(0x2000, current), ReadyResult::Published);
+        assert!(!cell.allows_retirement(1));
+        cell.reconcile(&[0x1000, 0x2000], 1);
+        assert_eq!(cell.ready_count, 1);
+        assert_eq!(cell.ready_identity(0x2000), current);
+        assert!(cell.allows_retirement(1));
+        assert!(cell.ready_identity(0x1000).is_none());
+    }
+
+    #[test]
+    fn delayed_reload_recovery_cannot_exempt_unknown_or_reinserted_members() {
+        let mut cell = observed_empty(25);
+        enrolled(&mut cell, 0x8000, 0x1000, 10);
+        cell.begin_reload(26);
+        cell.reload_snapshot_failed(12);
+        cell.reconcile(&[0x1000, 0x2000], 0);
+        assert!(cell.reload_recovery);
+        assert!(!cell.allows_retirement(0));
+        enrolled(&mut cell, 0x9000, 0x1000, 13);
+        cell.physical_remove(0x1000, 2, 1, 14);
+        cell.reconcile(&[0x1000], 1);
+        assert!(cell.reload_recovery);
+        assert!(!cell.allows_retirement(1));
+        // A later real reload supplies a new exemption transaction, not a
+        // timeout or a fabricated credit for the ambiguous insertion.
+        cell.begin_reload(27);
+        cell.reload_snapshot_failed(15);
+        cell.reconcile(&[0x1000], 0);
+        assert!(cell.allows_retirement(0));
+        assert_eq!(cell.ready_count, 0);
+    }
+
+    #[test]
+    fn blocked_retirement_does_not_scan_membership() {
+        let mut cell = observed_empty(27);
+        enrolled(&mut cell, 0x8000, 0x1000, 10);
+        enrolled(&mut cell, 0x9000, 0x2000, 11);
+        cell.mark_uncertain(12);
+        cell.retirement_visits.set(0);
+        assert!(!cell.allows_retirement(2));
+        assert_eq!(cell.retirement_visits.get(), 0);
+        cell.reconcile(&[0x1000, 0x2000], 2);
+        cell.reserve(0xA000, 0x3000, 13);
+        assert!(!cell.allows_retirement(2));
+        assert_eq!(cell.retirement_visits.get(), 0);
     }
 }

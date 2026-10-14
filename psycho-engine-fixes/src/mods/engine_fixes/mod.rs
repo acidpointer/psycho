@@ -18,6 +18,7 @@ mod encounter_zone;
 mod entrydata;
 mod extraownership;
 mod havok;
+mod havok_sparse;
 mod install_paths;
 mod io;
 mod linkedrefs;
@@ -219,11 +220,10 @@ pub(crate) fn dashboard_counters() -> DashboardCounters {
             .parallel_fallbacks
             .saturating_add(io.scheduler.cache_fallbacks)
             .saturating_add(io.scheduler.capacity_failures),
-        // Retained in the helper ABI without updating atomics in every LOD
-        // demand predicate.
-        lod_demands: 0,
-        lod_early_demands: 0,
-        lod_retained_demands: 0,
+        // Demand accounting is opt-in through the existing LOD trace setting.
+        lod_demands: lod.demand.demands,
+        lod_early_demands: lod.demand.early,
+        lod_retained_demands: lod.demand.retained,
         lod_current_cells: lod.state.current_cells as u64,
         lod_current_references: lod.state.current_references as u64,
         lod_stale_retirements_prevented: lod.state.stale_retirements_prevented,
@@ -281,7 +281,7 @@ pub fn install(
     install_linked_ref_target_base_form(config)?;
     install_ragdoll_null_bone(config)?;
     install_ragdoll_detached_phantom(config)?;
-    install_havok_guards(config)?;
+    install_havok_guards(config);
     install_memset_null_dst(config)?;
     install_tile_value_integrity(config)?;
     install_lowprocess_fix(config)?;
@@ -930,9 +930,33 @@ pub(crate) fn append_diagnostic_report(out: &mut String) {
     );
 
     push_report_section(out, "LOD streaming");
+    push_report_value(out, "Demand accounting", on_off(lod.state.trace_enabled));
+    for (kind, row) in ["Terrain demand", "Object demand", "Tree demand"]
+        .into_iter()
+        .zip(lod.demand.by_kind)
+    {
+        push_report_value(
+            out,
+            kind,
+            format!(
+                "{} calls / {} early / {} retained / {} release decisions",
+                row[0], row[1], row[2], row[3]
+            ),
+        );
+    }
     push_report_value(
         out,
-        "Remove owner",
+        "List providers",
+        format!(
+            "{:08X} interior / {:08X} exterior / {} mismatch",
+            lod.membership.interior_predecessor,
+            lod.membership.exterior_predecessor,
+            lod.membership.publication_mismatches
+        ),
+    );
+    push_report_value(
+        out,
+        "Disable owner",
         format!(
             "{:08X} / {} exact / {} mismatch",
             lod.alternate_remove_predecessor,
@@ -1007,13 +1031,17 @@ pub(crate) fn append_diagnostic_report(out: &mut String) {
     push_report_value(
         out,
         "LOD timing",
-        format!(
-            "{} ms pending / {} ms uncertain / {} us lock / trace {}",
-            lod.state.oldest_pending_ms,
-            lod.state.oldest_uncertain_ms,
-            lod.state.max_lock_us,
-            on_off(lod.state.trace_enabled),
-        ),
+        if lod.state.trace_enabled {
+            format!(
+                "{:?} ms pending / {:?} ms uncertain / {:?} us lock / trace {}",
+                lod.state.oldest_pending_ms,
+                lod.state.oldest_uncertain_ms,
+                lod.state.max_lock_us,
+                on_off(lod.state.trace_enabled),
+            )
+        } else {
+            "unavailable (trace off)".to_owned()
+        },
     );
 
     push_report_section(out, "SpeedTree IO safety");
@@ -1077,6 +1105,7 @@ pub(crate) fn append_diagnostic_report(out: &mut String) {
     let lod_alerts = lod
         .ready_predecessor_mismatches
         .saturating_add(lod.alternate_remove_mismatches)
+        .saturating_add(lod.membership.publication_mismatches)
         .saturating_add(lod.state.membership_mismatches)
         .saturating_add(lod.state.stale_publications)
         .saturating_add(lod.state.current_uncertain_cells as u64);
@@ -1392,61 +1421,72 @@ fn install_ragdoll_detached_phantom(config: &EngineFixesConfig) -> anyhow::Resul
     Ok(())
 }
 
-fn install_havok_guards(config: &EngineFixesConfig) -> anyhow::Result<()> {
-    if config.havok_add_entity_batch_null_guard {
-        unsafe {
-            statics::HAVOK_ADD_ENTITY_BATCH_HOOK.init(
-                "havok_add_entity_batch_null_guard",
-                statics::HAVOK_ADD_ENTITY_BATCH_ADDR as *mut c_void,
-                havok::hook_havok_add_entity_batch,
-            )?;
-        }
-        statics::HAVOK_ADD_ENTITY_BATCH_HOOK.enable()?;
-        log::info!("[HAVOK] Add-entity batch NULL guard active");
-    }
+fn install_havok_guards(config: &EngineFixesConfig) {
+    use libpsycho::os::windows::hook::transaction::ModificationTransaction;
 
-    if config.havok_pending_add_null_guard {
-        unsafe {
-            statics::HAVOK_PENDING_ADD_FLUSH_HOOK.init(
-                "havok_pending_add_null_guard",
-                statics::HAVOK_PENDING_ADD_FLUSH_ADDR as *mut c_void,
-                havok::hook_havok_pending_add_flush,
-            )?;
-        }
-        statics::HAVOK_PENDING_ADD_FLUSH_HOOK.enable()?;
-        havok::install_pending_add_loop_null_guard()?;
-        log::info!("[HAVOK] Pending-add NULL guard active");
+    // Sparse flow is one dependent unit. The other Havok protections and the
+    // later IO/LOD installers are independent: rejecting a changed native site
+    // must not abort their setup or leave core initialization marked failed.
+    if let Err(error) = havok_sparse::install(
+        config.havok_add_entity_batch_null_guard,
+        config.havok_pending_add_null_guard,
+    ) {
+        log::error!(
+            "[HAVOK] Sparse protection was not admitted; captured providers retained and independent fixes will continue: {error:#}"
+        );
     }
 
     if config.havok_narrowphase_invalid_pair_guard {
-        unsafe {
-            statics::HAVOK_NARROWPHASE_ADD_AGENTS_HOOK.init(
-                "havok_narrowphase_invalid_pair_guard",
-                statics::HAVOK_NARROWPHASE_ADD_AGENTS_ADDR as *mut c_void,
-                havok::hook_havok_narrowphase_add_agents,
-            )?;
+        let result = (|| -> anyhow::Result<()> {
+            unsafe {
+                statics::HAVOK_NARROWPHASE_ADD_AGENTS_HOOK.init(
+                    "havok_narrowphase_invalid_pair_guard",
+                    statics::HAVOK_NARROWPHASE_ADD_AGENTS_ADDR as *mut c_void,
+                    havok::hook_havok_narrowphase_add_agents,
+                )?;
+            }
+            let mut tx = ModificationTransaction::new();
+            tx.enable_inline(&statics::HAVOK_NARROWPHASE_ADD_AGENTS_HOOK)?;
+            tx.commit();
+            log::info!("[HAVOK] Narrowphase invalid-pair guard active");
+            Ok(())
+        })();
+        if let Err(error) = result {
+            log::error!(
+                "[HAVOK] Narrowphase protection installation failed; independent fixes will continue: {error:#}"
+            );
         }
-        statics::HAVOK_NARROWPHASE_ADD_AGENTS_HOOK.enable()?;
-        log::info!("[HAVOK] Narrowphase invalid-pair guard active");
     }
 
     if config.havok_post_add_null_entity_guard {
-        unsafe {
-            statics::HAVOK_ENTITY_POST_ADD_HOOK.init(
-                "havok_post_add_null_entity_guard",
-                statics::HAVOK_ENTITY_POST_ADD_ADDR as *mut c_void,
-                havok::hook_havok_entity_post_add,
-            )?;
+        let result = (|| -> anyhow::Result<()> {
+            unsafe {
+                statics::HAVOK_ENTITY_POST_ADD_HOOK.init(
+                    "havok_post_add_null_entity_guard",
+                    statics::HAVOK_ENTITY_POST_ADD_ADDR as *mut c_void,
+                    havok::hook_havok_entity_post_add,
+                )?;
+            }
+            let mut tx = ModificationTransaction::new();
+            tx.enable_inline(&statics::HAVOK_ENTITY_POST_ADD_HOOK)?;
+            tx.commit();
+            log::info!("[HAVOK] Post-add NULL entity guard active");
+            Ok(())
+        })();
+        if let Err(error) = result {
+            log::error!(
+                "[HAVOK] Post-add protection installation failed; independent fixes will continue: {error:#}"
+            );
         }
-        statics::HAVOK_ENTITY_POST_ADD_HOOK.enable()?;
-        log::info!("[HAVOK] Post-add NULL entity guard active");
     }
 
-    if config.havok_remove_agent_null_reread_guard {
-        havok::install_remove_agent_unlock_guard()?;
+    if config.havok_remove_agent_null_reread_guard
+        && let Err(error) = havok::install_remove_agent_unlock_guard()
+    {
+        log::error!(
+            "[HAVOK] Unlock reread protection installation failed; independent fixes will continue: {error:#}"
+        );
     }
-
-    Ok(())
 }
 
 fn install_memset_null_dst(config: &EngineFixesConfig) -> anyhow::Result<()> {

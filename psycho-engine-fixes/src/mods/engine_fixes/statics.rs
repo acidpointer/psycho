@@ -185,8 +185,6 @@ pub const LOD_OBJECT_DEMAND_ADDR: usize = 0x006F_E620;
 pub const LOD_TREE_DEMAND_ADDR: usize = 0x006F_E780;
 pub const LOD_WORLDSPACE_RESET_ADDR: usize = 0x006F_CE00;
 
-pub const LOD_CELL_INSERT_ADDR: usize = 0x0054_8230;
-pub const LOD_CELL_REMOVE_ADDR: usize = 0x0054_CA90;
 pub const LOD_CELL_ALTERNATE_DECREMENT_ADDR: usize = 0x0055_E1D0;
 pub const LOD_ALTERNATE_REMOVE_CALL_ADDR: usize = 0x0055_DE32;
 pub const LOD_ALTERNATE_REMOVE_CALL_PREFIX_ADDR: usize = 0x0055_DE28;
@@ -195,7 +193,6 @@ pub const LOD_ALTERNATE_REMOVE_CALL_PREFIX_BYTES: [u8; 10] =
 pub const LOD_ALTERNATE_REMOVE_CALL_SUFFIX_ADDR: usize = 0x0055_DE37;
 pub const LOD_ALTERNATE_REMOVE_CALL_SUFFIX_BYTES: [u8; 5] = [0x0F, 0xB6, 0x55, 0xAF, 0x52];
 pub const LOD_CELL_READY_GATE_ADDR: usize = 0x0054_95A0;
-pub const LOD_CELL_RELOAD_RESET_ADDR: usize = 0x0055_08B0;
 pub const LOD_CELL_TEARDOWN_ADDR: usize = 0x0054_CD20;
 
 pub const LOD_READY_INCREMENT_ADDR: usize = 0x0045_2390;
@@ -245,13 +242,7 @@ pub static LOD_TREE_DEMAND_HOOK: LazyLock<InlineHookContainer<LodDemandFn>> =
 pub static LOD_WORLDSPACE_RESET_HOOK: LazyLock<InlineHookContainer<LodWorldspaceResetFn>> =
     LazyLock::new(InlineHookContainer::new);
 
-pub static LOD_CELL_INSERT_HOOK: LazyLock<InlineHookContainer<LodCellInsertFn>> =
-    LazyLock::new(InlineHookContainer::new);
-pub static LOD_CELL_REMOVE_HOOK: LazyLock<InlineHookContainer<LodCellRemoveFn>> =
-    LazyLock::new(InlineHookContainer::new);
 pub static LOD_CELL_READY_GATE_HOOK: LazyLock<InlineHookContainer<LodCellReadyGateFn>> =
-    LazyLock::new(InlineHookContainer::new);
-pub static LOD_CELL_RELOAD_RESET_HOOK: LazyLock<InlineHookContainer<LodCellOwnerFn>> =
     LazyLock::new(InlineHookContainer::new);
 pub static LOD_CELL_TEARDOWN_HOOK: LazyLock<InlineHookContainer<LodCellOwnerFn>> =
     LazyLock::new(InlineHookContainer::new);

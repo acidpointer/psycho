@@ -278,12 +278,15 @@ ragdoll_null_bone_guard = true
 # when its Havok phantom has already detached from the physics world.
 ragdoll_detached_phantom_guard = true
 
-# Removes NULL entries from an hkpWorld add-entity batch before Havok writes
-# through them. Valid entities in the same batch are still added.
+# Enables shared Havok NULL protection and batch array admission. Native slots,
+# counts, and cleanup are preserved. Either this or the pending setting enables
+# the complete shared flow; set both false to omit that flow. Each setting also
+# selects its own entry's array-envelope admission.
 havok_add_entity_batch_null_guard = true
 
-# Removes NULL entries from Havok's pending-add array before the engine flushes
-# it. Valid pending entities continue normally.
+# Enables shared Havok NULL protection and pending array admission. The native
+# pending stages skip NULL at their actual reads and retain native cleanup.
+# Shared NULL protection remains active while either setting is true.
 havok_pending_add_null_guard = true
 
 # Skips invalid collision pairs before Havok dispatches through its collision-
@@ -400,6 +403,10 @@ handoff_fix_enabled = true
 # immediately visible loading.
 priority_boost_enabled = true
 
+# Yield ordinary real-model attachment bursts at the existing native deadline.
+# Blocking loads retain the full drain. Changes require a restart.
+attachment_budget_enabled = true
+
 # Request object and tree blocks 35 percent earlier, then retain them to 150
 # percent of their original distance to prevent boundary churn.
 object_prefetch_multiplier = 1.35
@@ -504,6 +511,7 @@ hitch_profiling = false
 task_lifetime_trace = false
 
 # Records the last 256 meaningful LOD membership, readiness, gate, and reset
-# events. Enable only while investigating LOD behavior; aggregate streaming
-# demand counters remain available without it.
+# events and counts actual terrain/object/tree demand decisions. Enable only
+# while investigating LOD behavior. Demand counters stay zero when disabled;
+# release decisions do not measure completed unloading or recovered memory.
 lod_streaming_trace = false

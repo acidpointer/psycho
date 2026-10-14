@@ -1,4 +1,11 @@
-//! Native LOD task-priority scheduling.
+//! Constructor priority and copied demand provenance for native queued promotion.
+//!
+//! Constructor owners keep task/block arguments live until native initialization
+//! returns. Early-demand provenance preserves speculative priority; native visible
+//! demand updates a bounded atomic set without clocks, allocations or locks.
+//! Task/node lifetime observers install separately: failure preserves constructor
+//! priority while disarming owning-iterator promotion. World reset clears both
+//! sets. Keys never retain native objects and are not residency measurements.
 
 use std::{
     ffi::c_void,
@@ -26,6 +33,8 @@ static PRIORITY_REQUESTED: AtomicBool = AtomicBool::new(false);
 static PRIORITY_INSTALLED: AtomicBool = AtomicBool::new(false);
 static PRIORITY_INSTALL_FAILURES: AtomicU32 = AtomicU32::new(0);
 static SPECULATIVE_NODES: [AtomicUsize; SPECULATIVE_CAPACITY] =
+    [const { AtomicUsize::new(EMPTY) }; SPECULATIVE_CAPACITY];
+static VISIBLE_NODES: [AtomicUsize; SPECULATIVE_CAPACITY] =
     [const { AtomicUsize::new(EMPTY) }; SPECULATIVE_CAPACITY];
 
 pub(in crate::mods::engine_fixes) struct Snapshot {
@@ -70,9 +79,23 @@ fn install_inner() -> anyhow::Result<()> {
     transaction.enable_inline(&statics::LOD_TREE_TASK_PRODUCER_HOOK)?;
     transaction.enable_inline(&statics::LOD_TERRAIN_TASK_PRODUCER_HOOK)?;
     transaction.commit();
-    PRIORITY_INSTALLED.store(true, Ordering::Release);
+    PRIORITY_INSTALLED.store(
+        PRIORITY_REQUESTED.load(Ordering::Acquire),
+        Ordering::Release,
+    );
+    let mut observation = ModificationTransaction::new();
+    match super::task_observation::install(&mut observation) {
+        Ok(()) => {
+            observation.commit();
+            super::task_observation::installed();
+        }
+        Err(error) => log::warn!(
+            "[LOD] Queued-priority lifecycle transaction rolled back; constructor priority retained: {error:#}"
+        ),
+    }
     log::info!(
-        "[LOD] Demand-aware task priority installed: visible={LOD_PRIORITY}, Psycho-only speculative=native"
+        "[LOD] Task constructors observed; priority={} visible={LOD_PRIORITY}, Psycho-only speculative=native",
+        PRIORITY_INSTALLED.load(Ordering::Acquire),
     );
     Ok(())
 }
@@ -172,6 +195,10 @@ unsafe extern "thiscall" fn hook_terrain_task_producer(
 }
 
 unsafe fn prioritize_visible_task(task: *mut c_void, kind: usize, node: usize) {
+    super::task_observation::root(task as usize, kind, node);
+    if !PRIORITY_REQUESTED.load(Ordering::Acquire) {
+        return;
+    }
     // A consumed mark proves this constructor came from Psycho-only early
     // demand, so preserving the constructor's native priority keeps it in the
     // background. Missing/ambiguous provenance deliberately receives visible
@@ -251,6 +278,56 @@ pub(super) fn clear_speculative(kind: usize, node: *mut c_void) {
 pub(super) fn reset_speculative() {
     for slot in &SPECULATIVE_NODES {
         slot.store(EMPTY, Ordering::Release);
+    }
+    for slot in &VISIBLE_NODES {
+        slot.store(EMPTY, Ordering::Release);
+    }
+}
+
+/// Publish only the predecessor's actual native demand, independently of retention.
+pub(super) fn visible_demand(kind: usize, node: usize, visible: bool) {
+    if !PRIORITY_INSTALLED.load(Ordering::Acquire) {
+        return;
+    }
+    let Some(key) = speculative_key(kind, node) else {
+        return;
+    };
+    let start = speculative_hash(key);
+    let mut available = None;
+    for offset in 0..SPECULATIVE_PROBES {
+        let slot = &VISIBLE_NODES[(start + offset) & (SPECULATIVE_CAPACITY - 1)];
+        let value = slot.load(Ordering::Acquire);
+        if value == key {
+            if !visible {
+                let _ = slot.compare_exchange(key, TOMBSTONE, Ordering::AcqRel, Ordering::Acquire);
+            }
+            return;
+        }
+        if value == EMPTY || value == TOMBSTONE {
+            available.get_or_insert((slot, value));
+        }
+    }
+    if visible && let Some((slot, value)) = available {
+        let _ = slot.compare_exchange(value, key, Ordering::AcqRel, Ordering::Acquire);
+    }
+}
+
+/// Query copied visibility without locking, allocation or native pointer access.
+pub(super) fn is_visible(kind: usize, node: usize) -> bool {
+    let Some(key) = speculative_key(kind, node) else {
+        return false;
+    };
+    let start = speculative_hash(key);
+    (0..SPECULATIVE_PROBES).any(|offset| {
+        VISIBLE_NODES[(start + offset) & (SPECULATIVE_CAPACITY - 1)].load(Ordering::Acquire) == key
+    })
+}
+
+/// Revoke all kind-specific demand at native node address reuse.
+pub(super) fn invalidate_visible(node: usize) {
+    for kind in 0..3 {
+        visible_demand(kind, node, false);
+        clear_speculative(kind, node as *mut c_void);
     }
 }
 

@@ -67,6 +67,8 @@ pub(crate) struct EditableConfig {
     pub lod_prefetch_enabled: bool,
     pub lod_handoff_fix_enabled: bool,
     pub lod_priority_boost_enabled: bool,
+    /// Restart-only ordinary attachment budgeting preference.
+    pub lod_attachment_budget_enabled: bool,
     pub object_prefetch_multiplier: f32,
     pub object_retention_multiplier: f32,
     pub tree_prefetch_multiplier: f32,
@@ -124,6 +126,7 @@ impl Default for EditableConfig {
             lod_prefetch_enabled: true,
             lod_handoff_fix_enabled: true,
             lod_priority_boost_enabled: true,
+            lod_attachment_budget_enabled: true,
             object_prefetch_multiplier: 1.35,
             object_retention_multiplier: 1.50,
             tree_prefetch_multiplier: 1.35,
@@ -340,6 +343,12 @@ impl EditableConfig {
                 "lod",
                 "priority_boost_enabled",
                 defaults.lod_priority_boost_enabled,
+            ),
+            lod_attachment_budget_enabled: bool_or(
+                doc,
+                "lod",
+                "attachment_budget_enabled",
+                defaults.lod_attachment_budget_enabled,
             ),
             object_prefetch_multiplier: float_or(
                 doc,
@@ -706,6 +715,11 @@ fn write_document(doc: &mut DocumentMut, config: &EditableConfig) {
     setting!("lod", "priority_boost_enabled", lod_priority_boost_enabled);
     setting!(
         "lod",
+        "attachment_budget_enabled",
+        lod_attachment_budget_enabled
+    );
+    setting!(
+        "lod",
         "object_prefetch_multiplier",
         object_prefetch_multiplier as f64
     );
@@ -813,6 +827,7 @@ mod_owned_key = "untouched"
         config.model_postprocess_serialization_fix = false;
         config.source_texture_cache_publication_guard = false;
         config.tile_value_null_slot_guard = false;
+        config.lod_attachment_budget_enabled = false;
         write_document(&mut document, &config);
         let saved = document.to_string();
 
@@ -846,6 +861,7 @@ mod_owned_key = "untouched"
         assert!(!EditableConfig::from_document(&reparsed).model_postprocess_serialization_fix);
         assert!(!EditableConfig::from_document(&reparsed).source_texture_cache_publication_guard);
         assert!(!EditableConfig::from_document(&reparsed).tile_value_null_slot_guard);
+        assert!(!EditableConfig::from_document(&reparsed).lod_attachment_budget_enabled);
     }
 
     #[test]
@@ -892,6 +908,7 @@ object_prefetch_multiplier = 1
         assert!(config.encounter_zone_invalid_form_guard);
         assert!(config.cell_render_reference_retirement_fix);
         assert_eq!(config.object_prefetch_multiplier, 1.0);
+        assert!(config.lod_attachment_budget_enabled);
         assert!(!config.debug_log);
     }
 }

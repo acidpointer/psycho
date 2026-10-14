@@ -138,6 +138,8 @@ pub struct LodConfig {
     pub handoff_fix_enabled: bool,
     /// Raise native LOD task priority without changing task classes.
     pub priority_boost_enabled: bool,
+    /// Yield ordinary real-model attachment bursts at the native deadline.
+    pub attachment_budget_enabled: bool,
     pub object_prefetch_multiplier: f32,
     pub object_retention_multiplier: f32,
     pub tree_prefetch_multiplier: f32,
@@ -155,6 +157,7 @@ impl Default for LodConfig {
             prefetch_enabled: true,
             handoff_fix_enabled: true,
             priority_boost_enabled: true,
+            attachment_budget_enabled: true,
             object_prefetch_multiplier: 1.35,
             object_retention_multiplier: 1.50,
             tree_prefetch_multiplier: 1.35,
@@ -215,6 +218,9 @@ impl LodConfig {
             priority_boost_enabled: raw
                 .priority_boost_enabled
                 .unwrap_or(default.priority_boost_enabled),
+            attachment_budget_enabled: raw
+                .attachment_budget_enabled
+                .unwrap_or(default.attachment_budget_enabled),
             object_prefetch_multiplier,
             object_retention_multiplier,
             tree_prefetch_multiplier,
@@ -394,9 +400,13 @@ pub struct EngineFixesConfig {
     pub ragdoll_null_bone_guard: bool,
     /// Treat penetration raycasts against detached Havok phantoms as no hit.
     pub ragdoll_detached_phantom_guard: bool,
-    /// Compact NULL hkpEntity slots before hkpWorld::addEntityBatch.
+    /// Request shared Havok NULL consumption protection and batch array admission.
+    /// Either this or the pending flag enables the complete sparse flow; slots
+    /// and native counts are preserved. Both false omits the shared protection.
     pub havok_add_entity_batch_null_guard: bool,
-    /// Compact NULL hkpWorld pending-add slots before flush loops use them.
+    /// Request shared Havok NULL consumption protection and pending array admission.
+    /// The shared flow stays active when the batch flag is enabled. This flag
+    /// additionally selects the pending entry's array-envelope admission.
     pub havok_pending_add_null_guard: bool,
     /// Skip invalid Havok narrowphase collision pairs.
     pub havok_narrowphase_invalid_pair_guard: bool,
@@ -699,6 +709,7 @@ struct RawLodConfig {
     prefetch_enabled: Option<bool>,
     handoff_fix_enabled: Option<bool>,
     priority_boost_enabled: Option<bool>,
+    attachment_budget_enabled: Option<bool>,
     object_prefetch_multiplier: Option<f32>,
     object_retention_multiplier: Option<f32>,
     tree_prefetch_multiplier: Option<f32>,
@@ -793,12 +804,16 @@ parallel_enabled = false
 
 [lod]
 enabled = true
+attachment_budget_enabled = false
 "#,
         )
         .expect("parse IO configuration");
 
         assert!(!config.io.parallel_enabled);
         assert!(config.lod.enabled);
+        assert!(!config.lod.attachment_budget_enabled);
+        assert!(config.lod.prefetch_enabled);
+        assert!(config.lod.priority_boost_enabled);
     }
 
     #[test]
@@ -806,6 +821,7 @@ enabled = true
         let config: PsychoConfig = toml::from_str("").expect("parse default configuration");
 
         assert!(config.io.parallel_enabled);
+        assert!(config.lod.attachment_budget_enabled);
     }
 
     #[test]

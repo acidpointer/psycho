@@ -109,17 +109,12 @@ pub type SourceTextureCachePublishFn = unsafe extern "C" fn(*mut c_void, *mut c_
 pub type TileGetOrCreateValueFn = unsafe extern "thiscall" fn(*mut c_void, u32) -> *mut c_void;
 
 /// Terrain/object/tree LOD demand predicates. ECX owns the terrain node and
-/// the stack argument points to the camera XY(Z) vector.
-pub type LodDemandFn = unsafe extern "thiscall" fn(*mut c_void, *const f32) -> i32;
+/// the stack argument points to the camera XY(Z) vector. Only AL is defined;
+/// upper EAX bits retain unrelated pointer/x87 status data on native returns.
+pub type LodDemandFn = unsafe extern "thiscall" fn(*mut c_void, *const f32) -> u8;
 
 /// BGSTerrainManager::ResetDistantLOD.
 pub type LodWorldspaceResetFn = unsafe extern "fastcall" fn(*mut c_void);
-
-/// TESObjectCELL reference insertion and VWD-total update.
-pub type LodCellInsertFn = unsafe extern "thiscall" fn(*mut c_void, *mut c_void, u8);
-
-/// TESObjectCELL reference removal and VWD-total update.
-pub type LodCellRemoveFn = unsafe extern "thiscall" fn(*mut c_void, *mut c_void);
 
 /// Cell-only counter/reset/teardown helpers with their owner in ECX.
 pub type LodCellOwnerFn = unsafe extern "fastcall" fn(*mut c_void);
@@ -179,7 +174,10 @@ pub type CellFormInsertFn = unsafe extern "thiscall" fn(*mut c_void, *mut c_void
 pub type AutoWaterBuildFn = unsafe extern "C" fn(*mut c_void);
 
 /// Native IOTask dependency-priority propagation and queue reordering.
-pub type IoTaskPriorityFn = unsafe extern "thiscall" fn(*mut c_void, u32);
+/// AL is the actual native acceptance from C3E690, preserved by C3DF40 and
+/// C3CAE0. Native queued-state races may reject the request; ret-4 owns the
+/// priority argument. No live key reread is needed after calling this function.
+pub type IoTaskPriorityFn = unsafe extern "thiscall" fn(*mut c_void, u32) -> u8;
 
 /// Object LOD producer constructor at 0x006F6D10.
 pub type LodObjectTaskProducerFn =

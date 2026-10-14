@@ -1,0 +1,2465 @@
+HAVOK SPARSE ENTITY CONSUMPTION AND REFERENCE CONTRACT
+Static continuation and nullable-reference qualification, 2026-10-14.
+Executable: fnv_reverse/FalloutNV.exe, SHA-256 42fee7d6cd74e801372aa89c8f71c974cebd3c20ec9ad43d1465b8fa9646b49c
+These are raw radare2 MCP outputs; variable labels are analysis display names, not field proof.
+
+CAPTURE havokDurableStart4
+0x00c68b80      push eax
+; 0xfdf1c0
+   ; reloc.KERNEL32.dll_InterlockedIncrement
+   ; sym.imp.KERNEL32.dll_InterlockedIncrement(0x0, 0x0, 0x0, 0x0)
+0x00c68b81      call dword [sym.imp.KERNEL32.dll_InterlockedIncrement]
+0x00c68b87      mov dword [edi + 4], 0
+0x00c68b8e      jmp 0xc68b92
+0x00c68b90      xor edi, edi
+; CODE XREF from fcn.00c68b50 @ 0xc68b8e(x)
+0x00c68b92      mov eax, dword [esi + 4]
+0x00c68b95      mov dword [edi + 4], eax
+0x00c68b98      push ebx
+0x00c68b99      mov ecx, esi
+0x00c68b9b      mov dword [esi + 4], edi
+   ; fcn.00c663d0
+   ; fcn.00c663d0(-1)
+0x00c68b9e      call fcn.00c663d0
+0x00c68ba3      pop edi
+0x00c68ba4      pop esi
+0x00c68ba5      pop ebx
+0x00c68ba6      ret 4
+0x00c68ba9      push ebx
+   ; fcn.00c663d0
+   ; fcn.00c663d0(-1)
+0x00c68baa      call fcn.00c663d0
+0x00c68baf      pop esi
+0x00c68bb0      pop ebx
+0x00c68bb1      ret 4
+0x00c68bb4      int3
+0x00c68bb5      int3
+0x00c68bb6      int3
+0x00c68bb7      int3
+0x00c68bb8      int3
+0x00c68bb9      int3
+0x00c68bba      int3
+0x00c68bbb      int3
+0x00c68bbc      int3
+0x00c68bbd      int3
+0x00c68bbe      int3
+0x00c68bbf      int3
+  ; NULL XREF from fcn.00c68b50 @ +0x64(x)
+42: fcn.00c68bc0 (int8_t arg_8h);
+`- args(sp[0x4..0x4])
+0x00c68bc0      push esi
+0x00c68bc1      mov esi, ecx
+   ; fcn.00553540
+0x00c68bc3      call fcn.00553540
+0x00c68bc8      test byte [arg_8h], 1
+   ; unlikely
+0x00c68bcd      je 0xc68be4
+   ; fcn.00c85750
+0x00c68bcf      call fcn.00c85750
+0x00c68bd4      movzx edx, word [esi + 4]
+0x00c68bd8      mov ecx, dword [eax + 0x10]
+0x00c68bdb      mov eax, dword [ecx]
+0x00c68bdd      mov eax, dword [eax + 8]
+0x00c68be0      push edx
+0x00c68be1      push esi
+   ; 0xffffffff(-1, -1, -1, 0xffff)
+0x00c68be2      call eax
+0x00c68be4      mov eax, esi
+0x00c68be6      pop esi
+0x00c68be7      ret 4
+0x00c68bea      int3
+0x00c68beb      int3
+0x00c68bec      int3
+0x00c68bed      int3
+0x00c68bee      int3
+0x00c68bef      int3
+  ; NULL XREF from fcn.00c68b50 @ +0x64(x)
+  ; CALL XREF from fcn.00c9d590 @ 0xc9d5b8(x)
+177: fcn.00c68bf0 (int32_t arg_10h);
+`- args(sp[0x4..0x4])
+0x00c68bf0      push ebx
+0x00c68bf1      push esi
+0x00c68bf2      mov esi, ecx
+0x00c68bf4      mov eax, dword [esi]
+0x00c68bf6      mov edx, dword [eax + 0x94]
+0x00c68bfc      push edi
+0x00c68bfd      xor bl, bl
+   ; 0xffffffff(-1, 0xffffff00, -1, -1)
+0x00c68bff      call edx
+0x00c68c01      test eax, eax
+   ; unlikely
+0x00c68c03      je 0xc68c99
+0x00c68c09      mov edi, dword [arg_10h]
+0x00c68c0d      test edi, edi
+   ; unlikely
+0x00c68c0f      je 0xc68c99
+0x00c68c15      cmp dword [esi + 0x1c], 0
+0x00c68c19      mov ecx, dword [edi + 0xc]
+   ; unlikely
+0x00c68c1c      jbe 0xc68c7c
+0x00c68c1e      test ecx, ecx
+   ; unlikely
+0x00c68c20      je 0xc68c74
+0x00c68c22      mov eax, dword [ecx + 0x10]
+; 48
+0x00c68c25      test al, 0x30
+   ; likely
+0x00c68c27      jne 0xc68c74
+; 32
+0x00c68c29      or eax, 0x20
+0x00c68c2c      mov dword [ecx + 0x10], eax
+0x00c68c2f      cmp dword [esi + 0x50], 0xbb8
+   ; unlikely
+0x00c68c36      jb 0xc68c54
+0x00c68c38      mov ecx, esi
+   ; fcn.00c67df0
+0x00c68c3a      call fcn.00c67df0
+0x00c68c3f      mov ecx, esi
+   ; fcn.00c67cd0
+0x00c68c41      call fcn.00c67cd0
+0x00c68c46      mov ecx, esi
+   ; fcn.00c67bc0
+0x00c68c48      call fcn.00c67bc0
+
+
+CAPTURE havokQueueWritersA0
+  ; NULL XREF from fcn.00c68b50 @ +0x64(x)
+  ; CALL XREF from fcn.00c9d590 @ 0xc9d5b8(x)
+177: fcn.00c68bf0 (int32_t arg_10h);
+`- args(sp[0x4..0x4])
+0x00c68bf0      push ebx
+0x00c68bf1      push esi
+0x00c68bf2      mov esi, ecx
+0x00c68bf4      mov eax, dword [esi]
+0x00c68bf6      mov edx, dword [eax + 0x94]
+0x00c68bfc      push edi
+0x00c68bfd      xor bl, bl
+   ; 0xffffffff(-1, 0x0, 0x0, -1)
+0x00c68bff      call edx
+0x00c68c01      test eax, eax
+   ; unlikely
+0x00c68c03      je 0xc68c99
+0x00c68c09      mov edi, dword [arg_10h]
+0x00c68c0d      test edi, edi
+   ; unlikely
+0x00c68c0f      je 0xc68c99
+0x00c68c15      cmp dword [esi + 0x1c], 0
+0x00c68c19      mov ecx, dword [edi + 0xc]
+   ; unlikely
+0x00c68c1c      jbe 0xc68c7c
+0x00c68c1e      test ecx, ecx
+   ; unlikely
+0x00c68c20      je 0xc68c74
+0x00c68c22      mov eax, dword [ecx + 0x10]
+; 48
+0x00c68c25      test al, 0x30
+   ; likely
+0x00c68c27      jne 0xc68c74
+; 32
+0x00c68c29      or eax, 0x20
+0x00c68c2c      mov dword [ecx + 0x10], eax
+0x00c68c2f      cmp dword [esi + 0x50], 0xbb8
+   ; unlikely
+0x00c68c36      jb 0xc68c54
+0x00c68c38      mov ecx, esi
+   ; fcn.00c67df0
+0x00c68c3a      call fcn.00c67df0
+0x00c68c3f      mov ecx, esi
+   ; fcn.00c67cd0
+0x00c68c41      call fcn.00c67cd0
+0x00c68c46      mov ecx, esi
+   ; fcn.00c67bc0
+0x00c68c48      call fcn.00c67bc0
+0x00c68c4d      mov ecx, esi
+   ; fcn.00c67aa0
+0x00c68c4f      call fcn.00c67aa0
+0x00c68c54      mov ecx, edi
+   ; fcn.00c90510
+0x00c68c56      call fcn.00c90510
+0x00c68c5b      mov eax, dword [esi + 0x50]
+0x00c68c5e      mov ecx, dword [esi + 0x4c]
+0x00c68c61      mov dword [ecx + eax*4], edi
+0x00c68c64      mov ebx, 1
+0x00c68c69      add dword [esi + 0x50], ebx
+0x00c68c6c      pop edi
+0x00c68c6d      pop esi
+0x00c68c6e      mov al, bl
+0x00c68c70      pop ebx
+0x00c68c71      ret 4
+0x00c68c74      pop edi
+0x00c68c75      pop esi
+0x00c68c76      mov al, 1
+0x00c68c78      pop ebx
+0x00c68c79      ret 4
+0x00c68c7c      test ecx, ecx
+   ; unlikely
+0x00c68c7e      je 0xc68c74
+0x00c68c80      test byte [ecx + 0x10], 0x30
+   ; likely
+0x00c68c84      jne 0xc68c74
+0x00c68c86      push edi
+0x00c68c87      lea edx, [arg_10h]
+0x00c68c8b      push edx
+0x00c68c8c      mov ecx, eax
+   ; fcn.00c91620
+   ; fcn.00c91620(0xffffff01, -1, 0xffffff01)
+0x00c68c8e      call fcn.00c91620
+0x00c68c93      cmp byte [eax], 0
+0x00c68c96      setne bl
+0x00c68c99      pop edi
+0x00c68c9a      pop esi
+0x00c68c9b      mov al, bl
+0x00c68c9d      pop ebx
+0x00c68c9e      ret 4
+0x00c68ca1      int3
+0x00c68ca2      int3
+0x00c68ca3      int3
+0x00c68ca4      int3
+0x00c68ca5      int3
+0x00c68ca6      int3
+0x00c68ca7      int3
+0x00c68ca8      int3
+0x00c68ca9      int3
+0x00c68caa      int3
+0x00c68cab      int3
+0x00c68cac      int3
+0x00c68cad      int3
+0x00c68cae      int3
+0x00c68caf      int3
+  ; NULL XREF from fcn.00c68b50 @ +0x64(x)
+  ; CALL XREF from fcn.00c9f420 @ 0xc9f448(x)
+152: fcn.00c68cb0 (int32_t arg_10h);
+`- args(sp[0x4..0x4])
+0x00c68cb0      push ebx
+0x00c68cb1      push esi
+0x00c68cb2      mov esi, ecx
+0x00c68cb4      mov eax, dword [esi]
+0x00c68cb6      mov edx, dword [eax + 0x94]
+0x00c68cbc      push edi
+0x00c68cbd      xor bl, bl
+   ; 0xffffffff(-1, 0xffffff00, 0xffffff01, -1)
+0x00c68cbf      call edx
+0x00c68cc1      test eax, eax
+   ; unlikely
+0x00c68cc3      je 0xc68d40
+0x00c68cc5      mov edi, dword [arg_10h]
+0x00c68cc9      test edi, edi
+   ; unlikely
+0x00c68ccb      je 0xc68d40
+0x00c68ccd      cmp dword [esi + 0x1c], 0
+0x00c68cd1      mov ebx, 1
+   ; unlikely
+0x00c68cd6      jbe 0xc68d2b
+0x00c68cd8      mov ecx, dword [edi + 0xc]
+0x00c68cdb      test ecx, ecx
+   ; unlikely
+0x00c68cdd      je 0xc68d40
+0x00c68cdf      mov al, byte [ecx + 0x14]
+; 48
+0x00c68ce2      test al, 0x30
+   ; likely
+0x00c68ce4      jne 0xc68d40
+; 32
+0x00c68ce6      or al, 0x20
+0x00c68ce8      mov byte [ecx + 0x14], al
+0x00c68ceb      cmp dword [esi + 0x38], 0xc8
+   ; unlikely
+0x00c68cf2      jb 0xc68d10
+0x00c68cf4      mov ecx, esi
+   ; fcn.00c67df0
+0x00c68cf6      call fcn.00c67df0
+0x00c68cfb      mov ecx, esi
+   ; fcn.00c67cd0
+0x00c68cfd      call fcn.00c67cd0
+0x00c68d02      mov ecx, esi
+   ; fcn.00c67bc0
+0x00c68d04      call fcn.00c67bc0
+0x00c68d09      mov ecx, esi
+   ; fcn.00c67aa0
+0x00c68d0b      call fcn.00c67aa0
+0x00c68d10      mov ecx, edi
+   ; fcn.00c90510
+0x00c68d12      call fcn.00c90510
+0x00c68d17      mov eax, dword [esi + 0x38]
+0x00c68d1a      mov ecx, dword [esi + 0x34]
+0x00c68d1d      mov dword [ecx + eax*4], edi
+
+
+CAPTURE havokQueueWritersA2
+  ; XREFS: CALL 0x0044844e  CALL 0x005d168e  CALL 0x00847fef
+  ; XREFS: CALL 0x00850bb9  CALL 0x00856d67  CALL 0x00861345
+  ; XREFS: CALL 0x00869f7a  CALL 0x0086a00e  CALL 0x00878169
+  ; XREFS: CALL 0x00c3e1e8
+43: fcn.00c3e310 ();
+afv: vars(1:sp[0x8..0x8])
+0x00c3e310      push ebp
+0x00c3e311      mov ebp, esp
+0x00c3e313      push ecx
+0x00c3e314      mov dword [var_4h], ecx
+0x00c3e317      mov ecx, dword [var_4h]
+   ; fcn.00c3e750
+0x00c3e31a      call fcn.00c3e750
+0x00c3e31f      movzx eax, al
+0x00c3e322      test eax, eax
+   ; likely
+0x00c3e324      je 0xc3e337
+0x00c3e326      mov ecx, dword [var_4h]
+0x00c3e329      cmp dword [ecx + 0x7c], 0
+   ; unlikely
+0x00c3e32d      je 0xc3e337
+0x00c3e32f      mov edx, dword [var_4h]
+0x00c3e332      mov eax, dword [edx + 0x7c]
+   ; 0xffffffff(-1, 0x0, -1, -1)
+0x00c3e335      call eax
+0x00c3e337      mov esp, ebp
+0x00c3e339      pop ebp
+0x00c3e33a      ret
+0x00c3e33b      int3
+0x00c3e33c      int3
+0x00c3e33d      int3
+0x00c3e33e      int3
+0x00c3e33f      int3
+  ; XREFS: CALL 0x004485d8  CALL 0x005d16df  CALL 0x00849354
+  ; XREFS: CALL 0x00850bfd  CALL 0x008571e0  CALL 0x00861325
+  ; XREFS: CALL 0x00869f9b  CALL 0x00878249  CALL 0x00c3e2ec
+  ; XREFS: 0x00c3e310
+49: fcn.00c3e340 ();
+afv: vars(1:sp[0x8..0x8])
+0x00c3e340      push ebp
+0x00c3e341      mov ebp, esp
+0x00c3e343      push ecx
+0x00c3e344      mov dword [var_4h], ecx
+0x00c3e347      mov ecx, dword [var_4h]
+   ; fcn.00c3e7d0
+0x00c3e34a      call fcn.00c3e7d0
+0x00c3e34f      movzx eax, al
+0x00c3e352      test eax, eax
+   ; unlikely
+0x00c3e354      je 0xc3e36d
+0x00c3e356      mov ecx, dword [var_4h]
+0x00c3e359      cmp dword [ecx + 0x80], 0
+   ; unlikely
+0x00c3e360      je 0xc3e36d
+0x00c3e362      mov edx, dword [var_4h]
+0x00c3e365      mov eax, dword [edx + 0x80]
+   ; 0xffffffff(-1, 0x0, -1, -1)
+0x00c3e36b      call eax
+0x00c3e36d      mov esp, ebp
+0x00c3e36f      pop ebp
+0x00c3e370      ret
+0x00c3e371      int3
+
+
+CAPTURE havokQueueWritersB0
+  ; CALL XREF from fcn.00c3e310 @ 0xc3e31a(x)
+124: fcn.00c3e750 ();
+afv: vars(2:sp[0x8..0x18])
+0x00c3e750      push ebp
+0x00c3e751      mov ebp, esp
+0x00c3e753      sub esp, 0x14
+0x00c3e756      mov dword [var_14h], ecx
+; [0x1202df0:1]=0
+0x00c3e759      mov byte [0x1202df0], 0
+0x00c3e760      mov eax, dword [var_14h]
+; 72
+0x00c3e763      add eax, 0x48
+0x00c3e766      push eax
+; 0xfdf1c0
+   ; reloc.KERNEL32.dll_InterlockedIncrement
+   ; sym.imp.KERNEL32.dll_InterlockedIncrement(0x47, 0x0, 0x0, 0x0)
+0x00c3e767      call dword [sym.imp.KERNEL32.dll_InterlockedIncrement]
+; 1
+0x00c3e76d      cmp eax, 1
+   ; likely
+0x00c3e770      jne 0xc3e7c6
+; CODE XREF from fcn.00c3e750 @ 0xc3e783(x)
+0x00c3e772      mov ecx, dword [var_14h]
+0x00c3e775      cmp dword [ecx + 0x44], 0
+   ; unlikely
+0x00c3e779      je 0xc3e785
+; 1
+0x00c3e77b      push 1
+; 0xfdf104
+   ; reloc.KERNEL32.dll_Sleep
+   ; VOID Sleep(-1)
+; VOID Sleep(DWORD dwMilliseconds)
+0x00c3e77d      call dword [sym.imp.KERNEL32.dll_Sleep]
+0x00c3e783      jmp 0xc3e772
+0x00c3e785      mov dword [var_4h], 0
+0x00c3e78c      jmp 0xc3e797
+; CODE XREF from fcn.00c3e750 @ 0xc3e7c0(x)
+0x00c3e78e      mov edx, dword [var_4h]
+0x00c3e791      add edx, 1
+0x00c3e794      mov dword [var_4h], edx
+; CODE XREF from fcn.00c3e750 @ 0xc3e78c(x)
+0x00c3e797      mov eax, dword [var_14h]
+0x00c3e79a      mov ecx, dword [var_4h]
+0x00c3e79d      cmp ecx, dword [eax + 0x4c]
+   ; likely
+0x00c3e7a0      jae 0xc3e7c2
+0x00c3e7a2      mov edx, dword [var_14h]
+0x00c3e7a5      mov eax, dword [edx + 0x50]
+0x00c3e7a8      mov ecx, dword [var_4h]
+0x00c3e7ab      mov ecx, dword [eax + ecx*4]
+   ; fcn.00446f70
+0x00c3e7ae      call fcn.00446f70
+0x00c3e7b3      mov edx, dword [var_14h]
+; 68
+0x00c3e7b6      add edx, 0x44
+0x00c3e7b9      push edx
+; 0xfdf1c0
+   ; reloc.KERNEL32.dll_InterlockedIncrement
+   ; sym.imp.KERNEL32.dll_InterlockedIncrement(-1, 0x0, -1, 0x43)
+0x00c3e7ba      call dword [sym.imp.KERNEL32.dll_InterlockedIncrement]
+0x00c3e7c0      jmp 0xc3e78e
+0x00c3e7c2      mov al, 1
+0x00c3e7c4      jmp 0xc3e7c8
+0x00c3e7c6      xor al, al
+; CODE XREF from fcn.00c3e750 @ 0xc3e7c4(x)
+0x00c3e7c8      mov esp, ebp
+0x00c3e7ca      pop ebp
+0x00c3e7cb      ret
+0x00c3e7cc      int3
+0x00c3e7cd      int3
+0x00c3e7ce      int3
+0x00c3e7cf      int3
+  ; CALL XREF from fcn.00c3e340 @ 0xc3e34a(x)
+134: fcn.00c3e7d0 ();
+afv: vars(2:sp[0x8..0x18])
+0x00c3e7d0      push ebp
+0x00c3e7d1      mov ebp, esp
+0x00c3e7d3      sub esp, 0x14
+0x00c3e7d6      mov dword [var_14h], ecx
+0x00c3e7d9      mov eax, dword [var_14h]
+0x00c3e7dc      cmp dword [eax + 0x48], 0
+   ; likely
+0x00c3e7e0      jne 0xc3e7e6
+0x00c3e7e2      xor al, al
+0x00c3e7e4      jmp 0xc3e852
+
+
+CAPTURE havokQueueWritersB1
+  ; CALL XREF from fcn.00c3e340 @ 0xc3e34a(x)
+134: fcn.00c3e7d0 ();
+afv: vars(2:sp[0x8..0x18])
+0x00c3e7d0      push ebp
+0x00c3e7d1      mov ebp, esp
+0x00c3e7d3      sub esp, 0x14
+0x00c3e7d6      mov dword [var_14h], ecx
+0x00c3e7d9      mov eax, dword [var_14h]
+0x00c3e7dc      cmp dword [eax + 0x48], 0
+   ; likely
+0x00c3e7e0      jne 0xc3e7e6
+0x00c3e7e2      xor al, al
+0x00c3e7e4      jmp 0xc3e852
+0x00c3e7e6      mov ecx, dword [var_14h]
+; 72
+0x00c3e7e9      add ecx, 0x48
+0x00c3e7ec      push ecx
+; 0xfdf1c4
+   ; reloc.KERNEL32.dll_InterlockedDecrement
+   ; sym.imp.KERNEL32.dll_InterlockedDecrement(0xffffff00, 0x0, 0x47, 0x0)
+0x00c3e7ed      call dword [sym.imp.KERNEL32.dll_InterlockedDecrement]
+0x00c3e7f3      test eax, eax
+   ; likely
+0x00c3e7f5      jne 0xc3e850
+; CODE XREF from fcn.00c3e7d0 @ 0xc3e80d(x)
+0x00c3e7f7      mov edx, dword [var_14h]
+0x00c3e7fa      mov eax, dword [edx + 0x44]
+0x00c3e7fd      mov ecx, dword [var_14h]
+0x00c3e800      cmp eax, dword [ecx + 0x4c]
+   ; likely
+0x00c3e803      je 0xc3e80f
+; 1
+0x00c3e805      push 1
+; 0xfdf104
+   ; reloc.KERNEL32.dll_Sleep
+   ; VOID Sleep(-1)
+; VOID Sleep(DWORD dwMilliseconds)
+0x00c3e807      call dword [sym.imp.KERNEL32.dll_Sleep]
+0x00c3e80d      jmp 0xc3e7f7
+0x00c3e80f      mov dword [var_4h], 0
+0x00c3e816      jmp 0xc3e821
+; CODE XREF from fcn.00c3e7d0 @ 0xc3e84a(x)
+0x00c3e818      mov edx, dword [var_4h]
+0x00c3e81b      add edx, 1
+0x00c3e81e      mov dword [var_4h], edx
+; CODE XREF from fcn.00c3e7d0 @ 0xc3e816(x)
+0x00c3e821      mov eax, dword [var_14h]
+0x00c3e824      mov ecx, dword [var_4h]
+0x00c3e827      cmp ecx, dword [eax + 0x4c]
+   ; likely
+0x00c3e82a      jae 0xc3e84c
+0x00c3e82c      mov edx, dword [var_14h]
+0x00c3e82f      mov eax, dword [edx + 0x50]
+0x00c3e832      mov ecx, dword [var_4h]
+0x00c3e835      mov ecx, dword [eax + ecx*4]
+   ; fcn.00446ff0
+0x00c3e838      call fcn.00446ff0
+0x00c3e83d      mov edx, dword [var_14h]
+; 68
+0x00c3e840      add edx, 0x44
+0x00c3e843      push edx
+; 0xfdf1c4
+   ; reloc.KERNEL32.dll_InterlockedDecrement
+   ; sym.imp.KERNEL32.dll_InterlockedDecrement(-1, 0x0, -1, 0x43)
+0x00c3e844      call dword [sym.imp.KERNEL32.dll_InterlockedDecrement]
+0x00c3e84a      jmp 0xc3e818
+0x00c3e84c      mov al, 1
+0x00c3e84e      jmp 0xc3e852
+0x00c3e850      xor al, al
+; CODE XREFS from fcn.00c3e7d0 @ 0xc3e7e4(x), 0xc3e84e(x)
+0x00c3e852      mov esp, ebp
+0x00c3e854      pop ebp
+0x00c3e855      ret
+0x00c3e856      int3
+0x00c3e857      int3
+0x00c3e858      int3
+0x00c3e859      int3
+0x00c3e85a      int3
+0x00c3e85b      int3
+0x00c3e85c      int3
+0x00c3e85d      int3
+0x00c3e85e      int3
+0x00c3e85f      int3
+  ; CALL XREFS from fcn.00c3dfa0 @ 0xc3e06f(x), 0xc3e159(x)
+71: fcn.00c3e860 (int32_t arg_8h);
+`- args(sp[0x4..0x4]) vars(3:sp[0x8..0x10])
+0x00c3e860      push ebp
+0x00c3e861      mov ebp, esp
+0x00c3e863      sub esp, 0xc
+0x00c3e866      mov dword [var_ch], ecx
+0x00c3e869      mov dword [var_4h], 0
+0x00c3e870      mov dword [var_8h], 0
+0x00c3e877      jmp 0xc3e882
+
+
+CAPTURE havokOwnerLayout0
+- offset -  F4F5 F6F7 F8F9 FAFB FCFD FEFF  0 1  2 3  456789ABCDEF0123
+0x010c69f4  40a0 c900 20cc cf00 e09f c900 70bb ac00  @... .......p...
+0x010c6a04  70bb ac00 70bb ac00 70bb ac00 70bb ac00  p...p...p...p...
+0x010c6a14  70bb ac00 70bb ac00 70bb ac00 70bb ac00  p...p...p...p...
+0x010c6a24  70bb ac00 70bb ac00 70bb ac00 70bb ac00  p...p...p...p...
+0x010c6a34  70bb ac00 70bb ac00 4048 a400 5076 c800  p...p...@H..Pv..
+0x010c6a44  7076 c800 e01f a800 5078 c800 d087 ba00  pv......Px......
+0x010c6a54  c0a2 c900 f034 4500 30d4 a500 f09a a800  .....4E.0.......
+0x010c6a64  9089 ee00 10d3 a500 f034 4500 40cd e700  .........4E.@...
+0x010c6a74  40cd e700 f09a a800 70bb ac00 4062 c600  @.......p...@b..
+0x010c6a84  e06d c600 307a d400 307a d400 7003 8d00  .m..0z..0z..p...
+0x010c6a94  50c8 4700 706e c600 3092 c600 1077 c800  P.G.pn..0....w..
+0x010c6aa4  906c c600                                .l..
+
+
+CAPTURE havokOwnerLayout1
+  ; CALL XREF from fcn.00554010 @ 0x554262(x)
+75: fcn.00c99ff0 (int32_t arg_8h, int32_t arg_ch, int32_t arg_10h);
+`- args(sp[0x4..0xc])
+0x00c99ff0      push ebp
+0x00c99ff1      mov ebp, esp
+0x00c99ff3      and esp, 0xfffffff0
+0x00c99ff6      sub esp, 8
+0x00c99ff9      push esi
+0x00c99ffa      push edi
+0x00c99ffb      mov edi, dword [arg_8h]
+0x00c99ffe      push edi
+0x00c99fff      mov esi, ecx
+   ; fcn.00c69010
+0x00c9a001      call fcn.00c69010
+0x00c9a006      mov eax, dword [arg_ch]
+0x00c9a009      mov ecx, dword [arg_10h]
+; [0x10c69f4:4]=0xc9a040 fcn.00c9a040
+0x00c9a00c      mov dword [esi], 0x10c69f4
+0x00c9a012      movaps xmm0, xmmword [eax]
+0x00c9a015      movaps xmmword [esi + 0xa0], xmm0
+0x00c9a01c      movaps xmm0, xmmword [ecx]
+0x00c9a01f      movaps xmmword [esi + 0xb0], xmm0
+0x00c9a026      movaps xmm0, xmmword [edi + 0x40]
+0x00c9a02a      pop edi
+0x00c9a02b      movaps xmmword [esi + 0xc0], xmm0
+0x00c9a032      mov eax, esi
+0x00c9a034      pop esi
+0x00c9a035      mov esp, ebp
+0x00c9a037      pop ebp
+0x00c9a038      ret 0xc
+0x00c9a03b      int3
+0x00c9a03c      int3
+0x00c9a03d      int3
+0x00c9a03e      int3
+0x00c9a03f      int3
+  ; NULL XREF from fcn.00554010 @ 0x554262(x)
+46: fcn.00c9a040 (int8_t arg_8h);
+`- args(sp[0x4..0x4])
+0x00c9a040      push esi
+0x00c9a041      mov esi, ecx
+; [0x10c69f4:4]=0xc9a040 fcn.00c9a040
+0x00c9a043      mov dword [esi], 0x10c69f4
+   ; fcn.00c6aca0
+0x00c9a049      call fcn.00c6aca0
+0x00c9a04e      test byte [arg_8h], 1
+   ; unlikely
+0x00c9a053      je 0xc9a068
+0x00c9a055      movzx eax, byte [esi - 1]
+0x00c9a059      mov ecx, esi
+0x00c9a05b      sub ecx, eax
+0x00c9a05d      push ecx
+0x00c9a05e      mov ecx, 0x11f6238
+   ; fcn.00aa4060
+   ; fcn.00aa4060(0xff)
+0x00c9a063      call fcn.00aa4060
+0x00c9a068      mov eax, esi
+0x00c9a06a      pop esi
+0x00c9a06b      ret 4
+0x00c9a06e      int3
+0x00c9a06f      int3
+  ; CALL XREF from fcn.00c9a1f0 @ 0xc9a25f(x)
+371: fcn.00c9a070 (int32_t arg_ch);
+`- args(sp[0x4..0x4]) vars(1:sp[0x4..0x4])
+0x00c9a070      sub esp, 8
+0x00c9a073      mov edx, dword [arg_ch]
+0x00c9a077      fld dword [edx]
+0x00c9a079      fstp dword [esp + 0xc]
+0x00c9a07d      fld dword [ecx + 0xc0]
+0x00c9a083      fstp dword [esp]
+0x00c9a086      fld dword [ecx + 0xa0]
+0x00c9a08c      fstp dword [esp + 4]
+0x00c9a090      fldz
+0x00c9a092      fld dword [esp + 0xc]
+0x00c9a096      fcom st(1)
+; [0xffffffff:4]=-1
+; -1
+0x00c9a098      mov dword [arg_ch], 0xffffffff
+0x00c9a0a0      fnstsw ax
+
+
+CAPTURE havokCancelWriter0
+; XREFS(34)
+138: fcn.00c68900 (int32_t arg_8h, int32_t arg_10h, int32_t arg_18h);
+`- args(sp[0x4..0xc])
+0x00c68900      push esi
+0x00c68901      mov esi, dword [arg_8h]
+0x00c68905      test esi, esi
+; unlikely
+0x00c68907      je 0xc68988
+0x00c68909      mov ecx, dword [esi + 0x1c]
+0x00c6890c      test ecx, ecx
+; unlikely
+0x00c6890e      je 0xc68919
+0x00c68910      mov eax, dword [ecx]
+0x00c68912      mov edx, dword [eax + 0x38]
+; 0xffffffff(-1, 0x0, -1, -1)
+0x00c68915      call edx
+0x00c68917      jmp 0xc6891b
+0x00c68919      xor eax, eax
+; CODE XREF from fcn.00c68900 @ 0xc68917(x)
+0x00c6891b      push ebx
+0x00c6891c      mov ebx, dword [arg_10h]
+0x00c68920      cmp dword [ebx + 8], 0
+; likely
+0x00c68924      jne 0xc68932
+0x00c68926      mov ecx, dword [esi + 0x30]
+; 4294967279
+0x00c68929      and ecx, 0xffffffef
+0x00c6892c      or ecx, 6
+0x00c6892f      mov dword [esi + 0x30], ecx
+0x00c68932      push ebp
+0x00c68933      mov ebp, dword [arg_18h]
+0x00c68937      test eax, eax
+; likely
+0x00c68939      je 0xc68942
+0x00c6893b      push ebx
+0x00c6893c      push eax
+; 0xffffffff(0x0, -1, 0xffffffef, -1)
+0x00c6893d      call ebp
+0x00c6893f      add esp, 8
+0x00c68942      cmp byte [ebx + 4], 0
+; unlikely
+0x00c68946      je 0xc68986
+0x00c68948      mov edx, dword [esi]
+0x00c6894a      mov eax, dword [edx + 0xc]
+0x00c6894d      push edi
+0x00c6894e      mov ecx, esi
+; 0xffffffff(-1, -1, -1, -1)
+0x00c68950      call eax
+0x00c68952      mov edi, eax
+0x00c68954      test edi, edi
+; unlikely
+0x00c68956      je 0xc68985
+0x00c68958      xor ecx, ecx
+0x00c6895a      xor esi, esi
+0x00c6895c      cmp cx, word [edi + 0xa6]
+; unlikely
+0x00c68963      jae 0xc68985
+0x00c68965      mov edx, dword [edi + 0xa0]
+0x00c6896b      mov eax, dword [edx + esi*4]
+0x00c6896e      push ebp
+0x00c6896f      push ebx
+0x00c68970      push eax
+; fcn.00c68900
+; fcn.00c68900(-1, -1, 0x0)
+0x00c68971      call fcn.00c68900
+0x00c68976      movzx ecx, word [edi + 0xa6]
+0x00c6897d      inc esi
+0x00c6897e      add esp, 0xc
+0x00c68981      cmp esi, ecx
+; likely
+0x00c68983      jb 0xc68965
+0x00c68985      pop edi
+0x00c68986      pop ebp
+0x00c68987      pop ebx
+0x00c68988      pop esi
+0x00c68989      ret
+
+
+CAPTURE havokCancelWriter2
+; 20
+0x00c6acf0      and al, 0x14
+; [0x12677a4:4]=0
+0x00c6acf2      dec dword [0x12677a4]
+; 16
+0x00c6acf8      mov edi, 0x10
+0x00c6acfd      mov dword [var_1ch], edi
+0x00c6ad01      mov dword [ebp + 0x2b4], edi
+0x00c6ad07      mov byte [var_28h], 5
+0x00c6ad0c      cmp dword [esi + 0x10], ebx
+   ; unlikely
+0x00c6ad0f      je 0xc6ad28
+0x00c6ad11      mov eax, dword [esi]
+0x00c6ad13      mov edx, dword [eax + 0x94]
+0x00c6ad19      mov ecx, esi
+   ; 0xffffffff(-1, 0x0, 0x0, -1)
+0x00c6ad1b      call edx
+0x00c6ad1d      mov ecx, dword [esi + 0x10]
+   ; fcn.00c905b0
+0x00c6ad20      call fcn.00c905b0
+0x00c6ad25      mov dword [esi + 0x10], ebx
+0x00c6ad28      mov dword [ebp + 0x2b4], edi
+0x00c6ad2e      mov eax, dword [esi]
+0x00c6ad30      mov edx, dword [eax + 0x94]
+0x00c6ad36      mov ecx, esi
+0x00c6ad38      mov byte [var_28h], 4
+   ; 0xffffffff(-1, 0x0, 0x0, -1)
+0x00c6ad3d      call edx
+0x00c6ad3f      mov ecx, esi
+   ; fcn.00c876a0
+0x00c6ad41      call fcn.00c876a0
+0x00c6ad46      mov eax, dword [esi + 0x2c]
+0x00c6ad49      push eax
+0x00c6ad4a      mov ecx, 0x11f6238
+   ; fcn.00aa4060
+   ; fcn.00aa4060(-1)
+0x00c6ad4f      call fcn.00aa4060
+0x00c6ad54      mov eax, dword [esi + 0x34]
+0x00c6ad57      push eax
+0x00c6ad58      mov ecx, 0x11f6238
+   ; fcn.00aa4060
+   ; fcn.00aa4060(-1)
+0x00c6ad5d      call fcn.00aa4060
+0x00c6ad62      mov eax, dword [esi + 0x3c]
+0x00c6ad65      push eax
+0x00c6ad66      mov ecx, 0x11f6238
+   ; fcn.00aa4060
+   ; fcn.00aa4060(-1)
+0x00c6ad6b      call fcn.00aa4060
+0x00c6ad70      mov eax, dword [esi + 0x44]
+0x00c6ad73      push eax
+0x00c6ad74      mov ecx, 0x11f6238
+   ; fcn.00aa4060
+   ; fcn.00aa4060(-1)
+0x00c6ad79      call fcn.00aa4060
+0x00c6ad7e      mov eax, dword [esi + 0x4c]
+0x00c6ad81      push eax
+0x00c6ad82      mov ecx, 0x11f6238
+   ; fcn.00aa4060
+   ; fcn.00aa4060(-1)
+0x00c6ad87      call fcn.00aa4060
+0x00c6ad8c      xor edi, edi
+0x00c6ad8e      cmp dword [esi + 0x74], ebx
+   ; likely
+0x00c6ad91      jle 0xc6adab
+0x00c6ad93      mov eax, dword [esi + 0x70]
+0x00c6ad96      mov ecx, dword [eax + edi*4]
+0x00c6ad99      cmp ecx, ebx
+   ; unlikely
+0x00c6ad9b      je 0xc6ada5
+0x00c6ad9d      mov edx, dword [ecx]
+0x00c6ad9f      mov eax, dword [edx]
+; 1
+0x00c6ada1      push 1
+   ; 0xffffffff(-1, 0x0, -1, -1)
+0x00c6ada3      call eax
+0x00c6ada5      inc edi
+0x00c6ada6      cmp edi, dword [esi + 0x74]
+   ; unlikely
+0x00c6ada9      jl 0xc6ad93
+0x00c6adab      lea edi, [esi + 0x90]
+0x00c6adb1      mov ecx, edi
+0x00c6adb3      mov dword [esi + 0x74], ebx
+   ; fcn.00c67f20
+0x00c6adb6      call fcn.00c67f20
+0x00c6adbb      mov ecx, dword [var_14h_2]
+0x00c6adbf      mov dword [ebp + 0x2b4], ecx
+0x00c6adc5      mov ecx, edi
+0x00c6adc7      mov byte [var_14h], 2
+
+
+CAPTURE havokSharedLock0
+  ; NULL XREF from fcn.00d47770 @ +0x25(x)
+  ; CALL XREF from fcn.00e92a40 @ 0xe92a5d(x)
+  ; CALL XREF from fcn.00e92c40 @ 0xe92c62(x)
+4: fcn.00d47a30 ();
+0x00d47a30      mov eax, dword [ecx + 8]
+0x00d47a33      ret
+0x00d47a34      int3
+0x00d47a35      int3
+0x00d47a36      int3
+0x00d47a37      int3
+0x00d47a38      int3
+0x00d47a39      int3
+0x00d47a3a      int3
+0x00d47a3b      int3
+0x00d47a3c      int3
+0x00d47a3d      int3
+0x00d47a3e      int3
+  ; NULL XREF from fcn.00d47770 @ +0x25(x)
+1: fcn.00d47a3f ();
+0x00d47a3f      int3
+  ; CALL XREF from fcn.00ba3cb0 @ 0xba3ccf(x)
+  ; CALL XREF from fcn.00ba3e30 @ 0xba3e98(x)
+  ; CALL XREF from fcn.00bb85e0 @ 0xbb8869(x)
+10: fcn.00d47a40 (int32_t arg_4h);
+`- args(sp[0x4..0x4])
+0x00d47a40      mov eax, dword [arg_4h]
+0x00d47a44      mov dword [ecx + 8], eax
+0x00d47a47      ret 4
+0x00d47a4a      int3
+
+
+CAPTURE havokSharedLock1
+  ; CALL XREF from fcn.00552dc0 @ 0x552ed3(x)
+  ; CALL XREF from fcn.00c99ff0 @ 0xc9a001(x)
+517: fcn.00c69010 ();
+afv: vars(6:sp[0x4..0x2c])
+0x00c69010      push 0xffffffffffffffff
+0x00c69012      push 0xf308f4
+0x00c69017      mov eax, dword fs:[0]
+0x00c6901d      push eax
+0x00c6901e      sub esp, 0xc
+0x00c69021      push ebx
+0x00c69022      push ebp
+0x00c69023      push esi
+0x00c69024      push edi
+; [0x11c16bc:4]=0xbb40e64e
+0x00c69025      mov eax, dword [0x11c16bc]
+0x00c6902a      xor eax, esp
+0x00c6902c      push eax
+0x00c6902d      lea eax, [var_20h]
+0x00c69031      mov dword fs:[0], eax
+0x00c69037      mov esi, ecx
+0x00c69039      mov dword [var_1ch], esi
+   ; fcn.00c87c30
+0x00c6903d      call fcn.00c87c30
+0x00c69042      xor ebx, ebx
+0x00c69044      mov dword [esi + 0xc], ebx
+; [0x10c40b4:4]=0xc6b070 fcn.00c6b070
+0x00c69047      mov dword [esi], 0x10c40b4
+0x00c6904d      mov dword [esi + 0x10], ebx
+0x00c69050      mov byte [esi + 0x14], bl
+0x00c69053      mov byte [esi + 0x15], bl
+0x00c69056      mov byte [esi + 0x16], bl
+0x00c69059      mov dword [esi + 0x18], ebx
+0x00c6905c      mov dword [esi + 0x1c], ebx
+0x00c6905f      mov dword [esi + 0x20], ebx
+0x00c69062      mov dword [esi + 0x24], ebx
+0x00c69065      mov dword [esi + 0x28], ebx
+0x00c69068      mov dword [esi + 0x30], ebx
+0x00c6906b      mov dword [esi + 0x38], ebx
+0x00c6906e      mov dword [esi + 0x40], ebx
+0x00c69071      mov dword [esi + 0x48], ebx
+0x00c69074      mov dword [esi + 0x50], ebx
+; [0x1267e30:16]=-1
+0x00c69077      movaps xmm0, xmmword [0x1267e30]
+0x00c6907e      movaps xmmword [esi + 0x60], xmm0
+; 0x80000000
+0x00c69082      mov eax, closesocket
+0x00c69087      mov dword [var_28h], ebx
+0x00c6908b      mov dword [esi + 0x70], ebx
+0x00c6908e      mov dword [esi + 0x74], ebx
+0x00c69091      mov dword [esi + 0x78], eax
+0x00c69094      mov dword [esi + 0x7c], ebx
+0x00c69097      mov dword [esi + 0x80], ebx
+0x00c6909d      mov dword [esi + 0x84], eax
+0x00c690a3      lea edi, [esi + 0x90]
+0x00c690a9      mov dword [edi], ebx
+0x00c690ab      mov dword [edi + 4], ebx
+; [0x126fd98:4]=0
+0x00c690ae      mov eax, dword [0x126fd98]
+0x00c690b3      mov ecx, dword fs:[0x2c]
+0x00c690ba      mov ebp, dword [ecx + eax*4]
+0x00c690bd      mov edx, dword [ebp + 0x2b4]
+0x00c690c3      mov dword [var_18h], edx
+; 16
+0x00c690c7      mov dword [ebp + 0x2b4], 0x10
+; [0x12677a4:4]=0
+0x00c690d1      inc dword [0x12677a4]
+0x00c690d7      push 0x2ee0
+0x00c690dc      mov ecx, 0x11f6238
+0x00c690e1      mov byte [var_28h], 4
+   ; fcn.00aa3e40
+   ; fcn.00aa3e40(0x0)
+0x00c690e6      call fcn.00aa3e40
+0x00c690eb      push 0x2ee0
+0x00c690f0      push ebx
+0x00c690f1      push eax
+0x00c690f2      mov dword [esi + 0x2c], eax
+   ; fcn.00ec61c0
+   ; fcn.00ec61c0(0x0, 0x0, 0x11f6238)
+0x00c690f5      call fcn.00ec61c0
+0x00c690fa      add esp, 0xc
+; 800
+0x00c690fd      push 0x320
+0x00c69102      mov ecx, 0x11f6238
+   ; fcn.00aa3e40
+   ; fcn.00aa3e40(0x0)
+0x00c69107      call fcn.00aa3e40
+; 800
+0x00c6910c      push 0x320
+0x00c69111      push ebx
+0x00c69112      push eax
+0x00c69113      mov dword [esi + 0x34], eax
+   ; fcn.00ec61c0
+   ; fcn.00ec61c0(0x0, 0x0, 0x11f6238)
+0x00c69116      call fcn.00ec61c0
+0x00c6911b      add esp, 0xc
+; 400
+0x00c6911e      push 0x190
+0x00c69123      mov ecx, 0x11f6238
+   ; fcn.00aa3e40
+   ; fcn.00aa3e40(0x0)
+0x00c69128      call fcn.00aa3e40
+; 400
+0x00c6912d      push 0x190
+0x00c69132      push ebx
+0x00c69133      push eax
+0x00c69134      mov dword [esi + 0x3c], eax
+   ; fcn.00ec61c0
+   ; fcn.00ec61c0(0x0, 0x0, 0x11f6238)
+0x00c69137      call fcn.00ec61c0
+0x00c6913c      add esp, 0xc
+; 800
+0x00c6913f      push 0x320
+0x00c69144      mov ecx, 0x11f6238
+   ; fcn.00aa3e40
+   ; fcn.00aa3e40(0x0)
+0x00c69149      call fcn.00aa3e40
+; 800
+0x00c6914e      push 0x320
+0x00c69153      push ebx
+0x00c69154      push eax
+0x00c69155      mov dword [esi + 0x44], eax
+   ; fcn.00ec61c0
+   ; fcn.00ec61c0(0x0, 0x0, 0x11f6238)
+0x00c69158      call fcn.00ec61c0
+0x00c6915d      add esp, 0xc
+0x00c69160      push 0x2ee0
+0x00c69165      mov ecx, 0x11f6238
+   ; fcn.00aa3e40
+   ; fcn.00aa3e40(0x0)
+0x00c6916a      call fcn.00aa3e40
+0x00c6916f      push 0x2ee0
+0x00c69174      push ebx
+0x00c69175      push eax
+0x00c69176      mov dword [esi + 0x4c], eax
+   ; fcn.00ec61c0
+   ; fcn.00ec61c0(0x0, 0x0, 0x11f6238)
+0x00c69179      call fcn.00ec61c0
+0x00c6917e      fld1
+0x00c69180      fld dword [0x1267b38]
+0x00c69186      add esp, 0xc
+0x00c69189      fcom st(1)
+0x00c6918b      fnstsw ax
+; 5
+0x00c6918d      test ah, 5
+   ; likely
+0x00c69190      jp 0xc69196
+0x00c69192      fstp st(1)
+0x00c69194      jmp 0xc69198
+0x00c69196      fstp st(0)
+; CODE XREF from fcn.00c69010 @ 0xc69194(x)
+0x00c69198      fstp dword [esp + 0x14]
+0x00c6919c      mov ecx, edi
+0x00c6919e      fld dword [esp + 0x14]
+; [0x1267b38:4]=0
+0x00c691a2      fstp dword [0x1267b38]
+   ; fcn.00c67f20
+0x00c691a8      call fcn.00c67f20
+0x00c691ad      mov eax, dword [var_1ch]
+0x00c691b1      cmp eax, ebx
+   ; unlikely
+0x00c691b3      je 0xc691bb
+0x00c691b5      lea ebx, [eax + 0xf0]
+0x00c691bb      push ebx
+0x00c691bc      mov ecx, esi
+   ; fcn.00c66c90
+   ; fcn.00c66c90(-1)
+0x00c691be      call fcn.00c66c90
+0x00c691c3      mov eax, dword [esi]
+0x00c691c5      mov edx, dword [eax + 0x94]
+0x00c691cb      mov ecx, esi
+   ; 0xffffffff(-1, 0xef, 0x0, -1)
+0x00c691cd      call edx
+
+
+CAPTURE havokSharedLock3
+508: fcn.00c6ae70 ();
+0x00c6ae70      fldz
+0x00c6ae72      push ebx
+0x00c6ae73      push esi
+; [0x12677c4:4]=0
+0x00c6ae74      fstp dword [0x12677c4]
+0x00c6ae7a      mov esi, ecx
+; [0x12677a0:1]=0
+0x00c6ae7c      mov byte [0x12677a0], 1
+; [0x12677c8:4]=0
+0x00c6ae83      mov dword [0x12677c8], 0
+0x00c6ae8d      mov eax, dword [esi + 0x30]
+0x00c6ae90      xor bl, bl
+0x00c6ae92      push edi
+0x00c6ae93      test eax, eax
+   ; unlikely
+0x00c6ae95      jbe 0xc6aee7
+; [0x12677a2:1]=0
+0x00c6ae97      cmp byte [0x12677a2], bl
+   ; unlikely
+0x00c6ae9d      jne 0xc6aed9
+; 3000
+0x00c6ae9f      cmp eax, 0xbb8
+   ; unlikely
+0x00c6aea4      jb 0xc6aead
+; [0xbb8:4]=-1
+; 3000
+0x00c6aea6      mov dword [esi + 0x30], 0xbb8
+0x00c6aead      mov eax, dword [esi + 0x30]
+; [0x11afe80:4]=100
+0x00c6aeb0      mov ecx, dword [0x11afe80]
+0x00c6aeb6      cmp eax, ecx
+   ; likely
+0x00c6aeb8      jae 0xc6aebc
+0x00c6aeba      mov ecx, eax
+0x00c6aebc      sub eax, ecx
+0x00c6aebe      mov edi, eax
+0x00c6aec0      mov eax, dword [esi + 0x2c]
+0x00c6aec3      push ecx
+0x00c6aec4      lea ecx, [eax + edi*4]
+0x00c6aec7      push ecx
+0x00c6aec8      mov ecx, esi
+   ; fcn.00c674d0
+   ; fcn.00c674d0(-1, 0x0)
+0x00c6aeca      call fcn.00c674d0
+0x00c6aecf      mov dword [esi + 0x30], edi
+; [0x12677a2:1]=0
+0x00c6aed2      mov byte [0x12677a2], 1
+0x00c6aed9      mov ecx, esi
+   ; fcn.00c67850
+0x00c6aedb      call fcn.00c67850
+0x00c6aee0      mov ecx, esi
+   ; fcn.00c6aac0
+0x00c6aee2      call fcn.00c6aac0
+0x00c6aee7      cmp byte [esi + 0x15], 0
+   ; unlikely
+0x00c6aeeb      je 0xc6b039
+0x00c6aef1      fldz
+0x00c6aef3      fcomp dword [0x11afe68]
+0x00c6aef9      fnstsw ax
+; 5
+0x00c6aefb      test ah, 5
+   ; likely
+0x00c6aefe      jp 0xc6b039
+0x00c6af04      mov edx, dword [esi]
+0x00c6af06      mov eax, dword [edx + 0x94]
+0x00c6af0c      mov ecx, esi
+   ; 0xffffffff(-1, 0x0, 0x0, -1)
+0x00c6af0e      call eax
+0x00c6af10      mov edi, eax
+0x00c6af12      cmp dword [edi + 0xf0], 3
+0x00c6af19      sete bl
+0x00c6af1c      test bl, bl
+   ; likely
+0x00c6af1e      je 0xc6af33
+; [0x1267b2c:1]=0
+0x00c6af20      movzx ecx, byte [0x1267b2c]
+0x00c6af27      push ecx
+; [0x12677d0:4]=0
+0x00c6af28      mov ecx, dword [0x12677d0]
+   ; fcn.00cbf6b0
+   ; fcn.00cbf6b0(-1)
+0x00c6af2e      call fcn.00cbf6b0
+0x00c6af33      fld dword [0x1267b38]
+0x00c6af39      push ecx
+; [0x11ac3a0:4]=0x3f800000
+0x00c6af3a      fmul dword [0x11ac3a0]
+0x00c6af40      mov ecx, esi
+; [0x12677ac:4]=0
+0x00c6af42      fstp dword [0x12677ac]
+0x00c6af48      fld dword [0x11afe64]
+0x00c6af4e      fstp dword [esp]
+   ; fcn.00c6a540
+0x00c6af51      call fcn.00c6a540
+0x00c6af56      mov ecx, esi
+
+
+CAPTURE havokNativeFixSites0
+0x00ce16d0      daa
+0x00ce16d1      push ebp
+0x00ce16d2      mov ebp, dword [esi + 0xc]
+0x00ce16d5      xor edi, edi
+0x00ce16d7      test ebp, ebp
+   ; likely
+0x00ce16d9      jle 0xce16f7
+0x00ce16db      jmp 0xce16e0
+0x00ce16dd      lea ecx, [ecx]
+; CODE XREF from fcn.00ce1680 @ 0xce16db(x)
+0x00ce16e0      mov ecx, dword [esi + 8]
+0x00ce16e3      mov edx, dword [ecx + edi*4]
+0x00ce16e6      push 0
+; 1
+0x00ce16e8      push 1
+0x00ce16ea      push edx
+0x00ce16eb      mov ecx, ebx
+   ; fcn.00c946e0
+   ; fcn.00c946e0(0x0, 0x0, 0x0, -1)
+0x00ce16ed      call fcn.00c946e0
+0x00ce16f2      inc edi
+0x00ce16f3      cmp edi, ebp
+   ; unlikely
+0x00ce16f5      jl 0xce16e0
+0x00ce16f7      pop ebp
+0x00ce16f8      pop edi
+0x00ce16f9      pop ebx
+0x00ce16fa      xor eax, eax
+0x00ce16fc      pop esi
+0x00ce16fd      ret 8
+85: fcn.00ce1700 ();
+afv: vars(1:sp[0x1..0x1])
+0x00ce1700      push ecx
+0x00ce1701      push ebx
+0x00ce1702      push esi
+
+
+CAPTURE havokNativeFixSites1
+- offset -  E0E1 E2E3 E4E5 E6E7 E8E9 EAEB ECED EEEF  0123456789ABCDEF
+0x00ce16e0  8b4e 088b 14b9 6a00 6a01 528b cbe8 ee2f  .N....j.j.R..../
+0x00ce16f0  fbff 473b fd7c e95d 5f5b 33c0 5ec2 0800  ..G;.|.]_[3.^...
+
+
+CAPTURE havokNativeFixSites2
+- offset -  6768 696A 6B6C 6D6E 6F70 7172 7374 7576  789ABCDEF0123456
+0x00c95067  8b4c 245c 8b2c b155 57e8 8bb4 0600 55e8  .L$\.,.UW.....U.
+0x00c95077  85a9 0600 4683 c40c 3b74 2460 7ce2 8b1d  ....F...;t$`|...
+0x00c95087  44f0 fd00 8387 9400                      D.......
+
+
+CAPTURE havokNativeFixSites3
+  ; XREFS: CALL 0x00c970ab  CALL 0x00c970eb  CALL 0x00c9d5eb
+  ; XREFS: CALL 0x00cb72db  CALL 0x00cb7438  CALL 0x00ce16ed
+  ; XREFS: CALL 0x00cf7fe6
+1239: fcn.00c946e0 (int32_t arg_844h, int32_t arg_848h, int8_t arg_83ch, int8_t arg_840h);
+`- args(sp[0x0..0xc]) vars(18:sp[0x8..0x838])
+0x00c946e0      sub esp, 0x830
+0x00c946e6      push ebx
+0x00c946e7      mov ebx, ecx
+0x00c946e9      cmp dword [ebx + 0x94], 0
+0x00c946f0      mov dword [var_8h], ebx
+   ; unlikely
+0x00c946f4      je 0xc94732
+0x00c946f6      mov eax, dword [arg_848h]
+0x00c946fd      mov cl, byte [arg_83ch]
+0x00c94704      mov dl, byte [arg_840h]
+0x00c9470b      mov dword [var_28h_2], eax
+0x00c9470f      lea eax, [esp + 0x10]
+0x00c94713      mov byte [var_28h], cl
+0x00c94717      push eax
+0x00c94718      mov ecx, ebx
+; [0x12:1]=255
+; 18
+0x00c9471a      mov byte [var_14h], 0x12
+0x00c9471f      mov byte [var_1dh], dl
+   ; fcn.00c91160
+   ; fcn.00c91160(0xfffff7dc)
+0x00c94723      call fcn.00c91160
+0x00c94728      pop ebx
+0x00c94729      add esp, 0x830
+0x00c9472f      ret 0xc
+; [0x126835c:4]=0
+0x00c94732      mov ecx, dword [0x126835c]
+0x00c94738      push esi
+0x00c94739      push edi
+; [0xfdf044:4]=0xd80d80 reloc.KERNEL32.dll_TlsGetValue
+   ; reloc.KERNEL32.dll_TlsGetValue
+0x00c9473a      mov edi, dword [sym.imp.KERNEL32.dll_TlsGetValue]
+0x00c94740      push ecx
+   ; reloc.KERNEL32.dll_TlsGetValue
+   ; LPVOID TlsGetValue(-1)
+0x00c94741      call edi
+0x00c94743      mov esi, eax
+0x00c94745      mov ecx, dword [esi + 4]
+0x00c94748      cmp ecx, dword [esi + 0xc]
+   ; likely
+0x00c9474b      jae 0xc9476d
+; [0x10c679c:4]=0x7055744c
+; "LtUpdateFilterOnEntity"
+0x00c9474d      mov dword [ecx], str.LtUpdateFilterOnEntity
+; [0x10c6794:4]=0x6e697453
+; "Stinit"
+0x00c94753      mov dword [ecx + 0xc], str.Stinit
+0x00c9475a      rdtsc
+0x00c9475c      mov dword [esp + 0xc], eax
+0x00c94760      mov edx, dword [esp + 0xc]
+0x00c94764      mov dword [ecx + 4], edx
+; 16
+0x00c94767      add ecx, 0x10
+0x00c9476a      mov dword [esi + 4], ecx
+0x00c9476d      inc dword [ebx + 0x94]
+0x00c94773      push ebp
+0x00c94774      mov ebp, dword [arg_844h]
+0x00c9477b      cmp byte [ebp + 0xe8], 5
+   ; likely
+0x00c94782      jne 0xc9478c
+0x00c94784      lea ecx, [ebp + 0x10]
+   ; fcn.00d08210
+0x00c94787      call fcn.00d08210
+0x00c9478c      cmp dword [arg_848h], 0
+0x00c94794      lea eax, [var_34h]
+0x00c94798      mov dword [var_28h], eax
+0x00c9479c      mov dword [var_2ch], 0
+; [0x80000080:4]=-1
+0x00c947a4      mov dword [var_30h], 0x80000080
+
+
+CAPTURE havokFixMechanism3
+- offset -  B0B1 B2B3 B4B5 B6B7 B8B9 BABB BCBD BEBF  0123456789ABCDEF
+0x00c675b0  8b04 9e8b b0cc 0000 0085 f674 38b9 ffff  ...........t8...
+
+
+CAPTURE havokFixMechanism4
+  ; XREFS(519)
+182: fcn.00c905b0 ();
+0x00c905b0      push edi
+0x00c905b1      mov edi, ecx
+0x00c905b3      cmp word [edi + 4], 0
+   ; unlikely
+0x00c905b8      je 0xc90664
+0x00c905be      push ebp
+0x00c905bf      mov ebp, 1
+0x00c905c4      cmp word [edi + 6], bp
+   ; likely
+0x00c905c8      jne 0xc905da
+0x00c905ca      xor eax, eax
+0x00c905cc      mov word [edi + 6], ax
+0x00c905d0      mov edx, dword [edi]
+0x00c905d2      mov eax, dword [edx]
+0x00c905d4      push ebp
+   ; 0xffffffff(-1, 0x0, 0x0, -1)
+0x00c905d5      call eax
+0x00c905d7      pop ebp
+0x00c905d8      pop edi
+0x00c905d9      ret
+0x00c905da      push ebx
+0x00c905db      push esi
+; [0x12681d4:4]=0
+0x00c905dc      mov esi, dword [0x12681d4]
+0x00c905e2      cmp dword [esi + 8], ebp
+   ; unlikely
+0x00c905e5      jne 0xc9065d
+; [0x12681d8:4]=0
+0x00c905e7      mov ecx, dword [0x12681d8]
+; [0xfdf044:4]=0xd80d80 reloc.KERNEL32.dll_TlsGetValue
+   ; reloc.KERNEL32.dll_TlsGetValue
+0x00c905ed      mov ebx, dword [sym.imp.KERNEL32.dll_TlsGetValue]
+0x00c905f3      push ecx
+   ; reloc.KERNEL32.dll_TlsGetValue
+   ; LPVOID TlsGetValue(-1)
+0x00c905f4      call ebx
+0x00c905f6      cmp eax, 0x23df4554
+   ; unlikely
+0x00c905fb      je 0xc9065d
+; [0x12681d8:4]=0
+0x00c905fd      mov edx, dword [0x12681d8]
+0x00c90603      push edx
+   ; reloc.KERNEL32.dll_TlsGetValue
+   ; LPVOID TlsGetValue(-1)
+0x00c90604      call ebx
+; [0xfdf04c:4]=0xd80d9a reloc.KERNEL32.dll_TlsSetValue
+   ; reloc.KERNEL32.dll_TlsSetValue
+0x00c90606      mov ebx, dword [sym.imp.KERNEL32.dll_TlsSetValue]
+0x00c9060c      cmp eax, 0x23df4554
+   ; likely
+0x00c90611      jne 0xc90618
+0x00c90613      add dword [esi + 0xc], ebp
+0x00c90616      jmp 0xc90633
+0x00c90618      lea eax, [esi + 0x18]
+0x00c9061b      push eax
+; 0xfdf05c
+   ; reloc.KERNEL32.dll_EnterCriticalSection
+   ; VOID EnterCriticalSection(-1)
+; VOID EnterCriticalSection(LPCRITICAL_SECTION lpCriticalSection)
+0x00c9061c      call dword [sym.imp.KERNEL32.dll_EnterCriticalSection]
+0x00c90622      mov dword [esi + 0xc], ebp
+; [0x12681d8:4]=0
+0x00c90625      mov ecx, dword [0x12681d8]
+0x00c9062b      push 0x23df4554
+0x00c90630      push ecx
+   ; reloc.KERNEL32.dll_TlsSetValue
+   ; BOOL TlsSetValue(-1, -1)
+0x00c90631      call ebx
+; CODE XREF from fcn.00c905b0 @ 0xc90616(x)
+; -1
+0x00c90633      or eax, 0xffffffff
+0x00c90636      add word [edi + 6], ax
+0x00c9063a      add dword [esi + 0xc], eax
+0x00c9063d      cmp dword [esi + 0xc], 0
+   ; unlikely
+0x00c90641      jg 0xc90661
+; [0x12681d8:4]=0
+0x00c90643      mov edx, dword [0x12681d8]
+0x00c90649      push 0
+0x00c9064b      push edx
+   ; reloc.KERNEL32.dll_TlsSetValue
+   ; BOOL TlsSetValue(-1, -1)
+0x00c9064c      call ebx
+; 24
+0x00c9064e      add esi, 0x18
+0x00c90651      push esi
+; 0xfdf100
+; "h\r\xd8"
+   ; reloc.KERNEL32.dll_LeaveCriticalSection
+   ; VOID LeaveCriticalSection(-1)
+; VOID LeaveCriticalSection(LPCRITICAL_SECTION lpCriticalSection)
+0x00c90652      call dword [sym.imp.KERNEL32.dll_LeaveCriticalSection]
+0x00c90658      pop esi
+0x00c90659      pop ebx
+0x00c9065a      pop ebp
+0x00c9065b      pop edi
+0x00c9065c      ret
+0x00c9065d      dec word [edi + 6]
+0x00c90661      pop esi
+0x00c90662      pop ebx
+0x00c90663      pop ebp
+0x00c90664      pop edi
+0x00c90665      ret
+0x00c90666      int3
+0x00c90667      int3
+0x00c90668      int3
+0x00c90669      int3
+0x00c9066a      int3
+0x00c9066b      int3
+0x00c9066c      int3
+0x00c9066d      int3
+
+
+CAPTURE havokRepairMechanism3
+- offset -  7778 797A 7B7C 7D7E 7F80 8182 8384 8586  789ABCDEF0123456
+0x00c67577  8b14 9e80 7a28 018d 4210 7515 0fbe 4810  ....z(..B.u...H.
+
+
+CAPTURE havokRepairMechanism4
+0x00c94ee2      mov eax, dword [var_2ch_2]
+0x00c94ee6      inc eax
+0x00c94ee7      cmp eax, dword [var_30h]
+0x00c94eeb      mov dword [var_2ch_2], eax
+   ; unlikely
+0x00c94eef      jl 0xc94d90
+0x00c94ef5      mov ebp, dword [var_30h]
+0x00c94ef9      cmp byte [edi + 0xc8], 0
+
+
+CAPTURE havokRepairMechanism5
+0x00c9507f      cmp esi, dword [var_60h]
+   ; unlikely
+0x00c95083      jl 0xc95067
+; [0xfdf044:4]=0xd80d80 reloc.KERNEL32.dll_TlsGetValue
+   ; reloc.KERNEL32.dll_TlsGetValue
+0x00c95085      mov ebx, dword [sym.imp.KERNEL32.dll_TlsGetValue]
+0x00c9508b      add dword [edi + 0x94], 0xffffffff
+
+
+CAPTURE havokSparseCoverage0
+fcn.006263c0 0x6263d2 [CALL:--x] call fcn.00c903b0
+fcn.006263f0 0x626402 [CALL:--x] call fcn.00c903b0
+(nofunc) 0xc9039b [NULL:--x] int3
+fcn.00c90420 0xc9045e [CALL:--x] call fcn.00c903b0
+fcn.00c90740 0xc907b6 [CALL:--x] call fcn.00c903b0
+fcn.00c90740 0xc90802 [CALL:--x] call fcn.00c903b0
+fcn.00cbbb10 0xcbbb60 [CALL:--x] call fcn.00c903b0
+fcn.00cbbb10 0xcbbba2 [CALL:--x] call fcn.00c903b0
+fcn.00cbbbd0 0xcbbc60 [CALL:--x] call fcn.00c903b0
+fcn.00cbbcb0 0xcbbcec [CALL:--x] call fcn.00c903b0
+fcn.00cbbcb0 0xcbbd01 [CALL:--x] call fcn.00c903b0
+fcn.00cc00e0 0xcc00f0 [CALL:--x] call fcn.00c903b0
+fcn.00cf6a90 0xcf6aec [CALL:--x] call fcn.00c903b0
+fcn.00c91140 0xcf7baa [CALL:--x] call fcn.00c903b0
+fcn.00c91140 0xcf7bb1 [CALL:--x] call fcn.00c903b0
+fcn.00d2b3e0 0xd2b48d [CALL:--x] call fcn.00c903b0
+(nofunc) 0xd47dc9 [CALL:--x] call fcn.00c903b0
+(nofunc) 0xd47e22 [CALL:--x] call fcn.00c903b0
+(nofunc) 0xd47e8d [CALL:--x] call fcn.00c903b0
+fcn.00d5ee80 0xd5eec2 [CALL:--x] call fcn.00c903b0
+
+
+CAPTURE havokSparseCoverage1
+fcn.00534ad0 0x534d91 [CALL:--x] call fcn.00c90510
+fcn.00535d00 0x5360e0 [CALL:--x] call fcn.00c90510
+fcn.009bbb40 0x9bbc26 [CALL:--x] call fcn.00c90510
+fcn.009bf5a0 0x9bf806 [CALL:--x] call fcn.00c90510
+fcn.009bf5a0 0x9bf889 [CALL:--x] call fcn.00c90510
+fcn.00c68bf0 0xc68c56 [CALL:--x] call fcn.00c90510
+fcn.00c68cb0 0xc68d12 [CALL:--x] call fcn.00c90510
+fcn.00c68d50 0xc68d9a [CALL:--x] call fcn.00c90510
+fcn.00c69580 0xc69669 [CALL:--x] call fcn.00c90510
+fcn.00c6b0a0 0xc6b163 [CALL:--x] call fcn.00c90510
+fcn.00c6b0a0 0xc6b2d8 [CALL:--x] call fcn.00c90510
+fcn.00c6b320 0xc6b367 [CALL:--x] call fcn.00c90510
+fcn.00c6b3c0 0xc6b49f [CALL:--x] call fcn.00c90510
+fcn.00c6da50 0xc6ddc0 [CALL:--x] call fcn.00c90510
+fcn.00c6f280 0xc6f4bb [CALL:--x] call fcn.00c90510
+fcn.00c6f500 0xc6f52b [CALL:--x] call fcn.00c90510
+fcn.00c711d0 0xc720a3 [CALL:--x] call fcn.00c90510
+fcn.00c87c90 0xc87cec [CALL:--x] call fcn.00c90510
+fcn.00c89ac0 0xc89b2c [CALL:--x] call fcn.00c90510
+fcn.00c89b60 0xc89bbc [CALL:--x] call fcn.00c90510
+fcn.00c89bf0 0xc89c4c [CALL:--x] call fcn.00c90510
+fcn.00c910d0 0xc910fe [CALL:--x] call fcn.00c90510
+fcn.00c914d0 0xc91579 [CALL:--x] call fcn.00c90510
+fcn.00c91c50 0xc91c9a [CALL:--x] call fcn.00c90510
+fcn.00c91c50 0xc91cba [CALL:--x] call fcn.00c90510
+fcn.00c91c50 0xc91d5d [CALL:--x] call fcn.00c90510
+fcn.00c91f40 0xc91f4e [CALL:--x] call fcn.00c90510
+fcn.00c93580 0xc93600 [CALL:--x] call fcn.00c90510
+fcn.00c936a0 0xc936fc [CALL:--x] call fcn.00c90510
+fcn.00c94bd0 0xc94dab [CALL:--x] call fcn.00c90510
+fcn.00c954e0 0xc95616 [CALL:--x] call fcn.00c90510
+fcn.00c95a80 0xc96066 [CALL:--x] call fcn.00c90510
+fcn.00c95a80 0xc962d1 [CALL:--x] call fcn.00c90510
+fcn.00c95a80 0xc96314 [CALL:--x] call fcn.00c90510
+fcn.00c97370 0xc973ab [CALL:--x] call fcn.00c90510
+fcn.00c97510 0xc9751f [CALL:--x] call fcn.00c90510
+fcn.00c977c0 0xc9781c [CALL:--x] call fcn.00c90510
+fcn.00c97e80 0xc97ee5 [CALL:--x] call fcn.00c90510
+fcn.00c9d990 0xc9d9c5 [CALL:--x] call fcn.00c90510
+fcn.00c9d990 0xc9d9cd [CALL:--x] call fcn.00c90510
+fcn.00c9e340 0xc9e37b [CALL:--x] call fcn.00c90510
+(nofunc) 0xc9e888 [CALL:--x] call fcn.00c90510
+fcn.00ca84b0 0xca8515 [CALL:--x] call fcn.00c90510
+fcn.00ca8c90 0xca8cd5 [CALL:--x] call fcn.00c90510
+fcn.00ca8c90 0xca8cf1 [CALL:--x] call fcn.00c90510
+fcn.00ca9580 0xca95c8 [CALL:--x] call fcn.00c90510
+fcn.00ca9b40 0xca9b9c [CALL:--x] call fcn.00c90510
+fcn.00cad500 0xcad512 [CALL:--x] call fcn.00c90510
+fcn.00cb38c0 0xcb3942 [CALL:--x] call fcn.00c90510
+fcn.00cb4790 0xcb4806 [CALL:--x] call fcn.00c90510
+fcn.00cb5000 0xcb503b [CALL:--x] call fcn.00c90510
+fcn.00cb5000 0xcb50af [CALL:--x] call fcn.00c90510
+fcn.00cb5100 0xcb51b9 [CALL:--x] call fcn.00c90510
+fcn.00cb5dd0 0xcb5e91 [CALL:--x] call fcn.00c90510
+fcn.00cb6f70 0xcb6ffd [CALL:--x] call fcn.00c90510
+fcn.00cb8ac0 0xcb8ace [CALL:--x] call fcn.00c90510
+fcn.00cbc4e0 0xcbc4eb [CALL:--x] call fcn.00c90510
+fcn.00cc0480 0xcc048a [CALL:--x] call fcn.00c90510
+fcn.00cc49b0 0xcc4a0e [CALL:--x] call fcn.00c90510
+fcn.00cc9d00 0xcc9d52 [CALL:--x] call fcn.00c90510
+fcn.00cc9f10 0xcc9f3c [CALL:--x] call fcn.00c90510
+fcn.00cd1780 0xcd1945 [CALL:--x] call fcn.00c90510
+fcn.00cd29c0 0xcd29ca [CALL:--x] call fcn.00c90510
+fcn.00cd2ce0 0xcd2d64 [CALL:--x] call fcn.00c90510
+(nofunc) 0xcd371a [CALL:--x] call fcn.00c90510
+fcn.00cdb400 0xcdb442 [CALL:--x] call fcn.00c90510
+fcn.00cdea30 0xcdea3f [CALL:--x] call fcn.00c90510
+fcn.00cdf6e0 0xcdf6ee [CALL:--x] call fcn.00c90510
+fcn.00cdf710 0xcdf749 [CALL:--x] call fcn.00c90510
+fcn.00ce22c0 0xce22ce [CALL:--x] call fcn.00c90510
+fcn.00ce22c0 0xce23f2 [CALL:--x] call fcn.00c90510
+fcn.00ce22c0 0xce2412 [CALL:--x] call fcn.00c90510
+fcn.00ce4ae0 0xce4afb [CALL:--x] call fcn.00c90510
+fcn.00ce4ae0 0xce4b16 [CALL:--x] call fcn.00c90510
+fcn.00ce61c0 0xce6617 [CALL:--x] call fcn.00c90510
+fcn.00ce61c0 0xce6638 [CALL:--x] call fcn.00c90510
+fcn.00ce61c0 0xce6662 [CALL:--x] call fcn.00c90510
+fcn.00ce61c0 0xce6681 [CALL:--x] call fcn.00c90510
+fcn.00cf3000 0xcf3018 [CALL:--x] call fcn.00c90510
+fcn.00cf3e60 0xcf3e8b [CALL:--x] call fcn.00c90510
+fcn.00cf3ea0 0xcf3f0c [CALL:--x] call fcn.00c90510
+fcn.00cf3ea0 0xcf3f18 [CALL:--x] call fcn.00c90510
+fcn.00cf3ea0 0xcf3f20 [CALL:--x] call fcn.00c90510
+fcn.00cf3fa0 0xcf4022 [CALL:--x] call fcn.00c90510
+fcn.00cf4a30 0xcf4ab9 [CALL:--x] call fcn.00c90510
+fcn.00cf4af0 0xcf4b8d [CALL:--x] call fcn.00c90510
+fcn.00cf4ca0 0xcf4caa [CALL:--x] call fcn.00c90510
+fcn.00cf4ce0 0xcf4cea [CALL:--x] call fcn.00c90510
+fcn.00cf4d30 0xcf4d3a [CALL:--x] call fcn.00c90510
+fcn.00cf5990 0xcf59be [CALL:--x] call fcn.00c90510
+(nofunc) 0xcf759f [CALL:--x] call fcn.00c90510
+(nofunc) 0xcf75a6 [CALL:--x] call fcn.00c90510
+fcn.00c91160 0xcf771d [CALL:--x] call fcn.00c90510
+fcn.00c91160 0xcf7725 [CALL:--x] call fcn.00c90510
+fcn.00c91160 0xcf7785 [CALL:--x] call fcn.00c90510
+fcn.00c91160 0xcf77e5 [CALL:--x] call fcn.00c90510
+fcn.00c91160 0xcf77fc [CALL:--x] call fcn.00c90510
+fcn.00c91160 0xcf7804 [CALL:--x] call fcn.00c90510
+fcn.00c91160 0xcf78b5 [CALL:--x] call fcn.00c90510
+fcn.00c91160 0xcf7915 [CALL:--x] call fcn.00c90510
+fcn.00c91160 0xcf792c [CALL:--x] call fcn.00c90510
+fcn.00c91160 0xcf79db [CALL:--x] call fcn.00c90510
+fcn.00c91160 0xcf79f2 [CALL:--x] call fcn.00c90510
+fcn.00c91160 0xcf7a36 [CALL:--x] call fcn.00c90510
+fcn.00cfb1f0 0xcfb1fc [CALL:--x] call fcn.00c90510
+fcn.00cfb1f0 0xcfb21c [CALL:--x] call fcn.00c90510
+fcn.00cfb240 0xcfb262 [CALL:--x] call fcn.00c90510
+fcn.00cfb240 0xcfb272 [CALL:--x] call fcn.00c90510
+fcn.00cfc030 0xcfc0f2 [CALL:--x] call fcn.00c90510
+fcn.00d03970 0xd03aed [CALL:--x] call fcn.00c90510
+fcn.00d064a0 0xd064ae [CALL:--x] call fcn.00c90510
+fcn.00d064f0 0xd064fe [CALL:--x] call fcn.00c90510
+fcn.00d06540 0xd0654e [CALL:--x] call fcn.00c90510
+fcn.00d06590 0xd0659e [CALL:--x] call fcn.00c90510
+fcn.00d0b6a0 0xd0b6f1 [CALL:--x] call fcn.00c90510
+fcn.00d0b710 0xd0b77c [CALL:--x] call fcn.00c90510
+fcn.00d0db40 0xd0dd61 [CALL:--x] call fcn.00c90510
+(nofunc) 0xd1df7e [CALL:--x] call fcn.00c90510
+fcn.00d26700 0xd26744 [CALL:--x] call fcn.00c90510
+fcn.00d26b50 0xd26b81 [CALL:--x] call fcn.00c90510
+fcn.00d27460 0xd27484 [CALL:--x] call fcn.00c90510
+fcn.00d27ac0 0xd27ad1 [CALL:--x] call fcn.00c90510
+fcn.00d2b210 0xd2b23e [CALL:--x] call fcn.00c90510
+fcn.00d2b260 0xd2b2a0 [CALL:--x] call fcn.00c90510
+fcn.00d2bc30 0xd2bc59 [CALL:--x] call fcn.00c90510
+fcn.00d47730 0xd4773e [CALL:--x] call fcn.00c90510
+fcn.00d47750 0xd47760 [CALL:--x] call fcn.00c90510
+fcn.00d47770 0xd4777e [CALL:--x] call fcn.00c90510
+fcn.00d48250 0xd4829a [CALL:--x] call fcn.00c90510
+fcn.00d4ad60 0xd4ae1c [CALL:--x] call fcn.00c90510
+fcn.00d4ad60 0xd4ae7d [CALL:--x] call fcn.00c90510
+fcn.00d4ded0 0xd4dee1 [CALL:--x] call fcn.00c90510
+fcn.00d4df30 0xd4df74 [CALL:--x] call fcn.00c90510
+fcn.00d4f850 0xd4f85e [CALL:--x] call fcn.00c90510
+(nofunc) 0xd526f5 [CALL:--x] call fcn.00c90510
+(nofunc) 0xd52845 [CALL:--x] call fcn.00c90510
+fcn.00d54490 0xd544c2 [CALL:--x] call fcn.00c90510
+fcn.00d544f0 0xd54513 [CALL:--x] call fcn.00c90510
+fcn.00d56500 0xd565ee [CALL:--x] call fcn.00c90510
+fcn.00d56660 0xd56756 [CALL:--x] call fcn.00c90510
+fcn.00d5a320 0xd5a32e [CALL:--x] call fcn.00c90510
+fcn.00d5e6e0 0xd5e73d [CALL:--x] call fcn.00c90510
+fcn.00d60810 0xd6081a [CALL:--x] call fcn.00c90510
+fcn.00d60830 0xd60850 [CALL:--x] call fcn.00c90510
+fcn.00d635e0 0xd63638 [CALL:--x] call fcn.00c90510
+fcn.00d73590 0xd73613 [CALL:--x] call fcn.00c90510
+fcn.00d73590 0xd73685 [CALL:--x] call fcn.00c90510
+fcn.00d738f0 0xd7395c [CALL:--x] call fcn.00c90510
+fcn.00d739f0 0xd73b08 [CALL:--x] call fcn.00c90510
+fcn.00d739f0 0xd743e2 [CALL:--x] call fcn.00c90510
+fcn.00d74480 0xd744cf [CALL:--x] call fcn.00c90510
+fcn.00d74480 0xd745af [CALL:--x] call fcn.00c90510
+fcn.00d74480 0xd746af [CALL:--x] call fcn.00c90510
+fcn.00d74480 0xd74792 [CALL:--x] call fcn.00c90510
+fcn.00d74480 0xd74819 [CALL:--x] call fcn.00c90510
+fcn.00d749c0 0xd749f5 [CALL:--x] call fcn.00c90510
+fcn.00dba0d0 0xdba0f0 [CALL:--x] call fcn.00c90510
+fcn.00dbb360 0xdbb3a9 [CALL:--x] call fcn.00c90510
+fcn.00dbb360 0xdbb3d2 [CALL:--x] call fcn.00c90510
+fcn.00dbb490 0xdbb49e [CALL:--x] call fcn.00c90510
+fcn.00dbb4c0 0xdbb4ce [CALL:--x] call fcn.00c90510
+fcn.00dc3300 0xdc34a6 [CALL:--x] call fcn.00c90510
+fcn.00dc4f20 0xdc4f31 [CALL:--x] call fcn.00c90510
+fcn.00dc8270 0xdc8363 [CALL:--x] call fcn.00c90510
+fcn.00dc8270 0xdc8409 [CALL:--x] call fcn.00c90510
+fcn.00dc8270 0xdc8487 [CALL:--x] call fcn.00c90510
+fcn.00dc8270 0xdc84db [CALL:--x] call fcn.00c90510
+fcn.00dc8d70 0xdc8d84 [CALL:--x] call fcn.00c90510
+fcn.00dc8d70 0xdc8dfe [CALL:--x] call fcn.00c90510
+fcn.00dc9f20 0xdc9f2e [CALL:--x] call fcn.00c90510
+fcn.00dc9f20 0xdc9f49 [CALL:--x] call fcn.00c90510
+fcn.00dc9f20 0xdc9f96 [CALL:--x] call fcn.00c90510
+fcn.00dcb990 0xdcba25 [CALL:--x] call fcn.00c90510
+fcn.00dcc130 0xdcc149 [CALL:--x] call fcn.00c90510
+fcn.00dcd720 0xdcd91d [CALL:--x] call fcn.00c90510
+fcn.00dcd720 0xdcd925 [CALL:--x] call fcn.00c90510
+fcn.00dcec70 0xdcec7e [CALL:--x] call fcn.00c90510
+fcn.00dd04d0 0xdd04ed [CALL:--x] call fcn.00c90510
+fcn.00dd04d0 0xdd0526 [CALL:--x] call fcn.00c90510
+fcn.00dd0530 0xdd0558 [CALL:--x] call fcn.00c90510
+fcn.00dd9110 0xdd911a [CALL:--x] call fcn.00c90510
+fcn.00dd9130 0xdd9150 [CALL:--x] call fcn.00c90510
+fcn.00ddb600 0xddb64d [CALL:--x] call fcn.00c90510
+fcn.00ddccb0 0xddcd3f [CALL:--x] call fcn.00c90510
+fcn.00dee6f0 0xdee6fe [CALL:--x] call fcn.00c90510
+fcn.00dee870 0xdee88a [CALL:--x] call fcn.00c90510
+fcn.00deea00 0xdeea16 [CALL:--x] call fcn.00c90510
+fcn.00def350 0xdef3b6 [CALL:--x] call fcn.00c90510
+fcn.00df6550 0xdf655e [CALL:--x] call fcn.00c90510
+fcn.00e04eb0 0xe04ebe [CALL:--x] call fcn.00c90510
+fcn.00e04ee0 0xe04eee [CALL:--x] call fcn.00c90510
+fcn.00e04f10 0xe04f47 [CALL:--x] call fcn.00c90510
+fcn.00e04f10 0xe04f64 [CALL:--x] call fcn.00c90510
+fcn.00e05160 0xe0516e [CALL:--x] call fcn.00c90510
+fcn.00e05700 0xe05796 [CALL:--x] call fcn.00c90510
+fcn.00e08cc0 0xe0906b [CALL:--x] call fcn.00c90510
+fcn.00e2e670 0xe2e67f [CALL:--x] call fcn.00c90510
+fcn.00e2e710 0xe2e71f [CALL:--x] call fcn.00c90510
+fcn.00e2e790 0xe2e7be [CALL:--x] call fcn.00c90510
+fcn.00e2e790 0xe2e7c9 [CALL:--x] call fcn.00c90510
+fcn.00e2e790 0xe2e855 [CALL:--x] call fcn.00c90510
+fcn.00e2e790 0xe2e894 [CALL:--x] call fcn.00c90510
+fcn.00e2ed00 0xe2ed4b [CALL:--x] call fcn.00c90510
+fcn.00e2ed00 0xe2ed83 [CALL:--x] call fcn.00c90510
+fcn.00e2efe0 0xe2f025 [CALL:--x] call fcn.00c90510
+fcn.00e2efe0 0xe2f063 [CALL:--x] call fcn.00c90510
+fcn.00e2f500 0xe2f551 [CALL:--x] call fcn.00c90510
+fcn.00e36c30 0xe36c9c [CALL:--x] call fcn.00c90510
+fcn.00e36e20 0xe36eb7 [CALL:--x] call fcn.00c90510
+fcn.00e36e20 0xe36ec9 [CALL:--x] call fcn.00c90510
+fcn.00e39210 0xe3928a [CALL:--x] call fcn.00c90510
+fcn.00e39210 0xe39292 [CALL:--x] call fcn.00c90510
+fcn.00e39210 0xe3929a [CALL:--x] call fcn.00c90510
+fcn.00e39210 0xe392a2 [CALL:--x] call fcn.00c90510
+fcn.00e39210 0xe392aa [CALL:--x] call fcn.00c90510
+fcn.00e39210 0xe392b2 [CALL:--x] call fcn.00c90510
+fcn.00e39210 0xe392ba [CALL:--x] call fcn.00c90510
+fcn.00e39210 0xe392c2 [CALL:--x] call fcn.00c90510
+fcn.00e39210 0xe392ca [CALL:--x] call fcn.00c90510
+fcn.00e39210 0xe392d8 [CALL:--x] call fcn.00c90510
+fcn.00e3a440 0xe3a4af [CALL:--x] call fcn.00c90510
+fcn.00e3b850 0xe3b8b2 [CALL:--x] call fcn.00c90510
+fcn.00e3b850 0xe3b8bd [CALL:--x] call fcn.00c90510
+fcn.00e3b850 0xe3b8c8 [CALL:--x] call fcn.00c90510
+fcn.00e3e840 0xe3e8ad [CALL:--x] call fcn.00c90510
+fcn.00e3eb10 0xe3eb24 [CALL:--x] call fcn.00c90510
+fcn.00e3eb10 0xe3eb73 [CALL:--x] call fcn.00c90510
+fcn.00e3eba0 0xe3ebbe [CALL:--x] call fcn.00c90510
+fcn.00e3eec0 0xe3eede [CALL:--x] call fcn.00c90510
+fcn.00e3eec0 0xe3ef68 [CALL:--x] call fcn.00c90510
+fcn.00e3eec0 0xe3efaf [CALL:--x] call fcn.00c90510
+fcn.00e3eff0 0xe3f03d [CALL:--x] call fcn.00c90510
+fcn.00e3eff0 0xe3f05e [CALL:--x] call fcn.00c90510
+fcn.00e3eff0 0xe3f08e [CALL:--x] call fcn.00c90510
+fcn.00e40ec0 0xe40f2a [CALL:--x] call fcn.00c90510
+fcn.00e40ec0 0xe40f66 [CALL:--x] call fcn.00c90510
+fcn.00e42590 0xe425c2 [CALL:--x] call fcn.00c90510
+fcn.00e426f0 0xe426fa [CALL:--x] call fcn.00c90510
+fcn.00e44c20 0xe44c57 [CALL:--x] call fcn.00c90510
+fcn.00e44f60 0xe44f6b [CALL:--x] call fcn.00c90510
+fcn.00e46000 0xe46012 [CALL:--x] call fcn.00c90510
+fcn.00e46b30 0xe46b73 [CALL:--x] call fcn.00c90510
+fcn.00e49080 0xe490ae [CALL:--x] call fcn.00c90510
+fcn.00e49080 0xe490b6 [CALL:--x] call fcn.00c90510
+fcn.00e49e00 0xe49e0a [CALL:--x] call fcn.00c90510
+fcn.00e49e50 0xe49f26 [CALL:--x] call fcn.00c90510
+fcn.00e4a1d0 0xe4a330 [CALL:--x] call fcn.00c90510
+fcn.00e4a1d0 0xe4a33c [CALL:--x] call fcn.00c90510
+fcn.00e5aac0 0xe5acf7 [CALL:--x] call fcn.00c90510
+fcn.00e5b130 0xe5b14b [CALL:--x] call fcn.00c90510
+fcn.00e5c460 0xe5c47f [CALL:--x] call fcn.00c90510
+fcn.00e5c4d0 0xe5c517 [CALL:--x] call fcn.00c90510
+fcn.00e5cdb0 0xe5ce98 [CALL:--x] call fcn.00c90510
+fcn.00e61770 0xe61798 [CALL:--x] call fcn.00c90510
+fcn.00e61770 0xe6183a [CALL:--x] call fcn.00c90510
+fcn.00e61770 0xe6189d [CALL:--x] call fcn.00c90510
+fcn.00e61770 0xe618c5 [CALL:--x] call fcn.00c90510
+fcn.00e61770 0xe61975 [CALL:--x] call fcn.00c90510
+fcn.00e61770 0xe619cd [CALL:--x] call fcn.00c90510
+
+
+CAPTURE havokSparseCoverage2
+fcn.00534ad0 0x534d41 [CALL:--x] call fcn.00c905b0
+fcn.00535d00 0x536090 [CALL:--x] call fcn.00c905b0
+fcn.00536d80 0x5370b0 [CALL:--x] call fcn.00c905b0
+fcn.00558e80 0x558e94 [CALL:--x] call fcn.00c905b0
+fcn.009bb940 0x9bb956 [CALL:--x] call fcn.00c905b0
+fcn.00c66670 0xc666da [CALL:--x] call fcn.00c905b0
+fcn.00c66c90 0xc66d74 [CALL:--x] call fcn.00c905b0
+fcn.00c674d0 0xc6767c [CALL:--x] call fcn.00c905b0
+fcn.00c676e0 0xc677ef [CALL:--x] call fcn.00c905b0
+fcn.00c67850 0xc6793e [CALL:--x] call fcn.00c905b0
+fcn.00c679a0 0xc67a59 [CALL:--x] call fcn.00c905b0
+fcn.00c67aa0 0xc67b6c [CALL:--x] call fcn.00c905b0
+fcn.00c67bc0 0xc67c6b [CALL:--x] call fcn.00c905b0
+fcn.00c67cd0 0xc67d8c [CALL:--x] call fcn.00c905b0
+fcn.00c67df0 0xc67eb3 [CALL:--x] call fcn.00c905b0
+fcn.00c6a640 0xc6a7de [CALL:--x] call fcn.00c905b0
+fcn.00c6aac0 0xc6ac14 [CALL:--x] call fcn.00c905b0
+fcn.00c6aca0 0xc6ad20 [CALL:--x] call fcn.00c905b0
+fcn.00c6cca0 0xc6cca9 [CALL:--x] call fcn.00c905b0
+fcn.00c6d340 0xc6d398 [CALL:--x] call fcn.00c905b0
+fcn.00c6da50 0xc6dc19 [CALL:--x] call fcn.00c905b0
+fcn.00c6da50 0xc6dc5e [CALL:--x] call fcn.00c905b0
+fcn.00c6da50 0xc6dca3 [CALL:--x] call fcn.00c905b0
+fcn.00c6da50 0xc6dce7 [CALL:--x] call fcn.00c905b0
+fcn.00c6da50 0xc6dd27 [CALL:--x] call fcn.00c905b0
+fcn.00c6da50 0xc6dd67 [CALL:--x] call fcn.00c905b0
+fcn.00c6da50 0xc6ddab [CALL:--x] call fcn.00c905b0
+fcn.00c6da50 0xc6ddcf [CALL:--x] call fcn.00c905b0
+fcn.00c6de10 0xc6de4a [CALL:--x] call fcn.00c905b0
+fcn.00c6de10 0xc6de68 [CALL:--x] call fcn.00c905b0
+fcn.00c6f280 0xc6f4ca [CALL:--x] call fcn.00c905b0
+fcn.00c6f500 0xc6f53a [CALL:--x] call fcn.00c905b0
+fcn.00c705c0 0xc70687 [CALL:--x] call fcn.00c905b0
+fcn.00c705c0 0xc7069c [CALL:--x] call fcn.00c905b0
+fcn.00c705c0 0xc706b1 [CALL:--x] call fcn.00c905b0
+fcn.00c705c0 0xc70729 [CALL:--x] call fcn.00c905b0
+fcn.00c705c0 0xc70743 [CALL:--x] call fcn.00c905b0
+fcn.00c705c0 0xc7075d [CALL:--x] call fcn.00c905b0
+fcn.00c711d0 0xc7128b [CALL:--x] call fcn.00c905b0
+fcn.00c711d0 0xc720b2 [CALL:--x] call fcn.00c905b0
+fcn.00c73170 0xc73311 [CALL:--x] call fcn.00c905b0
+fcn.00c73170 0xc7332e [CALL:--x] call fcn.00c905b0
+fcn.00c76240 0xc7627e [CALL:--x] call fcn.00c905b0
+fcn.00c76240 0xc76299 [CALL:--x] call fcn.00c905b0
+fcn.00c76240 0xc762a5 [CALL:--x] call fcn.00c905b0
+fcn.00c7c3a0 0xc7c829 [CALL:--x] call fcn.00c905b0
+fcn.00c7d900 0xc7d959 [CALL:--x] call fcn.00c905b0
+fcn.00c7d900 0xc7d996 [CALL:--x] call fcn.00c905b0
+fcn.00c7dc40 0xc7dc98 [CALL:--x] call fcn.00c905b0
+fcn.00c87260 0xc87388 [CALL:--x] call fcn.00c905b0
+fcn.00c87c90 0xc87cf3 [CALL:--x] call fcn.00c905b0
+fcn.00c87d20 0xc87d89 [CALL:--x] call fcn.00c905b0
+fcn.00c89ac0 0xc89b1d [CALL:--x] call fcn.00c905b0
+fcn.00c89b60 0xc89bc8 [CALL:--x] call fcn.00c905b0
+fcn.00c89bf0 0xc89c58 [CALL:--x] call fcn.00c905b0
+fcn.00c89dd0 0xc89e83 [CALL:--x] call fcn.00c905b0
+fcn.00c8a1b0 0xc8a20b [CALL:--x] call fcn.00c905b0
+fcn.00c8b090 0xc8b194 [CALL:--x] call fcn.00c905b0
+fcn.00c8c5b0 0xc8c6f5 [CALL:--x] call fcn.00c905b0
+fcn.00c8d650 0xc8d80e [CALL:--x] call fcn.00c905b0
+(nofunc) 0xc905ab [NULL:--x] int3
+fcn.00c90b80 0xc90c18 [CALL:--x] call fcn.00c905b0
+fcn.00c90b80 0xc90c27 [CALL:--x] call fcn.00c905b0
+fcn.00c90b80 0xc90d84 [CALL:--x] call fcn.00c905b0
+fcn.00c910d0 0xc910ea [CALL:--x] call fcn.00c905b0
+fcn.00c912e0 0xc9138b [CALL:--x] call fcn.00c905b0
+fcn.00c912e0 0xc91392 [CALL:--x] call fcn.00c905b0
+fcn.00c91620 0xc916aa [CALL:--x] call fcn.00c905b0
+fcn.00c91c50 0xc91ca6 [CALL:--x] call fcn.00c905b0
+fcn.00c91c50 0xc91cc6 [CALL:--x] call fcn.00c905b0
+fcn.00c91c50 0xc91d69 [CALL:--x] call fcn.00c905b0
+fcn.00c91f40 0xc91f5a [CALL:--x] call fcn.00c905b0
+fcn.00c92c70 0xc92d24 [CALL:--x] call fcn.00c905b0
+fcn.00c93580 0xc9364b [CALL:--x] call fcn.00c905b0
+fcn.00c93e50 0xc93ea1 [CALL:--x] call fcn.00c905b0
+fcn.00c93e50 0xc93f26 [CALL:--x] call fcn.00c905b0
+fcn.00c93e50 0xc93f73 [CALL:--x] call fcn.00c905b0
+fcn.00c93e50 0xc93f81 [CALL:--x] call fcn.00c905b0
+fcn.00c93e50 0xc93fb9 [CALL:--x] call fcn.00c905b0
+fcn.00c93e50 0xc93fee [CALL:--x] call fcn.00c905b0
+fcn.00c93e50 0xc93ff9 [CALL:--x] call fcn.00c905b0
+fcn.00c93e50 0xc94056 [CALL:--x] call fcn.00c905b0
+fcn.00c93e50 0xc94085 [CALL:--x] call fcn.00c905b0
+fcn.00c93e50 0xc943fd [CALL:--x] call fcn.00c905b0
+fcn.00c951b0 0xc95461 [CALL:--x] call fcn.00c905b0
+fcn.00c95800 0xc959dd [CALL:--x] call fcn.00c905b0
+fcn.00c95a80 0xc96072 [CALL:--x] call fcn.00c905b0
+fcn.00c95a80 0xc96271 [CALL:--x] call fcn.00c905b0
+fcn.00c95a80 0xc96868 [CALL:--x] call fcn.00c905b0
+fcn.00c97510 0xc975cc [CALL:--x] call fcn.00c905b0
+fcn.00c97510 0xc97684 [CALL:--x] call fcn.00c905b0
+fcn.00c977c0 0xc97824 [CALL:--x] call fcn.00c905b0
+fcn.00c97e80 0xc97f00 [CALL:--x] call fcn.00c905b0
+fcn.00c9cf60 0xc9cfc7 [CALL:--x] call fcn.00c905b0
+fcn.00c9d3b0 0xc9d3c3 [CALL:--x] call fcn.00c905b0
+fcn.00c9d3b0 0xc9d3d2 [CALL:--x] call fcn.00c905b0
+fcn.00c9d4c0 0xc9d4d5 [CALL:--x] call fcn.00c905b0
+fcn.00c9d620 0xc9d668 [CALL:--x] call fcn.00c905b0
+(nofunc) 0xc9d8d0 [CALL:--x] call fcn.00c905b0
+fcn.00c9d930 0xc9d93c [CALL:--x] call fcn.00c905b0
+fcn.00c9d930 0xc9d94f [CALL:--x] call fcn.00c905b0
+(nofunc) 0xc9e894 [CALL:--x] call fcn.00c905b0
+fcn.00c9f050 0xc9f1a4 [CALL:--x] call fcn.00c905b0
+fcn.00c9f890 0xc9f933 [CALL:--x] call fcn.00c905b0
+fcn.00ca0190 0xca026c [CALL:--x] call fcn.00c905b0
+fcn.00ca0900 0xca099f [CALL:--x] call fcn.00c905b0
+fcn.00ca2020 0xca2092 [CALL:--x] call fcn.00c905b0
+fcn.00ca2020 0xca209e [CALL:--x] call fcn.00c905b0
+fcn.00ca5870 0xca590c [CALL:--x] call fcn.00c905b0
+fcn.00ca6a80 0xca6b1f [CALL:--x] call fcn.00c905b0
+fcn.00ca84b0 0xca8520 [CALL:--x] call fcn.00c905b0
+fcn.00ca8c90 0xca8ce4 [CALL:--x] call fcn.00c905b0
+fcn.00ca95e0 0xca95ec [CALL:--x] call fcn.00c905b0
+fcn.00ca9b40 0xca9ba8 [CALL:--x] call fcn.00c905b0
+fcn.00ca9bd0 0xca9c91 [CALL:--x] call fcn.00c905b0
+fcn.00ca9ce0 0xca9d10 [CALL:--x] call fcn.00c905b0
+fcn.00caa250 0xcaa3a6 [CALL:--x] call fcn.00c905b0
+fcn.00caa6a0 0xcaa80e [CALL:--x] call fcn.00c905b0
+fcn.00cab0e0 0xcab186 [CALL:--x] call fcn.00c905b0
+fcn.00cac300 0xcac3d2 [CALL:--x] call fcn.00c905b0
+fcn.00cad500 0xcad520 [CALL:--x] call fcn.00c905b0
+fcn.00cadb00 0xcadb96 [CALL:--x] call fcn.00c905b0
+fcn.00cb0820 0xcb0965 [CALL:--x] call fcn.00c905b0
+fcn.00cb0820 0xcb096c [CALL:--x] call fcn.00c905b0
+fcn.00cb0820 0xcb0973 [CALL:--x] call fcn.00c905b0
+fcn.00cb38c0 0xcb39ac [CALL:--x] call fcn.00c905b0
+fcn.00cb4230 0xcb42c7 [CALL:--x] call fcn.00c905b0
+fcn.00cb5100 0xcb51d6 [CALL:--x] call fcn.00c905b0
+fcn.00cb5f50 0xcb5fa2 [CALL:--x] call fcn.00c905b0
+fcn.00cb5f50 0xcb600e [CALL:--x] call fcn.00c905b0
+fcn.00cb6f70 0xcb71b8 [CALL:--x] call fcn.00c905b0
+fcn.00cb7b80 0xcb7c23 [CALL:--x] call fcn.00c905b0
+(nofunc) 0xcb8986 [CALL:--x] call fcn.00c905b0
+fcn.00cb8ac0 0xcb8add [CALL:--x] call fcn.00c905b0
+fcn.00cb8b40 0xcb8b53 [CALL:--x] call fcn.00c905b0
+fcn.00cba6f0 0xcba9bd [CALL:--x] call fcn.00c905b0
+fcn.00cba6f0 0xcbaa6e [CALL:--x] call fcn.00c905b0
+fcn.00cba6f0 0xcbab1f [CALL:--x] call fcn.00c905b0
+fcn.00cba6f0 0xcbabd0 [CALL:--x] call fcn.00c905b0
+fcn.00cba6f0 0xcbac81 [CALL:--x] call fcn.00c905b0
+fcn.00cbbde0 0xcbbe6b [CALL:--x] call fcn.00c905b0
+fcn.00cbbee0 0xcbbf58 [CALL:--x] call fcn.00c905b0
+fcn.00cbc4a0 0xcbc4b9 [CALL:--x] call fcn.00c905b0
+fcn.00cbc4e0 0xcbc4fc [CALL:--x] call fcn.00c905b0
+fcn.00cbd520 0xcbd5d6 [CALL:--x] call fcn.00c905b0
+fcn.00cbf2f0 0xcbf372 [CALL:--x] call fcn.00c905b0
+fcn.00cc0480 0xcc0492 [CALL:--x] call fcn.00c905b0
+fcn.00cc0bc0 0xcc0cc9 [CALL:--x] call fcn.00c905b0
+fcn.00cc2530 0xcc267b [CALL:--x] call fcn.00c905b0
+fcn.00cc3050 0xcc3178 [CALL:--x] call fcn.00c905b0
+fcn.00cc3710 0xcc37f6 [CALL:--x] call fcn.00c905b0
+fcn.00cc3f40 0xcc4038 [CALL:--x] call fcn.00c905b0
+fcn.00cc4610 0xcc46f2 [CALL:--x] call fcn.00c905b0
+fcn.00cc49b0 0xcc4a1a [CALL:--x] call fcn.00c905b0
+fcn.00cc4a80 0xcc4b50 [CALL:--x] call fcn.00c905b0
+fcn.00cc4e10 0xcc4e37 [CALL:--x] call fcn.00c905b0
+fcn.00cc6830 0xcc6997 [CALL:--x] call fcn.00c905b0
+fcn.00cc6b80 0xcc6ee0 [CALL:--x] call fcn.00c905b0
+fcn.00cc7600 0xcc779f [CALL:--x] call fcn.00c905b0
+fcn.00cc7a40 0xcc7ba9 [CALL:--x] call fcn.00c905b0
+fcn.00cca450 0xcca4ad [CALL:--x] call fcn.00c905b0
+fcn.00cca6f0 0xcca865 [CALL:--x] call fcn.00c905b0
+fcn.00cca6f0 0xcca872 [CALL:--x] call fcn.00c905b0
+fcn.00cca6f0 0xcca88a [CALL:--x] call fcn.00c905b0
+fcn.00ccaee0 0xccb046 [CALL:--x] call fcn.00c905b0
+fcn.00ccb5d0 0xccb6f0 [CALL:--x] call fcn.00c905b0
+fcn.00ccc080 0xccc2a0 [CALL:--x] call fcn.00c905b0
+fcn.00ccd610 0xccd6c2 [CALL:--x] call fcn.00c905b0
+fcn.00ccdf20 0xccdfde [CALL:--x] call fcn.00c905b0
+fcn.00ccef50 0xcceff2 [CALL:--x] call fcn.00c905b0
+fcn.00ccfc60 0xccfd08 [CALL:--x] call fcn.00c905b0
+fcn.00cd0e60 0xcd0e7e [CALL:--x] call fcn.00c905b0
+fcn.00cd0e60 0xcd0e89 [CALL:--x] call fcn.00c905b0
+fcn.00cd1970 0xcd19ca [CALL:--x] call fcn.00c905b0
+fcn.00cd1b20 0xcd1be8 [CALL:--x] call fcn.00c905b0
+fcn.00cd2080 0xcd21eb [CALL:--x] call fcn.00c905b0
+fcn.00cd22f0 0xcd244a [CALL:--x] call fcn.00c905b0
+fcn.00cd29c0 0xcd29d9 [CALL:--x] call fcn.00c905b0
+fcn.00cd32b0 0xcd337c [CALL:--x] call fcn.00c905b0
+fcn.00cd3490 0xcd34e9 [CALL:--x] call fcn.00c905b0
+fcn.00cd7d60 0xcd7e41 [CALL:--x] call fcn.00c905b0
+fcn.00cdb6f0 0xcdb6f8 [CALL:--x] call fcn.00c905b0
+fcn.00cdea30 0xcdea53 [CALL:--x] call fcn.00c905b0
+fcn.00cdf1f0 0xcdf20c [CALL:--x] call fcn.00c905b0
+fcn.00cdf6e0 0xcdf6fa [CALL:--x] call fcn.00c905b0
+fcn.00cdf7a0 0xcdf7ac [CALL:--x] call fcn.00c905b0
+fcn.00ce22c0 0xce22da [CALL:--x] call fcn.00c905b0
+fcn.00ce2600 0xce261a [CALL:--x] call fcn.00c905b0
+fcn.00ce2600 0xce2636 [CALL:--x] call fcn.00c905b0
+fcn.00ce2600 0xce2648 [CALL:--x] call fcn.00c905b0
+fcn.00ce2730 0xce28eb [CALL:--x] call fcn.00c905b0
+fcn.00ce2730 0xce2907 [CALL:--x] call fcn.00c905b0
+fcn.00ce4ae0 0xce4b06 [CALL:--x] call fcn.00c905b0
+fcn.00ce4ae0 0xce4b22 [CALL:--x] call fcn.00c905b0
+fcn.00ce5370 0xce540c [CALL:--x] call fcn.00c905b0
+fcn.00ce5370 0xce541a [CALL:--x] call fcn.00c905b0
+fcn.00ce61c0 0xce6622 [CALL:--x] call fcn.00c905b0
+fcn.00ce61c0 0xce664b [CALL:--x] call fcn.00c905b0
+fcn.00ce61c0 0xce666d [CALL:--x] call fcn.00c905b0
+fcn.00ce61c0 0xce668d [CALL:--x] call fcn.00c905b0
+fcn.00ce9880 0xce9b00 [CALL:--x] call fcn.00c905b0
+fcn.00cf3000 0xcf3023 [CALL:--x] call fcn.00c905b0
+fcn.00cf3040 0xcf3057 [CALL:--x] call fcn.00c905b0
+fcn.00cf3fa0 0xcf405c [CALL:--x] call fcn.00c905b0
+fcn.00cf40b0 0xcf40cb [CALL:--x] call fcn.00c905b0
+fcn.00cf40b0 0xcf40d7 [CALL:--x] call fcn.00c905b0
+fcn.00cf40b0 0xcf4118 [CALL:--x] call fcn.00c905b0
+fcn.00cf4ce0 0xcf4d07 [CALL:--x] call fcn.00c905b0
+fcn.00cf4d30 0xcf4d57 [CALL:--x] call fcn.00c905b0
+fcn.00cf4de0 0xcf4df0 [CALL:--x] call fcn.00c905b0
+fcn.00cf4de0 0xcf4e03 [CALL:--x] call fcn.00c905b0
+fcn.00cf5750 0xcf5776 [CALL:--x] call fcn.00c905b0
+fcn.00cf5e50 0xcf5e61 [CALL:--x] call fcn.00c905b0
+fcn.00c91160 0xcf7a14 [CALL:--x] call fcn.00c905b0
+fcn.00cf7c10 0xcf7ce0 [CALL:--x] call fcn.00c905b0
+fcn.00cf7c10 0xcf7ce7 [CALL:--x] call fcn.00c905b0
+fcn.00cf7c10 0xcf7d93 [CALL:--x] call fcn.00c905b0
+fcn.00cf7c10 0xcf7fa6 [CALL:--x] call fcn.00c905b0
+fcn.00cf7c10 0xcf800b [CALL:--x] call fcn.00c905b0
+fcn.00cf7c10 0xcf8202 [CALL:--x] call fcn.00c905b0
+fcn.00cf7c10 0xcf8279 [CALL:--x] call fcn.00c905b0
+fcn.00cf7c10 0xcf82bb [CALL:--x] call fcn.00c905b0
+fcn.00cfb1f0 0xcfb213 [CALL:--x] call fcn.00c905b0
+fcn.00cfb1f0 0xcfb230 [CALL:--x] call fcn.00c905b0
+fcn.00cfb240 0xcfb269 [CALL:--x] call fcn.00c905b0
+fcn.00cfb240 0xcfb279 [CALL:--x] call fcn.00c905b0
+fcn.00cfc140 0xcfc16b [CALL:--x] call fcn.00c905b0
+fcn.00d03c20 0xd03ef4 [CALL:--x] call fcn.00c905b0
+fcn.00d06090 0xd060ae [CALL:--x] call fcn.00c905b0
+fcn.00d06090 0xd060d1 [CALL:--x] call fcn.00c905b0
+fcn.00d06090 0xd060f4 [CALL:--x] call fcn.00c905b0
+fcn.00d06090 0xd0611d [CALL:--x] call fcn.00c905b0
+fcn.00d06130 0xd06146 [CALL:--x] call fcn.00c905b0
+(nofunc) 0xd06186 [CALL:--x] call fcn.00c905b0
+fcn.00d061b0 0xd061c6 [CALL:--x] call fcn.00c905b0
+fcn.00d061f0 0xd06206 [CALL:--x] call fcn.00c905b0
+fcn.00d0ae30 0xd0ae69 [CALL:--x] call fcn.00c905b0
+fcn.00d0b530 0xd0b55f [CALL:--x] call fcn.00c905b0
+fcn.00d0b570 0xd0b59a [CALL:--x] call fcn.00c905b0
+fcn.00d0bb20 0xd0bb4e [CALL:--x] call fcn.00c905b0
+(nofunc) 0xd0e04f [CALL:--x] call fcn.00c905b0
+fcn.00d100a0 0xd104a8 [CALL:--x] call fcn.00c905b0
+(nofunc) 0xd1df8d [CALL:--x] call fcn.00c905b0
+fcn.00d1dff0 0xd1e003 [CALL:--x] call fcn.00c905b0
+fcn.00d26760 0xd26773 [CALL:--x] call fcn.00c905b0
+fcn.00d27520 0xd27535 [CALL:--x] call fcn.00c905b0
+fcn.00d2b210 0xd2b22b [CALL:--x] call fcn.00c905b0
+fcn.00d2b2b0 0xd2b2c0 [CALL:--x] call fcn.00c905b0
+fcn.00d2bc70 0xd2bc7c [CALL:--x] call fcn.00c905b0
+fcn.00d409d0 0xd409ec [CALL:--x] call fcn.00c905b0
+fcn.00d40be0 0xd40d61 [CALL:--x] call fcn.00c905b0
+fcn.00d40d80 0xd4169a [CALL:--x] call fcn.00c905b0
+fcn.00d47770 0xd47789 [CALL:--x] call fcn.00c905b0
+fcn.00d47fa0 0xd47fac [CALL:--x] call fcn.00c905b0
+fcn.00d47fe0 0xd48006 [CALL:--x] call fcn.00c905b0
+fcn.00d48250 0xd482ab [CALL:--x] call fcn.00c905b0
+fcn.00d48250 0xd482bb [CALL:--x] call fcn.00c905b0
+fcn.00d48840 0xd4890f [CALL:--x] call fcn.00c905b0
+fcn.00d48840 0xd48932 [CALL:--x] call fcn.00c905b0
+fcn.00d49cb0 0xd49cd9 [CALL:--x] call fcn.00c905b0
+fcn.00d49cb0 0xd49d29 [CALL:--x] call fcn.00c905b0
+fcn.00d4ad60 0xd4adea [CALL:--x] call fcn.00c905b0
+fcn.00d4ad60 0xd4ae27 [CALL:--x] call fcn.00c905b0
+fcn.00d4b400 0xd4b426 [CALL:--x] call fcn.00c905b0
+fcn.00d4c0c0 0xd4c1dc [CALL:--x] call fcn.00c905b0
+fcn.00d4c0c0 0xd4c1f4 [CALL:--x] call fcn.00c905b0
+fcn.00d4c0c0 0xd4c209 [CALL:--x] call fcn.00c905b0
+fcn.00d4c250 0xd4c260 [CALL:--x] call fcn.00c905b0
+fcn.00d4c250 0xd4c276 [CALL:--x] call fcn.00c905b0
+fcn.00d4ded0 0xd4deed [CALL:--x] call fcn.00c905b0
+fcn.00d4e000 0xd4e00c [CALL:--x] call fcn.00c905b0
+fcn.00d4f850 0xd4f86d [CALL:--x] call fcn.00c905b0
+fcn.00d4f8d0 0xd4f8e3 [CALL:--x] call fcn.00c905b0
+fcn.00d50c50 0xd50c67 [CALL:--x] call fcn.00c905b0
+fcn.00d533e0 0xd534a6 [CALL:--x] call fcn.00c905b0
+fcn.00d543e0 0xd543f7 [CALL:--x] call fcn.00c905b0
+fcn.00d543e0 0xd5440c [CALL:--x] call fcn.00c905b0
+fcn.00d548f0 0xd548fc [CALL:--x] call fcn.00c905b0
+fcn.00d54960 0xd5499d [CALL:--x] call fcn.00c905b0
+fcn.00d56500 0xd565f9 [CALL:--x] call fcn.00c905b0
+fcn.00d56660 0xd56765 [CALL:--x] call fcn.00c905b0
+fcn.00d56800 0xd56827 [CALL:--x] call fcn.00c905b0
+fcn.00d59870 0xd59883 [CALL:--x] call fcn.00c905b0
+fcn.00d5a320 0xd5a33a [CALL:--x] call fcn.00c905b0
+fcn.00d5e070 0xd5e081 [CALL:--x] call fcn.00c905b0
+fcn.00d5e7c0 0xd5e7e6 [CALL:--x] call fcn.00c905b0
+fcn.00d60590 0xd6059c [CALL:--x] call fcn.00c905b0
+fcn.00d60810 0xd60822 [CALL:--x] call fcn.00c905b0
+(nofunc) 0xd62dcf [CALL:--x] call fcn.00c905b0
+fcn.00d63520 0xd6357d [CALL:--x] call fcn.00c905b0
+fcn.00d63590 0xd635cd [CALL:--x] call fcn.00c905b0
+fcn.00d65ad0 0xd65d18 [CALL:--x] call fcn.00c905b0
+fcn.00d66c10 0xd66c37 [CALL:--x] call fcn.00c905b0
+fcn.00d739f0 0xd73c25 [CALL:--x] call fcn.00c905b0
+fcn.00d739f0 0xd73c8a [CALL:--x] call fcn.00c905b0
+fcn.00d739f0 0xd742b6 [CALL:--x] call fcn.00c905b0
+fcn.00d74480 0xd745a3 [CALL:--x] call fcn.00c905b0
+fcn.00d74480 0xd74629 [CALL:--x] call fcn.00c905b0
+fcn.00d74480 0xd746a6 [CALL:--x] call fcn.00c905b0
+fcn.00d74480 0xd746e2 [CALL:--x] call fcn.00c905b0
+fcn.00d74480 0xd74706 [CALL:--x] call fcn.00c905b0
+fcn.00d74480 0xd74789 [CALL:--x] call fcn.00c905b0
+fcn.00d74480 0xd747fb [CALL:--x] call fcn.00c905b0
+fcn.00d74850 0xd7489c [CALL:--x] call fcn.00c905b0
+fcn.00d749c0 0xd74a0b [CALL:--x] call fcn.00c905b0
+fcn.00d74a20 0xd74a47 [CALL:--x] call fcn.00c905b0
+fcn.00d74a20 0xd74a56 [CALL:--x] call fcn.00c905b0
+fcn.00d74aa0 0xd74ab9 [CALL:--x] call fcn.00c905b0
+fcn.00d74aa0 0xd74ac8 [CALL:--x] call fcn.00c905b0
+fcn.00d85700 0xd8576a [CALL:--x] call fcn.00c905b0
+fcn.00d85700 0xd85819 [CALL:--x] call fcn.00c905b0
+fcn.00d85700 0xd85878 [CALL:--x] call fcn.00c905b0
+fcn.00dba0d0 0xdba15a [CALL:--x] call fcn.00c905b0
+fcn.00dbb360 0xdbb3b5 [CALL:--x] call fcn.00c905b0
+fcn.00dbb360 0xdbb3de [CALL:--x] call fcn.00c905b0
+fcn.00dbb3f0 0xdbb462 [CALL:--x] call fcn.00c905b0
+fcn.00dbb3f0 0xdbb475 [CALL:--x] call fcn.00c905b0
+fcn.00dbb490 0xdbb4aa [CALL:--x] call fcn.00c905b0
+fcn.00dbb4c0 0xdbb4da [CALL:--x] call fcn.00c905b0
+fcn.00dc3300 0xdc3359 [CALL:--x] call fcn.00c905b0
+fcn.00dc3300 0xdc34b3 [CALL:--x] call fcn.00c905b0
+fcn.00dc3300 0xdc34d8 [CALL:--x] call fcn.00c905b0
+fcn.00dc43a0 0xdc4407 [CALL:--x] call fcn.00c905b0
+fcn.00dc43a0 0xdc4419 [CALL:--x] call fcn.00c905b0
+fcn.00dc4710 0xdc474c [CALL:--x] call fcn.00c905b0
+fcn.00dc4710 0xdc479f [CALL:--x] call fcn.00c905b0
+fcn.00dc4710 0xdc4a65 [CALL:--x] call fcn.00c905b0
+fcn.00dc7750 0xdc7a2a [CALL:--x] call fcn.00c905b0
+fcn.00dc7d20 0xdc7db4 [CALL:--x] call fcn.00c905b0
+fcn.00dc80c0 0xdc81c4 [CALL:--x] call fcn.00c905b0
+fcn.00dc8270 0xdc8413 [CALL:--x] call fcn.00c905b0
+fcn.00dc8270 0xdc8426 [CALL:--x] call fcn.00c905b0
+fcn.00dc8270 0xdc8491 [CALL:--x] call fcn.00c905b0
+fcn.00dc8270 0xdc84a4 [CALL:--x] call fcn.00c905b0
+fcn.00dc8270 0xdc84e5 [CALL:--x] call fcn.00c905b0
+fcn.00dc8270 0xdc84f8 [CALL:--x] call fcn.00c905b0
+fcn.00dc8270 0xdc8565 [CALL:--x] call fcn.00c905b0
+fcn.00dc8d70 0xdc8d8f [CALL:--x] call fcn.00c905b0
+fcn.00dc8d70 0xdc8e0d [CALL:--x] call fcn.00c905b0
+fcn.00dc9470 0xdc94b6 [CALL:--x] call fcn.00c905b0
+fcn.00dc9f20 0xdc9f53 [CALL:--x] call fcn.00c905b0
+fcn.00dc9f20 0xdc9fbd [CALL:--x] call fcn.00c905b0
+fcn.00dcb990 0xdcb9ad [CALL:--x] call fcn.00c905b0
+fcn.00dcb990 0xdcba31 [CALL:--x] call fcn.00c905b0
+fcn.00dcbdd0 0xdcbf71 [CALL:--x] call fcn.00c905b0
+fcn.00dcbfc0 0xdcbff6 [CALL:--x] call fcn.00c905b0
+fcn.00dcbfc0 0xdcc05b [CALL:--x] call fcn.00c905b0
+fcn.00dcbfc0 0xdcc0eb [CALL:--x] call fcn.00c905b0
+fcn.00dcc160 0xdcc170 [CALL:--x] call fcn.00c905b0
+fcn.00dcda40 0xdcdb8d [CALL:--x] call fcn.00c905b0
+fcn.00dcdc00 0xdcdcfa [CALL:--x] call fcn.00c905b0
+fcn.00dcdd80 0xdcddfc [CALL:--x] call fcn.00c905b0
+fcn.00dcea10 0xdceb01 [CALL:--x] call fcn.00c905b0
+fcn.00dceb90 0xdceba6 [CALL:--x] call fcn.00c905b0
+fcn.00dcecc0 0xdcecda [CALL:--x] call fcn.00c905b0
+fcn.00dd05c0 0xdd05d7 [CALL:--x] call fcn.00c905b0
+fcn.00dd05c0 0xdd05e5 [CALL:--x] call fcn.00c905b0
+fcn.00dd4cb0 0xdd505a [CALL:--x] call fcn.00c905b0
+fcn.00dd9110 0xdd9122 [CALL:--x] call fcn.00c905b0
+fcn.00dd91f0 0xdd9200 [CALL:--x] call fcn.00c905b0
+fcn.00dda6e0 0xdda725 [CALL:--x] call fcn.00c905b0
+fcn.00ddb670 0xddb6bb [CALL:--x] call fcn.00c905b0
+fcn.00ddcc60 0xddcc8a [CALL:--x] call fcn.00c905b0
+fcn.00dee6f0 0xdee70a [CALL:--x] call fcn.00c905b0
+fcn.00dee7d0 0xdee7e0 [CALL:--x] call fcn.00c905b0
+fcn.00dee870 0xdee896 [CALL:--x] call fcn.00c905b0
+fcn.00deea00 0xdeea22 [CALL:--x] call fcn.00c905b0
+fcn.00def160 0xdef18d [CALL:--x] call fcn.00c905b0
+fcn.00df6550 0xdf656a [CALL:--x] call fcn.00c905b0
+fcn.00df67d0 0xdf67ea [CALL:--x] call fcn.00c905b0
+fcn.00df67d0 0xdf67fb [CALL:--x] call fcn.00c905b0
+fcn.00dfb720 0xdfb788 [CALL:--x] call fcn.00c905b0
+fcn.00dfb9d0 0xdfb9db [CALL:--x] call fcn.00c905b0
+fcn.00dfd840 0xdfd866 [CALL:--x] call fcn.00c905b0
+(nofunc) 0xdfd97b [CALL:--x] call fcn.00c905b0
+fcn.00dfdcb0 0xdfdcba [CALL:--x] call fcn.00c905b0
+fcn.00dfdd90 0xdfdd9c [CALL:--x] call fcn.00c905b0
+fcn.00dfe620 0xdfe632 [CALL:--x] call fcn.00c905b0
+fcn.00dfe720 0xdfe747 [CALL:--x] call fcn.00c905b0
+fcn.00dfe720 0xdfe7ac [CALL:--x] call fcn.00c905b0
+fcn.00dfe720 0xdfe817 [CALL:--x] call fcn.00c905b0
+fcn.00dfe720 0xdfe87c [CALL:--x] call fcn.00c905b0
+fcn.00dfe720 0xdfe8e7 [CALL:--x] call fcn.00c905b0
+fcn.00dfe9e0 0xdfea4b [CALL:--x] call fcn.00c905b0
+fcn.00dff010 0xdff027 [CALL:--x] call fcn.00c905b0
+fcn.00dff640 0xdff64a [CALL:--x] call fcn.00c905b0
+fcn.00dff640 0xdff65d [CALL:--x] call fcn.00c905b0
+fcn.00dff6a0 0xdff6b0 [CALL:--x] call fcn.00c905b0
+fcn.00dff6a0 0xdff6d7 [CALL:--x] call fcn.00c905b0
+fcn.00dff730 0xdff757 [CALL:--x] call fcn.00c905b0
+fcn.00dff730 0xdff7bc [CALL:--x] call fcn.00c905b0
+fcn.00e00830 0xe008c6 [CALL:--x] call fcn.00c905b0
+fcn.00e01b30 0xe01bc4 [CALL:--x] call fcn.00c905b0
+fcn.00e01d40 0xe01d6e [CALL:--x] call fcn.00c905b0
+fcn.00e01f70 0xe01f97 [CALL:--x] call fcn.00c905b0
+fcn.00e01f70 0xe01fe4 [CALL:--x] call fcn.00c905b0
+fcn.00e01f70 0xe0200f [CALL:--x] call fcn.00c905b0
+fcn.00e01f70 0xe0205a [CALL:--x] call fcn.00c905b0
+fcn.00e02c70 0xe02c7d [CALL:--x] call fcn.00c905b0
+fcn.00e04eb0 0xe04eca [CALL:--x] call fcn.00c905b0
+fcn.00e04ee0 0xe04efa [CALL:--x] call fcn.00c905b0
+fcn.00e04f80 0xe04fa9 [CALL:--x] call fcn.00c905b0
+fcn.00e04f80 0xe04ff9 [CALL:--x] call fcn.00c905b0
+fcn.00e04f80 0xe0500c [CALL:--x] call fcn.00c905b0
+fcn.00e05160 0xe0517a [CALL:--x] call fcn.00c905b0
+fcn.00e05700 0xe057a2 [CALL:--x] call fcn.00c905b0
+fcn.00e057c0 0xe05911 [CALL:--x] call fcn.00c905b0
+fcn.00e05d10 0xe05d23 [CALL:--x] call fcn.00c905b0
+fcn.00e05d10 0xe05d2f [CALL:--x] call fcn.00c905b0
+fcn.00e2e670 0xe2e6a5 [CALL:--x] call fcn.00c905b0
+fcn.00e2e670 0xe2e6c3 [CALL:--x] call fcn.00c905b0
+fcn.00e2e710 0xe2e745 [CALL:--x] call fcn.00c905b0
+fcn.00e2e710 0xe2e763 [CALL:--x] call fcn.00c905b0
+fcn.00e2e790 0xe2e7fc [CALL:--x] call fcn.00c905b0
+fcn.00e2e790 0xe2e81b [CALL:--x] call fcn.00c905b0
+fcn.00e2e790 0xe2e8a0 [CALL:--x] call fcn.00c905b0
+fcn.00e2e790 0xe2e8aa [CALL:--x] call fcn.00c905b0
+fcn.00e2ea40 0xe2eabf [CALL:--x] call fcn.00c905b0
+fcn.00e2ec00 0xe2ec2c [CALL:--x] call fcn.00c905b0
+fcn.00e2ec00 0xe2ec97 [CALL:--x] call fcn.00c905b0
+fcn.00e2ed00 0xe2ed8f [CALL:--x] call fcn.00c905b0
+fcn.00e2ed00 0xe2ed96 [CALL:--x] call fcn.00c905b0
+fcn.00e2efe0 0xe2f075 [CALL:--x] call fcn.00c905b0
+fcn.00e2efe0 0xe2f07f [CALL:--x] call fcn.00c905b0
+fcn.00e2f500 0xe2f55d [CALL:--x] call fcn.00c905b0
+fcn.00e34820 0xe348f0 [CALL:--x] call fcn.00c905b0
+fcn.00e34820 0xe34907 [CALL:--x] call fcn.00c905b0
+fcn.00e36b80 0xe36ba0 [CALL:--x] call fcn.00c905b0
+fcn.00e36b80 0xe36bcd [CALL:--x] call fcn.00c905b0
+fcn.00e38bf0 0xe38c03 [CALL:--x] call fcn.00c905b0
+fcn.00e38bf0 0xe38c0f [CALL:--x] call fcn.00c905b0
+fcn.00e38bf0 0xe38c1b [CALL:--x] call fcn.00c905b0
+fcn.00e38bf0 0xe38c27 [CALL:--x] call fcn.00c905b0
+fcn.00e38bf0 0xe38c33 [CALL:--x] call fcn.00c905b0
+fcn.00e38bf0 0xe38c3f [CALL:--x] call fcn.00c905b0
+fcn.00e38bf0 0xe38c4b [CALL:--x] call fcn.00c905b0
+fcn.00e38bf0 0xe38c57 [CALL:--x] call fcn.00c905b0
+fcn.00e38bf0 0xe38c63 [CALL:--x] call fcn.00c905b0
+fcn.00e38bf0 0xe38c6f [CALL:--x] call fcn.00c905b0
+fcn.00e38bf0 0xe38c7e [CALL:--x] call fcn.00c905b0
+fcn.00e38bf0 0xe38c8a [CALL:--x] call fcn.00c905b0
+fcn.00e3a360 0xe3a377 [CALL:--x] call fcn.00c905b0
+fcn.00e3a3d0 0xe3a3ea [CALL:--x] call fcn.00c905b0
+fcn.00e3a440 0xe3a48d [CALL:--x] call fcn.00c905b0
+fcn.00e3a5b0 0xe3ab84 [CALL:--x] call fcn.00c905b0
+fcn.00e3a5b0 0xe3ad06 [CALL:--x] call fcn.00c905b0
+fcn.00e3a5b0 0xe3ad0d [CALL:--x] call fcn.00c905b0
+fcn.00e3ad80 0xe3ada2 [CALL:--x] call fcn.00c905b0
+fcn.00e3ad80 0xe3adc6 [CALL:--x] call fcn.00c905b0
+fcn.00e3b9a0 0xe3b9d3 [CALL:--x] call fcn.00c905b0
+fcn.00e3e840 0xe3e8c0 [CALL:--x] call fcn.00c905b0
+fcn.00e3e8e0 0xe3e936 [CALL:--x] call fcn.00c905b0
+fcn.00e3e8e0 0xe3e945 [CALL:--x] call fcn.00c905b0
+fcn.00e3eb10 0xe3eb86 [CALL:--x] call fcn.00c905b0
+fcn.00e3eba0 0xe3ebca [CALL:--x] call fcn.00c905b0
+fcn.00e3ed80 0xe3ee17 [CALL:--x] call fcn.00c905b0
+fcn.00e3ed80 0xe3ee93 [CALL:--x] call fcn.00c905b0
+fcn.00e3eec0 0xe3ef73 [CALL:--x] call fcn.00c905b0
+fcn.00e3eec0 0xe3efba [CALL:--x] call fcn.00c905b0
+fcn.00e3eff0 0xe3f069 [CALL:--x] call fcn.00c905b0
+fcn.00e3eff0 0xe3f099 [CALL:--x] call fcn.00c905b0
+fcn.00e3eff0 0xe3f0cd [CALL:--x] call fcn.00c905b0
+fcn.00e3f110 0xe3f126 [CALL:--x] call fcn.00c905b0
+fcn.00e3f110 0xe3f14b [CALL:--x] call fcn.00c905b0
+fcn.00e3f110 0xe3f1ab [CALL:--x] call fcn.00c905b0
+fcn.00e40ec0 0xe40f73 [CALL:--x] call fcn.00c905b0
+fcn.00e40ec0 0xe40f87 [CALL:--x] call fcn.00c905b0
+fcn.00e40fd0 0xe40ffc [CALL:--x] call fcn.00c905b0
+fcn.00e41fc0 0xe41fed [CALL:--x] call fcn.00c905b0
+fcn.00e426b0 0xe426e6 [CALL:--x] call fcn.00c905b0
+fcn.00e42740 0xe4275a [CALL:--x] call fcn.00c905b0
+fcn.00e44cf0 0xe44d08 [CALL:--x] call fcn.00c905b0
+fcn.00e44eb0 0xe44ecf [CALL:--x] call fcn.00c905b0
+fcn.00e44ef0 0xe44f0c [CALL:--x] call fcn.00c905b0
+fcn.00e451b0 0xe4537d [CALL:--x] call fcn.00c905b0
+fcn.00e451b0 0xe45447 [CALL:--x] call fcn.00c905b0
+fcn.00e45e60 0xe45ed1 [CALL:--x] call fcn.00c905b0
+fcn.00e45fc0 0xe45fd6 [CALL:--x] call fcn.00c905b0
+fcn.00e464e0 0xe465b5 [CALL:--x] call fcn.00c905b0
+fcn.00e466e0 0xe466f7 [CALL:--x] call fcn.00c905b0
+fcn.00e46b80 0xe46bb3 [CALL:--x] call fcn.00c905b0
+fcn.00e46ea0 0xe46efd [CALL:--x] call fcn.00c905b0
+fcn.00e47020 0xe47087 [CALL:--x] call fcn.00c905b0
+fcn.00e470d0 0xe472ac [CALL:--x] call fcn.00c905b0
+fcn.00e470d0 0xe47379 [CALL:--x] call fcn.00c905b0
+fcn.00e490d0 0xe490e3 [CALL:--x] call fcn.00c905b0
+fcn.00e490d0 0xe490eb [CALL:--x] call fcn.00c905b0
+fcn.00e49dc0 0xe49df6 [CALL:--x] call fcn.00c905b0
+fcn.00e49f40 0xe49f76 [CALL:--x] call fcn.00c905b0
+fcn.00e4a460 0xe4a47f [CALL:--x] call fcn.00c905b0
+fcn.00e4a460 0xe4a48b [CALL:--x] call fcn.00c905b0
+fcn.00e4a750 0xe4a787 [CALL:--x] call fcn.00c905b0
+fcn.00e4a750 0xe4a7e8 [CALL:--x] call fcn.00c905b0
+fcn.00e4a750 0xe4a849 [CALL:--x] call fcn.00c905b0
+fcn.00e4a750 0xe4a8aa [CALL:--x] call fcn.00c905b0
+fcn.00e4a750 0xe4a90b [CALL:--x] call fcn.00c905b0
+fcn.00e4a750 0xe4a96c [CALL:--x] call fcn.00c905b0
+fcn.00e4a750 0xe4a9cd [CALL:--x] call fcn.00c905b0
+fcn.00e4a750 0xe4aa2e [CALL:--x] call fcn.00c905b0
+fcn.00e4a750 0xe4aa73 [CALL:--x] call fcn.00c905b0
+fcn.00e4ad10 0xe4ad3c [CALL:--x] call fcn.00c905b0
+fcn.00e4ad10 0xe4ada7 [CALL:--x] call fcn.00c905b0
+fcn.00e4ae90 0xe4aeb7 [CALL:--x] call fcn.00c905b0
+fcn.00e5aac0 0xe5ace7 [CALL:--x] call fcn.00c905b0
+fcn.00e5b160 0xe5b378 [CALL:--x] call fcn.00c905b0
+fcn.00e5b510 0xe5b72b [CALL:--x] call fcn.00c905b0
+fcn.00e5b510 0xe5b788 [CALL:--x] call fcn.00c905b0
+fcn.00e5b510 0xe5b78f [CALL:--x] call fcn.00c905b0
+fcn.00e5c4d0 0xe5c531 [CALL:--x] call fcn.00c905b0
+fcn.00e5c540 0xe5c58f [CALL:--x] call fcn.00c905b0
+fcn.00e5c540 0xe5c59e [CALL:--x] call fcn.00c905b0
+fcn.00e5cce0 0xe5cd36 [CALL:--x] call fcn.00c905b0
+fcn.00e5cdb0 0xe5ce1b [CALL:--x] call fcn.00c905b0
+fcn.00e61770 0xe617a4 [CALL:--x] call fcn.00c905b0
+fcn.00e61770 0xe61807 [CALL:--x] call fcn.00c905b0
+fcn.00e61770 0xe61845 [CALL:--x] call fcn.00c905b0
+fcn.00e61770 0xe618d5 [CALL:--x] call fcn.00c905b0
+fcn.00e61770 0xe61937 [CALL:--x] call fcn.00c905b0
+fcn.00e61770 0xe61980 [CALL:--x] call fcn.00c905b0
+
+
+CAPTURE havokSparseTailProof3
+- offset -  E2E3 E4E5 E6E7 E8E9 EAEB ECED EEEF F0F1  23456789ABCDEF01
+0x00c94ee2  8b44 241c 403b 4424 6089 4424 1c0f 8c9b  .D$.@;D$`.D$....
+0x00c94ef2  feff ff8b 6c24 6080 bfc8 0000            ....l$`.....
+
+
+CAPTURE havokSparseTailProof4
+- offset -  8182 8384 8586 8788 898A 8B8C 8D8E 8F90  123456789ABCDEF0
+0x00c67681  433b 5d0c 0f82 ecfe ffff 8b7c            C;]........|
+
+
+CAPTURE havokBroadphaseEmpty1
+- offset -  CCCD CECF D0D1 D2D3 D4D5 D6D7 D8D9 DADB  CDEF0123456789AB
+0x010cd5cc  d0a2 d100 5003 c900 e019 d100 c00a d100  ....P...........
+0x010cd5dc  e014 d100 b042 d100 0084 d100 0046 d100  .....B.......F..
+0x010cd5ec  e093 d100 2016 d100 4020 d100 802b d100  .... ...@ ...+..
+0x010cd5fc  c05f d100 f00f d100 a01f d100 c019 d100  ._..............
+0x010cd60c  100e d100 f04e d100 0041 d100 7014 d100  .....N...A..p...
+
+
+CAPTURE havokBroadphaseEmpty3
+fcn.00d13bd0 0xd13be6 [DATA:-w-] mov dword [esi], 0x10cd5cc
+fcn.00d182e0 0xd182ee [DATA:-w-] mov dword [edi], 0x10cd5cc
+
+
+CAPTURE havokBroadphaseZeroProof0
+4034: fcn.00d18400 (int32_t arg_8h, int32_t arg_ch, int32_t arg_10h);
+`- args(sp[0x4..0xc]) vars(85:sp[0x14..0x1a0])
+0x00d18400      push ebp
+0x00d18401      mov ebp, esp
+0x00d18403      and esp, 0xfffffff0
+0x00d18406      sub esp, 0x114
+0x00d1840c      mov eax, dword [arg_ch]
+0x00d1840f      cmp dword [eax + 4], 1
+0x00d18413      push ebx
+0x00d18414      push esi
+0x00d18415      push edi
+0x00d18416      mov edi, ecx
+0x00d18418      mov dword [var_20h], edi
+; likely
+0x00d1841c      jl 0xd19351
+0x00d18422      mov edx, dword [arg_8h]
+0x00d18425      mov ebx, dword [edx + 4]
+0x00d18428      mov ecx, dword [edi + 0xa4]
+0x00d1842e      mov dword [var_1ch], ecx
+0x00d18432      mov dword [var_3ch], ebx
+0x00d18436      lea esi, [ebx + ebx]
+; fcn.00c85750
+0x00d18439      call fcn.00c85750
+0x00d1843e      mov ecx, dword [eax + 0xc]
+0x00d18441      test esi, esi
+; unlikely
+0x00d18443      je 0xd1935a
+0x00d18449      mov edx, dword [ecx]
+0x00d1844b      mov edx, dword [edx + 0xc]
+0x00d1844e      lea eax, [esi*4]
+0x00d18455      mov dword [var_b0h], eax
+0x00d1845c      lea eax, [var_b0h]
+0x00d18463      push eax
+; 0xffffffff(0xffffff7c, -1, -1, -1)
+0x00d18464      call edx
+0x00d18466      mov ecx, eax
+0x00d18468      mov eax, dword [var_ach]
+0x00d1846f      cdq
+0x00d18470      and edx, 3
+0x00d18473      add eax, edx
+0x00d18475      sar eax, 2
+0x00d18478      mov dword [var_78h_2], ecx
+0x00d1847c      mov dword [var_9ch_2], eax
+0x00d18483      test eax, eax
+; unlikely
+0x00d18485      jne 0xd18492
+; CODE XREF from fcn.00d18400 @ 0xd19362(x)
+; [0x80000000:4]=-1
+0x00d18487      mov dword [var_9ch], closesocket
+; fcn.00c85750
+0x00d18492      call fcn.00c85750
+0x00d18497      mov ecx, dword [eax + 0xc]
+0x00d1849a      test esi, esi
+; unlikely
+0x00d1849c      je 0xd19367
+0x00d184a2      mov edx, dword [ecx]
+0x00d184a4      mov edx, dword [edx + 0xc]
+0x00d184a7      lea eax, [esi*4]
+0x00d184ae      mov dword [var_a4h], eax
+0x00d184b5      lea eax, [var_a4h]
+0x00d184bc      push eax
+; 0xffffffff(0xffffff64, -1, -1, -1)
+0x00d184bd      call edx
+0x00d184bf      mov ecx, eax
+0x00d184c1      mov eax, dword [var_a0h]
+0x00d184c8      cdq
+0x00d184c9      and edx, 3
+0x00d184cc      add eax, edx
+0x00d184ce      sar eax, 2
+0x00d184d1      mov dword [var_50h_2], ecx
+0x00d184d5      mov dword [var_a4h], eax
+0x00d184dc      test eax, eax
+; unlikely
+0x00d184de      jne 0xd184eb
+; CODE XREF from fcn.00d18400 @ 0xd1936f(x)
+
+CAPTURE havokBroadphaseZeroProof1
+; 100
+0x00c94fc0      and al, 0x64
+0x00c94fc2      mov edx, dword [arg_58h]
+0x00c94fc6      mov dword [esi + 4], edx
+; 12
+0x00c94fc9      add esi, 0xc
+0x00c94fcc      mov dword [ecx + 4], esi
+0x00c94fcf      mov ecx, dword [edi + 0x58]
+0x00c94fd2      mov eax, dword [ecx]
+0x00c94fd4      mov eax, dword [eax + 0x18]
+0x00c94fd7      lea edx, [var_48h_2]
+0x00c94fdb      push edx
+0x00c94fdc      lea edx, [var_28h_2]
+0x00c94fe0      push edx
+0x00c94fe1      lea edx, [var_2ch]
+0x00c94fe5      push edx
+   ; 0xffffffff(-1, 0x0, -1, 0x30)
+0x00c94fe6      call eax
+; [0x126835c:4]=0
+0x00c94fe8      mov ecx, dword [0x126835c]
+0x00c94fee      push ecx
+   ; pe_dos_header(-1, 0x0, 0x0, 0x30)
+0x00c94fef      call ebx
+0x00c94ff1      mov ecx, eax
+0x00c94ff3      mov esi, dword [ecx + 4]
+0x00c94ff6      cmp esi, dword [ecx + 0xc]
+   ; likely
+0x00c94ff9      jae 0xc95014
+; [0x10c67c0:4]=0x72437453
+; "StCreateAgents"
+0x00c94ffb      mov dword [esi], str.StCreateAgents
+0x00c95001      rdtsc
+0x00c95003      mov dword [var_50h], eax
+0x00c95007      mov edx, dword [var_50h]
+
+
+CAPTURE havokSparseIteration1
+0x00d19351      pop edi
+0x00d19352      pop esi
+0x00d19353      pop ebx
+0x00d19354      mov esp, ebp
+0x00d19356      pop ebp
+0x00d19357      ret 0xc
+0x00d1935a      mov dword [var_64h], 0
+0x00d19362      jmp 0xd18487
+
+
+## World broadphase factory and constructor (radare2 MCP, supported image)
+
+   ; fcn.00d182a0
+   ; 0x11b37a0(-1, 0xd80d80, -1, 0x0)
+0x00c95cb5      call dword [0x11b37a0]
+0x00c95cbb      mov dword [esi + 0x58], eax
+0x00c95cbe      mov eax, dword [ebx + 0x20]
+0x00c95cc1      mov dword [esi + 0x338], eax
+0x00c95cc7      cdq
+
+  ; NULL XREF from fcn.00d175f0 @ +0xca1(x)
+52: fcn.00d182a0 (int32_t arg_8h_2, int32_t arg_8h, int32_t arg_ch);
+`- args(sp[0x0..0x8])
+   ; fcn.00c85750
+0x00d182a0      call fcn.00c85750
+0x00d182a5      mov ecx, dword [eax + 0x10]
+0x00d182a8      mov eax, dword [ecx]
+0x00d182aa      mov edx, dword [eax + 4]
+; 224
+0x00d182ad      push 0xe0
+   ; 0xffffffff(-1, 0xd80d80, -1, -1)
+0x00d182b2      call edx
+0x00d182b4      mov edx, dword [arg_ch]
+; 224
+0x00d182b8      mov ecx, 0xe0
+0x00d182bd      mov word [eax + 4], cx
+0x00d182c1      mov ecx, dword [arg_8h]
+0x00d182c5      push edx
+0x00d182c6      mov edx, dword [arg_8h_2]
+0x00d182ca      push ecx
+0x00d182cb      push edx
+0x00d182cc      mov ecx, eax
+   ; fcn.00d13bd0
+   ; fcn.00d13bd0(-1, 0xd80d80, -1)
+0x00d182ce      call fcn.00d13bd0
+0x00d182d3      ret
+0x00d182d4      int3
+0x00d182d5      int3
+0x00d182d6      int3
+0x00d182d7      int3
+0x00d182d8      int3
+0x00d182d9      int3
+0x00d182da      int3
+0x00d182db      int3
+0x00d182dc      int3
+0x00d182dd      int3
+0x00d182de      int3
+0x00d182df      int3
+  ; CALL XREF from fcn.00d1a2d0 @ 0xd1a2d3(x)
+269: fcn.00d182e0 ();
+0x00d182e0      push ebx
+0x00d182e1      push ebp
+0x00d182e2      push esi
+0x00d182e3      push edi
+0x00d182e4      mov edi, ecx
+0x00d182e6      xor ebp, ebp
+
+  ; CALL XREF from fcn.00d182a0 @ 0xd182ce(x)
+1316: fcn.00d13bd0 (int32_t arg_8h, int32_t arg_ch, int32_t arg_10h);
+`- args(sp[0x4..0xc]) vars(8:sp[0x14..0x28])
+0x00d13bd0      push ebp
+0x00d13bd1      mov ebp, esp
+0x00d13bd3      and esp, 0xfffffff0
+0x00d13bd6      sub esp, 0x24
+0x00d13bd9      push ebx
+0x00d13bda      push esi
+0x00d13bdb      push edi
+0x00d13bdc      mov esi, ecx
+   ; fcn.00d97010
+0x00d13bde      call fcn.00d97010
+0x00d13be3      mov eax, dword [arg_8h]
+; [0x10cd5cc:4]=0xd1a2d0 fcn.00d1a2d0
+0x00d13be6      mov dword [esi], 0x10cd5cc
+0x00d13bec      mov ecx, dword [eax]
+0x00d13bee      mov dword [esi + 0x20], ecx
+0x00d13bf1      mov edx, dword [eax + 4]
+0x00d13bf4      mov dword [esi + 0x24], edx
+
+- offset -  A0A1 A2A3 A4A5 A6A7 A8A9 AAAB ACAD AEAF  0123456789ABCDEF
+0x011b37a0  a082 d100                                ....
+
+
+## Sparse single-add reread and loop-tail revalidation (radare2 MCP)
+
+0x00c97fcd      xor edi, edi
+0x00c97fcf      test ebx, ebx
+   ; unlikely
+0x00c97fd1      jle 0xc97ffa
+0x00c97fd3      mov eax, dword [esi + 8]
+0x00c97fd6      cmp dword [eax + edi*4], 0
+0x00c97fda      lea eax, [eax + edi*4]
+   ; unlikely
+0x00c97fdd      je 0xc97ff4
+0x00c97fdf      mov cl, byte [esi + 0x40]
+0x00c97fe2      mov eax, dword [eax]
+0x00c97fe4      xor edx, edx
+0x00c97fe6      test cl, cl
+0x00c97fe8      setne dl
+0x00c97feb      mov ecx, ebp
+0x00c97fed      push edx
+0x00c97fee      push eax
+   ; fcn.00c914d0
+   ; fcn.00c914d0(-1, 0xd80d80, -1)
+0x00c97fef      call fcn.00c914d0
+0x00c97ff4      inc edi
+0x00c97ff5      cmp edi, dword [esi + 0xc]
+   ; unlikely
+0x00c97ff8      jl 0xc97fd3
+; CODE XREF from fcn.00c97f80 @ 0xc97fcb(x)
+0x00c97ffa      mov ebx, dword [esi + 0x30]
+0x00c97ffd      test ebx, ebx
+
+0x00c91509      push ebx
+0x00c9150a      push edi
+0x00c9150b      mov edi, dword [arg_1ch]
+0x00c9150f      mov eax, dword [edi + 0x10]
+0x00c91512      push eax
+
+- offset -  E2E3 E4E5 E6E7 E8E9 EAEB ECED EEEF F0F1  23456789ABCDEF01
+0x00c97fe2  8b00 33d2 84c9 0f95 c28b cd52 50e8 dc94  ..3........RP...
+0x00c97ff2  ffff                                     ..
+
+- offset -  F4F5 F6F7 F8F9 FAFB FCFD FEFF  0 1  2 3  456789ABCDEF0123
+0x00c97ff4  473b 7e0c 7cd9                           G;~.|.
