@@ -1,4 +1,14 @@
-//! Allocator-independent queued-task dispatch and release lifetime guards.
+//! Allocator-independent queued-task acquisition, dispatch, and release guards.
+//!
+//! The existing `queued_task_lifetime_guard` setting owns all three stages and
+//! their installation at core startup. The private `model_task_bindings` child
+//! owns pre-retain reference-map containment and task-layout admission; this
+//! module owns callback dispatch, temporary pins, and holder release. Native
+//! engine owners retain responsibility for map and object lifetimes. Valid
+//! inputs chain their installed providers; rejected inputs take the proven
+//! skip/miss paths. Routine tracing remains opt-in under the existing setting.
+
+mod model_task_bindings;
 
 use std::{
     ffi::c_void,
@@ -86,6 +96,11 @@ pub(super) fn install(trace_enabled: bool) -> anyhow::Result<()> {
     RELEASE_ENABLED.store(true, Ordering::Release);
     TRACE_ENABLED.store(trace_enabled, Ordering::Release);
 
+    if let Err(error) = model_task_bindings::install() {
+        log::error!(
+            "[QUEUED_TASK] Pre-retain map containment unavailable; existing lifetime guards remain: {error:#}"
+        );
+    }
     let replacement = dispatch_replacement(checked_dispatch as *mut c_void);
     if let Err(err) = unsafe {
         patching::replace_block(
@@ -148,6 +163,10 @@ unsafe extern "thiscall" fn checked_dispatch(task: *mut c_void, argument: usize)
     let task_addr = task as usize;
     if task_addr == 0 || !task_addr.is_multiple_of(std::mem::align_of::<AtomicI32>()) {
         reject_dispatch("bad-task-pointer", task, 0, 0, 0);
+        return;
+    }
+    if model_task_bindings::rejects_task_address(task_addr) {
+        reject_dispatch("invalid-task-layout", task, 0, 0, 0);
         return;
     }
 
@@ -247,7 +266,7 @@ unsafe extern "fastcall" fn holder_release_entry(_task: *mut c_void) {
 
 fn release_dispatch_pin(task: *mut c_void) {
     // The pool-locked pin made this reference positive before dispatch, and
-    // the dequeued local holder owns a separate reference until after this
+    // the iterator's local holder owns a separate reference until after this
     // callback returns. Release only the pin here; the holder's later release
     // still passes through the full corruption guard.
     call_previous_release(task);
@@ -260,6 +279,10 @@ unsafe extern "fastcall" fn checked_release_body(task: *mut c_void, caller: usiz
     }
 
     let task_addr = task as usize;
+    if model_task_bindings::rejects_task_address(task_addr) {
+        guard_release("invalid-task-layout", task, 0, 0, 0);
+        return;
+    }
     if task_addr == 0 || !is_readable(task_addr, REFCOUNT_OFFSET + 4) {
         guard_release("bad-pointer", task, 0, 0, 0);
         return;

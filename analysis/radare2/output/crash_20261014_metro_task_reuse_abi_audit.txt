@@ -1,0 +1,398 @@
+2026-10-14 METRO TRANSITION: REUSED TASK ADDRESS AND CALLBACK ABI AUDIT
+Primary interface: radare2 MCP. Read-only research; no binary patches.
+Engine input: /data/storage1/Workspace/psycho/fnv_reverse/FalloutNV.exe
+Engine SHA-256: 42fee7d6cd74e801372aa89c8f71c974cebd3c20ec9ad43d1465b8fa9646b49c
+Dispatcher input: /data/storage0/Games/FalloutNV_TTW/FalloutNV/syringe/psycho_engine_fixes.dll
+Dispatcher addresses use the DLL's preferred image base, not its crash-time load base.
+The deployed DLL and target/i686-pc-windows-gnu/release/psycho_engine_fixes.dll compared equal.
+Runtime evidence: .reports/CrashLogger-20261014-180039-cell-transfer.log
+Runtime evidence: .reports/psycho-engine-fixes-20261014-180039-cell-transfer.log
+Owner's trigger: attempting to enter the metro during an ordinary location transition.
+Proven: the guard lacks allocation-generation/type proof; the controller slot uses RET instead of RET 4.
+Unrecorded: final dispatch on this address, original invalidating release, and actual peer-thread interleaving.
+No allocator, content plugin, or native plugin attribution is established.
+
+=== Supported executable: radare2 show_info ===
+fd       3
+file     /data/storage1/Workspace/psycho/fnv_reverse/FalloutNV.exe
+size     0xf56f48
+humansz  15.3M
+mode     r-x
+format   pe
+iorw     true
+block    0x100
+type     EXEC (Executable file)
+arch     x86
+baddr    0x400000
+binsz    16084808
+bintype  pe
+bits     32
+canary   true
+injprot  false
+retguard false
+class    PE32
+cmp.csum 0x00f64bd0
+compiled Fri Jul  1 07:45:33 2011
+crypto   false
+dbg_file D:\_Fallout3\Platforms\Common\build\win32\FalloutNV.pdb
+endian   little
+havecode true
+hdr.csum 0x00f64bd0
+guid     9196089162EE4D29BF48E8D767B32DB91
+laddr    0x0
+lang     c
+linenum  false
+lsyms    false
+machine  i386
+nx       false
+os       windows
+overlay  true
+cc       cdecl
+pic      false
+relocs   false
+signed   false
+sanitize false
+static   false
+stripped false
+uncaps   false
+subsys   Windows GUI
+va       true
+PE file header:
+IMAGE_NT_HEADERS
+  Signature : 0x4550
+IMAGE_FILE_HEADERS
+  Machine : 0x14c
+  NumberOfSections : 0x7
+  TimeDateStamp : 0x4e0d50ed
+  PointerToSymbolTable : 0x0
+  NumberOfSymbols : 0x0
+  SizeOfOptionalHeader : 0xe0
+  Characteristics : 0x122
+IMAGE_OPTIONAL_HEADERS
+  Magic : 0x10b
+  MajorLinkerVersion : 0x9
+  MinorLinkerVersion : 0x0
+  SizeOfCode : 0xbdd600
+  SizeOfInitializedData : 0x378000
+  SizeOfUninitializedData : 0x0
+  AddressOfEntryPoint : 0xbde590
+  BaseOfCode : 0x1000
+  BaseOfData : 0xbdf000
+  ImageBase : 0x400000
+  SectionAlignment : 0x1000
+  FileAlignment : 0x200
+  MajorOperatingSystemVersion : 0x5
+  MinorOperatingSystemVersion : 0x0
+  MajorImageVersion : 0x0
+  MinorImageVersion : 0x0
+  MajorSubsystemVersion : 0x5
+  MinorSubsystemVersion : 0x0
+  Win32VersionValue : 0x0
+  SizeOfImage : 0x10089e4
+  SizeOfHeaders : 0x400
+  CheckSum : 0xf64bd0
+  Subsystem : 0x2
+  DllCharacteristics : 0x8000
+  SizeOfStackReserve : 0x100000
+  SizeOfStackCommit : 0x1000
+  SizeOfHeapReserve : 0x100000
+  SizeOfHeapCommit : 0x1000
+  LoaderFlags : 0x0
+  NumberOfRvaAndSizes : 0x10
+RICH_FIELDS
+IMAGE_DIRECTORY_ENTRY_IMPORT
+  VirtualAddress : 0xd8062c
+  Size : 0x168
+IMAGE_DIRECTORY_ENTRY_RESOURCE
+  VirtualAddress : 0xe74000
+  Size : 0xcba88
+IMAGE_DIRECTORY_ENTRY_SECURITY
+  VirtualAddress : 0xfc7200
+  Size : 0x1548
+IMAGE_DIRECTORY_ENTRY_BASERELOC
+  VirtualAddress : 0xf40000
+  Size : 0xb36a8
+IMAGE_DIRECTORY_ENTRY_DEBUG
+  VirtualAddress : 0xc11410
+  Size : 0x1c
+IMAGE_DIRECTORY_ENTRY_TLS
+  VirtualAddress : 0xd0147c
+  Size : 0x18
+IMAGE_DIRECTORY_ENTRY_IAT
+  VirtualAddress : 0xbdf000
+  Size : 0x4a4
+
+
+=== TESObjectCELL insertion virtual call: disassemble 0x0054832e, 30 instructions ===
+0x0054832e      mov ecx, dword [ebp - 0x1c]
+   ; 0x541ac0(0x0, 0x0, -1, 0x0)
+0x00548331      call 0x541ac0
+0x00548336      lea edx, [ebp + 8]
+0x00548339      push edx
+0x0054833a      mov ecx, dword [ebp - 0x1c]
+   ; 0x9604f0(0x0, 0x0, -1, 0x8)
+0x0054833d      call 0x9604f0
+0x00548342      mov ecx, eax
+   ; 0x5ae3d0(0x0, 0x0, 0x0, 0x8)
+0x00548344      call 0x5ae3d0
+0x00548349      mov eax, dword [ebp - 0x1c]
+0x0054834c      push eax
+0x0054834d      mov ecx, dword [ebp + 8]
+0x00548350      mov edx, dword [ecx]
+0x00548352      mov ecx, dword [ebp + 8]
+0x00548355      mov eax, dword [edx + 0x228]
+   ; 0xffffffff(-1, 0x0, -1, -1)
+0x0054835b      call eax
+0x0054835d      mov ecx, dword [ebp - 0x1c]
+   ; 0x541ae0(-1, 0x0, -1, -1)
+0x00548360      call 0x541ae0
+0x00548365      mov ecx, dword [ebp - 0x1c]
+   ; 0x450ff0(-1, 0x0, -1, -1)
+0x00548368      call 0x450ff0
+0x0054836d      movzx ecx, al
+0x00548370      test ecx, ecx
+   ; unlikely
+0x00548372      je 0x548383
+0x00548374      mov edx, dword [ebp + 8]
+0x00548377      push edx
+; [0x11c95c8:4]=0
+0x00548378      mov ecx, dword [0x11c95c8]
+   ; 0x526f20(-1, 0x0, 0x0, -1)
+0x0054837e      call 0x526f20
+0x00548383      mov eax, dword [ebp - 0x1c]
+0x00548386      cmp dword [eax + 0xc4], 0
+   ; unlikely
+0x0054838d      je 0x5483eb
+0x0054838f      mov ecx, dword [ebp + 8]
+
+
+=== Outer recorded return address: disassemble 0x0093bff0, 30 instructions ===
+0x0093bff0      int3
+0x0093bff1      mov edx, dword [eax]
+0x0093bff3      mov dword [ecx], edx
+0x0093bff5      mov edx, dword [eax + 4]
+0x0093bff8      mov dword [ecx + 4], edx
+0x0093bffb      mov eax, dword [eax + 8]
+0x0093bffe      mov dword [ecx + 8], eax
+0x0093c001      mov ecx, dword [ebp - 0x24]
+0x0093c004      mov edx, dword [ecx + 0x1ec]
+0x0093c00a      add edx, 8
+0x0093c00d      sub esp, 0xc
+0x0093c010      mov eax, esp
+0x0093c012      mov ecx, dword [edx]
+0x0093c014      mov dword [eax], ecx
+0x0093c016      mov ecx, dword [edx + 4]
+0x0093c019      mov dword [eax + 4], ecx
+0x0093c01c      mov edx, dword [edx + 8]
+0x0093c01f      mov dword [eax + 8], edx
+0x0093c022      mov ecx, dword [ebp - 0x24]
+   ; 0x93c200(0xfffffff4, 0x0, -1, -1)
+0x0093c025      call 0x93c200
+0x0093c02a      mov dword [ebp - 0xc], 0
+0x0093c031      mov ecx, dword [ebp - 0x24]
+   ; 0x9306d0(0xfffffff4, 0x0, -1, -1)
+0x0093c034      call 0x9306d0
+0x0093c039      mov dword [ebp - 0xc], eax
+0x0093c03c      mov eax, dword [ebp - 0x24]
+0x0093c03f      mov ecx, dword [eax + 0x1ec]
+0x0093c045      push ecx
+0x0093c046      fld dword [ecx + 0x10]
+0x0093c049      fstp dword [esp]
+0x0093c04c      mov ecx, dword [ebp - 0xc]
+
+
+=== Native queued dispatch: disassemble 0x00446c3c, 23 instructions ===
+   ; 0x559450(0x0, 0x0, 0x0, 0x0)
+0x00446c3c      call 0x559450
+0x00446c41      mov dword [ebp - 0x38], eax
+0x00446c44      mov ecx, dword [ebp - 0x2c]
+0x00446c47      push ecx
+0x00446c48      mov edx, dword [ebp - 0x38]
+0x00446c4b      mov eax, dword [edx]
+0x00446c4d      mov ecx, dword [ebp - 0x38]
+0x00446c50      mov edx, dword [eax + 0x1c]
+   ; 0xffffffff(-1, 0x0, -1, -1)
+0x00446c53      call edx
+0x00446c55      mov byte [ebp - 4], 0
+0x00446c59      lea ecx, [ebp - 0x20]
+   ; 0x44cbf0(-1, 0x0, 0xffffffe0, -1)
+0x00446c5c      call 0x44cbf0
+0x00446c61      jmp 0x446b87
+; -1
+0x00446c66      mov dword [ebp - 4], 0xffffffff
+0x00446c6d      lea ecx, [ebp - 0x1c]
+   ; 0x4499c0(-1, 0x0, 0xffffffe4, -1)
+0x00446c70      call 0x4499c0
+0x00446c75      mov ecx, dword [ebp - 0xc]
+0x00446c78      mov dword fs:[0], ecx
+0x00446c7f      pop ecx
+0x00446c80      mov esp, ebp
+0x00446c82      pop ebp
+0x00446c83      ret 4
+0x00446c86      int3
+
+
+=== Native task release: disassemble 0x0044dd60, 30 instructions ===
+0x0044dd60      push ebp
+0x0044dd61      mov ebp, esp
+0x0044dd63      sub esp, 0x14
+0x0044dd66      mov dword [ebp - 0x10], ecx
+0x0044dd69      mov eax, dword [ebp - 0x10]
+0x0044dd6c      add eax, 8
+0x0044dd6f      push eax
+   ; 0x4019a0(0x7, 0x0, 0x0, 0x0)
+0x0044dd70      call 0x4019a0
+0x0044dd75      add esp, 4
+0x0044dd78      mov dword [ebp - 4], eax
+0x0044dd7b      cmp dword [ebp - 4], 0
+   ; likely
+0x0044dd7f      jne 0x44ddad
+0x0044dd81      mov ecx, dword [ebp - 0x10]
+0x0044dd84      mov dword [ebp - 0xc], ecx
+0x0044dd87      mov edx, dword [ebp - 0xc]
+0x0044dd8a      mov dword [ebp - 8], edx
+0x0044dd8d      cmp dword [ebp - 8], 0
+   ; unlikely
+0x0044dd91      je 0x44dda6
+; 1
+0x0044dd93      push 1
+0x0044dd95      mov eax, dword [ebp - 8]
+0x0044dd98      mov edx, dword [eax]
+0x0044dd9a      mov ecx, dword [ebp - 8]
+0x0044dd9d      mov eax, dword [edx]
+   ; 0xffffffff(-1, 0x0, -1, -1)
+0x0044dd9f      call eax
+0x0044dda1      mov dword [ebp - 0x14], eax
+0x0044dda4      jmp 0x44ddad
+0x0044dda6      mov dword [ebp - 0x14], 0
+0x0044ddad      mov esp, ebp
+0x0044ddaf      pop ebp
+0x0044ddb0      ret
+
+
+=== Controller vtable: hexdump 0x01098184, 64 bytes ===
+- offset -  8485 8687 8889 8A8B 8C8D 8E8F 9091 9293  456789ABCDEF0123
+0x01098184  9068 a400 20cc cf00 8064 a400 70bb ac00  .h.. ....d..p...
+0x01098194  70bb ac00 70bb ac00 70bb ac00 70bb ac00  p...p...p...p...
+0x010981a4  70bb ac00 70bb ac00 70bb ac00 70bb ac00  p...p...p...p...
+0x010981b4  70bb ac00 70bb ac00 70bb ac00 70bb ac00  p...p...p...p...
+
+
+=== Controller slot +0x1c: disassemble 0x00acbb70, 8 instructions ===
+0x00acbb70      push ebp
+0x00acbb71      mov ebp, esp
+0x00acbb73      push ecx
+0x00acbb74      mov dword [ebp - 4], ecx
+0x00acbb77      xor eax, eax
+0x00acbb79      mov esp, ebp
+0x00acbb7b      pop ebp
+0x00acbb7c      ret
+
+
+=== Deployed checked_dispatch prologue: disassemble 0x10125d40, 22 instructions ===
+; psycho_engine_fixes::mods::engine_fixes::queued_tasks::checked_dispatch
+;-- psycho_engine_fixes::mods::engine_fixes::queued_tasks::checked_dispatch:
+0x10125d40      push ebp
+0x10125d41      mov ebp, esp
+0x10125d43      push ebx
+0x10125d44      push edi
+0x10125d45      push esi
+0x10125d46      sub esp, 8
+; [0x1053dc3c:4]=0
+0x10125d49      inc dword [0x1053dc3c]
+0x10125d4f      test ecx, ecx
+0x10125d51      mov ebx, ecx
+0x10125d53      setne al
+; 3
+0x10125d56      test bl, 3
+0x10125d59      sete cl
+0x10125d5c      test al, cl
+   ; likely
+0x10125d5e      je 0x10125d99
+; [0x103b7824:1]=255
+0x10125d60      movzx eax, byte [0x103b7824]
+; 2
+0x10125d67      cmp al, 2
+   ; likely
+0x10125d69      jne 0x10125da8
+0x10125d6b      push ebx
+   ; sym.psycho_engine_fixes::mods::heap_replacer::gheap::pool::pin_task_refcount
+   ; sym.psycho_engine_fixes::mods::heap_replacer::gheap::pool::pin_task_refcount(0xff, 0x0, 0x1, 0x0)
+0x10125d6c      call sym.psycho_engine_fixes::mods::heap_replacer::gheap::pool::pin_task_refcount
+0x10125d71      add esp, 4
+0x10125d74      test eax, eax
+   ; unlikely
+0x10125d76      je 0x10125da8
+
+
+=== Deployed callback admission: disassemble 0x10125ecf, 16 instructions ===
+; 32
+0x10125ecf      mov edx, 0x20
+0x10125ed4      mov edi, ecx
+   ; sym.psycho_engine_fixes::mods::engine_fixes::queued_tasks::is_readable
+   ; sym.psycho_engine_fixes::mods::engine_fixes::queued_tasks::is_readable(0x0, 0x0, 0x0, 0x20)
+0x10125ed6      call sym.psycho_engine_fixes::mods::engine_fixes::queued_tasks::is_readable
+0x10125edb      test al, al
+   ; likely
+0x10125edd      je 0x10125f8c
+0x10125ee3      mov ecx, dword [edi + 0x1c]
+0x10125ee6      mov dword [ebp - 0x10], ecx
+   ; sym.psycho_engine_fixes::mods::engine_fixes::queued_tasks::is_executable
+   ; sym.psycho_engine_fixes::mods::engine_fixes::queued_tasks::is_executable(0x0, 0x0, -1, 0x20)
+0x10125ee9      call sym.psycho_engine_fixes::mods::engine_fixes::queued_tasks::is_executable
+0x10125eee      test al, al
+   ; likely
+0x10125ef0      je 0x10125f8c
+; [0x1053dc2c:1]=0
+0x10125ef6      movzx eax, byte [0x1053dc2c]
+0x10125efd      test al, al
+0x10125eff      mov eax, dword [ebp - 0x10]
+   ; likely
+0x10125f02      je 0x10125f79
+0x10125f04      mov edx, 1
+0x10125f09      mov ecx, edi
+
+
+=== Deployed callback and release: disassemble 0x10125f79, 23 instructions ===
+; [0x1053dc30:4]=0
+0x10125f79      inc dword [0x1053dc30]
+0x10125f7f      test eax, eax
+   ; likely
+0x10125f81      je 0x10125fa1
+0x10125f83      mov ecx, ebx
+0x10125f85      push dword [ebp + 8]
+   ; pe_dos_header(0x0, 0x0, 0x0, 0x0)
+0x10125f88      call eax
+0x10125f8a      jmp 0x10125fa1
+; "invalid-callbackbase-niref-vtablebad-pointergheap-free-cellnull-destructorinvalid-destructor\x8bM\xc8invalid-release-predecessorread queued-task holder release targetredirect queued-task holder release callholder release target changed during install\x1dholder release predecessor 0x\xc3 "
+0x10125f8c      mov ecx, 0x1040d3d6
+; 16
+0x10125f91      mov edx, 0x10
+0x10125f96      push esi
+0x10125f97      push edi
+0x10125f98      push ebx
+   ; sym.psycho_engine_fixes::mods::engine_fixes::queued_tasks::reject_dispatch
+   ; sym.psycho_engine_fixes::mods::engine_fixes::queued_tasks::reject_dispatch(0x0, 0x0, 0x1040d3d6, 0x10)
+0x10125f99      call sym.psycho_engine_fixes::mods::engine_fixes::queued_tasks::reject_dispatch
+0x10125f9e      add esp, 0xc
+0x10125fa1      mov ecx, ebx
+   ; sym.psycho_engine_fixes::mods::engine_fixes::queued_tasks::call_previous_release
+   ; sym.psycho_engine_fixes::mods::engine_fixes::queued_tasks::call_previous_release(0x0, 0x0, 0x0, 0x10)
+0x10125fa3      call sym.psycho_engine_fixes::mods::engine_fixes::queued_tasks::call_previous_release
+0x10125fa8      add esp, 8
+0x10125fab      jmp 0x10125e9d
+; psycho_engine_fixes::mods::engine_fixes::queued_tasks::diagnostic_snapshot
+;-- psycho_engine_fixes::mods::engine_fixes::queued_tasks::diagnostic_snapshot:
+0x10125fb0      push ebp
+0x10125fb1      mov ebp, esp
+0x10125fb3      push ebx
+0x10125fb4      push edi
+0x10125fb5      push esi
+
+
+=== Deployed dispatcher epilogue: disassemble 0x10125e9d, 5 instructions ===
+0x10125e9d      pop esi
+0x10125e9e      pop edi
+0x10125e9f      pop ebx
+0x10125ea0      pop ebp
+0x10125ea1      ret 4

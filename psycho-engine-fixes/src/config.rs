@@ -420,7 +420,7 @@ pub struct EngineFixesConfig {
     pub lowprocess_generic_locations_fix: bool,
     /// Serialize the model EditorMarker post-process transaction.
     pub model_postprocess_serialization_fix: bool,
-    /// Guard queued-task dispatch and release lifetime contracts.
+    /// Guard queued-task acquisition, dispatch, and release lifetime contracts.
     pub queued_task_lifetime_guard: bool,
     /// Reject patrol-owner lookups that resolve to a non-actor form.
     pub patrol_owner_form_id_guard: bool,

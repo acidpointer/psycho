@@ -1,0 +1,1083 @@
+2026-10-14 REFERENCE-MAP TASK CONTAINMENT: STATIC CANDIDATE AUDIT
+Primary native/ABI interface: radare2 MCP. No game, Wine tests, diagnostics-only build, deployment, packaging, or commit.
+Supported executable: fnv_reverse/FalloutNV.exe
+Executable SHA-256: 42fee7d6cd74e801372aa89c8f71c974cebd3c20ec9ad43d1465b8fa9646b49c
+Candidate: target/i686-pc-windows-gnu/release/psycho_engine_fixes.dll
+Candidate SHA-256: f851a904484d9093de54e2e02733263610870c6230d5b3f218b9f61c596c7922
+DLL addresses below are preferred image addresses, not runtime load addresses.
+
+Static qualification:
+- Complete supported release build: syringe, psycho-engine-fixes, psycho-engine-fixes-helper, omv, atom.
+- cargo fmt --all -- --check: passed.
+- Current core/helper import sequences, export names, TLS raw-data/zero-fill contracts and callback symbol sets match the deployed baseline.
+- Core baseline SHA-256: 7dbb9d30d9bf39f32d945399170f40da43d01df993a510e2f4c67019b939af2d.
+- Helper baseline SHA-256: 64af50c4c7be93fdd9cefc5c967ddb704cdbd8882bbf16482608932c3a23b43e.
+- Helper candidate SHA-256: 93c2830ec0a5741505bb89e696607fc522a8c70a6d221318ecfd79b054682b3b.
+- Core .text/.data and unwind/relocation sizes change; helper section sizes do not. This is a startup footprint delta, not a startup acceptance result.
+- Both callback sets: Rust Windows TLS guard, MinGW __dyn_tls_init, __dyn_tls_dtor, __dyn_tls_pthread.
+- No behavioral tests execute under the user's static-only instruction. Native integration and workload performance are untested.
+
+Owner and safety scope:
+- Publication: global ModelLoader at 0x011C3B3C, reference map at loader+8.
+- Four source assignment CALLs chain their currently installed providers for valid inputs.
+- Reference-map-only binding invalidation: exact selected hazard-protected node, unchanged source value, current-thread recursive exclusive lock, active same-map scope.
+- Invalid payload becomes NULL without releasing the replacement object; native tails clear all hazards.
+- Native erasure runs only after all same-map acquisition frames return. Current native non-owning search and locked empty-value recheck preserve a newly published valid value.
+- RTTI tests semantic BSTask/NiObject base identity at the current view; unknown metadata chains the provider. No vtable/code/module or allocator admission list.
+- One dynamic Win32 TLS index; one checked four-byte process-lifetime owner per participating thread; stack staging bounded to 64 keys.
+- Resource failure rejects invalid acquisition without clearing the node; later acquisition can retry repair.
+- Missing-key next-iteration uses current node, preserving healthy entries in the same bucket after erasure.
+- Existing native iterator caller coverage is retained in analysis/ghidra/output/crash/crash_20260712_task_base_vtable_race_audit.txt (10 direct callers). Existing Ghidra raw output is unchanged.
+- Unresolved: original invalidating owner, allocation generation, exact lifetime interleaving, same-layout task ABA, final accepted dispatch, allocator/mod attribution.
+
+=== Native reference-map owner ===
+; [0x11c3b3c:4]=0
+0x0094cfd0      mov ecx, dword [0x11c3b3c]
+   ; 0x446b50(0x0, 0x0, 0x0, 0x0)
+0x0094cfd6      call 0x446b50
+0x0094cfdb      push 0
+0x0094cfdd      mov ecx, dword [ebx + 8]
+   ; 0x5475b0(0x0, 0x0, -1, 0x0)
+0x0094cfe0      call 0x5475b0
+0x0094cfe5      push eax
+   ; 0x46dd00(0x0, 0x0, -1, 0x0)
+0x0094cfe6      call 0x46dd00
+0x0094cfeb      mov ecx, eax
+
+
+=== First-iterator cleanup and RET 12 ===
+0x00906bfb      mov ecx, dword [ebp - 0x10]
+   ; 0x529000(0x0, 0x0, -1, 0x0)
+0x00906bfe      call 0x529000
+0x00906c03      mov al, byte [ebp - 1]
+0x00906c06      pop esi
+0x00906c07      mov esp, ebp
+0x00906c09      pop ebp
+0x00906c0a      ret 0xc
+0x00906c0d      int3
+
+
+=== Native outer iterator ===
+0x009065a2      mov ecx, 1
+0x009065a7      test ecx, ecx
+   ; unlikely
+0x009065a9      je 0x906670
+0x009065af      mov ecx, dword [ebp + 8]
+   ; 0x44de20(0x0, 0x0, -1, 0x0)
+0x009065b2      call 0x44de20
+0x009065b7      movzx edx, al
+0x009065ba      test edx, edx
+   ; unlikely
+0x009065bc      jne 0x9065ee
+0x009065be      mov eax, dword [ebp + 0x10]
+0x009065c1      push eax
+0x009065c2      mov ecx, dword [ebp + 8]
+0x009065c5      add ecx, 8
+0x009065c8      push ecx
+0x009065c9      mov edx, dword [ebp + 8]
+0x009065cc      mov eax, dword [edx + 4]
+0x009065cf      push eax
+0x009065d0      mov ecx, dword [ebp - 8]
+   ; 0x449f80(-1, 0x0, -1, -1)
+0x009065d3      call 0x449f80
+0x009065d8      mov ecx, eax
+   ; 0x906af0(-1, 0x0, -1, -1)
+0x009065da      call 0x906af0
+0x009065df      mov byte [ebp - 1], al
+; 1
+0x009065e2      push 1
+0x009065e4      mov ecx, dword [ebp + 8]
+   ; 0x44de40(-1, 0x0, -1, -1)
+0x009065e7      call 0x44de40
+0x009065ec      jmp 0x906612
+0x009065ee      mov ecx, dword [ebp + 0x10]
+0x009065f1      push ecx
+0x009065f2      mov edx, dword [ebp + 8]
+0x009065f5      add edx, 8
+0x009065f8      push edx
+0x009065f9      mov eax, dword [ebp + 8]
+0x009065fc      mov ecx, dword [eax + 4]
+0x009065ff      push ecx
+0x00906600      mov ecx, dword [ebp - 8]
+   ; 0x449f80(-1, 0x0, -1, 0x7)
+0x00906603      call 0x449f80
+0x00906608      mov ecx, eax
+   ; 0x906c10(-1, 0x0, -1, 0x7)
+0x0090660a      call 0x906c10
+0x0090660f      mov byte [ebp - 1], al
+0x00906612      movzx edx, byte [ebp - 1]
+0x00906616      test edx, edx
+   ; likely
+0x00906618      jne 0x90665e
+0x0090661a      mov eax, dword [ebp + 8]
+0x0090661d      mov ecx, dword [eax + 4]
+0x00906620      add ecx, 1
+0x00906623      mov edx, dword [ebp + 8]
+0x00906626      mov dword [edx + 4], ecx
+0x00906629      mov ecx, dword [ebp - 8]
+   ; 0x44ddc0(-1, 0x0, -1, -1)
+0x0090662c      call 0x44ddc0
+0x00906631      mov ecx, dword [ebp + 8]
+0x00906634      cmp dword [ecx + 4], eax
+   ; unlikely
+0x00906637      jb 0x906645
+; 1
+0x00906639      push 1
+0x0090663b      mov ecx, dword [ebp + 8]
+   ; 0x44de80(-1, 0x0, -1, -1)
+0x0090663e      call 0x44de80
+0x00906643      jmp 0x90665c
+0x00906645      movzx edx, byte [ebp + 0x14]
+0x00906649      test edx, edx
+   ; unlikely
+0x0090664b      je 0x90665c
+0x0090664d      push 0
+0x0090664f      mov ecx, dword [ebp + 8]
+   ; 0x44de40(-1, 0x0, -1, 0xff)
+0x00906652      call 0x44de40
+0x00906657      jmp 0x9065a2
+0x0090665c      jmp 0x906669
+0x0090665e      mov eax, dword [ebp + 0xc]
+
+
+=== Native outer lookup and RET 8 ===
+0x0044bd60      push ebp
+0x0044bd61      mov ebp, esp
+0x0044bd63      sub esp, 8
+0x0044bd66      mov dword [ebp - 8], ecx
+0x0044bd69      push 0
+0x0044bd6b      mov ecx, dword [ebp - 8]
+; 32
+0x0044bd6e      add ecx, 0x20
+   ; 0x40fbf0(0x0, 0x0, 0x1f, 0x0)
+0x0044bd71      call 0x40fbf0
+0x0044bd76      mov eax, dword [ebp + 0xc]
+0x0044bd79      push eax
+0x0044bd7a      mov ecx, dword [ebp + 8]
+0x0044bd7d      push ecx
+0x0044bd7e      mov ecx, dword [ebp - 8]
+   ; 0x449f80(-1, 0x0, -1, 0x0)
+0x0044bd81      call 0x449f80
+0x0044bd86      mov ecx, eax
+   ; 0x44c8e0(-1, 0x0, -1, 0x0)
+0x0044bd88      call 0x44c8e0
+0x0044bd8d      mov byte [ebp - 1], al
+0x0044bd90      mov ecx, dword [ebp - 8]
+; 32
+0x0044bd93      add ecx, 0x20
+   ; 0x40fba0(-1, 0x0, 0x1f, 0x0)
+0x0044bd96      call 0x40fba0
+0x0044bd9b      mov al, byte [ebp - 1]
+0x0044bd9e      mov esp, ebp
+0x0044bda0      pop ebp
+0x0044bda1      ret 8
+0x0044bda4      int3
+0x0044bda5      int3
+0x0044bda6      int3
+0x0044bda7      int3
+0x0044bda8      int3
+0x0044bda9      int3
+
+
+=== Native output setter and RET 4 ===
+0x006f74f0      push ebp
+0x006f74f1      mov ebp, esp
+0x006f74f3      push ecx
+0x006f74f4      mov dword [ebp - 4], ecx
+0x006f74f7      mov eax, dword [ebp - 4]
+0x006f74fa      mov ecx, dword [eax]
+0x006f74fc      cmp ecx, dword [ebp + 8]
+   ; likely
+0x006f74ff      je 0x6f752d
+0x006f7501      mov edx, dword [ebp - 4]
+0x006f7504      cmp dword [edx], 0
+   ; unlikely
+0x006f7507      je 0x6f7513
+0x006f7509      mov eax, dword [ebp - 4]
+0x006f750c      mov ecx, dword [eax]
+   ; 0x44dd60(-1, 0x0, -1, -1)
+0x006f750e      call 0x44dd60
+0x006f7513      mov ecx, dword [ebp - 4]
+0x006f7516      mov edx, dword [ebp + 8]
+0x006f7519      mov dword [ecx], edx
+0x006f751b      mov eax, dword [ebp - 4]
+0x006f751e      cmp dword [eax], 0
+   ; unlikely
+0x006f7521      je 0x6f752d
+0x006f7523      mov ecx, dword [ebp - 4]
+0x006f7526      mov ecx, dword [ecx]
+   ; 0x92c870(-1, 0x0, -1, -1)
+0x006f7528      call 0x92c870
+0x006f752d      mov eax, dword [ebp - 4]
+0x006f7530      mov esp, ebp
+0x006f7532      pop ebp
+0x006f7533      ret 4
+0x006f7536      int3
+0x006f7537      int3
+0x006f7538      int3
+0x006f7539      int3
+
+
+=== Native key copy uses an opaque word ===
+0x0044cac0      push ebp
+0x0044cac1      mov ebp, esp
+0x0044cac3      push ecx
+0x0044cac4      mov dword [ebp - 4], ecx
+0x0044cac7      mov eax, dword [ebp + 0xc]
+0x0044caca      mov ecx, dword [ebp + 8]
+0x0044cacd      mov dword [eax], ecx
+0x0044cacf      mov esp, ebp
+0x0044cad1      pop ebp
+0x0044cad2      ret 8
+0x0044cad5      int3
+0x0044cad6      int3
+0x0044cad7      int3
+
+
+=== Native erasure and RET 4 ===
+0x009062e0      push ebp
+0x009062e1      mov ebp, esp
+0x009062e3      sub esp, 8
+0x009062e6      mov dword [ebp - 8], ecx
+0x009062e9      push 0
+0x009062eb      mov ecx, dword [ebp - 8]
+; 32
+0x009062ee      add ecx, 0x20
+   ; 0x40fbf0(0x0, 0x0, 0x1f, 0x0)
+0x009062f1      call 0x40fbf0
+0x009062f6      mov eax, dword [ebp + 8]
+0x009062f9      push eax
+0x009062fa      mov ecx, dword [ebp - 8]
+   ; 0x449f80(-1, 0x0, -1, 0x0)
+0x009062fd      call 0x449f80
+0x00906302      mov ecx, eax
+   ; 0x528bb0(-1, 0x0, -1, 0x0)
+0x00906304      call 0x528bb0
+0x00906309      mov byte [ebp - 1], al
+0x0090630c      mov ecx, dword [ebp - 8]
+; 32
+0x0090630f      add ecx, 0x20
+   ; 0x40fba0(-1, 0x0, 0x1f, 0x0)
+0x00906312      call 0x40fba0
+0x00906317      mov al, byte [ebp - 1]
+0x0090631a      mov esp, ebp
+0x0090631c      pop ebp
+0x0090631d      ret 4
+0x00906320      push ebp
+
+
+=== Next iterator after key deletion ===
+0x00906c10      push ebp
+0x00906c11      mov ebp, esp
+0x00906c13      sub esp, 8
+0x00906c16      mov dword [ebp - 8], ecx
+0x00906c19      mov byte [ebp - 1], 0
+0x00906c1d      mov eax, 1
+0x00906c22      test eax, eax
+   ; unlikely
+0x00906c24      je 0x906da4
+0x00906c2a      mov ecx, dword [ebp + 0xc]
+0x00906c2d      mov edx, dword [ecx]
+0x00906c2f      push edx
+0x00906c30      mov eax, dword [ebp + 8]
+0x00906c33      push eax
+0x00906c34      mov ecx, dword [ebp - 8]
+   ; 0x529030(-1, 0x0, -1, -1)
+0x00906c37      call 0x529030
+0x00906c3c      mov byte [ebp - 1], al
+0x00906c3f      movzx ecx, byte [ebp - 1]
+0x00906c43      test ecx, ecx
+   ; unlikely
+0x00906c45      je 0x906cf9
+0x00906c4b      mov ecx, dword [ebp - 8]
+; 24
+0x00906c4e      add ecx, 0x18
+   ; 0x44dec0(-1, 0x0, 0x17, -1)
+0x00906c51      call 0x44dec0
+0x00906c56      test eax, eax
+   ; unlikely
+0x00906c58      je 0x906ceb
+0x00906c5e      mov ecx, dword [ebp - 8]
+; 24
+0x00906c61      add ecx, 0x18
+   ; 0x44df00(-1, 0x0, 0x17, -1)
+0x00906c64      call 0x44df00
+0x00906c69      mov ecx, eax
+   ; 0x44df20(-1, 0x0, -1, -1)
+0x00906c6b      call 0x44df20
+0x00906c70      movzx edx, al
+0x00906c73      test edx, edx
+   ; unlikely
+0x00906c75      je 0x906c79
+0x00906c77      jmp 0x906c1d
+0x00906c79      mov eax, dword [ebp + 0xc]
+0x00906c7c      push eax
+0x00906c7d      mov ecx, dword [ebp - 8]
+; 24
+0x00906c80      add ecx, 0x18
+   ; 0x44df00(-1, 0x0, 0x17, 0xff)
+0x00906c83      call 0x44df00
+0x00906c88      mov ecx, dword [eax]
+0x00906c8a      push ecx
+0x00906c8b      mov edx, dword [ebp - 8]
+0x00906c8e      mov eax, dword [edx]
+0x00906c90      mov ecx, dword [ebp - 8]
+0x00906c93      mov ecx, dword [ecx]
+0x00906c95      mov edx, dword [eax]
+0x00906c97      mov eax, dword [edx + 0x30]
+   ; 0xffffffff(-1, 0x0, -1, -1)
+0x00906c9a      call eax
+0x00906c9c      mov ecx, dword [ebp - 8]
+; 24
+0x00906c9f      add ecx, 0x18
+   ; 0x44df00(-1, 0x0, 0x17, -1)
+0x00906ca2      call 0x44df00
+0x00906ca7      add eax, 4
+0x00906caa      push eax
+0x00906cab      mov ecx, dword [ebp + 0x10]
+   ; 0x92c820(0x3, 0x0, -1, -1)
+0x00906cae      call 0x92c820
+0x00906cb3      mov byte [ebp - 1], 1
+   ; 0x40fbe0(0x3, 0x0, -1, -1)
+0x00906cb7      call 0x40fbe0
+0x00906cbc      mov ecx, dword [ebp - 8]
+; 24
+0x00906cbf      add ecx, 0x18
+   ; 0x44df00(0x3, 0x0, 0x17, -1)
+0x00906cc2      call 0x44df00
+0x00906cc7      mov ecx, eax
+   ; 0x44df20(0x3, 0x0, 0x3, -1)
+0x00906cc9      call 0x44df20
+0x00906cce      movzx ecx, al
+0x00906cd1      test ecx, ecx
+   ; unlikely
+0x00906cd3      je 0x906ce4
+0x00906cd5      push 0
+0x00906cd7      mov ecx, dword [ebp + 0x10]
+   ; 0x6f74f0(0x3, 0x0, -1, -1)
+0x00906cda      call 0x6f74f0
+0x00906cdf      jmp 0x906c1d
+0x00906ce4      jmp 0x906da4
+0x00906ce9      jmp 0x906cf4
+0x00906ceb      mov byte [ebp - 1], 0
+0x00906cef      jmp 0x906da4
+0x00906cf4      jmp 0x906d9f
+0x00906cf9      mov ecx, dword [ebp - 8]
+; 20
+0x00906cfc      add ecx, 0x14
+   ; 0x44dec0(0x3, 0x0, 0x13, -1)
+0x00906cff      call 0x44dec0
+0x00906d04      test eax, eax
+   ; unlikely
+0x00906d06      je 0x906d99
+0x00906d0c      mov ecx, dword [ebp - 8]
+; 20
+0x00906d0f      add ecx, 0x14
+   ; 0x44df00(0x3, 0x0, 0x13, -1)
+0x00906d12      call 0x44df00
+0x00906d17      mov ecx, eax
+   ; 0x44df20(0x3, 0x0, 0x3, -1)
+0x00906d19      call 0x44df20
+0x00906d1e      movzx edx, al
+0x00906d21      test edx, edx
+   ; unlikely
+0x00906d23      je 0x906d2a
+0x00906d25      jmp 0x906c1d
+0x00906d2a      mov eax, dword [ebp + 0xc]
+0x00906d2d      push eax
+0x00906d2e      mov ecx, dword [ebp - 8]
+; 20
+0x00906d31      add ecx, 0x14
+   ; 0x44df00(-1, 0x0, 0x13, 0x3)
+0x00906d34      call 0x44df00
+0x00906d39      mov ecx, dword [eax]
+0x00906d3b      push ecx
+0x00906d3c      mov edx, dword [ebp - 8]
+0x00906d3f      mov eax, dword [edx]
+0x00906d41      mov ecx, dword [ebp - 8]
+0x00906d44      mov ecx, dword [ecx]
+0x00906d46      mov edx, dword [eax]
+0x00906d48      mov eax, dword [edx + 0x30]
+   ; 0xffffffff(-1, 0x0, -1, -1)
+0x00906d4b      call eax
+0x00906d4d      mov ecx, dword [ebp - 8]
+; 20
+0x00906d50      add ecx, 0x14
+
+
+=== Compiled shims capture native EBP ===
+; psycho_engine_fixes::mods::engine_fixes::model_task_bindings::assign_next
+;-- psycho_engine_fixes::mods::engine_fixes::model_task_bindings::assign_next:
+0x100a3ee0      mov edx, ebp
+   ; sym.__RNvNtNtNtCsfST0Ks2FPct_19psycho_engine_fixes4mods12engine_fixes19model_task_bindings16assign_next_body_12
+   ; sym.__RNvNtNtNtCsfST0Ks2FPct_19psycho_engine_fixes4mods12engine_fixes19model_task_bindings16assign_next_body_12(0x0, 0x0, 0x0, 0x0)
+0x100a3ee2      jmp sym.__RNvNtNtNtCsfST0Ks2FPct_19psycho_engine_fixes4mods12engine_fixes19model_task_bindings16assign_next_body_12
+0x100a3ee7      nop word [eax + eax]
+; psycho_engine_fixes::mods::engine_fixes::model_task_bindings::assign_first
+;-- psycho_engine_fixes::mods::engine_fixes::model_task_bindings::assign_first:
+0x100a3ef0      mov edx, ebp
+   ; sym.__RNvNtNtNtCsfST0Ks2FPct_19psycho_engine_fixes4mods12engine_fixes19model_task_bindings17assign_first_body_12
+   ; sym.__RNvNtNtNtCsfST0Ks2FPct_19psycho_engine_fixes4mods12engine_fixes19model_task_bindings17assign_first_body_12(0x0, 0x0, 0x0, 0x0)
+0x100a3ef2      jmp sym.__RNvNtNtNtCsfST0Ks2FPct_19psycho_engine_fixes4mods12engine_fixes19model_task_bindings17assign_first_body_12
+0x100a3ef7      nop word [eax + eax]
+; psycho_engine_fixes::mods::engine_fixes::model_task_bindings::assign_lookup
+;-- psycho_engine_fixes::mods::engine_fixes::model_task_bindings::assign_lookup:
+0x100a3f00      mov edx, ebp
+   ; sym.__RNvNtNtNtCsfST0Ks2FPct_19psycho_engine_fixes4mods12engine_fixes19model_task_bindings18assign_lookup_body_12
+   ; sym.__RNvNtNtNtCsfST0Ks2FPct_19psycho_engine_fixes4mods12engine_fixes19model_task_bindings18assign_lookup_body_12(0x0, 0x0, 0x0, 0x0)
+0x100a3f02      jmp sym.__RNvNtNtNtCsfST0Ks2FPct_19psycho_engine_fixes4mods12engine_fixes19model_task_bindings18assign_lookup_body_12
+0x100a3f07      nop word [eax + eax]
+; psycho_engine_fixes::mods::engine_fixes::model_task_bindings::assign_next_bucket
+;-- psycho_engine_fixes::mods::engine_fixes::model_task_bindings::assign_next_bucket:
+0x100a3f10      mov edx, ebp
+   ; sym.__RNvNtNtNtCsfST0Ks2FPct_19psycho_engine_fixes4mods12engine_fixes19model_task_bindings23assign_next_bucket_body_12
+   ; sym.__RNvNtNtNtCsfST0Ks2FPct_19psycho_engine_fixes4mods12engine_fixes19model_task_bindings23assign_next_bucket_body_12(0x0, 0x0, 0x0, 0x0)
+0x100a3f12      jmp sym.__RNvNtNtNtCsfST0Ks2FPct_19psycho_engine_fixes4mods12engine_fixes19model_task_bindings23assign_next_bucket_body_12
+0x100a3f17      nop word [eax + eax]
+; psycho_engine_fixes::mods::engine_fixes::pixel_texture_failure::outer_2d_bridge
+;-- psycho_engine_fixes::mods::engine_fixes::pixel_texture_failure::outer_2d_bridge:
+0x100a3f20      cmp ebp, ebx
+   ; likely
+0x100a3f22      je 0x100a3f2c
+0x100a3f24      push edi
+0x100a3f25      mov eax, 0xe68f42
+0x100a3f2a      jmp eax
+0x100a3f2c      pushal
+0x100a3f2d      push 0
+   ; sym.psycho_engine_fixes::mods::engine_fixes::pixel_texture_failure::observe_failure
+   ; sym.psycho_engine_fixes::mods::engine_fixes::pixel_texture_failure::observe_failure(0xe68f42, 0x0, 0x0, 0x0)
+0x100a3f2f      call sym.psycho_engine_fixes::mods::engine_fixes::pixel_texture_failure::observe_failure
+0x100a3f34      add esp, 4
+
+
+=== Compiled first shim body ===
+;-- @_RNvNtNtNtCsfST0Ks2FPct_19psycho_engine_fixes4mods12engine_fixes19model_task_bindings17assign_first_body@12:
+0x100adf90      push ebp
+0x100adf91      mov ebp, esp
+0x100adf93      mov eax, edx
+0x100adf95      mov edx, ecx
+0x100adf97      xor ecx, ecx
+0x100adf99      push dword [ebp + 8]
+0x100adf9c      push eax
+   ; sym.psycho_engine_fixes::mods::engine_fixes::model_task_bindings::assign
+   ; sym.psycho_engine_fixes::mods::engine_fixes::model_task_bindings::assign(0x0, 0x0, 0x0, 0x0)
+0x100adf9d      call sym.psycho_engine_fixes::mods::engine_fixes::model_task_bindings::assign
+0x100adfa2      add esp, 8
+0x100adfa5      pop ebp
+
+
+=== Compiled first body RET 4 ===
+0x100adfa2      add esp, 8
+0x100adfa5      pop ebp
+0x100adfa6      ret 4
+
+
+=== Compiled next shim body ===
+;-- @_RNvNtNtNtCsfST0Ks2FPct_19psycho_engine_fixes4mods12engine_fixes19model_task_bindings16assign_next_body@12:
+0x100adf70      push ebp
+0x100adf71      mov ebp, esp
+0x100adf73      mov eax, edx
+0x100adf75      mov edx, ecx
+0x100adf77      mov ecx, 1
+0x100adf7c      push dword [ebp + 8]
+0x100adf7f      push eax
+   ; sym.psycho_engine_fixes::mods::engine_fixes::model_task_bindings::assign
+   ; sym.psycho_engine_fixes::mods::engine_fixes::model_task_bindings::assign(0x0, 0x0, 0x1, 0x0)
+0x100adf80      call sym.psycho_engine_fixes::mods::engine_fixes::model_task_bindings::assign
+0x100adf85      add esp, 8
+0x100adf88      pop ebp
+
+
+=== Compiled next body RET 4 ===
+0x100adf85      add esp, 8
+0x100adf88      pop ebp
+0x100adf89      ret 4
+
+
+=== Compiled lookup shim body ===
+;-- @_RNvNtNtNtCsfST0Ks2FPct_19psycho_engine_fixes4mods12engine_fixes19model_task_bindings18assign_lookup_body@12:
+0x100adfb0      push ebp
+0x100adfb1      mov ebp, esp
+0x100adfb3      mov eax, edx
+0x100adfb5      mov edx, ecx
+0x100adfb7      mov ecx, 3
+0x100adfbc      push dword [ebp + 8]
+0x100adfbf      push eax
+   ; sym.psycho_engine_fixes::mods::engine_fixes::model_task_bindings::assign
+   ; sym.psycho_engine_fixes::mods::engine_fixes::model_task_bindings::assign(0x0, 0x0, 0x3, 0x0)
+0x100adfc0      call sym.psycho_engine_fixes::mods::engine_fixes::model_task_bindings::assign
+0x100adfc5      add esp, 8
+0x100adfc8      pop ebp
+
+
+=== Compiled lookup body RET 4 ===
+0x100adfc5      add esp, 8
+0x100adfc8      pop ebp
+0x100adfc9      ret 4
+
+
+=== Compiled next-bucket shim body ===
+;-- @_RNvNtNtNtCsfST0Ks2FPct_19psycho_engine_fixes4mods12engine_fixes19model_task_bindings23assign_next_bucket_body@12:
+0x100ae570      push ebp
+0x100ae571      mov ebp, esp
+0x100ae573      mov eax, edx
+0x100ae575      mov edx, ecx
+0x100ae577      mov ecx, 2
+0x100ae57c      push dword [ebp + 8]
+0x100ae57f      push eax
+   ; sym.psycho_engine_fixes::mods::engine_fixes::model_task_bindings::assign
+   ; sym.psycho_engine_fixes::mods::engine_fixes::model_task_bindings::assign(0x0, 0x0, 0x2, 0x0)
+0x100ae580      call sym.psycho_engine_fixes::mods::engine_fixes::model_task_bindings::assign
+0x100ae585      add esp, 8
+0x100ae588      pop ebp
+
+
+=== Compiled next-bucket body RET 4 ===
+0x100ae585      add esp, 8
+0x100ae588      pop ebp
+0x100ae589      ret 4
+
+
+=== Compiled assignment entry and valid-provider forwarding ===
+; psycho_engine_fixes::mods::engine_fixes::model_task_bindings::assign
+;-- psycho_engine_fixes::mods::engine_fixes::model_task_bindings::assign:
+0x100ae620      push ebp
+0x100ae621      mov ebp, esp
+0x100ae623      push ebx
+0x100ae624      push edi
+0x100ae625      push esi
+0x100ae626      and esp, 0xfffffff8
+0x100ae629      sub esp, 0x88
+; [0x105425f0:4]=0
+0x100ae62f      mov esi, dword [ecx*4 + 0x105425f0]
+; [0x10542606:1]=0
+0x100ae636      movzx eax, byte [0x10542606]
+0x100ae63d      test al, al
+   ; likely
+0x100ae63f      je 0x100ae68d
+0x100ae641      mov ebx, dword [ebp + 8]
+0x100ae644      lea eax, [ecx + ecx*8]
+0x100ae647      mov dword [esp + 4], edx
+0x100ae64b      mov dword [esp + 0x2c], ecx
+0x100ae64f      lea eax, [eax + eax*2]
+0x100ae652      mov dword [esp], eax
+; [0x10401490:4]=16
+0x100ae655      sub ebx, dword [ecx + eax + 0x10401490]
+0x100ae65c      mov eax, dword [ebx]
+0x100ae65e      mov edi, dword [eax]
+; [0x103e4dec:4]=3
+0x100ae660      mov eax, dword [0x103e4dec]
+0x100ae665      test eax, eax
+   ; unlikely
+0x100ae667      je 0x100ae75a
+0x100ae66d      mov ecx, 0x11c3b3c
+   ; sym.psycho_engine_fixes::mods::engine_fixes::model_task_bindings::read_word
+   ; sym.psycho_engine_fixes::mods::engine_fixes::model_task_bindings::read_word(0x3, 0xffffffef, 0x11c3b3c, 0x0)
+0x100ae672      call sym.psycho_engine_fixes::mods::engine_fixes::model_task_bindings::read_word
+0x100ae677      lea ecx, [edx - 1]
+0x100ae67a      cmp ecx, 0xfffffff7
+0x100ae67d      setb cl
+0x100ae680      and cl, al
+; 1
+0x100ae682      cmp cl, 1
+
+
+=== Compiled rejection output/result/return-slot writes ===
+0x100aeaf7      movzx ebx, byte [ecx + 0x18]
+0x100aeafb      cmp dword [esp + 0x2c], 3
+   ; unlikely
+0x100aeb00      je 0x100aeb39
+0x100aeb02      mov eax, dword [edx]
+0x100aeb04      test eax, eax
+   ; unlikely
+0x100aeb06      je 0x100aeb21
+0x100aeb08      push eax
+0x100aeb09      mov dword [esp + 4], ecx
+0x100aeb0d      mov esi, edx
+   ; sym.psycho_engine_fixes::mods::engine_fixes::model_task_bindings::rejects_task_address
+   ; sym.psycho_engine_fixes::mods::engine_fixes::model_task_bindings::rejects_task_address(-1, 0xff, 0x0, 0x0)
+0x100aeb0f      call sym.psycho_engine_fixes::mods::engine_fixes::model_task_bindings::rejects_task_address
+0x100aeb14      mov ecx, dword [esp + 4]
+0x100aeb18      mov edx, esi
+0x100aeb1a      add esp, 4
+0x100aeb1d      test al, al
+   ; unlikely
+0x100aeb1f      je 0x100aeb29
+0x100aeb21      mov dword [edx], 0
+0x100aeb27      jmp 0x100aeb39
+0x100aeb29      mov ecx, edx
+0x100aeb2b      mov eax, 0x6f74f0
+0x100aeb30      push 0
+   ; 0x6f74f0(0x6f74f0, 0xff, 0x0, 0x0)
+0x100aeb32      call eax
+0x100aeb34      mov ecx, dword [esp]
+0x100aeb37      mov edx, esi
+0x100aeb39      mov byte [edi - 1], bl
+0x100aeb3c      mov eax, dword [ecx + 8]
+0x100aeb3f      mov ecx, dword [ecx + 0x14]
+0x100aeb42      neg eax
+0x100aeb44      mov dword [edi + eax], ecx
+0x100aeb47      mov cl, 1
+0x100aeb49      xchg byte [0x10542604], cl
+0x100aeb4f      test cl, cl
+   ; likely
+0x100aeb51      jne 0x100aeba9
+; [0x103e78ec:4]=0x10551b34
+0x100aeb53      mov eax, dword [0x103e78ec]
+0x100aeb58      mov eax, dword [eax]
+; 2
+0x100aeb5a      cmp eax, 2
+   ; likely
+0x100aeb5d      jb 0x100aeba9
+
+
+=== Compiled outer lookup scope ===
+; psycho_engine_fixes::mods::engine_fixes::model_task_bindings::lookup
+;-- psycho_engine_fixes::mods::engine_fixes::model_task_bindings::lookup:
+0x100aec00      push ebp
+0x100aec01      mov ebp, esp
+0x100aec03      push ebx
+0x100aec04      push edi
+0x100aec05      push esi
+0x100aec06      sub esp, 0x118
+0x100aec0c      mov eax, dword [ebp + 8]
+0x100aec0f      mov edi, dword [ebp + 0xc]
+0x100aec12      mov esi, ecx
+0x100aec14      mov dword [ebp - 0x10], eax
+; [0x105425ec:4]=0
+0x100aec17      mov ebx, dword [0x105425ec]
+; [0x10542606:1]=0
+0x100aec1d      movzx eax, byte [0x10542606]
+0x100aec24      test al, al
+   ; likely
+0x100aec26      je 0x100aed3c
+0x100aec2c      mov ecx, 0x11c3b3c
+   ; sym.psycho_engine_fixes::mods::engine_fixes::model_task_bindings::read_word
+   ; sym.psycho_engine_fixes::mods::engine_fixes::model_task_bindings::read_word(0x0, 0x0, 0x11c3b3c, 0x0)
+0x100aec31      call sym.psycho_engine_fixes::mods::engine_fixes::model_task_bindings::read_word
+0x100aec36      lea ecx, [edx - 1]
+0x100aec39      cmp ecx, 0xfffffff7
+0x100aec3c      setb cl
+0x100aec3f      and cl, al
+; 1
+0x100aec41      cmp cl, 1
+   ; likely
+0x100aec44      jne 0x100aed3c
+0x100aec4a      add edx, 8
+0x100aec4d      mov ecx, edx
+   ; sym.psycho_engine_fixes::mods::engine_fixes::model_task_bindings::read_word
+   ; sym.psycho_engine_fixes::mods::engine_fixes::model_task_bindings::read_word(0x0, 0x0, 0x8, 0x8)
+0x100aec4f      call sym.psycho_engine_fixes::mods::engine_fixes::model_task_bindings::read_word
+0x100aec54      cmp edx, esi
+0x100aec56      sete cl
+0x100aec59      test al, cl
+   ; likely
+0x100aec5b      je 0x100aed3c
+   ; sym.psycho_engine_fixes::mods::engine_fixes::model_task_bindings::thread_state
+   ; sym.psycho_engine_fixes::mods::engine_fixes::model_task_bindings::thread_state(0x0, 0x0, 0x0, 0x8)
+0x100aec61      call sym.psycho_engine_fixes::mods::engine_fixes::model_task_bindings::thread_state
+; 1
+0x100aec66      cmp eax, 1
+   ; likely
+0x100aec69      jne 0x100aed51
+0x100aec6f      mov eax, dword [edx]
+0x100aec71      xorps xmm0, xmm0
+0x100aec74      mov ecx, esi
+0x100aec76      movups xmmword [ebp - 0x34], xmm0
+0x100aec7a      movups xmmword [ebp - 0x44], xmm0
+0x100aec7e      movups xmmword [ebp - 0x54], xmm0
+0x100aec82      movups xmmword [ebp - 0x64], xmm0
+0x100aec86      movups xmmword [ebp - 0x74], xmm0
+0x100aec8a      movups xmmword [ebp - 0x84], xmm0
+0x100aec91      movups xmmword [ebp - 0x94], xmm0
+0x100aec98      movups xmmword [ebp - 0xa4], xmm0
+0x100aec9f      movups xmmword [ebp - 0xb4], xmm0
+0x100aeca6      movups xmmword [ebp - 0xc4], xmm0
+0x100aecad      movups xmmword [ebp - 0xd4], xmm0
+0x100aecb4      movups xmmword [ebp - 0xe4], xmm0
+0x100aecbb      movups xmmword [ebp - 0xf4], xmm0
+0x100aecc2      movups xmmword [ebp - 0x104], xmm0
+0x100aecc9      movups xmmword [ebp - 0x114], xmm0
+0x100aecd0      movups xmmword [ebp - 0x124], xmm0
+0x100aecd7      mov dword [ebp - 0x14], eax
+0x100aecda      mov dword [ebp - 0x24], eax
+0x100aecdd      lea eax, [ebp - 0x124]
+0x100aece3      mov dword [ebp - 0x20], esi
+0x100aece6      mov dword [ebp - 0x1c], 0
+0x100aeced      mov dword [ebp - 0x18], edx
+0x100aecf0      mov dword [edx], eax
+0x100aecf2      push edi
+0x100aecf3      push dword [ebp - 0x10]
+   ; pe_dos_header(0xfffffed8, 0x0, 0x0, 0x8)
+0x100aecf6      call ebx
+0x100aecf8      mov ebx, eax
+0x100aecfa      mov eax, dword [ebp - 0x1c]
+0x100aecfd      test eax, eax
+   ; unlikely
+0x100aecff      je 0x100aed30
+0x100aed01      nop word cs:[eax + eax]
+
+
+=== Compiled lookup scope restoration and RET 8 ===
+0x100aed01      nop word cs:[eax + eax]
+0x100aed0b      nop dword [eax + eax]
+0x100aed10      lea ecx, [eax - 1]
+; '@'
+; 64
+0x100aed13      cmp eax, 0x40
+0x100aed16      mov dword [ebp - 0x1c], ecx
+   ; unlikely
+0x100aed19      ja 0x100aed61
+0x100aed1b      mov edx, dword [ebp + eax*4 - 0x128]
+0x100aed22      mov ecx, esi
+   ; sym.psycho_engine_fixes::mods::engine_fixes::model_task_bindings::cleanup_empty_binding
+   ; sym.psycho_engine_fixes::mods::engine_fixes::model_task_bindings::cleanup_empty_binding(0x0, 0x0, 0x0, -1)
+0x100aed24      call sym.psycho_engine_fixes::mods::engine_fixes::model_task_bindings::cleanup_empty_binding
+0x100aed29      mov eax, dword [ebp - 0x1c]
+0x100aed2c      test eax, eax
+   ; likely
+0x100aed2e      jne 0x100aed10
+0x100aed30      mov eax, dword [ebp - 0x18]
+0x100aed33      mov ecx, dword [ebp - 0x14]
+0x100aed36      mov dword [eax], ecx
+0x100aed38      mov eax, ebx
+0x100aed3a      jmp 0x100aed44
+0x100aed3c      mov ecx, esi
+0x100aed3e      push edi
+0x100aed3f      push dword [ebp - 0x10]
+   ; pe_dos_header(0x0, 0x0, 0x0, -1)
+0x100aed42      call ebx
+0x100aed44      add esp, 0x118
+0x100aed4a      pop esi
+0x100aed4b      pop edi
+0x100aed4c      pop ebx
+0x100aed4d      pop ebp
+0x100aed4e      ret 8
+0x100aed51      mov ecx, esi
+0x100aed53      mov eax, ebx
+0x100aed55      add esp, 0x118
+0x100aed5b      pop esi
+
+
+=== Compiled outer iteration scope ===
+; psycho_engine_fixes::mods::engine_fixes::model_task_bindings::iterate
+;-- psycho_engine_fixes::mods::engine_fixes::model_task_bindings::iterate:
+0x100af890      push ebp
+0x100af891      mov ebp, esp
+0x100af893      push ebx
+0x100af894      push edi
+0x100af895      push esi
+0x100af896      sub esp, 0x124
+0x100af89c      mov eax, dword [ebp + 0x10]
+0x100af89f      movzx ebx, byte [ebp + 0x14]
+0x100af8a3      mov esi, ecx
+0x100af8a5      mov dword [ebp - 0x14], eax
+0x100af8a8      mov eax, dword [ebp + 0xc]
+0x100af8ab      mov dword [ebp - 0x20], eax
+0x100af8ae      mov eax, dword [ebp + 8]
+0x100af8b1      mov dword [ebp - 0x1c], eax
+; [0x10542600:4]=0
+0x100af8b4      mov eax, dword [0x10542600]
+0x100af8b9      mov dword [ebp - 0x10], eax
+; [0x10542606:1]=0
+0x100af8bc      movzx eax, byte [0x10542606]
+0x100af8c3      test al, al
+   ; likely
+0x100af8c5      je 0x100afa15
+0x100af8cb      mov ecx, 0x11c3b3c
+   ; sym.psycho_engine_fixes::mods::engine_fixes::model_task_bindings::read_word
+   ; sym.psycho_engine_fixes::mods::engine_fixes::model_task_bindings::read_word(0x0, 0xff, 0x11c3b3c, 0x0)
+0x100af8d0      call sym.psycho_engine_fixes::mods::engine_fixes::model_task_bindings::read_word
+0x100af8d5      lea ecx, [edx - 1]
+0x100af8d8      cmp ecx, 0xfffffff7
+0x100af8db      setb cl
+0x100af8de      and cl, al
+; 1
+0x100af8e0      cmp cl, 1
+   ; likely
+0x100af8e3      jne 0x100afa15
+0x100af8e9      add edx, 8
+0x100af8ec      mov ecx, edx
+   ; sym.psycho_engine_fixes::mods::engine_fixes::model_task_bindings::read_word
+   ; sym.psycho_engine_fixes::mods::engine_fixes::model_task_bindings::read_word(0x0, 0xff, 0x8, 0x8)
+0x100af8ee      call sym.psycho_engine_fixes::mods::engine_fixes::model_task_bindings::read_word
+0x100af8f3      cmp edx, esi
+0x100af8f5      sete cl
+0x100af8f8      and cl, al
+; 1
+0x100af8fa      cmp cl, 1
+   ; likely
+0x100af8fd      jne 0x100afa15
+0x100af903      movzx eax, bl
+0x100af906      mov dword [ebp - 0x18], eax
+0x100af909      nop dword [eax]
+   ; sym.psycho_engine_fixes::mods::engine_fixes::model_task_bindings::thread_state
+   ; sym.psycho_engine_fixes::mods::engine_fixes::model_task_bindings::thread_state(0xff, 0xff, 0x0, 0x8)
+0x100af910      call sym.psycho_engine_fixes::mods::engine_fixes::model_task_bindings::thread_state
+; 1
+0x100af915      cmp eax, 1
+   ; likely
+0x100af918      jne 0x100af9f0
+0x100af91e      mov eax, dword [edx]
+0x100af920      xorps xmm0, xmm0
+0x100af923      mov edi, edx
+0x100af925      mov ecx, esi
+0x100af927      movups xmmword [ebp - 0x40], xmm0
+0x100af92b      movups xmmword [ebp - 0x50], xmm0
+0x100af92f      movups xmmword [ebp - 0x60], xmm0
+0x100af933      movups xmmword [ebp - 0x70], xmm0
+0x100af937      movups xmmword [ebp - 0x80], xmm0
+0x100af93b      movups xmmword [ebp - 0x90], xmm0
+0x100af942      movups xmmword [ebp - 0xa0], xmm0
+0x100af949      movups xmmword [ebp - 0xb0], xmm0
+0x100af950      movups xmmword [ebp - 0xc0], xmm0
+0x100af957      movups xmmword [ebp - 0xd0], xmm0
+0x100af95e      movups xmmword [ebp - 0xe0], xmm0
+0x100af965      movups xmmword [ebp - 0xf0], xmm0
+0x100af96c      movups xmmword [ebp - 0x100], xmm0
+0x100af973      movups xmmword [ebp - 0x110], xmm0
+0x100af97a      movups xmmword [ebp - 0x120], xmm0
+0x100af981      movups xmmword [ebp - 0x130], xmm0
+0x100af988      mov dword [ebp - 0x30], eax
+0x100af98b      mov dword [ebp - 0x24], eax
+0x100af98e      lea eax, [ebp - 0x130]
+0x100af994      mov dword [ebp - 0x2c], esi
+0x100af997      mov dword [ebp - 0x28], 0
+0x100af99e      mov dword [edx], eax
+0x100af9a0      push dword [ebp - 0x18]
+0x100af9a3      push dword [ebp - 0x14]
+0x100af9a6      push dword [ebp - 0x20]
+0x100af9a9      push dword [ebp - 0x1c]
+   ; 0xfffffffffffffff0(0xfffffecc, 0xff, 0x0, 0x8)
+0x100af9ac      call dword [ebp - 0x10]
+0x100af9af      mov ebx, eax
+0x100af9b1      mov eax, dword [ebp - 0x28]
+0x100af9b4      test eax, eax
+   ; unlikely
+0x100af9b6      je 0x100af9e0
+0x100af9b8      nop dword [eax + eax]
+0x100af9c0      lea ecx, [eax - 1]
+
+
+=== Compiled iteration continuation ===
+0x100af9c0      lea ecx, [eax - 1]
+; '@'
+; 64
+0x100af9c3      cmp eax, 0x40
+0x100af9c6      mov dword [ebp - 0x28], ecx
+   ; unlikely
+0x100af9c9      ja 0x100afa37
+0x100af9cb      mov edx, dword [ebp + eax*4 - 0x134]
+0x100af9d2      mov ecx, esi
+   ; sym.psycho_engine_fixes::mods::engine_fixes::model_task_bindings::cleanup_empty_binding
+   ; sym.psycho_engine_fixes::mods::engine_fixes::model_task_bindings::cleanup_empty_binding(0x0, 0x0, 0x0, -1)
+0x100af9d4      call sym.psycho_engine_fixes::mods::engine_fixes::model_task_bindings::cleanup_empty_binding
+0x100af9d9      mov eax, dword [ebp - 0x28]
+0x100af9dc      test eax, eax
+   ; likely
+0x100af9de      jne 0x100af9c0
+0x100af9e0      mov eax, dword [ebp - 0x24]
+0x100af9e3      mov dword [edi], eax
+0x100af9e5      test bl, bl
+   ; unlikely
+0x100af9e7      jne 0x100afa07
+0x100af9e9      jmp 0x100afa26
+0x100af9eb      nop dword [eax + eax]
+0x100af9f0      mov ecx, esi
+0x100af9f2      push dword [ebp - 0x18]
+0x100af9f5      push dword [ebp - 0x14]
+0x100af9f8      push dword [ebp - 0x20]
+0x100af9fb      push dword [ebp - 0x1c]
+   ; 0xfffffffffffffff0(-1, 0x0, 0x0, -1)
+0x100af9fe      call dword [ebp - 0x10]
+0x100afa01      mov ebx, eax
+0x100afa03      test bl, bl
+   ; unlikely
+0x100afa05      je 0x100afa26
+0x100afa07      mov eax, dword [ebp - 0x14]
+0x100afa0a      cmp dword [eax], 0
+   ; unlikely
+0x100afa0d      je 0x100af910
+0x100afa13      jmp 0x100afa28
+0x100afa15      mov eax, dword [ebp - 0x10]
+0x100afa18      mov ecx, esi
+0x100afa1a      add esp, 0x124
+0x100afa20      pop esi
+0x100afa21      pop edi
+0x100afa22      pop ebx
+0x100afa23      pop ebp
+0x100afa24      jmp eax
+0x100afa26      xor ebx, ebx
+0x100afa28      mov eax, ebx
+
+
+=== Compiled non-owning cleanup and current map providers ===
+; psycho_engine_fixes::mods::engine_fixes::model_task_bindings::cleanup_empty_binding
+;-- psycho_engine_fixes::mods::engine_fixes::model_task_bindings::cleanup_empty_binding:
+0x100ae320      push ebp
+0x100ae321      mov ebp, esp
+0x100ae323      push ebx
+0x100ae324      push edi
+0x100ae325      push esi
+0x100ae326      sub esp, 0x48
+0x100ae329      mov edi, ecx
+0x100ae32b      lea esi, [ecx + 0x20]
+0x100ae32e      mov dword [ebp - 0x14], edx
+0x100ae331      mov eax, 0x40fbf0
+0x100ae336      mov ecx, esi
+0x100ae338      push 0
+   ; 0x40fbf0(0x40fbf0, 0x0, 0x20, 0x0)
+0x100ae33a      call eax
+0x100ae33c      mov eax, 0x449f80
+0x100ae341      mov ecx, edi
+   ; 0x449f80(0x449f80, 0x0, 0x0, 0x0)
+0x100ae343      call eax
+0x100ae345      lea ecx, [ebp - 0x48]
+0x100ae348      mov edx, eax
+0x100ae34a      mov ebx, eax
+; psycho_engine_fixes::mods::engine_fixes::model_task_bindings::snapshot::<28>
+   ; sym.psycho_engine_fixes::mods::engine_fixes::model_task_bindings::snapshot::_28_
+   ; sym.psycho_engine_fixes::mods::engine_fixes::model_task_bindings::snapshot::_28_(0x449f80, 0x449f80, 0xffffffb4, 0x449f80)
+0x100ae34c      call sym.psycho_engine_fixes::mods::engine_fixes::model_task_bindings::snapshot::_28_
+0x100ae351      cmp byte [ebp - 0x48], 1
+   ; likely
+0x100ae355      jne 0x100ae438
+0x100ae35b      mov ecx, dword [ebp - 0x47]
+0x100ae35e      cmp ecx, edi
+   ; likely
+0x100ae360      jne 0x100ae438
+0x100ae366      mov dword [ebp - 0x50], esi
+   ; sym.psycho_engine_fixes::mods::engine_fixes::model_task_bindings::read_word
+   ; sym.psycho_engine_fixes::mods::engine_fixes::model_task_bindings::read_word(0x449f80, 0x449f80, -1, 0x449f80)
+0x100ae369      call sym.psycho_engine_fixes::mods::engine_fixes::model_task_bindings::read_word
+; 1
+0x100ae36e      test al, 1
+   ; likely
+0x100ae370      je 0x100ae4c5
+0x100ae376      mov esi, edx
+0x100ae378      cmp edx, 0xffffffdb
+   ; unlikely
+0x100ae37b      ja 0x100ae4d9
+0x100ae381      lea ecx, [esi + 0x24]
+   ; sym.psycho_engine_fixes::mods::engine_fixes::model_task_bindings::read_word
+   ; sym.psycho_engine_fixes::mods::engine_fixes::model_task_bindings::read_word(0x449f80, 0x449f80, 0x449fa4, 0x449f80)
+0x100ae384      call sym.psycho_engine_fixes::mods::engine_fixes::model_task_bindings::read_word
+; 1
+0x100ae389      test al, 1
+   ; likely
+0x100ae38b      je 0x100ae4d9
+; 20
+0x100ae391      add esi, 0x14
+0x100ae394      mov dword [ebp - 0x4c], edx
+0x100ae397      mov ecx, esi
+   ; sym.psycho_engine_fixes::mods::engine_fixes::model_task_bindings::read_word
+   ; sym.psycho_engine_fixes::mods::engine_fixes::model_task_bindings::read_word(0x449f80, 0x449f80, 0x449f94, 0x449f80)
+0x100ae399      call sym.psycho_engine_fixes::mods::engine_fixes::model_task_bindings::read_word
+; 1
+0x100ae39e      cmp eax, 1
+   ; likely
+0x100ae3a1      jne 0x100ae4d9
+0x100ae3a7      mov eax, dword [ebp - 0x4c]
+0x100ae3aa      lea esi, [edi + 0x20]
+0x100ae3ad      test eax, eax
+   ; unlikely
+0x100ae3af      je 0x100ae536
+0x100ae3b5      test edx, edx
+   ; unlikely
+0x100ae3b7      je 0x100ae536
+0x100ae3bd      mov dword [ebp - 0x54], edx
+0x100ae3c0      mov ecx, edi
+0x100ae3c2      push dword [ebp - 0x14]
+   ; 0xffffffff(-1, 0x449f80, 0x0, 0x449f80)
+0x100ae3c5      call eax
+0x100ae3c7      mov edx, 0x529030
+0x100ae3cc      mov ecx, ebx
+0x100ae3ce      push dword [ebp - 0x14]
+0x100ae3d1      push eax
+   ; 0x529030(-1, 0x449f80, 0x449f80, 0x529030)
+0x100ae3d2      call edx
+0x100ae3d4      test al, al
+   ; unlikely
+0x100ae3d6      je 0x100ae54c
+0x100ae3dc      mov ecx, ebx
+; 20
+0x100ae3de      add ecx, 0x14
+   ; sym.psycho_engine_fixes::mods::engine_fixes::model_task_bindings::read_word
+   ; sym.psycho_engine_fixes::mods::engine_fixes::model_task_bindings::read_word(-1, 0x449f80, 0x449f94, 0x529030)
+0x100ae3e1      call sym.psycho_engine_fixes::mods::engine_fixes::model_task_bindings::read_word
+; 1
+0x100ae3e6      test al, 1
+   ; unlikely
+0x100ae3e8      je 0x100ae54c
+; 4294967294
+0x100ae3ee      and edx, 0xfffffffe
+0x100ae3f1      lea ecx, [ebp - 0x48]
+; psycho_engine_fixes::mods::engine_fixes::model_task_bindings::snapshot::<12>
+   ; sym.psycho_engine_fixes::mods::engine_fixes::model_task_bindings::snapshot::_12_
+   ; sym.psycho_engine_fixes::mods::engine_fixes::model_task_bindings::snapshot::_12_(-1, 0x449f80, 0xffffffb4, 0x529030)
+0x100ae3f4      call sym.psycho_engine_fixes::mods::engine_fixes::model_task_bindings::snapshot::_12_
+0x100ae3f9      cmp byte [ebp - 0x48], 0
+   ; unlikely
+0x100ae3fd      je 0x100ae54c
+0x100ae403      mov eax, dword [ebp - 0x43]
+0x100ae406      mov esi, dword [ebp - 0x47]
+0x100ae409      mov ecx, ebx
+0x100ae40b      mov dword [ebp - 0x4c], eax
+0x100ae40e      mov eax, 0x529000
+   ; 0x529000(0x529000, 0x449f80, 0x449f80, 0x529030)
+0x100ae413      call eax
+0x100ae415      cmp esi, dword [ebp - 0x14]
+0x100ae418      lea esi, [edi + 0x20]
+   ; unlikely
+0x100ae41b      jne 0x100ae555
+0x100ae421      cmp dword [ebp - 0x4c], 0
+   ; likely
+0x100ae425      jne 0x100ae555
+0x100ae42b      mov ecx, edi
+0x100ae42d      push dword [ebp - 0x14]
+   ; 0xffffffffffffffac(0x529000, 0x449f80, 0x0, 0x529030)
+0x100ae430      call dword [ebp - 0x54]
+0x100ae433      jmp 0x100ae555
+0x100ae438      mov al, 1
+0x100ae43a      xchg byte [0x10542605], al
+0x100ae440      test al, al
+   ; likely
+0x100ae442      jne 0x100ae53b
+; [0x103e78ec:4]=0x10551b34
+0x100ae448      mov eax, dword [0x103e78ec]
+0x100ae44d      mov eax, dword [eax]
+; 2
+0x100ae44f      cmp eax, 2
+   ; likely
+0x100ae452      jb 0x100ae53b
+0x100ae458      lea ecx, [ebp - 0x48]
+0x100ae45b      mov dword [ebp - 0x48], 1
+; 471
+0x100ae462      mov dword [ebp - 0x44], 0x1d7
+0x100ae469      mov dword [ebp - 0x40], 0
+; 0x10401408
+; "psycho_engine_fixes::mods::engine_fixes::model_task_bindings"
+0x100ae470      mov dword [ebp - 0x3c], str.psycho_engine_fixes::mods::engine_fixes::model_task_bindings
+; '<'
+; 60
+0x100ae477      mov dword [ebp - 0x38], 0x3c
+0x100ae47e      mov dword [ebp - 0x34], 0
+; 0x104002c4
+; "psycho-engine-fixes/src/mods/engine_fixes/model_task_bindings.rs"
+0x100ae485      mov dword [ebp - 0x30], str.psycho_engine_fixes_src_mods_engine_fixes_model_task_bindings.rs
+; '@'
+; 64
+0x100ae48c      mov dword [ebp - 0x2c], 0x40
+0x100ae493      mov dword [ebp - 0x28], 2
+; 0x10401408
+; "psycho_engine_fixes::mods::engine_fixes::model_task_bindings"
+0x100ae49a      mov dword [ebp - 0x24], str.psycho_engine_fixes::mods::engine_fixes::model_task_bindings
+; '<'
+; 60
+0x100ae4a1      mov dword [ebp - 0x20], 0x3c
+; 0x104013a4
+; "[QUEUED_TASK] Invalid task rejected; map cleanup deferred until a later acquisition"
+0x100ae4a8      mov dword [ebp - 0x1c], str._QUEUED_TASK__Invalid_task_rejected__map_cleanup_deferred_until_a_later_acquisition
+; 167
+0x100ae4af      mov dword [ebp - 0x18], 0xa7
+0x100ae4b6      lea eax, [ebp - 0xd]

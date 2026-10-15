@@ -56,12 +56,15 @@ required for the compatibility and stress matrix below.
 
 - The crash is the indirect call at `0x00446C53` with task
   `0xBB7CF740`, base `NiRefObject` vtable `0x0101DCE4`, and refcount zero.
-- `FUN_00906570` transfers an owned queue reference into the consumer's local
-  holder. Both pop paths retain through `FUN_0092C820`/`FUN_0092C870`.
-- The consumer releases that holder after dispatch through the call at
+- `FUN_00906570` acquires an owned task value from the ModelLoader reference
+  map into the consumer's local holder. Both iteration paths retain through
+  `FUN_0092C820`/`FUN_0092C870`; this is nondestructive map traversal.
+- The consumer releases that holder after its priority update through the call at
   `0x00446C5C`.
-- Therefore the observed zero-refcount object violates the queue lifetime
-  contract. It is not a legitimate unowned dequeue.
+- Therefore the observed zero-refcount object violates the map-value lifetime
+  contract. It is not a legitimate unowned acquisition. The later
+  [reference-map audit](crash_20260712_mod_independent_revision_plan.md#random-crash-reference-map-lifetime-and-callback-abi)
+  also proves that this retain precedes the existing dispatch guard.
 
 ## Public configuration
 

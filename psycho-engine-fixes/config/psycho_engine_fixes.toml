@@ -342,11 +342,14 @@ lowprocess_generic_locations_fix = true
 # gheap + scrap_heap. Leave it ON unless isolating a confirmed hook conflict.
 model_postprocess_serialization_fix = true
 
-# Prevents queued tasks from reaching virtual callbacks or final-release paths
-# after their intrusive reference count has already reached zero.
+# Guards queued-task acquisition, virtual dispatch, and holder release.
+# Rejects invalid reference-map values before native retention and retires
+# their stale bindings. Dispatch and release also reject incompatible object
+# layouts and invalid intrusive reference counts before mutating counts or
+# invoking callbacks.
 #
 # This is an engine lifetime fix, not a gheap workaround, and remains useful in
-# every allocator mode.
+# every allocator mode. This switch controls all three guard stages.
 queued_task_lifetime_guard = true
 
 # Prevents the shared source-texture cache publisher from calling through
