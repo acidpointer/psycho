@@ -93,11 +93,16 @@ pub use nvse_bindings::root::{
     Cmd_Execute, NVSEInterface as NVSEInterfaceFFI, PluginInfo as PluginInfoFFI,
 };
 
+/// Opaque engine types that appear in safe API signatures, such as
+/// [`api::array_var::ArrayElement::form`] and
+/// [`api::array_var::CallingScript`]. Plugins only pass pointers to them.
+pub use nvse_bindings::root::{Script, TESForm};
+
 // Public only so `nvse_command!` can name the exact bindgen ABI types when the
 // macro expands in another crate. Plugin code should continue using the safe
 // command API instead of these raw engine structures.
 #[doc(hidden)]
-pub use nvse_bindings::root::{ParamInfo, Script, ScriptEventList, TESObjectREFR, UInt32};
+pub use nvse_bindings::root::{ParamInfo, ScriptEventList, TESObjectREFR, UInt32};
 
 pub mod api;
 pub mod plugin;

@@ -22,6 +22,7 @@ use std::ptr::NonNull;
 
 use thiserror::Error;
 
+use crate::api::array_var::CallingScript;
 use crate::{
     Cmd_Execute, CommandInfo as CommandInfoFFI, CommandReturnType,
     NVSEInterface as NVSEInterfaceFFI, ParamInfo as ParamInfoFFI,
@@ -39,6 +40,8 @@ pub struct CommandContext {
     pub result: *mut f64,
     /// Calling reference (NULL if command not called on a ref).
     pub this_obj: *mut libc::c_void,
+    /// Script running the command (NULL if the engine passed none).
+    pub script_obj: *mut crate::Script,
 }
 
 impl CommandContext {
@@ -70,6 +73,18 @@ impl CommandContext {
         } else {
             unsafe { (*(self.this_obj as *const crate::TESForm)).refID }
         }
+    }
+
+    /// The script running this command, for creating arrays.
+    ///
+    /// Returns `None` if the engine passed no script. The result borrows
+    /// `self`, so it cannot outlive the command call.
+    pub fn calling_script(&self) -> Option<CallingScript<'_>> {
+        let script = NonNull::new(self.script_obj)?;
+        // SAFETY: the engine passes the running script to the command
+        // handler, and it stays live until the handler returns. The borrow
+        // of `self` keeps the wrapper inside that call.
+        Some(unsafe { CallingScript::from_raw(script) })
     }
 
     /// Print a line to the in-game console.
@@ -121,7 +136,7 @@ macro_rules! nvse_command {
                 _script_data: *mut ::libc::c_void,
                 this_obj: *mut $crate::TESObjectREFR,
                 _containing_obj: *mut $crate::TESObjectREFR,
-                _script_obj: *mut $crate::Script,
+                script_obj: *mut $crate::Script,
                 _event_list: *mut $crate::ScriptEventList,
                 result: *mut f64,
                 _opcode_offset: *mut $crate::UInt32,
@@ -129,6 +144,7 @@ macro_rules! nvse_command {
                 let $ctx = $crate::api::command::CommandContext {
                     result,
                     this_obj: this_obj.cast(),
+                    script_obj,
                 };
                 $body
             }
