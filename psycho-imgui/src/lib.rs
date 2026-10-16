@@ -523,6 +523,27 @@ impl Ui<'_> {
     pub fn scroll_to_bottom(&mut self) {
         unsafe { ffi::psycho_imgui_scroll_to_bottom() };
     }
+
+    /// Whether the current window or child is scrolled to its newest content.
+    ///
+    /// A streaming view uses this to keep a reader who scrolled back in place
+    /// instead of forcing every new item into view.
+    pub fn is_scrolled_to_bottom(&self) -> bool {
+        unsafe { ffi::psycho_imgui_is_scrolled_to_bottom() }
+    }
+
+    /// Publish `text` through the backend clipboard callback.
+    pub fn set_clipboard_text(&mut self, text: &CStr) {
+        unsafe { ffi::psycho_imgui_set_clipboard_text(text.as_ptr()) };
+    }
+}
+
+/// Whether Dear ImGui currently has an active text field.
+///
+/// Callable outside a `Ui` frame, so a window procedure can decide whether a
+/// hotkey should reach the active editor instead of closing the overlay.
+pub fn want_text_input() -> bool {
+    unsafe { ffi::psycho_imgui_want_text_input() }
 }
 
 #[must_use]
@@ -679,6 +700,7 @@ mod ffi {
             lparam: isize,
         ) -> isize;
         pub fn psycho_imgui_io_state() -> RawIoState;
+        pub fn psycho_imgui_want_text_input() -> bool;
         pub fn psycho_imgui_queue_mouse_wheel_delta(vertical: i32, horizontal: i32);
         pub fn psycho_imgui_set_next_window_size(width: f32, height: f32, condition: i32);
         pub fn psycho_imgui_set_next_window_pos(x: f32, y: f32, condition: i32);
@@ -829,6 +851,8 @@ mod ffi {
         pub fn psycho_imgui_pop_item_width();
         pub fn psycho_imgui_same_line();
         pub fn psycho_imgui_scroll_to_bottom();
+        pub fn psycho_imgui_is_scrolled_to_bottom() -> bool;
+        pub fn psycho_imgui_set_clipboard_text(text: *const c_char);
     }
 }
 

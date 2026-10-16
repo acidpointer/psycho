@@ -528,6 +528,15 @@ impl ConfigEditor {
         }
     }
 
+    /// Revert the restart draft to the last loaded or saved file contents.
+    ///
+    /// Only the in-memory draft is dropped; the file is left untouched.
+    pub fn discard(&mut self) {
+        self.draft = self.saved.clone();
+        self.error = None;
+        self.notice = Some("Discarded unsaved changes.".to_owned());
+    }
+
     pub fn save(&mut self) {
         match self.save_inner() {
             Ok(()) => {

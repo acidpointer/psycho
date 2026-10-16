@@ -19,7 +19,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use libpsycho::{common::helpers::format_bytes, os::windows::directx9::Device9Ref};
+use libpsycho::os::windows::directx9::Device9Ref;
 use parking_lot::{Condvar, Mutex, RwLock};
 use psycho_imgui::{Condition, Dx9Context, TelemetryChart, Ui};
 
@@ -177,7 +177,10 @@ const ENGINE_FIX_MODEL_POSTPROCESS_INDEX: usize = 19;
 const ENGINE_FIX_QUEUED_TASK_INDEX: usize = 20;
 const ENGINE_FIX_SOURCE_TEXTURE_CACHE_INDEX: usize = 21;
 
-const TILE_VALUE_INTEGRITY_HELP: (&str, &str) = ("Tile values", "NULL slots removed.");
+const TILE_VALUE_INTEGRITY_HELP: (&str, &str) = (
+    "Tile-value NULL guard",
+    "Drops only impossible NULL slots from the Tile-value list before a consumer follows them. Valid tile data is unchanged.",
+);
 
 static READY: AtomicBool = AtomicBool::new(false);
 static OPEN_REQUESTED: AtomicBool = AtomicBool::new(false);
@@ -315,6 +318,48 @@ enum Page {
     Logs,
 }
 
+/// Header-level connection state for the core telemetry.
+///
+/// A never-seen core is still starting, which is not an error; only a core
+/// that produced telemetry and then stopped is reported as offline.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum CoreLink {
+    Connecting,
+    Starting,
+    Connected,
+    Offline,
+}
+
+impl CoreLink {
+    fn from_parts(core: Option<engine_fixes::DashboardSnapshot>, ever_linked: bool) -> Self {
+        match core {
+            Some(core) if core.flags & engine_fixes::DASHBOARD_FLAG_CORE_READY != 0 => {
+                Self::Connected
+            }
+            Some(_) => Self::Starting,
+            None if ever_linked => Self::Offline,
+            None => Self::Connecting,
+        }
+    }
+
+    fn label(self) -> &'static str {
+        match self {
+            Self::Connecting => "CONNECTING",
+            Self::Starting => "STARTING",
+            Self::Connected => "CONNECTED",
+            Self::Offline => "CORE OFFLINE",
+        }
+    }
+
+    fn color(self) -> [f32; 4] {
+        match self {
+            Self::Connected => GOOD,
+            Self::Starting | Self::Connecting => MUTED,
+            Self::Offline => ERROR,
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 struct LogFilters {
     trace: bool,
@@ -391,15 +436,31 @@ struct DashboardRuntime {
     commit_history: History,
     hole_history: History,
     last_core_sample_ms: u64,
+    /// Last successfully published core snapshot.
+    ///
+    /// A momentary shared-lock miss while the sampling worker publishes must
+    /// not be presented as a nested telemetry failure, so the render thread
+    /// keeps rendering this snapshot until the worker reports real offline
+    /// state.
+    last_core: Option<engine_fixes::DashboardSnapshot>,
+    /// Whether the core has ever produced a snapshot this session.
+    ///
+    /// Distinguishes the initial "connecting" state from a core that stopped
+    /// responding, which the header reports differently.
+    ever_linked: bool,
     texture_memory_estimate: u64,
     texture_sample_time_ms: u32,
     texture_query_last_us: u64,
     texture_query_max_us: u64,
+    texture_query_count: u64,
     texture_refresh_requested: bool,
     log_filters: LogFilters,
     log_show_context: bool,
     log_auto_follow: bool,
+    log_query: String,
     last_log_generation: u64,
+    /// A first Reload click that is waiting for a confirming second click.
+    pending_reload: bool,
     ui_error: Option<String>,
 }
 
@@ -417,15 +478,20 @@ impl DashboardRuntime {
             commit_history: History::default(),
             hole_history: History::default(),
             last_core_sample_ms: 0,
+            last_core: None,
+            ever_linked: false,
             texture_memory_estimate: 0,
             texture_sample_time_ms: 0,
             texture_query_last_us: 0,
             texture_query_max_us: 0,
+            texture_query_count: 0,
             texture_refresh_requested: false,
             log_filters: LogFilters::default(),
             log_show_context: false,
             log_auto_follow: true,
+            log_query: String::new(),
             last_log_generation: 0,
+            pending_reload: false,
             ui_error: None,
         }
     }
@@ -455,6 +521,19 @@ impl DashboardRuntime {
         }
     }
 
+    /// Abandon an open request that cannot produce a drawable frame.
+    ///
+    /// Blocking the game's DirectInput with no visible overlay is worse than a
+    /// failed open, so a hard initialization failure restores input and logs
+    /// once. A later F10 retries cleanly.
+    fn fail_open(&mut self, message: String) {
+        if self.ui_error.as_deref() != Some(message.as_str()) {
+            log::warn!("[DASHBOARD] Cannot show dashboard: {message}");
+        }
+        self.ui_error = Some(message);
+        self.set_open(false);
+    }
+
     fn render_present(&mut self, handles: GameRenderHandles) {
         if OPEN_REQUESTED.swap(false, Ordering::AcqRel) {
             self.set_open(true);
@@ -464,7 +543,7 @@ impl DashboardRuntime {
         }
 
         let Some(device) = (unsafe { Device9Ref::from_raw_void(handles.device) }) else {
-            self.ui_error = Some("The Direct3D9 device is unavailable.".to_owned());
+            self.fail_open("The Direct3D9 device is unavailable.".to_owned());
             return;
         };
         if self.imgui_device != handles.device as usize
@@ -482,7 +561,7 @@ impl DashboardRuntime {
         }
         if self.imgui.is_none() {
             if let Err(error) = hooks::ensure_reset_hook(handles.device) {
-                self.ui_error = Some(format!("Device reset bridge failed: {error:#}"));
+                self.fail_open(format!("Device reset bridge failed: {error:#}"));
                 return;
             }
             match unsafe {
@@ -507,7 +586,7 @@ impl DashboardRuntime {
                     );
                 }
                 Err(error) => {
-                    self.ui_error = Some(format!("ImGui initialization failed: {error}"));
+                    self.fail_open(format!("ImGui initialization failed: {error}"));
                     return;
                 }
             }
@@ -516,6 +595,9 @@ impl DashboardRuntime {
             let Some(imgui) = self.imgui.as_mut() else {
                 return;
             };
+            // Device-object creation can fail transiently across a Reset or
+            // Alt-Tab. Keep the request open and retry on the next frame
+            // instead of cancelling the overlay.
             if !imgui.create_device_objects() {
                 return;
             }
@@ -528,6 +610,7 @@ impl DashboardRuntime {
             self.texture_sample_time_ms = libpsycho::os::windows::winapi::get_tick_count();
             self.texture_query_last_us = started.elapsed().as_micros() as u64;
             self.texture_query_max_us = self.texture_query_max_us.max(self.texture_query_last_us);
+            self.texture_query_count = self.texture_query_count.saturating_add(1);
         }
 
         let Some(mut imgui) = self.imgui.take() else {
@@ -577,12 +660,27 @@ impl DashboardRuntime {
 
         let shared = SHARED.get().cloned();
         let guard = shared.as_ref().and_then(|shared| shared.try_read());
-        let core = guard.as_ref().and_then(|data| data.core);
+        // A `try_read` miss only means the sampling worker held the lock for a
+        // few microseconds. Render the last published snapshot instead of
+        // flashing the offline state. Only a real "no snapshot" publication
+        // (the worker's own offline escalation) clears it.
+        let lock_busy = shared.is_some() && guard.is_none();
+        let sampled = guard.as_ref().and_then(|data| data.core);
+        let core = if lock_busy {
+            self.last_core
+        } else {
+            if sampled.is_some() {
+                self.ever_linked = true;
+            }
+            self.last_core = sampled;
+            sampled
+        };
         if let Some(core) = core {
             self.update_core_history(core);
         }
+        let link = CoreLink::from_parts(core, self.ever_linked);
 
-        self.draw_header(ui, core);
+        self.draw_header(ui, link);
         ui.separator();
         let available = ui.content_region_available_width().max(1.0);
         let nav_width = (available * 0.18).clamp(170.0, 225.0);
@@ -599,10 +697,12 @@ impl DashboardRuntime {
             let child = ui.child(&id, 0.0, 0.0, false);
             if child.is_visible() {
                 match self.page {
-                    Page::Overview => self.draw_overview(ui, core),
+                    Page::Overview => self.draw_overview(ui, core, link),
                     Page::Memory => self.draw_memory(ui, core),
                     Page::Runtime => self.draw_runtime(ui, core),
-                    Page::Configuration => draw_configuration(ui, &mut self.config),
+                    Page::Configuration => {
+                        draw_configuration(ui, &mut self.config, &mut self.pending_reload)
+                    }
                     Page::Logs => self.draw_logs(ui, guard.as_deref()),
                 }
             }
@@ -610,15 +710,10 @@ impl DashboardRuntime {
         open
     }
 
-    fn draw_header(&self, ui: &mut Ui<'_>, core: Option<engine_fixes::DashboardSnapshot>) {
+    fn draw_header(&self, ui: &mut Ui<'_>, link: CoreLink) {
         ui.text_colored(ACCENT, &cstring("PSYCHO ENGINE FIXES"));
         ui.same_line();
-        let linked =
-            core.is_some_and(|core| core.flags & engine_fixes::DASHBOARD_FLAG_CORE_READY != 0);
-        ui.text_colored(
-            if linked { GOOD } else { ERROR },
-            &cstring(if linked { "CONNECTED" } else { "CORE OFFLINE" }),
-        );
+        ui.text_colored(link.color(), &cstring(link.label()));
         if self.config.is_dirty() {
             ui.same_line();
             ui.text_colored(WARN, &cstring("UNSAVED SETTINGS"));
@@ -659,10 +754,19 @@ impl DashboardRuntime {
             "Telemetry refreshes every 1.5 seconds. Settings are saved for the next full game launch.",
         ));
         ui.spacing();
-        ui.text_colored(MUTED, &cstring("F10 or Esc closes the dashboard"));
+        ui.text_colored(
+            MUTED,
+            &cstring("F10 toggles this dashboard. Esc closes it."),
+        );
+        ui.text_colored(MUTED, &cstring("Reopen any time with F10 or PsychoInfo."));
     }
 
-    fn draw_overview(&mut self, ui: &mut Ui<'_>, core: Option<engine_fixes::DashboardSnapshot>) {
+    fn draw_overview(
+        &mut self,
+        ui: &mut Ui<'_>,
+        core: Option<engine_fixes::DashboardSnapshot>,
+        link: CoreLink,
+    ) {
         page_heading(
             ui,
             "Overview",
@@ -671,10 +775,13 @@ impl DashboardRuntime {
         ui.text_colored(MUTED, &cstring(HOVER_HELP_HINT));
         ui.separator_text(&cstring("Session status"));
         let Some(core) = core else {
-            ui.text_colored(
-                ERROR,
-                &cstring("Waiting for psycho_engine_fixes.dll telemetry..."),
-            );
+            let message = match link {
+                CoreLink::Offline => {
+                    "Core telemetry stopped responding. Check psycho-engine-fixes-latest.log."
+                }
+                _ => "Waiting for psycho_engine_fixes.dll telemetry...",
+            };
+            ui.text_colored(link.color(), &cstring(message));
             return;
         };
         let health = MemoryHealth::from_snapshot(&core);
@@ -752,7 +859,7 @@ impl DashboardRuntime {
             ui,
             "Driver texture estimate",
             texture_estimate,
-            WARN,
+            MUTED,
             "The D3D9 driver's estimate of texture memory in use. Treat it as a directional estimate, not an exact VRAM meter.",
         );
         draw_value_help(
@@ -788,6 +895,12 @@ impl DashboardRuntime {
         );
 
         ui.spacing();
+        ui.text_colored(
+            MUTED,
+            &cstring(
+                "For the full address-space and allocator breakdown, open the Memory dashboard.",
+            ),
+        );
         let explanation = match health {
             MemoryHealth::Stable => {
                 "Address-space shape is healthy for ordinary streaming. Keep watching the largest opening on extreme texture lists."
@@ -940,28 +1053,28 @@ impl DashboardRuntime {
             ui,
             "Pool exhaustion fallbacks",
             core.pool_exhaustions,
-            counter_color(core.pool_exhaustions),
+            activity_color(core.pool_exhaustions),
             "A small-object pool had no immediately available cell, so Psycho served the request through a larger fallback tier. Occasional events are recoverable.",
         );
         draw_value_help(
             ui,
             "Block-tier overflows",
             core.block_overflows,
-            counter_color(core.block_overflows),
+            activity_color(core.block_overflows),
             "A medium allocation could not fit in the existing block slots and had to use another supported allocation path.",
         );
         draw_value_help(
             ui,
             "Block reserve/commit failures",
             core.block_failures,
-            counter_color(core.block_failures),
+            alert_color(core.block_failures),
             "Windows refused to reserve address space or back pages for a medium block. Any nonzero count is important in a memory-related bug report.",
         );
         draw_value_help(
             ui,
             "Direct VA failures",
             core.direct_failures,
-            counter_color(core.direct_failures),
+            alert_color(core.direct_failures),
             "Windows could not map one very large allocation. This usually means insufficient contiguous address space, not simply low free RAM.",
         );
         draw_value_help(
@@ -1045,7 +1158,7 @@ impl DashboardRuntime {
         };
         for (name, bit, detail, help) in [
             (
-                "Display transition repair",
+                ENGINE_FIX_HELP[ENGINE_FIX_DISPLAY_INDEX].0,
                 engine_fixes::DASHBOARD_FEATURE_DISPLAY,
                 "Fullscreen, reset and Alt-Tab ownership",
                 ENGINE_FIX_HELP[ENGINE_FIX_DISPLAY_INDEX].1,
@@ -1071,7 +1184,7 @@ impl DashboardRuntime {
             (
                 TILE_VALUE_INTEGRITY_HELP.0,
                 engine_fixes::DASHBOARD_FEATURE_TILE_VALUE_INTEGRITY,
-                "NULL slots removed",
+                "Impossible NULL tile-value slots removed",
                 TILE_VALUE_INTEGRITY_HELP.1,
             ),
             (
@@ -1135,8 +1248,20 @@ impl DashboardRuntime {
                 "Publishes static geometry buffers only after their storage is complete, preventing loading workers from seeing a half-built buffer.",
             ),
         ] {
-            feature_status(ui, name, core.active_features & bit != 0, detail, help);
+            let active = core.active_features & bit != 0;
+            // Only the cell render retirement row has a proven failure signal:
+            // any recorded ownership loss clears its active bit.
+            let lost = bit == engine_fixes::DASHBOARD_FEATURE_CELL_RENDER_RETIREMENT
+                && core.cell_render_patch_ownership_losses != 0;
+            feature_status(ui, name, active, lost, detail, help);
         }
+        ui.spacing();
+        ui.text_colored(
+            MUTED,
+            &cstring(
+                "Inactive can mean its Configuration entry is off or the patch did not install this session. Always-on guards are not listed individually.",
+            ),
+        );
 
         ui.spacing();
         ui.separator_text(&cstring("Save, form and task safety"));
@@ -1154,14 +1279,14 @@ impl DashboardRuntime {
             ui,
             "Save aborts",
             core.save_aborts,
-            counter_color(core.save_aborts),
+            alert_color(core.save_aborts),
             "Save attempts stopped because writing, flushing, closing, backup rotation, or final replacement could not complete safely.",
         );
         draw_value_help(
             ui,
             "Rejected unsafe save/load data",
             core.save_rejections,
-            counter_color(core.save_rejections),
+            activity_color(core.save_rejections),
             "Malformed or unavailable changed records skipped through the game's supported rejection path instead of being trusted.",
         );
         let encounter_zone_rejections = core
@@ -1174,14 +1299,14 @@ impl DashboardRuntime {
                 "{} runtime / {} load",
                 core.encounter_zone_access_rejections, core.encounter_zone_load_rejections
             ),
-            counter_color(encounter_zone_rejections),
+            activity_color(encounter_zone_rejections),
             "Invalid zone-form results stopped before RTTI or a consumer dereference. Runtime counts can include more than one native fallback level for one owner.",
         );
         draw_value_help(
             ui,
             "Encounter-zone source repairs",
             core.encounter_zone_repairs,
-            counter_color(core.encounter_zone_repairs),
+            activity_color(core.encounter_zone_repairs),
             "Exact corrupt reference, cell, or worldspace sources removed or cleared before Psycho re-ran the native fallback order.",
         );
         draw_value_help(
@@ -1195,7 +1320,7 @@ impl DashboardRuntime {
             ui,
             "Cell render ownership losses",
             core.cell_render_patch_ownership_losses,
-            counter_color(core.cell_render_patch_ownership_losses),
+            alert_color(core.cell_render_patch_ownership_losses),
             "Active dispatch blocks replaced after startup. Any non-zero value clears the feature's active bit and means another writer removed this protection.",
         );
         draw_value_help(
@@ -1209,7 +1334,7 @@ impl DashboardRuntime {
             ui,
             "Rejected unsafe tasks",
             core.task_rejections,
-            counter_color(core.task_rejections),
+            activity_color(core.task_rejections),
             "Tasks already known to be dead or invalid that Psycho stopped before another callback could run.",
         );
         draw_value_help(
@@ -1240,7 +1365,7 @@ impl DashboardRuntime {
             ui,
             "IO fallbacks",
             core.io_fallbacks,
-            counter_color(core.io_fallbacks),
+            activity_color(core.io_fallbacks),
             "Times parallel loading could not satisfy its proven safety contract and used the compatible fallback path instead.",
         );
         draw_value_help(
@@ -1282,17 +1407,17 @@ impl DashboardRuntime {
                 core.dashboard_vas_refresh_last_us,
                 core.dashboard_vas_refresh_max_us,
             ),
-            WARN,
+            MUTED,
             "Complete virtual-address-space walks requested by the dashboard and their cost. These are intentionally manual and cached.",
         );
         draw_value_help(
             ui,
             "Driver estimate queries",
             format!(
-                "{} us last / {} us max",
-                self.texture_query_last_us, self.texture_query_max_us,
+                "{} calls, {} us last / {} us max",
+                self.texture_query_count, self.texture_query_last_us, self.texture_query_max_us,
             ),
-            WARN,
+            MUTED,
             "D3D9 texture-memory estimate calls and their cost. The query is manual because driver implementations may make it expensive.",
         );
     }
@@ -1334,6 +1459,16 @@ impl DashboardRuntime {
             &cstring("Follow newest messages"),
             &mut self.log_auto_follow,
         );
+        hover_help(
+            ui,
+            "Follows the newest line only while you are already at the bottom, so scrolling back does not fight the stream.",
+        );
+        input_text_string(
+            ui,
+            "Filter",
+            &mut self.log_query,
+            "Case-insensitive text filter over the message, module, and compact timestamp.",
+        );
 
         let Some(shared) = shared else {
             ui.text_colored(
@@ -1345,28 +1480,51 @@ impl DashboardRuntime {
         if let Some(error) = &shared.log_error {
             ui.text_colored(WARN, &cstring(error));
         }
+
+        let query = self.log_query.trim().to_ascii_lowercase();
         let visible_count = shared
             .logs
             .iter()
-            .filter(|line| self.log_filters.accepts(line.level))
+            .filter(|line| log_line_visible(line, self.log_filters, &query))
             .count();
         ui.text_colored(
             MUTED,
             &cstring(format!(
-                "Showing {visible_count} of {} recent lines",
-                shared.logs.len()
+                "Showing {visible_count} of {} buffered lines (newest {})",
+                shared.logs.len(),
+                MAX_LOG_LINES
             )),
         );
+        ui.same_line();
+        if ui.button(&cstring("Copy visible")) {
+            let report = collect_visible_log(
+                &shared.logs,
+                self.log_filters,
+                &query,
+                self.log_show_context,
+            );
+            ui.set_clipboard_text(&cstring(report));
+        }
+        hover_help(
+            ui,
+            "Copies the currently visible lines to the clipboard for a support report.",
+        );
+
         let new_generation = shared.log_generation != self.last_log_generation;
         self.last_log_generation = shared.log_generation;
         let id = cstring("recent_log_lines");
         let child = ui.child_horizontal(&id, 0.0, 0.0, true);
         if child.is_visible() {
+            // Read the previous frame's scroll position before adding lines.
+            let at_bottom = ui.is_scrolled_to_bottom();
             if visible_count == 0 {
-                ui.text_colored(MUTED, &cstring("No messages match the selected levels."));
+                ui.text_colored(
+                    MUTED,
+                    &cstring("No messages match the selected levels and filter."),
+                );
             }
             for line in &shared.logs {
-                if !self.log_filters.accepts(line.level) {
+                if !log_line_visible(line, self.log_filters, &query) {
                     continue;
                 }
                 ui.text_colored(log_color(line.level), &cstring(line.level.label()));
@@ -1378,11 +1536,62 @@ impl DashboardRuntime {
                 }
                 ui.text_colored(log_message_color(line.level), &cstring(&line.text));
             }
-            if new_generation && self.log_auto_follow {
+            if new_generation && self.log_auto_follow && at_bottom {
                 ui.scroll_to_bottom();
             }
         }
     }
+}
+
+/// Whether a log line passes the level filters and the free-text query.
+fn log_line_visible(line: &LogLine, filters: LogFilters, query_lower: &str) -> bool {
+    filters.accepts(line.level)
+        && (query_lower.is_empty()
+            || contains_ignore_ascii_case(&line.text, query_lower)
+            || contains_ignore_ascii_case(&line.source, query_lower)
+            || contains_ignore_ascii_case(&line.timestamp, query_lower))
+}
+
+/// ASCII-case-insensitive substring search without allocating a lowercase copy
+/// of every line on every frame.
+fn contains_ignore_ascii_case(haystack: &str, needle_lower: &str) -> bool {
+    let needle = needle_lower.as_bytes();
+    if needle.is_empty() {
+        return true;
+    }
+    haystack.as_bytes().windows(needle.len()).any(|window| {
+        window
+            .iter()
+            .zip(needle)
+            .all(|(byte, lower)| byte.to_ascii_lowercase() == *lower)
+    })
+}
+
+/// Build the clipboard text for the currently visible log lines.
+fn collect_visible_log(
+    lines: &[LogLine],
+    filters: LogFilters,
+    query_lower: &str,
+    show_context: bool,
+) -> String {
+    let mut report = String::new();
+    for line in lines {
+        if !log_line_visible(line, filters, query_lower) {
+            continue;
+        }
+        if show_context {
+            let context = log_context(line);
+            if !context.is_empty() {
+                report.push_str(&context);
+                report.push_str("  ");
+            }
+        }
+        report.push_str(line.level.label().trim_end());
+        report.push(' ');
+        report.push_str(&line.text);
+        report.push('\n');
+    }
+    report
 }
 
 impl LogFilters {
@@ -1573,12 +1782,17 @@ pub(crate) fn handle_window_message(
     lparam: isize,
 ) -> Option<isize> {
     if (msg == WM_KEYDOWN || msg == WM_SYSKEYDOWN) && wparam == DASHBOARD_KEY {
-        RUNTIME.with(|runtime| {
-            if let Ok(mut runtime) = runtime.try_borrow_mut() {
-                let open = !runtime.open;
-                runtime.set_open(open);
-            }
-        });
+        // Ignore keyboard auto-repeat so holding F10 does not flicker the
+        // dashboard open and closed. Bit 30 of lParam is the prior-key-state
+        // flag: set on a repeat, clear on the first press.
+        if (lparam as usize) & (1 << 30) == 0 {
+            RUNTIME.with(|runtime| {
+                if let Ok(mut runtime) = runtime.try_borrow_mut() {
+                    let open = !runtime.open;
+                    runtime.set_open(open);
+                }
+            });
+        }
         return Some(0);
     }
 
@@ -1591,9 +1805,14 @@ pub(crate) fn handle_window_message(
             return;
         }
         if (msg == WM_KEYDOWN || msg == WM_SYSKEYDOWN) && wparam == VK_ESCAPE {
-            runtime.set_open(false);
-            captured = Some(0);
-            return;
+            // While a text field is active, Esc must cancel the edit instead
+            // of closing the whole dashboard and losing the draft.
+            let editing_text = runtime.imgui.is_some() && psycho_imgui::want_text_input();
+            if !editing_text {
+                runtime.set_open(false);
+                captured = Some(0);
+                return;
+            }
         }
         if runtime.imgui.is_some() {
             let handled = unsafe { psycho_imgui::wndproc(hwnd, msg, wparam, lparam) };
@@ -1841,7 +2060,7 @@ fn truncate_chars(text: &str, max: usize) -> String {
     output
 }
 
-fn draw_configuration(ui: &mut Ui<'_>, editor: &mut ConfigEditor) {
+fn draw_configuration(ui: &mut Ui<'_>, editor: &mut ConfigEditor, pending_reload: &mut bool) {
     page_heading(
         ui,
         "Configuration",
@@ -1853,31 +2072,10 @@ fn draw_configuration(ui: &mut Ui<'_>, editor: &mut ConfigEditor) {
         "Changes are not live. Saving updates the TOML file for the next full game launch; the current process keeps its startup configuration.",
         WARN,
     );
-    ui.text_colored(MUTED, &cstring(editor.path.display().to_string()));
+    ui.text_colored(MUTED, &cstring(HOVER_HELP_HINT));
+    ui.text_colored(MUTED, &cstring(resolved_config_path(editor)));
 
-    let save = cstring("Save for next launch");
-    if ui.button_colored(&save, SAVE_BUTTON, SAVE_HOVERED, SAVE_ACTIVE) {
-        editor.save();
-    }
-    ui.same_line();
-    let reload = cstring("Reload from disk");
-    if ui.button_colored(&reload, RELOAD_BUTTON, RELOAD_HOVERED, RELOAD_ACTIVE) {
-        editor.reload();
-    }
-    ui.same_line();
-    ui.text_colored(
-        if editor.is_dirty() { WARN } else { GOOD },
-        &cstring(if editor.is_dirty() {
-            "Unsaved changes"
-        } else {
-            "Saved file matches"
-        }),
-    );
-    if let Some(error) = &editor.error {
-        ui.text_colored(ERROR, &cstring(error));
-    } else if let Some(notice) = &editor.notice {
-        ui.text_colored(GOOD, &cstring(notice));
-    }
+    config_actions(ui, editor, pending_reload, "top");
 
     let config = &mut editor.draft;
     ui.spacing();
@@ -1886,7 +2084,6 @@ fn draw_configuration(ui: &mut Ui<'_>, editor: &mut ConfigEditor) {
         MUTED,
         &cstring("Takes effect only during the next early startup."),
     );
-    ui.text_colored(MUTED, &cstring(HOVER_HELP_HINT));
     for (index, label, help) in [
         (
             0,
@@ -2138,6 +2335,84 @@ fn draw_configuration(ui: &mut Ui<'_>, editor: &mut ConfigEditor) {
         &mut config.lod_streaming_trace,
         "Adds verbose distant-world streaming events to the log. Enable only when investigating LOD pop-in or lifetime issues.",
     );
+
+    // Repeat the save/reload controls at the end so they stay reachable after
+    // scrolling through the long settings list.
+    ui.spacing();
+    ui.separator();
+    config_actions(ui, editor, pending_reload, "bottom");
+}
+
+/// Draw the Save / Reload / Discard controls shared by the top and bottom of
+/// the Configuration page.
+///
+/// Reloading discards the restart draft, so a dirty draft requires a second,
+/// explicit confirmation click instead of losing edits on a single press.
+/// `anchor` makes the duplicate top and bottom widgets distinct to Dear ImGui.
+fn config_actions(
+    ui: &mut Ui<'_>,
+    editor: &mut ConfigEditor,
+    pending_reload: &mut bool,
+    anchor: &str,
+) {
+    let save = cstring(format!("Save for next launch##config_{anchor}"));
+    if ui.button_colored(&save, SAVE_BUTTON, SAVE_HOVERED, SAVE_ACTIVE) {
+        editor.save();
+        *pending_reload = false;
+    }
+    ui.same_line();
+    if *pending_reload {
+        let confirm = cstring(format!("Confirm reload (discards edits)##config_{anchor}"));
+        if ui.button_colored(&confirm, RELOAD_BUTTON, RELOAD_HOVERED, RELOAD_ACTIVE) {
+            editor.reload();
+            *pending_reload = false;
+        }
+        ui.same_line();
+        if ui.button(&cstring(format!("Cancel##config_{anchor}"))) {
+            *pending_reload = false;
+        }
+    } else {
+        let reload = cstring(format!("Reload from disk##config_{anchor}"));
+        if ui.button_colored(&reload, RELOAD_BUTTON, RELOAD_HOVERED, RELOAD_ACTIVE) {
+            if editor.is_dirty() {
+                *pending_reload = true;
+            } else {
+                editor.reload();
+            }
+        }
+        if editor.is_dirty() {
+            ui.same_line();
+            if ui.button(&cstring(format!("Discard changes##config_{anchor}"))) {
+                editor.discard();
+                *pending_reload = false;
+            }
+        }
+    }
+    ui.same_line();
+    ui.text_colored(
+        if editor.is_dirty() { WARN } else { GOOD },
+        &cstring(if editor.is_dirty() {
+            "Unsaved changes"
+        } else {
+            "Saved file matches"
+        }),
+    );
+    if let Some(error) = &editor.error {
+        ui.text_colored(ERROR, &cstring(error));
+    } else if let Some(notice) = &editor.notice {
+        ui.text_colored(GOOD, &cstring(notice));
+    }
+}
+
+/// Absolute path of the configuration file being edited.
+///
+/// The editor keeps a path relative to the game working directory; showing the
+/// resolved location helps a user find the file outside the game.
+fn resolved_config_path(editor: &ConfigEditor) -> String {
+    match std::env::current_dir() {
+        Ok(directory) => directory.join(&editor.path).display().to_string(),
+        Err(_) => editor.path.display().to_string(),
+    }
 }
 
 fn precise_multiplier(ui: &mut Ui<'_>, label: &str, id: &str, value: &mut f32, help: &str) {
@@ -2357,14 +2632,20 @@ fn log_context(line: &LogLine) -> String {
     }
 }
 
-fn feature_status(ui: &mut Ui<'_>, name: &str, active: bool, detail: &str, help: &str) {
+fn feature_status(ui: &mut Ui<'_>, name: &str, active: bool, lost: bool, detail: &str, help: &str) {
     ui.text_colored(ACCENT, &cstring(name));
     hover_help(ui, help);
     ui.same_line();
-    ui.text_colored(
-        if active { GOOD } else { WARN },
-        &cstring(if active { "Active" } else { "Not active" }),
-    );
+    // A protection that is off is not necessarily a fault: the user may have
+    // disabled it. Only a proven loss of an installed patch is a warning.
+    let (state, color) = if active {
+        ("Active", GOOD)
+    } else if lost {
+        ("Lost", WARN)
+    } else {
+        ("Inactive", MUTED)
+    };
+    ui.text_colored(color, &cstring(state));
     ui.text_colored(MUTED, &cstring(detail));
     ui.spacing();
 }
@@ -2378,8 +2659,25 @@ fn allocator_name(mode: u32) -> &'static str {
     }
 }
 
+/// Format a byte count with binary (1024-based) IEC units.
+///
+/// The dashboard charts, thresholds, and delta labels all display MiB, so the
+/// scalar rows use the same family to avoid mixing "MB" and "MiB" on one page.
 fn bytes(value: u64) -> String {
-    format_bytes(value.min(usize::MAX as u64) as usize)
+    const KIB: f64 = 1024.0;
+    const MIB: f64 = KIB * 1024.0;
+    const GIB: f64 = MIB * 1024.0;
+
+    let value = value as f64;
+    if value >= GIB {
+        format!("{:.1} GiB", value / GIB)
+    } else if value >= MIB {
+        format!("{:.1} MiB", value / MIB)
+    } else if value >= KIB {
+        format!("{:.1} KiB", value / KIB)
+    } else {
+        format!("{} B", value as u64)
+    }
 }
 
 fn sample_age_seconds(sample_time_ms: u64) -> u64 {
@@ -2408,7 +2706,16 @@ fn compact_count(value: u64) -> String {
     }
 }
 
-fn counter_color(value: u64) -> [f32; 4] {
+/// Zero is nominal; nonzero fallback or guard activity is informational.
+///
+/// Recoverable allocator fallbacks and guard rejections are expected during
+/// heavy streaming, so they must not read as failures.
+fn activity_color(value: u64) -> [f32; 4] {
+    if value == 0 { GOOD } else { BLUE }
+}
+
+/// Zero is nominal; any nonzero value is support-relevant failure evidence.
+fn alert_color(value: u64) -> [f32; 4] {
     if value == 0 { GOOD } else { WARN }
 }
 
@@ -2468,13 +2775,16 @@ mod tests {
     use core::ffi::c_void;
 
     use super::{
-        ENGINE_FIX_ACTOR_CONTAINER_INDEX, ENGINE_FIX_CELL_RENDER_RETIREMENT_INDEX,
+        CoreLink, ENGINE_FIX_ACTOR_CONTAINER_INDEX, ENGINE_FIX_CELL_RENDER_RETIREMENT_INDEX,
         ENGINE_FIX_DISPLAY_INDEX, ENGINE_FIX_ENCOUNTER_ZONE_INDEX, ENGINE_FIX_HELP,
         ENGINE_FIX_MODEL_POSTPROCESS_INDEX, ENGINE_FIX_QUEUED_TASK_INDEX, ENGINE_FIX_SAVE_INDEX,
-        ENGINE_FIX_SOURCE_TEXTURE_CACHE_INDEX, GameRenderHandles, LogFilters, LogLevel,
-        LogTailReader, MemoryHealth, Page, SamplingState, parse_log_line, take_driver_refresh,
+        ENGINE_FIX_SOURCE_TEXTURE_CACHE_INDEX, GameRenderHandles, LogFilters, LogLevel, LogLine,
+        LogTailReader, MemoryHealth, Page, SamplingState, bytes, contains_ignore_ascii_case,
+        log_line_visible, parse_log_line, take_driver_refresh,
     };
-    use crate::engine_fixes::{DASHBOARD_FLAG_VAS_VALID, DashboardSnapshot};
+    use crate::engine_fixes::{
+        DASHBOARD_FLAG_CORE_READY, DASHBOARD_FLAG_VAS_VALID, DashboardSnapshot,
+    };
 
     #[test]
     fn health_uses_contiguous_vas_not_only_total_free() {
@@ -2584,6 +2894,50 @@ mod tests {
         assert!(!important.accepts(LogLevel::Trace));
 
         assert!(LogFilters::all().accepts(LogLevel::Trace));
+    }
+
+    #[test]
+    fn log_query_matches_text_module_and_timestamp_case_insensitively() {
+        let line = LogLine {
+            level: LogLevel::Info,
+            timestamp: "23:40:03".to_owned(),
+            source: "Watchdog".to_owned(),
+            text: "[MEM] Pool Status".to_owned(),
+        };
+        let all = LogFilters::all();
+        assert!(log_line_visible(&line, all, "pool"));
+        assert!(log_line_visible(&line, all, "watchdog"));
+        assert!(log_line_visible(&line, all, "23:40"));
+        assert!(!log_line_visible(&line, all, "allocator"));
+        // Level filtering still applies alongside the text query.
+        assert!(!log_line_visible(&line, LogFilters::important(), "pool"));
+        assert!(contains_ignore_ascii_case("Hello World", "o w"));
+        assert!(!contains_ignore_ascii_case("Hello World", "xyz"));
+    }
+
+    #[test]
+    fn core_link_does_not_report_offline_before_the_first_sample() {
+        assert_eq!(CoreLink::from_parts(None, false), CoreLink::Connecting);
+        assert_eq!(CoreLink::from_parts(None, true), CoreLink::Offline);
+
+        let ready = DashboardSnapshot {
+            flags: DASHBOARD_FLAG_CORE_READY,
+            ..DashboardSnapshot::default()
+        };
+        assert_eq!(CoreLink::from_parts(Some(ready), true), CoreLink::Connected);
+        assert_eq!(
+            CoreLink::from_parts(Some(DashboardSnapshot::default()), true),
+            CoreLink::Starting
+        );
+    }
+
+    #[test]
+    fn byte_values_use_the_same_binary_units_as_the_charts() {
+        assert_eq!(bytes(0), "0 B");
+        assert_eq!(bytes(512), "512 B");
+        assert_eq!(bytes(1024), "1.0 KiB");
+        assert_eq!(bytes(1024 * 1024), "1.0 MiB");
+        assert_eq!(bytes(1024 * 1024 * 1024), "1.0 GiB");
     }
 
     #[test]

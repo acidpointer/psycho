@@ -314,6 +314,15 @@ PsychoImguiIoState psycho_imgui_io_state() {
 	return state;
 }
 
+// True while Dear ImGui has an active text field. Clients use this to decide
+// whether a hotkey such as Esc should close an overlay or reach the editor.
+bool psycho_imgui_want_text_input() {
+	if (ImGui::GetCurrentContext() == nullptr) {
+		return false;
+	}
+	return ImGui::GetIO().WantTextInput;
+}
+
 void psycho_imgui_queue_mouse_wheel_delta(int32_t vertical, int32_t horizontal) {
 	if (vertical != 0) {
 		::InterlockedExchangeAdd(&g_pending_mouse_wheel_y, static_cast<LONG>(vertical));
@@ -1177,6 +1186,23 @@ void psycho_imgui_same_line() {
 
 void psycho_imgui_scroll_to_bottom() {
 	ImGui::SetScrollHereY(1.0f);
+}
+
+// Whether the current window/child is scrolled to its newest content. A
+// streaming viewer uses this to avoid yanking a reader who scrolled back.
+bool psycho_imgui_is_scrolled_to_bottom() {
+	if (ImGui::GetCurrentContext() == nullptr) {
+		return true;
+	}
+	return ImGui::GetScrollY() >= ImGui::GetScrollMaxY() - 1.0f;
+}
+
+// Publish text through the platform clipboard callback installed by the
+// backend, so overlays can offer copy actions without touching Win32 directly.
+void psycho_imgui_set_clipboard_text(const char* text) {
+	if (text != nullptr) {
+		ImGui::SetClipboardText(text);
+	}
 }
 
 } // extern "C"

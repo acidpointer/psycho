@@ -7,7 +7,9 @@ use crate::dashboard;
 
 nvse_command!(PsychoInfo, cmd, {
     if !dashboard::request_open() {
-        cmd.print("Psycho dashboard unavailable; check psycho-engine-fixes-latest.log");
+        cmd.print(
+            "Psycho dashboard unavailable: the early psycho_engine_fixes core was not loaded or activated. See psycho-engine-fixes-latest.log",
+        );
     }
     true
 });

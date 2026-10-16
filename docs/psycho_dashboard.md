@@ -23,10 +23,16 @@ The control deck has five pages:
   current LOD ownership, and the bounded native-IO scheduling policy.
 - **Configuration** edits the complete supported Psycho TOML surface. Saving is
   explicitly labelled **Save for next launch**; it never changes live core
-  state.
+  state. The save/reload controls are repeated at the top and bottom of the
+  page, a dirty draft can be discarded explicitly, and reloading a dirty draft
+  requires a second confirming click.
 - **Log browser** tails the current Psycho log with independent ERROR, WARN,
-  INFO, DEBUG, and TRACE filters plus optional auto-follow. Timestamp and module
-  prefixes are hidden by default, with compact context available on demand.
+  INFO, DEBUG, and TRACE filters, a case-insensitive text filter over the
+  message, module, and compact timestamp, and optional auto-follow that only
+  scrolls while the reader is already at the newest line. A **Copy visible**
+  action puts the currently visible lines on the clipboard. Timestamp and
+  module prefixes are hidden by default, with compact context available on
+  demand.
 
 The green-black presentation, status cards, restrained warning colors, and
 charts are deliberate, but decoration does not replace meaning. Every chart
@@ -217,7 +223,11 @@ recreates them only after a successful Reset. The hook is process-lifetime; it
 is never removed while another hook might still chain through it.
 
 The helper installs a Win32 WndProc chain on the top-level input owner after
-both windows exist. `F10` toggles the dashboard and `Esc` closes it. While open,
+both windows exist. `F10` toggles the dashboard and `Esc` closes it. A held
+`F10` is ignored through its auto-repeat messages, so the overlay does not
+flicker open and closed. While a dashboard text field is active, `Esc` is
+forwarded to Dear ImGui so it cancels the edit instead of closing the
+dashboard. While open,
 it forwards Win32 messages to ImGui and suppresses the game's DirectInput
 keyboard/mouse results. Mouse position and buttons are polled only while the
 top-level window owns the foreground, then converted from screen space into
@@ -497,7 +507,17 @@ mirrors the existing fixed-width snapshot.
 - Missing core module/export: no dashboard worker or graphics/input hook starts.
 - Temporary core sample miss: the last good sample remains visible; after three
   misses it changes to offline rather than displaying stale data indefinitely.
-- Busy publication lock: rendering keeps the previous frame and never waits.
+  The header distinguishes `CONNECTING` (no sample yet), `STARTING` (sample
+  present, readiness flag not set), `CONNECTED`, and `CORE OFFLINE` (a core
+  that produced telemetry and then stopped), so a slow start is not shown as a
+  failure.
+- Busy publication lock: rendering reuses the last published core snapshot and
+  never waits or flashes the offline state for a momentary lock miss.
+- Overlay initialization failure (null device, ImGui init, or the reset
+  bridge): the open request is cancelled, DirectInput capture is restored, and
+  the failure is logged once with a retry available on the next open request.
+  Device-object creation across a Reset is treated as transient and retried
+  without closing.
 - Missing or unreadable log: the telemetry pages remain available and the log
   page shows the read error.
 - Invalid or externally changed config: saving is rejected without overwriting
@@ -531,7 +551,12 @@ Automated coverage includes:
 - complete-line incremental log-tail parsing across reads;
 - contiguous-VAS health classification;
 - structured log parsing, compact context extraction, and five-level filtering;
-- the complete 21-entry engine-fix help catalog, including unique labels,
+- case-insensitive log query matching over message, module, and timestamp,
+  composed with the level filters;
+- connection-state classification that reports connecting/starting/offline
+  distinctly and never reports offline before the first sample;
+- binary (IEC) byte formatting shared with the chart MiB labels;
+- the complete 22-entry engine-fix help catalog, including unique labels,
   concise length bounds, and ASCII font safety;
 - config dirty-state tracking;
 - actor-container, encounter-zone, and cell-render-retirement default/disable
