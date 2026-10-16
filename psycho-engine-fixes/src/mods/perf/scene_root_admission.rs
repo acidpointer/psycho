@@ -121,9 +121,7 @@ pub(crate) fn install() -> Result<()> {
     }
     transaction.commit();
     log::debug!("[SCENE_ROOT_ADMISSION] Qualified admission window at 0x{CALL_ADDRESS:08X}");
-    log::info!(
-        "[SCENE_ROOT_ADMISSION] Single-search room admission installed with native fallback"
-    );
+    log::info!("[SCENE_ROOT_ADMISSION] Single-search room admission active (native fallback)");
     Ok(())
 }
 

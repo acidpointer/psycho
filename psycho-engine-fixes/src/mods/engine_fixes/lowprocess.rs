@@ -526,7 +526,7 @@ fn install_save_payload_containment() -> anyhow::Result<()> {
     }
     PREVIOUS_APPEND_REF_ID.store(previous, Ordering::Release);
     log::info!(
-        "[LOWPROCESS] Generic-location save containment active predecessor=0x{:08X}",
+        "[LOWPROCESS] Save containment active for generic locations: unowned references are not freed or dereferenced (predecessor 0x{:08X})",
         previous
     );
     Ok(())
@@ -646,7 +646,7 @@ fn install_save_traversal_containment() -> anyhow::Result<()> {
     }
 
     log::info!(
-        "[LOWPROCESS] Save traversal containment active data=0x{:08X} next=0x{:08X}",
+        "[LOWPROCESS] Save traversal containment active (data 0x{:08X}, next 0x{:08X})",
         previous_data,
         previous_next,
     );
@@ -697,7 +697,7 @@ pub(super) fn install_late_boundary() -> anyhow::Result<()> {
     PREVIOUS_MAIN_TASK_DRAIN.store(previous, Ordering::Release);
     MAIN_BOUNDARY_INSTALLED.store(true, Ordering::Release);
     log::info!(
-        "[LOWPROCESS] Late slot-wrapping boundary active predecessor=0x{:08X}",
+        "[LOWPROCESS] Late slot-wrapping boundary active (predecessor 0x{:08X})",
         previous
     );
     Ok(())
@@ -1219,7 +1219,7 @@ fn wrap_slot(
         rewraps.fetch_add(1, Ordering::Relaxed) + 1
     };
     log::info!(
-        "[LOWPROCESS] {} slot wrapped index={} base=0x{:08X} slot=0x{:08X} predecessor=0x{:08X} count={}",
+        "[LOWPROCESS] {} slot wrapped (#{}): base 0x{:08X}, slot 0x{:08X}, predecessor 0x{:08X}, count {}",
         kind,
         index,
         statics::LOWPROCESS_VTABLE_BASES[index],

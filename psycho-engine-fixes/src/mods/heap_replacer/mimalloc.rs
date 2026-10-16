@@ -51,7 +51,7 @@ pub fn initialize_mimalloc() {
             if result == 0 {
                 reserved = size;
                 log::info!(
-                    "[MIMALLOC] Reserved {}MB arena (id={:?})",
+                    "[MIMALLOC] Arena reserved: {}MB (id {:?})",
                     size / MB,
                     arena_id
                 );
@@ -68,7 +68,7 @@ pub fn initialize_mimalloc() {
         }
 
         apply_options();
-        log::info!("[MIMALLOC] Initialized (reserved={}MB)", reserved / MB);
+        log::info!("[MIMALLOC] Initialized, {}MB reserved", reserved / MB);
     });
 }
 
@@ -114,7 +114,7 @@ unsafe fn apply_options() {
         mi_option_set_enabled(mi_option_destroy_on_exit, true);
 
         log::info!(
-            "[MIMALLOC] Tuned: arena_reserve={}MB arena_max_object={}KB purge_delay={}ms purge_decommits={} retry_on_oom={} page_reclaim_on_free={} full_retain={} cross_thread_reclaim={}",
+            "[MIMALLOC] Options: arena reserve {}MB, max object {}KB, purge delay {}ms, purge decommits {}, retry on OOM {}, reclaim on free {}, full retain {}, cross-thread reclaim {}",
             MIMALLOC_ARENA_RESERVE_KIB / 1024,
             MIMALLOC_ARENA_MAX_OBJECT_KIB,
             mi_option_get(mi_option_purge_delay),

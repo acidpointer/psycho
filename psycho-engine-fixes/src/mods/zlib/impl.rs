@@ -701,7 +701,7 @@ fn replace_calls_transactionally_with(
 }
 
 fn install_game_hooks() -> anyhow::Result<()> {
-    log::info!("[ZLIB] Installing libdeflate/zlib-rs decompression hooks");
+    log::info!("[ZLIB] Installing decompression hooks (libdeflate one-shot + zlib-rs per-stream)");
 
     let mut patches = Vec::with_capacity(11);
     patches.push(CallPatch {
@@ -747,7 +747,9 @@ fn install_game_hooks() -> anyhow::Result<()> {
     // zlib-rs state uses its own fallible allocation only after a libdeflate
     // miss, while the cap prevents a single archive entry from demanding an
     // unbounded contiguous buffer in FNV's 32-bit address space.
-    log::info!("[ZLIB] Hooks installed (libdeflate one-shot + per-stream zlib-rs fallback)");
+    log::info!(
+        "[ZLIB] Decompression hooks active (libdeflate one-shot + zlib-rs per-stream fallback)"
+    );
     Ok(())
 }
 

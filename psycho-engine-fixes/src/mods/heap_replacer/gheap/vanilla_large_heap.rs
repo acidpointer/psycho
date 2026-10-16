@@ -136,7 +136,10 @@ pub fn run_once() {
 unsafe fn inspect_and_maybe_reclaim(label: &str, heap_offset: usize) -> usize {
     let heap = unsafe { read_usize(addr::HEAP_SINGLETON + heap_offset) };
     if heap == 0 {
-        log::info!("[VANILLA_HEAP] {}: heap pointer is NULL, skipped", label);
+        log::info!(
+            "[VANILLA_HEAP] {}: heap pointer is null, reclaim skipped",
+            label
+        );
         return 0;
     }
 

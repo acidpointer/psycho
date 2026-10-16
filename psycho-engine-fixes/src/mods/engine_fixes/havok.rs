@@ -77,7 +77,7 @@ pub fn install_remove_agent_unlock_guard() -> Result<()> {
     .context("patching FUN_00D93BA0 TOI unlock dead arg")?;
 
     log::info!(
-        "[HAVOK] Remove-agent unlock NULL-reread guard active at 0x{:08X} and 0x{:08X}",
+        "[HAVOK] Guard active at 0x{:08X} and 0x{:08X}: removes a NULL broadphase reread after a Havok unlock",
         REMOVE_AGENT_UNLOCK_ARG_LOAD_ADDR,
         TOI_UNLOCK_ARG_LOAD_ADDR,
     );

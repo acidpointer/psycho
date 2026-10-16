@@ -40,7 +40,7 @@ struct PressureRequest {
 
 impl PressureRelief {
     fn new() -> Self {
-        log::info!("[PRESSURE] Initialized");
+        log::info!("[PRESSURE] Memory pressure tracking started");
 
         Self {
             baseline_commit: AtomicUsize::new(0),
@@ -68,7 +68,10 @@ impl PressureRelief {
         // based on available VAS (from VirtualQuery at startup).
         super::allocator::calibrate_thresholds(commit);
 
-        log::info!("[PRESSURE] Baseline calibrated: {}MB", commit / 1024 / 1024,);
+        log::info!(
+            "[PRESSURE] Baseline commit {}MB (growth is measured from here)",
+            commit / 1024 / 1024,
+        );
     }
 
     /// Publish one watchdog sample that proves high process VAS pressure.

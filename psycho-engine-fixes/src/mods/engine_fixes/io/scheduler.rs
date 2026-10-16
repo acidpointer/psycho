@@ -226,7 +226,7 @@ fn install_parallel_io_inner() -> anyhow::Result<()> {
     CACHE_FALLBACK_INSTALLED.store(true, Ordering::Release);
     CELL_LOADER_SERIALIZATION_INSTALLED.store(true, Ordering::Release);
     log::info!(
-        "[IO] Bounded two-worker IOManager armed: primary-first selection, one-task supplemental quantum, below-normal supplemental priority, per-form cell-owner and AutoWater transaction serialization, three-thread BSTree TLS, and BSFile cache fallback"
+        "[IO] Two-worker IOManager active: primary-first selection, one-task supplemental quantum at below-normal priority; cell-owner, AutoWater, BSTree TLS and BSFile cache fallback guarded"
     );
     Ok(())
 }

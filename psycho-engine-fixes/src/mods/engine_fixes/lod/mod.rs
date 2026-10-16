@@ -310,7 +310,7 @@ pub(super) fn install(config: &LodConfig, diagnostics: &DiagnosticsConfig, safet
     let runtime = CONFIG.get().expect("LOD configuration was published");
     let scheduler = scheduler::snapshot();
     log::info!(
-        "[LOD] Active streaming={} handoff={} priority={} trace={} object={:.2}/{:.2} tree={:.2}/{:.2} terrain={:.2}/{:.2}",
+        "[LOD] Active: streaming {}, handoff {}, priority {}, trace {}; multipliers object {:.2}/{:.2}, tree {:.2}/{:.2}, terrain {:.2}/{:.2}",
         STREAMING_INSTALLED.load(Ordering::Acquire),
         HANDOFF_INSTALLED.load(Ordering::Acquire),
         scheduler.priority_installed,

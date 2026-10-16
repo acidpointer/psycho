@@ -1017,8 +1017,8 @@ impl BlockHeap {
         if diagnostics::hitch_profiling_enabled() {
             TIMED_NEW_BLOCKS.fetch_add(1, Ordering::Relaxed);
         }
-        log::debug!(
-            "[BLOCK] {} extent allocated: shard={} slot={} base=0x{:08X} size={}KB source={} live={}",
+        log::trace!(
+            "[BLOCK] {} extent added: shard {} slot {}, 0x{:08X}, {}KB, {}, {} live",
             kind.label(),
             shard,
             slot,
@@ -1061,8 +1061,8 @@ impl BlockHeap {
             return None;
         }
         self.register_exact(slot, class_index);
-        log::debug!(
-            "[BLOCK] Exact spill extent ready: shard={} slot={} class={} item_size={} base=0x{:08X}",
+        log::trace!(
+            "[BLOCK] Exact spill extent ready: shard {} slot {}, class {}, item size {}, base 0x{:08X}",
             shard,
             slot,
             class_index,
@@ -1348,7 +1348,7 @@ pub fn init() -> bool {
     }
     if !INIT_LOGGED.swap(true, Ordering::AcqRel) {
         log::info!(
-            "[BLOCK] Medium extent tier ready: {} shards, {}MB small extents, 64KB-rounded large extents, {} total slots",
+            "[BLOCK] Block allocator ready: {} shards, {}MB small extents, 64KB-aligned large extents, {} slots total",
             SHARD_COUNT,
             SMALL_EXTENT_SIZE / 1024 / 1024,
             MAX_EXTENTS,

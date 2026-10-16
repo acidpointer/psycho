@@ -236,7 +236,7 @@ fn log_overflow_refusal(class_index: u8, item_size: u32, reason: &'static str, v
     let count = OVERFLOW_REFUSALS.fetch_add(1, Ordering::Relaxed) + 1;
     if count.is_power_of_two() {
         log::warn!(
-            "[POOL] Exact-size overflow refused: class #{} {}B reason={} value={}MB count={}",
+            "[POOL] Refused an overflow allocation for class #{} ({}B): {}, {}MB requested, {} total refused",
             class_index,
             item_size,
             reason,
@@ -1222,7 +1222,7 @@ impl PoolHeap {
         }
 
         log::info!(
-            "[POOL] Ready (subpool lazy): {} classes -> {} base + {} overflow descriptors of up to {}MB (overflow soft limit={}MB), 0MB reserved upfront",
+            "[POOL] Pool allocator ready: {} size classes, {} base + {} overflow subpools up to {}MB (overflow soft cap {}MB), 0MB reserved upfront",
             NUM_BASE_POOLS,
             NUM_BASE_SUBPOOLS,
             NUM_OVERFLOW_SUBPOOLS,
@@ -1347,7 +1347,7 @@ impl PoolHeap {
                     >= OVERFLOW_RESERVATION_SOFT_LIMIT
             {
                 log::warn!(
-                    "[POOL] Exact-size overflow crossed soft reservation limit: current={}MB request={}MB limit={}MB",
+                    "[POOL] Overflow reservation above its soft cap: {}MB in use, {}MB requested, cap {}MB",
                     overflow_total / 1024 / 1024,
                     reservation_bytes / 1024 / 1024,
                     OVERFLOW_RESERVATION_SOFT_LIMIT / 1024 / 1024,
@@ -1517,8 +1517,8 @@ impl PoolHeap {
 
         record_init_timing(timer, idx as u16, item_size);
 
-        log::debug!(
-            "[POOL] class #{} {}B initialized: subpool {}/{} (#{}) user={}MB at 0x{:08x}..0x{:08x} metadata={}KB source={} overflow={}",
+        log::trace!(
+            "[POOL] class #{} ({}B) subpool {}/{} (#{}) created: {}MB at 0x{:08x}..0x{:08x}, {}KB metadata, {}, overflow {}",
             class_index,
             item_size,
             subpool_index + 1,
@@ -1662,7 +1662,7 @@ impl PoolHeap {
         if class_failures.is_power_of_two() {
             let total_failures = self.total_exhaustions();
             log::warn!(
-                "[POOL] Allocation refused for size={} class #{}={}B reason={}: class_fails={} total_fails={}",
+                "[POOL] Refused {}B allocation from class #{} ({}B): {} ({} failures for this class, {} total)",
                 size,
                 class_idx,
                 POOL_DESC[class_idx].item_size,

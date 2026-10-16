@@ -149,10 +149,7 @@ pub fn preflight(mode: AllocatorMode) -> anyhow::Result<AllocatorPatchPlan> {
         verify_patches(GHEAP_PATCHES)?;
         plan.hook_gheap_realloc_1 = optional_realloc_1_is_available();
     }
-    log::info!(
-        "[MEMORY] Allocator patch manifest accepted ({})",
-        mode.name()
-    );
+    log::info!("[MEMORY] Allocator patch plan accepted: {}", mode.name());
     Ok(plan)
 }
 
@@ -202,7 +199,7 @@ fn verify_scrap_tls_accessor() -> anyhow::Result<()> {
     // direct entry JMP is a complete, recognizable boundary that Psycho can
     // replace without invoking or depending on the previous implementation.
     log::info!(
-        "[MEMORY] {} already has a provider ({owner}); Psycho will replace it without constructing a trampoline",
+        "[MEMORY] {} was already hooked by {owner}; Psycho takes it over safely without a trampoline",
         site.name(),
     );
     Ok(())

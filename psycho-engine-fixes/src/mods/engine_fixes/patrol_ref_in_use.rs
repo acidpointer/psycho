@@ -106,7 +106,9 @@ pub(super) fn install() -> anyhow::Result<()> {
     let replacement = resolve_patrol_actor_checked as *mut c_void;
     if predecessor == replacement as usize {
         INSTALLED.store(true, Ordering::Release);
-        log::info!("[AI_PATROL] Patrol owner FormID guard active");
+        log::info!(
+            "[AI_PATROL] Guard active: rejects a stale patrol-owner FormID instead of calling the wrong method"
+        );
         return Ok(());
     }
     ensure!(
@@ -129,7 +131,9 @@ pub(super) fn install() -> anyhow::Result<()> {
     }
 
     INSTALLED.store(true, Ordering::Release);
-    log::info!("[AI_PATROL] Patrol owner FormID guard active");
+    log::info!(
+        "[AI_PATROL] Guard active: rejects a stale patrol-owner FormID instead of calling the wrong method"
+    );
     Ok(())
 }
 

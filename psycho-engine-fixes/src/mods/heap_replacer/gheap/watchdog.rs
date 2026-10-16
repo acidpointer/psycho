@@ -189,10 +189,12 @@ impl Watchdog {
         };
 
         if handle.is_some() {
-            log::info!("[MEM] Watchdog started");
+            log::info!(
+                "[MEM] Memory watchdog started (reports RAM, commit and virtual-address pressure)"
+            );
         }
         log::debug!(
-            "[MEM] Watchdog config: poll={}ms detail={}ms, growth thresholds={}%/{}%/{}% of headroom",
+            "[MEM] Watchdog config: poll every {}ms, detailed report every {}ms, growth thresholds {}% / {}% / {}% of headroom",
             POLL_MS,
             POLL_MS * DETAIL_INTERVAL,
             (NORMAL_GROWTH_PCT * 100.0) as u32,
@@ -227,7 +229,7 @@ fn log_allocator_events() {
     }
 
     log::warn!(
-        "[MEM] allocator fallback events: pool_exhaust+{} total={} block_overflow+{} total={} block_fail+{} total={} va_fail+{} total={}",
+        "[MEM] Allocator fallbacks: pool exhausted +{} ({} total), block overflowed +{} ({} total), block failed +{} ({} total), virtual allocation failed +{} ({} total)",
         new_pool_exhaust,
         pool_exhaust,
         new_block_overflow,
@@ -301,7 +303,7 @@ fn log_diagnostics(poll_count: u32, info: &MiMallocProcessInfo) {
     );
 
     log::debug!(
-        "[MEM] RSS: {} | Peak: {} | Commit: {} | PeakCommit: {} | Faults: {:.1}/s | CPU eff: {:.0}%",
+        "[MEM] RAM {} (peak {}), commit {} of the 32-bit limit (peak {}), page faults {:.1}/s, CPU {:.0}%",
         info.memory_usage_human(),
         info.peak_memory_usage_human(),
         info.virtual_memory_usage_human(),
@@ -325,7 +327,7 @@ fn log_diagnostics(poll_count: u32, info: &MiMallocProcessInfo) {
     let va_peak = super::va_alloc::peak_live_bytes() / 1024 / 1024;
     let va_max = super::va_alloc::max_allocation_bytes() / 1024 / 1024;
     log::debug!(
-        "[MEM] Pool: {}MB cells + {}/{}MB metadata / {}MB user reserved (overflow={}/{}MB user/meta, {} live) | Blocks: {} slots (va={} tail={} empty_va={} partial={}), {}/{}MB live/committed, reclaimable={}/{}MB reserved/committed, stranded={}MB, {} allocs, sample={} | VA: {}/{}MB live/peak, {}MB max | Rate: {}/s",
+        "[MEM] Pool: {}MB committed for game cells, {}/{}MB metadata, {}MB reserved, {} live cells (overflow {}MB user + {}MB metadata) | Blocks: {} total ({} virtualalloc, {} default-tail, {} empty, {} partial), {}/{}MB live/committed, {}MB reclaimable ({}MB committed), {}MB stranded, {} allocations, sample {} | VA: {}/{}MB live/peak, {}MB max | Growth {}/s",
         pool_mb,
         pool_metadata_mb,
         pool_metadata_reserved_mb,
@@ -353,7 +355,7 @@ fn log_diagnostics(poll_count: u32, info: &MiMallocProcessInfo) {
     let mut class_usage = super::pool::class_usage();
     class_usage.sort_unstable_by_key(|usage| std::cmp::Reverse(usage.live_cells));
     log::debug!(
-        "[MEM] Pool top live: #{} {}B={} ({}/{}MB), #{} {}B={} ({}/{}MB), #{} {}B={} ({}/{}MB), #{} {}B={} ({}/{}MB)",
+        "[MEM] Top size classes: #{} {}B has {} live ({}MB committed, {}MB reserved); #{} {}B has {} live ({}MB committed, {}MB reserved); #{} {}B has {} live ({}MB committed, {}MB reserved); #{} {}B has {} live ({}MB committed, {}MB reserved)",
         class_usage[0].class_index,
         class_usage[0].item_size,
         class_usage[0].live_cells,
@@ -383,7 +385,7 @@ fn log_diagnostics(poll_count: u32, info: &MiMallocProcessInfo) {
         // real VAS consumers, but treating them as allocator-private growth
         // would send later investigation toward the wrong owner.
         log::debug!(
-            "[VAS watchdog] free={}MB largest=0x{:08x}+{}MB second=0x{:08x}+{}MB reserve={}MB commit={}MB private={}MB mapped={}MB image={}MB unknown={}MB regions={} holes={}",
+            "[VAS] {}MB free; largest hole 0x{:08x}+{}MB, second 0x{:08x}+{}MB; reserved {}MB, committed {}MB (private {}MB, mapped {}MB, image {}MB, unknown {}MB); {} regions, {} holes",
             vas.total_free / super::vas::MB,
             vas.largest_base,
             vas.largest_free / super::vas::MB,
@@ -407,7 +409,7 @@ fn log_diagnostics(poll_count: u32, info: &MiMallocProcessInfo) {
 
         if poll_count.is_multiple_of(INFO_SUMMARY_INTERVAL) {
             log::info!(
-                "[MEM] commit={} peak={} pool={}/{}MB blocks={} reclaimable={}MB va={}MB largest_free={}MB total_free={}MB rate={}/s",
+                "[MEM] Commit {}MB (peak {}MB), pool {}/{}MB, {} blocks, {}MB reclaimable, {}MB virtual memory live, largest free {}MB, total free {}MB, growth {}/s",
                 info.virtual_memory_usage_human(),
                 libpsycho::common::helpers::format_bytes(info.get_peak_commit()),
                 pool_mb,
@@ -470,14 +472,14 @@ fn log_pressure(commit: usize, free_vas: Option<usize>) -> Option<PressureState>
             free_state,
             || {
                 log::info!(
-                    "[MEM] Free VAS recovered: free={}MB",
+                    "[MEM] Free virtual memory recovered: {}MB available",
                     free_vas / 1024 / 1024,
                 )
             },
-            || log::info!("[MEM] Free VAS watch: free={}MB", free_vas / 1024 / 1024,),
+            || log::info!("[MEM] Free virtual memory watch: {}MB available", free_vas / 1024 / 1024,),
             || {
                 log::warn!(
-                    "[MEM] Free VAS low: free={}MB. Heavy texture or cell streaming allocations may fail.",
+                    "[MEM] Free virtual memory low: only {}MB left. Large texture or cell-loading allocations may fail; expect stutter or a crash on load.",
                     free_vas / 1024 / 1024,
                 )
             },
@@ -492,14 +494,14 @@ fn log_pressure(commit: usize, free_vas: Option<usize>) -> Option<PressureState>
         commit_state,
         || {
             log::info!(
-                "[MEM] Commit pressure recovered: commit={}MB growth={}MB",
+                "[MEM] Commit pressure recovered: {}MB committed, {}MB growth since start",
                 commit / 1024 / 1024,
                 growth / 1024 / 1024,
             )
         },
         || {
             log::info!(
-                "[MEM] Commit pressure watch: commit={}MB growth={}MB rate={}/s",
+                "[MEM] Commit pressure watch: {}MB committed, {}MB growth since start, rate {}/s",
                 commit / 1024 / 1024,
                 growth / 1024 / 1024,
                 format_rate(rate),
@@ -507,7 +509,7 @@ fn log_pressure(commit: usize, free_vas: Option<usize>) -> Option<PressureState>
         },
         || {
             log::warn!(
-                "[MEM] Commit pressure high: commit={}MB growth={}MB rate={}/s",
+                "[MEM] Commit pressure high: {}MB committed, {}MB growth since start, rate {}/s. Memory is filling toward the 32-bit limit; expect stutter and failed texture loads. If the game crashes, try memory.allocator = 1.",
                 commit / 1024 / 1024,
                 growth / 1024 / 1024,
                 format_rate(rate),
@@ -525,21 +527,21 @@ fn log_largest_hole_pressure(vas: super::vas::Summary) -> PressureState {
         state,
         || {
             log::info!(
-                "[MEM] VAS fragmentation recovered: largest_free={}MB total_free={}MB",
+                "[MEM] Virtual memory defragmented: largest free block {}MB of {}MB total",
                 vas.largest_free / super::vas::MB,
                 vas.total_free / super::vas::MB,
             )
         },
         || {
             log::info!(
-                "[MEM] VAS fragmentation watch: largest_free={}MB total_free={}MB",
+                "[MEM] Virtual memory fragmentation watch: largest free block {}MB of {}MB total",
                 vas.largest_free / super::vas::MB,
                 vas.total_free / super::vas::MB,
             )
         },
         || {
             log::warn!(
-                "[MEM] VAS fragmentation high: largest_free={}MB total_free={}MB. Large texture or D3D allocations may fail.",
+                "[MEM] Virtual memory badly fragmented: largest free block only {}MB of {}MB total. Large texture or D3D allocations may fail.",
                 vas.largest_free / super::vas::MB,
                 vas.total_free / super::vas::MB,
             )

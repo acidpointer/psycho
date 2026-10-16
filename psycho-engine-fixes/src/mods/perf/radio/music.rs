@@ -1669,7 +1669,7 @@ pub(super) fn install() -> anyhow::Result<()> {
     )?)?;
     transaction.commit();
     log::info!(
-        "[RADIO] Music entry admission, media outcomes, and native playlist progression installed"
+        "[RADIO] Music entry admission, media outcomes and native playlist progression active"
     );
     Ok(())
 }

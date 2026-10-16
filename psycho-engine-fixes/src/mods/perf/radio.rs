@@ -413,7 +413,7 @@ pub fn install_radio_scan_fix() -> anyhow::Result<()> {
     transaction.enable_callsite(&STATION_UPDATE_HOOK)?;
     transaction.commit();
     log::info!(
-        "[RADIO] Synchronous availability active; native query results and station playback retained"
+        "[RADIO] Radio availability handled synchronously; native query results and playback kept"
     );
 
     // Optional bridges start inert. No gameplay traversal exists at this
@@ -475,7 +475,7 @@ pub(crate) fn observe_event(kind: u32) {
     }
     if native_policy_owned() {
         POLICY_READY.store(true, Ordering::Release);
-        log::info!("[RADIO] Native policy optimization active for radio query modes 0/1/2");
+        log::info!("[RADIO] Native policy optimization active for query modes 0/1/2");
     } else {
         log::warn!("[RADIO] Native policy contract changed; complete native computation retained");
     }

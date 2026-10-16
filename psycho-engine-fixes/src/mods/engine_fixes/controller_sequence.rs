@@ -118,7 +118,7 @@ pub(super) fn install() -> anyhow::Result<()> {
     transaction.commit();
     INSTALLED.store(true, Ordering::Release);
     log::info!(
-        "[ANIM_SEQUENCE] IDTag retirement guard active at 0x{:08X}",
+        "[ANIM_SEQUENCE] Guard active at 0x{:08X}: validates retiring animation IDTag arrays before they are freed",
         statics::NI_CONTROLLER_SEQUENCE_DTOR_ADDR,
     );
     Ok(())
@@ -368,7 +368,7 @@ fn log_sanitization(
         return;
     };
     log::warn!(
-        "[ANIM_SEQUENCE] discarded unresolved retiring IDTag record: sequence=0x{:08X} array=0x{:08X} sequence_count={} array_count={} record={} field={} value=0x{:08X} usable={} allocation={:?} repaired={} event={}",
+        "[ANIM_SEQUENCE] Discarded an unresolved retiring IDTag record to avoid a crash: sequence 0x{:08X}, array 0x{:08X} ({} of {} records), record {} field {} value 0x{:08X}, usable {}, allocation {:?}, repaired {}, event {}",
         sequence as usize,
         array_data as usize,
         sequence_count,

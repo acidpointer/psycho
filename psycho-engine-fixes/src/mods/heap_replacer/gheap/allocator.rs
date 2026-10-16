@@ -69,7 +69,7 @@ pub fn calibrate_thresholds(baseline: usize) {
     };
     HEADROOM.store(free_vas, Ordering::Release);
     log::info!(
-        "[VAS] Baseline calibrated: commit={}MB free={}MB (watch below {}MB, high below {}MB)",
+        "[VAS] Virtual address space baseline: {}MB committed, {}MB free (warn below {}MB, critical below {}MB)",
         baseline / 1024 / 1024,
         free_vas / 1024 / 1024,
         VAS_CRITICAL_REMAINING / 1024 / 1024,

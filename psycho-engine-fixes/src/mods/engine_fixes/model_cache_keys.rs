@@ -82,7 +82,7 @@ pub(super) fn install() -> Result<()> {
     tx.enable_inline(&ORDERING_HOOK)?;
     tx.commit();
     ADMITTED.store(true, Ordering::Release);
-    log::info!("[MODEL_CACHE] Shared string-key NULL rejection active");
+    log::info!("[MODEL_CACHE] Guard active: rejects a NULL shared string key instead of crashing");
     Ok(())
 }
 

@@ -398,6 +398,6 @@ pub(crate) fn install() -> Result<()> {
         SHAPE_PATCH.address(),
         PORTAL_PATCH.address(),
     );
-    log::info!("[MULTIBOUND_LOOPS] Compound visibility bookkeeping optimized at six native sites");
+    log::info!("[MULTIBOUND_LOOPS] Removed compound visibility bookkeeping at six sites");
     Ok(())
 }

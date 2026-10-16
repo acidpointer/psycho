@@ -160,7 +160,7 @@ pub(super) fn install() -> anyhow::Result<()> {
     CALLSITE_OWNER.store(OWNER_DIRECT, Ordering::Release);
     INSTALLED.store(true, Ordering::Release);
     log::info!(
-        "[MODEL_POSTPROCESS] EditorMarker transaction serialized at 0x{:08X}; predecessor=0x{predecessor:08X} ({})",
+        "[MODEL_POSTPROCESS] EditorMarker transaction serialized at 0x{:08X} (previous owner 0x{predecessor:08X}, {})",
         statics::MODEL_POSTPROCESS_CALL_ADDR,
         if predecessor == VANILLA_TARGET {
             "vanilla"

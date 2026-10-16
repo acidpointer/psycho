@@ -42,7 +42,7 @@ pub(crate) fn initialize() -> anyhow::Result<()> {
 
     initialize_logging(&cfg.diagnostics)?;
 
-    log::info!("[INIT] Engine fixes startup");
+    log::info!("[INIT] Psycho engine fixes starting");
 
     repair_install_paths(&cfg.engine_fixes);
     install_display(&cfg.engine_fixes)?;
@@ -54,7 +54,7 @@ pub(crate) fn initialize() -> anyhow::Result<()> {
     crate::hardware_report::log_startup_hardware();
     log_runtime();
     log_build_info();
-    log::info!("[INIT] Engine fixes initialized");
+    log::info!("[INIT] Psycho engine fixes ready");
 
     Ok(())
 }

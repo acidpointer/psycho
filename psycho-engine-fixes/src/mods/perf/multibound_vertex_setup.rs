@@ -137,8 +137,6 @@ pub(crate) fn install() -> Result<()> {
         PORTAL_SETUP.address(),
         PLANES_SETUP.address(),
     );
-    log::info!(
-        "[MULTIBOUND_VERTICES] Redundant compound/portal setup optimized at three native sites"
-    );
+    log::info!("[MULTIBOUND_VERTICES] Removed redundant compound/portal setup at three sites");
     Ok(())
 }

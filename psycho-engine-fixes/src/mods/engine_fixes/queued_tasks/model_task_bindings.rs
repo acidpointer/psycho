@@ -221,7 +221,9 @@ pub(super) fn install() -> Result<()> {
     }
     tx.commit();
     ADMITTED.store(true, Ordering::Release);
-    log::info!("[QUEUED_TASK] Reference-map pre-retain containment active");
+    log::info!(
+        "[QUEUED_TASK] Guard active: rejects invalid queued-task reference maps before retention"
+    );
     Ok(())
 }
 

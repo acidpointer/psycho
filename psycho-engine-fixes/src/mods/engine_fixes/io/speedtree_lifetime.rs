@@ -155,7 +155,7 @@ pub(super) fn install() -> anyhow::Result<()> {
     transaction.commit();
     INSTALLED.store(true, Ordering::Release);
     log::info!(
-        "[IO] BSTree materialization, SpeedTree Compute, and clone lifetime serialized; cache-hit lookup remains concurrent; native registry lock 0x{:08X}",
+        "[IO] BSTree materialization, SpeedTree Compute and clone lifetime serialized; cache-hit lookup stays concurrent (native registry lock 0x{:08X})",
         statics::SPEEDTREE_REGISTRY_CRITICAL_SECTION_ADDR,
     );
     Ok(())

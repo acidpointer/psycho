@@ -191,7 +191,9 @@ fn prepare_and_install() -> Result<()> {
     }
     transaction.commit();
     PREPARED.store(true, Ordering::Release);
-    log::info!("[SCENE_LIGHTS] Candidate bridges prepared; native dispatch until DeferredInit");
+    log::info!(
+        "[SCENE_LIGHTS] Sequential light scan prepared; using the native path until DeferredInit"
+    );
     Ok(())
 }
 
@@ -205,7 +207,7 @@ pub(super) fn observe_event(kind: u32) {
     let admitted = !previously_rejected && unsafe { qualified(&SHADOW) && qualified(&CAMERA) };
     READY.store(admitted, Ordering::Release);
     if admitted {
-        log::info!("[SCENE_LIGHTS] Candidate enabled; runtime equivalence unvalidated");
+        log::info!("[SCENE_LIGHTS] Sequential light scan enabled (not yet validated in play)");
     } else {
         POISON.store(1, Ordering::Release);
         log::warn!("[SCENE_LIGHTS] Native contract changed; indexed providers retained");

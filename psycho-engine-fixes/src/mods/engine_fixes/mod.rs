@@ -1281,7 +1281,7 @@ fn install_navmesh_low_pointer(config: &EngineFixesConfig) -> anyhow::Result<()>
         )?;
     }
     statics::NAVMESH_NAME_HELPER_HOOK.enable()?;
-    log::info!("[NAVMESH] Low pointer guard active");
+    log::info!("[NAVMESH] Guard active: ignores an invalid NavMesh pointer instead of crashing");
     Ok(())
 }
 
@@ -1305,7 +1305,7 @@ fn install_entrydata_invalid_form(config: &EngineFixesConfig) -> anyhow::Result<
     }
     statics::ENTRYDATA_LIST_SAVE_HOOK.enable()?;
     statics::ENTRYDATA_LOAD_HOOK.enable()?;
-    log::info!("[ENTRYDATA] Invalid form guard active");
+    log::info!("[ENTRYDATA] Guard active: drops corrupt container entries instead of crashing");
     Ok(())
 }
 
@@ -1324,7 +1324,9 @@ fn install_extraownership_invalid_owner(config: &EngineFixesConfig) -> anyhow::R
     }
     statics::BASE_EXTRA_LIST_GET_BY_TYPE_HOOK.enable()?;
     extraownership::install_load_hook()?;
-    log::info!("[EXTRAOWNERSHIP] Invalid owner guard active");
+    log::info!(
+        "[EXTRAOWNERSHIP] Guard active: clears an invalid ownership pointer instead of crashing"
+    );
     Ok(())
 }
 
@@ -1335,7 +1337,9 @@ fn install_encounter_zone_invalid_form(config: &EngineFixesConfig) -> anyhow::Re
     }
 
     encounter_zone::install()?;
-    log::info!("[ENCOUNTER_ZONE] Invalid form guard active");
+    log::info!(
+        "[ENCOUNTER_ZONE] Guard active: rejects an invalid encounter zone instead of crashing"
+    );
     Ok(())
 }
 
@@ -1357,7 +1361,9 @@ fn install_linked_ref_children_stale_list(config: &EngineFixesConfig) -> anyhow:
     }
 
     linkedrefs::install_remove_guard()?;
-    log::info!("[LINKED_REFS] Stale child-list guard active");
+    log::info!(
+        "[LINKED_REFS] Guard active: ignores a stale linked-reference child list during cleanup"
+    );
     Ok(())
 }
 
@@ -1368,7 +1374,7 @@ fn install_linked_ref_target_base_form(config: &EngineFixesConfig) -> anyhow::Re
     }
 
     linkedrefs::install_target_base_form_guard()?;
-    log::info!("[LINKED_REFS] Target base-form guard active");
+    log::info!("[LINKED_REFS] Guard active: skips a linked target whose base form is broken");
     Ok(())
 }
 
@@ -1398,8 +1404,8 @@ fn install_ragdoll_null_bone(config: &EngineFixesConfig) -> anyhow::Result<()> {
     statics::RAGDOLL_BONE_TRANSFORM_UPDATE_HOOK.enable()?;
     statics::RAGDOLL_ALTERNATE_UPDATE_HOOK.enable()?;
     statics::RAGDOLL_SAVE_LOAD_WRITEBACK_HOOK.enable()?;
-    log::info!("[RAGDOLL] Null bone-array guard active");
-    log::info!("[RAGDOLL] Controller table guard active");
+    log::info!("[RAGDOLL] Guard active: pauses a ragdoll update until its bone table is ready");
+    log::info!("[RAGDOLL] Controller-table guard active");
     Ok(())
 }
 
@@ -1417,7 +1423,7 @@ fn install_ragdoll_detached_phantom(config: &EngineFixesConfig) -> anyhow::Resul
         )?;
     }
     statics::RAGDOLL_PENETRATION_RAYCAST_HOOK.enable()?;
-    log::info!("[RAGDOLL] Detached phantom penetration guard active");
+    log::info!("[RAGDOLL] Guard active: treats a detached-phantom raycast as a miss for one frame");
     Ok(())
 }
 
@@ -1448,7 +1454,7 @@ fn install_havok_guards(config: &EngineFixesConfig) {
             let mut tx = ModificationTransaction::new();
             tx.enable_inline(&statics::HAVOK_NARROWPHASE_ADD_AGENTS_HOOK)?;
             tx.commit();
-            log::info!("[HAVOK] Narrowphase invalid-pair guard active");
+            log::info!("[HAVOK] Guard active: skips invalid narrowphase collision pairs");
             Ok(())
         })();
         if let Err(error) = result {
@@ -1470,7 +1476,7 @@ fn install_havok_guards(config: &EngineFixesConfig) {
             let mut tx = ModificationTransaction::new();
             tx.enable_inline(&statics::HAVOK_ENTITY_POST_ADD_HOOK)?;
             tx.commit();
-            log::info!("[HAVOK] Post-add NULL entity guard active");
+            log::info!("[HAVOK] Guard active: skips the AddedToWorld callback for a NULL entity");
             Ok(())
         })();
         if let Err(error) = result {
@@ -1500,7 +1506,7 @@ fn install_memset_null_dst(config: &EngineFixesConfig) -> anyhow::Result<()> {
         return Err(error);
     }
     log::info!(
-        "[OOM] Allocation-failure guards active at zero-allocation providers, NiPixelData construction, texture factories, resolvers and refresh consumers"
+        "[OOM] Allocation-failure guards active: out-of-memory paths return safely instead of writing through a NULL allocation (zero-allocation providers, NiPixelData, texture factories, resolvers, refresh consumers)"
     );
     Ok(())
 }

@@ -60,7 +60,7 @@ pub fn decide_mode(cfg: &MemoryConfig) -> AllocatorMode {
     *REQUESTED_MODE.get_or_init(|| {
         let mode = AllocatorMode::from_config_value(cfg.allocator);
         log::info!(
-            "[MEMORY] allocator={} -> {}",
+            "[MEMORY] Allocator mode {} selected: {}",
             mode.config_value(),
             mode.name()
         );

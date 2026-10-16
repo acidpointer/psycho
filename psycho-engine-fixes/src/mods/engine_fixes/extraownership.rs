@@ -226,7 +226,7 @@ fn log_invalid_owner(
     };
 
     log::warn!(
-        "[EXTRAOWNERSHIP] invalid owner scrubbed: site={} total={} list=0x{:08X} extra=0x{:08X} saved_ref=0x{:08X} owner=0x{:08X} vt=0x{:08X} writable={}",
+        "[EXTRAOWNERSHIP] Cleared an invalid owner to avoid a crash (site {}, #{}): list 0x{:08X}, extra 0x{:08X}, saved ref 0x{:08X}, owner 0x{:08X}, vtable 0x{:08X}, writable {}",
         site,
         n,
         list as usize,

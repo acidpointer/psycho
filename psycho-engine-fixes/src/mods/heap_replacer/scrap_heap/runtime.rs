@@ -163,7 +163,7 @@ impl ScrapLogState {
         if state_change || new_peak || identity_growth || periodic {
             let peak = self.logged_peak.max(snapshot.live_bytes);
             log::info!(
-                "[scrap_heap] live={} peak={} ids={} active_ids={} regions={} live_allocs={} gc_queued={} purged_ids={} purged_regions={}",
+                "[scrap_heap] Temporary allocations: {} live (peak {}), {} ids ({} active), {} regions, {} live allocs; {} gc queued, {} ids / {} regions purged",
                 format_bytes(snapshot.live_bytes),
                 format_bytes(peak),
                 snapshot.identities,
@@ -174,8 +174,8 @@ impl ScrapLogState {
                 gc.purged_identities,
                 gc.purged_regions,
             );
-            log::debug!(
-                "[scrap_heap] reserve={}/{}/{} used/usable/total high={} misses={} retired={} protect_fail={} dynamic={}/{} live/total failures={} recovered={} reclaim={}/{} attempts/regions final_fail={}",
+            log::trace!(
+                "[scrap_heap] reserve {} of {} usable ({} total, high {}): {} misses, {} retired, {} protection failures; dynamic {}/{} live/total, {} failures, {} recovered; reclaim {}/{} attempts/regions, {} final failures",
                 snapshot.reserve_in_use_regions,
                 snapshot.reserve_usable_regions,
                 snapshot.reserve_total_regions,
@@ -196,8 +196,8 @@ impl ScrapLogState {
             self.last_identities = snapshot.identities;
             self.was_active = active;
         } else if gc.queued > 0 || gc.purged_regions > 0 {
-            log::debug!(
-                "[scrap_heap] gc queued={} purged_ids={} purged_regions={} live={} ids={}",
+            log::trace!(
+                "[scrap_heap] gc: {} queued, {} ids / {} regions purged, {} live, {} ids",
                 gc.queued,
                 gc.purged_identities,
                 gc.purged_regions,
@@ -297,7 +297,7 @@ impl Runtime {
         if let Some(reserve) = &instance.reserve {
             let snapshot = reserve.snapshot();
             log::info!(
-                "[scrap_heap] Reusable reserve ready: {}KB in {} regions",
+                "[scrap_heap] Reserve ready: {}KB across {} regions (spare memory kept for temporary allocations)",
                 snapshot.total_regions * REGION_SIZE / 1024,
                 snapshot.total_regions,
             );

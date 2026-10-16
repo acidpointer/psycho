@@ -192,7 +192,7 @@ pub(super) fn install() -> anyhow::Result<()> {
 
     ACTIVE_MODE.store(mode as u8, Ordering::Release);
     log::info!(
-        "[CELL_RENDER_RETIREMENT] Cleanup active block=0x{PREDICATE_RESULT_BLOCK_ADDR:08X} predicate=0x{predicate_owner:08X} cleanup_owner=0x{cleanup_owner:08X} previous={state:?} provider={mode:?}"
+        "[CELL_RENDER_RETIREMENT] Cleanup active: block 0x{PREDICATE_RESULT_BLOCK_ADDR:08X}, predicate 0x{predicate_owner:08X}, cleanup owner 0x{cleanup_owner:08X}, previous {state:?}, provider {mode:?}"
     );
     Ok(())
 }

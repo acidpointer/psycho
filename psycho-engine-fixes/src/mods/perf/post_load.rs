@@ -37,7 +37,7 @@ pub fn install_post_load_reconciliation_prepass() -> anyhow::Result<()> {
     }?;
     TOP_LEVEL_LOAD_HOOK.enable()?;
     log::info!(
-        "[POST_LOAD] Reconciliation prepass active: load_owner=0x{:08X}",
+        "[POST_LOAD] Reconciliation prepass active (load owner 0x{:08X})",
         TOP_LEVEL_LOAD_ADDR,
     );
     Ok(())

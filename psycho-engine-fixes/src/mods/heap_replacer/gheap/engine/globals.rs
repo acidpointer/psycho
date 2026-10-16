@@ -202,7 +202,7 @@ pub fn set_main_thread_id() {
     let tid = libpsycho::os::windows::winapi::get_current_thread_id();
     let prev = MAIN_THREAD_ID.swap(tid, std::sync::atomic::Ordering::Release);
     if prev == 0 {
-        log::info!("[THREAD] Main thread ID confirmed from on_pre_ai: {}", tid);
+        log::info!("[THREAD] Main thread id {} confirmed at on_pre_ai", tid);
     } else if prev != tid {
         log::error!(
             "[THREAD] Main thread ID changed: {} -> {} (should never happen)",

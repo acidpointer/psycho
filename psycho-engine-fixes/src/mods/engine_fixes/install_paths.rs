@@ -59,7 +59,7 @@ pub(super) fn repair(config: &EngineFixesConfig) {
         .and_then(|path| repair_value(FALLOUT_NV_KEY, &path).map(|outcome| (path, outcome)))
     {
         Ok((path, RepairOutcome::Unchanged)) => {
-            log::info!("[INSTALL_PATHS] FalloutNV registry path already correct: {path}");
+            log::info!("[INSTALL_PATHS] FalloutNV registry path correct: {path}");
         }
         Ok((path, RepairOutcome::Repaired)) => {
             log::info!("[INSTALL_PATHS] Repaired FalloutNV registry path: {path}");
@@ -70,7 +70,7 @@ pub(super) fn repair(config: &EngineFixesConfig) {
     }
 
     if config.fallout3_install_path.trim().is_empty() {
-        log::info!("[INSTALL_PATHS] Fallout 3 registry repair skipped: no path configured");
+        log::info!("[INSTALL_PATHS] Fallout 3 path not configured, repair skipped");
         return;
     }
 
@@ -79,7 +79,7 @@ pub(super) fn repair(config: &EngineFixesConfig) {
         .and_then(|path| repair_value(FALLOUT_3_KEY, &path).map(|outcome| (path, outcome)))
     {
         Ok((path, RepairOutcome::Unchanged)) => {
-            log::info!("[INSTALL_PATHS] Fallout 3 registry path already correct: {path}");
+            log::info!("[INSTALL_PATHS] Fallout 3 registry path correct: {path}");
         }
         Ok((path, RepairOutcome::Repaired)) => {
             log::info!("[INSTALL_PATHS] Repaired Fallout 3 registry path: {path}");

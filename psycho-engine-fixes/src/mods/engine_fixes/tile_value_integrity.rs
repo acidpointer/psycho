@@ -122,7 +122,7 @@ pub(super) fn install() -> anyhow::Result<()> {
     transaction.commit();
 
     log::info!(
-        "[TILE_VALUES] NULL-slot guard active at 0x{:08X}",
+        "[TILE_VALUES] Guard active at 0x{:08X}: removes NULL Tile value slots before they are searched",
         statics::TILE_GET_OR_CREATE_ADDR,
     );
     Ok(())

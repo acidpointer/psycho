@@ -148,7 +148,7 @@ pub(super) fn install() -> anyhow::Result<()> {
 
     INSTALLED.store(true, Ordering::Release);
     log::info!(
-        "[IO] Static vertex-buffer lifetime serialized; null allocation unwind and 6 all-stream validity calls installed"
+        "[IO] Static vertex-buffer lifetime serialized: null-allocation unwind and all-stream validity guarded"
     );
     Ok(())
 }

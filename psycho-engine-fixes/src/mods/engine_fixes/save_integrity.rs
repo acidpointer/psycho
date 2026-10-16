@@ -399,7 +399,9 @@ pub(super) fn install() -> anyhow::Result<()> {
     transaction.commit();
 
     install_failure_ui_branch();
-    log::info!("[SAVE] Complete save/write/load integrity transaction active");
+    log::info!(
+        "[SAVE] Save integrity active: a failed or partial write cannot replace a good save"
+    );
     Ok(())
 }
 
@@ -607,7 +609,7 @@ fn install_missing_base_form_guard() -> anyhow::Result<[u8; LOAD_BASE_FORM_GUARD
     .context("install changed-record null base-form guard")?;
 
     log::info!(
-        "[SAVE] Changed-record null base-form guard active at 0x{:08X}",
+        "[SAVE] Guard active at 0x{:08X}: rejects changed records whose base form is missing",
         LOAD_BASE_FORM_GUARD_ADDR,
     );
     Ok(replacement)
@@ -976,7 +978,7 @@ unsafe extern "fastcall" fn hook_save_result(manager_state: *mut c_void) -> u8 {
     clear_active_save();
     SAVE_COMMITS.fetch_add(1, Ordering::Relaxed);
     log::info!(
-        "[SAVE] Durable commit complete: {}",
+        "[SAVE] Save committed durably: {}",
         paths.final_path.to_string_lossy()
     );
     0

@@ -94,7 +94,7 @@ fn install_inner() -> anyhow::Result<()> {
         ),
     }
     log::info!(
-        "[LOD] Task constructors observed; priority={} visible={LOD_PRIORITY}, Psycho-only speculative=native",
+        "[LOD] Task constructors observed: priority {}, visible {LOD_PRIORITY}; Psycho-only speculative stays native",
         PRIORITY_INSTALLED.load(Ordering::Acquire),
     );
     Ok(())

@@ -231,7 +231,7 @@ pub fn prepare_gheap_hooks(hook_realloc_1: bool) -> anyhow::Result<bool> {
         }
     }
 
-    log::info!("[GHEAP] Hook trampolines prepared");
+    log::info!("[GHEAP] Hook trampolines ready");
     Ok(realloc_1_ready)
 }
 
@@ -250,8 +250,8 @@ pub fn initialize_gheap_runtime() -> anyhow::Result<()> {
     // during bounded OOM recovery; no address space is reserved at init.
     if !gheap::block::init() {
         log::warn!(
-            "[HEAP REPLACER] Block tier reservation failed; medium \
-             allocations will fall through to va_alloc"
+            "[GHEAP] Block tier reservation failed; medium \
+             allocations will use the fallback allocator"
         );
     }
 
@@ -262,7 +262,7 @@ pub fn initialize_gheap_runtime() -> anyhow::Result<()> {
     // Trigger LazyLock construction for pressure relief singleton.
     gheap::pressure::PressureRelief::instance();
 
-    log::info!("[GHEAP] Allocator runtime initialized");
+    log::info!("[GHEAP] Allocator runtime ready");
     Ok(())
 }
 
@@ -285,7 +285,7 @@ pub fn install_gheap_and_sheap_hooks(hook_realloc_1: bool) -> anyhow::Result<()>
     }
     transaction.commit();
     start_deferred_threads();
-    log::info!("[GHEAP] Gheap + CRT + scrap_heap transaction committed");
+    log::info!("[GHEAP] Gheap, CRT and scrap_heap activated");
     Ok(())
 }
 
@@ -319,14 +319,14 @@ pub fn prepare_sheap_hooks() -> anyhow::Result<()> {
         PURGE_HOOK.init("sheap_purge", SHEAP_PURGE_ADDR as *mut c_void, hook_purge)?;
     }
 
-    log::info!("[scrap_heap] Hook trampolines prepared");
+    log::info!("[scrap_heap] Hook trampolines ready");
     Ok(())
 }
 
 /// Initialize the scrap-heap runtime after all hook targets are proven.
 pub fn initialize_sheap_runtime() -> anyhow::Result<()> {
     scrap_heap::initialize_runtime()?;
-    log::info!("[scrap_heap] Allocator runtime initialized");
+    log::info!("[scrap_heap] Allocator runtime ready");
     Ok(())
 }
 
@@ -343,7 +343,7 @@ pub fn install_sheap_hooks() -> anyhow::Result<()> {
         transaction.apply_patch(patch)?;
     }
     transaction.commit();
-    log::info!("[scrap_heap] Hook transaction committed");
+    log::info!("[scrap_heap] Hooks activated");
     Ok(())
 }
 

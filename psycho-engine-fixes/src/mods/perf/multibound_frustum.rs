@@ -113,6 +113,6 @@ pub(crate) fn install() -> Result<()> {
         INTERSECTION_SETUP.address(),
         CONTAINMENT_SETUP.address(),
     );
-    log::info!("[MULTIBOUND] Redundant bounds setup optimized at both native sites");
+    log::info!("[MULTIBOUND] Removed redundant bounds setup at both sites");
     Ok(())
 }

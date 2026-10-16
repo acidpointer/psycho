@@ -1152,7 +1152,7 @@ fn record_bootstrap_create_result(
         set_last_error(error);
     } else {
         log::info!(
-            "[DISPLAY] corrected {} bootstrap window #{}: rect=({},{} {}x{}) style={:#x}",
+            "[DISPLAY] Corrected {} bootstrap window #{} to ({},{} {}x{}), style {:#x}",
             mode.name(),
             count,
             request.x,
@@ -1385,7 +1385,7 @@ fn record_predecessor_result(
         );
     } else if should_log(count) {
         log::info!(
-            "[DISPLAY] corrected {} SetWindowPos #{}: rect=({},{} {}x{}) flags={:#x}",
+            "[DISPLAY] Corrected {} SetWindowPos #{} to ({},{} {}x{}), flags {:#x}",
             site.name(),
             count,
             request.x,
@@ -1633,7 +1633,7 @@ pub fn install_display_hooks(
     }
 
     log::info!(
-        "[DISPLAY] Window management installed: fullscreen={} borderless_windowed={} cursor_lock={} create={} setpos={} bootstrap={} sites={}/{}/{}/{}/{}/{}",
+        "[DISPLAY] Window management active: fullscreen fix {}, borderless windowed {}, cursor lock {}; CreateWindowExA owner {}, SetWindowPos owner {}, bootstrap {}; callsites {}/{}/{}/{}/{}/{}",
         fullscreen_repair,
         borderless_windowed,
         cursor_lock,
@@ -1784,14 +1784,14 @@ fn audit_callsites() -> [CallsiteCoverage; 6] {
 
         match state {
             CallsiteCoverage::Covered => {
-                log::info!("[DISPLAY] {} callsite covered", contract.site.name())
+                log::info!("[DISPLAY] Hook installed: {}", contract.site.name())
             }
             CallsiteCoverage::ExternalOwner => log::warn!(
                 "[DISPLAY] {} callsite has a direct external owner; left untouched",
                 contract.site.name()
             ),
             _ => log::warn!(
-                "[DISPLAY] {} callsite fingerprint conflict; left untouched",
+                "[DISPLAY] {} callsite changed since this build; left untouched",
                 contract.site.name()
             ),
         }
@@ -1807,11 +1807,13 @@ fn audit_bootstrap_create_callsite() -> CallsiteCoverage {
     );
     BOOTSTRAP_CREATE_COVERAGE.store(state as u8, Ordering::Release);
     match state {
-        CallsiteCoverage::Covered => log::info!("[DISPLAY] bootstrap-create callsite covered"),
+        CallsiteCoverage::Covered => log::info!("[DISPLAY] Hook installed: bootstrap-create"),
         CallsiteCoverage::ExternalOwner => log::warn!(
             "[DISPLAY] bootstrap-create callsite has a direct external owner; left untouched"
         ),
-        _ => log::warn!("[DISPLAY] bootstrap-create callsite fingerprint conflict; left untouched"),
+        _ => log::warn!(
+            "[DISPLAY] bootstrap-create callsite changed since this build; left untouched"
+        ),
     }
     state
 }

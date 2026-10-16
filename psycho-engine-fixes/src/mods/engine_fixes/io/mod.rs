@@ -74,7 +74,7 @@ pub(super) fn install(
 
     let scheduler = scheduler::snapshot();
     log::info!(
-        "[IO] Active parallel={} speedtree={} vertex_buffers={} model_postprocess={}",
+        "[IO] Active: parallel {}, speedtree {}, vertex buffers {}, model postprocess {}",
         scheduler.parallel_installed,
         speedtree_ready,
         vertex_buffers_ready,

@@ -106,7 +106,9 @@ fn maybe_drain_pdd() {
         .unwrap_or(false);
     if !enabled {
         if !DISABLED_LOGGED.swap(true, Ordering::Relaxed) {
-            log::debug!("[PDD] Periodic blocking full purge disabled");
+            log::debug!(
+                "[PDD] Periodic blocking purge off (only the game's per-frame deferred cleanup runs)"
+            );
         }
         return;
     }

@@ -743,7 +743,7 @@ fn record_stale_ready(cell: usize, reference: usize, generation: u64, counts: Tr
     log_sampled(
         count,
         format_args!(
-            "[LOD] Ignored stale ready publication cell=0x{cell:08X} ref=0x{reference:08X} generation={generation} native={}/{} count={count}",
+            "[LOD] Ignored a stale ready notification: cell 0x{cell:08X}, ref 0x{reference:08X}, generation {generation}, native {}/{}, count {count}",
             counts.native_total, counts.native_ready,
         ),
     );
@@ -869,7 +869,7 @@ pub(super) fn mark_uncertain(cell: *mut libc::c_void, native_total: i16, native_
     log_sampled(
         count,
         format_args!(
-            "[LOD] Cell membership became uncertain after an unprovable transition cell=0x{cell_address:08X} generation={generation} count={count}"
+            "[LOD] Cell membership uncertain after a transition that could not be verified: cell 0x{cell_address:08X}, generation {generation}, count {count}"
         ),
     );
     publish_sizes(cells, references);

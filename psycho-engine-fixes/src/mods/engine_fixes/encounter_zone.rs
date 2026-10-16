@@ -664,7 +664,7 @@ fn log_access_rejection(
     }
 
     log::warn!(
-        "[ENCOUNTER_ZONE] invalid resolved zone rejected: total={} owner=0x{:08X} owner_form=0x{:08X} cell=0x{:08X} cell_form=0x{:08X} zone=0x{:08X} source={} reason={} observed_type={}",
+        "[ENCOUNTER_ZONE] Rejected an invalid resolved zone to avoid a crash (#{}): owner 0x{:08X} form 0x{:08X}, cell 0x{:08X} form 0x{:08X}, zone 0x{:08X}, source {}, reason {}, type {}",
         total,
         owner_ref as usize,
         read_form_id_for_log(owner_ref),

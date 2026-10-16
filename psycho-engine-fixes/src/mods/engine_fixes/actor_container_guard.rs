@@ -142,7 +142,7 @@ pub(super) fn install() -> anyhow::Result<()> {
     transaction.commit();
     INSTALLED.store(true, Ordering::Release);
     log::info!(
-        "[ACTOR_CONTAINER] Dynamic actor retirement guard active ({})",
+        "[ACTOR_CONTAINER] Guard active ({}): validates a retiring dynamic actor's container before it is destroyed",
         current_mode().map_or("allocator pending", AllocatorMode::name),
     );
     Ok(())
@@ -507,7 +507,7 @@ fn log_detachment(
     let total = DETACHED_DYNAMIC_ACTOR_CONTAINERS.fetch_add(1, Ordering::Relaxed) + 1;
     if crate::mods::diagnostics::should_log_power_of_two(total) {
         log::warn!(
-            "[ACTOR_CONTAINER] detached corrupt retiring dynamic actor container: actor=0x{:08X} ref_id={:08X} head_data=0x{:08X} head_next=0x{:08X} issue={:?} total={}",
+            "[ACTOR_CONTAINER] Detached a corrupt container to avoid a crash: actor 0x{:08X}, ref 0x{:08X}, head 0x{:08X}, next 0x{:08X}, issue {:?}, total {}",
             actor as usize,
             ref_id,
             head_data,

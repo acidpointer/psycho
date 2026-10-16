@@ -87,7 +87,7 @@ pub(super) fn publish() -> anyhow::Result<()> {
         "radio capability already published"
     );
     READY.store(true, Ordering::Release);
-    log::info!("[RADIO] Verified radio expansion active at game-owned dispatch");
+    log::info!("[RADIO] Verified radio expansion active at the game's own dispatch");
     Ok(())
 }
 

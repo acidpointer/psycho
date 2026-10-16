@@ -84,7 +84,9 @@ pub(crate) fn install() -> Result<()> {
     }
     transaction.commit();
     PREPARED.store(true, Ordering::Release);
-    log::info!("[LIGHT_SCORES] Candidate bridges prepared; native dispatch until DeferredInit");
+    log::info!(
+        "[LIGHT_SCORES] Light-score reuse prepared; using the native path until DeferredInit"
+    );
     Ok(())
 }
 
@@ -105,7 +107,7 @@ pub(super) fn observe_event(kind: u32) {
         .all(|p| p.load(Ordering::Acquire) == 0xB70390);
     READY.store(admitted, Ordering::Release);
     if admitted {
-        log::info!("[LIGHT_SCORES] Candidate enabled; runtime equivalence unvalidated");
+        log::info!("[LIGHT_SCORES] Light-score reuse enabled (not yet validated in play)");
     } else {
         log::warn!("[LIGHT_SCORES] Native contract changed; captured providers retained");
     }

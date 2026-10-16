@@ -271,7 +271,7 @@ pub(crate) fn install_system_key_passthrough(enabled: bool) -> anyhow::Result<()
 
     SYSTEM_KEY_PASSTHROUGH_INSTALLED.store(true, Ordering::Release);
     log::info!(
-        "[WINDOW_INPUT] System-key passthrough installed: cooperative_level=0x{:02X}",
+        "[WINDOW_INPUT] System-key passthrough active (cooperative level 0x{:02X})",
         COOPERATIVE_LEVEL_SHARED_FOREGROUND,
     );
     Ok(())
@@ -386,7 +386,7 @@ fn attach_top_level_window_from(hwnd: *mut c_void, source: AttachmentSource) {
         CURSOR_RECOVERY_ATTACHMENTS.fetch_add(1, Ordering::Relaxed);
     }
     log::info!(
-        "[WINDOW_INPUT] Cursor confinement attached: HWND=0x{hwnd_address:08X} predecessor=0x{:08X} source={}",
+        "[WINDOW_INPUT] Cursor confinement attached to window 0x{hwnd_address:08X} (previous handler 0x{:08X}, source {})",
         ORIGINAL_WNDPROC.load(Ordering::Acquire),
         attachment_source_name(source),
     );

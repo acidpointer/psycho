@@ -182,7 +182,7 @@ pub(super) fn install() -> anyhow::Result<()> {
     transaction.commit();
 
     log::info!(
-        "[SOURCE_TEXTURE_CACHE] Publication guard active at 0x{:08X}",
+        "[SOURCE_TEXTURE_CACHE] Guard active at 0x{:08X}: validates the source-texture callbacks before publishing",
         statics::SOURCE_TEXTURE_CACHE_PUBLISH_ADDR,
     );
     Ok(())
