@@ -82,6 +82,16 @@ const SHAFT_TARGET_SCALE: u32 = 4;
 const LOCAL_LIGHT_ACTIVE_CAPACITY: usize = 16;
 const LOCAL_LIGHT_TRACK_CAPACITY: usize = crate::fnv_local_lights::LOCAL_LIGHT_CAPACITY;
 const LOCAL_LIGHT_BATCH_SIZE: usize = 4;
+/// Fraction by which an already admitted local light's score is boosted before
+/// the render-budget selection.
+///
+/// Rank is camera-relative and changes continuously with movement, so a light
+/// whose score oscillates at the budget boundary would otherwise start and
+/// reverse its fade on every crossing, which the player sees as the halo
+/// pulsing. A challenger must beat a visible light by this fraction to
+/// displace it, keeping the admitted set stable for near-equal candidates
+/// while still admitting a genuinely brighter light.
+const LOCAL_LIGHT_ADMISSION_HOLD_MARGIN: f32 = 0.10;
 
 static COMPILE_STARTED: AtomicBool = AtomicBool::new(false);
 static COMPILE_FAILED: AtomicBool = AtomicBool::new(false);
@@ -1165,21 +1175,42 @@ impl AtmosphereEffect {
             candidate_count += 1;
         }
 
-        let mut desired = [0usize; LOCAL_LIGHT_ACTIVE_CAPACITY];
-        let mut desired_count = 0usize;
-        // The scalar fade is the temporal filter. Reevaluate admission each
-        // frame so a brief rank crossing cannot pin a different volume until a
-        // two-second lease expires; reversing a crossing reverses its fade.
+        // Rank the candidates with their current camera scores, then admit the
+        // budget under priority hysteresis so a rank crossing at the budget
+        // boundary does not start and reverse a fade every frame.
+        let mut scored = [(0.0f32, 0usize); LOCAL_LIGHT_TRACK_CAPACITY];
+        let mut scored_count = 0usize;
         for light in candidates[..candidate_count].iter().flatten() {
-            if desired_count >= settings.local_max_lights() {
+            let identity = light.identity();
+            if scored[..scored_count]
+                .iter()
+                .any(|(_, current)| *current == identity)
+            {
+                continue;
+            }
+            let score = crate::fnv_local_lights::scene_light_score(light.values, frame.camera)
+                .unwrap_or(0.0);
+            scored[scored_count] = (score, identity);
+            scored_count += 1;
+        }
+        let mut admitted = [0usize; LOCAL_LIGHT_ACTIVE_CAPACITY];
+        let mut admitted_count = 0usize;
+        for track in &self.local_light_tracks {
+            if admitted_count == admitted.len() {
                 break;
             }
-            let identity = light.identity();
-            if !desired[..desired_count].contains(&identity) {
-                desired[desired_count] = identity;
-                desired_count += 1;
+            if track.identity != 0 && track.weight > 0.0 {
+                admitted[admitted_count] = track.identity;
+                admitted_count += 1;
             }
         }
+        let mut desired = [0usize; LOCAL_LIGHT_ACTIVE_CAPACITY];
+        let desired_count = select_admitted_lights(
+            &scored[..scored_count],
+            &admitted[..admitted_count],
+            settings.local_max_lights(),
+            &mut desired,
+        );
 
         for track in &mut self.local_light_tracks {
             track.target_visible = false;
@@ -2408,6 +2439,54 @@ impl LocalShadowMode {
             Some(crate::fnv_local_lights::ShadowTextureFormat::OmvCube) => Self::OmvCube,
         }
     }
+}
+
+/// Select the admitted local-light identities under the render budget.
+///
+/// `scored` is in current camera-rank order (best first) and pairs each light
+/// identity with its camera score. An identity present in `admitted` has its
+/// effective score boosted by [`LOCAL_LIGHT_ADMISSION_HOLD_MARGIN`] so a
+/// marginal challenger cannot displace a light that is already visible.
+/// Selection is stable in the input order for equal effective scores. Returns
+/// the number of identities written to `out`.
+fn select_admitted_lights(
+    scored: &[(f32, usize)],
+    admitted: &[usize],
+    max_lights: usize,
+    out: &mut [usize; LOCAL_LIGHT_ACTIVE_CAPACITY],
+) -> usize {
+    let budget = max_lights.min(LOCAL_LIGHT_ACTIVE_CAPACITY);
+    if budget == 0 {
+        return 0;
+    }
+    let mut chosen = [(f32::NEG_INFINITY, 0usize); LOCAL_LIGHT_ACTIVE_CAPACITY];
+    let mut chosen_count = 0usize;
+    for &(score, identity) in scored {
+        let effective = if admitted.contains(&identity) {
+            score * (1.0 + LOCAL_LIGHT_ADMISSION_HOLD_MARGIN)
+        } else {
+            score
+        };
+        let insert_at = chosen[..chosen_count]
+            .iter()
+            .position(|(current, _)| effective > *current)
+            .unwrap_or(chosen_count);
+        if insert_at >= budget {
+            continue;
+        }
+        let last = chosen_count.min(budget - 1);
+        for index in (insert_at + 1..=last).rev() {
+            chosen[index] = chosen[index - 1];
+        }
+        chosen[insert_at] = (effective, identity);
+        if chosen_count < budget {
+            chosen_count += 1;
+        }
+    }
+    for (index, (_, identity)) in chosen[..chosen_count].iter().enumerate() {
+        out[index] = *identity;
+    }
+    chosen_count
 }
 
 fn local_light_scissor(
@@ -4451,7 +4530,7 @@ mod directional_shader_behavior {
 
     use super::{
         AtmosphereBytecode, AtmosphereDrawOutcome, AtmosphereEffect, AtmosphereSettings,
-        IntegrationPass, LIGHTING_DEBUG_BASE,
+        IntegrationPass, LIGHTING_DEBUG_BASE, LOCAL_LIGHT_ACTIVE_CAPACITY, select_admitted_lights,
     };
     use crate::{
         backend::{
@@ -6616,6 +6695,27 @@ mod directional_shader_behavior {
                 );
             }
         }
+    }
+
+    #[test]
+    fn marginal_rank_crossing_keeps_the_admitted_light() {
+        let mut out = [0usize; LOCAL_LIGHT_ACTIVE_CAPACITY];
+        // Identity 1 is already visible; identity 2 is only five percent
+        // better, which is inside the admission hysteresis margin. Without the
+        // margin the challenger would be admitted and start a fade.
+        let scored = [(10.5f32, 2usize), (10.0f32, 1usize)];
+        let count = select_admitted_lights(&scored, &[1usize], 1, &mut out);
+        assert_eq!(count, 1);
+        assert_eq!(
+            out[0], 1,
+            "a marginal challenger displaced an already visible light"
+        );
+
+        // A materially brighter challenger still displaces it.
+        let scored = [(13.0f32, 2usize), (10.0f32, 1usize)];
+        let count = select_admitted_lights(&scored, &[1usize], 1, &mut out);
+        assert_eq!(count, 1);
+        assert_eq!(out[0], 2, "a clearly brighter light was not admitted");
     }
 
     #[test]

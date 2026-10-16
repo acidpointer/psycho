@@ -42,6 +42,15 @@ const REQUIRE_WORLD_COLOR: u32 = 1 << 1;
 const REQUIRE_TEMPORAL_AA: u32 = 1 << 2;
 const REQUIRE_DIRECTIONAL_SHADOWS: u32 = 1 << 3;
 const MAX_RUNTIME_LOGS: u32 = 32;
+/// Render increments a cached local-light epoch may be reused while the producer
+/// or publication owner is busy.
+///
+/// The documented contract preserves the last complete epoch across a busy
+/// mailbox. Rank and mutation are camera-independent, so reusing it for a few
+/// increments keeps the visible set stable instead of popping every local
+/// volumetric light on a single contention, while the window stays small
+/// enough that a moving emitter cannot visibly lag.
+const LOCAL_LIGHT_EPOCH_BUSY_GRACE: u32 = 4;
 
 static CONFIG_MAILBOX: LazyLock<Mutex<PublishedConfig>> =
     LazyLock::new(|| Mutex::new(PublishedConfig::default()));
@@ -1193,7 +1202,12 @@ impl FnvWorldPipelineRuntime {
             )
         };
         let current = self.local_lights.as_ref().is_some_and(|epoch| {
-            epoch.is_current(device_identity, device_generation, render_epoch)
+            local_epoch_retained(
+                epoch.device_identity == device_identity
+                    && epoch.device_generation == device_generation,
+                render_epoch.wrapping_sub(epoch.render_epoch),
+                access,
+            )
         });
         if !current {
             self.local_lights = None;
@@ -1481,6 +1495,29 @@ fn keep_first_error(result: &mut Direct3DResult<()>, next: Direct3DResult<()>) {
     }
 }
 
+/// Whether the cached local-light epoch may still be used for this frame.
+///
+/// `epoch_age` is the render-increment distance from the cached publication.
+/// A normal read accepts only the producer epoch or its immediate successor;
+/// a busy producer/publication owner preserves the last complete epoch for a
+/// bounded window so a single contention does not pop every visible light.
+fn local_epoch_retained(
+    device_matches: bool,
+    epoch_age: u32,
+    access: PublishedEpochAccess,
+) -> bool {
+    if !device_matches {
+        return false;
+    }
+    if epoch_age <= 1 {
+        return true;
+    }
+    // A busy producer or publication owner preserves the last complete epoch
+    // for a bounded window. A genuinely empty or identity-rejected epoch still
+    // clears the contribution.
+    access == PublishedEpochAccess::Busy && epoch_age <= LOCAL_LIGHT_EPOCH_BUSY_GRACE
+}
+
 fn runtime_error(message: &'static str) -> libpsycho::os::windows::directx9::Direct3DError {
     log::warn!("[FNV WORLD] {message}");
     direct3d_failure()
@@ -1553,6 +1590,45 @@ mod tests {
     };
     use libpsycho::os::windows::directx9::D3DFMT_A8R8G8B8;
     use std::sync::atomic::Ordering;
+
+    #[test]
+    fn a_busy_local_light_owner_retains_the_last_complete_epoch_within_its_grace() {
+        use crate::fnv_local_lights::PublishedEpochAccess;
+        // A two-increment-old epoch is stale on an ordinary read.
+        assert!(!super::local_epoch_retained(
+            true,
+            2,
+            PublishedEpochAccess::Empty
+        ));
+        assert!(!super::local_epoch_retained(
+            true,
+            2,
+            PublishedEpochAccess::Ready
+        ));
+        // A busy producer or publication owner preserves the last complete
+        // epoch instead of popping every visible local light.
+        assert!(super::local_epoch_retained(
+            true,
+            2,
+            PublishedEpochAccess::Busy
+        ));
+        assert!(super::local_epoch_retained(
+            true,
+            super::LOCAL_LIGHT_EPOCH_BUSY_GRACE,
+            PublishedEpochAccess::Busy
+        ));
+        // The grace is bounded and never crosses a device change.
+        assert!(!super::local_epoch_retained(
+            true,
+            super::LOCAL_LIGHT_EPOCH_BUSY_GRACE + 1,
+            PublishedEpochAccess::Busy
+        ));
+        assert!(!super::local_epoch_retained(
+            false,
+            1,
+            PublishedEpochAccess::Busy
+        ));
+    }
 
     #[test]
     fn production_atmosphere_defaults_request_coherent_world_inputs() {

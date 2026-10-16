@@ -2218,7 +2218,10 @@ fn terrain_light_precedes(
     }
 }
 
-fn scene_light_score(values: LocalLightValues, camera: crate::backend::CameraFrame) -> Option<f32> {
+pub(crate) fn scene_light_score(
+    values: LocalLightValues,
+    camera: crate::backend::CameraFrame,
+) -> Option<f32> {
     let transform = camera.world_transform;
     if !camera.available || !transform.available {
         return None;

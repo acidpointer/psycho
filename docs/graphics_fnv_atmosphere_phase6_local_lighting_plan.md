@@ -884,6 +884,42 @@ quality limit in one room, hold a still camera across several two-second lease
 boundaries, cross the light radius, change the fade value in ImGui, change
 cells, and reset the device without flicker, stuck light, or stale shadow.
 
+## Admission stability and busy-epoch grace (2026-10-17)
+
+Two camera-driven admission defects remained after the rank-crossing
+correction. This section supersedes the leased-admission details above.
+
+- The desired set was the raw top-N of the live rank every frame. Two lights
+  with nearly equal camera scores cross the render-budget boundary repeatedly
+  during ordinary movement, and each crossing started and reversed a fade, so a
+  halo pulsed with no occluder between the camera and the light. Selection now
+  boosts the effective score of an already admitted light by
+  `LOCAL_LIGHT_ADMISSION_HOLD_MARGIN` (0.10) before the top-N cut. A challenger
+  must be materially brighter to displace a visible light, while a clearly
+  brighter light is still admitted. The boost is a continuous score margin, not
+  a time lease: it reverses immediately and cannot pin a light whose relevance
+  has collapsed.
+- A busy producer or publication owner cleared the cached epoch once it was
+  more than one render increment old, popping every visible local light. The
+  cached complete epoch is now retained for up to `LOCAL_LIGHT_EPOCH_BUSY_GRACE`
+  (4) increments with exact device identity while the mailbox reports `Busy`. A
+  genuinely empty, identity-rejected, or device-changed epoch still clears the
+  contribution.
+
+The reported shadow sweep was examined with the same report as the halo. Folding
+the OMV cube occlusion presentation weight into the emitted radiance ("unified
+retire") is rejected: the shipped gate
+`effects::atmosphere::directional_shader_behavior::common_scalar_source_reaches_shipped_local_lighting_without_shadow_ownership`
+requires a zero cube weight to preserve the unshadowed scalar emitter. The
+occlusion weight therefore remains occlusion-only. The remaining shadow-sweep
+candidate is the cube-source switch when `map_valid` clears during incremental
+face regeneration, which is outside this change.
+
+Offline gates: `marginal_rank_crossing_keeps_the_admitted_light` fails on the
+raw top-N selection and
+`a_busy_local_light_owner_retains_the_last_complete_epoch_within_its_grace`
+fails without the busy grace. Game-only image behavior remains not run.
+
 ## One feature-first playtest
 
 Debug views start Off. This single run validates ordinary output first:
