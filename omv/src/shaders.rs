@@ -35,9 +35,10 @@ use serde::{Deserialize, Serialize};
 
 use crate::config::{
     AdaptiveToneConfig, AtmosphereQuality, AxaaConfig, BloomingHdrConfig, ColorGradeConfig,
-    ContactAoConfig, DepthOfFieldConfig, DlaaConfig, EmbeddedEffectsConfig, FastAoConfig,
-    FastFxaaConfig, MotionBlurConfig, NfaaConfig, SmaaConfig, SunshaftsConfig, TemporalAaConfig,
-    ToneMapperMode, VolumetricFogConfig, VolumetricLightingConfig,
+    ContactAoConfig, DepthOfFieldConfig, DirectionalOcclusionSource, DlaaConfig,
+    EmbeddedEffectsConfig, FastAoConfig, FastFxaaConfig, MotionBlurConfig, NfaaConfig, SmaaConfig,
+    SunshaftsConfig, TemporalAaConfig, ToneMapperMode, VolumetricFogConfig,
+    VolumetricLightingConfig,
 };
 
 pub(crate) const SHADER_DIR: &str = "./Data/NVSE/plugins/omv/shaders";
@@ -801,6 +802,14 @@ fn volumetric_lighting_source(config: &VolumetricLightingConfig) -> ScreenShader
                 &["Performance", "High", "Ultra"],
                 4,
                 2,
+            ),
+            integer_choice_option(
+                "directional_occlusion",
+                "Directional occlusion",
+                config.directional_occlusion.index(),
+                &["Screen space", "World cascades", "Off"],
+                7,
+                0,
             ),
             bool_option(
                 "local_lights_enabled",
@@ -2047,6 +2056,10 @@ fn sync_volumetric_lighting_config(
             "sun_disk_boost" => config.sun_disk_boost = option_float(option),
             "shaft_quality" => {
                 config.shaft_quality = AtmosphereQuality::from_index(option_integer(option));
+            }
+            "directional_occlusion" => {
+                config.directional_occlusion =
+                    DirectionalOcclusionSource::from_index(option_integer(option));
             }
             "local_lights_enabled" => config.local_lights_enabled = option_bool(option),
             "local_lights_intensity" => config.local_lights_intensity = option_float(option),
@@ -4078,5 +4091,27 @@ impl ShaderOptionConfigValue {
             Self::Bool(value) => value,
             Self::Integer(value) => value != 0,
         }
+    }
+}
+
+#[cfg(test)]
+mod option_abi_tests {
+    use super::{DirectionalOcclusionSource, VolumetricLightingConfig, volumetric_lighting_source};
+
+    #[test]
+    fn volumetric_lighting_exposes_directional_occlusion_at_its_own_register() {
+        let mut source = volumetric_lighting_source(&VolumetricLightingConfig::default());
+        let index = source
+            .options
+            .iter()
+            .position(|option| option.key == "directional_occlusion")
+            .expect("directional occlusion option");
+        // Register 7 maps to relative option row 4; shipped default is screen
+        // space, which is index 0.
+        assert_eq!(source.option_constants[4][0], 0.0);
+        source
+            .set_option_integer(index, DirectionalOcclusionSource::Cascades.index())
+            .expect("set directional occlusion");
+        assert_eq!(source.option_constants[4][0], 1.0);
     }
 }

@@ -2531,6 +2531,17 @@ impl PointMapCache {
         self.signatures.map(|signature| signature.identity)
     }
 
+    /// Return the retained projection signature for a stable light identity.
+    ///
+    /// Used only by the opt-in moving-light diagnostic to classify a projection
+    /// change as a position or radius change.
+    pub(super) fn retained_signature(self, identity: usize) -> Option<PointMapSignature> {
+        self.signatures
+            .iter()
+            .copied()
+            .find(|signature| signature.identity != 0 && signature.identity == identity)
+    }
+
     /// Reuse face-local caster identities when the complete static root set is
     /// unchanged and this light still samples its retained projection.
     ///
@@ -2587,7 +2598,7 @@ impl PointMapCache {
         dynamic_faces: [u8; N],
         count: usize,
     ) -> PointMapPlan<N> {
-        self.plan_internal(current, dynamic_faces, count, None)
+        self.plan_internal(current, dynamic_faces, dynamic_faces, count, None, true)
     }
 
     /// Plan point-map work using face-local immutable caster signatures.
@@ -2609,8 +2620,38 @@ impl PointMapCache {
         self.plan_internal(
             current,
             dynamic_faces,
+            dynamic_faces,
             count,
             Some((previous_static_faces, current_static_faces)),
+            true,
+        )
+    }
+
+    /// Plan point-map work with an explicit dynamic-coverage delta.
+    ///
+    /// `dynamic_faces` is the complete current actor footprint and drives which
+    /// faces submit actor geometry. `dynamic_dirty_faces` is the subset whose
+    /// dynamic content actually changed since the retained publication and
+    /// drives `render_faces`. Separating them lets a stationary, unanimated
+    /// actor keep its retained faces without re-rendering every frame while a
+    /// moved or newly posed actor still refreshes exactly the faces it left or
+    /// now covers.
+    pub(super) fn plan_with_static_faces_and_delta<const N: usize>(
+        self,
+        previous_static_faces: PointStaticFaceCache,
+        current: [PointMapSignature; N],
+        current_static_faces: [[u64; 6]; N],
+        dynamic_faces: [u8; N],
+        dynamic_dirty_faces: [u8; N],
+        count: usize,
+    ) -> PointMapPlan<N> {
+        self.plan_internal(
+            current,
+            dynamic_faces,
+            dynamic_dirty_faces,
+            count,
+            Some((previous_static_faces, current_static_faces)),
+            false,
         )
     }
 
@@ -2618,8 +2659,10 @@ impl PointMapCache {
         self,
         current: [PointMapSignature; N],
         dynamic_faces: [u8; N],
+        dynamic_dirty_faces: [u8; N],
         count: usize,
         static_face_signatures: Option<(PointStaticFaceCache, [[u64; 6]; N])>,
+        union_previous_dynamic: bool,
     ) -> PointMapPlan<N> {
         let count = count.min(N).min(POINT_LIGHT_CAPACITY);
         let mut next = PointMapCache::default();
@@ -2697,12 +2740,17 @@ impl PointMapCache {
                 static_faces[slot] = ALL_CUBE_FACES;
                 next.signatures[slot] = current[source];
             } else {
+                let previous_dynamic_faces = if union_previous_dynamic {
+                    self.dynamic_faces[slot]
+                } else {
+                    0
+                };
                 let changed_static_faces = static_face_signatures.map_or(0, |(previous, faces)| {
                     previous.dirty_faces(slot, faces[source])
                 });
                 render_faces[slot] = (changed_static_faces
-                    | self.dynamic_faces[slot]
-                    | dynamic_faces[source]
+                    | previous_dynamic_faces
+                    | dynamic_dirty_faces[source]
                     | !self.valid_faces[slot])
                     & ALL_CUBE_FACES;
                 static_faces[slot] = changed_static_faces;
@@ -3309,6 +3357,28 @@ impl Default for CasterAdmission {
             within_multibound: true,
         }
     }
+}
+
+/// Minimum projected caster size at a point-cube face, in face texels.
+///
+/// A caster whose world-bound radius is below this projects to less than this
+/// many texels at the cube resolution, so its shadow cannot change the
+/// point-filtered radial depth beyond the comparison bias. Mirrors the
+/// directional `cascade_minimum_caster_radius` scale and keeps the retained
+/// static signature and the render set identical.
+const POINT_CASTER_MINIMUM_TEXELS: f32 = 0.5;
+
+/// World-space minimum point-caster radius for one finite point light.
+///
+/// Raises the renderer's fixed world minimum to a fraction of one cube texel at
+/// the light radius, so a large-radius light drops sub-texel casters while small
+/// interior lights keep the fixed minimum. Invalid inputs fall back to it.
+pub(super) fn point_caster_minimum_radius(cube_radius: f32, resolution: u32) -> f32 {
+    let world_minimum = CasterPolicy::quality_default().minimum_radius;
+    if !cube_radius.is_finite() || cube_radius <= 0.0 || resolution == 0 {
+        return world_minimum;
+    }
+    (POINT_CASTER_MINIMUM_TEXELS * cube_radius / resolution as f32).max(world_minimum)
 }
 
 /// Stable reason for excluding geometry from a shadow pass.

@@ -24,8 +24,8 @@ use parking_lot::Mutex;
 use crate::{
     backend::{self, DepthAccess, DepthProvider, DepthResolveOutcome, DepthResolveSlot},
     config::{
-        GraphicsMenuConfig, TemporalAaConfig as MenuTemporalAaConfig, VolumetricFogConfig,
-        VolumetricLightingConfig,
+        DirectionalOcclusionSource, GraphicsMenuConfig, TemporalAaConfig as MenuTemporalAaConfig,
+        VolumetricFogConfig, VolumetricLightingConfig,
     },
     effects::{
         atmosphere::{
@@ -139,6 +139,7 @@ impl WorldEffectsConfig {
             && settings.requires_integration()
             && self.lighting.intensity > 0.0
             && self.lighting.shaft_strength > 0.0
+            && self.lighting.directional_occlusion == DirectionalOcclusionSource::Cascades
         {
             requirements |= REQUIRE_DIRECTIONAL_SHADOWS;
         }
@@ -192,7 +193,16 @@ pub(crate) fn publish_config(config: GraphicsMenuConfig) -> bool {
         config: world_config,
     };
     let requirements = world_config.requirements();
-    REQUIREMENTS.store(requirements, Ordering::Release);
+    let previous_requirements = REQUIREMENTS.swap(requirements, Ordering::Release);
+    if previous_requirements != requirements {
+        log::info!(
+            "[FNV WORLD] Requirements updated: world_depth={}, world_color={}, temporal_aa={}, directional_shadows={}",
+            requirements & REQUIRE_WORLD_DEPTH != 0,
+            requirements & REQUIRE_WORLD_COLOR != 0,
+            requirements & REQUIRE_TEMPORAL_AA != 0,
+            requirements & REQUIRE_DIRECTIONAL_SHADOWS != 0,
+        );
+    }
     // No later scene callback is guaranteed once the last requirement
     // disappears. Let the unconditional Present tail release histories,
     // atmosphere targets, and the state block. A later non-empty publication
@@ -1490,12 +1500,21 @@ fn halton(mut index: u64, base: u64) -> f32 {
 #[cfg(test)]
 mod tests {
     #[test]
-    fn directional_lighting_requests_world_shadow_maps() {
+    fn directional_lighting_only_requests_world_shadow_maps_for_explicit_cascades() {
         let mut menu = crate::config::GraphicsMenuConfig::default();
+        // Shipped screen-space occlusion must not force the cascade producer.
+        assert_eq!(
+            super::WorldEffectsConfig::from_menu(menu).requirements() & (1 << 3),
+            0
+        );
+        menu.embedded_effects
+            .volumetric_lighting
+            .directional_occlusion = crate::config::DirectionalOcclusionSource::Cascades;
         assert_ne!(
             super::WorldEffectsConfig::from_menu(menu).requirements() & (1 << 3),
             0
         );
+        // A fog-only medium still activates cascades when the user opts in.
         menu.embedded_effects.volumetric_lighting.medium_density = 0.0;
         menu.embedded_effects.volumetric_fog.density = 0.00001;
         assert_ne!(
@@ -1506,6 +1525,19 @@ mod tests {
         assert_eq!(
             super::WorldEffectsConfig::from_menu(menu).requirements() & (1 << 3),
             0
+        );
+    }
+
+    #[test]
+    fn volumetric_lighting_defaults_to_screen_space_without_the_cascade_producer() {
+        // The shipped directional volumetric light must not force the native
+        // four-cascade EVSM producer on its own. Only an explicit world-cascade
+        // occlusion choice may set the directional world-shadow requirement.
+        let menu = crate::config::GraphicsMenuConfig::default();
+        assert_eq!(
+            super::WorldEffectsConfig::from_menu(menu).requirements() & (1 << 3),
+            0,
+            "default volumetric lighting must not request the cascade producer"
         );
     }
 

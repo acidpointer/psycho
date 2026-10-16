@@ -174,6 +174,8 @@ impl NativeLayout {
     pub(super) const NI_SKIN_INSTANCE_SIZE: usize = 0x34;
     /// `NiSkinInstance::SkinPartition`.
     pub(super) const NI_SKIN_PARTITION: usize = 0x0C;
+    /// `NiSkinInstance::BoneObjects`, the bone `NiAVObject*` array.
+    pub(super) const NI_SKIN_BONE_OBJECTS: usize = 0x14;
     /// `NiSkinInstance::FrameID`, the native calculation cache stamp.
     pub(super) const NI_SKIN_FRAME_ID: usize = 0x18;
     /// `NiSkinInstance::Bones`.

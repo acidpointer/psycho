@@ -7133,6 +7133,17 @@ invalid returned bounds remain admitted. This consumes existing mod/vanilla
 authoring without attempting to reconstruct a portal graph or assuming that a
 room boundary is opaque.
 
+Multibound ownership is an engine contract, not an offset guess. A
+`BSMultiBound` pointer lives at `BS_MULTIBOUND` (`+0xAC`) only on a node the
+engine's multibound-node virtual confirms; on every other node that offset is an
+unrelated field. The point traversal therefore resolves ownership through that
+virtual before reading the field, matching the retained directional traversal.
+An unconditional read treated an ordinary `BSFadeNode`'s unrelated non-null value
+as a shape pointer and faulted at `value + 0x0C` during a saved-world rebuild.
+The faulting instruction, register values, and the node type were read from the
+shipped 32-bit `oh-my-vegas` image; the corrected behavior is pinned offline by
+`render::tests::point_multibound_is_read_only_from_an_engine_confirmed_owner`.
+
 The index has no cross-frame engine lifetime. It is rebuilt from the exact
 borrowed root slice and consumed before the common-shadow call returns; only
 its preallocated scalar storage survives. Capacity mismatch, build failure, or
@@ -7144,6 +7155,75 @@ mod-specific classification is involved.
 The broader native main-view culling audit, safe append boundary, and rejected
 MOC integration are documented in
 `docs/location_density_rendering_engine_contract.md`.
+
+### Actor pose delta and admission-consistent point signatures (2026-10-16)
+
+Static point-cube faces are cached per `(light, face)`, but dynamic actor
+coverage previously dirtied every covered face at presentation cadence because
+the planner had no pose identity (`graphics_fnv_nvr_shadows_engine_contract.md`
+actor-presence finding). Research confirmed the engine exposes no pose-change
+stamp: `NiDX9Renderer::CalculateBoneMatrices` at `0x00E6FE30` compares the skin
+`FrameID` (`NiSkinInstance +0x18`) against a per-frame counter read by
+`0x00E8BF90` (`[[renderer+0x8BC]+0x3C]`) and the register mode, and callers gate
+recompute on a per-frame flag. `FrameID` is a same-frame cache only.
+
+The producer now derives its own pose identity. `render::actor_pose_fingerprint`
+folds each actor geometry's identity and `NiAVObject::m_worldTransform`
+(`+0x68`) plus, for skinned geometry, every `NiSkinInstance::BoneObjects`
+(`+0x14`) entry's world transform, bounded by `Bones` (`+0x1C`). The traversal
+visits every child, a conservative superset of the culled draw set, so a pose
+change can never be missed; a truncated traversal folds a sentinel. Bone world
+transforms are updated by the scene-graph/animation phase and are independent of
+the renderer's per-frame bone-matrix cache.
+
+`PointMapCache::plan_with_static_faces_and_delta` separates the complete current
+actor footprint (`dynamic_faces`, which drives which faces submit actor
+geometry) from the dynamic dirty delta (`dynamic_dirty_faces`, which drives
+`render_faces`). The delta is the merge of changed poses, entered coverage, and
+departed coverage across the retained and current actor sets, so a stationary
+unanimated actor keeps its retained faces and a moved or newly posed actor
+refreshes exactly the faces it left or now covers. The legacy `plan`/
+`plan_with_static_faces` entry points retain the previous-frame union so existing
+contract behavior is unchanged. A light that becomes camera-observable after a
+deferral forces one actor redraw. An actor scene with no pose, coverage, or
+static change lets `try_republish_without_d3d` skip the entire producer D3D
+transaction. `DirectionalRoot::admits_point_static_size` excludes from the point
+static signature and masks any root whose valid world bound is below the
+renderer's per-geometry minimum radius. Node-bound pruning already removes such subtrees
+from generation (`render.rs` `object_bound_within`), so this makes the retained
+signature exactly match what is drawn: a sub-threshold movable object no longer
+invalidates retained faces. Missing or invalid bounds stay conservatively
+admitted. Object-LOD roots (`is_lod`) are excluded from point cube casters for
+the same reason landscape already is: the point path has no per-cascade LOD
+profile, and a single huge-bound object-LOD root intersects every local light,
+so a churning LOD bound would invalidate every retained cube face. The
+2026-10-16 playtest showed a regime where all sixteen lights times all six faces
+rebuilt every frame with no moving light; the all-roots static signature
+diagnostic recorded in `docs/graphics_fnv_shadows_diagnostics.md` is the
+intended confirmation that the LOD root owns that churn. The point-cache reuse
+gate (`point_static_root_set_signature`) excludes object LOD as well, so a
+churning LOD bound cannot even force a per-frame regional rescan.
+
+Scoped static refresh: the producer retains each static point-caster root's
+world-state hash and bound, diffs them per transaction, and, when a face's
+static mask is partial (which proves the backing was previously complete),
+scopes the `RefreshStatic` clear and re-render — and the `PublishStatic` copy —
+to the union of the changed roots' old and new projected face regions. A
+changed-root add/remove, a missing bound, overflow, a full static mask, or an
+empty region falls back to a full-face rebuild, so the scissor can never expose
+an unbuilt region or cut a shadow the full render would have produced.
+
+`graphics.native_shadows.debug_logging` (ImGui "Lightweight shadow log") gates
+one rate-limited `info!` producer summary per second: transactions,
+dirty/moving lights, rebuilt/refresh/publish/merge face counts, root-set change
+attribution, and moving-light position/radius attribution. It is packed into the
+released settings byte's free bit and never changes rendering.
+
+These changes are offline-qualified (planner contract tests, fingerprint
+diagnostics, full OMV suite, 32-bit release build). Game image continuity and FPS
+were not run. Opt-in runtime diagnostics fields, the enable path, and gathered
+playtest evidence are recorded in
+`docs/graphics_fnv_shadows_diagnostics.md`.
 
 The subsequent save-load correction was itself invalid. Constructor
 `0x00A5AA20` only initializes neighboring fields to zero. Native owner

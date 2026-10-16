@@ -7,6 +7,37 @@ and compiled HLSL paths. Game-only images, native integration, startup and FPS
 are not established by this qualification; gameplay validation belongs to the
 repository owner.
 
+## World-occlusion source decoupling (2026-10-16)
+
+The directional sun contribution no longer implicitly activates the native
+four-cascade EVSM shadow producer. `VolumetricLightingConfig` gains
+`directional_occlusion` (`screen_space`, `cascades`, `off`); the shipped default
+is `screen_space`.
+
+- Only `cascades` sets `REQUIRE_DIRECTIONAL_SHADOWS`
+  (`fnv_world_pipeline.rs`), so `screen_space` and `off` never admit the
+  producer, its 2048-squared four-cascade static atlas, or its per-frame actor
+  overlays.
+- `screen_space` reuses the pre-existing reduced-depth projected shaft field
+  (`draw_shaft_mask`/`draw_shaft_radial`) and its documented screen-space view
+  limitations; `off` retains base directional in-scattering with no shadow
+  occlusion; `cascades` keeps the retained world-field march unchanged.
+- Surface Sun Shadows remain independent and still produce cascades through
+  `directional_enabled_for` when the user enables them.
+- The new control is serialized only by the explicit TOML writer
+  (`save_embedded_effect_config`) and is intentionally absent from the frozen
+  schema-one generic preset payload, following `local_lights_fade_seconds`.
+- Offline gates: the requirements test proves shipped defaults request no
+  directional world shadow and only `cascades` does; the config test proves the
+  default, bounds, shipped-file parse, and preset exclusion; the option-ABI
+  test proves `directional_occlusion` occupies its own register (7, relative row
+  4) without overlapping the existing environment/sun registers.
+
+This removes the forced producer cost; the owner's reported directional-light
+FPS loss is a runtime observation and this change makes no FPS claim. The world
+cascade god-ray appearance and screen-space fallback appearance were not run in
+game.
+
 ## Opacity contract and per-frame work
 
 The world-shadow field's 8/12/20-step budget now follows Shaft Quality

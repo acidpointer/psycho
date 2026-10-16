@@ -16,13 +16,14 @@ use super::contract::{
     exterior_point_shadow_radiance, interior_shadow_factor, local_light_clear_coverage,
     local_light_shadow_energy, local_light_shadow_weight, manager_light_chain_is_complete,
     nvr_contact_sample_offsets, point_caster_depth, point_caster_inventory_is_complete,
-    point_consumer_plan, point_light_distance_fade, point_light_influence_is_eligible,
-    point_light_radii, point_only_shadow_radiance, point_shadow_presentation_weight,
-    point_shadow_transition, point_shadow_visibility, practical_cascade_splits,
-    publication_epoch_is_usable, publication_identity_is_usable, retained_cascade_refresh,
-    select_point_lights, select_point_lights_stable, shadow_receiver_is_valid,
-    skinned_position_reference, snap_shadow_center, source_owned_shadow_radiance,
-    sphere_intersects_cube_face, sphere_intersects_point_light, terrain_lod_shadow_z,
+    point_caster_minimum_radius, point_consumer_plan, point_light_distance_fade,
+    point_light_influence_is_eligible, point_light_radii, point_only_shadow_radiance,
+    point_shadow_presentation_weight, point_shadow_transition, point_shadow_visibility,
+    practical_cascade_splits, publication_epoch_is_usable, publication_identity_is_usable,
+    retained_cascade_refresh, select_point_lights, select_point_lights_stable,
+    shadow_receiver_is_valid, skinned_position_reference, snap_shadow_center,
+    source_owned_shadow_radiance, sphere_intersects_cube_face, sphere_intersects_point_light,
+    terrain_lod_shadow_z,
 };
 use super::engine::{
     EngineCallAbi, FNV_EXE_SHA256, GeometryKind, HookSiteContract, NativeBound, NativeLayout,
@@ -1719,6 +1720,81 @@ fn moving_point_source_does_not_copy_an_old_static_projection() {
 }
 
 #[test]
+fn stationary_actor_keeps_retained_faces_and_only_changes_refresh() {
+    let mut signatures = [PointMapSignature::EMPTY; NVR_POINT_LIGHT_COUNT];
+    signatures[0] = PointMapSignature {
+        identity: 0x77,
+        position: [0.0; 3],
+        radius: 512.0,
+        caster_signature: 1,
+    };
+    let static_faces = [[1_u64; 6]; NVR_POINT_LIGHT_COUNT];
+    let no_delta = [0_u8; NVR_POINT_LIGHT_COUNT];
+    let mut face_two = [0_u8; NVR_POINT_LIGHT_COUNT];
+    face_two[0] = 1 << 2;
+
+    // New light with an actor covering face 2: the complete footprint renders.
+    let initial = PointMapCache::default().plan_with_static_faces_and_delta(
+        PointStaticFaceCache::default(),
+        signatures,
+        static_faces,
+        face_two,
+        face_two,
+        1,
+    );
+    assert_ne!(initial.render_faces[0], 0);
+
+    // Idle actor: the full footprint is retained, but the empty delta means no
+    // face re-renders.
+    let idle = initial.next.plan_with_static_faces_and_delta(
+        initial.next_static_faces,
+        signatures,
+        static_faces,
+        face_two,
+        no_delta,
+        1,
+    );
+    assert_eq!(
+        idle.render_faces[0], 0,
+        "a stationary actor re-rendered its retained faces"
+    );
+
+    // Pose changed: the delta covers face 2 and merges into the retained map.
+    let posed = idle.next.plan_with_static_faces_and_delta(
+        idle.next_static_faces,
+        signatures,
+        static_faces,
+        face_two,
+        face_two,
+        1,
+    );
+    assert_eq!(
+        posed.face_operations(0, 2),
+        [
+            None,
+            Some(PointFaceOperation::PublishStatic),
+            Some(PointFaceOperation::MergeAnimated),
+        ]
+    );
+
+    // Actor left face 2: the empty footprint still carries the delta for the
+    // abandoned face, which restores retained static depth.
+    let departed = posed.next.plan_with_static_faces_and_delta(
+        posed.next_static_faces,
+        signatures,
+        static_faces,
+        no_delta,
+        face_two,
+        1,
+    );
+    assert_eq!(
+        departed.face_operations(0, 2),
+        [None, Some(PointFaceOperation::PublishStatic), None],
+        "abandoned actor face was not restored to retained static depth"
+    );
+}
+
+#[test]
 fn every_dirty_point_face_seeds_the_published_cube_from_static_depth() {
     let mut signatures = [PointMapSignature::EMPTY; NVR_POINT_LIGHT_COUNT];
     signatures[0] = PointMapSignature {
@@ -3166,4 +3242,21 @@ fn point_cube_views_cover_all_six_axes_with_non_degenerate_up_vectors() {
         );
     }
     assert!(point_cube_views([0.0; 3], 0.05).is_none());
+}
+
+#[test]
+fn point_caster_minimum_radius_scales_with_light_radius_and_keeps_the_floor() {
+    // Small interior light: the projected half-texel is below the fixed floor,
+    // so the renderer's world minimum is unchanged.
+    assert_eq!(point_caster_minimum_radius(512.0, 512), 0.5);
+    assert_eq!(point_caster_minimum_radius(256.0, 1024), 0.5);
+    // Large-radius light: a half-texel at the light radius dominates, so
+    // sub-texel casters are dropped from both the signature and the render.
+    let large = point_caster_minimum_radius(12_000.0, 512);
+    assert!(large > 0.5);
+    assert!((large - 0.5 * 12_000.0 / 512.0).abs() < 1.0e-3);
+    // Invalid inputs fall back to the fixed world minimum.
+    assert_eq!(point_caster_minimum_radius(f32::NAN, 512), 0.5);
+    assert_eq!(point_caster_minimum_radius(100.0, 0), 0.5);
+    assert_eq!(point_caster_minimum_radius(0.0, 512), 0.5);
 }

@@ -171,6 +171,10 @@ shaft_strength = 1.0
 # The game/native sky owns the solar disk; no additional atmospheric disk boost.
 sun_disk_boost = 0.0
 shaft_quality = "high"
+# Directional sun world-occlusion source. screen_space uses the reduced-depth
+# shaft field, cascades opts into the four-cascade world-shadow producer, off
+# keeps base in-scattering only. Only cascades sets the cascade requirement.
+directional_occlusion = "screen_space"
 local_lights_enabled = true
 local_lights_intensity = 1.5
 local_lights_quality = "high"
@@ -387,6 +391,9 @@ dynamic_shadow_quality = "high"
 # shadows. A longer transition hides distance/slot changes without delaying
 # cube generation or changing native light intensity.
 dynamic_shadow_fade_seconds = 0.75
+# Opt-in, rate-limited shadow-producer summary in the log (faces rebuilt,
+# reused, and merged, moving lights). Never changes rendering.
+debug_logging = false
 
 [graphics.native_pbr]
 # Native material/PBR engine path.

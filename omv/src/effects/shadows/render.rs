@@ -238,6 +238,10 @@ fn traversal_stack_has_room(nodes: &[usize], additional: usize, capacity: usize)
 /// Mutable allocation-free traversal state retained with device resources.
 pub(super) struct TraversalScratch {
     nodes: Vec<usize>,
+    /// Parallel stack to `nodes` holding the inherited admissible cube-face
+    /// mask for the multi-face collection traversal. Unused by the per-face
+    /// traversal. Empty outside a collection.
+    collect_masks: Vec<u8>,
     skin_states: Vec<SkinStateSnapshot>,
     skin_lookup: Vec<SkinLookupSlot>,
     skin_lookup_generation: u32,
@@ -413,6 +417,7 @@ impl TraversalScratch {
     pub(super) fn with_capacity() -> Self {
         Self {
             nodes: Vec::with_capacity(MAX_NODE_VISITS),
+            collect_masks: Vec::with_capacity(MAX_NODE_VISITS),
             skin_states: Vec::with_capacity(MAX_SKIN_STATE_SNAPSHOTS),
             // A load factor of at most one half bounds probe chains while the
             // generation stamp resets logical ownership without clearing the
@@ -994,47 +999,6 @@ pub(super) unsafe fn draw_directional_root(
     unsafe { traverse_root(context, root, scratch) }
 }
 
-/// Traverse one canonical scene root for a point-light cube face.
-///
-/// # Safety
-///
-/// `root` and `first_person_root` must remain live for the current common-shadow
-/// invocation.
-#[allow(clippy::too_many_arguments)]
-pub(super) unsafe fn draw_point_root(
-    device: &Device9Ref<'_>,
-    programs: &GenerationPrograms,
-    renderer: *mut c_void,
-    camera_translation: [f32; 3],
-    first_person_root: *mut u8,
-    light_position: [f32; 3],
-    radius: f32,
-    face: usize,
-    root: *mut u8,
-    is_land: bool,
-    is_lod: bool,
-    subset: CasterSubset,
-    scratch: &mut TraversalScratch,
-) -> Direct3DResult<()> {
-    let context = DrawContext {
-        device,
-        programs,
-        renderer,
-        projection: None,
-        camera_translation,
-        first_person_root,
-        cube_center: Some(light_position),
-        cube_radius: Some(radius),
-        cube_face: Some(face),
-        is_land,
-        is_lod,
-        minimum_radius: CasterPolicy::quality_default().minimum_radius,
-        subset,
-        actor_overlay: false,
-    };
-    unsafe { traverse_root(context, root, scratch) }
-}
-
 #[derive(Clone, Copy)]
 struct DrawContext<'a> {
     device: &'a Device9Ref<'a>,
@@ -1159,24 +1123,150 @@ unsafe fn traverse_root(
     Ok(())
 }
 
-unsafe fn draw_geometry(
+/// Hash the exact rendered pose of one actor root without submitting geometry.
+///
+/// The traversal deliberately visits every child, a conservative superset of the
+/// culled draw set, so a pose change can never be missed. Each geometry identity
+/// and world transform, plus every skinned bone node's world transform, is
+/// folded. The engine updates bone world transforms each frame, so an identical
+/// fingerprint means the producer would submit identical geometry, while a
+/// different fingerprint always forces a redraw. A truncated or corrupt
+/// traversal folds a sentinel so it is never mistaken for unchanged.
+///
+/// `nodes` is caller-owned scratch reused as the traversal stack.
+pub(super) unsafe fn actor_pose_fingerprint(root: *mut u8, nodes: &mut Vec<usize>) -> u64 {
+    const FNV_OFFSET: u64 = 0xcbf2_9ce4_8422_2325;
+    const FNV_PRIME: u64 = 0x0000_0100_0000_01b3;
+    const SENTINEL: u64 = 0xdead_beef_dead_beef;
+    const MAX_FINGERPRINT_BONES: u32 = 256;
+
+    fn fold(hash: u64, value: u64) -> u64 {
+        (hash ^ value).wrapping_mul(FNV_PRIME)
+    }
+    fn fold_bits(hash: u64, bits: u32) -> u64 {
+        (hash ^ u64::from(bits)).wrapping_mul(FNV_PRIME)
+    }
+
+    nodes.clear();
+    if root.is_null() {
+        return fold(FNV_OFFSET, 0);
+    }
+    if !push_traversal_node(nodes, root as usize) {
+        return fold(FNV_OFFSET, SENTINEL);
+    }
+    let mut hash = FNV_OFFSET;
+    let mut budget = TraversalBudget::new(MAX_NODE_VISITS);
+    while let Some(identity) = nodes.pop() {
+        if !budget.claim() {
+            return fold(hash, SENTINEL);
+        }
+        let object = identity as *mut u8;
+        let geometry = unsafe { virtual_cast(object, NI_OBJECT_IS_GEOMETRY_SLOT) };
+        if !geometry.is_null() {
+            hash = fold(hash, geometry as u64);
+            let transform = unsafe {
+                read_unaligned::<[f32; 13]>(
+                    geometry
+                        .add(NativeLayout::NI_AV_OBJECT_WORLD_TRANSFORM)
+                        .cast(),
+                )
+            };
+            for value in transform {
+                hash = fold_bits(hash, value.to_bits());
+            }
+            let skin = unsafe { read::<*mut u8>(geometry, NativeLayout::NI_GEOMETRY_SKIN) };
+            if !skin.is_null() {
+                hash = fold(hash, skin as u64);
+                let bones =
+                    unsafe { read::<*mut *mut u8>(skin, NativeLayout::NI_SKIN_BONE_OBJECTS) };
+                let count = unsafe { read::<u32>(skin, NativeLayout::NI_SKIN_BONES) }
+                    .min(MAX_FINGERPRINT_BONES);
+                hash = fold_bits(hash, count);
+                if !bones.is_null() {
+                    for index in 0..count as usize {
+                        let bone = unsafe { read_unaligned(bones.add(index)) };
+                        if bone.is_null() {
+                            hash = fold(hash, 0);
+                            continue;
+                        }
+                        let bone_transform = unsafe {
+                            read_unaligned::<[f32; 13]>(
+                                bone.add(NativeLayout::NI_AV_OBJECT_WORLD_TRANSFORM).cast(),
+                            )
+                        };
+                        for value in bone_transform {
+                            hash = fold_bits(hash, value.to_bits());
+                        }
+                    }
+                }
+            }
+            continue;
+        }
+        let node = unsafe { virtual_cast(object, NI_OBJECT_IS_NODE_SLOT) };
+        if node.is_null() {
+            continue;
+        }
+        let children = unsafe { node.add(NativeLayout::NI_NODE_CHILDREN) };
+        let Some(end) = complete_bounded_count(
+            unsafe { read::<u16>(children, NI_TARRAY_END) } as usize,
+            MAX_NODE_CHILDREN,
+        ) else {
+            return fold(hash, SENTINEL);
+        };
+        let data = unsafe { read::<*mut *mut u8>(children, NI_TARRAY_DATA) };
+        if data.is_null() {
+            continue;
+        }
+        for index in (0..end).rev() {
+            let child = unsafe { read_unaligned(data.add(index)) };
+            if !child.is_null() && !push_traversal_node(nodes, child as usize) {
+                return fold(hash, SENTINEL);
+            }
+        }
+    }
+    hash
+}
+
+/// One admitted point caster retained for cross-face amortization.
+///
+/// Produced once per light by [`collect_point_casters`] after the hierarchy and
+/// bound checks, so a face submission can skip re-walking the subtree. Fields
+/// are opaque to the caller; it only holds the vector.
+pub(super) struct PointCasterRecord {
+    /// Borrowed geometry identity kept as an integer so the record stays `Send`
+    /// beside the device resources; it is only dereferenced on the render thread
+    /// during the transaction that produced it.
+    geometry: usize,
+    classification: GeometryClassification,
+    world: [[f32; 4]; 4],
+    /// Cube faces this exact caster could touch under the same predicate the
+    /// per-face traversal applies.
+    face_mask: u8,
+}
+
+/// Resolve a geometry's classification and world matrix without submitting it.
+///
+/// # Safety
+///
+/// `geometry` and its engine chain must belong to the active transaction.
+unsafe fn prepare_geometry(
     context: DrawContext<'_>,
     geometry: *mut u8,
     scratch: &mut TraversalScratch,
-) -> Direct3DResult<()> {
+) -> Direct3DResult<Option<(GeometryClassification, [[f32; 4]; 4])>> {
     if geometry.is_null() {
-        return Ok(());
+        return Ok(None);
     }
     // Retained static work rejects skins from non-actor roots. Actor-root work
     // admits both rigid equipment and skins; root admission, rather than the
     // skin pointer, owns that presentation family.
     let skinned = !unsafe { read::<*mut u8>(geometry, NativeLayout::NI_GEOMETRY_SKIN) }.is_null();
     if !context.subset.admits(skinned) {
-        return Ok(());
+        return Ok(None);
     }
     let Some(classification) = (unsafe { scratch.caster_classification(context, geometry) })?
     else {
-        return Ok(());
+        return Ok(None);
     };
     debug_assert_eq!(classification.skinned, skinned);
     let Some(world) = (unsafe { geometry_world_matrix(geometry, context.camera_translation) })
@@ -1184,8 +1274,24 @@ unsafe fn draw_geometry(
         // Non-finite transforms belong to this caster, not to the D3D
         // transaction. Skipping it preserves every compatible shadow while
         // preventing invalid constants from reaching the device.
-        return Ok(());
+        return Ok(None);
     };
+    Ok(Some((classification, world)))
+}
+
+/// Submit one prepared caster into the currently bound point-cube face.
+///
+/// # Safety
+///
+/// `geometry`, `classification`, and `world` must come from `prepare_geometry`
+/// (or an equivalent bound/classification check) in this transaction.
+unsafe fn submit_caster_geometry(
+    context: DrawContext<'_>,
+    geometry: *mut u8,
+    classification: GeometryClassification,
+    world: [[f32; 4]; 4],
+    scratch: &mut TraversalScratch,
+) -> Direct3DResult<()> {
     let mut geometry_data = [classification.geometry_kind, 0.0, 0.0, 0.0];
     if context.actor_overlay {
         geometry_data[3] = 2.0;
@@ -1226,14 +1332,11 @@ unsafe fn draw_geometry(
     context
         .device
         .set_pixel_shader_constant_f(0, &[geometry_data])?;
-    if context.cube_radius.is_some() {
-        // Cube views use right-handed face transforms while native material
-        // culling is camera-handedness dependent. Keeping both sides here is
-        // required for thin interior walls to occlude every cube direction.
-        context
-            .device
-            .set_render_state(D3DRS_CULLMODE, D3DCULL_NONE.0 as u32)?;
-    } else {
+    if context.cube_radius.is_none() {
+        // Directional cascades inherit the native material's handedness-mapped
+        // cull mode per geometry. Cube faces already own D3DCULL_NONE from the
+        // face baseline (`configure_generation_state`), so re-setting it for
+        // every cube geometry only repeated a redundant render-state call.
         unsafe { set_geometry_cull_mode(context.device, context.renderer.cast(), geometry)? };
     }
 
@@ -1260,6 +1363,343 @@ unsafe fn draw_geometry(
     // compatibility decision. Keep it transactional so OMV never claims a
     // complete map without executing the proven native submission helper.
     submitted.then_some(()).ok_or_else(direct3d_failure)
+}
+
+unsafe fn draw_geometry(
+    context: DrawContext<'_>,
+    geometry: *mut u8,
+    scratch: &mut TraversalScratch,
+) -> Direct3DResult<()> {
+    let Some((classification, world)) = (unsafe { prepare_geometry(context, geometry, scratch)? })
+    else {
+        return Ok(());
+    };
+    unsafe { submit_caster_geometry(context, geometry, classification, world, scratch) }
+}
+
+/// Return the cube faces one object's bound can touch, intersected with the
+/// inherited admissible mask.
+///
+/// Mirrors `object_bound_within` exactly as a disjunction over the six faces: a
+/// missing bound is admitted (the per-face predicate returns true for cubes), a
+/// sub-minimum radius is rejected, and otherwise the light-volume test gates the
+/// per-face test.
+fn object_face_mask(context: DrawContext<'_>, object: *mut u8, inherited: u8) -> u8 {
+    let Some(bound) = (unsafe { object_bound(object, context.camera_translation) }) else {
+        return inherited;
+    };
+    object_sphere_face_mask(context, bound) & inherited
+}
+
+fn object_sphere_face_mask(context: DrawContext<'_>, bound: Sphere) -> u8 {
+    if !context.is_land && bound.radius < context.minimum_radius {
+        return 0;
+    }
+    let (Some(center), Some(radius)) = (context.cube_center, context.cube_radius) else {
+        return super::contract::ALL_CUBE_FACES;
+    };
+    if !sphere_intersects_point_light(bound.center, bound.radius, center, radius) {
+        return 0;
+    }
+    let center_from_light = std::array::from_fn(|axis| bound.center[axis] - center[axis]);
+    cube_face_mask(center_from_light, bound.radius)
+}
+
+/// Disjunction of the six `sphere_intersects_cube_face` tests for one sphere
+/// offset from the light.
+fn cube_face_mask(center_from_light: [f32; 3], radius: f32) -> u8 {
+    (0..6).fold(0_u8, |mask, face| {
+        mask | ((sphere_intersects_cube_face(center_from_light, radius, face) as u8) << face)
+    })
+}
+
+/// Face mask of the multibound owned by `object`, or every cube face when it
+/// owns none, matching `point_multibound_sphere_within` as a disjunction over the
+/// six faces.
+///
+/// Ownership is resolved through the engine's multibound-node virtual before the
+/// `BS_MULTIBOUND` field is read. That field holds a `BSMultiBound` pointer only
+/// on a node the virtual confirms; on every other node it is an unrelated value,
+/// and treating that value as a bound pointer faults. Absent/invalid shapes admit
+/// every face.
+fn multibound_face_mask(
+    object: *mut u8,
+    camera_translation: [f32; 3],
+    cube_center: Option<[f32; 3]>,
+    cube_radius: Option<f32>,
+) -> u8 {
+    let all = super::contract::ALL_CUBE_FACES;
+    if unsafe { virtual_cast(object, NI_OBJECT_IS_MULTIBOUND_NODE_SLOT) }.is_null() {
+        return all;
+    }
+    let multibound = unsafe { read::<*mut u8>(object, BS_MULTIBOUND) };
+    if multibound.is_null() {
+        return all;
+    }
+    let shape = unsafe { read::<*mut u8>(multibound, BS_MULTIBOUND_SHAPE) };
+    if shape.is_null() {
+        return all;
+    }
+    let Some(function) = (unsafe { virtual_function(shape, MULTIBOUND_SHAPE_GET_BOUND_SLOT) })
+    else {
+        return all;
+    };
+    let get_bound: GetMultiBound = unsafe { transmute(function) };
+    let mut bound = NativeBound {
+        center: [0.0; 3],
+        radius: 0.0,
+    };
+    unsafe { get_bound(shape, &mut bound) };
+    let sphere = Sphere {
+        center: std::array::from_fn(|index| bound.center[index] - camera_translation[index]),
+        radius: bound.radius,
+    };
+    if !sphere.center.into_iter().all(f32::is_finite)
+        || !sphere.radius.is_finite()
+        || sphere.radius < 0.0
+    {
+        return all;
+    }
+    let (Some(center), Some(radius)) = (cube_center, cube_radius) else {
+        return all;
+    };
+    if !sphere_intersects_point_light(sphere.center, sphere.radius, center, radius) {
+        return 0;
+    }
+    let center_from_light = std::array::from_fn(|axis| sphere.center[axis] - center[axis]);
+    (0..6).fold(0_u8, |mask, face| {
+        mask | ((sphere_intersects_cube_face(center_from_light, sphere.radius, face) as u8) << face)
+    })
+}
+
+/// Collect every admitted point caster under one root into per-face records.
+///
+/// One traversal computes each object's touched-face mask from the same
+/// predicate the per-face path applies, so the union of the collected records at
+/// each face equals the geometry that face's traversal would submit, in the same
+/// order. The inherited mask propagates each node's admission to its children,
+/// matching the per-face subtree pruning.
+///
+/// # Safety
+///
+/// `root` and every node beneath it must belong to the active transaction.
+unsafe fn collect_point_subtree(
+    context: DrawContext<'_>,
+    root: *mut u8,
+    scratch: &mut TraversalScratch,
+    out: &mut Vec<PointCasterRecord>,
+) -> Direct3DResult<()> {
+    let all = super::contract::ALL_CUBE_FACES;
+    scratch.nodes.clear();
+    scratch.collect_masks.clear();
+    if root.is_null() {
+        return Ok(());
+    }
+    if !push_traversal_node(&mut scratch.nodes, root as usize) {
+        return Err(direct3d_failure());
+    }
+    scratch.collect_masks.push(all);
+    let mut budget = TraversalBudget::new(MAX_NODE_VISITS);
+    while let Some(identity) = scratch.nodes.pop() {
+        let inherited = scratch.collect_masks.pop().unwrap_or(all);
+        if !budget.claim() {
+            return Ok(());
+        }
+        let object = identity as *mut u8;
+        if !presentation_object_is_visible(
+            context.subset.owns_presentation_visibility() || context.actor_overlay,
+            unsafe { read::<u32>(object, NativeLayout::NI_AV_OBJECT_FLAGS) },
+        ) {
+            continue;
+        }
+        let geometry = unsafe { scratch.caster_virtual_cast(object, NI_OBJECT_IS_GEOMETRY_SLOT) };
+        if !geometry.is_null() {
+            let skinned =
+                !unsafe { read::<*mut u8>(geometry, NativeLayout::NI_GEOMETRY_SKIN) }.is_null();
+            if !context.subset.admits(skinned) {
+                continue;
+            }
+            let mask = object_face_mask(context, geometry, inherited);
+            if mask == 0 {
+                continue;
+            }
+            let Some((classification, world)) =
+                (unsafe { prepare_geometry(context, geometry, scratch)? })
+            else {
+                continue;
+            };
+            out.push(PointCasterRecord {
+                geometry: geometry as usize,
+                classification,
+                world,
+                face_mask: mask,
+            });
+            continue;
+        }
+        let node = unsafe { scratch.caster_virtual_cast(object, NI_OBJECT_IS_NODE_SLOT) };
+        if node.is_null() {
+            continue;
+        }
+        let node_mask = object_face_mask(context, node, inherited)
+            & multibound_face_mask(
+                node,
+                context.camera_translation,
+                context.cube_center,
+                context.cube_radius,
+            );
+        if node_mask == 0 {
+            continue;
+        }
+        let fade = unsafe { scratch.caster_virtual_cast(node, NI_OBJECT_IS_FADE_NODE_SLOT) };
+        if !fade.is_null()
+            && unsafe { read::<f32>(fade, BS_FADE_ALPHA) }.is_finite()
+            && unsafe { read::<f32>(fade, BS_FADE_ALPHA) } < 0.75
+        {
+            continue;
+        }
+        let children = unsafe { node.add(NativeLayout::NI_NODE_CHILDREN) };
+        let Some(end) = complete_bounded_count(
+            unsafe { read::<u16>(children, NI_TARRAY_END) } as usize,
+            MAX_NODE_CHILDREN,
+        ) else {
+            continue;
+        };
+        let data = unsafe { read::<*mut *mut u8>(children, NI_TARRAY_DATA) };
+        if data.is_null() {
+            continue;
+        }
+        let switch = {
+            let index = scratch.caster_preparation_index(node as usize);
+            let cached = index.and_then(|i| scratch.caster_preparation[i].switch);
+            let value =
+                cached.unwrap_or_else(|| unsafe { rtti_is_kind_of(node, NI_SWITCH_NODE_RTTI) });
+            if let Some(index) = index {
+                scratch.caster_preparation[index].switch = Some(value);
+            }
+            value
+        };
+        if switch {
+            let active = unsafe { read::<i32>(node, NI_SWITCH_ACTIVE_INDEX) };
+            if let Some(active) = switch_active_child_index(active, end) {
+                let child = unsafe { read_unaligned(data.add(active)) };
+                if !child.is_null() && push_traversal_node(&mut scratch.nodes, child as usize) {
+                    scratch.collect_masks.push(node_mask);
+                }
+            }
+            continue;
+        }
+        let pending_children = (0..end)
+            .filter(|index| !unsafe { read_unaligned(data.add(*index)) }.is_null())
+            .count();
+        if !traversal_stack_has_room(&scratch.nodes, pending_children, scratch.nodes.capacity()) {
+            continue;
+        }
+        for index in (0..end).rev() {
+            let child = unsafe { read_unaligned(data.add(index)) };
+            if !child.is_null() {
+                if !push_traversal_node(&mut scratch.nodes, child as usize) {
+                    return Ok(());
+                }
+                scratch.collect_masks.push(node_mask);
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Collect every admitted point caster under one root for cross-face reuse.
+///
+/// # Safety
+///
+/// `root` and its hierarchy must belong to the active transaction.
+#[allow(clippy::too_many_arguments)]
+pub(super) unsafe fn collect_point_casters(
+    device: &Device9Ref<'_>,
+    programs: &GenerationPrograms,
+    renderer: *mut c_void,
+    camera_translation: [f32; 3],
+    first_person_root: *mut u8,
+    light_position: [f32; 3],
+    radius: f32,
+    minimum_radius: f32,
+    root: *mut u8,
+    is_land: bool,
+    is_lod: bool,
+    subset: CasterSubset,
+    scratch: &mut TraversalScratch,
+    out: &mut Vec<PointCasterRecord>,
+) -> Direct3DResult<()> {
+    let context = DrawContext {
+        device,
+        programs,
+        renderer,
+        projection: None,
+        camera_translation,
+        first_person_root,
+        cube_center: Some(light_position),
+        cube_radius: Some(radius),
+        cube_face: None,
+        is_land,
+        is_lod,
+        minimum_radius,
+        subset,
+        actor_overlay: false,
+    };
+    unsafe { collect_point_subtree(context, root, scratch, out) }
+}
+
+/// Submit the collected records whose mask covers `face`.
+///
+/// # Safety
+///
+/// Every record must come from `collect_point_casters` in this transaction, and
+/// the face's target/depth/view-proj must already be bound.
+#[allow(clippy::too_many_arguments)]
+pub(super) unsafe fn submit_point_casters(
+    device: &Device9Ref<'_>,
+    programs: &GenerationPrograms,
+    renderer: *mut c_void,
+    camera_translation: [f32; 3],
+    first_person_root: *mut u8,
+    light_position: [f32; 3],
+    radius: f32,
+    face: usize,
+    subset: CasterSubset,
+    scratch: &mut TraversalScratch,
+    records: &[PointCasterRecord],
+) -> Direct3DResult<()> {
+    let context = DrawContext {
+        device,
+        programs,
+        renderer,
+        projection: None,
+        camera_translation,
+        first_person_root,
+        cube_center: Some(light_position),
+        cube_radius: Some(radius),
+        cube_face: Some(face),
+        is_land: false,
+        is_lod: false,
+        minimum_radius: CasterPolicy::quality_default().minimum_radius,
+        subset,
+        actor_overlay: false,
+    };
+    let bit = 1_u8 << face;
+    for record in records {
+        if record.face_mask & bit == 0 {
+            continue;
+        }
+        unsafe {
+            submit_caster_geometry(
+                context,
+                record.geometry as *mut u8,
+                record.classification,
+                record.world,
+                scratch,
+            )?
+        };
+    }
+    Ok(())
 }
 
 #[derive(Clone, Copy)]
@@ -2250,13 +2690,36 @@ mod tests {
     use core::mem::size_of;
 
     use super::{
-        CasterSubset, NI_AV_OBJECT_APP_CULLED, TraversalScratch, object_is_beneath_root,
-        point_multibound_sphere_within, presentation_object_is_visible, push_traversal_node, read,
-        skinned_partition_bones_are_supported, switch_active_child_index, traversal_stack_has_room,
-        write,
+        CasterSubset, NI_AV_OBJECT_APP_CULLED, TraversalScratch, cube_face_mask,
+        object_is_beneath_root, point_multibound_sphere_within, presentation_object_is_visible,
+        push_traversal_node, read, skinned_partition_bones_are_supported,
+        switch_active_child_index, traversal_stack_has_room, write,
     };
     use crate::effects::shadows::engine::NativeLayout;
     use crate::effects::shadows::math::Sphere;
+
+    #[test]
+    fn cube_face_mask_is_the_disjunction_of_the_six_per_face_tests() {
+        use super::sphere_intersects_cube_face;
+        // A +X-only caster admits exactly the +X face.
+        assert_eq!(cube_face_mask([32.0, 0.0, 0.0], 2.0), 1 << 0);
+        assert_eq!(cube_face_mask([0.0, 32.0, 0.0], 2.0), 1 << 2);
+        // A caster enclosing the light center reaches every face.
+        assert_eq!(cube_face_mask([0.0, 0.0, 0.0], 1.0), 0x3f);
+        // The mask equals the disjunction of the single-face predicate, which is
+        // what the removed per-face traversal applied.
+        for offset in [
+            [32.0, 0.0, 0.0],
+            [0.0, 16.0, 0.0],
+            [0.0, 0.0, 8.0],
+            [-4.0, -4.0, -4.0],
+        ] {
+            let expected = (0..6u8).fold(0_u8, |mask, face| {
+                mask | ((sphere_intersects_cube_face(offset, 2.0, face as usize) as u8) << face)
+            });
+            assert_eq!(cube_face_mask(offset, 2.0), expected);
+        }
+    }
 
     #[test]
     fn point_actor_subsets_cover_rigid_equipment_and_skinned_geometry() {
@@ -2300,6 +2763,100 @@ mod tests {
             64.0,
             0
         ));
+    }
+
+    #[test]
+    fn point_multibound_is_read_only_from_an_engine_confirmed_owner() {
+        use super::{
+            BS_MULTIBOUND, BS_MULTIBOUND_SHAPE, MULTIBOUND_SHAPE_GET_BOUND_SLOT,
+            NI_OBJECT_IS_MULTIBOUND_NODE_SLOT, NativeBound, VirtualCast, multibound_face_mask,
+        };
+        use crate::effects::shadows::contract::ALL_CUBE_FACES;
+
+        unsafe extern "thiscall" fn deny(_object: *mut u8) -> *mut u8 {
+            core::ptr::null_mut()
+        }
+        unsafe extern "thiscall" fn confirm(object: *mut u8) -> *mut u8 {
+            object
+        }
+        unsafe extern "thiscall" fn get_bound(_shape: *mut u8, out: *mut NativeBound) {
+            unsafe {
+                out.write(NativeBound {
+                    center: [32.0, 0.0, 0.0],
+                    radius: 2.0,
+                })
+            }
+        }
+
+        // A saved-world rebuild routinely hands the point traversal ordinary
+        // BSFadeNodes whose BS_MULTIBOUND field holds an unrelated non-null
+        // value. Ownership must be confirmed through the engine virtual before
+        // that field is read: treating the value as a BSMultiBound pointer
+        // dereferences garbage and faults.
+        let mut node_vtable = [deny as VirtualCast; NI_OBJECT_IS_MULTIBOUND_NODE_SLOT + 1];
+        let mut object = [0_u8; BS_MULTIBOUND + core::mem::size_of::<*const core::ffi::c_void>()];
+        unsafe {
+            write(
+                object.as_mut_ptr(),
+                0,
+                node_vtable.as_ptr() as *const core::ffi::c_void,
+            );
+            write(
+                object.as_mut_ptr(),
+                BS_MULTIBOUND,
+                0x4441_6977_usize as *const core::ffi::c_void,
+            );
+        }
+        assert_eq!(
+            multibound_face_mask(object.as_mut_ptr(), [0.0; 3], Some([0.0; 3]), Some(64.0)),
+            ALL_CUBE_FACES,
+            "an unrelated field on an unconfirmed node was read as a BSMultiBound"
+        );
+
+        // A confirmed node with no resolved bound still admits every face.
+        node_vtable[NI_OBJECT_IS_MULTIBOUND_NODE_SLOT] = confirm;
+        unsafe {
+            write(
+                object.as_mut_ptr(),
+                BS_MULTIBOUND,
+                core::ptr::null::<core::ffi::c_void>(),
+            );
+        }
+        assert_eq!(
+            multibound_face_mask(object.as_mut_ptr(), [0.0; 3], Some([0.0; 3]), Some(64.0)),
+            ALL_CUBE_FACES
+        );
+
+        // A confirmed node resolves its real shape through the same shape
+        // virtual the bounded admission has always used.
+        let mut shape_vtable =
+            [core::ptr::null::<core::ffi::c_void>(); MULTIBOUND_SHAPE_GET_BOUND_SLOT + 1];
+        shape_vtable[MULTIBOUND_SHAPE_GET_BOUND_SLOT] = get_bound as *const core::ffi::c_void;
+        let mut shape = [0_u8; core::mem::size_of::<*const core::ffi::c_void>()];
+        let mut multibound =
+            [0_u8; BS_MULTIBOUND_SHAPE + core::mem::size_of::<*const core::ffi::c_void>()];
+        unsafe {
+            write(
+                shape.as_mut_ptr(),
+                0,
+                shape_vtable.as_ptr() as *const core::ffi::c_void,
+            );
+            write(
+                multibound.as_mut_ptr(),
+                BS_MULTIBOUND_SHAPE,
+                shape.as_ptr() as *const core::ffi::c_void,
+            );
+            write(
+                object.as_mut_ptr(),
+                BS_MULTIBOUND,
+                multibound.as_ptr() as *const core::ffi::c_void,
+            );
+        }
+        assert_eq!(
+            multibound_face_mask(object.as_mut_ptr(), [0.0; 3], Some([0.0; 3]), Some(64.0)),
+            1 << 0,
+            "a +X multibound reaches only the +X face"
+        );
     }
 
     #[test]

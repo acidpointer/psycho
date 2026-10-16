@@ -165,6 +165,9 @@ const CONTACT_BIT: u8 = 1 << 3;
 const SUN_BIT: u8 = 1 << 4;
 const DYNAMIC_QUALITY_SHIFT: u32 = 5;
 const DYNAMIC_QUALITY_MASK: u8 = 0b0110_0000;
+/// Lightweight aggregated shadow-logging preference packed into the released
+/// settings byte's last free bit, so no new loader-visible static is added.
+const DEBUG_LOG_BIT: u8 = 1 << 7;
 const POINT_LIGHT_COUNT_MASK: u32 = 0xFF;
 const POINT_FADE_MILLIS_SHIFT: u32 = 8;
 const POINT_FADE_MILLIS_MASK: u32 = 0xFFFF;
@@ -279,6 +282,8 @@ pub(crate) struct NativeShadowsSettings {
     pub(crate) dynamic_shadow_quality: crate::config::DynamicShadowQuality,
     /// Shared exterior/interior admission transition duration in seconds.
     pub(crate) dynamic_shadow_fade_seconds: f32,
+    /// Enable lightweight aggregated shadow-producer diagnostics in the log.
+    pub(crate) debug_logging: bool,
 }
 
 impl NativeShadowsSettings {
@@ -354,6 +359,7 @@ impl From<crate::config::NativeShadowsConfig> for NativeShadowsSettings {
             sun_shadows: value.sun_shadows,
             dynamic_shadow_quality: value.dynamic_shadow_quality,
             dynamic_shadow_fade_seconds: value.dynamic_shadow_fade_seconds,
+            debug_logging: value.debug_logging,
         }
     }
 }
@@ -378,6 +384,7 @@ impl From<NativeShadowsSettings> for crate::config::NativeShadowsConfig {
             sun_shadows: value.sun_shadows,
             dynamic_shadow_quality: value.dynamic_shadow_quality,
             dynamic_shadow_fade_seconds: value.dynamic_shadow_fade_seconds,
+            debug_logging: value.debug_logging,
         }
     }
 }
@@ -413,6 +420,7 @@ pub(crate) fn configure_runtime_options(settings: NativeShadowsSettings) {
         | (settings.interior_enabled as u8) * INTERIOR_BIT
         | (settings.contact_shadows as u8) * CONTACT_BIT
         | (settings.sun_shadows as u8) * SUN_BIT
+        | (settings.debug_logging as u8) * DEBUG_LOG_BIT
         | ((settings.dynamic_shadow_quality.index() as u8) << DYNAMIC_QUALITY_SHIFT)
             & DYNAMIC_QUALITY_MASK;
     SETTINGS.store(bits, Ordering::Relaxed);
@@ -720,6 +728,7 @@ fn try_current_settings() -> Option<NativeShadowsSettings> {
         dynamic_shadow_fade_seconds: ((point_options >> POINT_FADE_MILLIS_SHIFT)
             & POINT_FADE_MILLIS_MASK) as f32
             / 1_000.0,
+        debug_logging: bits & DEBUG_LOG_BIT != 0,
     };
     (SETTINGS_REVISION.load(Ordering::Acquire) == before).then_some(settings)
 }
@@ -809,6 +818,7 @@ mod startup_safety_tests {
             sun_shadows: true,
             dynamic_shadow_quality: crate::config::DynamicShadowQuality::Ultra,
             dynamic_shadow_fade_seconds: 1.875,
+            debug_logging: true,
         };
 
         configure_runtime_options(expected);

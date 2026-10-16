@@ -227,6 +227,11 @@ pub(crate) struct NativeShadowsConfig {
     /// schema-one table. It affects presentation weight only; cube generation
     /// and native scene lighting remain complete throughout the transition.
     pub(crate) dynamic_shadow_fade_seconds: f32,
+    /// Enable lightweight aggregated shadow diagnostics in the log.
+    ///
+    /// Appended after `dynamic_shadow_fade_seconds`. It gates only rate-limited
+    /// summary logging in the shadow producer; it never changes rendering.
+    pub(crate) debug_logging: bool,
 }
 
 impl Default for NativeShadowsConfig {
@@ -249,6 +254,7 @@ impl Default for NativeShadowsConfig {
             sun_shadows: false,
             dynamic_shadow_quality: DynamicShadowQuality::High,
             dynamic_shadow_fade_seconds: 0.75,
+            debug_logging: false,
         }
     }
 }
@@ -485,6 +491,55 @@ impl AtmosphereQuality {
     }
 }
 
+/// Chooses the world-occlusion source for directional volumetric scattering.
+///
+/// The directional sun contribution no longer implicitly requires the native
+/// four-cascade EVSM shadow producer. `screen_space` (the shipped default) uses
+/// the existing reduced-depth shaft field, `cascades` opts into the retained
+/// world-shadow atlas for true per-ray visibility, and `off` keeps base
+/// in-scattering with no shadow occlusion. Only `cascades` sets the world
+/// directional-shadow requirement.
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum DirectionalOcclusionSource {
+    /// Reduced-depth projected shaft visibility; no cascade producer.
+    #[default]
+    ScreenSpace,
+    /// Retained world-shadow cascade atlas marched along the view ray.
+    Cascades,
+    /// No directional shadow occlusion; base in-scattering only.
+    Off,
+}
+
+impl DirectionalOcclusionSource {
+    /// Returns the in-game menu index for this source.
+    pub(crate) const fn index(self) -> i32 {
+        match self {
+            Self::ScreenSpace => 0,
+            Self::Cascades => 1,
+            Self::Off => 2,
+        }
+    }
+
+    /// Decodes a bounded in-game menu index.
+    pub(crate) const fn from_index(value: i32) -> Self {
+        match value {
+            1 => Self::Cascades,
+            2 => Self::Off,
+            _ => Self::ScreenSpace,
+        }
+    }
+
+    /// Returns the stable TOML spelling for this source.
+    fn config_value(self) -> &'static str {
+        match self {
+            Self::ScreenSpace => "screen_space",
+            Self::Cascades => "cascades",
+            Self::Off => "off",
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, Deserialize, Serialize)]
 #[serde(default)]
 pub(crate) struct VolumetricFogConfig {
@@ -551,6 +606,13 @@ pub(crate) struct VolumetricLightingConfig {
     pub(crate) shaft_strength: f32,
     pub(crate) sun_disk_boost: f32,
     pub(crate) shaft_quality: AtmosphereQuality,
+    /// World-occlusion source for the directional sun contribution.
+    ///
+    /// Skipped from generic serialization like `local_lights_fade_seconds` so
+    /// the frozen schema-one preset payload is unchanged; the explicit TOML
+    /// writer persists it.
+    #[serde(skip_serializing)]
+    pub(crate) directional_occlusion: DirectionalOcclusionSource,
     pub(crate) local_lights_enabled: bool,
     pub(crate) local_lights_intensity: f32,
     pub(crate) local_lights_quality: AtmosphereQuality,
@@ -576,6 +638,7 @@ impl Default for VolumetricLightingConfig {
             shaft_strength: 1.0,
             sun_disk_boost: 0.0,
             shaft_quality: AtmosphereQuality::High,
+            directional_occlusion: DirectionalOcclusionSource::ScreenSpace,
             local_lights_enabled: true,
             local_lights_intensity: 1.5,
             local_lights_quality: AtmosphereQuality::High,
@@ -594,6 +657,8 @@ impl VolumetricLightingConfig {
         self.anisotropy = finite_clamp(self.anisotropy, 0.58, -0.8, 0.9);
         self.shaft_strength = finite_clamp(self.shaft_strength, 1.0, 0.0, 1.0);
         self.sun_disk_boost = finite_clamp(self.sun_disk_boost, 0.0, 0.0, 8.0);
+        self.directional_occlusion =
+            DirectionalOcclusionSource::from_index(self.directional_occlusion.index());
         self.local_lights_intensity = finite_clamp(self.local_lights_intensity, 1.5, 0.0, 4.0);
         self.temporal_stability = finite_clamp(self.temporal_stability, 0.9, 0.0, 0.98);
         self.debug_view = self.debug_view.clamp(0, 8);
@@ -1797,6 +1862,7 @@ fn save_native_shadows_config(doc: &mut DocumentMut, config: &NativeShadowsConfi
         value(config.dynamic_shadow_quality.config_value());
     doc["graphics"]["native_shadows"]["dynamic_shadow_fade_seconds"] =
         value(config.dynamic_shadow_fade_seconds as f64);
+    doc["graphics"]["native_shadows"]["debug_logging"] = value(config.debug_logging);
 }
 
 fn save_diagnostics_config(doc: &mut DocumentMut, config: &GraphicsMenuConfig) {
@@ -1868,6 +1934,8 @@ fn save_embedded_effect_config(doc: &mut DocumentMut, config: &EmbeddedEffectsCo
         value(lighting.sun_disk_boost as f64);
     doc["graphics"]["embedded_effects"]["volumetric_lighting"]["shaft_quality"] =
         value(lighting.shaft_quality.config_value());
+    doc["graphics"]["embedded_effects"]["volumetric_lighting"]["directional_occlusion"] =
+        value(lighting.directional_occlusion.config_value());
     doc["graphics"]["embedded_effects"]["volumetric_lighting"]["local_lights_enabled"] =
         value(lighting.local_lights_enabled);
     doc["graphics"]["embedded_effects"]["volumetric_lighting"]["local_lights_intensity"] =
@@ -2124,10 +2192,10 @@ fn save_color_grade_config(doc: &mut DocumentMut, grade: &ColorGradeConfig) {
 mod tests {
     use super::{
         AdaptiveToneConfig, AtmosphereQuality, BloomingHdrConfig, ColorGradeConfig,
-        DiagnosticsConfig, DynamicShadowQuality, EmbeddedEffectsConfig, GraphicsMenuConfig,
-        MotionBlurConfig, MotionBlurQuality, NativePbrConfig, NativeShadowsConfig,
-        PsychoGraphicsConfig, ToneMapperMode, VolumetricFogConfig, VolumetricLightingConfig,
-        parse_native_shadows_config, parse_versioned_config,
+        DiagnosticsConfig, DirectionalOcclusionSource, DynamicShadowQuality, EmbeddedEffectsConfig,
+        GraphicsMenuConfig, MotionBlurConfig, MotionBlurQuality, NativePbrConfig,
+        NativeShadowsConfig, PsychoGraphicsConfig, ToneMapperMode, VolumetricFogConfig,
+        VolumetricLightingConfig, parse_native_shadows_config, parse_versioned_config,
         sanitize_frame_pacing_update_interval_ms, save_adaptive_tone_config,
         save_color_grade_config, save_diagnostics_config, save_embedded_effect_config,
         save_native_shadows_config,
@@ -2214,13 +2282,14 @@ mod tests {
             "sun_shadows",
             "dynamic_shadow_quality",
             "dynamic_shadow_fade_seconds",
+            "debug_logging",
         ] {
             assert!(
                 table.contains_key(key),
                 "missing native shadow control {key}"
             );
         }
-        assert_eq!(table.len(), 17);
+        assert_eq!(table.len(), 18);
         let decoded = parse_native_shadows_config(&document.to_string())
             .expect("saved deferred shadow config");
         assert_eq!(decoded, expected);
@@ -2782,6 +2851,44 @@ albedo_saturation = 1.02
         assert!(defaults.local_lights_enabled);
         assert_eq!(defaults.local_lights_intensity, 1.5);
         assert_eq!(defaults.local_lights_quality, AtmosphereQuality::High);
+    }
+
+    #[test]
+    fn directional_occlusion_defaults_to_screen_space_and_stays_out_of_presets() {
+        let defaults: VolumetricLightingConfig =
+            toml::from_str("").expect("legacy lighting defaults");
+        assert_eq!(
+            defaults.directional_occlusion,
+            DirectionalOcclusionSource::ScreenSpace
+        );
+        assert_eq!(
+            DirectionalOcclusionSource::from_index(i32::MAX),
+            DirectionalOcclusionSource::ScreenSpace
+        );
+        assert_eq!(
+            DirectionalOcclusionSource::from_index(1),
+            DirectionalOcclusionSource::Cascades
+        );
+        assert_eq!(
+            DirectionalOcclusionSource::from_index(2),
+            DirectionalOcclusionSource::Off
+        );
+
+        // The control is excluded from the frozen schema-one preset payload;
+        // only the explicit TOML writer persists it.
+        let explicit = VolumetricLightingConfig {
+            directional_occlusion: DirectionalOcclusionSource::Cascades,
+            ..VolumetricLightingConfig::default()
+        };
+        let encoded = toml::to_string(&explicit).expect("serialize lighting");
+        assert!(!encoded.contains("directional_occlusion"));
+
+        let shipped: VolumetricLightingConfig =
+            toml::from_str(include_str!("../config/omv.toml")).expect("shipped OMV config");
+        assert_eq!(
+            shipped.directional_occlusion,
+            DirectionalOcclusionSource::ScreenSpace
+        );
     }
 
     #[test]

@@ -98,6 +98,11 @@ impl DirectionalRoot {
         self.world_bound
     }
 
+    /// Retained absolute world-state hash used for static change detection.
+    pub(super) fn world_state_hash(self) -> u32 {
+        self.world_state
+    }
+
     /// Apply the same supplied NVR form profile previously used while walking
     /// each cell list independently for every cascade.
     pub(super) fn enabled_for(self, cascade: usize) -> bool {
@@ -189,10 +194,35 @@ impl DirectionalRoot {
         self,
         light_position: [f32; 3],
         light_radius: f32,
+        minimum_radius: f32,
     ) -> bool {
+        // Object LOD is a distant-detail representation with a huge world bound
+        // that routinely intersects every local light. The point path has no
+        // per-cascade LOD profile, so admitting it makes one churning LOD bound
+        // invalidate every light's retained cube faces. Landscape is already
+        // excluded; object LOD is excluded for the same reason and because its
+        // geometry is authored for distant viewing, not local-light occlusion.
         !self.is_land
+            && !self.is_lod
             && !self.is_dynamic_actor()
+            && self.admits_point_static_size(minimum_radius)
             && self.intersects_point_light(light_position, light_radius)
+    }
+
+    /// Return whether this root can submit any geometry under the renderer's
+    /// minimum point-caster radius.
+    ///
+    /// A valid root world bound encloses every descendant, so a root whose bound
+    /// radius is below the per-geometry minimum can never submit a caster. The
+    /// retained static face signature therefore excludes it, matching exactly
+    /// what the renderer draws: a sub-threshold movable object no longer
+    /// invalidates retained faces. Missing or invalid bounds stay conservatively
+    /// admitted.
+    fn admits_point_static_size(self, minimum_radius: f32) -> bool {
+        match self.world_bound {
+            Some(bound) if valid_spatial_bound(bound) => bound[3] >= minimum_radius,
+            _ => true,
+        }
     }
 }
 
@@ -349,6 +379,7 @@ impl PointStaticSpatialIndex {
         roots: &[DirectionalRoot],
         light_position: [f32; 3],
         light_radius: f32,
+        minimum_radius: f32,
         light: usize,
         masks: &mut [[u8; POINT_LIGHT_CAPACITY]],
     ) -> Option<PointStaticSignatures> {
@@ -356,6 +387,7 @@ impl PointStaticSpatialIndex {
             roots,
             light_position,
             light_radius,
+            minimum_radius,
             light,
             masks,
             |_| {},
@@ -372,6 +404,7 @@ impl PointStaticSpatialIndex {
         roots: &[DirectionalRoot],
         light_position: [f32; 3],
         light_radius: f32,
+        minimum_radius: f32,
     ) -> Option<PointStaticSignatures> {
         if roots.len() > self.indices.capacity()
             || !light_position.into_iter().all(f32::is_finite)
@@ -388,7 +421,8 @@ impl PointStaticSpatialIndex {
             light_radius,
             |root_index| -> Result<(), ()> {
                 let root = roots[root_index];
-                let face_mask = point_static_root_face_mask(root, light_position, light_radius);
+                let face_mask =
+                    point_static_root_face_mask(root, light_position, light_radius, minimum_radius);
                 if face_mask == 0 {
                     return Ok(());
                 }
@@ -414,6 +448,7 @@ impl PointStaticSpatialIndex {
         roots: &[DirectionalRoot],
         light_position: [f32; 3],
         light_radius: f32,
+        minimum_radius: f32,
         light: usize,
         masks: &mut [[u8; POINT_LIGHT_CAPACITY]],
         mut observe_root: impl FnMut(usize),
@@ -436,6 +471,7 @@ impl PointStaticSpatialIndex {
                 root_index,
                 light_position,
                 light_radius,
+                minimum_radius,
                 light,
                 masks,
                 &mut cube,
@@ -1042,6 +1078,30 @@ pub(super) fn point_static_root_set_signature(roots: &[DirectionalRoot]) -> u64 
     signature.finish()
 }
 
+/// Return the scene-wide static root signature both including and excluding
+/// object-LOD roots.
+///
+/// Both hashes are computed in one pass. The pair lets diagnostics tell apart a
+/// churning object-LOD root (a single huge-bound root whose transform may follow
+/// the camera) from generic movable statics: if the all-roots hash changes every
+/// transaction while the non-LOD hash is stable, the LOD root owns the churn.
+pub(super) fn point_static_root_set_signature_pair(roots: &[DirectionalRoot]) -> (u64, u64) {
+    let mut all = StaticSignatureAccumulator::default();
+    let mut non_lod = StaticSignatureAccumulator::default();
+    for root in roots
+        .iter()
+        .copied()
+        .filter(|root| !root.is_land && !root.is_dynamic_actor())
+    {
+        let mixed = point_static_root_identity(root);
+        all.include(mixed);
+        if !root.is_lod {
+            non_lod.include(mixed);
+        }
+    }
+    (all.finish(), non_lod.finish())
+}
+
 /// Hash immutable point-caster ownership inside one light's influence sphere.
 ///
 /// Bounds and world-state hashes were copied by the single cell-root snapshot,
@@ -1053,18 +1113,20 @@ pub(super) fn point_scene_static_signatures(
     roots: &[DirectionalRoot],
     light_position: [f32; 3],
     light_radius: f32,
+    minimum_radius: f32,
 ) -> PointStaticSignatures {
     let mut cube = StaticSignatureAccumulator::default();
     let mut faces = [StaticSignatureAccumulator::default(); 6];
     for root in roots
         .iter()
         .copied()
-        .filter(|root| root.is_point_static_caster(light_position, light_radius))
+        .filter(|root| root.is_point_static_caster(light_position, light_radius, minimum_radius))
     {
         let mixed = point_static_root_identity(root);
         cube.include(mixed);
 
-        let face_mask = point_static_root_face_mask(root, light_position, light_radius);
+        let face_mask =
+            point_static_root_face_mask(root, light_position, light_radius, minimum_radius);
         for (face, accumulator) in faces.iter_mut().enumerate() {
             if face_mask & (1 << face) != 0 {
                 accumulator.include(mixed);
@@ -1081,8 +1143,9 @@ fn point_static_root_face_mask(
     root: DirectionalRoot,
     light_position: [f32; 3],
     light_radius: f32,
+    minimum_radius: f32,
 ) -> u8 {
-    if !root.is_point_static_caster(light_position, light_radius) {
+    if !root.is_point_static_caster(light_position, light_radius, minimum_radius) {
         return 0;
     }
     root.world_bound.map_or(ALL_CUBE_FACES, |bound| {
@@ -1103,12 +1166,13 @@ fn include_point_static_root(
     root_index: usize,
     light_position: [f32; 3],
     light_radius: f32,
+    minimum_radius: f32,
     light: usize,
     masks: &mut [[u8; POINT_LIGHT_CAPACITY]],
     cube: &mut StaticSignatureAccumulator,
     faces: &mut [StaticSignatureAccumulator; 6],
 ) {
-    let face_mask = point_static_root_face_mask(root, light_position, light_radius);
+    let face_mask = point_static_root_face_mask(root, light_position, light_radius, minimum_radius);
     masks[root_index][light] = face_mask;
     if face_mask == 0 {
         return;
@@ -1132,6 +1196,7 @@ pub(super) fn collect_point_static_face_masks_for_light(
     roots: &[DirectionalRoot],
     light_position: [f32; 3],
     light_radius: f32,
+    minimum_radius: f32,
     light: usize,
     masks: &mut [[u8; POINT_LIGHT_CAPACITY]],
 ) -> Option<PointStaticSignatures> {
@@ -1146,6 +1211,7 @@ pub(super) fn collect_point_static_face_masks_for_light(
             root_index,
             light_position,
             light_radius,
+            minimum_radius,
             light,
             masks,
             &mut cube,
@@ -1738,12 +1804,32 @@ const fn size_of<T>() -> usize {
 #[cfg(test)]
 mod tests {
     use super::{
-        DirectionalRoot, NativeBound, PointLight, PointLightSelection, PointStaticSpatialIndex,
-        collect_point_actor_face_masks, collect_point_static_face_masks_for_light,
-        directional_root_set_signatures, point_light_dynamic_faces_from_bounds,
-        point_scene_static_signatures, point_static_root_set_signature, push_directional_root,
-        retained_object_state_signature,
+        DirectionalRoot, NativeBound, PointLight, PointLightSelection, PointStaticSignatures,
+        PointStaticSpatialIndex, collect_point_actor_face_masks, directional_root_set_signatures,
+        point_light_dynamic_faces_from_bounds, point_static_root_set_signature,
+        push_directional_root, retained_object_state_signature,
     };
+
+    /// Test shim: fixtures use the renderer's fixed world minimum rather than a
+    /// per-light projected minimum.
+    fn point_scene_static_signatures(
+        roots: &[DirectionalRoot],
+        position: [f32; 3],
+        radius: f32,
+    ) -> PointStaticSignatures {
+        super::point_scene_static_signatures(roots, position, radius, 0.5)
+    }
+
+    /// Test shim: fixtures use the renderer's fixed world minimum.
+    fn collect_point_static_face_masks_for_light(
+        roots: &[DirectionalRoot],
+        position: [f32; 3],
+        radius: f32,
+        light: usize,
+        masks: &mut [[u8; super::POINT_LIGHT_CAPACITY]],
+    ) -> Option<PointStaticSignatures> {
+        super::collect_point_static_face_masks_for_light(roots, position, radius, 0.5, light, masks)
+    }
 
     fn point(identity: usize, distance_squared: f32) -> PointLight {
         PointLight {
@@ -2189,7 +2275,7 @@ mod tests {
             is_land: false,
             is_lod: false,
             world_state: 11,
-            world_bound: Some([10.0, 0.0, 0.0, 0.1]),
+            world_bound: Some([10.0, 0.0, 0.0, 2.0]),
         };
         let baseline = point_scene_static_signatures(&[positive_x], [0.0; 3], 64.0);
         let moved = point_scene_static_signatures(
@@ -2211,6 +2297,53 @@ mod tests {
     }
 
     #[test]
+    fn sub_threshold_static_roots_are_excluded_from_point_signatures() {
+        let tiny = DirectionalRoot {
+            root: 0x1000,
+            form_type: None,
+            is_land: false,
+            is_lod: false,
+            world_state: 11,
+            world_bound: Some([10.0, 0.0, 0.0, 0.1]),
+        };
+        let drawable = DirectionalRoot {
+            root: 0x2000,
+            world_state: 22,
+            world_bound: Some([10.0, 0.0, 0.0, 2.0]),
+            ..tiny
+        };
+        // A root whose valid bound is below the renderer's per-geometry minimum
+        // can never submit a caster, so it contributes nothing to the retained
+        // static signature and cannot churn a cached face.
+        assert_eq!(
+            point_scene_static_signatures(&[tiny], [0.0; 3], 64.0),
+            point_scene_static_signatures(&[], [0.0; 3], 64.0)
+        );
+        assert_ne!(
+            point_scene_static_signatures(&[drawable], [0.0; 3], 64.0),
+            point_scene_static_signatures(&[], [0.0; 3], 64.0)
+        );
+    }
+
+    #[test]
+    fn object_lod_roots_are_excluded_from_point_signatures() {
+        let lod = DirectionalRoot {
+            root: 0x1000,
+            form_type: None,
+            is_land: false,
+            is_lod: true,
+            world_state: 5,
+            world_bound: Some([0.0, 0.0, 0.0, 4_096.0]),
+        };
+        // A churning object-LOD bound must not invalidate every retained cube
+        // face; the point path excludes it like landscape.
+        assert_eq!(
+            point_scene_static_signatures(&[lod], [0.0; 3], 64.0),
+            point_scene_static_signatures(&[], [0.0; 3], 64.0)
+        );
+    }
+
+    #[test]
     fn point_static_root_masks_match_the_signature_face_ownership() {
         let positive_x = DirectionalRoot {
             root: 0x1000,
@@ -2218,7 +2351,7 @@ mod tests {
             is_land: false,
             is_lod: false,
             world_state: 11,
-            world_bound: Some([10.0, 0.0, 0.0, 0.1]),
+            world_bound: Some([10.0, 0.0, 0.0, 2.0]),
         };
         let missing_bound = DirectionalRoot {
             root: 0x2000,
@@ -2281,6 +2414,7 @@ mod tests {
                     roots.as_slice(),
                     position,
                     radius,
+                    0.5,
                     light,
                     masks.as_mut_slice(),
                     |_| visited += 1,
@@ -2355,12 +2489,19 @@ mod tests {
         assert!(spatial.rebuild(&roots));
         let mut spatial_masks = vec![[0_u8; super::POINT_LIGHT_CAPACITY]; roots.len()];
         let indexed = spatial
-            .collect_face_masks_for_light(&roots, [0.0; 3], 64.0, 2, spatial_masks.as_mut_slice())
+            .collect_face_masks_for_light(
+                &roots,
+                [0.0; 3],
+                64.0,
+                0.5,
+                2,
+                spatial_masks.as_mut_slice(),
+            )
             .expect("root-aligned indexed masks");
 
         assert_eq!(indexed, exhaustive);
         assert_eq!(
-            spatial.signatures_for_light(&roots, [0.0; 3], 64.0),
+            spatial.signatures_for_light(&roots, [0.0; 3], 64.0, 0.5),
             Some(exhaustive)
         );
         assert_eq!(spatial_masks, exhaustive_masks);
@@ -2376,10 +2517,10 @@ mod tests {
             is_land: false,
             is_lod: false,
             world_state: 11,
-            world_bound: Some([10.0, 0.0, 0.0, 0.1]),
+            world_bound: Some([10.0, 0.0, 0.0, 2.0]),
         };
         let positive_y = DirectionalRoot {
-            world_bound: Some([0.0, 10.0, 0.0, 0.1]),
+            world_bound: Some([0.0, 10.0, 0.0, 2.0]),
             ..positive_x
         };
         let previous = point_scene_static_signatures(&[positive_x], [0.0; 3], 64.0);

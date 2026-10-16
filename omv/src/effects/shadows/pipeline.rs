@@ -61,7 +61,7 @@ use super::{
         nvr_contact_sample_offsets, point_caster_inventory_is_complete, point_consumer_plan,
         point_light_scissor, point_shadow_presentation_weight, point_shadow_transition,
         practical_cascade_splits, publication_epoch_is_usable, publication_identity_is_usable,
-        retained_cascade_refresh,
+        retained_cascade_refresh, sphere_intersects_cube_face,
     },
     math::{
         CascadeProjection, ShadowCamera, cascade_projection, directional_generation_sun,
@@ -78,6 +78,11 @@ use super::{
 const ATLAS_RESOLUTION: u32 = NVR_CASCADE_RESOLUTION * 2;
 const ACTOR_MAP_RESOLUTION: u32 = NVR_CASCADE_RESOLUTION / 2;
 const MAX_ERROR_LOGS: u32 = 8;
+/// Fixed upper bound for the actor pose-fingerprint traversal stack.
+const MAX_NODE_FINGERPRINT_STACK: usize = 32_768;
+/// Upper bound on changed-static-root spheres tracked per transaction; beyond
+/// it the static face falls back to a full rebuild.
+const MAX_CHANGED_STATIC_BOUNDS: usize = 4_096;
 const AMD_ALPHA_TO_COVERAGE_OFF: u32 = u32::from_le_bytes(*b"A2M0");
 
 const CUBE_FACES: [D3DCUBEMAP_FACES; 6] = [
@@ -327,6 +332,44 @@ pub(super) struct ShadowPipeline {
     active_world_context: Option<ActiveWorldContext>,
 }
 
+/// Interval-accumulated, opt-in shadow-producer summary counters.
+#[derive(Default)]
+struct ShadowDebugLog {
+    last_millis: u64,
+    transactions: u32,
+    rebuilt_faces: u32,
+    refresh_faces: u32,
+    publish_faces: u32,
+    merge_faces: u32,
+    dirty_lights: u32,
+    moving_lights: u32,
+    /// Transactions whose all-roots static root-set signature changed.
+    root_all_changed: u32,
+    /// Transactions whose non-LOD static root-set signature changed.
+    root_nolod_changed: u32,
+    /// Moving-light projection changes classified by field.
+    moving_position: u32,
+    moving_radius: u32,
+    moving_both: u32,
+}
+
+/// One actor root's retained pose identity and per-light cube-face coverage.
+#[derive(Clone, Copy, Default)]
+struct RetainedActorPose {
+    root: usize,
+    fingerprint: u64,
+    masks: [u8; POINT_LIGHT_CAPACITY],
+}
+
+/// One static root's retained world state and bound for region-scoped static
+/// refresh. Scalar-only; it never holds a native pointer across a transaction.
+#[derive(Clone, Copy, Default)]
+struct RetainedStaticRoot {
+    root: usize,
+    world_state: u32,
+    bound: Option<[f32; 4]>,
+}
+
 impl Default for ShadowPipeline {
     fn default() -> Self {
         Self {
@@ -379,6 +422,24 @@ impl ShadowPipeline {
         self.resource_failure_generation = None;
         self.production_logged = [false; 2];
         self.composition_logged = [false; 2];
+    }
+
+    /// Count one completed producer transaction and emit the opt-in summary.
+    ///
+    /// Called for both the zero-D3D republish route and the full D3D
+    /// transaction so an idle scene's republish-only frames are visible in the
+    /// aggregate. The emission itself is rate-limited inside the resource
+    /// owner and is a single boolean test when the toggle is off.
+    fn finish_debug_interval(&mut self, settings: NativeShadowsSettings) {
+        let now_millis = self
+            .clock_origin
+            .elapsed()
+            .as_millis()
+            .min(u64::MAX as u128) as u64;
+        if let Some(resources) = self.resources.as_mut() {
+            resources.debug_log.transactions = resources.debug_log.transactions.saturating_add(1);
+            resources.emit_debug_log(settings, now_millis);
+        }
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -774,6 +835,7 @@ impl ShadowPipeline {
                     .expect("preparation retains shared resources"),
             );
             self.published = Some(publication);
+            self.finish_debug_interval(settings);
             return ReplacementResult::Produced;
         }
         // Texture writes become visible immediately. Remove the publication
@@ -795,6 +857,7 @@ impl ShadowPipeline {
                 .as_mut()
                 .expect("generation retains shared resources"),
         );
+        self.finish_debug_interval(settings);
         match result {
             Ok(publication) => {
                 if let Some(publication) = publication {
@@ -1585,6 +1648,20 @@ struct ShadowResources {
     point_failure: Option<PointResourceFailure>,
     consumer: Option<ConsumerTargets>,
     scratch: TraversalScratch,
+    /// Retained actor subtree pose fingerprints from the last transaction,
+    /// sorted by actor root for a linear merge with the current actor set.
+    ///
+    /// Device-scoped and rebuilt from the borrowed, per-transaction actor list;
+    /// it never retains a native pointer across a common-shadow call.
+    retained_actor_pose: Vec<RetainedActorPose>,
+    /// Reused build buffer for the current actor pose set; swapped with
+    /// `retained_actor_pose` each transaction so no per-frame allocation occurs.
+    actor_pose_scratch: Vec<RetainedActorPose>,
+    /// Scratch traversal stack for the actor pose fingerprint.
+    actor_fingerprint_stack: Vec<usize>,
+    /// Whether each selected light was demanded (camera-observable) last
+    /// transaction, used to force one actor redraw after a deferral.
+    point_demanded_last: [bool; POINT_LIGHT_CAPACITY],
     directional_roots: Vec<DirectionalRoot>,
     point_actor_bounds: Vec<[f32; 4]>,
     point_actor_roots: Vec<DirectionalRoot>,
@@ -1603,6 +1680,25 @@ struct ShadowResources {
     /// selected cube. A root, cell, or projection change falls back to the
     /// existing regional signature path.
     point_static_root_signature: Option<u64>,
+    /// Last all-roots and non-object-LOD static root-set signatures, retained
+    /// only for the opt-in `root_all_changed`/`root_nolod_changed` diagnostics.
+    root_signature_all: Option<u64>,
+    root_signature_non_lod: Option<u64>,
+    /// Retained per-root static world state and bound for region-scoped static
+    /// refresh, sorted by root, plus a reused build buffer.
+    retained_static_roots: Vec<RetainedStaticRoot>,
+    static_root_scratch: Vec<RetainedStaticRoot>,
+    /// World spheres of static roots that changed since the last transaction.
+    changed_static_bounds: Vec<[f32; 4]>,
+    /// Set when a static change cannot be scissored (added/removed roots,
+    /// missing bounds, overflow, or the first observation) and the face must be
+    /// rebuilt in full.
+    changed_static_full: bool,
+    /// Per-light cross-face caster records, collected once and submitted per
+    /// face. Device-scoped and cleared each collection; they never outlive the
+    /// transaction that produced them.
+    static_caster_records: Vec<render::PointCasterRecord>,
+    dynamic_caster_records: Vec<render::PointCasterRecord>,
     cascade_matrices: [[[f32; 4]; 4]; CASCADE_COUNT],
     cascade_projections: [Option<CascadeProjection>; CASCADE_COUNT],
     cascade_origins: [[f32; 3]; CASCADE_COUNT],
@@ -1617,6 +1713,11 @@ struct ShadowResources {
     production_stage: ShadowProductionStage,
     /// Whether the active transaction may have changed a persistent point face.
     point_texture_writes_started: bool,
+    /// Interval-accumulated, opt-in shadow-producer summary counters.
+    ///
+    /// Device-scoped beside the producer resources; resets with a device. It
+    /// never affects rendering and is consulted at most once per transaction.
+    debug_log: ShadowDebugLog,
 }
 
 /// Caster data prepared once and consumed within one common-shadow invocation.
@@ -1731,7 +1832,6 @@ struct DirectionalStripResources {
 /// the same inventory and never introduces independent ownership.
 struct PointCasterIndex<'a> {
     roots: &'a [DirectionalRoot],
-    static_face_masks: Option<&'a [[u8; POINT_LIGHT_CAPACITY]]>,
     static_spatial: Option<&'a native::PointStaticSpatialIndex>,
     actor_roots: &'a [DirectionalRoot],
     actor_face_masks: &'a [[u8; POINT_LIGHT_CAPACITY]],
@@ -2002,6 +2102,76 @@ fn point_actor_region(
     region
 }
 
+/// Project changed static root spheres through the exact generation matrix.
+///
+/// Conservative superset of `point_actor_region` for arbitrary world spheres:
+/// spheres outside the face pyramid are skipped, and a non-finite projection or
+/// a sphere without a usable bound returns `Full`. The caller therefore falls
+/// back to a full-face rebuild whenever the scissor could cut a shadow the
+/// full render would have produced.
+fn point_bounds_region(
+    bounds: &[[f32; 4]],
+    point: &native::PointLight,
+    matrix: [[f32; 4]; 4],
+    origin: [f32; 3],
+    face: usize,
+    resolution: u32,
+) -> PointActorRegion {
+    let mut region = PointActorRegion::Empty;
+    for bound in bounds {
+        let center_from_light = [
+            bound[0] - point.position[0],
+            bound[1] - point.position[1],
+            bound[2] - point.position[2],
+        ];
+        if !sphere_intersects_cube_face(center_from_light, bound[3], face) {
+            continue;
+        }
+        let mut minimum = [f32::INFINITY; 2];
+        let mut maximum = [f32::NEG_INFINITY; 2];
+        for corner in 0..8 {
+            let position: [f32; 4] = [
+                bound[0] - origin[0] + if corner & 1 == 0 { -bound[3] } else { bound[3] },
+                bound[1] - origin[1] + if corner & 2 == 0 { -bound[3] } else { bound[3] },
+                bound[2] - origin[2] + if corner & 4 == 0 { -bound[3] } else { bound[3] },
+                1.0,
+            ];
+            let projected: [f32; 4] = std::array::from_fn(|column| {
+                (0..4).map(|row| position[row] * matrix[row][column]).sum()
+            });
+            if !projected.into_iter().all(f32::is_finite) || projected[3] <= 0.0 {
+                return PointActorRegion::Full;
+            }
+            let uv = [
+                projected[0] / projected[3] * 0.5 + 0.5,
+                0.5 - projected[1] / projected[3] * 0.5,
+            ];
+            for axis in 0..2 {
+                minimum[axis] = minimum[axis].min(uv[axis]);
+                maximum[axis] = maximum[axis].max(uv[axis]);
+            }
+        }
+        let rect = ClipmapRect {
+            left: (minimum[0] * resolution as f32 - 2.0)
+                .floor()
+                .clamp(0.0, resolution as f32) as u32,
+            top: (minimum[1] * resolution as f32 - 2.0)
+                .floor()
+                .clamp(0.0, resolution as f32) as u32,
+            right: (maximum[0] * resolution as f32 + 2.0)
+                .ceil()
+                .clamp(0.0, resolution as f32) as u32,
+            bottom: (maximum[1] * resolution as f32 + 2.0)
+                .ceil()
+                .clamp(0.0, resolution as f32) as u32,
+        };
+        if rect.left < rect.right && rect.top < rect.bottom {
+            region = region.union(PointActorRegion::Rect(rect));
+        }
+    }
+    region
+}
+
 /// Bounded local-light map family shared by interior and exterior locations.
 struct PointResources {
     /// Last successfully written animated footprint per physical cube face.
@@ -2153,6 +2323,42 @@ fn requested_point_resource_capacity(
 }
 
 impl ShadowResources {
+    /// Emit one aggregated shadow-producer summary for the opt-in diagnostics.
+    ///
+    /// Logged at `info` so the per-effect toggle works at the default logger
+    /// level without raising global verbosity. At most one line per second; the
+    /// disabled path is a single boolean test. Never mutates rendering state or
+    /// performs per-draw work.
+    fn emit_debug_log(&mut self, settings: NativeShadowsSettings, now_millis: u64) {
+        if !settings.debug_logging {
+            return;
+        }
+        let elapsed = now_millis.saturating_sub(self.debug_log.last_millis);
+        if elapsed < 1_000 {
+            return;
+        }
+        log::info!(
+            "[SHADOWS] Producer summary per {}ms: transactions={}, dirty_lights={}, moving_lights={}, rebuilt_faces={}, refresh_faces={}, publish_faces={}, merge_faces={}, root_all_changed={}, root_nolod_changed={}, moving_position={}, moving_radius={}, moving_both={}",
+            elapsed,
+            self.debug_log.transactions,
+            self.debug_log.dirty_lights,
+            self.debug_log.moving_lights,
+            self.debug_log.rebuilt_faces,
+            self.debug_log.refresh_faces,
+            self.debug_log.publish_faces,
+            self.debug_log.merge_faces,
+            self.debug_log.root_all_changed,
+            self.debug_log.root_nolod_changed,
+            self.debug_log.moving_position,
+            self.debug_log.moving_radius,
+            self.debug_log.moving_both,
+        );
+        self.debug_log = ShadowDebugLog {
+            last_millis: now_millis,
+            ..Default::default()
+        };
+    }
+
     fn create(device: &Device9Ref<'_>, bytecode: &ShadowBytecode) -> Direct3DResult<Self> {
         let render_target_count = device.simultaneous_render_target_count()?.min(4);
         Ok(Self {
@@ -2197,6 +2403,16 @@ impl ShadowResources {
             point_failure: None,
             consumer: None,
             scratch: TraversalScratch::with_capacity(),
+            retained_actor_pose: Vec::new(),
+            actor_pose_scratch: Vec::new(),
+            actor_fingerprint_stack: Vec::with_capacity(MAX_NODE_FINGERPRINT_STACK),
+            point_demanded_last: [false; POINT_LIGHT_CAPACITY],
+            retained_static_roots: Vec::new(),
+            static_root_scratch: Vec::new(),
+            changed_static_bounds: Vec::new(),
+            changed_static_full: true,
+            static_caster_records: Vec::new(),
+            dynamic_caster_records: Vec::new(),
             directional_roots: Vec::with_capacity(DIRECTIONAL_ROOT_CACHE_CAPACITY),
             point_actor_bounds: Vec::with_capacity(POINT_ACTOR_BOUND_CACHE_CAPACITY),
             point_actor_roots: Vec::with_capacity(POINT_ACTOR_BOUND_CACHE_CAPACITY),
@@ -2205,6 +2421,8 @@ impl ShadowResources {
             point_static_spatial: native::PointStaticSpatialIndex::with_capacity(),
             point_static_faces: PointStaticFaceCache::default(),
             point_static_root_signature: None,
+            root_signature_all: None,
+            root_signature_non_lod: None,
             cascade_matrices: [[[0.0; 4]; 4]; CASCADE_COUNT],
             cascade_projections: [None; CASCADE_COUNT],
             cascade_origins: [[0.0; 3]; CASCADE_COUNT],
@@ -2218,6 +2436,7 @@ impl ShadowResources {
             cascade_sun: [0.0; 3],
             production_stage: ShadowProductionStage::Idle,
             point_texture_writes_started: false,
+            debug_log: ShadowDebugLog::default(),
         })
     }
 
@@ -2426,11 +2645,184 @@ impl ShadowResources {
         if prepared_dynamic_faces.is_none() {
             prepared.actor_bounds_complete = false;
         }
-        let current_static_root_signature =
-            has_points.then(|| native::point_static_root_set_signature(prepared.roots.as_slice()));
+        // Actor pose delta. A face re-submits actor geometry only when a
+        // covering actor's pose changed, entered, or left. The complete current
+        // footprint (`prepared_dynamic_faces`) still drives which faces submit
+        // actor geometry; this delta drives which faces actually re-render.
+        let mut dynamic_dirty_faces = [0_u8; POINT_LIGHT_CAPACITY];
+        if prepared_dynamic_faces.is_some() && prepared.actor_bounds_complete {
+            let mut current_actors = core::mem::take(&mut self.actor_pose_scratch);
+            current_actors.clear();
+            for (actor_index, root) in prepared.actor_roots.iter().enumerate() {
+                let fingerprint = unsafe {
+                    render::actor_pose_fingerprint(root.node(), &mut self.actor_fingerprint_stack)
+                };
+                current_actors.push(RetainedActorPose {
+                    root: root.node() as usize,
+                    fingerprint,
+                    masks: prepared
+                        .actor_face_masks
+                        .get(actor_index)
+                        .copied()
+                        .unwrap_or([0; POINT_LIGHT_CAPACITY]),
+                });
+            }
+            current_actors.sort_unstable_by_key(|actor| actor.root);
+            let mut retained = core::mem::take(&mut self.retained_actor_pose);
+            retained.sort_unstable_by_key(|actor| actor.root);
+            let (mut retained_index, mut current_index) = (0_usize, 0_usize);
+            while retained_index < retained.len() || current_index < current_actors.len() {
+                if retained_index < retained.len()
+                    && (current_index == current_actors.len()
+                        || retained[retained_index].root < current_actors[current_index].root)
+                {
+                    // Departed actor: erase each retained silhouette this frame.
+                    for face in 0..POINT_LIGHT_CAPACITY {
+                        dynamic_dirty_faces[face] |= retained[retained_index].masks[face];
+                    }
+                    retained_index += 1;
+                    continue;
+                }
+                if current_index < current_actors.len()
+                    && (retained_index == retained.len()
+                        || current_actors[current_index].root < retained[retained_index].root)
+                {
+                    // New actor: submit every face it now covers.
+                    for face in 0..POINT_LIGHT_CAPACITY {
+                        dynamic_dirty_faces[face] |= current_actors[current_index].masks[face];
+                    }
+                    current_index += 1;
+                    continue;
+                }
+                // Same actor: refresh faces whose coverage changed or whose pose
+                // changed.
+                let previous = retained[retained_index];
+                let current = current_actors[current_index];
+                for face in 0..POINT_LIGHT_CAPACITY {
+                    dynamic_dirty_faces[face] |= previous.masks[face] ^ current.masks[face];
+                    if previous.fingerprint != current.fingerprint {
+                        dynamic_dirty_faces[face] |= current.masks[face];
+                    }
+                }
+                retained_index += 1;
+                current_index += 1;
+            }
+            self.retained_actor_pose = current_actors;
+            self.actor_pose_scratch = retained;
+        } else {
+            dynamic_dirty_faces = [super::contract::ALL_CUBE_FACES; POINT_LIGHT_CAPACITY];
+            self.retained_actor_pose.clear();
+        }
+        // A light that becomes camera-observable after being deferred must
+        // redraw its actor coverage once, because its retained faces were frozen
+        // while it was not demanded.
+        for index in 0..points.shadowed().len().min(POINT_LIGHT_CAPACITY) {
+            if !self.point_demanded_last[index] && demanded[index] {
+                dynamic_dirty_faces[index] |= prepared_dynamic_faces
+                    .map_or(super::contract::ALL_CUBE_FACES, |faces| faces[index]);
+            }
+            self.point_demanded_last[index] = demanded[index];
+        }
+        let current_static_root_signature = has_points.then(|| {
+            let (all, non_lod) =
+                native::point_static_root_set_signature_pair(prepared.roots.as_slice());
+            // Opt-in churn attribution: how often the scene-wide static root set
+            // changed, with and without object-LOD roots. A stable non-LOD hash
+            // beside a churning all-roots hash implicates the LOD root.
+            if self.root_signature_all != Some(all) {
+                self.debug_log.root_all_changed = self.debug_log.root_all_changed.saturating_add(1);
+            }
+            if self.root_signature_non_lod != Some(non_lod) {
+                self.debug_log.root_nolod_changed =
+                    self.debug_log.root_nolod_changed.saturating_add(1);
+            }
+            self.root_signature_all = Some(all);
+            self.root_signature_non_lod = Some(non_lod);
+            // The reuse gate covers exactly the point-caster root set, which
+            // excludes object LOD, so a churning LOD bound cannot force a
+            // per-frame regional rescan.
+            non_lod
+        });
         let can_reuse_static_signatures = current_static_root_signature == retained_root_signature;
+        // Region-scoped static refresh: identify exactly which static roots
+        // changed since the last transaction. The union of their old and new
+        // world bounds scopes the static re-render to the neighborhood whose
+        // depth can actually differ, instead of re-rasterizing the whole face.
+        // An add/remove, a missing bound, or overflow forces a full-face
+        // fallback so the scissor can never leave a hole.
+        self.changed_static_bounds.clear();
+        self.changed_static_full = true;
+        {
+            let mut current = core::mem::take(&mut self.static_root_scratch);
+            current.clear();
+            for root in prepared
+                .roots
+                .iter()
+                .copied()
+                .filter(|root| !root.is_land && !root.is_lod && !root.is_dynamic_actor())
+            {
+                current.push(RetainedStaticRoot {
+                    root: root.node() as usize,
+                    world_state: root.world_state_hash(),
+                    bound: root.world_sphere(),
+                });
+            }
+            current.sort_unstable_by_key(|entry| entry.root);
+            let mut retained = core::mem::take(&mut self.retained_static_roots);
+            retained.sort_unstable_by_key(|entry| entry.root);
+            let mut changed = core::mem::take(&mut self.changed_static_bounds);
+            changed.clear();
+            // First observation of a nonempty static set has no retained region
+            // to compare against, so it rebuilds in full.
+            let mut full = !current.is_empty() && retained.is_empty();
+            let (mut retained_index, mut current_index) = (0_usize, 0_usize);
+            while retained_index < retained.len() || current_index < current.len() {
+                if retained_index < retained.len()
+                    && (current_index == current.len()
+                        || retained[retained_index].root < current[current_index].root)
+                {
+                    match retained[retained_index].bound {
+                        Some(bound) => changed.push(bound),
+                        None => full = true,
+                    }
+                    retained_index += 1;
+                } else if current_index < current.len()
+                    && (retained_index == retained.len()
+                        || current[current_index].root < retained[retained_index].root)
+                {
+                    match current[current_index].bound {
+                        Some(bound) => changed.push(bound),
+                        None => full = true,
+                    }
+                    current_index += 1;
+                } else {
+                    if retained[retained_index].world_state != current[current_index].world_state {
+                        match (retained[retained_index].bound, current[current_index].bound) {
+                            (Some(old), Some(new)) => {
+                                changed.push(old);
+                                changed.push(new);
+                            }
+                            _ => full = true,
+                        }
+                    }
+                    retained_index += 1;
+                    current_index += 1;
+                }
+                if changed.len() > MAX_CHANGED_STATIC_BOUNDS {
+                    full = true;
+                    changed.clear();
+                    break;
+                }
+            }
+            self.retained_static_roots = current;
+            self.static_root_scratch = retained;
+            self.changed_static_bounds = changed;
+            self.changed_static_full = full;
+        }
         let mut spatial_attempted = false;
         let mut spatial_complete = false;
+        // Cube-face resolution owns the per-light projected caster minimum.
+        let point_resolution = self.points.as_ref().map_or(0, |points| points.resolution);
         for (index, point) in points.shadowed().iter().enumerate() {
             let current_dynamic_faces = prepared_dynamic_faces
                 .map_or(super::contract::ALL_CUBE_FACES, |faces| faces[index]);
@@ -2440,12 +2832,39 @@ impl ShadowResources {
                 radius: point.cube_radius,
                 caster_signature: 0,
             };
+            // Opt-in moving-light attribution: classify a projection change as
+            // position, radius, or both. `moving_lights` in the summary counts
+            // exact-projection rejections; this separates real motion from a
+            // radius-only change (for example an animated or flickering source).
+            if demanded[index]
+                && let Some(retained) = active_cache.retained_signature(point.identity)
+            {
+                let position_changed =
+                    retained.position.map(f32::to_bits) != signature.position.map(f32::to_bits);
+                let radius_changed = retained.radius.to_bits() != signature.radius.to_bits();
+                match (position_changed, radius_changed) {
+                    (true, true) => {
+                        self.debug_log.moving_both = self.debug_log.moving_both.saturating_add(1);
+                    }
+                    (true, false) => {
+                        self.debug_log.moving_position =
+                            self.debug_log.moving_position.saturating_add(1);
+                    }
+                    (false, true) => {
+                        self.debug_log.moving_radius =
+                            self.debug_log.moving_radius.saturating_add(1);
+                    }
+                    (false, false) => {}
+                }
+            }
             if !demanded[index] {
                 signature.caster_signature = u64::MAX;
                 current[index] = signature;
                 current_static_faces[index] = [u64::MAX; 6];
                 continue;
             }
+            let minimum_radius =
+                super::contract::point_caster_minimum_radius(point.cube_radius, point_resolution);
             let retained = (can_reuse_static_signatures
                 && active_cache.static_roots_match(
                     active_static_faces,
@@ -2473,6 +2892,7 @@ impl ShadowResources {
                             prepared.roots.as_slice(),
                             point.position,
                             point.cube_radius,
+                            minimum_radius,
                             index,
                             prepared.static_face_masks.as_mut_slice(),
                         )
@@ -2482,6 +2902,7 @@ impl ShadowResources {
                             prepared.roots.as_slice(),
                             point.position,
                             point.cube_radius,
+                            minimum_radius,
                             index,
                             prepared.static_face_masks.as_mut_slice(),
                         )
@@ -2494,6 +2915,7 @@ impl ShadowResources {
                                 prepared.roots.as_slice(),
                                 point.position,
                                 point.cube_radius,
+                                minimum_radius,
                             )
                         }
                     }
@@ -2502,6 +2924,7 @@ impl ShadowResources {
                         prepared.roots.as_slice(),
                         point.position,
                         point.cube_radius,
+                        minimum_radius,
                     )
                 };
                 (current.cube, current.faces)
@@ -2511,11 +2934,12 @@ impl ShadowResources {
             current_static_faces[index] = face_signatures;
             dynamic_faces[index] = current_dynamic_faces;
         }
-        prepared.points = active_cache.plan_with_static_faces(
+        prepared.points = active_cache.plan_with_static_faces_and_delta(
             active_static_faces,
             current,
             current_static_faces,
             dynamic_faces,
+            dynamic_dirty_faces,
             points.shadowed().len(),
         );
         prepared
@@ -3010,9 +3434,6 @@ impl ShadowResources {
                 points.shadowed(),
                 PointCasterIndex {
                     roots: directional_roots.as_slice(),
-                    static_face_masks: prepared
-                        .static_masks_complete
-                        .then_some(prepared.static_face_masks.as_slice()),
                     static_spatial: prepared
                         .spatial_complete
                         .then_some(&prepared.static_spatial),
@@ -3493,10 +3914,53 @@ impl ShadowResources {
             if plan.render_faces[index] == 0 {
                 continue;
             }
+            self.debug_log.dirty_lights = self.debug_log.dirty_lights.saturating_add(1);
+            if plan.direct_faces[index] != 0 {
+                self.debug_log.moving_lights = self.debug_log.moving_lights.saturating_add(1);
+            }
             let source = plan.source_index(index).ok_or_else(direct3d_failure)?;
             let point = points.get(source).ok_or_else(direct3d_failure)?;
             let views = point_cube_views(point.relative_position, point.cube_radius)
                 .ok_or_else(direct3d_failure)?;
+            // One hierarchy walk per light, reused across every dirty face, so a
+            // moved light and a scoped static refresh no longer re-traverse the
+            // same subtrees once per face. The per-light projected minimum is
+            // shared by the signature and the render so they stay identical.
+            let minimum_radius =
+                super::contract::point_caster_minimum_radius(point.cube_radius, point_resolution);
+            unsafe {
+                self.collect_point_static_casters(
+                    device,
+                    scene,
+                    camera,
+                    point,
+                    casters.roots,
+                    casters.static_spatial,
+                    minimum_radius,
+                )?
+            };
+            if plan.dynamic_draw_faces[index] != 0 {
+                let dynamic_roots = if casters.actor_bounds_complete {
+                    casters.actor_roots
+                } else {
+                    casters.roots
+                };
+                let dynamic_masks = casters
+                    .actor_bounds_complete
+                    .then_some(casters.actor_face_masks);
+                unsafe {
+                    self.collect_point_dynamic_casters(
+                        device,
+                        scene,
+                        camera,
+                        point,
+                        dynamic_roots,
+                        dynamic_masks,
+                        source,
+                        minimum_radius,
+                    )?
+                };
+            }
             for face in 0..6 {
                 if plan.render_faces[index] & (1 << face) == 0 {
                     continue;
@@ -3521,14 +3985,39 @@ impl ShadowResources {
                     .as_ref()
                     .ok_or_else(direct3d_failure)?
                     .actor_regions[index][face];
-                let restore_region = if plan.static_faces[index] & (1 << face) != 0 {
-                    PointActorRegion::Full
+                let static_dirty = plan.static_faces[index] & (1 << face) != 0;
+                // A partial static mask proves the face was previously valid
+                // (`dirty_faces` returns all six faces otherwise), so its
+                // backing is complete and a scoped re-render cannot expose a
+                // never-built region. All-six or no static dirtiness takes the
+                // full-face path.
+                let scoped_static = static_dirty
+                    && plan.static_faces[index] != super::contract::ALL_CUBE_FACES
+                    && !self.changed_static_full
+                    && !self.changed_static_bounds.is_empty();
+                let static_region = if !static_dirty {
+                    PointActorRegion::Empty
+                } else if scoped_static {
+                    match point_bounds_region(
+                        &self.changed_static_bounds,
+                        point,
+                        views[face].world_to_shadow,
+                        camera.world_transform.translation,
+                        face,
+                        point_resolution,
+                    ) {
+                        PointActorRegion::Empty => PointActorRegion::Full,
+                        region => region,
+                    }
                 } else {
-                    previous_region.union(current_region)
+                    PointActorRegion::Full
                 };
+                let restore_region = static_region.union(previous_region).union(current_region);
                 for operation in plan.face_operations(index, face).into_iter().flatten() {
                     match operation {
                         PointFaceOperation::RebuildPublished => {
+                            self.debug_log.rebuilt_faces =
+                                self.debug_log.rebuilt_faces.saturating_add(1);
                             self.production_stage =
                                 ShadowProductionStage::PointDirect(index as u8, face as u8);
                             crate::graphics_diagnostics::add(
@@ -3552,45 +4041,32 @@ impl ShadowResources {
                                 0,
                             )?;
                             unsafe {
-                                self.draw_point_static_roots(
+                                self.submit_point_static_face(
                                     device,
                                     scene,
                                     camera,
                                     point,
                                     views[face].world_to_shadow,
                                     face,
-                                    source,
-                                    casters.roots,
-                                    casters.static_face_masks,
-                                    casters.static_spatial,
                                 )?
                             };
                             if plan.dynamic_draw_faces[index] & (1 << face) != 0 {
-                                let actor_roots = if casters.actor_bounds_complete {
-                                    casters.actor_roots
-                                } else {
-                                    casters.roots
-                                };
-                                let actor_face_masks = casters
-                                    .actor_bounds_complete
-                                    .then_some(casters.actor_face_masks);
                                 unsafe {
-                                    self.draw_point_dynamic_roots(
+                                    self.submit_point_dynamic_face(
                                         device,
                                         scene,
                                         camera,
                                         point,
                                         views[face].world_to_shadow,
                                         face,
-                                        source,
-                                        actor_roots,
-                                        actor_face_masks,
                                         false,
                                     )?
                                 };
                             }
                         }
                         PointFaceOperation::RefreshStatic => {
+                            self.debug_log.refresh_faces =
+                                self.debug_log.refresh_faces.saturating_add(1);
                             self.production_stage =
                                 ShadowProductionStage::PointStatic(index as u8, face as u8);
                             crate::graphics_diagnostics::add(
@@ -3609,30 +4085,57 @@ impl ShadowResources {
                             device.set_render_target(0, static_surface)?;
                             device.set_depth_stencil_surface(Some(&point_resources.point_depth))?;
                             set_viewport(device, 0, 0, point_resolution, point_resolution)?;
-                            device.clear_attachments(
-                                D3DCLEAR_TARGET as u32
-                                    | D3DCLEAR_ZBUFFER as u32
-                                    | D3DCLEAR_STENCIL as u32,
-                                0xFFFF_FFFF,
-                                1.0,
-                                0,
-                            )?;
+                            match static_region {
+                                PointActorRegion::Full | PointActorRegion::Empty => {
+                                    device.clear_attachments(
+                                        D3DCLEAR_TARGET as u32
+                                            | D3DCLEAR_ZBUFFER as u32
+                                            | D3DCLEAR_STENCIL as u32,
+                                        0xFFFF_FFFF,
+                                        1.0,
+                                        0,
+                                    )?;
+                                }
+                                region => {
+                                    // Scoped refresh: clear and re-render only
+                                    // the neighborhood of the changed roots. The
+                                    // full static set is still submitted under
+                                    // the scissor, so the region is exact.
+                                    let rect = region
+                                        .rect(point_resolution)
+                                        .ok_or_else(direct3d_failure)?;
+                                    device.clear_attachment_rect(
+                                        &rect,
+                                        D3DCLEAR_TARGET as u32
+                                            | D3DCLEAR_ZBUFFER as u32
+                                            | D3DCLEAR_STENCIL as u32,
+                                        0xFFFF_FFFF,
+                                        1.0,
+                                        0,
+                                    )?;
+                                    device.set_render_state(D3DRS_SCISSORTESTENABLE, 1)?;
+                                    device.set_scissor_rect(
+                                        rect.left,
+                                        rect.top,
+                                        rect.right,
+                                        rect.bottom,
+                                    )?;
+                                }
+                            }
                             unsafe {
-                                self.draw_point_static_roots(
+                                self.submit_point_static_face(
                                     device,
                                     scene,
                                     camera,
                                     point,
                                     views[face].world_to_shadow,
                                     face,
-                                    source,
-                                    casters.roots,
-                                    casters.static_face_masks,
-                                    casters.static_spatial,
                                 )?
                             };
                         }
                         PointFaceOperation::PublishStatic => {
+                            self.debug_log.publish_faces =
+                                self.debug_log.publish_faces.saturating_add(1);
                             self.production_stage =
                                 ShadowProductionStage::PointPublish(index as u8, face as u8);
                             self.point_texture_writes_started = true;
@@ -3655,6 +4158,8 @@ impl ShadowResources {
                             }
                         }
                         PointFaceOperation::MergeAnimated => {
+                            self.debug_log.merge_faces =
+                                self.debug_log.merge_faces.saturating_add(1);
                             crate::graphics_diagnostics::add(
                                 crate::graphics_diagnostics::Counter::ShadowFaceDynamic,
                                 1,
@@ -3690,29 +4195,14 @@ impl ShadowResources {
                             device.set_render_state(D3DRS_SCISSORTESTENABLE, 1)?;
                             device.set_cube_texture(1, &point_resources.static_cubes[index])?;
                             set_point_clamp_sampler(device, 1)?;
-                            let actor_roots = if casters.actor_bounds_complete {
-                                casters.actor_roots
-                            } else {
-                                // Invalid actor bounds prevent face pruning,
-                                // but the canonical inventory remains
-                                // complete. Traverse its active actor roots on
-                                // every scheduled face.
-                                casters.roots
-                            };
-                            let actor_face_masks = casters
-                                .actor_bounds_complete
-                                .then_some(casters.actor_face_masks);
                             unsafe {
-                                self.draw_point_dynamic_roots(
+                                self.submit_point_dynamic_face(
                                     device,
                                     scene,
                                     camera,
                                     point,
                                     views[face].world_to_shadow,
                                     face,
-                                    source,
-                                    actor_roots,
-                                    actor_face_masks,
                                     true,
                                 )?
                             };
@@ -3729,21 +4219,133 @@ impl ShadowResources {
         Ok(())
     }
 
-    /// Submit animated point casters from the transaction's canonical roots.
+    /// Collect immutable point casters once for every dirty face of one light.
     ///
-    /// Filtering at root ownership keeps hidden third-person/view-model leaves
-    /// from bypassing their canonical parent state. Complete actor bounds use
-    /// the transaction's aligned face masks; the incomplete-bound fallback
-    /// repeats the conservative root test before descendant traversal.
+    /// # Safety
+    ///
+    /// `scene`, `point`, and every root must remain live for the common-shadow
+    /// transaction.
+    unsafe fn collect_point_static_casters(
+        &mut self,
+        device: &Device9Ref<'_>,
+        scene: NativeScene,
+        camera: CameraFrame,
+        point: &native::PointLight,
+        roots: &[DirectionalRoot],
+        static_spatial: Option<&native::PointStaticSpatialIndex>,
+        minimum_radius: f32,
+    ) -> Direct3DResult<()> {
+        self.static_caster_records.clear();
+        let programs = &self.programs;
+        let scratch = &mut self.scratch;
+        let records = &mut self.static_caster_records;
+        let mut collect_candidate = |root_index: usize| -> Direct3DResult<()> {
+            let root = roots[root_index];
+            if !root.is_point_static_caster(point.position, point.cube_radius, minimum_radius) {
+                return Ok(());
+            }
+            unsafe {
+                render::collect_point_casters(
+                    device,
+                    programs,
+                    scene.renderer,
+                    camera.world_transform.translation,
+                    scene.first_person_root,
+                    point.relative_position,
+                    point.cube_radius,
+                    minimum_radius,
+                    root.node(),
+                    root.is_land,
+                    root.is_lod,
+                    CasterSubset::Static,
+                    scratch,
+                    records,
+                )
+            }
+        };
+        if let Some(spatial) = static_spatial {
+            spatial.try_visit_light_candidates(
+                roots,
+                point.position,
+                point.cube_radius,
+                &mut collect_candidate,
+            )?;
+        } else {
+            for root_index in 0..roots.len() {
+                collect_candidate(root_index)?;
+            }
+        }
+        Ok(())
+    }
+
+    /// Collect animated point casters once for every dirty face of one light.
+    ///
+    /// A root is pre-filtered by the light volume; the per-face filter is the
+    /// collected record mask, which is the same predicate the per-face path uses.
     ///
     /// # Safety
     ///
     /// `scene`, `point`, and all `roots` must belong to the active serialized
-    /// common-shadow transaction. When present, `actor_face_masks` must align
-    /// one-to-one with `roots`, and `source` must identify the current point in
-    /// each mask.
+    /// common-shadow transaction.
+    unsafe fn collect_point_dynamic_casters(
+        &mut self,
+        device: &Device9Ref<'_>,
+        scene: NativeScene,
+        camera: CameraFrame,
+        point: &native::PointLight,
+        roots: &[DirectionalRoot],
+        actor_face_masks: Option<&[[u8; POINT_LIGHT_CAPACITY]]>,
+        source: usize,
+        minimum_radius: f32,
+    ) -> Direct3DResult<()> {
+        self.dynamic_caster_records.clear();
+        let programs = &self.programs;
+        let scratch = &mut self.scratch;
+        let records = &mut self.dynamic_caster_records;
+        for (root_index, root) in roots.iter().copied().enumerate() {
+            let touches_light = actor_face_masks
+                .and_then(|masks| masks.get(root_index))
+                .and_then(|masks| masks.get(source))
+                .map_or_else(
+                    || root.intersects_point_light(point.position, point.cube_radius),
+                    |faces| *faces != 0,
+                );
+            if !root.is_dynamic_actor()
+                || !unsafe { root.is_active_dynamic_actor() }
+                || !touches_light
+            {
+                continue;
+            }
+            unsafe {
+                render::collect_point_casters(
+                    device,
+                    programs,
+                    scene.renderer,
+                    camera.world_transform.translation,
+                    scene.first_person_root,
+                    point.relative_position,
+                    point.cube_radius,
+                    minimum_radius,
+                    root.node(),
+                    root.is_land,
+                    root.is_lod,
+                    CasterSubset::DynamicDirect,
+                    scratch,
+                    records,
+                )?
+            };
+        }
+        Ok(())
+    }
+
+    /// Submit the collected immutable records for one point-cube face.
+    ///
+    /// # Safety
+    ///
+    /// The face target/depth/viewport must already be bound; records must come
+    /// from a collection in this transaction.
     #[allow(clippy::too_many_arguments)]
-    unsafe fn draw_point_dynamic_roots(
+    unsafe fn submit_point_static_face(
         &mut self,
         device: &Device9Ref<'_>,
         scene: NativeScene,
@@ -3751,9 +4353,51 @@ impl ShadowResources {
         point: &native::PointLight,
         world_to_shadow: [[f32; 4]; 4],
         face: usize,
-        source: usize,
-        roots: &[DirectionalRoot],
-        actor_face_masks: Option<&[[u8; POINT_LIGHT_CAPACITY]]>,
+    ) -> Direct3DResult<()> {
+        render::configure_generation_state(device)?;
+        render::begin_point_face(
+            device,
+            &self.programs,
+            world_to_shadow,
+            [
+                point.relative_position[0],
+                point.relative_position[1],
+                point.relative_position[2],
+                point.cube_radius,
+            ],
+        )?;
+        unsafe {
+            render::submit_point_casters(
+                device,
+                &self.programs,
+                scene.renderer,
+                camera.world_transform.translation,
+                scene.first_person_root,
+                point.relative_position,
+                point.cube_radius,
+                face,
+                CasterSubset::Static,
+                &mut self.scratch,
+                &self.static_caster_records,
+            )
+        }
+    }
+
+    /// Submit the collected animated records for one point-cube face.
+    ///
+    /// # Safety
+    ///
+    /// The face target/depth/viewport and any retained-cube sampler must already
+    /// be bound; records must come from a collection in this transaction.
+    #[allow(clippy::too_many_arguments)]
+    unsafe fn submit_point_dynamic_face(
+        &mut self,
+        device: &Device9Ref<'_>,
+        scene: NativeScene,
+        camera: CameraFrame,
+        point: &native::PointLight,
+        world_to_shadow: [[f32; 4]; 4],
+        face: usize,
         merge_static: bool,
     ) -> Direct3DResult<()> {
         render::configure_generation_state(device)?;
@@ -3768,132 +4412,26 @@ impl ShadowResources {
                 point.cube_radius,
             ],
         )?;
-        for (root_index, root) in roots.iter().copied().enumerate() {
-            let touches_face = actor_face_masks
-                .and_then(|masks| masks.get(root_index))
-                .is_none_or(|masks| {
-                    masks
-                        .get(source)
-                        .is_some_and(|faces| faces & (1 << face) != 0)
-                });
-            if !root.is_dynamic_actor()
-                || !unsafe { root.is_active_dynamic_actor() }
-                || !touches_face
-                || (actor_face_masks.is_none()
-                    && !root.intersects_point_face(point.position, point.cube_radius, face))
-            {
-                continue;
-            }
-            unsafe {
-                render::draw_point_root(
-                    device,
-                    &self.programs,
-                    scene.renderer,
-                    camera.world_transform.translation,
-                    scene.first_person_root,
-                    point.relative_position,
-                    point.cube_radius,
-                    face,
-                    root.node(),
-                    root.is_land,
-                    root.is_lod,
-                    if merge_static {
-                        CasterSubset::DynamicMerge
-                    } else {
-                        CasterSubset::DynamicDirect
-                    },
-                    &mut self.scratch,
-                )?
-            };
-        }
-        Ok(())
-    }
-
-    /// Submit immutable point casters from the signature-owning root set.
-    ///
-    /// Static root selection is deliberately identical to
-    /// `point_scene_static_signature`: actor-owned roots are excluded as a
-    /// family and missing bounds are admitted conservatively. This equality is
-    /// what makes retained cube reuse safe when a wall is temporarily outside
-    /// the native camera's own shadow list.
-    ///
-    /// # Safety
-    ///
-    /// `scene`, `point`, and every root must remain live for the common-shadow
-    /// transaction.
-    #[allow(clippy::too_many_arguments)]
-    unsafe fn draw_point_static_roots(
-        &mut self,
-        device: &Device9Ref<'_>,
-        scene: NativeScene,
-        camera: CameraFrame,
-        point: &native::PointLight,
-        world_to_shadow: [[f32; 4]; 4],
-        face: usize,
-        source: usize,
-        roots: &[DirectionalRoot],
-        static_face_masks: Option<&[[u8; POINT_LIGHT_CAPACITY]]>,
-        static_spatial: Option<&native::PointStaticSpatialIndex>,
-    ) -> Direct3DResult<()> {
-        render::configure_generation_state(device)?;
-        render::begin_point_face(
-            device,
-            &self.programs,
-            world_to_shadow,
-            [
-                point.relative_position[0],
-                point.relative_position[1],
-                point.relative_position[2],
-                point.cube_radius,
-            ],
-        )?;
-        let mut draw_candidate = |root_index: usize| -> Direct3DResult<()> {
-            let root = roots[root_index];
-            let touches_face = static_face_masks
-                .and_then(|masks| masks.get(root_index))
-                .and_then(|masks| masks.get(source))
-                .is_some_and(|faces| faces & (1 << face) != 0);
-            if static_face_masks.is_some() && !touches_face {
-                return Ok(());
-            }
-            if static_face_masks.is_none()
-                && (!root.is_point_static_caster(point.position, point.cube_radius)
-                    || !root.intersects_point_face(point.position, point.cube_radius, face))
-            {
-                return Ok(());
-            }
-            unsafe {
-                render::draw_point_root(
-                    device,
-                    &self.programs,
-                    scene.renderer,
-                    camera.world_transform.translation,
-                    scene.first_person_root,
-                    point.relative_position,
-                    point.cube_radius,
-                    face,
-                    root.node(),
-                    root.is_land,
-                    root.is_lod,
-                    CasterSubset::Static,
-                    &mut self.scratch,
-                )?
-            }
-            Ok(())
-        };
-        if let Some(spatial) = static_spatial {
-            spatial.try_visit_light_candidates(
-                roots,
-                point.position,
-                point.cube_radius,
-                &mut draw_candidate,
-            )?;
+        let subset = if merge_static {
+            CasterSubset::DynamicMerge
         } else {
-            for root_index in 0..roots.len() {
-                draw_candidate(root_index)?;
-            }
+            CasterSubset::DynamicDirect
+        };
+        unsafe {
+            render::submit_point_casters(
+                device,
+                &self.programs,
+                scene.renderer,
+                camera.world_transform.translation,
+                scene.first_person_root,
+                point.relative_position,
+                point.cube_radius,
+                face,
+                subset,
+                &mut self.scratch,
+                &self.dynamic_caster_records,
+            )
         }
-        Ok(())
     }
 
     unsafe fn consume(

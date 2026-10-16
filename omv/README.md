@@ -217,6 +217,14 @@ actually rendered in the current epoch. A missing current depth capture then
 fails closed; a third-person frame does not disable the pass. The earlier
 atmosphere is naturally covered by first-person geometry drawn afterward.
 
+`Directional occlusion` selects the world-occlusion source for the directional
+sun. `Screen space` (the shipped default) uses the reduced-depth projected shaft
+field and never activates the native four-cascade shadow producer. `World
+cascades` opts into the retained world-shadow atlas for true per-ray visibility
+and is the only mode that requests cascade production. `Off` keeps base
+in-scattering with no shadow occlusion. Surface Sun Shadows remain an
+independent setting.
+
 The atmosphere and legacy Sunshafts full-screen passes explicitly disable the
 native renderer's active vendor alpha-to-coverage mode (`ATOC` or `A2M1`) while
 their captured D3D9 state blocks are active. Restoring the state block returns
@@ -271,6 +279,24 @@ session-local because OMV does not write an ImGui ini file.
 
 License and attribution details for the adapted shader sources are in
 [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md).
+
+## Dynamic Shadows
+
+Replacement point-light cube shadows cache immutable static depth per light and
+face. Per-frame actor work is now driven by an OMV pose fingerprint over each
+actor's geometry and bone world transforms, so a stationary, unanimated actor
+keeps its retained faces and only a changed pose, entered coverage, or departed
+coverage refreshes the faces it affects. The retained static signature also
+matches the renderer's minimum caster radius, so a sub-threshold movable object
+no longer invalidates a cached face. When nothing changed, the whole point
+producer D3D transaction can be skipped.
+
+The Shadows panel's `Lightweight shadow log` checkbox (`native_shadows.
+debug_logging`) emits at most one aggregated producer summary per second at the
+default log level: transactions, dirty/moving lights, and rebuilt/static-refresh/
+static-publish/actor-merge face counts. It never changes rendering. Field
+meanings, interpretation, and gathered evidence are in
+[`docs/graphics_fnv_shadows_diagnostics.md`](../docs/graphics_fnv_shadows_diagnostics.md).
 
 ## Install Layout
 

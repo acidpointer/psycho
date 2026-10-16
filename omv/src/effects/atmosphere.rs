@@ -52,7 +52,10 @@ use libpsycho::os::windows::directx9::{
 
 use crate::{
     backend::{AtmosphereFrame, DepthTexture},
-    config::{AtmosphereQuality, VolumetricFogConfig, VolumetricLightingConfig},
+    config::{
+        AtmosphereQuality, DirectionalOcclusionSource, VolumetricFogConfig,
+        VolumetricLightingConfig,
+    },
     effects::shadows,
     shaders::{self, ScreenShaderSource},
 };
@@ -107,6 +110,7 @@ pub(crate) struct AtmosphereSettings {
     shaft_strength: f32,
     sun_disk_boost: f32,
     shaft_quality: AtmosphereQuality,
+    directional_occlusion: DirectionalOcclusionSource,
     pub(crate) local_lights_enabled: bool,
     local_lights_intensity: f32,
     local_lights_quality: AtmosphereQuality,
@@ -147,6 +151,7 @@ impl AtmosphereSettings {
             shaft_strength: finite(lighting.shaft_strength, 1.0).clamp(0.0, 1.0),
             sun_disk_boost: finite(lighting.sun_disk_boost, 0.0).clamp(0.0, 8.0),
             shaft_quality: lighting.shaft_quality,
+            directional_occlusion: lighting.directional_occlusion,
             local_lights_enabled: lighting.local_lights_enabled,
             local_lights_intensity: finite(lighting.local_lights_intensity, 1.5).clamp(0.0, 4.0),
             local_lights_quality: lighting.local_lights_quality,
@@ -201,6 +206,11 @@ impl AtmosphereSettings {
                 AtmosphereQuality::from_index(finite_i32(value[2]))
             });
         let local_lights_fade_seconds = option_component(lighting_constants, 3, 0, 0.75);
+        let directional_occlusion = DirectionalOcclusionSource::from_index(
+            lighting_constants
+                .and_then(|constants| constants.get(4))
+                .map_or(0, |value| finite_i32(value[0])),
+        );
         let quality = fog_quality.or(lighting_quality).unwrap_or_default();
 
         Self {
@@ -228,6 +238,7 @@ impl AtmosphereSettings {
             shaft_strength: finite(shaft_strength, 1.0).clamp(0.0, 1.0),
             sun_disk_boost: finite(sun_disk_boost, 0.0).clamp(0.0, 8.0),
             shaft_quality: lighting_quality.unwrap_or_default(),
+            directional_occlusion,
             local_lights_enabled,
             local_lights_intensity: finite(local_lights_intensity, 1.5).clamp(0.0, 4.0),
             local_lights_quality,
@@ -1329,19 +1340,26 @@ impl AtmosphereEffect {
 
         self.ensure_targets(device, desc, settings.target_scale(local_ready))?;
         let contributions = resolve_contributions(frame, settings);
-        let world_shadows = contributions.light.and_then(|light| {
-            if settings.shaft_strength <= 0.0 {
-                return None;
-            }
-            shadows::volumetric_directional_shadows(frame.camera.world_transform.translation)
-                .filter(|maps| {
-                    maps.device_identity == device.as_raw() as usize
-                        && maps.sun_direction == light.world_direction
-                })
-        });
+        // The world-cascade occlusion source is an explicit opt-in. The shipped
+        // screen-space source never touches the native four-cascade producer.
+        let world_shadows = (settings.directional_occlusion
+            == DirectionalOcclusionSource::Cascades)
+            .then_some(contributions.light)
+            .flatten()
+            .and_then(|light| {
+                if settings.shaft_strength <= 0.0 {
+                    return None;
+                }
+                shadows::volumetric_directional_shadows(frame.camera.world_transform.translation)
+                    .filter(|maps| {
+                        maps.device_identity == device.as_raw() as usize
+                            && maps.sun_direction == light.world_direction
+                    })
+            });
+        let occlusion_enabled = settings.directional_occlusion != DirectionalOcclusionSource::Off;
         let shaft_light = contributions
             .light
-            .filter(|_| world_shadows.is_none())
+            .filter(|_| occlusion_enabled && world_shadows.is_none())
             .and_then(resolve_projected_shaft_light);
         let shaft_requested = shaft_light.is_some()
             && (settings.shaft_strength > 0.0 || matches!(settings.lighting_debug_view(), 1 | 2));
@@ -4441,7 +4459,10 @@ mod directional_shader_behavior {
             DepthProvider, DepthTexture, EnvironmentFrame, MaterialStateFrame, NativeSkyFrame,
             SunFrame, UnderwaterFrame,
         },
-        config::{AtmosphereQuality, VolumetricFogConfig, VolumetricLightingConfig},
+        config::{
+            AtmosphereQuality, DirectionalOcclusionSource, VolumetricFogConfig,
+            VolumetricLightingConfig,
+        },
         effects::shadows::{VolumetricPointLight, VolumetricPointLightFrame},
         fnv_local_lights::{
             LocalLightEpoch, LocalLightValues, common_source_epoch_for_shader_behavior,
@@ -4505,6 +4526,7 @@ mod directional_shader_behavior {
             shaft_strength: VolumetricLightingConfig::default().shaft_strength,
             sun_disk_boost: VolumetricLightingConfig::default().sun_disk_boost,
             shaft_quality: AtmosphereQuality::High,
+            directional_occlusion: DirectionalOcclusionSource::Cascades,
             local_lights_enabled: false,
             local_lights_intensity: 0.0,
             local_lights_quality: AtmosphereQuality::High,
@@ -7206,7 +7228,7 @@ mod feature_tests {
             DepthProvider, DepthTexture, EnvironmentFrame, MaterialStateFrame, NativeSkyFrame,
             SunFrame, UnderwaterFrame,
         },
-        config::{AtmosphereQuality, EmbeddedEffectsConfig},
+        config::{AtmosphereQuality, DirectionalOcclusionSource, EmbeddedEffectsConfig},
         shaders::{self, EmbeddedEffectKind},
     };
 
@@ -7232,6 +7254,7 @@ mod feature_tests {
             shaft_strength: 1.0,
             sun_disk_boost: 1.0,
             shaft_quality: AtmosphereQuality::High,
+            directional_occlusion: DirectionalOcclusionSource::Cascades,
             local_lights_enabled: false,
             local_lights_intensity: 1.0,
             local_lights_quality: AtmosphereQuality::High,
