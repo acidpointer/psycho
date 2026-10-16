@@ -84,11 +84,16 @@ Then launch the game through **xNVSE**. A healthy start writes
 > owns `dinput8.dll`, back it up first - Windows loads only one.
 
 > [!WARNING]
-> Oh My Vegas! also needs Direct3D 9 / Shader Model 3.0, Fallout Shader Loader
-> `131+`, Vanilla Plus Terrain, LOD Flicker Fix, and one D3DCompiler DLL (`47`,
-> `46`, `43`, `42` or `41`) visible to the game. Use a trusted Microsoft
-> runtime, not a random DLL mirror. **New Vegas Reloaded is not supported
-> alongside OMV** - both drive the renderer, so pick one.
+> Oh My Vegas! needs Direct3D 9 with Shader Model 3.0, plus one D3DCompiler DLL
+> (`47`, `46`, `43`, `42` or `41`) visible to the game, so it can compile its
+> shaders. Use a trusted Microsoft runtime, not a random DLL mirror.
+> **New Vegas Reloaded is not supported alongside OMV** - both drive the
+> renderer, so pick one.
+
+> [!NOTE]
+> OMV is standalone. Fallout Shader Loader, Vanilla Plus Terrain and LOD
+> Flicker Fix are not required - OMV checks the engine's own shader and terrain
+> contracts and works with or without them.
 
 ## Configure
 
