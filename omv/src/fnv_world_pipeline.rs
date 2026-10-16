@@ -908,11 +908,8 @@ impl FnvWorldPipelineRuntime {
         }
 
         let config = TemporalAaConfig::from_config(self.config.temporal_aa);
-        let sample_index = self.frame_index.wrapping_add(1);
-        let jitter_pixels = [
-            (halton(sample_index, 2) - 0.5) * config.jitter_scale(),
-            (halton(sample_index, 3) - 0.5) * config.jitter_scale(),
-        ];
+        let jitter_pixels =
+            temporal_jitter_pixels(self.frame_index.wrapping_add(1), config.jitter_scale());
         let camera_jitter = unsafe {
             backend::jitter_fnv_world_camera(jitter_pixels, target.width, target.height)?
         };
@@ -1523,15 +1520,26 @@ fn runtime_error(message: &'static str) -> libpsycho::os::windows::directx9::Dir
     direct3d_failure()
 }
 
-fn halton(mut index: u64, base: u64) -> f32 {
-    let mut fraction = 1.0f32;
-    let mut value = 0.0f32;
-    while index > 0 {
-        fraction /= base as f32;
-        value += fraction * (index % base) as f32;
-        index /= base;
-    }
-    value
+/// Projection-jitter offset in pixel units for one temporal sample index.
+///
+/// The `R2` low-discrepancy sequence (the two-dimensional generalized golden
+/// ratio) gives near-uniform subpixel coverage at every prefix length, unlike
+/// the early clumping of an unscrambled `Halton(2,3)`, so a short retained
+/// history still decorrelates far-field aliasing. The index is a `u64` frame
+/// counter, so the multiply runs in `f64` to keep the fractional part exact.
+pub(crate) fn temporal_jitter_pixels(sample_index: u64, scale: f32) -> [f32; 2] {
+    const R2_X: f64 = 0.754_877_666_246_692_7;
+    const R2_Y: f64 = 0.569_840_290_998_053_2;
+    let index = sample_index as f64;
+    let scale = if scale.is_finite() {
+        scale.clamp(0.0, 1.5)
+    } else {
+        0.0
+    };
+    [
+        ((index * R2_X).fract() as f32 - 0.5) * scale,
+        ((index * R2_Y).fract() as f32 - 0.5) * scale,
+    ]
 }
 
 #[cfg(test)]
@@ -1580,8 +1588,8 @@ mod tests {
 
     use super::{
         CONFIG_GENERATION, CONFIG_MAILBOX, EpochState, FnvWorldPipelineRuntime,
-        TemporalProjectionOverride, WorldEffectsConfig, halton, publish_config,
-        record_pre_alpha_outcome, reliability_activity_present, retry_target_matches,
+        TemporalProjectionOverride, WorldEffectsConfig, publish_config, record_pre_alpha_outcome,
+        reliability_activity_present, retry_target_matches, temporal_jitter_pixels,
     };
     use crate::{
         backend::{CameraFrame, CameraTransformFrame, DepthProvider, ProviderMarkerCounters},
@@ -1768,10 +1776,43 @@ mod tests {
     }
 
     #[test]
-    fn halton_samples_are_bounded() {
-        for index in 1..100 {
-            assert!((0.0..1.0).contains(&halton(index, 2)));
+    fn temporal_jitter_is_bounded_and_covers_every_quadrant() {
+        let samples: Vec<[f32; 2]> = (1..=32)
+            .map(|index| temporal_jitter_pixels(index, 1.0))
+            .collect();
+        assert!(samples.iter().all(|sample| {
+            (-0.5..=0.5).contains(&sample[0]) && (-0.5..=0.5).contains(&sample[1])
+        }));
+        // The R2 sequence carries no directional bias at longer prefixes.
+        let long: Vec<[f32; 2]> = (1..=256)
+            .map(|index| temporal_jitter_pixels(index, 1.0))
+            .collect();
+        let sum = long.iter().fold([0.0f32; 2], |acc, sample| {
+            [acc[0] + sample[0], acc[1] + sample[1]]
+        });
+        let mean = [sum[0] / long.len() as f32, sum[1] / long.len() as f32];
+        assert!(
+            mean[0].abs() < 0.02 && mean[1].abs() < 0.02,
+            "jitter carries a directional bias: {mean:?}"
+        );
+        for (positive_x, positive_y) in [(true, true), (true, false), (false, true), (false, false)]
+        {
+            assert!(
+                samples
+                    .iter()
+                    .any(|sample| (sample[0] >= 0.0) == positive_x
+                        && (sample[1] >= 0.0) == positive_y),
+                "subpixel quadrant {positive_x},{positive_y} is never sampled"
+            );
         }
+        // A zero or non-finite scale degrades to a centered no-op rather than
+        // poisoning the projection jitter.
+        assert_eq!(temporal_jitter_pixels(7, 0.0), [0.0, 0.0]);
+        assert!(
+            temporal_jitter_pixels(7, f32::NAN)
+                .iter()
+                .all(|value| *value == 0.0)
+        );
     }
 
     #[test]

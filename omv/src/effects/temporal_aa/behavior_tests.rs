@@ -11,6 +11,7 @@ use super::*;
 use crate::backend::{
     CameraTransformFrame, DepthImageFrame, DepthProjectionFrame, DepthProvider, DepthTexture,
 };
+use crate::fnv_world_pipeline::temporal_jitter_pixels;
 use libpsycho::os::windows::{
     directx9::{
         D3DDEVTYPE_HAL, D3DDEVTYPE_NULLREF, Device9, DynamicRgba32fTexture9, create_direct3d9,
@@ -243,6 +244,36 @@ fn affine_samples(lens: CameraFrame) -> Vec<[f32; 4]> {
         .collect()
 }
 
+/// High-frequency radiance authored in the fixed output-pixel plane.
+///
+/// A half-pixel-phase checker: every 1x1 pixel box average is `0.5`, while the
+/// one-sample-per-pixel raster only ever holds `0.1` or `0.9`, so the box
+/// average can only be recovered by accumulating differently jittered samples.
+fn far_field_radiance(x: f64, y: f64) -> f64 {
+    let checker = ((x + 0.5).floor() + (y + 0.5).floor()) % 2.0;
+    0.1 + 0.8 * checker
+}
+
+/// Supersampled box-filtered reference for [`far_field_radiance`].
+fn far_field_reference() -> Vec<f64> {
+    (0..WIDTH * HEIGHT)
+        .map(|index| {
+            let pixel_x = (index % WIDTH) as f64;
+            let pixel_y = (index / WIDTH) as f64;
+            let mut sum = 0.0;
+            for sub_y in 0..16 {
+                for sub_x in 0..16 {
+                    sum += far_field_radiance(
+                        pixel_x + (sub_x as f64 + 0.5) / 16.0,
+                        pixel_y + (sub_y as f64 + 0.5) / 16.0,
+                    );
+                }
+            }
+            sum / 256.0
+        })
+        .collect()
+}
+
 #[test]
 fn fixed_grid_affine_radiance_is_invariant_over_jitter_and_history_weights() {
     let output = camera();
@@ -414,6 +445,101 @@ fn shipped_world_settings_reduce_thin_geometry_sampling_error() {
                 "TAA increased thin-wire area error: MRT={mrt}, reversed={reversed}, raw={raw_error}, resolved={resolved_error}"
             );
             assert!(minimum < 0.5, "TAA erased the wire instead of resolving it");
+        }
+    }
+}
+
+/// A still camera on a constant-depth far plane carrying above-Nyquist radiance
+/// must converge to the box-filtered image. The shipped jitter sequence is the
+/// only new information each frame, so per-frame aliased samples must be
+/// accumulated rather than shown; this is the owner-reported far-field crawl.
+#[test]
+fn far_field_detail_stays_temporally_stable_under_the_shipped_jitter() {
+    let output = camera();
+    let reference = far_field_reference();
+    for mrt in [false, true] {
+        for reversed in [false, true] {
+            let mut h = Harness::new(mrt);
+            let raw_depth = if reversed {
+                99.0 / 199.0
+            } else {
+                100.0 / 199.0
+            };
+            let depths = vec![raw_depth; (WIDTH * HEIGHT) as usize];
+            let settings = config::TemporalAaConfig {
+                sharpness: 0.0,
+                ..Default::default()
+            };
+            let mut previous: Option<Vec<[f32; 4]>> = None;
+            let mut raw_previous: Option<Vec<[f32; 4]>> = None;
+            let mut instability = 0.0_f64;
+            let mut raw_instability = 0.0_f64;
+            let mut instability_samples = 0_usize;
+            let mut last = Vec::new();
+            for iteration in 0..64_u64 {
+                let jitter = temporal_jitter_pixels(iteration + 1, 1.0);
+                let rendered = output.with_pixel_jitter(jitter, WIDTH, HEIGHT).unwrap();
+                let pixels: Vec<_> = (0..WIDTH * HEIGHT)
+                    .map(|index| {
+                        let u = (index % WIDTH) as f32 / WIDTH as f32 + 0.5 / WIDTH as f32;
+                        let v = (index / WIDTH) as f32 / HEIGHT as f32 + 0.5 / HEIGHT as f32;
+                        let ray_x = rendered.frustum_left
+                            + (rendered.frustum_right - rendered.frustum_left) * u;
+                        let ray_y = rendered.frustum_top
+                            + (rendered.frustum_bottom - rendered.frustum_top) * v;
+                        let x = (ray_x - output.frustum_left)
+                            / (output.frustum_right - output.frustum_left)
+                            * WIDTH as f32;
+                        let y = (output.frustum_top - ray_y)
+                            / (output.frustum_top - output.frustum_bottom)
+                            * HEIGHT as f32;
+                        let value = far_field_radiance(f64::from(x), f64::from(y)) as f32;
+                        [value, value, value, 0.5]
+                    })
+                    .collect();
+                let image = h.frame(&pixels, &depths, rendered, output, reversed, settings);
+                if iteration >= 32 {
+                    if let Some(previous) = previous.as_ref() {
+                        for (current, prior) in image.iter().zip(previous) {
+                            instability += (f64::from(current[0]) - f64::from(prior[0])).abs();
+                        }
+                    }
+                    if let Some(raw_previous) = raw_previous.as_ref() {
+                        for (current, prior) in pixels.iter().zip(raw_previous) {
+                            raw_instability += (f64::from(current[0]) - f64::from(prior[0])).abs();
+                        }
+                        instability_samples += image.len();
+                    }
+                }
+                previous = Some(image.clone());
+                raw_previous = Some(pixels);
+                last = image;
+                assert!(
+                    last.iter()
+                        .all(|pixel| pixel.iter().all(|value| value.is_finite()))
+                );
+            }
+            let samples = instability_samples.max(1) as f64;
+            let instability = instability / samples;
+            let raw_instability = raw_instability / samples;
+            let mut error = 0.0_f64;
+            let mut error_samples = 0_usize;
+            for y in 4..HEIGHT - 4 {
+                for x in 4..WIDTH - 4 {
+                    let index = (y * WIDTH + x) as usize;
+                    error += (f64::from(last[index][0]) - reference[index]).abs();
+                    error_samples += 1;
+                }
+            }
+            let error = error / error_samples as f64;
+            assert!(
+                instability < raw_instability * 0.05,
+                "far-field detail crawls: MRT={mrt} reversed={reversed} instability={instability} raw={raw_instability}"
+            );
+            assert!(
+                error < 0.02,
+                "far-field detail did not converge: MRT={mrt} reversed={reversed} error={error}"
+            );
         }
     }
 }

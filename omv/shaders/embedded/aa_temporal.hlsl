@@ -81,15 +81,6 @@ float CurrentDepthKey(float rawDepth, bool geometry, bool sky) {
     return saturate(log2(linearDepth + 1.0) / max(log2(CameraData.y + 1.0), 0.001));
 }
 
-float HistoryAgreement(float3 current, float3 history, float skyMask) {
-    float3 magnitude = max(max(abs(current), abs(history)), 0.02);
-    float3 relative = abs(history - current) / magnitude;
-    float difference = max(relative.x, max(relative.y, relative.z));
-    float rejectionStart = lerp(0.20, 0.05, skyMask);
-    float rejectionEnd = lerp(1.00, 0.50, skyMask);
-    return 1.0 - smoothstep(rejectionStart, rejectionEnd, difference);
-}
-
 float HistoryDepthAgreement(float2 uv, float expectedKey) {
     // Color uses bilinear history filtering. A point key at its requested UV
     // cannot certify the other contributing texels, especially at sky edges.
@@ -108,26 +99,26 @@ float HistoryDepthAgreement(float2 uv, float expectedKey) {
     return weight * weight;
 }
 
-void Neighborhood(float2 uv, float3 center, out float3 low, out float3 high, out float3 average, out float3 radianceHigh) {
+void Neighborhood(float2 uv, float3 center, out float3 low, out float3 high, out float3 mean, out float3 variance, out float3 radianceHigh) {
+    // Gathered on the fixed output grid so the history clamp does not move with
+    // the subpixel jitter. The center sample is the reconstructed current
+    // radiance, so a tight clamp can never exclude the valid current sample.
     float2 t = ScreenData.zw;
     low = center;
     high = center;
-    average = center;
+    float3 sum = center;
+    float3 sumSquared = center * center;
     float3 sampleColor = tex2Dlod(CurrentColor, float4(uv + float2(t.x, 0.0), 0.0, 0.0)).rgb;
-    low = min(low, sampleColor); high = max(high, sampleColor); average += sampleColor;
+    low = min(low, sampleColor); high = max(high, sampleColor); sum += sampleColor; sumSquared += sampleColor * sampleColor;
     sampleColor = tex2Dlod(CurrentColor, float4(uv - float2(t.x, 0.0), 0.0, 0.0)).rgb;
-    low = min(low, sampleColor); high = max(high, sampleColor); average += sampleColor;
+    low = min(low, sampleColor); high = max(high, sampleColor); sum += sampleColor; sumSquared += sampleColor * sampleColor;
     sampleColor = tex2Dlod(CurrentColor, float4(uv + float2(0.0, t.y), 0.0, 0.0)).rgb;
-    low = min(low, sampleColor); high = max(high, sampleColor); average += sampleColor;
+    low = min(low, sampleColor); high = max(high, sampleColor); sum += sampleColor; sumSquared += sampleColor * sampleColor;
     sampleColor = tex2Dlod(CurrentColor, float4(uv - float2(0.0, t.y), 0.0, 0.0)).rgb;
-    low = min(low, sampleColor); high = max(high, sampleColor); average += sampleColor;
-    average *= 0.2;
+    low = min(low, sampleColor); high = max(high, sampleColor); sum += sampleColor; sumSquared += sampleColor * sampleColor;
+    mean = sum * 0.2;
+    variance = max(sumSquared * 0.2 - mean * mean, 0.0);
     radianceHigh = high;
-    float3 extent = (high - low) * max(Options0.y, 0.25);
-    float3 midpoint = (low + high) * 0.5;
-    // A user's tighter history box must never exclude the valid current sample.
-    low = min(midpoint - extent * 0.5, center);
-    high = max(midpoint + extent * 0.5, center);
 }
 
 #if OMV_TAA_MRT
@@ -191,13 +182,31 @@ float4 Main(float2 uv : TEXCOORD0) : COLOR0 {
     float depthWeight = HistoryDepthAgreement(historyUv, expectedKey);
     float3 low;
     float3 high;
-    float3 average;
+    float3 mean;
+    float3 variance;
     float3 radianceHigh;
-    Neighborhood(rasterUv, current.rgb, low, high, average, radianceHigh);
-    float3 clampedHistory = clamp(history.rgb, low, high);
-    float agreement = HistoryAgreement(current.rgb, clampedHistory, skyMask);
-    float historyWeight = saturate(Options0.x * depthWeight * agreement);
-    float3 sharpened = clamp(current.rgb + (current.rgb - average) * Options0.z, max(low, 0.0), radianceHigh);
+    Neighborhood(uv, current.rgb, low, high, mean, variance, radianceHigh);
+    // Variance clipping bounds the history to the local signal distribution.
+    // Unlike a raw min/max box it still rejects true disocclusions while
+    // admitting the many differently jittered samples a high-frequency far
+    // surface needs to resolve, which is what stops the far-field crawl.
+    float3 sigma = sqrt(variance);
+    float gamma = max(Options0.y, 0.25);
+    float3 clipLow = max(low, mean - gamma * sigma);
+    float3 clipHigh = min(high, mean + gamma * sigma);
+    // A tighter history box must never exclude the valid current sample.
+    clipLow = min(clipLow, current.rgb);
+    clipHigh = max(clipHigh, current.rgb);
+    float3 clampedHistory = clamp(history.rgb, clipLow, clipHigh);
+    // Motion-adaptive history length: a nearly static pixel pushes toward the
+    // maximum retained history so high-frequency far detail keeps resolving,
+    // while a moving pixel returns to the configured weight so a camera-only
+    // reprojection cannot trail.
+    float velocityPixels = length(motionUv * ScreenData.xy);
+    float staticWeight = min(0.99, Options0.x + 0.09);
+    float historyWeight = saturate(
+        lerp(Options0.x, staticWeight, saturate(1.0 - velocityPixels * 0.05)) * depthWeight);
+    float3 sharpened = clamp(current.rgb + (current.rgb - mean) * Options0.z, max(low, 0.0), radianceHigh);
     float3 resolved = lerp(sharpened, clampedHistory, historyWeight);
 
     float4 outputColor = float4(resolved, current.a);
