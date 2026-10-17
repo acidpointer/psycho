@@ -71,7 +71,8 @@ jobs:
             <(printf '%s\n' \
               "dinput8.dll" \
               "syringe/psycho_engine_fixes.dll" \
-              "syringe/psycho_engine_fixes.toml" | sort) \
+              "syringe/psycho_engine_fixes.toml" \
+              "syringe/psycho_occlusion_planes.toml" | sort) \
             <(zipinfo -1 "$core_archive" | grep -v '/$' | sort)
 
           diff -u \

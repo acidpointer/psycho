@@ -482,6 +482,28 @@ scene_root_admission = true
 # Removes redundant index calculations when preparing object transforms.
 inverse_world_index_setup = true
 
+# Injects occlusion planes for cells that have no authored visibility data, so
+# objects behind large solid buildings are rejected before scene traversal and
+# draw submission. It does not modify any plugin and does not touch authored
+# occluders or rooms.
+#
+# Enabled by default. With `occlusion_planes_runtime = true` the planes are
+# collected from live cell geometry during gameplay; no data file is needed.
+occlusion_planes = true
+
+# Collect occluders at runtime from the loaded cell's static objects, using
+# their mesh/vertex bounds and live world transforms. A hand-authored override
+# file can still target a cell.
+occlusion_planes_runtime = true
+
+# Maximum injected occlusion planes per cell. More planes reject more work but
+# increase the native bounds-times-occluders cost. Raise in steps and measure.
+occlusion_planes_max_per_cell = 32
+
+# Optional per-cell override file, relative to the game directory or absolute.
+# Cells listed here use these planes instead of runtime collection.
+occlusion_planes_path = "syringe/psycho_occlusion_planes.toml"
+
 # =============================================================================
 # DIAGNOSTICS
 # =============================================================================

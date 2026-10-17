@@ -896,6 +896,15 @@ path sufficient to establish its rejection placement and avoided native work
 was not identified. Its net performance benefit or loss remains unknown.
 Library presence is not evidence of an active runtime path.
 
+A separate static investigation covers the engine's own occlusion-plane, room
+and portal primitives as a runtime alternative to a second software depth pass:
+[Runtime visibility injection](fnv_runtime_visibility_injection_research.md).
+It establishes that a `BSOcclusionPlane` can be appended to the native occluder
+list at runtime, that room/portal structures are content built at cell load
+rather than simple runtime objects, and that the Fairfax exteriors carry no
+authored visibility data. It does not establish an FPS benefit; that still
+requires the same runtime measurement this audit does not have.
+
 Native culling and selective updates already remove some work. Additional
 occlusion must address work still admitted by those mechanisms. A second
 visibility test alone does not prove a gain, and rejecting objects by a new

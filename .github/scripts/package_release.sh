@@ -18,6 +18,7 @@ HELPER_DLL="psycho_engine_fixes_helper.dll"
 OMV_DLL="omv.dll"
 ATOM_DLL="atom.dll"
 CONFIG_FILE="psycho_engine_fixes.toml"
+DATA_FILE="psycho_occlusion_planes.toml"
 OMV_CONFIG_SOURCE_FILE="omv.toml"
 OMV_DEFAULT_CONFIG_FILE="omv.default.toml"
 ATOM_MCM_FILE="Atom.json"
@@ -28,6 +29,7 @@ HELPER_PATH="$WORKSPACE_DIR/target/$TARGET/release/$HELPER_DLL"
 OMV_PATH="$WORKSPACE_DIR/target/$TARGET/release/$OMV_DLL"
 ATOM_PATH="$WORKSPACE_DIR/target/$TARGET/release/$ATOM_DLL"
 CONFIG_PATH="$WORKSPACE_DIR/psycho-engine-fixes/config/$CONFIG_FILE"
+DATA_PATH="$WORKSPACE_DIR/psycho-engine-fixes/config/$DATA_FILE"
 OMV_CONFIG_PATH="$WORKSPACE_DIR/omv/config/$OMV_CONFIG_SOURCE_FILE"
 OMV_SHADER_SOURCE_DIR="$WORKSPACE_DIR/omv/shaders/runtime"
 OMV_LUT_SOURCE_DIR="$WORKSPACE_DIR/omv/luts"
@@ -41,7 +43,7 @@ ATOM_ARCHIVE="atom-nvse-$VERSION.zip"
 echo "Building GitHub release artifacts ($TARGET, $VERSION)..."
 cargo build --release --target "$TARGET" -p syringe -p psycho-engine-fixes -p psycho-engine-fixes-helper -p omv -p atom
 
-for path in "$LOADER_PATH" "$CORE_PATH" "$HELPER_PATH" "$OMV_PATH" "$ATOM_PATH" "$CONFIG_PATH" "$OMV_CONFIG_PATH" "$ATOM_MCM_PATH"; do
+for path in "$LOADER_PATH" "$CORE_PATH" "$HELPER_PATH" "$OMV_PATH" "$ATOM_PATH" "$CONFIG_PATH" "$DATA_PATH" "$OMV_CONFIG_PATH" "$ATOM_MCM_PATH"; do
     if [[ ! -f "$path" ]]; then
         echo "ERROR: missing release input: $path" >&2
         exit 1
@@ -80,6 +82,7 @@ mkdir -p "$STAGING/core/syringe"
 cp "$LOADER_PATH" "$STAGING/core/$LOADER_DLL"
 cp "$CORE_PATH" "$STAGING/core/syringe/$CORE_DLL"
 cp "$CONFIG_PATH" "$STAGING/core/syringe/$CONFIG_FILE"
+cp "$DATA_PATH" "$STAGING/core/syringe/$DATA_FILE"
 pack_dir "$STAGING/core" "$CORE_ARCHIVE"
 
 # Optional xNVSE helper, packaged as a conventional Data-directory mod.

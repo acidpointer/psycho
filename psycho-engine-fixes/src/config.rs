@@ -12,6 +12,8 @@ use serde::{Deserialize, Deserializer, Serialize};
 use libpsycho::config::Config;
 
 const CONFIG_PATH: &str = "syringe/psycho_engine_fixes.toml";
+/// Default occlusion-plane override data path, relative to the game directory.
+const DEFAULT_OCCLUSION_PLANES_PATH: &str = "syringe/psycho_occlusion_planes.toml";
 const LEGACY_CONFIG_PATHS: &[&str] = &[
     "mods/psycho_engine_fixes.toml",
     "mods/psycho.toml",
@@ -285,6 +287,14 @@ pub struct PerformanceConfig {
     pub scene_root_admission: bool,
     /// Fold constant row indices in native unskinned inverse-world expansion.
     pub inverse_world_index_setup: bool,
+    /// Inject occlusion planes for cells without authored data.
+    pub occlusion_planes: bool,
+    /// Generate occlusion planes from live cell geometry at runtime.
+    pub occlusion_planes_runtime: bool,
+    /// Maximum injected occlusion planes per cell.
+    pub occlusion_planes_max_per_cell: u16,
+    /// Optional per-cell override file, relative to the game directory or absolute.
+    pub occlusion_planes_path: String,
 }
 
 impl Default for PerformanceConfig {
@@ -301,6 +311,10 @@ impl Default for PerformanceConfig {
             multibound_loop_bookkeeping: true,
             scene_root_admission: true,
             inverse_world_index_setup: true,
+            occlusion_planes: true,
+            occlusion_planes_runtime: true,
+            occlusion_planes_max_per_cell: 32,
+            occlusion_planes_path: DEFAULT_OCCLUSION_PLANES_PATH.to_string(),
         }
     }
 }
@@ -346,6 +360,17 @@ impl PerformanceConfig {
             inverse_world_index_setup: raw
                 .inverse_world_index_setup
                 .unwrap_or(default.inverse_world_index_setup),
+            occlusion_planes: raw.occlusion_planes.unwrap_or(default.occlusion_planes),
+            occlusion_planes_runtime: raw
+                .occlusion_planes_runtime
+                .unwrap_or(default.occlusion_planes_runtime),
+            occlusion_planes_max_per_cell: raw
+                .occlusion_planes_max_per_cell
+                .unwrap_or(default.occlusion_planes_max_per_cell)
+                .clamp(1, 256),
+            occlusion_planes_path: raw
+                .occlusion_planes_path
+                .unwrap_or(default.occlusion_planes_path),
         }
     }
 }
@@ -659,6 +684,10 @@ struct RawPerformanceConfig {
     multibound_loop_bookkeeping: Option<bool>,
     scene_root_admission: Option<bool>,
     inverse_world_index_setup: Option<bool>,
+    occlusion_planes: Option<bool>,
+    occlusion_planes_runtime: Option<bool>,
+    occlusion_planes_max_per_cell: Option<u16>,
+    occlusion_planes_path: Option<String>,
 }
 
 #[derive(Default, Deserialize)]

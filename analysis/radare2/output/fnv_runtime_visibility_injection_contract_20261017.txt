@@ -1,0 +1,411 @@
+Runtime visibility injection contract - 2026-10-17
+Executable: fnv_reverse/FalloutNV.exe
+Executable identity (from docs/fnv_location_performance_static_audit.md):
+  SHA-256 42fee7d6cd74e801372aa89c8f71c974cebd3c20ec9ad43d1465b8fa9646b49c
+  PE32 x86, image base 0x00400000
+
+Tooling: radare2 6.2.2 CLI (r2mcp was not callable from this session).
+Commands used are ad hoc disassembly and data reads. This file is a compact
+index of the addresses inspected. It is not complete provider/caller coverage
+and is not patch authority. Reverify in the binary before any write.
+
+Entry points and identities
+  0x005BB9E0  console command function, name "AddOcclusionPlane",
+              description "Add Occlusion plane (x size, y size)."
+              Registered in the command table at 0x01190340; name string
+              0x01042170; description string 0x01042144; extra arg pointer
+              0x0118D2AC.
+  0x004A5FF0  BSOcclusionPlane constructor (this=0xFC bytes).
+  0x004A6150  BSPortal allocation helper (0x108 bytes) -> 0x004A61F0.
+  0x004A61F0  BSPortal constructor (calls 0x004A5FF0, overwrites vtable).
+  0x00C5AE70  append a plane to scene graph +8 occluder list.
+  0x004EDF00  remove and free the list tail (list+4); returns its data.
+              Not a general remove-by-node; the runtime unlinks its own node.
+  0x004A49E0  list-node free path (zeroes node+8, frees node).
+  0x004ED900  clear/free a whole list.
+  0x00B5AC90  occluder activation pass (calls 0x00C33CF0, 0x00C358A0).
+  0x00B5BBE0  bound-versus-occluder pair loop (calls 0x00C47150).
+  0x00C47150  pair predicate; local frustum via 0x0045C620 and planes
+              via 0x00C33870; calls shape slot +0xA0.
+  0x00C33870  camera-dependent occluder-plane cache/builder.
+  0x00C35C10  builds the four rectangle corners from position,
+              size and rotation.
+  0x00C39640  BSMultiBoundRoom constructor (0xEC bytes).
+  0x00C39770  BSMultiBoundRoom destructor.
+  0x00548B10  room construction from a reference's 3D/bound; adds to a
+              portal graph through 0x00439920 and the scene through
+              0x00C5AEF0.
+  0x00417696  post-load extra-data fixup for occlusion-plane/portal/room
+              reference data (strings "No occlusion plane for occlusion
+              plane ref extra.", "Unable to find portal/room linked
+              reference"). This is an interior of a 5243-byte function;
+              0x00417696 is not its entry point.
+  0x00418220? (unresolved) additional fixup helpers referenced inside the
+              same function were not fully mapped.
+
+RTTI type descriptors (name addresses from izz)
+  ExtraOcclusionPlaneRefData 0x011842FC
+  ExtraPortalRefData         0x01184328
+  ExtraRoomRefData           0x0118434C
+  ExtraOcclusionPlane        0x01184FC0
+  ExtraPortal                0x01184FE4
+  ExtraRoom                  0x01185000
+  ExtraMultiBound            0x01184FA0
+  BSOcclusionPlane           0x0118858C
+  BSPortal                   0x011885AC
+  BSMultiBoundRoom           0x011AF3BC
+
+Vtables (from read-only .research/Stewie Tweaks 9.95 Source/code/Internal/class_vtbls.h)
+  ExtraOcclusionPlaneRefData 0x10151CC
+  ExtraOcclusionPlane        0x1015E64
+  ExtraPortal                0x1015E70
+  ExtraRoom                  0x1015E7C
+  ExtraMultiBound            0x1015E58
+  BSOcclusionPlane           0x101E794
+  BSPortal                   0x101E82C
+  BSMultiBoundRoom           0x10C1064
+
+BSOcclusionPlane constructor 0x004A5FF0 (excerpted behavior)
+  - base constructor 0x00A5D3A0 sets vtable 0x101DCE4, sets object field +4 = 0,
+    increments a global object counter at 0x011F4400, then sets vtable 0x109B4F4.
+    Field +4 is the reference-count-like cell that the NiPointer path retains.
+  - writes vtable 0x101E794 to this+0.
+  - copies arg0 (3 floats) to this+0x08.
+  - copies arg1 (2 floats) to this+0x14 and this+0x18.
+  - copies arg2 (9 floats) to this+0x1C.
+  - calls 0x0045C620 at this+0x44.
+  - initializes a 12-byte array at this+0xA8 through 0x00401050.
+  - calls 0x006815C0 at this+0xD8.
+  - bytes this+0xE4 = 1, this+0xE5 = 1, this+0xEA = 1.
+  - dword this+0x40 = 0 (admission/active field).
+
+BSPortal constructor 0x004A61F0 (excerpted behavior)
+  - calls 0x004A5FF0 with the same three arguments.
+  - writes vtable 0x101E82C to this+0.
+  - NiPointer at this+0x104; fields this+0xFC and this+0x100.
+  - bytes this+0xE4 = 1, this+0xE5 = 1, dword this+0x40 = 0.
+
+Scene graph occluder list
+  0x00B5AC90 activation pass:
+    esi = object returned by 0x00450B80(0); esi+0x1E0 is the scene graph
+    edi = scene_graph+8 list head
+    for each list node esi = node+8 (the BSOcclusionPlane):
+      al = 0x00C33CF0(esi, 0, temp)
+      al = 0x00C358A0(esi, camera_xyz) AND previous
+      edx = (al == 0) ? 2 : 1
+      node+0x40 = edx
+    So +0x40 == 1 means admitted/active for the current camera; +0x40 == 2
+    is not tested by the pair loop.
+  0x00B5BBE0 bound pair loop:
+    for each admitted bound:
+      edi = scenario accumulator/list context
+      esi = scene_graph+8 list head
+      for each node with [node+0x40] == 1:
+        call 0x00C47150(bound, ..., node, ...)
+        if result == 0 (rejection), stop
+  0x00C47150 pair predicate:
+    uses 0x0045C620 to initialize a local 100-byte frustum;
+    calls 0x00C33870 to obtain camera-dependent planes;
+    calls shape virtual slot +0xA0 for a complete containment predicate;
+    on containment sets shape+0x08 = 2 and returns 0.
+  0x00C33870 plane cache:
+    dirty byte player/occluder+0xE5; cached camera XYZ at +0xD8/+0xDC/+0xE0;
+    on clean+equal copies 25 DWORDs (100 bytes) from +0x44 to the caller.
+  0x00C35C10 corner builder:
+    reads size at +0x14 and +0x18; 0x4B4500(matrix, (sizeX,0,0)) and
+    0x4B4500(matrix, (0,0,sizeY)) produce the two in-plane half-axis vectors;
+    the four corners are position(+0x08) +/- the first vector +/- the second.
+    This establishes a local XZ rectangle with a local Y normal and proves the
+    two size fields are half-extents. Generated matrices must store columns
+    (tangent A, normal, tangent B); the earlier (tangent A, tangent B, normal)
+    order put the normal in local Z and made the plane edge-on.
+  0x4B4500(ecx=matrix, v):
+    computes (row0.v, row1.v, row2.v) and stores them through 0x00416870, a
+    plain row-major M*v multiply. The matrix at plane+0x1C is row-major.
+
+List add/remove
+  0x00C5AE70(scene_graph, plane):
+    node = 0x0043A010(); node+8 = plane; 0x00559A70(list=scene_graph+8, node)
+    The list does not retain the plane; the engine's list free at
+    0x004A49E0 zeroes node+8 before freeing the node.
+  0x004EDF00(this=list): removes the list tail (list+4), returns its data,
+              frees the node through 0x004A49E0 and decrements the count. It
+              takes no stack argument and is not a general remove-by-node. The
+              runtime unlinks its own tracked node instead.
+  0x004ED900(this=list): walk and free every node, then zero head/tail/count.
+
+Console command 0x005BB9E0 (mechanism proof)
+  - Parses x/y from the command; rejects invalid sizes.
+  - Uses the player/camera transform and position to allocate and construct a
+    BSOcclusionPlane, wraps it in a stack NiPointer, and calls 0x00C5AE70 to
+    append it to the scene graph list.
+  - Read-only Stewie Tweaks 9.95 Source/code/Fixes/PlaceOcclusionPlaneFix.cpp
+    documents a use-after-free here: the list does not retain the plane, and
+    the stack NiPointer releases it. Stewie NOPs:
+      0x5BBBA6..0x5BBBAE, 0x5BBBB5..0x5BBBBE, 0x5BBBE4..0x5BBBEC
+    That fix leaks the plane but prevents the crash. The command is therefore
+    usable for a mechanism test when Stewie Tweaks is installed, but it is not
+    a production ownership pattern.
+
+Room construction (observed, not fully closed)
+  0x00C39640 BSMultiBoundRoom constructor:
+    - base call 0x00C46970; vtable 0x10C1064.
+    - empty list cells at +0xB4, +0xC0, +0xD0; +0xDC initialised through
+      0x00C3A220; +0xCC = 0; flags +0x30 |= 0x800.
+  0x00548B10 room build (excerpted behavior):
+    - reads the reference's 3D and a bound (0x005D43C0, 0x0041FBE0,
+      virtual +0x14).
+    - allocates 0xEC and constructs a BSMultiBoundRoom (0x00C39640).
+    - allocates 0x10 and constructs a node through 0x00C35E00.
+    - calls 0x00439920 to add the room to a graph; 0x004ADDC0 to set a bound;
+      0x00420F00 to attach; 0x00C5AEF0 to add to a scene.
+    This is the engine's content-driven room build, not a public runtime API.
+
+Authored spatial data
+  - Fairfax exterior target cell groups (Fallout3.esm, file-local IDs
+    0x06001163..0x06001175) contain no XMBO, XPRM, XMBR, XRMR, XPOD, XPTL or
+    XOCP subrecord. This is the existing audit's record inspection.
+  - Fairfax interiors zFairfaxMaintenance (0x0603C944) and zFairfaxMetro
+    (0x0603D443) contain only 10/10 and 4/4 XMBO/XPRM, resolving to acoustic
+    spaces, a sound, a trigger and collision markers, not to rooms.
+  - FO3_Optimization.esm adds 15 references to those two interiors:
+      5 base RoomMarker + 4 portal references (XPOD) in Maintenance,
+      3 base RoomMarker + 3 portal references (XPOD) in Metro.
+    Each portal reference also carries XMBO/XPRM.
+  - FNV_Optimization.esm covers 238 interior cells with XMBO/XPRM/XPOD/XRMR/
+    XOCP/XPTL; totals observed: XPRM 3938, XMBO 3805, XPOD 2003, XRMR 186,
+    XOCP 93, XPTL 21, XORD 3. FNV_Optimization YUPTTW.esm adds 2 cells.
+  - AWOP FO3 Roombound Project.esm covers AWOP FO3 interiors with XMBO 686,
+    XPRM 688, XPOD 379, XPTL 20. Its meta.ini description states the interiors
+    were large and rendered simultaneously and that comprehensive roombounding
+    "will have a dramatic impact on performance".
+  - bEnableBoundingVolumeOcclusion=1 in
+    /data/storage0/Games/FalloutNV_TTW/profiles/Default/fallout.ini.
+
+XOCP payload semantics (closed)
+  - FO3_Optimization.esm XOCP payloads are 36 bytes (nine little-endian
+    floats). Example ref 0x11012837:
+      6e8c8944 8fd7ea43 e2eb0845 a4868744 cc5dff45 0000803f
+      00000000 00000000 db0fc93f
+  - The reference XOCP handler 0x0041617A reads the 36 bytes, allocates a
+    0xFC BSOcclusionPlane with 0xAA13E0, constructs it with 0x00C335D0, then:
+      0x00416A30(plane, &payload[0]) copies float 0 and 1 to plane+0x14 and
+                  plane+0x18 => native half-extents size X and size Y.
+      0x004169F0(plane, &payload[8]) copies floats 2..4 to plane+0x08
+                  => position X/Y/Z.
+      0x004168A0(matrix, angle, axisX, axisY, axisZ) builds the rotation:
+                  the caller passes payload floats 7 (angle), 5 (axisX),
+                  6 (axisY), 8 (axisZ) in that order.
+      0x00416A70(plane, matrix) copies the 9 matrix floats to plane+0x1C.
+  - Closed field order:
+      0 sizeX, 1 sizeY, 2 posX, 3 posY, 4 posZ,
+      5 axisX, 6 axisY, 7 angle, 8 axisZ.
+    Axis-angle is the generator contract. Example `(0,0,1,1.5708)` is a
+    90-degree rotation about +Z.
+
+Engine plane creation and ownership (closed)
+  0x00AA13E0  operator new (game allocator, cdecl, one size arg).
+  0x00AA1460  operator delete (not called directly; the DeleteThis path owns it).
+  0x00C335D0  default BSOcclusionPlane constructor. Sets vtable 0x101E794,
+              six planes at +0x44, default size from 0x0101B268, default
+              position from 0x011F426C, identity rotation from 0x011A9448,
+              +0x40 = 0, +0xEA = 1, +0xEC..+0xFB = 0.
+  0x00416A30  size setter: copies two floats to +0x14/+0x18, sets +0xE4/+0xE5.
+  0x004169F0  position setter: copies three floats to +0x08, sets +0xE4/+0xE5.
+  0x004168A0  axis-angle rotation matrix builder (ecx = matrix; angle, axisX,
+              axisY, axisZ on the stack; ret 0x10).
+  0x00416A70  rotation setter: copies nine floats to +0x1C, sets +0xE4/+0xE5.
+  0x00C5AE70  append scene_graph+8 list node (0x0043A010 node, 0x00559A70
+              insert). Does not retain the plane.
+  0x004EDF00  removes the list tail (list+4), returns its data and frees the
+              node; no stack argument. It is not a general remove-by-node, so
+              the runtime unlinks the tracked node itself.
+  0x004A49E0  node free (this = list, arg = node, ret 4): zeroes node+8 and
+              returns the node to the native pool. Use after unlinking node
+              prev/next and decrementing list count in Rust.
+  NiRefObject  reference count is the dword at object+4; DeleteThis is
+              vtable+4. The runtime increments/decrements the field atomically
+              and calls DeleteThis on the decrement-to-zero transition.
+              Vanilla 0x0040F6E0 is `InterlockedIncrement(this+4)`; vanilla
+              0x00401970 decrements and calls vtable+4 when the new count is 0.
+              These two entries are NOT called by the runtime because
+              performance mods replace them in place. Owner runtime log
+              2026-10-17: at 0x0040F6E0 the process contained
+                B8 01 00 00 00 F0 0F C1 41 04 40 C3
+              (mov eax,1; lock xadd [ecx+4],eax; inc eax; ret), an equivalent
+              inlined increment left over the vanilla tail. Exact-byte gating
+              on that entry disabled the whole feature; the runtime now uses
+              the field directly.
+  0x00C5AE34  scene-graph destruction clear (zeroes node+8 before freeing), so
+              an owned plane stays alive until we decrement it.
+  0x004A5FF0  raw constructor (position, size, rotation), alternative to
+              0x00C335D0 + setters; kept as a fallback.
+
+Orientation note
+  0x00C358A0 returns 1 immediately when plane+0xEA is nonzero. 0x00C335D0 and
+  0x004A5FF0 both set +0xEA = 1. 0x00C33870 builds the camera-dependent
+  frustum from the camera and the four corners from 0x00C35C10 and has separate
+  camera-side branches. A plane behaves as a window; the occluded volume is the
+  camera-through-rectangle pyramid. The stored normal sign does not select the
+  side in those two branches. The owner's visual check remains required.
+
+Runtime anchors
+  Player: *(0x011DEA3C)  (TESObjectREFR/Actor; also TES_SINGLETON in gheap).
+  Current cell: *(player + 0x40)  (TESObjectREFR::parentCell).
+  Cell FormID: *(cell + 0x0C)  (TESForm::refID).
+  Interior flag: *(u8*)(cell + 0x24) & 1.
+  Exterior coords: `CellCoordinates*` at cell + 0x48 (GameForms.h
+  TESObjectCELL::coords); grid X/Y are the two dwords at coords + 0/+4. The
+  cell field is a pointer, not the two grid values.
+  Worldspace: *(cell + 0xC0); its FormID is at +0x0C.
+  Scene-graph owner: *(0x011F91C8)  (index 0 of the 0x00450B80 table).
+  Scene graph: *(owner + 0x1E0).
+  Occluder list: scene_graph + 8. List +0 head, +4 tail, +8 count; node +0
+  next, +4 prev, +8 plane.
+
+Host events already forwarded by psycho-engine-fixes-helper
+  1 DeferredInit, 6 OnFramePresent, 7 PreLoadGame, 8 ExitToMainMenu,
+  9 NewGame. perf::observe_event already receives them; no new host ABI.
+
+Byte signatures (first bytes, for CodeSignature capture)
+  0x00AA13E0 518b44240885c07505b8010000006a006aff89442408a180
+  0x00C335D0 558bec6aff6878d8f20064a1000000005083ec245657a1bc161c0133c5508d45f464a30000000089
+  0x00416A30 558bec51894dfc8b45088b088b50048b45fc894814895018
+  0x004169F0 558bec51894dfc8b45088b4dfc83c1088b1089118b500489
+  0x00416A70 558bec515657894dfc8b75088b7dfc83c71cb909000000f3
+  0x004168A0 558bec83ec34894dcc8d45f0508d4df45151d94508d91c24e8e300000083c40c
+  0x00C5AE70 558bec83ec28894dd8837d0800742c8b45d883c0088945dc8b4ddc83c108e87d
+  0x004A49E0 558bec51894dfc8b4508c74008000000008b4d08518b4dfc
+  0x004EDF00 558bec83ec0c894df48b45f48b4804894df88b55f48b42048b4df48b50048951
+  0x00450B80 558bec8b45088b0485c8911f015dc3cc
+  0x004A5FF0 558bec6aff6838ffee0064a10000000050515657a1bc161c
+
+Runtime occluder collection offsets (live cell geometry)
+  The runtime collector reads these on the main thread after a cell change.
+  They are verified below against the engine's own code, not only headers.
+
+  TESObjectREFR baseForm +0x20, parentCell +0x40, renderState +0x64
+    (header GameObjects.h; parentCell and renderState offsets also match the
+    current cell read at 0x0086EBF3 and Set3D at 0x0094EB40).
+  RenderState.niNode +0x14
+    Verified in TESObjectREFR::Set3D 0x005702E0:
+      0x00570387 cmp dword [edx + 0x64], 0
+      0x0057039A mov ecx, [eax + 0x64]; add ecx, 0x14
+  TESForm.typeID +0x04
+    Header GameForms.h. Types 0x20 (TESObjectSTAT) and 0x21
+    (BGSStaticCollection) are admitted; 0x22 (BGSMovableStatic) is excluded
+    because its 3D can move after the planes are created. Only the base-type
+    gate changes: the collector reads the loaded 3D geometry, not authored
+    bounds, so no extra base layout is required.
+  TESObjectCELL.objectList +0xAC (tList<TESObjectREFR>)
+    Header GameForms.h. tList/ListNode layout from GameTypes.h:
+      ListNode { T_Data* data; ListNode* next; } (8 bytes)
+      tList { ListNode m_listHead; } (ASSERT sizeof 8)
+    The engine's own traversal over the same tList uses data at +0 and next at
+    +4 (see the 0x00A5DBE0 and 0x005427xx list walks).
+  NiNode child array base +0xA0, count +0xA6
+    Verified in NiNode visibility 0x00A5DBE0:
+      0x00A5DBF7 movzx ebx, word [edi + 0xA6]
+      0x00A5DC10 mov eax, [edi + 0xA0]
+      0x00A5DC16 mov ecx, [eax + esi*4]
+  NiAVObject world rotation +0x68, translation +0x8C, scale +0x98
+    Verified in NiGeometry::UpdateWorldBound 0x00A80710:
+      0x00A807D2 call 0x00A7FDD0(this+0x68, this+0xB8+0x10)
+    NiTransform = NiMatrix3(0x24) + NiPoint3(0x0C) + f32(0x04) = 0x34, so
+    translation = +0x68+0x24 = +0x8C and scale = +0x98.
+  NiGeometry alpha property +0x9C, skin instance +0xBC, model data +0xB8
+    Skin/model data verified in NiGeometry::UpdateWorldBound 0x00A80710:
+      0x00A807A0 mov ecx, [esi + 0xBC]   ; skin instance
+      0x00A807C1 mov edx, [esi + 0xB8]   ; model data; add edx, 0x10 = bound
+    The +0x9C pointer is the alpha property in renderer code:
+      0x00BB5202 mov ecx, [ebp + 0x9C]; 0x00BB5208 test byte [ecx + 0x18], 1
+    Its offset is not re-proven here (the object in that frame is a stack
+    argument), so the runtime treats +0x9C as an alpha property only when its
+    vtable is NiAlphaProperty; otherwise the geometry is admitted. This keeps a
+    wrong or shifted offset from rejecting every geometry in a cell.
+  NiAlphaProperty vtable 0x0109B4F4
+    Its constructor stores it: 0x00A5D3BB mov dword [esi], 0x109B4F4.
+    The vtable[-4] RTTI locator is at 0x0109B4F0 and the class-name string
+    "NiAlphaProperty" at 0x0109B4E0.
+  NiAlphaProperty.m_usFlags +0x18
+    Header NiAlphaProperty.hpp: NiProperty size 0x18, ASSERT_SIZE 0x1C.
+    Confirmed by flag users: 0x00B68231 `test byte [ecx+0x18], 1` on the alpha
+    property and 0x00E8BB77 `movzx eax, word [ecx+0x18]` (blend mode).
+  NiAVObject world bound +0x20 (NiBound pointer; radius at +0x0C)
+    Read by the runtime as a cheap radius pre-filter. The world bound is a
+    sphere enclosing the object; radius >= half of the largest extent.
+  NiTriShapeData triangle list +0x44 (m_uiTriListLength), +0x48 (m_pusTriList)
+    Read by the class field writer at 0x00A7BD60:
+      0x00A7BDA8 mov ecx, [ebx + 0x44]; push ecx; push "m_uiTriListLength"
+      0x00A7BDE4 mov edx, [ebx + 0x48]; push edx; push "m_pusTriList"
+    `m_uiTriListLength` is the u16 index count and `m_pusTriList` is the u16
+    index array, so triangle i uses indices 3i, 3i+1, 3i+2.
+  NiObject::IsTriShape vtable +0x24
+    NiTriShape 0x0109D454: +0x24 = 0x00E68810 (return this). The runtime reads
+    the triangle list only when this slot returns a non-null pointer, so a
+    NiTriStrips mesh contributes no occluder instead of a misread index list.
+  NiGeometryData vertex count +0x08, vertex pointer +0x20, compression +0x39
+    Verified against geometry-data users:
+      0x00A87900 movzx eax, word [ecx+8]
+      0x00A8790D mov edx, [ecx+0x20]
+      0x00A87915 add ecx, 0x10          ; local bound passed to 0x00A7EE30
+      0x00A66F90 cmp dword [ecx+0x20], 0
+      0x00A66F97 movzx eax, word [ecx+8]
+      0x00EE8AA0 mov al, byte [ecx+0x39] ; compression flags getter
+    Uncompressed vertices are 3 floats (NiPoint3) each; COMPRESS_POSITION is
+    bit 0x10 and skips vertex reads in the collector.
+  OWNER position +0x1F0 inside the 0x00450B80(0) singleton
+    Header/console evidence: the AddOcclusionPlane command at 0x005BB9B0
+    copies [singleton+0x1F0] as the plane position. The runtime uses it as the
+    observer position for the distance filter and score weight.
+  NiObject::IsNode vtable +0x0C, IsGeometry vtable +0x18
+    Verified against the class vtables:
+      NiNode 0x0109B5AC: +0x0C = 0x006815C0 (return this), +0x18 = 0x00ACBB70
+        (return null).
+      NiTriShape 0x0109D454: +0x0C = 0x00ACBB70 (null), +0x18 = 0x00E68810
+        (return this), +0x24 = IsTriShape = 0x00E68810.
+    0x00ACBB70 = xor eax,eax; ret. 0x00E68810 = mov eax,ecx; ret.
+    Header NiObject.hpp labels GetRTTI 02, IsNode 03, IsGeometry 06.
+
+Collector admission and timing (2026-10-17)
+  - The reference list is the cell's own `objectList`; a reference with a
+    non-null `parentCell` that differs is skipped, and a null parent is
+    tolerated while the cell is still attaching references.
+  - A transparent or skinned geometry is skipped individually, so one window or
+    decal cannot discard a whole building.
+  - The +0x9C pointer is only trusted as an alpha property when
+    `[[+0x9C]] == 0x0109B4F4` (the NiAlphaProperty vtable). Otherwise the
+    geometry is admitted, so a wrong or shifted offset cannot yield zero
+    candidates.
+  - Static content is gated by base type 0x20 (TESObjectSTAT) or 0x21
+    (BGSStaticCollection); 0x22 (BGSMovableStatic) is excluded because its 3D
+    can move after the planes are created.
+  - Planes come from coplanar triangle patches of `NiTriShape` meshes, and only
+    the largest all-covered sub-rectangle of a 6x6 coverage grid is emitted.
+    That is the fix for the object/NPC popping: an AABB or concave facade no
+    longer produces a plane over empty space, and a window or courtyard yields
+    a smaller solid rectangle instead of a false occluder.
+  - A cell/scene change retries a bounded settle window (5 retries, 20 frames
+    apart) because the first frame can run before the cell's references and
+    their 3D are attached. A retry with an unchanged plane-set signature keeps
+    the existing planes.
+  - The `[OCCLUSION_PLANES] scan` debug counters (refs, parent_mismatch,
+    not_stat, render_null, node_null, radius, geoms, skinned, alpha, no_mesh,
+    triangles, clusters, cluster_area, coverage, size, distance, faces) are the
+    runtime diagnostic when a cell yields too few candidates.
+
+Unknowns left open by this capture
+  - The exact 0x00C33870 camera-side branch signs were not reduced to a
+    formula; the engine's axis-angle setters are used instead, and the Phase 1
+    experiment confirms the behavior.
+  - The scene graph +8 list's per-cell reset behavior for runtime additions was
+    not proven; the runtime design scans for its own plane pointers and does not
+    depend on the reset timing.
+  - Whether OnFramePresent is quiescent relative to 0x00B5AC90/0x00B5BBE0 was
+    not measured; the CellTransitionOrchestrator 0x008774A0 is the fallback.
+  - The room-build entry point, rebuild trigger, and reference lifetime needed
+    for runtime room injection were not closed.
+  - The runtime collector's false-cull rate and performance impact were not
+    measured; it is an unqualified heuristic on authored OBND bounds.
+  - BGSStaticCollection and BGSMovableStatic bounds layouts were not verified,
+    so only TESObjectSTAT is admitted to runtime collection.

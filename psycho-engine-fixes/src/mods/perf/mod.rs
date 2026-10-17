@@ -11,6 +11,7 @@ mod lighting_contract;
 mod multibound_frustum;
 mod multibound_loop_bookkeeping;
 mod multibound_vertex_setup;
+mod occlusion_planes;
 mod post_load;
 mod radio;
 mod rng;
@@ -22,6 +23,7 @@ pub(crate) use light_property_scores::install as install_light_property_score_re
 pub(crate) use multibound_frustum::install as install_multibound_frustum_tests;
 pub(crate) use multibound_loop_bookkeeping::install as install_multibound_loop_bookkeeping;
 pub(crate) use multibound_vertex_setup::install as install_multibound_vertex_setup;
+pub(crate) use occlusion_planes::install as install_occlusion_planes;
 pub(crate) use scene_light_scan::install as install_scene_light_sequential_scan;
 pub(crate) use scene_root_admission::install as install_scene_root_admission;
 
@@ -38,4 +40,5 @@ pub(crate) fn observe_event(kind: u32) {
     radio::observe_event(kind);
     light_property_scores::observe_event(kind);
     scene_light_scan::observe_event(kind);
+    occlusion_planes::observe_event(kind);
 }
