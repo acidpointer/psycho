@@ -1189,6 +1189,34 @@ object velocity, semantic reset, first-person, ordering and deadline follow-ups
 remain research-dependent as listed above. Game image quality, startup and
 performance are not exercised by this offline contract.
 
+### 2026-10-18 sloped-surface depth rejection correction
+
+The owner-reported mid- and short-range jitter was reproduced offline as a
+depth-rejection defect, not a reconstruction or jitter-sequence defect. The
+resolve compared the single reprojected depth key against *every* contributing
+bilinear history-key texel, so any surface whose depth changed across one pixel
+by more than the flat-surface tolerance (`(z+1)` ratio `ln(far+1)/52`) rejected
+history on the whole footprint. On a moving camera those pixels stopped
+accumulating and kept showing their aliased per-frame sample, which is the
+visible jitter and the lost anti-aliasing.
+
+The resolver now takes depth-value agreement from the footprint's *nearest*
+history-key texel, the point sample a bilinear color read is registered to, and
+keeps the corner test only as a layer test: a contributing corner more than one
+key unit from the expected sample (sky `-1`, invalid `2`, geometry `[0,1]`) still
+rejects, so bilinear color can never mix those layers. A different geometry
+depth inside the footprint is accepted as local slope. The change adds no
+texture site, render target, copy, allocation, draw, or lock and stays inside the
+existing 350-instruction/12-site ordinary ceiling (it compiles to 337); it is
+arithmetic only.
+
+`sloped_surface_history_survives_camera_motion` executes the shipped effect on
+a real D3D9 device with a slowly rotating camera, a high-frequency scene and a
+depth gradient. It is fail-first: the pre-change resolver measured frame-to-frame
+instability `0.0288`-`0.0329` against a `0.0044` flat-surface control, and the
+shipped resolver measures `0.005`. The flat control, sky/geometry layer test,
+and all other resolve oracles are unchanged.
+
 ### Broader roadmap and acceptance
 
 1. **Establish production image baselines (T18).** Build a real D3D9 harness

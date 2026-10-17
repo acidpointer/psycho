@@ -82,8 +82,9 @@ float CurrentDepthKey(float rawDepth, bool geometry, bool sky) {
 }
 
 float HistoryDepthAgreement(float2 uv, float expectedKey) {
-    // Color uses bilinear history filtering. A point key at its requested UV
-    // cannot certify the other contributing texels, especially at sky edges.
+    // The color history is bilinear, so its whole contributing footprint must
+    // be checked. The footprint is sampled once here and reused for both the
+    // depth-value and layer decisions.
     float2 pixel = uv * ScreenData.xy - 0.5;
     float2 fraction = frac(pixel);
     float2 base = (floor(pixel) + 0.5) * ScreenData.zw;
@@ -93,10 +94,24 @@ float HistoryDepthAgreement(float2 uv, float expectedKey) {
         tex2Dlod(HistoryDepthKey, float4(base + float2(0.0, ScreenData.w), 0.0, 0.0)).r,
         tex2Dlod(HistoryDepthKey, float4(base + ScreenData.zw, 0.0, 0.0)).r);
     float2 contributes = float2(fraction.x > 0.0, fraction.y > 0.0);
-    float4 errors = abs(keys - expectedKey) * float4(1.0, contributes, contributes.x * contributes.y);
-    float error = max(max(errors.x, errors.y), max(errors.z, errors.w));
+    // Per-corner key distance. Depth-value agreement uses the closest corner,
+    // the point sample a bilinear history read is registered to, rather than
+    // requiring the single reprojected key to equal every corner: a sloped or
+    // curved surface legitimately spans several keys within one pixel, and
+    // demanding all of them match rejects history and keeps showing the aliased
+    // per-frame sample on every gradient.
+    float4 cornerError = abs(keys - expectedKey);
+    float error = min(min(cornerError.x, cornerError.y), min(cornerError.z, cornerError.w));
     float weight = saturate(1.0 - error * PreviousDepth.z);
-    return weight * weight;
+    weight *= weight;
+    // Geometry keys are in [0, 1], sky is -1 and invalid is 2, so a corner more
+    // than one key unit away is another layer. Only contributing corners
+    // constrain the read, so a bilinear color fetch still cannot mix sky or
+    // invalid samples into geometry.
+    float foreign = dot(
+        step(1.0, cornerError),
+        float4(1.0, contributes, contributes.x * contributes.y));
+    return weight * (1.0 - saturate(foreign));
 }
 
 void Neighborhood(float2 uv, float3 center, out float3 low, out float3 high, out float3 mean, out float3 variance, out float3 radianceHigh) {

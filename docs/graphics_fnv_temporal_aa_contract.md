@@ -74,8 +74,14 @@ camera always yields a null motion vector.
   toward `min(0.99, configured_weight + 0.09)`, a moving pixel returns to the
   configured weight. The reprojection is camera-only, so a long static history
   is safe; the clamp and depth key still bound disocclusions.
-- **Depth-key agreement:** the expected logarithmic key is validated against
-  the four bilinear history-key texels via `PreviousDepth.z`.
+- **Depth-key agreement:** the expected logarithmic key is compared against the
+  footprint's **nearest** history-key texel, the point sample the bilinear
+  color read is registered to (`PreviousDepth.z` scales the tolerance). Every
+  contributing history-key corner must additionally belong to the same layer
+  (geometry, sky, or invalid), so a bilinear read still cannot mix those
+  layers. A different *geometry* depth inside the footprint is accepted as
+  legitimate local slope: a sloped surface spans several valid keys within one
+  pixel, and rejecting them stalls accumulation and shows per-frame jitter.
 - **Sharpening:** an unsharp residual against the neighborhood mean, clamped to
   the neighborhood min/max, so it can never create a new radiance peak.
 
@@ -105,6 +111,13 @@ real D3D9 device with upload/readback oracles:
   `0.45` and failed; the shipped resolve measures `0.0029`.
 - sky-border, disocclusion, invalid-settings, and MRT-vs-two-pass equivalence
   oracles.
+- `sloped_surface_history_survives_camera_motion`: a slowly rotating camera
+  over a high-frequency scene on a depth gradient must keep accumulating
+  history. The oracle is the frame-to-frame resolved instability (the jitter
+  signal) with the flat surface as an in-run control, and it is fail-first:
+  the pre-change resolver rejected history on any slope steeper than the flat
+  tolerance and measured `0.029`-`0.033` against a flat control of `0.0044`;
+  the shipped resolve measures `0.005`.
 
 ## Deliberately not implemented
 

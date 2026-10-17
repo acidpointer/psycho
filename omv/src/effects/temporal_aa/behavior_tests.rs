@@ -934,3 +934,102 @@ fn invalid_numeric_settings_do_not_poison_recursive_color_history() {
         );
     }
 }
+
+/// High-frequency radiance in the fixed output plane, authored near Nyquist so
+/// it can only be resolved by accumulating differently jittered samples.
+fn resolution_target(x: f32, y: f32) -> f64 {
+    0.1 + 0.8 * ((((x * 16.0 + 0.5).floor() + (y * 16.0 + 0.5).floor()) % 2.0) as f64)
+}
+
+/// Mean frame-to-frame change of the resolved interior over a slow camera roll.
+///
+/// A resolving pixel keeps accumulating history and changes only with the true
+/// sub-pixel camera motion; a pixel whose history is rejected falls back to its
+/// per-frame aliased sample and changes with the jitter phase, which is the
+/// visible jitter this measures.
+fn resolved_instability(depth: &[f32], roll_per_frame: f32) -> f64 {
+    let output = camera();
+    let mut harness = Harness::new(false);
+    let mut instability = 0.0;
+    let mut samples = 0.0;
+    let mut previous: Option<Vec<[f32; 4]>> = None;
+    for iteration in 0..96u64 {
+        let (s, c) = (roll_per_frame * iteration as f32).sin_cos();
+        let mut current = output;
+        current.world_transform.rotation = [[1.0, 0.0, 0.0], [0.0, c, -s], [0.0, s, c]];
+        let rendered = current
+            .with_pixel_jitter(temporal_jitter_pixels(iteration + 1, 1.0), WIDTH, HEIGHT)
+            .expect("valid jitter");
+        let pixels: Vec<[f32; 4]> = (0..WIDTH * HEIGHT)
+            .map(|index| {
+                let u = (index % WIDTH) as f32 / WIDTH as f32 + 0.5 / WIDTH as f32;
+                let v = (index / WIDTH) as f32 / HEIGHT as f32 + 0.5 / HEIGHT as f32;
+                let x =
+                    rendered.frustum_left + (rendered.frustum_right - rendered.frustum_left) * u;
+                let y = rendered.frustum_top + (rendered.frustum_bottom - rendered.frustum_top) * v;
+                let value = resolution_target(c * x + s * y, c * y - s * x) as f32;
+                [value, value, value, 0.5]
+            })
+            .collect();
+        let image = harness.frame(
+            &pixels,
+            depth,
+            rendered,
+            current,
+            false,
+            config::TemporalAaConfig {
+                sharpness: 0.0,
+                ..Default::default()
+            },
+        );
+        if iteration >= 64 {
+            if let Some(previous) = previous.as_ref() {
+                for y in 4..HEIGHT - 4 {
+                    for x in 4..WIDTH - 4 {
+                        let index = (y * WIDTH + x) as usize;
+                        instability +=
+                            (f64::from(image[index][0]) - f64::from(previous[index][0])).abs();
+                        samples += 1.0;
+                    }
+                }
+            }
+        }
+        previous = Some(image);
+    }
+    instability / samples
+}
+
+/// A sloped surface under a slowly rotating camera must keep accumulating
+/// history. The pre-change resolver compared the single reprojected depth key
+/// against every contributing bilinear history-key texel, so any slope steeper
+/// than the flat-surface tolerance rejected history outright and kept showing
+/// the aliased per-frame sample, i.e. visible jitter at mid and short range.
+/// The flat surface is the in-run control: a sloped result may not materially
+/// exceed it. Measured flat `0.0044`; slopes `1..8` were `0.029`-`0.033` before
+/// this change and `0.005` after.
+#[test]
+fn sloped_surface_history_survives_camera_motion() {
+    let near = camera().near_z;
+    let far = camera().far_z;
+    let plane = |slope: f32| -> Vec<f32> {
+        // Standard D3D depth for a plane whose view depth grows with screen x,
+        // kept inside the near plane so this isolates depth agreement from the
+        // invalid-depth early-out.
+        (0..WIDTH * HEIGHT)
+            .map(|index| {
+                let x = (index % WIDTH) as f32;
+                let z = 6.0 + slope * x;
+                far * (z - near) / (z * (far - near))
+            })
+            .collect()
+    };
+    let flat = resolved_instability(&plane(0.0), 0.0005);
+    assert!(flat < 0.01, "flat history control is unstable: {flat}");
+    for slope in [1.0_f32, 2.0, 4.0, 8.0] {
+        let sloped = resolved_instability(&plane(slope), 0.0005);
+        assert!(
+            sloped < flat * 3.0 + 0.002,
+            "sloped surface rejected history and jittered: slope={slope} sloped={sloped} flat={flat}"
+        );
+    }
+}
