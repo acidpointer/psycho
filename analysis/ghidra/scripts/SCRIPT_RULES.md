@@ -142,11 +142,10 @@ main()
 This is the required layout:
 
 ```python
-write("TITLE")
-decompile_at(0x00AABBCC, "SomeFunction")
-find_refs_to(0x00DDEEFF, "SomeGlobal")
+import os
 
-outpath = "/data/storage1/Workspace/psycho/analysis/ghidra/output/perf/filename.txt"
+repo = os.environ.get("PSYCHO_REPO_ROOT", r"<repo>")
+outpath = os.path.join(repo, "analysis/ghidra/output/perf/filename.txt")
 fout = open(outpath, "w")
 fout.write("\n".join(output))
 fout.close()
@@ -187,13 +186,16 @@ def find_and_print_calls_from(addr_int, label):
 
 # --- Main body: only simple statements and function calls ---
 
+import os
+
+repo = os.environ.get("PSYCHO_REPO_ROOT", r"<repo>")
 write("TITLE")
 decompile_at(0x00AABBCC, "SomeFunction")
 find_refs_to(0x00DDEEFF, "SomeGlobal")
 
 # --- Output ---
 
-outpath = "/data/storage1/Workspace/psycho/analysis/ghidra/output/memory/filename.txt"
+outpath = os.path.join(repo, "analysis/ghidra/output/memory/filename.txt")
 fout = open(outpath, "w")
 fout.write("\n".join(output))
 fout.close()
@@ -316,13 +318,18 @@ def find_callers_in_range(target_addr, range_start, range_end, label):
 
 ## Output path
 
-Always write to the analysis output directory:
+Always write to the analysis output directory under the repository root:
 
 ```
-/data/storage1/Workspace/psycho/analysis/ghidra/output/memory/
-/data/storage1/Workspace/psycho/analysis/ghidra/output/crash/
-/data/storage1/Workspace/psycho/analysis/ghidra/output/perf/
+<repo>/analysis/ghidra/output/memory/
+<repo>/analysis/ghidra/output/crash/
+<repo>/analysis/ghidra/output/perf/
 ```
+
+Set `PSYCHO_REPO_ROOT` to the absolute path of the clone for the Ghidra
+session, or replace `<repo>` before running. Do not commit a developer-specific
+absolute path in a new script. The structural validator requires the literal
+`analysis/ghidra/output/` suffix.
 
 Pick the subdirectory that matches the analysis topic.
 

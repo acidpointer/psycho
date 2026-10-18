@@ -170,7 +170,8 @@ cargo build --release --target i686-pc-windows-gnu \
 
 This needs `i686-w64-mingw32-gcc` on `PATH`; tests run through Wine.
 `./build_fnv.sh` builds and installs the full set, and
-`psycho-engine-fixes/release.sh <version>` packages the archives.
+`psycho-engine-fixes/release.sh <version>` packages the archives. These
+deployment steps are run by the user, not by an agent.
 
 ## Repository map
 
@@ -182,8 +183,10 @@ This needs `i686-w64-mingw32-gcc` on `PATH`; tests run through Wine.
 | `atom/` | Atom gameplay overhaul |
 | `syringe/` | Generic early `dinput8.dll` loader |
 | `libpsycho/` | Shared Rust engine toolkit |
-| `docs/` | Engine contracts, research and design notes |
+| `docs/` | Engine contracts, research and design notes; start at [`docs/README.md`](docs/README.md) |
+| `.agents/skills/psycho/` | Portable agent workflow skill for Codex, OpenCode, Claude Code, and other Agent Skills hosts |
 
 - Oh My Vegas! deep dive: [`omv/README.md`](omv/README.md)
 - Atom contracts: [`docs/atom.md`](docs/atom.md)
 - Early loader: [`syringe/README.md`](syringe/README.md)
+- Agent workflow: [`.agents/skills/psycho/SKILL.md`](.agents/skills/psycho/SKILL.md)

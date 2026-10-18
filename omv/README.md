@@ -18,18 +18,15 @@ fixes and a complex Direct3D 9 renderer integration.
 OMV requires:
 
 - **xNVSE**: required. OMV is an xNVSE plugin.
-- **Fallout Shader Loader**, plugin version `131` or newer.
-- **Vanilla Plus Terrain**.
-- **LOD Flicker Fix**.
+- Fallout: New Vegas or TTW on Direct3D 9 with Shader Model 3.0 support.
 - One D3DCompiler DLL visible to the game process:
   `d3dcompiler_47.dll`, `d3dcompiler_46.dll`, `d3dcompiler_43.dll`,
   `d3dcompiler_42.dll`, or `d3dcompiler_41.dll`.
-- Fallout: New Vegas or TTW on Direct3D 9.
-- Shader Model 3.0 support.
 
-Fallout Shader Loader, Vanilla Plus Terrain and LOD Flicker Fix are direct OMV
-dependencies. They provide the shader and terrain contracts which the current
-OMV implementation expects.
+Fallout Shader Loader, Vanilla Plus Terrain, and LOD Flicker Fix are optional.
+OMV probes the engine's own shader and terrain contracts and reports the
+capabilities it finds. It works with or without those mods; it does not require
+a specific dependency version.
 
 **New Vegas Reloaded is not a dependency or a supported compatibility target.**
 NVR remains useful source/reference material for shader contracts, but OMV does
@@ -45,7 +42,8 @@ not guarantee safe co-installation with `NewVegasReloaded.dll`.
   FXAA, NFAA, AXAA, DLAA, and SMAA spatial anti-aliasing.
 - Native PBR and Sky shader ports derived from New Vegas Reloaded, then
   refactored and optimized substantially for OMV.
-- Dependency logging for VPT, Fallout Shader Loader, and LOD Flicker Fix.
+- Capability logging for optional VPT, Fallout Shader Loader, and LOD Flicker
+  Fix.
 
 OMV expects to own its installed graphics hooks. Co-installation with another
 native graphics overhaul is not supported unless documented explicitly.

@@ -2,6 +2,14 @@
 
 Use this file for repository-wide rules. Before editing a subtree, also read its nearest `AGENTS.md`. Keep work evidence-driven, scoped, and economical.
 
+## Agent skill
+
+Task routing, playbooks, environment discovery, and the documentation index live
+in `.agents/skills/psycho/`. Load `psycho` (`$psycho` in Codex, `/psycho` in
+Claude Code, `@psycho` in OpenCode), or read its `SKILL.md` directly.
+`CLAUDE.md` imports this file, and `.claude/skills/psycho` links the skill.
+`AGENTS.md` remains authoritative.
+
 ## Priorities
 
 In order:
@@ -15,90 +23,80 @@ Do not trade correctness for speed. Do not add process, diagnostics, or abstract
 
 ## Default workflow
 
-1. Restate the outcome internally; identify files, invariants, and explicit constraints.
-2. Inspect only relevant code, tests, docs, and `git status`. Use `rg`/`rg --files`; batch independent reads.
-3. Resolve every material unknown from direct evidence. Never fill a gap with an assumption; if authorized inspection cannot prove it, stop and ask for the missing evidence or decision.
-4. Establish the exact behavioral acceptance test. For troubleshooting, run it against the unchanged affected behavior and record its failure before research or production edits.
-5. Research the proven failing path, then make the smallest coherent change. Avoid opportunistic refactors and unrelated formatting.
-6. Run the same behavioral test and validate in layers: focused check, affected suite, then one release build when required.
-7. Inspect the final diff for accidental changes. Report the outcome, evidence, and any remaining behavioral gate concisely.
+1. State the outcome, files, invariants, and constraints.
+2. Inspect only relevant code, tests, docs, and `git status`; use `rg`, batch reads.
+3. Resolve every material unknown from direct evidence. Never assume; if
+   inspection cannot prove it, stop and ask for the evidence or decision.
+4. Define the behavioral acceptance test. For troubleshooting, run it against the
+   unchanged behavior and record the failure before research or edits.
+5. Research the proven failing path; make the smallest coherent change. Avoid
+   opportunistic refactors and unrelated formatting.
+6. Run the same test and validate in layers: focused check, affected suite, one
+   release build when required.
+7. Inspect the final diff and report outcome, evidence, and remaining gate.
 
-Stop when the requested outcome is proven. Do not continue speculative cleanup or research.
+Stop when the outcome is proven. Do not continue speculative cleanup or research.
 
 ## Agent efficiency
 
-- Keep this root file limited to repository-wide policy. Nested `AGENTS.md`
-  files contain only subtree-specific deltas and must not repeat inherited
-  rules. Keep the root plus any nested instruction chain below 28 KiB so the
-  most specific rules remain below Codex's default 32 KiB discovery limit.
+- Keep this root file to repository-wide policy. Nested `AGENTS.md` files contain
+  only subtree deltas. Keep the root plus nested chain below 28 KiB.
 - Add durable instructions only for repository facts, hard constraints, or a
-  repeated demonstrated failure. Put long task-specific workflows in their
-  owning document or focused skill and keep only the trigger here. Remove
-  obsolete, redundant, and superseded guidance instead of appending exceptions.
-- Start from the current diff and the smallest relevant code path. Use `rg` or
-  `rg --files` to locate symbols/files, then read exact ranges. Do not scan the
-  repository or dump long files when a targeted query can answer the question.
-- Resolve unknowns in this order: relevant code and logs, durable `docs/`,
-  existing analysis, then authoritative external research. Stop once the
-  material unknown is closed; do not collect redundant corroboration.
-- Batch independent searches and reads in one tool round trip when outputs stay
-  reviewable. Use direct calls when one result changes the next decision or an
-  approval, citation, or native artifact must be preserved. Reduce large
-  mechanical result sets before returning them to the reasoning context.
-- Read detailed plans, errata, generated output, or third-party sources only
-  when a concrete task condition routes to them.
-- Use a written plan only for multi-stage, high-risk, or unclear work. Keep it outcome-based and update it at milestones, not after every command.
-- Do not repeat unchanged context in progress updates or final reports. Communicate at meaningful milestones.
-- Do not rerun an unchanged expensive test or build. Run narrow checks while iterating and the required broad check once at the end.
-- Prefer existing helpers, patterns, fixtures, and test infrastructure over new frameworks.
-- Preserve a dirty worktree. User changes are not cleanup targets.
-- Stop when the requested outcome and its acceptance gate are satisfied. Do not
-  continue speculative cleanup, research, documentation, or validation.
+  repeated demonstrated failure. Put long workflows in the owning document or
+  the `psycho` skill. Remove superseded guidance.
+- Start from the current diff and smallest code path. Use `rg`/`rg --files`, then
+  read exact ranges. Never dump long files. For source search, skip `target/`,
+  `node_modules/`, `.reports/`, `.research/`, and `fnv_reverse/`.
+- Resolve unknowns in order: relevant code and logs, `docs/`, existing analysis,
+  then authoritative external research. Stop when the material unknown is closed.
+- Batch independent searches and reads; use direct calls when a result changes
+  the next decision or an artifact must be preserved. Reduce large result sets.
+- Read plans, errata, generated output, or third-party source only when a task
+  condition routes to them.
+- Use a written plan only for multi-stage, high-risk, or unclear work. Keep it
+  outcome-based and update at milestones.
+- Do not repeat unchanged context. Do not rerun an unchanged expensive test or
+  build. Prefer existing helpers, fixtures, and test infrastructure.
+- Preserve a dirty worktree. Stop when the outcome and acceptance gate are
+  satisfied; do not continue speculative cleanup, research, or validation.
 
 ## Definition of done
 
-A change is done only when:
+A change is done only when the requested behavior is implemented without
+narrowing scope; the release gate, focused tests, and affected suite pass; the
+supported 32-bit release build succeeds when code or build inputs changed;
+`git diff --check` passes; the diff has no unintended edits; and unverified
+runtime behavior is reported honestly.
 
-- the requested behavior is implemented without narrowing scope;
-- the release gate below passes;
-- applicable focused tests and the affected suite pass;
-- the supported release target builds when code or build inputs changed;
-- `git diff --check` passes and the diff contains no unintended edits;
-- unsupported claims and unverified runtime behavior are identified honestly.
-
-Except for the explicit OMV no-game-runtime exception below, the behavioral
-gate has no static-evidence exception. If the exact behavior cannot be tested,
-implementation is blocked. Until the gate passes, do not release, package,
-commit, call the work complete, or present it as ready.
-
-Documentation-only changes need document checks and diff inspection, not a
-Rust build. Compilation never proves runtime or image correctness.
+Except for the OMV exception, the behavioral gate has no static-evidence
+exception. If the exact behavior cannot be tested, implementation is blocked.
+Do not release, package, commit, or call it ready before the gate passes.
+Documentation-only changes need document checks and diff review, not a Rust
+build. Compilation never proves runtime or image correctness.
 
 ## No guessing and behavioral-test gate
 
-Guessing is forbidden in troubleshooting, feature work, research, test design,
-validation, and reporting. Never derive a cause, path, contract, value, oracle,
-expected result, or implementation from assumption, resemblance, analogy,
-likelihood, a reconstructed stand-in, a synthetic proxy, or unverified
-inference. Every material decision requires an explicit user requirement or
-direct evidence from actual behavior, executed code/data, an authoritative
-source, or a verified binary. Unknown means stop: inspect it or request the
-missing evidence.
+Guessing is forbidden in every task. Never derive a cause, path, contract,
+value, oracle, expected result, or implementation from assumption, resemblance,
+analogy, likelihood, a stand-in, a synthetic proxy, or unverified inference.
+Every material decision needs an explicit requirement or direct evidence from
+actual behavior, executed code/data, an authoritative source, or a verified
+binary. Unknown means stop: inspect it or request the evidence.
 
 A behavioral test executes the actual shipped path and observes the requested
 result at its real boundary. Models, mocks, source assertions, reimplemented
 references, synthetic lookalikes, compilation, logs, builds, bytecode, and
 static contracts do not substitute. Visual tests use the affected assets,
-materials, passes, state, order, and composition. Performance tests measure the
+materials, passes, state, order, and composition. Performance tests use the
 same workload and settings against an explicit metric. Startup, gameplay,
 native-hook, and engine behavior runs through the real runtime.
 
-Define a feature's behavioral expectations and test before implementation;
-completion requires every expected behavior. For troubleshooting, first run it
-against the unchanged defect and preserve the failure. Only then research; fix
-only the proven failing path; the same test must pass after. No reproduction or
-authorized environment means stop, with no production edit. Test-only
-instrumentation may expose the actual boundary but must not alter behavior.
+Define expectations and the test before implementation; completion requires
+every expected behavior. For troubleshooting, run it against the unchanged
+defect and preserve the failure before research. Fix only the proven path; the
+same test must pass after. No reproduction or authorized environment means
+stop, with no production edit. Test-only instrumentation may expose the
+boundary but must not alter behavior.
 
 Add or rewrite tests only when behavioral, or as essential support beside an
 established behavioral test. Never add coverage-only, mirrored, mocked,
@@ -106,63 +104,36 @@ source/order, symbol/manifest, or process tests.
 
 ### Explicit OMV no-game-runtime exception
 
-For `omv` only, agents cannot run Fallout New Vegas and a local game run is not
-an implementation, qualification, handoff, release, packaging, or commit gate.
-The repository owner alone decides whether and when to perform gameplay
-validation. Do not request, require, schedule, or wait for that validation.
-This overrides the Definition of done's real-runtime gate and the fail-first,
-same-runtime-test, and no-production-edit requirements above for OMV work.
+For `omv` only, a local game run is not an implementation, qualification,
+handoff, release, packaging, or commit gate. The owner alone decides whether and
+when to playtest. Do not request, require, schedule, or wait for it. This
+overrides the real-runtime, fail-first, same-test, and no-production-edit
+requirements for OMV work.
 
-Before editing, establish an offline behavioral acceptance test wherever the
-affected shipped behavior can execute outside the game. Exercise the actual
-production Rust or compiled HLSL path with evidence-backed inputs and fail it
-on the unchanged defect before changing production code. Do not substitute a
-mock, mirrored formula, reconstructed shader, source assertion, compilation,
-or static contract for behavior that the repository can execute offline. When
-game-only composition or integration cannot execute offline, use the owner's
-report as the behavioral requirement and direct source, binary, and engine
-evidence for every implementation decision; the no-guessing rule still
-applies.
+Before editing, establish an offline behavioral test wherever the shipped
+behavior can execute outside the game. Exercise the actual production Rust or
+compiled HLSL path with evidence-backed inputs and fail it on the unchanged
+defect before production edits. Do not substitute a mock, mirrored formula,
+reconstructed shader, source assertion, compilation, or static contract for
+behavior that can execute offline. When game-only composition or integration
+cannot execute, use the owner's report as the behavioral requirement and prove
+every decision from direct source, binary, and engine evidence. No guessing.
 
-Qualify the result with the applicable offline behavioral regressions, all
-production shader variants and budgets, the affected crate suite, the
-supported 32-bit release build, formatting, `git diff --check`, and final diff
-review. For performance work, compare deterministic GPU/CPU work budgets and
-executable benchmarks where available; never translate those results into an
-FPS claim. Report the result as offline-qualified and identify game-only image,
-integration, and performance behavior as not run, unless the owner voluntarily
-provides gameplay results.
+Qualify with applicable offline regressions, all production shader variants and
+budgets, the affected crate suite, supported 32-bit release build, formatting,
+`git diff --check`, and final diff review. Compare deterministic work budgets
+and executable benchmarks where available; never convert them into an FPS
+claim. Report offline qualification and identify game-only image, integration,
+and performance behavior as not run.
 
 ### Explicit reporter-only Psycho engine-fix exception
 
-For `psycho-engine-fixes` only, a user may explicitly authorize an unreleased
-defensive engine-fix candidate when a supplied real-runtime crash report proves
-the faulting native consumer and invalid input contract but neither the
-reporter's modded workload nor a local reproduction is available. That
-authorization overrides only the fail-first, same-test, and no-production-edit
-requirements above for the named incident. It does not relax the no-guessing,
-binary-contract, scope, safety, compatibility, or reporting rules.
-
-Before editing under this exception, use the supported executable to prove the
-shared intervention point, complete native caller coverage, ABI, every field or
-callback inspected by the guard, and a native fail-closed result that callers
-already tolerate. Keep the invalidating owner, exact lifetime race, allocator
-attribution, and mod attribution explicitly unresolved unless direct evidence
-proves them. The candidate must be allocator-mode agnostic and mod agnostic: do
-not classify allocator ownership, identify modules, allowlist vtables or code,
-mutate ownership or reference counts, hook destructors, or patch another mod.
-Valid inputs must chain the provider already installed at the shared boundary
-unchanged; invalid inputs may only take the proven fail-closed result.
-
-Static qualification requires focused affected-crate tests, the supported
-32-bit release build, formatting, `git diff --check`, final diff review, and a
-durable engine-contract document that separates runtime evidence, binary proof,
-and unresolved facts. The implementation may then be handed off only as a
-reporter-validation candidate. Do not release, package, commit, or describe its
-runtime behavior as accepted until the reporter runs the actual workload and
-confirms both at least one guard rejection and continued gameplay. When the
-change affects the pre-DeferredInit footprint, the startup-safety document's
-representative Proton load-to-gameplay gate also remains required for release.
+For `psycho-engine-fixes` only, an explicit user authorization may permit an
+unreleased defensive candidate for a supplied real-runtime report when neither
+the reporter's workload nor a local reproduction is available. Read
+`docs/psycho_engine_fix_exception.md` completely before using it. It overrides
+only the fail-first, same-test, and no-production-edit rules for that incident;
+all other rules remain.
 
 ## Commit creation
 
@@ -176,182 +147,139 @@ amend. Otherwise stop after validation and report uncommitted changes.
 
 ## Build and test
 
-The only supported target is 32-bit `i686-pc-windows-gnu` for FNV/xNVSE. Always write the target explicitly even though `.cargo/config.toml` currently selects it. Requires `i686-w64-mingw32-gcc`, the Rust target, and initialized submodules.
+The only supported target is 32-bit `i686-pc-windows-gnu`; always pass it
+explicitly. It requires `i686-w64-mingw32-gcc`, the Rust target, and initialized
+submodules.
 
 ```bash
-git submodule update --init --recursive
 cargo build --release --target i686-pc-windows-gnu -p syringe -p psycho-engine-fixes -p psycho-engine-fixes-helper -p omv -p atom
+cargo test --target i686-pc-windows-gnu -p <crate>
 ```
 
-OMV validation:
+Cargo runs Windows tests through Wine. Use the narrowest test filter while
+iterating, then the affected suite and release build once. See
+`.agents/skills/psycho/references/validation.md` for filters, ignored
+benchmarks, GPU/Wine, formatting, and packaging.
 
-```bash
-cargo test --target i686-pc-windows-gnu -p omv
-cargo build --release --target i686-pc-windows-gnu -p omv
-```
-
-Cargo runs Windows tests through Wine. For non-OMV work, run available tests for affected crates, then the affected release build. Use formatting or linting when relevant; neither replaces tests or building.
-
-Submodules:
-
-- `libmimalloc/c_src/mimalloc`: upstream mimalloc C source.
-- `libnvse/xnvse`: xNVSE headers used by bindgen.
-
-`libnvse/build.rs` removes `[[nodiscard]]` from the xNVSE header during builds. Do not commit submodule changes unless intentional.
+Submodules: `libmimalloc/c_src/mimalloc` (upstream mimalloc C source) and
+`libnvse/xnvse` (xNVSE headers used by bindgen). `libnvse/build.rs` removes
+`[[nodiscard]]` during builds. Do not commit submodule changes unless intended.
 
 ## Architecture boundaries
 
-| Area | Ownership |
-|---|---|
-| `psycho-engine-fixes` | Early-loaded core DLL; engine patches and shared state. |
-| `psycho-engine-fixes-helper` | Thin xNVSE service/command forwarder. Must never load or initialize the core DLL. |
-| `syringe` | Generic, mod-agnostic, `no_std` `dinput8.dll` proxy. Must stay independent of `libpsycho`. |
-| `syringe-api` | Small callback ABI for early-loaded DLLs. |
-| `omv` | xNVSE graphics plugin; owns its D3D9 stages, resources, shaders, and graphics tests. |
-| `atom` | ESP-less xNVSE gameplay overhaul; owns dynamic gameplay systems and its MCM Extender configuration. |
-| `libpsycho` | Shared WinAPI, hooking, and logging abstractions. |
-| `libnvse` | xNVSE bindings. |
-| `libmimalloc` | CRT-only mimalloc build. |
-| `libf4se` | Deprecated; do not extend without explicit request. |
+Crate ownership and startup order are in
+`.agents/skills/psycho/references/repo-map.md`. The key boundaries:
 
-Startup order: Syringe's pre-CRT barrier runs outside loader lock after xNVSE preload callbacks, loads the real `dinput8.dll` and `syringe/*.dll`, then calls all `Syringe_ModInit` callbacks followed by all `Syringe_ModActivate` callbacks. Core startup belongs there, not in `DllMain` or TLS. The non-blocking worker is compatibility fallback only. The core refuses activation if the pre-CRT barrier was not reached.
+- `syringe` is generic, `no_std`, and independent of `libpsycho`.
+- `psycho-engine-fixes` owns engine behavior and shared state.
+- `psycho-engine-fixes-helper` never loads or initializes the core.
+- `omv` and `atom` own their graphics and gameplay systems.
+- `libf4se` is deprecated; do not extend it.
 
-Engine behavior fixes belong in `psycho-engine-fixes`, not the helper. The helper may register xNVSE services and lazily forward through exact exports only when the core is already loaded.
+Core startup belongs in Syringe's pre-CRT barrier, not `DllMain` or TLS; the
+core refuses activation without that barrier. The helper may register xNVSE
+services and lazily forward exact exports only when the core is already loaded.
 
-Do not call WinAPI directly outside allocator hot paths. Use `libpsycho::os::windows::winapi`; add a safe wrapper when missing. Direct calls are allowed only where wrapper overhead is material per allocation.
+Do not call WinAPI directly outside allocator hot paths. Use
+`libpsycho::os::windows::winapi`; add a safe wrapper when missing. Direct calls
+are allowed only where wrapper overhead is material per allocation.
 
 ## Subsystem gates
 
-### Pre-DeferredInit startup compatibility
-
-Before changing any final DLL's imports, TLS, static ownership, configuration
-layout, startup callbacks, worker order, shared-library code generation, or
-anything else reachable or loader-visible before xNVSE `DeferredInit`, read
-`docs/nvse_startup_phase_safety.md` completely. Its BaseObjectSwapper crash
-evidence and mod-agnostic response protocol are mandatory repository-wide, not
-only for OMV.
-
-Treat the last load-to-gameplay-playtested artifact as the startup baseline and
-inspect the complete pre-Deferred footprint only when a concrete startup or
-ABI risk makes that comparison necessary. A function
-does not need to execute to change that footprint: PE imports, TLS callbacks,
-static sections, CRT work, dependency features, configuration value layout,
-and code moved between final DLLs all count. Outside the explicit OMV
-no-game-runtime exception, static tests and a release build cannot replace the
-required Proton load-to-gameplay playtest. OMV agents report that behavior as
-not run and never request it from the owner.
-
-The observed third-party fault is never permission to detect, inspect, patch,
-hook, reorder, disable, or add a compatibility path for another mod. Do not
-redesign `libnvse`, `libpsycho`, or the core/helper boundary as a response.
-Preserve requested features and restore only the new Psycho-side delta from
-the accepted startup footprint.
-
-### OMV graphics
-
-Before OMV graphics or material work, read `omv/AGENTS.md`. Native PBR also
-routes to `docs/graphics_fnv_pbr_errata.md`; startup, configuration, and hook
-lifecycle work routes to `docs/graphics_fnv_atmosphere_startup_crash_errata.md`.
-The nested file owns all OMV-specific implementation and acceptance rules.
-
-### gheap
-
-Before changing `psycho-engine-fixes/src/mods/heap_replacer/gheap/`, read its local `AGENTS.md`. Its OOM recovery, zombie/UAF protection, and allocator hot-path performance constraints are all mandatory.
-
-### Native IO and SpeedTree
-
-Before changing IOManager worker topology, per-thread task maps, BSFile recovery, exterior-cell loading, SpeedTree ownership/Compute, or static vertex-buffer safety, read `docs/parallel_io_engine_contract.md`. Reuse its proven ownership and concurrency contracts, and reconfirm its executable identity before reusing an address.
+- **Startup**: before changing loader-visible imports, TLS, statics, config
+  layout, workers, callbacks, or shared-library codegen, read
+  `docs/nvse_startup_phase_safety.md` completely. It is repository-wide. Outside
+  the OMV exception, a Proton load-to-gameplay playtest is required. Never
+  detect, patch, hook, reorder, or add a compatibility path for another mod.
+- **OMV graphics**: read `omv/AGENTS.md`. PBR also reads
+  `docs/graphics_fnv_pbr_errata.md`; startup/config/hooks also read
+  `docs/graphics_fnv_atmosphere_startup_crash_errata.md`.
+- **gheap**: read `psycho-engine-fixes/src/mods/heap_replacer/gheap/AGENTS.md`.
+- **Native IO/SpeedTree**: read `docs/parallel_io_engine_contract.md` and
+  reconfirm executable identity before reusing an address.
 
 ## Engine research
 
 Use research only to close a material knowledge gap.
 
-- Treat `.research/` as read-only comparison material; never patch/build another
-  mod as the fix. Keep compatibility capability-based and version-agnostic.
-- Search `docs/` and existing analysis before new native research. Reuse proven
-  contracts for the same executable and reverify address-sensitive facts.
-- Preserve authoritative `.txt` output in `analysis/ghidra/output/`; do not
-  regenerate it or rely on outdated analysis Markdown unless requested.
-- Use the radare2 MCP as the mandatory primary interface when callable, against
-  `fnv_reverse/FalloutNV.exe`, and analyze only enough to close the contract.
-- Ghidra is fallback-only when the MCP cannot be invoked. Use existing output
-  first; otherwise prepare a focused script, never run Ghidra, and ask the user
-  to return its output. Before scripting, read
-  `analysis/ghidra/scripts/SCRIPT_RULES.md` completely.
-- Before a crash or engine-contract patch, prove the failing function, caller ownership, layout, lifetime, concurrency, ABI, and safe intervention point. An inference is not patch authority; unresolved facts remain unknown.
-- The user runs through Proton/Wine. Prefer static research, logs, crash reports, minidumps, and targeted telemetry; do not depend on native Windows debuggers.
+- If `.research/` exists, treat it as read-only comparison material; never patch
+  or build another mod. Keep compatibility capability-based and version-agnostic.
+- Search `docs/` and existing analysis first. Reuse proven contracts for the same
+  executable; reverify address-sensitive facts.
+- Preserve authoritative `.txt` output in `analysis/radare2/output/` or
+  `analysis/ghidra/output/`; do not regenerate it or rely on outdated Markdown.
+- radare2 is the primary interface. Use r2mcp when the host exposes it; otherwise
+  use the r2 CLI (`pdg` for decompilation, `pdf` for exact disassembly, `aar`
+  before `axt`). Target the configured or discovered supported executable;
+  `fnv_reverse/FalloutNV.exe` is only a convenience default.
+- Ghidra is fallback-only. Use existing output first; otherwise prepare a
+  focused script, never run Ghidra, and ask the user to return its output. Read
+  `analysis/ghidra/scripts/SCRIPT_RULES.md` completely before scripting.
+- Before a crash or engine-contract patch, prove the failing function, caller
+  ownership, layout, lifetime, concurrency, ABI, and safe intervention point.
+  Inference is not patch authority; unresolved facts stay unknown.
+- Prefer static research, logs, crash reports, minidumps, and targeted telemetry.
+  Do not depend on native Windows debuggers.
 
-Do not invoke static engine research for a straightforward repository-local change whose contract is already proven.
+Do not invoke static engine research for a local change whose contract is proven.
 
 ## Feature documentation
 
-Document only reusable architecture, engine contracts, configuration ownership,
-or operational knowledge. Extend the owning `docs/` file; never write process
+Document reusable architecture, engine contracts, configuration ownership, or
+operational knowledge. Extend the owning `docs/` file; do not create process
 documentation for its own sake. Record purpose, behavior, ownership,
 lifecycle/order, invariants, failure and performance costs, compatibility,
-acceptance, and unresolved approval. Reverse-engineered documents additionally
-record executable identity, addresses/call chain, layouts, lifetime/threading,
-ABI, intervention point, evidence paths, and clearly separate proof from
-observation and unresolved unknowns. Link raw analysis instead of duplicating dumps.
+acceptance, and unresolved approval. Reverse-engineered documents also record
+executable identity, addresses/call chain, layouts, lifetime/threading, ABI,
+intervention point, evidence paths, and separate proof from observation and
+unknowns. Link raw analysis instead of duplicating dumps.
 
-Do not put DLL hashes, binary sizes, section/import/TLS inventories, routine
-test counts, command transcripts, transient candidate chronology, or other
-build trivia in developer documentation. Do not hash, inspect, or compare DLL
-contents by default. Binary identity or layout work is allowed only when a
-specific, evidence-backed problem actually depends on artifact identity,
-startup footprint, ABI, imports, TLS, or section layout, or when the user
-explicitly requests it. Report only the minimum result needed for that problem.
+Do not put DLL hashes, binary sizes, section/import/TLS inventories, routine test
+counts, command transcripts, transient candidate chronology, or build trivia in
+developer documentation. Do not hash or inspect DLLs by default. Binary identity
+or layout work is allowed only when a specific problem depends on artifact
+identity, startup footprint, ABI, imports, TLS, or section layout, or the user
+asks. Report only the minimum result needed.
 
 ## Code and review standards
 
-- Write production-deployable code: correct, safe, maintainable, performant,
-  and complete. Preserve local style; Rust uses edition 2024. Comments and
-  documentation must be ASCII.
-- Prefer safe, idiomatic Rust. Keep `unsafe` code in the smallest auditable
-  boundary; document its safety contract and prove pointer validity, ABI,
-  alignment, lifetime, aliasing, initialization, and proven thread conditions that
-  apply. Never use `unsafe` to bypass a sound ownership design.
-- Handle failure explicitly and preserve valid state. Do not panic or unwind
-  across FFI; validate external data, engine state, arithmetic, and conversions;
-  use RAII and ownership-aware rollback for partial work. An unchecked
-  operation, `unwrap`, or `expect` in production needs a locally proven
-  invariant and a comment explaining why recovery is impossible or incorrect.
-- Give each module one cohesive responsibility and explicit dependency
-  direction. Separate policy from mechanism, engine/FFI access from safe
-  domain logic, and hot paths from setup and diagnostics. Reuse an existing
-  abstraction when it fits; introduce one only for a concrete invariant or
-  demonstrated reuse, not hypothetical flexibility.
-- Every production module requires clear module-level technical documentation
-  covering purpose, ownership, key invariants, lifecycle, failure behavior,
-  and performance constraints as applicable. Every public API requires a
-  precise docstring covering behavior and, where relevant, inputs, outputs,
-  errors, side effects, safety, threading, lifetime, and panic conditions.
-- Comment every complex or non-obvious decision, especially ownership,
-  synchronization, fallback, numerical, ABI, and performance tradeoffs.
-  Explain why the design is necessary; do not narrate obvious statements.
-- Keep functions and types focused, names explicit, invariants local, and
-  failure paths deterministic. Avoid duplicated policy, hidden global state,
-  broad mutable ownership, speculative frameworks, and unrelated refactors.
-- Treat architecture, safety, and performance as design inputs before coding.
-  For cross-module or engine-facing changes, identify ownership, lifecycle,
-  concurrency, failure containment, and hot-path cost before implementation.
-- Tests must follow the repository behavioral-test gate. Never test
-  implementation source text, textual call order, symbol-name presence,
-  manifest contents, mocked native behavior, or a model that cannot reproduce
-  the reported defect.
-- Rust DLLs must use `libpsycho::logger::Logger` and the `log` facade for diagnostics. Do not use `println!`, `eprintln!`, or subsystem-owned file writes for logs, reports, or telemetry; route requested summaries through the established logger. Initialize logging only at the subsystem's documented safe lifecycle boundary.
-- Write logs for a human reader and include a stable subsystem tag. Use `debug` for technical detail such as validated addresses, `info` for normal lifecycle/configuration milestones and user-requested summaries, `warn` for recoverable degradation with the resulting fallback, and `error` when a requested capability cannot remain available or correctness is lost. State the consequence, not only the low-level failure.
-- Keep every visible MCM Extender text value laconic: one to three words, including titles, descriptions, help text, status text, and choices. Review shipped menus directly; do not add a non-HLSL artifact test.
-- MCM Extender-backed settings must apply from `MCMExtUpdate` after its INI save. Native listeners must define the published event parameter contract before handler admission and tolerate an already-defined event; do not poll pause state or parse configuration every frame.
-- Never hide uncertainty. Distinguish direct evidence, static proof, behavioral results, and unresolved unknowns; never fill an unknown with inference.
-- Do not present disabling a feature, reducing supported coverage, or weakening a test as a fix.
-- Avoid routine allocations, blocking locks, file I/O, shader compilation, and diagnostics in hot paths.
+- Production-deployable code: correct, safe, maintainable, performant, complete.
+  Preserve local style; Rust edition 2024; comments and docs ASCII.
+- Prefer safe Rust. Keep `unsafe` in the smallest boundary and prove pointer
+  validity, ABI, alignment, lifetime, aliasing, initialization, and threading.
+- Handle failure explicitly; no panic or unwind across FFI. Validate external
+  data, arithmetic, and conversions. Use RAII and rollback for partial work.
+  Production `unwrap`/`expect` needs a proven invariant and a comment.
+- One responsibility per module; explicit dependency direction; policy separate
+  from mechanism; hot paths separate from setup and diagnostics.
+- Document each module (purpose, ownership, invariants, lifecycle, failure,
+  performance) and each public API. Comment non-obvious ownership,
+  synchronization, ABI, numerical, and performance decisions.
+- Tests follow the behavioral gate. Never test source text, call order, symbol
+  presence, manifests, mocks, or a model that cannot reproduce the defect.
+- Rust DLLs use `Logger` and `log`; no `println!`/`eprintln!` or subsystem file
+  writes. Initialize logging only at the safe lifecycle boundary. Use stable
+  subsystem tags and state the consequence.
+- MCM Extender text is one to three words; review shipped menus directly.
+  Settings apply from `MCMExtUpdate` after its INI save; native listeners define
+  the event parameter contract and tolerate an already-defined event. Do not poll
+  pause or parse config every frame.
+- Never hide uncertainty. Do not present disabling a feature, reducing coverage,
+  or weakening a test as a fix. Avoid routine hot-path allocation, blocking
+  locks, file I/O, shader compilation, and diagnostics.
+- See: `.agents/skills/psycho/references/contracts.md`.
 
 ## Repository aids
 
-- Runtime config: `psycho-engine-fixes/config/psycho_engine_fixes.toml`, deployed to `FalloutNV/syringe/psycho_engine_fixes.toml`. `memory.allocator`: `0` off, `1` scrap heap, `2` gheap plus scrap heap.
-- Fresh symlinked logs under `psycho-engine-fixes/`: `psycho-engine-fixes-latest.log`, `CrashLogger.log`. Store supplied problem logs in `.reports/`.
-- `build_fnv.sh`: build and install the complete FNV set, including OMV; edit `TARGET_DIR` first.
-- `psycho-engine-fixes/build.sh`: compatibility wrapper for `../build_fnv.sh`.
-- `psycho-engine-fixes/release.sh`: build and package releases in `.release/`.
-- `psycho-engine-fixes/ln_logs.sh`: create game-log symlinks.
+- Runtime config: `psycho-engine-fixes/config/psycho_engine_fixes.toml`,
+  deployed to `syringe/psycho_engine_fixes.toml` under the game root.
+  `memory.allocator`: `0` off, `1` scrap heap, `2` gheap plus scrap heap.
+- Logs: `psycho-engine-fixes-latest.log`, `CrashLogger.log`, `omv-latest.log`,
+  `atom-latest.log`. Paths vary. Use `psycho_env.py` or `PSYCHO_*`; never assume
+  a developer path.
+- Supplied logs: `PSYCHO_REPORTS_DIR` or `.reports/` when present.
+- `.research/` and `fnv_reverse/` are optional, gitignored inputs.
+- **User-only deployment:** `build_fnv.sh`, `build.sh`, `release.sh`,
+  packaging, and installation are run only by the user. Agents must never run
+  them or deploy artifacts. Agents build and test locally only.
+- `ln_logs.sh` creates optional log symlinks; agents must not run it.

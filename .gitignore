@@ -34,3 +34,6 @@ __pycache__/
 .research/*
 
 fnv_reverse
+
+# Optional local agent paths
+/.psycho.local.toml
