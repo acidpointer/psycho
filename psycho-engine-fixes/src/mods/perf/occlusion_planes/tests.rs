@@ -15,7 +15,7 @@ use super::runtime::{
 };
 use super::runtime_generate::{
     Aabb, FaceRejects, PLANE_SHRINK, WorldTransform, aabb_of, admits_base_type, alpha_is_opaque,
-    faces_from_oriented_box, support_rect, transform_point,
+    faces_from_oriented_box, merge_coplanar, support_rect, transform_point,
 };
 
 static DELETE_THIS_CALLS: AtomicUsize = AtomicUsize::new(0);
@@ -633,4 +633,83 @@ fn support_rect_finds_offset_support_inside_the_hull() {
         assert!(u >= -0.01 && u <= 500.01, "u={u} outside support");
         assert!(v >= -0.01 && v <= 1000.01, "v={v} outside support");
     }
+}
+
+fn merge_plane(position: [f32; 3], size: [f32; 2]) -> PlaneRecord {
+    PlaneRecord {
+        position,
+        size,
+        // Identity basis: tangent X, normal Y, bitangent Z.
+        rotation: [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0],
+        priority: 255,
+        source_form_id: 7,
+    }
+}
+
+#[test]
+fn coplanar_rectangles_sharing_an_edge_merge() {
+    let mut candidates = vec![
+        (
+            100.0f32 * 100.0,
+            merge_plane([0.0, 0.0, 0.0], [100.0, 100.0]),
+        ),
+        (
+            100.0f32 * 100.0,
+            merge_plane([100.0, 0.0, 0.0], [100.0, 100.0]),
+        ),
+    ];
+    merge_coplanar(&mut candidates);
+    assert_eq!(candidates.len(), 1);
+    let (_, merged) = &candidates[0];
+    assert!((merged.size[0] - 200.0).abs() < 0.01);
+    assert!((merged.size[1] - 100.0).abs() < 0.01);
+    assert!((merged.position[0] - 50.0).abs() < 0.01);
+}
+
+#[test]
+fn coplanar_containment_merges_to_the_larger_rectangle() {
+    let mut candidates = vec![
+        (
+            200.0f32 * 200.0,
+            merge_plane([0.0, 0.0, 0.0], [200.0, 200.0]),
+        ),
+        (50.0f32 * 50.0, merge_plane([10.0, 0.0, 0.0], [50.0, 50.0])),
+    ];
+    merge_coplanar(&mut candidates);
+    assert_eq!(candidates.len(), 1);
+    assert!((candidates[0].1.size[0] - 200.0).abs() < 0.01);
+    assert!((candidates[0].1.size[1] - 200.0).abs() < 0.01);
+}
+
+#[test]
+fn l_shaped_rectangles_do_not_merge() {
+    // Offset in both in-plane axes: the bounding union would cover empty space.
+    let mut candidates = vec![
+        (
+            100.0f32 * 100.0,
+            merge_plane([0.0, 0.0, 0.0], [100.0, 100.0]),
+        ),
+        (
+            100.0f32 * 100.0,
+            merge_plane([100.0, 0.0, 100.0], [100.0, 100.0]),
+        ),
+    ];
+    merge_coplanar(&mut candidates);
+    assert_eq!(candidates.len(), 2);
+}
+
+#[test]
+fn non_coplanar_rectangles_do_not_merge() {
+    let mut other = merge_plane([0.0, 0.0, 0.0], [100.0, 100.0]);
+    // Rotate the normal 90 degrees: tangent Z, normal X, bitangent Y.
+    other.rotation = [0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 1.0, 0.0, 0.0];
+    let mut candidates = vec![
+        (
+            100.0f32 * 100.0,
+            merge_plane([0.0, 0.0, 0.0], [100.0, 100.0]),
+        ),
+        (100.0f32 * 100.0, other),
+    ];
+    merge_coplanar(&mut candidates);
+    assert_eq!(candidates.len(), 2);
 }

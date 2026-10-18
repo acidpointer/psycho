@@ -361,10 +361,11 @@ so the startup gate in section 7 applies.
 Stable tag `[OCCLUSION_PLANES]`. Log at `info` on install and cache load; log
 at `debug` the scan counters and per-cell summaries. The `scan` line reports
 `refs`, `not_stat`, `render_null`, `node_null`, `radius`, `no_vertices`,
-`horizontal`, `support`, `small`, `size`, `distance`, `faces`, plus `mesh_area`
-and `rect_area`: the admitted surface area and the emitted rectangle area, so
-the log shows how much solid surface became occluders and why candidates were
-rejected. The per-cell `cell` line reports `key`, `candidates`, `raw`,
+`horizontal`, `support`, `small`, `size`, `distance`, `faces`, plus `mesh_area`,
+`rect_area` and `cap_drop`: the admitted surface area, the merged rectangle
+area before the cap, and the merged area the cap dropped, so the log shows how
+much solid surface became occluders and whether the cap is the coverage
+limiter. The per-cell `cell` line reports `key`, `candidates`, `raw`,
 `injected`, `reused`, `removed`, `cap`, `cached`, `complete`, `gen_ms` and the
 observer position, and the `scan` line includes `dist_max`, so a playtest can
 show which cell is being rebuilt, how long generation took, and why the
@@ -446,13 +447,20 @@ no planes are tracked, so an empty cell costs nothing per frame. Route through
      bitangent. `0x00C358A0` activates the plane on the stored normal's negative
      side, so the inverse normal selects the outward side. The engine spans
      local X/Z and takes local Y as the rectangle normal.
-9. Clear `+0xEA` on the created object. `0x00C358A0` then activates the plane
-   only while the camera is on the rectangle's outward side. This is the
-   engine's own camera-side rejection; it needs no per-frame Rust work and
-   reverses automatically when the camera moves around the object.
+9. Merge coplanar rectangles whose in-plane union is exactly a rectangle: same
+   stored normal, same plane offset within 1 unit, aligned in-plane axes, and
+   either one contains the other or they share a full in-plane interval and
+   touch/overlap in the other. The merged rectangle is the union of two
+   support-validated rectangles, so it cannot cover empty space. This raises
+   culling per plane and lowers the `B*O` pair cost.
 10. Apply the observer distance filter, score each rectangle by supported solid
     angle (`area / (1 + (distance/2048)^2)`), sort, and cap at
-    `occlusion_planes_max_per_cell` (default 64).
+    `occlusion_planes_max_per_cell` (default 64). The `scan` line reports
+    `cap_drop` (merged area dropped by the cap).
+11. Clear `+0xEA` on the created object. `0x00C358A0` then activates the plane
+    only while the camera is on the rectangle's outward side. This is the
+    engine's own camera-side rejection; it needs no per-frame Rust work and
+    reverses automatically when the camera moves around the object.
 
 ### 5.2.1 Limits and risks
 
@@ -514,7 +522,7 @@ quantized per-plane key. Unchanged native planes stay in the list, only changed
 planes are removed, and only new planes are created. A missing node found by
 the presence check is released and recreated by the same diff. This avoids the
 one-frame cull flip caused by removing and re-adding the whole list on every
-settle pass. The cache schema version is 5 and each entry carries a completion
+settle pass. The cache schema version is 6 and each entry carries a completion
 flag; older caches are discarded because the extraction semantics changed.
 
 ## 6. Phased delivery

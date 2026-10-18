@@ -15,7 +15,9 @@
 //! Injected planes are one-sided: `+0xEA` is cleared after construction so the
 //! engine's own camera-side test rejects a plane whenever the camera is behind
 //! its face. Horizontal faces (ground and roofs) are skipped, and a face whose
-//! support hull cannot contain a useful rectangle is rejected.
+//! support hull cannot contain a useful rectangle is rejected. Coplanar
+//! rectangles that share a full edge are merged into their rectangular union,
+//! which culls more per plane without covering empty space.
 //!
 //! This is still a heuristic. A convex hull around a concave mesh can over-cover
 //! empty space, so planes are shrunk, only large geometry is kept, the per-cell
@@ -158,6 +160,9 @@ pub(super) struct ScanStats {
     /// debug log can show how much solid surface became occluders.
     mesh_area: f32,
     rect_area: f32,
+    /// Merged rectangle area that the per-cell cap dropped, so the log shows
+    /// whether the cap is the coverage limiter.
+    cap_drop_area: f32,
 }
 
 /// Collect up to `max_planes` occlusion rectangles for one cell.
@@ -194,7 +199,6 @@ pub(super) fn generate(
                 collect_reference(
                     reference,
                     cell,
-                    observer,
                     &mut stack,
                     &mut vertex_buf,
                     &mut mesh_out,
@@ -212,15 +216,60 @@ pub(super) fn generate(
             node = next;
         }
     }
-    candidates.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(core::cmp::Ordering::Equal));
-    let raw = candidates.len();
-    candidates.truncate(max_planes.max(1));
+    // Merge coplanar adjacent rectangles before scoring and capping. Two
+    // support-validated rectangles that share a full edge have a rectangular
+    // union, so the merged rectangle cannot cover empty space, and it culls
+    // more bounds per plane while reducing the pair cost.
+    merge_coplanar(&mut candidates);
+
+    // Distance filter and score against the observer after merging, so the
+    // merged center is the one that is scored.
+    let mut scored: Vec<(f32, PlaneRecord)> = Vec::with_capacity(candidates.len());
+    for (area, plane) in candidates.drain(..) {
+        let mut weight = 1.0f32;
+        if let Some(observer) = observer {
+            let offset = [
+                plane.position[0] - observer[0],
+                plane.position[1] - observer[1],
+                plane.position[2] - observer[2],
+            ];
+            let distance =
+                (offset[0] * offset[0] + offset[1] * offset[1] + offset[2] * offset[2]).sqrt();
+            if !distance.is_finite() || distance > MAX_OCCLUDER_DISTANCE {
+                stats.distance_reject += 1;
+                if distance.is_finite() {
+                    stats.distance_max = stats.distance_max.max(distance);
+                }
+                continue;
+            }
+            // Score by roughly the plane's solid angle from the observer, so
+            // the per-cell cap keeps the occluders that can hide the most: a
+            // large near window beats a large distant one.
+            weight = 1.0 + (distance * distance) / (2048.0 * 2048.0);
+        }
+        scored.push((area / weight, plane));
+    }
+    let raw = scored.len();
+    let raw_area: f32 = scored
+        .iter()
+        .map(|(_, plane)| plane.size[0] * plane.size[1])
+        .sum();
+    scored.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(core::cmp::Ordering::Equal));
+    scored.truncate(max_planes.max(1));
+    let kept_area: f32 = scored
+        .iter()
+        .map(|(_, plane)| plane.size[0] * plane.size[1])
+        .sum();
+    stats.rect_area = raw_area;
+    stats.cap_drop_area = (raw_area - kept_area).max(0.0);
+    let planes: Vec<PlaneRecord> = scored.into_iter().map(|(_, plane)| plane).collect();
     if log::log_enabled!(log::Level::Debug) {
         log::debug!(
             "[OCCLUSION_PLANES] scan refs={} parent_mismatch={} base_null={} not_stat={} \
              render_null={} node_null={} radius={} nodes={} geoms={} skinned={} alpha={} \
              no_vertices={} size={} horizontal={} support={} small={} distance={} \
-             dist_max={:.0} budget_stop={} faces={} mesh_area={:.0} rect_area={:.0}",
+             dist_max={:.0} budget_stop={} faces={} mesh_area={:.0} rect_area={:.0} \
+             cap_drop={:.0}",
             stats.refs,
             stats.parent_mismatch,
             stats.base_null,
@@ -243,10 +292,11 @@ pub(super) fn generate(
             stats.faces,
             stats.mesh_area,
             stats.rect_area,
+            stats.cap_drop_area,
         );
     }
     (
-        candidates.into_iter().map(|(_, plane)| plane).collect(),
+        planes,
         raw,
         // All references have an attached render node, so no more 3D can
         // appear: the settle window can stop after the first identical pass.
@@ -258,7 +308,6 @@ pub(super) fn generate(
 unsafe fn collect_reference(
     reference: *mut c_void,
     cell: *mut c_void,
-    observer: Option<[f32; 3]>,
     stack: &mut Vec<*mut c_void>,
     vertex_buf: &mut Vec<[f32; 3]>,
     mesh_out: &mut Vec<(f32, PlaneRecord)>,
@@ -331,29 +380,8 @@ unsafe fn collect_reference(
     }
     for (area, mut plane) in mesh_out.drain(..) {
         plane.source_form_id = source_form_id;
-        let mut weight = 1.0f32;
-        if let Some(observer) = observer {
-            let offset = [
-                plane.position[0] - observer[0],
-                plane.position[1] - observer[1],
-                plane.position[2] - observer[2],
-            ];
-            let distance =
-                (offset[0] * offset[0] + offset[1] * offset[1] + offset[2] * offset[2]).sqrt();
-            if !distance.is_finite() || distance > MAX_OCCLUDER_DISTANCE {
-                stats.distance_reject += 1;
-                if distance.is_finite() {
-                    stats.distance_max = stats.distance_max.max(distance);
-                }
-                continue;
-            }
-            // Score by roughly the plane's solid angle from the observer, so
-            // the per-cell cap keeps the occluders that can hide the most: a
-            // large near window beats a large distant one.
-            weight = 1.0 + (distance * distance) / (2048.0 * 2048.0);
-        }
         stats.faces += 1;
-        out.push((area / weight, plane));
+        out.push((area, plane));
     }
 }
 
@@ -436,7 +464,6 @@ unsafe fn collect_object_planes(
                         * ((extents[0] * world_scale) * (extents[1] * world_scale)
                             + (extents[1] * world_scale) * (extents[2] * world_scale)
                             + (extents[2] * world_scale) * (extents[0] * world_scale));
-                    let before = out.len();
                     let rejects = faces_from_oriented_box(
                         &local,
                         &world,
@@ -449,9 +476,6 @@ unsafe fn collect_object_planes(
                     stats.horizontal_reject += rejects.horizontal;
                     stats.support_reject += rejects.unsupported;
                     stats.small_reject += rejects.small;
-                    for entry in &out[before..] {
-                        stats.rect_area += entry.0;
-                    }
                 } else {
                     stats.size_reject += 1;
                 }
@@ -799,6 +823,209 @@ pub(super) fn faces_from_oriented_box(
         }
     }
     rejects
+}
+
+/// Coplanar rectangles are merged only when their union is exactly a rectangle.
+/// Two support-validated rectangles that share a full edge have a rectangular
+/// union, so the merged rectangle stays inside the union of two solid-backed
+/// rectangles and cannot cover empty space.
+const MERGE_PLANE_TOLERANCE: f32 = 1.0;
+/// Grouping tolerance: puts near-parallel faces in the same candidate bucket.
+const MERGE_GROUP_TOLERANCE: f32 = 0.999;
+/// Actual merge tolerance: only nearly identical normals and axes merge, so a
+/// merged rectangle cannot drift far off the second face's plane.
+const MERGE_AXIS_TOLERANCE: f32 = 0.9999;
+
+/// In-plane axis-aligned bounds of one rectangle.
+#[derive(Clone, Copy, Debug)]
+struct Rect2 {
+    u_min: f32,
+    u_max: f32,
+    v_min: f32,
+    v_max: f32,
+}
+
+/// Merge coplanar adjacent rectangles in place, replacing each group with its
+/// rectangular union. Bounded to a few passes; a chain of segments is handled
+/// by the repeated pass.
+pub(super) fn merge_coplanar(candidates: &mut Vec<(f32, PlaneRecord)>) {
+    if candidates.len() < 2 {
+        return;
+    }
+    let planes: Vec<PlaneRecord> = candidates.drain(..).map(|(_, plane)| plane).collect();
+    // Group by orientation first so the quadratic merge only compares faces
+    // that could share a plane. A dense cell has few distinct wall
+    // orientations, which keeps this bounded.
+    let mut groups: Vec<([f32; 3], Vec<PlaneRecord>)> = Vec::new();
+    for plane in planes {
+        let normal = basis(plane.rotation).1;
+        let mut target = None;
+        for (index, (group_normal, _)) in groups.iter().enumerate() {
+            if dot3(normal, *group_normal) > MERGE_GROUP_TOLERANCE {
+                target = Some(index);
+                break;
+            }
+        }
+        match target {
+            Some(index) => groups[index].1.push(plane),
+            None => groups.push((normal, vec![plane])),
+        }
+    }
+    for (_, mut group) in groups {
+        for _ in 0..3 {
+            let mut changed = false;
+            let mut i = 0;
+            while i < group.len() {
+                let mut j = i + 1;
+                while j < group.len() {
+                    if let Some(merged) = merge_rect(&group[i], &group[j]) {
+                        group[i] = merged;
+                        group.swap_remove(j);
+                        changed = true;
+                    } else {
+                        j += 1;
+                    }
+                }
+                i += 1;
+            }
+            if !changed {
+                break;
+            }
+        }
+        candidates.extend(
+            group
+                .into_iter()
+                .map(|plane| (plane.size[0] * plane.size[1], plane)),
+        );
+    }
+}
+
+fn basis(rotation: [f32; 9]) -> ([f32; 3], [f32; 3], [f32; 3]) {
+    (
+        [rotation[0], rotation[3], rotation[6]],
+        [rotation[1], rotation[4], rotation[7]],
+        [rotation[2], rotation[5], rotation[8]],
+    )
+}
+
+fn dot3(a: [f32; 3], b: [f32; 3]) -> f32 {
+    a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
+}
+
+fn rect2(plane: &PlaneRecord, tangent: [f32; 3], bitangent: [f32; 3]) -> Rect2 {
+    let (plane_tangent, _, plane_bitangent) = basis(plane.rotation);
+    let half_u = plane.size[0] * 0.5;
+    let half_v = plane.size[1] * 0.5;
+    let mut u_min = f32::INFINITY;
+    let mut u_max = f32::NEG_INFINITY;
+    let mut v_min = f32::INFINITY;
+    let mut v_max = f32::NEG_INFINITY;
+    for (su, sv) in [(1.0f32, 1.0f32), (1.0, -1.0), (-1.0, -1.0), (-1.0, 1.0)] {
+        let point = [
+            plane.position[0] + su * half_u * plane_tangent[0] + sv * half_v * plane_bitangent[0],
+            plane.position[1] + su * half_u * plane_tangent[1] + sv * half_v * plane_bitangent[1],
+            plane.position[2] + su * half_u * plane_tangent[2] + sv * half_v * plane_bitangent[2],
+        ];
+        let u = dot3(point, tangent);
+        let v = dot3(point, bitangent);
+        u_min = u_min.min(u);
+        u_max = u_max.max(u);
+        v_min = v_min.min(v);
+        v_max = v_max.max(v);
+    }
+    Rect2 {
+        u_min,
+        u_max,
+        v_min,
+        v_max,
+    }
+}
+
+/// Rectangular union of two in-plane rectangles, or `None` when the union would
+/// not be a rectangle.
+fn union_rect(a: Rect2, b: Rect2) -> Option<Rect2> {
+    let tol = MERGE_PLANE_TOLERANCE;
+    let contains = |outer: Rect2, inner: Rect2| {
+        outer.u_min <= inner.u_min + tol
+            && outer.u_max >= inner.u_max - tol
+            && outer.v_min <= inner.v_min + tol
+            && outer.v_max >= inner.v_max - tol
+    };
+    if contains(a, b) {
+        return Some(a);
+    }
+    if contains(b, a) {
+        return Some(b);
+    }
+    // Same v interval and adjacent/overlapping u interval.
+    if (a.v_min - b.v_min).abs() <= tol
+        && (a.v_max - b.v_max).abs() <= tol
+        && a.u_min <= b.u_max + tol
+        && b.u_min <= a.u_max + tol
+    {
+        return Some(Rect2 {
+            u_min: a.u_min.min(b.u_min),
+            u_max: a.u_max.max(b.u_max),
+            v_min: a.v_min.min(b.v_min),
+            v_max: a.v_max.max(b.v_max),
+        });
+    }
+    // Same u interval and adjacent/overlapping v interval.
+    if (a.u_min - b.u_min).abs() <= tol
+        && (a.u_max - b.u_max).abs() <= tol
+        && a.v_min <= b.v_max + tol
+        && b.v_min <= a.v_max + tol
+    {
+        return Some(Rect2 {
+            u_min: a.u_min.min(b.u_min),
+            u_max: a.u_max.max(b.u_max),
+            v_min: a.v_min.min(b.v_min),
+            v_max: a.v_max.max(b.v_max),
+        });
+    }
+    None
+}
+
+fn merge_rect(a: &PlaneRecord, b: &PlaneRecord) -> Option<PlaneRecord> {
+    let (tangent_a, normal_a, bitangent_a) = basis(a.rotation);
+    let (tangent_b, normal_b, bitangent_b) = basis(b.rotation);
+    if dot3(normal_a, normal_b) < MERGE_AXIS_TOLERANCE {
+        return None;
+    }
+    let offset_a = dot3(normal_a, a.position);
+    let offset_b = dot3(normal_a, b.position);
+    if (offset_a - offset_b).abs() > MERGE_PLANE_TOLERANCE {
+        return None;
+    }
+    let direct = dot3(tangent_a, tangent_b).abs() > MERGE_AXIS_TOLERANCE
+        && dot3(bitangent_a, bitangent_b).abs() > MERGE_AXIS_TOLERANCE;
+    let swapped = dot3(tangent_a, bitangent_b).abs() > MERGE_AXIS_TOLERANCE
+        && dot3(bitangent_a, tangent_b).abs() > MERGE_AXIS_TOLERANCE;
+    if !direct && !swapped {
+        return None;
+    }
+    let union = union_rect(
+        rect2(a, tangent_a, bitangent_a),
+        rect2(b, tangent_a, bitangent_a),
+    )?;
+    let size = [union.u_max - union.u_min, union.v_max - union.v_min];
+    if size[0] <= 0.0 || size[1] <= 0.0 {
+        return None;
+    }
+    let center_u = (union.u_min + union.u_max) * 0.5;
+    let center_v = (union.v_min + union.v_max) * 0.5;
+    let position = [
+        center_u * tangent_a[0] + center_v * bitangent_a[0] + offset_a * normal_a[0],
+        center_u * tangent_a[1] + center_v * bitangent_a[1] + offset_a * normal_a[1],
+        center_u * tangent_a[2] + center_v * bitangent_a[2] + offset_a * normal_a[2],
+    ];
+    Some(PlaneRecord {
+        position,
+        size,
+        rotation: a.rotation,
+        priority: a.priority.max(b.priority),
+        source_form_id: a.source_form_id,
+    })
 }
 
 /// Largest axis-aligned rectangle supported by the face's vertices.
