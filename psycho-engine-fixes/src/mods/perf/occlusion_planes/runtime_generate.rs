@@ -170,7 +170,7 @@ pub(super) fn generate(
     cell: *mut c_void,
     max_planes: usize,
     observer: Option<[f32; 3]>,
-) -> (Vec<PlaneRecord>, usize) {
+) -> (Vec<PlaneRecord>, usize, bool) {
     let mut candidates: Vec<(f32, PlaneRecord)> = Vec::with_capacity(max_planes.max(1) * 4);
     let mut stack: Vec<*mut c_void> = Vec::with_capacity(64);
     let mut mesh_out: Vec<(f32, PlaneRecord)> = Vec::new();
@@ -248,6 +248,9 @@ pub(super) fn generate(
     (
         candidates.into_iter().map(|(_, plane)| plane).collect(),
         raw,
+        // All references have an attached render node, so no more 3D can
+        // appear: the settle window can stop after the first identical pass.
+        stats.render_null == 0 && stats.node_null == 0,
     )
 }
 
@@ -509,19 +512,21 @@ unsafe fn vertices_local_aabb(
     if vertices.is_null() {
         return None;
     }
-    vertex_buf.clear();
-    for index in 0..count {
-        let offset = index * 12;
-        let point = [
-            unsafe { read_f32_at(vertices, offset) },
-            unsafe { read_f32_at(vertices, offset + 4) },
-            unsafe { read_f32_at(vertices, offset + 8) },
-        ];
-        if !point.iter().all(|value| value.is_finite()) {
-            return None;
-        }
-        vertex_buf.push(point);
+    // Safety: the model data owns a contiguous array of `count` NiPoint3
+    // vertices (12-byte, 4-byte aligned). The pointer was checked non-null and
+    // the count was bounded above; the scan runs on the main thread while the
+    // cell is stable, and this is a read-only borrow for the duration of the
+    // call. Reading through a slice lets the compiler vectorize the copy
+    // instead of emitting one volatile load per float.
+    let slice = unsafe { core::slice::from_raw_parts(vertices as *const [f32; 3], count) };
+    if !slice
+        .iter()
+        .all(|point| point.iter().all(|value| value.is_finite()))
+    {
+        return None;
     }
+    vertex_buf.clear();
+    vertex_buf.extend_from_slice(slice);
     *vertex_budget -= count;
     Some(aabb_of(vertex_buf))
 }
@@ -711,14 +716,14 @@ pub(super) fn faces_from_oriented_box(
             };
             let mut normal_local = [0.0f32; 3];
             normal_local[axis] = sign;
-            let Some(normal) = transform_unit_direction(world, &normal_local) else {
+            let Some(outward) = transform_unit_direction(world, &normal_local) else {
                 rejects.unsupported += 1;
                 continue;
             };
             // Horizontal faces are ground, roofs or steep slopes. The player
             // views the world from above the ground, so these over-cover far
             // more than they occlude.
-            if normal[2].abs() >= MAX_HORIZONTAL_NORMAL {
+            if outward[2].abs() >= MAX_HORIZONTAL_NORMAL {
                 rejects.horizontal += 1;
                 continue;
             }
@@ -742,6 +747,14 @@ pub(super) fn faces_from_oriented_box(
                 rejects.unsupported += 1;
                 continue;
             };
+            // `0x00C358A0` builds the engine plane from corners `p0 = +A+B`,
+            // `p1 = +A-B`, `p2 = -A-B` and computes `(p1-p0) x (p2-p1)`, which
+            // equals the stored local +Y column. It activates the plane on that
+            // plane's negative side. Store the inverse of the geometric outward
+            // normal so the engine activates the rectangle only when the camera
+            // is outside the solid face. The rectangle is symmetric, so the
+            // flipped normal and bitangent cover the same area.
+            let normal = [-outward[0], -outward[1], -outward[2]];
             let bitangent = cross(tangent, normal);
             let size = [
                 rect.half_u * 2.0 * world_scale * PLANE_SHRINK,
@@ -757,9 +770,9 @@ pub(super) fn faces_from_oriented_box(
             local_face_center[tangent_b] = rect.center_v;
             let face_center = transform_point(world, &local_face_center);
             let position = [
-                face_center[0] + normal[0] * OUTWARD_OFFSET,
-                face_center[1] + normal[1] * OUTWARD_OFFSET,
-                face_center[2] + normal[2] * OUTWARD_OFFSET,
+                face_center[0] + outward[0] * OUTWARD_OFFSET,
+                face_center[1] + outward[1] * OUTWARD_OFFSET,
+                face_center[2] + outward[2] * OUTWARD_OFFSET,
             ];
             let rotation = [
                 tangent[0],

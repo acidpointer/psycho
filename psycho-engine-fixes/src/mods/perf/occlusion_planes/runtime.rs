@@ -654,6 +654,7 @@ unsafe fn reconcile(
     let mut settle_needed = false;
     let mut from_cache = false;
     let mut generate_ms = 0.0f32;
+    let mut render_ready = false;
     let (planes, raw): (Vec<PlaneRecord>, usize) = if force {
         // Convert under the lock so a cache hit costs one plane allocation
         // instead of a temporary cached-plane vector plus the records. An
@@ -674,19 +675,21 @@ unsafe fn reconcile(
             }
             None => {
                 let started = Instant::now();
-                let (planes, raw) = runtime_generate::generate(cell, max, observer);
+                let (planes, raw, ready) = runtime_generate::generate(cell, max, observer);
                 generate_ms = started.elapsed().as_secs_f32() * 1000.0;
+                render_ready = ready;
                 store_in_cache(&key, &planes, false);
                 settle_needed = true;
                 (planes, raw)
             }
         }
     } else {
-        // A settle retry keeps settling until two passes agree, and refreshes
-        // the cache so the latest set is always reusable on a revisit.
+        // A settle retry keeps settling until the generated set is stable, and
+        // refreshes the cache so the latest set is always reusable on a revisit.
         let started = Instant::now();
-        let (planes, raw) = runtime_generate::generate(cell, max, observer);
+        let (planes, raw, ready) = runtime_generate::generate(cell, max, observer);
         generate_ms = started.elapsed().as_secs_f32() * 1000.0;
+        render_ready = ready;
         store_in_cache(&key, &planes, false);
         settle_needed = true;
         (planes, raw)
@@ -704,10 +707,16 @@ unsafe fn reconcile(
     if stable {
         let passes = STABLE_PASSES.fetch_add(1, Ordering::AcqRel) + 1;
         // The set did not change. A presence-driven force pass re-appends it
-        // below; a settle pass stops once enough identical passes were seen,
-        // which keeps one extra pass to catch late-attached 3D.
+        // below; a settle pass stops once enough identical passes were seen.
+        // When every reference already has an attached render node, no more 3D
+        // can appear, so one identical pass is enough.
+        let stable_passes_needed = if render_ready {
+            1
+        } else {
+            SETTLE_STABLE_PASSES
+        };
         settle_needed = false;
-        if !force && passes >= SETTLE_STABLE_PASSES {
+        if !force && passes >= stable_passes_needed {
             mark_cache_complete(&key);
             return false;
         }

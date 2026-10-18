@@ -101,11 +101,15 @@ face normal into the rectangle's local Z axis and made the plane edge-on.
 corners and has separate code paths for the camera being on either side of the
 rectangle. `0x00C358A0` short-circuits to true when the constructor's `+0xEA`
 flag is set, which it is for planes created through `0x00C335D0`. The runtime
-clears `+0xEA` after construction, so `0x00C358A0` runs the plane-through-three-
-corners side test and activates the rectangle only when the camera is on its
-outward side. The occluded volume is still the pyramid from the camera through
-the rectangle; the normal now selects the active side. The owner's visual check
-remains required.
+clears `+0xEA` after construction, so `0x00C358A0` runs the side test:
+`0x00C35C10` produces `p0 = +A+B`, `p1 = +A-B`, `p2 = -A-B`, `0x00A699D0`
+computes `(p1-p0) x (p2-p1)` (the stored local +Y column), and `0x0049DA80`
+activates the plane when the camera is on that plane's negative side. The
+builder therefore stores the inverse of the geometric outward normal so the
+rectangle activates only while the camera is outside the solid face. The
+occluded volume is still the pyramid from the camera through the rectangle; the
+stored normal selects the active side. The owner's visual check remains
+required.
 
 ### 2.4 Scene graph and the occluder list
 
@@ -242,9 +246,11 @@ inline or replace those entries.
 
 `+0xEA` is not a called engine entry either. The constructor sets it to 1
 (two-sided); `create_plane` writes 0 after construction. `0x00C358A0` then
-builds the plane through three rectangle corners and activates the plane only
-while the camera is on the outward side, which is the matrix convention emitted
-by the face builder. This is the engine's own per-frame camera-side rejection.
+builds the plane through `p0 = +A+B`, `p1 = +A-B`, `p2 = -A-B`, computes
+`(p1-p0) x (p2-p1)` and activates the plane while the camera is on that
+plane's negative side. The face builder stores the inverse of the geometric
+outward normal so activation happens on the outward side. This is the engine's
+own per-frame camera-side rejection.
 
 Node removal is done in Rust using the proven list layout (list `+0` head, `+4`
 tail, `+8` count; node `+0` next, `+4` prev, `+8` plane). Unlink the tracked
@@ -411,12 +417,14 @@ no planes are tracked, so an empty cell costs nothing per frame. Route through
    or skinned geometry is skipped individually. The `+0x9C` alpha pointer is
    trusted only when its vtable is `NiAlphaProperty`, so a shifted offset cannot
    reject the whole cell.
-5. For each admitted geometry, read the uncompressed CPU vertices and reduce
-   them to a **local** AABB. The reduction is a four-wide SIMD min/max (`wide`,
-   portable SSE/AVX/NEON with a scalar fallback). Geometry whose vertices are
-   compressed, unavailable or over budget is skipped; a sphere bound is never
-   turned into a rectangle. Each geometry is treated on its own (never merged
-   across an object), so a multi-part object contributes tighter boxes.
+5. For each admitted geometry, read the uncompressed CPU vertices through a
+   borrowed slice and reduce them to a **local** AABB. The slice read lets the
+   compiler vectorize the copy; the reduction is a four-wide SIMD min/max
+   (`wide`, portable SSE/AVX/NEON with a scalar fallback). Geometry whose
+   vertices are compressed, unavailable or over budget is skipped; a sphere
+   bound is never turned into a rectangle. Each geometry is treated on its own
+   (never merged across an object), so a multi-part object contributes tighter
+   boxes.
 6. Reject a geometry whose world-space largest extent is outside
    `256..=8192` units.
 7. For each local face, collect the vertices within 5% of that face and build
@@ -428,13 +436,16 @@ no planes are tracked, so an empty cell costs nothing per frame. Route through
    roofs.
 8. Emit the surviving face rectangle:
    - position: the supported rectangle center on the local face plane,
-     transformed to world and offset outward by two units along the normal;
+     transformed to world and offset outward by two units along the geometric
+     outward normal;
    - size: supported in-plane extents scaled by the node's world scale,
      multiplied by a final `PLANE_SHRINK` (0.8); `create_plane` halves them for
      the native half-extent fields;
    - rotation: row-major matrix whose columns are the world tangent, the
-     outward world **normal**, and `tangent x normal` as the bitangent. The
-     engine spans local X/Z and takes local Y as the rectangle normal.
+     **inverse** of the geometric outward normal, and `tangent x normal` as the
+     bitangent. `0x00C358A0` activates the plane on the stored normal's negative
+     side, so the inverse normal selects the outward side. The engine spans
+     local X/Z and takes local Y as the rectangle normal.
 9. Clear `+0xEA` on the created object. `0x00C358A0` then activates the plane
    only while the camera is on the rectangle's outward side. This is the
    engine's own camera-side rejection; it needs no per-frame Rust work and
@@ -482,8 +493,9 @@ The settle comparison uses a coarse, quantized,
 **order-independent** plane signature (`FxHasher`, positions rounded to quarter
 units, per-plane keys sorted before hashing) so neither sub-unit engine jitter
 nor a re-link of the cell's reference list defeats stability; the window stops
-after two identical passes (`SETTLE_STABLE_PASSES`) instead of always running
-all five retries. This was the headline fix after a 2026-10-18 log showed
+after two identical passes (`SETTLE_STABLE_PASSES`), or after one when every
+reference already has an attached render node (`render_null == 0`), instead of
+always running all five retries. This was the headline fix after a 2026-10-18 log showed
 `cached=false` and six full regenerations per cell change, which cost frame time
 and churned the occluder list. A later 2026-10-18 log proved the window still ran
 to its full six scans while every scan statistic

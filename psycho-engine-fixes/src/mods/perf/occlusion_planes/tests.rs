@@ -197,16 +197,23 @@ fn vertical_box_faces_are_oriented_and_supported() {
         for index in 0..3 {
             assert!((handed[index] - bitangent[index]).abs() < 1e-4);
         }
-        // The emitted center is the box face center pushed outward.
+        // The emitted center is the box face center pushed outward. The stored
+        // normal is the inverse of the geometric outward direction.
         let face_center = [
-            plane.position[0] - normal[0] * 2.0,
-            plane.position[1] - normal[1] * 2.0,
-            plane.position[2] - normal[2] * 2.0,
+            plane.position[0] + normal[0] * 2.0,
+            plane.position[1] + normal[1] * 2.0,
+            plane.position[2] + normal[2] * 2.0,
         ];
         let on_face = face_center
             .iter()
             .any(|value| (*value - 500.0).abs() < 0.01 || (*value + 500.0).abs() < 0.01);
         assert!(on_face);
+        // The stored normal points inward (the box is centered at the origin),
+        // so `0x00C358A0` activates the plane on the outward side.
+        assert!(
+            dot(normal, face_center) < -1.0,
+            "stored normal must be the inverse of the outward direction"
+        );
     }
 }
 
@@ -252,9 +259,9 @@ fn rotated_box_faces_follow_the_box_not_the_world_aabb() {
             "the face followed the world rotation"
         );
         let face_center = [
-            plane.position[0] - normal[0] * 2.0,
-            plane.position[1] - normal[1] * 2.0,
-            plane.position[2] - normal[2] * 2.0,
+            plane.position[0] + normal[0] * 2.0,
+            plane.position[1] + normal[1] * 2.0,
+            plane.position[2] + normal[2] * 2.0,
         ];
         let matched = world_centers.iter().any(|center| {
             (center[0] - face_center[0]).abs() < 0.01
@@ -341,15 +348,16 @@ fn negative_scale_mirrors_oriented_faces() {
     for (_, plane) in &faces {
         let (_, normal, _) = plane_basis(plane);
         let face_center = [
-            plane.position[0] - normal[0] * 2.0,
-            plane.position[1] - normal[1] * 2.0,
-            plane.position[2] - normal[2] * 2.0,
+            plane.position[0] + normal[0] * 2.0,
+            plane.position[1] + normal[1] * 2.0,
+            plane.position[2] + normal[2] * 2.0,
         ];
-        // Local x=500 maps to world x=500 with outward -X; local x=0 maps to
-        // world x=1000 with outward +X.
-        if normal[0] < -0.9 {
+        // Local x=500 maps to world x=500 with outward -X, so its stored
+        // normal is +X; local x=0 maps to world x=1000 with outward +X, so its
+        // stored normal is -X.
+        if normal[0] > 0.9 {
             assert!((face_center[0] - 500.0).abs() < 0.01);
-        } else if normal[0] > 0.9 {
+        } else if normal[0] < -0.9 {
             assert!((face_center[0] - 1000.0).abs() < 0.01);
         }
         assert!((plane.size[0] - 500.0 * PLANE_SHRINK).abs() < 0.01);
@@ -363,42 +371,51 @@ fn engine_camera_side_contract_matches_the_outward_normal() {
     //   p0 = position + A + B, p1 = position + A - B,
     //   p2 = position - A - B, p3 = position - A + B
     // where A = sizeX * tangent and B = sizeY * bitangent are the native
-    // half-extents. `0x00A699D0` then computes
-    //   n = (p0 - p1) x (p2 - p0) = -normal
-    // and `0x00C358A0` activates the plane only when the camera is on the
-    // negative side of n, which is the rectangle's outward (+normal) side.
+    // half-extents. `0x00A699D0` is called with (p0, p1, p2) and computes
+    //   n = (p1 - p0) x (p2 - p1)
+    // which equals the stored local +Y column. `0x00C358A0` then activates the
+    // plane only when the camera is on the negative side of n. The production
+    // builder therefore stores the inverse of the geometric outward normal so
+    // the rectangle activates on the outward side.
+    let outward = [0.0f32, 1.0, 0.0];
+    let stored_normal = [-outward[0], -outward[1], -outward[2]];
+    let tangent = [1.0f32, 0.0, 0.0];
+    let bitangent = cross(tangent, stored_normal);
     let plane = PlaneRecord {
         position: [0.0, 0.0, 0.0],
         size: [200.0, 200.0],
-        rotation: [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0],
+        rotation: [
+            tangent[0],
+            stored_normal[0],
+            bitangent[0],
+            tangent[1],
+            stored_normal[1],
+            bitangent[1],
+            tangent[2],
+            stored_normal[2],
+            bitangent[2],
+        ],
         priority: 255,
         source_form_id: 0,
     };
-    let (tangent, normal, bitangent) = plane_basis(&plane);
+    let (t, n, b) = plane_basis(&plane);
     let half = native_size(plane.size);
-    let a = [
-        tangent[0] * half[0],
-        tangent[1] * half[0],
-        tangent[2] * half[0],
-    ];
-    let b = [
-        bitangent[0] * half[1],
-        bitangent[1] * half[1],
-        bitangent[2] * half[1],
-    ];
+    let a = [t[0] * half[0], t[1] * half[0], t[2] * half[0]];
+    let bvec = [b[0] * half[1], b[1] * half[1], b[2] * half[1]];
     let add = |x: [f32; 3], y: [f32; 3]| [x[0] + y[0], x[1] + y[1], x[2] + y[2]];
     let sub = |x: [f32; 3], y: [f32; 3]| [x[0] - y[0], x[1] - y[1], x[2] - y[2]];
-    let p0 = add(add(plane.position, a), b);
-    let p1 = sub(add(plane.position, a), b);
-    let p2 = sub(sub(plane.position, a), b);
-    let engine_normal = cross(sub(p0, p1), sub(p2, p0));
+    let p0 = add(add(plane.position, a), bvec);
+    let p1 = sub(add(plane.position, a), bvec);
+    let p2 = sub(sub(plane.position, a), bvec);
+    let engine_normal = cross(sub(p1, p0), sub(p2, p1));
     let length = dot(engine_normal, engine_normal).sqrt();
     let engine_normal = [
         engine_normal[0] / length,
         engine_normal[1] / length,
         engine_normal[2] / length,
     ];
-    assert!(dot(engine_normal, normal) < -0.99);
+    assert!(dot(engine_normal, n) > 0.99);
+    assert!(dot(engine_normal, outward) < -0.99);
 
     let outward_camera = [0.0, 100.0, 0.0];
     let inward_camera = [0.0, -100.0, 0.0];
