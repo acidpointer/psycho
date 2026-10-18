@@ -298,7 +298,7 @@ attached.
 - Interior: `CellKey::Interior { form_id: u32 }`.
 - Exterior: `CellKey::Exterior { worldspace: u32, x: i32, y: i32 }`.
 - "Behave like exterior" interiors use the interior key.
-- The lookup returns a slice of plane records. A per-cell cap (default 32)
+- The lookup returns a slice of plane records. A per-cell cap (default 64)
   bounds the `B*O` pair cost.
 
 ### 4.5 Configuration
@@ -307,7 +307,7 @@ Add to `PerformanceConfig`:
 
 - `occlusion_planes: bool` (default `true`, owner-requested);
 - `occlusion_planes_runtime: bool` (default `true`);
-- `occlusion_planes_max_per_cell: u16` (default 32, clamped `1..=256`);
+- `occlusion_planes_max_per_cell: u16` (default 64, clamped `1..=256`);
 - `occlusion_planes_path: String` (default
   `syringe/psycho_occlusion_planes.toml`);
 - `occlusion_planes_cache_path: String` (default
@@ -402,7 +402,7 @@ occluders. Route through `libpsycho::logger::Logger` / `log`, never `println!`.
 7. Emit each face rectangle:
    - position: face center, then offset outward by a small epsilon along the
      face normal;
-   - size: full face extents shrunk by `PLANE_SHRINK` (0.5); `create_plane`
+   - size: full face extents shrunk by `PLANE_SHRINK` (0.6); `create_plane`
      halves them for the native half-extent fields;
    - rotation: row-major matrix whose columns are the in-plane tangent, the
      face **normal**, and the bitangent (the engine spans local X/Z and takes
@@ -417,7 +417,7 @@ occluders. Route through `libpsycho::logger::Logger` / `log`, never `println!`.
 The collector uses the geometry's own bounds, not a collision or silhouette
 proof. An axis-aligned box around a concave mesh can still over-cover empty
 space. The mitigations are the per-geometry box (never merged), a strong
-`PLANE_SHRINK` of 0.5, the size threshold, the distance range, the per-cell cap
+`PLANE_SHRINK` of 0.6, the size threshold, the distance range, the per-cell cap
 and the kill switch. A silhouette-accurate extraction from `NiTriShapeData`
 was prototyped but its in-memory triangle list is not yet verified against the
 running game, so it is not enabled. The owner's in-game visual check remains
@@ -475,13 +475,19 @@ cache is discarded. A
 cache entry is only consulted on a target change; a cache hit is a complete set
 and skips the settle window. Every generated set is written to the cache
 immediately, so the cache always holds the latest set even if the settle window
-is still running. The settle comparison uses a coarse, quantized plane
-signature (`FxHasher`, positions rounded to quarter units) so sub-unit engine
-jitter does not defeat stability; the window stops after two identical passes
-(`SETTLE_STABLE_PASSES`) instead of always running all five retries. This was
-the headline fix after a 2026-10-18 log showed `cached=false` and six full
-regenerations per cell change, which cost frame time and churned the occluder
-list. The file is also flushed on a debounce and on
+is still running. The settle comparison uses a coarse, quantized,
+**order-independent** plane signature (`FxHasher`, positions rounded to quarter
+units, per-plane keys sorted before hashing) so neither sub-unit engine jitter
+nor a re-link of the cell's reference list defeats stability; the window stops
+after two identical passes (`SETTLE_STABLE_PASSES`) instead of always running
+all five retries. This was the headline fix after a 2026-10-18 log showed
+`cached=false` and six full regenerations per cell change, which cost frame time
+and churned the occluder list. A later 2026-10-18 log proved the window still ran
+to its full six scans while every scan statistic
+(`refs/nodes/geoms/faces/mesh_area/rect_area`) was byte-identical, so the same
+set was being emitted in a different order and the order-sensitive hash reported
+a change every pass; sorting the per-plane keys fixed that. The file is also
+flushed on a debounce and on
 load/new/exit. A periodic presence check re-appends the cached planes if the
 engine cleared the occluder list without changing the cell identity, which is
 what fixes the "leave and come back" loss of planes. Changing the per-cell cap

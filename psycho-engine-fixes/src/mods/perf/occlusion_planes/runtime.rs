@@ -464,15 +464,25 @@ fn cell_key_signature(key: &CellKey) -> u64 {
     hasher.finish()
 }
 
-/// Coarse hash of one cell's plane records, used to decide whether a settle
-/// pass produced the same set. Positions and sizes are quantized so sub-unit
-/// transform jitter from the engine settling does not defeat stability and
-/// force the window to run to exhaustion.
+/// Order-independent fingerprint of one cell's plane records, used to decide
+/// whether a settle pass produced the same set.
+///
+/// The position/size fields are quantized so sub-unit transform jitter from the
+/// engine settling does not defeat stability. The per-plane keys are sorted
+/// before hashing because the generator can emit the same planes in a different
+/// order: the engine may re-link a cell's reference list while geometry streams
+/// in, and the score sort is stable, so candidates with equal scores keep that
+/// list order. An order-sensitive hash therefore reported a change on every
+/// pass even when the aggregate scan statistics were byte-identical (observed
+/// 2026-10-18: six full regenerations per first visit while every
+/// `refs/nodes/geoms/faces/mesh_area/rect_area` value matched). Sorting the keys
+/// makes the fingerprint independent of emission order while still detecting
+/// any added, removed or moved plane.
 pub(super) fn plane_signature(planes: &[PlaneRecord]) -> u64 {
     use std::hash::{Hash, Hasher};
-    let mut hasher = rustc_hash::FxHasher::default();
-    planes.len().hash(&mut hasher);
+    let mut keys: Vec<u64> = Vec::with_capacity(planes.len());
     for plane in planes {
+        let mut hasher = rustc_hash::FxHasher::default();
         for value in plane.position {
             ((value * 4.0).round() as i32).hash(&mut hasher);
         }
@@ -494,7 +504,11 @@ pub(super) fn plane_signature(planes: &[PlaneRecord]) -> u64 {
         }
         plane.priority.hash(&mut hasher);
         plane.source_form_id.hash(&mut hasher);
+        keys.push(hasher.finish());
     }
+    keys.sort_unstable();
+    let mut hasher = rustc_hash::FxHasher::default();
+    keys.hash(&mut hasher);
     hasher.finish()
 }
 

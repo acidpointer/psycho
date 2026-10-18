@@ -386,6 +386,29 @@ fn plane_signature_changes_with_the_set() {
 }
 
 #[test]
+fn plane_signature_is_order_independent() {
+    let record = |x: f32, id: u32| PlaneRecord {
+        position: [x, id as f32, 0.0],
+        size: [100.0, 200.0],
+        rotation: PlaneRotation::Matrix([1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0]),
+        priority: 255,
+        source_form_id: id,
+    };
+    let forward = [record(1.0, 1), record(2.0, 2), record(3.0, 3)];
+    let mut reversed = forward;
+    reversed.reverse();
+    // The engine may emit the same planes in a different order after it
+    // re-links a cell's reference list; the settle comparison must not treat
+    // that as a change or the window runs to exhaustion.
+    assert_eq!(plane_signature(&forward), plane_signature(&reversed));
+
+    let moved = [record(1.0, 1), record(2.0, 2), record(9.0, 3)];
+    assert_ne!(plane_signature(&forward), plane_signature(&moved));
+    let removed = [record(1.0, 1), record(2.0, 2)];
+    assert_ne!(plane_signature(&forward), plane_signature(&removed));
+}
+
+#[test]
 fn small_boxes_produce_no_faces() {
     let mut faces = Vec::new();
     faces_from_box(&[0.0, 0.0, 0.0], &[64.0, 64.0, 64.0], &mut faces);

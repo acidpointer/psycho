@@ -498,7 +498,7 @@ occlusion_planes_runtime = true
 
 # Maximum injected occlusion planes per cell. More planes reject more work but
 # increase the native bounds-times-occluders cost. Raise in steps and measure.
-occlusion_planes_max_per_cell = 32
+occlusion_planes_max_per_cell = 64
 
 # Optional per-cell override file, relative to the game directory or absolute.
 # Cells listed here use these planes instead of runtime collection.

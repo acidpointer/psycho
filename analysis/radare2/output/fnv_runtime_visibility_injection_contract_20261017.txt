@@ -384,15 +384,15 @@ Collector admission and timing (2026-10-17)
     can move after the planes are created.
   - Planes are derived from one world-space box per opaque, unskinned geometry
     (never merged across an object), with each face shrunk to half extent
-    (`PLANE_SHRINK = 0.5`) so the camera-through-rectangle cone stays narrow.
+    (`PLANE_SHRINK = 0.6`) so the camera-through-rectangle cone stays narrow.
     A triangle-silhouette extraction was prototyped and is parked until its
     mesh list is verified in game.
   - A cell/scene change retries a bounded settle window (up to 5 retries, 20
     frames apart) because the first frame can run before the cell's references
     and their 3D are attached. A retry with an unchanged plane-set signature
     keeps the existing planes, and the window stops early once two consecutive
-    passes agree (`SETTLE_STABLE_PASSES`). Only a stable set is cached, so an
-    incomplete first pass is never reused on a revisit.
+    passes agree (`SETTLE_STABLE_PASSES`). Every generated pass is written to
+    the cache, so the latest set is always reusable even while the window runs.
 Per-frame, cache and debug findings (2026-10-18)
   - Owner log analysis: every cell change produced six full scans with
     `cached=false` and constant `raw`/`faces`, i.e. the set was regenerated six
@@ -402,6 +402,22 @@ Per-frame, cache and debug findings (2026-10-18)
     Fixes: the cache is written on every generated pass; the settle signature
     is quantized (quarter-unit positions) and hashed with `FxHasher`; the
     window stops after two identical passes.
+  - A follow-up 2026-10-18 log (00:53-01:10Z) showed the window still ran to
+    its full six scans on about half the first visits, and in 13 episodes every
+    scan statistic (refs/nodes/geoms/faces/mesh_area/rect_area) was
+    byte-identical across all six passes. Identical aggregate statistics mean
+    the same planes were emitted, so the only remaining variable was emission
+    order: the engine can re-link a cell's reference list while geometry
+    streams in, and the score sort is stable, so tied candidates keep that list
+    order. The order-sensitive hash therefore reported a change every pass.
+    Fix: `plane_signature` now hashes each plane's quantized key and sorts the
+    keys before hashing, so the fingerprint is independent of emission order.
+  - The same log showed the per-cell cap binding hard: `raw` was 32..892 faces
+    (average 370) and `injected < raw` in 143/166 passes, with `budget_stop=0`
+    (the walk was never vertex-budget limited). The default
+    `occlusion_planes_max_per_cell` was raised from 32 to 64; the eventual value
+    still needs a playtest because more admitted planes raise the native
+    bounds-times-occluders pair cost.
   - The steady-state frame compares the scene and cell pointers directly and
     only computes the cell identity hash when a pointer changes, so no hashing
     runs on a normal frame.
