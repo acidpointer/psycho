@@ -1397,7 +1397,12 @@ impl NativeSkyFrame {
             return None;
         }
         for candidate in [self.sun_light, self.sun_disk] {
-            let candidate = finite_nonnegative(candidate)?;
+            let Some(candidate) = finite_nonnegative(candidate) else {
+                // The directional and disk fields are non-authoritative
+                // candidates. A transiently uninitialized value must fall
+                // through to the next source, never remove the sun color.
+                continue;
+            };
             if peak(candidate) > MIN_SOURCE_PEAK {
                 return Some(candidate);
             }
@@ -1405,7 +1410,9 @@ impl NativeSkyFrame {
 
         let daylight = self.daylight.clamp(0.0, 1.0);
         for candidate in [self.horizon, self.sky_upper, self.sky_lower] {
-            let candidate = finite_nonnegative(candidate)?;
+            let Some(candidate) = finite_nonnegative(candidate) else {
+                continue;
+            };
             let candidate_peak = peak(candidate);
             if candidate_peak > MIN_SOURCE_PEAK {
                 return Some(candidate.map(|component| component / candidate_peak * daylight));

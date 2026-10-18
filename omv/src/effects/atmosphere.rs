@@ -701,6 +701,11 @@ pub(crate) struct AtmosphereEffect {
     _local_light_selection_started_millis: u64,
     local_light_last_update_millis: u64,
     local_light_clock_origin: Instant,
+    /// Last valid directional source. Retained across a transient native-sky
+    /// read failure until the engine proves a no-sun state (interior, night, or
+    /// underwater), so the sun light cannot hard-switch off during cell,
+    /// streaming, or weather transitions.
+    retained_directional: Option<DirectionalLight>,
     #[cfg(test)]
     local_light_test_millis: Option<u64>,
     composition_draws: u64,
@@ -1113,6 +1118,7 @@ impl AtmosphereEffect {
             _local_light_selection_started_millis: 0,
             local_light_last_update_millis: 0,
             local_light_clock_origin: Instant::now(),
+            retained_directional: None,
             #[cfg(test)]
             local_light_test_millis: None,
             composition_draws: 0,
@@ -1124,6 +1130,29 @@ impl AtmosphereEffect {
         self.local_light_tracks = [LocalLightTrack::default(); LOCAL_LIGHT_TRACK_CAPACITY];
         self.local_light_cell_identity = 0;
         self.local_light_last_update_millis = 0;
+    }
+
+    /// Resolve the directional contribution with retention across a transient
+    /// native-sky read failure. Fog and local-light state are unaffected; only
+    /// the directional source is retained.
+    fn directional_contributions(
+        &mut self,
+        frame: AtmosphereFrame,
+        settings: AtmosphereSettings,
+    ) -> AtmosphereContributions {
+        let mut contributions = resolve_contributions(frame, settings);
+        if !settings.lighting_enabled {
+            self.retained_directional = None;
+            return contributions;
+        }
+        let (light, retained) = retain_directional_light(
+            self.retained_directional,
+            contributions.light,
+            directional_source_transient(frame),
+        );
+        self.retained_directional = retained;
+        contributions.light = light;
+        contributions
     }
 
     fn resolve_local_lights(
@@ -1344,7 +1373,9 @@ impl AtmosphereEffect {
         }
         let usable_local_count = usable_local_lights.iter().flatten().count();
         let local_ready = usable_local_count != 0;
-        let integration_gate = fog_integration_gate(frame, settings, local_ready);
+        let contributions = self.directional_contributions(frame, settings);
+        let integration_gate =
+            fog_integration_gate_with(frame, settings, contributions, local_ready);
         self.log_integration_gate(integration_gate, settings, local_ready);
         if settings.debug_view == 0
             && matches!(
@@ -1370,7 +1401,6 @@ impl AtmosphereEffect {
         }
 
         self.ensure_targets(device, desc, settings.target_scale(local_ready))?;
-        let contributions = resolve_contributions(frame, settings);
         // The world-cascade occlusion source is an explicit opt-in. The shipped
         // screen-space source never touches the native four-cascade producer.
         let world_shadows = (settings.directional_occlusion
@@ -3363,6 +3393,24 @@ fn fog_integration_gate(
     settings: AtmosphereSettings,
     local_ready: bool,
 ) -> FogIntegrationGate {
+    fog_integration_gate_with(
+        frame,
+        settings,
+        resolve_contributions(frame, settings),
+        local_ready,
+    )
+}
+
+/// Gate the shared integration against the already-resolved contributions.
+///
+/// Production passes the retention-aware contributions so a transient
+/// directional outage cannot turn a retained frame into `NoReadyContribution`.
+fn fog_integration_gate_with(
+    frame: AtmosphereFrame,
+    settings: AtmosphereSettings,
+    contributions: AtmosphereContributions,
+    local_ready: bool,
+) -> FogIntegrationGate {
     if !settings.fog_enabled && !settings.lighting_enabled && !settings.local_lights_enabled {
         return FogIntegrationGate::Disabled;
     }
@@ -3387,7 +3435,7 @@ fn fog_integration_gate(
     if frame.underwater.underwater {
         return FogIntegrationGate::Underwater;
     }
-    if !resolve_contributions(frame, settings).any() && !local_ready {
+    if !contributions.any() && !local_ready {
         return FogIntegrationGate::NoReadyContribution;
     }
     FogIntegrationGate::Ready
@@ -3436,7 +3484,14 @@ pub(crate) fn atmosphere_admission(
     if !frame.material_state.is_exterior && !local_ready {
         return AtmosphereAdmission::NoVisibleContribution;
     }
-    if !resolve_contributions(frame, settings).any() && !local_ready {
+    if !resolve_contributions(frame, settings).any()
+        && !local_ready
+        && !(settings.lighting_enabled && directional_source_transient(frame))
+    {
+        // A transient native-sky outage while the independent state still says
+        // the player is outdoors may still be covered by the retained source in
+        // the draw. Proceed so the retention can decide instead of dropping the
+        // complete effect before the first draw.
         return AtmosphereAdmission::NoVisibleContribution;
     }
     AtmosphereAdmission::RequiredOrUncertain
@@ -3503,6 +3558,48 @@ fn resolve_contributions(
     }
 }
 
+/// Whether a missing directional source is a transient native-read failure.
+///
+/// A proven exterior night, interior, or underwater state is a real reason for
+/// the sun light to be absent and must never be retained. Anything else while
+/// the independent material state still reports an outdoor, non-underwater
+/// player is a transient source failure, including a sky/material disagreement
+/// after a cell change.
+fn directional_source_transient(frame: AtmosphereFrame) -> bool {
+    if !frame.material_state.exterior_known || !frame.material_state.is_exterior {
+        return false;
+    }
+    if !frame.underwater_contract_ready() || frame.underwater.underwater {
+        return false;
+    }
+    match frame.sky {
+        None => true,
+        Some(sky) => !(sky.is_exterior && sky.daylight.is_finite() && sky.daylight <= 0.001),
+    }
+}
+
+/// Retain the last valid directional source until a proven no-sun state arrives.
+///
+/// Returns the contribution to draw and the state to retain for the next frame.
+/// A valid source replaces the retained one; a proven interior/night/underwater
+/// state clears it; a transient outdoor failure reuses the previous source with
+/// no timer, so a sustained native outage cannot hard-switch the light off.
+fn retain_directional_light(
+    previous: Option<DirectionalLight>,
+    current: Option<DirectionalLight>,
+    transient: bool,
+) -> (Option<DirectionalLight>, Option<DirectionalLight>) {
+    if let Some(light) = current {
+        return (Some(light), Some(light));
+    }
+    if transient {
+        if let Some(light) = previous {
+            return (Some(light), Some(light));
+        }
+    }
+    (None, None)
+}
+
 fn base_medium_density(
     settings: AtmosphereSettings,
     contributions: AtmosphereContributions,
@@ -3558,7 +3655,9 @@ fn resolve_directional_sky_source(
         return None;
     }
     let linear_color = linearize_native_color(sky.resolved_exterior_sun_color()?)?;
-    let linear_disk = linearize_native_color(sky.sun_disk)?;
+    // A disk is optional enhancement. An invalid candidate contributes no
+    // delta instead of removing the complete directional source.
+    let linear_disk = linearize_native_color(sky.sun_disk).unwrap_or([0.0; 3]);
     let delta = std::array::from_fn(|index| (linear_disk[index] - linear_color[index]).max(0.0));
     Some((linear_color, delta))
 }
@@ -7310,17 +7409,17 @@ mod feature_tests {
     use core::ffi::c_void;
 
     use super::{
-        AtmosphereAdmission, AtmosphereDrawOutcome, AtmosphereSettings, FogCompositionGate,
-        FogIntegrationGate, atmosphere_admission, atmosphere_layer_blend, base_medium_density,
-        bounded_shaft_visibility, decode_extended_srgb, density_noise_pixels,
+        AtmosphereAdmission, AtmosphereDrawOutcome, AtmosphereSettings, DirectionalLight,
+        FogCompositionGate, FogIntegrationGate, atmosphere_admission, atmosphere_layer_blend,
+        base_medium_density, bounded_shaft_visibility, decode_extended_srgb, density_noise_pixels,
         directional_phase_response, directional_radiance, directional_scatter_amount,
-        encode_extended_srgb, fog_composition_gate, fog_integration_gate, henyey_greenstein,
-        integrated_uniform_scatter, layered_tap_weight, linearize_native_color,
-        local_light_draw_count, local_light_scissor, option_component, project_native_shadow,
-        project_sun_from_captured_camera, ray_sphere_interval, resolve_contributions,
-        resolve_directional_light, resolve_medium_color, resolve_projected_shaft_light,
-        selected_debug_view, shaft_visibility_from_blocked_fraction, union_scissor,
-        write_batched_light_constants,
+        directional_source_transient, encode_extended_srgb, fog_composition_gate,
+        fog_integration_gate, henyey_greenstein, integrated_uniform_scatter, layered_tap_weight,
+        linearize_native_color, local_light_draw_count, local_light_scissor, option_component,
+        project_native_shadow, project_sun_from_captured_camera, ray_sphere_interval,
+        resolve_contributions, resolve_directional_light, resolve_medium_color,
+        resolve_projected_shaft_light, retain_directional_light, selected_debug_view,
+        shaft_visibility_from_blocked_fraction, union_scissor, write_batched_light_constants,
     };
     use crate::{
         backend::{
@@ -7769,6 +7868,102 @@ mod feature_tests {
                 .expect("valid world-space directional scattering");
             assert!(resolve_projected_shaft_light(base).is_none());
         }
+    }
+
+    #[test]
+    fn directional_scattering_survives_an_invalid_optional_sun_candidate() {
+        let mut frame = valid_frame();
+        let mut lighting = settings();
+        lighting.fog_enabled = false;
+        lighting.lighting_enabled = true;
+
+        // Sky +0x6C/+0x78 are non-authoritative Reloaded-derived candidates.
+        // A transiently uninitialized candidate must not remove the shared sun
+        // color; the resolver has disk/horizon/sky fallbacks for exactly this.
+        let mut sky = valid_sky([0.0, 0.0, 1.0]);
+        sky.sun_light = [f32::NAN, 0.0, 0.0];
+        frame.sky = Some(sky);
+        let light = resolve_contributions(frame, lighting)
+            .light
+            .expect("an invalid candidate sun color removed the directional light");
+        assert!(light.linear_color.into_iter().all(f32::is_finite));
+
+        let mut sky = valid_sky([0.0, 0.0, 1.0]);
+        sky.sun_light = [f32::INFINITY, 0.0, 0.0];
+        sky.sun_disk = [f32::NAN, 0.0, 0.0];
+        frame.sky = Some(sky);
+        assert!(
+            resolve_contributions(frame, lighting).light.is_some(),
+            "invalid candidate colors removed the directional light instead of using the horizon fallback"
+        );
+    }
+
+    fn directional_light_fixture() -> DirectionalLight {
+        DirectionalLight {
+            world_direction: [0.0, 0.0, 1.0],
+            linear_color: [1.0, 0.9, 0.8],
+            linear_disk_delta: [0.0; 3],
+            radiance_scale: 1.0,
+            projection: crate::backend::SunProjectionFrame::default(),
+        }
+    }
+
+    #[test]
+    fn retained_directional_source_survives_a_transient_outage_and_clears_on_a_valid_state() {
+        let light = directional_light_fixture();
+
+        let (drawn, state) = retain_directional_light(None, Some(light), false);
+        assert!(drawn.is_some());
+        assert!(state.is_some());
+
+        // A transient outdoor outage reuses the source with no timer, so a
+        // sustained native outage cannot hard-switch the light off.
+        let (drawn, state) = retain_directional_light(Some(light), None, true);
+        assert!(drawn.is_some());
+        assert!(state.is_some());
+
+        // A proven non-contributing state (interior/night/underwater) clears it
+        // immediately.
+        let (drawn, state) = retain_directional_light(Some(light), None, false);
+        assert!(drawn.is_none());
+        assert!(state.is_none());
+
+        // With no previously valid source there is nothing to retain.
+        let (drawn, state) = retain_directional_light(None, None, true);
+        assert!(drawn.is_none());
+        assert!(state.is_none());
+    }
+
+    #[test]
+    fn directional_transient_detection_ignores_valid_interior_and_night_states() {
+        let mut frame = valid_frame();
+        frame.sky = None;
+        assert!(directional_source_transient(frame));
+
+        frame.material_state.is_exterior = false;
+        assert!(!directional_source_transient(frame));
+
+        let mut frame = valid_frame();
+        let mut sky = valid_sky([0.0, 0.0, 1.0]);
+        sky.daylight = 0.0;
+        frame.sky = Some(sky);
+        assert!(!directional_source_transient(frame));
+
+        let mut frame = valid_frame();
+        frame.sky = Some(valid_sky([0.0, 0.0, 1.0]));
+        assert!(directional_source_transient(frame));
+
+        // A transient sky/material disagreement is not a proven interior.
+        let mut frame = valid_frame();
+        let mut sky = valid_sky([0.0, 0.0, 1.0]);
+        sky.is_exterior = false;
+        frame.sky = Some(sky);
+        assert!(directional_source_transient(frame));
+
+        let mut frame = valid_frame();
+        frame.sky = None;
+        frame.underwater.underwater = true;
+        assert!(!directional_source_transient(frame));
     }
 
     #[test]

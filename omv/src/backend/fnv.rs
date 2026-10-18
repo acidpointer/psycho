@@ -119,8 +119,6 @@ const TESOBJECTCELL_FLAGS0_INTERIOR: u8 = 1 << 0;
 const NATIVE_SKY_READ_SIZE: usize = SKY_GAME_HOUR_OFFSET + size_of::<f32>();
 const NATIVE_SUN_READ_SIZE: usize = SKY_OBJECT_ROOT_NODE_OFFSET + size_of::<usize>();
 const NATIVE_SUN_ROOT_READ_SIZE: usize = NIAVOBJECT_LOCAL_TRANSLATION_OFFSET + 3 * size_of::<f32>();
-const NATIVE_PLAYER_READ_SIZE: usize = TESOBJECTREFR_PARENT_CELL_OFFSET + size_of::<usize>();
-const NATIVE_CELL_READ_SIZE: usize = TESOBJECTCELL_FLAGS0_OFFSET + size_of::<u8>();
 const CACHED_DAYLIGHT_TIMES_SIZE: usize =
     CACHED_SUNSET_END + size_of::<f32>() - CACHED_SUNRISE_BEGIN;
 const MAX_DEPTH_RESOLVE_LOGS: u32 = 16;
@@ -1420,29 +1418,50 @@ unsafe fn read_native_sky_frame() -> Option<NativeSkyFrame> {
     let horizon = unsafe { read_prevalidated_vec3(sky, SKY_HORIZON_COLOR_OFFSET) };
     let sun_light = unsafe { read_prevalidated_vec3(sky, SKY_SUN_DIRECTIONAL_COLOR_OFFSET) };
     let sun_disk = unsafe { read_prevalidated_vec3(sky, SKY_SUN_DISK_COLOR_OFFSET) };
-    let exterior = unsafe { read_native_player_is_exterior()? };
+    // Share the exact exterior read used by `material_state`. The previous
+    // strict duplicate could fail during a cell/streaming transition while the
+    // atmosphere's own exterior state still succeeded, which removed only the
+    // directional contribution for the duration of the transition.
+    let exterior = unsafe { read_player_is_exterior()? };
     let renderer = unsafe { read_ptr(NIDX9_RENDERER_SINGLETON_PTR)? };
     let z_clear = unsafe { read_f32(renderer as usize + NIDX9_RENDERER_Z_CLEAR_OFFSET)? };
     if !z_clear.is_finite() || !(0.0..=1.0).contains(&z_clear) {
         return None;
     }
 
-    [sky_upper, sky_lower, horizon, sun_light, sun_disk]
-        .into_iter()
-        .flatten()
-        .all(|component| component.is_finite() && (-0.01..=16.0).contains(&component))
-        .then_some(NativeSkyFrame {
-            sky_upper,
-            sky_lower,
-            horizon,
-            sun_light,
-            sun_disk,
-            sun_direction,
-            daylight: daylight.clamp(0.0, 1.0),
-            game_hour,
-            is_exterior: exterior,
-            reversed_depth: z_clear < 1.0,
-        })
+    // Color fields are not all authoritative. The directional and disk sun
+    // values are Reloaded-derived candidates and can be transiently
+    // uninitialized during cell, weather, or time transitions. Rejecting the
+    // whole frame for them removed the directional light until the next
+    // update. Sanitize each field and let `resolved_exterior_sun_color` apply
+    // its documented fallbacks instead.
+    Some(NativeSkyFrame {
+        sky_upper: sanitize_native_color(sky_upper),
+        sky_lower: sanitize_native_color(sky_lower),
+        horizon: sanitize_native_color(horizon),
+        sun_light: sanitize_native_color(sun_light),
+        sun_disk: sanitize_native_color(sun_disk),
+        sun_direction,
+        daylight: daylight.clamp(0.0, 1.0),
+        game_hour,
+        is_exterior: exterior,
+        reversed_depth: z_clear < 1.0,
+    })
+}
+
+/// Clamp one native sky color to a finite, physically bounded value.
+///
+/// Invalid optional values are neutralized instead of rejecting the complete
+/// sky frame. The mandatory direction, daylight, exterior, and depth state
+/// remain strict.
+fn sanitize_native_color(color: [f32; 3]) -> [f32; 3] {
+    color.map(|component| {
+        if component.is_finite() {
+            component.clamp(0.0, 16.0)
+        } else {
+            0.0
+        }
+    })
 }
 
 unsafe fn validate_object(object: *mut u8, size: usize) -> Option<()> {
@@ -1515,15 +1534,6 @@ unsafe fn read_prevalidated_climate_daylight_times(sky: *mut u8) -> Option<Dayli
         unsafe { read_prevalidated::<u8>(climate, CLIMATE_SUN_TIME_BYTES_OFFSET + 3) } as f32
             / divisor,
     )
-}
-
-unsafe fn read_native_player_is_exterior() -> Option<bool> {
-    let player = unsafe { read_ptr(PLAYER_CHARACTER_PTR)? };
-    unsafe { validate_object(player, NATIVE_PLAYER_READ_SIZE)? };
-    let cell = unsafe { read_prevalidated_ptr(player, TESOBJECTREFR_PARENT_CELL_OFFSET) };
-    unsafe { validate_object(cell, NATIVE_CELL_READ_SIZE)? };
-    let flags = unsafe { read_prevalidated::<u8>(cell, TESOBJECTCELL_FLAGS0_OFFSET) };
-    Some((flags & TESOBJECTCELL_FLAGS0_INTERIOR) == 0)
 }
 
 unsafe fn read_native_player_third_person_view() -> Option<bool> {

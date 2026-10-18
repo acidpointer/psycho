@@ -38,6 +38,60 @@ FPS loss is a runtime observation and this change makes no FPS claim. The world
 cascade god-ray appearance and screen-space fallback appearance were not run in
 game.
 
+## Directional source availability (2026-10-18)
+
+Root cause of the owner-reported temporary "directional sun light off while the
+toggle is on", reproduced in both the pre-screen-space world-field era and the
+current `screen_space` source: the directional contribution is a fail-closed
+`Option` chain with no retention. `resolve_directional_scattering` requires a
+`NativeSkyFrame`, and `read_native_sky_frame` returned `None` for the entire
+frame if any one independent native read failed. Options removed by that gate
+include the sun node/direction, daylight times, the player-cell exterior read,
+the renderer depth-clear value, and all five sky colors. Any transient failure
+therefore removed the complete directional term until the next successful read,
+while the separate fog/environment path could keep rendering.
+
+Three defects were corrected:
+
+- The directional and disk sun colors (`Sky +0x6C/+0x78`) are documented
+  Reloaded-derived candidates, yet `read_native_sky_frame` treated them as
+  mandatory and rejected the whole frame when one was momentarily uninitialized.
+  They are now sanitized to a finite bounded value; the mandatory direction,
+  daylight, exterior, and depth state stay strict.
+- `resolved_exterior_sun_color` aborted on the first non-finite candidate
+  instead of falling through to the next source. Invalid candidates are now
+  skipped; an invalid disk contributes no delta instead of removing the sun.
+- The sky frame re-read the player-cell exterior state with a strict duplicate
+  while the atmosphere's `material_state` used the lenient read. The sky frame
+  now shares the exact `material_state` read, so the two cannot disagree during
+  a cell/streaming transition.
+
+A retention now preserves the last valid directional source across a transient
+native-sky failure with no timer: it holds until the engine proves a no-sun
+state. It applies only when the independent material state still reports an
+outdoor, non-underwater player and the sky was either unavailable or did not
+prove an exterior night; a proven interior, night, or underwater state clears the
+contribution immediately. Holding the last observed sun is the least-wrong
+answer while the engine cannot report the current one, and it removes the
+remaining on/off that a fixed grace window left behind when the native outage
+outlasted it. Fog and local-light state are unaffected. The retention is pure CPU
+state; it adds no hook, worker, TLS, lock, allocation, or engine read.
+
+Offline regressions:
+`directional_scattering_survives_an_invalid_optional_sun_candidate` fails on the
+previous resolver and passes after the fall-through;
+`retained_directional_source_survives_a_transient_outage_and_clears_on_a_valid_state`
+and `directional_transient_detection_ignores_valid_interior_and_night_states`
+cover the bounded retention and its clearing conditions.
+
+Open research item, not changed: the direction source reads the candidate root's
+local translation (`Sun-root + 0x58`) and normalizes it, while the
+executable-proven vanilla sun path reads the vtable-slot-`+0x4` root's world
+translation (`+0x8C`) and projects it against the camera. If a transient zero or
+stale local transform is the actual trigger, switching to the proven
+world-translation contract is the follow-up; it needs the same run-time evidence
+as the original report.
+
 ## Opacity contract and per-frame work
 
 The world-shadow field's 8/12/20-step budget now follows Shaft Quality
