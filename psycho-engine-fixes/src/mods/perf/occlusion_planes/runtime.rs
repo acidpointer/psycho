@@ -2,9 +2,12 @@
 //!
 //! Planes are created through the engine's own authored `XOCP` path, retained
 //! once, appended to the scene-graph occluder list, and removed and released
-//! when the cell or scene graph changes. Created planes are one-sided: the
-//! constructor's two-sided flag is cleared so `0x00C358A0` activates a plane
-//! only while the camera is on its outward side. All work runs on the xNVSE
+//! when the cell or scene graph changes. A plane whose support rectangle nearly
+//! fills its vertex hull on a thick (solid-volume) mesh keeps the constructor's
+//! two-sided window (`+0xEA = 1`), matching the engine's authored
+//! `BSOcclusionPlane`; an irregular, thin-panel or partly open face stays
+//! one-sided so `0x00C358A0` activates it only while the camera is on its
+//! outward side. All work runs on the xNVSE
 //! event thread. The per-frame path compares two atomics and returns
 //! immediately on an unchanged cell; allocation, list scans, generation and
 //! logging happen only on a transition.
@@ -548,16 +551,22 @@ fn save_cache() {
     let (Some(cache), Some(path)) = (CACHE.get(), CACHE_PATH.get()) else {
         return;
     };
-    let mut cache = cache.lock();
-    if !cache.is_dirty() {
+    let (snapshot, cells) = {
+        let mut guard = cache.lock();
+        let cells = guard.cell_count();
+        (guard.take_snapshot(), cells)
+    };
+    let Some(bytes) = snapshot else {
         return;
-    }
-    match cache.save(path) {
-        Ok(()) => log::debug!(
-            "[OCCLUSION_PLANES] cache saved cells={}",
-            cache.cell_count()
-        ),
-        Err(error) => log::warn!("[OCCLUSION_PLANES] cache save failed: {error}"),
+    };
+    match cache::PlaneCache::write_snapshot(path, &bytes, 0) {
+        Ok(()) => log::debug!("[OCCLUSION_PLANES] cache saved cells={cells}"),
+        Err(error) => {
+            // Restore the dirty flag so the failed write is retried on the next
+            // debounce instead of losing the generated set.
+            cache.lock().mark_dirty();
+            log::warn!("[OCCLUSION_PLANES] cache save failed: {error}");
+        }
     }
 }
 
@@ -611,6 +620,10 @@ pub(super) fn plane_key(plane: &PlaneRecord) -> u64 {
     }
     plane.priority.hash(&mut hasher);
     plane.source_form_id.hash(&mut hasher);
+    // Coverage decides the native side flag, so a change must force a recreate
+    // instead of reusing the existing plane. Quantize it so sub-percent
+    // generation jitter cannot churn the native list.
+    ((plane.coverage * 64.0).round() as i32).hash(&mut hasher);
     hasher.finish()
 }
 
@@ -786,6 +799,12 @@ unsafe fn reconcile(
     }
     let reused = next.len().saturating_sub(created);
     let removed = previous_count.saturating_sub(reused);
+    // How many injected planes kept the engine's two-sided window. The next
+    // playtest can compare this with the engine-admitted `active` count.
+    let two_sided = injected
+        .iter()
+        .filter(|plane| plane.coverage >= runtime_generate::TWO_SIDED_COVERAGE)
+        .count();
     if injected.len() < planes.len() {
         // An allocation failed; keep the bounded settle window alive so the
         // missing plane is retried instead of being silently absent.
@@ -814,7 +833,7 @@ unsafe fn reconcile(
             .unwrap_or((0.0, 0.0, 0.0));
         log::debug!(
             "[OCCLUSION_PLANES] cell key={} candidates={} raw={} injected={} reused={} \
-             removed={} cap={} cached={} complete={} gen_ms={:.1} \
+             removed={} cap={} two_sided={} cached={} complete={} gen_ms={:.1} \
              obs=[{:.0},{:.0},{:.0}]",
             cell_key_log(&key),
             planes.len(),
@@ -823,6 +842,7 @@ unsafe fn reconcile(
             reused,
             removed,
             max,
+            two_sided,
             from_cache,
             !settle_needed,
             generate_ms,
@@ -845,6 +865,7 @@ fn cached_to_records(cached: &[CachedPlane]) -> Vec<PlaneRecord> {
             rotation: plane.rotation,
             priority: plane.priority,
             source_form_id: plane.source_form_id,
+            coverage: plane.coverage,
         })
         .collect()
 }
@@ -857,6 +878,7 @@ fn record_to_cached(record: &PlaneRecord) -> CachedPlane {
         rotation: record.rotation,
         priority: record.priority,
         source_form_id: record.source_form_id,
+        coverage: record.coverage,
     }
 }
 
@@ -965,10 +987,15 @@ unsafe fn create_plane(fns: &EngineFns, record: &PlaneRecord) -> Option<*mut c_v
         (fns.set_size)(plane, size.as_ptr());
         (fns.set_position)(plane, record.position.as_ptr());
         (fns.set_rotation)(plane, record.rotation.as_ptr());
-        // The constructor marks the plane two-sided. Clear that flag after the
-        // setters so `0x00C358A0` runs its camera-side test every frame and
-        // activates the rectangle only from the face's outward side.
-        write_u8_at(plane, PLANE_SIDE_FLAG, 0);
+        // The engine's authored `BSOcclusionPlane` constructor leaves `+0xEA`
+        // set, which makes `0x00C358A0` a two-sided window: a solid face
+        // occludes the camera-through-rectangle pyramid from both sides. Only a
+        // face whose support rectangle nearly fills its vertex hull is trusted
+        // as solid enough for that; an irregular or partly open face stays
+        // one-sided, so `0x00C358A0` runs the engine's camera-side test and the
+        // plane is active only from its outward side.
+        let two_sided = record.coverage >= runtime_generate::TWO_SIDED_COVERAGE;
+        write_u8_at(plane, PLANE_SIDE_FLAG, u8::from(two_sided));
     }
     Some(plane)
 }

@@ -31,11 +31,11 @@ const MAGIC: [u8; 4] = *b"PSOC";
 /// Cache schema and generator semantics version. Bump it whenever the
 /// generated plane set would change for the same meshes, so an updated DLL
 /// never reuses planes produced by older extraction logic.
-const FORMAT_VERSION: u32 = 6;
+const FORMAT_VERSION: u32 = 8;
 /// magic + version + signature; the entry count is read by `Reader`.
 const HEADER_LEN: usize = 4 + 4 + 8;
-/// position(12) + size(8) + rotation(36) + priority(1) + source(4)
-const PLANE_LEN: usize = 3 * 4 + 2 * 4 + 9 * 4 + 1 + 4;
+/// position(12) + size(8) + rotation(36) + priority(1) + source(4) + coverage(4)
+const PLANE_LEN: usize = 3 * 4 + 2 * 4 + 9 * 4 + 1 + 4 + 4;
 /// Sanity bound for a cached plane list, so a corrupt file cannot allocate
 /// without limit.
 const MAX_PLANES_PER_CELL: usize = 4096;
@@ -49,6 +49,7 @@ pub(super) struct CachedPlane {
     pub(super) rotation: [f32; 9],
     pub(super) priority: u8,
     pub(super) source_form_id: u32,
+    pub(super) coverage: f32,
 }
 
 /// Cached planes for one cell plus whether generation settled.
@@ -101,8 +102,36 @@ impl PlaneCache {
         }
     }
 
-    pub(super) fn is_dirty(&self) -> bool {
-        self.dirty
+    /// Re-mark the cache dirty after a snapshot failed to persist, so the next
+    /// debounce retries the write instead of silently dropping it.
+    pub(super) fn mark_dirty(&mut self) {
+        self.dirty = true;
+    }
+
+    /// Take the serialized cache and clear the dirty flag. Returns `None` when
+    /// there is nothing new to write. The caller owns the bytes.
+    pub(super) fn take_snapshot(&mut self) -> Option<Vec<u8>> {
+        if !self.dirty {
+            return None;
+        }
+        self.dirty = false;
+        Some(self.serialize())
+    }
+
+    /// Write a snapshot through a temporary file so a crash cannot leave a
+    /// half-written cache behind. `seq` keeps concurrent writers from sharing
+    /// the same temporary name.
+    pub(super) fn write_snapshot(path: &str, bytes: &[u8], seq: u64) -> std::io::Result<()> {
+        if path.is_empty() {
+            return Ok(());
+        }
+        let temporary = format!("{path}.{seq}.tmp");
+        fs::write(&temporary, bytes)?;
+        let result = fs::rename(&temporary, Path::new(path));
+        if result.is_err() {
+            let _ = fs::remove_file(&temporary);
+        }
+        result
     }
 
     /// Load a cache file. Any magic, version, signature or parse mismatch
@@ -115,20 +144,6 @@ impl PlaneCache {
             return Self::empty(signature);
         };
         Self::deserialize(&bytes, signature).unwrap_or_else(|| Self::empty(signature))
-    }
-
-    /// Persist the cache. The write goes through a temporary file so a crash
-    /// cannot leave a half-written cache behind.
-    pub(super) fn save(&mut self, path: &str) -> std::io::Result<()> {
-        if path.is_empty() {
-            return Ok(());
-        }
-        let bytes = self.serialize();
-        let temporary = format!("{path}.tmp");
-        fs::write(&temporary, &bytes)?;
-        fs::rename(&temporary, Path::new(path))?;
-        self.dirty = false;
-        Ok(())
     }
 
     fn serialize(&self) -> Vec<u8> {
@@ -164,6 +179,7 @@ impl PlaneCache {
                 }
                 out.push(plane.priority);
                 out.extend_from_slice(&plane.source_form_id.to_le_bytes());
+                out.extend_from_slice(&plane.coverage.to_le_bytes());
             }
         }
         out
@@ -219,12 +235,14 @@ impl PlaneCache {
                 }
                 let priority = reader.u8()?;
                 let source_form_id = reader.u32()?;
+                let coverage = reader.f32()?;
                 planes.push(CachedPlane {
                     position,
                     size,
                     rotation,
                     priority,
                     source_form_id,
+                    coverage,
                 });
             }
             cells.insert(key, CacheEntry { planes, complete });
@@ -315,7 +333,14 @@ fn hash_name(mut hash: u64, info: *mut core::ffi::c_void) -> u64 {
 /// Fold generation-affecting configuration into the cache signature, so
 /// changing the per-cell cap discards cached sets generated under the old cap.
 pub(super) fn config_signature(base: u64, max_per_cell: usize) -> u64 {
-    mix(base, max_per_cell as u32)
+    let hash = mix(base, max_per_cell as u32);
+    let generation = super::runtime_generate::generation_signature();
+    let mut hash = hash;
+    for byte in generation.to_le_bytes() {
+        hash ^= u64::from(byte);
+        hash = hash.wrapping_mul(0x100_0000_01b3);
+    }
+    hash
 }
 
 fn mix(mut hash: u64, value: u32) -> u64 {
@@ -337,6 +362,7 @@ mod tests {
             rotation: [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0],
             priority: 200,
             source_form_id: 0x000A_1234,
+            coverage: 0.75,
         }
     }
 

@@ -33,4 +33,9 @@ pub struct PlaneRecord {
     /// `TESForm::refID` of the base form this plane was generated from, used to
     /// bind a cached plane to its source plugin.
     pub source_form_id: u32,
+    /// Side confidence of the source face (`0.0..=1.0`). High values mean the
+    /// rectangle fills a solid, well-shaped, thick face and can use two-sided
+    /// activation; a low value (an irregular or thin-panel face) keeps the
+    /// conservative one-sided behavior.
+    pub coverage: f32,
 }

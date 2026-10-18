@@ -218,6 +218,50 @@ fn vertical_box_faces_are_oriented_and_supported() {
 }
 
 #[test]
+fn thin_panel_faces_stay_one_sided() {
+    // A flat facade quad is only a few units thick. Its large faces fill their
+    // support rectangle, but the mesh can be a one-sided panel whose back is
+    // invisible, so they must report zero side confidence and keep the
+    // conservative one-sided activation.
+    let thin = Aabb {
+        min: [-2.0, -500.0, -500.0],
+        max: [2.0, 500.0, 500.0],
+    };
+    let mut faces = Vec::new();
+    oriented_faces(
+        &thin,
+        &identity_world([0.0; 3], 1.0),
+        &box_vertices(&thin),
+        &mut faces,
+    );
+    assert!(!faces.is_empty(), "the two large faces are emitted");
+    for (_, plane) in &faces {
+        assert_eq!(plane.coverage, 0.0, "a thin panel face must stay one-sided");
+    }
+
+    // A solid volume face keeps its support coverage so it can use the
+    // engine's two-sided window.
+    let solid = Aabb {
+        min: [-500.0, -500.0, -500.0],
+        max: [500.0, 500.0, 500.0],
+    };
+    let mut faces = Vec::new();
+    oriented_faces(
+        &solid,
+        &identity_world([0.0; 3], 1.0),
+        &box_vertices(&solid),
+        &mut faces,
+    );
+    assert!(!faces.is_empty());
+    assert!(
+        faces
+            .iter()
+            .all(|(_, plane)| plane.coverage >= super::runtime_generate::TWO_SIDED_COVERAGE),
+        "a solid volume face keeps its two-sided eligibility"
+    );
+}
+
+#[test]
 fn rotated_box_faces_follow_the_box_not_the_world_aabb() {
     let local = Aabb {
         min: [-500.0, -250.0, -150.0],
@@ -397,6 +441,7 @@ fn engine_camera_side_contract_matches_the_outward_normal() {
         ],
         priority: 255,
         source_form_id: 0,
+        coverage: 0.0,
     };
     let (t, n, b) = plane_basis(&plane);
     let half = native_size(plane.size);
@@ -493,6 +538,7 @@ fn plane_signature_changes_with_the_set() {
         rotation: [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0],
         priority: 255,
         source_form_id: 0,
+        coverage: 1.0,
     };
     let first = [record(1.0)];
     let same = [record(1.0)];
@@ -511,6 +557,7 @@ fn plane_signature_is_order_independent() {
         rotation: [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0],
         priority: 255,
         source_form_id: id,
+        coverage: 1.0,
     };
     let forward = [record(1.0, 1), record(2.0, 2), record(3.0, 3)];
     let mut reversed = forward;
@@ -576,6 +623,27 @@ fn support_rect_keeps_the_centered_face_when_it_fits() {
     assert!((rect.center_v - 500.0).abs() < 0.01);
     assert!((rect.half_u - 500.0).abs() < 0.01);
     assert!((rect.half_v - 500.0).abs() < 0.01);
+    // A rectangle that fills its hull is trusted as a solid, two-sided window.
+    assert!(
+        rect.coverage >= super::runtime_generate::TWO_SIDED_COVERAGE,
+        "a full square face must reach two-sided coverage, got {}",
+        rect.coverage
+    );
+}
+
+#[test]
+fn triangular_face_stays_one_sided() {
+    // A triangular face cannot be filled by an axis-aligned rectangle, so its
+    // support coverage stays low and it must keep the conservative one-sided
+    // activation instead of becoming a two-sided window.
+    let vertices = vec![[0.0f32, 0.0, 0.0], [0.0, 1000.0, 0.0], [0.0, 0.0, 1000.0]];
+    let rect = support_rect_test(&vertices, 0, 0.0, 1000.0, 500.0, 500.0, 500.0, 500.0)
+        .expect("triangular support exists");
+    assert!(
+        rect.coverage < super::runtime_generate::TWO_SIDED_COVERAGE,
+        "a triangular face must stay one-sided, got coverage {}",
+        rect.coverage
+    );
 }
 
 #[test]
@@ -643,6 +711,7 @@ fn merge_plane(position: [f32; 3], size: [f32; 2]) -> PlaneRecord {
         rotation: [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0],
         priority: 255,
         source_form_id: 7,
+        coverage: 1.0,
     }
 }
 

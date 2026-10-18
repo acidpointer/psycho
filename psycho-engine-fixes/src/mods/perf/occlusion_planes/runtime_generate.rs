@@ -12,12 +12,14 @@
 //! outside the mesh, so geometry without readable vertices is skipped. No
 //! offline data and no authored `OBND` are required.
 //!
-//! Injected planes are one-sided: `+0xEA` is cleared after construction so the
-//! engine's own camera-side test rejects a plane whenever the camera is behind
-//! its face. Horizontal faces (ground and roofs) are skipped, and a face whose
-//! support hull cannot contain a useful rectangle is rejected. Coplanar
-//! rectangles that share a full edge are merged into their rectangular union,
-//! which culls more per plane without covering empty space.
+//! A face whose support rectangle nearly fills its vertex hull is trusted as
+//! solid and keeps the engine's two-sided window (`+0xEA = 1`); a lower
+//! coverage face stays one-sided, so the engine's own camera-side test rejects
+//! it whenever the camera is behind its face. Horizontal faces (ground and
+//! roofs) are skipped, and a face whose support hull cannot contain a useful
+//! rectangle is rejected. Coplanar rectangles that share a full edge are merged
+//! into their rectangular union, which culls more per plane without covering
+//! empty space.
 //!
 //! This is still a heuristic. A convex hull around a concave mesh can over-cover
 //! empty space, so planes are shrunk, only large geometry is kept, the per-cell
@@ -75,7 +77,49 @@ const MIN_SUPPORT_SCALE: f32 = 0.05;
 /// World-space normal magnitude above which a face is treated as horizontal
 /// ground/roof and skipped. Vertical walls have a normal Z near zero.
 const MAX_HORIZONTAL_NORMAL: f32 = 0.8;
+/// Support coverage at or above which a face is trusted as solid enough for the
+/// engine's two-sided window (`+0xEA = 1`). A rectangle that nearly fills its
+/// vertex hull is a well-shaped solid face; a lower value keeps the
+/// conservative one-sided activation.
+pub(super) const TWO_SIDED_COVERAGE: f32 = 0.9;
+/// World-space thickness of a face's mesh along its own normal below which the
+/// mesh is treated as a thin panel (a decal, a facade quad or a one-sided
+/// billboard) instead of a solid volume. Such a mesh may be rendered one-sided,
+/// so its back side can be invisible; the face keeps the conservative one-sided
+/// activation even when its support coverage is high.
+const MIN_FACE_THICKNESS: f32 = 16.0;
 const OUTWARD_OFFSET: f32 = 2.0;
+
+/// Fingerprint of the generation constants. Mixed into the cache signature so
+/// any change to extraction or merge semantics invalidates cached planes
+/// automatically, even when the manual format version is not bumped.
+pub(super) fn generation_signature() -> u64 {
+    let mut hash = 0xcbf2_9ce4_8422_2325u64;
+    let values = [
+        PLANE_SHRINK,
+        MIN_FACE_EXTENT,
+        MIN_BOX_EXTENT,
+        MAX_BOX_EXTENT,
+        MIN_SUPPORT_SCALE,
+        SUPPORT_TOLERANCE_RATIO,
+        SUPPORT_TOLERANCE_MIN,
+        MAX_HORIZONTAL_NORMAL,
+        TWO_SIDED_COVERAGE,
+        MIN_FACE_THICKNESS,
+        MERGE_OFFSET_TOLERANCE,
+        MERGE_GAP_TOLERANCE,
+        MERGE_GROUP_TOLERANCE,
+        MERGE_AXIS_TOLERANCE,
+    ];
+    for value in values {
+        for byte in value.to_bits().to_le_bytes() {
+            hash ^= u64::from(byte);
+            hash = hash.wrapping_mul(0x100_0000_01b3);
+        }
+    }
+    hash ^= SUPPORT_GRID as u64;
+    hash.wrapping_mul(0x100_0000_01b3)
+}
 
 /// One axis-aligned box in a geometry's local space.
 #[derive(Clone, Copy, Debug)]
@@ -219,8 +263,11 @@ pub(super) fn generate(
     // Merge coplanar adjacent rectangles before scoring and capping. Two
     // support-validated rectangles that share a full edge have a rectangular
     // union, so the merged rectangle cannot cover empty space, and it culls
-    // more bounds per plane while reducing the pair cost.
+    // more bounds per plane while reducing the pair cost. The merge is the
+    // quadratic step, so its time is reported to target any future cost work.
+    let merge_started = std::time::Instant::now();
     merge_coplanar(&mut candidates);
+    let merge_ms = merge_started.elapsed().as_secs_f32() * 1000.0;
 
     // Distance filter and score against the observer after merging, so the
     // merged center is the one that is scored.
@@ -269,7 +316,7 @@ pub(super) fn generate(
              render_null={} node_null={} radius={} nodes={} geoms={} skinned={} alpha={} \
              no_vertices={} size={} horizontal={} support={} small={} distance={} \
              dist_max={:.0} budget_stop={} faces={} mesh_area={:.0} rect_area={:.0} \
-             cap_drop={:.0}",
+             cap_drop={:.0} merge_ms={:.1}",
             stats.refs,
             stats.parent_mismatch,
             stats.base_null,
@@ -293,6 +340,7 @@ pub(super) fn generate(
             stats.mesh_area,
             stats.rect_area,
             stats.cap_drop_area,
+            merge_ms,
         );
     }
     (
@@ -788,6 +836,16 @@ pub(super) fn faces_from_oriented_box(
                 rejects.small += 1;
                 continue;
             }
+            // A face on a thin mesh is not a solid-volume face: the mesh may be
+            // a one-sided panel whose back is invisible, so the engine's
+            // two-sided window could false-cull from behind it. Report zero side
+            // confidence for such a face to keep the one-sided activation.
+            let thickness = extents[axis] * world_scale;
+            let side_confidence = if thickness >= MIN_FACE_THICKNESS {
+                rect.coverage
+            } else {
+                0.0
+            };
             let mut local_face_center = center;
             local_face_center[axis] = face_coord;
             local_face_center[tangent_a] = rect.center_u;
@@ -818,6 +876,7 @@ pub(super) fn faces_from_oriented_box(
                     priority: 255,
                     // Filled in by the caller from the reference's base form.
                     source_form_id: 0,
+                    coverage: side_confidence,
                 },
             ));
         }
@@ -829,7 +888,10 @@ pub(super) fn faces_from_oriented_box(
 /// Two support-validated rectangles that share a full edge have a rectangular
 /// union, so the merged rectangle stays inside the union of two solid-backed
 /// rectangles and cannot cover empty space.
-const MERGE_PLANE_TOLERANCE: f32 = 1.0;
+const MERGE_OFFSET_TOLERANCE: f32 = 1.0;
+/// In-plane gap allowed when the union is still a rectangle. Kept small so the
+/// merged rectangle cannot bridge a real opening.
+const MERGE_GAP_TOLERANCE: f32 = 1.0;
 /// Grouping tolerance: puts near-parallel faces in the same candidate bucket.
 const MERGE_GROUP_TOLERANCE: f32 = 0.999;
 /// Actual merge tolerance: only nearly identical normals and axes merge, so a
@@ -944,7 +1006,7 @@ fn rect2(plane: &PlaneRecord, tangent: [f32; 3], bitangent: [f32; 3]) -> Rect2 {
 /// Rectangular union of two in-plane rectangles, or `None` when the union would
 /// not be a rectangle.
 fn union_rect(a: Rect2, b: Rect2) -> Option<Rect2> {
-    let tol = MERGE_PLANE_TOLERANCE;
+    let tol = MERGE_GAP_TOLERANCE;
     let contains = |outer: Rect2, inner: Rect2| {
         outer.u_min <= inner.u_min + tol
             && outer.u_max >= inner.u_max - tol
@@ -994,7 +1056,7 @@ fn merge_rect(a: &PlaneRecord, b: &PlaneRecord) -> Option<PlaneRecord> {
     }
     let offset_a = dot3(normal_a, a.position);
     let offset_b = dot3(normal_a, b.position);
-    if (offset_a - offset_b).abs() > MERGE_PLANE_TOLERANCE {
+    if (offset_a - offset_b).abs() > MERGE_OFFSET_TOLERANCE {
         return None;
     }
     let direct = dot3(tangent_a, tangent_b).abs() > MERGE_AXIS_TOLERANCE
@@ -1025,6 +1087,9 @@ fn merge_rect(a: &PlaneRecord, b: &PlaneRecord) -> Option<PlaneRecord> {
         rotation: a.rotation,
         priority: a.priority.max(b.priority),
         source_form_id: a.source_form_id,
+        // Inherit the lower confidence so a merged plane never becomes
+        // two-sided because one of its sources was well shaped.
+        coverage: a.coverage.min(b.coverage),
     })
 }
 
@@ -1035,6 +1100,10 @@ pub(super) struct SupportRect {
     pub(super) center_v: f32,
     pub(super) half_u: f32,
     pub(super) half_v: f32,
+    /// Rectangle area divided by the support hull area, before `PLANE_SHRINK`.
+    /// High values mean the rectangle fills a solid, well-shaped face; low
+    /// values mean the hull is much larger than the safe rectangle.
+    pub(super) coverage: f32,
 }
 
 /// Find the largest axis-aligned rectangle backed by vertices near the face.
@@ -1108,6 +1177,7 @@ pub(super) fn support_rect(
             center_v,
             half_u: half_u_param * low,
             half_v: half_v_param * low,
+            coverage: 0.0,
         })
     } else {
         None
@@ -1140,7 +1210,29 @@ pub(super) fn support_rect(
     {
         return None;
     }
+    let hull_area = polygon_area(hull);
+    let rectangle_area = 4.0 * best.half_u * best.half_v;
+    let mut best = best;
+    best.coverage = if hull_area > 0.0 {
+        (rectangle_area / hull_area).clamp(0.0, 1.0)
+    } else {
+        0.0
+    };
     Some(best)
+}
+
+/// Absolute area of a convex polygon in counter-clockwise order.
+fn polygon_area(polygon: &[[f32; 2]]) -> f32 {
+    if polygon.len() < 3 {
+        return 0.0;
+    }
+    let mut sum = 0.0f32;
+    for index in 0..polygon.len() {
+        let a = polygon[index];
+        let b = polygon[(index + 1) % polygon.len()];
+        sum += a[0] * b[1] - b[0] * a[1];
+    }
+    (sum * 0.5).abs()
 }
 
 /// Convert the largest grid rectangle inside the hull into face-local bounds.
@@ -1163,6 +1255,7 @@ fn grid_support_rect(hull: &[[f32; 2]]) -> Option<SupportRect> {
         center_v: (v0 + v1) * 0.5,
         half_u,
         half_v,
+        coverage: 0.0,
     })
 }
 

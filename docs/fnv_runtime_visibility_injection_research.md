@@ -239,8 +239,11 @@ objects, checks their loaded geometry for transparency and skinning, and
 derives one conservative oriented box per opaque, unskinned geometry from its
 uncompressed vertices and live world transform. Each face is fitted inside the
 vertices that support it, horizontal ground/roof faces are skipped, and the
-resulting plane is one-sided so the engine's camera-side test rejects it from
-behind. A silhouette-accurate `NiTriShapeData` extraction was prototyped but is
+resulting plane keeps the engine's two-sided window only when its support
+rectangle nearly fills the face's vertex hull and the mesh is thick enough along
+that normal to be a solid volume, otherwise it stays one-sided so the engine's
+camera-side test rejects it from behind. A silhouette-accurate
+`NiTriShapeData` extraction was prototyped but is
 parked until that in-memory triangle list is verified in game. Geometry with
 compressed vertices is skipped rather than approximated from a sphere bound.
 Candidates are filtered by size and observer distance and weighted so nearby,
@@ -443,11 +446,14 @@ production change. This document is research, not an implementation.
   entries `0x0040F6E0`/`0x00401970` are not called because performance mods
   commonly replace them in place with equivalent inlined atomics.
 - **Orientation is now a per-plane contract.** `0x00C358A0` short-circuits true
-  when the constructor's `+0xEA` flag is set. The runtime clears that flag, so
-  `0x00C358A0` runs the plane-through-three-corners side test and activates the
-  rectangle only when the camera is on its outward (+normal) side. A plane is
-  still a window whose occluded volume is the camera-through-rectangle pyramid;
-  the normal selects the active side. The owner's visual check remains required.
+  when the constructor's `+0xEA` flag is set, which is the authored
+  `BSOcclusionPlane` behavior. The runtime keeps that flag for a face whose
+  support coverage is at least `TWO_SIDED_COVERAGE` and clears it otherwise; with
+  the flag clear, `0x00C358A0` runs the plane-through-three-corners side test and
+  activates the rectangle only when the camera is on its outward (+normal) side.
+  A plane is a window whose occluded volume is the camera-through-rectangle
+  pyramid; the normal selects the active side when the flag is clear. The owner's
+  visual check remains required.
 - **Lifecycle anchors are closed.** The scene graph is `owner + 0x1E0` with
   `owner = *0x011F91C8`; the current cell is `*(player + 0x40)` with
   `player = *0x011DEA3C`; cell/interior/grid/worldspace offsets are known; the

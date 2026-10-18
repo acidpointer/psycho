@@ -5,7 +5,9 @@ occluder collection implemented and enabled by default; in-game qualification
 is not done. The collector accepts only uncompressed vertex data, builds each
 geometry's box in local space and orients the faces by the live world transform,
 fits every rectangle inside the vertices that support that face, skips
-horizontal ground/roof faces, and emits one-sided planes. Planes are scored by
+horizontal ground/roof faces, and keeps the engine's two-sided window only for
+faces whose support rectangle nearly fills their vertex hull (an irregular face
+stays one-sided). Planes are scored by
 supported solid angle and cached per cell. Installing, removing, reordering or
 updating a mod invalidates the cache through the plugin-list signature. This is
 a heuristic and needs the owner's in-game visual check. No game run and no FPS
@@ -100,16 +102,22 @@ face normal into the rectangle's local Z axis and made the plane edge-on.
 `0x00C33870` builds the camera-dependent frustum from the camera and those
 corners and has separate code paths for the camera being on either side of the
 rectangle. `0x00C358A0` short-circuits to true when the constructor's `+0xEA`
-flag is set, which it is for planes created through `0x00C335D0`. The runtime
-clears `+0xEA` after construction, so `0x00C358A0` runs the side test:
+flag is set, which it is for planes created through `0x00C335D0`; the authored
+`XOCP` planes therefore behave as two-sided windows. The runtime keeps that flag
+for a face whose support rectangle covers at least `TWO_SIDED_COVERAGE` (0.9) of
+its vertex hull **and** whose mesh is at least `MIN_FACE_THICKNESS` (16 units)
+thick along that face's normal, and clears it otherwise. The thickness
+condition excludes thin panels, decals and one-sided facade quads whose back
+side may be invisible, where a two-sided window could false-cull from behind.
+With the flag clear, `0x00C358A0` then runs the side test:
 `0x00C35C10` produces `p0 = +A+B`, `p1 = +A-B`, `p2 = -A-B`, `0x00A699D0`
 computes `(p1-p0) x (p2-p1)` (the stored local +Y column), and `0x0049DA80`
 activates the plane when the camera is on that plane's negative side. The
 builder therefore stores the inverse of the geometric outward normal so the
-rectangle activates only while the camera is outside the solid face. The
-occluded volume is still the pyramid from the camera through the rectangle; the
-stored normal selects the active side. The owner's visual check remains
-required.
+one-sided path activates only while the camera is outside the solid face. The
+occluded volume is the pyramid from the camera through the rectangle; the
+stored normal selects the active side when `+0xEA` is clear. The owner's visual
+check remains required.
 
 ### 2.4 Scene graph and the occluder list
 
@@ -219,7 +227,8 @@ reference list and node transforms.
 - `.../occlusion_planes/runtime.rs` - lifecycle state, creation, insertion,
   scanning, removal, release.
 - `.../occlusion_planes/tests.rs` - pure-logic tests for cell keys, the
-  box-to-face transform, vertex support and the one-sided camera contract.
+  box-to-face transform, vertex support, the support-coverage gate and the
+  one-sided camera contract.
 
 Register in `perf/mod.rs` and `startup.rs` behind the config flag.
 
@@ -245,12 +254,15 @@ implemented by the engine's own retain/release and is immune to mods that
 inline or replace those entries.
 
 `+0xEA` is not a called engine entry either. The constructor sets it to 1
-(two-sided); `create_plane` writes 0 after construction. `0x00C358A0` then
-builds the plane through `p0 = +A+B`, `p1 = +A-B`, `p2 = -A-B`, computes
-`(p1-p0) x (p2-p1)` and activates the plane while the camera is on that
-plane's negative side. The face builder stores the inverse of the geometric
-outward normal so activation happens on the outward side. This is the engine's
-own per-frame camera-side rejection.
+(two-sided); `create_plane` keeps that for a face whose support coverage is at
+least `TWO_SIDED_COVERAGE`, so a well-shaped solid face behaves exactly like an
+authored `XOCP` plane and occludes from both sides. For a lower-coverage face
+`create_plane` writes 0, and `0x00C358A0` then builds the plane through
+`p0 = +A+B`, `p1 = +A-B`, `p2 = -A-B`, computes `(p1-p0) x (p2-p1)` and
+activates the plane while the camera is on that plane's negative side. The face
+builder stores the inverse of the geometric outward normal so the one-sided path
+activates on the outward side. This is the engine's own per-frame camera-side
+rejection.
 
 Node removal is done in Rust using the proven list layout (list `+0` head, `+4`
 tail, `+8` count; node `+0` next, `+4` prev, `+8` plane). Unlink the tracked
@@ -362,13 +374,15 @@ Stable tag `[OCCLUSION_PLANES]`. Log at `info` on install and cache load; log
 at `debug` the scan counters and per-cell summaries. The `scan` line reports
 `refs`, `not_stat`, `render_null`, `node_null`, `radius`, `no_vertices`,
 `horizontal`, `support`, `small`, `size`, `distance`, `faces`, plus `mesh_area`,
-`rect_area` and `cap_drop`: the admitted surface area, the merged rectangle
-area before the cap, and the merged area the cap dropped, so the log shows how
-much solid surface became occluders and whether the cap is the coverage
-limiter. The per-cell `cell` line reports `key`, `candidates`, `raw`,
-`injected`, `reused`, `removed`, `cap`, `cached`, `complete`, `gen_ms` and the
-observer position, and the `scan` line includes `dist_max`, so a playtest can
-show which cell is being rebuilt, how long generation took, and why the
+`rect_area`, `cap_drop` and `merge_ms`: the admitted surface area, the merged
+rectangle area before the cap, the merged area the cap dropped, and the time
+spent in the quadratic coplanar merge, so the log shows how much solid surface
+became occluders, whether the cap is the coverage limiter, and whether the
+merge is the generation cost. The per-cell `cell` line reports `key`,
+`candidates`, `raw`, `injected`, `reused`, `removed`, `cap`, `two_sided`,
+`cached`, `complete`, `gen_ms` and the observer position, and the `scan` line
+includes `dist_max`, so a playtest can show which cell is being rebuilt, how
+many planes kept the two-sided window, how long generation took, and why the
 distance filter rejected candidates. A `presence` line is emitted only when the
 engine-admitted plane count changes or a missing plane is repaired; it reports
 `tracked`, `present` and `active`. The presence path is skipped entirely while
@@ -457,10 +471,14 @@ no planes are tracked, so an empty cell costs nothing per frame. Route through
     angle (`area / (1 + (distance/2048)^2)`), sort, and cap at
     `occlusion_planes_max_per_cell` (default 64). The `scan` line reports
     `cap_drop` (merged area dropped by the cap).
-11. Clear `+0xEA` on the created object. `0x00C358A0` then activates the plane
-    only while the camera is on the rectangle's outward side. This is the
-    engine's own camera-side rejection; it needs no per-frame Rust work and
-    reverses automatically when the camera moves around the object.
+11. Set `+0xEA` on the created object from the face's support coverage: keep the
+    constructor's two-sided window for a face at or above
+    `TWO_SIDED_COVERAGE` (0.9) whose mesh is also at least `MIN_FACE_THICKNESS`
+    (16 units) thick along the face normal, which matches the authored `XOCP`
+    planes on solid faces, and clear it otherwise. With `+0xEA` clear,
+    `0x00C358A0` activates the plane only while the camera is on the rectangle's
+    outward side; both paths need no per-frame Rust work and reverse
+    automatically when the camera moves around the object.
 
 ### 5.2.1 Limits and risks
 
@@ -469,12 +487,27 @@ proof. A convex hull around a concave mesh can still over-cover empty space,
 and the support fit is computed in the mesh's local axes. The mitigations are
 the per-geometry oriented box (never merged), the vertex support fit, the
 horizontal-face rejection, the size threshold, the final
-`PLANE_SHRINK`, one-sided activation, the per-cell cap and the kill
-switch. A silhouette-accurate extraction from `NiTriShapeData` was prototyped
-but its in-memory triangle list is not yet verified against the running game,
-so it is not enabled. Geometry with compressed vertices is currently skipped,
-which may reduce coverage in cells that rely on compressed meshes. The owner's
-in-game visual check remains required.
+`PLANE_SHRINK`, the support-coverage gate, the thin-panel thickness guard, the
+per-cell cap and the kill switch. A silhouette-accurate extraction from
+`NiTriShapeData` was prototyped but its in-memory triangle list is not yet
+verified against the running game, so it is not enabled. Geometry with
+compressed vertices is currently skipped, which may reduce coverage in cells
+that rely on compressed meshes. The owner's in-game visual check remains
+required.
+
+Two residual false-cull classes are documented and not closed:
+
+- **Concave faces.** The support hull is convex, so a window or a notch inside
+  the face is still covered by the emitted rectangle. Both the one-sided and
+  two-sided paths cull through it. Closing this needs triangle coverage, which
+  is blocked on the `NiTriStripsData` layout (the Fairfax population is
+  `NiTriStrips`, not `NiTriShape`, which is why the earlier triangle prototype
+  produced zero candidates).
+- **One-sided meshes.** A mesh rendered with backface culling can be invisible
+  from its back, where a two-sided window would false-cull. The thickness guard
+  excludes the common thin panel/facade case, but a thick one-sided mesh is not
+  distinguished without the mesh's stencil/backface flag, which is not yet
+  mapped.
 
 ### 5.3 Persistent plane cache
 
@@ -509,9 +542,11 @@ and churned the occluder list. A later 2026-10-18 log proved the window still ra
 to its full six scans while every scan statistic
 (`refs/nodes/geoms/faces/mesh_area/rect_area`) was byte-identical, so the same
 set was being emitted in a different order and the order-sensitive hash reported
-a change every pass; sorting the per-plane keys fixed that. The file is also
-flushed on a debounce and on
-load/new/exit. A periodic presence check re-appends the cached planes if the
+a change every pass; sorting the per-plane keys fixed that. The file is
+snapshotted on the main thread and written on the debounce, so the final state
+is durable; a later offload experiment was reverted to this synchronous write
+after it changed the measured baseline. A periodic presence check re-appends the
+cached planes if the
 engine cleared the occluder list without changing the cell identity, which is
 what fixes the "leave and come back" loss of planes. Changing the per-cell cap
 changes the config part of the signature, so cached sets from a different cap
@@ -522,8 +557,15 @@ quantized per-plane key. Unchanged native planes stay in the list, only changed
 planes are removed, and only new planes are created. A missing node found by
 the presence check is released and recreated by the same diff. This avoids the
 one-frame cull flip caused by removing and re-adding the whole list on every
-settle pass. The cache schema version is 6 and each entry carries a completion
-flag; older caches are discarded because the extraction semantics changed.
+settle pass. The cache schema version is 8 and each entry carries a completion
+flag and the face's side confidence; older caches are discarded because the
+extraction semantics changed. The
+header signature also mixes a fingerprint of the generation constants
+(`PLANE_SHRINK`, size thresholds, support tolerances, merge tolerances, grid
+resolution), so changing extraction or merge semantics invalidates the cache
+even when the manual format version is not bumped. This was added after a
+2026-10-18 cache generated under larger planes was reused across a constant
+change and contributed to a measured FPS regression.
 
 ## 6. Phased delivery
 
@@ -582,8 +624,10 @@ Static:
 - oriented face construction covered by focused tests: a rotated box's faces
   stay on the rotated box, a negative scale mirrors the face and its outward
   normal, a face without vertex support emits nothing, horizontal ground faces
-  are rejected, and the one-sided `+0xEA = 0` corner/cross-product contract is
-  checked against the engine's outward side;
+  are rejected, the one-sided `+0xEA = 0` corner/cross-product contract is
+  checked against the engine's outward side, and the support-coverage gate keeps
+  a full rectangular solid face two-sided while a triangular face and a thin
+  panel face stay one-sided;
 - cache round-trip and corrupt/signature-mismatch rejection covered by focused
   tests; the four-wide SIMD AABB reducer is checked against a scalar reference
   for every tail length;
@@ -606,9 +650,9 @@ Behavioral (real runtime, owner-run):
 
 | Risk | Mitigation |
 |---|---|
-| False culling through windows/gaps | Vertex support fit, oriented faces, horizontal-face rejection, size limits, one-sided activation, shrink margin, owner visual check |
-| Camera-side sign is wrong | The contract test proves the current corner order; a wrong sign deactivates the plane from the intended side and must be caught by the owner's visual check |
-| `B*O` pair cost outweighs savings | Per-cell cap of 32 by default, one-sided activation, measure, add broad phase if needed |
+| False culling through windows/gaps | Vertex support fit, oriented faces, horizontal-face rejection, size limits, support-coverage gate that keeps an irregular face one-sided, shrink margin, owner visual check |
+| Camera-side sign is wrong | The contract test proves the current corner order; a wrong sign deactivates the one-sided plane from the intended side and must be caught by the owner's visual check |
+| `B*O` pair cost outweighs savings | Per-cell cap of 64 by default, support-coverage gate, measure, add broad phase if needed |
 | List reset/duplicate planes | Diff tracked planes by quantized key; only remove changed planes; never clear the whole list |
 | Refcount/list ownership error | Increment the `NiRefObject` count once per plane; decrement only after node removal or scene-graph replacement |
 | Startup compatibility regression | Defer all work to DeferredInit; owner Proton playtest |
