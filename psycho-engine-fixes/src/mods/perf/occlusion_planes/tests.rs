@@ -1,19 +1,21 @@
-//! Pure-logic tests for the override parser and runtime occluder geometry.
+//! Pure-logic tests for runtime occluder geometry.
 //!
 //! The engine-calling lifecycle and the live scene walk need the game runtime.
-//! These tests cover the override validation, cell-key resolution, per-cell
-//! capping, oriented face generation, vertex-support fitting and the one-sided
-//! camera contract so a malformed override or a broken box transform cannot
-//! reach the engine unnoticed.
+//! These tests cover oriented face generation, vertex-support fitting and the
+//! one-sided camera contract so a broken box transform cannot reach the engine
+//! unnoticed.
 
 use core::ffi::c_void;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use super::data::{CellKey, PlaneRecord, PlaneRotation, PlaneSet};
-use super::runtime::{native_size, plane_signature, release_plane, retain_plane};
+use super::data::PlaneRecord;
+use super::runtime::{
+    TARGET_STABLE_FRAMES, native_size, plane_signature, release_plane, retain_plane,
+    target_confirmation,
+};
 use super::runtime_generate::{
-    Aabb, PLANE_SHRINK, WorldTransform, aabb_of, admits_base_type, alpha_is_opaque,
-    faces_from_oriented_box, transform_point,
+    Aabb, FaceRejects, PLANE_SHRINK, WorldTransform, aabb_of, admits_base_type, alpha_is_opaque,
+    faces_from_oriented_box, support_rect, transform_point,
 };
 
 static DELETE_THIS_CALLS: AtomicUsize = AtomicUsize::new(0);
@@ -58,142 +60,60 @@ fn release_above_zero_does_not_destroy() {
     assert_eq!(DELETE_THIS_CALLS.load(Ordering::SeqCst), 0);
 }
 
-const VALID: &str = r#"
-[[cells]]
-kind = "exterior"
-worldspace = 0x0000003C
-grid = [-3, -12]
-
-[[cells.planes]]
-position = [1.0, 2.0, 3.0]
-size = [100.0, 200.0]
-axis = [0.0, 1.0, 0.0]
-angle = 1.5707964
-priority = 10
-
-[[cells.planes]]
-position = [4.0, 5.0, 6.0]
-size = [50.0, 60.0]
-priority = 200
-
-[[cells]]
-kind = "interior"
-cell = 0x0003C944
-
-[[cells.planes]]
-position = [0.0, 0.0, 0.0]
-size = [10.0, 10.0]
-"#;
-
-#[test]
-fn parses_exterior_and_interior_cells() {
-    let set = PlaneSet::parse(VALID, 16).expect("valid data");
-    assert_eq!(set.cell_count(), 2);
-
-    let exterior = CellKey::Exterior {
-        worldspace: 0x3C,
-        x: -3,
-        y: -12,
-    };
-    let planes = set.planes(&exterior).expect("exterior planes");
-    assert_eq!(planes.len(), 2);
-    assert_eq!(planes[0].priority, 200);
-    assert_eq!(planes[1].priority, 10);
-    assert_eq!(planes[0].position, [4.0, 5.0, 6.0]);
-    assert_eq!(
-        planes[0].rotation,
-        PlaneRotation::AxisAngle {
-            axis: [0.0, 0.0, 1.0],
-            angle: 0.0,
-        }
-    );
-
-    let interior = CellKey::Interior { form_id: 0x3C944 };
-    let planes = set.planes(&interior).expect("interior planes");
-    assert_eq!(planes.len(), 1);
-    assert_eq!(planes[0].priority, 255);
-}
-
-#[test]
-fn caps_each_cell_by_priority() {
-    let set = PlaneSet::parse(VALID, 1).expect("valid data");
-    let exterior = CellKey::Exterior {
-        worldspace: 0x3C,
-        x: -3,
-        y: -12,
-    };
-    let planes = set.planes(&exterior).expect("exterior planes");
-    assert_eq!(planes.len(), 1);
-    assert_eq!(planes[0].priority, 200);
-}
-
-#[test]
-fn rejects_missing_cell_identity() {
-    let missing = r#"
-[[cells]]
-kind = "exterior"
-grid = [0, 0]
-[[cells.planes]]
-position = [0.0, 0.0, 0.0]
-size = [1.0, 1.0]
-"#;
-    assert!(PlaneSet::parse(missing, 16).is_err());
-
-    let unknown = r#"
-[[cells]]
-kind = "void"
-cell = 1
-"#;
-    assert!(PlaneSet::parse(unknown, 16).is_err());
-
-    let duplicate = r#"
-[[cells]]
-kind = "interior"
-cell = 1
-[[cells.planes]]
-position = [0.0, 0.0, 0.0]
-size = [1.0, 1.0]
-[[cells]]
-kind = "interior"
-cell = 1
-[[cells.planes]]
-position = [0.0, 0.0, 0.0]
-size = [1.0, 1.0]
-"#;
-    assert!(PlaneSet::parse(duplicate, 16).is_err());
-}
-
-#[test]
-fn rejects_invalid_geometry() {
-    let zero_size = r#"
-[[cells]]
-kind = "interior"
-cell = 1
-[[cells.planes]]
-position = [0.0, 0.0, 0.0]
-size = [0.0, 1.0]
-"#;
-    assert!(PlaneSet::parse(zero_size, 16).is_err());
-
-    let bad_axis = r#"
-[[cells]]
-kind = "interior"
-cell = 1
-[[cells.planes]]
-position = [0.0, 0.0, 0.0]
-size = [1.0, 1.0]
-axis = [0.0, 0.0, 0.5]
-angle = 1.0
-"#;
-    assert!(PlaneSet::parse(bad_axis, 16).is_err());
-}
-
 fn identity_world(translation: [f32; 3], scale: f32) -> WorldTransform {
     WorldTransform {
         rotation: [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0],
         translation,
         scale,
     }
+}
+
+fn oriented_faces(
+    local: &Aabb,
+    world: &WorldTransform,
+    vertices: &[[f32; 3]],
+    out: &mut Vec<(f32, PlaneRecord)>,
+) -> FaceRejects {
+    let mut points = Vec::new();
+    let mut hull = Vec::new();
+    let mut upper = Vec::new();
+    faces_from_oriented_box(
+        local,
+        world,
+        vertices,
+        out,
+        &mut points,
+        &mut hull,
+        &mut upper,
+    )
+}
+
+fn support_rect_test(
+    vertices: &[[f32; 3]],
+    axis: usize,
+    face_coord: f32,
+    extent_axis: f32,
+    center_u: f32,
+    center_v: f32,
+    half_u: f32,
+    half_v: f32,
+) -> Option<super::runtime_generate::SupportRect> {
+    let mut points = Vec::new();
+    let mut hull = Vec::new();
+    let mut upper = Vec::new();
+    support_rect(
+        vertices,
+        axis,
+        face_coord,
+        extent_axis,
+        center_u,
+        center_v,
+        half_u,
+        half_v,
+        &mut points,
+        &mut hull,
+        &mut upper,
+    )
 }
 
 fn box_vertices(local: &Aabb) -> Vec<[f32; 3]> {
@@ -221,9 +141,7 @@ fn box_vertices(local: &Aabb) -> Vec<[f32; 3]> {
 }
 
 fn plane_basis(plane: &PlaneRecord) -> ([f32; 3], [f32; 3], [f32; 3]) {
-    let PlaneRotation::Matrix(matrix) = plane.rotation else {
-        panic!("runtime faces use a matrix");
-    };
+    let matrix = plane.rotation;
     (
         [matrix[0], matrix[3], matrix[6]],
         [matrix[1], matrix[4], matrix[7]],
@@ -251,7 +169,7 @@ fn vertical_box_faces_are_oriented_and_supported() {
     };
     let vertices = box_vertices(&local);
     let mut faces = Vec::new();
-    let rejects = faces_from_oriented_box(
+    let rejects = oriented_faces(
         &local,
         &identity_world([0.0; 3], 1.0),
         &vertices,
@@ -308,7 +226,7 @@ fn rotated_box_faces_follow_the_box_not_the_world_aabb() {
         scale: 1.0,
     };
     let mut faces = Vec::new();
-    faces_from_oriented_box(&local, &world, &vertices, &mut faces);
+    oriented_faces(&local, &world, &vertices, &mut faces);
     assert_eq!(faces.len(), 4);
 
     let centers = [
@@ -354,7 +272,7 @@ fn faces_without_vertex_support_are_rejected() {
         max: [500.0, 500.0, 500.0],
     };
     let mut faces = Vec::new();
-    let rejects = faces_from_oriented_box(&local, &identity_world([0.0; 3], 1.0), &[], &mut faces);
+    let rejects = oriented_faces(&local, &identity_world([0.0; 3], 1.0), &[], &mut faces);
     assert!(faces.is_empty());
     assert!(rejects.unsupported >= 4);
 
@@ -364,7 +282,7 @@ fn faces_without_vertex_support_are_rejected() {
         vec![[-500.0f32, -500.0, -500.0], [500.0, 500.0, 500.0]],
     ] {
         let mut faces = Vec::new();
-        faces_from_oriented_box(
+        oriented_faces(
             &local,
             &identity_world([0.0; 3], 1.0),
             &vertices,
@@ -382,7 +300,7 @@ fn horizontal_ground_faces_are_rejected() {
         max: [500.0, 500.0, 10.0],
     };
     let mut faces = Vec::new();
-    let rejects = faces_from_oriented_box(
+    let rejects = oriented_faces(
         &floor,
         &identity_world([0.0; 3], 1.0),
         &box_vertices(&floor),
@@ -397,7 +315,7 @@ fn horizontal_ground_faces_are_rejected() {
         max: [10.0, 500.0, 500.0],
     };
     let mut faces = Vec::new();
-    faces_from_oriented_box(
+    oriented_faces(
         &wall,
         &identity_world([0.0; 3], 1.0),
         &box_vertices(&wall),
@@ -418,7 +336,7 @@ fn negative_scale_mirrors_oriented_faces() {
     };
     let world = identity_world([1000.0, 0.0, 0.0], -1.0);
     let mut faces = Vec::new();
-    faces_from_oriented_box(&local, &world, &box_vertices(&local), &mut faces);
+    oriented_faces(&local, &world, &box_vertices(&local), &mut faces);
     assert_eq!(faces.len(), 4);
     for (_, plane) in &faces {
         let (_, normal, _) = plane_basis(plane);
@@ -452,7 +370,7 @@ fn engine_camera_side_contract_matches_the_outward_normal() {
     let plane = PlaneRecord {
         position: [0.0, 0.0, 0.0],
         size: [200.0, 200.0],
-        rotation: PlaneRotation::Matrix([1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0]),
+        rotation: [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0],
         priority: 255,
         source_form_id: 0,
     };
@@ -521,7 +439,7 @@ fn small_boxes_produce_no_faces() {
         max: [64.0, 64.0, 64.0],
     };
     let mut faces = Vec::new();
-    faces_from_oriented_box(
+    oriented_faces(
         &local,
         &identity_world([0.0; 3], 1.0),
         &box_vertices(&local),
@@ -555,7 +473,7 @@ fn plane_signature_changes_with_the_set() {
     let record = |x: f32| PlaneRecord {
         position: [x, 0.0, 0.0],
         size: [100.0, 200.0],
-        rotation: PlaneRotation::Matrix([1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0]),
+        rotation: [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0],
         priority: 255,
         source_form_id: 0,
     };
@@ -573,7 +491,7 @@ fn plane_signature_is_order_independent() {
     let record = |x: f32, id: u32| PlaneRecord {
         position: [x, id as f32, 0.0],
         size: [100.0, 200.0],
-        rotation: PlaneRotation::Matrix([1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0]),
+        rotation: [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0],
         priority: 255,
         source_form_id: id,
     };
@@ -589,4 +507,113 @@ fn plane_signature_is_order_independent() {
     assert_ne!(plane_signature(&forward), plane_signature(&moved));
     let removed = [record(1.0, 1), record(2.0, 2)];
     assert_ne!(plane_signature(&forward), plane_signature(&removed));
+}
+
+#[test]
+fn target_confirmation_rejects_alternating_cells() {
+    // Two adjacent cells alternate every frame, as observed at a seam. The
+    // debounce must never confirm either one.
+    let mut pending_scene = 0usize;
+    let mut pending_key = 0u64;
+    let mut streak = 0usize;
+    for _ in 0..12 {
+        for (scene, key) in [(1usize, 0xAAAAu64), (2, 0xBBBB)] {
+            let (confirmed, next_scene, next_key, next_streak) =
+                target_confirmation(pending_scene, pending_key, streak, scene, key);
+            pending_scene = next_scene;
+            pending_key = next_key;
+            streak = next_streak;
+            assert!(!confirmed, "an alternating target must not confirm");
+        }
+    }
+}
+
+#[test]
+fn target_confirmation_accepts_a_stable_cell() {
+    let mut pending_scene = 0usize;
+    let mut pending_key = 0u64;
+    let mut streak = 0usize;
+    let mut confirmed = false;
+    for _ in 0..TARGET_STABLE_FRAMES {
+        let next = target_confirmation(pending_scene, pending_key, streak, 7, 0x7777);
+        pending_scene = next.1;
+        pending_key = next.2;
+        streak = next.3;
+        confirmed = next.0;
+    }
+    assert!(confirmed, "a stable target confirms after the window");
+}
+
+#[test]
+fn support_rect_keeps_the_centered_face_when_it_fits() {
+    // Full square face: the fast centered path must keep the box face center.
+    let mut vertices = Vec::new();
+    for y in [0.0f32, 1000.0] {
+        for z in [0.0f32, 1000.0] {
+            vertices.push([0.0, y, z]);
+        }
+    }
+    let rect = support_rect_test(&vertices, 0, 0.0, 1000.0, 500.0, 500.0, 500.0, 500.0)
+        .expect("full face is supported");
+    assert!((rect.center_u - 500.0).abs() < 0.01);
+    assert!((rect.center_v - 500.0).abs() < 0.01);
+    assert!((rect.half_u - 500.0).abs() < 0.01);
+    assert!((rect.half_v - 500.0).abs() < 0.01);
+}
+
+#[test]
+fn support_rect_prefers_a_larger_offset_rectangle() {
+    // A large supported rectangle on the left plus a small center protrusion.
+    // The centered rectangle exists but is tiny; the grid must win.
+    let mut vertices = Vec::new();
+    for (y, z) in [
+        (0.0f32, 0.0f32),
+        (500.0, 0.0),
+        (500.0, 1000.0),
+        (0.0, 1000.0),
+        (440.0, 440.0),
+        (560.0, 440.0),
+        (560.0, 560.0),
+        (440.0, 560.0),
+    ] {
+        vertices.push([0.0, y, z]);
+    }
+    let rect = support_rect_test(&vertices, 0, 0.0, 1000.0, 500.0, 500.0, 500.0, 500.0)
+        .expect("support exists");
+    assert!(
+        rect.half_u > 150.0,
+        "grid should pick the large left rectangle, got half_u={}",
+        rect.half_u
+    );
+    assert!(rect.center_u < 350.0, "rectangle should be offset left");
+}
+
+#[test]
+fn support_rect_finds_offset_support_inside_the_hull() {
+    // Support only in the lower half of the face. The centered rectangle does
+    // not fit, so the grid path must return a rectangle inside that half.
+    let mut vertices = Vec::new();
+    for z in [0.0f32, 1000.0] {
+        vertices.push([0.0, 0.0, z]);
+        vertices.push([0.0, 500.0, z]);
+    }
+    let rect = support_rect_test(&vertices, 0, 0.0, 1000.0, 500.0, 500.0, 500.0, 500.0)
+        .expect("offset support is supported");
+    assert!(
+        rect.center_u < 400.0,
+        "rectangle should follow the supported half, got {}",
+        rect.center_u
+    );
+    assert!(rect.half_u > 100.0);
+    assert!(rect.half_v > 100.0);
+    // All four corners must stay in the supported half.
+    for (u, v) in [
+        (rect.center_u - rect.half_u, rect.center_v - rect.half_v),
+        (rect.center_u + rect.half_u, rect.center_v - rect.half_v),
+        (rect.center_u + rect.half_u, rect.center_v + rect.half_v),
+        (rect.center_u - rect.half_u, rect.center_v + rect.half_v),
+    ] {
+        assert!(u >= -0.01 && u <= 500.01, "u={u} outside support");
+        assert!(v >= -0.01 && v <= 1000.01, "v={v} outside support");
+    }
 }

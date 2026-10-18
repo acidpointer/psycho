@@ -31,7 +31,7 @@ const MAGIC: [u8; 4] = *b"PSOC";
 /// Cache schema and generator semantics version. Bump it whenever the
 /// generated plane set would change for the same meshes, so an updated DLL
 /// never reuses planes produced by older extraction logic.
-const FORMAT_VERSION: u32 = 4;
+const FORMAT_VERSION: u32 = 5;
 /// magic + version + signature; the entry count is read by `Reader`.
 const HEADER_LEN: usize = 4 + 4 + 8;
 /// position(12) + size(8) + rotation(36) + priority(1) + source(4)
@@ -51,11 +51,21 @@ pub(super) struct CachedPlane {
     pub(super) source_form_id: u32,
 }
 
+/// Cached planes for one cell plus whether generation settled.
+///
+/// An entry written before the settle window finished is marked incomplete and
+/// is regenerated on the next visit instead of being trusted as a complete set.
+#[derive(Clone, Debug, PartialEq)]
+pub(super) struct CacheEntry {
+    pub(super) planes: Vec<CachedPlane>,
+    pub(super) complete: bool,
+}
+
 /// Cached planes keyed by cell identity, plus the plugin-list signature they
 /// were generated under.
 pub(super) struct PlaneCache {
     signature: u64,
-    cells: FxHashMap<CellKey, Vec<CachedPlane>>,
+    cells: FxHashMap<CellKey, CacheEntry>,
     dirty: bool,
 }
 
@@ -72,13 +82,23 @@ impl PlaneCache {
         self.cells.len()
     }
 
-    pub(super) fn get(&self, key: &CellKey) -> Option<&[CachedPlane]> {
-        self.cells.get(key).map(Vec::as_slice)
+    pub(super) fn get(&self, key: &CellKey) -> Option<&CacheEntry> {
+        self.cells.get(key)
     }
 
-    pub(super) fn insert(&mut self, key: CellKey, planes: Vec<CachedPlane>) {
-        self.cells.insert(key, planes);
+    pub(super) fn insert(&mut self, key: CellKey, planes: Vec<CachedPlane>, complete: bool) {
+        self.cells.insert(key, CacheEntry { planes, complete });
         self.dirty = true;
+    }
+
+    /// Mark an existing entry complete. No-op when the entry is absent.
+    pub(super) fn mark_complete(&mut self, key: &CellKey) {
+        if let Some(entry) = self.cells.get_mut(key)
+            && !entry.complete
+        {
+            entry.complete = true;
+            self.dirty = true;
+        }
     }
 
     pub(super) fn is_dirty(&self) -> bool {
@@ -117,7 +137,7 @@ impl PlaneCache {
         out.extend_from_slice(&FORMAT_VERSION.to_le_bytes());
         out.extend_from_slice(&self.signature.to_le_bytes());
         out.extend_from_slice(&(self.cells.len() as u32).to_le_bytes());
-        for (key, planes) in &self.cells {
+        for (key, entry) in &self.cells {
             match key {
                 CellKey::Interior { form_id } => {
                     out.push(0);
@@ -130,8 +150,9 @@ impl PlaneCache {
                     out.extend_from_slice(&y.to_le_bytes());
                 }
             }
-            out.extend_from_slice(&(planes.len() as u32).to_le_bytes());
-            for plane in planes {
+            out.push(u8::from(entry.complete));
+            out.extend_from_slice(&(entry.planes.len() as u32).to_le_bytes());
+            for plane in &entry.planes {
                 for value in plane.position {
                     out.extend_from_slice(&value.to_le_bytes());
                 }
@@ -168,7 +189,7 @@ impl PlaneCache {
         if count > MAX_CELLS {
             return None;
         }
-        let mut cells: FxHashMap<CellKey, Vec<CachedPlane>> =
+        let mut cells: FxHashMap<CellKey, CacheEntry> =
             FxHashMap::with_capacity_and_hasher(count.min(4096), Default::default());
         for _ in 0..count {
             let kind = reader.u8()?;
@@ -183,6 +204,7 @@ impl PlaneCache {
                 },
                 _ => return None,
             };
+            let complete = reader.u8()? != 0;
             let plane_count = reader.u32()? as usize;
             if plane_count > MAX_PLANES_PER_CELL {
                 return None;
@@ -205,7 +227,7 @@ impl PlaneCache {
                     source_form_id,
                 });
             }
-            cells.insert(key, planes);
+            cells.insert(key, CacheEntry { planes, complete });
         }
         Some(Self {
             signature,
@@ -327,12 +349,14 @@ mod tests {
             y: -12,
         };
         let mut cache = PlaneCache::empty(0xDEAD_BEEF);
-        cache.insert(interior, vec![plane(1.0)]);
-        cache.insert(exterior, vec![plane(2.0), plane(3.0)]);
+        cache.insert(interior, vec![plane(1.0)], true);
+        cache.insert(exterior, vec![plane(2.0), plane(3.0)], false);
         let bytes = cache.serialize();
         let decoded = PlaneCache::deserialize(&bytes, 0xDEAD_BEEF).expect("same signature");
-        assert_eq!(decoded.get(&interior).unwrap(), &[plane(1.0)]);
-        assert_eq!(decoded.get(&exterior).unwrap().len(), 2);
+        assert_eq!(decoded.get(&interior).unwrap().planes, &[plane(1.0)]);
+        assert!(decoded.get(&interior).unwrap().complete);
+        assert_eq!(decoded.get(&exterior).unwrap().planes.len(), 2);
+        assert!(!decoded.get(&exterior).unwrap().complete);
         assert!(
             PlaneCache::deserialize(&bytes, 0x1111).is_none(),
             "a different plugin signature must discard the cache"
@@ -343,7 +367,7 @@ mod tests {
     fn cache_rejects_corrupt_input() {
         assert!(PlaneCache::deserialize(b"nope", 0).is_none());
         let mut cache = PlaneCache::empty(7);
-        cache.insert(CellKey::Interior { form_id: 1 }, vec![plane(1.0)]);
+        cache.insert(CellKey::Interior { form_id: 1 }, vec![plane(1.0)], true);
         let mut bytes = cache.serialize();
         bytes.truncate(bytes.len() - 3);
         assert!(

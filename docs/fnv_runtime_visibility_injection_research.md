@@ -227,7 +227,7 @@ shipping.
 | Option | Coverage | Effort | Risk | Evidence | Recommendation |
 |---|---|---|---|---|---|
 | B. Runtime-collected occlusion planes from live cell geometry | Exteriors and non-room interiors | High | Medium | Live ref list, OBND and world transform verified; placement heuristic needs an in-game visual check | Implemented, default-on |
-| A. Offline-generated occlusion planes, runtime-injected as `BSOcclusionPlane` | Exteriors and non-room interiors | Medium | Medium | Native mechanism and console command proven; placement unknown | Retained as an optional per-cell override |
+| A. Offline-generated occlusion planes, runtime-injected as `BSOcclusionPlane` | Exteriors and non-room interiors | Medium | Medium | Native mechanism and console command proven; placement unknown | Deferred; no runtime data path |
 | C. Generated override plugin with room markers/portals/`XOCP` | Interiors | High | Medium | Installed mods prove the benefit | Use where B cannot help |
 | D. Runtime room/portal graph injection | Interiors | Very high | Very high | Constructors known; build/rebuild contract open | Defer |
 | E. Native occluder broad-phase/cache optimization | Enables any large `O` | Medium | Medium | `0xC47150`/`0xC33870` cost documented | Only if measurements demand it |
@@ -244,9 +244,8 @@ behind. A silhouette-accurate `NiTriShapeData` extraction was prototyped but is
 parked until that in-memory triangle list is verified in game. Geometry with
 compressed vertices is skipped rather than approximated from a sphere bound.
 Candidates are filtered by size and observer distance and weighted so nearby,
-well-supported occluders win the per-cell cap. The TOML data file is only an
-optional per-cell override. Static qualification is complete; in-game visual
-and performance qualification is not.
+well-supported occluders win the per-cell cap. Static qualification is
+complete; in-game visual and performance qualification is not.
 
 ### A. Offline-generated occlusion planes with a runtime injector
 
@@ -385,9 +384,8 @@ broad phase, re-measure the pair cost, and only then raise the plane budget.
 
 - Location: a new `psycho-engine-fixes` performance module with the existing
   signature/ownership discipline, plus configuration under
-  `performance.visibility_occlusion_planes` and per-cell data files.
-- Data: `worldspace formid + grid` for exteriors and `cell formid` for
-  interiors; each entry carries position, size, rotation and a priority.
+  `performance.occlusion_planes`. The per-cell data path was removed; planes
+  are generated at runtime.
 - Generation: offline tool, not shipped in the DLL; conservative placement with
   a validation pass that rejects any plane that culls a conservatively visible
   object.

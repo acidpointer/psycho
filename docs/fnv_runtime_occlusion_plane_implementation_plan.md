@@ -7,8 +7,7 @@ geometry's box in local space and orients the faces by the live world transform,
 fits every rectangle inside the vertices that support that face, skips
 horizontal ground/roof faces, and emits one-sided planes. Planes are scored by
 supported solid angle and cached per cell. Installing, removing, reordering or
-updating a mod invalidates the cache through the plugin-list signature. No data
-file is required; the TOML file remains an optional per-cell override. This is
+updating a mod invalidates the cache through the plugin-list signature. This is
 a heuristic and needs the owner's in-game visual check. No game run and no FPS
 claim.
 Companion to
@@ -33,8 +32,7 @@ In scope:
 - runtime creation, ownership, insertion and removal of `BSOcclusionPlane`;
 - a per-frame cell/scene-graph reconciliation on the already-wired xNVSE
   `OnFramePresent` host event;
-- an offline generator that emits per-cell plane data in the same axis-angle
-  representation the engine uses for authored `XOCP`;
+- an offline generator that emits per-cell plane data for later injection;
 - configuration, logging and failure containment.
 
 Out of scope:
@@ -59,7 +57,7 @@ The reference `XOCP` subrecord handler is at `0x0041617A`. It:
    size from `0x0101B268`, default position from `0x011F426C`, identity
    rotation from `0x011A9448`, `+0x40 = 0`, `+0xEA = 1`, `+0xEC..+0xFB = 0`);
 3. calls `0x00416A30` to copy two floats to `+0x14`/`+0x18` (native
-   half-extent X/Y; the TOML/runtime size is the full extent and is halved at
+   half-extent X/Y; the runtime size is the full extent and is halved at
    this boundary);
 4. calls `0x004169F0` to copy three floats to `+0x08` (position);
 5. calls `0x004168A0` to build a 3x3 rotation matrix from an axis-angle pair;
@@ -87,9 +85,9 @@ written by these functions except the dirty flags.
 | 8 | axis Z |
 
 `0x004168A0(matrix, angle, axis_x, axis_y, axis_z)` builds the axis-angle
-rotation matrix. This matches the observed payloads, e.g. `(0,0,1,1.5708)` is
-a 90-degree rotation about +Z. The axis-angle representation is the generator
-contract.
+rotation matrix used by authored `XOCP` records. This matches the observed
+payloads, e.g. `(0,0,1,1.5708)` is a 90-degree rotation about +Z. The runtime
+generator emits ready rotation matrices instead.
 
 ### 2.3 Orientation
 
@@ -183,15 +181,14 @@ live cell (main thread, on a cell change)
         |
         v
   conservative face rectangles (position, size, matrix)
-        |                    optional per-cell TOML override
-        v                    /
-psycho-engine-fixes  <------/
+        |
+        v
+psycho-engine-fixes
   performance.occlusion_planes=true
-  performance.occlusion_planes_runtime=true
   perf::observe_event -> occlusion_planes::observe_event
         |
         v
-  DeferredInit  : ready, lazy override read
+  DeferredInit  : ready, load cache
   OnFramePresent: reconcile(player, cell, scene_graph)
   load/new/exit : clear and release
         |
@@ -201,8 +198,7 @@ psycho-engine-fixes  <------/
 
 No native code is patched. The module only calls verified getters/constructors
 and manages its own planes. The runtime collector reads the loaded cell's
-reference list and node transforms; the TOML file is only an optional
-per-cell override.
+reference list and node transforms.
 
 ## 4. Runtime module design
 
@@ -213,14 +209,13 @@ per-cell override.
 - `.../occlusion_planes/contract.rs` - addresses, byte signatures, ABI types,
   capability checks and live-scene offsets.
 - `.../occlusion_planes/raw.rs` - volatile engine-memory readers.
-- `.../occlusion_planes/data.rs` - optional override parser, cell keys and
-  plane records.
+- `.../occlusion_planes/data.rs` - cell keys and plane records.
 - `.../occlusion_planes/runtime_generate.rs` - live cell occluder collection
   and conservative face-rectangle generation.
 - `.../occlusion_planes/runtime.rs` - lifecycle state, creation, insertion,
   scanning, removal, release.
-- `.../occlusion_planes/tests.rs` - pure-logic tests for the override parser,
-  cell keys, capping and the box-to-face transform.
+- `.../occlusion_planes/tests.rs` - pure-logic tests for cell keys, the
+  box-to-face transform, vertex support and the one-sided camera contract.
 
 Register in `perf/mod.rs` and `startup.rs` behind the config flag.
 
@@ -281,24 +276,31 @@ Active -> Ready (load/new/exit: remove + release all)
    `scene_graph = *(owner + 0x1E0)`; bail if null.
 4. compute the cell identity key and its hash; the tracked target is
    `(scene_graph, key_hash)`, so a reused cell pointer still reads as a new
-   cell.
-5. if the target is unchanged and no settle retry is pending, periodically
+   cell. The interior/exterior decision uses the cell's interior flag, and a
+   null worldspace or coords pointer is kept as a stable zero.
+5. a different target must persist for `TARGET_STABLE_FRAMES` frames before it
+   replaces the current planes. Cell seams can otherwise alternate between two
+   cells every few frames; the debounce keeps the previous planes until the new
+   target is stable.
+6. if the target is unchanged and no settle retry is pending, periodically
    check that the tracked planes are still in `scene_graph + 8` (the engine can
    clear the list on cell unload without changing the cell identity); a missing
    node is released and the diff recreates it. Save the cache on a debounce.
-6. a target change (or load/new/exit reset) forces a rebuild. A cache hit is a
-   complete set and skips the settle window; a cache miss generates and restarts
-   the settle window, and each settle retry refreshes the cache entry.
-7. rebuild: if the scene graph is unchanged, drop tracked planes whose node is
+7. a confirmed target change (or load/new/exit reset) forces a rebuild. A
+   complete cache hit skips the settle window; a miss generates and restarts the
+   settle window, and each settle retry refreshes the cache entry. An entry
+   written before the settle window finished is marked incomplete and is
+   regenerated on the next visit.
+8. rebuild: if the scene graph is unchanged, drop tracked planes whose node is
    no longer in the list (release the retained object) and diff the generated
    set against the remaining tracked set by quantized plane key. Unchanged
    planes stay linked; unmatched old nodes are unlinked in Rust and returned
    through `0x004A49E0(list, node)`; only new records are created. A changed
    scene graph means the old list is gone, so release every old plane without
    dereferencing retired nodes.
-8. resolve the cell key: a per-cell override wins, then the persistent cache,
-   then the runtime collector. Create, retain and append only the records that
-   were not reused, then store the new `(scene_graph, key_hash, signature)`.
+9. resolve the cell key: the persistent cache wins, then the runtime
+   collector. Create, retain and append only the records that were not reused,
+   then store the new `(scene_graph, key_hash, signature)`.
 
 The scan is O(list length) and the list holds authored planes plus ours. It
 runs on target changes and the bounded settle window, not every frame. A cell
@@ -310,18 +312,15 @@ attached.
 - Interior: `CellKey::Interior { form_id: u32 }`.
 - Exterior: `CellKey::Exterior { worldspace: u32, x: i32, y: i32 }`.
 - "Behave like exterior" interiors use the interior key.
-- The lookup returns a slice of plane records. A per-cell cap (default 32)
-  bounds the `B*O` pair cost.
+- The generator returns a per-cell list of plane records. A per-cell cap
+  (default 64) bounds the `B*O` pair cost.
 
 ### 4.5 Configuration
 
 Add to `PerformanceConfig`:
 
 - `occlusion_planes: bool` (default `true`, owner-requested);
-- `occlusion_planes_runtime: bool` (default `true`);
-- `occlusion_planes_max_per_cell: u16` (default 32, clamped `1..=256`);
-- `occlusion_planes_path: String` (default
-  `syringe/psycho_occlusion_planes.toml`);
+- `occlusion_planes_max_per_cell: u16` (default 64, clamped `1..=256`);
 - `occlusion_planes_cache_path: String` (default
   `syringe/psycho_occlusion_planes.cache`);
 - `occlusion_planes_debug: bool` (default `false`). Also toggled in game with
@@ -353,21 +352,27 @@ so the startup gate in section 7 applies.
 
 ### 4.6 Logging and diagnostics
 
-Stable tag `[OCCLUSION_PLANES]`. Log at `info` on install, cache load, data
-load success and per-cell summaries; log at `debug` the scan counters. The
-`scan` line reports `refs`, `not_stat`, `render_null`, `node_null`, `radius`,
-`no_vertices`, `horizontal`, `support`, `small`, `size`, `distance`, `faces`,
-plus `mesh_area` and `rect_area`: the admitted surface area and the emitted
-rectangle area, so the log shows how much solid surface became occluders and
-why candidates were rejected. The per-cell `cell` line reports `candidates`,
-`raw`, `injected`, `reused`, `removed`, `cap` and `cached`. Route through
+Stable tag `[OCCLUSION_PLANES]`. Log at `info` on install and cache load; log
+at `debug` the scan counters and per-cell summaries. The `scan` line reports
+`refs`, `not_stat`, `render_null`, `node_null`, `radius`, `no_vertices`,
+`horizontal`, `support`, `small`, `size`, `distance`, `faces`, plus `mesh_area`
+and `rect_area`: the admitted surface area and the emitted rectangle area, so
+the log shows how much solid surface became occluders and why candidates were
+rejected. The per-cell `cell` line reports `key`, `candidates`, `raw`,
+`injected`, `reused`, `removed`, `cap`, `cached`, `complete`, `gen_ms` and the
+observer position, and the `scan` line includes `dist_max`, so a playtest can
+show which cell is being rebuilt, how long generation took, and why the
+distance filter rejected candidates. A `presence` line is emitted only when the
+engine-admitted plane count changes or a missing plane is repaired; it reports
+`tracked`, `present` and `active`. The presence path is skipped entirely while
+no planes are tracked, so an empty cell costs nothing per frame. Route through
 `libpsycho::logger::Logger` / `log`, never `println!`.
 
 ### 4.7 Failure containment
 
 - If any signature or executable check fails, disable the module and keep the
   native list untouched.
-- If the data file is missing/corrupt, log and run with no planes.
+- If the cache is missing/corrupt, log and regenerate.
 - If allocation fails, skip that plane and continue.
 - If the scene graph, cell or player is null, do nothing.
 - Never clear the whole list; only remove nodes whose `+8` matches a tracked
@@ -399,8 +404,7 @@ why candidates were rejected. The per-cell `cell` line reports `candidates`,
    `BGSStaticCollection` and whose `parentCell` is null or the current cell.
    The collector reads the loaded 3D geometry, so the base-type gate only
    chooses what is worth walking. `BGSMovableStatic` is excluded because its 3D
-   can move after the planes are created; the override file can still target
-   its cells.
+   can move after the planes are created.
 3. Resolve the loaded node. Reject it cheaply when the engine's world-bound
    radius is below the minimum.
 4. Walk the node tree through the `IsNode`/`IsGeometry` virtuals. A transparent
@@ -414,18 +418,20 @@ why candidates were rejected. The per-cell `cell` line reports `candidates`,
    turned into a rectangle. Each geometry is treated on its own (never merged
    across an object), so a multi-part object contributes tighter boxes.
 6. Reject a geometry whose world-space largest extent is outside
-   `256..=4096` units.
-7. For each local face, collect the vertices within 2% of that face and build
-   their 2D convex hull. Fit the largest centered rectangle whose corners lie
-   inside the hull; reject the face when the hull cannot support at least 10%
-   of it. Skip faces whose world normal is nearly vertical
-   (`|normal.z| >= 0.8`), which removes ground and roofs.
+   `256..=8192` units.
+7. For each local face, collect the vertices within 5% of that face and build
+   their 2D convex hull. Fit the largest axis-aligned rectangle supported by
+   the hull: a centered binary search plus a bounded 16x16 occupancy grid when
+   the centered rectangle is missing or clearly smaller. Reject the face when
+   the rectangle cannot cover at least 5% of the face. Skip faces whose world
+   normal is nearly vertical (`|normal.z| >= 0.8`), which removes ground and
+   roofs.
 8. Emit the surviving face rectangle:
-   - position: the transformed local face center, offset outward by two units
-     along the world normal;
-   - size: local in-plane extents scaled by the node's world scale, multiplied
-     by the support fit and a final `PLANE_SHRINK` (0.8); `create_plane` halves
-     them for the native half-extent fields;
+   - position: the supported rectangle center on the local face plane,
+     transformed to world and offset outward by two units along the normal;
+   - size: supported in-plane extents scaled by the node's world scale,
+     multiplied by a final `PLANE_SHRINK` (0.8); `create_plane` halves them for
+     the native half-extent fields;
    - rotation: row-major matrix whose columns are the world tangent, the
      outward world **normal**, and `tangent x normal` as the bitangent. The
      engine spans local X/Z and takes local Y as the rectangle normal.
@@ -435,8 +441,7 @@ why candidates were rejected. The per-cell `cell` line reports `candidates`,
    reverses automatically when the camera moves around the object.
 10. Apply the observer distance filter, score each rectangle by supported solid
     angle (`area / (1 + (distance/2048)^2)`), sort, and cap at
-    `occlusion_planes_max_per_cell` (default 32). A cell listed in the TOML
-    override uses those records instead of the runtime set.
+    `occlusion_planes_max_per_cell` (default 64).
 
 ### 5.2.1 Limits and risks
 
@@ -444,47 +449,15 @@ The collector uses the vertex support hull, not a collision or silhouette
 proof. A convex hull around a concave mesh can still over-cover empty space,
 and the support fit is computed in the mesh's local axes. The mitigations are
 the per-geometry oriented box (never merged), the vertex support fit, the
-horizontal-face rejection, the stronger size threshold, the final
-`PLANE_SHRINK`, one-sided activation, the lower per-cell cap and the kill
+horizontal-face rejection, the size threshold, the final
+`PLANE_SHRINK`, one-sided activation, the per-cell cap and the kill
 switch. A silhouette-accurate extraction from `NiTriShapeData` was prototyped
 but its in-memory triangle list is not yet verified against the running game,
 so it is not enabled. Geometry with compressed vertices is currently skipped,
 which may reduce coverage in cells that rely on compressed meshes. The owner's
 in-game visual check remains required.
 
-### 5.3 Data file
-
-Implemented format: TOML, parsed with `serde` and `toml`, default path
-`syringe/psycho_occlusion_planes.toml` relative to the game directory. TOML is
-used for the early hand-authored phase because it is reviewable and matches the
-repository's config tooling. A binary form is a later optimization only if
-file size or parse time becomes material.
-
-```toml
-[[cells]]
-kind = "exterior"
-worldspace = 0x0000003C
-grid = [-3, -12]
-
-[[cells.planes]]
-position = [x, y, z]      # world-space rectangle center
-size = [width, height]    # full rectangle width/height (native fields are half)
-axis = [ax, ay, az]       # unit axis, or all zero for identity
-angle = radians           # rotation about `axis`
-priority = 255            # higher survives the per-cell cap
-
-[[cells]]
-kind = "interior"
-cell = 0x0003C944
-```
-
-Validation rejects unknown kinds, missing identity, duplicate keys,
-non-finite values, non-positive sizes, a non-unit axis when the angle is
-nonzero, and a zero axis with a nonzero angle. Records are sorted by descending
-priority and capped at `occlusion_planes_max_per_cell`. The shipped file has an
-empty `cells` array until data is generated.
-
-### 5.4 Persistent plane cache
+### 5.3 Persistent plane cache
 
 Generating planes is the expensive part, so a revisited cell re-appends its
 planes instead of re-walking the meshes. The cache is a compact binary file
@@ -500,11 +473,12 @@ from
 `tList<ModInfo>` with `ModInfo::name` at `+0x20` and the `WIN32_FIND_DATA` file
 size at `+0x2B8`/`+0x2BC`). The hash covers load order, names and sizes, so
 installing, uninstalling, reordering or updating a mod changes it and the whole
-cache is discarded. A
-cache entry is only consulted on a target change; a cache hit is a complete set
-and skips the settle window. Every generated set is written to the cache
-immediately, so the cache always holds the latest set even if the settle window
-is still running. The settle comparison uses a coarse, quantized,
+cache is discarded. A cache entry is only consulted on a target change; a
+complete entry skips the settle window, and an incomplete entry (written before
+the window finished) is regenerated instead of trusted. Every generated set is
+written to the cache immediately as incomplete, so the cache always holds the
+latest set and a revisit repairs a set that was interrupted by a cell change.
+The settle comparison uses a coarse, quantized,
 **order-independent** plane signature (`FxHasher`, positions rounded to quarter
 units, per-plane keys sorted before hashing) so neither sub-unit engine jitter
 nor a re-link of the cell's reference list defeats stability; the window stops
@@ -528,8 +502,8 @@ quantized per-plane key. Unchanged native planes stay in the list, only changed
 planes are removed, and only new planes are created. A missing node found by
 the presence check is released and recreated by the same diff. This avoids the
 one-frame cull flip caused by removing and re-adding the whole list on every
-settle pass. The cache schema version is 4; older caches are discarded because
-the extraction semantics changed.
+settle pass. The cache schema version is 5 and each entry carries a completion
+flag; older caches are discarded because the extraction semantics changed.
 
 ## 6. Phased delivery
 
@@ -546,14 +520,14 @@ culling. Confirm that `ON_FRAME_PRESENT` insertion is safe; if not, move the
 reconcile to a hook on `0x008774A0` (CellTransitionOrchestrator), which is a
 known quiescent point.
 
-**Phase 2 - Runtime module with hand data.**
-Implement the module, parser and lifecycle against a small hand-authored
-dataset. Unit-test the pure logic; run the real-runtime gate for the engine
-calls.
+**Phase 2 - Runtime module.**
+Implement the module and lifecycle. Unit-test the pure logic; run the
+real-runtime gate for the engine calls.
 
 **Phase 3 - Offline generation.**
-Extend the NIF/record tooling, generate conservative data for the seven Fairfax
-exterior groups, validate offline, then run the A/B in game.
+Deferred. If runtime extraction proves insufficient for some cells, extend the
+NIF/record tooling, generate conservative data for the seven Fairfax exterior
+groups, validate offline, then run the A/B in game.
 
 **Phase 4 - Scale.**
 Extend to other exterior cells. Measure the `B*O` pair cost; only if it is hot,
@@ -620,7 +594,10 @@ Behavioral (real runtime, owner-run):
 | Startup compatibility regression | Defer all work to DeferredInit; owner Proton playtest |
 | Data staleness after load-order changes | Cache header hashes the active plugin list (order, names, sizes) and discards the cache on any change; each plane records its source FormID |
 | Engine clears the occluder list without a cell change | Periodic presence check releases missing nodes and the diff recreates them |
-| Regenerating on every visit wastes work | Persistent per-cell cache; a cache hit skips the mesh walk and the settle window |
+| Regenerating on every visit wastes work | Persistent per-cell cache; a complete cache hit skips the mesh walk and the settle window |
+| Cell-seam target flapping swaps the plane set every few frames | `TARGET_STABLE_FRAMES` confirmation before a new target replaces the current set |
+| A settle window aborted by a cell change caches an empty/partial set | Per-entry completion flag; incomplete entries are regenerated on the next visit |
+| Stable cell identity flips while an exterior cell streams in | Interior flag decides interior/exterior; null worldspace or coords is kept as a stable zero; the cell key is logged |
 | Settle pass flips the whole plane set | Quantized per-plane keys and a diff that keeps unchanged native planes |
 | Compressed meshes lose coverage | Skip them for safety; verify the compressed vertex layout before recovering them |
 | Event timing during visibility pass | Phase 1 verifies `ON_FRAME_PRESENT`; fallback to CellTransitionOrchestrator |
@@ -640,8 +617,13 @@ Behavioral (real runtime, owner-run):
   layout before reading it or before adding an offline data path for those
   meshes.
 - A cell-change pass now retries a bounded settle window, but a reference whose
-  3D never attaches before the window closes is still missed. The window and
-  interval are `SETTLE_RETRIES`/`SETTLE_INTERVAL_FRAMES` in `runtime.rs`.
+  3D never attaches before the window closes is still missed. An entry that did
+  not settle is marked incomplete and regenerated on the next visit. The window
+  and interval are `SETTLE_RETRIES`/`SETTLE_INTERVAL_FRAMES` in `runtime.rs`.
+- Confirm in the next playtest that the `key` and `complete` fields stop the
+  same-second `cell` alternation, and use `gen_ms` to measure per-cell
+  generation cost. `TARGET_STABLE_FRAMES` can be tuned if a genuine fast cell
+  change is delayed too long.
 - If a cell still yields too few candidates, the `scan` debug counters
   distinguish an empty `objectList` (`refs=0`) from a rejected population
   (`parent_mismatch`, `not_stat`, `render_null`, `node_null`, `radius`,

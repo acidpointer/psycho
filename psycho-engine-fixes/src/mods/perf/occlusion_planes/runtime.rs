@@ -1,4 +1,4 @@
-//! Native `BSOcclusionPlane` lifecycle for runtime-generated and override data.
+//! Native `BSOcclusionPlane` lifecycle for runtime-generated planes.
 //!
 //! Planes are created through the engine's own authored `XOCP` path, retained
 //! once, appended to the scene-graph occluder list, and removed and released
@@ -9,8 +9,9 @@
 //! immediately on an unchanged cell; allocation, list scans, generation and
 //! logging happen only on a transition.
 //!
-//! A cell's planes come from the optional TOML override when it lists that
-//! cell; otherwise the runtime collector derives them from live cell geometry.
+//! The runtime collector derives a cell's planes from live cell geometry. A
+//! new cell identity must persist for a few frames before it replaces the
+//! current set, so cell-seam alternation cannot make the occluders flicker.
 //! The module never clears the whole list and never touches an authored plane.
 //! A replacement scene graph means the old nodes were already retired by the
 //! engine, so the module releases its references without dereferencing the old
@@ -21,26 +22,26 @@ use core::ffi::c_void;
 use std::collections::HashMap;
 use std::sync::OnceLock;
 use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU64, AtomicUsize, Ordering};
+use std::time::Instant;
 
 use libpsycho::ffi::fnptr::FnPtr;
 use parking_lot::Mutex;
 
 use super::cache::{self, CachedPlane, PlaneCache};
 use super::contract::{
-    ALLOC, APPEND, BUILD_ROTATION, CELL_EXTERIOR_COORDS, CELL_FORM_ID, CELL_WORLDSPACE, CONSTRUCT,
-    COORDS_X, COORDS_Y, FREE_NODE, LIST_COUNT, LIST_HEAD, LIST_OFFSET, LIST_TAIL, NODE_NEXT,
-    NODE_PLANE, NODE_PREV, OWNER_POSITION, OWNER_SCENE_GRAPH, PLANE_SIDE_FLAG, PLANE_SIZE,
-    PLAYER_PTR, REFCOUNT_OFFSET, SET_POSITION, SET_ROTATION, SET_SIZE, SIGNATURES, SINGLETON,
-    TESFORM_REF_ID, VTABLE_DELETE_THIS,
+    ALLOC, APPEND, CELL_EXTERIOR_COORDS, CELL_FORM_ID, CELL_INTERIOR_FLAG, CELL_INTERIOR_MASK,
+    CELL_WORLDSPACE, CONSTRUCT, COORDS_X, COORDS_Y, FREE_NODE, LIST_COUNT, LIST_HEAD, LIST_OFFSET,
+    LIST_TAIL, NODE_NEXT, NODE_PLANE, NODE_PREV, OWNER_POSITION, OWNER_SCENE_GRAPH,
+    PLANE_ACTIVE_OFFSET, PLANE_SIDE_FLAG, PLANE_SIZE, PLAYER_PTR, REFCOUNT_OFFSET, SET_POSITION,
+    SET_ROTATION, SET_SIZE, SIGNATURES, SINGLETON, TESFORM_REF_ID, VTABLE_DELETE_THIS,
 };
 use super::contract::{
-    AllocFn, AppendFn, BuildRotationFn, ConstructFn, FreeNodeFn, SetPairFn, SetRotationFn,
-    SetTripleFn, SingletonFn,
+    AllocFn, AppendFn, ConstructFn, FreeNodeFn, SetPairFn, SetRotationFn, SetTripleFn, SingletonFn,
 };
-use super::data::{CellKey, PlaneRecord, PlaneRotation, PlaneSet};
+use super::data::{CellKey, PlaneRecord};
 use super::raw::{
-    read_f32_at, read_i32_at, read_ptr, read_ptr_at, read_u32_at, write_ptr_at, write_u8_at,
-    write_u32_at,
+    read_f32_at, read_i32_at, read_ptr, read_ptr_at, read_u8_at, read_u32_at, write_ptr_at,
+    write_u8_at, write_u32_at,
 };
 use super::runtime_generate;
 
@@ -67,7 +68,6 @@ struct EngineFns {
     construct: ConstructFn,
     set_size: SetPairFn,
     set_position: SetTripleFn,
-    build_rotation: BuildRotationFn,
     set_rotation: SetRotationFn,
     append: AppendFn,
     free_node: FreeNodeFn,
@@ -85,7 +85,6 @@ impl EngineFns {
                 construct: FnPtr::from_address_unchecked(CONSTRUCT).as_fn(),
                 set_size: FnPtr::from_address_unchecked(SET_SIZE).as_fn(),
                 set_position: FnPtr::from_address_unchecked(SET_POSITION).as_fn(),
-                build_rotation: FnPtr::from_address_unchecked(BUILD_ROTATION).as_fn(),
                 set_rotation: FnPtr::from_address_unchecked(SET_ROTATION).as_fn(),
                 append: FnPtr::from_address_unchecked(APPEND).as_fn(),
                 free_node: FnPtr::from_address_unchecked(FREE_NODE).as_fn(),
@@ -139,8 +138,8 @@ unsafe fn delete_this(object: *mut c_void) {
 ///
 /// `0x00C35C10` builds the native corners as `position +/- sizeX * localX +/-
 /// sizeY * localZ`, so those fields are half-extents. `PlaneRecord` stores full
-/// rectangle width/height; the TOML override and runtime generator both use
-/// that full-extent representation.
+/// rectangle width/height; the runtime generator uses that full-extent
+/// representation.
 pub(super) fn native_size(full: [f32; 2]) -> [f32; 2] {
     [full[0] * 0.5, full[1] * 0.5]
 }
@@ -154,13 +153,23 @@ struct TrackedPlane {
 }
 
 static ENABLED: AtomicBool = AtomicBool::new(false);
-static RUNTIME_GENERATE: AtomicBool = AtomicBool::new(false);
 static READY: AtomicBool = AtomicBool::new(false);
 static MAX_PER_CELL: AtomicUsize = AtomicUsize::new(1);
 static RESET_PENDING: AtomicBool = AtomicBool::new(false);
-static DATA: OnceLock<PlaneSet> = OnceLock::new();
 static FNS: OnceLock<EngineFns> = OnceLock::new();
 static TRACKED: Mutex<Vec<TrackedPlane>> = Mutex::new(Vec::new());
+/// Number of tracked planes, so the per-frame presence path can skip the lock
+/// and the engine list walk entirely when there is nothing to maintain.
+static TRACKED_COUNT: AtomicUsize = AtomicUsize::new(0);
+/// Last engine-admitted plane count, so the presence diagnostic logs only when
+/// the active set changes instead of every interval.
+static LAST_ACTIVE: AtomicUsize = AtomicUsize::new(0);
+/// Throttle for the per-frame module-cost warning.
+static FRAME_COST_COOLDOWN: AtomicUsize = AtomicUsize::new(0);
+/// A frame that spends this long in the occlusion module is worth reporting.
+const FRAME_COST_WARN_US: u64 = 2_000;
+/// Frames between module-cost warnings (about 5 seconds at 60 fps).
+const FRAME_COST_COOLDOWN_FRAMES: usize = 300;
 static CURRENT_SCENE_GRAPH: AtomicUsize = AtomicUsize::new(0);
 /// Cell pointer for the common case. The identity hash is only recomputed when
 /// the pointer changes, so the frame path never hashes in steady state.
@@ -172,6 +181,15 @@ static SETTLE_COUNTDOWN: AtomicUsize = AtomicUsize::new(0);
 /// Set when a plane allocation failed, so the settle window keeps retrying
 /// instead of treating a short set as stable.
 static INCOMPLETE: AtomicBool = AtomicBool::new(false);
+/// Candidate target awaiting confirmation. Rapid cell-boundary flapping would
+/// otherwise remove and rebuild the whole plane set every few frames.
+static PENDING_SCENE: AtomicUsize = AtomicUsize::new(0);
+static PENDING_KEY: AtomicU64 = AtomicU64::new(0);
+static PENDING_STREAK: AtomicUsize = AtomicUsize::new(0);
+/// Consecutive frames a new cell target must persist before its planes replace
+/// the current set. About 60 ms at 60 fps: enough to reject a seam flip-flop
+/// while keeping the stale-plane window short.
+pub(super) const TARGET_STABLE_FRAMES: usize = 4;
 /// Consecutive settle passes that produced the same set. The window stops once
 /// this reaches `SETTLE_STABLE_PASSES`, so the common case costs two extra
 /// walks instead of all five while still allowing one more pass for late 3D.
@@ -194,15 +212,8 @@ const DEBUG_MAGIC: f32 = 20559.0;
 
 /// Record configuration at startup. No file, allocation or engine access
 /// occurs here; the feature activates only after `DeferredInit`.
-pub(super) fn configure(
-    enabled: bool,
-    max_per_cell: u16,
-    runtime_generate: bool,
-    cache_path: &str,
-    debug: bool,
-) {
+pub(super) fn configure(enabled: bool, max_per_cell: u16, cache_path: &str, debug: bool) {
     ENABLED.store(enabled, Ordering::Release);
-    RUNTIME_GENERATE.store(runtime_generate, Ordering::Release);
     MAX_PER_CELL.store(usize::from(max_per_cell.max(1)), Ordering::Release);
     DEBUG.store(debug, Ordering::Release);
     let _ = CACHE_PATH.set(cache_path.to_string());
@@ -243,15 +254,7 @@ fn activate() {
         return;
     }
     let _ = FNS.set(EngineFns::resolve());
-    // The core config was parsed once at startup and lives for the process, so
-    // this borrow is stable and no startup allocation occurs here.
-    let path = crate::config::get_config()
-        .map(|config| config.performance.occlusion_planes_path.as_str())
-        .unwrap_or_default();
     let max = MAX_PER_CELL.load(Ordering::Acquire);
-    let data = load_data(path, max);
-    let cells = data.cell_count();
-    let _ = DATA.set(data);
     // Load the persistent plane cache. Its signature binds it to the exact
     // active plugin list, so a mod install/uninstall/update discards it.
     let cache_path = CACHE_PATH.get().map(String::as_str).unwrap_or_default();
@@ -267,21 +270,10 @@ fn activate() {
     let cached_cells = cache.cell_count();
     let _ = CACHE.set(Mutex::new(cache));
     READY.store(true, Ordering::Release);
-    if !data_is_used() {
-        log::info!(
-            "[OCCLUSION_PLANES] Active; planes are generated at runtime, cache cells={cached_cells}, \
-             mod signature={signature:016x}"
-        );
-    } else {
-        log::info!(
-            "[OCCLUSION_PLANES] Active with {cells} override cell(s) from `{path}`, \
-             cache cells={cached_cells}, mod signature={signature:016x}"
-        );
-    }
-}
-
-fn data_is_used() -> bool {
-    DATA.get().is_some_and(|data| data.cell_count() > 0)
+    log::info!(
+        "[OCCLUSION_PLANES] Active; planes are generated at runtime, cache cells={cached_cells}, \
+         mod signature={signature:016x}"
+    );
 }
 
 fn verify_contracts() -> anyhow::Result<()> {
@@ -298,23 +290,29 @@ fn verify_contracts() -> anyhow::Result<()> {
     }
 }
 
-fn load_data(path: &str, max_per_cell: usize) -> PlaneSet {
-    if path.is_empty() {
-        return PlaneSet::empty();
-    }
-    match std::fs::read_to_string(path) {
-        Ok(text) => match PlaneSet::parse(&text, max_per_cell) {
-            Ok(set) => set,
-            Err(error) => {
-                log::error!("[OCCLUSION_PLANES] Override data `{path}` rejected: {error}");
-                PlaneSet::empty()
-            }
-        },
-        Err(_) => PlaneSet::empty(),
+/// Measure the per-frame module cost. A steady frame only compares atomics; the
+/// warning exists so a future regression cannot hide behind the feature.
+fn frame_tick() {
+    let started = Instant::now();
+    frame_tick_inner();
+    let elapsed_us = started.elapsed().as_micros() as u64;
+    if elapsed_us > FRAME_COST_WARN_US {
+        log_frame_cost(elapsed_us);
     }
 }
 
-fn frame_tick() {
+/// Warn at most once per `FRAME_COST_COOLDOWN_FRAMES` when one frame's module
+/// work crosses the threshold.
+fn log_frame_cost(elapsed_us: u64) {
+    if FRAME_COST_COOLDOWN.load(Ordering::Relaxed) > 0 {
+        FRAME_COST_COOLDOWN.fetch_sub(1, Ordering::Relaxed);
+        return;
+    }
+    FRAME_COST_COOLDOWN.store(FRAME_COST_COOLDOWN_FRAMES, Ordering::Relaxed);
+    log::warn!("[OCCLUSION_PLANES] frame work {elapsed_us} us");
+}
+
+fn frame_tick_inner() {
     let pending = RESET_PENDING.swap(false, Ordering::AcqRel);
     let Some(fns) = FNS.get() else {
         restore_pending(pending);
@@ -346,43 +344,64 @@ fn frame_tick() {
         }
         let scene = scene_graph as usize;
         let cell_ptr = cell as usize;
+        if pending {
+            clear_pending_target();
+        }
         // Fast path: the scene and cell pointers are unchanged, so no hashing
         // or key read happens on a normal frame. Only a pointer change pays for
         // the identity hash, which also catches a reused cell pointer that now
         // names a different cell.
-        let same_target = if CURRENT_SCENE_GRAPH.load(Ordering::Acquire) == scene
-            && CURRENT_CELL_PTR.load(Ordering::Acquire) == cell_ptr
-        {
-            true
+        let fast_same = CURRENT_SCENE_GRAPH.load(Ordering::Acquire) == scene
+            && CURRENT_CELL_PTR.load(Ordering::Acquire) == cell_ptr;
+        let candidate_key = if fast_same {
+            CURRENT_CELL_KEY.load(Ordering::Acquire)
         } else {
-            let key = cell_key_signature(&cell_key(cell));
-            let same = CURRENT_SCENE_GRAPH.load(Ordering::Acquire) == scene
-                && CURRENT_CELL_KEY.load(Ordering::Acquire) == key;
-            if same {
+            cell_key_signature(&cell_key(cell))
+        };
+        let same_target = fast_same
+            || (CURRENT_SCENE_GRAPH.load(Ordering::Acquire) == scene
+                && CURRENT_CELL_KEY.load(Ordering::Acquire) == candidate_key);
+        if same_target {
+            if !fast_same {
                 CURRENT_CELL_PTR.store(cell_ptr, Ordering::Release);
             }
-            same
-        };
-        let settle_left = SETTLE_RETRIES_LEFT.load(Ordering::Acquire);
-        if !pending && same_target && settle_left == 0 {
-            // The engine can clear the occluder list on cell unload without
-            // changing the cell identity. Check periodically that our planes
-            // are still present and re-append them from the cache if not.
-            if presence_due() && !planes_present(scene_graph) {
-                let observer = read_observer(owner);
-                let settle_needed = reconcile(fns, scene_graph, cell, observer, true);
-                schedule_settle(settle_needed);
-            }
-            tick_cache_save();
-            return;
+            clear_pending_target();
         }
-        let observer = read_observer(owner);
-        if pending || !same_target {
-            // A new target (or an explicit reset) always rebuilds. A cache hit
-            // is a complete set and needs no settle window.
-            let settle_needed = reconcile(fns, scene_graph, cell, observer, true);
-            schedule_settle(settle_needed);
-        } else {
+        let settle_left = SETTLE_RETRIES_LEFT.load(Ordering::Acquire);
+        if !pending && same_target {
+            if settle_left == 0 {
+                // The engine can clear the occluder list on cell unload without
+                // changing the cell identity. Check periodically that our planes
+                // are still present and re-append them from the cache if not.
+                // With no tracked planes there is nothing to maintain, so the
+                // whole path stays idle.
+                if presence_due() {
+                    let total = TRACKED_COUNT.load(Ordering::Acquire);
+                    if total == 0 {
+                        if LAST_ACTIVE.swap(0, Ordering::AcqRel) != 0 {
+                            log::debug!("[OCCLUSION_PLANES] presence tracked=0 present=0 active=0");
+                        }
+                    } else {
+                        let (total, present, active) = tracked_status(scene_graph);
+                        if present < total {
+                            let observer = read_observer(owner);
+                            let settle_needed = reconcile(fns, scene_graph, cell, observer, true);
+                            schedule_settle(settle_needed);
+                        }
+                        let previous = LAST_ACTIVE.swap(active, Ordering::AcqRel);
+                        // Log only when planes start or stop being admitted, so
+                        // camera motion cannot turn this into per-frame spam.
+                        if (previous == 0) != (active == 0) {
+                            log::debug!(
+                                "[OCCLUSION_PLANES] presence tracked={total} present={present} \
+                                 active={active}"
+                            );
+                        }
+                    }
+                }
+                tick_cache_save();
+                return;
+            }
             // Settle retry: regenerate only when the interval elapses. The
             // rebuild itself is skipped when the generated set is unchanged.
             let countdown = SETTLE_COUNTDOWN.load(Ordering::Acquire);
@@ -390,6 +409,7 @@ fn frame_tick() {
                 SETTLE_COUNTDOWN.store(countdown - 1, Ordering::Release);
                 return;
             }
+            let observer = read_observer(owner);
             let keep_settling = reconcile(fns, scene_graph, cell, observer, false);
             if keep_settling {
                 SETTLE_RETRIES_LEFT.store(settle_left.saturating_sub(1), Ordering::Release);
@@ -399,8 +419,68 @@ fn frame_tick() {
                 SETTLE_RETRIES_LEFT.store(0, Ordering::Release);
                 SETTLE_COUNTDOWN.store(0, Ordering::Release);
             }
+            return;
         }
+        if !pending {
+            // A different target must persist for a few frames before it
+            // replaces the current planes. Cell seams can otherwise alternate
+            // between two cells every few frames and make the occluder set
+            // flicker, which shows up as scenery popping.
+            if !confirm_target(scene, candidate_key) {
+                tick_cache_save();
+                return;
+            }
+        }
+        // A confirmed new target (or an explicit reset) always rebuilds. A
+        // cache hit is a complete set and needs no settle window.
+        let observer = read_observer(owner);
+        let settle_needed = reconcile(fns, scene_graph, cell, observer, true);
+        schedule_settle(settle_needed);
+        tick_cache_save();
     }
+}
+
+/// Forget any target waiting for confirmation.
+fn clear_pending_target() {
+    if PENDING_SCENE.load(Ordering::Relaxed) == 0 {
+        return;
+    }
+    PENDING_SCENE.store(0, Ordering::Release);
+    PENDING_KEY.store(0, Ordering::Release);
+    PENDING_STREAK.store(0, Ordering::Release);
+}
+
+/// True once `(scene, key)` has been seen for `TARGET_STABLE_FRAMES` in a row.
+/// A different candidate resets the streak, so a rapid seam alternation never
+/// confirms.
+fn confirm_target(scene: usize, key: u64) -> bool {
+    let (confirmed, pending_scene, pending_key, streak) = target_confirmation(
+        PENDING_SCENE.load(Ordering::Acquire),
+        PENDING_KEY.load(Ordering::Acquire),
+        PENDING_STREAK.load(Ordering::Acquire),
+        scene,
+        key,
+    );
+    PENDING_SCENE.store(pending_scene, Ordering::Release);
+    PENDING_KEY.store(pending_key, Ordering::Release);
+    PENDING_STREAK.store(streak, Ordering::Release);
+    confirmed
+}
+
+/// Pure confirmation step: returns `(confirmed, pending_scene, pending_key,
+/// streak)` for the next frame.
+pub(super) fn target_confirmation(
+    pending_scene: usize,
+    pending_key: u64,
+    streak: usize,
+    scene: usize,
+    key: u64,
+) -> (bool, usize, u64, usize) {
+    if pending_scene != scene || pending_key != key {
+        return (false, scene, key, 1);
+    }
+    let streak = streak.saturating_add(1);
+    (streak >= TARGET_STABLE_FRAMES, scene, key, streak)
 }
 
 /// Decrement the presence-check countdown; `true` when a check is due.
@@ -414,20 +494,33 @@ fn presence_due() -> bool {
     true
 }
 
-/// True when every tracked plane is still linked in the scene occluder list.
-unsafe fn planes_present(scene_graph: *mut c_void) -> bool {
+/// Snapshot of the tracked set: `(total, present, active)`. `present` counts
+/// tracked planes whose node is still linked; `active` counts the linked planes
+/// the engine admitted for the current camera (`+0x40 == 1`).
+unsafe fn tracked_status(scene_graph: *mut c_void) -> (usize, usize, usize) {
     let tracked = TRACKED.lock();
-    if tracked.is_empty() {
-        return true;
+    let total = tracked.len();
+    if total == 0 {
+        return (0, 0, 0);
     }
     let list = unsafe { (scene_graph as *mut u8).add(LIST_OFFSET) as *mut c_void };
-    tracked
-        .iter()
-        .all(|item| unsafe { find_node(list, item.pointer) }.is_some())
+    let mut present = 0usize;
+    let mut active = 0usize;
+    for item in tracked.iter() {
+        let Some(node) = (unsafe { find_node(list, item.pointer) }) else {
+            continue;
+        };
+        present += 1;
+        let plane = unsafe { read_ptr_at(node, NODE_PLANE) };
+        if !plane.is_null() && unsafe { read_u32_at(plane, PLANE_ACTIVE_OFFSET) } == 1 {
+            active += 1;
+        }
+    }
+    (total, present, active)
 }
 
 /// Start or skip the settle window depending on whether the plane set is
-/// complete (cache hit or override) or freshly generated.
+/// complete (cache hit) or freshly generated.
 fn schedule_settle(needed: bool) {
     if needed {
         SETTLE_RETRIES_LEFT.store(SETTLE_RETRIES, Ordering::Release);
@@ -513,18 +606,8 @@ pub(super) fn plane_key(plane: &PlaneRecord) -> u64 {
     for value in plane.size {
         ((value * 4.0).round() as i32).hash(&mut hasher);
     }
-    match plane.rotation {
-        PlaneRotation::Matrix(matrix) => {
-            for value in matrix {
-                ((value * 256.0).round() as i32).hash(&mut hasher);
-            }
-        }
-        PlaneRotation::AxisAngle { axis, angle } => {
-            for value in axis {
-                ((value * 256.0).round() as i32).hash(&mut hasher);
-            }
-            ((angle * 256.0).round() as i32).hash(&mut hasher);
-        }
+    for value in plane.rotation {
+        ((value * 256.0).round() as i32).hash(&mut hasher);
     }
     plane.priority.hash(&mut hasher);
     plane.source_form_id.hash(&mut hasher);
@@ -551,7 +634,7 @@ fn restore_pending(pending: bool) {
 }
 
 /// Returns `true` when the freshly generated set should run a settle window.
-/// A cache hit or a hand-authored override is a complete set and needs none.
+/// A cache hit is a complete set and needs none.
 unsafe fn reconcile(
     fns: &EngineFns,
     scene_graph: *mut c_void,
@@ -565,25 +648,24 @@ unsafe fn reconcile(
     if force {
         STABLE_PASSES.store(0, Ordering::Release);
     }
-    let override_planes = DATA.get().and_then(|data| data.planes(&key));
-    // A per-cell override wins. A forced pass otherwise re-uses the persistent
-    // cache when it has this cell, so a revisited cell skips the mesh walk. A
-    // settle retry always regenerates so the final set is complete, and it
-    // refreshes the cache entry.
+    // A forced pass re-uses a complete cached entry when it has this cell, so a
+    // revisited cell skips the mesh walk. A settle retry always regenerates so
+    // the final set is complete, and it refreshes the cache entry.
     let mut settle_needed = false;
     let mut from_cache = false;
-    let (planes, raw): (Vec<PlaneRecord>, usize) = if let Some(override_planes) = override_planes {
-        (override_planes.to_vec(), override_planes.len())
-    } else if !RUNTIME_GENERATE.load(Ordering::Acquire) {
-        (Vec::new(), 0)
-    } else if force {
+    let mut generate_ms = 0.0f32;
+    let (planes, raw): (Vec<PlaneRecord>, usize) = if force {
         // Convert under the lock so a cache hit costs one plane allocation
-        // instead of a temporary cached-plane vector plus the records.
+        // instead of a temporary cached-plane vector plus the records. An
+        // incomplete entry is treated as a miss so a set cached before its
+        // settle window finished is regenerated.
         let cached = CACHE.get().and_then(|cache| {
             let guard = cache.lock();
-            guard
-                .get(&key)
-                .map(|planes| (cached_to_records(planes), planes.len()))
+            guard.get(&key).and_then(|entry| {
+                entry
+                    .complete
+                    .then(|| (cached_to_records(&entry.planes), entry.planes.len()))
+            })
         });
         match cached {
             Some((records, count)) => {
@@ -591,8 +673,10 @@ unsafe fn reconcile(
                 (records, count)
             }
             None => {
+                let started = Instant::now();
                 let (planes, raw) = runtime_generate::generate(cell, max, observer);
-                store_in_cache(&key, &planes);
+                generate_ms = started.elapsed().as_secs_f32() * 1000.0;
+                store_in_cache(&key, &planes, false);
                 settle_needed = true;
                 (planes, raw)
             }
@@ -600,8 +684,10 @@ unsafe fn reconcile(
     } else {
         // A settle retry keeps settling until two passes agree, and refreshes
         // the cache so the latest set is always reusable on a revisit.
+        let started = Instant::now();
         let (planes, raw) = runtime_generate::generate(cell, max, observer);
-        store_in_cache(&key, &planes);
+        generate_ms = started.elapsed().as_secs_f32() * 1000.0;
+        store_in_cache(&key, &planes, false);
         settle_needed = true;
         (planes, raw)
     };
@@ -622,6 +708,7 @@ unsafe fn reconcile(
         // which keeps one extra pass to catch late-attached 3D.
         settle_needed = false;
         if !force && passes >= SETTLE_STABLE_PASSES {
+            mark_cache_complete(&key);
             return false;
         }
         if !force {
@@ -703,15 +790,24 @@ unsafe fn reconcile(
     } else {
         INCOMPLETE.store(false, Ordering::Release);
     }
+    if !settle_needed {
+        mark_cache_complete(&key);
+    }
     *tracked = next;
+    TRACKED_COUNT.store(tracked.len(), Ordering::Release);
     CURRENT_SCENE_GRAPH.store(scene_graph as usize, Ordering::Release);
     CURRENT_CELL_PTR.store(cell as usize, Ordering::Release);
     CURRENT_CELL_KEY.store(key_signature, Ordering::Release);
     LAST_SIGNATURE.store(signature, Ordering::Release);
     if log::log_enabled!(log::Level::Debug) {
+        let (observer_x, observer_y, observer_z) = observer
+            .map(|position| (position[0], position[1], position[2]))
+            .unwrap_or((0.0, 0.0, 0.0));
         log::debug!(
-            "[OCCLUSION_PLANES] cell candidates={} raw={} injected={} reused={} removed={} \
-             cap={} cached={}",
+            "[OCCLUSION_PLANES] cell key={} candidates={} raw={} injected={} reused={} \
+             removed={} cap={} cached={} complete={} gen_ms={:.1} \
+             obs=[{:.0},{:.0},{:.0}]",
+            cell_key_log(&key),
             planes.len(),
             raw,
             created,
@@ -719,6 +815,11 @@ unsafe fn reconcile(
             removed,
             max,
             from_cache,
+            !settle_needed,
+            generate_ms,
+            observer_x,
+            observer_y,
+            observer_z,
         );
     }
     store_debug_snapshot(&injected, observer);
@@ -732,26 +833,22 @@ fn cached_to_records(cached: &[CachedPlane]) -> Vec<PlaneRecord> {
         .map(|plane| PlaneRecord {
             position: plane.position,
             size: plane.size,
-            rotation: PlaneRotation::Matrix(plane.rotation),
+            rotation: plane.rotation,
             priority: plane.priority,
             source_form_id: plane.source_form_id,
         })
         .collect()
 }
 
-/// Convert a generated plane into a cache entry. Only ready matrices are
-/// cached; hand-authored axis-angle overrides are not cached.
-fn record_to_cached(record: &PlaneRecord) -> Option<CachedPlane> {
-    let PlaneRotation::Matrix(rotation) = record.rotation else {
-        return None;
-    };
-    Some(CachedPlane {
+/// Convert a generated plane into a cache entry.
+fn record_to_cached(record: &PlaneRecord) -> CachedPlane {
+    CachedPlane {
         position: record.position,
         size: record.size,
-        rotation,
+        rotation: record.rotation,
         priority: record.priority,
         source_form_id: record.source_form_id,
-    })
+    }
 }
 
 /// Toggle the occluder debug view and report the summary for the requesting
@@ -803,7 +900,7 @@ pub(super) unsafe fn debug_write(out: *mut f32, capacity: usize) -> i32 {
         let half = native_size(plane.size);
         write(base + 3, half[0]);
         write(base + 4, half[1]);
-        let matrix = rotation_matrix(plane.rotation);
+        let matrix = plane.rotation;
         for row in 0..3 {
             write(base + 5 + row, matrix[row * 3 + 1]);
             write(base + 8 + row, matrix[row * 3]);
@@ -811,36 +908,6 @@ pub(super) unsafe fn debug_write(out: *mut f32, capacity: usize) -> i32 {
         }
     }
     needed as i32
-}
-
-fn rotation_matrix(rotation: PlaneRotation) -> [f32; 9] {
-    match rotation {
-        PlaneRotation::Matrix(matrix) => matrix,
-        PlaneRotation::AxisAngle { axis, angle } => axis_angle_matrix(axis, angle),
-    }
-}
-
-/// Pure Rodrigues axis-angle matrix, so the debug query never calls the engine
-/// from the helper's render thread.
-fn axis_angle_matrix(axis: [f32; 3], angle: f32) -> [f32; 9] {
-    let length = (axis[0] * axis[0] + axis[1] * axis[1] + axis[2] * axis[2]).sqrt();
-    if !length.is_finite() || length <= 0.0 {
-        return [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0];
-    }
-    let (x, y, z) = (axis[0] / length, axis[1] / length, axis[2] / length);
-    let (s, c) = angle.sin_cos();
-    let t = 1.0 - c;
-    [
-        t * x * x + c,
-        t * x * y - s * z,
-        t * x * z + s * y,
-        t * x * y + s * z,
-        t * y * y + c,
-        t * y * z - s * x,
-        t * x * z - s * y,
-        t * y * z + s * x,
-        t * z * z + c,
-    ]
 }
 
 /// Store the last injected set and observer while debug mode is on.
@@ -855,13 +922,21 @@ fn store_debug_snapshot(planes: &[PlaneRecord], observer: Option<[f32; 3]>) {
 }
 
 /// Store the latest generated set for a cell so a revisit can re-append it
-/// without re-walking the meshes.
-fn store_in_cache(key: &CellKey, planes: &[PlaneRecord]) {
+/// without re-walking the meshes. `complete` is false until the settle window
+/// sees two identical passes; an incomplete entry is regenerated on a revisit.
+fn store_in_cache(key: &CellKey, planes: &[PlaneRecord], complete: bool) {
     let Some(cache) = CACHE.get() else {
         return;
     };
-    let cached: Vec<CachedPlane> = planes.iter().filter_map(record_to_cached).collect();
-    cache.lock().insert(*key, cached);
+    let cached: Vec<CachedPlane> = planes.iter().map(record_to_cached).collect();
+    cache.lock().insert(*key, cached, complete);
+}
+
+/// Mark a cached entry complete once the settle window has ended.
+fn mark_cache_complete(key: &CellKey) {
+    if let Some(cache) = CACHE.get() {
+        cache.lock().mark_complete(key);
+    }
 }
 
 unsafe fn create_plane(fns: &EngineFns, record: &PlaneRecord) -> Option<*mut c_void> {
@@ -876,27 +951,11 @@ unsafe fn create_plane(fns: &EngineFns, record: &PlaneRecord) -> Option<*mut c_v
     // Retain immediately so a concurrent engine retirement path never sees a
     // zero count on our object.
     unsafe { retain_plane(plane) };
-    let matrix = match record.rotation {
-        PlaneRotation::Matrix(matrix) => matrix,
-        PlaneRotation::AxisAngle { axis, angle } => {
-            // The identity case needs no engine call and avoids a degenerate
-            // zero-axis request to the axis-angle builder.
-            if angle == 0.0 {
-                [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0]
-            } else {
-                let mut matrix = [0.0f32; 9];
-                unsafe {
-                    (fns.build_rotation)(matrix.as_mut_ptr(), angle, axis[0], axis[1], axis[2]);
-                }
-                matrix
-            }
-        }
-    };
     let size = native_size(record.size);
     unsafe {
         (fns.set_size)(plane, size.as_ptr());
         (fns.set_position)(plane, record.position.as_ptr());
-        (fns.set_rotation)(plane, matrix.as_ptr());
+        (fns.set_rotation)(plane, record.rotation.as_ptr());
         // The constructor marks the plane two-sided. Clear that flag after the
         // setters so `0x00C358A0` runs its camera-side test every frame and
         // activates the rectangle only from the face's outward side.
@@ -939,26 +998,41 @@ unsafe fn unlink(fns: &EngineFns, list: *mut c_void, node: *mut c_void) {
 }
 
 unsafe fn cell_key(cell: *mut c_void) -> CellKey {
-    let worldspace = unsafe { read_ptr_at(cell, CELL_WORLDSPACE) };
-    if worldspace.is_null() {
-        CellKey::Interior {
+    let interior = unsafe { read_u8_at(cell, CELL_INTERIOR_FLAG) } & CELL_INTERIOR_MASK != 0;
+    if interior {
+        return CellKey::Interior {
             form_id: unsafe { read_u32_at(cell, CELL_FORM_ID) },
-        }
-    } else {
-        // `cell + 0x48` is a `CellCoordinates*`; the grid values live in the
-        // pointed structure, not in the two cell fields.
-        let coords = unsafe { read_ptr_at(cell, CELL_EXTERIOR_COORDS) };
-        let (x, y) = if coords.is_null() {
-            (0, 0)
-        } else {
-            (unsafe { read_i32_at(coords, COORDS_X) }, unsafe {
-                read_i32_at(coords, COORDS_Y)
-            })
         };
-        CellKey::Exterior {
-            worldspace: unsafe { read_u32_at(worldspace, TESFORM_REF_ID) },
-            x,
-            y,
-        }
+    }
+    // `cell + 0x48` is a `CellCoordinates*`; the grid values live in the
+    // pointed structure, not in the two cell fields. A null worldspace or
+    // coords pointer during a load is kept as a stable zero so the key does
+    // not alternate while the cell streams in.
+    let worldspace = unsafe { read_ptr_at(cell, CELL_WORLDSPACE) };
+    let worldspace_id = if worldspace.is_null() {
+        0
+    } else {
+        unsafe { read_u32_at(worldspace, TESFORM_REF_ID) }
+    };
+    let coords = unsafe { read_ptr_at(cell, CELL_EXTERIOR_COORDS) };
+    let (x, y) = if coords.is_null() {
+        (0, 0)
+    } else {
+        (unsafe { read_i32_at(coords, COORDS_X) }, unsafe {
+            read_i32_at(coords, COORDS_Y)
+        })
+    };
+    CellKey::Exterior {
+        worldspace: worldspace_id,
+        x,
+        y,
+    }
+}
+
+/// Compact cell identity for the debug log.
+fn cell_key_log(key: &CellKey) -> String {
+    match key {
+        CellKey::Interior { form_id } => format!("interior:{form_id:08X}"),
+        CellKey::Exterior { worldspace, x, y } => format!("exterior:{worldspace:08X}:{x}:{y}"),
     }
 }

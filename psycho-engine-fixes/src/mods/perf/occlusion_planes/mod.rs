@@ -2,14 +2,14 @@
 //!
 //! Fallout: New Vegas has no authored occlusion data for many exterior cells.
 //! This module derives conservative oriented rectangles per opaque, unskinned
-//! static geometry of the current cell, or loads an optional per-cell override
-//! file, and injects `BSOcclusionPlane` objects into the engine's native
-//! occluder list, reusing the engine's own authored `XOCP` creation path.
-//! Rectangles are fitted to the vertices that support each face and emitted
-//! one-sided, so the engine activates a plane only while the camera is on the
-//! solid side. Results are cached per cell and reused on a revisit; the cache
-//! header is bound to the active plugin list, so a mod install, removal,
-//! reorder or update discards it and stale planes are never reused.
+//! static geometry of the current cell and injects `BSOcclusionPlane` objects
+//! into the engine's native occluder list, reusing the engine's own authored
+//! `XOCP` creation path. Rectangles are fitted to the vertices that support
+//! each face and emitted one-sided, so the engine activates a plane only while
+//! the camera is on the solid side. Results are cached per cell and reused on a
+//! revisit; the cache header is bound to the active plugin list, so a mod
+//! install, removal, reorder or update discards it and stale planes are never
+//! reused.
 //!
 //! # Ownership
 //!
@@ -21,20 +21,20 @@
 //! # Lifecycle
 //!
 //! Configuration is recorded at core startup. The feature verifies its native
-//! byte signatures and reads the data file on the `DeferredInit` event. The
+//! byte signatures and loads its cache on the `DeferredInit` event. The
 //! already-forwarded `OnFramePresent` event drives a cell/scene-graph identity
-//! check. On a transition the runtime rebuilds and then retries a bounded
-//! settle window, so references whose 3D attaches after the first frame are
-//! still collected; a retry whose generated set is unchanged keeps the existing
-//! planes. Creation, insertion, removal and release happen only on a rebuild.
-//! Load, new-game and exit-to-menu events defer cleanup to the next frame, so
-//! the module never scans a list that may be under teardown.
+//! check; a new cell must be stable before it replaces the current planes. On a
+//! transition the runtime rebuilds and then retries a bounded settle window, so
+//! references whose 3D attaches after the first frame are still collected; a
+//! retry whose generated set is unchanged keeps the existing planes. A cache
+//! entry is reused only after its settle window completed. Creation, insertion,
+//! removal and release happen only on a rebuild. Load, new-game and
+//! exit-to-menu events defer cleanup to the next frame, so the module never
+//! scans a list that may be under teardown.
 //!
 //! # Failure behavior
 //!
-//! A signature, file or allocation failure leaves the native list untouched.
-//! A missing or empty override file is normal; runtime collection still serves
-//! every cell that has no override.
+//! A signature, cache or allocation failure leaves the native list untouched.
 
 mod cache;
 mod contract;
@@ -54,7 +54,6 @@ pub(crate) fn install(performance: &PerformanceConfig) {
     runtime::configure(
         performance.occlusion_planes,
         performance.occlusion_planes_max_per_cell,
-        performance.occlusion_planes_runtime,
         &performance.occlusion_planes_cache_path,
         performance.occlusion_planes_debug,
     );

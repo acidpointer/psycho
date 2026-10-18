@@ -21,8 +21,6 @@ pub(super) const CONSTRUCT: usize = 0x00C3_35D0;
 pub(super) const SET_SIZE: usize = 0x0041_6A30;
 /// Position setter: copies three floats to plane +0x08.
 pub(super) const SET_POSITION: usize = 0x0041_69F0;
-/// Axis-angle rotation matrix builder (ecx = 9-float matrix).
-pub(super) const BUILD_ROTATION: usize = 0x0041_68A0;
 /// Rotation setter: copies nine floats to plane +0x1C.
 pub(super) const SET_ROTATION: usize = 0x0041_6A70;
 /// Append a plane to the scene-graph occluder list at scene_graph + 8.
@@ -35,6 +33,8 @@ pub(super) const SINGLETON: usize = 0x0045_0B80;
 pub(super) const REFCOUNT_OFFSET: usize = 0x04;
 /// `NiRefObject::DeleteThis` vtable slot (scalar deleting destructor).
 pub(super) const VTABLE_DELETE_THIS: usize = 0x04;
+/// `BSOcclusionPlane::+0x40` camera admission word: 1 admitted, 2 not admitted.
+pub(super) const PLANE_ACTIVE_OFFSET: usize = 0x40;
 /// `BSOcclusionPlane::+0xEA` camera-side test flag.
 ///
 /// `0x00C335D0` sets it to 1 (two-sided: `0x00C358A0` returns immediately).
@@ -155,6 +155,9 @@ pub(super) const CELL_FORM_ID: usize = 0x0C;
 /// `TESObjectCELL::coords` (`CellCoordinates*`). The grid X/Y are the two
 /// dwords at the pointed structure, not the cell field itself.
 pub(super) const CELL_EXTERIOR_COORDS: usize = 0x48;
+/// `TESObjectCELL` interior flag byte (`& 1`).
+pub(super) const CELL_INTERIOR_FLAG: usize = 0x24;
+pub(super) const CELL_INTERIOR_MASK: u8 = 0x01;
 pub(super) const COORDS_X: usize = 0x00;
 pub(super) const COORDS_Y: usize = 0x04;
 pub(super) const CELL_WORLDSPACE: usize = 0xC0;
@@ -168,8 +171,6 @@ pub(super) type ConstructFn = unsafe extern "thiscall" fn(*mut c_void) -> *mut c
 pub(super) type SetPairFn = unsafe extern "thiscall" fn(*mut c_void, *const f32);
 /// Three-float setter (position).
 pub(super) type SetTripleFn = unsafe extern "thiscall" fn(*mut c_void, *const f32);
-/// Axis-angle matrix builder.
-pub(super) type BuildRotationFn = unsafe extern "thiscall" fn(*mut f32, f32, f32, f32, f32);
 /// Nine-float setter (rotation).
 pub(super) type SetRotationFn = unsafe extern "thiscall" fn(*mut c_void, *const f32);
 /// List append.
@@ -223,15 +224,6 @@ pub(super) static SIGNATURES: &[CodeSignature] = &[
         &[
             0x55, 0x8B, 0xEC, 0x51, 0x56, 0x57, 0x89, 0x4D, 0xFC, 0x8B, 0x75, 0x08, 0x8B, 0x7D,
             0xFC, 0x83, 0xC7, 0x1C, 0xB9, 0x09, 0x00, 0x00, 0x00, 0xF3,
-        ],
-    ),
-    CodeSignature::new(
-        "occlusion plane rotation builder",
-        BUILD_ROTATION,
-        &[
-            0x55, 0x8B, 0xEC, 0x83, 0xEC, 0x34, 0x89, 0x4D, 0xCC, 0x8D, 0x45, 0xF0, 0x50, 0x8D,
-            0x4D, 0xF4, 0x51, 0x51, 0xD9, 0x45, 0x08, 0xD9, 0x1C, 0x24, 0xE8, 0xE3, 0x00, 0x00,
-            0x00, 0x83, 0xC4, 0x0C,
         ],
     ),
     CodeSignature::new(

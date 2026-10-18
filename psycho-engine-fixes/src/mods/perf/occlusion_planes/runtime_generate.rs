@@ -4,8 +4,8 @@
 //! unskinned static geometry, derives conservative occlusion rectangles from
 //! the geometry's own local vertex box and live world transform. Planes are
 //! emitted per geometry (never merged across an object), oriented by the node's
-//! world rotation, fitted to the vertices that actually support each face, and
-//! shrunk once more for safety.
+//! world rotation, fitted to the largest axis-aligned rectangle supported by
+//! the vertices near each face, and shrunk once more for safety.
 //!
 //! Only uncompressed vertex data is accepted. The engine's local/world bound is
 //! a sphere; turning it into a box produces a rectangle that can float far
@@ -45,18 +45,18 @@ use super::contract::{
     TESFORM_REF_ID, TESFORM_TYPE_ID, TLIST_DATA, TLIST_NEXT, VTABLE_IS_GEOMETRY, VTABLE_IS_NODE,
     WORLD_ROTATION, WORLD_SCALE, WORLD_TRANSLATION,
 };
-use super::data::{PlaneRecord, PlaneRotation};
+use super::data::PlaneRecord;
 use super::raw::{read_f32_at, read_ptr, read_ptr_at, read_u8_at, read_u16_at, read_u32_at};
 
 const MAX_REFS: usize = 2000;
 const MAX_VISITED_NODES: usize = 512;
 const MAX_VERTICES_PER_MESH: usize = 4096;
 const VERTEX_BUDGET: usize = 200_000;
-const MIN_FACE_EXTENT: f32 = 192.0;
+const MIN_FACE_EXTENT: f32 = 128.0;
 const MIN_BOX_EXTENT: f32 = 256.0;
-const MAX_BOX_EXTENT: f32 = 4096.0;
+const MAX_BOX_EXTENT: f32 = 8192.0;
 const MIN_WORLD_RADIUS: f32 = MIN_BOX_EXTENT * 0.5;
-const MAX_OCCLUDER_DISTANCE: f32 = 24_576.0;
+const MAX_OCCLUDER_DISTANCE: f32 = 262_144.0;
 /// Additional shrink applied after the rectangle is fitted inside the vertex
 /// support hull. The support fit is the primary guard against floating faces;
 /// this margin absorbs tessellation and transform error.
@@ -64,12 +64,12 @@ pub(super) const PLANE_SHRINK: f32 = 0.8;
 /// Vertices within this fraction of the box extent are treated as part of the
 /// face support. Absolute minimum keeps sub-unit meshes from rejecting a face
 /// because of transform noise.
-const SUPPORT_TOLERANCE_RATIO: f32 = 0.02;
-const SUPPORT_TOLERANCE_MIN: f32 = 2.0;
+const SUPPORT_TOLERANCE_RATIO: f32 = 0.05;
+const SUPPORT_TOLERANCE_MIN: f32 = 4.0;
 /// Fraction of the box face that must be supported before a rectangle is
-/// emitted. A centered rectangle smaller than this is treated as an unsafe
-/// bound-derived face rather than a wall.
-const MIN_SUPPORT_SCALE: f32 = 0.1;
+/// emitted. A rectangle smaller than this is treated as an unsafe bound-derived
+/// face rather than a wall.
+const MIN_SUPPORT_SCALE: f32 = 0.05;
 /// World-space normal magnitude above which a face is treated as horizontal
 /// ground/roof and skipped. Vertical walls have a normal Z near zero.
 const MAX_HORIZONTAL_NORMAL: f32 = 0.8;
@@ -151,6 +151,7 @@ pub(super) struct ScanStats {
     support_reject: usize,
     small_reject: usize,
     distance_reject: usize,
+    distance_max: f32,
     budget_stop: usize,
     faces: usize,
     /// Total admitted geometry area and total emitted rectangle area, so the
@@ -174,6 +175,9 @@ pub(super) fn generate(
     let mut stack: Vec<*mut c_void> = Vec::with_capacity(64);
     let mut mesh_out: Vec<(f32, PlaneRecord)> = Vec::new();
     let mut vertex_buf: Vec<[f32; 3]> = Vec::with_capacity(MAX_VERTICES_PER_MESH);
+    let mut support_points: Vec<[f32; 2]> = Vec::with_capacity(64);
+    let mut support_hull: Vec<[f32; 2]> = Vec::with_capacity(64);
+    let mut support_upper: Vec<[f32; 2]> = Vec::with_capacity(64);
     let mut vertex_budget = VERTEX_BUDGET;
     let mut stats = ScanStats::default();
     // Safety: the caller runs on the main thread after a cell change; the
@@ -197,6 +201,9 @@ pub(super) fn generate(
                     &mut vertex_budget,
                     &mut candidates,
                     &mut stats,
+                    &mut support_points,
+                    &mut support_hull,
+                    &mut support_upper,
                 );
             }
             if next.is_null() || stats.refs >= MAX_REFS {
@@ -213,7 +220,7 @@ pub(super) fn generate(
             "[OCCLUSION_PLANES] scan refs={} parent_mismatch={} base_null={} not_stat={} \
              render_null={} node_null={} radius={} nodes={} geoms={} skinned={} alpha={} \
              no_vertices={} size={} horizontal={} support={} small={} distance={} \
-             budget_stop={} faces={} mesh_area={:.0} rect_area={:.0}",
+             dist_max={:.0} budget_stop={} faces={} mesh_area={:.0} rect_area={:.0}",
             stats.refs,
             stats.parent_mismatch,
             stats.base_null,
@@ -231,6 +238,7 @@ pub(super) fn generate(
             stats.support_reject,
             stats.small_reject,
             stats.distance_reject,
+            stats.distance_max,
             stats.budget_stop,
             stats.faces,
             stats.mesh_area,
@@ -254,6 +262,9 @@ unsafe fn collect_reference(
     vertex_budget: &mut usize,
     out: &mut Vec<(f32, PlaneRecord)>,
     stats: &mut ScanStats,
+    support_points: &mut Vec<[f32; 2]>,
+    support_hull: &mut Vec<[f32; 2]>,
+    support_upper: &mut Vec<[f32; 2]>,
 ) {
     // Stop examining further references once the shared vertex budget is spent,
     // so the cell-load pass stays bounded instead of falling back to coarse
@@ -303,7 +314,17 @@ unsafe fn collect_reference(
     }
     mesh_out.clear();
     unsafe {
-        collect_object_planes(node, stack, vertex_buf, vertex_budget, mesh_out, stats);
+        collect_object_planes(
+            node,
+            stack,
+            vertex_buf,
+            vertex_budget,
+            mesh_out,
+            stats,
+            support_points,
+            support_hull,
+            support_upper,
+        );
     }
     for (area, mut plane) in mesh_out.drain(..) {
         plane.source_form_id = source_form_id;
@@ -318,6 +339,9 @@ unsafe fn collect_reference(
                 (offset[0] * offset[0] + offset[1] * offset[1] + offset[2] * offset[2]).sqrt();
             if !distance.is_finite() || distance > MAX_OCCLUDER_DISTANCE {
                 stats.distance_reject += 1;
+                if distance.is_finite() {
+                    stats.distance_max = stats.distance_max.max(distance);
+                }
                 continue;
             }
             // Score by roughly the plane's solid angle from the observer, so
@@ -340,11 +364,13 @@ unsafe fn world_bound_radius(object: *mut c_void) -> Option<f32> {
 }
 
 /// True when no alpha blend/test flag is set. `None` means no alpha property.
+#[inline]
 pub(super) fn alpha_is_opaque(flags: Option<u16>) -> bool {
     flags.is_none_or(|flags| flags & (ALPHA_BLEND | ALPHA_TEST) == 0)
 }
 
 /// True for the static-like base forms whose loaded 3D may be an occluder.
+#[inline]
 pub(super) fn admits_base_type(type_id: u8) -> bool {
     matches!(type_id, FORM_TYPE_STAT | FORM_TYPE_STATIC_COLLECTION)
 }
@@ -374,6 +400,9 @@ unsafe fn collect_object_planes(
     vertex_budget: &mut usize,
     out: &mut Vec<(f32, PlaneRecord)>,
     stats: &mut ScanStats,
+    support_points: &mut Vec<[f32; 2]>,
+    support_hull: &mut Vec<[f32; 2]>,
+    support_upper: &mut Vec<[f32; 2]>,
 ) {
     stack.clear();
     stack.push(root);
@@ -405,7 +434,15 @@ unsafe fn collect_object_planes(
                             + (extents[1] * world_scale) * (extents[2] * world_scale)
                             + (extents[2] * world_scale) * (extents[0] * world_scale));
                     let before = out.len();
-                    let rejects = faces_from_oriented_box(&local, &world, vertex_buf, out);
+                    let rejects = faces_from_oriented_box(
+                        &local,
+                        &world,
+                        vertex_buf,
+                        out,
+                        support_points,
+                        support_hull,
+                        support_upper,
+                    );
                     stats.horizontal_reject += rejects.horizontal;
                     stats.support_reject += rejects.unsupported;
                     stats.small_reject += rejects.small;
@@ -532,6 +569,7 @@ pub(super) fn aabb_of(points: &[[f32; 3]]) -> Aabb {
 }
 
 /// Transform a local point by the node's rigid transform.
+#[inline]
 pub(super) fn transform_point(world: &WorldTransform, local: &[f32; 3]) -> [f32; 3] {
     let scaled = [
         local[0] * world.scale,
@@ -548,6 +586,7 @@ pub(super) fn transform_point(world: &WorldTransform, local: &[f32; 3]) -> [f32;
 
 /// Transform and normalize a local direction. Returns `None` when the result
 /// cannot be normalized, so a degenerate transform never reaches the engine.
+#[inline]
 pub(super) fn transform_unit_direction(
     world: &WorldTransform,
     local: &[f32; 3],
@@ -648,6 +687,9 @@ pub(super) fn faces_from_oriented_box(
     world: &WorldTransform,
     vertices: &[[f32; 3]],
     out: &mut Vec<(f32, PlaneRecord)>,
+    support_points: &mut Vec<[f32; 2]>,
+    support_hull: &mut Vec<[f32; 2]>,
+    support_upper: &mut Vec<[f32; 2]>,
 ) -> FaceRejects {
     let mut rejects = FaceRejects::default();
     let center = local.center();
@@ -680,7 +722,7 @@ pub(super) fn faces_from_oriented_box(
                 rejects.horizontal += 1;
                 continue;
             }
-            let Some(support) = support_scale(
+            let Some(rect) = support_rect(
                 vertices,
                 axis,
                 face_coord,
@@ -689,6 +731,9 @@ pub(super) fn faces_from_oriented_box(
                 center[tangent_b],
                 extents[tangent_a] * 0.5,
                 extents[tangent_b] * 0.5,
+                support_points,
+                support_hull,
+                support_upper,
             ) else {
                 rejects.unsupported += 1;
                 continue;
@@ -699,8 +744,8 @@ pub(super) fn faces_from_oriented_box(
             };
             let bitangent = cross(tangent, normal);
             let size = [
-                extent_a * support * PLANE_SHRINK,
-                extent_b * support * PLANE_SHRINK,
+                rect.half_u * 2.0 * world_scale * PLANE_SHRINK,
+                rect.half_v * 2.0 * world_scale * PLANE_SHRINK,
             ];
             if size[0] < MIN_FACE_EXTENT || size[1] < MIN_FACE_EXTENT {
                 rejects.small += 1;
@@ -708,6 +753,8 @@ pub(super) fn faces_from_oriented_box(
             }
             let mut local_face_center = center;
             local_face_center[axis] = face_coord;
+            local_face_center[tangent_a] = rect.center_u;
+            local_face_center[tangent_b] = rect.center_v;
             let face_center = transform_point(world, &local_face_center);
             let position = [
                 face_center[0] + normal[0] * OUTWARD_OFFSET,
@@ -730,7 +777,7 @@ pub(super) fn faces_from_oriented_box(
                 PlaneRecord {
                     position,
                     size,
-                    rotation: PlaneRotation::Matrix(rotation),
+                    rotation,
                     priority: 255,
                     // Filled in by the caller from the reference's base form.
                     source_form_id: 0,
@@ -741,27 +788,43 @@ pub(super) fn faces_from_oriented_box(
     rejects
 }
 
-/// Fraction of the full box face that is backed by vertices near that face.
+/// Largest axis-aligned rectangle supported by the face's vertices.
+#[derive(Clone, Copy, Debug)]
+pub(super) struct SupportRect {
+    pub(super) center_u: f32,
+    pub(super) center_v: f32,
+    pub(super) half_u: f32,
+    pub(super) half_v: f32,
+}
+
+/// Find the largest axis-aligned rectangle backed by vertices near the face.
 ///
-/// The result is a uniform scale in `0.0..=1.0` for a centered rectangle. It is
-/// the largest scale whose four corners lie inside the 2D convex hull of the
-/// face's support vertices. A face with fewer than three support points (a
-/// sphere bound, a single corner or a line) is rejected instead of being
-/// treated as a solid wall.
-fn support_scale(
+/// The fast path keeps the previous centered rectangle: binary-search the
+/// largest centered scale whose four corners lie inside the 2D convex hull of
+/// the face's support vertices. When no useful centered rectangle exists, a
+/// bounded occupancy grid finds the largest rectangle anywhere in the hull.
+/// Every result is inside the convex hull, which is the same support bound the
+/// centered path used, so this only adds coverage, not a new over-cover class.
+///
+/// A face with fewer than three support points (a sphere bound, a single corner
+/// or a line) is rejected instead of being treated as a solid wall.
+pub(super) fn support_rect(
     vertices: &[[f32; 3]],
     axis: usize,
     face_coord: f32,
     extent_axis: f32,
     center_u: f32,
     center_v: f32,
-    half_u: f32,
-    half_v: f32,
-) -> Option<f32> {
+    half_u_param: f32,
+    half_v_param: f32,
+    points: &mut Vec<[f32; 2]>,
+    hull: &mut Vec<[f32; 2]>,
+    upper: &mut Vec<[f32; 2]>,
+) -> Option<SupportRect> {
     let tangent_a = (axis + 1) % 3;
     let tangent_b = (axis + 2) % 3;
     let tolerance = SUPPORT_TOLERANCE_MIN.max(extent_axis * SUPPORT_TOLERANCE_RATIO);
-    let mut points: Vec<[f32; 2]> = Vec::new();
+    points.clear();
     for vertex in vertices {
         if (vertex[axis] - face_coord).abs() <= tolerance {
             points.push([vertex[tangent_a], vertex[tangent_b]]);
@@ -770,54 +833,203 @@ fn support_scale(
     if points.len() < 3 {
         return None;
     }
-    let hull = convex_hull(points);
+    convex_hull(points, hull, upper);
     if hull.len() < 3 {
         return None;
     }
-    // Require at least a useful centered rectangle before searching, so a hull
-    // that only touches one corner cannot produce a tiny degenerate plane.
-    if !rectangle_inside(
-        &hull,
+
+    // Centered candidate. It is the cheapest and keeps the previous behavior
+    // for well-shaped faces.
+    let centered = if rectangle_inside(
+        hull,
         center_u,
         center_v,
-        half_u * MIN_SUPPORT_SCALE,
-        half_v * MIN_SUPPORT_SCALE,
+        half_u_param * MIN_SUPPORT_SCALE,
+        half_v_param * MIN_SUPPORT_SCALE,
     ) {
+        let mut low = MIN_SUPPORT_SCALE;
+        let mut high = 1.0f32;
+        for _ in 0..20 {
+            let mid = (low + high) * 0.5;
+            if rectangle_inside(
+                hull,
+                center_u,
+                center_v,
+                half_u_param * mid,
+                half_v_param * mid,
+            ) {
+                low = mid;
+            } else {
+                high = mid;
+            }
+        }
+        Some(SupportRect {
+            center_u,
+            center_v,
+            half_u: half_u_param * low,
+            half_v: half_v_param * low,
+        })
+    } else {
+        None
+    };
+
+    // Only search the grid when the centered rectangle is missing or clearly
+    // smaller than the face, so the common case stays cheap.
+    let grid = if centered
+        .is_none_or(|rect| rect.half_u < half_u_param * 0.6 || rect.half_v < half_v_param * 0.6)
+    {
+        grid_support_rect(hull)
+    } else {
+        None
+    };
+
+    let best = match (centered, grid) {
+        (Some(centered), Some(grid)) => {
+            if grid.half_u * grid.half_v > centered.half_u * centered.half_v {
+                Some(grid)
+            } else {
+                Some(centered)
+            }
+        }
+        (Some(centered), None) => Some(centered),
+        (None, Some(grid)) => Some(grid),
+        (None, None) => None,
+    }?;
+    if best.half_u < half_u_param * MIN_SUPPORT_SCALE
+        || best.half_v < half_v_param * MIN_SUPPORT_SCALE
+    {
         return None;
     }
-    let mut low = MIN_SUPPORT_SCALE;
-    let mut high = 1.0f32;
-    for _ in 0..20 {
-        let mid = (low + high) * 0.5;
-        if rectangle_inside(&hull, center_u, center_v, half_u * mid, half_v * mid) {
-            low = mid;
-        } else {
-            high = mid;
-        }
-    }
-    Some(low)
+    Some(best)
 }
 
-/// Convex hull of 2D points in counter-clockwise order (monotone chain).
-fn convex_hull(mut points: Vec<[f32; 2]>) -> Vec<[f32; 2]> {
+/// Convert the largest grid rectangle inside the hull into face-local bounds.
+fn grid_support_rect(hull: &[[f32; 2]]) -> Option<SupportRect> {
+    let (u0, v0, u1, v1, columns, rows) = largest_supported_rect(hull)?;
+    let columns = columns as f32;
+    let rows = rows as f32;
+    if columns <= 0.0 || rows <= 0.0 {
+        return None;
+    }
+    // Inset by half a cell so the emitted rectangle keeps a margin from the
+    // hull boundary even before the global `PLANE_SHRINK`.
+    let half_u = (u1 - u0) * 0.5 - (u1 - u0) / columns * 0.5;
+    let half_v = (v1 - v0) * 0.5 - (v1 - v0) / rows * 0.5;
+    if half_u <= 0.0 || half_v <= 0.0 {
+        return None;
+    }
+    Some(SupportRect {
+        center_u: (u0 + u1) * 0.5,
+        center_v: (v0 + v1) * 0.5,
+        half_u,
+        half_v,
+    })
+}
+
+/// Grid occupancy search for the largest axis-aligned rectangle inside a convex
+/// hull. Returns `(u0, v0, u1, v1, columns, rows)` in local face coordinates.
+/// Fixed-size stack storage keeps the per-face cost allocation-free.
+const SUPPORT_GRID: usize = 16;
+const MAX_SUPPORT_HULL_EDGES: usize = 96;
+
+fn largest_supported_rect(hull: &[[f32; 2]]) -> Option<(f32, f32, f32, f32, usize, usize)> {
+    if hull.len() > MAX_SUPPORT_HULL_EDGES {
+        return None;
+    }
+    let mut min_u = f32::INFINITY;
+    let mut max_u = f32::NEG_INFINITY;
+    let mut min_v = f32::INFINITY;
+    let mut max_v = f32::NEG_INFINITY;
+    for point in hull {
+        min_u = min_u.min(point[0]);
+        max_u = max_u.max(point[0]);
+        min_v = min_v.min(point[1]);
+        max_v = max_v.max(point[1]);
+    }
+    let du = max_u - min_u;
+    let dv = max_v - min_v;
+    if !(du > 0.0) || !(dv > 0.0) {
+        return None;
+    }
+    let cw = du / SUPPORT_GRID as f32;
+    let ch = dv / SUPPORT_GRID as f32;
+    let mut inside = [false; SUPPORT_GRID * SUPPORT_GRID];
+    for gy in 0..SUPPORT_GRID {
+        for gx in 0..SUPPORT_GRID {
+            let u0 = min_u + gx as f32 * cw;
+            let u1 = u0 + cw;
+            let v0 = min_v + gy as f32 * ch;
+            let v1 = v0 + ch;
+            inside[gy * SUPPORT_GRID + gx] = point_inside_convex(hull, [u0, v0])
+                && point_inside_convex(hull, [u1, v0])
+                && point_inside_convex(hull, [u1, v1])
+                && point_inside_convex(hull, [u0, v1]);
+        }
+    }
+    // Largest rectangle of `true` cells (histogram method).
+    let mut heights = [0usize; SUPPORT_GRID];
+    let mut stack = [(0usize, 0usize); SUPPORT_GRID + 1];
+    let mut stack_len;
+    let mut best = (0usize, 0usize, 0usize, 0usize, 0usize); // area, left, right, bottom, height
+    for gy in 0..SUPPORT_GRID {
+        for gx in 0..SUPPORT_GRID {
+            heights[gx] = if inside[gy * SUPPORT_GRID + gx] {
+                heights[gx] + 1
+            } else {
+                0
+            };
+        }
+        stack_len = 0;
+        for gx in 0..=SUPPORT_GRID {
+            let current = if gx == SUPPORT_GRID { 0 } else { heights[gx] };
+            let mut start = gx;
+            while stack_len > 0 {
+                let (height, index) = stack[stack_len - 1];
+                if height <= current {
+                    break;
+                }
+                stack_len -= 1;
+                let area = height * (gx - index);
+                if area > best.0 {
+                    best = (area, index, gx, gy + 1 - height, height);
+                }
+                start = index;
+            }
+            stack[stack_len] = (current, start);
+            stack_len += 1;
+        }
+    }
+    if best.0 == 0 {
+        return None;
+    }
+    let (_, left, right, bottom, height) = best;
+    let u0 = min_u + left as f32 * cw;
+    let u1 = min_u + right as f32 * cw;
+    let v0 = min_v + bottom as f32 * ch;
+    let v1 = v0 + height as f32 * ch;
+    Some((u0, v0, u1, v1, right - left, height))
+}
+
+/// Convex hull of 2D points in counter-clockwise order (monotone chain). The
+/// caller-owned buffers keep this allocation-free per face.
+fn convex_hull(points: &mut Vec<[f32; 2]>, hull: &mut Vec<[f32; 2]>, upper: &mut Vec<[f32; 2]>) {
     points.sort_by(|a, b| a[0].total_cmp(&b[0]).then(a[1].total_cmp(&b[1])));
     points.dedup_by(|a, b| a[0] == b[0] && a[1] == b[1]);
+    hull.clear();
+    upper.clear();
     if points.len() < 3 {
-        return points;
+        hull.extend_from_slice(points);
+        return;
     }
     let cross = |o: [f32; 2], a: [f32; 2], b: [f32; 2]| {
         (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0])
     };
-    let mut lower: Vec<[f32; 2]> = Vec::with_capacity(points.len());
-    for point in &points {
-        while lower.len() >= 2
-            && cross(lower[lower.len() - 2], lower[lower.len() - 1], *point) <= 0.0
-        {
-            lower.pop();
+    for point in points.iter() {
+        while hull.len() >= 2 && cross(hull[hull.len() - 2], hull[hull.len() - 1], *point) <= 0.0 {
+            hull.pop();
         }
-        lower.push(*point);
+        hull.push(*point);
     }
-    let mut upper: Vec<[f32; 2]> = Vec::with_capacity(points.len());
     for point in points.iter().rev() {
         while upper.len() >= 2
             && cross(upper[upper.len() - 2], upper[upper.len() - 1], *point) <= 0.0
@@ -826,12 +1038,12 @@ fn convex_hull(mut points: Vec<[f32; 2]>) -> Vec<[f32; 2]> {
         }
         upper.push(*point);
     }
-    lower.pop();
+    hull.pop();
     upper.pop();
-    lower.extend(upper);
-    lower
+    hull.extend_from_slice(upper);
 }
 
+#[inline]
 fn rectangle_inside(
     hull: &[[f32; 2]],
     center_u: f32,
@@ -850,6 +1062,7 @@ fn rectangle_inside(
         .all(|corner| point_inside_convex(hull, *corner))
 }
 
+#[inline]
 fn point_inside_convex(hull: &[[f32; 2]], point: [f32; 2]) -> bool {
     // The hull is counter-clockwise, so a point is inside when it is on the
     // left side of every edge. A small negative epsilon absorbs f32 noise on
@@ -866,12 +1079,14 @@ fn point_inside_convex(hull: &[[f32; 2]], point: [f32; 2]) -> bool {
     true
 }
 
+#[inline]
 fn unit_axis(axis: usize, sign: f32) -> [f32; 3] {
     let mut value = [0.0f32; 3];
     value[axis] = sign;
     value
 }
 
+#[inline]
 fn cross(a: [f32; 3], b: [f32; 3]) -> [f32; 3] {
     [
         a[1] * b[2] - a[2] * b[1],
@@ -880,6 +1095,7 @@ fn cross(a: [f32; 3], b: [f32; 3]) -> [f32; 3] {
     ]
 }
 
+#[inline]
 fn transform_direction(rotation: &[f32; 9], vector: &[f32; 3]) -> [f32; 3] {
     [
         rotation[0] * vector[0] + rotation[1] * vector[1] + rotation[2] * vector[2],
