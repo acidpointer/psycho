@@ -36,6 +36,7 @@
 //! (`0x0109B5AC`) and `NiTriShape` (`0x0109D454`) vtables.
 
 use core::ffi::c_void;
+use std::collections::HashMap;
 
 use libpsycho::ffi::fnptr::FnPtr;
 use wide::f32x4;
@@ -46,7 +47,9 @@ use super::contract::{
     GEOMETRY_ALPHA, GEOMETRY_DATA_COMPRESS, GEOMETRY_DATA_VERTEX_COUNT, GEOMETRY_DATA_VERTICES,
     GEOMETRY_MODEL_DATA, GEOMETRY_SKIN, IsKindFn, NIBOUND_RADIUS, NODE_CHILD_BASE,
     NODE_CHILD_COUNT, REFR_BASE_FORM, REFR_PARENT_CELL, REFR_RENDER_STATE, RENDER_STATE_NODE,
-    TESFORM_REF_ID, TESFORM_TYPE_ID, TLIST_DATA, TLIST_NEXT, VTABLE_IS_GEOMETRY, VTABLE_IS_NODE,
+    SHAPE_DATA_VTABLES, SHAPE_TRI_LIST, SHAPE_TRI_LIST_LENGTH, STRIPS_DATA_VTABLES,
+    STRIPS_STRIP_LENGTHS, STRIPS_STRIP_LISTS, STRIPS_US_STRIPS, TESFORM_REF_ID, TESFORM_TYPE_ID,
+    TLIST_DATA, TLIST_NEXT, TRI_BASED_TRIANGLES, VTABLE_IS_GEOMETRY, VTABLE_IS_NODE,
     WORLD_ROTATION, WORLD_SCALE, WORLD_TRANSLATION,
 };
 use super::data::PlaneRecord;
@@ -56,6 +59,12 @@ const MAX_REFS: usize = 2000;
 const MAX_VISITED_NODES: usize = 512;
 const MAX_VERTICES_PER_MESH: usize = 4096;
 const VERTEX_BUDGET: usize = 200_000;
+/// Upper bound on the triangles read from one mesh. A face-coverage test needs
+/// the triangle list, and a malformed or huge mesh must not make a cell change
+/// unbounded.
+const MAX_TRIANGLES_PER_MESH: usize = 8192;
+/// Shared bound on the triangles pulled from the meshes of one cell scan.
+const TRIANGLE_BUDGET: usize = 400_000;
 const MIN_FACE_EXTENT: f32 = 128.0;
 const MIN_BOX_EXTENT: f32 = 256.0;
 const MAX_BOX_EXTENT: f32 = 8192.0;
@@ -112,6 +121,10 @@ pub(super) fn generation_signature() -> u64 {
         MERGE_GAP_TOLERANCE,
         MERGE_GROUP_TOLERANCE,
         MERGE_AXIS_TOLERANCE,
+        // Hole-aware coverage semantics: a geometry whose triangles cannot be
+        // read produces no plane, so the extracted set changed.
+        MAX_TRIANGLES_PER_MESH as f32,
+        TRIANGLE_BUDGET as f32,
     ];
     for value in values {
         for byte in value.to_bits().to_le_bytes() {
@@ -194,10 +207,16 @@ pub(super) struct ScanStats {
     skinned: usize,
     alpha: usize,
     no_vertices: usize,
+    /// A geometry whose model data could not be decoded as a triangle mesh, so
+    /// its faces can never be proven solid.
+    no_triangles: usize,
     size_reject: usize,
     horizontal_reject: usize,
     support_reject: usize,
     small_reject: usize,
+    /// Faces rejected because a window, open door or other missing surface lies
+    /// inside the support rectangle (the triangle coverage test).
+    opening_reject: usize,
     /// Emitted faces kept one-sided by the thin-panel guard or the coverage
     /// floor, so the scan line shows which gate limits the two-sided planes.
     thin_faces: usize,
@@ -230,10 +249,12 @@ pub(super) fn generate(
     let mut stack: Vec<*mut c_void> = Vec::with_capacity(64);
     let mut mesh_out: Vec<(f32, PlaneRecord)> = Vec::new();
     let mut vertex_buf: Vec<[f32; 3]> = Vec::with_capacity(MAX_VERTICES_PER_MESH);
+    let mut triangles: Vec<[u16; 3]> = Vec::with_capacity(MAX_TRIANGLES_PER_MESH);
     let mut support_points: Vec<[f32; 2]> = Vec::with_capacity(64);
     let mut support_hull: Vec<[f32; 2]> = Vec::with_capacity(64);
     let mut support_upper: Vec<[f32; 2]> = Vec::with_capacity(64);
     let mut vertex_budget = VERTEX_BUDGET;
+    let mut triangle_budget = TRIANGLE_BUDGET;
     let mut stats = ScanStats::default();
     // Safety: the caller runs on the main thread after a cell change; the
     // reference list, node transforms and mesh arrays are read-only here and
@@ -251,8 +272,10 @@ pub(super) fn generate(
                     cell,
                     &mut stack,
                     &mut vertex_buf,
+                    &mut triangles,
                     &mut mesh_out,
                     &mut vertex_budget,
+                    &mut triangle_budget,
                     &mut candidates,
                     &mut stats,
                     &mut support_points,
@@ -276,51 +299,22 @@ pub(super) fn generate(
     let merge_ms = merge_started.elapsed().as_secs_f32() * 1000.0;
 
     // Distance filter and score against the observer after merging, so the
-    // merged center is the one that is scored.
-    let mut scored: Vec<(f32, PlaneRecord)> = Vec::with_capacity(candidates.len());
-    for (area, plane) in candidates.drain(..) {
-        let mut weight = 1.0f32;
-        if let Some(observer) = observer {
-            let offset = [
-                plane.position[0] - observer[0],
-                plane.position[1] - observer[1],
-                plane.position[2] - observer[2],
-            ];
-            let distance =
-                (offset[0] * offset[0] + offset[1] * offset[1] + offset[2] * offset[2]).sqrt();
-            if !distance.is_finite() || distance > MAX_OCCLUDER_DISTANCE {
-                stats.distance_reject += 1;
-                if distance.is_finite() {
-                    stats.distance_max = stats.distance_max.max(distance);
-                }
-                continue;
-            }
-            // Score by roughly the plane's solid angle from the observer, so
-            // the per-cell cap keeps the occluders that can hide the most: a
-            // large near window beats a large distant one.
-            weight = 1.0 + (distance * distance) / (2048.0 * 2048.0);
-        }
-        scored.push((area / weight, plane));
-    }
-    let raw = scored.len();
-    let raw_area: f32 = scored
-        .iter()
-        .map(|(_, plane)| plane.size[0] * plane.size[1])
-        .sum();
-    scored.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(core::cmp::Ordering::Equal));
-    scored.truncate(max_planes.max(1));
-    let kept_area: f32 = scored
-        .iter()
-        .map(|(_, plane)| plane.size[0] * plane.size[1])
-        .sum();
-    stats.rect_area = raw_area;
-    stats.cap_drop_area = (raw_area - kept_area).max(0.0);
-    let planes: Vec<PlaneRecord> = scored.into_iter().map(|(_, plane)| plane).collect();
+    // merged center is the one that is scored. The union selection reuses the
+    // same rule across loaded cells so a nearby plane always beats a distant
+    // one regardless of which cell produced it.
+    let candidate_count = candidates.len();
+    let selection = select_planes(candidates, observer, max_planes);
+    stats.rect_area = selection.raw_area;
+    stats.cap_drop_area = selection.cap_drop_area;
+    stats.distance_reject = selection.distance_reject;
+    stats.distance_max = selection.distance_max;
+    let planes = selection.planes;
+    let raw = candidate_count.saturating_sub(stats.distance_reject);
     if log::log_enabled!(log::Level::Debug) {
         log::debug!(
             "[OCCLUSION_PLANES] scan refs={} parent_mismatch={} base_null={} not_stat={} \
              render_null={} node_null={} radius={} nodes={} geoms={} skinned={} alpha={} \
-             no_vertices={} size={} horizontal={} support={} small={} distance={} \
+             no_vertices={} no_triangles={} size={} horizontal={} support={} small={} opening={} distance={} \
              dist_max={:.0} budget_stop={} faces={} mesh_area={:.0} rect_area={:.0} \
              cap_drop={:.0} thin={} low_cov={} merge_ms={:.1}",
             stats.refs,
@@ -335,10 +329,12 @@ pub(super) fn generate(
             stats.skinned,
             stats.alpha,
             stats.no_vertices,
+            stats.no_triangles,
             stats.size_reject,
             stats.horizontal_reject,
             stats.support_reject,
             stats.small_reject,
+            stats.opening_reject,
             stats.distance_reject,
             stats.distance_max,
             stats.budget_stop,
@@ -356,8 +352,78 @@ pub(super) fn generate(
         raw,
         // All references have an attached render node, so no more 3D can
         // appear: the settle window can stop after the first identical pass.
-        stats.render_null == 0 && stats.node_null == 0,
+        // Require at least one walked reference: an empty list can mean the
+        // cell is still attaching, so it is not a finished generation and a
+        // neighbor must not be cached as complete on it.
+        stats.refs > 0 && stats.render_null == 0 && stats.node_null == 0,
     )
+}
+
+/// Result of the shared score-and-cap step.
+///
+/// The per-cell generator and the cross-cell union use this exact rule so the
+/// injected set does not depend on which cell happened to produce a plane.
+pub(super) struct Selection {
+    pub(super) planes: Vec<PlaneRecord>,
+    /// Emitted rectangle area before the cap.
+    pub(super) raw_area: f32,
+    /// Emitted rectangle area the cap dropped.
+    pub(super) cap_drop_area: f32,
+    pub(super) distance_reject: usize,
+    pub(super) distance_max: f32,
+}
+
+/// Filter by observer distance, weight by approximate solid angle, sort and cap.
+///
+/// A plane's usefulness is its angular size from the camera, so the weight is
+/// `1 + (distance / 2048)^2`: a large near rectangle beats a large distant one,
+/// and the per-budget cap keeps the occluders that can hide the most bounds.
+pub(super) fn select_planes(
+    candidates: Vec<(f32, PlaneRecord)>,
+    observer: Option<[f32; 3]>,
+    max_planes: usize,
+) -> Selection {
+    let mut scored: Vec<(f32, PlaneRecord)> = Vec::with_capacity(candidates.len());
+    let mut distance_reject = 0usize;
+    let mut distance_max = 0.0f32;
+    for (area, plane) in candidates {
+        let mut weight = 1.0f32;
+        if let Some(observer) = observer {
+            let offset = [
+                plane.position[0] - observer[0],
+                plane.position[1] - observer[1],
+                plane.position[2] - observer[2],
+            ];
+            let distance =
+                (offset[0] * offset[0] + offset[1] * offset[1] + offset[2] * offset[2]).sqrt();
+            if !distance.is_finite() || distance > MAX_OCCLUDER_DISTANCE {
+                distance_reject += 1;
+                if distance.is_finite() {
+                    distance_max = distance_max.max(distance);
+                }
+                continue;
+            }
+            weight = 1.0 + (distance * distance) / (2048.0 * 2048.0);
+        }
+        scored.push((area / weight, plane));
+    }
+    let raw_area: f32 = scored
+        .iter()
+        .map(|(_, plane)| plane.size[0] * plane.size[1])
+        .sum();
+    scored.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(core::cmp::Ordering::Equal));
+    scored.truncate(max_planes.max(1));
+    let kept_area: f32 = scored
+        .iter()
+        .map(|(_, plane)| plane.size[0] * plane.size[1])
+        .sum();
+    Selection {
+        planes: scored.into_iter().map(|(_, plane)| plane).collect(),
+        raw_area,
+        cap_drop_area: (raw_area - kept_area).max(0.0),
+        distance_reject,
+        distance_max,
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -366,18 +432,21 @@ unsafe fn collect_reference(
     cell: *mut c_void,
     stack: &mut Vec<*mut c_void>,
     vertex_buf: &mut Vec<[f32; 3]>,
+    triangles: &mut Vec<[u16; 3]>,
     mesh_out: &mut Vec<(f32, PlaneRecord)>,
     vertex_budget: &mut usize,
+    triangle_budget: &mut usize,
     out: &mut Vec<(f32, PlaneRecord)>,
     stats: &mut ScanStats,
     support_points: &mut Vec<[f32; 2]>,
     support_hull: &mut Vec<[f32; 2]>,
     support_upper: &mut Vec<[f32; 2]>,
 ) {
-    // Stop examining further references once the shared vertex budget is spent,
-    // so the cell-load pass stays bounded instead of falling back to coarse
-    // sphere bounds for the remaining objects.
-    if *vertex_budget == 0 {
+    // Stop examining further references once a shared budget is spent, so the
+    // cell-load pass stays bounded instead of falling back to coarse sphere
+    // bounds for the remaining objects. The triangle budget matters because the
+    // coverage test needs the mesh triangles for every emitted face.
+    if *vertex_budget == 0 || *triangle_budget == 0 {
         stats.budget_stop += 1;
         return;
     }
@@ -426,7 +495,9 @@ unsafe fn collect_reference(
             node,
             stack,
             vertex_buf,
+            triangles,
             vertex_budget,
+            triangle_budget,
             mesh_out,
             stats,
             support_points,
@@ -484,7 +555,9 @@ unsafe fn collect_object_planes(
     root: *mut c_void,
     stack: &mut Vec<*mut c_void>,
     vertex_buf: &mut Vec<[f32; 3]>,
+    triangles: &mut Vec<[u16; 3]>,
     vertex_budget: &mut usize,
+    triangle_budget: &mut usize,
     out: &mut Vec<(f32, PlaneRecord)>,
     stats: &mut ScanStats,
     support_points: &mut Vec<[f32; 2]>,
@@ -508,32 +581,43 @@ unsafe fn collect_object_planes(
                 stats.skinned += 1;
             } else if !unsafe { admits_geometry(object) } {
                 stats.alpha += 1;
-            } else if let Some((local, world)) =
+            } else if let Some((local, world, model)) =
                 unsafe { geometry_local_box(object, vertex_buf, vertex_budget) }
             {
                 if local.is_eligible(world.scale) {
-                    // World-space box surface area is the available occluder
-                    // surface; the emitted rectangle area is what we use.
-                    let extents = local.extents();
-                    let world_scale = world.scale.abs();
-                    stats.mesh_area += 2.0
-                        * ((extents[0] * world_scale) * (extents[1] * world_scale)
-                            + (extents[1] * world_scale) * (extents[2] * world_scale)
-                            + (extents[2] * world_scale) * (extents[0] * world_scale));
-                    let rejects = faces_from_oriented_box(
-                        &local,
-                        &world,
-                        vertex_buf,
-                        out,
-                        support_points,
-                        support_hull,
-                        support_upper,
-                    );
-                    stats.horizontal_reject += rejects.horizontal;
-                    stats.support_reject += rejects.unsupported;
-                    stats.small_reject += rejects.small;
-                    stats.thin_faces += rejects.thin;
-                    stats.low_coverage_faces += rejects.low_coverage;
+                    // The triangles are the engine's own definition of the
+                    // surface; without them a face cannot be proven hole-free,
+                    // so the geometry contributes no occluder.
+                    if !unsafe {
+                        read_mesh_triangles(model, triangles, vertex_buf.len(), triangle_budget)
+                    } {
+                        stats.no_triangles += 1;
+                    } else {
+                        // World-space box surface area is the available occluder
+                        // surface; the emitted rectangle area is what we use.
+                        let extents = local.extents();
+                        let world_scale = world.scale.abs();
+                        stats.mesh_area += 2.0
+                            * ((extents[0] * world_scale) * (extents[1] * world_scale)
+                                + (extents[1] * world_scale) * (extents[2] * world_scale)
+                                + (extents[2] * world_scale) * (extents[0] * world_scale));
+                        let rejects = faces_from_oriented_box(
+                            &local,
+                            &world,
+                            vertex_buf,
+                            triangles,
+                            out,
+                            support_points,
+                            support_hull,
+                            support_upper,
+                        );
+                        stats.horizontal_reject += rejects.horizontal;
+                        stats.support_reject += rejects.unsupported;
+                        stats.small_reject += rejects.small;
+                        stats.opening_reject += rejects.opening;
+                        stats.thin_faces += rejects.thin;
+                        stats.low_coverage_faces += rejects.low_coverage;
+                    }
                 } else {
                     stats.size_reject += 1;
                 }
@@ -567,14 +651,14 @@ unsafe fn geometry_local_box(
     object: *mut c_void,
     vertex_buf: &mut Vec<[f32; 3]>,
     vertex_budget: &mut usize,
-) -> Option<(Aabb, WorldTransform)> {
+) -> Option<(Aabb, WorldTransform, *mut c_void)> {
     let world = unsafe { read_world_transform(object) }?;
     let model = unsafe { read_ptr_at(object, GEOMETRY_MODEL_DATA) };
     if model.is_null() {
         return None;
     }
     let local = unsafe { vertices_local_aabb(model, vertex_buf, vertex_budget) }?;
-    Some((local, world))
+    Some((local, world, model))
 }
 
 unsafe fn vertices_local_aabb(
@@ -611,6 +695,117 @@ unsafe fn vertices_local_aabb(
     vertex_buf.extend_from_slice(slice);
     *vertex_budget -= count;
     Some(aabb_of(vertex_buf))
+}
+
+/// Read a mesh's triangles.
+///
+/// A window frame, an empty door frame and any wall with an opening are meshes
+/// with absent triangles: the opening is visible because there is no surface
+/// there, not because of a material or property flag. The triangle list is the
+/// engine's own definition of what surface exists, so it is the authority for a
+/// hole. `NiTriShapeData` and `NiTriStripsData` (and their dynamic variants) are
+/// decoded. Returns `false` for an unknown class, a malformed list or a mesh over
+/// the budget; the caller then emits nothing for that geometry, because a plane
+/// that cannot be proven hole-free must not be injected.
+unsafe fn read_mesh_triangles(
+    model: *mut c_void,
+    triangles: &mut Vec<[u16; 3]>,
+    vertex_count: usize,
+    triangle_budget: &mut usize,
+) -> bool {
+    triangles.clear();
+    if vertex_count == 0 || *triangle_budget == 0 {
+        return false;
+    }
+    let vtable = unsafe { read_ptr(model as usize) } as usize;
+    let declared = unsafe { read_u16_at(model, TRI_BASED_TRIANGLES) } as usize;
+    if SHAPE_DATA_VTABLES.contains(&vtable) {
+        let count = unsafe { read_u32_at(model, SHAPE_TRI_LIST_LENGTH) } as usize;
+        if count == 0 || !count.is_multiple_of(3) || count / 3 > MAX_TRIANGLES_PER_MESH {
+            return false;
+        }
+        if count / 3 > *triangle_budget {
+            return false;
+        }
+        let list = unsafe { read_ptr_at(model, SHAPE_TRI_LIST) };
+        if list.is_null() {
+            return false;
+        }
+        // Safety: `NiTriShapeData::m_pusTriList` owns `m_uiTriListLength`
+        // consecutive `u16` indices. The count is bounded above and the pointer
+        // was checked non-null; this is a read-only main-thread borrow.
+        let slice = unsafe { core::slice::from_raw_parts(list as *const u16, count) };
+        triangles.reserve(count / 3);
+        for indices in slice.chunks_exact(3) {
+            if indices.iter().any(|index| *index as usize >= vertex_count) {
+                triangles.clear();
+                return false;
+            }
+            triangles.push([indices[0], indices[1], indices[2]]);
+        }
+        // The declared triangle count is the engine's own cross-check that the
+        // vtable and field layout are the expected class.
+        if declared != 0 && declared != triangles.len() {
+            triangles.clear();
+            return false;
+        }
+        *triangle_budget -= count / 3;
+        !triangles.is_empty()
+    } else if STRIPS_DATA_VTABLES.contains(&vtable) {
+        let strips = unsafe { read_u16_at(model, STRIPS_US_STRIPS) } as usize;
+        if strips == 0 || strips > MAX_TRIANGLES_PER_MESH {
+            return false;
+        }
+        let lengths = unsafe { read_ptr_at(model, STRIPS_STRIP_LENGTHS) };
+        let lists = unsafe { read_ptr_at(model, STRIPS_STRIP_LISTS) };
+        if lengths.is_null() || lists.is_null() {
+            return false;
+        }
+        // Safety: `m_pusStripLengths` owns `m_usStrips` `u16` lengths. Read it as
+        // one borrow, then the concatenated index list as one borrow, so the
+        // per-index engine reads collapse into a slice instead of volatile loads.
+        let strip_lengths = unsafe { core::slice::from_raw_parts(lengths as *const u16, strips) };
+        let max_indices = MAX_TRIANGLES_PER_MESH.saturating_mul(4);
+        let mut total = 0usize;
+        for length in strip_lengths {
+            total = total.saturating_add(*length as usize);
+        }
+        if total == 0 || total > max_indices {
+            return false;
+        }
+        let list = unsafe { core::slice::from_raw_parts(lists as *const u16, total) };
+        let mut offset = 0usize;
+        for &length in strip_lengths {
+            let length = length as usize;
+            if length >= 3 {
+                for index in 0..length - 2 {
+                    if triangles.len() >= MAX_TRIANGLES_PER_MESH || *triangle_budget == 0 {
+                        break;
+                    }
+                    let i0 = list[offset + index] as usize;
+                    let i1 = list[offset + index + 1] as usize;
+                    let i2 = list[offset + index + 2] as usize;
+                    if i0 >= vertex_count || i1 >= vertex_count || i2 >= vertex_count {
+                        triangles.clear();
+                        return false;
+                    }
+                    triangles.push([i0 as u16, i1 as u16, i2 as u16]);
+                    *triangle_budget -= 1;
+                }
+            }
+            offset += length;
+            if triangles.len() >= MAX_TRIANGLES_PER_MESH {
+                break;
+            }
+        }
+        if declared != 0 && declared != triangles.len() {
+            triangles.clear();
+            return false;
+        }
+        !triangles.is_empty()
+    } else {
+        false
+    }
 }
 
 /// Axis-aligned bounds of a point cloud, four points at a time with a portable
@@ -750,6 +945,9 @@ pub(super) struct FaceRejects {
     pub(super) unsupported: usize,
     /// The supported rectangle is below the minimum face extent.
     pub(super) small: usize,
+    /// A window, open door or other missing surface lies inside the support
+    /// rectangle (the triangle coverage test).
+    pub(super) opening: usize,
     /// Emitted face kept one-sided because its mesh is a thin panel.
     pub(super) thin: usize,
     /// Emitted face kept one-sided because its support coverage is below the
@@ -769,7 +967,10 @@ pub(super) struct FaceRejects {
 /// The local box preserves the node's orientation instead of re-axis-aligning
 /// to world space. Each face is fitted to the convex hull of the vertices near
 /// that face, so a sphere bound, a sparse corner or an empty AABB face cannot
-/// become a large floating rectangle. Horizontal faces are skipped: ground and
+/// become a large floating rectangle. A face whose rectangle is not fully
+/// backed by the mesh's triangles is rejected: the hull is convex and spans a
+/// window or an open doorway, and an occluder that covers an opening would cull
+/// whatever is visible through it. Horizontal faces are skipped: ground and
 /// roofs rarely occlude a standing player and are the most common source of
 /// over-cover.
 ///
@@ -778,6 +979,7 @@ pub(super) fn faces_from_oriented_box(
     local: &Aabb,
     world: &WorldTransform,
     vertices: &[[f32; 3]],
+    triangles: &[[u16; 3]],
     out: &mut Vec<(f32, PlaneRecord)>,
     support_points: &mut Vec<[f32; 2]>,
     support_hull: &mut Vec<[f32; 2]>,
@@ -830,6 +1032,28 @@ pub(super) fn faces_from_oriented_box(
                 rejects.unsupported += 1;
                 continue;
             };
+            // The support hull is convex, so it spans a window opening, an empty
+            // door frame or any other missing surface. Only emit a rectangle the
+            // mesh's own triangles actually back.
+            let tolerance = SUPPORT_TOLERANCE_MIN.max(extents[axis] * SUPPORT_TOLERANCE_RATIO);
+            // The support hull is convex, so it spans a window opening, an empty
+            // door frame or any other missing surface. Reduce the rectangle to
+            // the largest part the mesh's own triangles actually back; if there
+            // is no solid part, drop the face.
+            let Some((rect_center_u, rect_center_v, rect_half_u, rect_half_v)) = covered_face_rect(
+                vertices,
+                triangles,
+                axis,
+                face_coord,
+                tolerance,
+                rect.center_u,
+                rect.center_v,
+                rect.half_u,
+                rect.half_v,
+            ) else {
+                rejects.opening += 1;
+                continue;
+            };
             let Some(tangent) = transform_unit_direction(world, &unit_axis(tangent_a, 1.0)) else {
                 rejects.unsupported += 1;
                 continue;
@@ -844,8 +1068,8 @@ pub(super) fn faces_from_oriented_box(
             let normal = [-outward[0], -outward[1], -outward[2]];
             let bitangent = cross(tangent, normal);
             let size = [
-                rect.half_u * 2.0 * world_scale * PLANE_SHRINK,
-                rect.half_v * 2.0 * world_scale * PLANE_SHRINK,
+                rect_half_u * 2.0 * world_scale * PLANE_SHRINK,
+                rect_half_v * 2.0 * world_scale * PLANE_SHRINK,
             ];
             if size[0] < MIN_FACE_EXTENT || size[1] < MIN_FACE_EXTENT {
                 rejects.small += 1;
@@ -869,8 +1093,8 @@ pub(super) fn faces_from_oriented_box(
             };
             let mut local_face_center = center;
             local_face_center[axis] = face_coord;
-            local_face_center[tangent_a] = rect.center_u;
-            local_face_center[tangent_b] = rect.center_v;
+            local_face_center[tangent_a] = rect_center_u;
+            local_face_center[tangent_b] = rect_center_v;
             let face_center = transform_point(world, &local_face_center);
             let position = [
                 face_center[0] + outward[0] * OUTWARD_OFFSET,
@@ -903,6 +1127,336 @@ pub(super) fn faces_from_oriented_box(
         }
     }
     rejects
+}
+
+/// Grid resolution of the covered-sub-rectangle search. A face that covers an
+/// opening is reduced to the largest solid rectangle; eight cells per axis is
+/// enough to recover the solid band around a window or door while staying cheap.
+const FACE_GRID: usize = 16;
+
+/// Collect the triangles that lie in the face plane. A triangle counts only when
+/// all three vertices are within the support tolerance, so the projection
+/// describes the actual face surface.
+fn near_face_triangles(
+    vertices: &[[f32; 3]],
+    triangles: &[[u16; 3]],
+    axis: usize,
+    face_coord: f32,
+    tolerance: f32,
+) -> Option<Vec<[u16; 3]>> {
+    let near = |index: u16| -> bool {
+        let vertex = vertices[index as usize];
+        (vertex[axis] - face_coord).abs() <= tolerance
+    };
+    let mut subset: Vec<[u16; 3]> = Vec::new();
+    for triangle in triangles {
+        let [a, b, c] = *triangle;
+        if a as usize >= vertices.len()
+            || b as usize >= vertices.len()
+            || c as usize >= vertices.len()
+        {
+            return None;
+        }
+        if near(a) && near(b) && near(c) {
+            subset.push(*triangle);
+        }
+    }
+    (!subset.is_empty()).then_some(subset)
+}
+
+/// Edges used by exactly one near-face triangle. Those are the perimeter of the
+/// face and of every opening in it.
+fn boundary_edges(subset: &[[u16; 3]]) -> Vec<(u16, u16)> {
+    let mut counts: HashMap<u64, u8> = HashMap::with_capacity(subset.len() * 2);
+    for triangle in subset {
+        for (a, b) in [
+            (triangle[0], triangle[1]),
+            (triangle[1], triangle[2]),
+            (triangle[2], triangle[0]),
+        ] {
+            if a == b {
+                continue;
+            }
+            let (low, high) = if a < b { (a, b) } else { (b, a) };
+            let key = ((low as u64) << 16) | high as u64;
+            *counts.entry(key).or_insert(0) += 1;
+        }
+    }
+    counts
+        .into_iter()
+        .filter(|(_, count)| *count == 1)
+        .map(|(key, _)| ((key >> 16) as u16, (key & 0xFFFF) as u16))
+        .collect()
+}
+
+/// True when the axis-aligned `[u0, u1] x [v0, v1]` region is fully backed by the
+/// near-face triangles: no opening boundary crosses it and its corners and center
+/// are inside a triangle.
+fn rect_covered(
+    vertices: &[[f32; 3]],
+    subset: &[[u16; 3]],
+    boundary: &[(u16, u16)],
+    tangent_a: usize,
+    tangent_b: usize,
+    u0: f32,
+    u1: f32,
+    v0: f32,
+    v1: f32,
+) -> bool {
+    if u1 <= u0 || v1 <= v0 {
+        return false;
+    }
+    for &(a, b) in boundary {
+        let pa = vertices[a as usize];
+        let pb = vertices[b as usize];
+        if segment_intersects_rect(
+            [pa[tangent_a], pa[tangent_b]],
+            [pb[tangent_a], pb[tangent_b]],
+            [u0, v0, u1, v1],
+        ) {
+            return false;
+        }
+    }
+    for (u, v) in [
+        ((u0 + u1) * 0.5, (v0 + v1) * 0.5),
+        (u0, v0),
+        (u1, v0),
+        (u0, v1),
+        (u1, v1),
+    ] {
+        if !point_in_triangle_subset(vertices, subset, tangent_a, tangent_b, u, v) {
+            return false;
+        }
+    }
+    true
+}
+
+/// Largest fully backed rectangle inside the candidate face rectangle, or `None`
+/// when no solid part remains.
+///
+/// A window opening, an empty door frame or any other missing surface is visible
+/// because the mesh has no triangles there. The support hull is convex and spans
+/// that hole, so the candidate rectangle is checked against the mesh triangles
+/// and reduced to the largest solid rectangle. This keeps the wall around a
+/// window or doorway as an occluder without ever covering the opening.
+pub(super) fn covered_face_rect(
+    vertices: &[[f32; 3]],
+    triangles: &[[u16; 3]],
+    axis: usize,
+    face_coord: f32,
+    tolerance: f32,
+    center_u: f32,
+    center_v: f32,
+    half_u: f32,
+    half_v: f32,
+) -> Option<(f32, f32, f32, f32)> {
+    if vertices.is_empty() || triangles.is_empty() {
+        return None;
+    }
+    let tangent_a = (axis + 1) % 3;
+    let tangent_b = (axis + 2) % 3;
+    let subset = near_face_triangles(vertices, triangles, axis, face_coord, tolerance)?;
+    let boundary = boundary_edges(&subset);
+    // Inset the candidate so the face's own perimeter does not read as an
+    // opening boundary.
+    let inset = (half_u.min(half_v) * 0.02).clamp(0.0, 4.0);
+    let u0 = center_u - half_u + inset;
+    let u1 = center_u + half_u - inset;
+    let v0 = center_v - half_v + inset;
+    let v1 = center_v + half_v - inset;
+    if u1 <= u0 || v1 <= v0 {
+        return None;
+    }
+    // Fast path: the whole face is solid, so keep the original size.
+    if rect_covered(
+        vertices, &subset, &boundary, tangent_a, tangent_b, u0, u1, v0, v1,
+    ) {
+        return Some((center_u, center_v, half_u, half_v));
+    }
+    // Recover the largest solid sub-rectangle around the opening. Rasterize the
+    // projected triangles into the grid, then clear every cell an opening
+    // boundary crosses, so a cell is covered only when it is fully backed.
+    let cell_w = (u1 - u0) / FACE_GRID as f32;
+    let cell_h = (v1 - v0) / FACE_GRID as f32;
+    let mut mask = [[false; FACE_GRID]; FACE_GRID];
+    let cell_index =
+        |value: f32, origin: f32, cell: f32| -> i64 { ((value - origin) / cell).floor() as i64 };
+    for triangle in &subset {
+        let a = vertices[triangle[0] as usize];
+        let b = vertices[triangle[1] as usize];
+        let c = vertices[triangle[2] as usize];
+        let pa = [a[tangent_a], a[tangent_b]];
+        let pb = [b[tangent_a], b[tangent_b]];
+        let pc = [c[tangent_a], c[tangent_b]];
+        let min_u = pa[0].min(pb[0]).min(pc[0]);
+        let max_u = pa[0].max(pb[0]).max(pc[0]);
+        let min_v = pa[1].min(pb[1]).min(pc[1]);
+        let max_v = pa[1].max(pb[1]).max(pc[1]);
+        let column0 = cell_index(min_u, u0, cell_w).clamp(0, FACE_GRID as i64 - 1);
+        let column1 = cell_index(max_u, u0, cell_w).clamp(0, FACE_GRID as i64 - 1);
+        let row0 = cell_index(min_v, v0, cell_h).clamp(0, FACE_GRID as i64 - 1);
+        let row1 = cell_index(max_v, v0, cell_h).clamp(0, FACE_GRID as i64 - 1);
+        for row in row0..=row1 {
+            for column in column0..=column1 {
+                let center = [
+                    u0 + (column as f32 + 0.5) * cell_w,
+                    v0 + (row as f32 + 0.5) * cell_h,
+                ];
+                if point_in_triangle_2d(center, pa, pb, pc) {
+                    mask[row as usize][column as usize] = true;
+                }
+            }
+        }
+    }
+    for &(a, b) in &boundary {
+        let pa = vertices[a as usize];
+        let pb = vertices[b as usize];
+        let a2 = [pa[tangent_a], pa[tangent_b]];
+        let b2 = [pb[tangent_a], pb[tangent_b]];
+        let min_u = a2[0].min(b2[0]) - cell_w;
+        let max_u = a2[0].max(b2[0]) + cell_w;
+        let min_v = a2[1].min(b2[1]) - cell_h;
+        let max_v = a2[1].max(b2[1]) + cell_h;
+        let column0 = cell_index(min_u, u0, cell_w).clamp(0, FACE_GRID as i64 - 1);
+        let column1 = cell_index(max_u, u0, cell_w).clamp(0, FACE_GRID as i64 - 1);
+        let row0 = cell_index(min_v, v0, cell_h).clamp(0, FACE_GRID as i64 - 1);
+        let row1 = cell_index(max_v, v0, cell_h).clamp(0, FACE_GRID as i64 - 1);
+        for row in row0..=row1 {
+            for column in column0..=column1 {
+                let cu0 = u0 + column as f32 * cell_w;
+                let cu1 = cu0 + cell_w;
+                let cv0 = v0 + row as f32 * cell_h;
+                let cv1 = cv0 + cell_h;
+                if segment_intersects_rect(a2, b2, [cu0, cv0, cu1, cv1]) {
+                    mask[row as usize][column as usize] = false;
+                }
+            }
+        }
+    }
+    let (column0, row0, column1, row1) = largest_covered_rect(&mask)?;
+    let su0 = u0 + column0 as f32 * cell_w;
+    let su1 = u0 + (column1 + 1) as f32 * cell_w;
+    let sv0 = v0 + row0 as f32 * cell_h;
+    let sv1 = v0 + (row1 + 1) as f32 * cell_h;
+    Some((
+        (su0 + su1) * 0.5,
+        (sv0 + sv1) * 0.5,
+        (su1 - su0) * 0.5,
+        (sv1 - sv0) * 0.5,
+    ))
+}
+
+/// Largest all-`true` rectangle in a small boolean grid, as inclusive cell
+/// `(column0, row0, column1, row1)` bounds.
+fn largest_covered_rect(
+    mask: &[[bool; FACE_GRID]; FACE_GRID],
+) -> Option<(usize, usize, usize, usize)> {
+    let mut best: Option<(usize, usize, usize, usize, usize)> = None;
+    for top in 0..FACE_GRID {
+        let mut heights = [0usize; FACE_GRID];
+        for row in top..FACE_GRID {
+            for column in 0..FACE_GRID {
+                heights[column] = if mask[row][column] {
+                    heights[column] + 1
+                } else {
+                    0
+                };
+            }
+            let mut stack: Vec<(usize, usize)> = Vec::with_capacity(FACE_GRID + 1);
+            for column in 0..=FACE_GRID {
+                let height = if column < FACE_GRID {
+                    heights[column]
+                } else {
+                    0
+                };
+                let mut start = column;
+                while let Some(&(stack_start, stack_height)) = stack.last() {
+                    if stack_height <= height {
+                        break;
+                    }
+                    stack.pop();
+                    let width = column - stack_start;
+                    let area = stack_height * width;
+                    if best.is_none_or(|current| area > current.0) {
+                        best = Some((area, stack_start, row + 1 - stack_height, column - 1, row));
+                    }
+                    start = stack_start;
+                }
+                if height > 0 {
+                    stack.push((start, height));
+                }
+            }
+        }
+    }
+    best.map(|(_, column0, row0, column1, row1)| (column0, row0, column1, row1))
+}
+
+/// True when `(u, v)` lies inside at least one of the projected triangles.
+fn point_in_triangle_subset(
+    vertices: &[[f32; 3]],
+    subset: &[[u16; 3]],
+    tangent_a: usize,
+    tangent_b: usize,
+    u: f32,
+    v: f32,
+) -> bool {
+    for triangle in subset {
+        let a = vertices[triangle[0] as usize];
+        let b = vertices[triangle[1] as usize];
+        let c = vertices[triangle[2] as usize];
+        if point_in_triangle_2d(
+            [u, v],
+            [a[tangent_a], a[tangent_b]],
+            [b[tangent_a], b[tangent_b]],
+            [c[tangent_a], c[tangent_b]],
+        ) {
+            return true;
+        }
+    }
+    false
+}
+
+/// 2D point-in-triangle test. A point on an edge counts as inside, so a sample
+/// on a shared internal triangle edge does not read as an opening.
+fn point_in_triangle_2d(p: [f32; 2], a: [f32; 2], b: [f32; 2], c: [f32; 2]) -> bool {
+    let cross = |p: [f32; 2], a: [f32; 2], b: [f32; 2]| {
+        (b[0] - a[0]) * (p[1] - a[1]) - (b[1] - a[1]) * (p[0] - a[0])
+    };
+    let d1 = cross(p, a, b);
+    let d2 = cross(p, b, c);
+    let d3 = cross(p, c, a);
+    // Relative tolerance: a point on an internal edge stays inside even after
+    // the float rounding of a large projected triangle.
+    let epsilon = (d1.abs() + d2.abs() + d3.abs()).max(1.0) * 1.0e-4;
+    let has_negative = d1 < -epsilon || d2 < -epsilon || d3 < -epsilon;
+    let has_positive = d1 > epsilon || d2 > epsilon || d3 > epsilon;
+    !(has_negative && has_positive)
+}
+
+/// True when the 2D segment `a`-`b` enters the axis-aligned rectangle
+/// `[x0, y0, x1, y1]`. A segment that only touches the rectangle boundary is
+/// not an opening inside the rectangle.
+fn segment_intersects_rect(a: [f32; 2], b: [f32; 2], rect: [f32; 4]) -> bool {
+    let [x0, y0, x1, y1] = rect;
+    let inside = |p: [f32; 2]| p[0] > x0 && p[0] < x1 && p[1] > y0 && p[1] < y1;
+    if inside(a) || inside(b) {
+        return true;
+    }
+    segments_intersect(a, b, [x0, y0], [x1, y0])
+        || segments_intersect(a, b, [x1, y0], [x1, y1])
+        || segments_intersect(a, b, [x1, y1], [x0, y1])
+        || segments_intersect(a, b, [x0, y1], [x0, y0])
+}
+
+fn segments_intersect(p1: [f32; 2], p2: [f32; 2], q1: [f32; 2], q2: [f32; 2]) -> bool {
+    let orient = |a: [f32; 2], b: [f32; 2], c: [f32; 2]| {
+        (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0])
+    };
+    let d1 = orient(q1, q2, p1);
+    let d2 = orient(q1, q2, p2);
+    let d3 = orient(p1, p2, q1);
+    let d4 = orient(p1, p2, q2);
+    ((d1 > 0.0) != (d2 > 0.0)) && ((d3 > 0.0) != (d4 > 0.0))
 }
 
 /// Coplanar rectangles are merged only when their union is exactly a rectangle.

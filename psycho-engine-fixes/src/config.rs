@@ -289,8 +289,15 @@ pub struct PerformanceConfig {
     pub inverse_world_index_setup: bool,
     /// Inject occlusion planes for cells without authored data.
     pub occlusion_planes: bool,
-    /// Maximum injected occlusion planes per cell.
+    /// Maximum injected occlusion planes. Candidates from the loaded neighbor
+    /// cells compete for this same budget, so the native bounds-times-occluders
+    /// cost stays bounded.
     pub occlusion_planes_max_per_cell: u16,
+    /// Loaded exterior-cell grid radius for cached occluder coverage. `0`
+    /// (default) limits collection to the player's cell. `1` also reuses the
+    /// complete cache entries of the surrounding 3x3 loaded cells; no neighbor
+    /// mesh walk runs on a frame path.
+    pub occlusion_planes_grid_radius: u8,
     /// Generated plane cache file, relative to the game directory or absolute.
     pub occlusion_planes_cache_path: String,
     /// Start with the occluder debug overlay enabled.
@@ -313,6 +320,7 @@ impl Default for PerformanceConfig {
             inverse_world_index_setup: true,
             occlusion_planes: true,
             occlusion_planes_max_per_cell: 128,
+            occlusion_planes_grid_radius: 0,
             occlusion_planes_cache_path: DEFAULT_OCCLUSION_PLANES_CACHE_PATH.to_string(),
             occlusion_planes_debug: false,
         }
@@ -365,6 +373,10 @@ impl PerformanceConfig {
                 .occlusion_planes_max_per_cell
                 .unwrap_or(default.occlusion_planes_max_per_cell)
                 .clamp(1, 256),
+            occlusion_planes_grid_radius: raw
+                .occlusion_planes_grid_radius
+                .unwrap_or(default.occlusion_planes_grid_radius)
+                .min(2),
             occlusion_planes_cache_path: raw
                 .occlusion_planes_cache_path
                 .unwrap_or(default.occlusion_planes_cache_path),
@@ -686,6 +698,7 @@ struct RawPerformanceConfig {
     inverse_world_index_setup: Option<bool>,
     occlusion_planes: Option<bool>,
     occlusion_planes_max_per_cell: Option<u16>,
+    occlusion_planes_grid_radius: Option<u8>,
     occlusion_planes_cache_path: Option<String>,
     occlusion_planes_debug: Option<bool>,
 }

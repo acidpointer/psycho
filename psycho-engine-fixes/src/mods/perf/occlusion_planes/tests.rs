@@ -10,12 +10,13 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 use super::data::PlaneRecord;
 use super::runtime::{
-    TARGET_STABLE_FRAMES, native_size, plane_signature, release_plane, retain_plane,
+    TARGET_STABLE_FRAMES, grid_distance, native_size, plane_signature, release_plane, retain_plane,
     target_confirmation,
 };
 use super::runtime_generate::{
     Aabb, FaceRejects, PLANE_SHRINK, WorldTransform, aabb_of, admits_base_type, alpha_is_opaque,
-    faces_from_oriented_box, merge_coplanar, support_rect, transform_point,
+    covered_face_rect, faces_from_oriented_box, merge_coplanar, select_planes, support_rect,
+    transform_point,
 };
 
 static DELETE_THIS_CALLS: AtomicUsize = AtomicUsize::new(0);
@@ -72,6 +73,7 @@ fn oriented_faces(
     local: &Aabb,
     world: &WorldTransform,
     vertices: &[[f32; 3]],
+    triangles: &[[u16; 3]],
     out: &mut Vec<(f32, PlaneRecord)>,
 ) -> FaceRejects {
     let mut points = Vec::new();
@@ -81,6 +83,7 @@ fn oriented_faces(
         local,
         world,
         vertices,
+        triangles,
         out,
         &mut points,
         &mut hull,
@@ -140,6 +143,28 @@ fn box_vertices(local: &Aabb) -> Vec<[f32; 3]> {
     vertices
 }
 
+/// Triangulate the same eight box corners `box_vertices` produces, two
+/// triangles per face.
+fn box_triangles() -> Vec<[u16; 3]> {
+    vec![
+        // x = min / max
+        [0, 2, 6],
+        [0, 6, 4],
+        [1, 3, 7],
+        [1, 7, 5],
+        // y = min / max
+        [0, 1, 5],
+        [0, 5, 4],
+        [2, 3, 7],
+        [2, 7, 6],
+        // z = min / max
+        [0, 1, 3],
+        [0, 3, 2],
+        [4, 5, 7],
+        [4, 7, 6],
+    ]
+}
+
 fn plane_basis(plane: &PlaneRecord) -> ([f32; 3], [f32; 3], [f32; 3]) {
     let matrix = plane.rotation;
     (
@@ -173,6 +198,7 @@ fn vertical_box_faces_are_oriented_and_supported() {
         &local,
         &identity_world([0.0; 3], 1.0),
         &vertices,
+        &box_triangles(),
         &mut faces,
     );
     assert_eq!(faces.len(), 4, "only the four vertical faces are emitted");
@@ -232,6 +258,7 @@ fn thin_panel_faces_stay_one_sided() {
         &thin,
         &identity_world([0.0; 3], 1.0),
         &box_vertices(&thin),
+        &box_triangles(),
         &mut faces,
     );
     assert!(!faces.is_empty(), "the two large faces are emitted");
@@ -250,6 +277,7 @@ fn thin_panel_faces_stay_one_sided() {
         &solid,
         &identity_world([0.0; 3], 1.0),
         &box_vertices(&solid),
+        &box_triangles(),
         &mut faces,
     );
     assert!(!faces.is_empty());
@@ -277,7 +305,7 @@ fn rotated_box_faces_follow_the_box_not_the_world_aabb() {
         scale: 1.0,
     };
     let mut faces = Vec::new();
-    oriented_faces(&local, &world, &vertices, &mut faces);
+    oriented_faces(&local, &world, &vertices, &box_triangles(), &mut faces);
     assert_eq!(faces.len(), 4);
 
     let centers = [
@@ -323,7 +351,7 @@ fn faces_without_vertex_support_are_rejected() {
         max: [500.0, 500.0, 500.0],
     };
     let mut faces = Vec::new();
-    let rejects = oriented_faces(&local, &identity_world([0.0; 3], 1.0), &[], &mut faces);
+    let rejects = oriented_faces(&local, &identity_world([0.0; 3], 1.0), &[], &[], &mut faces);
     assert!(faces.is_empty());
     assert!(rejects.unsupported >= 4);
 
@@ -337,6 +365,7 @@ fn faces_without_vertex_support_are_rejected() {
             &local,
             &identity_world([0.0; 3], 1.0),
             &vertices,
+            &[],
             &mut faces,
         );
         assert!(faces.is_empty());
@@ -355,6 +384,7 @@ fn horizontal_ground_faces_are_rejected() {
         &floor,
         &identity_world([0.0; 3], 1.0),
         &box_vertices(&floor),
+        &box_triangles(),
         &mut faces,
     );
     assert!(faces.is_empty());
@@ -370,6 +400,7 @@ fn horizontal_ground_faces_are_rejected() {
         &wall,
         &identity_world([0.0; 3], 1.0),
         &box_vertices(&wall),
+        &box_triangles(),
         &mut faces,
     );
     assert_eq!(faces.len(), 2);
@@ -387,7 +418,13 @@ fn negative_scale_mirrors_oriented_faces() {
     };
     let world = identity_world([1000.0, 0.0, 0.0], -1.0);
     let mut faces = Vec::new();
-    oriented_faces(&local, &world, &box_vertices(&local), &mut faces);
+    oriented_faces(
+        &local,
+        &world,
+        &box_vertices(&local),
+        &box_triangles(),
+        &mut faces,
+    );
     assert_eq!(faces.len(), 4);
     for (_, plane) in &faces {
         let (_, normal, _) = plane_basis(plane);
@@ -505,6 +542,7 @@ fn small_boxes_produce_no_faces() {
         &local,
         &identity_world([0.0; 3], 1.0),
         &box_vertices(&local),
+        &box_triangles(),
         &mut faces,
     );
     assert!(faces.is_empty());
@@ -781,4 +819,166 @@ fn non_coplanar_rectangles_do_not_merge() {
     ];
     merge_coplanar(&mut candidates);
     assert_eq!(candidates.len(), 2);
+}
+
+#[test]
+fn grid_distance_bounds_the_neighborhood_by_chebyshev_radius() {
+    let center = (2, 2);
+    // Orthogonal and diagonal cells are both distance 1; the next ring is 2.
+    assert_eq!(grid_distance(center, (1, 2)), 1);
+    assert_eq!(grid_distance(center, (1, 1)), 1);
+    assert_eq!(grid_distance(center, (0, 1)), 2);
+    assert_eq!(grid_distance(center, (2, 2)), 0);
+}
+
+#[test]
+fn union_selection_keeps_the_near_plane_with_the_same_area() {
+    let near = merge_plane([0.0, 0.0, 0.0], [100.0, 100.0]);
+    let far = merge_plane([0.0, 0.0, 10000.0], [100.0, 100.0]);
+    let selected = select_planes(
+        vec![
+            (far.size[0] * far.size[1], far),
+            (near.size[0] * near.size[1], near),
+        ],
+        Some([0.0, 0.0, 0.0]),
+        8,
+    );
+    assert_eq!(selected.planes.len(), 2);
+    assert!(selected.planes[0].position[2] < 1.0);
+    assert!(selected.raw_area > 0.0);
+    assert_eq!(selected.distance_reject, 0);
+}
+
+#[test]
+fn union_selection_respects_the_shared_budget() {
+    let planes = (0..5)
+        .map(|index| {
+            let plane = merge_plane([index as f32 * 100.0, 0.0, 0.0], [100.0, 100.0]);
+            (plane.size[0] * plane.size[1], plane)
+        })
+        .collect();
+    let selected = select_planes(planes, None, 3);
+    assert_eq!(selected.planes.len(), 3);
+    assert!(selected.cap_drop_area > 0.0);
+}
+
+#[test]
+fn union_selection_drops_planes_outside_the_distance_bound() {
+    let near = merge_plane([0.0, 0.0, 0.0], [100.0, 100.0]);
+    let beyond = merge_plane([0.0, 0.0, 300_000.0], [100.0, 100.0]);
+    let selected = select_planes(
+        vec![
+            (near.size[0] * near.size[1], near),
+            (beyond.size[0] * beyond.size[1], beyond),
+        ],
+        Some([0.0, 0.0, 0.0]),
+        8,
+    );
+    assert_eq!(selected.planes.len(), 1);
+    assert_eq!(selected.distance_reject, 1);
+    assert!(selected.distance_max >= 300_000.0);
+}
+
+#[test]
+fn coplanar_rectangles_from_different_sources_merge() {
+    // Two sources produce adjacent wall pieces on the same plane. The per-cell
+    // merge joins them so a cell seam does not split one occluder.
+    let mut left = merge_plane([0.0, 0.0, 0.0], [100.0, 100.0]);
+    left.source_form_id = 0x1111;
+    let mut right = merge_plane([100.0, 0.0, 0.0], [100.0, 100.0]);
+    right.source_form_id = 0x2222;
+    let mut candidates = vec![
+        (left.size[0] * left.size[1], left),
+        (right.size[0] * right.size[1], right),
+    ];
+    merge_coplanar(&mut candidates);
+    assert_eq!(candidates.len(), 1);
+    let (_, merged) = &candidates[0];
+    assert!((merged.size[0] - 200.0).abs() < 0.01);
+    assert!((merged.position[0] - 50.0).abs() < 0.01);
+}
+
+/// Flat vertices in the local x = 0 plane; the tuple is (y, z).
+fn wall_vertices(points: &[(f32, f32)]) -> Vec<[f32; 3]> {
+    points.iter().map(|(y, z)| [0.0, *y, *z]).collect()
+}
+
+#[test]
+fn solid_face_rectangle_is_covered() {
+    let vertices = wall_vertices(&[(0.0, 0.0), (1000.0, 0.0), (0.0, 1000.0)]);
+    let triangles = vec![[0u16, 1, 2]];
+    let rect = covered_face_rect(
+        &vertices, &triangles, 0, 0.0, 4.0, 200.0, 200.0, 150.0, 150.0,
+    )
+    .expect("a solid triangle backs the rectangle");
+    assert!((rect.2 - 150.0).abs() < 0.01);
+    assert!((rect.3 - 150.0).abs() < 0.01);
+
+    // A two-triangle quad is covered across its shared internal edge.
+    let vertices = wall_vertices(&[(0.0, 0.0), (1000.0, 0.0), (1000.0, 1000.0), (0.0, 1000.0)]);
+    let triangles = vec![[0u16, 1, 2], [0, 2, 3]];
+    let rect = covered_face_rect(
+        &vertices, &triangles, 0, 0.0, 4.0, 500.0, 500.0, 400.0, 400.0,
+    )
+    .expect("a solid quad backs the whole rectangle");
+    assert!((rect.2 - 400.0).abs() < 0.01);
+    assert!((rect.3 - 400.0).abs() < 0.01);
+}
+
+#[test]
+fn window_opening_is_never_covered() {
+    // A 1000x1000 wall with a 200x200 empty window in the middle, built as four
+    // quads around the opening. The opening has no triangles; its boundary edges
+    // are the only signal that a rectangle must not span it.
+    let vertices = wall_vertices(&[
+        (0.0, 0.0),
+        (1000.0, 0.0),
+        (1000.0, 1000.0),
+        (0.0, 1000.0),
+        (400.0, 400.0),
+        (600.0, 400.0),
+        (600.0, 600.0),
+        (400.0, 600.0),
+    ]);
+    let triangles = vec![
+        [0u16, 1, 5],
+        [0, 5, 4],
+        [1, 2, 6],
+        [1, 6, 5],
+        [2, 3, 7],
+        [2, 7, 6],
+        [3, 0, 4],
+        [3, 4, 7],
+    ];
+    // A rectangle covering the whole wall is reduced to the largest solid
+    // rectangle, which must not reach the window interior (y/z 400..600).
+    let (center_u, center_v, half_u, half_v) = covered_face_rect(
+        &vertices, &triangles, 0, 0.0, 4.0, 500.0, 500.0, 480.0, 480.0,
+    )
+    .expect("the solid band around the window is still usable");
+    let (u0, u1) = (center_u - half_u, center_u + half_u);
+    let (v0, v1) = (center_v - half_v, center_v + half_v);
+    let overlaps_opening = u1 > 400.0 && u0 < 600.0 && v1 > 400.0 && v0 < 600.0;
+    assert!(
+        !overlaps_opening,
+        "recovered rectangle {u0}..{u1} x {v0}..{v1} must not cover the window"
+    );
+
+    // A rectangle entirely inside the opening has no solid part at all.
+    assert!(
+        covered_face_rect(&vertices, &triangles, 0, 0.0, 4.0, 500.0, 500.0, 50.0, 50.0).is_none(),
+        "a rectangle inside the opening must be dropped"
+    );
+    // A rectangle in the solid band below the opening keeps its size.
+    let rect = covered_face_rect(
+        &vertices, &triangles, 0, 0.0, 4.0, 200.0, 500.0, 150.0, 150.0,
+    )
+    .expect("solid band is covered");
+    assert!((rect.2 - 150.0).abs() < 0.01);
+}
+
+#[test]
+fn face_without_triangles_is_never_emitted() {
+    let vertices = wall_vertices(&[(0.0, 0.0), (1000.0, 0.0), (1000.0, 1000.0), (0.0, 1000.0)]);
+    assert!(covered_face_rect(&vertices, &[], 0, 0.0, 4.0, 500.0, 500.0, 400.0, 400.0).is_none());
 }

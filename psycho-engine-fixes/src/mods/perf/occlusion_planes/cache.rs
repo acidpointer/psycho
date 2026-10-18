@@ -31,7 +31,7 @@ const MAGIC: [u8; 4] = *b"PSOC";
 /// Cache schema and generator semantics version. Bump it whenever the
 /// generated plane set would change for the same meshes, so an updated DLL
 /// never reuses planes produced by older extraction logic.
-const FORMAT_VERSION: u32 = 8;
+const FORMAT_VERSION: u32 = 9;
 /// magic + version + signature; the entry count is read by `Reader`.
 const HEADER_LEN: usize = 4 + 4 + 8;
 /// position(12) + size(8) + rotation(36) + priority(1) + source(4) + coverage(4)

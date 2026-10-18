@@ -1,0 +1,417 @@
+Psycho radare2 evidence: mesh triangle data and alpha property layout
+UTC: 2026-10-18T23:18:49Z
+Binary: fnv_reverse/FalloutNV.exe
+SHA-256: 42fee7d6cd74e801372aa89c8f71c974cebd3c20ec9ad43d1465b8fa9646b49c
+
+== NiTriStripsData field writer (0x00A76430): m_usStrips +0x44, m_pusStripLengths +0x48, m_pusStripLists +0x4C ==
+WARN: Invalid certificate table
+            0x00a76478      0fb74f44       movzx ecx, word [edi + 0x44]
+            0x00a7647c      51             push ecx
+            0x00a7647d      6884d90901     push str.m_usStrips         ; 0x109d984 ; "m_usStrips"
+            0x00a76482      e809700000     call 0xa7d490
+            0x00a76487      0fb75e0a       movzx ebx, word [esi + 0xa]
+            0x00a7648b      0fb75608       movzx edx, word [esi + 8]
+            0x00a7648f      83c408         add esp, 8
+            0x00a76492      89442410       mov dword [esp + 0x10], eax
+            0x00a76496      3bda           cmp ebx, edx
+        ┌─< 0x00a76498      720e           jb 0xa764a8
+        │   0x00a7649a      0fb7460e       movzx eax, word [esi + 0xe]
+        │   0x00a7649e      03c3           add eax, ebx
+        │   0x00a764a0      50             push eax
+        │   0x00a764a1      8bce           mov ecx, esi
+        │   0x00a764a3      e88848efff     call 0x96ad30
+        └─> 0x00a764a8      8d4c2410       lea ecx, [esp + 0x10]
+            0x00a764ac      51             push ecx
+            0x00a764ad      53             push ebx
+            0x00a764ae      8bce           mov ecx, esi
+            0x00a764b0      e8db49efff     call 0x96ae90
+            0x00a764b5      8b5748         mov edx, dword [edi + 0x48]
+            0x00a764b8      52             push edx
+            0x00a764b9      6870d90901     push str.m_pusStripLengths  ; 0x109d970 ; "m_pusStripLengths"
+            0x00a764be      e8dd700000     call 0xa7d5a0
+            0x00a764c3      0fb75e0a       movzx ebx, word [esi + 0xa]
+            0x00a764c7      89442418       mov dword [esp + 0x18], eax
+            0x00a764cb      0fb74608       movzx eax, word [esi + 8]
+            0x00a764cf      83c408         add esp, 8
+            0x00a764d2      3bd8           cmp ebx, eax
+        ┌─< 0x00a764d4      720e           jb 0xa764e4
+        │   0x00a764d6      0fb74e0e       movzx ecx, word [esi + 0xe]
+        │   0x00a764da      03cb           add ecx, ebx
+        │   0x00a764dc      51             push ecx
+        │   0x00a764dd      8bce           mov ecx, esi
+        │   0x00a764df      e84c48efff     call 0x96ad30
+        └─> 0x00a764e4      8d542410       lea edx, [esp + 0x10]
+            0x00a764e8      52             push edx
+            0x00a764e9      53             push ebx
+            0x00a764ea      8bce           mov ecx, esi
+            0x00a764ec      e89f49efff     call 0x96ae90
+            0x00a764f1      8b474c         mov eax, dword [edi + 0x4c]
+            0x00a764f4      50             push eax
+            0x00a764f5      6860d90901     push str.m_pusStripLists    ; 0x109d960 ; "m_pusStripLists"
+            0x00a764fa      e8a1700000     call 0xa7d5a0
+            0x00a764ff      0fb77e0a       movzx edi, word [esi + 0xa]
+            0x00a76503      0fb74e08       movzx ecx, word [esi + 8]
+            0x00a76507      83c408         add esp, 8
+            0x00a7650a      89442410       mov dword [esp + 0x10], eax
+            0x00a7650e      3bf9           cmp edi, ecx
+        ┌─< 0x00a76510      720e           jb 0xa76520
+        │   0x00a76512      0fb7560e       movzx edx, word [esi + 0xe]
+        │   0x00a76516      03d7           add edx, edi
+        │   0x00a76518      52             push edx
+        │   0x00a76519      8bce           mov ecx, esi
+        │   0x00a7651b      e81048efff     call 0x96ad30
+        └─> 0x00a76520      8d442410       lea eax, [esp + 0x10]
+            0x00a76524      50             push eax
+            0x00a76525      57             push edi
+            0x00a76526      8bce           mov ecx, esi
+            0x00a76528      e86349efff     call 0x96ae90
+            0x00a7652d      5f             pop edi
+            0x00a7652e      5e             pop esi
+            0x00a7652f      5b             pop ebx
+            0x00a76530      c20400         ret 4
+            0x00a76533      cc             int3
+            0x00a76534      cc             int3
+            0x00a76535      cc             int3
+            0x00a76536      cc             int3
+            0x00a76537      cc             int3
+            0x00a76538      cc             int3
+            0x00a76539      cc             int3
+            0x00a7653a      cc             int3
+            0x00a7653b      cc             int3
+            0x00a7653c      cc             int3
+            0x00a7653d      cc             int3
+            0x00a7653e      cc             int3
+            0x00a7653f      cc             int3
+            0x00a76540      56             push esi
+            0x00a76541      8b742408       mov esi, dword [esp + 8]
+            0x00a76545      8b4604         mov eax, dword [esi + 4]
+            0x00a76548      3b4104         cmp eax, dword [ecx + 4]
+        ┌─< 0x00a7654b      752a           jne 0xa76577
+        │   0x00a7654d      8a16           mov dl, byte [esi]
+        │   0x00a7654f      3a11           cmp dl, byte [ecx]
+       ┌──< 0x00a76551      7524           jne 0xa76577
+       ││   0x00a76553      8b4608         mov eax, dword [esi + 8]
+       ││   0x00a76556      3b4108         cmp eax, dword [ecx + 8]
+      ┌───< 0x00a76559      751c           jne 0xa76577
+      │││   0x00a7655b      8a5601         mov dl, byte [esi + 1]
+      │││   0x00a7655e      3a5101         cmp dl, byte [ecx + 1]
+
+== NiTriShapeData field writer (0x00A7BD60): m_uiTriListLength +0x44, m_pusTriList +0x48 ==
+WARN: Invalid certificate table
+            0x00a7bda8      8b4b44         mov ecx, dword [ebx + 0x44]
+            0x00a7bdab      51             push ecx
+            0x00a7bdac      6888db0901     push str.m_uiTriListLength  ; 0x109db88 ; "m_uiTriListLength"
+            0x00a7bdb1      e85a170000     call 0xa7d510
+            0x00a7bdb6      0fb77e0a       movzx edi, word [esi + 0xa]
+            0x00a7bdba      0fb75608       movzx edx, word [esi + 8]
+            0x00a7bdbe      83c408         add esp, 8
+            0x00a7bdc1      89442410       mov dword [esp + 0x10], eax
+            0x00a7bdc5      3bfa           cmp edi, edx
+        ┌─< 0x00a7bdc7      720e           jb 0xa7bdd7
+        │   0x00a7bdc9      0fb7460e       movzx eax, word [esi + 0xe]
+        │   0x00a7bdcd      03c7           add eax, edi
+        │   0x00a7bdcf      50             push eax
+        │   0x00a7bdd0      8bce           mov ecx, esi
+        │   0x00a7bdd2      e859efeeff     call 0x96ad30
+        └─> 0x00a7bdd7      8d4c2410       lea ecx, [esp + 0x10]
+            0x00a7bddb      51             push ecx
+            0x00a7bddc      57             push edi
+            0x00a7bddd      8bce           mov ecx, esi
+            0x00a7bddf      e8acf0eeff     call 0x96ae90
+            0x00a7bde4      8b5348         mov edx, dword [ebx + 0x48]
+            0x00a7bde7      52             push edx
+            0x00a7bde8      6878db0901     push str.m_pusTriList       ; 0x109db78 ; "m_pusTriList"
+            0x00a7bded      e8ae170000     call 0xa7d5a0
+            0x00a7bdf2      0fb77e0a       movzx edi, word [esi + 0xa]
+            0x00a7bdf6      89442418       mov dword [esp + 0x18], eax
+            0x00a7bdfa      0fb74608       movzx eax, word [esi + 8]
+            0x00a7bdfe      83c408         add esp, 8
+            0x00a7be01      3bf8           cmp edi, eax
+        ┌─< 0x00a7be03      720e           jb 0xa7be13
+        │   0x00a7be05      0fb74e0e       movzx ecx, word [esi + 0xe]
+        │   0x00a7be09      03cf           add ecx, edi
+        │   0x00a7be0b      51             push ecx
+        │   0x00a7be0c      8bce           mov ecx, esi
+        │   0x00a7be0e      e81defeeff     call 0x96ad30
+        └─> 0x00a7be13      8d542410       lea edx, [esp + 0x10]
+            0x00a7be17      52             push edx
+            0x00a7be18      57             push edi
+            0x00a7be19      8bce           mov ecx, esi
+            0x00a7be1b      e870f0eeff     call 0x96ae90
+            0x00a7be20      5f             pop edi
+            0x00a7be21      5e             pop esi
+            0x00a7be22      5b             pop ebx
+            0x00a7be23      c20400         ret 4
+            0x00a7be26      cc             int3
+            0x00a7be27      cc             int3
+            0x00a7be28      cc             int3
+            0x00a7be29      cc             int3
+            0x00a7be2a      cc             int3
+            0x00a7be2b      cc             int3
+            0x00a7be2c      cc             int3
+            0x00a7be2d      cc             int3
+            0x00a7be2e      cc             int3
+            0x00a7be2f      cc             int3
+            0x00a7be30      8b4c2404       mov ecx, dword [esp + 4]
+            0x00a7be34      85c9           test ecx, ecx
+        ┌─< 0x00a7be36      7436           je 0xa7be6e
+        │   0x00a7be38      8b442408       mov eax, dword [esp + 8]
+        │   0x00a7be3c      85c0           test eax, eax
+       ┌──< 0x00a7be3e      742e           je 0xa7be6e
+       ││   0x00a7be40      d1e9           shr ecx, 1
+       ││   0x00a7be42      ba01000000     mov edx, 1
+      ┌───< 0x00a7be47      740c           je 0xa7be55
+      │││   0x00a7be49      8da4240000..   lea esp, [esp]
+     ┌────> 0x00a7be50      42             inc edx
+     ╎│││   0x00a7be51      d1e9           shr ecx, 1
+     └────< 0x00a7be53      75fb           jne 0xa7be50
+      └───> 0x00a7be55      d1e8           shr eax, 1
+       ││   0x00a7be57      b901000000     mov ecx, 1
+      ┌───< 0x00a7be5c      7407           je 0xa7be65
+
+== NiTriStripsData create 0x00A75EC0: alloc 0x50, zero +0x44/+0x48/+0x4C, vtable 0x0109D8AC ==
+WARN: Invalid certificate table
+            0x00a75ec0      56             push esi
+            0x00a75ec1      6a50           push 0x50                   ; 'P' ; 80
+            0x00a75ec3      e818b50200     call 0xaa13e0
+            0x00a75ec8      8bf0           mov esi, eax
+            0x00a75eca      83c404         add esp, 4
+            0x00a75ecd      85f6           test esi, esi
+        ┌─< 0x00a75ecf      741d           je 0xa75eee
+        │   0x00a75ed1      8bce           mov ecx, esi
+        │   0x00a75ed3      e8984a0100     call 0xa8a970
+        │   0x00a75ed8      33c0           xor eax, eax
+        │   0x00a75eda      66894644       mov word [esi + 0x44], ax
+        │   0x00a75ede      894648         mov dword [esi + 0x48], eax
+        │   0x00a75ee1      89464c         mov dword [esi + 0x4c], eax
+        │   0x00a75ee4      c706acd80901   mov dword [esi], 0x109d8ac  ; [0x109d8ac:4]=0xa761a0
+        │   0x00a75eea      8bc6           mov eax, esi
+        │   0x00a75eec      5e             pop esi
+        │   0x00a75eed      c3             ret
+        └─> 0x00a75eee      33c0           xor eax, eax
+            0x00a75ef0      5e             pop esi
+            0x00a75ef1      c3             ret
+            0x00a75ef2      cc             int3
+            0x00a75ef3      cc             int3
+            0x00a75ef4      cc             int3
+            0x00a75ef5      cc             int3
+            0x00a75ef6      cc             int3
+            0x00a75ef7      cc             int3
+            0x00a75ef8      cc             int3
+            0x00a75ef9      cc             int3
+            0x00a75efa      cc             int3
+            0x00a75efb      cc             int3
+            0x00a75efc      cc             int3
+            0x00a75efd      cc             int3
+            0x00a75efe      cc             int3
+            0x00a75eff      cc             int3
+        ┌─< 0x00a75f00      e9ab4a0100     jmp 0xa8a9b0
+        │   0x00a75f05      cc             int3
+        │   0x00a75f06      cc             int3
+        │   0x00a75f07      cc             int3
+        │   0x00a75f08      cc             int3
+        │   0x00a75f09      cc             int3
+        │   0x00a75f0a      cc             int3
+        │   0x00a75f0b      cc             int3
+        │   0x00a75f0c      cc             int3
+        │   0x00a75f0d      cc             int3
+        │   0x00a75f0e      cc             int3
+        │   0x00a75f0f      cc             int3
+        │   0x00a75f10      8b414c         mov eax, dword [ecx + 0x4c]
+        │   0x00a75f13      c3             ret
+        │   0x00a75f14      cc             int3
+        │   0x00a75f15      cc             int3
+
+== NiTriShapeData create 0x00A7B790: alloc 0x58, zero +0x44/+0x48, vtable 0x0109DAC4 ==
+WARN: Invalid certificate table
+            0x00a7b790      56             push esi
+            0x00a7b791      57             push edi
+            0x00a7b792      6a58           push 0x58                   ; 'X' ; 88
+            0x00a7b794      e8475c0200     call 0xaa13e0
+            0x00a7b799      8bf0           mov esi, eax
+            0x00a7b79b      33ff           xor edi, edi
+            0x00a7b79d      83c404         add esp, 4
+            0x00a7b7a0      3bf7           cmp esi, edi
+        ┌─< 0x00a7b7a2      7424           je 0xa7b7c8
+        │   0x00a7b7a4      8bce           mov ecx, esi
+        │   0x00a7b7a6      e8c5f10000     call 0xa8a970
+        │   0x00a7b7ab      33c0           xor eax, eax
+        │   0x00a7b7ad      897e44         mov dword [esi + 0x44], edi
+        │   0x00a7b7b0      897e48         mov dword [esi + 0x48], edi
+        │   0x00a7b7b3      897e4c         mov dword [esi + 0x4c], edi
+        │   0x00a7b7b6      897e54         mov dword [esi + 0x54], edi
+        │   0x00a7b7b9      66894650       mov word [esi + 0x50], ax
+        │   0x00a7b7bd      5f             pop edi
+        │   0x00a7b7be      c706c4da0901   mov dword [esi], 0x109dac4  ; [0x109dac4:4]=0xa7b920
+        │   0x00a7b7c4      8bc6           mov eax, esi
+        │   0x00a7b7c6      5e             pop esi
+        │   0x00a7b7c7      c3             ret
+        └─> 0x00a7b7c8      5f             pop edi
+            0x00a7b7c9      33c0           xor eax, eax
+            0x00a7b7cb      5e             pop esi
+            0x00a7b7cc      c3             ret
+            0x00a7b7cd      cc             int3
+            0x00a7b7ce      cc             int3
+            0x00a7b7cf      cc             int3
+        ┌─< 0x00a7b7d0      e9cbf10000     jmp 0xa8a9a0
+        │   0x00a7b7d5      cc             int3
+        │   0x00a7b7d6      cc             int3
+        │   0x00a7b7d7      cc             int3
+        │   0x00a7b7d8      cc             int3
+        │   0x00a7b7d9      cc             int3
+        │   0x00a7b7da      cc             int3
+        │   0x00a7b7db      cc             int3
+        │   0x00a7b7dc      cc             int3
+        │   0x00a7b7dd      cc             int3
+        │   0x00a7b7de      cc             int3
+        │   0x00a7b7df      cc             int3
+        │   0x00a7b7e0      56             push esi
+        │   0x00a7b7e1      57             push edi
+        │   0x00a7b7e2      8b7c240c       mov edi, dword [esp + 0xc]
+        │   0x00a7b7e6      57             push edi
+        │   0x00a7b7e7      8bf1           mov esi, ecx
+        │   0x00a7b7e9      e8d2f10000     call 0xa8a9c0
+        │   0x00a7b7ee      84c0           test al, al
+       ┌──< 0x00a7b7f0      7507           jne 0xa7b7f9
+       ││   0x00a7b7f2      5f             pop edi
+
+== Dynamic variants: NiTriShapeDynamicData 0x0109E32C, NiTriStripsDynamicData 0x0109FC54 ==
+WARN: Invalid certificate table
+       ╎╎   0x00a81760      56             push esi
+       ╎╎   0x00a81761      6a5c           push 0x5c                   ; '\\' ; 92
+       ╎╎   0x00a81763      e878fc0100     call 0xaa13e0
+       ╎╎   0x00a81768      8bf0           mov esi, eax
+       ╎╎   0x00a8176a      83c404         add esp, 4
+       ╎╎   0x00a8176d      85f6           test esi, esi
+      ┌───< 0x00a8176f      741d           je 0xa8178e
+      │╎╎   0x00a81771      8bce           mov ecx, esi
+      │╎╎   0x00a81773      e8189fffff     call 0xa7b690
+      │╎╎   0x00a81778      33c0           xor eax, eax
+      │╎╎   0x00a8177a      66894658       mov word [esi + 0x58], ax
+      │╎╎   0x00a8177e      33c9           xor ecx, ecx
+      │╎╎   0x00a81780      c7062ce30901   mov dword [esi], 0x109e32c  ; [0x109e32c:4]=0xa81830
+      │╎╎   0x00a81786      66894e5a       mov word [esi + 0x5a], cx
+      │╎╎   0x00a8178a      8bc6           mov eax, esi
+      │╎╎   0x00a8178c      5e             pop esi
+      │╎╎   0x00a8178d      c3             ret
+      └───> 0x00a8178e      33c0           xor eax, eax
+       ╎╎   0x00a81790      5e             pop esi
+       ╎╎   0x00a81791      c3             ret
+       ╎╎   0x00a81792      cc             int3
+       ╎╎   0x00a81793      cc             int3
+       ╎╎   0x00a81794      cc             int3
+       ╎╎   0x00a81795      cc             int3
+       ╎╎   0x00a81796      cc             int3
+       ╎╎   0x00a81797      cc             int3
+       ╎╎   0x00a81798      cc             int3
+       ╎╎   0x00a81799      cc             int3
+       ╎╎   0x00a8179a      cc             int3
+       ╎╎   0x00a8179b      cc             int3
+       ╎╎   0x00a8179c      cc             int3
+       ╎╎   0x00a8179d      cc             int3
+       ╎╎   0x00a8179e      cc             int3
+       ╎╎   0x00a8179f      cc             int3
+       └──< 0x00a817a0      e92ba0ffff     jmp 0xa7b7d0
+        ╎   0x00a817a5      cc             int3
+        ╎   0x00a817a6      cc             int3
+        ╎   0x00a817a7      cc             int3
+        ╎   0x00a817a8      cc             int3
+        ╎   0x00a817a9      cc             int3
+        ╎   0x00a817aa      cc             int3
+        ╎   0x00a817ab      cc             int3
+        ╎   0x00a817ac      cc             int3
+        ╎   0x00a817ad      cc             int3
+        ╎   0x00a817ae      cc             int3
+        ╎   0x00a817af      cc             int3
+        └─< 0x00a817b0      e94b47ffff     jmp 0xa75f00
+            0x00a817b5      cc             int3
+            0x00a817b6      cc             int3
+            0x00a817b7      cc             int3
+WARN: Invalid certificate table
+            0x00a923f0      56             push esi
+            0x00a923f1      6a54           push 0x54                   ; 'T' ; 84
+            0x00a923f3      e8e8ef0000     call 0xaa13e0
+            0x00a923f8      8bf0           mov esi, eax
+            0x00a923fa      83c404         add esp, 4
+            0x00a923fd      85f6           test esi, esi
+        ┌─< 0x00a923ff      741d           je 0xa9241e
+        │   0x00a92401      8bce           mov ecx, esi
+        │   0x00a92403      e8183afeff     call 0xa75e20
+        │   0x00a92408      33c0           xor eax, eax
+        │   0x00a9240a      66894650       mov word [esi + 0x50], ax
+        │   0x00a9240e      33c9           xor ecx, ecx
+        │   0x00a92410      c70654fc0901   mov dword [esi], 0x109fc54  ; [0x109fc54:4]=0xa924b0
+        │   0x00a92416      66894e52       mov word [esi + 0x52], cx
+        │   0x00a9241a      8bc6           mov eax, esi
+        │   0x00a9241c      5e             pop esi
+        │   0x00a9241d      c3             ret
+        └─> 0x00a9241e      33c0           xor eax, eax
+            0x00a92420      5e             pop esi
+            0x00a92421      c3             ret
+            0x00a92422      cc             int3
+            0x00a92423      cc             int3
+            0x00a92424      cc             int3
+            0x00a92425      cc             int3
+            0x00a92426      cc             int3
+            0x00a92427      cc             int3
+            0x00a92428      cc             int3
+            0x00a92429      cc             int3
+            0x00a9242a      cc             int3
+            0x00a9242b      cc             int3
+            0x00a9242c      cc             int3
+            0x00a9242d      cc             int3
+            0x00a9242e      cc             int3
+            0x00a9242f      cc             int3
+            0x00a92430      56             push esi
+            0x00a92431      57             push edi
+            0x00a92432      8b7c240c       mov edi, dword [esp + 0xc]
+            0x00a92436      57             push edi
+            0x00a92437      8bf1           mov esi, ecx
+            0x00a92439      e8423bfeff     call 0xa75f80
+            0x00a9243e      84c0           test al, al
+        ┌─< 0x00a92440      741b           je 0xa9245d
+        │   0x00a92442      668b4650       mov ax, word [esi + 0x50]
+        │   0x00a92446      663b4750       cmp ax, word [edi + 0x50]
+       ┌──< 0x00a9244a      7511           jne 0xa9245d
+       ││   0x00a9244c      668b4e52       mov cx, word [esi + 0x52]
+       ││   0x00a92450      663b4f52       cmp cx, word [edi + 0x52]
+      ┌───< 0x00a92454      7507           jne 0xa9245d
+      │││   0x00a92456      5f             pop edi
+      │││   0x00a92457      b001           mov al, 1
+
+== NiAlphaProperty vtable proof ==
+plain constructor 0x00A5CEB0 stores 0x010162DC;
+WARN: Invalid certificate table
+            0x00a5cec0      1e             push ds
+            0x00a5cec1      8bce           mov ecx, esi
+            0x00a5cec3      e838f3ffff     call 0xa5c200
+            0x00a5cec8      b8ec000000     mov eax, 0xec               ; 236
+            0x00a5cecd      66894618       mov word [esi + 0x18], ax
+            0x00a5ced1      c706dc620101   mov dword [esi], 0x10162dc  ; [0x10162dc:4]=0x4392f0
+            0x00a5ced7      c6461a00       mov byte [esi + 0x1a], 0
+            0x00a5cedb      8bc6           mov eax, esi
+            0x00a5cedd      5e             pop esi
+            0x00a5cede      c3             ret
+            0x00a5cedf      33c0           xor eax, eax
+            0x00a5cee1      5e             pop esi
+            0x00a5cee2      c3             ret
+            0x00a5cee3      cc             int3
+            0x00a5cee4      cc             int3
+            0x00a5cee5      cc             int3
+            0x00a5cee6      cc             int3
+            0x00a5cee7      cc             int3
+            0x00a5cee8      cc             int3
+            0x00a5cee9      cc             int3
+            0x00a5ceea      cc             int3
+            0x00a5ceeb      cc             int3
+            0x00a5ceec      cc             int3
+            0x00a5ceed      cc             int3
+            0x00a5ceee      cc             int3
+            0x00a5ceef      cc             int3
+            0x00a5cef0      56             push esi
+            0x00a5cef1      6a1c           push 0x1c                   ; 28
+            0x00a5cef3      e8e8440400     call 0xaa13e0
+            0x00a5cef8      8bf0           mov esi, eax
+vtable 0x010162DC RTTI locator 0x0110541C -> type descriptor 0x01185470 = .?AVNiAlphaProperty@@
+vtable 0x0109B4F4 RTTI locator 0x01124E4C -> type descriptor 0x011854C8 = .?AVNiObject@@
+(the previous constant 0x0109B4F4 could never match a NiAlphaProperty)

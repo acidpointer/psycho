@@ -487,17 +487,26 @@ inverse_world_index_setup = true
 # draw submission. It does not modify any plugin and does not touch authored
 # occluders or rooms.
 #
-# Enabled by default. The planes are collected from the loaded cell's static
-# objects using their uncompressed mesh vertices and live world transforms.
-# Geometry whose vertices are unavailable or compressed is skipped instead of
-# using a loose sphere bound.
+# Enabled by default. The planes are collected from the player's loaded cell
+# using its uncompressed mesh vertices and live world transforms; with
+# occlusion_planes_grid_radius nonzero, complete cached neighbor sets are reused
+# as well. Geometry whose vertices are unavailable or compressed is skipped
+# instead of using a loose sphere bound.
 occlusion_planes = true
 
-# Maximum injected occlusion planes per cell. More planes reject more work but
-# increase the native bounds-times-occluders cost. The pair predicate is a short
-# test and the cost measured cheap, so the default is high; lower it if a dense
-# cell ever regresses.
+# Shared injection budget. Candidate planes from the player's cell and, when
+# occlusion_planes_grid_radius is nonzero, from the cached neighbor cells
+# compete for this many native occluders by approximate solid angle, so the
+# total injected count stays bounded. Also the per-cell candidate cap.
 occlusion_planes_max_per_cell = 128
+
+# Loaded exterior-cell grid radius for cached occluder coverage. `0` is the
+# player-cell-only behavior and the safe default. `1` also reuses the loaded
+# neighbors' occluders, but only from complete cache entries: a neighbor is
+# generated once when it is the player's own cell, then reused by key. No
+# neighbor mesh walk runs on a frame or cell-crossing path, so there is no
+# per-frame generation cost. Neighbors share the max_per_cell budget.
+occlusion_planes_grid_radius = 0
 
 # Generated-plane cache, relative to the game directory or absolute. Revisited
 # cells re-append their planes from here instead of re-walking the meshes. The

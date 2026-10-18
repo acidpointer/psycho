@@ -54,6 +54,7 @@ pub(crate) fn install(performance: &PerformanceConfig) {
     runtime::configure(
         performance.occlusion_planes,
         performance.occlusion_planes_max_per_cell,
+        performance.occlusion_planes_grid_radius,
         &performance.occlusion_planes_cache_path,
         performance.occlusion_planes_debug,
     );

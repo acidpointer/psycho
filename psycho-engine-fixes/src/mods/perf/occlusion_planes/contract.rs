@@ -111,17 +111,49 @@ pub(super) const GEOMETRY_DATA_COMPRESS: usize = 0x39;
 pub(super) const COMPRESS_POSITION: u8 = 0x10;
 /// `NiAlphaProperty::m_usFlags`.
 pub(super) const ALPHA_FLAGS: usize = 0x18;
-/// `NiAlphaProperty` vtable (`0x00A5D3BB` stores it in the constructor). The
+/// `NiAlphaProperty` vtable (`0x00A5CED1` stores it in the class factory's
+/// constructor; its RTTI type descriptor is `. ?AVNiAlphaProperty@@`). The
 /// pointer at `NiGeometry +0x9C` is treated as an alpha property only when its
 /// vtable matches; otherwise the geometry is admitted. This keeps a wrong or
 /// shifted property offset from rejecting every geometry in the cell.
-pub(super) const ALPHA_PROPERTY_VTABLE: usize = 0x0109_B4F4;
+///
+/// The earlier value `0x0109B4F4` belongs to a `NiObject`-RTTI vtable and never
+/// matched a real alpha property, so transparency was not being respected.
+pub(super) const ALPHA_PROPERTY_VTABLE: usize = 0x0101_62DC;
 /// `NiObject` virtual slots: `IsNode` and `IsGeometry`.
 pub(super) const VTABLE_IS_NODE: usize = 0x0C;
 pub(super) const VTABLE_IS_GEOMETRY: usize = 0x18;
 /// `NiAlphaProperty` flag bits that mark see-through or cutout surfaces.
 pub(super) const ALPHA_BLEND: u16 = 0x0001;
 pub(super) const ALPHA_TEST: u16 = 0x0200;
+
+// ---------------------------------------------------------------------------
+// Triangle data for hole-aware face coverage.
+//
+// A window frame, an empty door frame and any wall with an opening are geometry
+// with absent triangles: the opening is visible because the mesh has no surface
+// there, not because of a material or property flag. A convex support hull spans
+// the opening, so the emitted rectangle must be checked against the mesh's real
+// triangles. The layouts and vtables below were read from the class factories
+// and constructors in the supported executable.
+// ---------------------------------------------------------------------------
+
+/// `NiTriShapeData::m_uiTriListLength` (u32) and `m_pusTriList` (u16 index
+/// array, three indices per triangle).
+pub(super) const SHAPE_TRI_LIST_LENGTH: usize = 0x44;
+pub(super) const SHAPE_TRI_LIST: usize = 0x48;
+/// `NiTriStripsData::m_usStrips` (u16), `m_pusStripLengths` (u16*) and
+/// `m_pusStripLists` (u16*). Strip `k` owns `lengths[k]` consecutive indices in
+/// the shared list.
+pub(super) const STRIPS_US_STRIPS: usize = 0x44;
+pub(super) const STRIPS_STRIP_LENGTHS: usize = 0x48;
+pub(super) const STRIPS_STRIP_LISTS: usize = 0x4C;
+/// `NiTriBasedGeomData::m_usTriangles` (u16), the declared triangle count.
+pub(super) const TRI_BASED_TRIANGLES: usize = 0x40;
+/// `NiTriShapeData` / `NiTriShapeDynamicData` vtables (shape index layout).
+pub(super) const SHAPE_DATA_VTABLES: [usize; 2] = [0x0109_DAC4, 0x0109_E32C];
+/// `NiTriStripsData` / `NiTriStripsDynamicData` vtables (strip layout).
+pub(super) const STRIPS_DATA_VTABLES: [usize; 2] = [0x0109_D8AC, 0x0109_FC54];
 /// `TESForm::typeID` values accepted as static occluder candidates.
 ///
 /// The collector reads the loaded 3D geometry, not the base form's authored
@@ -162,6 +194,24 @@ pub(super) const COORDS_X: usize = 0x00;
 pub(super) const COORDS_Y: usize = 0x04;
 pub(super) const CELL_WORLDSPACE: usize = 0xC0;
 pub(super) const TESFORM_REF_ID: usize = 0x0C;
+
+/// `TES` singleton pointer (`TES::GetSingleton()` is `*(TES**)0x011DEA10`).
+pub(super) const TES_SINGLETON: usize = 0x011D_EA10;
+/// `TES::gridCellArray` (`GridCellArray*`).
+pub(super) const TES_GRID_CELL_ARRAY: usize = 0x08;
+/// `GridCellArray::worldX` / `worldY`: the current cell's coordinates.
+pub(super) const GRID_WORLD_X: usize = 0x04;
+pub(super) const GRID_WORLD_Y: usize = 0x08;
+/// `GridCellArray::gridSize` (`uGridsToLoad`) and the `gridSize^2` cell array.
+///
+/// `0x0084E3A0` returns `*(gridCellArray + 0xC)`; `0x004BA490` bounds both
+/// coordinates to `0..gridSize`, indexes `gridCells[gridSize * x + y]` at
+/// `+0x10`, and returns the `TESObjectCELL*` slot. The engine's exterior
+/// visibility pass (`0x0045B070`) uses the same getter for every slot of the
+/// whole loaded grid, which is why occluders from the player's neighboring
+/// cells are valid even though the collector starts from one cell.
+pub(super) const GRID_SIZE: usize = 0x0C;
+pub(super) const GRID_CELLS: usize = 0x10;
 
 /// Game allocator.
 pub(super) type AllocFn = unsafe extern "cdecl" fn(usize) -> *mut c_void;

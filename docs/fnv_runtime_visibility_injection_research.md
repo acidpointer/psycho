@@ -234,20 +234,26 @@ shipping.
 | F. Existing loop/draw and compound optimizations | All | Done/ongoing | Low | Owner reported no visible benefit so far | Keep; combine |
 
 Option B now runs entirely in gameplay: on each target change the module walks
-the loaded cell's reference list, selects large `STAT`/`BGSStaticCollection`
-objects, checks their loaded geometry for transparency and skinning, and
-derives one conservative oriented box per opaque, unskinned geometry from its
-uncompressed vertices and live world transform. Each face is fitted inside the
-vertices that support it, horizontal ground/roof faces are skipped, and the
-resulting plane keeps the engine's two-sided window only when its support
-rectangle is not a strongly non-rectangular hull (coverage floor 0.35) and the
-mesh is thick enough along that normal to be a solid volume, otherwise it stays
-one-sided so the engine's camera-side test rejects it from behind. A
-silhouette-accurate `NiTriShapeData` extraction was prototyped but is
-parked until that in-memory triangle list is verified in game. Geometry with
-compressed vertices is skipped rather than approximated from a sphere bound.
+the player's cell reference list, selects large `STAT`/`BGSStaticCollection`
+objects, checks their loaded geometry for transparency and skinning, and derives
+one conservative oriented box per opaque, unskinned geometry from its
+uncompressed vertices and live world transform. The engine's own exterior
+visibility pass iterates every loaded grid cell, so neighbor-cell planes are
+valid occluders, but they are reused only from complete cache entries: a cell is
+generated once, while it is the player's own cell, so no neighbor mesh walk runs
+on a frame or cell-crossing path. The cached neighbor sets and the center set
+share one injection budget, so the native pair cost stays bounded. Each face is
+fitted inside the vertices that support it and then verified against the mesh's
+own triangles, so a window opening, an empty door frame or any missing surface is
+never covered; a geometry whose triangles cannot be read emits nothing.
+Horizontal ground/roof faces are skipped, and the resulting plane keeps the
+engine's two-sided window only when its support rectangle is not a strongly
+non-rectangular hull (coverage floor 0.35) and the mesh is thick enough along
+that normal to be a solid volume, otherwise it stays one-sided so the engine's
+camera-side test rejects it from behind. Geometry with compressed vertices is
+skipped rather than approximated from a sphere bound.
 Candidates are filtered by size and observer distance and weighted so nearby,
-well-supported occluders win the per-cell cap. Static qualification is
+well-supported occluders win the shared cap. Static qualification is
 complete; in-game visual and performance qualification is not.
 
 ### A. Offline-generated occlusion planes with a runtime injector
