@@ -2762,7 +2762,8 @@ analysis/ghidra/output/perf/phase10_post_load_spike_deep_audit.txt
 psycho-engine-fixes/src/mods/perf/post_load.rs
 ```
 
-Focused Ghidra script that generated the latest static audit:
+Historical Ghidra script (removed and deprecated) that generated the latest
+static audit:
 
 ```text
 analysis/ghidra/scripts/radio_mode0_immediate_goal_scope_cost_audit.py

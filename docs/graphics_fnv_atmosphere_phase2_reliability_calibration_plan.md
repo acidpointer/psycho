@@ -297,9 +297,9 @@ function. This boundary is eligible only when:
 
 Review the existing Ghidra owner/caller output before implementing this retry.
 If it does not prove the rendered-texture argument and attachment state for all
-three `RenderFirstPerson` callers, add a focused script under
-`analysis/ghidra/scripts/` and require its output before enabling the retry.
-Do not infer the target layout from argument names.
+three `RenderFirstPerson` callers, run focused radare2 analysis and require its
+output before enabling the retry. Ghidra script authoring is deprecated and not
+effective. Do not infer the target layout from argument names.
 
 At outer `ProcessImageSpaceShaders` entry, close the deadline. Compare the
 native source surface with the recorded target and publish the outcome. Never
@@ -492,8 +492,9 @@ No helper-DLL or xNVSE-side graphics change belongs in this work.
 3. Extract the focused world pipeline owner and convert relevant depth access
    to typed `try_lock()` outcomes.
 4. Implement the single primary transaction and exact target eligibility.
-5. Prove and implement the pre-first-person retry; stop for new Ghidra output
-   if existing evidence does not close every caller/attachment question.
+5. Prove and implement the pre-first-person retry; run focused radare2
+   analysis if existing evidence does not close every caller/attachment
+   question. Ghidra scripts are deprecated.
 6. Add outer-entry deadline/lineage accounting and non-blocking Reset handling.
 7. Build and run the fence execution playtest with the deliberately visible old
    fog strength. Do not tune before zero missed deadlines is proven.

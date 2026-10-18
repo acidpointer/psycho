@@ -1,6 +1,6 @@
 ---
 name: psycho
-description: Use for work in the Psycho Fallout New Vegas repository - engine fixes, OMV graphics, Atom gameplay, libpsycho hooks/WinAPI, crash triage, radare2/Ghidra reverse engineering, config/MCM/dashboard changes, tests, local builds, and docs. Use when locating the game, logs, reports, or analysis evidence, or when deciding which contract document and validation gate apply.
+description: Use for work in the Psycho Fallout New Vegas repository - engine fixes, OMV graphics, Atom gameplay, libpsycho hooks/WinAPI, crash triage, radare2 reverse engineering, config/MCM/dashboard changes, tests, local builds, and docs. Use when locating the game, logs, reports, or analysis evidence, or when deciding which contract document and validation gate apply.
 compatibility: Requires git. Build work requires cargo, the i686-pc-windows-gnu Rust target, i686-w64-mingw32-gcc, and Wine. Reverse engineering prefers radare2; r2mcp is optional and never required.
 metadata:
   version: "1"

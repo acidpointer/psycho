@@ -31,12 +31,14 @@ silently reuse addresses.
 
 ## Tool order
 
-1. Existing durable evidence: `docs/`, `analysis/radare2/output/`,
-   `analysis/ghidra/output/`.
+1. Existing durable evidence: `docs/`, `analysis/radare2/output/`, and
+   historical `analysis/ghidra/output/`.
 2. r2mcp, when the host exposes its tools.
 3. radare2 CLI, with `pdg` when `r2ghidra` is installed and `pdf` otherwise.
-4. Existing Ghidra output.
-5. A new focused Ghidra script, run by the user.
+
+Ghidra script authoring and execution are deprecated and not effective. Do not
+create, edit, run, or request Ghidra scripts. Existing Ghidra output is
+historical evidence only, not current patch authority.
 
 r2mcp is optional. The CLI path must produce the same quality.
 
@@ -59,8 +61,8 @@ r2mcp is optional. The CLI path must produce the same quality.
 | `search` | `/x PATTERN`, `izz~TEXT` |
 | `lookup_symbol` | `is~NAME`, `afl~NAME` |
 
-If r2mcp is available, select the Ghidra decompiler before decompiling. The
-plugin's default `pdc` backend is explicitly experimental and unreliable.
+If r2mcp is available, select the r2ghidra `pdg` backend before decompiling.
+Its default `pdc` backend is experimental and unreliable.
 
 ## Tool probe
 
@@ -94,7 +96,7 @@ r2 -q -e scr.color=0 -e bin.relocs.apply=true \
 r2 -q -e scr.color=0 -e bin.relocs.apply=true \
   -c 's 0x00567D20' -c 'af' -c 'afi' -c 'pdf' -c 'q' "$FNV_EXE"
 
-# Ghidra decompilation
+# r2ghidra decompilation
 r2 -q -e scr.color=0 -e bin.relocs.apply=true \
   -c 's 0x00567D20' -c 'af' -c 'pdg' -c 'q' "$FNV_EXE"
 
@@ -201,23 +203,16 @@ The evidence header must include:
 Link the raw file from the owning document. Do not paste hundreds of lines of
 disassembly into a contract document.
 
-## Ghidra fallback
+## Ghidra scripts are deprecated
 
-Use Ghidra only when radare2 cannot close the contract or when existing Ghidra
-output is the retained authority.
+Ghidra script authoring and execution are deprecated and not effective for this
+repository. The scripts and the structural validator have been removed. Do not
+add, edit, run, or request Ghidra scripts.
 
-- Search `analysis/ghidra/output/{crash,disasm,memory,perf}/` first.
-- Read `analysis/ghidra/scripts/SCRIPT_RULES.md` completely before writing a
-  script.
-- Follow the module-scope script layout, tab indentation, helper functions, and
-  output path rules.
-- Existing scripts may contain the original developer's absolute output path.
-  Replace it with `PSYCHO_REPO_ROOT` or the local clone path before running; the
-  structural validator only requires the `analysis/ghidra/output/` suffix.
-- Run `python3 analysis/ghidra/validate_script_structure.py <script>` and
-  require success.
-- Agents do not run Ghidra. Ask the user to run the script once and return the
-  output.
+Existing `analysis/ghidra/output/` files are historical evidence only. They are
+not current patch authority. Reverify any fact with radare2 before
+implementation. `r2ghidra`'s `pdg` command is a radare2 plugin, not a Ghidra
+script, and remains part of the CLI workflow.
 
 ## Address hygiene
 

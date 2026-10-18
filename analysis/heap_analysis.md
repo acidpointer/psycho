@@ -1665,10 +1665,14 @@ All Rust FFI signatures are `unsafe extern "<conv>"`.
 
 ## Chapter 16: Ghidra Scripts and Outputs
 
-> **TL;DR:** All analysis scripts live in `analysis/ghidra/scripts/`, outputs in
-> `analysis/ghidra/output/memory/`.
+> **Deprecated:** Ghidra script authoring and execution have been removed and are
+> not effective. The script names below are historical. Do not recreate or run
+> them. Use radare2 for current reverse engineering.
+>
+> **TL;DR:** Historical outputs live in `analysis/ghidra/output/memory/`; current
+> evidence lives in `analysis/radare2/output/`.
 
-### Scripts
+### Historical scripts (removed)
 
 | Script | Purpose |
 |--------|---------|
@@ -2150,6 +2154,9 @@ PDD queues have dependencies between each other:
 ---
 
 ## Chapter 23: Ghidra Scripts Index (Session 2026-03-21)
+
+> **Deprecated:** The scripts below were removed and are not effective. This
+> index is historical only. Use radare2 for current reverse engineering.
 
 | Script | Output | Purpose |
 |--------|--------|---------|

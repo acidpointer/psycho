@@ -27,9 +27,10 @@ Use this priority order when implementing or debugging OMV graphics features:
 
 1. NVR source and VPT source in `.research/`.
 2. Current OMV runtime logs and telemetry.
-3. Ghidra output in `analysis/ghidra/output/` when the FNV engine contract is not
-   exposed by source.
-4. New Ghidra scripts when existing output does not prove a required engine fact.
+3. radare2 analysis and retained `analysis/radare2/output/` evidence.
+4. Historical Ghidra output in `analysis/ghidra/output/`, used only as
+   background and reverified with radare2. Ghidra script authoring is
+   deprecated and not effective; do not create or run scripts.
 
 Do not replace missing engine facts with shader tweaks. The PBR errata remains
 binding: close terrain, helper rows, projected-shadow rows, LandO, land LOD, and

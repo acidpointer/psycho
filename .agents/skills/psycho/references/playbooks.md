@@ -140,7 +140,8 @@ parser, default equality, unique keys, and the one-to-three-word text rule.
 1. State the exact question and the decision it will unblock.
 2. Search existing docs and analysis first.
 3. Record binary identity and exact evidence paths.
-4. Use radare2 or existing Ghidra output; do not write production code.
+4. Use radare2. Existing Ghidra output is historical evidence only; do not
+   write or run Ghidra scripts.
 5. Separate proven facts, observations, and unresolved unknowns.
 6. Mark the document as research/feasibility, not implementation.
 7. Stop when the question is answered. Do not collect redundant corroboration.

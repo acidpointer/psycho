@@ -1240,7 +1240,7 @@ A future close terrain fix must prove all of this first:
 ## Operational Rules
 
 - If a graphics effect needs engine data, buffers, masks, or stage ownership, prove the engine contract before shader work.
-- If Ghidra output does not explain ownership, lifetime, and the safe intervention point, write more Ghidra scripts instead of patching.
+- If existing static evidence does not explain ownership, lifetime, and the safe intervention point, run more focused radare2 analysis instead of patching. Ghidra script authoring is deprecated and not effective.
 - Do not broaden close terrain PBR beyond the VPT exterior row family until this errata's proof requirements are satisfied.
 - A patch that costs FPS and does not visibly improve the target scene is a regression.
 - When a source-proven defect can be expressed and exhausted through pure

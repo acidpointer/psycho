@@ -6,6 +6,10 @@ document's status line. `AGENTS.md` and the owning contract are authoritative.
 For task routing and authority chains, see
 `.agents/skills/psycho/references/docs-map.md`.
 
+> Ghidra script authoring is deprecated and not effective. Existing
+> `analysis/ghidra/output/` is historical evidence only; use radare2 for current
+> reverse engineering. See `analysis/ghidra/README.md`.
+
 ## Start here
 
 | Document | Use when |

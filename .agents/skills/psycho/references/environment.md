@@ -28,7 +28,6 @@ Environment variables override the file:
 | `PSYCHO_REPORTS_DIR` | Directory for supplied problem logs and reports. |
 | `PSYCHO_R2` | radare2 binary. |
 | `PSYCHO_R2MCP_URL` | Optional r2mcp endpoint, when the host is configured. |
-| `PSYCHO_REPO_ROOT` | Repository root for Ghidra scripts and evidence paths. |
 
 Precedence: environment, local config, bounded discovery, then ask.
 
@@ -95,9 +94,9 @@ a fixed mod-manager layout.
 | `.reports/` | Optional, gitignored | Supplied problem logs and investigation notes. |
 | `.research/` | Optional, gitignored | Read-only third-party reference source. Never patch or build it. |
 | `fnv_reverse/` | Optional, gitignored | Local supported executable and analysis cache. |
-| `analysis/` | Tracked | Durable radare2/Ghidra evidence. |
+| `analysis/` | Tracked | radare2 evidence and historical Ghidra output. |
 | `analysis/radare2/output/` | Tracked | Raw radare2 evidence. |
-| `analysis/ghidra/output/` | Tracked | Retained Ghidra evidence. |
+| `analysis/ghidra/output/` | Tracked | Historical Ghidra evidence only. |
 
 If `.reports/` is absent, use `PSYCHO_REPORTS_DIR` or a temporary directory and
 tell the user. Do not create `.reports/` silently in another developer's clone

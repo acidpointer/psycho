@@ -561,10 +561,13 @@ The next engineering step is contract instrumentation/research:
   - selector `+0x3C` pass entries with row, layer byte, selector flag, runtime mutation flag, arg count/capacity, and arg table
   - final sampler stages `s0..s13`
   - vertex declaration/FVF/stream source data
-- Run the new Ghidra script `analysis/ghidra/scripts/graphics_fnv_pbr_vpt_nvr_contract_gap_audit.py` and inspect its output:
-  - `analysis/ghidra/output/perf/graphics_fnv_pbr_vpt_nvr_contract_gap_audit.txt`
+- Use the retained historical output at
+  `analysis/ghidra/output/perf/graphics_fnv_pbr_vpt_nvr_contract_gap_audit.txt`
+  as background only. Ghidra script authoring is deprecated and not effective;
+  reverify any current fact with radare2.
 
-That Ghidra output is already useful, but TESReloaded10/VPT source now supersedes it for the NVR-compatible pass formula. The fix is only ready to start after runtime logs prove a positive terrain key inside OMV and the missing constants/resource binding path is implemented.
+That historical output is useful background, but TESReloaded10/VPT source now
+supersedes it for the NVR-compatible pass formula. The fix is only ready to start after runtime logs prove a positive terrain key inside OMV and the missing constants/resource binding path is implemented.
 
 ## Local preparation and distribution contract
 

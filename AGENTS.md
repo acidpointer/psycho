@@ -206,15 +206,15 @@ Use research only to close a material knowledge gap.
   or build another mod. Keep compatibility capability-based and version-agnostic.
 - Search `docs/` and existing analysis first. Reuse proven contracts for the same
   executable; reverify address-sensitive facts.
-- Preserve authoritative `.txt` output in `analysis/radare2/output/` or
-  `analysis/ghidra/output/`; do not regenerate it or rely on outdated Markdown.
+- Preserve raw output in `analysis/radare2/output/`. Existing
+  `analysis/ghidra/output/` is historical evidence only; do not regenerate it.
 - radare2 is the primary interface. Use r2mcp when the host exposes it; otherwise
   use the r2 CLI (`pdg` for decompilation, `pdf` for exact disassembly, `aar`
   before `axt`). Target the configured or discovered supported executable;
   `fnv_reverse/FalloutNV.exe` is only a convenience default.
-- Ghidra is fallback-only. Use existing output first; otherwise prepare a
-  focused script, never run Ghidra, and ask the user to return its output. Read
-  `analysis/ghidra/scripts/SCRIPT_RULES.md` completely before scripting.
+- Ghidra script authoring and execution are deprecated and not effective for
+  this repository. Do not add, edit, run, or request Ghidra scripts. Reverify
+  any historical Ghidra fact with radare2 before implementation.
 - Before a crash or engine-contract patch, prove the failing function, caller
   ownership, layout, lifetime, concurrency, ABI, and safe intervention point.
   Inference is not patch authority; unresolved facts stay unknown.
