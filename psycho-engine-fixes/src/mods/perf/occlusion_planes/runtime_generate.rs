@@ -2,19 +2,25 @@
 //!
 //! The runtime walks the loaded cell's reference list and, for each opaque,
 //! unskinned static geometry, derives conservative occlusion rectangles from
-//! the geometry's own world-space bounding box. Planes are emitted per
-//! geometry (never merged across an object), shrunk to half their extent and
-//! sized conservatively, which keeps the cone narrow enough that visible
-//! objects and NPCs are not falsely culled.
+//! the geometry's own local vertex box and live world transform. Planes are
+//! emitted per geometry (never merged across an object), oriented by the node's
+//! world rotation, fitted to the vertices that actually support each face, and
+//! shrunk once more for safety.
 //!
-//! The mesh bounds come from the CPU vertex array when it is present and
-//! uncompressed, and fall back to the geometry's local or world bound
-//! otherwise. No offline data and no authored `OBND` are required.
+//! Only uncompressed vertex data is accepted. The engine's local/world bound is
+//! a sphere; turning it into a box produces a rectangle that can float far
+//! outside the mesh, so geometry without readable vertices is skipped. No
+//! offline data and no authored `OBND` are required.
 //!
-//! This is a heuristic. An axis-aligned box around a concave mesh can still
-//! over-cover empty space, so planes are shrunk, only large geometry is kept,
-//! the per-cell count is capped, and the feature has a kill switch. The
-//! owner's in-game visual check remains required.
+//! Injected planes are one-sided: `+0xEA` is cleared after construction so the
+//! engine's own camera-side test rejects a plane whenever the camera is behind
+//! its face. Horizontal faces (ground and roofs) are skipped, and a face whose
+//! support hull cannot contain a useful rectangle is rejected.
+//!
+//! This is still a heuristic. A convex hull around a concave mesh can over-cover
+//! empty space, so planes are shrunk, only large geometry is kept, the per-cell
+//! count is capped, and the feature has a kill switch. The owner's in-game
+//! visual check remains required.
 //!
 //! Every offset and virtual slot is verified against the supported executable:
 //! the `tList` walk matches the engine's child traversal at `0x00A5DBE0`, the
@@ -33,11 +39,11 @@ use wide::f32x4;
 use super::contract::{
     ALPHA_BLEND, ALPHA_FLAGS, ALPHA_PROPERTY_VTABLE, ALPHA_TEST, AVOBJECT_WORLD_BOUND,
     CELL_OBJECT_LIST, COMPRESS_POSITION, FORM_TYPE_STAT, FORM_TYPE_STATIC_COLLECTION,
-    GEOMETRY_ALPHA, GEOMETRY_DATA_BOUND, GEOMETRY_DATA_BOUND_RADIUS, GEOMETRY_DATA_COMPRESS,
-    GEOMETRY_DATA_VERTEX_COUNT, GEOMETRY_DATA_VERTICES, GEOMETRY_MODEL_DATA, GEOMETRY_SKIN,
-    IsKindFn, NIBOUND_RADIUS, NODE_CHILD_BASE, NODE_CHILD_COUNT, REFR_BASE_FORM, REFR_PARENT_CELL,
-    REFR_RENDER_STATE, RENDER_STATE_NODE, TESFORM_REF_ID, TESFORM_TYPE_ID, TLIST_DATA, TLIST_NEXT,
-    VTABLE_IS_GEOMETRY, VTABLE_IS_NODE, WORLD_ROTATION, WORLD_SCALE, WORLD_TRANSLATION,
+    GEOMETRY_ALPHA, GEOMETRY_DATA_COMPRESS, GEOMETRY_DATA_VERTEX_COUNT, GEOMETRY_DATA_VERTICES,
+    GEOMETRY_MODEL_DATA, GEOMETRY_SKIN, IsKindFn, NIBOUND_RADIUS, NODE_CHILD_BASE,
+    NODE_CHILD_COUNT, REFR_BASE_FORM, REFR_PARENT_CELL, REFR_RENDER_STATE, RENDER_STATE_NODE,
+    TESFORM_REF_ID, TESFORM_TYPE_ID, TLIST_DATA, TLIST_NEXT, VTABLE_IS_GEOMETRY, VTABLE_IS_NODE,
+    WORLD_ROTATION, WORLD_SCALE, WORLD_TRANSLATION,
 };
 use super::data::{PlaneRecord, PlaneRotation};
 use super::raw::{read_f32_at, read_ptr, read_ptr_at, read_u8_at, read_u16_at, read_u32_at};
@@ -46,18 +52,30 @@ const MAX_REFS: usize = 2000;
 const MAX_VISITED_NODES: usize = 512;
 const MAX_VERTICES_PER_MESH: usize = 4096;
 const VERTEX_BUDGET: usize = 200_000;
-const MIN_FACE_EXTENT: f32 = 128.0;
+const MIN_FACE_EXTENT: f32 = 192.0;
 const MIN_BOX_EXTENT: f32 = 256.0;
-const MAX_BOX_EXTENT: f32 = 8192.0;
+const MAX_BOX_EXTENT: f32 = 4096.0;
 const MIN_WORLD_RADIUS: f32 = MIN_BOX_EXTENT * 0.5;
 const MAX_OCCLUDER_DISTANCE: f32 = 24_576.0;
-/// Rectangle shrink. Keeping the rectangle well inside the geometry's silhouette
-/// narrows the camera-through-rectangle cone, which is the main guard against
-/// false culling of visible objects.
-pub(super) const PLANE_SHRINK: f32 = 0.6;
+/// Additional shrink applied after the rectangle is fitted inside the vertex
+/// support hull. The support fit is the primary guard against floating faces;
+/// this margin absorbs tessellation and transform error.
+pub(super) const PLANE_SHRINK: f32 = 0.8;
+/// Vertices within this fraction of the box extent are treated as part of the
+/// face support. Absolute minimum keeps sub-unit meshes from rejecting a face
+/// because of transform noise.
+const SUPPORT_TOLERANCE_RATIO: f32 = 0.02;
+const SUPPORT_TOLERANCE_MIN: f32 = 2.0;
+/// Fraction of the box face that must be supported before a rectangle is
+/// emitted. A centered rectangle smaller than this is treated as an unsafe
+/// bound-derived face rather than a wall.
+const MIN_SUPPORT_SCALE: f32 = 0.1;
+/// World-space normal magnitude above which a face is treated as horizontal
+/// ground/roof and skipped. Vertical walls have a normal Z near zero.
+const MAX_HORIZONTAL_NORMAL: f32 = 0.8;
 const OUTWARD_OFFSET: f32 = 2.0;
 
-/// One world-space axis-aligned box.
+/// One axis-aligned box in a geometry's local space.
 #[derive(Clone, Copy, Debug)]
 pub(super) struct Aabb {
     pub(super) min: [f32; 3],
@@ -65,18 +83,12 @@ pub(super) struct Aabb {
 }
 
 impl Aabb {
-    fn empty() -> Self {
-        Self {
-            min: [f32::INFINITY; 3],
-            max: [f32::NEG_INFINITY; 3],
-        }
-    }
-
-    fn merge(&mut self, other: &Aabb) {
-        for axis in 0..3 {
-            self.min[axis] = self.min[axis].min(other.min[axis]);
-            self.max[axis] = self.max[axis].max(other.max[axis]);
-        }
+    fn center(&self) -> [f32; 3] {
+        [
+            (self.min[0] + self.max[0]) * 0.5,
+            (self.min[1] + self.max[1]) * 0.5,
+            (self.min[2] + self.max[2]) * 0.5,
+        ]
     }
 
     fn extents(&self) -> [f32; 3] {
@@ -87,15 +99,20 @@ impl Aabb {
         ]
     }
 
-    fn is_eligible(&self) -> bool {
+    /// True when the world-space largest extent is in the admission range.
+    /// `world_scale` is the node's uniform scale; the box itself stays in local
+    /// space so its faces keep the node's orientation.
+    fn is_eligible(&self, world_scale: f32) -> bool {
         let extents = self.extents();
         if extents
             .iter()
             .any(|extent| *extent <= 0.0 || !extent.is_finite())
+            || !world_scale.is_finite()
+            || world_scale == 0.0
         {
             return false;
         }
-        let largest = extents[0].max(extents[1]).max(extents[2]);
+        let largest = extents[0].max(extents[1]).max(extents[2]) * world_scale.abs();
         (MIN_BOX_EXTENT..=MAX_BOX_EXTENT).contains(&largest)
     }
 }
@@ -128,8 +145,11 @@ pub(super) struct ScanStats {
     geoms: usize,
     skinned: usize,
     alpha: usize,
-    no_bounds: usize,
+    no_vertices: usize,
     size_reject: usize,
+    horizontal_reject: usize,
+    support_reject: usize,
+    small_reject: usize,
     distance_reject: usize,
     budget_stop: usize,
     faces: usize,
@@ -192,8 +212,8 @@ pub(super) fn generate(
         log::debug!(
             "[OCCLUSION_PLANES] scan refs={} parent_mismatch={} base_null={} not_stat={} \
              render_null={} node_null={} radius={} nodes={} geoms={} skinned={} alpha={} \
-             no_bounds={} size={} distance={} budget_stop={} faces={} mesh_area={:.0} \
-             rect_area={:.0}",
+             no_vertices={} size={} horizontal={} support={} small={} distance={} \
+             budget_stop={} faces={} mesh_area={:.0} rect_area={:.0}",
             stats.refs,
             stats.parent_mismatch,
             stats.base_null,
@@ -205,8 +225,11 @@ pub(super) fn generate(
             stats.geoms,
             stats.skinned,
             stats.alpha,
-            stats.no_bounds,
+            stats.no_vertices,
             stats.size_reject,
+            stats.horizontal_reject,
+            stats.support_reject,
+            stats.small_reject,
             stats.distance_reject,
             stats.budget_stop,
             stats.faces,
@@ -369,19 +392,23 @@ unsafe fn collect_object_planes(
                 stats.skinned += 1;
             } else if !unsafe { admits_geometry(object) } {
                 stats.alpha += 1;
-            } else if let Some(bounds) =
-                unsafe { geometry_world_aabb(object, vertex_buf, vertex_budget) }
+            } else if let Some((local, world)) =
+                unsafe { geometry_local_box(object, vertex_buf, vertex_budget) }
             {
-                if bounds.is_eligible() {
-                    // Bounding-box surface area is the available occluder
+                if local.is_eligible(world.scale) {
+                    // World-space box surface area is the available occluder
                     // surface; the emitted rectangle area is what we use.
-                    let extents = bounds.extents();
+                    let extents = local.extents();
+                    let world_scale = world.scale.abs();
                     stats.mesh_area += 2.0
-                        * (extents[0] * extents[1]
-                            + extents[1] * extents[2]
-                            + extents[2] * extents[0]);
+                        * ((extents[0] * world_scale) * (extents[1] * world_scale)
+                            + (extents[1] * world_scale) * (extents[2] * world_scale)
+                            + (extents[2] * world_scale) * (extents[0] * world_scale));
                     let before = out.len();
-                    faces_from_box(&bounds.min, &bounds.max, out);
+                    let rejects = faces_from_oriented_box(&local, &world, vertex_buf, out);
+                    stats.horizontal_reject += rejects.horizontal;
+                    stats.support_reject += rejects.unsupported;
+                    stats.small_reject += rejects.small;
                     for entry in &out[before..] {
                         stats.rect_area += entry.0;
                     }
@@ -389,7 +416,7 @@ unsafe fn collect_object_planes(
                     stats.size_reject += 1;
                 }
             } else {
-                stats.no_bounds += 1;
+                stats.no_vertices += 1;
             }
         }
         if !is_node.is_null() {
@@ -408,23 +435,24 @@ unsafe fn collect_object_planes(
     }
 }
 
-unsafe fn geometry_world_aabb(
+/// Read the geometry's local vertex bounds and its world transform.
+///
+/// Only real vertex data is accepted. The engine's local/world bound is a
+/// sphere, and turning it into a box produces a rectangle far outside the
+/// actual mesh; that is not a safe occluder. Geometry with compressed or
+/// unavailable vertices is skipped until the compressed layout is verified.
+unsafe fn geometry_local_box(
     object: *mut c_void,
     vertex_buf: &mut Vec<[f32; 3]>,
     vertex_budget: &mut usize,
-) -> Option<Aabb> {
+) -> Option<(Aabb, WorldTransform)> {
     let world = unsafe { read_world_transform(object) }?;
     let model = unsafe { read_ptr_at(object, GEOMETRY_MODEL_DATA) };
     if model.is_null() {
-        return unsafe { world_bound_aabb(object) };
+        return None;
     }
-    if let Some(local) = unsafe { vertices_local_aabb(model, vertex_buf, vertex_budget) } {
-        return Some(transform_aabb(&local, &world));
-    }
-    if let Some(local) = unsafe { local_bound_aabb(model) } {
-        return Some(transform_aabb(&local, &world));
-    }
-    unsafe { world_bound_aabb(object) }
+    let local = unsafe { vertices_local_aabb(model, vertex_buf, vertex_budget) }?;
+    Some((local, world))
 }
 
 unsafe fn vertices_local_aabb(
@@ -503,85 +531,43 @@ pub(super) fn aabb_of(points: &[[f32; 3]]) -> Aabb {
     Aabb { min, max }
 }
 
-unsafe fn local_bound_aabb(model: *mut c_void) -> Option<Aabb> {
-    let center = [
-        unsafe { read_f32_at(model, GEOMETRY_DATA_BOUND) },
-        unsafe { read_f32_at(model, GEOMETRY_DATA_BOUND + 4) },
-        unsafe { read_f32_at(model, GEOMETRY_DATA_BOUND + 8) },
+/// Transform a local point by the node's rigid transform.
+pub(super) fn transform_point(world: &WorldTransform, local: &[f32; 3]) -> [f32; 3] {
+    let scaled = [
+        local[0] * world.scale,
+        local[1] * world.scale,
+        local[2] * world.scale,
     ];
-    let radius = unsafe { read_f32_at(model, GEOMETRY_DATA_BOUND_RADIUS) };
-    if !center.iter().all(|value| value.is_finite()) || !radius.is_finite() || radius <= 0.0 {
-        return None;
-    }
-    Some(Aabb {
-        min: [center[0] - radius, center[1] - radius, center[2] - radius],
-        max: [center[0] + radius, center[1] + radius, center[2] + radius],
-    })
+    let rotated = transform_direction(&world.rotation, &scaled);
+    [
+        rotated[0] + world.translation[0],
+        rotated[1] + world.translation[1],
+        rotated[2] + world.translation[2],
+    ]
 }
 
-unsafe fn world_bound_aabb(object: *mut c_void) -> Option<Aabb> {
-    let bound = unsafe { read_ptr_at(object, AVOBJECT_WORLD_BOUND) };
-    if bound.is_null() {
-        return None;
-    }
-    let center = [
-        unsafe { read_f32_at(bound, 0) },
-        unsafe { read_f32_at(bound, 4) },
-        unsafe { read_f32_at(bound, 8) },
+/// Transform and normalize a local direction. Returns `None` when the result
+/// cannot be normalized, so a degenerate transform never reaches the engine.
+pub(super) fn transform_unit_direction(
+    world: &WorldTransform,
+    local: &[f32; 3],
+) -> Option<[f32; 3]> {
+    let scaled = [
+        local[0] * world.scale,
+        local[1] * world.scale,
+        local[2] * world.scale,
     ];
-    let radius = unsafe { read_f32_at(bound, NIBOUND_RADIUS) };
-    if !center.iter().all(|value| value.is_finite()) || !radius.is_finite() || radius <= 0.0 {
+    let rotated = transform_direction(&world.rotation, &scaled);
+    let length =
+        (rotated[0] * rotated[0] + rotated[1] * rotated[1] + rotated[2] * rotated[2]).sqrt();
+    if !length.is_finite() || length <= 0.0 {
         return None;
     }
-    Some(Aabb {
-        min: [center[0] - radius, center[1] - radius, center[2] - radius],
-        max: [center[0] + radius, center[1] + radius, center[2] + radius],
-    })
-}
-
-/// Transform a local AABB by a rigid transform. The signed scale is preserved
-/// so mirrored objects map to the correct world-space side.
-pub(super) fn transform_aabb(local: &Aabb, world: &WorldTransform) -> Aabb {
-    let mut result = Aabb::empty();
-    for corner in 0..8 {
-        let local_point = [
-            if corner & 1 == 0 {
-                local.min[0]
-            } else {
-                local.max[0]
-            },
-            if corner & 2 == 0 {
-                local.min[1]
-            } else {
-                local.max[1]
-            },
-            if corner & 4 == 0 {
-                local.min[2]
-            } else {
-                local.max[2]
-            },
-        ];
-        let scaled = [
-            local_point[0] * world.scale,
-            local_point[1] * world.scale,
-            local_point[2] * world.scale,
-        ];
-        let rotated = transform_direction(&world.rotation, &scaled);
-        let point = Aabb {
-            min: [
-                rotated[0] + world.translation[0],
-                rotated[1] + world.translation[1],
-                rotated[2] + world.translation[2],
-            ],
-            max: [
-                rotated[0] + world.translation[0],
-                rotated[1] + world.translation[1],
-                rotated[2] + world.translation[2],
-            ],
-        };
-        result.merge(&point);
-    }
-    result
+    Some([
+        rotated[0] / length,
+        rotated[1] / length,
+        rotated[2] / length,
+    ])
 }
 
 unsafe fn call_kind(object: *mut c_void, slot: usize) -> *mut c_void {
@@ -623,67 +609,124 @@ unsafe fn read_world_transform(node: *mut c_void) -> Option<WorldTransform> {
         rotation,
         translation,
         // Keep the sign: a negative uniform scale mirrors the local geometry,
-        // and `transform_aabb` must use it to place the world-space box on the
-        // correct side of the translation. Face sizes use the magnitude.
+        // and the face builder must use it to place the face on the correct
+        // side of the translation. Face sizes use the magnitude.
         scale,
     })
 }
 
-/// Derive the six face rectangles of one world-space box.
+/// Faces rejected by the oriented-face builder.
+#[derive(Default, Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) struct FaceRejects {
+    /// Face normal is close to vertical (ground, roof or steep slope).
+    pub(super) horizontal: usize,
+    /// The vertex support hull cannot contain a useful centered rectangle.
+    pub(super) unsupported: usize,
+    /// The supported rectangle is below the minimum face extent.
+    pub(super) small: usize,
+}
+
+/// Derive face rectangles from one local box and its world transform.
 ///
-/// The engine's plane rectangle lies in local X/Z with local Y as the normal:
+/// The engine's rectangle lies in local X/Z with local Y as the normal:
 /// `0x00C35C10` builds corners as `position +/- sizeX * M*(1,0,0) +/- sizeY *
 /// M*(0,0,1)`. The returned matrix therefore stores columns `(tangent,
-/// normal, bitangent)`. The stored size is the full face extent; `create_plane`
-/// halves it at the native setter.
+/// normal, bitangent)`, and `bitangent = tangent x normal`. The stored size is
+/// the full world-space face extent; `create_plane` halves it at the native
+/// setter.
+///
+/// The local box preserves the node's orientation instead of re-axis-aligning
+/// to world space. Each face is fitted to the convex hull of the vertices near
+/// that face, so a sphere bound, a sparse corner or an empty AABB face cannot
+/// become a large floating rectangle. Horizontal faces are skipped: ground and
+/// roofs rarely occlude a standing player and are the most common source of
+/// over-cover.
 ///
 /// This function reads no engine memory and is unit-tested.
-pub(super) fn faces_from_box(min: &[f32; 3], max: &[f32; 3], out: &mut Vec<(f32, PlaneRecord)>) {
-    let center = [
-        (min[0] + max[0]) * 0.5,
-        (min[1] + max[1]) * 0.5,
-        (min[2] + max[2]) * 0.5,
-    ];
-    let extents = [max[0] - min[0], max[1] - min[1], max[2] - min[2]];
+pub(super) fn faces_from_oriented_box(
+    local: &Aabb,
+    world: &WorldTransform,
+    vertices: &[[f32; 3]],
+    out: &mut Vec<(f32, PlaneRecord)>,
+) -> FaceRejects {
+    let mut rejects = FaceRejects::default();
+    let center = local.center();
+    let extents = local.extents();
+    let world_scale = world.scale.abs();
     for axis in 0..3usize {
         let tangent_a = (axis + 1) % 3;
         let tangent_b = (axis + 2) % 3;
-        let extent_a = extents[tangent_a];
-        let extent_b = extents[tangent_b];
+        let extent_a = extents[tangent_a] * world_scale;
+        let extent_b = extents[tangent_b] * world_scale;
         if extent_a < MIN_FACE_EXTENT || extent_b < MIN_FACE_EXTENT {
             continue;
         }
-        let area = extent_a * extent_b;
         for sign in [1.0f32, -1.0f32] {
-            let normal_local = unit_axis(axis, sign);
-            let tangent_a_local = unit_axis(tangent_a, 1.0);
-            // Choose the second tangent so (tangent, normal, bitangent) is a
-            // right-handed basis: tangent x normal = bitangent.
-            let tangent_b_local = unit_axis(tangent_b, -sign);
-            let face_center = [
-                center[0] + normal_local[0] * extents[0] * 0.5,
-                center[1] + normal_local[1] * extents[1] * 0.5,
-                center[2] + normal_local[2] * extents[2] * 0.5,
+            let face_coord = if sign > 0.0 {
+                local.max[axis]
+            } else {
+                local.min[axis]
+            };
+            let mut normal_local = [0.0f32; 3];
+            normal_local[axis] = sign;
+            let Some(normal) = transform_unit_direction(world, &normal_local) else {
+                rejects.unsupported += 1;
+                continue;
+            };
+            // Horizontal faces are ground, roofs or steep slopes. The player
+            // views the world from above the ground, so these over-cover far
+            // more than they occlude.
+            if normal[2].abs() >= MAX_HORIZONTAL_NORMAL {
+                rejects.horizontal += 1;
+                continue;
+            }
+            let Some(support) = support_scale(
+                vertices,
+                axis,
+                face_coord,
+                extents[axis],
+                center[tangent_a],
+                center[tangent_b],
+                extents[tangent_a] * 0.5,
+                extents[tangent_b] * 0.5,
+            ) else {
+                rejects.unsupported += 1;
+                continue;
+            };
+            let Some(tangent) = transform_unit_direction(world, &unit_axis(tangent_a, 1.0)) else {
+                rejects.unsupported += 1;
+                continue;
+            };
+            let bitangent = cross(tangent, normal);
+            let size = [
+                extent_a * support * PLANE_SHRINK,
+                extent_b * support * PLANE_SHRINK,
             ];
+            if size[0] < MIN_FACE_EXTENT || size[1] < MIN_FACE_EXTENT {
+                rejects.small += 1;
+                continue;
+            }
+            let mut local_face_center = center;
+            local_face_center[axis] = face_coord;
+            let face_center = transform_point(world, &local_face_center);
             let position = [
-                face_center[0] + normal_local[0] * OUTWARD_OFFSET,
-                face_center[1] + normal_local[1] * OUTWARD_OFFSET,
-                face_center[2] + normal_local[2] * OUTWARD_OFFSET,
+                face_center[0] + normal[0] * OUTWARD_OFFSET,
+                face_center[1] + normal[1] * OUTWARD_OFFSET,
+                face_center[2] + normal[2] * OUTWARD_OFFSET,
             ];
-            let size = [extent_a * PLANE_SHRINK, extent_b * PLANE_SHRINK];
             let rotation = [
-                tangent_a_local[0],
-                normal_local[0],
-                tangent_b_local[0],
-                tangent_a_local[1],
-                normal_local[1],
-                tangent_b_local[1],
-                tangent_a_local[2],
-                normal_local[2],
-                tangent_b_local[2],
+                tangent[0],
+                normal[0],
+                bitangent[0],
+                tangent[1],
+                normal[1],
+                bitangent[1],
+                tangent[2],
+                normal[2],
+                bitangent[2],
             ];
             out.push((
-                area,
+                size[0] * size[1],
                 PlaneRecord {
                     position,
                     size,
@@ -695,12 +738,146 @@ pub(super) fn faces_from_box(min: &[f32; 3], max: &[f32; 3], out: &mut Vec<(f32,
             ));
         }
     }
+    rejects
+}
+
+/// Fraction of the full box face that is backed by vertices near that face.
+///
+/// The result is a uniform scale in `0.0..=1.0` for a centered rectangle. It is
+/// the largest scale whose four corners lie inside the 2D convex hull of the
+/// face's support vertices. A face with fewer than three support points (a
+/// sphere bound, a single corner or a line) is rejected instead of being
+/// treated as a solid wall.
+fn support_scale(
+    vertices: &[[f32; 3]],
+    axis: usize,
+    face_coord: f32,
+    extent_axis: f32,
+    center_u: f32,
+    center_v: f32,
+    half_u: f32,
+    half_v: f32,
+) -> Option<f32> {
+    let tangent_a = (axis + 1) % 3;
+    let tangent_b = (axis + 2) % 3;
+    let tolerance = SUPPORT_TOLERANCE_MIN.max(extent_axis * SUPPORT_TOLERANCE_RATIO);
+    let mut points: Vec<[f32; 2]> = Vec::new();
+    for vertex in vertices {
+        if (vertex[axis] - face_coord).abs() <= tolerance {
+            points.push([vertex[tangent_a], vertex[tangent_b]]);
+        }
+    }
+    if points.len() < 3 {
+        return None;
+    }
+    let hull = convex_hull(points);
+    if hull.len() < 3 {
+        return None;
+    }
+    // Require at least a useful centered rectangle before searching, so a hull
+    // that only touches one corner cannot produce a tiny degenerate plane.
+    if !rectangle_inside(
+        &hull,
+        center_u,
+        center_v,
+        half_u * MIN_SUPPORT_SCALE,
+        half_v * MIN_SUPPORT_SCALE,
+    ) {
+        return None;
+    }
+    let mut low = MIN_SUPPORT_SCALE;
+    let mut high = 1.0f32;
+    for _ in 0..20 {
+        let mid = (low + high) * 0.5;
+        if rectangle_inside(&hull, center_u, center_v, half_u * mid, half_v * mid) {
+            low = mid;
+        } else {
+            high = mid;
+        }
+    }
+    Some(low)
+}
+
+/// Convex hull of 2D points in counter-clockwise order (monotone chain).
+fn convex_hull(mut points: Vec<[f32; 2]>) -> Vec<[f32; 2]> {
+    points.sort_by(|a, b| a[0].total_cmp(&b[0]).then(a[1].total_cmp(&b[1])));
+    points.dedup_by(|a, b| a[0] == b[0] && a[1] == b[1]);
+    if points.len() < 3 {
+        return points;
+    }
+    let cross = |o: [f32; 2], a: [f32; 2], b: [f32; 2]| {
+        (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0])
+    };
+    let mut lower: Vec<[f32; 2]> = Vec::with_capacity(points.len());
+    for point in &points {
+        while lower.len() >= 2
+            && cross(lower[lower.len() - 2], lower[lower.len() - 1], *point) <= 0.0
+        {
+            lower.pop();
+        }
+        lower.push(*point);
+    }
+    let mut upper: Vec<[f32; 2]> = Vec::with_capacity(points.len());
+    for point in points.iter().rev() {
+        while upper.len() >= 2
+            && cross(upper[upper.len() - 2], upper[upper.len() - 1], *point) <= 0.0
+        {
+            upper.pop();
+        }
+        upper.push(*point);
+    }
+    lower.pop();
+    upper.pop();
+    lower.extend(upper);
+    lower
+}
+
+fn rectangle_inside(
+    hull: &[[f32; 2]],
+    center_u: f32,
+    center_v: f32,
+    half_u: f32,
+    half_v: f32,
+) -> bool {
+    let corners = [
+        [center_u - half_u, center_v - half_v],
+        [center_u + half_u, center_v - half_v],
+        [center_u + half_u, center_v + half_v],
+        [center_u - half_u, center_v + half_v],
+    ];
+    corners
+        .iter()
+        .all(|corner| point_inside_convex(hull, *corner))
+}
+
+fn point_inside_convex(hull: &[[f32; 2]], point: [f32; 2]) -> bool {
+    // The hull is counter-clockwise, so a point is inside when it is on the
+    // left side of every edge. A small negative epsilon absorbs f32 noise on
+    // a corner that lies exactly on an edge.
+    const EPSILON: f32 = -0.01;
+    for index in 0..hull.len() {
+        let a = hull[index];
+        let b = hull[(index + 1) % hull.len()];
+        let edge = (b[0] - a[0]) * (point[1] - a[1]) - (b[1] - a[1]) * (point[0] - a[0]);
+        if edge < EPSILON {
+            return false;
+        }
+    }
+    true
 }
 
 fn unit_axis(axis: usize, sign: f32) -> [f32; 3] {
     let mut value = [0.0f32; 3];
     value[axis] = sign;
     value
+}
+
+fn cross(a: [f32; 3], b: [f32; 3]) -> [f32; 3] {
+    [
+        a[1] * b[2] - a[2] * b[1],
+        a[2] * b[0] - a[0] * b[2],
+        a[0] * b[1] - a[1] * b[0],
+    ]
 }
 
 fn transform_direction(rotation: &[f32; 9], vector: &[f32; 3]) -> [f32; 3] {

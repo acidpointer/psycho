@@ -13,11 +13,12 @@
 #   angle    = radians        rotation angle about `axis`
 #   priority = 0..255         higher survives the per-cell cap; default 255
 #
-# The rectangle spans local X/Z and the local +Y axis is its normal. The normal
-# sign is not sensitive: the engine builds the occluded pyramid from the camera
-# through the rectangle. Place each rectangle on a solid, opaque occluder face
-# and keep it no larger than that face. The native plane fields are
-# half-extents; this file takes full width/height and the runtime halves them.
+# The rectangle spans local X/Z and the local +Y axis is its normal. Injected
+# planes are one-sided: the camera-side test activates the rectangle only when
+# the camera lies on the local +Y side. Aim +Y outward from the solid surface
+# (the side the player normally views) and keep the rectangle no larger than
+# that face. The native plane fields are half-extents; this file takes full
+# width/height and the runtime halves them.
 #
 # `cells` is the only consumed table. It is empty by default; cells without an
 # entry are handled by the runtime geometry collector.

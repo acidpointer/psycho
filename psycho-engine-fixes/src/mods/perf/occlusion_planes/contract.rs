@@ -35,6 +35,14 @@ pub(super) const SINGLETON: usize = 0x0045_0B80;
 pub(super) const REFCOUNT_OFFSET: usize = 0x04;
 /// `NiRefObject::DeleteThis` vtable slot (scalar deleting destructor).
 pub(super) const VTABLE_DELETE_THIS: usize = 0x04;
+/// `BSOcclusionPlane::+0xEA` camera-side test flag.
+///
+/// `0x00C335D0` sets it to 1 (two-sided: `0x00C358A0` returns immediately).
+/// Writing zero makes `0x00C358A0` build the rectangle plane and activate the
+/// plane only when the camera is on the rectangle's negative side, which is the
+/// outward side for the matrix convention emitted here. This is the engine's
+/// own camera-side rejection and costs no per-frame Rust work.
+pub(super) const PLANE_SIDE_FLAG: usize = 0xEA;
 
 /// Compressed plane allocation size.
 pub(super) const PLANE_SIZE: usize = 0xFC;
@@ -94,12 +102,10 @@ pub(super) const NIBOUND_RADIUS: usize = 0x0C;
 pub(super) const GEOMETRY_ALPHA: usize = 0x9C;
 pub(super) const GEOMETRY_MODEL_DATA: usize = 0xB8;
 pub(super) const GEOMETRY_SKIN: usize = 0xBC;
-/// `NiGeometryData`: vertex count, local bound center/radius, vertex pointer,
-/// compression flags. Verified against `NiGeometryData` bound/vertex users at
-/// `0x00A87900` and `0x00A66F90` and the compression getter at `0x00EE8AA0`.
+/// `NiGeometryData`: vertex count, vertex pointer, compression flags.
+/// Verified against `NiGeometryData` bound/vertex users at `0x00A87900` and
+/// `0x00A66F90` and the compression getter at `0x00EE8AA0`.
 pub(super) const GEOMETRY_DATA_VERTEX_COUNT: usize = 0x08;
-pub(super) const GEOMETRY_DATA_BOUND: usize = 0x10;
-pub(super) const GEOMETRY_DATA_BOUND_RADIUS: usize = 0x1C;
 pub(super) const GEOMETRY_DATA_VERTICES: usize = 0x20;
 pub(super) const GEOMETRY_DATA_COMPRESS: usize = 0x39;
 pub(super) const COMPRESS_POSITION: u8 = 0x10;

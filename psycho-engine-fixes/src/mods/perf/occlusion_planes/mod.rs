@@ -1,14 +1,15 @@
 //! Runtime collection and injection of occlusion planes.
 //!
 //! Fallout: New Vegas has no authored occlusion data for many exterior cells.
-//! This module derives one conservative world-space box per opaque, unskinned
+//! This module derives conservative oriented rectangles per opaque, unskinned
 //! static geometry of the current cell, or loads an optional per-cell override
 //! file, and injects `BSOcclusionPlane` objects into the engine's native
 //! occluder list, reusing the engine's own authored `XOCP` creation path.
-//! Faces are shrunk to half extent so the occluded cone stays narrow, which
-//! limits false culling. Results are cached per cell and reused on a revisit;
-//! the cache header is bound to the active plugin list, so a mod install,
-//! removal, reorder or update discards it and stale planes are never reused.
+//! Rectangles are fitted to the vertices that support each face and emitted
+//! one-sided, so the engine activates a plane only while the camera is on the
+//! solid side. Results are cached per cell and reused on a revisit; the cache
+//! header is bound to the active plugin list, so a mod install, removal,
+//! reorder or update discards it and stale planes are never reused.
 //!
 //! # Ownership
 //!

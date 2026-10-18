@@ -236,15 +236,17 @@ shipping.
 Option B now runs entirely in gameplay: on each target change the module walks
 the loaded cell's reference list, selects large `STAT`/`BGSStaticCollection`
 objects, checks their loaded geometry for transparency and skinning, and
-derives one conservative world-space box per opaque, unskinned geometry and
-emits its faces shrunk well inside the silhouette, which narrows the occluded
-cone and limits the popping. A silhouette-accurate `NiTriShapeData` extraction
-was prototyped but is parked until that in-memory triangle list is verified in
-game.
-Candidates are filtered by size and observer distance and weighted so nearby
-occluders win the per-cell cap. The TOML data file is only an optional per-cell
-override. Static qualification is complete; in-game visual and performance
-qualification is not.
+derives one conservative oriented box per opaque, unskinned geometry from its
+uncompressed vertices and live world transform. Each face is fitted inside the
+vertices that support it, horizontal ground/roof faces are skipped, and the
+resulting plane is one-sided so the engine's camera-side test rejects it from
+behind. A silhouette-accurate `NiTriShapeData` extraction was prototyped but is
+parked until that in-memory triangle list is verified in game. Geometry with
+compressed vertices is skipped rather than approximated from a sphere bound.
+Candidates are filtered by size and observer distance and weighted so nearby,
+well-supported occluders win the per-cell cap. The TOML data file is only an
+optional per-cell override. Static qualification is complete; in-game visual
+and performance qualification is not.
 
 ### A. Offline-generated occlusion planes with a runtime injector
 
@@ -442,11 +444,12 @@ production change. This document is research, not an implementation.
   `0x00C5AE70`, node free after a Rust unlink is `0x004A49E0`. The refcount
   entries `0x0040F6E0`/`0x00401970` are not called because performance mods
   commonly replace them in place with equivalent inlined atomics.
-- **Orientation is not a per-sign unknown for a rectangle.** `0x00C358A0`
-  short-circuits true when the constructor's `+0xEA` flag is set, and
-  `0x00C33870` has separate camera-side branches. A plane behaves as a window
-  whose occluded volume is the camera-through-rectangle pyramid; the generator
-  can use either axis-angle sign. The owner's visual check remains required.
+- **Orientation is now a per-plane contract.** `0x00C358A0` short-circuits true
+  when the constructor's `+0xEA` flag is set. The runtime clears that flag, so
+  `0x00C358A0` runs the plane-through-three-corners side test and activates the
+  rectangle only when the camera is on its outward (+normal) side. A plane is
+  still a window whose occluded volume is the camera-through-rectangle pyramid;
+  the normal selects the active side. The owner's visual check remains required.
 - **Lifecycle anchors are closed.** The scene graph is `owner + 0x1E0` with
   `owner = *0x011F91C8`; the current cell is `*(player + 0x40)` with
   `player = *0x011DEA3C`; cell/interior/grid/worldspace offsets are known; the

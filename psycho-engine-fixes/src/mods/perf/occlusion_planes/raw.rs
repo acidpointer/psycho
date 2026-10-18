@@ -28,6 +28,13 @@ pub(super) unsafe fn read_u8_at(base: *mut c_void, offset: usize) -> u8 {
     unsafe { core::ptr::read_volatile((base as *const u8).add(offset)) }
 }
 
+/// Write one `u8` at `base + offset`.
+pub(super) unsafe fn write_u8_at(base: *mut c_void, offset: usize, value: u8) {
+    unsafe {
+        core::ptr::write_volatile((base as *mut u8).add(offset), value);
+    }
+}
+
 /// Read one `u16` at `base + offset`.
 pub(super) unsafe fn read_u16_at(base: *mut c_void, offset: usize) -> u16 {
     unsafe { core::ptr::read_volatile((base as *const u8).add(offset) as *const u16) }

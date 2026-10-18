@@ -2,10 +2,12 @@
 //!
 //! Planes are created through the engine's own authored `XOCP` path, retained
 //! once, appended to the scene-graph occluder list, and removed and released
-//! when the cell or scene graph changes. All work runs on the xNVSE event
-//! thread. The per-frame path compares two atomics and returns immediately on
-//! an unchanged cell; allocation, list scans, generation and logging happen
-//! only on a transition.
+//! when the cell or scene graph changes. Created planes are one-sided: the
+//! constructor's two-sided flag is cleared so `0x00C358A0` activates a plane
+//! only while the camera is on its outward side. All work runs on the xNVSE
+//! event thread. The per-frame path compares two atomics and returns
+//! immediately on an unchanged cell; allocation, list scans, generation and
+//! logging happen only on a transition.
 //!
 //! A cell's planes come from the optional TOML override when it lists that
 //! cell; otherwise the runtime collector derives them from live cell geometry.
@@ -16,6 +18,7 @@
 //! never scans a list that may be under teardown.
 
 use core::ffi::c_void;
+use std::collections::HashMap;
 use std::sync::OnceLock;
 use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU64, AtomicUsize, Ordering};
 
@@ -26,9 +29,9 @@ use super::cache::{self, CachedPlane, PlaneCache};
 use super::contract::{
     ALLOC, APPEND, BUILD_ROTATION, CELL_EXTERIOR_COORDS, CELL_FORM_ID, CELL_WORLDSPACE, CONSTRUCT,
     COORDS_X, COORDS_Y, FREE_NODE, LIST_COUNT, LIST_HEAD, LIST_OFFSET, LIST_TAIL, NODE_NEXT,
-    NODE_PLANE, NODE_PREV, OWNER_POSITION, OWNER_SCENE_GRAPH, PLANE_SIZE, PLAYER_PTR,
-    REFCOUNT_OFFSET, SET_POSITION, SET_ROTATION, SET_SIZE, SIGNATURES, SINGLETON, TESFORM_REF_ID,
-    VTABLE_DELETE_THIS,
+    NODE_PLANE, NODE_PREV, OWNER_POSITION, OWNER_SCENE_GRAPH, PLANE_SIDE_FLAG, PLANE_SIZE,
+    PLAYER_PTR, REFCOUNT_OFFSET, SET_POSITION, SET_ROTATION, SET_SIZE, SIGNATURES, SINGLETON,
+    TESFORM_REF_ID, VTABLE_DELETE_THIS,
 };
 use super::contract::{
     AllocFn, AppendFn, BuildRotationFn, ConstructFn, FreeNodeFn, SetPairFn, SetRotationFn,
@@ -36,7 +39,8 @@ use super::contract::{
 };
 use super::data::{CellKey, PlaneRecord, PlaneRotation, PlaneSet};
 use super::raw::{
-    read_f32_at, read_i32_at, read_ptr, read_ptr_at, read_u32_at, write_ptr_at, write_u32_at,
+    read_f32_at, read_i32_at, read_ptr, read_ptr_at, read_u32_at, write_ptr_at, write_u8_at,
+    write_u32_at,
 };
 use super::runtime_generate;
 
@@ -141,6 +145,14 @@ pub(super) fn native_size(full: [f32; 2]) -> [f32; 2] {
     [full[0] * 0.5, full[1] * 0.5]
 }
 
+/// One injected plane we own, with the quantized key used to reuse it across
+/// settle passes instead of removing and recreating the whole list.
+#[derive(Clone, Copy, Debug)]
+struct TrackedPlane {
+    pointer: usize,
+    key: u64,
+}
+
 static ENABLED: AtomicBool = AtomicBool::new(false);
 static RUNTIME_GENERATE: AtomicBool = AtomicBool::new(false);
 static READY: AtomicBool = AtomicBool::new(false);
@@ -148,7 +160,7 @@ static MAX_PER_CELL: AtomicUsize = AtomicUsize::new(1);
 static RESET_PENDING: AtomicBool = AtomicBool::new(false);
 static DATA: OnceLock<PlaneSet> = OnceLock::new();
 static FNS: OnceLock<EngineFns> = OnceLock::new();
-static TRACKED: Mutex<Vec<usize>> = Mutex::new(Vec::new());
+static TRACKED: Mutex<Vec<TrackedPlane>> = Mutex::new(Vec::new());
 static CURRENT_SCENE_GRAPH: AtomicUsize = AtomicUsize::new(0);
 /// Cell pointer for the common case. The identity hash is only recomputed when
 /// the pointer changes, so the frame path never hashes in steady state.
@@ -157,6 +169,9 @@ static CURRENT_CELL_KEY: AtomicU64 = AtomicU64::new(0);
 static LAST_SIGNATURE: AtomicU64 = AtomicU64::new(0);
 static SETTLE_RETRIES_LEFT: AtomicUsize = AtomicUsize::new(0);
 static SETTLE_COUNTDOWN: AtomicUsize = AtomicUsize::new(0);
+/// Set when a plane allocation failed, so the settle window keeps retrying
+/// instead of treating a short set as stable.
+static INCOMPLETE: AtomicBool = AtomicBool::new(false);
 /// Consecutive settle passes that produced the same set. The window stops once
 /// this reaches `SETTLE_STABLE_PASSES`, so the common case costs two extra
 /// walks instead of all five while still allowing one more pass for late 3D.
@@ -408,7 +423,7 @@ unsafe fn planes_present(scene_graph: *mut c_void) -> bool {
     let list = unsafe { (scene_graph as *mut u8).add(LIST_OFFSET) as *mut c_void };
     tracked
         .iter()
-        .all(|&plane| unsafe { find_node(list, plane) }.is_some())
+        .all(|item| unsafe { find_node(list, item.pointer) }.is_some())
 }
 
 /// Start or skip the settle window depending on whether the plane set is
@@ -480,35 +495,39 @@ fn cell_key_signature(key: &CellKey) -> u64 {
 /// any added, removed or moved plane.
 pub(super) fn plane_signature(planes: &[PlaneRecord]) -> u64 {
     use std::hash::{Hash, Hasher};
-    let mut keys: Vec<u64> = Vec::with_capacity(planes.len());
-    for plane in planes {
-        let mut hasher = rustc_hash::FxHasher::default();
-        for value in plane.position {
-            ((value * 4.0).round() as i32).hash(&mut hasher);
-        }
-        for value in plane.size {
-            ((value * 4.0).round() as i32).hash(&mut hasher);
-        }
-        match plane.rotation {
-            PlaneRotation::Matrix(matrix) => {
-                for value in matrix {
-                    ((value * 256.0).round() as i32).hash(&mut hasher);
-                }
-            }
-            PlaneRotation::AxisAngle { axis, angle } => {
-                for value in axis {
-                    ((value * 256.0).round() as i32).hash(&mut hasher);
-                }
-                ((angle * 256.0).round() as i32).hash(&mut hasher);
-            }
-        }
-        plane.priority.hash(&mut hasher);
-        plane.source_form_id.hash(&mut hasher);
-        keys.push(hasher.finish());
-    }
+    let mut keys: Vec<u64> = planes.iter().map(plane_key).collect();
     keys.sort_unstable();
     let mut hasher = rustc_hash::FxHasher::default();
     keys.hash(&mut hasher);
+    hasher.finish()
+}
+
+/// Quantized fingerprint of one plane. The same key means the plane is close
+/// enough that an existing native object can be reused across a settle pass.
+pub(super) fn plane_key(plane: &PlaneRecord) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut hasher = rustc_hash::FxHasher::default();
+    for value in plane.position {
+        ((value * 4.0).round() as i32).hash(&mut hasher);
+    }
+    for value in plane.size {
+        ((value * 4.0).round() as i32).hash(&mut hasher);
+    }
+    match plane.rotation {
+        PlaneRotation::Matrix(matrix) => {
+            for value in matrix {
+                ((value * 256.0).round() as i32).hash(&mut hasher);
+            }
+        }
+        PlaneRotation::AxisAngle { axis, angle } => {
+            for value in axis {
+                ((value * 256.0).round() as i32).hash(&mut hasher);
+            }
+            ((angle * 256.0).round() as i32).hash(&mut hasher);
+        }
+    }
+    plane.priority.hash(&mut hasher);
+    plane.source_form_id.hash(&mut hasher);
     hasher.finish()
 }
 
@@ -593,7 +612,9 @@ unsafe fn reconcile(
     // existing planes instead of rebuilding.
     let same_target = CURRENT_SCENE_GRAPH.load(Ordering::Acquire) == scene_graph as usize
         && CURRENT_CELL_KEY.load(Ordering::Acquire) == key_signature;
-    let stable = same_target && LAST_SIGNATURE.load(Ordering::Acquire) == signature;
+    let stable = !INCOMPLETE.load(Ordering::Acquire)
+        && same_target
+        && LAST_SIGNATURE.load(Ordering::Acquire) == signature;
     if stable {
         let passes = STABLE_PASSES.fetch_add(1, Ordering::AcqRel) + 1;
         // The set did not change. A presence-driven force pass re-appends it
@@ -611,40 +632,96 @@ unsafe fn reconcile(
     }
     let mut tracked = TRACKED.lock();
     let previous_scene = CURRENT_SCENE_GRAPH.load(Ordering::Acquire);
-    if previous_scene != 0 && previous_scene == scene_graph as usize {
-        let list = unsafe { (previous_scene as *mut u8).add(LIST_OFFSET) as *mut c_void };
-        unsafe { remove_tracked(fns, list, &tracked) };
+    let same_scene = previous_scene != 0 && previous_scene == scene_graph as usize;
+    let list = if same_scene {
+        unsafe { (previous_scene as *mut u8).add(LIST_OFFSET) as *mut c_void }
+    } else {
+        core::ptr::null_mut()
+    };
+    // Keep only tracked planes whose node is still in the current list. A
+    // missing node means the engine cleared the list without changing the
+    // scene identity, so our retained reference is released and the diff below
+    // recreates that plane. A replaced scene graph means the old list is gone;
+    // release every retained reference without dereferencing retired nodes.
+    let previous_count = tracked.len();
+    let mut old: Vec<TrackedPlane> = Vec::with_capacity(previous_count);
+    for item in tracked.drain(..) {
+        if same_scene && unsafe { find_node(list, item.pointer) }.is_some() {
+            old.push(item);
+        } else {
+            unsafe { release_plane(item.pointer as *mut c_void) };
+        }
     }
-    // A different (or first) scene graph means the old list is gone; release
-    // the retained references without dereferencing retired nodes.
-    for &plane in tracked.iter() {
-        unsafe { release_plane(plane as *mut c_void) };
+    // Reuse unchanged native planes across settle passes. Recreating the whole
+    // list on every pass changes culling for one frame and is visible as
+    // popping while a cell's geometry is still streaming in.
+    let mut by_key: HashMap<u64, Vec<usize>> = HashMap::with_capacity(old.len());
+    for (index, item) in old.iter().enumerate() {
+        by_key.entry(item.key).or_default().push(index);
     }
-    tracked.clear();
+    let mut used = vec![false; old.len()];
+    let mut next: Vec<TrackedPlane> = Vec::with_capacity(planes.len());
+    let mut injected: Vec<PlaneRecord> = Vec::with_capacity(planes.len());
     let mut created = 0usize;
     for record in &planes {
-        let Some(plane) = (unsafe { create_plane(fns, record) }) else {
-            continue;
-        };
-        unsafe { (fns.append)(scene_graph, plane) };
-        tracked.push(plane as usize);
-        created += 1;
+        let key = plane_key(record);
+        if let Some(index) = by_key.get_mut(&key).and_then(Vec::pop) {
+            used[index] = true;
+            next.push(old[index]);
+            injected.push(*record);
+        } else if let Some(plane) = unsafe { create_plane(fns, record) } {
+            unsafe { (fns.append)(scene_graph, plane) };
+            next.push(TrackedPlane {
+                pointer: plane as usize,
+                key,
+            });
+            injected.push(*record);
+            created += 1;
+        }
     }
+    for (index, item) in old.iter().enumerate() {
+        if used[index] {
+            continue;
+        }
+        if same_scene && let Some(node) = unsafe { find_node(list, item.pointer) } {
+            unsafe { unlink(fns, list, node) };
+        }
+        unsafe { release_plane(item.pointer as *mut c_void) };
+    }
+    let reused = next.len().saturating_sub(created);
+    let removed = previous_count.saturating_sub(reused);
+    if injected.len() < planes.len() {
+        // An allocation failed; keep the bounded settle window alive so the
+        // missing plane is retried instead of being silently absent.
+        INCOMPLETE.store(true, Ordering::Release);
+        log::warn!(
+            "[OCCLUSION_PLANES] injected {}/{} planes; retrying",
+            injected.len(),
+            planes.len()
+        );
+        settle_needed = true;
+    } else {
+        INCOMPLETE.store(false, Ordering::Release);
+    }
+    *tracked = next;
     CURRENT_SCENE_GRAPH.store(scene_graph as usize, Ordering::Release);
     CURRENT_CELL_PTR.store(cell as usize, Ordering::Release);
     CURRENT_CELL_KEY.store(key_signature, Ordering::Release);
     LAST_SIGNATURE.store(signature, Ordering::Release);
     if log::log_enabled!(log::Level::Debug) {
         log::debug!(
-            "[OCCLUSION_PLANES] cell candidates={} raw={} injected={} cap={} cached={}",
+            "[OCCLUSION_PLANES] cell candidates={} raw={} injected={} reused={} removed={} \
+             cap={} cached={}",
             planes.len(),
             raw,
             created,
+            reused,
+            removed,
             max,
             from_cache,
         );
     }
-    store_debug_snapshot(&planes, observer);
+    store_debug_snapshot(&injected, observer);
     settle_needed
 }
 
@@ -820,17 +897,12 @@ unsafe fn create_plane(fns: &EngineFns, record: &PlaneRecord) -> Option<*mut c_v
         (fns.set_size)(plane, size.as_ptr());
         (fns.set_position)(plane, record.position.as_ptr());
         (fns.set_rotation)(plane, matrix.as_ptr());
+        // The constructor marks the plane two-sided. Clear that flag after the
+        // setters so `0x00C358A0` runs its camera-side test every frame and
+        // activates the rectangle only from the face's outward side.
+        write_u8_at(plane, PLANE_SIDE_FLAG, 0);
     }
     Some(plane)
-}
-
-unsafe fn remove_tracked(fns: &EngineFns, list: *mut c_void, tracked: &[usize]) {
-    for &plane in tracked {
-        let Some(node) = (unsafe { find_node(list, plane) }) else {
-            continue;
-        };
-        unsafe { unlink(fns, list, node) };
-    }
 }
 
 unsafe fn find_node(list: *mut c_void, plane: usize) -> Option<*mut c_void> {

@@ -5,7 +5,9 @@
 //! same native injection: a rectangle, a world position, a size, and a
 //! row-major rotation matrix that maps the plane's local X/Z rectangle axes and
 //! local Y normal to world space (`world = rotation * local`, matching the
-//! engine's `NiMatrix3` convention and `0x00C35C10` corner builder).
+//! engine's `NiMatrix3` convention and `0x00C35C10` corner builder). Injected
+//! planes are one-sided: the local +Y normal must point toward the side the
+//! player views, because the engine activates the plane only from that side.
 //!
 //! Hand-authored records use the engine's `XOCP` axis-angle form, which is
 //! converted by the native rotation builder so the authored math is unchanged.

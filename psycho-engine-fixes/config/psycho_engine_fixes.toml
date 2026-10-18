@@ -492,13 +492,14 @@ inverse_world_index_setup = true
 occlusion_planes = true
 
 # Collect occluders at runtime from the loaded cell's static objects, using
-# their mesh/vertex bounds and live world transforms. A hand-authored override
-# file can still target a cell.
+# their uncompressed mesh vertices and live world transforms. Geometry whose
+# vertices are unavailable or compressed is skipped instead of using a loose
+# sphere bound. A hand-authored override file can still target a cell.
 occlusion_planes_runtime = true
 
 # Maximum injected occlusion planes per cell. More planes reject more work but
 # increase the native bounds-times-occluders cost. Raise in steps and measure.
-occlusion_planes_max_per_cell = 64
+occlusion_planes_max_per_cell = 32
 
 # Optional per-cell override file, relative to the game directory or absolute.
 # Cells listed here use these planes instead of runtime collection.

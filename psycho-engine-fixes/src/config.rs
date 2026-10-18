@@ -319,7 +319,7 @@ impl Default for PerformanceConfig {
             inverse_world_index_setup: true,
             occlusion_planes: true,
             occlusion_planes_runtime: true,
-            occlusion_planes_max_per_cell: 64,
+            occlusion_planes_max_per_cell: 32,
             occlusion_planes_path: DEFAULT_OCCLUSION_PLANES_PATH.to_string(),
             occlusion_planes_cache_path: DEFAULT_OCCLUSION_PLANES_CACHE_PATH.to_string(),
             occlusion_planes_debug: false,
