@@ -494,8 +494,10 @@ inverse_world_index_setup = true
 occlusion_planes = true
 
 # Maximum injected occlusion planes per cell. More planes reject more work but
-# increase the native bounds-times-occluders cost. Raise in steps and measure.
-occlusion_planes_max_per_cell = 64
+# increase the native bounds-times-occluders cost. The pair predicate is a short
+# test and the cost measured cheap, so the default is high; lower it if a dense
+# cell ever regresses.
+occlusion_planes_max_per_cell = 128
 
 # Generated-plane cache, relative to the game directory or absolute. Revisited
 # cells re-append their planes from here instead of re-walking the meshes. The

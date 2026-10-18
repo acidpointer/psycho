@@ -122,6 +122,19 @@ occluded volume is the pyramid from the camera through the rectangle; the
 stored normal selects the active side when `+0xEA` is clear. The owner's visual
 check remains required.
 
+`0x00C33870` builds that pyramid as six planes: the rectangle's own plane plus
+four side planes `(edge_i, edge_i+1, camera)`, with the mask at output `+0x60`
+set to `0x3f`. There is **no far plane**, so the occluded volume is the infinite
+pyramid from the camera through the rectangle. `0x00B5BBE0` walks the occluder
+list once per scene-node bound and `0x00C47150` culls the bound when it is fully
+inside all six planes. Two consequences drive the tuning: a rectangle's
+**angular size from the camera** is what culls (a larger or nearer rectangle
+subtends more and rejects more bounds), and the pair predicate is a short
+(~50-instruction) test, so the `bounds x planes` cost is small relative to the
+draw work it rejects. This is why the plane size, the coplanar merge and the
+per-cell cap are the effective levers, and why they are set generously by
+default.
+
 ### 2.4 Scene graph and the occluder list
 
 - `0x00450B80(0)` returns the scene-graph owner; `owner + 0x1E0` is the world
@@ -334,14 +347,14 @@ attached.
 - Exterior: `CellKey::Exterior { worldspace: u32, x: i32, y: i32 }`.
 - "Behave like exterior" interiors use the interior key.
 - The generator returns a per-cell list of plane records. A per-cell cap
-  (default 64) bounds the `B*O` pair cost.
+  (default 128) bounds the `B*O` pair cost.
 
 ### 4.5 Configuration
 
 Add to `PerformanceConfig`:
 
 - `occlusion_planes: bool` (default `true`, owner-requested);
-- `occlusion_planes_max_per_cell: u16` (default 64, clamped `1..=256`);
+- `occlusion_planes_max_per_cell: u16` (default 128, clamped `1..=256`);
 - `occlusion_planes_cache_path: String` (default
   `syringe/psycho_occlusion_planes.cache`);
 - `occlusion_planes_debug: bool` (default `false`). Also toggled in game with
@@ -459,7 +472,7 @@ no planes are tracked, so an empty cell costs nothing per frame. Route through
      transformed to world and offset outward by two units along the geometric
      outward normal;
    - size: supported in-plane extents scaled by the node's world scale,
-     multiplied by a final `PLANE_SHRINK` (0.8); `create_plane` halves them for
+     multiplied by a final `PLANE_SHRINK` (0.9); `create_plane` halves them for
      the native half-extent fields;
    - rotation: row-major matrix whose columns are the world tangent, the
      **inverse** of the geometric outward normal, and `tangent x normal` as the
@@ -469,12 +482,14 @@ no planes are tracked, so an empty cell costs nothing per frame. Route through
 9. Merge coplanar rectangles whose in-plane union is exactly a rectangle: same
    stored normal, same plane offset within 1 unit, aligned in-plane axes, and
    either one contains the other or they share a full in-plane interval and
-   touch/overlap in the other. The merged rectangle is the union of two
-   support-validated rectangles, so it cannot cover empty space. This raises
-   culling per plane and lowers the `B*O` pair cost.
+   touch/overlap in the other within 4 units. The merged rectangle is the union
+   of two support-validated rectangles, so it cannot cover empty space; the
+   4-unit gap only bridges a tile seam, far below a doorway. This raises culling
+   per plane (a wider camera-through-rectangle pyramid) and lowers the `B*O`
+   pair cost.
 10. Apply the observer distance filter, score each rectangle by supported solid
     angle (`area / (1 + (distance/2048)^2)`), sort, and cap at
-    `occlusion_planes_max_per_cell` (default 64). The `scan` line reports
+    `occlusion_planes_max_per_cell` (default 128). The `scan` line reports
     `cap_drop` (merged area dropped by the cap).
 11. Set `+0xEA` on the created object from the face's side confidence: keep the
     constructor's two-sided window for a face at or above
@@ -661,7 +676,7 @@ Behavioral (real runtime, owner-run):
 |---|---|
 | False culling through windows/gaps | Vertex support fit, oriented faces, horizontal-face rejection, size limits, support-coverage gate that keeps an irregular face one-sided, shrink margin, owner visual check |
 | Camera-side sign is wrong | The contract test proves the current corner order; a wrong sign deactivates the one-sided plane from the intended side and must be caught by the owner's visual check |
-| `B*O` pair cost outweighs savings | Per-cell cap of 64 by default, support-coverage gate, measure, add broad phase if needed |
+| `B*O` pair cost outweighs savings | Per-cell cap of 128 by default, support-coverage gate, lower the cap if a dense cell regresses |
 | List reset/duplicate planes | Diff tracked planes by quantized key; only remove changed planes; never clear the whole list |
 | Refcount/list ownership error | Increment the `NiRefObject` count once per plane; decrement only after node removal or scene-graph replacement |
 | Startup compatibility regression | Defer all work to DeferredInit; owner Proton playtest |

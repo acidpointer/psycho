@@ -63,8 +63,10 @@ const MIN_WORLD_RADIUS: f32 = MIN_BOX_EXTENT * 0.5;
 const MAX_OCCLUDER_DISTANCE: f32 = 262_144.0;
 /// Additional shrink applied after the rectangle is fitted inside the vertex
 /// support hull. The support fit is the primary guard against floating faces;
-/// this margin absorbs tessellation and transform error.
-pub(super) const PLANE_SHRINK: f32 = 0.8;
+/// this margin absorbs tessellation and transform error. A larger plane makes a
+/// wider camera-through-rectangle pyramid, which is what lets the engine cull
+/// the scene-node bounds behind it, so the margin is kept small.
+pub(super) const PLANE_SHRINK: f32 = 0.9;
 /// Vertices within this fraction of the box extent are treated as part of the
 /// face support. Absolute minimum keeps sub-unit meshes from rejecting a face
 /// because of transform noise.
@@ -908,9 +910,10 @@ pub(super) fn faces_from_oriented_box(
 /// union, so the merged rectangle stays inside the union of two solid-backed
 /// rectangles and cannot cover empty space.
 const MERGE_OFFSET_TOLERANCE: f32 = 1.0;
-/// In-plane gap allowed when the union is still a rectangle. Kept small so the
-/// merged rectangle cannot bridge a real opening.
-const MERGE_GAP_TOLERANCE: f32 = 1.0;
+/// In-plane gap allowed when the union is still a rectangle. Sized to bridge a
+/// tile seam between wall pieces, which makes one larger occluder, but far
+/// below a doorway (about 64 units), so it cannot bridge a real opening.
+const MERGE_GAP_TOLERANCE: f32 = 4.0;
 /// Grouping tolerance: puts near-parallel faces in the same candidate bucket.
 const MERGE_GROUP_TOLERANCE: f32 = 0.999;
 /// Actual merge tolerance: only nearly identical normals and axes merge, so a
