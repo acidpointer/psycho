@@ -632,16 +632,16 @@ fn support_rect_keeps_the_centered_face_when_it_fits() {
 }
 
 #[test]
-fn triangular_face_stays_one_sided() {
-    // A triangular face cannot be filled by an axis-aligned rectangle, so its
-    // support coverage stays low and it must keep the conservative one-sided
-    // activation instead of becoming a two-sided window.
+fn triangular_face_passes_the_coverage_floor() {
+    // A triangular face cannot be filled by an axis-aligned rectangle, but its
+    // support coverage stays above the floor: the floor only rejects a strongly
+    // non-rectangular hull, not an ordinary triangle.
     let vertices = vec![[0.0f32, 0.0, 0.0], [0.0, 1000.0, 0.0], [0.0, 0.0, 1000.0]];
     let rect = support_rect_test(&vertices, 0, 0.0, 1000.0, 500.0, 500.0, 500.0, 500.0)
         .expect("triangular support exists");
     assert!(
-        rect.coverage < super::runtime_generate::TWO_SIDED_COVERAGE,
-        "a triangular face must stay one-sided, got coverage {}",
+        rect.coverage >= super::runtime_generate::TWO_SIDED_COVERAGE,
+        "an ordinary triangle must pass the coverage floor, got {}",
         rect.coverage
     );
 }

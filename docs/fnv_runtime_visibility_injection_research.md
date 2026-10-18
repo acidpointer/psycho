@@ -240,10 +240,10 @@ derives one conservative oriented box per opaque, unskinned geometry from its
 uncompressed vertices and live world transform. Each face is fitted inside the
 vertices that support it, horizontal ground/roof faces are skipped, and the
 resulting plane keeps the engine's two-sided window only when its support
-rectangle nearly fills the face's vertex hull and the mesh is thick enough along
-that normal to be a solid volume, otherwise it stays one-sided so the engine's
-camera-side test rejects it from behind. A silhouette-accurate
-`NiTriShapeData` extraction was prototyped but is
+rectangle is not a strongly non-rectangular hull (coverage floor 0.35) and the
+mesh is thick enough along that normal to be a solid volume, otherwise it stays
+one-sided so the engine's camera-side test rejects it from behind. A
+silhouette-accurate `NiTriShapeData` extraction was prototyped but is
 parked until that in-memory triangle list is verified in game. Geometry with
 compressed vertices is skipped rather than approximated from a sphere bound.
 Candidates are filtered by size and observer distance and weighted so nearby,

@@ -77,11 +77,11 @@ const MIN_SUPPORT_SCALE: f32 = 0.05;
 /// World-space normal magnitude above which a face is treated as horizontal
 /// ground/roof and skipped. Vertical walls have a normal Z near zero.
 const MAX_HORIZONTAL_NORMAL: f32 = 0.8;
-/// Support coverage at or above which a face is trusted as solid enough for the
-/// engine's two-sided window (`+0xEA = 1`). A rectangle that nearly fills its
-/// vertex hull is a well-shaped solid face; a lower value keeps the
-/// conservative one-sided activation.
-pub(super) const TWO_SIDED_COVERAGE: f32 = 0.9;
+/// Support coverage floor below which a face is treated as too irregular for
+/// the engine's two-sided window (`+0xEA = 1`). The rectangle is always inside
+/// the vertex hull, so the floor only rejects a strongly non-rectangular hull
+/// (a star or a sliver); a plain triangle at about 0.5 still passes.
+pub(super) const TWO_SIDED_COVERAGE: f32 = 0.35;
 /// World-space thickness of a face's mesh along its own normal below which the
 /// mesh is treated as a thin panel (a decal, a facade quad or a one-sided
 /// billboard) instead of a solid volume. Such a mesh may be rendered one-sided,
@@ -196,6 +196,10 @@ pub(super) struct ScanStats {
     horizontal_reject: usize,
     support_reject: usize,
     small_reject: usize,
+    /// Emitted faces kept one-sided by the thin-panel guard or the coverage
+    /// floor, so the scan line shows which gate limits the two-sided planes.
+    thin_faces: usize,
+    low_coverage_faces: usize,
     distance_reject: usize,
     distance_max: f32,
     budget_stop: usize,
@@ -316,7 +320,7 @@ pub(super) fn generate(
              render_null={} node_null={} radius={} nodes={} geoms={} skinned={} alpha={} \
              no_vertices={} size={} horizontal={} support={} small={} distance={} \
              dist_max={:.0} budget_stop={} faces={} mesh_area={:.0} rect_area={:.0} \
-             cap_drop={:.0} merge_ms={:.1}",
+             cap_drop={:.0} thin={} low_cov={} merge_ms={:.1}",
             stats.refs,
             stats.parent_mismatch,
             stats.base_null,
@@ -340,6 +344,8 @@ pub(super) fn generate(
             stats.mesh_area,
             stats.rect_area,
             stats.cap_drop_area,
+            stats.thin_faces,
+            stats.low_coverage_faces,
             merge_ms,
         );
     }
@@ -524,6 +530,8 @@ unsafe fn collect_object_planes(
                     stats.horizontal_reject += rejects.horizontal;
                     stats.support_reject += rejects.unsupported;
                     stats.small_reject += rejects.small;
+                    stats.thin_faces += rejects.thin;
+                    stats.low_coverage_faces += rejects.low_coverage;
                 } else {
                     stats.size_reject += 1;
                 }
@@ -740,6 +748,11 @@ pub(super) struct FaceRejects {
     pub(super) unsupported: usize,
     /// The supported rectangle is below the minimum face extent.
     pub(super) small: usize,
+    /// Emitted face kept one-sided because its mesh is a thin panel.
+    pub(super) thin: usize,
+    /// Emitted face kept one-sided because its support coverage is below the
+    /// two-sided floor.
+    pub(super) low_coverage: usize,
 }
 
 /// Derive face rectangles from one local box and its world transform.
@@ -838,13 +851,19 @@ pub(super) fn faces_from_oriented_box(
             }
             // A face on a thin mesh is not a solid-volume face: the mesh may be
             // a one-sided panel whose back is invisible, so the engine's
-            // two-sided window could false-cull from behind it. Report zero side
-            // confidence for such a face to keep the one-sided activation.
+            // two-sided window could false-cull from behind it. A face whose
+            // support hull is strongly non-rectangular is likewise kept
+            // one-sided. Both reasons are counted so a playtest can tell which
+            // gate is limiting the two-sided planes.
             let thickness = extents[axis] * world_scale;
-            let side_confidence = if thickness >= MIN_FACE_THICKNESS {
-                rect.coverage
-            } else {
+            let side_confidence = if thickness < MIN_FACE_THICKNESS {
+                rejects.thin += 1;
                 0.0
+            } else {
+                if rect.coverage < TWO_SIDED_COVERAGE {
+                    rejects.low_coverage += 1;
+                }
+                rect.coverage
             };
             let mut local_face_center = center;
             local_face_center[axis] = face_coord;

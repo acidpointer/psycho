@@ -104,12 +104,15 @@ corners and has separate code paths for the camera being on either side of the
 rectangle. `0x00C358A0` short-circuits to true when the constructor's `+0xEA`
 flag is set, which it is for planes created through `0x00C335D0`; the authored
 `XOCP` planes therefore behave as two-sided windows. The runtime keeps that flag
-for a face whose support rectangle covers at least `TWO_SIDED_COVERAGE` (0.9) of
-its vertex hull **and** whose mesh is at least `MIN_FACE_THICKNESS` (16 units)
-thick along that face's normal, and clears it otherwise. The thickness
-condition excludes thin panels, decals and one-sided facade quads whose back
-side may be invisible, where a two-sided window could false-cull from behind.
-With the flag clear, `0x00C358A0` then runs the side test:
+for a face whose support rectangle covers at least `TWO_SIDED_COVERAGE` (0.35,
+a floor that only rejects a strongly non-rectangular hull) of its vertex hull
+**and** whose mesh is at least `MIN_FACE_THICKNESS` (16 units) thick along that
+face's normal, and clears it otherwise. The thickness condition excludes thin
+panels, decals and one-sided facade quads whose back side may be invisible,
+where a two-sided window could false-cull from behind. The scan line reports
+`thin` and `low_cov`, the emitted faces each condition kept one-sided, so a
+playtest shows which gate limits the two-sided planes. With the flag clear,
+`0x00C358A0` then runs the side test:
 `0x00C35C10` produces `p0 = +A+B`, `p1 = +A-B`, `p2 = -A-B`, `0x00A699D0`
 computes `(p1-p0) x (p2-p1)` (the stored local +Y column), and `0x0049DA80`
 activates the plane when the camera is on that plane's negative side. The
@@ -374,11 +377,13 @@ Stable tag `[OCCLUSION_PLANES]`. Log at `info` on install and cache load; log
 at `debug` the scan counters and per-cell summaries. The `scan` line reports
 `refs`, `not_stat`, `render_null`, `node_null`, `radius`, `no_vertices`,
 `horizontal`, `support`, `small`, `size`, `distance`, `faces`, plus `mesh_area`,
-`rect_area`, `cap_drop` and `merge_ms`: the admitted surface area, the merged
-rectangle area before the cap, the merged area the cap dropped, and the time
-spent in the quadratic coplanar merge, so the log shows how much solid surface
-became occluders, whether the cap is the coverage limiter, and whether the
-merge is the generation cost. The per-cell `cell` line reports `key`,
+`rect_area`, `cap_drop`, `thin`, `low_cov` and `merge_ms`: the admitted surface
+area, the merged rectangle area before the cap, the merged area the cap
+dropped, the emitted faces each two-sided gate kept one-sided, and the time
+spent in the quadratic coplanar merge. So the log shows how much solid surface
+became occluders, whether the cap is the coverage limiter, which two-sided gate
+is limiting, and whether the merge is the generation cost. The per-cell `cell`
+line reports `key`,
 `candidates`, `raw`, `injected`, `reused`, `removed`, `cap`, `two_sided`,
 `cached`, `complete`, `gen_ms` and the observer position, and the `scan` line
 includes `dist_max`, so a playtest can show which cell is being rebuilt, how
@@ -471,11 +476,12 @@ no planes are tracked, so an empty cell costs nothing per frame. Route through
     angle (`area / (1 + (distance/2048)^2)`), sort, and cap at
     `occlusion_planes_max_per_cell` (default 64). The `scan` line reports
     `cap_drop` (merged area dropped by the cap).
-11. Set `+0xEA` on the created object from the face's support coverage: keep the
+11. Set `+0xEA` on the created object from the face's side confidence: keep the
     constructor's two-sided window for a face at or above
-    `TWO_SIDED_COVERAGE` (0.9) whose mesh is also at least `MIN_FACE_THICKNESS`
-    (16 units) thick along the face normal, which matches the authored `XOCP`
-    planes on solid faces, and clear it otherwise. With `+0xEA` clear,
+    `TWO_SIDED_COVERAGE` (0.35) whose mesh is also at least `MIN_FACE_THICKNESS`
+    (16 units) thick along the face normal, and clear it otherwise. The coverage
+    floor only rejects a strongly non-rectangular hull; the thickness condition
+    is the one that excludes thin one-sided panels. With `+0xEA` clear,
     `0x00C358A0` activates the plane only while the camera is on the rectangle's
     outward side; both paths need no per-frame Rust work and reverse
     automatically when the camera moves around the object.
@@ -506,8 +512,11 @@ Two residual false-cull classes are documented and not closed:
 - **One-sided meshes.** A mesh rendered with backface culling can be invisible
   from its back, where a two-sided window would false-cull. The thickness guard
   excludes the common thin panel/facade case, but a thick one-sided mesh is not
-  distinguished without the mesh's stencil/backface flag, which is not yet
-  mapped.
+  distinguished without the mesh's stencil/backface flag. Research so far: the
+  `NiStencilProperty` vtable is `0x0101e07c`, its flags word is at `+0x18`
+  (constructor default `0x4180`), but the bit that means two-sided and the path
+  from a live `NiGeometry` to its stencil property are not yet closed, so the
+  guard stays a thickness heuristic.
 
 ### 5.3 Persistent plane cache
 
@@ -625,9 +634,9 @@ Static:
   stay on the rotated box, a negative scale mirrors the face and its outward
   normal, a face without vertex support emits nothing, horizontal ground faces
   are rejected, the one-sided `+0xEA = 0` corner/cross-product contract is
-  checked against the engine's outward side, and the support-coverage gate keeps
-  a full rectangular solid face two-sided while a triangular face and a thin
-  panel face stay one-sided;
+  checked against the engine's outward side, and the side-confidence gate keeps
+  a full rectangular solid face two-sided while a thin panel face stays
+  one-sided and an ordinary triangle still passes the coverage floor;
 - cache round-trip and corrupt/signature-mismatch rejection covered by focused
   tests; the four-wide SIMD AABB reducer is checked against a scalar reference
   for every tail length;
