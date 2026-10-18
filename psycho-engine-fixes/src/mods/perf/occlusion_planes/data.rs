@@ -46,6 +46,10 @@ pub struct PlaneRecord {
     pub rotation: PlaneRotation,
     /// Higher priority survives the per-cell cap.
     pub priority: u8,
+    /// `TESForm::refID` of the base form this plane was generated from, used to
+    /// bind a cached plane to its source plugin. Zero for hand-authored
+    /// overrides.
+    pub source_form_id: u32,
 }
 
 /// Parsed, capped plane records keyed by cell.
@@ -207,6 +211,7 @@ impl RawPlane {
                 angle: self.angle,
             },
             priority: self.priority,
+            source_form_id: 0,
         })
     }
 }

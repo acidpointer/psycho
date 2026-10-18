@@ -19,6 +19,8 @@ const CORE_DLL: &str = "psycho_engine_fixes.dll";
 const NOTIFY_EVENT_EXPORT: &str = "PsychoEngineFixes_NotifyEvent";
 const QUERY_DASHBOARD_EXPORT: &str = "PsychoEngineFixes_QueryDashboard";
 const REQUEST_DASHBOARD_REFRESH_EXPORT: &str = "PsychoEngineFixes_RequestDashboardRefresh";
+const RUN_COMMAND_EXPORT: &str = "PsychoEngineFixes_RunCommand";
+const QUERY_OCCLUSION_DEBUG_EXPORT: &str = "PsychoEngineFixes_QueryOcclusionDebug";
 
 // These ids mirror `psycho-engine-fixes/src/events.rs`.
 pub(crate) const EVENT_DEFERRED_INIT: u32 = 1;
@@ -65,6 +67,24 @@ type RequestDashboardRefreshFn = unsafe extern "system" fn(kind: u32) -> i32;
 static NOTIFY_EVENT: AtomicUsize = AtomicUsize::new(0);
 static QUERY_DASHBOARD: AtomicUsize = AtomicUsize::new(0);
 static REQUEST_DASHBOARD_REFRESH: AtomicUsize = AtomicUsize::new(0);
+static RUN_COMMAND: AtomicUsize = AtomicUsize::new(0);
+static QUERY_OCCLUSION_DEBUG: AtomicUsize = AtomicUsize::new(0);
+
+/// Core `CommandOutput`, mirrored exactly for the helper's command ABI.
+#[repr(C)]
+#[derive(Default)]
+pub(crate) struct CommandOutput {
+    pub text: *mut u8,
+    pub text_len: usize,
+    pub written: usize,
+    pub result: f64,
+    pub flags: u32,
+}
+
+type RunCommandFn = unsafe extern "system" fn(u32, *mut CommandOutput) -> i32;
+type QueryOcclusionDebugFn = unsafe extern "system" fn(*mut f32, usize) -> i32;
+
+pub(crate) const COMMAND_OCCLUSION_DEBUG: u32 = 2;
 
 /// Exact mirror of the core's version-4 plain-data dashboard ABI.
 #[repr(C)]
@@ -194,6 +214,52 @@ pub(crate) fn request_dashboard_refresh(kind: u32) -> bool {
         return false;
     };
     unsafe { function(kind) != 0 }
+}
+
+/// Run a core control command and return its text.
+pub(crate) fn run_command(command: u32) -> Option<String> {
+    let function = resolve_run_command()?;
+    let mut buffer = vec![0u8; 4096];
+    let mut output = CommandOutput {
+        text: buffer.as_mut_ptr(),
+        text_len: buffer.len(),
+        ..CommandOutput::default()
+    };
+    if unsafe { function(command, &mut output) } == 0 {
+        return None;
+    }
+    buffer.truncate(output.written.min(buffer.len()));
+    Some(String::from_utf8_lossy(&buffer).into_owned())
+}
+
+/// Query the current occluder debug frame into a caller-owned reusable buffer.
+/// Returns `false` when the core or the export is unavailable.
+pub(crate) fn query_occlusion_debug(buffer: &mut Vec<f32>) -> bool {
+    let Some(function) = resolve_query_occlusion_debug() else {
+        return false;
+    };
+    buffer.clear();
+    buffer.resize(6 + 256 * 14, 0.0);
+    let needed = unsafe { function(buffer.as_mut_ptr(), buffer.len()) };
+    if needed <= 0 {
+        return false;
+    }
+    buffer.truncate((needed as usize).min(buffer.len()));
+    true
+}
+
+fn resolve_run_command() -> Option<RunCommandFn> {
+    let ptr = resolve_cached(&RUN_COMMAND, RUN_COMMAND_EXPORT)?;
+    unsafe { FnPtr::<RunCommandFn>::from_raw(ptr as *mut c_void) }
+        .ok()
+        .map(|function| function.as_fn())
+}
+
+fn resolve_query_occlusion_debug() -> Option<QueryOcclusionDebugFn> {
+    let ptr = resolve_cached(&QUERY_OCCLUSION_DEBUG, QUERY_OCCLUSION_DEBUG_EXPORT)?;
+    unsafe { FnPtr::<QueryOcclusionDebugFn>::from_raw(ptr as *mut c_void) }
+        .ok()
+        .map(|function| function.as_fn())
 }
 
 fn resolve_notify_event() -> Option<NotifyEventFn> {

@@ -98,14 +98,11 @@ pub(super) const GEOMETRY_SKIN: usize = 0xBC;
 /// compression flags. Verified against `NiGeometryData` bound/vertex users at
 /// `0x00A87900` and `0x00A66F90` and the compression getter at `0x00EE8AA0`.
 pub(super) const GEOMETRY_DATA_VERTEX_COUNT: usize = 0x08;
+pub(super) const GEOMETRY_DATA_BOUND: usize = 0x10;
+pub(super) const GEOMETRY_DATA_BOUND_RADIUS: usize = 0x1C;
 pub(super) const GEOMETRY_DATA_VERTICES: usize = 0x20;
 pub(super) const GEOMETRY_DATA_COMPRESS: usize = 0x39;
 pub(super) const COMPRESS_POSITION: u8 = 0x10;
-/// `NiTriShapeData` triangle index list: `m_uiTriListLength` (u32 index count)
-/// at `+0x44` and `m_pusTriList` (u16* indices) at `+0x48`. Proven by the
-/// field writer at `0x00A7BDAB`/`0x00A7BDE8`, which reads those two members.
-pub(super) const GEOMETRY_TRI_LIST_LENGTH: usize = 0x44;
-pub(super) const GEOMETRY_TRI_LIST: usize = 0x48;
 /// `NiAlphaProperty::m_usFlags`.
 pub(super) const ALPHA_FLAGS: usize = 0x18;
 /// `NiAlphaProperty` vtable (`0x00A5D3BB` stores it in the constructor). The
@@ -113,10 +110,9 @@ pub(super) const ALPHA_FLAGS: usize = 0x18;
 /// vtable matches; otherwise the geometry is admitted. This keeps a wrong or
 /// shifted property offset from rejecting every geometry in the cell.
 pub(super) const ALPHA_PROPERTY_VTABLE: usize = 0x0109_B4F4;
-/// `NiObject` virtual slots: `IsNode`, `IsGeometry` and `IsTriShape`.
+/// `NiObject` virtual slots: `IsNode` and `IsGeometry`.
 pub(super) const VTABLE_IS_NODE: usize = 0x0C;
 pub(super) const VTABLE_IS_GEOMETRY: usize = 0x18;
-pub(super) const VTABLE_IS_TRI_SHAPE: usize = 0x24;
 /// `NiAlphaProperty` flag bits that mark see-through or cutout surfaces.
 pub(super) const ALPHA_BLEND: u16 = 0x0001;
 pub(super) const ALPHA_TEST: u16 = 0x0200;
@@ -132,6 +128,20 @@ pub(super) const FORM_TYPE_STATIC_COLLECTION: u8 = 0x21;
 
 /// `NiObject::IsNode`/`IsGeometry`: returns `this` or null.
 pub(super) type IsKindFn = unsafe extern "thiscall" fn(*mut c_void) -> *mut c_void;
+
+/// `DataHandler` singleton pointer global (`DataHandler::Get()` returns
+/// `*(DataHandler**)0x011C3F2C`).
+pub(super) const DATA_HANDLER_PTR: usize = 0x011C_3F2C;
+/// `DataHandler::modList` (`ModList`; `tList<ModInfo>` head at `+0`).
+pub(super) const DATA_HANDLER_MOD_LIST: usize = 0x210;
+/// `ModInfo::name` (char[0x104]) and the embedded `WIN32_FIND_DATA` file size
+/// (`fileData` at `+0x29C`; size low at `+0x20`, high at `+0x1C` inside it).
+pub(super) const MOD_INFO_NAME: usize = 0x20;
+pub(super) const MOD_INFO_NAME_CAPACITY: usize = 0x104;
+pub(super) const MOD_INFO_FILE_SIZE_LOW: usize = 0x2BC;
+pub(super) const MOD_INFO_FILE_SIZE_HIGH: usize = 0x2B8;
+/// Upper bound on loaded mods (mod index space is 0x00..0xFF).
+pub(super) const MOD_INFO_MAX: usize = 0xFF;
 
 // Player, cell and worldspace anchors.
 pub(super) const PLAYER_PTR: usize = 0x011D_EA3C;

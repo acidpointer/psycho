@@ -24,16 +24,19 @@ use crate::mods::{
 };
 
 const COMMAND_INFO: u32 = 1;
+const COMMAND_OCCLUSION_DEBUG: u32 = 2;
 
 #[derive(Clone, Copy)]
 enum Command {
     Info,
+    OcclusionDebug,
 }
 
 impl Command {
     fn from_id(id: u32) -> Option<Self> {
         match id {
             COMMAND_INFO => Some(Self::Info),
+            COMMAND_OCCLUSION_DEBUG => Some(Self::OcclusionDebug),
             _ => None,
         }
     }
@@ -41,6 +44,9 @@ impl Command {
     fn run(self) -> CommandResponse {
         match self {
             Self::Info => CommandResponse::text(mem_stats::MemStats::detailed_report()),
+            Self::OcclusionDebug => {
+                CommandResponse::text(crate::mods::perf::occlusion_debug_toggle())
+            }
         }
     }
 }
@@ -296,6 +302,22 @@ pub unsafe extern "system" fn PsychoEngineFixes_RunCommand(
 
     unsafe { command.run().write_to(&mut *output) };
     1
+}
+
+/// Fill a caller-owned float buffer with the current occluder debug frame.
+///
+/// Layout: `[magic, version, count, observer x, y, z]`, then `count` planes of
+/// `[position(3), half-size(2), normal(3), tangent(3), bitangent(3)]`. Returns
+/// the number of floats needed; writes at most `capacity`.
+#[unsafe(no_mangle)]
+pub unsafe extern "system" fn PsychoEngineFixes_QueryOcclusionDebug(
+    out: *mut f32,
+    capacity: usize,
+) -> i32 {
+    if out.is_null() || !crate::entry::is_initialized() {
+        return 0;
+    }
+    unsafe { crate::mods::perf::occlusion_debug_write(out, capacity) }
 }
 
 /// Fill a structured diagnostics snapshot for an already-loaded host adapter.

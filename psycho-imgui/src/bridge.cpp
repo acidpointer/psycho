@@ -1205,4 +1205,70 @@ void psycho_imgui_set_clipboard_text(const char* text) {
 	}
 }
 
+// Foreground (world overlay) line, drawn in display coordinates. Used by
+// debug overlays that project engine geometry to screen space.
+void psycho_imgui_overlay_line(
+	float x0,
+	float y0,
+	float x1,
+	float y1,
+	float r,
+	float g,
+	float b,
+	float a,
+	float thickness) {
+	if (ImGui::GetCurrentContext() == nullptr) {
+		return;
+	}
+	const ImU32 color = ImGui::ColorConvertFloat4ToU32(ImVec4(
+		clamp_float(r, 0.0f, 1.0f),
+		clamp_float(g, 0.0f, 1.0f),
+		clamp_float(b, 0.0f, 1.0f),
+		clamp_float(a, 0.0f, 1.0f)));
+	ImGui::GetForegroundDrawList()->AddLine(
+		ImVec2(x0, y0),
+		ImVec2(x1, y1),
+		color,
+		thickness);
+}
+
+// Foreground filled circle in display coordinates, used for markers.
+void psycho_imgui_overlay_point(
+	float x,
+	float y,
+	float radius,
+	float r,
+	float g,
+	float b,
+	float a) {
+	if (ImGui::GetCurrentContext() == nullptr) {
+		return;
+	}
+	const ImU32 color = ImGui::ColorConvertFloat4ToU32(ImVec4(
+		clamp_float(r, 0.0f, 1.0f),
+		clamp_float(g, 0.0f, 1.0f),
+		clamp_float(b, 0.0f, 1.0f),
+		clamp_float(a, 0.0f, 1.0f)));
+	ImGui::GetForegroundDrawList()->AddCircleFilled(ImVec2(x, y), radius, color);
+}
+
+void psycho_imgui_display_size(float* width, float* height) {
+	if (ImGui::GetCurrentContext() == nullptr) {
+		if (width != nullptr) {
+			*width = 0.0f;
+		}
+		if (height != nullptr) {
+			*height = 0.0f;
+		}
+		return;
+	}
+	const ImVec2 size = ImGui::GetIO().DisplaySize;
+	if (width != nullptr) {
+		*width = size.x;
+	}
+	if (height != nullptr) {
+		*height = size.y;
+	}
+}
+
 } // extern "C"

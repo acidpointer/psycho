@@ -29,6 +29,7 @@ toml = "0.8"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 rand = { version = "0.10" }
+wide = "1.7.1"
 windows = { version = "=0.60", features = [
   "Data_Xml_Dom",
   "UI_WindowManagement",

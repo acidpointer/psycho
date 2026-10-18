@@ -1,12 +1,14 @@
 //! Runtime collection and injection of occlusion planes.
 //!
 //! Fallout: New Vegas has no authored occlusion data for many exterior cells.
-//! This module extracts large, fully covered coplanar surface patches from the
-//! live `NiTriShape` meshes of the current cell, or loads an optional per-cell
-//! override file, and injects `BSOcclusionPlane` objects into the engine's
-//! native occluder list, reusing the engine's own authored `XOCP` creation
-//! path. Emitting only fully covered patches keeps the planes on real solid
-//! geometry, so visible objects and NPCs are not false-culled.
+//! This module derives one conservative world-space box per opaque, unskinned
+//! static geometry of the current cell, or loads an optional per-cell override
+//! file, and injects `BSOcclusionPlane` objects into the engine's native
+//! occluder list, reusing the engine's own authored `XOCP` creation path.
+//! Faces are shrunk to half extent so the occluded cone stays narrow, which
+//! limits false culling. Results are cached per cell and reused on a revisit;
+//! the cache header is bound to the active plugin list, so a mod install,
+//! removal, reorder or update discards it and stale planes are never reused.
 //!
 //! # Ownership
 //!
@@ -33,6 +35,7 @@
 //! A missing or empty override file is normal; runtime collection still serves
 //! every cell that has no override.
 
+mod cache;
 mod contract;
 mod data;
 mod raw;
@@ -51,10 +54,22 @@ pub(crate) fn install(performance: &PerformanceConfig) {
         performance.occlusion_planes,
         performance.occlusion_planes_max_per_cell,
         performance.occlusion_planes_runtime,
+        &performance.occlusion_planes_cache_path,
+        performance.occlusion_planes_debug,
     );
 }
 
 /// Route one core event id to the occlusion-plane lifecycle.
 pub(crate) fn observe_event(kind: u32) {
     runtime::observe_event(kind);
+}
+
+/// Toggle the occluder debug view from a host command.
+pub(crate) fn debug_toggle() -> String {
+    runtime::debug_toggle()
+}
+
+/// Fill a caller buffer with the current occluder debug frame.
+pub(crate) unsafe fn debug_write(out: *mut f32, capacity: usize) -> i32 {
+    unsafe { runtime::debug_write(out, capacity) }
 }

@@ -22,6 +22,7 @@ zlib-rs = { version = "=0.6.3", default-features = false, features = ["std", "__
 ahash = { workspace = true }
 rustc-hash = { workspace = true }
 rand = { workspace = true }
+wide = { workspace = true }
 crossfire = { workspace = true }
 serde = { workspace = true }
 toml = { workspace = true }

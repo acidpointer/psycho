@@ -504,6 +504,15 @@ occlusion_planes_max_per_cell = 32
 # Cells listed here use these planes instead of runtime collection.
 occlusion_planes_path = "syringe/psycho_occlusion_planes.toml"
 
+# Generated-plane cache, relative to the game directory or absolute. Revisited
+# cells re-append their planes from here instead of re-walking the meshes. The
+# cache is discarded automatically when the active plugin list changes.
+occlusion_planes_cache_path = "syringe/psycho_occlusion_planes.cache"
+
+# Start with the occluder debug overlay enabled. Can also be toggled in game
+# with the `PsychoOcclusionDebug` console command.
+occlusion_planes_debug = false
+
 # =============================================================================
 # DIAGNOSTICS
 # =============================================================================

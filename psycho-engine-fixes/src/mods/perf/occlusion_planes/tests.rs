@@ -2,8 +2,8 @@
 //!
 //! The engine-calling lifecycle and the live scene walk need the game runtime.
 //! These tests cover the override validation, cell-key resolution, per-cell
-//! capping, and the world-space face rectangles so a malformed override or a
-//! broken box transform cannot reach the engine unnoticed.
+//! capping, and the world-space AABB face rectangles so a malformed override or
+//! a broken box transform cannot reach the engine unnoticed.
 
 use core::ffi::c_void;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -11,7 +11,8 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use super::data::{CellKey, PlaneRecord, PlaneRotation, PlaneSet};
 use super::runtime::{native_size, plane_signature, release_plane, retain_plane};
 use super::runtime_generate::{
-    ScanStats, WorldTransform, admits_base_type, alpha_is_opaque, mesh_planes, transform_point,
+    Aabb, PLANE_SHRINK, WorldTransform, aabb_of, admits_base_type, alpha_is_opaque, faces_from_box,
+    transform_aabb,
 };
 
 static DELETE_THIS_CALLS: AtomicUsize = AtomicUsize::new(0);
@@ -186,135 +187,164 @@ angle = 1.0
     assert!(PlaneSet::parse(bad_axis, 16).is_err());
 }
 
-/// A flat quad becomes one occluder plane on the quad's plane, and the emitted
-/// matrix follows the engine's (tangent, normal, bitangent) convention.
 #[test]
-fn flat_wall_patch_produces_one_plane() {
-    let vertices = [
-        [-500.0f32, -250.0, 0.0],
-        [500.0, -250.0, 0.0],
-        [500.0, 250.0, 0.0],
-        [-500.0, 250.0, 0.0],
-    ];
-    let indices = [0u16, 1, 2, 0, 2, 3];
-    let mut out = Vec::new();
-    mesh_planes(&vertices, &indices, &mut out, &mut ScanStats::default());
-    assert_eq!(out.len(), 1, "one solid wall patch");
-    let (area, plane) = &out[0];
-    assert!((area - 500_000.0).abs() < 1.0);
-    let min = plane.size[0].min(plane.size[1]);
-    let max = plane.size[0].max(plane.size[1]);
-    assert!((min - 400.0).abs() < 0.5, "500 * 0.8");
-    assert!((max - 800.0).abs() < 0.5, "1000 * 0.8");
+fn box_faces_cover_all_six_sides_of_an_eligible_box() {
+    let mut faces = Vec::new();
+    faces_from_box(&[0.0, 0.0, 0.0], &[1000.0, 500.0, 3000.0], &mut faces);
+    assert_eq!(faces.len(), 6);
+    // Largest area first cannot be asserted here (the collector sorts), but the
+    // +Y faces are the largest at 1000 x 3000.
+    let largest = faces.iter().map(|(area, _)| *area).fold(f32::MIN, f32::max);
+    assert_eq!(largest, 1000.0 * 3000.0);
+}
 
-    let PlaneRotation::Matrix(matrix) = plane.rotation else {
-        panic!("runtime planes use a matrix");
-    };
-    let tangent = [matrix[0], matrix[3], matrix[6]];
-    let normal = [matrix[1], matrix[4], matrix[7]];
-    let bitangent = [matrix[2], matrix[5], matrix[8]];
-    let dot = |a: [f32; 3], b: [f32; 3]| a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
-    for axis in [tangent, normal, bitangent] {
-        let length = (axis[0] * axis[0] + axis[1] * axis[1] + axis[2] * axis[2]).sqrt();
-        assert!((length - 1.0).abs() < 1e-4);
-    }
-    assert!(dot(tangent, normal).abs() < 1e-4);
-    assert!(dot(tangent, bitangent).abs() < 1e-4);
-    assert!(dot(normal, bitangent).abs() < 1e-4);
-    let cross = [
-        tangent[1] * normal[2] - tangent[2] * normal[1],
-        tangent[2] * normal[0] - tangent[0] * normal[2],
-        tangent[0] * normal[1] - tangent[1] * normal[0],
-    ];
-    for index in 0..3 {
-        assert!((cross[index] - bitangent[index]).abs() < 1e-4);
-    }
-    assert!(
-        (normal[2].abs() - 1.0).abs() < 1e-3,
-        "wall is in the z=0 plane"
+#[test]
+fn box_face_normal_and_size_follow_the_box() {
+    let mut faces = Vec::new();
+    faces_from_box(
+        &[-500.0, -500.0, -500.0],
+        &[500.0, 500.0, 500.0],
+        &mut faces,
     );
-    // Engine corner formula: corners are position +/- halfX*col0 +/- halfY*col2,
-    // so every corner stays in the rectangle's plane.
-    let half = native_size(plane.size);
-    for sign_a in [-1.0f32, 1.0] {
-        for sign_b in [-1.0f32, 1.0] {
-            let offset = [
-                sign_a * half[0] * tangent[0] + sign_b * half[1] * bitangent[0],
-                sign_a * half[0] * tangent[1] + sign_b * half[1] * bitangent[1],
-                sign_a * half[0] * tangent[2] + sign_b * half[1] * bitangent[2],
-            ];
-            assert!(dot(offset, normal).abs() < 0.01);
+    assert_eq!(faces.len(), 6);
+    // Every face is the same size for a cube, and the engine's matrix columns
+    // are (tangent, normal, bitangent): local X/Z is the rectangle and local Y
+    // is the normal.
+    for (_, plane) in &faces {
+        assert!((plane.size[0] - 1000.0 * PLANE_SHRINK).abs() < 0.01);
+        assert!((plane.size[1] - 1000.0 * PLANE_SHRINK).abs() < 0.01);
+        let PlaneRotation::Matrix(matrix) = plane.rotation else {
+            panic!("runtime faces use a matrix");
+        };
+        let tangent = [matrix[0], matrix[3], matrix[6]];
+        let normal = [matrix[1], matrix[4], matrix[7]];
+        let bitangent = [matrix[2], matrix[5], matrix[8]];
+        for axis in [tangent, normal, bitangent] {
+            let length = (axis[0] * axis[0] + axis[1] * axis[1] + axis[2] * axis[2]).sqrt();
+            assert!((length - 1.0).abs() < 1e-4);
+        }
+        let dot = |a: [f32; 3], b: [f32; 3]| a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+        assert!(dot(tangent, normal).abs() < 1e-4);
+        assert!(dot(tangent, bitangent).abs() < 1e-4);
+        assert!(dot(normal, bitangent).abs() < 1e-4);
+        // Right-handed: tangent x normal = bitangent.
+        let cross = [
+            tangent[1] * normal[2] - tangent[2] * normal[1],
+            tangent[2] * normal[0] - tangent[0] * normal[2],
+            tangent[0] * normal[1] - tangent[1] * normal[0],
+        ];
+        for index in 0..3 {
+            assert!((cross[index] - bitangent[index]).abs() < 1e-4);
         }
     }
 }
 
-/// A wall in the XZ plane is extracted with its rotated normal; the old
-/// axis-aligned bounding-box approach could not represent this correctly.
 #[test]
-fn rotated_wall_patch_is_extracted() {
-    let vertices = [
-        [-500.0f32, 0.0, -250.0],
-        [500.0, 0.0, -250.0],
-        [500.0, 0.0, 250.0],
-        [-500.0, 0.0, 250.0],
-    ];
-    let indices = [0u16, 1, 2, 0, 2, 3];
-    let mut out = Vec::new();
-    mesh_planes(&vertices, &indices, &mut out, &mut ScanStats::default());
-    assert_eq!(out.len(), 1);
-    let PlaneRotation::Matrix(matrix) = out[0].1.rotation else {
-        panic!("runtime planes use a matrix");
+fn native_corners_cover_the_box_face() {
+    let min = [0.0f32, 0.0, 0.0];
+    let max = [1000.0f32, 500.0, 3000.0];
+    let mut faces = Vec::new();
+    faces_from_box(&min, &max, &mut faces);
+    assert_eq!(faces.len(), 6);
+    let extents = [max[0] - min[0], max[1] - min[1], max[2] - min[2]];
+    for (_, plane) in &faces {
+        let PlaneRotation::Matrix(matrix) = plane.rotation else {
+            panic!("runtime faces use a matrix");
+        };
+        let tangent = [matrix[0], matrix[3], matrix[6]];
+        let bitangent = [matrix[2], matrix[5], matrix[8]];
+        // The plane center is the box face center pushed two units outward
+        // along the geometric face normal.
+        let mut axis = 0usize;
+        let mut sign = 0.0f32;
+        for candidate in 0..3 {
+            if plane.position[candidate] > max[candidate] + 1.0 {
+                axis = candidate;
+                sign = 1.0;
+            } else if plane.position[candidate] < min[candidate] - 1.0 {
+                axis = candidate;
+                sign = -1.0;
+            }
+        }
+        assert!(sign != 0.0, "face center is outside the box");
+        let mut normal = [0.0f32; 3];
+        normal[axis] = sign;
+        let half = native_size(plane.size);
+        let in_plane = [(axis + 1) % 3, (axis + 2) % 3];
+        let expected = [
+            extents[in_plane[0]] * PLANE_SHRINK,
+            extents[in_plane[1]] * PLANE_SHRINK,
+        ];
+        let mut actual = [plane.size[0], plane.size[1]];
+        actual
+            .as_mut_slice()
+            .sort_by(|a, b| a.partial_cmp(b).unwrap());
+        let mut expected_sorted = expected;
+        expected_sorted
+            .as_mut_slice()
+            .sort_by(|a, b| a.partial_cmp(b).unwrap());
+        assert!((actual[0] - expected_sorted[0]).abs() < 0.01);
+        assert!((actual[1] - expected_sorted[1]).abs() < 0.01);
+        for sign_a in [-1.0f32, 1.0] {
+            for sign_b in [-1.0f32, 1.0] {
+                let offset = [
+                    sign_a * half[0] * tangent[0] + sign_b * half[1] * bitangent[0],
+                    sign_a * half[0] * tangent[1] + sign_b * half[1] * bitangent[1],
+                    sign_a * half[0] * tangent[2] + sign_b * half[1] * bitangent[2],
+                ];
+                let along_normal =
+                    offset[0] * normal[0] + offset[1] * normal[1] + offset[2] * normal[2];
+                assert!(
+                    along_normal.abs() < 0.01,
+                    "corner leaves the face plane: {along_normal}"
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn simd_aabb_matches_scalar_for_every_tail_length() {
+    let points: Vec<[f32; 3]> = (0..11)
+        .map(|index| {
+            let value = index as f32;
+            [value * -1.5, value * 0.25 + 3.0, 10.0 - value]
+        })
+        .collect();
+    for count in 0..=points.len() {
+        let slice = &points[..count];
+        let bounds = aabb_of(slice);
+        if count == 0 {
+            continue;
+        }
+        for axis in 0..3 {
+            let expected_min = slice.iter().map(|p| p[axis]).fold(f32::INFINITY, f32::min);
+            let expected_max = slice
+                .iter()
+                .map(|p| p[axis])
+                .fold(f32::NEG_INFINITY, f32::max);
+            assert!((bounds.min[axis] - expected_min).abs() < 1e-5);
+            assert!((bounds.max[axis] - expected_max).abs() < 1e-5);
+        }
+    }
+}
+
+#[test]
+fn negative_scale_mirrors_the_world_box() {
+    let local = Aabb {
+        min: [0.0, 0.0, 0.0],
+        max: [2.0, 2.0, 2.0],
     };
-    let normal = [matrix[1], matrix[4], matrix[7]];
-    assert!((normal[1].abs() - 1.0).abs() < 1e-3, "wall normal is +/-Y");
-}
-
-/// A large opening splits the patch; the emitted plane covers a solid
-/// sub-rectangle instead of the empty slot.
-#[test]
-fn opening_reduces_the_emitted_rectangle() {
-    let vertices = [
-        [-500.0f32, 100.0, 0.0],
-        [500.0, 100.0, 0.0],
-        [500.0, 500.0, 0.0],
-        [-500.0, 500.0, 0.0],
-        [-500.0, -500.0, 0.0],
-        [500.0, -500.0, 0.0],
-        [500.0, -100.0, 0.0],
-        [-500.0, -100.0, 0.0],
-    ];
-    let indices = [0u16, 1, 2, 0, 2, 3, 4, 5, 6, 4, 6, 7];
-    let mut out = Vec::new();
-    mesh_planes(&vertices, &indices, &mut out, &mut ScanStats::default());
-    assert_eq!(out.len(), 1);
-    let min = out[0].1.size[0].min(out[0].1.size[1]);
-    assert!(min < 400.0, "the slot shrinks the solid rectangle: {min}");
-}
-
-#[test]
-fn small_patch_produces_no_plane() {
-    let vertices = [
-        [-32.0f32, -32.0, 0.0],
-        [32.0, -32.0, 0.0],
-        [32.0, 32.0, 0.0],
-        [-32.0, 32.0, 0.0],
-    ];
-    let indices = [0u16, 1, 2, 0, 2, 3];
-    let mut out = Vec::new();
-    mesh_planes(&vertices, &indices, &mut out, &mut ScanStats::default());
-    assert!(out.is_empty());
-}
-
-#[test]
-fn negative_scale_mirrors_transform_point() {
     let world = WorldTransform {
         rotation: [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0],
         translation: [100.0, 0.0, 0.0],
         scale: -1.0,
     };
-    let point = transform_point([2.0, 0.0, 0.0], &world);
-    assert!((point[0] - 98.0).abs() < 1e-4);
-    assert!(point[1].abs() < 1e-4);
+    let world_box = transform_aabb(&local, &world);
+    assert!((world_box.min[0] - 98.0).abs() < 1e-4);
+    assert!((world_box.max[0] - 100.0).abs() < 1e-4);
+    assert!((world_box.min[1] + 2.0).abs() < 1e-4);
+    assert!((world_box.max[1] - 0.0).abs() < 1e-4);
 }
 
 #[test]
@@ -344,6 +374,7 @@ fn plane_signature_changes_with_the_set() {
         size: [100.0, 200.0],
         rotation: PlaneRotation::Matrix([1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0]),
         priority: 255,
+        source_form_id: 0,
     };
     let first = [record(1.0)];
     let same = [record(1.0)];
@@ -352,4 +383,11 @@ fn plane_signature_changes_with_the_set() {
     assert_ne!(plane_signature(&first), plane_signature(&moved));
     assert_eq!(plane_signature(&first), plane_signature(&first));
     assert_ne!(plane_signature(&first), plane_signature(&[]));
+}
+
+#[test]
+fn small_boxes_produce_no_faces() {
+    let mut faces = Vec::new();
+    faces_from_box(&[0.0, 0.0, 0.0], &[64.0, 64.0, 64.0], &mut faces);
+    assert!(faces.is_empty());
 }

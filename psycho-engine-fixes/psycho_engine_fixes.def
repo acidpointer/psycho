@@ -7,3 +7,4 @@ EXPORTS
     Syringe_ModActivate @4
     PsychoEngineFixes_QueryDashboard @5
     PsychoEngineFixes_RequestDashboardRefresh @6
+    PsychoEngineFixes_QueryOcclusionDebug @7

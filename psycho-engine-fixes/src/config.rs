@@ -14,6 +14,8 @@ use libpsycho::config::Config;
 const CONFIG_PATH: &str = "syringe/psycho_engine_fixes.toml";
 /// Default occlusion-plane override data path, relative to the game directory.
 const DEFAULT_OCCLUSION_PLANES_PATH: &str = "syringe/psycho_occlusion_planes.toml";
+/// Default generated occlusion-plane cache path, relative to the game directory.
+const DEFAULT_OCCLUSION_PLANES_CACHE_PATH: &str = "syringe/psycho_occlusion_planes.cache";
 const LEGACY_CONFIG_PATHS: &[&str] = &[
     "mods/psycho_engine_fixes.toml",
     "mods/psycho.toml",
@@ -295,6 +297,10 @@ pub struct PerformanceConfig {
     pub occlusion_planes_max_per_cell: u16,
     /// Optional per-cell override file, relative to the game directory or absolute.
     pub occlusion_planes_path: String,
+    /// Generated plane cache file, relative to the game directory or absolute.
+    pub occlusion_planes_cache_path: String,
+    /// Start with the occluder debug overlay enabled.
+    pub occlusion_planes_debug: bool,
 }
 
 impl Default for PerformanceConfig {
@@ -315,6 +321,8 @@ impl Default for PerformanceConfig {
             occlusion_planes_runtime: true,
             occlusion_planes_max_per_cell: 32,
             occlusion_planes_path: DEFAULT_OCCLUSION_PLANES_PATH.to_string(),
+            occlusion_planes_cache_path: DEFAULT_OCCLUSION_PLANES_CACHE_PATH.to_string(),
+            occlusion_planes_debug: false,
         }
     }
 }
@@ -371,6 +379,12 @@ impl PerformanceConfig {
             occlusion_planes_path: raw
                 .occlusion_planes_path
                 .unwrap_or(default.occlusion_planes_path),
+            occlusion_planes_cache_path: raw
+                .occlusion_planes_cache_path
+                .unwrap_or(default.occlusion_planes_cache_path),
+            occlusion_planes_debug: raw
+                .occlusion_planes_debug
+                .unwrap_or(default.occlusion_planes_debug),
         }
     }
 }
@@ -688,6 +702,8 @@ struct RawPerformanceConfig {
     occlusion_planes_runtime: Option<bool>,
     occlusion_planes_max_per_cell: Option<u16>,
     occlusion_planes_path: Option<String>,
+    occlusion_planes_cache_path: Option<String>,
+    occlusion_planes_debug: Option<bool>,
 }
 
 #[derive(Default, Deserialize)]

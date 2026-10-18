@@ -538,7 +538,8 @@ impl DashboardRuntime {
         if OPEN_REQUESTED.swap(false, Ordering::AcqRel) {
             self.set_open(true);
         }
-        if !self.open {
+        let overlay = crate::commands::occlusion_debug_enabled();
+        if !self.open && !overlay {
             return;
         }
 
@@ -616,12 +617,15 @@ impl DashboardRuntime {
         let Some(mut imgui) = self.imgui.take() else {
             return;
         };
-        let mut ui = imgui.new_frame(true);
-        let keep_open = self.draw(&mut ui);
+        let mut ui = imgui.new_frame(self.open);
+        let keep_open = if self.open { self.draw(&mut ui) } else { true };
+        if overlay {
+            draw_occlusion_debug(&mut ui);
+        }
         drop(ui);
         imgui.render();
         self.imgui = Some(imgui);
-        if !keep_open {
+        if self.open && !keep_open {
             self.set_open(false);
         }
     }
@@ -747,6 +751,17 @@ impl DashboardRuntime {
                 self.texture_refresh_requested = true;
             }
             self.publish_sampling_state();
+        }
+        ui.spacing();
+        ui.separator_text(&cstring("Diagnostics"));
+        let mut overlay = crate::commands::occlusion_debug_enabled();
+        if checkbox_help(
+            ui,
+            "Occlusion debug",
+            &mut overlay,
+            "Draws the runtime-injected occlusion rectangles around the player: blue is vertical, orange is horizontal, and the green dot is the observer. Also toggled by the psoccl console command.",
+        ) {
+            crate::commands::set_occlusion_debug(overlay);
         }
         ui.spacing();
         ui.separator_text(&cstring("Session"));
@@ -2058,6 +2073,68 @@ fn truncate_chars(text: &str, max: usize) -> String {
         output.push_str(" ...");
     }
     output
+}
+
+thread_local! {
+    /// Reusable debug frame buffer so the overlay does not allocate each frame.
+    static OCCLUSION_DEBUG_BUFFER: RefCell<Vec<f32>> = const { RefCell::new(Vec::new()) };
+}
+
+/// Top-down wireframe of the planes the core injected, drawn on the ImGui
+/// foreground list. It plots each rectangle's world XY footprint around the
+/// observer, which stays readable from any camera pose and needs no 3D
+/// projection. Blue rectangles are vertical occluders, orange are horizontal.
+fn draw_occlusion_debug(ui: &mut Ui<'_>) {
+    OCCLUSION_DEBUG_BUFFER.with(|cell| {
+        let mut data = cell.borrow_mut();
+        if !engine_fixes::query_occlusion_debug(&mut data) || data.len() < 6 || data[0] != 20559.0 {
+            return;
+        }
+        draw_occlusion_debug_frame(ui, &data);
+    });
+}
+
+fn draw_occlusion_debug_frame(ui: &mut Ui<'_>, data: &[f32]) {
+    let count = data[2] as usize;
+    let observer = [data[3], data[4], data[5]];
+    let (width, height) = ui.display_size();
+    if width <= 1.0 || height <= 1.0 {
+        return;
+    }
+    let center = (width * 0.5, height * 0.62);
+    let scale = 0.045f32;
+    ui.overlay_point(center, 3.5, [0.4, 1.0, 0.6, 0.95]);
+    for index in 0..count.min(256) {
+        let base = 6 + index * 14;
+        if base + 14 > data.len() {
+            break;
+        }
+        let position = [data[base], data[base + 1], data[base + 2]];
+        let half = [data[base + 3], data[base + 4]];
+        let normal = [data[base + 5], data[base + 6], data[base + 7]];
+        let tangent = [data[base + 8], data[base + 9], data[base + 10]];
+        let bitangent = [data[base + 11], data[base + 12], data[base + 13]];
+        let mut corners = [(0.0f32, 0.0f32); 4];
+        let signs = [(-1.0f32, -1.0f32), (1.0, -1.0), (1.0, 1.0), (-1.0, 1.0)];
+        for (slot, (sign_a, sign_b)) in signs.iter().enumerate() {
+            let world_x =
+                position[0] + sign_a * half[0] * tangent[0] + sign_b * half[1] * bitangent[0];
+            let world_y =
+                position[1] + sign_a * half[0] * tangent[1] + sign_b * half[1] * bitangent[1];
+            corners[slot] = (
+                center.0 + (world_x - observer[0]) * scale,
+                center.1 - (world_y - observer[1]) * scale,
+            );
+        }
+        let color = if normal[2].abs() > 0.7 {
+            [1.0, 0.72, 0.2, 0.9]
+        } else {
+            [0.4, 0.8, 1.0, 0.9]
+        };
+        for slot in 0..4 {
+            ui.overlay_line(corners[slot], corners[(slot + 1) % 4], color, 1.5);
+        }
+    }
 }
 
 fn draw_configuration(ui: &mut Ui<'_>, editor: &mut ConfigEditor, pending_reload: &mut bool) {

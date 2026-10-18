@@ -335,15 +335,17 @@ Runtime occluder collection offsets (live cell geometry)
     Read by the runtime as a cheap radius pre-filter. The world bound is a
     sphere enclosing the object; radius >= half of the largest extent.
   NiTriShapeData triangle list +0x44 (m_uiTriListLength), +0x48 (m_pusTriList)
-    Read by the class field writer at 0x00A7BD60:
+    [NOT ENABLED] The class field writer at 0x00A7BD60 names these members:
       0x00A7BDA8 mov ecx, [ebx + 0x44]; push ecx; push "m_uiTriListLength"
       0x00A7BDE4 mov edx, [ebx + 0x48]; push edx; push "m_pusTriList"
-    `m_uiTriListLength` is the u16 index count and `m_pusTriList` is the u16
-    index array, so triangle i uses indices 3i, 3i+1, 3i+2.
+    A silhouette-extraction prototype used them, but a 2026-10-18 owner run
+    reported zero candidates and a large frame-time regression, so the runtime
+    does not read the triangle list. The offsets are recorded for a future,
+    in-game-verified attempt; the index count semantics (indices vs triangles
+    vs bytes) is not proven against a live consumer.
   NiObject::IsTriShape vtable +0x24
-    NiTriShape 0x0109D454: +0x24 = 0x00E68810 (return this). The runtime reads
-    the triangle list only when this slot returns a non-null pointer, so a
-    NiTriStrips mesh contributes no occluder instead of a misread index list.
+    NiTriShape 0x0109D454: +0x24 = 0x00E68810 (return this). Not used by the
+    runtime while the triangle list is disabled.
   NiGeometryData vertex count +0x08, vertex pointer +0x20, compression +0x39
     Verified against geometry-data users:
       0x00A87900 movzx eax, word [ecx+8]
@@ -380,19 +382,67 @@ Collector admission and timing (2026-10-17)
   - Static content is gated by base type 0x20 (TESObjectSTAT) or 0x21
     (BGSStaticCollection); 0x22 (BGSMovableStatic) is excluded because its 3D
     can move after the planes are created.
-  - Planes come from coplanar triangle patches of `NiTriShape` meshes, and only
-    the largest all-covered sub-rectangle of a 6x6 coverage grid is emitted.
-    That is the fix for the object/NPC popping: an AABB or concave facade no
-    longer produces a plane over empty space, and a window or courtyard yields
-    a smaller solid rectangle instead of a false occluder.
-  - A cell/scene change retries a bounded settle window (5 retries, 20 frames
-    apart) because the first frame can run before the cell's references and
-    their 3D are attached. A retry with an unchanged plane-set signature keeps
-    the existing planes.
+  - Planes are derived from one world-space box per opaque, unskinned geometry
+    (never merged across an object), with each face shrunk to half extent
+    (`PLANE_SHRINK = 0.5`) so the camera-through-rectangle cone stays narrow.
+    A triangle-silhouette extraction was prototyped and is parked until its
+    mesh list is verified in game.
+  - A cell/scene change retries a bounded settle window (up to 5 retries, 20
+    frames apart) because the first frame can run before the cell's references
+    and their 3D are attached. A retry with an unchanged plane-set signature
+    keeps the existing planes, and the window stops early once two consecutive
+    passes agree (`SETTLE_STABLE_PASSES`). Only a stable set is cached, so an
+    incomplete first pass is never reused on a revisit.
+Per-frame, cache and debug findings (2026-10-18)
+  - Owner log analysis: every cell change produced six full scans with
+    `cached=false` and constant `raw`/`faces`, i.e. the set was regenerated six
+    times and never cached. The settle signature was never stabilizing and the
+    cache was never written, so every visit paid the full walk and the occluder
+    list was rebuilt repeatedly (the likely source of the terrain popping).
+    Fixes: the cache is written on every generated pass; the settle signature
+    is quantized (quarter-unit positions) and hashed with `FxHasher`; the
+    window stops after two identical passes.
+  - The steady-state frame compares the scene and cell pointers directly and
+    only computes the cell identity hash when a pointer changes, so no hashing
+    runs on a normal frame.
+  - The vertex AABB reduction uses four-wide SIMD via the `wide` crate
+    (SSE/AVX/NEON with a scalar fallback).
+  - Debug view: `PsychoEngineFixes_QueryOcclusionDebug` returns a flat float
+    frame (observer plus one rectangle per plane, with half-size, normal,
+    tangent and bitangent). The helper's `PsychoOcclusionDebug` command toggles
+    it and opens the dashboard, which draws a top-down wireframe of the
+    rectangles via a new `psycho-imgui` foreground-line primitive. The
+    dashboard's navigation menu also carries an "Occlusion debug" checkbox for
+    the same toggle, and once enabled the overlay renders on every present even
+    after the dashboard window is closed. The command must not call `cmd.print`:
+    `Console::print` runs `print "..."` through `RunScriptLine`, re-entering
+    xNVSE's non-re-entrant parser from inside the handler; that produced a real
+    2026-10-18 "Mismatched quotes. String literal was not closed." error on
+    `psoccl`. The handler logs instead.
   - The `[OCCLUSION_PLANES] scan` debug counters (refs, parent_mismatch,
     not_stat, render_null, node_null, radius, geoms, skinned, alpha, no_mesh,
     triangles, clusters, cluster_area, coverage, size, distance, faces) are the
     runtime diagnostic when a cell yields too few candidates.
+
+Persistent cache, mod binding and timing (2026-10-18)
+  - DataHandler::Get() returns *(DataHandler**)0x011C3F2C (xNVSE GameData.cpp
+    RUNTIME branch).
+  - DataHandler::modList is at +0x210; its ModList starts with a
+    tList<ModInfo> whose head node holds the first entry in `+0` and the next
+    node in `+4`. ModInfo::name is char[0x104] at +0x20 and its embedded
+    WIN32_FIND_DATA at +0x29C carries nFileSizeHigh at +0x2B8 and
+    nFileSizeLow at +0x2BC (GameData.h). The cache header hashes the ordered
+    name+size list, so a mod install, uninstall, reorder or in-place update
+    changes the signature and discards the cache.
+  - Each cached plane stores the base form's TESForm::refID (+0x0C) so it is
+    bound to its source plugin.
+  - The engine can clear scene_graph+8 on cell unload without changing the cell
+    identity. A periodic presence check (every 30 frames) re-appends the cached
+    planes when a tracked plane is missing; this is the fix for the "leave and
+    come back" loss of planes and the extra work.
+  - Vertices are transformed with the `wide` crate (portable SIMD over
+    SSE/AVX/NEON with a scalar fallback) four at a time; the scalar tail is the
+    existing single-point transform.
 
 Unknowns left open by this capture
   - The exact 0x00C33870 camera-side branch signs were not reduced to a

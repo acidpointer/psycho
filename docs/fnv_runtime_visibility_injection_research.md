@@ -236,10 +236,11 @@ shipping.
 Option B now runs entirely in gameplay: on each target change the module walks
 the loaded cell's reference list, selects large `STAT`/`BGSStaticCollection`
 objects, checks their loaded geometry for transparency and skinning, and
-extracts large coplanar surface patches from `NiTriShape` meshes. Only the
-largest all-covered sub-rectangle of each patch's coverage grid is emitted, so
-the plane sits on real solid surface rather than on the empty region of an
-axis-aligned bounding box; this is what removed the runtime object/NPC popping.
+derives one conservative world-space box per opaque, unskinned geometry and
+emits its faces shrunk well inside the silhouette, which narrows the occluded
+cone and limits the popping. A silhouette-accurate `NiTriShapeData` extraction
+was prototyped but is parked until that in-memory triangle list is verified in
+game.
 Candidates are filtered by size and observer distance and weighted so nearby
 occluders win the per-cell cap. The TOML data file is only an optional per-cell
 override. Static qualification is complete; in-game visual and performance

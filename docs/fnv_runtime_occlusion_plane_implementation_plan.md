@@ -2,11 +2,13 @@
 
 Status: runtime mechanism, mod-resilient reference-count path and runtime
 occluder collection implemented and enabled by default; in-game qualification
-is not done. The collector extracts large, fully covered coplanar surface
-patches from live `NiTriShape` meshes, so planes sit on real solid geometry and
-do not false-cull visible objects. No data file is required; the TOML file
-remains an optional per-cell override. This is a heuristic and needs the owner's
-in-game visual check. No game run and no FPS claim.
+is not done. The collector derives one world-space box per opaque, unskinned
+geometry, emits its faces shrunk to half extent, and scores them by solid
+angle. Results are cached per cell and reused on a revisit; installing,
+removing, reordering or updating a mod invalidates the cache through the
+plugin-list signature. No data file is required; the TOML file remains an
+optional per-cell override. This is a heuristic and needs the owner's in-game
+visual check. No game run and no FPS claim.
 Companion to
 [runtime visibility injection research](fnv_runtime_visibility_injection_research.md).
 Address evidence is in
@@ -270,17 +272,20 @@ Active -> Ready (load/new/exit: remove + release all)
 4. compute the cell identity key and its hash; the tracked target is
    `(scene_graph, key_hash)`, so a reused cell pointer still reads as a new
    cell.
-5. if the target is unchanged and no settle retry is pending, return.
-6. a target change (or load/new/exit reset) forces a rebuild and restarts the
-   settle window; a settle retry regenerates only every few frames and rebuilds
-   only when the generated set changed.
+5. if the target is unchanged and no settle retry is pending, periodically
+   check that the tracked planes are still in `scene_graph + 8` (the engine can
+   clear the list on cell unload without changing the cell identity); re-append
+   them from the cache when missing. Save the cache on a debounce.
+6. a target change (or load/new/exit reset) forces a rebuild. A cache hit is a
+   complete set and skips the settle window; a cache miss generates and restarts
+   the settle window, and each settle retry refreshes the cache entry.
 7. rebuild: if the scene graph is unchanged, scan `scene_graph + 8` for nodes
    whose `+8` equals a tracked plane; unlink each node in Rust and call
    `0x004A49E0(list, node)` to return it to the native pool. A changed scene
    graph means the old list is gone, so skip the unlink. Release all tracked
    planes.
-8. resolve the cell key: a per-cell override wins; otherwise the runtime
-   collector supplies planes. Create, retain and append each plane, then store
+8. resolve the cell key: a per-cell override wins, then the persistent cache,
+   then the runtime collector. Create, retain and append each plane, then store
    the new `(scene_graph, key_hash, signature)`.
 
 The scan is O(list length) and the list holds authored planes plus ours. It
@@ -293,7 +298,7 @@ attached.
 - Interior: `CellKey::Interior { form_id: u32 }`.
 - Exterior: `CellKey::Exterior { worldspace: u32, x: i32, y: i32 }`.
 - "Behave like exterior" interiors use the interior key.
-- The lookup returns a slice of plane records. A per-cell cap (default 16)
+- The lookup returns a slice of plane records. A per-cell cap (default 32)
   bounds the `B*O` pair cost.
 
 ### 4.5 Configuration
@@ -304,20 +309,45 @@ Add to `PerformanceConfig`:
 - `occlusion_planes_runtime: bool` (default `true`);
 - `occlusion_planes_max_per_cell: u16` (default 32, clamped `1..=256`);
 - `occlusion_planes_path: String` (default
-  `syringe/psycho_occlusion_planes.toml`).
+  `syringe/psycho_occlusion_planes.toml`);
+- `occlusion_planes_cache_path: String` (default
+  `syringe/psycho_occlusion_planes.cache`);
+- `occlusion_planes_debug: bool` (default `false`). Also toggled in game with
+  the `PsychoOcclusionDebug` console command.
+
+Frame-path budget: the common frame does no hashing. The scene/cell pointers
+are compared directly, and the cell identity hash (`FxHasher`) is only computed
+when a pointer changes. The presence check runs every 30 frames and scans the
+list once per tracked plane. The generator, cache lookups and file writes only
+run on a target change or its bounded settle window.
+
+Debug overlay: while `occlusion_planes_debug` is on, the core keeps the last
+injected set and exposes it through `PsychoEngineFixes_QueryOcclusionDebug` as a
+flat float frame (observer plus one rectangle per plane). The helper's
+`PsychoOcclusionDebug` command toggles it and opens the dashboard, which draws a
+top-down wireframe of each rectangle's world XY footprint using a new
+`psycho-imgui` foreground-line primitive; the dashboard's navigation menu also
+exposes an "Occlusion debug" checkbox for the same toggle. Once enabled the
+overlay is drawn on every present, even after the dashboard window is closed,
+until the checkbox or command turns it off. The query is pure (no engine calls
+from the render thread) and reuses a thread-local buffer. The command never
+prints through the console helper: `CommandContext::print` runs `print "..."`
+via `RunScriptLine`, which re-enters xNVSE's non-re-entrant script parser from
+inside the handler and reports a bogus "Mismatched quotes" error. The state is
+logged and shown in the overlay instead.
 
 Config parsing happens at startup and changes the DLL's static/config layout,
 so the startup gate in section 7 applies.
 
 ### 4.6 Logging and diagnostics
 
-Stable tag `[OCCLUSION_PLANES]`. Log at `info` on install, data load success
-and per-cell add/remove summaries; log at `debug` per-plane details. Counters:
-cells seen, planes created, planes active (`+0x40 == 1`), removals, scan hits,
-allocation failures. Route through `libpsycho::logger::Logger` / `log`, never
-`println!`. Optional diagnostic mode may hook `0x00B5BBE0`/`0x00B5AC90` to
-count native pairs and rejections; it is a separate, config-gated build aid and
-must not alter behavior.
+Stable tag `[OCCLUSION_PLANES]`. Log at `info` on install, cache load, data
+load success and per-cell summaries; log at `debug` the scan counters. The
+`scan` line reports `refs`, `not_stat`, `render_null`, `node_null`, `radius`,
+`no_mesh`, `triangles`, `clusters`, `cluster_area`, `coverage`, `size`,
+`distance`, `faces`, plus `mesh_area` and `rect_area`: the admitted patch area
+and the emitted rectangle area, so the log shows how much solid surface became
+occluders. Route through `libpsycho::logger::Logger` / `log`, never `println!`.
 
 ### 4.7 Failure containment
 
@@ -338,19 +368,17 @@ must not alter behavior.
 - Each reference's base form (`+0x20`) and its `typeID` (`+0x04`).
 - The reference's loaded node (`RenderState::niNode` at `+0x14`) and its world
   transform (`NiAVObject::m_kWorld` at `+0x68`).
-- The `IsNode` (`vtable+0x0C`), `IsGeometry` (`vtable+0x18`) and `IsTriShape`
-  (`vtable+0x24`) virtuals.
+- The `IsNode` (`vtable+0x0C`) and `IsGeometry` (`vtable+0x18`) virtuals.
 - `NiGeometry` alpha (`+0x9C`), model data (`+0xB8`) and skin (`+0xBC`)
   pointers.
-- `NiGeometryData` vertex count (`+0x08`), vertex pointer (`+0x20`) and
-  compression flags (`+0x39`).
-- `NiTriShapeData` triangle index count (`m_uiTriListLength`, `+0x44`) and
-  index pointer (`m_pusTriList`, `+0x48`).
+- `NiGeometryData` vertex count (`+0x08`), local bound (`+0x10`, radius
+  `+0x1C`), vertex pointer (`+0x20`) and compression flags (`+0x39`).
+- `NiAVObject` world bound (`+0x20`, radius `+0x0C`).
 
 ### 5.2 Pipeline
 
-1. On a target change, walk `cell->objectList`; stop after a fixed reference,
-   vertex and triangle budget.
+1. On a target change, walk `cell->objectList`; stop after a fixed reference or
+   vertex budget.
 2. Accept a reference whose base form is `TESObjectSTAT` or
    `BGSStaticCollection` and whose `parentCell` is null or the current cell.
    The collector reads the loaded 3D geometry, so the base-type gate only
@@ -362,42 +390,38 @@ must not alter behavior.
 4. Walk the node tree through the `IsNode`/`IsGeometry` virtuals. A transparent
    or skinned geometry is skipped individually. The `+0x9C` alpha pointer is
    trusted only when its vtable is `NiAlphaProperty`, so a shifted offset cannot
-   reject the whole cell. Only `NiTriShape` meshes with readable, uncompressed
-   vertices and a triangle list are used (`NiTriStrips` has no verifiable
-   silhouette and is skipped).
-5. Transform the mesh vertices to world space and cluster the triangles into
-   coplanar patches (normal within `CLUSTER_NORMAL_DOT`, plane distance within
-   `CLUSTER_DISTANCE_TOLERANCE`).
-6. For each patch, project it into its plane and take the **largest
-   all-covered sub-rectangle** of a `COVERAGE_GRID x COVERAGE_GRID` grid. This
-   is what keeps the plane on real surface: an axis-aligned AABB or a concave
-   facade no longer becomes a plane over empty space, a rotated wall is
-   represented by its own plane, and a window or courtyard yields a smaller
-   solid rectangle.
-7. Reject a patch whose solid rectangle has an extent below `MIN_FACE_EXTENT`.
-8. Emit one rectangle per patch:
-   - position: rectangle center, then offset outward by a small epsilon along
-     the patch normal;
-   - size: full rectangle extents shrunk by `PLANE_SHRINK`; `create_plane`
+   reject the whole cell.
+5. For each admitted geometry, compute its world AABB: the local AABB from the
+   CPU vertex array when present and uncompressed, otherwise the geometry's
+   local bound, otherwise its world bound. The vertex reduction is a four-wide
+   SIMD min/max (`wide`, portable SSE/AVX/NEON with a scalar fallback). Each
+   geometry is treated on its own (never merged across an object), so a
+   multi-part object contributes tighter boxes.
+6. Reject a geometry whose world box is outside the size range or whose two
+   in-plane face extents are below `MIN_FACE_EXTENT` (128 units).
+7. Emit each face rectangle:
+   - position: face center, then offset outward by a small epsilon along the
+     face normal;
+   - size: full face extents shrunk by `PLANE_SHRINK` (0.5); `create_plane`
      halves them for the native half-extent fields;
    - rotation: row-major matrix whose columns are the in-plane tangent, the
-     patch **normal**, and the bitangent (the engine spans local X/Z and takes
+     face **normal**, and the bitangent (the engine spans local X/Z and takes
      local Y as the rectangle normal).
-9. Apply the observer distance filter/weight, score by patch area, sort, and
-   cap at `occlusion_planes_max_per_cell`. A cell listed in the TOML override
-   uses those records instead of the runtime set.
+8. Apply the observer distance filter, score each rectangle by roughly its
+   solid angle (`area / (1 + (distance/2048)^2)`), sort, and cap at
+   `occlusion_planes_max_per_cell`. A cell listed in the TOML override uses
+   those records instead of the runtime set.
 
 ### 5.2.1 Limits and risks
 
-The collector emits planes only on surface patches that are fully covered by
-their own triangles, so an axis-aligned box or a concave facade no longer
-becomes a plane over empty space and the false culling that caused object
-popping is removed. Remaining risks: the coverage grid is coarse, so a patch
-with a small hole can still pass; a patch can be a thin solid strip; and a mesh
-that moves after generation would leave a stale plane (the base-type filter
-excludes movable statics). The mitigations are the per-patch solidity test, the
-size threshold, the plane shrink, the distance range, the per-cell cap and the
-kill switch. The owner's in-game visual check remains required.
+The collector uses the geometry's own bounds, not a collision or silhouette
+proof. An axis-aligned box around a concave mesh can still over-cover empty
+space. The mitigations are the per-geometry box (never merged), a strong
+`PLANE_SHRINK` of 0.5, the size threshold, the distance range, the per-cell cap
+and the kill switch. A silhouette-accurate extraction from `NiTriShapeData`
+was prototyped but its in-memory triangle list is not yet verified against the
+running game, so it is not enabled. The owner's in-game visual check remains
+required.
 
 ### 5.3 Data file
 
@@ -428,9 +452,41 @@ cell = 0x0003C944
 Validation rejects unknown kinds, missing identity, duplicate keys,
 non-finite values, non-positive sizes, a non-unit axis when the angle is
 nonzero, and a zero axis with a nonzero angle. Records are sorted by descending
-priority and capped at `occlusion_planes_max_per_cell`. The runtime records a
-generator version and a target-cell list in the file header, not a game DLL
-hash. The shipped file has an empty `cells` array until data is generated.
+priority and capped at `occlusion_planes_max_per_cell`. The shipped file has an
+empty `cells` array until data is generated.
+
+### 5.4 Persistent plane cache
+
+Generating planes is the expensive part, so a revisited cell re-appends its
+planes instead of re-walking the meshes. The cache is a compact binary file
+(`syringe/psycho_occlusion_planes.cache`, `PSOC` magic) keyed by cell; each
+entry stores the ready rectangle (position, size, rotation, priority) and the
+`TESForm::refID` of the base form it came from, binding it to its source
+plugin.
+
+The header carries a schema/generator version (bumped whenever the extracted
+set would change for the same meshes) and a hash of the active plugin list read
+from
+`DataHandler::modList` (`*(DataHandler**)0x011C3F2C`, `modList` at `+0x210`,
+`tList<ModInfo>` with `ModInfo::name` at `+0x20` and the `WIN32_FIND_DATA` file
+size at `+0x2B8`/`+0x2BC`). The hash covers load order, names and sizes, so
+installing, uninstalling, reordering or updating a mod changes it and the whole
+cache is discarded. A
+cache entry is only consulted on a target change; a cache hit is a complete set
+and skips the settle window. Every generated set is written to the cache
+immediately, so the cache always holds the latest set even if the settle window
+is still running. The settle comparison uses a coarse, quantized plane
+signature (`FxHasher`, positions rounded to quarter units) so sub-unit engine
+jitter does not defeat stability; the window stops after two identical passes
+(`SETTLE_STABLE_PASSES`) instead of always running all five retries. This was
+the headline fix after a 2026-10-18 log showed `cached=false` and six full
+regenerations per cell change, which cost frame time and churned the occluder
+list. The file is also flushed on a debounce and on
+load/new/exit. A periodic presence check re-appends the cached planes if the
+engine cleared the occluder list without changing the cell identity, which is
+what fixes the "leave and come back" loss of planes. Changing the per-cell cap
+changes the config part of the signature, so cached sets from a different cap
+are discarded.
 
 ## 6. Phased delivery
 
@@ -479,13 +535,16 @@ Static:
 - ABI and calling conventions checked against the captured signatures;
 - corner-builder orientation and half-extent semantics proven against
   `0x00C35C10` (`0x4B4500` is row-major `M*v`; corners are `position +/- sizeX
-  * localX +/- sizeY * localZ`); solid-patch extraction and negative-scale
-  transform tests pass;
+  * localX +/- sizeY * localZ`); box-face and negative-scale transform tests
+  pass;
 - atomic `NiRefObject` increment/decrement and `DeleteThis` dispatch exercised
   by a focused test; node ownership remains as above;
 - alpha-admission, base-type admission and plane-set-signature helpers covered
   by focused tests; the `+0x9C` alpha pointer is vtable-gated so a shifted
   offset fails open;
+- cache round-trip and corrupt/signature-mismatch rejection covered by focused
+  tests; the four-wide SIMD AABB reducer is checked against a scalar reference
+  for every tail length;
 - no authored plane removal; only tracked nodes removed;
 - save/load exclusion: planes live only in the scene-graph list, never in
   reference extra data;
@@ -510,7 +569,9 @@ Behavioral (real runtime, owner-run):
 | List reset/duplicate planes | Scan-and-reconcile by plane pointer; never clear the whole list |
 | Refcount/list ownership error | Increment the `NiRefObject` count once per plane; decrement only after node removal or scene-graph replacement |
 | Startup compatibility regression | Defer all work to DeferredInit; owner Proton playtest |
-| Data staleness after load-order changes | Generator version and regeneration step; runtime does not inspect mods |
+| Data staleness after load-order changes | Cache header hashes the active plugin list (order, names, sizes) and discards the cache on any change; each plane records its source FormID |
+| Engine clears the occluder list without a cell change | Periodic presence check re-appends the cached planes |
+| Regenerating on every visit wastes work | Persistent per-cell cache; a cache hit skips the mesh walk and the settle window |
 | Event timing during visibility pass | Phase 1 verifies `ON_FRAME_PRESENT`; fallback to CellTransitionOrchestrator |
 | Config/data path errors | Path next to the DLL or explicit config; missing file disables cleanly |
 
@@ -521,9 +582,9 @@ Behavioral (real runtime, owner-run):
 - Confirm the engine's list behavior on cell unload; the design is independent
   but the log should record scan misses.
 - The triangle list offsets (`+0x44`/`+0x48`) are proven by the engine's field
-  writer, but the in-game silhouette quality of the solid-patch extraction still
-  needs the owner's visual check, and a mesh type not covered by `IsTriShape`
-  contributes no planes by design.
+  writer, but the runtime does not read the triangle list (a prototype produced
+  zero candidates and a frame-time regression in the owner's 2026-10-18 run),
+  so the current collector uses the proven box path.
 - A cell-change pass now retries a bounded settle window, but a reference whose
   3D never attaches before the window closes is still missed. The window and
   interval are `SETTLE_RETRIES`/`SETTLE_INTERVAL_FRAMES` in `runtime.rs`.
