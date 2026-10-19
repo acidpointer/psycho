@@ -2,94 +2,32 @@
 # PSYCHO ENGINE FIXES - USER CONFIGURATION
 # =============================================================================
 #
-# QUICK SETUP
+# Most players should leave everything as shipped.
 #
-# 1. Mode 2 is the performance-first complete allocator. Validate it on very
-#    large modlists; mode 1 is the broad-compatibility choice.
-# 2. Keep released engine fixes and performance options at their defaults.
-# 3. Keep the console and focused profiling tools disabled during normal play.
+# - true = on, false = off.
+# - Change one setting at a time when testing a conflict.
+# - Save the file and fully restart the game after any change.
+# - With the companion plugin, press F10 to edit these settings in game.
 #
-# Most users do not need to change anything. Every shipped setting is already
-# selected for normal play. Individual switches exist so advanced users and
-# support can isolate a specific mod conflict without disabling Psycho.
-#
-# HOW TO EDIT
-#
-# - true means ON; false means OFF.
-# - memory.allocator uses the numbered modes explained below.
-# - With the companion plugin installed, press F10 to inspect telemetry or edit
-#   these values through the in-game control deck.
-# - Save this file and fully restart the game after a change.
-#   Dashboard saves also require the same full restart.
-# - For troubleshooting, change one setting at a time. Restore it after the
-#   test so the result is clear.
-#
-# SUPPORT
-#
-# Include the Psycho log with a crash or compatibility report. If Crash Logger
-# is installed, include its log too:
-#
-#   <FalloutNV>/psycho-engine-fixes-latest.log
-#   <FalloutNV>/CrashLogger.log
-#
+# Support: include psycho-engine-fixes-latest.log in bug reports.
+# If Crash Logger is installed, include CrashLogger.log too.
 
 # =============================================================================
-# MEMORY ALLOCATOR
+# MEMORY
 # =============================================================================
 [memory]
 
-# The main user choice. This controls how much of the game's old memory system
-# Psycho replaces.
+# Allocator mode:
+#   2 = Full gheap + scrap heap. Best performance. Recommended.
+#   1 = Scrap heap only. Safer fallback; leaves the main object heap vanilla.
+#   0 = Vanilla allocators. Diagnostic only; disables both replacements.
 #
-# 2 = FULL GHEAP + SCRAP HEAP - PERFORMANCE FIRST
-#     Best performance and the complete Psycho allocator design. Syringe
-#     activates gheap at a proven pre-CRT startup boundary, before the game and
-#     later plugin systems begin normal initialization. Gheap owns the main
-#     allocation path and its initial backing from the start instead of taking
-#     over after the 32-bit address space has already been fragmented.
-#
-# 1 = SCRAP HEAP ONLY - COMPATIBILITY FALLBACK
-#     Replaces temporary scratch heaps but leaves the game's main object heap
-#     unchanged. Use this when support asks you to isolate gheap, when a setup
-#     has a confirmed incompatibility with mode 2, or for an unfamiliar extreme
-#     texture/content setup. The performance improvement is smaller.
-#
-# 0 = VANILLA ALLOCATORS - DIAGNOSTIC ONLY
-#     Disables both allocator replacements. Other engine fixes still work.
-#     Use this to prove whether a problem is allocator-related; it provides no
-#     allocator performance or memory-safety benefit.
-#
-# Technical background:
-# Fallout: New Vegas is a 32-bit process with a limited virtual address space.
-# Mode 2 validates and installs transactionally before normal game startup.
-# Initial allocator backing is reserved while Psycho still has first ownership;
-# additional small and medium ranges are reserved in bounded pieces as demand
-# appears, and pages are committed only as needed. This preserves large holes
-# for game and Direct3D allocations without surrendering early allocator
-# control. Out-of-band free metadata does not overwrite freed game-object bytes;
-# they remain readable until the cell is reused. Targeted lifetime guards cover
-# proven stale-reader failures. Pressure monitoring uses a VirtualQuery walk of
-# the actual process holes, and a failed huge allocation may retire fully empty
-# medium blocks before one retry. Final exhaustion still returns NULL; a 32-bit
-# process cannot support an unbounded content working set. The design balances
-# performance, UAF protection, and address-space pressure rather than optimizing
-# one by sacrificing the others.
-#
-# If mode 2 appears involved in a crash, test mode 1 and then mode 0. Keep the
-# Psycho and CrashLogger logs from every test; the difference between these
-# modes is much more useful than a log from only the crashing run.
+# The game is 32-bit. Mode 2 reserves memory carefully to reduce address-space
+# fragmentation. If mode 2 seems involved in a crash, test mode 1, then mode 0.
 allocator = 2
 
-# Advanced gheap experiment. KEEP OFF for normal play.
-#
-# When enabled in mode 2, Psycho performs a blocking full Process Deferred
-# Destruction (PDD) drain every 10 seconds instead of relying only on the game's
-# bounded per-frame drain. It may reclaim deferred engine resources sooner, but
-# it can cause hitches and is more aggressive toward stale-object lifetimes.
-# Enable it only for a focused memory experiment requested by the developer.
-#
-# OOM: may reclaim resources sooner. UAF: less conservative. Performance: adds
-# periodic blocking work. It has no useful effect in allocator modes 0 or 1.
+# Experimental: force the game's cleanup queue to fully drain every 10 seconds
+# in mode 2. Can cause hitches. Leave off for normal play.
 gheap_periodic_pdd_purge = false
 
 # =============================================================================
@@ -97,277 +35,134 @@ gheap_periodic_pdd_purge = false
 # =============================================================================
 [engine_fixes]
 
-# USER GUIDANCE
-#
-# Keep the correctness and crash-fix options in this section ON. Turning one
-# off does not normally improve performance; it restores the specific broken
-# vanilla behavior. Cursor confinement and system-key delivery are baseline
-# window/input fixes and are enabled for every supported window mode.
-#
-# Disable a single option only to test a suspected conflict. A "guard" is a
-# safety check that rejects an invalid or not-yet-ready engine object instead of
-# letting vanilla code dereference it and crash. Normal valid objects continue
-# through the original path.
+# These fixes prevent known crashes and broken behavior. Leave them on unless
+# support asks you to test one as a possible mod conflict. Normal valid game
+# behavior is preserved; a guard only rejects bad data.
 
-# --- Installation paths ---------------------------------------------------
+# --- Installation paths -----------------------------------------------------
 
-# Repairs the two Bethesda "Installed Path" registry values in the 32-bit
-# registry view during early startup. FalloutNV always uses the directory that
-# contains the running FalloutNV.exe. A missing, malformed, incorrectly typed,
-# or stale value is replaced; a correct value is left untouched.
-#
-# Leave ON for Windows, Wine, and Proton. Registry permission failures are
-# logged and never prevent the game from starting.
+# Repair Bethesda's 32-bit "Installed Path" registry values at startup.
+# Leave on for Windows, Wine, and Proton.
 install_path_registry_repair = true
 
-# Optional Fallout 3 directory for TTW and other tools that use Bethesda's
-# Fallout3 registry key. Leave empty to repair only FalloutNV. Psycho writes
-# this configured location without checking the directory, Fallout3.exe,
-# version, distribution, or TTW setup.
-#
-# A relative path is resolved against the directory containing FalloutNV.exe,
-# not against syringe/ or the launcher's working directory. For sibling game
-# directories, use:
-#
-# fallout3_install_path = '..\Fallout 3'
-#
-# Wine/Proton absolute paths must be Windows-visible, for example:
-#
-# fallout3_install_path = 'Z:\games\Fallout 3'
+# Optional Fallout 3 folder for TTW and tools that use Bethesda's Fallout 3
+# registry key. Empty = repair FalloutNV only. Relative paths are resolved from
+# the folder containing FalloutNV.exe. Examples:
+#   fallout3_install_path = '..\Fallout 3'
+#   fallout3_install_path = 'Z:\Games\Fallout 3'
 fallout3_install_path = ''
 
-# --- Display ---------------------------------------------------------------
+# --- Display and input ------------------------------------------------------
 
-# Fixes incorrect fullscreen size and placement at startup, renderer reset,
-# focus changes, and Alt-Tab. Leave ON unless another window-management mod has
-# a confirmed conflict.
-#
-# Technical: repairs the audited bootstrap and transition callsites while
-# preserving the live windowed position across renderer recreation. Existing
-# external window owners retain control at any boundary they already own.
+# Fix broken fullscreen size, placement, and Alt-Tab behavior at startup,
+# renderer reset, and focus changes. Leave on unless another window mod conflicts.
 display_alt_tab = true
 
-# Controls only the renderer branch selected by bFull Screen=0 in
-# FalloutPrefs.ini. When ON, Psycho creates that branch as an undecorated
-# borderless window at the configured render size. When iLocation X and
-# iLocation Y are both absent or zero, the window is centered on the selected
-# monitor. Set this OFF for an ordinary framed window.
-#
-# bFull Screen=1 always takes precedence and remains native fullscreen, even
-# while this option is ON.
+# When FalloutPrefs.ini has bFull Screen=0, use a borderless window at the
+# configured size. bFull Screen=1 always stays native fullscreen.
 display_borderless_windowed = true
 
-# Confines the system cursor to Fallout while it is foreground and not
-# minimized. Framed windows keep their caption and resize border usable;
-# borderless and native-fullscreen modes use their rendered client. A UI-thread
-# audit repairs overlays that widen or release the clip, follows geometry and
-# monitor changes, and releases unconditionally on Alt-Tab/focus loss. Useful
-# for multi-monitor play and invisible-cursor overlay input.
+# Keep the mouse inside the game window while it is active. Framed windows keep
+# their title bar and resize border usable. The cursor is released when the game
+# loses focus.
 window_cursor_lock = true
 
-# Changes both DirectInput keyboard setup branches from exclusive and/or
-# DISCL_NOWINKEY modes to shared foreground access. Windows can then receive the
-# Super/Windows key, PrintScreen, and media commands while Fallout continues to
-# receive ordinary DirectInput keys. PrintScreen may trigger both the system
-# capture and Fallout's configured BMP screenshot feature.
+# Let Windows receive the Super/Windows key, PrintScreen, and media keys while
+# the game is active. Normal game keyboard input still works.
 input_system_key_passthrough = true
 
-# --- Saves and loaded data -------------------------------------------------
+# --- Saves and load safety --------------------------------------------------
 
-# Prevents the game from claiming that a save succeeded when the file was only
-# partly written or could not safely replace the previous save. Also rejects
-# malformed changed records before they can overrun a load buffer. Leave ON.
-#
-# Technical: flushes and closes the completed temporary file, rotates the
-# configured backups, and atomically promotes the new .fos. Failed promotion
-# keeps or restores the old save when possible. Load checks use the engine's
-# own rejection path and skip records whose source plugin is unavailable.
+# Write saves durably and reject corrupt load records. A failed save does not
+# replace your previous save. Leave on.
 save_integrity_fix = true
 
-# Prevents a pathfinding crash caused by a tiny invalid pointer where the game
-# expects NavMeshInfo. The bad value is treated as "no path identity."
+# Treat a tiny invalid pathfinding pointer as "no path" instead of crashing.
 navmesh_low_pointer_guard = true
 
-# Prevents corrupt container data from crashing save/load. Entries whose item
-# type form is invalid are dropped before vanilla code dereferences them.
+# Drop broken inventory entries during save/load. Other items are untouched.
 entrydata_invalid_form_guard = true
 
-# Prevents a load-over-live crash while the game retires a dynamically
-# generated NPC or creature base form. Before vanilla destroys that actor's
-# inventory/container list, Psycho validates every item record and list node.
-#
-# If the list is corrupt, Psycho detaches the complete uncertain list from the
-# actor that is already being destroyed, then lets the original destructor
-# continue. It never dereferences, repairs, or frees a pointer that fails those
-# checks. A valid container is unchanged; a corrupt detached list may leak its
-# remaining small allocations rather than risk a use-after-free or invalid
-# free.
-#
-# Only dynamically generated FF-prefixed actors receive the full validation.
-# It proves list storage through the selected allocator and proves each item
-# form through the engine's live-form registry; it does not guess from page
-# readability. Ordinary actor retirement performs only a direct form-ID check.
-#
-# This guard works with full gheap, scrap_heap only, and vanilla allocators.
-# Leave it ON unless isolating a confirmed hook conflict.
+# Detach a corrupt inventory list from a generated NPC or creature while it is
+# being destroyed. Valid lists are untouched; a corrupt list may leak.
 actor_container_retirement_guard = true
 
-# Prevents an animation-sequence destructor from treating unresolved legacy
-# string-palette offsets as reference-counted NiFixedString pointers. Psycho
-# validates the retiring sequence's allocator-owned IDTag array boundary before
-# examining it. A record containing an impossible low fixed-string body or the
-# legacy 0xFFFFFFFF null sentinel is discarded as one unit, then the native
-# destructor releases every remaining valid record normally.
-#
-# Known-invalid array storage is detached at final retirement and may leak
-# rather than be traversed or freed through an uncertain pointer. Structurally
-# plausible high addresses outside Psycho's proven allocation domains remain
-# untouched. This works with allocator modes 0, 1, and 2. Leave it ON unless
-# isolating a confirmed destructor-hook conflict.
+# Prevent a crash when a broken animation is cleaned up. Valid animations are
+# unchanged.
 animation_sequence_idtag_retirement_guard = true
 
-# Prevents corrupt ownership data from crashing the game or xNVSE. An invalid
-# ExtraOwnership owner pointer is converted to "no owner."
+# Treat an invalid item owner as "no owner" instead of following a bad pointer.
 extraownership_invalid_owner_guard = true
 
-# Prevents reference, cell, or worldspace encounter-zone data from being used
-# as a BGSEncounterZone when it contains an unresolved FormID or another
-# invalid pointer. Psycho removes only the exact rejected source and retries
-# the native reference -> cell -> worldspace precedence before returning NULL.
+# Remove an invalid encounter-zone link, then fall back to a valid cell or
+# worldspace zone.
 encounter_zone_invalid_form_guard = true
 
-# Prevents AI patrol selection from calling an actor-only virtual method when a
-# saved patrol-owner FormID has been reused by a different kind of live form.
-# Psycho validates only this patrol-owner lookup. A wrong subtype becomes NULL,
-# letting vanilla clear the stale saved ID and continue marker selection.
-#
-# Character and Creature results remain unchanged. Because the extra contains
-# no generation token, reuse by another actor of the same subtype is not
-# distinguishable. Leave this ON unless isolating a confirmed hook conflict.
+# Ignore a stale patrol owner ID that now belongs to a different kind of form.
 patrol_owner_form_id_guard = true
 
-# Prevents a retired reference from remaining in its cell's render-phase list
-# after the reference has been freed. This can occur when mutable reference
-# state changes between native list insertion and removal, including corpse
-# state transitions caused by later damage.
-#
-# Technical: replaces the mutable predicate-result branch with a dispatcher.
-# The existing true-path call owner remains untouched; only the formerly skipped
-# false path calls the engine's exact render-list removal helper. The retiring
-# pointer is an opaque comparison key and is never dereferenced or freed by
-# Psycho. This fix is allocator-independent and does not require the helper or
-# another xNVSE plugin.
+# Remove a dead reference from its cell render list before it is used. Live
+# references are untouched.
 cell_render_reference_retirement_fix = true
 
-# Prevents a save-to-save transition crash when a deleted or unloading
-# reference retains a stale linked-reference child list. Only that corrupt list
-# is ignored during cleanup.
+# Ignore a stale linked-reference child list during a save transition.
 linked_ref_children_stale_list_guard = true
 
-# Prevents activation and linked-reference crashes when ExtraLinkedRef targets
-# a reference with a broken base form. The invalid optional link is skipped.
+# Skip a linked reference whose target has a broken base form.
 linked_ref_target_base_form_guard = true
 
-# --- Ragdoll and Havok physics --------------------------------------------
+# --- Physics ----------------------------------------------------------------
 
-# Skips a ragdoll update only while its bone pointer table is incomplete. The
-# next frame tries again, avoiding a crash without disabling the ragdoll.
+# Skip a ragdoll update until its bone table is ready, then retry next frame.
 ragdoll_null_bone_guard = true
 
-# Treats a best-effort ragdoll penetration raycast as "no hit" for one frame
-# when its Havok phantom has already detached from the physics world.
+# Treat a ragdoll raycast against a detached physics body as "no hit" for that
+# frame.
 ragdoll_detached_phantom_guard = true
 
-# Enables shared Havok NULL protection and batch array admission. Native slots,
-# counts, and cleanup are preserved. Either this or the pending setting enables
-# the complete shared flow; set both false to omit that flow. Each setting also
-# selects its own entry's array-envelope admission.
+# Skip empty slots when adding physics entities. Valid entities still load.
+# This also enables shared physics NULL protection.
 havok_add_entity_batch_null_guard = true
 
-# Enables shared Havok NULL protection and pending array admission. The native
-# pending stages skip NULL at their actual reads and retain native cleanup.
-# Shared NULL protection remains active while either setting is true.
+# Skip empty slots in the pending physics add list. Valid objects still load.
+# Shared NULL protection stays on while either this or the add-batch option is on.
 havok_pending_add_null_guard = true
 
-# Skips invalid collision pairs before Havok dispatches through its collision-
-# agent table. Valid narrowphase collision work is unchanged.
+# Drop an invalid collision pair before physics dispatch. Valid collisions are
+# unchanged.
 havok_narrowphase_invalid_pair_guard = true
 
-# Skips the AddedToWorld callback when Havok supplies a NULL entity pointer.
+# Skip the AddedToWorld callback when physics supplies no entity.
 havok_post_add_null_entity_guard = true
 
-# Prevents an AI-thread Havok crash caused by rereading a broadphase slot after
-# agent work has already made that slot NULL.
-#
-# Technical: the reread supplies an argument that the unlock wrapper does not
-# use. Psycho preserves the critical-section unlock and removes only the unsafe
-# dead-argument load.
+# Remove an unsafe second read during physics-agent removal. The required unlock
+# is preserved.
 havok_remove_agent_null_reread_guard = true
 
-# --- Allocation failure and object lifetime -------------------------------
+# --- Memory and background tasks -------------------------------------------
 
-# Prevents two known out-of-memory paths from writing an alignment marker or
-# zeroing memory through a NULL allocation result. It also prevents an
-# incomplete NiPixelData object from reaching the image-converter provider
-# after its backing allocation fails; the converter caller's native
-# false-result path then abandons the operation instead of copying through a
-# NULL-derived field.
-#
-# Technical: only the two unsafe allocator consumers and the proven NiPixelData
-# converter callsite are covered. Psycho does not patch the global memset hot
-# path, classify allocator ownership, or replace an installed image converter.
+# Stop two out-of-memory paths from writing through a null pointer, and abort an
+# incomplete texture conversion instead of crashing.
 memset_null_dst_guard = true
 
-# Fixes ownership of LowProcess generic-location lists and contains already-
-# corrupt entries before live reference scans and while saving. This prevents
-# non-owned reference payloads from being freed or dereferenced and invalid
-# forms from being serialized as live references.
-#
-# Technical: list nodes are removed without freeing their TESObjectREFR
-# payloads. The fix remains compatible with mods that replace the cleanup or
-# reference-scan vtable slots by wrapping the current valid executable owner.
-# The guards do not select or call an allocator and work in memory modes 0-2.
+# Keep actor location lists from freeing references they do not own, and contain
+# corrupt entries while saving.
 lowprocess_generic_locations_fix = true
 
-# Serializes the complete native EditorMarker/model post-process transaction.
-# The engine stores its active scene root and current traversal target in
-# process-global slots. Without serialization, the main thread and a native
-# model worker can overlap even when [io].parallel_enabled is false; one
-# traversal may clear the other traversal's target between a check and reload.
-#
-# Technical: Psycho wraps the sole external direct call, captures and chains
-# any executable owner already installed there, and leaves recursive scene-node
-# visits inside one lock acquisition. The guard performs no engine allocation
-# or free and is compatible with vanilla heap, scrap_heap only, and
-# gheap + scrap_heap. Leave it ON unless isolating a confirmed hook conflict.
+# Prevent model loading from racing over shared model-processing state. Model
+# output is unchanged.
 model_postprocess_serialization_fix = true
 
-# Guards queued-task acquisition, virtual dispatch, and holder release.
-# Rejects invalid reference-map values before native retention and retires
-# their stale bindings. Dispatch and release also reject incompatible object
-# layouts and invalid intrusive reference counts before mutating counts or
-# invoking callbacks.
-#
-# This is an engine lifetime fix, not a gheap workaround, and remains useful in
-# every allocator mode. This switch controls all three guard stages.
+# Reject dead or malformed background tasks before dispatch or release. Valid
+# tasks are unchanged.
 queued_task_lifetime_guard = true
 
-# Prevents the shared source-texture cache publisher from calling through
-# unreadable or non-executable virtual dispatch. The guard checks the three
-# callbacks used immediately by the native publisher and confirms that the
-# source still names the same vtable before forwarding. Valid objects and
-# plugin-provided executable callbacks are left unchanged.
-#
-# A rejected object is not retained, released, freed, repaired, or substituted;
-# only that cache insertion is skipped. The check does not prove or repair the
-# unknown invalidating owner. It applies with allocator modes 0, 1, and 2 and
-# does not identify or special-case any mod.
+# Reject an invalid texture-cache object before its callbacks are used. Valid
+# textures are unchanged.
 source_texture_cache_publication_guard = true
 
-# Removes only NULL entries from a Tile's active value array before Fallout or
-# an installed provider searches it. This contains the proven NULL-slot crash
-# without inspecting, freeing, or changing valid Tile values. Leave ON unless
-# isolating a confirmed hook conflict.
+# Remove empty slots from a UI tile value list before lookup. Valid tile values
+# are untouched.
 tile_value_null_slot_guard = true
 
 # =============================================================================
@@ -375,11 +170,8 @@ tile_value_null_slot_guard = true
 # =============================================================================
 [io]
 
-# Uses one primary and one bounded supplemental native IOManager worker.
-# Supplemental work is admitted only while the primary is active, runs below
-# normal priority, and returns to wait after one task. Psycho also expands
-# per-thread map capacity and guards proven process-global cell-owner,
-# AutoWater, model, tree, and geometry state.
+# Use two loading workers while guarding shared game state. Keep on for faster
+# loading; turn off only to isolate a loading-related conflict.
 parallel_enabled = true
 
 # =============================================================================
@@ -387,38 +179,32 @@ parallel_enabled = true
 # =============================================================================
 [lod]
 
-# Improves terrain, distant-object, and distant-tree loading while correcting
-# the cell-wide handoff from distant geometry to real reference 3D.
+# Improve distant terrain, object, and tree loading. Keep on.
 enabled = true
 
-# Requests native LOD work before the vanilla visibility boundary. This moves
-# existing IO and main-thread completion work earlier; it does not add a new
-# worker, queue, or scene publication path.
+# Request distant scenery slightly before it becomes visible. Reduces pop-in.
 prefetch_enabled = true
 
-# Replaces vanilla lifetime-total readiness with current cell/reference
-# identity. Keep ON: removed references must not authorize later retirement.
+# Stop stale lifetime counters from unloading distant scenery that is still
+# needed.
 handoff_fix_enabled = true
 
-# Raises visible native LOD tasks and their dependencies to priority 0. Work
-# requested only by Psycho's early-prefetch radius keeps its native background
-# priority, preventing speculative terrain/object/tree bursts from displacing
-# immediately visible loading.
+# Give visible distant loading priority over background prefetch work.
 priority_boost_enabled = true
 
-# Yield ordinary real-model attachment bursts at the existing native deadline.
-# Blocking loads retain the full drain. Changes require a restart.
+# Limit ordinary model attachment work at the game's loading deadline.
+# Restart required.
 attachment_budget_enabled = true
 
-# Request object and tree blocks 35 percent earlier, then retain them to 150
-# percent of their original distance to prevent boundary churn.
+# Prefetch and retention multipliers, 1.0 to 2.0.
+# Higher prefetch = load earlier and reduce pop-in.
+# Higher retention = keep distant scenery longer and use more memory.
 object_prefetch_multiplier = 1.35
 object_retention_multiplier = 1.50
 tree_prefetch_multiplier = 1.35
 tree_retention_multiplier = 1.50
 
-# Terrain uses smaller margins because recursive quadtree expansion grows work
-# and memory more quickly than object or tree blocks.
+# Terrain uses smaller margins because it grows work and memory faster.
 terrain_prefetch_multiplier = 1.10
 terrain_retention_multiplier = 1.20
 
@@ -427,96 +213,50 @@ terrain_retention_multiplier = 1.20
 # =============================================================================
 [performance]
 
-# Keep these options ON for normal play. Turn one off only to isolate the named
-# system during troubleshooting.
-
-# Replaces the game's old Mersenne Twister with a much faster per-thread random
-# generator. Output ranges and special game call cases remain compatible.
-#
-# Technical: the exact random sequence is intentionally different from
-# vanilla. Turn this off if testing a mod that depends on vanilla's deterministic
-# RNG sequence rather than only its numeric range.
+# Faster random numbers. Ranges and game cases remain compatible; the exact
+# sequence differs from vanilla.
 rng = true
 
-# Uses a faster zlib implementation for compressed archives and game data.
-# This can reduce decompression time during startup, save loading, and cell
-# transitions. It does not change textures, meshes, plugins, save format, or
-# image quality.
-#
-# Technical: the replacement preserves the zlib stream contract and verifies
-# the Adler-32 checksum. It changes how bytes are decompressed, not the bytes
-# produced. Turn it off only to isolate an archive/decompression conflict.
+# Faster decompression for saves and archives. Content is unchanged.
 zlib = true
 
-# Reduces the first-frame stall after loading a save by running process-manager
-# reconciliation before the successful load returns. Keep ON for normal play.
-#
-# Technical: vanilla performs the same reconciliation in the first rendered
-# frame. This guarded prepass drains accumulated quest, cell, and reference work
-# while the load transition is still active. It may move a small amount of work
-# into the loading transition so the first playable frame has less backlog.
+# Finish post-load cleanup before the first playable frame.
 post_load_reconciliation_prepass = true
 
-# Reduces CPU work when sorting the lights that affect an object.
-# Reuses light calculations within each sort to avoid repeating the same work.
-# Enabled by default.
+# Visibility and lighting speedups. They remove repeated CPU work; the final
+# image and visibility decisions are unchanged.
+#
+# Reuse repeated light math when sorting an object's lights.
 light_property_score_reuse = true
-
-# Reduces CPU work when selecting lights for shadows and the current view.
-# Searches each light list in order, avoiding repeated searches from the start.
-# Enabled by default.
+# Search each scene-light list once instead of restarting from the beginning.
 scene_light_sequential_scan = true
-
-# Removes redundant setup work when checking object bounds against the view.
+# Remove redundant setup in object-bounds visibility tests.
 multibound_frustum_tests = true
-
-# Removes redundant setup work when building visibility bounds through portals.
+# Remove redundant setup in compound and portal visibility bounds.
 multibound_vertex_setup = true
-
-# Reduces repeated bookkeeping when testing visibility through portals.
+# Reduce repeated bookkeeping in compound visibility loops.
 multibound_loop_bookkeeping = true
-
-# Avoids searching the same room visibility entry twice when adding it.
+# Combine room lookup and insertion into one search.
 scene_root_admission = true
-
-# Removes redundant index calculations when preparing object transforms.
+# Remove redundant index work when building object transforms.
 inverse_world_index_setup = true
 
-# Injects occlusion planes for cells that have no authored visibility data, so
-# objects behind large solid buildings are rejected before scene traversal and
-# draw submission. It does not modify any plugin and does not touch authored
-# occluders or rooms.
-#
-# Enabled by default. The planes are collected from the player's loaded cell
-# using its uncompressed mesh vertices and live world transforms; with
-# occlusion_planes_grid_radius nonzero, complete cached neighbor sets are reused
-# as well. Geometry whose vertices are unavailable or compressed is skipped
-# instead of using a loose sphere bound.
+# Add invisible occluders to cells without authored visibility data, so hidden
+# objects behind large solid buildings are rejected earlier.
 occlusion_planes = true
 
-# Shared injection budget. Candidate planes from the player's cell and, when
-# occlusion_planes_grid_radius is nonzero, from the cached neighbor cells
-# compete for this many native occluders by approximate solid angle, so the
-# total injected count stays bounded. Also the per-cell candidate cap.
+# Shared budget and per-cell cap for generated occluders (1 to 256). Nearby
+# cells share the same budget.
 occlusion_planes_max_per_cell = 128
 
-# Loaded exterior-cell grid radius for cached occluder coverage. `0` is the
-# player-cell-only behavior and the safe default. `1` also reuses the loaded
-# neighbors' occluders, but only from complete cache entries: a neighbor is
-# generated once when it is the player's own cell, then reused by key. No
-# neighbor mesh walk runs on a frame or cell-crossing path, so there is no
-# per-frame generation cost. Neighbors share the max_per_cell budget.
+# 0 = player cell only. 1 or 2 = also reuse cached occluders from nearby loaded
+# cells. Neighbors are cached, not regenerated every frame.
 occlusion_planes_grid_radius = 0
 
-# Generated-plane cache, relative to the game directory or absolute. Revisited
-# cells re-append their planes from here instead of re-walking the meshes. The
-# cache is discarded automatically when the active plugin list changes.
+# Generated-plane cache, relative to the game folder or absolute.
 occlusion_planes_cache_path = "syringe/psycho_occlusion_planes.cache"
 
-# Write the verbose per-cell occlusion-plane diagnostics (mesh walk counters,
-# per-cell rebuild summaries, presence checks) to the log at debug level. Off
-# by default so the log stays readable; warnings and errors always log. Turn it
-# on only while investigating the feature, together with debug_log = true.
+# Verbose occlusion-plane diagnostics. Off for normal play; requires debug_log.
 occlusion_planes_debug_log = false
 
 # =============================================================================
@@ -524,34 +264,19 @@ occlusion_planes_debug_log = false
 # =============================================================================
 [diagnostics]
 
-# Adds detailed diagnostic messages to psycho-engine-fixes-latest.log.
-# Recommended ON: these messages are important for allocator and crash reports.
-#
-# Turning this off does NOT disable the log file. Normal informational and
-# warning messages are still written; only verbose debug detail is omitted.
+# Detailed log for bug reports. Keep on.
 debug_log = true
 
-# Opens a separate Windows console showing live log output. Useful when
-# developing or watching startup in real time; unnecessary during normal play.
+# Open a separate Windows console with live log output. Off for normal play.
 console = false
 
-# Records high-resolution timings around many engine hooks and writes [HITCH]
-# reports. Enable only while reproducing a specific hitch, then turn it off.
-#
-# This adds timer reads to hot paths and requires debug_log = true for timing
-# summaries. Normal hang, memory-pressure, and guard diagnostics do not require
-# it. Slow radio scans also receive [RADIO_SCAN] attribution while enabled.
+# High-resolution hitch timing. Adds overhead; enable only while testing.
+# Requires debug_log.
 hitch_profiling = false
 
-# Records the last 256 queued-task retain, release, dispatch, and rejection
-# events for focused lifetime-crash research. It has no normal-play benefit.
-#
-# Enable only when requested. It requires queued_task_lifetime_guard = true;
-# keep debug_log = true so a triggered trace can be written to the log.
+# Record the last 256 queued-task events for crash research.
+# Requires queued_task_lifetime_guard = true.
 task_lifetime_trace = false
 
-# Records the last 256 meaningful LOD membership, readiness, gate, and reset
-# events and counts actual terrain/object/tree demand decisions. Enable only
-# while investigating LOD behavior. Demand counters stay zero when disabled;
-# release decisions do not measure completed unloading or recovered memory.
+# Record LOD streaming events for troubleshooting.
 lod_streaming_trace = false

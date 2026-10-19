@@ -67,113 +67,110 @@ const RELOAD_BUTTON: [f32; 4] = [0.40, 0.25, 0.07, 1.0];
 const RELOAD_HOVERED: [f32; 4] = [0.62, 0.39, 0.10, 1.0];
 const RELOAD_ACTIVE: [f32; 4] = [0.82, 0.51, 0.12, 1.0];
 
-const HOVER_HELP_HINT: &str =
-    "Hover a setting or technical label for a plain-language explanation.";
+const HOVER_HELP_HINT: &str = "Hover any setting for a short, plain-language explanation.";
 
-const ENGINE_FIX_HELP: [(&str, &str); 23] = [
+const ENGINE_FIX_HELP: [(&str, &str); 25] = [
     (
-        "Display / Alt-Tab repair",
-        "Keeps fullscreen startup, renderer resets, focus changes, and Alt-Tab from using broken window size or placement. Leave it on unless another window mod has a confirmed conflict.",
+        "Fullscreen / Alt-Tab fix",
+        "Fixes broken fullscreen size, placement, and Alt-Tab behavior. Normal window handling stays unchanged.",
     ),
     (
-        "Durable save integrity",
-        "Replaces the previous save only after the new file is fully written. It also rejects malformed load records before they can overrun memory.",
+        "Save file integrity",
+        "Writes saves durably and rejects corrupt load records. A failed save never replaces your previous save.",
     ),
     (
-        "NavMesh low-pointer guard",
-        "Stops pathfinding from treating a tiny invalid number as a real navigation object. Normal pathfinding is unchanged.",
+        "Pathfinding pointer guard",
+        "Treats a tiny invalid pathfinding pointer as no path instead of crashing. Valid paths are unchanged.",
     ),
     (
-        "Container EntryData guard",
-        "Drops only a broken inventory entry when its item form is invalid, preventing that entry from crashing save or load.",
+        "Inventory entry guard",
+        "Drops a broken inventory entry during save or load. Other items are untouched.",
     ),
     (
-        "Dynamic actor container guard",
-        "Checks the inventory list of a generated NPC or creature while an old live game is being replaced. A corrupt list is detached instead of followed and freed.",
+        "Actor container guard",
+        "Detaches a corrupt generated-actor inventory list before destruction. Valid lists are untouched; a corrupt list may leak.",
     ),
     (
-        "Animation sequence ID-tag guard",
-        "Discards unresolved animation-sequence ID tags before legacy fixed-string release, so a corrupt palette record is not followed as a pointer.",
+        "Animation cleanup guard",
+        "Prevents a crash when a broken animation is cleaned up. Valid animations are unchanged.",
     ),
     (
-        "ExtraOwnership guard",
-        "Treats corrupt item ownership data as 'no owner' instead of letting the game or xNVSE follow an invalid owner pointer.",
+        "Ownership data guard",
+        "Treats an invalid item owner as no owner instead of following a bad pointer. Valid ownership is unchanged.",
     ),
     (
-        "Encounter-zone form guard",
-        "Removes only an exact unresolved or invalid encounter-zone source, then preserves the game's valid cell and worldspace fallbacks.",
+        "Encounter-zone guard",
+        "Removes an invalid encounter-zone link and falls back to a valid cell or worldspace zone.",
     ),
     (
-        "Cell render retirement repair",
-        "Removes a retiring reference from its cell's borrowed render list before later phase work can follow a freed corpse or object pointer. It does not inspect or free the reference itself.",
+        "Patrol owner guard",
+        "Ignores a stale patrol owner ID that now belongs to a different kind of form. Valid patrols are unchanged.",
     ),
     (
-        "Linked-ref stale child guard",
-        "Ignores a stale linked-reference child list left behind by a deleted or unloading object during a save transition.",
+        "Cell cleanup fix",
+        "Removes a dead reference from its cell render list before it is used. Live references are untouched.",
     ),
     (
-        "Linked-ref target guard",
-        "Skips an optional linked reference when its target has a broken base form, avoiding activation and linked-reference crashes.",
+        "Linked-reference cleanup",
+        "Ignores a stale linked-reference child list during a save transition. Valid links are unchanged.",
     ),
     (
-        "Ragdoll bone-table guard",
-        "Skips one ragdoll update while its bone table is incomplete. A later frame tries again once the skeleton is ready.",
+        "Linked-reference target guard",
+        "Skips a linked reference whose target has a broken base form. Valid links still work.",
     ),
     (
-        "Detached phantom guard",
-        "Returns 'no hit' for one ragdoll raycast when its collision phantom has already left the physics world.",
+        "Ragdoll bone guard",
+        "Skips a ragdoll update until its bone table is ready, then retries. Normal ragdolls are unchanged.",
     ),
     (
-        "Havok add-batch guard",
-        "Removes empty entity slots from a Havok add batch while preserving every valid physics entity in that batch.",
+        "Ragdoll raycast guard",
+        "Treats a ragdoll raycast against a detached physics body as no hit for that frame.",
     ),
     (
-        "Havok pending-add guard",
-        "Removes empty slots before Havok flushes its pending-add list. Valid pending physics objects continue normally.",
+        "Physics add-batch guard",
+        "Skips empty slots when adding physics entities. Valid entities still load.",
     ),
     (
-        "Havok narrowphase guard",
-        "Rejects a broken collision pair before Havok chooses a collision handler. Valid collision work is unchanged.",
+        "Physics pending-add guard",
+        "Skips empty slots in the pending physics add list. Valid pending objects still load.",
     ),
     (
-        "Havok post-add guard",
-        "Skips the impossible AddedToWorld callback when Havok supplies no entity. Normal post-add callbacks still run.",
+        "Physics collision-pair guard",
+        "Drops an invalid collision pair before physics dispatch. Valid collisions are unchanged.",
     ),
     (
-        "Havok remove-agent guard",
-        "Removes an unnecessary second read of a physics slot that may already be empty, while keeping the required unlock operation.",
+        "Physics callback guard",
+        "Skips the AddedToWorld callback when physics supplies no entity. Valid callbacks still run.",
     ),
     (
-        "Allocator NULL memset guard",
-        "Stops two known out-of-memory paths from writing through address zero when an allocation fails. It is not a global memset hook.",
+        "Physics unlock guard",
+        "Removes an unsafe second read during physics-agent removal. The required unlock is preserved.",
     ),
     (
-        "LowProcess ownership repair",
-        "Keeps unloaded-actor location lists from freeing references they only borrow, and contains corrupt entries while saving.",
+        "Out-of-memory write guard",
+        "Stops two out-of-memory paths from writing through a null pointer. It also aborts an incomplete texture conversion instead of crashing.",
     ),
     (
-        "Model postprocess serialization",
-        "Prevents concurrent model loads from replacing shared EditorMarker traversal state between a safety check and use. It remains active with vanilla IO.",
+        "Actor location-list guard",
+        "Keeps actor location lists from freeing references they do not own, and contains corrupt entries while saving.",
     ),
     (
-        "Queued-task lifetime guard",
-        "Stops a dead texture or background task before the game calls or releases it again. Useful with every allocator mode.",
+        "Model load serialization",
+        "Prevents model loading from racing over shared model-processing state. Model output is unchanged.",
+    ),
+    (
+        "Queued-task guard",
+        "Rejects dead or malformed background tasks before dispatch or release. Valid tasks are unchanged.",
     ),
     (
         "Texture cache guard",
-        "Rejects unreadable or non-executable source-texture dispatch before the shared cache publisher calls it. Valid objects and mod-provided executable callbacks continue unchanged.",
+        "Rejects an invalid texture-cache object before its callbacks are used. Valid textures are unchanged.",
+    ),
+    (
+        "Tile cleanup guard",
+        "Removes empty slots from a UI tile value list before lookup. Valid tile values are untouched.",
     ),
 ];
-
-const PATROL_OWNER_FORM_ID_HELP: (&str, &str) = (
-    "Patrol owner FormID guard",
-    "Stops patrol selection from calling an actor-only operation when a saved patrol owner ID now resolves to another kind of live form. Valid NPC and creature owners are unchanged.",
-);
-
-const TILE_VALUE_INTEGRITY_HELP: (&str, &str) = (
-    "Tile-value NULL guard",
-    "Drops only impossible NULL slots from the Tile-value list before a consumer follows them. Valid tile data is unchanged.",
-);
 
 static READY: AtomicBool = AtomicBool::new(false);
 static OPEN_REQUESTED: AtomicBool = AtomicBool::new(false);
@@ -2189,12 +2186,12 @@ fn draw_configuration(ui: &mut Ui<'_>, editor: &mut ConfigEditor, pending_reload
     page_heading(
         ui,
         "Configuration",
-        "Edit Psycho settings safely without implying that they change the current session.",
+        "Edit settings for the next launch. Nothing here changes the current session.",
     );
     notice_card(
         ui,
         "restart_configuration_notice",
-        "Changes are not live. Saving updates the TOML file for the next full game launch; the current process keeps its startup configuration.",
+        "Saving updates the TOML file for the next full game launch. The current session keeps its startup settings.",
         WARN,
     );
     ui.text_colored(MUTED, &cstring(HOVER_HELP_HINT));
@@ -2213,17 +2210,17 @@ fn draw_configuration(ui: &mut Ui<'_>, editor: &mut ConfigEditor, pending_reload
         (
             0,
             "Vanilla allocators",
-            "Uses the original New Vegas main and temporary heaps. Choose this only for an allocator-free compatibility comparison.",
+            "Uses the original game heaps. Diagnostic only; no allocator speed or safety benefit.",
         ),
         (
             1,
             "Scrap heap only",
-            "Replaces short-lived temporary allocations but leaves the main game-object heap original. This is the lower-risk compatibility mode.",
+            "Replaces short-lived allocations but leaves the main object heap vanilla. Lower-risk fallback.",
         ),
         (
             2,
             "Full gheap + scrap heap",
-            "Uses Psycho's complete main and temporary heap replacement for the best allocator performance. Validate it with your modlist.",
+            "Replaces the main and temporary heaps with Psycho's fast allocators. Best performance; test with your modlist.",
         ),
     ] {
         if index != 0 {
@@ -2235,9 +2232,9 @@ fn draw_configuration(ui: &mut Ui<'_>, editor: &mut ConfigEditor, pending_reload
     }
     checkbox_help(
         ui,
-        "Periodic full PDD purge (experimental)",
+        "Periodic full cleanup purge (experimental)",
         &mut config.gheap_periodic_pdd_purge,
-        "PDD means Process Deferred Destruction: the game's queues for objects waiting to be destroyed. A forced full drain can stall, so keep this experiment off for normal play.",
+        "Forces the game's cleanup queue to fully drain every 10 seconds in mode 2. May cause hitches; leave off for normal play.",
     );
 
     ui.spacing();
@@ -2246,7 +2243,7 @@ fn draw_configuration(ui: &mut Ui<'_>, editor: &mut ConfigEditor, pending_reload
         ui,
         "Repair Fallout install paths",
         &mut config.install_path_registry_repair,
-        "At the next early startup, repairs the 32-bit Bethesda Installed Path values. FalloutNV always uses the directory containing FalloutNV.exe; Fallout 3 uses the optional path below.",
+        "Repairs the 32-bit Bethesda install-path registry values at startup. FalloutNV always uses its own folder.",
     );
     ui.text_colored(
         MUTED,
@@ -2256,7 +2253,7 @@ fn draw_configuration(ui: &mut Ui<'_>, editor: &mut ConfigEditor, pending_reload
         ui,
         "Fallout 3 path",
         &mut config.fallout3_install_path,
-        "Accepts a Windows-visible absolute path such as Z:\\Games\\Fallout 3 or a path relative to the FalloutNV.exe directory such as ..\\Fallout 3. Psycho normalizes the text but does not inspect the Fallout 3 installation.",
+        "Optional Fallout 3 folder for TTW and tools. Use a Windows-visible path or a path relative to FalloutNV.exe.",
     );
 
     ui.spacing();
@@ -2265,26 +2262,26 @@ fn draw_configuration(ui: &mut Ui<'_>, editor: &mut ConfigEditor, pending_reload
         ui,
         "Borderless windowed",
         &mut config.display_borderless_windowed,
-        "When FalloutPrefs.ini has bFull Screen=0, removes the window frame and keeps the configured render size. bFull Screen=1 always remains native fullscreen.",
+        "Removes the window frame when bFull Screen=0. bFull Screen=1 stays native fullscreen.",
     );
     checkbox_help(
         ui,
         "Lock cursor to game window",
         &mut config.window_cursor_lock,
-        "While the game is foreground, confines the cursor to its mode-appropriate boundary while keeping framed captions and resize borders usable. Repairs overlay unclipping, follows movement across monitors, and releases on Alt-Tab, focus loss, or minimization.",
+        "Keeps the mouse inside the game window while active. Framed title bars and resize borders stay usable; the cursor is released when the game loses focus.",
     );
     checkbox_help(
         ui,
         "Allow system and media keys",
         &mut config.input_system_key_passthrough,
-        "Lets Windows receive the Super/Windows key, PrintScreen, and media commands while the game is active. The game still receives normal DirectInput keyboard input; PrintScreen may also keep creating Fallout's BMP screenshot.",
+        "Lets Windows receive the Windows key, PrintScreen, and media keys while playing. Normal game input still works.",
     );
 
     ui.spacing();
-    ui.separator_text(&cstring("Engine safety"));
+    ui.separator_text(&cstring("Engine fixes"));
     ui.text_colored(
         MUTED,
-        &cstring("Keep these enabled unless isolating a confirmed conflict."),
+        &cstring("These prevent known crashes. Leave them on unless testing a conflict."),
     );
     let engine_fix_values: [&mut bool; ENGINE_FIX_HELP.len()] = [
         &mut config.display_alt_tab,
@@ -2295,6 +2292,7 @@ fn draw_configuration(ui: &mut Ui<'_>, editor: &mut ConfigEditor, pending_reload
         &mut config.animation_sequence_idtag_retirement_guard,
         &mut config.extraownership_invalid_owner_guard,
         &mut config.encounter_zone_invalid_form_guard,
+        &mut config.patrol_owner_form_id_guard,
         &mut config.cell_render_reference_retirement_fix,
         &mut config.linked_ref_children_stale_list_guard,
         &mut config.linked_ref_target_base_form_guard,
@@ -2310,174 +2308,171 @@ fn draw_configuration(ui: &mut Ui<'_>, editor: &mut ConfigEditor, pending_reload
         &mut config.model_postprocess_serialization_fix,
         &mut config.queued_task_lifetime_guard,
         &mut config.source_texture_cache_publication_guard,
+        &mut config.tile_value_null_slot_guard,
     ];
-    for ((label, help), value) in ENGINE_FIX_HELP.into_iter().zip(engine_fix_values) {
+    for (index, ((label, help), value)) in ENGINE_FIX_HELP
+        .into_iter()
+        .zip(engine_fix_values)
+        .enumerate()
+    {
+        if let Some(header) = engine_fix_group(index) {
+            ui.spacing();
+            ui.separator_text(&cstring(header));
+        }
         checkbox_help(ui, label, value, help);
     }
-    checkbox_help(
-        ui,
-        PATROL_OWNER_FORM_ID_HELP.0,
-        &mut config.patrol_owner_form_id_guard,
-        PATROL_OWNER_FORM_ID_HELP.1,
-    );
-    checkbox_help(
-        ui,
-        TILE_VALUE_INTEGRITY_HELP.0,
-        &mut config.tile_value_null_slot_guard,
-        TILE_VALUE_INTEGRITY_HELP.1,
-    );
 
     ui.spacing();
-    ui.separator_text(&cstring("IO and LOD streaming"));
+    ui.separator_text(&cstring("Loading and distant world"));
     checkbox_help(
         ui,
-        "Parallel native IO",
+        "Parallel loading",
         &mut config.parallel_io,
-        "Uses two game-owned loading workers while serializing unsafe per-form, AutoWater, model, tree, and geometry transactions.",
+        "Uses two game loading workers while guarding shared state. Faster loading with the same content.",
     );
     checkbox_help(
         ui,
-        "LOD system",
+        "Distant-world streaming",
         &mut config.lod_enabled,
-        "Enables Psycho's distant-world streaming fixes. LOD means the lower-detail terrain, trees, and objects shown far away.",
+        "Enables Psycho's distant-world streaming fixes.",
     );
     checkbox_help(
         ui,
-        "LOD prefetch",
+        "Distant prefetch",
         &mut config.lod_prefetch_enabled,
-        "Requests distant terrain, trees, and objects slightly before they become visible to reduce pop-in while moving.",
+        "Requests distant scenery slightly earlier to reduce pop-in.",
     );
     checkbox_help(
         ui,
-        "LOD handoff repair",
+        "Distant handoff repair",
         &mut config.lod_handoff_fix_enabled,
-        "Prevents stale lifetime counters from retiring distant scenery during its switch to the nearby full-detail version.",
+        "Stops stale lifetime counters from unloading distant scenery that is still needed.",
     );
     checkbox_help(
         ui,
-        "LOD priority boost",
+        "Visible-load priority",
         &mut config.lod_priority_boost_enabled,
-        "Raises native distant-world loading tasks within the game's own queue so visible scenery is prepared sooner.",
+        "Gives visible distant loading priority over background prefetch work.",
     );
     checkbox_help(
         ui,
-        "Attach budget",
+        "Attachment budget",
         &mut config.lod_attachment_budget_enabled,
-        "Native deadline. Restart required.",
+        "Limits ordinary model attachment work at the game's loading deadline. Restart required.",
     );
     precise_multiplier(
         ui,
         "Object prefetch",
         "object_prefetch",
         &mut config.object_prefetch_multiplier,
-        "How early distant buildings and other objects are requested. Higher reduces pop-in but keeps more work in flight.",
+        "How early distant objects load. Higher reduces pop-in and uses more CPU.",
     );
     precise_multiplier(
         ui,
         "Object retention",
         "object_retention",
         &mut config.object_retention_multiplier,
-        "How long distant objects remain loaded behind the player. Higher reduces reload churn but uses more memory.",
+        "How long distant objects stay loaded. Higher reduces reloads and uses more memory.",
     );
     precise_multiplier(
         ui,
         "Tree prefetch",
         "tree_prefetch",
         &mut config.tree_prefetch_multiplier,
-        "How early distant trees are requested. Higher reduces tree pop-in but keeps more work in flight.",
+        "How early distant trees load. Higher reduces pop-in and uses more CPU.",
     );
     precise_multiplier(
         ui,
         "Tree retention",
         "tree_retention",
         &mut config.tree_retention_multiplier,
-        "How long distant trees remain loaded after leaving view. Higher reduces reload churn but uses more memory.",
+        "How long distant trees stay loaded. Higher reduces reloads and uses more memory.",
     );
     precise_multiplier(
         ui,
         "Terrain prefetch",
         "terrain_prefetch",
         &mut config.terrain_prefetch_multiplier,
-        "How early distant landscape is requested. Higher can smooth fast travel through the world at a memory and loading cost.",
+        "How early distant landscape loads. Higher reduces pop-in and uses more memory.",
     );
     precise_multiplier(
         ui,
         "Terrain retention",
         "terrain_retention",
         &mut config.terrain_retention_multiplier,
-        "How long distant landscape remains loaded behind the player. Higher reduces reloads but uses more memory.",
+        "How long distant landscape stays loaded. Higher reduces reloads and uses more memory.",
     );
 
     ui.spacing();
     ui.separator_text(&cstring("Performance"));
     checkbox_help(
         ui,
-        "Fast RNG",
+        "Faster random numbers",
         &mut config.rng,
-        "Uses a faster random-number generator for compatible engine calls. It changes the random sequence, not the intended probability.",
+        "Faster random numbers. Ranges and game cases match vanilla; the exact sequence does not.",
     );
     checkbox_help(
         ui,
-        "Fast zlib",
+        "Faster decompression",
         &mut config.zlib,
-        "Uses faster compatible decompression for save and archive data, reducing CPU time while loading compressed content.",
+        "Faster decompression for saves and archives. Content is unchanged.",
     );
     checkbox_help(
         ui,
-        "Post-load reconciliation prepass",
+        "Post-load cleanup",
         &mut config.post_load_reconciliation_prepass,
-        "Performs one focused cleanup pass before normal post-load work so stale references are reconciled in a safer order.",
+        "Finishes post-load cleanup before the first playable frame, reducing the initial stall.",
     );
     checkbox_help(
         ui,
-        "Light score reuse",
+        "Light sorting speedup",
         &mut config.light_property_score_reuse,
-        "Reuses repeated light calculations inside one object's light sort. It changes only repeated work, not which lights contribute to the final image.",
+        "Removes repeated light math inside one object's light sort. The final lighting is unchanged.",
     );
     checkbox_help(
         ui,
-        "Sequential scene-light scan",
+        "Light list search speedup",
         &mut config.scene_light_sequential_scan,
-        "Searches each scene-light list in order instead of restarting from the beginning. Light selection and the resulting image are unchanged.",
+        "Searches each light list once instead of restarting. The selected lights are unchanged.",
     );
     checkbox_help(
         ui,
-        "Bounds frustum setup",
+        "Bounds visibility speedup",
         &mut config.multibound_frustum_tests,
-        "Removes redundant integer setup from the game's object-bounds visibility checks. The visibility result itself is unchanged.",
+        "Removes redundant setup in object-bounds visibility checks. Visibility results are unchanged.",
     );
     checkbox_help(
         ui,
-        "Compound vertex setup",
+        "Compound visibility speedup",
         &mut config.multibound_vertex_setup,
-        "Removes redundant vertex setup while building compound and portal visibility bounds. Scene geometry and rendered output are unchanged.",
+        "Removes redundant setup in compound and portal visibility bounds. Rendered geometry is unchanged.",
     );
     checkbox_help(
         ui,
-        "Compound loop bookkeeping",
+        "Compound loop speedup",
         &mut config.multibound_loop_bookkeeping,
-        "Reduces repeated bookkeeping in the game's compound visibility loops. It keeps the same traversal order and visibility decisions.",
+        "Reduces repeated bookkeeping in compound visibility loops. Visibility decisions are unchanged.",
     );
     checkbox_help(
         ui,
-        "Room admission",
+        "Room lookup speedup",
         &mut config.scene_root_admission,
-        "Combines the room and shared-root visibility lookup with its absent-key insertion, avoiding a duplicate search for the same room entry.",
+        "Combines the room lookup and insert, avoiding a duplicate search for the same room.",
     );
     checkbox_help(
         ui,
-        "Inverse-world index setup",
+        "Transform index speedup",
         &mut config.inverse_world_index_setup,
-        "Folds constant index work in the native unskinned transform expansion. Object placement and rendered geometry are unchanged.",
+        "Removes redundant index work in the game's transform expansion. Object placement is unchanged.",
     );
 
     ui.spacing();
     ui.separator_text(&cstring("Occlusion planes"));
     checkbox_help(
         ui,
-        "Add generated occlusion planes",
+        "Generated occlusion planes",
         &mut config.occlusion_planes,
-        "Adds invisible occluders to cells that have no authored visibility data, so hidden objects behind large solid buildings are rejected earlier. Authored occluders and rooms are untouched.",
+        "Adds invisible occluders to cells without authored visibility data. Hidden objects behind large solid buildings are rejected earlier.",
     );
     precise_count(
         ui,
@@ -2486,7 +2481,7 @@ fn draw_configuration(ui: &mut Ui<'_>, editor: &mut ConfigEditor, pending_reload
         &mut config.occlusion_planes_max_per_cell,
         1,
         256,
-        "Sets the shared plane budget and per-cell candidate cap. Neighbor cells share the same budget. Higher values reject more hidden geometry but cost more native visibility work.",
+        "Shared budget and per-cell cap. Higher rejects more hidden geometry but costs more visibility work.",
     );
     precise_count(
         ui,
@@ -2495,13 +2490,13 @@ fn draw_configuration(ui: &mut Ui<'_>, editor: &mut ConfigEditor, pending_reload
         &mut config.occlusion_planes_grid_radius,
         0,
         2,
-        "Zero uses only the player's cell. One or two reuse complete cached occluders from surrounding loaded cells; uncovered cells are never generated on a frame path.",
+        "0 uses only the player's cell. 1-2 also reuse cached occluders from nearby loaded cells.",
     );
     input_text_string(
         ui,
         "Plane cache path",
         &mut config.occlusion_planes_cache_path,
-        "Cache file for generated planes, relative to the game directory or absolute. Revisited cells reuse it, and it is discarded when the active plugin list changes.",
+        "Where generated planes are cached, relative to the game folder or absolute.",
     );
 
     ui.spacing();
@@ -2510,37 +2505,37 @@ fn draw_configuration(ui: &mut Ui<'_>, editor: &mut ConfigEditor, pending_reload
         ui,
         "Detailed debug log",
         &mut config.debug_log,
-        "Writes detailed startup, memory, loading, and safety information for troubleshooting. Recommended for useful bug reports.",
+        "Writes the details support needs for bug reports. Keep on.",
     );
     checkbox_help(
         ui,
-        "Occlusion-plane trace",
+        "Occlusion-plane diagnostics",
         &mut config.occlusion_planes_debug_log,
-        "Adds the verbose per-cell occlusion-plane diagnostics to the log. Enable only while investigating the Runtime dashboard occlusion counters; it requires the detailed debug log.",
+        "Adds verbose occlusion-plane diagnostics. Requires the detailed debug log.",
     );
     checkbox_help(
         ui,
         "Separate Windows console",
         &mut config.console,
-        "Opens a separate live text console for Psycho logs. It is mainly useful while actively debugging.",
+        "Opens a separate live log console. Off for normal play.",
     );
     checkbox_help(
         ui,
-        "Hitch profiling",
+        "Slow-frame profiling",
         &mut config.hitch_profiling,
-        "Records timing details for slow frames and allocator waits. Enable only while investigating stutter because it adds diagnostics.",
+        "Records slow-frame timing. Adds overhead; enable only while investigating stutter.",
     );
     checkbox_help(
         ui,
-        "Queued-task lifetime trace",
+        "Queued-task trace",
         &mut config.task_lifetime_trace,
-        "Adds verbose task ownership events to the log. Enable only when investigating a queued-task crash.",
+        "Records queued-task events. Enable only for crash research.",
     );
     checkbox_help(
         ui,
-        "LOD streaming trace",
+        "Distant-world trace",
         &mut config.lod_streaming_trace,
-        "Adds verbose distant-world streaming events to the log. Enable only when investigating LOD pop-in or lifetime issues.",
+        "Records distant-world streaming events. Enable only while troubleshooting distant loading.",
     );
 
     // Repeat the save/reload controls at the end so they stay reachable after
@@ -2548,6 +2543,20 @@ fn draw_configuration(ui: &mut Ui<'_>, editor: &mut ConfigEditor, pending_reload
     ui.spacing();
     ui.separator();
     config_actions(ui, editor, pending_reload, "bottom");
+}
+
+/// Section headers for the engine-fix checkboxes.
+///
+/// The indexes match `ENGINE_FIX_HELP` and keep related fixes together without
+/// duplicating the checkbox catalog.
+fn engine_fix_group(index: usize) -> Option<&'static str> {
+    match index {
+        0 => Some("Display and saves"),
+        4 => Some("Actors and world"),
+        12 => Some("Physics"),
+        19 => Some("Memory and tasks"),
+        _ => None,
+    }
 }
 
 /// Draw the Save / Reload / Discard controls shared by the top and bottom of
@@ -2979,8 +2988,8 @@ mod tests {
 
     use super::{
         CoreLink, ENGINE_FIX_HELP, GameRenderHandles, LogFilters, LogLevel, LogLine, LogTailReader,
-        MemoryHealth, Page, SamplingState, bytes, contains_ignore_ascii_case, log_line_visible,
-        parse_log_line, take_driver_refresh,
+        MemoryHealth, Page, SamplingState, bytes, contains_ignore_ascii_case, engine_fix_group,
+        log_line_visible, parse_log_line, take_driver_refresh,
     };
     use crate::engine_fixes::{
         DASHBOARD_FLAG_CORE_READY, DASHBOARD_FLAG_VAS_VALID, DashboardSnapshot,
@@ -3024,27 +3033,49 @@ mod tests {
 
     #[test]
     fn every_engine_fix_has_concise_unique_hover_help() {
-        assert_eq!(ENGINE_FIX_HELP.len(), 23);
+        assert_eq!(ENGINE_FIX_HELP.len(), 25);
         for (index, expected) in [
-            (0, "Display / Alt-Tab repair"),
-            (1, "Durable save integrity"),
-            (4, "Dynamic actor container guard"),
-            (5, "Animation sequence ID-tag guard"),
-            (7, "Encounter-zone form guard"),
-            (8, "Cell render retirement repair"),
-            (20, "Model postprocess serialization"),
-            (21, "Queued-task lifetime guard"),
-            (22, "Texture cache guard"),
+            (0, "Fullscreen / Alt-Tab fix"),
+            (1, "Save file integrity"),
+            (2, "Pathfinding pointer guard"),
+            (3, "Inventory entry guard"),
+            (4, "Actor container guard"),
+            (5, "Animation cleanup guard"),
+            (6, "Ownership data guard"),
+            (7, "Encounter-zone guard"),
+            (8, "Patrol owner guard"),
+            (9, "Cell cleanup fix"),
+            (10, "Linked-reference cleanup"),
+            (11, "Linked-reference target guard"),
+            (12, "Ragdoll bone guard"),
+            (13, "Ragdoll raycast guard"),
+            (14, "Physics add-batch guard"),
+            (15, "Physics pending-add guard"),
+            (16, "Physics collision-pair guard"),
+            (17, "Physics callback guard"),
+            (18, "Physics unlock guard"),
+            (19, "Out-of-memory write guard"),
+            (20, "Actor location-list guard"),
+            (21, "Model load serialization"),
+            (22, "Queued-task guard"),
+            (23, "Texture cache guard"),
+            (24, "Tile cleanup guard"),
         ] {
             assert_eq!(ENGINE_FIX_HELP[index].0, expected);
         }
+        assert_eq!(engine_fix_group(0), Some("Display and saves"));
+        assert_eq!(engine_fix_group(4), Some("Actors and world"));
+        assert_eq!(engine_fix_group(12), Some("Physics"));
+        assert_eq!(engine_fix_group(19), Some("Memory and tasks"));
+        assert_eq!(engine_fix_group(1), None);
+        assert_eq!(engine_fix_group(24), None);
         let mut labels = std::collections::BTreeSet::new();
         for (label, help) in ENGINE_FIX_HELP {
             assert!(!label.trim().is_empty());
             assert!(labels.insert(label), "duplicate engine-fix label: {label}");
             assert!(
-                (40..=240).contains(&help.len()),
-                "hover help should be concise and useful: {label} ({})",
+                (40..=160).contains(&help.len()),
+                "hover help should stay short and useful: {label} ({})",
                 help.len(),
             );
             assert!(

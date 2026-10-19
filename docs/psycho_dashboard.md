@@ -46,7 +46,9 @@ engine research. Overview, Memory, Runtime dashboard, and Configuration
 explicitly invite the player to hover settings and technical labels. Hovering waits for
 Dear ImGui's normal tooltip delay, then opens a wrapped, width-limited
 plain-language explanation. The delay prevents popups from flashing while the
-pointer merely crosses the dashboard.
+pointer merely crosses the dashboard. Configuration labels use plain-language
+names, and crash fixes are grouped by display/saves, actors/world, physics, and
+memory/tasks so a player can find the relevant switch quickly.
 
 Every `[engine_fixes]` control exposed by the dashboard has focused hover
 documentation that answers three gamer-facing questions: what broken
@@ -58,7 +60,7 @@ same explanation is reused on the Configuration page, so saved configuration
 and runtime counters do not describe one feature in conflicting language.
 
 All other supported configuration controls also explain their practical
-effect and tradeoff, including allocator modes, the experimental PDD purge,
+effect and tradeoff, including allocator modes, the experimental cleanup purge,
 native IO, LOD, multipliers, performance options, and diagnostics. Memory and
 runtime telemetry defines its specialized terms in place. In particular:
 
@@ -479,18 +481,18 @@ the DirectInput cooperative-level patch remain exclusively in the early-loaded
 core. Their complete behavior and compatibility contract is
 `docs/window_input_policy.md`.
 
-The **Dynamic actor container guard** checkbox owns
+The **Actor container guard** checkbox owns
 `[engine_fixes].actor_container_retirement_guard`. It defaults on and changes
 only next-launch core activation. The Runtime dashboard shows its work through
 the save/form/task counters; the helper does not install, load, or initialize
 the guard.
 
-The **Model postprocess serialization** checkbox owns
+The **Model load serialization** checkbox owns
 `[engine_fixes].model_postprocess_serialization_fix`. It defaults on and
 changes only next-launch core activation. The helper only displays and edits
 the contract and never installs or initializes the core guard.
 
-The **Animation sequence ID-tag guard** checkbox owns
+The **Animation cleanup guard** checkbox owns
 `[engine_fixes].animation_sequence_idtag_retirement_guard`. It defaults on and
 changes only next-launch core activation. The helper never traverses an
 animation sequence or releases a fixed string; it only mirrors the core's
@@ -510,19 +512,19 @@ count accepts the core's supported 1--256 range, and the neighbor radius accepts
 to the game directory. The verbose `occlusion_planes_debug_log` switch remains
 on the Diagnostics section.
 
-The **Encounter-zone form guard** checkbox owns
+The **Encounter-zone guard** checkbox owns
 `[engine_fixes].encounter_zone_invalid_form_guard`. It defaults on and changes
 only next-launch core activation. The dashboard shows the changed-form
 rejections, runtime rejections, and exact source repairs. The helper never
 resolves or mutates a game form and never initializes the core.
 
-The **Cell render retirement repair** checkbox owns
+The **Cell cleanup fix** checkbox owns
 `[engine_fixes].cell_render_reference_retirement_fix`. It defaults on and
 changes only next-launch core activation. The dashboard shows false-predicate
 cleanups and post-install provider ownership loss. The helper does not inspect
 a cell or reference; it only mirrors the core's fixed-width snapshot.
 
-The **Patrol owner FormID guard** checkbox owns
+The **Patrol owner guard** checkbox owns
 `[engine_fixes].patrol_owner_form_id_guard`. It defaults on and changes only
 next-launch core activation. The helper never resolves a FormID, inspects patrol
 data, or initializes the core guard; it only edits the next-launch setting and
@@ -586,8 +588,8 @@ Automated coverage includes:
 - connection-state classification that reports connecting/starting/offline
   distinctly and never reports offline before the first sample;
 - binary (IEC) byte formatting shared with the chart MiB labels;
-- the complete 23-entry engine-fix help catalog, including unique labels,
-  concise length bounds, and ASCII font safety;
+- the complete 25-entry engine-fix help catalog, including unique labels,
+  concise length bounds, ASCII font safety, and plain-language section groups;
 - config dirty-state tracking;
 - actor-container, encounter-zone, and cell-render-retirement default/disable
   parsing and comment-preserving serialization;
