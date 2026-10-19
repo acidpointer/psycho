@@ -17,6 +17,7 @@ mod display;
 mod encounter_zone;
 mod entrydata;
 mod extraownership;
+mod fade_linked_owner_guard;
 mod havok;
 mod havok_sparse;
 mod install_paths;
@@ -207,6 +208,11 @@ pub fn install(
     if let Err(error) = model_cache_keys::install() {
         log::error!(
             "[MODEL_CACHE] NULL stored-key rejection unavailable: {error:#}; other engine fixes continue"
+        );
+    }
+    if let Err(error) = fade_linked_owner_guard::install() {
+        log::warn!(
+            "[FADE_OWNER] Linked-owner alpha guard unavailable: {error:#}; existing alpha provider retained"
         );
     }
     let model_postprocess_ready = install_model_postprocess_fix(config);

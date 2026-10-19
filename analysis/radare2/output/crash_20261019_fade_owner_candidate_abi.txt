@@ -1,0 +1,470 @@
+Vault 108 fade linked-owner guard - emitted candidate ABI
+Date: 2026-10-19
+Artifact: .reports/20261019-vault108-owner-link/candidate-core.dll
+SHA256: 8134a58d9c3722b2126dd9f05b3669aef4854a18c576a3d32e074e64d1881076
+PE32 i386 image base: 0x10000000
+Radare2 MCP could not open the local candidate; CLI used read-only.
+Commands: r2 -q -e bin.relocs.apply=true -e scr.color=0
+  af @ 0x1005c4f0; pdf @ 0x1005c4f0
+  af @ 0x1005c650; pdf @ 0x1005c650
+  af @ 0x1005c9d0; pdf @ 0x1005c9d0
+
+Reviewed observations:
+- alpha receives the node in ECX and saves it at [EBP-0x0C].
+- admitted inputs restore last-error, restore ESI/EDI/EBP, reload the
+  exact node into ECX and tail-jump to the retained provider at 0x1005C57B.
+  No provider return is transformed or additional stack argument introduced.
+- rejection restores last-error, uses FLD1 at 0x1005C63E and ordinary RET
+  at 0x1005C646; no callee stack-argument cleanup. EBX is untouched.
+- all three reads call read_word with checked arithmetic. Its successful
+  reader path requests four bytes, checks success and bytes_read == 4,
+  and consumes only the stack-local copy. The cached resolver is prepared
+  by installation; no new hook-container lock or per-node counter is used.
+- install stores the predecessor at 0x1005C7DF before enable_callsite,
+  commits at 0x1005C838, then sets admission at 0x1005C845.
+
+Limits: not a game run or startup acceptance; no post-admission lifetime
+guarantee, upstream writer attribution, latency measurement or image oracle.
+
+┌ 343: sym.psycho_engine_fixes::mods::engine_fixes::fade_linked_owner_guard::alpha ();
+│ afv: vars(21:sp[0x10..0x60])
+; psycho_engine_fixes::mods::engine_fixes::fade_linked_owner_guard::al
+; pha
+│           0x1005c4f0      55             push ebp
+│           0x1005c4f1      89e5           mov ebp, esp
+│           0x1005c4f3      57             push edi
+│           0x1005c4f4      56             push esi
+│           0x1005c4f5      83ec54         sub esp, 0x54
+│           0x1005c4f8      894df4         mov dword [var_ch], ecx
+│           0x1005c4fb      0fb6055120..   movzx eax, byte [0x10562051] ; [0x10562051:1]=0
+│           0x1005c502      84c0           test al, al
+│       ┌─< 0x1005c504      7467           je 0x1005c56d
+│       │   0x1005c506      e875091300     call sym.libpsycho::os::windows::winapi::get_last_error_code
+│       │   0x1005c50b      8b4df4         mov ecx, dword [var_ch]
+│       │   0x1005c50e      31ff           xor edi, edi
+│       │   0x1005c510      89c6           mov esi, eax
+│       │   0x1005c512      81f933ffffff   cmp ecx, 0xffffff33         ; 4294967091
+│      ┌──< 0x1005c518      7763           ja 0x1005c57d
+│      ││   0x1005c51a      81c1cc000000   add ecx, 0xcc               ; 204
+│      ││   0x1005c520      e8ab040000     call sym.psycho_engine_fixes::mods::engine_fixes::fade_linked_owner_guard::read_word
+│      ││   0x1005c525      83f801         cmp eax, 1                  ; 1
+│     ┌───< 0x1005c528      7553           jne 0x1005c57d
+│     │││   0x1005c52a      85d2           test edx, edx
+│    ┌────< 0x1005c52c      7436           je 0x1005c564
+│    ││││   0x1005c52e      89d1           mov ecx, edx
+│    ││││   0x1005c530      e89b040000     call sym.psycho_engine_fixes::mods::engine_fixes::fade_linked_owner_guard::read_word
+│    ││││   0x1005c535      85d2           test edx, edx
+│    ││││   0x1005c537      bf01000000     mov edi, 1
+│    ││││   0x1005c53c      0f95c1         setne cl
+│    ││││   0x1005c53f      20c1           and cl, al
+│    ││││   0x1005c541      80f901         cmp cl, 1                   ; 1
+│   ┌─────< 0x1005c544      7537           jne 0x1005c57d
+│   │││││   0x1005c546      bf02000000     mov edi, 2
+│   │││││   0x1005c54b      81fafffeffff   cmp edx, 0xfffffeff         ; 4294967039
+│  ┌──────< 0x1005c551      772a           ja 0x1005c57d
+│  ││││││   0x1005c553      81c200010000   add edx, 0x100              ; 256
+│  ││││││   0x1005c559      89d1           mov ecx, edx
+│  ││││││   0x1005c55b      e870040000     call sym.psycho_engine_fixes::mods::engine_fixes::fade_linked_owner_guard::read_word
+│  ││││││   0x1005c560      a801           test al, 1                  ; 1
+│ ┌───────< 0x1005c562      7419           je 0x1005c57d
+│ │││└────> 0x1005c564      56             push esi
+│ │││ │││   0x1005c565      e856f71200     call sym.libpsycho::os::windows::winapi::set_last_error
+│ │││ │││   0x1005c56a      83c404         add esp, 4
+│ │││ ││└─> 0x1005c56d      a154205610     mov eax, dword [0x10562054] ; [0x10562054:4]=0
+│ │││ ││    0x1005c572      8b4df4         mov ecx, dword [var_ch]
+│ │││ ││    0x1005c575      83c454         add esp, 0x54
+│ │││ ││    0x1005c578      5e             pop esi
+│ │││ ││    0x1005c579      5f             pop edi
+│ │││ ││    0x1005c57a      5d             pop ebp
+│ │││ ││    0x1005c57b      ffe0           jmp eax
+│ └└└─└└──> 0x1005c57d      b001           mov al, 1
+│           0x1005c57f      860550205610   xchg byte [0x10562050], al
+│           0x1005c585      84c0           test al, al
+│       ┌─< 0x1005c587      0f85a8000000   jne 0x1005c635
+│       │   0x1005c58d      a1644c4010     mov eax, dword [0x10404c64] ; [0x10404c64:4]=0x10571be4
+│       │   0x1005c592      8b00           mov eax, dword [eax]
+│       │   0x1005c594      83f802         cmp eax, 2                  ; 2
+│      ┌──< 0x1005c597      0f8298000000   jb 0x1005c635
+│      ││   0x1005c59d      8b04bd4402..   mov eax, dword [edi*4 + 0x10410244] ; [0x10410244:4]=0x1040f281 "unreadable node owner slotunreadable or NULL owner vtableunreadable owner type slot.[FADE_OWNER] ..; node=.6; neutral alpha used without changing the linked owner"
+│      ││   0x1005c5a4      8b0cbd5002..   mov ecx, dword [edi*4 + 0x10410250] ; [0x10410250:4]=26
+│      ││   0x1005c5ab      c745a40100..   mov dword [var_5ch], 1
+│      ││   0x1005c5b2      c745a88400..   mov dword [var_58h], 0x84   ; 132
+│      ││   0x1005c5b9      c745ac0000..   mov dword [var_54h], 0
+│      ││   0x1005c5c0      c745b069f3..   mov dword [var_50h], str.psycho_engine_fixes::mods::engine_fixes::fade_linked_owner_guard ; 0x1040f369 ; "psycho_engine_fixes::mods::engine_fixes::fade_linked_owner_guard"
+│      ││   0x1005c5c7      c745b44000..   mov dword [var_4ch], 0x40   ; '@' ; 64
+│      ││   0x1005c5ce      c745b80000..   mov dword [var_48h], 0
+│      ││   0x1005c5d5      c745bc24f3..   mov dword [var_44h], str.psycho_engine_fixes_src_mods_engine_fixes_fade_linked_owner_guard.rs ; 0x1040f324 ; "psycho-engine-fixes/src/mods/engine_fixes/fade_linked_owner_guard.rs"
+│      ││   0x1005c5dc      c745c04400..   mov dword [var_40h], 0x44   ; 'D' ; 68
+│      ││   0x1005c5e3      c745c40200..   mov dword [var_3ch], 2
+│      ││   0x1005c5ea      c745c869f3..   mov dword [var_38h], str.psycho_engine_fixes::mods::engine_fixes::fade_linked_owner_guard ; 0x1040f369 ; "psycho_engine_fixes::mods::engine_fixes::fade_linked_owner_guard"
+│      ││   0x1005c5f1      c745cc4000..   mov dword [var_34h], 0x40   ; '@' ; 64
+│      ││   0x1005c5f8      c745d0d4f2..   mov dword [var_30h], 0x1040f2d4
+│      ││   0x1005c5ff      8945e8         mov dword [var_18h], eax
+│      ││   0x1005c602      8d45e8         lea eax, [var_18h]
+│      ││   0x1005c605      894dec         mov dword [var_14h], ecx
+│      ││   0x1005c608      8d4df3         lea ecx, [var_dh]
+│      ││   0x1005c60b      8945d8         mov dword [var_28h], eax
+│      ││   0x1005c60e      8d45f4         lea eax, [var_ch]
+│      ││   0x1005c611      c745dc707d..   mov dword [var_24h], sym._str_as_core::fmt::Display_::fmt ; 0x10157d70 ; "U\x89\xe5\x8bE\b\xffu\f\xffp\x04\xff0\xe8\x9d]$"
+│      ││   0x1005c618      8945e0         mov dword [var_20h], eax
+│      ││   0x1005c61b      8d45d8         lea eax, [var_28h]
+│      ││   0x1005c61e      c745e49088..   mov dword [var_1ch], sym._mut_core::ffi::c_void_as_core::fmt::Pointer_::fmt ; 0x10158890 ; "U\x89\xe5\x8bE\b\xffu\f\xff0\xe8p\x05#"
+│      ││   0x1005c625      8945d4         mov dword [var_2ch], eax
+│      ││   0x1005c628      8d45a4         lea eax, [var_5ch]
+│      ││   0x1005c62b      50             push eax
+│      ││   0x1005c62c      51             push ecx
+│      ││   0x1005c62d      e8ee132800     call sym._log::__private_api::GlobalLogger_as_log::Log_::log ; <log::__private_api::GlobalLogger as log::Log>::log
+│      ││   0x1005c632      83c408         add esp, 8
+│      └└─> 0x1005c635      56             push esi
+│           0x1005c636      e885f61200     call sym.libpsycho::os::windows::winapi::set_last_error
+│           0x1005c63b      83c404         add esp, 4
+│           0x1005c63e      d9e8           fld1
+│           0x1005c640      83c454         add esp, 0x54
+│           0x1005c643      5e             pop esi
+│           0x1005c644      5f             pop edi
+│           0x1005c645      5d             pop ebp
+└           0x1005c646      c3             ret
+
+┌ 891: sym.psycho_engine_fixes::mods::engine_fixes::fade_linked_owner_guard::install ();
+│ afv: vars(19:sp[0x10..0x78])
+; psycho_engine_fixes::mods::engine_fixes::fade_linked_owner_guard::in
+; stall
+│           0x1005c650      0fb60d5120..   movzx ecx, byte [0x10562051] ; [0x10562051:1]=0
+│           0x1005c657      31c0           xor eax, eax
+│           0x1005c659      84c9           test cl, cl
+│       ┌─< 0x1005c65b      7401           je 0x1005c65e
+│       │   0x1005c65d      c3             ret
+│       └─> 0x1005c65e      55             push ebp
+│           0x1005c65f      89e5           mov ebp, esp
+│           0x1005c661      53             push ebx
+│           0x1005c662      57             push edi
+│           0x1005c663      56             push esi
+│           0x1005c664      83e4f8         and esp, 0xfffffff8
+│           0x1005c667      83ec58         sub esp, 0x58
+│           0x1005c66a      8b35d8474010   mov esi, dword [0x104047d8] ; [0x104047d8:4]=0x10570ec4
+│           0x1005c670      8b06           mov eax, dword [esi]
+│           0x1005c672      85c0           test eax, eax
+│       ┌─< 0x1005c674      752f           jne 0x1005c6a5
+│       │   0x1005c676      89e7           mov edi, esp
+│       │   0x1005c678      6a11           push 0x11                   ; 17
+│       │   0x1005c67a      6858f94010     push str.ReadProcessMemory_QUEUED_TASK__Invalid_task_rejected__map_cleanup_deferred_until_a_later_acquisitiono ; 0x1040f958 ; "ReadProcessMemory[QUEUED_TASK] Invalid task rejected; map cleanup deferred until a later acquisitiono"
+│       │   0x1005c67f      6a0c           push 0xc                    ; 12
+│       │   0x1005c681      68c5f04010     push 0x1040f0c5             ; "kernel32.dllTlsAllocTlsGetValueTlsSetValuemodel_cache_null_stored_key[MODEL_CACHE] Guard active: rejects a NULL shared string key instead of crashingpsycho-engine-fixes/src/mods/engine_fixes/model_cache_keys.rs"
+│       │   0x1005c686      57             push edi
+│       │   0x1005c687      e814171300     call sym.libpsycho::os::windows::winapi::get_proc_address_in_dll
+│       │   0x1005c68c      83c414         add esp, 0x14
+│       │   0x1005c68f      8b0424         mov eax, dword [esp]
+│       │   0x1005c692      8b4c2404       mov ecx, dword [var_4h_2]
+│       │   0x1005c696      83f8ff         cmp eax, 0xffffffff
+│      ┌──< 0x1005c699      0f85b8020000   jne 0x1005c957
+│      ││   0x1005c69f      31c0           xor eax, eax
+│      ││   0x1005c6a1      f00fb10e       lock cmpxchg dword [esi], ecx
+│      │└─> 0x1005c6a5      c644243800     mov byte [var_38h], 0
+│      │    0x1005c6aa      ff15bc485710   call dword [sym.imp.kernel32.dll_GetCurrentProcess] ; 0x105748bc ; HANDLE GetCurrentProcess(void)
+│      │    0x1005c6b0      89c1           mov ecx, eax
+│      │    0x1005c6b2      8b06           mov eax, dword [esi]
+│      │    0x1005c6b4      85c0           test eax, eax
+│      │┌─< 0x1005c6b6      7536           jne 0x1005c6ee
+│      ││   0x1005c6b8      89cf           mov edi, ecx
+│      ││   0x1005c6ba      89e0           mov eax, esp
+│      ││   0x1005c6bc      6a11           push 0x11                   ; 17
+│      ││   0x1005c6be      6858f94010     push str.ReadProcessMemory_QUEUED_TASK__Invalid_task_rejected__map_cleanup_deferred_until_a_later_acquisitiono ; 0x1040f958 ; "ReadProcessMemory[QUEUED_TASK] Invalid task rejected; map cleanup deferred until a later acquisitiono"
+│      ││   0x1005c6c3      6a0c           push 0xc                    ; 12
+│      ││   0x1005c6c5      68c5f04010     push 0x1040f0c5             ; "kernel32.dllTlsAllocTlsGetValueTlsSetValuemodel_cache_null_stored_key[MODEL_CACHE] Guard active: rejects a NULL shared string key instead of crashingpsycho-engine-fixes/src/mods/engine_fixes/model_cache_keys.rs"
+│      ││   0x1005c6ca      50             push eax
+│      ││   0x1005c6cb      e8d0161300     call sym.libpsycho::os::windows::winapi::get_proc_address_in_dll
+│      ││   0x1005c6d0      83c414         add esp, 0x14
+│      ││   0x1005c6d3      8b0424         mov eax, dword [esp]
+│      ││   0x1005c6d6      8b4c2404       mov ecx, dword [var_4h_2]
+│      ││   0x1005c6da      83f8ff         cmp eax, 0xffffffff
+│     ┌───< 0x1005c6dd      0f8591020000   jne 0x1005c974
+│     │││   0x1005c6e3      31c0           xor eax, eax
+│     │││   0x1005c6e5      f00fb10e       lock cmpxchg dword [esi], ecx
+│     │││   0x1005c6e9      0f44c1         cmove eax, ecx
+│     │││   0x1005c6ec      89f9           mov ecx, edi
+│     ││└─> 0x1005c6ee      89e6           mov esi, esp
+│     ││    0x1005c6f0      8d7c2438       lea edi, [var_38h]
+│     ││    0x1005c6f4      c704240000..   mov dword [esp], 0
+│     ││    0x1005c6fb      56             push esi
+│     ││    0x1005c6fc      6a01           push 1                      ; 1
+│     ││    0x1005c6fe      57             push edi
+│     ││    0x1005c6ff      6864e7b400     push 0xb4e764
+│     ││    0x1005c704      51             push ecx
+│     ││    0x1005c705      ffd0           call eax
+│     ││    0x1005c707      85c0           test eax, eax
+│     ││┌─< 0x1005c709      0f849b010000   je 0x1005c8aa
+│     │││   0x1005c70f      833c2401       cmp dword [esp], 1
+│    ┌────< 0x1005c713      0f859a010000   jne 0x1005c8b3
+│    ││││   0x1005c719      c7442430a9..   mov dword [var_30h], 0x1040f3a9 ; [0x1040f3a9:4]=0x91380d8b
+│    ││││   0x1005c721      c744242064..   mov dword [var_20h], 0xb4e764 ; [0xb4e764:4]=-1
+│    ││││   0x1005c729      c744241c64..   mov dword [var_1ch], 0xb4e764 ; [0xb4e764:4]=-1
+│    ││││   0x1005c731      c74424340e..   mov dword [var_34h], 0xe    ; [0xe:4]=-1 ; 14
+│    ││││   0x1005c739      c74424240e..   mov dword [var_24h], 0xe    ; [0xe:4]=-1 ; 14
+│    ││││   0x1005c741      6a0e           push 0xe                    ; 14
+│    ││││   0x1005c743      68a9f34010     push 0x1040f3a9
+│    ││││   0x1005c748      6864e7b400     push 0xb4e764
+│    ││││   0x1005c74d      e8a6e73400     call sub.api_ms_win_crt_private_l1_1_0.dll_memcmp ; int memcmp(const void *s1, const void *s2, size_t n)
+│    ││││   0x1005c752      83c40c         add esp, 0xc
+│    ││││   0x1005c755      85c0           test eax, eax
+│   ┌─────< 0x1005c757      0f8522020000   jne 0x1005c97f
+│   │││││   0x1005c75d      c7442430b7..   mov dword [var_30h], 0x1040f3b7 ; [0x1040f3b7:4]=0x18245cd9
+│   │││││   0x1005c765      c744242077..   mov dword [var_20h], 0xb4e777 ; [0xb4e777:4]=-1
+│   │││││   0x1005c76d      c744241c77..   mov dword [var_1ch], 0xb4e777 ; [0xb4e777:4]=-1
+│   │││││   0x1005c775      c744243404..   mov dword [var_34h], 4
+│   │││││   0x1005c77d      c744242404..   mov dword [var_24h], 4
+│   │││││   0x1005c785      813d77e7b4..   cmp dword [0xb4e777], 0x18245cd9 ; [0xb4e777:4]=-1
+│  ┌──────< 0x1005c78f      0f85ea010000   jne 0x1005c97f
+│  ││││││   0x1005c795      68f0c40510     push sym.psycho_engine_fixes::mods::engine_fixes::fade_linked_owner_guard::alpha ; 0x1005c4f0 ; "U\x89\xe5WV\x83\xecT\x89M\xf4\x0f\xb6\x05Q V\x10\x84\xc0tg\xe8u\t\x13"
+│  ││││││   0x1005c79a      6872e7b400     push 0xb4e772
+│  ││││││   0x1005c79f      6a17           push 0x17                   ; 23
+│  ││││││   0x1005c7a1      68bbf34010     push str.fade_linked_owner_guard ; 0x1040f3bb ; "fade_linked_owner_guard"
+│  ││││││   0x1005c7a6      6870b03d10     push 0x103db070
+│  ││││││   0x1005c7ab      57             push edi
+│  ││││││   0x1005c7ac      e80fd70300     call sym.__RINvMs5_NtNtNtNtCskRG1EnXb1rf_9libpsycho2os7windows4hook8callsiteINtB6_22Rel32CallHookContainerFUK8thiscallONtNtCs32tIC4fDiEl_2
+│  ││││││   0x1005c7b1      83c418         add esp, 0x18
+│  ││││││   0x1005c7b4      807c2438ff     cmp byte [var_38h_2], 0xff
+│ ┌───────< 0x1005c7b9      0f851e010000   jne 0x1005c8dd
+│ │││││││   0x1005c7bf      a170b03d10     mov eax, dword [0x103db070] ; [0x103db070:4]=3
+│ │││││││   0x1005c7c4      85c0           test eax, eax
+│ ────────< 0x1005c7c6      0f8536010000   jne 0x1005c902
+│ │││││││   0x1005c7cc      8b1d74b03d10   mov ebx, dword [0x103db074] ; [0x103db074:4]=0
+│ │││││││   0x1005c7d2      89e6           mov esi, esp
+│ │││││││   0x1005c7d4      c604240e       mov byte [esp], 0xe         ; [0xe:1]=255 ; 14
+│ │││││││   0x1005c7d8      89f1           mov ecx, esi
+│ │││││││   0x1005c7da      e83190ffff     call sym.__RINvNtCs32tIC4fDiEl_4core3ptr9drop_glueNtNtNtNtNtCskRG1EnXb1rf_9libpsycho2os7windows4hook8callsite18Rel32CallHookErrorECscusT
+│ │││││││   0x1005c7df      891d54205610   mov dword [0x10562054], ebx ; [0x10562054:4]=0
+│ │││││││   0x1005c7e5      c744242000..   mov dword [var_20h], 0
+│ │││││││   0x1005c7ed      c744242404..   mov dword [var_24h], 4
+│ │││││││   0x1005c7f5      c744242800..   mov dword [var_28h], 0
+│ │││││││   0x1005c7fd      c644242c00     mov byte [var_2ch], 0
+│ │││││││   0x1005c802      8d442420       lea eax, [var_20h]
+│ │││││││   0x1005c806      6870b03d10     push 0x103db070
+│ │││││││   0x1005c80b      50             push eax
+│ │││││││   0x1005c80c      57             push edi
+│ │││││││   0x1005c80d      e8beb90d00     call sym.__RINvMNtNtNtNtCskRG1EnXb1rf_9libpsycho2os7windows4hook11transactionNtB3_23ModificationTransaction15enable_callsiteFUK8thiscall_2
+│ │││││││   0x1005c812      83c40c         add esp, 0xc
+│ │││││││   0x1005c815      807c2438ff     cmp byte [var_38h_2], 0xff
+│ ────────< 0x1005c81a      0f85f9000000   jne 0x1005c919
+│ │││││││   0x1005c820      f30f7e442420   movq xmm0, qword [var_20h]
+│ │││││││   0x1005c826      f20f104c2428   movsd xmm1, qword [var_28h]
+│ │││││││   0x1005c82c      f20f114c2408   movsd qword [var_8h], xmm1
+│ │││││││   0x1005c832      660fd60424     movq qword [esp], xmm0
+│ │││││││   0x1005c837      56             push esi
+│ │││││││   0x1005c838      e8d3071400     call sym._libpsycho::os::windows::hook::transaction::ModificationTransaction_::commit ; <libpsycho::os::windows::hook::transaction::ModificationTransaction>::commit
+│ │││││││   0x1005c83d      83c404         add esp, 4
+│ │││││││   0x1005c840      a1644c4010     mov eax, dword [0x10404c64] ; [0x10404c64:4]=0x10571be4
+│ │││││││   0x1005c845      c605512056..   mov byte [0x10562051], 1    ; [0x10562051:1]=0
+│ │││││││   0x1005c84c      8b00           mov eax, dword [eax]
+│ │││││││   0x1005c84e      83f803         cmp eax, 3                  ; 3
+│ ────────< 0x1005c851      724d           jb 0x1005c8a0
+│ │││││││   0x1005c853      c7442438d4..   mov dword [var_38h_2], 0x1040f3d4 ; [0x1040f3d4:4]=0xb4e772 ; "r\xe7\xb4"
+│ │││││││   0x1005c85b      c7042469f3..   mov dword [esp], str.psycho_engine_fixes::mods::engine_fixes::fade_linked_owner_guard ; [0x1040f369:4]=0x63797370 ; "psycho_engine_fixes::mods::engine_fixes::fade_linked_owner_guard"
+│ │││││││   0x1005c862      c744240440..   mov dword [var_4h], 0x40    ; '@'
+│ │││││││                                                              ; [0x40:4]=-1 ; 64
+│ │││││││   0x1005c86a      c744240869..   mov dword [var_8h], str.psycho_engine_fixes::mods::engine_fixes::fade_linked_owner_guard ; [0x1040f369:4]=0x63797370 ; "psycho_engine_fixes::mods::engine_fixes::fade_linked_owner_guard"
+│ │││││││   0x1005c872      c744240c40..   mov dword [var_sp_ch], 0x40 ; '@'
+│ │││││││                                                              ; [0x40:4]=-1 ; 64
+│ │││││││   0x1005c87a      c744243c40..   mov dword [var_3ch], sym._usize_as_core::fmt::UpperHex_::fmt__1 ; [0x1039a240:4]=0x53e58955 ; "U\x89\xe5SV\x83\xec\b\x8bM\b\x8bE\f\x8b\x111\xc9f.\x0f\x1f\x84"
+│ │││││││   0x1005c882      c74424103c..   mov dword [var_10h], 0x1040f43c ; [0x1040f43c:4]=0x1040f324 str.psycho_engine_fixes_src_mods_engine_fixes_fade_linked_owner_guard.rs
+│ │││││││   0x1005c88a      83ec04         sub esp, 4
+│ │││││││   0x1005c88d      6a00           push 0
+│ │││││││   0x1005c88f      56             push esi
+│ │││││││   0x1005c890      6a03           push 3                      ; 3
+│ │││││││   0x1005c892      57             push edi
+│ │││││││   0x1005c893      68d8f34010     push str.__FADE_OWNER__Linked_owner_guard_active_at_0x ; 0x1040f3d8 ; ",[FADE_OWNER] Linked-owner guard active at 0x"
+│ │││││││   0x1005c898      e8d3f40900     call sym.log::__private_api::log_impl::_log::__private_api::GlobalLogger_ ; log::__private_api::log_impl::<log::__private_api::GlobalLogger>
+│ │││││││   0x1005c89d      83c418         add esp, 0x18
+│ ────────> 0x1005c8a0      31c0           xor eax, eax
+│ │││││││   ; CODE XREFS from psycho_engine_fixes::mods::engine_fixes::fade_linked_owner_guard::install @ 0x1005c8db(x), 0x1005c917(x), 0x1005c952(x), 0x1005c9c6(x)
+│ ────────> 0x1005c8a2      8d65f4         lea esp, [var_ch]
+│ │││││││   0x1005c8a5      5e             pop esi
+│ │││││││   0x1005c8a6      5f             pop edi
+│ │││││││   0x1005c8a7      5b             pop ebx
+│ │││││││   0x1005c8a8      5d             pop ebp
+│ │││││││   0x1005c8a9      c3             ret
+│ ││││││└─> 0x1005c8aa      e8c1322a00     call sym._windows_result::error::Error_::from_win32 ; <windows_result::error::Error>::from_win32
+│ ││││││    0x1005c8af      89c1           mov ecx, eax
+│ ││││││┌─< 0x1005c8b1      eb07           jmp 0x1005c8ba
+│ │││└────> 0x1005c8b3      31d2           xor edx, edx
+│ │││ │││   0x1005c8b5      b905400080     mov ecx, 0x80004005
+│ │││ │││   ; CODE XREF from psycho_engine_fixes::mods::engine_fixes::fade_linked_owner_guard::install @ 0x1005c8b1(x)
+│ │││ ││└─> 0x1005c8ba      660f6ec2       movd xmm0, edx
+│ │││ ││    0x1005c8be      b800000080     mov eax, 0x80000000
+│ │││ ││    ; CODE XREF from psycho_engine_fixes::mods::engine_fixes::fade_linked_owner_guard::install @ 0x1005c97a(x)
+│ │││ ││┌─> 0x1005c8c3      890424         mov dword [esp], eax
+│ │││ ││╎   0x1005c8c6      89e0           mov eax, esp
+│ │││ ││╎   0x1005c8c8      894c2404       mov dword [var_4h], ecx
+│ │││ ││╎   0x1005c8cc      660fd6442408   movq qword [var_8h], xmm0
+│ │││ ││╎   0x1005c8d2      50             push eax
+│ │││ ││╎   ; CODE XREF from psycho_engine_fixes::mods::engine_fixes::fade_linked_owner_guard::install @ 0x1005c96f(x)
+│ │││┌────> 0x1005c8d3      e8e8940400     call sym.__RNvXs_NtCsiRG1joDtfFD_6anyhow5errorNtB6_5ErrorINtNtCs32tIC4fDiEl_4core7convert4FromNtNtNtNtCskRG1EnXb1rf_9libpsycho2os7window
+│ │││╎││╎   0x1005c8d8      83c404         add esp, 4
+│ ────────< 0x1005c8db      ebc5           jmp 0x1005c8a2
+│ └───────> 0x1005c8dd      f30f7e442448   movq xmm0, qword [var_48h]
+│  ││╎││╎   0x1005c8e3      f20f10542438   movsd xmm2, qword [var_38h_2]
+│  ││╎││╎   0x1005c8e9      f20f104c2440   movsd xmm1, qword [var_40h]
+│  ││╎││╎   0x1005c8ef      660fd6442410   movq qword [var_10h], xmm0
+│  ││╎││╎   0x1005c8f5      f20f114c2408   movsd qword [var_8h], xmm1
+│  ││╎││╎   0x1005c8fb      f20f111424     movsd qword [esp], xmm2
+│ ┌───────< 0x1005c900      eb0c           jmp 0x1005c90e
+│ ────────> 0x1005c902      8b442404       mov eax, dword [var_4h]
+│ │││╎││╎   0x1005c906      c604240e       mov byte [esp], 0xe         ; [0xe:1]=255 ; 14
+│ │││╎││╎   0x1005c90a      89442404       mov dword [var_4h], eax
+│ │││╎││╎   ; CODE XREF from psycho_engine_fixes::mods::engine_fixes::fade_linked_owner_guard::install @ 0x1005c900(x)
+│ └───────> 0x1005c90e      56             push esi
+│  ││╎││╎   0x1005c90f      e80c950400     call sym.__RNvXs_NtCsiRG1joDtfFD_6anyhow5errorNtB6_5ErrorINtNtCs32tIC4fDiEl_4core7convert4FromNtNtNtNtNtCskRG1EnXb1rf_9libpsycho2os7wind_1
+│  ││╎││╎   0x1005c914      83c404         add esp, 4
+│ ────────< 0x1005c917      eb89           jmp 0x1005c8a2
+│ ────────> 0x1005c919      f30f7e442448   movq xmm0, qword [var_48h]
+│  ││╎││╎   0x1005c91f      f20f10542438   movsd xmm2, qword [var_38h_2]
+│  ││╎││╎   0x1005c925      f20f104c2440   movsd xmm1, qword [var_40h]
+│  ││╎││╎   0x1005c92b      660fd6442410   movq qword [var_10h], xmm0
+│  ││╎││╎   0x1005c931      f20f114c2408   movsd qword [var_8h], xmm1
+│  ││╎││╎   0x1005c937      f20f111424     movsd qword [esp], xmm2
+│  ││╎││╎   0x1005c93c      56             push esi
+│  ││╎││╎   0x1005c93d      e8de940400     call sym.__RNvXs_NtCsiRG1joDtfFD_6anyhow5errorNtB6_5ErrorINtNtCs32tIC4fDiEl_4core7convert4FromNtNtNtNtNtCskRG1EnXb1rf_9libpsycho2os7wind_1
+│  ││╎││╎   0x1005c942      83c404         add esp, 4
+│  ││╎││╎   0x1005c945      8d4c2420       lea ecx, [var_20h]
+│  ││╎││╎   0x1005c949      89c6           mov esi, eax
+│  ││╎││╎   0x1005c94b      e8308effff     call sym.__RINvNtCs32tIC4fDiEl_4core3ptr9drop_glueNtNtNtNtNtCskRG1EnXb1rf_9libpsycho2os7windows4hook11transaction23ModificationTransacti
+│  ││╎││╎   0x1005c950      89f0           mov eax, esi
+│ ────────< 0x1005c952      e94bffffff     jmp 0x1005c8a2
+│  ││╎│└──> 0x1005c957      8b542408       mov edx, dword [var_1ch]
+│  ││╎│ ╎   0x1005c95b      8b74240c       mov esi, dword [var_20h]
+│  ││╎│ ╎   0x1005c95f      890424         mov dword [esp], eax
+│  ││╎│ ╎   0x1005c962      894c2404       mov dword [var_4h_2], ecx
+│  ││╎│ ╎   0x1005c966      8974240c       mov dword [var_20h], esi
+│  ││╎│ ╎   0x1005c96a      89542408       mov dword [var_1ch], edx
+│  ││╎│ ╎   0x1005c96e      57             push edi
+│  ││└────< 0x1005c96f      e95fffffff     jmp 0x1005c8d3
+│  ││ └───> 0x1005c974      f30f7e442408   movq xmm0, qword [var_1ch]
+│  ││   └─< 0x1005c97a      e944ffffff     jmp 0x1005c8c3
+│  └└─────> 0x1005c97f      8d44241c       lea eax, [var_1ch]
+│           0x1005c983      8d542430       lea edx, [var_30h]
+│           0x1005c987      8d4c2420       lea ecx, [var_20h]
+│           0x1005c98b      890424         mov dword [esp], eax
+│           0x1005c98e      c744240440..   mov dword [var_4h], sym._usize_as_core::fmt::UpperHex_::fmt__1 ; [0x1039a240:4]=0x53e58955 ; "U\x89\xe5SV\x83\xec\b\x8bM\b\x8bE\f\x8b\x111\xc9f.\x0f\x1f\x84"
+│           0x1005c996      89542408       mov dword [var_8h], edx
+│           0x1005c99a      c744240c40..   mov dword [var_sp_ch], sym.__u8__as_core::fmt::Debug_::fmt ; [0x10157a40:4]=0x53e58955 ; "U\x89\xe5SWV\x83\xec\f\x8bE\b\x8b0\x8bX\x04\x8dE\xe8\xffu\fP\xe8\x03\xee\""
+│           0x1005c9a2      894c2410       mov dword [var_10h], ecx
+│           0x1005c9a6      c744241440..   mov dword [var_14h], sym.__u8__as_core::fmt::Debug_::fmt ; [0x10157a40:4]=0x53e58955 ; "U\x89\xe5SWV\x83\xec\f\x8bE\b\x8b0\x8bX\x04\x8dE\xe8\xffu\fP\xe8\x03\xee\""
+│           0x1005c9ae      56             push esi
+│           0x1005c9af      687bf54210     push 0x1042f57b
+│           0x1005c9b4      57             push edi
+│           0x1005c9b5      e8060a3200     call sym.alloc::fmt::format::format_inner
+│           0x1005c9ba      83c40c         add esp, 0xc
+│           0x1005c9bd      57             push edi
+│           0x1005c9be      e81dbb0300     call sym._anyhow::Error_::msg::_alloc::string::String_ ; <anyhow::Error>::msg::<alloc::string::String>
+│           0x1005c9c3      83c404         add esp, 4
+└ ────────< 0x1005c9c6      e9d7feffff     jmp 0x1005c8a2
+┌ 296: sym.psycho_engine_fixes::mods::engine_fixes::fade_linked_owner_guard::read_word ();
+│ afv: vars(15:sp[0x10..0x58])
+; psycho_engine_fixes::mods::engine_fixes::fade_linked_owner_guard::re
+; ad_word
+│           0x1005c9d0      83f9fc         cmp ecx, 0xfffffffc
+│       ┌─< 0x1005c9d3      0f871c010000   ja 0x1005caf5
+│       │   0x1005c9d9      55             push ebp
+│       │   0x1005c9da      89e5           mov ebp, esp
+│       │   0x1005c9dc      53             push ebx
+│       │   0x1005c9dd      57             push edi
+│       │   0x1005c9de      56             push esi
+│       │   0x1005c9df      83e4f8         and esp, 0xfffffff8
+│       │   0x1005c9e2      83ec38         sub esp, 0x38
+│       │   0x1005c9e5      89ce           mov esi, ecx
+│       │   0x1005c9e7      c744240400..   mov dword [var_4h], 0
+│       │   0x1005c9ef      ff15bc485710   call dword [sym.imp.kernel32.dll_GetCurrentProcess] ; 0x105748bc ; HANDLE GetCurrentProcess(void)
+│       │   0x1005c9f5      8b1dd8474010   mov ebx, dword [0x104047d8] ; [0x104047d8:4]=0x10570ec4
+│       │   0x1005c9fb      89c1           mov ecx, eax
+│       │   0x1005c9fd      8d7c2420       lea edi, [var_20h]
+│       │   0x1005ca01      8b03           mov eax, dword [ebx]
+│       │   0x1005ca03      85c0           test eax, eax
+│      ┌──< 0x1005ca05      742d           je 0x1005ca34
+│      ││   ; CODE XREF from psycho_engine_fixes::mods::engine_fixes::fade_linked_owner_guard::read_word @ 0x1005cace(x)
+│     ┌───> 0x1005ca07      c744242000..   mov dword [var_20h], 0
+│     ╎││   0x1005ca0f      8d542404       lea edx, [var_4h]
+│     ╎││   0x1005ca13      57             push edi
+│     ╎││   0x1005ca14      6a04           push 4                      ; 4
+│     ╎││   0x1005ca16      52             push edx
+│     ╎││   0x1005ca17      56             push esi
+│     ╎││   0x1005ca18      51             push ecx
+│     ╎││   0x1005ca19      ffd0           call eax
+│     ╎││   0x1005ca1b      85c0           test eax, eax
+│    ┌────< 0x1005ca1d      7469           je 0x1005ca88
+│    │╎││   0x1005ca1f      837c242004     cmp dword [var_20h_2], 4
+│   ┌─────< 0x1005ca24      7569           jne 0x1005ca8f
+│   ││╎││   0x1005ca26      8b542404       mov edx, dword [var_4h_2]
+│   ││╎││   0x1005ca2a      b801000000     mov eax, 1
+│  ┌──────< 0x1005ca2f      e985000000     jmp 0x1005cab9
+│  │││╎└──> 0x1005ca34      894c241c       mov dword [var_1ch], ecx
+│  │││╎ │   0x1005ca38      6a11           push 0x11                   ; 17
+│  │││╎ │   0x1005ca3a      6858f94010     push str.ReadProcessMemory_QUEUED_TASK__Invalid_task_rejected__map_cleanup_deferred_until_a_later_acquisitiono ; 0x1040f958 ; "ReadProcessMemory[QUEUED_TASK] Invalid task rejected; map cleanup deferred until a later acquisitiono"
+│  │││╎ │   0x1005ca3f      6a0c           push 0xc                    ; 12
+│  │││╎ │   0x1005ca41      68c5f04010     push 0x1040f0c5             ; "kernel32.dllTlsAllocTlsGetValueTlsSetValuemodel_cache_null_stored_key[MODEL_CACHE] Guard active: rejects a NULL shared string key instead of crashingpsycho-engine-fixes/src/mods/engine_fixes/model_cache_keys.rs"
+│  │││╎ │   0x1005ca46      57             push edi
+│  │││╎ │   0x1005ca47      e854131300     call sym.libpsycho::os::windows::winapi::get_proc_address_in_dll
+│  │││╎ │   0x1005ca4c      83c414         add esp, 0x14
+│  │││╎ │   0x1005ca4f      8b442420       mov eax, dword [var_20h]
+│  │││╎ │   0x1005ca53      8b4c2424       mov ecx, dword [var_24h]
+│  │││╎ │   0x1005ca57      83f8ff         cmp eax, 0xffffffff
+│  │││╎┌──< 0x1005ca5a      7465           je 0x1005cac1
+│  │││╎││   0x1005ca5c      8b542428       mov edx, dword [var_28h]
+│  │││╎││   0x1005ca60      8b74242c       mov esi, dword [var_2ch]
+│  │││╎││   0x1005ca64      85c0           test eax, eax
+│  │││╎││   0x1005ca66      89442408       mov dword [var_8h_2], eax
+│  │││╎││   0x1005ca6a      894c240c       mov dword [var_20h_2], ecx
+│  │││╎││   0x1005ca6e      89742414       mov dword [var_14h], esi
+│  │││╎││   0x1005ca72      89542410       mov dword [var_10h_2], edx
+│ ┌───────< 0x1005ca76      785b           js 0x1005cad3
+│ ────────< 0x1005ca78      743d           je 0x1005cab7
+│ ────────> 0x1005ca7a      6a01           push 1                      ; 1
+│ ││││╎││   0x1005ca7c      50             push eax
+│ ││││╎││   0x1005ca7d      51             push ecx
+│ ││││╎││   ; CODE XREF from psycho_engine_fixes::mods::engine_fixes::fade_linked_owner_guard::read_word @ 0x1005caf3(x)
+│ ────────> 0x1005ca7e      e8ad8e1000     call sym.__rustc::__rust_dealloc
+│ ││││╎││   0x1005ca83      83c40c         add esp, 0xc
+│ ────────< 0x1005ca86      eb2f           jmp 0x1005cab7
+│ │││└────> 0x1005ca88      e8e3302a00     call sym._windows_result::error::Error_::from_win32 ; <windows_result::error::Error>::from_win32
+│ │││┌────< 0x1005ca8d      eb07           jmp 0x1005ca96
+│ ││└─────> 0x1005ca8f      31d2           xor edx, edx
+│ ││ │╎││   0x1005ca91      b805400080     mov eax, 0x80004005
+│ ││ │╎││   ; CODE XREF from psycho_engine_fixes::mods::engine_fixes::fade_linked_owner_guard::read_word @ 0x1005ca8d(x)
+│ ││ └────> 0x1005ca96      c744240800..   mov dword [var_8h], 0x80000000 ; [0x80000000:4]=-1
+│ ││  ╎││   0x1005ca9e      8944240c       mov dword [var_ch], eax
+│ ││  ╎││   0x1005caa2      89542410       mov dword [var_10h], edx
+│ ││ ┌────> 0x1005caa6      85d2           test edx, edx
+│ ││┌─────< 0x1005caa8      740d           je 0x1005cab7
+│ │││╎╎││   0x1005caaa      8d442410       lea eax, [var_10h]
+│ │││╎╎││   0x1005caae      50             push eax
+│ │││╎╎││   0x1005caaf      e83c382a00     call sym._windows_result::com::ComPtr_as_core::ops::drop::Drop_::drop ; <windows_result::com::ComPtr as core::ops::drop::Drop>::drop
+│ │││╎╎││   0x1005cab4      83c404         add esp, 4
+│ │││╎╎││   ; CODE XREFS from psycho_engine_fixes::mods::engine_fixes::fade_linked_owner_guard::read_word @ 0x1005ca86(x), 0x1005cae9(x)
+│ ──└─────> 0x1005cab7      31c0           xor eax, eax
+│ ││ ╎╎││   ; CODE XREF from psycho_engine_fixes::mods::engine_fixes::fade_linked_owner_guard::read_word @ 0x1005ca2f(x)
+│ │└──────> 0x1005cab9      8d65f4         lea esp, [var_bp_ch]
+│ │  ╎╎││   0x1005cabc      5e             pop esi
+│ │  ╎╎││   0x1005cabd      5f             pop edi
+│ │  ╎╎││   0x1005cabe      5b             pop ebx
+│ │  ╎╎││   0x1005cabf      5d             pop ebp
+│ │  ╎╎││   0x1005cac0      c3             ret
+│ │  ╎╎└──> 0x1005cac1      31c0           xor eax, eax
+│ │  ╎╎ │   0x1005cac3      f00fb10b       lock cmpxchg dword [ebx], ecx
+│ │  ╎╎ │   0x1005cac7      0f44c1         cmove eax, ecx
+│ │  ╎╎ │   0x1005caca      8b4c241c       mov ecx, dword [var_1ch]
+│ │  ╎└───< 0x1005cace      e934ffffff     jmp 0x1005ca07
+│ └───────> 0x1005cad3      89c6           mov esi, eax
+│    ╎  │   0x1005cad5      81e6ffffff7f   and esi, 0x7fffffff
+│    ╎  │   0x1005cadb      83fe05         cmp esi, 5                  ; 5
+│ ────────< 0x1005cade      749a           je 0x1005ca7a
+│    ╎  │   0x1005cae0      83fe02         cmp esi, 2                  ; 2
+│    ╎ ┌──< 0x1005cae3      7406           je 0x1005caeb
+│    ╎ ││   0x1005cae5      85f6           test esi, esi
+│    └────< 0x1005cae7      74bd           je 0x1005caa6
+│ ────────< 0x1005cae9      ebcc           jmp 0x1005cab7
+│      └──> 0x1005caeb      85c9           test ecx, ecx
+│ ────────< 0x1005caed      74c8           je 0x1005cab7
+│       │   0x1005caef      6a01           push 1                      ; 1
+│       │   0x1005caf1      51             push ecx
+│       │   0x1005caf2      52             push edx
+│ ────────< 0x1005caf3      eb89           jmp 0x1005ca7e
+│       └─> 0x1005caf5      31c0           xor eax, eax
+└           0x1005caf7      c3             ret

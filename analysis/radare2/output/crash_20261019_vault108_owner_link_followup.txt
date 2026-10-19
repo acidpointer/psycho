@@ -1,0 +1,659 @@
+Psycho radare2 evidence
+UTC: 2026-10-19T12:04:42.842268+00:00
+Binary: /data/storage0/Games/FalloutNV_TTW/FalloutNV/FalloutNV.exe
+SHA-256: 42fee7d6cd74e801372aa89c8f71c974cebd3c20ec9ad43d1465b8fa9646b49c
+radare2 6.2.2; CLI. MCP search could not set a bounded search range, so CLI supplies it explicitly.
+PE32 i386; image base 0x00400000. bin.relocs.apply=true passed before load.
+Scope: fade-node offset writes, destruction and clone methods. Broad offset matches are candidates, not proven class writes.
+Known warning: invalid certificate table. No game execution or process dump.
+This file is not patch authority.
+r2 commands: e search.in=bin.sections.x | e search.from=0x00401000 | e search.to=0x00fdd600 | /x 908f0a01 | /x 89..cc000000 | /x c7..cc000000 | s 0x00B4E1E0 | af | pdf | s 0x00B4E3F0 | af | pdf | pd 7 @ 0x00B4DF10 | pd 7 @ 0x00B4DF20 | pd 30 @ 0x00571020 | pd 26 @ 0x00B4DF80
+WARN: Invalid certificate table
+0x00b4e164 hit0_0 908f0a01
+0x00b4e20c hit0_1 908f0a01
+0x0045c50f hit1_0 8988cc000000
+0x004fd9a4 hit1_1 8991cc000000
+0x004fdd57 hit1_2 8981cc000000
+0x0056c7dd hit1_3 8988cc000000
+0x0068cbef hit1_4 8982cc000000
+0x0070705b hit1_5 8988cc000000
+0x0070d537 hit1_6 8988cc000000
+0x00767659 hit1_7 898acc000000
+0x00767d03 hit1_8 8990cc000000
+0x0076e245 hit1_9 8981cc000000
+0x0078bb2b hit1_10 8981cc000000
+0x00798d0a hit1_11 8982cc000000
+0x007c10dd hit1_12 8988cc000000
+0x007c25ad hit1_13 898acc000000
+0x007c25dc hit1_14 8990cc000000
+0x007c2608 hit1_15 8981cc000000
+0x007c2637 hit1_16 898acc000000
+0x007c2654 hit1_17 898acc000000
+0x007c2686 hit1_18 8990cc000000
+0x007c26ab hit1_19 8982cc000000
+0x007c2807 hit1_20 898acc000000
+0x007c2879 hit1_21 8991cc000000
+0x007c28eb hit1_22 8991cc000000
+0x007c2960 hit1_23 8991cc000000
+0x007c29c0 hit1_24 8991cc000000
+0x007c29e5 hit1_25 8982cc000000
+0x007c2ae1 hit1_26 8988cc000000
+0x007c2b13 hit1_27 898acc000000
+0x00819629 hit1_28 8988cc000000
+0x0081b33e hit1_29 8982cc000000
+0x009b2659 hit1_30 8988cc000000
+0x009e33c6 hit1_31 8990cc000000
+0x00a6616f hit1_32 899ecc000000
+0x00a71ef1 hit1_33 8997cc000000
+0x00a86d6f hit1_34 8991cc000000
+0x00a992b9 hit1_35 89b3cc000000
+0x00a9936e hit1_36 89bbcc000000
+0x00a99641 hit1_37 89becc000000
+0x00b4e1ad hit1_38 89becc000000
+0x00b5ab70 hit1_39 898ecc000000
+0x00b5afc6 hit1_40 8981cc000000
+0x00b5afd3 hit1_41 8991cc000000
+0x00b5aff5 hit1_42 8991cc000000
+0x00b5b022 hit1_43 8991cc000000
+0x00b5b045 hit1_44 8991cc000000
+0x00b5e396 hit1_45 8997cc000000
+0x00b670bb hit1_46 8986cc000000
+0x00b677ce hit1_47 8985cc000000
+0x00b6861f hit1_48 8986cc000000
+0x00b6a848 hit1_49 898fcc000000
+0x00b87d58 hit1_50 89aecc000000
+0x00b953aa hit1_51 8982cc000000
+0x00ba814f hit1_52 8986cc000000
+0x00bb68b3 hit1_53 8986cc000000
+0x00bb69ff hit1_54 8996cc000000
+0x00c04106 hit1_55 89becc000000
+0x00c1a3d0 hit1_56 898ecc000000
+0x00c1b5e9 hit1_57 8986cc000000
+0x00c5cf06 hit1_58 8982cc000000
+0x00c5cf8d hit1_59 8982cc000000
+0x00c5cff5 hit1_60 8991cc000000
+0x00c8cfad hit1_61 8986cc000000
+0x00c9cdc2 hit1_62 8986cc000000
+0x00cb4d7a hit1_63 89b2cc000000
+0x00cb6947 hit1_64 89b8cc000000
+0x00cd88ae hit1_65 8988cc000000
+0x00d07426 hit1_66 898fcc000000
+0x00d4ab8f hit1_67 8986cc000000
+0x00d562d3 hit1_68 89becc000000
+0x00d56a4d hit1_69 8986cc000000
+0x00d56b37 hit1_70 8983cc000000
+0x00d56bc6 hit1_71 8983cc000000
+0x00d56e43 hit1_72 899ecc000000
+0x00dd4898 hit1_73 8986cc000000
+0x00e18ad0 hit1_74 89becc000000
+0x00e1b7aa hit1_75 89becc000000
+0x00e3dba3 hit1_76 8986cc000000
+0x00e3dc9e hit1_77 899ecc000000
+0x00e88348 hit1_78 8996cc000000
+0x00ed0bf2 hit1_79 8986cc000000
+0x00403433 hit2_0 c745cc000000
+0x004073b5 hit2_1 c745cc000000
+0x00407c9b hit2_2 c745cc000000
+0x00414bb5 hit2_3 c745cc000000
+0x0041ee3c hit2_4 c745cc000000
+0x00420b56 hit2_5 c745cc000000
+0x0043f5fc hit2_6 c745cc000000
+0x004478b1 hit2_7 c745cc000000
+0x00448d55 hit2_8 c745cc000000
+0x0044b88c hit2_9 c745cc000000
+0x0044bb4c hit2_10 c745cc000000
+0x0044bd1c hit2_11 c745cc000000
+0x0044bfbc hit2_12 c745cc000000
+0x0044c17c hit2_13 c745cc000000
+0x0044c3ac hit2_14 c745cc000000
+0x0044c89c hit2_15 c745cc000000
+0x0044ca5c hit2_16 c745cc000000
+0x004559c6 hit2_17 c745cc000000
+0x00459cc9 hit2_18 c745cc000000
+0x00459f92 hit2_19 c745cc000000
+0x0045aabd hit2_20 c745cc000000
+0x0045c55a hit2_21 c780cc000000
+0x00469d40 hit2_22 c745cc000000
+0x00475d90 hit2_23 c745cc000000
+0x0047d082 hit2_24 c745cc000000
+0x004823ee hit2_25 c745cc000000
+0x0049b319 hit2_26 c745cc000000
+0x004bd64a hit2_27 c745cc000000
+0x004bdbf3 hit2_28 c745cc000000
+0x004bef10 hit2_29 c745cc000000
+0x004c6fe5 hit2_30 c745cc000000
+0x004c949d hit2_31 c745cc000000
+0x004cb766 hit2_32 c745cc000000
+0x004d16d4 hit2_33 c745cc000000
+0x004da11d hit2_34 c745cc000000
+0x004dc738 hit2_35 c745cc000000
+0x004dd337 hit2_36 c745cc000000
+0x004e4842 hit2_37 c745cc000000
+0x004e55ef hit2_38 c745cc000000
+0x004e5b3c hit2_39 c745cc000000
+0x004f097b hit2_40 c745cc000000
+0x004f18b7 hit2_41 c745cc000000
+0x004f26b8 hit2_42 c745cc000000
+0x004f34db hit2_43 c745cc000000
+0x004f478b hit2_44 c745cc000000
+0x004f6445 hit2_45 c745cc000000
+0x004f65cf hit2_46 c745cc000000
+0x004f6ab4 hit2_47 c745cc000000
+0x004f98dc hit2_48 c745cc000000
+0x004fb29e hit2_49 c745cc000000
+0x004fbe7c hit2_50 c745cc000000
+0x004fd07f hit2_51 c781cc000000
+0x004fd992 hit2_52 c780cc000000
+0x004fdb47 hit2_53 c745cc000000
+0x004fea23 hit2_54 c745cc000000
+0x005040ab hit2_55 c745cc000000
+0x005087c3 hit2_56 c745cc000000
+0x00509223 hit2_57 c745cc000000
+0x0050cd0d hit2_58 c745cc000000
+0x005169a1 hit2_59 c745cc000000
+0x00519133 hit2_60 c745cc000000
+0x0051a237 hit2_61 c745cc000000
+0x0051ac7a hit2_62 c745cc000000
+0x0051d979 hit2_63 c780cc000000
+0x0051dbd9 hit2_64 c780cc000000
+0x0051ff7d hit2_65 c745cc000000
+0x00528b1c hit2_66 c745cc000000
+0x00537590 hit2_67 c745cc000000
+0x0053d94d hit2_68 c745cc000000
+0x005418a7 hit2_69 c745cc000000
+0x005421aa hit2_70 c745cc000000
+0x005430f9 hit2_71 c745cc000000
+0x00549c5a hit2_72 c745cc000000
+0x0054fd97 hit2_73 c745cc000000
+0x00555de3 hit2_74 c745cc000000
+0x0055afe0 hit2_75 c745cc000000
+0x00565af6 hit2_76 c745cc000000
+0x005688ef hit2_77 c745cc000000
+0x00574de1 hit2_78 c745cc000000
+0x005759fc hit2_79 c745cc000000
+0x00577f89 hit2_80 c745cc000000
+0x00579875 hit2_81 c745cc000000
+0x0057a827 hit2_82 c745cc000000
+0x0057d014 hit2_83 c745cc000000
+0x0057d617 hit2_84 c745cc000000
+0x00580c82 hit2_85 c745cc000000
+0x00582f5b hit2_86 c745cc000000
+0x005839a1 hit2_87 c745cc000000
+0x0058508c hit2_88 c745cc000000
+0x00588ba2 hit2_89 c745cc000000
+0x0058b2d6 hit2_90 c745cc000000
+0x0058bb25 hit2_91 c745cc000000
+0x0058ed61 hit2_92 c745cc000000
+0x00595e00 hit2_93 c745cc000000
+0x0059a9f9 hit2_94 c745cc000000
+0x005aaa74 hit2_95 c745cc000000
+0x005ab6ef hit2_96 c745cc000000
+0x005b4c7e hit2_97 c745cc000000
+0x005ba9ef hit2_98 c745cc000000
+0x005d8a18 hit2_99 c745cc000000
+0x005d8f27 hit2_100 c745cc000000
+0x005e2604 hit2_101 c745cc000000
+0x005e5849 hit2_102 c745cc000000
+0x005e62ef hit2_103 c745cc000000
+0x005e88a0 hit2_104 c745cc000000
+0x005e9024 hit2_105 c745cc000000
+0x005e97d0 hit2_106 c745cc000000
+0x005ea4d1 hit2_107 c745cc000000
+0x005f53bc hit2_108 c745cc000000
+0x005f84d5 hit2_109 c745cc000000
+0x005ff0e6 hit2_110 c745cc000000
+0x00602064 hit2_111 c745cc000000
+0x0060419c hit2_112 c745cc000000
+0x0060742b hit2_113 c745cc000000
+0x0060953f hit2_114 c745cc000000
+0x0060d7ce hit2_115 c745cc000000
+0x0060eefe hit2_116 c745cc000000
+0x0061457d hit2_117 c745cc000000
+0x0061e278 hit2_118 c745cc000000
+0x00623803 hit2_119 c745cc000000
+0x0062467e hit2_120 c745cc000000
+0x00628e15 hit2_121 c745cc000000
+0x00642bef hit2_122 c745cc000000
+0x006448f1 hit2_123 c745cc000000
+0x0064b097 hit2_124 c745cc000000
+0x0065880a hit2_125 c745cc000000
+0x00662297 hit2_126 c745cc000000
+0x00664c63 hit2_127 c745cc000000
+0x006650c9 hit2_128 c745cc000000
+0x00665717 hit2_129 c745cc000000
+0x00665dec hit2_130 c745cc000000
+0x006670d2 hit2_131 c745cc000000
+0x0066e546 hit2_132 c745cc000000
+0x00670b02 hit2_133 c745cc000000
+0x00679a18 hit2_134 c745cc000000
+0x0067e5af hit2_135 c745cc000000
+0x00680e3d hit2_136 c745cc000000
+0x0068b2fe hit2_137 c782cc000000
+0x0068e849 hit2_138 c782cc000000
+0x0068f96a hit2_139 c745cc000000
+0x006909ad hit2_140 c745cc000000
+0x0069664c hit2_141 c745cc000000
+0x0069686c hit2_142 c745cc000000
+0x00699c02 hit2_143 c745cc000000
+0x0069c850 hit2_144 c745cc000000
+0x006a1d56 hit2_145 c745cc000000
+0x006a8076 hit2_146 c745cc000000
+0x006adbd6 hit2_147 c745cc000000
+0x006b0d51 hit2_148 c745cc000000
+0x006b3a96 hit2_149 c745cc000000
+0x006b5e12 hit2_150 c745cc000000
+0x006b64d5 hit2_151 c745cc000000
+0x006b91e6 hit2_152 c745cc000000
+0x006c22c6 hit2_153 c745cc000000
+0x006c820c hit2_154 c745cc000000
+0x006e6cce hit2_155 c745cc000000
+0x006ec79c hit2_156 c745cc000000
+0x006f4016 hit2_157 c745cc000000
+0x006fd2b6 hit2_158 c745cc000000
+0x006fe1ed hit2_159 c745cc000000
+0x00701ccf hit2_160 c745cc000000
+0x00706c3d hit2_161 c782cc000000
+0x007096b1 hit2_162 c745cc000000
+0x0070a38a hit2_163 c781cc000000
+0x0070d554 hit2_164 c781cc000000
+0x00715841 hit2_165 c780cc000000
+0x00715939 hit2_166 c781cc000000
+0x0071a40f hit2_167 c745cc000000
+0x0071f766 hit2_168 c745cc000000
+0x00720dc3 hit2_169 c745cc000000
+0x007273c9 hit2_170 c745cc000000
+0x00729bcf hit2_171 c745cc000000
+0x0072a9ef hit2_172 c745cc000000
+0x0072e98a hit2_173 c745cc000000
+0x0072fb95 hit2_174 c745cc000000
+0x00738a47 hit2_175 c745cc000000
+0x00738a64 hit2_176 c745cc000000
+0x0073ad91 hit2_177 c745cc000000
+0x00752b74 hit2_178 c745cc000000
+0x0075477f hit2_179 c745cc000000
+0x0075a1ff hit2_180 c745cc000000
+0x0075e886 hit2_181 c745cc000000
+0x0076451f hit2_182 c745cc000000
+0x007699fd hit2_183 c745cc000000
+0x0076af10 hit2_184 c745cc000000
+0x00773bae hit2_185 c745cc000000
+0x00778d0c hit2_186 c745cc000000
+0x0077bb16 hit2_187 c745cc000000
+0x0077c00a hit2_188 c745cc000000
+0x00784167 hit2_189 c745cc000000
+0x00786ddf hit2_190 c745cc000000
+0x007918b0 hit2_191 c745cc000000
+0x00794fa0 hit2_192 c745cc000000
+0x007951ae hit2_193 c745cc000000
+0x0079698c hit2_194 c780cc000000
+0x00796f2c hit2_195 c745cc000000
+0x0079f99c hit2_196 c745cc000000
+0x007a1ebf hit2_197 c745cc000000
+0x007a2a1f hit2_198 c745cc000000
+0x007a390f hit2_199 c745cc000000
+0x007a45cf hit2_200 c745cc000000
+0x007a531f hit2_201 c745cc000000
+0x007a605d hit2_202 c745cc000000
+0x007aa1f9 hit2_203 c745cc000000
+0x007b3eaa hit2_204 c745cc000000
+0x007b47c4 hit2_205 c745cc000000
+0x007c3f45 hit2_206 c781cc000000
+0x007ca1b0 hit2_207 c745cc000000
+0x007d5671 hit2_208 c745cc000000
+0x007d70df hit2_209 c745cc000000
+0x007d7e8f hit2_210 c745cc000000
+0x007da65e hit2_211 c745cc000000
+0x007df2ce hit2_212 c745cc000000
+0x007e0f5f hit2_213 c745cc000000
+0x007e127f hit2_214 c745cc000000
+0x007e151f hit2_215 c745cc000000
+0x007e17bf hit2_216 c745cc000000
+0x007e4a7d hit2_217 c745cc000000
+0x007e545f hit2_218 c745cc000000
+0x007e8146 hit2_219 c745cc000000
+0x007f4067 hit2_220 c745cc000000
+0x007f70cf hit2_221 c745cc000000
+0x007fc352 hit2_222 c745cc000000
+0x008000aa hit2_223 c745cc000000
+0x008005d3 hit2_224 c745cc000000
+0x0080949c hit2_225 c745cc000000
+0x0080a783 hit2_226 c745cc000000
+0x00812092 hit2_227 c745cc000000
+0x00812e15 hit2_228 c745cc000000
+0x008147d4 hit2_229 c745cc000000
+0x00815949 hit2_230 c745cc000000
+0x008192f9 hit2_231 c782cc000000
+0x008194d3 hit2_232 c781cc000000
+0x008197f1 hit2_233 c781cc000000
+0x0081b135 hit2_234 c745cc000000
+0x0081b29c hit2_235 c782cc000000
+0x0081db31 hit2_236 c745cc000000
+0x00825cfc hit2_237 c745cc000000
+0x00828ff1 hit2_238 c745cc000000
+0x0082a1e2 hit2_239 c745cc000000
+0x0083429c hit2_240 c745cc000000
+0x00836a98 hit2_241 c745cc000000
+0x008391e7 hit2_242 c745cc000000
+0x0083dc31 hit2_243 c745cc000000
+0x00841c46 hit2_244 c745cc000000
+0x00841dbf hit2_245 c745cc000000
+0x0084aba5 hit2_246 c745cc000000
+0x0084cdd1 hit2_247 c745cc000000
+0x00853910 hit2_248 c745cc000000
+0x0085551c hit2_249 c745cc000000
+0x00855a89 hit2_250 c745cc000000
+0x00858cfd hit2_251 c745cc000000
+0x00862832 hit2_252 c745cc000000
+0x00866f12 hit2_253 c745cc000000
+0x00868007 hit2_254 c745cc000000
+0x0087a9f4 hit2_255 c745cc000000
+0x0087f00c hit2_256 c745cc000000
+0x00885af4 hit2_257 c745cc000000
+0x00885cbd hit2_258 c745cc000000
+0x00885e78 hit2_259 c745cc000000
+0x00885fb8 hit2_260 c745cc000000
+0x0088633b hit2_261 c745cc000000
+0x0088dc71 hit2_262 c745cc000000
+0x0088e303 hit2_263 c745cc000000
+0x008a33a5 hit2_264 c745cc000000
+0x008a3509 hit2_265 c745cc000000
+0x008a76b0 hit2_266 c745cc000000
+0x008a839b hit2_267 c745cc000000
+0x008abda1 hit2_268 c745cc000000
+0x008ae70c hit2_269 c745cc000000
+0x008ba973 hit2_270 c745cc000000
+0x008bb71e hit2_271 c745cc000000
+0x008c22ef hit2_272 c745cc000000
+0x008d6cbf hit2_273 c745cc000000
+0x008ddbd0 hit2_274 c745cc000000
+0x008ddf34 hit2_275 c745cc000000
+0x008e2c2c hit2_276 c745cc000000
+0x008e5d65 hit2_277 c745cc000000
+0x008ed10a hit2_278 c745cc000000
+0x008ee474 hit2_279 c745cc000000
+0x008f61e4 hit2_280 c745cc000000
+0x008fd6ce hit2_281 c745cc000000
+0x0090629c hit2_282 c745cc000000
+0x0090c559 hit2_283 c745cc000000
+0x0090cc53 hit2_284 c745cc000000
+0x0090ce08 hit2_285 c745cc000000
+0x0090ebef hit2_286 c745cc000000
+0x00911080 hit2_287 c745cc000000
+0x00911238 hit2_288 c745cc000000
+0x00912061 hit2_289 c745cc000000
+0x00915709 hit2_290 c745cc000000
+0x0091e2c5 hit2_291 c745cc000000
+0x00927930 hit2_292 c745cc000000
+0x00928c44 hit2_293 c745cc000000
+0x0092bdbc hit2_294 c745cc000000
+0x00933038 hit2_295 c745cc000000
+0x00933178 hit2_296 c745cc000000
+0x00939095 hit2_297 c745cc000000
+0x0093bd35 hit2_298 c745cc000000
+0x0093de46 hit2_299 c745cc000000
+0x00953ea5 hit2_300 c745cc000000
+0x0095a44b hit2_301 c745cc000000
+0x00963f2e hit2_302 c745cc000000
+0x0096701b hit2_303 c745cc000000
+0x009674e5 hit2_304 c745cc000000
+0x00967eb6 hit2_305 c745cc000000
+0x0096b541 hit2_306 c745cc000000
+0x0096d35b hit2_307 c745cc000000
+0x00975a30 hit2_308 c745cc000000
+0x009771e5 hit2_309 c745cc000000
+0x00977881 hit2_310 c745cc000000
+0x00981e67 hit2_311 c745cc000000
+0x009876f1 hit2_312 c745cc000000
+0x0098935a hit2_313 c745cc000000
+0x0098fe5a hit2_314 c745cc000000
+0x009909ac hit2_315 c745cc000000
+0x0099120f hit2_316 c745cc000000
+0x00993586 hit2_317 c745cc000000
+0x009968c6 hit2_318 c745cc000000
+0x009a1e23 hit2_319 c745cc000000
+0x009a6f34 hit2_320 c745cc000000
+0x009ac09f hit2_321 c782cc000000
+0x009afdec hit2_322 c745cc000000
+0x009afff6 hit2_323 c745cc000000
+0x009b2a0f hit2_324 c745cc000000
+0x009be1a1 hit2_325 c745cc000000
+0x009c2d33 hit2_326 c745cc000000
+0x009e00a3 hit2_327 c781cc000000
+0x009e0321 hit2_328 c782cc000000
+0x009e0495 hit2_329 c782cc000000
+0x009e0951 hit2_330 c782cc000000
+0x009e1d84 hit2_331 c782cc000000
+0x009e305b hit2_332 c781cc000000
+0x009e30cb hit2_333 c780cc000000
+0x009e30e5 hit2_334 c782cc000000
+0x009f00f3 hit2_335 c745cc000000
+0x009f8148 hit2_336 c745cc000000
+0x00a01d01 hit2_337 c745cc000000
+0x00a04a43 hit2_338 c745cc000000
+0x00a0951f hit2_339 c745cc000000
+0x00a125ed hit2_340 c745cc000000
+0x00a1265c hit2_341 c745cc000000
+0x00a1747e hit2_342 c745cc000000
+0x00a19bb3 hit2_343 c745cc000000
+0x00a1aa52 hit2_344 c745cc000000
+0x00a993e5 hit2_345 c787cc000000
+0x00a996c9 hit2_346 c786cc000000
+0x00a99731 hit2_347 c786cc000000
+0x00aa3ef4 hit2_348 c745cc000000
+0x00aa54d0 hit2_349 c745cc000000
+0x00aba3e1 hit2_350 c745cc000000
+0x00ac723e hit2_351 c745cc000000
+0x00acea71 hit2_352 c745cc000000
+0x00aceec7 hit2_353 c745cc000000
+0x00acf7f1 hit2_354 c745cc000000
+0x00ad0001 hit2_355 c745cc000000
+0x00ada37a hit2_356 c745cc000000
+0x00addecd hit2_357 c745cc000000
+0x00aeb239 hit2_358 c745cc000000
+0x00aecf20 hit2_359 c745cc000000
+0x00af07b6 hit2_360 c745cc000000
+0x00af3fbf hit2_361 c745cc000000
+0x00af721d hit2_362 c745cc000000
+0x00b07fe8 hit2_363 c745cc000000
+0x00b0c71f hit2_364 c745cc000000
+0x00b0d98f hit2_365 c745cc000000
+0x00b0e3f7 hit2_366 c745cc000000
+0x00b0e61c hit2_367 c745cc000000
+0x00b0e8a1 hit2_368 c745cc000000
+0x00b154f1 hit2_369 c745cc000000
+0x00b156cc hit2_370 c745cc000000
+0x00b17ffe hit2_371 c745cc000000
+0x00b1dc71 hit2_372 c745cc000000
+0x00b1e861 hit2_373 c745cc000000
+0x00b1f481 hit2_374 c745cc000000
+0x00b1f6f1 hit2_375 c745cc000000
+0x00b1fad1 hit2_376 c745cc000000
+0x00b1fd71 hit2_377 c745cc000000
+0x00b283f8 hit2_378 c745cc000000
+0x00b298ff hit2_379 c745cc000000
+0x00b3325c hit2_380 c745cc000000
+0x00b339e9 hit2_381 c745cc000000
+0x00b38c6b hit2_382 c745cc000000
+0x00b396e1 hit2_383 c745cc000000
+0x00b3ee9f hit2_384 c745cc000000
+0x00b41b6c hit2_385 c745cc000000
+0x00b4462d hit2_386 c745cc000000
+0x00b446c0 hit2_387 c745cc000000
+0x00b48310 hit2_388 c745cc000000
+0x00c34811 hit2_389 c745cc000000
+0x00c39746 hit2_390 c782cc000000
+0x00c3ae43 hit2_391 c745cc000000
+0x00c3c680 hit2_392 c745cc000000
+0x00c3d56b hit2_393 c745cc000000
+0x00c3e0b2 hit2_394 c745cc000000
+0x00c3e63a hit2_395 c745cc000000
+0x00c3e9b1 hit2_396 c745cc000000
+0x00c411af hit2_397 c745cc000000
+0x00c412a9 hit2_398 c745cc000000
+0x00c51e64 hit2_399 c745cc000000
+0x00c5e1cb hit2_400 c745cc000000
+0x00c5e2d4 hit2_401 c745cc000000
+0x00d071e4 hit2_402 c780cc000000
+0x00ed0c64 hit2_403 c786cc000000
+0x00f7a234 hit2_404 c745cc000000
+┌ 140: fcn.00b4e1e0 ();
+│ afv: vars(3:sp[0x4..0x10])
+│           0x00b4e1e0      6aff           push 0xffffffffffffffff
+│           0x00b4e1e2      68d46cf200     push 0xf26cd4
+│           0x00b4e1e7      64a100000000   mov eax, dword fs:[0]
+│           0x00b4e1ed      50             push eax
+│           0x00b4e1ee      51             push ecx
+│           0x00b4e1ef      53             push ebx
+│           0x00b4e1f0      56             push esi
+│           0x00b4e1f1      57             push edi
+│           0x00b4e1f2      a1bc161c01     mov eax, dword [0x11c16bc]  ; [0x11c16bc:4]=0xbb40e64e
+│           0x00b4e1f7      33c4           xor eax, esp
+│           0x00b4e1f9      50             push eax
+│           0x00b4e1fa      8d442414       lea eax, [var_14h]
+│           0x00b4e1fe      64a300000000   mov dword fs:[0], eax
+│           0x00b4e204      8bf1           mov esi, ecx
+│           0x00b4e206      89742410       mov dword [var_10h], esi
+│           0x00b4e20a  ~   c706908f0a01   mov dword [esi], 0x10a8f90  ; [0x10a8f90:4]=0xb4ed40
+│           ;-- hit0_1:
+..
+│           0x00b4e210      8dbed4000000   lea edi, [esi + 0xd4]
+│           0x00b4e216      8bcf           mov ecx, edi
+│           0x00b4e218      c744241c02..   mov dword [var_1ch], 2
+│           0x00b4e220      e80bfdffff     call fcn.00b4df30
+│           0x00b4e225      8d9edc000000   lea ebx, [esi + 0xdc]
+│           0x00b4e22b      8bcb           mov ecx, ebx
+│           0x00b4e22d      e8fefcffff     call fcn.00b4df30
+│           0x00b4e232      8bcb           mov ecx, ebx
+│           0x00b4e234      c644241c01     mov byte [var_1ch], 1
+│           0x00b4e239      e8f2fcffff     call fcn.00b4df30
+│           0x00b4e23e      8bcf           mov ecx, edi
+│           0x00b4e240      c644241c00     mov byte [var_1ch], 0
+│           0x00b4e245      e8e6fcffff     call fcn.00b4df30
+│           0x00b4e24a      8bce           mov ecx, esi
+│           0x00b4e24c      c744241cff..   mov dword [var_1ch], 0xffffffff ; [0xffffffff:4]=-1 ; -1
+│           0x00b4e254      e8d706f1ff     call fcn.00a5e930
+│           0x00b4e259      8b4c2414       mov ecx, dword [var_14h]
+│           0x00b4e25d      64890d0000..   mov dword fs:[0], ecx
+│           0x00b4e264      59             pop ecx
+│           0x00b4e265      5f             pop edi
+│           0x00b4e266      5e             pop esi
+│           0x00b4e267      5b             pop ebx
+│           0x00b4e268      83c410         add esp, 0x10
+└           0x00b4e26b      c3             ret
+┌ 159: fcn.00b4e3f0 (int32_t arg_20h);
+│ `- args(sp[0x4..0x4]) vars(4:sp[0x4..0x14])
+│           0x00b4e3f0      6aff           push 0xffffffffffffffff
+│           0x00b4e3f2      68426df200     push 0xf26d42
+│           0x00b4e3f7      64a100000000   mov eax, dword fs:[0]
+│           0x00b4e3fd      50             push eax
+│           0x00b4e3fe      51             push ecx
+│           0x00b4e3ff      56             push esi
+│           0x00b4e400      57             push edi
+│           0x00b4e401      a1bc161c01     mov eax, dword [0x11c16bc]  ; [0x11c16bc:4]=0xbb40e64e
+│           0x00b4e406      33c4           xor eax, esp
+│           0x00b4e408      50             push eax
+│           0x00b4e409      8d442410       lea eax, [var_10h]
+│           0x00b4e40d      64a300000000   mov dword fs:[0], eax
+│           0x00b4e413      8bf9           mov edi, ecx
+│           0x00b4e415      68e4000000     push 0xe4                   ; 228
+│           0x00b4e41a      e8c12ff5ff     call fcn.00aa13e0
+│           0x00b4e41f      83c404         add esp, 4
+│           0x00b4e422      8944240c       mov dword [var_ch], eax
+│           0x00b4e426      33f6           xor esi, esi
+│           0x00b4e428      89742418       mov dword [var_18h], esi
+│           0x00b4e42c      3bc6           cmp eax, esi
+│       ┌─< 0x00b4e42e      7409           je 0xb4e439
+│       │   0x00b4e430      8bc8           mov ecx, eax
+│       │   0x00b4e432      e819fdffff     call fcn.00b4e150
+│       │   0x00b4e437      8bf0           mov esi, eax
+│       └─> 0x00b4e439      8b442420       mov eax, dword [arg_20h]
+│           0x00b4e43d      50             push eax
+│           0x00b4e43e      56             push esi
+│           0x00b4e43f      8bcf           mov ecx, edi
+│           0x00b4e441      c7442420ff..   mov dword [var_18h], 0xffffffff ; [0xffffffff:4]=-1 ; -1
+│           0x00b4e449      e832f8f0ff     call fcn.00a5dc80
+│           0x00b4e44e      816630ff3f..   and dword [esi + 0x30], 0xfffd3fff ; [0xfffd3fff:4]=-1
+│           0x00b4e455      d987ac000000   fld dword [edi + 0xac]
+│           0x00b4e45b      d99eac000000   fstp dword [esi + 0xac]
+│           0x00b4e461      8bc6           mov eax, esi
+│           0x00b4e463      d987b0000000   fld dword [edi + 0xb0]
+│           0x00b4e469      d99eb0000000   fstp dword [esi + 0xb0]
+│           0x00b4e46f      8b8fc4000000   mov ecx, dword [edi + 0xc4]
+│           0x00b4e475      898ec4000000   mov dword [esi + 0xc4], ecx
+│           0x00b4e47b      8b4c2410       mov ecx, dword [var_10h_2]
+│           0x00b4e47f      64890d0000..   mov dword fs:[0], ecx
+│           0x00b4e486      59             pop ecx
+│           0x00b4e487      5f             pop edi
+│           0x00b4e488      5e             pop esi
+│           0x00b4e489      83c410         add esp, 0x10
+└           0x00b4e48c      c20400         ret 4
+        └─< 0x00b4df10      e96b09f1ff     jmp 0xa5e880
+            0x00b4df15      cc             int3
+            0x00b4df16      cc             int3
+            0x00b4df17      cc             int3
+            0x00b4df18      cc             int3
+            0x00b4df19      cc             int3
+            0x00b4df1a      cc             int3
+        └─< 0x00b4df20      e9db06f1ff     jmp 0xa5e600
+            0x00b4df25      cc             int3
+            0x00b4df26      cc             int3
+            0x00b4df27      cc             int3
+            0x00b4df28      cc             int3
+            0x00b4df29      cc             int3
+            0x00b4df2a      cc             int3
+            0x00571020      e423           in al, 0x23
+            0x00571022      003b           add byte [ebx], bh
+            0x00571024      053ca21c01     add eax, 0x11ca23c
+        ┌─< 0x00571029      7511           jne 0x57103c
+        │   0x0057102b      6a00           push 0
+        │   0x0057102d      8b4dfc         mov ecx, dword [ebp - 4]
+        │   0x00571030      e88b330600     call 0x5d43c0
+        │   0x00571035      8bc8           mov ecx, eax
+        │   0x00571037      e8c4fdeaff     call 0x420e00
+        └─> 0x0057103c      e85f6a3500     call 0x8c7aa0
+            0x00571041      0fb6d0         movzx edx, al
+            0x00571044      85d2           test edx, edx
+        ┌─< 0x00571046      7412           je 0x57105a
+        │   0x00571048      8b45fc         mov eax, dword [ebp - 4]
+        │   0x0057104b      50             push eax
+        │   0x0057104c      e85f27eeff     call 0x4537b0
+        │   0x00571051      8bc8           mov ecx, eax
+        │   0x00571053      e858a23000     call 0x87b2b0
+       ┌──< 0x00571058      eb10           jmp 0x57106a
+       │└─> 0x0057105a      8b4dfc         mov ecx, dword [ebp - 4]
+       │    0x0057105d      8b11           mov edx, dword [ecx]
+       │    0x0057105f      8b4dfc         mov ecx, dword [ebp - 4]
+       │    0x00571062      8b82c0010000   mov eax, dword [edx + 0x1c0]
+       │    0x00571068      ffd0           call eax
+       └──> 0x0057106a      8b4d08         mov ecx, dword [ebp + 8]
+            0x0057106d      51             push ecx
+            0x0057106e      8b4dfc         mov ecx, dword [ebp - 4]
+            0x00571071      e80a000000     call 0x571080
+            0x00571076      8be5           mov esp, ebp
+            0x00571078      5d             pop ebp
+            0x00b4df80      51             push ecx
+            0x00b4df81      833d34911f..   cmp dword [0x11f9134], 0    ; [0x11f9134:4]=0
+        ┌─< 0x00b4df88      7414           je 0xb4df9e
+        │   0x00b4df8a      51             push ecx
+        │   0x00b4df8b      ff1534911f01   call dword [0x11f9134]
+        │   0x00b4df91      d95c2404       fstp dword [esp + 4]
+        │   0x00b4df95      d9442404       fld dword [esp + 4]
+        │   0x00b4df99      83c404         add esp, 4
+        │   0x00b4df9c      59             pop ecx
+        │   0x00b4df9d      c3             ret
+        └─> 0x00b4df9e      d9e8           fld1
+            0x00b4dfa0      d91c24         fstp dword [esp]
+            0x00b4dfa3      d90424         fld dword [esp]
+            0x00b4dfa6      59             pop ecx
+            0x00b4dfa7      c3             ret
+            0x00b4dfa8      cc             int3
+            0x00b4dfa9      cc             int3
+            0x00b4dfaa      cc             int3
+            0x00b4dfab      cc             int3
+            0x00b4dfac      cc             int3
+            0x00b4dfad      cc             int3
+            0x00b4dfae      cc             int3
+            0x00b4dfaf      cc             int3
+            0x00b4dfb0      8b4c2404       mov ecx, dword [esp + 4]
+            0x00b4dfb4      85c9           test ecx, ecx
+        ┌─< 0x00b4dfb6      7412           je 0xb4dfca

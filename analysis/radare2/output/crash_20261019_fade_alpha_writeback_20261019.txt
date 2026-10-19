@@ -1,0 +1,133 @@
+Formatting: trailing whitespace removed; verbatim capture preserved in .reports/20261019-vault108-owner-link/crash_20261019_fade_alpha_writeback_20261019.txt.verbatim
+Psycho radare2 evidence
+UTC: 2026-10-19T12:18:24+00:00
+Binary: /data/storage1/Workspace/psycho/fnv_reverse/FalloutNV.exe
+SHA-256: 42fee7d6cd74e801372aa89c8f71c974cebd3c20ec9ad43d1465b8fa9646b49c
+radare2: radare2 6.2.2 +37485 abi:142 @ linux-x86_64
+Command: /usr/bin/r2 -q -e scr.color=0 -e scr.html=false -e bin.relocs.apply=true -e anal.timeout=300 -c s 0x00B6BB30 -c af -c afi -c pdf -c pdg -c q /data/storage1/Workspace/psycho/fnv_reverse/FalloutNV.exe
+r2 commands: s 0x00B6BB30 | af | afi | pdf | pdg
+Note: decompiler output is a hypothesis. Disassembly, bytes, caller
+coverage, and runtime signature checks are the authority.
+This file is not patch authority.
+WARN: Invalid certificate table
+#
+addr: 0x00b6bb30
+name: fcn.00b6bb30
+size: 158
+is-pure: true
+realsz: 158
+stackframe: 20
+callconv: cdecl
+cyclic-cost: 78
+cyclomatic-complexity: 11
+bits: 32
+type: fcn [NEW]
+num-bbs: 16
+num-instrs: 60
+edges: 25
+minaddr: 0x00b6bb30
+maxaddr: 0x00b6bbce
+is-lineal: true
+end-bbs: 1
+maxbbins: 10
+midbbins: 3.75
+ratbbins: 2.67
+noreturn: false
+recursive: true
+in-degree: 1
+out-degree: 1
+locals: 0
+args: 1
+
+            ; CALL XREF from fcn.00b6bb30 @ 0xb6bbb6(x)
+┌ 158: fcn.00b6bb30 (int32_t arg_8h);
+│ `- args(sp[0x4..0x4])
+│           0x00b6bb30      53             push ebx
+│           0x00b6bb31      8b5c2408       mov ebx, dword [arg_8h]
+│           0x00b6bb35      85db           test ebx, ebx
+│       ┌─< 0x00b6bb37      0f848f000000   je 0xb6bbcc
+│       │   0x00b6bb3d      8b4320         mov eax, dword [ebx + 0x20]
+│       │   0x00b6bb40      85c0           test eax, eax
+│      ┌──< 0x00b6bb42      0f8484000000   je 0xb6bbcc
+│      ││   0x00b6bb48      d9ee           fldz
+│      ││   0x00b6bb4a      d8580c         fcomp dword [eax + 0xc]
+│      ││   0x00b6bb4d      dfe0           fnstsw ax
+│      ││   0x00b6bb4f      f6c444         test ah, 0x44               ; 68
+│     ┌───< 0x00b6bb52      7b78           jnp 0xb6bbcc
+│     │││   0x00b6bb54      57             push edi
+│     │││   0x00b6bb55      33c0           xor eax, eax
+│     │││   0x00b6bb57      33ff           xor edi, edi
+│     │││   0x00b6bb59      663b83a600..   cmp ax, word [ebx + 0xa6]
+│    ┌────< 0x00b6bb60      7369           jae 0xb6bbcb
+│    ││││   0x00b6bb62      56             push esi
+│   ┌─────> 0x00b6bb63      8b8ba0000000   mov ecx, dword [ebx + 0xa0]
+│   ╎││││   0x00b6bb69      8b34b9         mov esi, dword [ecx + edi*4]
+│   ╎││││   0x00b6bb6c      85f6           test esi, esi
+│  ┌──────< 0x00b6bb6e      744e           je 0xb6bbbe
+│  │╎││││   0x00b6bb70      8b16           mov edx, dword [esi]
+│  │╎││││   0x00b6bb72      8b4218         mov eax, dword [edx + 0x18]
+│  │╎││││   0x00b6bb75      8bce           mov ecx, esi
+│  │╎││││   0x00b6bb77      ffd0           call eax
+│  │╎││││   0x00b6bb79      85c0           test eax, eax
+│ ┌───────< 0x00b6bb7b      7427           je 0xb6bba4
+│ ││╎││││   0x00b6bb7d      8d889c000000   lea ecx, [eax + 0x9c]
+│ ││╎││││   0x00b6bb83      85c9           test ecx, ecx
+│ ────────< 0x00b6bb85      741d           je 0xb6bba4
+│ ││╎││││   0x00b6bb87      8b88a8000000   mov ecx, dword [eax + 0xa8]
+│ ││╎││││   0x00b6bb8d      85c9           test ecx, ecx
+│ ────────< 0x00b6bb8f      7413           je 0xb6bba4
+│ ││╎││││   0x00b6bb91      8b411c         mov eax, dword [ecx + 0x1c]
+│ ││╎││││   0x00b6bb94      40             inc eax
+│ ││╎││││   0x00b6bb95      f7d8           neg eax
+│ ││╎││││   0x00b6bb97      1bc0           sbb eax, eax
+│ ││╎││││   0x00b6bb99      23c1           and eax, ecx
+│ ────────< 0x00b6bb9b      7407           je 0xb6bba4
+│ ││╎││││   0x00b6bb9d      d9442414       fld dword [esp + 0x14]
+│ ││╎││││   0x00b6bba1      d9582c         fstp dword [eax + 0x2c]
+│ └───────> 0x00b6bba4      8b16           mov edx, dword [esi]
+│  │╎││││   0x00b6bba6      d9442414       fld dword [esp + 0x14]
+│  │╎││││   0x00b6bbaa      8b420c         mov eax, dword [edx + 0xc]
+│  │╎││││   0x00b6bbad      51             push ecx
+│  │╎││││   0x00b6bbae      8bce           mov ecx, esi
+│  │╎││││   0x00b6bbb0      d91c24         fstp dword [esp]
+│  │╎││││   0x00b6bbb3      ffd0           call eax
+│  │╎││││   0x00b6bbb5      50             push eax
+│  │╎││││   0x00b6bbb6      e875ffffff     call fcn.00b6bb30
+│  │╎││││   0x00b6bbbb      83c408         add esp, 8
+│  └──────> 0x00b6bbbe      0fb78ba600..   movzx ecx, word [ebx + 0xa6]
+│   ╎││││   0x00b6bbc5      47             inc edi
+│   ╎││││   0x00b6bbc6      3bf9           cmp edi, ecx
+│   └─────< 0x00b6bbc8      7299           jb 0xb6bb63
+│    ││││   0x00b6bbca      5e             pop esi
+│    └────> 0x00b6bbcb      5f             pop edi
+│     └└└─> 0x00b6bbcc      5b             pop ebx
+└           0x00b6bbcd      c3             ret
+
+void fcn.00b6bb30(int param_1,uint param_2)
+
+{
+    int *piVar1;
+    int iVar2;
+    uint32_t uVar3;
+    uint uVar4;
+    uint32_t uVar5;
+
+    if ((((param_1 != 0) && (*(param_1 + 0x20) != 0)) && (*(*(param_1 + 0x20) + 0xc) != 0.0)) &&
+       (uVar5 = 0, *(param_1 + 0xa6) != 0)) {
+        do {
+            piVar1 = *(*(param_1 + 0xa0) + uVar5 * 4);
+            if (piVar1 != NULL) {
+                iVar2 = (**(*piVar1 + 0x18))();
+                if (((iVar2 != 0) && (iVar2 != -0x9c)) &&
+                   ((uVar3 = *(iVar2 + 0xa8), uVar3 != 0 && (uVar3 = -(*(uVar3 + 0x1c) != -1) & uVar3, uVar3 != 0))))
+                {
+                    *(uVar3 + 0x2c) = param_2;
+                }
+                uVar4 = (**(*piVar1 + 0xc))(param_2);
+                fcn.00b6bb30(uVar4);
+            }
+            uVar5 = uVar5 + 1;
+        } while (uVar5 < *(param_1 + 0xa6));
+    }
+    return;
+}

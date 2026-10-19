@@ -1,0 +1,83 @@
+Psycho crash-boundary evidence
+Date: 2026-10-19 UTC
+Interface: radare2 MCP (read-only disassembly).
+Tool: radare2 6.2.2.
+Scope: installed callback instructions and native owner getter; crash register arithmetic.
+No runtime reproduction, process-memory dump, allocation history, or writer trace.
+This file is not patch authority.
+
+Installed callback binary: /data/storage0/Games/FalloutNV_TTW/mods/Stewie Tweaks/NVSE/plugins/nvse_stewie_tweaks.dll
+SHA-256: c19007b47f39df2ce07cfc1add1a27090302cf35e1673ba35bee61cb5800db95
+Preferred image base: 0x10000000. Runtime module base from CrashLogger: 0x0A6D0000.
+Crash EIP 0x0A700030 -> RVA 0x30030 -> preferred VA 0x10030030.
+MCP open_file(file_path=<installed callback binary>), disassemble(address=0x10030020,num_instructions=26).
+
+0x10030020      mov eax, dword [esp + 4]
+0x10030024      mov ecx, dword [eax + 0xcc]
+0x1003002a      test ecx, ecx
+   ; unlikely
+0x1003002c      je 0x10030044
+0x1003002e      mov eax, dword [ecx]
+0x10030030      cmp dword [eax + 0x100], 0x8d0360
+   ; likely
+0x1003003a      jne 0x10030044
+0x1003003c      mov eax, dword [eax + 0x420]
+0x10030042      jmp eax
+0x10030044      fld1
+0x10030046      ret
+0x10030047      int3
+0x10030048      int3
+0x10030049      int3
+0x1003004a      int3
+0x1003004b      int3
+0x1003004c      int3
+0x1003004d      int3
+0x1003004e      int3
+0x1003004f      int3
+0x10030050      mov eax, dword [ecx + 0x68]
+0x10030053      test eax, eax
+   ; unlikely
+0x10030055      je 0x10030064
+0x10030057      cmp dword [eax + 0x28], 0
+   ; likely
+0x1003005b      jne 0x10030064
+0x1003005d      fld dword [eax + 0x2b0]
+
+
+Native binary: /data/storage0/Games/FalloutNV_TTW/FalloutNV/FalloutNV.exe
+SHA-256: 42fee7d6cd74e801372aa89c8f71c974cebd3c20ec9ad43d1465b8fa9646b49c
+PE32 i386; image base 0x00400000. Initial MCP open_file exposed no relocation option; corrected CLI evidence uses bin.relocs.apply=true before load. No rebasing used.
+MCP open_file(file_path=<native binary>), disassemble(address=0x009AD610,num_instructions=20).
+
+0x009ad610      push ebp
+0x009ad611      mov ebp, esp
+0x009ad613      push ecx
+0x009ad614      mov dword [ebp - 4], ecx
+0x009ad617      mov eax, dword [ebp - 4]
+0x009ad61a      mov eax, dword [eax + 0xcc]
+0x009ad620      mov esp, ebp
+0x009ad622      pop ebp
+0x009ad623      ret
+0x009ad624      int3
+0x009ad625      int3
+0x009ad626      int3
+0x009ad627      int3
+0x009ad628      int3
+0x009ad629      int3
+0x009ad62a      int3
+0x009ad62b      int3
+0x009ad62c      int3
+0x009ad62d      int3
+0x009ad62e      int3
+
+
+Captured crash registers (preserved report .reports/20261019-vault108-owner-link/CrashLogger.log):
+ESI/node argument: 0xD0ECAA00, vtable 0x010A8F90, name StreetLitter02, refcount 2.
+ECX: 0xFE9F8F68. EAX: 0x65727453. EIP: 0x0A700030.
+Executed callback: ECX = [node + 0xCC]; EAX = [ECX]; faulting read = [EAX + 0x100].
+Computed read address: 0x65727553. EAX bytes in little-endian order: 53 74 72 65 (ASCII Stre).
+Only four payload bytes are established; complete string, allocation identity and free/reuse state remain unknown.
+
+Source cross-check (comparison only): .research/Stewie Tweaks 10.00 Source/code/Features/Inlines/Rendering.cpp:996-1003 and code/Internal/misc_consts.h:10.
+The source matches the installed callback's owner read and actor-type vtable comparison.
+The source is read-only evidence and is not a patch target.
