@@ -24,6 +24,7 @@ fn shipped_mcm_menu_exposes_every_runtime_setting_with_matching_defaults() {
     let ricochet_energy = ballistics.ricochet_energy();
     let first_person = defaults.first_person();
     let third_person = defaults.third_person();
+    let fov = defaults.fov();
     let mouse = input.mouse();
     let controller = input.controller();
     let expected = BTreeMap::from([
@@ -196,6 +197,10 @@ fn shipped_mcm_menu_exposes_every_runtime_setting_with_matching_defaults() {
             "FirstPerson:fWeaponMotion",
             f64::from(first_person.weapon_motion()),
         ),
+        ("Fov:fFirstPerson", f64::from(fov.first_person())),
+        ("Fov:fThirdPerson", f64::from(fov.third_person())),
+        ("Fov:fViewmodel", f64::from(fov.viewmodel())),
+        ("Fov:fPipboy", f64::from(fov.pipboy())),
         ("Input:bEnabled", f64::from(input.enabled())),
         ("Mouse:bInvertX", f64::from(mouse.invert_x())),
         ("Mouse:bInvertY", f64::from(mouse.invert_y())),
@@ -206,6 +211,8 @@ fn shipped_mcm_menu_exposes_every_runtime_setting_with_matching_defaults() {
         ("Mouse:fSensitivity", f64::from(mouse.sensitivity())),
         ("Mouse:fVerticalScale", f64::from(mouse.vertical_scale())),
         ("Mouse:iProfile", f64::from(mouse.profile() as u8)),
+        ("Mouse:fAimScale", f64::from(mouse.aim_scale())),
+        ("Mouse:fScopeScale", f64::from(mouse.scope_scale())),
         (
             "Movement:b360Movement",
             f64::from(third_person.movement_enabled()),
@@ -261,7 +268,7 @@ fn shipped_mcm_uses_feature_categories_without_filler_rows() {
         (
             "1",
             "Input",
-            &["General", "Mouse", "Controller", "Triggers"][..],
+            &["General", "Mouse", "Controller", "Triggers", "Mouse Aiming"][..],
             &["Input:", "Mouse:", "Controller:"][..],
         ),
         (
@@ -272,8 +279,9 @@ fn shipped_mcm_uses_feature_categories_without_filler_rows() {
                 "Third Person",
                 "Third Orbit",
                 "Third Movement",
+                "Field of View",
             ][..],
-            &["FirstPerson:", "Camera:", "Movement:"][..],
+            &["FirstPerson:", "Camera:", "Movement:", "Fov:"][..],
         ),
         (
             "3",

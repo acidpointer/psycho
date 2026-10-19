@@ -1205,7 +1205,9 @@ Atom requirements:
 XAG also recommends an adjustable FOV. Atom should coexist with the user's
 native or established FOV owner rather than silently taking it over in this
 first camera milestone. If Atom later exposes FOV, it needs its own ownership
-and compatibility research.
+and compatibility research. The implemented FOV ownership is now separate from
+this motion layer and documented in
+[`atom_camera_fov_contract.md`](atom_camera_fov_contract.md).
 
 ## Configuration and MCM ownership
 

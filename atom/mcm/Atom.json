@@ -808,6 +808,87 @@
               "default": 0
             }
           ]
+        },
+        "30": {
+          "type": 0,
+          "title": "Field of View",
+          "enable": 1
+        },
+        "31": {
+          "type": 2.5,
+          "title": "First Person FOV",
+          "mouse": "0 uses native",
+          "enable": 1,
+          "scale": {
+            "suffix": "deg",
+            "valueDecimal": 0,
+            "valueIncrement": 5,
+            "valueMin": 0,
+            "valueMax": 150
+          },
+          "vars": [
+            {
+              "configINI": "Fov:fFirstPerson",
+              "default": 0
+            }
+          ]
+        },
+        "32": {
+          "type": 2.5,
+          "title": "Third Person FOV",
+          "mouse": "0 uses native",
+          "enable": 1,
+          "scale": {
+            "suffix": "deg",
+            "valueDecimal": 0,
+            "valueIncrement": 5,
+            "valueMin": 0,
+            "valueMax": 150
+          },
+          "vars": [
+            {
+              "configINI": "Fov:fThirdPerson",
+              "default": 0
+            }
+          ]
+        },
+        "33": {
+          "type": 2.5,
+          "title": "Viewmodel FOV",
+          "mouse": "0 follows first",
+          "enable": 1,
+          "scale": {
+            "suffix": "deg",
+            "valueDecimal": 0,
+            "valueIncrement": 5,
+            "valueMin": 0,
+            "valueMax": 150
+          },
+          "vars": [
+            {
+              "configINI": "Fov:fViewmodel",
+              "default": 0
+            }
+          ]
+        },
+        "34": {
+          "type": 2.5,
+          "title": "Pip-Boy FOV",
+          "mouse": "0 uses native",
+          "enable": 1,
+          "scale": {
+            "suffix": "deg",
+            "valueDecimal": 0,
+            "valueIncrement": 5,
+            "valueMin": 0,
+            "valueMax": 150
+          },
+          "vars": [
+            {
+              "configINI": "Fov:fPipboy",
+              "default": 0
+            }
+          ]
         }
       }
     },

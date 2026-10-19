@@ -116,6 +116,7 @@ For task routing and authority chains, see
 | [`atom.md`](atom.md) | Atom gameplay overhaul | atom |
 | [`atom_input_wrapper_design.md`](atom_input_wrapper_design.md) | Atom input wrapper design | atom |
 | [`atom_first_person_camera_design.md`](atom_first_person_camera_design.md) | Atom first-person camera design | atom |
+| [`atom_camera_fov_contract.md`](atom_camera_fov_contract.md) | Atom camera FOV engine contract | contract |
 | [`atom_third_person_camera_plan.md`](atom_third_person_camera_plan.md) | Atom third-person camera and 360 movement plan | plan/research |
 | [`atom_combat_engine_contract.md`](atom_combat_engine_contract.md) | Atom combat engine contract | contract |
 | [`atom_ballistics_core_plan.md`](atom_ballistics_core_plan.md) | Atom ballistics core implementation plan | plan/research |

@@ -9,7 +9,9 @@ use thiserror::Error;
 
 use crate::ballistics::{BallisticsConfig, BallisticsConfigError};
 use crate::camera::third_person::{ThirdPersonConfig, ThirdPersonConfigError};
-use crate::camera::{FirstPersonConfig, FirstPersonConfigError};
+use crate::camera::{
+    CameraFovConfig, CameraFovConfigError, FirstPersonConfig, FirstPersonConfigError,
+};
 use crate::input::{ConfigError as InputConfigError, InputConfig};
 
 /// Complete configuration snapshot consumed by Atom's native modules.
@@ -19,6 +21,7 @@ pub struct AtomConfig {
     ballistics: BallisticsConfig,
     first_person: FirstPersonConfig,
     third_person: ThirdPersonConfig,
+    fov: CameraFovConfig,
 }
 
 impl AtomConfig {
@@ -33,6 +36,7 @@ impl AtomConfig {
             ballistics: BallisticsConfig::from_ini(text)?,
             first_person: FirstPersonConfig::from_ini(text)?,
             third_person: ThirdPersonConfig::from_ini(text)?,
+            fov: CameraFovConfig::from_ini(text)?,
         })
     }
 
@@ -59,6 +63,12 @@ impl AtomConfig {
     pub const fn third_person(self) -> ThirdPersonConfig {
         self.third_person
     }
+
+    /// Return the field-of-view snapshot.
+    #[inline]
+    pub const fn fov(self) -> CameraFovConfig {
+        self.fov
+    }
 }
 
 /// Failure to deserialize a recognized Atom setting.
@@ -76,4 +86,7 @@ pub enum AtomConfigError {
     /// The third-person configuration was invalid.
     #[error(transparent)]
     ThirdPerson(#[from] ThirdPersonConfigError),
+    /// The camera FOV configuration was invalid.
+    #[error(transparent)]
+    Fov(#[from] CameraFovConfigError),
 }

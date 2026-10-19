@@ -24,6 +24,8 @@ mod aim;
 mod config;
 mod diagnostics;
 mod follow;
+mod fov;
+mod fov_hooks;
 mod hooks;
 mod motion;
 mod movement;
@@ -34,6 +36,7 @@ mod state;
 pub mod third_person;
 
 pub use config::{FirstPersonConfig, FirstPersonConfigError};
+pub use fov::{CameraFovConfig, CameraFovConfigError, fov_scale, scale_fov_degrees};
 pub use motion::{GeneratedMotion, LocomotionState, MotionGenerator, MotionInput};
 pub use pose::{CameraPose, CameraTransform, compose_transform};
 pub use state::CameraMotionFrame;
@@ -84,12 +87,23 @@ pub(crate) struct FirstPersonHookStatus {
     pub(crate) first_person_special: usize,
     pub(crate) first_person_a: usize,
     pub(crate) first_person_b: usize,
+    pub(crate) viewmodel_fov: Option<usize>,
+    pub(crate) third_person_fov: Option<usize>,
+    pub(crate) pipboy_fov: Option<(usize, usize)>,
+    pub(crate) pipboy_open_setup: Option<usize>,
 }
 
 /// Captured predecessor for the shared complete camera-update wrapper.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) struct SharedCameraHookStatus {
     pub(crate) update_entry: usize,
+}
+
+/// Captured predecessors for the native camera FOV writers.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct CameraFovHookStatus {
+    pub(crate) world_setter: usize,
+    pub(crate) fov_aspect: usize,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -185,6 +199,17 @@ pub(crate) fn publish_config(config: FirstPersonConfig) {
     }
 }
 
+/// Return one coherent copy of the live camera FOV configuration.
+pub fn current_fov_config() -> CameraFovConfig {
+    fov::current_config()
+}
+
+/// Publish the MCM-owned FOV targets consumed by the native writer wrappers.
+pub(crate) fn publish_fov_config(config: CameraFovConfig) {
+    fov::publish_config(config);
+    fov_hooks::reset_trace();
+}
+
 /// Publish one authoritative player ranged-fire event for camera presentation.
 ///
 /// The sequence carries no engine pointer or gameplay value. The first-person
@@ -206,6 +231,18 @@ pub(crate) fn install_shared_update_entry(
     })
 }
 
+/// Install the native FOV writers independently of camera motion.
+///
+/// Failure leaves every FOV field native while input, Ballistics, and the
+/// remaining camera capabilities continue under their own transactions.
+pub(crate) fn install_fov_system() -> Result<CameraFovHookStatus, fov_hooks::FovHookError> {
+    let status = fov_hooks::install_native_system()?;
+    Ok(CameraFovHookStatus {
+        world_setter: status.world_setter,
+        fov_aspect: status.fov_aspect,
+    })
+}
+
 /// Install the first-person-only render capability group.
 ///
 /// The runtime calls this once from xNVSE's first post-Deferred main-loop
@@ -216,12 +253,52 @@ pub(crate) fn install_first_person_system() -> Result<FirstPersonHookStatus, Fir
 {
     native::validate_contract()?;
     let predecessors = hooks::install_render_hooks()?;
+    let viewmodel_fov = match fov_hooks::install_viewmodel_frustum(fov_hooks::world_fov_active()) {
+        Ok(predecessor) => Some(predecessor),
+        Err(error) => {
+            log::warn!(
+                "[CAMERA] Viewmodel FOV is unavailable: {error:#}. The viewmodel retains its native FOV"
+            );
+            None
+        }
+    };
+    let third_person_fov = match fov_hooks::install_third_person_route() {
+        Ok(predecessor) => Some(predecessor),
+        Err(error) => {
+            log::warn!(
+                "[CAMERA] Third-person FOV render correction is unavailable: {error:#}. Native writer scaling remains active"
+            );
+            None
+        }
+    };
+    let pipboy_fov = match fov_hooks::install_pipboy_fov() {
+        Ok(predecessors) => Some(predecessors),
+        Err(error) => {
+            log::warn!(
+                "[CAMERA] Pip-Boy FOV ownership is unavailable: {error:#}. The Pip-Boy retains its native FOV"
+            );
+            None
+        }
+    };
+    let pipboy_open_setup = match fov_hooks::install_pipboy_open_setup() {
+        Ok(predecessor) => Some(predecessor),
+        Err(error) => {
+            log::warn!(
+                "[CAMERA] Pip-Boy open-animation FOV latch is unavailable: {error:#}. The open animation may briefly use native FOV"
+            );
+            None
+        }
+    };
     let status = FirstPersonHookStatus {
         route_a: predecessors.route_a,
         route_b: predecessors.route_b,
         first_person_special: predecessors.first_person_special,
         first_person_a: predecessors.first_person_a,
         first_person_b: predecessors.first_person_b,
+        viewmodel_fov,
+        third_person_fov,
+        pipboy_fov,
+        pipboy_open_setup,
     };
     FIRST_PERSON_ACTIVE.store(true, Ordering::Release);
     Ok(status)
@@ -305,6 +382,7 @@ pub(crate) fn log_diagnostics_summary() {
 /// Request a reset from an xNVSE lifecycle boundary.
 pub(crate) fn request_reset() {
     clear_state();
+    fov_hooks::reset_trace();
     third_person::request_reset();
 }
 
@@ -505,6 +583,10 @@ pub(super) fn native_owners_allow_camera() -> bool {
     PLAYER_CONTROLS.get().is_some_and(|reader| {
         !reader.any_disabled(DisabledCheck::ByAnyModOrVanilla, CAMERA_CONTROL_MASK)
     })
+}
+
+pub(super) fn external_owner_active() -> bool {
+    EXTERNAL_OWNER.load(Ordering::Acquire) != 0
 }
 
 #[cfg(test)]
