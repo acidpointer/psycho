@@ -678,3 +678,12 @@ artifact must then save/reload the fade value and complete a cell transition,
 Pip-Boy toggle, and device reset without a startup crash or stale local-light
 history. Until that result exists, the accepted startup baseline above is
 unchanged.
+
+On 2026-10-20 the fade mechanism was removed. The working-config field and its
+serialized position remain as an inert schema-one round-trip value, but it is
+absent from the menu, render settings, shader option payload, constants, and
+HLSL. The atmosphere effect also drops its per-light admission history and clock
+state. Removing an already-unaccepted candidate restores an earlier value graph,
+but the resulting binary layout and startup behavior are still an unverified
+delta against the accepted baseline; the same cold-launch acceptance remains
+required.

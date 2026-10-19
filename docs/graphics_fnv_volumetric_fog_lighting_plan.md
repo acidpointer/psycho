@@ -382,10 +382,13 @@ cannot own OMV's light epoch.
 Phase 6 hooks the complete `0x00871290` transaction and copies the bounded
 `+0xB4` chain into one immutable scalar frame per exact render epoch, cell,
 scene kind, device, and reset generation. The producer admits only
-source-enabled records and retains source identity, effect type, world
-position, diffuse, dimmer, radius, and the PBR-only LOD/fade scalars. It retains
+source records and retains source identity, effect type, world
+position, diffuse, dimmer, radius, and the PBR-only LOD/fade scalars. It does
+not treat `NiAVObject::APP_CULLED` (`+0x30` bit 0) as source disablement;
+that is a per-frame culling result and would make a live light disappear at
+LOD/camera distance bands. A source-off light is rejected by its radiance. It retains
 no engine or D3D pointer. Shadow-prefix active state is native shadow staging
-and cannot remove an enabled source light. The reusable 512-record allocation
+and cannot remove an enabled source light. The reusable 4096-record allocation
 is created at `DeferredInit` and leased outside its owner lock. The manager
 inventory is global and camera-independent, so callback ancestry is not source
 ownership: the first complete common-transaction observation for the exact
@@ -820,12 +823,15 @@ contract:
 
 Status: scene-wide scalar ownership and callback-independent single-producer
 publication are implemented; final exterior/interior game acceptance and
-runtime performance acceptance are pending.
+runtime performance acceptance are pending. The local-light pass is now
+screen-space only and draws every on-screen source without an admission budget
+or fade; point cubes and native projected maps are not sampled by this pass.
 
 The complete implementation, performance, ownership, failure, and test
 contract is in
 `docs/graphics_fnv_atmosphere_phase6_local_lighting_plan.md`. That document is
-authoritative when this summary omits detail.
+authoritative when this summary omits detail. Its 2026-10-20 section supersedes
+the shadow-enrichment and admission-fade statements in this summary.
 
 The production contract is the scene manager's complete bounded scalar list:
 

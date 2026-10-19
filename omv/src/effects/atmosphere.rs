@@ -20,9 +20,11 @@
 //! and capable devices write both haze layers in one MRT draw. Secondary
 //! program admission is device-owned; complete primary programs remain usable.
 //!
-//! Local lights sample optional visibility at every ray segment and use a
-//! normalized phase mixture. Ranked admission reverses scalar fades immediately;
-//! current cube presentation weights affect only occlusion. Equal-depth far
+//! Local lights are a screen-space glow: one closed-form camera-ray segment per
+//! reduced pixel and light, clipped by opaque depth, with no point-shadow
+//! resource and no per-segment probe ladder. Every on-screen source light is
+//! drawn in the current frame; there is no admission budget, lease, or fade, so
+//! a light appears and retires with the exact source epoch. Equal-depth far
 //! cells skip unused local work. Half/quarter target profiles are retained after
 //! first use to avoid camera-driven reallocations, and die with this device owner.
 
@@ -32,7 +34,6 @@ use std::{
         atomic::{AtomicBool, Ordering},
     },
     thread,
-    time::Instant,
 };
 
 use anyhow::Result;
@@ -79,23 +80,13 @@ const DENSITY_NOISE_SIZE: u32 = 64;
 const DENSITY_NOISE_SEED: u32 = 0xA7F4_31D9;
 const LIGHTING_DEBUG_BASE: i32 = 8;
 const SHAFT_TARGET_SCALE: u32 = 4;
-const LOCAL_LIGHT_ACTIVE_CAPACITY: usize = 16;
-const LOCAL_LIGHT_TRACK_CAPACITY: usize = crate::fnv_local_lights::LOCAL_LIGHT_CAPACITY;
+const LOCAL_LIGHT_RENDER_CAPACITY: usize = crate::fnv_local_lights::LOCAL_LIGHT_CAPACITY;
 const LOCAL_LIGHT_BATCH_SIZE: usize = 4;
-/// Fraction by which an already admitted local light's score is boosted before
-/// the render-budget selection.
-///
-/// Rank is camera-relative and changes continuously with movement, so a light
-/// whose score oscillates at the budget boundary would otherwise start and
-/// reverse its fade on every crossing, which the player sees as the halo
-/// pulsing. A challenger must beat a visible light by this fraction to
-/// displace it, keeping the admitted set stable for near-equal candidates
-/// while still admitting a genuinely brighter light.
-const LOCAL_LIGHT_ADMISSION_HOLD_MARGIN: f32 = 0.10;
 
 static COMPILE_STARTED: AtomicBool = AtomicBool::new(false);
 static COMPILE_FAILED: AtomicBool = AtomicBool::new(false);
 static COMPILE_READY: AtomicBool = AtomicBool::new(false);
+static LOCAL_LIGHT_CULL_WARNED: AtomicBool = AtomicBool::new(false);
 static BYTECODE: LazyLock<Mutex<Option<AtmosphereBytecode>>> = LazyLock::new(|| Mutex::new(None));
 
 #[derive(Clone, Copy, Debug)]
@@ -124,7 +115,6 @@ pub(crate) struct AtmosphereSettings {
     pub(crate) local_lights_enabled: bool,
     local_lights_intensity: f32,
     local_lights_quality: AtmosphereQuality,
-    local_lights_fade_seconds: f32,
 }
 
 impl AtmosphereSettings {
@@ -165,8 +155,6 @@ impl AtmosphereSettings {
             local_lights_enabled: lighting.local_lights_enabled,
             local_lights_intensity: finite(lighting.local_lights_intensity, 1.5).clamp(0.0, 4.0),
             local_lights_quality: lighting.local_lights_quality,
-            local_lights_fade_seconds: finite(lighting.local_lights_fade_seconds, 0.75)
-                .clamp(0.05, 5.0),
         }
     }
 
@@ -215,7 +203,6 @@ impl AtmosphereSettings {
             .map_or(AtmosphereQuality::High, |value| {
                 AtmosphereQuality::from_index(finite_i32(value[2]))
             });
-        let local_lights_fade_seconds = option_component(lighting_constants, 3, 0, 0.75);
         let directional_occlusion = DirectionalOcclusionSource::from_index(
             lighting_constants
                 .and_then(|constants| constants.get(4))
@@ -252,7 +239,6 @@ impl AtmosphereSettings {
             local_lights_enabled,
             local_lights_intensity: finite(local_lights_intensity, 1.5).clamp(0.0, 4.0),
             local_lights_quality,
-            local_lights_fade_seconds: finite(local_lights_fade_seconds, 0.75).clamp(0.05, 5.0),
         }
     }
 
@@ -344,22 +330,6 @@ impl AtmosphereSettings {
             AtmosphereQuality::Performance => 8,
             AtmosphereQuality::High => 12,
             AtmosphereQuality::Ultra => 20,
-        }
-    }
-
-    fn local_sample_count(self) -> u32 {
-        match self.local_lights_quality {
-            AtmosphereQuality::Performance => 4,
-            AtmosphereQuality::High => 6,
-            AtmosphereQuality::Ultra => 10,
-        }
-    }
-
-    fn local_max_lights(self) -> usize {
-        match self.local_lights_quality {
-            AtmosphereQuality::Performance => 4,
-            AtmosphereQuality::High => 8,
-            AtmosphereQuality::Ultra => 16,
         }
     }
 
@@ -691,66 +661,17 @@ pub(crate) struct AtmosphereEffect {
     integration_draws: u64,
     shaft_draws: u64,
     local_light_draws: u64,
-    local_light_tracks: [LocalLightTrack; LOCAL_LIGHT_TRACK_CAPACITY],
-    // Reuse the released selection-array slot for the second resolution
-    // profile. This effect is inline in the lazy world owner even before it is
-    // created, so changing its size would change the startup footprint.
-    local_light_profiles: LocalLightProfiles,
+    /// Retained alternate atmosphere target profile for camera-driven quality
+    /// changes. Both profiles die with this device-owned effect.
+    local_light_profiles: Option<AtmosphereTargets>,
     render_target_count: usize,
-    local_light_cell_identity: usize,
-    _local_light_selection_started_millis: u64,
-    local_light_last_update_millis: u64,
-    local_light_clock_origin: Instant,
     /// Last valid directional source. Retained across a transient native-sky
     /// read failure until the engine proves a no-sun state (interior, night, or
     /// underwater), so the sun light cannot hard-switch off during cell,
     /// streaming, or weather transitions.
     retained_directional: Option<DirectionalLight>,
-    #[cfg(test)]
-    local_light_test_millis: Option<u64>,
     composition_draws: u64,
     debug_draws: u64,
-}
-
-#[repr(C)]
-struct LocalLightProfiles {
-    spare: Option<AtmosphereTargets>,
-    compatibility: [u8; std::mem::size_of::<[usize; LOCAL_LIGHT_ACTIVE_CAPACITY]>()
-        - std::mem::size_of::<Option<AtmosphereTargets>>()],
-}
-
-const _: () = {
-    assert!(
-        std::mem::size_of::<LocalLightProfiles>()
-            == std::mem::size_of::<[usize; LOCAL_LIGHT_ACTIVE_CAPACITY]>()
-    );
-    assert!(
-        std::mem::align_of::<LocalLightProfiles>()
-            == std::mem::align_of::<[usize; LOCAL_LIGHT_ACTIVE_CAPACITY]>()
-    );
-};
-
-#[derive(Clone, Copy, Debug)]
-struct LocalLightTrack {
-    identity: usize,
-    values: crate::fnv_local_lights::LocalLightValues,
-    weight: f32,
-    target_visible: bool,
-}
-
-impl Default for LocalLightTrack {
-    fn default() -> Self {
-        Self {
-            identity: 0,
-            values: crate::fnv_local_lights::LocalLightValues {
-                position: [0.0; 3],
-                color: [0.0; 3],
-                radius: 0.0,
-            },
-            weight: 0.0,
-            target_visible: false,
-        }
-    }
 }
 
 struct AtmosphereBytecode {
@@ -867,7 +788,12 @@ struct ShaftBytecode {
 
 struct LocalLightBytecode {
     shadowless: [[Vec<u32>; 4]; 3],
+    /// Legacy shadow-resource variants are compiled only by tests. Production
+    /// local lighting is screen-space only and must not pay preparation or
+    /// device resources for a path it cannot select.
+    #[cfg(test)]
     native_shadowed: [Vec<u32>; 3],
+    #[cfg(test)]
     cube_shadowed: [[Vec<u32>; 4]; 3],
 }
 
@@ -926,31 +852,38 @@ impl ShaftBytecode {
 
 impl LocalLightBytecode {
     fn compile() -> Result<Self> {
+        let shadowless = [
+            compile_local_light_batch_bytecode("performance", 4, false)?,
+            compile_local_light_batch_bytecode("high", 6, true)?,
+            compile_local_light_batch_bytecode("ultra", 10, true)?,
+        ];
+        #[cfg(test)]
+        let native_shadowed = [
+            shaders::compile_hlsl_source(
+                "atmosphere_local_light.hlsl:performance:native-shadowed",
+                &local_light_shader_source(4, 1, false, true),
+            )?,
+            shaders::compile_hlsl_source(
+                "atmosphere_local_light.hlsl:high:native-shadowed",
+                &local_light_shader_source(6, 1, true, true),
+            )?,
+            shaders::compile_hlsl_source(
+                "atmosphere_local_light.hlsl:ultra:native-shadowed",
+                &local_light_shader_source(10, 1, true, true),
+            )?,
+        ];
+        #[cfg(test)]
+        let cube_shadowed = [
+            compile_local_light_cube_batch_bytecode("performance", 4, false)?,
+            compile_local_light_cube_batch_bytecode("high", 6, true)?,
+            compile_local_light_cube_batch_bytecode("ultra", 10, true)?,
+        ];
         Ok(Self {
-            shadowless: [
-                compile_local_light_batch_bytecode("performance", 4, false)?,
-                compile_local_light_batch_bytecode("high", 6, true)?,
-                compile_local_light_batch_bytecode("ultra", 10, true)?,
-            ],
-            native_shadowed: [
-                shaders::compile_hlsl_source(
-                    "atmosphere_local_light.hlsl:performance:native-shadowed",
-                    &local_light_shader_source(4, 1, false, true),
-                )?,
-                shaders::compile_hlsl_source(
-                    "atmosphere_local_light.hlsl:high:native-shadowed",
-                    &local_light_shader_source(6, 1, true, true),
-                )?,
-                shaders::compile_hlsl_source(
-                    "atmosphere_local_light.hlsl:ultra:native-shadowed",
-                    &local_light_shader_source(10, 1, true, true),
-                )?,
-            ],
-            cube_shadowed: [
-                compile_local_light_cube_batch_bytecode("performance", 4, false)?,
-                compile_local_light_cube_batch_bytecode("high", 6, true)?,
-                compile_local_light_cube_batch_bytecode("ultra", 10, true)?,
-            ],
+            shadowless,
+            #[cfg(test)]
+            native_shadowed,
+            #[cfg(test)]
+            cube_shadowed,
         })
     }
 }
@@ -1107,29 +1040,12 @@ impl AtmosphereEffect {
             integration_draws: 0,
             shaft_draws: 0,
             local_light_draws: 0,
-            local_light_tracks: [LocalLightTrack::default(); LOCAL_LIGHT_TRACK_CAPACITY],
-            local_light_profiles: LocalLightProfiles {
-                spare: None,
-                compatibility: [0; std::mem::size_of::<[usize; LOCAL_LIGHT_ACTIVE_CAPACITY]>()
-                    - std::mem::size_of::<Option<AtmosphereTargets>>()],
-            },
+            local_light_profiles: None,
             render_target_count,
-            local_light_cell_identity: 0,
-            _local_light_selection_started_millis: 0,
-            local_light_last_update_millis: 0,
-            local_light_clock_origin: Instant::now(),
             retained_directional: None,
-            #[cfg(test)]
-            local_light_test_millis: None,
             composition_draws: 0,
             debug_draws: 0,
         })
-    }
-
-    fn reset_local_light_history(&mut self) {
-        self.local_light_tracks = [LocalLightTrack::default(); LOCAL_LIGHT_TRACK_CAPACITY];
-        self.local_light_cell_identity = 0;
-        self.local_light_last_update_millis = 0;
     }
 
     /// Resolve the directional contribution with retention across a transient
@@ -1155,37 +1071,24 @@ impl AtmosphereEffect {
         contributions
     }
 
+    /// Resolve every on-screen source light for this frame.
+    ///
+    /// There is deliberately no admission budget, lease, hold margin, history,
+    /// or fade. The screen-space shader is cheap and the scissor already bounds
+    /// each draw to the projected light disc, so a source enters and leaves the
+    /// image with its exact epoch instead of leaving a fading volume behind.
     fn resolve_local_lights(
-        &mut self,
+        &self,
         epoch: &crate::fnv_local_lights::LocalLightEpoch,
-        device_identity: usize,
         frame: AtmosphereFrame,
         width: u32,
         height: u32,
         settings: AtmosphereSettings,
-    ) -> [Option<UsableLocalLight>; LOCAL_LIGHT_TRACK_CAPACITY] {
-        #[cfg(test)]
-        let now_millis = self.local_light_test_millis.unwrap_or_else(|| {
-            self.local_light_clock_origin
-                .elapsed()
-                .as_millis()
-                .min(u64::MAX as u128) as u64
-        });
-        #[cfg(not(test))]
-        let now_millis = self
-            .local_light_clock_origin
-            .elapsed()
-            .as_millis()
-            .min(u64::MAX as u128) as u64;
-        if self.local_light_cell_identity != epoch.cell_identity {
-            self.reset_local_light_history();
-            self.local_light_cell_identity = epoch.cell_identity;
-        }
-
-        let mut candidates = [None; LOCAL_LIGHT_TRACK_CAPACITY];
-        let mut candidate_count = 0usize;
+    ) -> [Option<UsableLocalLight>; LOCAL_LIGHT_RENDER_CAPACITY] {
+        let mut usable = [None; LOCAL_LIGHT_RENDER_CAPACITY];
+        let mut usable_count = 0usize;
         for light in epoch.lights() {
-            if candidate_count == LOCAL_LIGHT_TRACK_CAPACITY {
+            if usable_count == LOCAL_LIGHT_RENDER_CAPACITY {
                 break;
             }
             if local_light_scissor(
@@ -1200,126 +1103,11 @@ impl AtmosphereEffect {
             {
                 continue;
             }
-            candidates[candidate_count] = Some(light);
-            candidate_count += 1;
-        }
-
-        // Rank the candidates with their current camera scores, then admit the
-        // budget under priority hysteresis so a rank crossing at the budget
-        // boundary does not start and reverse a fade every frame.
-        let mut scored = [(0.0f32, 0usize); LOCAL_LIGHT_TRACK_CAPACITY];
-        let mut scored_count = 0usize;
-        for light in candidates[..candidate_count].iter().flatten() {
-            let identity = light.identity();
-            if scored[..scored_count]
-                .iter()
-                .any(|(_, current)| *current == identity)
-            {
-                continue;
-            }
-            let score = crate::fnv_local_lights::scene_light_score(light.values, frame.camera)
-                .unwrap_or(0.0);
-            scored[scored_count] = (score, identity);
-            scored_count += 1;
-        }
-        let mut admitted = [0usize; LOCAL_LIGHT_ACTIVE_CAPACITY];
-        let mut admitted_count = 0usize;
-        for track in &self.local_light_tracks {
-            if admitted_count == admitted.len() {
-                break;
-            }
-            if track.identity != 0 && track.weight > 0.0 {
-                admitted[admitted_count] = track.identity;
-                admitted_count += 1;
-            }
-        }
-        let mut desired = [0usize; LOCAL_LIGHT_ACTIVE_CAPACITY];
-        let desired_count = select_admitted_lights(
-            &scored[..scored_count],
-            &admitted[..admitted_count],
-            settings.local_max_lights(),
-            &mut desired,
-        );
-
-        for track in &mut self.local_light_tracks {
-            track.target_visible = false;
-        }
-        for identity in desired[..desired_count].iter().copied() {
-            let Some(light) = candidates[..candidate_count]
-                .iter()
-                .flatten()
-                .find(|light| light.identity() == identity)
-            else {
-                continue;
-            };
-            let track_index = self
-                .local_light_tracks
-                .iter()
-                .position(|track| track.identity == identity)
-                .or_else(|| {
-                    self.local_light_tracks
-                        .iter()
-                        .position(|track| track.identity == 0)
-                })
-                .unwrap_or_else(|| {
-                    self.local_light_tracks
-                        .iter()
-                        .enumerate()
-                        .filter(|(_, track)| !track.target_visible)
-                        .min_by(|(_, left), (_, right)| left.weight.total_cmp(&right.weight))
-                        .map_or(0, |(index, _)| index)
-                });
-            let track = &mut self.local_light_tracks[track_index];
-            if track.identity != identity {
-                *track = LocalLightTrack {
-                    identity,
-                    values: light.values,
-                    weight: 0.0,
-                    target_visible: true,
-                };
-            } else {
-                track.values = light.values;
-                track.target_visible = true;
-            }
-        }
-
-        let elapsed_millis = if self.local_light_last_update_millis == 0 {
-            0
-        } else {
-            now_millis.saturating_sub(self.local_light_last_update_millis)
-        };
-        self.local_light_last_update_millis = now_millis.max(1);
-        let fade_millis = (settings.local_lights_fade_seconds * 1_000.0).max(1.0);
-        let weight_step = elapsed_millis as f32 / fade_millis;
-        for track in &mut self.local_light_tracks {
-            if track.identity == 0 {
-                continue;
-            }
-            if track.target_visible {
-                track.weight = (track.weight + weight_step).min(1.0);
-            } else {
-                track.weight = (track.weight - weight_step).max(0.0);
-                if track.weight == 0.0 {
-                    *track = LocalLightTrack::default();
-                }
-            }
-        }
-
-        let mut usable = [None; LOCAL_LIGHT_TRACK_CAPACITY];
-        let mut usable_count = 0usize;
-        for track in self.local_light_tracks.iter().copied() {
-            if track.identity == 0 || track.weight <= 0.0001 {
-                continue;
-            }
-            let shadow = candidates[..candidate_count]
-                .iter()
-                .flatten()
-                .find(|light| light.identity() == track.identity)
-                .and_then(|light| light.shadow_binding(device_identity));
             usable[usable_count] = Some(UsableLocalLight {
-                values: track.values,
-                visibility: track.weight,
-                shadow,
+                values: light.values,
+                // The volumetric pass is screen-space only. Surface shadows
+                // keep their own resources; this path never samples them.
+                shadow: None,
             });
             usable_count += 1;
         }
@@ -1345,7 +1133,7 @@ impl AtmosphereEffect {
             taa_enabled,
             taa_alpha_ready,
         );
-        let mut usable_local_lights = [None; LOCAL_LIGHT_TRACK_CAPACITY];
+        let mut usable_local_lights = [None; LOCAL_LIGHT_RENDER_CAPACITY];
         let mut captured_local_count = 0usize;
         let mut captured_local_age = 0u32;
         if settings.local_lights_enabled
@@ -1360,18 +1148,27 @@ impl AtmosphereEffect {
         {
             captured_local_count = epoch.light_count();
             captured_local_age = crate::hooks::render_epoch().wrapping_sub(epoch.render_epoch);
-            usable_local_lights = self.resolve_local_lights(
-                epoch,
-                device.as_raw() as usize,
-                frame,
-                desc.Width,
-                desc.Height,
-                settings,
-            );
-        } else if !settings.local_lights_enabled || settings.local_lights_intensity <= 0.0 {
-            self.reset_local_light_history();
+            usable_local_lights =
+                self.resolve_local_lights(epoch, frame, desc.Width, desc.Height, settings);
         }
         let usable_local_count = usable_local_lights.iter().flatten().count();
+        if captured_local_count != 0 && usable_local_count == 0 {
+            if !LOCAL_LIGHT_CULL_WARNED.swap(true, Ordering::Relaxed) {
+                log::warn!(
+                    "[ATMOSPHERE LOCAL] Source epoch had {captured_local_count} lights but the current camera culled all of them: camera={}, transform={}, near={}, far={}, frustum=({}, {}, {}, {})",
+                    frame.camera.available,
+                    frame.camera.world_transform.available,
+                    frame.camera.near_z,
+                    frame.camera.far_z,
+                    frame.camera.frustum_left,
+                    frame.camera.frustum_right,
+                    frame.camera.frustum_bottom,
+                    frame.camera.frustum_top,
+                );
+            }
+        } else if usable_local_count != 0 {
+            LOCAL_LIGHT_CULL_WARNED.store(false, Ordering::Relaxed);
+        }
         let local_ready = usable_local_count != 0;
         let contributions = self.directional_contributions(frame, settings);
         let integration_gate =
@@ -1590,24 +1387,17 @@ impl AtmosphereEffect {
                     .saturating_add(local_stats.draws as u64);
                 crate::fnv_local_lights::record_rendered_lights(local_stats.lights);
                 if local_stats.draws != 0 && self.local_light_draws == local_stats.draws as u64 {
-                    let shadowed_count = usable_local_lights
-                        .iter()
-                        .flatten()
-                        .filter(|light| light.shadow.is_some())
-                        .count();
-                    let shadowless_count = usable_local_count - shadowed_count;
-                    let draw_upper_bound = local_light_draw_count(shadowless_count, shadowed_count);
+                    // The volumetric pass is screen-space only: no point-shadow
+                    // cube or native projected map is sampled or retained here.
+                    let draw_upper_bound = local_light_draw_count(usable_local_count, 0);
                     debug_assert!(local_stats.draws <= draw_upper_bound);
                     log::info!(
-                        "[ATMOSPHERE LOCAL] Scissored scene-wide integration active: quality={:?}, scale={}, samples={}, captured={}, usable={}, shadowed={}, capture_age={}, max_lights={}, draws={}, upper_bound={}",
+                        "[ATMOSPHERE LOCAL] Screen-space integration active: quality={:?}, scale={}, captured={}, visible={}, capture_age={}, draws={}, upper_bound={}",
                         settings.local_lights_quality,
                         targets.scale,
-                        settings.local_sample_count(),
                         captured_local_count,
                         usable_local_count,
-                        shadowed_count,
                         captured_local_age,
-                        settings.local_max_lights(),
                         local_stats.draws,
                         draw_upper_bound,
                     );
@@ -1737,11 +1527,10 @@ impl AtmosphereEffect {
 
         if self
             .local_light_profiles
-            .spare
             .as_ref()
             .is_some_and(|targets| targets.matches(desc.Width, desc.Height, target_scale))
         {
-            std::mem::swap(&mut self.targets, &mut self.local_light_profiles.spare);
+            std::mem::swap(&mut self.targets, &mut self.local_light_profiles);
             return Ok(());
         }
         // A viewport change invalidates both profiles; a device reset drops
@@ -1751,15 +1540,10 @@ impl AtmosphereEffect {
         }) {
             self.targets = None;
         }
-        if self
-            .local_light_profiles
-            .spare
-            .as_ref()
-            .is_some_and(|targets| {
-                targets.full_width != desc.Width || targets.full_height != desc.Height
-            })
-        {
-            self.local_light_profiles.spare = None;
+        if self.local_light_profiles.as_ref().is_some_and(|targets| {
+            targets.full_width != desc.Width || targets.full_height != desc.Height
+        }) {
+            self.local_light_profiles = None;
         }
 
         match AtmosphereTargets::create(device, desc.Width, desc.Height, target_scale) {
@@ -1772,7 +1556,7 @@ impl AtmosphereEffect {
                     targets.height,
                     targets.scale,
                 );
-                self.local_light_profiles.spare = self.targets.replace(targets);
+                self.local_light_profiles = self.targets.replace(targets);
                 self.failed_target_size = None;
                 Ok(())
             }
@@ -2436,7 +2220,7 @@ impl LocalLightBatch {
 
 #[derive(Clone, Copy)]
 struct LocalLightBatchPlan {
-    batches: [LocalLightBatch; LOCAL_LIGHT_TRACK_CAPACITY],
+    batches: [LocalLightBatch; LOCAL_LIGHT_RENDER_CAPACITY],
     len: usize,
 }
 
@@ -2449,7 +2233,6 @@ impl LocalLightBatchPlan {
 #[derive(Clone, Copy)]
 struct UsableLocalLight {
     values: crate::fnv_local_lights::LocalLightValues,
-    visibility: f32,
     shadow: Option<crate::fnv_local_lights::LocalShadowBinding>,
 }
 
@@ -2458,65 +2241,6 @@ enum LocalShadowMode {
     None,
     NativeProjected,
     OmvCube,
-}
-
-impl LocalShadowMode {
-    fn from_binding(binding: Option<crate::fnv_local_lights::LocalShadowBinding>) -> Self {
-        match binding.map(|binding| binding.values.format) {
-            None => Self::None,
-            Some(crate::fnv_local_lights::ShadowTextureFormat::R32F)
-            | Some(crate::fnv_local_lights::ShadowTextureFormat::A8R8G8B8) => Self::NativeProjected,
-            Some(crate::fnv_local_lights::ShadowTextureFormat::OmvCube) => Self::OmvCube,
-        }
-    }
-}
-
-/// Select the admitted local-light identities under the render budget.
-///
-/// `scored` is in current camera-rank order (best first) and pairs each light
-/// identity with its camera score. An identity present in `admitted` has its
-/// effective score boosted by [`LOCAL_LIGHT_ADMISSION_HOLD_MARGIN`] so a
-/// marginal challenger cannot displace a light that is already visible.
-/// Selection is stable in the input order for equal effective scores. Returns
-/// the number of identities written to `out`.
-fn select_admitted_lights(
-    scored: &[(f32, usize)],
-    admitted: &[usize],
-    max_lights: usize,
-    out: &mut [usize; LOCAL_LIGHT_ACTIVE_CAPACITY],
-) -> usize {
-    let budget = max_lights.min(LOCAL_LIGHT_ACTIVE_CAPACITY);
-    if budget == 0 {
-        return 0;
-    }
-    let mut chosen = [(f32::NEG_INFINITY, 0usize); LOCAL_LIGHT_ACTIVE_CAPACITY];
-    let mut chosen_count = 0usize;
-    for &(score, identity) in scored {
-        let effective = if admitted.contains(&identity) {
-            score * (1.0 + LOCAL_LIGHT_ADMISSION_HOLD_MARGIN)
-        } else {
-            score
-        };
-        let insert_at = chosen[..chosen_count]
-            .iter()
-            .position(|(current, _)| effective > *current)
-            .unwrap_or(chosen_count);
-        if insert_at >= budget {
-            continue;
-        }
-        let last = chosen_count.min(budget - 1);
-        for index in (insert_at + 1..=last).rev() {
-            chosen[index] = chosen[index - 1];
-        }
-        chosen[insert_at] = (effective, identity);
-        if chosen_count < budget {
-            chosen_count += 1;
-        }
-    }
-    for (index, (_, identity)) in chosen[..chosen_count].iter().enumerate() {
-        out[index] = *identity;
-    }
-    chosen_count
 }
 
 fn local_light_scissor(
@@ -2644,7 +2368,7 @@ fn local_light_scissor(
 /// scissors therefore keeps batching from turning empty screen space into a
 /// larger static fragment-instruction workload.
 fn local_light_batch_plan(
-    lights: &[Option<UsableLocalLight>; LOCAL_LIGHT_TRACK_CAPACITY],
+    lights: &[Option<UsableLocalLight>; LOCAL_LIGHT_RENDER_CAPACITY],
     count: usize,
     camera: crate::backend::CameraFrame,
     width: u32,
@@ -2653,9 +2377,9 @@ fn local_light_batch_plan(
     quality_index: usize,
     cube_shadowed: bool,
 ) -> LocalLightBatchPlan {
-    let count = count.min(LOCAL_LIGHT_TRACK_CAPACITY);
-    let mut scissors = [None; LOCAL_LIGHT_TRACK_CAPACITY];
-    let mut visible = [u8::MAX; LOCAL_LIGHT_TRACK_CAPACITY];
+    let count = count.min(LOCAL_LIGHT_RENDER_CAPACITY);
+    let mut scissors = [None; LOCAL_LIGHT_RENDER_CAPACITY];
+    let mut visible = [u8::MAX; LOCAL_LIGHT_RENDER_CAPACITY];
     let mut visible_len = 0usize;
     for index in 0..count {
         let Some(light) = lights[index] else {
@@ -2714,7 +2438,7 @@ fn local_light_batch_plan(
             )
     };
     let mut plan = LocalLightBatchPlan {
-        batches: [LocalLightBatch::EMPTY; LOCAL_LIGHT_TRACK_CAPACITY],
+        batches: [LocalLightBatch::EMPTY; LOCAL_LIGHT_RENDER_CAPACITY],
         len: 0,
     };
     let mut current = LocalLightBatch::EMPTY;
@@ -2758,14 +2482,18 @@ fn local_light_shader_instruction_work(
     cube_shadowed: bool,
     light_count: usize,
 ) -> u64 {
-    let (shared, per_light) = match (quality_index.min(2), cube_shadowed) {
-        (0, false) => (142, 279),
-        (1 | 2, false) => (145, 306),
-        (0, true) => (144, 345),
-        (1 | 2, true) => (146, 372),
-        _ => (146, 372),
+    // Exact compiled instruction counts. The optimizer's common-subexpression
+    // and constant folding are not perfectly linear across batch widths, so a
+    // per-width table keeps the scissor planner identical to the bytecode
+    // instead of approximating it.
+    let counts = match (quality_index.min(2), cube_shadowed) {
+        (0, false) => [393, 657, 921, 1185],
+        (1 | 2, false) => [427, 723, 1020, 1317],
+        (0, true) => [477, 823, 1169, 1515],
+        (1 | 2, true) => [507, 880, 1253, 1626],
+        _ => [507, 880, 1253, 1626],
     };
-    shared + per_light * light_count as u64
+    counts[light_count.clamp(1, 4) - 1]
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -2776,35 +2504,18 @@ fn draw_local_lights(
     density_noise: &Texture9,
     frame: AtmosphereFrame,
     settings: AtmosphereSettings,
-    lights: &[Option<UsableLocalLight>; LOCAL_LIGHT_TRACK_CAPACITY],
+    lights: &[Option<UsableLocalLight>; LOCAL_LIGHT_RENDER_CAPACITY],
 ) -> Direct3DResult<LocalLightDrawStats> {
-    let mut shadowless = [None; LOCAL_LIGHT_TRACK_CAPACITY];
-    let mut shadowless_count = 0usize;
-    let mut native_shadowed = [None; LOCAL_LIGHT_TRACK_CAPACITY];
-    let mut native_shadowed_count = 0usize;
-    let mut cube_shadowed = [None; LOCAL_LIGHT_TRACK_CAPACITY];
-    let mut cube_shadowed_count = 0usize;
-    for usable in lights.iter().flatten().copied() {
-        match LocalShadowMode::from_binding(usable.shadow) {
-            LocalShadowMode::None => {
-                shadowless[shadowless_count] = Some(usable);
-                shadowless_count += 1;
-            }
-            LocalShadowMode::NativeProjected => {
-                native_shadowed[native_shadowed_count] = Some(usable);
-                native_shadowed_count += 1;
-            }
-            LocalShadowMode::OmvCube => {
-                cube_shadowed[cube_shadowed_count] = Some(usable);
-                cube_shadowed_count += 1;
-            }
-        }
-    }
-
+    // Volumetric local lighting is a screen-space glow. It never consumes a
+    // point-shadow cube or a native projected map: shadow-map silhouettes
+    // crossing a light volume produced detached spherical caps, rings and
+    // cascades, and made the volume flicker as geometry moved between the
+    // camera and the emitter. Surface point shadows remain unchanged.
+    let light_count = lights.iter().flatten().count();
     let mut stats = LocalLightDrawStats::default();
-    let shadowless_plan = local_light_batch_plan(
-        &shadowless,
-        shadowless_count,
+    let plan = local_light_batch_plan(
+        lights,
+        light_count,
         frame.camera,
         targets.width,
         targets.height,
@@ -2812,10 +2523,10 @@ fn draw_local_lights(
         settings.local_shader_index(),
         false,
     );
-    for scheduled in shadowless_plan.batches() {
+    for scheduled in plan.batches() {
         let batch = std::array::from_fn(|index| {
             (index < usize::from(scheduled.count))
-                .then(|| shadowless[scheduled.indices[index] as usize])
+                .then(|| lights[scheduled.indices[index] as usize])
                 .flatten()
         });
         stats.add(draw_local_light_batch(
@@ -2828,63 +2539,6 @@ fn draw_local_lights(
             &batch,
             usize::from(scheduled.count),
             LocalShadowMode::None,
-            scheduled.scissor,
-        )?);
-    }
-    for usable in native_shadowed
-        .into_iter()
-        .take(native_shadowed_count)
-        .flatten()
-    {
-        let Some(scissor) = local_light_scissor(
-            frame.camera,
-            targets.width,
-            targets.height,
-            usable.values.position,
-            usable.values.radius,
-            settings.max_distance,
-        ) else {
-            continue;
-        };
-        stats.add(draw_local_light_batch(
-            device,
-            pipeline,
-            targets,
-            density_noise,
-            frame,
-            settings,
-            &[Some(usable), None, None, None],
-            1,
-            LocalShadowMode::NativeProjected,
-            scissor,
-        )?);
-    }
-    let cube_plan = local_light_batch_plan(
-        &cube_shadowed,
-        cube_shadowed_count,
-        frame.camera,
-        targets.width,
-        targets.height,
-        settings.max_distance,
-        settings.local_shader_index(),
-        true,
-    );
-    for scheduled in cube_plan.batches() {
-        let batch = std::array::from_fn(|index| {
-            (index < usize::from(scheduled.count))
-                .then(|| cube_shadowed[scheduled.indices[index] as usize])
-                .flatten()
-        });
-        stats.add(draw_local_light_batch(
-            device,
-            pipeline,
-            targets,
-            density_noise,
-            frame,
-            settings,
-            &batch,
-            usize::from(scheduled.count),
-            LocalShadowMode::OmvCube,
             scheduled.scissor,
         )?);
     }
@@ -3003,7 +2657,7 @@ fn draw_local_light_batch(
             &mut constants,
             index,
             usable.values,
-            settings.local_lights_intensity * usable.visibility,
+            settings.local_lights_intensity,
         );
     }
 
@@ -3024,11 +2678,16 @@ fn draw_local_light_batch(
                 };
                 // All OMV cubes normally share one menu-owned receiver bias.
                 // Taking the maximum remains conservative if a publication
-                // straddles a runtime setting transition.
+                // straddles a runtime setting transition. The shader consumes
+                // the reciprocal bias factor so its per-segment comparison
+                // needs no division, and the inverse radius so normalized
+                // distance is a multiply.
                 constants[16][0] = constants[16][0].max(receiver_bias);
-                constants[17][index] = cube_radius;
+                constants[17][index] = 1.0 / cube_radius.max(f32::MIN_POSITIVE);
                 constants[18][index] = shadow_weight;
             }
+            let bias = constants[16][0].clamp(0.0, 0.999);
+            constants[16][0] = 1.0 / (1.0 - bias);
         }
         (LocalShadowMode::None, None) if shadows[..batch_size].iter().all(Option::is_none) => {}
         _ => return Ok(LocalLightDrawStats::default()),
@@ -3811,6 +3470,7 @@ fn local_light_shader_source(
     )
 }
 
+#[cfg(test)]
 fn local_light_cube_shader_source(
     sample_count: u32,
     batch_size: usize,
@@ -3828,8 +3488,12 @@ fn local_light_shader_source_mode(
     debug_assert!((1..=4).contains(&batch_size));
     debug_assert!(shadow_mode <= 2);
     debug_assert!(shadow_mode != 1 || batch_size == 1);
+    // Production selects only the shadowless variant, so it compiles the
+    // screen-space analytic path. Native/cube variants remain the legacy
+    // surface-contract oracle and keep their probe ladder.
+    let screen_space = u8::from(shadow_mode == 0);
     let mut variant = format!(
-        "#define LOCAL_LIGHT_SAMPLE_COUNT {sample_count}\n#define LOCAL_LIGHT_BATCH_SIZE {batch_size}\n#define LOCAL_LIGHT_USE_NOISE {}\n#define LOCAL_LIGHT_SHADOW_MODE {shadow_mode}\n",
+        "#define LOCAL_LIGHT_SAMPLE_COUNT {sample_count}\n#define LOCAL_LIGHT_BATCH_SIZE {batch_size}\n#define LOCAL_LIGHT_USE_NOISE {}\n#define LOCAL_LIGHT_SHADOW_MODE {shadow_mode}\n#define LOCAL_LIGHT_SCREEN_SPACE {screen_space}\n",
         u8::from(use_noise),
     )
     .into_bytes();
@@ -4000,6 +3664,10 @@ pub(crate) mod local_light_shader_behavior {
         shadow_weight: f32,
         native_depth: Option<u8>,
         baseline: bool,
+        segment_baseline: bool,
+        legacy_shadow_constants: bool,
+        top_cap_cube: bool,
+        sample_override: Option<u32>,
     }
 
     impl Default for ShaderCase {
@@ -4011,6 +3679,10 @@ pub(crate) mod local_light_shader_behavior {
                 shadow_weight: 1.0,
                 native_depth: None,
                 baseline: false,
+                segment_baseline: false,
+                legacy_shadow_constants: false,
+                top_cap_cube: false,
+                sample_override: None,
             }
         }
     }
@@ -4033,9 +3705,9 @@ pub(crate) mod local_light_shader_behavior {
             .expect("HAL or NULLREF D3D9 device")
     }
 
-    fn read_r32f(device: &Device9Ref<'_>, surface: &Surface9) -> Vec<f32> {
+    fn read_r32f(device: &Device9Ref<'_>, surface: &Surface9, width: u32, height: u32) -> Vec<f32> {
         let staging = device
-            .create_system_memory_surface(TEST_SIZE, TEST_SIZE, D3DFMT_R32F)
+            .create_system_memory_surface(width, height, D3DFMT_R32F)
             .expect("local-light readback surface");
         device
             .copy_render_target_data(surface, &staging)
@@ -4082,10 +3754,30 @@ pub(crate) mod local_light_shader_behavior {
         batch_size: usize,
         case: ShaderCase,
     ) -> Vec<f32> {
+        render_case_sized(
+            values,
+            camera,
+            cube_depths,
+            batch_size,
+            case,
+            TEST_SIZE,
+            TEST_SIZE,
+        )
+    }
+
+    fn render_case_sized(
+        values: [LocalLightValues; 4],
+        camera: CameraFrame,
+        cube_depths: [Option<u8>; 4],
+        batch_size: usize,
+        case: ShaderCase,
+        width: u32,
+        height: u32,
+    ) -> Vec<f32> {
         let owner = raster_device();
         let device = owner.as_ref();
         let depth = device
-            .create_render_target_texture(TEST_SIZE, TEST_SIZE, D3DFMT_G16R16F)
+            .create_render_target_texture(width, height, D3DFMT_G16R16F)
             .expect("encoded-depth texture");
         let depth_surface = depth.surface_level(0).expect("encoded-depth surface");
         device
@@ -4096,7 +3788,7 @@ pub(crate) mod local_light_shader_behavior {
             .expect("far encoded depth");
 
         let output = device
-            .create_render_target_texture(TEST_SIZE, TEST_SIZE, D3DFMT_R32F)
+            .create_render_target_texture(width, height, D3DFMT_R32F)
             .expect("local-light output texture");
         let output_surface = output.surface_level(0).expect("local-light output surface");
         let (samples, noise) = match case.quality {
@@ -4104,6 +3796,7 @@ pub(crate) mod local_light_shader_behavior {
             crate::config::AtmosphereQuality::High => (6, true),
             crate::config::AtmosphereQuality::Ultra => (10, true),
         };
+        let samples = case.sample_override.unwrap_or(samples);
         let shadow_mode = if case.native_depth.is_some() {
             1
         } else if cube_depths[..batch_size].iter().any(Option::is_some) {
@@ -4114,7 +3807,9 @@ pub(crate) mod local_light_shader_behavior {
         let mut shader_source = format!(
             "#define LOCAL_LIGHT_SAMPLE_COUNT {samples}\n#define LOCAL_LIGHT_BATCH_SIZE {batch_size}\n#define LOCAL_LIGHT_USE_NOISE {}\n#define LOCAL_LIGHT_SHADOW_MODE {shadow_mode}\n", u8::from(noise),
         ).into_bytes();
-        shader_source.extend_from_slice(if case.baseline {
+        shader_source.extend_from_slice(if case.segment_baseline {
+            include_bytes!("../../shaders/tests/atmosphere_local_light_segment_baseline.hlsl")
+        } else if case.baseline {
             include_bytes!("../../shaders/tests/atmosphere_local_light_report_baseline.hlsl")
         } else {
             LOCAL_LIGHT_SHADER
@@ -4130,8 +3825,7 @@ pub(crate) mod local_light_shader_behavior {
             .expect("shipped local-light shader object");
 
         bind_pipeline_state(&device).expect("local-light fixed state");
-        bind_target(&device, &output_surface, TEST_SIZE, TEST_SIZE)
-            .expect("local-light output target");
+        bind_target(&device, &output_surface, width, height).expect("local-light output target");
         device
             .clear_attachments(D3DCLEAR_TARGET as u32, 0, 1.0, 0)
             .expect("clear local-light output");
@@ -4152,18 +3846,28 @@ pub(crate) mod local_light_shader_behavior {
                     D3DCUBEMAP_FACE_POSITIVE_Z,
                     D3DCUBEMAP_FACE_NEGATIVE_Z,
                 ] {
+                    let face_depth = if case.top_cap_cube && face == D3DCUBEMAP_FACE_POSITIVE_Y {
+                        96
+                    } else {
+                        depth
+                    };
                     let surface = cube.surface(face, 0).expect("radial-depth cube face");
                     device
                         .set_render_target(0, &surface)
                         .expect("radial-depth cube target");
                     device
-                        .clear_attachments(D3DCLEAR_TARGET as u32, u32::from(depth) << 16, 1.0, 0)
+                        .clear_attachments(
+                            D3DCLEAR_TARGET as u32,
+                            u32::from(face_depth) << 16,
+                            1.0,
+                            0,
+                        )
                         .expect("constant radial-depth cube face");
                 }
                 cube
             })
         });
-        bind_target(&device, &output_surface, TEST_SIZE, TEST_SIZE)
+        bind_target(&device, &output_surface, width, height)
             .expect("restore local-light output target");
         device
             .set_texture(0, &depth)
@@ -4204,10 +3908,10 @@ pub(crate) mod local_light_shader_behavior {
         let view_to_world = view_to_world_rows(camera);
         let mut constants = [[0.0f32; 4]; 22];
         constants[0] = [
-            TEST_SIZE as f32,
-            TEST_SIZE as f32,
-            1.0 / TEST_SIZE as f32,
-            1.0 / TEST_SIZE as f32,
+            width as f32,
+            height as f32,
+            1.0 / width as f32,
+            1.0 / height as f32,
         ];
         constants[1] = [camera.near_z, camera.far_z, 0.0, 1_000.0];
         constants[2] = [
@@ -4226,10 +3930,18 @@ pub(crate) mod local_light_shader_behavior {
         constants[7] = [1_000.0, 1.0, 0.0, 1.0];
         for (index, value) in values.into_iter().enumerate().take(batch_size) {
             write_batched_light_constants(&mut constants, index, value, 1.0);
-            constants[17][index] = value.radius;
+            constants[17][index] = if case.legacy_shadow_constants {
+                value.radius
+            } else {
+                1.0 / value.radius.max(f32::MIN_POSITIVE)
+            };
         }
         if cube_depths[..batch_size].iter().any(Option::is_some) {
-            constants[16][0] = 0.018;
+            constants[16][0] = if case.legacy_shadow_constants {
+                0.018
+            } else {
+                1.0 / (1.0 - 0.018)
+            };
         }
         constants[16][2] = case.anisotropy;
         constants[16][1] = f32::from(case.far_layer);
@@ -4253,9 +3965,152 @@ pub(crate) mod local_light_shader_behavior {
         device
             .begin_scene()
             .expect("begin local-light behavior draw");
-        draw_quad(&device, TEST_SIZE, TEST_SIZE).expect("local-light behavior draw");
+        draw_quad(&device, width, height).expect("local-light behavior draw");
         device.end_scene().expect("end local-light behavior draw");
-        read_r32f(&device, &output_surface)
+        read_r32f(&device, &output_surface, width, height)
+    }
+
+    fn shell_camera() -> CameraFrame {
+        CameraFrame {
+            near_z: 1.0,
+            far_z: 1_000.0,
+            frustum_left: -0.55,
+            frustum_right: 0.55,
+            frustum_bottom: -0.55,
+            frustum_top: 0.55,
+            world_transform: crate::backend::CameraTransformFrame {
+                available: true,
+                ..crate::backend::CameraTransformFrame::default()
+            },
+            available: true,
+            ..CameraFrame::default()
+        }
+    }
+
+    fn render_radial_test(
+        quality: crate::config::AtmosphereQuality,
+        samples: u32,
+        segment_baseline: bool,
+        top_cap_cube: bool,
+    ) -> Vec<f32> {
+        let values = LocalLightValues {
+            position: [64.0, 0.0, 0.0],
+            color: [1.0; 3],
+            radius: 32.0,
+        };
+        render_case_sized(
+            [values; 4],
+            shell_camera(),
+            [Some(128), None, None, None],
+            1,
+            ShaderCase {
+                quality,
+                segment_baseline,
+                legacy_shadow_constants: segment_baseline,
+                top_cap_cube,
+                sample_override: Some(samples),
+                ..ShaderCase::default()
+            },
+            256,
+            256,
+        )
+    }
+
+    fn normalized_max_error(candidate: &[f32], reference: &[f32]) -> f32 {
+        let peak = reference.iter().copied().fold(0.0f32, f32::max).max(1.0e-9);
+        candidate
+            .iter()
+            .zip(reference)
+            .map(|(candidate, reference)| {
+                assert!(candidate.is_finite() && reference.is_finite());
+                (candidate - reference).abs()
+            })
+            .fold(0.0f32, f32::max)
+            / peak
+    }
+
+    /// A radial caster shell is the volume shadow geometry that produced the
+    /// reported streetlight rings: one cube depth, evaluated at the six
+    /// integration probes, used to classify whole segments. Dense execution of
+    /// the same shipped shader converges to the true covered fraction. The
+    /// frozen production shader must still show the coarse-shell error, and the
+    /// corrected shader must converge at every quality tier.
+    #[test]
+    fn radial_caster_shell_matches_dense_execution_at_every_quality() {
+        for (quality, samples) in [
+            (crate::config::AtmosphereQuality::Performance, 4),
+            (crate::config::AtmosphereQuality::High, 6),
+            (crate::config::AtmosphereQuality::Ultra, 10),
+        ] {
+            for top_cap in [false, true] {
+                let dense = render_radial_test(quality, 64, true, top_cap);
+                let corrected_dense = render_radial_test(quality, 64, false, top_cap);
+                let frozen = render_radial_test(quality, samples, true, top_cap);
+                let corrected = render_radial_test(quality, samples, false, top_cap);
+                let frozen_error = normalized_max_error(&frozen, &dense);
+                let corrected_error = normalized_max_error(&corrected, &corrected_dense);
+                let converged_error = normalized_max_error(&corrected_dense, &dense);
+                println!(
+                    "quality={quality:?} top_cap={top_cap} samples={samples} frozen_error={frozen_error:.4} corrected_error={corrected_error:.4} converged_error={converged_error:.4}"
+                );
+                assert!(
+                    frozen_error > 0.10,
+                    "the frozen shader no longer demonstrates the coarse radial shell: quality={quality:?} top_cap={top_cap} error={frozen_error}"
+                );
+                assert!(
+                    corrected_error < if top_cap { 0.25 } else { 0.05 },
+                    "the corrected shader does not converge to dense execution: quality={quality:?} top_cap={top_cap} error={corrected_error}"
+                );
+                assert!(
+                    converged_error < 0.08,
+                    "the corrected dense limit disagrees with the frozen dense limit: quality={quality:?} top_cap={top_cap} error={converged_error}"
+                );
+                assert!(
+                    corrected_error < frozen_error * 0.6,
+                    "the corrected shader did not materially reduce the shell error: quality={quality:?} top_cap={top_cap} frozen={frozen_error} corrected={corrected_error}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn research_light_sphere_profile() {
+        let values = LocalLightValues {
+            position: [64.0, 0.0, 0.0],
+            color: [1.0; 3],
+            radius: 32.0,
+        };
+        let camera = CameraFrame {
+            near_z: 1.0,
+            far_z: 1_000.0,
+            frustum_left: -1.0,
+            frustum_right: 1.0,
+            frustum_bottom: -1.0,
+            frustum_top: 1.0,
+            world_transform: crate::backend::CameraTransformFrame {
+                available: true,
+                ..crate::backend::CameraTransformFrame::default()
+            },
+            available: true,
+            ..CameraFrame::default()
+        };
+        let row = render_case_sized(
+            [values; 4],
+            camera,
+            [None; 4],
+            1,
+            ShaderCase::default(),
+            257,
+            1,
+        );
+        let peak = row.iter().copied().fold(0.0f32, f32::max);
+        let mut line = String::new();
+        for (x, value) in row.iter().enumerate() {
+            if x % 8 == 0 || x > 185 {
+                line.push_str(&format!("{x}:{:.6} ", value / peak));
+            }
+        }
+        println!("peak={peak} {line}");
     }
 
     #[test]
@@ -4629,7 +4484,7 @@ mod directional_shader_behavior {
 
     use super::{
         AtmosphereBytecode, AtmosphereDrawOutcome, AtmosphereEffect, AtmosphereSettings,
-        IntegrationPass, LIGHTING_DEBUG_BASE, LOCAL_LIGHT_ACTIVE_CAPACITY, select_admitted_lights,
+        IntegrationPass, LIGHTING_DEBUG_BASE,
     };
     use crate::{
         backend::{
@@ -4654,7 +4509,7 @@ mod directional_shader_behavior {
             D3DCUBEMAP_FACE_NEGATIVE_Z, D3DCUBEMAP_FACE_POSITIVE_X, D3DCUBEMAP_FACE_POSITIVE_Y,
             D3DCUBEMAP_FACE_POSITIVE_Z, D3DDEVTYPE_HAL, D3DDEVTYPE_NULLREF, D3DFMT_A8R8G8B8,
             D3DFMT_A16B16G16R16F, D3DFMT_R32F, D3DPOOL_MANAGED, Device9, Device9Ref, PixelShader9,
-            RECT, Texture9, create_direct3d9,
+            Texture9, create_direct3d9,
         },
         winapi::{get_active_window, get_desktop_window, get_foreground_window},
     };
@@ -4708,7 +4563,6 @@ mod directional_shader_behavior {
             local_lights_enabled: false,
             local_lights_intensity: 0.0,
             local_lights_quality: AtmosphereQuality::High,
-            local_lights_fade_seconds: 0.75,
         }
     }
 
@@ -6179,19 +6033,13 @@ mod directional_shader_behavior {
         settings: AtmosphereSettings,
         is_exterior: bool,
     ) -> (AtmosphereDrawOutcome, Vec<[f32; 4]>) {
-        if effect.local_light_test_millis.is_none() {
-            effect.local_light_test_millis = Some(1);
-        }
-        let _ = render_local_light_once(effect, device, world_color, epoch, settings, is_exterior);
-        let fade_millis = (settings.local_lights_fade_seconds * 1_000.0).ceil() as u64;
-        effect.local_light_test_millis = effect
-            .local_light_test_millis
-            .map(|millis| millis.saturating_add(fade_millis + 1));
+        // Local lights have no admission state, so one frame is the complete
+        // production image for the supplied epoch.
         render_local_light_once(effect, device, world_color, epoch, settings, is_exterior)
     }
 
     #[test]
-    fn common_scalar_source_reaches_shipped_local_lighting_without_shadow_ownership() {
+    fn common_scalar_source_reaches_screen_space_local_lighting_without_shadow_sampling() {
         const SHADOW_EPOCH: u32 = 71;
         const PRESENT_EPOCH: u32 = SHADOW_EPOCH + 1;
 
@@ -6299,6 +6147,9 @@ mod directional_shader_behavior {
             "the same medium and source changed between interior and exterior: {exterior_peak} vs {open_peak}"
         );
 
+        // The screen-space volumetric pass must ignore the point-shadow cube
+        // completely. A face-covering blocker and every presentation weight
+        // therefore produce the same final pixels as the open cube.
         let blocked_cube = whole_cube_point_blocker(&device);
         let blocked_epoch = shadow_point_epoch_for_consumer(
             shadow_point_frame(&device, &blocked_cube, SHADOW_EPOCH),
@@ -6316,34 +6167,15 @@ mod directional_shader_behavior {
             false,
         );
         assert_eq!(blocked_outcome, AtmosphereDrawOutcome::ComposedWithLighting);
-        let blocked_energy = total_luminance(&blocked_pixels);
-        let strongest_local_occlusion = open_pixels
-            .iter()
-            .zip(&blocked_pixels)
-            .map(|(open, blocked)| luminance(*open) - luminance(*blocked))
-            .fold(0.0f32, f32::max);
-        assert!(
-            strongest_local_occlusion > 0.002,
-            "the face-covering blocker created no visible volumetric shadow: {strongest_local_occlusion}"
-        );
-        assert!(
-            blocked_energy < open_energy * 0.3,
-            "a face-covering blocker left invented single-scattering energy: open={open_energy}, blocked={blocked_energy}"
-        );
-        let weakest_retained_fraction = open_pixels
-            .iter()
-            .zip(&blocked_pixels)
-            .filter_map(|(open, blocked)| {
-                let open = luminance(*open);
-                (open > 0.01).then(|| luminance(*blocked) / open)
-            })
-            .fold(1.0f32, f32::min);
-        assert!(
-            weakest_retained_fraction < 0.3,
-            "the blocker retained the artificial occlusion floor: {weakest_retained_fraction}"
-        );
-
-        for weight in [0.0, 0.5] {
+        for (open, blocked) in open_pixels.iter().zip(&blocked_pixels) {
+            for channel in 0..4 {
+                assert!(
+                    (open[channel] - blocked[channel]).abs() <= 0.000_061_035_156,
+                    "a point-shadow cube changed the screen-space volume: open={open:?} blocked={blocked:?}"
+                );
+            }
+        }
+        for weight in [0.0, 0.5, 1.0] {
             let mut point_frame = shadow_point_frame(&device, &blocked_cube, SHADOW_EPOCH);
             point_frame.lights[0].as_mut().unwrap().shadow_weight = weight;
             let epoch = shadow_point_epoch_for_consumer(
@@ -6361,20 +6193,13 @@ mod directional_shader_behavior {
                 interior_local_settings(),
                 false,
             );
-            for ((open, blocked), actual) in open_pixels.iter().zip(&blocked_pixels).zip(pixels) {
-                for channel in 0..3 {
+            for (open, actual) in open_pixels.iter().zip(pixels) {
+                for channel in 0..4 {
                     assert!(
-                        actual[channel] >= blocked[channel] - 0.000_061_035_156
-                            && actual[channel] <= open[channel] + 0.000_061_035_156
+                        (open[channel] - actual[channel]).abs() <= 0.000_061_035_156,
+                        "cube weight {weight} changed the screen-space volume: open={open:?} actual={actual:?}"
                     );
-                    if weight == 0.0 {
-                        assert!(
-                            (actual[channel] - open[channel]).abs() <= 0.000_061_035_156,
-                            "zero cube weight did not preserve the scalar emitter at final composition"
-                        );
-                    }
                 }
-                assert_eq!(actual[3], open[3]);
             }
         }
 
@@ -6590,7 +6415,7 @@ mod directional_shader_behavior {
     }
 
     #[test]
-    fn local_light_admission_and_retirement_fade_in_final_hdr_pixels() {
+    fn local_lights_appear_and_retire_without_an_admission_fade() {
         let owner = raster_device();
         let device = owner.as_ref();
         device
@@ -6601,39 +6426,39 @@ mod directional_shader_behavior {
         let bytecode = AtmosphereBytecode::compile().expect("shipped atmosphere bytecode");
         let mut effect = AtmosphereEffect::create_from_bytecode(&device, &bytecode)
             .expect("production atmosphere pipeline");
-        effect.local_light_test_millis = Some(1);
         let world_color = device
             .create_render_target_texture(TEST_SIZE, TEST_SIZE, D3DFMT_A16B16G16R16F)
             .expect("HDR world color");
         clear_target(&device, &world_color);
         let device_identity = device.as_raw() as usize;
         let device_generation = crate::backend::d3d_device_generation();
-        let visible = source_epoch_for_shader_behavior(
-            LocalLightValues {
+        let visible = source_lights_epoch_for_shader_behavior(
+            &[LocalLightValues {
                 position: [100.0, 0.0, 0.0],
                 color: [1.0, 0.7, 0.35],
                 radius: 32.0,
-            },
+            }],
             local_light_camera(),
             91,
             device_identity,
             device_generation,
         );
-        let retired = source_epoch_for_shader_behavior(
-            LocalLightValues {
+        let retired = source_lights_epoch_for_shader_behavior(
+            &[LocalLightValues {
                 position: [-100.0, 0.0, 0.0],
                 color: [1.0, 0.7, 0.35],
                 radius: 32.0,
-            },
+            }],
             local_light_camera(),
             92,
             device_identity,
             device_generation,
         );
-        let mut settings = interior_local_settings();
-        settings.local_lights_fade_seconds = 0.4;
+        let settings = interior_local_settings();
 
-        let (_, start) = render_local_light_once(
+        // A source is fully visible on its first frame: there is no admission
+        // ramp and no hidden state carried from a previous epoch.
+        let (first_outcome, first) = render_local_light_once(
             &mut effect,
             &device,
             &world_color,
@@ -6641,8 +6466,7 @@ mod directional_shader_behavior {
             settings,
             false,
         );
-        effect.local_light_test_millis = Some(201);
-        let (_, halfway_in) = render_local_light_once(
+        let (second_outcome, second) = render_local_light_once(
             &mut effect,
             &device,
             &world_color,
@@ -6650,171 +6474,118 @@ mod directional_shader_behavior {
             settings,
             false,
         );
-        effect.local_light_test_millis = Some(401);
-        let (_, full) = render_local_light_once(
-            &mut effect,
-            &device,
-            &world_color,
-            Some(&visible),
-            settings,
-            false,
-        );
-        let start_energy = total_luminance(&start);
-        let halfway_in_energy = total_luminance(&halfway_in);
-        let full_energy = total_luminance(&full);
+        assert_eq!(first_outcome, AtmosphereDrawOutcome::ComposedWithLighting);
+        assert_eq!(second_outcome, AtmosphereDrawOutcome::ComposedWithLighting);
+        let first_energy = total_luminance(&first);
         assert!(
-            start_energy <= 0.000_001,
-            "new light appeared instantly: {start_energy}"
+            first_energy > 0.001,
+            "a visible local light was faded in or absent on its first frame: {first_energy}"
         );
-        assert!(
-            halfway_in_energy > 0.001 && halfway_in_energy < full_energy * 0.75,
-            "local-light fade-in did not produce an intermediate HDR image: half={halfway_in_energy}, full={full_energy}"
-        );
-
-        let _ = render_local_light_once(
-            &mut effect,
-            &device,
-            &world_color,
-            Some(&retired),
-            settings,
-            false,
-        );
-        effect.local_light_test_millis = Some(601);
-        let (_, halfway_out) = render_local_light_once(
-            &mut effect,
-            &device,
-            &world_color,
-            Some(&retired),
-            settings,
-            false,
-        );
-        effect.local_light_test_millis = Some(801);
-        let (_, gone) = render_local_light_once(
-            &mut effect,
-            &device,
-            &world_color,
-            Some(&retired),
-            settings,
-            false,
-        );
-        let halfway_out_energy = total_luminance(&halfway_out);
-        let gone_energy = total_luminance(&gone);
-        assert!(
-            halfway_out_energy > 0.001 && halfway_out_energy < full_energy * 0.75,
-            "local-light fade-out did not produce an intermediate HDR image: half={halfway_out_energy}, full={full_energy}"
-        );
-        assert!(
-            gone_energy <= 0.000_001,
-            "retired light remained visible: {gone_energy}"
-        );
-    }
-
-    #[test]
-    fn a_brief_rank_crossing_does_not_lease_a_different_volume_for_two_seconds() {
-        let owner = raster_device();
-        let device = owner.as_ref();
-        let bytecode = AtmosphereBytecode::compile().unwrap();
-        let mut effect = AtmosphereEffect::create_from_bytecode(&device, &bytecode).unwrap();
-        let world = device
-            .create_render_target_texture(TEST_SIZE, TEST_SIZE, D3DFMT_A16B16G16R16F)
-            .unwrap();
-        clear_target(&device, &world);
-        let light = LocalLightValues {
-            position: [100.0, 0.0, 0.0],
-            color: [1.0; 3],
-            radius: 32.0,
-        };
-        let mut lights = [light; 5];
-        lights[3].color = [1.0, 0.0, 0.0];
-        lights[4].color = [0.0, 0.0, 2.9];
-        let epoch = |values: &[LocalLightValues]| {
-            source_lights_epoch_for_shader_behavior(
-                values,
-                local_light_camera(),
-                91,
-                device.as_raw() as usize,
-                crate::backend::d3d_device_generation(),
-            )
-        };
-        let original = epoch(&lights);
-        lights[4].color[2] = 3.0;
-        let crossed = epoch(&lights);
-        let mut settings = interior_local_settings();
-        settings.local_lights_quality = AtmosphereQuality::Performance;
-        effect.local_light_test_millis = Some(1);
-        render_local_light_once(
-            &mut effect,
-            &device,
-            &world,
-            Some(&original),
-            settings,
-            false,
-        );
-        effect.local_light_test_millis = Some(1991);
-        let (_, reference) = render_local_light_once(
-            &mut effect,
-            &device,
-            &world,
-            Some(&original),
-            settings,
-            false,
-        );
-        effect.local_light_test_millis = Some(2001);
-        render_local_light_once(
-            &mut effect,
-            &device,
-            &world,
-            Some(&crossed),
-            settings,
-            false,
-        );
-        effect.local_light_test_millis = Some(2011);
-        render_local_light_once(
-            &mut effect,
-            &device,
-            &world,
-            Some(&original),
-            settings,
-            false,
-        );
-        effect.local_light_test_millis = Some(2501);
-        let (_, restored) = render_local_light_once(
-            &mut effect,
-            &device,
-            &world,
-            Some(&original),
-            settings,
-            false,
-        );
-        for (before, after) in reference.iter().zip(restored) {
+        for (first, second) in first.iter().zip(&second) {
             for channel in 0..4 {
                 assert!(
-                    (before[channel] - after[channel]).abs() <= 0.000_001,
-                    "a transient rank crossing left a different volume admitted: before={before:?}, after={after:?}"
+                    (first[channel] - second[channel]).abs() <= 0.000_001,
+                    "identical epochs produced different local pixels: first={first:?}, second={second:?}"
                 );
             }
         }
+
+        // Retirement is equally immediate: the next epoch owns the complete
+        // image and cannot leave a fading sphere behind.
+        let (gone_outcome, gone) = render_local_light_once(
+            &mut effect,
+            &device,
+            &world_color,
+            Some(&retired),
+            settings,
+            false,
+        );
+        assert_eq!(gone_outcome, AtmosphereDrawOutcome::NoVisibleContribution);
+        assert!(
+            total_luminance(&gone) <= 0.000_001,
+            "a retired local light faded out instead of leaving immediately"
+        );
     }
 
     #[test]
-    fn marginal_rank_crossing_keeps_the_admitted_light() {
-        let mut out = [0usize; LOCAL_LIGHT_ACTIVE_CAPACITY];
-        // Identity 1 is already visible; identity 2 is only five percent
-        // better, which is inside the admission hysteresis margin. Without the
-        // margin the challenger would be admitted and start a fade.
-        let scored = [(10.5f32, 2usize), (10.0f32, 1usize)];
-        let count = select_admitted_lights(&scored, &[1usize], 1, &mut out);
-        assert_eq!(count, 1);
-        assert_eq!(
-            out[0], 1,
-            "a marginal challenger displaced an already visible light"
-        );
+    fn screen_space_local_lights_draw_every_visible_source_in_one_frame() {
+        let owner = raster_device();
+        let device = owner.as_ref();
+        device
+            .direct3d()
+            .expect("D3D9 interface")
+            .check_default_render_target_texture_support(D3DFMT_A16B16G16R16F)
+            .expect("HDR atmosphere targets");
+        let bytecode = AtmosphereBytecode::compile().expect("shipped atmosphere bytecode");
+        let mut effect = AtmosphereEffect::create_from_bytecode(&device, &bytecode)
+            .expect("production atmosphere pipeline");
+        let world_color = device
+            .create_render_target_texture(TEST_SIZE, TEST_SIZE, D3DFMT_A16B16G16R16F)
+            .expect("HDR world color");
+        clear_target(&device, &world_color);
+        let device_identity = device.as_raw() as usize;
+        let device_generation = crate::backend::d3d_device_generation();
+        // Nine on-screen sources exceed the former Performance/High/Ultra
+        // admission budgets (4/8/16-style limits included four and eight).
+        let lights: [LocalLightValues; 9] = std::array::from_fn(|index| {
+            let column = index % 3;
+            let row = index / 3;
+            LocalLightValues {
+                position: [100.0, (row as f32 - 1.0) * 4.0, (column as f32 - 1.0) * 4.0],
+                color: [1.0, 0.7, 0.35],
+                radius: 16.0,
+            }
+        });
+        let mut settings = interior_local_settings();
+        settings.local_lights_quality = AtmosphereQuality::Performance;
 
-        // A materially brighter challenger still displaces it.
-        let scored = [(13.0f32, 2usize), (10.0f32, 1usize)];
-        let count = select_admitted_lights(&scored, &[1usize], 1, &mut out);
-        assert_eq!(count, 1);
-        assert_eq!(out[0], 2, "a clearly brighter light was not admitted");
+        let mut individual_energy = 0.0f32;
+        for light in &lights {
+            let epoch = source_lights_epoch_for_shader_behavior(
+                std::slice::from_ref(light),
+                local_light_camera(),
+                91,
+                device_identity,
+                device_generation,
+            );
+            let (outcome, pixels) = render_local_light_once(
+                &mut effect,
+                &device,
+                &world_color,
+                Some(&epoch),
+                settings,
+                false,
+            );
+            assert_eq!(outcome, AtmosphereDrawOutcome::ComposedWithLighting);
+            let energy = total_luminance(&pixels);
+            assert!(
+                energy > 0.0,
+                "a visible source produced no local pixels in an isolated frame"
+            );
+            individual_energy += energy;
+        }
+
+        let epoch = source_lights_epoch_for_shader_behavior(
+            &lights,
+            local_light_camera(),
+            92,
+            device_identity,
+            device_generation,
+        );
+        let (outcome, pixels) = render_local_light_once(
+            &mut effect,
+            &device,
+            &world_color,
+            Some(&epoch),
+            settings,
+            false,
+        );
+        assert_eq!(outcome, AtmosphereDrawOutcome::ComposedWithLighting);
+        let combined_energy = total_luminance(&pixels);
+        assert!(
+            (combined_energy - individual_energy).abs() <= individual_energy * 0.02 + 0.000_001,
+            "not every visible source was drawn immediately: isolated={individual_energy}, combined={combined_energy}"
+        );
     }
 
     #[test]
@@ -6967,16 +6738,6 @@ mod directional_shader_behavior {
                     for code in [&reference, &optimized] {
                         let mut effect =
                             AtmosphereEffect::create_from_bytecode(&device, code).unwrap();
-                        effect.local_light_test_millis = Some(1);
-                        render_local_light_frame_once(
-                            &mut effect,
-                            &device,
-                            &world,
-                            Some(&epoch),
-                            settings,
-                            frame,
-                        );
-                        effect.local_light_test_millis = Some(1001);
                         outputs.push(
                             render_local_light_frame_once(
                                 &mut effect,
@@ -7058,7 +6819,6 @@ mod directional_shader_behavior {
             let source = epoch.lights().next().unwrap();
             let lights = [Some(UsableLocalLight {
                 values: source.values,
-                visibility: 1.0,
                 shadow: source.shadow_binding(device.as_raw() as usize),
             }); 4];
             let scissor = ScissorRect {
@@ -7247,7 +7007,9 @@ struct EffectTarget {
 
 struct LocalLightPipeline {
     shadowless_shaders: [[PixelShader9; 4]; 3],
+    #[cfg(test)]
     native_shadowed_shaders: [PixelShader9; 3],
+    #[cfg(test)]
     cube_shadowed_shaders: [[PixelShader9; 4]; 3],
 }
 
@@ -7256,22 +7018,28 @@ impl LocalLightPipeline {
         device
             .direct3d()?
             .check_default_render_target_blending_support(D3DFMT_A16B16G16R16F)?;
+        #[cfg(test)]
+        let native_shadowed_shaders = [
+            device.create_pixel_shader(&bytecode.native_shadowed[0])?,
+            device.create_pixel_shader(&bytecode.native_shadowed[1])?,
+            device.create_pixel_shader(&bytecode.native_shadowed[2])?,
+        ];
+        #[cfg(test)]
+        let cube_shadowed_shaders = [
+            create_local_light_batch(device, &bytecode.cube_shadowed[0])?,
+            create_local_light_batch(device, &bytecode.cube_shadowed[1])?,
+            create_local_light_batch(device, &bytecode.cube_shadowed[2])?,
+        ];
         Ok(Self {
             shadowless_shaders: [
                 create_local_light_batch(device, &bytecode.shadowless[0])?,
                 create_local_light_batch(device, &bytecode.shadowless[1])?,
                 create_local_light_batch(device, &bytecode.shadowless[2])?,
             ],
-            native_shadowed_shaders: [
-                device.create_pixel_shader(&bytecode.native_shadowed[0])?,
-                device.create_pixel_shader(&bytecode.native_shadowed[1])?,
-                device.create_pixel_shader(&bytecode.native_shadowed[2])?,
-            ],
-            cube_shadowed_shaders: [
-                create_local_light_batch(device, &bytecode.cube_shadowed[0])?,
-                create_local_light_batch(device, &bytecode.cube_shadowed[1])?,
-                create_local_light_batch(device, &bytecode.cube_shadowed[2])?,
-            ],
+            #[cfg(test)]
+            native_shadowed_shaders,
+            #[cfg(test)]
+            cube_shadowed_shaders,
         })
     }
 
@@ -7285,12 +7053,21 @@ impl LocalLightPipeline {
             LocalShadowMode::None => {
                 &self.shadowless_shaders[quality_index][batch_size.saturating_sub(1).min(3)]
             }
+            #[cfg(test)]
             LocalShadowMode::NativeProjected => {
                 debug_assert_eq!(batch_size, 1);
                 &self.native_shadowed_shaders[quality_index]
             }
+            #[cfg(test)]
             LocalShadowMode::OmvCube => {
                 &self.cube_shadowed_shaders[quality_index][batch_size.saturating_sub(1).min(3)]
+            }
+            #[cfg(not(test))]
+            LocalShadowMode::NativeProjected | LocalShadowMode::OmvCube => {
+                // No production caller selects a shadowed local-light mode.
+                // Keep the dispatch total without allocating or preparing a
+                // legacy device program.
+                &self.shadowless_shaders[quality_index][batch_size.saturating_sub(1).min(3)]
             }
         }
     }
@@ -7333,6 +7110,7 @@ fn compile_local_light_batch_bytecode(
     ])
 }
 
+#[cfg(test)]
 fn compile_local_light_cube_batch_bytecode(
     quality: &str,
     sample_count: u32,
@@ -7457,7 +7235,6 @@ mod feature_tests {
             local_lights_enabled: false,
             local_lights_intensity: 1.0,
             local_lights_quality: AtmosphereQuality::High,
-            local_lights_fade_seconds: 0.75,
         }
     }
 
@@ -7709,7 +7486,7 @@ mod feature_tests {
         assert_eq!(choices[1], "Shaft mask");
         assert_eq!(choices[5], "Combined acceptance");
         assert_eq!(choices[6], "Local-light bounds");
-        assert_eq!(choices[7], "Local shadow visibility");
+        assert_eq!(choices[7], "Local attenuation");
         assert_eq!(choices[8], "Local scattering");
     }
 
@@ -8940,7 +8717,7 @@ mod shader_compile_tests {
         assert!(!source.contains("[localIndex]"));
         assert!(!source.contains("for (int localIndex"));
         assert!(source.contains("return float3(0.10f, 0.55f, 1.0f)"));
-        assert!(source.contains("lerp(shadowed, visible, visibility)"));
+        assert!(source.contains("lerp(shadowed, visible, debugVisibility)"));
         assert!(source.contains("scattering / (scattering + 0.01f)"));
         assert!(source.contains("cameraTransmittance *= stepTransmittance"));
         assert!(!source.contains("pow(denominator"));
@@ -8952,14 +8729,14 @@ mod shader_compile_tests {
                     String::from_utf8(local_light_shader_source(samples, batch_size, noise, false))
                         .expect("local-light variant");
                 assert!(variant.starts_with(&format!(
-                    "#define LOCAL_LIGHT_SAMPLE_COUNT {samples}\n#define LOCAL_LIGHT_BATCH_SIZE {batch_size}\n#define LOCAL_LIGHT_USE_NOISE {}\n#define LOCAL_LIGHT_SHADOW_MODE 0\n",
+                    "#define LOCAL_LIGHT_SAMPLE_COUNT {samples}\n#define LOCAL_LIGHT_BATCH_SIZE {batch_size}\n#define LOCAL_LIGHT_USE_NOISE {}\n#define LOCAL_LIGHT_SHADOW_MODE 0\n#define LOCAL_LIGHT_SCREEN_SPACE 1\n",
                     u8::from(noise),
                 )));
             }
             let shadowed = String::from_utf8(local_light_shader_source(samples, 1, noise, true))
                 .expect("shadowed local-light variant");
             assert!(shadowed.starts_with(&format!(
-                "#define LOCAL_LIGHT_SAMPLE_COUNT {samples}\n#define LOCAL_LIGHT_BATCH_SIZE 1\n#define LOCAL_LIGHT_USE_NOISE {}\n#define LOCAL_LIGHT_SHADOW_MODE 1\n",
+                "#define LOCAL_LIGHT_SAMPLE_COUNT {samples}\n#define LOCAL_LIGHT_BATCH_SIZE 1\n#define LOCAL_LIGHT_USE_NOISE {}\n#define LOCAL_LIGHT_SHADOW_MODE 1\n#define LOCAL_LIGHT_SCREEN_SPACE 0\n",
                 u8::from(noise),
             )));
             for batch_size in 1..=4 {
@@ -8967,7 +8744,7 @@ mod shader_compile_tests {
                     String::from_utf8(local_light_cube_shader_source(samples, batch_size, noise))
                         .expect("cube-shadowed local-light variant");
                 assert!(cube.starts_with(&format!(
-                    "#define LOCAL_LIGHT_SAMPLE_COUNT {samples}\n#define LOCAL_LIGHT_BATCH_SIZE {batch_size}\n#define LOCAL_LIGHT_USE_NOISE {}\n#define LOCAL_LIGHT_SHADOW_MODE 2\n",
+                    "#define LOCAL_LIGHT_SAMPLE_COUNT {samples}\n#define LOCAL_LIGHT_BATCH_SIZE {batch_size}\n#define LOCAL_LIGHT_USE_NOISE {}\n#define LOCAL_LIGHT_SHADOW_MODE 2\n#define LOCAL_LIGHT_SCREEN_SPACE 0\n",
                     u8::from(noise),
                 )));
             }

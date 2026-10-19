@@ -64,8 +64,6 @@ const NATIVE_LIGHT_POSITION_OFFSET: usize = 0x8C;
 const NATIVE_LIGHT_DIMMER_OFFSET: usize = 0xC4;
 const NATIVE_LIGHT_DIFFUSE_OFFSET: usize = 0xD4;
 const NATIVE_LIGHT_RADIUS_OFFSET: usize = 0xE0;
-const NATIVE_LIGHT_DISABLED_FLAGS_OFFSET: usize = 0x30;
-
 const SHADOW_SCENE_NODE_LIGHTING_OFFSET: usize = 0x1E4;
 const NIOBJECT_IS_MULTIBOUND_NODE_VTABLE_OFFSET: usize = 0x14;
 const MULTIBOUND_NODE_MULTIBOUND_OFFSET: usize = 0xAC;
@@ -914,9 +912,7 @@ unsafe fn read_candidate(
         return None;
     }
     let native_light = unsafe { read_ptr_offset(scene_light, SCENE_LIGHT_NATIVE_LIGHT_OFFSET) }?;
-    if (native_light as usize) < MIN_ENGINE_PTR
-        || unsafe { read_copy::<u8>(native_light, NATIVE_LIGHT_DISABLED_FLAGS_OFFSET) } & 1 != 0
-    {
+    if (native_light as usize) < MIN_ENGINE_PTR {
         return None;
     }
 

@@ -51,6 +51,14 @@ const MAX_RUNTIME_LOGS: u32 = 32;
 /// volumetric light on a single contention, while the window stays small
 /// enough that a moving emitter cannot visibly lag.
 const LOCAL_LIGHT_EPOCH_BUSY_GRACE: u32 = 4;
+/// Render increments the last complete local-light epoch may be reused while
+/// the producer observation is missing or stale.
+///
+/// This is a gap hold, not a fade: the next complete observation replaces it
+/// immediately, and a cell/scene/device change or authoritative empty source
+/// still clears it. The window covers a missed common-shadow transaction or a
+/// producer lock collision without leaving moving emitters stale for long.
+const LOCAL_LIGHT_EPOCH_UNAVAILABLE_GRACE: u32 = 8;
 
 static CONFIG_MAILBOX: LazyLock<Mutex<PublishedConfig>> =
     LazyLock::new(|| Mutex::new(PublishedConfig::default()));
@@ -69,6 +77,7 @@ static LAST_DISTANCE_BOUND: AtomicU32 = AtomicU32::new(0);
 static LAST_TRANSMITTANCE: AtomicU32 = AtomicU32::new(0);
 static LAST_ESTIMATE_EPOCH: AtomicU32 = AtomicU32::new(0);
 static LAST_DIAGNOSTIC_ESTIMATE_EPOCH: AtomicU32 = AtomicU32::new(0);
+static LOCAL_LIGHT_GAP_WARNED: AtomicBool = AtomicBool::new(false);
 static DIAGNOSTICS_ACTIVE: AtomicBool = AtomicBool::new(false);
 static PRESENTS: AtomicU32 = AtomicU32::new(0);
 static CONFIG_PUBLISH_BUSY: AtomicU32 = AtomicU32::new(0);
@@ -1188,6 +1197,10 @@ impl FnvWorldPipelineRuntime {
             return (false, false);
         }
 
+        let previous_count = self
+            .local_lights
+            .as_ref()
+            .map_or(0, crate::fnv_local_lights::LocalLightEpoch::light_count);
         let device_generation = crate::backend::d3d_device_generation();
         let access = unsafe {
             crate::fnv_local_lights::try_build_atmosphere_epoch(
@@ -1213,7 +1226,17 @@ impl FnvWorldPipelineRuntime {
             .local_lights
             .as_ref()
             .is_some_and(|epoch| epoch.light_count() != 0);
-        let unknown = access == PublishedEpochAccess::Busy && !current;
+        if !ready && previous_count != 0 && !LOCAL_LIGHT_GAP_WARNED.swap(true, Ordering::Relaxed) {
+            log::warn!(
+                "[ATMOSPHERE LOCAL] Local-light visibility dropped: access={access:?}, previous_lights={previous_count}, epoch={render_epoch}; a transient source gap is held for up to {LOCAL_LIGHT_EPOCH_UNAVAILABLE_GRACE} render increments"
+            );
+        } else if ready {
+            LOCAL_LIGHT_GAP_WARNED.store(false, Ordering::Relaxed);
+        }
+        let unknown = matches!(
+            access,
+            PublishedEpochAccess::Busy | PublishedEpochAccess::Unavailable
+        ) && !current;
         (ready, unknown)
     }
 
@@ -1510,9 +1533,14 @@ fn local_epoch_retained(
         return true;
     }
     // A busy producer or publication owner preserves the last complete epoch
-    // for a bounded window. A genuinely empty or identity-rejected epoch still
-    // clears the contribution.
-    access == PublishedEpochAccess::Busy && epoch_age <= LOCAL_LIGHT_EPOCH_BUSY_GRACE
+    // for a bounded window. A missing/stale producer observation gets a slightly
+    // wider hold so one missed transaction cannot blank every volume. A
+    // genuinely empty or identity-rejected epoch still clears immediately.
+    match access {
+        PublishedEpochAccess::Busy => epoch_age <= LOCAL_LIGHT_EPOCH_BUSY_GRACE,
+        PublishedEpochAccess::Unavailable => epoch_age <= LOCAL_LIGHT_EPOCH_UNAVAILABLE_GRACE,
+        PublishedEpochAccess::Ready | PublishedEpochAccess::Empty => false,
+    }
 }
 
 fn runtime_error(message: &'static str) -> libpsycho::os::windows::directx9::Direct3DError {
@@ -1635,6 +1663,28 @@ mod tests {
             false,
             1,
             PublishedEpochAccess::Busy
+        ));
+        // A missing/stale producer observation gets a slightly wider bounded
+        // hold so one missed transaction cannot blank every volume.
+        assert!(super::local_epoch_retained(
+            true,
+            2,
+            PublishedEpochAccess::Unavailable
+        ));
+        assert!(super::local_epoch_retained(
+            true,
+            super::LOCAL_LIGHT_EPOCH_UNAVAILABLE_GRACE,
+            PublishedEpochAccess::Unavailable
+        ));
+        assert!(!super::local_epoch_retained(
+            true,
+            super::LOCAL_LIGHT_EPOCH_UNAVAILABLE_GRACE + 1,
+            PublishedEpochAccess::Unavailable
+        ));
+        assert!(!super::local_epoch_retained(
+            false,
+            1,
+            PublishedEpochAccess::Unavailable
         ));
     }
 

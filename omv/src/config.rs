@@ -618,11 +618,12 @@ pub(crate) struct VolumetricLightingConfig {
     pub(crate) local_lights_quality: AtmosphereQuality,
     pub(crate) temporal_stability: f32,
     pub(crate) debug_view: i32,
-    /// Seconds used to reveal and retire local volumetric-light energy.
+    /// Deprecated local-light admission-fade duration.
     ///
-    /// The working config has an explicit TOML writer for this local temporal
-    /// preference. Omitting it from generic serialization keeps the frozen
-    /// schema-one visual-preset payload unchanged.
+    /// Local lights are screen-space only and draw every on-screen source
+    /// immediately, so this value has no runtime, menu, or shader consumer. The
+    /// field stays in its schema-one position so existing working configs load,
+    /// sanitize, and serialize unchanged.
     #[serde(skip_serializing)]
     pub(crate) local_lights_fade_seconds: f32,
 }
@@ -2851,6 +2852,18 @@ albedo_saturation = 1.02
         assert!(defaults.local_lights_enabled);
         assert_eq!(defaults.local_lights_intensity, 1.5);
         assert_eq!(defaults.local_lights_quality, AtmosphereQuality::High);
+
+        // The removed admission fade stays an inert schema-one field: it loads
+        // from an existing working config, sanitizes, and remains outside the
+        // frozen visual-preset payload that generic serialization produces.
+        let explicit: VolumetricLightingConfig =
+            toml::from_str("local_lights_fade_seconds = 2.25").expect("legacy fade value");
+        assert_eq!(explicit.local_lights_fade_seconds, 2.25);
+        let encoded = toml::to_string(&explicit).expect("serialize lighting");
+        assert!(!encoded.contains("local_lights_fade_seconds"));
+        let shipped: VolumetricLightingConfig =
+            toml::from_str(include_str!("../config/omv.toml")).expect("shipped OMV config");
+        assert_eq!(shipped.local_lights_fade_seconds, 0.75);
     }
 
     #[test]

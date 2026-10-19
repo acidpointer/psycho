@@ -183,8 +183,10 @@ temporal_stability = 0.9
 # an active control until that contract exists.
 # 0 = off, 1 = shaft mask, 2 = shaft visibility, 3 = phase response,
 # 4 = directional scattering, 5 = combined atmosphere acceptance,
-# 6 = local-light bounds, 7 = local shadow visibility, 8 = local scattering
+# 6 = local-light bounds, 7 = local attenuation, 8 = local scattering
 debug_view = 0
+# Deprecated inert schema-one field. Local lights now draw every on-screen
+# source immediately, with no admission fade. Retained for config round-trip.
 local_lights_fade_seconds = 0.75
 
 [graphics.embedded_effects.blooming_hdr]

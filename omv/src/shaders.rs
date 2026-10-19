@@ -813,7 +813,7 @@ fn volumetric_lighting_source(config: &VolumetricLightingConfig) -> ScreenShader
             ),
             bool_option(
                 "local_lights_enabled",
-                "Enable shadowed local lights",
+                "Enable screen-space local lights",
                 config.local_lights_enabled,
                 5,
                 0,
@@ -847,20 +847,11 @@ fn volumetric_lighting_source(config: &VolumetricLightingConfig) -> ScreenShader
                     "Directional scattering",
                     "Combined acceptance",
                     "Local-light bounds",
-                    "Local shadow visibility",
+                    "Local attenuation",
                     "Local scattering",
                 ],
                 5,
                 3,
-            ),
-            float_option(
-                "local_lights_fade_seconds",
-                "Local-light fade seconds",
-                config.local_lights_fade_seconds,
-                0.05,
-                5.0,
-                6,
-                0,
             ),
         ],
     )
@@ -2067,9 +2058,6 @@ fn sync_volumetric_lighting_config(
                 config.local_lights_quality = AtmosphereQuality::from_index(option_integer(option));
             }
             "debug_view" => config.debug_view = option_integer(option),
-            "local_lights_fade_seconds" => {
-                config.local_lights_fade_seconds = option_float(option);
-            }
             _ => {}
         }
     }
@@ -4113,5 +4101,17 @@ mod option_abi_tests {
             .set_option_integer(index, DirectionalOcclusionSource::Cascades.index())
             .expect("set directional occlusion");
         assert_eq!(source.option_constants[4][0], 1.0);
+    }
+
+    #[test]
+    fn volumetric_lighting_has_no_local_fade_control() {
+        let source = volumetric_lighting_source(&VolumetricLightingConfig::default());
+        assert!(
+            source
+                .options
+                .iter()
+                .all(|option| option.key != "local_lights_fade_seconds"),
+            "the removed local-light fade is still exposed in the menu/constants"
+        );
     }
 }

@@ -4,12 +4,270 @@ Date: 2026-07-19
 
 Status: scene-wide zero-shadow ownership correction accepted in game; scalable
 shadowless batching and its zero-output texture-binding regression corrected.
+The pass is now screen-space only and draws every on-screen source without an
+admission budget or fade; exact game images and gameplay cost remain unverified.
+The distance/LOD toggle is traced to `NiAVObject::APP_CULLED` being used as
+source disablement and corrected offline. The circular streetlight report is
+traced to the per-segment radial cube shell and corrected offline; exact game
+images remain unverified. The rejected segment-linearization candidate is
+removed as recorded below.
 The replacement-shadow path shares the shadow pipeline's canonical point
 publication and radial-depth cubes with atmosphere. The corrections below are
 qualified through controlled production GPU cases; exact game images and FPS
 remain unverified and gameplay validation belongs to the repository owner.
 
 ## Implementation record
+
+### Screen-space-only local lights with no admission fade (2026-10-20)
+
+Status: implemented and offline-qualified; exact game images, gameplay
+performance, and startup behavior are not run.
+
+The local-light pass is now screen-space only. Each reduced pixel reconstructs
+the captured camera ray, clips the light sphere to opaque depth, and evaluates a
+single closed-form in-scattering segment per light. The shader samples no point
+cube and no native projected shadow map, and the production dispatcher binds only
+the shadowless analytic variants. Surface point shadows remain a separate
+system and are unaffected.
+
+The CPU no longer carries an admission budget, ranking hysteresis, lease,
+history, clock, or fade. Every source-owned light in the current epoch whose
+projected scissor is non-empty is drawn in the same frame, bounded by the
+existing 32-record epoch and the projected light disc. A source appears at its
+full contribution on its first frame and disappears when the next epoch no
+longer contains it. There is no cross-frame light state to invalidate on cell,
+scene, device, or reset transitions.
+
+The manager-chain scan bound is 4096 records instead of 512. A dense cell can
+exceed the old bound; the resulting incomplete frame was discarded, so every
+volumetric light in that cell, including the Pip-Boy light, disappeared at once
+after movement. The source pool is heap-owned after DeferredInit, so the larger
+bound costs fixed memory rather than loader-visible state. If a pathological
+chain still exceeds the safety cap, the captured prefix is now published for
+atmosphere and terrain instead of being discarded. Point-shadow nearest-light
+selection still requires a complete frame, so a bounded prefix cannot skew cube
+ownership. A rate-limited warning records the first overflow.
+
+A missing or stale producer observation is now classified as `Unavailable`
+rather than an empty epoch. Atmosphere retains its last complete selected epoch
+for up to eight render increments while the source gap persists, then clears if
+the gap does not recover. This is a gap hold, not a fade: the next complete
+observation replaces it immediately, and an authoritative empty source or a
+cell/scene/device change still clears. The first visibility drop logs the access
+state and previous light count.
+
+`local_lights_fade_seconds` is retained only as an inert schema-one field. It
+keeps its serialized working-config position and round-trip, but it is absent
+from the menu, render settings, shader constants, shader option payload, and
+HLSL. New and existing configs therefore load and save without a schema
+migration, while no code path can start a fade.
+
+The local attenuation debug tier replaces the former shadow-visibility view.
+`6` shows projected light bounds, `7` shows the analytic in-sphere coverage, and
+`8` retains the normalized local-scattering view.
+
+`local_lights_appear_and_retire_without_an_admission_fade` renders the shipped
+GPU path twice with the same epoch and requires identical, nonzero first-frame
+pixels, then requires the next epoch to remove the light immediately.
+`screen_space_local_lights_draw_every_visible_source_in_one_frame` renders nine
+on-screen sources individually and together on a real D3D9 device and requires
+the combined energy to equal their sum. Both gates exercise the complete
+atmosphere draw and final HDR composition. They do not prove native callback
+lifecycle, exact game images, or gameplay cost.
+
+This section supersedes every earlier local-light admission budget, lease,
+hold-margin, fade, shadow-enrichment, and per-segment visibility contract below.
+The source inventory, ranking, epoch admission, scissor, target, composition,
+and failure boundaries remain as recorded.
+
+### Streetlight report: rejected segment-coverage candidate (2026-10-19)
+
+Status: removed after the owner reported no visible improvement and a strong
+performance regression. The circular, overlapping shapes in
+`.reports/vl_1.png` through `.reports/vl_7.png` remain unresolved. The report
+applies to all streetlights and was captured with a fresh build. No GPU frame
+capture is available. Earlier offline qualification did not establish the
+reported defect's cause or acceptance.
+
+The rejected cube change treated one sampled radial caster depth as a sphere
+and intersected that sphere with a complete integration segment. A cube texel
+describes the nearest caster along one light-space direction. It does not prove
+that caster depth is constant over the directions traversed by the segment.
+The native-map change likewise held the sampled map depth constant while the
+ray's projected UV changed. Those extrapolations cannot establish coverage at
+an angular silhouette. Shifting the radiance evaluation to their inferred
+visible center added work without resolving that missing information.
+
+The regression used constant-depth cubes and a constant native map. It
+demonstrated short radial intervals in those controlled resources, but contained
+neither the reported angular silhouettes nor the actual streetlight inputs.
+Dense execution of the modified shader was not an independent scene oracle.
+The candidate, its supporting regression and frozen source have been removed;
+the preceding point-sampling implementation is restored. Its scissor/batch
+scheduling estimates are corrected to the actual compiled bytecode: shadowless
+Performance uses `130 + 272*N`, High/Ultra `133 + 299*N`; cube Performance uses
+`132 + 338*N`, High/Ultra `134 + 365*N`. The existing bytecode-budget gate
+detected the stale preceding estimates before this correction. No shader budget
+is relaxed. This removes the failed candidate, not the original visual defect.
+Its patch and measured GPU comparison remain in the local report directory.
+
+Direct source and session evidence establish the current boundaries:
+
+- The reported configuration runs High local lighting with six probes per ray
+  and eight desired lights. Native point-shadow cubes are enabled. The
+  session log reports the cube-enriched local path actually drawing.
+- Sun shadows are disabled and directional occlusion selects screen space;
+  the log reports `directional_shadows=false` and nighttime `sun=false`.
+  The point-light report therefore does not establish a directional-cascade
+  defect. The obsolete `screen_space_shadows` TOML entry has no active owner.
+- `fnv_render::run_pre_alpha_world_effects` applies surface shadows before
+  atmosphere. Local scattering uses additive RGB writes into the near/far
+  targets, preserving medium transmittance in alpha. Final composition is
+  `source * transmittance + scattering`. This path does not multiply one
+  light's shadow mask into another light's contribution.
+- `shadow_cube.hlsl` writes normalized radial depth. Atmosphere point-samples
+  that resource along its camera ray. The supplied evidence does not contain
+  the relevant light scalars, cube texels, reduced depth or scattering targets;
+  it cannot isolate producer geometry from integration/reconstruction.
+
+If the producer supplies correct cubes and the consumer aliases their angular
+silhouettes, a correction must address shadow-signal bandwidth and integration
+error together. Extrapolating a radial depth does not establish that result.
+Sparse regular sampling is a research lead,
+not an established attribution for these frames. Wronski's
+[volumetric-fog presentation](https://bartwronski.com/wp-content/uploads/2014/08/bwronski_volumetric_fog_siggraph2014.pdf)
+documents filtered shadow representations, volumetric grids and reconstruction;
+[NVIDIA's volume-rendering discussion](https://developer.nvidia.com/gpugems/gpugems3/part-v-physics-simulation/chapter-30-real-time-simulation-and-rendering-3d-fluids)
+explains regular-sample banding and filtering. Neither source identifies the
+inputs or cause of this game report.
+
+Replacement acceptance requires the proven affected producer/consumer path,
+an independent visibility/scattering reference, separate and overlapping lights,
+opaque occlusion, camera motion, sky and mixed-depth boundaries, and all quality
+tiers. Executable GPU cost must be compared against the restored implementation
+at identical light coverage and settings. Producer invalidation cost must be
+accounted for separately. More probes, fewer lights, raw-depth linear filtering,
+and the owner's game run cannot substitute for that evidence. No replacement
+rendering algorithm is qualified by this investigation.
+
+### Source inventory: APP_CULLED is not light disablement (2026-10-19)
+
+Status: implemented and offline-qualified. This corrects the owner's
+distance/LOD toggle: the volume was visible at some LOD distances, disappeared
+when the player moved closer, and reappeared closer still.
+
+`NATIVE_LIGHT_DISABLED_FLAGS_OFFSET` read a byte at `NiAVObject +0x30`. Bit 0 of
+that field is `NiAVObject::APP_CULLED`, a per-frame scene-graph culling result,
+not a source enable flag. The culling process sets and clears it as the camera,
+LOD selection, and visible-set update; using it as source admission removed the
+light from the canonical frame and from the close-terrain consumer for those
+frames. That produced a non-monotonic distance band with no change to the shader
+or the shadow map.
+
+Both scalar consumers now treat the manager scene chain as the source
+inventory:
+
+- The common scene-light frame copies every valid point/spot record from the
+  `ShadowSceneNode +0xB4` chain regardless of `APP_CULLED`. A source-off light
+  is still rejected by its non-positive effective radiance, and a malformed
+  record by the existing scalar validation.
+- The close-terrain candidate reader applies the same rule. Its multibound and
+  distance admission still decide whether a light can affect that geometry.
+- Shadow-caster admission intentionally still rejects `APP_CULLED` geometry:
+  a culled caster must not render into a shadow map. The correction applies to
+  light sources only.
+
+The same flicker also perturbed the shadow producer's independent nearest-light
+selection: a light that vanished from the scalar frame for one LOD band could
+lose its cube slot and return later, so the volume alternated between shadowed
+and unshadowed and the producer repeatedly rebuilt the same point maps. A
+stable source inventory is therefore also the prerequisite for stable
+volumetric shadows and steady point-cube cost.
+
+`terrain_snapshot_copies_active_scene_lights_without_using_app_culling` and
+`scene_light_chain_copies_app_culled_lights_and_rejects_dark_ones` set the
+engine flag in a synthetic record and require the light to survive; setting the
+dimmer to zero must still reject it. The frozen behavior failed both positive
+cases. The complete OMV suite and the supported 32-bit release build pass.
+Exact game LOD distances remain owner-only validation.
+
+### Radial caster shell correction (2026-10-19)
+
+Status: implemented and offline-qualified; the exact game image remains
+unverified. The owner confirmed that the volumetric effect wrongly toggles on
+and off as the player changes distance to a light, and that the circular
+artifacts remain the primary visual defect.
+
+The source defect established by the offline reproduction is the point-cube
+comparison, not the scene geometry. A cube
+texel stores the nearest normalized radial caster distance `c` for one
+light-space direction. At a camera-ray sample whose normalized light distance is
+`d`, the sample is visible while `d <= c / (1 - bias)`. The visible set for one
+sampled `c` is therefore the interior of a sphere centered on the light.
+Assigning a single binary result to a complete integration segment turns that
+sphere intersection into a hard spherical shell. Grazing segments produce the
+bright rim, and neighboring lights produce independent concentric rings and
+overlapping cascades. This occurs at every quality tier and does not depend on
+the projected or directional path. The offline reproduction isolates this radial
+component; the earlier candidate's additional native-map extrapolation and
+radiance shift were not accepted, and the exact game frames remain unverified.
+
+The correction intersects the visible sphere with each integration segment
+analytically:
+
+- Normalize the sample's light distance and the segment's closest-approach
+  projection by the cube radius.
+- Solve `d(s)^2 <= c^2` for the segment interval. A segment fully inside or
+  outside the sampled sphere yields one or zero; a crossing yields the exact
+  covered fraction. This remains correct for grazing silhouettes where the
+  radial distance is nearly constant and a linear in-segment estimate becomes
+  binary again.
+- Keep exactly one cube read per segment. The sampled caster depth is the same
+  value the preceding implementation used; only its coverage is integrated.
+- Neutral or invalid texels and a zero occlusion weight still return the scalar
+  emitter.
+- The CPU uploads the inverse cube radius and the reciprocal receiver-bias
+  factor `1 / (1 - bias)`, so the shader performs no extra division per sample.
+  The native projected-shadow variant keeps its existing raw bias.
+
+The rejected candidate also intersected a radial sphere, but it additionally
+held a projected native-map depth constant and shifted radiance to the inferred
+visible center. This correction applies only the cube's sampled depth, keeps
+radiance at the integration midpoint, and is qualified by dense convergence at
+every tier. It removes the radial shell. A direction discontinuity inside one
+segment (for example a cube-face cap edge) remains bounded by the selected
+sample count; the top-cap case measures that residual rather than claiming it
+is gone.
+
+The atmosphere admission fade now advances by at most half of its range per
+update. A long frame or hitch therefore cannot complete an admission or
+retirement between two frames. Distance-driven budget changes fade across at
+least two rendered frames instead of toggling, and a steady frame rate keeps
+the configured duration.
+
+`radial_caster_shell_matches_dense_execution_at_every_quality` renders the
+shipped HLSL through D3D9 for Performance, High, and Ultra with both a constant
+radial shell and a direction-varying top-cap cube. The frozen pre-change shader
+must still show the coarse shell error; the corrected shader must converge to
+its 64-sample dense execution. Measured normalized maximum errors for the
+constant shell were 0.285 frozen and 0.031 corrected at 4 samples, 0.238 frozen
+and 0.037 corrected at 6, and 0.128 frozen and 0.023 corrected at 10. The
+direction-varying cube improves from 0.477/0.315/0.209 frozen to
+0.199/0.122/0.096 corrected. The remaining angular error is the unavoidable
+one-texel-per-segment sampling limit, not a radial shell.
+
+Compiled cube variants remain within the same PS 3.0 budgets. Their exact
+scheduling decomposition is now `131 + 349*N` for Performance and
+`134 + 376*N` for High/Ultra; these supersede the restored `132 + 338*N` and
+`134 + 365*N` estimates in the rejected-candidate record. The shadowless and
+native variants are unchanged.
+The paired GPU benchmark against the frozen reported shader reports an aggregate
+ratio of 0.738, versus about 0.702 for the preceding production shader in the
+same harness (roughly five percent additional cost for the per-segment
+coverage). This is not a gameplay FPS result. The complete OMV suite, all
+production shader variants, formatting, and the supported 32-bit release build
+pass. Exact game images, the owner's distance-toggle frames, and gameplay
+performance are not run; they remain owner-only validation.
 
 ### Segment visibility and camera transitions
 
@@ -89,7 +347,7 @@ model recorded later in this document:
   or busy shadow ownership preserves the scalar light and selects the cheaper
   shadowless Atmosphere shader.
 - Repeated callbacks in the same source epoch reuse the published frame. This
-  bounds the 512-node manager copy and 64-light terrain atomic publication to
+  bounds the 4096-node manager copy and 64-light terrain atomic publication to
   one producer operation instead of repeating both for nested and outer routes.
 
 - DeferredInit hooks the complete world light/shadow transaction at
@@ -99,7 +357,7 @@ model recorded later in this document:
 - The zero-shadow branch clears manager `+0xC0` shadow candidates and native
   shadow resources, not the `+0xB4` scene list. `0x00B5B880` is conditional and
   is no longer used as the epoch owner.
-- OMV scans at most 512 nodes, publishes a fixed 32-light candidate epoch by
+- OMV scans at most 4096 nodes, publishes a fixed 32-light candidate epoch by
   bounded camera contribution, and admits at most 4, 8, or 16 Performance,
   High, or Ultra volumes. Published records retain no list node, manager,
   camera, or native light pointer.
@@ -596,7 +854,12 @@ ceiling of 8192 per channel. With four additive lights this leaves substantial
 headroom below FP16 infinity for the existing fog/sun contribution. Do not use
 `saturate` on HDR radiance.
 
-## Fixed quality budgets
+## Fixed quality budgets (historical: superseded by screen-space-only lights)
+
+The sample and admitted-light columns below describe the former shadow-marched
+path. The current production analytic path has no per-light sample loop, no
+admission budget, and no max-light column; quality selects fog variation only.
+The target-scale, composition, and draw-batching rules remain current.
 
 Quality is a preset, not a runtime-variable shader loop:
 
@@ -847,7 +1110,11 @@ gheap, or the native shadow selector.
 9. Run formatting, every i686 Wine test, the full supported i686 release build,
    and diff checks. Only then build/install for one feature-first playtest.
 
-## Stable admission and fade contract (2026-08-19)
+## Stable admission and fade contract (2026-08-19, superseded)
+
+Superseded by the 2026-10-20 screen-space-only record: the current pass has no
+admission budget, lease, hold margin, fade, or local history. The text below is
+retained as the historical design and failure record.
 
 The four-record capture limit was an OMV budget rather than a native limit and
 made crowded scenes exchange complete volumetric sources at the selection

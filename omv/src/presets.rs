@@ -171,6 +171,8 @@ impl PresetVisualSettingsV1 {
     }
 
     fn apply(self, target: &mut GraphicsMenuConfig) {
+        // Inert schema-one field: keep the working-config value across visual
+        // presets so loading a preset cannot rewrite an unrelated preference.
         let local_lights_fade_seconds = target
             .embedded_effects
             .volumetric_lighting

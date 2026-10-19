@@ -56,7 +56,15 @@ const WORLD_LIGHT_EPOCH_PROLOGUE: &[u8] = &[0x55, 0x8B, 0xEC, 0x81, 0xEC, 0x9C, 
 pub(crate) const LOCAL_LIGHT_CAPACITY: usize = 32;
 const TERRAIN_LIGHT_CAPACITY: usize = 64;
 const NATIVE_SHADOW_CAPACITY: usize = 4;
-const MAX_SCENE_LIGHT_SCAN: usize = 512;
+/// Hard safety bound for one manager-chain traversal.
+///
+/// The chain is engine-owned and grows with the loaded cell's light set. The
+/// previous 512-record bound could be exceeded by a dense interior, which
+/// discarded the whole frame and removed every volumetric light. The frame is
+/// heap-owned after DeferredInit, so a wider bound costs only fixed pool memory.
+/// If a pathological chain exceeds it, the bounded prefix is still published for
+/// atmosphere/terrain; point-shadow selection continues to require completeness.
+const MAX_SCENE_LIGHT_SCAN: usize = 4096;
 const TERRAIN_LIGHT_COMPONENTS_PER_ENTRY: usize = 10;
 const TERRAIN_LIGHT_COMPONENT_COUNT: usize =
     TERRAIN_LIGHT_CAPACITY * TERRAIN_LIGHT_COMPONENTS_PER_ENTRY;
@@ -82,7 +90,13 @@ const SHADOW_ACTIVE_STATE_OFFSET: usize = 0x110;
 const SHADOW_INACTIVE_STATE: u16 = 0x00FF;
 
 const NATIVE_LIGHT_SIZE: usize = 0xE4;
-const NATIVE_LIGHT_DISABLED_FLAGS_OFFSET: usize = 0x30;
+/// `NiAVObject::m_flags` at `+0x30`. Bit 0 is `APP_CULLED`, a per-frame
+/// scene-graph culling result. It is not source enablement and must not gate a
+/// scene-wide light inventory: the culling process can set it while the
+/// light's influence sphere still covers the view (and clear it again as LOD or
+/// camera distance changes). Retained only for behavior fixtures.
+#[cfg(test)]
+const NATIVE_AV_FLAGS_OFFSET: usize = 0x30;
 const NATIVE_LIGHT_POSITION_OFFSET: usize = 0x8C;
 const NATIVE_LIGHT_EFFECT_TYPE_OFFSET: usize = 0x9D;
 const NATIVE_POINT_LIGHT_TYPE: u8 = 2;
@@ -217,6 +231,7 @@ static RESET_BUSY: AtomicU32 = AtomicU32::new(0);
 static CAPTURE_LOGS: AtomicU32 = AtomicU32::new(0);
 static CAPTURE_TRAVERSALS: AtomicU32 = AtomicU32::new(0);
 static OVERFLOW_LIGHTS: AtomicU32 = AtomicU32::new(0);
+static OVERFLOW_WARNED: AtomicBool = AtomicBool::new(false);
 static SCENE_LIGHTS: AtomicU32 = AtomicU32::new(0);
 static SHADOWED_LIGHTS: AtomicU32 = AtomicU32::new(0);
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -414,7 +429,10 @@ fn publish_scene_light_frame(mut lease: SceneLightFrameLease) -> bool {
     let Some(candidate) = lease.frame.take() else {
         return false;
     };
-    if !candidate.complete {
+    // A bounded prefix is useful to the screen-space and terrain consumers even
+    // when the chain hit the safety cap. Only an incomplete frame that captured
+    // no usable prefix is discarded so it cannot erase a good publication.
+    if candidate.count == 0 && !candidate.complete {
         return_scene_frame(candidate);
         return false;
     }
@@ -456,8 +474,7 @@ fn scene_light_publication_is_current(
             .published_scene_frame
             .as_deref()
             .is_some_and(|published| {
-                published.complete
-                    && published.render_epoch == render_epoch
+                published.render_epoch == render_epoch
                     && published.device_identity == device_identity
                     && published.device_generation == device_generation
                     && published.cell_identity == cell_identity
@@ -583,11 +600,6 @@ pub(crate) struct LocalVolumetricLight {
 }
 
 impl LocalVolumetricLight {
-    /// Return the stable engine-object identity for temporal selection.
-    pub(crate) const fn identity(&self) -> usize {
-        self.native_light_identity
-    }
-
     /// Borrow the retained native shadow texture for the current D3D device.
     ///
     /// A device mismatch rejects stale reset-era resources without consulting
@@ -657,8 +669,6 @@ pub(crate) struct LocalLightEpoch {
     pub(crate) device_identity: usize,
     /// Device lifecycle generation that owns every retained shadow resource.
     pub(crate) device_generation: u32,
-    /// Native cell identity used to invalidate temporal selection state.
-    pub(crate) cell_identity: usize,
     slots: [Option<LocalVolumetricLight>; LOCAL_LIGHT_CAPACITY],
 }
 
@@ -698,10 +708,17 @@ impl LocalLightEpoch {
 pub(crate) enum PublishedEpochAccess {
     /// The producer or reset path currently owns the mailbox.
     Busy,
-    /// No publication for the requested device was available.
-    Empty,
+    /// No usable producer observation exists for the current scene/device.
+    ///
+    /// This is distinct from [`Self::Empty`]: the source frame is missing or
+    /// stale rather than authoritatively empty. Consumers may retain their last
+    /// complete epoch for a short bounded window so a producer gap cannot blank
+    /// every volumetric light.
+    Unavailable,
     /// A matching complete publication was moved into the consumer.
     Ready,
+    /// The source or selection is authoritatively empty for this scene.
+    Empty,
 }
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -1149,8 +1166,7 @@ pub(crate) unsafe fn try_build_atmosphere_epoch(
     let Some((cell_identity, scene_kind)) =
         (unsafe { crate::effects::shadows::local_light_scene_identity() })
     else {
-        *destination = None;
-        return PublishedEpochAccess::Empty;
+        return PublishedEpochAccess::Unavailable;
     };
     try_build_atmosphere_epoch_for_scene(
         destination,
@@ -1179,20 +1195,23 @@ fn try_build_atmosphere_epoch_for_scene(
             return PublishedEpochAccess::Busy;
         };
         let Some(source) = staging.published_scene_frame.as_deref() else {
-            *destination = None;
-            return PublishedEpochAccess::Empty;
+            return PublishedEpochAccess::Unavailable;
         };
         let epoch_usable = render_epoch == source.render_epoch
             || render_epoch == source.render_epoch.wrapping_add(1);
-        if !source.complete
-            || source.device_identity != device_identity
+        if source.device_identity != device_identity
             || source.device_generation != device_generation
             || source.cell_identity != cell_identity
             || source.scene_kind != scene_kind
-            || !epoch_usable
         {
             *destination = None;
             return PublishedEpochAccess::Empty;
+        }
+        if !epoch_usable {
+            // A producer/consumer increment gap is transient. Keep the previous
+            // complete consumer epoch for the bounded grace instead of blanking
+            // every local light.
+            return PublishedEpochAccess::Unavailable;
         }
         (
             source.render_epoch,
@@ -1216,7 +1235,6 @@ fn try_build_atmosphere_epoch_for_scene(
         source_render_epoch,
         device_identity,
         device_generation,
-        cell_identity,
         ranked,
         shadows,
         point_frame,
@@ -1945,6 +1963,13 @@ unsafe fn capture_scene_light_frame_chain(
             .max(1)
             .min(u32::MAX as usize) as u32;
         record_diagnostic(&OVERFLOW_LIGHTS, overflow, diagnostics_active);
+        if !OVERFLOW_WARNED.swap(true, Ordering::Relaxed) {
+            log::warn!(
+                "[ATMOSPHERE LOCAL] Scene light chain exceeded {MAX_SCENE_LIGHT_SCAN} nodes; publishing the bounded prefix for screen-space local lights"
+            );
+        }
+    } else {
+        OVERFLOW_WARNED.store(false, Ordering::Relaxed);
     }
 }
 
@@ -1957,10 +1982,10 @@ unsafe fn capture_scene_light_frame_chain(
 unsafe fn capture_scene_light_record(shadow_scene_light: *mut u8) -> Option<SceneLight> {
     let native_light =
         unsafe { read_at_unchecked::<*mut u8>(shadow_scene_light, SHADOW_NATIVE_LIGHT_OFFSET) };
-    if native_light.is_null()
-        || unsafe { read_at_unchecked::<u8>(native_light, NATIVE_LIGHT_DISABLED_FLAGS_OFFSET) } & 1
-            != 0
-    {
+    // The manager's scene chain is the source inventory. A source-off light is
+    // rejected by its zero radiance below; `APP_CULLED` at `NiAVObject +0x30`
+    // is a transient culling result and cannot remove a live scene light.
+    if native_light.is_null() {
         return None;
     }
     let light = SceneLight {
@@ -2111,10 +2136,10 @@ unsafe fn capture_terrain_scene_light(shadow_scene_light: *mut u8) -> Option<Ter
     }
     let native_light =
         unsafe { read_at_unchecked::<*mut u8>(shadow_scene_light, SHADOW_NATIVE_LIGHT_OFFSET) };
-    if native_light.is_null()
-        || unsafe { read_at_unchecked::<u8>(native_light, NATIVE_LIGHT_DISABLED_FLAGS_OFFSET) } & 1
-            != 0
-    {
+    // The manager's scene chain is the source inventory. A source-off light is
+    // rejected by its zero radiance below; `APP_CULLED` at `NiAVObject +0x30`
+    // is a transient culling result and cannot remove a live scene light.
+    if native_light.is_null() {
         return None;
     }
     let light = TerrainSceneLight {
@@ -2290,7 +2315,6 @@ fn build_epoch(
         render_epoch,
         device_identity,
         device_generation,
-        0,
         ranked,
         shadows,
         None,
@@ -2302,7 +2326,6 @@ fn build_scene_epoch(
     render_epoch: u32,
     device_identity: usize,
     device_generation: u32,
-    cell_identity: usize,
     ranked: [Option<RankedSceneLight>; LOCAL_LIGHT_CAPACITY],
     mut shadows: [Option<CapturedShadow>; NATIVE_SHADOW_CAPACITY],
     mut point_frame: Option<crate::effects::shadows::VolumetricPointLightFrame>,
@@ -2360,7 +2383,6 @@ fn build_scene_epoch(
         render_epoch,
         device_identity,
         device_generation,
-        cell_identity,
         slots,
     }
 }
@@ -2392,7 +2414,6 @@ fn build_shadow_resource_epoch(
         render_epoch,
         device_identity,
         device_generation,
-        cell_identity: 0,
         slots,
     }
 }
@@ -2434,7 +2455,6 @@ fn build_shadow_point_epoch(
         render_epoch: frame.render_epoch,
         device_identity: frame.device_identity,
         device_generation: frame.device_generation,
-        cell_identity: 0,
         slots,
     }
 }
@@ -2522,7 +2542,6 @@ pub(crate) fn source_lights_epoch_for_shader_behavior(
         render_epoch,
         device_identity,
         device_generation,
-        0,
         ranked,
         std::array::from_fn(|_| None),
         None,
@@ -2856,23 +2875,25 @@ mod tests {
         CaptureSlot, LIST_NODE_NEXT_OFFSET, LIST_NODE_VALUE_OFFSET, LOCAL_LIGHT_CAPACITY,
         LocalLightEpoch, LocalLightValues, MAILBOX_TEST, MAIN_RENDER_FIRST_RETURN,
         MAIN_RENDER_ROOT_RETURN, MAIN_WRAPPER_DIRECT_RETURN, MAIN_WRAPPER_HELPER_RETURN,
-        MAIN_WRAPPER_NESTED_RETURN, NATIVE_LIGHT_COLOR_OFFSET, NATIVE_LIGHT_DIMMER_OFFSET,
-        NATIVE_LIGHT_DISABLED_FLAGS_OFFSET, NATIVE_LIGHT_EFFECT_TYPE_OFFSET,
+        MAIN_WRAPPER_NESTED_RETURN, MAX_SCENE_LIGHT_SCAN, NATIVE_AV_FLAGS_OFFSET,
+        NATIVE_LIGHT_COLOR_OFFSET, NATIVE_LIGHT_DIMMER_OFFSET, NATIVE_LIGHT_EFFECT_TYPE_OFFSET,
         NATIVE_LIGHT_POSITION_OFFSET, NATIVE_LIGHT_RADIUS_OFFSET, NATIVE_LIGHT_SIZE,
         NATIVE_POINT_LIGHT_TYPE, PUBLISHED, PublishedEpochAccess, RankedSceneLight,
         RenderLocalShadowFn, SCREENSHOT_RENDER_RETURN, SHADOW_ACTIVE_STATE_OFFSET,
         SHADOW_AMBIENT_OFFSET, SHADOW_FADE_OFFSET, SHADOW_INACTIVE_STATE, SHADOW_MATRIX_OFFSET,
         SHADOW_NATIVE_LIGHT_OFFSET, SHADOW_POSITIONAL_OFFSET, SHADOW_SCENE_LIGHT_SIZE,
-        SHADOW_TRANSITION_OFFSET, ShadowDispatcherVariant, ShadowInvocation, ShadowRenderContext,
-        ShadowTextureFormat, StagingEpoch, TERRAIN_LIGHT_CAPACITY, TerrainRenderSnapshot,
-        TerrainSceneLight, WRAPPED_RENDER_RETURN, WorldLightEpochFn,
-        authoritative_light_invocation, build_epoch, capture_requested, capture_scene_light_chain,
-        capture_terrain_scene_light, classify_capture_slot, classify_shadow_invocation,
+        SHADOW_TRANSITION_OFFSET, STAGING, SceneLight, SceneLightFrameLease,
+        ShadowDispatcherVariant, ShadowInvocation, ShadowRenderContext, ShadowTextureFormat,
+        StagingEpoch, TERRAIN_LIGHT_CAPACITY, TerrainRenderSnapshot, TerrainSceneLight,
+        WRAPPED_RENDER_RETURN, WorldLightEpochFn, authoritative_light_invocation, build_epoch,
+        capture_requested, capture_scene_light_chain, capture_terrain_scene_light,
+        classify_capture_slot, classify_shadow_invocation, clear_scene_light_publication,
         hook_render_local_shadow, hook_world_light_variant_a, hook_world_light_variant_b,
         hook_world_light_variant_c, insert_ranked_light, insert_ranked_terrain_light,
-        read_matrix4_unchecked, record_diagnostic, scene_light_score, scene_scan_capacity,
-        shadow_capture_requested, terrain_epoch_is_current, terrain_light_is_eligible,
-        try_take_published, valid_light_scalars,
+        publish_scene_light_frame, read_matrix4_unchecked, record_diagnostic, scene_light_score,
+        scene_scan_capacity, shadow_capture_requested, terrain_epoch_is_current,
+        terrain_light_is_eligible, try_build_atmosphere_epoch_for_scene, try_take_published,
+        valid_light_scalars,
     };
     use crate::backend::{CameraFrame, CameraTransformFrame};
     use std::{
@@ -2904,7 +2925,6 @@ mod tests {
             render_epoch,
             device_identity,
             device_generation: 0,
-            cell_identity: 0,
             slots: std::array::from_fn(|_| None),
         }
     }
@@ -3108,6 +3128,179 @@ mod tests {
     }
 
     #[test]
+    fn scene_chain_beyond_the_legacy_cap_keeps_later_lights() {
+        const LAST_LIGHT: usize = 600;
+        let mut nodes: Vec<[u8; LIST_NODE_VALUE_OFFSET + size_of::<*mut u8>()]> = (0..=LAST_LIGHT)
+            .map(|_| [0u8; LIST_NODE_VALUE_OFFSET + size_of::<*mut u8>()])
+            .collect();
+        let mut scene_lights = vec![[0u8; SHADOW_SCENE_LIGHT_SIZE]; LAST_LIGHT + 1];
+        let mut native_lights = vec![[0u8; NATIVE_LIGHT_SIZE]; LAST_LIGHT + 1];
+        let node_ptrs: Vec<*mut u8> = nodes.iter_mut().map(|node| node.as_mut_ptr()).collect();
+        let scene_light_ptrs: Vec<*mut u8> = scene_lights
+            .iter_mut()
+            .map(|light| light.as_mut_ptr())
+            .collect();
+        let native_light_ptrs: Vec<*mut u8> = native_lights
+            .iter_mut()
+            .map(|light| light.as_mut_ptr())
+            .collect();
+        for index in 0..=LAST_LIGHT {
+            unsafe {
+                write_at(
+                    &mut scene_lights[index],
+                    SHADOW_NATIVE_LIGHT_OFFSET,
+                    native_light_ptrs[index],
+                );
+                write_at(
+                    &mut native_lights[index],
+                    NATIVE_LIGHT_EFFECT_TYPE_OFFSET,
+                    NATIVE_POINT_LIGHT_TYPE,
+                );
+                write_at(
+                    &mut native_lights[index],
+                    NATIVE_LIGHT_POSITION_OFFSET,
+                    100.0 + index as f32,
+                );
+                if index == LAST_LIGHT {
+                    write_at(&mut native_lights[index], NATIVE_LIGHT_COLOR_OFFSET, 1.0f32);
+                }
+                write_at(
+                    &mut native_lights[index],
+                    NATIVE_LIGHT_DIMMER_OFFSET,
+                    1.0f32,
+                );
+                write_at(
+                    &mut native_lights[index],
+                    NATIVE_LIGHT_RADIUS_OFFSET,
+                    16.0f32,
+                );
+                write_at(
+                    &mut nodes[index],
+                    LIST_NODE_VALUE_OFFSET,
+                    scene_light_ptrs[index],
+                );
+                if index + 1 < nodes.len() {
+                    write_at(
+                        &mut nodes[index],
+                        LIST_NODE_NEXT_OFFSET,
+                        node_ptrs[index + 1],
+                    );
+                }
+            }
+        }
+        let capture = unsafe {
+            capture_scene_light_chain(
+                node_ptrs[0],
+                nodes.len(),
+                Some(camera()),
+                true,
+                false,
+                false,
+            )
+        };
+        assert_eq!(
+            capture.ranked.iter().flatten().count(),
+            1,
+            "a light beyond the former 512-node cap was not captured"
+        );
+        assert_eq!(
+            capture.ranked[0]
+                .expect("the later light must rank")
+                .native_light_identity,
+            native_lights[LAST_LIGHT].as_ptr() as usize,
+        );
+    }
+
+    #[test]
+    fn transient_source_gap_preserves_the_cached_atmosphere_epoch() {
+        let _test = MAILBOX_TEST.lock();
+        {
+            let mut staging = STAGING.lock();
+            clear_scene_light_publication(&mut staging);
+        }
+        let mut destination = Some(empty_epoch(41, 0x1234));
+        let access = try_build_atmosphere_epoch_for_scene(
+            &mut destination,
+            camera(),
+            0x1234,
+            7,
+            42,
+            0xC311,
+            2,
+        );
+        assert_eq!(access, PublishedEpochAccess::Unavailable);
+        assert_eq!(
+            destination.as_ref().map(|epoch| epoch.render_epoch),
+            Some(41),
+            "a missing source frame erased the last complete epoch"
+        );
+    }
+
+    #[test]
+    fn incomplete_scene_frame_publishes_and_reaches_atmosphere() {
+        const RENDER_EPOCH: u32 = 41;
+        const DEVICE_IDENTITY: usize = 0x1234;
+        const DEVICE_GENERATION: u32 = 7;
+        const CELL_IDENTITY: usize = 0xC311;
+        const SCENE_KIND: u8 = 2;
+
+        let _test = MAILBOX_TEST.lock();
+        let mut frame = {
+            let mut staging = STAGING.lock();
+            clear_scene_light_publication(&mut staging);
+            staging
+                .scene_frame
+                .take()
+                .or_else(|| staging.spare_scene_frame.take())
+                .expect("the fixed behavior-test source pool must contain a frame")
+        };
+        *PUBLISHED.lock() = None;
+        frame.clear();
+        frame.render_epoch = RENDER_EPOCH;
+        frame.device_identity = DEVICE_IDENTITY;
+        frame.device_generation = DEVICE_GENERATION;
+        frame.cell_identity = CELL_IDENTITY;
+        frame.scene_kind = SCENE_KIND;
+        // A safety-cap hit is a bounded prefix, not an empty publication.
+        frame.complete = false;
+        frame.lights[0] = SceneLight {
+            native_light_identity: 1,
+            effect_type: NATIVE_POINT_LIGHT_TYPE,
+            position: [100.0, 0.0, 0.0],
+            diffuse: [1.0; 3],
+            dimmer: 1.0,
+            radius: 16.0,
+            ..SceneLight::default()
+        };
+        frame.count = 1;
+        assert!(
+            publish_scene_light_frame(SceneLightFrameLease { frame: Some(frame) }),
+            "an incomplete frame with a usable prefix was discarded"
+        );
+
+        let mut destination = None;
+        let access = try_build_atmosphere_epoch_for_scene(
+            &mut destination,
+            camera(),
+            DEVICE_IDENTITY,
+            DEVICE_GENERATION,
+            RENDER_EPOCH,
+            CELL_IDENTITY,
+            SCENE_KIND,
+        );
+        assert_eq!(access, PublishedEpochAccess::Ready);
+        assert_eq!(
+            destination.expect("bounded source frame").light_count(),
+            1,
+            "the atmosphere consumer rejected the bounded prefix"
+        );
+
+        let mut staging = STAGING.lock();
+        clear_scene_light_publication(&mut staging);
+        *PUBLISHED.lock() = None;
+    }
+
+    #[test]
     fn terrain_consumer_keeps_scene_capture_active_without_volumetric_lighting() {
         assert!(!capture_requested(false, false));
         assert!(capture_requested(true, false));
@@ -3119,9 +3312,9 @@ mod tests {
         assert!(shadow_capture_requested(true, true));
 
         assert_eq!(scene_scan_capacity(false, false), 0);
-        assert_eq!(scene_scan_capacity(false, true), 512);
-        assert_eq!(scene_scan_capacity(true, false), 512);
-        assert_eq!(scene_scan_capacity(true, true), 512);
+        assert_eq!(scene_scan_capacity(false, true), MAX_SCENE_LIGHT_SCAN);
+        assert_eq!(scene_scan_capacity(true, false), MAX_SCENE_LIGHT_SCAN);
+        assert_eq!(scene_scan_capacity(true, true), MAX_SCENE_LIGHT_SCAN);
     }
 
     #[test]
@@ -3182,7 +3375,7 @@ mod tests {
     }
 
     #[test]
-    fn terrain_snapshot_copies_only_active_enabled_scene_light_values() {
+    fn terrain_snapshot_copies_active_scene_lights_without_using_app_culling() {
         let mut scene_light = [0u8; SHADOW_SCENE_LIGHT_SIZE];
         let mut native_light = [0u8; NATIVE_LIGHT_SIZE];
         unsafe {
@@ -3196,7 +3389,7 @@ mod tests {
             );
             write_at(&mut scene_light, SHADOW_TRANSITION_OFFSET, 0.5f32);
             write_at(&mut scene_light, SHADOW_FADE_OFFSET, 0.75f32);
-            write_at(&mut native_light, NATIVE_LIGHT_DISABLED_FLAGS_OFFSET, 0u8);
+            write_at(&mut native_light, NATIVE_AV_FLAGS_OFFSET, 0u8);
             write_at(&mut native_light, NATIVE_LIGHT_POSITION_OFFSET, 1.0f32);
             write_at(&mut native_light, NATIVE_LIGHT_POSITION_OFFSET + 4, 2.0f32);
             write_at(&mut native_light, NATIVE_LIGHT_POSITION_OFFSET + 8, 3.0f32);
@@ -3222,6 +3415,14 @@ mod tests {
         assert_eq!(captured.fade, 0.75);
         assert_eq!(captured.radius, 128.0);
 
+        // APP_CULLED is a transient scene-graph culling result. It must not
+        // remove a live light whose manager record and radiance are valid.
+        unsafe { write_at(&mut native_light, NATIVE_AV_FLAGS_OFFSET, 1u8) };
+        assert!(
+            unsafe { capture_terrain_scene_light(scene_light.as_mut_ptr()) }.is_some(),
+            "APP_CULLED removed a live terrain light"
+        );
+
         unsafe {
             write_at(
                 &mut scene_light,
@@ -3232,9 +3433,81 @@ mod tests {
         assert!(unsafe { capture_terrain_scene_light(scene_light.as_mut_ptr()) }.is_none());
         unsafe {
             write_at(&mut scene_light, SHADOW_ACTIVE_STATE_OFFSET, 0u16);
-            write_at(&mut native_light, NATIVE_LIGHT_DISABLED_FLAGS_OFFSET, 1u8);
+            write_at(&mut native_light, NATIVE_LIGHT_DIMMER_OFFSET, 0.0f32);
         }
-        assert!(unsafe { capture_terrain_scene_light(scene_light.as_mut_ptr()) }.is_none());
+        assert!(
+            unsafe { capture_terrain_scene_light(scene_light.as_mut_ptr()) }.is_none(),
+            "a zero-dimmer light was captured"
+        );
+    }
+
+    #[test]
+    fn scene_light_chain_copies_app_culled_lights_and_rejects_dark_ones() {
+        let mut scene_light = [0u8; SHADOW_SCENE_LIGHT_SIZE];
+        let mut native_light = [0u8; NATIVE_LIGHT_SIZE];
+        let mut list_node = [0u8; LIST_NODE_VALUE_OFFSET + size_of::<*mut u8>()];
+        unsafe {
+            write_at(
+                &mut list_node,
+                LIST_NODE_NEXT_OFFSET,
+                std::ptr::null_mut::<u8>(),
+            );
+            write_at(
+                &mut list_node,
+                LIST_NODE_VALUE_OFFSET,
+                scene_light.as_mut_ptr(),
+            );
+            write_at(
+                &mut scene_light,
+                SHADOW_NATIVE_LIGHT_OFFSET,
+                native_light.as_mut_ptr(),
+            );
+            write_at(&mut native_light, NATIVE_AV_FLAGS_OFFSET, 1u8);
+            write_at(
+                &mut native_light,
+                NATIVE_LIGHT_EFFECT_TYPE_OFFSET,
+                NATIVE_POINT_LIGHT_TYPE,
+            );
+            write_at(&mut native_light, NATIVE_LIGHT_POSITION_OFFSET, 100.0f32);
+            write_at(&mut native_light, NATIVE_LIGHT_COLOR_OFFSET, 1.0f32);
+            write_at(&mut native_light, NATIVE_LIGHT_COLOR_OFFSET + 4, 0.5f32);
+            write_at(&mut native_light, NATIVE_LIGHT_COLOR_OFFSET + 8, 0.25f32);
+            write_at(&mut native_light, NATIVE_LIGHT_DIMMER_OFFSET, 1.0f32);
+            write_at(&mut native_light, NATIVE_LIGHT_RADIUS_OFFSET, 64.0f32);
+        }
+        let capture = unsafe {
+            capture_scene_light_chain(
+                list_node.as_mut_ptr(),
+                1,
+                Some(camera()),
+                true,
+                false,
+                false,
+            )
+        };
+        assert_eq!(
+            capture.ranked.iter().flatten().count(),
+            1,
+            "APP_CULLED removed a live scene light from the canonical frame"
+        );
+        unsafe {
+            write_at(&mut native_light, NATIVE_LIGHT_DIMMER_OFFSET, 0.0f32);
+        }
+        let capture = unsafe {
+            capture_scene_light_chain(
+                list_node.as_mut_ptr(),
+                1,
+                Some(camera()),
+                true,
+                false,
+                false,
+            )
+        };
+        assert_eq!(
+            capture.ranked.iter().flatten().count(),
+            0,
+            "a zero-radiance light reached the frame"
+        );
     }
 
     #[test]
@@ -3278,7 +3551,7 @@ mod tests {
                     native_light.as_mut_ptr(),
                 );
                 write_at(&mut scene_light, SHADOW_TRANSITION_OFFSET, transition);
-                write_at(&mut native_light, NATIVE_LIGHT_DISABLED_FLAGS_OFFSET, 0u8);
+                write_at(&mut native_light, NATIVE_AV_FLAGS_OFFSET, 0u8);
                 write_at(
                     &mut native_light,
                     NATIVE_LIGHT_EFFECT_TYPE_OFFSET,
