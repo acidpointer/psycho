@@ -284,9 +284,10 @@ implementing this bounded consumer guard under the reporter-only exception.
 
 The production changes are one new engine-fix module,
 `psycho-engine-fixes/src/mods/engine_fixes/fade_linked_owner_guard.rs`, and its
-private declaration/nonfatal installer call in `engine_fixes/mod.rs`.
-Follow the existing always-installed model-cache guard rather than adding a
-configuration field, helper ABI, dashboard controls or dependency.
+private declaration and configured installer wrapper in `engine_fixes/mod.rs`.
+`[engine_fixes].fade_linked_owner_guard` defaults on; false skips the installer
+on the next full launch. The helper exposes the restart-only **Object fading
+guard** checkbox. No helper ABI or dependency changes are needed.
 
 Install through the existing core startup chain:
 `entry::activate_from_loader` -> `startup::initialize` ->
@@ -311,14 +312,17 @@ guard. Do not call `is_enabled` or acquire the hook container's ownership lock
 for every fade node. Ownership inspection belongs to setup or an existing
 cold support-report path. Never repatch after another owner changes the site.
 
-Use the stable `[FADE_OWNER]` tag for installation failure and the first
-rejection. Do not add per-node admitted-path counters or logging. A single
+Use the stable `[FADE_OWNER]` tag for installation status and the first
+rejection. The configured wrapper returns installation errors through the
+core startup `Result` and owns the disabled and post-success `Guard active`
+messages. Do not add per-node admitted-path counters or logging. A single
 atomic rejection marker can suppress repeated warnings. This is production
 containment reporting, not a separate diagnostic-only executable.
 
-The design introduces no new external API, worker, PE TLS variable, serialized
-config layout or helper/core API. It does introduce core hook state, code and
-startup preparation. The complete
+The design introduces no new external API, worker, PE TLS variable or
+helper/core API. Its default-on configuration boolean selects next-launch
+installation. It also introduces core hook state, code and startup preparation.
+The complete
 [startup contract](nvse_startup_phase_safety.md) still applies to the later
 compiled candidate: record the existing startup baseline before editing and
 compare the relevant import/TLS/startup footprint after the supported release
@@ -362,8 +366,8 @@ runtime acceptance or authorize deployment or a commit.
 The production
 [guard](../psycho-engine-fixes/src/mods/engine_fixes/fade_linked_owner_guard.rs)
 implements the admission and predecessor-publication contract above. Its only
-shared installer changes are the private module declaration and nonfatal
-installation call. Other concurrent workspace changes remain outside this
+shared installer changes are the private module declaration and configured
+fallible wrapper. Other concurrent workspace changes remain outside this
 incident's scope.
 
 Focused offline checks execute the actual production validator, detour and

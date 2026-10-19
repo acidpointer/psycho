@@ -206,21 +206,9 @@ pub fn install(
     install_memset_null_dst(config)?;
     install_tile_value_integrity(config)?;
     install_lowprocess_fix(config)?;
-    if let Err(error) = model_cache_keys::install() {
-        log::error!(
-            "[MODEL_CACHE] NULL stored-key rejection unavailable: {error:#}; other engine fixes continue"
-        );
-    }
-    if let Err(error) = fade_linked_owner_guard::install() {
-        log::warn!(
-            "[FADE_OWNER] Linked-owner alpha guard unavailable: {error:#}; existing alpha provider retained"
-        );
-    }
-    if let Err(error) = occlusion_link_guard::install() {
-        log::warn!(
-            "[OCCLUSION_LINK] Unreadable plane guard unavailable: {error:#}; native callers retained"
-        );
-    }
+    install_model_cache_keys(config)?;
+    install_fade_linked_owner_guard(config)?;
+    install_occlusion_link_guard(config)?;
     let model_postprocess_ready = install_model_postprocess_fix(config);
     install_queued_task_guard(config, diagnostics)?;
     install_source_texture_cache_guard(config);
@@ -1163,6 +1151,41 @@ fn install_lowprocess_fix(config: &EngineFixesConfig) -> anyhow::Result<()> {
         lowprocess::disable();
         log::warn!("[LOWPROCESS] Root repair disabled: {:#}", err);
     }
+    Ok(())
+}
+
+fn install_model_cache_keys(config: &EngineFixesConfig) -> anyhow::Result<()> {
+    if !config.model_cache_keys {
+        log::info!("[MODEL_CACHE] NULL stored-key guard disabled by config");
+        return Ok(());
+    }
+
+    model_cache_keys::install()?;
+    log::info!("[MODEL_CACHE] Guard active: rejects a NULL shared string key instead of crashing");
+    Ok(())
+}
+
+fn install_fade_linked_owner_guard(config: &EngineFixesConfig) -> anyhow::Result<()> {
+    if !config.fade_linked_owner_guard {
+        log::info!("[FADE_OWNER] Linked-owner alpha guard disabled by config");
+        return Ok(());
+    }
+
+    fade_linked_owner_guard::install()?;
+    log::info!("[FADE_OWNER] Guard active: uses neutral alpha when a linked owner cannot be read");
+    Ok(())
+}
+
+fn install_occlusion_link_guard(config: &EngineFixesConfig) -> anyhow::Result<()> {
+    if !config.occlusion_link_guard {
+        log::info!("[OCCLUSION_LINK] Unreadable plane guard disabled by config");
+        return Ok(());
+    }
+
+    occlusion_link_guard::install()?;
+    log::info!(
+        "[OCCLUSION_LINK] Guard active: skips unreadable planes during native visibility checks"
+    );
     Ok(())
 }
 

@@ -127,7 +127,6 @@ pub(super) fn install() -> Result<()> {
     }
     transaction.commit();
     ADMITTED.store(true, Ordering::Release);
-    log::info!("[OCCLUSION_LINK] Unreadable plane guard active at native compound callers");
     Ok(())
 }
 

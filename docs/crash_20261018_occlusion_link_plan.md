@@ -197,9 +197,12 @@ the writer or permit an allocator/ownership repair without further proof.
 
 [occlusion_link_guard.rs](../psycho-engine-fixes/src/mods/engine_fixes/occlusion_link_guard.rs)
 is installed from the existing engine-fix startup owner. It operates in every
-allocator mode and independently of runtime plane generation. There is no new
-configuration field, dependency, worker, event callback or TLS owner. The
-runtime occlusion-planes module and its native object factory are unchanged.
+allocator mode and independently of runtime plane generation.
+`[engine_fixes].occlusion_link_guard` defaults on; false skips the installer on
+the next full launch. The helper exposes the restart-only **Occlusion link
+guard** checkbox. There is no new dependency, worker, event callback or TLS
+owner. The runtime occlusion-planes module and its native object factory are
+unchanged.
 
 ### Intervention, ABI and fail-closed behavior
 
@@ -268,6 +271,9 @@ first write. One ownership-aware transaction activates the six calls; only
 then does admission become active. Failed initialization retains native calls.
 A failed rollback survivor has admission disabled and forwards its already
 published predecessor. Captured providers and hook state remain process-owned.
+The configured wrapper returns installation errors through the core startup
+`Result` and owns the disabled and post-success `Guard active` messages. The
+hook module owns only runtime rejection reporting.
 
 Admission uses one `0xFC`-byte stack buffer and one selected integer pointer.
 It performs one or two guarded copies per builder call, at most 504 copied

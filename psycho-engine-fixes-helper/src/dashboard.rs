@@ -69,7 +69,7 @@ const RELOAD_ACTIVE: [f32; 4] = [0.82, 0.51, 0.12, 1.0];
 
 const HOVER_HELP_HINT: &str = "Hover any setting for a short, plain-language explanation.";
 
-const ENGINE_FIX_HELP: [(&str, &str); 25] = [
+const ENGINE_FIX_HELP: [(&str, &str); 28] = [
     (
         "Fullscreen / Alt-Tab fix",
         "Fixes broken fullscreen size, placement, and Alt-Tab behavior. Normal window handling stays unchanged.",
@@ -119,6 +119,14 @@ const ENGINE_FIX_HELP: [(&str, &str); 25] = [
         "Skips a linked reference whose target has a broken base form. Valid links still work.",
     ),
     (
+        "Object fading guard",
+        "Skips unreadable actor links during object fading instead of crashing. Normal fading is unchanged.",
+    ),
+    (
+        "Occlusion link guard",
+        "Skips unreadable occlusion-plane data during visibility checks instead of crashing. Valid occlusion is unchanged.",
+    ),
+    (
         "Ragdoll bone guard",
         "Skips a ragdoll update until its bone table is ready, then retries. Normal ragdolls are unchanged.",
     ),
@@ -157,6 +165,10 @@ const ENGINE_FIX_HELP: [(&str, &str); 25] = [
     (
         "Model load serialization",
         "Prevents model loading from racing over shared model-processing state. Model output is unchanged.",
+    ),
+    (
+        "Model cache guard",
+        "Ignores a model-cache entry with a missing name instead of crashing. Valid model lookups are unchanged.",
     ),
     (
         "Queued-task guard",
@@ -2295,6 +2307,8 @@ fn draw_configuration(ui: &mut Ui<'_>, editor: &mut ConfigEditor, pending_reload
         &mut config.cell_render_reference_retirement_fix,
         &mut config.linked_ref_children_stale_list_guard,
         &mut config.linked_ref_target_base_form_guard,
+        &mut config.fade_linked_owner_guard,
+        &mut config.occlusion_link_guard,
         &mut config.ragdoll_null_bone_guard,
         &mut config.ragdoll_detached_phantom_guard,
         &mut config.havok_add_entity_batch_null_guard,
@@ -2305,6 +2319,7 @@ fn draw_configuration(ui: &mut Ui<'_>, editor: &mut ConfigEditor, pending_reload
         &mut config.memset_null_dst_guard,
         &mut config.lowprocess_generic_locations_fix,
         &mut config.model_postprocess_serialization_fix,
+        &mut config.model_cache_keys,
         &mut config.queued_task_lifetime_guard,
         &mut config.source_texture_cache_publication_guard,
         &mut config.tile_value_null_slot_guard,
@@ -2552,8 +2567,8 @@ fn engine_fix_group(index: usize) -> Option<&'static str> {
     match index {
         0 => Some("Display and saves"),
         4 => Some("Actors and world"),
-        12 => Some("Physics"),
-        19 => Some("Memory and tasks"),
+        14 => Some("Physics"),
+        21 => Some("Memory and tasks"),
         _ => None,
     }
 }
@@ -3032,7 +3047,7 @@ mod tests {
 
     #[test]
     fn every_engine_fix_has_concise_unique_hover_help() {
-        assert_eq!(ENGINE_FIX_HELP.len(), 25);
+        assert_eq!(ENGINE_FIX_HELP.len(), 28);
         for (index, expected) in [
             (0, "Fullscreen / Alt-Tab fix"),
             (1, "Save file integrity"),
@@ -3046,26 +3061,26 @@ mod tests {
             (9, "Cell cleanup fix"),
             (10, "Linked-reference cleanup"),
             (11, "Linked-reference target guard"),
-            (12, "Ragdoll bone guard"),
-            (13, "Ragdoll raycast guard"),
-            (14, "Physics add-batch guard"),
-            (15, "Physics pending-add guard"),
-            (16, "Physics collision-pair guard"),
-            (17, "Physics callback guard"),
-            (18, "Physics unlock guard"),
-            (19, "Out-of-memory write guard"),
-            (20, "Actor location-list guard"),
-            (21, "Model load serialization"),
-            (22, "Queued-task guard"),
-            (23, "Texture cache guard"),
-            (24, "Tile cleanup guard"),
+            (14, "Ragdoll bone guard"),
+            (15, "Ragdoll raycast guard"),
+            (16, "Physics add-batch guard"),
+            (17, "Physics pending-add guard"),
+            (18, "Physics collision-pair guard"),
+            (19, "Physics callback guard"),
+            (20, "Physics unlock guard"),
+            (21, "Out-of-memory write guard"),
+            (22, "Actor location-list guard"),
+            (23, "Model load serialization"),
+            (25, "Queued-task guard"),
+            (26, "Texture cache guard"),
+            (27, "Tile cleanup guard"),
         ] {
             assert_eq!(ENGINE_FIX_HELP[index].0, expected);
         }
         assert_eq!(engine_fix_group(0), Some("Display and saves"));
         assert_eq!(engine_fix_group(4), Some("Actors and world"));
-        assert_eq!(engine_fix_group(12), Some("Physics"));
-        assert_eq!(engine_fix_group(19), Some("Memory and tasks"));
+        assert_eq!(engine_fix_group(14), Some("Physics"));
+        assert_eq!(engine_fix_group(21), Some("Memory and tasks"));
         assert_eq!(engine_fix_group(1), None);
         assert_eq!(engine_fix_group(24), None);
         let mut labels = std::collections::BTreeSet::new();

@@ -72,9 +72,6 @@ pub(super) fn install() -> Result<()> {
     tx.enable_callsite(&ALPHA_HOOK)?;
     tx.commit();
     ADMITTED.store(true, Ordering::Release);
-    log::info!(
-        "[FADE_OWNER] Linked-owner guard active at 0x{CALLSITE:08X}; unreadable owner prefix uses neutral alpha"
-    );
     Ok(())
 }
 

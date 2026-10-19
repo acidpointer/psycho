@@ -143,11 +143,14 @@ vanilla entry bytes: an already-installed ordering provider must be preserved.
 Activation uses the existing ownership-aware transaction. The provider is
 published before enable; admission is published after commit. A failed or
 unadmitted rollback survivor forwards unchanged through its process-lifetime
-trampoline. An installation failure logs that NULL-key protection is
-unavailable while allowing independent engine fixes to continue.
+trampoline. The configured wrapper returns installation errors through the
+core startup `Result`. It owns the disabled and post-success `Guard active`
+messages; the hook module owns only runtime rejection reporting.
 
 The repair is allocator-mode agnostic and retains every existing engine-fix
-and LOD setting. It adds no configuration field or core/helper ABI. A first
+and LOD setting. `[engine_fixes].model_cache_keys` defaults on; false skips its
+installer on the next full launch. The helper exposes the restart-only
+**Model cache guard** checkbox without changing the core/helper ABI. A first
 rejection emits `[MODEL_CACHE] NULL stored string key skipped; native search
 continues` once per process, from the established core logger. Later rejects
 return the same native false result without repeated warning output.

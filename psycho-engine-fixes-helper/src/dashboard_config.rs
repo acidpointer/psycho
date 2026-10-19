@@ -113,6 +113,12 @@ pub(crate) struct EditableConfig {
     pub source_texture_cache_publication_guard: bool,
     /// Restart-only NULL Tile-value slot containment.
     pub tile_value_null_slot_guard: bool,
+    /// Restart-only NULL model-cache string-key containment.
+    pub model_cache_keys: bool,
+    /// Restart-only unreadable linked-owner fading containment.
+    pub fade_linked_owner_guard: bool,
+    /// Restart-only unreadable native occlusion-plane containment.
+    pub occlusion_link_guard: bool,
 }
 
 impl Default for EditableConfig {
@@ -182,6 +188,9 @@ impl Default for EditableConfig {
             lod_streaming_trace: false,
             source_texture_cache_publication_guard: true,
             tile_value_null_slot_guard: true,
+            model_cache_keys: true,
+            fade_linked_owner_guard: true,
+            occlusion_link_guard: true,
         }
     }
 }
@@ -553,6 +562,24 @@ impl EditableConfig {
                 "tile_value_null_slot_guard",
                 defaults.tile_value_null_slot_guard,
             ),
+            model_cache_keys: bool_or(
+                doc,
+                "engine_fixes",
+                "model_cache_keys",
+                defaults.model_cache_keys,
+            ),
+            fade_linked_owner_guard: bool_or(
+                doc,
+                "engine_fixes",
+                "fade_linked_owner_guard",
+                defaults.fade_linked_owner_guard,
+            ),
+            occlusion_link_guard: bool_or(
+                doc,
+                "engine_fixes",
+                "occlusion_link_guard",
+                defaults.occlusion_link_guard,
+            ),
         }
         .sanitized()
     }
@@ -829,6 +856,9 @@ fn write_document(doc: &mut DocumentMut, config: &EditableConfig) {
     engine!(patrol_owner_form_id_guard);
     engine!(source_texture_cache_publication_guard);
     engine!(tile_value_null_slot_guard);
+    engine!(model_cache_keys);
+    engine!(fade_linked_owner_guard);
+    engine!(occlusion_link_guard);
 
     macro_rules! setting {
         ($section:literal, $key:literal, $field:ident) => {

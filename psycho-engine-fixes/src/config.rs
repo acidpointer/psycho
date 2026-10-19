@@ -466,6 +466,12 @@ pub struct EngineFixesConfig {
     pub source_texture_cache_publication_guard: bool,
     /// Compact NULL slots before Tile value lookup and creation.
     pub tile_value_null_slot_guard: bool,
+    /// Skip NULL stored string keys during native model-cache search.
+    pub model_cache_keys: bool,
+    /// Use neutral alpha when an object's linked actor prefix is unreadable.
+    pub fade_linked_owner_guard: bool,
+    /// Omit native clipping contributions with unreadable plane inputs.
+    pub occlusion_link_guard: bool,
 }
 
 impl Default for EngineFixesConfig {
@@ -501,6 +507,9 @@ impl Default for EngineFixesConfig {
             patrol_owner_form_id_guard: true,
             source_texture_cache_publication_guard: true,
             tile_value_null_slot_guard: true,
+            model_cache_keys: true,
+            fade_linked_owner_guard: true,
+            occlusion_link_guard: true,
         }
     }
 }
@@ -606,6 +615,13 @@ impl EngineFixesConfig {
             tile_value_null_slot_guard: raw
                 .tile_value_null_slot_guard
                 .unwrap_or(default.tile_value_null_slot_guard),
+            model_cache_keys: raw.model_cache_keys.unwrap_or(default.model_cache_keys),
+            fade_linked_owner_guard: raw
+                .fade_linked_owner_guard
+                .unwrap_or(default.fade_linked_owner_guard),
+            occlusion_link_guard: raw
+                .occlusion_link_guard
+                .unwrap_or(default.occlusion_link_guard),
         }
     }
 }
@@ -737,6 +753,9 @@ struct RawEngineFixesConfig {
     patrol_owner_form_id_guard: Option<bool>,
     source_texture_cache_publication_guard: Option<bool>,
     tile_value_null_slot_guard: Option<bool>,
+    model_cache_keys: Option<bool>,
+    fade_linked_owner_guard: Option<bool>,
+    occlusion_link_guard: Option<bool>,
 }
 
 #[derive(Default, Deserialize)]

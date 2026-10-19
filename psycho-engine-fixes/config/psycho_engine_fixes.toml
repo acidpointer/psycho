@@ -111,6 +111,14 @@ linked_ref_children_stale_list_guard = true
 # Skip a linked reference whose target has a broken base form.
 linked_ref_target_base_form_guard = true
 
+# Skip unreadable actor links during object fading instead of crashing.
+# Normal fading is unchanged.
+fade_linked_owner_guard = true
+
+# Skip unreadable occlusion-plane data during visibility checks instead of
+# crashing. Valid occlusion is unchanged.
+occlusion_link_guard = true
+
 # --- Physics ----------------------------------------------------------------
 
 # Skip a ragdoll update until its bone table is ready, then retry next frame.
@@ -152,6 +160,10 @@ lowprocess_generic_locations_fix = true
 # Prevent model loading from racing over shared model-processing state. Model
 # output is unchanged.
 model_postprocess_serialization_fix = true
+
+# Ignore a model-cache entry with a missing name instead of crashing. Valid
+# model lookups are unchanged.
+model_cache_keys = true
 
 # Reject dead or malformed background tasks before dispatch or release. Valid
 # tasks are unchanged.

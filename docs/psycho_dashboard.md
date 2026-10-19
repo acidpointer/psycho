@@ -502,6 +502,21 @@ changes only next-launch core activation. The helper never traverses an
 animation sequence or releases a fixed string; it only mirrors the core's
 restart-only switch.
 
+These additional engine-fix checkboxes also default on and apply only after a
+full restart:
+
+| Checkbox | `[engine_fixes]` setting |
+| --- | --- |
+| **Model cache guard** | `model_cache_keys` |
+| **Object fading guard** | `fade_linked_owner_guard` |
+| **Occlusion link guard** | `occlusion_link_guard` |
+
+Missing keys retain the previously unconditional protection. A false value
+skips that core installer before any hook preparation or code changes. The
+helper only edits the next-launch TOML; it never toggles installed hooks or
+changes the diagnostics ABI. Existing configuration fields retain their order
+and types, with the three booleans appended to the core and helper settings.
+
 The **Performance** section exposes every shipped `[performance]` optimization
 switch, including light-score reuse, sequential scene-light scanning, the
 bounds/compound visibility setup reductions, room admission, and inverse-world
@@ -592,7 +607,7 @@ Automated coverage includes:
 - connection-state classification that reports connecting/starting/offline
   distinctly and never reports offline before the first sample;
 - binary (IEC) byte formatting shared with the chart MiB labels;
-- the complete 25-entry engine-fix help catalog, including unique labels,
+- the complete engine-fix help catalog, including unique labels,
   concise length bounds, ASCII font safety, and plain-language section groups;
 - config dirty-state tracking;
 - actor-container, encounter-zone, and cell-render-retirement default/disable
