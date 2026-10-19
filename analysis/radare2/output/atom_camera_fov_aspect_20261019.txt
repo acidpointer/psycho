@@ -1,0 +1,90 @@
+Psycho radare2 evidence
+UTC: 2026-10-19T17:54:38+00:00
+Binary: /data/storage1/Workspace/psycho/fnv_reverse/FalloutNV.exe
+SHA-256: 42fee7d6cd74e801372aa89c8f71c974cebd3c20ec9ad43d1465b8fa9646b49c
+radare2: radare2 6.2.2 +37485 abi:142 @ linux-x86_64
+Command: /usr/bin/r2 -q -e scr.color=0 -e scr.html=false -e bin.relocs.apply=true -e anal.timeout=300 -c s 0x00b54000 -c af -c afi -c pdf -c pdg -c q /data/storage1/Workspace/psycho/fnv_reverse/FalloutNV.exe
+r2 commands: s 0x00b54000 | af | afi | pdf | pdg
+Note: decompiler output is a hypothesis. Disassembly, bytes, caller
+coverage, and runtime signature checks are the authority.
+This file is not patch authority.
+WARN: Invalid certificate table
+#
+addr: 0x00b54000
+name: fcn.00b54000
+size: 131
+is-pure: false
+realsz: 131
+stackframe: 8
+callconv: cdecl
+cyclic-cost: 42
+cyclomatic-complexity: 1
+bits: 32
+type: fcn [NEW]
+num-bbs: 1
+num-instrs: 32
+edges: 0
+minaddr: 0x00b54000
+maxaddr: 0x00b54083
+is-lineal: true
+end-bbs: 1
+maxbbins: 32
+midbbins: 32.00
+ratbbins: 1.00
+noreturn: false
+recursive: false
+in-degree: 0
+out-degree: 4
+locals: 1
+args: 0
+
+┌ 131: fcn.00b54000 ();
+│ afv: vars(1:sp[0x4..0x4])
+│           0x00b54000      83ec08         sub esp, 8
+│           0x00b54003      d944240c       fld dword [esp + 0xc]
+│           0x00b54007      dc0d88150101   fmul qword [0x1011588]      ; [0x1011588:8]=0x3fe0000000000000
+│           0x00b5400d      dc0d28310201   fmul qword [0x1023128]      ; [0x1023128:8]=0x3f91df46a0000000
+│           0x00b54013      d95c240c       fstp dword [esp + 0xc]
+│           0x00b54017      d944240c       fld dword [esp + 0xc]
+│           0x00b5401b      e880603700     call fcn.00eca0a0
+│           0x00b54020      d91c24         fstp dword [esp]
+│           0x00b54023      d90424         fld dword [esp]
+│           0x00b54026      d91c24         fstp dword [esp]
+│           0x00b54029      d944240c       fld dword [esp + 0xc]
+│           0x00b5402d      e83e5f3700     call fcn.00ec9f70
+│           0x00b54032      d95c240c       fstp dword [esp + 0xc]
+│           0x00b54036      d944240c       fld dword [esp + 0xc]
+│           0x00b5403a      d83c24         fdivr dword [esp]
+│           0x00b5403d      d95c240c       fstp dword [esp + 0xc]
+│           0x00b54041      d944240c       fld dword [esp + 0xc]
+│           0x00b54045      d95c2404       fstp dword [esp + 4]
+│           0x00b54049      dd05d8d60a01   fld qword [0x10ad6d8]
+│           0x00b5404f      e84c603700     call fcn.00eca0a0
+│           0x00b54054      d95c240c       fstp dword [esp + 0xc]
+│           0x00b54058      d944240c       fld dword [esp + 0xc]
+│           0x00b5405c      d91c24         fstp dword [esp]
+│           0x00b5405f      dd05d8d60a01   fld qword [0x10ad6d8]
+│           0x00b54065      e8065f3700     call fcn.00ec9f70
+│           0x00b5406a      d95c240c       fstp dword [esp + 0xc]
+│           0x00b5406e      d944240c       fld dword [esp + 0xc]
+│           0x00b54072      d83c24         fdivr dword [esp]
+│           0x00b54075      d87c2404       fdivr dword [var_4h]
+│           0x00b54079      d91dc8dc1a01   fstp dword [0x11adcc8]      ; [0x11adcc8:4]=0x3f800000
+│           0x00b5407f      83c408         add esp, 8
+└           0x00b54082      c3             ret
+
+void fcn.00b54000(void)
+
+{
+    float10 fVar1;
+    float10 fVar2;
+    float10 fVar3;
+    float10 fVar4;
+
+    fVar1 = fcn.00eca0a0();
+    fVar2 = fcn.00ec9f70();
+    fVar3 = fcn.00eca0a0();
+    fVar4 = fcn.00ec9f70();
+    *0x11adcc8 = (fVar1 / fVar2) / (fVar3 / fVar4);
+    return;
+}

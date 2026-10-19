@@ -1,0 +1,24 @@
+Psycho radare2 evidence
+UTC: 2026-10-19T18:16:47+00:00
+Binary: /data/storage1/Workspace/psycho/fnv_reverse/FalloutNV.exe
+SHA-256: 42fee7d6cd74e801372aa89c8f71c974cebd3c20ec9ad43d1465b8fa9646b49c
+radare2: radare2 6.2.2 +37485 abi:142 @ linux-x86_64
+Command: /usr/bin/r2 -q -e scr.color=0 -e scr.html=false -e bin.relocs.apply=true -e anal.timeout=300 -c aar -c axt 0x00b54000 -c q /data/storage1/Workspace/psycho/fnv_reverse/FalloutNV.exe
+r2 commands: aar | axt 0x00b54000
+Note: decompiler output is a hypothesis. Disassembly, bytes, caller
+coverage, and runtime signature checks are the authority.
+This file is not patch authority.
+WARN: Invalid certificate table
+(nofunc) 0x5c5968 [CALL:--x] call 0xb54000
+(nofunc) 0x86eb9f [CALL:--x] call 0xb54000
+(nofunc) 0x872b7f [CALL:--x] call 0xb54000
+(nofunc) 0x8747f3 [CALL:--x] call 0xb54000
+(nofunc) 0x874883 [CALL:--x] call 0xb54000
+(nofunc) 0x8752ce [CALL:--x] call 0xb54000
+(nofunc) 0x875a08 [CALL:--x] call 0xb54000
+(nofunc) 0x875ba6 [CALL:--x] call 0xb54000
+(nofunc) 0x875eab [CALL:--x] call 0xb54000
+(nofunc) 0x94af43 [CALL:--x] call 0xb54000
+(nofunc) 0x94b4d3 [CALL:--x] call 0xb54000
+(nofunc) 0x950649 [CALL:--x] call 0xb54000
+(nofunc) 0xb545cb [CALL:--x] call 0xb54000

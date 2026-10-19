@@ -1,0 +1,44 @@
+Psycho radare2 evidence
+UTC: 2026-10-19T19:31:13+00:00
+Binary: /data/storage1/Workspace/psycho/fnv_reverse/FalloutNV.exe
+SHA-256: 42fee7d6cd74e801372aa89c8f71c974cebd3c20ec9ad43d1465b8fa9646b49c
+radare2: radare2 6.2.2 +37485 abi:142 @ linux-x86_64
+Command: /usr/bin/r2 -q -e scr.color=0 -e scr.html=false -e bin.relocs.apply=true -e anal.timeout=300 -c aar -c axt 0x00a6faf0 -c q /data/storage1/Workspace/psycho/fnv_reverse/FalloutNV.exe
+r2 commands: aar | axt 0x00a6faf0
+Note: decompiler output is a hypothesis. Disassembly, bytes, caller
+coverage, and runtime signature checks are the authority.
+This file is not patch authority.
+WARN: Invalid certificate table
+(nofunc) 0x4a0789 [CALL:--x] call 0xa6faf0
+(nofunc) 0x4bbce2 [CALL:--x] call 0xa6faf0
+(nofunc) 0x4dece4 [CALL:--x] call 0xa6faf0
+(nofunc) 0x4e06f4 [CALL:--x] call 0xa6faf0
+(nofunc) 0x4e97ec [CALL:--x] call 0xa6faf0
+(nofunc) 0x4ec04b [CALL:--x] call 0xa6faf0
+(nofunc) 0x4ecc47 [CALL:--x] call 0xa6faf0
+(nofunc) 0x54f16d [CALL:--x] call 0xa6faf0
+(nofunc) 0x54f920 [CALL:--x] call 0xa6faf0
+(nofunc) 0x58d484 [CALL:--x] call 0xa6faf0
+(nofunc) 0x5bfabc [CALL:--x] call 0xa6faf0
+(nofunc) 0x633b2d [CALL:--x] call 0xa6faf0
+(nofunc) 0x709e74 [CALL:--x] call 0xa6faf0
+(nofunc) 0x71306a [CALL:--x] call 0xa6faf0
+(nofunc) 0x71b61d [CALL:--x] call 0xa6faf0
+(nofunc) 0x77f041 [CALL:--x] call 0xa6faf0
+(nofunc) 0x78eac4 [CALL:--x] call 0xa6faf0
+(nofunc) 0x7947ea [CALL:--x] call 0xa6faf0
+(nofunc) 0x7c234d [CALL:--x] call 0xa6faf0
+(nofunc) 0x7c9bba [CALL:--x] call 0xa6faf0
+(nofunc) 0x7fbc08 [CALL:--x] call 0xa6faf0
+(nofunc) 0x7fbe38 [CALL:--x] call 0xa6faf0
+(nofunc) 0x7fd2e9 [CALL:--x] call 0xa6faf0
+(nofunc) 0x7fde6f [CALL:--x] call 0xa6faf0
+(nofunc) 0x7ff42b [CALL:--x] call 0xa6faf0
+(nofunc) 0x874e2d [CALL:--x] call 0xa6faf0
+(nofunc) 0x8752f2 [CALL:--x] call 0xa6faf0
+(nofunc) 0xa42e6c [CALL:--x] call 0xa6faf0
+(nofunc) 0xb9e5bd [CALL:--x] call 0xa6faf0
+(nofunc) 0xb9e693 [CALL:--x] call 0xa6faf0
+(nofunc) 0xc4c2a5 [CALL:--x] call 0xa6faf0
+(nofunc) 0xc523ca [CALL:--x] call 0xa6faf0
+(nofunc) 0xc52816 [CALL:--x] call 0xa6faf0

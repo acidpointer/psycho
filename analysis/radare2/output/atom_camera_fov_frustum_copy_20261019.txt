@@ -1,0 +1,105 @@
+Psycho radare2 evidence
+UTC: 2026-10-19T17:54:37+00:00
+Binary: /data/storage1/Workspace/psycho/fnv_reverse/FalloutNV.exe
+SHA-256: 42fee7d6cd74e801372aa89c8f71c974cebd3c20ec9ad43d1465b8fa9646b49c
+radare2: radare2 6.2.2 +37485 abi:142 @ linux-x86_64
+Command: /usr/bin/r2 -q -e scr.color=0 -e scr.html=false -e bin.relocs.apply=true -e anal.timeout=300 -c s 0x00a6faf0 -c af -c afi -c pdf -c pdg -c q /data/storage1/Workspace/psycho/fnv_reverse/FalloutNV.exe
+r2 commands: s 0x00a6faf0 | af | afi | pdf | pdg
+Note: decompiler output is a hypothesis. Disassembly, bytes, caller
+coverage, and runtime signature checks are the authority.
+This file is not patch authority.
+WARN: Invalid certificate table
+#
+addr: 0x00a6faf0
+name: fcn.00a6faf0
+size: 148
+is-pure: true
+realsz: 148
+stackframe: 0
+callconv: cdecl
+cyclic-cost: 43
+cyclomatic-complexity: 3
+bits: 32
+type: fcn [NEW]
+num-bbs: 6
+num-instrs: 38
+edges: 7
+minaddr: 0x00a6faf0
+maxaddr: 0x00a6fb84
+is-lineal: true
+end-bbs: 1
+maxbbins: 14
+midbbins: 6.33
+ratbbins: 2.21
+noreturn: false
+recursive: false
+in-degree: 0
+out-degree: 0
+locals: 0
+args: 1
+
+┌ 148: fcn.00a6faf0 (int32_t arg_4h);
+│ `- args(sp[0x4..0x4])
+│           0x00a6faf0      8b542404       mov edx, dword [arg_4h]
+│           0x00a6faf4      d94210         fld dword [edx + 0x10]
+│           0x00a6faf7      d95c2404       fstp dword [esp + 4]
+│           0x00a6fafb      d9442404       fld dword [esp + 4]
+│           0x00a6faff      d991ec000000   fst dword [ecx + 0xec]
+│           0x00a6fb05      d94214         fld dword [edx + 0x14]
+│           0x00a6fb08      d8b1fc000000   fdiv dword [ecx + 0xfc]
+│           0x00a6fb0e      d95c2404       fstp dword [esp + 4]
+│           0x00a6fb12      d9442404       fld dword [esp + 4]
+│           0x00a6fb16      d8d1           fcom st(1)
+│           0x00a6fb18      dfe0           fnstsw ax
+│           0x00a6fb1a      ddd9           fstp st(1)
+│           0x00a6fb1c      f6c441         test ah, 0x41               ; 65
+│       ┌─< 0x00a6fb1f      7508           jne 0xa6fb29
+│       │   0x00a6fb21      d999ec000000   fstp dword [ecx + 0xec]
+│      ┌──< 0x00a6fb27      eb02           jmp 0xa6fb2b
+│      │└─> 0x00a6fb29      ddd8           fstp st(0)
+│      │    ; CODE XREF from fcn.00a6faf0 @ 0xa6fb27(x)
+│      └──> 0x00a6fb2b      d981ec000000   fld dword [ecx + 0xec]
+│           0x00a6fb31      d981f8000000   fld dword [ecx + 0xf8]
+│           0x00a6fb37      ded9           fcompp
+│           0x00a6fb39      dfe0           fnstsw ax
+│           0x00a6fb3b      f6c441         test ah, 0x41               ; 65
+│       ┌─< 0x00a6fb3e      750c           jne 0xa6fb4c
+│       │   0x00a6fb40      d981f8000000   fld dword [ecx + 0xf8]
+│       │   0x00a6fb46      d999ec000000   fstp dword [ecx + 0xec]
+│       └─> 0x00a6fb4c      d902           fld dword [edx]
+│           0x00a6fb4e      d999dc000000   fstp dword [ecx + 0xdc]
+│           0x00a6fb54      d94204         fld dword [edx + 4]
+│           0x00a6fb57      d999e0000000   fstp dword [ecx + 0xe0]
+│           0x00a6fb5d      d94208         fld dword [edx + 8]
+│           0x00a6fb60      d999e4000000   fstp dword [ecx + 0xe4]
+│           0x00a6fb66      d9420c         fld dword [edx + 0xc]
+│           0x00a6fb69      d999e8000000   fstp dword [ecx + 0xe8]
+│           0x00a6fb6f      d94214         fld dword [edx + 0x14]
+│           0x00a6fb72      d999f0000000   fstp dword [ecx + 0xf0]
+│           0x00a6fb78      8a4218         mov al, byte [edx + 0x18]
+│           0x00a6fb7b      8881f4000000   mov byte [ecx + 0xf4], al
+└           0x00a6fb81      c20400         ret 4
+
+void __thiscall fcn.00a6faf0(int param_1,uint *param_2)
+
+{
+    float fVar1;
+    float fVar2;
+
+    fVar1 = param_2[4];
+    *(param_1 + 0xec) = fVar1;
+    fVar2 = param_2[5] / *(param_1 + 0xfc);
+    if (fVar1 < fVar2) {
+        *(param_1 + 0xec) = fVar2;
+    }
+    if (*(param_1 + 0xec) < *(param_1 + 0xf8)) {
+        *(param_1 + 0xec) = *(param_1 + 0xf8);
+    }
+    *(param_1 + 0xdc) = *param_2;
+    *(param_1 + 0xe0) = param_2[1];
+    *(param_1 + 0xe4) = param_2[2];
+    *(param_1 + 0xe8) = param_2[3];
+    *(param_1 + 0xf0) = param_2[5];
+    *(param_1 + 0xf4) = *(param_2 + 6);
+    return;
+}
