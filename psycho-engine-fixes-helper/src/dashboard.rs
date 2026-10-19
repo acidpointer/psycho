@@ -663,7 +663,7 @@ impl DashboardRuntime {
         self.draw_header(ui, link);
         ui.separator();
         let available = ui.content_region_available_width().max(1.0);
-        let nav_width = (available * 0.18).clamp(170.0, 225.0);
+        let nav_width = (available * 0.20).clamp(190.0, 250.0);
         {
             let id = cstring("dashboard_nav");
             let child = ui.child(&id, nav_width, 0.0, true);
@@ -708,15 +708,14 @@ impl DashboardRuntime {
     }
 
     fn draw_navigation(&mut self, ui: &mut Ui<'_>) {
-        ui.text_colored(MUTED, &cstring("DASHBOARD"));
-        ui.spacing();
+        ui.separator_text(&cstring("Pages"));
         let previous_page = self.page;
         for (page, label) in [
             (Page::Overview, "Overview"),
-            (Page::Memory, "Memory dashboard"),
-            (Page::Runtime, "Runtime dashboard"),
+            (Page::Memory, "Memory"),
+            (Page::Runtime, "Runtime"),
             (Page::Configuration, "Configuration"),
-            (Page::Logs, "Log browser"),
+            (Page::Logs, "Logs"),
         ] {
             if ui.selectable(&cstring(label), self.page == page) {
                 self.page = page;
@@ -731,14 +730,14 @@ impl DashboardRuntime {
         ui.spacing();
         ui.separator_text(&cstring("Session"));
         ui.text_wrapped(&cstring(
-            "Telemetry refreshes every 1.5 seconds. Settings are saved for the next full game launch.",
+            "Telemetry refreshes every 1.5 seconds. Settings apply after a full game restart.",
         ));
         ui.spacing();
-        ui.text_colored(
+        ui.text_wrapped_colored(
             MUTED,
             &cstring("F10 toggles this dashboard. Esc closes it."),
         );
-        ui.text_colored(MUTED, &cstring("Reopen any time with F10 or PsychoInfo."));
+        ui.text_wrapped_colored(MUTED, &cstring("Reopen any time with F10 or PsychoInfo."));
     }
 
     fn draw_overview(

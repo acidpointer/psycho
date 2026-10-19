@@ -459,6 +459,12 @@ void psycho_imgui_text_colored(float r, float g, float b, float a, const char* t
 	ImGui::TextColored(ImVec4(r, g, b, a), "%s", text);
 }
 
+void psycho_imgui_text_wrapped_colored(float r, float g, float b, float a, const char* text) {
+	ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(r, g, b, a));
+	ImGui::TextWrapped("%s", text);
+	ImGui::PopStyleColor();
+}
+
 void psycho_imgui_label_value(
 	const char* label,
 	const char* value,

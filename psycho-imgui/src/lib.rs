@@ -253,6 +253,22 @@ impl Ui<'_> {
         };
     }
 
+    /// Wrapped text drawn in a specific color.
+    ///
+    /// `text_colored` clips instead of wrapping, so narrow panels use this for
+    /// muted hints that must stay inside the sidebar.
+    pub fn text_wrapped_colored(&mut self, rgba: [f32; 4], text: &CStr) {
+        unsafe {
+            ffi::psycho_imgui_text_wrapped_colored(
+                rgba[0],
+                rgba[1],
+                rgba[2],
+                rgba[3],
+                text.as_ptr(),
+            )
+        };
+    }
+
     pub fn label_value(&mut self, label: &CStr, value: &CStr, rgba: [f32; 4]) {
         unsafe {
             ffi::psycho_imgui_label_value(
@@ -750,6 +766,13 @@ mod ffi {
         pub fn psycho_imgui_text_unformatted(text: *const c_char);
         pub fn psycho_imgui_text_wrapped(text: *const c_char);
         pub fn psycho_imgui_text_colored(r: f32, g: f32, b: f32, a: f32, text: *const c_char);
+        pub fn psycho_imgui_text_wrapped_colored(
+            r: f32,
+            g: f32,
+            b: f32,
+            a: f32,
+            text: *const c_char,
+        );
         pub fn psycho_imgui_label_value(
             label: *const c_char,
             value: *const c_char,

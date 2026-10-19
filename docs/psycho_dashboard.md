@@ -87,10 +87,14 @@ bridge, DirectInput suppression, and D3D9 overlay lifecycle. The early-loaded
 `psycho-engine-fixes` DLL owns all engine fixes, allocator state, and diagnostic
 counters. `psycho-imgui` owns the reusable Dear ImGui Win32/DX9 bridge.
 
-`psycho-imgui` exposes one generic hover-help operation. Its bridge treats a
-label/value row as one Dear ImGui item, uses the normal delayed-hover flags,
-and draws wrapped text inside a tooltip. The helper owns all product wording;
-the reusable renderer has no Psycho-specific glossary.
+`psycho-imgui` exposes a small set of generic operations. Its bridge draws the
+delayed hover-help tooltip, wrapped colored text, and the gradient panel card.
+A label/value row stays one Dear ImGui item, uses the normal delayed-hover
+flags, and draws wrapped text inside its tooltip. The helper owns all product
+wording and page structure; the reusable renderer has no Psycho-specific
+glossary or navigation data. The dashboard sidebar uses the same bordered child
+and separator-text hierarchy as the rest of the interface rather than the
+information-card treatment.
 
 The helper never calls `LoadLibrary` for the core and never initializes it. It
 uses `GetModuleHandle("psycho_engine_fixes.dll")` and exact named exports only
