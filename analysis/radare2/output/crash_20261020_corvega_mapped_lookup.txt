@@ -1,0 +1,58 @@
+Psycho crash research evidence
+UTC: 2026-10-19T22:23:38.079031+00:00
+Interface: radare2 CLI; targeted MCP disassembly used during inspection
+radare2 6.2.2 +37485 abi:142 @ linux-x86_64
+Binary: /data/storage1/Workspace/psycho/.reports/20261020-corvega-node-unload/installed-reference-lookup.bin
+Command argv: ["r2", "-q", "-e", "scr.color=0", "-e", "scr.utf8=false", "-e", "asm.bytes=true", "-n", "-a", "x86", "-b", "32", "-m", "0x0056f930", "-c", "pD 105 @ 0x0056f930", "-c", "p8 105 @ 0x0056f930", "-c", "q", "/data/storage1/Workspace/psycho/.reports/20261020-corvega-node-unload/installed-reference-lookup.bin"]
+Warnings are retained below.
+Scope: fault consumer, caller ABI and continuation; no runtime memory dump or invalidating-write trace.
+This file is not patch authority.
+Input is an exact extraction from the installed module at file offset 0xF7180, NOT a compiled reconstruction. Only mapping changed. Runtime instruction bytes were not captured; identification combines exact installed payload, verified copy routine, EIP and registers. No game was launched.
+            0x0056f930      a13cea1d01     mov eax, dword [0x11dea3c]  ; [0x11dea3c:4]=-1
+            0x0056f935      53             push ebx
+            0x0056f936      56             push esi
+            0x0056f937      8b74240c       mov esi, dword [esp + 0xc]
+            0x0056f93b      8b9894060000   mov ebx, dword [eax + 0x694]
+            0x0056f941      57             push edi
+            0x0056f942      33ff           xor edi, edi
+            0x0056f944      85f6           test esi, esi
+        ,=< 0x0056f946      7420           je 0x56f968
+       .--> 0x0056f948      3bf3           cmp esi, ebx
+      ,===< 0x0056f94a      7444           je 0x56f990
+      |:|   0x0056f94c      8b06           mov eax, dword [esi]
+      |:|   0x0056f94e      8bce           mov ecx, esi
+      |:|   0x0056f950      ff5010         call dword [eax + 0x10]     ; 16
+      |:|   0x0056f953      85c0           test eax, eax
+     ,====< 0x0056f955      740a           je 0x56f961
+     ||:|   0x0056f957      8bb8cc000000   mov edi, dword [eax + 0xcc]
+     ||:|   0x0056f95d      85ff           test edi, edi
+    ,=====< 0x0056f95f      750d           jne 0x56f96e
+    |`----> 0x0056f961      8b7618         mov esi, dword [esi + 0x18]
+    | |:|   0x0056f964      85f6           test esi, esi
+    | |`==< 0x0056f966      75e0           jne 0x56f948
+    |.-.`-> 0x0056f968      8bc7           mov eax, edi
+    |:|:.-> 0x0056f96a      5f             pop edi
+    |:|::   0x0056f96b      5e             pop esi
+    |:|::   0x0056f96c      5b             pop ebx
+    |:|::   0x0056f96d      c3             ret
+    `-----> 0x0056f96e      8b4720         mov eax, dword [edi + 0x20]
+     :|::   0x0056f971      85c0           test eax, eax
+     `====< 0x0056f973      74f3           je 0x56f968
+      |::   0x0056f975      80780429       cmp byte [eax + 4], 0x29    ; ')'
+      |`==< 0x0056f979      75ed           jne 0x56f968
+      | :   0x0056f97b      ff7618         push dword [esi + 0x18]
+      | :   0x0056f97e      e8adffffff     call 0x56f930
+      | :   0x0056f983      83c404         add esp, 4
+      | :   0x0056f986      85c0           test eax, eax
+      | `=< 0x0056f988      75e0           jne 0x56f96a
+      |     0x0056f98a      8bc7           mov eax, edi
+      |     0x0056f98c      5f             pop edi
+      |     0x0056f98d      5e             pop esi
+      |     0x0056f98e      5b             pop ebx
+      |     0x0056f98f      c3             ret
+      `---> 0x0056f990      a13cea1d01     mov eax, dword [0x11dea3c]  ; [0x11dea3c:4]=-1
+            0x0056f995      5f             pop edi
+            0x0056f996      5e             pop esi
+            0x0056f997      5b             pop ebx
+            0x0056f998      c3             ret
+a13cea1d0153568b74240c8b98940600005733ff85f674203bf374448b068bceff501085c0740a8bb8cc00000085ff750d8b761885f675e08bc75f5e5bc38b472085c074f38078042975edff7618e8adffffff83c40485c075e08bc75f5e5bc3a13cea1d015f5e5bc3

@@ -1,0 +1,641 @@
+Psycho crash research evidence
+UTC: 2026-10-19T22:24:18.264741+00:00
+Interface: radare2 CLI
+Binary identity and radare2 version: see crash_20261020_corvega_native_contract.txt
+Command argv: ["r2", "-q", "-e", "scr.color=0", "-e", "scr.utf8=false", "-e", "asm.bytes=true", "-e", "bin.relocs.apply=true", "-c", "aar", "-c", "pd 24 @ 0x61f68c", "-c", "pd 24 @ 0x61f723", "-c", "pd 24 @ 0x61f737", "-c", "pd 24 @ 0x61f754", "-c", "pd 24 @ 0x61f7f3", "-c", "pd 24 @ 0x61f807", "-c", "pd 24 @ 0x61f824", "-c", "pd 24 @ 0x62746e", "-c", "pd 24 @ 0x627558", "-c", "pd 24 @ 0x628ed3", "-c", "pd 24 @ 0x628ffb", "-c", "pd 24 @ 0x62ce7e", "-c", "pd 24 @ 0x62d09f", "-c", "pd 24 @ 0x62da46", "-c", "pd 24 @ 0x62dbc5", "-c", "pd 24 @ 0x62dca2", "-c", "pd 24 @ 0x62dcb4", "-c", "pd 24 @ 0x62dd42", "-c", "pd 24 @ 0x62dd54", "-c", "pd 24 @ 0x62efe1", "-c", "pd 24 @ 0x62f6c4", "-c", "pd 24 @ 0x62f6fe", "-c", "pd 24 @ 0x62f7c0", "-c", "pd 24 @ 0x62f914", "-c", "pd 24 @ 0x62f926", "-c", "q", "/data/storage1/Workspace/psycho/fnv_reverse/FalloutNV.exe"]
+Scope: return-value consumption at the 25 discovered native calls to 0x0062B4E0. Linear windows may include adjacent code. Caller prototypes and later branches need separate proof.
+This file is not patch authority.
+WARN: Invalid certificate table
+            0x0061f68c      e84fbe0000     call 0x62b4e0
+            0x0061f691      83c404         add esp, 4
+            0x0061f694      8945fc         mov dword [ebp - 4], eax
+            0x0061f697      8b4dfc         mov ecx, dword [ebp - 4]
+            0x0061f69a      3b0d3cea1d01   cmp ecx, dword [0x11dea3c]  ; [0x11dea3c:4]=0
+        ,=< 0x0061f6a0      750a           jne 0x61f6ac
+        |   0x0061f6a2      6a00           push 0
+        |   0x0061f6a4      e8c7f42000     call 0x82eb70
+        |   0x0061f6a9      83c404         add esp, 4
+        |   ; CODE XREFS from section..text @ +0x21e643(x), +0x21e681(x), +0x21e6a0(x)
+        `-> 0x0061f6ac      5e             pop esi
+            0x0061f6ad      8be5           mov esp, ebp
+            0x0061f6af      5d             pop ebp
+            0x0061f6b0      c20400         ret 4
+            0x0061f6b3      cc             int3
+            0x0061f6b4      cc             int3
+            0x0061f6b5      cc             int3
+            0x0061f6b6      cc             int3
+            0x0061f6b7      cc             int3
+            0x0061f6b8      cc             int3
+            0x0061f6b9      cc             int3
+            0x0061f6ba      cc             int3
+            0x0061f6bb      cc             int3
+            0x0061f6bc      cc             int3
+            0x0061f6bd      cc             int3
+            0x0061f723      e8b8bd0000     call 0x62b4e0
+            0x0061f728      83c404         add esp, 4
+            0x0061f72b      8945fc         mov dword [ebp - 4], eax
+            ; CODE XREF from section..text @ +0x21e71a(x)
+        ,=< 0x0061f72e      eb2f           jmp 0x61f75f
+        |   ; CODE XREF from section..text @ +0x21e700(x)
+        |   0x0061f730      8b4d08         mov ecx, dword [ebp + 8]
+        |   0x0061f733      8b5148         mov edx, dword [ecx + 0x48]
+        |   0x0061f736      52             push edx
+        |   0x0061f737      e8a4bd0000     call 0x62b4e0
+        |   0x0061f73c      83c404         add esp, 4
+        |   0x0061f73f      8945f8         mov dword [ebp - 8], eax
+        |   0x0061f742      8b45f8         mov eax, dword [ebp - 8]
+        |   0x0061f745      3b053cea1d01   cmp eax, dword [0x11dea3c]  ; [0x11dea3c:4]=0
+       ,==< 0x0061f74b      7512           jne 0x61f75f
+       ||   0x0061f74d      8b4d08         mov ecx, dword [ebp + 8]
+       ||   0x0061f750      8b5120         mov edx, dword [ecx + 0x20]
+       ||   0x0061f753      52             push edx
+       ||   0x0061f754      e887bd0000     call 0x62b4e0
+       ||   0x0061f759      83c404         add esp, 4
+       ||   0x0061f75c      8945fc         mov dword [ebp - 4], eax
+       ||   ; CODE XREFS from section..text @ +0x21e72e(x), +0x21e74b(x)
+       ``-> 0x0061f75f      837dfc00       cmp dword [ebp - 4], 0
+        ,=< 0x0061f763      7435           je 0x61f79a
+        |   0x0061f765      8b45f4         mov eax, dword [ebp - 0xc]
+        |   0x0061f768      0fb64814       movzx ecx, byte [eax + 0x14]
+        |   0x0061f76c      85c9           test ecx, ecx
+            0x0061f737      e8a4bd0000     call 0x62b4e0
+            0x0061f73c      83c404         add esp, 4
+            0x0061f73f      8945f8         mov dword [ebp - 8], eax
+            0x0061f742      8b45f8         mov eax, dword [ebp - 8]
+            0x0061f745      3b053cea1d01   cmp eax, dword [0x11dea3c]  ; [0x11dea3c:4]=0
+        ,=< 0x0061f74b      7512           jne 0x61f75f
+        |   0x0061f74d      8b4d08         mov ecx, dword [ebp + 8]
+        |   0x0061f750      8b5120         mov edx, dword [ecx + 0x20]
+        |   0x0061f753      52             push edx
+        |   0x0061f754      e887bd0000     call 0x62b4e0
+        |   0x0061f759      83c404         add esp, 4
+        |   0x0061f75c      8945fc         mov dword [ebp - 4], eax
+        |   ; CODE XREFS from section..text @ +0x21e72e(x), +0x21e74b(x)
+        `-> 0x0061f75f      837dfc00       cmp dword [ebp - 4], 0
+        ,=< 0x0061f763      7435           je 0x61f79a
+        |   0x0061f765      8b45f4         mov eax, dword [ebp - 0xc]
+        |   0x0061f768      0fb64814       movzx ecx, byte [eax + 0x14]
+        |   0x0061f76c      85c9           test ecx, ecx
+       ,==< 0x0061f76e      7415           je 0x61f785
+       ||   0x0061f770      6a00           push 0
+       ||   0x0061f772      8b55fc         mov edx, dword [ebp - 4]
+       ||   0x0061f775      52             push edx
+       ||   0x0061f776      8b4df4         mov ecx, dword [ebp - 0xc]
+       ||   0x0061f779      e812010000     call 0x61f890
+       ||   0x0061f77e      0fb6c0         movzx eax, al
+            0x0061f754      e887bd0000     call 0x62b4e0
+            0x0061f759      83c404         add esp, 4
+            0x0061f75c      8945fc         mov dword [ebp - 4], eax
+            ; CODE XREFS from section..text @ +0x21e72e(x), +0x21e74b(x)
+            0x0061f75f      837dfc00       cmp dword [ebp - 4], 0
+        ,=< 0x0061f763      7435           je 0x61f79a
+        |   0x0061f765      8b45f4         mov eax, dword [ebp - 0xc]
+        |   0x0061f768      0fb64814       movzx ecx, byte [eax + 0x14]
+        |   0x0061f76c      85c9           test ecx, ecx
+       ,==< 0x0061f76e      7415           je 0x61f785
+       ||   0x0061f770      6a00           push 0
+       ||   0x0061f772      8b55fc         mov edx, dword [ebp - 4]
+       ||   0x0061f775      52             push edx
+       ||   0x0061f776      8b4df4         mov ecx, dword [ebp - 0xc]
+       ||   0x0061f779      e812010000     call 0x61f890
+       ||   0x0061f77e      0fb6c0         movzx eax, al
+       ||   0x0061f781      85c0           test eax, eax
+      ,===< 0x0061f783      7511           jne 0x61f796
+      |||   ; CODE XREF from section..text @ +0x21e76e(x)
+      |`--> 0x0061f785      8b4dfc         mov ecx, dword [ebp - 4]
+      | |   0x0061f788      e8a3fc1800     call 0x7af430
+      | |   0x0061f78d      50             push eax
+      | |   0x0061f78e      e84df32000     call 0x82eae0
+      | |   0x0061f793      83c404         add esp, 4
+      | |   ; CODE XREF from section..text @ +0x21e783(x)
+      `---> 0x0061f796      b001           mov al, 1
+       ,==< 0x0061f798      eb02           jmp 0x61f79c
+            0x0061f7f3      e8e8bc0000     call 0x62b4e0
+            0x0061f7f8      83c404         add esp, 4
+            0x0061f7fb      8945fc         mov dword [ebp - 4], eax
+            ; CODE XREF from section..text @ +0x21e7ea(x)
+        ,=< 0x0061f7fe      eb2f           jmp 0x61f82f
+        |   ; CODE XREF from section..text @ +0x21e7d0(x)
+        |   0x0061f800      8b4d08         mov ecx, dword [ebp + 8]
+        |   0x0061f803      8b5148         mov edx, dword [ecx + 0x48]
+        |   0x0061f806      52             push edx
+        |   0x0061f807      e8d4bc0000     call 0x62b4e0
+        |   0x0061f80c      83c404         add esp, 4
+        |   0x0061f80f      8945f8         mov dword [ebp - 8], eax
+        |   0x0061f812      8b45f8         mov eax, dword [ebp - 8]
+        |   0x0061f815      3b053cea1d01   cmp eax, dword [0x11dea3c]  ; [0x11dea3c:4]=0
+       ,==< 0x0061f81b      7512           jne 0x61f82f
+       ||   0x0061f81d      8b4d08         mov ecx, dword [ebp + 8]
+       ||   0x0061f820      8b5120         mov edx, dword [ecx + 0x20]
+       ||   0x0061f823      52             push edx
+       ||   0x0061f824      e8b7bc0000     call 0x62b4e0
+       ||   0x0061f829      83c404         add esp, 4
+       ||   0x0061f82c      8945fc         mov dword [ebp - 4], eax
+       ||   ; CODE XREFS from section..text @ +0x21e7fe(x), +0x21e81b(x)
+       ``-> 0x0061f82f      837dfc00       cmp dword [ebp - 4], 0
+        ,=< 0x0061f833      742a           je 0x61f85f
+        |   0x0061f835      8b45f4         mov eax, dword [ebp - 0xc]
+        |   0x0061f838      0fb64814       movzx ecx, byte [eax + 0x14]
+        |   0x0061f83c      85c9           test ecx, ecx
+            0x0061f807      e8d4bc0000     call 0x62b4e0
+            0x0061f80c      83c404         add esp, 4
+            0x0061f80f      8945f8         mov dword [ebp - 8], eax
+            0x0061f812      8b45f8         mov eax, dword [ebp - 8]
+            0x0061f815      3b053cea1d01   cmp eax, dword [0x11dea3c]  ; [0x11dea3c:4]=0
+        ,=< 0x0061f81b      7512           jne 0x61f82f
+        |   0x0061f81d      8b4d08         mov ecx, dword [ebp + 8]
+        |   0x0061f820      8b5120         mov edx, dword [ecx + 0x20]
+        |   0x0061f823      52             push edx
+        |   0x0061f824      e8b7bc0000     call 0x62b4e0
+        |   0x0061f829      83c404         add esp, 4
+        |   0x0061f82c      8945fc         mov dword [ebp - 4], eax
+        |   ; CODE XREFS from section..text @ +0x21e7fe(x), +0x21e81b(x)
+        `-> 0x0061f82f      837dfc00       cmp dword [ebp - 4], 0
+        ,=< 0x0061f833      742a           je 0x61f85f
+        |   0x0061f835      8b45f4         mov eax, dword [ebp - 0xc]
+        |   0x0061f838      0fb64814       movzx ecx, byte [eax + 0x14]
+        |   0x0061f83c      85c9           test ecx, ecx
+       ,==< 0x0061f83e      740e           je 0x61f84e
+       ||   0x0061f840      8b55fc         mov edx, dword [ebp - 4]
+       ||   0x0061f843      52             push edx
+       ||   0x0061f844      8b4df4         mov ecx, dword [ebp - 0xc]
+       ||   0x0061f847      e824000000     call 0x61f870
+      ,===< 0x0061f84c      eb11           jmp 0x61f85f
+      |||   ; CODE XREF from section..text @ +0x21e83e(x)
+      |`--> 0x0061f84e      8b4dfc         mov ecx, dword [ebp - 4]
+            0x0061f824      e8b7bc0000     call 0x62b4e0
+            0x0061f829      83c404         add esp, 4
+            0x0061f82c      8945fc         mov dword [ebp - 4], eax
+            ; CODE XREFS from section..text @ +0x21e7fe(x), +0x21e81b(x)
+            0x0061f82f      837dfc00       cmp dword [ebp - 4], 0
+        ,=< 0x0061f833      742a           je 0x61f85f
+        |   0x0061f835      8b45f4         mov eax, dword [ebp - 0xc]
+        |   0x0061f838      0fb64814       movzx ecx, byte [eax + 0x14]
+        |   0x0061f83c      85c9           test ecx, ecx
+       ,==< 0x0061f83e      740e           je 0x61f84e
+       ||   0x0061f840      8b55fc         mov edx, dword [ebp - 4]
+       ||   0x0061f843      52             push edx
+       ||   0x0061f844      8b4df4         mov ecx, dword [ebp - 0xc]
+       ||   0x0061f847      e824000000     call 0x61f870
+      ,===< 0x0061f84c      eb11           jmp 0x61f85f
+      |||   ; CODE XREF from section..text @ +0x21e83e(x)
+      |`--> 0x0061f84e      8b4dfc         mov ecx, dword [ebp - 4]
+      | |   0x0061f851      e8dafb1800     call 0x7af430
+      | |   0x0061f856      50             push eax
+      | |   0x0061f857      e814f32000     call 0x82eb70
+      | |   0x0061f85c      83c404         add esp, 4
+      | |   ; CODE XREFS from section..text @ +0x21e833(x), +0x21e84c(x)
+      `-`-> 0x0061f85f      32c0           xor al, al
+            0x0061f861      8be5           mov esp, ebp
+            0x0061f863      5d             pop ebp
+            0x0061f864      c20400         ret 4
+            0x0061f867      cc             int3
+        :   0x0062746e      e86d400000     call 0x62b4e0
+        :   0x00627473      83c404         add esp, 4
+        :   0x00627476      898560ffffff   mov dword [ebp - 0xa0], eax
+        :   0x0062747c      8d8d64ffffff   lea ecx, [ebp - 0x9c]
+        :   0x00627482      e84940e1ff     call 0x43b4d0
+        :   0x00627487      83f81e         cmp eax, 0x1e               ; 30
+       ,==< 0x0062748a      7541           jne 0x6274cd
+       |:   0x0062748c      83bd60ffff..   cmp dword [ebp - 0xa0], 0
+      ,===< 0x00627493      7438           je 0x6274cd
+      ||:   0x00627495      8b8d60ffffff   mov ecx, dword [ebp - 0xa0]
+      ||:   0x0062749b      8b11           mov edx, dword [ecx]
+      ||:   0x0062749d      8b8d60ffffff   mov ecx, dword [ebp - 0xa0]
+      ||:   0x006274a3      8b8200010000   mov eax, dword [edx + 0x100]
+      ||:   0x006274a9      ffd0           call eax
+      ||:   0x006274ab      0fb6c8         movzx ecx, al
+      ||:   0x006274ae      85c9           test ecx, ecx
+     ,====< 0x006274b0      741b           je 0x6274cd
+     |||:   0x006274b2      8b9560ffffff   mov edx, dword [ebp - 0xa0]
+     |||:   0x006274b8      89955cffffff   mov dword [ebp - 0xa4], edx
+     |||:   0x006274be      8b855cffffff   mov eax, dword [ebp - 0xa4]
+     |||:   0x006274c4      50             push eax
+     |||:   0x006274c5      8b4de8         mov ecx, dword [ebp - 0x18]
+     |||:   0x006274c8      e813210000     call 0x6295e0
+     ||||   ; CODE XREFS from section..text @ +0x226428(x), +0x22648a(x), +0x226493(x), +0x2264b0(x)
+     ````=< 0x006274cd      e92dffffff     jmp 0x6273ff
+            0x00627558      e8833f0000     call 0x62b4e0
+            0x0062755d      83c404         add esp, 4
+            0x00627560      898544ffffff   mov dword [ebp - 0xbc], eax
+            0x00627566      83bd48ffff..   cmp dword [ebp - 0xb8], 0
+        ,=< 0x0062756d      0f841f020000   je 0x627792
+        |   0x00627573      8b8d48ffffff   mov ecx, dword [ebp - 0xb8]
+        |   0x00627579      e8f200efff     call 0x517670
+        |   0x0062757e      83f804         cmp eax, 4                  ; 4
+       ,==< 0x00627581      0f840b020000   je 0x627792
+       ||   0x00627587      8b8d48ffffff   mov ecx, dword [ebp - 0xb8]
+       ||   0x0062758d      e8de00efff     call 0x517670
+       ||   0x00627592      83f805         cmp eax, 5                  ; 5
+      ,===< 0x00627595      0f84f7010000   je 0x627792
+      |||   0x0062759b      8b8d48ffffff   mov ecx, dword [ebp - 0xb8]
+      |||   0x006275a1      e8ca00efff     call 0x517670
+      |||   0x006275a6      83f807         cmp eax, 7                  ; 7
+     ,====< 0x006275a9      0f84e3010000   je 0x627792
+     ||||   0x006275af      8b9548ffffff   mov edx, dword [ebp - 0xb8]
+     ||||   0x006275b5      52             push edx
+     ||||   0x006275b6      e8c5e4e8ff     call 0x4b5a80
+     ||||   0x006275bb      83c404         add esp, 4
+     ||||   0x006275be      898540ffffff   mov dword [ebp - 0xc0], eax
+     ||||   0x006275c4      0fb645a3       movzx eax, byte [ebp - 0x5d]
+     ||||   0x006275c8      85c0           test eax, eax
+        :   0x00628ed3      e808260000     call 0x62b4e0
+        :   0x00628ed8      83c404         add esp, 4
+        :   0x00628edb      8945b8         mov dword [ebp - 0x48], eax
+        :   0x00628ede      837db800       cmp dword [ebp - 0x48], 0
+       ,==< 0x00628ee2      7429           je 0x628f0d
+       |:   0x00628ee4      8b45b8         mov eax, dword [ebp - 0x48]
+       |:   0x00628ee7      8b10           mov edx, dword [eax]
+       |:   0x00628ee9      8b4db8         mov ecx, dword [ebp - 0x48]
+       |:   0x00628eec      8b8200010000   mov eax, dword [edx + 0x100]
+       |:   0x00628ef2      ffd0           call eax
+       |:   0x00628ef4      0fb6c8         movzx ecx, al
+       |:   0x00628ef7      85c9           test ecx, ecx
+      ,===< 0x00628ef9      7412           je 0x628f0d
+      ||:   0x00628efb      8b55b8         mov edx, dword [ebp - 0x48]
+      ||:   0x00628efe      8955b4         mov dword [ebp - 0x4c], edx
+      ||:   0x00628f01      8b45b4         mov eax, dword [ebp - 0x4c]
+      ||:   0x00628f04      50             push eax
+      ||:   0x00628f05      8b4df8         mov ecx, dword [ebp - 8]
+      ||:   0x00628f08      e8d3060000     call 0x6295e0
+      |||   ; CODE XREFS from section..text @ +0x227e58(x), +0x227eaf(x), +0x227ecd(x), +0x227ee2(x), +0x227ef9(x)
+      ```=< 0x00628f0d      e90cffffff     jmp 0x628e1e
+            ; CODE XREF from section..text @ +0x227e32(x)
+            0x00628f12      8b4dfc         mov ecx, dword [ebp - 4]
+            0x00628f15      33cd           xor ecx, ebp
+            0x00628f17      e870b18900     call 0xec408c
+            0x00628f1c      8be5           mov esp, ebp
+            0x00628ffb      e8e0240000     call 0x62b4e0
+            0x00629000      83c404         add esp, 4
+            0x00629003      8945e4         mov dword [ebp - 0x1c], eax
+            0x00629006      8d4dd8         lea ecx, [ebp - 0x28]
+            0x00629009      e8b2850500     call 0x6815c0
+            0x0062900e      8d4d90         lea ecx, [ebp - 0x70]
+            0x00629011      e8ba4ef4ff     call 0x56ded0
+            0x00629016      8d4d90         lea ecx, [ebp - 0x70]
+            0x00629019      51             push ecx
+            0x0062901a      8b5308         mov edx, dword [ebx + 8]
+            0x0062901d      8b02           mov eax, dword [edx]
+            0x0062901f      8b4b08         mov ecx, dword [ebx + 8]
+            0x00629022      8b90f4000000   mov edx, dword [eax + 0xf4]
+            0x00629028      ffd2           call edx
+            0x0062902a      8d8d5cffffff   lea ecx, [ebp - 0xa4]
+            0x00629030      e84bdae4ff     call 0x476a80
+            0x00629035      8d4590         lea eax, [ebp - 0x70]
+            0x00629038      50             push eax
+            0x00629039      8d8d5cffffff   lea ecx, [ebp - 0xa4]
+            0x0062903f      51             push ecx
+            0x00629040      e88bbaffff     call 0x624ad0
+            0x00629045      83c408         add esp, 8
+            0x00629048      8d55d8         lea edx, [ebp - 0x28]
+            0x0062904b      52             push edx
+            0x0062ce7e      e85de6ffff     call 0x62b4e0
+            0x0062ce83      83c404         add esp, 4
+            0x0062ce86      8985a4feffff   mov dword [ebp - 0x15c], eax
+            0x0062ce8c      83bda4feff..   cmp dword [ebp - 0x15c], 0
+        ,=< 0x0062ce93      0f842b010000   je 0x62cfc4
+        |   0x0062ce99      8b8da4feffff   mov ecx, dword [ebp - 0x15c]
+        |   0x0062ce9f      8b11           mov edx, dword [ecx]
+        |   0x0062cea1      8b8da4feffff   mov ecx, dword [ebp - 0x15c]
+        |   0x0062cea7      8b8200010000   mov eax, dword [edx + 0x100]
+        |   0x0062cead      ffd0           call eax
+        |   0x0062ceaf      0fb6c8         movzx ecx, al
+        |   0x0062ceb2      85c9           test ecx, ecx
+       ,==< 0x0062ceb4      741f           je 0x62ced5
+       ||   0x0062ceb6      8b95a8feffff   mov edx, dword [ebp - 0x158]
+       ||   0x0062cebc      52             push edx
+       ||   0x0062cebd      e82e8be8ff     call 0x4b59f0
+       ||   0x0062cec2      83c404         add esp, 4
+       ||   0x0062cec5      85c0           test eax, eax
+      ,===< 0x0062cec7      740c           je 0x62ced5
+      |||   0x0062cec9      c7855cfeff..   mov dword [ebp - 0x1a4], 1
+     ,====< 0x0062ced3      eb0a           jmp 0x62cedf
+     ||||   ; CODE XREFS from section..text @ +0x22beb4(x), +0x22bec7(x)
+     |``--> 0x0062ced5      c7855cfeff..   mov dword [ebp - 0x1a4], 0
+     |  |   ; CODE XREF from section..text @ +0x22bed3(x)
+     `----> 0x0062cedf      8a855cfeffff   mov al, byte [ebp - 0x1a4]
+        |   0x0062cee5      8885a2feffff   mov byte [ebp - 0x15e], al
+            0x0062d09f      e83ce4ffff     call 0x62b4e0
+            0x0062d0a4      83c404         add esp, 4
+            0x0062d0a7      898584feffff   mov dword [ebp - 0x17c], eax
+            0x0062d0ad      83bd84feff..   cmp dword [ebp - 0x17c], 0
+        ,=< 0x0062d0b4      0f842b010000   je 0x62d1e5
+        |   0x0062d0ba      8b8584feffff   mov eax, dword [ebp - 0x17c]
+        |   0x0062d0c0      8b10           mov edx, dword [eax]
+        |   0x0062d0c2      8b8d84feffff   mov ecx, dword [ebp - 0x17c]
+        |   0x0062d0c8      8b8200010000   mov eax, dword [edx + 0x100]
+        |   0x0062d0ce      ffd0           call eax
+        |   0x0062d0d0      0fb6c8         movzx ecx, al
+        |   0x0062d0d3      85c9           test ecx, ecx
+       ,==< 0x0062d0d5      741f           je 0x62d0f6
+       ||   0x0062d0d7      8b9588feffff   mov edx, dword [ebp - 0x178]
+       ||   0x0062d0dd      52             push edx
+       ||   0x0062d0de      e80d89e8ff     call 0x4b59f0
+       ||   0x0062d0e3      83c404         add esp, 4
+       ||   0x0062d0e6      85c0           test eax, eax
+      ,===< 0x0062d0e8      740c           je 0x62d0f6
+      |||   0x0062d0ea      c78554feff..   mov dword [ebp - 0x1ac], 1
+     ,====< 0x0062d0f4      eb0a           jmp 0x62d100
+     ||||   ; CODE XREFS from section..text @ +0x22c0d5(x), +0x22c0e8(x)
+     |``--> 0x0062d0f6      c78554feff..   mov dword [ebp - 0x1ac], 0
+     |  |   ; CODE XREF from section..text @ +0x22c0f4(x)
+     `----> 0x0062d100      8a8554feffff   mov al, byte [ebp - 0x1ac]
+        |   0x0062d106      888582feffff   mov byte [ebp - 0x17e], al
+            0x0062da46      e895daffff     call 0x62b4e0
+            0x0062da4b      83c404         add esp, 4
+            0x0062da4e      8945f0         mov dword [ebp - 0x10], eax
+            0x0062da51      837df000       cmp dword [ebp - 0x10], 0
+        ,=< 0x0062da55      742c           je 0x62da83
+        |   0x0062da57      837df80e       cmp dword [ebp - 8], 0xe
+       ,==< 0x0062da5b      7406           je 0x62da63
+       ||   0x0062da5d      837df810       cmp dword [ebp - 8], 0x10
+      ,===< 0x0062da61      7511           jne 0x62da74
+      |||   ; CODE XREF from section..text @ +0x22ca5b(x)
+      |`--> 0x0062da63      8b4df0         mov ecx, dword [ebp - 0x10]
+      | |   0x0062da66      51             push ecx
+      | |   0x0062da67      8b4dec         mov ecx, dword [ebp - 0x14]
+      | |   0x0062da6a      83e908         sub ecx, 8
+      | |   0x0062da6d      e88e8df4ff     call 0x576800
+      |,==< 0x0062da72      eb0f           jmp 0x62da83
+      |||   ; CODE XREF from section..text @ +0x22ca61(x)
+      `---> 0x0062da74      8b55f0         mov edx, dword [ebp - 0x10]
+       ||   0x0062da77      52             push edx
+       ||   0x0062da78      8b4dec         mov ecx, dword [ebp - 0x14]
+       ||   0x0062da7b      83e908         sub ecx, 8
+       ||   0x0062da7e      e8ad26ffff     call 0x620130
+       ||   ; CODE XREFS from section..text @ +0x22ca40(x), +0x22ca55(x), +0x22ca72(x)
+       ``-> 0x0062da83      8be5           mov esp, ebp
+            0x0062da85      5d             pop ebp
+            0x0062da86      c20400         ret 4
+            0x0062da89      cc             int3
+            0x0062dbc5      e816d9ffff     call 0x62b4e0
+            0x0062dbca      83c404         add esp, 4
+            0x0062dbcd      8945e4         mov dword [ebp - 0x1c], eax
+            0x0062dbd0      837de400       cmp dword [ebp - 0x1c], 0
+        ,=< 0x0062dbd4      7461           je 0x62dc37
+        |   0x0062dbd6      6a2c           push 0x2c                   ; ',' ; 44
+        |   0x0062dbd8      e82334ddff     call section..text
+        |   0x0062dbdd      83c404         add esp, 4
+        |   0x0062dbe0      8945d8         mov dword [ebp - 0x28], eax
+        |   0x0062dbe3      c745fc0000..   mov dword [ebp - 4], 0
+        |   0x0062dbea      837dd800       cmp dword [ebp - 0x28], 0
+       ,==< 0x0062dbee      7415           je 0x62dc05
+       ||   0x0062dbf0      8b4dec         mov ecx, dword [ebp - 0x14]
+       ||   0x0062dbf3      51             push ecx
+       ||   0x0062dbf4      8b55e4         mov edx, dword [ebp - 0x1c]
+       ||   0x0062dbf7      52             push edx
+       ||   0x0062dbf8      8b4dd8         mov ecx, dword [ebp - 0x28]
+       ||   0x0062dbfb      e850000000     call 0x62dc50
+       ||   0x0062dc00      8945d0         mov dword [ebp - 0x30], eax
+      ,===< 0x0062dc03      eb07           jmp 0x62dc0c
+      |||   ; CODE XREF from section..text @ +0x22cbee(x)
+      |`--> 0x0062dc05      c745d00000..   mov dword [ebp - 0x30], 0
+      | |   ; CODE XREF from section..text @ +0x22cc03(x)
+      `---> 0x0062dc0c      8b45d0         mov eax, dword [ebp - 0x30]
+        |   0x0062dc0f      8945dc         mov dword [ebp - 0x24], eax
+        |   0x0062dc12      c745fcffff..   mov dword [ebp - 4], 0xffffffff ; -1
+            0x0062dca2      e839d8ffff     call 0x62b4e0
+            0x0062dca7      83c404         add esp, 4
+            0x0062dcaa      8945f8         mov dword [ebp - 8], eax
+            0x0062dcad      8b5508         mov edx, dword [ebp + 8]
+            0x0062dcb0      8b4220         mov eax, dword [edx + 0x20]
+            0x0062dcb3      50             push eax
+            0x0062dcb4      e827d8ffff     call 0x62b4e0
+            0x0062dcb9      83c404         add esp, 4
+            0x0062dcbc      8945fc         mov dword [ebp - 4], eax
+            0x0062dcbf      837df800       cmp dword [ebp - 8], 0
+        ,=< 0x0062dcc3      7447           je 0x62dd0c
+        |   0x0062dcc5      837dfc00       cmp dword [ebp - 4], 0
+       ,==< 0x0062dcc9      7441           je 0x62dd0c
+       ||   0x0062dccb      8b4dfc         mov ecx, dword [ebp - 4]
+       ||   0x0062dcce      8b11           mov edx, dword [ecx]
+       ||   0x0062dcd0      8b4dfc         mov ecx, dword [ebp - 4]
+       ||   0x0062dcd3      8b8200010000   mov eax, dword [edx + 0x100]
+       ||   0x0062dcd9      ffd0           call eax
+       ||   0x0062dcdb      0fb6c8         movzx ecx, al
+       ||   0x0062dcde      85c9           test ecx, ecx
+      ,===< 0x0062dce0      742a           je 0x62dd0c
+      |||   0x0062dce2      6a01           push 1                      ; 1
+      |||   0x0062dce4      6a00           push 0
+      |||   0x0062dce6      8b55fc         mov edx, dword [ebp - 4]
+            0x0062dcb4      e827d8ffff     call 0x62b4e0
+            0x0062dcb9      83c404         add esp, 4
+            0x0062dcbc      8945fc         mov dword [ebp - 4], eax
+            0x0062dcbf      837df800       cmp dword [ebp - 8], 0
+        ,=< 0x0062dcc3      7447           je 0x62dd0c
+        |   0x0062dcc5      837dfc00       cmp dword [ebp - 4], 0
+       ,==< 0x0062dcc9      7441           je 0x62dd0c
+       ||   0x0062dccb      8b4dfc         mov ecx, dword [ebp - 4]
+       ||   0x0062dcce      8b11           mov edx, dword [ecx]
+       ||   0x0062dcd0      8b4dfc         mov ecx, dword [ebp - 4]
+       ||   0x0062dcd3      8b8200010000   mov eax, dword [edx + 0x100]
+       ||   0x0062dcd9      ffd0           call eax
+       ||   0x0062dcdb      0fb6c8         movzx ecx, al
+       ||   0x0062dcde      85c9           test ecx, ecx
+      ,===< 0x0062dce0      742a           je 0x62dd0c
+      |||   0x0062dce2      6a01           push 1                      ; 1
+      |||   0x0062dce4      6a00           push 0
+      |||   0x0062dce6      8b55fc         mov edx, dword [ebp - 4]
+      |||   0x0062dce9      52             push edx
+      |||   0x0062dcea      8b45f8         mov eax, dword [ebp - 8]
+      |||   0x0062dced      50             push eax
+      |||   0x0062dcee      8b4d08         mov ecx, dword [ebp + 8]
+      |||   0x0062dcf1      51             push ecx
+      |||   0x0062dcf2      8b4dec         mov ecx, dword [ebp - 0x14]
+            0x0062dd42      e899d7ffff     call 0x62b4e0
+            0x0062dd47      83c404         add esp, 4
+            0x0062dd4a      8945f8         mov dword [ebp - 8], eax
+            0x0062dd4d      8b5508         mov edx, dword [ebp + 8]
+            0x0062dd50      8b4220         mov eax, dword [edx + 0x20]
+            0x0062dd53      50             push eax
+            0x0062dd54      e887d7ffff     call 0x62b4e0
+            0x0062dd59      83c404         add esp, 4
+            0x0062dd5c      8945fc         mov dword [ebp - 4], eax
+            0x0062dd5f      837df800       cmp dword [ebp - 8], 0
+        ,=< 0x0062dd63      743a           je 0x62dd9f
+        |   0x0062dd65      837dfc00       cmp dword [ebp - 4], 0
+       ,==< 0x0062dd69      7434           je 0x62dd9f
+       ||   0x0062dd6b      8b4dfc         mov ecx, dword [ebp - 4]
+       ||   0x0062dd6e      8b11           mov edx, dword [ecx]
+       ||   0x0062dd70      8b4dfc         mov ecx, dword [ebp - 4]
+       ||   0x0062dd73      8b8200010000   mov eax, dword [edx + 0x100]
+       ||   0x0062dd79      ffd0           call eax
+       ||   0x0062dd7b      0fb6c8         movzx ecx, al
+       ||   0x0062dd7e      85c9           test ecx, ecx
+      ,===< 0x0062dd80      741d           je 0x62dd9f
+      |||   0x0062dd82      8b55fc         mov edx, dword [ebp - 4]
+      |||   0x0062dd85      52             push edx
+      |||   0x0062dd86      8b4508         mov eax, dword [ebp + 8]
+            0x0062dd54      e887d7ffff     call 0x62b4e0
+            0x0062dd59      83c404         add esp, 4
+            0x0062dd5c      8945fc         mov dword [ebp - 4], eax
+            0x0062dd5f      837df800       cmp dword [ebp - 8], 0
+        ,=< 0x0062dd63      743a           je 0x62dd9f
+        |   0x0062dd65      837dfc00       cmp dword [ebp - 4], 0
+       ,==< 0x0062dd69      7434           je 0x62dd9f
+       ||   0x0062dd6b      8b4dfc         mov ecx, dword [ebp - 4]
+       ||   0x0062dd6e      8b11           mov edx, dword [ecx]
+       ||   0x0062dd70      8b4dfc         mov ecx, dword [ebp - 4]
+       ||   0x0062dd73      8b8200010000   mov eax, dword [edx + 0x100]
+       ||   0x0062dd79      ffd0           call eax
+       ||   0x0062dd7b      0fb6c8         movzx ecx, al
+       ||   0x0062dd7e      85c9           test ecx, ecx
+      ,===< 0x0062dd80      741d           je 0x62dd9f
+      |||   0x0062dd82      8b55fc         mov edx, dword [ebp - 4]
+      |||   0x0062dd85      52             push edx
+      |||   0x0062dd86      8b4508         mov eax, dword [ebp + 8]
+      |||   0x0062dd89      8b4848         mov ecx, dword [eax + 0x48]
+      |||   0x0062dd8c      51             push ecx
+      |||   0x0062dd8d      8b4dec         mov ecx, dword [ebp - 0x14]
+      |||   0x0062dd90      83e908         sub ecx, 8
+      |||   0x0062dd93      e8e828ffff     call 0x620680
+      |||   0x0062dd98      8945f0         mov dword [ebp - 0x10], eax
+            0x0062efe1      e8fac4ffff     call 0x62b4e0
+            0x0062efe6      83c404         add esp, 4
+            0x0062efe9      8945b4         mov dword [ebp - 0x4c], eax
+            0x0062efec      837db400       cmp dword [ebp - 0x4c], 0
+        ,=< 0x0062eff0      0f84f0000000   je 0x62f0e6
+        |   0x0062eff6      51             push ecx
+        |   0x0062eff7      d945c8         fld dword [ebp - 0x38]
+        |   0x0062effa      d91c24         fstp dword [esp]
+        |   0x0062effd      e8ce97e2ff     call 0x4587d0
+        |   0x0062f002      83c404         add esp, 4
+        |   0x0062f005      d95dc8         fstp dword [ebp - 0x38]
+        |   0x0062f008      837db801       cmp dword [ebp - 0x48], 1
+       ,==< 0x0062f00c      756a           jne 0x62f078
+       ||   0x0062f00e      8b4db4         mov ecx, dword [ebp - 0x4c]
+       ||   0x0062f011      e8eac1f4ff     call 0x57b200
+       ||   0x0062f016      0fb6d0         movzx edx, al
+       ||   0x0062f019      85d2           test edx, edx
+      ,===< 0x0062f01b      754f           jne 0x62f06c
+      |||   0x0062f01d      e87e8a2900     call 0x8c7aa0
+      |||   0x0062f022      0fb6c0         movzx eax, al
+      |||   0x0062f025      85c0           test eax, eax
+     ,====< 0x0062f027      7424           je 0x62f04d
+     ||||   0x0062f029      e88247e2ff     call 0x4537b0
+     ||||   0x0062f02e      85c0           test eax, eax
+            0x0062f6c4      e817beffff     call 0x62b4e0
+            0x0062f6c9      83c404         add esp, 4
+            0x0062f6cc      8945f0         mov dword [ebp - 0x10], eax
+            0x0062f6cf      837df000       cmp dword [ebp - 0x10], 0
+        ,=< 0x0062f6d3      0f85e0000000   jne 0x62f7b9
+        |   0x0062f6d9      8b0d3cea1d01   mov ecx, dword [0x11dea3c]  ; [0x11dea3c:4]=0
+        |   0x0062f6df      e8dcfffeff     call 0x61f6c0
+        |   0x0062f6e4      8bc8           mov ecx, eax
+        |   0x0062f6e6      e875bee0ff     call 0x43b560
+        |   0x0062f6eb      8b5508         mov edx, dword [ebp + 8]
+        |   0x0062f6ee      394248         cmp dword [edx + 0x48], eax
+       ,==< 0x0062f6f1      0f85bb000000   jne 0x62f7b2
+       ||   0x0062f6f7      8b4508         mov eax, dword [ebp + 8]
+       ||   0x0062f6fa      8b4820         mov ecx, dword [eax + 0x20]
+       ||   0x0062f6fd      51             push ecx
+       ||   0x0062f6fe      e8ddbdffff     call 0x62b4e0
+       ||   0x0062f703      83c404         add esp, 4
+       ||   0x0062f706      8945e8         mov dword [ebp - 0x18], eax
+       ||   0x0062f709      837de800       cmp dword [ebp - 0x18], 0
+      ,===< 0x0062f70d      7507           jne 0x62f716
+      |||   0x0062f70f      32c0           xor al, al
+     ,====< 0x0062f711      e9c2010000     jmp 0x62f8d8
+     ||||   ; CODE XREF from section..text @ +0x22e70d(x)
+     |`---> 0x0062f716      6a00           push 0
+     | ||   0x0062f718      68709d1801     push 0x1189d70
+            0x0062f6fe      e8ddbdffff     call 0x62b4e0
+            0x0062f703      83c404         add esp, 4
+            0x0062f706      8945e8         mov dword [ebp - 0x18], eax
+            0x0062f709      837de800       cmp dword [ebp - 0x18], 0
+        ,=< 0x0062f70d      7507           jne 0x62f716
+        |   0x0062f70f      32c0           xor al, al
+       ,==< 0x0062f711      e9c2010000     jmp 0x62f8d8
+       ||   ; CODE XREF from section..text @ +0x22e70d(x)
+       |`-> 0x0062f716      6a00           push 0
+       |    0x0062f718      68709d1801     push 0x1189d70
+       |    0x0062f71d      6808311801     push 0x1183108
+       |    0x0062f722      8b4de8         mov ecx, dword [ebp - 0x18]
+       |    0x0062f725      e806fd1700     call 0x7af430
+       |    0x0062f72a      6a00           push 0
+       |    0x0062f72c      50             push eax
+       |    0x0062f72d      e8c94c8900     call 0xec43fb
+       |    0x0062f732      83c414         add esp, 0x14
+       |    0x0062f735      8945e4         mov dword [ebp - 0x1c], eax
+       |    0x0062f738      b9a8c51c01     mov ecx, 0x11cc5a8
+       |    0x0062f73d      e81e96ddff     call 0x408d60
+       |    0x0062f742      0fb610         movzx edx, byte [eax]
+       |    0x0062f745      85d2           test edx, edx
+       |,=< 0x0062f747      7516           jne 0x62f75f
+       ||   0x0062f749      8b4de4         mov ecx, dword [ebp - 0x1c]
+       ||   0x0062f74c      e8ef2ce2ff     call 0x452440
+            0x0062f7c0      e81bbdffff     call 0x62b4e0
+            0x0062f7c5      83c404         add esp, 4
+            0x0062f7c8      8945f8         mov dword [ebp - 8], eax
+            0x0062f7cb      837df800       cmp dword [ebp - 8], 0
+        ,=< 0x0062f7cf      7507           jne 0x62f7d8
+        |   0x0062f7d1      32c0           xor al, al
+       ,==< 0x0062f7d3      e900010000     jmp 0x62f8d8
+       ||   ; CODE XREF from section..text @ +0x22e7cf(x)
+       |`-> 0x0062f7d8      6a00           push 0
+       |    0x0062f7da      68709d1801     push 0x1189d70
+       |    0x0062f7df      6808311801     push 0x1183108
+       |    0x0062f7e4      8b4df8         mov ecx, dword [ebp - 8]
+       |    0x0062f7e7      e844fc1700     call 0x7af430
+       |    0x0062f7ec      6a00           push 0
+       |    0x0062f7ee      50             push eax
+       |    0x0062f7ef      e8074c8900     call 0xec43fb
+       |    0x0062f7f4      83c414         add esp, 0x14
+       |    0x0062f7f7      8945f4         mov dword [ebp - 0xc], eax
+       |    0x0062f7fa      b9a8c51c01     mov ecx, 0x11cc5a8
+       |    0x0062f7ff      e85c95ddff     call 0x408d60
+       |    0x0062f804      0fb600         movzx eax, byte [eax]
+       |    0x0062f807      85c0           test eax, eax
+       |,=< 0x0062f809      7516           jne 0x62f821
+       ||   0x0062f80b      8b4df4         mov ecx, dword [ebp - 0xc]
+       ||   0x0062f80e      e82d2ce2ff     call 0x452440
+            0x0062f914      e8c7bbffff     call 0x62b4e0
+            0x0062f919      83c404         add esp, 4
+            0x0062f91c      8945ec         mov dword [ebp - 0x14], eax
+            0x0062f91f      8b5508         mov edx, dword [ebp + 8]
+            0x0062f922      8b4220         mov eax, dword [edx + 0x20]
+            0x0062f925      50             push eax
+            0x0062f926      e8b5bbffff     call 0x62b4e0
+            0x0062f92b      83c404         add esp, 4
+            0x0062f92e      8945e4         mov dword [ebp - 0x1c], eax
+            0x0062f931      837de400       cmp dword [ebp - 0x1c], 0
+        ,=< 0x0062f935      7507           jne 0x62f93e
+        |   0x0062f937      32c0           xor al, al
+       ,==< 0x0062f939      e920030000     jmp 0x62fc5e
+       ||   ; CODE XREF from section..text @ +0x22e935(x)
+       |`-> 0x0062f93e      6a00           push 0
+       |    0x0062f940      68709d1801     push 0x1189d70
+       |    0x0062f945      6808311801     push 0x1183108
+       |    0x0062f94a      8b4de4         mov ecx, dword [ebp - 0x1c]
+       |    0x0062f94d      e8defa1700     call 0x7af430
+       |    0x0062f952      6a00           push 0
+       |    0x0062f954      50             push eax
+       |    0x0062f955      e8a14a8900     call 0xec43fb
+       |    0x0062f95a      83c414         add esp, 0x14
+       |    0x0062f95d      8945f0         mov dword [ebp - 0x10], eax
+       |    0x0062f960      b9a8c51c01     mov ecx, 0x11cc5a8
+            0x0062f926      e8b5bbffff     call 0x62b4e0
+            0x0062f92b      83c404         add esp, 4
+            0x0062f92e      8945e4         mov dword [ebp - 0x1c], eax
+            0x0062f931      837de400       cmp dword [ebp - 0x1c], 0
+        ,=< 0x0062f935      7507           jne 0x62f93e
+        |   0x0062f937      32c0           xor al, al
+       ,==< 0x0062f939      e920030000     jmp 0x62fc5e
+       ||   ; CODE XREF from section..text @ +0x22e935(x)
+       |`-> 0x0062f93e      6a00           push 0
+       |    0x0062f940      68709d1801     push 0x1189d70
+       |    0x0062f945      6808311801     push 0x1183108
+       |    0x0062f94a      8b4de4         mov ecx, dword [ebp - 0x1c]
+       |    0x0062f94d      e8defa1700     call 0x7af430
+       |    0x0062f952      6a00           push 0
+       |    0x0062f954      50             push eax
+       |    0x0062f955      e8a14a8900     call 0xec43fb
+       |    0x0062f95a      83c414         add esp, 0x14
+       |    0x0062f95d      8945f0         mov dword [ebp - 0x10], eax
+       |    0x0062f960      b9a8c51c01     mov ecx, 0x11cc5a8
+       |    0x0062f965      e8f693ddff     call 0x408d60
+       |    0x0062f96a      0fb608         movzx ecx, byte [eax]
+       |    0x0062f96d      85c9           test ecx, ecx
+       |,=< 0x0062f96f      7516           jne 0x62f987
+       ||   0x0062f971      8b4df0         mov ecx, dword [ebp - 0x10]
+       ||   0x0062f974      e8c72ae2ff     call 0x452440

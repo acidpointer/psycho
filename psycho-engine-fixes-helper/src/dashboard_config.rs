@@ -119,6 +119,8 @@ pub(crate) struct EditableConfig {
     pub fade_linked_owner_guard: bool,
     /// Restart-only unreadable native occlusion-plane containment.
     pub occlusion_link_guard: bool,
+    /// Restart-only unreadable scene-owner base-form containment.
+    pub scene_reference_owner_guard: bool,
 }
 
 impl Default for EditableConfig {
@@ -191,6 +193,7 @@ impl Default for EditableConfig {
             model_cache_keys: true,
             fade_linked_owner_guard: true,
             occlusion_link_guard: true,
+            scene_reference_owner_guard: true,
         }
     }
 }
@@ -580,6 +583,12 @@ impl EditableConfig {
                 "occlusion_link_guard",
                 defaults.occlusion_link_guard,
             ),
+            scene_reference_owner_guard: bool_or(
+                doc,
+                "engine_fixes",
+                "scene_reference_owner_guard",
+                defaults.scene_reference_owner_guard,
+            ),
         }
         .sanitized()
     }
@@ -859,6 +868,7 @@ fn write_document(doc: &mut DocumentMut, config: &EditableConfig) {
     engine!(model_cache_keys);
     engine!(fade_linked_owner_guard);
     engine!(occlusion_link_guard);
+    engine!(scene_reference_owner_guard);
 
     macro_rules! setting {
         ($section:literal, $key:literal, $field:ident) => {
@@ -1148,6 +1158,7 @@ mod_owned_key = "untouched"
         config.cell_render_reference_retirement_fix = !config.cell_render_reference_retirement_fix;
         config.linked_ref_children_stale_list_guard = !config.linked_ref_children_stale_list_guard;
         config.linked_ref_target_base_form_guard = !config.linked_ref_target_base_form_guard;
+        config.scene_reference_owner_guard = !config.scene_reference_owner_guard;
         config.ragdoll_null_bone_guard = !config.ragdoll_null_bone_guard;
         config.ragdoll_detached_phantom_guard = !config.ragdoll_detached_phantom_guard;
         config.havok_add_entity_batch_null_guard = !config.havok_add_entity_batch_null_guard;

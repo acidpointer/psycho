@@ -69,7 +69,7 @@ const RELOAD_ACTIVE: [f32; 4] = [0.82, 0.51, 0.12, 1.0];
 
 const HOVER_HELP_HINT: &str = "Hover any setting for a short, plain-language explanation.";
 
-const ENGINE_FIX_HELP: [(&str, &str); 28] = [
+const ENGINE_FIX_HELP: [(&str, &str); 29] = [
     (
         "Fullscreen / Alt-Tab fix",
         "Fixes broken fullscreen size, placement, and Alt-Tab behavior. Normal window handling stays unchanged.",
@@ -121,6 +121,10 @@ const ENGINE_FIX_HELP: [(&str, &str); 28] = [
     (
         "Object fading guard",
         "Skips unreadable actor links during object fading instead of crashing. Normal fading is unchanged.",
+    ),
+    (
+        "Scene owner guard",
+        "Skips unreadable object links during physics lookups instead of crashing. Valid links are unchanged.",
     ),
     (
         "Occlusion link guard",
@@ -2308,6 +2312,7 @@ fn draw_configuration(ui: &mut Ui<'_>, editor: &mut ConfigEditor, pending_reload
         &mut config.linked_ref_children_stale_list_guard,
         &mut config.linked_ref_target_base_form_guard,
         &mut config.fade_linked_owner_guard,
+        &mut config.scene_reference_owner_guard,
         &mut config.occlusion_link_guard,
         &mut config.ragdoll_null_bone_guard,
         &mut config.ragdoll_detached_phantom_guard,
@@ -2567,8 +2572,8 @@ fn engine_fix_group(index: usize) -> Option<&'static str> {
     match index {
         0 => Some("Display and saves"),
         4 => Some("Actors and world"),
-        14 => Some("Physics"),
-        21 => Some("Memory and tasks"),
+        15 => Some("Physics"),
+        22 => Some("Memory and tasks"),
         _ => None,
     }
 }
@@ -3047,7 +3052,7 @@ mod tests {
 
     #[test]
     fn every_engine_fix_has_concise_unique_hover_help() {
-        assert_eq!(ENGINE_FIX_HELP.len(), 28);
+        assert_eq!(ENGINE_FIX_HELP.len(), 29);
         for (index, expected) in [
             (0, "Fullscreen / Alt-Tab fix"),
             (1, "Save file integrity"),
@@ -3061,28 +3066,28 @@ mod tests {
             (9, "Cell cleanup fix"),
             (10, "Linked-reference cleanup"),
             (11, "Linked-reference target guard"),
-            (14, "Ragdoll bone guard"),
-            (15, "Ragdoll raycast guard"),
-            (16, "Physics add-batch guard"),
-            (17, "Physics pending-add guard"),
-            (18, "Physics collision-pair guard"),
-            (19, "Physics callback guard"),
-            (20, "Physics unlock guard"),
-            (21, "Out-of-memory write guard"),
-            (22, "Actor location-list guard"),
-            (23, "Model load serialization"),
-            (25, "Queued-task guard"),
-            (26, "Texture cache guard"),
-            (27, "Tile cleanup guard"),
+            (15, "Ragdoll bone guard"),
+            (16, "Ragdoll raycast guard"),
+            (17, "Physics add-batch guard"),
+            (18, "Physics pending-add guard"),
+            (19, "Physics collision-pair guard"),
+            (20, "Physics callback guard"),
+            (21, "Physics unlock guard"),
+            (22, "Out-of-memory write guard"),
+            (23, "Actor location-list guard"),
+            (24, "Model load serialization"),
+            (26, "Queued-task guard"),
+            (27, "Texture cache guard"),
+            (28, "Tile cleanup guard"),
         ] {
             assert_eq!(ENGINE_FIX_HELP[index].0, expected);
         }
         assert_eq!(engine_fix_group(0), Some("Display and saves"));
         assert_eq!(engine_fix_group(4), Some("Actors and world"));
-        assert_eq!(engine_fix_group(14), Some("Physics"));
-        assert_eq!(engine_fix_group(21), Some("Memory and tasks"));
+        assert_eq!(engine_fix_group(15), Some("Physics"));
+        assert_eq!(engine_fix_group(22), Some("Memory and tasks"));
         assert_eq!(engine_fix_group(1), None);
-        assert_eq!(engine_fix_group(24), None);
+        assert_eq!(engine_fix_group(25), None);
         let mut labels = std::collections::BTreeSet::new();
         for (label, help) in ENGINE_FIX_HELP {
             assert!(!label.trim().is_empty());

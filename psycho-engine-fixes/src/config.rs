@@ -472,6 +472,8 @@ pub struct EngineFixesConfig {
     pub fade_linked_owner_guard: bool,
     /// Omit native clipping contributions with unreadable plane inputs.
     pub occlusion_link_guard: bool,
+    /// Return no scene reference when its owner base-form reads are inaccessible.
+    pub scene_reference_owner_guard: bool,
 }
 
 impl Default for EngineFixesConfig {
@@ -510,6 +512,7 @@ impl Default for EngineFixesConfig {
             model_cache_keys: true,
             fade_linked_owner_guard: true,
             occlusion_link_guard: true,
+            scene_reference_owner_guard: true,
         }
     }
 }
@@ -622,6 +625,9 @@ impl EngineFixesConfig {
             occlusion_link_guard: raw
                 .occlusion_link_guard
                 .unwrap_or(default.occlusion_link_guard),
+            scene_reference_owner_guard: raw
+                .scene_reference_owner_guard
+                .unwrap_or(default.scene_reference_owner_guard),
         }
     }
 }
@@ -756,6 +762,7 @@ struct RawEngineFixesConfig {
     model_cache_keys: Option<bool>,
     fade_linked_owner_guard: Option<bool>,
     occlusion_link_guard: Option<bool>,
+    scene_reference_owner_guard: Option<bool>,
 }
 
 #[derive(Default, Deserialize)]
@@ -899,6 +906,16 @@ actor_container_retirement_guard = false
 
         assert!(default.engine_fixes.actor_container_retirement_guard);
         assert!(!disabled.engine_fixes.actor_container_retirement_guard);
+    }
+
+    #[test]
+    fn scene_reference_guard_defaults_on_and_honors_explicit_disable() {
+        let default: PsychoConfig = toml::from_str("").expect("parse default configuration");
+        let disabled: PsychoConfig =
+            toml::from_str("[engine_fixes]\nscene_reference_owner_guard = false\n")
+                .expect("parse scene-reference setting");
+        assert!(default.engine_fixes.scene_reference_owner_guard);
+        assert!(!disabled.engine_fixes.scene_reference_owner_guard);
     }
 
     #[test]

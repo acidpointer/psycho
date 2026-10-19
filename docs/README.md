@@ -143,6 +143,7 @@ not current policy unless a newer contract links to them.
 | [`crash_20261018_occlusion_link_plan.md`](crash_20261018_occlusion_link_plan.md) | Native occlusion linked-plane guard; upstream writer unresolved | plan/research |
 | [`crash_20261019_vault108_fade_owner_plan.md`](crash_20261019_vault108_fade_owner_plan.md) | Vault 108 invalid fade-node owner investigation and containment | plan/research |
 | [`crash_20261019_teleport_door_null_base_plan.md`](crash_20261019_teleport_door_null_base_plan.md) | Teleport-door null-base crash investigation and fix plan | plan/research |
+| [`crash_20261020_corvega_exit_scene_owner_plan.md`](crash_20261020_corvega_exit_scene_owner_plan.md) | Corvega exit invalid scene-owner base-form read and fix plan | plan/research |
 
 ## Plans, research, and remaining references
 

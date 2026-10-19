@@ -510,12 +510,17 @@ full restart:
 | **Model cache guard** | `model_cache_keys` |
 | **Object fading guard** | `fade_linked_owner_guard` |
 | **Occlusion link guard** | `occlusion_link_guard` |
+| **Scene owner guard** | `scene_reference_owner_guard` |
 
-Missing keys retain the previously unconditional protection. A false value
+Missing keys use the default-on protection. A false value
 skips that core installer before any hook preparation or code changes. The
 helper only edits the next-launch TOML; it never toggles installed hooks or
 changes the diagnostics ABI. Existing configuration fields retain their order
-and types, with the three booleans appended to the core and helper settings.
+and types, with the booleans appended to the core and helper settings.
+
+The scene-owner guard rejects unreadable reference data during native physics
+lookups. Its incident, admission contract and runtime acceptance are recorded
+in `crash_20261020_corvega_exit_scene_owner_plan.md`.
 
 The **Performance** section exposes every shipped `[performance]` optimization
 switch, including light-score reuse, sequential scene-light scanning, the

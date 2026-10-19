@@ -36,6 +36,7 @@ mod pixel_texture_failure;
 mod queued_tasks;
 mod ragdoll;
 mod save_integrity;
+mod scene_reference_owner_guard;
 mod source_texture_cache_guard;
 mod statics;
 mod tile_value_integrity;
@@ -208,6 +209,7 @@ pub fn install(
     install_lowprocess_fix(config)?;
     install_model_cache_keys(config)?;
     install_fade_linked_owner_guard(config)?;
+    install_scene_reference_owner_guard(config);
     install_occlusion_link_guard(config)?;
     let model_postprocess_ready = install_model_postprocess_fix(config);
     install_queued_task_guard(config, diagnostics)?;
@@ -1174,6 +1176,21 @@ fn install_fade_linked_owner_guard(config: &EngineFixesConfig) -> anyhow::Result
     fade_linked_owner_guard::install()?;
     log::info!("[FADE_OWNER] Guard active: uses neutral alpha when a linked owner cannot be read");
     Ok(())
+}
+
+fn install_scene_reference_owner_guard(config: &EngineFixesConfig) {
+    if !config.scene_reference_owner_guard {
+        log::info!("[SCENE_OWNER] Scene reference guard disabled by config");
+        return;
+    }
+    match scene_reference_owner_guard::install() {
+        Ok(()) => log::info!(
+            "[SCENE_OWNER] Guard active: returns no reference when scene-owner data cannot be read"
+        ),
+        Err(err) => {
+            log::warn!("[SCENE_OWNER] Guard unavailable; other engine fixes continue: {err:#}")
+        }
+    }
 }
 
 fn install_occlusion_link_guard(config: &EngineFixesConfig) -> anyhow::Result<()> {

@@ -1,0 +1,70 @@
+Psycho crash research evidence
+UTC: 2026-10-19T22:23:38.056464+00:00
+Interface: radare2 CLI; targeted MCP disassembly used during inspection
+radare2 6.2.2 +37485 abi:142 @ linux-x86_64
+Binary: /data/storage0/Games/FalloutNV_TTW/mods/Stewie Tweaks/NVSE/plugins/nvse_stewie_tweaks.dll
+Command argv: ["r2", "-q", "-e", "scr.color=0", "-e", "scr.utf8=false", "-e", "asm.bytes=true", "-e", "bin.relocs.apply=true", "-c", "pd 25 @ 0x10033430", "-c", "pd 34 @ 0x10006ad0", "-c", "p8 105 @ 0x100f8b80", "-c", "q", "/data/storage0/Games/FalloutNV_TTW/mods/Stewie Tweaks/NVSE/plugins/nvse_stewie_tweaks.dll"]
+Warnings are retained below.
+Scope: fault consumer, caller ABI and continuation; no runtime memory dump or invalidating-write trace.
+This file is not patch authority.
+Preferred module base 0x10000000. CrashLogger loaded module base 0x0A6D0000. Source cross-check: .research/Stewie Tweaks 10.00 Source/code/Features/Inlines/Scripts.cpp:375-410, 475-483. Exact 105-byte blob matches installed file offset 0xF7180, RVA 0xF8B80. Copy call: target 0x0056F930, source preferred VA 0x100F8B80, count 0x69.
+            0x10033430      b890444800     mov eax, 0x484490
+            0x10033435      8bce           mov ecx, esi
+            0x10033437      ffd0           call eax
+            0x10033439      bae0320310     mov edx, 0x100332e0
+            0x1003343e      8935b4af0f10   mov dword [0x100fafb4], esi ; [0x100fafb4:4]=0
+            0x10033444      b90c6d0401     mov ecx, 0x1046d0c
+            0x10033449      e85236fdff     call 0x10006aa0
+            0x1003344e      6a69           push 0x69                   ; 'i' ; 105
+            0x10033450      ba808b0f10     mov edx, 0x100f8b80
+            0x10033455      b930f95600     mov ecx, 0x56f930
+            0x1003345a      e87136fdff     call 0x10006ad0
+            0x1003345f      baf0330310     mov edx, 0x100333f0
+            0x10033464      b948a55500     mov ecx, 0x55a548
+            0x10033469      e8e236fdff     call 0x10006b50
+            0x1003346e      ff742414       push dword [esp + 0x14]
+            0x10033472      8bd7           mov edx, edi
+            0x10033474      8bcb           mov ecx, ebx
+            0x10033476      ff742414       push dword [esp + 0x14]
+            0x1003347a      e861feffff     call 0x100332e0
+            0x1003347f      5f             pop edi
+            0x10033480      5e             pop esi
+            0x10033481      5b             pop ebx
+            0x10033482      c20800         ret 8
+            0x10033485      cc             int3
+            0x10033486      cc             int3
+            0x10006ad0      51             push ecx
+            0x10006ad1      53             push ebx
+            0x10006ad2      8b5c240c       mov ebx, dword [esp + 0xc]
+            0x10006ad6      8d442404       lea eax, [esp + 4]
+            0x10006ada      55             push ebp
+            0x10006adb      56             push esi
+            0x10006adc      50             push eax
+            0x10006add      6a40           push 0x40                   ; '@' ; 64
+            0x10006adf      8be9           mov ebp, ecx
+            0x10006ae1      8bf2           mov esi, edx
+            0x10006ae3      53             push ebx
+            0x10006ae4      55             push ebp
+            0x10006ae5      ff1510a10b10   call dword [sym.imp.KERNEL32.dll_VirtualProtect] ; 0x100ba110 ; BOOL VirtualProtect(LPVOID lpAddress, SIZE_T dwSize, DWORD flNewProtect, PDWORD lpflOldProtect)
+            0x10006aeb      53             push ebx
+            0x10006aec      56             push esi
+            0x10006aed      55             push ebp
+            0x10006aee      e87da40800     call 0x10090f70
+            0x10006af3      83c40c         add esp, 0xc
+            0x10006af6      8d44240c       lea eax, [esp + 0xc]
+            0x10006afa      50             push eax
+            0x10006afb      ff742410       push dword [esp + 0x10]
+            0x10006aff      53             push ebx
+            0x10006b00      55             push ebp
+            0x10006b01      ff1510a10b10   call dword [sym.imp.KERNEL32.dll_VirtualProtect] ; 0x100ba110 ; BOOL VirtualProtect(LPVOID lpAddress, SIZE_T dwSize, DWORD flNewProtect, PDWORD lpflOldProtect)
+            0x10006b07      5e             pop esi
+            0x10006b08      5d             pop ebp
+            0x10006b09      5b             pop ebx
+            0x10006b0a      59             pop ecx
+            0x10006b0b      c20400         ret 4
+            0x10006b0e      cc             int3
+            0x10006b0f      cc             int3
+            0x10006b10      51             push ecx
+            0x10006b11      53             push ebx
+            0x10006b12      57             push edi
+a13cea1d0153568b74240c8b98940600005733ff85f674203bf374448b068bceff501085c0740a8bb8cc00000085ff750d8b761885f675e08bc75f5e5bc38b472085c074f38078042975edff7618e8adffffff83c40485c075e08bc75f5e5bc3a13cea1d015f5e5bc3

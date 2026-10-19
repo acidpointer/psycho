@@ -1,0 +1,428 @@
+Psycho crash research evidence
+UTC: 2026-10-19T22:23:37.953898+00:00
+Interface: radare2 CLI; targeted MCP disassembly used during inspection
+radare2 6.2.2 +37485 abi:142 @ linux-x86_64
+Binary: /data/storage1/Workspace/psycho/fnv_reverse/FalloutNV.exe
+SHA-256: 42fee7d6cd74e801372aa89c8f71c974cebd3c20ec9ad43d1465b8fa9646b49c
+Command argv: ["r2", "-q", "-e", "scr.color=0", "-e", "scr.utf8=false", "-e", "asm.bytes=true", "-e", "bin.relocs.apply=true", "-c", "iI", "-c", "s 0x0056f930", "-c", "af", "-c", "pdf", "-c", "pdg", "-c", "s 0x0062b4e0", "-c", "af", "-c", "pdf", "-c", "pdg", "-c", "s 0x0061f630", "-c", "af", "-c", "pdf", "-c", "pdg", "-c", "s 0x00460140", "-c", "af", "-c", "pdf", "-c", "s 0x00c7fa90", "-c", "af", "-c", "pdf", "-c", "pdg", "-c", "pxw 32 @ 0x0104d8e8", "-c", "pd 18 @ 0x00d005f4", "-c", "p8 21 @ 0x0062b502", "-c", "aar", "-c", "axtj 0x0056f930", "-c", "axtj 0x0062b4e0", "-c", "axtj 0x0061f630", "-c", "q", "/data/storage1/Workspace/psycho/fnv_reverse/FalloutNV.exe"]
+Warnings are retained below.
+Scope: fault consumer, caller ABI and continuation; no runtime memory dump or invalidating-write trace.
+This file is not patch authority.
+Transcript formatting: trailing whitespace removed; unmodified capture: .reports/20261020-corvega-node-unload/raw-radare2/crash_20261020_corvega_native_contract.txt
+Executable matches the installed executable. The original 0x0056F930 body is NOT the incident body; use installed-lookup evidence for that address.
+WARN: Invalid certificate table
+arch     x86
+baddr    0x400000
+binsz    16084808
+bintype  pe
+bits     32
+canary   true
+injprot  false
+retguard false
+class    PE32
+cmp.csum 0x00f64bd0
+compiled Fri Jul  1 07:45:33 2011
+crypto   false
+dbg_file D:\_Fallout3\Platforms\Common\build\win32\FalloutNV.pdb
+endian   little
+havecode true
+hdr.csum 0x00f64bd0
+guid     9196089162EE4D29BF48E8D767B32DB91
+laddr    0x0
+lang     c
+linenum  false
+lsyms    false
+machine  i386
+nx       false
+os       windows
+overlay  true
+cc       cdecl
+pic      false
+relocs   false
+signed   false
+sanitize false
+static   false
+stripped false
+uncaps   false
+subsys   Windows GUI
+va       true
+            ; CALL XREF from fcn.0056f930 @ 0x56f9cc(x)
+/ 204: fcn.0056f930 (int32_t arg_8h);
+| `- args(sp[0x4..0x4]) vars(5:sp[0x8..0x18])
+|           0x0056f930      55             push ebp
+|           0x0056f931      8bec           mov ebp, esp
+|           0x0056f933      83ec14         sub esp, 0x14
+|           0x0056f936      8b4508         mov eax, dword [arg_8h]
+|           0x0056f939      8945fc         mov dword [var_4h], eax
+|           0x0056f93c      c745f80000..   mov dword [var_8h], 0
+|           0x0056f943      c745f40000..   mov dword [var_ch], 0
+|           0x0056f94a      833d3cea1d..   cmp dword [0x11dea3c], 0    ; [0x11dea3c:4]=0
+|       ,=< 0x0056f951      7410           je 0x56f963
+|       |   0x0056f953      6a01           push 1                      ; 1
+|       |   0x0056f955      8b0d3cea1d01   mov ecx, dword [0x11dea3c]  ; [0x11dea3c:4]=0
+|       |   0x0056f95b      e850123e00     call 0x950bb0
+|       |   0x0056f960      8945f4         mov dword [var_ch], eax
+|       |   ; CODE XREF from fcn.0056f930 @ 0x56f9f0(x)
+|      .`-> 0x0056f963      837dfc00       cmp dword [var_4h], 0
+|      :,=< 0x0056f967      0f8488000000   je 0x56f9f5
+|      :|   0x0056f96d      8b4dfc         mov ecx, dword [var_4h]
+|      :|   0x0056f970      3b4df4         cmp ecx, dword [var_ch]
+|     ,===< 0x0056f973      7507           jne 0x56f97c
+|     |:|   0x0056f975      a13cea1d01     mov eax, dword [0x11dea3c]  ; [0x11dea3c:4]=0
+|    ,====< 0x0056f97a      eb7c           jmp 0x56f9f8
+|    |`---> 0x0056f97c      8b55fc         mov edx, dword [var_4h]
+|    | :|   0x0056f97f      8b02           mov eax, dword [edx]
+|    | :|   0x0056f981      8b4dfc         mov ecx, dword [var_4h]
+|    | :|   0x0056f984      8b5010         mov edx, dword [eax + 0x10]
+|    | :|   0x0056f987      ffd2           call edx
+|    | :|   0x0056f989      8945f0         mov dword [var_10h], eax
+|    | :|   0x0056f98c      837df000       cmp dword [var_10h], 0
+|    |,===< 0x0056f990      7453           je 0x56f9e5
+|    ||:|   0x0056f992      8b4df0         mov ecx, dword [var_10h]
+|    ||:|   0x0056f995      e876dc4300     call 0x9ad610
+|    ||:|   0x0056f99a      8945f8         mov dword [var_8h], eax
+|    ||:|   0x0056f99d      837df800       cmp dword [var_8h], 0
+|   ,=====< 0x0056f9a1      7442           je 0x56f9e5
+|   |||:|   0x0056f9a3      8b4df8         mov ecx, dword [var_8h]
+|   |||:|   0x0056f9a6      e885fa2300     call 0x7af430
+|   |||:|   0x0056f9ab      85c0           test eax, eax
+|  ,======< 0x0056f9ad      7434           je 0x56f9e3
+|  ||||:|   0x0056f9af      8b4df8         mov ecx, dword [var_8h]
+|  ||||:|   0x0056f9b2      e879fa2300     call 0x7af430
+|  ||||:|   0x0056f9b7      8bc8           mov ecx, eax
+|  ||||:|   0x0056f9b9      e8b217e9ff     call 0x401170
+|  ||||:|   0x0056f9be      83f829         cmp eax, 0x29               ; ')' ; 41
+| ,=======< 0x0056f9c1      7520           jne 0x56f9e3
+| |||||:|   0x0056f9c3      8b4dfc         mov ecx, dword [var_4h]
+| |||||:|   0x0056f9c6      e815183f00     call 0x9611e0
+| |||||:|   0x0056f9cb      50             push eax
+| |||||:|   0x0056f9cc      e85fffffff     call fcn.0056f930
+| |||||:|   0x0056f9d1      83c404         add esp, 4
+| |||||:|   0x0056f9d4      8945ec         mov dword [var_14h], eax
+| |||||:|   0x0056f9d7      837dec00       cmp dword [var_14h], 0
+| ========< 0x0056f9db      7406           je 0x56f9e3
+| |||||:|   0x0056f9dd      8b45ec         mov eax, dword [var_14h]
+| |||||:|   0x0056f9e0      8945f8         mov dword [var_8h], eax
+| ``------> 0x0056f9e3      eb10           jmp 0x56f9f5
+|   `-`---> 0x0056f9e5      8b4dfc         mov ecx, dword [var_4h]
+|    | :|   0x0056f9e8      e8f3173f00     call 0x9611e0
+|    | :|   0x0056f9ed      8945fc         mov dword [var_4h], eax
+|    | `==< 0x0056f9f0      e96effffff     jmp 0x56f963
+|    |  |   ; CODE XREF from fcn.0056f930 @ 0x56f9e3(x)
+| ------`-> 0x0056f9f5      8b45f8         mov eax, dword [var_8h]
+|    |      ; CODE XREF from fcn.0056f930 @ 0x56f97a(x)
+|    `----> 0x0056f9f8      8be5           mov esp, ebp
+|           0x0056f9fa      5d             pop ebp
+\           0x0056f9fb      c3             ret
+
+int32_t __cdecl fcn.0056f930(int32_t arg_8h)
+
+{
+    int iVar1;
+    int32_t arg_8h_00;
+    int32_t var_14h;
+    int32_t var_10h;
+    int32_t var_ch;
+    int32_t var_8h;
+    int32_t var_4h;
+
+    var_4h = arg_8h;
+    var_8h = 0;
+    var_ch = 0;
+    if (*0x11dea3c != 0) {
+        var_ch = func_0x00950bb0(1);
+    }
+    while( true ) {
+        if (var_4h == 0) {
+            return var_8h;
+        }
+        if (var_4h == var_ch) {
+            return *0x11dea3c;
+        }
+        iVar1 = (**(*var_4h + 0x10))();
+        if ((iVar1 != 0) && (var_8h = func_0x009ad610(), var_8h != 0)) break;
+        var_4h = func_0x009611e0();
+    }
+    iVar1 = func_0x007af430();
+    if (iVar1 == 0) {
+        return var_8h;
+    }
+    func_0x007af430();
+    iVar1 = func_0x00401170();
+    if (iVar1 != 0x29) {
+        return var_8h;
+    }
+    arg_8h_00 = func_0x009611e0();
+    iVar1 = fcn.0056f930(arg_8h_00);
+    if (iVar1 == 0) {
+        return var_8h;
+    }
+    return iVar1;
+}
+
+/ 62: fcn.0062b4e0 (int32_t arg_8h);
+| `- args(sp[0x4..0x4]) vars(2:sp[0x8..0xc])
+|           0x0062b4e0      55             push ebp
+|           0x0062b4e1      8bec           mov ebp, esp
+|           0x0062b4e3      83ec08         sub esp, 8
+|           0x0062b4e6      c745fc0000..   mov dword [var_4h], 0
+|           0x0062b4ed      837d0800       cmp dword [arg_8h], 0
+|       ,=< 0x0062b4f1      7424           je 0x62b517
+|       |   0x0062b4f3      8b4508         mov eax, dword [arg_8h]
+|       |   0x0062b4f6      50             push eax
+|       |   0x0062b4f7      e894456500     call fcn.00c7fa90
+|       |   0x0062b4fc      83c404         add esp, 4
+|       |   0x0062b4ff      8945f8         mov dword [var_8h], eax
+|       |   0x0062b502      837df800       cmp dword [var_8h], 0
+|      ,==< 0x0062b506      740f           je 0x62b517
+|      ||   0x0062b508      8b4df8         mov ecx, dword [var_8h]
+|      ||   0x0062b50b      51             push ecx
+|      ||   0x0062b50c      e81f44f4ff     call fcn.0056f930
+|      ||   0x0062b511      83c404         add esp, 4
+|      ||   0x0062b514      8945fc         mov dword [var_4h], eax
+|      ``-> 0x0062b517      8b45fc         mov eax, dword [var_4h]
+|           0x0062b51a      8be5           mov esp, ebp
+|           0x0062b51c      5d             pop ebp
+\           0x0062b51d      c3             ret
+
+int32_t __cdecl fcn.0062b4e0(int32_t arg_8h)
+
+{
+    int arg_8h_00;
+    int32_t var_8h;
+    int32_t var_4h;
+
+    var_4h = 0;
+    if (arg_8h != 0) {
+        arg_8h_00 = fcn.00c7fa90(arg_8h);
+        if (arg_8h_00 != 0) {
+            var_4h = fcn.0056f930(arg_8h_00);
+        }
+    }
+    return var_4h;
+}
+
+/ 131: fcn.0061f630 (int32_t arg_8h);
+| `- args(sp[0x4..0x4]) vars(2:sp[0x8..0xc])
+|           0x0061f630      55             push ebp
+|           0x0061f631      8bec           mov ebp, esp
+|           0x0061f633      83ec08         sub esp, 8
+|           0x0061f636      56             push esi
+|           0x0061f637      894df8         mov dword [var_8h], ecx
+|           0x0061f63a      833d3cea1d..   cmp dword [0x11dea3c], 0    ; [0x11dea3c:4]=0
+|       ,=< 0x0061f641      7502           jne 0x61f645
+|      ,==< 0x0061f643      eb67           jmp 0x61f6ac
+|      |`-> 0x0061f645      8b0d3cea1d01   mov ecx, dword [0x11dea3c]  ; [0x11dea3c:4]=0
+|      |    0x0061f64b      e810b9ecff     call 0x4eaf60
+|      |    0x0061f650      0fb6c0         movzx eax, al
+|      |    0x0061f653      85c0           test eax, eax
+|      |,=< 0x0061f655      742c           je 0x61f683
+|      ||   0x0061f657      8b4d08         mov ecx, dword [arg_8h]
+|      ||   0x0061f65a      e8e10ae4ff     call 0x460140
+|      ||   0x0061f65f      8bf0           mov esi, eax
+|      ||   0x0061f661      8b0d3cea1d01   mov ecx, dword [0x11dea3c]  ; [0x11dea3c:4]=0
+|      ||   0x0061f667      e854000000     call 0x61f6c0
+|      ||   0x0061f66c      8bc8           mov ecx, eax
+|      ||   0x0061f66e      e8edbee1ff     call 0x43b560
+|      ||   0x0061f673      3bf0           cmp esi, eax
+|     ,===< 0x0061f675      750a           jne 0x61f681
+|     |||   0x0061f677      6a00           push 0
+|     |||   0x0061f679      e8f2f42000     call 0x82eb70
+|     |||   0x0061f67e      83c404         add esp, 4
+|    ,`---> 0x0061f681      eb29           jmp 0x61f6ac
+|    | |`-> 0x0061f683      8b4d08         mov ecx, dword [arg_8h]
+|    | |    0x0061f686      e8b50ae4ff     call 0x460140
+|    | |    0x0061f68b      50             push eax
+|    | |    0x0061f68c      e84fbe0000     call fcn.0062b4e0
+|    | |    0x0061f691      83c404         add esp, 4
+|    | |    0x0061f694      8945fc         mov dword [var_4h], eax
+|    | |    0x0061f697      8b4dfc         mov ecx, dword [var_4h]
+|    | |    0x0061f69a      3b0d3cea1d01   cmp ecx, dword [0x11dea3c]  ; [0x11dea3c:4]=0
+|    | |,=< 0x0061f6a0      750a           jne 0x61f6ac
+|    | ||   0x0061f6a2      6a00           push 0
+|    | ||   0x0061f6a4      e8c7f42000     call 0x82eb70
+|    | ||   0x0061f6a9      83c404         add esp, 4
+|    | ||   ; CODE XREFS from fcn.0061f630 @ 0x61f643(x), 0x61f681(x)
+|    `-``-> 0x0061f6ac      5e             pop esi
+|           0x0061f6ad      8be5           mov esp, ebp
+|           0x0061f6af      5d             pop ebp
+\           0x0061f6b0      c20400         ret 4
+
+void __cdecl fcn.0061f630(int32_t arg_8h)
+
+{
+    char cVar1;
+    int iVar2;
+    int iVar3;
+    int32_t arg_8h_00;
+    int32_t var_8h;
+    int32_t var_4h;
+
+    if (*0x11dea3c != 0) {
+        cVar1 = func_0x004eaf60();
+        if (cVar1 == '\0') {
+            arg_8h_00 = func_0x00460140();
+            iVar2 = fcn.0062b4e0(arg_8h_00);
+            if (iVar2 == *0x11dea3c) {
+                func_0x0082eb70(0);
+            }
+        }
+        else {
+            iVar2 = func_0x00460140();
+            func_0x0061f6c0();
+            iVar3 = func_0x0043b560();
+            if (iVar2 == iVar3) {
+                func_0x0082eb70(0);
+            }
+        }
+    }
+    return;
+}
+
+            ; CALL XREFS from fcn.0061f630 @ 0x61f65a(x), 0x61f686(x)
+/ 17: fcn.00460140 ();
+| afv: vars(1:sp[0x8..0x8])
+|           0x00460140      55             push ebp
+|           0x00460141      8bec           mov ebp, esp
+|           0x00460143      51             push ecx
+|           0x00460144      894dfc         mov dword [var_4h], ecx
+|           0x00460147      8b45fc         mov eax, dword [var_4h]
+|           0x0046014a      83c010         add eax, 0x10               ; 16
+|           0x0046014d      8be5           mov esp, ebp
+|           0x0046014f      5d             pop ebp
+\           0x00460150      c3             ret
+            ; CALL XREF from fcn.0062b4e0 @ 0x62b4f7(x)
+/ 142: fcn.00c7fa90 (int32_t arg_4h);
+| `- args(sp[0x4..0x4]) vars(1:sp[0x8..0x8])
+|           0x00c7fa90      8b4c2404       mov ecx, dword [arg_4h]
+|           0x00c7fa94      8a5118         mov dl, byte [ecx + 0x18]
+|           0x00c7fa97      83ec08         sub esp, 8
+|           0x00c7fa9a      57             push edi
+|           0x00c7fa9b      33ff           xor edi, edi
+|           0x00c7fa9d      80fa01         cmp dl, 1                   ; 1
+|       ,=< 0x00c7faa0      7529           jne 0xc7facb
+|       |   0x00c7faa2      0fbe4110       movsx eax, byte [ecx + 0x10]
+|       |   0x00c7faa6      03c1           add eax, ecx
+|      ,==< 0x00c7faa8      7421           je 0xc7facb
+|      ||   0x00c7faaa      68707b2601     push 0x1267b70
+|      ||   0x00c7faaf      50             push eax
+|      ||   0x00c7fab0      8d44240c       lea eax, [var_ch]
+|      ||   0x00c7fab4      50             push eax
+|      ||   0x00c7fab5      e836640000     call fcn.00c85ef0
+|      ||   0x00c7faba      8b00           mov eax, dword [eax]
+|      ||   0x00c7fabc      83c40c         add esp, 0xc
+|      ||   0x00c7fabf      85c0           test eax, eax
+|     ,===< 0x00c7fac1      7454           je 0xc7fb17
+|     |||   0x00c7fac3      8b4008         mov eax, dword [eax + 8]
+|     |||   0x00c7fac6      5f             pop edi
+|     |||   0x00c7fac7      83c408         add esp, 8
+|     |||   0x00c7faca      c3             ret
+|     |``-> 0x00c7facb      80fa02         cmp dl, 2                   ; 2
+|     | ,=< 0x00c7face      7547           jne 0xc7fb17
+|     | |   0x00c7fad0      56             push esi
+|     | |   0x00c7fad1      0fbe7110       movsx esi, byte [ecx + 0x10]
+|     | |   0x00c7fad5      03f1           add esi, ecx
+|     |,==< 0x00c7fad7      7436           je 0xc7fb0f
+|     |||   0x00c7fad9      68707b2601     push 0x1267b70
+|     |||   0x00c7fade      8d4c240c       lea ecx, [var_ch]
+|     |||   0x00c7fae2      56             push esi
+|     |||   0x00c7fae3      51             push ecx
+|     |||   0x00c7fae4      e807640000     call fcn.00c85ef0
+|     |||   0x00c7fae9      8b00           mov eax, dword [eax]
+|     |||   0x00c7faeb      83c40c         add esp, 0xc
+|     |||   0x00c7faee      85c0           test eax, eax
+|    ,====< 0x00c7faf0      7409           je 0xc7fafb
+|    ||||   0x00c7faf2      8b4008         mov eax, dword [eax + 8]
+|    ||||   0x00c7faf5      5e             pop esi
+|    ||||   0x00c7faf6      5f             pop edi
+|    ||||   0x00c7faf7      83c408         add esp, 8
+|    ||||   0x00c7fafa      c3             ret
+|    `----> 0x00c7fafb      8b4e0c         mov ecx, dword [esi + 0xc]
+|     |||   0x00c7fafe      85c9           test ecx, ecx
+|    ,====< 0x00c7fb00      740d           je 0xc7fb0f
+|    ||||   0x00c7fb02      6a00           push 0
+|    ||||   0x00c7fb04      e877610000     call fcn.00c85c80
+|    ||||   0x00c7fb09      5e             pop esi
+|    ||||   0x00c7fb0a      5f             pop edi
+|    ||||   0x00c7fb0b      83c408         add esp, 8
+|    ||||   0x00c7fb0e      c3             ret
+|    `-`--> 0x00c7fb0f      5e             pop esi
+|     | |   0x00c7fb10      8bc7           mov eax, edi
+|     | |   0x00c7fb12      5f             pop edi
+|     | |   0x00c7fb13      83c408         add esp, 8
+|     | |   0x00c7fb16      c3             ret
+|     `-`-> 0x00c7fb17      8bc7           mov eax, edi
+|           0x00c7fb19      5f             pop edi
+|           0x00c7fb1a      83c408         add esp, 8
+\           0x00c7fb1d      c3             ret
+
+uint fcn.00c7fa90(int param_1)
+
+{
+    int iVar1;
+    int *piVar2;
+    uint uVar3;
+    uchar auStack_8 [8];
+
+    if ((*(param_1 + 0x18) == '\x01') && (iVar1 = *(param_1 + 0x10) + param_1, iVar1 != 0)) {
+        piVar2 = fcn.00c85ef0(auStack_8,iVar1,0x1267b70);
+        if (*piVar2 != 0) {
+            return *(*piVar2 + 8);
+        }
+    }
+    else if (*(param_1 + 0x18) == '\x02') {
+        param_1 = *(param_1 + 0x10) + param_1;
+        if (param_1 != 0) {
+            piVar2 = fcn.00c85ef0(auStack_8,param_1,0x1267b70);
+            if (*piVar2 != 0) {
+                return *(*piVar2 + 8);
+            }
+            if (*(param_1 + 0xc) != 0) {
+                uVar3 = fcn.00c85c80(0);
+                return uVar3;
+            }
+        }
+        return 0;
+    }
+    return 0;
+}
+
+0x0104d8e8  0x0061f5a0 0x00c9a600 0x0061f630 0x0062d640  ..a.....0.a.@.b.
+0x0104d8f8  0x004534f0 0x00a89af0 0x0061f940 0x0061f6e0  .4E.....@.a...a.
+            0x00d005f4      8b06           mov eax, dword [esi]
+            0x00d005f6      8b0c98         mov ecx, dword [eax + ebx*4]
+            0x00d005f9      8b11           mov edx, dword [ecx]
+            0x00d005fb      8b44241c       mov eax, dword [esp + 0x1c]
+            0x00d005ff      8b5208         mov edx, dword [edx + 8]
+            0x00d00602      50             push eax
+            0x00d00603      ffd2           call edx
+            0x00d00605      a15c832601     mov eax, dword [0x126835c]  ; [0x126835c:4]=0
+            0x00d0060a      50             push eax
+            0x00d0060b      ffd5           call ebp
+            0x00d0060d      8bc8           mov ecx, eax
+            0x00d0060f      8b7904         mov edi, dword [ecx + 4]
+            0x00d00612      3b790c         cmp edi, dword [ecx + 0xc]
+        ,=< 0x00d00615      7319           jae 0xd00630
+        |   0x00d00617      c707f8410c01   mov dword [edi], 0x10c41f8  ; [0x10c41f8:4]=0x7445 ; "Et"
+        |   0x00d0061d      0f31           rdtsc
+        |   0x00d0061f      89442410       mov dword [esp + 0x10], eax
+        |   0x00d00623      8b542410       mov edx, dword [esp + 0x10]
+837df800740f8b4df851e81f44f4ff83c4048945fc
+[{"from":4855986,"type":"CALL","perm":"--x","opcode":"call fcn.0056f930","name":"fcn.00460140+268146","refname":"fcn.0056f930"},{"from":4863078,"type":"CALL","perm":"--x","opcode":"call fcn.0056f930","name":"fcn.00460140+275238","refname":"fcn.0056f930"},{"from":4907784,"type":"CALL","perm":"--x","opcode":"call fcn.0056f930","name":"fcn.00460140+319944","refname":"fcn.0056f930"},{"from":5345162,"type":"CALL","perm":"--x","opcode":"call fcn.0056f930","name":"fcn.00460140+757322","refname":"fcn.0056f930"},{"from":5549771,"type":"CALL","perm":"--x","opcode":"call fcn.0056f930","name":"fcn.00460140+961931","refname":"fcn.0056f930"},{"from":5579734,"type":"CALL","perm":"--x","opcode":"call fcn.0056f930","name":"fcn.00460140+991894","refname":"fcn.0056f930"},{"from":5580342,"type":"CALL","perm":"--x","opcode":"call fcn.0056f930","name":"fcn.00460140+992502","refname":"fcn.0056f930"},{"from":5589602,"type":"CALL","perm":"--x","opcode":"call fcn.0056f930","name":"fcn.00460140+1001762","refname":"fcn.0056f930"},{"from":5589820,"type":"CALL","perm":"--x","opcode":"call fcn.0056f930","name":"fcn.00460140+1001980","refname":"fcn.0056f930"},{"from":5601838,"type":"CALL","perm":"--x","opcode":"call fcn.0056f930","name":"fcn.00460140+1013998","refname":"fcn.0056f930"},{"from":5653371,"type":"CALL","perm":"--x","opcode":"call fcn.0056f930","name":"fcn.00460140+1065531","refname":"fcn.0056f930"},{"from":5700044,"type":"CALL","perm":"--x","opcode":"call fcn.0056f930","fcn_addr":5699888,"fcn_name":"fcn.0056f930","refname":"fcn.0056f930"},{"from":5727549,"type":"CALL","perm":"--x","opcode":"call fcn.0056f930","name":"fcn.0056f930+27661","refname":"fcn.0056f930"},{"from":5731433,"type":"CALL","perm":"--x","opcode":"call fcn.0056f930","name":"fcn.0056f930+31545","refname":"fcn.0056f930"},{"from":5885232,"type":"CALL","perm":"--x","opcode":"call fcn.0056f930","name":"fcn.0056f930+185344","refname":"fcn.0056f930"},{"from":6158525,"type":"CALL","perm":"--x","opcode":"call fcn.0056f930","name":"fcn.0056f930+458637","refname":"fcn.0056f930"},{"from":6423429,"type":"CALL","perm":"--x","opcode":"call fcn.0056f930","name":"fcn.0061f630+3413","refname":"fcn.0056f930"},{"from":6423444,"type":"CALL","perm":"--x","opcode":"call fcn.0056f930","name":"fcn.0061f630+3428","refname":"fcn.0056f930"},{"from":6426215,"type":"CALL","perm":"--x","opcode":"call fcn.0056f930","name":"fcn.0061f630+6199","refname":"fcn.0056f930"},{"from":6436619,"type":"CALL","perm":"--x","opcode":"call fcn.0056f930","name":"fcn.0061f630+16603","refname":"fcn.0056f930"},{"from":6438723,"type":"CALL","perm":"--x","opcode":"call fcn.0056f930","name":"fcn.0061f630+18707","refname":"fcn.0056f930"},{"from":6438842,"type":"CALL","perm":"--x","opcode":"call fcn.0056f930","name":"fcn.0061f630+18826","refname":"fcn.0056f930"},{"from":6439850,"type":"CALL","perm":"--x","opcode":"call fcn.0056f930","name":"fcn.0061f630+19834","refname":"fcn.0056f930"},{"from":6440157,"type":"CALL","perm":"--x","opcode":"call fcn.0056f930","name":"fcn.0061f630+20141","refname":"fcn.0056f930"},{"from":6440466,"type":"CALL","perm":"--x","opcode":"call fcn.0056f930","name":"fcn.0061f630+20450","refname":"fcn.0056f930"},{"from":6440905,"type":"CALL","perm":"--x","opcode":"call fcn.0056f930","name":"fcn.0061f630+20889","refname":"fcn.0056f930"},{"from":6464915,"type":"CALL","perm":"--x","opcode":"call fcn.0056f930","name":"fcn.0061f630+44899","refname":"fcn.0056f930"},{"from":6465299,"type":"CALL","perm":"--x","opcode":"call fcn.0056f930","name":"fcn.0061f630+45283","refname":"fcn.0056f930"},{"from":6468876,"type":"CALL","perm":"--x","opcode":"call fcn.0056f930","fcn_addr":6468832,"fcn_name":"fcn.0062b4e0","refname":"fcn.0056f930"},{"from":6496448,"type":"CALL","perm":"--x","opcode":"call fcn.0056f930","name":"fcn.0062b4e0+27616","refname":"fcn.0056f930"},{"from":6498236,"type":"CALL","perm":"--x","opcode":"call fcn.0056f930","name":"fcn.0062b4e0+29404","refname":"fcn.0056f930"},{"from":6498604,"type":"CALL","perm":"--x","opcode":"call fcn.0056f930","name":"fcn.0062b4e0+29772","refname":"fcn.0056f930"},{"from":7388958,"type":"CALL","perm":"--x","opcode":"call fcn.0056f930","name":"fcn.0062b4e0+920126","refname":"fcn.0056f930"},{"from":7389772,"type":"CALL","perm":"--x","opcode":"call fcn.0056f930","name":"fcn.0062b4e0+920940","refname":"fcn.0056f930"},{"from":7408064,"type":"CALL","perm":"--x","opcode":"call fcn.0056f930","name":"fcn.0062b4e0+939232","refname":"fcn.0056f930"},{"from":8349563,"type":"CALL","perm":"--x","opcode":"call fcn.0056f930","name":"fcn.0062b4e0+1880731","refname":"fcn.0056f930"},{"from":8351035,"type":"CALL","perm":"--x","opcode":"call fcn.0056f930","name":"fcn.0062b4e0+1882203","refname":"fcn.0056f930"},{"from":8419161,"type":"CALL","perm":"--x","opcode":"call fcn.0056f930","name":"fcn.0062b4e0+1950329","refname":"fcn.0056f930"},{"from":8472566,"type":"CALL","perm":"--x","opcode":"call fcn.0056f930","name":"fcn.0062b4e0+2003734","refname":"fcn.0056f930"},{"from":8515326,"type":"CALL","perm":"--x","opcode":"call fcn.0056f930","name":"fcn.0062b4e0+2046494","refname":"fcn.0056f930"},{"from":8896212,"type":"CALL","perm":"--x","opcode":"call fcn.0056f930","name":"fcn.0062b4e0+2427380","refname":"fcn.0056f930"},{"from":8897860,"type":"CALL","perm":"--x","opcode":"call fcn.0056f930","name":"fcn.0062b4e0+2429028","refname":"fcn.0056f930"},{"from":8962437,"type":"CALL","perm":"--x","opcode":"call fcn.0056f930","name":"fcn.0062b4e0+2493605","refname":"fcn.0056f930"},{"from":8974363,"type":"CALL","perm":"--x","opcode":"call fcn.0056f930","name":"fcn.0062b4e0+2505531","refname":"fcn.0056f930"},{"from":8976118,"type":"CALL","perm":"--x","opcode":"call fcn.0056f930","name":"fcn.0062b4e0+2507286","refname":"fcn.0056f930"},{"from":9030897,"type":"CALL","perm":"--x","opcode":"call fcn.0056f930","name":"fcn.0062b4e0+2562065","refname":"fcn.0056f930"},{"from":9103481,"type":"CALL","perm":"--x","opcode":"call fcn.0056f930","name":"fcn.0062b4e0+2634649","refname":"fcn.0056f930"},{"from":9106637,"type":"CALL","perm":"--x","opcode":"call fcn.0056f930","name":"fcn.0062b4e0+2637805","refname":"fcn.0056f930"},{"from":9146468,"type":"CALL","perm":"--x","opcode":"call fcn.0056f930","name":"fcn.0062b4e0+2677636","refname":"fcn.0056f930"},{"from":9165456,"type":"CALL","perm":"--x","opcode":"call fcn.0056f930","name":"fcn.0062b4e0+2696624","refname":"fcn.0056f930"},{"from":9166688,"type":"CALL","perm":"--x","opcode":"call fcn.0056f930","name":"fcn.0062b4e0+2697856","refname":"fcn.0056f930"},{"from":9328024,"type":"CALL","perm":"--x","opcode":"call fcn.0056f930","name":"fcn.0062b4e0+2859192","refname":"fcn.0056f930"},{"from":9694624,"type":"CALL","perm":"--x","opcode":"call fcn.0056f930","name":"fcn.0062b4e0+3225792","refname":"fcn.0056f930"},{"from":9829639,"type":"CALL","perm":"--x","opcode":"call fcn.0056f930","name":"fcn.0062b4e0+3360807","refname":"fcn.0056f930"},{"from":9832422,"type":"CALL","perm":"--x","opcode":"call fcn.0056f930","name":"fcn.0062b4e0+3363590","refname":"fcn.0056f930"},{"from":9832827,"type":"CALL","perm":"--x","opcode":"call fcn.0056f930","name":"fcn.0062b4e0+3363995","refname":"fcn.0056f930"},{"from":9849339,"type":"CALL","perm":"--x","opcode":"call fcn.0056f930","name":"fcn.0062b4e0+3380507","refname":"fcn.0056f930"},{"from":9849892,"type":"CALL","perm":"--x","opcode":"call fcn.0056f930","name":"fcn.0062b4e0+3381060","refname":"fcn.0056f930"},{"from":9850383,"type":"CALL","perm":"--x","opcode":"call fcn.0056f930","name":"fcn.0062b4e0+3381551","refname":"fcn.0056f930"},{"from":9861398,"type":"CALL","perm":"--x","opcode":"call fcn.0056f930","name":"fcn.0062b4e0+3392566","refname":"fcn.0056f930"},{"from":9861606,"type":"CALL","perm":"--x","opcode":"call fcn.0056f930","name":"fcn.0062b4e0+3392774","refname":"fcn.0056f930"},{"from":9861712,"type":"CALL","perm":"--x","opcode":"call fcn.0056f930","name":"fcn.0062b4e0+3392880","refname":"fcn.0056f930"},{"from":10122270,"type":"CALL","perm":"--x","opcode":"call fcn.0056f930","name":"fcn.0062b4e0+3653438","refname":"fcn.0056f930"},{"from":10124074,"type":"CALL","perm":"--x","opcode":"call fcn.0056f930","name":"fcn.0062b4e0+3655242","refname":"fcn.0056f930"},{"from":10152520,"type":"CALL","perm":"--x","opcode":"call fcn.0056f930","name":"fcn.0062b4e0+3683688","refname":"fcn.0056f930"},{"from":10153259,"type":"CALL","perm":"--x","opcode":"call fcn.0056f930","name":"fcn.0062b4e0+3684427","refname":"fcn.0056f930"},{"from":10155067,"type":"CALL","perm":"--x","opcode":"call fcn.0056f930","name":"fcn.0062b4e0+3686235","refname":"fcn.0056f930"},{"from":10157405,"type":"CALL","perm":"--x","opcode":"call fcn.0056f930","name":"fcn.0062b4e0+3688573","refname":"fcn.0056f930"},{"from":10158087,"type":"CALL","perm":"--x","opcode":"call fcn.0056f930","name":"fcn.0062b4e0+3689255","refname":"fcn.0056f930"},{"from":10160719,"type":"CALL","perm":"--x","opcode":"call fcn.0056f930","name":"fcn.0062b4e0+3691887","refname":"fcn.0056f930"},{"from":10169278,"type":"CALL","perm":"--x","opcode":"call fcn.0056f930","name":"fcn.0062b4e0+3700446","refname":"fcn.0056f930"},{"from":10176957,"type":"CALL","perm":"--x","opcode":"call fcn.0056f930","name":"fcn.0062b4e0+3708125","refname":"fcn.0056f930"},{"from":10177084,"type":"CALL","perm":"--x","opcode":"call fcn.0056f930","name":"fcn.0062b4e0+3708252","refname":"fcn.0056f930"},{"from":10177556,"type":"CALL","perm":"--x","opcode":"call fcn.0056f930","name":"fcn.0062b4e0+3708724","refname":"fcn.0056f930"},{"from":10185165,"type":"CALL","perm":"--x","opcode":"call fcn.0056f930","name":"fcn.0062b4e0+3716333","refname":"fcn.0056f930"},{"from":10198965,"type":"CALL","perm":"--x","opcode":"call fcn.0056f930","name":"fcn.0062b4e0+3730133","refname":"fcn.0056f930"},{"from":10224320,"type":"CALL","perm":"--x","opcode":"call fcn.0056f930","name":"fcn.0062b4e0+3755488","refname":"fcn.0056f930"},{"from":10227390,"type":"CALL","perm":"--x","opcode":"call fcn.0056f930","name":"fcn.0062b4e0+3758558","refname":"fcn.0056f930"},{"from":10233367,"type":"CALL","perm":"--x","opcode":"call fcn.0056f930","name":"fcn.0062b4e0+3764535","refname":"fcn.0056f930"},{"from":10250758,"type":"CALL","perm":"--x","opcode":"call fcn.0056f930","name":"fcn.0062b4e0+3781926","refname":"fcn.0056f930"},{"from":10260960,"type":"CALL","perm":"--x","opcode":"call fcn.0056f930","name":"fcn.0062b4e0+3792128","refname":"fcn.0056f930"},{"from":10374826,"type":"CALL","perm":"--x","opcode":"call fcn.0056f930","name":"fcn.0062b4e0+3905994","refname":"fcn.0056f930"},{"from":10375154,"type":"CALL","perm":"--x","opcode":"call fcn.0056f930","name":"fcn.0062b4e0+3906322","refname":"fcn.0056f930"}]
+[{"from":6420108,"type":"CALL","perm":"--x","opcode":"call fcn.0062b4e0","fcn_addr":6420016,"fcn_name":"fcn.0061f630","refname":"fcn.0062b4e0"},{"from":6420259,"type":"CALL","perm":"--x","opcode":"call fcn.0062b4e0","name":"fcn.0061f630+243","refname":"fcn.0062b4e0"},{"from":6420279,"type":"CALL","perm":"--x","opcode":"call fcn.0062b4e0","name":"fcn.0061f630+263","refname":"fcn.0062b4e0"},{"from":6420308,"type":"CALL","perm":"--x","opcode":"call fcn.0062b4e0","name":"fcn.0061f630+292","refname":"fcn.0062b4e0"},{"from":6420467,"type":"CALL","perm":"--x","opcode":"call fcn.0062b4e0","name":"fcn.0061f630+451","refname":"fcn.0062b4e0"},{"from":6420487,"type":"CALL","perm":"--x","opcode":"call fcn.0062b4e0","name":"fcn.0061f630+471","refname":"fcn.0062b4e0"},{"from":6420516,"type":"CALL","perm":"--x","opcode":"call fcn.0062b4e0","name":"fcn.0061f630+500","refname":"fcn.0062b4e0"},{"from":6452334,"type":"CALL","perm":"--x","opcode":"call fcn.0062b4e0","name":"fcn.0061f630+32318","refname":"fcn.0062b4e0"},{"from":6452568,"type":"CALL","perm":"--x","opcode":"call fcn.0062b4e0","name":"fcn.0061f630+32552","refname":"fcn.0062b4e0"},{"from":6459091,"type":"CALL","perm":"--x","opcode":"call fcn.0062b4e0","name":"fcn.0061f630+39075","refname":"fcn.0062b4e0"},{"from":6459387,"type":"CALL","perm":"--x","opcode":"call fcn.0062b4e0","name":"fcn.0061f630+39371","refname":"fcn.0062b4e0"},{"from":6475390,"type":"CALL","perm":"--x","opcode":"call fcn.0062b4e0","name":"fcn.0062b4e0+6558","refname":"fcn.0062b4e0"},{"from":6475935,"type":"CALL","perm":"--x","opcode":"call fcn.0062b4e0","name":"fcn.0062b4e0+7103","refname":"fcn.0062b4e0"},{"from":6478406,"type":"CALL","perm":"--x","opcode":"call fcn.0062b4e0","name":"fcn.0062b4e0+9574","refname":"fcn.0062b4e0"},{"from":6478789,"type":"CALL","perm":"--x","opcode":"call fcn.0062b4e0","name":"fcn.0062b4e0+9957","refname":"fcn.0062b4e0"},{"from":6479010,"type":"CALL","perm":"--x","opcode":"call fcn.0062b4e0","name":"fcn.0062b4e0+10178","refname":"fcn.0062b4e0"},{"from":6479028,"type":"CALL","perm":"--x","opcode":"call fcn.0062b4e0","name":"fcn.0062b4e0+10196","refname":"fcn.0062b4e0"},{"from":6479170,"type":"CALL","perm":"--x","opcode":"call fcn.0062b4e0","name":"fcn.0062b4e0+10338","refname":"fcn.0062b4e0"},{"from":6479188,"type":"CALL","perm":"--x","opcode":"call fcn.0062b4e0","name":"fcn.0062b4e0+10356","refname":"fcn.0062b4e0"},{"from":6483937,"type":"CALL","perm":"--x","opcode":"call fcn.0062b4e0","name":"fcn.0062b4e0+15105","refname":"fcn.0062b4e0"},{"from":6485700,"type":"CALL","perm":"--x","opcode":"call fcn.0062b4e0","name":"fcn.0062b4e0+16868","refname":"fcn.0062b4e0"},{"from":6485758,"type":"CALL","perm":"--x","opcode":"call fcn.0062b4e0","name":"fcn.0062b4e0+16926","refname":"fcn.0062b4e0"},{"from":6485952,"type":"CALL","perm":"--x","opcode":"call fcn.0062b4e0","name":"fcn.0062b4e0+17120","refname":"fcn.0062b4e0"},{"from":6486292,"type":"CALL","perm":"--x","opcode":"call fcn.0062b4e0","name":"fcn.0062b4e0+17460","refname":"fcn.0062b4e0"},{"from":6486310,"type":"CALL","perm":"--x","opcode":"call fcn.0062b4e0","name":"fcn.0062b4e0+17478","refname":"fcn.0062b4e0"}]
+[]
+
+Follow-up: BSFadeNode virtual +0x10 returns this unchanged.
+UTC: 2026-10-19T22:26:51.127276+00:00
+Command argv: ["r2", "-q", "-e", "scr.color=0", "-e", "scr.utf8=false", "-e", "asm.bytes=true", "-e", "bin.relocs.apply=true", "-c", "pxw 24 @ 0x010a8f90", "-c", "pd 8 @ 0x006815c0", "-c", "q", "/data/storage1/Workspace/psycho/fnv_reverse/FalloutNV.exe"]
+WARN: Invalid certificate table
+0x010a8f90  0x00b4ed40 0x00cfcc20 0x00b4e1d0 0x006815c0  @... .........h.
+0x010a8fa0  0x006815c0 0x00acbb70                        ..h.p...
+            0x006815c0      55             push ebp
+            0x006815c1      8bec           mov ebp, esp
+            0x006815c3      51             push ecx
+            0x006815c4      894dfc         mov dword [ebp - 4], ecx
+            0x006815c7      8b45fc         mov eax, dword [ebp - 4]
+            0x006815ca      8be5           mov esp, ebp
+            0x006815cc      5d             pop ebp
+            0x006815cd      c3             ret
