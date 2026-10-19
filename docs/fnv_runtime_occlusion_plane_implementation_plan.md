@@ -17,8 +17,11 @@ reused by key afterwards, so no neighbor mesh walk ever runs on a frame or
 cell-crossing path. All covered cells share one injection budget so the native
 bounds-times-occluders cost does not grow beyond the previous cap. Installing,
 removing, reordering or updating a mod invalidates the cache through the
-plugin-list signature. This is a heuristic and needs the owner's in-game visual
-check. No game run and no FPS claim.
+plugin-list signature. A 2026-10-19 report of a skipped frame while running led
+to a resumable, frame-budgeted generator: a cell's mesh walk is sliced across
+frames instead of blocking the frame thread for 20-32 ms (see section 4.3.1).
+This is a heuristic and needs the owner's in-game visual check. No game run and
+no FPS claim.
 Companion to
 [runtime visibility injection research](fnv_runtime_visibility_injection_research.md).
 Address evidence is in
@@ -423,6 +426,40 @@ runs on target changes and the bounded settle window, not every frame, and never
 on a neighbor cell. A cell change no longer requires the first frame to already
 have every reference's 3D attached.
 
+### 4.3.1 Resumable, frame-budgeted generation
+
+Walking a dense cell's meshes and proving every face hole-free is larger than a
+frame. A 2026-10-19 release playtest measured `gen_ms=20-32` for the Fairfax
+exterior cells, and the settle window repeated the walk, so entering a cell
+dropped one or more frames — the tester reported a skipped frame while running
+through the exterior. The triangle coverage test added in the previous commit
+was the dominant cost (a release benchmark measures 0.06-0.25 ms for a
+512-2048-triangle solid face and up to 1.2-1.9 ms for an 8192-triangle face, so
+a cell with dozens of large meshes reaches 20-30 ms).
+
+The generator is therefore resumable (`runtime_generate::Generation`):
+
+- `Generation::advance` examines at most `GENERATION_REFS_PER_FRAME` (96)
+  references, `GENERATION_TRIANGLES_PER_FRAME` (8000) triangles and
+  `GENERATION_SLICE_BUDGET_MS` (2 ms) per call, then returns `false`; the frame
+  path advances it every frame while `GENERATION_ACTIVE` is set and only
+  installs the set when the whole reference list has been walked.
+- References are located by re-walking the cell list from its head to a saved
+  index each frame, so no engine list node is held across frames (the engine can
+  re-link the list while geometry streams in). A re-link can skip or repeat a
+  reference, which only wastes a duplicate the shared dedup already removes.
+- On a target change the previous cell's tracked planes are removed once, before
+  the walk starts, so a stale rectangle cannot cull the new cell's geometry
+  during the assembly window.
+- The settle window still runs a bounded number of verification passes; each
+  pass is now sliced the same way, so no pass stalls a frame.
+
+The coverage test itself reuses caller-owned scratch buffers
+(`CoverageScratch`), sorts packed edge keys instead of hashing every edge per
+face, and keeps only the opening edges whose bounding box overlaps the candidate
+rectangle, so a solid face skips the boundary analysis. All buffers are reused
+across every face of every mesh in a generation.
+
 ### 4.4 Data lookup
 
 - Interior: `CellKey::Interior { form_id: u32 }`.
@@ -452,9 +489,13 @@ Add to `PerformanceConfig`:
 
 Frame-path budget: the common frame does no hashing. The scene/cell pointers
 are compared directly, and the cell identity hash (`FxHasher`) is only computed
-when a pointer changes. The presence check runs every 30 frames and scans the
-list once per tracked plane. The generator and file writes only run on a target
-change or its bounded settle window; they never run for a neighbor cell. A grid
+when a pointer changes. The presence check runs every 30 frames and walks the
+occluder list once (a single walk maps every linked plane to its admission
+state), not once per tracked plane. While a generation is in flight the frame
+path pays only one fixed slice (`GENERATION_REFS_PER_FRAME` references,
+`GENERATION_TRIANGLES_PER_FRAME` triangles and `GENERATION_SLICE_BUDGET_MS`);
+otherwise the generator and file writes only run on a target change or its
+bounded settle window, and they never run for a neighbor cell. A grid
 refresh check runs every 60 frames and is a few array reads plus cache lookups
 when the grid changed, nothing otherwise. The per-frame neighbor path is one
 atomic countdown decrement.
@@ -850,6 +891,13 @@ Behavioral (real runtime, owner-run):
   same-second `cell` alternation, and use `gen_ms` to measure per-cell
   generation cost. `TARGET_STABLE_FRAMES` can be tuned if a genuine fast cell
   change is delayed too long.
+- The resumable generator (`GENERATION_TRIANGLES_PER_FRAME`,
+  `GENERATION_REFS_PER_FRAME`, `GENERATION_SLICE_BUDGET_MS`) bounds one frame's
+  generation work but has no in-game behavioral test: the walk reads engine
+  memory that cannot be fabricated offline. Confirm in the next playtest that
+  planes appear within a fraction of a second of a cell change (the frame-cost
+  warning should stay below 2 ms), that crossing a seam does not leave a gap or
+  a stale rectangle, and that a save/load mid-generation recovers.
 - If a cell still yields too few candidates, the `scan` debug counters
   distinguish an empty `objectList` (`refs=0`) from a rejected population
   (`parent_mismatch`, `not_stat`, `render_null`, `node_null`, `radius`,

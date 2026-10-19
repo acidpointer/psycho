@@ -20,6 +20,16 @@
 //! engine, so the module releases its references without dereferencing the old
 //! list. A load/new/exit event defers cleanup to the next frame so the module
 //! never scans a list that may be under teardown.
+//!
+//! # Frame budget
+//!
+//! Walking a dense cell's meshes and proving every face hole-free is larger
+//! than one frame (a release build measured 20-32 ms for the Fairfax exterior
+//! cells). The walk is therefore resumable: each frame advances a fixed
+//! triangle and wall-clock slice, and the plane set is installed only when the
+//! whole reference list has been walked. A steady frame with a generation in
+//! flight touches only that slice; the previous cell's planes are dropped once
+//! at the target change so a stale rectangle cannot cull the new cell.
 
 use core::ffi::c_void;
 use std::collections::{HashMap, HashSet};
@@ -47,7 +57,7 @@ use super::raw::{
     read_f32_at, read_i32_at, read_ptr, read_ptr_at, read_u8_at, read_u32_at, write_ptr_at,
     write_u8_at, write_u32_at,
 };
-use super::runtime_generate;
+use super::runtime_generate::{self, Generation};
 
 /// `NiRefObject::DeleteThis` at one vtable slot.
 type DeleteThisFn = unsafe extern "thiscall" fn(*mut c_void);
@@ -231,6 +241,18 @@ struct Neighborhood {
 
 static NEIGHBORHOOD: Mutex<Option<Neighborhood>> = Mutex::new(None);
 static NEIGHBOR_VALIDATE_COUNTDOWN: AtomicUsize = AtomicUsize::new(NEIGHBOR_VALIDATE_FRAMES);
+/// In-flight resumable generation for the current cell.
+///
+/// A cell's full mesh walk is larger than one frame's budget (a release build
+/// measured 20-32 ms for the Fairfax exterior cells), so the walk is advanced a
+/// fixed slice per frame instead of blocking the frame thread. `GENERATION_ACTIVE`
+/// lets the frame path advance it every frame rather than only on the settle
+/// interval.
+static GENERATION: Mutex<Option<Generation>> = Mutex::new(None);
+static GENERATION_ACTIVE: AtomicBool = AtomicBool::new(false);
+/// Cell pointer a pending generation was started for, so the frame path can
+/// advance it while `CURRENT_CELL_KEY` still names the previous cell.
+static GENERATION_CELL: AtomicUsize = AtomicUsize::new(0);
 /// Consecutive settle passes that produced the same set. The window stops once
 /// this reaches `SETTLE_STABLE_PASSES`, so the common case costs two extra
 /// walks instead of all five while still allowing one more pass for late 3D.
@@ -398,6 +420,27 @@ fn frame_tick_inner() {
             // A load/new/exit can retire the scene the neighborhood was built
             // from. Drop its per-cell records and let this frame rebuild them.
             NEIGHBORHOOD.lock().take();
+            // A resumable generation walks engine memory; a load/new/exit can
+            // unload the cell under it, so abandon it.
+            *GENERATION.lock() = None;
+            GENERATION_ACTIVE.store(false, Ordering::Release);
+        }
+        // A resumable cell generation is in flight: advance it every frame (not
+        // only on the settle interval) so the plane set appears as soon as
+        // possible while each frame pays only the fixed work budget. The target
+        // is the generation's own cell, because `CURRENT_*` still names the
+        // previous cell until the walk completes and the set is installed; a
+        // `same_target` check would otherwise restart the walk every few frames.
+        if !pending && GENERATION_ACTIVE.load(Ordering::Acquire) {
+            if GENERATION_CELL.load(Ordering::Acquire) == cell_ptr {
+                let observer = read_observer(owner);
+                let _ = reconcile(fns, scene_graph, cell, observer, false);
+                tick_cache_save();
+                return;
+            }
+            // The player left the cell whose walk was in flight; drop it.
+            *GENERATION.lock() = None;
+            GENERATION_ACTIVE.store(false, Ordering::Release);
         }
         // Fast path: the scene and cell pointers are unchanged, so no hashing
         // or key read happens on a normal frame. Only a pointer change pays for
@@ -550,25 +593,37 @@ fn presence_due() -> bool {
 /// Snapshot of the tracked set: `(total, present, active)`. `present` counts
 /// tracked planes whose node is still linked; `active` counts the linked planes
 /// the engine admitted for the current camera (`+0x40 == 1`).
+///
+/// The engine list is walked once and each plane's admission state recorded, so
+/// the cost is linear in the list length instead of one full list walk per
+/// tracked plane (the previous quadratic shape grew with the injected cap).
 unsafe fn tracked_status(scene_graph: *mut c_void) -> (usize, usize, usize) {
     let tracked = TRACKED.lock();
     let total = tracked.len();
     if total == 0 {
         return (0, 0, 0);
     }
+    let wanted: HashSet<usize> = tracked.iter().map(|item| item.pointer).collect();
     let list = unsafe { (scene_graph as *mut u8).add(LIST_OFFSET) as *mut c_void };
-    let mut present = 0usize;
-    let mut active = 0usize;
-    for item in tracked.iter() {
-        let Some(node) = (unsafe { find_node(list, item.pointer) }) else {
-            continue;
-        };
-        present += 1;
-        let plane = unsafe { read_ptr_at(node, NODE_PLANE) };
-        if !plane.is_null() && unsafe { read_u32_at(plane, PLANE_ACTIVE_OFFSET) } == 1 {
-            active += 1;
+    let mut linked: HashMap<usize, bool> = HashMap::with_capacity(wanted.len());
+    let mut node = unsafe { read_ptr_at(list, LIST_HEAD) };
+    while !node.is_null() {
+        let next = unsafe { read_ptr_at(node, NODE_NEXT) };
+        let plane = unsafe { read_ptr_at(node, NODE_PLANE) } as usize;
+        if wanted.contains(&plane) {
+            let active = unsafe { read_u32_at(plane as *mut c_void, PLANE_ACTIVE_OFFSET) } == 1;
+            linked.insert(plane, active);
         }
+        node = next;
     }
+    let present = tracked
+        .iter()
+        .filter(|item| linked.contains_key(&item.pointer))
+        .count();
+    let active = tracked
+        .iter()
+        .filter(|item| linked.get(&item.pointer) == Some(&true))
+        .count();
     (total, present, active)
 }
 
@@ -1107,33 +1162,61 @@ unsafe fn reconcile(
     let mut from_cache = false;
     let mut generate_ms = 0.0f32;
     let mut render_ready = false;
-    let (planes, raw): (Vec<PlaneRecord>, usize) = if force {
-        match complete_cached(&key) {
-            Some((records, count)) => {
-                from_cache = true;
-                (records, count)
-            }
-            None => {
-                let started = Instant::now();
-                let (planes, raw, ready) = runtime_generate::generate(cell, max, observer);
-                generate_ms = started.elapsed().as_secs_f32() * 1000.0;
-                render_ready = ready;
-                store_in_cache(&key, &planes, false);
-                settle_needed = true;
-                (planes, raw)
-            }
+    let mut planes: Vec<PlaneRecord> = Vec::new();
+    let mut raw = 0usize;
+    if force && let Some((records, count)) = complete_cached(&key) {
+        from_cache = true;
+        planes = records;
+        raw = count;
+        // Drop any in-flight generation for another target; this cache hit is
+        // the complete set.
+        *GENERATION.lock() = None;
+        GENERATION_ACTIVE.store(false, Ordering::Release);
+    }
+    if !from_cache {
+        // A target change must not leave the previous cell's rectangles in the
+        // engine list while the new set is being assembled: a stale rectangle
+        // could cull visible geometry of the new cell. Drop them once, while
+        // the resumable walk runs over several frames.
+        if force && CURRENT_CELL_KEY.load(Ordering::Acquire) != key_signature {
+            let _ = unsafe { inject(fns, scene_graph, &[]) };
         }
-    } else {
-        // A settle retry keeps settling until the generated set is stable, and
-        // refreshes the cache so the latest set is always reusable on a revisit.
-        let started = Instant::now();
-        let (planes, raw, ready) = runtime_generate::generate(cell, max, observer);
-        generate_ms = started.elapsed().as_secs_f32() * 1000.0;
+        // Advance the resumable walk by one frame's work budget. A new target
+        // (or a forced pass) restarts it; a settle retry continues the same
+        // walk. The set is installed only when the whole reference list has
+        // been walked, so no frame pays the full cell cost.
+        let outcome = {
+            let mut guard = GENERATION.lock();
+            let restart = force
+                || guard
+                    .as_ref()
+                    .is_none_or(|generation| generation.cell() != cell);
+            if restart {
+                *guard = Some(Generation::new(cell, max, observer));
+                GENERATION_CELL.store(cell as usize, Ordering::Release);
+            }
+            let generation = guard.as_mut().expect("generation was just inserted");
+            if unsafe { generation.advance() } {
+                Some(guard.take().expect("generation is present"))
+            } else {
+                None
+            }
+        };
+        let Some(finished) = outcome else {
+            // The cell is still being walked. Keep the settle window alive so
+            // the next frame continues it; the caller does not inject yet.
+            GENERATION_ACTIVE.store(true, Ordering::Release);
+            return true;
+        };
+        GENERATION_ACTIVE.store(false, Ordering::Release);
+        let (generated_planes, generated_raw, ready, generation_ms) = finished.finish();
+        generate_ms = generation_ms;
         render_ready = ready;
+        planes = generated_planes;
+        raw = generated_raw;
         store_in_cache(&key, &planes, false);
         settle_needed = true;
-        (planes, raw)
-    };
+    }
     // Keep the union source current even when no native plane is re-created.
     if let Some(neighborhood) = NEIGHBORHOOD.lock().as_mut() {
         neighborhood.planes.insert(key, planes.clone());

@@ -36,7 +36,6 @@
 //! (`0x0109B5AC`) and `NiTriShape` (`0x0109D454`) vtables.
 
 use core::ffi::c_void;
-use std::collections::HashMap;
 
 use libpsycho::ffi::fnptr::FnPtr;
 use wide::f32x4;
@@ -234,129 +233,266 @@ pub(super) struct ScanStats {
     cap_drop_area: f32,
 }
 
-/// Collect up to `max_planes` occlusion rectangles for one cell.
+/// Work budget for one frame's slice of a cell generation.
 ///
-/// `observer` is the player/observer world position. Candidates are filtered by
-/// distance and weighted so nearby occluders win the per-cell cap over distant
-/// ones of similar size. Returns the selected planes and the raw pre-cap
-/// candidate count.
-pub(super) fn generate(
-    cell: *mut c_void,
+/// Generating a dense cell is the single largest main-thread cost of the
+/// feature: a release build measured 20-32 ms for the Fairfax exterior cells
+/// (the triangle coverage test alone is linear in the mesh triangles), which
+/// drops a frame on cell entry while the settle window repeats it. The walk is
+/// resumable and pays at most this many triangles and references per call, so
+/// no single frame stalls on generation while the final set stays complete. A
+/// single geometry is capped at `MAX_TRIANGLES_PER_MESH`, so a frame's slice
+/// cannot exceed one mesh's coverage work.
+const GENERATION_TRIANGLES_PER_FRAME: usize = 8_000;
+/// Upper bound on references examined in one frame's generation slice.
+const GENERATION_REFS_PER_FRAME: usize = 96;
+/// Wall-clock ceiling for one frame's generation slice. A single reference can
+/// carry a mesh of `MAX_TRIANGLES_PER_MESH` triangles on up to six faces, so the
+/// triangle budget alone cannot bound a pathological mesh; this stops the slice
+/// after the current reference once the ceiling is passed. It is kept under the
+/// module's 2 ms frame-cost warning so a normal slice never trips it.
+const GENERATION_SLICE_BUDGET_MS: u128 = 1;
+
+/// Resumable per-cell occluder generation.
+///
+/// A cell's reference list can be hundreds of meshes; walking all of them once
+/// is the frame stall. `advance` examines at most `GENERATION_REFS_PER_FRAME`
+/// references (and `GENERATION_TRIANGLES_PER_FRAME` triangles) and returns
+/// `true` only when the whole list has been walked, so the caller can spread a
+/// cell over several frames. References are located by re-walking the list from
+/// its head to `cursor` each call, so no engine list node is held across frames
+/// (the engine can re-link the list while geometry streams in); a re-link can
+/// therefore skip or repeat a reference, which only wastes a duplicate that the
+/// shared dedup already handles.
+pub(super) struct Generation {
+    cell: usize,
     max_planes: usize,
     observer: Option<[f32; 3]>,
-) -> (Vec<PlaneRecord>, usize, bool) {
-    let mut candidates: Vec<(f32, PlaneRecord)> = Vec::with_capacity(max_planes.max(1) * 4);
-    let mut stack: Vec<*mut c_void> = Vec::with_capacity(64);
-    let mut mesh_out: Vec<(f32, PlaneRecord)> = Vec::new();
-    let mut vertex_buf: Vec<[f32; 3]> = Vec::with_capacity(MAX_VERTICES_PER_MESH);
-    let mut triangles: Vec<[u16; 3]> = Vec::with_capacity(MAX_TRIANGLES_PER_MESH);
-    let mut support_points: Vec<[f32; 2]> = Vec::with_capacity(64);
-    let mut support_hull: Vec<[f32; 2]> = Vec::with_capacity(64);
-    let mut support_upper: Vec<[f32; 2]> = Vec::with_capacity(64);
-    let mut vertex_budget = VERTEX_BUDGET;
-    let mut triangle_budget = TRIANGLE_BUDGET;
-    let mut stats = ScanStats::default();
-    // Safety: the caller runs on the main thread after a cell change; the
-    // reference list, node transforms and mesh arrays are read-only here and
-    // belong to the loaded cell.
-    unsafe {
-        let list = (cell as *mut u8).add(CELL_OBJECT_LIST) as *mut c_void;
-        let mut node = list;
-        loop {
-            let reference = read_ptr_at(node, TLIST_DATA);
-            let next = read_ptr_at(node, TLIST_NEXT);
-            if !reference.is_null() {
-                stats.refs += 1;
-                collect_reference(
-                    reference,
-                    cell,
-                    &mut stack,
-                    &mut vertex_buf,
-                    &mut triangles,
-                    &mut mesh_out,
-                    &mut vertex_budget,
-                    &mut triangle_budget,
-                    &mut candidates,
-                    &mut stats,
-                    &mut support_points,
-                    &mut support_hull,
-                    &mut support_upper,
-                );
-            }
-            if next.is_null() || stats.refs >= MAX_REFS {
-                break;
-            }
-            node = next;
+    cursor: usize,
+    done: bool,
+    candidates: Vec<(f32, PlaneRecord)>,
+    stack: Vec<usize>,
+    mesh_out: Vec<(f32, PlaneRecord)>,
+    vertex_buf: Vec<[f32; 3]>,
+    triangles: Vec<[u16; 3]>,
+    support_points: Vec<[f32; 2]>,
+    support_hull: Vec<[f32; 2]>,
+    support_upper: Vec<[f32; 2]>,
+    coverage: CoverageScratch,
+    vertex_budget: usize,
+    triangle_budget: usize,
+    stats: ScanStats,
+    spent_ms: f32,
+}
+
+impl Generation {
+    pub(super) fn new(cell: *mut c_void, max_planes: usize, observer: Option<[f32; 3]>) -> Self {
+        Self {
+            cell: cell as usize,
+            max_planes,
+            observer,
+            cursor: 0,
+            done: false,
+            candidates: Vec::with_capacity(max_planes.max(1) * 4),
+            stack: Vec::with_capacity(64),
+            mesh_out: Vec::new(),
+            vertex_buf: Vec::with_capacity(MAX_VERTICES_PER_MESH),
+            triangles: Vec::with_capacity(MAX_TRIANGLES_PER_MESH),
+            support_points: Vec::with_capacity(64),
+            support_hull: Vec::with_capacity(64),
+            support_upper: Vec::with_capacity(64),
+            coverage: CoverageScratch::default(),
+            vertex_budget: VERTEX_BUDGET,
+            triangle_budget: TRIANGLE_BUDGET,
+            stats: ScanStats::default(),
+            spent_ms: 0.0,
         }
     }
-    // Merge coplanar adjacent rectangles before scoring and capping. Two
-    // support-validated rectangles that share a full edge have a rectangular
-    // union, so the merged rectangle cannot cover empty space, and it culls
-    // more bounds per plane while reducing the pair cost. The merge is the
-    // quadratic step, so its time is reported to target any future cost work.
-    let merge_started = std::time::Instant::now();
-    merge_coplanar(&mut candidates);
-    let merge_ms = merge_started.elapsed().as_secs_f32() * 1000.0;
 
-    // Distance filter and score against the observer after merging, so the
-    // merged center is the one that is scored. The union selection reuses the
-    // same rule across loaded cells so a nearby plane always beats a distant
-    // one regardless of which cell produced it.
-    let candidate_count = candidates.len();
-    let selection = select_planes(candidates, observer, max_planes);
-    stats.rect_area = selection.raw_area;
-    stats.cap_drop_area = selection.cap_drop_area;
-    stats.distance_reject = selection.distance_reject;
-    stats.distance_max = selection.distance_max;
-    let planes = selection.planes;
-    let raw = candidate_count.saturating_sub(stats.distance_reject);
-    if log::log_enabled!(log::Level::Debug) {
-        log::debug!(
-            "[OCCLUSION_PLANES] scan refs={} parent_mismatch={} base_null={} not_stat={} \
-             render_null={} node_null={} radius={} nodes={} geoms={} skinned={} alpha={} \
-             no_vertices={} no_triangles={} size={} horizontal={} support={} small={} opening={} distance={} \
-             dist_max={:.0} budget_stop={} faces={} mesh_area={:.0} rect_area={:.0} \
-             cap_drop={:.0} thin={} low_cov={} merge_ms={:.1}",
-            stats.refs,
-            stats.parent_mismatch,
-            stats.base_null,
-            stats.not_stat,
-            stats.render_null,
-            stats.node_null,
-            stats.radius_reject,
-            stats.nodes,
-            stats.geoms,
-            stats.skinned,
-            stats.alpha,
-            stats.no_vertices,
-            stats.no_triangles,
-            stats.size_reject,
-            stats.horizontal_reject,
-            stats.support_reject,
-            stats.small_reject,
-            stats.opening_reject,
-            stats.distance_reject,
-            stats.distance_max,
-            stats.budget_stop,
-            stats.faces,
-            stats.mesh_area,
-            stats.rect_area,
-            stats.cap_drop_area,
-            stats.thin_faces,
-            stats.low_coverage_faces,
-            merge_ms,
-        );
+    /// The cell this generation was started for.
+    pub(super) fn cell(&self) -> *mut c_void {
+        self.cell as *mut c_void
     }
-    (
-        planes,
-        raw,
-        // All references have an attached render node, so no more 3D can
-        // appear: the settle window can stop after the first identical pass.
-        // Require at least one walked reference: an empty list can mean the
-        // cell is still attaching, so it is not a finished generation and a
-        // neighbor must not be cached as complete on it.
-        stats.refs > 0 && stats.render_null == 0 && stats.node_null == 0,
-    )
+
+    /// Advance the walk by at most one frame's work budget.
+    ///
+    /// Returns `true` when the walk is finished. The per-reference budget is
+    /// derived from the triangles the reference's geometry actually consumed,
+    /// so a cell of many tiny meshes and a cell of a few huge ones both stop
+    /// after roughly the same triangle work.
+    ///
+    /// # Safety
+    ///
+    /// The caller runs on the xNVSE event thread while the cell is loaded; the
+    /// reference list, node transforms and mesh arrays are read-only here.
+    pub(super) unsafe fn advance(&mut self) -> bool {
+        if self.done {
+            return true;
+        }
+        let started = std::time::Instant::now();
+        let done = unsafe { self.advance_slice() };
+        self.spent_ms += started.elapsed().as_secs_f32() * 1000.0;
+        done
+    }
+
+    /// One bounded slice of the walk.
+    ///
+    /// # Safety
+    ///
+    /// Same contract as [`Generation::advance`].
+    unsafe fn advance_slice(&mut self) -> bool {
+        let mut triangle_slice = GENERATION_TRIANGLES_PER_FRAME;
+        let mut refs_left = GENERATION_REFS_PER_FRAME;
+        let slice_started = std::time::Instant::now();
+        // Safety: see the function contract. Every pointer is read from the
+        // cell's own list and null-checked before it is dereferenced.
+        unsafe {
+            let cell = self.cell as *mut c_void;
+            let list = (cell as *mut u8).add(CELL_OBJECT_LIST) as *mut c_void;
+            let mut node = list;
+            let mut index = 0usize;
+            while index < self.cursor {
+                node = read_ptr_at(node, TLIST_NEXT);
+                if node.is_null() {
+                    self.done = true;
+                    return true;
+                }
+                index += 1;
+            }
+            loop {
+                // The shared cell budgets are spent: finalize with what was
+                // collected, exactly as the previous single-pass loop did.
+                if self.stats.refs >= MAX_REFS
+                    || self.vertex_budget == 0
+                    || self.triangle_budget == 0
+                {
+                    self.done = true;
+                    return true;
+                }
+                if refs_left == 0 {
+                    return false;
+                }
+                let reference = read_ptr_at(node, TLIST_DATA);
+                let next = read_ptr_at(node, TLIST_NEXT);
+                self.cursor += 1;
+                if !reference.is_null() {
+                    self.stats.refs += 1;
+                    let triangles_before = self.triangle_budget;
+                    let vertices_before = self.vertex_budget;
+                    collect_reference(
+                        reference,
+                        cell,
+                        &mut self.stack,
+                        &mut self.vertex_buf,
+                        &mut self.triangles,
+                        &mut self.mesh_out,
+                        &mut self.vertex_budget,
+                        &mut self.triangle_budget,
+                        &mut self.candidates,
+                        &mut self.stats,
+                        &mut self.support_points,
+                        &mut self.support_hull,
+                        &mut self.support_upper,
+                        &mut self.coverage,
+                    );
+                    let spent = (triangles_before - self.triangle_budget)
+                        .max(vertices_before - self.vertex_budget);
+                    triangle_slice = triangle_slice.saturating_sub(spent);
+                    refs_left = refs_left.saturating_sub(1);
+                }
+                if next.is_null() || self.stats.refs >= MAX_REFS {
+                    self.done = true;
+                    return true;
+                }
+                node = next;
+                if refs_left == 0
+                    || triangle_slice == 0
+                    || self.vertex_budget == 0
+                    || self.triangle_budget == 0
+                    || slice_started.elapsed().as_millis() >= GENERATION_SLICE_BUDGET_MS
+                {
+                    return false;
+                }
+            }
+        }
+    }
+
+    /// Score, cap and log the finished set. Consumes the generator. Returns the
+    /// selected planes, the raw pre-cap candidate count, whether every reference
+    /// had attached 3D, and the total generator time in milliseconds.
+    pub(super) fn finish(mut self) -> (Vec<PlaneRecord>, usize, bool, f32) {
+        // Merge coplanar adjacent rectangles before scoring and capping. Two
+        // support-validated rectangles that share a full edge have a rectangular
+        // union, so the merged rectangle cannot cover empty space, and it culls
+        // more bounds per plane while reducing the pair cost. The merge is the
+        // quadratic step, so its time is reported to target any future cost
+        // work.
+        let merge_started = std::time::Instant::now();
+        merge_coplanar(&mut self.candidates);
+        let merge_ms = merge_started.elapsed().as_secs_f32() * 1000.0;
+
+        // Distance filter and score against the observer after merging, so the
+        // merged center is the one that is scored. The union selection reuses
+        // the same rule across loaded cells so a nearby plane always beats a
+        // distant one regardless of which cell produced it.
+        let candidate_count = self.candidates.len();
+        let selection = select_planes(self.candidates, self.observer, self.max_planes);
+        let stats = &mut self.stats;
+        stats.rect_area = selection.raw_area;
+        stats.cap_drop_area = selection.cap_drop_area;
+        stats.distance_reject = selection.distance_reject;
+        stats.distance_max = selection.distance_max;
+        let planes = selection.planes;
+        let raw = candidate_count.saturating_sub(stats.distance_reject);
+        if log::log_enabled!(log::Level::Debug) {
+            log::debug!(
+                "[OCCLUSION_PLANES] scan refs={} parent_mismatch={} base_null={} not_stat={} \
+                 render_null={} node_null={} radius={} nodes={} geoms={} skinned={} alpha={} \
+                 no_vertices={} no_triangles={} size={} horizontal={} support={} small={} opening={} distance={} \
+                 dist_max={:.0} budget_stop={} faces={} mesh_area={:.0} rect_area={:.0} \
+                 cap_drop={:.0} thin={} low_cov={} merge_ms={:.1}",
+                stats.refs,
+                stats.parent_mismatch,
+                stats.base_null,
+                stats.not_stat,
+                stats.render_null,
+                stats.node_null,
+                stats.radius_reject,
+                stats.nodes,
+                stats.geoms,
+                stats.skinned,
+                stats.alpha,
+                stats.no_vertices,
+                stats.no_triangles,
+                stats.size_reject,
+                stats.horizontal_reject,
+                stats.support_reject,
+                stats.small_reject,
+                stats.opening_reject,
+                stats.distance_reject,
+                stats.distance_max,
+                stats.budget_stop,
+                stats.faces,
+                stats.mesh_area,
+                stats.rect_area,
+                stats.cap_drop_area,
+                stats.thin_faces,
+                stats.low_coverage_faces,
+                merge_ms,
+            );
+        }
+        (
+            planes,
+            raw,
+            // All references have an attached render node, so no more 3D can
+            // appear: the settle window can stop after the first identical pass.
+            // Require at least one walked reference: an empty list can mean the
+            // cell is still attaching, so it is not a finished generation and a
+            // neighbor must not be cached as complete on it.
+            stats.refs > 0 && stats.render_null == 0 && stats.node_null == 0,
+            self.spent_ms,
+        )
+    }
 }
 
 /// Result of the shared score-and-cap step.
@@ -430,7 +566,7 @@ pub(super) fn select_planes(
 unsafe fn collect_reference(
     reference: *mut c_void,
     cell: *mut c_void,
-    stack: &mut Vec<*mut c_void>,
+    stack: &mut Vec<usize>,
     vertex_buf: &mut Vec<[f32; 3]>,
     triangles: &mut Vec<[u16; 3]>,
     mesh_out: &mut Vec<(f32, PlaneRecord)>,
@@ -441,6 +577,7 @@ unsafe fn collect_reference(
     support_points: &mut Vec<[f32; 2]>,
     support_hull: &mut Vec<[f32; 2]>,
     support_upper: &mut Vec<[f32; 2]>,
+    coverage: &mut CoverageScratch,
 ) {
     // Stop examining further references once a shared budget is spent, so the
     // cell-load pass stays bounded instead of falling back to coarse sphere
@@ -503,6 +640,7 @@ unsafe fn collect_reference(
             support_points,
             support_hull,
             support_upper,
+            coverage,
         );
     }
     for (area, mut plane) in mesh_out.drain(..) {
@@ -553,7 +691,7 @@ unsafe fn admits_geometry(object: *mut c_void) -> bool {
 /// unskinned geometry below `root`, one box per geometry.
 unsafe fn collect_object_planes(
     root: *mut c_void,
-    stack: &mut Vec<*mut c_void>,
+    stack: &mut Vec<usize>,
     vertex_buf: &mut Vec<[f32; 3]>,
     triangles: &mut Vec<[u16; 3]>,
     vertex_budget: &mut usize,
@@ -563,11 +701,13 @@ unsafe fn collect_object_planes(
     support_points: &mut Vec<[f32; 2]>,
     support_hull: &mut Vec<[f32; 2]>,
     support_upper: &mut Vec<[f32; 2]>,
+    coverage: &mut CoverageScratch,
 ) {
     stack.clear();
-    stack.push(root);
+    stack.push(root as usize);
     let mut visited = 0usize;
     while let Some(object) = stack.pop() {
+        let object = object as *mut c_void;
         visited += 1;
         if visited > MAX_VISITED_NODES {
             return;
@@ -610,6 +750,7 @@ unsafe fn collect_object_planes(
                             support_points,
                             support_hull,
                             support_upper,
+                            coverage,
                         );
                         stats.horizontal_reject += rejects.horizontal;
                         stats.support_reject += rejects.unsupported;
@@ -634,7 +775,7 @@ unsafe fn collect_object_planes(
             for index in 0..count.min(MAX_VISITED_NODES) {
                 let child = unsafe { read_ptr_at(base, index * 4) };
                 if !child.is_null() {
-                    stack.push(child);
+                    stack.push(child as usize);
                 }
             }
         }
@@ -984,6 +1125,7 @@ pub(super) fn faces_from_oriented_box(
     support_points: &mut Vec<[f32; 2]>,
     support_hull: &mut Vec<[f32; 2]>,
     support_upper: &mut Vec<[f32; 2]>,
+    coverage: &mut CoverageScratch,
 ) -> FaceRejects {
     let mut rejects = FaceRejects::default();
     let center = local.center();
@@ -1040,17 +1182,20 @@ pub(super) fn faces_from_oriented_box(
             // door frame or any other missing surface. Reduce the rectangle to
             // the largest part the mesh's own triangles actually back; if there
             // is no solid part, drop the face.
-            let Some((rect_center_u, rect_center_v, rect_half_u, rect_half_v)) = covered_face_rect(
-                vertices,
-                triangles,
-                axis,
-                face_coord,
-                tolerance,
-                rect.center_u,
-                rect.center_v,
-                rect.half_u,
-                rect.half_v,
-            ) else {
+            let Some((rect_center_u, rect_center_v, rect_half_u, rect_half_v)) =
+                covered_face_rect_scratch(
+                    vertices,
+                    triangles,
+                    axis,
+                    face_coord,
+                    tolerance,
+                    rect.center_u,
+                    rect.center_v,
+                    rect.half_u,
+                    rect.half_v,
+                    coverage,
+                )
+            else {
                 rejects.opening += 1;
                 continue;
             };
@@ -1134,40 +1279,79 @@ pub(super) fn faces_from_oriented_box(
 /// enough to recover the solid band around a window or door while staying cheap.
 const FACE_GRID: usize = 16;
 
+/// Reusable buffers for the triangle coverage test.
+///
+/// A cell can own hundreds of static meshes and each mesh is tested on up to
+/// six faces. Allocating a `Vec` and a `HashMap` per face was the dominant
+/// generation cost: a release build measured 0.09-1.7 ms for one solid face and
+/// up to 3.0 ms for a face with an opening as the mesh grew to 8192 triangles,
+/// so a dense cell stalled the frame thread for 20-30 ms per pass. The buffers
+/// are reused across every face of every geometry in one generation pass.
+#[derive(Default)]
+pub(super) struct CoverageScratch {
+    subset: Vec<[u16; 3]>,
+    edge_keys: Vec<u64>,
+    boundary: Vec<(u16, u16)>,
+    mask: [[bool; FACE_GRID]; FACE_GRID],
+}
+
 /// Collect the triangles that lie in the face plane. A triangle counts only when
 /// all three vertices are within the support tolerance, so the projection
-/// describes the actual face surface.
-fn near_face_triangles(
+/// describes the actual face surface. Returns `false` (leaving `out` empty) when
+/// an index is out of range or no triangle is near the face.
+fn near_face_triangles_into(
     vertices: &[[f32; 3]],
     triangles: &[[u16; 3]],
     axis: usize,
     face_coord: f32,
     tolerance: f32,
-) -> Option<Vec<[u16; 3]>> {
+    out: &mut Vec<[u16; 3]>,
+) -> bool {
+    out.clear();
     let near = |index: u16| -> bool {
         let vertex = vertices[index as usize];
         (vertex[axis] - face_coord).abs() <= tolerance
     };
-    let mut subset: Vec<[u16; 3]> = Vec::new();
     for triangle in triangles {
         let [a, b, c] = *triangle;
         if a as usize >= vertices.len()
             || b as usize >= vertices.len()
             || c as usize >= vertices.len()
         {
-            return None;
+            out.clear();
+            return false;
         }
         if near(a) && near(b) && near(c) {
-            subset.push(*triangle);
+            out.push(*triangle);
         }
     }
-    (!subset.is_empty()).then_some(subset)
+    !out.is_empty()
 }
 
 /// Edges used by exactly one near-face triangle. Those are the perimeter of the
 /// face and of every opening in it.
-fn boundary_edges(subset: &[[u16; 3]]) -> Vec<(u16, u16)> {
-    let mut counts: HashMap<u64, u8> = HashMap::with_capacity(subset.len() * 2);
+///
+/// Only edges whose 2D bounding box overlaps the candidate rectangle are kept:
+/// an edge outside it cannot cross the rectangle or any cell of the recovery
+/// grid, and the face's own perimeter lies outside the inset candidate, so a
+/// solid face sorts an empty list. The packed keys are then sorted and the
+/// singleton runs selected, which is exact for any edge multiplicity (a
+/// non-manifold edge with three or more triangles is not a boundary, matching
+/// the previous count). This replaces a per-face `HashMap` over every edge,
+/// which was the dominant generation cost on dense meshes.
+#[allow(clippy::too_many_arguments)]
+fn boundary_edges_sorted(
+    vertices: &[[f32; 3]],
+    subset: &[[u16; 3]],
+    tangent_a: usize,
+    tangent_b: usize,
+    rect: [f32; 4],
+    edge_keys: &mut Vec<u64>,
+    boundary: &mut Vec<(u16, u16)>,
+) {
+    let [u0, v0, u1, v1] = rect;
+    edge_keys.clear();
+    edge_keys.reserve(subset.len() * 3);
     for triangle in subset {
         for (a, b) in [
             (triangle[0], triangle[1]),
@@ -1177,16 +1361,33 @@ fn boundary_edges(subset: &[[u16; 3]]) -> Vec<(u16, u16)> {
             if a == b {
                 continue;
             }
+            let pa = vertices[a as usize];
+            let pb = vertices[b as usize];
+            let min_u = pa[tangent_a].min(pb[tangent_a]);
+            let max_u = pa[tangent_a].max(pb[tangent_a]);
+            let min_v = pa[tangent_b].min(pb[tangent_b]);
+            let max_v = pa[tangent_b].max(pb[tangent_b]);
+            if max_u < u0 || min_u > u1 || max_v < v0 || min_v > v1 {
+                continue;
+            }
             let (low, high) = if a < b { (a, b) } else { (b, a) };
-            let key = ((low as u64) << 16) | high as u64;
-            *counts.entry(key).or_insert(0) += 1;
+            edge_keys.push(((low as u64) << 16) | high as u64);
         }
     }
-    counts
-        .into_iter()
-        .filter(|(_, count)| *count == 1)
-        .map(|(key, _)| ((key >> 16) as u16, (key & 0xFFFF) as u16))
-        .collect()
+    edge_keys.sort_unstable();
+    boundary.clear();
+    let mut start = 0usize;
+    while start < edge_keys.len() {
+        let key = edge_keys[start];
+        let mut end = start + 1;
+        while end < edge_keys.len() && edge_keys[end] == key {
+            end += 1;
+        }
+        if end - start == 1 {
+            boundary.push(((key >> 16) as u16, (key & 0xFFFF) as u16));
+        }
+        start = end;
+    }
 }
 
 /// True when the axis-aligned `[u0, u1] x [v0, v1]` region is fully backed by the
@@ -1239,6 +1440,9 @@ fn rect_covered(
 /// that hole, so the candidate rectangle is checked against the mesh triangles
 /// and reduced to the largest solid rectangle. This keeps the wall around a
 /// window or doorway as an occluder without ever covering the opening.
+/// Convenience wrapper that owns a scratch buffer, for tests and one-off
+/// callers. The generation path reuses a scratch across faces.
+#[cfg(test)]
 pub(super) fn covered_face_rect(
     vertices: &[[f32; 3]],
     triangles: &[[u16; 3]],
@@ -1250,13 +1454,51 @@ pub(super) fn covered_face_rect(
     half_u: f32,
     half_v: f32,
 ) -> Option<(f32, f32, f32, f32)> {
+    let mut scratch = CoverageScratch::default();
+    covered_face_rect_scratch(
+        vertices,
+        triangles,
+        axis,
+        face_coord,
+        tolerance,
+        center_u,
+        center_v,
+        half_u,
+        half_v,
+        &mut scratch,
+    )
+}
+
+/// `covered_face_rect` with caller-owned scratch buffers, so one generation pass
+/// does not allocate per face.
+#[allow(clippy::too_many_arguments)]
+pub(super) fn covered_face_rect_scratch(
+    vertices: &[[f32; 3]],
+    triangles: &[[u16; 3]],
+    axis: usize,
+    face_coord: f32,
+    tolerance: f32,
+    center_u: f32,
+    center_v: f32,
+    half_u: f32,
+    half_v: f32,
+    scratch: &mut CoverageScratch,
+) -> Option<(f32, f32, f32, f32)> {
     if vertices.is_empty() || triangles.is_empty() {
         return None;
     }
     let tangent_a = (axis + 1) % 3;
     let tangent_b = (axis + 2) % 3;
-    let subset = near_face_triangles(vertices, triangles, axis, face_coord, tolerance)?;
-    let boundary = boundary_edges(&subset);
+    if !near_face_triangles_into(
+        vertices,
+        triangles,
+        axis,
+        face_coord,
+        tolerance,
+        &mut scratch.subset,
+    ) {
+        return None;
+    }
     // Inset the candidate so the face's own perimeter does not read as an
     // opening boundary.
     let inset = (half_u.min(half_v) * 0.02).clamp(0.0, 4.0);
@@ -1267,9 +1509,22 @@ pub(super) fn covered_face_rect(
     if u1 <= u0 || v1 <= v0 {
         return None;
     }
+    // The boundary list is filtered to the candidate rectangle, so a solid face
+    // skips the sort entirely and a face with an opening keeps only the opening
+    // edges that can cross the candidate.
+    boundary_edges_sorted(
+        vertices,
+        &scratch.subset,
+        tangent_a,
+        tangent_b,
+        [u0, v0, u1, v1],
+        &mut scratch.edge_keys,
+        &mut scratch.boundary,
+    );
+    let (subset, boundary) = (&scratch.subset, &scratch.boundary);
     // Fast path: the whole face is solid, so keep the original size.
     if rect_covered(
-        vertices, &subset, &boundary, tangent_a, tangent_b, u0, u1, v0, v1,
+        vertices, subset, boundary, tangent_a, tangent_b, u0, u1, v0, v1,
     ) {
         return Some((center_u, center_v, half_u, half_v));
     }
@@ -1278,10 +1533,15 @@ pub(super) fn covered_face_rect(
     // boundary crosses, so a cell is covered only when it is fully backed.
     let cell_w = (u1 - u0) / FACE_GRID as f32;
     let cell_h = (v1 - v0) / FACE_GRID as f32;
-    let mut mask = [[false; FACE_GRID]; FACE_GRID];
+    let mask = &mut scratch.mask;
+    for row in mask.iter_mut() {
+        for cell in row.iter_mut() {
+            *cell = false;
+        }
+    }
     let cell_index =
         |value: f32, origin: f32, cell: f32| -> i64 { ((value - origin) / cell).floor() as i64 };
-    for triangle in &subset {
+    for triangle in subset {
         let a = vertices[triangle[0] as usize];
         let b = vertices[triangle[1] as usize];
         let c = vertices[triangle[2] as usize];
@@ -1308,7 +1568,7 @@ pub(super) fn covered_face_rect(
             }
         }
     }
-    for &(a, b) in &boundary {
+    for &(a, b) in boundary {
         let pa = vertices[a as usize];
         let pb = vertices[b as usize];
         let a2 = [pa[tangent_a], pa[tangent_b]];
@@ -1333,7 +1593,7 @@ pub(super) fn covered_face_rect(
             }
         }
     }
-    let (column0, row0, column1, row1) = largest_covered_rect(&mask)?;
+    let (column0, row0, column1, row1) = largest_covered_rect(mask)?;
     let su0 = u0 + column0 as f32 * cell_w;
     let su1 = u0 + (column1 + 1) as f32 * cell_w;
     let sv0 = v0 + row0 as f32 * cell_h;

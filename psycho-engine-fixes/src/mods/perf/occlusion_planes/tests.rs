@@ -14,9 +14,9 @@ use super::runtime::{
     target_confirmation,
 };
 use super::runtime_generate::{
-    Aabb, FaceRejects, PLANE_SHRINK, WorldTransform, aabb_of, admits_base_type, alpha_is_opaque,
-    covered_face_rect, faces_from_oriented_box, merge_coplanar, select_planes, support_rect,
-    transform_point,
+    Aabb, CoverageScratch, FaceRejects, PLANE_SHRINK, WorldTransform, aabb_of, admits_base_type,
+    alpha_is_opaque, covered_face_rect, covered_face_rect_scratch, faces_from_oriented_box,
+    merge_coplanar, select_planes, support_rect, transform_point,
 };
 
 static DELETE_THIS_CALLS: AtomicUsize = AtomicUsize::new(0);
@@ -79,6 +79,7 @@ fn oriented_faces(
     let mut points = Vec::new();
     let mut hull = Vec::new();
     let mut upper = Vec::new();
+    let mut coverage = CoverageScratch::default();
     faces_from_oriented_box(
         local,
         world,
@@ -88,6 +89,7 @@ fn oriented_faces(
         &mut points,
         &mut hull,
         &mut upper,
+        &mut coverage,
     )
 }
 
@@ -981,4 +983,73 @@ fn window_opening_is_never_covered() {
 fn face_without_triangles_is_never_emitted() {
     let vertices = wall_vertices(&[(0.0, 0.0), (1000.0, 0.0), (1000.0, 1000.0), (0.0, 1000.0)]);
     assert!(covered_face_rect(&vertices, &[], 0, 0.0, 4.0, 500.0, 500.0, 400.0, 400.0).is_none());
+}
+
+/// Build a tessellated wall in the local x = 0 plane with an optional square
+/// window. Returns `(vertices, triangles)`.
+fn tessellated_wall(cells: usize, window: bool) -> (Vec<[f32; 3]>, Vec<[u16; 3]>) {
+    let size = 4096.0f32;
+    let step = size / cells as f32;
+    let mut vertices = Vec::with_capacity((cells + 1) * (cells + 1));
+    for row in 0..=cells {
+        for column in 0..=cells {
+            vertices.push([0.0, column as f32 * step, row as f32 * step]);
+        }
+    }
+    let mut triangles = Vec::with_capacity(cells * cells * 2);
+    let skip = cells / 4;
+    let skip_end = cells - cells / 4;
+    for row in 0..cells {
+        for column in 0..cells {
+            if window && row >= skip && row < skip_end && column >= skip && column < skip_end {
+                continue;
+            }
+            let a = (row * (cells + 1) + column) as u16;
+            let b = a + 1;
+            let c = a + (cells + 1) as u16;
+            let d = c + 1;
+            triangles.push([a, b, d]);
+            triangles.push([a, d, c]);
+        }
+    }
+    (vertices, triangles)
+}
+
+/// Cost probe for the coverage test. Not a correctness test.
+#[test]
+#[ignore = "measurement: coverage-test cost on a tessellated wall"]
+fn bench_covered_face_rect_cost() {
+    for cells in [16usize, 32, 64] {
+        for window in [false, true] {
+            let (vertices, triangles) = tessellated_wall(cells, window);
+            let rounds = 2000u32;
+            let mut scratch = CoverageScratch::default();
+            let started = std::time::Instant::now();
+            let mut emitted = 0u32;
+            for _ in 0..rounds {
+                if covered_face_rect_scratch(
+                    &vertices,
+                    &triangles,
+                    0,
+                    0.0,
+                    4.0,
+                    2048.0,
+                    2048.0,
+                    1900.0,
+                    1900.0,
+                    &mut scratch,
+                )
+                .is_some()
+                {
+                    emitted += 1;
+                }
+            }
+            let each_us = started.elapsed().as_secs_f64() * 1.0e6 / f64::from(rounds);
+            println!(
+                "bench_covered_face_rect_cost cells={cells} window={window} \
+                 triangles={} each_us={each_us:.1} emitted={emitted}/{rounds}",
+                triangles.len()
+            );
+        }
+    }
 }

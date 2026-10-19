@@ -26,11 +26,12 @@
 //! check; a new cell must be stable before it replaces the current planes. On a
 //! transition the runtime rebuilds and then retries a bounded settle window, so
 //! references whose 3D attaches after the first frame are still collected; a
-//! retry whose generated set is unchanged keeps the existing planes. A cache
-//! entry is reused only after its settle window completed. Creation, insertion,
-//! removal and release happen only on a rebuild. Load, new-game and
-//! exit-to-menu events defer cleanup to the next frame, so the module never
-//! scans a list that may be under teardown.
+//! retry whose generated set is unchanged keeps the existing planes. The mesh
+//! walk is resumable and advances a fixed work slice per frame, so a dense cell
+//! never blocks the frame thread. A cache entry is reused only after its settle
+//! window completed. Creation, insertion, removal and release happen only on a
+//! rebuild. Load, new-game and exit-to-menu events defer cleanup to the next
+//! frame, so the module never scans a list that may be under teardown.
 //!
 //! # Failure behavior
 //!
