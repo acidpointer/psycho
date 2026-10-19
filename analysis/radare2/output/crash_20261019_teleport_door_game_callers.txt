@@ -1,0 +1,18 @@
+# Teleport-door enumerator caller audit
+Date: 2026-10-19T14:45:15.862861+00:00
+Tool: radare2 CLI 6.2.2
+Binary: /data/storage1/Workspace/psycho/fnv_reverse/FalloutNV.exe
+SHA-256: 42fee7d6cd74e801372aa89c8f71c974cebd3c20ec9ad43d1465b8fa9646b49c
+Command: ["r2", "-q", "-e", "scr.color=0", "-e", "bin.relocs.apply=true", "-c", "aar", "-c", "axt 0x0054db50", "-c", "q", "/data/storage1/Workspace/psycho/fnv_reverse/FalloutNV.exe"]
+Relocations: applied (bin.relocs.apply=true).
+Scope: aar-discovered code/data references to one entry only.
+Indirect/runtime-written callers may not be discovered.
+Static evidence only, not a reproduction or patch authority.
+Exit status: 0
+
+STDOUT:
+(nofunc) 0x588291 [CALL:--x] call 0x54db50
+(nofunc) 0x6f373d [CALL:--x] call 0x54db50
+
+STDERR (including tool warnings):
+WARN: Invalid certificate table

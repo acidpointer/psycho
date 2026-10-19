@@ -1,0 +1,336 @@
+# Teleport-door crash: caller recovered from the existing release DLL
+
+Date: 2026-10-19
+Interface: r2mcp disassembly and PE header reads; no build or new game run.
+Tool: radare2 CLI 6.2.2 is available locally.
+Binary: /data/storage0/Games/FalloutNV_TTW/FalloutNV/syringe/psycho_engine_fixes.dll
+SHA-256: 9b9a61335e0b5ae9f6d48eedf629af7f9063351a5060677f463bfcfdd41becc7
+PE32 i386. Preferred base 0x10000000; crash module base 0x76BA0000.
+r2mcp used its default relocation setting; RVA calculations below do not depend
+on relocation application. The on-disk module is the installed release artifact;
+there is no process dump for a full runtime-byte comparison.
+
+Scope: physical native stack reconstruction and the exact installed caller.
+Not a new runtime reproduction, a complete writer audit, or patch authority.
+Exact tool strings are preserved in the incident reports directory; trailing
+line whitespace and blank lines at EOF are normalized in this presentation.
+
+Recorded inputs from .reports/20261019-teleport-door-crash/CrashLogger.log:
+  ESP = 0x0170CD70
+  stack[00] = 0x0170CED0 (TeleportDoorSearch vtable 0x0106D8FC)
+  stack[01] = 0x0A6FC320
+  stack[02] = 0x0170CDB8
+  stack[03] = 0x0106D8FC
+  stack[04] = 0x76C0124E
+  EBX = 0x0170EF74
+
+The enumerator prologue PUSH EBX; PUSH EBP; PUSH ESI; PUSH EDI consumes 16 bytes.
+It makes no further persistent stack adjustment before the fault. Its one lock
+call is balanced. Thus the caller return address is [ESP+16], stack slot 04.
+Slot 04 maps to RVA 0x6124E / preferred VA 0x1006124E in the installed core.
+CALL ESI at 0x1006124C has bytes FF D6; its exact return is 0x1006124E.
+The existing COFF symbol identifies the containing function as
+psycho_engine_fixes::mods::perf::radio::provider::dispatch_body.
+
+Saved register correspondence independently agrees:
+  stack[00] = caller EDI = query 0x0170CED0
+  stack[01] = caller ESI = enumerator 0x0A6FC320
+  stack[02] = caller EBP = 0x0170CDB8
+  stack[03] = caller EBX = query vtable 0x0106D8FC
+  query + 0x20A4 = 0x0170EF74 = enumerator output array in EBX.
+Caller frame calculation: 0x0170CDB8 - 12 saved bytes - 0x24 locals - 4 output
+argument - 4 CALL return - 16 enumerator saves = 0x0170CD70, recorded ESP.
+
+The compiled caller admits this expansion only with an active provider-bearing
+radio context, matching provider, query vtable 0x0106D8FC, actor zero, and tuple
+(mode,disposition) in {(0,3),(1,1),(2,1)}. The specific tuple is not captured.
+Both worldspace-cell and direct-cell branches merge at CALL ESI. This is the
+optimized expansion, not the original-provider fallback at 0x100611E3.
+A source-level unwind is unnecessary for this physical ABI proof.
+The offending reference identity/base writer remain unknown.
+
+
+## mcp__radare2__disassemble {"address":"0x100611e0","num_instructions":70}
+
+0x100611e0      push dword [ebp + 0x10]
+   ; pe_dos_header(0x0, 0x0, 0x0, 0x0)
+0x100611e3      call esi
+0x100611e5      add esp, 0x24
+0x100611e8      pop esi
+0x100611e9      pop edi
+0x100611ea      pop ebx
+0x100611eb      pop ebp
+0x100611ec      ret
+0x100611ed      mov edx, dword [eax + 0xc]
+0x100611f0      mov eax, dword [eax + 0x10]
+0x100611f3      mov ecx, dword [edi + 0x2098]
+0x100611f9      mov dword [ebp - 0x30], eax
+0x100611fc      mov eax, dword [edi + 0x20b4]
+; 2
+0x10061202      cmp ecx, 2
+   ; unlikely
+0x10061205      je 0x10061217
+; 1
+0x10061207      cmp ecx, 1
+   ; unlikely
+0x1006120a      je 0x10061217
+0x1006120c      test ecx, ecx
+   ; likely
+0x1006120e      jne 0x100611d9
+; 3
+0x10061210      cmp eax, 3
+   ; likely
+0x10061213      jne 0x100611d9
+0x10061215      jmp 0x1006121c
+; 1
+0x10061217      cmp eax, 1
+   ; likely
+0x1006121a      jne 0x100611d9
+0x1006121c      mov eax, dword [ebp + 0x10]
+0x1006121f      mov dword [edi + 0x20ac], 0
+0x10061229      cmp byte [eax + 8], 0
+   ; unlikely
+0x1006122d      je 0x1006123e
+0x1006122f      mov eax, dword [eax + 0xc]
+0x10061232      mov ecx, dword [eax + 0x34]
+0x10061235      test ecx, ecx
+   ; likely
+0x10061237      jne 0x10061241
+0x10061239      jmp 0x1006141b
+0x1006123e      mov ecx, dword [eax + 0x10]
+0x10061241      lea eax, [edi + 0x20a4]
+0x10061247      mov esi, edx
+0x10061249      xor edx, edx
+0x1006124b      push eax
+   ; 0xffffffff(0x20a3, -1, -1, 0x0)
+0x1006124c      call esi
+0x1006124e      cmp dword [edi + 0x20ac], 0
+   ; unlikely
+0x10061255      je 0x1006141b
+0x1006125b      mov eax, dword [ebp + 0x10]
+0x1006125e      xor esi, esi
+; 24
+0x10061260      add eax, 0x18
+0x10061263      mov dword [ebp - 0x28], eax
+0x10061266      jmp 0x100612cd
+0x10061268      mov ecx, dword [ebp - 0x2c]
+0x1006126b      mov eax, dword [ebp - 0x18]
+0x1006126e      mov edx, dword [ebp - 0x10]
+0x10061271      mov byte [eax + 8], cl
+0x10061274      test cl, cl
+0x10061276      mov ecx, 0
+0x1006127b      mov dword [eax + 0xc], edx
+0x1006127e      mov edx, dword [ebp - 0x1c]
+0x10061281      cmovne ebx, ecx
+0x10061284      mov ecx, dword [ebp - 0x20]
+0x10061287      mov dword [eax + 0x10], ebx
+; [0x3f800000:4]=-1
+0x1006128a      mov dword [eax + 4], 0x3f800000
+0x10061291      mov dword [eax + 0x14], ecx
+0x10061294      movsd xmm0, qword [edx + 4]
+0x10061299      movsd qword [eax + 0x18], xmm0
+0x1006129e      mov ecx, dword [edx + 0xc]
+0x100612a1      mov dword [eax + 0x20], ecx
+0x100612a4      mov ecx, dword [ebp + 0x14]
+0x100612a7      lea eax, [ebp - 0x18]
+0x100612aa      push eax
+0x100612ab      mov eax, 0x7cb2e0
+   ; 0x7cb2e0(0x7cb2e0, 0x0, -1, -1)
+0x100612b0      call eax
+0x100612b2      nop word cs:[eax + eax]
+0x100612bc      nop dword [eax]
+
+
+## mcp__radare2__hexdump {"address":"0x1006123c","size":"32"}
+
+- offset -  3C3D 3E3F 4041 4243 4445 4647 4849 4A4B  CDEF0123456789AB
+0x1006123c  0000 8b48 108d 87a4 2000 0089 d631 d250  ...H.... ....1.P
+0x1006124c  ffd6 83bf ac20 0000 000f 84c0 0100 008b  ..... ..........
+
+
+## mcp__radare2__disassemble {"address":"0x10061180","num_instructions":140}
+
+; psycho_engine_fixes::mods::perf::radio::provider::dispatch_body
+;-- psycho_engine_fixes::mods::perf::radio::provider::dispatch_body:
+0x10061180      push ebp
+0x10061181      mov ebp, esp
+0x10061183      push ebx
+0x10061184      push edi
+0x10061185      push esi
+0x10061186      sub esp, 0x24
+0x10061189      mov ebx, dword [ebp + 0xc]
+0x1006118c      mov esi, dword [ebx + 4]
+0x1006118f      push 0
+; 'pD@\x10'
+0x10061191      push 0x10404470
+   ; sym.__RINvMs2_NtNtNtCs3U2idwLkfcg_3std3sys12thread_local2osINtB6_7StorageINtNtCs32tIC4fDiEl_4core4cell4CellNtNtNtNtCscusTm9VrEdi_19
+   ; sym.__RINvMs2_NtNtNtCs3U2idwLkfcg_3std3sys12thread_local2osINtB6_7StorageINtNtCs32tIC4fDiEl_4core4cell4CellNtNtNtNtCscusTm9VrEdi_19(0x0, -1, 0x0, 0x0)
+0x10061196      call sym.__RINvMs2_NtNtNtCs3U2idwLkfcg_3std3sys12thread_local2osINtB6_7StorageINtNtCs32tIC4fDiEl_4core4cell4CellNtNtNtNtCscusTm9VrEdi_19
+0x1006119b      add esp, 8
+0x1006119e      test eax, eax
+   ; likely
+0x100611a0      je 0x10061422
+0x100611a6      mov ecx, dword [eax]
+0x100611a8      cmp ecx, 0xffffffff
+   ; likely
+0x100611ab      je 0x10061422
+0x100611b1      mov edi, dword [ebp + 8]
+; 1
+0x100611b4      cmp ecx, 1
+   ; likely
+0x100611b7      jne 0x100611d9
+0x100611b9      test edi, edi
+   ; unlikely
+0x100611bb      je 0x100611d9
+0x100611bd      cmp dword [eax + 0x1c], 0
+   ; unlikely
+0x100611c1      je 0x100611d9
+0x100611c3      cmp esi, dword [eax + 4]
+   ; unlikely
+0x100611c6      jne 0x100611d9
+0x100611c8      cmp dword [edi], 0x106d8fc
+   ; likely
+0x100611ce      jne 0x100611d9
+0x100611d0      cmp dword [edi + 0x20a0], 0
+   ; unlikely
+0x100611d7      je 0x100611ed
+0x100611d9      mov ecx, edi
+0x100611db      mov edx, ebx
+0x100611dd      push dword [ebp + 0x14]
+0x100611e0      push dword [ebp + 0x10]
+   ; 0xffffffff(0x0, -1, -1, -1)
+0x100611e3      call esi
+0x100611e5      add esp, 0x24
+0x100611e8      pop esi
+0x100611e9      pop edi
+0x100611ea      pop ebx
+0x100611eb      pop ebp
+0x100611ec      ret
+0x100611ed      mov edx, dword [eax + 0xc]
+0x100611f0      mov eax, dword [eax + 0x10]
+0x100611f3      mov ecx, dword [edi + 0x2098]
+0x100611f9      mov dword [ebp - 0x30], eax
+0x100611fc      mov eax, dword [edi + 0x20b4]
+; 2
+0x10061202      cmp ecx, 2
+   ; unlikely
+0x10061205      je 0x10061217
+; 1
+0x10061207      cmp ecx, 1
+   ; unlikely
+0x1006120a      je 0x10061217
+0x1006120c      test ecx, ecx
+   ; likely
+0x1006120e      jne 0x100611d9
+; 3
+0x10061210      cmp eax, 3
+   ; likely
+0x10061213      jne 0x100611d9
+0x10061215      jmp 0x1006121c
+; 1
+0x10061217      cmp eax, 1
+   ; likely
+0x1006121a      jne 0x100611d9
+0x1006121c      mov eax, dword [ebp + 0x10]
+0x1006121f      mov dword [edi + 0x20ac], 0
+0x10061229      cmp byte [eax + 8], 0
+   ; unlikely
+0x1006122d      je 0x1006123e
+0x1006122f      mov eax, dword [eax + 0xc]
+0x10061232      mov ecx, dword [eax + 0x34]
+0x10061235      test ecx, ecx
+   ; likely
+0x10061237      jne 0x10061241
+0x10061239      jmp 0x1006141b
+0x1006123e      mov ecx, dword [eax + 0x10]
+0x10061241      lea eax, [edi + 0x20a4]
+0x10061247      mov esi, edx
+0x10061249      xor edx, edx
+0x1006124b      push eax
+   ; 0xffffffff(0x20a3, -1, -1, 0x0)
+0x1006124c      call esi
+0x1006124e      cmp dword [edi + 0x20ac], 0
+   ; unlikely
+0x10061255      je 0x1006141b
+0x1006125b      mov eax, dword [ebp + 0x10]
+0x1006125e      xor esi, esi
+; 24
+0x10061260      add eax, 0x18
+0x10061263      mov dword [ebp - 0x28], eax
+0x10061266      jmp 0x100612cd
+0x10061268      mov ecx, dword [ebp - 0x2c]
+0x1006126b      mov eax, dword [ebp - 0x18]
+0x1006126e      mov edx, dword [ebp - 0x10]
+0x10061271      mov byte [eax + 8], cl
+0x10061274      test cl, cl
+0x10061276      mov ecx, 0
+0x1006127b      mov dword [eax + 0xc], edx
+0x1006127e      mov edx, dword [ebp - 0x1c]
+0x10061281      cmovne ebx, ecx
+0x10061284      mov ecx, dword [ebp - 0x20]
+0x10061287      mov dword [eax + 0x10], ebx
+; [0x3f800000:4]=-1
+0x1006128a      mov dword [eax + 4], 0x3f800000
+0x10061291      mov dword [eax + 0x14], ecx
+0x10061294      movsd xmm0, qword [edx + 4]
+0x10061299      movsd qword [eax + 0x18], xmm0
+0x1006129e      mov ecx, dword [edx + 0xc]
+0x100612a1      mov dword [eax + 0x20], ecx
+0x100612a4      mov ecx, dword [ebp + 0x14]
+0x100612a7      lea eax, [ebp - 0x18]
+0x100612aa      push eax
+0x100612ab      mov eax, 0x7cb2e0
+   ; 0x7cb2e0(0x7cb2e0, 0x0, -1, -1)
+0x100612b0      call eax
+0x100612b2      nop word cs:[eax + eax]
+0x100612bc      nop dword [eax]
+0x100612c0      inc esi
+0x100612c1      cmp esi, dword [edi + 0x20ac]
+   ; unlikely
+0x100612c7      jae 0x1006141b
+0x100612cd      mov eax, dword [edi + 0x20a8]
+0x100612d3      mov ebx, dword [eax + esi*4]
+0x100612d6      test byte [ebx + 9], 8
+   ; likely
+0x100612da      jne 0x100612c0
+0x100612dc      lea ecx, [ebx + 0x44]
+; '+'
+; 43
+0x100612df      push 0x2b
+0x100612e1      mov eax, 0x410220
+   ; 0x410220(0x410220, -1, 0x43, -1)
+0x100612e6      call eax
+0x100612e8      mov edx, dword [eax + 0xc]
+0x100612eb      mov ecx, dword [edx]
+0x100612ed      mov dword [ebp - 0x1c], edx
+0x100612f0      test ecx, ecx
+   ; unlikely
+0x100612f2      je 0x10061339
+0x100612f4      mov eax, dword [ecx + 0x40]
+0x100612f7      test eax, eax
+   ; likely
+0x100612f9      jne 0x1006130a
+0x100612fb      mov eax, dword [ecx + 0x18]
+; 24
+0x100612fe      add ecx, 0x18
+   ; 0xffffffff(-1, -1, 0x17, -1)
+0x10061301      call dword [eax]
+0x10061303      mov edx, dword [ebp - 0x1c]
+0x10061306      test eax, eax
+   ; unlikely
+0x10061308      je 0x10061322
+0x1006130a      test byte [eax + 0x24], 1
+   ; likely
+0x1006130e      jne 0x10061322
+0x10061310      mov eax, dword [eax + 0xc0]
+0x10061316      mov cl, 1
+0x10061318      test eax, eax
+0x1006131a      mov dword [ebp - 0x10], eax
+0x1006131d      mov dword [ebp - 0x14], eax
+   ; likely
+0x10061320      jne 0x10061349
+0x10061322      mov eax, dword [edx]
+0x10061324      test eax, eax
+   ; unlikely
+0x10061326      je 0x10061339
+0x10061328      mov eax, dword [eax + 0x40]

@@ -7,9 +7,11 @@
 //!
 //! The admitted expansion preserves candidate enumeration, native node/queue
 //! ownership, geometry callbacks, scalar SSE arithmetic, and output ordering.
-//! Only the proven unused policy temporary lifetime is omitted. Captured helper
-//! code has the normal xNVSE plugin lifetime (load through DeInit); concurrent
-//! code rewriting/unloading during a native call is not supported by the engine.
+//! Owned enumeration rejects missing base forms under the native cell lock;
+//! only the proven unused policy temporary lifetime is otherwise omitted.
+//! Captured helper code has the normal xNVSE plugin lifetime (load through
+//! DeInit); concurrent code rewriting/unloading during a native call is not
+//! supported by the engine.
 //! See docs/radio_scan_hitch_evidence.md and the provider-dispatch binary audit.
 
 use anyhow::ensure;
@@ -22,6 +24,7 @@ use std::sync::{
     atomic::{AtomicBool, Ordering},
 };
 
+mod candidates;
 #[path = "provider_contract.rs"]
 mod contract;
 
@@ -223,7 +226,7 @@ fn discover(provider: usize) -> Option<Bindings> {
     };
     if word(0x185) as usize != bindings.penalty
         || !mapped(bindings.setup, contract::SETUP.len(), true)
-        || !mapped(bindings.enumerate, 1, true)
+        || !enumerator_contract_matches(bindings.enumerate)
         || !mapped(bindings.sqrt, 1, true)
         || !mapped(bindings.penalty, 4, false)
         || !mapped(bindings.zero, 4, false)
@@ -241,6 +244,37 @@ fn discover(provider: usize) -> Option<Bindings> {
         }
     }
     Some(bindings)
+}
+
+/// Admit the candidate loop and recursive lock's instruction shape. Only the
+/// relative lock call and relocated import-slot operands vary. The private lock
+/// is never called; native wrappers/append must retain their audited ABI.
+fn enumerator_contract_matches(address: usize) -> bool {
+    if !mapped(address, contract::ENUMERATOR.len(), true) {
+        return false;
+    }
+    // SAFETY: complete mapped code range and the normal provider code lifetime.
+    let code =
+        unsafe { std::slice::from_raw_parts(address as *const u8, contract::ENUMERATOR.len()) };
+    if code[..0x0D] != contract::ENUMERATOR[..0x0D] || code[0x11..] != contract::ENUMERATOR[0x11..]
+    {
+        return false;
+    }
+    let lock = address.wrapping_add(0x11).wrapping_add(u32::from_le_bytes([
+        code[0x0D], code[0x0E], code[0x0F], code[0x10],
+    ]) as usize);
+    if !mapped(lock, contract::ENUMERATOR_LOCK.len(), true) {
+        return false;
+    }
+    // SAFETY: mapped full helper; only the explicit import operands are variable.
+    let code =
+        unsafe { std::slice::from_raw_parts(lock as *const u8, contract::ENUMERATOR_LOCK.len()) };
+    // Import-slot addresses are relocation operands in unused private code.
+    // Probing their pointees cannot validate the native functions we execute.
+    code[..6] == contract::ENUMERATOR_LOCK[..6]
+        && code[10..0x28] == contract::ENUMERATOR_LOCK[10..0x28]
+        && code[0x2C..] == contract::ENUMERATOR_LOCK[0x2C..]
+        && candidates::native_contract_matches()
 }
 
 // This is the physical ABI of the replaced MOV/CALL pair, including incoming
@@ -316,10 +350,9 @@ unsafe fn store<T>(object: *mut u8, offset: usize, value: T) {
 /// Expand one node under the verified provider's valid-native-object contract.
 /// Query, node and output belong exclusively to the synchronous native search.
 /// Door/cell/extra pointers have the same lifetime/locking preconditions as the
-/// retained enumerator and original provider. No new Rust references are made;
+/// audited enumerator and original provider. No new Rust references are made;
 /// required virtual calls and native container operations retain their ABIs.
 unsafe fn expand(query: *mut u8, node: *mut u8, output: *mut u8, bindings: Bindings) -> u8 {
-    type Enumerate = unsafe extern "fastcall" fn(*mut u8, usize, *mut u8);
     type Lookup = unsafe extern "thiscall" fn(*mut u8, u32) -> *mut u8;
     type GetCell = unsafe extern "thiscall" fn(*mut u8) -> *mut u8;
     type GetPosition = unsafe extern "thiscall" fn(*mut u8) -> *const u8;
@@ -330,7 +363,6 @@ unsafe fn expand(query: *mut u8, node: *mut u8, output: *mut u8, bindings: Bindi
     // SAFETY: the caller supplies the proven native ownership/layout/ABI contract
     // above. Keep all raw object operations confined to this engine boundary.
     unsafe {
-        let enumerate: Enumerate = std::mem::transmute(bindings.enumerate);
         let lookup: Lookup = std::mem::transmute(0x00410220usize);
         let get_node: GetNode = std::mem::transmute(0x006F3E30usize);
         let append: Append = std::mem::transmute(0x007CB2E0usize);
@@ -339,10 +371,10 @@ unsafe fn expand(query: *mut u8, node: *mut u8, output: *mut u8, bindings: Bindi
             let world = field::<*mut u8>(node, 0xC);
             let cell = field::<*mut u8>(world, 0x34);
             if !cell.is_null() {
-                enumerate(cell, 0, query.add(0x20A4));
+                candidates::enumerate(cell, query.add(0x20A4));
             }
         } else {
-            enumerate(field(node, 0x10), 0, query.add(0x20A4));
+            candidates::enumerate(field(node, 0x10), query.add(0x20A4));
         }
         let mut index = 0u32;
         while index < field::<u32>(query, 0x20AC) {

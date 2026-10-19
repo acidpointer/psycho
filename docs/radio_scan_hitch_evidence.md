@@ -2,6 +2,15 @@
 
 ## Status
 
+The [2026-10-19 teleport-door crash investigation](crash_20261019_teleport_door_null_base_plan.md)
+establishes an unchecked null base form in the retained cell enumerator. The
+captured stack and installed release instructions prove that Psycho's admitted
+radio expansion called it. The unreleased candidate now owns enumeration and
+rejects a missing base before its type read, preserving valid candidate
+semantics. The upstream null-base writer remains unresolved. The correction
+uses static evidence and release-only qualification, without a diagnostic
+capture prerequisite; game behavior has not been accepted.
+
 The synchronous scan rework did not eliminate the reported silence: the owner
 subsequently heard an announcer followed by silence, then lost every station
 while other game sounds continued. A later unreleased music candidate caused
@@ -259,10 +268,10 @@ original thiscall stack cleanup.
 `radio/provider.rs` owns the five-byte neighbor dispatch at `0x006F40D0`.
 For the complete verified inlined contract, it performs the equivalent radio
 expansion with unused policy preparation/access/cleanup omitted. It retains
-the installed enumerator and math helper, live geometry callbacks, native node
-allocation/relaxation, neighbor append order, and the outer native queue and
-result consumers. Its numeric bridge preserves the compiled scalar SSE order
-and unordered radius comparisons. Connected modes retain their minimum-use
+the admitted enumeration semantics and original math helper, live geometry
+callbacks, native node allocation/relaxation, neighbor append order, and the
+outer native queue and result consumers. Its numeric bridge preserves the
+compiled scalar SSE order and unordered radius comparisons. Connected modes retain their minimum-use
 penalty. No provider DLL or vtable slot is modified.
 
 `radio/provider_contract.rs` contains complete admission bytes, not executable
@@ -586,7 +595,9 @@ The selected expansion adapter has two paths:
 2. Verified inlined provider: execute Psycho's equivalent neighbor expansion
    at the game-owned dispatch. Omit only the discarded temporary preparation,
    accessibility call, and its allocation cleanup. Retain the original
-   enumerator and math helper, and all required native operations below.
+   enumeration semantics and math helper, and all required native operations
+   below. The null-base correction owns enumeration after verifying its full
+   compiled contract.
 
 An unrecognized provider always executes normally. This preserves station
 coverage; it does not promise acceleration of arbitrary replacement code.
@@ -605,7 +616,7 @@ contract below.
 | Operation | Required implementation behavior |
 | --- | --- |
 | Query admission | Active synchronous radio scope, actual query vtable `0x0106D8FC`, null actor, and exactly `(mode, disposition) = (0,3), (1,1), (2,1)`. Read the current query, not an outer query's cached decision. |
-| Candidates | Reset only the live query's candidate count at `+0x20AC`; call the captured enumerator with the same cell and array at `+0x20A4`. Preserve candidate order, live count reads, disabled checks, and cell locking in that helper. |
+| Candidates | Reset only the live query's candidate count at `+0x20AC`; use owned enumeration with the same cell and array at `+0x20A4` after admitting the helper contract. Preserve list order/termination, disabled/deleted flags, door type and teleport-presence bit, live next-link reads, native append and CellRefLock. Skip null reference payloads before reading flags and null bases before reading their type. |
 | Teleport geometry | Call the existing `0x00410220` lookup for type `0x2B`. Preserve linked-door parent-cell/child-cell resolution, virtual callbacks, worldspace selection, and descriptor key, including the original null-key path. |
 | Mode filters | Mode 1 admits interior links or links in the source worldspace at `+0x205C`; mode 2 excludes worldspace links. Mode 0 retains its distance/radius behavior. |
 | Policy omission | Null-actor accessibility does not read the prepared object. Dispositions 1 and 3 discard its decision. Remove the whole unused preparation lifetime, not individual shared getters or safety guards. |
@@ -646,14 +657,18 @@ addresses. Bind each operand explicitly:
 
 All other bytes, branch destinations, native callees, field offsets, and
 constants remain significant. Validate readable/executable ranges and checked
-address arithmetic before reading code or publishing bindings. The two
-retained helpers are invoked with their original physical ABIs; their behavior
-is not reimplemented. A mismatch means complete provider fallback, never a
-partial optimization or a guessed nearby helper. This is a bounded contract
+address arithmetic before reading code or publishing bindings. The original
+math helper retains its physical ABI. Candidate enumeration now has its own
+127-byte helper contract and recursive lock protocol admission, plus native
+cell-lock and append signatures. The owned implementation retains valid-input
+semantics while rejecting null payloads and bases; it never invokes the
+faulting helper. A mismatch means complete provider fallback, never a partial
+optimization or a guessed nearby helper. This is a bounded contract
 check reached from the actual vtable slot, not a module search or version list.
 
 At each outer scan, recheck that the bound provider/setup code and constants
-still match, using bounded storage and the existing WinAPI page-query wrapper.
+still match, including the enumerator/lock contract and native cell wrappers,
+using bounded storage and the existing WinAPI page-query wrapper.
 Do not use allocating `read_bytes` in this recurring path. Publish admission
 only for that synchronous scan; nested scans restore the previous scope.
 Each expansion also compares the actual target before using captured helpers.

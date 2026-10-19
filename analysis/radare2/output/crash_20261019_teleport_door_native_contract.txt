@@ -1,0 +1,487 @@
+# Teleport-door null-base crash: native contract audit
+
+Presentation: terminal blank lines at EOF omitted. The unmodified capture is
+retained at .reports/20261019-teleport-door-crash/crash_20261019_teleport_door_native_contract.txt.verbatim.
+
+Date: 2026-10-19
+Interface: r2mcp. Radare2 CLI 6.2.2 available locally.
+Binary: /data/storage1/Workspace/psycho/fnv_reverse/FalloutNV.exe
+SHA-256: 42fee7d6cd74e801372aa89c8f71c974cebd3c20ec9ad43d1465b8fa9646b49c
+Same hash verified for the executable beside the resolved live CrashLogger.log.
+PE32 i386, preferred/reported image base 0x00400000.
+r2mcp default relocation setting; show_info reports relocs=false. Queried code
+uses fixed game addresses at its actual preferred base. The separate CLI caller
+audits explicitly apply relocations.
+Warnings: open_file reported success without exposing a certificate warning.
+Scope: native enumeration, layout accessors, locking wrappers, query dispatch,
+and callsite routing. Adjacent disassembly beyond function ends is incidental;
+0x00588250 begins mid-instruction and is not used as evidence before 0x00588270.
+No executed game, writer/lifetime reconstruction, or exact incident caller proof.
+This file is static evidence, not patch authority.
+
+
+## mcp__radare2__show_info {}
+
+fd       3
+file     /data/storage1/Workspace/psycho/fnv_reverse/FalloutNV.exe
+size     0xf56f48
+humansz  15.3M
+mode     r-x
+format   pe
+iorw     true
+block    0x100
+type     EXEC (Executable file)
+arch     x86
+baddr    0x400000
+binsz    16084808
+bintype  pe
+bits     32
+canary   true
+injprot  false
+retguard false
+class    PE32
+cmp.csum 0x00f64bd0
+compiled Fri Jul  1 07:45:33 2011
+crypto   false
+dbg_file D:\_Fallout3\Platforms\Common\build\win32\FalloutNV.pdb
+endian   little
+havecode true
+hdr.csum 0x00f64bd0
+guid     9196089162EE4D29BF48E8D767B32DB91
+laddr    0x0
+lang     c
+linenum  false
+lsyms    false
+machine  i386
+nx       false
+os       windows
+overlay  true
+cc       cdecl
+pic      false
+relocs   false
+signed   false
+sanitize false
+static   false
+stripped false
+uncaps   false
+subsys   Windows GUI
+va       true
+PE file header:
+IMAGE_NT_HEADERS
+  Signature : 0x4550
+IMAGE_FILE_HEADERS
+  Machine : 0x14c
+  NumberOfSections : 0x7
+  TimeDateStamp : 0x4e0d50ed
+  PointerToSymbolTable : 0x0
+  NumberOfSymbols : 0x0
+  SizeOfOptionalHeader : 0xe0
+  Characteristics : 0x122
+IMAGE_OPTIONAL_HEADERS
+  Magic : 0x10b
+  MajorLinkerVersion : 0x9
+  MinorLinkerVersion : 0x0
+  SizeOfCode : 0xbdd600
+  SizeOfInitializedData : 0x378000
+  SizeOfUninitializedData : 0x0
+  AddressOfEntryPoint : 0xbde590
+  BaseOfCode : 0x1000
+  BaseOfData : 0xbdf000
+  ImageBase : 0x400000
+  SectionAlignment : 0x1000
+  FileAlignment : 0x200
+  MajorOperatingSystemVersion : 0x5
+  MinorOperatingSystemVersion : 0x0
+  MajorImageVersion : 0x0
+  MinorImageVersion : 0x0
+  MajorSubsystemVersion : 0x5
+  MinorSubsystemVersion : 0x0
+  Win32VersionValue : 0x0
+  SizeOfImage : 0x10089e4
+  SizeOfHeaders : 0x400
+  CheckSum : 0xf64bd0
+  Subsystem : 0x2
+  DllCharacteristics : 0x8000
+  SizeOfStackReserve : 0x100000
+  SizeOfStackCommit : 0x1000
+  SizeOfHeapReserve : 0x100000
+  SizeOfHeapCommit : 0x1000
+  LoaderFlags : 0x0
+  NumberOfRvaAndSizes : 0x10
+RICH_FIELDS
+IMAGE_DIRECTORY_ENTRY_IMPORT
+  VirtualAddress : 0xd8062c
+  Size : 0x168
+IMAGE_DIRECTORY_ENTRY_RESOURCE
+  VirtualAddress : 0xe74000
+  Size : 0xcba88
+IMAGE_DIRECTORY_ENTRY_SECURITY
+  VirtualAddress : 0xfc7200
+  Size : 0x1548
+IMAGE_DIRECTORY_ENTRY_BASERELOC
+  VirtualAddress : 0xf40000
+  Size : 0xb36a8
+IMAGE_DIRECTORY_ENTRY_DEBUG
+  VirtualAddress : 0xc11410
+  Size : 0x1c
+IMAGE_DIRECTORY_ENTRY_TLS
+  VirtualAddress : 0xd0147c
+  Size : 0x18
+IMAGE_DIRECTORY_ENTRY_IAT
+  VirtualAddress : 0xbdf000
+  Size : 0x4a4
+
+
+## mcp__radare2__disassemble {"address":"0x006f3700","num_instructions":45}
+
+0x006f3700      add ecx, 0x20a4
+   ; 0x8454f0(0x0, 0x0, 0x20a4, 0x0)
+0x006f3706      call 0x8454f0
+0x006f370b      mov eax, dword [ebp + 8]
+0x006f370e      movzx ecx, byte [eax + 8]
+0x006f3712      test ecx, ecx
+   ; unlikely
+0x006f3714      je 0x6f372d
+0x006f3716      mov edx, dword [ebp - 0x80]
+0x006f3719      add edx, 0x20a4
+0x006f371f      push edx
+0x006f3720      mov eax, dword [ebp + 8]
+0x006f3723      mov ecx, dword [eax + 0xc]
+   ; 0x588270(-1, 0x0, -1, 0x20a3)
+0x006f3726      call 0x588270
+0x006f372b      jmp 0x6f3742
+0x006f372d      mov ecx, dword [ebp - 0x80]
+0x006f3730      add ecx, 0x20a4
+0x006f3736      push ecx
+0x006f3737      mov edx, dword [ebp + 8]
+0x006f373a      mov ecx, dword [edx + 0x10]
+   ; 0x54db50(-1, 0x0, -1, -1)
+0x006f373d      call 0x54db50
+0x006f3742      mov eax, dword [ebp - 0x80]
+0x006f3745      cmp dword [eax + 0x20b4], 1
+   ; unlikely
+0x006f374c      je 0x6f376a
+0x006f374e      mov ecx, dword [ebp - 0x80]
+0x006f3751      cmp dword [ecx + 0x20b4], 3
+   ; unlikely
+0x006f3758      je 0x6f376a
+0x006f375a      mov edx, dword [ebp - 0x80]
+0x006f375d      cmp dword [edx + 0x20a0], 0
+   ; unlikely
+0x006f3764      je 0x6f3aec
+0x006f376a      mov dword [ebp - 0x10], 0
+0x006f3771      jmp 0x6f377c
+0x006f3773      mov eax, dword [ebp - 0x10]
+0x006f3776      add eax, 1
+0x006f3779      mov dword [ebp - 0x10], eax
+0x006f377c      mov ecx, dword [ebp - 0x80]
+0x006f377f      add ecx, 0x20a4
+   ; 0x44ddc0(0x0, 0x0, 0x20a3, -1)
+0x006f3785      call 0x44ddc0
+0x006f378a      cmp dword [ebp - 0x10], eax
+   ; likely
+0x006f378d      jae 0x6f3aec
+0x006f3793      mov ecx, dword [ebp - 0x10]
+0x006f3796      push ecx
+0x006f3797      mov ecx, dword [ebp - 0x80]
+0x006f379a      add ecx, 0x20a4
+   ; 0x877a30(0x0, 0x0, 0x20a3, -1)
+0x006f37a0      call 0x877a30
+0x006f37a5      mov edx, dword [eax]
+0x006f37a7      mov dword [ebp - 0x18], edx
+
+
+## mcp__radare2__disassemble {"address":"0x00588250","num_instructions":35}
+
+0x00588250      add byte [ecx - 0x691407bb], cl
+0x00588256      mov ecx, 0x11ca60c
+   ; 0x4538c0(0x0, 0x0, 0x11ca60c, 0x0)
+0x0058825b      call 0x4538c0
+0x00588260      mov esp, ebp
+0x00588262      pop ebp
+0x00588263      ret 4
+0x00588266      int3
+0x00588267      int3
+0x00588268      int3
+0x00588269      int3
+0x0058826a      int3
+0x0058826b      int3
+0x0058826c      int3
+0x0058826d      int3
+0x0058826e      int3
+0x0058826f      int3
+0x00588270      push ebp
+0x00588271      mov ebp, esp
+0x00588273      sub esp, 8
+0x00588276      mov dword [ebp - 8], ecx
+0x00588279      mov ecx, dword [ebp - 8]
+   ; 0x5f36f0(0x0, 0x0, -1, 0x0)
+0x0058827c      call 0x5f36f0
+0x00588281      mov dword [ebp - 4], eax
+0x00588284      cmp dword [ebp - 4], 0
+   ; unlikely
+0x00588288      je 0x588296
+0x0058828a      mov eax, dword [ebp + 8]
+0x0058828d      push eax
+0x0058828e      mov ecx, dword [ebp - 4]
+   ; 0x54db50(-1, 0x0, -1, 0x0)
+0x00588291      call 0x54db50
+0x00588296      mov esp, ebp
+0x00588298      pop ebp
+0x00588299      ret 4
+0x0058829c      int3
+0x0058829d      int3
+0x0058829e      int3
+
+
+## mcp__radare2__disassemble {"address":"0x006f40b0","num_instructions":30}
+
+0x006f40b0      push 0
+0x006f40b2      lea ecx, [ebp - 0x24]
+   ; 0x8454f0(0x0, 0x0, 0xffffffdc, 0x0)
+0x006f40b5      call 0x8454f0
+0x006f40ba      lea ecx, [ebp - 0x24]
+0x006f40bd      push ecx
+0x006f40be      mov edx, dword [ebp - 0x44]
+0x006f40c1      mov eax, dword [edx + 0x204c]
+0x006f40c7      push eax
+0x006f40c8      mov ecx, dword [ebp - 0x44]
+0x006f40cb      mov edx, dword [ecx]
+0x006f40cd      mov ecx, dword [ebp - 0x44]
+0x006f40d0      mov eax, dword [edx + 4]
+   ; 0xffffffff(-1, 0x0, -1, -1)
+0x006f40d3      call eax
+0x006f40d5      mov dword [ebp - 0x2c], 0
+0x006f40dc      jmp 0x6f40e7
+0x006f40de      mov ecx, dword [ebp - 0x2c]
+0x006f40e1      add ecx, 1
+0x006f40e4      mov dword [ebp - 0x2c], ecx
+0x006f40e7      lea ecx, [ebp - 0x24]
+   ; 0x44ddc0(-1, 0x0, 0xffffffdc, -1)
+0x006f40ea      call 0x44ddc0
+0x006f40ef      cmp dword [ebp - 0x2c], eax
+   ; likely
+0x006f40f2      jae 0x6f419f
+0x006f40f8      mov edx, dword [ebp - 0x2c]
+0x006f40fb      push edx
+0x006f40fc      lea ecx, [ebp - 0x24]
+   ; 0x877a30(-1, 0x0, 0xffffffdc, -1)
+0x006f40ff      call 0x877a30
+0x006f4104      mov eax, dword [eax]
+0x006f4106      mov dword [ebp - 0x30], eax
+0x006f4109      mov ecx, dword [ebp - 0x30]
+0x006f410c      push ecx
+
+
+## mcp__radare2__disassemble {"address":"0x0054db50","num_instructions":85}
+
+0x0054db50      push ebp
+0x0054db51      mov ebp, esp
+0x0054db53      sub esp, 0x10
+0x0054db56      mov dword [ebp - 0x10], ecx
+0x0054db59      mov ecx, dword [ebp - 0x10]
+   ; 0x541ac0(0x0, 0x0, -1, 0x0)
+0x0054db5c      call 0x541ac0
+0x0054db61      mov ecx, dword [ebp - 0x10]
+   ; 0x9604f0(0x0, 0x0, -1, 0x0)
+0x0054db64      call 0x9604f0
+0x0054db69      mov dword [ebp - 4], eax
+0x0054db6c      cmp dword [ebp - 4], 0
+   ; unlikely
+0x0054db70      je 0x54dbeb
+0x0054db72      mov ecx, dword [ebp - 4]
+   ; 0x6815c0(0x0, 0x0, -1, 0x0)
+0x0054db75      call 0x6815c0
+0x0054db7a      mov eax, dword [eax]
+0x0054db7c      mov dword [ebp - 8], eax
+0x0054db7f      cmp dword [ebp - 8], 0
+   ; unlikely
+0x0054db83      je 0x54dbde
+0x0054db85      mov ecx, dword [ebp - 8]
+   ; 0x440da0(-1, 0x0, -1, 0x0)
+0x0054db88      call 0x440da0
+0x0054db8d      movzx ecx, al
+0x0054db90      test ecx, ecx
+   ; likely
+0x0054db92      jne 0x54dbde
+0x0054db94      mov ecx, dword [ebp - 8]
+   ; 0x440d80(-1, 0x0, -1, 0x0)
+0x0054db97      call 0x440d80
+0x0054db9c      movzx edx, al
+0x0054db9f      test edx, edx
+   ; likely
+0x0054dba1      jne 0x54dbde
+0x0054dba3      mov ecx, dword [ebp - 8]
+   ; 0x7af430(-1, 0x0, -1, 0xff)
+0x0054dba6      call 0x7af430
+0x0054dbab      mov dword [ebp - 0xc], eax
+0x0054dbae      mov ecx, dword [ebp - 0xc]
+   ; 0x401170(-1, 0x0, -1, 0xff)
+0x0054dbb1      call 0x401170
+; 28
+0x0054dbb6      cmp eax, 0x1c
+   ; likely
+0x0054dbb9      jne 0x54dbde
+0x0054dbbb      mov eax, dword [ebp - 0xc]
+; [0x11ca258:4]=0
+0x0054dbbe      cmp eax, dword [0x11ca258]
+   ; unlikely
+0x0054dbc4      je 0x54dbde
+0x0054dbc6      mov ecx, dword [ebp - 8]
+   ; 0x568e50(-1, 0x0, -1, 0xff)
+0x0054dbc9      call 0x568e50
+0x0054dbce      test eax, eax
+   ; unlikely
+0x0054dbd0      je 0x54dbde
+0x0054dbd2      lea ecx, [ebp - 8]
+0x0054dbd5      push ecx
+0x0054dbd6      mov ecx, dword [ebp + 8]
+   ; 0x7cb2e0(-1, 0x0, -1, 0xff)
+0x0054dbd9      call 0x7cb2e0
+0x0054dbde      mov ecx, dword [ebp - 4]
+   ; 0x726070(-1, 0x0, -1, 0xff)
+0x0054dbe1      call 0x726070
+0x0054dbe6      mov dword [ebp - 4], eax
+0x0054dbe9      jmp 0x54db6c
+0x0054dbeb      mov ecx, dword [ebp - 0x10]
+   ; 0x541ae0(-1, 0x0, -1, 0xff)
+0x0054dbee      call 0x541ae0
+0x0054dbf3      mov esp, ebp
+0x0054dbf5      pop ebp
+0x0054dbf6      ret 4
+0x0054dbf9      int3
+0x0054dbfa      int3
+0x0054dbfb      int3
+0x0054dbfc      int3
+0x0054dbfd      int3
+0x0054dbfe      int3
+0x0054dbff      int3
+0x0054dc00      push ebp
+0x0054dc01      mov ebp, esp
+0x0054dc03      sub esp, 0x20
+0x0054dc06      mov dword [ebp - 0x20], ecx
+0x0054dc09      cmp dword [ebp + 0x10], 0
+   ; likely
+0x0054dc0d      jne 0x54dc16
+0x0054dc0f      xor eax, eax
+0x0054dc11      jmp 0x54dcea
+0x0054dc16      fld dword [ebp + 0xc]
+0x0054dc19      fmul dword [ebp + 0xc]
+0x0054dc1c      fstp dword [ebp - 4]
+0x0054dc1f      mov ecx, dword [ebp - 0x20]
+   ; 0x541ac0(0x0, 0x0, -1, 0xff)
+0x0054dc22      call 0x541ac0
+0x0054dc27      mov ecx, dword [ebp - 0x20]
+   ; 0x9604f0(0x0, 0x0, -1, 0xff)
+0x0054dc2a      call 0x9604f0
+0x0054dc2f      mov dword [ebp - 8], eax
+0x0054dc32      cmp dword [ebp - 8], 0
+   ; unlikely
+0x0054dc36      je 0x54dcda
+0x0054dc3c      mov ecx, dword [ebp - 8]
+   ; 0x6815c0(0x0, 0x0, -1, 0xff)
+0x0054dc3f      call 0x6815c0
+0x0054dc44      mov eax, dword [eax]
+0x0054dc46      mov dword [ebp - 0xc], eax
+0x0054dc49      cmp dword [ebp - 0xc], 0
+   ; unlikely
+0x0054dc4d      je 0x54dcca
+
+
+## mcp__radare2__disassemble {"address":"0x007af430","num_instructions":10}
+
+0x007af430      push ebp
+0x007af431      mov ebp, esp
+0x007af433      push ecx
+0x007af434      mov dword [ebp - 4], ecx
+0x007af437      mov eax, dword [ebp - 4]
+0x007af43a      mov eax, dword [eax + 0x20]
+0x007af43d      mov esp, ebp
+0x007af43f      pop ebp
+0x007af440      ret
+0x007af441      int3
+
+
+## mcp__radare2__disassemble {"address":"0x00401170","num_instructions":12}
+
+0x00401170      push ebp
+0x00401171      mov ebp, esp
+0x00401173      push ecx
+0x00401174      mov dword [ebp - 4], ecx
+0x00401177      mov eax, dword [ebp - 4]
+0x0040117a      movzx eax, byte [eax + 4]
+0x0040117e      mov esp, ebp
+0x00401180      pop ebp
+0x00401181      ret
+0x00401182      int3
+0x00401183      int3
+0x00401184      int3
+
+
+## mcp__radare2__disassemble {"address":"0x00541ac0","num_instructions":22}
+
+0x00541ac0      push ebp
+0x00541ac1      mov ebp, esp
+0x00541ac3      push ecx
+0x00541ac4      mov dword [ebp - 4], ecx
+; 0x102eaec
+; "TESObjectCELL::CellRefLockEnter()"
+0x00541ac7      push str.TESObjectCELL::CellRefLockEnter__
+0x00541acc      mov ecx, dword [ebp - 4]
+; 128
+0x00541acf      add ecx, 0x80
+   ; 0x40fbf0(0x0, 0x0, 0x7f, 0x0)
+0x00541ad5      call 0x40fbf0
+0x00541ada      mov esp, ebp
+0x00541adc      pop ebp
+0x00541add      ret
+0x00541ade      int3
+0x00541adf      int3
+0x00541ae0      push ebp
+0x00541ae1      mov ebp, esp
+0x00541ae3      push ecx
+0x00541ae4      mov dword [ebp - 4], ecx
+0x00541ae7      mov ecx, dword [ebp - 4]
+; 128
+0x00541aea      add ecx, 0x80
+   ; 0x40fba0(0x0, 0x0, 0x7f, 0x0)
+0x00541af0      call 0x40fba0
+0x00541af5      mov esp, ebp
+0x00541af7      pop ebp
+
+
+## mcp__radare2__disassemble {"address":"0x009604f0","num_instructions":10}
+
+0x009604f0      push ebp
+0x009604f1      mov ebp, esp
+0x009604f3      push ecx
+0x009604f4      mov dword [ebp - 4], ecx
+0x009604f7      mov eax, dword [ebp - 4]
+; 172
+0x009604fa      add eax, 0xac
+0x009604ff      mov esp, ebp
+0x00960501      pop ebp
+0x00960502      ret
+0x00960503      int3
+
+
+## mcp__radare2__disassemble {"address":"0x00541ae0","num_instructions":16}
+
+0x00541ae0      push ebp
+0x00541ae1      mov ebp, esp
+0x00541ae3      push ecx
+0x00541ae4      mov dword [ebp - 4], ecx
+0x00541ae7      mov ecx, dword [ebp - 4]
+; 128
+0x00541aea      add ecx, 0x80
+   ; 0x40fba0(0x0, 0x0, 0x7f, 0x0)
+0x00541af0      call 0x40fba0
+0x00541af5      mov esp, ebp
+0x00541af7      pop ebp
+0x00541af8      ret
+0x00541af9      int3
+0x00541afa      int3
+0x00541afb      int3
+0x00541afc      int3
+0x00541afd      int3
+0x00541afe      int3

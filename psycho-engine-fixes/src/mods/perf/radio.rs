@@ -7,8 +7,9 @@
 //!
 //! A scoped marker admits the three proven actor-free radio query tuples.
 //! Native policy calls keep caller-owned cleanup; a verified inlined expansion
-//! uses the game-owned dispatcher and original enumeration/math helpers. No
-//! provider DLL is patched. Unknown providers retain dynamic native dispatch.
+//! uses the game-owned dispatcher, audited candidate enumeration and the
+//! original math helper. Missing bases are rejected before their type read.
+//! No provider DLL is patched. Unknown providers retain dynamic native dispatch.
 //! The station bridge skips only the native empty/inactive no-effect branch.
 //! The music module separately repairs native request durations, media results,
 //! and playback-offset synchronization.

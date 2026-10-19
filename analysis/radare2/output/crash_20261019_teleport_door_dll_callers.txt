@@ -1,0 +1,17 @@
+# Teleport-door enumerator caller audit
+Date: 2026-10-19T14:45:12.481030+00:00
+Tool: radare2 CLI 6.2.2
+Binary: /data/storage0/Games/FalloutNV_TTW/mods/Stewie Tweaks/NVSE/plugins/nvse_stewie_tweaks.dll
+SHA-256: c19007b47f39df2ce07cfc1add1a27090302cf35e1673ba35bee61cb5800db95
+Command: ["r2", "-q", "-e", "scr.color=0", "-e", "bin.relocs.apply=true", "-c", "aar", "-c", "axt 0x1002c320", "-c", "q", "/data/storage0/Games/FalloutNV_TTW/mods/Stewie Tweaks/NVSE/plugins/nvse_stewie_tweaks.dll"]
+Relocations: applied (bin.relocs.apply=true).
+Scope: aar-discovered code/data references to one entry only.
+Indirect/runtime-written callers may not be discovered.
+Static evidence only, not a reproduction or patch authority.
+Exit status: 0
+
+STDOUT:
+(nofunc) 0x1002c569 [CALL:--x] call 0x1002c320
+(nofunc) 0x1002df1a [DATA:r--] mov ecx, 0x1002c320
+
+STDERR (including tool warnings):

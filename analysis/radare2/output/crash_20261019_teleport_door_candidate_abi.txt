@@ -1,0 +1,451 @@
+# Teleport-door null-base candidate: emitted release ABI
+
+Date: 2026-10-19
+Tool: radare2 CLI 6.2.2
+Binary: /data/storage1/Workspace/psycho/.reports/20261019-teleport-door-crash/implementation/candidate-final-core.dll
+SHA-256: c963018ec77397f52bf57f38340689ff2a953d20d697659306654c17bd859c81
+PE32 i386, preferred base 0x10000000. Relocations applied.
+Scope: actual release code for enumeration, rejection, native calls and admission.
+No game execution or runtime acceptance; this evidence is not patch authority.
+Commands and raw output follow; trailing line whitespace and EOF blanks normalized.
+Unmodified command/result records: .reports/20261019-teleport-door-crash/implementation/candidate-abi-raw.json.
+
+## enumerate
+
+Command: ["r2", "-q", "-e", "scr.color=0", "-e", "bin.relocs.apply=true", "-c", "s 0x1011a080", "-c", "af", "-c", "pdf", "-c", "q", "/data/storage1/Workspace/psycho/.reports/20261019-teleport-door-crash/implementation/candidate-final-core.dll"]
+
+┌ 147: sym.psycho_engine_fixes::mods::perf::radio::provider::candidates::enumerate (int32_t arg_8h, int32_t arg_ch);
+│ `- args(sp[0x4..0x8]) vars(1:sp[0x14..0x14])
+; psycho_engine_fixes::mods::perf::radio::provider::candidates::enumer
+; ate
+│           0x1011a080      55             push ebp
+│           0x1011a081      89e5           mov ebp, esp
+│           0x1011a083      53             push ebx
+│           0x1011a084      57             push edi
+│           0x1011a085      56             push esi
+│           0x1011a086      50             push eax
+│           0x1011a087      8b7508         mov esi, dword [arg_8h]
+│           0x1011a08a      b8c01a5400     mov eax, 0x541ac0
+│           0x1011a08f      89f1           mov ecx, esi
+│           0x1011a091      ffd0           call eax
+│           0x1011a093      8dbeac000000   lea edi, [esi + 0xac]
+│           0x1011a099      31db           xor ebx, ebx
+│       ┌─< 0x1011a09b      eb0a           jmp 0x1011a0a7
+..
+│       │   ; CODE XREF from psycho_engine_fixes::mods::perf::radio::provider::candidates::enumerate @ 0x1011a0e3(x)
+│   ┌┌┌┌──> 0x1011a0a0      8b7f04         mov edi, dword [edi + 4]
+│   ╎╎╎╎│   0x1011a0a3      85ff           test edi, edi
+│  ┌──────< 0x1011a0a5      7452           je 0x1011a0f9
+│  │╎╎╎╎│   ; CODE XREF from psycho_engine_fixes::mods::perf::radio::provider::candidates::enumerate @ 0x1011a09b(x)
+│ ┌─────└─> 0x1011a0a7      8b07           mov eax, dword [edi]
+│ ╎│╎╎╎╎    0x1011a0a9      85c0           test eax, eax
+│ ╎│╎╎╎╎    0x1011a0ab      8945f0         mov dword [var_10h], eax
+│ ╎│╎╎╎╎┌─< 0x1011a0ae      7506           jne 0x1011a0b6
+│ ╎│╎╎╎╎│   0x1011a0b0      837f0400       cmp dword [edi + 4], 0
+│ ────────< 0x1011a0b4      7443           je 0x1011a0f9
+│ ╎│╎╎╎╎└─> 0x1011a0b6      0fb74808       movzx ecx, word [eax + 8]
+│ ╎│╎╎╎╎    0x1011a0ba      f7c120080000   test ecx, 0x820             ; 2080
+│ ╎│└─────< 0x1011a0c0      75de           jne 0x1011a0a0
+│ ╎│ ╎╎╎    0x1011a0c2      8b4820         mov ecx, dword [eax + 0x20]
+│ ╎│ ╎╎╎    0x1011a0c5      85c9           test ecx, ecx
+│ ╎│ ╎╎╎┌─< 0x1011a0c7      741c           je 0x1011a0e5
+│ ╎│ ╎╎╎│   0x1011a0c9      8079041c       cmp byte [ecx + 4], 0x1c
+│ ╎│ └────< 0x1011a0cd      75d1           jne 0x1011a0a0
+│ ╎│  ╎╎│   0x1011a0cf      f6405108       test byte [eax + 0x51], 8
+│ ╎│  └───< 0x1011a0d3      74cb           je 0x1011a0a0
+│ ╎│   ╎│   0x1011a0d5      8b4d0c         mov ecx, dword [arg_ch]
+│ ╎│   ╎│   0x1011a0d8      8d45f0         lea eax, [var_10h]
+│ ╎│   ╎│   0x1011a0db      50             push eax
+│ ╎│   ╎│   0x1011a0dc      b8e0b27c00     mov eax, 0x7cb2e0
+│ ╎│   ╎│   0x1011a0e1      ffd0           call eax
+│ ╎│   └──< 0x1011a0e3      ebbb           jmp 0x1011a0a0
+│ ╎│    └─> 0x1011a0e5      8b7f04         mov edi, dword [edi + 4]
+│ ╎│        0x1011a0e8      b301           mov bl, 1
+│ ╎│        0x1011a0ea      85ff           test edi, edi
+│ └───────< 0x1011a0ec      75b9           jne 0x1011a0a7
+│  │        0x1011a0ee      b8e01a5400     mov eax, 0x541ae0
+│  │        0x1011a0f3      89f1           mov ecx, esi
+│  │        0x1011a0f5      ffd0           call eax
+│  │    ┌─< 0x1011a0f7      eb16           jmp 0x1011a10f
+│ ─└──────> 0x1011a0f9      b8e01a5400     mov eax, 0x541ae0
+│       │   0x1011a0fe      89f1           mov ecx, esi
+│       │   0x1011a100      ffd0           call eax
+│       │   0x1011a102      f6c301         test bl, 1                  ; 1
+│      ┌──< 0x1011a105      7508           jne 0x1011a10f
+│      ││   ; CODE XREF from psycho_engine_fixes::mods::perf::radio::provider::candidates::enumerate @ 0x1011a114(x)
+│     ┌───> 0x1011a107      83c404         add esp, 4
+│     ╎││   0x1011a10a      5e             pop esi
+│     ╎││   0x1011a10b      5f             pop edi
+│     ╎││   0x1011a10c      5b             pop ebx
+│     ╎││   0x1011a10d      5d             pop ebp
+│     ╎││   0x1011a10e      c3             ret
+│     ╎││   ; CODE XREF from psycho_engine_fixes::mods::perf::radio::provider::candidates::enumerate @ 0x1011a0f7(x)
+│     ╎└└─> 0x1011a10f      e8dcfeffff     call sym.psycho_engine_fixes::mods::perf::radio::provider::candidates::report_missing_base
+└     └───< 0x1011a114      ebf1           jmp 0x1011a107
+
+STDERR:
+
+
+## native_contract_matches
+
+Command: ["r2", "-q", "-e", "scr.color=0", "-e", "bin.relocs.apply=true", "-c", "s 0x1007c000", "-c", "af", "-c", "pdf", "-c", "q", "/data/storage1/Workspace/psycho/.reports/20261019-teleport-door-crash/implementation/candidate-final-core.dll"]
+
+┌ 291: sym.psycho_engine_fixes::mods::perf::radio::provider::candidates::native_contract_matches ();
+; psycho_engine_fixes::mods::perf::radio::provider::candidates::native
+; _contract_matches
+│           0x1007c000      55             push ebp
+│           0x1007c001      89e5           mov ebp, esp
+│           0x1007c003      660f6e0dda..   movd xmm1, dword [0x541ada] ; [0x541ada:4]=-1
+│           0x1007c00b      660f6e15d6..   movd xmm2, dword [0x541ad6] ; [0x541ad6:4]=-1
+│           0x1007c013      660f6e25d2..   movd xmm4, dword [0x541ad2] ; [0x541ad2:4]=-1
+│           0x1007c01b      660f6e1dce..   movd xmm3, dword [0x541ace] ; [0x541ace:4]=-1
+│           0x1007c023      660f6f05c0..   movdqa xmm0, xmmword [0x541ac0] ; [0x541ac0:16]=-1
+│           0x1007c02b      660f62d1       punpckldq xmm2, xmm1
+│           0x1007c02f      660f62dc       punpckldq xmm3, xmm4
+│           0x1007c033      660f740530..   pcmpeqb xmm0, xmmword [0x10410c30]
+│           0x1007c03b      660f6cda       punpcklqdq xmm3, xmm2
+│           0x1007c03f      660f741d20..   pcmpeqb xmm3, xmmword [0x10410c20]
+│           0x1007c047      660fdbc3       pand xmm0, xmm3
+│           0x1007c04b      660fd7c0       pmovmskb eax, xmm0
+│           0x1007c04f      3dffff0000     cmp eax, 0xffff
+│       ┌─< 0x1007c054      7404           je 0x1007c05a
+│       │   0x1007c056      31c0           xor eax, eax
+│       │   0x1007c058      5d             pop ebp
+│       │   0x1007c059      c3             ret
+│       └─> 0x1007c05a      660f6e0df5..   movd xmm1, dword [0x541af5] ; [0x541af5:4]=-1
+│           0x1007c062      660f6e15f1..   movd xmm2, dword [0x541af1] ; [0x541af1:4]=-1
+│           0x1007c06a      660f6e25ed..   movd xmm4, dword [0x541aed] ; [0x541aed:4]=-1
+│           0x1007c072      660f6e1de9..   movd xmm3, dword [0x541ae9] ; [0x541ae9:4]=-1
+│           0x1007c07a      660f6f05e0..   movdqa xmm0, xmmword [0x541ae0] ; [0x541ae0:16]=-1
+│           0x1007c082      660f62d1       punpckldq xmm2, xmm1
+│           0x1007c086      660f62dc       punpckldq xmm3, xmm4
+│           0x1007c08a      660f740550..   pcmpeqb xmm0, xmmword [0x10410c50]
+│           0x1007c092      660f6cda       punpcklqdq xmm3, xmm2
+│           0x1007c096      660f741d40..   pcmpeqb xmm3, xmmword [0x10410c40]
+│           0x1007c09e      660fdbc3       pand xmm0, xmm3
+│           0x1007c0a2      660fd7c0       pmovmskb eax, xmm0
+│           0x1007c0a6      3dffff0000     cmp eax, 0xffff
+│       ┌─< 0x1007c0ab      7404           je 0x1007c0b1
+│       │   0x1007c0ad      31c0           xor eax, eax
+│       │   0x1007c0af      5d             pop ebp
+│       │   0x1007c0b0      c3             ret
+│       └─> 0x1007c0b1      6a45           push 0x45                   ; 'E' ; 69
+│           0x1007c0b3      68892a4110     push 0x10412a89
+│           0x1007c0b8      68e0b27c00     push 0x7cb2e0
+│           0x1007c0bd      e8f6f73200     call sub.api_ms_win_crt_private_l1_1_0.dll_memcmp ; int memcmp(const void *s1, const void *s2, size_t n)
+│           0x1007c0c2      83c40c         add esp, 0xc
+│           0x1007c0c5      85c0           test eax, eax
+│       ┌─< 0x1007c0c7      7456           je 0x1007c11f
+│       │   0x1007c0c9      660f6e0df2..   movd xmm1, dword [0x7cb2f2] ; [0x7cb2f2:4]=-1
+│       │   0x1007c0d1      660f6e15ee..   movd xmm2, dword [0x7cb2ee] ; [0x7cb2ee:4]=-1
+│       │   0x1007c0d9      660f6e25ea..   movd xmm4, dword [0x7cb2ea] ; [0x7cb2ea:4]=-1
+│       │   0x1007c0e1      660f6e1de6..   movd xmm3, dword [0x7cb2e6] ; [0x7cb2e6:4]=-1
+│       │   0x1007c0e9      660f6f05e0..   movdqa xmm0, xmmword [0x7cb2e0] ; [0x7cb2e0:16]=-1
+│       │   0x1007c0f1      660f62d1       punpckldq xmm2, xmm1
+│       │   0x1007c0f5      660f62dc       punpckldq xmm3, xmm4
+│       │   0x1007c0f9      660f740570..   pcmpeqb xmm0, xmmword [0x10410c70]
+│       │   0x1007c101      660f6cda       punpcklqdq xmm3, xmm2
+│       │   0x1007c105      660f741d60..   pcmpeqb xmm3, xmmword [0x10410c60]
+│       │   0x1007c10d      660fdbc3       pand xmm0, xmm3
+│       │   0x1007c111      660fd7c0       pmovmskb eax, xmm0
+│       │   0x1007c115      3dffff0000     cmp eax, 0xffff
+│       │   0x1007c11a      0f94c0         sete al
+│       │   0x1007c11d      5d             pop ebp
+│       │   0x1007c11e      c3             ret
+│       └─> 0x1007c11f      b001           mov al, 1
+│           0x1007c121      5d             pop ebp
+└           0x1007c122      c3             ret
+
+STDERR:
+
+
+## dispatch_body
+
+Command: ["r2", "-q", "-e", "scr.color=0", "-e", "bin.relocs.apply=true", "-c", "s 0x1007b420", "-c", "af", "-c", "pdf", "-c", "q", "/data/storage1/Workspace/psycho/.reports/20261019-teleport-door-crash/implementation/candidate-final-core.dll"]
+
+┌ 689: sym.psycho_engine_fixes::mods::perf::radio::provider::dispatch_body (int32_t arg_8h, int32_t arg_ch, int32_t arg_10h, int32_t arg_14h);
+│ `- args(sp[0x4..0x10]) vars(9:sp[0x14..0x34])
+│           0x1007b420      55             push ebp                    ; psycho_engine_fixes::mods::perf::radio::provider::dispatch_body
+│           0x1007b421      89e5           mov ebp, esp
+│           0x1007b423      53             push ebx
+│           0x1007b424      57             push edi
+│           0x1007b425      56             push esi
+│           0x1007b426      83ec24         sub esp, 0x24
+│           0x1007b429      8b5d0c         mov ebx, dword [arg_ch]
+│           0x1007b42c      8b7304         mov esi, dword [ebx + 4]
+│           0x1007b42f      6a00           push 0
+│           0x1007b431      68d04f4010     push 0x10404fd0
+│           0x1007b436      e8b51b0a00     call sym.__RINvMs2_NtNtNtCs3U2idwLkfcg_3std3sys12thread_local2osINtB6_7StorageINtNtCs32tIC4fDiEl_4core4cell4CellNtNtNtNtCscusTm9VrEdi_19
+│           0x1007b43b      83c408         add esp, 8
+│           0x1007b43e      85c0           test eax, eax
+│       ┌─< 0x1007b440      0f847c020000   je 0x1007b6c2
+│       │   0x1007b446      8b08           mov ecx, dword [eax]
+│       │   0x1007b448      83f9ff         cmp ecx, 0xffffffff
+│      ┌──< 0x1007b44b      0f8471020000   je 0x1007b6c2
+│      ││   0x1007b451      8b7d08         mov edi, dword [arg_8h]
+│      ││   0x1007b454      83f901         cmp ecx, 1                  ; 1
+│     ┌───< 0x1007b457      7520           jne 0x1007b479
+│     │││   0x1007b459      85ff           test edi, edi
+│    ┌────< 0x1007b45b      741c           je 0x1007b479
+│    ││││   0x1007b45d      83781c00       cmp dword [eax + 0x1c], 0
+│   ┌─────< 0x1007b461      7416           je 0x1007b479
+│   │││││   0x1007b463      3b7004         cmp esi, dword [eax + 4]
+│  ┌──────< 0x1007b466      7511           jne 0x1007b479
+│  ││││││   0x1007b468      813ffcd80601   cmp dword [edi], 0x106d8fc
+│ ┌───────< 0x1007b46e      7509           jne 0x1007b479
+│ │││││││   0x1007b470      83bfa02000..   cmp dword [edi + 0x20a0], 0
+│ ────────< 0x1007b477      7414           je 0x1007b48d
+│ └└└└└───> 0x1007b479      89f9           mov ecx, edi
+│      ││   0x1007b47b      89da           mov edx, ebx
+│      ││   0x1007b47d      ff7514         push dword [arg_14h]
+│      ││   0x1007b480      ff7510         push dword [arg_10h]
+│      ││   0x1007b483      ffd6           call esi
+│      ││   ; CODE XREF from psycho_engine_fixes::mods::perf::radio::provider::dispatch_body @ 0x1007b6bd(x)
+│     ┌───> 0x1007b485      83c424         add esp, 0x24
+│     ╎││   0x1007b488      5e             pop esi
+│     ╎││   0x1007b489      5f             pop edi
+│     ╎││   0x1007b48a      5b             pop ebx
+│     ╎││   0x1007b48b      5d             pop ebp
+│     ╎││   0x1007b48c      c3             ret
+│ ────────> 0x1007b48d      8b4010         mov eax, dword [eax + 0x10]
+│     ╎││   0x1007b490      8b8f98200000   mov ecx, dword [edi + 0x2098]
+│     ╎││   0x1007b496      8945d0         mov dword [var_30h], eax
+│     ╎││   0x1007b499      8b87b4200000   mov eax, dword [edi + 0x20b4]
+│     ╎││   0x1007b49f      83f902         cmp ecx, 2                  ; 2
+│    ┌────< 0x1007b4a2      7410           je 0x1007b4b4
+│    │╎││   0x1007b4a4      83f901         cmp ecx, 1                  ; 1
+│   ┌─────< 0x1007b4a7      740b           je 0x1007b4b4
+│   ││╎││   0x1007b4a9      85c9           test ecx, ecx
+│ ────────< 0x1007b4ab      75cc           jne 0x1007b479
+│   ││╎││   0x1007b4ad      83f803         cmp eax, 3                  ; 3
+│ ────────< 0x1007b4b0      75c7           jne 0x1007b479
+│  ┌──────< 0x1007b4b2      eb05           jmp 0x1007b4b9
+│  │└└────> 0x1007b4b4      83f801         cmp eax, 1                  ; 1
+│ ────────< 0x1007b4b7      75c0           jne 0x1007b479
+│  │  ╎││   ; CODE XREF from psycho_engine_fixes::mods::perf::radio::provider::dispatch_body @ 0x1007b4b2(x)
+│  └──────> 0x1007b4b9      8b4510         mov eax, dword [arg_10h]
+│     ╎││   0x1007b4bc      c787ac2000..   mov dword [edi + 0x20ac], 0
+│     ╎││   0x1007b4c6      80780800       cmp byte [eax + 8], 0
+│    ┌────< 0x1007b4ca      740f           je 0x1007b4db
+│    │╎││   0x1007b4cc      8b400c         mov eax, dword [eax + 0xc]
+│    │╎││   0x1007b4cf      8b4034         mov eax, dword [eax + 0x34]
+│    │╎││   0x1007b4d2      85c0           test eax, eax
+│   ┌─────< 0x1007b4d4      7508           jne 0x1007b4de
+│  ┌──────< 0x1007b4d6      e9e0010000     jmp 0x1007b6bb
+│  ││└────> 0x1007b4db      8b4010         mov eax, dword [eax + 0x10]
+│  │└─────> 0x1007b4de      8d8fa4200000   lea ecx, [edi + 0x20a4]
+│  │  ╎││   0x1007b4e4      51             push ecx
+│  │  ╎││   0x1007b4e5      50             push eax
+│  │  ╎││   0x1007b4e6      e895eb0900     call sym.psycho_engine_fixes::mods::perf::radio::provider::candidates::enumerate
+│  │  ╎││   0x1007b4eb      83c408         add esp, 8
+│  │  ╎││   0x1007b4ee      83bfac2000..   cmp dword [edi + 0x20ac], 0
+│  │ ┌────< 0x1007b4f5      0f84c0010000   je 0x1007b6bb
+│  │ │╎││   0x1007b4fb      8b4510         mov eax, dword [arg_10h]
+│  │ │╎││   0x1007b4fe      31f6           xor esi, esi
+│  │ │╎││   0x1007b500      83c018         add eax, 0x18               ; 24
+│  │ │╎││   0x1007b503      8945d8         mov dword [var_28h], eax
+│  │┌─────< 0x1007b506      eb65           jmp 0x1007b56d
+│ ┌───────> 0x1007b508      8b4dd4         mov ecx, dword [var_2ch]
+│ ╎│││╎││   0x1007b50b      8b45e8         mov eax, dword [var_18h]
+│ ╎│││╎││   0x1007b50e      8b55f0         mov edx, dword [var_10h]
+│ ╎│││╎││   0x1007b511      884808         mov byte [eax + 8], cl
+│ ╎│││╎││   0x1007b514      84c9           test cl, cl
+│ ╎│││╎││   0x1007b516      b900000000     mov ecx, 0
+│ ╎│││╎││   0x1007b51b      89500c         mov dword [eax + 0xc], edx
+│ ╎│││╎││   0x1007b51e      8b55e4         mov edx, dword [var_1ch]
+│ ╎│││╎││   0x1007b521      0f45d9         cmovne ebx, ecx
+│ ╎│││╎││   0x1007b524      8b4de0         mov ecx, dword [var_20h]
+│ ╎│││╎││   0x1007b527      895810         mov dword [eax + 0x10], ebx
+│ ╎│││╎││   0x1007b52a      c740040000..   mov dword [eax + 4], 0x3f800000 ; [0x3f800000:4]=-1
+│ ╎│││╎││   ; CODE XREF from psycho_engine_fixes::mods::perf::radio::provider::dispatch_body @ 0x1007b6b6(x)
+│ ────────> 0x1007b531      894814         mov dword [eax + 0x14], ecx
+│ ╎│││╎││   0x1007b534      f20f104204     movsd xmm0, qword [edx + 4]
+│ ╎│││╎││   0x1007b539      f20f114018     movsd qword [eax + 0x18], xmm0
+│ ╎│││╎││   0x1007b53e      8b4a0c         mov ecx, dword [edx + 0xc]
+│ ╎│││╎││   0x1007b541      894820         mov dword [eax + 0x20], ecx
+│ ╎│││╎││   0x1007b544      8b4d14         mov ecx, dword [arg_14h]
+│ ╎│││╎││   0x1007b547      8d45e8         lea eax, [var_18h]
+│ ╎│││╎││   0x1007b54a      50             push eax
+│ ╎│││╎││   0x1007b54b      b8e0b27c00     mov eax, 0x7cb2e0
+│ ╎│││╎││   0x1007b550      ffd0           call eax
+│ ╎│││╎││   0x1007b552      662e0f1f84..   nop word cs:[eax + eax]
+│ ╎│││╎││   0x1007b55c      0f1f4000       nop dword [eax]
+│ ────────> 0x1007b560      46             inc esi
+│ ╎│││╎││   0x1007b561      3bb7ac200000   cmp esi, dword [edi + 0x20ac]
+│ ────────< 0x1007b567      0f834e010000   jae 0x1007b6bb
+│ ╎│││╎││   ; CODE XREF from psycho_engine_fixes::mods::perf::radio::provider::dispatch_body @ 0x1007b506(x)
+│ ╎│└─────> 0x1007b56d      8b87a8200000   mov eax, dword [edi + 0x20a8]
+│ ╎│ │╎││   0x1007b573      8b1cb0         mov ebx, dword [eax + esi*4]
+│ ╎│ │╎││   0x1007b576      f6430908       test byte [ebx + 9], 8
+│ ────────< 0x1007b57a      75e4           jne 0x1007b560
+│ ╎│ │╎││   0x1007b57c      8d4b44         lea ecx, [ebx + 0x44]
+│ ╎│ │╎││   0x1007b57f      6a2b           push 0x2b                   ; '+' ; 43
+│ ╎│ │╎││   0x1007b581      b820024100     mov eax, 0x410220
+│ ╎│ │╎││   0x1007b586      ffd0           call eax
+│ ╎│ │╎││   0x1007b588      8b500c         mov edx, dword [eax + 0xc]
+│ ╎│ │╎││   0x1007b58b      8b0a           mov ecx, dword [edx]
+│ ╎│ │╎││   0x1007b58d      8955e4         mov dword [var_1ch], edx
+│ ╎│ │╎││   0x1007b590      85c9           test ecx, ecx
+│ ╎│┌─────< 0x1007b592      7445           je 0x1007b5d9
+│ ╎│││╎││   0x1007b594      8b4140         mov eax, dword [ecx + 0x40]
+│ ╎│││╎││   0x1007b597      85c0           test eax, eax
+│ ────────< 0x1007b599      750f           jne 0x1007b5aa
+│ ╎│││╎││   0x1007b59b      8b4118         mov eax, dword [ecx + 0x18]
+│ ╎│││╎││   0x1007b59e      83c118         add ecx, 0x18               ; 24
+│ ╎│││╎││   0x1007b5a1      ff10           call dword [eax]
+│ ╎│││╎││   0x1007b5a3      8b55e4         mov edx, dword [var_1ch]
+│ ╎│││╎││   0x1007b5a6      85c0           test eax, eax
+│ ────────< 0x1007b5a8      7418           je 0x1007b5c2
+│ ────────> 0x1007b5aa      f6402401       test byte [eax + 0x24], 1
+│ ────────< 0x1007b5ae      7512           jne 0x1007b5c2
+│ ╎│││╎││   0x1007b5b0      8b80c0000000   mov eax, dword [eax + 0xc0]
+│ ╎│││╎││   0x1007b5b6      b101           mov cl, 1
+│ ╎│││╎││   0x1007b5b8      85c0           test eax, eax
+│ ╎│││╎││   0x1007b5ba      8945f0         mov dword [var_10h], eax
+│ ╎│││╎││   0x1007b5bd      8945ec         mov dword [var_14h], eax
+│ ────────< 0x1007b5c0      7527           jne 0x1007b5e9
+│ ────────> 0x1007b5c2      8b02           mov eax, dword [edx]
+│ ╎│││╎││   0x1007b5c4      85c0           test eax, eax
+│ ────────< 0x1007b5c6      7411           je 0x1007b5d9
+│ ╎│││╎││   0x1007b5c8      8b4040         mov eax, dword [eax + 0x40]
+│ ╎│││╎││   0x1007b5cb      31c9           xor ecx, ecx
+│ ╎│││╎││   0x1007b5cd      c745f00000..   mov dword [var_10h], 0
+│ ╎│││╎││   0x1007b5d4      8945ec         mov dword [var_14h], eax
+│ ────────< 0x1007b5d7      eb10           jmp 0x1007b5e9
+│ ──└─────> 0x1007b5d9      31c9           xor ecx, ecx
+│ ╎│ │╎││   0x1007b5db      c745f00000..   mov dword [var_10h], 0
+│ ╎│ │╎││   0x1007b5e2      c745ec0000..   mov dword [var_14h], 0
+│ ╎│ │╎││   ; CODE XREF from psycho_engine_fixes::mods::perf::radio::provider::dispatch_body @ 0x1007b5d7(x)
+│ ────────> 0x1007b5e9      8b8798200000   mov eax, dword [edi + 0x2098]
+│ ╎│ │╎││   0x1007b5ef      83f801         cmp eax, 1                  ; 1
+│ ╎│┌─────< 0x1007b5f2      740f           je 0x1007b603
+│ ╎│││╎││   0x1007b5f4      83f802         cmp eax, 2                  ; 2
+│ ────────< 0x1007b5f7      751d           jne 0x1007b616
+│ ╎│││╎││   0x1007b5f9      84c9           test cl, cl
+│ ────────< 0x1007b5fb      0f855fffffff   jne 0x1007b560
+│ ────────< 0x1007b601      eb13           jmp 0x1007b616
+│ ╎│└─────> 0x1007b603      84c9           test cl, cl
+│ ╎│┌─────< 0x1007b605      740f           je 0x1007b616
+│ ╎│││╎││   0x1007b607      8b45f0         mov eax, dword [var_10h]
+│ ╎│││╎││   0x1007b60a      3b875c200000   cmp eax, dword [edi + 0x205c]
+│ ────────< 0x1007b610      0f854affffff   jne 0x1007b560
+│ ╎│││╎││   ; CODE XREF from psycho_engine_fixes::mods::perf::radio::provider::dispatch_body @ 0x1007b601(x)
+│ ──└─────> 0x1007b616      8b4320         mov eax, dword [ebx + 0x20]
+│ ╎│ │╎││   0x1007b619      895de0         mov dword [var_20h], ebx
+│ ╎│ │╎││   0x1007b61c      31db           xor ebx, ebx
+│ ╎│ │╎││   0x1007b61e      894dd4         mov dword [var_2ch], ecx
+│ ╎│ │╎││   0x1007b621      f680840000..   test byte [eax + 0x84], 8
+│ ╎│┌─────< 0x1007b628      7414           je 0x1007b63e
+│ ╎│││╎││   0x1007b62a      83bfb42000..   cmp dword [edi + 0x20b4], 3
+│ ╎│││╎││   0x1007b631      bb0000c848     mov ebx, 0x48c80000
+│ ╎│││╎││   0x1007b636      b800000000     mov eax, 0
+│ ╎│││╎││   0x1007b63b      0f44d8         cmove ebx, eax
+│ ╎│└─────> 0x1007b63e      8b4de0         mov ecx, dword [var_20h]
+│ ╎│ │╎││   0x1007b641      8b01           mov eax, dword [ecx]
+│ ╎│ │╎││   0x1007b643      ff90f4010000   call dword [eax + 0x1f4]    ; 500
+│ ╎│ │╎││   0x1007b649      8b4d10         mov ecx, dword [arg_10h]
+│ ╎│ │╎││   0x1007b64c      8d9768200000   lea edx, [edi + 0x2068]
+│ ╎│ │╎││   0x1007b652      83792400       cmp dword [ecx + 0x24], 0
+│ ╎│ │╎││   0x1007b656      8b4dd8         mov ecx, dword [var_28h]
+│ ╎│ │╎││   0x1007b659      c745dc0000..   mov dword [var_24h], 0
+│ ╎│ │╎││   0x1007b660      0f44ca         cmove ecx, edx
+│ ╎│ │╎││   0x1007b663      8d55dc         lea edx, [var_24h]
+│ ╎│ │╎││   0x1007b666      52             push edx
+│ ╎│ │╎││   0x1007b667      ff75d0         push dword [var_30h]
+│ ╎│ │╎││   0x1007b66a      53             push ebx
+│ ╎│ │╎││   0x1007b66b      50             push eax
+│ ╎│ │╎││   0x1007b66c      51             push ecx
+│ ╎│ │╎││   0x1007b66d      ff7510         push dword [arg_10h]
+│ ╎│ │╎││   0x1007b670      57             push edi
+│ ╎│ │╎││   0x1007b671      e8da2bffff     call sym.psycho_engine_fixes::mods::perf::radio::provider::edge_cost
+│ ╎│ │╎││   0x1007b676      83c41c         add esp, 0x1c
+│ ╎│ │╎││   0x1007b679      85c0           test eax, eax
+│ ────────< 0x1007b67b      0f84dffeffff   je 0x1007b560
+│ ╎│ │╎││   0x1007b681      8d45e8         lea eax, [var_18h]
+│ ╎│ │╎││   0x1007b684      c745e80000..   mov dword [var_18h], 0
+│ ╎│ │╎││   0x1007b68b      89f9           mov ecx, edi
+│ ╎│ │╎││   0x1007b68d      50             push eax
+│ ╎│ │╎││   0x1007b68e      ff75dc         push dword [var_24h]
+│ ╎│ │╎││   0x1007b691      8b5dec         mov ebx, dword [var_14h]
+│ ╎│ │╎││   0x1007b694      53             push ebx
+│ ╎│ │╎││   0x1007b695      b8303e6f00     mov eax, 0x6f3e30           ; '0>o'
+│ ╎│ │╎││   0x1007b69a      ffd0           call eax
+│ ╎│ │╎││   0x1007b69c      85c0           test eax, eax
+│ └───────< 0x1007b69e      0f8464feffff   je 0x1007b508
+│  │ │╎││   0x1007b6a4      8b4de0         mov ecx, dword [var_20h]
+│  │ │╎││   0x1007b6a7      8b55e4         mov edx, dword [var_1ch]
+│  │ │╎││   0x1007b6aa      83f801         cmp eax, 1                  ; 1
+│ ────────< 0x1007b6ad      0f85adfeffff   jne 0x1007b560
+│  │ │╎││   0x1007b6b3      8b45e8         mov eax, dword [var_18h]
+│ ────────< 0x1007b6b6      e976feffff     jmp 0x1007b531
+│  │ │╎││   ; CODE XREF from psycho_engine_fixes::mods::perf::radio::provider::dispatch_body @ 0x1007b4d6(x)
+│ ─└─└────> 0x1007b6bb      b001           mov al, 1
+│     └───< 0x1007b6bd      e9c3fdffff     jmp 0x1007b485
+│      └└─> 0x1007b6c2      6820bb4110     push 0x1041bb20
+│           0x1007b6c7      e8b47d2c00     call sym.std::thread::local::panic_access_error
+│           0x1007b6cc      83c404         add esp, 4
+└           0x1007b6cf      0f0b           ud2
+
+STDERR:
+
+
+## report_missing_base
+
+Command: ["r2", "-q", "-e", "scr.color=0", "-e", "bin.relocs.apply=true", "-c", "s 0x10119ff0", "-c", "af", "-c", "pdf", "-c", "q", "/data/storage1/Workspace/psycho/.reports/20261019-teleport-door-crash/implementation/candidate-final-core.dll"]
+
+┌ 140: sym.psycho_engine_fixes::mods::perf::radio::provider::candidates::report_missing_base ();
+│ afv: vars(14:sp[0x5..0x3c])
+; psycho_engine_fixes::mods::perf::radio::provider::candidates::report
+; _missing_base
+│           0x10119ff0      b001           mov al, 1
+│           0x10119ff2      8605e1e95610   xchg byte [0x1056e9e1], al
+│           0x10119ff8      84c0           test al, al
+│       ┌─< 0x10119ffa      7401           je 0x10119ffd
+│      ┌──> 0x10119ffc      c3             ret
+│      ╎└─> 0x10119ffd      a17c5c4010     mov eax, dword [0x10405c7c] ; [0x10405c7c:4]=0x10572bdc
+│      ╎    0x1011a002      8b00           mov eax, dword [eax]
+│      ╎    0x1011a004      83f802         cmp eax, 2                  ; 2
+│      └──< 0x1011a007      72f3           jb 0x10119ffc
+│           0x1011a009      55             push ebp
+│           0x1011a00a      89e5           mov ebp, esp
+│           0x1011a00c      83ec38         sub esp, 0x38
+│           0x1011a00f      8d45c8         lea eax, [var_38h]
+│           0x1011a012      c745c80100..   mov dword [var_38h], 1
+│           0x1011a019      c745cc7900..   mov dword [var_34h], 0x79   ; 'y' ; 121
+│           0x1011a020      c745d00000..   mov dword [var_30h], 0
+│           0x1011a027      c745d4accd..   mov dword [var_2ch], 0x1042cdac ; "psycho_engine_fixes::mods::perf::radio::provider::candidates\xc0"
+│           0x1011a02e      c745d83c00..   mov dword [var_28h], 0x3c   ; '<' ; 60
+│           0x1011a035      c745dc0000..   mov dword [var_24h], 0
+│           0x1011a03c      c745e05bcd..   mov dword [var_20h], 0x1042cd5b ; "psycho-engine-fixes/src/mods/perf/radio/provider/candidates.rs"
+│           0x1011a043      c745e43e00..   mov dword [var_1ch], 0x3e   ; '>' ; 62
+│           0x1011a04a      c745e80200..   mov dword [var_18h], 2
+│           0x1011a051      c745ecaccd..   mov dword [var_14h], 0x1042cdac ; "psycho_engine_fixes::mods::perf::radio::provider::candidates\xc0"
+│           0x1011a058      c745f03c00..   mov dword [var_10h], 0x3c   ; '<' ; 60
+│           0x1011a05f      c745f410cd..   mov dword [var_ch], str._RADIO__Ignored_a_candidate_with_a_missing_base_form__door_search_continuespsycho_engine_fixes_src_mods_perf_radio_provider_candidates.rs ; 0x1042cd10 ; "[RADIO] Ignored a candidate with a missing base form; door search continuespsycho-engine-fixes/src/mods/perf/radio/provider/candidates.rs"
+│           0x1011a066      c745f89700..   mov dword [var_8h], 0x97    ; 151
+│           0x1011a06d      8d4dff         lea ecx, [var_1h]
+│           0x1011a070      50             push eax
+│           0x1011a071      51             push ecx
+│           0x1011a072      e8f93f1c00     call sym._log::__private_api::GlobalLogger_as_log::Log_::log ; <log::__private_api::GlobalLogger as log::Log>::log
+│           0x1011a077      83c440         add esp, 0x40
+│           0x1011a07a      5d             pop ebp
+└           0x1011a07b      c3             ret
+
+STDERR:
+
+
+## cell_lock_drop
+
+Command: ["r2", "-q", "-e", "scr.color=0", "-e", "bin.relocs.apply=true", "-c", "s 0x1011bb30", "-c", "af", "-c", "pdf", "-c", "q", "/data/storage1/Workspace/psycho/.reports/20261019-teleport-door-crash/implementation/candidate-final-core.dll"]
+
+┌ 16: sym.__RNvXs_NtNtNtNtNtCscusTm9VrEdi_19psycho_engine_fixes4mods4perf5radio8provider10candidatesNtB4_11CellRefLockNtNtNtCs32tIC4fDiEl (int32_t arg_8h);
+│ `- args(sp[0x4..0x4])
+│           0x1011bb30      55             push ebp
+│           0x1011bb31      89e5           mov ebp, esp
+│           0x1011bb33      8b4508         mov eax, dword [arg_8h]
+│           0x1011bb36      8b08           mov ecx, dword [eax]
+│           0x1011bb38      b8e01a5400     mov eax, 0x541ae0
+│           0x1011bb3d      5d             pop ebp
+└           0x1011bb3e      ffe0           jmp eax
+
+STDERR:

@@ -1,0 +1,563 @@
+# Teleport-door null-base crash: DLL fault audit
+
+Presentation: trailing line whitespace and terminal blank lines omitted.
+The unmodified capture is
+retained at .reports/20261019-teleport-door-crash/crash_20261019_teleport_door_null_base_fault.txt.verbatim.
+
+Date: 2026-10-19
+Interface: r2mcp, pdg decompiler; radare2 CLI 6.2.2 available locally.
+Binary: /data/storage0/Games/FalloutNV_TTW/mods/Stewie Tweaks/NVSE/plugins/nvse_stewie_tweaks.dll
+SHA-256: c19007b47f39df2ce07cfc1add1a27090302cf35e1673ba35bee61cb5800db95
+PE32 i386, preferred image base 0x10000000; reported load base 0x0A6D0000.
+Reported EIP 0x0A6FC36C corresponds to RVA 0x2C36C / preferred VA 0x1002C36C.
+r2mcp open_file uses its default relocation setting; show_info reports relocs=false.
+Fault proof uses base-relative code/field offsets, independent of relocation.
+Local DLL matches the reported module extent and source location; no process dump
+exists to compare runtime instruction bytes or prove unchanged in-memory code.
+Warnings: first pdg query preceded function analysis and returned no function;
+analyze(level=1, timeout_seconds=25) then found 3864 functions. Subsequent pdg
+succeeded. Decompiler calling conventions/names are not ABI authority.
+Scope: fault instruction, enumerator, lock helper, provider caller and install
+references. This is static evidence, not a reproduction or patch authority.
+
+
+## open_file /data/storage0/Games/FalloutNV_TTW/mods/Stewie Tweaks/NVSE/plugins/nvse_stewie_tweaks.dll {}
+
+File opened successfully.
+
+## mcp__radare2__show_info {}
+
+fd       3
+file     /data/storage0/Games/FalloutNV_TTW/mods/Stewie Tweaks/NVSE/plugins/nvse_stewie_tweaks.dll
+size     0x105000
+humansz  1.0M
+mode     r-x
+format   pe
+iorw     true
+block    0x100
+type     DLL (Dynamic Link Library)
+arch     x86
+baddr    0x10000000
+binsz    1069056
+bintype  pe
+bits     32
+canary   true
+injprot  false
+retguard false
+class    PE32
+cmp.csum 0x0010bb9b
+compiled Sun Aug  9 20:52:10 2026
+crypto   false
+dbg_file C:\Bethesda Modding\New Vegas\NV-Stewie-Tweaks\code\Release\nvse_stewie_tweaks.pdb
+endian   little
+havecode true
+hdr.csum 0x00000000
+guid     1F00A8BDBE2E4541BE64F514E9F3165E5
+laddr    0x0
+lang     c
+linenum  false
+lsyms    false
+machine  i386
+nx       true
+os       windows
+overlay  false
+cc       cdecl
+pic      false
+relocs   false
+signed   false
+sanitize false
+static   false
+stripped false
+uncaps   false
+subsys   Windows GUI
+va       true
+PE file header:
+IMAGE_NT_HEADERS
+  Signature : 0x4550
+IMAGE_FILE_HEADERS
+  Machine : 0x14c
+  NumberOfSections : 0x6
+  TimeDateStamp : 0x6a78be4a
+  PointerToSymbolTable : 0x0
+  NumberOfSymbols : 0x0
+  SizeOfOptionalHeader : 0xe0
+  Characteristics : 0x2102
+IMAGE_OPTIONAL_HEADERS
+  Magic : 0x10b
+  MajorLinkerVersion : 0xe
+  MinorLinkerVersion : 0x2c
+  SizeOfCode : 0xb8400
+  SizeOfInitializedData : 0x52200
+  SizeOfUninitializedData : 0x0
+  AddressOfEntryPoint : 0x8fc15
+  BaseOfCode : 0x1000
+  BaseOfData : 0xba000
+  ImageBase : 0x10000000
+  SectionAlignment : 0x1000
+  FileAlignment : 0x200
+  MajorOperatingSystemVersion : 0x6
+  MinorOperatingSystemVersion : 0x0
+  MajorImageVersion : 0x0
+  MinorImageVersion : 0x0
+  MajorSubsystemVersion : 0x6
+  MinorSubsystemVersion : 0x0
+  Win32VersionValue : 0x0
+  SizeOfImage : 0x10f000
+  SizeOfHeaders : 0x400
+  CheckSum : 0x0
+  Subsystem : 0x2
+  DllCharacteristics : 0x100
+  SizeOfStackReserve : 0x100000
+  SizeOfStackCommit : 0x1000
+  SizeOfHeapReserve : 0x100000
+  SizeOfHeapCommit : 0x1000
+  LoaderFlags : 0x0
+  NumberOfRvaAndSizes : 0x10
+RICH_FIELDS
+  Product: 258 Name: Linker1400 Version: 35228 Times: 1
+  Product: 151 Name: Resource900 Version: 0 Times: 1
+  Product: 255 Name: Cvtres1400 Version: 35228 Times: 1
+  Product: 256 Name: Export1400 Version: 35228 Times: 1
+  Product: 265 Name: Utc1900_LTCG_CPP Version: 35228 Times: 25
+  Product: 1 Name: Import0 Version: 0 Times: 207
+  Product: 257 Name: Implib1400 Version: 33145 Times: 19
+  Product: 261 Name: Utc1900_CPP Version: 35207 Times: 85
+  Product: 260 Name: Utc1900_C Version: 35207 Times: 15
+  Product: 259 Name: Masm1400 Version: 35207 Times: 24
+  Product: 253 Name: Unknown Version: 35207 Times: 4
+  Product: 0 Name: Unknown Version: 0 Times: 4
+  Product: 263 Name: Utc1900_CVTCIL_CPP Version: 33145 Times: 1
+  Product: 260 Name: Utc1900_C Version: 33145 Times: 32
+  Product: 261 Name: Utc1900_CPP Version: 33145 Times: 186
+  Product: 259 Name: Masm1400 Version: 33145 Times: 29
+IMAGE_DIRECTORY_ENTRY_EXPORT
+  VirtualAddress : 0xf6e40
+  Size : 0x94
+IMAGE_DIRECTORY_ENTRY_IMPORT
+  VirtualAddress : 0xf6ed4
+  Size : 0x78
+IMAGE_DIRECTORY_ENTRY_RESOURCE
+  VirtualAddress : 0x101000
+  Size : 0x568
+IMAGE_DIRECTORY_ENTRY_BASERELOC
+  VirtualAddress : 0x102000
+  Size : 0xc0f4
+IMAGE_DIRECTORY_ENTRY_DEBUG
+  VirtualAddress : 0xf24d8
+  Size : 0x70
+IMAGE_DIRECTORY_ENTRY_TLS
+  VirtualAddress : 0xf2580
+  Size : 0x18
+IMAGE_DIRECTORY_ENTRY_LOAD_CONFIG
+  VirtualAddress : 0xf2418
+  Size : 0x40
+IMAGE_DIRECTORY_ENTRY_IAT
+  VirtualAddress : 0xba000
+  Size : 0x26c
+
+
+## mcp__radare2__disassemble {"address":"0x1002c320","num_instructions":85}
+
+0x1002c320      push ebx
+0x1002c321      push ebp
+0x1002c322      push esi
+0x1002c323      push edi
+0x1002c324      mov edi, ecx
+0x1002c326      lea ecx, [edi + 0x80]
+   ; 0x10003e00(0x0, 0x0, 0x80, 0x0)
+0x1002c32c      call 0x10003e00
+0x1002c331      mov ebx, dword [esp + 0x14]
+0x1002c335      lea eax, [edi + 0xac]
+0x1002c33b      mov ebp, 0x7cb2e0
+0x1002c340      test eax, eax
+   ; unlikely
+0x1002c342      je 0x1002c385
+0x1002c344      mov ecx, dword [eax]
+0x1002c346      lea esi, [eax + 4]
+0x1002c349      test ecx, ecx
+   ; likely
+0x1002c34b      jne 0x1002c351
+0x1002c34d      cmp dword [esi], ecx
+   ; likely
+0x1002c34f      je 0x1002c385
+0x1002c351      mov dword [esp + 0x14], ecx
+0x1002c355      mov edx, dword [ecx + 8]
+0x1002c358      mov eax, edx
+0x1002c35a      shr eax, 0xb
+; 1
+0x1002c35d      test al, 1
+   ; likely
+0x1002c35f      jne 0x1002c381
+0x1002c361      shr edx, 5
+; 1
+0x1002c364      test dl, 1
+   ; likely
+0x1002c367      jne 0x1002c381
+0x1002c369      mov eax, dword [ecx + 0x20]
+0x1002c36c      cmp byte [eax + 4], 0x1c
+   ; likely
+0x1002c370      jne 0x1002c381
+0x1002c372      test byte [ecx + 0x51], 8
+   ; unlikely
+0x1002c376      je 0x1002c381
+0x1002c378      lea eax, [esp + 0x14]
+0x1002c37c      mov ecx, ebx
+0x1002c37e      push eax
+   ; 0x7cb2e0(0x0, -1, -1, 0x7ffffff)
+0x1002c37f      call ebp
+0x1002c381      mov eax, dword [esi]
+0x1002c383      jmp 0x1002c340
+0x1002c385      add dword [edi + 0x84], 0xffffffff
+   ; likely
+0x1002c38c      jne 0x1002c398
+0x1002c38e      mov dword [edi + 0x80], 0
+0x1002c398      pop edi
+0x1002c399      pop esi
+0x1002c39a      pop ebp
+0x1002c39b      pop ebx
+0x1002c39c      ret 4
+0x1002c39f      int3
+0x1002c3a0      push ebx
+0x1002c3a1      push ebp
+0x1002c3a2      mov ebp, dword [esp + 0xc]
+0x1002c3a6      mov edx, 0x410220
+0x1002c3ab      push esi
+0x1002c3ac      push edi
+0x1002c3ad      mov edi, ecx
+0x1002c3af      xor esi, esi
+0x1002c3b1      mov eax, dword [ebp + 0x40]
+0x1002c3b4      lea ecx, [ebp + 0x44]
+; '*'
+; 42
+0x1002c3b7      push 0x2a
+0x1002c3b9      xor ebx, ebx
+0x1002c3bb      mov dword [edi], eax
+   ; 0x410220(-1, 0x0, 0x43, 0x410220)
+0x1002c3bd      call edx
+0x1002c3bf      test eax, eax
+   ; unlikely
+0x1002c3c1      je 0x1002c3c6
+0x1002c3c3      mov esi, dword [eax + 0xc]
+; '+'
+; 43
+0x1002c3c6      push 0x2b
+0x1002c3c8      lea ecx, [ebp + 0x44]
+0x1002c3cb      mov eax, 0x410220
+   ; 0x410220(0x410220, 0x0, 0x43, 0x410220)
+0x1002c3d0      call eax
+0x1002c3d2      test eax, eax
+   ; unlikely
+0x1002c3d4      je 0x1002c432
+0x1002c3d6      mov eax, dword [eax + 0xc]
+0x1002c3d9      test eax, eax
+   ; unlikely
+0x1002c3db      je 0x1002c432
+0x1002c3dd      mov ebx, dword [eax]
+0x1002c3df      test ebx, ebx
+   ; unlikely
+0x1002c3e1      je 0x1002c432
+0x1002c3e3      mov eax, dword [ebx + 0x40]
+0x1002c3e6      mov dword [esp + 0x14], eax
+0x1002c3ea      test esi, esi
+   ; likely
+0x1002c3ec      jne 0x1002c405
+; '*'
+; 42
+0x1002c3ee      push 0x2a
+0x1002c3f0      lea ecx, [ebx + 0x44]
+0x1002c3f3      mov eax, 0x410220
+   ; 0x410220(0x410220, -1, 0x43, 0x410220)
+0x1002c3f8      call eax
+0x1002c3fa      test eax, eax
+
+
+## mcp__radare2__use_decompiler {"name":"pdg"}
+
+ok
+
+## mcp__radare2__decompile_function {"address":"0x1002c320","page_size":180}
+
+<log>
+[WARN] Ghidra Decompiler Error: No function at this offset
+
+</log>
+
+
+## mcp__radare2__hexdump {"address":"0x1002c320","size":"125"}
+
+- offset -  2021 2223 2425 2627 2829 2A2B 2C2D 2E2F  0123456789ABCDEF
+0x1002c320  5355 5657 8bf9 8d8f 8000 0000 e8cf 7afd  SUVW..........z.
+0x1002c330  ff8b 5c24 148d 87ac 0000 00bd e0b2 7c00  ..\$..........|.
+0x1002c340  85c0 7441 8b08 8d70 0485 c975 0439 0e74  ..tA...p...u.9.t
+0x1002c350  3489 4c24 148b 5108 8bc2 c1e8 0ba8 0175  4.L$..Q........u
+0x1002c360  20c1 ea05 f6c2 0175 188b 4120 8078 041c   ......u..A .x..
+0x1002c370  750f f641 5108 7409 8d44 2414 8bcb 50ff  u..AQ.t..D$...P.
+0x1002c380  d58b 06eb bb83 8784 0000 00ff 750a c787  ............u...
+0x1002c390  8000 0000 0000 0000 5f5e 5d5b c2         ........_^][.
+
+
+## mcp__radare2__decompile_function {"address":"0x1002c320","page_size":120}
+
+void __thiscall fcn.1002c320(int param_1,int param_2)
+
+{
+int *piVar1;
+
+fcn.10003e00();
+for (piVar1 = param_1 + 0xac; piVar1 != NULL; piVar1 = piVar1[1]) {
+param_2 = *piVar1;
+if ((param_2 == 0) && (piVar1[1] == 0)) break;
+if (((((*(param_2 + 8) >> 0xb & 1) == 0) && ((*(param_2 + 8) >> 5 & 1) == 0)) &&
+(*(*(param_2 + 0x20) + 4) == '\x1c')) && ((*(param_2 + 0x51) & 8) != 0)) {
+(*0x7cb2e0)(&param_2);
+}
+}
+piVar1 = param_1 + 0x84;
+*piVar1 = *piVar1 + -1;
+if (*piVar1 == 0) {
+*(param_1 + 0x80) = 0;
+}
+return;
+}
+
+
+
+## mcp__radare2__disassemble {"address":"0x10003e00","num_instructions":60}
+
+  ; XREFS: 0x10003dfe  CALL 0x1002c32c  CALL 0x1002e620
+  ; XREFS: CALL 0x1002e828  CALL 0x1002ed75  CALL 0x100323ab
+  ; XREFS: CALL 0x100324cb  CALL 0x100325d5  CALL 0x1003ab82
+  ; XREFS: DATA 0x1003c63e
+91: fcn.10003e00 ();
+0x10003e00      push ebx
+0x10003e01      push ebp
+0x10003e02      mov ebx, ecx
+; 0x100ba0ac
+; "*r\x0f"
+   ; reloc.KERNEL32.dll_GetCurrentThreadId
+   ; DWORD GetCurrentThreadId(void)
+; DWORD GetCurrentThreadId(void)
+0x10003e04      call dword [sym.imp.KERNEL32.dll_GetCurrentThreadId]
+0x10003e0a      mov ebp, eax
+0x10003e0c      cmp dword [ebx], ebp
+   ; likely
+0x10003e0e      jne 0x10003e16
+0x10003e10      inc dword [ebx + 4]
+0x10003e13      pop ebp
+0x10003e14      pop ebx
+0x10003e15      ret
+0x10003e16      push esi
+0x10003e17      xor esi, esi
+0x10003e19      mov ecx, ebp
+0x10003e1b      xor eax, eax
+0x10003e1d      lock cmpxchg dword [ebx], ecx
+0x10003e21      test eax, eax
+   ; likely
+0x10003e23      je 0x10003e50
+0x10003e25      push edi
+; [0x100ba0a8:4]=0xf7240 reloc.KERNEL32.dll_Sleep
+; "@r\x0f"
+   ; reloc.KERNEL32.dll_Sleep
+0x10003e26      mov edi, dword [sym.imp.KERNEL32.dll_Sleep]
+0x10003e2c      nop dword [eax]
+0x10003e30      inc esi
+; '\x10\''
+0x10003e31      cmp esi, 0x2710
+   ; unlikely
+0x10003e37      jg 0x10003e3d
+0x10003e39      push 0
+0x10003e3b      jmp 0x10003e3f
+; 1
+0x10003e3d      push 1
+; CODE XREF from fcn.10003e00 @ 0x10003e3b(x)
+   ; reloc.KERNEL32.dll_Sleep
+   ; VOID Sleep(-1)
+0x10003e3f      call edi
+0x10003e41      pause
+0x10003e43      mov ecx, ebp
+0x10003e45      xor eax, eax
+0x10003e47      lock cmpxchg dword [ebx], ecx
+0x10003e4b      test eax, eax
+   ; unlikely
+0x10003e4d      jne 0x10003e30
+0x10003e4f      pop edi
+0x10003e50      pop esi
+0x10003e51      pop ebp
+0x10003e52      mov dword [ebx + 4], 1
+0x10003e59      pop ebx
+0x10003e5a      ret
+0x10003e5b      int3
+0x10003e5c      int3
+0x10003e5d      int3
+0x10003e5e      int3
+0x10003e5f      int3
+  ; CALL XREF from fcn.10004030 @ 0x10004035(x)
+  ; CALL XREF from fcn.10004ba0 @ 0x10004bac(x)
+  ; CALL XREF from fcn.10004bc0 @ 0x10004bcc(x)
+  ; CALL XREF from fcn.10004c00 @ 0x10004c0b(x)
+7: fcn.10003e60 ();
+0x10003e60      mov eax, 0x410220
+0x10003e65      jmp eax
+0x10003e67      int3
+0x10003e68      int3
+0x10003e69      int3
+0x10003e6a      int3
+0x10003e6b      int3
+0x10003e6c      int3
+0x10003e6d      int3
+0x10003e6e      int3
+0x10003e6f      int3
+  ; XREFS: CALL 0x10026e73  CALL 0x10026ffd  CALL 0x10040110
+  ; XREFS: CALL 0x10060188  CALL 0x10076f7b  CALL 0x1007a1f7
+  ; XREFS: CALL 0x1007d988  CALL 0x1007d9c5  CALL 0x1007d9fe
+  ; XREFS: CALL 0x1007da4f  CALL 0x1008bec2
+195: fcn.10003e70 (int32_t arg_8h);
+`- args(sp[0x4..0x4])
+; [0x100fed50:4]=0
+0x10003e70      cmp dword [0x100fed50], 0
+0x10003e77      push ebx
+0x10003e78      mov ebx, ecx
+   ; unlikely
+0x10003e7a      jne 0x10003eec
+
+
+## mcp__radare2__disassemble {"address":"0x1002c530","num_instructions":35}
+
+766: fcn.1002c530 (int32_t arg_8h, int32_t arg_ch);
+`- args(sp[0x4..0x8]) vars(15:sp[0x1c..0x54])
+0x1002c530      push ebp
+0x1002c531      mov ebp, esp
+0x1002c533      and esp, 0xfffffff8
+0x1002c536      sub esp, 0x34
+0x1002c539      push ebx
+0x1002c53a      push esi
+0x1002c53b      push edi
+0x1002c53c      mov edi, ecx
+0x1002c53e      mov ecx, dword [arg_8h]
+0x1002c541      mov dword [edi + 0x20ac], 0
+0x1002c54b      cmp byte [ecx + 8], 0
+   ; unlikely
+0x1002c54f      je 0x1002c55d
+0x1002c551      mov eax, dword [ecx + 0xc]
+0x1002c554      mov ecx, dword [eax + 0x34]
+0x1002c557      test ecx, ecx
+   ; unlikely
+0x1002c559      je 0x1002c56e
+0x1002c55b      jmp 0x1002c560
+0x1002c55d      mov ecx, dword [ecx + 0x10]
+; CODE XREF from fcn.1002c530 @ 0x1002c55b(x)
+0x1002c560      lea eax, [edi + 0x20a4]
+0x1002c566      xor edx, edx
+0x1002c568      push eax
+   ; fcn.1002c320
+   ; fcn.1002c320(0x20a4)
+0x1002c569      call fcn.1002c320
+0x1002c56e      mov eax, dword [edi + 0x20b4]
+; 1
+0x1002c574      cmp eax, 1
+   ; unlikely
+0x1002c577      je 0x1002c58b
+; 3
+0x1002c579      cmp eax, 3
+   ; unlikely
+0x1002c57c      je 0x1002c58b
+0x1002c57e      cmp dword [edi + 0x20a0], 0
+   ; unlikely
+0x1002c585      je 0x1002c823
+0x1002c58b      xor ecx, ecx
+0x1002c58d      mov dword [var_24h], ecx
+0x1002c591      cmp dword [edi + 0x20ac], ecx
+   ; unlikely
+0x1002c597      jbe 0x1002c823
+0x1002c59d      mov edx, 0x410220
+0x1002c5a2      mov eax, dword [edi + 0x20a8]
+
+
+## mcp__radare2__disassemble {"address":"0x1002ded0","num_instructions":55}
+
+0x1002ded0      jmp dword [ebx + 0x6b90bb]
+0x1002ded6      lea eax, [ecx - 0x6b92eb]
+; [0x6b92e7:4]=-1
+0x1002dedc      mov dword [0x6b92e7], eax
+0x1002dee1      sub ecx, 0x9969cb
+; [0x9969c7:4]=-1
+0x1002dee7      mov dword [0x9969c7], ecx
+0x1002deed      mov ecx, 0x6b84b3
+; [0x100cc27c:4]=0x662041d9
+0x1002def2      mov eax, dword [0x100cc27c]
+0x1002def7      movups xmmword [var_88h], xmm0
+; [0x100edd40:16]=-1
+0x1002deff      movaps xmm0, xmmword [0x100edd40]
+0x1002df06      mov dword [ecx], eax
+; [0x100cc280:1]=144
+0x1002df08      mov al, byte [0x100cc280]
+0x1002df0d      mov byte [ecx + 4], al
+; 0x1002c2c0
+   ; fcn.1002c2c0
+0x1002df10      mov eax, fcn.1002c2c0
+0x1002df15      sub eax, 0x6b84de
+; 0x1002c320
+; "SUVW\x8b\xf9\x8d\x8f\x80"
+   ; fcn.1002c320
+0x1002df1a      mov ecx, fcn.1002c320
+; [0x6b84da:4]=-1
+0x1002df1f      mov dword [0x6b84da], eax
+0x1002df24      movups xmmword [var_98h], xmm0
+; [0x100edd60:16]=-1
+0x1002df2c      movaps xmm0, xmmword [0x100edd60]
+0x1002df33      lea eax, [ecx - 0x588296]
+; [0x588292:4]=-1
+0x1002df39      mov dword [0x588292], eax
+0x1002df3e      sub ecx, 0x6f3742
+; [0x6f373e:4]=-1
+0x1002df44      mov dword [0x6f373e], ecx
+; 0x1002c3a0
+; "SU\x8bl$\f\xba \x02A"
+   ; fcn.1002c3a0
+0x1002df4a      mov ecx, fcn.1002c3a0
+0x1002df4f      movups xmmword [var_a8h], xmm0
+0x1002df57      lea eax, [ecx - 0x6a7246]
+0x1002df5d      sub ecx, 0x6b88e7
+; [0x6a7242:4]=-1
+0x1002df63      mov dword [0x6a7242], eax
+; [0x6b88e3:4]=-1
+0x1002df68      mov dword [0x6b88e3], ecx
+; [0x6b89aa:1]=255
+0x1002df6e      mov byte [0x6b89aa], 0xd
+; [0x100edd80:16]=-1
+0x1002df75      movaps xmm0, xmmword [0x100edd80]
+0x1002df7c      lea edx, [var_38h]
+0x1002df80      movups xmmword [var_b8h], xmm0
+; [0x9db890:4]=-1
+0x1002df88      mov dword [var_c8h], 0x9db890
+; [0x9dfb37:4]=-1
+0x1002df93      mov dword [var_cch], 0x9dfb37
+0x1002df9e      nop
+0x1002dfa0      mov ecx, dword [edx]
+0x1002dfa2      add edx, 4
+; [0x100cc284:4]=0x1c5290b8
+0x1002dfa5      mov eax, dword [0x100cc284]
+0x1002dfaa      mov dword [ecx], eax
+; [0x100cc288:1]=1
+0x1002dfac      mov al, byte [0x100cc288]
+0x1002dfb1      mov byte [ecx + 4], al
+0x1002dfb4      lea eax, [var_d0h]
+0x1002dfbb      cmp edx, eax
+   ; likely
+0x1002dfbd      jne 0x1002dfa0
+; [0x100cc120:16]=-1
+0x1002dfbf      movups xmm0, xmmword [0x100cc120]
+0x1002dfc6      mov ecx, 0x68f1d0
+0x1002dfcb      movups xmmword [ecx], xmm0
+; [0x100cc130:8]=0x4c2d8f7c01bd8f7
+0x1002dfce      movq xmm0, qword [0x100cc130]
+0x1002dfd6      movq qword [ecx + 0x10], xmm0
+; [0x100cc138:1]=0
+0x1002dfdb      movzx eax, byte [0x100cc138]
+0x1002dfe2      mov byte [ecx + 0x18], al
+0x1002dfe5      mov ecx, 0x5582f0
+; [0x100cc13c:8]=0x4e0c1042444b70f
+0x1002dfea      movq xmm0, qword [0x100cc13c]
+0x1002dff2      movq qword [ecx], xmm0
+; [0x100cc144:4]=0xc23c4103
+0x1002dff6      mov eax, dword [0x100cc144]

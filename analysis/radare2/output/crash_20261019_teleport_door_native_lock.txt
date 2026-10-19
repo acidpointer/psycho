@@ -1,0 +1,121 @@
+# Teleport-door enumeration: native recursive lock semantics
+
+Date: 2026-10-19
+Tool/interface: radare2 MCP; CLI 6.2.2 available locally.
+Binary: /data/storage1/Workspace/psycho/fnv_reverse/FalloutNV.exe
+SHA-256: 42fee7d6cd74e801372aa89c8f71c974cebd3c20ec9ad43d1465b8fa9646b49c
+PE32 x86, image base 0x00400000. Default MCP relocation setting.
+Scope: native lock owner/count protocol; not a full writer/concurrency audit or
+patch authority. See the earlier native-contract audit for the cell wrappers.
+Trailing line whitespace/EOF blank lines normalized; tool strings retained in
+.reports/20261019-teleport-door-crash/crash_20261019_teleport_door_native_lock.txt.verbatim.
+
+
+## mcp__radare2__disassemble {"address":"0x0040fbf0","num_instructions":65}
+
+0x0040fbf0      push ebx
+0x0040fbf1      mov ebx, esp
+0x0040fbf3      push ecx
+0x0040fbf4      and esp, 0xffffffe0
+0x0040fbf7      add esp, 4
+0x0040fbfa      push ebp
+0x0040fbfb      mov ebp, esp
+0x0040fbfd      sub esp, 0x60
+0x0040fc00      mov dword [ebp - 4], ecx
+   ; 0x40fc90(0x0, 0xfffffffc, 0x0, 0x0)
+0x0040fc03      call 0x40fc90
+0x0040fc08      mov dword [ebp - 0x40], eax
+0x0040fc0b      mov eax, dword [ebp - 4]
+0x0040fc0e      mov ecx, dword [eax]
+0x0040fc10      cmp ecx, dword [ebp - 0x40]
+   ; unlikely
+0x0040fc13      jne 0x40fc26
+0x0040fc15      mov edx, dword [ebp - 4]
+0x0040fc18      mov eax, dword [edx + 4]
+0x0040fc1b      add eax, 1
+0x0040fc1e      mov ecx, dword [ebp - 4]
+0x0040fc21      mov dword [ecx + 4], eax
+0x0040fc24      jmp 0x40fc7c
+0x0040fc26      mov dword [ebp - 0x44], 0
+0x0040fc2d      mov edx, dword [ebp - 0x40]
+0x0040fc30      push edx
+0x0040fc31      push 0
+0x0040fc33      mov eax, dword [ebp - 4]
+0x0040fc36      push eax
+   ; 0x43b460(-1, 0xfffffffc, -1, -1)
+0x0040fc37      call 0x43b460
+0x0040fc3c      add esp, 0xc
+0x0040fc3f      test eax, eax
+   ; unlikely
+0x0040fc41      je 0x40fc6d
+0x0040fc43      mov ecx, dword [ebp - 0x44]
+0x0040fc46      add ecx, 1
+0x0040fc49      mov dword [ebp - 0x44], ecx
+; '\x10\''
+0x0040fc4c      cmp dword [ebp - 0x44], 0x2710
+   ; unlikely
+0x0040fc53      jbe 0x40fc61
+; 1
+0x0040fc55      push 1
+   ; 0x40fca0(-1, 0xfffffffc, 0x0, -1)
+0x0040fc57      call 0x40fca0
+0x0040fc5c      add esp, 4
+0x0040fc5f      jmp 0x40fc6b
+0x0040fc61      push 0
+   ; 0x40fca0(-1, 0xfffffffc, 0x0, -1)
+0x0040fc63      call 0x40fca0
+0x0040fc68      add esp, 4
+0x0040fc6b      jmp 0x40fc2d
+   ; 0x40fbe0(-1, 0xfffffffc, 0x0, -1)
+0x0040fc6d      call 0x40fbe0
+0x0040fc72      mov edx, dword [ebp - 4]
+0x0040fc75      mov dword [edx + 4], 1
+0x0040fc7c      mov esp, ebp
+0x0040fc7e      pop ebp
+0x0040fc7f      mov esp, ebx
+0x0040fc81      pop ebx
+0x0040fc82      ret 4
+0x0040fc85      int3
+0x0040fc86      int3
+0x0040fc87      int3
+0x0040fc88      int3
+0x0040fc89      int3
+0x0040fc8a      int3
+0x0040fc8b      int3
+0x0040fc8c      int3
+0x0040fc8d      int3
+0x0040fc8e      int3
+0x0040fc8f      int3
+0x0040fc90      push ebp
+0x0040fc91      mov ebp, esp
+
+
+## mcp__radare2__disassemble {"address":"0x0040fba0","num_instructions":25}
+
+0x0040fba0      push ebp
+0x0040fba1      mov ebp, esp
+0x0040fba3      push ecx
+0x0040fba4      mov dword [ebp - 4], ecx
+   ; 0x40fbe0(0x0, 0x0, 0x0, 0x0)
+0x0040fba7      call 0x40fbe0
+0x0040fbac      mov eax, dword [ebp - 4]
+0x0040fbaf      mov ecx, dword [eax + 4]
+0x0040fbb2      sub ecx, 1
+0x0040fbb5      mov edx, dword [ebp - 4]
+0x0040fbb8      mov dword [edx + 4], ecx
+0x0040fbbb      mov eax, dword [ebp - 4]
+0x0040fbbe      cmp dword [eax + 4], 0
+   ; likely
+0x0040fbc2      jne 0x40fbcd
+0x0040fbc4      mov ecx, dword [ebp - 4]
+0x0040fbc7      mov dword [ecx], 0
+0x0040fbcd      mov esp, ebp
+0x0040fbcf      pop ebp
+0x0040fbd0      ret
+0x0040fbd1      int3
+0x0040fbd2      int3
+0x0040fbd3      int3
+0x0040fbd4      int3
+0x0040fbd5      int3
+0x0040fbd6      int3
+0x0040fbd7      int3

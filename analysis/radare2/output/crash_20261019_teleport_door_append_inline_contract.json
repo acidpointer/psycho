@@ -1,0 +1,164 @@
+{
+  "date": "2026-10-19",
+  "tool": "radare2 CLI 6.2.2",
+  "binary": "/data/storage0/Games/FalloutNV_TTW/mods/Stewie Tweaks/NVSE/plugins/nvse_stewie_tweaks.dll",
+  "sha256": "c19007b47f39df2ce07cfc1add1a27090302cf35e1673ba35bee61cb5800db95",
+  "relocations": "applied",
+  "scope": "Compiled native append replacement template and installation references. No module identity is used by runtime admission. Static evidence, not patch authority.",
+  "transcripts": [
+    {
+      "command": [
+        "r2",
+        "-q",
+        "-e",
+        "scr.color=0",
+        "-e",
+        "bin.relocs.apply=true",
+        "-c",
+        "/x 51e85a62f9ff598b49048b5424048b12891481c20400",
+        "-c",
+        "q",
+        "/data/storage0/Games/FalloutNV_TTW/mods/Stewie Tweaks/NVSE/plugins/nvse_stewie_tweaks.dll"
+      ],
+      "stdout": "0x100ce5d8 hit0_0 51e85a62f9ff598b49048b5424048b12891481c20400\n",
+      "stderr": "",
+      "exit_code": 0
+    },
+    {
+      "command": [
+        "r2",
+        "-q",
+        "-e",
+        "scr.color=0",
+        "-e",
+        "bin.relocs.apply=true",
+        "-c",
+        "aar",
+        "-c",
+        "axt 0x100ce5d8",
+        "-c",
+        "axt 0x100ce5e8",
+        "-c",
+        "q",
+        "/data/storage0/Games/FalloutNV_TTW/mods/Stewie Tweaks/NVSE/plugins/nvse_stewie_tweaks.dll"
+      ],
+      "stdout": "(nofunc) 0x1003c568 [DATA:r--] movups xmm0, xmmword [0x100ce5d8]\n(nofunc) 0x1003c572 [DATA:r--] mov eax, dword [0x100ce5e8]\n",
+      "stderr": "",
+      "exit_code": 0
+    },
+    {
+      "command": [
+        "r2",
+        "-q",
+        "-e",
+        "scr.color=0",
+        "-e",
+        "bin.relocs.apply=true",
+        "-c",
+        "p8 22 @ 0x100ce5d8",
+        "-c",
+        "q",
+        "/data/storage0/Games/FalloutNV_TTW/mods/Stewie Tweaks/NVSE/plugins/nvse_stewie_tweaks.dll"
+      ],
+      "stdout": "51e85a62f9ff598b49048b5424048b12891481c20400\n",
+      "stderr": "",
+      "exit_code": 0
+    },
+    {
+      "command": [
+        "r2",
+        "-q",
+        "-e",
+        "scr.color=0",
+        "-e",
+        "bin.relocs.apply=true",
+        "-c",
+        "pd 22 @ 0x1003c563",
+        "-c",
+        "q",
+        "/data/storage0/Games/FalloutNV_TTW/mods/Stewie Tweaks/NVSE/plugins/nvse_stewie_tweaks.dll"
+      ],
+      "stdout": "            0x1003c563      00c2           add dl, al\n            0x1003c565      0800           or byte [eax], al\n            0x1003c567      cc             int3\n            0x1003c568      0f1005d8e5..   movups xmm0, xmmword [0x100ce5d8] ; [0x100ce5d8:16]=-1\n            0x1003c56f      0f1101         movups xmmword [ecx], xmm0\n            0x1003c572      a1e8e50c10     mov eax, dword [0x100ce5e8] ; [0x100ce5e8:4]=0xc2811489\n            0x1003c577      894110         mov dword [ecx + 0x10], eax\n            0x1003c57a      0fb705ece5..   movzx eax, word [0x100ce5ec] ; [0x100ce5ec:2]=4\n            0x1003c581      66894114       mov word [ecx + 0x14], ax\n            0x1003c585      b93017c400     mov ecx, 0xc41730\n            0x1003c58a      c705d0d544..   mov dword [0x44d5d0], 0xf04415ff ; [0x44d5d0:4]=-1\n            0x1003c594      c705d4d544..   mov dword [0x44d5d4], 0x906600fd ; [0x44d5d4:4]=-1\n            0x1003c59e      f30f7e05f0..   movq xmm0, qword [0x100ce5f0] ; [0x100ce5f0:8]=0x841f0f6666\n            0x1003c5a6      660fd601       movq qword [ecx], xmm0\n            0x1003c5aa      0fb705f8e5..   movzx eax, word [0x100ce5f8] ; [0x100ce5f8:2]=0\n            0x1003c5b1      66894108       mov word [ecx + 8], ax\n            0x1003c5b5      b940aa0310     mov ecx, 0x1003aa40\n            0x1003c5ba      c605a016c4..   mov byte [0xc416a0], 0xe9   ; [0xc416a0:1]=255\n            0x1003c5c1      8d815be93bff   lea eax, [ecx - 0xc416a5]\n            0x1003c5c7      a3a116c400     mov dword [0xc416a1], eax   ; [0xc416a1:4]=-1\n            0x1003c5cc      81e94b00c400   sub ecx, 0xc4004b\n            0x1003c5d2      890d4700c400   mov dword [0xc40047], ecx   ; [0xc40047:4]=-1\n",
+      "stderr": "",
+      "exit_code": 0
+    },
+    {
+      "command": [
+        "r2",
+        "-q",
+        "-a",
+        "x86",
+        "-b",
+        "32",
+        "-m",
+        "0x007cb2e0",
+        "-e",
+        "scr.color=0",
+        "-c",
+        "pd 9",
+        "-c",
+        "q",
+        ".reports/20261019-teleport-door-crash/implementation/native-append-inline.bin"
+      ],
+      "scope": "Unmodified compiled template bytes interpreted at their verified installation address. This is disassembly, not execution or behavioral testing.",
+      "stdout": "            0x007cb2e0      51             push ecx\n            0x007cb2e1      e85a62f9ff     call 0x761540\n            0x007cb2e6      59             pop ecx\n            0x007cb2e7      8b4904         mov ecx, dword [ecx + 4]\n            0x007cb2ea      8b542404       mov edx, dword [esp + 4]\n            0x007cb2ee      8b12           mov edx, dword [edx]\n            0x007cb2f0      891481         mov dword [ecx + eax*4], edx\n            0x007cb2f3      c20400         ret 4\n            0x007cb2f6      ff             invalid\n",
+      "stderr": "",
+      "exit_code": 0
+    },
+    {
+      "command": [
+        "r2",
+        "-q",
+        "-e",
+        "scr.color=0",
+        "-e",
+        "bin.relocs.apply=true",
+        "-c",
+        "/x b9e0b27c00",
+        "-c",
+        "q",
+        "/data/storage0/Games/FalloutNV_TTW/mods/Stewie Tweaks/NVSE/plugins/nvse_stewie_tweaks.dll"
+      ],
+      "stdout": "0x1003c499 hit0_0 b9e0b27c00\n",
+      "stderr": "",
+      "exit_code": 0
+    },
+    {
+      "command": [
+        "r2",
+        "-q",
+        "-e",
+        "scr.color=0",
+        "-e",
+        "bin.relocs.apply=true",
+        "-c",
+        "pd 24 @ 0x1003c520",
+        "-c",
+        "q",
+        "/data/storage0/Games/FalloutNV_TTW/mods/Stewie Tweaks/NVSE/plugins/nvse_stewie_tweaks.dll"
+      ],
+      "stdout": "            0x1003c520      00cc           add ah, cl\n            0x1003c522      c705a0c36d..   mov dword [0x6dc3a0], 0xcc0008c2 ; [0x6dc3a0:4]=-1\n            0x1003c52c      c70580126e..   mov dword [0x6e1280], 0xcc0008c2 ; [0x6e1280:4]=-1\n            0x1003c536      c70580326f..   mov dword [0x6f3280], 0xcc0008c2 ; [0x6f3280:4]=-1\n            0x1003c540      c705109e6f..   mov dword [0x6f9e10], 0xcc0008c2 ; [0x6f9e10:4]=-1\n            0x1003c54a      c705f06b72..   mov dword [0x726bf0], 0xcc0008c2 ; [0x726bf0:4]=-1\n            0x1003c554      c705d0d387..   mov dword [0x87d3d0], 0xcc0008c2 ; [0x87d3d0:4]=-1\n            0x1003c55e      c70540fb98..   mov dword [0x98fb40], 0xcc0008c2 ; [0x98fb40:4]=-1\n            0x1003c568      0f1005d8e5..   movups xmm0, xmmword [0x100ce5d8] ; [0x100ce5d8:16]=-1\n            0x1003c56f      0f1101         movups xmmword [ecx], xmm0\n            0x1003c572      a1e8e50c10     mov eax, dword [0x100ce5e8] ; [0x100ce5e8:4]=0xc2811489\n            0x1003c577      894110         mov dword [ecx + 0x10], eax\n            0x1003c57a      0fb705ece5..   movzx eax, word [0x100ce5ec] ; [0x100ce5ec:2]=4\n            0x1003c581      66894114       mov word [ecx + 0x14], ax\n            0x1003c585      b93017c400     mov ecx, 0xc41730\n            0x1003c58a      c705d0d544..   mov dword [0x44d5d0], 0xf04415ff ; [0x44d5d0:4]=-1\n            0x1003c594      c705d4d544..   mov dword [0x44d5d4], 0x906600fd ; [0x44d5d4:4]=-1\n            0x1003c59e      f30f7e05f0..   movq xmm0, qword [0x100ce5f0] ; [0x100ce5f0:8]=0x841f0f6666\n            0x1003c5a6      660fd601       movq qword [ecx], xmm0\n            0x1003c5aa      0fb705f8e5..   movzx eax, word [0x100ce5f8] ; [0x100ce5f8:2]=0\n            0x1003c5b1      66894108       mov word [ecx + 8], ax\n            0x1003c5b5      b940aa0310     mov ecx, 0x1003aa40\n            0x1003c5ba      c605a016c4..   mov byte [0xc416a0], 0xe9   ; [0xc416a0:1]=255\n            0x1003c5c1      8d815be93bff   lea eax, [ecx - 0xc416a5]\n",
+      "stderr": "",
+      "exit_code": 0
+    },
+    {
+      "command": [
+        "r2",
+        "-q",
+        "-e",
+        "scr.color=0",
+        "-e",
+        "bin.relocs.apply=true",
+        "-c",
+        "pd 29 @ 0x1003c499",
+        "-c",
+        "q",
+        "/data/storage0/Games/FalloutNV_TTW/mods/Stewie Tweaks/NVSE/plugins/nvse_stewie_tweaks.dll"
+      ],
+      "stdout": "            0x1003c499      b9e0b27c00     mov ecx, 0x7cb2e0\n            0x1003c49e      66a5           movsw word es:[edi], word [esi]\n            0x1003c4a0      c705f0f849..   mov dword [0x49f8f0], 0xcc0008c2 ; [0x49f8f0:4]=-1\n            0x1003c4aa      c70550f65e..   mov dword [0x5ef650], 0xcc0008c2 ; [0x5ef650:4]=-1\n            0x1003c4b4      c705904464..   mov dword [0x644490], 0xcc0008c2 ; [0x644490:4]=-1\n            0x1003c4be      c705d0b969..   mov dword [0x69b9d0], 0xcc0008c2 ; [0x69b9d0:4]=-1\n            0x1003c4c8      c705f0d069..   mov dword [0x69d0f0], 0xcc0008c2 ; [0x69d0f0:4]=-1\n            0x1003c4d2      c70530266a..   mov dword [0x6a2630], 0xcc0008c2 ; [0x6a2630:4]=-1\n            0x1003c4dc      c705308a6a..   mov dword [0x6a8a30], 0xcc0008c2 ; [0x6a8a30:4]=-1\n            0x1003c4e6      c705f0406b..   mov dword [0x6b40f0], 0xcc0008c2 ; [0x6b40f0:4]=-1\n            0x1003c4f0      c705d0fd6b..   mov dword [0x6bfdd0], 0xcc0008c2 ; [0x6bfdd0:4]=-1\n            0x1003c4fa      c705d0036d..   mov dword [0x6d03d0], 0xcc0008c2 ; [0x6d03d0:4]=-1\n            0x1003c504      c705e0056d..   mov dword [0x6d05e0], 0xcc0008c2 ; [0x6d05e0:4]=-1\n            0x1003c50e      c705f0bc6d..   mov dword [0x6dbcf0], 0xcc0008c2 ; [0x6dbcf0:4]=-1\n            0x1003c518      c70530c16d..   mov dword [0x6dc130], 0xcc0008c2 ; [0x6dc130:4]=-1\n            0x1003c522      c705a0c36d..   mov dword [0x6dc3a0], 0xcc0008c2 ; [0x6dc3a0:4]=-1\n            0x1003c52c      c70580126e..   mov dword [0x6e1280], 0xcc0008c2 ; [0x6e1280:4]=-1\n            0x1003c536      c70580326f..   mov dword [0x6f3280], 0xcc0008c2 ; [0x6f3280:4]=-1\n            0x1003c540      c705109e6f..   mov dword [0x6f9e10], 0xcc0008c2 ; [0x6f9e10:4]=-1\n            0x1003c54a      c705f06b72..   mov dword [0x726bf0], 0xcc0008c2 ; [0x726bf0:4]=-1\n            0x1003c554      c705d0d387..   mov dword [0x87d3d0], 0xcc0008c2 ; [0x87d3d0:4]=-1\n            0x1003c55e      c70540fb98..   mov dword [0x98fb40], 0xcc0008c2 ; [0x98fb40:4]=-1\n            0x1003c568      0f1005d8e5..   movups xmm0, xmmword [0x100ce5d8] ; [0x100ce5d8:16]=-1\n            0x1003c56f      0f1101         movups xmmword [ecx], xmm0\n            0x1003c572      a1e8e50c10     mov eax, dword [0x100ce5e8] ; [0x100ce5e8:4]=0xc2811489\n            0x1003c577      894110         mov dword [ecx + 0x10], eax\n            0x1003c57a      0fb705ece5..   movzx eax, word [0x100ce5ec] ; [0x100ce5ec:2]=4\n            0x1003c581      66894114       mov word [ecx + 0x14], ax\n            0x1003c585      b93017c400     mov ecx, 0xc41730\n",
+      "stderr": "",
+      "exit_code": 0
+    }
+  ],
+  "notes": "The first installation excerpt starts mid-instruction; only decoded instructions from known template xref 0x1003c568 onward are used from that excerpt. Raw payload pd 9 has a ninth invalid instruction beyond the 22-byte body; it is not part of the admitted contract."
+}
