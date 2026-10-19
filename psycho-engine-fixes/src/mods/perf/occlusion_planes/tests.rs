@@ -1053,3 +1053,51 @@ fn bench_covered_face_rect_cost() {
         }
     }
 }
+
+/// Build `count` coplanar square tiles in a row in the local XZ plane, as the
+/// generator would emit them for a wall built from repeated modules. `step` is
+/// the center spacing in tile sizes; `1.0` makes them touch, a larger value
+/// makes every pair non-adjacent (the worst case for the quadratic merge).
+fn coplanar_tiles(count: usize, step: f32) -> Vec<(f32, PlaneRecord)> {
+    let size = 128.0f32;
+    (0..count)
+        .map(|index| {
+            let u = index as f32 * size * step;
+            let plane = PlaneRecord {
+                position: [u + size * 0.5, 0.0, 0.0],
+                size: [size, size],
+                rotation: [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0],
+                priority: 255,
+                source_form_id: 0,
+                coverage: 1.0,
+            };
+            (size * size, plane)
+        })
+        .collect()
+}
+
+/// Cost probe for the completion-frame coplanar merge. Not a correctness test.
+///
+/// `step = 1.0` merges every tile into one rectangle; `step = 4.0` leaves every
+/// pair non-adjacent and forces all three quadratic passes.
+#[test]
+#[ignore = "measurement: coplanar merge cost on a tile row"]
+fn bench_merge_coplanar_cost() {
+    for step in [1.0f32, 4.0] {
+        for count in [64usize, 128, 256, 512] {
+            let rounds = 200u32;
+            let started = std::time::Instant::now();
+            let mut remaining = 0usize;
+            for _ in 0..rounds {
+                let mut candidates = coplanar_tiles(count, step);
+                merge_coplanar(&mut candidates);
+                remaining = candidates.len();
+            }
+            let each_us = started.elapsed().as_secs_f64() * 1.0e6 / f64::from(rounds);
+            println!(
+                "bench_merge_coplanar_cost step={step} tiles={count} each_us={each_us:.1} \
+                 kept={remaining}"
+            );
+        }
+    }
+}

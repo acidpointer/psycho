@@ -460,6 +460,29 @@ face, and keeps only the opening edges whose bounding box overlaps the candidate
 rectangle, so a solid face skips the boundary analysis. All buffers are reused
 across every face of every mesh in a generation.
 
+### 4.3.2 Completion-frame bounds
+
+`Generation::finish` still runs when the walk completes, and two of its steps
+were unbounded on that one frame:
+
+- `merge_coplanar` is quadratic within each coplanar group. A release benchmark
+  of a non-merging coplanar row measured 67 µs at 64 candidates, 265 µs at 128,
+  1.06 ms at 256 and 4.22 ms at 512 (about 38 ns per pair); the documented cells
+  can emit up to 892 raw candidates, which would be roughly 15 ms. The pairwise
+  work is now bounded by `MERGE_PAIR_BUDGET` (30 000 comparisons, about 1.2 ms
+  in the same benchmark); once it is spent the remaining candidates stay
+  unmerged and the score-and-cap step still selects the largest. The budget is
+  part of the generation signature, so cached sets from a different budget are
+  discarded.
+- The rebuild diff looked a tracked plane's node up by walking the occluder list
+  once per tracked plane and again per removed plane. `inject` now builds one
+  `plane -> node` map from a single list walk (`linked_nodes`) and reuses it for
+  both the keep test and the unlink, so a cell change is linear in the injected
+  count instead of quadratic.
+
+The completion frame also allocates the injected planes and writes the cache
+entry; those are bounded by the plane cap.
+
 ### 4.4 Data lookup
 
 - Interior: `CellKey::Interior { form_id: u32 }`.
@@ -920,6 +943,19 @@ Behavioral (real runtime, owner-run):
   `active` count does not fall, and that no visible surface is culled before
   raising `occlusion_planes_grid_radius` again. If the pair cost turns out hot,
   lower `occlusion_planes_max_per_cell` before changing the collector.
+- Remaining native per-frame cost: the engine walks the occluder list once per
+  frame (`0x00B5AC90`) and once per camera-admitted bound (`0x00B5BBE0` ->
+  `0x00C47150`), so its cost is `bounds x admitted planes`. Rust cannot remove
+  it without patching `0x00B5BBE0` (option E broad phase), and the feature does
+  not. The only in-scope lever is the injected count, and no full playtest log
+  has been captured to correlate `active` with frame time. Before lowering
+  `occlusion_planes_max_per_cell`, capture a fixed-camera A/B with planes on and
+  off and the `frame work` warning; do not lower it on inference.
+- Remaining Rust frame cost: the cache is serialized and written synchronously
+  on the debounce (`CACHE_SAVE_INTERVAL_FRAMES`, about 30 s) and on
+  load/new/exit. A long playthrough grows the cache to hundreds of cells; the
+  write is bounded by the cache size but not measured. An offload experiment was
+  reverted once, so only revisit it with a measured baseline.
 - Off-thread generation of neighbor cells is not viable: the walk reads
   engine-owned `TESObjectCELL`/`Ni*` memory that the engine mutates and frees on
   the main thread, so a worker thread could read freed memory during cell

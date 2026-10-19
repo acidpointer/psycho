@@ -120,6 +120,9 @@ pub(super) fn generation_signature() -> u64 {
         MERGE_GAP_TOLERANCE,
         MERGE_GROUP_TOLERANCE,
         MERGE_AXIS_TOLERANCE,
+        // The merge pair budget can change the merged set for dense cells, so
+        // a cached set generated under a different budget is not reused.
+        MERGE_PAIR_BUDGET as f32,
         // Hole-aware coverage semantics: a geometry whose triangles cannot be
         // read produces no plane, so the extracted set changed.
         MAX_TRIANGLES_PER_MESH as f32,
@@ -1743,9 +1746,21 @@ struct Rect2 {
     v_max: f32,
 }
 
+/// Upper bound on pairwise merge comparisons for one cell.
+///
+/// The merge is quadratic within a coplanar group, and `merge_coplanar` runs in
+/// one frame when a generation completes. A release benchmark measured ~38 ns
+/// per non-merging comparison (two `rect2` projections), so the documented
+/// cells that emit up to 892 raw candidates would spend about 15 ms in one
+/// frame when nothing merges. The budget bounds that to roughly a millisecond;
+/// once it is spent the remaining candidates are kept unmerged and the
+/// score-and-cap step still selects the largest.
+const MERGE_PAIR_BUDGET: usize = 30_000;
+
 /// Merge coplanar adjacent rectangles in place, replacing each group with its
 /// rectangular union. Bounded to a few passes; a chain of segments is handled
-/// by the repeated pass.
+/// by the repeated pass. Pairwise work is bounded by `MERGE_PAIR_BUDGET` so a
+/// dense cell cannot stall the completion frame.
 pub(super) fn merge_coplanar(candidates: &mut Vec<(f32, PlaneRecord)>) {
     if candidates.len() < 2 {
         return;
@@ -1769,25 +1784,32 @@ pub(super) fn merge_coplanar(candidates: &mut Vec<(f32, PlaneRecord)>) {
             None => groups.push((normal, vec![plane])),
         }
     }
+    let mut budget = MERGE_PAIR_BUDGET;
     for (_, mut group) in groups {
-        for _ in 0..3 {
-            let mut changed = false;
-            let mut i = 0;
-            while i < group.len() {
-                let mut j = i + 1;
-                while j < group.len() {
-                    if let Some(merged) = merge_rect(&group[i], &group[j]) {
-                        group[i] = merged;
-                        group.swap_remove(j);
-                        changed = true;
-                    } else {
-                        j += 1;
+        if budget > 0 {
+            'passes: for _ in 0..3 {
+                let mut changed = false;
+                let mut i = 0;
+                while i < group.len() {
+                    let mut j = i + 1;
+                    while j < group.len() {
+                        if budget == 0 {
+                            break 'passes;
+                        }
+                        budget -= 1;
+                        if let Some(merged) = merge_rect(&group[i], &group[j]) {
+                            group[i] = merged;
+                            group.swap_remove(j);
+                            changed = true;
+                        } else {
+                            j += 1;
+                        }
                     }
+                    i += 1;
                 }
-                i += 1;
-            }
-            if !changed {
-                break;
+                if !changed {
+                    break;
+                }
             }
         }
         candidates.extend(

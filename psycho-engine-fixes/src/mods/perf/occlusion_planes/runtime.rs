@@ -1068,22 +1068,29 @@ unsafe fn inject(
     } else {
         core::ptr::null_mut()
     };
-    // Keep only tracked planes whose node is still in the current list. A
-    // missing node means the engine cleared the list without changing the
-    // scene identity, so our retained reference is released and the diff below
-    // recreates that plane. A replaced scene graph means the old list is gone;
-    // release every retained reference without dereferencing retired nodes.
+    // One list walk maps each linked plane to its node, so the diff does not
+    // walk the list once per tracked plane and again per removed plane (that
+    // shape grew with the injected cap). A missing node means the engine
+    // cleared the list without changing the scene identity, so our retained
+    // reference is released and the diff below recreates that plane. A replaced
+    // scene graph means the old list is gone; release every retained reference
+    // without dereferencing retired nodes.
+    let linked = if same_scene {
+        unsafe { linked_nodes(list) }
+    } else {
+        HashMap::new()
+    };
     let previous_count = tracked.len();
-    let mut old: Vec<TrackedPlane> = Vec::with_capacity(previous_count);
+    let mut old: Vec<(TrackedPlane, *mut c_void)> = Vec::with_capacity(previous_count);
     for item in tracked.drain(..) {
-        if same_scene && unsafe { find_node(list, item.pointer) }.is_some() {
-            old.push(item);
+        if let Some(&node) = linked.get(&item.pointer) {
+            old.push((item, node));
         } else {
             unsafe { release_plane(item.pointer as *mut c_void) };
         }
     }
     let mut by_key: HashMap<u64, Vec<usize>> = HashMap::with_capacity(old.len());
-    for (index, item) in old.iter().enumerate() {
+    for (index, (item, _)) in old.iter().enumerate() {
         by_key.entry(item.key).or_default().push(index);
     }
     let mut used = vec![false; old.len()];
@@ -1094,7 +1101,7 @@ unsafe fn inject(
         let key = plane_key(record);
         if let Some(index) = by_key.get_mut(&key).and_then(Vec::pop) {
             used[index] = true;
-            next.push(old[index]);
+            next.push(old[index].0);
             injected.push(*record);
         } else if let Some(plane) = unsafe { create_plane(fns, record) } {
             unsafe { (fns.append)(scene_graph, plane) };
@@ -1106,12 +1113,12 @@ unsafe fn inject(
             created += 1;
         }
     }
-    for (index, item) in old.iter().enumerate() {
+    for (index, (item, node)) in old.iter().enumerate() {
         if used[index] {
             continue;
         }
-        if same_scene && let Some(node) = unsafe { find_node(list, item.pointer) } {
-            unsafe { unlink(fns, list, node) };
+        if !node.is_null() {
+            unsafe { unlink(fns, list, *node) };
         }
         unsafe { release_plane(item.pointer as *mut c_void) };
     }
@@ -1461,17 +1468,23 @@ unsafe fn create_plane(fns: &EngineFns, record: &PlaneRecord) -> Option<*mut c_v
     Some(plane)
 }
 
-unsafe fn find_node(list: *mut c_void, plane: usize) -> Option<*mut c_void> {
+/// Map every plane pointer in the occluder list to its list node with one walk.
+///
+/// The diff needs each tracked plane's node; looking it up per plane walked the
+/// list once per tracked plane (and again per removed plane), which grew
+/// quadratically with the injected cap.
+unsafe fn linked_nodes(list: *mut c_void) -> HashMap<usize, *mut c_void> {
+    let mut linked: HashMap<usize, *mut c_void> = HashMap::new();
     let mut node = unsafe { read_ptr_at(list, LIST_HEAD) };
     while !node.is_null() {
         let next = unsafe { read_ptr_at(node, NODE_NEXT) };
-        let data = unsafe { read_ptr_at(node, NODE_PLANE) };
-        if data as usize == plane {
-            return Some(node);
+        let plane = unsafe { read_ptr_at(node, NODE_PLANE) } as usize;
+        if plane != 0 {
+            linked.insert(plane, node);
         }
         node = next;
     }
-    None
+    linked
 }
 
 unsafe fn unlink(fns: &EngineFns, list: *mut c_void, node: *mut c_void) {
