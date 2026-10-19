@@ -41,6 +41,8 @@ pub(crate) struct EditableConfig {
     pub navmesh_low_pointer_guard: bool,
     pub entrydata_invalid_form_guard: bool,
     pub actor_container_retirement_guard: bool,
+    /// Restart-only animation-sequence ID-tag retirement preference.
+    pub animation_sequence_idtag_retirement_guard: bool,
     pub extraownership_invalid_owner_guard: bool,
     /// Restart-only invalid encounter-zone form containment preference.
     pub encounter_zone_invalid_form_guard: bool,
@@ -78,6 +80,28 @@ pub(crate) struct EditableConfig {
     pub rng: bool,
     pub zlib: bool,
     pub post_load_reconciliation_prepass: bool,
+    /// Restart-only invocation-local native light-score reuse preference.
+    pub light_property_score_reuse: bool,
+    /// Restart-only sequential scene-light enumeration preference.
+    pub scene_light_sequential_scan: bool,
+    /// Restart-only native AABB/frustum setup reduction preference.
+    pub multibound_frustum_tests: bool,
+    /// Restart-only native compound/portal setup reduction preference.
+    pub multibound_vertex_setup: bool,
+    /// Restart-only native compound visibility bookkeeping preference.
+    pub multibound_loop_bookkeeping: bool,
+    /// Restart-only room/shared-root admission preference.
+    pub scene_root_admission: bool,
+    /// Restart-only native inverse-world expansion preference.
+    pub inverse_world_index_setup: bool,
+    /// Restart-only occlusion-plane injection preference.
+    pub occlusion_planes: bool,
+    /// Maximum injected planes per cell and shared neighbor budget.
+    pub occlusion_planes_max_per_cell: i32,
+    /// Loaded exterior-cell grid radius for cached occluder coverage.
+    pub occlusion_planes_grid_radius: i32,
+    /// Generated-plane cache file, relative to the game directory or absolute.
+    pub occlusion_planes_cache_path: String,
     /// Verbose per-cell occlusion-plane diagnostics at debug level.
     pub occlusion_planes_debug_log: bool,
     pub debug_log: bool,
@@ -106,6 +130,7 @@ impl Default for EditableConfig {
             navmesh_low_pointer_guard: true,
             entrydata_invalid_form_guard: true,
             actor_container_retirement_guard: true,
+            animation_sequence_idtag_retirement_guard: true,
             extraownership_invalid_owner_guard: true,
             encounter_zone_invalid_form_guard: true,
             cell_render_reference_retirement_fix: true,
@@ -138,6 +163,17 @@ impl Default for EditableConfig {
             rng: true,
             zlib: true,
             post_load_reconciliation_prepass: true,
+            light_property_score_reuse: true,
+            scene_light_sequential_scan: true,
+            multibound_frustum_tests: true,
+            multibound_vertex_setup: true,
+            multibound_loop_bookkeeping: true,
+            scene_root_admission: true,
+            inverse_world_index_setup: true,
+            occlusion_planes: true,
+            occlusion_planes_max_per_cell: 128,
+            occlusion_planes_grid_radius: 0,
+            occlusion_planes_cache_path: "syringe/psycho_occlusion_planes.cache".to_owned(),
             occlusion_planes_debug_log: false,
             debug_log: false,
             console: false,
@@ -222,6 +258,12 @@ impl EditableConfig {
                 "engine_fixes",
                 "actor_container_retirement_guard",
                 defaults.actor_container_retirement_guard,
+            ),
+            animation_sequence_idtag_retirement_guard: bool_or(
+                doc,
+                "engine_fixes",
+                "animation_sequence_idtag_retirement_guard",
+                defaults.animation_sequence_idtag_retirement_guard,
             ),
             extraownership_invalid_owner_guard: bool_or(
                 doc,
@@ -401,6 +443,74 @@ impl EditableConfig {
                 "post_load_reconciliation_prepass",
                 defaults.post_load_reconciliation_prepass,
             ),
+            light_property_score_reuse: bool_or(
+                doc,
+                "performance",
+                "light_property_score_reuse",
+                defaults.light_property_score_reuse,
+            ),
+            scene_light_sequential_scan: bool_or(
+                doc,
+                "performance",
+                "scene_light_sequential_scan",
+                defaults.scene_light_sequential_scan,
+            ),
+            multibound_frustum_tests: bool_or(
+                doc,
+                "performance",
+                "multibound_frustum_tests",
+                defaults.multibound_frustum_tests,
+            ),
+            multibound_vertex_setup: bool_or(
+                doc,
+                "performance",
+                "multibound_vertex_setup",
+                defaults.multibound_vertex_setup,
+            ),
+            multibound_loop_bookkeeping: bool_or(
+                doc,
+                "performance",
+                "multibound_loop_bookkeeping",
+                defaults.multibound_loop_bookkeeping,
+            ),
+            scene_root_admission: bool_or(
+                doc,
+                "performance",
+                "scene_root_admission",
+                defaults.scene_root_admission,
+            ),
+            inverse_world_index_setup: bool_or(
+                doc,
+                "performance",
+                "inverse_world_index_setup",
+                defaults.inverse_world_index_setup,
+            ),
+            occlusion_planes: bool_or(
+                doc,
+                "performance",
+                "occlusion_planes",
+                defaults.occlusion_planes,
+            ),
+            occlusion_planes_max_per_cell: read_i64(
+                doc,
+                "performance",
+                "occlusion_planes_max_per_cell",
+            )
+            .map(|value| value.clamp(1, 256) as i32)
+            .unwrap_or(defaults.occlusion_planes_max_per_cell),
+            occlusion_planes_grid_radius: read_i64(
+                doc,
+                "performance",
+                "occlusion_planes_grid_radius",
+            )
+            .map(|value| value.clamp(0, 2) as i32)
+            .unwrap_or(defaults.occlusion_planes_grid_radius),
+            occlusion_planes_cache_path: read_string(
+                doc,
+                "performance",
+                "occlusion_planes_cache_path",
+            )
+            .unwrap_or(defaults.occlusion_planes_cache_path),
             occlusion_planes_debug_log: bool_or(
                 doc,
                 "performance",
@@ -449,6 +559,8 @@ impl EditableConfig {
 
     fn sanitized(mut self) -> Self {
         self.allocator = self.allocator.clamp(0, 2);
+        self.occlusion_planes_max_per_cell = self.occlusion_planes_max_per_cell.clamp(1, 256);
+        self.occlusion_planes_grid_radius = self.occlusion_planes_grid_radius.clamp(0, 2);
         self.object_prefetch_multiplier = finite_clamp(self.object_prefetch_multiplier, 1.35);
         self.object_retention_multiplier = finite_clamp(
             self.object_retention_multiplier,
@@ -697,6 +809,7 @@ fn write_document(doc: &mut DocumentMut, config: &EditableConfig) {
     engine!(navmesh_low_pointer_guard);
     engine!(entrydata_invalid_form_guard);
     engine!(actor_container_retirement_guard);
+    engine!(animation_sequence_idtag_retirement_guard);
     engine!(extraownership_invalid_owner_guard);
     engine!(encounter_zone_invalid_form_guard);
     engine!(cell_render_reference_retirement_fix);
@@ -723,6 +836,9 @@ fn write_document(doc: &mut DocumentMut, config: &EditableConfig) {
         };
         ($section:literal, $key:literal, $field:ident as f64) => {
             set_document_value(doc, $section, $key, value(config.$field as f64));
+        };
+        ($section:literal, $key:literal, $field:ident as i64) => {
+            set_document_value(doc, $section, $key, value(i64::from(config.$field)));
         };
     }
 
@@ -772,6 +888,54 @@ fn write_document(doc: &mut DocumentMut, config: &EditableConfig) {
         "performance",
         "post_load_reconciliation_prepass",
         post_load_reconciliation_prepass
+    );
+    setting!(
+        "performance",
+        "light_property_score_reuse",
+        light_property_score_reuse
+    );
+    setting!(
+        "performance",
+        "scene_light_sequential_scan",
+        scene_light_sequential_scan
+    );
+    setting!(
+        "performance",
+        "multibound_frustum_tests",
+        multibound_frustum_tests
+    );
+    setting!(
+        "performance",
+        "multibound_vertex_setup",
+        multibound_vertex_setup
+    );
+    setting!(
+        "performance",
+        "multibound_loop_bookkeeping",
+        multibound_loop_bookkeeping
+    );
+    setting!("performance", "scene_root_admission", scene_root_admission);
+    setting!(
+        "performance",
+        "inverse_world_index_setup",
+        inverse_world_index_setup
+    );
+    setting!("performance", "occlusion_planes", occlusion_planes);
+    setting!(
+        "performance",
+        "occlusion_planes_max_per_cell",
+        occlusion_planes_max_per_cell as i64
+    );
+    setting!(
+        "performance",
+        "occlusion_planes_grid_radius",
+        occlusion_planes_grid_radius as i64
+    );
+    set_document_value(
+        doc,
+        "performance",
+        "occlusion_planes_cache_path",
+        value(config.occlusion_planes_cache_path.clone()),
     );
     setting!(
         "performance",
@@ -845,12 +1009,24 @@ mod_owned_key = "untouched"
         config.window_cursor_lock = false;
         config.input_system_key_passthrough = false;
         config.actor_container_retirement_guard = false;
+        config.animation_sequence_idtag_retirement_guard = false;
         config.encounter_zone_invalid_form_guard = false;
         config.cell_render_reference_retirement_fix = false;
         config.model_postprocess_serialization_fix = false;
         config.source_texture_cache_publication_guard = false;
         config.tile_value_null_slot_guard = false;
         config.lod_attachment_budget_enabled = false;
+        config.light_property_score_reuse = false;
+        config.scene_light_sequential_scan = false;
+        config.multibound_frustum_tests = false;
+        config.multibound_vertex_setup = false;
+        config.multibound_loop_bookkeeping = false;
+        config.scene_root_admission = false;
+        config.inverse_world_index_setup = false;
+        config.occlusion_planes = false;
+        config.occlusion_planes_max_per_cell = 64;
+        config.occlusion_planes_grid_radius = 2;
+        config.occlusion_planes_cache_path = "cache/planes.cache".to_owned();
         write_document(&mut document, &config);
         let saved = document.to_string();
 
@@ -864,11 +1040,16 @@ mod_owned_key = "untouched"
         assert!(saved.contains("window_cursor_lock = false"));
         assert!(saved.contains("input_system_key_passthrough = false"));
         assert!(saved.contains("actor_container_retirement_guard = false"));
+        assert!(saved.contains("animation_sequence_idtag_retirement_guard = false"));
         assert!(saved.contains("encounter_zone_invalid_form_guard = false"));
         assert!(saved.contains("cell_render_reference_retirement_fix = false"));
         assert!(saved.contains("model_postprocess_serialization_fix = false"));
         assert!(saved.contains("source_texture_cache_publication_guard = false"));
         assert!(saved.contains("tile_value_null_slot_guard = false"));
+        assert!(saved.contains("light_property_score_reuse = false"));
+        assert!(saved.contains("occlusion_planes_max_per_cell = 64"));
+        assert!(saved.contains("occlusion_planes_grid_radius = 2"));
+        assert!(saved.contains("cache/planes.cache"));
         let reparsed = parse_document(&saved).expect("parse saved document");
         assert!(!EditableConfig::from_document(&reparsed).install_path_registry_repair);
         assert_eq!(
@@ -879,12 +1060,118 @@ mod_owned_key = "untouched"
         assert!(!EditableConfig::from_document(&reparsed).window_cursor_lock);
         assert!(!EditableConfig::from_document(&reparsed).input_system_key_passthrough);
         assert!(!EditableConfig::from_document(&reparsed).actor_container_retirement_guard);
+        assert!(
+            !EditableConfig::from_document(&reparsed).animation_sequence_idtag_retirement_guard
+        );
         assert!(!EditableConfig::from_document(&reparsed).encounter_zone_invalid_form_guard);
         assert!(!EditableConfig::from_document(&reparsed).cell_render_reference_retirement_fix);
         assert!(!EditableConfig::from_document(&reparsed).model_postprocess_serialization_fix);
         assert!(!EditableConfig::from_document(&reparsed).source_texture_cache_publication_guard);
         assert!(!EditableConfig::from_document(&reparsed).tile_value_null_slot_guard);
         assert!(!EditableConfig::from_document(&reparsed).lod_attachment_budget_enabled);
+        assert!(!EditableConfig::from_document(&reparsed).light_property_score_reuse);
+        assert!(!EditableConfig::from_document(&reparsed).scene_light_sequential_scan);
+        assert!(!EditableConfig::from_document(&reparsed).multibound_frustum_tests);
+        assert!(!EditableConfig::from_document(&reparsed).multibound_vertex_setup);
+        assert!(!EditableConfig::from_document(&reparsed).multibound_loop_bookkeeping);
+        assert!(!EditableConfig::from_document(&reparsed).scene_root_admission);
+        assert!(!EditableConfig::from_document(&reparsed).inverse_world_index_setup);
+        assert!(!EditableConfig::from_document(&reparsed).occlusion_planes);
+        assert_eq!(
+            EditableConfig::from_document(&reparsed).occlusion_planes_max_per_cell,
+            64
+        );
+        assert_eq!(
+            EditableConfig::from_document(&reparsed).occlusion_planes_grid_radius,
+            2
+        );
+        assert_eq!(
+            EditableConfig::from_document(&reparsed).occlusion_planes_cache_path,
+            "cache/planes.cache"
+        );
+    }
+
+    #[test]
+    fn shipped_configuration_round_trips_every_editable_field() {
+        let source = include_str!("../../psycho-engine-fixes/config/psycho_engine_fixes.toml");
+        let mut document = parse_document(source).expect("shipped configuration parses");
+        let mut config = EditableConfig::from_document(&document);
+
+        // Invert every boolean and move both bounded numbers away from their
+        // defaults so the round trip proves each field is actually serialized.
+        config.allocator = 1;
+        config.gheap_periodic_pdd_purge = !config.gheap_periodic_pdd_purge;
+        config.install_path_registry_repair = !config.install_path_registry_repair;
+        config.fallout3_install_path = r"..\Fallout 3".to_owned();
+        config.display_alt_tab = !config.display_alt_tab;
+        config.display_borderless_windowed = !config.display_borderless_windowed;
+        config.window_cursor_lock = !config.window_cursor_lock;
+        config.input_system_key_passthrough = !config.input_system_key_passthrough;
+        config.save_integrity_fix = !config.save_integrity_fix;
+        config.navmesh_low_pointer_guard = !config.navmesh_low_pointer_guard;
+        config.entrydata_invalid_form_guard = !config.entrydata_invalid_form_guard;
+        config.actor_container_retirement_guard = !config.actor_container_retirement_guard;
+        config.animation_sequence_idtag_retirement_guard =
+            !config.animation_sequence_idtag_retirement_guard;
+        config.extraownership_invalid_owner_guard = !config.extraownership_invalid_owner_guard;
+        config.encounter_zone_invalid_form_guard = !config.encounter_zone_invalid_form_guard;
+        config.cell_render_reference_retirement_fix = !config.cell_render_reference_retirement_fix;
+        config.linked_ref_children_stale_list_guard = !config.linked_ref_children_stale_list_guard;
+        config.linked_ref_target_base_form_guard = !config.linked_ref_target_base_form_guard;
+        config.ragdoll_null_bone_guard = !config.ragdoll_null_bone_guard;
+        config.ragdoll_detached_phantom_guard = !config.ragdoll_detached_phantom_guard;
+        config.havok_add_entity_batch_null_guard = !config.havok_add_entity_batch_null_guard;
+        config.havok_pending_add_null_guard = !config.havok_pending_add_null_guard;
+        config.havok_narrowphase_invalid_pair_guard = !config.havok_narrowphase_invalid_pair_guard;
+        config.havok_post_add_null_entity_guard = !config.havok_post_add_null_entity_guard;
+        config.havok_remove_agent_null_reread_guard = !config.havok_remove_agent_null_reread_guard;
+        config.memset_null_dst_guard = !config.memset_null_dst_guard;
+        config.lowprocess_generic_locations_fix = !config.lowprocess_generic_locations_fix;
+        config.model_postprocess_serialization_fix = !config.model_postprocess_serialization_fix;
+        config.queued_task_lifetime_guard = !config.queued_task_lifetime_guard;
+        config.patrol_owner_form_id_guard = !config.patrol_owner_form_id_guard;
+        config.source_texture_cache_publication_guard =
+            !config.source_texture_cache_publication_guard;
+        config.tile_value_null_slot_guard = !config.tile_value_null_slot_guard;
+        config.parallel_io = !config.parallel_io;
+        config.lod_enabled = !config.lod_enabled;
+        config.lod_prefetch_enabled = !config.lod_prefetch_enabled;
+        config.lod_handoff_fix_enabled = !config.lod_handoff_fix_enabled;
+        config.lod_priority_boost_enabled = !config.lod_priority_boost_enabled;
+        config.lod_attachment_budget_enabled = !config.lod_attachment_budget_enabled;
+        config.object_prefetch_multiplier = 1.85;
+        config.object_retention_multiplier = 1.95;
+        config.tree_prefetch_multiplier = 1.75;
+        config.tree_retention_multiplier = 1.80;
+        config.terrain_prefetch_multiplier = 1.60;
+        config.terrain_retention_multiplier = 1.70;
+        config.rng = !config.rng;
+        config.zlib = !config.zlib;
+        config.post_load_reconciliation_prepass = !config.post_load_reconciliation_prepass;
+        config.light_property_score_reuse = !config.light_property_score_reuse;
+        config.scene_light_sequential_scan = !config.scene_light_sequential_scan;
+        config.multibound_frustum_tests = !config.multibound_frustum_tests;
+        config.multibound_vertex_setup = !config.multibound_vertex_setup;
+        config.multibound_loop_bookkeeping = !config.multibound_loop_bookkeeping;
+        config.scene_root_admission = !config.scene_root_admission;
+        config.inverse_world_index_setup = !config.inverse_world_index_setup;
+        config.occlusion_planes = !config.occlusion_planes;
+        config.occlusion_planes_max_per_cell = 200;
+        config.occlusion_planes_grid_radius = 1;
+        config.occlusion_planes_cache_path = "cache/custom.cache".to_owned();
+        config.occlusion_planes_debug_log = !config.occlusion_planes_debug_log;
+        config.debug_log = !config.debug_log;
+        config.console = !config.console;
+        config.hitch_profiling = !config.hitch_profiling;
+        config.task_lifetime_trace = !config.task_lifetime_trace;
+        config.lod_streaming_trace = !config.lod_streaming_trace;
+
+        write_document(&mut document, &config);
+        let saved = document.to_string();
+        let reparsed = parse_document(&saved).expect("saved shipped configuration parses");
+        let actual = EditableConfig::from_document(&reparsed);
+
+        assert_eq!(actual, config.sanitized());
     }
 
     #[test]

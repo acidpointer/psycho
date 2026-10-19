@@ -70,7 +70,7 @@ const RELOAD_ACTIVE: [f32; 4] = [0.82, 0.51, 0.12, 1.0];
 const HOVER_HELP_HINT: &str =
     "Hover a setting or technical label for a plain-language explanation.";
 
-const ENGINE_FIX_HELP: [(&str, &str); 22] = [
+const ENGINE_FIX_HELP: [(&str, &str); 23] = [
     (
         "Display / Alt-Tab repair",
         "Keeps fullscreen startup, renderer resets, focus changes, and Alt-Tab from using broken window size or placement. Leave it on unless another window mod has a confirmed conflict.",
@@ -90,6 +90,10 @@ const ENGINE_FIX_HELP: [(&str, &str); 22] = [
     (
         "Dynamic actor container guard",
         "Checks the inventory list of a generated NPC or creature while an old live game is being replaced. A corrupt list is detached instead of followed and freed.",
+    ),
+    (
+        "Animation sequence ID-tag guard",
+        "Discards unresolved animation-sequence ID tags before legacy fixed-string release, so a corrupt palette record is not followed as a pointer.",
     ),
     (
         "ExtraOwnership guard",
@@ -2288,6 +2292,7 @@ fn draw_configuration(ui: &mut Ui<'_>, editor: &mut ConfigEditor, pending_reload
         &mut config.navmesh_low_pointer_guard,
         &mut config.entrydata_invalid_form_guard,
         &mut config.actor_container_retirement_guard,
+        &mut config.animation_sequence_idtag_retirement_guard,
         &mut config.extraownership_invalid_owner_guard,
         &mut config.encounter_zone_invalid_form_guard,
         &mut config.cell_render_reference_retirement_fix,
@@ -2423,6 +2428,81 @@ fn draw_configuration(ui: &mut Ui<'_>, editor: &mut ConfigEditor, pending_reload
         &mut config.post_load_reconciliation_prepass,
         "Performs one focused cleanup pass before normal post-load work so stale references are reconciled in a safer order.",
     );
+    checkbox_help(
+        ui,
+        "Light score reuse",
+        &mut config.light_property_score_reuse,
+        "Reuses repeated light calculations inside one object's light sort. It changes only repeated work, not which lights contribute to the final image.",
+    );
+    checkbox_help(
+        ui,
+        "Sequential scene-light scan",
+        &mut config.scene_light_sequential_scan,
+        "Searches each scene-light list in order instead of restarting from the beginning. Light selection and the resulting image are unchanged.",
+    );
+    checkbox_help(
+        ui,
+        "Bounds frustum setup",
+        &mut config.multibound_frustum_tests,
+        "Removes redundant integer setup from the game's object-bounds visibility checks. The visibility result itself is unchanged.",
+    );
+    checkbox_help(
+        ui,
+        "Compound vertex setup",
+        &mut config.multibound_vertex_setup,
+        "Removes redundant vertex setup while building compound and portal visibility bounds. Scene geometry and rendered output are unchanged.",
+    );
+    checkbox_help(
+        ui,
+        "Compound loop bookkeeping",
+        &mut config.multibound_loop_bookkeeping,
+        "Reduces repeated bookkeeping in the game's compound visibility loops. It keeps the same traversal order and visibility decisions.",
+    );
+    checkbox_help(
+        ui,
+        "Room admission",
+        &mut config.scene_root_admission,
+        "Combines the room and shared-root visibility lookup with its absent-key insertion, avoiding a duplicate search for the same room entry.",
+    );
+    checkbox_help(
+        ui,
+        "Inverse-world index setup",
+        &mut config.inverse_world_index_setup,
+        "Folds constant index work in the native unskinned transform expansion. Object placement and rendered geometry are unchanged.",
+    );
+
+    ui.spacing();
+    ui.separator_text(&cstring("Occlusion planes"));
+    checkbox_help(
+        ui,
+        "Add generated occlusion planes",
+        &mut config.occlusion_planes,
+        "Adds invisible occluders to cells that have no authored visibility data, so hidden objects behind large solid buildings are rejected earlier. Authored occluders and rooms are untouched.",
+    );
+    precise_count(
+        ui,
+        "Planes per cell",
+        "occlusion_planes_max_per_cell",
+        &mut config.occlusion_planes_max_per_cell,
+        1,
+        256,
+        "Sets the shared plane budget and per-cell candidate cap. Neighbor cells share the same budget. Higher values reject more hidden geometry but cost more native visibility work.",
+    );
+    precise_count(
+        ui,
+        "Neighbor grid radius",
+        "occlusion_planes_grid_radius",
+        &mut config.occlusion_planes_grid_radius,
+        0,
+        2,
+        "Zero uses only the player's cell. One or two reuse complete cached occluders from surrounding loaded cells; uncovered cells are never generated on a frame path.",
+    );
+    input_text_string(
+        ui,
+        "Plane cache path",
+        &mut config.occlusion_planes_cache_path,
+        "Cache file for generated planes, relative to the game directory or absolute. Revisited cells reuse it, and it is discarded when the active plugin list changes.",
+    );
 
     ui.spacing();
     ui.separator_text(&cstring("Diagnostics"));
@@ -2553,6 +2633,20 @@ fn precise_multiplier(ui: &mut Ui<'_>, label: &str, id: &str, value: &mut f32, h
         0.1,
         false,
     );
+    hover_help(ui, help);
+}
+
+fn precise_count(
+    ui: &mut Ui<'_>,
+    label: &str,
+    id: &str,
+    value: &mut i32,
+    min: i32,
+    max: i32,
+    help: &str,
+) {
+    let fast_step = if max.saturating_sub(min) <= 10 { 1 } else { 10 };
+    ui.precise_int(&cstring(label), &cstring(id), value, min, max, fast_step);
     hover_help(ui, help);
 }
 
@@ -2930,16 +3024,17 @@ mod tests {
 
     #[test]
     fn every_engine_fix_has_concise_unique_hover_help() {
-        assert_eq!(ENGINE_FIX_HELP.len(), 22);
+        assert_eq!(ENGINE_FIX_HELP.len(), 23);
         for (index, expected) in [
             (0, "Display / Alt-Tab repair"),
             (1, "Durable save integrity"),
             (4, "Dynamic actor container guard"),
-            (6, "Encounter-zone form guard"),
-            (7, "Cell render retirement repair"),
-            (19, "Model postprocess serialization"),
-            (20, "Queued-task lifetime guard"),
-            (21, "Texture cache guard"),
+            (5, "Animation sequence ID-tag guard"),
+            (7, "Encounter-zone form guard"),
+            (8, "Cell render retirement repair"),
+            (20, "Model postprocess serialization"),
+            (21, "Queued-task lifetime guard"),
+            (22, "Texture cache guard"),
         ] {
             assert_eq!(ENGINE_FIX_HELP[index].0, expected);
         }

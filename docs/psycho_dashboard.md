@@ -490,6 +490,26 @@ The **Model postprocess serialization** checkbox owns
 changes only next-launch core activation. The helper only displays and edits
 the contract and never installs or initializes the core guard.
 
+The **Animation sequence ID-tag guard** checkbox owns
+`[engine_fixes].animation_sequence_idtag_retirement_guard`. It defaults on and
+changes only next-launch core activation. The helper never traverses an
+animation sequence or releases a fixed string; it only mirrors the core's
+restart-only switch.
+
+The **Performance** section exposes every shipped `[performance]` optimization
+switch, including light-score reuse, sequential scene-light scanning, the
+bounds/compound visibility setup reductions, room admission, and inverse-world
+index setup. These controls edit the next-launch TOML only; runtime counters do
+not attribute work to an individual optimization.
+
+The **Occlusion planes** controls own
+`[performance].occlusion_planes`, `occlusion_planes_max_per_cell`,
+`occlusion_planes_grid_radius`, and `occlusion_planes_cache_path`. The plane
+count accepts the core's supported 1--256 range, and the neighbor radius accepts
+0--2. The cache path accepts a Windows-visible absolute path or a path relative
+to the game directory. The verbose `occlusion_planes_debug_log` switch remains
+on the Diagnostics section.
+
 The **Encounter-zone form guard** checkbox owns
 `[engine_fixes].encounter_zone_invalid_form_guard`. It defaults on and changes
 only next-launch core activation. The dashboard shows the changed-form
@@ -566,11 +586,13 @@ Automated coverage includes:
 - connection-state classification that reports connecting/starting/offline
   distinctly and never reports offline before the first sample;
 - binary (IEC) byte formatting shared with the chart MiB labels;
-- the complete 22-entry engine-fix help catalog, including unique labels,
+- the complete 23-entry engine-fix help catalog, including unique labels,
   concise length bounds, and ASCII font safety;
 - config dirty-state tracking;
 - actor-container, encounter-zone, and cell-render-retirement default/disable
   parsing and comment-preserving serialization;
+- complete shipped-config parsing and round-trip serialization for every
+  editable field, including the performance and occlusion-plane controls;
 - exact legacy-key fallback ordering and integer multiplier parsing;
 - leading, inline, and unknown-key comment/data preservation.
 
