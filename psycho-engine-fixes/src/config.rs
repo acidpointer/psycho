@@ -300,8 +300,9 @@ pub struct PerformanceConfig {
     pub occlusion_planes_grid_radius: u8,
     /// Generated plane cache file, relative to the game directory or absolute.
     pub occlusion_planes_cache_path: String,
-    /// Start with the occluder debug overlay enabled.
-    pub occlusion_planes_debug: bool,
+    /// Write the verbose per-cell occlusion-plane diagnostics at debug level.
+    /// Off by default; warnings and errors always log.
+    pub occlusion_planes_debug_log: bool,
 }
 
 impl Default for PerformanceConfig {
@@ -322,7 +323,7 @@ impl Default for PerformanceConfig {
             occlusion_planes_max_per_cell: 128,
             occlusion_planes_grid_radius: 0,
             occlusion_planes_cache_path: DEFAULT_OCCLUSION_PLANES_CACHE_PATH.to_string(),
-            occlusion_planes_debug: false,
+            occlusion_planes_debug_log: false,
         }
     }
 }
@@ -380,9 +381,9 @@ impl PerformanceConfig {
             occlusion_planes_cache_path: raw
                 .occlusion_planes_cache_path
                 .unwrap_or(default.occlusion_planes_cache_path),
-            occlusion_planes_debug: raw
-                .occlusion_planes_debug
-                .unwrap_or(default.occlusion_planes_debug),
+            occlusion_planes_debug_log: raw
+                .occlusion_planes_debug_log
+                .unwrap_or(default.occlusion_planes_debug_log),
         }
     }
 }
@@ -700,7 +701,7 @@ struct RawPerformanceConfig {
     occlusion_planes_max_per_cell: Option<u16>,
     occlusion_planes_grid_radius: Option<u8>,
     occlusion_planes_cache_path: Option<String>,
-    occlusion_planes_debug: Option<bool>,
+    occlusion_planes_debug_log: Option<bool>,
 }
 
 #[derive(Default, Deserialize)]

@@ -23,10 +23,8 @@ pub(crate) use light_property_scores::install as install_light_property_score_re
 pub(crate) use multibound_frustum::install as install_multibound_frustum_tests;
 pub(crate) use multibound_loop_bookkeeping::install as install_multibound_loop_bookkeeping;
 pub(crate) use multibound_vertex_setup::install as install_multibound_vertex_setup;
+pub(crate) use occlusion_planes::dashboard_counters as occlusion_dashboard_counters;
 pub(crate) use occlusion_planes::install as install_occlusion_planes;
-pub(crate) use occlusion_planes::{
-    debug_toggle as occlusion_debug_toggle, debug_write as occlusion_debug_write,
-};
 pub(crate) use scene_light_scan::install as install_scene_light_sequential_scan;
 pub(crate) use scene_root_admission::install as install_scene_root_admission;
 

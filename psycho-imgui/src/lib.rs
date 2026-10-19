@@ -485,31 +485,6 @@ impl Ui<'_> {
         };
     }
 
-    /// Draw a foreground (display-space) line, for overlays that plot engine
-    /// geometry outside any ImGui window.
-    pub fn overlay_line(
-        &mut self,
-        from: (f32, f32),
-        to: (f32, f32),
-        color: [f32; 4],
-        thickness: f32,
-    ) {
-        unsafe {
-            ffi::psycho_imgui_overlay_line(
-                from.0, from.1, to.0, to.1, color[0], color[1], color[2], color[3], thickness,
-            )
-        };
-    }
-
-    /// Draw a foreground display-space point marker.
-    pub fn overlay_point(&mut self, at: (f32, f32), radius: f32, color: [f32; 4]) {
-        unsafe {
-            ffi::psycho_imgui_overlay_point(
-                at.0, at.1, radius, color[0], color[1], color[2], color[3],
-            )
-        };
-    }
-
     /// Current ImGui display size in pixels `(width, height)`.
     pub fn display_size(&self) -> (f32, f32) {
         let mut width = 0.0f32;
@@ -886,26 +861,6 @@ mod ffi {
         pub fn psycho_imgui_scroll_to_bottom();
         pub fn psycho_imgui_is_scrolled_to_bottom() -> bool;
         pub fn psycho_imgui_set_clipboard_text(text: *const c_char);
-        pub fn psycho_imgui_overlay_line(
-            x0: f32,
-            y0: f32,
-            x1: f32,
-            y1: f32,
-            r: f32,
-            g: f32,
-            b: f32,
-            a: f32,
-            thickness: f32,
-        );
-        pub fn psycho_imgui_overlay_point(
-            x: f32,
-            y: f32,
-            radius: f32,
-            r: f32,
-            g: f32,
-            b: f32,
-            a: f32,
-        );
         pub fn psycho_imgui_display_size(width: *mut f32, height: *mut f32);
     }
 }

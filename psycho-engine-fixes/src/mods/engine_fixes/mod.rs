@@ -54,31 +54,8 @@ pub(crate) struct DiagnosticCounters {
     pub(crate) task_tombstones: u64,
 }
 
-pub(crate) const DASHBOARD_FEATURE_DISPLAY: u64 = 1 << 0;
-pub(crate) const DASHBOARD_FEATURE_SAVE_INTEGRITY: u64 = 1 << 1;
-pub(crate) const DASHBOARD_FEATURE_TASK_GUARD: u64 = 1 << 2;
-pub(crate) const DASHBOARD_FEATURE_PARALLEL_IO: u64 = 1 << 3;
-pub(crate) const DASHBOARD_FEATURE_LOD_PREFETCH: u64 = 1 << 4;
-pub(crate) const DASHBOARD_FEATURE_LOD_HANDOFF: u64 = 1 << 5;
-pub(crate) const DASHBOARD_FEATURE_TREE_LIFETIME: u64 = 1 << 6;
-pub(crate) const DASHBOARD_FEATURE_VERTEX_BUFFERS: u64 = 1 << 7;
-pub(crate) const DASHBOARD_FEATURE_ACTOR_CONTAINER_GUARD: u64 = 1 << 8;
-/// Dashboard bit proving that model postprocess serialization installed.
-pub(crate) const DASHBOARD_FEATURE_MODEL_POSTPROCESS: u64 = 1 << 9;
-/// Dashboard bit proving that shared encounter-zone containment installed.
-pub(crate) const DASHBOARD_FEATURE_ENCOUNTER_ZONE_GUARD: u64 = 1 << 10;
-/// Dashboard bit proving a retirement cleanup provider remains active.
-pub(crate) const DASHBOARD_FEATURE_CELL_RENDER_RETIREMENT: u64 = 1 << 11;
-/// Dashboard bit proving that patrol-owner FormID containment installed.
-pub(crate) const DASHBOARD_FEATURE_PATROL_OWNER_FORM_ID_GUARD: u64 = 1 << 12;
-/// Dashboard bit proving current direct ownership of the source-cache entry.
-pub(crate) const DASHBOARD_FEATURE_SOURCE_TEXTURE_CACHE_GUARD: u64 = 1 << 13;
-/// Dashboard bit proving direct ownership of the Tile value containment entry.
-pub(crate) const DASHBOARD_FEATURE_TILE_VALUE_INTEGRITY: u64 = 1 << 14;
-
 #[derive(Clone, Copy, Default)]
 pub(crate) struct DashboardCounters {
-    pub active_features: u64,
     pub save_attempts: u64,
     pub save_commits: u64,
     pub save_aborts: u64,
@@ -123,72 +100,14 @@ pub(crate) struct DashboardCounters {
 /// producer state. Every source below is atomic and safe to query from the
 /// dashboard sampling worker.
 pub(crate) fn dashboard_counters() -> DashboardCounters {
-    let display = display::diagnostic_snapshot();
     let save = save_integrity::diagnostic_snapshot();
     let task = queued_tasks::diagnostic_snapshot();
     let io = io::diagnostic_snapshot();
     let lod = lod::dashboard_snapshot();
     let encounter_zone = encounter_zone::dashboard_snapshot();
     let cell_render = cell_render_retirement::dashboard_snapshot();
-    let tile_values = tile_value_integrity::diagnostic_snapshot();
-
-    let mut active_features = 0;
-    if display.create_window_installed || display.installed {
-        active_features |= DASHBOARD_FEATURE_DISPLAY;
-    }
-    if save.factory_hook
-        || save.owner_hook
-        || save.activation_hook
-        || save.fclose_hook
-        || save.load_owner_hook
-        || save.player_load_hook
-        || save.actor_container_load_first_hook
-        || save.actor_container_load_second_hook
-    {
-        active_features |= DASHBOARD_FEATURE_SAVE_INTEGRITY;
-    }
-    if task.release_enabled || task.dispatch_enabled {
-        active_features |= DASHBOARD_FEATURE_TASK_GUARD;
-    }
-    if io.scheduler.parallel_installed {
-        active_features |= DASHBOARD_FEATURE_PARALLEL_IO;
-    }
-    if lod.streaming_installed {
-        active_features |= DASHBOARD_FEATURE_LOD_PREFETCH;
-    }
-    if lod.handoff_installed {
-        active_features |= DASHBOARD_FEATURE_LOD_HANDOFF;
-    }
-    if io.speedtree.installed {
-        active_features |= DASHBOARD_FEATURE_TREE_LIFETIME;
-    }
-    if io.vertex_buffers.installed {
-        active_features |= DASHBOARD_FEATURE_VERTEX_BUFFERS;
-    }
-    if actor_container_guard::is_installed() {
-        active_features |= DASHBOARD_FEATURE_ACTOR_CONTAINER_GUARD;
-    }
-    if model_postprocess::is_ready() {
-        active_features |= DASHBOARD_FEATURE_MODEL_POSTPROCESS;
-    }
-    if encounter_zone.installed {
-        active_features |= DASHBOARD_FEATURE_ENCOUNTER_ZONE_GUARD;
-    }
-    if cell_render.installed {
-        active_features |= DASHBOARD_FEATURE_CELL_RENDER_RETIREMENT;
-    }
-    if patrol_ref_in_use::is_installed() {
-        active_features |= DASHBOARD_FEATURE_PATROL_OWNER_FORM_ID_GUARD;
-    }
-    if source_texture_cache_guard::diagnostic_snapshot().entry_owned {
-        active_features |= DASHBOARD_FEATURE_SOURCE_TEXTURE_CACHE_GUARD;
-    }
-    if tile_values.entry_owned {
-        active_features |= DASHBOARD_FEATURE_TILE_VALUE_INTEGRITY;
-    }
 
     DashboardCounters {
-        active_features,
         save_attempts: u64::from(save.save_attempts),
         save_commits: u64::from(save.save_commits),
         save_aborts: u64::from(save.save_aborts),

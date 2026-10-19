@@ -34,7 +34,7 @@
 use core::ffi::c_void;
 use std::collections::{HashMap, HashSet};
 use std::sync::OnceLock;
-use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU64, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU32, AtomicU64, AtomicUsize, Ordering};
 use std::time::Instant;
 
 use libpsycho::ffi::fnptr::FnPtr;
@@ -253,6 +253,132 @@ static GENERATION_ACTIVE: AtomicBool = AtomicBool::new(false);
 /// Cell pointer a pending generation was started for, so the frame path can
 /// advance it while `CURRENT_CELL_KEY` still names the previous cell.
 static GENERATION_CELL: AtomicUsize = AtomicUsize::new(0);
+
+// ---------------------------------------------------------------------------
+// Dashboard counters.
+//
+// Every value is a scalar atomic updated on the event thread and read by the
+// helper's background sampling thread, so the dashboard read never locks, walks
+// the engine list, or touches engine memory.
+// ---------------------------------------------------------------------------
+
+/// Planes currently linked in the engine list (last presence check).
+static DASH_PRESENT: AtomicUsize = AtomicUsize::new(0);
+/// Linked planes the engine admitted for the current camera (`+0x40 == 1`).
+static DASH_ACTIVE: AtomicUsize = AtomicUsize::new(0);
+/// Cells in the persistent plane cache.
+static DASH_CACHED_CELLS: AtomicUsize = AtomicUsize::new(0);
+/// Current cell kind: 0 none, 1 interior, 2 exterior.
+static DASH_CELL_KIND: AtomicUsize = AtomicUsize::new(0);
+/// Interior cell `FormID`, or 0.
+static DASH_CELL_FORM_ID: AtomicU32 = AtomicU32::new(0);
+/// Exterior cell grid X, or 0.
+static DASH_CELL_X: AtomicI32 = AtomicI32::new(0);
+/// Exterior cell grid Y, or 0.
+static DASH_CELL_Y: AtomicI32 = AtomicI32::new(0);
+/// Exterior worldspace `FormID`, or 0.
+static DASH_WORLDSPACE: AtomicU32 = AtomicU32::new(0);
+/// Completed cell rebuilds this session.
+static DASH_REBUILDS: AtomicU64 = AtomicU64::new(0);
+/// Wall time of the last completed generation, in milliseconds.
+static DASH_LAST_GEN_MS: AtomicU64 = AtomicU64::new(0);
+/// Planes created this session.
+static DASH_CREATED: AtomicU64 = AtomicU64::new(0);
+/// Planes removed this session.
+static DASH_REMOVED: AtomicU64 = AtomicU64::new(0);
+/// Rebuilds that reused a complete cache entry.
+static DASH_CACHE_HITS: AtomicU64 = AtomicU64::new(0);
+/// Candidates offered to the last rebuild.
+static DASH_LAST_CANDIDATES: AtomicU64 = AtomicU64::new(0);
+/// Planes selected by the last rebuild.
+static DASH_LAST_SELECTED: AtomicU64 = AtomicU64::new(0);
+/// Planes created by the last rebuild.
+static DASH_LAST_CREATED: AtomicU64 = AtomicU64::new(0);
+/// Planes removed by the last rebuild.
+static DASH_LAST_REMOVED: AtomicU64 = AtomicU64::new(0);
+/// Whether the last rebuild came from the persistent cache.
+static DASH_LAST_FROM_CACHE: AtomicBool = AtomicBool::new(false);
+
+/// Plain-data snapshot of the occlusion-plane runtime for the dashboard.
+///
+/// Fixed-width scalars only, so it copies across the helper/core DLL boundary
+/// without any allocation or pointer.
+#[derive(Clone, Copy, Debug, Default)]
+pub(crate) struct DashboardCounters {
+    pub(crate) configured: u64,
+    pub(crate) ready: u64,
+    pub(crate) generation_running: u64,
+    pub(crate) grid_radius: u64,
+    pub(crate) max_per_cell: u64,
+    pub(crate) tracked: u64,
+    pub(crate) active: u64,
+    pub(crate) cached_cells: u64,
+    pub(crate) cell_kind: u64,
+    pub(crate) cell_form_id: u64,
+    pub(crate) cell_x: i64,
+    pub(crate) cell_y: i64,
+    pub(crate) worldspace_form_id: u64,
+    pub(crate) rebuilds: u64,
+    pub(crate) last_generation_ms: u64,
+    pub(crate) planes_created: u64,
+    pub(crate) planes_removed: u64,
+    pub(crate) cache_hits: u64,
+    pub(crate) last_candidates: u64,
+    pub(crate) last_selected: u64,
+    pub(crate) last_created: u64,
+    pub(crate) last_removed: u64,
+    pub(crate) last_from_cache: u64,
+}
+
+/// Read the occlusion-plane dashboard counters. Called from the helper's
+/// sampling thread; it only loads atomics.
+pub(crate) fn dashboard_counters() -> DashboardCounters {
+    DashboardCounters {
+        configured: u64::from(ENABLED.load(Ordering::Relaxed)),
+        ready: u64::from(READY.load(Ordering::Relaxed)),
+        generation_running: u64::from(GENERATION_ACTIVE.load(Ordering::Relaxed)),
+        grid_radius: GRID_RADIUS.load(Ordering::Relaxed) as u64,
+        max_per_cell: MAX_PER_CELL.load(Ordering::Relaxed) as u64,
+        tracked: TRACKED_COUNT.load(Ordering::Relaxed) as u64,
+        active: DASH_ACTIVE.load(Ordering::Relaxed) as u64,
+        cached_cells: DASH_CACHED_CELLS.load(Ordering::Relaxed) as u64,
+        cell_kind: DASH_CELL_KIND.load(Ordering::Relaxed) as u64,
+        cell_form_id: u64::from(DASH_CELL_FORM_ID.load(Ordering::Relaxed)),
+        cell_x: i64::from(DASH_CELL_X.load(Ordering::Relaxed)),
+        cell_y: i64::from(DASH_CELL_Y.load(Ordering::Relaxed)),
+        worldspace_form_id: u64::from(DASH_WORLDSPACE.load(Ordering::Relaxed)),
+        rebuilds: DASH_REBUILDS.load(Ordering::Relaxed),
+        last_generation_ms: DASH_LAST_GEN_MS.load(Ordering::Relaxed),
+        planes_created: DASH_CREATED.load(Ordering::Relaxed),
+        planes_removed: DASH_REMOVED.load(Ordering::Relaxed),
+        cache_hits: DASH_CACHE_HITS.load(Ordering::Relaxed),
+        last_candidates: DASH_LAST_CANDIDATES.load(Ordering::Relaxed),
+        last_selected: DASH_LAST_SELECTED.load(Ordering::Relaxed),
+        last_created: DASH_LAST_CREATED.load(Ordering::Relaxed),
+        last_removed: DASH_LAST_REMOVED.load(Ordering::Relaxed),
+        last_from_cache: u64::from(DASH_LAST_FROM_CACHE.load(Ordering::Relaxed)),
+    }
+}
+
+/// Publish the current cell identity for the dashboard.
+fn store_cell_counters(key: &CellKey) {
+    match key {
+        CellKey::Interior { form_id } => {
+            DASH_CELL_KIND.store(1, Ordering::Relaxed);
+            DASH_CELL_FORM_ID.store(*form_id, Ordering::Relaxed);
+            DASH_CELL_X.store(0, Ordering::Relaxed);
+            DASH_CELL_Y.store(0, Ordering::Relaxed);
+            DASH_WORLDSPACE.store(0, Ordering::Relaxed);
+        }
+        CellKey::Exterior { worldspace, x, y } => {
+            DASH_CELL_KIND.store(2, Ordering::Relaxed);
+            DASH_CELL_FORM_ID.store(0, Ordering::Relaxed);
+            DASH_CELL_X.store(*x, Ordering::Relaxed);
+            DASH_CELL_Y.store(*y, Ordering::Relaxed);
+            DASH_WORLDSPACE.store(*worldspace, Ordering::Relaxed);
+        }
+    }
+}
 /// Consecutive settle passes that produced the same set. The window stops once
 /// this reaches `SETTLE_STABLE_PASSES`, so the common case costs two extra
 /// walks instead of all five while still allowing one more pass for late 3D.
@@ -261,17 +387,16 @@ static PRESENCE_COUNTDOWN: AtomicUsize = AtomicUsize::new(PRESENCE_INTERVAL_FRAM
 static SAVE_COUNTDOWN: AtomicUsize = AtomicUsize::new(CACHE_SAVE_INTERVAL_FRAMES);
 static CACHE: OnceLock<Mutex<PlaneCache>> = OnceLock::new();
 static CACHE_PATH: OnceLock<String> = OnceLock::new();
-/// Debug mode: keeps the last injected set observable and logs it.
-static DEBUG: AtomicBool = AtomicBool::new(false);
-static LAST_PLANES: Mutex<Vec<PlaneRecord>> = Mutex::new(Vec::new());
-static LAST_OBSERVER: Mutex<[f32; 3]> = Mutex::new([0.0; 3]);
-/// Floats per debug plane: position(3) + half-size(2) + normal/tangent/
-/// bitangent(9).
-const DEBUG_PLANE_FLOATS: usize = 14;
-/// Header floats: magic, version, count, observer(3).
-const DEBUG_HEADER_FLOATS: usize = 6;
-/// Exactly representable `f32` magic (0x504F).
-const DEBUG_MAGIC: f32 = 20559.0;
+/// Whether the verbose per-cell diagnostics are written at debug level.
+static DEBUG_LOG: AtomicBool = AtomicBool::new(false);
+
+/// True when the configured verbose occlusion-plane diagnostics are enabled.
+///
+/// The module logs a lot per cell; the flag keeps the log readable by default
+/// while warnings and errors always log.
+pub(super) fn debug_log_enabled() -> bool {
+    DEBUG_LOG.load(Ordering::Relaxed)
+}
 
 /// Record configuration at startup. No file, allocation or engine access
 /// occurs here; the feature activates only after `DeferredInit`.
@@ -280,12 +405,12 @@ pub(super) fn configure(
     max_per_cell: u16,
     grid_radius: u8,
     cache_path: &str,
-    debug: bool,
+    debug_log: bool,
 ) {
     ENABLED.store(enabled, Ordering::Release);
     MAX_PER_CELL.store(usize::from(max_per_cell.max(1)), Ordering::Release);
     GRID_RADIUS.store(usize::from(grid_radius.min(2)), Ordering::Release);
-    DEBUG.store(debug, Ordering::Release);
+    DEBUG_LOG.store(debug_log, Ordering::Release);
     let _ = CACHE_PATH.set(cache_path.to_string());
     if enabled {
         log::info!("[OCCLUSION_PLANES] Prepared; activation at DeferredInit");
@@ -339,6 +464,7 @@ fn activate() {
     };
     let cached_cells = cache.cell_count();
     let _ = CACHE.set(Mutex::new(cache));
+    DASH_CACHED_CELLS.store(cached_cells, Ordering::Relaxed);
     READY.store(true, Ordering::Release);
     log::info!(
         "[OCCLUSION_PLANES] Active; planes are generated at runtime, grid radius={}, \
@@ -473,7 +599,9 @@ fn frame_tick_inner() {
                 if presence_due() {
                     let total = TRACKED_COUNT.load(Ordering::Acquire);
                     if total == 0 {
-                        if LAST_ACTIVE.swap(0, Ordering::AcqRel) != 0 {
+                        DASH_PRESENT.store(0, Ordering::Relaxed);
+                        DASH_ACTIVE.store(0, Ordering::Relaxed);
+                        if debug_log_enabled() && LAST_ACTIVE.swap(0, Ordering::AcqRel) != 0 {
                             log::debug!("[OCCLUSION_PLANES] presence tracked=0 present=0 active=0");
                         }
                     } else {
@@ -486,7 +614,7 @@ fn frame_tick_inner() {
                         let previous = LAST_ACTIVE.swap(active, Ordering::AcqRel);
                         // Log only when planes start or stop being admitted, so
                         // camera motion cannot turn this into per-frame spam.
-                        if (previous == 0) != (active == 0) {
+                        if debug_log_enabled() && (previous == 0) != (active == 0) {
                             log::debug!(
                                 "[OCCLUSION_PLANES] presence tracked={total} present={present} \
                                  active={active}"
@@ -624,6 +752,8 @@ unsafe fn tracked_status(scene_graph: *mut c_void) -> (usize, usize, usize) {
         .iter()
         .filter(|item| linked.get(&item.pointer) == Some(&true))
         .count();
+    DASH_PRESENT.store(present, Ordering::Relaxed);
+    DASH_ACTIVE.store(active, Ordering::Relaxed);
     (total, present, active)
 }
 
@@ -665,7 +795,11 @@ fn save_cache() {
         return;
     };
     match cache::PlaneCache::write_snapshot(path, &bytes, 0) {
-        Ok(()) => log::debug!("[OCCLUSION_PLANES] cache saved cells={cells}"),
+        Ok(()) => {
+            if debug_log_enabled() {
+                log::debug!("[OCCLUSION_PLANES] cache saved cells={cells}");
+            }
+        }
         Err(error) => {
             // Restore the dirty flag so the failed write is retried on the next
             // debounce instead of losing the generated set.
@@ -1023,7 +1157,8 @@ unsafe fn apply_union(
         .filter(|plane| plane.coverage >= runtime_generate::TWO_SIDED_COVERAGE)
         .count();
     let injected = unsafe { inject(fns, scene_graph, &selection.planes) };
-    store_debug_snapshot(&selection.planes, observer);
+    DASH_LAST_CANDIDATES.store(candidate_count as u64, Ordering::Relaxed);
+    DASH_LAST_SELECTED.store(selected as u64, Ordering::Relaxed);
     UnionReport {
         selected,
         candidates: candidate_count,
@@ -1134,6 +1269,11 @@ unsafe fn inject(
     }
     *tracked = next;
     TRACKED_COUNT.store(tracked.len(), Ordering::Release);
+    DASH_PRESENT.store(tracked.len(), Ordering::Relaxed);
+    DASH_LAST_CREATED.store(created as u64, Ordering::Relaxed);
+    DASH_LAST_REMOVED.store(removed as u64, Ordering::Relaxed);
+    DASH_CREATED.fetch_add(created as u64, Ordering::Relaxed);
+    DASH_REMOVED.fetch_add(removed as u64, Ordering::Relaxed);
     InjectResult {
         created,
         reused,
@@ -1152,6 +1292,7 @@ unsafe fn reconcile(
     force: bool,
 ) -> bool {
     let key = unsafe { cell_key(cell) };
+    store_cell_counters(&key);
     let key_signature = cell_key_signature(&key);
     let max = MAX_PER_CELL.load(Ordering::Acquire);
     if force {
@@ -1175,6 +1316,8 @@ unsafe fn reconcile(
         from_cache = true;
         planes = records;
         raw = count;
+        DASH_CACHE_HITS.fetch_add(1, Ordering::Relaxed);
+        DASH_LAST_FROM_CACHE.store(true, Ordering::Relaxed);
         // Drop any in-flight generation for another target; this cache hit is
         // the complete set.
         *GENERATION.lock() = None;
@@ -1218,6 +1361,9 @@ unsafe fn reconcile(
         GENERATION_ACTIVE.store(false, Ordering::Release);
         let (generated_planes, generated_raw, ready, generation_ms) = finished.finish();
         generate_ms = generation_ms;
+        DASH_REBUILDS.fetch_add(1, Ordering::Relaxed);
+        DASH_LAST_GEN_MS.store(generation_ms.round() as u64, Ordering::Relaxed);
+        DASH_LAST_FROM_CACHE.store(false, Ordering::Relaxed);
         render_ready = ready;
         planes = generated_planes;
         raw = generated_raw;
@@ -1276,7 +1422,7 @@ unsafe fn reconcile(
     CURRENT_CELL_PTR.store(cell as usize, Ordering::Release);
     CURRENT_CELL_KEY.store(key_signature, Ordering::Release);
     LAST_SIGNATURE.store(signature, Ordering::Release);
-    if log::log_enabled!(log::Level::Debug) {
+    if debug_log_enabled() {
         let (observer_x, observer_y, observer_z) = observer
             .map(|position| (position[0], position[1], position[2]))
             .unwrap_or((0.0, 0.0, 0.0));
@@ -1350,76 +1496,6 @@ fn record_to_cached(record: &PlaneRecord) -> CachedPlane {
     }
 }
 
-/// Toggle the occluder debug view and report the summary for the requesting
-/// host adapter.
-pub(super) fn debug_toggle() -> String {
-    let enabled = !DEBUG.load(Ordering::Acquire);
-    DEBUG.store(enabled, Ordering::Release);
-    if enabled {
-        // Force a rebuild on the next frame so the snapshot is populated
-        // immediately instead of waiting for the next cell change.
-        RESET_PENDING.store(true, Ordering::Release);
-        format!(
-            "[OCCLUSION_PLANES] debug on; {} plane(s) available for the overlay",
-            LAST_PLANES.lock().len()
-        )
-    } else {
-        "[OCCLUSION_PLANES] debug off".to_string()
-    }
-}
-
-/// Fill a caller-owned float buffer with the current debug frame.
-///
-/// Layout: `[magic, version, count, observer x, y, z]`, then `count` planes of
-/// `[position(3), half-size(2), normal(3), tangent(3), bitangent(3)]`. Returns
-/// the number of floats needed; writes at most `capacity`.
-pub(super) unsafe fn debug_write(out: *mut f32, capacity: usize) -> i32 {
-    let planes = LAST_PLANES.lock();
-    let needed = DEBUG_HEADER_FLOATS + planes.len() * DEBUG_PLANE_FLOATS;
-    if out.is_null() || capacity == 0 {
-        return needed as i32;
-    }
-    let observer = *LAST_OBSERVER.lock();
-    let write = |index: usize, value: f32| {
-        if index < capacity {
-            unsafe { *out.add(index) = value };
-        }
-    };
-    write(0, DEBUG_MAGIC);
-    write(1, 1.0);
-    write(2, planes.len() as f32);
-    write(3, observer[0]);
-    write(4, observer[1]);
-    write(5, observer[2]);
-    for (plane_index, plane) in planes.iter().enumerate() {
-        let base = DEBUG_HEADER_FLOATS + plane_index * DEBUG_PLANE_FLOATS;
-        for (axis, value) in plane.position.iter().enumerate() {
-            write(base + axis, *value);
-        }
-        let half = native_size(plane.size);
-        write(base + 3, half[0]);
-        write(base + 4, half[1]);
-        let matrix = plane.rotation;
-        for row in 0..3 {
-            write(base + 5 + row, matrix[row * 3 + 1]);
-            write(base + 8 + row, matrix[row * 3]);
-            write(base + 11 + row, matrix[row * 3 + 2]);
-        }
-    }
-    needed as i32
-}
-
-/// Store the last injected set and observer while debug mode is on.
-fn store_debug_snapshot(planes: &[PlaneRecord], observer: Option<[f32; 3]>) {
-    if !DEBUG.load(Ordering::Acquire) {
-        return;
-    }
-    *LAST_PLANES.lock() = planes.to_vec();
-    if let Some(observer) = observer {
-        *LAST_OBSERVER.lock() = observer;
-    }
-}
-
 /// Store the latest generated set for a cell so a revisit can re-append it
 /// without re-walking the meshes. `complete` is false until the settle window
 /// sees two identical passes; an incomplete entry is regenerated on a revisit.
@@ -1428,7 +1504,9 @@ fn store_in_cache(key: &CellKey, planes: &[PlaneRecord], complete: bool) {
         return;
     };
     let cached: Vec<CachedPlane> = planes.iter().map(record_to_cached).collect();
-    cache.lock().insert(*key, cached, complete);
+    let mut guard = cache.lock();
+    guard.insert(*key, cached, complete);
+    DASH_CACHED_CELLS.store(guard.cell_count(), Ordering::Relaxed);
 }
 
 /// Mark a cached entry complete once the settle window has ended.

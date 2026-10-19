@@ -205,11 +205,6 @@ pub(super) fn observe_event(kind: u32) {
     }
 }
 
-/// Return whether the serialization boundary was installed successfully.
-pub(super) fn is_ready() -> bool {
-    INSTALLED.load(Ordering::Acquire)
-}
-
 /// Capture model postprocess counters without changing producer state.
 pub(super) fn snapshot() -> Snapshot {
     Snapshot {

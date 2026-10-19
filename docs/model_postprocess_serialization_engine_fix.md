@@ -300,9 +300,9 @@ address. Routine transaction, contention, and waiter counters were removed
 because updating them on every model postprocess adds cost without enforcing
 the safety contract.
 
-The helper dashboard uses additive `active_features` bit 9 for installed
-status. The config checkbox and active bit are separate: changing config
-requires a full process restart, and the active bit proves actual installation.
+The helper dashboard reports the guard through its save/form/task counters. The
+config checkbox and runtime state are separate: changing config requires a full
+process restart, and the counters show only work the installed guard performed.
 
 The wrapper does not swallow faults from the original engine/mod owner. If the
 predecessor cannot be established, it does not call an assumed hard-coded

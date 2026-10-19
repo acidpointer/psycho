@@ -56,8 +56,6 @@ static MISSING_PREDECESSOR_LOGGED: AtomicBool = AtomicBool::new(false);
 pub(super) struct DiagnosticSnapshot {
     /// Whether entry-hook activation completed.
     pub installed: bool,
-    /// Whether Psycho's jump still occupies the native entry.
-    pub entry_owned: bool,
     /// Live entry state: inactive, owned, displaced, or unknown.
     pub entry_status: &'static str,
     /// Number of arrays whose NULL slots were compacted this session.
@@ -75,19 +73,18 @@ pub(super) struct DiagnosticSnapshot {
 /// Return a non-draining snapshot and the live entry-ownership state.
 pub(super) fn diagnostic_snapshot() -> DiagnosticSnapshot {
     let installed = statics::TILE_GET_OR_CREATE_HOOK.is_enabled();
-    let (entry_owned, entry_status) = if !installed {
-        (false, "inactive")
+    let entry_status = if !installed {
+        "inactive"
     } else {
         match statics::TILE_GET_OR_CREATE_HOOK.owns_entry() {
-            Ok(true) => (true, "owned"),
-            Ok(false) => (false, "displaced"),
-            Err(_) => (false, "unknown"),
+            Ok(true) => "owned",
+            Ok(false) => "displaced",
+            Err(_) => "unknown",
         }
     };
 
     DiagnosticSnapshot {
         installed,
-        entry_owned,
         entry_status,
         repairs: REPAIRS.load(Ordering::Relaxed),
         removed_values: REMOVED_VALUES.load(Ordering::Relaxed),

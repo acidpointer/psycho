@@ -447,7 +447,7 @@ impl Generation {
         stats.distance_max = selection.distance_max;
         let planes = selection.planes;
         let raw = candidate_count.saturating_sub(stats.distance_reject);
-        if log::log_enabled!(log::Level::Debug) {
+        if super::runtime::debug_log_enabled() {
             log::debug!(
                 "[OCCLUSION_PLANES] scan refs={} parent_mismatch={} base_null={} not_stat={} \
                  render_null={} node_null={} radius={} nodes={} geoms={} skinned={} alpha={} \

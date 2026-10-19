@@ -17,10 +17,11 @@ The control deck has five pages:
   purpose-built pressure timelines over the last 120 samples. The VAS timeline
   includes explicit watch and critical pressure bands; the commit timeline uses
   a padded scale because it has no honest universal failure threshold.
-- **Runtime Fixes** identifies active patch families, including dynamic actor
-  retirement, encounter-zone containment, and patrol-owner FormID containment,
-  and exposes cumulative save/form/task exceptions, rare native IO fallbacks,
-  current LOD ownership, and the bounded native-IO scheduling policy.
+- **Runtime dashboard** is a card-based live view. Its **Occlusion planes**,
+  **Save, form and task safety** and **Streaming activity** boards lead with
+  three large counters each, then list the supporting values (save/form/task
+  exceptions, rare native IO fallbacks, current LOD ownership and the bounded
+  native-IO scheduling policy) with the same layout.
 - **Configuration** edits the complete supported Psycho TOML surface. Saving is
   explicitly labelled **Save for next launch**; it never changes live core
   state. The save/reload controls are repeated at the top and bottom of the
@@ -41,8 +42,8 @@ answers a time-series question. Scalar counters remain scalar.
 ## Contextual help contract
 
 The dashboard must be usable by a player who has not read the TOML comments or
-engine research. Overview, Memory, Runtime Fixes, and Configuration explicitly
-invite the player to hover settings and technical labels. Hovering waits for
+engine research. Overview, Memory, Runtime dashboard, and Configuration
+explicitly invite the player to hover settings and technical labels. Hovering waits for
 Dear ImGui's normal tooltip delay, then opens a wrapped, width-limited
 plain-language explanation. The delay prevents popups from flashing while the
 pointer merely crosses the dashboard.
@@ -53,9 +54,8 @@ situation it handles, what the enabled fix does, and whether normal valid
 behavior is preserved. Borderless windowed, cursor confinement, and system-key
 passthrough have dedicated window/input help; the installation-path repair gate
 and Fallout 3 text field explain their restart-only registry contract. The
-same explanation is reused where a fix appears on the Runtime Fixes page, so
-saved configuration and installed runtime state do not describe one feature
-in conflicting language.
+same explanation is reused on the Configuration page, so saved configuration
+and runtime counters do not describe one feature in conflicting language.
 
 All other supported configuration controls also explain their practical
 effect and tradeoff, including allocator modes, the experimental PDD purge,
@@ -263,8 +263,8 @@ Evidence:
 
 ## Core/helper diagnostics ABI
 
-`PsychoEngineFixes_QueryDashboard` is export ordinal 5. ABI version 4 is a
-576-byte `repr(C)` caller-owned structure made only of fixed-width integers.
+`PsychoEngineFixes_QueryDashboard` is export ordinal 5. ABI version 6 is a
+704-byte `repr(C)` caller-owned structure made only of fixed-width integers.
 Both DLLs have a compile-time size assertion. The request begins with
 `struct_size` and `abi_version`; the core reads only that mandatory prefix,
 rejects an undersized or mismatched request, fills a local snapshot, and then
@@ -275,7 +275,7 @@ The snapshot groups are:
 
 - readiness, pre-CRT, process-sample-valid, VAS-valid, and
   block-sample-valid flags;
-- allocator mode and active engine-fix families;
+- allocator mode;
 - RSS, process commit, peak values, and page faults;
 - total free/committed/reserved VAS, largest free opening, and free-region count;
 - pool, metadata, block, direct-VA, and scrap-heap live/capacity values;
@@ -287,22 +287,27 @@ The snapshot groups are:
 - active native IO fallbacks and LOD ownership counters, plus reserved routine
   IO/LOD activity fields that remain zero for ABI compatibility;
 - eight reserved SpeedTree materialization/Compute activity, contention,
-  waiter, and maximum-wait fields. They remain zero in ABI version 4 after
+  waiter, and maximum-wait fields. They remain zero in ABI version 6 after
   release hot-path sampling was removed;
-- process/VAS sample timestamps plus fast-query and explicit-VAS-refresh
-  counts and last/maximum durations.
+- occlusion-plane runtime state: configured/ready/renewing flags, the current
+  cell identity, tracked and camera-admitted counts, cached cells, session
+  rebuild/creation/removal/cache-hit totals, and the last rebuild's candidate
+  and kept counts plus its wall time;
+- process/VAS sample timestamps.
 
 `PsychoEngineFixes_RequestDashboardRefresh` is export ordinal 6. It accepts a
-fixed refresh kind and runs on the helper's sampling worker. Version 4 requires
+fixed refresh kind and runs on the helper's sampling worker. Version 6 requires
 both exports, preventing a new helper from silently applying old periodic
 sampling behavior to an older core.
 
-Version 4 preserves the complete 560-byte version-3 prefix and appends two
-`u64` cell-render-retirement counters. Both sides still require the exact
-advertised version and complete storage, so mismatched helper/core DLLs fail
-unavailable instead of interpreting a shorter structure.
+Version 6 removes the legacy `active_features` bitmap and the dashboard-overhead
+timing fields (fast-query and VAS-refresh counts/durations), which no page
+presents any more; it also carries the version-5 occlusion-plane counters.
+Both sides still require the exact advertised version and complete storage, so
+mismatched helper/core DLLs fail unavailable instead of interpreting a shorter
+structure.
 
-Active engine counters are cumulative and read-only. The Runtime Fixes page no
+Active engine counters are cumulative and read-only. The Runtime dashboard no
 longer presents the reserved routine LOD, cell, or SpeedTree fields as activity
 measurements. Dashboard sampling does not drain the hitch profiler's interval
 counters. Missing optional samples are marked invalid instead of being
@@ -338,10 +343,21 @@ The dashboard does not make a duplicate process query. Modes 0 and 1 retain
 their existing process sampling until their allocator telemetry is audited
 separately; this change does not alter scrap-heap or mimalloc behavior.
 
-The Runtime Fixes page reads LOD counts from the atomics already published by
+The Runtime dashboard reads LOD counts from the atomics already published by
 the ledger. It does not acquire or scan the LOD ledger. The complete diagnostic
 report still calculates oldest-pending age by scanning that ledger when the
 report is explicitly requested.
+
+The Runtime dashboard also carries an **Occlusion planes** board fed only by
+the occlusion-plane counters in the snapshot. A guidance card explains the
+feature, then a hero row of three cards (status, rectangles in view now, cells
+cached) mirrors the Overview page, followed by an admission bar that shows what
+fraction of the placed rectangles the current camera uses. Grouped rows then
+give the covered cell, the last rebuild (source, kept/candidate counts,
+created/removed, milliseconds), and the session totals, ending with the
+per-cell budget. The core publishes these as lock-free atomics on the event
+thread; the query never walks the engine occluder list or touches engine
+memory, so drawing the page costs a few string formats per open frame.
 
 Block-heap telemetry uses `try_lock`. A busy allocator causes a missing block
 sample, visibly labelled in Memory dashboard, instead of adding periodic
@@ -465,42 +481,36 @@ core. Their complete behavior and compatibility contract is
 
 The **Dynamic actor container guard** checkbox owns
 `[engine_fixes].actor_container_retirement_guard`. It defaults on and changes
-only next-launch core activation. The Runtime Fixes page separately reads bit
-8 from the core's `active_features` field, so the UI distinguishes a saved
-preference from a hook that actually installed. The helper does not install,
-load, or initialize the guard. This additive feature bit does not change the
-position it held in the version-2 prefix or the ownership contract.
+only next-launch core activation. The Runtime dashboard shows its work through
+the save/form/task counters; the helper does not install, load, or initialize
+the guard.
 
 The **Model postprocess serialization** checkbox owns
 `[engine_fixes].model_postprocess_serialization_fix`. It defaults on and
-changes only next-launch core activation. Runtime Fixes reads additive bit 9
-from `active_features`; no existing structure field or helper ownership rule
-changes. The helper only displays and edits the contract and never installs or
-initializes the core guard.
+changes only next-launch core activation. The helper only displays and edits
+the contract and never installs or initializes the core guard.
 
 The **Encounter-zone form guard** checkbox owns
 `[engine_fixes].encounter_zone_invalid_form_guard`. It defaults on and changes
-only next-launch core activation. Runtime Fixes reads additive bit 10 to prove
-the shared resolver hook installed, then displays counters introduced in
-version 3 for changed-form rejections, runtime rejections, and exact source
-repairs. The helper never resolves or mutates a game form and never initializes
-the core.
+only next-launch core activation. The dashboard shows the changed-form
+rejections, runtime rejections, and exact source repairs. The helper never
+resolves or mutates a game form and never initializes the core.
 
 The **Cell render retirement repair** checkbox owns
 `[engine_fixes].cell_render_reference_retirement_fix`. It defaults on and
-changes only next-launch core activation. Runtime Fixes reads additive bit 11
-and version-4 counters for false-predicate cleanups and post-install provider
-ownership loss. The active bit is derived from current provider bytes rather
-than startup success alone. The helper does not inspect a cell or reference; it
-only mirrors the core's fixed-width snapshot.
+changes only next-launch core activation. The dashboard shows false-predicate
+cleanups and post-install provider ownership loss. The helper does not inspect
+a cell or reference; it only mirrors the core's fixed-width snapshot.
 
 The **Patrol owner FormID guard** checkbox owns
 `[engine_fixes].patrol_owner_form_id_guard`. It defaults on and changes only
-next-launch core activation. Runtime Fixes reads additive bit 12 from
-`active_features` to show whether the audited patrol-owner resolver call was
-redirected successfully. The helper never resolves a FormID, inspects patrol
+next-launch core activation. The helper never resolves a FormID, inspects patrol
 data, or initializes the core guard; it only edits the next-launch setting and
 mirrors the existing fixed-width snapshot.
+
+The legacy `active_features` bitmap was removed in ABI version 6. The dashboard
+now reports work performed through the cumulative counters instead of a
+per-feature installed/active row.
 
 ## Failure behavior and compatibility boundary
 
@@ -584,8 +594,7 @@ Validation recorded on 2026-08-03:
   passed, 0 failed;
 - the affected release build for `psycho-engine-fixes` and
   `psycho-engine-fixes-helper` passed;
-- the helper/core ABI tests prove a 576-byte layout and the complete 560-byte
-  version-3 prefix on both sides;
+- the helper/core ABI tests prove a 704-byte layout on both sides;
 - deployed ABI-v3 helper and core hashes matched the release artifacts, xNVSE
   loaded the helper, and the final captured-cell guard passed the affected live
   load; the logs do not independently prove visual presentation of every new
@@ -621,8 +630,8 @@ claim, playtest at least:
    the dashboard closed, open on Overview, and open on Log browser; confirm the
    frame-time chart has no cadence tied to 60 frames, 1.5 seconds, 5 seconds,
    10.5 seconds, or 60 seconds, and that every page continues updating when
-   selected; record the Dashboard overhead values before and after manual VAS
-   and driver refreshes.
+   selected; confirm the sample stays fresh and manual VAS and driver refreshes
+   complete without stalling the frame thread.
 
 The implementation establishes a bounded and composable design. “Works on any
 modlist” remains an acceptance target, not a proven universal fact, until this

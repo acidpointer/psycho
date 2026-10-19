@@ -16,7 +16,7 @@ use std::{
         atomic::{AtomicBool, Ordering},
     },
     thread,
-    time::{Duration, Instant},
+    time::Duration,
 };
 
 use libpsycho::os::windows::directx9::Device9Ref;
@@ -165,17 +165,6 @@ const PATROL_OWNER_FORM_ID_HELP: (&str, &str) = (
     "Patrol owner FormID guard",
     "Stops patrol selection from calling an actor-only operation when a saved patrol owner ID now resolves to another kind of live form. Valid NPC and creature owners are unchanged.",
 );
-
-// Runtime status rows reuse the configuration help catalog. Named indices
-// keep that cross-page wording stable when a new restart-only control is added.
-const ENGINE_FIX_DISPLAY_INDEX: usize = 0;
-const ENGINE_FIX_SAVE_INDEX: usize = 1;
-const ENGINE_FIX_ACTOR_CONTAINER_INDEX: usize = 4;
-const ENGINE_FIX_ENCOUNTER_ZONE_INDEX: usize = 6;
-const ENGINE_FIX_CELL_RENDER_RETIREMENT_INDEX: usize = 7;
-const ENGINE_FIX_MODEL_POSTPROCESS_INDEX: usize = 19;
-const ENGINE_FIX_QUEUED_TASK_INDEX: usize = 20;
-const ENGINE_FIX_SOURCE_TEXTURE_CACHE_INDEX: usize = 21;
 
 const TILE_VALUE_INTEGRITY_HELP: (&str, &str) = (
     "Tile-value NULL guard",
@@ -450,9 +439,6 @@ struct DashboardRuntime {
     ever_linked: bool,
     texture_memory_estimate: u64,
     texture_sample_time_ms: u32,
-    texture_query_last_us: u64,
-    texture_query_max_us: u64,
-    texture_query_count: u64,
     texture_refresh_requested: bool,
     log_filters: LogFilters,
     log_show_context: bool,
@@ -482,9 +468,6 @@ impl DashboardRuntime {
             ever_linked: false,
             texture_memory_estimate: 0,
             texture_sample_time_ms: 0,
-            texture_query_last_us: 0,
-            texture_query_max_us: 0,
-            texture_query_count: 0,
             texture_refresh_requested: false,
             log_filters: LogFilters::default(),
             log_show_context: false,
@@ -538,8 +521,7 @@ impl DashboardRuntime {
         if OPEN_REQUESTED.swap(false, Ordering::AcqRel) {
             self.set_open(true);
         }
-        let overlay = crate::commands::occlusion_debug_enabled();
-        if !self.open && !overlay {
+        if !self.open {
             return;
         }
 
@@ -606,12 +588,8 @@ impl DashboardRuntime {
         }
 
         if take_driver_refresh(self.page, &mut self.texture_refresh_requested) {
-            let started = Instant::now();
             self.texture_memory_estimate = u64::from(device.available_texture_mem());
             self.texture_sample_time_ms = libpsycho::os::windows::winapi::get_tick_count();
-            self.texture_query_last_us = started.elapsed().as_micros() as u64;
-            self.texture_query_max_us = self.texture_query_max_us.max(self.texture_query_last_us);
-            self.texture_query_count = self.texture_query_count.saturating_add(1);
         }
 
         let Some(mut imgui) = self.imgui.take() else {
@@ -619,9 +597,6 @@ impl DashboardRuntime {
         };
         let mut ui = imgui.new_frame(self.open);
         let keep_open = if self.open { self.draw(&mut ui) } else { true };
-        if overlay {
-            draw_occlusion_debug(&mut ui);
-        }
         drop(ui);
         imgui.render();
         self.imgui = Some(imgui);
@@ -738,7 +713,7 @@ impl DashboardRuntime {
         for (page, label) in [
             (Page::Overview, "Overview"),
             (Page::Memory, "Memory dashboard"),
-            (Page::Runtime, "Runtime fixes"),
+            (Page::Runtime, "Runtime dashboard"),
             (Page::Configuration, "Configuration"),
             (Page::Logs, "Log browser"),
         ] {
@@ -751,17 +726,6 @@ impl DashboardRuntime {
                 self.texture_refresh_requested = true;
             }
             self.publish_sampling_state();
-        }
-        ui.spacing();
-        ui.separator_text(&cstring("Diagnostics"));
-        let mut overlay = crate::commands::occlusion_debug_enabled();
-        if checkbox_help(
-            ui,
-            "Occlusion debug",
-            &mut overlay,
-            "Draws the runtime-injected occlusion rectangles around the player: blue is vertical, orange is horizontal, and the green dot is the observer. Also toggled by the psoccl console command.",
-        ) {
-            crate::commands::set_occlusion_debug(overlay);
         }
         ui.spacing();
         ui.separator_text(&cstring("Session"));
@@ -1162,279 +1126,18 @@ impl DashboardRuntime {
     fn draw_runtime(&self, ui: &mut Ui<'_>, core: Option<engine_fixes::DashboardSnapshot>) {
         page_heading(
             ui,
-            "Runtime fixes",
-            "Installed protections and the work they have performed this session.",
+            "Runtime dashboard",
+            "Live counters for the protections and streaming fixes Psycho installed this session.",
         );
         ui.text_colored(MUTED, &cstring(HOVER_HELP_HINT));
-        ui.separator_text(&cstring("Installed protections"));
         let Some(core) = core else {
-            ui.text_colored(ERROR, &cstring("Runtime-fix telemetry is unavailable."));
+            ui.text_colored(ERROR, &cstring("Runtime telemetry is unavailable."));
             return;
         };
-        for (name, bit, detail, help) in [
-            (
-                ENGINE_FIX_HELP[ENGINE_FIX_DISPLAY_INDEX].0,
-                engine_fixes::DASHBOARD_FEATURE_DISPLAY,
-                "Fullscreen, reset and Alt-Tab ownership",
-                ENGINE_FIX_HELP[ENGINE_FIX_DISPLAY_INDEX].1,
-            ),
-            (
-                "Durable save integrity",
-                engine_fixes::DASHBOARD_FEATURE_SAVE_INTEGRITY,
-                "Atomic promotion and malformed-record rejection",
-                ENGINE_FIX_HELP[ENGINE_FIX_SAVE_INDEX].1,
-            ),
-            (
-                "Queued-task lifetime guard",
-                engine_fixes::DASHBOARD_FEATURE_TASK_GUARD,
-                "Dispatch and final-release ownership",
-                ENGINE_FIX_HELP[ENGINE_FIX_QUEUED_TASK_INDEX].1,
-            ),
-            (
-                "Texture cache guard",
-                engine_fixes::DASHBOARD_FEATURE_SOURCE_TEXTURE_CACHE_GUARD,
-                "Directly owns source-cache dispatch admission",
-                ENGINE_FIX_HELP[ENGINE_FIX_SOURCE_TEXTURE_CACHE_INDEX].1,
-            ),
-            (
-                TILE_VALUE_INTEGRITY_HELP.0,
-                engine_fixes::DASHBOARD_FEATURE_TILE_VALUE_INTEGRITY,
-                "Impossible NULL tile-value slots removed",
-                TILE_VALUE_INTEGRITY_HELP.1,
-            ),
-            (
-                "Dynamic actor container guard",
-                engine_fixes::DASHBOARD_FEATURE_ACTOR_CONTAINER_GUARD,
-                "Validates retiring runtime actor inventory lists",
-                ENGINE_FIX_HELP[ENGINE_FIX_ACTOR_CONTAINER_INDEX].1,
-            ),
-            (
-                "Encounter-zone form guard",
-                engine_fixes::DASHBOARD_FEATURE_ENCOUNTER_ZONE_GUARD,
-                "Shared reference, cell and worldspace form containment",
-                ENGINE_FIX_HELP[ENGINE_FIX_ENCOUNTER_ZONE_INDEX].1,
-            ),
-            (
-                "Cell render retirement repair",
-                engine_fixes::DASHBOARD_FEATURE_CELL_RENDER_RETIREMENT,
-                "Borrowed render-list membership ends before object lifetime",
-                ENGINE_FIX_HELP[ENGINE_FIX_CELL_RENDER_RETIREMENT_INDEX].1,
-            ),
-            (
-                PATROL_OWNER_FORM_ID_HELP.0,
-                engine_fixes::DASHBOARD_FEATURE_PATROL_OWNER_FORM_ID_GUARD,
-                "Rejects wrong-subtype reuse before actor-only dispatch",
-                PATROL_OWNER_FORM_ID_HELP.1,
-            ),
-            (
-                "Model postprocess serialization",
-                engine_fixes::DASHBOARD_FEATURE_MODEL_POSTPROCESS,
-                "Process-global EditorMarker traversal ownership",
-                ENGINE_FIX_HELP[ENGINE_FIX_MODEL_POSTPROCESS_INDEX].1,
-            ),
-            (
-                "Parallel native IO",
-                engine_fixes::DASHBOARD_FEATURE_PARALLEL_IO,
-                "Two-worker audited topology",
-                "Uses two game-owned loading workers while serializing unsafe per-form, AutoWater, model, tree, and geometry transactions.",
-            ),
-            (
-                "LOD prefetch",
-                engine_fixes::DASHBOARD_FEATURE_LOD_PREFETCH,
-                "Early native terrain/object/tree demand",
-                "Requests distant terrain, trees, and objects slightly before visibility to reduce pop-in while moving.",
-            ),
-            (
-                "LOD handoff",
-                engine_fixes::DASHBOARD_FEATURE_LOD_HANDOFF,
-                "Current identity instead of lifetime totals",
-                "Prevents distant scenery from being retired from stale counters while it switches to the nearby full-detail version.",
-            ),
-            (
-                "SpeedTree lifetime",
-                engine_fixes::DASHBOARD_FEATURE_TREE_LIFETIME,
-                "Serialized materialization and process-global Compute state",
-                "Coordinates tree creation and SpeedTree's shared compute state so loading workers cannot use it concurrently in an unsafe order.",
-            ),
-            (
-                "Static vertex buffers",
-                engine_fixes::DASHBOARD_FEATURE_VERTEX_BUFFERS,
-                "Safe allocation/publication lifetime",
-                "Publishes static geometry buffers only after their storage is complete, preventing loading workers from seeing a half-built buffer.",
-            ),
-        ] {
-            let active = core.active_features & bit != 0;
-            // Only the cell render retirement row has a proven failure signal:
-            // any recorded ownership loss clears its active bit.
-            let lost = bit == engine_fixes::DASHBOARD_FEATURE_CELL_RENDER_RETIREMENT
-                && core.cell_render_patch_ownership_losses != 0;
-            feature_status(ui, name, active, lost, detail, help);
-        }
-        ui.spacing();
-        ui.text_colored(
-            MUTED,
-            &cstring(
-                "Inactive can mean its Configuration entry is off or the patch did not install this session. Always-on guards are not listed individually.",
-            ),
-        );
 
-        ui.spacing();
-        ui.separator_text(&cstring("Save, form and task safety"));
-        draw_value_help(
-            ui,
-            "Saves",
-            format!(
-                "{} committed / {} tried",
-                core.save_commits, core.save_attempts
-            ),
-            GOOD,
-            "How many save attempts reached a durable final file. A commit means the completed temporary save safely replaced the previous save.",
-        );
-        draw_value_help(
-            ui,
-            "Save aborts",
-            core.save_aborts,
-            alert_color(core.save_aborts),
-            "Save attempts stopped because writing, flushing, closing, backup rotation, or final replacement could not complete safely.",
-        );
-        draw_value_help(
-            ui,
-            "Rejected unsafe save/load data",
-            core.save_rejections,
-            activity_color(core.save_rejections),
-            "Malformed or unavailable changed records skipped through the game's supported rejection path instead of being trusted.",
-        );
-        let encounter_zone_rejections = core
-            .encounter_zone_load_rejections
-            .saturating_add(core.encounter_zone_access_rejections);
-        draw_value_help(
-            ui,
-            "Encounter-zone rejects",
-            format!(
-                "{} runtime / {} load",
-                core.encounter_zone_access_rejections, core.encounter_zone_load_rejections
-            ),
-            activity_color(encounter_zone_rejections),
-            "Invalid zone-form results stopped before RTTI or a consumer dereference. Runtime counts can include more than one native fallback level for one owner.",
-        );
-        draw_value_help(
-            ui,
-            "Encounter-zone source repairs",
-            core.encounter_zone_repairs,
-            activity_color(core.encounter_zone_repairs),
-            "Exact corrupt reference, cell, or worldspace sources removed or cleared before Psycho re-ran the native fallback order.",
-        );
-        draw_value_help(
-            ui,
-            "Cell render forced cleanups",
-            core.cell_render_forced_cleanups,
-            ACCENT,
-            "False-predicate retirements that would have skipped render-list removal. Psycho sent each one through the executable's canonical native remover.",
-        );
-        draw_value_help(
-            ui,
-            "Cell render ownership losses",
-            core.cell_render_patch_ownership_losses,
-            alert_color(core.cell_render_patch_ownership_losses),
-            "Active dispatch blocks replaced after startup. Any non-zero value clears the feature's active bit and means another writer removed this protection.",
-        );
-        draw_value_help(
-            ui,
-            "Task dispatches",
-            core.task_dispatches,
-            ACCENT,
-            "Background game tasks checked at the audited dispatch boundary before their virtual work begins.",
-        );
-        draw_value_help(
-            ui,
-            "Rejected unsafe tasks",
-            core.task_rejections,
-            activity_color(core.task_rejections),
-            "Tasks already known to be dead or invalid that Psycho stopped before another callback could run.",
-        );
-        draw_value_help(
-            ui,
-            "Release guards / tombstones",
-            format!("{} / {}", core.task_release_guards, core.task_tombstones),
-            BLUE,
-            "Release guards stop an unsafe final release. Tombstones are compact records of already-dead tasks used to reject later stale references.",
-        );
-
-        ui.spacing();
-        ui.separator_text(&cstring("Streaming activity"));
-        draw_value_help(
-            ui,
-            "IO workers",
-            core.io_workers,
-            ACCENT,
-            "The number of native game loading workers Psycho configured. The bounded layout uses one primary worker and one supplemental worker.",
-        );
-        draw_value_help(
-            ui,
-            "IO scheduler",
-            "primary-first / one supplemental task",
-            BLUE,
-            "The supplemental worker is admitted only while the primary is active, runs below normal priority, and returns to wait after one task.",
-        );
-        draw_value_help(
-            ui,
-            "IO fallbacks",
-            core.io_fallbacks,
-            activity_color(core.io_fallbacks),
-            "Times parallel loading could not satisfy its proven safety contract and used the compatible fallback path instead.",
-        );
-        draw_value_help(
-            ui,
-            "Tracked cells / references",
-            format!(
-                "{} / {}",
-                core.lod_current_cells, core.lod_current_references
-            ),
-            BLUE,
-            "Current distant-world cells and object references whose ownership Psycho is tracking for safe handoff and retirement.",
-        );
-        draw_value_help(
-            ui,
-            "Stale retirements prevented",
-            core.lod_stale_retirements_prevented,
-            GOOD,
-            "Distant resources kept alive because an old lifetime counter no longer matched their current ownership.",
-        );
-
-        ui.spacing();
-        ui.separator_text(&cstring("Dashboard overhead"));
-        draw_value_help(
-            ui,
-            "Fast snapshots",
-            format!(
-                "{} calls, {} us last / {} us max",
-                core.dashboard_queries, core.dashboard_query_last_us, core.dashboard_query_max_us,
-            ),
-            GOOD,
-            "Cheap dashboard telemetry reads and their last/slowest duration. A microsecond is one millionth of a second.",
-        );
-        draw_value_help(
-            ui,
-            "VAS refreshes",
-            format!(
-                "{} calls, {} us last / {} us max",
-                core.dashboard_vas_refreshes,
-                core.dashboard_vas_refresh_last_us,
-                core.dashboard_vas_refresh_max_us,
-            ),
-            MUTED,
-            "Complete virtual-address-space walks requested by the dashboard and their cost. These are intentionally manual and cached.",
-        );
-        draw_value_help(
-            ui,
-            "Driver estimate queries",
-            format!(
-                "{} calls, {} us last / {} us max",
-                self.texture_query_count, self.texture_query_last_us, self.texture_query_max_us,
-            ),
-            MUTED,
-            "D3D9 texture-memory estimate calls and their cost. The query is manual because driver implementations may make it expensive.",
-        );
+        draw_occlusion_board(ui, &core);
+        draw_safety_board(ui, &core);
+        draw_streaming_board(ui, &core);
     }
 
     fn draw_logs(&mut self, ui: &mut Ui<'_>, shared: Option<&SharedData>) {
@@ -2075,66 +1778,407 @@ fn truncate_chars(text: &str, max: usize) -> String {
     output
 }
 
-thread_local! {
-    /// Reusable debug frame buffer so the overlay does not allocate each frame.
-    static OCCLUSION_DEBUG_BUFFER: RefCell<Vec<f32>> = const { RefCell::new(Vec::new()) };
+/// Shared header for a Runtime dashboard board.
+fn board_heading(ui: &mut Ui<'_>, title: &str, subtitle: &str) {
+    ui.spacing();
+    ui.separator_text(&cstring(title));
+    ui.text_colored(MUTED, &cstring(subtitle));
+    ui.spacing();
 }
 
-/// Top-down wireframe of the planes the core injected, drawn on the ImGui
-/// foreground list. It plots each rectangle's world XY footprint around the
-/// observer, which stays readable from any camera pose and needs no 3D
-/// projection. Blue rectangles are vertical occluders, orange are horizontal.
-fn draw_occlusion_debug(ui: &mut Ui<'_>) {
-    OCCLUSION_DEBUG_BUFFER.with(|cell| {
-        let mut data = cell.borrow_mut();
-        if !engine_fixes::query_occlusion_debug(&mut data) || data.len() < 6 || data[0] != 20559.0 {
-            return;
-        }
-        draw_occlusion_debug_frame(ui, &data);
-    });
+/// Width of one of the three equal cards in a board row.
+fn board_card_widths(ui: &Ui<'_>) -> f32 {
+    let gap = 18.0;
+    ((ui.content_region_available_width() - 2.0 * gap) / 3.0).max(150.0)
 }
 
-fn draw_occlusion_debug_frame(ui: &mut Ui<'_>, data: &[f32]) {
-    let count = data[2] as usize;
-    let observer = [data[3], data[4], data[5]];
-    let (width, height) = ui.display_size();
-    if width <= 1.0 || height <= 1.0 {
+/// Save, form and task safety board.
+fn draw_safety_board(ui: &mut Ui<'_>, core: &engine_fixes::DashboardSnapshot) {
+    board_heading(
+        ui,
+        "Save, form and task safety",
+        "Protections that keep saves, forms and background tasks inside proven lifetimes.",
+    );
+    let width = board_card_widths(ui);
+    let commits = core.save_commits.to_string();
+    let aborts = core.save_aborts.to_string();
+    let rejections = core.save_rejections.to_string();
+    metric_card(
+        ui,
+        "safety_saves_card",
+        "SAVES COMMITTED",
+        &commits,
+        GOOD,
+        format!("{} attempted", core.save_attempts),
+        width,
+        "Save attempts that reached a durable final file. A commit means the completed temporary save safely replaced the previous save.",
+    );
+    ui.same_line();
+    metric_card(
+        ui,
+        "safety_aborts_card",
+        "SAVE ABORTS",
+        &aborts,
+        alert_color(core.save_aborts),
+        "Stopped before an unsafe write",
+        width,
+        "Save attempts stopped because writing, flushing, closing, backup rotation, or final replacement could not complete safely.",
+    );
+    ui.same_line();
+    metric_card(
+        ui,
+        "safety_rejects_card",
+        "REJECTED DATA",
+        &rejections,
+        activity_color(core.save_rejections),
+        "Unsafe save/load records skipped",
+        width,
+        "Malformed or unavailable changed records skipped through the game's supported rejection path instead of being trusted.",
+    );
+
+    ui.spacing();
+    let encounter_zone_rejections = core
+        .encounter_zone_load_rejections
+        .saturating_add(core.encounter_zone_access_rejections);
+    draw_value_help(
+        ui,
+        "Encounter-zone rejects",
+        format!(
+            "{} runtime · {} load",
+            core.encounter_zone_access_rejections, core.encounter_zone_load_rejections
+        ),
+        activity_color(encounter_zone_rejections),
+        "Invalid zone-form results stopped before RTTI or a consumer dereference. Runtime counts can include more than one native fallback level for one owner.",
+    );
+    draw_value_help(
+        ui,
+        "Encounter-zone source repairs",
+        core.encounter_zone_repairs,
+        activity_color(core.encounter_zone_repairs),
+        "Exact corrupt reference, cell, or worldspace sources removed or cleared before Psycho re-ran the native fallback order.",
+    );
+    draw_value_help(
+        ui,
+        "Cell render forced cleanups",
+        core.cell_render_forced_cleanups,
+        ACCENT,
+        "False-predicate retirements that would have skipped render-list removal. Psycho sent each one through the executable's canonical native remover.",
+    );
+    draw_value_help(
+        ui,
+        "Cell render ownership losses",
+        core.cell_render_patch_ownership_losses,
+        alert_color(core.cell_render_patch_ownership_losses),
+        "Active dispatch blocks replaced after startup, meaning another writer removed this protection.",
+    );
+    draw_value_help(
+        ui,
+        "Task dispatches",
+        core.task_dispatches,
+        ACCENT,
+        "Background game tasks checked at the audited dispatch boundary before their virtual work begins.",
+    );
+    draw_value_help(
+        ui,
+        "Rejected unsafe tasks",
+        core.task_rejections,
+        activity_color(core.task_rejections),
+        "Tasks already known to be dead or invalid that Psycho stopped before another callback could run.",
+    );
+    draw_value_help(
+        ui,
+        "Release guards / tombstones",
+        format!("{} / {}", core.task_release_guards, core.task_tombstones),
+        BLUE,
+        "Release guards stop an unsafe final release. Tombstones are compact records of already-dead tasks used to reject later stale references.",
+    );
+}
+
+/// Streaming and distant-world board.
+fn draw_streaming_board(ui: &mut Ui<'_>, core: &engine_fixes::DashboardSnapshot) {
+    board_heading(
+        ui,
+        "Streaming activity",
+        "Background loading, distant-world ownership and safe handoff work.",
+    );
+    let width = board_card_widths(ui);
+    let workers = core.io_workers.to_string();
+    let cells = core.lod_current_cells.to_string();
+    let stale = core.lod_stale_retirements_prevented.to_string();
+    metric_card(
+        ui,
+        "stream_workers_card",
+        "IO WORKERS",
+        &workers,
+        ACCENT,
+        "primary + supplemental",
+        width,
+        "The native game loading workers Psycho configured. The bounded layout uses one primary worker and one supplemental worker.",
+    );
+    ui.same_line();
+    metric_card(
+        ui,
+        "stream_cells_card",
+        "TRACKED CELLS",
+        &cells,
+        BLUE,
+        format!("{} references", core.lod_current_references),
+        width,
+        "Current distant-world cells whose ownership Psycho is tracking for safe handoff and retirement.",
+    );
+    ui.same_line();
+    metric_card(
+        ui,
+        "stream_stale_card",
+        "STALE RETIREMENTS PREVENTED",
+        &stale,
+        GOOD,
+        "kept alive safely",
+        width,
+        "Distant resources kept alive because an old lifetime counter no longer matched their current ownership.",
+    );
+
+    ui.spacing();
+    draw_value_help(
+        ui,
+        "IO scheduler",
+        "primary-first · one supplemental task",
+        BLUE,
+        "The supplemental worker is admitted only while the primary is active, runs below normal priority, and returns to wait after one task.",
+    );
+    draw_value_help(
+        ui,
+        "IO fallbacks",
+        core.io_fallbacks,
+        activity_color(core.io_fallbacks),
+        "Times parallel loading could not satisfy its proven safety contract and used the compatible fallback path instead.",
+    );
+    draw_value_help(
+        ui,
+        "LOD demands",
+        format!(
+            "{} early · {} retained",
+            core.lod_early_demands, core.lod_retained_demands
+        ),
+        MUTED,
+        "Distant terrain, tree and object requests. This is recorded only while the LOD streaming trace is enabled in Diagnostics.",
+    );
+}
+
+/// Occlusion-plane board for the Runtime dashboard.
+///
+/// Every value comes from the sampled dashboard snapshot, so this renders a
+/// handful of strings per open frame and never touches the engine or blocks the
+/// event thread.
+fn draw_occlusion_board(ui: &mut Ui<'_>, core: &engine_fixes::DashboardSnapshot) {
+    board_heading(
+        ui,
+        "Occlusion planes",
+        "Runtime-built rectangles that let the engine skip scenery hidden behind solid geometry.",
+    );
+    let configured = core.occlusion_configured != 0;
+    let ready = core.occlusion_ready != 0;
+    let cell = match core.occlusion_cell_kind {
+        1 => format!("Interior 0x{:08X}", core.occlusion_cell_form_id),
+        2 => format!(
+            "Exterior ({}, {})",
+            core.occlusion_cell_x, core.occlusion_cell_y
+        ),
+        _ => "No cell measured yet".to_owned(),
+    };
+    let (state, state_color, state_detail) = if !configured {
+        ("Disabled", MUTED, "Turned off in Configuration".to_owned())
+    } else if ready {
+        ("Active", GOOD, cell)
+    } else {
+        ("Starting", WARN, "Waiting for the game to load".to_owned())
+    };
+
+    let tracked = core.occlusion_tracked_planes;
+    let active = core.occlusion_active_planes;
+    let cached = core.occlusion_cached_cells;
+    let active_value = active.to_string();
+    let cached_value = cached.to_string();
+    let active_detail = if tracked == 0 {
+        "No rectangles placed".to_owned()
+    } else {
+        format!("of {tracked} placed")
+    };
+
+    // Hero row: the three facts most users come for, mirroring the Overview
+    // page's cards.
+    let width = board_card_widths(ui);
+    metric_card(
+        ui,
+        "occlusion_state_card",
+        "STATUS",
+        state,
+        state_color,
+        state_detail,
+        width,
+        "Whether runtime occluders are on. Psycho rebuilds them automatically as you move between cells.",
+    );
+    ui.same_line();
+    metric_card(
+        ui,
+        "occlusion_active_card",
+        "IN VIEW NOW",
+        &active_value,
+        if active > 0 { GOOD } else { ACCENT },
+        active_detail,
+        width,
+        "Rectangles the engine admits for the current camera. Rectangles facing away are not tested, so this is normally lower than the placed count.",
+    );
+    ui.same_line();
+    metric_card(
+        ui,
+        "occlusion_cache_card",
+        "CELLS CACHED",
+        &cached_value,
+        BLUE,
+        "Reused when you return",
+        width,
+        "Cells whose rectangles are saved to disk. Revisiting one reuses them instead of measuring the meshes again. The cache is dropped when your mod list changes.",
+    );
+
+    if !ready {
         return;
     }
-    let center = (width * 0.5, height * 0.62);
-    let scale = 0.045f32;
-    ui.overlay_point(center, 3.5, [0.4, 1.0, 0.6, 0.95]);
-    for index in 0..count.min(256) {
-        let base = 6 + index * 14;
-        if base + 14 > data.len() {
-            break;
-        }
-        let position = [data[base], data[base + 1], data[base + 2]];
-        let half = [data[base + 3], data[base + 4]];
-        let normal = [data[base + 5], data[base + 6], data[base + 7]];
-        let tangent = [data[base + 8], data[base + 9], data[base + 10]];
-        let bitangent = [data[base + 11], data[base + 12], data[base + 13]];
-        let mut corners = [(0.0f32, 0.0f32); 4];
-        let signs = [(-1.0f32, -1.0f32), (1.0, -1.0), (1.0, 1.0), (-1.0, 1.0)];
-        for (slot, (sign_a, sign_b)) in signs.iter().enumerate() {
-            let world_x =
-                position[0] + sign_a * half[0] * tangent[0] + sign_b * half[1] * bitangent[0];
-            let world_y =
-                position[1] + sign_a * half[0] * tangent[1] + sign_b * half[1] * bitangent[1];
-            corners[slot] = (
-                center.0 + (world_x - observer[0]) * scale,
-                center.1 - (world_y - observer[1]) * scale,
-            );
-        }
-        let color = if normal[2].abs() > 0.7 {
-            [1.0, 0.72, 0.2, 0.9]
+
+    // Occupancy bar: what fraction of the placed set the current camera tests.
+    ui.spacing();
+    let occupancy = if tracked == 0 {
+        0.0
+    } else {
+        (active as f64 / tracked as f64).clamp(0.0, 1.0) as f32
+    };
+    ui.label_value(
+        &cstring("Facing the camera"),
+        &cstring(if tracked == 0 {
+            "No rectangles placed yet".to_owned()
         } else {
-            [0.4, 0.8, 1.0, 0.9]
-        };
-        for slot in 0..4 {
-            ui.overlay_line(corners[slot], corners[(slot + 1) % 4], color, 1.5);
-        }
+            format!("{active} of {tracked} rectangles")
+        }),
+        if active > 0 { GOOD } else { MUTED },
+    );
+    hover_help(
+        ui,
+        "How many of the placed rectangles the engine admits for the current camera. A rectangle only culls while it faces the camera, so the rest stay idle.",
+    );
+    let overlay = cstring(format!("{active} / {tracked}"));
+    ui.progress_bar(
+        occupancy,
+        ui.content_region_available_width(),
+        0.0,
+        &overlay,
+    );
+    hover_help(
+        ui,
+        "Admitted rectangles over placed rectangles. A lower ratio is normal: it only counts what the current view can use.",
+    );
+
+    ui.spacing();
+    ui.separator_text(&cstring("Last rebuild"));
+    if core.occlusion_generation_running != 0 {
+        draw_value_help(
+            ui,
+            "Status",
+            "Measuring this cell's geometry…",
+            WARN,
+            "Psycho walks the cell's static meshes in small per-frame slices, so this never stalls the game. The rectangles appear when the walk finishes.",
+        );
+    } else if core.occlusion_rebuilds == 0 {
+        draw_value_help(
+            ui,
+            "Status",
+            "Waiting for the first cell",
+            MUTED,
+            "The first rebuild happens once the game has loaded a cell with static geometry.",
+        );
+    } else if core.occlusion_last_from_cache != 0 {
+        draw_value_help(
+            ui,
+            "Source",
+            "Saved cache",
+            GOOD,
+            "This cell's rectangles came from the saved cache, so no meshes were walked.",
+        );
+        draw_value_help(
+            ui,
+            "Rectangles",
+            format!("{} kept", core.occlusion_last_selected),
+            ACCENT,
+            "How many rectangles this rebuild installed.",
+        );
+    } else {
+        draw_value_help(
+            ui,
+            "Source",
+            "Freshly measured",
+            ACCENT,
+            "This cell's rectangles were derived from its live static meshes.",
+        );
+        draw_value_help(
+            ui,
+            "Rectangles",
+            format!(
+                "{} kept of {} candidates",
+                core.occlusion_last_selected, core.occlusion_last_candidates
+            ),
+            ACCENT,
+            "Candidate rectangles the geometry produced, and how many survived the safety checks and the per-cell budget.",
+        );
+        draw_value_help(
+            ui,
+            "Changes",
+            format!(
+                "{} created · {} removed",
+                core.occlusion_last_created, core.occlusion_last_removed
+            ),
+            BLUE,
+            "Native rectangles added and removed during the last rebuild.",
+        );
+        draw_value_help(
+            ui,
+            "Time",
+            format!("{} ms", core.occlusion_last_generation_ms),
+            MUTED,
+            "Total walk time, summed across its per-frame slices. It is spread over several frames, not spent in one.",
+        );
     }
+
+    ui.spacing();
+    ui.separator_text(&cstring("This session"));
+    draw_value_help(
+        ui,
+        "Rebuilds",
+        format!(
+            "{} total · {} from cache",
+            core.occlusion_rebuilds, core.occlusion_cache_hits
+        ),
+        ACCENT,
+        "Completed cell rebuilds and how many reused the saved cache instead of re-measuring.",
+    );
+    draw_value_help(
+        ui,
+        "Rectangles created / removed",
+        format!(
+            "{} / {}",
+            core.occlusion_planes_created, core.occlusion_planes_removed
+        ),
+        BLUE,
+        "Total native occlusion rectangles created and removed this session.",
+    );
+    draw_value_help(
+        ui,
+        "Per-cell budget",
+        format!(
+            "up to {} rectangles · grid radius {}",
+            core.occlusion_max_per_cell, core.occlusion_grid_radius,
+        ),
+        MUTED,
+        "The most rectangles Psycho keeps for the area. A larger grid radius also reuses cached rectangles from the loaded neighbouring cells.",
+    );
 }
 
 fn draw_configuration(ui: &mut Ui<'_>, editor: &mut ConfigEditor, pending_reload: &mut bool) {
@@ -2387,6 +2431,12 @@ fn draw_configuration(ui: &mut Ui<'_>, editor: &mut ConfigEditor, pending_reload
         "Detailed debug log",
         &mut config.debug_log,
         "Writes detailed startup, memory, loading, and safety information for troubleshooting. Recommended for useful bug reports.",
+    );
+    checkbox_help(
+        ui,
+        "Occlusion-plane trace",
+        &mut config.occlusion_planes_debug_log,
+        "Adds the verbose per-cell occlusion-plane diagnostics to the log. Enable only while investigating the Runtime dashboard occlusion counters; it requires the detailed debug log.",
     );
     checkbox_help(
         ui,
@@ -2709,24 +2759,6 @@ fn log_context(line: &LogLine) -> String {
     }
 }
 
-fn feature_status(ui: &mut Ui<'_>, name: &str, active: bool, lost: bool, detail: &str, help: &str) {
-    ui.text_colored(ACCENT, &cstring(name));
-    hover_help(ui, help);
-    ui.same_line();
-    // A protection that is off is not necessarily a fault: the user may have
-    // disabled it. Only a proven loss of an installed patch is a warning.
-    let (state, color) = if active {
-        ("Active", GOOD)
-    } else if lost {
-        ("Lost", WARN)
-    } else {
-        ("Inactive", MUTED)
-    };
-    ui.text_colored(color, &cstring(state));
-    ui.text_colored(MUTED, &cstring(detail));
-    ui.spacing();
-}
-
 fn allocator_name(mode: u32) -> &'static str {
     match mode {
         0 => "VANILLA",
@@ -2852,12 +2884,9 @@ mod tests {
     use core::ffi::c_void;
 
     use super::{
-        CoreLink, ENGINE_FIX_ACTOR_CONTAINER_INDEX, ENGINE_FIX_CELL_RENDER_RETIREMENT_INDEX,
-        ENGINE_FIX_DISPLAY_INDEX, ENGINE_FIX_ENCOUNTER_ZONE_INDEX, ENGINE_FIX_HELP,
-        ENGINE_FIX_MODEL_POSTPROCESS_INDEX, ENGINE_FIX_QUEUED_TASK_INDEX, ENGINE_FIX_SAVE_INDEX,
-        ENGINE_FIX_SOURCE_TEXTURE_CACHE_INDEX, GameRenderHandles, LogFilters, LogLevel, LogLine,
-        LogTailReader, MemoryHealth, Page, SamplingState, bytes, contains_ignore_ascii_case,
-        log_line_visible, parse_log_line, take_driver_refresh,
+        CoreLink, ENGINE_FIX_HELP, GameRenderHandles, LogFilters, LogLevel, LogLine, LogTailReader,
+        MemoryHealth, Page, SamplingState, bytes, contains_ignore_ascii_case, log_line_visible,
+        parse_log_line, take_driver_refresh,
     };
     use crate::engine_fixes::{
         DASHBOARD_FLAG_CORE_READY, DASHBOARD_FLAG_VAS_VALID, DashboardSnapshot,
@@ -2903,23 +2932,14 @@ mod tests {
     fn every_engine_fix_has_concise_unique_hover_help() {
         assert_eq!(ENGINE_FIX_HELP.len(), 22);
         for (index, expected) in [
-            (ENGINE_FIX_DISPLAY_INDEX, "Display / Alt-Tab repair"),
-            (ENGINE_FIX_SAVE_INDEX, "Durable save integrity"),
-            (
-                ENGINE_FIX_ACTOR_CONTAINER_INDEX,
-                "Dynamic actor container guard",
-            ),
-            (ENGINE_FIX_ENCOUNTER_ZONE_INDEX, "Encounter-zone form guard"),
-            (
-                ENGINE_FIX_CELL_RENDER_RETIREMENT_INDEX,
-                "Cell render retirement repair",
-            ),
-            (
-                ENGINE_FIX_MODEL_POSTPROCESS_INDEX,
-                "Model postprocess serialization",
-            ),
-            (ENGINE_FIX_QUEUED_TASK_INDEX, "Queued-task lifetime guard"),
-            (ENGINE_FIX_SOURCE_TEXTURE_CACHE_INDEX, "Texture cache guard"),
+            (0, "Display / Alt-Tab repair"),
+            (1, "Durable save integrity"),
+            (4, "Dynamic actor container guard"),
+            (6, "Encounter-zone form guard"),
+            (7, "Cell render retirement repair"),
+            (19, "Model postprocess serialization"),
+            (20, "Queued-task lifetime guard"),
+            (21, "Texture cache guard"),
         ] {
             assert_eq!(ENGINE_FIX_HELP[index].0, expected);
         }

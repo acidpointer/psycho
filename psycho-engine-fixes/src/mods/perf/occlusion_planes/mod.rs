@@ -57,7 +57,7 @@ pub(crate) fn install(performance: &PerformanceConfig) {
         performance.occlusion_planes_max_per_cell,
         performance.occlusion_planes_grid_radius,
         &performance.occlusion_planes_cache_path,
-        performance.occlusion_planes_debug,
+        performance.occlusion_planes_debug_log,
     );
 }
 
@@ -66,12 +66,7 @@ pub(crate) fn observe_event(kind: u32) {
     runtime::observe_event(kind);
 }
 
-/// Toggle the occluder debug view from a host command.
-pub(crate) fn debug_toggle() -> String {
-    runtime::debug_toggle()
-}
-
-/// Fill a caller buffer with the current occluder debug frame.
-pub(crate) unsafe fn debug_write(out: *mut f32, capacity: usize) -> i32 {
-    unsafe { runtime::debug_write(out, capacity) }
+/// Read the occlusion-plane runtime counters for the dashboard.
+pub(crate) fn dashboard_counters() -> runtime::DashboardCounters {
+    runtime::dashboard_counters()
 }

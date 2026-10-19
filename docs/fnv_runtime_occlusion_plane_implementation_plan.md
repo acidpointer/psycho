@@ -507,8 +507,9 @@ Add to `PerformanceConfig`:
   generated only while it is the player's own cell.
 - `occlusion_planes_cache_path: String` (default
   `syringe/psycho_occlusion_planes.cache`);
-- `occlusion_planes_debug: bool` (default `false`). Also toggled in game with
-  the `PsychoOcclusionDebug` console command.
+- `occlusion_planes_debug_log: bool` (default `false`). Gates the verbose
+  per-cell `scan`, `cell` and `presence` diagnostics; warnings and errors always
+  log. Turn it on with `debug_log = true` only while investigating the feature.
 
 Frame-path budget: the common frame does no hashing. The scene/cell pointers
 are compared directly, and the cell identity hash (`FxHasher`) is only computed
@@ -523,25 +524,21 @@ refresh check runs every 60 frames and is a few array reads plus cache lookups
 when the grid changed, nothing otherwise. The per-frame neighbor path is one
 atomic countdown decrement.
 
-Debug overlay: while `occlusion_planes_debug` is on, the core keeps the last
-injected set and exposes it through `PsychoEngineFixes_QueryOcclusionDebug` as a
-flat float frame (observer plus one rectangle per plane). The helper's
-`PsychoOcclusionDebug` command toggles it and opens the dashboard, which draws a
-top-down wireframe of each rectangle's world XY footprint using a new
-`psycho-imgui` foreground-line primitive; the dashboard's navigation menu also
-exposes an "Occlusion debug" checkbox for the same toggle. Once enabled the
-overlay is drawn on every present, even after the dashboard window is closed,
-until the checkbox or command turns it off. The query is pure (no engine calls
-from the render thread) and reuses a thread-local buffer. The command never
-prints through the console helper: `CommandContext::print` runs `print "..."`
-via `RunScriptLine`, which re-enters xNVSE's non-re-entrant script parser from
-inside the handler and reports a bogus "Mismatched quotes" error. The state is
-logged and shown in the overlay instead.
-
 Config parsing happens at startup and changes the DLL's static/config layout,
 so the startup gate in section 7 applies.
 
 ### 4.6 Logging and diagnostics
+
+The verbose `scan`, `cell` and `presence` lines are gated by
+`occlusion_planes_debug_log` (default off) and require `debug_log = true` as
+well, so a default install stays quiet; warnings and errors always log. The
+helper's **Runtime dashboard** shows the live state instead: the covered cell,
+placed and camera-admitted rectangle counts, whether a cell is being measured,
+the last rebuild summary, the cached-cell count, session
+rebuild/cache-hit/created/removed totals and the per-cell budget. The core
+publishes those as lock-free scalars in the dashboard snapshot (ABI version 6),
+updated on the event thread only, so the sampling worker never walks the engine
+list or touches engine memory. This replaced the removed debug overlay.
 
 Stable tag `[OCCLUSION_PLANES]`. Log at `info` on install and cache load; log
 at `debug` the scan counters and per-cell summaries. The `scan` line reports

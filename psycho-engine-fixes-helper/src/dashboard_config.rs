@@ -78,6 +78,8 @@ pub(crate) struct EditableConfig {
     pub rng: bool,
     pub zlib: bool,
     pub post_load_reconciliation_prepass: bool,
+    /// Verbose per-cell occlusion-plane diagnostics at debug level.
+    pub occlusion_planes_debug_log: bool,
     pub debug_log: bool,
     pub console: bool,
     pub hitch_profiling: bool,
@@ -136,6 +138,7 @@ impl Default for EditableConfig {
             rng: true,
             zlib: true,
             post_load_reconciliation_prepass: true,
+            occlusion_planes_debug_log: false,
             debug_log: false,
             console: false,
             hitch_profiling: false,
@@ -397,6 +400,12 @@ impl EditableConfig {
                 "performance",
                 "post_load_reconciliation_prepass",
                 defaults.post_load_reconciliation_prepass,
+            ),
+            occlusion_planes_debug_log: bool_or(
+                doc,
+                "performance",
+                "occlusion_planes_debug_log",
+                defaults.occlusion_planes_debug_log,
             ),
             debug_log: read_bool(doc, "diagnostics", "debug_log")
                 .or_else(|| read_bool(doc, "logger", "debug"))
@@ -763,6 +772,11 @@ fn write_document(doc: &mut DocumentMut, config: &EditableConfig) {
         "performance",
         "post_load_reconciliation_prepass",
         post_load_reconciliation_prepass
+    );
+    setting!(
+        "performance",
+        "occlusion_planes_debug_log",
+        occlusion_planes_debug_log
     );
     setting!("diagnostics", "debug_log", debug_log);
     setting!("diagnostics", "console", console);

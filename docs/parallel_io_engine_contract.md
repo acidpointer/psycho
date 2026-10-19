@@ -627,13 +627,12 @@ Startup must include lines equivalent to:
 [IO] Active parallel=true speedtree=true vertex_buffers=true model_postprocess=true
 ```
 
-The helper dashboard's Runtime Fixes page exposes the observed native worker
-count, bounded scheduling policy, rare fallback counts, current LOD ownership
-state, and guard installation. It intentionally does not sample routine LOD
-demand, successful cell, materialization, Compute, lock, or wait operations.
-The corresponding fields remain in dashboard ABI version 3 for binary
-compatibility and return zero. See `docs/psycho_dashboard.md` for the UI/ABI
-contract.
+The helper dashboard's Runtime dashboard exposes the observed native worker
+count, bounded scheduling policy, rare fallback counts, and current LOD
+ownership state. It intentionally does not sample routine LOD demand, successful
+cell, materialization, Compute, lock, or wait operations. The corresponding
+fields remain in dashboard ABI version 6 for binary compatibility and return
+zero. See `docs/psycho_dashboard.md` for the UI/ABI contract.
 
 ## Static validation
 

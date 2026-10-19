@@ -111,8 +111,6 @@ pub(super) struct DiagnosticSnapshot {
 
 /// Lock-free counters for the existing helper dashboard ABI.
 pub(super) struct DashboardSnapshot {
-    pub streaming_installed: bool,
-    pub handoff_installed: bool,
     pub demand: metrics::Snapshot,
     pub state: state::DashboardCounters,
 }
@@ -789,8 +787,6 @@ pub(super) fn diagnostic_snapshot() -> DiagnosticSnapshot {
 /// Collect atomic dashboard counts without taking the handoff ledger lock.
 pub(super) fn dashboard_snapshot() -> DashboardSnapshot {
     DashboardSnapshot {
-        streaming_installed: STREAMING_INSTALLED.load(Ordering::Acquire),
-        handoff_installed: HANDOFF_INSTALLED.load(Ordering::Acquire),
         demand: metrics::snapshot(),
         state: state::dashboard_counters(),
     }

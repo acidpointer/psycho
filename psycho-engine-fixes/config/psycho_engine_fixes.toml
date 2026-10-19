@@ -513,9 +513,11 @@ occlusion_planes_grid_radius = 0
 # cache is discarded automatically when the active plugin list changes.
 occlusion_planes_cache_path = "syringe/psycho_occlusion_planes.cache"
 
-# Start with the occluder debug overlay enabled. Can also be toggled in game
-# with the `PsychoOcclusionDebug` console command.
-occlusion_planes_debug = false
+# Write the verbose per-cell occlusion-plane diagnostics (mesh walk counters,
+# per-cell rebuild summaries, presence checks) to the log at debug level. Off
+# by default so the log stays readable; warnings and errors always log. Turn it
+# on only while investigating the feature, together with debug_log = true.
+occlusion_planes_debug_log = false
 
 # =============================================================================
 # DIAGNOSTICS

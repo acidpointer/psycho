@@ -6,16 +6,12 @@
 //! revisions preserve published prefixes, while exact version and size checks
 //! make mixed helper/core installations fail unavailable.
 
-use std::{
-    mem::size_of,
-    ptr,
-    sync::atomic::{AtomicU64, Ordering},
-};
+use std::{mem::size_of, ptr};
 
 use libmimalloc::process_info::MiMallocProcessInfo;
 
 use crate::mods::{
-    diagnostics, engine_fixes,
+    engine_fixes,
     heap_replacer::{
         AllocatorMode, current_mode,
         gheap::{allocator, block, pool, va_alloc, vas, watchdog},
@@ -24,19 +20,16 @@ use crate::mods::{
 };
 
 const COMMAND_INFO: u32 = 1;
-const COMMAND_OCCLUSION_DEBUG: u32 = 2;
 
 #[derive(Clone, Copy)]
 enum Command {
     Info,
-    OcclusionDebug,
 }
 
 impl Command {
     fn from_id(id: u32) -> Option<Self> {
         match id {
             COMMAND_INFO => Some(Self::Info),
-            COMMAND_OCCLUSION_DEBUG => Some(Self::OcclusionDebug),
             _ => None,
         }
     }
@@ -44,9 +37,6 @@ impl Command {
     fn run(self) -> CommandResponse {
         match self {
             Self::Info => CommandResponse::text(mem_stats::MemStats::detailed_report()),
-            Self::OcclusionDebug => {
-                CommandResponse::text(crate::mods::perf::occlusion_debug_toggle())
-            }
         }
     }
 }
@@ -87,7 +77,7 @@ pub struct CommandOutput {
 }
 
 /// Exact dashboard structure revision shared with the late-bound helper.
-pub const DASHBOARD_ABI_VERSION: u32 = 4;
+pub const DASHBOARD_ABI_VERSION: u32 = 6;
 
 pub const DASHBOARD_FLAG_CORE_READY: u32 = 1 << 0;
 pub const DASHBOARD_FLAG_PRE_CRT_BOUNDARY: u32 = 1 << 1;
@@ -96,13 +86,6 @@ pub const DASHBOARD_FLAG_BLOCK_SAMPLE_VALID: u32 = 1 << 3;
 pub const DASHBOARD_FLAG_PROCESS_SAMPLE_VALID: u32 = 1 << 4;
 
 const DASHBOARD_REFRESH_VAS: u32 = 1;
-
-static DASHBOARD_QUERY_COUNT: AtomicU64 = AtomicU64::new(0);
-static DASHBOARD_QUERY_LAST_US: AtomicU64 = AtomicU64::new(0);
-static DASHBOARD_QUERY_MAX_US: AtomicU64 = AtomicU64::new(0);
-static DASHBOARD_VAS_REFRESH_COUNT: AtomicU64 = AtomicU64::new(0);
-static DASHBOARD_VAS_REFRESH_LAST_US: AtomicU64 = AtomicU64::new(0);
-static DASHBOARD_VAS_REFRESH_MAX_US: AtomicU64 = AtomicU64::new(0);
 
 #[repr(C)]
 #[derive(Clone, Copy)]
@@ -125,7 +108,6 @@ pub struct DashboardSnapshot {
     pub sample_time_ms: u64,
     pub process_sample_time_ms: u64,
     pub vas_sample_time_ms: u64,
-    pub active_features: u64,
     pub process_rss_bytes: u64,
     pub process_peak_rss_bytes: u64,
     pub process_commit_bytes: u64,
@@ -181,12 +163,6 @@ pub struct DashboardSnapshot {
     pub speedtree_waiters: u64,
     pub speedtree_max_materialization_wait_us: u64,
     pub speedtree_max_compute_wait_us: u64,
-    pub dashboard_queries: u64,
-    pub dashboard_query_last_us: u64,
-    pub dashboard_query_max_us: u64,
-    pub dashboard_vas_refreshes: u64,
-    pub dashboard_vas_refresh_last_us: u64,
-    pub dashboard_vas_refresh_max_us: u64,
     /// Invalid encounter-zone forms rejected before changed-form RTTI.
     pub encounter_zone_load_rejections: u64,
     /// Invalid encounter-zone results rejected by the shared resolver hook.
@@ -197,9 +173,55 @@ pub struct DashboardSnapshot {
     pub cell_render_forced_cleanups: u64,
     /// Post-install replacements of the active retirement dispatch block.
     pub cell_render_patch_ownership_losses: u64,
+    /// Occlusion planes: configured (1) or off (0).
+    pub occlusion_configured: u64,
+    /// Occlusion planes: activated after `DeferredInit` (1) or not (0).
+    pub occlusion_ready: u64,
+    /// Occlusion planes: a cell walk is in flight (1) or idle (0).
+    pub occlusion_generation_running: u64,
+    /// Occlusion planes: configured loaded-grid radius.
+    pub occlusion_grid_radius: u64,
+    /// Occlusion planes: shared injected-plane budget.
+    pub occlusion_max_per_cell: u64,
+    /// Occlusion planes: planes currently tracked in the engine list.
+    pub occlusion_tracked_planes: u64,
+    /// Occlusion planes: tracked planes the engine admitted for the camera.
+    pub occlusion_active_planes: u64,
+    /// Occlusion planes: cells in the persistent plane cache.
+    pub occlusion_cached_cells: u64,
+    /// Occlusion planes: current cell kind (0 none, 1 interior, 2 exterior).
+    pub occlusion_cell_kind: u64,
+    /// Occlusion planes: interior cell `FormID` (0 for exterior).
+    pub occlusion_cell_form_id: u64,
+    /// Occlusion planes: exterior cell grid X (sign-extended).
+    pub occlusion_cell_x: i64,
+    /// Occlusion planes: exterior cell grid Y (sign-extended).
+    pub occlusion_cell_y: i64,
+    /// Occlusion planes: exterior worldspace `FormID` (0 for interior).
+    pub occlusion_worldspace_form_id: u64,
+    /// Occlusion planes: completed cell rebuilds this session.
+    pub occlusion_rebuilds: u64,
+    /// Occlusion planes: wall time of the last completed generation (ms).
+    pub occlusion_last_generation_ms: u64,
+    /// Occlusion planes: planes created this session.
+    pub occlusion_planes_created: u64,
+    /// Occlusion planes: planes removed this session.
+    pub occlusion_planes_removed: u64,
+    /// Occlusion planes: rebuilds served from the persistent cache.
+    pub occlusion_cache_hits: u64,
+    /// Occlusion planes: candidates offered to the last rebuild.
+    pub occlusion_last_candidates: u64,
+    /// Occlusion planes: planes selected by the last rebuild.
+    pub occlusion_last_selected: u64,
+    /// Occlusion planes: planes created by the last rebuild.
+    pub occlusion_last_created: u64,
+    /// Occlusion planes: planes removed by the last rebuild.
+    pub occlusion_last_removed: u64,
+    /// Occlusion planes: last rebuild came from the cache (1) or regenerated (0).
+    pub occlusion_last_from_cache: u64,
 }
 
-const _: () = assert!(size_of::<DashboardSnapshot>() == 576);
+const _: () = assert!(size_of::<DashboardSnapshot>() == 704);
 
 impl Default for DashboardSnapshot {
     fn default() -> Self {
@@ -211,7 +233,6 @@ impl Default for DashboardSnapshot {
             sample_time_ms: 0,
             process_sample_time_ms: 0,
             vas_sample_time_ms: 0,
-            active_features: 0,
             process_rss_bytes: 0,
             process_peak_rss_bytes: 0,
             process_commit_bytes: 0,
@@ -267,17 +288,34 @@ impl Default for DashboardSnapshot {
             speedtree_waiters: 0,
             speedtree_max_materialization_wait_us: 0,
             speedtree_max_compute_wait_us: 0,
-            dashboard_queries: 0,
-            dashboard_query_last_us: 0,
-            dashboard_query_max_us: 0,
-            dashboard_vas_refreshes: 0,
-            dashboard_vas_refresh_last_us: 0,
-            dashboard_vas_refresh_max_us: 0,
             encounter_zone_load_rejections: 0,
             encounter_zone_access_rejections: 0,
             encounter_zone_repairs: 0,
             cell_render_forced_cleanups: 0,
             cell_render_patch_ownership_losses: 0,
+            occlusion_configured: 0,
+            occlusion_ready: 0,
+            occlusion_generation_running: 0,
+            occlusion_grid_radius: 0,
+            occlusion_max_per_cell: 0,
+            occlusion_tracked_planes: 0,
+            occlusion_active_planes: 0,
+            occlusion_cached_cells: 0,
+            occlusion_cell_kind: 0,
+            occlusion_cell_form_id: 0,
+            occlusion_cell_x: 0,
+            occlusion_cell_y: 0,
+            occlusion_worldspace_form_id: 0,
+            occlusion_rebuilds: 0,
+            occlusion_last_generation_ms: 0,
+            occlusion_planes_created: 0,
+            occlusion_planes_removed: 0,
+            occlusion_cache_hits: 0,
+            occlusion_last_candidates: 0,
+            occlusion_last_selected: 0,
+            occlusion_last_created: 0,
+            occlusion_last_removed: 0,
+            occlusion_last_from_cache: 0,
         }
     }
 }
@@ -304,22 +342,6 @@ pub unsafe extern "system" fn PsychoEngineFixes_RunCommand(
     1
 }
 
-/// Fill a caller-owned float buffer with the current occluder debug frame.
-///
-/// Layout: `[magic, version, count, observer x, y, z]`, then `count` planes of
-/// `[position(3), half-size(2), normal(3), tangent(3), bitangent(3)]`. Returns
-/// the number of floats needed; writes at most `capacity`.
-#[unsafe(no_mangle)]
-pub unsafe extern "system" fn PsychoEngineFixes_QueryOcclusionDebug(
-    out: *mut f32,
-    capacity: usize,
-) -> i32 {
-    if out.is_null() || !crate::entry::is_initialized() {
-        return 0;
-    }
-    unsafe { crate::mods::perf::occlusion_debug_write(out, capacity) }
-}
-
 /// Fill a structured diagnostics snapshot for an already-loaded host adapter.
 ///
 /// This may be called from the helper's background sampling thread. It does no
@@ -340,10 +362,10 @@ pub unsafe extern "system" fn PsychoEngineFixes_QueryDashboard(
         return 0;
     }
 
-    let timer = diagnostics::Stopwatch::start();
     let mode = current_mode();
     let process = dashboard_process_snapshot(mode);
     let engine = engine_fixes::dashboard_counters();
+    let occlusion = crate::mods::perf::occlusion_dashboard_counters();
     let mut snapshot = DashboardSnapshot {
         flags: DASHBOARD_FLAG_CORE_READY,
         allocator_mode: mode.map_or(u32::MAX, |mode| match mode {
@@ -352,7 +374,6 @@ pub unsafe extern "system" fn PsychoEngineFixes_QueryDashboard(
             AllocatorMode::GheapAndScrapHeap => 2,
         }),
         sample_time_ms: u64::from(libpsycho::os::windows::winapi::get_tick_count()),
-        active_features: engine.active_features,
         pool_live_cells: pool::live_cells() as u64,
         pool_committed_bytes: pool::committed_bytes() as u64,
         pool_reserved_bytes: pool::reserved_bytes() as u64,
@@ -394,17 +415,34 @@ pub unsafe extern "system" fn PsychoEngineFixes_QueryDashboard(
         speedtree_waiters: engine.speedtree_waiters,
         speedtree_max_materialization_wait_us: engine.speedtree_max_materialization_wait_us,
         speedtree_max_compute_wait_us: engine.speedtree_max_compute_wait_us,
-        dashboard_queries: DASHBOARD_QUERY_COUNT.load(Ordering::Relaxed),
-        dashboard_query_last_us: DASHBOARD_QUERY_LAST_US.load(Ordering::Relaxed),
-        dashboard_query_max_us: DASHBOARD_QUERY_MAX_US.load(Ordering::Relaxed),
-        dashboard_vas_refreshes: DASHBOARD_VAS_REFRESH_COUNT.load(Ordering::Relaxed),
-        dashboard_vas_refresh_last_us: DASHBOARD_VAS_REFRESH_LAST_US.load(Ordering::Relaxed),
-        dashboard_vas_refresh_max_us: DASHBOARD_VAS_REFRESH_MAX_US.load(Ordering::Relaxed),
         encounter_zone_load_rejections: engine.encounter_zone_load_rejections,
         encounter_zone_access_rejections: engine.encounter_zone_access_rejections,
         encounter_zone_repairs: engine.encounter_zone_repairs,
         cell_render_forced_cleanups: engine.cell_render_forced_cleanups,
         cell_render_patch_ownership_losses: engine.cell_render_patch_ownership_losses,
+        occlusion_configured: occlusion.configured,
+        occlusion_ready: occlusion.ready,
+        occlusion_generation_running: occlusion.generation_running,
+        occlusion_grid_radius: occlusion.grid_radius,
+        occlusion_max_per_cell: occlusion.max_per_cell,
+        occlusion_tracked_planes: occlusion.tracked,
+        occlusion_active_planes: occlusion.active,
+        occlusion_cached_cells: occlusion.cached_cells,
+        occlusion_cell_kind: occlusion.cell_kind,
+        occlusion_cell_form_id: occlusion.cell_form_id,
+        occlusion_cell_x: occlusion.cell_x,
+        occlusion_cell_y: occlusion.cell_y,
+        occlusion_worldspace_form_id: occlusion.worldspace_form_id,
+        occlusion_rebuilds: occlusion.rebuilds,
+        occlusion_last_generation_ms: occlusion.last_generation_ms,
+        occlusion_planes_created: occlusion.planes_created,
+        occlusion_planes_removed: occlusion.planes_removed,
+        occlusion_cache_hits: occlusion.cache_hits,
+        occlusion_last_candidates: occlusion.last_candidates,
+        occlusion_last_selected: occlusion.last_selected,
+        occlusion_last_created: occlusion.last_created,
+        occlusion_last_removed: occlusion.last_removed,
+        occlusion_last_from_cache: occlusion.last_from_cache,
         ..DashboardSnapshot::default()
     };
 
@@ -438,12 +476,6 @@ pub unsafe extern "system" fn PsychoEngineFixes_QueryDashboard(
         snapshot.block_committed_bytes = blocks.committed_bytes as u64;
     }
 
-    record_dashboard_timing(
-        timer,
-        &DASHBOARD_QUERY_COUNT,
-        &DASHBOARD_QUERY_LAST_US,
-        &DASHBOARD_QUERY_MAX_US,
-    );
     unsafe { ptr::write(output, snapshot) };
     1
 }
@@ -455,15 +487,7 @@ pub unsafe extern "system" fn PsychoEngineFixes_RequestDashboardRefresh(kind: u3
         return 0;
     }
 
-    let timer = diagnostics::Stopwatch::start();
-    let success = vas::refresh_for_dashboard().is_some();
-    record_dashboard_timing(
-        timer,
-        &DASHBOARD_VAS_REFRESH_COUNT,
-        &DASHBOARD_VAS_REFRESH_LAST_US,
-        &DASHBOARD_VAS_REFRESH_MAX_US,
-    );
-    i32::from(success)
+    i32::from(vas::refresh_for_dashboard().is_some())
 }
 
 fn dashboard_process_snapshot(mode: Option<AllocatorMode>) -> Option<watchdog::ProcessSnapshot> {
@@ -482,18 +506,6 @@ fn dashboard_process_snapshot(mode: Option<AllocatorMode>) -> Option<watchdog::P
     })
 }
 
-fn record_dashboard_timing(
-    timer: diagnostics::Stopwatch,
-    count: &AtomicU64,
-    last: &AtomicU64,
-    max: &AtomicU64,
-) {
-    count.fetch_add(1, Ordering::Relaxed);
-    let elapsed_us = timer.elapsed_us().unwrap_or(0);
-    last.store(elapsed_us, Ordering::Relaxed);
-    diagnostics::update_max_u64(max, elapsed_us);
-}
-
 fn dashboard_header_supported(header: &DashboardHeader) -> bool {
     header.struct_size as usize >= size_of::<DashboardSnapshot>()
         && header.abi_version == DASHBOARD_ABI_VERSION
@@ -504,7 +516,7 @@ mod tests {
     use super::{
         DASHBOARD_ABI_VERSION, DashboardHeader, DashboardSnapshot, dashboard_header_supported,
     };
-    use std::mem::{offset_of, size_of};
+    use std::mem::size_of;
 
     #[test]
     fn dashboard_abi_requires_matching_version_and_complete_storage() {
@@ -525,11 +537,6 @@ mod tests {
         assert_eq!(
             snapshot.struct_size as usize,
             size_of::<DashboardSnapshot>()
-        );
-        assert_eq!(
-            offset_of!(DashboardSnapshot, cell_render_forced_cleanups),
-            560,
-            "version 4 must preserve the complete version-3 prefix"
         );
     }
 }

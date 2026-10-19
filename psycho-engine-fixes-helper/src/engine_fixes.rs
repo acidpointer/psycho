@@ -19,8 +19,6 @@ const CORE_DLL: &str = "psycho_engine_fixes.dll";
 const NOTIFY_EVENT_EXPORT: &str = "PsychoEngineFixes_NotifyEvent";
 const QUERY_DASHBOARD_EXPORT: &str = "PsychoEngineFixes_QueryDashboard";
 const REQUEST_DASHBOARD_REFRESH_EXPORT: &str = "PsychoEngineFixes_RequestDashboardRefresh";
-const RUN_COMMAND_EXPORT: &str = "PsychoEngineFixes_RunCommand";
-const QUERY_OCCLUSION_DEBUG_EXPORT: &str = "PsychoEngineFixes_QueryOcclusionDebug";
 
 // These ids mirror `psycho-engine-fixes/src/events.rs`.
 pub(crate) const EVENT_DEFERRED_INIT: u32 = 1;
@@ -29,35 +27,13 @@ pub(crate) const EVENT_PRE_LOAD_GAME: u32 = 7;
 pub(crate) const EVENT_EXIT_TO_MAIN_MENU: u32 = 8;
 pub(crate) const EVENT_NEW_GAME: u32 = 9;
 
-pub(crate) const DASHBOARD_ABI_VERSION: u32 = 4;
+pub(crate) const DASHBOARD_ABI_VERSION: u32 = 6;
 pub(crate) const DASHBOARD_FLAG_CORE_READY: u32 = 1 << 0;
 pub(crate) const DASHBOARD_FLAG_PRE_CRT_BOUNDARY: u32 = 1 << 1;
 pub(crate) const DASHBOARD_FLAG_VAS_VALID: u32 = 1 << 2;
 pub(crate) const DASHBOARD_FLAG_BLOCK_SAMPLE_VALID: u32 = 1 << 3;
 pub(crate) const DASHBOARD_FLAG_PROCESS_SAMPLE_VALID: u32 = 1 << 4;
 pub(crate) const DASHBOARD_REFRESH_VAS: u32 = 1;
-
-pub(crate) const DASHBOARD_FEATURE_DISPLAY: u64 = 1 << 0;
-pub(crate) const DASHBOARD_FEATURE_SAVE_INTEGRITY: u64 = 1 << 1;
-pub(crate) const DASHBOARD_FEATURE_TASK_GUARD: u64 = 1 << 2;
-pub(crate) const DASHBOARD_FEATURE_PARALLEL_IO: u64 = 1 << 3;
-pub(crate) const DASHBOARD_FEATURE_LOD_PREFETCH: u64 = 1 << 4;
-pub(crate) const DASHBOARD_FEATURE_LOD_HANDOFF: u64 = 1 << 5;
-pub(crate) const DASHBOARD_FEATURE_TREE_LIFETIME: u64 = 1 << 6;
-pub(crate) const DASHBOARD_FEATURE_VERTEX_BUFFERS: u64 = 1 << 7;
-pub(crate) const DASHBOARD_FEATURE_ACTOR_CONTAINER_GUARD: u64 = 1 << 8;
-/// Core feature bit for installed model postprocess serialization.
-pub(crate) const DASHBOARD_FEATURE_MODEL_POSTPROCESS: u64 = 1 << 9;
-/// Core feature bit for installed shared encounter-zone containment.
-pub(crate) const DASHBOARD_FEATURE_ENCOUNTER_ZONE_GUARD: u64 = 1 << 10;
-/// Core feature bit for a live cell render-list retirement cleanup provider.
-pub(crate) const DASHBOARD_FEATURE_CELL_RENDER_RETIREMENT: u64 = 1 << 11;
-/// Core feature bit for installed patrol-owner FormID containment.
-pub(crate) const DASHBOARD_FEATURE_PATROL_OWNER_FORM_ID_GUARD: u64 = 1 << 12;
-/// Core feature bit for current direct ownership of the source-cache entry.
-pub(crate) const DASHBOARD_FEATURE_SOURCE_TEXTURE_CACHE_GUARD: u64 = 1 << 13;
-/// Core feature bit for current direct ownership of Tile-value containment.
-pub(crate) const DASHBOARD_FEATURE_TILE_VALUE_INTEGRITY: u64 = 1 << 14;
 
 type NotifyEventFn =
     unsafe extern "system" fn(kind: u32, data: *const u8, data_len: usize, bool_value: i32) -> i32;
@@ -67,26 +43,8 @@ type RequestDashboardRefreshFn = unsafe extern "system" fn(kind: u32) -> i32;
 static NOTIFY_EVENT: AtomicUsize = AtomicUsize::new(0);
 static QUERY_DASHBOARD: AtomicUsize = AtomicUsize::new(0);
 static REQUEST_DASHBOARD_REFRESH: AtomicUsize = AtomicUsize::new(0);
-static RUN_COMMAND: AtomicUsize = AtomicUsize::new(0);
-static QUERY_OCCLUSION_DEBUG: AtomicUsize = AtomicUsize::new(0);
 
-/// Core `CommandOutput`, mirrored exactly for the helper's command ABI.
-#[repr(C)]
-#[derive(Default)]
-pub(crate) struct CommandOutput {
-    pub text: *mut u8,
-    pub text_len: usize,
-    pub written: usize,
-    pub result: f64,
-    pub flags: u32,
-}
-
-type RunCommandFn = unsafe extern "system" fn(u32, *mut CommandOutput) -> i32;
-type QueryOcclusionDebugFn = unsafe extern "system" fn(*mut f32, usize) -> i32;
-
-pub(crate) const COMMAND_OCCLUSION_DEBUG: u32 = 2;
-
-/// Exact mirror of the core's version-4 plain-data dashboard ABI.
+/// Exact mirror of the core's version-6 plain-data dashboard ABI.
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default)]
 pub(crate) struct DashboardSnapshot {
@@ -97,7 +55,6 @@ pub(crate) struct DashboardSnapshot {
     pub sample_time_ms: u64,
     pub process_sample_time_ms: u64,
     pub vas_sample_time_ms: u64,
-    pub active_features: u64,
     pub process_rss_bytes: u64,
     pub process_peak_rss_bytes: u64,
     pub process_commit_bytes: u64,
@@ -153,12 +110,6 @@ pub(crate) struct DashboardSnapshot {
     pub speedtree_waiters: u64,
     pub speedtree_max_materialization_wait_us: u64,
     pub speedtree_max_compute_wait_us: u64,
-    pub dashboard_queries: u64,
-    pub dashboard_query_last_us: u64,
-    pub dashboard_query_max_us: u64,
-    pub dashboard_vas_refreshes: u64,
-    pub dashboard_vas_refresh_last_us: u64,
-    pub dashboard_vas_refresh_max_us: u64,
     /// Invalid encounter-zone forms rejected before changed-form RTTI.
     pub encounter_zone_load_rejections: u64,
     /// Invalid encounter-zone results rejected by the shared resolver hook.
@@ -169,9 +120,32 @@ pub(crate) struct DashboardSnapshot {
     pub cell_render_forced_cleanups: u64,
     /// Post-install replacements of the active retirement dispatch block.
     pub cell_render_patch_ownership_losses: u64,
+    pub occlusion_configured: u64,
+    pub occlusion_ready: u64,
+    pub occlusion_generation_running: u64,
+    pub occlusion_grid_radius: u64,
+    pub occlusion_max_per_cell: u64,
+    pub occlusion_tracked_planes: u64,
+    pub occlusion_active_planes: u64,
+    pub occlusion_cached_cells: u64,
+    pub occlusion_cell_kind: u64,
+    pub occlusion_cell_form_id: u64,
+    pub occlusion_cell_x: i64,
+    pub occlusion_cell_y: i64,
+    pub occlusion_worldspace_form_id: u64,
+    pub occlusion_rebuilds: u64,
+    pub occlusion_last_generation_ms: u64,
+    pub occlusion_planes_created: u64,
+    pub occlusion_planes_removed: u64,
+    pub occlusion_cache_hits: u64,
+    pub occlusion_last_candidates: u64,
+    pub occlusion_last_selected: u64,
+    pub occlusion_last_created: u64,
+    pub occlusion_last_removed: u64,
+    pub occlusion_last_from_cache: u64,
 }
 
-const _: () = assert!(size_of::<DashboardSnapshot>() == 576);
+const _: () = assert!(size_of::<DashboardSnapshot>() == 704);
 
 impl DashboardSnapshot {
     fn request() -> Self {
@@ -214,52 +188,6 @@ pub(crate) fn request_dashboard_refresh(kind: u32) -> bool {
         return false;
     };
     unsafe { function(kind) != 0 }
-}
-
-/// Run a core control command and return its text.
-pub(crate) fn run_command(command: u32) -> Option<String> {
-    let function = resolve_run_command()?;
-    let mut buffer = vec![0u8; 4096];
-    let mut output = CommandOutput {
-        text: buffer.as_mut_ptr(),
-        text_len: buffer.len(),
-        ..CommandOutput::default()
-    };
-    if unsafe { function(command, &mut output) } == 0 {
-        return None;
-    }
-    buffer.truncate(output.written.min(buffer.len()));
-    Some(String::from_utf8_lossy(&buffer).into_owned())
-}
-
-/// Query the current occluder debug frame into a caller-owned reusable buffer.
-/// Returns `false` when the core or the export is unavailable.
-pub(crate) fn query_occlusion_debug(buffer: &mut Vec<f32>) -> bool {
-    let Some(function) = resolve_query_occlusion_debug() else {
-        return false;
-    };
-    buffer.clear();
-    buffer.resize(6 + 256 * 14, 0.0);
-    let needed = unsafe { function(buffer.as_mut_ptr(), buffer.len()) };
-    if needed <= 0 {
-        return false;
-    }
-    buffer.truncate((needed as usize).min(buffer.len()));
-    true
-}
-
-fn resolve_run_command() -> Option<RunCommandFn> {
-    let ptr = resolve_cached(&RUN_COMMAND, RUN_COMMAND_EXPORT)?;
-    unsafe { FnPtr::<RunCommandFn>::from_raw(ptr as *mut c_void) }
-        .ok()
-        .map(|function| function.as_fn())
-}
-
-fn resolve_query_occlusion_debug() -> Option<QueryOcclusionDebugFn> {
-    let ptr = resolve_cached(&QUERY_OCCLUSION_DEBUG, QUERY_OCCLUSION_DEBUG_EXPORT)?;
-    unsafe { FnPtr::<QueryOcclusionDebugFn>::from_raw(ptr as *mut c_void) }
-        .ok()
-        .map(|function| function.as_fn())
 }
 
 fn resolve_notify_event() -> Option<NotifyEventFn> {
@@ -305,17 +233,12 @@ fn resolve_cached(cache: &AtomicUsize, export_name: &str) -> Option<usize> {
 #[cfg(test)]
 mod tests {
     use super::{DASHBOARD_ABI_VERSION, DashboardSnapshot};
-    use std::mem::{offset_of, size_of};
+    use std::mem::size_of;
 
     #[test]
     fn dashboard_request_advertises_exact_storage() {
         let request = DashboardSnapshot::request();
         assert_eq!(request.abi_version, DASHBOARD_ABI_VERSION);
         assert_eq!(request.struct_size as usize, size_of::<DashboardSnapshot>());
-        assert_eq!(
-            offset_of!(DashboardSnapshot, cell_render_forced_cleanups),
-            560,
-            "helper version 4 must mirror the core's version-3 prefix"
-        );
     }
 }
