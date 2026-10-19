@@ -49,14 +49,15 @@ Implementation state, gates, data model, tests, and playtest matrix are in
 ## User-visible behavior
 
 Atom appears in MCM Extender through four feature categories: Input, Camera,
-Ballistics, and Diagnostics. Input contains General, Mouse, Controller, and
-Triggers sections. Camera contains First Person, Third Person, Third Orbit,
-and Third Movement sections. Every row is either a section header or a real
-persisted setting; there are no overview, status, readiness, module, or planned
-feature rows. Every visible label, help value, and choice uses one to three
-words so it remains inside the MCM viewport. Atom Input and both camera systems
-remain disabled by default because this expanded artifact still needs the
-required in-game startup and behavior acceptance.
+Ballistics, and Diagnostics. Input contains General, Mouse, Controller,
+Triggers, and Mouse Aiming sections. Camera contains First Person, Third
+Person, Third Orbit, Third Movement, and Field of View sections. Every row is
+either a section header or a real persisted setting; there are no overview,
+status, readiness, module, or planned feature rows. Every visible label, help
+value, and choice uses one to three words so it remains inside the MCM
+viewport. Atom Input and both camera systems remain disabled by default because
+this expanded artifact still needs the required in-game startup and behavior
+acceptance.
 
 When enabled, the current input milestone:
 
