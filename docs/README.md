@@ -139,6 +139,7 @@ not current policy unless a newer contract links to them.
 | [`crash_20260819_ai_patrol_form_id_alias.md`](crash_20260819_ai_patrol_form_id_alias.md) | AI patrol retained-owner FormID containment | post-mortem |
 | [`crash_20260829_nipixeldata_oom_contract.md`](crash_20260829_nipixeldata_oom_contract.md) | NiPixelData final-OOM containment contract | post-mortem |
 | [`crash_20260830_tile_value_contract.md`](crash_20260830_tile_value_contract.md) | Tile value NULL-slot containment | post-mortem |
+| [`crash_20261018_occlusion_link_plan.md`](crash_20261018_occlusion_link_plan.md) | Native occlusion linked-plane guard; upstream writer unresolved | plan/research |
 | [`crash_20261019_vault108_fade_owner_plan.md`](crash_20261019_vault108_fade_owner_plan.md) | Vault 108 invalid fade-node owner investigation and containment | plan/research |
 | [`crash_20261019_teleport_door_null_base_plan.md`](crash_20261019_teleport_door_null_base_plan.md) | Teleport-door null-base crash investigation and fix plan | plan/research |
 

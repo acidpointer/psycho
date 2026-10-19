@@ -1,0 +1,462 @@
+# Native boundary for the separate occlusion linked-plane guard
+
+Date: 2026-10-19. Tools: radare2 CLI 6.2.2, af/pdfj and pdg.
+Executable: fnv_reverse/FalloutNV.exe, PE32 x86, base 0x00400000.
+SHA-256: 42fee7d6cd74e801372aa89c8f71c974cebd3c20ec9ad43d1465b8fa9646b49c.
+These are static native contracts, not gameplay acceptance.
+Presentation: trailing line whitespace and terminal blank lines omitted.
+The prior occlusion-link contract records fields, ownership and the real fault.
+
+## All six direct callers: decoded argument setup, CALL and continuation
+
+Callsite 0xb5f285
+0xb5f27e 56 push esi
+0xb5f27f 8d8d38010000 lea ecx, [ebp + 0x138]
+0xb5f285 e8968a0e00 call 0xc47d20
+0xb5f28a 3bfb cmp edi, ebx
+0xb5f28c 75a9 jne 0xb5f237
+0xb5f28e 807c241700 cmp byte [esp + 0x17], 0
+prefix 568d8d38010000
+suffix 3bfb75a9807c241700
+
+Callsite 0xb5f353
+0xb5f350 57 push edi
+0xb5f351 8bcd mov ecx, ebp
+0xb5f353 e8c8890e00 call 0xc47d20
+0xb5f358 85f6 test esi, esi
+0xb5f35a 75b7 jne 0xb5f313
+0xb5f35c 84db test bl, bl
+prefix 578bcd
+suffix 85f675b784db
+
+Callsite 0xb5f5bb
+0xb5f5b8 55 push ebp
+0xb5f5b9 8bcb mov ecx, ebx
+0xb5f5bb e860870e00 call 0xc47d20
+0xb5f5c0 85f6 test esi, esi
+0xb5f5c2 75dc jne 0xb5f5a0
+0xb5f5c4 8b6c2418 mov ebp, dword [esp + 0x18]
+prefix 558bcb
+suffix 85f675dc8b6c2418
+
+Callsite 0xb5f6d3
+0xb5f6d0 55 push ebp
+0xb5f6d1 8bcb mov ecx, ebx
+0xb5f6d3 e848860e00 call 0xc47d20
+0xb5f6d8 85f6 test esi, esi
+0xb5f6da 75d8 jne 0xb5f6b4
+0xb5f6dc 85ff test edi, edi
+prefix 558bcb
+suffix 85f675d885ff
+
+Callsite 0xb5f822
+0xb5f81b 55 push ebp
+0xb5f81c 8d8b38010000 lea ecx, [ebx + 0x138]
+0xb5f822 e8f9840e00 call 0xc47d20
+0xb5f827 85f6 test esi, esi
+0xb5f829 75d8 jne 0xb5f803
+0xb5f82b 8b5c2418 mov ebx, dword [esp + 0x18]
+prefix 558d8b38010000
+suffix 85f675d88b5c2418
+
+Callsite 0xb5f8ef
+0xb5f8e8 55 push ebp
+0xb5f8e9 8d8b38010000 lea ecx, [ebx + 0x138]
+0xb5f8ef e82c840e00 call 0xc47d20
+0xb5f8f4 85f6 test esi, esi
+0xb5f8f6 75d8 jne 0xb5f8d0
+0xb5f8f8 8b5c2418 mov ebx, dword [esp + 0x18]
+prefix 558d8b38010000
+suffix 85f675d88b5c2418
+
+## Native no-contribution branch and RET 4
+
+At 0x00C4809A, the source's native link-axis result is compared with 0/1.
+A result of 2 takes 0x00C480B9 directly to the epilogue. No compound
+instructions or plane count have been appended on that branch. This is a
+native no-contribution outcome, not a fabricated success value.
+
+Window 0xc48090 0xc48110
+0xc48092 895024 mov dword [eax + 0x24], edx
+0xc48095 e954070000 jmp 0xc487ee
+0xc4809a 8b4df4 mov ecx, dword [ebp - 0xc]
+0xc4809d 898d8cfeffff mov dword [ebp - 0x174], ecx
+0xc480a3 83bd8cfeffff00 cmp dword [ebp - 0x174], 0
+0xc480aa 7412 je 0xc480be
+0xc480ac 83bd8cfeffff01 cmp dword [ebp - 0x174], 1
+0xc480b3 0f8462010000 je 0xc4821b
+0xc480b9 e930070000 jmp 0xc487ee
+0xc480be 8b9594feffff mov edx, dword [ebp - 0x16c]
+0xc480c4 8b4220 mov eax, dword [edx + 0x20]
+0xc480c7 8985ecfeffff mov dword [ebp - 0x114], eax
+0xc480cd 8b8d94feffff mov ecx, dword [ebp - 0x16c]
+0xc480d3 8b5128 mov edx, dword [ecx + 0x28]
+0xc480d6 83c202 add edx, 2
+0xc480d9 3b95ecfeffff cmp edx, dword [ebp - 0x114]
+0xc480df 7c29 jl 0xc4810a
+0xc480e1 8b8594feffff mov eax, dword [ebp - 0x16c]
+0xc480e7 8b4820 mov ecx, dword [eax + 0x20]
+0xc480ea 898de8feffff mov dword [ebp - 0x118], ecx
+0xc480f0 6a01 push 1
+0xc480f2 8b95e8feffff mov edx, dword [ebp - 0x118]
+0xc480f8 83c20a add edx, 0xa
+0xc480fb 52 push edx
+0xc480fc 8b8d94feffff mov ecx, dword [ebp - 0x16c]
+0xc48102 83c114 add ecx, 0x14
+0xc48105 e8d6200000 call 0xc4a1e0
+0xc4810a 8b8594feffff mov eax, dword [ebp - 0x16c]
+Window 0xc487c0 0xc487f4
+0xc487c3 d3e0 shl eax, cl
+0xc487c5 f7d0 not eax
+0xc487c7 8b8d98feffff mov ecx, dword [ebp - 0x168]
+0xc487cd 234160 and eax, dword [ecx + 0x60]
+0xc487d0 8b9598feffff mov edx, dword [ebp - 0x168]
+0xc487d6 894260 mov dword [edx + 0x60], eax
+0xc487d9 8b8594feffff mov eax, dword [ebp - 0x16c]
+0xc487df 8b4824 mov ecx, dword [eax + 0x24]
+0xc487e2 83c104 add ecx, 4
+0xc487e5 8b9594feffff mov edx, dword [ebp - 0x16c]
+0xc487eb 894a24 mov dword [edx + 0x24], ecx
+0xc487ee 8be5 mov esp, ebp
+0xc487f0 5d pop ebp
+0xc487f1 c20400 ret 4
+
+## Complete builder audit: only the selected linked target is consumed
+
+Query: af @ 0xc47d20; pdfj @ 0xc47d20.
+Decoded 668 instructions, ending at 0x00c487f1.
+Excerpts include every source link-field access and plane cache/rectangle
+call, plus the complete repeated axis-1 selection at 0x00C4862D..C48765.
+The initial selection and C35980 helper are in the prior native contract.
+Together they establish non-null priority 0, 2, 1, 3. The later lookup uses
+the same axis-1 slot, not another link. This assumes native link stability;
+guarded copies do not synchronize a concurrent writer.
+
+0x00c47d43 33c9 xor ecx, ecx
+0x00c47d45 83b8f000000000 cmp dword [eax + 0xf0], 0
+0x00c47d4c 0f94c1 sete cl
+
+0x00c47d6b 8b4d08 mov ecx, dword [ebp + 8]
+0x00c47d6e 8b9481ec000000 mov edx, dword [ecx + eax*4 + 0xec]
+0x00c47d75 899590feffff mov dword [ebp - 0x170], edx
+
+0x00c47d7d 8b4508 mov eax, dword [ebp + 8]
+0x00c47d80 8b88ec000000 mov ecx, dword [eax + 0xec]
+0x00c47d86 f7d9 neg ecx
+
+0x00c47da8 8b4d08 mov ecx, dword [ebp + 8]
+0x00c47dab 8b9481ec000000 mov edx, dword [ecx + eax*4 + 0xec]
+0x00c47db2 899590feffff mov dword [ebp - 0x170], edx
+
+0x00c47dd0 0f8446010000 je 0xc47f1c
+0x00c47dd6 c78514ffffff04000000 mov dword [ebp - 0xec], 4
+0x00c47de0 8d4dc0 lea ecx, [ebp - 0x40]
+0x00c47de3 898d18ffffff mov dword [ebp - 0xe8], ecx
+0x00c47de9 8b9514ffffff mov edx, dword [ebp - 0xec]
+0x00c47def 83ea01 sub edx, 1
+0x00c47df2 899514ffffff mov dword [ebp - 0xec], edx
+0x00c47df8 7811 js 0xc47e0b
+
+0x00c47e3e 8b4d08 mov ecx, dword [ebp + 8]
+0x00c47e41 e82abafeff call 0xc33870
+0x00c47e46 8d45c0 lea eax, [ebp - 0x40]
+
+0x00c47e4a 8b4d08 mov ecx, dword [ebp + 8]
+0x00c47e4d e8beddfeff call 0xc35c10
+0x00c47e52 8d4dd8 lea ecx, [ebp - 0x28]
+
+0x00c47eab 8b4dfc mov ecx, dword [ebp - 4]
+0x00c47eae e8bdb9feff call 0xc33870
+0x00c47eb3 8d4dc0 lea ecx, [ebp - 0x40]
+
+0x00c47eb7 8b4dfc mov ecx, dword [ebp - 4]
+0x00c47eba e851ddfeff call 0xc35c10
+0x00c47ebf 8d55d8 lea edx, [ebp - 0x28]
+
+0x00c48078 8b4d08 mov ecx, dword [ebp + 8]
+0x00c4807b e8f0b7feff call 0xc33870
+0x00c48080 8b8d94feffff mov ecx, dword [ebp - 0x16c]
+
+0x00c481f4 8b4d08 mov ecx, dword [ebp + 8]
+0x00c481f7 e874b6feff call 0xc33870
+0x00c481fc 8b8594feffff mov eax, dword [ebp - 0x16c]
+
+0x00c485e3 8b4d08 mov ecx, dword [ebp + 8]
+0x00c485e6 e885b2feff call 0xc33870
+0x00c485eb 8b9594feffff mov edx, dword [ebp - 0x16c]
+
+0x00c48625 8b4d08 mov ecx, dword [ebp + 8]
+0x00c48628 e843b2feff call 0xc33870
+0x00c4862d 8b4508 mov eax, dword [ebp + 8]
+0x00c48630 33c9 xor ecx, ecx
+0x00c48632 83b8f000000000 cmp dword [eax + 0xf0], 0
+0x00c48639 0f94c1 sete cl
+0x00c4863c 8d4c0901 lea ecx, [ecx + ecx + 1]
+0x00c48640 898d44ffffff mov dword [ebp - 0xbc], ecx
+0x00c48646 c78540ffffff00000000 mov dword [ebp - 0xc0], 0
+0x00c48650 c745f001000000 mov dword [ebp - 0x10], 1
+0x00c48657 83bd44ffffff01 cmp dword [ebp - 0xbc], 1
+0x00c4865e 7514 jne 0xc48674
+0x00c48660 33d2 xor edx, edx
+0x00c48662 837df001 cmp dword [ebp - 0x10], 1
+0x00c48666 0f95c2 setne dl
+0x00c48669 83c202 add edx, 2
+0x00c4866c 899540ffffff mov dword [ebp - 0xc0], edx
+0x00c48672 eb13 jmp 0xc48687
+0x00c48674 33c0 xor eax, eax
+0x00c48676 837df001 cmp dword [ebp - 0x10], 1
+0x00c4867a 0f95c0 setne al
+0x00c4867d 8d440003 lea eax, [eax + eax + 3]
+0x00c48681 898540ffffff mov dword [ebp - 0xc0], eax
+0x00c48687 8b8d94feffff mov ecx, dword [ebp - 0x16c]
+0x00c4868d 8b5124 mov edx, dword [ecx + 0x24]
+0x00c48690 83c202 add edx, 2
+0x00c48693 6bd264 imul edx, edx, 0x64
+0x00c48696 8b8594feffff mov eax, dword [ebp - 0x16c]
+0x00c4869c 035008 add edx, dword [eax + 8]
+0x00c4869f 89959cfeffff mov dword [ebp - 0x164], edx
+0x00c486a5 ba01000000 mov edx, 1
+0x00c486aa 8b8d40ffffff mov ecx, dword [ebp - 0xc0]
+0x00c486b0 d3e2 shl edx, cl
+0x00c486b2 f7d2 not edx
+0x00c486b4 8b859cfeffff mov eax, dword [ebp - 0x164]
+0x00c486ba 235060 and edx, dword [eax + 0x60]
+0x00c486bd 8b8d9cfeffff mov ecx, dword [ebp - 0x164]
+0x00c486c3 895160 mov dword [ecx + 0x60], edx
+0x00c486c6 8b9544ffffff mov edx, dword [ebp - 0xbc]
+0x00c486cc 8b4508 mov eax, dword [ebp + 8]
+0x00c486cf 8b8c90ec000000 mov ecx, dword [eax + edx*4 + 0xec]
+0x00c486d6 898d3cffffff mov dword [ebp - 0xc4], ecx
+0x00c486dc 8b9594feffff mov edx, dword [ebp - 0x16c]
+0x00c486e2 8b4224 mov eax, dword [edx + 0x24]
+0x00c486e5 83c001 add eax, 1
+0x00c486e8 6bc064 imul eax, eax, 0x64
+0x00c486eb 8b8d94feffff mov ecx, dword [ebp - 0x16c]
+0x00c486f1 034108 add eax, dword [ecx + 8]
+0x00c486f4 50 push eax
+0x00c486f5 8b9594feffff mov edx, dword [ebp - 0x16c]
+0x00c486fb 81c294000000 add edx, 0x94
+0x00c48701 83ec0c sub esp, 0xc
+0x00c48704 8bc4 mov eax, esp
+0x00c48706 8b0a mov ecx, dword [edx]
+0x00c48708 8908 mov dword [eax], ecx
+0x00c4870a 8b4a04 mov ecx, dword [edx + 4]
+0x00c4870d 894804 mov dword [eax + 4], ecx
+0x00c48710 8b5208 mov edx, dword [edx + 8]
+0x00c48713 895008 mov dword [eax + 8], edx
+0x00c48716 8b8d3cffffff mov ecx, dword [ebp - 0xc4]
+0x00c4871c e84fb1feff call 0xc33870
+0x00c48721 8b8594feffff mov eax, dword [ebp - 0x16c]
+0x00c48727 8b4824 mov ecx, dword [eax + 0x24]
+0x00c4872a 83c103 add ecx, 3
+0x00c4872d 6bc964 imul ecx, ecx, 0x64
+0x00c48730 8b9594feffff mov edx, dword [ebp - 0x16c]
+0x00c48736 034a08 add ecx, dword [edx + 8]
+0x00c48739 51 push ecx
+0x00c4873a 8b8594feffff mov eax, dword [ebp - 0x16c]
+0x00c48740 0594000000 add eax, 0x94
+0x00c48745 83ec0c sub esp, 0xc
+0x00c48748 8bcc mov ecx, esp
+0x00c4874a 8b10 mov edx, dword [eax]
+0x00c4874c 8911 mov dword [ecx], edx
+0x00c4874e 8b5004 mov edx, dword [eax + 4]
+0x00c48751 895104 mov dword [ecx + 4], edx
+0x00c48754 8b4008 mov eax, dword [eax + 8]
+0x00c48757 894108 mov dword [ecx + 8], eax
+0x00c4875a 8b8d3cffffff mov ecx, dword [ebp - 0xc4]
+0x00c48760 e80bb1feff call 0xc33870
+0x00c48765 83bd44ffffff01 cmp dword [ebp - 0xbc], 1
+
+## pdg hypothesis used to locate the branch (ABI comes from disassembly)
+
+WARN: Invalid certificate table
+
+void __cdecl fcn.00c47d20(int32_t arg_8h)
+
+{
+    int iVar1;
+    int in_ECX;
+    bool bVar2;
+    int32_t var_174h;
+    int32_t var_170h;
+    int32_t var_16ch;
+    int32_t var_168h;
+    int32_t var_164h;
+    int32_t var_160h;
+    int32_t var_15ch;
+    int32_t var_158h;
+    int32_t var_154h;
+    int32_t var_150h;
+    int32_t var_14ch;
+    int32_t var_148h;
+    int32_t var_144h;
+    int32_t var_140h;
+    int32_t var_13ch;
+    int32_t var_138h;
+    int32_t var_134h;
+    int32_t var_130h;
+    int32_t var_12ch;
+    int32_t var_128h;
+    int32_t var_124h;
+    int32_t var_120h;
+    int32_t var_11ch;
+    int32_t var_118h;
+    int32_t var_114h;
+    int32_t var_110h;
+    int32_t var_10ch;
+    int32_t var_108h;
+    int32_t var_104h;
+    int32_t var_100h;
+    int32_t var_ech;
+    int32_t var_e8h;
+    int32_t var_e4h;
+    int32_t var_e0h;
+    int32_t var_dch;
+    int32_t var_d8h;
+    int32_t var_d4h;
+    int32_t var_c4h;
+    int32_t var_c0h;
+    int32_t var_bch;
+    int32_t var_b8h;
+    int32_t var_b4h;
+    int32_t var_b0h;
+    int32_t var_ach;
+    int32_t var_a8h;
+    int32_t var_40h;
+    int32_t var_34h;
+    int32_t var_28h;
+    int32_t var_10h;
+    int32_t var_ch;
+    int8_t var_5h;
+    int32_t var_4h;
+
+    var_ch = func_0x00c35980();
+    if (var_ch == 1) {
+        var_170h = *(arg_8h + 0xec + ((*(arg_8h + 0xf0) == 0) * 2 + 1) * 4);
+    }
+    else {
+        var_170h = *(arg_8h + 0xec + ((-(*(arg_8h + 0xec) != 0) & 0xfffffffe) + 2) * 4);
+    }
+    var_4h = var_170h;
+    var_5h = 0;
+    var_10h = 0;
+    if (var_170h != 0) {
+        var_ech = 4;
+        do {
+            var_ech = var_ech + -1;
+        } while (-1 < var_ech);
+        func_0x0045c620();
+        func_0x00c33870(*(in_ECX + 0x94),*(in_ECX + 0x98),*(in_ECX + 0x9c),&var_a8h);
+        func_0x00c35c10(&var_40h);
+        func_0x00a699d0(&var_40h,&var_34h,&var_28h);
+        var_10h = func_0x0049da80(in_ECX + 0x94);
+        func_0x00c33870(*(in_ECX + 0x94),*(in_ECX + 0x98),*(in_ECX + 0x9c),&var_a8h);
+        func_0x00c35c10(&var_40h);
+        func_0x00a699d0(&var_40h,&var_34h,&var_28h);
+        iVar1 = func_0x0049da80(in_ECX + 0x94);
+        var_5h = var_10h == iVar1;
+    }
+    if (((var_4h == 0) || (*(var_4h + 0x40) == 1)) && (var_5h != 0)) {
+        if (var_ch == 0) {
+            if (*(in_ECX + 0x20) <= *(in_ECX + 0x28) + 2) {
+                func_0x00c4a1e0(*(in_ECX + 0x20) + 10,1);
+            }
+            if (*(in_ECX + 0x10) <= *(in_ECX + 0x24) + 1) {
+                func_0x00c4a070(*(in_ECX + 0x10) + 4,1);
+            }
+            *(*(in_ECX + 0x28) * 0xc + *(in_ECX + 0x18)) = 8;
+            *(in_ECX + 0x28) = *(in_ECX + 0x28) + 1;
+            *(*(in_ECX + 0x28) * 0xc + *(in_ECX + 0x18)) = *(in_ECX + 0x24);
+            *(in_ECX + 0x28) = *(in_ECX + 0x28) + 1;
+            func_0x00c33870(*(in_ECX + 0x94),*(in_ECX + 0x98),*(in_ECX + 0x9c),*(in_ECX + 0x24) * 100 + *(in_ECX + 8)
+                           );
+            *(in_ECX + 0x24) = *(in_ECX + 0x24) + 1;
+        }
+        else if (var_ch == 1) {
+            if (*(in_ECX + 0x20) <= *(in_ECX + 0x28) + 0xc) {
+                func_0x00c4a1e0(*(in_ECX + 0x20) + 0xc,1);
+            }
+            if (*(in_ECX + 0x10) <= *(in_ECX + 0x24) + 4) {
+                func_0x00c4a070(*(in_ECX + 0x10) + 4,1);
+            }
+            iVar1 = *(in_ECX + 0x28);
+            *(in_ECX + 0x28) = *(in_ECX + 0x28) + 1;
+            *(iVar1 * 0xc + *(in_ECX + 0x18)) = 4;
+            iVar1 = *(in_ECX + 0x28);
+            *(in_ECX + 0x28) = *(in_ECX + 0x28) + 1;
+            *(iVar1 * 0xc + *(in_ECX + 0x18)) = 8;
+            iVar1 = *(in_ECX + 0x28);
+            *(in_ECX + 0x28) = *(in_ECX + 0x28) + 1;
+            *(iVar1 * 0xc + *(in_ECX + 0x18)) = *(in_ECX + 0x24);
+            iVar1 = *(in_ECX + 0x28);
+            *(in_ECX + 0x28) = *(in_ECX + 0x28) + 1;
+            *(iVar1 * 0xc + *(in_ECX + 0x18)) = 8;
+            iVar1 = *(in_ECX + 0x28);
+            *(in_ECX + 0x28) = *(in_ECX + 0x28) + 1;
+            *(iVar1 * 0xc + *(in_ECX + 0x18)) = *(in_ECX + 0x24) + 1;
+            iVar1 = *(in_ECX + 0x28);
+            *(in_ECX + 0x28) = *(in_ECX + 0x28) + 1;
+            *(iVar1 * 0xc + *(in_ECX + 0x18)) = 5;
+            iVar1 = *(in_ECX + 0x28);
+            *(in_ECX + 0x28) = *(in_ECX + 0x28) + 1;
+            *(iVar1 * 0xc + *(in_ECX + 0x18)) = 8;
+            iVar1 = *(in_ECX + 0x28);
+            *(in_ECX + 0x28) = *(in_ECX + 0x28) + 1;
+            *(iVar1 * 0xc + *(in_ECX + 0x18)) = *(in_ECX + 0x24) + 2;
+            iVar1 = *(in_ECX + 0x28);
+            *(in_ECX + 0x28) = *(in_ECX + 0x28) + 1;
+            *(iVar1 * 0xc + *(in_ECX + 0x18)) = 8;
+            iVar1 = *(in_ECX + 0x28);
+            *(in_ECX + 0x28) = *(in_ECX + 0x28) + 1;
+            *(iVar1 * 0xc + *(in_ECX + 0x18)) = *(in_ECX + 0x24) + 3;
+            iVar1 = *(in_ECX + 0x28);
+            *(in_ECX + 0x28) = *(in_ECX + 0x28) + 1;
+            *(iVar1 * 0xc + *(in_ECX + 0x18)) = 6;
+            iVar1 = *(in_ECX + 0x28);
+            *(in_ECX + 0x28) = *(in_ECX + 0x28) + 1;
+            *(iVar1 * 0xc + *(in_ECX + 0x18)) = 6;
+            func_0x00c33870(*(in_ECX + 0x94),*(in_ECX + 0x98),*(in_ECX + 0x9c),*(in_ECX + 0x24) * 100 + *(in_ECX + 8)
+                           );
+            func_0x00c33870(*(in_ECX + 0x94),*(in_ECX + 0x98),*(in_ECX + 0x9c),
+                            (*(in_ECX + 0x24) + 2) * 100 + *(in_ECX + 8));
+            bVar2 = *(arg_8h + 0xf0) == 0;
+            var_10h = 1;
+            if (bVar2) {
+                var_c0h = 3;
+            }
+            else {
+                var_c0h = 2;
+            }
+            iVar1 = (*(in_ECX + 0x24) + 2) * 100 + *(in_ECX + 8);
+            *(iVar1 + 0x60) = ~(1 << var_c0h) & *(iVar1 + 0x60);
+            func_0x00c33870(*(in_ECX + 0x94),*(in_ECX + 0x98),*(in_ECX + 0x9c),
+                            (*(in_ECX + 0x24) + 1) * 100 + *(in_ECX + 8));
+            func_0x00c33870(*(in_ECX + 0x94),*(in_ECX + 0x98),*(in_ECX + 0x9c),
+                            (*(in_ECX + 0x24) + 3) * 100 + *(in_ECX + 8));
+            if (bVar2) {
+                var_c0h._0_1_ = (var_c0h == 4) + 4;
+            }
+            else {
+                var_c0h._0_1_ = (var_c0h == 2) + 2;
+            }
+            iVar1 = (*(in_ECX + 0x24) + 3) * 100 + *(in_ECX + 8);
+            *(iVar1 + 0x60) = ~(1 << var_c0h) & *(iVar1 + 0x60);
+            *(in_ECX + 0x24) = *(in_ECX + 0x24) + 4;
+        }
+    }
+    else {
+        if (*(in_ECX + 0x20) <= *(in_ECX + 0x28) + 2) {
+            func_0x00c4a1e0(*(in_ECX + 0x20) + 10,1);
+        }
+        if (*(in_ECX + 0x10) <= *(in_ECX + 0x24) + 1) {
+            func_0x00c4a070(*(in_ECX + 0x10) + 4,1);
+        }
+        *(*(in_ECX + 0x28) * 0xc + *(in_ECX + 0x18)) = 8;
+        *(in_ECX + 0x28) = *(in_ECX + 0x28) + 1;
+        *(*(in_ECX + 0x28) * 0xc + *(in_ECX + 0x18)) = *(in_ECX + 0x24);
+        *(in_ECX + 0x28) = *(in_ECX + 0x28) + 1;
+        func_0x00c33870(*(in_ECX + 0x94),*(in_ECX + 0x98),*(in_ECX + 0x9c),*(in_ECX + 0x24) * 100 + *(in_ECX + 8));
+        *(in_ECX + 0x24) = *(in_ECX + 0x24) + 1;
+    }
+    return;
+}

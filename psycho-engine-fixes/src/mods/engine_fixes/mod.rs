@@ -29,6 +29,7 @@ mod memset;
 mod model_cache_keys;
 mod model_postprocess;
 mod navmesh;
+mod occlusion_link_guard;
 mod patching;
 mod patrol_ref_in_use;
 mod pixel_texture_failure;
@@ -213,6 +214,11 @@ pub fn install(
     if let Err(error) = fade_linked_owner_guard::install() {
         log::warn!(
             "[FADE_OWNER] Linked-owner alpha guard unavailable: {error:#}; existing alpha provider retained"
+        );
+    }
+    if let Err(error) = occlusion_link_guard::install() {
+        log::warn!(
+            "[OCCLUSION_LINK] Unreadable plane guard unavailable: {error:#}; native callers retained"
         );
     }
     let model_postprocess_ready = install_model_postprocess_fix(config);
