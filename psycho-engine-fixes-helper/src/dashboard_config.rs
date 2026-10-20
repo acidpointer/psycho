@@ -127,6 +127,8 @@ pub(crate) struct EditableConfig {
     pub inventory_reset_guard: bool,
     /// Reject broken inventory-save lists without replacing the previous save.
     pub inventory_list_save_guard: bool,
+    /// Restart-only menu render resolution and full-view fade correction.
+    pub resolution_fixes: bool,
 }
 
 impl Default for EditableConfig {
@@ -203,6 +205,7 @@ impl Default for EditableConfig {
             list_cleanup_guard: true,
             inventory_reset_guard: true,
             inventory_list_save_guard: true,
+            resolution_fixes: true,
         }
     }
 }
@@ -616,6 +619,12 @@ impl EditableConfig {
                 "inventory_list_save_guard",
                 defaults.inventory_list_save_guard,
             ),
+            resolution_fixes: bool_or(
+                doc,
+                "engine_fixes",
+                "resolution_fixes",
+                defaults.resolution_fixes,
+            ),
         }
         .sanitized()
     }
@@ -866,6 +875,7 @@ fn write_document(doc: &mut DocumentMut, config: &EditableConfig) {
         value(config.fallout3_install_path.clone()),
     );
     engine!(display_borderless_windowed);
+    engine!(resolution_fixes);
     engine!(window_cursor_lock);
     engine!(input_system_key_passthrough);
     engine!(save_integrity_fix);
@@ -1175,6 +1185,7 @@ mod_owned_key = "untouched"
         config.fallout3_install_path = r"..\Fallout 3".to_owned();
         config.display_alt_tab = !config.display_alt_tab;
         config.display_borderless_windowed = !config.display_borderless_windowed;
+        config.resolution_fixes = !config.resolution_fixes;
         config.window_cursor_lock = !config.window_cursor_lock;
         config.input_system_key_passthrough = !config.input_system_key_passthrough;
         config.save_integrity_fix = !config.save_integrity_fix;

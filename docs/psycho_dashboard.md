@@ -80,6 +80,16 @@ runtime telemetry defines its specialized terms in place. In particular:
 Tooltip prose stays concise, ASCII, and gamer-facing. It does not expose raw
 addresses, reverse-engineering terminology, or unsupported guarantees.
 
+### Resolution fixes
+
+**Resolution fixes** is a restart-only setting, default on, in Window and input.
+Its TOML comment uses imperative wording; its helper tooltip uses a short label
+and third-person explanation. Both describe improved Pip-Boy, terminal, and
+character creation screen resolution and complete fades to black on ultrawide
+displays. The existing Save for next launch workflow applies. The helper
+preserves independently owned settings and does not change live patch state.
+See `resolution_fixes_research_and_plan.md` for native ownership and validation.
+
 ### Inventory save guard
 
 **Inventory save guard** is a restart-only engine-fix setting, default on. Its

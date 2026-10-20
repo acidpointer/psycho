@@ -1,0 +1,24 @@
+Psycho resolution context signatures
+2026-10-20T18:51:14.413473+00:00
+Binary: fnv_reverse/FalloutNV.exe
+SHA-256: 42fee7d6cd74e801372aa89c8f71c974cebd3c20ec9ad43d1465b8fa9646b49c
+radare2 6.2.2 +37485 abi:142 @ linux-x86_64
+Interface: radare2 CLI; relocations applied at original image base.
+Scope: exact unchanged context around the six proposed native patches.
+No game execution or runtime qualification. This file is not patch authority.
+Command argv: ["r2", "-q", "-e", "scr.color=0", "-e", "bin.relocs.apply=true", "-c", "p8 32 @ 10501220", "-c", "p8 22 @ 11977408", "-c", "p8 8 @ 11980068", "-c", "p8 14 @ 11980095", "-c", "p8 8 @ 11980475", "-c", "p8 14 @ 11980502", "-c", "p8 23 @ 7415488", "-c", "p8 36 @ 7416701", "-c", "p8 7 @ 7416738", "-c", "p8 20 @ 7341760", "-c", "p8 17 @ 7342753", "-c", "p8 20 @ 7342776", "-c", "p8 19 @ 7342802", "-c", "q", "fnv_reverse/FalloutNV.exe"]
+WARN: Invalid certificate table
+
+predicate_suffix 0x00A03C64 32: ec0c894df48b4df4e81f0000008945fc8b45fc8a481c884dfb8a45fb8be55dc3
+selector_entry 0x00B6C2C0 22: 8b44241883ec085355c700000000008b0d90941f0156
+screen_prefix 0x00B6CD24 8: 8b6c24248b7c241c
+screen_suffix 0x00B6CD3F 14: 8b178bd88b82c80000008bcfffd0
+race_prefix 0x00B6CEBB 8: 8b6c24248b7c241c
+race_suffix 0x00B6CED6 14: 8b178bd88b82c80000008bcfffd0
+targeting_entry 0x007126C0 23: 558bec6aff68a080f00064a1000000005081ecd0000000
+targeting_prefix 0x00712B7D 36: b9ccb21d01e8d961cfff0fb60085c00f84890000008b8d40ffffff0fb6917001000085d2
+targeting_suffix 0x00712BA2 7: 78e89842ffffdd
+fader_entry 0x007006C0 20: 558bec6aff68e477f00064a1000000005083ec78
+fader_width_prefix 0x00700AA1 17: e84ab7ddff898514ffffffdb8514ffffff
+fader_width_suffix 0x00700AB8 20: d95df0e840b7ddff898510ffffffdb8510ffffff
+fader_height_suffix 0x00700AD2 19: d95db051d945b0d91c2451d9eed91c24d945f0

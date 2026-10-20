@@ -2293,6 +2293,12 @@ fn draw_configuration(ui: &mut Ui<'_>, editor: &mut ConfigEditor, pending_reload
     );
     checkbox_help(
         ui,
+        "Resolution fixes",
+        &mut config.resolution_fixes,
+        "Improves Pip-Boy, terminal, and character creation screen resolution, and fixes incomplete fades to black on ultrawide displays.",
+    );
+    checkbox_help(
+        ui,
         "Lock cursor to game window",
         &mut config.window_cursor_lock,
         "Keeps the mouse inside the game window while active. Framed title bars and resize borders stay usable; the cursor is released when the game loses focus.",

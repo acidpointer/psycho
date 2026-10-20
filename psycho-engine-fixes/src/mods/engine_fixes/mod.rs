@@ -40,6 +40,7 @@ mod patrol_ref_in_use;
 mod pixel_texture_failure;
 mod queued_tasks;
 mod ragdoll;
+mod resolution_fixes;
 mod save_integrity;
 mod scene_reference_owner_guard;
 mod source_texture_cache_guard;
@@ -196,6 +197,7 @@ pub fn install(
     lod_config: &LodConfig,
     diagnostics: &DiagnosticsConfig,
 ) -> anyhow::Result<()> {
+    resolution_fixes::install(config.resolution_fixes);
     install_actor_container_guard(config);
     install_inventory_reset_guard(config);
     install_controller_sequence_guard(config);
@@ -361,6 +363,7 @@ pub fn repair_install_paths(config: &EngineFixesConfig) {
 
 /// Forward a host lifecycle event to fixes that audit late hook ownership.
 pub fn observe_event(kind: u32) {
+    resolution_fixes::observe_event(kind);
     window_input::observe_event(kind);
     lowprocess::observe_event(kind);
     model_postprocess::observe_event(kind);
@@ -402,6 +405,12 @@ pub(crate) fn append_diagnostic_report(out: &mut String) {
     let cell_render = cell_render_retirement::dashboard_snapshot();
 
     push_report_section(out, "Runtime fixes");
+    let (resolution_status, preexisting) = resolution_fixes::diagnostic_status();
+    push_report_value(
+        out,
+        "Resolution fixes",
+        format!("{resolution_status} / {preexisting} already corrected sites"),
+    );
     push_feature_pair(
         out,
         "Display",

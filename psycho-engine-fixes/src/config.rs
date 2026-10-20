@@ -480,6 +480,8 @@ pub struct EngineFixesConfig {
     pub inventory_reset_guard: bool,
     /// Reject broken inventory-save lists without replacing the previous save.
     pub inventory_list_save_guard: bool,
+    /// Use configured menu render width and full-view fade geometry at startup.
+    pub resolution_fixes: bool,
 }
 
 impl Default for EngineFixesConfig {
@@ -522,6 +524,7 @@ impl Default for EngineFixesConfig {
             list_cleanup_guard: true,
             inventory_reset_guard: true,
             inventory_list_save_guard: true,
+            resolution_fixes: true,
         }
     }
 }
@@ -644,6 +647,7 @@ impl EngineFixesConfig {
             inventory_list_save_guard: raw
                 .inventory_list_save_guard
                 .unwrap_or(default.inventory_list_save_guard),
+            resolution_fixes: raw.resolution_fixes.unwrap_or(default.resolution_fixes),
         }
     }
 }
@@ -782,6 +786,7 @@ struct RawEngineFixesConfig {
     list_cleanup_guard: Option<bool>,
     inventory_reset_guard: Option<bool>,
     inventory_list_save_guard: Option<bool>,
+    resolution_fixes: Option<bool>,
 }
 
 #[derive(Default, Deserialize)]
@@ -882,6 +887,19 @@ pub fn get_config() -> anyhow::Result<&'static PsychoConfig> {
 #[cfg(test)]
 mod tests {
     use super::PsychoConfig;
+
+    #[test]
+    fn resolution_fixes_default_on_and_preserve_explicit_disable() {
+        let default: PsychoConfig = toml::from_str("").expect("parse default configuration");
+        let disabled: PsychoConfig = toml::from_str("[engine_fixes]\nresolution_fixes = false\n")
+            .expect("parse resolution setting");
+        let saved = toml::to_string(&disabled).expect("serialize configuration");
+        let reparsed: PsychoConfig = toml::from_str(&saved).expect("parse saved configuration");
+
+        assert!(default.engine_fixes.resolution_fixes);
+        assert!(!disabled.engine_fixes.resolution_fixes);
+        assert!(!reparsed.engine_fixes.resolution_fixes);
+    }
 
     #[test]
     fn io_parallelism_is_owned_by_io_section() {
