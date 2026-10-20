@@ -62,8 +62,8 @@ display_alt_tab = true
 # configured size. bFull Screen=1 always stays native fullscreen.
 display_borderless_windowed = true
 
-# Improve Pip-Boy, terminal, and character creation screen resolution, and fix
-# incomplete fades to black on ultrawide displays.
+# Improve Pip-Boy, terminal, and character creation screen resolution, and
+# fade coverage at all resolutions.
 resolution_fixes = true
 
 # Keep the mouse inside the game window while it is active. Framed windows keep

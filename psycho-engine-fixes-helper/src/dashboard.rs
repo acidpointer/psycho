@@ -2295,7 +2295,7 @@ fn draw_configuration(ui: &mut Ui<'_>, editor: &mut ConfigEditor, pending_reload
         ui,
         "Resolution fixes",
         &mut config.resolution_fixes,
-        "Improves Pip-Boy, terminal, and character creation screen resolution, and fixes incomplete fades to black on ultrawide displays.",
+        "Improves Pip-Boy, terminal, and character creation screen resolution and fade coverage at all resolutions.",
     );
     checkbox_help(
         ui,

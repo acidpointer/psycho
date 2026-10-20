@@ -22,3 +22,8 @@ fader_entry 0x007006C0 20: 558bec6aff68e477f00064a1000000005083ec78
 fader_width_prefix 0x00700AA1 17: e84ab7ddff898514ffffffdb8514ffffff
 fader_width_suffix 0x00700AB8 20: d95df0e840b7ddff898510ffffffdb8510ffffff
 fader_height_suffix 0x00700AD2 19: d95db051d945b0d91c2451d9eed91c24d945f0
+
+Review correction: fader_entry above identifies the adjacent parent-node initializer. The actual geometry owner begins at 0x00700960; use the following signature instead.
+Command argv: ["r2", "-q", "-e", "scr.color=0", "-e", "bin.relocs.apply=true", "-c", "p8 23 @ 0x00700960", "-c", "q", "fnv_reverse/FalloutNV.exe"]
+WARN: Invalid certificate table
+558bec6aff68a078f00064a1000000005081ec0c010000

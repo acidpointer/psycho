@@ -49,7 +49,7 @@ For task routing and authority chains, see
 | [`fnv_location_performance_static_audit.md`](fnv_location_performance_static_audit.md) | Fallout New Vegas location performance static audit | reference |
 | [`fnv_extended_plugin_limit_engine_contract_and_plan.md`](fnv_extended_plugin_limit_engine_contract_and_plan.md) | FNV extended plugin limit engine contract and implementation plan | contract |
 | [`display_fixes_reimplementation_plan.md`](display_fixes_reimplementation_plan.md) | Display and window-mode implementation contract | plan/research |
-| [`resolution_fixes_research_and_plan.md`](resolution_fixes_research_and_plan.md) | Native UI resolution and ultrawide fade fixes | plan/research |
+| [`resolution_fixes_research_and_plan.md`](resolution_fixes_research_and_plan.md) | Native UI resolution and full-view fade fixes | plan/research |
 | [`fnv_actor_input_contract.md`](fnv_actor_input_contract.md) | Fallout: New Vegas actor input contract | contract |
 | [`libpsycho_hardware_detection.md`](libpsycho_hardware_detection.md) | libpsycho hardware detection | reference |
 | [`fnv_runtime_visibility_injection_research.md`](fnv_runtime_visibility_injection_research.md) | Runtime visibility injection for unoptimized locations | plan/research |
