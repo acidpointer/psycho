@@ -889,6 +889,155 @@
               "default": 0
             }
           ]
+        },
+        "35": {
+          "type": 2.5,
+          "title": "Terminal FOV",
+          "mouse": "Screen texture scale",
+          "enable": 1,
+          "scale": {
+            "valueDecimal": 2,
+            "valueIncrement": 0.01,
+            "valueMin": 0,
+            "valueMax": 1
+          },
+          "vars": [
+            {
+              "configINI": "Fov:fTerminal",
+              "default": 0
+            }
+          ]
+        },
+        "36": {
+          "type": 2.5,
+          "title": "Iron Sight Speed",
+          "mouse": "Transition seconds",
+          "enable": 1,
+          "scale": {
+            "suffix": "s",
+            "valueDecimal": 2,
+            "valueIncrement": 0.01,
+            "valueMin": 0,
+            "valueMax": 10
+          },
+          "vars": [
+            {
+              "configINI": "Fov:fIronSightSpeed",
+              "default": 0
+            }
+          ]
+        },
+        "37": {
+          "type": 2.5,
+          "title": "Dialog Zoom In",
+          "mouse": "Zoom-in seconds",
+          "enable": 1,
+          "scale": {
+            "suffix": "s",
+            "valueDecimal": 2,
+            "valueIncrement": 0.05,
+            "valueMin": 0,
+            "valueMax": 30
+          },
+          "vars": [
+            {
+              "configINI": "Fov:fDialogZoomIn",
+              "default": 0
+            }
+          ]
+        },
+        "38": {
+          "type": 2.5,
+          "title": "Dialog Zoom Out",
+          "mouse": "Zoom-out seconds",
+          "enable": 1,
+          "scale": {
+            "suffix": "s",
+            "valueDecimal": 2,
+            "valueIncrement": 0.05,
+            "valueMin": 0,
+            "valueMax": 30
+          },
+          "vars": [
+            {
+              "configINI": "Fov:fDialogZoomOut",
+              "default": 0
+            }
+          ]
+        },
+        "39": {
+          "type": 2.5,
+          "title": "Dialog Delay",
+          "mouse": "Speech delay seconds",
+          "enable": 1,
+          "scale": {
+            "suffix": "s",
+            "valueDecimal": 2,
+            "valueIncrement": 0.1,
+            "valueMin": 0,
+            "valueMax": 30
+          },
+          "vars": [
+            {
+              "configINI": "Fov:fDialogDelay",
+              "default": 0
+            }
+          ]
+        },
+        "40": {
+          "type": 2.5,
+          "title": "Scope Scissor",
+          "mouse": "0 uses native",
+          "enable": 1,
+          "scale": {
+            "valueDecimal": 2,
+            "valueIncrement": 0.05,
+            "valueMin": 0,
+            "valueMax": 1
+          },
+          "vars": [
+            {
+              "configINI": "Fov:fScopeScissor",
+              "default": 0
+            }
+          ]
+        },
+        "41": {
+          "type": 2.5,
+          "title": "Near Distance",
+          "mouse": "0 uses native",
+          "enable": 1,
+          "scale": {
+            "valueDecimal": 1,
+            "valueIncrement": 0.5,
+            "valueMin": 0,
+            "valueMax": 1000
+          },
+          "vars": [
+            {
+              "configINI": "Fov:fNearDistance",
+              "default": 0
+            }
+          ]
+        },
+        "42": {
+          "type": 2.5,
+          "title": "Iron Sight FOV",
+          "mouse": "0 uses native",
+          "enable": 1,
+          "scale": {
+            "suffix": "deg",
+            "valueDecimal": 0,
+            "valueIncrement": 5,
+            "valueMin": 0,
+            "valueMax": 150
+          },
+          "vars": [
+            {
+              "configINI": "Fov:fIronSightFov",
+              "default": 0
+            }
+          ]
         }
       }
     },

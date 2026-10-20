@@ -236,15 +236,15 @@ fn initialize_inner(
                 if complete_camera_entry {
                     match camera::install_fov_system() {
                         Ok(fov_hooks) => {
-                            log::info!("[CAMERA] Native camera FOV ownership installed");
+                            log::info!("[CAMERA] Native camera FOV base ownership installed");
                             log::debug!(
-                                "[CAMERA] FOV predecessors: setter=0x{:08X}, aspect=0x{:08X}",
+                                "[CAMERA] FOV writer pair: setter=0x{:08X}, aspect=0x{:08X}",
                                 fov_hooks.world_setter,
                                 fov_hooks.fov_aspect,
                             );
                         }
                         Err(error) => log::warn!(
-                            "[CAMERA] Native camera FOV scaling is unavailable: {error:#}. Native FOV remains active"
+                            "[CAMERA] Native camera FOV bases are unavailable: {error:#}. Native FOV remains active"
                         ),
                     }
                     if FIRST_PERSON_RENDER_HOOK_GATE.arm() {
@@ -467,22 +467,6 @@ pub(crate) fn activate_post_deferred_render_hooks() {
                 first_person_hooks.first_person_a,
                 first_person_hooks.first_person_b,
             );
-            if let Some(predecessor) = first_person_hooks.viewmodel_fov {
-                log::info!("[CAMERA] Viewmodel FOV ownership installed");
-                log::debug!("[CAMERA] Viewmodel FOV predecessor: 0x{predecessor:08X}");
-            }
-            if let Some(predecessor) = first_person_hooks.third_person_fov {
-                log::info!("[CAMERA] Third-person FOV render correction installed");
-                log::debug!("[CAMERA] Third-person FOV route predecessor: 0x{predecessor:08X}");
-            }
-            if let Some((first, second)) = first_person_hooks.pipboy_fov {
-                log::info!("[CAMERA] Pip-Boy FOV ownership installed");
-                log::debug!("[CAMERA] Pip-Boy FOV predecessors: a=0x{first:08X}, b=0x{second:08X}");
-            }
-            if let Some(predecessor) = first_person_hooks.pipboy_open_setup {
-                log::info!("[CAMERA] Pip-Boy open-animation FOV latch installed");
-                log::debug!("[CAMERA] Pip-Boy open setup predecessor: 0x{predecessor:08X}");
-            }
             // Every subsystem has now committed its hooks, including any
             // deferred graphics wrappers captured as predecessors. This is
             // the earliest point where one audit covers the complete set.
@@ -632,11 +616,18 @@ fn apply_config(config: AtomConfig, process_summary_request: bool, report_unchan
     }
     if fov_config != previous_fov || report_unchanged {
         log::info!(
-            "[CONFIG] Camera FOV active: first={:.0}, third={:.0}, viewmodel={:.0}, pipboy={:.0} (0 is native; viewmodel 0 follows first)",
+            "[CONFIG] Field of View active: first={:.0}, third={:.0}, viewmodel={:.0}, pipboy={:.0}, terminal={:.2}, iron_speed={:.2}, dialog={:.2}/{:.2}/{:.2}, scissor={:.2}, near={:.1} (0 is native; viewmodel 0 follows first)",
             fov_config.first_person(),
             fov_config.third_person(),
             fov_config.viewmodel(),
             fov_config.pipboy(),
+            fov_config.terminal(),
+            fov_config.iron_sight_speed(),
+            fov_config.dialog_zoom_in(),
+            fov_config.dialog_zoom_out(),
+            fov_config.dialog_delay(),
+            fov_config.scope_scissor(),
+            fov_config.near_distance(),
         );
     }
 

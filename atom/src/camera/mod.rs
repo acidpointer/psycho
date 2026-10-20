@@ -36,7 +36,7 @@ mod state;
 pub mod third_person;
 
 pub use config::{FirstPersonConfig, FirstPersonConfigError};
-pub use fov::{CameraFovConfig, CameraFovConfigError, fov_scale, scale_fov_degrees};
+pub use fov::{CameraFovConfig, CameraFovConfigError};
 pub use motion::{GeneratedMotion, LocomotionState, MotionGenerator, MotionInput};
 pub use pose::{CameraPose, CameraTransform, compose_transform};
 pub use state::CameraMotionFrame;
@@ -87,10 +87,6 @@ pub(crate) struct FirstPersonHookStatus {
     pub(crate) first_person_special: usize,
     pub(crate) first_person_a: usize,
     pub(crate) first_person_b: usize,
-    pub(crate) viewmodel_fov: Option<usize>,
-    pub(crate) third_person_fov: Option<usize>,
-    pub(crate) pipboy_fov: Option<(usize, usize)>,
-    pub(crate) pipboy_open_setup: Option<usize>,
 }
 
 /// Captured predecessor for the shared complete camera-update wrapper.
@@ -99,7 +95,7 @@ pub(crate) struct SharedCameraHookStatus {
     pub(crate) update_entry: usize,
 }
 
-/// Captured predecessors for the native camera FOV writers.
+/// Captured native FOV writer addresses for startup diagnostics.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) struct CameraFovHookStatus {
     pub(crate) world_setter: usize,
@@ -231,7 +227,7 @@ pub(crate) fn install_shared_update_entry(
     })
 }
 
-/// Install the native FOV writers independently of camera motion.
+/// Install native FOV base ownership independently of camera motion.
 ///
 /// Failure leaves every FOV field native while input, Ballistics, and the
 /// remaining camera capabilities continue under their own transactions.
@@ -253,52 +249,12 @@ pub(crate) fn install_first_person_system() -> Result<FirstPersonHookStatus, Fir
 {
     native::validate_contract()?;
     let predecessors = hooks::install_render_hooks()?;
-    let viewmodel_fov = match fov_hooks::install_viewmodel_frustum(fov_hooks::world_fov_active()) {
-        Ok(predecessor) => Some(predecessor),
-        Err(error) => {
-            log::warn!(
-                "[CAMERA] Viewmodel FOV is unavailable: {error:#}. The viewmodel retains its native FOV"
-            );
-            None
-        }
-    };
-    let third_person_fov = match fov_hooks::install_third_person_route() {
-        Ok(predecessor) => Some(predecessor),
-        Err(error) => {
-            log::warn!(
-                "[CAMERA] Third-person FOV render correction is unavailable: {error:#}. Native writer scaling remains active"
-            );
-            None
-        }
-    };
-    let pipboy_fov = match fov_hooks::install_pipboy_fov() {
-        Ok(predecessors) => Some(predecessors),
-        Err(error) => {
-            log::warn!(
-                "[CAMERA] Pip-Boy FOV ownership is unavailable: {error:#}. The Pip-Boy retains its native FOV"
-            );
-            None
-        }
-    };
-    let pipboy_open_setup = match fov_hooks::install_pipboy_open_setup() {
-        Ok(predecessor) => Some(predecessor),
-        Err(error) => {
-            log::warn!(
-                "[CAMERA] Pip-Boy open-animation FOV latch is unavailable: {error:#}. The open animation may briefly use native FOV"
-            );
-            None
-        }
-    };
     let status = FirstPersonHookStatus {
         route_a: predecessors.route_a,
         route_b: predecessors.route_b,
         first_person_special: predecessors.first_person_special,
         first_person_a: predecessors.first_person_a,
         first_person_b: predecessors.first_person_b,
-        viewmodel_fov,
-        third_person_fov,
-        pipboy_fov,
-        pipboy_open_setup,
     };
     FIRST_PERSON_ACTIVE.store(true, Ordering::Release);
     Ok(status)

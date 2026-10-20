@@ -154,29 +154,28 @@ look inertia. `Land Motion` scales world-camera landing response, and `Aim
 Motion` is the fraction of weapon inertia and shot response retained during
 ADS.
 
-Camera field-of-view scaling is native by default and independently configurable
-on the `Field of View` page. `First Person FOV`, `Third Person FOV`, `Viewmodel FOV`, and
-`Pip-Boy FOV` are base-angle targets for the first-person world camera, the
-third-person world camera, the separately rendered hands/weapon camera, and the
-Pip-Boy/terminal camera. Zero keeps the native value, and a zero `Viewmodel FOV`
-follows the effective first-person angle. Atom scales the live native angle by
-`tan(target / 2) / tan(base / 2)` at FNV's own `BSSceneGraph::SetCameraFOV`
-writer and its matching aspect-compensation writer, so aiming, scopes, POV
-transitions, and compatible external FOV owners retain their relative zoom. The
-viewmodel frustum copy is independently scaled at the native handoff. The
-normal third-person render route compares the live scene graph scalar with the
-expected third-person angle and corrects only a mismatch, making the feature
-independent of which native player-camera update route ran. FOV ownership is
-independent of motion ownership: normal gameplay preserves the live field's
-relative ADS/scope zoom against each field's learned hip-fire base, so hip fire
-is exactly the configured angle; menus and POV transitions force the last
-coherent POV target; VATS/special/fly/death cameras retain their authored angle
-with the player's relative FOV ratio and the first normal frame afterward
-immediately reapplies the configured lens; and the Pip-Boy owns its dedicated
-open/close latch and world/device target. Its separate screen-texture projection
-is native/mod-owned and is not patched. Only an invalid player/camera state or
-an explicit external camera-owner token yields native FOV. The two proven
-Pip-Boy/terminal camera callsites and the open setup are owned separately. The complete address and ownership contract is in
+Camera field-of-view ownership is native by default and independently
+configurable on the `Field of View` page. `First Person FOV`, `Third Person FOV`,
+`Viewmodel FOV`, and `Pip-Boy FOV` are native base targets for the world /
+first-person world camera, the stable third-person camera, the first-person
+hands/weapon field, and the Pip-Boy/terminal camera. Zero keeps the native base,
+and a zero `Viewmodel FOV` follows the effective first-person target.
+
+Atom applies the targets to FNV's own `fDefaultWorldFOV`,
+`fDefault1stPersonFOV`, `fOverShoulderFOV`, and `fPipboy1stPersonFOV` bases and
+to the matching live player fields, then lets the engine derive ADS, scopes,
+dialogue, POV transitions, VATS, the vanilla kill camera, and Pip-Boy angles
+from those bases. It installs no `SetCameraFOV` argument detours, so every
+native caller, the aspect/3D-UI projection, and world-to-screen consumers such
+as JohnnyGuitar's cached W2S observe the same value. The same page also owns the
+terminal screen projection scale, global iron-sight base FOV and transition
+speed, dialogue zoom-in/out/delay intervals, scope-scissor amount, and near-clip
+distance. Zero keeps each native value. The bases and controls are reapplied after a POV
+change, a return from a special camera/menu/VATS/kill camera, a lifecycle
+reset, or a detected external reset. Disabling every target restores the
+captured native values, live fields, and camera lens. `fDefaultFOV` and the
+separate Pip-Boy screen-texture projection remain native. The complete address,
+mapping, and failure contract is in
 [`atom_camera_fov_contract.md`](atom_camera_fov_contract.md).
 
 Third-person follow is disabled by default. When enabled, Atom requires one
@@ -315,8 +314,8 @@ downstream convergence owner observe one world target.
 | `atom/src/ballistics/pool.rs` | Fixed open-addressed correlation table and generation handling. |
 | `atom/src/ballistics/telemetry.rs` | Saturating launch/contact/update counters, histograms, and thread identities. |
 | `atom/src/camera/config.rs` | First-person MCM deserialization, bounds, and coherent live snapshot. |
-| `atom/src/camera/fov.rs` | Camera FOV targets, tangent scaling math, and coherent live snapshot. |
-| `atom/src/camera/fov_hooks.rs` | Deferred native FOV writer ownership, viewmodel frustum handoff, and pass-through gates. |
+| `atom/src/camera/fov.rs` | Camera FOV targets, native-base mapping, and coherent live snapshot. |
+| `atom/src/camera/fov_hooks.rs` | Native FOV base apply, reapply edges, and original-base restoration. |
 | `atom/src/camera/motion.rs` | Support-relative gait, landing event, aim blend, and analytic look inertia. |
 | `atom/src/camera/pose.rs` | Native column-basis additive pose composition and finite checks. |
 | `atom/src/camera/state.rs` | Nonblocking update writer, ownership epochs, and coherent render publication. |
@@ -384,9 +383,9 @@ At `DeferredInit`, Atom performs this ordered transaction:
    the reticle when movement is available and its call remains vanilla, then
    additionally admit launch convergence only when spawn also remains vanilla,
    and append the ranged hip-fire animation adapter;
-10. validate and install the paired native camera FOV writers as one independent
-    rollback-capable transaction; scaling either writer without the other would
-    make rendered projection and native UI compensation disagree;
+10. validate the native FOV setting slots and writer/aspect pair, capture the
+    original bases, and apply the configured native-base snapshot on the first
+    normal gameplay update;
 11. independently capture and enable the Ballistics callsites plus
     MissileProjectile update slot in one rollback-capable transaction;
 12. subscribe to MCM Extender's `MCMExtUpdate` event for menu-close reloads.
@@ -394,19 +393,19 @@ At `DeferredInit`, Atom performs this ordered transaction:
 xNVSE dispatches DeferredInit listeners synchronously, then emits MainGameLoop
 from the same main-loop hook before world rendering. On that first subsequent
 MainGameLoop, Atom validates and transactionally installs its two world and
-three first-person render calls, then admits the viewmodel FOV frustum handoff,
-the third-person FOV render correction, and the Pip-Boy/terminal FOV callsites
-as separate fail-soft capabilities. Waiting for the completed DeferredInit walk
+three first-person render calls. Waiting for the completed DeferredInit walk
 lets Atom capture any compatible graphics wrappers as predecessors and keep
 one temporary camera pose around their complete pre-render, native-render, and
 post-render work. A fixed atomic gate makes installation one-shot; later
-MainGameLoop callbacks perform one acquire load and return.
+MainGameLoop callbacks perform one acquire load and return. FOV base ownership
+is applied from the native `UpdateCamera` post-call path and does not add a
+render callsite.
 
 If native input validation or installation fails, the input transaction leaves
 its callsites under their prior owners and Atom initialization fails. If only
 camera or Ballistics validation/installation fails, that subsystem transaction
-restores every earlier callsite and Atom Input remains active. If only the FOV
-writer pair fails, every FOV field remains native while the other camera
+restores every earlier callsite and Atom Input remains active. If only native
+FOV base validation fails, every FOV base remains native while the other camera
 capabilities stay active. If only `MCMExtUpdate` subscription fails, installed
 modules stay active and settings apply after restart. Atom never identifies,
 inspects, patches, disables, or reorders another mod by name.

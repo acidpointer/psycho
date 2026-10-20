@@ -172,6 +172,7 @@ unsafe extern "thiscall" fn update_camera_detour(player: *mut c_void, first: u8,
     // unrelated Atom work.
     drop(third_person_scope);
     unsafe { sample_after_update(player, shared_motion) };
+    super::fov_hooks::after_update(player);
 }
 
 struct ThirdPersonCameraScope {
@@ -256,12 +257,7 @@ unsafe fn render_route_body(
         }
         None => None,
     };
-    // The native writer wrappers normally own third-person FOV. This
-    // render-scoped correction covers the separate normal third-person route
-    // and is a no-op when the live scene graph FOV already matches.
-    let fov_guard = unsafe { super::fov_hooks::enforce_render_fov() };
     unsafe { predecessor(main, render_target, flags) };
-    drop(fov_guard);
     drop(guard);
 }
 

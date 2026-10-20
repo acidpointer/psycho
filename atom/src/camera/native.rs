@@ -16,14 +16,12 @@
 
 use core::ffi::c_void;
 use core::mem::size_of;
-use core::sync::atomic::{AtomicU32, Ordering};
 
 use libpsycho::os::windows::memory::{MemoryError, validate_memory_access, validate_memory_range};
 use thiserror::Error;
 
 use crate::input::{ActionContext, latest_action_header};
 
-use super::fov::NativeFrustum;
 use super::{
     CameraPose, CameraTransform, LocomotionState, MotionInput, NativeMotionCarrier,
     compose_transform, external_owner_active, native_owners_allow_camera,
@@ -34,10 +32,6 @@ const OS_GLOBALS_PTR: usize = 0x011D_EA0C;
 const INTERFACE_MANAGER_PTR: usize = 0x011D_8A80;
 const CAMERA_1ST_PTR: usize = 0x011E_07D0;
 const SPECIAL_CAMERA_STATE: usize = 0x011E_07B8;
-// Pip-Boy presentation latch. `FOPipboyManager` sets it on open (`0x7F8065`)
-// and clears it only after the close animation calls (`0x7F82F2`), unlike the
-// InterfaceManager menu predicate which drops before the visual return.
-const PIPBOY_PRESENTATION: usize = 0x011D_B378;
 // UpdateCamera stores virtual +0x2BC (adjusted horizontal heading) first,
 // then stores Actor rotX from 0x00931D70. The corresponding globals are
 // consumed by the native Z- and X-rotation matrix builders, respectively.
@@ -53,18 +47,19 @@ const DEFAULT_FIRST_PERSON_FOV: usize = 0x0120_316C;
 // It is lower than `fDefaultWorldFOV`, so mapping it to the world base would
 // silently flatten the native third-person lens.
 const DEFAULT_OVER_SHOULDER_FOV: usize = 0x011C_DA5C;
+// `fPipboy1stPersonFOV` is the dedicated Pip-Boy/terminal first-person base.
+const DEFAULT_PIPBOY_FOV: usize = 0x0120_3178;
+// Additional FOV/zoom controls exposed by the Field of View page.
+const TERMINAL_FOV: usize = 0x011D_B5F0;
+const IRON_SIGHT_FOV: usize = 0x011E_0974;
+const IRON_SIGHT_SPEED: usize = 0x011C_E874;
+const DIALOG_ZOOM_IN: usize = 0x011D_3EE4;
+const DIALOG_ZOOM_OUT: usize = 0x011D_2440;
+const DIALOG_DELAY: usize = 0x011D_32C8;
+const SCOPE_SCISSOR: usize = 0x011D_EA90;
+const NEAR_DISTANCE: usize = 0x0120_3148;
 
-/// Largest live hip-fire field value observed for each player FOV field.
-///
-/// The `fDefault*` settings are the initial sources, but gameplay mods and
-/// special cameras can change either the settings or the live fields. The
-/// configured target must describe the native hip-fire lens, so the owner
-/// learns each field's widest normal value and scales ADS/scope angles relative
-/// to that stable base. Menus and special cameras never update this state.
-static HIP_FIRE_WORLD: AtomicU32 = AtomicU32::new(0);
-static HIP_FIRE_FIRST_PERSON: AtomicU32 = AtomicU32::new(0);
-static HIP_FIRE_OVER_SHOULDER: AtomicU32 = AtomicU32::new(0);
-// `BSSceneGraph::SetCameraFOV` and its tangent-ratio aspect companion. Both
+// `BSSceneGraph::SetCameraFOV` and its aspect companion. Both
 // accept the same degree value and are called as a pair by every player-camera
 // setup route in the supported executable.
 pub(super) const SET_WORLD_FOV: usize = 0x00C5_2020;
@@ -86,7 +81,6 @@ const PLAYER_COLLISION_OWNER: usize = 0x21C;
 const PLAYER_WORLD_FOV: usize = 0x670;
 const PLAYER_FIRST_PERSON_FOV: usize = 0x674;
 const PLAYER_OVER_SHOULDER_FOV: usize = 0x678;
-const PLAYER_PIPBOY_FOV: usize = 0x65C;
 const PLAYER_POV_TRANSITION_A: usize = 0x64A;
 const PLAYER_POV_TRANSITION_B: usize = 0x64B;
 const PLAYER_THIRD_PERSON: usize = 0x64C;
@@ -97,7 +91,6 @@ const PLAYER_FIRST_PERSON_3D: usize = 0x694;
 const OS_GLOBALS_FLY_CAMERA: usize = 0x06;
 const OS_GLOBALS_FIRST_PERSON_CAMERA: usize = 0xA0;
 const SCENE_GRAPH_CAMERA: usize = 0xAC;
-const SCENE_GRAPH_CAMERA_FOV: usize = 0xBC;
 const INTERFACE_MANAGER_ACTIVE: usize = 0x00;
 const INTERFACE_MANAGER_MODE: usize = 0x0C;
 const GAMEPLAY_INTERFACE_MODE: u32 = 1;
@@ -122,13 +115,6 @@ const NIAVOBJECT_LOCAL_ROTATION: usize = 0x34;
 const NIAVOBJECT_LOCAL_TRANSLATION: usize = 0x58;
 const NIAVOBJECT_WORLD_ROTATION: usize = 0x68;
 const NIAVOBJECT_WORLD_TRANSLATION: usize = 0x8C;
-const NICAMERA_FRUSTUM_LEFT: usize = 0xDC;
-const NICAMERA_FRUSTUM_RIGHT: usize = 0xE0;
-const NICAMERA_FRUSTUM_TOP: usize = 0xE4;
-const NICAMERA_FRUSTUM_BOTTOM: usize = 0xE8;
-const NICAMERA_FRUSTUM_NEAR: usize = 0xEC;
-const NICAMERA_FRUSTUM_FAR: usize = 0xF0;
-const NICAMERA_FRUSTUM_ORTHOGRAPHIC: usize = 0xF4;
 const MIN_ENGINE_POINTER: usize = 0x1_0000;
 
 const GET_CHARACTER_CONTROLLER: usize = 0x0093_06D0;
@@ -163,15 +149,6 @@ type GraphUpdater = unsafe fn(*mut u8);
 pub(super) enum CameraPov {
     First,
     Third,
-}
-
-/// The live player field which produced one native FOV argument.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(super) enum PlayerFovField {
-    World,
-    FirstPerson,
-    OverShoulder,
-    Other,
 }
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -359,10 +336,21 @@ pub(super) fn validate_fov_contract() -> Result<(), NativeContractError> {
         DEFAULT_WORLD_FOV,
         DEFAULT_FIRST_PERSON_FOV,
         DEFAULT_OVER_SHOULDER_FOV,
+        DEFAULT_PIPBOY_FOV,
+        TERMINAL_FOV,
+        IRON_SIGHT_FOV,
+        IRON_SIGHT_SPEED,
+        DIALOG_ZOOM_IN,
+        DIALOG_ZOOM_OUT,
+        DIALOG_DELAY,
+        SCOPE_SCISSOR,
+        NEAR_DISTANCE,
     ] {
+        // These are live f32 slots in the executable's writable data section,
+        // not executable code. `validate_memory_access` is an executable-image
+        // check and rejects them by design.
         validate_memory_range(address as *const c_void, size_of::<f32>())?;
     }
-    validate_memory_range(PIPBOY_PRESENTATION as *const c_void, size_of::<u8>())?;
     for address in [SET_WORLD_FOV, SET_FOV_ASPECT] {
         validate_memory_access(address as *mut c_void)?;
     }
@@ -989,7 +977,7 @@ pub(super) unsafe fn owner_pov(player: *mut c_void) -> Result<CameraPov, NativeR
     Ok(pov)
 }
 
-/// Return the current normal world-camera mode for FOV writer scaling.
+/// Return the current normal world-camera mode for FOV reapplication.
 ///
 /// FOV is presentation, not camera motion. Gameplay animations, dialogue input
 /// locks, and transient native-update ownership must not revert the user's
@@ -1060,161 +1048,10 @@ pub(super) unsafe fn fov_owner_pov(player: *mut c_void) -> Result<CameraPov, Nat
     Ok(pov)
 }
 
-/// Return the live POV triplet without any menu or camera owner checks.
-pub(super) unsafe fn current_pov() -> Option<CameraPov> {
-    let player = unsafe { player() }?;
-    let ready = unsafe { read_u8(player.cast(), PLAYER_POV_TRANSITION_A) };
-    let active = unsafe { read_u8(player.cast(), PLAYER_POV_TRANSITION_B) };
-    let third = unsafe { read_u8(player.cast(), PLAYER_THIRD_PERSON) };
-    classify_pov(ready, active, third).ok()
-}
-
-/// Return the current normal world-camera mode for render-time FOV scaling.
-pub(super) unsafe fn fov_pov() -> Option<CameraPov> {
-    let player = unsafe { read_global_ptr(PLAYER_PTR) };
-    unsafe { fov_owner_pov(player) }.ok()
-}
-
-/// Return the live base FOV setting for one player camera mode.
-pub(super) unsafe fn base_fov(pov: CameraPov) -> Option<f32> {
-    let field = match pov {
-        CameraPov::First => PlayerFovField::FirstPerson,
-        CameraPov::Third => PlayerFovField::OverShoulder,
-    };
-    unsafe { base_fov_for_field(pov, field) }
-}
-
-/// Classify one live FOV argument by the player field which produced it.
-///
-/// Exact float bits are the correct identity here: every player-camera caller
-/// loads the field and passes it directly. A transformed or constant angle
-/// reports [`PlayerFovField::Other`] and uses the mode's own base.
-pub(super) unsafe fn player_fov_field(pov: CameraPov, fov: f32) -> PlayerFovField {
-    let player = unsafe { read_global_ptr(PLAYER_PTR) };
-    if !is_engine_pointer(player) {
-        return PlayerFovField::Other;
-    }
-    let bits = fov.to_bits();
-    // Prefer the field which owns the active POV when two live values happen to
-    // be bit-identical. Both third-person fields share the world base, so their
-    // order is immaterial.
-    let fields = match pov {
-        CameraPov::First => [
-            (PLAYER_FIRST_PERSON_FOV, PlayerFovField::FirstPerson),
-            (PLAYER_WORLD_FOV, PlayerFovField::World),
-            (PLAYER_OVER_SHOULDER_FOV, PlayerFovField::OverShoulder),
-        ],
-        CameraPov::Third => [
-            (PLAYER_OVER_SHOULDER_FOV, PlayerFovField::OverShoulder),
-            (PLAYER_WORLD_FOV, PlayerFovField::World),
-            (PLAYER_FIRST_PERSON_FOV, PlayerFovField::FirstPerson),
-        ],
-    };
-    for (offset, field) in fields {
-        if unsafe { read_value::<u32>(player.cast(), offset) } == bits {
-            return field;
-        }
-    }
-    PlayerFovField::Other
-}
-
-/// Forget learned hip-fire bases after a lifecycle or configuration reset.
-pub(super) fn reset_fov_bases() {
-    HIP_FIRE_WORLD.store(0, Ordering::Relaxed);
-    HIP_FIRE_FIRST_PERSON.store(0, Ordering::Relaxed);
-    HIP_FIRE_OVER_SHOULDER.store(0, Ordering::Relaxed);
-}
-
-/// Return the observed hip-fire base for one field, or zero if unobserved.
-pub(super) fn observed_fov_base(field: PlayerFovField) -> f32 {
-    let slot = match field {
-        PlayerFovField::World => &HIP_FIRE_WORLD,
-        PlayerFovField::FirstPerson => &HIP_FIRE_FIRST_PERSON,
-        PlayerFovField::OverShoulder => &HIP_FIRE_OVER_SHOULDER,
-        PlayerFovField::Other => return 0.0,
-    };
-    f32::from_bits(slot.load(Ordering::Relaxed))
-}
-
-/// Learn one normal hip-fire field value.
-///
-/// Only the widest valid value is retained. ADS, scopes, menus, transitions,
-/// and special cameras are narrower or authored, so they cannot replace the
-/// native hip-fire base. This makes the configured target the actual hip-fire
-/// lens and keeps it stable when a kill camera or mod mutates the live setting.
-pub(super) fn observe_fov_base(field: PlayerFovField, value: f32) {
-    if field == PlayerFovField::Other || !value.is_finite() || !(1.0..179.0).contains(&value) {
-        return;
-    }
-    let slot = match field {
-        PlayerFovField::World => &HIP_FIRE_WORLD,
-        PlayerFovField::FirstPerson => &HIP_FIRE_FIRST_PERSON,
-        PlayerFovField::OverShoulder => &HIP_FIRE_OVER_SHOULDER,
-        PlayerFovField::Other => return,
-    };
-    slot.fetch_max(value.to_bits(), Ordering::Relaxed);
-}
-
-/// Return the base setting which defines the relative zoom of one field.
-///
-/// The over-shoulder profile is deliberately narrower than the third-person
-/// base. Scaling it against the normal world base preserves that relationship
-/// instead of flattening both profiles to one absolute angle.
-pub(super) unsafe fn base_fov_for_field(pov: CameraPov, field: PlayerFovField) -> Option<f32> {
-    let observed_field = match field {
-        PlayerFovField::Other => match pov {
-            CameraPov::First => PlayerFovField::World,
-            CameraPov::Third => PlayerFovField::OverShoulder,
-        },
-        field => field,
-    };
-    let observed = observed_fov_base(observed_field);
-    if (1.0..179.0).contains(&observed) {
-        return Some(observed);
-    }
-    let address = match field {
-        PlayerFovField::World => DEFAULT_WORLD_FOV,
-        PlayerFovField::FirstPerson => DEFAULT_FIRST_PERSON_FOV,
-        PlayerFovField::OverShoulder => DEFAULT_OVER_SHOULDER_FOV,
-        PlayerFovField::Other => match pov {
-            CameraPov::First => DEFAULT_WORLD_FOV,
-            CameraPov::Third => DEFAULT_OVER_SHOULDER_FOV,
-        },
-    };
-    read_fov_setting(address)
-}
-
-fn read_fov_setting(address: usize) -> Option<f32> {
-    let value = unsafe { core::ptr::read_volatile(address as *const f32) };
-    (value.is_finite() && (1.0..179.0).contains(&value)).then_some(value)
-}
-
-/// Return whether `candidate` is the live world scene graph owner.
-pub(super) unsafe fn is_world_scene_graph(candidate: *mut c_void) -> bool {
-    is_engine_pointer(candidate) && candidate == unsafe { read_global_ptr(WORLD_SCENE_GRAPH_PTR) }
-}
-
 /// Return the live world render camera retained by the scene graph.
 pub(super) unsafe fn world_camera() -> Option<*mut c_void> {
     let scene_graph = unsafe { read_global_ptr(WORLD_SCENE_GRAPH_PTR) };
     unsafe { read_ptr(scene_graph.cast(), SCENE_GRAPH_CAMERA) }
-}
-
-/// Read the scene graph's live FOV scalar in degrees.
-pub(super) unsafe fn scene_graph_fov(scene_graph: *mut c_void) -> Option<f32> {
-    if !is_engine_pointer(scene_graph) {
-        return None;
-    }
-    let value = unsafe {
-        (scene_graph.cast::<u8>().add(SCENE_GRAPH_CAMERA_FOV) as *const f32).read_volatile()
-    };
-    (value.is_finite() && (1.0..179.0).contains(&value)).then_some(value)
-}
-
-/// Return the separately rendered first-person hands/weapon camera.
-pub(super) unsafe fn first_person_camera() -> Option<*mut c_void> {
-    let os_globals = unsafe { read_global_ptr(OS_GLOBALS_PTR) };
-    unsafe { read_ptr(os_globals.cast(), OS_GLOBALS_FIRST_PERSON_CAMERA) }
 }
 
 /// Return the live player singleton.
@@ -1229,83 +1066,171 @@ pub(super) unsafe fn world_scene_graph() -> Option<*mut c_void> {
     is_engine_pointer(scene_graph).then_some(scene_graph)
 }
 
-/// Return the live world-camera FOV field for one player mode.
-pub(super) unsafe fn player_fov(pov: CameraPov) -> Option<f32> {
-    let player = unsafe { player()? };
-    let offset = match pov {
-        CameraPov::First => PLAYER_WORLD_FOV,
-        CameraPov::Third => PLAYER_OVER_SHOULDER_FOV,
-    };
-    let value = unsafe { read_value::<f32>(player.cast(), offset) };
+/// Return the current normal world-camera mode for FOV reapplication.
+pub(super) unsafe fn fov_pov() -> Option<CameraPov> {
+    let player = unsafe { read_global_ptr(PLAYER_PTR) };
+    unsafe { fov_owner_pov(player) }.ok()
+}
+
+fn read_fov_setting(address: usize) -> Option<f32> {
+    let value = unsafe { core::ptr::read_volatile(address as *const f32) };
     (value.is_finite() && (1.0..179.0).contains(&value)).then_some(value)
 }
 
-/// Return whether FNV's interface manager reports a non-gameplay menu.
-pub(super) unsafe fn menu_open() -> bool {
-    unsafe { menu_mode_active() }
+/// Read the four native FOV bases Atom owns while configured.
+pub(super) unsafe fn native_fov_settings() -> Option<[f32; 4]> {
+    Some([
+        read_fov_setting(DEFAULT_WORLD_FOV)?,
+        read_fov_setting(DEFAULT_FIRST_PERSON_FOV)?,
+        read_fov_setting(DEFAULT_OVER_SHOULDER_FOV)?,
+        read_fov_setting(DEFAULT_PIPBOY_FOV)?,
+    ])
 }
 
-/// Return whether the dedicated Pip-Boy open/close latch is set.
-///
-/// `FOPipboyManager` sets this byte on open and clears it only after the close
-/// animation calls. It is the authoritative latch for both phases; the general
-/// InterfaceManager menu predicate drops too early during close.
-pub(super) unsafe fn pipboy_presentation_active() -> bool {
-    unsafe { core::ptr::read_volatile(PIPBOY_PRESENTATION as *const u8) != 0 }
+/// Write the four native FOV bases and report whether all writes were valid.
+pub(super) unsafe fn write_native_fov_settings(
+    world: f32,
+    first_person: f32,
+    over_shoulder: f32,
+    pipboy: f32,
+) -> bool {
+    let values = [world, first_person, over_shoulder, pipboy];
+    let addresses = [
+        DEFAULT_WORLD_FOV,
+        DEFAULT_FIRST_PERSON_FOV,
+        DEFAULT_OVER_SHOULDER_FOV,
+        DEFAULT_PIPBOY_FOV,
+    ];
+    if values
+        .into_iter()
+        .any(|value| !value.is_finite() || !(1.0..179.0).contains(&value))
+    {
+        return false;
+    }
+    for (address, value) in addresses.into_iter().zip(values) {
+        unsafe { (address as *mut f32).write_volatile(value) };
+    }
+    true
 }
 
-/// Copy the four player FOV fields for bounded menu diagnostics.
-pub(super) unsafe fn fov_fields() -> Option<[f32; 4]> {
+fn read_finite_setting(address: usize) -> Option<f32> {
+    let value = unsafe { core::ptr::read_volatile(address as *const f32) };
+    value.is_finite().then_some(value)
+}
+
+/// Read the eight additional FOV/zoom settings Atom owns.
+pub(super) unsafe fn native_fov_detail_settings() -> Option<[f32; 8]> {
+    Some([
+        read_finite_setting(TERMINAL_FOV)?,
+        read_finite_setting(IRON_SIGHT_FOV)?,
+        read_finite_setting(IRON_SIGHT_SPEED)?,
+        read_finite_setting(DIALOG_ZOOM_IN)?,
+        read_finite_setting(DIALOG_ZOOM_OUT)?,
+        read_finite_setting(DIALOG_DELAY)?,
+        read_finite_setting(SCOPE_SCISSOR)?,
+        read_finite_setting(NEAR_DISTANCE)?,
+    ])
+}
+
+/// Write the eight additional FOV/zoom settings if every value is valid.
+pub(super) unsafe fn write_native_fov_detail_settings(values: [f32; 8]) -> bool {
+    const ADDRESSES: [usize; 8] = [
+        TERMINAL_FOV,
+        IRON_SIGHT_FOV,
+        IRON_SIGHT_SPEED,
+        DIALOG_ZOOM_IN,
+        DIALOG_ZOOM_OUT,
+        DIALOG_DELAY,
+        SCOPE_SCISSOR,
+        NEAR_DISTANCE,
+    ];
+    let valid = [
+        (0.0, 1.0),
+        (0.0, 179.0),
+        (0.0, 10.0),
+        (0.0, 30.0),
+        (0.0, 30.0),
+        (0.0, 30.0),
+        (0.0, 1.0),
+        (0.0, 1000.0),
+    ];
+    if values
+        .into_iter()
+        .zip(valid)
+        .any(|(value, (minimum, maximum))| {
+            !value.is_finite() || !(minimum..=maximum).contains(&value)
+        })
+    {
+        return false;
+    }
+    for (address, value) in ADDRESSES.into_iter().zip(values) {
+        unsafe { (address as *mut f32).write_volatile(value) };
+    }
+    true
+}
+
+/// Read the three live player FOV fields Atom owns while configured.
+pub(super) unsafe fn native_player_fov() -> Option<[f32; 3]> {
     let player = unsafe { player()? };
     Some([
-        unsafe { read_value::<f32>(player.cast(), PLAYER_PIPBOY_FOV) },
-        unsafe { read_value::<f32>(player.cast(), PLAYER_FIRST_PERSON_FOV) },
         unsafe { read_value::<f32>(player.cast(), PLAYER_WORLD_FOV) },
+        unsafe { read_value::<f32>(player.cast(), PLAYER_FIRST_PERSON_FOV) },
         unsafe { read_value::<f32>(player.cast(), PLAYER_OVER_SHOULDER_FOV) },
     ])
 }
 
-/// Read the complete perspective frustum of one native camera.
-pub(super) unsafe fn read_frustum(camera: *mut c_void) -> Option<NativeFrustum> {
-    if !is_engine_pointer(camera) {
-        return None;
+/// Write the three live player FOV fields.
+pub(super) unsafe fn write_native_player_fov(
+    world: f32,
+    first_person: f32,
+    over_shoulder: f32,
+) -> bool {
+    let values = [world, first_person, over_shoulder];
+    let offsets = [
+        PLAYER_WORLD_FOV,
+        PLAYER_FIRST_PERSON_FOV,
+        PLAYER_OVER_SHOULDER_FOV,
+    ];
+    if values
+        .into_iter()
+        .any(|value| !value.is_finite() || !(1.0..179.0).contains(&value))
+    {
+        return false;
     }
-    let base = camera.cast::<u8>();
-    let read_f32 = |offset: usize| unsafe { base.add(offset).cast::<f32>().read_unaligned() };
-    let frustum = NativeFrustum {
-        left: read_f32(NICAMERA_FRUSTUM_LEFT),
-        right: read_f32(NICAMERA_FRUSTUM_RIGHT),
-        top: read_f32(NICAMERA_FRUSTUM_TOP),
-        bottom: read_f32(NICAMERA_FRUSTUM_BOTTOM),
-        near: read_f32(NICAMERA_FRUSTUM_NEAR),
-        far: read_f32(NICAMERA_FRUSTUM_FAR),
-        orthographic: unsafe { base.add(NICAMERA_FRUSTUM_ORTHOGRAPHIC).read() },
-        reserved: [0; 3],
+    let Some(player) = (unsafe { player() }) else {
+        return false;
     };
-    (frustum.right > frustum.left
-        && frustum.top > frustum.bottom
-        && frustum.near > 0.0
-        && frustum.far > frustum.near)
-        .then_some(frustum)
+    for (offset, value) in offsets.into_iter().zip(values) {
+        unsafe {
+            (player.cast::<u8>().add(offset) as *mut f32).write_volatile(value);
+        }
+    }
+    true
 }
 
-/// Restore or replace only the four angular NiCamera extents.
-pub(super) unsafe fn write_frustum_extents(camera: *mut c_void, frustum: NativeFrustum) {
-    let base = camera.cast::<u8>();
-    let write = |offset: usize, value: f32| unsafe {
-        base.add(offset).cast::<f32>().write_unaligned(value);
+/// Apply one world-camera FOV through the native writer/aspect pair.
+///
+/// The force flag refreshes the frustum, scene-graph scalar, and `+0x110` ratio
+/// even when the scalar already matches. No Atom argument wrapper is involved.
+pub(super) unsafe fn apply_world_camera_fov(fov: f32) -> bool {
+    if !fov.is_finite() || !(1.0..179.0).contains(&fov) {
+        return false;
+    }
+    let Some(scene_graph) = (unsafe { world_scene_graph() }) else {
+        return false;
     };
-    write(NICAMERA_FRUSTUM_LEFT, frustum.left);
-    write(NICAMERA_FRUSTUM_RIGHT, frustum.right);
-    write(NICAMERA_FRUSTUM_TOP, frustum.top);
-    write(NICAMERA_FRUSTUM_BOTTOM, frustum.bottom);
-}
-
-/// Write the scene graph's live FOV scalar.
-pub(super) unsafe fn write_scene_graph_fov(scene_graph: *mut c_void, fov: f32) {
+    if unsafe { world_camera() }.is_none() {
+        return false;
+    }
+    type SetWorldFovFn = unsafe extern "thiscall" fn(*mut c_void, f32, u8, *mut c_void, u8);
+    type SetFovAspectFn = unsafe extern "cdecl" fn(f32);
+    let setter: SetWorldFovFn = unsafe { core::mem::transmute(SET_WORLD_FOV) };
+    let aspect: SetFovAspectFn = unsafe { core::mem::transmute(SET_FOV_ASPECT) };
     unsafe {
-        (scene_graph.cast::<u8>().add(SCENE_GRAPH_CAMERA_FOV) as *mut f32).write_volatile(fov);
+        setter(scene_graph, fov, 1, core::ptr::null_mut(), 0);
+        aspect(fov);
     }
+    true
 }
 
 unsafe fn read_transform(camera: *mut u8) -> Option<CameraTransform> {
