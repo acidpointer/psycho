@@ -1,0 +1,398 @@
+Compiled candidate ABI and admission evidence; not patch authority.
+UTC 2026-10-20T22:02:52.893296+00:00
+Binary target/i686-pc-windows-gnu/release/psycho_engine_fixes.dll
+SHA256 dcad658020b887cfc8c87997526bd53b94a9d713fdc30e11033626d14cd4ae8f
+GNU objdump (GNU Binutils) 2.47
+Scope: six existing thiscall builder bridges, provider dispatch/rejection and cache mapping checks.
+No native game, provider or gameplay execution; static disassembly is not runtime acceptance.
+Symbol command: i686-w64-mingw32-nm -n target/i686-pc-windows-gnu/release/psycho_engine_fixes.dll
+Exact argv: ["objdump", "-d", "--start-address=0x1006eb70", "--stop-address=0x1006eb90", "target/i686-pc-windows-gnu/release/psycho_engine_fixes.dll"]
+
+target/i686-pc-windows-gnu/release/psycho_engine_fixes.dll:     file format pei-i386
+
+
+Disassembly of section .text:
+
+1006eb70 <__RINvNtNtNtCscusTm9VrEdi_19psycho_engine_fixes4mods12engine_fixes20occlusion_link_guard5buildKj0_EB8_>:
+1006eb70:	55                   	push   %ebp
+1006eb71:	89 e5                	mov    %esp,%ebp
+1006eb73:	8b 55 08             	mov    0x8(%ebp),%edx
+1006eb76:	ff 35 88 c4 57 10    	push   0x1057c488
+1006eb7c:	e8 6f 3e 01 00       	call   100829f0 <__RNvNtNtNtCscusTm9VrEdi_19psycho_engine_fixes4mods12engine_fixes20occlusion_link_guard8dispatch>
+1006eb81:	83 c4 04             	add    $0x4,%esp
+1006eb84:	5d                   	pop    %ebp
+1006eb85:	c2 04 00             	ret    $0x4
+1006eb88:	0f 1f 84 00 00 00 00 	nopl   0x0(%eax,%eax,1)
+1006eb8f:	00
+
+Exact argv: ["objdump", "-d", "--start-address=0x1006eb90", "--stop-address=0x1006ebb0", "target/i686-pc-windows-gnu/release/psycho_engine_fixes.dll"]
+
+target/i686-pc-windows-gnu/release/psycho_engine_fixes.dll:     file format pei-i386
+
+
+Disassembly of section .text:
+
+1006eb90 <__RINvNtNtNtCscusTm9VrEdi_19psycho_engine_fixes4mods12engine_fixes20occlusion_link_guard5buildKj1_EB8_>:
+1006eb90:	55                   	push   %ebp
+1006eb91:	89 e5                	mov    %esp,%ebp
+1006eb93:	8b 55 08             	mov    0x8(%ebp),%edx
+1006eb96:	ff 35 8c c4 57 10    	push   0x1057c48c
+1006eb9c:	e8 4f 3e 01 00       	call   100829f0 <__RNvNtNtNtCscusTm9VrEdi_19psycho_engine_fixes4mods12engine_fixes20occlusion_link_guard8dispatch>
+1006eba1:	83 c4 04             	add    $0x4,%esp
+1006eba4:	5d                   	pop    %ebp
+1006eba5:	c2 04 00             	ret    $0x4
+1006eba8:	0f 1f 84 00 00 00 00 	nopl   0x0(%eax,%eax,1)
+1006ebaf:	00
+
+Exact argv: ["objdump", "-d", "--start-address=0x1006ebb0", "--stop-address=0x1006ebd0", "target/i686-pc-windows-gnu/release/psycho_engine_fixes.dll"]
+
+target/i686-pc-windows-gnu/release/psycho_engine_fixes.dll:     file format pei-i386
+
+
+Disassembly of section .text:
+
+1006ebb0 <__RINvNtNtNtCscusTm9VrEdi_19psycho_engine_fixes4mods12engine_fixes20occlusion_link_guard5buildKj2_EB8_>:
+1006ebb0:	55                   	push   %ebp
+1006ebb1:	89 e5                	mov    %esp,%ebp
+1006ebb3:	8b 55 08             	mov    0x8(%ebp),%edx
+1006ebb6:	ff 35 90 c4 57 10    	push   0x1057c490
+1006ebbc:	e8 2f 3e 01 00       	call   100829f0 <__RNvNtNtNtCscusTm9VrEdi_19psycho_engine_fixes4mods12engine_fixes20occlusion_link_guard8dispatch>
+1006ebc1:	83 c4 04             	add    $0x4,%esp
+1006ebc4:	5d                   	pop    %ebp
+1006ebc5:	c2 04 00             	ret    $0x4
+1006ebc8:	0f 1f 84 00 00 00 00 	nopl   0x0(%eax,%eax,1)
+1006ebcf:	00
+
+Exact argv: ["objdump", "-d", "--start-address=0x1006ebd0", "--stop-address=0x1006ebf0", "target/i686-pc-windows-gnu/release/psycho_engine_fixes.dll"]
+
+target/i686-pc-windows-gnu/release/psycho_engine_fixes.dll:     file format pei-i386
+
+
+Disassembly of section .text:
+
+1006ebd0 <__RINvNtNtNtCscusTm9VrEdi_19psycho_engine_fixes4mods12engine_fixes20occlusion_link_guard5buildKj3_EB8_>:
+1006ebd0:	55                   	push   %ebp
+1006ebd1:	89 e5                	mov    %esp,%ebp
+1006ebd3:	8b 55 08             	mov    0x8(%ebp),%edx
+1006ebd6:	ff 35 94 c4 57 10    	push   0x1057c494
+1006ebdc:	e8 0f 3e 01 00       	call   100829f0 <__RNvNtNtNtCscusTm9VrEdi_19psycho_engine_fixes4mods12engine_fixes20occlusion_link_guard8dispatch>
+1006ebe1:	83 c4 04             	add    $0x4,%esp
+1006ebe4:	5d                   	pop    %ebp
+1006ebe5:	c2 04 00             	ret    $0x4
+1006ebe8:	0f 1f 84 00 00 00 00 	nopl   0x0(%eax,%eax,1)
+1006ebef:	00
+
+Exact argv: ["objdump", "-d", "--start-address=0x1006ebf0", "--stop-address=0x1006ec10", "target/i686-pc-windows-gnu/release/psycho_engine_fixes.dll"]
+
+target/i686-pc-windows-gnu/release/psycho_engine_fixes.dll:     file format pei-i386
+
+
+Disassembly of section .text:
+
+1006ebf0 <__RINvNtNtNtCscusTm9VrEdi_19psycho_engine_fixes4mods12engine_fixes20occlusion_link_guard5buildKj4_EB8_>:
+1006ebf0:	55                   	push   %ebp
+1006ebf1:	89 e5                	mov    %esp,%ebp
+1006ebf3:	8b 55 08             	mov    0x8(%ebp),%edx
+1006ebf6:	ff 35 98 c4 57 10    	push   0x1057c498
+1006ebfc:	e8 ef 3d 01 00       	call   100829f0 <__RNvNtNtNtCscusTm9VrEdi_19psycho_engine_fixes4mods12engine_fixes20occlusion_link_guard8dispatch>
+1006ec01:	83 c4 04             	add    $0x4,%esp
+1006ec04:	5d                   	pop    %ebp
+1006ec05:	c2 04 00             	ret    $0x4
+1006ec08:	0f 1f 84 00 00 00 00 	nopl   0x0(%eax,%eax,1)
+1006ec0f:	00
+
+Exact argv: ["objdump", "-d", "--start-address=0x1006ec10", "--stop-address=0x1006ec30", "target/i686-pc-windows-gnu/release/psycho_engine_fixes.dll"]
+
+target/i686-pc-windows-gnu/release/psycho_engine_fixes.dll:     file format pei-i386
+
+
+Disassembly of section .text:
+
+1006ec10 <__RINvNtNtNtCscusTm9VrEdi_19psycho_engine_fixes4mods12engine_fixes20occlusion_link_guard5buildKj5_EB8_>:
+1006ec10:	55                   	push   %ebp
+1006ec11:	89 e5                	mov    %esp,%ebp
+1006ec13:	8b 55 08             	mov    0x8(%ebp),%edx
+1006ec16:	ff 35 9c c4 57 10    	push   0x1057c49c
+1006ec1c:	e8 cf 3d 01 00       	call   100829f0 <__RNvNtNtNtCscusTm9VrEdi_19psycho_engine_fixes4mods12engine_fixes20occlusion_link_guard8dispatch>
+1006ec21:	83 c4 04             	add    $0x4,%esp
+1006ec24:	5d                   	pop    %ebp
+1006ec25:	c2 04 00             	ret    $0x4
+1006ec28:	0f 1f 84 00 00 00 00 	nopl   0x0(%eax,%eax,1)
+1006ec2f:	00
+
+Exact argv: ["objdump", "-d", "--start-address=0x10081ff0", "--stop-address=0x10082250", "target/i686-pc-windows-gnu/release/psycho_engine_fixes.dll"]
+
+target/i686-pc-windows-gnu/release/psycho_engine_fixes.dll:     file format pei-i386
+
+
+Disassembly of section .text:
+
+10081ff0 <__RNvNtNtNtCscusTm9VrEdi_19psycho_engine_fixes4mods12engine_fixes20occlusion_link_guard10copy_plane>:
+10081ff0:	81 f9 04 ff ff ff    	cmp    $0xffffff04,%ecx
+10081ff6:	0f 87 4e 02 00 00    	ja     1008224a <__RNvNtNtNtCscusTm9VrEdi_19psycho_engine_fixes4mods12engine_fixes20occlusion_link_guard10copy_plane+0x25a>
+10081ffc:	55                   	push   %ebp
+10081ffd:	89 e5                	mov    %esp,%ebp
+10081fff:	53                   	push   %ebx
+10082000:	57                   	push   %edi
+10082001:	56                   	push   %esi
+10082002:	83 e4 f8             	and    $0xfffffff8,%esp
+10082005:	83 ec 38             	sub    $0x38,%esp
+10082008:	8d 81 e6 00 00 00    	lea    0xe6(%ecx),%eax
+1008200e:	8d 71 44             	lea    0x44(%ecx),%esi
+10082011:	89 54 24 28          	mov    %edx,0x28(%esp)
+10082015:	89 4c 24 20          	mov    %ecx,0x20(%esp)
+10082019:	89 44 24 2c          	mov    %eax,0x2c(%esp)
+1008201d:	0f 1f 00             	nopl   (%eax)
+10082020:	56                   	push   %esi
+10082021:	8d 44 24 04          	lea    0x4(%esp),%eax
+10082025:	50                   	push   %eax
+10082026:	e8 05 db 11 00       	call   1019fb30 <__RNvNtNtNtCskRG1EnXb1rf_9libpsycho2os7windows6winapi13virtual_query>
+1008202b:	83 c4 08             	add    $0x8,%esp
+1008202e:	80 3c 24 00          	cmpb   $0x0,(%esp)
+10082032:	0f 85 f0 00 00 00    	jne    10082128 <__RNvNtNtNtCscusTm9VrEdi_19psycho_engine_fixes4mods12engine_fixes20occlusion_link_guard10copy_plane+0x138>
+10082038:	8b 54 24 04          	mov    0x4(%esp),%edx
+1008203c:	8b 4c 24 10          	mov    0x10(%esp),%ecx
+10082040:	01 d1                	add    %edx,%ecx
+10082042:	0f 82 c2 01 00 00    	jb     1008220a <__RNvNtNtNtCscusTm9VrEdi_19psycho_engine_fixes4mods12engine_fixes20occlusion_link_guard10copy_plane+0x21a>
+10082048:	89 74 24 30          	mov    %esi,0x30(%esp)
+1008204c:	8b 74 24 18          	mov    0x18(%esp),%esi
+10082050:	8d 46 ff             	lea    -0x1(%esi),%eax
+10082053:	89 f3                	mov    %esi,%ebx
+10082055:	8d 7e ff             	lea    -0x1(%esi),%edi
+10082058:	31 c3                	xor    %eax,%ebx
+1008205a:	31 c0                	xor    %eax,%eax
+1008205c:	39 fb                	cmp    %edi,%ebx
+1008205e:	0f 86 a8 01 00 00    	jbe    1008220c <__RNvNtNtNtCscusTm9VrEdi_19psycho_engine_fixes4mods12engine_fixes20occlusion_link_guard10copy_plane+0x21c>
+10082064:	81 7c 24 14 00 10 00 	cmpl   $0x1000,0x14(%esp)
+1008206b:	00
+1008206c:	0f 85 9a 01 00 00    	jne    1008220c <__RNvNtNtNtCscusTm9VrEdi_19psycho_engine_fixes4mods12engine_fixes20occlusion_link_guard10copy_plane+0x21c>
+10082072:	83 fe 01             	cmp    $0x1,%esi
+10082075:	0f 84 91 01 00 00    	je     1008220c <__RNvNtNtNtCscusTm9VrEdi_19psycho_engine_fixes4mods12engine_fixes20occlusion_link_guard10copy_plane+0x21c>
+1008207b:	89 f3                	mov    %esi,%ebx
+1008207d:	81 e3 00 01 00 00    	and    $0x100,%ebx
+10082083:	0f 85 83 01 00 00    	jne    1008220c <__RNvNtNtNtCscusTm9VrEdi_19psycho_engine_fixes4mods12engine_fixes20occlusion_link_guard10copy_plane+0x21c>
+10082089:	f3 0f bc f6          	tzcnt  %esi,%esi
+1008208d:	31 c0                	xor    %eax,%eax
+1008208f:	83 fe 07             	cmp    $0x7,%esi
+10082092:	0f 87 74 01 00 00    	ja     1008220c <__RNvNtNtNtCscusTm9VrEdi_19psycho_engine_fixes4mods12engine_fixes20occlusion_link_guard10copy_plane+0x21c>
+10082098:	bb cc 00 00 00       	mov    $0xcc,%ebx
+1008209d:	0f a3 f3             	bt     %esi,%ebx
+100820a0:	0f 83 66 01 00 00    	jae    1008220c <__RNvNtNtNtCscusTm9VrEdi_19psycho_engine_fixes4mods12engine_fixes20occlusion_link_guard10copy_plane+0x21c>
+100820a6:	8b 74 24 30          	mov    0x30(%esp),%esi
+100820aa:	31 c0                	xor    %eax,%eax
+100820ac:	39 d6                	cmp    %edx,%esi
+100820ae:	0f 82 58 01 00 00    	jb     1008220c <__RNvNtNtNtCscusTm9VrEdi_19psycho_engine_fixes4mods12engine_fixes20occlusion_link_guard10copy_plane+0x21c>
+100820b4:	39 ce                	cmp    %ecx,%esi
+100820b6:	0f 83 50 01 00 00    	jae    1008220c <__RNvNtNtNtCscusTm9VrEdi_19psycho_engine_fixes4mods12engine_fixes20occlusion_link_guard10copy_plane+0x21c>
+100820bc:	8b 44 24 2c          	mov    0x2c(%esp),%eax
+100820c0:	39 c1                	cmp    %eax,%ecx
+100820c2:	0f 43 c8             	cmovae %eax,%ecx
+100820c5:	89 ce                	mov    %ecx,%esi
+100820c7:	0f 82 53 ff ff ff    	jb     10082020 <__RNvNtNtNtCscusTm9VrEdi_19psycho_engine_fixes4mods12engine_fixes20occlusion_link_guard10copy_plane+0x30>
+100820cd:	8b 7c 24 20          	mov    0x20(%esp),%edi
+100820d1:	85 ff                	test   %edi,%edi
+100820d3:	0f 84 31 01 00 00    	je     1008220a <__RNvNtNtNtCscusTm9VrEdi_19psycho_engine_fixes4mods12engine_fixes20occlusion_link_guard10copy_plane+0x21a>
+100820d9:	ff 15 b0 e8 58 10    	call   *0x1058e8b0
+100820df:	8b 35 6c 8d 41 10    	mov    0x10418d6c,%esi
+100820e5:	89 c1                	mov    %eax,%ecx
+100820e7:	8b 06                	mov    (%esi),%eax
+100820e9:	85 c0                	test   %eax,%eax
+100820eb:	0f 84 97 00 00 00    	je     10082188 <__RNvNtNtNtCscusTm9VrEdi_19psycho_engine_fixes4mods12engine_fixes20occlusion_link_guard10copy_plane+0x198>
+100820f1:	8d 54 24 24          	lea    0x24(%esp),%edx
+100820f5:	c7 44 24 24 00 00 00 	movl   $0x0,0x24(%esp)
+100820fc:	00
+100820fd:	52                   	push   %edx
+100820fe:	68 fc 00 00 00       	push   $0xfc
+10082103:	ff 74 24 30          	push   0x30(%esp)
+10082107:	57                   	push   %edi
+10082108:	51                   	push   %ecx
+10082109:	ff d0                	call   *%eax
+1008210b:	85 c0                	test   %eax,%eax
+1008210d:	0f 84 c9 00 00 00    	je     100821dc <__RNvNtNtNtCscusTm9VrEdi_19psycho_engine_fixes4mods12engine_fixes20occlusion_link_guard10copy_plane+0x1ec>
+10082113:	81 7c 24 24 fc 00 00 	cmpl   $0xfc,0x24(%esp)
+1008211a:	00
+1008211b:	0f 85 c2 00 00 00    	jne    100821e3 <__RNvNtNtNtCscusTm9VrEdi_19psycho_engine_fixes4mods12engine_fixes20occlusion_link_guard10copy_plane+0x1f3>
+10082121:	b0 01                	mov    $0x1,%al
+10082123:	e9 e4 00 00 00       	jmp    1008220c <__RNvNtNtNtCscusTm9VrEdi_19psycho_engine_fixes4mods12engine_fixes20occlusion_link_guard10copy_plane+0x21c>
+10082128:	8b 44 24 08          	mov    0x8(%esp),%eax
+1008212c:	b9 05 00 00 00       	mov    $0x5,%ecx
+10082131:	8d 90 00 00 00 80    	lea    -0x80000000(%eax),%edx
+10082137:	85 c0                	test   %eax,%eax
+10082139:	0f 48 ca             	cmovs  %edx,%ecx
+1008213c:	83 f9 05             	cmp    $0x5,%ecx
+1008213f:	74 36                	je     10082177 <__RNvNtNtNtCscusTm9VrEdi_19psycho_engine_fixes4mods12engine_fixes20occlusion_link_guard10copy_plane+0x187>
+10082141:	83 f9 02             	cmp    $0x2,%ecx
+10082144:	74 1c                	je     10082162 <__RNvNtNtNtCscusTm9VrEdi_19psycho_engine_fixes4mods12engine_fixes20occlusion_link_guard10copy_plane+0x172>
+10082146:	85 c9                	test   %ecx,%ecx
+10082148:	0f 85 bc 00 00 00    	jne    1008220a <__RNvNtNtNtCscusTm9VrEdi_19psycho_engine_fixes4mods12engine_fixes20occlusion_link_guard10copy_plane+0x21a>
+1008214e:	83 7c 24 10 00       	cmpl   $0x0,0x10(%esp)
+10082153:	0f 84 b1 00 00 00    	je     1008220a <__RNvNtNtNtCscusTm9VrEdi_19psycho_engine_fixes4mods12engine_fixes20occlusion_link_guard10copy_plane+0x21a>
+10082159:	8d 44 24 10          	lea    0x10(%esp),%eax
+1008215d:	e9 9f 00 00 00       	jmp    10082201 <__RNvNtNtNtCscusTm9VrEdi_19psycho_engine_fixes4mods12engine_fixes20occlusion_link_guard10copy_plane+0x211>
+10082162:	8b 44 24 0c          	mov    0xc(%esp),%eax
+10082166:	85 c0                	test   %eax,%eax
+10082168:	0f 84 9c 00 00 00    	je     1008220a <__RNvNtNtNtCscusTm9VrEdi_19psycho_engine_fixes4mods12engine_fixes20occlusion_link_guard10copy_plane+0x21a>
+1008216e:	6a 01                	push   $0x1
+10082170:	50                   	push   %eax
+10082171:	ff 74 24 18          	push   0x18(%esp)
+10082175:	eb 5b                	jmp    100821d2 <__RNvNtNtNtCscusTm9VrEdi_19psycho_engine_fixes4mods12engine_fixes20occlusion_link_guard10copy_plane+0x1e2>
+10082177:	85 c0                	test   %eax,%eax
+10082179:	0f 84 8b 00 00 00    	je     1008220a <__RNvNtNtNtCscusTm9VrEdi_19psycho_engine_fixes4mods12engine_fixes20occlusion_link_guard10copy_plane+0x21a>
+1008217f:	6a 01                	push   $0x1
+10082181:	50                   	push   %eax
+10082182:	ff 74 24 14          	push   0x14(%esp)
+10082186:	eb 4a                	jmp    100821d2 <__RNvNtNtNtCscusTm9VrEdi_19psycho_engine_fixes4mods12engine_fixes20occlusion_link_guard10copy_plane+0x1e2>
+10082188:	89 cf                	mov    %ecx,%edi
+1008218a:	6a 11                	push   $0x11
+1008218c:	68 53 77 42 10       	push   $0x10427753
+10082191:	6a 0c                	push   $0xc
+10082193:	68 fc 62 42 10       	push   $0x104262fc
+10082198:	8d 44 24 10          	lea    0x10(%esp),%eax
+1008219c:	50                   	push   %eax
+1008219d:	e8 1e fd 11 00       	call   101a1ec0 <__RNvNtNtNtCskRG1EnXb1rf_9libpsycho2os7windows6winapi23get_proc_address_in_dll>
+100821a2:	83 c4 14             	add    $0x14,%esp
+100821a5:	8b 04 24             	mov    (%esp),%eax
+100821a8:	8b 4c 24 04          	mov    0x4(%esp),%ecx
+100821ac:	83 f8 ff             	cmp    $0xffffffff,%eax
+100821af:	74 63                	je     10082214 <__RNvNtNtNtCscusTm9VrEdi_19psycho_engine_fixes4mods12engine_fixes20occlusion_link_guard10copy_plane+0x224>
+100821b1:	8b 54 24 08          	mov    0x8(%esp),%edx
+100821b5:	8b 74 24 0c          	mov    0xc(%esp),%esi
+100821b9:	85 c0                	test   %eax,%eax
+100821bb:	89 04 24             	mov    %eax,(%esp)
+100821be:	89 4c 24 04          	mov    %ecx,0x4(%esp)
+100821c2:	89 74 24 0c          	mov    %esi,0xc(%esp)
+100821c6:	89 54 24 08          	mov    %edx,0x8(%esp)
+100821ca:	78 5c                	js     10082228 <__RNvNtNtNtCscusTm9VrEdi_19psycho_engine_fixes4mods12engine_fixes20occlusion_link_guard10copy_plane+0x238>
+100821cc:	74 3c                	je     1008220a <__RNvNtNtNtCscusTm9VrEdi_19psycho_engine_fixes4mods12engine_fixes20occlusion_link_guard10copy_plane+0x21a>
+100821ce:	6a 01                	push   $0x1
+100821d0:	50                   	push   %eax
+100821d1:	51                   	push   %ecx
+100821d2:	e8 79 78 0f 00       	call   10179a50 <__RNvCs9hJ03s5DiqP_7___rustc14___rust_dealloc>
+100821d7:	83 c4 0c             	add    $0xc,%esp
+100821da:	eb 2e                	jmp    1008220a <__RNvNtNtNtCscusTm9VrEdi_19psycho_engine_fixes4mods12engine_fixes20occlusion_link_guard10copy_plane+0x21a>
+100821dc:	e8 2f 1b 29 00       	call   10313d10 <__RNvMNtCsfLsgQA70jHj_14windows_result5errorNtB2_5Error10from_win32>
+100821e1:	eb 07                	jmp    100821ea <__RNvNtNtNtCscusTm9VrEdi_19psycho_engine_fixes4mods12engine_fixes20occlusion_link_guard10copy_plane+0x1fa>
+100821e3:	31 d2                	xor    %edx,%edx
+100821e5:	b8 05 40 00 80       	mov    $0x80004005,%eax
+100821ea:	c7 04 24 00 00 00 80 	movl   $0x80000000,(%esp)
+100821f1:	89 44 24 04          	mov    %eax,0x4(%esp)
+100821f5:	89 54 24 08          	mov    %edx,0x8(%esp)
+100821f9:	85 d2                	test   %edx,%edx
+100821fb:	74 0d                	je     1008220a <__RNvNtNtNtCscusTm9VrEdi_19psycho_engine_fixes4mods12engine_fixes20occlusion_link_guard10copy_plane+0x21a>
+100821fd:	8d 44 24 08          	lea    0x8(%esp),%eax
+10082201:	50                   	push   %eax
+10082202:	e8 89 22 29 00       	call   10314490 <__RNvXs2_NtCsfLsgQA70jHj_14windows_result3comNtB5_6ComPtrNtNtNtCs32tIC4fDiEl_4core3ops4drop4Drop4drop>
+10082207:	83 c4 04             	add    $0x4,%esp
+1008220a:	31 c0                	xor    %eax,%eax
+1008220c:	8d 65 f4             	lea    -0xc(%ebp),%esp
+1008220f:	5e                   	pop    %esi
+10082210:	5f                   	pop    %edi
+10082211:	5b                   	pop    %ebx
+10082212:	5d                   	pop    %ebp
+10082213:	c3                   	ret
+10082214:	31 c0                	xor    %eax,%eax
+10082216:	f0 0f b1 0e          	lock cmpxchg %ecx,(%esi)
+1008221a:	0f 44 c1             	cmove  %ecx,%eax
+1008221d:	89 f9                	mov    %edi,%ecx
+1008221f:	8b 7c 24 20          	mov    0x20(%esp),%edi
+10082223:	e9 c9 fe ff ff       	jmp    100820f1 <__RNvNtNtNtCscusTm9VrEdi_19psycho_engine_fixes4mods12engine_fixes20occlusion_link_guard10copy_plane+0x101>
+10082228:	89 c6                	mov    %eax,%esi
+1008222a:	81 e6 ff ff ff 7f    	and    $0x7fffffff,%esi
+10082230:	83 fe 05             	cmp    $0x5,%esi
+10082233:	74 99                	je     100821ce <__RNvNtNtNtCscusTm9VrEdi_19psycho_engine_fixes4mods12engine_fixes20occlusion_link_guard10copy_plane+0x1de>
+10082235:	83 fe 02             	cmp    $0x2,%esi
+10082238:	74 06                	je     10082240 <__RNvNtNtNtCscusTm9VrEdi_19psycho_engine_fixes4mods12engine_fixes20occlusion_link_guard10copy_plane+0x250>
+1008223a:	85 f6                	test   %esi,%esi
+1008223c:	74 bb                	je     100821f9 <__RNvNtNtNtCscusTm9VrEdi_19psycho_engine_fixes4mods12engine_fixes20occlusion_link_guard10copy_plane+0x209>
+1008223e:	eb ca                	jmp    1008220a <__RNvNtNtNtCscusTm9VrEdi_19psycho_engine_fixes4mods12engine_fixes20occlusion_link_guard10copy_plane+0x21a>
+10082240:	85 c9                	test   %ecx,%ecx
+10082242:	74 c6                	je     1008220a <__RNvNtNtNtCscusTm9VrEdi_19psycho_engine_fixes4mods12engine_fixes20occlusion_link_guard10copy_plane+0x21a>
+10082244:	6a 01                	push   $0x1
+10082246:	51                   	push   %ecx
+10082247:	52                   	push   %edx
+10082248:	eb 88                	jmp    100821d2 <__RNvNtNtNtCscusTm9VrEdi_19psycho_engine_fixes4mods12engine_fixes20occlusion_link_guard10copy_plane+0x1e2>
+1008224a:	31 c0                	xor    %eax,%eax
+1008224c:	c3                   	ret
+1008224d:	0f 1f 00             	nopl   (%eax)
+
+Exact argv: ["objdump", "-d", "--start-address=0x100829f0", "--stop-address=0x10082ad0", "target/i686-pc-windows-gnu/release/psycho_engine_fixes.dll"]
+
+target/i686-pc-windows-gnu/release/psycho_engine_fixes.dll:     file format pei-i386
+
+
+Disassembly of section .text:
+
+100829f0 <__RNvNtNtNtCscusTm9VrEdi_19psycho_engine_fixes4mods12engine_fixes20occlusion_link_guard8dispatch>:
+100829f0:	55                   	push   %ebp
+100829f1:	89 e5                	mov    %esp,%ebp
+100829f3:	53                   	push   %ebx
+100829f4:	57                   	push   %edi
+100829f5:	56                   	push   %esi
+100829f6:	81 ec 04 01 00 00    	sub    $0x104,%esp
+100829fc:	0f b6 05 85 c4 57 10 	movzbl 0x1057c485,%eax
+10082a03:	89 d6                	mov    %edx,%esi
+10082a05:	84 c0                	test   %al,%al
+10082a07:	74 7a                	je     10082a83 <__RNvNtNtNtCscusTm9VrEdi_19psycho_engine_fixes4mods12engine_fixes20occlusion_link_guard8dispatch+0x93>
+10082a09:	89 4d ec             	mov    %ecx,-0x14(%ebp)
+10082a0c:	e8 8f e5 11 00       	call   101a0fa0 <__RNvNtNtNtCskRG1EnXb1rf_9libpsycho2os7windows6winapi19get_last_error_code>
+10082a11:	89 45 f0             	mov    %eax,-0x10(%ebp)
+10082a14:	8d 9d f0 fe ff ff    	lea    -0x110(%ebp),%ebx
+10082a1a:	68 fc 00 00 00       	push   $0xfc
+10082a1f:	6a 00                	push   $0x0
+10082a21:	53                   	push   %ebx
+10082a22:	e8 d9 c5 33 00       	call   103bf000 <_memset>
+10082a27:	83 c4 0c             	add    $0xc,%esp
+10082a2a:	89 f1                	mov    %esi,%ecx
+10082a2c:	89 da                	mov    %ebx,%edx
+10082a2e:	e8 bd f5 ff ff       	call   10081ff0 <__RNvNtNtNtCscusTm9VrEdi_19psycho_engine_fixes4mods12engine_fixes20occlusion_link_guard10copy_plane>
+10082a33:	84 c0                	test   %al,%al
+10082a35:	74 5d                	je     10082a94 <__RNvNtNtNtCscusTm9VrEdi_19psycho_engine_fixes4mods12engine_fixes20occlusion_link_guard8dispatch+0xa4>
+10082a37:	8b 5d dc             	mov    -0x24(%ebp),%ebx
+10082a3a:	31 ff                	xor    %edi,%edi
+10082a3c:	85 db                	test   %ebx,%ebx
+10082a3e:	75 24                	jne    10082a64 <__RNvNtNtNtCscusTm9VrEdi_19psycho_engine_fixes4mods12engine_fixes20occlusion_link_guard8dispatch+0x74>
+10082a40:	8b 5d e4             	mov    -0x1c(%ebp),%ebx
+10082a43:	bf 02 00 00 00       	mov    $0x2,%edi
+10082a48:	85 db                	test   %ebx,%ebx
+10082a4a:	75 18                	jne    10082a64 <__RNvNtNtNtCscusTm9VrEdi_19psycho_engine_fixes4mods12engine_fixes20occlusion_link_guard8dispatch+0x74>
+10082a4c:	8b 5d e0             	mov    -0x20(%ebp),%ebx
+10082a4f:	bf 01 00 00 00       	mov    $0x1,%edi
+10082a54:	85 db                	test   %ebx,%ebx
+10082a56:	75 0c                	jne    10082a64 <__RNvNtNtNtCscusTm9VrEdi_19psycho_engine_fixes4mods12engine_fixes20occlusion_link_guard8dispatch+0x74>
+10082a58:	8b 5d e8             	mov    -0x18(%ebp),%ebx
+10082a5b:	bf 03 00 00 00       	mov    $0x3,%edi
+10082a60:	85 db                	test   %ebx,%ebx
+10082a62:	74 11                	je     10082a75 <__RNvNtNtNtCscusTm9VrEdi_19psycho_engine_fixes4mods12engine_fixes20occlusion_link_guard8dispatch+0x85>
+10082a64:	8d 95 f0 fe ff ff    	lea    -0x110(%ebp),%edx
+10082a6a:	89 d9                	mov    %ebx,%ecx
+10082a6c:	e8 7f f5 ff ff       	call   10081ff0 <__RNvNtNtNtCscusTm9VrEdi_19psycho_engine_fixes4mods12engine_fixes20occlusion_link_guard10copy_plane>
+10082a71:	84 c0                	test   %al,%al
+10082a73:	74 25                	je     10082a9a <__RNvNtNtNtCscusTm9VrEdi_19psycho_engine_fixes4mods12engine_fixes20occlusion_link_guard8dispatch+0xaa>
+10082a75:	ff 75 f0             	push   -0x10(%ebp)
+10082a78:	e8 63 d3 11 00       	call   1019fde0 <__RNvNtNtNtCskRG1EnXb1rf_9libpsycho2os7windows6winapi14set_last_error>
+10082a7d:	83 c4 04             	add    $0x4,%esp
+10082a80:	8b 4d ec             	mov    -0x14(%ebp),%ecx
+10082a83:	8b 45 08             	mov    0x8(%ebp),%eax
+10082a86:	56                   	push   %esi
+10082a87:	ff d0                	call   *%eax
+10082a89:	81 c4 04 01 00 00    	add    $0x104,%esp
+10082a8f:	5e                   	pop    %esi
+10082a90:	5f                   	pop    %edi
+10082a91:	5b                   	pop    %ebx
+10082a92:	5d                   	pop    %ebp
+10082a93:	c3                   	ret
+10082a94:	31 c0                	xor    %eax,%eax
+10082a96:	89 f3                	mov    %esi,%ebx
+10082a98:	eb 05                	jmp    10082a9f <__RNvNtNtNtCscusTm9VrEdi_19psycho_engine_fixes4mods12engine_fixes20occlusion_link_guard8dispatch+0xaf>
+10082a9a:	b8 01 00 00 00       	mov    $0x1,%eax
+10082a9f:	8d 95 f0 fe ff ff    	lea    -0x110(%ebp),%edx
+10082aa5:	89 f1                	mov    %esi,%ecx
+10082aa7:	89 85 f0 fe ff ff    	mov    %eax,-0x110(%ebp)
+10082aad:	89 bd f4 fe ff ff    	mov    %edi,-0x10c(%ebp)
+10082ab3:	89 9d f8 fe ff ff    	mov    %ebx,-0x108(%ebp)
+10082ab9:	e8 92 f7 ff ff       	call   10082250 <__RNvNtNtNtCscusTm9VrEdi_19psycho_engine_fixes4mods12engine_fixes20occlusion_link_guard16report_rejection>
+10082abe:	ff 75 f0             	push   -0x10(%ebp)
+10082ac1:	e8 1a d3 11 00       	call   1019fde0 <__RNvNtNtNtCskRG1EnXb1rf_9libpsycho2os7windows6winapi14set_last_error>
+10082ac6:	83 c4 04             	add    $0x4,%esp
+10082ac9:	eb be                	jmp    10082a89 <__RNvNtNtNtCscusTm9VrEdi_19psycho_engine_fixes4mods12engine_fixes20occlusion_link_guard8dispatch+0x99>
+10082acb:	0f 1f 44 00 00       	nopl   0x0(%eax,%eax,1)

@@ -1,18 +1,20 @@
-//! Reject unreadable native occlusion-plane inputs before compound construction.
+//! Admit native occlusion-plane reads and cache writes before compound construction.
 //!
 //! Six game-owned callers share the thiscall(context, plane), RET 4 contract.
 //! Their void builder already permits no contribution. Guarded copies admit the
 //! source's complete 0xFC-byte range and its selected linked plane's range before
-//! any builder output changes. Unselected links are not dereferenced. Readable
-//! inputs reach the captured provider once; rejection contributes nothing and
-//! leaves engine objects and ownership intact.
+//! any builder output changes. Each consumed plane's mutable cache bytes must
+//! also be writable. Unselected links are not dereferenced. Admitted inputs reach
+//! the captured provider once; rejection contributes nothing and leaves engine
+//! objects and ownership intact.
 //!
 //! Installation is transactional at quiescent pre-CRT startup. Predecessors are
 //! published before activation; an unadmitted rollback survivor forwards directly.
 //! No pointer escapes its call. Admission uses one stack buffer and at most two
-//! guarded copies, without allocation, locks or routine logging. Copies prove
-//! readability only: readable stale objects and post-copy invalidation retain the
-//! native provider's lifetime/threading preconditions. Gameplay cost is unmeasured.
+//! guarded copies and fresh cache-region queries, without allocation, locks or
+//! routine logging. These prove access only: writable stale objects and later
+//! invalidation retain the native provider's lifetime/threading preconditions.
+//! Gameplay cost is unmeasured.
 //! See docs/crash_20261018_occlusion_link_plan.md for proof and qualification.
 
 use std::{
@@ -24,12 +26,16 @@ use anyhow::{Context, Result, ensure};
 use libpsycho::os::windows::{
     guarded_memory::{prepare_current_process_memory_reader, read_current_process_memory},
     hook::{callsite::Rel32CallHookContainer, transaction::ModificationTransaction},
-    winapi::{get_last_error_code, set_last_error},
+    winapi::{get_last_error_code, set_last_error, virtual_query},
 };
 
 type Builder = unsafe extern "thiscall" fn(*mut c_void, *mut c_void);
 
 const PLANE_SIZE: usize = 0xFC;
+// C35C10 publishes corners/dirty state; C33870 publishes planes/camera/dirty state.
+// Their complete mutable cache span is [0x44, 0xE6), independent of dirty gates.
+const CACHE_START: usize = 0x44;
+const CACHE_END: usize = 0xE6;
 const LINK_OFFSET: usize = 0xEC;
 const LINK_COUNT: usize = 4;
 // C35980 prefers axis 0/2; C47D3A..C47DBE selects one occupied slot on that axis.
@@ -174,7 +180,7 @@ fn validate_planes(source: usize) -> std::result::Result<(), Rejection> {
         if target != 0 {
             // Only the selected target is consumed, including the repeated
             // axis-1 lookup at C486CF. Do not reject unreadable unused links or
-            // fall back when the selected target is unreadable. Selection is
+            // fall back when the selected target is inadmissible. Selection is
             // complete before reusing the source snapshot as the target buffer.
             return if copy_plane(target, &mut snapshot) {
                 Ok(())
@@ -191,7 +197,35 @@ fn validate_planes(source: usize) -> std::result::Result<(), Rejection> {
 
 fn copy_plane(address: usize, snapshot: &mut [u8; PLANE_SIZE]) -> bool {
     address.checked_add(PLANE_SIZE - 1).is_some()
+        && writable_cache(address)
         && read_current_process_memory(address, snapshot).is_ok()
+}
+
+/// Check every mapping intersecting the native cache, without changing memory.
+/// No mapping survives this invocation or proves object identity or lifetime.
+fn writable_cache(address: usize) -> bool {
+    let Some(end) = address.checked_add(CACHE_END) else {
+        return false;
+    };
+    let Some(mut current) = address.checked_add(CACHE_START) else {
+        return false;
+    };
+    while current < end {
+        let Ok(region) = virtual_query(current as *mut c_void) else {
+            return false;
+        };
+        let base = region.base_address as usize;
+        let Some(region_end) = base.checked_add(region.region_size) else {
+            return false;
+        };
+        // is_writable also requires committed storage without PAGE_GUARD or
+        // PAGE_NOACCESS. Reject malformed/non-progressing query results.
+        if !region.is_writable() || current < base || current >= region_end {
+            return false;
+        }
+        current = end.min(region_end);
+    }
+    true
 }
 
 /// The index is fixed by CALLS; each predecessor survives any failed rollback.
@@ -213,7 +247,7 @@ unsafe fn dispatch(context: *mut c_void, plane: *mut c_void, provider: *mut c_vo
         set_last_error(last_error);
     }
     // SAFETY: Captured provider is non-null before code publication, including
-    // unadmitted rollback survivors. Readable inputs retain native lifetime and
+    // unadmitted rollback survivors. Admitted inputs retain native lifetime and
     // threading requirements; forward the original pointers exactly once.
     let original: Builder = unsafe { std::mem::transmute(provider) };
     unsafe { original(context, plane) };
@@ -223,7 +257,7 @@ unsafe fn dispatch(context: *mut c_void, plane: *mut c_void, provider: *mut c_vo
 fn report_rejection(source: *mut c_void, rejection: Rejection) {
     if !REJECTION_REPORTED.swap(true, Ordering::Relaxed) {
         log::warn!(
-            "[OCCLUSION_LINK] Cannot read plane range; source={source:p}, \
+            "[OCCLUSION_LINK] Plane memory cannot satisfy native read/write access; source={source:p}, \
              rejected=0x{:08X}, link={:?}; this clipping contribution is omitted",
             rejection.address,
             rejection.link,

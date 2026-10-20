@@ -137,8 +137,8 @@ scene_reference_owner_guard = true
 # Valid lists are unchanged; a damaged tail may leak.
 list_cleanup_guard = true
 
-# Skip unreadable occlusion-plane data during visibility checks instead of
-# crashing. Valid occlusion is unchanged.
+# Skip occlusion-plane data without native read/cache-write access during
+# visibility checks. Valid occlusion is unchanged.
 occlusion_link_guard = true
 
 # --- Physics ----------------------------------------------------------------

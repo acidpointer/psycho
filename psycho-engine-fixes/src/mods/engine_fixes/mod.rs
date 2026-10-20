@@ -1259,13 +1259,13 @@ fn install_scene_reference_owner_guard(config: &EngineFixesConfig) {
 
 fn install_occlusion_link_guard(config: &EngineFixesConfig) -> anyhow::Result<()> {
     if !config.occlusion_link_guard {
-        log::info!("[OCCLUSION_LINK] Unreadable plane guard disabled by config");
+        log::info!("[OCCLUSION_LINK] Plane memory guard disabled by config");
         return Ok(());
     }
 
     occlusion_link_guard::install()?;
     log::info!(
-        "[OCCLUSION_LINK] Guard active: skips unreadable planes during native visibility checks"
+        "[OCCLUSION_LINK] Guard active: skips planes without native read/write access during visibility checks"
     );
     Ok(())
 }

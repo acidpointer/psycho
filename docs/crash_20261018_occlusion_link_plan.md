@@ -3,9 +3,11 @@
 Status: an unreleased defensive candidate is implemented as a separate engine
 fix. It rejects unreadable native plane ranges before compound construction.
 The writer, allocation history and recurrence on the current build remain
-unresolved. Gheap corruption is not established. The owner requires static
-research, forbids debug-only builds and requires the occlusion-planes module
-to remain untouched.
+unresolved for the October 18 report. The October 21 follow-up below verifies
+a related failure through a readable code address while this guard is active;
+the original writer remains unknown. Gheap corruption is not established. The
+owner requires static research, forbids debug-only builds and requires the
+occlusion-planes module to remain untouched.
 
 ## Evidence and scope
 
@@ -189,6 +191,9 @@ upstream ownership or allocator correction.
 
 ## Authorized separate engine fix
 
+This section records the original October 18 readability-only candidate. The
+October 21 follow-up below extends its admission to the native cache writes.
+
 The owner explicitly requested implementation of this incident's correction as
 a separate engine fix, with no edits to the occlusion-planes module. This
 permits the scoped, unreleased defensive candidate under the
@@ -320,3 +325,246 @@ An allocator proposal must also satisfy the
 [gheap OOM, stale-reader and performance gates](../psycho-engine-fixes/src/mods/heap_replacer/gheap/AGENTS.md).
 Changing reuse order, quarantine, payload clearing or pool sizes cannot be
 called a root-cause correction without the missing write/retirement evidence.
+
+## October 21 follow-up: readable linked pointer, forbidden cache write
+
+Status: an unreleased defensive candidate extends the existing guard's
+admission to native cache-write permissions. The owner reports "Just walking"
+and subsequently authorized proceeding with the proposed October 21 plan.
+This is incident-specific authorization under the reporter-only exception.
+No game execution, debugging, debug-only build or deployment is authorized or
+claimed; local qualification uses release-profile offline tests and builds.
+
+### Incident evidence and identity
+
+The complete Crash Logger report and matching Psycho log are preserved in
+[the incident archive](../.reports/20261021-occlusion-cache-write/inputs.txt),
+together with the discovered configuration and deployed core DLL. The crash
+archive is named `CrashLogger.2026-10-21-00-50-10.log`; its header's
+`00:42:58` is the session start, matching the Psycho startup at
+`2026-10-20T21:42:58Z`. Reported playtime is `00:07:11`. The player was in
+`FFRaiderCamp05`, cell `06002C86`, Capital Wasteland, at approximately
+`(-91257.80, -53345.41, 16226.68)`.
+
+The Psycho log identifies source revision `3de831c4b7e73303239781247671e07576d2f396`.
+It records successful startup, gheap/scrap activation, the occlusion-link guard
+and runtime plane generation. The discovered configuration agrees:
+`memory.allocator = 2`, `engine_fixes.occlusion_link_guard = true`, and
+`performance.occlusion_planes = true`. Neither source identity nor the
+currently installed files capture all in-memory patches at the instant of
+failure. The deployed core's two return addresses additionally match the
+reported stack exactly, as detailed below.
+
+The installed game executable and research executable are byte-identical:
+FalloutNV 1.4.0.525, PE32 x86, base `0x00400000`, SHA-256
+`42fee7d6cd74e801372aa89c8f71c974cebd3c20ec9ad43d1465b8fa9646b49c`.
+This was rechecked before reusing the addresses. Raw evidence:
+
+- [Complete camera-cache producer](../analysis/radare2/output/crash_20261021_linked_plane_cache.txt).
+- [Complete rectangle getter and writeback](../analysis/radare2/output/crash_20261021_linked_plane_writeback.txt).
+- [Independent instruction, frame, code-address and deployed-guard verification](../analysis/radare2/output/crash_20261021_occlusion_write_verification.txt).
+
+### Verified immediate failure
+
+At `0x00EC456C`, bytes `88 07` execute `mov byte [edi], al`.
+EDI is `0x004F00F5`, ESI is `0x0170F478`; the preceding source read has
+already completed. The supported copy routine takes destination, source and
+length as three cdecl stack arguments. Report stack slots `04`, `05`, `06`
+contain those same pointers and length `0x30` respectively. This is a write
+fault during rectangle-cache publication, not a failed source read or a null
+allocation result.
+
+The reliable native chain is:
+
+| Reported return | Verified call and argument ownership |
+| --- | --- |
+| `0x00C35DE9` | `0x00C35DE4` copies 48 bytes from the caller's rectangle buffer into `this + 0xA8`. |
+| `0x00C33963` | `0x00C3395E` calls rectangle getter `0x00C35C10` with the camera-cache producer's saved plane and its local four-corner output. |
+| `0x00C47EB3` | `0x00C47EAE` calls camera-cache producer `0x00C33870` with the selected linked plane from `[EBP-4]`. |
+| `0x10082B49` | Deployed `occlusion_link_guard::dispatch`, immediately after forwarding to its captured provider. |
+| `0x1006EB81` | Deployed `occlusion_link_guard::build::<0>`, immediately after calling dispatch; this bridge returns with `RET 4`. |
+| `0x00B5F28A` | Game-owned first builder callsite, matching that bridge. |
+
+The plane is therefore `0x004F00F5 - 0xA8 = 0x004F004D`.
+There are independent checks beyond this subtraction:
+
+1. Getter EBP `0x0170F2D8` minus its `0x114`-byte frame puts its saved
+   `this` at `0x0170F1C4`. That is report ESP plus seven DWORDs, stack slot
+   `07`, which independently contains `0x004F004D`.
+2. Producer EBP `0x0170F4A8` minus `0x30` is `0x0170F478`, exactly the
+   reported rectangle source. Frame sizes, saved registers and call arguments
+   also reproduce both intervening EBP values and the fault ESP.
+3. radare2 exact disassembly and GNU objdump independently agree on the store,
+   the `this + 0xA8` destination and both native caller continuations. Deployed
+   DLL disassembly independently resolves both Psycho frames to the guard.
+
+`0x004F004D` and its complete `0xFC`-byte range lie in the game's readable,
+executable `.text` section. They are instruction bytes, not a plane allocation.
+The apparent dirty bytes at `this + 0xE4/+0xE5` are both `0xCC` in the
+verified file, consistent with entering both recomputation paths and reaching
+the observed writeback. Those file bytes corroborate the path; they are not a
+dump of the incident's memory protections or patch state.
+
+This verifies an invalid linked-plane pointer reaching mutable native cache
+code. It does **not** identify the original corrupting writer or prove a
+particular use-after-free, allocator defect, race, injected plane or plugin.
+
+### Why the existing guard permits this failure class
+
+The deployed bridge copies the source, chooses one link in priority order
+0, 2, 1, 3, copies that target, then forwards the original pointers. Its
+`copy_plane` checks address overflow and a complete `ReadProcessMemory`
+transfer only. It does not check whether the target's native cache is writable.
+A pointer into readable executable bytes satisfies that admission contract.
+The log records guard activation, and the deployed return addresses prove the
+guard was on this call path. The report does not retain its earlier snapshot,
+so it cannot prove whether the bad value already existed at admission or
+changed before the linked-plane call.
+
+The native methods require mutation, even though callers request geometry:
+
+| Plane-relative bytes, inclusive | Native write |
+| --- | --- |
+| `+0xA8..+0xD7` | Rectangle getter publishes four corners at `0x00C35DE4`. |
+| `+0xE4` | Rectangle getter clears its dirty byte at `0x00C35DF2`. |
+| `+0xD8..+0xE3` | Camera-cache producer stores camera XYZ at `0x00C33CB7..0x00C33CC2`. |
+| `+0x44..+0xA7` | Camera-cache producer publishes 25 DWORDs at `0x00C33CD6`. |
+| `+0xE5` | Camera-cache producer clears its dirty byte at `0x00C33CDE`. |
+
+Thus successful reads alone cannot establish the input contract. The previous
+guard's documented readable-invalid-object limitation is now observed as a
+concrete write fault on its forwarded path. Writable memory alone would still
+not prove object identity or lifetime.
+
+### Attribution limits
+
+The report does not capture the source plane pointer, four source link slots,
+selected index, source reference, target allocation history or invalidating
+operation. The native builder loads its selected link into `[EBP-4]`; the
+report establishes the bad value at its later consumer, not the original
+publication. The verified raw setter `0x004181C0` still stores a borrowed
+pointer at `+0xEC+4*index` without retaining it. The earlier ownership research
+defines a possible lifetime boundary, not proof that retirement caused this
+incident. Indirect/plugin writes and concurrent changes remain unclassified.
+
+Runtime plane generation was active. Its factory calls the native zeroing
+constructor, which clears link slots at `0x00C336FD`; ordinary creation does
+not establish a non-null link. The incident cannot identify the source as an
+injected or authored plane. Charon's script and terrain nodes on the stack do
+not establish ownership of the offending link.
+
+The allocator log reports pool fallbacks, memory growth and other guards'
+rejections. It does not connect them to this plane. The recorded fallback
+sample has no block or virtual-allocation failures; the last VAS sample has
+560 MB free with a 425 MB largest hole. These earlier samples neither prove
+OOM nor exclude a later transient failure. The copy has a non-null code
+destination and no allocation on its failing path. There is no evidence-backed
+allocator correction for this incident.
+
+The optimized visibility owner uses EBP as a context pointer at `0x00B5F19D`.
+The later unwind warnings and DbgHelp copy failure do not independently prove
+heap corruption. Trace attribution stops at the reliable frames above.
+
+### Containment correction and acceptance gates
+
+The correction is contained in the existing `occlusion_link_guard.rs`, before
+builder output changes:
+
+1. Keep the full `0xFC`-byte guarded read for the source and the selected
+   target. Additionally require their proven mutable cache range
+   `[plane+0x44, plane+0xE6)` to be committed, writable and unguarded across
+   every intersected region, using the existing `libpsycho` WinAPI wrappers.
+   Check arithmetic and reject a query failure. Never probe writability by
+   writing, change page protection, or permit code-memory mutation.
+2. Preserve all-null absence, selection priority and untouched unused links.
+   Reject an inadmissible selected target without trying another slot. Keep
+   the existing native no-contribution return, original provider capture,
+   exact-pointer forwarding and Win32 last-error contract. Do not rewrite or
+   clear links, alter refcounts, blacklist addresses or vtables, change the
+   allocator, or disable occlusion.
+3. Use fresh mapping checks per invocation. No persistent permission cache,
+   new worker or ownership inference is supported. Mapping checks establish
+   permissions only at admission; they cannot close a later lifetime race or
+   reject a writable reused object. Measure added query cost before making
+   performance claims. If broader lifetime repair is proposed, first obtain
+   direct evidence of the writer or target retirement and its synchronization.
+4. The actual incident boundary is the game-owned builder call through the
+   guard, with its actual linked plane and native cache writes. Valid authored
+   and generated clipping must remain correct; invalid input must return
+   before any builder output or plane mutation. Real OS protection tests of
+   the production admission/bridges can support this gate, including a
+   read-only selected target, read-only source cache, boundary-crossing cache,
+   inaccessible unused links and unchanged source/context on rejection. They
+   do not replace the native clipping/incident test. Do not create source
+   assertions, a reconstructed shader/geometry model or a fake provider.
+5. The owner's "proceed with plan" authorizes this scoped defensive candidate
+   under `psycho_engine_fix_exception.md`. The report supplies the native
+   failure; the exception overrides only the unavailable fail-first/same-game
+   test and no-production-edit gates. Release-profile offline tests exercise
+   the production memory-admission and rejection bridges. Native clipping,
+   continued gameplay, timing and startup acceptance remain unverified.
+   No release, packaging, deployment or commit is authorized by this request.
+
+The production guard queries each mapping intersecting the mutable cache
+before its existing guarded read. Region arithmetic is checked, and queries
+must make forward progress. A failed query, nonwritable/guarded/uncommitted
+mapping, overflow or incomplete read rejects the contribution. Permissions
+outside `[+0x44,+0xE6)` need only support the original complete object read.
+For example, a readable nonwritable header does not reject an otherwise
+writable cache. Source and selected-target snapshots stay call-local; no
+mapping or permission result is cached between calls.
+
+This adds mapping queries to the existing one-or-two-copy admission cost.
+The checked cache is 162 bytes; a query is repeated only when that span crosses
+a returned mapping boundary. There is no new allocation, lock, worker,
+configuration field, dependency, callback, TLS owner or startup activation.
+The setting retains its name, type and position. Log and dashboard text now
+describe read/cache-write admission. No runtime occlusion-generator, native
+provider, engine list or object ownership logic changes.
+
+### Offline qualification and remaining acceptance
+
+The release-profile regression failed against the unchanged production guard:
+an actual read-only OS page was readable and was incorrectly admitted. It
+passes after the cache-permission correction. The focused regressions also
+exercise all selected slots, the exact last writable cache byte at a mapping
+boundary, read-only bytes outside the cache, fresh permissions after restoration,
+unused read-only links, address overflow and inaccessible ranges. All six
+production bridges reject read-only or guarded source/selected-target storage
+before an unpublished provider can be called, preserve source links and Win32
+last-error, and leave the page's guard bit intact. These are real memory-access
+and rejection-path observations, not execution of native clipping or proof of
+the original invalidating writer.
+
+The affected core/helper release-profile suites and complete supported
+`i686-pc-windows-gnu` release build pass. Scoped formatting, documentation links
+and diff checks pass. The build retains existing unrelated warnings.
+[Qualification logs and startup comparison](../.reports/20261021-occlusion-cache-write/implementation/affected-suites.log)
+are preserved beside the fail-first result, focused results, release build and
+`startup-footprint.json`.
+
+[Compiled candidate disassembly](../analysis/radare2/output/crash_20261021_occlusion_guard_compiled_abi.txt)
+confirms cache mapping checks precede the guarded read, both admission failures
+return before provider dispatch, and all six bridges retain their original
+thiscall argument and `RET 4` shape. The import sequences, delay-import state,
+TLS callback/shape and CRT initializer identities agree with the preserved
+pre-edit artifacts. The core's TLS template bytes move only with the relocated
+pointer to the existing `_mi_thread_locals_empty` symbol. The core baseline is
+the incident artifact that reached gameplay; the helper baseline is the
+pre-edit local artifact, whose deployed identity was not established. This
+comparison does not certify startup, and binary layout still moves.
+
+The candidate is unreleased and not deployed. No game run,
+debugging or debug-only build was performed. Native clipping output, continued
+gameplay after a real rejection, startup and frame-time cost remain unverified.
+Under the reporter-only exception, release acceptance still requires reporter
+evidence of a rejection followed by continued gameplay; startup acceptance also
+remains a release gate. This is a reporter-validation candidate only.
+
+The immediate invalid-pointer/cache-write mechanism and the guard's missing
+writability contract are additionally verified, and that admission gap is
+covered by the candidate. The original bad publication
+or invalidation remains unresolved. A complete root-cause ownership repair
+cannot be specified from this report alone; existing memory evidence showing
+the source slots and their writer or retirement history would be needed. This
+research does not request a debugging run or relax the owner's restrictions.

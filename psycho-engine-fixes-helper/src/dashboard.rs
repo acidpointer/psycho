@@ -136,7 +136,7 @@ const ENGINE_FIX_HELP: [(&str, &str); 32] = [
     ),
     (
         "Occlusion link guard",
-        "Skips unreadable occlusion-plane data during visibility checks instead of crashing. Valid occlusion is unchanged.",
+        "Skips occlusion-plane data without native read and cache-write access during visibility checks. Valid occlusion is unchanged.",
     ),
     (
         "List cleanup guard",

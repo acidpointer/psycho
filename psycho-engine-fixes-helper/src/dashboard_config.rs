@@ -117,7 +117,7 @@ pub(crate) struct EditableConfig {
     pub model_cache_keys: bool,
     /// Restart-only unreadable linked-owner fading containment.
     pub fade_linked_owner_guard: bool,
-    /// Restart-only unreadable native occlusion-plane containment.
+    /// Restart-only native occlusion-plane read/cache-write containment.
     pub occlusion_link_guard: bool,
     /// Restart-only unreadable scene-owner base-form containment.
     pub scene_reference_owner_guard: bool,

@@ -1,12 +1,13 @@
 //! Exercise the production admission and rejection bridge with real OS pages.
 //!
-//! Byte buffers expose the audited read ranges; they are not native plane
+//! Byte buffers expose the audited access ranges; they are not native plane
 //! objects or a replacement clipping implementation. No provider is fabricated.
 //! The supplied game report remains the native failure evidence.
 
 use super::*;
 use libpsycho::os::windows::winapi::{
-    native_system_layout, virtual_make_noaccess, virtual_release, virtual_reserve_commit,
+    native_system_layout, virtual_make_noaccess, virtual_query, virtual_release,
+    virtual_reserve_commit, with_virtual_protect,
 };
 
 struct Pages {
@@ -38,6 +39,112 @@ impl Drop for Pages {
         // SAFETY: All guarded reads have ended; this is the reservation base.
         unsafe { virtual_release(self.base) }.expect("release the owned pages");
     }
+}
+
+#[test]
+fn admission_requires_writable_cache_for_source_and_selected_link() {
+    let pages = Pages::new();
+    let address = pages.base as usize;
+    let mut protection = virtual_query(pages.base).expect("query owned page").protect;
+    protection.0 = 0x02; // PAGE_READONLY: readable bytes cannot receive native caches.
+    // SAFETY: The complete first page belongs to this reservation. Restore its
+    // protection before assertions; no native plane or provider is fabricated.
+    let (readable, source_result, link_results) = unsafe {
+        with_virtual_protect(pages.base, protection, pages.page_size, || {
+            let mut snapshot = [0; PLANE_SIZE];
+            let readable = read_current_process_memory(address, &mut snapshot).is_ok();
+            let source_result = validate_planes(address);
+            let link_results = std::array::from_fn::<_, LINK_COUNT, _>(|index| {
+                let mut source = [0u8; PLANE_SIZE];
+                let offset = LINK_OFFSET + index * 4;
+                source[offset..offset + 4].copy_from_slice(&(address as u32).to_le_bytes());
+                validate_planes(source.as_ptr() as usize)
+            });
+            (readable, source_result, link_results)
+        })
+    }
+    .expect("scope read-only storage");
+    assert!(readable, "the defect concerns readable storage");
+    assert_eq!(
+        source_result,
+        Err(Rejection {
+            address,
+            link: None
+        })
+    );
+    for (index, result) in link_results.into_iter().enumerate() {
+        assert_eq!(
+            result,
+            Err(Rejection {
+                address,
+                link: Some(index)
+            })
+        );
+    }
+    // A fresh invocation must observe the restored writable mapping.
+    assert_eq!(validate_planes(address), Ok(()));
+}
+
+#[test]
+fn cache_writability_covers_each_region_and_only_the_native_write_span() {
+    let pages = Pages::new();
+    let boundary = pages.unreadable();
+    let mut protection = virtual_query(pages.base).expect("query owned page").protect;
+    protection.0 = 0x02; // The second page is readable but cannot receive caches.
+    // SAFETY: The second page is owned and remains reserved through this test.
+    // Observe the production admission while the region boundary is present.
+    let results = unsafe {
+        with_virtual_protect(boundary as *mut c_void, protection, pages.page_size, || {
+            [0xE6usize, 0xE5, 0xA8, 0x44, 0x43].map(|distance| {
+                let address = boundary - distance;
+                let mut snapshot = [0; PLANE_SIZE];
+                assert!(read_current_process_memory(address, &mut snapshot).is_ok());
+                (address, validate_planes(address))
+            })
+        })
+    }
+    .expect("scope cache-region boundary");
+    for (index, (address, result)) in results.into_iter().enumerate() {
+        assert_eq!(
+            result,
+            if index == 0 {
+                Ok(())
+            } else {
+                Err(Rejection {
+                    address,
+                    link: None,
+                })
+            },
+        );
+    }
+
+    // A read-only header is permitted when every actual cache write is in the
+    // following writable page. This also exercises two readable regions.
+    let mut writable = protection;
+    writable.0 = 0x04;
+    unsafe {
+        with_virtual_protect(boundary as *mut c_void, writable, pages.page_size, || {
+            with_virtual_protect(pages.base, protection, pages.page_size, || {
+                assert_eq!(validate_planes(boundary - 0x44), Ok(()));
+            })
+            .expect("scope read-only header");
+        })
+    }
+    .expect("scope writable cache");
+
+    // Unselected read-only targets remain irrelevant to the clipping input.
+    unsafe {
+        with_virtual_protect(pages.base, protection, pages.page_size, || {
+            let mut source = [0u8; PLANE_SIZE];
+            let source_address = source.as_ptr() as usize;
+            source[LINK_OFFSET..LINK_OFFSET + 4]
+                .copy_from_slice(&(source_address as u32).to_le_bytes());
+            source[LINK_OFFSET + 4..LINK_OFFSET + 8]
+                .copy_from_slice(&(pages.base as u32).to_le_bytes());
+            assert_eq!(validate_planes(source_address), Ok(()));
+        })
+    }
+    .expect("scope unused read-only link");
 }
 
 #[test]
@@ -157,5 +264,47 @@ fn production_bridges_reject_unreadable_sources_and_links_without_a_provider() {
             assert_eq!(source, before, "rejection must not rewrite a link");
             source[offset..offset + 4].fill(0);
         }
+    }
+
+    for raw_protection in [0x02, 0x104] {
+        // PAGE_READONLY and PAGE_READWRITE | PAGE_GUARD.
+        let mut protection = virtual_query(pages.base).expect("query owned page").protect;
+        protection.0 = raw_protection;
+        // SAFETY: Change only our owned page. Every bridge must reject before
+        // forwarding to its unpublished provider or modifying the context.
+        unsafe {
+            with_virtual_protect(pages.base, protection, pages.page_size, || {
+                reject(
+                    pages.base as usize,
+                    Rejection {
+                        address: pages.base as usize,
+                        link: None,
+                    },
+                );
+                for index in 0..LINK_COUNT {
+                    let offset = LINK_OFFSET + index * 4;
+                    source[offset..offset + 4].copy_from_slice(&(pages.base as u32).to_le_bytes());
+                    let before = source;
+                    reject(
+                        source.as_ptr() as usize,
+                        Rejection {
+                            address: pages.base as usize,
+                            link: Some(index),
+                        },
+                    );
+                    assert_eq!(source, before, "rejection preserves source links");
+                    source[offset..offset + 4].fill(0);
+                }
+                assert_eq!(
+                    virtual_query(pages.base)
+                        .expect("query rejected mapping")
+                        .protect
+                        .0,
+                    raw_protection,
+                    "admission must not consume the guard bit or change protection"
+                );
+            })
+        }
+        .expect("scope nonwritable native cache");
     }
 }

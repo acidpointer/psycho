@@ -470,7 +470,7 @@ pub struct EngineFixesConfig {
     pub model_cache_keys: bool,
     /// Use neutral alpha when an object's linked actor prefix is unreadable.
     pub fade_linked_owner_guard: bool,
-    /// Omit native clipping contributions with unreadable plane inputs.
+    /// Omit native clipping contributions without plane read/cache-write access.
     pub occlusion_link_guard: bool,
     /// Return no scene reference when its owner base-form reads are inaccessible.
     pub scene_reference_owner_guard: bool,
