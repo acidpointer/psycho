@@ -1,0 +1,121 @@
+Executable identity: verified in crash_20261020_inventory_reset_review_continuations.txt
+Commands: ['s 0x0062c3c0', 'af', 'pdf', 'pdg', 's 0x0047d0b0', 'af', 'pdf', 's 0x006ebd10', 'af', 'pdf', 'pdg']
+┌ 111: fcn.0062c3c0 (int32_t arg_8h, int32_t arg_ch);
+│ `- args(sp[0x4..0x8])
+│           0x0062c3c0      55             push ebp
+│           0x0062c3c1      8bec           mov ebp, esp
+│           0x0062c3c3      837d0800       cmp dword [arg_8h], 0
+│       ┌─< 0x0062c3c7      744b           je 0x62c414
+│       │   0x0062c3c9      8b4508         mov eax, dword [arg_8h]
+│       │   0x0062c3cc      8b10           mov edx, dword [eax]
+│       │   0x0062c3ce      8b4d08         mov ecx, dword [arg_8h]
+│       │   0x0062c3d1      8b8200010000   mov eax, dword [edx + 0x100]
+│       │   0x0062c3d7      ffd0           call eax
+│       │   0x0062c3d9      0fb6c8         movzx ecx, al
+│       │   0x0062c3dc      85c9           test ecx, ecx
+│      ┌──< 0x0062c3de      7434           je 0x62c414
+│      ││   0x0062c3e0      6a00           push 0
+│      ││   0x0062c3e2      8b5508         mov edx, dword [arg_8h]
+│      ││   0x0062c3e5      8b02           mov eax, dword [edx]
+│      ││   0x0062c3e7      8b4d08         mov ecx, dword [arg_8h]
+│      ││   0x0062c3ea      8b902c020000   mov edx, dword [eax + 0x22c]
+│      ││   0x0062c3f0      ffd2           call edx
+│      ││   0x0062c3f2      0fb6c0         movzx eax, al
+│      ││   0x0062c3f5      85c0           test eax, eax
+│     ┌───< 0x0062c3f7      7517           jne 0x62c410
+│     │││   0x0062c3f9      8b4d08         mov ecx, dword [arg_8h]
+│     │││   0x0062c3fc      8b11           mov edx, dword [ecx]
+│     │││   0x0062c3fe      8b4d08         mov ecx, dword [arg_8h]
+│     │││   0x0062c401      8b8230020000   mov eax, dword [edx + 0x230]
+│     │││   0x0062c407      ffd0           call eax
+│     │││   0x0062c409      0fb6c8         movzx ecx, al
+│     │││   0x0062c40c      85c9           test ecx, ecx
+│    ┌────< 0x0062c40e      7404           je 0x62c414
+│    │└───> 0x0062c410      b001           mov al, 1
+│    │┌───< 0x0062c412      eb19           jmp 0x62c42d
+│    └─└└─> 0x0062c414      6a48           push 0x48                   ; 'H' ; 72
+│     │     0x0062c416      8b550c         mov edx, dword [arg_ch]
+│     │     0x0062c419      52             push edx
+│     │     0x0062c41a      e85187ffff     call 0x624b70
+│     │     0x0062c41f      83c408         add esp, 8
+│     │     0x0062c422      83f848         cmp eax, 0x48               ; 'H' ; 72
+│     │ ┌─< 0x0062c425      7504           jne 0x62c42b
+│     │ │   0x0062c427      b001           mov al, 1
+│     │┌──< 0x0062c429      eb02           jmp 0x62c42d
+│     ││└─> 0x0062c42b      32c0           xor al, al
+│     ││    ; CODE XREFS from fcn.0062c3c0 @ 0x62c412(x), 0x62c429(x)
+│     └└──> 0x0062c42d      5d             pop ebp
+└           0x0062c42e      c3             ret
+
+bool __cdecl fcn.0062c3c0(int32_t arg_8h,int32_t arg_ch)
+
+{
+    char cVar1;
+    int iVar2;
+
+    if (((arg_8h != 0) && (cVar1 = (**(*arg_8h + 0x100))(), cVar1 != '\0')) &&
+       ((cVar1 = (**(*arg_8h + 0x22c))(0), cVar1 != '\0' || (cVar1 = (**(*arg_8h + 0x230))(), cVar1 != '\0')))) {
+        return true;
+    }
+    iVar2 = func_0x00624b70(arg_ch,0x48);
+    return iVar2 == 0x48;
+}
+
+┌ 116: fcn.0047d0b0 ();
+│ afv: vars(2:sp[0x8..0x10])
+│           0x0047d0b0      55             push ebp
+│           0x0047d0b1      8bec           mov ebp, esp
+│           0x0047d0b3      6aff           push 0xffffffffffffffff
+│           0x0047d0b5      683eeeee00     push 0xeeee3e
+│           0x0047d0ba      64a100000000   mov eax, dword fs:[0]
+│           0x0047d0c0      50             push eax
+│           0x0047d0c1      a1bc161c01     mov eax, dword [0x11c16bc]  ; [0x11c16bc:4]=0xbb40e64e
+│           0x0047d0c6      33c5           xor eax, ebp
+│           0x0047d0c8      50             push eax
+│           0x0047d0c9      8d45f4         lea eax, [var_ch]
+│           0x0047d0cc      64a300000000   mov dword fs:[0], eax
+│           0x0047d0d2      a198521c01     mov eax, dword [0x11c5298]  ; [0x11c5298:4]=0
+│           0x0047d0d7      83e001         and eax, 1
+│       ┌─< 0x0047d0da      7534           jne 0x47d110
+│       │   0x0047d0dc      8b0d98521c01   mov ecx, dword [0x11c5298]  ; [0x11c5298:4]=0
+│       │   0x0047d0e2      83c901         or ecx, 1
+│       │   0x0047d0e5      890d98521c01   mov dword [0x11c5298], ecx  ; [0x11c5298:4]=0
+│       │   0x0047d0eb      c745fc0000..   mov dword [var_4h], 0
+│       │   0x0047d0f2      b990521c01     mov ecx, 0x11c5290
+│       │   0x0047d0f7      e824e72600     call fcn.006eb820
+│       │   0x0047d0fc      688084fc00     push 0xfc8480
+│       │   0x0047d101      e88994a400     call fcn.00ec658f
+│       │   0x0047d106      83c404         add esp, 4
+│       │   0x0047d109      c745fcffff..   mov dword [var_4h], 0xffffffff ; -1
+│       └─> 0x0047d110      b890521c01     mov eax, 0x11c5290
+│           0x0047d115      8b4df4         mov ecx, dword [var_ch]
+│           0x0047d118      64890d0000..   mov dword fs:[0], ecx
+│           0x0047d11f      59             pop ecx
+│           0x0047d120      8be5           mov esp, ebp
+│           0x0047d122      5d             pop ebp
+└           0x0047d123      c3             ret
+┌ 27: fcn.006ebd10 (int32_t arg_8h);
+│ `- args(sp[0x4..0x4]) vars(1:sp[0x8..0x8])
+│           0x006ebd10      55             push ebp
+│           0x006ebd11      8bec           mov ebp, esp
+│           0x006ebd13      51             push ecx
+│           0x006ebd14      894dfc         mov dword [var_4h], ecx
+│           0x006ebd17      8b4508         mov eax, dword [arg_8h]
+│           0x006ebd1a      50             push eax
+│           0x006ebd1b      8b4dfc         mov ecx, dword [var_4h]
+│           0x006ebd1e      8b09           mov ecx, dword [ecx]
+│           0x006ebd20      e88bf9ffff     call fcn.006eb6b0
+│           0x006ebd25      8be5           mov esp, ebp
+│           0x006ebd27      5d             pop ebp
+└           0x006ebd28      c20400         ret 4
+
+void __cdecl fcn.006ebd10(int32_t arg_8h)
+
+{
+    int32_t var_4h;
+
+    fcn.006eb6b0(arg_8h);
+    return;
+}
+
+WARN: Invalid certificate table

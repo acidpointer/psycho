@@ -1,0 +1,101 @@
+Psycho radare2 evidence
+UTC: 2026-10-20T12:03:35+00:00
+Binary: /data/storage1/Workspace/psycho/fnv_reverse/FalloutNV.exe
+SHA-256: 42fee7d6cd74e801372aa89c8f71c974cebd3c20ec9ad43d1465b8fa9646b49c
+radare2: radare2 6.2.2 +37485 abi:142 @ linux-x86_64
+Command: /usr/bin/r2 -q -e scr.color=0 -e scr.html=false -e bin.relocs.apply=true -e anal.timeout=300 -c pd 90 @ 0x00B544F0 -c q /data/storage1/Workspace/psycho/fnv_reverse/FalloutNV.exe
+r2 commands: pd 90 @ 0x00B544F0
+Note: decompiler output is a hypothesis. Disassembly, bytes, caller
+coverage, and runtime signature checks are the authority.
+This file is not patch authority.
+WARN: Invalid certificate table
+            0x00b544f0      8bf0           mov esi, eax
+            0x00b544f2      83c004         add eax, 4
+            0x00b544f5      50             push eax
+            0x00b544f6      ffd5           call ebp
+            0x00b544f8      85c0           test eax, eax
+        ┌─< 0x00b544fa      7509           jne 0xb54505
+        │   0x00b544fc      8b16           mov edx, dword [esi]
+        │   0x00b544fe      8b4204         mov eax, dword [edx + 4]
+        │   0x00b54501      8bce           mov ecx, esi
+        │   0x00b54503      ffd0           call eax
+        └─> 0x00b54505      891d3c951f01   mov dword [0x11f953c], ebx  ; [0x11f953c:4]=0
+            0x00b5450b      a140951f01     mov eax, dword [0x11f9540]  ; [0x11f9540:4]=0
+            0x00b54510      3bc3           cmp eax, ebx
+        ┌─< 0x00b54512      741b           je 0xb5452f
+        │   0x00b54514      8bf0           mov esi, eax
+        │   0x00b54516      83c004         add eax, 4
+        │   0x00b54519      50             push eax
+        │   0x00b5451a      ffd5           call ebp
+        │   0x00b5451c      85c0           test eax, eax
+       ┌──< 0x00b5451e      7509           jne 0xb54529
+       ││   0x00b54520      8b16           mov edx, dword [esi]
+       ││   0x00b54522      8b4204         mov eax, dword [edx + 4]
+       ││   0x00b54525      8bce           mov ecx, esi
+       ││   0x00b54527      ffd0           call eax
+       └──> 0x00b54529      891d40951f01   mov dword [0x11f9540], ebx  ; [0x11f9540:4]=0
+        └─> 0x00b5452f      a144951f01     mov eax, dword [0x11f9544]  ; [0x11f9544:4]=0
+            0x00b54534      3bc3           cmp eax, ebx
+        ┌─< 0x00b54536      741b           je 0xb54553
+        │   0x00b54538      8bf0           mov esi, eax
+        │   0x00b5453a      83c004         add eax, 4
+        │   0x00b5453d      50             push eax
+        │   0x00b5453e      ffd5           call ebp
+        │   0x00b54540      85c0           test eax, eax
+       ┌──< 0x00b54542      7509           jne 0xb5454d
+       ││   0x00b54544      8b16           mov edx, dword [esi]
+       ││   0x00b54546      8b4204         mov eax, dword [edx + 4]
+       ││   0x00b54549      8bce           mov ecx, esi
+       ││   0x00b5454b      ffd0           call eax
+       └──> 0x00b5454d      891d44951f01   mov dword [0x11f9544], ebx  ; [0x11f9544:4]=0
+        └─> 0x00b54553      a1d4951f01     mov eax, dword [0x11f95d4]  ; [0x11f95d4:4]=0
+            0x00b54558      3bc3           cmp eax, ebx
+        ┌─< 0x00b5455a      741b           je 0xb54577
+        │   0x00b5455c      8bf0           mov esi, eax
+        │   0x00b5455e      83c004         add eax, 4
+        │   0x00b54561      50             push eax
+        │   0x00b54562      ffd5           call ebp
+        │   0x00b54564      85c0           test eax, eax
+       ┌──< 0x00b54566      7509           jne 0xb54571
+       ││   0x00b54568      8b16           mov edx, dword [esi]
+       ││   0x00b5456a      8b4204         mov eax, dword [edx + 4]
+       ││   0x00b5456d      8bce           mov ecx, esi
+       ││   0x00b5456f      ffd0           call eax
+       └──> 0x00b54571      891dd4951f01   mov dword [0x11f95d4], ebx  ; [0x11f95d4:4]=0
+        └─> 0x00b54577      a1ec951f01     mov eax, dword [0x11f95ec]  ; [0x11f95ec:4]=0
+            0x00b5457c      881dc4911f01   mov byte [0x11f91c4], bl    ; [0x11f91c4:1]=0
+            0x00b54582      c6050cd81a..   mov byte [0x11ad80c], 1     ; [0x11ad80c:1]=1
+            0x00b54589      881ddc911f01   mov byte [0x11f91dc], bl    ; [0x11f91dc:1]=0
+            0x00b5458f      c605a4911f..   mov byte [0x11f91a4], 1     ; [0x11f91a4:1]=0
+            0x00b54596      891d78911f01   mov dword [0x11f9178], ebx  ; [0x11f9178:4]=0
+            0x00b5459c      3bc3           cmp eax, ebx
+        ┌─< 0x00b5459e      741b           je 0xb545bb
+        │   0x00b545a0      8bf0           mov esi, eax
+        │   0x00b545a2      83c004         add eax, 4
+        │   0x00b545a5      50             push eax
+        │   0x00b545a6      ffd5           call ebp
+        │   0x00b545a8      85c0           test eax, eax
+       ┌──< 0x00b545aa      7509           jne 0xb545b5
+       ││   0x00b545ac      8b16           mov edx, dword [esi]
+       ││   0x00b545ae      8b4204         mov eax, dword [edx + 4]
+       ││   0x00b545b1      8bce           mov ecx, esi
+       ││   0x00b545b3      ffd0           call eax
+       └──> 0x00b545b5      891dec951f01   mov dword [0x11f95ec], ebx  ; [0x11f95ec:4]=0
+        └─> 0x00b545bb      d905f8f00201   fld dword [0x102f0f8]
+            0x00b545c1      51             push ecx
+            0x00b545c2      d91c24         fstp dword [esp]
+            0x00b545c5      881d81911f01   mov byte [0x11f9181], bl    ; [0x11f9181:1]=0
+            0x00b545cb      e830faffff     call 0xb54000
+            0x00b545d0      d9e8           fld1
+            0x00b545d2      8b442410       mov eax, dword [esp + 0x10]
+            0x00b545d6      d91590911f01   fst dword [0x11f9190]       ; [0x11f9190:4]=0
+            0x00b545dc      83c404         add esp, 4
+            0x00b545df      d9158c911f01   fst dword [0x11f918c]       ; [0x11f918c:4]=0
+            0x00b545e5      5e             pop esi
+            0x00b545e6      d91588911f01   fst dword [0x11f9188]       ; [0x11f9188:4]=0
+            0x00b545ec      5d             pop ebp
+            0x00b545ed      d91d84911f01   fstp dword [0x11f9184]      ; [0x11f9184:4]=0
+            0x00b545f3      881da3911f01   mov byte [0x11f91a3], bl    ; [0x11f91a3:1]=0
+            0x00b545f9      881d82911f01   mov byte [0x11f9182], bl    ; [0x11f9182:1]=0
+            0x00b545ff      881d80911f01   mov byte [0x11f9180], bl    ; [0x11f9180:1]=0
+            0x00b54605      891d7c911f01   mov dword [0x11f917c], ebx  ; [0x11f917c:4]=0

@@ -277,6 +277,8 @@ New raw evidence:
 - [Reset prefix, read-only flags helper and actor epilogue](../analysis/radare2/output/crash_20261020_inventory_reset_correction_boundaries.txt).
 - [Classified receiver paths and load error predicate](../analysis/radare2/output/crash_20261020_inventory_reset_correction_callers.txt).
 - [Process dispatch result and continuations](../analysis/radare2/output/crash_20261020_inventory_reset_review_continuations.txt).
+- [Actor process getter and load scope](../analysis/radare2/output/crash_20261020_inventory_reset_review_load_scope.txt).
+- [Nested reset caller ownership](../analysis/radare2/output/crash_20261020_inventory_reset_review_nested_owners.txt).
 
 ### Admission, lifetime and costs
 
