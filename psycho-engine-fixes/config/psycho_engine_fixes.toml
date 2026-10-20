@@ -81,6 +81,7 @@ save_integrity_fix = true
 navmesh_low_pointer_guard = true
 
 # Drop broken inventory entries during save/load. Other items are untouched.
+# Inventory save guard rejects the whole save instead when active.
 entrydata_invalid_form_guard = true
 
 # Detach a corrupt inventory list from a generated NPC or creature while it is
@@ -90,6 +91,11 @@ actor_container_retirement_guard = true
 # Skip inventory resets with broken base-item lists instead of crashing.
 # Valid inventories are unchanged; rejected resets leave items untouched.
 inventory_reset_guard = true
+
+# Reject broken inventory saves instead of crashing.
+# Valid inventories are unchanged; a failed save keeps your previous save.
+# Requires save_integrity_fix.
+inventory_list_save_guard = true
 
 # Prevent a crash when a broken animation is cleaned up. Valid animations are
 # unchanged.

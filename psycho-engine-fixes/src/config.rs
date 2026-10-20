@@ -478,6 +478,8 @@ pub struct EngineFixesConfig {
     pub list_cleanup_guard: bool,
     /// Reject broken base-item lists before native inventory reset and refresh.
     pub inventory_reset_guard: bool,
+    /// Reject broken inventory-save lists without replacing the previous save.
+    pub inventory_list_save_guard: bool,
 }
 
 impl Default for EngineFixesConfig {
@@ -519,6 +521,7 @@ impl Default for EngineFixesConfig {
             scene_reference_owner_guard: true,
             list_cleanup_guard: true,
             inventory_reset_guard: true,
+            inventory_list_save_guard: true,
         }
     }
 }
@@ -638,6 +641,9 @@ impl EngineFixesConfig {
             inventory_reset_guard: raw
                 .inventory_reset_guard
                 .unwrap_or(default.inventory_reset_guard),
+            inventory_list_save_guard: raw
+                .inventory_list_save_guard
+                .unwrap_or(default.inventory_list_save_guard),
         }
     }
 }
@@ -775,6 +781,7 @@ struct RawEngineFixesConfig {
     scene_reference_owner_guard: Option<bool>,
     list_cleanup_guard: Option<bool>,
     inventory_reset_guard: Option<bool>,
+    inventory_list_save_guard: Option<bool>,
 }
 
 #[derive(Default, Deserialize)]
@@ -928,6 +935,16 @@ actor_container_retirement_guard = false
                 .expect("parse scene-reference setting");
         assert!(default.engine_fixes.scene_reference_owner_guard);
         assert!(!disabled.engine_fixes.scene_reference_owner_guard);
+    }
+
+    #[test]
+    fn inventory_save_guard_defaults_on_and_honors_explicit_disable() {
+        let default: PsychoConfig = toml::from_str("").expect("default config");
+        let disabled: PsychoConfig =
+            toml::from_str("[engine_fixes]\ninventory_list_save_guard = false\n")
+                .expect("explicit inventory save setting");
+        assert!(default.engine_fixes.inventory_list_save_guard);
+        assert!(!disabled.engine_fixes.inventory_list_save_guard);
     }
 
     #[test]

@@ -80,6 +80,20 @@ runtime telemetry defines its specialized terms in place. In particular:
 Tooltip prose stays concise, ASCII, and gamer-facing. It does not expose raw
 addresses, reverse-engineering terminology, or unsupported guarantees.
 
+### Inventory save guard
+
+**Inventory save guard** is a restart-only engine-fix setting, default on. Its
+TOML comments use the existing imperative style; helper hover help uses the
+existing short label and third-person explanation. Both explain that broken
+inventory saves are rejected, valid inventories are unchanged, and the previous
+save is kept. Save file integrity is a required dependency.
+
+Inventory entry guard keeps its independent load filter and legacy behavior
+outside the new guard's active main-save scope. Its help states that Inventory
+save guard rejects the whole save instead when active. The helper edits the
+next-launch configuration and does not activate hooks or load the core. No
+exported dashboard structure changes are required for this setting.
+
 ## Ownership and startup contract
 
 `psycho-engine-fixes-helper` owns the dashboard, xNVSE command, Win32 input

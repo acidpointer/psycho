@@ -1,0 +1,251 @@
+Fast-travel list cleanup: leak-recovery follow-up
+Date: 2026-10-20
+Interface: r2mcp, pdg selected; exact disassembly below is the authority.
+Binary: fnv_reverse/FalloutNV.exe
+SHA-256: 42fee7d6cd74e801372aa89c8f71c974cebd3c20ec9ad43d1465b8fa9646b49c
+PE32 i386, preferred base 0x00400000. Opened through r2mcp.
+r2mcp did not expose bin.relocs.apply configuration; preferred-base instruction
+bytes are independently rechecked by the relocation-enabled CLI capture below.
+Scope: native clear, deleting destructor, compatible eight-byte list insertion
+and removal. The insertion path is not proven to write the reported fade list.
+Does not identify a runtime caller, allocation history, corrupting writer,
+rejected page state, or orphan count. This file alone is not patch authority.
+
+Tool: mcp__radare2__disassemble
+Arguments: {"address":"0x00B4DF30","num_instructions":33}
+0x00b4df30      push esi
+0x00b4df31      mov esi, ecx
+0x00b4df33      cmp dword [esi + 4], 0
+   ; unlikely
+0x00b4df37      je 0xb4df6f
+0x00b4df39      push ebx
+0x00b4df3a      push edi
+0x00b4df3b      jmp 0xb4df40
+0x00b4df3d      lea ecx, [ecx]
+0x00b4df40      mov eax, dword [esi + 4]
+0x00b4df43      mov ebx, dword [eax + 4]
+0x00b4df46      mov dword [eax + 4], 0
+0x00b4df4d      mov edi, dword [esi + 4]
+0x00b4df50      test edi, edi
+   ; unlikely
+0x00b4df52      je 0xb4df66
+0x00b4df54      mov ecx, edi
+   ; 0xb4df30(-1, -1, -1, 0x0)
+0x00b4df56      call 0xb4df30
+0x00b4df5b      push edi
+0x00b4df5c      mov ecx, 0x11f6238
+   ; 0xaa4060(-1, -1, 0x11f6238, 0x0)
+0x00b4df61      call 0xaa4060
+0x00b4df66      mov dword [esi + 4], ebx
+0x00b4df69      test ebx, ebx
+   ; likely
+0x00b4df6b      jne 0xb4df40
+0x00b4df6d      pop edi
+0x00b4df6e      pop ebx
+0x00b4df6f      mov dword [esi], 0
+0x00b4df75      pop esi
+0x00b4df76      ret
+0x00b4df77      int3
+0x00b4df78      int3
+0x00b4df79      int3
+0x00b4df7a      int3
+0x00b4df7b      int3
+0x00b4df7c      int3
+
+
+Tool: mcp__radare2__disassemble
+Arguments: {"address":"0x00B4ED40","num_instructions":26}
+0x00b4ed40      push esi
+0x00b4ed41      mov esi, ecx
+   ; 0xb4e1e0(0x0, 0x0, 0x0, 0x0)
+0x00b4ed43      call 0xb4e1e0
+0x00b4ed48      test byte [esp + 8], 1
+   ; unlikely
+0x00b4ed4d      je 0xb4ed5d
+; 228
+0x00b4ed4f      push 0xe4
+0x00b4ed54      push esi
+   ; 0xaa1460(0x0, 0x0, 0x0, 0x0)
+0x00b4ed55      call 0xaa1460
+0x00b4ed5a      add esp, 8
+0x00b4ed5d      mov eax, esi
+0x00b4ed5f      pop esi
+0x00b4ed60      ret 4
+0x00b4ed63      int3
+0x00b4ed64      int3
+0x00b4ed65      int3
+0x00b4ed66      int3
+0x00b4ed67      int3
+0x00b4ed68      int3
+0x00b4ed69      int3
+0x00b4ed6a      int3
+0x00b4ed6b      int3
+0x00b4ed6c      int3
+0x00b4ed6d      int3
+0x00b4ed6e      int3
+0x00b4ed6f      int3
+0x00b4ed70      sub esp, 8
+
+
+Tool: mcp__radare2__disassemble
+Arguments: {"address":"0x00CBC7B0","num_instructions":38}
+0x00cbc7b0      push esi
+0x00cbc7b1      push edi
+0x00cbc7b2      mov edi, dword [esp + 0xc]
+0x00cbc7b6      mov eax, dword [edi]
+0x00cbc7b8      mov esi, ecx
+0x00cbc7ba      test eax, eax
+   ; unlikely
+0x00cbc7bc      je 0xcbc7ff
+0x00cbc7be      cmp dword [esi], 0
+   ; unlikely
+0x00cbc7c1      je 0xcbc7fd
+; 8
+0x00cbc7c3      push 8
+0x00cbc7c5      mov ecx, 0x11f6238
+   ; 0xaa3e40(-1, 0x0, 0x11f6238, 0x0)
+0x00cbc7ca      call 0xaa3e40
+0x00cbc7cf      test eax, eax
+   ; unlikely
+0x00cbc7d1      je 0xcbc7f0
+0x00cbc7d3      mov ecx, dword [esi]
+0x00cbc7d5      mov dword [eax], ecx
+0x00cbc7d7      mov dword [eax + 4], 0
+0x00cbc7de      mov edx, dword [esi + 4]
+0x00cbc7e1      mov dword [eax + 4], edx
+0x00cbc7e4      mov dword [esi + 4], eax
+0x00cbc7e7      mov eax, dword [edi]
+0x00cbc7e9      pop edi
+0x00cbc7ea      mov dword [esi], eax
+0x00cbc7ec      pop esi
+0x00cbc7ed      ret 4
+0x00cbc7f0      mov edx, dword [esi + 4]
+0x00cbc7f3      xor eax, eax
+0x00cbc7f5      mov dword [eax + 4], edx
+0x00cbc7f8      mov dword [esi + 4], eax
+0x00cbc7fb      mov eax, dword [edi]
+0x00cbc7fd      mov dword [esi], eax
+0x00cbc7ff      pop edi
+0x00cbc800      pop esi
+0x00cbc801      ret 4
+0x00cbc804      int3
+0x00cbc805      int3
+0x00cbc806      int3
+0x00cbc807      int3
+
+
+Tool: mcp__radare2__disassemble
+Arguments: {"address":"0x00CBC810","num_instructions":49}
+0x00cbc810      mov eax, dword [esp + 4]
+0x00cbc814      mov edx, dword [eax]
+0x00cbc816      test edx, edx
+   ; unlikely
+0x00cbc818      je 0xcbc89e
+0x00cbc81e      push edi
+0x00cbc81f      mov edi, dword [ecx + 4]
+0x00cbc822      test edi, edi
+   ; likely
+0x00cbc824      jne 0xcbc82a
+0x00cbc826      cmp dword [ecx], edi
+   ; likely
+0x00cbc828      je 0xcbc89d
+0x00cbc82a      push esi
+0x00cbc82b      mov esi, ecx
+0x00cbc82d      mov eax, ecx
+0x00cbc82f      nop
+0x00cbc830      cmp dword [esi], edx
+   ; likely
+0x00cbc832      je 0xcbc842
+0x00cbc834      mov eax, esi
+0x00cbc836      mov esi, dword [esi + 4]
+0x00cbc839      test esi, esi
+   ; likely
+0x00cbc83b      jne 0xcbc830
+0x00cbc83d      pop esi
+0x00cbc83e      pop edi
+0x00cbc83f      ret 4
+0x00cbc842      cmp esi, ecx
+   ; likely
+0x00cbc844      jne 0xcbc87d
+0x00cbc846      test edi, edi
+   ; unlikely
+0x00cbc848      je 0xcbc872
+0x00cbc84a      mov edx, dword [edi + 4]
+0x00cbc84d      mov dword [ecx + 4], edx
+0x00cbc850      mov eax, dword [edi]
+0x00cbc852      mov dword [ecx], eax
+0x00cbc854      mov ecx, edi
+0x00cbc856      mov dword [edi + 4], 0
+   ; 0xb4df30(-1, 0x0, -1, -1)
+0x00cbc85d      call 0xb4df30
+0x00cbc862      push edi
+0x00cbc863      mov ecx, 0x11f6238
+   ; 0xaa4060(-1, 0x0, 0x11f6238, -1)
+0x00cbc868      call 0xaa4060
+0x00cbc86d      pop esi
+0x00cbc86e      pop edi
+0x00cbc86f      ret 4
+0x00cbc872      pop esi
+0x00cbc873      mov dword [ecx], 0
+0x00cbc879      pop edi
+0x00cbc87a      ret 4
+0x00cbc87d      mov ecx, dword [esi + 4]
+0x00cbc880      mov dword [eax + 4], ecx
+0x00cbc883      mov ecx, esi
+0x00cbc885      mov dword [esi + 4], 0
+   ; 0xb4df30(-1, 0x0, -1, -1)
+0x00cbc88c      call 0xb4df30
+
+
+
+
+CLI recheck; radare2 6.2.2 +37485 abi:142 @ linux-x86_64
+Arguments: ['/usr/bin/r2', '-q', '-e', 'scr.color=0', '-e', 'bin.relocs.apply=true', '-c', 'p8 71 @ 0x00B4DF30', '-c', 'pd 12 @ 0x00B4ED40', '-c', 'pd 34 @ 0x00CBC7B0', '-c', 'q', '/data/storage1/Workspace/psycho/fnv_reverse/FalloutNV.exe']
+WARN: Invalid certificate table
+568bf1837e040074365357eb038d49008b46048b5804c74004000000008b7e0485ff74128bcfe8d5ffffff57b938621f01e8fa60f5ff895e0485db75d35f5bc706000000005ec3
+            0x00b4ed40      56             push esi
+            0x00b4ed41      8bf1           mov esi, ecx
+            0x00b4ed43      e898f4ffff     call 0xb4e1e0
+            0x00b4ed48      f644240801     test byte [esp + 8], 1
+        ┌─< 0x00b4ed4d      740e           je 0xb4ed5d
+        │   0x00b4ed4f      68e4000000     push 0xe4                   ; 228
+        │   0x00b4ed54      56             push esi
+        │   0x00b4ed55      e80627f5ff     call 0xaa1460
+        │   0x00b4ed5a      83c408         add esp, 8
+        └─> 0x00b4ed5d      8bc6           mov eax, esi
+            0x00b4ed5f      5e             pop esi
+            0x00b4ed60      c20400         ret 4
+            0x00cbc7b0      56             push esi
+            0x00cbc7b1      57             push edi
+            0x00cbc7b2      8b7c240c       mov edi, dword [esp + 0xc]
+            0x00cbc7b6      8b07           mov eax, dword [edi]
+            0x00cbc7b8      8bf1           mov esi, ecx
+            0x00cbc7ba      85c0           test eax, eax
+        ┌─< 0x00cbc7bc      7441           je 0xcbc7ff
+        │   0x00cbc7be      833e00         cmp dword [esi], 0
+       ┌──< 0x00cbc7c1      743a           je 0xcbc7fd
+       ││   0x00cbc7c3      6a08           push 8                      ; 8
+       ││   0x00cbc7c5      b938621f01     mov ecx, 0x11f6238
+       ││   0x00cbc7ca      e87176deff     call 0xaa3e40
+       ││   0x00cbc7cf      85c0           test eax, eax
+      ┌───< 0x00cbc7d1      741d           je 0xcbc7f0
+      │││   0x00cbc7d3      8b0e           mov ecx, dword [esi]
+      │││   0x00cbc7d5      8908           mov dword [eax], ecx
+      │││   0x00cbc7d7      c740040000..   mov dword [eax + 4], 0
+      │││   0x00cbc7de      8b5604         mov edx, dword [esi + 4]
+      │││   0x00cbc7e1      895004         mov dword [eax + 4], edx
+      │││   0x00cbc7e4      894604         mov dword [esi + 4], eax
+      │││   0x00cbc7e7      8b07           mov eax, dword [edi]
+      │││   0x00cbc7e9      5f             pop edi
+      │││   0x00cbc7ea      8906           mov dword [esi], eax
+      │││   0x00cbc7ec      5e             pop esi
+      │││   0x00cbc7ed      c20400         ret 4
+      └───> 0x00cbc7f0      8b5604         mov edx, dword [esi + 4]
+       ││   0x00cbc7f3      33c0           xor eax, eax
+       ││   0x00cbc7f5      895004         mov dword [eax + 4], edx
+       ││   0x00cbc7f8      894604         mov dword [esi + 4], eax
+       ││   0x00cbc7fb      8b07           mov eax, dword [edi]
+       └──> 0x00cbc7fd      8906           mov dword [esi], eax
+        └─> 0x00cbc7ff      5f             pop edi
+            0x00cbc800      5e             pop esi
+            0x00cbc801      c20400         ret 4

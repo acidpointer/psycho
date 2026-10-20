@@ -151,6 +151,7 @@ not current policy unless a newer contract links to them.
 
 | Document | Title | Type |
 |---|---|---|
+| [`native_list_hardening_plan.md`](native_list_hardening_plan.md) | Native list hardening candidate, coverage and remaining qualification gates | plan/research |
 
 ## Process
 

@@ -12,6 +12,7 @@ use crate::config::{DiagnosticsConfig, EngineFixesConfig, IoConfig, LodConfig};
 
 mod actor_container_guard;
 mod cell_render_retirement;
+mod container_ownership;
 mod controller_sequence;
 mod display;
 mod encounter_zone;
@@ -22,9 +23,11 @@ mod havok;
 mod havok_sparse;
 mod install_paths;
 mod inventory_reset_guard;
+mod inventory_save_guard;
 mod io;
 mod linkedrefs;
 mod list_cleanup_guard;
+mod list_validation;
 mod lod;
 mod lowprocess;
 mod memset;
@@ -198,7 +201,29 @@ pub fn install(
     install_controller_sequence_guard(config);
     install_save_integrity(config)?;
     install_navmesh_low_pointer(config)?;
-    install_entrydata_invalid_form(config)?;
+    let structural_save = if config.inventory_list_save_guard {
+        match inventory_save_guard::prepare() {
+            Ok(()) => true,
+            Err(error) => {
+                log::warn!("[INVENTORY_SAVE] Inventory save guard unavailable: {error:#}");
+                false
+            }
+        }
+    } else {
+        log::info!("[INVENTORY_SAVE] Inventory save guard disabled by config");
+        false
+    };
+    install_entrydata_invalid_form(config, structural_save)?;
+    if structural_save {
+        match inventory_save_guard::install() {
+            Ok(()) => log::info!(
+                "[INVENTORY_SAVE] Inventory save guard active: broken lists reject the save"
+            ),
+            Err(error) => {
+                log::warn!("[INVENTORY_SAVE] Inventory save guard unavailable: {error:#}")
+            }
+        }
+    }
     install_extraownership_invalid_owner(config)?;
     install_encounter_zone_invalid_form(config)?;
     install_cell_render_retirement(config)?;
@@ -1286,27 +1311,39 @@ fn install_navmesh_low_pointer(config: &EngineFixesConfig) -> anyhow::Result<()>
     Ok(())
 }
 
-fn install_entrydata_invalid_form(config: &EngineFixesConfig) -> anyhow::Result<()> {
-    if !config.entrydata_invalid_form_guard {
+fn install_entrydata_invalid_form(
+    config: &EngineFixesConfig,
+    structural_save: bool,
+) -> anyhow::Result<()> {
+    if !config.entrydata_invalid_form_guard && !structural_save {
         log::info!("[ENTRYDATA] Invalid form guard disabled by config");
         return Ok(());
     }
-
+    entrydata::configure_legacy_filter(config.entrydata_invalid_form_guard);
     unsafe {
         statics::ENTRYDATA_LIST_SAVE_HOOK.init(
             "entrydata_list_save_guard",
             statics::ENTRYDATA_LIST_SAVE_ADDR as *mut c_void,
             entrydata::hook_entrydata_list_save,
         )?;
-        statics::ENTRYDATA_LOAD_HOOK.init(
-            "entrydata_load_guard",
-            statics::ENTRYDATA_LOAD_ADDR as *mut c_void,
-            entrydata::hook_entrydata_load,
-        )?;
+        if config.entrydata_invalid_form_guard {
+            statics::ENTRYDATA_LOAD_HOOK.init(
+                "entrydata_load_guard",
+                statics::ENTRYDATA_LOAD_ADDR as *mut c_void,
+                entrydata::hook_entrydata_load,
+            )?;
+        }
     }
-    statics::ENTRYDATA_LIST_SAVE_HOOK.enable()?;
-    statics::ENTRYDATA_LOAD_HOOK.enable()?;
-    log::info!("[ENTRYDATA] Guard active: drops corrupt container entries instead of crashing");
+    let mut transaction = libpsycho::os::windows::hook::transaction::ModificationTransaction::new();
+    transaction.enable_inline(&statics::ENTRYDATA_LIST_SAVE_HOOK)?;
+    if config.entrydata_invalid_form_guard {
+        transaction.enable_inline(&statics::ENTRYDATA_LOAD_HOOK)?;
+    }
+    transaction.commit();
+    log::info!(
+        "[ENTRYDATA] Save admission available; legacy entry filter={}",
+        config.entrydata_invalid_form_guard
+    );
     Ok(())
 }
 

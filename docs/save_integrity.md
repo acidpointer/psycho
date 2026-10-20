@@ -19,6 +19,40 @@ The feature is controlled by `engine_fixes.save_integrity_fix` in
 `psycho_engine_fixes.toml`. The early-loaded core DLL owns all implementation.
 The helper DLL does not initialize or load it.
 
+## Structural inventory-save admission
+
+The separate `engine_fixes.inventory_list_save_guard` setting enables
+**Inventory save guard** in the helper. It defaults on and requires the complete
+Save file integrity transaction to be installed. If that dependency or the exact
+native contracts are unavailable, the guard stays inactive with a log reason;
+it never silently enables another setting.
+
+The guard authenticates the exclusive main-save owner, actual snapshot's
+file/thread and current record buffer before rejecting inventory structure.
+It admits reference extra-data
+chains and relevant native cached results before dependency collection, outer
+and nested EntryData lists, the PlayerCharacter entry array and the Projectile
+optional entry. Valid data forwards through the existing native serializers.
+Rejection latches the owned save; existing file destruction/discard and Save
+Failed handling retain responsibility for preventing promotion. No item or live
+inventory link is removed or rewritten to manufacture a successful save.
+
+The shared EntryData hook gives this policy precedence in an owned main save.
+If the old entry filter is enabled, its original main-list form check still
+applies; a rejection fails the whole owned save before list serialization.
+Outside that scope, the old `entrydata_invalid_form_guard` keeps its configured
+behavior; its load filter remains independent. There is one hook owner for the
+shared save entry. No new exported dashboard ABI or core/helper loading path is
+introduced.
+
+This is an unreleased static/offline-qualified candidate under the owner's
+explicit plan-specific exception, without debug playtests. Native save/load
+round trips, no-promotion integration, failure UI and startup behavior have not
+been executed for this change. It admits the documented structural fields;
+it does not validate every subtype payload, allocation identity or arbitrary
+external writer. The complete addresses, ABI, scope, evidence, costs and
+remaining gates are in [the native-list contract](native_list_hardening_plan.md).
+
 ## Proven engine contract
 
 The static contract below was verified against:

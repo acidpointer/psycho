@@ -1,4 +1,9 @@
-//! Guard for `ExtraContainerChanges::EntryData` save/load.
+//! Shared `ExtraContainerChanges::EntryData` save admission and legacy filter.
+//!
+//! The scoped inventory-save guard takes precedence inside its owned main save;
+//! valid complete lists forward through the original serializer and rejection
+//! fails the whole save. Outside that owner, only the configured legacy filter
+//! applies. The load filter remains independently controlled by its old setting.
 //!
 //! The crash at `0x00865DFB` was a save-time dereference of
 //! `EntryData.type == 0x00000007`. Ghidra shows the form-ref load resolver
@@ -12,12 +17,19 @@
 //! inside the body-save function would desync the serialized count.
 
 use std::ptr;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
 use libc::c_void;
-use libpsycho::{ffi::fnptr::FnPtr, os::windows::winapi::virtual_query};
+use libpsycho::{
+    ffi::fnptr::FnPtr,
+    os::windows::winapi::{get_last_error_code, set_last_error, virtual_query},
+};
 
-use super::statics;
+use super::{
+    inventory_save_guard,
+    list_validation::{Access, MemoryFailure, RegionReader},
+    save_integrity, statics,
+};
 
 const ENTRYDATA_EXTEND_LIST_OFFSET: usize = 0x00;
 const ENTRYDATA_COUNT_DELTA_OFFSET: usize = 0x04;
@@ -53,6 +65,13 @@ struct EntryData {
     type_form: *mut c_void,
 }
 
+static LEGACY_FILTER: AtomicBool = AtomicBool::new(false);
+
+/// Configure the existing filter before its shared hook becomes callable.
+pub(super) fn configure_legacy_filter(enabled: bool) {
+    LEGACY_FILTER.store(enabled, Ordering::Release);
+}
+
 static SAVE_SKIP_COUNT: AtomicU64 = AtomicU64::new(0);
 static LOAD_DROP_COUNT: AtomicU64 = AtomicU64::new(0);
 
@@ -60,7 +79,44 @@ pub unsafe extern "thiscall" fn hook_entrydata_list_save(
     list: *mut c_void,
     save_buffer: *mut c_void,
 ) {
-    if list.is_null() || save_buffer.is_null() {
+    if let Some(admitted) = inventory_save_guard::admit_list(list as usize, save_buffer as usize) {
+        if !admitted {
+            return;
+        }
+        // Keep the existing filter's coverage in its original save-list role.
+        // Its old policy remains independently configured; the new structural
+        // guard introduces no vtable/code allowlist. Inside an owned save, an
+        // old-filter rejection must fail that save rather than drop one entry.
+        if LEGACY_FILTER.load(Ordering::Acquire) {
+            let last_error = get_last_error_code();
+            let rejected = match legacy_first_invalid(list as usize) {
+                Ok(Some(entry)) => {
+                    let rejected = save_integrity::reject_inventory_save(save_buffer as usize);
+                    if rejected {
+                        log_invalid_entry(&SAVE_SKIP_COUNT, "save-reject-legacy-type", entry);
+                    }
+                    rejected
+                }
+                Err(failure) => {
+                    let rejected = save_integrity::reject_inventory_save(save_buffer as usize);
+                    if rejected {
+                        log::warn!(
+                            "[ENTRYDATA] Save rejected before legacy form admission: {failure}"
+                        );
+                    }
+                    rejected
+                }
+                Ok(None) => false,
+            };
+            set_last_error(last_error);
+            if rejected {
+                return;
+            }
+        }
+        call_original_list_save(list, save_buffer);
+        return;
+    }
+    if !LEGACY_FILTER.load(Ordering::Acquire) || list.is_null() || save_buffer.is_null() {
         call_original_list_save(list, save_buffer);
         return;
     }
@@ -96,6 +152,22 @@ pub unsafe extern "thiscall" fn hook_entrydata_list_save(
 
     write_unaligned_u32(save_buffer, SAVE_BUFFER_STATE_OFFSET, old_state);
     write_unaligned_u32(save_buffer, SAVE_BUFFER_CHANGE_FLAGS_OFFSET, old_flags);
+}
+
+/// Preserve the old entry/form predicate after structural admission, before
+/// any serializer flags or count markers are written. The caller retains the
+/// admitted acyclic list and payload lifetimes; no engine callback runs here.
+fn legacy_first_invalid(list: usize) -> Result<Option<*mut EntryData>, MemoryFailure> {
+    let mut reader = RegionReader::default();
+    let mut node = u32::from_le_bytes(reader.copy::<4>(list, Access::Read)?) as usize;
+    while node != 0 {
+        let (entry, next) = reader.node(node, Access::Read)?;
+        if entry != 0 && !is_valid_entry(entry as *mut EntryData) {
+            return Ok(Some(entry as *mut EntryData));
+        }
+        node = next;
+    }
+    Ok(None)
 }
 
 pub unsafe extern "thiscall" fn hook_entrydata_load(entry: *mut c_void, load_buffer: *mut c_void) {
@@ -271,4 +343,32 @@ fn log_invalid_entry(counter: &AtomicU64, reason: &'static str, entry: *mut Entr
         count_delta,
         extend_data,
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn production_legacy_admission_keeps_existing_invalid_form_coverage() {
+        // Actual owned storage with the proven Data -> node -> EntryData ->
+        // form-prefix layout. A readable prefix with a NULL vtable is rejected
+        // by the existing predicate; structural admission alone is insufficient.
+        let form = [0u32, 0, 0, 0x1234];
+        let entry = EntryData {
+            extend_data: ptr::null_mut(),
+            count_delta: 3,
+            type_form: form.as_ptr() as *mut c_void,
+        };
+        let node = [&entry as *const EntryData as u32, 0];
+        let mut data = [0u32; 5];
+        data[0] = node.as_ptr() as u32;
+        assert_eq!(
+            legacy_first_invalid(data.as_ptr() as usize),
+            Ok(Some(&entry as *const EntryData as *mut EntryData))
+        );
+        assert_eq!(entry.count_delta, 3);
+        data[0] = 7;
+        assert!(legacy_first_invalid(data.as_ptr() as usize).is_err());
+    }
 }

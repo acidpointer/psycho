@@ -48,12 +48,13 @@
 //! before vanilla can dereference the malformed list.
 
 use std::{
+    cell::Cell,
     ffi::{CStr, CString, c_void},
     mem::size_of,
     ptr,
     sync::{
         LazyLock,
-        atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering},
+        atomic::{AtomicBool, AtomicPtr, AtomicU32, AtomicUsize, Ordering},
     },
 };
 
@@ -246,6 +247,9 @@ static ACTOR_INVENTORY_LOAD_SECOND_CALL_HOOK: LazyLock<
 static FCLOSE_HOOK: LazyLock<InlineHookContainer<FcloseFn>> =
     LazyLock::new(InlineHookContainer::new);
 
+static SAVE_INSTALLED: AtomicBool = AtomicBool::new(false);
+static CURRENT_SAVE_SNAPSHOT: AtomicPtr<InventorySaveSnapshot> = AtomicPtr::new(ptr::null_mut());
+
 static ACTIVE_SAVE_FILE: AtomicUsize = AtomicUsize::new(0);
 static ACTIVE_SAVE_MANAGER: AtomicUsize = AtomicUsize::new(0);
 static ACTIVE_BSFILE: AtomicUsize = AtomicUsize::new(0);
@@ -399,10 +403,120 @@ pub(super) fn install() -> anyhow::Result<()> {
     transaction.commit();
 
     install_failure_ui_branch();
+    SAVE_INSTALLED.store(true, Ordering::Release);
     log::info!(
         "[SAVE] Save integrity active: a failed or partial write cannot replace a good save"
     );
     Ok(())
+}
+
+/// Whether the complete save-failure owner was installed successfully.
+pub(super) fn save_owner_installed() -> bool {
+    SAVE_INSTALLED.load(Ordering::Acquire)
+}
+
+/// Stack-owned context for the actual snapshot(file) invocation. Only the
+/// active save owner thread may access its Cells; publication does not lend
+/// the stack object to other threads. Nested native snapshots restore scope.
+struct InventorySaveSnapshot {
+    thread: u32,
+    file: usize,
+    buffer: Cell<usize>,
+    form: Cell<usize>,
+}
+
+struct InventorySnapshotPublication {
+    current: *mut InventorySaveSnapshot,
+    previous: *mut InventorySaveSnapshot,
+}
+
+impl Drop for InventorySnapshotPublication {
+    fn drop(&mut self) {
+        if CURRENT_SAVE_SNAPSHOT
+            .compare_exchange(
+                self.current,
+                self.previous,
+                Ordering::AcqRel,
+                Ordering::Acquire,
+            )
+            .is_err()
+        {
+            // A foreign publication violates the active save-owner contract.
+            // Do not restore over it or let this transaction promote a file.
+            latch_save_failure(FAILURE_TRACKING);
+        }
+    }
+}
+
+/// Bind only the real native snapshot's file argument to the active save.
+/// The closure preserves native snapshot cleanup on every normal return.
+pub(super) fn with_inventory_save_snapshot(file: usize, operation: impl FnOnce()) {
+    let thread = get_current_thread_id();
+    if file == 0
+        || SAVE_OWNER_THREAD.load(Ordering::Acquire) != thread
+        || ACTIVE_SAVE_THREAD.load(Ordering::Acquire) != thread
+        || ACTIVE_SAVE_FILE.load(Ordering::Acquire) != file
+    {
+        operation();
+        return;
+    }
+    let mut snapshot = InventorySaveSnapshot {
+        thread,
+        file,
+        buffer: Cell::new(0),
+        form: Cell::new(0),
+    };
+    let current = &raw mut snapshot;
+    let previous = CURRENT_SAVE_SNAPSHOT.swap(current, Ordering::AcqRel);
+    let _publication = InventorySnapshotPublication { current, previous };
+    operation();
+}
+
+/// Access context only after the exclusive file owner and current thread match.
+fn with_inventory_snapshot<T>(operation: impl FnOnce(&InventorySaveSnapshot) -> T) -> Option<T> {
+    let thread = get_current_thread_id();
+    if SAVE_OWNER_THREAD.load(Ordering::Acquire) != thread
+        || ACTIVE_SAVE_THREAD.load(Ordering::Acquire) != thread
+    {
+        return None;
+    }
+    let file = ACTIVE_SAVE_FILE.load(Ordering::Acquire);
+    if file == 0 {
+        return None;
+    }
+    let snapshot = CURRENT_SAVE_SNAPSHOT.load(Ordering::Acquire);
+    if snapshot.is_null() {
+        return None;
+    }
+    // SAFETY: Only the exclusive active save thread publishes or dereferences
+    // this stack scope. It remains alive through the synchronous native call;
+    // foreign threads exit above and nested scopes restore their predecessor.
+    let snapshot = unsafe { &*snapshot };
+    (snapshot.thread == thread && snapshot.file == file).then(|| operation(snapshot))
+}
+
+/// Establish the current record from its single audited native bind callsite.
+pub(super) fn bind_inventory_save_record(buffer: usize, form: usize) -> bool {
+    with_inventory_snapshot(|snapshot| {
+        snapshot.buffer.set(buffer);
+        snapshot.form.set(form);
+    })
+    .is_some()
+}
+
+/// Whether this buffer belongs to the current record of the actual main save.
+pub(super) fn owns_inventory_save_record(buffer: usize) -> bool {
+    buffer != 0 && with_inventory_snapshot(|snapshot| snapshot.buffer.get() == buffer) == Some(true)
+}
+
+/// Reject structural inventory failure only inside the verified record owner.
+/// A false result explicitly means no matching failure owner was available.
+pub(super) fn reject_inventory_save(buffer: usize) -> bool {
+    if !owns_inventory_save_record(buffer) {
+        return false;
+    }
+    latch_save_failure(FAILURE_STRUCTURE);
+    true
 }
 
 fn initialize_hooks() -> anyhow::Result<()> {
@@ -2127,6 +2241,21 @@ mod tests {
     use std::{cell::Cell, collections::HashMap};
 
     use super::*;
+
+    #[test]
+    fn inventory_rejection_cannot_claim_an_unowned_snapshot_or_buffer() {
+        let ran = Cell::new(false);
+        // This is deliberately outside any native save owner. The actual
+        // production boundary must forward the operation without publishing
+        // record ownership or touching the supplied inaccessible identities.
+        with_inventory_save_snapshot(7, || {
+            ran.set(true);
+            assert!(!bind_inventory_save_record(7, 9));
+            assert!(!owns_inventory_save_record(7));
+            assert!(!reject_inventory_save(7));
+        });
+        assert!(ran.get());
+    }
 
     #[derive(Default)]
     struct MockPromotionFileSystem {

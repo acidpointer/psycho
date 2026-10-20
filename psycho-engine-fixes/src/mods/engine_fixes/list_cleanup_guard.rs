@@ -13,13 +13,13 @@
 //! transactional inline hook. No third-party implementation is overwritten.
 //! Calls allocate and lock nothing. Empty chains bypass OS queries; nonempty
 //! chains add linear preflight with constant storage and per-call page caching.
-//! Only the first repair logs. See the fast-travel fade-list contract in docs.
+//! Repair counts log sparsely, with the original memory failure evidence. See the fast-travel fade-list contract in docs.
 
 use std::{
     ffi::c_void,
     sync::{
         LazyLock,
-        atomic::{AtomicBool, AtomicPtr, Ordering},
+        atomic::{AtomicBool, AtomicPtr, AtomicU32, Ordering},
     },
 };
 
@@ -27,8 +27,10 @@ use anyhow::{Result, ensure};
 use libpsycho::os::windows::{
     guarded_memory::{prepare_current_process_memory_reader, read_current_process_memory},
     hook::{inline::inlinehook::InlineHookContainer, transaction::ModificationTransaction},
-    winapi::{get_last_error_code, set_last_error, virtual_query},
+    winapi::{get_last_error_code, set_last_error},
 };
+
+use super::list_validation::{Access, MemoryFailure, RegionReader};
 
 type Clear = unsafe extern "thiscall" fn(*mut Entry);
 
@@ -54,7 +56,7 @@ struct Entry {
 static HOOK: LazyLock<InlineHookContainer<Clear>> = LazyLock::new(InlineHookContainer::new);
 static PROVIDER: AtomicPtr<c_void> = AtomicPtr::new(std::ptr::null_mut());
 static ADMITTED: AtomicBool = AtomicBool::new(false);
-static REPORTED: AtomicBool = AtomicBool::new(false);
+static REPAIRS: [AtomicU32; 4] = [const { AtomicU32::new(0) }; 4];
 
 /// Install only at the existing quiescent core startup boundary.
 ///
@@ -96,54 +98,29 @@ struct Repair {
     predecessor: usize,
     rejected: usize,
     reason: Reason,
+    inspected_steps: usize,
+    failure: Option<MemoryFailure>,
 }
 
-/// One writable mapping cache, confined to this invocation and never retained.
+/// One invocation's writable-region cache and first actual failed operation.
 #[derive(Default)]
 struct WritableRegion {
-    start: usize,
-    end: usize,
+    reader: RegionReader,
+    failure: Option<MemoryFailure>,
 }
 
 impl WritableRegion {
-    fn contains(&mut self, address: usize, length: usize) -> bool {
-        let Some(end) = address.checked_add(length) else {
-            return false;
-        };
-        if address == 0 {
-            return false;
-        }
-        let mut current = address;
-        while current < end {
-            if current >= self.start && current < self.end {
-                current = end.min(self.end);
-                continue;
-            }
-            let Ok(info) = virtual_query(current as *mut c_void) else {
-                return false;
-            };
-            let start = info.base_address as usize;
-            let Some(region_end) = start.checked_add(info.region_size) else {
-                return false;
-            };
-            if !info.is_writable() || current < start || current >= region_end {
-                return false;
-            }
-            self.start = start;
-            self.end = region_end;
-        }
-        true
-    }
-
     fn next(&mut self, address: usize) -> Option<usize> {
-        // Native clear writes both words, even though admission only consumes
-        // next. Check the full entry, including entries spanning two regions.
-        if !self.contains(address, size_of::<Entry>()) {
-            return None;
+        match self.reader.node(address, Access::Write) {
+            Ok((_, next)) => Some(next),
+            Err(failure) => {
+                // Keep the original failure, including across cycle recovery.
+                if self.failure.is_none() {
+                    self.failure = Some(failure);
+                }
+                None
+            }
         }
-        let mut bytes = [0; 4];
-        read_current_process_memory(address.checked_add(4)?, &mut bytes).ok()?;
-        Some(u32::from_le_bytes(bytes) as usize)
     }
 }
 
@@ -155,7 +132,14 @@ unsafe fn head_next(head: *mut Entry) -> usize {
 
 /// Sever a verified incoming edge, or abandon the chain at its live head if
 /// another required check fails. No rejected address is dereferenced or freed.
-unsafe fn cut(head: *mut Entry, predecessor: usize, rejected: usize, reason: Reason) -> Repair {
+unsafe fn cut(
+    head: *mut Entry,
+    predecessor: usize,
+    rejected: usize,
+    reason: Reason,
+    inspected_steps: usize,
+    failure: Option<MemoryFailure>,
+) -> Repair {
     let mut check = WritableRegion::default();
     let (predecessor, reason) = if check.next(predecessor) == Some(rejected) {
         (predecessor, reason)
@@ -170,6 +154,8 @@ unsafe fn cut(head: *mut Entry, predecessor: usize, rejected: usize, reason: Rea
         predecessor,
         rejected,
         reason,
+        inspected_steps,
+        failure: failure.or(check.failure),
     }
 }
 
@@ -217,21 +203,50 @@ unsafe fn prepare_chain(head: *mut Entry, first: usize) -> Option<Repair> {
         if current == head as usize {
             // SAFETY: Only the known incoming edge is changed, never the head
             // address encountered as a supposed allocated successor.
-            return Some(unsafe { cut(head, predecessor, current, Reason::HeadAlias) });
+            return Some(unsafe {
+                cut(
+                    head,
+                    predecessor,
+                    current,
+                    Reason::HeadAlias,
+                    observed,
+                    reader.failure,
+                )
+            });
         }
         let Some(next) = reader.next(current) else {
             // SAFETY: Predecessor is the live head or an inspected entry.
-            return Some(unsafe { cut(head, predecessor, current, Reason::Inaccessible) });
+            return Some(unsafe {
+                cut(
+                    head,
+                    predecessor,
+                    current,
+                    Reason::Inaccessible,
+                    observed,
+                    reader.failure,
+                )
+            });
         };
         if current == checkpoint {
             if let Some((last, entry)) = cycle_back_edge(first, length, observed, &mut reader) {
                 // SAFETY: Recovering the exact back edge preserves every
                 // unique reachable entry for the native cleanup that follows.
-                return Some(unsafe { cut(head, last, entry, Reason::Cycle) });
+                return Some(unsafe {
+                    cut(head, last, entry, Reason::Cycle, observed, reader.failure)
+                });
             }
             // SAFETY: The cycle could not be revalidated. The live head is the
             // only unconditional mutation boundary; all successors are leaked.
-            return Some(unsafe { cut(head, head as usize, first, Reason::ChangedChain) });
+            return Some(unsafe {
+                cut(
+                    head,
+                    head as usize,
+                    first,
+                    Reason::ChangedChain,
+                    observed,
+                    reader.failure,
+                )
+            });
         }
         if power == length {
             checkpoint = current;
@@ -244,7 +259,16 @@ unsafe fn prepare_chain(head: *mut Entry, first: usize) -> Option<Repair> {
         let Some(distance) = observed.checked_add(1) else {
             // SAFETY: Counter overflow cannot describe a healthy disjoint
             // eight-byte chain in 32-bit space; retain only its live head.
-            return Some(unsafe { cut(head, head as usize, first, Reason::ChangedChain) });
+            return Some(unsafe {
+                cut(
+                    head,
+                    head as usize,
+                    first,
+                    Reason::ChangedChain,
+                    observed,
+                    reader.failure,
+                )
+            });
         };
         observed = distance;
     }
@@ -273,13 +297,38 @@ unsafe extern "thiscall" fn clear(head: *mut Entry) {
 
 #[cold]
 fn report(head: *mut Entry, repair: Repair) {
-    if !REPORTED.swap(true, Ordering::Relaxed) {
+    let counter = &REPAIRS[repair.reason as usize];
+    let previous = counter
+        .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |count| {
+            Some(count.saturating_add(1))
+        })
+        .unwrap_or_else(|count| count);
+    let count = previous.saturating_add(1);
+    if previous == u32::MAX || (!count.is_power_of_two() && count != u32::MAX) {
+        return;
+    }
+    let consequence = match repair.reason {
+        Reason::Cycle | Reason::HeadAlias => {
+            "all unique successor entries remain reachable for native cleanup"
+        }
+        Reason::Inaccessible | Reason::ChangedChain => {
+            "an unreachable tail may leak; disconnected node/byte count is unknown"
+        }
+    };
+    log::warn!(
+        "[LIST_CLEANUP] Cut {:?} link; reason_count={} saturated={} head={head:p}, \
+         predecessor=0x{:08X}, rejected=0x{:08X}, inspected_steps={}; \
+         native cleanup continues; {consequence}",
+        repair.reason,
+        count,
+        count == u32::MAX,
+        repair.predecessor,
+        repair.rejected,
+        repair.inspected_steps,
+    );
+    if let Some(failure) = repair.failure {
         log::warn!(
-            "[LIST_CLEANUP] Cut {:?} link; head={head:p}, predecessor=0x{:08X}, \
-             rejected=0x{:08X}; native cleanup continues and an unreachable tail may leak",
-            repair.reason,
-            repair.predecessor,
-            repair.rejected,
+            "[LIST_CLEANUP] First failed operation: {failure}; head={head:p} reason_count={count}"
         );
     }
 }
@@ -288,7 +337,8 @@ fn report(head: *mut Entry, repair: Repair) {
 mod tests {
     use super::*;
     use libpsycho::os::windows::winapi::{
-        native_system_layout, virtual_release, virtual_reserve_commit, with_virtual_protect,
+        native_system_layout, virtual_query, virtual_release, virtual_reserve_commit,
+        with_virtual_protect,
     };
 
     fn link(entries: &mut [Entry]) {
@@ -352,7 +402,11 @@ mod tests {
         let rejected = 0x51BB72C9;
         // The supplied runtime report proves this value was inaccessible there.
         // Check the fixture's OS mapping too; do not model the failed read.
-        assert!(!WritableRegion::default().contains(rejected, size_of::<Entry>()));
+        assert!(
+            RegionReader::default()
+                .range(rejected, size_of::<Entry>(), Access::Write)
+                .is_err()
+        );
         let mut entries = [Entry { data: 0, next: 0 }; 3];
         link(&mut entries);
         entries[2].next = rejected as u32;

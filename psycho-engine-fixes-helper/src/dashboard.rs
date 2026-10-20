@@ -69,7 +69,7 @@ const RELOAD_ACTIVE: [f32; 4] = [0.82, 0.51, 0.12, 1.0];
 
 const HOVER_HELP_HINT: &str = "Hover any setting for a short, plain-language explanation.";
 
-const ENGINE_FIX_HELP: [(&str, &str); 31] = [
+const ENGINE_FIX_HELP: [(&str, &str); 32] = [
     (
         "Fullscreen / Alt-Tab fix",
         "Fixes broken fullscreen size, placement, and Alt-Tab behavior. Normal window handling stays unchanged.",
@@ -84,7 +84,11 @@ const ENGINE_FIX_HELP: [(&str, &str); 31] = [
     ),
     (
         "Inventory entry guard",
-        "Drops a broken inventory entry during save or load. Other items are untouched.",
+        "Drops broken inventory entries during save or load. Inventory save guard rejects the whole save instead when active.",
+    ),
+    (
+        "Inventory save guard",
+        "Rejects broken inventory saves instead of crashing. Valid inventories are unchanged; a failed save keeps your previous save. Requires Save file integrity.",
     ),
     (
         "Actor container guard",
@@ -2311,6 +2315,7 @@ fn draw_configuration(ui: &mut Ui<'_>, editor: &mut ConfigEditor, pending_reload
         &mut config.save_integrity_fix,
         &mut config.navmesh_low_pointer_guard,
         &mut config.entrydata_invalid_form_guard,
+        &mut config.inventory_list_save_guard,
         &mut config.actor_container_retirement_guard,
         &mut config.inventory_reset_guard,
         &mut config.animation_sequence_idtag_retirement_guard,
@@ -2581,9 +2586,9 @@ fn draw_configuration(ui: &mut Ui<'_>, editor: &mut ConfigEditor, pending_reload
 fn engine_fix_group(index: usize) -> Option<&'static str> {
     match index {
         0 => Some("Display and saves"),
-        4 => Some("Actors and world"),
-        17 => Some("Physics"),
-        24 => Some("Memory and tasks"),
+        5 => Some("Actors and world"),
+        18 => Some("Physics"),
+        25 => Some("Memory and tasks"),
         _ => None,
     }
 }
@@ -3062,41 +3067,42 @@ mod tests {
 
     #[test]
     fn every_engine_fix_has_concise_unique_hover_help() {
-        assert_eq!(ENGINE_FIX_HELP.len(), 31);
+        assert_eq!(ENGINE_FIX_HELP.len(), 32);
         for (index, expected) in [
             (0, "Fullscreen / Alt-Tab fix"),
             (1, "Save file integrity"),
             (2, "Pathfinding pointer guard"),
             (3, "Inventory entry guard"),
-            (4, "Actor container guard"),
-            (6, "Animation cleanup guard"),
-            (7, "Ownership data guard"),
-            (8, "Encounter-zone guard"),
-            (9, "Patrol owner guard"),
-            (10, "Cell cleanup fix"),
-            (11, "Linked-reference cleanup"),
-            (12, "Linked-reference target guard"),
-            (16, "List cleanup guard"),
-            (17, "Ragdoll bone guard"),
-            (18, "Ragdoll raycast guard"),
-            (19, "Physics add-batch guard"),
-            (20, "Physics pending-add guard"),
-            (21, "Physics collision-pair guard"),
-            (22, "Physics callback guard"),
-            (23, "Physics unlock guard"),
-            (24, "Out-of-memory write guard"),
-            (25, "Actor location-list guard"),
-            (26, "Model load serialization"),
-            (28, "Queued-task guard"),
-            (29, "Texture cache guard"),
-            (30, "Tile cleanup guard"),
+            (4, "Inventory save guard"),
+            (5, "Actor container guard"),
+            (7, "Animation cleanup guard"),
+            (8, "Ownership data guard"),
+            (9, "Encounter-zone guard"),
+            (10, "Patrol owner guard"),
+            (11, "Cell cleanup fix"),
+            (12, "Linked-reference cleanup"),
+            (13, "Linked-reference target guard"),
+            (17, "List cleanup guard"),
+            (18, "Ragdoll bone guard"),
+            (19, "Ragdoll raycast guard"),
+            (20, "Physics add-batch guard"),
+            (21, "Physics pending-add guard"),
+            (22, "Physics collision-pair guard"),
+            (23, "Physics callback guard"),
+            (24, "Physics unlock guard"),
+            (25, "Out-of-memory write guard"),
+            (26, "Actor location-list guard"),
+            (27, "Model load serialization"),
+            (29, "Queued-task guard"),
+            (30, "Texture cache guard"),
+            (31, "Tile cleanup guard"),
         ] {
             assert_eq!(ENGINE_FIX_HELP[index].0, expected);
         }
         assert_eq!(engine_fix_group(0), Some("Display and saves"));
-        assert_eq!(engine_fix_group(4), Some("Actors and world"));
-        assert_eq!(engine_fix_group(17), Some("Physics"));
-        assert_eq!(engine_fix_group(24), Some("Memory and tasks"));
+        assert_eq!(engine_fix_group(5), Some("Actors and world"));
+        assert_eq!(engine_fix_group(18), Some("Physics"));
+        assert_eq!(engine_fix_group(25), Some("Memory and tasks"));
         assert_eq!(engine_fix_group(1), None);
         assert_eq!(engine_fix_group(26), None);
         let mut labels = std::collections::BTreeSet::new();

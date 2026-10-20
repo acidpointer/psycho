@@ -23,9 +23,15 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use anyhow::Context;
 use libc::c_void;
-use libpsycho::os::windows::winapi::{replace_call, virtual_query};
+use libpsycho::os::windows::{
+    guarded_memory::prepare_current_process_memory_reader,
+    winapi::{get_last_error_code, replace_call, set_last_error, virtual_query},
+};
 
-use super::statics;
+use super::{
+    list_validation::{Access, embedded_chain},
+    statics,
+};
 
 const EXTRA_LINKED_REF_CHILDREN_TYPE: u8 = 0x52;
 const MAX_EXTRA_DATA_TYPE: u8 = 0x92;
@@ -56,9 +62,11 @@ const TES_FORM_MIN_SIZE: usize = 0x10;
 const LINKED_REF_TARGET_BASE_TYPE: u8 = 0x27;
 
 static STALE_LIST_SKIP_COUNT: AtomicU64 = AtomicU64::new(0);
+static CHILD_CHAIN_SKIP_COUNT: AtomicU64 = AtomicU64::new(0);
 static INVALID_TARGET_SKIP_COUNT: AtomicU64 = AtomicU64::new(0);
 
 pub fn install_remove_guard() -> anyhow::Result<()> {
+    prepare_current_process_memory_reader()?;
     unsafe {
         replace_call(
             statics::LINKED_REF_CHILDREN_REMOVE_GET_BY_TYPE_CALL_ADDR as *mut c_void,
@@ -150,7 +158,34 @@ fn find_linked_ref_children_checked(list: *mut c_void) -> *mut c_void {
             unsafe { ptr::read_unaligned((node as *const u8).add(BS_EXTRA_DATA_TYPE_OFFSET)) };
         if node_type == EXTRA_LINKED_REF_CHILDREN_TYPE {
             if is_valid_extra_node(node, EXTRA_LINKED_REF_CHILDREN_SIZE) {
-                return node;
+                // Native removal compares borrowed payload values and may write
+                // both node words, promote the successor and free that node.
+                // Keep the owner's original exclusive allocation lifetime;
+                // mapping admission does not identify readable stale storage.
+                let last_error = get_last_error_code();
+                let admission =
+                    embedded_chain(node as usize + BS_EXTRA_DATA_MIN_SIZE, Access::Write);
+                if let Err(reason) = admission {
+                    let previous = CHILD_CHAIN_SKIP_COUNT
+                        .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |count| {
+                            Some(count.saturating_add(1))
+                        })
+                        .unwrap_or_else(|count| count);
+                    let count = previous.saturating_add(1);
+                    if previous != u64::MAX && (count.is_power_of_two() || count == u64::MAX) {
+                        log::warn!(
+                            "[LINKED_REFS] Child-list removal rejected: {reason:?}; \
+                             total={count} saturated={} extra={node:p}; links are unchanged",
+                            count == u64::MAX,
+                        );
+                    }
+                }
+                set_last_error(last_error);
+                return if admission.is_ok() {
+                    node
+                } else {
+                    ptr::null_mut()
+                };
             }
             log_bad_list("invalid-linked-ref-extra", list, node, node_type, visited);
             return ptr::null_mut();

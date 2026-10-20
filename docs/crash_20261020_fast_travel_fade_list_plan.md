@@ -1,9 +1,9 @@
 # Fast travel crash in BSFadeNode list destruction
 
 Status: immediate failure confirmed; corrupting writer and root ownership
-defect unresolved. Shared list-clear corruption containment implemented as an
-unreleased defensive candidate at the owner's explicit request. Native game
-integration and startup behavior have not been runtime validated.
+defect unresolved. The owner reports successful runtime containment, supported
+by a saved guard rejection followed by continued session activity. Leak amount
+and broader runtime coverage remain unverified. The fix remains unreleased.
 
 Scope: static research only. No diagnostic playtests, instrumented runs or
 owner-operated captures are requested or planned. A supplied save or replay
@@ -308,8 +308,119 @@ Each invocation resets the page cache. This demonstrates the cost of the
 additional traversal on those offline workloads; native cleanup, hook entry,
 actual game list lengths and game performance are not measured.
 
-These checks do not reproduce native game teardown, exercise live hook
+The offline checks do not reproduce native game teardown, exercise live hook
 activation, prove allocator ownership of readable storage, or validate Proton
-startup. Runtime acceptance and root-writer attribution remain unresolved.
-No diagnostic playtest or owner-operated capture is requested. The result is
-an unreleased defensive candidate; no deployment or release is claimed.
+startup. The owner subsequently reports successful containment as recorded
+below; broader runtime coverage and root-writer attribution remain unresolved.
+No diagnostic playtest or owner-operated capture is requested. No agent
+deployment or release is claimed.
+
+## Runtime rejection and leak-recovery follow-up
+
+The owner reports that the fix worked and asks whether the rejection can
+support safer reclamation. The saved session contains this event at
+`2026-10-20T11:08:50.036Z`:
+
+```text
+Cut Inaccessible link; head=0xc36186d4, predecessor=0xC36186D4, rejected=0xC5C74048
+```
+
+The complete logs and deployed configuration are preserved in
+`.reports/20261020-fast-travel-fade-list/followup-20261020T112335Z/`, with a
+source/hash manifest. Later save activity and memory samples continue through
+`11:22:43Z`; this agrees with the owner's successful-containment report. It
+does not establish the return state of every native cleanup call or universal
+runtime correctness. No agent-operated game run was performed.
+
+The production guard establishes these precise conclusions:
+
+- `head == predecessor` means the first successor failed admission, before
+  any allocated successor was retained for native cleanup. The cut was at
+  head `+4`, address `0xC36186D8`.
+- `Inaccessible`, rather than `ChangedChain`, means the final predecessor
+  check still read the rejected pointer before the cut. It does not prove
+  that no concurrent writer existed elsewhere.
+- The eight-byte candidate at `0xC5C74048` neither wraps the address space nor
+  spans a normal page boundary. Its aligned appearance is not ownership proof.
+- The reason combines a failed page query, insufficient writable/committed
+  capability and a failed guarded next-word copy. The record cannot distinguish
+  those causes; it must not be described as proof of an unmapped or freed cell.
+- `0xC36186D4` is consistent with a fade object's `+0xD4` head at object
+  address `0xC3618600`. The shared entry also serves other owners. With no
+  native caller or object identity captured, that interpretation is unproven.
+- At that revision only the first repair logged. One warning is not evidence of only one repair,
+  nor does its warning establish any leaked allocation or leaked-byte count.
+
+[Fresh native evidence](../analysis/radare2/output/crash_20261020_list_cleanup_leak_followup.txt)
+rechecks the supported executable through r2mcp and a relocation-enabled CLI
+capture. Compatible insertion at `0x00CBC7B0` requests eight bytes from
+GameHeap at `0x00CBC7C3..0x00CBC7CA`, then stores the payload at `+0` and
+the sole next link at `+4`. Removal at `0x00CBC810` uses that layout and
+calls the same clear primitive before freeing a detached entry. This proves
+a native eight-byte allocation path for this list representation, not that it
+inserted the reported fade object's entries. No back link or owner identifier
+is stored in those entries by this insertion path.
+
+Clear itself only zeros payload words and frees entries. It invokes no
+payload destructor or reference-count release. In the original fade destruction
+path, continuing past clear also allows base destruction and the deleting
+destructor's `0xE4` object deallocation at `0x00B4ED4F..0x00B4ED55` to
+proceed. Containment does not skip that destruction path. This evidence gives
+no basis to describe the warning as retaining an entire mesh, texture or fade
+object. The direct potential loss is disconnected list-entry storage; the
+number, actual allocation sizes and wider consequences of the original
+corruption are unknown. The lost tail may already have been freed or may never
+have been a real chain, in which case the cut adds no allocation leak.
+
+Existing reclamation already keeps every admitted prefix entry and, for a
+verified cycle, cuts the exact back edge so every unique reachable entry can
+be freed natively. For this event there was no admitted allocated prefix and
+no validated successor beyond the rejected entry. The supplied log has no
+independent address from which to resume traversal.
+
+Gheap's pool implementation preserves freed user bytes and does not decommit
+active slabs; `Pool::free` changes out-of-band link metadata. Consequently an
+ordinary free of an eight-byte cell in a still-active slab does not by itself
+explain this admission failure. The log does not establish that the rejected
+pointer belonged to such a slab, so it does not exclude other stale-pointer,
+reuse, allocation-domain or corruption mechanisms.
+
+The existing allocation-state classifier can distinguish exact live, free,
+interior, unissued and uncommitted owned allocations. It does not record list
+membership, a missing successor or allocation generation history. A live
+eight-byte allocation is not proof that it belongs to this list. Its current
+pool query also acquires a pool lock, so calling it from every shared cleanup
+or an arbitrary repair callback requires a separate lock-order proof.
+
+## Evidence-backed rejection diagnostics
+
+The follow-up identified more precise rejection evidence as the next useful
+code change, without changing cleanup policy:
+
+1. Preserve the actual admission failure: query error, mapping state and
+   protection, or guarded-copy error, using the values already obtained at the
+   failing check. Record the failed address/range and accepted-prefix length.
+   Do not infer object identity from the numerical head offset.
+2. Count repairs separately from the first detailed warning and report bounded
+   aggregate counts. Preserve the distinction between cycles, invalid links
+   and failed revalidation. Do not label repair counts as leaked nodes/bytes.
+3. Keep the valid/empty paths allocation-free, retain last-error preservation,
+   and use existing libpsycho OS wrappers. Exercise the actual production
+   admission path offline with owned mappings for each observable failure;
+   no debug playtest is needed or requested for this research proposal.
+
+These details would distinguish an uncommitted/unmapped target from a
+capability rejection or copy failure during ordinary owner gameplay. Optional allocator
+classification is useful only after proving a nonblocking, reentrancy-safe
+query at this boundary; it must not turn allocator mode into a fix requirement.
+
+No further automatic reclamation is justified by the current record. Reading
+past an unvalidated entry, making unknown pages writable, scanning unrelated
+live allocations for lookalikes, or freeing the rejected pointer cannot recover
+lost ownership safely. A root-writer correction could remove the need for
+containment; selective tail recovery would require an independently validated
+successor and native lifetime ownership. Neither is supplied by this event.
+The subsequent [native-list candidate](native_list_hardening_plan.md) implements
+the retained failure evidence and sparse per-reason counters. Its successful
+traversal-step count can include repeats during cycle detection and is not a
+leaked-node count. Cleanup and reclamation policy remain unchanged.

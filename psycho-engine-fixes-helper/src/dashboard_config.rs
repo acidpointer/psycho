@@ -125,6 +125,8 @@ pub(crate) struct EditableConfig {
     pub list_cleanup_guard: bool,
     /// Reject broken base-item lists before native inventory reset and refresh.
     pub inventory_reset_guard: bool,
+    /// Reject broken inventory-save lists without replacing the previous save.
+    pub inventory_list_save_guard: bool,
 }
 
 impl Default for EditableConfig {
@@ -200,6 +202,7 @@ impl Default for EditableConfig {
             scene_reference_owner_guard: true,
             list_cleanup_guard: true,
             inventory_reset_guard: true,
+            inventory_list_save_guard: true,
         }
     }
 }
@@ -607,6 +610,12 @@ impl EditableConfig {
                 "inventory_reset_guard",
                 defaults.inventory_reset_guard,
             ),
+            inventory_list_save_guard: bool_or(
+                doc,
+                "engine_fixes",
+                "inventory_list_save_guard",
+                defaults.inventory_list_save_guard,
+            ),
         }
         .sanitized()
     }
@@ -889,6 +898,7 @@ fn write_document(doc: &mut DocumentMut, config: &EditableConfig) {
     engine!(scene_reference_owner_guard);
     engine!(list_cleanup_guard);
     engine!(inventory_reset_guard);
+    engine!(inventory_list_save_guard);
 
     macro_rules! setting {
         ($section:literal, $key:literal, $field:ident) => {
@@ -1181,6 +1191,7 @@ mod_owned_key = "untouched"
         config.scene_reference_owner_guard = !config.scene_reference_owner_guard;
         config.list_cleanup_guard = !config.list_cleanup_guard;
         config.inventory_reset_guard = !config.inventory_reset_guard;
+        config.inventory_list_save_guard = !config.inventory_list_save_guard;
         config.ragdoll_null_bone_guard = !config.ragdoll_null_bone_guard;
         config.ragdoll_detached_phantom_guard = !config.ragdoll_detached_phantom_guard;
         config.havok_add_entity_batch_null_guard = !config.havok_add_entity_batch_null_guard;

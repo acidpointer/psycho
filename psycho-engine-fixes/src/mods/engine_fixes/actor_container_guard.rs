@@ -29,9 +29,15 @@ use std::ptr;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
 use libc::c_void;
-use libpsycho::{ffi::fnptr::FnPtr, os::windows::hook::transaction::ModificationTransaction};
+use libpsycho::{
+    ffi::fnptr::FnPtr,
+    os::windows::{
+        hook::transaction::ModificationTransaction,
+        winapi::{get_last_error_code, set_last_error},
+    },
+};
 
-use super::statics;
+use super::{container_ownership, statics};
 use crate::mods::heap_replacer::{
     AllocatorMode,
     allocation_state::{self, AllocationState},
@@ -92,6 +98,9 @@ enum ContainerIssue {
     },
     WalkLimit {
         limit: usize,
+    },
+    AliasedOwnership {
+        allocation: usize,
     },
 }
 
@@ -206,7 +215,19 @@ unsafe fn corrupt_dynamic_container(
         MAX_CONTAINER_ITEMS,
         allocation_state::read_allocation_words,
         valid_runtime_form,
-    );
+    )
+    .and_then(|()| {
+        // SAFETY: Complete allocator-backed admission proves every span and
+        // bounded acyclic topology. The original dying owner retains stable
+        // exclusive lifetime until its destructor consumes the list.
+        let last_error = get_last_error_code();
+        let alias = unsafe { container_ownership::first_alias(head_data, head_next) };
+        set_last_error(last_error);
+        match alias {
+            Some(allocation) => Err(ContainerIssue::AliasedOwnership { allocation }),
+            None => Ok(()),
+        }
+    });
     result
         .err()
         .map(|issue| (ref_id, head_data, head_next, issue))
