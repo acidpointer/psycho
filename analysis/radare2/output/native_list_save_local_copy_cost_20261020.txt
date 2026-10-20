@@ -1,0 +1,201 @@
+Inventory save local-copy cost and ABI evidence - 2026-10-20
+
+Scope: remove repeated process-reader calls from the shared production
+RegionReader without dropping mapping admission, fresh copies or graph checks.
+Existing static/offline incident authorization applies. No game launch,
+deployment, packaging or debug playtest was performed.
+
+Supported engine identity (reconfirmed by psycho_env.py before this work):
+FalloutNV.exe, PE32 i386, SHA-256
+42fee7d6cd74e801372aa89c8f71c974cebd3c20ec9ad43d1465b8fa9646b49c
+No engine address, layout, native signature or caller scope changes here.
+
+Behavioral/performance boundary: actual validate_list on native-layout owned
+Data/head/node/EntryData/form storage. Record the unchanged cost, then lower
+that cost on the same workload while real-memory safety regressions retain
+fresh bytes, guard-page policy and fault containment. This cannot establish
+whole-save latency for the unavailable reporter workload.
+
+Fresh runtime failure evidence (ordinary-play session starting 18:58):
+2026-10-20T19:00:06.314Z INFO  [psycho_engine_fixes::mods::engine_fixes::save_integrity] [SAVE] Timing: total_us=Some(742895) snapshot_us=686972 inventory_admission_us=536880 inventory_admissions=32892 commit_us=40050 clock_misses=0 result=1 record_admission_us=147229 record_admissions=25267 list_admission_us=389595 list_admissions=7594 alternate_admission_us=54 alternate_admissions=31; snapshot includes admission; remaining time is unclassified
+2026-10-20T19:05:55.584Z INFO  [psycho_engine_fixes::mods::engine_fixes::save_integrity] [SAVE] Timing: total_us=Some(562393) snapshot_us=524085 inventory_admission_us=430290 inventory_admissions=32938 commit_us=28241 clock_misses=0 result=1 record_admission_us=117581 record_admissions=25324 list_admission_us=312676 list_admissions=7591 alternate_admission_us=31 alternate_admissions=23; snapshot includes admission; remaining time is unclassified
+2026-10-20T19:06:02.459Z INFO  [psycho_engine_fixes::mods::engine_fixes::save_integrity] [SAVE] Timing: total_us=Some(559919) snapshot_us=526820 inventory_admission_us=434692 inventory_admissions=32921 commit_us=20635 clock_misses=0 result=1 record_admission_us=119461 record_admissions=25307 list_admission_us=315195 list_admissions=7591 alternate_admission_us=35 alternate_admissions=23; snapshot includes admission; remaining time is unclassified
+
+Unchanged production short-list benchmark, release i686 / Wine, five rounds
+test mods::engine_fixes::inventory_save_guard::tests::production_short_list_admission_timing ... short-list admission: lists=7591 entries/list=0 rounds=5 us/round min=8923.8 median=8970.4 max=8994.2
+short-list admission: lists=7591 entries/list=1 rounds=5 us/round min=20664.9 median=20706.4 max=20738.9
+short-list admission: lists=7591 entries/list=4 rounds=5 us/round min=40277.4 median=40465.9 max=40498.2
+short-list admission: lists=7591 entries/list=16 rounds=5 us/round min=87336.7 median=87432.1 max=87493.1
+copy boundary: query=true calls=100000 rounds=5 us/round min=98010.4 median=98266.3 max=98580.3
+copy boundary: query=false calls=100000 rounds=5 us/round min=14886.7 median=14933.5 max=17259.3
+
+Same production short-list benchmark after local copy
+test mods::engine_fixes::inventory_save_guard::tests::production_short_list_admission_timing ... short-list admission: lists=7591 entries/list=0 rounds=5 us/round min=7774.8 median=7841.0 max=7891.1
+short-list admission: lists=7591 entries/list=1 rounds=5 us/round min=16015.7 median=16118.6 max=16137.0
+short-list admission: lists=7591 entries/list=4 rounds=5 us/round min=25751.8 median=25834.9 max=25930.3
+short-list admission: lists=7591 entries/list=16 rounds=5 us/round min=33532.6 median=33566.7 max=34498.7
+copy boundary: query=true calls=100000 rounds=5 us/round min=98660.0 median=98844.1 max=99297.6
+copy boundary: query=false calls=100000 rounds=5 us/round min=14873.4 median=14876.7 max=14915.4
+
+Additional production long-list scaling after local copy (not an A/B pair)
+test mods::engine_fixes::inventory_save_guard::tests::production_save_admission_timing ... save admission: entries=1, rounds=5, us/call min=1.2 median=1.3 max=3.6
+save admission: entries=1024, rounds=5, us/call min=59.1 median=59.8 max=83.0
+save admission: entries=65536, rounds=5, us/call min=5209.9 median=5249.5 max=5525.5
+
+Existing real-memory reader safety regressions before production edit
+test mods::engine_fixes::list_validation::tests::production_child_admission_preserves_null_and_duplicate_borrowed_payloads ... ok
+test mods::engine_fixes::list_validation::tests::production_mapping_reuse_preserves_fresh_bytes_and_eviction ... ok
+test mods::engine_fixes::list_validation::tests::production_read_admission_preserves_guard_page_policy ... ok
+test mods::engine_fixes::list_validation::tests::production_reader_reports_real_copy_failure_after_cached_admission ... ok
+test mods::engine_fixes::list_validation::tests::production_reader_retains_exact_mapping_and_cross_region_failure ... ok
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 292 filtered out; finished in 0.06s
+
+Existing real-memory reader safety regressions after production edit
+test mods::engine_fixes::list_validation::tests::production_child_admission_preserves_null_and_duplicate_borrowed_payloads ... ok
+test mods::engine_fixes::list_validation::tests::production_mapping_reuse_preserves_fresh_bytes_and_eviction ... ok
+test mods::engine_fixes::list_validation::tests::production_read_admission_preserves_guard_page_policy ... ok
+test mods::engine_fixes::list_validation::tests::production_reader_reports_real_copy_failure_after_cached_admission ... ok
+test mods::engine_fixes::list_validation::tests::production_reader_retains_exact_mapping_and_cross_region_failure ... ok
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 292 filtered out; finished in 0.03s
+
+Local-copy real fault/overlap/thread tests, debug
+test os::windows::guarded_memory::local_copy::tests::production_local_copy_contains_real_source_faults_on_each_thread ... ok
+test os::windows::guarded_memory::local_copy::tests::production_local_copy_preserves_bytes_overlap_and_thread_state ... ok
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 51 filtered out; finished in 0.01s
+
+Local-copy real fault/overlap/thread tests, optimized release
+test os::windows::guarded_memory::local_copy::tests::production_local_copy_contains_real_source_faults_on_each_thread ... ok
+test os::windows::guarded_memory::local_copy::tests::production_local_copy_preserves_bytes_overlap_and_thread_state ... ok
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 51 filtered out; finished in 0.01s
+
+Final affected suites: libpsycho, core, libpsycho doctests, core doctests
+test result: ok. 52 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.03s
+test result: ok. 289 passed; 0 failed; 8 ignored; 0 measured; 0 filtered out; finished in 5.05s
+test result: ok. 16 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+Workload limits: the short-list benchmark repeats one list 7,591 times, with
+0/1/4/16 entries, one shared non-NULL form, and no legacy filter or extras.
+It does not model the reporter's object distribution, native cache/lock work,
+serialization, commit, provider composition or Proton configuration. The
+mapping and process-reader calibrations call the real libpsycho wrappers.
+The copy-boundary process-reader calibration intentionally remains unchanged
+in the after run. Those calibration costs must not be substituted for in-game
+cost attribution.
+
+Primary ABI/policy sources:
+- MinGW exception registration prefix, cdecl handler and __try1 FS:[0] chain:
+  https://github.com/mingw-w64/mingw-w64/blob/master/mingw-w64-headers/crt/excpt.h
+- Exception dispatch and known-code/address filtering:
+  https://learn.microsoft.com/en-us/windows/win32/debug/using-an-exception-handler
+  https://learn.microsoft.com/en-us/windows/win32/debug/exception-dispatching
+- Read/address exception parameters:
+  https://learn.microsoft.com/en-us/windows/win32/api/winnt/ns-winnt-exception_record
+- Same-process memmove inside Wine's process-reader implementation:
+  https://github.com/wine-mirror/wine/blob/master/dlls/ntdll/unix/virtual.c
+  This is API implementation research, not proof of the reporter's Proton build.
+
+Compiled ABI review (local release core compared with supplied runtime core):
+Core import sequence identical to supplied runtime artifact: True
+TLS initialized bytes before/after: 16/16
+TLS callback count before/after: 4/4
+IMAGE_DLLCHARACTERISTICS_NO_SEH before/after: False/False
+Load-config SEHandler table/count before/after: None/None
+Copy label/handler operand 0x101c168e has HIGHLOW base relocation: True
+Copy label/handler operand 0x101c1698 has HIGHLOW base relocation: True
+Copy label/handler operand 0x101c16a2 has HIGHLOW base relocation: True
+
+The three absolute operands are the copy PC, recovery PC and handler pointer
+of the reviewed local build, not engine addresses or reusable hook constants.
+Frame-only registration adds no global VEH, PE TLS, worker, static owner or
+startup initialization. Core import/TLS agreement does not prove runtime
+startup compatibility. First-chance handlers still run before frame handling;
+we neither identify nor override another provider.
+
+radare2 exact disassembly of the compiled release copy leaf and its handler:
+/ 114: sym.libpsycho::os::windows::guarded_memory::local_copy::copy (int32_t arg_24h, int32_t arg_28h, int32_t arg_2ch);
+| `- args(sp[0x4..0xc]) vars(5:sp[0xc..0x1c])
+|           0x101c1670      56             push esi                    ; libpsycho::os::windows::guarded_memory::local_copy::copy
+|           0x101c1671      57             push edi
+|           0x101c1672      83ec18         sub esp, 0x18
+|           0x101c1675      8b742424       mov esi, dword [arg_24h]
+|           0x101c1679      8b7c2428       mov edi, dword [arg_28h]
+|           0x101c167d      8b4c242c       mov ecx, dword [arg_2ch]
+|           0x101c1681      89742410       mov dword [var_10h], esi
+|           0x101c1685      8d040e         lea eax, [esi + ecx]
+|           0x101c1688      89442414       mov dword [var_14h], eax
+|           0x101c168c      8d05cd161c10   lea eax, [0x101c16cd]
+|           0x101c1692      89442408       mov dword [var_8h], eax
+|           0x101c1696      8d05d1161c10   lea eax, [0x101c16d1]
+|           0x101c169c      8944240c       mov dword [var_ch], eax
+|           0x101c16a0      8d0580341c10   lea eax, sym.libpsycho::os::windows::guarded_memory::local_copy::handler ; 0x101c3480 ; "U\x89\xe5SWV\x8bU\b\xb8\x01"
+|           0x101c16a6      89442404       mov dword [var_4h], eax
+|           0x101c16aa      64a100000000   mov eax, dword fs:[0]
+|           0x101c16b0      890424         mov dword [esp], eax
+|           0x101c16b3      39f7           cmp edi, esi
+|       ,=< 0x101c16b5      760f           jbe 0x101c16c6
+|       |   0x101c16b7      3b7c2414       cmp edi, dword [var_14h]
+|      ,==< 0x101c16bb      7309           jae 0x101c16c6
+|      ||   0x101c16bd      8d740eff       lea esi, [esi + ecx - 1]
+|      ||   0x101c16c1      8d7c0fff       lea edi, [edi + ecx - 1]
+|      ||   0x101c16c5      fd             std
+|      ``-> 0x101c16c6      6489250000..   mov dword fs:[0], esp
+|           ; DATA XREF from libpsycho::os::windows::guarded_memory::local_copy::copy @ 0x101c168c(r)
+|           0x101c16cd      f3a4           rep movsb byte es:[edi], byte [esi]
+|           0x101c16cf      31c0           xor eax, eax
+|           ; DATA XREF from libpsycho::os::windows::guarded_memory::local_copy::copy @ 0x101c1696(r)
+|           0x101c16d1      fc             cld
+|           0x101c16d2      8b1424         mov edx, dword [esp]
+|           0x101c16d5      6489150000..   mov dword fs:[0], edx
+|           0x101c16dc      83c418         add esp, 0x18
+|           0x101c16df      5f             pop edi
+|           0x101c16e0      5e             pop esi
+\           0x101c16e1      c3             ret
+            ; DATA XREF from libpsycho::os::windows::guarded_memory::local_copy::copy @ 0x101c16a0(r) ; sym.libpsycho::os::windows::guarded_memory::local_copy::copy
+/ 127: sym.libpsycho::os::windows::guarded_memory::local_copy::handler (int32_t arg_8h, int32_t arg_ch, int32_t arg_10h);
+| `- args(sp[0x4..0xc])
+|           0x101c3480      55             push ebp                    ; libpsycho::os::windows::guarded_memory::local_copy::handler
+|           0x101c3481      89e5           mov ebp, esp
+|           0x101c3483      53             push ebx
+|           0x101c3484      57             push edi
+|           0x101c3485      56             push esi
+|           0x101c3486      8b5508         mov edx, dword [arg_8h]
+|           0x101c3489      b801000000     mov eax, 1
+|           0x101c348e      837a0400       cmp dword [edx + 4], 0
+|       ,=< 0x101c3492      7405           je 0x101c3499
+|       |   ; CODE XREF from libpsycho::os::windows::guarded_memory::local_copy::handler @ 0x101c34fd(x)
+| ......--> 0x101c3494      5e             pop esi
+| ::::::|   0x101c3495      5f             pop edi
+| ::::::|   0x101c3496      5b             pop ebx
+| ::::::|   0x101c3497      5d             pop ebp
+| ::::::|   0x101c3498      c3             ret
+| ::::::`-> 0x101c3499      8b0a           mov ecx, dword [edx]
+| ::::::    0x101c349b      8db1fbffff3f   lea esi, [ecx + 0x3ffffffb]
+| ::::::    0x101c34a1      83fe02         cmp esi, 2                  ; 2
+| ::::::,=< 0x101c34a4      7208           jb 0x101c34ae
+| ::::::|   0x101c34a6      81f901000080   cmp ecx, 0x80000001
+| ========< 0x101c34ac      75e6           jne 0x101c3494
+| ::::::`-> 0x101c34ae      837a1002       cmp dword [edx + 0x10], 2
+| ========< 0x101c34b2      72e0           jb 0x101c3494
+| ::::::    0x101c34b4      837a1400       cmp dword [edx + 0x14], 0
+| ========< 0x101c34b8      75da           jne 0x101c3494
+| ::::::    0x101c34ba      8b750c         mov esi, dword [arg_ch]
+| ::::::    0x101c34bd      8b5a0c         mov ebx, dword [edx + 0xc]
+| ::::::    0x101c34c0      395e08         cmp dword [esi + 8], ebx
+| `=======< 0x101c34c3      75cf           jne 0x101c3494
+|  :::::    0x101c34c5      8b7d10         mov edi, dword [arg_10h]
+|  :::::    0x101c34c8      399fb8000000   cmp dword [edi + 0xb8], ebx
+|  `======< 0x101c34ce      75c4           jne 0x101c3494
+|   ::::    0x101c34d0      39b7c4000000   cmp dword [edi + 0xc4], esi
+|   `=====< 0x101c34d6      75bc           jne 0x101c3494
+|    :::    0x101c34d8      8b5218         mov edx, dword [edx + 0x18]
+|    :::    0x101c34db      3b5610         cmp edx, dword [esi + 0x10]
+|    `====< 0x101c34de      72b4           jb 0x101c3494
+|     ::    0x101c34e0      3b5614         cmp edx, dword [esi + 0x14]
+|     `===< 0x101c34e3      73af           jae 0x101c3494
+|      :    0x101c34e5      898fb0000000   mov dword [edi + 0xb0], ecx
+|      :    0x101c34eb      8b460c         mov eax, dword [esi + 0xc]
+|      :    0x101c34ee      8987b8000000   mov dword [edi + 0xb8], eax
+|      :    0x101c34f4      80a7c10000..   and byte [edi + 0xc1], 0xfb ; [0xfb:1]=255 ; 251
+|      :    0x101c34fb      31c0           xor eax, eax
+\      `==< 0x101c34fd      eb95           jmp 0x101c3494

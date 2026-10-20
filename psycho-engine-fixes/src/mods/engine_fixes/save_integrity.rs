@@ -50,6 +50,7 @@
 use std::{
     cell::Cell,
     ffi::{CStr, CString, c_void},
+    fmt,
     mem::size_of,
     ptr,
     sync::{
@@ -463,6 +464,55 @@ struct SaveTiming {
     admission_calls: [Cell<u64>; 3],
     commit_ticks: Cell<u64>,
     clock_misses: Cell<u32>,
+}
+
+/// Milliseconds with microsecond precision, without allocation or float rounding.
+struct SaveDuration(Option<u64>);
+
+impl fmt::Display for SaveDuration {
+    fn fmt(&self, out: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self.0 {
+            Some(us) => write!(out, "{}.{:03} ms", us / 1000, us % 1000),
+            None => out.write_str("unavailable"),
+        }
+    }
+}
+
+/// Render one save summary; formatting never runs inside an admission walk.
+fn log_save_timing(timing: &SaveTiming, total_us: Option<u64>, result: u8) {
+    let admission_ticks = timing.admission_ticks.each_ref().map(Cell::get);
+    let admission_calls = timing.admission_calls.each_ref().map(Cell::get);
+    let [record_us, list_us, alternate_us] = admission_ticks.map(diagnostics::ticks_to_us);
+    let outcome = if result == 0 { "failed" } else { "succeeded" };
+    let clock_status = if total_us.is_none() || timing.clock_misses.get() != 0 {
+        "incomplete"
+    } else {
+        "complete"
+    };
+    log::info!(
+        "[SAVE] Timing: {outcome}, total {}\n\
+         \x20 Snapshot:              {}\n\
+         \x20   Inventory checks:    {} ({} calls)\n\
+         \x20     Records:           {} ({} calls)\n\
+         \x20     Lists:             {} ({} calls)\n\
+         \x20     Player/projectile: {} ({} calls)\n\
+         \x20 Commit:                {}\n\
+         \x20 Other time: unclassified | clock: {clock_status} ({} missed samples)",
+        SaveDuration(total_us),
+        SaveDuration(Some(diagnostics::ticks_to_us(timing.snapshot_ticks.get()))),
+        SaveDuration(Some(diagnostics::ticks_to_us(
+            admission_ticks.into_iter().fold(0u64, u64::saturating_add)
+        ))),
+        admission_calls.into_iter().fold(0u64, u64::saturating_add),
+        SaveDuration(Some(record_us)),
+        admission_calls[0],
+        SaveDuration(Some(list_us)),
+        admission_calls[1],
+        SaveDuration(Some(alternate_us)),
+        admission_calls[2],
+        SaveDuration(Some(diagnostics::ticks_to_us(timing.commit_ticks.get()))),
+        timing.clock_misses.get(),
+    );
 }
 
 struct SaveTimingPublication;
@@ -967,20 +1017,7 @@ unsafe extern "thiscall" fn hook_save_owner(
         );
         clear_save_tracking();
     }
-    let admission_ticks = timing.admission_ticks.each_ref().map(Cell::get);
-    let admission_calls = timing.admission_calls.each_ref().map(Cell::get);
-    let [record_us, list_us, alternate_us] = admission_ticks.map(diagnostics::ticks_to_us);
-    log::info!(
-        "[SAVE] Timing: total_us={total_us:?} snapshot_us={} inventory_admission_us={} inventory_admissions={} commit_us={} clock_misses={} result={result} record_admission_us={record_us} record_admissions={} list_admission_us={list_us} list_admissions={} alternate_admission_us={alternate_us} alternate_admissions={}; snapshot includes admission; remaining time is unclassified",
-        diagnostics::ticks_to_us(timing.snapshot_ticks.get()),
-        diagnostics::ticks_to_us(admission_ticks.into_iter().fold(0u64, u64::saturating_add)),
-        admission_calls.into_iter().fold(0u64, u64::saturating_add),
-        diagnostics::ticks_to_us(timing.commit_ticks.get()),
-        timing.clock_misses.get(),
-        admission_calls[0],
-        admission_calls[1],
-        admission_calls[2],
-    );
+    log_save_timing(&timing, total_us, result);
     set_last_error(after);
     result
 }

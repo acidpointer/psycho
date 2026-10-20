@@ -821,6 +821,88 @@ mod tests {
 
     #[test]
     #[ignore = "offline production save-admission timing; run serially with --nocapture"]
+    fn production_short_list_admission_timing() {
+        use std::{hint::black_box, time::Instant};
+
+        // The native Data owns a head pointer; nodes and entries are separate
+        // allocations. Exercise the actual point-of-use preflight repeatedly,
+        // rather than amortizing its mapping queries over one giant list.
+        for count in [0, 1, 4, 16] {
+            let form = [0u32, 0, 0, 0x1234];
+            let entries: Vec<_> = (0..count)
+                .map(|_| Entry {
+                    extend: 0,
+                    count: 1,
+                    form: form.as_ptr() as u32,
+                })
+                .collect();
+            let mut nodes: Vec<_> = entries
+                .iter()
+                .map(|entry| Node {
+                    data: entry as *const Entry as u32,
+                    next: 0,
+                })
+                .collect();
+            for index in 1..count {
+                nodes[index - 1].next = &nodes[index] as *const Node as u32;
+            }
+            let data = [
+                if count == 0 { 0 } else { nodes.as_ptr() as u32 },
+                0,
+                0,
+                0,
+                0,
+            ];
+            let mut samples = [0.0; 5];
+            for sample in &mut samples {
+                let started = Instant::now();
+                for _ in 0..7591 {
+                    assert_eq!(
+                        validate_list(black_box(data.as_ptr() as usize), None),
+                        Ok(())
+                    );
+                }
+                *sample = started.elapsed().as_secs_f64() * 1e6;
+            }
+            samples.sort_by(f64::total_cmp);
+            println!(
+                "short-list admission: lists=7591 entries/list={count} rounds=5 us/round min={:.1} median={:.1} max={:.1}",
+                samples[0], samples[2], samples[4]
+            );
+        }
+        let image = [0u8; 16];
+        for query in [true, false] {
+            let mut samples = [0.0; 5];
+            for sample in &mut samples {
+                let started = Instant::now();
+                for _ in 0..100_000 {
+                    if query {
+                        black_box(
+                            virtual_query(black_box(image.as_ptr() as *mut c_void))
+                                .expect("owned mapping"),
+                        );
+                    } else {
+                        let mut output = [0; 16];
+                        read_current_process_memory(
+                            black_box(image.as_ptr() as usize),
+                            &mut output,
+                        )
+                        .expect("owned image");
+                        black_box(output);
+                    }
+                }
+                *sample = started.elapsed().as_secs_f64() * 1e6;
+            }
+            samples.sort_by(f64::total_cmp);
+            println!(
+                "copy boundary: query={query} calls=100000 rounds=5 us/round min={:.1} median={:.1} max={:.1}",
+                samples[0], samples[2], samples[4]
+            );
+        }
+    }
+
+    #[test]
+    #[ignore = "offline production save-admission timing; run serially with --nocapture"]
     fn production_save_admission_timing() {
         use std::{hint::black_box, time::Instant};
 

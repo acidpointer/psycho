@@ -60,7 +60,12 @@ remaining gates are in [the native-list contract](native_list_hardening_plan.md)
 
 The admission reader is shared across one uninterrupted list walk and caches
 four recently used mapping capabilities, with a fresh guarded copy for every
-read through a followed pointer. Native-owned record type and embedded header
+read through a followed pointer. On x86 the shared reader uses libpsycho's
+stack-scoped local fault boundary to avoid a process-reader call per field;
+mapping and guard-page admission still precede the copy. Its [contract and
+measured cost](native_list_hardening_plan.md#populated-list-snapshot-copy-cost)
+separate offline improvement from unverified native save latency.
+Native-owned record type and embedded header
 fields use their proven caller lifetime; mutable header reads hold the native
 extra lock. This avoids the original per-entry query restart without retaining
 payload bytes or admission across native serialization. Extra-cache queries
@@ -68,27 +73,28 @@ follow native presence bits. The [pause correction](native_list_hardening_plan.m
 records the reported save/transition pauses, measured production-path cost,
 guard-page policy regression and runtime limits.
 
-The existing main-save owner emits one `[SAVE] Timing` summary on return:
-`total_us` covers the native owner, `snapshot_us` the outermost authenticated
-snapshot, `inventory_admission_us` its nested guard contribution, and
-`commit_us` completed-file validation/flush/recovery/promotion. Commit excludes
-the earlier native file close; remaining owner time is unclassified. Do not
-add admission time to snapshot time. `inventory_admissions` counts whole guard
-operations, not entries. Zero phases may be unobserved; a missing total or
-nonzero `clock_misses` makes timing incomplete. Measurement uses existing QPC
-wrappers with constant stack storage, no per-entry timing, and native LastError
-preservation. It is available during ordinary saves regardless of hitch
+The existing main-save owner emits one `[SAVE] Timing` block on return. Its
+heading names the result and total native-owner time. Durations use milliseconds
+with three decimal places, retaining microsecond precision. `Snapshot` covers
+the outermost authenticated snapshot; its indented `Inventory checks` row
+includes the record, list and Player/projectile rows below it. `Commit` covers
+completed-file validation/flush/recovery/promotion and excludes the earlier
+native file close. Remaining owner time is unclassified. Do not add inventory
+checks to snapshot time. Call counts describe whole guard operations, not
+entries. Zero phases may be unobserved. A missing total is shown as
+`unavailable`; that or missed clock samples marks the block `incomplete`.
+Measurement uses existing QPC wrappers with constant stack storage, no
+per-entry timing, and native LastError preservation. It is available during
+ordinary saves regardless of hitch
 profiling; it does not weaken any durability or admission policy. The scope's
 single inert atomic publication adds no TLS or initialization callback. Native
 runtime latency and startup acceptance remain unverified.
 
-The same summary separates `record_admission_us` / `record_admissions`,
-`list_admission_us` / `list_admissions`, and `alternate_admission_us` /
-`alternate_admissions`. Record admission includes extra-lock waits and native
-cache queries. List admission includes nested extra lists. Alternate admission
-covers the PlayerCharacter array and Projectile optional entry. These are
-components of the existing admission total, measured at whole-operation
-boundaries; no per-entry timing or logging is added. The native-owned-root and
+Record checks include extra-lock waits and native cache queries. List checks
+include nested extra lists. Player/projectile checks cover the PlayerCharacter
+array and Projectile optional entry. These are components of the existing
+admission total, measured at whole-operation boundaries; no per-entry timing
+or logging is added. The native-owned-root and
 nested-reader correction, measured costs and remaining runtime limits are in
 [the native-list contract](native_list_hardening_plan.md#native-owned-record-and-embedded-header-cost).
 

@@ -347,6 +347,82 @@ subtotals use only the existing runtime owner's stack scope. Every followed
 header retains its full 32-byte guarded admission; only live native-owned root
 fields use the native lifetime precondition.
 
+### Populated-list snapshot copy cost
+
+The following ordinary-play session still measured 742,895 us for quicksave
+and 559,919-562,393 us for autosave. Shared list admission consumed
+312,676-389,595 us across 7,591-7,594 calls; record admission consumed
+117,581-147,229 us across 25,267-25,324 calls. Commit consumed
+20,635-40,050 us. These complete-clock samples establish that inventory
+admission remains the main measured save cost. They do not divide that cost
+between mapping queries, copies, native cache queries, and lock waits.
+
+Every followed node, entry, form, vtable cell and extra prefix still made a
+separate `ReadProcessMemory` call, even after its mapping capability was cached.
+The correction changes the shared `RegionReader` copy boundary to
+`libpsycho::os::windows::guarded_memory::read_local_memory`. The mapping checks,
+four-entry cache lifetime, fresh byte snapshots, complete traversal, legacy
+form policy and failed-save result remain in place. Other callers of the
+existing process reader retain that API. The new wrapper does not infer
+allocation identity or permit pointer reuse across native callbacks.
+
+On the supported x86 target, the wrapper uses a leaf assembly copy with a
+stack-scoped SEH registration. Its cdecl registration/handler ABI follows
+[MinGW's exception definitions](https://github.com/mingw-w64/mingw-w64/blob/master/mingw-w64-headers/crt/excpt.h).
+It accepts only continuable source-read access, in-page or guard faults at its
+own exact copy instruction, with the recorded source range and stack frame.
+All other exceptions continue the normal search, following
+[Microsoft's exception-handler guidance](https://learn.microsoft.com/en-us/windows/win32/debug/using-an-exception-handler).
+The [exception record](https://learn.microsoft.com/en-us/windows/win32/api/winnt/ns-winnt-exception_record)
+supplies the fault code and read/address parameters. Recovery resumes assembly
+cleanup without unwinding a Rust frame, removes the registration, restores
+callee-saved registers and clears the direction flag. Overlapping source and
+output use memmove order. Failure discards the partial image and retains the
+original exception as an HRESULT, without a diagnostic retry.
+
+`VirtualQuery` remains necessary before accessing a newly encountered mapping:
+it rejects an existing guard page without consuming its one-shot bit. The
+local copy contains a source fault after cached admission, including a late
+protection change; it cannot prevent another thread from changing a mapping
+or reclaiming an allocation after admission. A late guard fault can consume
+that bit, as a direct access does. No persistent validity cache is added.
+Normal Windows first-chance exception dispatch precedes frame handling; the
+wrapper does not intercept other exception providers or control their policy.
+
+Before production edits, an optimized offline benchmark executed the actual
+`validate_list` path 7,591 times per round, with five rounds and separately
+owned Data, node, entry and form storage. The same workload after the change
+measured these medians (min-max), in microseconds:
+
+| Entries per list | Process reader | Local fault boundary |
+|---:|---:|---:|
+| 0 | 8,970.4 (8,923.8-8,994.2) | 7,841.0 (7,774.8-7,891.1) |
+| 1 | 20,706.4 (20,664.9-20,738.9) | 16,118.6 (16,015.7-16,137.0) |
+| 4 | 40,465.9 (40,277.4-40,498.2) | 25,834.9 (25,751.8-25,930.3) |
+| 16 | 87,432.1 (87,336.7-87,493.1) | 33,566.7 (33,532.6-34,498.7) |
+
+This benchmark repeats one valid list at each size. It excludes the legacy
+filter, nested extras, native cache/lock service, serialization and disk IO;
+it is not the reporter's object distribution. Its 13-62% reduction proves
+lower cost at this production boundary, not a promised whole-save duration.
+The unchanged mapping-query calibration remains about 98 ms per 100,000
+queries on this Wine environment. Mapping and native service cost remain real
+limits, not grounds to weaken admission.
+
+Real-memory regressions cover cross-page forward faults, backward-overlap
+faults, repeated recovery on independent threads, byte and overlap semantics,
+exception-chain/direction-flag restoration, cached-admission failure and
+guard-bit preservation. The wrapper adds no import, static owner, TLS slot,
+initialization callback or hook. The compiled core's import sequence and TLS
+shape match the supplied runtime artifact; the reviewed copy-label/handler
+addresses have base relocations and its image permits frame handlers. These
+are ABI checks, not startup or save-runtime acceptance. No game run or native
+save benchmark was executed. The candidate retains the owner's existing
+static/offline exception and remains unreleased and runtime-unverified.
+
+Raw timings, qualification and compiled ABI evidence are in
+[`native_list_save_local_copy_cost_20261020.txt`](../analysis/radare2/output/native_list_save_local_copy_cost_20261020.txt).
+
 ### Costs, qualification and startup limits
 
 Save admission adds linear guarded-copy/query work and native extra-lock

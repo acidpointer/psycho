@@ -1,16 +1,17 @@
 //! Guarded byte admission shared by owner-specific native list guards.
 //!
-//! Copies require the requested mapping capability and use libpsycho's process
-//! reader. A small mapping cache belongs to one uninterrupted owner lifetime;
-//! it never pins allocations, proves identity, or survives a provider callback.
-//! Embedded-head traversal compares links only and assigns no payload ownership or recovery
-//! policy. Work is linear, with constant storage and no arbitrary length cap.
+//! Copies require the requested mapping capability and use libpsycho's local
+//! fault-contained reader. A small mapping cache belongs to one uninterrupted
+//! owner lifetime; it never pins allocations, proves identity, or survives a
+//! provider callback. Embedded-head traversal compares links only and assigns
+//! no payload ownership or recovery policy. Work is linear, with constant
+//! storage and no arbitrary length cap.
 //! Failures retain the original query/copy evidence without a diagnostic retry.
 
 use std::{ffi::c_void, fmt};
 
 use libpsycho::os::windows::{
-    guarded_memory::read_current_process_memory,
+    guarded_memory::read_local_memory,
     winapi::{MemoryBasicInformation, WinapiError, virtual_query},
 };
 
@@ -253,7 +254,7 @@ impl RegionReader {
     ) -> Result<[u8; N], MemoryFailure> {
         self.range(address, N, access)?;
         let mut bytes = [0; N];
-        read_current_process_memory(address, &mut bytes).map_err(|error| MemoryFailure {
+        read_local_memory(address, &mut bytes).map_err(|error| MemoryFailure {
             kind: FailureKind::Copy,
             address,
             length: N,

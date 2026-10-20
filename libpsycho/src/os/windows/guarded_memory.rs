@@ -9,6 +9,9 @@
 //! dereference. It does not pin the allocation, prove object identity, or close
 //! a lifetime race after the copy. Callers must use snapshots only for
 //! defensive admission and preserve a fail-closed result when a copy fails.
+//! The local reader provides the same snapshot role with an x86 stack-scoped
+//! fault boundary for hot paths; mapping and guard-page policy stay explicit
+//! at its caller. It adds no process-wide exception handler or initialization.
 //!
 //! Process-lifetime Win32 TLS slots provide exact per-thread hook capability
 //! without a PE TLS variable or callback. Their entry points are resolved here
@@ -25,6 +28,35 @@ use windows::Win32::{
 };
 
 use super::winapi::{WinapiError, WinapiResult, get_proc_address_in_dll};
+
+#[cfg(target_arch = "x86")]
+mod local_copy;
+
+/// Copy a current-process byte range with a stack-scoped fault boundary.
+///
+/// On x86 this avoids the process-reader call for each small snapshot.
+/// It catches only source-read faults at its own copy instruction; it does not
+/// install a process-wide handler, unwind Rust frames, pin memory, or establish
+/// an object's identity. Mapping policy (including rejecting guard pages before
+/// touching them) remains the caller's responsibility. Output may be partially
+/// changed on error and must be discarded. Overlapping ranges use memmove order.
+/// Other architectures retain the process reader.
+///
+/// # Errors
+///
+/// Rejects NULL, empty or overflowing ranges, and reports the original memory
+/// exception as an HRESULT without retrying the copy or querying changed state.
+#[inline]
+pub fn read_local_memory(address: usize, output: &mut [u8]) -> WinapiResult<()> {
+    #[cfg(target_arch = "x86")]
+    {
+        local_copy::read(address, output)
+    }
+    #[cfg(not(target_arch = "x86"))]
+    {
+        read_current_process_memory(address, output)
+    }
+}
 
 type ReadProcessMemoryFn =
     unsafe extern "system" fn(HANDLE, *const c_void, *mut c_void, usize, *mut usize) -> i32;
