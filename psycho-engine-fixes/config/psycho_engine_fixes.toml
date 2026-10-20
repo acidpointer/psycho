@@ -87,6 +87,10 @@ entrydata_invalid_form_guard = true
 # being destroyed. Valid lists are untouched; a corrupt list may leak.
 actor_container_retirement_guard = true
 
+# Skip inventory resets with broken base-item lists instead of crashing.
+# Valid inventories are unchanged; rejected resets leave items untouched.
+inventory_reset_guard = true
+
 # Prevent a crash when a broken animation is cleaned up. Valid animations are
 # unchanged.
 animation_sequence_idtag_retirement_guard = true

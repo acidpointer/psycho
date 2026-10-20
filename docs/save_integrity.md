@@ -242,6 +242,18 @@ malformed load keeps the engine error bit set and forces the load owner to
 return zero. Missing-master records remain a distinct local skip policy and do
 not masquerade as malformed data.
 
+The shared inventory-reset guard also forwards a rejected base-item list to
+this existing failure policy when it executes on the active load-owner thread.
+The whole-load error is latched; a skipped reset cannot silently publish a
+successful partial load. The shared operation does not own a changed record,
+so it never borrows or marks `ACTIVE_CHANGED_RECORD`, which can remain
+published after record application returns. The precise Character-load guards
+retain their separate record-rejection policy.
+Gameplay and other threads never borrow that transaction. This notification
+does not start or enable save integrity when its installer is disabled. The
+shared guard's scope and acceptance are documented in
+[`crash_20261020_levelup_inventory_plan.md`](crash_20261020_levelup_inventory_plan.md).
+
 ## Invariants, costs, and failure behavior
 
 - A tracked `.fos.tmp` is never promoted after any latched integrity failure.

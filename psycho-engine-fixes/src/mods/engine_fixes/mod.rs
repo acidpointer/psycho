@@ -21,6 +21,7 @@ mod fade_linked_owner_guard;
 mod havok;
 mod havok_sparse;
 mod install_paths;
+mod inventory_reset_guard;
 mod io;
 mod linkedrefs;
 mod list_cleanup_guard;
@@ -193,6 +194,7 @@ pub fn install(
     diagnostics: &DiagnosticsConfig,
 ) -> anyhow::Result<()> {
     install_actor_container_guard(config);
+    install_inventory_reset_guard(config);
     install_controller_sequence_guard(config);
     install_save_integrity(config)?;
     install_navmesh_low_pointer(config)?;
@@ -225,6 +227,19 @@ pub fn install(
     install_patrol_ref_in_use_guard(config);
 
     Ok(())
+}
+
+fn install_inventory_reset_guard(config: &EngineFixesConfig) {
+    if !config.inventory_reset_guard {
+        log::info!("[INVENTORY_RESET] Inventory reset guard disabled by config");
+        return;
+    }
+    match inventory_reset_guard::install() {
+        Ok(()) => log::info!(
+            "[INVENTORY_RESET] Guard active: rejects broken base-item lists before inventory resets"
+        ),
+        Err(error) => log::warn!("[INVENTORY_RESET] Inventory reset guard unavailable: {error:#}"),
+    }
 }
 
 fn install_list_cleanup_guard(config: &EngineFixesConfig) {

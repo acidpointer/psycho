@@ -491,6 +491,14 @@ only next-launch core activation. The Runtime dashboard shows its work through
 the save/form/task counters; the helper does not install, load, or initialize
 the guard.
 
+The **Inventory reset guard** checkbox owns
+`[engine_fixes].inventory_reset_guard`. It defaults on and applies after a full
+restart. It skips inventory resets with broken base-item lists; valid
+inventories are unchanged and rejected resets leave items untouched. The
+helper only edits the next-launch setting. The native boundaries, compatibility
+limits and acceptance contract are in
+[`crash_20261020_levelup_inventory_plan.md`](crash_20261020_levelup_inventory_plan.md).
+
 The **Model load serialization** checkbox owns
 `[engine_fixes].model_postprocess_serialization_fix`. It defaults on and
 changes only next-launch core activation. The helper only displays and edits

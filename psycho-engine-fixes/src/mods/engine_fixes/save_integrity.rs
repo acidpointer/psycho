@@ -1750,6 +1750,20 @@ fn active_load_runs_on_current_thread() -> bool {
     thread != 0 && thread == get_current_thread_id()
 }
 
+/// Keep an inventory-reset rejection terminal for an active load transaction.
+///
+/// Only the load-owner thread may latch its borrowed owner's failure state.
+/// Ordinary gameplay and callers outside that thread leave load state alone.
+/// A shared reset has no changed-record ownership: the tracking pointer can
+/// outlive record application. Do not read or mark that record here. The
+/// existing whole-load latch prevents acceptance and later record application;
+/// the precise Character-load guards retain their own record rejection policy.
+pub(super) fn reject_inventory_reset_during_load() {
+    if active_load_runs_on_current_thread() {
+        mark_load_rejected("invalid base inventory during reset");
+    }
+}
+
 unsafe fn preflight_actor_inventory_load(
     character: *mut c_void,
 ) -> Result<(), ActorInventoryLoadError> {

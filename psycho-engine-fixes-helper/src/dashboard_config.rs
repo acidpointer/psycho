@@ -123,6 +123,8 @@ pub(crate) struct EditableConfig {
     pub scene_reference_owner_guard: bool,
     /// Restart-only invalid list-link and cycle cleanup containment.
     pub list_cleanup_guard: bool,
+    /// Reject broken base-item lists before native inventory reset and refresh.
+    pub inventory_reset_guard: bool,
 }
 
 impl Default for EditableConfig {
@@ -197,6 +199,7 @@ impl Default for EditableConfig {
             occlusion_link_guard: true,
             scene_reference_owner_guard: true,
             list_cleanup_guard: true,
+            inventory_reset_guard: true,
         }
     }
 }
@@ -598,6 +601,12 @@ impl EditableConfig {
                 "list_cleanup_guard",
                 defaults.list_cleanup_guard,
             ),
+            inventory_reset_guard: bool_or(
+                doc,
+                "engine_fixes",
+                "inventory_reset_guard",
+                defaults.inventory_reset_guard,
+            ),
         }
         .sanitized()
     }
@@ -879,6 +888,7 @@ fn write_document(doc: &mut DocumentMut, config: &EditableConfig) {
     engine!(occlusion_link_guard);
     engine!(scene_reference_owner_guard);
     engine!(list_cleanup_guard);
+    engine!(inventory_reset_guard);
 
     macro_rules! setting {
         ($section:literal, $key:literal, $field:ident) => {
@@ -1170,6 +1180,7 @@ mod_owned_key = "untouched"
         config.linked_ref_target_base_form_guard = !config.linked_ref_target_base_form_guard;
         config.scene_reference_owner_guard = !config.scene_reference_owner_guard;
         config.list_cleanup_guard = !config.list_cleanup_guard;
+        config.inventory_reset_guard = !config.inventory_reset_guard;
         config.ragdoll_null_bone_guard = !config.ragdoll_null_bone_guard;
         config.ragdoll_detached_phantom_guard = !config.ragdoll_detached_phantom_guard;
         config.havok_add_entity_batch_null_guard = !config.havok_add_entity_batch_null_guard;

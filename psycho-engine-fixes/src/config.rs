@@ -476,6 +476,8 @@ pub struct EngineFixesConfig {
     pub scene_reference_owner_guard: bool,
     /// Cut invalid successor links and cycle back edges before native list cleanup.
     pub list_cleanup_guard: bool,
+    /// Reject broken base-item lists before native inventory reset and refresh.
+    pub inventory_reset_guard: bool,
 }
 
 impl Default for EngineFixesConfig {
@@ -516,6 +518,7 @@ impl Default for EngineFixesConfig {
             occlusion_link_guard: true,
             scene_reference_owner_guard: true,
             list_cleanup_guard: true,
+            inventory_reset_guard: true,
         }
     }
 }
@@ -632,6 +635,9 @@ impl EngineFixesConfig {
                 .scene_reference_owner_guard
                 .unwrap_or(default.scene_reference_owner_guard),
             list_cleanup_guard: raw.list_cleanup_guard.unwrap_or(default.list_cleanup_guard),
+            inventory_reset_guard: raw
+                .inventory_reset_guard
+                .unwrap_or(default.inventory_reset_guard),
         }
     }
 }
@@ -768,6 +774,7 @@ struct RawEngineFixesConfig {
     occlusion_link_guard: Option<bool>,
     scene_reference_owner_guard: Option<bool>,
     list_cleanup_guard: Option<bool>,
+    inventory_reset_guard: Option<bool>,
 }
 
 #[derive(Default, Deserialize)]
@@ -921,6 +928,16 @@ actor_container_retirement_guard = false
                 .expect("parse scene-reference setting");
         assert!(default.engine_fixes.scene_reference_owner_guard);
         assert!(!disabled.engine_fixes.scene_reference_owner_guard);
+    }
+
+    #[test]
+    fn inventory_reset_guard_defaults_on_and_honors_explicit_disable() {
+        let default: PsychoConfig = toml::from_str("").expect("parse default configuration");
+        let disabled: PsychoConfig =
+            toml::from_str("[engine_fixes]\ninventory_reset_guard = false\n")
+                .expect("parse inventory-reset setting");
+        assert!(default.engine_fixes.inventory_reset_guard);
+        assert!(!disabled.engine_fixes.inventory_reset_guard);
     }
 
     #[test]

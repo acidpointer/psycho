@@ -1,0 +1,47 @@
+Supported executable identity: see crash_20261020_levelup_native_chain.txt
+Commands: ['s 0x0040f900', 'af', 'pdf', 's 0x00403d30', 'af', 'pdf']
+┌ 125: fcn.0040f900 ();
+│           0x0040f900      55             push ebp
+│           0x0040f901      8bec           mov ebp, esp
+│           0x0040f903      a198fd2601     mov eax, dword [0x126fd98]  ; [0x126fd98:4]=0
+│           0x0040f908      648b0d2c00..   mov ecx, dword fs:[0x2c]
+│           0x0040f90f      8b1481         mov edx, dword [ecx + eax*4]
+│           0x0040f912      8b820c000000   mov eax, dword [edx + 0xc]
+│           0x0040f918      3b05e4381c01   cmp eax, dword [0x11c38e4]  ; [0x11c38e4:4]=0
+│       ┌─< 0x0040f91e      745b           je 0x40f97b
+│       │   0x0040f920      8b0d98fd2601   mov ecx, dword [0x126fd98]  ; [0x126fd98:4]=0
+│       │   0x0040f926      648b152c00..   mov edx, dword fs:[0x2c]
+│       │   0x0040f92d      8b048a         mov eax, dword [edx + ecx*4]
+│       │   0x0040f930      c780080000..   mov dword [eax + 8], 0
+│       │   0x0040f93a      684c020000     push 0x24c                  ; 588
+│       │   0x0040f93f      6a00           push 0
+│       │   0x0040f941      8b0d98fd2601   mov ecx, dword [0x126fd98]  ; [0x126fd98:4]=0
+│       │   0x0040f947      648b152c00..   mov edx, dword fs:[0x2c]
+│       │   0x0040f94e      8b048a         mov eax, dword [edx + ecx*4]
+│       │   0x0040f951      0510000000     add eax, 0x10               ; 16
+│       │   0x0040f956      50             push eax
+│       │   0x0040f957      e8d443ffff     call fcn.00403d30
+│       │   0x0040f95c      83c40c         add esp, 0xc
+│       │   0x0040f95f      8b0d98fd2601   mov ecx, dword [0x126fd98]  ; [0x126fd98:4]=0
+│       │   0x0040f965      648b152c00..   mov edx, dword fs:[0x2c]
+│       │   0x0040f96c      8b048a         mov eax, dword [edx + ecx*4]
+│       │   0x0040f96f      8b0de4381c01   mov ecx, dword [0x11c38e4]  ; [0x11c38e4:4]=0
+│       │   0x0040f975      89880c000000   mov dword [eax + 0xc], ecx
+│       └─> 0x0040f97b      5d             pop ebp
+└           0x0040f97c      c3             ret
+            ; CALL XREF from fcn.0040f900 @ 0x40f957(x)
+┌ 25: fcn.00403d30 (int32_t arg_8h, int32_t arg_ch, int32_t arg_10h);
+│ `- args(sp[0x4..0xc])
+│           0x00403d30      55             push ebp
+│           0x00403d31      8bec           mov ebp, esp
+│           0x00403d33      8b4510         mov eax, dword [arg_10h]
+│           0x00403d36      50             push eax
+│           0x00403d37      8b4d0c         mov ecx, dword [arg_ch]
+│           0x00403d3a      51             push ecx
+│           0x00403d3b      8b5508         mov edx, dword [arg_8h]
+│           0x00403d3e      52             push edx
+│           0x00403d3f      e87c24ac00     call fcn.00ec61c0
+│           0x00403d44      83c40c         add esp, 0xc
+│           0x00403d47      5d             pop ebp
+└           0x00403d48      c3             ret
+WARN: Invalid certificate table

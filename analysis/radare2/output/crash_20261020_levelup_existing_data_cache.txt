@@ -1,0 +1,107 @@
+Supported executable identity: see crash_20261020_levelup_native_chain.txt
+Commands: ['s 0x0040f9e0', 'af', 'pdf', 'pdg', 's 0x0040fa40', 'af', 'pdf', 'pdg']
+┌ 93: fcn.0040f9e0 (int32_t arg_8h, int32_t arg_ch);
+│ `- args(sp[0x4..0x8]) vars(1:sp[0x8..0x8])
+│           0x0040f9e0      55             push ebp
+│           0x0040f9e1      8bec           mov ebp, esp
+│           0x0040f9e3      51             push ecx
+│           0x0040f9e4      c745fc0000..   mov dword [var_4h], 0
+│           0x0040f9eb      a198fd2601     mov eax, dword [0x126fd98]  ; [0x126fd98:4]=0
+│           0x0040f9f0      648b0d2c00..   mov ecx, dword fs:[0x2c]
+│           0x0040f9f7      8b1481         mov edx, dword [ecx + eax*4]
+│           0x0040f9fa      8b4508         mov eax, dword [arg_8h]
+│           0x0040f9fd      3b8208000000   cmp eax, dword [edx + 8]
+│       ┌─< 0x0040fa03      7531           jne 0x40fa36
+│       │   0x0040fa05      e8f6feffff     call fcn.0040f900
+│       │   0x0040fa0a      837d0c00       cmp dword [arg_ch], 0
+│      ┌──< 0x0040fa0e      7c26           jl 0x40fa36
+│      ││   0x0040fa10      817d0c9300..   cmp dword [arg_ch], 0x93
+│     ┌───< 0x0040fa17      7d1d           jge 0x40fa36
+│     │││   0x0040fa19      8b0d98fd2601   mov ecx, dword [0x126fd98]  ; [0x126fd98:4]=0
+│     │││   0x0040fa1f      648b152c00..   mov edx, dword fs:[0x2c]
+│     │││   0x0040fa26      8b048a         mov eax, dword [edx + ecx*4]
+│     │││   0x0040fa29      8b4d0c         mov ecx, dword [arg_ch]
+│     │││   0x0040fa2c      8b94881000..   mov edx, dword [eax + ecx*4 + 0x10]
+│     │││   0x0040fa33      8955fc         mov dword [var_4h], edx
+│     └└└─> 0x0040fa36      8b45fc         mov eax, dword [var_4h]
+│           0x0040fa39      8be5           mov esp, ebp
+│           0x0040fa3b      5d             pop ebp
+└           0x0040fa3c      c3             ret
+
+int32_t __cdecl fcn.0040f9e0(int32_t arg_8h,int32_t arg_ch)
+
+{
+    int unaff_FS_OFFSET;
+    int32_t var_4h;
+
+    var_4h = 0;
+    if (arg_8h == *(*(*(unaff_FS_OFFSET + 0x2c) + *0x126fd98 * 4) + 8)) {
+        fcn.0040f900();
+        if ((-1 < arg_ch) && (arg_ch < 0x93)) {
+            var_4h = *(*(*(unaff_FS_OFFSET + 0x2c) + *0x126fd98 * 4) + 0x10 + arg_ch * 4);
+        }
+    }
+    return var_4h;
+}
+
+┌ 147: fcn.0040fa40 (int32_t arg_8h, int32_t arg_ch);
+│ `- args(sp[0x4..0x8])
+│           0x0040fa40      55             push ebp
+│           0x0040fa41      8bec           mov ebp, esp
+│           0x0040fa43      56             push esi
+│           0x0040fa44      837d0800       cmp dword [arg_8h], 0
+│       ┌─< 0x0040fa48      0f8482000000   je 0x40fad0
+│       │   0x0040fa4e      837d0c00       cmp dword [arg_ch], 0
+│      ┌──< 0x0040fa52      747c           je 0x40fad0
+│      ││   0x0040fa54      a198fd2601     mov eax, dword [0x126fd98]  ; [0x126fd98:4]=0
+│      ││   0x0040fa59      648b0d2c00..   mov ecx, dword fs:[0x2c]
+│      ││   0x0040fa60      8b1481         mov edx, dword [ecx + eax*4]
+│      ││   0x0040fa63      8b4508         mov eax, dword [arg_8h]
+│      ││   0x0040fa66      3b8208000000   cmp eax, dword [edx + 8]
+│     ┌───< 0x0040fa6c      743e           je 0x40faac
+│     │││   0x0040fa6e      684c020000     push 0x24c                  ; 588
+│     │││   0x0040fa73      6a00           push 0
+│     │││   0x0040fa75      8b0d98fd2601   mov ecx, dword [0x126fd98]  ; [0x126fd98:4]=0
+│     │││   0x0040fa7b      648b152c00..   mov edx, dword fs:[0x2c]
+│     │││   0x0040fa82      8b048a         mov eax, dword [edx + ecx*4]
+│     │││   0x0040fa85      0510000000     add eax, 0x10               ; 16
+│     │││   0x0040fa8a      50             push eax
+│     │││   0x0040fa8b      e8a042ffff     call fcn.00403d30
+│     │││   0x0040fa90      83c40c         add esp, 0xc
+│     │││   0x0040fa93      8b0d98fd2601   mov ecx, dword [0x126fd98]  ; [0x126fd98:4]=0
+│     │││   0x0040fa99      648b152c00..   mov edx, dword fs:[0x2c]
+│     │││   0x0040faa0      8b048a         mov eax, dword [edx + ecx*4]
+│     │││   0x0040faa3      8b4d08         mov ecx, dword [arg_8h]
+│     │││   0x0040faa6      898808000000   mov dword [eax + 8], ecx
+│     └───> 0x0040faac      8b1598fd2601   mov edx, dword [0x126fd98]  ; [0x126fd98:4]=0
+│      ││   0x0040fab2      64a12c000000   mov eax, dword fs:[0x2c]
+│      ││   0x0040fab8      8b3490         mov esi, dword [eax + edx*4]
+│      ││   0x0040fabb      8b4d0c         mov ecx, dword [arg_ch]
+│      ││   0x0040fabe      e87d1a0e00     call fcn.004f1540
+│      ││   0x0040fac3      0fb6c8         movzx ecx, al
+│      ││   0x0040fac6      8b550c         mov edx, dword [arg_ch]
+│      ││   0x0040fac9      89948e1000..   mov dword [esi + ecx*4 + 0x10], edx
+│      └└─> 0x0040fad0      5e             pop esi
+│           0x0040fad1      5d             pop ebp
+└           0x0040fad2      c3             ret
+
+void __cdecl fcn.0040fa40(int32_t arg_8h,int32_t arg_ch)
+
+{
+    int iVar1;
+    uint32_t uVar2;
+    int unaff_FS_OFFSET;
+
+    if ((arg_8h != 0) && (arg_ch != 0)) {
+        if (arg_8h != *(*(*(unaff_FS_OFFSET + 0x2c) + *0x126fd98 * 4) + 8)) {
+            fcn.00403d30(*(*(unaff_FS_OFFSET + 0x2c) + *0x126fd98 * 4) + 0x10,0,0x24c);
+            *(*(*(unaff_FS_OFFSET + 0x2c) + *0x126fd98 * 4) + 8) = arg_8h;
+        }
+        iVar1 = *(*(unaff_FS_OFFSET + 0x2c) + *0x126fd98 * 4);
+        uVar2 = fcn.004f1540();
+        *(iVar1 + 0x10 + (uVar2 & 0xff) * 4) = arg_ch;
+    }
+    return;
+}
+
+WARN: Invalid certificate table

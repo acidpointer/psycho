@@ -1,0 +1,422 @@
+Artifact: target/i686-pc-windows-gnu/release/psycho_engine_fixes.dll
+SHA256: b313c35b2b499ace8516000d68c6750d451391578081236caadcdceed8c72279
+Functions: {'query_from_reset': 268789072, 'reset_from_refresh': 268789104, 'admit_operation': 268844080, 'query_with_result': 268844240, 'reset_with_result': 268844640, 'query': 268845360, 'reset': 268845408, 'refresh': 268848800}
+Commands: ['s 0x10056550', 'af', 'pdf', 's 0x10056570', 'af', 'pdf', 's 0x10063cd0', 'af', 'pdf', 's 0x10063e60', 'af', 'pdf', 's 0x10064130', 'af', 'pdf', 's 0x10064160', 'af', 'pdf', 's 0x10064ea0', 'af', 'pdf', 's 0x10063c30', 'af', 'pdf']
+┌ 19: sym.psycho_engine_fixes::mods::engine_fixes::inventory_reset_guard::query_from_reset ();
+; psycho_engine_fixes::mods::engine_fixes::inventory_reset_guard::quer
+; y_from_reset
+│           0x10056550      e87bd70000     call sym.psycho_engine_fixes::mods::engine_fixes::inventory_reset_guard::query_with_result
+│           0x10056555      a900010000     test eax, 0x100             ; 256
+│       ┌─< 0x1005655a      7406           je 0x10056562
+│       │   0x1005655c      89ec           mov esp, ebp
+│       │   0x1005655e      5d             pop ebp
+│       │   0x1005655f      c20400         ret 4
+└       └─> 0x10056562      c3             ret
+┌ 22: sym.psycho_engine_fixes::mods::engine_fixes::inventory_reset_guard::reset_from_refresh (int32_t arg_4h);
+│ `- args(sp[0x4..0x4])
+; psycho_engine_fixes::mods::engine_fixes::inventory_reset_guard::rese
+; t_from_refresh
+│           0x10056570      ff742404       push dword [arg_4h]
+│           0x10056574      e8e7d80000     call sym.psycho_engine_fixes::mods::engine_fixes::inventory_reset_guard::reset_with_result
+│           0x10056579      84c0           test al, al
+│       ┌─< 0x1005657b      7403           je 0x10056580
+│       │   0x1005657d      c20400         ret 4
+│       └─> 0x10056580      89ec           mov esp, ebp
+│           0x10056582      5d             pop ebp
+└           0x10056583      c20400         ret 4
+            ; CALL XREF from psycho_engine_fixes::mods::engine_fixes::inventory_reset_guard::query_from_reset @ 0x10056550(x) ; sym.psycho_engine_fixes::mods::engine_fixes::inventory_reset_guard::query_from_reset
+┌ 400: sym.psycho_engine_fixes::mods::engine_fixes::inventory_reset_guard::query_with_result ();
+│ afv: vars(13:sp[0x10..0x50])
+; psycho_engine_fixes::mods::engine_fixes::inventory_reset_guard::quer
+; y_with_result
+│           0x10063cd0      55             push ebp
+│           0x10063cd1      89e5           mov ebp, esp
+│           0x10063cd3      53             push ebx
+│           0x10063cd4      57             push edi
+│           0x10063cd5      56             push esi
+│           0x10063cd6      83e4f8         and esp, 0xfffffff8
+│           0x10063cd9      83ec38         sub esp, 0x38
+│           0x10063cdc      8b3d8cf05610   mov edi, dword [0x1056f08c] ; [0x1056f08c:4]=0
+│           0x10063ce2      0fb61594f0..   movzx edx, byte [0x1056f094] ; [0x1056f094:1]=0
+│           0x10063ce9      85ff           test edi, edi
+│       ┌─< 0x10063ceb      744e           je 0x10063d3b
+│       │   0x10063ced      84d2           test dl, dl
+│      ┌──< 0x10063cef      7457           je 0x10063d48
+│      ││   0x10063cf1      894c2428       mov dword [var_28h], ecx
+│      ││   0x10063cf5      c744242c00..   mov dword [var_2ch], 0
+│      ││   0x10063cfd      c644243000     mov byte [var_30h], 0
+│      ││   0x10063d02      89ce           mov esi, ecx
+│      ││   0x10063d04      0fb605e051..   movzx eax, byte [0x103e51e0] ; [0x103e51e0:1]=1
+│      ││   0x10063d0b      84c0           test al, al
+│     ┌───< 0x10063d0d      7409           je 0x10063d18
+│     │││   0x10063d0f      a1d0513e10     mov eax, dword [0x103e51d0] ; [0x103e51d0:4]=3
+│     │││   0x10063d14      85c0           test eax, eax
+│    ┌────< 0x10063d16      743d           je 0x10063d55
+│    ││││   ; CODE XREF from psycho_engine_fixes::mods::engine_fixes::inventory_reset_guard::query_with_result @ 0x10063e5b(x)
+│   ┌─└───> 0x10063d18      e8432d1300     call sym.libpsycho::os::windows::winapi::get_last_error_code
+│   ╎│ ││   0x10063d1d      89f1           mov ecx, esi
+│   ╎│ ││   0x10063d1f      ba09000000     mov edx, 9
+│   ╎│ ││   0x10063d24      89c7           mov edi, eax
+│   ╎│ ││   0x10063d26      e865040000     call sym.psycho_engine_fixes::mods::engine_fixes::inventory_reset_guard::report
+│   ╎│ ││   0x10063d2b      57             push edi
+│   ╎│ ││   0x10063d2c      e86f1b1300     call sym.libpsycho::os::windows::winapi::set_last_error
+│   ╎│ ││   0x10063d31      83c404         add esp, 4
+│   ╎│ ││   0x10063d34      b801010000     mov eax, 0x101              ; 257
+│   ╎│┌───< 0x10063d39      eb12           jmp 0x10063d4d
+│   ╎│││└─> 0x10063d3b      31c0           xor eax, eax
+│   ╎│││    0x10063d3d      84d2           test dl, dl
+│   ╎│││    0x10063d3f      0f95c0         setne al
+│   ╎│││    0x10063d42      c1e008         shl eax, 8
+│   ╎│││    0x10063d45      40             inc eax
+│   ╎│││┌─< 0x10063d46      eb05           jmp 0x10063d4d
+│   ╎││└──> 0x10063d48      ffd7           call edi
+│   ╎││ │   0x10063d4a      0fb6c0         movzx eax, al
+│   ╎││ │   ; CODE XREFS from psycho_engine_fixes::mods::engine_fixes::inventory_reset_guard::query_with_result @ 0x10063d39(x), 0x10063d46(x), 0x10063e1c(x)
+│   ╎│└┌└─> 0x10063d4d      8d65f4         lea esp, [var_ch]
+│   ╎│ ╎    0x10063d50      5e             pop esi
+│   ╎│ ╎    0x10063d51      5f             pop edi
+│   ╎│ ╎    0x10063d52      5b             pop ebx
+│   ╎│ ╎    0x10063d53      5d             pop ebp
+│   ╎│ ╎    0x10063d54      c3             ret
+│   ╎└────> 0x10063d55      a1d4513e10     mov eax, dword [0x103e51d4] ; [0x103e51d4:4]=0
+│   ╎  ╎    0x10063d5a      8b1ddc513e10   mov ebx, dword [0x103e51dc] ; [0x103e51dc:4]=0
+│   ╎  ╎    0x10063d60      89442404       mov dword [var_4h], eax
+│   ╎  ╎    0x10063d64      a1d8513e10     mov eax, dword [0x103e51d8] ; [0x103e51d8:4]=0
+│   ╎  ╎    0x10063d69      8944240c       mov dword [var_sp_ch], eax
+│   ╎  ╎    0x10063d6d      e8ee2c1300     call sym.libpsycho::os::windows::winapi::get_last_error_code
+│   ╎  ╎    0x10063d72      89442408       mov dword [var_8h], eax
+│   ╎  ╎    0x10063d76      53             push ebx
+│   ╎  ╎    0x10063d77      ff542408       call dword [esp + 8]        ; 8
+│   ╎  ╎    0x10063d7b      89442424       mov dword [var_24h], eax
+│   ╎  ╎    0x10063d7f      8944242c       mov dword [var_28h], eax
+│   ╎  ╎    0x10063d83      8d442428       lea eax, [var_28h_2]
+│   ╎  ╎    0x10063d87      50             push eax
+│   ╎  ╎    0x10063d88      895c2408       mov dword [var_8h_2], ebx
+│   ╎  ╎    0x10063d8c      53             push ebx
+│   ╎  ╎    0x10063d8d      ff542414       call dword [esp + 0x14]     ; 20
+│   ╎  ╎    0x10063d91      85c0           test eax, eax
+│   ╎  ╎┌─< 0x10063d93      0f8488000000   je 0x10063e21
+│   ╎  ╎│   0x10063d99      ff742408       push dword [var_8h_3]
+│   ╎  ╎│   0x10063d9d      e8fe1a1300     call sym.libpsycho::os::windows::winapi::set_last_error
+│   ╎  ╎│   0x10063da2      83c404         add esp, 4
+│   ╎  ╎│   0x10063da5      89f1           mov ecx, esi
+│   ╎  ╎│   0x10063da7      ffd7           call edi
+│   ╎  ╎│   0x10063da9      0fb65c2430     movzx ebx, byte [var_28h_2]
+│   ╎  ╎│   0x10063dae      88c7           mov bh, al
+│   ╎  ╎│   0x10063db0      e8ab2c1300     call sym.libpsycho::os::windows::winapi::get_last_error_code
+│   ╎  ╎│   0x10063db5      89c6           mov esi, eax
+│   ╎  ╎│   0x10063db7      ff742424       push dword [var_24h_2]
+│   ╎  ╎│   0x10063dbb      ff742408       push dword [var_8h_4]
+│   ╎  ╎│   0x10063dbf      ff542414       call dword [esp + 0x14]     ; 20
+│   ╎  ╎│   0x10063dc3      85c0           test eax, eax
+│   ╎ ┌───< 0x10063dc5      752d           jne 0x10063df4
+│   ╎ │╎│   0x10063dc7      e884592a00     call sym._windows_result::error::Error_::from_win32 ; <windows_result::error::Error>::from_win32
+│   ╎ │╎│   0x10063dcc      85d2           test edx, edx
+│   ╎ │╎│   0x10063dce      c744241000..   mov dword [var_8h_3], 0x80000000 ; [0x80000000:4]=-1
+│   ╎ │╎│   0x10063dd6      89442414       mov dword [var_8h_2], eax
+│   ╎ │╎│   0x10063dda      89542418       mov dword [var_4h], edx
+│   ╎┌────< 0x10063dde      740d           je 0x10063ded
+│   ╎││╎│   0x10063de0      8d442418       lea eax, [var_4h]
+│   ╎││╎│   0x10063de4      50             push eax
+│   ╎││╎│   0x10063de5      e8e6602a00     call sym._windows_result::com::ComPtr_as_core::ops::drop::Drop_::drop ; <windows_result::com::ComPtr as core::ops::drop::Drop>::drop
+│   ╎││╎│   0x10063dea      83c404         add esp, 4
+│   ╎└────> 0x10063ded      c605e0513e..   mov byte [0x103e51e0], 0    ; [0x103e51e0:1]=1
+│   ╎ └───> 0x10063df4      56             push esi
+│   ╎  ╎│   0x10063df5      e8a61a1300     call sym.libpsycho::os::windows::winapi::set_last_error
+│   ╎  ╎│   0x10063dfa      83c404         add esp, 4
+│   ╎  ╎│   0x10063dfd      0fb6cf         movzx ecx, bh
+│   ╎  ╎│   0x10063e00      b800010000     mov eax, 0x100              ; 256
+│   ╎  ╎│   0x10063e05      84db           test bl, bl
+│   ╎ ┌───< 0x10063e07      7511           jne 0x10063e1a
+│   ╎ │╎│   0x10063e09      0fb615e051..   movzx edx, byte [0x103e51e0] ; [0x103e51e0:1]=1
+│   ╎ │╎│   0x10063e10      31c0           xor eax, eax
+│   ╎ │╎│   0x10063e12      84d2           test dl, dl
+│   ╎ │╎│   0x10063e14      0f94c0         sete al
+│   ╎ │╎│   0x10063e17      c1e008         shl eax, 8
+│   ╎ └───> 0x10063e1a      09c8           or eax, ecx
+│   ╎  └──< 0x10063e1c      e92cffffff     jmp 0x10063d4d
+│   ╎   └─> 0x10063e21      8b7c2408       mov edi, dword [var_8h_3]
+│   ╎       0x10063e25      e826592a00     call sym._windows_result::error::Error_::from_win32 ; <windows_result::error::Error>::from_win32
+│   ╎       0x10063e2a      85d2           test edx, edx
+│   ╎       0x10063e2c      c744241000..   mov dword [var_4h], 0x80000000 ; [0x80000000:4]=-1
+│   ╎       0x10063e34      89442414       mov dword [var_8h], eax
+│   ╎       0x10063e38      89542418       mov dword [var_sp_ch], edx
+│   ╎   ┌─< 0x10063e3c      740d           je 0x10063e4b
+│   ╎   │   0x10063e3e      8d442418       lea eax, [var_sp_ch]
+│   ╎   │   0x10063e42      50             push eax
+│   ╎   │   0x10063e43      e888602a00     call sym._windows_result::com::ComPtr_as_core::ops::drop::Drop_::drop ; <windows_result::com::ComPtr as core::ops::drop::Drop>::drop
+│   ╎   │   0x10063e48      83c404         add esp, 4
+│   ╎   └─> 0x10063e4b      57             push edi
+│   ╎       0x10063e4c      e84f1a1300     call sym.libpsycho::os::windows::winapi::set_last_error
+│   ╎       0x10063e51      83c404         add esp, 4
+│   ╎       0x10063e54      c605e0513e..   mov byte [0x103e51e0], 0    ; [0x103e51e0:1]=1
+└   └─────< 0x10063e5b      e9b8feffff     jmp 0x10063d18
+            ; CALL XREF from psycho_engine_fixes::mods::engine_fixes::inventory_reset_guard::reset_from_refresh @ 0x10056574(x) ; sym.psycho_engine_fixes::mods::engine_fixes::inventory_reset_guard::reset_from_refresh
+┌ 386: sym.psycho_engine_fixes::mods::engine_fixes::inventory_reset_guard::reset_with_result (int8_t arg_8h);
+│ `- args(sp[0x4..0x4]) vars(14:sp[0x10..0x54])
+; psycho_engine_fixes::mods::engine_fixes::inventory_reset_guard::rese
+; t_with_result
+│           0x10063e60      55             push ebp
+│           0x10063e61      89e5           mov ebp, esp
+│           0x10063e63      53             push ebx
+│           0x10063e64      57             push edi
+│           0x10063e65      56             push esi
+│           0x10063e66      83e4f8         and esp, 0xfffffff8
+│           0x10063e69      83ec38         sub esp, 0x38
+│           0x10063e6c      8b3d90f05610   mov edi, dword [0x1056f090] ; [0x1056f090:4]=0
+│           0x10063e72      0fb61594f0..   movzx edx, byte [0x1056f094] ; [0x1056f094:1]=0
+│           0x10063e79      84d2           test dl, dl
+│           0x10063e7b      0f94c0         sete al
+│           0x10063e7e      85ff           test edi, edi
+│       ┌─< 0x10063e80      7454           je 0x10063ed6
+│       │   0x10063e82      84d2           test dl, dl
+│      ┌──< 0x10063e84      7447           je 0x10063ecd
+│      ││   0x10063e86      894c2428       mov dword [var_28h], ecx
+│      ││   0x10063e8a      c744242c00..   mov dword [var_2ch], 0
+│      ││   0x10063e92      c644243000     mov byte [var_30h], 0
+│      ││   0x10063e97      89ce           mov esi, ecx
+│      ││   0x10063e99      0fb605e051..   movzx eax, byte [0x103e51e0] ; [0x103e51e0:1]=1
+│      ││   0x10063ea0      84c0           test al, al
+│     ┌───< 0x10063ea2      7409           je 0x10063ead
+│     │││   0x10063ea4      a1d0513e10     mov eax, dword [0x103e51d0] ; [0x103e51d0:4]=3
+│     │││   0x10063ea9      85c0           test eax, eax
+│    ┌────< 0x10063eab      7433           je 0x10063ee0
+│    ││││   ; CODE XREF from psycho_engine_fixes::mods::engine_fixes::inventory_reset_guard::reset_with_result @ 0x10063fcc(x)
+│   ┌─└───> 0x10063ead      e8ae2b1300     call sym.libpsycho::os::windows::winapi::get_last_error_code
+│   ╎│ ││   0x10063eb2      89f1           mov ecx, esi
+│   ╎│ ││   0x10063eb4      ba09000000     mov edx, 9
+│   ╎│ ││   0x10063eb9      89c7           mov edi, eax
+│   ╎│ ││   0x10063ebb      e8d0020000     call sym.psycho_engine_fixes::mods::engine_fixes::inventory_reset_guard::report
+│   ╎│ ││   0x10063ec0      57             push edi
+│   ╎│ ││   0x10063ec1      e8da191300     call sym.libpsycho::os::windows::winapi::set_last_error
+│   ╎│ ││   0x10063ec6      83c404         add esp, 4
+│   ╎│ ││   0x10063ec9      31c0           xor eax, eax
+│   ╎│┌───< 0x10063ecb      eb09           jmp 0x10063ed6
+│   ╎││└──> 0x10063ecd      0fb64508       movzx eax, byte [arg_8h]
+│   ╎││ │   0x10063ed1      50             push eax
+│   ╎││ │   0x10063ed2      ffd7           call edi
+│   ╎││ │   0x10063ed4      b001           mov al, 1
+│   ╎││ │   ; CODE XREFS from psycho_engine_fixes::mods::engine_fixes::inventory_reset_guard::reset_with_result @ 0x10063ecb(x), 0x10063f8d(x), 0x10063fdd(x)
+│  ┌──└┌└─> 0x10063ed6      8d65f4         lea esp, [var_ch]
+│  ╎╎│ ╎    0x10063ed9      5e             pop esi
+│  ╎╎│ ╎    0x10063eda      5f             pop edi
+│  ╎╎│ ╎    0x10063edb      5b             pop ebx
+│  ╎╎│ ╎    0x10063edc      5d             pop ebp
+│  ╎╎│ ╎    0x10063edd      c20400         ret 4
+│  ╎╎└────> 0x10063ee0      a1d4513e10     mov eax, dword [0x103e51d4] ; [0x103e51d4:4]=0
+│  ╎╎  ╎    0x10063ee5      8b1ddc513e10   mov ebx, dword [0x103e51dc] ; [0x103e51dc:4]=0
+│  ╎╎  ╎    0x10063eeb      89442404       mov dword [var_4h], eax
+│  ╎╎  ╎    0x10063eef      a1d8513e10     mov eax, dword [0x103e51d8] ; [0x103e51d8:4]=0
+│  ╎╎  ╎    0x10063ef4      8944240c       mov dword [var_sp_ch], eax
+│  ╎╎  ╎    0x10063ef8      e8632b1300     call sym.libpsycho::os::windows::winapi::get_last_error_code
+│  ╎╎  ╎    0x10063efd      89442408       mov dword [var_8h], eax
+│  ╎╎  ╎    0x10063f01      53             push ebx
+│  ╎╎  ╎    0x10063f02      ff542408       call dword [esp + 8]        ; 8
+│  ╎╎  ╎    0x10063f06      89442424       mov dword [var_24h], eax
+│  ╎╎  ╎    0x10063f0a      8944242c       mov dword [var_28h], eax
+│  ╎╎  ╎    0x10063f0e      8d442428       lea eax, [var_28h_2]
+│  ╎╎  ╎    0x10063f12      50             push eax
+│  ╎╎  ╎    0x10063f13      895c2408       mov dword [var_8h_2], ebx
+│  ╎╎  ╎    0x10063f17      53             push ebx
+│  ╎╎  ╎    0x10063f18      ff542414       call dword [esp + 0x14]     ; 20
+│  ╎╎  ╎    0x10063f1c      85c0           test eax, eax
+│  ╎╎  ╎┌─< 0x10063f1e      7472           je 0x10063f92
+│  ╎╎  ╎│   0x10063f20      ff742408       push dword [var_8h_3]
+│  ╎╎  ╎│   0x10063f24      e877191300     call sym.libpsycho::os::windows::winapi::set_last_error
+│  ╎╎  ╎│   0x10063f29      83c404         add esp, 4
+│  ╎╎  ╎│   0x10063f2c      0fb64508       movzx eax, byte [arg_8h]
+│  ╎╎  ╎│   0x10063f30      89f1           mov ecx, esi
+│  ╎╎  ╎│   0x10063f32      50             push eax
+│  ╎╎  ╎│   0x10063f33      ffd7           call edi
+│  ╎╎  ╎│   0x10063f35      0fb65c2430     movzx ebx, byte [var_24h]
+│  ╎╎  ╎│   0x10063f3a      e8212b1300     call sym.libpsycho::os::windows::winapi::get_last_error_code
+│  ╎╎  ╎│   0x10063f3f      89c6           mov esi, eax
+│  ╎╎  ╎│   0x10063f41      ff742424       push dword [var_24h_2]
+│  ╎╎  ╎│   0x10063f45      ff742408       push dword [var_8h_4]
+│  ╎╎  ╎│   0x10063f49      ff542414       call dword [esp + 0x14]     ; 20
+│  ╎╎  ╎│   0x10063f4d      85c0           test eax, eax
+│  ╎╎ ┌───< 0x10063f4f      752d           jne 0x10063f7e
+│  ╎╎ │╎│   0x10063f51      e8fa572a00     call sym._windows_result::error::Error_::from_win32 ; <windows_result::error::Error>::from_win32
+│  ╎╎ │╎│   0x10063f56      85d2           test edx, edx
+│  ╎╎ │╎│   0x10063f58      c744241000..   mov dword [var_10h], 0x80000000 ; [0x80000000:4]=-1
+│  ╎╎ │╎│   0x10063f60      89442414       mov dword [var_8h_3], eax
+│  ╎╎ │╎│   0x10063f64      89542418       mov dword [var_8h_2], edx
+│  ╎╎┌────< 0x10063f68      740d           je 0x10063f77
+│  ╎╎││╎│   0x10063f6a      8d442418       lea eax, [var_8h_2]
+│  ╎╎││╎│   0x10063f6e      50             push eax
+│  ╎╎││╎│   0x10063f6f      e85c5f2a00     call sym._windows_result::com::ComPtr_as_core::ops::drop::Drop_::drop ; <windows_result::com::ComPtr as core::ops::drop::Drop>::drop
+│  ╎╎││╎│   0x10063f74      83c404         add esp, 4
+│  ╎╎└────> 0x10063f77      c605e0513e..   mov byte [0x103e51e0], 0    ; [0x103e51e0:1]=1
+│  ╎╎ └───> 0x10063f7e      56             push esi
+│  ╎╎  ╎│   0x10063f7f      e81c191300     call sym.libpsycho::os::windows::winapi::set_last_error
+│  ╎╎  ╎│   0x10063f84      83c404         add esp, 4
+│  ╎╎  ╎│   0x10063f87      84db           test bl, bl
+│  ╎╎ ┌───< 0x10063f89      7446           je 0x10063fd1
+│  ╎╎ │╎│   0x10063f8b      31c0           xor eax, eax
+│  └──────< 0x10063f8d      e944ffffff     jmp 0x10063ed6
+│   ╎ │╎└─> 0x10063f92      8b7c2408       mov edi, dword [var_8h_3]
+│   ╎ │╎    0x10063f96      e8b5572a00     call sym._windows_result::error::Error_::from_win32 ; <windows_result::error::Error>::from_win32
+│   ╎ │╎    0x10063f9b      85d2           test edx, edx
+│   ╎ │╎    0x10063f9d      c744241000..   mov dword [var_4h], 0x80000000 ; [0x80000000:4]=-1
+│   ╎ │╎    0x10063fa5      89442414       mov dword [var_8h], eax
+│   ╎ │╎    0x10063fa9      89542418       mov dword [var_sp_ch], edx
+│   ╎ │╎┌─< 0x10063fad      740d           je 0x10063fbc
+│   ╎ │╎│   0x10063faf      8d442418       lea eax, [var_sp_ch]
+│   ╎ │╎│   0x10063fb3      50             push eax
+│   ╎ │╎│   0x10063fb4      e8175f2a00     call sym._windows_result::com::ComPtr_as_core::ops::drop::Drop_::drop ; <windows_result::com::ComPtr as core::ops::drop::Drop>::drop
+│   ╎ │╎│   0x10063fb9      83c404         add esp, 4
+│   ╎ │╎└─> 0x10063fbc      57             push edi
+│   ╎ │╎    0x10063fbd      e8de181300     call sym.libpsycho::os::windows::winapi::set_last_error
+│   ╎ │╎    0x10063fc2      83c404         add esp, 4
+│   ╎ │╎    0x10063fc5      c605e0513e..   mov byte [0x103e51e0], 0    ; [0x103e51e0:1]=1
+│   └─────< 0x10063fcc      e9dcfeffff     jmp 0x10063ead
+│     └───> 0x10063fd1      0fb605e051..   movzx eax, byte [0x103e51e0] ; [0x103e51e0:1]=1
+│      ╎    0x10063fd8      84c0           test al, al
+│      ╎    0x10063fda      0f95c0         setne al
+└      └──< 0x10063fdd      e9f4feffff     jmp 0x10063ed6
+┌ 48: sym.psycho_engine_fixes::mods::engine_fixes::inventory_reset_guard::query ();
+; psycho_engine_fixes::mods::engine_fixes::inventory_reset_guard::quer
+│           0x10064130      55             push ebp
+│           0x10064131      89e5           mov ebp, esp
+│           0x10064133      56             push esi
+│           0x10064134      0fb60594f0..   movzx eax, byte [0x1056f094] ; [0x1056f094:1]=0
+│           0x1006413b      89ce           mov esi, ecx
+│           0x1006413d      84c0           test al, al
+│       ┌─< 0x1006413f      740b           je 0x1006414c
+│       │   0x10064141      89f1           mov ecx, esi
+│       │   0x10064143      e8e8faffff     call sym.psycho_engine_fixes::mods::engine_fixes::inventory_reset_guard::admit_operation
+│       │   0x10064148      84c0           test al, al
+│      ┌──< 0x1006414a      740f           je 0x1006415b
+│      │└─> 0x1006414c      a184f05610     mov eax, dword [0x1056f084] ; [0x1056f084:4]=0
+│      │    0x10064151      85c0           test eax, eax
+│      │┌─< 0x10064153      7406           je 0x1006415b
+│      ││   0x10064155      89f1           mov ecx, esi
+│      ││   0x10064157      5e             pop esi
+│      ││   0x10064158      5d             pop ebp
+│      ││   0x10064159      ffe0           jmp eax
+│      └└─> 0x1006415b      b001           mov al, 1
+│           0x1006415d      5e             pop esi
+│           0x1006415e      5d             pop ebp
+└           0x1006415f      c3             ret
+┌ 48: sym.psycho_engine_fixes::mods::engine_fixes::inventory_reset_guard::reset ();
+; psycho_engine_fixes::mods::engine_fixes::inventory_reset_guard::rese
+│           0x10064160      55             push ebp
+│           0x10064161      89e5           mov ebp, esp
+│           0x10064163      56             push esi
+│           0x10064164      0fb60594f0..   movzx eax, byte [0x1056f094] ; [0x1056f094:1]=0
+│           0x1006416b      89ce           mov esi, ecx
+│           0x1006416d      84c0           test al, al
+│       ┌─< 0x1006416f      740b           je 0x1006417c
+│       │   0x10064171      89f1           mov ecx, esi
+│       │   0x10064173      e8b8faffff     call sym.psycho_engine_fixes::mods::engine_fixes::inventory_reset_guard::admit_operation
+│       │   0x10064178      84c0           test al, al
+│      ┌──< 0x1006417a      740f           je 0x1006418b
+│      │└─> 0x1006417c      a188f05610     mov eax, dword [0x1056f088] ; [0x1056f088:4]=0
+│      │    0x10064181      85c0           test eax, eax
+│      │┌─< 0x10064183      7406           je 0x1006418b
+│      ││   0x10064185      89f1           mov ecx, esi
+│      ││   0x10064187      5e             pop esi
+│      ││   0x10064188      5d             pop ebp
+│      ││   0x10064189      ffe0           jmp eax
+│      └└─> 0x1006418b      5e             pop esi
+│           0x1006418c      5d             pop ebp
+└           0x1006418d      c20400         ret 4
+┌ 48: sym.psycho_engine_fixes::mods::engine_fixes::inventory_reset_guard::refresh ();
+; psycho_engine_fixes::mods::engine_fixes::inventory_reset_guard::refr
+; esh
+│           0x10064ea0      55             push ebp
+│           0x10064ea1      89e5           mov ebp, esp
+│           0x10064ea3      56             push esi
+│           0x10064ea4      0fb60594f0..   movzx eax, byte [0x1056f094] ; [0x1056f094:1]=0
+│           0x10064eab      89ce           mov esi, ecx
+│           0x10064ead      84c0           test al, al
+│       ┌─< 0x10064eaf      740b           je 0x10064ebc
+│       │   0x10064eb1      89f1           mov ecx, esi
+│       │   0x10064eb3      e878edffff     call sym.psycho_engine_fixes::mods::engine_fixes::inventory_reset_guard::admit_operation
+│       │   0x10064eb8      84c0           test al, al
+│      ┌──< 0x10064eba      740f           je 0x10064ecb
+│      │└─> 0x10064ebc      a180f05610     mov eax, dword [0x1056f080] ; [0x1056f080:4]=0
+│      │    0x10064ec1      85c0           test eax, eax
+│      │┌─< 0x10064ec3      7406           je 0x10064ecb
+│      ││   0x10064ec5      89f1           mov ecx, esi
+│      ││   0x10064ec7      5e             pop esi
+│      ││   0x10064ec8      5d             pop ebp
+│      ││   0x10064ec9      ffe0           jmp eax
+│      └└─> 0x10064ecb      5e             pop esi
+│           0x10064ecc      5d             pop ebp
+└           0x10064ecd      c20400         ret 4
+            ; CALL XREF from psycho_engine_fixes::mods::engine_fixes::inventory_reset_guard::query @ 0x10064143(x) ; sym.psycho_engine_fixes::mods::engine_fixes::inventory_reset_guard::query
+            ; CALL XREF from psycho_engine_fixes::mods::engine_fixes::inventory_reset_guard::reset @ 0x10064173(x) ; sym.psycho_engine_fixes::mods::engine_fixes::inventory_reset_guard::reset
+            ; CALL XREF from psycho_engine_fixes::mods::engine_fixes::inventory_reset_guard::refresh @ 0x10064eb3(x) ; sym.psycho_engine_fixes::mods::engine_fixes::inventory_reset_guard::refresh
+┌ 160: sym.psycho_engine_fixes::mods::engine_fixes::inventory_reset_guard::admit_operation ();
+; psycho_engine_fixes::mods::engine_fixes::inventory_reset_guard::admi
+; t_operation
+│           0x10063c30      55             push ebp
+│           0x10063c31      89e5           mov ebp, esp
+│           0x10063c33      53             push ebx
+│           0x10063c34      57             push edi
+│           0x10063c35      56             push esi
+│           0x10063c36      89cf           mov edi, ecx
+│           0x10063c38      e8232e1300     call sym.libpsycho::os::windows::winapi::get_last_error_code
+│           0x10063c3d      0fb60de051..   movzx ecx, byte [0x103e51e0] ; [0x103e51e0:1]=1
+│           0x10063c44      89c6           mov esi, eax
+│           0x10063c46      84c9           test cl, cl
+│       ┌─< 0x10063c48      7412           je 0x10063c5c
+│       │   0x10063c4a      89f9           mov ecx, edi
+│       │   0x10063c4c      e8dffaffff     call sym.psycho_engine_fixes::mods::engine_fixes::inventory_reset_guard::admit_base
+│       │   0x10063c51      a801           test al, 1                  ; 1
+│      ┌──< 0x10063c53      7417           je 0x10063c6c
+│      ││   0x10063c55      80faff         cmp dl, 0xff                ; 255
+│     ┌───< 0x10063c58      7504           jne 0x10063c5e
+│    ┌────< 0x10063c5a      eb3d           jmp 0x10063c99
+│    │││└─> 0x10063c5c      b209           mov dl, 9
+│    │││    ; CODE XREFS from psycho_engine_fixes::mods::engine_fixes::inventory_reset_guard::admit_operation @ 0x10063cad(x), 0x10063cce(x)
+│ ┌┌┌─└─┌─> 0x10063c5e      0fb6d2         movzx edx, dl
+│ ╎╎╎│ │╎   0x10063c61      89f9           mov ecx, edi
+│ ╎╎╎│ │╎   0x10063c63      e828050000     call sym.psycho_engine_fixes::mods::engine_fixes::inventory_reset_guard::report
+│ ╎╎╎│ │╎   0x10063c68      31db           xor ebx, ebx
+│ ╎╎╎│┌───< 0x10063c6a      eb2f           jmp 0x10063c9b
+│ ╎╎╎││└──> 0x10063c6c      80fa01         cmp dl, 1                   ; 1
+│ ╎╎╎││┌──< 0x10063c6f      7528           jne 0x10063c99
+│ ╎╎╎│││╎   0x10063c71      83ffbb         cmp edi, 0xffffffbb
+│ ────────< 0x10063c74      7756           ja 0x10063ccc
+│ ╎╎╎│││╎   0x10063c76      8d4f44         lea ecx, [edi + 0x44]
+│ ╎╎╎│││╎   0x10063c79      b820854100     mov eax, 0x418520
+│ ╎╎╎│││╎   0x10063c7e      ffd0           call eax
+│ ╎╎╎│││╎   0x10063c80      85c0           test eax, eax
+│ ────────< 0x10063c82      7415           je 0x10063c99
+│ ╎╎╎│││╎   0x10063c84      89c1           mov ecx, eax
+│ ╎╎╎│││╎   0x10063c86      ba04000000     mov edx, 4
+│ ╎╎╎│││╎   0x10063c8b      e860030000     call sym.psycho_engine_fixes::mods::engine_fixes::inventory_reset_guard::word
+│ ╎╎╎│││╎   0x10063c90      83f801         cmp eax, 1                  ; 1
+│ ────────< 0x10063c93      7516           jne 0x10063cab
+│ ╎╎╎│││╎   0x10063c95      39fa           cmp edx, edi
+│ ────────< 0x10063c97      7516           jne 0x10063caf
+│ ╎╎╎│││╎   ; CODE XREFS from psycho_engine_fixes::mods::engine_fixes::inventory_reset_guard::admit_operation @ 0x10063c5a(x), 0x10063cbf(x)
+│ ───└─└──> 0x10063c99      b301           mov bl, 1
+│ ╎╎╎ │ ╎   ; CODE XREFS from psycho_engine_fixes::mods::engine_fixes::inventory_reset_guard::admit_operation @ 0x10063c6a(x), 0x10063cca(x)
+│ ╎╎╎ └┌──> 0x10063c9b      56             push esi
+│ ╎╎╎  ╎╎   0x10063c9c      e8ff1b1300     call sym.libpsycho::os::windows::winapi::set_last_error
+│ ╎╎╎  ╎╎   0x10063ca1      83c404         add esp, 4
+│ ╎╎╎  ╎╎   0x10063ca4      89d8           mov eax, ebx
+│ ╎╎╎  ╎╎   0x10063ca6      5e             pop esi
+│ ╎╎╎  ╎╎   0x10063ca7      5f             pop edi
+│ ╎╎╎  ╎╎   0x10063ca8      5b             pop ebx
+│ ╎╎╎  ╎╎   0x10063ca9      5d             pop ebp
+│ ╎╎╎  ╎╎   0x10063caa      c3             ret
+│ ────────> 0x10063cab      b208           mov dl, 8
+│ └───────< 0x10063cad      ebaf           jmp 0x10063c5e
+│ ────────> 0x10063caf      89d1           mov ecx, edx
+│  ╎╎  ╎╎   0x10063cb1      e87afaffff     call sym.psycho_engine_fixes::mods::engine_fixes::inventory_reset_guard::admit_base
+│  ╎╎  ╎╎   0x10063cb6      a801           test al, 1                  ; 1
+│  ╎╎ ┌───< 0x10063cb8      7407           je 0x10063cc1
+│  ╎╎ │╎╎   0x10063cba      80faff         cmp dl, 0xff                ; 255
+│  └──────< 0x10063cbd      759f           jne 0x10063c5e
+│ ────────< 0x10063cbf      ebd8           jmp 0x10063c99
+│   ╎ └───> 0x10063cc1      f6c201         test dl, 1                  ; 1
+│   ╎  ╎╎   0x10063cc4      b301           mov bl, 1
+│   ╎  ╎╎   0x10063cc6      b208           mov dl, 8
+│   └─────< 0x10063cc8      7494           je 0x10063c5e
+│      └──< 0x10063cca      ebcf           jmp 0x10063c9b
+│ ────────> 0x10063ccc      31d2           xor edx, edx
+└       └─< 0x10063cce      eb8e           jmp 0x10063c5e
