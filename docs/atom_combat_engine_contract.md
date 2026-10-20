@@ -819,6 +819,11 @@ This is the key rule for correct enemy damage handling.
 
 ## AI combat
 
+The complete AI record inventory, before/after values, focused native consumer
+evidence, and proposed subsystem boundaries are documented in
+[the AI policy research](atom_ai_policy_research.md). Its static findings do
+not establish a production hook contract or gameplay acceptance.
+
 Native AI separates planning from execution. The combat controller owns weapon
 and ammunition candidates, DPS comparisons, selected weapon and combat style,
 target/LOS/threat state, dangerous explosives, timers, cooldowns, and tactical
@@ -826,8 +831,13 @@ actions. Combat styles describe cover, wait/fire timing, effective ranges,
 semi-automatic delays, target FOV, combat radius, dodge, block, attack,
 power-attack, stagger/knockout, and movement/skill coefficients.
 
-The effective style is dynamic: actor, base/template, and `ExtraCombatStyle`
-can contribute. It cannot be safely cached or selected by hard-coded FormID.
+The effective style resolver checks an actor's `ExtraCombatStyle`, then its
+stable package's style, then its current base form. The controller retains a
+style pointer and native refresh paths invalidate selected state when that
+identity changes. The resolver, sampling boundaries, clock, worker and context
+evidence are recorded in [the AI policy research](atom_ai_policy_research.md).
+Template materialization before the base getter remains unaudited; Atom must
+consume the effective native result rather than select styles by FormID.
 
 Once AI commits an attack, ranged execution reaches the common fire path and
 melee execution reaches common contact/damage paths. This supports a safe split:

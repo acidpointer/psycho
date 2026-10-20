@@ -1,0 +1,2045 @@
+Supported executable 1.4.0.525 PE32 x86 base 0x00400000
+SHA-256 42fee7d6cd74e801372aa89c8f71c974cebd3c20ec9ad43d1465b8fa9646b49c
+Method: radare2; relocations applied; each listed entry: s ADDRESS; af; pdf. Constant bytes: px 4.
+Input identity and paths omitted. Static evidence only.
+
+WARN: Invalid certificate table
+SETTING fAICombatSlopeDifference
+┌ 43: fcn.00f63ab0 ();
+│           0x00f63ab0      55             push ebp
+│           0x00f63ab1      8bec           mov ebp, esp
+│           0x00f63ab3      51             push ecx
+│           0x00f63ab4      d90574e50101   fld dword [0x101e574]
+│           0x00f63aba      d91c24         fstp dword [esp]
+│           0x00f63abd      68d4520501     push 0x10552d4              ; "fAICombatSlopeDifference"
+│           0x00f63ac2      b9a0e41c01     mov ecx, 0x11ce4a0
+│           0x00f63ac7      e8e4a54aff     call fcn.0040e0b0
+│           0x00f63acc      6850f6fc00     push 0xfcf650
+│           0x00f63ad1      e8b92af6ff     call fcn.00ec658f
+│           0x00f63ad6      83c404         add esp, 4
+│           0x00f63ad9      5d             pop ebp
+└           0x00f63ada      c3             ret
+- offset -  7475 7677 7879 7A7B 7C7D 7E7F 8081 8283  456789ABCDEF0123
+0x0101e574  0000 4042                                ..@B
+SETTING fAIDodgeDecisionBase
+┌ 43: fcn.00f5da80 ();
+│           0x00f5da80      55             push ebp
+│           0x00f5da81      8bec           mov ebp, esp
+│           0x00f5da83      51             push ecx
+│           0x00f5da84      d905787b0101   fld dword [0x1017b78]
+│           0x00f5da8a      d91c24         fstp dword [esp]
+│           0x00f5da8d      6880190501     push str.fAIDodgeDecisionBase ; 0x1051980 ; "fAIDodgeDecisionBase"
+│           0x00f5da92      b9f8f81c01     mov ecx, 0x11cf8f8
+│           0x00f5da97      e814064bff     call fcn.0040e0b0
+│           0x00f5da9c      6840d6fc00     push 0xfcd640
+│           0x00f5daa1      e8e98af6ff     call fcn.00ec658f
+│           0x00f5daa6      83c404         add esp, 4
+│           0x00f5daa9      5d             pop ebp
+└           0x00f5daaa      c3             ret
+- offset -  7879 7A7B 7C7D 7E7F 8081 8283 8485 8687  89ABCDEF01234567
+0x01017b78  0000 2041                                .. A
+SETTING fAIDodgeFavorLeftRightMult
+┌ 43: fcn.00f5da50 ();
+│           0x00f5da50      55             push ebp
+│           0x00f5da51      8bec           mov ebp, esp
+│           0x00f5da53      51             push ecx
+│           0x00f5da54      d905c0620101   fld dword [0x10162c0]
+│           0x00f5da5a      d91c24         fstp dword [esp]
+│           0x00f5da5d      6864190501     push str.fAIDodgeFavorLeftRightMult ; 0x1051964 ; "fAIDodgeFavorLeftRightMult"
+│           0x00f5da62      b988f21c01     mov ecx, 0x11cf288
+│           0x00f5da67      e844064bff     call fcn.0040e0b0
+│           0x00f5da6c      6830d6fc00     push 0xfcd630
+│           0x00f5da71      e8198bf6ff     call fcn.00ec658f
+│           0x00f5da76      83c404         add esp, 4
+│           0x00f5da79      5d             pop ebp
+└           0x00f5da7a      c3             ret
+- offset -  C0C1 C2C3 C4C5 C6C7 C8C9 CACB CCCD CECF  0123456789ABCDEF
+0x010162c0  0000 0040                                ...@
+SETTING fAIDodgeWalkChance
+┌ 43: fcn.00f5dab0 ();
+│           0x00f5dab0      55             push ebp
+│           0x00f5dab1      8bec           mov ebp, esp
+│           0x00f5dab3      51             push ecx
+│           0x00f5dab4      d905f8f00201   fld dword [0x102f0f8]
+│           0x00f5daba      d91c24         fstp dword [esp]
+│           0x00f5dabd      6898190501     push str.fAIDodgeWalkChance ; 0x1051998 ; "fAIDodgeWalkChance"
+│           0x00f5dac2      b980e31c01     mov ecx, 0x11ce380
+│           0x00f5dac7      e8e4054bff     call fcn.0040e0b0
+│           0x00f5dacc      6850d6fc00     push 0xfcd650
+│           0x00f5dad1      e8b98af6ff     call fcn.00ec658f
+│           0x00f5dad6      83c404         add esp, 4
+│           0x00f5dad9      5d             pop ebp
+└           0x00f5dada      c3             ret
+- offset -  F8F9 FAFB FCFD FEFF  0 1  2 3  4 5  6 7  89ABCDEF01234567
+0x0102f0f8  0000 9642                                ...B
+SETTING fAIIdleWaitTime
+┌ 39: fcn.00f5a890 ();
+│           0x00f5a890      55             push ebp
+│           0x00f5a891      8bec           mov ebp, esp
+│           0x00f5a893      51             push ecx
+│           0x00f5a894      d9e8           fld1
+│           0x00f5a896      d91c24         fstp dword [esp]
+│           0x00f5a899      6860fe0401     push str.fAIIdleWaitTime    ; 0x104fe60 ; "fAIIdleWaitTime"
+│           0x00f5a89e      b930dd1c01     mov ecx, 0x11cdd30
+│           0x00f5a8a3      e808384bff     call fcn.0040e0b0
+│           0x00f5a8a8      6890c6fc00     push 0xfcc690
+│           0x00f5a8ad      e8ddbcf6ff     call fcn.00ec658f
+│           0x00f5a8b2      83c404         add esp, 4
+│           0x00f5a8b5      5d             pop ebp
+└           0x00f5a8b6      c3             ret
+SETTING fAIMinGreetingDistance
+┌ 43: fcn.00f5afb0 ();
+│           0x00f5afb0      55             push ebp
+│           0x00f5afb1      8bec           mov ebp, esp
+│           0x00f5afb3      51             push ecx
+│           0x00f5afb4      d905d0310201   fld dword [0x10231d0]
+│           0x00f5afba      d91c24         fstp dword [esp]
+│           0x00f5afbd      68c8010501     push str.fAIMinGreetingDistance ; 0x10501c8 ; "fAIMinGreetingDistance"
+│           0x00f5afc2      b914d41c01     mov ecx, 0x11cd414
+│           0x00f5afc7      e8e4304bff     call fcn.0040e0b0
+│           0x00f5afcc      68f0c8fc00     push 0xfcc8f0
+│           0x00f5afd1      e8b9b5f6ff     call fcn.00ec658f
+│           0x00f5afd6      83c404         add esp, 4
+│           0x00f5afd9      5d             pop ebp
+└           0x00f5afda      c3             ret
+- offset -  D0D1 D2D3 D4D5 D6D7 D8D9 DADB DCDD DEDF  0123456789ABCDEF
+0x010231d0  0000 1643                                ...C
+SETTING fAISocialchanceForConversation
+┌ 43: fcn.00f5a350 ();
+│           0x00f5a350      55             push ebp
+│           0x00f5a351      8bec           mov ebp, esp
+│           0x00f5a353      51             push ecx
+│           0x00f5a354      d90594420301   fld dword [0x1034294]
+│           0x00f5a35a      d91c24         fstp dword [esp]
+│           0x00f5a35d      6838fb0401     push str.fAISocialchanceForConversation ; 0x104fb38 ; "fAISocialchanceForConversation"
+│           0x00f5a362      b904dc1c01     mov ecx, 0x11cdc04
+│           0x00f5a367      e8443d4bff     call fcn.0040e0b0
+│           0x00f5a36c      68d0c4fc00     push 0xfcc4d0
+│           0x00f5a371      e819c2f6ff     call fcn.00ec658f
+│           0x00f5a376      83c404         add esp, 4
+│           0x00f5a379      5d             pop ebp
+└           0x00f5a37a      c3             ret
+- offset -  9495 9697 9899 9A9B 9C9D 9E9F A0A1 A2A3  456789ABCDEF0123
+0x01034294  0000 7042                                ..pB
+SETTING fAISocialchanceForConversationInterior
+┌ 43: fcn.00f5a380 ();
+│           0x00f5a380      55             push ebp
+│           0x00f5a381      8bec           mov ebp, esp
+│           0x00f5a383      51             push ecx
+│           0x00f5a384      d905e8810101   fld dword [0x10181e8]
+│           0x00f5a38a      d91c24         fstp dword [esp]
+│           0x00f5a38d      6858fb0401     push str.fAISocialchanceForConversationInterior ; 0x104fb58 ; "fAISocialchanceForConversationInterior"
+│           0x00f5a392      b92cd01c01     mov ecx, 0x11cd02c
+│           0x00f5a397      e8143d4bff     call fcn.0040e0b0
+│           0x00f5a39c      68e0c4fc00     push 0xfcc4e0
+│           0x00f5a3a1      e8e9c1f6ff     call fcn.00ec658f
+│           0x00f5a3a6      83c404         add esp, 4
+│           0x00f5a3a9      5d             pop ebp
+└           0x00f5a3aa      c3             ret
+- offset -  E8E9 EAEB ECED EEEF F0F1 F2F3 F4F5 F6F7  89ABCDEF01234567
+0x010181e8  0000 c841                                ...A
+SETTING fAITrespassWarningTimer
+┌ 43: fcn.00f5b190 ();
+│           0x00f5b190      55             push ebp
+│           0x00f5b191      8bec           mov ebp, esp
+│           0x00f5b193      51             push ecx
+│           0x00f5b194      d905787b0101   fld dword [0x1017b78]
+│           0x00f5b19a      d91c24         fstp dword [esp]
+│           0x00f5b19d      68e4020501     push str.fAITrespassWarningTimer ; 0x10502e4 ; "fAITrespassWarningTimer"
+│           0x00f5b1a2      b9c4d21c01     mov ecx, 0x11cd2c4
+│           0x00f5b1a7      e8042f4bff     call fcn.0040e0b0
+│           0x00f5b1ac      6890c9fc00     push 0xfcc990
+│           0x00f5b1b1      e8d9b3f6ff     call fcn.00ec658f
+│           0x00f5b1b6      83c404         add esp, 4
+│           0x00f5b1b9      5d             pop ebp
+└           0x00f5b1ba      c3             ret
+- offset -  7879 7A7B 7C7D 7E7F 8081 8283 8485 8687  89ABCDEF01234567
+0x01017b78  0000 2041                                .. A
+SETTING fAIUpdateMovementRestrictionsDistance
+┌ 43: fcn.00f63840 ();
+│           0x00f63840      55             push ebp
+│           0x00f63841      8bec           mov ebp, esp
+│           0x00f63843      51             push ecx
+│           0x00f63844      d90574e50101   fld dword [0x101e574]
+│           0x00f6384a      d91c24         fstp dword [esp]
+│           0x00f6384d      6824510501     push str.fAIUpdateMovementRestrictionsDistance ; 0x1055124 ; "fAIUpdateMovementRestrictionsDistance"
+│           0x00f63852      b968f91c01     mov ecx, 0x11cf968
+│           0x00f63857      e854a84aff     call fcn.0040e0b0
+│           0x00f6385c      6880f5fc00     push 0xfcf580
+│           0x00f63861      e8292df6ff     call fcn.00ec658f
+│           0x00f63866      83c404         add esp, 4
+│           0x00f63869      5d             pop ebp
+└           0x00f6386a      c3             ret
+- offset -  7475 7677 7879 7A7B 7C7D 7E7F 8081 8283  456789ABCDEF0123
+0x0101e574  0000 4042                                ..@B
+SETTING fAIUseWeaponDistance
+┌ 43: fcn.00f5bf10 ();
+│           0x00f5bf10      55             push ebp
+│           0x00f5bf11      8bec           mov ebp, esp
+│           0x00f5bf13      51             push ecx
+│           0x00f5bf14      d90520000301   fld dword [0x1030020]
+│           0x00f5bf1a      d91c24         fstp dword [esp]
+│           0x00f5bf1d      68180a0501     push str.fAIUseWeaponDistance ; 0x1050a18 ; "fAIUseWeaponDistance"
+│           0x00f5bf22      b93cdd1c01     mov ecx, 0x11cdd3c
+│           0x00f5bf27      e884214bff     call fcn.0040e0b0
+│           0x00f5bf2c      6810cefc00     push 0xfcce10
+│           0x00f5bf31      e859a6f6ff     call fcn.00ec658f
+│           0x00f5bf36      83c404         add esp, 4
+│           0x00f5bf39      5d             pop ebp
+└           0x00f5bf3a      c3             ret
+- offset -  2021 2223 2425 2627 2829 2A2B 2C2D 2E2F  0123456789ABCDEF
+0x01030020  0040 9c45                                .@.E
+SETTING fAmbushOverRideRadiusforPlayerDetection
+┌ 43: fcn.00f5c180 ();
+│           0x00f5c180      55             push ebp
+│           0x00f5c181      8bec           mov ebp, esp
+│           0x00f5c183      51             push ecx
+│           0x00f5c184      d90574390101   fld dword [0x1013974]
+│           0x00f5c18a      d91c24         fstp dword [esp]
+│           0x00f5c18d      68380b0501     push str.fAmbushOverRideRadiusforPlayerDetection ; 0x1050b38 ; "fAmbushOverRideRadiusforPlayerDetection"
+│           0x00f5c192      b95cd51c01     mov ecx, 0x11cd55c
+│           0x00f5c197      e8141f4bff     call fcn.0040e0b0
+│           0x00f5c19c      68e0cefc00     push 0xfccee0
+│           0x00f5c1a1      e8e9a3f6ff     call fcn.00ec658f
+│           0x00f5c1a6      83c404         add esp, 4
+│           0x00f5c1a9      5d             pop ebp
+└           0x00f5c1aa      c3             ret
+- offset -  7475 7677 7879 7A7B 7C7D 7E7F 8081 8283  456789ABCDEF0123
+0x01013974  0000 7a44                                ..zD
+SETTING fAutoDoorActivateDistance
+┌ 43: fcn.00f49860 ();
+│           0x00f49860      55             push ebp
+│           0x00f49861      8bec           mov ebp, esp
+│           0x00f49863      51             push ecx
+│           0x00f49864      d905c03d0101   fld dword [0x1013dc0]
+│           0x00f4986a      d91c24         fstp dword [esp]
+│           0x00f4986d      6820b40201     push str.fAutoDoorActivateDistance ; 0x102b420 ; "fAutoDoorActivateDistance"
+│           0x00f49872      b9c4931c01     mov ecx, 0x11c93c4
+│           0x00f49877      e834484cff     call fcn.0040e0b0
+│           0x00f4987c      6830adfc00     push 0xfcad30
+│           0x00f49881      e809cdf7ff     call fcn.00ec658f
+│           0x00f49886      83c404         add esp, 4
+│           0x00f49889      5d             pop ebp
+└           0x00f4988a      c3             ret
+- offset -  C0C1 C2C3 C4C5 C6C7 C8C9 CACB CCCD CECF  0123456789ABCDEF
+0x01013dc0  0000 9643                                ...C
+SETTING fCharacterControllerMultipleStepSpeed
+┌ 43: fcn.00f38870 ();
+│           0x00f38870      55             push ebp
+│           0x00f38871      8bec           mov ebp, esp
+│           0x00f38873      51             push ecx
+│           0x00f38874      d905e8810101   fld dword [0x10181e8]
+│           0x00f3887a      d91c24         fstp dword [esp]
+│           0x00f3887d      680c830101     push str.fCharacterControllerMultipleStepSpeed ; 0x101830c ; "fCharacterControllerMultipleStepSpeed"
+│           0x00f38882      b9e83c1c01     mov ecx, 0x11c3ce8
+│           0x00f38887      e824584dff     call fcn.0040e0b0
+│           0x00f3888c      685082fc00     push 0xfc8250
+│           0x00f38891      e8f9dcf8ff     call fcn.00ec658f
+│           0x00f38896      83c404         add esp, 4
+│           0x00f38899      5d             pop ebp
+└           0x00f3889a      c3             ret
+- offset -  E8E9 EAEB ECED EEEF F0F1 F2F3 F4F5 F6F7  89ABCDEF01234567
+0x010181e8  0000 c841                                ...A
+SETTING fCharacterDefaultTurningSpeed
+┌ 43: fcn.00f5b730 ();
+│           0x00f5b730      55             push ebp
+│           0x00f5b731      8bec           mov ebp, esp
+│           0x00f5b733      51             push ecx
+│           0x00f5b734      d905d8490201   fld dword [0x10249d8]
+│           0x00f5b73a      d91c24         fstp dword [esp]
+│           0x00f5b73d      68e4050501     push str.fCharacterDefaultTurningSpeed ; 0x10505e4 ; "fCharacterDefaultTurningSpeed"
+│           0x00f5b742      b9fcd01c01     mov ecx, 0x11cd0fc
+│           0x00f5b747      e864294bff     call fcn.0040e0b0
+│           0x00f5b74c      6870cbfc00     push 0xfccb70
+│           0x00f5b751      e839aef6ff     call fcn.00ec658f
+│           0x00f5b756      83c404         add esp, 4
+│           0x00f5b759      5d             pop ebp
+└           0x00f5b75a      c3             ret
+- offset -  D8D9 DADB DCDD DEDF E0E1 E2E3 E4E5 E6E7  89ABCDEF01234567
+0x010249d8  0000 b442                                ...B
+SETTING fCombatAbsoluteMaxRangeMult
+┌ 43: fcn.00f5e530 ();
+│           0x00f5e530      55             push ebp
+│           0x00f5e531      8bec           mov ebp, esp
+│           0x00f5e533      51             push ecx
+│           0x00f5e534      d90588600101   fld dword [0x1016088]
+│           0x00f5e53a      d91c24         fstp dword [esp]
+│           0x00f5e53d      68b8200501     push str.fCombatAbsoluteMaxRangeMult ; 0x10520b8 ; "fCombatAbsoluteMaxRangeMult"
+│           0x00f5e542      b97ce81c01     mov ecx, 0x11ce87c
+│           0x00f5e547      e864fb4aff     call fcn.0040e0b0
+│           0x00f5e54c      68d0d9fc00     push 0xfcd9d0
+│           0x00f5e551      e83980f6ff     call fcn.00ec658f
+│           0x00f5e556      83c404         add esp, 4
+│           0x00f5e559      5d             pop ebp
+└           0x00f5e55a      c3             ret
+- offset -  8889 8A8B 8C8D 8E8F 9091 9293 9495 9697  89ABCDEF01234567
+0x01016088  0000 c03f                                ...?
+SETTING fCombatAvoidThreatsChance
+┌ 43: fcn.00f5dd50 ();
+│           0x00f5dd50      55             push ebp
+│           0x00f5dd51      8bec           mov ebp, esp
+│           0x00f5dd53      51             push ecx
+│           0x00f5dd54      d90548620101   fld dword [0x1016248]
+│           0x00f5dd5a      d91c24         fstp dword [esp]
+│           0x00f5dd5d      684c1b0501     push str.fCombatAvoidThreatsChance ; 0x1051b4c ; "fCombatAvoidThreatsChance"
+│           0x00f5dd62      b954e91c01     mov ecx, 0x11ce954
+│           0x00f5dd67      e844034bff     call fcn.0040e0b0
+│           0x00f5dd6c      6830d7fc00     push 0xfcd730
+│           0x00f5dd71      e81988f6ff     call fcn.00ec658f
+│           0x00f5dd76      83c404         add esp, 4
+│           0x00f5dd79      5d             pop ebp
+└           0x00f5dd7a      c3             ret
+- offset -  4849 4A4B 4C4D 4E4F 5051 5253 5455 5657  89ABCDEF01234567
+0x01016248  0000 003f                                ...?
+SETTING fCombatCoverMaxRangeMult
+┌ 43: fcn.00f5e5c0 ();
+│           0x00f5e5c0      55             push ebp
+│           0x00f5e5c1      8bec           mov ebp, esp
+│           0x00f5e5c3      51             push ecx
+│           0x00f5e5c4      d90588600101   fld dword [0x1016088]
+│           0x00f5e5ca      d91c24         fstp dword [esp]
+│           0x00f5e5cd      6828210501     push str.fCombatCoverMaxRangeMult ; 0x1052128 ; "fCombatCoverMaxRangeMult"
+│           0x00f5e5d2      b9f0e31c01     mov ecx, 0x11ce3f0
+│           0x00f5e5d7      e8d4fa4aff     call fcn.0040e0b0
+│           0x00f5e5dc      6800dafc00     push 0xfcda00
+│           0x00f5e5e1      e8a97ff6ff     call fcn.00ec658f
+│           0x00f5e5e6      83c404         add esp, 4
+│           0x00f5e5e9      5d             pop ebp
+└           0x00f5e5ea      c3             ret
+- offset -  8889 8A8B 8C8D 8E8F 9091 9293 9495 9697  89ABCDEF01234567
+0x01016088  0000 c03f                                ...?
+SETTING fCombatDetectionDialogueIdleMaxElapsedTime
+┌ 43: fcn.00f5f5e0 ();
+│           0x00f5f5e0      55             push ebp
+│           0x00f5f5e1      8bec           mov ebp, esp
+│           0x00f5f5e3      51             push ecx
+│           0x00f5f5e4      d905787b0101   fld dword [0x1017b78]
+│           0x00f5f5ea      d91c24         fstp dword [esp]
+│           0x00f5f5ed      68682c0501     push str.fCombatDetectionDialogueIdleMaxElapsedTime ; 0x1052c68 ; "fCombatDetectionDialogueIdleMaxElapsedTime"
+│           0x00f5f5f2      b95ce31c01     mov ecx, 0x11ce35c
+│           0x00f5f5f7      e8b4ea4aff     call fcn.0040e0b0
+│           0x00f5f5fc      6860dffc00     push 0xfcdf60
+│           0x00f5f601      e8896ff6ff     call fcn.00ec658f
+│           0x00f5f606      83c404         add esp, 4
+│           0x00f5f609      5d             pop ebp
+└           0x00f5f60a      c3             ret
+- offset -  7879 7A7B 7C7D 7E7F 8081 8283 8485 8687  89ABCDEF01234567
+0x01017b78  0000 2041                                .. A
+SETTING fCombatDetectionDialogueMaxElapsedTime
+┌ 43: fcn.00f5f580 ();
+│           0x00f5f580      55             push ebp
+│           0x00f5f581      8bec           mov ebp, esp
+│           0x00f5f583      51             push ecx
+│           0x00f5f584      d90518770101   fld dword [0x1017718]
+│           0x00f5f58a      d91c24         fstp dword [esp]
+│           0x00f5f58d      68142c0501     push str.fCombatDetectionDialogueMaxElapsedTime ; 0x1052c14 ; "fCombatDetectionDialogueMaxElapsedTime"
+│           0x00f5f592      b94cfa1c01     mov ecx, 0x11cfa4c
+│           0x00f5f597      e814eb4aff     call fcn.0040e0b0
+│           0x00f5f59c      6840dffc00     push 0xfcdf40
+│           0x00f5f5a1      e8e96ff6ff     call fcn.00ec658f
+│           0x00f5f5a6      83c404         add esp, 4
+│           0x00f5f5a9      5d             pop ebp
+└           0x00f5f5aa      c3             ret
+- offset -  1819 1A1B 1C1D 1E1F 2021 2223 2425 2627  89ABCDEF01234567
+0x01017718  0000 4040                                ..@@
+SETTING fCombatDistance
+┌ 43: fcn.00f61650 ();
+│           0x00f61650      55             push ebp
+│           0x00f61651      8bec           mov ebp, esp
+│           0x00f61653      51             push ecx
+│           0x00f61654      d90504e70101   fld dword [0x101e704]
+│           0x00f6165a      d91c24         fstp dword [esp]
+│           0x00f6165d      682c3e0501     push str.fCombatDistance    ; 0x1053e2c ; "fCombatDistance"
+│           0x00f61662      b94cf81c01     mov ecx, 0x11cf84c
+│           0x00f61667      e844ca4aff     call fcn.0040e0b0
+│           0x00f6166c      6830eafc00     push 0xfcea30
+│           0x00f61671      e8194ff6ff     call fcn.00ec658f
+│           0x00f61676      83c404         add esp, 4
+│           0x00f61679      5d             pop ebp
+└           0x00f6167a      c3             ret
+- offset -   4 5  6 7  8 9  A B  C D  E F 1011 1213  456789ABCDEF0123
+0x0101e704  0000 0043                                ...C
+SETTING fCombatFiringArcStationaryTurnMult
+┌ 43: fcn.00f5ebc0 ();
+│           0x00f5ebc0      55             push ebp
+│           0x00f5ebc1      8bec           mov ebp, esp
+│           0x00f5ebc3      51             push ecx
+│           0x00f5ebc4      d90564620101   fld dword [0x1016264]
+│           0x00f5ebca      d91c24         fstp dword [esp]
+│           0x00f5ebcd      6814250501     push str.fCombatFiringArcStationaryTurnMult ; 0x1052514 ; "fCombatFiringArcStationaryTurnMult"
+│           0x00f5ebd2      b984fb1c01     mov ecx, 0x11cfb84
+│           0x00f5ebd7      e8d4f44aff     call fcn.0040e0b0
+│           0x00f5ebdc      6800dcfc00     push 0xfcdc00
+│           0x00f5ebe1      e8a979f6ff     call fcn.00ec658f
+│           0x00f5ebe6      83c404         add esp, 4
+│           0x00f5ebe9      5d             pop ebp
+└           0x00f5ebea      c3             ret
+- offset -  6465 6667 6869 6A6B 6C6D 6E6F 7071 7273  456789ABCDEF0123
+0x01016264  0000 403f                                ..@?
+SETTING fCombatFleeMaxCoverDistance
+┌ 43: fcn.00f5ed70 ();
+│           0x00f5ed70      55             push ebp
+│           0x00f5ed71      8bec           mov ebp, esp
+│           0x00f5ed73      51             push ecx
+│           0x00f5ed74      d905387a0101   fld dword [0x1017a38]
+│           0x00f5ed7a      d91c24         fstp dword [esp]
+│           0x00f5ed7d      681c260501     push str.fCombatFleeMaxCoverDistance ; 0x105261c ; "fCombatFleeMaxCoverDistance"
+│           0x00f5ed82      b9d4f81c01     mov ecx, 0x11cf8d4
+│           0x00f5ed87      e824f34aff     call fcn.0040e0b0
+│           0x00f5ed8c      6890dcfc00     push 0xfcdc90
+│           0x00f5ed91      e8f977f6ff     call fcn.00ec658f
+│           0x00f5ed96      83c404         add esp, 4
+│           0x00f5ed99      5d             pop ebp
+└           0x00f5ed9a      c3             ret
+- offset -  3839 3A3B 3C3D 3E3F 4041 4243 4445 4647  89ABCDEF01234567
+0x01017a38  0000 4045                                ..@E
+SETTING fCombatFleeMinCoverDistance
+┌ 43: fcn.00f5ed40 ();
+│           0x00f5ed40      55             push ebp
+│           0x00f5ed41      8bec           mov ebp, esp
+│           0x00f5ed43      51             push ecx
+│           0x00f5ed44      d905c4250501   fld dword [0x10525c4]
+│           0x00f5ed4a      d91c24         fstp dword [esp]
+│           0x00f5ed4d      6800260501     push str.fCombatFleeMinCoverDistance ; 0x1052600 ; "fCombatFleeMinCoverDistance"
+│           0x00f5ed52      b934ed1c01     mov ecx, 0x11ced34
+│           0x00f5ed57      e854f34aff     call fcn.0040e0b0
+│           0x00f5ed5c      6880dcfc00     push 0xfcdc80
+│           0x00f5ed61      e82978f6ff     call fcn.00ec658f
+│           0x00f5ed66      83c404         add esp, 4
+│           0x00f5ed69      5d             pop ebp
+└           0x00f5ed6a      c3             ret
+- offset -  C4C5 C6C7 C8C9 CACB CCCD CECF D0D1 D2D3  456789ABCDEF0123
+0x010525c4  0000 c044                                ...D
+SETTING fCombatFleeNormalDistance
+┌ 43: fcn.00f5eda0 ();
+│           0x00f5eda0      55             push ebp
+│           0x00f5eda1      8bec           mov ebp, esp
+│           0x00f5eda3      51             push ecx
+│           0x00f5eda4      d905fc8b0101   fld dword [0x1018bfc]
+│           0x00f5edaa      d91c24         fstp dword [esp]
+│           0x00f5edad      6838260501     push str.fCombatFleeNormalDistance ; 0x1052638 ; "fCombatFleeNormalDistance"
+│           0x00f5edb2      b980ea1c01     mov ecx, 0x11cea80
+│           0x00f5edb7      e8f4f24aff     call fcn.0040e0b0
+│           0x00f5edbc      68a0dcfc00     push 0xfcdca0
+│           0x00f5edc1      e8c977f6ff     call fcn.00ec658f
+│           0x00f5edc6      83c404         add esp, 4
+│           0x00f5edc9      5d             pop ebp
+└           0x00f5edca      c3             ret
+- offset -  FCFD FEFF  0 1  2 3  4 5  6 7  8 9  A B  CDEF0123456789AB
+0x01018bfc  0000 0045                                ...E
+SETTING fCombatGiantCreatureReachMult
+┌ 43: fcn.00f635d0 ();
+│           0x00f635d0      55             push ebp
+│           0x00f635d1      8bec           mov ebp, esp
+│           0x00f635d3      51             push ecx
+│           0x00f635d4      d905c0620101   fld dword [0x10162c0]
+│           0x00f635da      d91c24         fstp dword [esp]
+│           0x00f635dd      68a84f0501     push str.fCombatGiantCreatureReachMult ; 0x1054fa8 ; "fCombatGiantCreatureReachMult"
+│           0x00f635e2      b984e41c01     mov ecx, 0x11ce484
+│           0x00f635e7      e8c4aa4aff     call fcn.0040e0b0
+│           0x00f635ec      68b0f4fc00     push 0xfcf4b0
+│           0x00f635f1      e8992ff6ff     call fcn.00ec658f
+│           0x00f635f6      83c404         add esp, 4
+│           0x00f635f9      5d             pop ebp
+└           0x00f635fa      c3             ret
+- offset -  C0C1 C2C3 C4C5 C6C7 C8C9 CACB CCCD CECF  0123456789ABCDEF
+0x010162c0  0000 0040                                ...@
+SETTING fCombatGroupCombatStrengthUpdateTime
+┌ 43: fcn.00f5fa90 ();
+│           0x00f5fa90      55             push ebp
+│           0x00f5fa91      8bec           mov ebp, esp
+│           0x00f5fa93      51             push ecx
+│           0x00f5fa94      d905c0620101   fld dword [0x10162c0]
+│           0x00f5fa9a      d91c24         fstp dword [esp]
+│           0x00f5fa9d      68a42f0501     push str.fCombatGroupCombatStrengthUpdateTime ; 0x1052fa4 ; "fCombatGroupCombatStrengthUpdateTime"
+│           0x00f5faa2      b984fe1c01     mov ecx, 0x11cfe84
+│           0x00f5faa7      e804e64aff     call fcn.0040e0b0
+│           0x00f5faac      68f0e0fc00     push 0xfce0f0
+│           0x00f5fab1      e8d96af6ff     call fcn.00ec658f
+│           0x00f5fab6      83c404         add esp, 4
+│           0x00f5fab9      5d             pop ebp
+└           0x00f5faba      c3             ret
+- offset -  C0C1 C2C3 C4C5 C6C7 C8C9 CACB CCCD CECF  0123456789ABCDEF
+0x010162c0  0000 0040                                ...@
+SETTING fCombatHitConeAngle
+┌ 43: fcn.00f61680 ();
+│           0x00f61680      55             push ebp
+│           0x00f61681      8bec           mov ebp, esp
+│           0x00f61683      51             push ecx
+│           0x00f61684      d90540ef0401   fld dword [0x104ef40]
+│           0x00f6168a      d91c24         fstp dword [esp]
+│           0x00f6168d      683c3e0501     push str.fCombatHitConeAngle ; 0x1053e3c ; "fCombatHitConeAngle"
+│           0x00f61692      b958fa1c01     mov ecx, 0x11cfa58
+│           0x00f61697      e814ca4aff     call fcn.0040e0b0
+│           0x00f6169c      6840eafc00     push 0xfcea40
+│           0x00f616a1      e8e94ef6ff     call fcn.00ec658f
+│           0x00f616a6      83c404         add esp, 4
+│           0x00f616a9      5d             pop ebp
+└           0x00f616aa      c3             ret
+- offset -  4041 4243 4445 4647 4849 4A4B 4C4D 4E4F  0123456789ABCDEF
+0x0104ef40  0000 0c42                                ...B
+SETTING fCombatInventoryUpdateTimer
+┌ 43: fcn.00f5eb90 ();
+│           0x00f5eb90      55             push ebp
+│           0x00f5eb91      8bec           mov ebp, esp
+│           0x00f5eb93      51             push ecx
+│           0x00f5eb94      d9052c710101   fld dword [0x101712c]
+│           0x00f5eb9a      d91c24         fstp dword [esp]
+│           0x00f5eb9d      68f8240501     push str.fCombatInventoryUpdateTimer ; 0x10524f8 ; "fCombatInventoryUpdateTimer"
+│           0x00f5eba2      b960f61c01     mov ecx, 0x11cf660
+│           0x00f5eba7      e804f54aff     call fcn.0040e0b0
+│           0x00f5ebac      68f0dbfc00     push 0xfcdbf0
+│           0x00f5ebb1      e8d979f6ff     call fcn.00ec658f
+│           0x00f5ebb6      83c404         add esp, 4
+│           0x00f5ebb9      5d             pop ebp
+└           0x00f5ebba      c3             ret
+- offset -  2C2D 2E2F 3031 3233 3435 3637 3839 3A3B  CDEF0123456789AB
+0x0101712c  0000 a040                                ...@
+SETTING fCombatIronSightsDistance
+┌ 43: fcn.00f5e320 ();
+│           0x00f5e320      55             push ebp
+│           0x00f5e321      8bec           mov ebp, esp
+│           0x00f5e323      51             push ecx
+│           0x00f5e324      d905a0310201   fld dword [0x10231a0]
+│           0x00f5e32a      d91c24         fstp dword [esp]
+│           0x00f5e32d      68541f0501     push str.fCombatIronSightsDistance ; 0x1051f54 ; "fCombatIronSightsDistance"
+│           0x00f5e332      b9f8eb1c01     mov ecx, 0x11cebf8
+│           0x00f5e337      e874fd4aff     call fcn.0040e0b0
+│           0x00f5e33c      6820d9fc00     push 0xfcd920
+│           0x00f5e341      e84982f6ff     call fcn.00ec658f
+│           0x00f5e346      83c404         add esp, 4
+│           0x00f5e349      5d             pop ebp
+└           0x00f5e34a      c3             ret
+- offset -  A0A1 A2A3 A4A5 A6A7 A8A9 AAAB ACAD AEAF  0123456789ABCDEF
+0x010231a0  0000 0044                                ...D
+SETTING fCombatIronSightsRangeMult
+┌ 43: fcn.00f5e350 ();
+│           0x00f5e350      55             push ebp
+│           0x00f5e351      8bec           mov ebp, esp
+│           0x00f5e353      51             push ecx
+│           0x00f5e354      d9052c710101   fld dword [0x101712c]
+│           0x00f5e35a      d91c24         fstp dword [esp]
+│           0x00f5e35d      68701f0501     push str.fCombatIronSightsRangeMult ; 0x1051f70 ; "fCombatIronSightsRangeMult"
+│           0x00f5e362      b9f4e51c01     mov ecx, 0x11ce5f4
+│           0x00f5e367      e844fd4aff     call fcn.0040e0b0
+│           0x00f5e36c      6830d9fc00     push 0xfcd930
+│           0x00f5e371      e81982f6ff     call fcn.00ec658f
+│           0x00f5e376      83c404         add esp, 4
+│           0x00f5e379      5d             pop ebp
+└           0x00f5e37a      c3             ret
+- offset -  2C2D 2E2F 3031 3233 3435 3637 3839 3A3B  CDEF0123456789AB
+0x0101712c  0000 a040                                ...@
+SETTING fCombatItemBuffTimer
+┌ 43: fcn.00f5eb60 ();
+│           0x00f5eb60      55             push ebp
+│           0x00f5eb61      8bec           mov ebp, esp
+│           0x00f5eb63      51             push ecx
+│           0x00f5eb64      d90520240201   fld dword [0x1022420]
+│           0x00f5eb6a      d91c24         fstp dword [esp]
+│           0x00f5eb6d      68e0240501     push str.fCombatItemBuffTimer ; 0x10524e0 ; "fCombatItemBuffTimer"
+│           0x00f5eb72      b980f41c01     mov ecx, 0x11cf480
+│           0x00f5eb77      e834f54aff     call fcn.0040e0b0
+│           0x00f5eb7c      68e0dbfc00     push 0xfcdbe0
+│           0x00f5eb81      e8097af6ff     call fcn.00ec658f
+│           0x00f5eb86      83c404         add esp, 4
+│           0x00f5eb89      5d             pop ebp
+└           0x00f5eb8a      c3             ret
+- offset -  2021 2223 2425 2627 2829 2A2B 2C2D 2E2F  0123456789ABCDEF
+0x01022420  0000 3442                                ..4B
+SETTING fCombatItemRestoreTimer
+┌ 43: fcn.00f5eb30 ();
+│           0x00f5eb30      55             push ebp
+│           0x00f5eb31      8bec           mov ebp, esp
+│           0x00f5eb33      51             push ecx
+│           0x00f5eb34      d9055c8f0101   fld dword [0x1018f5c]
+│           0x00f5eb3a      d91c24         fstp dword [esp]
+│           0x00f5eb3d      68c8240501     push str.fCombatItemRestoreTimer ; 0x10524c8 ; "fCombatItemRestoreTimer"
+│           0x00f5eb42      b9d8fd1c01     mov ecx, 0x11cfdd8
+│           0x00f5eb47      e864f54aff     call fcn.0040e0b0
+│           0x00f5eb4c      68d0dbfc00     push 0xfcdbd0
+│           0x00f5eb51      e8397af6ff     call fcn.00ec658f
+│           0x00f5eb56      83c404         add esp, 4
+│           0x00f5eb59      5d             pop ebp
+└           0x00f5eb5a      c3             ret
+- offset -  5C5D 5E5F 6061 6263 6465 6667 6869 6A6B  CDEF0123456789AB
+0x01018f5c  0000 f041                                ...A
+SETTING fCombatLineOfSightTimer
+┌ 43: fcn.00f63660 ();
+│           0x00f63660      55             push ebp
+│           0x00f63661      8bec           mov ebp, esp
+│           0x00f63663      51             push ecx
+│           0x00f63664      d9052c620101   fld dword [0x101622c]
+│           0x00f6366a      d91c24         fstp dword [esp]
+│           0x00f6366d      6808500501     push str.fCombatLineOfSightTimer ; 0x1055008 ; "fCombatLineOfSightTimer"
+│           0x00f63672      b950f41c01     mov ecx, 0x11cf450
+│           0x00f63677      e834aa4aff     call fcn.0040e0b0
+│           0x00f6367c      68e0f4fc00     push 0xfcf4e0
+│           0x00f63681      e8092ff6ff     call fcn.00ec658f
+│           0x00f63686      83c404         add esp, 4
+│           0x00f63689      5d             pop ebp
+└           0x00f6368a      c3             ret
+- offset -  2C2D 2E2F 3031 3233 3435 3637 3839 3A3B  CDEF0123456789AB
+0x0101622c  0000 803e                                ...>
+SETTING fCombatLowFleeingTargetHitPercent
+┌ 43: fcn.00f5fb50 ();
+│           0x00f5fb50      55             push ebp
+│           0x00f5fb51      8bec           mov ebp, esp
+│           0x00f5fb53      51             push ecx
+│           0x00f5fb54      d9052c620101   fld dword [0x101622c]
+│           0x00f5fb5a      d91c24         fstp dword [esp]
+│           0x00f5fb5d      6828300501     push str.fCombatLowFleeingTargetHitPercent ; 0x1053028 ; "fCombatLowFleeingTargetHitPercent"
+│           0x00f5fb62      b930e21c01     mov ecx, 0x11ce230
+│           0x00f5fb67      e844e54aff     call fcn.0040e0b0
+│           0x00f5fb6c      6830e1fc00     push 0xfce130
+│           0x00f5fb71      e8196af6ff     call fcn.00ec658f
+│           0x00f5fb76      83c404         add esp, 4
+│           0x00f5fb79      5d             pop ebp
+└           0x00f5fb7a      c3             ret
+- offset -  2C2D 2E2F 3031 3233 3435 3637 3839 3A3B  CDEF0123456789AB
+0x0101622c  0000 803e                                ...>
+SETTING fCombatLowTargetHitPercent
+┌ 43: fcn.00f5fb20 ();
+│           0x00f5fb20      55             push ebp
+│           0x00f5fb21      8bec           mov ebp, esp
+│           0x00f5fb23      51             push ecx
+│           0x00f5fb24      d90548620101   fld dword [0x1016248]
+│           0x00f5fb2a      d91c24         fstp dword [esp]
+│           0x00f5fb2d      680c300501     push str.fCombatLowTargetHitPercent ; 0x105300c ; "fCombatLowTargetHitPercent"
+│           0x00f5fb32      b9b4fb1c01     mov ecx, 0x11cfbb4
+│           0x00f5fb37      e874e54aff     call fcn.0040e0b0
+│           0x00f5fb3c      6820e1fc00     push 0xfce120
+│           0x00f5fb41      e8496af6ff     call fcn.00ec658f
+│           0x00f5fb46      83c404         add esp, 4
+│           0x00f5fb49      5d             pop ebp
+└           0x00f5fb4a      c3             ret
+- offset -  4849 4A4B 4C4D 4E4F 5051 5253 5455 5657  89ABCDEF01234567
+0x01016248  0000 003f                                ...?
+SETTING fCombatMinEngageDistance
+┌ 43: fcn.00f61620 ();
+│           0x00f61620      55             push ebp
+│           0x00f61621      8bec           mov ebp, esp
+│           0x00f61623      51             push ecx
+│           0x00f61624      d905ece60101   fld dword [0x101e6ec]
+│           0x00f6162a      d91c24         fstp dword [esp]
+│           0x00f6162d      68103e0501     push str.fCombatMinEngageDistance ; 0x1053e10 ; "fCombatMinEngageDistance"
+│           0x00f61632      b998eb1c01     mov ecx, 0x11ceb98
+│           0x00f61637      e874ca4aff     call fcn.0040e0b0
+│           0x00f6163c      6820eafc00     push 0xfcea20
+│           0x00f61641      e8494ff6ff     call fcn.00ec658f
+│           0x00f61646      83c404         add esp, 4
+│           0x00f61649      5d             pop ebp
+└           0x00f6164a      c3             ret
+- offset -  ECED EEEF F0F1 F2F3 F4F5 F6F7 F8F9 FAFB  CDEF0123456789AB
+0x0101e6ec  0000 8042                                ...B
+SETTING fCombatPathingLookAheadDelta
+┌ 43: fcn.00f5e650 ();
+│           0x00f5e650      55             push ebp
+│           0x00f5e651      8bec           mov ebp, esp
+│           0x00f5e653      51             push ecx
+│           0x00f5e654      d90548620101   fld dword [0x1016248]
+│           0x00f5e65a      d91c24         fstp dword [esp]
+│           0x00f5e65d      687c210501     push str.fCombatPathingLookAheadDelta ; 0x105217c ; "fCombatPathingLookAheadDelta"
+│           0x00f5e662      b9fce31c01     mov ecx, 0x11ce3fc
+│           0x00f5e667      e844fa4aff     call fcn.0040e0b0
+│           0x00f5e66c      6830dafc00     push 0xfcda30
+│           0x00f5e671      e8197ff6ff     call fcn.00ec658f
+│           0x00f5e676      83c404         add esp, 4
+│           0x00f5e679      5d             pop ebp
+└           0x00f5e67a      c3             ret
+- offset -  4849 4A4B 4C4D 4E4F 5051 5253 5455 5657  89ABCDEF01234567
+0x01016248  0000 003f                                ...?
+SETTING fCombatProjectileMaxRangeOptimalMult
+┌ 43: fcn.00f5e590 ();
+│           0x00f5e590      55             push ebp
+│           0x00f5e591      8bec           mov ebp, esp
+│           0x00f5e593      51             push ecx
+│           0x00f5e594      d905e09d0101   fld dword [0x1019de0]
+│           0x00f5e59a      d91c24         fstp dword [esp]
+│           0x00f5e59d      6800210501     push str.fCombatProjectileMaxRangeOptimalMult ; 0x1052100 ; "fCombatProjectileMaxRangeOptimalMult"
+│           0x00f5e5a2      b9b0ea1c01     mov ecx, 0x11ceab0
+│           0x00f5e5a7      e804fb4aff     call fcn.0040e0b0
+│           0x00f5e5ac      68f0d9fc00     push 0xfcd9f0
+│           0x00f5e5b1      e8d97ff6ff     call fcn.00ec658f
+│           0x00f5e5b6      83c404         add esp, 4
+│           0x00f5e5b9      5d             pop ebp
+└           0x00f5e5ba      c3             ret
+- offset -  E0E1 E2E3 E4E5 E6E7 E8E9 EAEB ECED EEEF  0123456789ABCDEF
+0x01019de0  9a99 593f                                ..Y?
+SETTING fCombatSearchAreaUpdateTime
+┌ 43: fcn.00f5ef80 ();
+│           0x00f5ef80      55             push ebp
+│           0x00f5ef81      8bec           mov ebp, esp
+│           0x00f5ef83      51             push ecx
+│           0x00f5ef84      d9052c710101   fld dword [0x101712c]
+│           0x00f5ef8a      d91c24         fstp dword [esp]
+│           0x00f5ef8d      687c270501     push str.fCombatSearchAreaUpdateTime ; 0x105277c ; "fCombatSearchAreaUpdateTime"
+│           0x00f5ef92      b970f81c01     mov ecx, 0x11cf870
+│           0x00f5ef97      e814f14aff     call fcn.0040e0b0
+│           0x00f5ef9c      6840ddfc00     push 0xfcdd40
+│           0x00f5efa1      e8e975f6ff     call fcn.00ec658f
+│           0x00f5efa6      83c404         add esp, 4
+│           0x00f5efa9      5d             pop ebp
+└           0x00f5efaa      c3             ret
+- offset -  2C2D 2E2F 3031 3233 3435 3637 3839 3A3B  CDEF0123456789AB
+0x0101712c  0000 a040                                ...@
+SETTING fCombatSearchBufferDistance
+┌ 43: fcn.00f5f100 ();
+│           0x00f5f100      55             push ebp
+│           0x00f5f101      8bec           mov ebp, esp
+│           0x00f5f103      51             push ecx
+│           0x00f5f104      d905dc2a0301   fld dword [0x1032adc]
+│           0x00f5f10a      d91c24         fstp dword [esp]
+│           0x00f5f10d      687c280501     push str.fCombatSearchBufferDistance ; 0x105287c ; "fCombatSearchBufferDistance"
+│           0x00f5f112      b9b0e71c01     mov ecx, 0x11ce7b0
+│           0x00f5f117      e894ef4aff     call fcn.0040e0b0
+│           0x00f5f11c      68c0ddfc00     push 0xfcddc0
+│           0x00f5f121      e86974f6ff     call fcn.00ec658f
+│           0x00f5f126      83c404         add esp, 4
+│           0x00f5f129      5d             pop ebp
+└           0x00f5f12a      c3             ret
+- offset -  DCDD DEDF E0E1 E2E3 E4E5 E6E7 E8E9 EAEB  CDEF0123456789AB
+0x01032adc  0000 8043                                ...C
+SETTING fCombatSearchCheckDestinationMaxDistance
+┌ 43: fcn.00f5f1c0 ();
+│           0x00f5f1c0      55             push ebp
+│           0x00f5f1c1      8bec           mov ebp, esp
+│           0x00f5f1c3      51             push ecx
+│           0x00f5f1c4      d905a0310201   fld dword [0x10231a0]
+│           0x00f5f1ca      d91c24         fstp dword [esp]
+│           0x00f5f1cd      68f8280501     push str.fCombatSearchCheckDestinationMaxDistance ; 0x10528f8 ; "fCombatSearchCheckDestinationMaxDistance"
+│           0x00f5f1d2      b9c0f31c01     mov ecx, 0x11cf3c0
+│           0x00f5f1d7      e8d4ee4aff     call fcn.0040e0b0
+│           0x00f5f1dc      6800defc00     push 0xfcde00
+│           0x00f5f1e1      e8a973f6ff     call fcn.00ec658f
+│           0x00f5f1e6      83c404         add esp, 4
+│           0x00f5f1e9      5d             pop ebp
+└           0x00f5f1ea      c3             ret
+- offset -  A0A1 A2A3 A4A5 A6A7 A8A9 AAAB ACAD AEAF  0123456789ABCDEF
+0x010231a0  0000 0044                                ...D
+SETTING fCombatSearchCheckInvestigateMaxDistance
+┌ 43: fcn.00f5f280 ();
+│           0x00f5f280      55             push ebp
+│           0x00f5f281      8bec           mov ebp, esp
+│           0x00f5f283      51             push ecx
+│           0x00f5f284      d905a0310201   fld dword [0x10231a0]
+│           0x00f5f28a      d91c24         fstp dword [esp]
+│           0x00f5f28d      68a0290501     push str.fCombatSearchCheckInvestigateMaxDistance ; 0x10529a0 ; "fCombatSearchCheckInvestigateMaxDistance"
+│           0x00f5f292      b9a0f21c01     mov ecx, 0x11cf2a0
+│           0x00f5f297      e814ee4aff     call fcn.0040e0b0
+│           0x00f5f29c      6840defc00     push 0xfcde40
+│           0x00f5f2a1      e8e972f6ff     call fcn.00ec658f
+│           0x00f5f2a6      83c404         add esp, 4
+│           0x00f5f2a9      5d             pop ebp
+└           0x00f5f2aa      c3             ret
+- offset -  A0A1 A2A3 A4A5 A6A7 A8A9 AAAB ACAD AEAF  0123456789ABCDEF
+0x010231a0  0000 0044                                ...D
+SETTING fCombatSearchExteriorMaxRadius
+┌ 43: fcn.00f5f040 ();
+│           0x00f5f040      55             push ebp
+│           0x00f5f041      8bec           mov ebp, esp
+│           0x00f5f043      51             push ecx
+│           0x00f5f044      d9053c7a0101   fld dword [0x1017a3c]
+│           0x00f5f04a      d91c24         fstp dword [esp]
+│           0x00f5f04d      68f8270501     push str.fCombatSearchExteriorMaxRadius ; 0x10527f8 ; "fCombatSearchExteriorMaxRadius"
+│           0x00f5f052      b9cce01c01     mov ecx, 0x11ce0cc
+│           0x00f5f057      e854f04aff     call fcn.0040e0b0
+│           0x00f5f05c      6880ddfc00     push 0xfcdd80
+│           0x00f5f061      e82975f6ff     call fcn.00ec658f
+│           0x00f5f066      83c404         add esp, 4
+│           0x00f5f069      5d             pop ebp
+└           0x00f5f06a      c3             ret
+- offset -  3C3D 3E3F 4041 4243 4445 4647 4849 4A4B  CDEF0123456789AB
+0x01017a3c  0000 8045                                ...E
+SETTING fCombatSearchExteriorMediumRadius
+┌ 43: fcn.00f5f010 ();
+│           0x00f5f010      55             push ebp
+│           0x00f5f011      8bec           mov ebp, esp
+│           0x00f5f013      51             push ecx
+│           0x00f5f014      d905fc8b0101   fld dword [0x1018bfc]
+│           0x00f5f01a      d91c24         fstp dword [esp]
+│           0x00f5f01d      68d4270501     push str.fCombatSearchExteriorMediumRadius ; 0x10527d4 ; "fCombatSearchExteriorMediumRadius"
+│           0x00f5f022      b930e91c01     mov ecx, 0x11ce930
+│           0x00f5f027      e884f04aff     call fcn.0040e0b0
+│           0x00f5f02c      6870ddfc00     push 0xfcdd70
+│           0x00f5f031      e85975f6ff     call fcn.00ec658f
+│           0x00f5f036      83c404         add esp, 4
+│           0x00f5f039      5d             pop ebp
+└           0x00f5f03a      c3             ret
+- offset -  FCFD FEFF  0 1  2 3  4 5  6 7  8 9  A B  CDEF0123456789AB
+0x01018bfc  0000 0045                                ...E
+SETTING fCombatSearchExteriorMinRadius
+┌ 43: fcn.00f5efe0 ();
+│           0x00f5efe0      55             push ebp
+│           0x00f5efe1      8bec           mov ebp, esp
+│           0x00f5efe3      51             push ecx
+│           0x00f5efe4      d905e0360201   fld dword [0x10236e0]
+│           0x00f5efea      d91c24         fstp dword [esp]
+│           0x00f5efed      68b4270501     push str.fCombatSearchExteriorMinRadius ; 0x10527b4 ; "fCombatSearchExteriorMinRadius"
+│           0x00f5eff2      b9bcef1c01     mov ecx, 0x11cefbc
+│           0x00f5eff7      e8b4f04aff     call fcn.0040e0b0
+│           0x00f5effc      6860ddfc00     push 0xfcdd60
+│           0x00f5f001      e88975f6ff     call fcn.00ec658f
+│           0x00f5f006      83c404         add esp, 4
+│           0x00f5f009      5d             pop ebp
+└           0x00f5f00a      c3             ret
+- offset -  E0E1 E2E3 E4E5 E6E7 E8E9 EAEB ECED EEEF  0123456789ABCDEF
+0x010236e0  0000 8044                                ...D
+SETTING fCombatSearchInteriorMaxRadius
+┌ 43: fcn.00f5f0d0 ();
+│           0x00f5f0d0      55             push ebp
+│           0x00f5f0d1      8bec           mov ebp, esp
+│           0x00f5f0d3      51             push ecx
+│           0x00f5f0d4      d905fc8b0101   fld dword [0x1018bfc]
+│           0x00f5f0da      d91c24         fstp dword [esp]
+│           0x00f5f0dd      685c280501     push str.fCombatSearchInteriorMaxRadius ; 0x105285c ; "fCombatSearchInteriorMaxRadius"
+│           0x00f5f0e2      b9f4f61c01     mov ecx, 0x11cf6f4
+│           0x00f5f0e7      e8c4ef4aff     call fcn.0040e0b0
+│           0x00f5f0ec      68b0ddfc00     push 0xfcddb0
+│           0x00f5f0f1      e89974f6ff     call fcn.00ec658f
+│           0x00f5f0f6      83c404         add esp, 4
+│           0x00f5f0f9      5d             pop ebp
+└           0x00f5f0fa      c3             ret
+- offset -  FCFD FEFF  0 1  2 3  4 5  6 7  8 9  A B  CDEF0123456789AB
+0x01018bfc  0000 0045                                ...E
+SETTING fCombatSearchInteriorMediumRadius
+┌ 43: fcn.00f5f0a0 ();
+│           0x00f5f0a0      55             push ebp
+│           0x00f5f0a1      8bec           mov ebp, esp
+│           0x00f5f0a3      51             push ecx
+│           0x00f5f0a4      d905e0360201   fld dword [0x10236e0]
+│           0x00f5f0aa      d91c24         fstp dword [esp]
+│           0x00f5f0ad      6838280501     push str.fCombatSearchInteriorMediumRadius ; 0x1052838 ; "fCombatSearchInteriorMediumRadius"
+│           0x00f5f0b2      b9e4ee1c01     mov ecx, 0x11ceee4
+│           0x00f5f0b7      e8f4ef4aff     call fcn.0040e0b0
+│           0x00f5f0bc      68a0ddfc00     push 0xfcdda0
+│           0x00f5f0c1      e8c974f6ff     call fcn.00ec658f
+│           0x00f5f0c6      83c404         add esp, 4
+│           0x00f5f0c9      5d             pop ebp
+└           0x00f5f0ca      c3             ret
+- offset -  E0E1 E2E3 E4E5 E6E7 E8E9 EAEB ECED EEEF  0123456789ABCDEF
+0x010236e0  0000 8044                                ...D
+SETTING fCombatSearchInteriorMinRadius
+┌ 43: fcn.00f5f070 ();
+│           0x00f5f070      55             push ebp
+│           0x00f5f071      8bec           mov ebp, esp
+│           0x00f5f073      51             push ecx
+│           0x00f5f074      d905a0310201   fld dword [0x10231a0]
+│           0x00f5f07a      d91c24         fstp dword [esp]
+│           0x00f5f07d      6818280501     push str.fCombatSearchInteriorMinRadius ; 0x1052818 ; "fCombatSearchInteriorMinRadius"
+│           0x00f5f082      b980f11c01     mov ecx, 0x11cf180
+│           0x00f5f087      e824f04aff     call fcn.0040e0b0
+│           0x00f5f08c      6890ddfc00     push 0xfcdd90
+│           0x00f5f091      e8f974f6ff     call fcn.00ec658f
+│           0x00f5f096      83c404         add esp, 4
+│           0x00f5f099      5d             pop ebp
+└           0x00f5f09a      c3             ret
+- offset -  A0A1 A2A3 A4A5 A6A7 A8A9 AAAB ACAD AEAF  0123456789ABCDEF
+0x010231a0  0000 0044                                ...D
+SETTING fCombatSearchSightRadius
+┌ 43: fcn.00f5efb0 ();
+│           0x00f5efb0      55             push ebp
+│           0x00f5efb1      8bec           mov ebp, esp
+│           0x00f5efb3      51             push ecx
+│           0x00f5efb4      d905c4250501   fld dword [0x10525c4]
+│           0x00f5efba      d91c24         fstp dword [esp]
+│           0x00f5efbd      6898270501     push str.fCombatSearchSightRadius ; 0x1052798 ; "fCombatSearchSightRadius"
+│           0x00f5efc2      b92cf41c01     mov ecx, 0x11cf42c
+│           0x00f5efc7      e8e4f04aff     call fcn.0040e0b0
+│           0x00f5efcc      6850ddfc00     push 0xfcdd50
+│           0x00f5efd1      e8b975f6ff     call fcn.00ec658f
+│           0x00f5efd6      83c404         add esp, 4
+│           0x00f5efd9      5d             pop ebp
+└           0x00f5efda      c3             ret
+- offset -  C4C5 C6C7 C8C9 CACB CCCD CECF D0D1 D2D3  456789ABCDEF0123
+0x010525c4  0000 c044                                ...D
+SETTING fCombatSearchTargetHiddenMaxTime
+┌ 43: fcn.00f5e860 ();
+│           0x00f5e860      55             push ebp
+│           0x00f5e861      8bec           mov ebp, esp
+│           0x00f5e863      51             push ecx
+│           0x00f5e864      d90568780101   fld dword [0x1017868]
+│           0x00f5e86a      d91c24         fstp dword [esp]
+│           0x00f5e86d      6818230501     push str.fCombatSearchTargetHiddenMaxTime ; 0x1052318 ; "fCombatSearchTargetHiddenMaxTime"
+│           0x00f5e872      b9a4f01c01     mov ecx, 0x11cf0a4
+│           0x00f5e877      e834f84aff     call fcn.0040e0b0
+│           0x00f5e87c      68e0dafc00     push 0xfcdae0
+│           0x00f5e881      e8097df6ff     call fcn.00ec658f
+│           0x00f5e886      83c404         add esp, 4
+│           0x00f5e889      5d             pop ebp
+└           0x00f5e88a      c3             ret
+- offset -  6869 6A6B 6C6D 6E6F 7071 7273 7475 7677  89ABCDEF01234567
+0x01017868  0000 a041                                ...A
+SETTING fCombatSearchTargetHiddenRemoveTime
+┌ 43: fcn.00f5e830 ();
+│           0x00f5e830      55             push ebp
+│           0x00f5e831      8bec           mov ebp, esp
+│           0x00f5e833      51             push ecx
+│           0x00f5e834      d905787b0101   fld dword [0x1017b78]
+│           0x00f5e83a      d91c24         fstp dword [esp]
+│           0x00f5e83d      68f4220501     push str.fCombatSearchTargetHiddenRemoveTime ; 0x10522f4 ; "fCombatSearchTargetHiddenRemoveTime"
+│           0x00f5e842      b9b4f31c01     mov ecx, 0x11cf3b4
+│           0x00f5e847      e864f84aff     call fcn.0040e0b0
+│           0x00f5e84c      68d0dafc00     push 0xfcdad0
+│           0x00f5e851      e8397df6ff     call fcn.00ec658f
+│           0x00f5e856      83c404         add esp, 4
+│           0x00f5e859      5d             pop ebp
+└           0x00f5e85a      c3             ret
+- offset -  7879 7A7B 7C7D 7E7F 8081 8283 8485 8687  89ABCDEF01234567
+0x01017b78  0000 2041                                .. A
+SETTING fCombatSplashDamageMinRadius
+┌ 43: fcn.00f5dbd0 ();
+│           0x00f5dbd0      55             push ebp
+│           0x00f5dbd1      8bec           mov ebp, esp
+│           0x00f5dbd3      51             push ecx
+│           0x00f5dbd4      d90568b20101   fld dword [0x101b268]
+│           0x00f5dbda      d91c24         fstp dword [esp]
+│           0x00f5dbdd      68401a0501     push str.fCombatSplashDamageMinRadius ; 0x1051a40 ; "fCombatSplashDamageMinRadius"
+│           0x00f5dbe2      b970f21c01     mov ecx, 0x11cf270
+│           0x00f5dbe7      e8c4044bff     call fcn.0040e0b0
+│           0x00f5dbec      68b0d6fc00     push 0xfcd6b0
+│           0x00f5dbf1      e89989f6ff     call fcn.00ec658f
+│           0x00f5dbf6      83c404         add esp, 4
+│           0x00f5dbf9      5d             pop ebp
+└           0x00f5dbfa      c3             ret
+- offset -  6869 6A6B 6C6D 6E6F 7071 7273 7475 7677  89ABCDEF01234567
+0x0101b268  0000 4842                                ..HB
+SETTING fCombatStepAdvanceDistance
+┌ 43: fcn.00f616e0 ();
+│           0x00f616e0      55             push ebp
+│           0x00f616e1      8bec           mov ebp, esp
+│           0x00f616e3      51             push ecx
+│           0x00f616e4      d90504e70101   fld dword [0x101e704]
+│           0x00f616ea      d91c24         fstp dword [esp]
+│           0x00f616ed      686c3e0501     push str.fCombatStepAdvanceDistance ; 0x1053e6c ; "fCombatStepAdvanceDistance"
+│           0x00f616f2      b9a8ee1c01     mov ecx, 0x11ceea8
+│           0x00f616f7      e8b4c94aff     call fcn.0040e0b0
+│           0x00f616fc      6860eafc00     push 0xfcea60
+│           0x00f61701      e8894ef6ff     call fcn.00ec658f
+│           0x00f61706      83c404         add esp, 4
+│           0x00f61709      5d             pop ebp
+└           0x00f6170a      c3             ret
+- offset -   4 5  6 7  8 9  A B  C D  E F 1011 1213  456789ABCDEF0123
+0x0101e704  0000 0043                                ...C
+SETTING fCombatTargetLostRemoveTime
+┌ 43: fcn.00f5e770 ();
+│           0x00f5e770      55             push ebp
+│           0x00f5e771      8bec           mov ebp, esp
+│           0x00f5e773      51             push ecx
+│           0x00f5e774      d9055c8f0101   fld dword [0x1018f5c]
+│           0x00f5e77a      d91c24         fstp dword [esp]
+│           0x00f5e77d      6870220501     push str.fCombatTargetLostRemoveTime ; 0x1052270 ; "fCombatTargetLostRemoveTime"
+│           0x00f5e782      b944e71c01     mov ecx, 0x11ce744
+│           0x00f5e787      e824f94aff     call fcn.0040e0b0
+│           0x00f5e78c      6890dafc00     push 0xfcda90
+│           0x00f5e791      e8f97df6ff     call fcn.00ec658f
+│           0x00f5e796      83c404         add esp, 4
+│           0x00f5e799      5d             pop ebp
+└           0x00f5e79a      c3             ret
+- offset -  5C5D 5E5F 6061 6263 6465 6667 6869 6A6B  CDEF0123456789AB
+0x01018f5c  0000 f041                                ...A
+SETTING fCombatThreatAvoidCost
+┌ 39: fcn.00f5f760 ();
+│           0x00f5f760      55             push ebp
+│           0x00f5f761      8bec           mov ebp, esp
+│           0x00f5f763      51             push ecx
+│           0x00f5f764      d9e8           fld1
+│           0x00f5f766      d91c24         fstp dword [esp]
+│           0x00f5f769      688c2d0501     push str.fCombatThreatAvoidCost ; 0x1052d8c ; "fCombatThreatAvoidCost"
+│           0x00f5f76e      b998ef1c01     mov ecx, 0x11cef98
+│           0x00f5f773      e838e94aff     call fcn.0040e0b0
+│           0x00f5f778      68e0dffc00     push 0xfcdfe0
+│           0x00f5f77d      e80d6ef6ff     call fcn.00ec658f
+│           0x00f5f782      83c404         add esp, 4
+│           0x00f5f785      5d             pop ebp
+└           0x00f5f786      c3             ret
+SETTING fCombatThreatDangerousObjectHealth
+┌ 43: fcn.00f5f700 ();
+│           0x00f5f700      55             push ebp
+│           0x00f5f701      8bec           mov ebp, esp
+│           0x00f5f703      51             push ecx
+│           0x00f5f704      d9055c8f0101   fld dword [0x1018f5c]
+│           0x00f5f70a      d91c24         fstp dword [esp]
+│           0x00f5f70d      68482d0501     push str.fCombatThreatDangerousObjectHealth ; 0x1052d48 ; "fCombatThreatDangerousObjectHealth"
+│           0x00f5f712      b9b8e11c01     mov ecx, 0x11ce1b8
+│           0x00f5f717      e894e94aff     call fcn.0040e0b0
+│           0x00f5f71c      68c0dffc00     push 0xfcdfc0
+│           0x00f5f721      e8696ef6ff     call fcn.00ec658f
+│           0x00f5f726      83c404         add esp, 4
+│           0x00f5f729      5d             pop ebp
+└           0x00f5f72a      c3             ret
+- offset -  5C5D 5E5F 6061 6263 6465 6667 6869 6A6B  CDEF0123456789AB
+0x01018f5c  0000 f041                                ...A
+SETTING fCombatThreatSignificantScore
+┌ 43: fcn.00f5f730 ();
+│           0x00f5f730      55             push ebp
+│           0x00f5f731      8bec           mov ebp, esp
+│           0x00f5f733      51             push ecx
+│           0x00f5f734      d905bc810101   fld dword [0x10181bc]
+│           0x00f5f73a      d91c24         fstp dword [esp]
+│           0x00f5f73d      686c2d0501     push str.fCombatThreatSignificantScore ; 0x1052d6c ; "fCombatThreatSignificantScore"
+│           0x00f5f742      b9ccfb1c01     mov ecx, 0x11cfbcc
+│           0x00f5f747      e864e94aff     call fcn.0040e0b0
+│           0x00f5f74c      68d0dffc00     push 0xfcdfd0
+│           0x00f5f751      e8396ef6ff     call fcn.00ec658f
+│           0x00f5f756      83c404         add esp, 4
+│           0x00f5f759      5d             pop ebp
+└           0x00f5f75a      c3             ret
+- offset -  BCBD BEBF C0C1 C2C3 C4C5 C6C7 C8C9 CACB  CDEF0123456789AB
+0x010181bc  cdcc 4c3d                                ..L=
+SETTING fConfidenceCautious
+┌ 43: fcn.00f3b870 ();
+│           0x00f3b870      55             push ebp
+│           0x00f3b871      8bec           mov ebp, esp
+│           0x00f3b873      51             push ecx
+│           0x00f3b874      d905c0620101   fld dword [0x10162c0]
+│           0x00f3b87a      d91c24         fstp dword [esp]
+│           0x00f3b87d      6814bf0101     push str.fConfidenceCautious ; 0x101bf14 ; "fConfidenceCautious"
+│           0x00f3b882      b920531c01     mov ecx, 0x11c5320
+│           0x00f3b887      e824284dff     call fcn.0040e0b0
+│           0x00f3b88c      68108bfc00     push 0xfc8b10
+│           0x00f3b891      e8f9acf8ff     call fcn.00ec658f
+│           0x00f3b896      83c404         add esp, 4
+│           0x00f3b899      5d             pop ebp
+└           0x00f3b89a      c3             ret
+- offset -  C0C1 C2C3 C4C5 C6C7 C8C9 CACB CCCD CECF  0123456789ABCDEF
+0x010162c0  0000 0040                                ...@
+SETTING fCoveredAdvanceMinAdvanceDistanceMax
+┌ 43: fcn.00f5e6b0 ();
+│           0x00f5e6b0      55             push ebp
+│           0x00f5e6b1      8bec           mov ebp, esp
+│           0x00f5e6b3      51             push ecx
+│           0x00f5e6b4      d905a0310201   fld dword [0x10231a0]
+│           0x00f5e6ba      d91c24         fstp dword [esp]
+│           0x00f5e6bd      68c4210501     push str.fCoveredAdvanceMinAdvanceDistanceMax ; 0x10521c4 ; "fCoveredAdvanceMinAdvanceDistanceMax"
+│           0x00f5e6c2      b9e8f61c01     mov ecx, 0x11cf6e8
+│           0x00f5e6c7      e8e4f94aff     call fcn.0040e0b0
+│           0x00f5e6cc      6850dafc00     push 0xfcda50
+│           0x00f5e6d1      e8b97ef6ff     call fcn.00ec658f
+│           0x00f5e6d6      83c404         add esp, 4
+│           0x00f5e6d9      5d             pop ebp
+└           0x00f5e6da      c3             ret
+- offset -  A0A1 A2A3 A4A5 A6A7 A8A9 AAAB ACAD AEAF  0123456789ABCDEF
+0x010231a0  0000 0044                                ...D
+SETTING fCoveredAdvanceMinAdvanceDistanceMin
+┌ 43: fcn.00f5e680 ();
+│           0x00f5e680      55             push ebp
+│           0x00f5e681      8bec           mov ebp, esp
+│           0x00f5e683      51             push ecx
+│           0x00f5e684      d905dc2a0301   fld dword [0x1032adc]
+│           0x00f5e68a      d91c24         fstp dword [esp]
+│           0x00f5e68d      689c210501     push str.fCoveredAdvanceMinAdvanceDistanceMin ; 0x105219c ; "fCoveredAdvanceMinAdvanceDistanceMin"
+│           0x00f5e692      b918e61c01     mov ecx, 0x11ce618
+│           0x00f5e697      e814fa4aff     call fcn.0040e0b0
+│           0x00f5e69c      6840dafc00     push 0xfcda40
+│           0x00f5e6a1      e8e97ef6ff     call fcn.00ec658f
+│           0x00f5e6a6      83c404         add esp, 4
+│           0x00f5e6a9      5d             pop ebp
+└           0x00f5e6aa      c3             ret
+- offset -  DCDD DEDF E0E1 E2E3 E4E5 E6E7 E8E9 EAEB  CDEF0123456789AB
+0x01032adc  0000 8043                                ...C
+SETTING fCoverEvaluationLastSeenExpireTime
+┌ 43: fcn.00f5e110 ();
+│           0x00f5e110      55             push ebp
+│           0x00f5e111      8bec           mov ebp, esp
+│           0x00f5e113      51             push ecx
+│           0x00f5e114      d9052c710101   fld dword [0x101712c]
+│           0x00f5e11a      d91c24         fstp dword [esp]
+│           0x00f5e11d      68041e0501     push str.fCoverEvaluationLastSeenExpireTime ; 0x1051e04 ; "fCoverEvaluationLastSeenExpireTime"
+│           0x00f5e122      b9ccf61c01     mov ecx, 0x11cf6cc
+│           0x00f5e127      e884ff4aff     call fcn.0040e0b0
+│           0x00f5e12c      6870d8fc00     push 0xfcd870
+│           0x00f5e131      e85984f6ff     call fcn.00ec658f
+│           0x00f5e136      83c404         add esp, 4
+│           0x00f5e139      5d             pop ebp
+└           0x00f5e13a      c3             ret
+- offset -  2C2D 2E2F 3031 3233 3435 3637 3839 3A3B  CDEF0123456789AB
+0x0101712c  0000 a040                                ...@
+SETTING fCoverFiringReloadClipPercent
+┌ 43: fcn.00f5e1a0 ();
+│           0x00f5e1a0      55             push ebp
+│           0x00f5e1a1      8bec           mov ebp, esp
+│           0x00f5e1a3      51             push ecx
+│           0x00f5e1a4      d9052c620101   fld dword [0x101622c]
+│           0x00f5e1aa      d91c24         fstp dword [esp]
+│           0x00f5e1ad      68641e0501     push str.fCoverFiringReloadClipPercent ; 0x1051e64 ; "fCoverFiringReloadClipPercent"
+│           0x00f5e1b2      b934fa1c01     mov ecx, 0x11cfa34
+│           0x00f5e1b7      e8f4fe4aff     call fcn.0040e0b0
+│           0x00f5e1bc      68a0d8fc00     push 0xfcd8a0
+│           0x00f5e1c1      e8c983f6ff     call fcn.00ec658f
+│           0x00f5e1c6      83c404         add esp, 4
+│           0x00f5e1c9      5d             pop ebp
+└           0x00f5e1ca      c3             ret
+- offset -  2C2D 2E2F 3031 3233 3435 3637 3839 3A3B  CDEF0123456789AB
+0x0101622c  0000 803e                                ...>
+SETTING fCoverWaitReloadClipPercent
+┌ 43: fcn.00f5e170 ();
+│           0x00f5e170      55             push ebp
+│           0x00f5e171      8bec           mov ebp, esp
+│           0x00f5e173      51             push ecx
+│           0x00f5e174      d90594690201   fld dword [0x1026994]
+│           0x00f5e17a      d91c24         fstp dword [esp]
+│           0x00f5e17d      68481e0501     push str.fCoverWaitReloadClipPercent ; 0x1051e48 ; "fCoverWaitReloadClipPercent"
+│           0x00f5e182      b920e31c01     mov ecx, 0x11ce320
+│           0x00f5e187      e824ff4aff     call fcn.0040e0b0
+│           0x00f5e18c      6890d8fc00     push 0xfcd890
+│           0x00f5e191      e8f983f6ff     call fcn.00ec658f
+│           0x00f5e196      83c404         add esp, 4
+│           0x00f5e199      5d             pop ebp
+└           0x00f5e19a      c3             ret
+- offset -  9495 9697 9899 9A9B 9C9D 9E9F A0A1 A2A3  456789ABCDEF0123
+0x01026994  c3f5 a83e                                ...>
+SETTING fCreatureCalcCombat
+┌ 43: fcn.00f51de0 ();
+│           0x00f51de0      55             push ebp
+│           0x00f51de1      8bec           mov ebp, esp
+│           0x00f51de3      51             push ecx
+│           0x00f51de4      d905c0620101   fld dword [0x10162c0]
+│           0x00f51dea      d91c24         fstp dword [esp]
+│           0x00f51ded      6890960401     push str.fCreatureCalcCombat ; 0x1049690 ; "fCreatureCalcCombat"
+│           0x00f51df2      b9b4b51c01     mov ecx, 0x11cb5b4
+│           0x00f51df7      e8b4c24bff     call fcn.0040e0b0
+│           0x00f51dfc      68b0b2fc00     push 0xfcb2b0
+│           0x00f51e01      e88947f7ff     call fcn.00ec658f
+│           0x00f51e06      83c404         add esp, 4
+│           0x00f51e09      5d             pop ebp
+└           0x00f51e0a      c3             ret
+- offset -  C0C1 C2C3 C4C5 C6C7 C8C9 CACB CCCD CECF  0123456789ABCDEF
+0x010162c0  0000 0040                                ...@
+SETTING fCreatureCalcStealth
+┌ 43: fcn.00f51e40 ();
+│           0x00f51e40      55             push ebp
+│           0x00f51e41      8bec           mov ebp, esp
+│           0x00f51e43      51             push ecx
+│           0x00f51e44      d905c0620101   fld dword [0x10162c0]
+│           0x00f51e4a      d91c24         fstp dword [esp]
+│           0x00f51e4d      68b8960401     push str.fCreatureCalcStealth ; 0x10496b8 ; "fCreatureCalcStealth"
+│           0x00f51e52      b9d4b51c01     mov ecx, 0x11cb5d4
+│           0x00f51e57      e854c24bff     call fcn.0040e0b0
+│           0x00f51e5c      68d0b2fc00     push 0xfcb2d0
+│           0x00f51e61      e82947f7ff     call fcn.00ec658f
+│           0x00f51e66      83c404         add esp, 4
+│           0x00f51e69      5d             pop ebp
+└           0x00f51e6a      c3             ret
+- offset -  C0C1 C2C3 C4C5 C6C7 C8C9 CACB CCCD CECF  0123456789ABCDEF
+0x010162c0  0000 0040                                ...@
+SETTING fCreatureDefaultTurningSpeed
+┌ 43: fcn.00f63600 ();
+│           0x00f63600      55             push ebp
+│           0x00f63601      8bec           mov ebp, esp
+│           0x00f63603      51             push ecx
+│           0x00f63604      d90520240201   fld dword [0x1022420]
+│           0x00f6360a      d91c24         fstp dword [esp]
+│           0x00f6360d      68c84f0501     push str.fCreatureDefaultTurningSpeed ; 0x1054fc8 ; "fCreatureDefaultTurningSpeed"
+│           0x00f63612      b9bcfa1c01     mov ecx, 0x11cfabc
+│           0x00f63617      e894aa4aff     call fcn.0040e0b0
+│           0x00f6361c      68c0f4fc00     push 0xfcf4c0
+│           0x00f63621      e8692ff6ff     call fcn.00ec658f
+│           0x00f63626      83c404         add esp, 4
+│           0x00f63629      5d             pop ebp
+└           0x00f6362a      c3             ret
+- offset -  2021 2223 2425 2627 2829 2A2B 2C2D 2E2F  0123456789ABCDEF
+0x01022420  0000 3442                                ..4B
+SETTING fDetectionViewCone
+┌ 43: fcn.00f59810 ();
+│           0x00f59810      55             push ebp
+│           0x00f59811      8bec           mov ebp, esp
+│           0x00f59813      51             push ecx
+│           0x00f59814      d905e4f50401   fld dword [0x104f5e4]
+│           0x00f5981a      d91c24         fstp dword [esp]
+│           0x00f5981d      68d0f50401     push str.fDetectionViewCone ; 0x104f5d0 ; "fDetectionViewCone"
+│           0x00f59822      b968d61c01     mov ecx, 0x11cd668
+│           0x00f59827      e884484bff     call fcn.0040e0b0
+│           0x00f5982c      6810c1fc00     push 0xfcc110
+│           0x00f59831      e859cdf6ff     call fcn.00ec658f
+│           0x00f59836      83c404         add esp, 4
+│           0x00f59839      5d             pop ebp
+└           0x00f5983a      c3             ret
+- offset -  E4E5 E6E7 E8E9 EAEB ECED EEEF F0F1 F2F3  456789ABCDEF0123
+0x0104f5e4  0000 3e43                                ..>C
+SETTING fDisarmedPickupWeaponDistanceMult
+┌ 43: fcn.00f5dfc0 ();
+│           0x00f5dfc0      55             push ebp
+│           0x00f5dfc1      8bec           mov ebp, esp
+│           0x00f5dfc3      51             push ecx
+│           0x00f5dfc4      d905c0620101   fld dword [0x10162c0]
+│           0x00f5dfca      d91c24         fstp dword [esp]
+│           0x00f5dfcd      68081d0501     push str.fDisarmedPickupWeaponDistanceMult ; 0x1051d08 ; "fDisarmedPickupWeaponDistanceMult"
+│           0x00f5dfd2      b910fa1c01     mov ecx, 0x11cfa10
+│           0x00f5dfd7      e8d4004bff     call fcn.0040e0b0
+│           0x00f5dfdc      6800d8fc00     push 0xfcd800
+│           0x00f5dfe1      e8a985f6ff     call fcn.00ec658f
+│           0x00f5dfe6      83c404         add esp, 4
+│           0x00f5dfe9      5d             pop ebp
+└           0x00f5dfea      c3             ret
+- offset -  C0C1 C2C3 C4C5 C6C7 C8C9 CACB CCCD CECF  0123456789ABCDEF
+0x010162c0  0000 0040                                ...@
+SETTING fFleeDistanceExterior
+┌ 43: fcn.00f61d40 ();
+│           0x00f61d40      55             push ebp
+│           0x00f61d41      8bec           mov ebp, esp
+│           0x00f61d43      51             push ecx
+│           0x00f61d44      d90570390101   fld dword [0x1013970]
+│           0x00f61d4a      d91c24         fstp dword [esp]
+│           0x00f61d4d      68d0410501     push str.fFleeDistanceExterior ; 0x10541d0 ; "fFleeDistanceExterior"
+│           0x00f61d52      b998f91c01     mov ecx, 0x11cf998
+│           0x00f61d57      e854c34aff     call fcn.0040e0b0
+│           0x00f61d5c      6880ecfc00     push 0xfcec80
+│           0x00f61d61      e82948f6ff     call fcn.00ec658f
+│           0x00f61d66      83c404         add esp, 4
+│           0x00f61d69      5d             pop ebp
+└           0x00f61d6a      c3             ret
+- offset -  7071 7273 7475 7677 7879 7A7B 7C7D 7E7F  0123456789ABCDEF
+0x01013970  0000 fa44                                ...D
+SETTING fFleeDoneDistanceExterior
+┌ 43: fcn.00f61da0 ();
+│           0x00f61da0      55             push ebp
+│           0x00f61da1      8bec           mov ebp, esp
+│           0x00f61da3      51             push ecx
+│           0x00f61da4      d905cc000501   fld dword [0x10500cc]
+│           0x00f61daa      d91c24         fstp dword [esp]
+│           0x00f61dad      6800420501     push str.fFleeDoneDistanceExterior ; 0x1054200 ; "fFleeDoneDistanceExterior"
+│           0x00f61db2      b90cf71c01     mov ecx, 0x11cf70c
+│           0x00f61db7      e8f4c24aff     call fcn.0040e0b0
+│           0x00f61dbc      68a0ecfc00     push 0xfceca0
+│           0x00f61dc1      e8c947f6ff     call fcn.00ec658f
+│           0x00f61dc6      83c404         add esp, 4
+│           0x00f61dc9      5d             pop ebp
+└           0x00f61dca      c3             ret
+- offset -  CCCD CECF D0D1 D2D3 D4D5 D6D7 D8D9 DADB  CDEF0123456789AB
+0x010500cc  0040 1c45                                .@.E
+SETTING fFleeDoneDistanceInterior
+┌ 43: fcn.00f61dd0 ();
+│           0x00f61dd0      55             push ebp
+│           0x00f61dd1      8bec           mov ebp, esp
+│           0x00f61dd3      51             push ecx
+│           0x00f61dd4      d9056c780101   fld dword [0x101786c]
+│           0x00f61dda      d91c24         fstp dword [esp]
+│           0x00f61ddd      681c420501     push str.fFleeDoneDistanceInterior ; 0x105421c ; "fFleeDoneDistanceInterior"
+│           0x00f61de2      b9c0e61c01     mov ecx, 0x11ce6c0
+│           0x00f61de7      e8c4c24aff     call fcn.0040e0b0
+│           0x00f61dec      68b0ecfc00     push 0xfcecb0
+│           0x00f61df1      e89947f6ff     call fcn.00ec658f
+│           0x00f61df6      83c404         add esp, 4
+│           0x00f61df9      5d             pop ebp
+└           0x00f61dfa      c3             ret
+- offset -  6C6D 6E6F 7071 7273 7475 7677 7879 7A7B  CDEF0123456789AB
+0x0101786c  0000 1644                                ...D
+SETTING fFleeIsSafeTimer
+┌ 43: fcn.00f5bbe0 ();
+│           0x00f5bbe0      55             push ebp
+│           0x00f5bbe1      8bec           mov ebp, esp
+│           0x00f5bbe3      51             push ecx
+│           0x00f5bbe4      d9055c8f0101   fld dword [0x1018f5c]
+│           0x00f5bbea      d91c24         fstp dword [esp]
+│           0x00f5bbed      6880080501     push str.fFleeIsSafeTimer   ; 0x1050880 ; "fFleeIsSafeTimer"
+│           0x00f5bbf2      b948d31c01     mov ecx, 0x11cd348
+│           0x00f5bbf7      e8b4244bff     call fcn.0040e0b0
+│           0x00f5bbfc      6800cdfc00     push 0xfccd00
+│           0x00f5bc01      e889a9f6ff     call fcn.00ec658f
+│           0x00f5bc06      83c404         add esp, 4
+│           0x00f5bc09      5d             pop ebp
+└           0x00f5bc0a      c3             ret
+- offset -  5C5D 5E5F 6061 6263 6465 6667 6869 6A6B  CDEF0123456789AB
+0x01018f5c  0000 f041                                ...A
+SETTING fMovementNearTargetAvoidCost
+┌ 43: fcn.00f5e2f0 ();
+│           0x00f5e2f0      55             push ebp
+│           0x00f5e2f1      8bec           mov ebp, esp
+│           0x00f5e2f3      51             push ecx
+│           0x00f5e2f4      d905e8810101   fld dword [0x10181e8]
+│           0x00f5e2fa      d91c24         fstp dword [esp]
+│           0x00f5e2fd      68341f0501     push str.fMovementNearTargetAvoidCost ; 0x1051f34 ; "fMovementNearTargetAvoidCost"
+│           0x00f5e302      b920f11c01     mov ecx, 0x11cf120
+│           0x00f5e307      e8a4fd4aff     call fcn.0040e0b0
+│           0x00f5e30c      6810d9fc00     push 0xfcd910
+│           0x00f5e311      e87982f6ff     call fcn.00ec658f
+│           0x00f5e316      83c404         add esp, 4
+│           0x00f5e319      5d             pop ebp
+└           0x00f5e31a      c3             ret
+- offset -  E8E9 EAEB ECED EEEF F0F1 F2F3 F4F5 F6F7  89ABCDEF01234567
+0x010181e8  0000 c841                                ...A
+SETTING fMovementNearTargetAvoidRadius
+┌ 43: fcn.00f5e2c0 ();
+│           0x00f5e2c0      55             push ebp
+│           0x00f5e2c1      8bec           mov ebp, esp
+│           0x00f5e2c3      51             push ecx
+│           0x00f5e2c4      d905ece60101   fld dword [0x101e6ec]
+│           0x00f5e2ca      d91c24         fstp dword [esp]
+│           0x00f5e2cd      68141f0501     push str.fMovementNearTargetAvoidRadius ; 0x1051f14 ; "fMovementNearTargetAvoidRadius"
+│           0x00f5e2d2      b9e0f41c01     mov ecx, 0x11cf4e0
+│           0x00f5e2d7      e8d4fd4aff     call fcn.0040e0b0
+│           0x00f5e2dc      6800d9fc00     push 0xfcd900
+│           0x00f5e2e1      e8a982f6ff     call fcn.00ec658f
+│           0x00f5e2e6      83c404         add esp, 4
+│           0x00f5e2e9      5d             pop ebp
+└           0x00f5e2ea      c3             ret
+- offset -  ECED EEEF F0F1 F2F3 F4F5 F6F7 F8F9 FAFB  CDEF0123456789AB
+0x0101e6ec  0000 8042                                ...B
+SETTING fMovementTargetAvoidCost
+┌ 43: fcn.00f5e290 ();
+│           0x00f5e290      55             push ebp
+│           0x00f5e291      8bec           mov ebp, esp
+│           0x00f5e293      51             push ecx
+│           0x00f5e294      d905e8810101   fld dword [0x10181e8]
+│           0x00f5e29a      d91c24         fstp dword [esp]
+│           0x00f5e29d      68f81e0501     push str.fMovementTargetAvoidCost ; 0x1051ef8 ; "fMovementTargetAvoidCost"
+│           0x00f5e2a2      b9f8fc1c01     mov ecx, 0x11cfcf8
+│           0x00f5e2a7      e804fe4aff     call fcn.0040e0b0
+│           0x00f5e2ac      68f0d8fc00     push 0xfcd8f0
+│           0x00f5e2b1      e8d982f6ff     call fcn.00ec658f
+│           0x00f5e2b6      83c404         add esp, 4
+│           0x00f5e2b9      5d             pop ebp
+└           0x00f5e2ba      c3             ret
+- offset -  E8E9 EAEB ECED EEEF F0F1 F2F3 F4F5 F6F7  89ABCDEF01234567
+0x010181e8  0000 c841                                ...A
+SETTING fMovementTargetAvoidRadius
+┌ 43: fcn.00f5e260 ();
+│           0x00f5e260      55             push ebp
+│           0x00f5e261      8bec           mov ebp, esp
+│           0x00f5e263      51             push ecx
+│           0x00f5e264      d905a0310201   fld dword [0x10231a0]
+│           0x00f5e26a      d91c24         fstp dword [esp]
+│           0x00f5e26d      68dc1e0501     push str.fMovementTargetAvoidRadius ; 0x1051edc ; "fMovementTargetAvoidRadius"
+│           0x00f5e272      b948e61c01     mov ecx, 0x11ce648
+│           0x00f5e277      e834fe4aff     call fcn.0040e0b0
+│           0x00f5e27c      68e0d8fc00     push 0xfcd8e0
+│           0x00f5e281      e80983f6ff     call fcn.00ec658f
+│           0x00f5e286      83c404         add esp, 4
+│           0x00f5e289      5d             pop ebp
+└           0x00f5e28a      c3             ret
+- offset -  A0A1 A2A3 A4A5 A6A7 A8A9 AAAB ACAD AEAF  0123456789ABCDEF
+0x010231a0  0000 0044                                ...D
+SETTING fMovementTargetAvoidRadiusMult
+┌ 43: fcn.00f5e230 ();
+│           0x00f5e230      55             push ebp
+│           0x00f5e231      8bec           mov ebp, esp
+│           0x00f5e233      51             push ecx
+│           0x00f5e234      d905f80f0501   fld dword [0x1050ff8]
+│           0x00f5e23a      d91c24         fstp dword [esp]
+│           0x00f5e23d      68bc1e0501     push str.fMovementTargetAvoidRadiusMult ; 0x1051ebc ; "fMovementTargetAvoidRadiusMult"
+│           0x00f5e242      b980f31c01     mov ecx, 0x11cf380
+│           0x00f5e247      e864fe4aff     call fcn.0040e0b0
+│           0x00f5e24c      68d0d8fc00     push 0xfcd8d0
+│           0x00f5e251      e83983f6ff     call fcn.00ec658f
+│           0x00f5e256      83c404         add esp, 4
+│           0x00f5e259      5d             pop ebp
+└           0x00f5e25a      c3             ret
+- offset -  F8F9 FAFB FCFD FEFF  0 1  2 3  4 5  6 7  89ABCDEF01234567
+0x01050ff8  0000 a03f                                ...?
+SETTING fNPCMaxGunWobbleAngle
+┌ 43: fcn.00f5e470 ();
+│           0x00f5e470      55             push ebp
+│           0x00f5e471      8bec           mov ebp, esp
+│           0x00f5e473      51             push ecx
+│           0x00f5e474      d9052c710101   fld dword [0x101712c]
+│           0x00f5e47a      d91c24         fstp dword [esp]
+│           0x00f5e47d      6834200501     push str.fNPCMaxGunWobbleAngle ; 0x1052034 ; "fNPCMaxGunWobbleAngle"
+│           0x00f5e482      b934e01c01     mov ecx, 0x11ce034
+│           0x00f5e487      e824fc4aff     call fcn.0040e0b0
+│           0x00f5e48c      6890d9fc00     push 0xfcd990
+│           0x00f5e491      e8f980f6ff     call fcn.00ec658f
+│           0x00f5e496      83c404         add esp, 4
+│           0x00f5e499      5d             pop ebp
+└           0x00f5e49a      c3             ret
+- offset -  2C2D 2E2F 3031 3233 3435 3637 3839 3A3B  CDEF0123456789AB
+0x0101712c  0000 a040                                ...@
+SETTING fPathingLargeActorRadius
+┌ 43: fcn.00f87750 ();
+│           0x00f87750      55             push ebp
+│           0x00f87751      8bec           mov ebp, esp
+│           0x00f87753      51             push ecx
+│           0x00f87754      d9053ce30101   fld dword [0x101e33c]
+│           0x00f8775a      d91c24         fstp dword [esp]
+│           0x00f8775d      6898b60601     push str.fPathingLargeActorRadius ; 0x106b698 ; "fPathingLargeActorRadius"
+│           0x00f87762      b9f06e1d01     mov ecx, 0x11d6ef0
+│           0x00f87767      e8446948ff     call fcn.0040e0b0
+│           0x00f8776c      68a077fd00     push 0xfd77a0
+│           0x00f87771      e819eef3ff     call fcn.00ec658f
+│           0x00f87776      83c404         add esp, 4
+│           0x00f87779      5d             pop ebp
+└           0x00f8777a      c3             ret
+- offset -  3C3D 3E3F 4041 4243 4445 4647 4849 4A4B  CDEF0123456789AB
+0x0101e33c  0000 a042                                ...B
+SETTING fSneakMaxDistance
+┌ 43: fcn.00f59450 ();
+│           0x00f59450      55             push ebp
+│           0x00f59451      8bec           mov ebp, esp
+│           0x00f59453      51             push ecx
+│           0x00f59454      d905ec230201   fld dword [0x10223ec]
+│           0x00f5945a      d91c24         fstp dword [esp]
+│           0x00f5945d      680cf40401     push str.fSneakMaxDistance  ; 0x104f40c ; "fSneakMaxDistance"
+│           0x00f59462      b9d8d71c01     mov ecx, 0x11cd7d8
+│           0x00f59467      e8444c4bff     call fcn.0040e0b0
+│           0x00f5946c      68d0bffc00     push 0xfcbfd0
+│           0x00f59471      e819d1f6ff     call fcn.00ec658f
+│           0x00f59476      83c404         add esp, 4
+│           0x00f59479      5d             pop ebp
+└           0x00f5947a      c3             ret
+- offset -  ECED EEEF F0F1 F2F3 F4F5 F6F7 F8F9 FAFB  CDEF0123456789AB
+0x010223ec  0080 bb44                                ...D
+SETTING iCombatTargetLostRemoveSearchCount
+┌ 35: fcn.00f5e800 ();
+│           0x00f5e800      55             push ebp
+│           0x00f5e801      8bec           mov ebp, esp
+│           0x00f5e803      6a02           push 2                      ; 2
+│           0x00f5e805      68d0220501     push str.iCombatTargetLostRemoveSearchCount ; 0x10522d0 ; "iCombatTargetLostRemoveSearchCount"
+│           0x00f5e80a      b950ef1c01     mov ecx, 0x11cef50
+│           0x00f5e80f      e83cd94aff     call fcn.0040c150
+│           0x00f5e814      68c0dafc00     push 0xfcdac0
+│           0x00f5e819      e8717df6ff     call fcn.00ec658f
+│           0x00f5e81e      83c404         add esp, 4
+│           0x00f5e821      5d             pop ebp
+└           0x00f5e822      c3             ret
+SETTING iCombatTargetPlayerSoftCap
+┌ 35: fcn.00f5dba0 ();
+│           0x00f5dba0      55             push ebp
+│           0x00f5dba1      8bec           mov ebp, esp
+│           0x00f5dba3      6a0f           push 0xf                    ; 15
+│           0x00f5dba5      68241a0501     push str.iCombatTargetPlayerSoftCap ; 0x1051a24 ; "iCombatTargetPlayerSoftCap"
+│           0x00f5dbaa      b914f41c01     mov ecx, 0x11cf414
+│           0x00f5dbaf      e89ce54aff     call fcn.0040c150
+│           0x00f5dbb4      68a0d6fc00     push 0xfcd6a0
+│           0x00f5dbb9      e8d189f6ff     call fcn.00ec658f
+│           0x00f5dbbe      83c404         add esp, 4
+│           0x00f5dbc1      5d             pop ebp
+└           0x00f5dbc2      c3             ret
+SETTING iNumberActorsInCombatPlayer
+┌ 35: fcn.00f5ad40 ();
+│           0x00f5ad40      55             push ebp
+│           0x00f5ad41      8bec           mov ebp, esp
+│           0x00f5ad43      6a14           push 0x14                   ; 20
+│           0x00f5ad45      6848000501     push str.iNumberActorsInCombatPlayer ; 0x1050048 ; "iNumberActorsInCombatPlayer"
+│           0x00f5ad4a      b9fccf1c01     mov ecx, 0x11ccffc
+│           0x00f5ad4f      e8fc134bff     call fcn.0040c150
+│           0x00f5ad54      6820c8fc00     push 0xfcc820
+│           0x00f5ad59      e831b8f6ff     call fcn.00ec658f
+│           0x00f5ad5e      83c404         add esp, 4
+│           0x00f5ad61      5d             pop ebp
+└           0x00f5ad62      c3             ret
+SETTING fCombatCurrentWeaponAbsoluteMaxRangeMult
+┌ 43: fcn.00f5e560 ();
+│           0x00f5e560      55             push ebp
+│           0x00f5e561      8bec           mov ebp, esp
+│           0x00f5e563      51             push ecx
+│           0x00f5e564      d90588600101   fld dword [0x1016088]
+│           0x00f5e56a      d91c24         fstp dword [esp]
+│           0x00f5e56d      68d4200501     push str.fCombatCurrentWeaponAbsoluteMaxRangeMult ; 0x10520d4 ; "fCombatCurrentWeaponAbsoluteMaxRangeMult"
+│           0x00f5e572      b9ace41c01     mov ecx, 0x11ce4ac
+│           0x00f5e577      e834fb4aff     call fcn.0040e0b0
+│           0x00f5e57c      68e0d9fc00     push 0xfcd9e0
+│           0x00f5e581      e80980f6ff     call fcn.00ec658f
+│           0x00f5e586      83c404         add esp, 4
+│           0x00f5e589      5d             pop ebp
+└           0x00f5e58a      c3             ret
+- offset -  8889 8A8B 8C8D 8E8F 9091 9293 9495 9697  89ABCDEF01234567
+0x01016088  0000 c03f                                ...?
+SETTING fCombatTargetLostRemoveDistanceTime
+┌ 43: fcn.00f5e7a0 ();
+│           0x00f5e7a0      55             push ebp
+│           0x00f5e7a1      8bec           mov ebp, esp
+│           0x00f5e7a3      51             push ecx
+│           0x00f5e7a4      d90594420301   fld dword [0x1034294]
+│           0x00f5e7aa      d91c24         fstp dword [esp]
+│           0x00f5e7ad      688c220501     push str.fCombatTargetLostRemoveDistanceTime ; 0x105228c ; "fCombatTargetLostRemoveDistanceTime"
+│           0x00f5e7b2      b968f31c01     mov ecx, 0x11cf368
+│           0x00f5e7b7      e8f4f84aff     call fcn.0040e0b0
+│           0x00f5e7bc      68a0dafc00     push 0xfcdaa0
+│           0x00f5e7c1      e8c97df6ff     call fcn.00ec658f
+│           0x00f5e7c6      83c404         add esp, 4
+│           0x00f5e7c9      5d             pop ebp
+└           0x00f5e7ca      c3             ret
+- offset -  9495 9697 9899 9A9B 9C9D 9E9F A0A1 A2A3  456789ABCDEF0123
+0x01034294  0000 7042                                ..pB
+SETTING fCombatTargetLostRemoveDistance
+┌ 43: fcn.00f5e7d0 ();
+│           0x00f5e7d0      55             push ebp
+│           0x00f5e7d1      8bec           mov ebp, esp
+│           0x00f5e7d3      51             push ecx
+│           0x00f5e7d4      d9053c7a0101   fld dword [0x1017a3c]
+│           0x00f5e7da      d91c24         fstp dword [esp]
+│           0x00f5e7dd      68b0220501     push str.fCombatTargetLostRemoveDistance ; 0x10522b0 ; "fCombatTargetLostRemoveDistance"
+│           0x00f5e7e2      b9fcf31c01     mov ecx, 0x11cf3fc
+│           0x00f5e7e7      e8c4f84aff     call fcn.0040e0b0
+│           0x00f5e7ec      68b0dafc00     push 0xfcdab0
+│           0x00f5e7f1      e8997df6ff     call fcn.00ec658f
+│           0x00f5e7f6      83c404         add esp, 4
+│           0x00f5e7f9      5d             pop ebp
+└           0x00f5e7fa      c3             ret
+- offset -  3C3D 3E3F 4041 4243 4445 4647 4849 4A4B  CDEF0123456789AB
+0x01017a3c  0000 8045                                ...E
+FUNCTION 0x0040e0b0
+            ; XREFS(84)
+┌ 127: fcn.0040e0b0 (int32_t arg_8h);
+│ `- args(sp[0x4..0x4]) vars(4:sp[0x8..0x18])
+│           0x0040e0b0      55             push ebp
+│           0x0040e0b1      8bec           mov ebp, esp
+│           0x0040e0b3      6aff           push 0xffffffffffffffff
+│           0x0040e0b5      6818c9ef00     push 0xefc918
+│           0x0040e0ba      64a100000000   mov eax, dword fs:[0]
+│           0x0040e0c0      50             push eax
+│           0x0040e0c1      83ec08         sub esp, 8
+│           0x0040e0c4      a1bc161c01     mov eax, dword [0x11c16bc]  ; [0x11c16bc:4]=0xbb40e64e
+│           0x0040e0c9      33c5           xor eax, ebp
+│           0x0040e0cb      50             push eax
+│           0x0040e0cc      8d45f4         lea eax, [var_ch]
+│           0x0040e0cf      64a300000000   mov dword fs:[0], eax
+│           0x0040e0d5      894df0         mov dword [var_10h], ecx
+│           0x0040e0d8      51             push ecx
+│           0x0040e0d9      d9450c         fld dword [ebp + 0xc]
+│           0x0040e0dc      d91c24         fstp dword [esp]
+│           0x0040e0df      8b4508         mov eax, dword [arg_8h]
+│           0x0040e0e2      50             push eax
+│           0x0040e0e3      8b4df0         mov ecx, dword [var_10h]
+│           0x0040e0e6      e845000000     call fcn.0040e130
+│           0x0040e0eb      c745fc0000..   mov dword [var_4h], 0
+│           0x0040e0f2      8b4df0         mov ecx, dword [var_10h]
+│           0x0040e0f5      c70114210101   mov dword [ecx], 0x1012114  ; [0x1012114:4]=0x4049d0
+│           0x0040e0fb      e87069ffff     call fcn.00404a70
+│           0x0040e100      8945ec         mov dword [var_14h], eax
+│           0x0040e103      8b55f0         mov edx, dword [var_10h]
+│           0x0040e106      52             push edx
+│           0x0040e107      8b45ec         mov eax, dword [var_14h]
+│           0x0040e10a      8b10           mov edx, dword [eax]
+│           0x0040e10c      8b4dec         mov ecx, dword [var_14h]
+│           0x0040e10f      8b4204         mov eax, dword [edx + 4]
+│           0x0040e112      ffd0           call eax
+│           0x0040e114      c745fcffff..   mov dword [var_4h], 0xffffffff ; -1
+│           0x0040e11b      8b45f0         mov eax, dword [var_10h]
+│           0x0040e11e      8b4df4         mov ecx, dword [var_ch]
+│           0x0040e121      64890d0000..   mov dword fs:[0], ecx
+│           0x0040e128      59             pop ecx
+│           0x0040e129      8be5           mov esp, ebp
+│           0x0040e12b      5d             pop ebp
+└           0x0040e12c      c20800         ret 8
+FUNCTION 0x0040e130
+            ; CALL XREF from fcn.0040e0b0 @ 0x40e0e6(x)
+┌ 43: fcn.0040e130 (int32_t arg_8h);
+│ `- args(sp[0x4..0x4]) vars(1:sp[0x8..0x8])
+│           0x0040e130      55             push ebp
+│           0x0040e131      8bec           mov ebp, esp
+│           0x0040e133      51             push ecx
+│           0x0040e134      894dfc         mov dword [var_4h], ecx
+│           0x0040e137      8b45fc         mov eax, dword [var_4h]
+│           0x0040e13a      c70020210101   mov dword [eax], 0x1012120  ; [0x1012120:4]=0x4049a0
+│           0x0040e140      8b4dfc         mov ecx, dword [var_4h]
+│           0x0040e143      8b5508         mov edx, dword [arg_8h]
+│           0x0040e146      895108         mov dword [ecx + 8], edx
+│           0x0040e149      8b45fc         mov eax, dword [var_4h]
+│           0x0040e14c      d9450c         fld dword [ebp + 0xc]
+│           0x0040e14f      d95804         fstp dword [eax + 4]
+│           0x0040e152      8b45fc         mov eax, dword [var_4h]
+│           0x0040e155      8be5           mov esp, ebp
+│           0x0040e157      5d             pop ebp
+└           0x0040e158      c20800         ret 8
+FUNCTION 0x0040c150
+            ; CALL XREF from fcn.00f5ad40 @ 0xf5ad4f(x)
+            ; CALL XREF from fcn.00f5dba0 @ 0xf5dbaf(x)
+            ; CALL XREF from fcn.00f5e800 @ 0xf5e80f(x)
+┌ 124: fcn.0040c150 (int32_t arg_8h, int32_t arg_ch);
+│ `- args(sp[0x4..0x8]) vars(4:sp[0x8..0x18])
+│           0x0040c150      55             push ebp
+│           0x0040c151      8bec           mov ebp, esp
+│           0x0040c153      6aff           push 0xffffffffffffffff
+│           0x0040c155      6818c9ef00     push 0xefc918
+│           0x0040c15a      64a100000000   mov eax, dword fs:[0]
+│           0x0040c160      50             push eax
+│           0x0040c161      83ec08         sub esp, 8
+│           0x0040c164      a1bc161c01     mov eax, dword [0x11c16bc]  ; [0x11c16bc:4]=0xbb40e64e
+│           0x0040c169      33c5           xor eax, ebp
+│           0x0040c16b      50             push eax
+│           0x0040c16c      8d45f4         lea eax, [var_ch]
+│           0x0040c16f      64a300000000   mov dword fs:[0], eax
+│           0x0040c175      894df0         mov dword [var_10h], ecx
+│           0x0040c178      8b450c         mov eax, dword [arg_ch]
+│           0x0040c17b      50             push eax
+│           0x0040c17c      8b4d08         mov ecx, dword [arg_8h]
+│           0x0040c17f      51             push ecx
+│           0x0040c180      8b4df0         mov ecx, dword [var_10h]
+│           0x0040c183      e89887ffff     call fcn.00404920
+│           0x0040c188      c745fc0000..   mov dword [var_4h], 0
+│           0x0040c18f      8b55f0         mov edx, dword [var_10h]
+│           0x0040c192      c70214210101   mov dword [edx], 0x1012114  ; [0x1012114:4]=0x4049d0
+│           0x0040c198      e8d388ffff     call fcn.00404a70
+│           0x0040c19d      8945ec         mov dword [var_14h], eax
+│           0x0040c1a0      8b45f0         mov eax, dword [var_10h]
+│           0x0040c1a3      50             push eax
+│           0x0040c1a4      8b4dec         mov ecx, dword [var_14h]
+│           0x0040c1a7      8b11           mov edx, dword [ecx]
+│           0x0040c1a9      8b4dec         mov ecx, dword [var_14h]
+│           0x0040c1ac      8b4204         mov eax, dword [edx + 4]
+│           0x0040c1af      ffd0           call eax
+│           0x0040c1b1      c745fcffff..   mov dword [var_4h], 0xffffffff ; -1
+│           0x0040c1b8      8b45f0         mov eax, dword [var_10h]
+│           0x0040c1bb      8b4df4         mov ecx, dword [var_ch]
+│           0x0040c1be      64890d0000..   mov dword fs:[0], ecx
+│           0x0040c1c5      59             pop ecx
+│           0x0040c1c6      8be5           mov esp, ebp
+│           0x0040c1c8      5d             pop ebp
+└           0x0040c1c9      c20800         ret 8
+FUNCTION 0x00404920
+            ; CALL XREF from fcn.0040c150 @ 0x40c183(x)
+┌ 43: fcn.00404920 (int32_t arg_8h, int32_t arg_ch);
+│ `- args(sp[0x4..0x8]) vars(1:sp[0x8..0x8])
+│           0x00404920      55             push ebp
+│           0x00404921      8bec           mov ebp, esp
+│           0x00404923      51             push ecx
+│           0x00404924      894dfc         mov dword [var_4h], ecx
+│           0x00404927      8b45fc         mov eax, dword [var_4h]
+│           0x0040492a      c70020210101   mov dword [eax], 0x1012120  ; [0x1012120:4]=0x4049a0
+│           0x00404930      8b4dfc         mov ecx, dword [var_4h]
+│           0x00404933      8b5508         mov edx, dword [arg_8h]
+│           0x00404936      895108         mov dword [ecx + 8], edx
+│           0x00404939      8b45fc         mov eax, dword [var_4h]
+│           0x0040493c      8b4d0c         mov ecx, dword [arg_ch]
+│           0x0040493f      894804         mov dword [eax + 4], ecx
+│           0x00404942      8b45fc         mov eax, dword [var_4h]
+│           0x00404945      8be5           mov esp, ebp
+│           0x00404947      5d             pop ebp
+└           0x00404948      c20800         ret 8
+FUNCTION 0x00505010
+┌ 105: fcn.00505010 ();
+│ afv: vars(3:sp[0x8..0x14])
+│           0x00505010      55             push ebp
+│           0x00505011      8bec           mov ebp, esp
+│           0x00505013      6aff           push 0xffffffffffffffff
+│           0x00505015      68e88aef00     push 0xef8ae8
+│           0x0050501a      64a100000000   mov eax, dword fs:[0]
+│           0x00505020      50             push eax
+│           0x00505021      51             push ecx
+│           0x00505022      a1bc161c01     mov eax, dword [0x11c16bc]  ; [0x11c16bc:4]=0xbb40e64e
+│           0x00505027      33c5           xor eax, ebp
+│           0x00505029      50             push eax
+│           0x0050502a      8d45f4         lea eax, [var_ch]
+│           0x0050502d      64a300000000   mov dword fs:[0], eax
+│           0x00505033      894df0         mov dword [var_10h], ecx
+│           0x00505036      8b4df0         mov ecx, dword [var_10h]
+│           0x00505039      e832e3f7ff     call fcn.00483370
+│           0x0050503e      c745fc0000..   mov dword [var_4h], 0
+│           0x00505045      8b45f0         mov eax, dword [var_10h]
+│           0x00505048      c700e4660201   mov dword [eax], 0x10266e4  ; [0x10266e4:4]=0x483710
+│           0x0050504e      6a4a           push 0x4a                   ; 'J' ; 74
+│           0x00505050      8b4df0         mov ecx, dword [var_10h]
+│           0x00505053      e848c5feff     call fcn.004f15a0
+│           0x00505058      8b4df0         mov ecx, dword [var_10h]
+│           0x0050505b      e870000000     call fcn.005050d0
+│           0x00505060      c745fcffff..   mov dword [var_4h], 0xffffffff ; -1
+│           0x00505067      8b45f0         mov eax, dword [var_10h]
+│           0x0050506a      8b4df4         mov ecx, dword [var_ch]
+│           0x0050506d      64890d0000..   mov dword fs:[0], ecx
+│           0x00505074      59             pop ecx
+│           0x00505075      8be5           mov esp, ebp
+│           0x00505077      5d             pop ebp
+└           0x00505078      c3             ret
+FUNCTION 0x005050d0
+            ; CALL XREF from fcn.00505010 @ 0x50505b(x)
+┌ 170: fcn.005050d0 ();
+│ afv: vars(2:sp[0x8..0xc])
+│           0x005050d0      55             push ebp
+│           0x005050d1      8bec           mov ebp, esp
+│           0x005050d3      83ec08         sub esp, 8
+│           0x005050d6      894df8         mov dword [var_8h], ecx
+│           0x005050d9      e822ffffff     call 0x505000
+│           0x005050de      8945fc         mov dword [var_4h], eax
+│           0x005050e1      837dfc00       cmp dword [var_4h], 0
+│       ┌─< 0x005050e5      7453           je 0x50513a
+│       │   0x005050e7      6a5c           push 0x5c                   ; '\\' ; 92
+│       │   0x005050e9      8b4dfc         mov ecx, dword [var_4h]
+│       │   0x005050ec      e89f73f3ff     call 0x43c490
+│       │   0x005050f1      50             push eax
+│       │   0x005050f2      8b45f8         mov eax, dword [var_8h]
+│       │   0x005050f5      83c058         add eax, 0x58               ; 88
+│       │   0x005050f8      50             push eax
+│       │   0x005050f9      e862c3efff     call 0x401460
+│       │   0x005050fe      83c40c         add esp, 0xc
+│       │   0x00505101      6a54           push 0x54                   ; 'T' ; 84
+│       │   0x00505103      8b4dfc         mov ecx, dword [var_4h]
+│       │   0x00505106      e855621a00     call 0x6ab360
+│       │   0x0050510b      50             push eax
+│       │   0x0050510c      8b4df8         mov ecx, dword [var_8h]
+│       │   0x0050510f      81c1b4000000   add ecx, 0xb4               ; 180
+│       │   0x00505115      51             push ecx
+│       │   0x00505116      e845c3efff     call 0x401460
+│       │   0x0050511b      83c40c         add esp, 0xc
+│       │   0x0050511e      6a40           push 0x40                   ; '@' ; 64
+│       │   0x00505120      8b4dfc         mov ecx, dword [var_4h]
+│       │   0x00505123      e818b8ffff     call 0x500940
+│       │   0x00505128      50             push eax
+│       │   0x00505129      8b55f8         mov edx, dword [var_8h]
+│       │   0x0050512c      83c218         add edx, 0x18               ; 24
+│       │   0x0050512f      52             push edx
+│       │   0x00505130      e82bc3efff     call 0x401460
+│       │   0x00505135      83c40c         add esp, 0xc
+│      ┌──< 0x00505138      eb3c           jmp 0x505176
+│      │└─> 0x0050513a      6a5c           push 0x5c                   ; '\\' ; 92
+│      │    0x0050513c      6a00           push 0
+│      │    0x0050513e      8b45f8         mov eax, dword [var_8h]
+│      │    0x00505141      83c058         add eax, 0x58               ; 88
+│      │    0x00505144      50             push eax
+│      │    0x00505145      e8e6ebefff     call 0x403d30
+│      │    0x0050514a      83c40c         add esp, 0xc
+│      │    0x0050514d      6a54           push 0x54                   ; 'T' ; 84
+│      │    0x0050514f      6a00           push 0
+│      │    0x00505151      8b4df8         mov ecx, dword [var_8h]
+│      │    0x00505154      81c1b4000000   add ecx, 0xb4               ; 180
+│      │    0x0050515a      51             push ecx
+│      │    0x0050515b      e8d0ebefff     call 0x403d30
+│      │    0x00505160      83c40c         add esp, 0xc
+│      │    0x00505163      6a40           push 0x40                   ; '@' ; 64
+│      │    0x00505165      6a00           push 0
+│      │    0x00505167      8b55f8         mov edx, dword [var_8h]
+│      │    0x0050516a      83c218         add edx, 0x18               ; 24
+│      │    0x0050516d      52             push edx
+│      │    0x0050516e      e8bdebefff     call 0x403d30
+│      │    0x00505173      83c40c         add esp, 0xc
+│      │    ; CODE XREF from fcn.005050d0 @ 0x505138(x)
+│      └──> 0x00505176      8be5           mov esp, ebp
+│           0x00505178      5d             pop ebp
+└           0x00505179      c3             ret
+FUNCTION 0x00505180
+┌ 566: fcn.00505180 (int32_t arg_8h);
+│ `- args(sp[0x4..0x4]) vars(11:sp[0x5..0xd4])
+│           0x00505180      55             push ebp
+│           0x00505181      8bec           mov ebp, esp
+│           0x00505183      83ec64         sub esp, 0x64
+│           0x00505186      a1bc161c01     mov eax, dword [0x11c16bc]  ; [0x11c16bc:4]=0xbb40e64e
+│           0x0050518b      33c5           xor eax, ebp
+│           0x0050518d      8945a8         mov dword [var_58h], eax
+│           0x00505190      894da4         mov dword [var_5ch], ecx
+│           0x00505193      8b4d08         mov ecx, dword [arg_8h]
+│           0x00505196      e8c5d4f6ff     call 0x472660
+│           0x0050519b      8845ff         mov byte [var_1h], al
+│           0x0050519e      0fb645ff       movzx eax, byte [var_1h]
+│           0x005051a2      83f84a         cmp eax, 0x4a               ; 'J' ; 74
+│       ┌─< 0x005051a5      7407           je 0x5051ae
+│       │   0x005051a7      32c0           xor al, al
+│      ┌──< 0x005051a9      e9f5010000     jmp 0x5053a3
+│      │└─> 0x005051ae      8b4da4         mov ecx, dword [var_5ch]
+│      │    0x005051b1      8b11           mov edx, dword [ecx]
+│      │    0x005051b3      8b4da4         mov ecx, dword [var_5ch]
+│      │    0x005051b6      8b4218         mov eax, dword [edx + 0x18]
+│      │    0x005051b9      ffd0           call eax
+│      │    0x005051bb      8b4d08         mov ecx, dword [arg_8h]
+│      │    0x005051be      51             push ecx
+│      │    0x005051bf      8b4da4         mov ecx, dword [var_5ch]
+│      │    0x005051c2      e849fff7ff     call 0x485110
+│      │    0x005051c7      6a00           push 0
+│      │    0x005051c9      8b4da4         mov ecx, dword [var_5ch]
+│      │    0x005051cc      e8dff8f7ff     call 0x484ab0
+│      │    ; CODE XREF from fcn.00505180 @ 0x50537c(x)
+│      │┌─> 0x005051d1      8b4d08         mov ecx, dword [arg_8h]
+│      │╎   0x005051d4      e8d7d4f6ff     call 0x4726b0
+│      │╎   0x005051d9      8945f8         mov dword [var_8h], eax
+│      │╎   0x005051dc      837df800       cmp dword [var_8h], 0
+│     ┌───< 0x005051e0      0f849b010000   je 0x505381
+│     ││╎   0x005051e6      8b55f8         mov edx, dword [var_8h]
+│     ││╎   0x005051e9      8955a0         mov dword [var_60h], edx
+│     ││╎   0x005051ec      817da04f42..   cmp dword [var_60h], 0x444e424f ; 'OBND'
+│    ┌────< 0x005051f3      7f24           jg 0x505219
+│    │││╎   0x005051f5      817da04f42..   cmp dword [var_60h], 0x444e424f ; 'OBND'
+│   ┌─────< 0x005051fc      7476           je 0x505274
+│   ││││╎   0x005051fe      817da04353..   cmp dword [var_60h], 0x44415343 ; 'CSAD'
+│  ┌──────< 0x00505205      0f84b2000000   je 0x5052bd
+│  │││││╎   0x0050520b      817da04544..   cmp dword [var_60h], 0x44494445 ; 'EDID'
+│ ┌───────< 0x00505212      7420           je 0x505234
+│ ────────< 0x00505214      e952010000     jmp 0x50536b
+│ │││└────> 0x00505219      817da04353..   cmp dword [var_60h], 0x44535343 ; 'CSSD'
+│ │││┌────< 0x00505220      0f84ca000000   je 0x5052f0
+│ ││││││╎   0x00505226      817da04353..   cmp dword [var_60h], 0x44545343 ; 'CSTD'
+│ ────────< 0x0050522d      745e           je 0x50528d
+│ ────────< 0x0050522f      e937010000     jmp 0x50536b
+│ └───────> 0x00505234      8b4d08         mov ecx, dword [arg_8h]
+│  │││││╎   0x00505237      e824c4efff     call 0x401660
+│  │││││╎   0x0050523c      e87f0c9c00     call 0xec5ec0
+│  │││││╎   0x00505241      89659c         mov dword [var_64h], esp
+│  │││││╎   0x00505244      8b459c         mov eax, dword [var_64h_2]
+│  │││││╎   0x00505247      8945f4         mov dword [var_ch], eax
+│  │││││╎   0x0050524a      6800020000     push 0x200                  ; 512
+│  │││││╎   0x0050524f      8b4df4         mov ecx, dword [var_ch]
+│  │││││╎   0x00505252      51             push ecx
+│  │││││╎   0x00505253      8b4d08         mov ecx, dword [var_64h]
+│  │││││╎   0x00505256      e835d6f6ff     call 0x472890
+│  │││││╎   0x0050525b      8b55f4         mov edx, dword [var_ch]
+│  │││││╎   0x0050525e      52             push edx
+│  │││││╎   0x0050525f      8b45a4         mov eax, dword [var_5ch_2]
+│  │││││╎   0x00505262      8b10           mov edx, dword [eax]
+│  │││││╎   0x00505264      8b4da4         mov ecx, dword [var_5ch_2]
+│  │││││╎   0x00505267      8b8234010000   mov eax, dword [edx + 0x134]
+│  │││││╎   0x0050526d      ffd0           call eax
+│ ┌───────< 0x0050526f      e9f7000000     jmp 0x50536b
+│ ││└─────> 0x00505274      8b4d08         mov ecx, dword [arg_8h]
+│ ││ │││╎   0x00505277      51             push ecx
+│ ││ │││╎   0x00505278      8b55a4         mov edx, dword [var_5ch]
+│ ││ │││╎   0x0050527b      8b02           mov eax, dword [edx]
+│ ││ │││╎   0x0050527d      8b4da4         mov ecx, dword [var_5ch]
+│ ││ │││╎   0x00505280      8b90e0000000   mov edx, dword [eax + 0xe0]
+│ ││ │││╎   0x00505286      ffd2           call edx
+│ ││┌─────< 0x00505288      e9de000000     jmp 0x50536b
+│ ────────> 0x0050528d      6a5c           push 0x5c                   ; '\\' ; 92
+│ ││││││╎   0x0050528f      8b45a4         mov eax, dword [var_5ch]
+│ ││││││╎   0x00505292      83c058         add eax, 0x58               ; 88
+│ ││││││╎   0x00505295      50             push eax
+│ ││││││╎   0x00505296      8b4d08         mov ecx, dword [arg_8h]
+│ ││││││╎   0x00505299      e8f2d5f6ff     call 0x472890
+│ ││││││╎   0x0050529e      8b4d08         mov ecx, dword [arg_8h]
+│ ││││││╎   0x005052a1      e8dac3efff     call 0x401680
+│ ││││││╎   0x005052a6      0fb6c8         movzx ecx, al
+│ ││││││╎   0x005052a9      85c9           test ecx, ecx
+│ ────────< 0x005052ab      740b           je 0x5052b8
+│ ││││││╎   0x005052ad      8b4da4         mov ecx, dword [var_5ch]
+│ ││││││╎   0x005052b0      83c158         add ecx, 0x58               ; 88
+│ ││││││╎   0x005052b3      e808070000     call 0x5059c0
+│ ────────> 0x005052b8      e9ae000000     jmp 0x50536b
+│ │└──────> 0x005052bd      6a54           push 0x54                   ; 'T' ; 84
+│ │ ││││╎   0x005052bf      8b55a4         mov edx, dword [var_5ch]
+│ │ ││││╎   0x005052c2      81c2b4000000   add edx, 0xb4               ; 180
+│ │ ││││╎   0x005052c8      52             push edx
+│ │ ││││╎   0x005052c9      8b4d08         mov ecx, dword [arg_8h]
+│ │ ││││╎   0x005052cc      e8bfd5f6ff     call 0x472890
+│ │ ││││╎   0x005052d1      8b4d08         mov ecx, dword [arg_8h]
+│ │ ││││╎   0x005052d4      e8a7c3efff     call 0x401680
+│ │ ││││╎   0x005052d9      0fb6c0         movzx eax, al
+│ │ ││││╎   0x005052dc      85c0           test eax, eax
+│ │┌──────< 0x005052de      740e           je 0x5052ee
+│ ││││││╎   0x005052e0      8b4da4         mov ecx, dword [var_5ch]
+│ ││││││╎   0x005052e3      81c1b4000000   add ecx, 0xb4               ; 180
+│ ││││││╎   0x005052e9      e8b2040000     call 0x5057a0
+│ ─└──────> 0x005052ee      eb7b           jmp 0x50536b
+│ │ │└────> 0x005052f0      6a40           push 0x40                   ; '@' ; 64
+│ │ │ ││╎   0x005052f2      8b4da4         mov ecx, dword [var_5ch]
+│ │ │ ││╎   0x005052f5      83c118         add ecx, 0x18               ; 24
+│ │ │ ││╎   0x005052f8      51             push ecx
+│ │ │ ││╎   0x005052f9      8b4d08         mov ecx, dword [arg_8h]
+│ │ │ ││╎   0x005052fc      e88fd5f6ff     call 0x472890
+│ │ │ ││╎   0x00505301      8b4d08         mov ecx, dword [arg_8h]
+│ │ │ ││╎   0x00505304      e877c3efff     call 0x401680
+│ │ │ ││╎   0x00505309      0fb6d0         movzx edx, al
+│ │ │ ││╎   0x0050530c      85d2           test edx, edx
+│ │ │┌────< 0x0050530e      745b           je 0x50536b
+│ │ ││││╎   0x00505310      8b4d08         mov ecx, dword [arg_8h]
+│ │ ││││╎   0x00505313      e848c3efff     call 0x401660
+│ │ ││││╎   0x00505318      8945ac         mov dword [var_54h], eax
+│ │ ││││╎   0x0050531b      837dac40       cmp dword [var_54h], 0x40   ; '@'
+│ │┌──────< 0x0050531f      7315           jae 0x505336
+│ ││││││╎   0x00505321      6a40           push 0x40                   ; '@' ; 64
+│ ││││││╎   0x00505323      8b45a4         mov eax, dword [var_5ch]
+│ ││││││╎   0x00505326      83c018         add eax, 0x18               ; 24
+│ ││││││╎   0x00505329      50             push eax
+│ ││││││╎   0x0050532a      8d4db0         lea ecx, [var_50h]
+│ ││││││╎   0x0050532d      51             push ecx
+│ ││││││╎   0x0050532e      e82dc1efff     call 0x401460
+│ ││││││╎   0x00505333      83c40c         add esp, 0xc
+│ │└──────> 0x00505336      8b4da4         mov ecx, dword [var_5ch]
+│ │ ││││╎   0x00505339      83c118         add ecx, 0x18               ; 24
+│ │ ││││╎   0x0050533c      e8cf020000     call 0x505610
+│ │ ││││╎   0x00505341      837dac40       cmp dword [var_54h], 0x40   ; '@'
+│ │┌──────< 0x00505345      7324           jae 0x50536b
+│ ││││││╎   0x00505347      ba40000000     mov edx, 0x40               ; '@' ; 64
+│ ││││││╎   0x0050534c      2b55ac         sub edx, dword [var_54h]
+│ ││││││╎   0x0050534f      52             push edx
+│ ││││││╎   0x00505350      8b45ac         mov eax, dword [var_54h]
+│ ││││││╎   0x00505353      8d4c05b0       lea ecx, [ebp + eax - 0x50]
+│ ││││││╎   0x00505357      51             push ecx
+│ ││││││╎   0x00505358      8b55ac         mov edx, dword [var_54h]
+│ ││││││╎   0x0050535b      8b45a4         mov eax, dword [var_5ch]
+│ ││││││╎   0x0050535e      8d4c1018       lea ecx, [eax + edx + 0x18]
+│ ││││││╎   0x00505362      51             push ecx
+│ ││││││╎   0x00505363      e8f8c0efff     call 0x401460
+│ ││││││╎   0x00505368      83c40c         add esp, 0xc
+│ ││││││╎   ; XREFS: CODE 0x00505214  CODE 0x0050522f  CODE 0x0050526f
+│ ││││││╎   ; XREFS: CODE 0x00505288  CODE 0x005052b8  CODE 0x005052ee
+│ └└└└────> 0x0050536b      8b4d08         mov ecx, dword [arg_8h]
+│     ││╎   0x0050536e      e87dd3f6ff     call 0x4726f0
+│     ││╎   0x00505373      0fb6d0         movzx edx, al
+│     ││╎   0x00505376      85d2           test edx, edx
+│    ┌────< 0x00505378      7502           jne 0x50537c
+│   ┌─────< 0x0050537a      eb05           jmp 0x505381
+│   │└──└─< 0x0050537c      e950feffff     jmp 0x5051d1
+│   │ ││    ; CODE XREF from fcn.00505180 @ 0x50537a(x)
+│   └─└───> 0x00505381      8b4d08         mov ecx, dword [arg_8h]
+│      │    0x00505384      e8e7e1efff     call 0x403570
+│      │    0x00505389      0fb7c0         movzx eax, ax
+│      │    0x0050538c      83f80c         cmp eax, 0xc                ; 12
+│      │┌─< 0x0050538f      7d10           jge 0x5053a1
+│      ││   0x00505391      8b4da4         mov ecx, dword [var_5ch]
+│      ││   0x00505394      d9e8           fld1
+│      ││   0x00505396      d95938         fstp dword [ecx + 0x38]
+│      ││   0x00505399      8b55a4         mov edx, dword [var_5ch]
+│      ││   0x0050539c      d9e8           fld1
+│      ││   0x0050539e      d95a44         fstp dword [edx + 0x44]
+│      │└─> 0x005053a1      b001           mov al, 1
+│      │    ; CODE XREF from fcn.00505180 @ 0x5051a9(x)
+│      └──> 0x005053a3      8d659c         lea esp, [var_64h]
+│           0x005053a6      8b4da8         mov ecx, dword [var_58h]
+│           0x005053a9      33cd           xor ecx, ebp
+│           0x005053ab      e8dcec9b00     call 0xec408c
+│           0x005053b0      8be5           mov esp, ebp
+│           0x005053b2      5d             pop ebp
+└           0x005053b3      c20400         ret 4
+FUNCTION 0x00505610
+            ; CALL XREF from fcn.00505180 @ 0x50533c(x)
+┌ 385: fcn.00505610 ();
+│ afv: vars(16:sp[0x5..0x18])
+│           0x00505610      55             push ebp
+│           0x00505611      8bec           mov ebp, esp
+│           0x00505613      83ec14         sub esp, 0x14
+│           0x00505616      894dec         mov dword [var_14h], ecx
+│           0x00505619      33c0           xor eax, eax
+│           0x0050561b      8845ff         mov byte [var_1h], al
+│           0x0050561e      0fb64dff       movzx ecx, byte [var_1h]
+│           0x00505622      51             push ecx
+│           0x00505623      8b55ec         mov edx, dword [var_14h]
+│           0x00505626      52             push edx
+│           0x00505627      e854baefff     call fcn.00401080
+│           0x0050562c      83c408         add esp, 8
+│           0x0050562f      33c0           xor eax, eax
+│           0x00505631      8845fe         mov byte [var_2h], al
+│           0x00505634      0fb64dfe       movzx ecx, byte [var_2h]
+│           0x00505638      51             push ecx
+│           0x00505639      8b55ec         mov edx, dword [var_14h]
+│           0x0050563c      83c204         add edx, 4
+│           0x0050563f      52             push edx
+│           0x00505640      e83bbaefff     call fcn.00401080
+│           0x00505645      83c408         add esp, 8
+│           0x00505648      33c0           xor eax, eax
+│           0x0050564a      8845fd         mov byte [var_3h], al
+│           0x0050564d      0fb64dfd       movzx ecx, byte [var_3h]
+│           0x00505651      51             push ecx
+│           0x00505652      8b55ec         mov edx, dword [var_14h]
+│           0x00505655      83c208         add edx, 8
+│           0x00505658      52             push edx
+│           0x00505659      e822baefff     call fcn.00401080
+│           0x0050565e      83c408         add esp, 8
+│           0x00505661      33c0           xor eax, eax
+│           0x00505663      8845fc         mov byte [var_4h], al
+│           0x00505666      0fb64dfc       movzx ecx, byte [var_4h]
+│           0x0050566a      51             push ecx
+│           0x0050566b      8b55ec         mov edx, dword [var_14h]
+│           0x0050566e      83c20c         add edx, 0xc                ; 12
+│           0x00505671      52             push edx
+│           0x00505672      e809baefff     call fcn.00401080
+│           0x00505677      83c408         add esp, 8
+│           0x0050567a      33c0           xor eax, eax
+│           0x0050567c      8845fb         mov byte [var_5h], al
+│           0x0050567f      0fb64dfb       movzx ecx, byte [var_5h]
+│           0x00505683      51             push ecx
+│           0x00505684      8b55ec         mov edx, dword [var_14h]
+│           0x00505687      83c210         add edx, 0x10               ; 16
+│           0x0050568a      52             push edx
+│           0x0050568b      e8f0b9efff     call fcn.00401080
+│           0x00505690      83c408         add esp, 8
+│           0x00505693      33c0           xor eax, eax
+│           0x00505695      8845fa         mov byte [var_6h], al
+│           0x00505698      0fb64dfa       movzx ecx, byte [var_6h]
+│           0x0050569c      51             push ecx
+│           0x0050569d      8b55ec         mov edx, dword [var_14h]
+│           0x005056a0      83c214         add edx, 0x14               ; 20
+│           0x005056a3      52             push edx
+│           0x005056a4      e8d7b9efff     call fcn.00401080
+│           0x005056a9      83c408         add esp, 8
+│           0x005056ac      33c0           xor eax, eax
+│           0x005056ae      8845f9         mov byte [var_7h], al
+│           0x005056b1      0fb64df9       movzx ecx, byte [var_7h]
+│           0x005056b5      51             push ecx
+│           0x005056b6      8b55ec         mov edx, dword [var_14h]
+│           0x005056b9      83c218         add edx, 0x18               ; 24
+│           0x005056bc      52             push edx
+│           0x005056bd      e8beb9efff     call fcn.00401080
+│           0x005056c2      83c408         add esp, 8
+│           0x005056c5      33c0           xor eax, eax
+│           0x005056c7      8845f8         mov byte [var_8h], al
+│           0x005056ca      0fb64df8       movzx ecx, byte [var_8h]
+│           0x005056ce      51             push ecx
+│           0x005056cf      8b55ec         mov edx, dword [var_14h]
+│           0x005056d2      83c21c         add edx, 0x1c               ; 28
+│           0x005056d5      52             push edx
+│           0x005056d6      e8a5b9efff     call fcn.00401080
+│           0x005056db      83c408         add esp, 8
+│           0x005056de      33c0           xor eax, eax
+│           0x005056e0      8845f7         mov byte [var_9h], al
+│           0x005056e3      0fb64df7       movzx ecx, byte [var_9h]
+│           0x005056e7      51             push ecx
+│           0x005056e8      8b55ec         mov edx, dword [var_14h]
+│           0x005056eb      83c220         add edx, 0x20               ; 32
+│           0x005056ee      52             push edx
+│           0x005056ef      e88cb9efff     call fcn.00401080
+│           0x005056f4      83c408         add esp, 8
+│           0x005056f7      33c0           xor eax, eax
+│           0x005056f9      8845f6         mov byte [var_ah], al
+│           0x005056fc      0fb64df6       movzx ecx, byte [var_ah]
+│           0x00505700      51             push ecx
+│           0x00505701      8b55ec         mov edx, dword [var_14h]
+│           0x00505704      83c22c         add edx, 0x2c               ; 44
+│           0x00505707      52             push edx
+│           0x00505708      e873b9efff     call fcn.00401080
+│           0x0050570d      83c408         add esp, 8
+│           0x00505710      33c0           xor eax, eax
+│           0x00505712      8845f5         mov byte [var_bh], al
+│           0x00505715      0fb64df5       movzx ecx, byte [var_bh]
+│           0x00505719      51             push ecx
+│           0x0050571a      8b55ec         mov edx, dword [var_14h]
+│           0x0050571d      83c224         add edx, 0x24               ; 36
+│           0x00505720      52             push edx
+│           0x00505721      e85ab9efff     call fcn.00401080
+│           0x00505726      83c408         add esp, 8
+│           0x00505729      33c0           xor eax, eax
+│           0x0050572b      8845f4         mov byte [var_ch], al
+│           0x0050572e      0fb64df4       movzx ecx, byte [var_ch]
+│           0x00505732      51             push ecx
+│           0x00505733      8b55ec         mov edx, dword [var_14h]
+│           0x00505736      83c230         add edx, 0x30               ; 48
+│           0x00505739      52             push edx
+│           0x0050573a      e841b9efff     call fcn.00401080
+│           0x0050573f      83c408         add esp, 8
+│           0x00505742      33c0           xor eax, eax
+│           0x00505744      8845f3         mov byte [var_dh], al
+│           0x00505747      0fb64df3       movzx ecx, byte [var_dh]
+│           0x0050574b      51             push ecx
+│           0x0050574c      8b55ec         mov edx, dword [var_14h]
+│           0x0050574f      83c234         add edx, 0x34               ; 52
+│           0x00505752      52             push edx
+│           0x00505753      e828b9efff     call fcn.00401080
+│           0x00505758      83c408         add esp, 8
+│           0x0050575b      33c0           xor eax, eax
+│           0x0050575d      8845f2         mov byte [var_eh], al
+│           0x00505760      0fb64df2       movzx ecx, byte [var_eh]
+│           0x00505764      51             push ecx
+│           0x00505765      8b55ec         mov edx, dword [var_14h]
+│           0x00505768      83c238         add edx, 0x38               ; 56
+│           0x0050576b      52             push edx
+│           0x0050576c      e80fb9efff     call fcn.00401080
+│           0x00505771      83c408         add esp, 8
+│           0x00505774      33c0           xor eax, eax
+│           0x00505776      8845f1         mov byte [var_fh], al
+│           0x00505779      0fb64df1       movzx ecx, byte [var_fh]
+│           0x0050577d      51             push ecx
+│           0x0050577e      8b55ec         mov edx, dword [var_14h]
+│           0x00505781      83c23c         add edx, 0x3c               ; 60
+│           0x00505784      52             push edx
+│           0x00505785      e8f6b8efff     call fcn.00401080
+│           0x0050578a      83c408         add esp, 8
+│           0x0050578d      8be5           mov esp, ebp
+│           0x0050578f      5d             pop ebp
+└           0x00505790      c3             ret
+FUNCTION 0x00401080
+            ; XREFS: CALL 0x00505627  CALL 0x00505640  CALL 0x00505659
+            ; XREFS: CALL 0x00505672  CALL 0x0050568b  CALL 0x005056a4
+            ; XREFS: CALL 0x005056bd  CALL 0x005056d6  CALL 0x005056ef
+            ; XREFS: CALL 0x00505708  CALL 0x00505721  CALL 0x0050573a
+            ; XREFS: CALL 0x00505753  CALL 0x0050576c  CALL 0x00505785
+┌ 33: fcn.00401080 (int32_t arg_8h);
+│ `- args(sp[0x4..0x4]) vars(1:sp[0x8..0x8])
+│           0x00401080      55             push ebp
+│           0x00401081      8bec           mov ebp, esp
+│           0x00401083      51             push ecx
+│           0x00401084      8b4508         mov eax, dword [arg_8h]
+│           0x00401087      8945fc         mov dword [var_4h], eax
+│           0x0040108a      8b4dfc         mov ecx, dword [var_4h]
+│           0x0040108d      8b11           mov edx, dword [ecx]
+│           0x0040108f      52             push edx
+│           0x00401090      e8182bac00     call fcn.00ec3bad
+│           0x00401095      83c404         add esp, 4
+│           0x00401098      8b4dfc         mov ecx, dword [var_4h]
+│           0x0040109b      8901           mov dword [ecx], eax
+│           0x0040109d      8be5           mov esp, ebp
+│           0x0040109f      5d             pop ebp
+└           0x004010a0      c3             ret
