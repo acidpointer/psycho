@@ -260,6 +260,10 @@ different proven publication point instead.
 
 ### Final underwater publication audit result
 
+The mandatory-publication gate below is superseded by the current-input
+fallback described in the following section. The ABI and three explicit
+publication values remain authoritative.
+
 The final audit was run on 2026-07-17 and closes the last static stop gate.
 `0x004E2120` is a 25-byte `__thiscall` leaf with this contract:
 
@@ -309,6 +313,58 @@ This closed the original static gates for implementing Phase 2. The later
 debug-blink report created a new, bounded state/phase investigation documented
 in `docs/graphics_fnv_atmosphere_debug_blink_contract_closure_plan.md`; it does
 not reopen the proven underwater publication contract.
+
+### Water-publication-independent classification (2026-10-20)
+
+The old requirement that a water shader setter execute in every world epoch
+is invalid. The three setter calls still publish authoritative values when
+reached, but `0x008727D0` can skip the water owner and `0x004E1BC0` has early
+returns before classification. World rendering continues on these paths.
+Archived exterior sessions show `underwater_unknown` and
+`integration_unavailable` for sustained intervals with valid world inputs;
+see the [directional dropout finding](graphics_fnv_atmosphere_phase3_directional_lighting_plan.md#shared-underwater-publication-dropout-2026-10-20).
+
+The backend preserves a current publication, including the explicit dry
+fallback. With an installed water-hook group but no current publication, it
+independently reads the same native decision for the requested current epoch:
+
+- `0x004E1D33..0x004E1DBD` tests forced mode at `0x011C7A58`, otherwise compares
+  the current World camera's Z against the player's cell water height. Equality
+  is above water. `0x00524C90 -> 0x006629F0` proves the camera is
+  `*(0x011DEB7C) +0xAC`; `0x0045BB80` exposes its world position at `+0x8C`.
+- `0x008D6F30` reads the player's parent cell at `+0x40`.
+  `0x005471E0 -> 0x004518E0/0x00425FD0` returns `-FLT_MAX` for a cell with no
+  water bit (`+0x24 & 2`) or with the interior bit (`+0x24 & 1`).
+- Otherwise `0x005471E0` reads cell `+0x50`. `FLT_MAX` selects the worldspace
+  via `0x0054DDD0` (cell `+0xC0`) and `0x004536E0` (worldspace `+0xCC`), with
+  zero height for a null worldspace. Exact sentinel bytes were reverified.
+
+The forced-mode byte is independent of the optional reflection publication.
+Its sole direct writer is the native setter `0x00575C90`; all three direct
+callers belong to conditional player-cell reset or water-state set/clear
+paths. Reading it preserves the same native override without reusing the
+computed underwater byte from an earlier reflection pass.
+
+The implementation performs validated data reads rather than invoking native
+functions. All objects are engine-owned across the serialized world callback;
+each pointer and field is checked, and none is retained. The query has no
+mutation, allocation, blocking, resource ownership, hook or startup work.
+Only a missing current publication pays for the extra fixed pointer/field
+reads, using the existing epoch-cached memory validator. Ordinary publications
+retain the original atomic-only path. Reset still clears publication epoch;
+there is no fallback history to reset. No stale water global or previous-frame
+classification is used. Failed hook admission, a noncurrent requested epoch,
+null/unreadable native data or nonfinite heights still leaves state unknown.
+
+The supported executable identity, exact instructions, raw sentinel values and
+caller evidence are retained in
+`analysis/radare2/output/omv_directional_dropout_native_contract_20261020.txt`.
+No engine function, ABI, hook or third-party code is changed. The acceptance
+requirement is continuous atmosphere through an omitted optional water pass,
+while current underwater state continues to suppress it. This native data path
+requires the game address space; no offline memory model or source assertion
+is a behavioral substitute. The existing offline suite and 32-bit release build
+qualify integration support only. Game-only continuity and images were not run.
 
 ### Original audit
 

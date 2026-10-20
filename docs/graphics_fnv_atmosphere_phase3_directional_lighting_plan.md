@@ -7,6 +7,52 @@ and compiled HLSL paths. Game-only images, native integration, startup and FPS
 are not established by this qualification; gameplay validation belongs to the
 repository owner.
 
+## Shared underwater-publication dropout (2026-10-20)
+
+The owner reports random sustained directional-light disappearance in every
+occlusion mode, including `off`. Occlusion-specific shaders cannot be the sole
+cause. The earlier directional-source retention does not close this report.
+
+Existing runtime evidence proves a separate whole-atmosphere bypass. In
+`.reports/20261020-corvega-node-unload/omv-latest.log`, lines 265-267 show
+current world depth at epoch 6392 with valid camera, transform, world color,
+sky and exterior state, but water publication still at epoch 6391. Integration
+changes to `underwater_unknown` and composition to `integration_unavailable`.
+Integration stays at draw 3202 while world/depth transactions continue; the
+first returning ready draw is 3203 about 16 seconds later. The world
+transaction's `applied` count alone therefore does not prove atmosphere drew.
+Another outage lasts about 15 seconds. These observations are not a new
+diagnostic run or a timestamped
+identification of every disappearance in the owner's current report.
+
+The supported executable confirms the mechanism: water classification is
+published only at the three hooked `SetWaterShaderUnderwater` calls. The
+optional water/reflection producer can return before reaching those calls,
+while world rendering continues. Requiring that producer's epoch before
+rendering any atmosphere makes its omission disable sunlight, fog and local
+volumes in all directional-occlusion modes. Retaining sun color/direction
+cannot repair this independent gate. The log's `sun=false` is the separate
+projected `SunFrame` availability, not proof that world-space sunlight is off.
+
+`backend/fnv.rs::underwater_frame` now preserves an available same-epoch native
+publication. If that publication is missing, the hook group is available, and
+the requested epoch is current, it reads the same native classification
+inputs directly: player parent cell, forced-underwater byte, World camera Z,
+and cell/worldspace water height. It never carries an older water value into
+a new epoch. Null/unreadable/nonfinite inputs remain unknown. There is no new
+hook, engine call, global owner, allocation, lock, shader change or diagnostic.
+
+The native predicate and sentinel/layout proof, including exact disassembly,
+are retained in
+`analysis/radare2/output/omv_directional_dropout_native_contract_20261020.txt`.
+The owning water contract and acceptance boundary are in the
+[Phase 2 implementation document](graphics_fnv_volumetric_fog_phase2_implementation_plan.md#water-publication-independent-classification-2026-10-20).
+The current native read requires the actual game address space and cannot be
+executed by the offline suite. Qualification therefore uses the OMV native
+integration exception, existing offline gates and the supported release build;
+it does not claim a gameplay/image result. No generated scene or mocked native
+memory fixture establishes the reported transitions.
+
 ## World-occlusion source decoupling (2026-10-16)
 
 The directional sun contribution no longer implicitly activates the native

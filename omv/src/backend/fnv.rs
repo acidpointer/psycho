@@ -11,6 +11,9 @@
 //! provider-owned device generation, render epoch, semantic stage, depth slot,
 //! source surface, and dimensions. Pre-alpha world depth, coherent world
 //! depth, and first-person depth remain distinct even within one epoch.
+//! Water-render publications take precedence, but their optional producer may
+//! skip a live world frame. In that case current cell/camera reads establish
+//! the native underwater predicate without reusing a previous classification.
 
 use core::{ffi::c_void, fmt, mem::size_of};
 use std::sync::{
@@ -116,6 +119,10 @@ const PLAYER_IS_THIRD_PERSON_OFFSET: usize = 0x64C;
 const TESOBJECTCELL_FLAGS0_OFFSET: usize = 0x24;
 const TESOBJECTCELL_WORLDSPACE_OFFSET: usize = 0xC0;
 const TESOBJECTCELL_FLAGS0_INTERIOR: u8 = 1 << 0;
+const TESOBJECTCELL_FLAGS0_HAS_WATER: u8 = 1 << 1;
+const TESOBJECTCELL_WATER_HEIGHT_OFFSET: usize = 0x50;
+const TESWORLDSPACE_WATER_HEIGHT_OFFSET: usize = 0xCC;
+const FORCE_UNDERWATER_ADDR: usize = 0x011C7A58;
 const NATIVE_SKY_READ_SIZE: usize = SKY_GAME_HOUR_OFFSET + size_of::<f32>();
 const NATIVE_SUN_READ_SIZE: usize = SKY_OBJECT_ROOT_NODE_OFFSET + size_of::<usize>();
 const NATIVE_SUN_ROOT_READ_SIZE: usize = NIAVOBJECT_LOCAL_TRANSLATION_OFFSET + 3 * size_of::<f32>();
@@ -924,12 +931,79 @@ pub(super) fn try_reset_depth_resources() -> bool {
 
 pub(super) fn underwater_frame(frame_epoch: u64) -> UnderwaterFrame {
     let published_epoch = UNDERWATER_EPOCH.load(Ordering::Acquire);
-    underwater_frame_for_publication(
+    let frame = underwater_frame_for_publication(
         frame_epoch,
         u64::from(published_epoch),
         UNDERWATER_VALUE.load(Ordering::Relaxed),
         crate::fnv_render::underwater_publication_hook_ready(),
-    )
+    );
+    if frame.known || !frame.hook_available || frame_epoch != u64::from(read_validation_epoch()) {
+        return frame;
+    }
+
+    // RenderReflections can return before all three water-state callsites.
+    // Absence of that optional draw is not absence of the current camera/cell.
+    // SAFETY: These are serialized world-render reads. Every pointer/field is
+    // range-validated and borrowed only for this call; no native state changes.
+    let Some(underwater) = (unsafe { read_current_underwater_classification() }) else {
+        return frame;
+    };
+    UnderwaterFrame {
+        frame_epoch,
+        known: true,
+        underwater,
+        ..frame
+    }
+}
+
+/// Read the predicate used at 0x004E1D33..0x004E1DBD independently of the
+/// optional reflection pass. Its camera is World->camera, not the mutable
+/// shader-manager camera. Unknown native input remains unknown.
+unsafe fn read_current_underwater_classification() -> Option<bool> {
+    let player = unsafe { read_ptr(PLAYER_CHARACTER_PTR)? };
+    if player.is_null() {
+        return None;
+    }
+    let cell = unsafe { read_ptr(player as usize + TESOBJECTREFR_PARENT_CELL_OFFSET)? };
+    if cell.is_null() {
+        return None;
+    }
+    if unsafe { read_u8(FORCE_UNDERWATER_ADDR)? } != 0 {
+        return Some(true);
+    }
+    let scene_graph = unsafe { read_ptr(WORLD_SCENE_GRAPH_PTR)? };
+    if scene_graph.is_null() {
+        return None;
+    }
+    let camera = unsafe { read_ptr(scene_graph as usize + SCENE_GRAPH_CAMERA_OFFSET)? };
+    if camera.is_null() {
+        return None;
+    }
+    let camera_z = unsafe {
+        read_f32(camera as usize + NIAVOBJECT_WORLD_TRANSLATION_OFFSET + 2 * size_of::<f32>())?
+    };
+    let water_height = unsafe { read_cell_water_height(cell)? };
+    (camera_z.is_finite() && water_height.is_finite()).then_some(camera_z < water_height)
+}
+
+/// Exact read-only 0x005471E0 contract: dry/interior cells return -FLT_MAX;
+/// FLT_MAX in an exterior cell selects its worldspace's height, or zero when
+/// that worldspace is absent. Both sentinel bit patterns are binary-verified.
+unsafe fn read_cell_water_height(cell: *mut u8) -> Option<f32> {
+    let flags = unsafe { read_u8(cell as usize + TESOBJECTCELL_FLAGS0_OFFSET)? };
+    if flags & TESOBJECTCELL_FLAGS0_HAS_WATER == 0 || flags & TESOBJECTCELL_FLAGS0_INTERIOR != 0 {
+        return Some(-f32::MAX);
+    }
+    let height = unsafe { read_f32(cell as usize + TESOBJECTCELL_WATER_HEIGHT_OFFSET)? };
+    if height != f32::MAX {
+        return Some(height);
+    }
+    let worldspace = unsafe { read_ptr(cell as usize + TESOBJECTCELL_WORLDSPACE_OFFSET)? };
+    if worldspace.is_null() {
+        Some(0.0)
+    } else {
+        unsafe { read_f32(worldspace as usize + TESWORLDSPACE_WATER_HEIGHT_OFFSET) }
+    }
 }
 
 fn underwater_frame_for_publication(
