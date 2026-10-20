@@ -824,6 +824,13 @@ evidence, and proposed subsystem boundaries are documented in
 [the AI policy research](atom_ai_policy_research.md). Its static findings do
 not establish a production hook contract or gameplay acceptance.
 
+[AI behavior and first-version feasibility](atom_ai_behavior_research.md)
+extends that inventory with native planner/action dispatch, observer and group
+knowledge, cover execution, equipment decisions, optional group strategies,
+and the aim-time versus physical-launch integration question. Its proposed
+first milestone remains conditional on actual encounter observations and
+adapter-specific ownership/ABI proof.
+
 Native AI separates planning from execution. The combat controller owns weapon
 and ammunition candidates, DPS comparisons, selected weapon and combat style,
 target/LOS/threat state, dangerous explosives, timers, cooldowns, and tactical

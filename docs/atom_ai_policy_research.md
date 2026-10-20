@@ -29,6 +29,13 @@ loading, and hot replacement of compiled Rust are outside the requested scope.
 The runtime-ownership continuation below establishes the most important native
 constraints for that design.
 
+The subsequent [AI behavior and feasibility study](atom_ai_behavior_research.md)
+traces native planning, target knowledge, cover execution, equipment decisions,
+optional group strategies, and the interaction with Atom's physical rounds.
+It defines a conditional first-version scope and the remaining evidence gates.
+Use that study for implementation feasibility; retain this document as the
+complete numeric inventory and initial ownership evidence.
+
 ## Evidence and how to read it
 
 The reference executable is Fallout: New Vegas 1.4.0.525, PE32 x86, image base
@@ -173,7 +180,7 @@ and `+0x44`. These reads independently corroborate the simple-block map.
 | `0x0099A840` | Selects the restore/buff timer value for two native item slots and arms their native timer | Does not add consumables, change inventory, or prove successful item use |
 | `0x009861C8` | Reads the group-strength update interval and arms a native timer | Does not establish complete group tactics or thread ownership |
 | `0x0098A85A`, `0x0098AE21` | Read the search-area interval and feed native timer setup | Does not prove searches always occur at that cadence |
-| `0x009D2A00`, `0x009D2D9F` | Compare cover reload thresholds with the ratio returned by `0x008A88F0` | Additional action, equipment, and timer conditions remain native |
+| `0x009D2A00`, `0x009D2D9F` | Compare cover reload thresholds with the ratio returned by `0x008A88F0` | Waiting can queue a reload request; the firing-state comparison can instead initiate return to cover |
 | `0x008F58BD`, `0x008FF6A8` | Compare the player's native combat count with the target soft cap in two decision routes | A soft cap is not a guarantee of that many simultaneous attacks |
 | `0x00916AE6` | Compares the native count with `iNumberActorsInCombatPlayer`; the limit branch rejects this admission path | The surrounding bypasses remain; the value is not a total-world actor limit |
 | `0x00644A70` | Uses dodge settings in randomized, conditionally weighted score comparisons | Neither global base nor style dodge chance alone determines observed dodge frequency |
@@ -185,7 +192,9 @@ current ammunition count by a weapon-capacity result when valid, and returns
 `1.0` for missing/invalid capacity paths. The vendored `BaseProcess` vtable
 identifies weapon/ammo accessors at `0x148`/`0x14C`. In the cover-wait branch,
 a threshold greater than the current ratio reaches `0x008A8840`, which
-requests process action `2` through vtable offset `0x614`. A threshold of
+queues bit `0x2` through process vtable offset `0x614`. The high-process
+implementation `0x00903180` ORs that bit into `queuedIdleFlags` at `+0x424`;
+this is not animation action number 2. A threshold of
 `1.0` admits that request below a full clip, subject to the preceding checks.
 The setting names associate this path with reloading; the complete action
 implementation and observed reload frequency remain unverified.
@@ -203,7 +212,7 @@ native registered object, default, or consumer was established. Its stored
 value is preserved, but no effect is attributed to it. This does not prove
 that an arbitrary external runtime provider could never recognize the name.
 
-Ten other names have verified registered defaults but no direct non-lifecycle
+Nine other names have verified registered defaults but no direct non-lifecycle
 object references in the retained code scan:
 
 - `fCombatLineOfSightTimer`;
@@ -212,15 +221,20 @@ object references in the retained code scan:
 - `fCombatSearchInteriorMaxRadius`, `fCombatSearchInteriorMediumRadius`,
   `fCombatSearchInteriorMinRadius`;
 - `fCoverEvaluationLastSeenExpireTime`;
-- `fCreatureCalcStealth`;
-- `fCombatTargetLostRemoveDistance`.
+- `fCreatureCalcStealth`.
 
 Initialization/destruction references exist, but those are not gameplay reads.
 Name lookup or other indirect access is not ruled out. In particular,
 `0.25 -> 0.15` for the LOS setting is not evidence of faster LOS checks, and
 the exterior/interior search radii are not established active search bounds.
-The other 77 registered settings have direct non-lifecycle object references;
+The other 78 registered settings have direct non-lifecycle object references;
 the xref inventory alone does not fully explain every consumer's behavior.
+
+`fCombatTargetLostRemoveDistance` does have a direct consumer at `0x0098735F`,
+inside target-removal predicate `0x00987220`. Its object reference was already
+present in the retained xref ledger; the earlier prose incorrectly counted it
+as unresolved. The [behavior study](atom_ai_behavior_research.md) records the
+predicate, its caller's actual removal, and the timer/distance conditions.
 
 ## Runtime policy ownership
 
@@ -646,9 +660,9 @@ threats, disarmed pickup, and search settings also change, so this policy's
 scope extends beyond the exchange of gunfire.
 
 Search retention values generally grow while the active search-area timer
-shrinks. Some named search-radius and removal-distance settings lack direct
-consumers, so the data does not prove the shape or duration of an actual
-search. Changes to social conversation chances, greeting distance, trespass
+shrinks. Some named search-radius settings lack direct consumers, so the data
+does not prove the shape or duration of an actual search. Changes to social
+conversation chances, greeting distance, trespass
 warnings, door activation, and turning/stepping policy further show that this
 is not an isolated combat-only profile.
 
@@ -791,7 +805,7 @@ calendar/weather read chains are now established. The remaining gates are:
   particular strategy, and reliable invalidation or bounded sampling ownership.
 - Playstyle metric definitions, actual observation coverage, retention and
   reset semantics. Current shot presentation events are not a history model.
-- Indirect consumers of the ten registered settings without direct reads,
+- Indirect consumers of the nine registered settings without direct reads,
   and any actual consumer of the unrecognized range-base name.
 - Runtime behavior across human, creature, robot, turret, companion, fleeing,
   essential, quest-controlled, and added-content contexts.

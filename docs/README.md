@@ -121,6 +121,7 @@ For task routing and authority chains, see
 | [`atom_third_person_camera_plan.md`](atom_third_person_camera_plan.md) | Atom third-person camera and 360 movement plan | plan/research |
 | [`atom_combat_engine_contract.md`](atom_combat_engine_contract.md) | Atom combat engine contract | contract |
 | [`atom_ai_policy_research.md`](atom_ai_policy_research.md) | Atom AI policy research and native data evidence | plan/research |
+| [`atom_ai_behavior_research.md`](atom_ai_behavior_research.md) | Atom AI decisions, native execution, and first-version feasibility | plan/research |
 | [`atom_ballistics_core_plan.md`](atom_ballistics_core_plan.md) | Atom ballistics core implementation plan | plan/research |
 | [`atom_ballistics_flight_feedback_research.md`](atom_ballistics_flight_feedback_research.md) | Atom Ballistics flight feedback research | plan/research |
 | [`atom_ballistics_ricochet_research.md`](atom_ballistics_ricochet_research.md) | Atom Ballistics ricochet engine contract | plan/research |
